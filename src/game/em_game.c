@@ -1626,8 +1626,8 @@ int em_game_legacy_area_load(const char *dir)
      * chosen by 001FAE70 from D_008106C8 bits 8..15 (AREA11 captures:
      * 0x20081910 -> cue 25) on the stream lanes (em_stream_live, WP-8b):
      * anim_frame_top_b state 0 calls 001FAE70(1) at area entry
-     * (0x001AE0C4; reported, not bound: it also draws one rand() and the
-     * whole-game RNG order is unaudited), and on New Game the AREA11
+     * (0x001AE0C4; bound: the frame machine's w_001FAE70, docs/RAND_ORDER.md),
+     * and on New Game the AREA11
      * opening controller 00823E80 stops streams (001FABB0) when its script
      * starts and resumes cue 25 via 001FAE70(0) when it ends
      * (EM_OPENING_RESUME_MUSIC). */

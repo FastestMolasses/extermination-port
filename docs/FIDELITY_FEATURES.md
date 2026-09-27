@@ -152,8 +152,9 @@ as recorded in PCSX2 on the same route.
   all. `LEVEL_SMOKE.md` "What the full route does not yet compare" lists the
   relaxed checks (the panel prompt window, 7 ticks in the port against 30 in
   the original; line 0x7F's teardown 2 rows early; Roger's flags before his
-  clip init; slide/ladder landings within one row; rand()-ordered lighting
-  and sprites; the opening's 1,302 post-steps reported, not drawn;
+  clip init; slide/ladder landings within one row; the opening's rand()
+  values after its one missing draw (the husk creature, census L24); the
+  opening's 1,302 post-steps reported, not drawn;
   001DDE10's frame-copy sprites). The level exit is not in the smoke.
 
 **PS2 floating-point math reproduced bit for bit, as measured in PCSX2**
@@ -231,12 +232,12 @@ as the original.
   calls traced over New Game with the chain intact; 25/25 return values
   checked per stretch; no srand in any stretch.
 - Status: **PARTIAL**. The generator and start state are verified. The
-  **order** of calls across the game is not audited yet, so the random
-  sequence the player sees is not yet the original's (point-light sway and
-  several sprites are not compared for that reason). In PCSX2 the original's
-  own call order during the opening differs between runs after about 689
-  calls. The start state was measured on a path where the attract demo had
-  not run.
+  **order** of calls is audited (the random-events entry below;
+  `RAND_ORDER.md`): the opening's sequence equals the original's for its
+  first four calls and then misses one draw (the husk creature, census L24),
+  so the values after it differ. In PCSX2 the original's own call order
+  during the opening differs between runs after about 689 calls. The start
+  state was measured on a path where the attract demo had not run.
 
 **Nothing knowingly invented: an untranslated piece stops the game with a report**
 
@@ -346,9 +347,10 @@ them. No remade models, no guessed lighting shader.
 
 Characters and props are lit by the original lighting code: the room's light
 directions, colours and ambient, the point-light fold and the player's
-camera fill light. One visible difference remains: the point light's sway is
-random, and the port draws its random numbers in a different order, so the
-sway does not follow a recording frame for frame yet.
+camera fill light. The point light's sway is random: it follows the port's
+own draws, which sit where the original's do in every frame but carry other
+values than a given recording (the random-events entry), so the sway does
+not follow a recording frame for frame.
 
 - How: 001D89D0 and everything it calls, including the SDK VU0 routines,
   translated with every float operation through `em_ee_float.h`, bound live
@@ -358,11 +360,14 @@ sway does not follow a recording frame for frame yet.
   -0); the whole 001CAA00 chain with this translation bound is byte-exact for
   the drawn units; 29 of 31 defects caught (2 argued equivalent). Live
   (`OWNER_DRAW.md` 9): the colour matrix and lighting lanes y/z compared at
-  route snapshots.
-- Status: **PARTIAL**. The routine is proven; the live result is only partly
-  compared (full lighting rows depend on the rand() order). The glow, other
-  lighting modes and the +0xB0 light point are exercised on synthetic states
-  only.
+  route snapshots; the whole lighting rows equal the original's over the
+  port's own point-light pool and view at every snapshot (the player and
+  its equipment at the camera-exact 10 and 14); `check_sway` runs the
+  original 001D7C30 over the port's pool and draws on 46 sampled ticks
+  (`RAND_ORDER.md` 5).
+- Status: **PARTIAL**. The routine is proven, and the live fold is compared
+  over the port's own sway. The glow, other lighting modes and the +0xB0
+  light point are exercised on synthetic states only.
 
 **Effects drawn from the game's own packets**
 
@@ -382,8 +387,11 @@ the original VU1 sprite program.
   40 sampled pages re-walked with the original microcode draw exactly the
   port's primitives. Commit d7ef847.
 - Status: **PARTIAL**. First level only. Sprite positions/colours follow the
-  unaudited rand() order; only glow markers are compared with captures (count
-  and geometry, colour masked). Rings are proven on synthetic batches only
+  draws, whose values differ from a capture's at every snapshot
+  (`RAND_ORDER.md`); only glow markers are compared with captures (count and
+  geometry; their colour as the original 001F4D40 over each side's own
+  draw, `check_marker_colour`), and the head sprites' phase follows 001E2560
+  over the port's own draws (`check_head_sprites`). Rings are proven on synthetic batches only
   and are not drawn on the recorded route; do not advertise them. 001DDE10's
   four frame-sampling sprites are not drawn. Snow and the AREA11 flame draw
   outside the page. Page and decal textures come from PCSX2 captures. Metal
@@ -544,9 +552,9 @@ of the game's own stream code; nothing is scripted by hand.
   single-call cases and 18,200 lockstep frames (2026-09-23); about 33
   mutation controls caught; 383 capture checks; every captured fade-in step
   is 16383/(270+s2) for exactly one s2. Commit c7a04a4.
-- Status: **PARTIAL**. First level only. Two route music calls (the
-  area-entry and the fence-door room move of 001FAE70) are reported and
-  skipped until the RNG-order audit. 001FC280 and 001FBC50 run live without
+- Status: **PARTIAL**. First level only. The area-entry and the fence-door
+  room move's 001FAE70 run live since the rand() order audit
+  (`RAND_ORDER.md` 2). 001FC280 and 001FBC50 run live without
   an oracle of their bodies. Part of 001FB100 is unbound. The last full sweep
   predates commit 7dea4ce. Audio output is not compared.
 
@@ -629,8 +637,9 @@ game's own randomised fade-in.
   status_04; the exit fade equals route 01 f484..f495 row for row; the close
   takes two ticks more than the open, as in the capture. `IOP_STREAM.md`
   "Co-simulation"; `STREAM_LANES.md` capture checks.
-- Status: **PARTIAL**. The fade length draws from rand(), whose call order is
-  not audited, so one run's fade length can differ from the recording's. The
+- Status: **PARTIAL**. The fade length draws from rand(). The draw sits
+  where the original's does, but its value follows the port's stream, so one
+  run's fade length can differ from the recording's (`RAND_ORDER.md`). The
   reverb-return volume call is kept but inaudible (no reverb). Sound output is
   not compared. `FIRST_LEVEL_AUDIT.md` 1 still says the menu sounds are
   silent, which later docs contradict; reconcile before quoting.
@@ -944,9 +953,9 @@ equipment are drawn from the same skeleton the PS2 computes.
   1,302 post-steps there instead of drawing the original unit. A port
   stand-in's frames (for example the camera's examine/aim stand-ins, L28)
   keep the legacy baked display. The player's face attachment slot waits on
-  the attachment draw 001CB3C0, which is still missing. The lighting rows
-  are not compared because the point-light sway follows rand() order (see
-  the random-events entry).
+  the attachment draw 001CB3C0, which is still missing. The whole lighting
+  rows are compared over the port's own point-light sway (the light-rig
+  entry).
 
 **The crates, drums, truck, elevator, panel, terminal and battery run on their original records**
 
@@ -1153,26 +1162,30 @@ schedule, with loading at your machine's speed.
 
 **Random events (light flicker, sprite variations, puffs) in the original order**
 
-When this lands, small random details such as the swaying point lights,
-head-sprite variations and puffs will draw the same random numbers in the
-same order as the original, so a given moment looks as it does in the
-recordings.
+Small random details such as the swaying point light, the glow markers'
+pulse, the head sprites and the music's fade length draw their random
+numbers at the same places in each frame as the original.
 
 - How: the original rand() (00122BB8) is byte-matched in the decomp and
-  live in the port (`em_random.c`, census row live). The C7 capture
-  recorded every rand() call with its caller, frame and value. A pending
-  RNG order audit has to make the port call rand() in the original order.
-- Evidence: decomp `CAPTURES_C7.md` section 3 (every rand() call recorded;
-  in the opening the original's own order varies between runs after about
-  689 calls). `LEVEL_SMOKE.md` "What the full route does not yet compare":
-  `check_owner_units` leaves the whole lighting rows uncompared, and
-  `check_chain_page` leaves out the head sprites and puffs, because "the
-  port's rand() order is not yet the original's". Census 1.30 "Left" ties
-  the opening's area-music read to the RNG order audit.
-- Status: **PLANNED**. The rand() function itself is original. Only the
-  call order is unaudited. Because the original's own order varies between
-  runs in the opening, comparisons must use windows aligned on markers, not
-  one long sequence.
+  live in the port (`em_random.c`). The C7 capture recorded every rand()
+  call with its caller, frame and value; the port's `EM_RAND_TRACE`
+  records its own, and `tools/rand_order.py` compares the two. The audit
+  bound 0x1AE040's area-entry and room-move 001FAE70.
+- Evidence: `RAND_ORDER.md`; `make test-rand-order`; the level smoke's
+  `check_rand_order`, `check_sway`, `check_marker_colour` and
+  `check_head_sprites`. From the area entry the port equals the original
+  call for call (caller and value) for the first four calls; every frame's
+  fixed-schedule callers (the sway, the indicators, the glow markers, the
+  music) equal the original's over the opening, the 30 frames after first
+  control and two aligned route windows (01: 66 frames, 10: 311 frames).
+- Status: **PARTIAL**. The opening misses one draw at its second frame
+  (the husk creature, census L24), so its values differ after it. Its
+  faces draw from the opening's stand-in actors, not from the player stage
+  and Roger's owner (design risk 2). A recording's exact values cannot be
+  reproduced: the original's own order in the opening varies between runs
+  after about 689 calls, and the port reaches each moment by its own route.
+  The smoke therefore checks each random value as the original code over
+  the same draws.
 
 **Level 2 (AREA01) groundwork: translated and checked, not playable yet**
 
@@ -1251,7 +1264,7 @@ Resolved by the user on 2026-09-27:
    smoke's panel-prompt check aligns on the load's completion.
 2. **The opening's stream timing:** the extra seek from the intro movie's disc
    position is not modelled (the code does not model it). The area-entry
-   001FAE70(1) is game code and is bound once the rand() order is audited.
+   001FAE70(1) is game code and is bound (`RAND_ORDER.md` 2).
 3. **Field presentation:** deferred; the user will compare the options
    (`LAUNCHER_OPTIONS.md`).
 4. **High frame rates:** an Enhanced display rate keeps logic and streamed
@@ -1264,8 +1277,8 @@ Missing faithful behaviour that blocks a "first level complete" claim:
 
 - player-reachable fail-stops: DATABASE/SPR4/MAP on the status hub and
   non-battery item takes;
-- the rand() call order (light sway, head sprites, puff seeds, the status
-  fade length);
+- the rand() order's two remaining differences: the husk creature's draw
+  (census L24) and the opening's faces (design risk 2) (`RAND_ORDER.md` 6);
 - the load veil (above);
 - audio output: no SPU2 reverb, Gaussian interpolation or master volumes;
   sounds are not compared in the smoke;

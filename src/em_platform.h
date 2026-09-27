@@ -65,7 +65,7 @@ typedef struct {
 /* Headless runs: automated tests and captures must never put a window on
  * screen or steal focus. True when EM_HEADLESS=1, or when EM_HEADLESS is
  * unset and any test/capture/trace switch is present (EM_*TEST, EM_CAPTURE*,
- * EM_FRAME_TRACE, EM_STARTUP_CAPTURE_DIR). EM_HEADLESS=0 forces a visible
+ * EM_FRAME_TRACE, EM_RAND_TRACE, EM_STARTUP_CAPTURE_DIR). EM_HEADLESS=0 forces a visible
  * window (for watching a test). The window object still exists so events,
  * the view and the gfx backend keep one code path; the backend renders to
  * an offscreen target of the same size instead of the window's drawable. */
@@ -81,6 +81,7 @@ static inline bool em_headless(void)
         size_t n = eq ? (size_t)(eq - v) : strlen(v);
         if ((n >= 7 && !strncmp(v + n - 4, "TEST", 4)) ||
             !strncmp(v, "EM_CAPTURE", 10) || !strncmp(v, "EM_FRAME_TRACE", 14) ||
+            !strncmp(v, "EM_RAND_TRACE", 13) ||
             !strncmp(v, "EM_STARTUP_CAPTURE_DIR", 22))
             return true;
     }

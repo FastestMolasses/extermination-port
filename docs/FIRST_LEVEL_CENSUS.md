@@ -1240,6 +1240,42 @@ Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
 boundary 443, recounted from the section 3 rows (741 rows) and unchanged.
 80,726 of the 87,968 non-boundary instructions are live (91.8%).
 
+### 1.32 Update (2026-09-27, the rand() order audit)
+
+The port's rand() calls (`EM_RAND_TRACE`, resolved by tools/rand_order.py)
+are compared with the decomp's C7 per-call capture (RAND_ORDER.md).
+
+- **Found.**
+  - From the area entry the port equals the original call for call for 4
+    calls.
+  - The first difference is 00825940's lifecycle-0 draw at AE+1, which the
+    port misses (L24).
+  - Every frame's fixed-schedule callers equal the original's over the
+    opening, the 30 frames after first control and the smoke's aligned
+    windows of routes 01 and 10.
+  - The opening's faces come from em_opening_actor (design risk 2).
+- **Bound.** 0x1AE040's state-0 area-entry 001FAE70(1) and the state-4 room
+  move's 001FAE70(0) (row 001FAE70). The opening's prefill now waits for the
+  area music's read, and first control comes 4 frames later.
+- **Now compared in the smoke:**
+  - the whole lighting rows over the port's own point-light pool
+    (check_owner_units);
+  - 001D7C30 (check_sway);
+  - 001F4D40's colour (check_marker_colour);
+  - 001E2560's rand()-driven fields (check_head_sprites).
+- **No status changes.** Notes and evidence were updated on the rows
+  001FAE70, 00122BB8, 001D7C30, 001D0720, 001E2560, 001F4D40 and 00825940.
+- **Evidence.**
+  - make test-rand-order.
+  - make test-level-smoke-full with --require-through.
+  - newgame-control 9.599849.
+  - compare_frame_order PASS at native index 1340.
+  - All make test-* pass.
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443, recounted from the section 3 rows (741 rows) and unchanged.
+80,726 of the 87,968 non-boundary instructions are live (91.8%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1267,7 +1303,7 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30 and 1.31) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31 and 1.32) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1880,7 +1916,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D0690 | — | BM | live | em_roger_actor_original via em_area11_roger (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001D06D0 | — | BM | live | em_roger_actor_original via em_area11_roger and the script host's w_001D06D0 (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001D06E0 | — | BM | live | em_player_face_host.c — test_player_face_host.py |  | S2_opening |
-| 0x001D0720 | — | NM | live | em_opening_face.c — test_opening_face_reference |  | S2_opening |
+| 0x001D0720 | — | NM | live | em_opening_face.c — test_opening_face_reference; test_rand_order / check_rand_order (the draws' stage positions, RAND_ORDER.md) | during the opening its calls come from em_opening_actor inside the opening controller (design risk 2), not from Roger's owner and the player stage 00183090 (section 1.32) | S2_opening |
 | 0x001D0C70 | — | BM | live | 00183090's call (em_player_stage_commit w001D0C70) -> em_player_face_host's tick of 001D0720 (em_opening_face) on the attached face (census L22) — test_player_cinematic_reference; test_opening_face_reference; test_level_smoke.py (roger: route 14 row for row) | Roger's own face slot ticks through em_area11_roger's w_001D0720 | S2_opening |
 
 ### 3.16 Render heads, projection, lighting, shadow, veil particles (0x1D19D0..0x1DAFFF)
@@ -1943,7 +1979,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D7080 | — | AW | verified-unbound | em_load_veil_particles — test_load_veil_particles_reference.py |  | S1_newgame_load |
 | 0x001D7B30 | — | BM | live | em_actor_light_001D89D0 em_actor_light_001D7B30 (001D8FD0's) through em_render_context_live over the exported D_00251C50 — test_actor_light_001d89d0_reference; test_packet_chain_reference.py (001D8FD0 whole); test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | the actor lighting's room rig is still the manifest's rig lines (lane L40) | S1_newgame_load |
 | 0x001D7BB0 | — | BM | live | em_point_light.c — test_point_light_reference | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S1_newgame_load* |
-| 0x001D7C30 | — | NM | live | em_point_light.c — test_point_light_reference | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S0_title |
+| 0x001D7C30 | — | NM | live | em_point_light.c — test_point_light_reference; test_level_smoke.py check_sway (the original over the port's pool and draws on sampled ticks) and check_rand_order | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S0_title |
 | 0x001D7FA0 | — | BM | live | em_point_light.c — test_point_light_reference | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S1_newgame_load* |
 | 0x001D8060 | — | BM | verified-unbound | em_frame_render_heads em_frh_001D8060 — test_frame_render_heads_reference |  | S1_newgame_load* |
 | 0x001D80B0 | — | BM | verified-unbound | em_frame_render_heads em_frh_001D80B0 — test_frame_render_heads_reference |  | S1_newgame_load* |
@@ -1994,7 +2030,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001E2270 | — | BM | live | em_render_verify_rest em_rvr_001E2270 (001C1F50's, the exported D_00250F30) through em_render_context_live — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E2290 | — | BM | live | em_head_sprite_original through em_effects_live — test_head_sprite_reference | | S2_opening* |
 | 0x001E23A0 | — | BM | live | em_head_sprite_original through em_effects_live — test_head_sprite_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening* |
-| 0x001E2560 | — | BM | live | em_head_sprite_original em_head_sprite_original_tick through em_effects_live on the pool nodes (the player's and Roger's) — test_head_sprite_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | the ramp and wait follow rand() (not compared) | S2_opening |
+| 0x001E2560 | — | BM | live | em_head_sprite_original em_head_sprite_original_tick through em_effects_live on the pool nodes (the player's and Roger's) — test_head_sprite_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) and check_head_sprites (every tick's sub-state, wait, ramp and scalar over the port's own draws) | | S2_opening |
 | 0x001E55F0 | — | NM | live | em_weather.c via em_snow_runtime (node 001E55F0) — test_weather_reference |  | S2_opening |
 | 0x001E67C0 | — | NM | live | em_snow.c — test_snow_tiles_reference | its 0021B9A0(2, 0, 0) / (3, 0, 300) / (1, 0, 0) run on the render context since the census L26 step (em_snow_runtime; the draw takes the context's fog quadword) | S2_opening |
 | 0x001EA240 | — | BM | live | em_effect_original em_effect_original_001EA240 through em_effects_live on the pool nodes (em_area11_bindings, callback 0x1EA240) — test_effect_original_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks): the effect nodes' state, subtype, step, limit, accumulator (and route 08's positions) | | 00_panel_no_battery |
@@ -2023,7 +2059,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001F1180 | — | NM | live | em_pickup_items_original em_pickup_aura_001F1180 (bound in em_area11_interaction_host.c) with its draw block em_effect_manager_aura_draw through em_effects_live — test_pickup_items_reference (executes 001F1180 with its SDK leaves), test_effect_manager_reference | whole since the census L26 step: the no-op aura_draw stand-in is replaced | S2_opening |
 | 0x001F3FA0 | — | NM | live | em_effect_kinds em_effect_kinds_001F3FA0 through em_effects_live (001F0310's) — test_effect_kinds_reference | | S0_title* |
 | 0x001F40C0 | — | BM | live | em_effect_manager em_effect_manager_001F40C0 through em_effects_live — test_effect_manager_reference | no particle entity is live on the route (001F3620 / 001F3E30 fault when reached) | S2_opening |
-| 0x001F4D40 | — | AI | live | em_effect_manager em_effect_manager_001F4D40 through em_effects_live (the glow markers) — test_effect_manager_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening |
+| 0x001F4D40 | — | AI | live | em_effect_manager em_effect_manager_001F4D40 through em_effects_live (the glow markers) — test_effect_manager_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) and check_marker_colour (the original over the port's draws; the capture's markers over its own) | | S2_opening |
 | 0x001F54E0 | — | AW | live | em_effect_kinds em_effect_kinds_001F54E0 (the indicator children's colour; em_effect_delta deleted) — test_effect_kinds_reference, test_census_unverified_reference |  | S2_opening |
 | 0x001F5640 | — | BM | live | em_effect_kinds em_effect_kinds_001F5640 through em_effects_live (001F5C20's) — test_effect_kinds_reference | | S2_opening |
 | 0x001F5940 | — | BM | live | em_effect_kinds em_effect_kinds_001F5940 through em_effects_live — test_effect_kinds_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening |
@@ -2060,7 +2096,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FAB80 | — | BM | live | em_message_service via em_message_live (step F), its 001FAAC0 calls on the lanes (WP-8b) — test_message_service_reference.py; em_stream_lanes_original — test_stream_lanes_reference.py | | S0_title |
 | 0x001FABB0 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) (the status open, 001AD360 step 0, 001FD470 bit 1, the scripts, Roger, the opening, 001AC3B0) — test_stream_lanes_reference, test_iop_stream_reference (the status page scenario) | | S0_title |
 | 0x001FABF0 | — | NM | live | em_stream_lanes_original via em_stream_live (WP-8b) — test_stream_lanes_reference.py; test_level_smoke.py (the director beats) | | S1_newgame_load |
-| 0x001FAE70 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) (the status close, the opening's and Roger's resume, the aborted cinematic) — test_stream_lanes_reference, test_iop_stream_reference (the opening and status scenarios) | the state-0 area entry, the state-4 room move, state 2 r == 1 and state 6 stay reported (UM_001FAE70) | S1_newgame_load |
+| 0x001FAE70 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) (the status close, the opening's and Roger's resume, the aborted cinematic; since section 1.32 the state-0 area entry and the state-4 room move) — test_stream_lanes_reference, test_iop_stream_reference (the opening and status scenarios), test_rand_order (the area-entry draw from state 1) | state 2 r == 1 and state 6 stay reported (UM_001FAE70; no smoke run reaches them) | S1_newgame_load |
 | 0x001FB100 | — | BM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB100 — test_startup_load_gaps_reference | since WP-8b its first call, 001F9CF0, runs at step H (em_stream_live); the rest (the output-mode commit, the D_00281B70 copy, 001FC6E0) is not bound | S0_title |
 | 0x001FB370 | — | BM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB370 — test_startup_load_gaps_reference | not bound (the sound-bank loader chain) | S1_newgame_load* |
 | 0x001FB3E0 | — | NM | verified-unbound | em_startup_load_gaps_sound em_slg_001FB3E0 — test_startup_load_gaps_reference | not bound (the sound-bank loader chain) | S1_newgame_load* |
@@ -2183,7 +2219,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x008256D0 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
 | 0x00825710 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
 | 0x008257A0 | — | AU | live | em_manager_008257A0.c — test_manager_8257a0_reference |  | S2_opening* |
-| 0x00825940 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_creature_tick (partial: lifecycles 1 and 4 fault) — test_script_door_fan_reference (part 3) | em_enemy.c legacy em_enemy_update (pool group 'enemies'; interim spawn) | S2_opening |
+| 0x00825940 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_creature_tick (partial: lifecycles 1 and 4 fault) — test_script_door_fan_reference (part 3) | em_enemy.c legacy em_enemy_update (pool group 'enemies'; interim spawn); its lifecycle-0 rand() draw (0x8259F0) is the one call the port's opening misses (section 1.32) | S2_opening |
 | 0x00827490 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_partner_tick — test_script_door_fan_reference (part 3) | em_enemy.c legacy em_enemy_update (pool group 'enemies') | S2_opening |
 | 0x00827630 | — | AU | verified-unbound | em_fan_original — test_fan_original_reference | static fans (em_pickup draw, no spin) | S2_opening |
 | 0x00827B10 | — | AU | live | em_elevator.c / em_area11_interaction_host.c (node #27); since section 1.25 its record: state 0's 001B0FD0 / 001C6380, the carry's and the completion's 001C6380, 0x827E6C and the +0x4C 001CAA00 (em_area11_boxes_owner_*, em_area11_bindings.c terminal_copy_child) — test_elevator_reference; test_level_smoke.py (routes 02/04: the record's +0x04 / +0xB0 row for row over route 04; check_indicator_children; check_owner_units) | the legacy platform mesh is retired (section 1.25) | S2_opening |
@@ -2247,7 +2283,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0011E620 | — | BM | live | em_sdk_math_original em_sdk_math_original_float_0011E620 — test_sdk_math_original_reference | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model); also the live camera's atan2 since census L13..L16 (em_camera_live: 0018C0D0's heading into D_008106A0 and the camera workers' 0011E620 calls; test_camera_live_reference) | S1_newgame_load |
 | 0x0011E748 | — | NM | live | em_item_sdk_math.c em_item_sdk_sqrt — test_item_sdk_math_reference; test_sdk_math_original_reference | `em_sdk_math_original_float_0011E748` (with the soft-float workers) is bound into the column and FLOOR (engaged since the Boxes step); the port's legacy wall-probe path is retired in AREA11; the live camera's sqrt worker (0018C0D0 and the follow core) since census L13..L16 | S0_title |
 | 0x0011FD78 | — | BM | live | em_sdk_soft_float — test_sdk_soft_float_reference | recount 2026-09-25: em_sdk_soft_float_w_0011FD78 executed on the live path (10 calls over the five measured runs) | 03_panel_power |
-| 0x00122BB8 | — | BM | live | em_random.c — test_random_seed_reference; test_random_reference.py |  | S1_newgame_load |
+| 0x00122BB8 | — | BM | live | em_random.c — test_random_seed_reference; test_random_reference.py; test_rand_order and test_level_smoke.py check_rand_order (the call order against the C7 per-call capture, RAND_ORDER.md) |  | S1_newgame_load |
 | 0x00126AB8 | — | AW | live | em_sdk_soft_float — test_sdk_soft_float_reference | below the soft-float worker 00128350, bound with them (soft-float step, 2026-09-24); recount 2026-09-25: em_sdk_soft_float_00126AB8 executed on the live path (25 calls over the five measured runs) | 03_panel_power |
 | 0x00126BE8 | — | AW | live | em_sdk_soft_float — test_sdk_soft_float_reference | below 0011DB90 and 00127758, bound with them (soft-float step, 2026-09-24); recount 2026-09-25: em_sdk_soft_float_00126BE8 executed on the live path (40 calls over the five measured runs) | 03_panel_power |
 | 0x00127398 | — | AW | live | em_sdk_soft_float — test_sdk_soft_float_reference | below the soft-float worker 0011DB90, bound with them (soft-float step, 2026-09-24); recount 2026-09-25: em_sdk_soft_float_00127398 executed on the live path (15 calls over the five measured runs) | 03_panel_power |

@@ -88,8 +88,14 @@ or whole-game RNG equality.
 
 ## Remaining scope
 
-Exact whole-game RNG call ordering and earlier frame counts remain unverified.
-Native starts the original initializer and consumes the shared RNG; it does
+The call order is audited (RAND_ORDER.md): the sway's two draws sit where
+the original's do in every frame of the opening and of the aligned route
+windows, and the level smoke's check_sway runs the original 001D7C30 over
+the port's own pool and draws on sampled ticks (the pool it writes is the
+port's). The values differ from a capture's at a snapshot, because the
+port's stream reaches it from its own route; check_owner_units therefore
+folds the port's own pool through the original 001CAA00 (whole lighting
+rows equal). Native starts the original initializer and consumes the shared RNG; it does
 not replay an arbitrary captured angle as a universal initial state. The
 original angle-update formula and supplied-state output are verified even
 when the native global stream differs. Camera-fill composition and native

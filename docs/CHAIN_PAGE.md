@@ -329,9 +329,11 @@ frame's fog.
 - The lane program's drawing path is proven by synthetic batches only: no
   route slot is active, and 001F0460, the only lane-slot writer on the path,
   faults before it (EFFECT_MANAGER.md 8.2).
-- The sprites' positions and colours follow the producers' rand() order,
-  which is not yet the original's, so the smoke compares the drawn
-  primitives with the captures only for the glow markers.
+- The sprites' positions and colours follow the producers' draws, and the
+  port's stream is never at a capture's position (RAND_ORDER.md), so the
+  smoke compares the drawn primitives with the captures only for the glow
+  markers (their colour through check_marker_colour, with each side's own
+  draws).
 - VU1 arithmetic is the VU0 model assumed for VU1, as for the object kernel
   (VU1_OBJECT_KERNEL.md).
 

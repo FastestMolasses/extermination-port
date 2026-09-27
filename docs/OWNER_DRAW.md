@@ -567,11 +567,15 @@ matrices. It compares:
   follows the navigation's timing): at 10 and 14 all eight are compared,
   at 08, 11, 12 and 13 none (the player stands elsewhere than in the
   capture at that tick);
-- the whole lighting rows only where the port's point-light slots equal the
-  snapshot's: in no snapshot so far. The slots' sway angle and matrix
-  follow rand() in 001D7C30, and the port's rand() order differs from the
-  original's (the known RNG audit, FIRST_LEVEL_CENSUS.md); position, colour
-  and weight of the one AREA11 light are equal;
+- the whole lighting rows over the port's own point-light pool and view:
+  the slots' sway angle and matrix follow the draws of 001D7C30, and the
+  port's stream is never at the capture's position at a snapshot
+  (RAND_ORDER.md), so the original 001CAA00 runs a second time over the
+  snapshot with the port's pool (rebuilt byte for byte from the tick log)
+  and the view D_00810610 the port's draws read; its rows equal the port's
+  for every compared owner, the player and the equipment at 10 and 14
+  included. check_sway proves the pool is 001D7C30's over the port's own
+  draws. Position, colour and weight of the one AREA11 light are equal;
 - in the camera-exact beats (10, 14): the set of owners that ran 001CAA00,
   their byte counts and clip passes, and the position rows (node x VP),
   the player and the equipment wherever their point and pose equal the
@@ -712,7 +716,7 @@ for the opening's reported frames and the status screen's menu player.
 | Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
 | Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
 | the fan pair 00827630 | the legacy prop instances (static: no spin) | the owner itself (census L24): em_fan_original is verified, but its tail reaches the level exit 001B0C60(1, 1, 4) and the player hit (+0x00 = 3, +0x0F = 6, +0x224), whose consumers are not verified; its spin cycle counts the owner's calls from its spawn, and whether the port's call count at each snapshot equals the original's (the opening's length differs: the stream drive's latency, VOICE limitations) has not been measured |
-| the husks 00825940 / 00827490 | em_enemy's legacy meshes (group 'enemies') | the owners (census L24): the creature's lifecycles 1 and 4 are untranslated, its dormant 0x64 wait draws rand(), the partner's hit reaches 001EFE00 and 001B11E0 |
+| the husks 00825940 / 00827490 | em_enemy's legacy meshes (group 'enemies') | the owners (census L24): the creature's lifecycles 1 and 4 are untranslated, its lifecycle 0 draws one rand() (0x8259F0, the +0x28 timer: the one call the port's opening misses, RAND_ORDER.md; the dormant 0x64 wait draws none), the partner's hit reaches 001EFE00 and 001B11E0 |
 | the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the 0x7A child draws nothing | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
 ## 12. Limits
@@ -728,8 +732,9 @@ for the opening's reported frames and the status screen's menu player.
   by eye: positions, shapes and textures agree where the owners are
   visible. It is not a test.
 - **VU1 arithmetic** is the VU0 rule set, assumed (VU1_OBJECT_KERNEL.md 4).
-- **The lighting rows** are compared live only in lanes y and z (section
-  9) until the port's rand() order is the original's.
+- **The lighting rows** are compared whole over the port's own point-light
+  pool and view (section 9): the sway's values follow the port's stream,
+  which differs from the capture's at every snapshot (RAND_ORDER.md).
 - **The fog-off REF 2** has no AREA11 capture (context +0x0C bit 0 is set
   in all of them).
 - **The model placement** (0x01335F40) is a RAM placement checked in every

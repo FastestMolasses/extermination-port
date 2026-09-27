@@ -256,10 +256,9 @@ static const struct {
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001FAE70] = {0x001FAE70u, "area music cue at the state-0 area entry (a0 = 1) and the "
-                                  "state-4 room move (a0 = 0); not mirrored there (its rand() "
-                                  "draw and the area-entry music: STARTUP.md). The state-5 "
-                                  "status close is translated (w_001FAE70)"},
+    [UM_001FAE70] = {0x001FAE70u, "area music cue from state 2 (0022A650 == 1) or state 6; not "
+                                  "mirrored there. The state-0 area entry, the state-4 room move "
+                                  "and the state-5 status close are bound (w_001FAE70)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "before the area's render-context bind (the New Game bring-up "
@@ -467,7 +466,9 @@ static uint8_t r_008102B9(void *ctx)
  * sample: the 0x28A9A0 fade ticks after the task), the fade block in its
  * original layout, the player position/heading bits, the live 001E55F0 and
  * 001C5930 node counts and the first door's state and locks, for
- * tools/test_room_move_reference.py. It never changes behaviour. */
+ * tools/test_room_move_reference.py. `counter` is the main-loop counter
+ * 0x70003B64 at the tick start, the clock of EM_RAND_TRACE's lines
+ * (tools/rand_order.py). It never changes behaviour. */
 enum { LOG_SNAP = 168, LOG_VEIL = 0x1C, LOG_TRACE_MAX = 96 };
 static FILE *s_log;
 static int s_log_checked;
@@ -484,6 +485,7 @@ static struct {
     uint32_t pos[3], yaw;
     int weather, title, door[3];
     uint32_t msg[3];
+    uint32_t counter;   /* 0x70003B64 at the tick start (EM_RAND_TRACE's clock) */
 } s_tick;
 
 static FILE *log_file(void)
@@ -579,6 +581,7 @@ static void log_tick_begin(void)
     memset(&s_tick, 0, sizeof s_tick);
     s_tick.r_0021B550 = s_tick.r_001AD230 = -2;
     s_tick.fade = em_frame_transition()->substate;
+    s_tick.counter = em_frame_counter();
     log_snapshot(s_tick.pre);
     log_veil(s_tick.veil_pre);
     const EmTransitionFade *fade = em_frame_transition();
@@ -622,7 +625,8 @@ static void log_tick_end(int rc)
     uint8_t post[LOG_SNAP], veil[LOG_VEIL];
     log_snapshot(post);
     log_veil(veil);
-    fprintf(f, "{\"tick\": %u, \"rc\": %d, \"fade\": %d, \"pre\": ", s_log_tick++, rc, s_tick.fade);
+    fprintf(f, "{\"tick\": %u, \"counter\": %u, \"rc\": %d, \"fade\": %d, \"pre\": ", s_log_tick++,
+            s_tick.counter, rc, s_tick.fade);
     log_hex(f, s_tick.pre, LOG_SNAP);
     fputs(", \"post\": ", f);
     log_hex(f, post, LOG_SNAP);
@@ -938,6 +942,64 @@ static void log_tick_end(int rc)
                     units[i].pose);
     }
     fputc(']', f);
+    /* The point-light pool at render context +0x210..+0x221F after this
+     * frame's 001D7C30 (the slots 001D89D0's fold reads): the next handle,
+     * the pending count, the two words at +0x218, the area key
+     * D_00810700 << 8 | D_00810701 001D7C30 tests, then [slot, 0x80 bytes]
+     * for every one of the 32 active (+0x220) and 32 pending (+0x1220)
+     * slots that is not all zero, so the checker rebuilds the pool exactly.
+     * tools/test_level_smoke.py check_owner_units (the whole lighting rows
+     * over the port's slots) and check_sway (001D7C30 over the port's
+     * slots and draws). */
+    fputs(", \"lights\": ", f);
+    {
+        const uint8_t *pool = em_rcl_bytes(EM_RCL_CONTEXT + 0x210u, 0x2010u);
+        if (pool) {
+            uint32_t w[4];
+            memcpy(w, pool, sizeof w);
+            fprintf(f, "[%u, %u, %u, %u, %u, [", w[0], w[1], w[2], w[3],
+                    (unsigned)s_state.d810700 << 8 | s_state.d810701);
+            int n = 0;
+            for (int k = 0; k < 64; ++k) {
+                const uint8_t *slot = pool + 0x10 + 0x80 * k;
+                int any = 0;
+                for (int b = 0; b < 0x80 && !any; ++b) any = slot[b] != 0;
+                if (!any) continue;
+                fprintf(f, "%s[%d, ", n++ ? ", " : "", k);
+                log_hex(f, slot, 0x80);
+                fputc(']', f);
+            }
+            fputs("]]", f);
+        } else {
+            fputs("null", f);
+        }
+    }
+    /* The last barrel's glow markers (em_effects_live_markers): [frame,
+     * [[colour x4, rand() value, rgb, emitted, primitive colour x4], ...]].
+     * tools/test_level_smoke.py check_marker_colour. */
+    fputs(", \"markers\": ", f);
+    if (em_effects_live_attached()) {
+        EmEffectsLiveMarker mk[EM_EFFECTS_LIVE_MARKERS];
+        uint32_t frame = 0;
+        const int nm = em_effects_live_markers(mk, EM_EFFECTS_LIVE_MARKERS, &frame);
+        fprintf(f, "[%u, [", frame);
+        for (int i = 0; i < nm; ++i)
+            fprintf(f, "%s[%u, %u, %u, %u, %d, %u, %d, %u, %u, %u, %u]", i ? ", " : "", mk[i].colour[0],
+                    mk[i].colour[1], mk[i].colour[2], mk[i].colour[3], mk[i].value, mk[i].rgb, mk[i].emitted,
+                    mk[i].packet[0], mk[i].packet[1], mk[i].packet[2], mk[i].packet[3]);
+        fputs("]]", f);
+    } else {
+        fputs("null", f);
+    }
+    /* The camera pool's view D_00810610 (0018C0D0's look-at; the camera
+     * fill of 001D8340 reads it): check_owner_units' second original draw
+     * runs over it with the port's point-light pool. */
+    fputs(", \"view610\": ", f);
+    {
+        const uint8_t *view = em_rcl_bytes(0x00810610u, 0x40u);
+        if (view) log_hex(f, view, 0x40);
+        else fputs("null", f);
+    }
     /* Census L29: 0015C160 this tick (fresh, D_008102B1, D_00810771, +0x214's
      * record, the route: -1 reported), the last shadow call
      * (em_shadow_live_log) and, on sampled calls (the first, then every
@@ -2408,15 +2470,19 @@ int em_scene_bindings_001FC280(void)
 /* 001FAE70(a0) (byte-matched, src/func_001FAE70.c), the area music cue:
  * em_stream_lanes_001FAE70 through em_stream_live (001FC280 above, the cue
  * from D_008106C8 / D_00810D38, the infected override over D_008104E4, the
- * 00122BB8 fade and the lane-0 restart). The frame machine binds its
- * state-5 call (the status close, a0 = 1); the state-0 area entry (a0 = 1),
- * the state-4 room move (a0 = 0), state 2's r == 1 and state 6 stay
- * reported (UM_001FAE70: the area-entry call also draws one rand(), and the
- * whole-game RNG order is unaudited). */
+ * 00122BB8 fade and the lane-0 restart). The frame machine binds its calls
+ * at the state-0 area entry (0x1AE0CC, a0 = 1: the area music's read, and
+ * the first rand() after New Game, from the unseeded state 1), the state-4
+ * room move (a0 = 0: one rand(), then cue 25 continues) and the state-5
+ * status close (a0 = 1). The rand() order is checked against the C7
+ * capture (tools/rand_order.py, docs/RAND_ORDER.md). State 2's r == 1 and
+ * state 6 stay reported (UM_001FAE70): no level smoke run reaches them. */
 static int w_001FAE70(void *ctx, int a0)
 {
     (void)ctx;
-    if (s_entry_state != 5 || a0 != 1)
+    const int bound = (s_entry_state == 0 && a0 == 1) || (s_entry_state == 4 && a0 == 0) ||
+                      (s_entry_state == 5 && a0 == 1);
+    if (!bound)
         return unmirrored(UM_001FAE70);
     return em_stream_live_001FAE70(a0);
 }
@@ -2507,7 +2573,7 @@ int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue)
  *   0018D7B0(cam, 1), 0018C0D0(cam, 1)  the live camera's translations
  *                     (em_camera_live_solve / _commit, census L13)
  *   001AEE10(4, 0)    the fade-in (em_fade.c)
- *   001FAE70(0)       reported (UM_001FAE70)
+ *   001FAE70(0)       w_001FAE70 (the lanes; one rand())
  *   001C5C50          the new area-title node (the old one left on B8) */
 
 static int w_0018AB00(void *ctx)

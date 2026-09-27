@@ -124,6 +124,15 @@ static struct {
     int nsp;
     uint32_t sprite_digest[16];
     int nsprite_digest;
+    /* The last barrel's 001F4D40 calls (the capture log): each call's
+     * colour words, the rand() value it drew, the rgb it handed 001CD520
+     * and the emitted primitive's colour words +0x10..+0x1C. */
+    EmEffectsLiveMarker markers[EM_EFFECTS_LIVE_MARKERS];
+    int nmarkers;
+    uint32_t markers_frame;
+    int32_t marker_value;
+    u32 marker_rgb;
+    const uint8_t *marker_packet;
 } S;
 
 /* ------------------------------------------------------------ faults */
@@ -348,6 +357,7 @@ static int w_rand(void *ctx, int32_t *value)
 {
     (void)ctx;
     *value = (int32_t)em_random_next();
+    if (S.marker_set) S.marker_value = *value;   /* 001F4D40's draw (the capture log) */
     return 0;
 }
 
@@ -528,8 +538,23 @@ static int w_001F4D40(void *ctx, const float pos[4], const int32_t col[4], u32 f
     S.marker_set = 1;
     u32 colour[4];
     for (int i = 0; i < 4; ++i) colour[i] = (u32)col[i];
+    S.marker_value = -1;
+    S.marker_packet = NULL;
     int r = em_effect_manager_001F4D40(&S.m, MARKER_POSITION_HANDLE, colour, f12, f13);
     S.marker_set = 0;
+    if (r >= 0 && S.recording && S.nmarkers < EM_EFFECTS_LIVE_MARKERS) {
+        EmEffectsLiveMarker *m = &S.markers[S.nmarkers++];
+        memcpy(m->colour, colour, sizeof m->colour);
+        m->value = S.marker_value;
+        m->rgb = S.marker_rgb;
+        m->emitted = S.marker_packet != NULL;
+        for (int i = 0; i < 4; ++i)
+            m->packet[i] = S.marker_packet ? (u32)S.marker_packet[0x10 + 4 * i] |
+                                                 (u32)S.marker_packet[0x11 + 4 * i] << 8 |
+                                                 (u32)S.marker_packet[0x12 + 4 * i] << 16 |
+                                                 (u32)S.marker_packet[0x13 + 4 * i] << 24
+                                           : 0;
+    }
     return r;
 }
 
@@ -551,6 +576,7 @@ static int w_sprite_001CB5F0(void *ctx, u32 chain, int32_t z, int32_t count, uin
 {
     int r = em_packet_chain_w_001CB5F0(ctx, chain, z, count, packet);
     if (r >= 0 && S.recording && S.nsp < 16) S.sp[S.nsp++] = *packet;
+    if (r >= 0 && S.marker_set) S.marker_packet = *packet;
     return r;
 }
 
@@ -574,6 +600,7 @@ static int w_001CD520(void *ctx, int32_t a0, int32_t a1, u32 position, uint64_t 
 {
     (void)ctx;
     if (position != MARKER_POSITION_HANDLE || !S.marker_set) return -1;
+    S.marker_rgb = rgb;
     int32_t z = 0;
     if (em_player_equipment_001CD520(&S.sprite, a0, a1, S.marker, tex0, f12, f13, f14, rgb, &z) < 0)
         return -1;
@@ -1017,6 +1044,14 @@ static void sprite_digest(void)
     }
 }
 
+int em_effects_live_markers(EmEffectsLiveMarker *out, int max, uint32_t *frame)
+{
+    int n = S.nmarkers < max ? S.nmarkers : max;
+    if (out && n > 0) memcpy(out, S.markers, (size_t)n * sizeof *out);
+    if (frame) *frame = S.markers_frame;
+    return n;
+}
+
 int em_effects_live_sprite_digests(uint32_t out[16])
 {
     memcpy(out, S.sprite_digest, sizeof S.sprite_digest);
@@ -1048,6 +1083,8 @@ int em_effects_live_001F0360(void)
     S.recording = 1;
     S.npk = 0;
     S.nsp = 0;
+    S.nmarkers = 0;
+    S.markers_frame = em_frame_counter();
     int r = em_effect_manager_001F0360(&S.m);
     S.recording = 0;
     barrel_digest();

@@ -243,8 +243,9 @@ equipment and head sprite live):**
   refill's phase, navigation; since the measured drive model of 2026-09-27
   below, the drive's latency is no longer a cause), Roger's
   idle phase before f358 (navigation), the slide / step-off stance
-  (navigation), the terminal's 0x827E6C copy, the rand() order in the
-  point-light sway, lane 3's parameters, and the opening's post-step.
+  (navigation), the terminal's 0x827E6C copy, lane 3's parameters, and the
+  opening's post-step. (The point-light sway is compared since the rand()
+  order audit of 2026-09-27, below.)
 - Census (FIRST_LEVEL_CENSUS.md 1.22): liveness was measured again over the
   whole route. Live 640 of 733 non-boundary functions (90.8% by
   instructions), verified-unbound 87, unverified 5, missing 1, stand-in 0.
@@ -553,8 +554,8 @@ C7 capture; IOP_STREAM.md "Drive model", census 1.30):**
   reaches its key-on in 12 fields, which was 6. The original takes 27,
   because it first waits 15 fields for the area music's read. Two things are
   missing:
-  - 0x1AE040's area-entry 001FAE70(1), which is unbound: it draws one
-    rand(), and the RNG order audit is pending;
+  - 0x1AE040's area-entry 001FAE70(1), which is unbound (bound since the
+    rand() order audit below: the key-on now takes 17 fields);
   - a mechanism for that read's 16-field seek from the intro movie's
     position (+131414). The capture cannot separate the distance from the
     drive's state after the movie's stream reads, and the port has no movie
@@ -610,6 +611,53 @@ walk-out on its originals; DOOR_ORIGINAL.md "Side 1", census 1.31):**
   - A mutation run (standing timer 49) fails at f422.
   - newgame-control 9.599849.
   - compare_frame_order PASS.
+  - All make test-* pass.
+  - Census unchanged: live 660, verified-unbound 77, unverified 3,
+    missing 1, boundary 443.
+
+**Status update (2026-09-27, the rand() order audit; RAND_ORDER.md, census
+1.32):**
+- **The order is audited against the C7 per-call capture.** The port's
+  `EM_RAND_TRACE` is resolved to the original callers
+  (`tools/rand_order.py`) and compared with the decomp's newgame, r01 and
+  r10 traces.
+  - From the area entry the port equals the original call for call for 4
+    calls. The first difference is the husk creature 00825940's
+    lifecycle-0 draw at AE+1, which the port misses (the owner is not
+    bound, census L24).
+  - Every frame's fixed-schedule callers (the sway, the indicators, the
+    glow markers, the music, the item and effect-owner first ticks) equal
+    the original's over the opening (AE+1..AE+1312), the 30 frames after
+    first control, and the smoke's aligned route windows 01 (66 frames) and
+    10 (311 frames).
+  - The opening's faces are not the original's: em_opening_actor ticks
+    both inside the opening controller from AE+16, where the original
+    ticks Roger's in his owner from AE+2 and the player's in the player
+    stage after the barrel from AE+5 (design risk 2).
+- **Bound:** 0x1AE040's area-entry 001FAE70(1) (the first draw from state
+  1, and cue 25's read) and the room move's 001FAE70(0). The opening's
+  prefill now waits 5 fields for the area music's read (the original: 15,
+  its 16-field seek from the movie's position, disc timing), so first
+  control comes 4 frames later (locked_ticks 1311) and the frame-order
+  window moves to native index 1340.
+- **Comparable in the smoke** (check_owner_units, check_sway,
+  check_marker_colour, check_head_sprites):
+  - the whole lighting rows, over the port's own point-light pool and
+    view;
+  - the sway, as the original 001D7C30 over the port's pool and draws;
+  - the glow markers' colour, as the original 001F4D40 over each side's
+    own draws;
+  - the head sprites' sub-state, wait, ramp and scalar, as 001E2560's
+    transitions over the port's draws.
+- **Evidence.**
+  - make test-rand-order.
+  - test-level-smoke-full with --require-through.
+  - Mutation runs on the logged data: each check fails on a dropped,
+    missing or changed draw, a changed marker rgb, head-sprite scalar or
+    lighting digest.
+  - newgame-control 9.599849.
+  - compare_frame_order PASS: idle04 / walk04 / st03 at native index 1340,
+    cut02 / cut15.
   - All make test-* pass.
   - Census unchanged: live 660, verified-unbound 77, unverified 3,
     missing 1, boundary 443.
@@ -853,11 +901,11 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   **Open:** (1) the drive's read time: since 2026-09-27 the drive runs the model measured in the C7 stream
   capture (IOP_STREAM.md "Drive model"). The voiced lines 0x97 / 0x99 tear down on the capture's rows and 0x7F 2
   rows early: the original's sequencer served a lane-0 music refill first, a navigation-dependent phase. The
-  opening's stream request reaches its key-on 12 fields after the request frame. The original takes 27, because
-  it first waits 15 fields for the area music's read, which (2) below would issue; that read's 16-field seek from
-  the movie's position is outside the model. (2)
-  0x1AE040's state-0 area-entry 001FAE70(1), the state-4 room move's 001FAE70(0), state 2 r == 1 and state 6 stay
-  reported (UM_001FAE70: rand() order unaudited). (3) The rest of 001FB100 (the output-mode commit, the
+  opening's stream request reaches its key-on 17 fields after the request frame, 5 of them waiting for the area
+  music's read that the area-entry 001FAE70(1) issues (bound since the rand() order audit). The original takes 27:
+  it waits 15 fields, because that read's 16-field seek from the movie's position is outside the model. (2)
+  0x1AE040's state 2 r == 1 and state 6 stay reported (UM_001FAE70); the state-0 area-entry 001FAE70(1) and the
+  state-4 room move's 001FAE70(0) are bound since the rand() order audit (RAND_ORDER.md). (3) The rest of 001FB100 (the output-mode commit, the
   `D_00281B70` copy, 001FC6E0) is unbound; the mode bytes are 0 in every capture. (4) 001FC280's `D_00282160` cache
   is not modelled (an ambient loop other than -1 faults).
 - **Verification:** the lanes oracle, plus a stream-state compare against the captures' lane blocks along the route.

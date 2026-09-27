@@ -55,12 +55,13 @@ EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
 
 The make target does the following:
 
-1. It runs `EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl build/extermination`.
+1. It runs `EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl EM_RAND_TRACE=build/level_smoke/rand.trace build/extermination`.
    - The app is headless because an `EM_*TEST` variable is set.
    - The frontend drives the title menu and the movie skip, as it does for
      `newgame-control`.
 2. It prints the run's `level smoke:` lines.
-3. It runs `tools/test_level_smoke.py` over the run log and the tick log,
+3. It runs `tools/test_level_smoke.py` over the run log, the tick log and
+   the rand() trace (`--rand-trace`; docs/RAND_ORDER.md),
    with `--require-through <phase>`: the phase the run was asked to reach
    (`last` for the whole main line). The checker then fails unless every
    phase the run had to play was checked live against its capture: the main
@@ -1088,8 +1089,8 @@ It checks:
 - at each aligned tick, against the snapshot's pool list (D_00275BC0): the
   equipment nodes' +0x00..+0x0F, +0x44 and +0x4C as a set, each drawn this
   tick at the player's node its mesh draws it at; the head sprites'
-  lifecycle, key, owner, bone and offset (not the sub-state +0x05: it
-  follows rand()); the effect nodes' state, subtype, step, limit and
+  lifecycle, key, owner, bone and offset (the sub-state +0x05, wait, ramp
+  and scalar follow the draws: check_head_sprites); the effect nodes' state, subtype, step, limit and
   accumulator (route 08: with the truck puffs' +0xB0 and +0x100 rows, bit
   for bit; route 12: the player's four footstep puffs);
 - the barrel's 001F0720 packets against the original's own in the
@@ -1098,7 +1099,8 @@ It checks:
   identical in every capture from opening_ee.bin to route 14, so no routine
   of the level writes them; their earlier writer is open,
   EFFECT_MANAGER.md 8.4), and packet 4 and
-  the visible glow markers' primitives (their rand() colour masked) where
+  the visible glow markers' primitives (their rand() colour masked here;
+  check_marker_colour compares it) where
   the port's camera equals the capture's (10 and 14).
 
 Measured (full route): 12,573 barrel frames, 12,841 effect chains, none
@@ -1129,9 +1131,18 @@ Then:
   movers) only where the port's point equals the snapshot's (both depend
   on it through the point-light fold), and a mover at the snapshot's point
   must also hold the snapshot's pose (its nodes' +0x90 digest);
-- the whole lighting rows only where the point-light slots are equal (the
-  slots' sway follows rand() in 001D7C30; so far they differ in every
-  snapshot, and the check says how many rows it compared);
+- the whole lighting rows over the port's own point-light pool: the
+  slots' sway follows the draws of 001D7C30, which differ from the
+  capture's, so the ORIGINAL 001CAA00 runs a second time over the snapshot
+  with the port's pool (the tick log's `lights`: the pool at context
+  +0x210..+0x221F after the frame's 001D7C30, rebuilt byte for byte; its
+  slot digest must equal the one the port drew with) and the port's view
+  D_00810610 as the draws read it (`view610` of the tick before: the camera
+  stage commits the next view after the draws). Its rows must equal the
+  port's for every owner compared above, including the player and the
+  equipment in 10 and 14. The check reports how many of the tick's 16 view
+  words differ from the snapshot's (0 in 10 and 14; check_sway proves the
+  slots follow 001D7C30 over the port's own draws);
 - in the camera-exact snapshots (10, 14): the owners that ran, and every
   owner's byte count, clip pass and position rows (node x VP). There every
   mover's point AND pose must equal the snapshot's (the port's player
@@ -1168,6 +1179,53 @@ point with its pose. A scratch mutation of the tick log (the player's pose,
 point or rows, and one equipment node's pose, in 10 and 14; an equipment
 unit in a reported tick; a live post-step without the player's unit) fails
 each of these assertions.
+
+### The rand() order (`check_rand_order`, `check_sway`, `check_marker_colour`, `check_head_sprites`; docs/RAND_ORDER.md)
+
+Not phases: after the phases, over the run's `EM_RAND_TRACE`
+(`build/level_smoke/rand.trace`), which tools/rand_order.py resolves to
+(original caller, state) per call. The tick log's `counter` (the main-loop
+counter at the tick's start) ties the trace's lines to the ticks. An
+unknown rand() caller fails the check.
+- **check_rand_order.** The opening against the decomp's C7 newgame
+  capture, aligned on the area entry (0x1AE040 state 0's 001FAE70(1), the
+  first draw from the unseeded state 1):
+  - the area-entry frame equal, and every call equal in caller and state
+    up to the one known difference, which must be the first: the husk
+    creature 00825940's lifecycle-0 draw at AE+1 (census L24);
+  - every frame's deterministic callers (the sway, the indicators, the
+    glow markers, the music, the item and effect-owner first ticks) equal
+    frame for frame to the port's first control, and the 30 frames after
+    it;
+  - first control at most 16 frames earlier than the original's (the area
+    music's read: disc timing).
+
+  Then every frame of the phase windows aligned row for row with a stretch
+  the capture holds (route 01's battery take, route 10's director beat) has
+  the capture's deterministic callers. The value-driven callers' totals and
+  the faces' stage positions are printed.
+- **check_sway.** On sampled ticks (the first, every 250th, at most 40, and
+  the snapshot ticks) the ORIGINAL 001D7C30 over the port's pool of the
+  tick before and the port's own two draws of the frame writes exactly the
+  port's pool.
+- **check_marker_colour.** On sampled barrel frames each of the eleven
+  001F4D40 calls drew its value of the trace, and the ORIGINAL 001F4D40
+  over its colour words and that value hands 001CD520 the port's rgb (the
+  tick log's `markers`). In the camera-exact snapshots the capture's own
+  draws (the frame's last eleven calls, stepped back through the LCG from
+  the snapshot's state word) explain each captured marker's colour with
+  the port's depth fade.
+- **check_head_sprites.** Every tick's head-sprite sub-state, wait, ramp and
+  scalar follow 001E2560's transitions over the port's 001E2560 draws in
+  pool order, and every draw is used.
+
+Measured (full route, 2026-09-27): 4 calls equal up to the husk's draw;
+the skeleton equal over AE+1..AE+1312 (the husk's frame aside) and 30
+frames after control; first control 11 frames earlier; the windows 01 (66
+frames) and 10 (311 frames) equal; the sway on 46 sampled ticks (90 draws);
+the markers in 506 calls of 46 barrel frames, and snapshot 10's 5 captured
+markers; the head sprites: 2 new, 149 flips, 149 ramp ends, 13,369 wait
+ticks and 12,375 ramp ticks.
 
 ### The drop shadow (`check_shadow`, census L29 / L29b; tools/level_smoke_shadow.py)
 
@@ -1232,8 +1290,10 @@ every (address, bytes) the walk read. It checks:
   counts, and the blend presets the page REFs hold the route captures' bytes;
 - the camera-exact snapshots (10, 14): the glow markers the port drew equal
   the ones the capture's own latest page draws (the original microcode over
-  the capture), vertex for vertex, the colour masked (rand(), 001F4D40) and a
-  Q taken from the frame on either side not compared.
+  the capture), vertex for vertex, the colour masked (it follows the draw
+  of 001F4D40; check_marker_colour compares it at the EE primitive with
+  each side's own draw) and a Q taken from the frame on either side not
+  compared.
 Every decal the page draws is also counted back to em_shadow_live
 (`em_shadow_live_page_drew`), so check_shadow's "flushed" now means drawn by
 the page.
@@ -1247,7 +1307,7 @@ aligned 10 (5 glow markers)
 and 14 (none visible). The default run (through the fence door) draws 5,554
 pages, 418 of them the status frames' (empty).
 
-## What the full route does not yet compare (2026-09-26)
+## What the full route does not yet compare (2026-09-27)
 
 `make test-level-smoke-full` plays route beats 01..14 on the main line and 00
 and 09 in their own runs, and every phase reproduces its capture. These are
@@ -1260,11 +1320,11 @@ never silently skipped. What removes each:
 | cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows early; check_voice_drive allows exactly the key-on's shift, which it proves is the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
-| check_owner_units | the whole lighting rows (compared for 0 units; the colour matrix and the rig lanes are compared) | the point-light slots' sway follows rand() (001D7C30), and the port's rand() order is not yet the original's | the RNG order audit |
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
-| check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow rand() (the head sprite's sub-state, the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | the RNG order audit; navigation to each snapshot's placement |
+| check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
+| check_rand_order | the opening's values after AE+1, and its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); the area music's 16-field seek is disc timing | L24; the opening's actors on their records |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 
@@ -1281,10 +1341,11 @@ LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
 three selector-0 ticks at the opening's end, where record 13 (008257A0)
 still ticks. The report then shows "drum area11[14] against 008257A0
 area11[13]". That is an alignment artefact, not a node-order divergence:
-from native index 1336 (counter 2593, after first control) idle04, walk04
+from native index 1340 (counter 2597, first control + 11) idle04, walk04
 and st03 PASS event for event, and cut02 / cut15 PASS on their own windows
-(2026-09-27; the index was 1330 before the drive model, which moved first
-control 6 frames later).
+(2026-09-27; the index was 1336 before the area-entry 001FAE70(1) was
+bound, whose area-music read moved first control 4 frames later, and 1330
+before the drive model).
 
 ## Adding a phase (the contract for WP-4 onward)
 

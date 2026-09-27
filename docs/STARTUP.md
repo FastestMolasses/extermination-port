@@ -171,7 +171,10 @@ samples including lookahead, and advances 0.5 per ordinary tick.
   normal and skip paths restore the final script position/camera and story
   flags once. Missing required resources fail explicitly.
 - Random arithmetic matches the original SDK leaf, including 32-bit stored
-  state and 31-bit output. Whole-game RNG call ordering is still unaudited.
+  state and 31-bit output. The call order is audited against the C7
+  per-call capture (RAND_ORDER.md): from the area entry the port equals the
+  original call for call up to the husk creature's missing draw (census
+  L24), and every frame's fixed-schedule callers equal the original's.
 - The original head meshes carry seven morph channels. Blink/mouth state and
   vertex blending pass original instruction comparisons; exact pooled initial
   weights and separate head-light selection remain work.
@@ -261,9 +264,10 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
   Original area music is chosen by `001FAE70` from `D_008106C8` bits 8..15;
   the AREA11 captures give cue 25. `anim_frame_top_b` state 0 calls
   `001FAE70(1)` at area entry. The opening controller stops streams when its
-  script starts and resumes cue 25 at the end. The area-entry call is not
-  mirrored yet: it also draws one `rand()`, and whole-game RNG order is
-  unaudited. Every other stream call runs on the original stream lanes
+  script starts and resumes cue 25 at the end. The area-entry call is bound
+  (with the room move's `001FAE70(0)`; RAND_ORDER.md section 2): it draws
+  the first `rand()` after New Game and issues cue 25's read, which the
+  opening's prefill then waits for, as in the original. Every other stream call runs on the original stream lanes
   since WP-8b (em_stream_live over em_stream_lanes_original and the IOP
   backend em_iop_stream; STREAM_LANES.md, IOP_STREAM.md): the status
   close's `001FAE70(1)` (0x1AE040 state 5), the stream stop `001FABB0` at

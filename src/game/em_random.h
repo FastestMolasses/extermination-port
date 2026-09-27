@@ -8,5 +8,9 @@
 uint32_t em_random_step(uint32_t *state);
 void em_random_seed(uint32_t seed);
 uint32_t em_random_next(void);
+/* The clock EM_RAND_TRACE stamps each call with (main.c registers
+ * em_frame_counter; without one the counter is 0). Test instrumentation
+ * only. */
+void em_random_trace_clock(uint32_t (*counter)(void));
 
 #endif

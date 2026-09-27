@@ -117,6 +117,21 @@ int em_effects_live_aura_draw(const float owner_d0[16], uint32_t record, uint32_
                               uint32_t timer);
 
 /* ---- the capture log (the level smoke) ---------------------------------- */
+/* The last barrel's 001F4D40 calls (the glow markers), in call order: the
+ * colour words it was handed, the rand() value it drew (-1: none), the rgb
+ * it handed 001CD520 and, when 001CD520 emitted the primitive, that
+ * primitive's colour words +0x10..+0x1C. tools/test_level_smoke.py
+ * check_marker_colour. */
+#define EM_EFFECTS_LIVE_MARKERS 16
+typedef struct {
+    uint32_t colour[4];
+    int32_t value;
+    uint32_t rgb;
+    int emitted;
+    uint32_t packet[4];
+} EmEffectsLiveMarker;
+/* The count; *frame is the main-loop counter of that barrel frame. */
+int em_effects_live_markers(EmEffectsLiveMarker *out, int max, uint32_t *frame);
 typedef struct {
     uint32_t address;     /* the pool record */
     uint32_t callback;    /* +0x10 */

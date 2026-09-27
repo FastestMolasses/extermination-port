@@ -160,14 +160,14 @@ What the capture shows, and the model:
   Roger's music cue 29 read and the cue 25 resume after it (d = +3026 and -4394, served as fast seeks): 2 of the
   full route's 419 reads. The Roger phase equals route 14 row for row with either class (both were tried), so the
   route capture does not pin them. A capture of route 14's stream would.
-- **No position.** The port's first read has no position: the port does not model the boot's, the movie's or the
-  area-entry music's reads. A read after a break also has none. Both are served as a full seek. In the first level
-  the first read is the opening's cue 0x3F prefill, which the capture measured as a full seek. 00113478 is never
-  reached on the route (0 breaks).
-- **Outside the model.** The opening's area-music read (from the intro movie's position, d = +131414) sought for
+- **No position.** The port's first read has no position: the port does not model the boot's or the movie's
+  reads. A read after a break also has none. Both are served as a full seek. In the first level the first read
+  is the area music's (cue 25), which 0x1AE040's area-entry 001FAE70(1) issues (bound since the rand() order
+  audit, RAND_ORDER.md section 2). 00113478 is never reached on the route (0 breaks).
+- **Outside the model.** The original's area-music read (from the intro movie's position, d = +131414) sought for
   16 fields. The capture cannot tell whether that comes from the distance or from the drive's state after the
-  movie's stream reads. The port has neither that read nor the movie's reads, because 0x1AE040's area-entry
-  001FAE70(1) is unbound (it draws one rand(), and the RNG order audit is pending).
+  movie's stream reads. The port serves it as a first read, a full seek of 6 fields; disc timing is not part of
+  the Original profile (CLAUDE.md, 2026-09-27).
 
 **What it gives the live route.**
 - The voiced lines' voice reads take the capture's 7 fields, and each key-on follows 2 fields later, as in the
@@ -177,12 +177,15 @@ What the capture shows, and the model:
   1. The music was keyed on 3583 fields before the voice in the original (vsync 15472, after route 03's status
      close) and 3449 in the port. The difference is navigation.
   2. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
-- The opening's stream request now reaches its key-on 12 fields after the request frame, where it took 6.
-  - The port's 12 fields are 1 frame to the read's issue, then the capture's 7 fields for the read and 4 for the
-    hold.
-  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read in flight
-    (above).
-  - newgame-control reaches first control 6 frames later: locked_ticks 1307, where it was 1301.
+- The opening's stream request reaches its key-on 17 fields after the request frame (12 before the area-entry
+  001FAE70(1) was bound, 6 before the drive model).
+  - The port's 17 fields are 1 frame to the read's issue request, 5 fields waiting for the area music's read in
+    flight (the opening's 001FABB0 stopped the lane one frame after the area entry and left the read running, as
+    in the original), then the capture's 7 fields for the read and 4 for the hold.
+  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read, whose seek from
+    the movie's position took 16 fields (above).
+  - newgame-control reaches first control 4 frames later than without the area-music read: locked_ticks 1311
+    (1307 before, 1301 before the drive model).
   - The 30-tick displacement is unchanged at 9.599849.
 
 ## Stream exporter

@@ -337,9 +337,9 @@ lanes' entry points:
   `UM_001FA790`, `UM_001FAB50`, `UM_001FAD70`.
 - **Mixer:** em_bgm's callback sums `em_stream_live_mix` (em_iop_stream_mix) with the SFX and startup voices; the
   device opens at 48000 Hz (by the startup audio, or by the lanes at their first active lane).
-- **Still reported, not bound:** 0x1AE040's state-0 area-entry 001FAE70(1), the state-4 room move's 001FAE70(0),
-  state 2's r == 1 and state 6's (UM_001FAE70): the area-entry call draws one rand() and the whole-game RNG order is
-  unaudited.
+- **Bound since the rand() order audit (RAND_ORDER.md section 2):** 0x1AE040's state-0 area-entry 001FAE70(1) (the
+  first rand() after New Game and cue 25's read) and the state-4 room move's 001FAE70(0) (one rand(); cue 25 goes
+  on). **Still reported:** state 2's r == 1 and state 6's (UM_001FAE70); no level smoke run reaches them.
 
 Verified live: the level smoke plays the whole route with the lanes (every phase's capture check, and the director's
 voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); `make test-opening-runtime` runs the opening over
@@ -352,6 +352,7 @@ drive's position.
 - **Voiced lines.** Each voice read takes the capture's 7 fields and each key-on the capture's 2 more. 0x97 and 0x99
   tear down on the capture's rows. 0x7F is 2 rows early, because the original's sequencer served a lane-0 music
   refill first. That refill's phase is the time since the music's last start, which is navigation.
-- **Opening.** The prefill reaches its key-on 12 fields after the stream request. The original takes 27: it first
-  waits 15 fields for the area music's read, which 0x1AE040's unbound area-entry 001FAE70(1) would issue.
+- **Opening.** The prefill reaches its key-on 17 fields after the stream request: it first waits 5 fields for the
+  area music's read that the area-entry 001FAE70(1) issued (a first read: the model's 6-field full seek). The
+  original takes 27: it waits 15 fields for that read's 16-field seek from the movie's position (disc timing).
 

@@ -730,13 +730,11 @@ void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next) { s->heap_next =
  * the measured ranges are not captured. The opening's first read of the
  * area music (from the intro movie's position, +131414) sought for 16
  * fields; the capture cannot tell the distance from the drive's state after
- * the movie's reads, so that read is outside the model (the port has
- * neither the movie's reads nor that read: 0x1AE040's area-entry 001FAE70(1)
- * is unbound). A read with no position (the drive's first in the port,
- * whose boot, movie and area-entry reads are not modelled, or the first
- * after a break) is served as a full seek: in the first level that read is
- * the opening's cue 0x3F prefill, which the capture measured as a full seek
- * (72124 sectors, 6 fields). */
+ * the movie's reads, so that read's timing is outside the model. A read
+ * with no position (the drive's first in the port, whose boot and movie
+ * reads are not modelled, or the first after a break) is served as a full
+ * seek (6 fields): in the first level that read is the area music's, which
+ * 0x1AE040's area-entry 001FAE70(1) issues (docs/RAND_ORDER.md section 2). */
 
 enum { DRIVE_MAX_SECTORS = 16 };
 

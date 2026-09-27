@@ -26,6 +26,7 @@
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_pad_actuator.h"
+#include "game/em_random.h"
 #include "game/em_render_context_live.h"
 
 #include <dirent.h>
@@ -339,6 +340,9 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
+    /* EM_RAND_TRACE stamps each rand() call with the main-loop counter
+     * (test instrumentation, tools/rand_order.py). */
+    em_random_trace_clock(em_frame_counter);
     /* 001AAE40's start-up: the SNDN2DRV.IRX bring-up's IOP buffers and the
      * stream files' sectors, then 001F9820 (the stream lanes' initial
      * state; em_stream_live, WP-8b). Without the stream export the game

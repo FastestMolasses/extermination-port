@@ -88,6 +88,7 @@ slide
     (check_slide).
 """
 import argparse
+import collections
 import json
 from pathlib import Path
 import re
@@ -548,6 +549,9 @@ def check_battery(ticks, run, state):
     for k in range(load - posted_o):
         same(posted_p + k, posted_o + k, 'battery request')
     state['cursor'] = i0 + posted_p + load - posted_o
+    # The window row for row from the scan to the page load (posted_p ==
+    # posted_o): check_rand_order compares its frames with the C7 capture.
+    state.setdefault('aligned', []).append(('01_battery', i0, rows[f0]['f'], load))
     print(f'battery: PASS (scan at port tick {ticks[i0]["tick"]} = route 01 f{rows[f0]["f"]}; the take '
           f'program 0x266620 row for row to the post in spad, camera byte, letterbox, message, power and '
           f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan as in the original (the live camera\'s '
@@ -1747,6 +1751,7 @@ def check_director_beat(ticks, run, state, phase):
     admit, free = check_stage_takeover(ticks, i0, count, phase)
     state['cursor'] = i0 + count
     state.setdefault('snapshots', []).append((beat, i0 + count - 1))
+    state.setdefault('aligned', []).append((beat, i0, rows[f0]['f'], count))
     step = bytes.fromhex(rows[-1]['d2'])[0x3B]
     extra = ", Roger's record and block (0x828990)" if roger else ''
     line = orig[e_orig]['msg'][2]
@@ -2361,6 +2366,29 @@ def fnv_words(h, words):
     return h
 
 
+def port_light_pool(tick):
+    """The port's point-light pool (render context +0x210..+0x221F) after
+    the tick's 001D7C30, rebuilt from the tick log's `lights` (the header
+    words and every slot that is not all zero), and its area key."""
+    lights = tick.get('lights')
+    if not lights:
+        return None, None
+    next_handle, pending, w218, w21c, key, slots = lights
+    pool = bytearray(0x2010)
+    struct.pack_into('<4I', pool, 0, next_handle, pending, w218, w21c)
+    for k, data in slots:
+        pool[0x10 + 0x80 * k:0x10 + 0x80 * (k + 1)] = bytes.fromhex(data)
+    return bytes(pool), key
+
+
+def lighting_digest(unit, nodes):
+    words = struct.unpack_from(f'<{32 * nodes}I', unit, 0x80)
+    light = 2166136261
+    for k in range(nodes):
+        light = fnv_words(light, words[32 * k + 16:32 * k + 32])
+    return light
+
+
 def check_owner_units(ticks, state):
     """The live owner draws 001CAA00 (em_owner_draw_live: the crates, drums,
     truck and fence door, the player's equipment nodes 0018A6B0 and the
@@ -2375,12 +2403,19 @@ def check_owner_units(ticks, state):
     - the colour matrix B (001D89D0 through 001C7420) and every node's
       lighting rows' lanes y and z (C x A's columns 1 and 2, the room rig's
       slots 1 and 2) digest-equal wherever both drew, and the whole
-      lighting rows (C x A) too wherever the
-      port's point-light slots (context +0x220, which 001D89D0's fold reads)
-      equal the snapshot's (neither depends on the camera; the slots' sway
-      angle and matrix follow rand() in 001D7C30, so they differ where the
-      port's rand() order does, and those rows are then counted, not
-      compared);
+      lighting rows (C x A) too: the slots' sway angle and matrix follow
+      the draws of 001D7C30, which differ from the capture's (the port's
+      stream reaches the snapshot from its own route), so the ORIGINAL
+      001CAA00 runs a second time over the snapshot with the port's own
+      point-light pool (context +0x210.., the tick log's `lights`, rebuilt
+      byte for byte: its slot digest equals the port's) and the port's
+      view D_00810610 the draws read (the camera fill of 001D8340; the one
+      the tick before committed: the camera stage commits after the
+      draws) and its rows
+      must equal the port's (the fold 001D89D0 over the same inputs;
+      check_sway proves the slots are 001D7C30's over the port's own
+      draws). Where the port's view differs from the snapshot's, the words
+      that differ are reported (the look-at, not the rand() order);
     - in the beats whose camera equals the capture's (VIEW_EXACT), the set
       of owners that drew, their byte counts, the clip pass and the
       position rows (node x VP) too;
@@ -2407,6 +2442,19 @@ def check_owner_units(ticks, state):
         port = {port_key.get(u[0], u[0]): u for u in ticks[i]['owner_units']}
         ctx = u32(0x275670)
         points = fnv_words(2166136261, struct.unpack_from('<1024I', ram, ctx + 0x220))
+        pool, _ = port_light_pool(ticks[i])
+        assert pool is not None, ('owner units: no point-light pool in the tick log', beat)
+        port_points = fnv_words(2166136261, struct.unpack_from('<1024I', pool, 0x10))
+        assert all(u[6] == port_points for u in ticks[i]['owner_units'] if u[1]), \
+            ('owner units: the rebuilt point-light pool is not the one the port drew with', beat)
+        ram_port = bytearray(ram)
+        ram_port[ctx + 0x210:ctx + 0x2220] = pool
+        # The tick's view is the one its camera stage committed (after the
+        # draws, like the snapshot's); the draws used the tick before's.
+        view = bytes.fromhex(ticks[i]['view610'])
+        view_diff = sum(view[k:k + 4] != ram[0x810610 + k:0x810614 + k] for k in range(0, 0x40, 4))
+        ram_port[0x810610:0x810650] = bytes.fromhex(ticks[i - 1]['view610'])
+        ram_port = bytes(ram_port)
         orig, a, seen, walk = {}, u32(0x275BC0), set(), []
         while a and a not in seen:
             seen.add(a)
@@ -2432,7 +2480,7 @@ def check_owner_units(ticks, state):
                 pose = 2166136261
                 for k in range(ram[a + 0x0C]):
                     pose = fnv_words(pose, struct.unpack_from('<16I', ram, u32(a + 0x110 + 4 * k) + 0x90))
-                entry = [a, used, 0, 0, 0, 0, points, 0, point, pose]
+                entry = [a, used, 0, 0, 0, 0, points, 0, point, pose, None]
                 if used:
                     colour = struct.unpack_from('<16I', unit, 0x20)
                     nodes = ram[a + 0x0C]
@@ -2450,7 +2498,12 @@ def check_owner_units(ticks, state):
                         if (w0 >> 28) & 7 == 5: calls.append(addr)
                         q += 16 + (16 * (w0 & 0xFFFF) if (w0 >> 28) & 7 == 1 else 0)
                     entry = [a, used, int(0x2354A0 in calls), fnv_words(basis, colour), light, position, points,
-                             rig, point, pose]
+                             rig, point, pose, None]
+                    # The same draw over the port's point-light slots and view.
+                    o2, _ = tod.original_draw(ram_port, spr, a)
+                    used2 = o2.load(ctx + 0x10) - tod.CAP_DL
+                    if used2 == used:
+                        entry[10] = lighting_digest(o2.read(tod.CAP_DL, used2), nodes)
                 orig[key] = entry
         where = ('owner units', beat, 'port tick', ticks[i]['tick'])
         hex = lambda r: r if isinstance(r, tuple) else f'{r:#x}'
@@ -2487,6 +2540,10 @@ def check_owner_units(ticks, state):
             assert port[r][7] == orig[r][7], (where, hex(r), 'lighting rows, lanes y and z (the rig slots)')
         for r in lit:
             assert port[r][4] == orig[r][4], (where, hex(r), 'lighting rows (C x A)')
+        for r in placed:
+            assert orig[r][10] is not None, (where, hex(r), 'the draw over the port\'s slots has another size')
+            assert port[r][4] == orig[r][10], \
+                (where, hex(r), 'lighting rows (C x A) over the port\'s point-light slots and view')
         posed = []
         if beat in VIEW_EXACT:
             for r in orig:
@@ -2498,8 +2555,9 @@ def check_owner_units(ticks, state):
         movers = [r for r in both if moving(r)]
         done.append(f'{beat[:2]} ({len(both)} drawn in both: colour and rig lanes equal for {len(placed)}'
                     f'{f" ({len(movers)} player / equipment units, {sum(r in placed for r in movers)} at the snapshot point)" if movers else ""}'
-                    f'; whole lighting rows compared for {len(lit)}'
-                    f'{" (the point-light slots differ for the rest)" if len(lit) < len(placed) else ""}'
+                    f'; whole lighting rows equal for {len(placed)} over the port\'s point-light slots and view'
+                    f' ({len(lit)} with the snapshot\'s own slots equal; the view D_00810610 differs from the'
+                    f' snapshot\'s in {view_diff} of 16 words)'
                     f'{f", camera exact: all {len(posed)} compared in full, movers with their point and pose" if beat in VIEW_EXACT else ""})')
     # The live player binding (0015C160's +0x4C over em_player_draw_live's
     # owner view) and the seven equipment nodes (0018A6B0's +0x4C in
@@ -2512,6 +2570,251 @@ def check_owner_units(ticks, state):
     if done:
         print('owner units: PASS (the port\'s 001CAA00 units equal the original\'s at the snapshot ticks: '
               + '; '.join(done) + ')')
+
+
+RAND_WINDOWS = {'01_battery': 'r01', '10_cage_roof_roger': 'r10'}   # the C7 rand() captures of route stretches
+
+
+def check_rand_order(ticks, state, trace):
+    """The run's rand() calls (EM_RAND_TRACE, resolved by tools/rand_order.py)
+    against the decomp's C7 per-call captures (docs/RAND_ORDER.md):
+    - the opening from the area entry (the newgame capture): the area-entry
+      frame and every call equal in caller and state up to the one known
+      divergence (the husk creature's missing draw, census L24), and every
+      frame's deterministic callers (the sway, the indicators, the glow
+      markers, the music, the item and effect-owner first ticks) frame for
+      frame to first control and 30 frames after it;
+    - every phase window a check aligned row for row with a route stretch
+      the capture holds (01's battery take, 10's director beat): each
+      frame's deterministic callers equal the capture's frame (the values
+      differ: the port's stream reaches the window from its own route)."""
+    import rand_order as R
+    frames = R.port(trace, ROOT / 'build/extermination')
+    state['rand'] = frames
+    orig, marks = R.original('newgame')
+    rep, line = R.check_opening(frames, orig, marks)
+    after = R.check_after_control(frames, rep['pc'], orig, rep['oc'], 30)
+    windows = []
+    for beat, i0, f0, count in state.get('aligned', []):
+        stretch = RAND_WINDOWS.get(beat)
+        if not stretch:
+            continue
+        o, _ = R.original(stretch)
+        compared = 0
+        for k in range(count):
+            f, c = f0 + k, ticks[i0 + k]['counter']
+            if f not in o:
+                continue
+            ps, os_ = R.skeleton(frames.get(c, [])), R.skeleton(o[f])
+            assert ps == os_, ('rand order', beat, 'port tick', ticks[i0 + k]['tick'], f'route f{f}',
+                               [R.name(x) for x in ps], [R.name(x) for x in os_])
+            compared += 1
+        assert compared, ('rand order: an aligned window holds no captured frame', beat)
+        windows.append(f'{beat[:2]} {compared} frames')
+    print('rand order: ' + R.report_driven(rep))
+    print(f'rand order: PASS ({line}; {after}; the aligned route windows\' deterministic callers equal the '
+          f'capture\'s frame for frame: {", ".join(windows) if windows else "none aligned"})')
+
+
+def draws(frames, counter, fn):
+    """The values the calls of `fn` drew in the frame `counter` (00122BB8's
+    return: the low 31 bits of the state after the step)."""
+    return [((st * 0x41C64E6D + 0x3039) & 0xFFFFFFFF) & 0x7FFFFFFF
+            for f, st, _ in frames.get(counter, []) if f == fn]
+
+
+def check_sway(ticks, state, frames):
+    """The point-light slots' sway (001D7C30, census: the lighting fold
+    lane): on sampled ticks (the first, then every 250th, at most 40, and
+    every aligned snapshot tick) the ORIGINAL 001D7C30 over the port's pool
+    of the tick before (the tick log's `lights`, rebuilt byte for byte) and
+    the port's own draws of the frame (EM_RAND_TRACE, the calls the rand()
+    order check assigns to 001D7C30) writes exactly the port's pool of the
+    tick, and draws exactly as often as the port did."""
+    import test_point_light_reference as tpl
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    snaps = {i for _, i in state.get('snapshots', [])}
+    candidates = [i for i in range(1, len(ticks)) if ticks[i].get('lights') and ticks[i - 1].get('lights')
+                  and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1]
+    assert candidates, 'sway: no consecutive ticks with the point-light pool'
+    picked = sorted(set(candidates[::250][:40]) | (snaps & set(candidates)))
+    total = 0
+    for i in picked:
+        before, key = port_light_pool(ticks[i - 1])
+        after, key_now = port_light_pool(ticks[i])
+        values = draws(frames, ticks[i]['counter'], 0x1D7C30)
+        o = tpl.Oracle(elf, values)
+        o.write(tpl.CONTEXT + 0x210, before)
+        o.save(0x810700, key_now >> 8, 1)
+        o.save(0x810701, key_now & 0xFF, 1)
+        o.run(0x1D7C30)
+        where = ('sway', 'port tick', ticks[i]['tick'])
+        assert o.rng_calls == len(values), (where, 'draws', o.rng_calls, len(values))
+        assert o.pool_bytes() == after, (where, 'the pool after 001D7C30',
+                                         next(k for k in range(0x2010) if o.pool_bytes()[k] != after[k]))
+        total += len(values)
+    print(f'sway: PASS (the original 001D7C30 over the port\'s previous pool and its own draws writes the '
+          f'port\'s pool on {len(picked)} sampled ticks ({len(snaps & set(picked))} of them snapshot ticks), '
+          f'{total} draws)')
+
+
+LCG_MUL, LCG_ADD = 0x41C64E6D, 0x3039
+LCG_INV = pow(LCG_MUL, -1, 1 << 32)
+
+
+def marker_fade(c, f):
+    """001CD520's depth fade in mode 2 (em_player_equipment_sprite, proved
+    by its reference test): the three low bytes times f >> 8, the top byte
+    kept, one word each at +0x10..+0x1C."""
+    return [((c & 0xFF) * f) >> 8, (((c >> 8) & 0xFF) * f) >> 8, (((c >> 16) & 0xFF) * f) >> 8, (c >> 24) & 0xFF]
+
+
+class MarkerOracle:
+    """The ORIGINAL 001F4D40 (the effect manager oracle's interpreter over
+    the pinned ELF): the rgb it hands 001CD520 (its fifth argument) for a
+    colour quad and a rand() value."""
+
+    def __init__(self):
+        import test_effect_manager_reference as EM
+        self.EM = EM
+        self.elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+        self.mem, self.spad = bytearray(0x2000000), bytearray(0x4000)
+
+    def rgb(self, colour, value):
+        EM = self.EM
+        e = EM.Oracle(self.elf, self.mem, self.spad)
+        struct.pack_into('<4I', self.mem, EM.SCRATCH + 0x200, *colour)
+        got = []
+        e.stubs = {0x122BB8: lambda o: o.set64(2, value), 0x1CD520: lambda o: got.append(o.r[8] & 0xFFFFFFFF)}
+        e.run(0x1F4D40, (EM.SCRATCH + 0x300, EM.SCRATCH + 0x200), (0, 0))
+        assert len(got) == 1, ('marker oracle: 001CD520 calls', len(got))
+        return got[0]
+
+
+def check_marker_colour(ticks, state, frames):
+    """The glow markers' rand()-pulsed colour (001F4D40), masked in
+    check_effects' and check_chain_page's primitive comparisons:
+    - on sampled barrel ticks (the first, then every 250th, at most 40, and
+      every aligned snapshot tick) each of the eleven 001F4D40 calls drew
+      the value the rand() trace gives its frame in order, and the ORIGINAL
+      001F4D40 over its colour quad and that value hands 001CD520 the port's
+      rgb;
+    - in the camera-exact snapshots (VIEW_EXACT) the capture's own markers
+      are explained the same way: its frame's eleven draws are the last
+      eleven calls of a gameplay frame (the rand() order check's barrel
+      block), recovered from the snapshot's state word (*D_0024295C + 0x58)
+      by stepping the LCG back; each captured primitive's colour is the
+      depth fade of the original 001F4D40's rgb for its marker and that
+      draw, with the same fade factor as the port's primitive of the same
+      marker (so the two differ only by the draw)."""
+    oracle = MarkerOracle()
+    snaps = {i: beat for beat, i in state.get('snapshots', [])}
+    fresh = [i for i, t in enumerate(ticks) if t.get('markers') and t['markers'][0] == t['counter']
+             and t['markers'][1]]
+    assert fresh, 'marker colour: no barrel frame in the tick log'
+    picked = sorted(set(fresh[::250][:40]) | (set(snaps) & set(fresh)))
+    calls = 0
+    for i in picked:
+        t = ticks[i]
+        mk = t['markers'][1]
+        values = draws(frames, t['counter'], 0x1F4D40)
+        assert [m[4] for m in mk] == values, ('marker colour', 'port tick', t['tick'], 'draws', values)
+        for j, m in enumerate(mk):
+            assert oracle.rgb(m[:4], m[4]) == m[5], ('marker colour', 'port tick', t['tick'], 'marker', j)
+            calls += 1
+    exact = []
+    for i, beat in sorted(snaps.items()):
+        if beat not in VIEW_EXACT:
+            continue
+        t = ticks[i]
+        assert t.get('markers') and t['markers'][0] == t['counter'], ('marker colour', beat, 'no barrel frame')
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        st = struct.unpack_from('<I', ram, struct.unpack_from('<I', ram, 0x24295C)[0] + 0x58)[0]
+        after = []
+        for _ in range(11):
+            after.append(st)
+            st = ((st - LCG_ADD) * LCG_INV) & 0xFFFFFFFF
+        values = [a & 0x7FFFFFFF for a in reversed(after)]
+        _, chain, _ = lane_digests(beat)
+        tag = struct.pack('<Q', 0x20045B0599421EF0)
+        captured, k = [], chain - 11 * 0xC0 - 1
+        while True:
+            k = ram.find(tag, k + 1)
+            if k < 0 or k >= chain:
+                break
+            captured.append(list(struct.unpack_from('<4I', ram, k + 0x10)))
+        emitted = [(j, m) for j, m in enumerate(t['markers'][1]) if m[6]]
+        assert len(emitted) == len(captured), ('marker colour', beat, 'emitted', len(emitted), len(captured))
+        for (j, m), cap in zip(emitted, captured):
+            orig = oracle.rgb(m[:4], values[j])
+            common = [f for f in range(256) if marker_fade(m[5], f) == m[7:11] and marker_fade(orig, f) == cap]
+            assert common, ('marker colour', beat, 'marker', j, 'port', m[7:11], 'capture', cap)
+        exact.append(f'{beat[:2]} {len(captured)}')
+    print(f'marker colour: PASS (the original 001F4D40 over the port\'s colour quads and draws gives the port\'s '
+          f'rgb in all {calls} calls of {len(picked)} sampled barrel frames; the camera-exact snapshots\' '
+          f'captured markers are the original\'s over the capture\'s own draws with the port\'s depth fade: '
+          f'{", ".join(exact) if exact else "none"})')
+
+
+def check_head_sprites(ticks, state, frames):
+    """The head sprites' rand()-driven sub-state +0x05, wait +0x1F0, ramp
+    +0x244 and scalar +0x24C (001E2560; not compared with the snapshots in
+    check_effects: their phase follows the draws): over every tick, each
+    head sprite's change follows 001E2560's transitions (the translation
+    test_head_sprite_reference proves against the original instructions)
+    and every transition that draws takes the next 001E2560 value of the
+    frame's rand() trace, in pool order: a new sprite's wait = v % 40 + 60;
+    the flip to the ramp: ramp 0 and scalar = v / 2^31 (EE cvt.s.w and
+    div.s); the ramp's end: ramp 1.5 and wait = v % 40 + 60; otherwise the
+    wait counts down by one or holds (an owner without +0x01) and the ramp
+    adds 0.02 (EE add.s) or holds. The frame's draws are all used."""
+    import ee_float_model as FM
+    step, end, scale = 0x3CA3D70A, 0x3FC00000, 0x4F000000
+    sign = lambda w: w - (1 << 32) if w >> 31 else w
+    prev, counts = {}, collections.Counter()
+    for t in ticks:
+        e = t.get('effects')
+        if not e:
+            prev = {}
+            continue
+        cur = {n[0]: n for n in e[1] if n[1] == HEAD_SPRITE}
+        used = []
+        where = ('head sprites', 'port tick', t['tick'])
+        for a, n in cur.items():
+            lifecycle, sub, timer, ramp, scalar = n[2], n[3], sign(n[10]), n[11], n[12]
+            p = prev.get(a)
+            if p is None or p[2] != 1:
+                if lifecycle == 1:
+                    used.append(('wait', timer))
+                    counts['new'] += 1
+                continue
+            psub, ptimer, pramp = p[3], sign(p[10]), p[11]
+            if psub == 0 and sub == 1:
+                assert ramp == 0, (where, 'the ramp at the flip', hex(ramp))
+                used.append(('scalar', scalar))
+                counts['flip'] += 1
+            elif psub == 1 and sub == 0:
+                assert ramp == end, (where, 'the ramp at its end', hex(ramp))
+                used.append(('wait', timer))
+                counts['end'] += 1
+            elif sub == 0:
+                assert timer in (ptimer, ptimer - 1), (where, 'the wait', ptimer, timer)
+                counts['wait'] += 1
+            else:
+                assert ramp in (pramp, FM.ee_add(pramp, step)), (where, 'the ramp', hex(pramp), hex(ramp))
+                counts['ramp'] += 1
+        values = draws(frames, t['counter'], 0x1E2560)
+        assert len(used) == len(values), (where, 'draws', used, values)
+        for (kind, x), v in zip(used, values):
+            if kind == 'wait':
+                assert x == v % 40 + 60, (where, 'the wait from the draw', x, v)
+            else:
+                assert x == FM.ee_div(FM.ee_cvt_s_w(v), scale), (where, 'the scalar from the draw', hex(x), v)
+        prev = cur
+    assert counts['flip'] and counts['end'], ('head sprites: no flip or ramp end in the run', counts)
+    print(f'head sprites: PASS (every tick\'s sub-state, wait, ramp and scalar follow 001E2560 over the port\'s '
+          f'own draws in pool order: {counts["new"]} new, {counts["flip"]} flips to the ramp with their scalar, '
+          f'{counts["end"]} ramp ends with their wait, {counts["wait"]} wait ticks, {counts["ramp"]} ramp ticks)')
 
 
 def check_player_draw_gate(ticks):
@@ -2561,6 +2864,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--log', type=Path, required=True, help='EM_AREA_CHANGE_LOG of a newgame-level run')
     parser.add_argument('--run-log', type=Path, required=True, help='stderr of the same run')
+    parser.add_argument('--rand-trace', type=Path,
+                        help='EM_RAND_TRACE of the same run: check_rand_order (docs/RAND_ORDER.md)')
     parser.add_argument('--require-through', metavar='PHASE',
                         help='fail unless every phase the run was asked to play (the main line up to PHASE, '
                              'then PHASE itself when it is a side phase; "last" for the whole main line) '
@@ -2593,6 +2898,11 @@ def main():
         check_effects(ticks, state)
         check_owner_units(ticks, state)
     check_player_draw_gate(ticks)
+    if args.rand_trace and 'first_control' in checked:
+        check_rand_order(ticks, state, args.rand_trace)
+        check_sway(ticks, state, state['rand'])
+        check_marker_colour(ticks, state, state['rand'])
+        check_head_sprites(ticks, state, state['rand'])
     if 'first_control' in checked:
         import level_smoke_shadow   # census L29 / L29b (em_shadow_live)
         level_smoke_shadow.check_shadow(ticks, state)

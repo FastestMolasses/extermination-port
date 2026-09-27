@@ -282,6 +282,13 @@ test-title-menu-reference:
 test-random-seed-reference:
 	python3 tools/test_random_seed_reference.py
 
+# The rand() call order against the decomp's C7 per-call capture (a headless
+# New Game to first control + 30 ticks with EM_RAND_TRACE; about 10 s).
+# docs/RAND_ORDER.md.
+.PHONY: test-rand-order
+test-rand-order: $(BIN)
+	python3 tools/test_rand_order.py
+
 .PHONY: test-frame-input
 test-frame-input:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c -lm -o build/frame_input_test && ./build/frame_input_test
@@ -375,10 +382,11 @@ LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,fence_door_side1)
 test-level-smoke: $(BIN)
 	mkdir -p build/level_smoke
 	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
-	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl \
+	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl EM_RAND_TRACE=build/level_smoke/rand.trace \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
+	    --rand-trace build/level_smoke/rand.trace \
 	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 

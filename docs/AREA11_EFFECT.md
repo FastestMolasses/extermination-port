@@ -117,7 +117,9 @@ and visual submission. That fixture uses a synthetic close camera solely
 for plumbing; it is not a captured original gameplay view. Images, binaries,
 logs and hash receipt remain ignored under `build/area11_effect_reference`.
 
-The native owner now consumes its original initializer RNG call, but full
-actor scheduling and global RNG call ordering remain unfinished. These
+The native owner now consumes its original initializer RNG call at the
+original's position: in the rand() order audit (RAND_ORDER.md) its draw is
+AE+1's, after the husk creature's (whose owner is not bound, census L24).
+Full actor scheduling remains unfinished. These
 changes establish original-derived behavior and scoped proofs, not complete
 first-level or pixel fidelity.
