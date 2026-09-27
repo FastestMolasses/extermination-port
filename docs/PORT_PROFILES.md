@@ -7,7 +7,7 @@ from **one codebase**:
 |---|---|---|
 | Purpose | Faithful to the PS2 game in every way that can be measured | The user's improvements |
 | Game logic | The translated original code | **The same code.** Differences are opt-in switches, listed below |
-| Resolution | The exact framebuffer the GS draws (512x448 for the first level; measure other modes per mode), shown at 4:3 | Native / higher resolution, any aspect ratio |
+| Resolution | The exact framebuffer the GS draws, shown at 4:3. First level (measured 2026-09-26, decomp docs/CAPTURES_C7.md 5/5b): each field is one 512x224 PSMCT32 buffer (two buffers alternate) shown as 448 lines in field mode (SMODE2 FFMD=1, DISPLAY2 512x448, draw offset alternating by half a line with the field). How the Original profile presents the fields without CRT simulation (line-doubling each field vs combining the pair) is an open user decision | Native / higher resolution, any aspect ratio |
 | Scaling | Nearest-neighbour integer or aspect-correct scaling, **no smoothing** | Filtering and AA of the user's choosing |
 | Colours | GS-exact: the same blend, fog, alpha test, dither and clamp arithmetic, so the pixels match | May differ |
 | CRT / scanline simulation | **None** (user: "no simulating CRT") | Not planned |
@@ -60,11 +60,14 @@ from **one codebase**:
 ## Queued work (after the first level is faithful)
 
 1. **Framebuffer-comparison harness.** Take the original frame from the GS
-   memory in PCSX2 snapshots (`tools/pcsx2_session.py` snapshots and the route
-   captures in `../Extermination/build/s87/route/`). Render the port at the same
+   memory of PCSX2 snapshots made with the software renderer (the decomp's
+   `build/s87/c7cap/fb2/<point>/displayed.bin`, 19 route points, recorded
+   2026-09-26 by `tools/c7cap_partb.py fb2`; the hardware-renderer route
+   snapshots hold no rendered frame). The software renderer is PCSX2's model
+   of the GS, not real hardware. Render the port at the same
    game state in the Original profile. Diff the two pixel by pixel. This turns
    "looks like the original" into a number.
-2. **GS-exact Original rendering.** Render at 512x448, apply the GS blend, fog,
+2. **GS-exact Original rendering.** Render each field at 512x224 as the GS does, apply the GS blend, fog,
    alpha-test and dither rules exactly, and scale to 4:3 without filtering.
 3. **Profile switch plumbing.** One settings struct with an Original value for
    every switch, chosen at launch. Rendering switches go first.
