@@ -178,7 +178,8 @@ The reference test checks this for all five.
 **Not verified here:**
 - The pixels: the GS output this chain produces (VU1 microcode selected through 001CB9B0(1), table 0x231770, row 2)
   was not compared with `opening_gs.bin` or a beat `gs.bin`. The chain bytes that feed VU1 are byte-identical to the
-  captures. Rendering them is the renderer's job; no port stage draws this packet type yet.
+  captures. Since WP-13 the chain page's consumer runs the sprite program's translation over them and draws the
+  sprites (docs/CHAIN_PAGE.md; the kicked packets equal the original microcode's).
 - The SDK matrix workers themselves: their translations belong to em_crate_original and em_effect_original. This
   test proves the crate versions only on the 16 captured ticks.
 
@@ -260,9 +261,8 @@ the only missing input. The notes below apply once they exist.
 - **Packet workers.** `w_001CD370` and the chain workers (001CB5F0/6B0/760/900) belong to the renderer's packet sink.
   - For trace and capture comparisons, build the original chain bytes. The layout of the byte-matched C: a packet of
     n quadwords at cursor + 0x120, the cursor advancing (n + 2)·16, and each tag advancing it 0x20.
-  - For drawing, hand the 4×4 D0 matrix, the ramp +0x244, the scalar +0x24C, st = D_00253670, table 0x231770 and
-    row 2 to a VU1 sprite stage. That stage does not exist yet and is out of this lane's ownership. Until it exists
-    the node must stay unwired, or be wired with the packet sink as a recorder. Never substitute a stand-in sprite.
+  - For drawing: the chain bytes are the drawing's input. The page's consumer (em_chain_page_live, WP-13,
+    docs/CHAIN_PAGE.md) walks them as the DMA does and runs table 0x231770's sprite program on them.
 
 **Makefile hunks needed:**
 ```

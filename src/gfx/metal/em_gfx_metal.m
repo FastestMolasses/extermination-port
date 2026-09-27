@@ -198,12 +198,12 @@ struct EmGfx {
     bool                         shadowRecvOpen;
     float                        shadowUV[16], shadowCam[16], shadowVP[16];
     uint32_t                     shadowWarned;      /* reasons printed */
-    /* The 0015BF90 decal (em_gfx_shadow_decal_*): its pipeline (the GS
-     * pixel path of 001CE300's fans, framebuffer fetch, RGB write only)
-     * and its texture (raw CLUT entries, RGBA8Uint). */
-    id<MTLRenderPipelineState>   shadowDecalPipeline;
-    id<MTLTexture>               shadowDecalTex;
-    uint32_t                     shadowDecalW, shadowDecalH;
+    /* The chain page's GS primitives (em_gfx_gs_prims): the textured and
+     * the untextured GS pixel paths (framebuffer fetch, RGB write only) and
+     * the reasons already printed. Textures share the object table. */
+    id<MTLRenderPipelineState>   gsTexPipeline;
+    id<MTLRenderPipelineState>   gsFlatPipeline;
+    uint32_t                     gsWarned;
     /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
      * the TEX0 (CLD cleared) -> texture table, the pipeline of the GS
      * class-0 pixel path, the CPU kernels' result storage and the reasons
@@ -774,8 +774,8 @@ void em_gfx_destroy(EmGfx *g)
     for (unsigned i = 0; i < EM_GFX_SHADOW_TARGET_MAX; i++)
         [g->shadowTarget[i] release];
     [g->shadowLast release];
-    [g->shadowDecalPipeline release];
-    [g->shadowDecalTex release];
+    [g->gsTexPipeline release];
+    [g->gsFlatPipeline release];
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
     [g->objPipeline release];
@@ -3327,35 +3327,56 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
     return 0;
 }
 
-/* --- The 0015BF90 decal (em_gfx_shadow_decal_* — em_gfx.h) --------------- */
+/* --- The chain page: GS primitives (em_gfx_gs_prims — em_gfx.h) ---------- */
 
-/* The GS pixel path of 001CE300's fans under the mode-1 blend block
- * (docs/SHADOW_DECAL.md section 4). Vertices arrive in NDC with w = 1 (the
- * packet's X / Y through em_background_gs_ndc, Z through object_depth), so
- * RGBA, F and S, T, Q are screen-linear, as the GS interpolates them; the
- * texture coordinate is divided per pixel (STQ). Texels are the raw CLUT
- * entries, read with the GS bilinear rule (sample point U - 0.5 on the 1/16
- * grid, 4-bit weights) and REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1; fog
- * (FGE); the alpha test NEVER fails every pixel and AFAIL RGB_ONLY still
- * writes its RGB (the pipeline masks alpha, the depth state writes no Z);
- * ALPHA 0x44 = (Cs - Cd) * As >> 7 + Cd with COLCLAMP, on the frame pixel
- * (framebuffer fetch). k = (width, height, FOGCOL r | g << 8 | b << 16, 0).
+/* The GS pixel path of the chain page's primitives (docs/CHAIN_PAGE.md
+ * section 5). Vertices arrive in NDC with w = 1 (X / Y through
+ * em_background_gs_ndc, Z through object_depth), so RGBA, F and S, T, Q are
+ * screen-linear, as the GS interpolates them; the texture coordinate is
+ * divided per pixel (STQ). Texels are the raw CLUT entries, read with the GS
+ * bilinear rule (sample point U - 0.5 on the 1/16 grid, 4-bit weights) and
+ * REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1: Cf = Ct * Cv >> 7, Af = At *
+ * Av >> 7 (untextured: Cv, Av); fog (FGE): (C * F + FOGCOL * (255 - F)) >> 8;
+ * the alpha test NEVER with AFAIL RGB_ONLY writes RGB only (the pipeline
+ * masks alpha, the depth state writes no Z; depth GEQUAL); the blend
+ * ((A - B) * C >> 7) + D with A, B, D each Cs, Cd or 0 and C As or FIX,
+ * COLCLAMP 1, on the frame pixel (framebuffer fetch).
+ * k[0] = (width, height, FOGCOL r | g << 8 | b << 16, FGE);
+ * k[1] = (A, B, C, D selectors as ALPHA_1 packs them, FIX, 0, 0).
  * APPROXIMATION, as the object units': the per-pixel values come from
  * Metal's float interpolation, floored with a 0.001 epsilon; the GS DDA
- * stepping is not modelled and no GS dump of a drawn decal checks it. */
-static NSString *const kDecalShaderSrc =
+ * stepping (and the GS line rule) is not modelled and no GS dump of a drawn
+ * frame checks it. */
+static NSString *const kGsPrimShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
-"struct DVOut { float4 pos [[position]];\n"
+"struct GVOut { float4 pos [[position]];\n"
 "               float4 rgba [[center_no_perspective]];\n"
 "               float4 stqf [[center_no_perspective]]; };\n"
-"vertex DVOut v_decal(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
-"    DVOut o; o.pos = v[3 * vid]; o.rgba = v[3 * vid + 1]; o.stqf = v[3 * vid + 2]; return o;\n"
+"vertex GVOut v_gs(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
+"    GVOut o; o.pos = v[3 * vid]; o.rgba = v[3 * vid + 1]; o.stqf = v[3 * vid + 2]; return o;\n"
 "}\n"
-"fragment float4 f_decal(DVOut in [[stage_in]], float4 dst [[color(0)]],\n"
-"                        texture2d<uint, access::read> tex [[texture(0)]],\n"
-"                        constant uint4 &k [[buffer(0)]]) {\n"
-"    int w = int(k.x), h = int(k.y);\n"
+"static float4 gs_out(uint3 c, uint a, float4 dst, constant uint4 *k) {\n"
+"    int3 cs = int3(c), cd = int3(round(dst.rgb * 255.0));\n"
+"    uint sel = k[1].x;\n"
+"    int3 va = (sel & 3u) == 0u ? cs : (sel & 3u) == 1u ? cd : int3(0);\n"
+"    int3 vb = ((sel >> 2) & 3u) == 0u ? cs : ((sel >> 2) & 3u) == 1u ? cd : int3(0);\n"
+"    int vc = ((sel >> 4) & 3u) == 0u ? int(a) : int(k[1].y);\n"
+"    int3 vd = ((sel >> 6) & 3u) == 0u ? cs : ((sel >> 6) & 3u) == 1u ? cd : int3(0);\n"
+"    float3 prod = float3((va - vb) * vc);\n"
+"    int3 o = clamp(int3(floor(prod / 128.0)) + vd, 0, 255);\n"
+"    return float4(float3(o) / 255.0, dst.a);\n"
+"}\n"
+"static uint3 gs_fog(uint3 c, float fv, constant uint4 *k) {\n"
+"    if (k[0].w == 0u) return c;\n"
+"    uint f = uint(clamp(floor(fv + 0.001), 0.0, 255.0));\n"
+"    uint3 fc = uint3(k[0].z & 255u, (k[0].z >> 8) & 255u, (k[0].z >> 16) & 255u);\n"
+"    return (c * f + fc * (255u - f)) >> 8;\n"
+"}\n"
+"fragment float4 f_gs_tex(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
+"                         texture2d<uint, access::read> tex [[texture(0)]],\n"
+"                         constant uint4 *k [[buffer(0)]]) {\n"
+"    int w = int(k[0].x), h = int(k[0].y);\n"
 "    float u = in.stqf.x / in.stqf.z, v = in.stqf.y / in.stqf.z;\n"
 "    int uu = int(floor(u * float(w) * 16.0)) - 8;\n"
 "    int vv = int(floor(v * float(h) * 16.0)) - 8;\n"
@@ -3367,100 +3388,216 @@ static NSString *const kDecalShaderSrc =
 "               tex.read(uint2(x0, y1)) * uint((16 - fu) * fv) +\n"
 "               tex.read(uint2(x1, y1)) * uint(fu * fv)) >> 8;\n"
 "    uint4 cv = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
-"    /* TFX MODULATE, TCC 1. */\n"
 "    uint3 c = min((t.rgb * cv.rgb) >> 7, uint3(255));\n"
-"    uint as = min((t.a * cv.a) >> 7, 255u);\n"
-"    /* FGE: (C * F + FOGCOL * (255 - F)) >> 8. */\n"
-"    uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
-"    uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
-"    c = (c * f + fc * (255u - f)) >> 8;\n"
-"    /* ALPHA 0x44 on the frame pixel; COLCLAMP 1. */\n"
-"    int3 dc = int3(round(dst.rgb * 255.0));\n"
-"    float3 prod = float3((int3(c) - dc) * int(as));\n"
-"    int3 o = clamp(int3(floor(prod / 128.0)) + dc, 0, 255);\n"
-"    return float4(float3(o) / 255.0, dst.a);\n"
+"    uint a = min((t.a * cv.a) >> 7, 255u);\n"
+"    return gs_out(gs_fog(c, in.stqf.w, k), a, dst, k);\n"
+"}\n"
+"fragment float4 f_gs_flat(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
+"                          constant uint4 *k [[buffer(0)]]) {\n"
+"    uint4 cv = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
+"    return gs_out(gs_fog(cv.rgb, in.stqf.w, k), cv.a, dst, k);\n"
 "}\n";
 
-int em_gfx_shadow_decal_texture(EmGfx *g, const uint8_t *rgba, uint32_t width, uint32_t height)
+enum {
+    GS_WARN_FRAME = 1u, GS_WARN_STATE = 2u, GS_WARN_TEXTURE = 4u, GS_WARN_FOG = 8u,
+    GS_WARN_GPU = 16u, GS_WARN_INPUT = 32u, GS_WARN_FETCH = 64u,
+};
+
+static int gs_fail(EmGfx *g, uint32_t why, const char *what, uint64_t detail)
 {
-    if (!g || !rgba) return shadow_fail(g, SHADOW_WARN_INPUT, "decal texture missing");
-    if (!width || !height || width > 1024u || height > 1024u || (width & (width - 1u)) ||
-        (height & (height - 1u)))
-        return shadow_fail(g, SHADOW_WARN_INPUT, "decal texture is not a power-of-two size");
+    if (g && !(g->gsWarned & why)) {
+        g->gsWarned |= why;
+        fprintf(stderr, "gfx: chain page primitive: %s (%#llx) — not drawn\n", what,
+                (unsigned long long)detail);
+    }
+    return -1;
+}
+
+int em_gfx_gs_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t width, uint32_t height)
+{
+    if (!g || !rgba) return -1;
+    const uint64_t key = tex0 & ~(UINT64_C(7) << 61);
+    const uint32_t tw = (uint32_t)(key >> 26) & 15u, th = (uint32_t)(key >> 30) & 15u;
+    if (tw > 10u || th > 10u || width != (1u << tw) || height != (1u << th))
+        return gs_fail(g, GS_WARN_INPUT, "texture registration: not 2^TW x 2^TH", key);
+    struct EmGfxObjectTex *slot = (struct EmGfxObjectTex *)object_texture(g, key);
+    if (!slot) {
+        if (g->objTexCount >= EM_GFX_OBJECT_TEX_MAX)
+            return gs_fail(g, GS_WARN_INPUT, "texture registration: table full", key);
+        slot = &g->objTex[g->objTexCount++];
+        memset(slot, 0, sizeof *slot);
+        slot->tex0 = key;
+    }
     MTLTextureDescriptor *td = [MTLTextureDescriptor
         texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Uint
                                      width:width height:height mipmapped:NO];
     td.usage = MTLTextureUsageShaderRead;
     id<MTLTexture> t = [g->device newTextureWithDescriptor:td];
-    if (!t) return shadow_fail(g, SHADOW_WARN_GPU, "decal texture allocation failed");
+    if (!t) return gs_fail(g, GS_WARN_GPU, "texture allocation failed", key);
     [t replaceRegion:MTLRegionMake2D(0, 0, width, height) mipmapLevel:0
            withBytes:rgba bytesPerRow:4u * width];
-    [g->shadowDecalTex release];
-    g->shadowDecalTex = t;
-    g->shadowDecalW = width;
-    g->shadowDecalH = height;
+    [slot->tex release];
+    slot->tex = t;
+    slot->width = width;
+    slot->height = height;
     return 0;
 }
 
-int em_gfx_shadow_decal_fan(EmGfx *g, const EmGfxDecalVertex *v, uint32_t n, uint64_t tex0)
+/* The state one primitive needs, checked against what the pixel path
+ * implements. Returns NULL (drawable) or the refusal. */
+static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex **tex)
 {
-    if (!g || !g->enc) return shadow_fail(g, SHADOW_WARN_FRAME, "outside a frame");
-    if (!v || n < 3u) return shadow_fail(g, SHADOW_WARN_INPUT, "decal fan input missing");
-    if (!g->shadowDecalTex) return shadow_fail(g, SHADOW_WARN_INPUT, "no decal texture registered");
-    const uint32_t tw = (uint32_t)(tex0 >> 26) & 15u, th = (uint32_t)(tex0 >> 30) & 15u;
-    const uint32_t tcc = (uint32_t)(tex0 >> 34) & 1u, tfx = (uint32_t)(tex0 >> 35) & 3u;
-    /* The shader implements MODULATE with TCC 1 over the registered size;
-     * any other TEX0 is refused, not approximated. */
-    if (tw > 10u || th > 10u || g->shadowDecalW != (1u << tw) || g->shadowDecalH != (1u << th) ||
-        tcc != 1u || tfx != 0u)
-        return shadow_fail(g, SHADOW_WARN_INPUT, "decal TEX0 other than the registered MODULATE "
-                           "TCC 1 texture");
-    if (!(g->fog[3] > 0.0f))
-        return shadow_fail(g, SHADOW_WARN_FOG, "decal without the frame's fog (em_gfx_fog)");
-    if (![g->device supportsFamily:MTLGPUFamilyApple1])
-        return shadow_fail(g, SHADOW_WARN_FETCH, "the GPU has no framebuffer fetch (the GS blend)");
-    if (!g->shadowDecalPipeline)
-        g->shadowDecalPipeline = shadow_pipeline(g, kDecalShaderSrc, @"v_decal", @"f_decal",
-            g->layer.pixelFormat, true,
-            MTLColorWriteMaskRed | MTLColorWriteMaskGreen | MTLColorWriteMaskBlue);
-    if (!g->shadowDecalPipeline)
-        return shadow_fail(g, SHADOW_WARN_GPU, "decal pipeline unavailable");
-    ensure_depth_states(g);
-    const uint32_t tris = n - 2u;
-    float *out = malloc(sizeof(float) * 36u * tris);
-    if (!out) return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
-    for (uint32_t i = 0; i < tris; i++) {
-        const uint32_t idx[3] = { 0u, i + 1u, i + 2u };
-        for (unsigned c = 0; c < 3u; c++) {
-            const EmGfxDecalVertex *s = &v[idx[c]];
-            float *o = out + (size_t)(3u * i + c) * 12u;
-            const uint16_t xy[2] = { s->x, s->y };
-            em_background_gs_ndc(xy, o);
-            o[2] = object_depth(s->z);
-            o[3] = 1.0f;
-            for (unsigned k = 0; k < 4u; k++) o[4 + k] = (float)s->rgba[k];
-            o[8] = bits_f(s->s);
-            o[9] = bits_f(s->t);
-            o[10] = bits_f(s->q);
-            o[11] = (float)s->f;
+    const uint32_t type = p->prim & 7u, iip = (p->prim >> 3) & 1u, tme = (p->prim >> 4) & 1u;
+    const uint32_t abe = (p->prim >> 6) & 1u;
+    *tex = NULL;
+    if (p->prim & 0x780u) return "PRIM AA1 / FST / CTXT / FIX";
+    if (!abe) return "PRIM without ABE";
+    if (type == 2u) {
+        if (p->count != 2u || tme || !iip) return "a line other than Gouraud untextured";
+    } else if (type == 4u || type == 5u) {
+        if (p->count != 3u || !tme || !iip) return "a triangle other than Gouraud textured";
+    } else if (type == 6u) {
+        if (p->count != 2u || !tme) return "an untextured sprite";
+    } else {
+        return "a PRIM type the page does not draw";
+    }
+    const uint32_t need = EM_GFX_GS_ALPHA | EM_GFX_GS_TEST | EM_GFX_GS_COLCLAMP |
+        (tme ? EM_GFX_GS_TEX0 | EM_GFX_GS_TEX1 | EM_GFX_GS_CLAMP : 0u);
+    if ((p->set & need) != need) return "a drawing state the page did not set";
+    if (p->test != 0x53001u) return "TEST_1 other than 0x53001";
+    if (p->colclamp != 1u) return "COLCLAMP other than 1";
+    const uint32_t a = (uint32_t)p->alpha & 0xFFu;
+    if ((p->alpha & ~(UINT64_C(0xFF) << 32 | 0xFFu)) || ((a >> 4) & 3u) == 1u || ((a >> 4) & 3u) == 3u ||
+        (a & 3u) == 3u || ((a >> 2) & 3u) == 3u || ((a >> 6) & 3u) == 3u)
+        return "an ALPHA_1 form the pixel path does not implement";
+    if (tme) {
+        const uint64_t t0 = p->tex0 & ~(UINT64_C(7) << 61);
+        const uint32_t psm = (uint32_t)(t0 >> 20) & 0x3Fu, tcc = (uint32_t)(t0 >> 34) & 1u;
+        const uint32_t tfx = (uint32_t)(t0 >> 35) & 3u, cpsm = (uint32_t)(t0 >> 51) & 0xFu;
+        const uint32_t csm = (uint32_t)(t0 >> 55) & 1u;
+        if ((psm != 0x13u && psm != 0x14u) || cpsm || csm || tcc != 1u || tfx != 0u)
+            return "a TEX0 other than a CT32 CLUT texture with TCC 1 MODULATE";
+        if (p->tex1 != 0x60u) return "TEX1_1 other than 0x60";
+        if (p->clamp != 0u) return "CLAMP_1 other than REPEAT";
+    }
+    return NULL;
+}
+
+static void gs_put(float *o, uint16_t x, uint16_t y, uint32_t z, const uint8_t rgba[4], float s, float t,
+                   float q, float f)
+{
+    const uint16_t xy[2] = { x, y };
+    em_background_gs_ndc(xy, o);
+    o[2] = object_depth(z);
+    o[3] = 1.0f;
+    for (unsigned k = 0; k < 4u; k++) o[4 + k] = (float)rgba[k];
+    o[8] = s;
+    o[9] = t;
+    o[10] = q;
+    o[11] = f;
+}
+
+int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
+{
+    if (!g || !g->enc) return gs_fail(g, GS_WARN_FRAME, "outside a frame", 0);
+    if (!count) return 0;
+    if (!prims) return gs_fail(g, GS_WARN_INPUT, "no primitives", 0);
+    const bool fog = g->fog[3] > 0.0f;
+    const struct EmGfxObjectTex **texs = calloc(count, sizeof *texs);
+    if (!texs) return gs_fail(g, GS_WARN_INPUT, "out of memory", count);
+    for (uint32_t i = 0; i < count; i++) {
+        const char *why = gs_refusal(&prims[i], &texs[i]);
+        if (why) { free(texs); return gs_fail(g, GS_WARN_STATE, why, prims[i].prim); }
+        if ((prims[i].prim >> 4) & 1u) {
+            texs[i] = object_texture(g, prims[i].tex0);
+            if (!texs[i]) {
+                free(texs);
+                return gs_fail(g, GS_WARN_TEXTURE, "a TEX0 without a registered texture "
+                               "(run tools/export_page_textures.py)", prims[i].tex0);
+            }
+        }
+        if (((prims[i].prim >> 5) & 1u) && !fog) {
+            free(texs);
+            return gs_fail(g, GS_WARN_FOG, "fogged primitive without the frame's FOGCOL", prims[i].prim);
         }
     }
-    id<MTLBuffer> vb = [g->device newBufferWithBytes:out length:sizeof(float) * 36u * tris
+    if (![g->device supportsFamily:MTLGPUFamilyApple1]) {
+        free(texs);
+        return gs_fail(g, GS_WARN_FETCH, "the GPU has no framebuffer fetch (the GS blend)", 0);
+    }
+    const MTLColorWriteMask rgb = MTLColorWriteMaskRed | MTLColorWriteMaskGreen | MTLColorWriteMaskBlue;
+    if (!g->gsTexPipeline)
+        g->gsTexPipeline = shadow_pipeline(g, kGsPrimShaderSrc, @"v_gs", @"f_gs_tex", g->layer.pixelFormat, true, rgb);
+    if (!g->gsFlatPipeline)
+        g->gsFlatPipeline = shadow_pipeline(g, kGsPrimShaderSrc, @"v_gs", @"f_gs_flat", g->layer.pixelFormat, true, rgb);
+    if (!g->gsTexPipeline || !g->gsFlatPipeline) {
+        free(texs);
+        return gs_fail(g, GS_WARN_GPU, "pipeline unavailable", 0);
+    }
+    ensure_depth_states(g);
+    /* Every primitive becomes 6 vertices at most (a sprite's two
+     * triangles), 12 floats each. */
+    float *v = malloc(sizeof(float) * 72u * count);
+    uint32_t *first = malloc(sizeof(uint32_t) * 2u * count);
+    if (!v || !first) {
+        free(v); free(first); free(texs);
+        return gs_fail(g, GS_WARN_INPUT, "out of memory", count);
+    }
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const EmGfxGsPrim *p = &prims[i];
+        const uint32_t type = p->prim & 7u;
+        first[2u * i] = n;
+        if (type == 6u) {
+            /* The GS sprite: Z, F and RGBA of the second vertex; S / Q, T / Q
+             * at each corner, affine across the rectangle. */
+            const EmGfxGsVertex *a = &p->v[0], *b = &p->v[1];
+            const float ua = bits_f(a->s) / bits_f(a->q), va = bits_f(a->t) / bits_f(a->q);
+            const float ub = bits_f(b->s) / bits_f(b->q), vb = bits_f(b->t) / bits_f(b->q);
+            const uint16_t xs[2] = { a->x, b->x }, ys[2] = { a->y, b->y };
+            const float us[2] = { ua, ub }, vs[2] = { va, vb };
+            static const unsigned corner[6][2] = { {0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1} };
+            for (unsigned c = 0; c < 6u; c++)
+                gs_put(v + (size_t)(n + c) * 12u, xs[corner[c][0]], ys[corner[c][1]], b->z, b->rgba,
+                       us[corner[c][0]], vs[corner[c][1]], 1.0f, (float)b->f);
+            n += 6u;
+        } else {
+            for (uint32_t c = 0; c < p->count; c++) {
+                const EmGfxGsVertex *s = &p->v[c];
+                gs_put(v + (size_t)(n + c) * 12u, s->x, s->y, s->z, s->rgba, bits_f(s->s), bits_f(s->t),
+                       bits_f(s->q), (float)s->f);
+            }
+            n += p->count;
+        }
+        first[2u * i + 1u] = n - first[2u * i];
+    }
+    id<MTLBuffer> vb = [g->device newBufferWithBytes:v length:sizeof(float) * 12u * n
                                              options:MTLResourceStorageModeShared];
-    free(out);
-    const uint32_t k[4] = { g->shadowDecalW, g->shadowDecalH,
-                            (uint32_t)lroundf(g->fog[0] * 255.0f) |
-                                (uint32_t)lroundf(g->fog[1] * 255.0f) << 8 |
-                                (uint32_t)lroundf(g->fog[2] * 255.0f) << 16,
-                            0u };
-    [g->enc setRenderPipelineState:g->shadowDecalPipeline];
-    [g->enc setDepthStencilState:g->depthGlow];      /* ZTST GEQUAL; AFAIL: no Z */
+    free(v);
+    const uint32_t fogcol = fog
+        ? (uint32_t)lroundf(g->fog[0] * 255.0f) | (uint32_t)lroundf(g->fog[1] * 255.0f) << 8 |
+          (uint32_t)lroundf(g->fog[2] * 255.0f) << 16
+        : 0u;
+    [g->enc setDepthStencilState:g->depthGlow];      /* ZTST GEQUAL; AFAIL RGB_ONLY: no Z */
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBuffer:vb offset:0 atIndex:0];
-    [g->enc setFragmentTexture:g->shadowDecalTex atIndex:0];
-    [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
-    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:3u * tris];
+    /* One draw per primitive, in GS order: each blends over the frame the
+     * ones before it left (framebuffer fetch). */
+    for (uint32_t i = 0; i < count; i++) {
+        const EmGfxGsPrim *p = &prims[i];
+        const uint32_t tme = (p->prim >> 4) & 1u;
+        const uint32_t k[8] = { tme ? texs[i]->width : 1u, tme ? texs[i]->height : 1u, fogcol,
+                                (p->prim >> 5) & 1u, (uint32_t)p->alpha & 0xFFu, (uint32_t)(p->alpha >> 32) & 0xFFu,
+                                0u, 0u };
+        [g->enc setRenderPipelineState:tme ? g->gsTexPipeline : g->gsFlatPipeline];
+        if (tme) [g->enc setFragmentTexture:texs[i]->tex atIndex:0];
+        [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+        [g->enc drawPrimitives:(p->prim & 7u) == 2u ? MTLPrimitiveTypeLine : MTLPrimitiveTypeTriangle
+                   vertexStart:first[2u * i] vertexCount:first[2u * i + 1u]];
+    }
     [vb release];
+    free(first);
+    free(texs);
     return 0;
 }
 

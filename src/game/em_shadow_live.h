@@ -31,8 +31,10 @@
  *             block 0x70003600..0x7000363F), and 001CE300
  *             (em_shadow_decal_original over the render context's packet
  *             chain, page D_007635C0 slot 0). The fans 001CE300 writes are
- *             read back from the chain and drawn by
- *             em_shadow_live_flush_decal at the page's splice position.
+ *             checked here (the form 001CE300 writes) and drawn with the
+ *             rest of the page by em_chain_page_live at the page's splice
+ *             (docs/CHAIN_PAGE.md), which reports the decal triangles it
+ *             drew back through em_shadow_live_page_drew.
  *
  * Fail-stop: a missing asset or view, a worker or translation fault, a
  * packet the renderer does not implement, or a GPU pass that cannot draw
@@ -52,10 +54,9 @@ extern "C" {
 
 #define EM_SHADOW_LIVE_RECEIVERS_PATH "assets/scene_snow/shadow_receivers.emsr"
 #define EM_SHADOW_LIVE_PROXY_PATH "assets/player_shadow.emdl"
-#define EM_SHADOW_LIVE_DECAL_PATH "assets/scene_snow/shadow_decal.emdt"
 
-/* Load the assets (once per session) and check the views and the mode-1
- * blend block the decal renderer implements; reset the per-frame record.
+/* Load the assets (once per session) and check the views; reset the
+ * per-frame record.
  * Called at the AREA11 area load. 0, or -1 (the reason printed, the
  * address latched). */
 int em_shadow_live_bind(void);
@@ -73,9 +74,10 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route);
  * frame's native P*V `viewproj` (the level's). Nothing recorded this frame:
  * 0. 0, or -1 (latched). */
 int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
-/* The frame's 0015BF90 decal fans, in the order the GS executes page
- * D_007635C0's slot 0 (newest first). 0, or -1 (latched). */
-int em_shadow_live_flush_decal(EmGfx *gfx);
+/* The chain page drew `decal_triangles` fan triangles with the decal's
+ * TEX0 this frame (em_chain_page_live): they must be exactly this frame's
+ * 0015BF90 fans' (sum of n - 2), else the fault latches. 0, or -1. */
+int em_shadow_live_page_drew(uint32_t decal_triangles);
 
 /* The level smoke's view of the last 0015C160 shadow call (the tick log's
  * "shadow"): its frame counter, route, the 001DA6A0 result (1 drawn, 0

@@ -80,7 +80,9 @@ two live slots in every route snapshot, and they never age.
 
 ### 001F0A60(a0, mode, pos, colA, colB, angle, size, depth): the glint
 
-This is two camera-facing triangles around one point.
+It draws two line strips of three vertices through one point (the GIF tag's
+PRIM 0x06A: line strip, Gouraud, fogged, blended, untextured; corrected by
+WP-13 from "two camera-facing triangles": docs/CHAIN_PAGE.md section 2).
 1. v = 001CD370(0) · (pos.xyz, 1). A VCLIPw.xyz flag in the latest judgement returns with nothing done [0x1F0AF4].
 2. 0021B9A0(2, 1.0, 150.0), then 0021B9A0(3, 1.0, 150.0). This is the fog/depth-range programmer (section 4): near += 150, then far += 150.
 3. Only now is the context +0xA0 fog quadword read.
@@ -477,15 +479,19 @@ route, route census `route_functions.json`): the footstep decal 001F0460
 (00187EE0 copies a stack word its 001031E0 never writes into the matrix's
 row 3), 001CD390's subtypes.
 
-### 8.3 What is not drawn
+### 8.3 What draws the chains (since WP-13)
 
 The chains are built byte for byte in the context's chain table, which
-001D1EA0's 001CB800 splices every frame; no port renderer stage consumes the
-effect chains (the puffs, the head sprites' breath, the glint, the glow
-markers, the ring lanes). The AREA11 effect owner and the snow keep their
-own projection path (em_effect_sprite_project / em_snow_project over
-em_snow_particles_generate), now with the context's fog. Drawing the chains
-is the renderer's (the VU1 programs of table 0x231770 / 0x233290; WP-13).
+001D1EA0's 001CB800 splices every frame, and since WP-13 (docs/CHAIN_PAGE.md)
+em_chain_page_live draws the spliced page as the original's DMA sends it: the
+ring lanes through the lane program of D_00233290 (no route slot is active,
+so it draws nothing on the route), the puffs and the head sprites' breath
+through the sprite program of table 0x231770, the glint's line strips, the
+glow markers' and the equipment sprites' sprites, in slot order with the
+0015BF90 decal. The AREA11 effect owner (its 001D04B0 is not bound) and the
+snow (the weather's 001E0D70 kick is not bound) keep their own projection
+path (em_effect_sprite_project / em_snow_project over
+em_snow_particles_generate) with the context's fog; CHAIN_PAGE.md section 6.
 
 ### 8.4 Evidence
 

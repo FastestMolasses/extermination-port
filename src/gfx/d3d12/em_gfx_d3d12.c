@@ -81,7 +81,7 @@ int em_gfx_shadow_receiver(EmGfx *gfx, const EmGfxShadowStrips *object, uint32_t
 { (void)gfx; (void)object; (void)cls; return -1; }
 int em_gfx_shadow_receiver_end(EmGfx *gfx) { (void)gfx; return -1; }
 int em_gfx_shadow_target_read(EmGfx *gfx, uint8_t *rgba) { (void)gfx; (void)rgba; return -1; }
-int em_gfx_shadow_decal_texture(EmGfx *gfx, const uint8_t *rgba, uint32_t width, uint32_t height)
-{ (void)gfx; (void)rgba; (void)width; (void)height; return -1; }
-int em_gfx_shadow_decal_fan(EmGfx *gfx, const EmGfxDecalVertex *v, uint32_t n, uint64_t tex0)
-{ (void)gfx; (void)v; (void)n; (void)tex0; return -1; }
+int em_gfx_gs_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count)
+{ (void)gfx; (void)prims; (void)count; return -1; }
+int em_gfx_gs_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba, uint32_t width, uint32_t height)
+{ (void)gfx; (void)tex0; (void)rgba; (void)width; (void)height; return -1; }

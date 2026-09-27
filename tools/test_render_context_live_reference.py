@@ -62,7 +62,7 @@ ROUTE = DECOMP / 'build/s87/route'
 OUT = ROOT / 'build' / 'render_context_live_reference'
 EXPORT = ROOT / 'assets/render_context.emrc'
 
-SOURCES = ['em_render_context_live', 'em_frame_render_heads', 'em_render_context', 'em_packet_chain_original',
+SOURCES = ['em_render_context_live', 'em_gs_blocks_original', 'em_frame_render_heads', 'em_render_context', 'em_packet_chain_original',
            'em_status_ui_leftovers', 'em_load_veil_particles', 'em_actor_light_001D89D0',
            'em_owner_services_original', 'em_effect_original', 'em_player_equipment',
            'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float',

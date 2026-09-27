@@ -6,6 +6,8 @@
  * translations over that one storage. Every worker below names the original
  * callee it stands for. */
 #include "game/em_render_context_live.h"
+#include "game/em_gs_blocks_original.h"
+#include "game/em_chain_page.h"
 
 #include "game/em_actor_light_001D89D0.h"
 #include "game/em_census_standins.h"
@@ -89,6 +91,9 @@ static struct {
     EmPacketChain pc;
     EmLoadVeilParticles veil;
     EmActorLight light;
+    /* the page 001CB800 spliced at the last kick (em_rcl_page) */
+    u32 page_start, page_four_sprite, frame_four_sprite;
+    int page_ready;
 } R;
 
 /* ---- faults -------------------------------------------------------------- */
@@ -304,10 +309,29 @@ static int f_0021BA80(void *ctx, int32_t a0, int32_t a1, int32_t a2)
     (void)ctx;
     return em_packet_chain_0021BA80(&R.pc, a0, a1, a2);
 }
+/* 001D1EA0's kick: the splice, and this frame's page start for the page's
+ * consumer (em_rcl_page; 001CB800's base, D_00810E80 read as it does). */
 static int f_001CB800(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
     (void)ctx;
-    return em_packet_chain_001CB800(&R.pc, a0, (int32_t)a1, a2, a3);
+    const int r = em_packet_chain_001CB800(&R.pc, a0, (int32_t)a1, a2, a3);
+    if (r == 0 && R.ext[X_810E80]) {
+        const int16_t index = (int16_t)(R.ext[X_810E80][0] | R.ext[X_810E80][1] << 8);
+        R.page_start = em_chain_page_start(index, (int32_t)a1);
+        R.page_four_sprite = R.frame_four_sprite;
+        R.page_ready = 1;
+    }
+    R.frame_four_sprite = 0;
+    return r;
+}
+/* 001DDE10's and 001E0D70's 001CB760: the slot-0xFFF CALL target of this
+ * frame (001DDE10's four-sprite packet) is kept for the page's consumer,
+ * which walks over it (docs/CHAIN_PAGE.md section 6). */
+static int f_001CB760(void *ctx, uint32_t table, int32_t id, uint32_t address)
+{
+    const int r = em_packet_chain_w_001CB760(ctx, table, id, address);
+    if (r == 0 && id == 0xFFF000) R.frame_four_sprite = address & 0x0FFFFFFFu;
+    return r;
 }
 static int f_001CB8A0(void *ctx, uint32_t a0, int32_t a1, uint32_t a2, uint32_t a3)
 {
@@ -503,7 +527,7 @@ static void wire(void)
     w->w_001D1FF0 = v_001D1FF0;
     w->w_001D1F80 = v_001D1F80;
     w->w_001006D8 = v_001006D8;
-    w->w_001CB760 = em_packet_chain_w_001CB760;
+    w->w_001CB760 = f_001CB760;
     w->w_001D2D20 = u_001D2D20;
     w->w_001026D0 = u_001026D0;
     w->w_001C6120 = u_001C6120;
@@ -593,8 +617,13 @@ int em_rcl_init(const char *export_path, uint8_t *d810E80)
      * the +0xA0 copies) are rewritten by the area load (001C1DC0, 001D8FD0)
      * before a bound routine reads them, except the +0x100 copy that only
      * 001D2730(0, 0) reads (never on the route); its arena pattern and GS
-     * blocks reach only DMA packet bytes (the renderer boundary).
+     * blocks reach only DMA packet bytes, except its blend-preset bank at
+     * D_00275674 + 0x6A0, which the chain page's 001CB900 REFs send to the
+     * GS (em_chain_page; docs/CHAIN_PAGE.md section 4): that loop runs here.
      * docs/RENDER_CONTEXT.md section 8. */
+    if (em_gs_blocks_001D0F20_presets(own(GS_BLOCKS + EM_GS_BLOCKS_PRESETS_OFFSET,
+                                          EM_GS_BLOCKS_PRESETS_SIZE)) < 0)
+        return fail(0x001D0F20u, "the blend-preset bank is not in the context storage");
     if (done(em_frh_001D25F0(&R.frh, UINT32_C(0x43F00000)), 0x001D25F0u) < 0) return -1;
     return done(em_render_context_001DEDE0(&R.rc), 0x001DEDE0u);
 }
@@ -623,6 +652,15 @@ int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *
 /* ---- the bound originals -------------------------------------------------- */
 
 #define READY(bind) do { if (!R.loaded || R.fault || ((bind) && !R.bound)) return -1; } while (0)
+
+int em_rcl_page(uint32_t *start, uint32_t *four_sprite)
+{
+    if (!R.loaded || R.fault || !R.page_ready || !start || !four_sprite) return -1;
+    *start = R.page_start;
+    *four_sprite = R.page_four_sprite;
+    R.page_ready = 0;
+    return 0;
+}
 
 int em_rcl_001D1AE0(int32_t index)
 {

@@ -44,11 +44,8 @@ static struct {
     /* Assets. */
     EmShadowReceivers receivers;
     EmModel proxy;
-    uint8_t decal_rgba[16 * 16 * 4];
-    uint64_t decal_tex0;
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
-    int decal_registered;
     /* D_00817FF0 (BSS: zero at boot; never reset). */
     EmShadowOriginalState state;
     /* The call. */
@@ -84,7 +81,6 @@ static struct {
     EmShadowDecalWorkers dworkers, dbase;
     struct { uint8_t *bytes; int32_t count; } pk[PACKETS_MAX];
     uint32_t pk_count;
-    EmGfxDecalVertex fan[2][FAN_MAX];
     uint32_t fan_n[2], fan_count;
     uint64_t fan_tex0;
     /* The level smoke's views. */
@@ -110,20 +106,6 @@ uint32_t em_shadow_live_fault(void) { return S.fault; }
 int em_shadow_live_bound(void) { return S.bound; }
 
 /* ------------------------------------------------------------ the assets */
-
-static int load_decal_texture(void)
-{
-    FILE *f = fopen(EM_SHADOW_LIVE_DECAL_PATH, "rb");
-    if (!f) return -1;
-    uint8_t head[0x20];
-    int ok = fread(head, 1, sizeof head, f) == sizeof head && memcmp(head, "EMDT", 4) == 0 &&
-             rd32(head + 4) == 1 && rd32(head + 8) == 16 && rd32(head + 12) == 16 &&
-             fread(S.decal_rgba, 1, sizeof S.decal_rgba, f) == sizeof S.decal_rgba;
-    fclose(f);
-    if (!ok) return -1;
-    S.decal_tex0 = (uint64_t)rd32(head + 16) | (uint64_t)rd32(head + 20) << 32;
-    return S.decal_tex0 == EM_SHADOW_DECAL_TEX0 ? 0 : -1;
-}
 
 /* D_0025DAE0 / D_0025DAF0 from the effect-table export's window
  * (tools/export_effect_tables.py), placed in an ELF-sized image for
@@ -155,11 +137,6 @@ static int load(void)
         fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
                         "export_shadow_proxy.py)\n", EM_SHADOW_LIVE_PROXY_PATH);
         return fail(0x001D9EE0u, "no shadow proxy mesh D_0028A490[0x28]");
-    }
-    if (load_decal_texture() < 0) {
-        fprintf(stderr, "shadow: %s is missing or invalid (run tools/export_shadow_decal_texture.py)\n",
-                EM_SHADOW_LIVE_DECAL_PATH);
-        return fail(0x001CE300u, "no decal texture");
     }
     if (load_route_tables() < 0) {
         fprintf(stderr, "shadow: D_0025DAE0 / D_0025DAF0 are not in assets/effect_tables.emet "
@@ -406,11 +383,11 @@ static int d_fog(void *ctx, uint32_t out[4])
 }
 
 /* One fan packet (3n + 2 quadwords: the DIRECT VIF code, the GIF tag, n
- * vertices of ST / RGBAQ / XYZF2) into the renderer's vertex words. The tag
- * must be the one 001CE300 writes (NLOOP n, EOP, PRE, PRIM 0x7D, PACKED,
- * three registers 0x412) and no vertex may carry ADC: the renderer draws
- * exactly that form. */
-static int parse_fan(const uint8_t *p, int32_t count, EmGfxDecalVertex *out, uint32_t *n)
+ * vertices of ST / RGBAQ / XYZF2): it must be the one 001CE300 writes
+ * (NLOOP n, EOP, PRE, PRIM 0x7D, PACKED, three registers 0x412) with no ADC
+ * vertex, so that the chain page draws exactly its n - 2 triangles
+ * (em_shadow_live_page_drew checks the count). */
+static int check_fan(const uint8_t *p, int32_t count, uint32_t *n)
 {
     if (count < 5 || (count - 2) % 3) return -1;
     const u32 verts = (u32)(count - 2) / 3u;
@@ -421,20 +398,8 @@ static int parse_fan(const uint8_t *p, int32_t count, EmGfxDecalVertex *out, uin
         ((w1 >> 15) & 0x7FFu) != 0x7Du || ((w1 >> 26) & 3u) != 0u || (w1 >> 28) != 3u ||
         (regs & 0xFFFu) != 0x412u)
         return -1;
-    for (u32 i = 0; i < verts; ++i) {
-        const uint8_t *v = p + 32 + 48 * i;
-        EmGfxDecalVertex *o = &out[i];
-        o->s = rd32(v);
-        o->t = rd32(v + 4);
-        o->q = rd32(v + 8);
-        for (unsigned k = 0; k < 4; ++k) o->rgba[k] = (uint8_t)rd32(v + 16 + 4 * k);
-        const u32 x = rd32(v + 32), y = rd32(v + 36), z = rd32(v + 40), f = rd32(v + 44);
-        if (f & 0x8000u) return -1;                 /* ADC */
-        o->x = (uint16_t)x;
-        o->y = (uint16_t)y;
-        o->z = (z >> 4) & 0xFFFFFFu;
-        o->f = (uint8_t)(f >> 4);
-    }
+    for (u32 i = 0; i < verts; ++i)
+        if (rd32(p + 32 + 48 * i + 44) & 0x8000u) return -1;    /* ADC */
     *n = verts;
     return 0;
 }
@@ -558,10 +523,10 @@ static int call_0015BF90(const EmPlayerLiveActor *player)
     if (rd32(tex + 12) != 0x50000002u || rd32(tex + 40) != 0x06u)
         return fail(0x001CB950u, "the decal TEX0 packet is not the TEX0_1 A+D write");
     S.fan_tex0 = (uint64_t)rd32(tex + 32) | (uint64_t)rd32(tex + 36) << 32;
-    if (S.fan_tex0 != S.decal_tex0) return fail(0x001CB950u, "the decal TEX0 is not the exported texture's");
+    if (S.fan_tex0 != EM_SHADOW_DECAL_TEX0) return fail(0x001CB950u, "the decal TEX0 is not 001F8D30's");
     for (u32 i = 0; i + 1 < S.pk_count; ++i) {
         if (S.fan_count >= 2) return fail(0x001CE300u, "more than two decal fans");
-        if (parse_fan(S.pk[i].bytes, S.pk[i].count, S.fan[S.fan_count], &S.fan_n[S.fan_count]) < 0)
+        if (check_fan(S.pk[i].bytes, S.pk[i].count, &S.fan_n[S.fan_count]) < 0)
             return fail(0x001CE300u, "a decal fan the renderer does not implement");
         S.fan_count++;
     }
@@ -647,25 +612,19 @@ int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16])
     return 0;
 }
 
-int em_shadow_live_flush_decal(EmGfx *gfx)
+int em_shadow_live_page_drew(uint32_t decal_triangles)
 {
     if (S.fault) return -1;
-    if (!S.bound || S.frame != em_frame_counter() || S.route != EM_SHADOW_ROUTE_0015BF90 || !S.fan_count)
-        return 0;
-    if (!gfx) return fail(0x001CE300u, "no frame to draw the decal in");
-    if (!S.decal_registered) {
-        if (em_gfx_shadow_decal_texture(gfx, S.decal_rgba, 16, 16) < 0)
-            return fail(0x001CE300u, "the decal texture could not be registered");
-        S.decal_registered = 1;
+    u32 want = 0;
+    if (S.bound && S.frame == em_frame_counter() && S.route == EM_SHADOW_ROUTE_0015BF90)
+        for (u32 i = 0; i < S.fan_count; ++i) want += S.fan_n[i] - 2u;
+    if (decal_triangles != want)
+        return fail(0x001CE300u, "the chain page did not draw exactly the decal's triangles");
+    if (want) {
+        S.fan_count = 0;
+        S.log.decal_flushed = 1;
+        S.log.decal_total++;
     }
-    /* Slot 0 runs newest first: the blend block, the TEX0 packet, then the
-     * fans in reverse append order (pass 1, then pass 0). */
-    for (u32 i = S.fan_count; i-- > 0;)
-        if (em_gfx_shadow_decal_fan(gfx, S.fan[i], S.fan_n[i], S.fan_tex0) < 0)
-            return fail(0x001CE300u, "a decal fan could not be drawn exactly");
-    S.fan_count = 0;
-    S.log.decal_flushed = 1;
-    S.log.decal_total++;
     return 0;
 }
 

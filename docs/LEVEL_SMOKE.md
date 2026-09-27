@@ -1075,6 +1075,42 @@ route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
 32 samples re-executed, all equal. Mutations of a node, the camera, the area
 byte, a packet byte and the segment answer each fail it.
 
+### The chain page (`check_chain_page`, WP-13; tools/level_smoke_chain_page.py)
+
+Not a phase: after the phases, whenever first control was checked (every
+run). The tick log's `page` carries the chain page em_chain_page_live drew at
+the tick's frame close (docs/CHAIN_PAGE.md): whether it was drawn this tick,
+the cumulative page count, its start tag, the 001DDE10 CALL it walked over,
+em_chain_page's counts (DMA tags, qwords, DIRECT packets, lane and sprite
+MSCALs, XGKICKs, primitives by PRIM type, CALLs walked over, vertices with
+the frame's Q, UNPACKs before the page's first STCYCL), the decal triangles,
+the digest of the primitives handed to the renderer, the glow markers'
+primitives and, on sampled pages (the first, then every 250th, at most 40),
+every (address, bytes) the walk read. It checks:
+- every drawn page: the only CALL walked over is that frame's 001DDE10
+  four-sprite CALL; the lane program ran 0 or 6 times, 6 in exactly as many
+  pages as the barrel (001F0360) ran frames, and no lane drew;
+- sampled pages: the ORIGINAL VU1 microcode with the DMA / VIF / GIF walk and
+  the GS vertex queue (tools/chain_page_model.py), over the port's own page
+  bytes, draw exactly the port's primitives (the digest) with the same
+  counts, and the blend presets the page REFs hold the route captures' bytes;
+- the camera-exact snapshots (10, 14): the glow markers the port drew equal
+  the ones the capture's own latest page draws (the original microcode over
+  the capture), vertex for vertex, the colour masked (rand(), 001F4D40) and a
+  Q taken from the frame on either side not compared.
+Every decal the page draws is also counted back to em_shadow_live
+(`em_shadow_live_page_drew`), so check_shadow's "flushed" now means drawn by
+the page.
+
+Measured (full route, 2026-09-26): 12,991 pages drawn (12,573 with the six
+lane MSCALs, one per barrel frame; the other 418 are the status frames',
+empty): 159,801 sprites, 1,314 triangles, 1,328 lines; 12,573 001DDE10
+CALLs walked over; 19,276 vertices with the frame's Q; 40 sampled pages
+re-walked equal (39 of them REF a blend preset, equal to the captures');
+aligned 10 (5 glow markers)
+and 14 (none visible). The default run (through the fence door) draws 5,554
+pages, 418 of them the status frames' (empty).
+
 ## What the full route does not yet compare (2026-09-26)
 
 `make test-level-smoke-full` plays route beats 01..14 on the main line and 00
@@ -1093,9 +1129,14 @@ never silently skipped. What removes each:
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
+| check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow rand() (the head sprite's sub-state, the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | the RNG order audit; navigation to each snapshot's placement |
+| check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
+| check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 
 Not compared at all: the sounds (WP-14), the pixels (the renderer compares
-by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`),
+by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`;
+the chain page's GS pixel path is checked against a GS pixel model by
+`make test-chain-page-gpu`),
 the walks between the scripted and climbing windows (navigation).
 
 **Frame order.** `tools/compare_frame_order.py` must be given a

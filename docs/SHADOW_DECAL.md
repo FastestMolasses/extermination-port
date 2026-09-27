@@ -16,7 +16,8 @@ Files:
 - `tools/test_shadow_decal_reference.py`: the original-instruction oracle
   (section 3).
 
-Live since census L29 (2026-09-26): section 5.
+Live since census L29 (2026-09-26): section 5. Drawn from the chain page
+since WP-13 (2026-09-26, docs/CHAIN_PAGE.md).
 
 ## 1. Census rows of this lane
 
@@ -208,13 +209,10 @@ and records branch outcomes at any call depth. No shared file is edited.
 - **Callee set.** The jal targets of the five routines are exactly 001CD370,
   001CF470, 001CB5F0, 001CB950, 001CB900, 0011DF78, 00121870, 001CF870 and
   001CF970.
-- **Metal (5 pixel cases, 2 refusals).** `em_gfx_shadow_decal_fan` in a
-  headless window: a fan covering a flat frame with constant ST / RGBA / F
-  gives, at the frame centre, the pixel of `gs_decal_pixel` (the GS
-  equation of section 4: bilinear through the CLUT with REPEAT, MODULATE,
-  fog, ALPHA 0x44 on the frame); a HIGHLIGHT TEX0 and a frame without fog
-  are refused (-1). The exported `shadow_decal.emdt` must equal the
-  capture's texture. Skipped (reported) without a Metal device.
+- **The pixels** moved with the decal's draw to the chain page (WP-13,
+  docs/CHAIN_PAGE.md): `tools/test_chain_page_gpu.py` checks the same five
+  fan pixels and the refusals on `em_gfx_gs_prims`, the generic GS path that
+  replaced the dedicated `em_gfx_shadow_decal_fan`.
 - **Faults (19 cases).**
   - Each worker, scratch pointer, stage, the worker table or the quad
     missing gives UNBOUND at 0x001CE300, with nothing written.
@@ -318,43 +316,37 @@ the route's `submit` (`em_shadow_decal_w_001CE300`, context = its
   chain table D_007635C0), wrapped so that 001CB5F0 records each packet it
   opens.
 
-**The draw.** After 001CE300 returns, the recorded packets are read back
-(the fans of pass 0 and pass 1, then the TEX0 packet): the TEX0 packet
-must be the TEX0_1 A+D write of `EM_SHADOW_DECAL_TEX0`, each fan the DIRECT
-code and GIF tag 001CE300 writes (NLOOP n, EOP, PRE, PRIM 0x7D, PACKED, REGS
-ST / RGBAQ / XYZF2) with no ADC vertex, and the tag must be 1; anything else
-faults (at 001CE300 / 001CB950), because the renderer draws exactly that
-form. `frame_close_out` draws them at the page splice (after the frame's
-world draws, `em_shadow_live_flush_decal`) in slot 0's execution order
-(newest first: the fans of pass 1, then pass 0) through
-`em_gfx_shadow_decal_fan`, a dedicated renderer entry (em_gfx.h) that takes
-the packet's words verbatim: X / Y 12.4 through the object units' GS-to-NDC
-mapping, Z through the object units' depth mapping (the GS Z order against
-the level), and per pixel the GS path of the mode-1 block: bilinear
-(4-bit weights, U - 0.5, REPEAT) through the CLUT, MODULATE with TCC 1,
-fog with the frame's FOGCOL, the alpha test NEVER with AFAIL RGB_ONLY (RGB
-written, no alpha, no Z), ALPHA 0x44 on the frame pixel (framebuffer fetch),
-COLCLAMP. The mode-1 block itself is not in the port's GS block storage
-(the boot builder that fills D_00275674's blocks is not translated,
-RENDER_CONTEXT.md 8.3): the level smoke asserts that every route capture's
-block holds exactly the writes the renderer implements.
+**The draw (since WP-13, docs/CHAIN_PAGE.md).** After 001CE300 returns, the
+recorded packets are checked (the fans of pass 0 and pass 1, then the TEX0
+packet): the TEX0 packet must be the TEX0_1 A+D write of
+`EM_SHADOW_DECAL_TEX0`, each fan the DIRECT code and GIF tag 001CE300 writes
+(NLOOP n, EOP, PRE, PRIM 0x7D, PACKED, REGS ST / RGBAQ / XYZF2) with no ADC
+vertex, and the tag must be 1; anything else faults (at 001CE300 /
+001CB950). The packets stay in slot 0 of the page, and the chain page's
+consumer (em_chain_page_live) draws them with everything else on the page, in
+the order the DMA sends it (slot 0 first; within it newest first: the mode-1
+blend preset, the TEX0 packet, the fans of pass 1, then pass 0), through the
+generic GS path `em_gfx_gs_prims`: the preset's A+D writes are read from the
+port's own copy of 001D0F20's bank (em_gs_blocks_original), no longer assumed
+by the renderer. The consumer reports the fan triangles it drew with the
+decal's TEX0 back to `em_shadow_live_page_drew`, which requires exactly this
+frame's fans' (the sum of n - 2) and then marks the decal flushed.
 
-**The texture** is `assets/scene_snow/shadow_decal.emdt`
-(`tools/export_shadow_decal_texture.py`, STARTUP.md row 52): the 16 x 16
-texels through the CLUT (raw GS alpha), decoded from the route captures' GS
-memory and required to be identical in every capture; registered once by
-`em_gfx_shadow_decal_texture`. Its uploader is still not identified
-(section 4).
+**The texture** is one of the chain page's
+(`assets/scene_snow/page_textures.emot`, `tools/export_page_textures.py`,
+STARTUP.md row 52, which replaced `export_shadow_decal_texture.py` and
+`shadow_decal.emdt`): the 16 x 16 texels through the CLUT (raw GS alpha),
+decoded from the route captures' GS memory and required to be identical in
+every capture. Its uploader is still not identified (section 4).
 
-**Evidence.** `test_shadow_decal_reference.py`'s Metal part: a fan over a
-flat frame gives, at the frame centre, the GS pixel of the documented
-state (five colour / alpha / fog / sample-point cases), and the renderer
-refuses a HIGHLIGHT TEX0 and a frame without fog; the exported texture
-equals the capture's. The level smoke's check_shadow (C): the original
-001CE300, run over the port's sampled inputs, writes the port's packets
-byte for byte into a cleared slot 0, with the mode-1 blend reference.
-Live frames by eye (route 04 end, build/captures/shadow_live/): the dark
-blob under the player on the elevator floor, as in the capture.
+**Evidence.** The level smoke's check_shadow (C): the original 001CE300,
+run over the port's sampled inputs, writes the port's packets byte for byte
+into a cleared slot 0, with the mode-1 blend reference; check_chain_page:
+sampled pages re-walked with the original's DMA / VIF / GIF rules draw the
+port's primitives, the decal's among them. The GS pixels:
+tools/test_chain_page_gpu.py. Live frames by eye (route 04 end,
+build/captures/shadow_live/): the dark blob under the player on the elevator
+floor, as in the capture.
 
 ## 6. Limits and open items
 
@@ -372,12 +364,10 @@ blob under the player on the elevator floor, as in the capture.
   only a pathological quad could reach it. No generated case did.
 - **S3: the texture uploader** (section 4). The live texture is exported
   from the user's own route captures' GS memory; a machine without those
-  captures cannot produce it, and the AREA11 area build then faults at the
-  shadow's bind (fail-stop, no stand-in blob).
-- **S5: the page's other producers.** The renderer draws only this
-  decal's fans at the splice; the effects' packets in the same chain table
-  are not drawn from the page yet (EFFECT_MANAGER.md 8.4), so their
-  interleave with the decal in slot order is not reproduced.
+  captures cannot produce it, and the first page that draws the decal then
+  faults (fail-stop, no stand-in blob).
+- **S5: the page's other producers** are drawn with the decal since WP-13
+  (docs/CHAIN_PAGE.md), in slot order.
 - **S6: rasterization.** Metal's float interpolation, floored with a 0.001
   epsilon, stands for the GS DDA (as the object units and the receivers);
   no GS dump of a drawn decal exists to compare pixels with.

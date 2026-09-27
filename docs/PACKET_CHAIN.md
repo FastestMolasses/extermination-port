@@ -402,8 +402,9 @@ and test_shadow_original_reference, link both files.
 
 - **001CB800** (the splice and slot clear) and **001CB8A0** are translated
   since the render context step (the capture replay still checks the spliced
-  chains independently). The native renderer does not read the spliced
-  chain: the DMA list stays the renderer boundary.
+  chains independently). Since WP-13 the page's consumer em_chain_page_live
+  walks the spliced chain from 001CB800's start tag as the DMA does and draws
+  it (docs/CHAIN_PAGE.md).
 - **The capture replay** re-sets the cursor before each block. Of 1,053
   blocks, 1,038 were contiguous, so no other cursor writer was observed
   between builder calls; the first block of each beat is not checked this

@@ -72,7 +72,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
-           src/game/em_shadow_live.c
+           src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c \
+           src/game/em_gs_blocks_original.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -823,6 +824,18 @@ test-vu1-face-morph-defects:
 .PHONY: test-shadow-decal-reference
 test-shadow-decal-reference:
 	python3 tools/test_shadow_decal_reference.py
+
+.PHONY: test-chain-page-reference test-chain-page-gpu
+test-chain-page-reference:
+	python3 tools/test_chain_page_reference.py
+
+test-chain-page-gpu:
+	python3 tools/test_chain_page_gpu.py
+
+.PHONY: test-chain-page
+test-chain-page:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \
+	    tests/chain_page_test.c src/game/em_chain_page.c -o build/chain_page_test && ./build/chain_page_test
 
 .PHONY: test-status-page-record-reference
 test-status-page-record-reference:

@@ -613,97 +613,12 @@ def texture_boundary(beats):
     return len(beats), top
 
 
-# ---- the renderer: em_gfx_shadow_decal_fan (the Metal backend) -------------------
-
-class DecalVertex(C.Structure):
-    _fields_ = [('s', U32), ('t', U32), ('q', U32), ('rgba', U8 * 4), ('x', C.c_uint16), ('y', C.c_uint16),
-                ('z', U32), ('f', U8)]
-
-
-def decal_texels(beat):
-    """The decal texture as the GS reads it: 16 x 16 raw CLUT entries
-    (R, G, B and the raw GS alpha) from the beat's GS memory."""
-    sys.path.insert(0, str(DECOMP / 'tools'))
-    from gs_vram import read_localmem, csm1_unswizzle_clut
-    from clut_pair import read_psmt8
-    _, lm = read_localmem(ROUTE / beat / 'gs.bin')
-    idx = read_psmt8(lm, 0x2469, 8, 16, 16)
-    pal = csm1_unswizzle_clut(lm[0x2148 * 256:0x2148 * 256 + 1024])
-    return b''.join(pal[4 * i:4 * i + 4] for i in idx)
-
-
-def gs_decal_pixel(texels, u, v, rgba, f, fogcol, cd):
-    """The GS pixel of the decal's state (docs/SHADOW_DECAL.md section 4):
-    bilinear (TEX1 0x60) with 4-bit weights at U - 0.5 and REPEAT (CLAMP 0),
-    TFX MODULATE with TCC 1, fog, ATST NEVER with AFAIL RGB_ONLY (RGB still
-    written), ALPHA 0x44 = (Cs - Cd) * As >> 7 + Cd, COLCLAMP."""
-    uu, vv = math.floor(u * 16 * 16) - 8, math.floor(v * 16 * 16) - 8
-    fu, fv = uu & 15, vv & 15
-    x0, x1, y0, y1 = (uu >> 4) & 15, ((uu >> 4) + 1) & 15, (vv >> 4) & 15, ((vv >> 4) + 1) & 15
-    tex = lambda x, y, c: texels[4 * (16 * y + x) + c]
-    t = [(tex(x0, y0, c) * (16 - fu) * (16 - fv) + tex(x1, y0, c) * fu * (16 - fv) +
-          tex(x0, y1, c) * (16 - fu) * fv + tex(x1, y1, c) * fu * fv) >> 8 for c in range(4)]
-    cf = [min((t[c] * rgba[c]) >> 7, 255) for c in range(3)]
-    af = min((t[3] * rgba[3]) >> 7, 255)
-    cs = [(cf[c] * f + fogcol[c] * (255 - f)) >> 8 for c in range(3)]
-    return tuple(max(0, min(255, (((cs[c] - cd[c]) * af) >> 7) + cd[c])) for c in range(3))
-
-
-def metal_decal():
-    """em_gfx_shadow_decal_fan over a flat frame: a fan covering the frame
-    with constant ST / RGBA / F must give, at the frame centre, the GS pixel
-    of gs_decal_pixel (several colours, alphas, fog values and sample points);
-    the renderer refuses another TEX0 form and a frame without fog. Skipped
-    (counted) without a Metal device."""
-    import test_shadow_original_reference as SO
-    OUT.mkdir(parents=True, exist_ok=True)
-    try:
-        metal = SO.Metal(OUT)
-    except (AssertionError, OSError, subprocess.CalledProcessError) as e:
-        return 0, f'skipped ({e})'
-    lib, gfx = metal.lib, metal.gfx
-    lib.em_gfx_shadow_decal_texture.argtypes = [C.c_void_p, C.c_char_p, U32, U32]
-    lib.em_gfx_shadow_decal_fan.argtypes = [C.c_void_p, P(DecalVertex), U32, C.c_uint64]
-    texels = decal_texels(UNIT_BEATS[0])
-    asset = ROOT / 'assets/scene_snow/shadow_decal.emdt'
-    if asset.exists():   # the exported asset is this texture
-        data = asset.read_bytes()
-        assert data[:4] == b'EMDT' and data[32:] == texels and struct.unpack_from('<Q', data, 16)[0] == TEX0
-    assert lib.em_gfx_shadow_decal_texture(gfx, texels, 16, 16) == 0
-    import tempfile
-    tmp = Path(tempfile.mkdtemp(prefix='shadow_decal_'))
-    fogcol = (48, 48, 48)
-    fog_rgb = (C.c_float * 3)(*[float(c) for c in fogcol])
-    corners = ((1700, 1800), (2400, 1800), (2400, 2300), (1700, 2300))
-    cases = 0
-    for cd, rgba, f, (u, v) in (((91, 106, 106), (5, 5, 5, 0xA2), 124, (0.5, 0.5)),
-                                ((91, 106, 106), (5, 5, 5, 0xA2), 255, (0.53, 0.47)),
-                                ((200, 40, 90), (8, 8, 8, 0xFF), 60, (0.31, 0.62)),
-                                ((30, 30, 30), (128, 128, 128, 0x40), 200, (0.02, 0.97)),
-                                ((91, 106, 106), (5, 5, 5, 0x10), 0, (0.5, 0.5))):
-        fan = (DecalVertex * 4)()
-        for i, (x, y) in enumerate(corners):
-            fan[i] = DecalVertex(F(u), F(v), F(1.0), (U8 * 4)(*rgba), 16 * x, 16 * y, 0x100000, f)
-        lib.em_gfx_begin_frame(gfx, cd[0] / 255.0, cd[1] / 255.0, cd[2] / 255.0, 1.0)
-        lib.em_gfx_fog(gfx, -209.0, 304.0, fog_rgb)
-        assert lib.em_gfx_shadow_decal_fan(gfx, fan, 4, TEX0) == 0
-        path = tmp / 'decal.bmp'
-        lib.em_gfx_request_capture(gfx, str(path).encode())
-        lib.em_gfx_end_frame(gfx)
-        got = SO.read_bmp_centre(path)
-        want = gs_decal_pixel(texels, u, v, rgba, f, fogcol, cd)
-        assert got == want, ('decal pixel', cd, rgba, f, (u, v), got, want)
-        cases += 1
-    lib.em_gfx_begin_frame(gfx, 0.0, 0.0, 0.0, 1.0)
-    lib.em_gfx_fog(gfx, -209.0, 304.0, fog_rgb)
-    assert lib.em_gfx_shadow_decal_fan(gfx, fan, 4, TEX0 | (2 << 35)) == -1, 'a HIGHLIGHT TEX0 was drawn'
-    lib.em_gfx_fog_off(gfx)
-    assert lib.em_gfx_shadow_decal_fan(gfx, fan, 4, TEX0) == -1, 'drawn without the frame fog'
-    lib.em_gfx_end_frame(gfx)
-    for q in tmp.iterdir():
-        q.unlink()
-    tmp.rmdir()
-    return cases, 'refusals checked'
+# ---- the renderer --------------------------------------------------------------
+# The decal's fans reach the GS through the chain page (em_chain_page_live;
+# docs/CHAIN_PAGE.md): its pixel cases moved with the dedicated decal entry
+# em_gfx_shadow_decal_fan, retired by WP-13, to tools/test_chain_page_gpu.py
+# (em_gfx_gs_prims, the same five decal cases and the refusals), and the
+# texture export to tools/export_page_textures.py.
 
 
 # ======================================================================
@@ -771,7 +686,6 @@ def main():
 
     faults = fault_cases()
     tex_beats, top = texture_boundary(BEATS if RM.FULL else [b for b in BEATS if b in UNIT_BEATS])
-    metal_cases, metal_note = metal_decal()
 
     RM.banner(
         RM.part(len(leaf_items), 50000, '001CF870 + 001CF970 leaf cases'),
@@ -780,8 +694,7 @@ def main():
         f'{len(route_items)} captured-RAM route cases ({packets} 001CE300 calls, RAM + scratchpad byte-exact)',
         f'{len(branches)} conditional branches both ways (2 outcomes impossible by construction)',
         f'{faults} fault cases',
-        f'decal texture resident and identical in {tex_beats} beats (indices 0..{top})',
-        f'{metal_cases} Metal decal pixels equal the GS equation ({metal_note})')
+        f'decal texture resident and identical in {tex_beats} beats (indices 0..{top})')
     print('shadow decal reference: PASS')
 
 

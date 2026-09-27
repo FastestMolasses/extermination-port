@@ -313,9 +313,10 @@ the full route).
 ## 5. Limits and open items
 
 - **L1 (resolved): 001CE300** is translated (em_shadow_decal_original,
-  d85512e) and bound live (section 4); its fans are drawn by
-  `em_gfx_shadow_decal_fan` with the texture exported from the route
-  captures' GS memory (SHADOW_DECAL.md sections 4 and 5).
+  d85512e) and bound live (section 4); its fans are drawn with the rest of
+  the chain page since WP-13 (em_chain_page_live, docs/CHAIN_PAGE.md) with
+  the texture exported from the route captures' GS memory (SHADOW_DECAL.md
+  sections 4 and 5).
 - **L2: the fourth word of 0x700031B0.** 0015BF90 copies the whole
   quadword at 0x700031B0 into 0x700038A0. The segment walkers write only
   x/y/z (em_coll_segment_walkers.c copies three words), and

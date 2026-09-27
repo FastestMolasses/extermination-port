@@ -46,6 +46,7 @@
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
+#include "game/em_chain_page_live.h"
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
@@ -729,6 +730,9 @@ void frame_close_out(void)
     if (s_request_status_frame && !em_hud_visible()) {
         if (em_area11_interaction_host_status_render(gfx) != 1)
             em_frame_request_quit(); /* the host latched and reported the fault */
+        /* The status frame's 001D1EA0(0) kicks the page too (em_chain_page_live). */
+        if (em_chain_page_live_draw(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_chain_page_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
     } else if (ui_scene) {
         ui_scene_render(gfx);
     } else if (g.chain_test_triangle) {
@@ -845,11 +849,12 @@ void frame_close_out(void)
         em_props_indicators_draw(gfx, viewproj);
         em_snow_runtime_draw(gfx, view, zoom);
         em_area11_effect_runtime_draw(gfx, view, zoom);
-        /* Page D_007635C0 at 001D1EA0's splice (001CB800): slot 0 holds the
-         * 0015BF90 decal's fans (em_shadow_live). The page's other
-         * producers are not drawn from the page yet (SHADOW_DECAL.md). */
-        if (s_player_post_step && em_shadow_live_flush_decal(gfx) < 0)   /* reported; fail-stop */
-            em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
+        /* Page D_007635C0 at 001D1EA0's splice (001CB800), as its DMA sends
+         * it to the GS: the effects' lanes and sprites, the glint, the glow
+         * markers and the 0015BF90 decal (em_chain_page_live,
+         * docs/CHAIN_PAGE.md). */
+        if (em_chain_page_live_draw(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_chain_page_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
         em_gfx_fog_off(gfx);          /* LIGHTING — fog off after the world flush */
     }

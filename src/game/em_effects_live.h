@@ -84,6 +84,10 @@ uint32_t em_effects_live_fault(void);
 /* Bytes of the exported ELF windows [address, address + size) (zero outside
  * them), for the equipment binder's tables. NULL before the load. */
 const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size);
+/* The same bytes only inside one exported block (NULL outside every block
+ * or before the load): the chain page's reads of ELF data (the program
+ * packets 0x231770 / D_00233290, 001CFBE0's source blocks). */
+const uint8_t *em_effects_live_window(uint32_t address, uint32_t size);
 
 /* 001D0660's 001F0310 (001AFCA0, the area build): 001F3FA0 and 001F03D0
  * for lanes 0, 1, 3, 4, 5, 6. */

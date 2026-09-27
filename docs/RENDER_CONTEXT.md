@@ -468,9 +468,11 @@ Mutation check, run by hand on a scratch copy and not kept:
 - **Stubs.** The stubbed callees do not run in the test. That is sound for
   this lane's own logic (see the stub-tree check), but their packets are not
   compared here.
-- **No consumer.** The packets 001DDE10 builds are compared byte for byte.
-  No native renderer consumes them yet, so the port does not draw these four
-  sprites. What they look like on screen is not established.
+- **Not drawn.** The packets 001DDE10 builds are compared byte for byte.
+  Since WP-13 the chain page's consumer walks the page, but it walks over
+  001DDE10's slot-0xFFF CALL (the address the frame's 001CB760(0xFFF000)
+  records, `em_rcl_page`): these four sprites sample the frame buffer, and
+  the port does not draw them (docs/CHAIN_PAGE.md section 6).
 - **Fail-stop is entry-checked.** A worker that returns an error mid-routine
   faults at once and leaves the bytes written before it. The requirement
   checks are conservative: 001DDE10 requires the D_00810360 view even when
@@ -590,6 +592,11 @@ bound reader: the flag registrations (001C1DC0), the fog pair and latches
 the route). Its arena fill (the 128-bit pattern at D_0026E3F0) and GS blocks
 reach only DMA packet bytes (001006D8's read-modify-write of three packet
 dwords, the bytes packets leave as they were): the port's arena starts zero.
+Since WP-13 one of its banks runs: the ten blend presets at D_00275674 +
+0x6A0, which the chain page's 001CB900 REFs send to the GS
+(em_gs_blocks_original, em_rcl_init; docs/CHAIN_PAGE.md section 4). The
+kick's page start and 001DDE10's slot-0xFFF CALL are handed to the page's
+consumer by `em_rcl_page` (section 7 of that doc).
 
 ### 8.4 Not bound, and why
 

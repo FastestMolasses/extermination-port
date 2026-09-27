@@ -63,6 +63,8 @@ static struct {
     EmEffectKindsTables ktables;
     EmHeadSpriteOriginalTables htables;
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
+    struct { uint32_t address, size; } window[32];   /* the exported blocks */
+    uint32_t windows;
 
     EmActorPool *pool;
     EmSceneState *scene;
@@ -204,6 +206,11 @@ int em_effects_live_load(void)
         ok = address >= 0x00100000u && ELF_AT(address) + bytes <= ELF_SIZE && at <= (u32)size &&
              bytes <= (u32)size - at;
         if (ok) memcpy(elf + ELF_AT(address), file + at, bytes);
+        if (ok && S.windows < sizeof S.window / sizeof S.window[0]) {
+            S.window[S.windows].address = address;
+            S.window[S.windows].size = bytes;
+            S.windows++;
+        }
     }
     free(file);
     if (ok) {
@@ -231,6 +238,16 @@ const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size)
 {
     if (!S.loaded || address < 0x00100000u || ELF_AT(address) + size > ELF_SIZE) return NULL;
     return S.elf + ELF_AT(address);
+}
+
+const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
+{
+    if (!S.loaded) return NULL;
+    for (uint32_t i = 0; i < S.windows; ++i)
+        if (address >= S.window[i].address && size <= S.window[i].size &&
+            address - S.window[i].address <= S.window[i].size - size)
+            return S.elf + ELF_AT(address);
+    return NULL;
 }
 
 /* ------------------------------------------------------------ views */

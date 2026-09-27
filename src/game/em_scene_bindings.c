@@ -111,6 +111,7 @@
 #include "game/em_render_context_live.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_shadow_live.h"
+#include "game/em_chain_page_live.h"
 #include "game/em_shadow_original.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
@@ -928,6 +929,65 @@ static void log_tick_end(int rc)
         fputc(']', f);
     } else {
         fputs("null", f);
+    }
+    /* WP-13: the chain page drawn at this frame's close (em_chain_page_live;
+     * docs/CHAIN_PAGE.md): [drawn this tick, pages, start, the skipped
+     * 001DDE10 CALL, transfers, qwords, DIRECT packets, lane / sprite
+     * MSCALs, XGKICKs, primitives, [by PRIM type 0..7], skipped CALLs,
+     * frame-Q vertices, inherited-cycle UNPACKs, decal triangles, the
+     * primitives' digest, the glow markers (sprites with 001F4D40's TEX0:
+     * x0, y0, x1, y1, z, f, s0, t0, q0, q_known0, s1, t1, q1, q_known1; Q
+     * 0 where the frame's), and, on sampled pages (the first, then every
+     * 250th, at most 40), every (address, bytes) the walk read, for the
+     * original re-walk (tools/test_level_smoke.py check_chain_page)]. */
+    fputs(", \"page\": ", f);
+    {
+        EmChainPageLiveLog pl;
+        em_chain_page_live_log(&pl);
+        if (pl.pages) {
+            const EmChainPageCounts *c = &pl.counts;
+            fprintf(f, "[%d, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, [", pl.frame == em_frame_counter(), pl.pages,
+                    pl.start, pl.four_sprite, c->transfers, c->qwords, c->direct, c->mscal_lane, c->mscal_sprite,
+                    c->kicks, c->prims);
+            for (int k = 0; k < 8; ++k) fprintf(f, "%s%u", k ? ", " : "", c->prim_type[k]);
+            fprintf(f, "], %u, %u, %u, %u, %u, [", c->skipped, c->stale_q, c->cycle_inherited, pl.decal_triangles,
+                    pl.digest);
+            uint32_t np = 0;
+            const EmGfxGsPrim *pr = em_chain_page_live_prims(&np);
+            const uint8_t *qk = em_chain_page_live_q();
+            int nm = 0;
+            for (uint32_t i = 0; pr && i < np; ++i) {
+                if ((pr[i].prim & 7u) != 6u || (pr[i].tex0 & ~(UINT64_C(7) << 61)) != UINT64_C(0x00045B0599421EF0))
+                    continue;
+                const EmGfxGsVertex *a = &pr[i].v[0], *b = &pr[i].v[1];
+                fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u]", nm++ ? ", " : "", a->x, a->y,
+                        b->x, b->y, b->z, b->f, a->s, a->t, qk[3 * i] ? a->q : 0u, qk[3 * i], b->s, b->t,
+                        qk[3 * i + 1] ? b->q : 0u, qk[3 * i + 1]);
+            }
+            fputs("], ", f);
+            static uint32_t sampled, last_pages;
+            const int fresh = pl.frame == em_frame_counter() && pl.pages != last_pages;
+            if (fresh) last_pages = pl.pages;
+            if (fresh && sampled < 40 && (pl.pages == 1 || pl.pages % 250 == 0)) {
+                sampled++;
+                const uint32_t *pairs;
+                const uint32_t nr = em_chain_page_live_reads(&pairs);
+                fputc('[', f);
+                for (uint32_t r = 0; r < nr; ++r) {
+                    const uint8_t *b = em_chain_page_live_read(pairs[2 * r], pairs[2 * r + 1]);
+                    fprintf(f, "%s[%u, ", r ? ", " : "", pairs[2 * r]);
+                    if (b) log_hex(f, b, pairs[2 * r + 1]);
+                    else fputs("null", f);
+                    fputc(']', f);
+                }
+                fputc(']', f);
+            } else {
+                fputs("null", f);
+            }
+            fputc(']', f);
+        } else {
+            fputs("null", f);
+        }
     }
     fprintf(f, ", \"r_0021B550\": %d, \"r_001AD230\": %d, \"overflow\": %d, \"trace\": [",
             s_tick.r_0021B550, s_tick.r_001AD230, s_tick.overflow);

@@ -113,6 +113,12 @@ int em_rcl_0021BAE0(int32_t slot);
 /* 001DD980's tail: 001DD950(&D_008105E0, 2 + 1.02 d, d), f12 / f13 bits. */
 int em_rcl_001DD950(uint32_t a0, uint32_t f12, uint32_t f13);
 
+/* The chain page 001CB800 spliced at the last frame close (001D1EA0's
+ * kick): its start tag, and the CALL target 001DDE10 appended to slot 0xFFF
+ * in that frame (0: none). Taken once: a second call before the next kick
+ * returns -1, as it does before any kick. 0, or -1. */
+int em_rcl_page(uint32_t *start, uint32_t *four_sprite);
+
 /* ---- readers ---- */
 /* The context +0x2468 zoom (the one copy). */
 float em_rcl_zoom(void);

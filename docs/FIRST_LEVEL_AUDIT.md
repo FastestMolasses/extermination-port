@@ -221,7 +221,8 @@ equipment and head sprite live):**
 - **Retired:** em_player.c `player_effect_gap`, the truck's effect gap, the
   bindings' own 001EF9D0 copy, the no-op aura draw, the snow's and the AREA11
   effect's host fog coefficients.
-- **Open:** no renderer stage draws the effect chains (WP-13); the
+- **Open:** no renderer stage draws the effect chains (done by WP-13,
+  2026-09-26: the chain page is drawn, docs/CHAIN_PAGE.md); the
   equipment's own 001CAA00 draw (done by the player step, 2026-09-26: the
   nodes draw their original units); the skid's two
   untranslated handlers 001EAD70 / 001EC270 (reachable off the route,
@@ -288,6 +289,42 @@ on the object-unit draw; OWNER_DRAW.md section 10, census 1.23):**
   equipment node's live unit differs in the camera-exact snapshots 10 / 14,
   and if the walk's and the post-step's player draw gate disagree in any
   tick (LEVEL_SMOKE.md).
+
+**Status update (2026-09-26, WP-13: the chain page D_007635C0 drawn;
+docs/CHAIN_PAGE.md, census 1.24):**
+- One consumer, `em_chain_page_live`, walks the page 001CB800 splices at
+  every frame close exactly as the DMA sends it (CNT / NEXT / REF / CALL /
+  RET, tags not transferred), runs its VIF1 codes, the two VU1 programs it
+  CALLs (translated from their microcode: the lane program of D_00233290 and
+  the sprite program of table 0x231770, `em_vu1_page_programs.h`) and its
+  GIF packets, and `em_gfx_gs_prims` draws every primitive in GS order with
+  the GS pixel path of the states the pages hold. Live: the effect puffs and
+  the head sprites' breath (sprites), the pickup glint (line strips), the
+  glow markers and equipment sprites, the ring lanes (no route slot is
+  active: nothing drawn, as in the captures) and the 0015BF90 decal. The
+  blend presets the page REFs come from 001D0F20's bank, translated
+  (`em_gs_blocks_original`). Retired: the dedicated decal entry
+  (`em_gfx_shadow_decal_fan` / `_texture`, `em_shadow_live_flush_decal`),
+  `export_shadow_decal_texture.py` (replaced by `export_page_textures.py`)
+  and the decal test's Metal part (moved to `test_chain_page_gpu.py`).
+- Evidence: every MSCAL of the 15 captured pages and 600 + 600 synthetic
+  batches equal the ORIGINAL microcode (registers, data memory, kicked
+  packets), the captured pages' 386 primitives equal the original walk's,
+  and the timing premise of the translation is asserted on every run
+  (test_chain_page_reference); the GS pixel path against a GS pixel model
+  (test_chain_page_gpu); live, 40 sampled pages of the full route re-walked
+  with the original microcode over the port's own bytes draw the port's
+  primitives, and in the camera-exact snapshot 10 the five glow markers
+  drawn equal the capture page's (check_chain_page). newgame-control
+  9.599849, compare_frame_order idle04 / walk04 / st03 / cut02 / cut15 PASS.
+- Still open: 001DDE10's four-sprite frame-copy pass is walked over, not
+  drawn (it samples the frame buffer); the first sprite of a page whose
+  RGBAQ precedes its ST takes the frame's GS Q, drawn as 1.0 (about 1.5
+  vertices a page); the AREA11 flame and the snow still draw outside the
+  page (008235F0's 001D04B0 and the weather's 001E0D70 kick are not bound;
+  the flame's `em_effect_sprite_project` remains a second, partial
+  translation of the sprite program until that owner is bound); Metal's
+  rasterization stands for the GS DDA.
 
 ---
 
@@ -670,7 +707,8 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   re-pass) after the level and the walked actors; on an actor (the
   elevator, a crate, the truck) the 0015BF90 decal (001F9100, 001F8D30,
   001CE300 into page D_007635C0) drawn by `em_gfx_shadow_decal_fan` at the
-  page splice. The player's own draw moved behind the shadow (0015C160's
+  page splice (since WP-13 by the chain page's consumer with the rest of
+  the page, docs/CHAIN_PAGE.md). The player's own draw moved behind the shadow (0015C160's
   +0x4C). Evidence: the level smoke's check_shadow (every post-step's route,
   every draw flushed, the first-control frame drawn; the original 001DA6A0
   and 0015BF90 + 001CE300 re-executed over the port's sampled inputs give

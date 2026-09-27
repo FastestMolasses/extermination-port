@@ -2248,6 +2248,8 @@ def main():
     if 'first_control' in checked:
         import level_smoke_shadow   # census L29 / L29b (em_shadow_live)
         level_smoke_shadow.check_shadow(ticks, state)
+        import level_smoke_chain_page   # WP-13 (em_chain_page_live)
+        level_smoke_chain_page.check_chain_page(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)
