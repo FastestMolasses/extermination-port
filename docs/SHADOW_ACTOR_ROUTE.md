@@ -331,9 +331,10 @@ the full route).
   because 0015BF90 does not read +0x214, but a mid-beat frame on the crate
   or the truck is not captured. The 0x41 path is forced (+0x1F0 and 3B8D
   patched) and appears in no capture. Live, the route runs on the
-  elevator, the crates and the truck (640 calls on the default smoke, 628
-  with a decal), and the smoke re-executes the original over sampled calls
-  (section 4); the mid-beat frames are still not compared with a capture.
+  elevator, the crates and the truck (640 calls on the smoke through the
+  fence door, 628 with a decal), and the smoke re-executes the original over
+  sampled calls (section 4); the mid-beat frames are still not compared with
+  a capture.
 - **L5 (closed): private SDK leaves.** The module's own 001026D0 and
   00102900 are gone. It calls the header-only em_sdk_vu0.h, the one
   translation that em_locomotion_display, em_effect_manager,

@@ -34,7 +34,8 @@ their voiced lines on the stream lanes (STREAM_LANES.md "Live binding").
 
 **Route coverage.** The checker ends with one `level smoke: route beats:`
 line naming every route beat 00..14 and the state of each of its phases
-(live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-26: beats
+(live, NOT-LIVE driven, NOT-LIVE, or not reached; a side beat the run did
+not play reads "not played in this run"). As of 2026-09-26: beats
 01..14 live on the main line (18 phases), the side beats 00 and 09 each in
 its own run, and `make test-level-smoke-full` requires all of them
 (`--require-through`, "Running it"). Since 2026-09-27 the side-9 run goes on
@@ -44,11 +45,11 @@ capture, not a route beat), which the same targets require.
 ## Running it
 
 ```sh
-make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door and fence_door_side1 (about 56 s)
-make test-level-smoke-full             # the whole route through roger (about 120 s), then the side runs below (about 70 s)
+make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
+make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), then side beat 09 with side 1 (about 56 s), each its own run
-EM_LEVEL_SMOKE_UNTIL=battery make test-level-smoke            # the shortest supported run
+make test-level-smoke-side             # side beat 00 (about 14 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace
+EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
 EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
 EM_LEVEL_SMOKE_UNTIL=fence_door make test-level-smoke         # side beat 09 without side 1
@@ -65,14 +66,28 @@ so it stays. Every supported run plays `first_control` and `status` on its
 way and checks both against their captures. The side run
 `panel_no_battery` checks `first_control` and not the status screen.
 
-**Times** (measured 2026-09-27 on the M1, with nothing else running):
+**Times** (measured 2026-09-27 on the M1):
+- The default target ends at `battery` (lead decision, 2026-09-27, rule 4
+  of "Adding a phase") and takes about 15 s: about 12.4 s for the run and
+  1.5 s for its checker. It is the shortest supported run, so the default
+  cannot come nearer to 10 s by moving its end phase. Most of the run is
+  the New Game path to first control (1,393 of its 1,919 logged ticks),
+  which every run plays.
 - The full main-line run plays 13,039 ticks in about 108 s. Its checker takes
   about 10 s more.
-- The default target takes about 56 s, well over rule 4's 10 s ("Adding a
-  phase").
-- A run that ends at `battery` takes about 15 s.
+- A run that ends at `fence_door_side1` takes about 56 s.
 
-Whether the default should move to a shorter end phase is a lead decision.
+The default run checks `first_control`, `status` and `battery` against
+their captures, and runs the whole-run checks (render context, indicator
+children, player draw gate, rand order, sway, marker colour, head sprites,
+shadow, chain page; and the stream-drive report) over its ticks. Every
+later phase, both side runs and the whole route's `--require-through last`
+run only under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); run it
+before any commit that touches a phase past `battery`. The full target runs
+the same whole-run checks over every run it makes: the side runs write and
+check their own rand() trace, so rand order, sway, marker colour and head
+sprites also cover the ticks of `panel_no_battery`, `fence_door` and
+`fence_door_side1`.
 
 The make target does the following:
 
@@ -92,7 +107,7 @@ The make target does the following:
    2026-09-26). The side runs pass their own phase.
 
 `EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The binary's
-default is the last phase; the make target's default is `fence_door_side1` (the main line through `truck_crossing`, then side beat 09, then the fence door's side 1)
+default is the last phase; the make target's default is `battery`
 (rule 4 of "Adding a phase"), and `EM_TEST_FULL=1` or
 `test-level-smoke-full` lifts it. An unknown name fails and lists the phases. The run stops
 at the first NOT-LIVE phase, because every later beat starts from the state
@@ -155,8 +170,8 @@ phase>` runs the main line up to it and then only it: `panel_no_battery`
 crossing's end) are live, each in its own run (`make test-level-smoke-side`
 runs both). `fence_door_side1` starts from `fence_door`'s end
 (`Phase.from_side`): `EM_LEVEL_SMOKE_UNTIL=fence_door_side1` runs the main
-line, `fence_door`, then it (the default `make test-level-smoke` run and the
-side-9 run of `make test-level-smoke-side`), and `--require-through
+line, `fence_door`, then it (the side-9 run of `make test-level-smoke-side`,
+which `make test-level-smoke-full` runs), and `--require-through
 fence_door_side1` requires both side phases.
 
 | Phase | Route beat | Original owners | Live | Waits on |
@@ -1205,7 +1220,10 @@ each of these assertions.
 ### The rand() order (`check_rand_order`, `check_sway`, `check_marker_colour`, `check_head_sprites`; docs/RAND_ORDER.md)
 
 Not phases: after the phases, over the run's `EM_RAND_TRACE`
-(`build/level_smoke/rand.trace`), which tools/rand_order.py resolves to
+(`build/level_smoke/rand.trace`; each side run of `make
+test-level-smoke-side` writes and checks its own,
+`build/level_smoke_side/rand.trace`, so these checks also cover the side
+beats' ticks), which tools/rand_order.py resolves to
 (original caller, state) per call. The tick log's `counter` (the main-loop
 counter at the tick's start) ties the trace's lines to the ticks. An
 unknown rand() caller fails the check.
@@ -1284,7 +1302,7 @@ and outputs in hex. It checks:
   snapshot's (and the kind for route 1); every route capture's mode-1
   blend block holds the writes the decal renderer implements.
 
-Measured (default run, through the fence door): 3,194 001DA6A0 calls, all
+Measured (the run through the fence door, `EM_LEVEL_SMOKE_UNTIL=fence_door_side1`): 3,194 001DA6A0 calls, all
 drawn and flushed; 640 0015BF90 calls, 628 decals drawn; 1,302 reported
 post-steps (the opening); samples 4 of 32 and 3 of 32 re-executed. Full
 route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
@@ -1326,7 +1344,7 @@ empty): 159,801 sprites, 1,314 triangles, 1,328 lines; 12,573 001DDE10
 CALLs walked over; 19,276 vertices with the frame's Q; 40 sampled pages
 re-walked equal (39 of them REF a blend preset, equal to the captures');
 aligned 10 (5 glow markers)
-and 14 (none visible). The default run (through the fence door) draws 5,554
+and 14 (none visible). The run through the fence door (`fence_door_side1`) draws 5,554
 pages, 418 of them the status frames' (empty).
 
 ## What the full route does not yet compare (2026-09-27)

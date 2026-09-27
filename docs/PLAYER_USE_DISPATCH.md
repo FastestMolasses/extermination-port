@@ -261,7 +261,7 @@ reads "Use chain (ledge climb, vault, ladder, running jump): engaged".
   04 shows them on the frame after the scan). The stand-in consumes the
   stage in place of +4 = 4 (em_player.c live_major1).
 
-**Evidence.** `make test-level-smoke`: the battery, refusal, panel and
+**Evidence.** `make test-level-smoke-full`: the battery, refusal, panel and
 elevator presses win the scan through the native dispatcher, and every row
 check of those phases is unchanged. Phase `boxes` shows both Cross presses
 at the crates entering the ledge climb. The climbs equal route 05 row for row

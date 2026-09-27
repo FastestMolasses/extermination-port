@@ -2917,7 +2917,10 @@ def main():
     for name in not_live:
         status[name] = 'NOT-LIVE driven' if name in driven else 'NOT-LIVE'
     for name in side_named:
-        status.setdefault(name, f'live (its own run: EM_LEVEL_SMOKE_UNTIL={name}, make test-level-smoke-side)')
+        # Named by the main line but not played by this run: report it as
+        # such, not as live (each side beat plays in its own run).
+        status.setdefault(name, f'not played in this run (EM_LEVEL_SMOKE_UNTIL={name}; '
+                                'make test-level-smoke-side / test-level-smoke-full)')
     beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
                       for beat, phases in BEATS)
     print(f'level smoke: route beats: {beats}')

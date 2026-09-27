@@ -294,7 +294,7 @@ over idle04 at a gameplay window: PASS).
   +0x13, +0x28..+0x3B, +0x52..+0x57, +0x60..+0x6F, +0xB0..+0x10F,
   +0x1F0..+0x2EF). The last frame's published class-4 list equals the
   original's in order: [4, 18, 10, 9, 8, 7, 23].
-- `make test-level-smoke`, phase `boxes`: both ledge climbs onto crates r4
+- `make test-level-smoke-full`, phase `boxes`: both ledge climbs onto crates r4
   and r3 equal route 05 row for row (LEVEL_SMOKE.md).
 
 ### Limitations

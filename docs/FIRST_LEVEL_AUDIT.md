@@ -681,14 +681,16 @@ the remaining gaps; census 1.33):**
   minimum; the check was left as it is. LEVEL_SMOKE.md now lists only the
   supported invocations ("Supported end phases"), and STATUS_HUB.md's hub
   capture uses `battery`.
-- **Times.** The smoke targets now take much longer than their docs said:
-  - default target: about 56 s;
+- **Times.** The smoke targets take:
+  - default target: about 15 s, ending at `battery` (lead decision,
+    2026-09-27: the shortest supported end phase; most of it is the New
+    Game path to first control, which every run plays);
   - full main line: about 120 s;
   - side runs: about 70 s.
 
-  The doc and the Makefile comments are corrected. The default target is
-  over the 10 s rule; whether it moves to a shorter end phase is a lead
-  decision.
+  The whole route (`--require-through last`) and both side runs run only
+  under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); no check moved
+  or changed (LEVEL_SMOKE.md "Running it").
 - **Census 1.33.** Liveness was measured again with the edge recorder over
   the full route, both side runs, newgame-control and the area change.
   - All 660 live rows are confirmed. No non-live row's translation runs

@@ -368,15 +368,19 @@ test-room-move-reference:
 test-collision-world-capture: $(BIN)
 	python3 tools/test_collision_world_capture.py
 
-# The default run plays the main line through truck_crossing, then the
-# side beat 09 from its end (fence_door) and the fence door's side 1 from
-# that (fence_door_side1, the C7 DOOR1 capture; about 56 s, docs/LEVEL_SMOKE.md
-# "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
-# the whole live route (about 120 s), then the side runs 00 and 09 with side 1
-# (about 70 s more). Every run's checker requires each phase the run was
-# asked to play to be checked live against its capture (--require-through:
-# a NOT-LIVE, driven or unreached phase fails the target).
-LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,fence_door_side1)
+# The default run ends at battery (first_control, status, battery; about
+# 15 s, docs/LEVEL_SMOKE.md "Adding a phase" rule 4). battery is the shortest
+# supported end: a run ending at first_control or status fails
+# check_render_context's 100-gameplay-tick minimum, and most of the 15 s is
+# the New Game path every run plays to first control (1,393 of the run's
+# 1,919 logged ticks).
+# test-level-smoke-full (or EM_TEST_FULL=1) plays the whole live route
+# through roger with --require-through last (about 120 s), then the side
+# runs 00 and 09 with side 1 (about 70 s more). Every run's checker requires
+# each phase the run was asked to play to be checked live against its
+# capture (--require-through: a NOT-LIVE, driven or unreached phase fails
+# the target).
+LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
 
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
@@ -397,17 +401,20 @@ test-level-smoke-full: $(BIN)
 # The side beats, each in its own run: 00 (from slot 04: first control, then
 # the panel without the battery; about 14 s) and 09 with the fence door's
 # side 1 (the main line through truck_crossing, then the fence door from
-# both sides; about 56 s). LEVEL_SMOKE.md.
+# both sides; about 56 s). LEVEL_SMOKE.md. Each side run writes its own
+# EM_RAND_TRACE and hands it to the checker, so the whole-run rand checks
+# (rand order, sway, marker colour, head sprites) cover its ticks too.
 .PHONY: test-level-smoke-side
 test-level-smoke-side: $(BIN)
 	mkdir -p build/level_smoke_side
 	for side in panel_no_battery fence_door_side1; do \
 	    EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$$side \
-	        EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl \
+	        EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl EM_RAND_TRACE=build/level_smoke_side/rand.trace \
 	        $(BIN) > build/level_smoke_side/run.log 2>&1 || { grep "level smoke" build/level_smoke_side/run.log; exit 1; }; \
 	    grep "level smoke:" build/level_smoke_side/run.log; \
 	    python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl \
-	        --run-log build/level_smoke_side/run.log --require-through $$side || exit 1; \
+	        --run-log build/level_smoke_side/run.log --rand-trace build/level_smoke_side/rand.trace \
+	        --require-through $$side || exit 1; \
 	done
 
 .PHONY: test-message-service

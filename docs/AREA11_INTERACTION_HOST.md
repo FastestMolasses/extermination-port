@@ -209,7 +209,7 @@ EmSceneState: it stores the view after its direct owner claims, decays
 D_008106EF at its camera stage and hands the panel's canonical request to the
 runtime's own frame machine (`bridge_status_request`). The callback counts
 are unchanged (156, 118, 170, 285). The live route is checked end to end by
-`make test-level-smoke` against the route captures (LEVEL_SMOKE.md).
+`make test-level-smoke-full` against the route captures (LEVEL_SMOKE.md).
 
 Run `make test-area11-interaction-host` for the AddressSanitizer and
 UndefinedBehaviorSanitizer fixture. Existing original-instruction oracles

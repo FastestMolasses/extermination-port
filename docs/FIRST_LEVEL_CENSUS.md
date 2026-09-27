@@ -672,7 +672,7 @@ over the pool record, 001BBDA0's 001B0F60 with 001B0EA0's bone slots,
 em_area_script), 001BC150's room move, 001BC300's pose, publication
 (001B1B30) and draw. The Use scan publishes and selects it (00183EF0's
 class-5 branch, em_door_candidate). Side beat 09 is a live phase of the level
-smoke (the default run).
+smoke (`make test-level-smoke-full`'s side-9 run).
 
 - **Moved to live (10 rows):** 001BC350, 001BBDA0, 001BBE40, 001BC0E0,
   001BC240, 001BC290, 001BC300, 001BBD60 (section 3.12: all nine rows live
