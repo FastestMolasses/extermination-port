@@ -44,14 +44,35 @@ capture, not a route beat), which the same targets require.
 ## Running it
 
 ```sh
-make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door and fence_door_side1 (about 16 s; side 1 adds about 5 s)
-make test-level-smoke-full             # the whole route through roger (about 30 s), then the side runs below (about 20 s)
+make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door and fence_door_side1 (about 56 s)
+make test-level-smoke-full             # the whole route through roger (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 4 s), then side beat 09 with side 1 (about 21 s), each its own run
-EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
-EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
-EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
+make test-level-smoke-side             # side beat 00 (about 14 s), then side beat 09 with side 1 (about 56 s), each its own run
+EM_LEVEL_SMOKE_UNTIL=battery make test-level-smoke            # the shortest supported run
+EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
+EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
+EM_LEVEL_SMOKE_UNTIL=fence_door make test-level-smoke         # side beat 09 without side 1
 ```
+
+**Supported end phases.** A run may end at `battery` or at any later phase
+of the table below, main line or side. Each of them passes the make target
+(checked one by one on 2026-09-27). A run may not end at `first_control` or
+`status`. Those two runs play and pass in process, but the checker then
+fails `check_render_context` with "too little exercised": its gameplay
+checks need at least 100 gameplay ticks after first control, and those runs
+have 2 and 13. The minimum keeps the check from passing on almost no data,
+so it stays. Every supported run plays `first_control` and `status` on its
+way and checks both against their captures. The side run
+`panel_no_battery` checks `first_control` and not the status screen.
+
+**Times** (measured 2026-09-27 on the M1, with nothing else running):
+- The full main-line run plays 13,039 ticks in about 108 s. Its checker takes
+  about 10 s more.
+- The default target takes about 56 s, well over rule 4's 10 s ("Adding a
+  phase").
+- A run that ends at `battery` takes about 15 s.
+
+Whether the default should move to a shorter end phase is a lead decision.
 
 The make target does the following:
 
@@ -79,8 +100,8 @@ the earlier beats leave. After the last phase it runs one more frame, with no
 input, before it quits: the route captures sample after the original frame,
 and the original ticks the 0x28A9A0 fade after the slot-0 task, so the port's
 post-frame fade is the next tick's start sample in the tick log. The capture
-check of the last phase needs that tick (for example the first-control fade
-block when `EM_LEVEL_SMOKE_UNTIL=first_control`).
+check of the last phase needs that tick (for example the fade block after
+the last phase's release).
 
 Files:
 - `src/game/em_level_smoke_test.{h,c}`: the in-process driver. Its phase
@@ -255,8 +276,9 @@ also asserts the status models (`em_status_models`): the pool holds the
 status-hub capture's seven records (the menu player 0020E6F0, then the
 letters 0020E460 with the glyphs '/', '@', '0', '1', '2', '8'), and every
 hub frame after the first draws each record once (the first walk only
-initialises them). `EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` (with
-`EM_LEVEL_SMOKE_UNTIL=status`) writes the hub frame whose walk equals the
+initialises them). `EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` (in any run
+that plays the status phase, for example `EM_LEVEL_SMOKE_UNTIL=battery`)
+writes the hub frame whose walk equals the
 capture's (walk 10) for an image compare with
 ../Extermination/build/startup-reference/status-hub/hub.png
 (STATUS_SCENE.md section 7). `EM_LEVEL_SMOKE_MESSAGE_CAPTURE=<file.bmp>`

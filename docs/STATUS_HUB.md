@@ -136,8 +136,9 @@ one-GS-pixel parallelograms; precise line endpoint coverage remains a
 rasterization boundary. The original models are excluded explicitly, and
 the moving background starts at a fresh phase. This fixture is never used
 as a frozen live menu. The live hub, models included, is rendered headless
-by the level smoke: `EM_LEVEL_SMOKE_UNTIL=status
-EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` writes the hub frame of walk 10.
+by the level smoke: `EM_LEVEL_SMOKE_UNTIL=battery
+EM_LEVEL_SMOKE_HUB_CAPTURE=<file.bmp>` writes the hub frame of walk 10
+(a run may not end at `status`: LEVEL_SMOKE.md "Supported end phases").
 Compared with hub.png (2026-09-23), the menu player's bright-pixel box is
 (371..439, 46..191) against the capture's (372..438, 46..192) in the
 640x480 image, and the SPR4 model and ammunition icon sit where the

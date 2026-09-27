@@ -370,10 +370,10 @@ test-collision-world-capture: $(BIN)
 
 # The default run plays the main line through truck_crossing, then the
 # side beat 09 from its end (fence_door) and the fence door's side 1 from
-# that (fence_door_side1, the C7 DOOR1 capture; about 18 s, docs/LEVEL_SMOKE.md
+# that (fence_door_side1, the C7 DOOR1 capture; about 56 s, docs/LEVEL_SMOKE.md
 # "Adding a phase" rule 4); test-level-smoke-full (or EM_TEST_FULL=1) plays
-# the whole live route (about 30 s), then the side runs 00 and 09 with side 1
-# (about 22 s more). Every run's checker requires each phase the run was
+# the whole live route (about 120 s), then the side runs 00 and 09 with side 1
+# (about 70 s more). Every run's checker requires each phase the run was
 # asked to play to be checked live against its capture (--require-through:
 # a NOT-LIVE, driven or unreached phase fails the target).
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,fence_door_side1)
@@ -395,9 +395,9 @@ test-level-smoke-full: $(BIN)
 	$(MAKE) test-level-smoke EM_TEST_FULL=1
 
 # The side beats, each in its own run: 00 (from slot 04: first control, then
-# the panel without the battery; about 4 s) and 09 with the fence door's
+# the panel without the battery; about 14 s) and 09 with the fence door's
 # side 1 (the main line through truck_crossing, then the fence door from
-# both sides; about 18 s). LEVEL_SMOKE.md.
+# both sides; about 56 s). LEVEL_SMOKE.md.
 .PHONY: test-level-smoke-side
 test-level-smoke-side: $(BIN)
 	mkdir -p build/level_smoke_side

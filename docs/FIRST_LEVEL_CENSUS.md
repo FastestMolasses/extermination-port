@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1276,6 +1276,92 @@ Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
 boundary 443, recounted from the section 3 rows (741 rows) and unchanged.
 80,726 of the 87,968 non-boundary instructions are live (91.8%).
 
+### 1.33 Recount (2026-09-27, full-route smoke to Roger: liveness measured again over the whole route)
+
+Sections 1.23..1.32 moved rows by hand, each with its own evidence. This
+recount measures every row again over the whole live route at port HEAD
+6da4eb5, with the method of section 1.22.
+
+- **Edge recorder.** A private `-O1 -fno-inline -finstrument-functions`
+  build of the Makefile's link line (216 sources) was made with a caller /
+  callee edge recorder. Both are scratch only and deleted. It ran five
+  times:
+  - the full level smoke through `roger` (13,039 ticks; all 18 main-line
+    phases PASS, and the checker re-run on its tick log PASSES with
+    `--require-through last`);
+  - the side beat 00 run (PASS);
+  - the side beat 09 run with the fence door's side 1 (PASS);
+  - `newgame-control` (PASS, 9.599849);
+  - `EM_STARTUP_TEST=newgame-control EM_AREA_CHANGE_TEST=1` (PASS).
+
+  Checker note: the rand() trace of the instrumented run cannot be checked,
+  because tools/rand_order.py resolves callers with the shipping binary's
+  symbols. check_rand_order passes on the shipping build's own full run.
+- **Live.** A native function is live when it is reachable from `main`,
+  the audio thread or a constructor, with the test-only modules cut: 7,134
+  of the 7,255 native functions that ran.
+- **Row to native function.** As in 1.22: each row's candidates are the
+  native functions whose name or preceding comment block cites the address.
+  Since the one-owner step (1.28), the SDK VU0 leaves are header-only
+  (em_sdk_vu0.h). So a candidate defined in a header counts as live when a
+  function of that name ran live in any unit.
+- **Live rows confirmed: 660 of 660.**
+  - 634 have a candidate that ran on the live path.
+  - The other 26 run inline in a live function of their named module, each
+    read by hand:
+    - the title menu (em_startup_tick, title_draw);
+    - the panel program's op-9 callback and op 9 (em_panel_program_tick);
+    - em_pickup_owner_tick;
+    - the ladder climb state (em_player_ladder_climb_state);
+    - em_actor_class_publish_001B1B70's class-7 push;
+    - em_interaction_alignment;
+    - em_area_script_tick's op01 kind 9;
+    - em_door_original_tick's phases 4 and 5 (001BC240 / 001BC290);
+    - em_cinematic_playback (001C7C00);
+    - Roger's init and em_roger_tick;
+    - em_owner_draw_001CA940's thunks (001D38F0 / 001D3C30);
+    - the shadow passes (em_gfx_shadow_receiver / em_gfx_shadow_alpha_clear
+      for 001D4B50 / 001DA1E0; em_shadow_original_001DA6A0 for 001DA080);
+    - em_item_root_tick (0020EE50);
+    - the director's beat bodies in em_director_original_tick;
+    - sdk_0011E080.
+- **Non-live rows.** No non-live row has its own translation running live.
+  - 47 rows have a live candidate, but every one is one of these:
+    - a stand-in or wrapper whose comment cites the address (for example
+      em_frame's frame_input_read for 001B57E0 / 001B5F40, em_hud's area
+      title for 001C5860 / 001C5930, char_rig_build for 001D8270);
+    - a function whose name carries the address and which the row already
+      names as its stand-in or reported binding: w_001AFCA0,
+      em_render_001C1D00, w_001CA770 (the face host's detach), the no-op
+      w_001CB5B0 slots, um_001D19E0, g_001D52E0 (UM_001D52E0),
+      w_001FBC50 (em_sfx_stop_all), em_scene_bindings_001FC280
+      (unverified), veil_0021B1B0 / veil_0021B500 (reported) and
+      tick_enemy_00825940 (the legacy husk group).
+- **Boundary rows with a live translation** (section 4's rule). Thirteen
+  boundary functions have a translation named after them that ran live:
+  - the IOP stream driver: 00112610, 00112D18, 00113280, 001157F0,
+    0011A2B0;
+  - the stream command packers: 0011A4E8, 0011A608, 0011A658, 00119828;
+  - the lane init 001F9820;
+  - the module loader's 001FF080 and 00200890;
+  - the pad actuator's 00111018.
+
+  They stay boundaries: they are translations inside the non-render
+  boundaries, which section 4's note keeps, and moving them is lane L36's
+  decision (VOICE, section 1.15).
+- **The smoke's invocations** (LEVEL_SMOKE.md "Supported end phases"). Every
+  end phase from `battery` on passes the make target. Runs that end at
+  `first_control` or `status` fail check_render_context's 100-gameplay-tick
+  minimum, which stays, so the doc no longer lists them.
+- **Evidence.** make test-level-smoke-full passes with --require-through at
+  HEAD; all 237 make test-* targets pass; make all builds with no warnings;
+  newgame-control gives 9.599849.
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443 (unchanged). 80,726 of the 87,968 non-boundary instructions are
+live (91.8%). What remains between the port and the original first level is
+the prioritized list in FIRST_LEVEL_AUDIT.md section 1b.
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1303,7 +1389,7 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31 and 1.32) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32 and 1.33) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1333,7 +1419,7 @@ Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instruc
 
 ### 2.3 What the numbers say
 
-State at chain C8's one-owner step of 2026-09-27 (section 1.28; the full-route recount is section 1.22).
+State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22). What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
 - **Live and verified: 660 of 741 non-boundary functions (91.8% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the

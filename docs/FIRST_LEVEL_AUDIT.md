@@ -662,6 +662,269 @@ walk-out on its originals; DOOR_ORIGINAL.md "Side 1", census 1.31):**
   - Census unchanged: live 660, verified-unbound 77, unverified 3,
     missing 1, boundary 443.
 
+**Status update (2026-09-27, full-route smoke to Roger, census re-measured,
+the remaining gaps; census 1.33):**
+- **The whole route passes with no new divergence.** At port HEAD 6da4eb5,
+  `make test-level-smoke-full` passes with `--require-through`:
+  - route beats 01..14 on the main line (18 phases);
+  - side beat 00 in its own run;
+  - side beat 09 with the fence door's side 1.
+
+  Every relaxed check has a named cause and remover in LEVEL_SMOKE.md "What
+  the full route does not yet compare". None could be removed faithfully in
+  this step: each needs other work or other data (navigation, the husk
+  owner, the opening's records, the loader, a renderer stage). Nothing in
+  the port was changed.
+- **Supported invocations.** Each end phase was run through the make
+  target. Every phase from `battery` on passes, main line and side alike.
+  `first_control` and `status` fail check_render_context's 100-gameplay-tick
+  minimum; the check was left as it is. LEVEL_SMOKE.md now lists only the
+  supported invocations ("Supported end phases"), and STATUS_HUB.md's hub
+  capture uses `battery`.
+- **Times.** The smoke targets now take much longer than their docs said:
+  - default target: about 56 s;
+  - full main line: about 120 s;
+  - side runs: about 70 s.
+
+  The doc and the Makefile comments are corrected. The default target is
+  over the 10 s rule; whether it moves to a shorter end phase is a lead
+  decision.
+- **Census 1.33.** Liveness was measured again with the edge recorder over
+  the full route, both side runs, newgame-control and the area change.
+  - All 660 live rows are confirmed. No non-live row's translation runs
+    live.
+  - Thirteen boundary functions (the IOP stream driver, the stream command
+    packers, 001F9820, the loader's 001FF080 / 00200890, the pad
+    actuator) run translations but stay boundaries (lane L36).
+  - Totals are unchanged: live 660, verified-unbound 77, unverified 3,
+    stand-in 0, missing 1, boundary 443 (91.8% of the non-boundary
+    instructions).
+- **What remains** is section 1b below: 20 items, prioritized, across logic,
+  look, sound and feel.
+- **Evidence.**
+  - all 237 make test-* targets pass;
+  - make test-level-smoke-full passes with --require-through;
+  - newgame-control gives 9.599849;
+  - make -B all builds with no warnings.
+
+  Frame order is unaffected: no code changed.
+
+### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
+
+This list covers what is left between the port and the original AREA11, up to
+Roger's encounter. It was made after the full-route smoke and the census
+re-measurement above. Each item is here because a census row, a relaxed smoke
+check or a module doc names it. The list itself changes nothing.
+
+Each item gives:
+- its area: logic, look, sound or feel;
+- where it shows;
+- the census rows or lane;
+- what would remove it.
+
+"Capture" marks items that need a new original recording. A chain step must
+not launch PCSX2, so those items go to the lead.
+
+The items are ordered in four groups:
+- A: what differs on the route in every run;
+- B: what differs on the route now and then;
+- C: what a player reaches off the recorded route;
+- D: what may already be original but is not yet proven (evidence gaps).
+
+**A. On the route, every run**
+
+1. **Logic: the husks and the fan pair are the last overlay owners on
+   legacy code.** Census L24 and WP-11. The rows 00825940, 00827490,
+   00823CE0 and 00827630 are all verified-unbound.
+   - em_enemy moves and draws the husks. The fans are static props.
+   - The husk creature's lifecycle-0 rand() draw (0x8259F0) is the one call
+     the port's opening misses (RAND_ORDER.md). From AE+1 on, every
+     rand()-driven value in the level comes from a stream shifted by one
+     draw against the original's: the sway, the head sprites, the markers
+     and the snow's seeds.
+   - What removes it: bind the verified translations on their records.
+     First, the creature's lifecycles 1 and 4 must be translated. The fan's
+     tail reaches the level exit 001B0C60 and the player hit, so the
+     consumers of both must be verified.
+2. **Look / logic: during the opening, the player and the faces come from the
+   opening runtime, not from the records** (design risk 2).
+   - During the opening the displayed player is not the record's pose. The
+     shadow's post-step is reported, not drawn, on 1,312 ticks.
+   - em_opening_actor ticks both faces inside the opening controller from
+     AE+16. The original ticks Roger's face in his owner from AE+2 and the
+     player's face in the player stage from AE+5. The opening's rand()
+     values differ from these calls on.
+   - The opening runtime also stands in for four verified-unbound script
+     ops: 001BAC00 (op 0x14 is a no-op there), 001BB0E0 (em_opening_actor),
+     001BAD40 and 001BA510.
+   - What removes it: the opening's actors on their records. The player's
+     0015C160 post-step is then computed.
+3. **Look: the static world does not use the original's static-object path.**
+   Rows 001C1D00, 001D5370, 001D52E0, 001E0CF0 and 001D21B0;
+   RENDER_CONTEXT.md 8.4; lane L31.
+   - The port's level renderer draws the scenery. Its GS state is decoded
+     (LEVEL_MATERIALS.md). Its culling and packet order are not the
+     original's: they do not come from 001D5370's walk over the
+     static-object bank.
+   - Step V's list has no +0x1D8 CALL. The background gate reads flag 0x21
+     in place of the context's +0x1D8 word.
+   - What removes it, three things:
+     - an export of the static-object bank *D_0028A5A0 (in the chunk15
+       concatenation at 0x304000);
+     - a renderer boundary decision for 001D4FB0 / 001D4B20 / 001D4DA0 /
+       001D5BD0;
+     - the background channel 001E1E60 / 001E1AD0.
+4. **Look: the lighting stand-ins.** Lanes L40 and L33.
+   - The actor fold gate 001D8270 and the actor RGB / self-glow 001D8690
+     are verified but not called. The renderer's post-draw tint stands in
+     for them (em_render_frame char_rig_build).
+   - These are not bound: the face and UI lighting modes 001D88B0 /
+     001D8C30, and the fade weights 001D8060 / 001D80B0 / 001D9070.
+   - The room point-light lists are resolved offline by
+     tools/export_point_lights.py. The original resolves them at run time
+     in 001F6640 / 001F66F0 / 001F6760 / 001F6D60 / 001F6E40.
+5. **Look: Roger's face and the face units.** OWNER_DRAW.md section 11.
+   - Census rows: 001CB3C0 is missing; 001C7900 and 001CB2C0 are
+     verified-unbound; 001D3F50 and 001D3E40 are untranslated.
+   - Roger draws roger.emdl with the opening face. His equipment 001C5C90
+     draws a legacy mesh.
+   - The player's face is the face host's state, not a pool slot at +0x90.
+     So in beats 10, 11, 13 and 14, 001CA700 / 001CA770 and 001AF890 stay
+     verified-unbound.
+   - What removes it: translate the face units with oracles; add a model
+     resolver for the Roger export; then bind the +0x90 attachment.
+6. **Sound: the SPU2 voice model.** Section-4 boundary: 41 EE sound-library
+   functions have no original comparison. WP-14 AM-03 / 04 / 26 / 27.
+   - The mixer is dry: no ADSR, no reverb bus, no Gaussian interpolation.
+   - The positional gain 001FBF50 (AM-19) has no oracle.
+   - The looped positional voices 001FC3C0 are verified but not bound (the
+     flame's 0x413).
+   - Capture: nothing records SPU2 output today, and the smoke compares no
+     sound.
+7. **Policy: the disc-drive timing is always on.** LAUNCHER_OPTIONS.md
+   (DECIDED 2026-09-27) makes the drive model measured from the recordings
+   an option, off by default; the Original profile has host-speed loads and
+   streams. Today the IOP stream backend always runs the model.
+   - Turning it off moves first control and the voiced lines' key-ons.
+     check_voice_drive and the frame-order window (native index 1340) must
+     then follow the switch.
+
+**B. On the route, now and then**
+
+8. **Logic: the panel's, the terminal's and the items' takeovers.** They run
+   the interaction runtime's acquire and per-stage tick over their scripts'
+   animation core. The script owners' takeovers are the stage's own since
+   chain C7 (0015B130's prelude, 0015B530, 00182DF0). These three share
+   only the release, 00182DF0, with them.
+   - What removes it: their scripts request clips through +1F2 / 00183090
+     on the stage.
+9. **Look: draws not yet on their original units.**
+   - The indicator children's +0x4C is 001CABA0. The port still draws each
+     child's model mesh additively at the child's own node.
+   - Roger's projected shadow 001DA6A0 is reported (UM_001DA6A0), because
+     his kind 0x29 proxy is not exported.
+   - The snow and the AREA11 flame draw before the chain page, not inside
+     it (CHAIN_PAGE.md section 6):
+     - the port's weather does not write the context's +0x2520, which
+       001E0D70's kick reads; em_snow_runtime draws the snow;
+     - 008235F0's 001D04B0 is not bound; em_area11_effect_runtime's
+       second, partial translation of the sprite program draws the flame.
+   - 001DDE10's frame-copy four-sprite pass is walked over, not drawn.
+   - If a vertex's RGBAQ comes before any ST on its page, the chain page
+     draws it with Q = 1.0.
+   - The area title card 001C5860 / 001C5930 is em_hud's legacy card.
+   - The load veil's particles 0021B1B0 / 0021B500 are not drawn, so loads
+     show black.
+10. **Sound: silent or partly bound cues.**
+    - The UI cues 0 / 1 / 2 / 5 / 0xB / 0xD and the unit sound are silent
+      (AM-07).
+    - These are not bound: the sound-bank loader chain 001FB370 /
+      001FB3E0 / 001FB910 / 001FC6E0, and the rest of 001FB100 (the
+      output-mode commit and the D_00281B70 copy).
+    - 001FBC50's live part is em_sfx_stop_all, which no oracle checks.
+    - 001FBDB0 is verified but not bound.
+    - 001FC280's body is unverified: its D_00282160 cache is not modelled.
+11. **Logic / feel: the module loader's dispatches (H7).** The panel's
+    BATTERY prompt comes 7 ticks after the request in the port and 30 in
+    the original.
+    - Part of the difference is drive time, which the Original profile does
+      not reproduce (item 7).
+    - The rest is the module loader's own steps. The loader
+      (0x1FF080..0x2009E0) is a boundary today; in the original it
+      dispatches once per tick.
+    - The capture exists (CAPTURES_C7.md section 6).
+    - What removes it: translate the loader's dispatch state machine, so the
+      prompt waits the code's dispatches at host drive speed.
+12. **Logic: startup, input and frame glue that is still the port's own.**
+    All of these rows are verified-unbound. The captures prove only their
+    observable results.
+    - The pad read 001B57E0 / 001B5F40 is em_frame's frame_input_read.
+      001B5940's block itself is live.
+    - The area build's re-arm 001AF690 / 001AFCA0 is w_001AFCA0. Only its
+      001AF5C0 is original.
+    - The overlay init 008237C0 is the roster spawn.
+    - 001AC070 / 001AB790 are the legacy task installs for Continue and New
+      Game.
+    - 001AB4E0 is not bound.
+    - Camera state 0's 00199C50 is a reported no-effect binding.
+13. **Logic: the three unverified rows.** Each needs an oracle that executes
+    it:
+    - 0015CF90: the D_00810707 / B9 progress bytes;
+    - 001B1190: the pickups' persistence event;
+    - 001FC280.
+
+**C. Off the recorded route, but reachable by a player in AREA11**
+
+14. **Feel / logic: damage and death.**
+    - The flame's contact damage 00823580 is not modelled (INV-17). Its
+      class-0xD collision push 001B1DA0 / 001A8660 is not bound.
+    - The stage's hit, infection and low-health paths reach fail-stop
+      workers: 0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0 and the
+      unbound +4 = 2 states.
+    - Nothing exercises the truck-pit fall.
+15. **Feel: weapons and the aiming camera.** Lane L28.
+    - The aim, R1, R2 and melee states (P24..P28) run em_weapon's
+      stand-ins.
+    - Camera actions 1 / 2 (aim), 5 and 9..15 fault.
+    - The aim release 00197490 (CAM-16) is untranslated.
+16. **Logic: the status screen's other pages.**
+    - The MAP, SPR4 and DATABASE pages fault: they are untranslated (row
+      0020CDC0).
+    - Nothing exercises the options or save paths.
+17. **Content: the unplayed branches.**
+    - The west-yard and plateau ladders (census 7.1) have no capture.
+    - The census records one hit per label, so jump-table cases the route
+      did not take were never recorded.
+    - Capture: a census pass over these branches.
+
+**D. Evidence gaps (the behaviour may already be original)**
+
+18. **Look: no pixel comparison.** Each beat's renderer output is compared
+    with its original.png by eye only.
+    - The capture lane's software-renderer framebuffers now make a pixel
+      metric possible (CAPTURES_C7.md 5b): the displayed 512x224 field and
+      Z at the 16 route snapshots, plus three extra points.
+    - A metric needs the port at a snapshot's exact state. The camera-exact
+      beats 10 and 14 are the candidates.
+    - Rasterization is Metal's float interpolation, not the GS's DDA.
+    - How the 512x224 fields are presented is a deferred platform choice
+      (CLAUDE.md, PORT_PROFILES.md).
+19. **Feel: the walks between the scripted windows.** They are navigation,
+    and the smoke does not compare them (LEVEL_SMOKE.md "What the full route
+    does not yet compare"):
+    - the slide and step-off stance;
+    - Roger's idle phase before f358;
+    - beat 10's music-refill phase;
+    - the player's units at snapshots 08, 11, 12 and 13.
+
+    The walk code itself is live and original:
+    - over the first 30 ticks of control the displacement equals the
+      original's (9.599849);
+    - from native index 1340 the frame order passes event for event.
+20. **Beyond Roger.** The level exit (beat 15) is in neither the census nor
+    the smoke. It is outside the current goal ("up to Roger") and waits on
+    item 1's fan tail.
+
 ---
 
 ## 2. Live call graph (normal run)

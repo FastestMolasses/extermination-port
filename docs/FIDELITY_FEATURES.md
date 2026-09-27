@@ -115,9 +115,9 @@ verified translation.
   original route in hidden PCSX2 (4 startup labels plus route beats 00..14):
   1,184 functions executed (111,764 instructions). Each was classified by
   reading its evidence. An instrumented port build recorded live
-  caller/callee edges (census 1.22).
-- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 2.1-2.3, recount through 1.31
-  (2026-09-27). Of 741 non-boundary functions: live 660 (80,726 of 87,968
+  caller/callee edges (census 1.22, measured again in 1.33).
+- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 2.1-2.3, recount through
+  1.33 (2026-09-27). Of 741 non-boundary functions: live 660 (80,726 of 87,968
   instructions = 91.8%; 89.1% by function count); verified but unbound 77;
   unverified 3 (0015CF90, 001B1190, 001FC280); missing 1 (001CB3C0). 443
   boundary functions (SDK/libc/IOP/driver/GS/VU1, 23,796 instructions) are
@@ -129,7 +129,9 @@ verified translation.
   Boundary functions are native replacements, not translations. "Stand-in 0"
   counts census rows only; census 2.3 "What still stands in" lists non-row
   stand-ins still on the route. Instrumented liveness was last measured at
-  1.22; later rows were moved per step.
+  1.33 (2026-09-27), which confirmed all 660 live rows and found no non-live
+  row whose translation runs live. The remaining gaps, prioritized, are
+  `FIRST_LEVEL_AUDIT.md` section 1b.
 
 **The first-level route is replayed headless and checked phase by phase against PCSX2 recordings**
 
@@ -725,7 +727,9 @@ fades change on the same ticks as in the recordings.
   fence door), each in its own run. In the census 1.22 recount (2026-09-26)
   all 18 main-line phases passed and their capture checks passed again on
   the tick log. Census 1.30 (HEAD 4366957) and 1.31 list the same full
-  target as passing. The truck preview compares every row from f164 through
+  target as passing, and census 1.33 (HEAD 6da4eb5) re-ran every phase on an
+  instrumented build and the checker on its tick log (PASS). The truck
+  preview compares every row from f164 through
   the release at f527, plus 25 rows after it. Roger's encounter compares
   1,531 rows (f288..f1818) with every compared field equal. Mutations fail
   the checks: truck placement Y +0.001 fails at f167, slide entry speed
@@ -772,16 +776,16 @@ units per second.
   not count as evidence. Instrumented builds measured which functions
   actually run.
 - Evidence: `FIRST_LEVEL_CENSUS.md` sections 1.1, 2.1 and 2.3. Totals as of
-  section 1.30 (committed at HEAD) and unchanged in 1.31 (uncommitted): 660
+  section 1.33 (2026-09-27, unchanged since 1.30): 660
   of the 741 non-boundary functions are live and verified (89.1% of
   functions; 80,726 of 87,968 instructions, 91.8%). 77 are verified
   translations that the live app does not run yet, 3 are unverified
   (0015CF90, 001B1190, 001FC280) and 1 is missing (001CB3C0). 443 are
   platform boundaries (SDK, IOP, GS and similar). No row is classified
-  stand-in. The last whole-route liveness measurement, section 1.22
-  (2026-09-26), used an edge-recorder build that confirmed all 634 live
-  rows of that time. Later rows were moved step by step, each with its own
-  evidence. `FIRST_LEVEL_AUDIT.md` sections 1 and 4 list the removed
+  stand-in. The last whole-route liveness measurement, section 1.33
+  (2026-09-27, HEAD 6da4eb5), used an edge-recorder build that confirmed all
+  660 live rows (section 1.22 had confirmed the 634 of its time).
+  `FIRST_LEVEL_AUDIT.md` sections 1 and 4 list the removed
   fabrications (WP-0..WP-2; H8 fixed in 9d4a631; H13 via census L18; H16
   via census L23; H20).
 - Status: **PARTIAL**. The census counts only functions the recorded route
