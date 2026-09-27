@@ -21,9 +21,21 @@ original. Work outside that scope waits until the user moves the goal.
 The finished port ships an **Original** profile and an **Enhanced** profile,
 built from one codebase (full rules: `docs/PORT_PROFILES.md`).
 - **Original** is the default and the only thing fidelity work measures. It
-  uses the exact GS framebuffer (512x448 in the first level), shown at 4:3 with
-  no smoothing and no CRT simulation. Its colours are GS-exact, and its logic
-  and controls are the original's.
+  uses the exact GS framebuffer (in the first level each field is a 512x224
+  buffer shown as 448 lines), shown at 4:3 with no smoothing and no CRT
+  simulation. Its colours are GS-exact, and its logic and controls are the
+  original's.
+- **Experience, not hardware (user, 2026-09-27).** Reproduce the game's
+  behaviour and the timing of everything the player sees and hears, including
+  timing the game's own choreography depends on (the 59.94 Hz tick, the stream
+  drive model the director waits on). Do NOT emulate PS2 hardware limits:
+  loads run at host speed, the PS2's slowdowns/hitches are not reproduced, no
+  CRT/scanline/interlace simulation.
+- **Fidelity features list:** `docs/FIDELITY_FEATURES.md` is the public,
+  evidence-backed list of what the port reproduces (relative to PCSX2). When
+  a step makes a player-facing behaviour provably original (oracle or
+  capture), add or update its entry with the evidence and status in the same
+  commit; never overclaim.
 - **Enhanced** is the user's improvements: resolution, filtering, AA,
   widescreen, frame rate, QoL, better controls (the README's "Future
   Enhancements") and restored cut content (the decomp's `docs/CURIOSITIES.md`,

@@ -11,7 +11,7 @@ from **one codebase**:
 | Scaling | Nearest-neighbour integer or aspect-correct scaling, **no smoothing** | Filtering and AA of the user's choosing |
 | Colours | GS-exact: the same blend, fog, alpha test, dither and clamp arithmetic, so the pixels match | May differ |
 | CRT / scanline simulation | **None** (user: "no simulating CRT") | Not planned |
-| Frame rate | The original's frame rate and pacing | Higher rates allowed |
+| Frame rate and timing | The game's own 59.94 Hz tick and the timing its choreography depends on (e.g. the stream drive model the director waits on). PS2 hardware limits are not reproduced: loads run at host speed and the PS2's slowdowns/hitches are not emulated (user, 2026-09-27; docs/FIDELITY_FEATURES.md) | Higher rates allowed |
 | Controls | The original DualShock 2 mapping and behaviour | Better controls (list below) |
 | Content | Only what the shipped game reaches | May restore cut content (list below) |
 
