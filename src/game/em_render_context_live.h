@@ -17,13 +17,17 @@
  *   0x00816440..0x0081723F  the 14 skin records 001D30A0 fills
  *   0x70003A40..0x70003B3F  scratchpad: the P and K copies (001D1C50)
  *   0x70003B60..0x70003B63  scratchpad: the zoom copy (001D25F0)
+ *   0x70003B70..0x70003B73  scratchpad: the screen centre 001AB370 stores
+ *                           (0x800, 0x800) and step V reads
  *   .data from the user's ELF (assets/render_context.emrc,
  *   tools/export_render_context.py): D_00241010 (8), D_00250F30..
  *   D_0025316F (the colour, D_002513E0, the room table D_00251C50),
  *   D_0026E510 (16), D_00275670..D_0027569F.
  *
  * Every other byte these routines read belongs to another owner and is a
- * view the binder hands over (EmRclExternal): D_00810E80 (the frame loop),
+ * view the binder hands over (EmRclExternal): D_00810E80 and D_00810E88
+ * (the frame loop: the buffer index and the field bit), D_008106C4 (the
+ * scene state's request byte, from the start for step V),
  * D_00810610 and D_008105E0 (the live camera's pool), the request block
  * D_008106B0.. and the area bytes D_00810700.. and D_008101E4 and 0x70003B8D
  * (the scene state), the player record D_008102B0 (the camera's view of it).
@@ -48,6 +52,8 @@
 #define EM_RENDER_CONTEXT_LIVE_H
 
 #include <stdint.h>
+
+#include "game/em_point_light.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -112,6 +118,32 @@ int em_rcl_0021BAC0(int32_t slot);
 int em_rcl_0021BAE0(int32_t slot);
 /* 001DD980's tail: 001DD950(&D_008105E0, 2 + 1.02 d, d), f12 / f13 bits. */
 int em_rcl_001DD950(uint32_t a0, uint32_t f12, uint32_t f13);
+
+/* The frame loop's views, handed once at start-up (they stay across area
+ * binds): the halfword D_00810E88 (the field bit, em_frame) and the byte
+ * D_008106C4 (the scene state's request byte). 0, or -1. */
+int em_rcl_frame_views(uint8_t *d810E88, uint8_t *d8106C4);
+/* Main-loop step V: 001D2300, the frame's DMA list (em_frame_kick; docs/
+ * RENDER_CONTEXT.md section 9). Its kick is the renderer boundary: the port
+ * presents the frame after it. Runs in every iteration (needs only the
+ * frame views). */
+int em_rcl_001D2300(void);
+/* Main-loop step W: 001D2580(field), context +0x98 = the field bit. */
+int em_rcl_001D2580(int32_t a0);
+/* The condition under which 001D2300 calls 001E0DF0 (D_008106C4 == 0,
+ * render flag 4 clear, flag 0x20 set), by the translation's own code: the
+ * renderer's channel-3 gate reads it. *calls = 1 / 0. 0, or -1. */
+int em_rcl_001D2300_calls_001E0DF0(int *calls);
+/* The list the last step V kicked and the number of kicks. 0, or -1. */
+int em_rcl_kick(uint32_t *chain, uint32_t *kicks);
+/* 001D1EF0: the tear-down frame (001D1C50, 001D2830(3, 1), 001D1EA0(0)) on
+ * this context (em_frh_001D1EF0). Needs the bind. 0, or -1. */
+int em_rcl_001D1EF0(void);
+/* The point-light slots of this context (+0x210..+0x221F in the layout of
+ * EmPointLightPool: the id counter +0x210, the staged count +0x214, the
+ * active slots +0x220, the staged slots +0x1220), the one storage
+ * 001D7BB0 / 001D7C30 / 001D7FA0 / 001D8340 address; NULL before the load. */
+EmPointLightPool *em_rcl_point_lights(void);
 
 /* The chain page 001CB800 spliced at the last frame close (001D1EA0's
  * kick): its start tag, and the CALL target 001DDE10 appended to slot 0xFFF

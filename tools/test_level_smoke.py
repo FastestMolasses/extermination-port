@@ -1659,7 +1659,20 @@ PHASES = [
 
 # The tick log's "rctx" (em_scene_bindings.c log_tick_end), in order.
 RCTX_FIELDS = ('flags0c', 'flags174', 'fog', 'zoom', 'v', 'k', 'alt0', 'bars', 'depth', 'slot0', 'eases',
-               'cam610')
+               'cam610', 'cursor8', 'field98', 'list')
+# The two original status-screen captures (mid-iteration, after the status
+# frame's 001D2830(3, 1), before its step V): the status hub and the panel's
+# BATTERY page.
+RCTX_STATUS_CAPTURES = ('status-hub', 'panel')
+RCTX_ARENA = 0x28F700
+
+
+def rctx_tags(data):
+    """The bytes of a main list the tag builders write, per 16-byte tag:
+    the count halfword (+0), the id byte (+3) and the address word (+4). Byte
+    +2 and the upper eight bytes keep the arena's earlier contents (the
+    boot's fill pattern in the original, zero in the port's arena)."""
+    return b''.join(data[k:k + 2] + data[k + 3:k + 8] for k in range(0, len(data), 16))
 RCTX_CONTEXT = 0x811CC0
 RCTX_ORACLE_SAMPLES = 40
 
@@ -1694,6 +1707,46 @@ def rctx_reference():
     return ref
 
 
+def rctx_status_reference():
+    """The render context of the original's status frames, from the two
+    status captures (asserted equal): the flag words (flag 3 set by the
+    status frame's 001D2830(3, 1), flag 6 clear), the fog block, the save
+    slot 0, V (the UI view 0020DFA0 wrote into D_00810610: identity with
+    +0x14 = -1), and both slots' main lists as the previous two status
+    frames' step V built them (6 tags: the draw environment, the black clear
+    +0x420, channel 1, channel 0, the page, the end), the cursor at the end
+    of slot 0's."""
+    c, ref = RCTX_CONTEXT, None
+    for name in RCTX_STATUS_CAPTURES:
+        m = (DECOMP / 'build/startup-reference' / name / 'eeMemory.bin').read_bytes()
+        got = {'flags0c': m[c + 0xC:c + 0x10], 'flags174': m[c + 0x174:c + 0x178], 'fog': m[c + 0xA0:c + 0x100],
+               'slot0': m[c + 0x120:c + 0x140], 'v': m[c + 0x2380:c + 0x23C0], 'cursor8': m[c + 8:c + 12],
+               'lists': tuple(m[RCTX_ARENA + (s << 14):RCTX_ARENA + (s << 14) + 0x60] for s in (0, 1))}
+        assert ref is None or got == ref, ('the status captures disagree on the render context', name)
+        assert got['flags0c'] == bytes([0x0B, 0, 0, 0]) and got['lists'][0][0x13] == 0x30
+        ref = got
+    assert ref['cursor8'] == struct.pack('<I', RCTX_ARENA + 0x60)
+    return ref
+
+
+def rctx_world_lists():
+    """Both slots' main lists of a world frame as the route snapshots 00..14
+    hold them (asserted equal across the beats): the draw environment, the
+    Z-only clear +0x3A0, the CALL of the channel-3 list at ctx+0x1D8 (001E0DF0),
+    channel 0, the page, channel 1, the end. Returned without the CALL: the
+    port does not build the +0x1D8 list (001C1D00 / 001E0CF0 are not bound,
+    RENDER_CONTEXT.md 8.4), so its 001E0DF0 emits no tag there."""
+    ref = None
+    for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        lists = tuple(m[RCTX_ARENA + (s << 14):RCTX_ARENA + (s << 14) + 0x70] for s in (0, 1))
+        assert ref is None or lists == ref, ('the route snapshots disagree on the main lists', beat)
+        ref = lists
+    for s in (0, 1):
+        assert ref[s][0x23] == 0x50 and struct.unpack_from('<I', ref[s], 0x24)[0] != 0, ('world list CALL', s)
+    return tuple(l[:0x20] + l[0x30:] for l in ref)
+
+
 def check_render_context(ticks, state):
     """The live render context (census L32 / L30, docs/RENDER_CONTEXT.md
     section 8) over the whole run, from first control on:
@@ -1706,10 +1759,22 @@ def check_render_context(ticks, state):
       001D1C50, which runs before the camera stage);
     - on a sample of ticks the ORIGINAL 001D2960, executed over a route
       snapshot with the tick's V and zoom, writes the logged K and
-      001CD370(0) projection bit for bit."""
+      001CD370(0) projection bit for bit;
+    - main-loop steps V / W (001D2300, 001D2580): on every tick +0x98 (the
+      field W stored) is 1 - +0x9C, the phase every capture holds; the list
+      the previous step V built equals the captures' (status frames: the
+      status captures' list with the black clear; world frames: the route
+      snapshots' list without the +0x1D8 CALL), with the cursor at its end;
+    - every status-screen frame (0x1AE040 +B = 3 after a status frame)
+      holds the status captures' flag words (flag 3 set by its 001D2830(3,
+      1), cleared by the step V that follows), fog block and save slot, and
+      its frame head projected the UI view 0020DFA0 wrote into D_00810610."""
     import test_frame_render_heads_reference as frh
     from test_player_slide_reference import RETURN, read_elf
     ref = rctx_reference()
+    status_ref = rctx_status_reference()
+    world_lists = rctx_world_lists()
+    fields = status_frames = status_ui = world_list_ticks = 0
     first = state['first_control']
     gameplay, lagged, moved, reseats, prev = 0, 0, 0, 0, None
     # The first status screen's close (0x1AE040 +B = 5): from there on the
@@ -1730,6 +1795,31 @@ def check_render_context(ticks, state):
             assert r['slot0'] == ref['slot0'], ('render context', 'port tick', t['tick'],
                                                 'fog record save slot 0 +0x120', r['slot0'].hex())
             slot_ticks += 1
+        where = ('render context', 'port tick', t['tick'])
+        # Step W's field against step B's slot: the captures' phase.
+        slot = struct.unpack_from('<I', r['field98'], 4)[0]
+        assert slot in (0, 1) and struct.unpack_from('<I', r['field98'], 0)[0] == 1 - slot, (
+            where, 'step W field +0x98 / slot +0x9C', r['field98'].hex())
+        fields += 1
+        other = 1 - slot
+        cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x60)
+        pr = rctx(ticks[i - 1]) if i > 0 else None
+        pstate = snap(ticks[i - 1])['task'][2] if i > 0 else None
+        # 0x1AE040 state 3's status frame ran in the tick (its 001D2830(3, 1)
+        # between 001D1C50 and 0020CDC0), and in the tick before.
+        status = lambda k: snap(ticks[k])['task'][2] == 3 and any(e[1] == 0x1D2830 for e in ticks[k]['trace'])
+        if pr is not None and status(i) and status(i - 1):
+            # A status frame after a status frame: its V list, flags, fog,
+            # save slot, and the UI view.
+            assert r['flags0c'] == status_ref['flags0c'] and r['flags174'] == status_ref['flags174'], (
+                where, 'status frame flags', r['flags0c'].hex())
+            assert r['fog'] == status_ref['fog'] and r['slot0'] == status_ref['slot0'], (where, 'status fog')
+            assert rctx_tags(r['list']) == rctx_tags(status_ref['lists'][other]) and r['cursor8'] == cursor, (
+                where, 'status frame step V list', r['list'].hex(), status_ref['lists'][other].hex())
+            status_frames += 1
+            if pr['cam610'] == status_ref['v']:
+                assert r['v'] == status_ref['v'], (where, 'status frame head view')
+                status_ui += 1
         sp = snap(t)
         spad = bytes.fromhex(sp['spad'])
         if sp['variant'] and spad[1] == 0 and tsr.get(bytes.fromhex(t['post']), 0x8101E4) != 3:
@@ -1740,6 +1830,10 @@ def check_render_context(ticks, state):
             assert r['eases'] == ref['eases'], (where, 'D_00275690 / D_00275694', r['eases'].hex())
             assert r['bars'][0x10:] == ref['widths'], (where, 'widths +0x2500..+0x2513', r['bars'][0x10:].hex())
             assert r['depth'][0xC:] == ref['tail'], (where, '+0x245C..+0x2467', r['depth'][0xC:].hex())
+            if pr is not None and pstate == 1 and snap(ticks[i - 1])['variant']:
+                assert rctx_tags(r['list']) == rctx_tags(world_lists[other]) and r['cursor8'] == cursor, (
+                    where, 'world frame step V list', r['list'].hex(), world_lists[other].hex())
+                world_list_ticks += 1
             gameplay += 1
             if gameplay % 200 == 1:
                 samples.append(r)
@@ -1773,7 +1867,15 @@ def check_render_context(ticks, state):
         assert ee.read(RCTX_CONTEXT + 0x23C0, 0x40) == r['k'], ('render context: K differs from the original 001D2960')
         assert ee.read(RCTX_CONTEXT + 0x2240, 0x40) == r['alt0'], ('render context: +0x2240 differs from 001D2960')
     assert closed is None or slot_ticks >= 100, ('render context: the save slot too little exercised', slot_ticks)
-    print(f'render context: PASS ({gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '
+    assert world_list_ticks >= 100, ('render context: step V world lists too little exercised', world_list_ticks)
+    assert opened is None or (status_frames >= 10 and status_ui >= 10), (
+        'render context: the status frames too little exercised', status_frames, status_ui)
+    print(f'render context: PASS ({fields} ticks hold step W\'s field +0x98 = 1 - slot +0x9C, the captures\' '
+          f'phase; {world_list_ticks} world frames\' step V lists equal the route snapshots\' (without the '
+          f'+0x1D8 CALL, 001C1D00 unbound); {status_frames} status frames hold the status captures\' flag '
+          f'words (flag 3 set, cleared by step V), fog block, save slot and step V list with the black clear '
+          f'+0x420, {status_ui} of them projecting the UI view 0020DFA0 wrote into D_00810610; '
+          f'{gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '
           f'+0xA0..+0xFF, D_00275690/94, widths and +0x2450 tail; {slot_ticks} ticks after the first status '
           f'screen hold routes 01..14\' fog record save slot 0 +0x120..+0x13F (0020DFA0\'s 0021BAC0(0)); '
           f'{lagged} frame heads projected the previous '

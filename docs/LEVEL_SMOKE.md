@@ -902,8 +902,11 @@ end of the run (the full route, or side beat 00 in its own run). The tick
 log's `rctx` carries, at each tick's end, the render context's flag words
 +0x0C / +0x174, the fog block +0xA0..+0xFF, the zoom +0x2468, V +0x2380, K
 +0x23C0, the 001CD370(0) projection +0x2240, the eased pairs
-+0x24F0..+0x2513, the +0x2450 block, D_00275690 / D_00275694 and the camera
-pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
++0x24F0..+0x2513, the +0x2450 block, D_00275690 / D_00275694, the camera
+pool's D_00810610 (docs/RENDER_CONTEXT.md section 8), and since chain C7's
+step V (RENDER_CONTEXT.md section 9) the list cursor +0x08, +0x98 / +0x9C
+and the first 0x60 bytes of the other slot's main list (the one the
+previous iteration's step V 001D2300 built). It checks:
 - every gameplay tick (001AE5E0 ran, 3B8D = 0, D_008101E4 != 3) holds the
   route snapshots' values, which all 15 snapshots share: flags 0x43 / 3, the
   whole fog block with presets and latches, D_00275690 / 94 at their fixed
@@ -922,7 +925,25 @@ pool's D_00810610 (docs/RENDER_CONTEXT.md section 8). It checks:
 - on every 200th gameplay tick (at most 40), the ORIGINAL 001D2960,
   executed over the 05_boxes snapshot with the tick's V and zoom
   (test_frame_render_heads_reference's interpreter, its sqrtf the original
-  0011E748), writes the logged K and +0x2240 bit for bit.
+  0011E748), writes the logged K and +0x2240 bit for bit;
+- on every tick, step W's field +0x98 = 1 - +0x9C (step B's slot): the
+  phase every capture holds (the port's field model);
+- every world gameplay tick after a world frame holds the route snapshots'
+  main list for the other slot (the draw environment, the Z-only clear
+  +0x3A0, channel 0, the page, channel 1, the end; the captures' CALL of the
+  +0x1D8 list is left out: 001C1D00 is not bound) and the cursor at its end;
+  the tags' written bytes are compared (the count halfword, the id byte, the
+  address), not byte +2 and the upper eight, which keep the arena's earlier
+  contents;
+- every status frame (+B = 3 with its 001D2830(3, 1)) after a status frame
+  holds the two status captures' (startup-reference status-hub and panel,
+  taken mid-iteration after that call) flag words 0x0B / 0x03 (flag 3 set,
+  flag 6 clear), fog block, save slot and main list (the black clear +0x420
+  that flag 3 selects, channel 1 before channel 0 as D_008106C4 != 0
+  orders), and, once the previous tick's D_00810610 is the UI view, a frame
+  head that projected it: the captures' +0x2380 is 0020DFA0's UI view
+  (identity with -1 at +0x14), which the status pages now write into the
+  camera pool's D_00810610.
 
 The one exception: 0x1AE040 state 4 (the room move) re-seats the camera
 with 0018D7B0 / 0018C0D0, which builds D_00810610, and falls into state 1 in
@@ -933,10 +954,12 @@ The check reads D_008101E4 as the camera block's +0x04 (the live camera's
 one storage of it); before census L18 the tick log and the render context
 read a scene-state copy that nothing but state 4 wrote.
 
-Measured (full route): 5,378 gameplay ticks, 6,882 frame heads (6,833 with
-the camera moving that frame), 27 sampled ticks. Side beat 00: 128, 124 and
-1. Side beat 09 (its run): 2,370 gameplay ticks, 2,707 frame heads, one
-state-4 re-seat.
+Measured (full route): 5,378 gameplay ticks, 6,888 frame heads (6,836 with
+the camera moving that frame), 27 sampled ticks; 11,634 field ticks, 5,368
+world lists, 412 status frames (all 412 on the UI view). Side beat 00: 128,
+124 and 1 (284 field ticks, 127 world lists, no status screen). Side beat 09
+(its run): 2,370 gameplay ticks, 2,713 frame heads, one state-4 re-seat,
+4,197 field ticks, 2,363 world lists, 412 status frames.
 
 ### The indicator children (`check_indicator_children`, CENSUS_UNVERIFIED.md)
 

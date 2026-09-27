@@ -28,7 +28,7 @@ static struct {
     /* D_00817BC0, the rig record 001D8130 loads and 001D8340 / 001D8690
      * read. Only 001D89D0's chain reads or writes it. */
     uint32_t rig[EM_ACTOR_LIGHT_RIG_WORDS];
-    uint32_t points[POINT_LIGHT_WORDS];   /* context +0x220, per draw */
+    const uint32_t *points;               /* context +0x220 (the point-light slots), per draw */
     EmActorLight light;
     EmOwnerDraw draw;
     EmOwnerServices services;
@@ -173,10 +173,11 @@ static int bind_views(const EmWorldModels *bank)
     if (!view || !planes || !c0c || !c9c || !arena || !c50 || !mode || !rigword || !c2380 || !table ||
         !seed || !area || !vp)
         return report(0x00275670u, "the render context is not loaded and bound (a view is missing)");
-    if (!g.point_lights_loaded)
+    /* The point-light slots are the context's own +0x220 (the one pool,
+     * em_rcl_point_lights), loaded with the area's lights. */
+    L.points = words(CTX + 0x220u, POINT_LIGHT_WORDS * 4u);
+    if (!g.point_lights_loaded || !L.points)
         return report(0x001D8340u, "the point-light pool (context +0x220) is not loaded");
-    memcpy(L.points, g.point_lights.active, sizeof L.points);
-    _Static_assert(sizeof g.point_lights.active == sizeof L.points, "EmPointLight is the 0x80-byte slot");
 
     EmOwnerDrawWorld *d = &L.draw.world;
     d->d00810610 = view;

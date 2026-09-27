@@ -30,7 +30,7 @@ MODULES = (
     'em_locomotion_display em_anim_runtime_rest em_player_ladder_climb '
     'em_player_reaction em_player_fall em_stream_lanes_original '
     # The render context (census L32 / L30, docs/RENDER_CONTEXT.md section 8).
-    'em_render_context_live em_gs_blocks_original em_frame_render_heads em_render_context em_packet_chain_original '
+    'em_render_context_live em_gs_blocks_original em_frame_kick em_frame_render_heads em_render_context em_packet_chain_original '
     'em_status_ui_leftovers em_load_veil_particles em_actor_light_001D89D0 em_player_equipment'
 ).split()
 

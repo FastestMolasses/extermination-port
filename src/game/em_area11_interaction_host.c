@@ -409,7 +409,14 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
          * already use the original identity/Y-flip UI coordinate
          * convention. Keep paused world camera vectors available for the
          * final commit. */
-        if (em_status_models_configure(world.models) != 1) return 0;
+        /* D_00810610 is the camera pool's (the one storage; the status
+         * frames' 001D1C50 projects the UI view 0020DFA0 writes there, and
+         * state 5's 0018C0D0 rebuilds the world view). */
+        if (em_status_models_set_view(world.models, em_camera_live_bound()
+                                                        ? em_camera_live_bytes(0x00810610u, 0x40u)
+                                                        : NULL) != 1 ||
+            em_status_models_configure(world.models) != 1)
+            return 0;
         world.status_ui_context = 1;
         if (em_rcl_0021BAC0(0) < 0 || em_rcl_0021B9A0(5, 0x00000000u, 0x49742400u) < 0)
             return 0;

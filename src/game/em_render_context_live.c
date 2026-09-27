@@ -12,12 +12,14 @@
 #include "game/em_actor_light_001D89D0.h"
 #include "game/em_census_standins.h"
 #include "game/em_effect_original.h"
+#include "game/em_frame_kick.h"
 #include "game/em_frame_render_heads.h"
 #include "game/em_load_veil_particles.h"
 #include "game/em_skin_arena_init.h"
 #include "game/em_packet_chain_original.h"
 #include "game/em_player_equipment.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_point_light.h"
 #include "game/em_render_context.h"
 #include "game/em_render_verify_rest.h"
 #include "game/em_sdk_math_original.h"
@@ -43,6 +45,7 @@ typedef uint32_t u32;
 #define D_275670    0x00275670u
 #define SPAD_3A40   0x70003A40u
 #define SPAD_3B60   0x70003B60u
+#define SPAD_3B70   0x70003B70u   /* halfwords 3B70 / 3B72 (001AB370) */
 #define D_251C50    0x00251C50u
 #define D_810E80    0x00810E80u
 #define D_8106B0    0x008106B0u
@@ -61,6 +64,7 @@ static uint32_t s_d250F30_words[D_250F30_SIZE / 4];
 static uint32_t s_d275670_words[0x30 / 4];
 static uint32_t s_spad3A40_words[0x100 / 4];
 static uint32_t s_spad3B60_words[1];
+static uint32_t s_spad3B70_words[1];
 static uint8_t s_d241010[8];
 static uint8_t s_d26E510[16];
 static uint8_t s_d26E850[16];
@@ -68,11 +72,18 @@ static uint8_t s_d26E850[16];
 #define ARENA ((uint8_t *)s_arena_words)
 #define CTXB ((uint8_t *)s_ctx_words)
 
-/* External views (EmRclExternal) the binder hands over. */
-enum { X_810E80, X_810610, X_8105E0, X_8106B0, X_810700, X_8101E4, X_3B8D, X_8102B0, X_COUNT };
+/* External views (EmRclExternal) the binder hands over (X_810610..X_8102B0,
+ * at each area load), and the frame loop's views from the start
+ * (D_00810E80 at em_rcl_init; D_00810E88 and D_008106C4 through
+ * em_rcl_frame_views: main-loop step V reads them in every iteration, before
+ * the first area load too). While the binder's request block is bound,
+ * own() resolves D_008106C4 through it first (the same bytes). */
+enum { X_810E80, X_810610, X_8105E0, X_8106B0, X_810700, X_8101E4, X_3B8D, X_8102B0, X_BIND_END,
+       X_810E88 = X_BIND_END, X_8106C4, X_COUNT };
 static const struct { u32 address, size; } k_external[X_COUNT] = {
     {D_810E80, 2}, {D_810610, 0x40}, {D_8105E0, 0x10}, {D_8106B0, 0x48},
     {D_810700, 3}, {D_8101E4, 1}, {SPAD_3B8D, 1}, {D_8102B0, 0x320},
+    {0x00810E88u, 2}, {0x008106C4u, 1},
 };
 
 static struct {
@@ -82,9 +93,9 @@ static struct {
     uint8_t *ext[X_COUNT];
     EmRclWorkers host;
     /* the lane modules, all over the storage above */
-    EmFrhView frh_views[20];
-    EmRenderContextView rc_views[20];
-    EmPacketChainRegion pc_regions[20];
+    EmFrhView frh_views[24];
+    EmRenderContextView rc_views[24];
+    EmPacketChainRegion pc_regions[24];
     unsigned view_count;
     EmFrh frh;
     EmRenderContext rc;
@@ -94,6 +105,9 @@ static struct {
     /* the page 001CB800 spliced at the last kick (em_rcl_page) */
     u32 page_start, page_four_sprite, frame_four_sprite;
     int page_ready;
+    /* main-loop step V (001D2300): its kick's list, the kicks so far */
+    u32 kick_chain, kicks;
+    EmFrameKickFault kick_fault;
 } R;
 
 /* ---- faults -------------------------------------------------------------- */
@@ -168,6 +182,7 @@ static void build_views(void)
     add_view(D_275670, 0x30, (uint8_t *)s_d275670_words, 1);
     add_view(SPAD_3A40, 0x100, (uint8_t *)s_spad3A40_words, 1);
     add_view(SPAD_3B60, 4, (uint8_t *)s_spad3B60_words, 1);
+    add_view(SPAD_3B70, 4, (uint8_t *)s_spad3B70_words, 1);
     add_view(D_241010, 8, s_d241010, 0);
     add_view(D_26E510, 16, s_d26E510, 0);
     add_view(D_26E850, 16, s_d26E850, 0);
@@ -621,6 +636,13 @@ int em_rcl_init(const char *export_path, uint8_t *d810E80)
      * D_00275674 + 0x6A0, which the chain page's 001CB900 REFs send to the
      * GS (em_chain_page; docs/CHAIN_PAGE.md section 4): that loop runs here.
      * docs/RENDER_CONTEXT.md section 8. */
+    /* 001AB370 (byte-matched; the start-up's GS set-up, main loop 0x1AAE40)
+     * ends with the stores 0x70003B70 = 0x70003B72 = 0x800 (halfwords), the
+     * screen centre step V's 001015A8 / 00101810 read; nothing else writes
+     * them (0x800 in every route capture). Its other stores (the SDK's
+     * double-buffer block D_00810EA0, the clear colours D_00811020 /
+     * D_00811190, 0x70003B94 / 96) are the renderer's. */
+    s_spad3B70_words[0] = UINT32_C(0x08000800);
     if (em_gs_blocks_001D0F20_presets(own(GS_BLOCKS + EM_GS_BLOCKS_PRESETS_OFFSET,
                                           EM_GS_BLOCKS_PRESETS_SIZE)) < 0)
         return fail(0x001D0F20u, "the blend-preset bank is not in the context storage");
@@ -631,7 +653,7 @@ int em_rcl_init(const char *export_path, uint8_t *d810E80)
 int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *workers)
 {
     if (!R.loaded || R.fault || !workers) return -1;
-    for (unsigned x = 1; x < X_COUNT; ++x) {
+    for (unsigned x = 1; x < X_BIND_END; ++x) {
         R.ext[x] = NULL;
         for (unsigned i = 0; i < count; ++i)
             if (views[i].address == k_external[x].address && views[i].size >= k_external[x].size)
@@ -764,6 +786,108 @@ int em_rcl_001DD950(uint32_t a0, uint32_t f12, uint32_t f13)
 {
     READY(1);
     return done(em_render_context_001DD950(&R.rc, a0, f12, f13), 0x001DD950u);
+}
+
+/* ---- main-loop steps V and W, and 001D1EF0 ------------------------------ */
+
+/* The frame loop's views (em_frame owns D_00810E88; the scene state owns
+ * D_008106C4). They stay across area binds. */
+int em_rcl_frame_views(uint8_t *d810E88, uint8_t *d8106C4)
+{
+    if (!R.loaded || !d810E88 || !d8106C4) return -1;
+    R.ext[X_810E88] = d810E88;
+    R.ext[X_8106C4] = d8106C4;
+    build_views();
+    return 0;
+}
+
+/* The step's memory: this module's storage and views, writes only into
+ * its own writable ranges (em_rcl_bytes_mut). */
+static uint8_t *k_mem(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    (void)ctx;
+    return write ? em_rcl_bytes_mut(address, size) : own(address, size);
+}
+static int k_001D1F80(void *ctx, int32_t a0, int32_t a1, int32_t a2)
+{
+    (void)ctx;
+    return em_load_veil_particles_001D1F80(&R.veil, a0, a1, a2);
+}
+static int k_001D2910(void *ctx, int32_t a0, int32_t *ret) { return f_001D2910(ctx, a0, ret); }
+static int k_001D2830(void *ctx, int32_t a0, int32_t a1)
+{
+    (void)ctx;
+    int32_t ignored;
+    return em_frh_001D2830(&R.frh, a0, a1, &ignored);
+}
+static int k_001E0DF0(void *ctx) { (void)ctx; return em_render_context_001E0DF0(&R.rc); }
+/* 001D21E0's hardware kick: the port's renderer presents the frame
+ * (em_gfx_end_frame, the step after V); the list address is kept for the
+ * checks (em_rcl_kick). */
+static int k_kick(void *ctx, uint32_t chain)
+{
+    (void)ctx;
+    R.kick_chain = chain;
+    R.kicks++;
+    return 0;
+}
+static const EmFrameKickWorkers k_kick_workers = {NULL, k_mem, k_001D1F80, k_001D2910, k_001D2830,
+                                                  k_001E0DF0, k_kick};
+
+static int kick_done(int rc, u32 entry)
+{
+    if (rc < 0 && !R.frh.fault.code && !R.rc.fault.code && !R.veil.fault.code)
+        return fail(R.kick_fault.address ? R.kick_fault.address : entry, "fault");
+    if (rc < 0 && R.veil.fault.code) return fail(R.veil.fault.address, "001D1F80 fault");
+    return done(rc, entry);
+}
+
+int em_rcl_001D2300(void)
+{
+    READY(0);
+    if (!R.ext[X_810E88] || !R.ext[X_8106C4]) return fail(0x001D2300u, "no frame views");
+    return kick_done(em_frame_kick_001D2300(&k_kick_workers, &R.kick_fault), 0x001D2300u);
+}
+
+int em_rcl_001D2580(int32_t a0)
+{
+    READY(0);
+    return kick_done(em_frame_kick_001D2580(&k_kick_workers, a0, &R.kick_fault), 0x001D2580u);
+}
+
+int em_rcl_001D2300_calls_001E0DF0(int *calls)
+{
+    READY(0);
+    if (!R.ext[X_810E88] || !R.ext[X_8106C4]) return fail(0x001D2300u, "no frame views");
+    return kick_done(em_frame_kick_calls_001E0DF0(&k_kick_workers, calls, &R.kick_fault), 0x001D2300u);
+}
+
+int em_rcl_kick(uint32_t *chain, uint32_t *kicks)
+{
+    if (!R.loaded || R.fault || !chain || !kicks) return -1;
+    *chain = R.kick_chain;
+    *kicks = R.kicks;
+    return 0;
+}
+
+int em_rcl_001D1EF0(void)
+{
+    READY(1);
+    const u32 zoom = s_ctx_words[0x2468 / 4];   /* its 001D1C50 stores no zoom */
+    if (done(em_frh_001D1EF0(&R.frh), 0x001D1EF0u) < 0) return -1;
+    R.head_zoom = zoom;
+    R.head_ran = 1;
+    return 0;
+}
+
+/* The point-light slots (001D7BB0 / 001D7C30 / 001D7FA0): the words
+ * +0x210 / +0x214, the active slots +0x220 and the staged slots +0x1220 of
+ * this context, as the pool's layout (em_point_light.h). */
+_Static_assert(sizeof(EmPointLightPool) == 0x2010u, "EmPointLightPool covers context +0x210..+0x221F");
+EmPointLightPool *em_rcl_point_lights(void)
+{
+    if (!R.loaded) return NULL;
+    return (EmPointLightPool *)(void *)(CTXB + 0x210);
 }
 
 /* ---- readers --------------------------------------------------------------- */

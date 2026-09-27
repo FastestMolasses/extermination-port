@@ -259,8 +259,8 @@ bound.
 | w001AB590 | `em_slg_001AB590` (L34) or a no-op (DMA hardware) | boundary in substance |
 | w00203350 | the movie pump: the worker must run the whole movie before returning, pumping window events and presenting each movie frame itself (em_frame.c's suspension then goes away) | boundary (IOP movie service) |
 | w001AB4E0 | `em_slg_001AB4E0` (L34) | missing live; its output is the GS display environment (boundary) |
-| w001D2300 | `em_background_gs` (L31) | verified-unbound; 001D2300 also passes 1 - D_00810E88 and 0x70003B70/72 to 001015A8 / 00101810, so whatever binds it must read those from the shared storage (see "Data") |
-| w001D2580 | a store of the field into the render context word +0x98 (em_render_context_live owns the word) | no port code (the port has no field bit) |
+| w001D2300 | `em_rcl_001D2300` (em_frame_kick over the render context; RENDER_CONTEXT.md section 9), at step V of `em_frame_step`, reading D_00810E88 (`em_frame_d810E88`) and 0x70003B70/72 (the render context's storage) | live since 2026-09-27; its hardware kick is the renderer's presentation |
+| w001D2580 | `em_rcl_001D2580(field)`, at step W of `em_frame_step`, the field read before the flip | live since 2026-09-27 |
 | io_store | no-op (timer 0 is never read) | boundary |
 | spin | deliver the pending ticks; if none, sleep to the next 59.94 Hz tick (the `frame_pace_ntsc` logic) and deliver it (see "Vblank delivery" below) | new |
 | cop0_di / cop0_ei | Status 0 / nothing | boundary |
@@ -283,12 +283,12 @@ covered):
 | Global | Other original code | Port view today |
 |---|---|---|
 | D_00810E90 (vblank count) | read by 001F9CF0 (the per-frame stream-lane service, reached from step H 001FB100) as an elapsed-vblank timer; read by 001FA790 (lane start), which stores it into the lane record | `em_stream_lanes_original` globals view, field `d810E90` |
-| D_00810E88 (field) | read by 001D2300 (step V: 1 - field, like step S) | none (L31's `em_background_gs` does not read it) |
+| D_00810E88 (field) | read by 001D2300 (step V: 1 - field, like step S) | `em_frame.c` (`field`, `em_frame_d810E88`: one field per iteration, equal to D_00810E80 at step V, the route's phase; RENDER_CONTEXT.md 9.3), the render context's view |
 | D_00810E80 (buffer index) | cleared by 001AB430 (start-up); read by 001AEBE0 (D), 001AEE70 (G/O), 001CB800, 001CB8A0, 001CFBE0 | `em_head_sprite_original` (`d810E80`), `em_frame.c` (`parity`) |
 | D_00821058 (movie byte) | set to 1 by 001AC3B0, 001AD360, 001B7A30; cleared by 001AB430 and 00203350 (the movie driver, step M); read by 001FB100 (H) and 001B7A30 | `em_startup_load_gaps` (`EmSlgSoundFrame.d821058`), `em_area_script` (`d821058` pointer), `em_scene_bindings` / `em_frontend_movie_request` (writer), `em_frame.c` (`movie_active`) |
 | D_00282184 (thread id) | written by 001F9780 (start-up) | none |
 | 0x70003B64 (counter) | cleared by 001AB430; read by game routines (e.g. 0015A2C0's every-128-frames test, 001C02E0) | `em_frame.c` (`counter`), `em_enemy.h` comment |
-| 0x70003B70/72, 0x70003B94/96 | set by 001AB370 at start-up (0x800, 0x800, 0, 0 in every route capture); 3B70/72 read by 001D2300; 3B94/96 (display offset) adjusted by 00201F70 and 00201C50, referenced by 001AF150 | none |
+| 0x70003B70/72, 0x70003B94/96 | set by 001AB370 at start-up (0x800, 0x800, 0, 0 in every route capture); 3B70/72 read by 001D2300; 3B94/96 (display offset) adjusted by 00201F70 and 00201C50, referenced by 001AF150 | 3B70/72: `em_render_context_live` (stored at `em_rcl_init`); 3B94/96: none |
 
 **Vblank delivery.** The platform must call `em_mlg_001AB140` exactly once
 per elapsed 59.94 Hz tick, including the ticks that elapse inside callees

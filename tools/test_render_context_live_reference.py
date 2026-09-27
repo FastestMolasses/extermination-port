@@ -17,12 +17,23 @@ views), then run the same sequence of original entries:
   fog 001D8FD0 through 001D7B30),
   per frame: 001D1AE0(D_00810E80) (main loop step B), 001D1C50, a burst of
   effect-style fog programmer calls 0021B9A0 (2, 3, then 1), 001D1EA0(1),
-  then the step-W flip of D_00810E80 and a camera move (D_00810610 on both
-  sides, so the frame head's one-frame view lag is exercised),
+  main-loop step V 001D2300 (with D_00810E88 = D_00810E80, the port's field
+  model), the flip of D_00810E80, step W 001D2580(field), and a camera move
+  (D_00810610 on both sides, so the frame head's one-frame view lag is
+  exercised),
   the zoom writers 001D25F0(480), 001D2610(0), 001D2610(1),
   001DD950(&D_008105E0, 2 + 1.02 d, d) (001DD980's store),
-  a status frame (D_008106C4 = 1: 001D1C50, 001D1EA0(0)),
-  and an opening-style frame (D_008101E4 = 3: 001DDE10's projected path).
+  a status frame (D_008106C4 = 1: 001D1C50, 001D2830(3, 1), 001D1EA0(0),
+  then step V on its flag-3 / D_008106C4 path and step W),
+  an opening-style frame (D_008101E4 = 3: 001DDE10's projected path),
+  a tear-down frame (001D1EF0, then step V),
+  and step V under render flag 4 set (no 001E0DF0) and flag 0x20 clear.
+
+Step V's 001D21E0 ends in the hardware kick: on the original side the DMA
+channel pointer (dmac_channel_base returns D1_CHCR 0x10009000) and the VIF1
+register byte 0x10003C20 are a scratch window, and dma_wait_and_submit,
+0011B9E0 and the syscall stub 0010BAA0 are recorded; 00101F08's list
+argument must equal the native kick's (em_rcl_kick).
 
 After every entry the bytes of every range the module owns (the 5 MB packet
 arena and chain table, the render context with its GS blocks and skin
@@ -62,18 +73,23 @@ ROUTE = DECOMP / 'build/s87/route'
 OUT = ROOT / 'build' / 'render_context_live_reference'
 EXPORT = ROOT / 'assets/render_context.emrc'
 
-SOURCES = ['em_render_context_live', 'em_gs_blocks_original', 'em_frame_render_heads', 'em_render_context', 'em_packet_chain_original',
+SOURCES = ['em_render_context_live', 'em_gs_blocks_original', 'em_frame_kick', 'em_frame_render_heads', 'em_render_context', 'em_packet_chain_original',
            'em_status_ui_leftovers', 'em_load_veil_particles', 'em_actor_light_001D89D0',
            'em_owner_services_original', 'em_effect_original', 'em_player_equipment',
            'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float',
            'em_census_standins', 'em_message_draw_original']
 
 OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
-         (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x241010, 8), (0x26E510, 16),
+         (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x70003B70, 4), (0x241010, 8), (0x26E510, 16),
          (0x26E850, 16))
 EXTERNAL = ((0x810610, 0x40), (0x8105E0, 0x10), (0x8106B0, 0x48), (0x810700, 3), (0x8101E4, 1),
             (0x70003B8D, 1), (0x8102B0, 0x320))
 RECORDED = (0x1D7C30, 0x1C1EA0, 0x1D52E0)
+# 001D21E0's hardware callees (the renderer boundary): recorded on the
+# original side only; 00101F08(channel, list) is compared with em_rcl_kick.
+HARDWARE = {0x101BB8: 'dmac_channel_base', 0x100A60: 'dma_wait_and_submit', 0x11B9E0: '0011B9E0',
+            0x10BAA0: '0010BAA0', 0x101F08: '00101F08'}
+D1_CHCR, VIF1_BYTE = 0x10009000, 0x10003C20
 LEAVES = (0x11E748, 0x11E398)
 
 U32, VP = C.c_uint32, C.c_void_p
@@ -104,7 +120,11 @@ def build_native():
     n.em_rcl_bytes.argtypes = [U32, U32]
     n.em_rcl_bytes.restype = C.POINTER(C.c_uint8)
     n.em_rcl_fault.restype = U32
+    n.em_rcl_frame_views.argtypes = [VP, VP]
+    n.em_rcl_kick.argtypes = [C.POINTER(U32), C.POINTER(U32)]
     for name, args in (('em_rcl_001D1AE0', [C.c_int32]), ('em_rcl_001D1C50', []), ('em_rcl_001D1EA0', [C.c_int32]),
+                       ('em_rcl_001D2300', []), ('em_rcl_001D2580', [C.c_int32]), ('em_rcl_001D1EF0', []),
+                       ('em_rcl_001D2830', [C.c_int32, C.c_int32]),
                        ('em_rcl_001C1DC0', []), ('em_rcl_001D25F0', [U32]), ('em_rcl_001D2610', [U32]),
                        ('em_rcl_0021B9A0', [C.c_int32, U32, U32]), ('em_rcl_001DD950', [U32, U32, U32])):
         getattr(n, name).argtypes = args
@@ -116,6 +136,22 @@ def F(x):
     return struct.unpack('<I', struct.pack('<f', x))[0]
 
 
+class KickEE(FRH.FrhEE):
+    """FrhEE with 001D21E0's two hardware bytes as a scratch window (the DMA
+    channel control and the VIF1 register byte it edits before the kick)."""
+
+    def __init__(self, *args):
+        self.hw = {D1_CHCR: bytearray(16), VIF1_BYTE: bytearray(16)}
+        super().__init__(*args)
+
+    def _where(self, address):
+        a = address & MASK
+        for base, buf in self.hw.items():
+            if base <= a < base + len(buf):
+                return buf, a - base
+        return super()._where(address)
+
+
 class Pair:
     """The original interpreter and the native module over one beat."""
 
@@ -123,14 +159,18 @@ class Pair:
         ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
         spad = (ROUTE / beat / 'scratchpad.bin').read_bytes()
         self.beat = beat
-        self.ee = FRH.FrhEE(ELF, ram, spad)
+        self.ee = KickEE(ELF, ram, spad)
         self.olog, self.nlog = [], []
+        self.kicks = []
+        for address, name in HARDWARE.items():
+            self.ee.hooks[address] = self._hardware(address)
         for address in RECORDED:
             self.ee.hooks[address] = self._recorder(address)
         for address in LEAVES:
             self.ee.hooks[address] = self._leaf(address)
         # Native: one module per process; each beat re-seeds every owned range.
         E80[:] = ram[0x810E80:0x810E82]
+        E88[:] = ram[0x810E88:0x810E8A]
         if first:
             assert NATIVE.em_rcl_init(str(EXPORT).encode(), C.addressof(E80)) == 0, 'em_rcl_init'
         for address, size in OWNED:
@@ -147,6 +187,10 @@ class Pair:
                                F_VOID(self._n_record(0x1D52E0)))
         assert NATIVE.em_rcl_bind(views, len(EXTERNAL), C.byref(self.workers)) == 0, 'em_rcl_bind'
         self._views = views
+        # The frame loop's views: D_00810E88 and D_008106C4 (inside the
+        # request block view, the same bytes as the binder's).
+        req = next(buf for base, size, buf in self.ext if base == 0x8106B0)
+        assert NATIVE.em_rcl_frame_views(C.addressof(E88), C.addressof(req) + 0x14) == 0, 'frame views'
 
     # ---- recorded callees -------------------------------------------------
     def _recorder(self, address):
@@ -160,6 +204,17 @@ class Pair:
             ee.f[0] = LEAF(address, ee.f[12] & MASK)
         return hook
 
+    def _hardware(self, address):
+        def hook(ee):
+            if address == 0x101BB8:
+                assert ee.r[4] & MASK == 1, ('dmac_channel_base', ee.r[4])
+                ee.r[2] = D1_CHCR
+                return
+            if address == 0x101F08:
+                assert ee.r[4] & MASK == D1_CHCR, ('00101F08 channel', hex(ee.r[4] & MASK))
+                self.kicks.append(ee.r[5] & MASK)
+            ee.r[2] = 0
+        return hook
     def _n_record(self, address):
         def cb(_ctx):
             self.nlog.append((hex(address), None))
@@ -189,6 +244,9 @@ class Pair:
         if address == 0x810E80:
             E80[:] = data
             return
+        if address == 0x810E88:
+            E88[:] = data
+            return
         raise AssertionError(('not an external', hex(address)))
 
     def original(self, entry, ints=(), floats=()):
@@ -202,11 +260,17 @@ class Pair:
         ee.run(entry)
 
     def step(self, label, entry, native, ints=(), floats=()):
+        kicks = len(self.kicks)
         self.original(entry, ints, floats)
         rc = native()
         where = (self.beat, label)
         assert rc == 0, (where, 'native fault', hex(NATIVE.em_rcl_fault()))
         assert self.olog == self.nlog, (where, 'recorded calls differ', self.olog, self.nlog)
+        if len(self.kicks) != kicks:
+            chain, count = U32(), U32()
+            assert NATIVE.em_rcl_kick(C.byref(chain), C.byref(count)) == 0
+            assert len(self.kicks) == kicks + 1 and chain.value == self.kicks[-1], (
+                where, 'kick', [hex(k) for k in self.kicks[kicks:]], hex(chain.value))
         for address, size in OWNED:
             want = self.ee.read(address, size)
             got = C.string_at(NATIVE.em_rcl_bytes(address, size), size)
@@ -231,6 +295,20 @@ def camera_move(pair, frame):
     pair.poke_external(0x810610, struct.pack('<16f', *out))
 
 
+def step_vw(pair, label):
+    """Main-loop steps V and W as the port runs them: D_00810E88 = the
+    buffer index (the field model), 001D2300, the flip of D_00810E80, then
+    001D2580(field). Returns the entries run."""
+    n = NATIVE
+    e80 = struct.unpack('<h', bytes(E80))[0]
+    field = e80 & 1
+    pair.poke_external(0x810E88, struct.pack('<h', field))
+    pair.step('%s 001D2300' % label, 0x1D2300, lambda: n.em_rcl_001D2300())
+    pair.poke_external(0x810E80, struct.pack('<h', 1 - e80 if e80 in (0, 1) else 0))
+    pair.step('%s 001D2580(%d)' % (label, field), 0x1D2580, lambda: n.em_rcl_001D2580(field), ints=(field,))
+    return 2
+
+
 def run_beat(beat_and_first):
     beat, first = beat_and_first
     p = Pair(beat, first)
@@ -247,9 +325,8 @@ def run_beat(beat_and_first):
             p.step('f%d 0021B9A0(%d)' % (frame, mode), 0x21B9A0,
                    lambda: n.em_rcl_0021B9A0(mode, scale, bias), ints=(mode,), floats=(scale, bias))
         p.step('f%d 001D1EA0(1)' % frame, 0x1D1EA0, lambda: n.em_rcl_001D1EA0(1), ints=(1,))
-        p.poke_external(0x810E80, struct.pack('<h', 1 - e80 if e80 in (0, 1) else 0))
+        steps += 6 + step_vw(p, 'f%d' % frame)
         camera_move(p, frame)
-        steps += 6
     for label, entry, value, call in (
             ('001D25F0(480)', 0x1D25F0, F(480.0), lambda v: n.em_rcl_001D25F0(v)),
             ('001D2610(0)', 0x1D2610, F(0.0), lambda v: n.em_rcl_001D2610(v)),
@@ -266,24 +343,47 @@ def run_beat(beat_and_first):
     e80 = struct.unpack('<h', bytes(E80))[0]
     p.step('status 001D1AE0', 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
     p.step('status 001D1C50', 0x1D1C50, lambda: n.em_rcl_001D1C50())
+    p.step('status 001D2830(3, 1)', 0x1D2830, lambda: n.em_rcl_001D2830(3, 1), ints=(3, 1))
     p.step('status 001D1EA0(0)', 0x1D1EA0, lambda: n.em_rcl_001D1EA0(0), ints=(0,))
+    steps += 4 + step_vw(p, 'status')
     p.poke_external(0x8106C4, b'\x00')
     p.poke_external(0x8101E4, b'\x03')
+    e80 = struct.unpack('<h', bytes(E80))[0]
+    p.step('opening 001D1AE0', 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
     p.step('opening 001D1C50', 0x1D1C50, lambda: n.em_rcl_001D1C50())
     p.step('opening 001D1EA0(1)', 0x1D1EA0, lambda: n.em_rcl_001D1EA0(1), ints=(1,))
-    steps += 6
+    steps += 3 + step_vw(p, 'opening')
+    # The tear-down frame (0x1AE040 state 5 / state 0): 001D1EF0, then V
+    # takes the black clear (flag 3) and clears the flag.
+    p.poke_external(0x8101E4, b'\x00')
+    e80 = struct.unpack('<h', bytes(E80))[0]
+    p.step('teardown 001D1AE0', 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
+    p.step('teardown 001D1EF0', 0x1D1EF0, lambda: n.em_rcl_001D1EF0())
+    steps += 2 + step_vw(p, 'teardown')
+    # Step V's other gate branches: render flag 4 set (no 001E0DF0), then
+    # flag 0x20 clear, each restored afterwards.
+    for flag, on, restore in ((4, 1, 0), (0x20, 0, 1)):
+        e80 = struct.unpack('<h', bytes(E80))[0]
+        p.step('gate %#x 001D1AE0' % flag, 0x1D1AE0, lambda: n.em_rcl_001D1AE0(e80), ints=(e80,))
+        p.step('gate %#x 001D2830' % flag, 0x1D2830, lambda: n.em_rcl_001D2830(flag, on), ints=(flag, on))
+        steps += 2 + step_vw(p, 'gate %#x' % flag)
+        p.step('gate %#x restore' % flag, 0x1D2830, lambda: n.em_rcl_001D2830(flag, restore),
+               ints=(flag, restore))
+        steps += 1
     ctx = 0x811CC0
-    return beat, steps, len(p.olog), p.ee.load(ctx + 0xC), p.ee.load(ctx + 0x174), p.ee.read(ctx + 0xA0, 16).hex()
+    return (beat, steps, len(p.olog), len(p.kicks), p.ee.load(ctx + 0xC), p.ee.load(ctx + 0x174),
+            p.ee.read(ctx + 0xA0, 16).hex())
 
 
 def main():
-    global ELF, NATIVE, LEAF, E80
+    global ELF, NATIVE, LEAF, E80, E88
     started = time.time()
     assert EXPORT.exists(), 'run tools/export_render_context.py first'
     ELF = read_elf()
     NATIVE = build_native()
     LEAF = FRH.Leaf(ELF)
     E80 = (C.c_uint8 * 2)()
+    E88 = (C.c_uint8 * 2)()
     beats = sorted(p.name for p in ROUTE.iterdir()
                    if (p / 'eeMemory.bin').exists() and not p.name.startswith('15'))
     picked = reference_mode.select(beats, 3, 0x1C50, keep=lambda i, b: b in ('00_panel_no_battery',
@@ -291,10 +391,11 @@ def main():
     # The module is one static instance: the beats run in this process, in
     # order (each re-seeds every range the module owns).
     for i, beat in enumerate(picked):
-        beat, steps, recorded, flags, flags_hi, fog = run_beat((beat, i == 0))
+        beat, steps, recorded, kicks, flags, flags_hi, fog = run_beat((beat, i == 0))
         print('%s: PASS %d entries, all owned bytes (packet arena, chain table, context, GS blocks, skin '
               'records, .data, scratchpad) equal the original after each; %d recorded calls identical; '
-              'flags %#x / %#x, fog %s' % (beat, steps, recorded, flags, flags_hi, fog))
+              '%d step-V kicks of the same list; flags %#x / %#x, fog %s'
+              % (beat, steps, recorded, kicks, flags, flags_hi, fog))
     reference_mode.banner(reference_mode.part(len(picked), len(beats), 'route beats'))
     print('render context live vs original instructions: PASS (%.1fs)' % (time.time() - started))
 

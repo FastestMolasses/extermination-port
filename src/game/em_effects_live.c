@@ -384,7 +384,9 @@ static int w_001D7FA0(void *ctx, const float pos[4], const float color[4], int32
                       float fb)
 {
     (void)ctx;
-    (void)em_point_light_register(&g.point_lights, pos, color, type, fa, fb);
+    EmPointLightPool *pool = em_rcl_point_lights();   /* the context's +0x210.. */
+    if (!pool) return -1;
+    (void)em_point_light_register(pool, pos, color, type, fa, fb);
     return 0;
 }
 

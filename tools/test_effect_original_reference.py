@@ -1311,7 +1311,8 @@ def point_light_binding(lib, elf, counts):
                     ('matrix', C.c_float * 16)]
 
     class Pool(C.Structure):
-        _fields_ = [('next', C.c_uint32), ('pending', C.c_int32), ('active', Light * 32), ('staged', Light * 32)]
+        _fields_ = [('next', C.c_uint32), ('pending', C.c_int32), ('unused_218', C.c_uint32 * 2),
+                    ('active', Light * 32), ('staged', Light * 32)]
 
     lib.em_point_light_register.argtypes = [C.POINTER(Pool), FP, FP, C.c_int32, C.c_float, C.c_float]
     lib.em_point_light_register.restype = C.c_int32
@@ -1320,7 +1321,8 @@ def point_light_binding(lib, elf, counts):
     for typ, fa, fb in ((0, 0x3F19999A, 0xBF800000), (0, 0x3F733333, 0xBD4CCCCD), (1, 0x3F733333, 0xBD4CCCCD)):
         for count in (0, 5, 31, 32):
             pool = Pool()
-            C.memmove(C.addressof(pool), bytes(e.ram[ctx + 0x210:ctx + 0x210 + 8]) + bytes(e.ram[ctx + 0x220:ctx + 0x2220]), 8 + 0x2000)
+            # The pool is the context's +0x210..+0x221F (em_rcl_point_lights).
+            C.memmove(C.addressof(pool), bytes(e.ram[ctx + 0x210:ctx + 0x2220]), 0x2010)
             pool.pending = count
             e.store(ctx + 0x214, count)
             pos = [fbits(rng.uniform(-9, 9)) for _ in range(4)]
@@ -1332,8 +1334,8 @@ def point_light_binding(lib, elf, counts):
             ca, cp = vec_ptr(col)
             got = lib.em_point_light_register(C.byref(pool), pp, cp, typ, FM.b2f(fa), FM.b2f(fb))
             assert got & M32 == e.u32(2), ('001D7FA0', typ, count)
-            want = bytes(e.ram[ctx + 0x210:ctx + 0x218]) + bytes(e.ram[ctx + 0x220:ctx + 0x2220])
-            assert bytes(pool)[:len(want)] == want, ('001D7FA0 pool', typ, count)
+            want = bytes(e.ram[ctx + 0x210:ctx + 0x2220])
+            assert bytes(pool) == want, ('001D7FA0 pool', typ, count)
             e.restore()
             n += 1
     counts['point_light_binding'] = n

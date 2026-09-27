@@ -16,6 +16,7 @@
 #include "game/em_scene.h"
 
 #include "game/em_game_internal.h"
+#include "game/em_render_context_live.h"
 /* the scene loader installs and tears down the placed set pieces */
 #include "game/em_props.h"
 #include "game/em_snow_runtime.h"
@@ -58,7 +59,8 @@ void scene_manifest_load(void)
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
     g.n_lamp       = 0;
     g.point_lights_loaded = 0;
-    em_point_light_reset(&g.point_lights);
+    if (em_rcl_point_lights())   /* the render context's slots (+0x210..) */
+        em_point_light_reset(em_rcl_point_lights());
     g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
     g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
                              * without this reset a scene with no `opencam`
@@ -211,13 +213,14 @@ void scene_manifest_load(void)
         } else if (sscanf(line, "pointlights %255s", name) == 1) {
             char path[560];
             snprintf(path, sizeof path, "%s/%s", g.scene_dir, name);
-            if (!em_point_light_load(&g.point_lights, &g.point_lights_area_key, path)) {
+            if (!em_rcl_point_lights() ||
+                !em_point_light_load(em_rcl_point_lights(), &g.point_lights_area_key, path)) {
                 fprintf(stderr, "manifest: required original point lights failed: %s\n", path);
                 em_frame_request_quit();
             } else {
                 g.point_lights_loaded = 1;
                 printf("manifest: original point lights %#x: %d registrations\n",
-                       g.point_lights_area_key, g.point_lights.pending_count);
+                       g.point_lights_area_key, em_rcl_point_lights()->pending_count);
             }
         } else if (sscanf(line, "lamp %f %f %f %f %f %f %f",
                           &x, &y, &z, &gx, &gy, &gz, &gyaw) == 7) {

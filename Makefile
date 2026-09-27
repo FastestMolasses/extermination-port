@@ -73,7 +73,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c \
-           src/game/em_gs_blocks_original.c
+           src/game/em_gs_blocks_original.c src/game/em_frame_kick.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)

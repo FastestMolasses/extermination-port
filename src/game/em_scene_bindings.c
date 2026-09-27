@@ -230,7 +230,6 @@ enum {
     UM_0015C160_OPENING,
     UM_001F0360,
     UM_001AAD00,
-    UM_001D2830,
     UM_001E0CC0,
     UM_001D2880,
     UM_00200830,
@@ -263,7 +262,10 @@ static const struct {
                                   "status close is translated (w_001FAE70)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
-    [UM_001D1EF0] = {0x001D1EF0u, "no port counterpart"},
+    [UM_001D1EF0] = {0x001D1EF0u, "before the area's render-context bind (the New Game bring-up "
+                                  "001ACEC0 / 001AD360): its 001D1C50 projects the camera pool's "
+                                  "D_00810610, whose view the area load hands over (RENDER_CONTEXT.md "
+                                  "section 9)"},
     [UM_001CB590] = {0x001CB590u, "current actor stored; its anim_bone_array_setup tail has no port "
                                   "counterpart (the port's bone palettes are per model)"},
     [UM_0015BCF0_CUTSCENE] = {0x0015BCF0u, "001AE6B0 player stage; the port poses the player through "
@@ -280,11 +282,6 @@ static const struct {
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
                                   "nine list-pass hooks and class lists have no port counterpart"},
-    [UM_001D2830] = {0x001D2830u, "the status / teardown / load-veil frames' render flag "
-                                  "registrations (3, 1) ...: not bound, because flag 3 is cleared "
-                                  "by the main loop's step V 001D2300, which is not bound "
-                                  "(RENDER_CONTEXT.md section 8); the frame heads' and the area "
-                                  "script's registrations run on the render context"},
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset in a scene without the render "
                                   "context (the first level runs em_rcl_001E0CC0)"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
@@ -343,7 +340,23 @@ static int um_001D19E0(void *ctx)
     return unmirrored(UM_001D19E0);
 }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
-static int um_001D1EF0(void *ctx) { (void)ctx; return unmirrored(UM_001D1EF0); }
+static int rcl_live(void);
+static int rcl_fault(void);
+/* 001D1EF0 (byte-matched), the tear-down frame: 001D1C50, 001D2830(3, 1),
+ * 001D1EA0(0) on the render context (em_rcl_001D1EF0); flag 3 selects the
+ * black clear at this iteration's step V (001D2300 clears it). Its kick
+ * sends the chain page: the renderer draws it (em_render_001D1EF0). Before
+ * the area bind (the New Game bring-up) the frame head's views are not
+ * handed over: reported. */
+static int w_001D1EF0(void *ctx)
+{
+    (void)ctx;
+    if (!rcl_live())
+        return unmirrored(UM_001D1EF0);
+    if (em_rcl_001D1EF0() < 0)
+        return rcl_fault();
+    return em_render_001D1EF0();
+}
 /* The stream lanes (WP-8b): every stream call of the frame machine, the
  * task chain and the scripts goes to the one live owner, em_stream_live
  * (em_stream_lanes_original over the IOP side em_iop_stream;
@@ -382,9 +395,15 @@ static int s_00810D38(void *ctx, int32_t value)
     return 0;
 }
 
-static int um_001D2830(void *ctx, int a0, int a1) { (void)ctx; (void)a0; (void)a1; return unmirrored(UM_001D2830); }
-static int rcl_live(void);
-static int rcl_fault(void);
+/* 001D2830(a0, a1) on the render context (em_rcl_001D2830): the frame
+ * machine's status frames and the task chain's (3, 1) registrations (flag 3,
+ * cleared by main-loop step V 001D2300). The context is loaded from the
+ * start (main.c), so these run before the area bind too. */
+static int w_001D2830(void *ctx, int a0, int a1)
+{
+    (void)ctx;
+    return em_rcl_001D2830(a0, a1) < 0 ? rcl_fault() : 0;
+}
 
 /* 001E0CC0 (the status close): on the render context in the first level. */
 static int w_001E0CC0(void *ctx)
@@ -674,7 +693,10 @@ static void log_tick_end(int rc)
          * +0x2240, the eased pairs +0x24F0..+0x2513, the +0x2450 block,
          * the fog record's save slot 0 +0x120..+0x13F (the status screen's
          * 0021BAC0(0)), D_00275690 / D_00275694, and the camera pool's
-         * D_00810610 (the view the NEXT frame head projects).
+         * D_00810610 (the view the NEXT frame head projects); then the list
+         * cursor +0x08, +0x98 / +0x9C (step W's field, step B's slot) and
+         * the first 0x60 bytes of the other slot's main list (the one the
+         * previous iteration's step V 001D2300 built and kicked).
          * tools/test_level_smoke.py check_render_context. */
         {
             static const struct { uint32_t offset, size; } k_rctx[] = {
@@ -693,6 +715,14 @@ static void log_tick_end(int rc)
                 log_hex(f, eases, 8);
                 fputs(", ", f);
                 log_hex(f, view, 0x40);
+                const uint8_t *slot = em_rcl_bytes(EM_RCL_CONTEXT + 0x9C, 4);
+                const uint32_t other = slot && slot[0] == 0 ? 1u : 0u;
+                fputs(", ", f);
+                log_hex(f, em_rcl_bytes(EM_RCL_CONTEXT + 0x08, 4), 4);
+                fputs(", ", f);
+                log_hex(f, em_rcl_bytes(EM_RCL_CONTEXT + 0x98, 8), 8);
+                fputs(", ", f);
+                log_hex(f, em_rcl_bytes(0x0028F700u + (other << 14), 0x60), 0x60);
                 fputc(']', f);
             } else {
                 fputs("null", f);
@@ -1729,12 +1759,11 @@ static int w_001AED80(void *ctx, uint8_t a0)
     return 0;
 }
 
+/* 0021B550's 001D2830 calls (the load veil's (3, 1)) on the render context. */
 static int veil_001D2830(void *ctx, int group, int enable)
 {
     (void)ctx;
-    (void)group;
-    (void)enable;
-    return unmirrored(UM_001D2830);
+    return em_rcl_001D2830(group, enable) < 0 ? rcl_fault() : 0;
 }
 
 static int veil_0021B1B0(void *ctx, EmLoadVeil *veil)
@@ -2205,7 +2234,9 @@ static int w_001D1EA0(void *ctx, int a0)
  *   0018C0D0  -> camera_commit_original(&g.cam, a1) (em_camera.h)
  *   001AEE40  -> em_frame_fade_flash (em_fade.c), in state 5 and (since
  *                S12a) in the state-0 rebuild
- *   001D2830, 001E0CC0, 001D1EF0: unmirrored (reported). */
+ *   001D2830, 001E0CC0, 001D1EF0 -> the render context (em_rcl_001D2830,
+ *                em_rcl_001E0CC0, em_rcl_001D1EF0; main-loop step V 001D2300
+ *                clears the flag 3 the (3, 1) registrations set). */
 
 /* In AREA11 (the interaction host is loaded) every status screen runs the
  * original page layer of the host's status runtime (em_status_page over
@@ -2638,14 +2669,14 @@ static void bindings_init(void)
     w->w_001AEE40 = w_001AEE40;
     w->w_001FAE70 = w_001FAE70;
     w->w_001C5C50 = w_001C5C50;
-    w->w_001D1EF0 = um_001D1EF0;
+    w->w_001D1EF0 = w_001D1EF0;
 
     /* Status screen (S11b). */
     w->w_0020E060 = w_0020E060;
     w->w_001FBC50 = w_001FBC50;
     w->w_001FABB0 = w_001FABB0;
     w->w_00119828 = w_00119828;
-    w->w_001D2830 = um_001D2830;
+    w->w_001D2830 = w_001D2830;
     w->w_0020CDC0 = w_0020CDC0;
     w->w_001E0CC0 = w_001E0CC0;
     w->w_001AEDB0 = w_001AEDB0;

@@ -96,8 +96,8 @@ static uint32_t point_light_random(void *context)
 
 static void point_light_tick(void)
 {
-    if (g.point_lights_loaded)
-        em_point_light_tick(&g.point_lights, g.point_lights_area_key,
+    if (g.point_lights_loaded && em_rcl_point_lights())
+        em_point_light_tick(em_rcl_point_lights(), g.point_lights_area_key,
                             point_light_random, NULL);
 }
 
@@ -553,13 +553,13 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
             c0[c] = g.rig_cam_col[c];
         }
     }
-    if (fold_lamps && anchor && g.point_lights_loaded) {
+    if (fold_lamps && anchor && g.point_lights_loaded && em_rcl_point_lights()) {
         float direction[4], color[4] = { c0[0], c0[1], c0[2], g.rig_cam_w };
         const float point[4] = { anchor[0], anchor[1], anchor[2], 1.0f };
         for (unsigned axis = 0; axis < 3; ++axis)
             direction[axis] = em_effect_float32((double)d0[axis] * g.rig_cam_w);
         direction[3] = 0.0f;
-        em_point_light_fold(direction, color, &g.point_lights, point);
+        em_point_light_fold(direction, color, em_rcl_point_lights(), point);
         memcpy(d0, direction, sizeof d0);
         memcpy(c0, color, sizeof c0);
     } else if (fold_lamps && anchor && g.n_lamp) {
@@ -632,7 +632,10 @@ static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *
 
 /* The level background's gate, from the live render context (census 1.13;
  * docs/BACKGROUND.md "Wiring"): 001D2300 calls 001E0DF0 when D_008106C4 ==
- * 0, render flag 4 is clear and flag 0x20 is set; 001E0DF0 (again under
+ * 0, render flag 4 is clear and flag 0x20 is set (em_rcl_001D2300_calls_001E0DF0:
+ * the bound step V's own gate code, read here at the frame close because the
+ * renderer draws the background before the level, ahead of step V; nothing
+ * between the close and step V writes those bytes); 001E0DF0 (again under
  * 0x20) CALLs the channel-3 list at ctx+0x1D8 when that word is non-zero.
  * The word is rebuilt every frame by 001C1D00 (state 1) -> 001E0CF0: its
  * 001E0CC0 zeroes +0x1D8, then 001E1E60 stores the list there only under
@@ -656,9 +659,13 @@ static int background_gate(EmGfx *gfx)
     const uint8_t *hi = em_rcl_bytes(EM_RCL_CONTEXT + 0x174, 4);
     if (!lo || !hi || !em_rcl_bound())
         return 0; /* no render context: no channel 3 */
-    const int flag4 = (lo[0] >> 4) & 1, flag20 = hi[0] & 1, flag21 = (hi[0] >> 1) & 1;
-    /* 001D2300's call of 001E0DF0. */
-    if (em_scene_state()->req[EM_SCENE_REQ_C4] != 0 || flag4 || em_frame_movie_active() || !flag20)
+    const int flag21 = (hi[0] >> 1) & 1;
+    /* 001D2300's call of 001E0DF0 (its gate), and the movie frame's flag 4
+     * that the unbound 001D1C10 would set (em_frame_movie_active). */
+    int calls = 0;
+    if (em_rcl_001D2300_calls_001E0DF0(&calls) < 0)
+        return -1;
+    if (!calls || em_frame_movie_active())
         return 0;
     /* 001E0DF0's +0x1D8 != 0: built by 001E0CF0 under 0x20 and 0x21. */
     if (!flag21)
@@ -980,6 +987,20 @@ int em_render_001D1EA0(int a0)
     s_request_status_frame = a0 == 0 && em_area11_interaction_host_status_route();
     frame_close_out();
     s_request_status_frame = 0;
+    return 0;
+}
+
+/* The renderer's side of 001D1EF0's 001D1EA0(0) kick (the tear-down frame:
+ * the status close, the area build, the game over): the chain page it
+ * spliced, and nothing else. No world flush and no status page run in that
+ * frame; the frame's step V takes the black clear (render flag 3, which
+ * 001D1EF0 sets), which the port's frame begin already does. */
+int em_render_001D1EF0(void)
+{
+    if (em_chain_page_live_draw(em_frame_gfx()) < 0) {   /* reported; fail-stop */
+        em_scene_fault(em_scene_state(), em_chain_page_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
+        return -1;
+    }
     return 0;
 }
 

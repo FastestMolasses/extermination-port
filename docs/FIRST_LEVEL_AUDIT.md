@@ -409,6 +409,45 @@ stage; PLAYER_STAGE_WORKERS.md 2.1, census 1.26):**
   takeovers (their scripts request clips through em_interaction_animation,
   not +1F2 / 00183090); +4 stays 1 there.
 
+**Status update (2026-09-27, chain C7: main-loop steps V / W, 001D1EF0, the
+(3, 1) registrations; RENDER_CONTEXT.md section 9, census 1.27):**
+- Main-loop step V 001D2300 runs in every iteration on the render context
+  (em_frame_kick; em_frame_step calls it before presenting): the frame's main
+  list with the slot's half-pixel offsets, the clear it selects (Z only, or
+  black under render flag 3, which it clears), 001E0DF0 and the NEXT chain;
+  its hardware kick is the renderer's presentation. Step W 001D2580 stores
+  the field; the port's field model is one field per iteration in the
+  route's phase (field = D_00810E80 at step V). 0x70003B70 / 72 are 001AB370's
+  0x800 / 0x800.
+- With flag 3 cleared by step V, the status frame's, the task chain's and
+  the load veil's 001D2830(3, 1) run on the context (UM_001D2830 removed) and
+  001D1EF0 is bound from the area build on (states 0 and 5, 001ADF00,
+  001AD4E0; its kick's page drawn). Before the area bind (the New Game
+  bring-up) 001D1EF0 stays reported.
+- One storage each: the point-light pool is the context's +0x210..+0x221F
+  (`g.point_lights` removed; the owner draw views +0x220 directly), and the
+  status pages write 0020DFA0's UI view into the camera pool's D_00810610
+  (em_status_models' copy removed), so the status frames' 001D1C50 projects
+  the UI view and state 5's 0018C0D0 rebuilds the world view, as in the
+  original. The renderer's background gate reads step V's own gate code.
+- Evidence: test_render_context_live_reference (steps V / W, a status frame
+  with 001D2830(3, 1), a tear-down frame, both gate branches, against the
+  original instructions; the list address of the kick); check_render_context
+  over the full route and both side runs (the field phase on every tick,
+  5,368 world lists equal the route snapshots', 412 status frames equal the
+  two status captures in flag words 0x0B / 0x03, fog, save slot, main list
+  with the black clear, and the UI view). compare_frame_order idle04 /
+  walk04 / st03 (--native-index 1330), cut02 and cut15 PASS. newgame-control
+  9.599849. Census: live 659, verified-unbound 78, unverified 3, missing 1,
+  boundary 443 (91.5% by instructions).
+- Limits (RENDER_CONTEXT.md 9.4): the draw environments' bodies (boot bank
+  A) are not modelled, so step V's XYOFFSET in the live port is computed from
+  a zero SCISSOR (unconsumed DMA bytes); the +0x1D8 channel-3 list is not
+  built (001C1D00), so a world list has no CALL there; the renderer still
+  clears the colour at every frame begin (the original keeps it in a world
+  frame without the background, which the route never shows); the movie
+  frame's flag 4 (001D1C10, step N) is not set.
+
 ---
 
 ## 2. Live call graph (normal run)

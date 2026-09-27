@@ -1834,7 +1834,8 @@ typedef struct {
         float col[3];            /* color, x128 registration scale */
         float inten;             /* intensity (slot +0x2C, x128) */
     }           lamp[LAMP_MAX];
-    EmPointLightPool point_lights; /* original active/staging pool */
+    /* The point-light pool is the render context's +0x210..+0x221F
+     * (em_rcl_point_lights): the flags below say whether the area loaded it. */
     uint16_t    point_lights_area_key;
     int         point_lights_loaded;
 
@@ -2157,6 +2158,7 @@ int em_render_001D1C50(void);   /* point-light tick (scenes without the render c
 int em_render_point_light_tick(void); /* 001D7C30 (the render context's worker) */
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
 int em_render_001D1EA0(int a0); /* the renderer's side of the kick (flush, overlays) */
+int em_render_001D1EF0(void);   /* the renderer's side of 001D1EF0's kick (the page) */
 int em_render_001ABF90(void);   /* 001AD4E0's game-over screen packet  */
 /* 0015C160 bound (census L29): the player's draw leaves the chain and is
  * made after the shadow, in the frames whose post-step requested it. */

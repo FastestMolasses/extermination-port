@@ -37,6 +37,7 @@ static struct {
     bool         quit;
     uint32_t     counter;     /* 0x70003B64 lifetime frame counter */
     uint32_t     parity;      /* 0x00810E80 frame index (0/1) */
+    uint16_t     field;       /* 0x00810E88 field bit (em_frame_d810E88) */
     EmFrameInput input;       /* canonical view of pad_block */
     EmPadUnpack  pad_block;   /* 0x00810E70 block + 0x00810E40 analog bytes */
     EmScreenFade screen_fade;         /* 001AEBE0: letterbox bars */
@@ -53,6 +54,9 @@ static struct {
     void        *step_i_context;
     int (*step_b)(void *, int32_t);   /* step B 001D1AE0 (em_render_context_live) */
     void        *step_b_context;
+    int (*step_v)(void *);            /* step V 001D2300 (em_render_context_live) */
+    int (*step_w)(void *, int32_t);   /* step W 001D2580 */
+    void        *step_vw_context;
     EmFrameSoundService sound;        /* the field and step H 001FB100 */
     bool         pace_initialized;
     bool         uncapped;
@@ -216,6 +220,15 @@ uint32_t  em_frame_parity(void)         { return s_frame.parity; }
 /* The low two bytes of the (little-endian) parity word are the halfword
  * D_00810E80 (0 or 1). */
 uint8_t  *em_frame_d810E80(void)        { return (uint8_t *)&s_frame.parity; }
+uint8_t  *em_frame_d810E88(void)        { return (uint8_t *)&s_frame.field; }
+
+void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *context, int32_t field),
+                          void *context)
+{
+    s_frame.step_v = step_v;
+    s_frame.step_w = step_w;
+    s_frame.step_vw_context = context;
+}
 
 void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *context)
 {
@@ -389,8 +402,19 @@ movie_phase:
     if (s_frame.suspended_draw_transition)
         frame_transition_draw();
 
+    /* P: the vblank the original loop waits for. Its handler stores the
+     * field; one field per iteration, in the measured phase (field ==
+     * D_00810E80 at step V, em_frame.h em_frame_d810E88). */
+    s_frame.field = (uint16_t)(s_frame.parity & 1u);
+    /* V: 001D2300 builds the frame's list; its kick is the presentation. */
+    if (s_frame.step_v && s_frame.step_v(s_frame.step_vw_context) < 0)
+        s_frame.quit = true;
     em_gfx_end_frame(s_frame.gfx);
+    /* W: the field is read first, then D_00810E80 flips, then 001D2580. */
+    const int32_t field = (int16_t)s_frame.field;
     s_frame.parity ^= 1u;
+    if (s_frame.step_w && s_frame.step_w(s_frame.step_vw_context, field) < 0)
+        s_frame.quit = true;
     s_frame.counter++;
     return !s_frame.quit;
 }

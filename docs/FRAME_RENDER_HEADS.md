@@ -394,9 +394,11 @@ interaction host's 0x43F02F4F and the camera's EmInteractionProjection record
 are removed). The worker map below is kept as the reference it was written
 as; where it says "stand-in" the table in RENDER_CONTEXT.md 8.2 gives the
 current state. Not bound: 001C1D00 (its 001D5370 needs the static-object
-bank export, its 001E0CF0 the background channel), 001D19E0, 001D1EF0 (flag
-3 needs step V 001D2300), 001D19D0 / 001D9070, 001D8060 / 001D80B0 and the
-lighting pair (lanes L33, L40).
+bank export, its 001E0CF0 the background channel), 001D19E0, 001D19D0 /
+001D9070, 001D8060 / 001D80B0 and the lighting pair (lanes L33, L40).
+001D1EF0 is bound since 2026-09-27 with main-loop step V 001D2300, which
+clears the flag 3 its 001D2830(3, 1) sets (RENDER_CONTEXT.md section 9);
+before the area bind it stays reported.
 
 ### The binding as specified before it was done
 

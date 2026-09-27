@@ -61,7 +61,11 @@ struct EmStatusModels {
     EmPoseBank bank;
     EmPlayerPose pose[EM_STATUS_SCENE_POOL_RECORDS];
     int pose_valid[EM_STATUS_SCENE_POOL_RECORDS];
-    float view[16];                   /* D_00810610, original row layout */
+    /* D_00810610 (original row layout): the camera pool's bytes when the
+     * host hands them (em_status_models_set_view: the one storage, which the
+     * status frames' 001D1C50 projects), else the models' own. */
+    float *view;
+    float view_own[16];
     int configured;
     EmStatusSceneActor *current;      /* D_00275B44 / D_00275B48 */
     int packet;                       /* 001D2040 channel 0 */
@@ -677,6 +681,7 @@ EmStatusModels *em_status_models_load(const char *directory)
         goto fail;
     for (int i = 0; i < EM_STATUS_SCENE_POOL_RECORDS; ++i)
         m->record_model[i] = -1;
+    m->view = m->view_own;
     m->services.world.scratch = &m->owner_spr;
     m->workers = (EmStatusSceneWorkers){
         .ctx = m, .w_001AF800_slot = w_slot_push, .w_001CB590 = w_001CB590, .w_call = w_call,
@@ -712,6 +717,14 @@ void em_status_models_free(EmStatusModels *m, EmGfx *gfx)
 /* -------------------------------------------------------------- driving --- */
 
 static int ready(const EmStatusModels *m) { return m && !m->failed; }
+
+int em_status_models_set_view(EmStatusModels *m, uint8_t *d810610)
+{
+    if (!m || ((uintptr_t)d810610 & 3u) != 0)
+        return -1;
+    m->view = d810610 ? (float *)(void *)d810610 : m->view_own;
+    return 1;
+}
 
 int em_status_models_configure(EmStatusModels *m)
 {

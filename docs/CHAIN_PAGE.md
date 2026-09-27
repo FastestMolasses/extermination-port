@@ -258,7 +258,10 @@ frame's fog.
   world frame after the level, the walked and post-step units, the shadow's
   passes, the snow and the AREA11 effect, before the fog is switched off; in a
   status frame after the status page (001D1EA0(0) kicks the page too; the
-  port's status pages are empty: 418 over the default run). It walks the page
+  port's status pages are empty: 418 over the default run); and, since
+  2026-09-27, in a tear-down frame (001D1EF0's 001D1EA0(0): the area build,
+  the status close) through em_render_001D1EF0 (RENDER_CONTEXT.md section
+  9). It walks the page
   over the render context's storage (`em_rcl_bytes`: the arena, the chain
   table, the context, the GS blocks, the .data D_00250F30..) and the
   effect-table export's ELF blocks (`em_effects_live_window`: the two program

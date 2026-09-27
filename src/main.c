@@ -272,6 +272,9 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
 static int stream_field(void *context) { (void)context; return em_stream_live_field(); }
 /* Main-loop step B: 001D1AE0(D_00810E80) on the render context. */
 static int rcl_step_b(void *context, int32_t index) { (void)context; return em_rcl_001D1AE0(index); }
+/* Main-loop steps V and W: 001D2300 and 001D2580(field) on the render context. */
+static int rcl_step_v(void *context) { (void)context; return em_rcl_001D2300(); }
+static int rcl_step_w(void *context, int32_t field) { (void)context; return em_rcl_001D2580(field); }
 static int stream_step_h(void *context) { (void)context; return em_stream_live_step_h(); }
 static int stream_voice_push(void *context, int32_t cue)
 { (void)context; return em_stream_live_001FA5A0(cue) == 0; }
@@ -365,7 +368,10 @@ int main(void)
      * ELF's .data words and the boot zoom store, and main-loop step B
      * 001D1AE0(D_00810E80) on it every iteration. Without the export the
      * game cannot start (fail-stop). */
-    if (em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) != 0) {
+    /* Steps V / W read the frame loop's field D_00810E88 and the scene
+     * state's request byte D_008106C4 from the first iteration on. */
+    if (em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) != 0 ||
+        em_rcl_frame_views(em_frame_d810E88(), &em_scene_state()->req[EM_SCENE_REQ_C4]) != 0) {
         em_frame_set_sound_service(NULL);
         em_message_presenters_live_shutdown();
         em_message_live_shutdown();
@@ -375,6 +381,8 @@ int main(void)
         return 1;
     }
     em_frame_set_step_b(rcl_step_b, NULL);
+    /* Main-loop steps V / W (001D2300, 001D2580) on the same context. */
+    em_frame_set_step_vw(rcl_step_v, rcl_step_w, NULL);
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
     em_pad_actuator_reset();

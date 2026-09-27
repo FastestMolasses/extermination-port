@@ -63,6 +63,11 @@ EmStatusModels *em_status_models_load(const char *directory);
 /* Frees the models; gfx (may be NULL) releases the GPU meshes. */
 void em_status_models_free(EmStatusModels *models, EmGfx *gfx);
 
+/* D_00810610's storage: `d810610` (64 bytes, 4-aligned) is the camera
+ * pool's matrix, the one the render context's frame head projects (the
+ * first level: em_camera_live_bytes); NULL returns to the models' own copy
+ * (a scene without the live camera, the fixtures). 1, or -1. */
+int em_status_models_set_view(EmStatusModels *models, uint8_t *d810610);
 /* 0020DFA0's D_00810610 writes: 001029C0(D_00810610), D_00810624 *= -1. */
 int em_status_models_configure(EmStatusModels *models);
 /* 001AFEB0 (bone release of every record in use) and 001AFE60 (pool clear). */

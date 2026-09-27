@@ -252,9 +252,12 @@ int h_configure(const uint32_t *before, uint32_t *after, int *configured)
 {
     EmStatusModels *m = calloc(1, sizeof *m);
     if (!m) return -2;
-    memcpy(m->view, before, sizeof m->view);
+    /* D_00810610 is the host's storage (the camera pool's in the game). */
+    uint32_t view[16];
+    memcpy(view, before, sizeof view);
+    if (em_status_models_set_view(m, (uint8_t *)view) != 1) { free(m); return -3; }
     int rc = em_status_models_configure(m);
-    memcpy(after, m->view, sizeof m->view);
+    memcpy(after, view, sizeof view);
     *configured = m->configured;
     free(m);
     return rc;

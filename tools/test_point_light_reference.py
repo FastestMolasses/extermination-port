@@ -38,7 +38,7 @@ class Light(C.Structure):
 
 class Pool(C.Structure):
     _fields_ = [('next_handle', C.c_uint32), ('pending_count', C.c_int32),
-                ('active', Light*32), ('pending', Light*32)]
+                ('unused_218', C.c_uint32*2), ('active', Light*32), ('pending', Light*32)]
 
 
 class Oracle:
@@ -81,7 +81,7 @@ class Oracle:
         self.write(CONTEXT+0x1220, bytes(pool.pending))
 
     def pool_bytes(self):
-        return self.read(CONTEXT+0x210, 8)+self.read(CONTEXT+0x220, 8192)
+        return self.read(CONTEXT+0x210, 0x2010)
 
     def macro(self, word):
         op, fs, ft, fd, mask = word & 63, word >> 11 & 31, word >> 16 & 31, word >> 6 & 31, word >> 21 & 15

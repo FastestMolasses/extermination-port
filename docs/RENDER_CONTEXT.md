@@ -1,6 +1,7 @@
 # Render context lane (census L30-render-context)
 
-Date: 2026-09-23; bound live 2026-09-25 (section 8). Module:
+Date: 2026-09-23; bound live 2026-09-25 (section 8); main-loop steps V / W,
+001D1EF0 and the (3, 1) registrations 2026-09-27 (section 9). Module:
 `src/game/em_render_context.{h,c}`. Oracle: `tools/test_render_context_reference.py`.
 Sanitizer fixture: `tests/render_context_test.c`. The live binding, the one
 canonical render context shared with lane L32 (docs/FRAME_RENDER_HEADS.md),
@@ -605,13 +606,9 @@ consumer by `em_rcl_page` (section 7 of that doc).
 | 001C1D00 (001E0CF0, 001D5370) | 001D5370 reads the static-object bank *D_0028A5A0 (0x1516F40 in every AREA11 capture), which is not exported, and its callees 001D4FB0 / 001D4B20 / 001D4DA0 / 001D5BD0 build the static world's packets (renderer boundary to decide); 001E0CF0 calls the background channel 001E1E60 / 001E1AD0 (lane L31) | an export of the bank (it lies in the chunk15 concatenation at 0x304000; 0x48D000 bytes equal the captures from there) and the boundary decision; em_render_001C1D00 stays the stand-in |
 | 001D52E0 (001C1DC0's 001C1E70) | the same bank | reported (UM_001D52E0); its only reader is 001D5370 |
 | 001D19E0 (except skin_arena_init, 8.2) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
-| 001D1EF0 and the status / teardown / load-veil 001D2830 calls | 001D2830(3, 1) sets flag 3, which the main loop's step V 001D2300 clears; 001D2300 is not bound, so the flag would stay set | 001D2300 (lane L31, em_background_gs) |
-| 001D2580 (step W) | stores the field bit D_00810E88 at +0x98; the port has no field model | the vblank field (MAIN_LOOP_AND_GAP.md) |
+| 001D1EF0 before the area bind (the New Game bring-up 001ACEC0 case 0, 001AD360 steps 0, 1, 2, 5) | its 001D1C50 needs the views the area load hands over (the camera pool's D_00810610, the collision world's SDK sqrtf / tanf) | reported (UM_001D1EF0); from the area build on it is bound (section 9) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
-| 0021BAC0 / 0021BAE0, 0021B9A0(5, 0, 1e6) in the status page | the page's fog save and restore (CENSUS_UNVERIFIED.md 0020DFA0) | the page's CONFIGURE / END_PROJECTION binding |
 | 001D88B0 / 001D8C30, 001D8060 / 001D80B0, 001D9070 | lighting (em_lighting's stand-ins) and the fade weights | lanes L40, L33 |
-| the light slots +0x220..+0x121F | em_point_light keeps its own pool (g.point_lights); 001D7C30 runs on it | one storage for the slots |
-| the status pages' D_00810610 | 0020DFA0 sets D_00810610 to the UI view; em_status_models keeps that view in its own copy, so the status frames' 001D1C50 projects the camera pool's world view where the original projects the UI view. Nothing reads the context's matrices in a status frame (the page draws with its own view and the context's zoom), and state 5's 0018C0D0 restores the world view before the next world frame head in the original | one storage for D_00810610 (the status models over the camera pool) |
 
 ### 8.5 Evidence
 
@@ -651,3 +648,142 @@ Makefile: the modules are in COMMON (em_frame_render_heads.c,
 em_render_context.c, em_render_context_live.c, em_load_veil_particles.c,
 em_actor_light_001D89D0.c, em_player_equipment.c); target
 `test-render-context-live-reference`.
+
+## 9. Main-loop steps V and W, 001D1EF0, the (3, 1) registrations (2026-09-27)
+
+Module: `src/game/em_frame_kick.{h,c}` (001D2300 with 001D2110, 001D2130,
+001D2160, 001D2180, the memory half of 001D21E0, the SDK 001015A8 /
+00101810; 001D2580), composed over the one context in
+`em_render_context_live.c` (`em_rcl_001D2300`, `em_rcl_001D2580`,
+`em_rcl_001D1EF0`). Read from the .s of 001D2300 and 001D21E0 (their C is
+NEARMISS) and the byte-matched / asm-word helpers.
+
+### 9.1 What the steps do
+
+- **Step V, 001D2300** (every main iteration, after the drawing; the
+  blocking movie holds it). It builds the frame's main list at
+  D_0028F700 + (slot << 14), slot = context +0x9C (step B's buffer index):
+  - at the channel-1 cursor (+0x14) a REF of one quadword at the GS block
+    D_00275674, then 001D1F80(1, 0, 7);
+  - the half-pixel offsets of the slot's two draw environments (GS block +
+    0x190 * slot + 0x40 / + 0xC0): XYOFFSET = ((cx - (w + 1) / 2) * 16,
+    (cy - (h + 1) / 2) * 16 + 8 when 1 - D_00810E88 is nonzero), from the
+    environment's SCISSOR and the screen centre 0x70003B70 / 72;
+  - the list cursor +0x08 = the slot's list (001D2110), REF of the draw
+    environment (+0x20, 0x19 quadwords), REF of the clear: GS block +0x420
+    (black colour and Z) when render flag 3 is set, then 001D2830(3, 0);
+    else +0x3A0 (Z only);
+  - D_008106C4 == 0 (a world frame): 001E0DF0 when flag 4 is clear and flag
+    0x20 set (the CALLs of +0x1D8 / +0x1E8 / the +0x2520 node), then NEXT
+    tags through channel 0, the chain page (context +0x00 / +0x04) and
+    channel 1, each list's end tagged back to the main list (001D2160);
+    D_008106C4 != 0 (a status frame): channel 1 first, then channel 0 and
+    the page;
+  - 001D21E0: a NEXT to GS block + 0x10, then the hardware kick of the list
+    (DMAC / VIF1 registers, 0011B9E0, 0010BAA0, 00101F08).
+- **Step W, 001D2580(field)**: context +0x98 = the field bit, read before
+  D_00810E80 flips. Nothing in the EE code reads +0x98: of the seven boot-ELF
+  functions that load an offset 0x98, none loads it from the context (they
+  read actor records).
+- **Render flag 3** is read only by 001D2300 (a scan of the decomp for
+  001D2910(3) / 001D2710(3)). Its setters, 001D2830(3, 1): the status frame
+  (0x1AE040 state 3), 001D1EF0, the New Game bring-up 001AD360, the area
+  read 001ADF50 and the load veil 0021B550, the game over 001AD4E0, the
+  title flows and the camera's action 10 (0018BD68). It selects the black
+  clear for the one frame whose step V follows.
+- **001D1EF0** (the tear-down frame: 0x1AE040 states 0 and 5, 001ACEC0,
+  001AD360, 001AD4E0, 001ADF00): 001D1C50, 001D2830(3, 1), 001D1EA0(0).
+
+### 9.2 How the port binds them
+
+| Original | Live position | Replaces |
+|---|---|---|
+| 001D2300 | main-loop step V in `em_frame_step` (main.c `rcl_step_v`), before `em_gfx_end_frame`, in every iteration from the first (it needs only the frame views) | nothing (the list was not built; flag 3 was never cleared) |
+| 001D21E0's hardware kick | the worker `k_kick`: the port's renderer presents the frame (`em_gfx_end_frame`); the list address is kept (`em_rcl_kick`) | the renderer boundary, as before |
+| 001D2580 | main-loop step W (`rcl_step_w`), after the flip of D_00810E80, with the field read before it | nothing |
+| D_00810E88 | `em_frame_d810E88`: the port delivers one field per iteration; the field at step V is D_00810E80 then (9.3) | nothing (the port had no field bit) |
+| 0x70003B70 / 72 | this module's storage, 0x800 / 0x800 stored at `em_rcl_init` as 001AB370 (byte-matched) ends | nothing |
+| 001D2830(3, 1) | the frame machine's status frame, the task chain (001AD360, 001ADF50, 001AD4E0) and the load veil (0021B550) through `em_rcl_001D2830` | the reported UM_001D2830 (removed) |
+| 001D1EF0 | 0x1AE040 states 0 and 5, 001ADF00, 001AD4E0 through `em_rcl_001D1EF0` once the area is bound; its kick's page is drawn by `em_render_001D1EF0` (`em_chain_page_live_draw`) | the reported UM_001D1EF0 (kept only before the area bind, 8.4) |
+| 001D2300's 001E0DF0 gate | `em_rcl_001D2300_calls_001E0DF0`, the translation's own gate code, read by the renderer's channel-3 background gate (em_render_frame.c `background_gate`) at the frame close | the renderer's own mirror of the gate |
+| the point-light slots +0x210..+0x221F | `em_rcl_point_lights()`: EmPointLightPool is the layout of those context bytes (the id counter +0x210, the staged count +0x214, two words nothing touches, the active slots +0x220, the staged slots +0x1220); em_point_light's reset / tick / register / fold and the owner draw's +0x220 view all use them | `g.point_lights`, em_point_light's own pool |
+| D_00810610 in the status pages | em_status_models writes 0020DFA0's UI view (001029C0, D_00810624 *= -1) into the camera pool's D_00810610 (`em_status_models_set_view`); the status frames' 001D1C50 projects it, and state 5's 0018C0D0 (em_camera_live_commit) rebuilds the world view | em_status_models' own copy |
+| 0021BAC0(0), 0021B9A0(5, 0.0, 1e6), 0021BAE0(0) | the status runtime's CONFIGURE / END_PROJECTION events (the status UI step, 2026-09-26): `em_rcl_0021BAC0`, `em_rcl_0021B9A0`, `em_rcl_0021BAE0` on this context | (already bound) |
+
+### 9.3 The field model
+
+The original's D_00810E88 is the GS CSR FIELD bit the vblank handler
+0x1AB140 stores. The port delivers exactly one field per main iteration
+(em_frame.c), so the field alternates with D_00810E80, and the port sets it
+in the phase the original route holds: at step V, D_00810E88 ==
+D_00810E80. Evidence:
+- in all 15 route snapshots (loop top) D_00810E88 = 1 - D_00810E80 and
+  +0x98 = D_00810E88 = +0x9C (MAIN_LOOP_AND_GAP.md 2.4: one vblank per
+  frame, no dropped frames on the route), so at step V of the next iteration
+  (one vblank later) the field equals the buffer index;
+- every capture (the 15 route snapshots and the eight startup-reference
+  images, opening included) holds the half-pixel offset in slot 0's draw
+  environments and none in slot 1's: slot 0 was kicked on field 0.
+The phase before the AREA11 load (the title, the New Game load, which drop
+fields in the original) is not captured; the port keeps the same phase
+there. Route 15 (the level exit, after an area change) holds the other
+phase; it is outside the first level.
+
+### 9.4 Limits
+
+- **The draw environments' bodies (bank A of the boot builder
+  sub_EXTERMINATION, GS block +0x20 / +0x1B0, from the SDK's 00101898) are
+  not modelled** (8.3): in the live port their SCISSOR words are zero, so
+  step V's 001015A8 / 00101810 compute XYOFFSET from w = h = 0. These are
+  DMA packet bytes nothing in the port reads (the renderer maps GS
+  coordinates itself); the translation is exact over the captured blocks
+  (9.5).
+- **The +0x1D8 channel-3 list is not built** (001C1D00 / 001E0CF0 are not
+  bound, 8.4), so a world frame's list has no CALL there: six tags where the
+  captures hold seven. The native background draw stands for that CALL.
+- **The clear.** Step V selects the Z-only clear (+0x3A0) or the black
+  clear (+0x420) exactly, but the port's renderer does not keep the colour
+  buffer between frames: it clears to black at every frame begin, which
+  equals the original wherever the frame is fully drawn over (the world
+  frames' background grid) or flag 3 is set (every status frame, every
+  tear-down frame). A world frame without the background (flag 0x20 clear,
+  or the movie frame) keeps the previous image in the original and is black
+  in the port; neither occurs on the first level's route.
+- **The movie frame's flag 4.** 001D1C10 (step N) is not bound, so in the
+  frame a movie ends step V sees flag 4 clear and calls 001E0DF0; the
+  original skips it. It changes only unconsumed list bytes (and the
+  background gate keeps reading the movie mirror).
+- **001D1EF0 before the area bind** stays reported (8.4). The pre-bind
+  frames' step V therefore takes the Z-only clear where the original's
+  bring-up frames take the black one; the first bound frame (the area build,
+  whose 001D1EF0 sets flag 3) is the original's again.
+- **The kick's hardware half** (DMA, VIF1, 0011B9E0, the FlushCache syscall)
+  is the renderer boundary; only its list address is compared.
+
+### 9.5 Evidence
+
+- `tools/test_render_context_live_reference.py`: steps V and W after every
+  frame (both slots, both fields), a status frame with its 001D2830(3, 1)
+  (the black clear, flag 3 cleared, the D_008106C4 list order), an
+  opening-style frame, a tear-down frame (001D1EF0 then V), and V under
+  flag 4 set and flag 0x20 clear, from each route beat's snapshot against
+  the ORIGINAL 001D2300 / 001D2580 / 001D1EF0: after every entry the whole
+  owned storage (arena, context, GS blocks, scratchpad) equals the
+  original's, and 00101F08's list equals the native kick's. The original
+  side runs 001D21E0's own instructions over a scratch window for its two
+  hardware bytes. Default 3 beats, 53 entries each (about 4 s);
+  EM_TEST_FULL=1 all 15 beats, 77 entries each. Mutations of the clear offset, the half-pixel +8, the
+  001E0DF0 gate, the channel-1 base, the 001D2830(3, 0) argument and the
+  +0x98 store each fail it.
+- The level smoke (`check_render_context`, LEVEL_SMOKE.md): on every tick
+  +0x98 = 1 - +0x9C (the captures' phase); every world frame after a world
+  frame holds the route snapshots' main list (without the +0x1D8 CALL) with
+  the cursor at its end; every status frame after a status frame holds the
+  two status captures' (startup-reference status-hub and panel, taken
+  mid-iteration after the status frame's 001D2830(3, 1)) flag words 0x0B /
+  0x03, fog block, save slot 0 and main list (the black clear +0x420, the
+  status order), and its frame head projected the UI view those captures
+  hold at +0x2380 (identity with -1 at +0x14).
+- `tools/test_point_light_reference.py` / `test_effect_original_reference.py`
+  compare the pool as the context's +0x210..+0x221F bytes.
+

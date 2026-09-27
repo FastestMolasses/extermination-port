@@ -253,6 +253,14 @@ translation.
   nothing (no fault).
 - The status-screen scenes (the hub, the request pages, the UI scene) do not
   draw it: the original hub frame has no background CALL.
+- Since 2026-09-27 main-loop step V 001D2300 itself is bound
+  (RENDER_CONTEXT.md section 9): it builds the frame's main list with the
+  clear it selects (+0x3A0, or +0x420 under render flag 3) and calls
+  001E0DF0. The flag-4 / flag-0x20 / D_008106C4 part of the gate above is
+  the step's own gate code (`em_rcl_001D2300_calls_001E0DF0`), read at the
+  frame close because the renderer draws the background first; the port's
+  renderer still clears the colour buffer at every frame begin (the limits
+  in RENDER_CONTEXT.md 9.4).
 
 ## Verification
 

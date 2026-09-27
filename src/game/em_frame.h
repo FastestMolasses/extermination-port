@@ -162,6 +162,25 @@ void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *con
  * render context's view. */
 uint8_t *em_frame_d810E80(void);
 
+/* Main-loop steps V (0x1AB0F4, 001D2300: the frame's DMA list and kick) and
+ * W (0x1AB118, 001D2580(field): render context +0x98 = the field bit). V runs
+ * after the iteration's drawing and before the port presents the frame (the
+ * presentation is V's kick); then D_00810E80 flips and W receives the field
+ * read before the flip, as the original loop reads D_00810E88 first. Neither
+ * runs while the blocking movie holds the iteration. -1 is a fault (the
+ * frame quits). NULL uninstalls them. */
+void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *context, int32_t field),
+                          void *context);
+/* The bytes of D_00810E88 (a halfword: the field bit the vblank handler
+ * 0x1AB140 stores from the GS CSR), for the render context's view. The port
+ * delivers exactly one field per main iteration, and the field at step V
+ * equals D_00810E80 then: the phase measured on the original route
+ * (docs/MAIN_LOOP_AND_GAP.md section 2.4: in all 15 route snapshots
+ * D_00810E88 = 1 - D_00810E80 at the loop top, one vblank per frame; every
+ * capture's two draw environments carry the half-pixel offset exactly for
+ * the slot kicked on field 0). */
+uint8_t *em_frame_d810E88(void);
+
 /* The sound service: `field` runs at the top of every em_frame_step (one
  * NTSC field: the vblank handler's D_00810E90 and the IOP's field work),
  * `step_h` at main-loop step H (0x1AAF64, 001FB100's lane service 001F9CF0),

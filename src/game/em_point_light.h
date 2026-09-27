@@ -11,9 +11,15 @@ typedef struct {
     float position[4], color[4], angle[4], matrix[16];
 } EmPointLight;
 
+/* The layout of the render context +0x210..+0x221F: the id counter
+ * (+0x210), the staged count (+0x214), two words no routine of the pool
+ * touches (+0x218 / +0x21C), the active slots (+0x220) and the staged slots
+ * (+0x1220). The live pool IS those context bytes (em_rcl_point_lights,
+ * docs/RENDER_CONTEXT.md section 9); a caller-owned pool keeps the layout. */
 typedef struct {
     uint32_t next_handle;
     int32_t pending_count;
+    uint32_t unused_218[2];
     EmPointLight active[EM_POINT_LIGHT_COUNT];
     EmPointLight pending[EM_POINT_LIGHT_COUNT];
 } EmPointLightPool;
