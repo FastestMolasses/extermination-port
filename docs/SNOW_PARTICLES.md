@@ -128,7 +128,11 @@ after it; EFFECT_MANAGER.md 8.2), and its arguments to
 0.0001, color multiplier 1, and fade interval 0.000001; that helper packs them
 into the VU parameter order documented above.
 
-The native emitter uses snapshot-confirmed rounded binary32 EE divisions.
+The native emitter's own arithmetic (001E67C0's sums, products, quotients and
+conversions) runs on the measured EE model through em_ee_float.h since
+2026-09-27 (docs/EE_FLOAT_MODEL.md section 5b), and the tile colour is the
+SDK 00102900 (em_sdk_vu0.h). Its divisions are the snapshot-confirmed
+rounded binary32 EE divisions.
 Truncating the random fraction division changes 49 of the latest 108 seed
 mantissas, altering the entire VU random sequence for those tiles. Both
 captured buffers now match all 216 complete parameter qwords and color qwords,
@@ -144,9 +148,9 @@ host `sinf`; this is an explicit remaining fidelity limitation.
 `make test-snow-tiles-reference` executes original `001E67C0` instructions and
 compares 48 varied inputs, 5,184 full tile records, and final controller state.
 The flow comparison shares host `sinf` as an intercepted dependency. A separate
-pass executes the original SDK sine instruction tree: 4,842 of 5,184 resulting
-matrices match exactly; the maximum remaining component difference is
-0.00006103515625 world units. These are different claims and are reported
+pass executes the original SDK sine instruction tree: 5,022 of 5,184 resulting
+matrices match exactly (full sweep, 2026-09-27); the maximum remaining
+component difference is 0.00006103515625 world units. These are different claims and are reported
 separately.
 
 The optional DMA comparison reads the immutable opening EE snapshot and
@@ -154,9 +158,11 @@ The optional DMA comparison reads the immutable opening EE snapshot and
 saved camera globals byte for byte; latest tile matrices instead correspond
 to sample134.0. Using that original previous sample reduces the largest
 translation discrepancy from 0.003875732421875 to 0.00006103515625. Remaining
-basis discrepancy is at most 0.00000025331974029541016. Reconstructing prior
-drift from a truncating addition is not generally unique, so these matrix
-errors are measured, not treated as proof of an exact pre-render state.
+basis discrepancy is at most 0.00000025331974029541016; with the measured EE
+model (2026-09-27) the latest tiles' basis and translation errors are both 0.
+Reconstructing prior drift by inverting the EE addition is not generally
+unique, so these matrix errors are measured, not treated as proof of an
+exact pre-render state.
 
 ```
 python3 tools/test_snow_tiles_reference.py \

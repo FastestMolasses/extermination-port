@@ -138,14 +138,8 @@ class Original(ScanOracle):
             else:
                 value = signed(self.r[rt], 64) >> shift
             self.r[rd] = value & 0xffffffffffffffff
-        elif op == 17 and rs == 16 and fn in (13, 36):
-            # Original scalar configuration truncates cvt.w.s toward zero.
-            value = number(self.f[rd])
-            self.f[word >> 6 & 31] = int(value) & 0xffffffff
-        elif op == 17 and rs == 16 and fn == 29:
-            from test_point_light_reference import fp
-            product = fp(number(self.f[rd]) * number(self.f[rt]))
-            self.f[word >> 6 & 31] = bits(fp(product - self.scalar_accumulator))
+        # COP1 (CVT.W.S and MSUB.S = ACC - fs*ft included) runs in the base
+        # Oracle on the measured EE model (tools/ee_cop1.py).
         else:
             super().plain(word)
         self.r[0] = 0

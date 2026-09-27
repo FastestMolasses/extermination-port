@@ -551,8 +551,10 @@ and the whole encounter (AREA_SCRIPT.md, ROGER_CINEMATIC.md).
 
 ## 5. Limits and open items
 
-- 001D0720's kernel (em_opening_face) uses host float, not the EE model
-  (a limit of em_opening_face). 001DA6A0 is a reported no-effect binding
+- 001D0720's kernel (em_opening_face) computes on the measured EE model
+  (em_ee_float.h, since 2026-09-27). Its morph accumulation
+  (em_opening_face_position) is still host float, not the VU1 morph
+  (VU1_FACE_MORPH.md). 001DA6A0 is a reported no-effect binding
   (no actor shadow is drawn by the port). 001BA7F0 is unreachable.
 - Lifecycle 0 runs once, at area load, before any capture, so there is no
   capture from the frame the init ran. Its evidence is the unit oracle and

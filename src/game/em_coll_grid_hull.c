@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 static int le(float a, float b) { return em_ee_c_le(a, b); }
 static int lt(float a, float b) { return em_ee_c_lt(a, b); }
@@ -148,15 +149,14 @@ static int vadd4(float out[4], const float a[4], const float b[4])
     return 0;
 }
 
-/* 00102738(a, b): vf5.xyz = a * b, then x += y, x += z; returns vf5.x. */
+/* 00102738(a, b): em_sdk_vu0.h's translation; returns vf5.x. */
 static int vdot(const float a[4], const float b[4], float *out)
 {
-    float v[4];
-    memcpy(v, b, sizeof v);
-    VU(em_vu_vec(EM_VU_MUL, 0xE, EM_VU_NO_BC, a, v, 0.0f, NULL, v));
-    VU(em_vu_vec(EM_VU_ADDBC, 0x8, 1, v, v, 0.0f, NULL, v));
-    VU(em_vu_vec(EM_VU_ADDBC, 0x8, 2, v, v, 0.0f, NULL, v));
-    *out = v[0];
+    uint32_t x[4], y[4], d;
+    memcpy(x, a, sizeof x);
+    memcpy(y, b, sizeof y);
+    if (em_sdk_vu0_00102738(&d, x, y) != EM_EE_FLOAT_OK) return -1;
+    memcpy(out, &d, sizeof d);
     return 0;
 }
 

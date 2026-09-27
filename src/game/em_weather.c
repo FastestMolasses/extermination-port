@@ -1,35 +1,23 @@
 #include "game/em_weather.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <string.h>
 
-/* Finite binary32 operation ordering used by the original-instruction
- * oracle. Captured state supports the controller updates; the intensity
- * division's rounding has not been independently distinguished in RAM.
- * Do not infer EE DIV.S behavior from VU arithmetic (see em_snow.c). */
-static float weather_float(double value)
-{
-    float result = (float)value;
-    if (fabs((double)result) > fabs(value)) {
-        uint32_t bits;
-        memcpy(&bits, &result, sizeof bits);
-        --bits;
-        memcpy(&result, &bits, sizeof result);
-    }
-    return result;
-}
-
+/* 001E55F0's float arithmetic is all COP1 (cvt.s.w, div.s, mul.s, add.s,
+ * sub.s): em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md;
+ * DIV.S rounds to nearest). */
 static float random_fraction(EmWeatherRandom random, void *context)
 {
-    float value = weather_float((double)(random(context) & 0x7fffffffU));
-    return weather_float((double)value / 2147483648.0);
+    float value = em_ee_cvt_s_w((int32_t)(random(context) & 0x7fffffffU));
+    return em_ee_div(value, 2147483648.0f);
 }
 
 static float random_range(EmWeatherRandom random, void *context,
                           float base, float width)
 {
-    float offset = weather_float((double)width * random_fraction(random, context));
-    return weather_float((double)base + offset);
+    float offset = em_ee_mul(width, random_fraction(random, context));
+    return em_ee_add(base, offset);
 }
 
 EmWeatherFrame em_weather_tick(EmWeather *weather, uint32_t area_flags,
@@ -57,9 +45,9 @@ EmWeatherFrame em_weather_tick(EmWeather *weather, uint32_t area_flags,
     if (weather->state != 1 || !(area_flags & 0x0e000070U))
         return frame;
 
-    float difference = weather_float((double)weather->target - weather->intensity);
-    float step = weather_float((double)difference * weather->rate);
-    weather->intensity = weather_float((double)weather->intensity + step);
+    float difference = em_ee_sub(weather->target, weather->intensity);
+    float step = em_ee_mul(difference, weather->rate);
+    weather->intensity = em_ee_add(weather->intensity, step);
     if (fabsf(difference) < 3.0f) {
         if (area_flags & 0x02000010U)
             weather->target = random_range(random, context, 60.0f, 15.0f);
@@ -83,7 +71,7 @@ EmWeatherFrame em_weather_tick(EmWeather *weather, uint32_t area_flags,
     if (area_entry == 0x1500)
         frame.render_flags |= 2;
     frame.intensity = (uint8_t)(int32_t)weather->intensity;
-    frame.strength = weather_float((double)weather->intensity / 127.0f);
+    frame.strength = em_ee_div(weather->intensity, 127.0f);
     if (weather->intensity > 0.0f)
         frame.draw = (frame.render_flags & 1) ? 2 : 1;
     if (transition == 2 && task_transition == 2)

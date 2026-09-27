@@ -1,71 +1,15 @@
 #include "game/em_camera_rotation.h"
-#include "game/em_effect_color.h"
+#include "game/em_effect_original.h"
+#include "game/em_ee_float.h"
+#include "game/em_owner_services_original.h"
+
+#include <math.h>
 #include <string.h>
 
-static float multiply(float a, float b)
-{
-    return em_effect_float32((double)a * b);
-}
-
-static float add(float a, float b)
-{
-    return em_effect_float32((double)a + b);
-}
-
-/* 001029E8's four odd polynomial terms. Its callers transform the input
- * to pi/2-|angle|; the other component comes from the original VU square
- * root relationship. Each multiply and addition has its own rounding. */
-static void components(float angle, float *sine, float *cosine)
-{
-    static const float coefficient[4] = {
-        0x1.5d3828p-19f, -0x1.9f643ep-13f,
-        0x1.110e7cp-7f, -0x1.555548p-3f
-    };
-    float argument = add(0x1.921fb6p+0f, -fabsf(angle));
-    float square = multiply(argument, argument);
-    float term[4];
-    for (unsigned i = 0; i < 4; ++i)
-        term[i] = multiply(coefficient[i], argument);
-    for (unsigned lanes = 4; lanes > 0; --lanes)
-        for (unsigned i = 0; i < lanes; ++i)
-            term[i] = multiply(term[i], square);
-    float value = argument;
-    for (unsigned i = 4; i > 0; --i)
-        value = add(value, term[i - 1]);
-    *cosine = value;
-    *sine = em_effect_float32(sqrt(fabs((double)add(1.0f, -multiply(value, value)))));
-    if (angle < 0.0f)
-        *sine = -*sine;
-}
-
-static void rotate_rows(float matrix[16], unsigned first, unsigned second,
-                         float angle)
-{
-    /* The SDK's zero-angle branch leaves the input matrix alone. Evaluating
-     * its approximate polynomial at zero would not produce exact identity. */
-    if (angle == 0.0f)
-        return;
-    float sine, cosine;
-    components(angle, &sine, &cosine);
-    float rotation[16] = {0};
-    float input[16];
-    rotation[0] = rotation[5] = rotation[10] = rotation[15] = 1.0f;
-    rotation[first * 4 + first] = cosine;
-    rotation[second * 4 + first] = -sine;
-    rotation[first * 4 + second] = sine;
-    rotation[second * 4 + second] = cosine;
-    memcpy(input, matrix, sizeof input);
-    for (unsigned column = 0; column < 4; ++column) {
-        for (unsigned row = 0; row < 4; ++row) {
-            float value = multiply(rotation[row], input[column * 4]);
-            for (unsigned lane = 1; lane < 4; ++lane)
-                value = add(value, multiply(rotation[lane * 4 + row],
-                                            input[column * 4 + lane]));
-            matrix[column * 4 + row] = value;
-        }
-    }
-}
-
+/* 001029C0(m); 00102C58(m, m, angles) (Z, then Y, then X); 001026A0(offset,
+ * m, (0, 0, distance, 1)). Each is the one bound translation of that SDK
+ * routine (em_owner_services_original, em_effect_original; docs/SDK_VU0.md),
+ * on the measured EE model (docs/EE_FLOAT_MODEL.md). */
 int em_camera_rotation_offset(const float angles[3], float distance,
     float matrix[16], float offset[4])
 {
@@ -74,17 +18,12 @@ int em_camera_rotation_offset(const float angles[3], float distance,
     for (unsigned i = 0; i < 3; ++i)
         if (!isfinite(angles[i]) || fabsf(angles[i]) > 0x1.921fb6p+1f)
             return 0;
-    memset(matrix, 0, 16 * sizeof *matrix);
-    matrix[0] = matrix[5] = matrix[10] = matrix[15] = 1.0f;
-    rotate_rows(matrix, 0, 1, angles[2]);
-    rotate_rows(matrix, 2, 0, angles[1]);
-    rotate_rows(matrix, 1, 2, angles[0]);
-    /* 001026A0 includes every homogeneous component, including the zeros. */
-    for (unsigned row = 0; row < 4; ++row) {
-        float value = multiply(matrix[row], 0.0f);
-        value = add(value, multiply(matrix[4 + row], 0.0f));
-        value = add(value, multiply(matrix[8 + row], distance));
-        offset[row] = add(value, matrix[12 + row]);
-    }
+    float a[3];
+    memcpy(a, angles, sizeof a);
+    if (em_owner_services_identity_001029C0(matrix) != EM_EE_FLOAT_OK ||
+        em_owner_services_euler_00102C58(matrix, matrix, a) != EM_EE_FLOAT_OK)
+        return 0;
+    const float v[4] = {0.0f, 0.0f, distance, 1.0f};
+    em_effect_original_001026A0(offset, matrix, v);
     return 1;
 }

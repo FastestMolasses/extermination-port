@@ -23,13 +23,13 @@ int main(void)
     pool.active[0].angle[3] = .75f;
     em_point_light_reset(&pool);
     assert(em_point_light_register(&pool,position,color,1,1,0) == 0);
-    em_point_light_tick(&pool,0x0b00,midpoint,NULL);
+    assert(em_point_light_tick(&pool,0x0b00,midpoint,NULL) == 0);
     assert(random_calls == 0 && pool.pending_count == 0);
     assert(pool.active[0].matrix[0] == 42 && pool.active[0].angle[3] == .75f);
     assert(pool.active[0].color[3] == 384);
-    em_point_light_tick(&pool,0x0b00,midpoint,NULL);
+    assert(em_point_light_tick(&pool,0x0b00,midpoint,NULL) == 0);
     assert(random_calls == 2 && pool.active[0].matrix[0] == 1);
-    em_point_light_tick(&pool,0x0f00,midpoint,NULL);
+    assert(em_point_light_tick(&pool,0x0f00,midpoint,NULL) == 0);
     assert(random_calls == 2);
     float direction[4] = {0,0,0,0}, accumulated[4] = {0,0,0,0};
     em_point_light_fold(direction,accumulated,&pool,position);

@@ -32,9 +32,9 @@ static int particles(EmLoadVeil *v, const EmLoadVeilWorkers *w, uint32_t *fault_
     return call(w->w_0021B500(w->ctx, v), 0x0021B500u, fault_address);
 }
 
-/* EE add.s / mul.s: the exact result truncated toward zero. */
-static float ee_add(float a, float b) { return pose_scalar((double)a + (double)b); }
-static float ee_mul(float a, float b) { return pose_scalar((double)a * (double)b); }
+/* 0021B550's add.s / mul.s: em_ee_float.h, the measured EE model. */
+static float ee_add(float a, float b) { return pose_add(a, b); }
+static float ee_mul(float a, float b) { return pose_mul(a, b); }
 
 int em_load_veil_0021B180(EmLoadVeil *v, const EmLoadVeilWorkers *w, uint32_t *fault_address)
 {

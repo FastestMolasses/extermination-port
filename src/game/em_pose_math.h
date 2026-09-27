@@ -4,10 +4,13 @@
 #include <stdint.h>
 #include <string.h>
 
-/* Finite animation arithmetic for the original reference execution.
- * The saved PCSX2 configuration uses ordinary truncation, nearest division,
- * and the EE add/sub single-guard-bit model. These helpers are deliberately
- * scoped to finite pose channels; they are not a complete EE FPU emulator. */
+#include "game/em_ee_float.h"
+
+/* The EE FPU (COP1) arithmetic of the pose, script and owner translations:
+ * the measured EE model of em_ee_float.h (docs/EE_FLOAT_MODEL.md: the
+ * pre-trimmed truncating sum, the truncated product, the round-to-nearest
+ * quotient, with DAZ, FTZ and saturation). pose_scalar / pose_trim remain
+ * for a host double that already holds an exact value. */
 static inline float pose_scalar(double value)
 {
     float result = (float)value;
@@ -23,32 +26,29 @@ static inline float pose_trim(float value, unsigned difference)
 }
 static inline float pose_add(float a, float b)
 {
-    uint32_t aa, bb;
-    memcpy(&aa, &a, 4);
-    memcpy(&bb, &b, 4);
-    int difference = (int)((aa >> 23) & 255) - (int)((bb >> 23) & 255);
-    if (difference > 0) b = pose_trim(b, (unsigned)difference);
-    else if (difference < 0) a = pose_trim(a, (unsigned)-difference);
-    return pose_scalar((double)a + b);
+    return em_ee_add(a, b);
 }
 static inline float pose_sub(float a, float b)
 {
-    return pose_add(a, -b);
+    return em_ee_sub(a, b);
 }
 static inline float pose_mul(float a, float b)
 {
-    return pose_scalar((double)a * b);
+    return em_ee_mul(a, b);
 }
 static inline float pose_div(float a, float b)
 {
-    return (float)((double)a / b);
+    return em_ee_div(a, b);
 }
+/* MUL.S then ADD.S / SUB.S (the pose decoder's key steps). A translated
+ * MADD.S / MSUB.S through the FPU accumulator uses em_ee_madd / em_ee_msub
+ * (its product is not saturated). */
 static inline float pose_madd(float accumulator, float a, float b)
 {
-    return pose_add(accumulator, pose_mul(a, b));
+    return em_ee_add(accumulator, em_ee_mul(a, b));
 }
 static inline float pose_msub(float accumulator, float a, float b)
 {
-    return pose_sub(accumulator, pose_mul(a, b));
+    return em_ee_sub(accumulator, em_ee_mul(a, b));
 }
 #endif

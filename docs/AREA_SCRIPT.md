@@ -110,9 +110,14 @@ section 6).
   It equals the original instructions on 88,818 arguments (full sweep). It
   refuses (-1) past |x| = 0x4016CBE3, where the untranslated larger-argument
   reducer branches begin; the ease never goes past pi/2.
-  `em_item_sdk_sine` differs from the original on 257 of the 360 values the
-  level scripts produce and on 41,543 of the sweep arguments. It is not a
-  binding. The item/UI users of it are outside this module; see section 5.
+  `em_item_sdk_sine` used plain truncation and differed from the original on
+  257 of the 360 values the level scripts produce and on 41,543 of the sweep
+  arguments. Since 2026-09-27 its add/sub/mul go through em_ee_float.h and
+  test_item_sdk_math_reference compares it with the original bodies on the
+  measured model (EE_FLOAT_MODEL.md section 5b). It is still not a binding
+  here, and it remains a second translation of the same SDK bodies
+  (EE_FLOAT_MODEL.md section 5c). The item/UI users of it are outside this
+  module; see section 5.
   001B1470 equals `em_fan_original_wrap_001B1470` on every value observed.
 - **The battery pickup runs the grab program.** Route beat 01 shows 00219550
   running 0x266620 (rows f125..f486), not the short program 0x2667E0. The

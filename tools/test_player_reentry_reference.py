@@ -4,12 +4,15 @@
 Call hooks retain call order and argument values. The translation and clip
 lookup/arbiter callees are boundaries, not claimed implementations of them.
 Original bytes are read from the user's pinned ELF and never embedded here.
+COP1 follows the measured EE model (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md).
 """
 import ctypes as C
 import struct
 import json
 import math
 from pathlib import Path
+
+import ee_cop1
 
 ACTOR=0x600000
 RETURN=0xBADF00D
@@ -22,6 +25,7 @@ class Reentry(C.Structure):
     _fields_=[('phase',C.c_uint),('blend_left',C.c_uint),('frame',C.c_uint)]
 
 class Original:
+    fpu_acc=0   # EE FPU accumulator (bit pattern)
     def __init__(self,elf,gait,family,frames):
         self.elf=elf;self.mem={};self.r=[0]*32;self.f=[0]*32;self.calls=[]
         self.condition=False;self.hooks={}
@@ -62,18 +66,12 @@ class Original:
         elif op==17:
             fd,fn=w>>6&31,w&63
             if rs==4:f[rd]=r[rt]
-            elif rs==20 and fn==32:f[fd]=bits(float(signed(f[rd])))
-            elif rs==16:
-                x,y=number(f[rd]),number(f[rt])
-                if fn in (0,1,2,3):
-                    value=x+y if fn==0 else x-y if fn==1 else x*y if fn==2 else x/y
-                    rounded=number(bits(value))
-                    f[fd]=bits(rounded)-(1 if abs(rounded)>abs(value) else 0)
-                elif fn==6:f[fd]=f[rd]
-                elif fn==50:self.condition=x==y
-                elif fn==52:self.condition=x<y
-                elif fn==54:self.condition=x<=y
-                else:raise AssertionError(('FPU.S',fn))
+            elif rs in (16,20):
+                # The measured EE model (tools/ee_cop1.py).
+                kind,value=ee_cop1.cop1(w,f[rd],f[rt],self.fpu_acc)
+                if kind=='fd':f[fd]=value
+                elif kind=='acc':self.fpu_acc=value
+                else:self.condition=value
             else:raise AssertionError(('FPU',rs,fn))
         else:raise AssertionError(('opcode',op,hex(w)))
         r[0]=0

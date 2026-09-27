@@ -143,21 +143,20 @@ int32_t em_crate_original_rattle_wait(const EmCrateOriginal *);
 int32_t em_crate_original_rattle_row(const EmCrateOriginal *);
 void em_crate_original_set_rattle(EmCrateOriginal *, int32_t wait, int32_t row);
 
-/* Translated SDK helpers (EE truncating float semantics). */
-float em_crate_sdk_add(float, float);
-float em_crate_sdk_sub(float, float);
-float em_crate_sdk_mul(float, float);
-float em_crate_sdk_int_to_float(int32_t);          /* cvt.s.w */
-int32_t em_crate_sdk_float_to_int(float);          /* float_to_int */
-float em_crate_sdk_wrap(float);                    /* 001B1470 */
-void em_crate_sdk_identity(float m[16]);           /* 001029C0 */
+/* The SDK routines the owners call. Each forwards to the one bound
+ * translation of that routine (em_owner_services_original, em_sdk_vu0.h,
+ * em_effect_original; docs/SDK_VU0.md), on the measured EE model. The int
+ * ones return 0, or the translation's nonzero status (a fault). */
+int32_t em_crate_sdk_float_to_int(float);          /* 001281C0 float_to_int */
+int em_crate_sdk_wrap(float angle, float *out);    /* 001B1470 */
+int em_crate_sdk_identity(float m[16]);            /* 001029C0 */
 /* axis 0 = 00102B08 (X), 1 = 00102BB0 (Y), 2 = 00102A60 (Z). */
-void em_crate_sdk_rotate(float out[16], const float in[16], float angle, int axis);
-void em_crate_sdk_euler(float m[16], const float angles[3]); /* 00102C58 */
-void em_crate_sdk_multiply(float out[16], const float left[16],
-                           const float right[16]);  /* 001026D0(out,left,right) */
+int em_crate_sdk_rotate(float out[16], const float in[16], float angle, int axis);
+int em_crate_sdk_euler(float m[16], const float angles[3]); /* 00102C58 */
+int em_crate_sdk_multiply(float out[16], const float left[16],
+                          const float right[16]);   /* 001026D0(out,left,right) */
 void em_crate_sdk_apply(float out[4], const float m[16], const float v[4]); /* 001026A0 */
-void em_crate_sdk_translate(float out[16], const float in[16], const float v[3]); /* 00102918 */
-float em_crate_sdk_dot3(const float a[4], const float b[4]); /* 00102738 */
+int em_crate_sdk_translate(float out[16], const float in[16], const float v[3]); /* 00102918 */
+int em_crate_sdk_dot3(float *out, const float a[4], const float b[4]); /* 00102738 */
 
 #endif

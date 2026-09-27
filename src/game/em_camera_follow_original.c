@@ -162,16 +162,10 @@ static int v_scale(uint32_t out[4], const uint32_t in[4], uint32_t s)
     return 0;
 }
 
-/* 00102738(a, b): t.xyz = a * b (t.w = b.w); t.x += t.y; t.x += t.z;
- * returns t.x. */
+/* 00102738(a, b): em_sdk_vu0.h's translation; returns t.x. */
 static int v_dot(const uint32_t a[4], const uint32_t b[4], uint32_t *out)
 {
-    uint32_t t[4];
-    memcpy(t, b, sizeof t);
-    VU(em_vu_vec_bits(EM_VU_MUL, 14, EM_VU_NO_BC, a, t, 0, NULL, t));
-    VU(em_vu_vec_bits(EM_VU_ADDBC, 8, 1, t, t, 0, NULL, t));
-    VU(em_vu_vec_bits(EM_VU_ADDBC, 8, 2, t, t, 0, NULL, t));
-    *out = t[0];
+    VU(em_sdk_vu0_00102738(out, a, b));
     return 0;
 }
 

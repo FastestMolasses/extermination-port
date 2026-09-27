@@ -49,7 +49,7 @@ def main():
     library = output/('rotation.dylib' if sys.platform == 'darwin' else 'rotation.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
         '-ffp-contract=off', '-fPIC', '-dynamiclib' if sys.platform == 'darwin' else '-shared',
-        '-Isrc', 'src/game/em_camera_rotation.c', '-lm', '-o', str(library)],
+        '-Isrc', 'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c', '-lm', '-o', str(library)],
         cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.em_camera_rotation_offset.argtypes = [C.POINTER(C.c_float), C.c_float,

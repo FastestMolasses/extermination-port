@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""Execute the original SDK VU0 leaves 001026D0, 00102900 and 00102948 and
-compare the one translation of each, src/game/em_sdk_vu0.h (docs/SDK_VU0.md).
+"""Execute the original SDK VU0 leaves 001026D0, 00102900, 00102948 and
+00102738 and compare the one translation of each, src/game/em_sdk_vu0.h
+(docs/SDK_VU0.md).
 
 The user's pinned ELF supplies every instruction; none are embedded here.
 Arithmetic: tools/ee_float_model.py through test_coll_move_reference.FloatEE
@@ -10,7 +11,9 @@ Each case writes its operands into a guarded window of EE RAM, runs the
 original routine, and compares the whole window (the destination and the
 guard words around it) with the native leaf over the same bytes. Aliasing is
 covered as the callers use it: 001026D0 with dst = a, dst = b and a separate
-dst; 00102900 with dst = v; 00102948 with dst = src.
+dst; 00102900 with dst = v; 00102948 with dst = src. 00102738 returns its
+dot in f0 and stores nothing: its result and the unchanged window are
+compared, with a = b (the squared length) and a separate b.
 
 Default run (~1 s): a fixed-seed sample with every special value;
 EM_TEST_FULL=1: the exhaustive random sweep.
@@ -28,7 +31,7 @@ import reference_mode  # noqa: E402
 import test_player_slide_reference as SR  # noqa: E402
 from test_coll_move_reference import FloatEE  # noqa: E402
 
-PRODUCT, SCALE, COPY = 0x1026D0, 0x102900, 0x102948
+PRODUCT, SCALE, COPY, DOT = 0x1026D0, 0x102900, 0x102948, 0x102738
 OUT = ROOT / 'build' / 'sdk_vu0_reference'
 U32 = C.c_uint32
 WINDOW, SIZE = 0x01F00000, 0x200     # a (0x40), b (0x80), dst (0x100), guards between
@@ -44,6 +47,7 @@ BRIDGE = """#include "game/em_sdk_vu0.h"
 int vu0_001026D0(uint32_t *d, const uint32_t *a, const uint32_t *b) { return em_sdk_vu0_001026D0(d, a, b); }
 int vu0_00102900(uint32_t *d, const uint32_t *v, uint32_t s) { return em_sdk_vu0_00102900(d, v, s); }
 void vu0_00102948(void *d, const void *s) { em_sdk_vu0_00102948(d, s); }
+int vu0_00102738(uint32_t *out, const uint32_t *a, const uint32_t *b) { return em_sdk_vu0_00102738(out, a, b); }
 """
 
 
@@ -52,6 +56,7 @@ class Leaves:
         self.em_sdk_vu0_001026D0 = lib.vu0_001026D0
         self.em_sdk_vu0_00102900 = lib.vu0_00102900
         self.em_sdk_vu0_00102948 = lib.vu0_00102948
+        self.em_sdk_vu0_00102738 = lib.vu0_00102738
 
 
 def build():
@@ -66,6 +71,7 @@ def build():
     n.vu0_00102900.argtypes = [C.c_void_p, C.c_void_p, U32]
     n.vu0_00102948.argtypes = [C.c_void_p, C.c_void_p]
     n.vu0_00102948.restype = None
+    n.vu0_00102738.argtypes = [C.c_void_p, C.c_void_p, C.c_void_p]
     return Leaves(n)
 
 
@@ -100,11 +106,26 @@ def case_copy(ee, n, rng, alias):
             lambda base: n.em_sdk_vu0_00102948(base + off(target), base + off(A)))
 
 
+def case_dot(ee, n, before, same):
+    """00102738(A, A or B): the f0 result, and no store into the window."""
+    ee.write(WINDOW, bytes(before))
+    other = A if same else B
+    _, f0 = ee.invoke(DOT, (A, other))
+    assert ee.read(WINDOW, SIZE) == bytes(before), ('00102738 stored into the window', same)
+    buf = (C.c_ubyte * SIZE).from_buffer_copy(before)
+    out = U32(0xDEADBEEF)
+    base = C.addressof(buf)
+    status = n.em_sdk_vu0_00102738(C.byref(out), base + 0x40, base + (other - WINDOW))
+    assert status == 0, ('00102738 native refused', status)
+    assert out.value == f0, ('00102738', same, hex(out.value), hex(f0))
+    assert bytes(buf) == bytes(before), ('00102738 native stored into the window', same)
+
+
 def main():
     n = build()
     ee = FloatEE(SR.read_elf())
     rng = random.Random(0x1026D0)
-    counts = {'001026D0': 0, '00102900': 0, '00102948': 0}
+    counts = {'001026D0': 0, '00102900': 0, '00102948': 0, '00102738': 0}
     # Every special value in every lane of a and b at least once.
     for i, special in enumerate(SPECIALS):
         for lane in range(16):
@@ -129,6 +150,15 @@ def main():
                 compare('00102900 special', ee, before,
                         lambda base: n.em_sdk_vu0_00102900(base + 0x100, base + 0x40, s))
                 counts['00102900'] += 1
+        for lane in range(4):
+            before = window(rng)
+            words = [word(rng) for _ in range(8)]
+            words[lane] = special
+            words[4 + (lane + i) % 4] = special
+            before[0x40:0x50] = struct.pack('<4I', *words[:4])
+            before[0x80:0x90] = struct.pack('<4I', *words[4:])
+            case_dot(ee, n, before, lane & 1)
+            counts['00102738'] += 1
     for index in range(reference_mode.pick(3000, 300)):
         before = window(rng)
         before[0x40:0xC0] = struct.pack('<32I', *(word(rng) for _ in range(32)))
@@ -150,8 +180,13 @@ def main():
         counts['00102900'] += 1
         case_copy(ee, n, rng, index % 2)
         counts['00102948'] += 1
+        before = window(rng)
+        before[0x40:0x50] = struct.pack('<4I', *(word(rng) for _ in range(4)))
+        before[0x80:0x90] = struct.pack('<4I', *(word(rng) for _ in range(4)))
+        case_dot(ee, n, before, index % 2)
+        counts['00102738'] += 1
     reference_mode.banner(*('%s %d' % kv for kv in counts.items()))
-    print('sdk vu0 reference: PASS (original 001026D0 / 00102900 / 00102948)')
+    print('sdk vu0 reference: PASS (original 001026D0 / 00102900 / 00102948 / 00102738)')
 
 
 if __name__ == '__main__':

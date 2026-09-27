@@ -1,4 +1,5 @@
 #include "game/em_pickup_owner.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include <math.h>
 
@@ -41,8 +42,9 @@ int em_pickup_owner_tick(EmPickupOwner *p, float item_y, float player_y,
             if (player_action == 0x2D || no_grab) {
                 entry = class4 ? 0x2667E0 : 0x248480;
             } else {
-                float low = em_effect_float32((double)player_y + 6.0);
-                float high = em_effect_float32((double)low + (class4 ? 6.0 : 7.0));
+                /* 0015AE20's two add.s (em_ee_float.h, the measured EE model). */
+                float low = em_ee_add(player_y, 6.0f);
+                float high = em_ee_add(low, class4 ? 6.0f : 7.0f);
                 clip = item_y < low ? 0x42 : item_y < high ? 0x41 : 0x40;
                 entry = class4 ? 0x266620 : 0x2482C0;
             }

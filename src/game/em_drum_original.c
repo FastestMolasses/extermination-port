@@ -69,9 +69,9 @@ static int armed(EmDrumOriginal *d, const EmDrumInput *in, const EmDrumOriginalH
         TRY(hit);
         if (hit) {
             float m[16];
-            em_crate_sdk_identity(m);
-            em_crate_sdk_rotate(m, m, 0x1.921fb6p+0f, 0);
-            em_crate_sdk_translate(m, m, d->position);
+            TRY(em_crate_sdk_identity(m));
+            TRY(em_crate_sdk_rotate(m, m, 0x1.921fb6p+0f, 0));
+            TRY(em_crate_sdk_translate(m, m, d->position));
             m[13] = add(m[13], 0x1.99999ap-3f);
             TRY(h->effect_matrix(h->context, 4, m));
         }
@@ -80,7 +80,8 @@ static int armed(EmDrumOriginal *d, const EmDrumInput *in, const EmDrumOriginalH
     float delta[4];
     for (int i = 0; i < 4; ++i) delta[i] = sub(in->player[i], d->position[i]);
     delta[3] = 0.0f;
-    float distance = em_crate_sdk_dot3(delta, delta);
+    float distance;
+    TRY(em_crate_sdk_dot3(&distance, delta, delta));
     if (distance <= mul(50.0f, 50.0f)) {
         d->visible = 1;
         TRY(h->contact(h->context));
@@ -94,7 +95,7 @@ static int flight(EmDrumOriginal *d, const EmDrumInput *in, const EmDrumOriginal
 {
     /* 00156AF8 */
     float step = d->lift < 0.0f ? 0x1.1df46ap-6f : 0x1.1df46ap-7f;
-    d->rotation[0] = em_crate_sdk_wrap(add(step, d->rotation[0]));
+    TRY(em_crate_sdk_wrap(add(step, d->rotation[0]), &d->rotation[0]));
     float s, c;
     TRY(trig(d->heading, &s, &c));
     d->position[0] = add(d->position[0], mul(d->speed, s));
@@ -147,11 +148,11 @@ static int broken(EmDrumOriginal *d, const EmDrumInput *in, const EmDrumOriginal
         if (d->model == 0xA) {
             TRY(h->random(h->context, &r));
             float v = divide(mul(0x1.921fb6p+2f, cvt((int32_t)(r & 0xF0))), 256.0f);
-            d->heading = em_crate_sdk_wrap(v);
+            TRY(em_crate_sdk_wrap(v, &d->heading));
         } else if (d->model == 0xC) {
             TRY(h->random(h->context, &r));
             float v = divide(mul(0x1.921fb6p+1f, cvt((int32_t)(r & 0x1F))), 180.0f);
-            d->heading = em_crate_sdk_wrap(add(d->rotation[1], v));
+            TRY(em_crate_sdk_wrap(add(d->rotation[1], v), &d->heading));
         }
         TRY(h->random(h->context, &r));
         d->speed = in->speed_table[(r & 0x300) >> 8];

@@ -94,19 +94,19 @@ static uint32_t point_light_random(void *context)
     return em_random_next();
 }
 
-static void point_light_tick(void)
+static int point_light_tick(void)
 {
     if (g.point_lights_loaded && em_rcl_point_lights())
-        em_point_light_tick(em_rcl_point_lights(), g.point_lights_area_key,
-                            point_light_random, NULL);
+        return em_point_light_tick(em_rcl_point_lights(), g.point_lights_area_key,
+                                   point_light_random, NULL);
+    return 0;
 }
 
 /* 001D7C30, the point-light tick, as the render context's worker (001D1C50
  * calls it after the P / K copies). */
 int em_render_point_light_tick(void)
 {
-    point_light_tick();
-    return 0;
+    return point_light_tick();
 }
 
 /* Reserve the next render-chain slot, or NULL if the chain is full.
@@ -958,8 +958,7 @@ void frame_close_out(void)
  * the only port code at this position. */
 int em_render_001D1C50(void)
 {
-    point_light_tick();
-    return 0;
+    return point_light_tick();
 }
 
 /* func_001C1D00(0x008101D0) position (both variants). Wraps

@@ -1124,7 +1124,7 @@ def build():
     sources = ['src/game/em_area_script.c', 'src/game/em_script.c', 'src/game/em_message_service.c',
                'src/game/em_interaction_frame.c', 'src/game/em_interaction_cinematic.c',
                'src/game/em_cinematic_playback.c', 'src/game/em_cinematic_camera.c',
-               'src/game/em_camera_rotation.c',
+               'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c',
                # binding candidates checked against the original math results
                'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
                'src/game/em_item_trail.c', 'src/game/em_fan_original.c']
@@ -1157,10 +1157,10 @@ def check_bindings(lib, math):
     original results the scripts produced. 001B1470 must match
     em_fan_original_wrap_001B1470 (asserted). w_0011E2A8 is bound to
     em_area_script_sin_0011E2A8 in the lockstep, so every value here was
-    already asserted equal. em_item_sdk_sine models add.s as plain
-    truncation; the route captures of the truck preview and director beat 0
-    eases reject that model (docs/AREA_SCRIPT.md section 4), so its
-    mismatches are reported, not asserted: it is not a w_0011E2A8 binding."""
+    already asserted equal. em_item_sdk_sine (the item/UI translation of the
+    same SDK bodies) computes on the measured EE model since 2026-09-27
+    (docs/EE_FLOAT_MODEL.md section 5b) and must equal every original value
+    here too; it is still not the w_0011E2A8 binding."""
     wraps = sines = sine_misses = 0
     for name, (arg,), value in sorted(math):
         if name == 'w_001B1470':
@@ -1169,7 +1169,9 @@ def check_bindings(lib, math):
             wraps += 1
         else:
             sines += 1
-            sine_misses += fbits(lib.em_item_sdk_sine(number(arg))) != value
+            got = fbits(lib.em_item_sdk_sine(number(arg)))
+            assert got == value, ('em_item_sdk_sine', hex(arg), hex(value), hex(got))
+            sine_misses += got != value
     return wraps, sines, sine_misses
 
 

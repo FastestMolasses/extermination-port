@@ -51,7 +51,7 @@ def main():
     library = out/'camera.dylib'
     subprocess.run(['cc', '-shared', '-fPIC', '-std=c11', '-O2', '-Wall', '-Wextra',
         '-Werror', '-ffp-contract=off', '-Isrc', 'src/game/em_cinematic_playback.c',
-        'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', '-lm',
+        'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c', '-lm',
         '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.em_cinematic_camera_load.argtypes = [C.POINTER(Track), C.c_char_p]
@@ -159,7 +159,7 @@ def main():
     subprocess.run(['cc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
         '-ffp-contract=off', '-fsanitize=address,undefined', '-Isrc',
         'tests/cinematic_playback_test.c', 'src/game/em_cinematic_playback.c',
-        'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', '-lm',
+        'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c', '-lm',
         '-o', str(executable)], cwd=ROOT, check=True)
     result = subprocess.run([str(executable)], cwd=ROOT, check=True, text=True, stdout=subprocess.PIPE)
     (out/'sanitizer.log').write_text(result.stdout)

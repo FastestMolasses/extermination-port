@@ -1,22 +1,23 @@
 #include "game/em_item_device.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 #include "game/em_item_sdk_math.h"
 
 #include <math.h>
 
+/* 00184D20 / 00185420 and the wrap 001B1470: COP1, em_ee_float.h (the measured EE model). */
 static float add(float a, float b)
 {
-    return em_effect_float32((double)a + b);
+    return em_ee_add(a, b);
 }
 
 static float subtract(float a, float b)
 {
-    return em_effect_float32((double)a - b);
+    return em_ee_sub(a, b);
 }
 
 static float multiply(float a, float b)
 {
-    return em_effect_float32((double)a * b);
+    return em_ee_mul(a, b);
 }
 
 static float planar_distance(float x, float z)

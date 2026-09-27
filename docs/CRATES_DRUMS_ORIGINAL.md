@@ -275,12 +275,17 @@ over idle04 at a gameplay window: PASS).
 
 - `make test-crate-drum-original`: both oracles and the fault contract. The
   owners' own COP1 arithmetic (add.s, sub.s, mul.s, div.s, cvt.s.w inside
-  001551B0 / 00156620) now follows the measured EE model on both sides:
+  001551B0 / 00156620) follows the measured EE model on both sides:
   - the native side through em_ee_float.h;
-  - the oracle through `tools/ee_float_model.py`, for the owner ranges only.
+  - the oracle through `tools/ee_cop1.py` in the base Oracle, for the owners
+    and every SDK routine they call (since 2026-09-27).
 
-  The SDK leaves the owners call keep the semantics their translations were
-  verified with. Evidence: route 04's corner points +0x2D0..+0x2EC. The
+  The SDK routines the owners call (001029C0, 00102A60 / 00102B08 /
+  00102BB0, 00102C58, 00102918, 001026D0, 001026A0, 00102738, 001B1470,
+  001281C0) are the one bound translation of each: em_owner_services,
+  em_sdk_vu0.h and em_effect_original, reached through the `em_crate_sdk_*`
+  wrappers, whose nonzero status is a fault (EE_FLOAT_MODEL.md section 5b).
+  Evidence: route 04's corner points +0x2D0..+0x2EC. The
   truncating sum left four of the eight one ULP low (0x43521A92 against the
   captured 0x43521A93, from 214.7 - 4.5961943). The EE sum gives the
   captured words.

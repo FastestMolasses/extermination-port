@@ -3,7 +3,8 @@
 
 This bounded interpreter is an independent test oracle, not an emulator import.
 It supports only the EE and VU0 macro instructions these routines execute.
-Finite products/sums truncate; EE division rounds and VU division truncates.
+COP1 and the VU0 macro ops follow the measured EE model (tools/ee_cop1.py,
+tools/ee_float_model.py, docs/EE_FLOAT_MODEL.md).
 Whole-game RNG call ordering is a separate fidelity dependency.
 """
 import ctypes as C
@@ -14,6 +15,9 @@ from pathlib import Path
 import random
 import struct
 import subprocess
+
+import ee_cop1
+import ee_float_model as M
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT, STACK, RETURN = 0x600000, 0x700000, 0xBADF00D
@@ -42,6 +46,9 @@ class Pool(C.Structure):
 
 
 class Oracle:
+    fpu_acc = 0      # EE FPU accumulator (bit pattern); a class default for
+                     # subclasses that do not chain to __init__
+
     def __init__(self, elf, rng_values=()):
         self.elf = elf
         self.mem = {}
@@ -49,8 +56,8 @@ class Oracle:
         self.f = [0]*32
         self.v = [[0]*4 for _ in range(32)]
         self.v[0][3] = bits(1.0)
-        self.acc = [0.0]*4
-        self.q = 0.0
+        self.acc = [0]*4       # VU0 ACC (bit patterns)
+        self.q = 0             # VU0 Q (bit pattern)
         self.condition = False
         self.rng_values = iter(rng_values)
         self.rng_calls = 0
@@ -84,39 +91,46 @@ class Oracle:
         return self.read(CONTEXT+0x210, 0x2010)
 
     def macro(self, word):
+        """One VU0 macro op on the measured model (tools/ee_float_model.py:
+        vu_lane over the original (op, dest, bc) forms, vu_div, vu_sqrt).
+        Registers, ACC and Q hold raw bit patterns; an unmeasured form
+        raises UnmeasuredCase (fail-stop)."""
         op, fs, ft, fd, mask = word & 63, word >> 11 & 31, word >> 16 & 31, word >> 6 & 31, word >> 21 & 15
-        x, y = list(map(number, self.v[fs])), list(map(number, self.v[ft]))
-        result, destination, accumulator = [0.0]*4, fd, False
-        if op < 4: result = [fp(a+y[op]) for a in x]
-        elif op < 8: result = [fp(a-y[op-4]) for a in x]
-        elif op < 12: result = [fp(self.acc[i]+fp(x[i]*y[op-8])) for i in range(4)]
-        elif 24 <= op < 28: result = [fp(a*y[op-24]) for a in x]
-        elif op == 28: result = [fp(a*self.q) for a in x]
-        elif op == 32: result = [fp(a+self.q) for a in x]
-        elif op == 40: result = [fp(a+b) for a,b in zip(x,y)]
-        elif op == 42: result = [fp(a*b) for a,b in zip(x,y)]
-        elif op == 44: result = [fp(a-b) for a,b in zip(x,y)]
+        x, y = [value & 0xffffffff for value in self.v[fs]], [value & 0xffffffff for value in self.v[ft]]
+        lanes = [lane for lane in range(4) if mask & (8 >> lane)]
+        destination, accumulator = fd, False
+        if op < 4: result = {i: M.vu_lane('vaddbc', mask, op, x[i], y[op]) for i in lanes}
+        elif op < 8: result = {i: M.vu_lane('vsubbc', mask, op-4, x[i], y[op-4]) for i in lanes}
+        elif op < 12:
+            result = {i: M.vu_lane('vmaddbc', mask, op-8, x[i], y[op-8], self.acc[i]) for i in lanes}
+        elif 24 <= op < 28: result = {i: M.vu_lane('vmulbc', mask, op-24, x[i], y[op-24]) for i in lanes}
+        elif op == 28: result = {i: M.vu_lane('vmulq', mask, None, x[i], self.q) for i in lanes}
+        elif op == 32: result = {i: M.vu_lane('vaddq', mask, None, x[i], self.q) for i in lanes}
+        elif op == 40: result = {i: M.vu_lane('vadd', mask, None, x[i], y[i]) for i in lanes}
+        elif op == 42: result = {i: M.vu_lane('vmul', mask, None, x[i], y[i]) for i in lanes}
+        elif op == 44: result = {i: M.vu_lane('vsub', mask, None, x[i], y[i]) for i in lanes}
         elif op >= 60:
             destination = ft
-            if fd == 12 and op == 60: result = x
-            elif fd == 12 and op == 61: result = x[1:]+x[:1]
-            elif fd == 6:
-                result = [fp(a*y[op & 3]) for a in x]; accumulator = True
-            elif fd == 2:
-                result = [fp(self.acc[i]+fp(x[i]*y[op & 3])) for i in range(4)]; accumulator = True
-            elif fd == 14 and op == 61:
-                self.q = fp(math.sqrt(abs(y[word >> 23 & 3]))); return
-            elif fd == 14 and op == 60:
-                denominator = y[word >> 23 & 3]
-                self.q = fp(x[word >> 21 & 3]/denominator) if denominator else number(0x7f7fffff)
-                return
-            elif fd == 14 and op == 63: return
+            if fd == 12 and op == 60: result = {i: x[i] for i in lanes}                 # vmove
+            elif fd == 12 and op == 61: result = {i: x[(i+1) & 3] for i in lanes}      # vmr32
+            elif fd == 6:                                                             # vmulabc
+                result = {i: M.vu_lane('vmulabc', mask, op & 3, x[i], y[op & 3]) for i in lanes}
+                accumulator = True
+            elif fd == 2:                                                             # vmaddabc
+                result = {i: M.vu_lane('vmaddabc', mask, op & 3, x[i], y[op & 3], self.acc[i])
+                          for i in lanes}
+                accumulator = True
+            elif fd == 14 and op == 61:                                               # vsqrt
+                self.q = M.vu_sqrt(y[word >> 23 & 3]); return
+            elif fd == 14 and op == 60:                                               # vdiv
+                fsf, ftf = word >> 21 & 3, word >> 23 & 3
+                self.q = M.vu_div(x[fsf], y[ftf], fsf, ftf); return
+            elif fd == 14 and op == 63: return                                        # vwaitq
             else: raise AssertionError(('VU special', hex(word), op, fd))
         else: raise AssertionError(('VU', hex(word), op))
-        for lane in range(4):
-            if mask & (8 >> lane):
-                if accumulator: self.acc[lane] = result[lane]
-                elif destination: self.v[destination][lane] = bits(result[lane])
+        for lane, value in result.items():
+            if accumulator: self.acc[lane] = value
+            elif destination: self.v[destination][lane] = value
 
     def plain(self, word):
         r,f = self.r,self.f
@@ -159,18 +173,16 @@ class Oracle:
             fs,fd,fn = rd,word >> 6 & 31,word & 63
             if rs == 0: r[rt] = f[fs]
             elif rs == 4: f[fs] = r[rt] & 0xffffffff
-            elif rs == 20 and fn == 32: f[fd] = bits(fp(float(signed(f[fs]))))
-            elif rs == 16:
-                x,y = number(f[fs]),number(f[rt])
-                if fn == 0: f[fd] = bits(fp(x+y))
-                elif fn == 1: f[fd] = bits(fp(x-y))
-                elif fn == 2: f[fd] = bits(fp(x*y))
-                elif fn == 3: f[fd] = bits(fp(x/y) if self.truncate_ee_division else x/y)
-                elif fn == 6: f[fd] = f[fs]
-                elif fn == 50: self.condition = x == y
-                elif fn == 52: self.condition = x < y
-                elif fn == 54: self.condition = x <= y
-                else: raise AssertionError(('FPU',fn))
+            elif rs == 16 and fn == 3 and self.truncate_ee_division:
+                # Negative control only (main(): the captured colour must
+                # need the measured round-to-nearest DIV.S, not this).
+                f[fd] = bits(fp(number(f[fs])/number(f[rt])))
+            elif rs in (16,20):
+                # The measured EE model (tools/ee_cop1.py).
+                kind,value = ee_cop1.cop1(word,f[fs],f[rt],self.fpu_acc)
+                if kind == 'fd': f[fd] = value
+                elif kind == 'acc': self.fpu_acc = value
+                else: self.condition = value
             else: raise AssertionError(('COP1',rs,fn))
         else: raise AssertionError(('opcode',op,hex(word)))
         r[0] = 0
@@ -225,9 +237,11 @@ def main():
     out = ROOT/'build/point_light_reference'; out.mkdir(parents=True, exist_ok=True)
     lib = out/'point_light.dylib'
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
-                    '-shared','-fPIC','-Isrc','src/game/em_point_light.c','-o',str(lib)],cwd=ROOT,check=True)
+                    '-shared','-fPIC','-Isrc','src/game/em_point_light.c',
+                    'src/game/em_owner_services_original.c','-o',str(lib)],cwd=ROOT,check=True)
     native = C.CDLL(str(lib)); random_fn = C.CFUNCTYPE(C.c_uint32,C.c_void_p)
     native.em_point_light_tick.argtypes = [C.POINTER(Pool),C.c_uint16,random_fn,C.c_void_p]
+    native.em_point_light_tick.restype = C.c_int
     native.em_point_light_register.argtypes = [C.POINTER(Pool),C.POINTER(C.c_float),C.POINTER(C.c_float),C.c_int32,C.c_float,C.c_float]
     native.em_point_light_fold.argtypes = [C.POINTER(C.c_float),C.POINTER(C.c_float),C.POINTER(Pool),C.POINTER(C.c_float)]
     rng = random.Random(0x1d7c30); cases = calls = folds = 0
@@ -252,7 +266,7 @@ def main():
         @random_fn
         def next_random(_):
             value = next(values); used.append(value); return value
-        native.em_point_light_tick(C.byref(pool),key,next_random,None)
+        assert native.em_point_light_tick(C.byref(pool),key,next_random,None) == 0
         expected = oracle.pool_bytes()
         assert bytes(pool) == expected, ('pool',case,next(i for i,(a,b) in enumerate(zip(bytes(pool),expected)) if a != b))
         assert len(used) == oracle.rng_calls
@@ -292,7 +306,7 @@ def main():
         @random_fn
         def next_tiny(_):
             return next(values)
-        native.em_point_light_tick(C.byref(pool), 0x0b00, next_tiny, None)
+        assert native.em_point_light_tick(C.byref(pool), 0x0b00, next_tiny, None) == 0
         expected = oracle.pool_bytes()
         assert bytes(pool) == expected, ('tiny angle', case, next(i for i,(a,b) in enumerate(zip(bytes(pool),expected)) if a != b))
         assert all(math.isfinite(v) for light in pool.active for v in light.matrix), ('tiny angle NaN', case)

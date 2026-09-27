@@ -1,4 +1,5 @@
 #include "game/em_panel_program.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include <string.h>
 
@@ -24,7 +25,7 @@ static EmScriptCommandResult execute(void *context,EmScript *script,
             put32(record+0x10,em_script_u32(record,0xC));script->phase=1;
         } else if (timer<=0) return EM_SCRIPT_ADVANCE;
         else {
-            timer=em_effect_float32((double)timer-1.0);
+            timer=em_ee_sub(timer,1.0f);      /* sub.s (em_ee_float.h) */
             uint32_t bits;memcpy(&bits,&timer,4);put32(record+0x10,bits);
         }
         return EM_SCRIPT_WAIT;

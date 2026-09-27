@@ -102,10 +102,10 @@ through both. Only the owner's completion snaps its own Y to 190/230.
 The refusal's D/sub5 camera now has a complete first-level binding through
 `camera_interaction_retarget_distance_area11`. The argument is−20; current
 camera+C and preset camera+64 both remain−46.8 in the captured reference.
-`em_camera_rotation` follows original001029C0/00102C58/001026A0, including
-Z/Y/X order, the SDK polynomial, zero-angle no-op, homogeneous components
-and each VU operation's rounding.972 original-instruction matrix/offset
-cases match all77,760 output bytes in the bounded arithmetic model.
+`em_camera_rotation` calls the one bound translations of original
+001029C0/00102C58 (em_owner_services) and 001026A0 (em_effect_original) on
+the measured EE model (since 2026-09-27). 972 original-instruction
+matrix/offset cases match all 77,760 output bytes.
 
 A fresh original refusal capture in slot13 starts from immutable post-panel
 slot06, clears only the area power bit and arms the actual elevator owner.

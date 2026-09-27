@@ -85,10 +85,12 @@ check `00183090` face-before-body order and unchanged activity0; 72 cases
 check the direct `001FD950` Dennis talk events. Glyph layout/render workers
 are intercepted in those event-only cases.
 
-The callback state comparison uses host IEEE float32 arithmetic, matching
-the pre-existing face branch oracle. A truncating arithmetic model differs
-by one ULP at the first mouth update; physical EE/VU arithmetic and live
-RNG call order remain outside this proof. The RNG fixture uses the original
+The callback state comparison runs the original's COP1 arithmetic on the
+measured EE model (tools/ee_cop1.py through the base Oracle; EE_FLOAT_MODEL.md
+section 5), and em_opening_face.c's 001D0720 kernel computes through
+em_ee_float.h (since 2026-09-27; it was host round-to-nearest float32
+before, which differs by one ULP at the first mouth update). Live RNG call
+order remains outside this proof. The RNG fixture uses the original
 31-bit return domain. It does not seed the live game or claim a matching
 whole-game random stream.
 

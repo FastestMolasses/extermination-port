@@ -1,5 +1,6 @@
 #include "game/em_interaction_scan.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <float.h>
@@ -45,12 +46,26 @@ int em_interaction_scan(EmInteractionScanState *state,
     return 1;
 }
 
+/* Float arithmetic by original: 00183EF0 (the class predicates), 001B1470
+ * (the angle wrap), 001B1630 (the camera gate) and the SDK 0011C4C8 /
+ * 0011DBB8 (atan2 / atan) are COP1: em_ee_float.h, the measured EE model.
+ * The SDK vector routines 001028D0 (subtract), 00102738 (dot) and 00102760
+ * (normalize) are VU0 macro code: truncated per operation (vu_* below). */
+static float add(float a,float b) { return em_ee_add(a,b); }
+static float sub(float a,float b) { return em_ee_sub(a,b); }
+static float mul(float a,float b) { return em_ee_mul(a,b); }
+static float divide(float a,float b) { return em_ee_div(a,b); }
+static float vu_add(float a,float b) { return em_effect_float32((double)a+b); }
+static float vu_sub(float a,float b) { return em_effect_float32((double)a-b); }
+static float vu_mul(float a,float b) { return em_effect_float32((double)a*b); }
+
+/* 001B1470. */
 static float wrap_angle(float angle)
 {
     const float pi=3.1415927410125732421875f;
     const float turn=6.283185482025146484375f;
-    while (angle>pi) angle=em_effect_float32((double)angle-turn);
-    while (angle<=-pi) angle=em_effect_float32((double)angle+turn);
+    while (angle>pi) angle=sub(angle,turn);
+    while (angle<=-pi) angle=add(angle,turn);
     return angle;
 }
 
@@ -63,31 +78,28 @@ int em_interaction_elevator_candidate(const float descriptor[6],
     if (player_action==0x2d) return 0;
     if (!descriptor || !player || !isfinite(player_yaw) ||
         !isfinite(descriptor[5])) return 0;
-    float dx=em_effect_float32((double)player[0]-descriptor[0]);
-    float dz=em_effect_float32((double)player[2]-descriptor[2]);
-    float xx=em_effect_float32((double)dx*dx);
-    float zz=em_effect_float32((double)dz*dz);
+    float dx=sub(player[0],descriptor[0]);
+    float dz=sub(player[2],descriptor[2]);
+    float xx=mul(dx,dx);
+    float zz=mul(dz,dz);
     /* SDK0011E748 ->0011CB90 rounds sqrt to nearest/even. The EE
-     * subtracts, multiplies and adds preceding it truncate separately. */
-    float distance=sqrtf(em_effect_float32((double)xx+zz));
+     * subtracts, multiplies and adds preceding it are COP1. */
+    float distance=sqrtf(add(xx,zz));
     if (!(distance<=descriptor[3])) return 0;
     if (score) *score=distance;
-    float dy=em_effect_float32((double)player[1]-descriptor[1]);
-    if (!(sqrtf(em_effect_float32((double)dy*dy))<=descriptor[4])) return 0;
-    float angle=em_effect_float32(3.1415927410125732421875+(double)player_yaw);
-    angle=wrap_angle(em_effect_float32((double)angle-descriptor[5]));
+    float dy=sub(player[1],descriptor[1]);
+    if (!(sqrtf(mul(dy,dy))<=descriptor[4])) return 0;
+    float angle=add(3.1415927410125732421875f,player_yaw);
+    angle=wrap_angle(sub(angle,descriptor[5]));
     return fabsf(angle)<=0.785398185253143310546875f;
 }
 
-static float add(float a,float b) { return em_effect_float32((double)a+b); }
-static float sub(float a,float b) { return em_effect_float32((double)a-b); }
-static float mul(float a,float b) { return em_effect_float32((double)a*b); }
-static float divide(float a,float b) { return (float)((double)a/b); }
 static uint32_t float_bits(float x) { uint32_t u;memcpy(&u,&x,4);return u; }
 
+/* 00102738 (VU0). */
 static float dot(const float a[3],const float b[3])
 {
-    return add(add(mul(a[0],b[0]),mul(a[1],b[1])),mul(a[2],b[2]));
+    return vu_add(vu_add(vu_mul(a[0],b[0]),vu_mul(a[1],b[1])),vu_mul(a[2],b[2]));
 }
 
 static void normalize(float vector[3])
@@ -96,7 +108,7 @@ static void normalize(float vector[3])
      * scalar SDK sqrt and EE DIV.S used elsewhere in this module. */
     float length=em_effect_float32(sqrt((double)dot(vector,vector)));
     float inverse=length ? em_effect_float32(1.0/(double)length) : FLT_MAX;
-    for (unsigned i=0;i<3;++i) vector[i]=mul(vector[i],inverse);
+    for (unsigned i=0;i<3;++i) vector[i]=vu_mul(vector[i],inverse);
 }
 
 static float sdk_atan(const EmInteractionMath *m,float x)
@@ -177,8 +189,9 @@ int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,
         if (hit.hit && (hit.flags&0x2000)) return 0;
         float view[3],toward[3],raw[3];
         for (unsigned i=0;i<3;++i) {
-            view[i]=sub(player->view_target[i],player->position[i]);
-            toward[i]=raw[i]=sub(pickup->position[i],player->position[i]);
+            /* 001028D0 (VU0) twice. */
+            view[i]=vu_sub(player->view_target[i],player->position[i]);
+            toward[i]=raw[i]=vu_sub(pickup->position[i],player->position[i]);
         }
         normalize(view);normalize(toward);
         float alignment=dot(view,toward),squared=dot(raw,raw);
@@ -219,7 +232,10 @@ int em_interaction_visible(const float position[3],const float camera_anchor[3],
 {
     float direction[3];
     for (unsigned i=0;i<3;++i) direction[i]=sub(position[i],camera_anchor[i]);
-    float distance=sqrtf(dot(direction,direction));
+    /* 001B1630: ADDA x*x + y*y, MADD + z*z (COP1), then SDK sqrt. */
+    float distance=sqrtf(em_ee_madd(em_ee_adda(mul(direction[0],direction[0]),
+                                               mul(direction[1],direction[1])),
+                                    direction[2],direction[2]));
     if (!(distance<=350)) return 0;
     normalize(direction);
     float facing=dot(direction,camera_forward);

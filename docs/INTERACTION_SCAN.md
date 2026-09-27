@@ -36,11 +36,12 @@ eleven owners and accepted owners are reversed. Reports and original input
 hashes are local in `build/interaction_scan_reference/`.
 
 This is a native semantic translation, not a newly compiled PS2 byte match.
-Finite EE sums/products use the project's truncating arithmetic model;
-EE division and the original SDK square root round to nearest. VU sqrt and
-division truncate. The tests execute original SDK math bodies, but do not
-constitute a new physical-EE rounding proof or model exceptional NaN,
-overflow and denormal behavior. The public SDK atan2 helper reproduces the
+The COP1 arithmetic of 00183EF0, 001B1470, 001B1630 and the SDK atan /
+atan2 (0011DBB8 / 0011C4C8) goes through em_ee_float.h, the measured EE model
+(since 2026-09-27; docs/EE_FLOAT_MODEL.md section 5b), and the oracles run
+it on the same model. The SDK vector routines 001028D0 / 00102738 / 00102760
+are VU0 (per-operation truncation; the square root of the SDK wrapper
+rounds to nearest). The public SDK atan2 helper reproduces the
 finite numerical path; the zero-vector wrapper's error callback/errno are
 outside its interface.
 

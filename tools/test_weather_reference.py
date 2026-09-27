@@ -3,11 +3,9 @@
 
 Rendering is intercepted at its two original calls. Tests compare actor state,
 random consumption and render parameters; this does not validate VU rendering.
-The bounded EE interpreter rounds finite arithmetic toward zero. This checks
-instruction flow and operation order under that arithmetic model, not every
-physical EE rounding edge. In particular the captured controller buffers do
-not distinguish the strength division's rounding. No original instructions,
-captures or tables are embedded in this tool.
+The bounded EE interpreter's COP1 follows the measured EE model
+(tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md; DIV.S rounds to nearest). No
+original instructions, captures or tables are embedded in this tool.
 """
 from __future__ import annotations
 import ctypes as C
@@ -18,6 +16,8 @@ import random
 import struct
 import subprocess
 import sys
+
+import ee_cop1
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY, END = 0x1E55F0, 0x1E5AC0
@@ -142,20 +142,12 @@ def oracle(elf, initial, flags, area, selector, transition, task, draws):
             fs, fd, fn = rd, word >> 6 & 31, word & 63
             if rs == 0: registers[rt] = floats[fs]
             elif rs == 4: floats[fs] = registers[rt] & 0xffffffff
-            elif rs == 20 and fn == 32: floats[fd] = bits(truncate(float(signed(floats[fs]))))
-            elif rs == 16:
-                x, y = number(floats[fs]), number(floats[rt])
-                if fn == 0: floats[fd] = bits(truncate(x + y))
-                elif fn == 1: floats[fd] = bits(truncate(x - y))
-                elif fn == 2: floats[fd] = bits(truncate(x * y))
-                elif fn == 3: floats[fd] = bits(truncate(x / y))
-                elif fn == 5: floats[fd] = floats[fs] & 0x7fffffff
-                elif fn == 6: floats[fd] = floats[fs]
-                elif fn == 7: floats[fd] = floats[fs] ^ 0x80000000
-                elif fn in (13, 36): floats[fd] = int(x) & 0xffffffff
-                elif fn == 52: condition = x < y
-                elif fn == 54: condition = x <= y
-                else: raise AssertionError(('FPU', fn))
+            elif rs in (16, 20):
+                # The measured EE model (tools/ee_cop1.py); no FPU ACC op here.
+                kind, value = ee_cop1.cop1(word, floats[fs], floats[rt])
+                assert kind != 'acc', ('FPU', fn)
+                if kind == 'fd': floats[fd] = value
+                else: condition = value
             else: raise AssertionError(('COP1', rs, fn))
         else: raise AssertionError(('opcode', op))
         registers[0] = 0

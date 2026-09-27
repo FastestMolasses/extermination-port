@@ -1,4 +1,5 @@
 #include "game/em_area11_effect.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 
 void em_area11_effect_tick(EmArea11Effect *effect,
@@ -19,16 +20,17 @@ void em_area11_effect_tick(EmArea11Effect *effect,
         effect->phase = 0.0f;
         /* Original CVT.S.W truncates the signed31-bit random result;
          * DIV.S then scales by the exactly representable power of two. */
-        effect->seed = em_effect_float32((double)(int32_t)random(context));
-        effect->seed = (float)((double)effect->seed / 2147483648.0);
+        effect->seed = em_ee_cvt_s_w((int32_t)random(context));
+        effect->seed = em_ee_div(effect->seed, 2147483648.0f);
         effect->state = 1;
         /* State0 falls through into its first draw and sound service. */
         /* fall through */
     case 1:
         callback(context, EM_AREA11_EFFECT_DRAW, effect);
-        effect->phase = em_effect_float32((double)effect->phase + 0.025f);
+        /* 008235F0's scalar arithmetic is COP1 (em_ee_float.h). */
+        effect->phase = em_ee_add(effect->phase, 0.025f);
         if (effect->phase >= 2.0f)
-            effect->phase = em_effect_float32((double)effect->phase - 1.0f);
+            effect->phase = em_ee_sub(effect->phase, 1.0f);
         callback(context, EM_AREA11_EFFECT_SOUND, effect);
         if (effect->contact_cooldown == 0) {
             effect->flags = 1;

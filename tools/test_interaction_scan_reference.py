@@ -34,15 +34,8 @@ class ScanOracle(Oracle):
             self.r[rd]=int((self.r[rs]&0xffffffff)<(self.r[rt]&0xffffffff))
         elif op==11:
             self.r[rt]=int((self.r[rs]&0xffffffff)<(signed(word&65535,16)&0xffffffff))
-        elif op==17 and rs==16 and fn==26:
-            self.scalar_accumulator=fp(number(self.f[rd])*number(self.f[rt]))
-        elif op==17 and rs==16 and fn==28:
-            self.f[word>>6&31]=bits(fp(self.scalar_accumulator+
-                                        fp(number(self.f[rd])*number(self.f[rt]))))
-        elif op==17 and rs==16 and fn==24:
-            self.scalar_accumulator=fp(number(self.f[rd])+number(self.f[rt]))
-        elif op==17 and rs==16 and fn==7:
-            self.f[word>>6&31]=self.f[rd]^0x80000000
+        # COP1 (MULA/ADDA/MADD/NEG included) runs in the base Oracle on the
+        # measured EE model (tools/ee_cop1.py).
         elif op==0 and fn==38:
             self.r[rd]=self.r[rs]^self.r[rt]
         elif op==55:

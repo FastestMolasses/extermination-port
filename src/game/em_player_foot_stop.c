@@ -1,10 +1,10 @@
 #include "game/em_player_foot_stop.h"
 #include "game/em_camera_rotation.h"
-#include "game/em_effect_color.h"
 #include "game/em_effect_original.h"
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
 
+#include <math.h>
 #include <string.h>
 
 int em_player_foot_stop_begin(EmPlayerFootStop *stop, unsigned tier,
@@ -27,21 +27,21 @@ int em_player_foot_stop_begin(EmPlayerFootStop *stop, unsigned tier,
     const float *foot = clip_remaining < limit ? foot18 : foot17;
     float duration = 10.0f;
     if (tier == 1) {
-        float residual = em_effect_float32((double)clip_remaining -
-                                           (clip_remaining < limit ? 1.0f : limit));
-        duration = residual / 2.0f;
+        /* 0017B910's arithmetic is COP1 (em_ee_float.h), as in the
+         * record-level translation below. */
+        float residual = em_ee_sub(clip_remaining, clip_remaining < limit ? 1.0f : limit);
+        duration = em_ee_div(residual, 2.0f);
         if (duration < 1) duration = 1;
     }
-    float dx = em_effect_float32((double)foot[0] - position[0]);
-    float dz = em_effect_float32((double)foot[2] - position[2]);
-    float square = em_effect_float32((double)em_effect_float32((double)dx * dx) +
-                                     em_effect_float32((double)dz * dz));
+    float dx = em_ee_sub(foot[0], position[0]);
+    float dz = em_ee_sub(foot[2], position[2]);
+    float square = em_ee_madd(em_ee_mula(dx, dx), dz, dz);
     /*0011E748 calls the original software square root, which rounds its
-     * result nearest. The surrounding EE products/addition truncate. */
+     * result nearest. */
     float distance = sqrtf(square);
     float matrix[16], direction[4];
     if (!em_camera_rotation_offset(euler, distance, matrix, direction)) return 0;
-    *stop = (EmPlayerFootStop){direction[0] / duration, direction[2] / duration,
+    *stop = (EmPlayerFootStop){em_ee_div(direction[0], duration), em_ee_div(direction[2], duration),
                               duration, tier, 1};
     return 1;
 }
@@ -58,9 +58,10 @@ int em_player_foot_stop_tick(EmPlayerFootStop *stop, unsigned animation_flags,
             return 0;
         }
     } else {
-        position[0] = em_effect_float32((double)position[0] + stop->step_x);
-        position[2] = em_effect_float32((double)position[2] + stop->step_z);
-        stop->remaining = em_effect_float32((double)stop->remaining - 1);
+        /* 0017C030 (COP1: em_ee_float.h). */
+        position[0] = em_ee_add(position[0], stop->step_x);
+        position[2] = em_ee_add(position[2], stop->step_z);
+        stop->remaining = em_ee_sub(stop->remaining, 1.0f);
         if (stop->tier == 1) *animation_rate = 2;
     }
     return 1;

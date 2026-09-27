@@ -1,15 +1,20 @@
 #include "game/em_cinematic_playback.h"
 #include "game/em_camera_rotation.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static float add(float a, float b) { return em_effect_float32((double)a + b); }
-static float multiply(float a, float b) { return em_effect_float32((double)a * b); }
-/* DIV.S follows the measured nearest-rounded path, unlike the separate
- * scalar add/multiply truncation above. Captured projection checks pin it. */
-static float divide(float a, float b) { return (float)((double)a / b); }
+/* The scalar arithmetic of 0022EEF0 and the SDK tangent 0011E398 / 0011D878
+ * is COP1: em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md;
+ * DIV.S rounds to nearest, which the captured projection checks pin). */
+static float add(float a, float b) { return em_ee_add(a, b); }
+static float multiply(float a, float b) { return em_ee_mul(a, b); }
+static float divide(float a, float b) { return em_ee_div(a, b); }
+/* 001026A0's VU0 lanes (truncated per operation). */
+static float vu_add(float a, float b) { return em_effect_float32((double)a + b); }
+static float vu_multiply(float a, float b) { return em_effect_float32((double)a * b); }
 
 static uint32_t word(const unsigned char *p)
 {
@@ -107,9 +112,9 @@ int em_cinematic_playback_tick(EmCinematicPlayback *playback,
     float angles[3] = {angle, 0, 0}, matrix[16], unused[4];
     if (!em_camera_rotation_offset(angles, 0, matrix, unused)) return -1;
     for (unsigned row = 0; row < 4; ++row) {
-        float value = add(multiply(matrix[row], 0), multiply(matrix[4+row], -1));
-        value = add(value, multiply(matrix[8+row], 0));
-        playback->up[row] = add(value, matrix[12+row]);
+        float value = vu_add(vu_multiply(matrix[row], 0), vu_multiply(matrix[4+row], -1));
+        value = vu_add(value, vu_multiply(matrix[8+row], 0));
+        playback->up[row] = vu_add(value, matrix[12+row]);
     }
     playback->zoom = em_cinematic_projection_zoom(projection, sample.fov_degrees);
     if (!isfinite(playback->zoom)) return -1;

@@ -1,16 +1,19 @@
 #include "game/em_item_trail.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <string.h>
 
+/* 001B62C0, 0020AC70 and 001D66A0 do all their float arithmetic on the EE
+ * FPU (COP1; none is VU0): em_ee_float.h, the measured EE model
+ * (docs/EE_FLOAT_MODEL.md). */
 static float add(float a, float b)
 {
-    return em_effect_float32((double)a + b);
+    return em_ee_add(a, b);
 }
 
 static float multiply(float a, float b)
 {
-    return em_effect_float32((double)a * b);
+    return em_ee_mul(a, b);
 }
 
 int em_item_stick_sample(EmItemStick *stick, uint8_t x, uint8_t y, const EmItemMath *math)
@@ -18,7 +21,8 @@ int em_item_stick_sample(EmItemStick *stick, uint8_t x, uint8_t y, const EmItemM
     if (!stick || !math || !math->sine || !math->cosine || !math->atan2 || !math->sqrt)
         return 0;
     float dx = (float)x - 128.0f, dy = (float)y - 128.0f;
-    float magnitude = math->sqrt(math->context, add(multiply(dx, dx), multiply(dy, dy)));
+    /* MULA dx*dx, MADD + dy*dy. */
+    float magnitude = math->sqrt(math->context, em_ee_madd(em_ee_mula(dx, dx), dy, dy));
     float angle = math->atan2(math->context, dy, dx);
     float term;
     if (angle >= 0.7853981852531433f && angle < 2.356194496154785f)
@@ -30,7 +34,7 @@ int em_item_stick_sample(EmItemStick *stick, uint8_t x, uint8_t y, const EmItemM
     term = multiply(term, 128.0f);
     float denominator = math->sqrt(math->context, add(16384.0f, multiply(term, term)));
     /* The captured EE configuration rounds scalar division to nearest. */
-    magnitude = (float)((double)magnitude / denominator);
+    magnitude = em_ee_div(magnitude, denominator);
     float scale = 0;
     if (magnitude > 0.25f) {
         scale = multiply(1.5384615659713745f, add(magnitude, -0.25f));
@@ -59,8 +63,11 @@ static int fan(float x, float y, float radius, float angle, unsigned intensity,
     float cosine_step = math->cosine(math->context, 0.09817477f);
     float k = multiply(2, sine_step);
     float a = multiply(radius, cosine), b = multiply(radius, sine);
-    float c = add(multiply(a, sine_step), multiply(cosine_step, multiply(28, sine)));
-    float d = add(multiply(cosine_step, multiply(28, cosine)), -multiply(b, sine_step));
+    /* c = MULA a*sin_step, MADD + cos_step*(28 sin); d = MULA b*sin_step,
+     * MSUB - cos_step*(28 cos). MSUB.S is ACC - fs*ft (EE_FLOAT_MODEL.md
+     * section 2), so d = b sin_step - cos_step 28 cos. */
+    float c = em_ee_madd(em_ee_mula(a, sine_step), cosine_step, multiply(28, sine));
+    float d = em_ee_msub(em_ee_mula(b, sine_step), cosine_step, multiply(28, cosine));
     int32_t triangle[3][2];
     triangle[0][0] = (int32_t)multiply(16, x);
     triangle[0][1] = (int32_t)multiply(16, y);

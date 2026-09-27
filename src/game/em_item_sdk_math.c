@@ -1,5 +1,5 @@
 #include "game/em_item_sdk_math.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <string.h>
@@ -18,19 +18,22 @@ static float number(uint32_t value)
     return result;
 }
 
+/* 0011C7B0, 0011CB90, 0011CCC8 and 0011D770 do their float arithmetic on
+ * the EE FPU (COP1 only): em_ee_float.h, the measured EE model
+ * (docs/EE_FLOAT_MODEL.md, the pre-trimmed truncating sum). */
 static float add(float a, float b)
 {
-    return em_effect_float32((double)a + b);
+    return em_ee_add(a, b);
 }
 
 static float subtract(float a, float b)
 {
-    return em_effect_float32((double)a - b);
+    return em_ee_sub(a, b);
 }
 
 static float multiply(float a, float b)
 {
-    return em_effect_float32((double)a * b);
+    return em_ee_mul(a, b);
 }
 
 /* 0011D770. Retain separate EE scalar operations and the original tail path. */

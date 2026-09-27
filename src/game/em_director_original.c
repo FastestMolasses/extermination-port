@@ -225,10 +225,12 @@ int em_director_original_001B1EA0_bound(int32_t mode, const float *point, const 
         float ax = pose_sub(cur[0], point[0]);   /* cur.x - p.x */
         float bz = pose_sub(nxt[2], point[2]);   /* next.z - p.z */
         float az = pose_sub(cur[2], point[2]);   /* cur.z - p.z */
-        /* cross = ACC(bz * ax) - bx * az, through the FPU accumulator. */
-        float cross = pose_msub(pose_mul(bz, ax), bx, az);
-        /* dot = ACC(bx * ax) + bz * az (issued in the call's delay slot). */
-        float dot = pose_madd(pose_mul(bx, ax), bz, az);
+        /* cross = ACC(bz * ax) - bx * az, through the FPU accumulator
+         * (MULA.S, MSUB.S). */
+        float cross = em_ee_msub(em_ee_mula(bz, ax), bx, az);
+        /* dot = ACC(bx * ax) + bz * az (MULA.S, MADD.S; issued in the
+         * call's delay slot). */
+        float dot = em_ee_madd(em_ee_mula(bx, ax), bz, az);
         float angle;
         if (!isfinite(cross) || !isfinite(dot) || atan2(ctx, cross, dot, &angle) < 0)   /* call at 0x1B1F6C */
             return -1;

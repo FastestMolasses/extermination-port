@@ -435,7 +435,7 @@ length.
 | apply / normalize | 001026A0 / 00102760 | `em_effect_original_001026A0` / `_00102760` |
 | vadd | 001028B8 | `em_player_hang_vadd` |
 | identity / euler / translate / rotate_y | 001029C0 / 00102C58 / 00102918 / 00102BB0 | `em_owner_services_identity_001029C0`, `_euler_00102C58`, `_translate_00102918`, `_rotate_y_00102BB0` |
-| dot | 00102738 | `em_crate_sdk_dot3` |
+| dot | 00102738 | `em_sdk_vu0_00102738` (em_sdk_vu0.h) |
 | atan2 / cos / sqrt / fabs | 0011E620 / 0011DE90 / 0011E748 / 0011DF78 | `em_sdk_math_original_*` (int forms, bits in and out) |
 | wrap_001B1470 | 001B1470 | `em_player_001B1470` |
 | request / sound | 001749A0 / 001FBD50 | the adapters bound to `EmPlayerLandWorkers.request` / `.sound` |

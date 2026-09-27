@@ -93,6 +93,7 @@ import struct
 import subprocess
 import sys
 
+import ee_float_model
 import test_actor_lighting_reference as al
 from reference_mode import FULL, banner, part, pick, select, parallel_map, in_scope_beat
 import test_level_material_reference as lm
@@ -145,7 +146,6 @@ class ShadowRam(al.Ram):
         self.scratch = scratch
         self.clip = 0
         self.lo = self.hi = 0
-        self.facc = 0.0
         self.watch = {}
         self.calls_seen = []
         self.stub = set()      # callees recorded and skipped (not executed)
@@ -174,18 +174,22 @@ class ShadowRam(al.Ram):
                 (x[2] > w) << 4 | (x[2] < -w) << 5
             self.clip = ((self.clip << 6) | f) & 0xFFFFFF
             return
+        # VOPMULA / VOPMSUB on the measured VU0 model (fs.yzx x ft.zxy;
+        # VOPMSUB is ACC - product); ACC holds bit patterns (base Oracle).
+        swizzle = ((1, 2), (2, 0), (0, 1))
         if op == 0x3E and fd == 11:                              # vopmula.xyz
-            x = list(map(number, self.v[fs])); y = list(map(number, self.v[ft]))
-            r = [fp(x[1]*y[2]), fp(x[2]*y[0]), fp(x[0]*y[1])]
+            x, y = self.v[fs], self.v[ft]
             for lane in range(3):
-                if mask & (8 >> lane): self.acc[lane] = r[lane]
+                if mask & (8 >> lane):
+                    s, t = swizzle[lane]
+                    self.acc[lane] = ee_float_model.vu_lane('vopmula', mask, None, x[s], y[t])
             return
         if op == 0x2E:                                           # vopmsub.xyz
-            x = list(map(number, self.v[fs])); y = list(map(number, self.v[ft]))
-            r = [fp(self.acc[0]-fp(x[1]*y[2])), fp(self.acc[1]-fp(x[2]*y[0])),
-                 fp(self.acc[2]-fp(x[0]*y[1]))]
+            x, y = self.v[fs], self.v[ft]
+            r = [ee_float_model.vu_lane('vopmsub', mask, None, x[s], y[t], self.acc[lane])
+                 if mask & (8 >> lane) else None for lane, (s, t) in enumerate(swizzle)]
             for lane in range(3):
-                if mask & (8 >> lane) and fd: self.v[fd][lane] = bits(r[lane])
+                if mask & (8 >> lane) and fd: self.v[fd][lane] = r[lane]
             return
         super().macro(word)
 
@@ -221,17 +225,8 @@ class ShadowRam(al.Ram):
             if rs == 2: r[rt] = self.clip; r[0] = 0
             else: self.clip = r[rt] & 0xFFFFFF
             return
-        if op == 17 and rs == 16:
-            fs, fd = rd, sa
-            x, y = number(f[fs]), number(f[rt])
-            if fn == 7: f[fd] = bits(-x); return
-            if fn == 24: self.facc = fp(x+y); return
-            if fn == 26: self.facc = fp(x*y); return
-            if fn == 28: f[fd] = bits(fp(self.facc+fp(x*y))); return
-            if fn == 29: f[fd] = bits(fp(self.facc-fp(x*y))); return
-            if fn == 36:
-                iv = int(x) if math.isfinite(x) else (0x7FFFFFFF if x > 0 else -0x80000000)
-                f[fd] = max(-0x80000000, min(0x7FFFFFFF, iv)) & 0xFFFFFFFF; return
+        # COP1 (NEG/ADDA/MULA/MADD/MSUB/CVT.W.S included) runs in the base
+        # Oracle on the measured EE model (tools/ee_cop1.py).
         super().plain(word)
 
     def run(self, entry, args=(), floats=(), stop=RETURN, budget=6_000_000):
@@ -302,8 +297,8 @@ def validate_ops(elf):
     o.plain(0x0005283F)       # r5 = r5 >> 32, arithmetic
     assert o.r[5] == 0xFFFF_FFFF_8000_0000
     o.f[1], o.f[2] = bits(3.0), bits(0.1)
-    o.plain(0x46020818)       # FPU accumulator = f1 + f2
-    assert o.facc == fp(3.0+number(bits(0.1)))
+    o.plain(0x46020818)       # FPU accumulator = f1 + f2 (ADDA.S, the measured EE model)
+    assert o.fpu_acc == ee_float_model.ee_adda(bits(3.0), bits(0.1))
     o.v[1] = [bits(2.0), bits(-3.0), bits(0.5), bits(1.0)]
     o.macro(0x4BC109FF)       # clip test of the x/y/z lanes of vf1 against its |w|
     assert o.clip == (1 | 8)

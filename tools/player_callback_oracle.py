@@ -62,10 +62,9 @@ class PlayerCallbackOracle(Oracle):
     def __init__(self, elf, bank):
         super().__init__(elf)
         for i in range(4): self.mem.pop(0x275670 + i, None)  # point-light context
-        # 0017BC40's blend division truncates (the older truncation model of
-        # test_point_light_reference's Oracle); the other divisions here are
-        # exact.
-        self.truncate_ee_division = True
+        # COP1 (0017BC40's blend division included) follows the measured EE
+        # model through the base Oracle (tools/ee_cop1.py): DIV.S rounds to
+        # nearest, as em_player_motor.c's em_ee_div_bits does.
         self.bank = bank
         self.log = []
         self.calls.update({
@@ -118,10 +117,6 @@ class PlayerCallbackOracle(Oracle):
             value = self.load(address, 1 if op == 32 else 2)
             r[rt] = (signed(value, 8) & 0xffffffff) if op == 32 else value
             r[0] = 0
-            return
-        elif op == 17 and rs == 16 and (word & 63) in (5, 7):
-            x = number(f[rd])
-            f[word >> 6 & 31] = bits(abs(x)) if (word & 63) == 5 else bits(-x)
             return
         super().plain(word)
 

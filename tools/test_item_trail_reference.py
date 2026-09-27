@@ -2,6 +2,8 @@
 """Original1B62C0/20AC70/1D66A0 arithmetic, ring and fixed-point packet proof.
 
 SDK sin/cos/atan2/sqrt and float-to-int are explicit worker boundaries.
+COP1 (MULA/MADD/MSUB included) runs on the measured EE model in the base
+Oracle (tools/ee_cop1.py; MSUB.S is ACC - fs*ft).
 The same finite libm values enter both runners; this is not a claim that
 host libm reproduces every original SDK bit or its errno side effects.
 """
@@ -14,7 +16,7 @@ import subprocess
 import sys
 
 from test_camera_rotation_reference import Original as Base
-from test_point_light_reference import bits, number, fp
+from test_point_light_reference import bits, number
 
 ROOT = Path(__file__).resolve().parents[1]
 BASE, OUTPUT, CONTEXT, PACKET = 0x900000, 0x901000, 0x902000, 0xA00000
@@ -46,7 +48,6 @@ class Math(C.Structure):
 class Original(Base):
     def __init__(self, elf):
         super().__init__(elf)
-        self.fpu_acc = 0.0
         self.calls = {
             0x11E2A8: lambda o: o.f.__setitem__(0, bits(HOST.sinf(number(o.f[12])))),
             0x11DE90: lambda o: o.f.__setitem__(0, bits(HOST.cosf(number(o.f[12])))),
@@ -65,14 +66,6 @@ class Original(Base):
         op, rs = word >> 26, word >> 21 & 31
         if op == 0 and word & 63 == 60:
             self.r[word >> 11 & 31] = self.r[word >> 16 & 31] << ((word >> 6 & 31) + 32) & 0xFFFFFFFFFFFFFFFF
-        elif op == 17 and rs == 16 and word & 63 in (26, 28, 29):
-            x, y = number(self.f[word >> 11 & 31]), number(self.f[word >> 16 & 31])
-            operation = word & 63
-            if operation == 26:
-                self.fpu_acc = fp(x * y)
-            else:
-                value = fp(self.fpu_acc + fp(x * y)) if operation == 28 else fp(fp(x * y) - self.fpu_acc)
-                self.f[word >> 6 & 31] = bits(value)
         else:
             super().plain(word)
 

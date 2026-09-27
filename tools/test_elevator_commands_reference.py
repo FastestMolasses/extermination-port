@@ -14,6 +14,8 @@ import struct
 import subprocess
 import sys
 
+import ee_cop1
+
 ROOT = Path(__file__).resolve().parents[1]
 RETURN, ACTOR, STATE, RECORD = 0xbadf00d, 0x900000, 0x901000, 0x902000
 FIELDS = (0x810350,0x810354,0x810358,0x810374,0x81037c,
@@ -74,7 +76,12 @@ def original(elf, entry, record, phase, flags):
         elif op==57: put(address,f[rt])
         elif op==17:
             if rs==4: f[rd]=r[rt]
-            elif rs==16 and word&63 in (52,60): condition=number(f[rd])<number(f[rt])
+            elif rs in (16,20):
+                # The measured EE model (tools/ee_cop1.py); no FPU ACC op here.
+                kind,value=ee_cop1.cop1(word,f[rd],f[rt])
+                assert kind!='acc',('COP1',rs,word&63)
+                if kind=='fd': f[word>>6&31]=value
+                else: condition=value
             else: raise AssertionError(('COP1',rs,word&63))
         else: raise AssertionError(('opcode',op,hex(word)))
         r[0]=0

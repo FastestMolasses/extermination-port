@@ -136,145 +136,123 @@ register twice, one flag was not separable. Every other original instance of
 that form has the same register pattern, so the choice cannot change an
 original result. The entries are marked "free" in the source.
 
-## 5. Oracles and native helpers that deviate (harmonization list)
+## 5. Oracles and translations on the model (harmonized 2026-09-27)
 
-Nothing below was changed in this round, because the shared files belong to
-other owners. "EE" means the translated original instruction is COP1; "VU"
-means COP2. A truncated host-double formula, `trunc((double)a op b)`, is exact for
-VU add/sub/mul/div/sqrt on finite values when the exponent distance is ≤ 53.
-Except for FTZ, it is therefore correct for VU and wrong for EE add/sub.
-A differential run over 20,000 random pairs (`../Extermination/tools/ee_float/audit.py`)
-measured:
+Every original-instruction oracle now executes COP1 and VU0 macro
+arithmetic on this model, and every native translation that differed from
+its oracle after the move was fixed through `em_ee_float.h` (chain C8,
+"EE-float harmonization of older oracles"). "EE" below means the original
+instruction is COP1; "VU" means a VU0 macro (COP2) instruction.
+
+**Why the old host formulas were wrong.** A differential run over 20,000
+random pairs (`../Extermination/tools/ee_float/audit.py`) measured:
 - truncated add/sub vs EE: 27% wrong (5,486 and 5,342 of 20,000);
 - RN add/sub/mul vs EE: 22% / 21% / 52% wrong;
-- truncated div vs EE div.s: 50% wrong;
-- `em_pose_math.h`: exact for finite normal operands and results.
+- truncated div vs EE div.s: 50% wrong.
 
-### 5a. Shared oracle infrastructure (report only; the lead harmonizes)
+A truncated host double, `trunc((double)a op b)`, is exact for VU mul, div
+and sqrt on finite values. For VU add/sub it is exact only when the signs
+agree or the exponent distance is at most 29: with a tiny opposite-sign
+addend further below, the double sum rounds back to the larger operand
+before the truncation, one ULP too large in magnitude. The old shared VU0
+interpreter (`Oracle.macro`) differed from `vu_lane` in 55 VMADDbc lanes of a
+3,000-trial-per-form sweep over ordinary magnitudes (exponents -20..20),
+all of this kind, and raised on overflow instead of saturating.
 
-Line numbers in this section refer to the files at commit 5c6a6d7-era HEAD
-(2026-09-23); anchor on the named function when a file has moved.
+**How the inventory was taken.** A probe (session scratch, not committed)
+imported every `tools/*.py`, instantiated each interpreter class and ran
+real COP1 words (ADD/SUB/MUL/DIV.S, ADDA/SUBA/MULA.S read back through a
+MADD of +0 x +0, MADD/MSUB.S, CVT.S.W / CVT.W.S, C.EQ/LT/LE.S) through the
+class's own dispatcher over 200 operand pairs chosen to exercise the
+pre-trim, and compared every result with `ee_float_model.py`. Before the
+step 67 classes disagreed; after it all 116 agree. The closure interpreters
+(functions, not classes) were found by grepping for COP1 decoding and read.
 
-1. **`tools/test_point_light_reference.py` `Oracle.plain`**, COP1 lines 165–168.
-   - `add.s`/`sub.s` = `fp(x±y)` (no pre-trim). Change it to `ee_float_model.ee_add/ee_sub`,
-     or the identical `test_pose_transition_reference.add`.
-   - `mul.s` ok.
-   - `div.s` default `x/y` (RN) is right for finite values. Keep the
-     `truncate_ee_division=True` run: it is a negative control. The test asserts that
-     only the round-to-nearest colour equals the captured original RAM at 0x2fe060
-     (`captured_player_color_distinguishes_ee_division_rounding`), which is
-     independent capture evidence for the DIV.S rule.
-   - Add zero-divisor ±MAX and saturation.
+### 5a. Every oracle interpreter and its float model
 
-   The VU lines 90–118 are correct for finite values. Two fixes: VDIV's zero divisor at
-   line 111 must be ±MAX from the sign XOR (currently always +MAX), and
-   Inf/NaN handling must follow `vu_lane`/`VU_FORMS`. Every subclass inherits
-   this, including ScanOracle, OwnerOracle, DoorOracle, SdkOriginal, TaskOracle
-   and actor_pool. The exceptions are the classes that override add/sub:
-   `TruckOracle`, `FanOracle` and `DirectorOracle`, which already use the
-   pre-trim (`test_player_random.SdkOriginal` was retired with the flinch-copy
-   cases in census L01).
-2. **`tools/test_interaction_scan_reference.py` `ScanOracle.plain`**, lines 37–43.
-   - ADDA.S (fn 24) = `fp(x+y)` has no pre-trim: use `ee_adda`.
-   - MADD.S (fn 28) = `fp(acc + fp(x*y))` has no pre-trim, and an overflowed product
-     raises (struct.pack) instead of passing Inf to a saturated sum: use `ee_madd`.
-   - MULA ok.
-3. **`tools/test_item_sdk_math_reference.py` `Original.plain`**.
-   - Line 145–148: MSUB.S = `product − ACC` is **wrong**: use `ee_msub(acc, fs, ft)`,
-     which is ACC − fs·ft.
-   - Line 141–144: `int(value)` cvt.w.s neither saturates nor handles Inf/NaN:
-     use `ee_cvt_w_s`. Accepting fn 13 (TRUNC.W.S, not an EE op) should be dropped.
-4. **`tools/test_player_slide_reference.py` `EE.cop1`**, lines 384–404. It is the root
-   of the reversal, floor, probe and footstep oracles.
-   - `add.s`/`sub.s` have no pre-trim (lines 384–385).
-   - `div.s` is truncated (line 387): it must be RN.
-   - MADD/MSUB/ADDA/SUBA have no pre-trim (lines 394–401). MSUB orientation is already right.
-   - `flt()` already reads denormals as signed zeros, but it reads exponent-255
-     patterns as finite values near 2^128 instead of sign-keeping ±MAX, so
-     C.EQ(0x7F800000, 0x7F7FFFFF) gives 0 where the EE gives 1 (and arithmetic on
-     such operands differs too): use `ee_c_*` and `ee_*`.
-   - The `fp()` NaN assertion is fine as fail-stop.
-
-### 5b. Other oracles (their own interpreters)
-
-| file:line | deviation | harmonization |
-|---|---|---|
-| test_camera_retarget_reference.py:66–74 (test_camera_probe_reference.py retired with em_camera_probe.c, docs/CAMERA_LIVE.md section 7) | add/sub no pre-trim; **div truncated**; MADD `truncate(acc+x*y)` skips the product truncation and the pre-trim | ee_add/ee_sub/ee_div/ee_madd/ee_adda |
-| test_weather_reference.py:148–155 | add/sub no pre-trim; **div truncated**; cvt.w.s `int(x)` unsaturated | ee_* ; ee_cvt_w_s |
-| test_snow_tiles_reference.py:119–126 | add/sub no pre-trim; cvt.w.s unsaturated (div RN ok) | ee_add/ee_sub; ee_cvt_w_s |
-| test_player_motor_reference.py:76–79, test_player_heading_reference.py:74–76 | add/sub no pre-trim; **div truncated** | ee_add/ee_sub/ee_div |
-| test_player_reentry_reference.py:68–71 | add/sub no pre-trim; **div truncated** (root of interaction_animation, pose_transition bases) | ee_* |
-| test_opening_face_reference.py:86–89 (COP1 part) | **round-to-nearest** add/sub/mul | ee_add/ee_sub/ee_mul (div RN ok) |
-| test_player_face_host.py:25 | **round-to-nearest** add/sub/mul | ee_add/ee_sub/ee_mul |
-| test_item_trail_reference.py:72–74 | MSUB = **product − ACC**; MADD no pre-trim | ee_msub / ee_madd |
-| test_shadow_original_reference.py:213–216 | ADDA/MADD/MSUB no pre-trim (orientation ok) | ee_adda/ee_madd/ee_msub |
-| test_elevator_reference.py:103 | cvt.s.w `float(int)` is **nearest** (EE truncates; differs above 2²⁴) | ee_cvt_s_w |
-| test_area_script_reference.py:118–121 | cvt.w.s ok; fp() adds at lines 370/482 have no pre-trim if they stand for add.s | ee_add |
-| test_pose_transition_reference.py `add`/`rounded` | matches the model for finite normal values (0/20,000 differences); lacks DAZ/FTZ/saturation; `bits(a/b)` div ok | optional: route to ee_float_model |
-
-### 5c. Native helpers (src/)
-
-The count of EE add.s/sub.s comes from the original functions each module
-cites. A module whose cited functions contain COP1 add.s/sub.s needs the
-pre-trim wherever its `add`/`sub` translates those instructions.
-
-| helper (file:line) | formula | deviation | harmonization |
+| family (root) | COP1 | VU0 macro | users |
 |---|---|---|---|
-| `em_pose_math.h` pose_add/sub/mul/madd/msub (shared) | pre-trim + truncation | exact for finite normals. It lacks DAZ, FTZ (random wide-range mul: 629/20,000 denormal results kept) and Inf/NaN saturation. | add DAZ on inputs; flush tiny results to a signed 0; saturate |
-| `em_pose_math.h` pose_div (shared) | `(float)(a/b)` | RN ok; b = 0 gives ±Inf where the original gives ±MAX; overflow gives Inf instead of MAX | zero divisor → ±MAX by sign XOR; saturate |
-| `em_effect_color.h` em_effect_float32 (shared) | truncated double | correct for mul; for the EE add.s in 001F54E0/001D8C30 (−127+254r, 127+c·x, x−127, 128+d) it has no pre-trim | use a pose_add-style pre-trim add for those four sums |
-| `em_item_sdk_math.c`:21–34 (shared) add/subtract | truncated double | its cited SDK bodies are EE (add.s 18, sub.s 37): no pre-trim | pre-trim add/sub |
-| `em_interaction_scan.c`:82–85 | truncated add/sub; divide RN ok | EE add/sub sites (atan reduction) | pre-trim add/sub |
-| `em_load_veil.c`:36–37 | `pose_scalar(a+b)` (no pre-trim) | EE add.s 8, sub.s 5 | pose_add |
-| `em_snow_projection.c`:8–16, `em_point_light.c`:39–47, `em_snow.c`:7–24 | truncated add | mostly VU (correct); the few EE add.s sites (2 / 7 / 1) need the pre-trim | per-site split |
-| `em_roger.c`:117, `em_door_candidate.c`:5–7, `em_door_transit.c`:7–20, `em_pickup_motion.c`:5–7, `em_cinematic_playback.c`:8–12, `em_item_device.c`, `em_item_geometry.c`, `em_item_trail.c`, `em_lighting.c`, `em_status_draw.c`, `em_player_motor.c`:7 | truncated add/sub (pickup_motion/cinematic divide RN ok) | EE vs VU not established (no cited function found) | check each site's original instruction; EE add/sub → pre-trim |
-| `em_truck_original.c`:22–28, `em_director_original.c`, `em_fan_original.c`, `em_area_script.c` (pose_*) | pose_* for EE, truncation for VU | consistent with the model for finite values | none beyond the em_pose_math.h items |
-| `em_snow_particles.c`:24–40 (VU1 microcode) | truncation | VU1 was **not** measured (the DebugServer drives only the EE). VU1 has the same INI settings as VU0 (Roundmode 3, DAZ, overflow clamp). | none until VU1 can be measured |
+| `test_point_light_reference.Oracle` | `tools/ee_cop1.py` (moved in C8; `truncate_ee_division` stays as the negative control that shows the captured player colour at 0x2FE060 needs round-to-nearest DIV.S) | `vu_lane` / `vu_div` / `vu_sqrt`, bit-pattern ACC and Q (moved in C8) | player_callback_oracle (floor, footstep, probe, stage workers), interaction_scan's ScanOracle, item_sdk_math's Original (roger, face allocation, player face host, director, crate and through it drum and head sprite, door candidate, cinematic playback, item device / geometry), pickup_owner's OwnerOracle (door, fan, message service, truck, area script, pickup motion), actor_lighting's Ram (shadow_original's ShadowRam, whose VOPMULA/VOPMSUB also use `vu_lane`), actor_pool, actor_census, area_load, room_move, spawn_place, manager_8257a0, camera_rotation, item_trail, scene task / frame / classify, area11 fog / sfx, continue_reset, input_block, roger_media, export_status_hub |
+| `test_player_slide_reference.EE` | `tools/ee_cop1.py` (moved in C8) | `vu_lane` / `vu_div` / `vu_sqrt`, bit-pattern ACC and Q (FallEE's measured macro, moved into the base in C8; FallEE is now the same class by name) | 32 classes: FallEE and its subclasses (slide, climb, fall, ladder entry, camera follow / leftovers / specials, render context, render verify, status pages, census oracles, the AREA01 lanes' oracles), main_loop_and_gap, message_draw, startup_load_gaps, script_door_fan |
+| `test_player_reentry_reference.Original` | `tools/ee_cop1.py` (moved in C8) | none (no VU0 op in its routines) | interaction_animation, pose_transition (player_pose, pose_bank, roger pose / cinematic, door runtime), status_frame, panel_message (item_root, status_page, export_item_root), collision_faces |
+| own interpreters, already on the model | `ee_float_model` | `vu_lane` (or no VU0) | coll_move FloatEE (anim_runtime_rest, locomotion_display, pose_host_workers, sdk_vu0), coll_probe ProbeEE (segment walkers), effect_original EE (effect kinds / manager), frame_render_heads FrhEE (render_context_live), shadow_actor_route RouteEE (shadow decal), script_host_workers ScriptEE (heading record), recovery ModelEE (running jump), hang, ladder climb, reaction, closures 0E/18 and 10/12/19, major2, stage_workers, owner_services, pickup_items, player_equipment, status_scene, status_background, sdk_math_original, stream_lanes, player_motor, chain_page_model |
+| closures moved in C8 | `tools/ee_cop1.py` | none | camera_retarget, elevator, elevator_commands, opening_face (its 001D0720 part), player_heading, snow_tiles, weather |
 
-**Done.** em_player_slide.c and em_player_climb.c were moved onto
-em_ee_float.h earlier (their COP1 helpers are em_ee_*). The census L02 /
-L25 step (2026-09-24) did the following. Each change moved the
-native side onto em_ee_float.h and its oracle twin onto
-tools/ee_float_model.py in the same change:
+Not on the model, by design:
+- **VU1 microcode** (VU1 was not measured, section 1): test_snow_particles_reference,
+  the morph oracle in test_opening_face_reference, test_shadow_original_reference's
+  MiniVU / VU1, the VU1 kernel oracles.
+- **Hooks that stand in for SDK VU0 routines inside closure oracles**: test_snow_tiles_reference
+  (001026A0, 001028B8, 00102900 and the 001029E8 polynomial, per-lane
+  truncation; its 00102B08 quarter turn is COP1 and its VSQRT is `vu_sqrt`),
+  test_camera_retarget_reference (001028D0). test_player_heading_reference keeps
+  host cosf / atan2f and a host 001B1470 wrap and compares within 3e-6.
 
-- `em_actor_collision.c`: COP1 add/sub/div, and 0019AB20's mula/madd square
-  sums through em_ee_*. Its VU dot is 00102738 via
-  `em_coll_probe_sdk_dot`, and its 001A2370 d = dot is 001026A0
-  (`em_effect_original_001026A0`). The segment state and the prim tests
-  are em_coll_probe_original's (001A44B0 / 001A4650 / 001A4030), and the
-  grid pass is `em_coll_probe_0019C830` over the EMCL rank section.
-  test_actor_collision_reference uses test_coll_move_reference.FloatEE.
-  Its KNOWN INEXACT ground allowance is gone: the ground is compared
-  exactly.
-- `em_collision.c`: column_face 001A5760 and the cull. The duplicate grid
-  helpers (grid_f, grid_dot, grid_div, the vertical node walk) are deleted,
-  leaving one owner, em_coll_probe_original. column_node's 0019F330 is also
-  gone (2026-09-27): pass 2 calls the one translation in
-  em_coll_list_passes_walkers (COLL_LIST_PASSES.md item 3).
-- `em_player_floor.c`: every COP1 site through em_ee_*. The SDK VU parts keep
-  per-operation truncation (`vu_*`). test_player_floor_reference,
-  test_player_footstep_reference and test_player_probe_reference route COP1
-  add/sub/mul/div/mula/madd through `ee_cop1_plain`.
-- `em_crate_original.c` / `em_drum_original.c`: the owners' own COP1
-  (add.s, sub.s, mul.s, div.s, cvt.s.w) through em_ee_*. Their oracles apply
-  the model to the owner ranges 001551B0..00156614 and 00156620..00156F30
-  only. The SDK helpers the owners call keep the semantics they were
-  verified with. Evidence: route 04's crate corner points (+0x2D0..+0x2EC)
-  equal the EE sum and not the truncated one (CRATES_DRUMS_ORIGINAL.md).
+`ee_cop1_plain` (test_player_floor_reference) is removed: the base Oracle
+does the same. The crate oracle's range gate (`EE_RANGES`) is removed: the
+SDK routines the owners call now run on the model as well.
 
-**Binding note for the lead.** Each harmonization changes an oracle and
-its native twin together. A test that passes today may be passing because
-both sides share the same wrong model, so harmonize the pair in one commit
-and re-run the affected reference test plus the route captures. The single
-shared fix with the widest reach is `Oracle.plain` in
-test_point_light_reference.py (pre-trim for COP1 add/sub).
+### 5b. Native translations moved in C8
+
+Each was compared again with its (now measured) oracle; the evidence column
+names the oracle and any capture it checks.
+
+| module | original | change | evidence |
+|---|---|---|---|
+| em_point_light.c | 001D7C30 tick, 001D8534 fold | COP1 sites (001D7C80, 001D7D8C/90, 001D7E1C/20, 001D85AC..001D85FC; traced from the oracle) through em_ee_*; the flicker matrix is em_owner_services' 001029C0 / 00102B08 / 00102BB0 (its private copy removed); the tick returns the SDK status | test_point_light_reference (266 update, 256 fold cases, the captured player colour at 0x2FE060 and the captured flicker matrix) |
+| em_camera_retarget.c | 0018CBD0 | every scalar through em_ee_* (eye adds, MULA/MADD square, ADDA/MADD target height); the 001028D0 delta stays VU | test_camera_retarget_reference (948 cases, the captured panel camera) |
+| em_camera_rotation.c | 001029C0 + 00102C58 + 001026A0 | now calls em_owner_services' 001029C0 / 00102C58 and em_effect_original's 001026A0 (its private rotation removed) | test_camera_rotation_reference (972 cases byte-exact); its callers' oracles |
+| em_weather.c | 001E55F0 | all COP1; the strength quotient rounds to nearest | test_weather_reference (12,000 state comparisons) |
+| em_snow.c | 001E67C0 | own sums, products, quotients and conversions through em_ee_*; the tile colour is em_sdk_vu0_00102900; the matrix transform stays VU; returns the SDK status | test_snow_tiles_reference including the captured tiles (`--reference-ee/--reference-tiles`: 216 params, colours and phases equal, matrix error 0) |
+| em_item_trail.c | 001B62C0, 0020AC70, 001D66A0 | all COP1; **MSUB is ACC - fs*ft**: the fan's d term had the opposite sign (fitted to the old product - ACC oracle) | test_item_trail_reference (22,016 fixed-point triangles) |
+| em_item_sdk_math.c | 0011C7B0, 0011CB90, 0011CCC8, 0011D770 | add/sub/mul through em_ee_* (these SDK bodies are COP1) | test_item_sdk_math_reference |
+| em_interaction_scan.c | 00183EF0, 001B1470, 001B1630, 0011C4C8 / 0011DBB8 | COP1 sites through em_ee_*; the 001028D0 / 00102738 / 00102760 vector calls stay VU; 001B1630's distance is ADDA/MADD | test_interaction_scan_reference, test_item_sdk_math_reference |
+| em_opening_face.c | 001D0720 | all COP1 (it was host round-to-nearest) | test_opening_face_reference, test_player_face_host |
+| em_cinematic_camera.c, em_cinematic_playback.c | 0022EEF0, 0011E398 / 0011D878 | interpolation, zoom, roll and time through em_ee_*; the up vector stays VU | test_cinematic_playback_reference (the capture's up and zoom bytes), test_camera_reference over opening_ee.bin (eye / target bytes equal) |
+| em_pickup_motion.c | 001B7F90 (001B1240, 001B12B0, 001B1470), 001B8FC0 | all COP1 | test_pickup_motion_reference |
+| em_crate_original.c (SDK block), em_drum_original.c | 001029C0, 00102A60 / 00102B08 / 00102BB0, 00102C58, 00102918, 001026D0, 001026A0, 00102738, 001B1470, 001281C0 | the SDK calls go to the one bound translation of each (owner services, em_sdk_vu0.h, em_effect_original); the private host-float copies are removed and their status is a fault | test_crate_original_reference (route captures), test_drum_original_reference, test_head_sprite_reference |
+| em_sdk_vu0.h | 00102738 | new leaf; the private copies in em_coll_probe_original, em_coll_list_passes_walkers, em_coll_grid_hull, em_coll_move_original, em_pickup_items_original, em_owner_draw_original, em_actor_light_001D89D0, em_camera_follow_original, em_camera_area11_specials and em_camera_leftovers now call it | test_sdk_vu0_reference executes the original; each caller's oracle |
+| em_pose_math.h | (the pose, script and owner helpers) | pose_add / sub / mul / div are em_ee_*; pose_madd / pose_msub stay MUL then ADD / SUB; the director's accumulator sites call em_ee_mula / madd / msub | test_director_original_reference, test_pose_transition_reference, test_area_script_reference |
+| em_load_veil.c | 0021B550 | add.s / mul.s through em_ee_* | test_area_load_reference |
+| em_collision.c (`em_collision_box_face`) | 001A4D10 / 001A50A0 | all COP1 through em_ee_* (it differed from the measured oracle; its quotients round to nearest) | test_collision_faces_reference (4,800 cases, 721 exact hits) |
+| em_item_geometry.c | 002082B0 | scalar sites through em_ee_* (it differed from the measured oracle); the colour vectors stay VU | test_item_geometry_reference (5,562 exact vertices) |
+| em_item_device.c, em_door_candidate.c, em_roger.c (candidate), em_panel.c (candidate), em_panel_program.c (001B9BA0), em_pickup_owner.c (0015AE20), em_player.c (001760C0 / 0019AB20 probe glue), em_player_foot_stop.c (0017B910 begin, 0017C030 tick), em_status_draw.c (00208AD0 health arc), em_area11_effect.c (008235F0), em_interaction_alignment.c (001B6F00 yaw), em_interaction_projection.c (001DD980) | as listed | their COP1 sites through em_ee_* | each module's reference test |
+
+### 5c. What is left
+
+- **VU0 per-lane helpers on a truncated host double**, `em_effect_float32((double)a ± b)`:
+  em_truck_original, em_door_original_runtime, em_area_script's 001028D0,
+  em_interaction_alignment's 001026A0, em_player_floor's 001026A0,
+  em_player_pose_host's 00182F90 alignment, em_point_light's fold sums,
+  em_snow's matrix transform, em_camera_retarget's delta, em_cinematic_playback's
+  up vector, em_item_geometry's colours and em_interaction_scan's
+  00102760. They equal the model except for the opposite-sign edge above.
+  Their oracles pass; the fix is to reduce them to header-only owners of
+  001028B8, 001028D0, 001026A0 and 00102850 in em_sdk_vu0.h.
+- **Duplicate SDK math**: em_item_sdk_math.c (0011C7B0, 0011CB90, 0011CCC8,
+  0011D770) and em_interaction_scan.c (0011DBB8, 0011C4C8) duplicate
+  em_sdk_math_original.c. Both are on the model now; the reduction needs the
+  SDK tables in every caller's build.
+- **em_collision.c's `em_collision_box_face`** is a second translation of
+  001A4D10 / 001A50A0 beside em_coll_move_original and
+  em_coll_segment_walkers (the census's live owners); both are on the model.
+- **em_snow.c's wave** uses host sinf where the original calls the SDK
+  0011E2A8 (test_snow_tiles_reference reports it as the "original SDK matrix"
+  comparison, 5,022 of 5,184 exact in the full sweep).
+- **em_lighting.c** is checked only under its port contract (census L40; the
+  bit-exact em_actor_light_001D89D0 is unbound).
+- **em_status_draw.c's battery colour ramp**: the original routine of its
+  sums was not established; left as it was.
+- **em_pose_transition.c's quaternion blend** uses pose_madd (MUL then ADD)
+  where the original has MULA / MADD / MSUB; the two differ only when a
+  product overflows, which unit quaternions cannot.
 
 ## 6. Native header
 
 `src/game/em_ee_float.h` is the C form of this model. **Every new native
 translation of original COP1 or VU0-macro arithmetic uses it**, not local
-float helpers. The §5c harmonizations should move modules onto it, each
-together with its oracle twin (see the binding note above).
+float helpers. Section 5 lists the modules on it and what is left; a
+change to a translation and its oracle twin lands in one commit.
 
 - **Exactness.** All arithmetic is on integers (significands in `uint64_t`),
   and no host float operation is performed. The host rounding mode, FTZ/DAZ

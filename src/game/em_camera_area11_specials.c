@@ -773,16 +773,10 @@ static int vsub4(const void *a, const void *b, uint32_t out[4])
     return em_vu_vec_bits(EM_VU_SUB, 15, -1, x, y, 0, NULL, out) == EM_EE_FLOAT_OK ? 0 : -1;
 }
 
-/* 00102738(a, a): VMUL.xyz, VADDy.x, VADDz.x; the x lane. */
+/* 00102738(a, a): em_sdk_vu0.h's translation; the x lane. */
 static int dot3(const uint32_t v[4], uint32_t *out)
 {
-    uint32_t r[4];
-    memcpy(r, v, 16);
-    if (em_vu_vec_bits(EM_VU_MUL, 14, -1, v, r, 0, NULL, r) != EM_EE_FLOAT_OK) return -1;
-    if (em_vu_vec_bits(EM_VU_ADDBC, 8, 1, r, r, 0, NULL, r) != EM_EE_FLOAT_OK) return -1;
-    if (em_vu_vec_bits(EM_VU_ADDBC, 8, 2, r, r, 0, NULL, r) != EM_EE_FLOAT_OK) return -1;
-    *out = r[0];
-    return 0;
+    return em_sdk_vu0_00102738(out, v, v) == EM_EE_FLOAT_OK ? 0 : -1;
 }
 
 /* 001029C0(m): VSUB.xyzw of vf0 from itself, VADD.w of vf0 into it, then

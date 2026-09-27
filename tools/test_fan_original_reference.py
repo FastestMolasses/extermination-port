@@ -31,7 +31,6 @@ from test_door_original_reference import DoorOracle
 from test_interaction_scan_reference import DECOMP, ELF_SHA
 from test_pickup_owner_reference import ACTOR, DRAW
 from test_point_light_reference import STACK, bits, number
-from test_pose_transition_reference import add as ee_add
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY, ARENA, OVERLAY_SIZE = 0x827630, 0x823500, 0x7800
@@ -49,13 +48,7 @@ POOL, RECORD = 0x7A5640, 0x2F0
 
 
 class FanOracle(DoorOracle):
-    def plain(self, word):
-        op, rs, fn = word >> 26, word >> 21 & 31, word & 63
-        if op == 17 and rs == 16 and fn in (0, 1):
-            a, b = number(self.f[word >> 11 & 31]), number(self.f[word >> 16 & 31])
-            self.f[word >> 6 & 31] = bits(ee_add(a, b if fn == 0 else -b))
-            return
-        super().plain(word)
+    """COP1 runs in the base Oracle on the measured EE model (tools/ee_cop1.py)."""
 
 
 class Fan(C.Structure):

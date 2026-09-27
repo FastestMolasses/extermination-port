@@ -1,10 +1,13 @@
 #include "game/em_pickup_motion.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 #include <math.h>
 
-static float add(float a, float b) { return em_effect_float32((double)a+b); }
-static float sub(float a, float b) { return em_effect_float32((double)a-b); }
-static float divide(float a, float b) { return (float)((double)a/b); }
+/* 001B7F90's helpers 001B1240 / 001B12B0 / 001B1470 and the camera settle
+ * 001B8FC0 do their float arithmetic on the EE FPU (COP1): em_ee_float.h,
+ * the measured EE model (docs/EE_FLOAT_MODEL.md). */
+static float add(float a, float b) { return em_ee_add(a,b); }
+static float sub(float a, float b) { return em_ee_sub(a,b); }
+static float divide(float a, float b) { return em_ee_div(a,b); }
 static float wrap(float value)
 {
     while (value > 3.1415927410125732421875f) value = sub(value,6.283185482025146484375f);

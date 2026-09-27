@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
 SOURCES = ['src/game/em_door_original.c', 'src/game/em_door_original_runtime.c',
            'src/game/em_pose_bank.c', 'src/game/em_pose_transition.c',
-           'src/game/em_camera_rotation.c', 'src/game/em_interaction_scene.c',
+           'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c', 'src/game/em_interaction_scene.c',
            'src/game/em_interaction_scan.c', 'src/em_model.c']
 
 

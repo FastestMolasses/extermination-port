@@ -1,4 +1,5 @@
 #include "game/em_roger.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 #include <math.h>
 #include <string.h>
@@ -114,13 +115,15 @@ int em_roger_tick(EmRoger *r, EmRogerStory *story, const EmRogerHooks *h)
     return 1;
 }
 
-static float sub(float a,float b) { return em_effect_float32((double)a-b); }
-static float mul(float a,float b) { return em_effect_float32((double)a*b); }
+/* 00183EF0's class-10 predicate and the wrap 001B1470 are COP1:
+ * em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md). */
+static float sub(float a,float b) { return em_ee_sub(a,b); }
+static float mul(float a,float b) { return em_ee_mul(a,b); }
 static float wrap(float a)
 {
     while (a>3.1415927410125732421875f) a=sub(a,6.283185482025146484375f);
     while (a<=-3.1415927410125732421875f)
-        a=em_effect_float32((double)a+6.283185482025146484375f);
+        a=em_ee_add(a,6.283185482025146484375f);
     return a;
 }
 
@@ -132,7 +135,7 @@ int em_roger_candidate(const float descriptor[2], const float owner[3],
     for (unsigned i=0;i<3;++i)
         if (!isfinite(owner[i]) || !isfinite(player->position[i])) return -1;
     float dx=sub(player->position[0],owner[0]),dz=sub(player->position[2],owner[2]);
-    float distance=sqrtf(em_effect_float32((double)mul(dx,dx)+mul(dz,dz)));
+    float distance=sqrtf(em_ee_add(mul(dx,dx),mul(dz,dz)));
     if (!(distance<=descriptor[0])) return 0;
     if (score) *score=distance;
     float dy=sub(player->position[1],owner[1]);

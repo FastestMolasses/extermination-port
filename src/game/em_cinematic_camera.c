@@ -1,4 +1,5 @@
 #include "game/em_cinematic_camera.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -61,24 +62,13 @@ void em_cinematic_camera_free(EmCinematicCamera *camera)
     memset(camera, 0, sizeof *camera);
 }
 
-/* R5900's finite camera arithmetic rounds toward zero at each operation.
- * Double precision preserves these binary32 camera intermediates; correct
- * a host cast that rounded away from zero. This is scoped to finite camera
- * coordinates, not a general implementation of the PS2 FPU. */
-static float camera_float(double value)
-{
-    float result = (float)value;
-    if ((value > 0 && (double)result > value) ||
-        (value < 0 && (double)result < value))
-        result = nextafterf(result, 0.0f);
-    return result;
-}
-
+/* 0022EEF0's per-lane interpolation is COP1 (sub.s, mul.s, add.s):
+ * em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md). */
 static float interpolate(float a, float b, float fraction)
 {
-    float difference = camera_float((double)b - a);
-    float scaled = camera_float((double)fraction * difference);
-    return camera_float((double)scaled + a);
+    float difference = em_ee_sub(b, a);
+    float scaled = em_ee_mul(fraction, difference);
+    return em_ee_add(scaled, a);
 }
 
 int em_cinematic_camera_sample(const EmCinematicCamera *camera, float time,

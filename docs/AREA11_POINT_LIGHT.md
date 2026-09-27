@@ -59,9 +59,13 @@ The saved original angles reconstruct all 64 bytes of the captured flicker
 matrix. Using the captured light and Dennis's actual bone 1 anchor reproduces
 the unique current body DMA color row at `002FE060`, all 12 RGB bytes. This
 row distinguishes round-to-nearest EE DIV.S from truncation; the latter does
-not match. Other finite products/sums and VU reciprocal operations retain
-the independently tested truncating path. This is not a claim about every
-exceptional EE/VU floating-point input.
+not match (the test keeps that negative control). Since 2026-09-27 the oracle
+runs COP1 and VU0 on the measured EE model (docs/EE_FLOAT_MODEL.md section 5)
+and em_point_light.c computes the tick's and the fold's COP1 sites (traced:
+001D7C80, 001D7D8C/90, 001D7E1C/20, 001D85AC..001D85FC) through
+em_ee_float.h; the flicker matrix is em_owner_services' 001029C0 / 00102B08 /
+00102BB0, and the tick returns their status (a fault). The fold's VU0 sums
+stay per-operation truncation (EE_FLOAT_MODEL.md section 5c).
 
 ```
 python3 tools/export_point_lights.py \

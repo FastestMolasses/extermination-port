@@ -10,6 +10,9 @@
  *   00102900(dst, v, s)  dst = v * s in all four lanes (the float argument
  *                        moved into the x lane of the second operand)
  *   00102948(dst, src)   one quadword: all four words loaded, then stored
+ *   00102738(a, b)       the xyz dot: t = b; t.xyz = a.xyz * t.xyz
+ *                        (VMUL.xyz), t.x += t.y, t.x += t.z (VADDy.x,
+ *                        VADDz.x); returns t.x (moved to f0)
  *
  * Every instruction goes through em_ee_float.h's VU0 macro model
  * (docs/EE_FLOAT_MODEL.md); the module has no arithmetic of its own. Like
@@ -20,14 +23,15 @@
  * Aliasing is the original's: dst may be a or b (001026D0), or v (00102900),
  * or src (00102948).
  *
- * Status. 001026D0 and 00102900 return EM_EE_FLOAT_OK (0), or the model's
- * nonzero status for a form it refuses; on a refusal of row r, 001026D0 has
- * stored rows 0..r-1 (as the original has) and 00102900 has stored nothing.
+ * Status. 001026D0, 00102900 and 00102738 return EM_EE_FLOAT_OK (0), or
+ * the model's nonzero status for a form it refuses; on a refusal of row r,
+ * 001026D0 has stored rows 0..r-1 (as the original has), 00102900 has
+ * stored nothing and 00102738 has not written *out.
  *
  * The decomp's files are hand-written asm; this follows their instructions.
  *
  * Oracle: tools/test_sdk_vu0_reference.py executes the original
- * instructions of all three and compares every stored word. */
+ * instructions of all four and compares every stored word and result. */
 #ifndef EM_SDK_VU0_H
 #define EM_SDK_VU0_H
 
@@ -73,6 +77,18 @@ static inline void em_sdk_vu0_00102948(void *dst, const void *src)
     unsigned char q[16];
     memcpy(q, src, sizeof q);                      /* the load, then the store */
     memcpy(dst, q, sizeof q);
+}
+
+static inline int em_sdk_vu0_00102738(uint32_t *out, const uint32_t a[4], const uint32_t b[4])
+{
+    uint32_t x[4], t[4];
+    memcpy(x, a, sizeof x);
+    memcpy(t, b, sizeof t);
+    int st = em_vu_vec_bits(EM_VU_MUL, 14, EM_VU_NO_BC, x, t, 0, NULL, t);
+    if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_ADDBC, 8, 1, t, t, 0, NULL, t);
+    if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_ADDBC, 8, 2, t, t, 0, NULL, t);
+    if (st == EM_EE_FLOAT_OK) *out = t[0];
+    return st;
 }
 
 #ifdef __cplusplus

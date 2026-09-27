@@ -177,15 +177,12 @@ static inline int cl_v_scale4(void *out, const void *in, uint32_t s)
     cl_store4(out, r);
     return 0;
 }
-/* 00102738: the xyz dot product (t.w = b.w is not read back). */
+/* 00102738: the xyz dot product (em_sdk_vu0.h's translation). */
 static inline int cl_v_dot(const void *a, const void *b, uint32_t *out)
 {
     uint32_t x[4], t[4];
     cl_load4(x, a); cl_load4(t, b);
-    CL_VU(em_vu_vec_bits(EM_VU_MUL, 14, EM_VU_NO_BC, x, t, 0, NULL, t));
-    CL_VU(em_vu_vec_bits(EM_VU_ADDBC, 8, 1, t, t, 0, NULL, t));
-    CL_VU(em_vu_vec_bits(EM_VU_ADDBC, 8, 2, t, t, 0, NULL, t));
-    *out = t[0];
+    CL_VU(em_sdk_vu0_00102738(out, x, t));
     return 0;
 }
 /* 00102948 (em_sdk_vu0.h's translation) */

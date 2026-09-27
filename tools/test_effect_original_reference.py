@@ -495,7 +495,8 @@ def build_lib():
     lib_path = out / 'effect.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', 'src/game/em_effect_original.c',
-                    'src/game/em_point_light.c', '-o', str(lib_path)], cwd=ROOT, check=True)
+                    'src/game/em_point_light.c', 'src/game/em_owner_services_original.c',
+                    '-o', str(lib_path)], cwd=ROOT, check=True)
     lib = C.CDLL(str(lib_path))
     P = C.POINTER
     lib.em_effect_original_load_tables.argtypes = [C.c_char_p, C.c_size_t, P(Tables)]

@@ -40,7 +40,6 @@ import time
 
 from test_pickup_owner_reference import OwnerOracle, ROOT, DECOMP, ELF_SHA
 from test_point_light_reference import bits, number, signed
-from test_pose_transition_reference import add as ee_add
 
 ACTOR, DRAW, BONE, TABLE, GROUND = 0x910000, 0x990000, 0x9a0000, 0x9b0000, 0x9c0000
 POINTER = 0x9d0000
@@ -54,19 +53,16 @@ PLAYER_A0, PLAYER_B0, CARRY = 0x810350, 0x810360, 0x700031F0
 
 class TruckOracle(OwnerOracle):
     """Adds div/mfhi (the 0x823FF0 arm) and mult/mflo (validation only).
-    EE add.s/sub.s use the single-guard-bit model of
-    test_pose_transition_reference (as the fan oracle does); the PCSX2
-    capture of this set piece rejects plain truncation on the arm tick.
-    VU0 macro arithmetic stays truncating."""
+    COP1 runs in the base Oracle on the measured EE model (tools/ee_cop1.py:
+    add.s/sub.s keep one guard bit); the PCSX2 capture of this set piece
+    rejects plain truncation on the arm tick. VU0 macro arithmetic stays
+    truncating."""
     hi = lo = 0
 
     def plain(self, word):
         op, fn = word >> 26, word & 63
         rs, rt, rd = word >> 21 & 31, word >> 16 & 31, word >> 11 & 31
-        if op == 17 and rs == 16 and fn in (0, 1):
-            a, b = number(self.f[rd]), number(self.f[rt])
-            self.f[word >> 6 & 31] = bits(ee_add(a, b if fn == 0 else -b))
-        elif op == 0 and fn == 26:
+        if op == 0 and fn == 26:
             a, b = signed(self.r[rs]), signed(self.r[rt])
             assert b != 0
             quotient = abs(a)//abs(b)*(1 if (a < 0) == (b < 0) else -1)

@@ -254,9 +254,9 @@ the only missing input. The notes below apply once they exist.
     per frame makes the guard pass where the original skips.
 - **SDK workers.** These translations are available:
   - em_crate_original's `em_crate_sdk_apply`, `_identity`, `_euler` and `_translate` (proven here on the 16 captured
-    ticks);
-  - or the effect lane's `em_effect_original_001026A0` and `_00102C58`. That module exports no identity or
-    translate, so those two still come from em_crate_original.
+    ticks). Since 2026-09-27 they forward to the one bound translations: `em_effect_original_001026A0` and
+    `em_owner_services_identity_001029C0` / `_euler_00102C58` / `_translate_00102918`, which the adapter can call
+    directly.
 - **`w_001CCF70`.** Bind it to `em_effect_original_001CCF70`.
 - **Packet workers.** `w_001CD370` and the chain workers (001CB5F0/6B0/760/900) belong to the renderer's packet sink.
   - For trace and capture comparisons, build the original chain bytes. The layout of the byte-matched C: a packet of

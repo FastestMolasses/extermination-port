@@ -15,6 +15,8 @@ import struct
 import subprocess
 import sys
 
+import ee_cop1
+
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR, CHILD, MODEL, CHILD_MODEL = 0x900000, 0x901000, 0x902000, 0x903000
 RETURN, VIRTUAL = 0xbadf00d, 0xbad0000
@@ -31,21 +33,6 @@ def bits(value):
 
 def number(value):
     return struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
-
-
-def guard_add(a, b):
-    """EE add.s: the operand with the smaller exponent keeps one guard bit
-    below the other's precision, then the sum truncates (em_pose_math.h
-    pose_add; route capture 04_elevator_ride's 150 carry values)."""
-    difference = (a >> 23 & 255) - (b >> 23 & 255)
-    def trim(value, shift):
-        return value & (0x80000000 if shift >= 25 else (0xffffffff << (shift - 1)) & 0xffffffff)
-    if difference > 0: b = trim(b, difference)
-    elif difference < 0: a = trim(a, -difference)
-    value = number(a)+number(b)
-    result = bits(value)
-    if abs(number(result)) > abs(value): result -= 1
-    return result
 
 
 def oracle(overlay, case, motion=None):
@@ -100,10 +87,11 @@ def oracle(overlay, case, motion=None):
         elif op == 15: registers[rt] = (word & 65535) << 16
         elif op == 17:
             if rs == 4: floats[rd] = registers[rt]
-            elif rs == 20 and word & 63 == 32: floats[word >> 6 & 31] = bits(float(signed(floats[rd])))
-            elif rs == 16 and word & 63 == 3: floats[word >> 6 & 31] = bits(number(floats[rd])/number(floats[rt]))
-            elif rs == 16 and word & 63 == 0:
-                floats[word >> 6 & 31] = guard_add(floats[rd], floats[rt])
+            elif rs in (16, 20):
+                # The measured EE model (tools/ee_cop1.py); no FPU ACC op here.
+                kind, value = ee_cop1.cop1(word, floats[rd], floats[rt])
+                assert kind == 'fd', ('COP1', hex(word))
+                floats[word >> 6 & 31] = value
             else: raise AssertionError(('COP1', hex(word)))
         elif op == 28 and word & 63 == 40:
             assert registers[rs] == 0 or registers[rt] == 0

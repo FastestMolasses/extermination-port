@@ -101,7 +101,10 @@ int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned 
         return -1;
     }
     memcpy(snow.fog, fog, sizeof snow.fog);
-    em_snow_tiles(weather, &snow.config, frame.strength, eye, snow.tiles);
+    if (em_snow_tiles(weather, &snow.config, frame.strength, eye, snow.tiles) < 0) {
+        fprintf(stderr, "snow: 001E67C0's SDK 00102900 faulted\n");
+        return -1;
+    }
     for (unsigned i = 0; i < EM_SNOW_TILE_COUNT; ++i) {
         const EmSnowTile *tile = &snow.tiles[i];
         int count = em_snow_particles_generate(tile->descriptor, snow.config.lookup,

@@ -10,6 +10,7 @@
 #include <string.h>
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 const unsigned char em_coll_move_cell_record_tag = 0;
 
@@ -42,15 +43,14 @@ static int vmul4(float out[4], const float a[4], const float b[4])
     return em_vu_vec(EM_VU_MUL, 0xF, EM_VU_NO_BC, a, b, 0.0f, NULL, out) ? -1 : 0;
 }
 
-/* 00102738(a, b): the x/y/z lane products, then x + y, then + z (the dot). */
+/* 00102738(a, b): em_sdk_vu0.h's translation (the dot). */
 static int vdot(const float a[4], const float b[4], float *out)
 {
-    float v[4];
-    memcpy(v, b, sizeof v);
-    if (em_vu_vec(EM_VU_MUL, 0xE, EM_VU_NO_BC, a, v, 0.0f, NULL, v)) return -1;
-    if (em_vu_vec(EM_VU_ADDBC, 0x8, 1, v, v, 0.0f, NULL, v)) return -1;
-    if (em_vu_vec(EM_VU_ADDBC, 0x8, 2, v, v, 0.0f, NULL, v)) return -1;
-    *out = v[0];
+    uint32_t x[4], y[4], d;
+    memcpy(x, a, sizeof x);
+    memcpy(y, b, sizeof y);
+    if (em_sdk_vu0_00102738(&d, x, y) != EM_EE_FLOAT_OK) return -1;
+    memcpy(out, &d, sizeof d);
     return 0;
 }
 

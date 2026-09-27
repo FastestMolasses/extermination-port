@@ -173,7 +173,8 @@ def build():
     lib_path = out/('head_sprite.dylib' if sys.platform == 'darwin' else 'head_sprite.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', 'src/game/em_head_sprite_original.c',
-                    'src/game/em_crate_original.c', '-lm', '-o', str(lib_path)], cwd=ROOT, check=True)
+                    'src/game/em_crate_original.c', 'src/game/em_owner_services_original.c',
+                    'src/game/em_effect_original.c', '-lm', '-o', str(lib_path)], cwd=ROOT, check=True)
     lib = C.CDLL(str(lib_path))
     lib.em_head_sprite_original_tick.argtypes = [C.POINTER(Rec), C.POINTER(Owner), C.POINTER(World),
                                                  C.POINTER(Workers), C.POINTER(Fault)]
@@ -197,6 +198,8 @@ def build():
     lib.em_crate_sdk_identity.argtypes = [FP]
     lib.em_crate_sdk_euler.argtypes = [FP, FP]
     lib.em_crate_sdk_translate.argtypes = [FP, FP, FP]
+    for name in ('identity', 'euler', 'translate'):
+        getattr(lib, 'em_crate_sdk_' + name).restype = C.c_int
     return lib, out
 
 
@@ -789,12 +792,12 @@ def replay(elf, lib, tables, ram, scratch, a, ramp, trajectory, label):
         m = (C.c_float * 16).from_buffer_copy(ram, matrix); keep.append(m)
         lib.em_crate_sdk_apply(out, m, v); return 0
 
-    def ident(_, m): lib.em_crate_sdk_identity(m); return 0
-    def euler(_, m, v): lib.em_crate_sdk_euler(m, v); return 0
+    def ident(_, m): return lib.em_crate_sdk_identity(m)
+    def euler(_, m, v): return lib.em_crate_sdk_euler(m, v)
 
     def trans(_, out, src, v):
-        tmp = (C.c_float * 16).from_buffer_copy(C.string_at(src, 64)); lib.em_crate_sdk_translate(out, tmp, v)
-        return 0
+        tmp = (C.c_float * 16).from_buffer_copy(C.string_at(src, 64))
+        return lib.em_crate_sdk_translate(out, tmp, v)
 
     def proj(_, pos, h): h[0] = handle; return 0
     def m40w(_, a0, address, data): address[0] = ctx + 0x2240; data[0] = u8p(m40); return 0

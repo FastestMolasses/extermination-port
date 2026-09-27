@@ -16,6 +16,8 @@ import struct
 import subprocess
 import sys
 
+import ee_cop1
+
 ROOT=Path(__file__).resolve().parents[1]
 ELF=ROOT.parent/'Extermination/config/SCUS_971.12'
 ELF_SHA256='ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
@@ -68,15 +70,11 @@ def oracle(elf,x,y,camera):
         elif op==17:
             fs,fd,fn=rd,word>>6&31,word&63
             if rs==4: fp[fs]=number(registers[rt])
-            elif rs==20 and fn==32:
-                raw=bits(fp[fs]); fp[fd]=float(raw if raw<0x80000000 else raw-0x100000000)
-            elif rs==16:
-                if fn==0: fp[fd]=rtz(fp[fs]+fp[rt])
-                elif fn==2: fp[fd]=rtz(fp[fs]*fp[rt])
-                elif fn==3: fp[fd]=rtz(fp[fs]/fp[rt])
-                elif fn==6: fp[fd]=fp[fs]
-                elif fn==7: fp[fd]=-fp[fs]
-                else: raise AssertionError(('float',fn))
+            elif rs in (16,20):
+                # The measured EE model (tools/ee_cop1.py) over the raw bits.
+                kind,value=ee_cop1.cop1(word,bits(fp[fs]),bits(fp[rt]))
+                assert kind=='fd',('float',fn)
+                fp[fd]=number(value)
             else: raise AssertionError(('cop1',rs,fn))
         else: raise AssertionError(('opcode',op))
     pc=START

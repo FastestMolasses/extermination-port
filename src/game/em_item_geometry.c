@@ -1,15 +1,29 @@
 #include "game/em_item_geometry.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 #include "game/em_item_sdk_math.h"
 
 #include <math.h>
 
+/* 002082B0's scalar arithmetic is COP1 (em_ee_float.h, the measured EE
+ * model); the colour vectors go through the SDK VU0 routines 001028D0,
+ * 00102850 and 001028B8 (vu_*: truncated per operation). */
 static float add(float a, float b)
+{
+    return em_ee_add(a, b);
+}
+
+static float multiply(float a, float b)
+{
+    return em_ee_mul(a, b);
+}
+
+static float vu_add(float a, float b)
 {
     return em_effect_float32((double)a + b);
 }
 
-static float multiply(float a, float b)
+static float vu_multiply(float a, float b)
 {
     return em_effect_float32((double)a * b);
 }
@@ -36,24 +50,24 @@ int em_item_geometry_arc(const float descriptor[24], EmItemVertex *vertices, siz
     }
 
     float angle = descriptor[2];
-    float span = add(descriptor[3], -angle) / 16.0f;
+    float span = em_ee_div(em_ee_sub(descriptor[3], angle), 16.0f);
     int whole = (int)span;
     int columns = whole < 0 ? -whole : whole;
     size_t pairs = (size_t)columns + 2;
     if (capacity < pairs * 2)
         return 0;
-    float remainder = multiply(add(span, -(float)whole), 16.0f);
+    float remainder = multiply(em_ee_sub(span, em_ee_cvt_s_w(whole)), 16.0f);
     float reciprocal = em_effect_float32(1.0 / (float)pairs);
     float colors[2][4], deltas[2][4];
     for (unsigned side = 0; side < 2; ++side) {
         for (unsigned channel = 0; channel < 4; ++channel) {
             unsigned at = 8 + side * 4 + channel;
             colors[side][channel] = descriptor[at];
-            deltas[side][channel] = multiply(add(descriptor[at + 8], -descriptor[at]), reciprocal);
+            deltas[side][channel] = vu_multiply(vu_add(descriptor[at + 8], -descriptor[at]), reciprocal);
         }
     }
     for (size_t i = 0; i < pairs; ++i) {
-        float radians = multiply(3.1415927410125732f, angle) / 180.0f;
+        float radians = em_ee_div(multiply(3.1415927410125732f, angle), 180.0f);
         float sine = em_item_sdk_sine(radians);
         float cosine = em_item_sdk_cosine(radians);
         if (!isfinite(sine) || !isfinite(cosine))
@@ -66,7 +80,7 @@ int em_item_geometry_arc(const float descriptor[24], EmItemVertex *vertices, siz
             uint32_t rgba = 0;
             for (unsigned channel = 0; channel < 4; ++channel) {
                 rgba |= (uint32_t)(int32_t)colors[side][channel] << (channel * 8);
-                colors[side][channel] = add(colors[side][channel], deltas[side][channel]);
+                colors[side][channel] = vu_add(colors[side][channel], deltas[side][channel]);
             }
             /* Original packed XYZ2 write truncates each screen coordinate. */
             uint32_t packed = (uint32_t)px | ((uint32_t)py << 16);

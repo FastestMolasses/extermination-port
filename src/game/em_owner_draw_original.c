@@ -9,6 +9,7 @@
 #include "game/em_owner_draw_original.h"
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <string.h>
 
@@ -71,12 +72,9 @@ static void vu(int *st, em_vu_op op, unsigned dest, int bc, const u32 fs[4], con
  * Then ADDBC x/1 and x/2 fold y and z into x. Returns lane x. */
 static u32 inner_00102738(int *st, const u32 plane[4], const u32 v[4])
 {
-    u32 r[4];
-    memcpy(r, v, sizeof r);
-    vu(st, EM_VU_MUL, DXYZ, EM_VU_NO_BC, plane, r, NULL, r);
-    vu(st, EM_VU_ADDBC, DX, 1, r, r, NULL, r);
-    vu(st, EM_VU_ADDBC, DX, 2, r, r, NULL, r);
-    return r[0];
+    u32 r = 0;                      /* em_sdk_vu0.h's translation */
+    if (*st == EM_EE_FLOAT_OK) *st = em_sdk_vu0_00102738(&r, plane, v);
+    return r;
 }
 
 int em_owner_draw_001CA7B0(S *s, const u32 position[4], u32 radius, int32_t *flags)

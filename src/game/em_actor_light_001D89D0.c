@@ -85,16 +85,12 @@ static void sdk_001026A0(int *st, u32 out[4], const u32 m[16], const u32 v[4])
     if (*st == EM_EE_FLOAT_OK) memcpy(out, r, sizeof r);
 }
 
-/* 00102738(a, b): t.xyz = a.xyz * b.xyz; t.x += t.y; t.x += t.z; returns
- * t.x (moved to f0). */
+/* 00102738(a, b): em_sdk_vu0.h's translation; returns t.x (moved to f0). */
 static u32 sdk_00102738(int *st, const u32 a[4], const u32 b[4])
 {
-    u32 t[4];
-    memcpy(t, b, sizeof t);
-    vu(st, EM_VU_MUL, DXYZ, NO_BC, a, t, 0, NULL, t);
-    vu(st, EM_VU_ADDBC, DX, 1, t, t, 0, NULL, t);
-    vu(st, EM_VU_ADDBC, DX, 2, t, t, 0, NULL, t);
-    return t[0];
+    u32 t = 0;
+    if (*st == EM_EE_FLOAT_OK) *st = em_sdk_vu0_00102738(&t, a, b);
+    return t;
 }
 
 /* 00102760(out, v): d.xyz = v * v; d.x += d.y; d.x += d.z; Q = sqrt(d.x);

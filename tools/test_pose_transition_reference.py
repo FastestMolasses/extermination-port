@@ -12,6 +12,7 @@ import struct
 import subprocess
 import tempfile
 from pathlib import Path
+import ee_float_model as M
 from test_interaction_animation_reference import Original as Base, bits, number, signed
 
 ROOT=Path(__file__).resolve().parents[1]
@@ -19,37 +20,21 @@ RETURN=0xBADF00D
 PTR,NODE,A,B,OUT=0x600400,0x600800,0x601000,0x601100,0x601200
 
 def rounded(value):
+    """A host double truncated to binary32 (finite values only)."""
     r=number(bits(value))
     return number(bits(r)-(abs(r)>abs(value)))
 
 def add(a,b):
-    aa,bb=bits(a),bits(b);difference=((aa>>23)&255)-((bb>>23)&255)
-    if difference:
-        small=bb if difference>0 else aa;distance=abs(difference)
-        small &= 0x80000000 if distance>=25 else (0xffffffff<<(distance-1))&0xffffffff
-        if difference>0:b=number(small)
-        else:a=number(small)
-    return rounded(a+b)
+    """EE ADD.S of two binary32 values (tools/ee_float_model.ee_add)."""
+    return number(M.ee_add(bits(a),bits(b)))
 class Original(Base):
+    """COP1 runs in the base (test_player_reentry_reference.Original) on the
+    measured EE model (tools/ee_cop1.py)."""
     def __init__(self,elf):
-        super().__init__(elf,b'');self.acc=0
+        super().__init__(elf,b'')
     def plain(self,w):
         op,rs,rt,rd,fd,fn=w>>26,w>>21&31,w>>16&31,w>>11&31,w>>6&31,w&63
-        if op==17 and rs==16 and fn in (0,1,2,3,24,25,26,28,29,30,31,7):
-            a,b=number(self.f[rd]),number(self.f[rt])
-            if fn==0:self.f[fd]=bits(add(a,b))
-            elif fn==1:self.f[fd]=bits(add(a,-b))
-            elif fn==2:self.f[fd]=bits(rounded(a*b))
-            elif fn==3:self.f[fd]=bits(a/b)
-            elif fn==24:self.acc=add(a,b)
-            elif fn==25:self.acc=add(a,-b)
-            elif fn==26:self.acc=rounded(a*b)
-            elif fn==28:self.f[fd]=bits(add(self.acc,rounded(a*b)))
-            elif fn==29:self.f[fd]=bits(add(self.acc,-rounded(a*b)))
-            elif fn==30:self.acc=add(self.acc,rounded(a*b))
-            elif fn==31:self.acc=add(self.acc,-rounded(a*b))
-            else:self.f[fd]=bits(-a)
-        elif op==0 and fn==4:self.r[rd]=self.r[rt]<<(self.r[rs]&31)&0xffffffff
+        if op==0 and fn==4:self.r[rd]=self.r[rt]<<(self.r[rs]&31)&0xffffffff
         elif op==10:self.r[rt]=int(signed(self.r[rs])<signed(w&65535,16))
         else:super().plain(w)
         self.r[0]=0

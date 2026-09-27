@@ -3,10 +3,9 @@
 
 Reads the user's local original ELF; no original code or assets embedded.
 Transform construction is a helper boundary: supplied rotated offsets are
-returned at 001026A0. sqrt uses host sqrtf in both runs. The finite scalar
-EE operations truncate toward zero; accumulator operations follow the bounded
-model also used by the weather oracle. This does not validate rotation,
-physical EE rounding corner cases, or camera collision styles 5/1.
+returned at 001026A0. sqrt uses host sqrtf in both runs. COP1 follows the
+measured EE model (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md). This does not
+validate rotation or camera collision styles 5/1.
 """
 from __future__ import annotations
 import ctypes as C
@@ -26,6 +25,7 @@ def signed(n, b=32):
     return n - (1 << b) if n >> (b - 1) else n
 
 from test_weather_reference import bits,number,truncate
+import ee_cop1
 
 ROOT=Path(__file__).resolve().parents[1]
 ELF=ROOT.parent/'Extermination/config/SCUS_971.12'
@@ -67,21 +67,12 @@ def oracle(elf,position,offset,distance,preset):
   elif op==17:
    fs,fd,fn=rd,w>>6&31,w&63
    if rs==4:fp[fs]=r[rt]&0xffffffff
-   elif rs==16:
-    x,y=number(fp[fs]),number(fp[rt])
-    if fn==0:fp[fd]=bits(truncate(x+y))
-    elif fn==1:fp[fd]=bits(truncate(x-y))
-    elif fn==2:fp[fd]=bits(truncate(x*y))
-    elif fn==3:fp[fd]=bits(truncate(x/y))
-    elif fn==6:fp[fd]=fp[fs]
-    elif fn==7:fp[fd]=fp[fs]^0x80000000
-    elif fn==24:acc=truncate(x+y)
-    elif fn==26:acc=truncate(x*y)
-    elif fn==28:fp[fd]=bits(truncate(acc+x*y))
-    elif fn==50:cond=x==y
-    elif fn==52:cond=x<y
-    elif fn==54:cond=x<=y
-    else:raise AssertionError(('FPU',fn))
+   elif rs in (16,20):
+    # The measured EE model (tools/ee_cop1.py); acc is a bit pattern.
+    kind,value=ee_cop1.cop1(w,fp[fs],fp[rt],acc)
+    if kind=='fd':fp[fd]=value
+    elif kind=='acc':acc=value
+    else:cond=value
    else:raise AssertionError(('COP1',rs))
   else:raise AssertionError(('OP',op))
   r[0]=0

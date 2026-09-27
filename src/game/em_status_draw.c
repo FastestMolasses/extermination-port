@@ -1,5 +1,6 @@
 #include "game/em_status_draw.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -99,15 +100,16 @@ int em_status_health_draw(uint32_t *counter, float health, uint8_t warning, int 
         return 0;
 
     int phase = half_floor((int32_t)*counter) % 30;
-    float angle = add(180.0f, multiply(12.0f, (float)phase));
-    arcs[2][2] = add(angle, -60.0f);
+    /* 00208AD0's arithmetic is COP1: em_ee_float.h, the measured EE model. */
+    float angle = em_ee_add(180.0f, em_ee_mul(12.0f, em_ee_cvt_s_w(phase)));
+    arcs[2][2] = em_ee_add(angle, -60.0f);
     arcs[2][3] = angle;
     arcs[3][2] = angle;
-    arcs[3][3] = add(60.0f, angle);
+    arcs[3][3] = em_ee_add(60.0f, angle);
     if (workers->arc(context, arcs[2]) != 1 || workers->arc(context, arcs[3]) != 1 ||
         workers->blend(context, 0) != 1)
         return 0;
-    arcs[0][2] = add(-180.0f, multiply(360.0f, health / 100.0f));
+    arcs[0][2] = em_ee_add(-180.0f, em_ee_mul(360.0f, em_ee_div(health, 100.0f)));
     arcs[0][3] = 180.0f;
     return workers->arc(context, arcs[0]) == 1;
 }

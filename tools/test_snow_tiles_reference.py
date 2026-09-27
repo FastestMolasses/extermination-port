@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
 """Original E67C0 flow, submission parameters, and captured DMA comparison.
 
-The owner's original ELF supplies all instruction words and tables. Finite
-arithmetic follows truncating ADD/MUL and snapshot-confirmed rounded DIV.S.
-SDK sine instructions execute directly; VU matrix helpers are independently
-recovered operations. This does not claim universal hardware rounding.
+The owner's original ELF supplies all instruction words and tables. COP1
+follows the measured EE model (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md;
+the snapshot confirms the rounded DIV.S). SDK sine instructions execute
+directly; VU matrix helpers are independently recovered operations.
 """
 from pathlib import Path
 import ctypes as C, struct, subprocess, json, math, random, argparse
 ROOT=Path(__file__).resolve().parents[1]
 from reference_mode import FULL, MODE, banner, part
+import ee_cop1
+import ee_float_model
 ENTRY,END,ACTOR,RETURN=0x1E67C0,0x1E6F60,0x600000,0xBADF00D
 LIB=C.CDLL(None)
 LIB.sinf.argtypes=[C.c_float];LIB.sinf.restype=C.c_float
@@ -113,21 +115,12 @@ def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
             fs, fd, fn = rd, word >> 6 & 31, word & 63
             if rs == 0: registers[rt] = floats[fs]
             elif rs == 4: floats[fs] = registers[rt] & 0xffffffff
-            elif rs == 20 and fn == 32: floats[fd] = bits(truncate(float(signed(floats[fs]))))
-            elif rs == 16:
-                x, y = number(floats[fs]), number(floats[rt])
-                if fn == 0: floats[fd] = bits(truncate(x + y))
-                elif fn == 1: floats[fd] = bits(truncate(x - y))
-                elif fn == 2: floats[fd] = bits(truncate(x * y))
-                elif fn == 3: floats[fd] = bits(x / y)
-                elif fn == 5: floats[fd] = floats[fs] & 0x7fffffff
-                elif fn == 6: floats[fd] = floats[fs]
-                elif fn == 7: floats[fd] = floats[fs] ^ 0x80000000
-                elif fn in (13, 36): floats[fd] = int(x) & 0xffffffff
-                elif fn == 50: condition = x == y
-                elif fn == 52: condition = x < y
-                elif fn == 54: condition = x <= y
-                else: raise AssertionError(('FPU', fn))
+            elif rs in (16, 20):
+                # The measured EE model (tools/ee_cop1.py); no FPU ACC op here.
+                kind, value = ee_cop1.cop1(word, floats[fs], floats[rt])
+                assert kind != 'acc', ('FPU', fn)
+                if kind == 'fd': floats[fd] = value
+                else: condition = value
             else: raise AssertionError(('COP1', rs, fn))
         else: raise AssertionError(('opcode', op))
         registers[0] = 0
@@ -156,13 +149,15 @@ def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
             elif target==0x1029c0:storevec(a0,[1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.,0.,0.,0.,0.,1.])
             elif target==0x102b08:
                 angle=number(floats[12]);angles.append(angle)
-                x=truncate(number(0x3fc90fdb)-abs(angle));square=truncate(x*x)
+                # pi/2 -/+ |angle| is COP1 (add.s / sub.s) in 00102B08; the
+                # 001029E8 polynomial is VU0 (per-op truncation, VSQRT of |x|).
+                x=number(ee_float_model.ee_sub(0x3fc90fdb,bits(abs(angle))));square=truncate(x*x)
                 coeff=vec(0x241100);terms=[truncate(c*x) for c in coeff]
                 for lanes in [4,3,2,1]:
                     for c in range(lanes):terms[c]=truncate(terms[c]*square)
                 cosine=x
                 for c in [3,2,1,0]:cosine=truncate(cosine+terms[c])
-                sine=truncate(math.sqrt(truncate(1.-truncate(cosine*cosine))))
+                sine=number(ee_float_model.vu_sqrt(bits(truncate(1.-truncate(cosine*cosine)))))
                 if angle<0:sine=-sine
                 storevec(a0,[1.,0.,0.,0.,0.,cosine,sine,0.,0.,-sine,cosine,0.,0.,0.,0.,1.])
             elif target==0x1026a0:
@@ -217,6 +212,7 @@ def main():
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off','-shared','-fPIC','-Isrc','src/game/em_snow.c','-o',str(lib)],cwd=ROOT,check=True)
     native=C.CDLL(str(lib));emit=native.em_snow_tiles
     emit.argtypes=[C.POINTER(Weather),C.POINTER(Config),C.c_float,C.POINTER(C.c_float),C.POINTER(Tile)]
+    emit.restype=C.c_int
     rng=random.Random(0x1e67c0);cases=0;tile_count=0;sdk_matrix_error=0.0;sdk_matrix_matches=0
     # The full sweep draws 12 random weather states per strength. Every draw
     # is made in both modes (same stream); quick runs the first 6 of each
@@ -230,7 +226,7 @@ def main():
             if case>=per_strength:continue
             before=bytes(w)
             expected,tiles,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=True)
-            out=(Tile*108)();emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)
+            out=(Tile*108)();assert emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)==0
             assert bytes(w)[:68]==expected,('poststate',cases)
             assert len(tiles)==108
             for i,(actual,ref) in enumerate(zip(out,tiles)):
@@ -261,13 +257,15 @@ def main():
         actor=actors[0]
         initial=ram[actor+0x1f0:actor+0x1f0+68]+bytes([1])+bytes(3)
         latest=refs[108:];w=Weather.from_buffer_copy(initial)
-        strength=number(bits(w.intensity/127));driftstep=truncate(number(bits(.004))*strength)
+        # 001E55F0 / 001E67C0 arithmetic is COP1: the measured EE model.
+        strength=number(ee_float_model.ee_div(bits(w.intensity),bits(127.0)))
+        driftstep=number(ee_float_model.ee_mul(bits(.004),bits(strength)))
         for row in range(6):
             w.phase[row]=latest[row*18]['params'][0]
             # Inverting a truncating add is not generally unique. This
             # representative is used only for a measured matrix error, not
             # asserted as the exact pre-render state.
-            w.drift[row]=truncate(w.drift[row]-driftstep)
+            w.drift[row]=number(ee_float_model.ee_sub(bits(w.drift[row]),bits(driftstep)))
         before=bytes(w)
         # The saved globals contain camera sample134.5; this renderer ran
         # before that update, using sample134.0. Read the original track.
@@ -279,7 +277,7 @@ def main():
         assert struct.pack('<3f',*camera_eye(269))==ram[0x8105d0:0x8105dc]
         eye=camera_eye(268)
         _,original_sdk,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=False)
-        out=(Tile*108)();emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)
+        out=(Tile*108)();assert emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)==0
         assert bytes(w.phase)==ram[actor+0x1f0:actor+0x208]
         for actual,ref in zip(out,latest):
             assert bytes(actual.params)==struct.pack('<4f',*ref['params'])
@@ -293,15 +291,17 @@ def main():
         prior=[]
         for candidate in range(guess-4,guess+5):
             value=number(candidate)
-            if truncate(value+truncate(truncate(captured.target-value)*captured.rate))==captured.intensity:
+            step=ee_float_model.ee_mul(ee_float_model.ee_sub(bits(captured.target),candidate),bits(captured.rate))
+            if number(ee_float_model.ee_add(candidate,step))==captured.intensity:
                 prior.append(value)
         assert len(prior)==1
         old=Weather.from_buffer_copy(before);old.intensity=prior[0]
-        old_strength=number(bits(old.intensity/127))
+        old_strength=number(ee_float_model.ee_div(bits(old.intensity),bits(127.0)))
         for row in range(6):
             old.phase[row]=refs[row*18]['params'][0]
-            old.drift[row]=truncate(old.drift[row]-truncate(number(bits(.004))*old_strength))
-        previous_out=(Tile*108)();emit(C.byref(old),C.byref(config),old_strength,(C.c_float*3)(*camera_eye(267)),previous_out)
+            old.drift[row]=number(ee_float_model.ee_sub(bits(old.drift[row]),
+                                  ee_float_model.ee_mul(bits(.004),bits(old_strength))))
+        previous_out=(Tile*108)();assert emit(C.byref(old),C.byref(config),old_strength,(C.c_float*3)(*camera_eye(267)),previous_out)==0
         assert bytes(old.phase)==struct.pack('<6f',*[latest[row*18]['params'][0]for row in range(6)])
         for actual,ref in zip(previous_out,refs[:108]):
             assert bytes(actual.params)==struct.pack('<4f',*ref['params'])

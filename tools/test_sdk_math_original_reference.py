@@ -521,7 +521,7 @@ CROSS_SOURCES = ['src/game/em_director_original.c', 'src/game/em_item_sdk_math.c
                  'src/game/em_area_script.c', 'src/game/em_script.c',
                  'src/game/em_message_service.c', 'src/game/em_interaction_frame.c',
                  'src/game/em_interaction_cinematic.c', 'src/game/em_cinematic_playback.c',
-                 'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c',
+                 'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c',
                  'src/game/em_fan_original.c']
 
 U32P, I32P = C.POINTER(C.c_uint32), C.POINTER(C.c_int32)

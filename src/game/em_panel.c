@@ -1,4 +1,5 @@
 #include "game/em_panel.h"
+#include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 
 #include <math.h>
@@ -81,11 +82,12 @@ int em_panel_tick(EmPanel *panel, int has_small_battery,
     return 0;
 }
 
+/* 001B1470 (COP1: em_ee_float.h, the measured EE model). */
 static float panel_wrap(float value)
 {
     const float pi=3.1415927410125732421875f;
-    while (value>pi) value=em_effect_float32((double)value-2*pi);
-    while (value<=-pi) value=em_effect_float32((double)value+2*pi);
+    while (value>pi) value=em_ee_sub(value,2*pi);
+    while (value<=-pi) value=em_ee_add(value,2*pi);
     return value;
 }
 
@@ -95,24 +97,24 @@ int em_panel_candidate(const EmPanel *panel, const float owner[3],
 {
     if (!panel || panel->status!=1 || panel->armed ||
         !isfinite(owner_yaw) || !isfinite(player_yaw)) return 0;
-    float dx=em_effect_float32((double)player[0]-owner[0]);
-    float dz=em_effect_float32((double)player[2]-owner[2]);
-    float xx=em_effect_float32((double)dx*dx);
-    float zz=em_effect_float32((double)dz*dz);
-    float squared=em_effect_float32((double)xx+zz);
+    /* 00183EF0's arithmetic is COP1 (em_ee_float.h, the measured EE model). */
+    float dx=em_ee_sub(player[0],owner[0]);
+    float dz=em_ee_sub(player[2],owner[2]);
+    float xx=em_ee_mul(dx,dx);
+    float zz=em_ee_mul(dz,dz);
+    float squared=em_ee_add(xx,zz);
     /* 0011E748 calls the SDK's bit-by-bit0011CB90 square root, whose
-     * final mantissa rounds to nearest/even. Its argument arithmetic
-     * above still uses the EE's separate truncating float operations. */
+     * final mantissa rounds to nearest/even. */
     float planar=sqrtf(squared);
     if (!(planar<=9.5f)) return 0;
     /* Original183EF0 publishes scratch3B98 before the later height and
      * facing gates. A subsequent candidate may consume this shared score
      * even when this panel is rejected. */
     if (distance) *distance=planar;
-    float dy=em_effect_float32((double)player[1]-owner[1]);
-    if (!(sqrtf(em_effect_float32((double)dy*dy))<=20.0f)) return 0;
-    float angle=em_effect_float32(3.1415927410125732421875+(double)player_yaw);
-    angle=panel_wrap(em_effect_float32((double)angle-owner_yaw));
+    float dy=em_ee_sub(player[1],owner[1]);
+    if (!(sqrtf(em_ee_mul(dy,dy))<=20.0f)) return 0;
+    float angle=em_ee_add(3.1415927410125732421875f,player_yaw);
+    angle=panel_wrap(em_ee_sub(angle,owner_yaw));
     if (!(fabsf(angle)<=0.785398185253143310546875f)) return 0;
     return 1;
 }

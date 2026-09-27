@@ -3,9 +3,10 @@
 
 This bounded EE interpreter executes only 001D0720, supplies an identical
 sequence of RNG return values to both implementations, and compares every
-state byte and RNG call count. Floating instructions use host IEEE float32;
-this is an instruction/branch oracle, not an EE rounding emulator. No
-original instructions, face geometry, or captured memory are embedded here.
+state byte and RNG call count. COP1 follows the measured EE model
+(tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md). The VU1 morph oracle keeps host
+float32 (VU1 was not measured). No original instructions, face geometry, or
+captured memory are embedded here.
 """
 from __future__ import annotations
 import argparse
@@ -18,6 +19,8 @@ import tempfile
 import sys
 
 ROOT=Path(__file__).resolve().parents[1]
+sys.path.insert(0,str(ROOT/'tools'))
+import ee_cop1  # noqa: E402
 ENTRY,END=0x1D0720,0x1D0C68
 ACTOR,FACE,RETURN=0x600000,0x610000,0xBADF00D
 
@@ -80,17 +83,12 @@ def oracle(elf,initial,draws):
         elif op==17:
             ft,fs,fd,fn=rt,rd,w>>6&31,w&63
             if rs==4:fpr[fs]=regs[rt]&0xFFFFFFFF
-            elif rs==20 and fn==32:fpr[fd]=float_bits(float(signed(fpr[fs])))
-            elif rs==16:
-                x,y=as_float(fpr[fs]),as_float(fpr[ft])
-                if fn==0:fpr[fd]=float_bits(x+y)
-                elif fn==1:fpr[fd]=float_bits(x-y)
-                elif fn==2:fpr[fd]=float_bits(x*y)
-                elif fn==3:fpr[fd]=float_bits(x/y)
-                elif fn==7:fpr[fd]=fpr[fs]^0x80000000
-                elif fn==52:condition=x<y
-                elif fn==54:condition=x<=y
-                else:raise AssertionError(('FPU',fn))
+            elif rs in (16,20):
+                # The measured EE model (tools/ee_cop1.py); no FPU ACC op here.
+                kind,value=ee_cop1.cop1(w,fpr[fs],fpr[ft])
+                assert kind!='acc',('FPU ACC',fn)
+                if kind=='fd':fpr[fd]=value
+                else:condition=value
             else:raise AssertionError(('COP1',rs,fn))
         else:raise AssertionError(('opcode',op))
         regs[0]=0

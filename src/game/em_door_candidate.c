@@ -1,10 +1,14 @@
 #include "game/em_door_candidate.h"
-#include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
 #include "game/em_item_sdk_math.h"
 
-static float add(float a, float b) { return em_effect_float32((double)a + b); }
-static float sub(float a, float b) { return em_effect_float32((double)a - b); }
-static float mul(float a, float b) { return em_effect_float32((double)a * b); }
+#include <math.h>
+
+/* 00183EF0's scalar arithmetic and the wrap 001B1470 are COP1:
+ * em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md). */
+static float add(float a, float b) { return em_ee_add(a, b); }
+static float sub(float a, float b) { return em_ee_sub(a, b); }
+static float mul(float a, float b) { return em_ee_mul(a, b); }
 static float wrap(float value)
 {
     while (value > 3.1415927f) value = sub(value, 6.2831855f);

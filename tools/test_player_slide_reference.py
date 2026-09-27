@@ -17,10 +17,9 @@ This file also holds `EE`, a general bounded EE interpreter shared with
 tools/test_player_climb_reference.py. Unlike the older per-routine oracles it
 backs memory with the full 32 MB RAM image and the 16 KB scratchpad, so the
 original collision walkers (0019AD00, 0019AFE0, 0019AB20, 0019BC40, ...) can
-run over the captured AREA11 world unmodified. Arithmetic follows the model
-the existing oracles and the native port share: single-precision results
-truncate toward zero (EE FPU and VU0), overflow clamps to the largest finite
-value and denormals flush to zero.
+run over the captured AREA11 world unmodified. COP1 and VU0 macro
+arithmetic is the measured EE model (tools/ee_cop1.py, tools/ee_float_model.py,
+docs/EE_FLOAT_MODEL.md).
 
 Hooked boundaries are recorded, never simulated as a claim about the callee.
 """
@@ -34,6 +33,9 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+
+import ee_cop1
+import ee_float_model as M
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -105,9 +107,9 @@ def flt(word):
 class EE:
     """Bounded EE core: GPR (128-bit via hi halves), FPU, VU0 macro, MMI subset.
 
-    Its COP1/VU0 arithmetic is the older truncation model that other oracles
-    share (docs/EE_FLOAT_MODEL.md 5a); the slide and climb oracles use
-    FallEE (the measured model) instead, through measured_ee()."""
+    Its COP1 (tools/ee_cop1.py) and VU0 macro arithmetic (ee_float_model
+    vu_lane / vu_div / vu_sqrt) are the measured EE model, with raw bit
+    patterns in the FPRs, VFs, ACC and Q."""
 
     def __init__(self, elf, ram=None, spad=None):
         self.mem = bytearray(ram) if ram is not None else bytearray(0x2000000)
@@ -119,12 +121,12 @@ class EE:
         self.rh = [0] * 32
         self.hi = self.lo = 0
         self.f = [0] * 32
-        self.acc = 0.0
+        self.acc = 0            # EE FPU accumulator (bit pattern)
         self.cond = False
         self.vf = [[0, 0, 0, 0] for _ in range(32)]
         self.vf[0][3] = bits(1.0)
-        self.vacc = [0.0] * 4
-        self.q = 0.0
+        self.vacc = [0] * 4     # VU0 ACC (bit patterns)
+        self.q = 0              # VU0 Q (bit pattern)
         self.hooks = {}
         self.log = []
         self.steps = 0
@@ -193,77 +195,69 @@ class EE:
     def macro(self, word):
         op, fs, ft, fd = word & 63, word >> 11 & 31, word >> 16 & 31, word >> 6 & 31
         mask = word >> 21 & 15
-        x = [flt(v) for v in self.vf[fs]]
-        y = [flt(v) for v in self.vf[ft]]
-        result, destination, accumulator = None, fd, False
+        x, y = [v & 0xFFFFFFFF for v in self.vf[fs]], [v & 0xFFFFFFFF for v in self.vf[ft]]
+        lanes = [i for i in range(4) if mask & (8 >> i)]
+        result, destination, accumulate = {}, fd, False
         if op < 4:
-            result = [fp(a + y[op]) for a in x]
+            result = {i: M.vu_lane('vaddbc', mask, op, x[i], y[op]) for i in lanes}
         elif op < 8:
-            result = [fp(a - y[op - 4]) for a in x]
+            result = {i: M.vu_lane('vsubbc', mask, op - 4, x[i], y[op - 4]) for i in lanes}
         elif op < 12:
-            result = [fp(self.vacc[i] + fp(x[i] * y[op - 8])) for i in range(4)]
-        elif op < 16:
-            result = [fp(self.vacc[i] - fp(x[i] * y[op - 12])) for i in range(4)]
+            result = {i: M.vu_lane('vmaddbc', mask, op - 8, x[i], y[op - 8], self.vacc[i]) for i in lanes}
         elif 24 <= op < 28:
-            result = [fp(a * y[op - 24]) for a in x]
+            result = {i: M.vu_lane('vmulbc', mask, op - 24, x[i], y[op - 24]) for i in lanes}
         elif op == 28:
-            result = [fp(a * self.q) for a in x]
+            result = {i: M.vu_lane('vmulq', mask, None, x[i], self.q) for i in lanes}
         elif op == 32:
-            result = [fp(a + self.q) for a in x]
+            result = {i: M.vu_lane('vaddq', mask, None, x[i], self.q) for i in lanes}
         elif op == 40:
-            result = [fp(a + b) for a, b in zip(x, y)]
-        elif op == 41:
-            result = [fp(self.vacc[i] + fp(x[i] * y[i])) for i in range(4)]
+            result = {i: M.vu_lane('vadd', mask, None, x[i], y[i]) for i in lanes}
         elif op == 42:
-            result = [fp(a * b) for a, b in zip(x, y)]
+            result = {i: M.vu_lane('vmul', mask, None, x[i], y[i]) for i in lanes}
         elif op == 44:
-            result = [fp(a - b) for a, b in zip(x, y)]
+            result = {i: M.vu_lane('vsub', mask, None, x[i], y[i]) for i in lanes}
+        elif op == 46:                                                       # vopmsub
+            swz = {0: (1, 2), 1: (2, 0), 2: (0, 1)}
+            result = {i: M.vu_lane('vopmsub', mask, None, x[swz[i][0]], y[swz[i][1]], self.vacc[i])
+                      for i in lanes if i < 3}
         elif op >= 60:
             special = (word >> 6 & 31) << 2 | (op & 3)
             destination = ft
-            if special in (0x30, 0x31):                          # vmove / vmr32
+            if special in (0x30, 0x31):                                      # vmove / vmr32
                 raw = list(self.vf[fs])
                 if special == 0x31: raw = raw[1:] + raw[:1]
-                for lane in range(4):
-                    if mask & (8 >> lane) and ft: self.vf[ft][lane] = raw[lane]
+                for lane in lanes:
+                    if ft: self.vf[ft][lane] = raw[lane]
                 return
-            elif special in (0x18, 0x19, 0x1A, 0x1B):            # vmula[xyzw]
-                result = [fp(a * y[op & 3]) for a in x]; accumulator = True
-            elif special in (0x08, 0x09, 0x0A, 0x0B):            # vmadda[xyzw]
-                result = [fp(self.vacc[i] + fp(x[i] * y[op & 3])) for i in range(4)]; accumulator = True
-            elif special in (0x0C, 0x0D, 0x0E, 0x0F):            # vmsuba[xyzw]
-                result = [fp(self.vacc[i] - fp(x[i] * y[op & 3])) for i in range(4)]; accumulator = True
-            elif special == 0x2A:                                # vmula
-                result = [fp(a * b) for a, b in zip(x, y)]; accumulator = True
-            elif special == 0x28:                                # vadda
-                result = [fp(a + b) for a, b in zip(x, y)]; accumulator = True
-            elif special == 0x2E:                                # vopmula
-                result = [fp(x[1] * y[2]), fp(x[2] * y[0]), fp(x[0] * y[1]), 0.0]; accumulator = True
-                mask = 0xE
-            elif special == 0x39:                                # vsqrt
-                self.q = fp(math.sqrt(abs(y[word >> 23 & 3]))); return
-            elif special == 0x38:                                # vdiv
-                den = y[word >> 23 & 3]
-                self.q = fp(x[word >> 21 & 3] / den) if den else number(FLT_MAX_BITS)
-                return
-            elif special == 0x3B:                                # vwaitq
-                return
-            elif special == 0x2F:                                # vnop
+            if 0x18 <= special <= 0x1B:                                      # vmulabc
+                bc = special - 0x18
+                result = {i: M.vu_lane('vmulabc', mask, bc, x[i], y[bc]) for i in lanes}
+                accumulate = True
+            elif 0x08 <= special <= 0x0B:                                    # vmaddabc
+                bc = special - 0x08
+                result = {i: M.vu_lane('vmaddabc', mask, bc, x[i], y[bc], self.vacc[i]) for i in lanes}
+                accumulate = True
+            elif special == 0x2E:                                            # vopmula
+                swz = {0: (1, 2), 1: (2, 0), 2: (0, 1)}
+                result = {i: M.vu_lane('vopmula', mask, None, x[swz[i][0]], y[swz[i][1]])
+                          for i in lanes if i < 3}
+                accumulate = True
+            elif special == 0x39:                                            # vsqrt
+                self.q = M.vu_sqrt(y[word >> 23 & 3]); return
+            elif special == 0x38:                                            # vdiv
+                fsf, ftf = word >> 21 & 3, word >> 23 & 3
+                self.q = M.vu_div(x[fsf], y[ftf], fsf, ftf); return
+            elif special in (0x3B, 0x2F):                                    # vwaitq / vnop
                 return
             else:
-                raise AssertionError(('VU special', hex(word), hex(special)))
-        elif op == 46:                                           # vopmsub
-            result = [fp(self.vacc[0] - fp(x[1] * y[2])), fp(self.vacc[1] - fp(x[2] * y[0])),
-                      fp(self.vacc[2] - fp(x[0] * y[1])), 0.0]
-            mask &= 0xE
+                raise AssertionError(('VU special the model does not define', hex(word), hex(special)))
         else:
-            raise AssertionError(('VU', hex(word), op))
-        for lane in range(4):
-            if mask & (8 >> lane):
-                if accumulator:
-                    self.vacc[lane] = result[lane]
-                elif destination:
-                    self.vf[destination][lane] = bits(result[lane])
+            raise AssertionError(('VU op the model does not define', hex(word), op))
+        for lane, value in result.items():
+            if accumulate:
+                self.vacc[lane] = value
+            elif destination:
+                self.vf[destination][lane] = value
 
     # ---- one instruction (non-branch) ---------------------------------
     def execute(self, word, pc):
@@ -378,7 +372,7 @@ class EE:
 
     def cop1(self, word, pc):
         rs, rt = word >> 21 & 31, word >> 16 & 31
-        fs, fd, fn = word >> 11 & 31, word >> 6 & 31, word & 63
+        fs, fd = word >> 11 & 31, word >> 6 & 31
         f = self.f
         if rs == 0:
             if rt: self.r[rt] = sx32(f[fs])
@@ -388,39 +382,12 @@ class EE:
             if rt: self.r[rt] = 0
             return
         if rs == 6: return
-        if rs == 20:
-            if fn == 32: f[fd] = fbits(float(s32(f[fs]))); return
-            raise AssertionError(('cvt', fn, hex(pc)))
-        if rs != 16: raise AssertionError(('COP1', rs, hex(pc)))
-        x, y = flt(f[fs]), flt(f[rt])
-        if fn == 0: f[fd] = fbits(x + y)
-        elif fn == 1: f[fd] = fbits(x - y)
-        elif fn == 2: f[fd] = fbits(x * y)
-        elif fn == 3:
-            f[fd] = fbits(x / y) if y else (FLT_MAX_BITS | ((bits(x) ^ bits(y)) & 0x80000000))
-        elif fn == 4: f[fd] = fbits(math.sqrt(abs(y)))
-        elif fn == 5: f[fd] = f[fs] & 0x7FFFFFFF
-        elif fn == 6: f[fd] = f[fs]
-        elif fn == 7: f[fd] = f[fs] ^ 0x80000000
-        elif fn == 22:
-            f[fd] = fbits(x / math.sqrt(abs(y))) if y else FLT_MAX_BITS
-        elif fn == 24: self.acc = fp(x + y)
-        elif fn == 25: self.acc = fp(x - y)
-        elif fn == 26: self.acc = fp(x * y)
-        elif fn == 28: f[fd] = fbits(self.acc + fp(x * y))
-        elif fn == 29: f[fd] = fbits(self.acc - fp(x * y))
-        elif fn == 30: self.acc = fp(self.acc + fp(x * y))
-        elif fn == 31: self.acc = fp(self.acc - fp(x * y))
-        elif fn == 36:
-            value = x
-            f[fd] = (int(value) if abs(value) < 2147483648 else (0x7FFFFFFF if value > 0 else -0x80000000)) & 0xFFFFFFFF
-        elif fn == 40: f[fd] = f[fs] if x >= y else f[rt]
-        elif fn == 41: f[fd] = f[fs] if x <= y else f[rt]
-        elif fn == 48: self.cond = False
-        elif fn == 50: self.cond = x == y
-        elif fn == 52: self.cond = x < y
-        elif fn == 54: self.cond = x <= y
-        else: raise AssertionError(('FPU', fn, hex(pc)))
+        if rs not in (16, 20): raise AssertionError(('COP1', rs, hex(pc)))
+        # The measured EE model (tools/ee_cop1.py); ACC holds a bit pattern.
+        kind, value = ee_cop1.cop1(word, f[fs], f[rt], self.acc)
+        if kind == 'fd': f[fd] = value
+        elif kind == 'acc': self.acc = value
+        else: self.cond = value
 
     def cop2(self, word, pc):
         rs, rt, rd = word >> 21 & 31, word >> 16 & 31, word >> 11 & 31

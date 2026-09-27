@@ -31,8 +31,10 @@ void em_point_light_reset(EmPointLightPool *pool);
 int32_t em_point_light_register(EmPointLightPool *pool, const float position[4],
                               const float color[4], int32_t type,
                               float multiplier, float adder);
-void em_point_light_tick(EmPointLightPool *pool, uint16_t area_key,
-                         EmPointLightRandom random, void *context);
+/* 001D7C30. Returns 0, or the nonzero em_ee_float.h status of an SDK matrix
+ * routine (a fault: the caller fail-stops). */
+int em_point_light_tick(EmPointLightPool *pool, uint16_t area_key,
+                        EmPointLightRandom random, void *context);
 /* Generated EMLP contains original positions and unscaled color presets. */
 int em_point_light_load(EmPointLightPool *pool, uint16_t *area_key,
                         const char *path);

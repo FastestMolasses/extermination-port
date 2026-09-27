@@ -481,6 +481,45 @@ one bound owner; docs/SDK_VU0.md, census 1.28):**
   - Roger's 001C6150 read stays on his resource bytes.
   - 001026A0 / 00103230 still have several copies.
 
+**Status update (2026-09-27, chain C8: EE-float harmonization of the older
+oracles; docs/EE_FLOAT_MODEL.md section 5, census 1.29):**
+- **Every oracle on the measured model.** The shared roots
+  (test_point_light_reference.Oracle, test_player_slide_reference.EE,
+  test_player_reentry_reference.Original) and seven closure interpreters
+  now run COP1 through the new `tools/ee_cop1.py` and VU0 through
+  `ee_float_model.vu_lane`; the per-oracle host-float intercepts are gone.
+  A probe over every interpreter class confirms all 116 agree with the model
+  (EE_FLOAT_MODEL.md section 5a lists each oracle and its model).
+- **Translations that then differed, fixed through em_ee_float.h:** the
+  point light (tick and fold), the camera retarget, the weather (the
+  strength quotient), the snow tiles, the item trail (the fan's MSUB sign
+  was fitted to the old product - ACC oracle), the item SDK math and the
+  interaction scan's atan, the face kernel 001D0720 (host round-to-nearest
+  before), the cinematic camera and playback, the pickup motion, the item
+  geometry, the foot stop, em_collision's compact faces, the crates' and
+  drums' SDK calls, and the COP1
+  sites of the candidates, the load veil, the alignment, the projection, the
+  AREA11 effect, the pickup owner and the panel program.
+- **One owner each, reduced on the way:** 00102738 (em_sdk_vu0.h, ten
+  private copies), the crates' SDK block and em_camera_rotation (owner
+  services, em_sdk_vu0.h, em_effect_original), the point light's flicker
+  matrix, em_snow's tile colour (em_sdk_vu0_00102900). This closes the two
+  items the previous update left open for the crate and the snow.
+- **Capture evidence kept:** the captured player point colour and flicker
+  matrix, the panel camera, the opening camera's eye / target bytes, the
+  Roger cinematic's up / zoom bytes, the 216 captured snow tiles and the
+  crates' route records all still equal. em_item_sdk_sine now equals the
+  original on all 360 level-script sine values (was 257 misses); the
+  area-script test asserts it.
+- **Evidence.** All make test-* pass. test-level-smoke-full passes with
+  --require-through. newgame-control 9.599849. Census unchanged: live 660,
+  verified-unbound 77, unverified 3, missing 1, boundary 443.
+- **Open (EE_FLOAT_MODEL.md section 5c):** VU0 per-lane helpers on a
+  truncated host double (001028B8 / 001028D0 / 001026A0 / 00102850 copies;
+  exact except a tiny opposite-sign addend), the duplicate SDK math in
+  em_item_sdk_math / em_interaction_scan, em_snow's host sinf wave,
+  em_lighting (L40), em_status_draw's battery ramp.
+
 ---
 
 ## 2. Live call graph (normal run)

@@ -123,7 +123,8 @@ def native_library(out):
     library = out/'actor_lighting.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(ROOT/'src/game/em_lighting.c'),
-                    str(ROOT/'src/game/em_point_light.c'), '-o', str(library)], check=True)
+                    str(ROOT/'src/game/em_point_light.c'),
+                    str(ROOT/'src/game/em_owner_services_original.c'), '-o', str(library)], check=True)
     api = C.CDLL(str(library)); F = C.POINTER(C.c_float)
     api.em_lighting_matrices.argtypes = [C.POINTER(Matrices), F, F, F, F]
     api.em_lighting_vertex.argtypes = [C.POINTER(C.c_uint32), F, C.POINTER(Matrices)]

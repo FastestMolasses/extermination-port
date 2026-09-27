@@ -117,9 +117,12 @@ domain and fault (−1).
        `mula.s b,t; msub.s a,inverse` (Extermination `src/quat_nlerp.c`,
        NEARMISS with 67 of 69 instructions identical).
      - `em_pose_transition`'s `pose_msub` uses the same order.
-   - **Tools that use the opposite order.** Two existing tools use
-     product − ACC:
-     - `test_item_sdk_math_reference.Original` (`fn == 29`);
+   - **Tools that used the opposite order** (both resolved):
+     - `test_item_sdk_math_reference.Original`'s `fn == 29` intercept was
+       removed on 2026-09-27; every oracle's MSUB.S now runs
+       `tools/ee_cop1.py` (ACC − fs·ft, EE_FLOAT_MODEL.md section 5). The
+       one translation fitted to the old order, em_item_trail's fan, was
+       corrected;
      - the comment in `em_roger_trigger` (deleted 2026-09-24, census L22:
        Roger's trigger is `em_director_original_001B1EA0_bound`).
    - **Where the order changes a result.** For axis-aligned quads (Roger's
@@ -131,16 +134,17 @@ domain and fault (−1).
      - ACC − product gives outside (0);
      - product − ACC would give inside;
      - the oracle kills that mutant.
-   - **Action.** This is outside this lane: the lead decides whether
-     the SDK oracle changes (`em_roger_trigger` is gone).
+   - **Action.** Done (2026-09-27, the EE-float harmonization step).
 2. **`em_interaction_sdk_atan2` is not the guard-bit model.** It models
    add.s as plain truncation.
    - Against `em_director_original_0011C4C8`, which is bit-identical to the
      original instructions under the guard-bit model, it differs by an ulp
      on 70,569 of 200,000 random argument pairs in ±300.
-   - It is not used here. Its callers (the interaction candidates,
-     including `em_roger_candidate`) inherit the difference. The lead decides; compare
-     AREA_SCRIPT.md section 5 on `em_item_sdk_sine`.
+   - It is not used here. Resolved 2026-09-27: its add/sub/mul/div (and
+     the candidates' own arithmetic, `em_roger_candidate` included) now go
+     through em_ee_float.h (EE_FLOAT_MODEL.md section 5b). It remains a
+     second translation of 0011C4C8 / 0011DBB8 beside this module's and
+     em_sdk_math_original's (EE_FLOAT_MODEL.md section 5c).
 3. **The decomp's `src/func_0011DBB8.c` (NEARMISS) swaps atanhi and
    atanlo.**
    - The instructions (0x11DE10..0x11DE44) subtract `D_0026C5E8[id]` and

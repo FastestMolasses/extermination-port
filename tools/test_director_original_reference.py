@@ -54,7 +54,6 @@ import sys
 
 from test_pickup_owner_reference import OwnerOracle
 from test_item_sdk_math_reference import Original as SdkOracle
-from test_pose_transition_reference import add, rounded
 from test_point_light_reference import bits, number, STACK
 import reference_mode as rm
 
@@ -75,24 +74,8 @@ MASK64 = (1 << 64) - 1
 
 
 class DirectorOracle(OwnerOracle, SdkOracle):
-    """The pickup-owner interpreter with the pose oracle's scalar FPU model."""
-    def plain(self, w):
-        op, rs, rt, rd, fd, fn = w >> 26, w >> 21 & 31, w >> 16 & 31, w >> 11 & 31, w >> 6 & 31, w & 63
-        if op == 17 and rs == 16 and fn in (0, 1, 2, 24, 25, 26, 28, 29, 30, 31):
-            a, b = number(self.f[rd]), number(self.f[rt])
-            if fn == 0: self.f[fd] = bits(add(a, b))
-            elif fn == 1: self.f[fd] = bits(add(a, -b))
-            elif fn == 2: self.f[fd] = bits(rounded(a * b))
-            elif fn == 24: self.sacc = add(a, b)
-            elif fn == 25: self.sacc = add(a, -b)
-            elif fn == 26: self.sacc = rounded(a * b)
-            elif fn == 28: self.f[fd] = bits(add(self.sacc, rounded(a * b)))
-            elif fn == 29: self.f[fd] = bits(add(self.sacc, -rounded(a * b)))  # ACC - fs*ft
-            elif fn == 30: self.sacc = add(self.sacc, rounded(a * b))
-            else: self.sacc = add(self.sacc, -rounded(a * b))
-            self.r[0] = 0
-        else:
-            super().plain(w)
+    """The pickup-owner interpreter; COP1 runs in the base Oracle on the
+    measured EE model (tools/ee_cop1.py)."""
 
 
 def kernel_call(o):

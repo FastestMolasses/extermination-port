@@ -76,7 +76,7 @@ static void probe_hit_from(const EmCollHit *hit, int kind, const float target[3]
     memcpy(out->point, hit->point, sizeof out->point);
     memcpy(out->normal, hit->normal, sizeof out->normal);
     for (unsigned axis = 0; axis < 3; ++axis)
-        out->delta[axis] = em_effect_float32((double)hit->point[axis] - target[axis]);
+        out->delta[axis] = em_ee_sub(hit->point[axis], target[axis]);     /* sub.s */
     if (kind == EM_COLL_SET_HULLS) {
         /* The port's door hulls: class-5 owners (em_door_original.h). */
         out->entity = 1;
@@ -137,9 +137,8 @@ static int probe_column(void *context, const float at[3], float height, EmPlayer
     (void)context;
     /* 001760C0 stores at + (0,height,0); 0019AB20 starts height below it,
      * nudged 0.001 against the probe direction. EE float order. */
-    float top = em_effect_float32((double)at[1] + height);
-    float bottom = em_effect_float32((double)em_effect_float32((double)top - height) +
-                                     (height < 0.0f ? 0.001f : -0.001f));
+    float top = em_ee_add(at[1], height);
+    float bottom = em_ee_add(em_ee_sub(top, height), height < 0.0f ? 0.001f : -0.001f);
     float from[3] = { at[0], bottom, at[2] };
     float to[3] = { at[0], top, at[2] };
     EmCollHit found;

@@ -1,4 +1,5 @@
 #include "game/em_opening_face.h"
+#include "game/em_ee_float.h"
 #include <string.h>
 #pragma STDC FP_CONTRACT OFF
 
@@ -27,11 +28,13 @@ void em_opening_face_talk(EmOpeningFace *f, uint8_t talking)
     if (!talking) memset(f->target,0,sizeof f->target);
 }
 
+/* 001D0720's float arithmetic is COP1 (sub.s, mul.s, add.s, div.s,
+ * cvt.s.w): em_ee_float.h, the measured EE model (docs/EE_FLOAT_MODEL.md). */
 static float approach(float value, float target, float rate)
 {
-    float difference=target-value;
-    float step=rate*difference;
-    return value+step;
+    float difference=em_ee_sub(target,value);
+    float step=em_ee_mul(rate,difference);
+    return em_ee_add(value,step);
 }
 
 void em_opening_face_tick(EmOpeningFace *f, EmFaceRandom random, void *context)
@@ -98,14 +101,14 @@ void em_opening_face_tick(EmOpeningFace *f, EmFaceRandom random, void *context)
         if (shape==f->previous_shape) shape=(f->previous_shape+1)%5;
         if (shape==f->current_shape) {
             for (int i=1;i<6;++i)
-                f->target[i]=i==f->previous_shape ? 0.0f : f->target[i]*0.1f;
+                f->target[i]=i==f->previous_shape ? 0.0f : em_ee_mul(f->target[i],0.1f);
         } else {
             /* The original selects 0..4 but updates targets1..5. Preserve
              * this asymmetry: selecting0 deliberately boosts no target. */
             for (int i=1;i<6;++i) {
-                float r=(float)((random(context)>>24)&127);
-                if (i==shape) f->target[i]=0.8f+r/512.0f;
-                else f->target[i]=f->target[i]*(0.1f+r/256.0f);
+                float r=em_ee_cvt_s_w((int32_t)((random(context)>>24)&127));
+                if (i==shape) f->target[i]=em_ee_add(0.8f,em_ee_div(r,512.0f));
+                else f->target[i]=em_ee_mul(f->target[i],em_ee_add(0.1f,em_ee_div(r,256.0f)));
             }
         }
         f->previous_shape=f->current_shape;

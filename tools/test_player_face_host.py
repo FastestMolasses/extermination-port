@@ -18,12 +18,9 @@ ROOT=Path(__file__).resolve().parents[1]
 class OriginalFace(Captured):
     def plain(self,word):
         op,rs,rt,rd,fn=word>>26,word>>21&31,word>>16&31,word>>11&31,word&63
-        if op==17 and rs==16 and fn in (0,1,2,3):
-            # Match the existing face branch oracle's host IEEE arithmetic.
-            # This deliberately does NOT claim physical EE float equality.
-            a,b=number(self.f[rd]),number(self.f[rt])
-            self.f[word>>6&31]=bits((a+b,a-b,a*b)[fn] if fn<3 else a/b)
-        elif op==0 and fn==26:
+        # COP1 runs in the base Oracle on the measured EE model
+        # (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md).
+        if op==0 and fn==26:
             left=signed(self.r[word>>21&31]);right=signed(self.r[word>>16&31])
             assert right
             quotient=abs(left)//abs(right)*(-1 if (left<0)!=(right<0) else 1)

@@ -1,9 +1,14 @@
 #include "game/em_snow.h"
 #include "game/em_effect_color.h"
+#include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stdio.h>
 #include <string.h>
 
+/* VU0 macro arithmetic of the SDK routines 001029E8 (the rotation
+ * polynomial), 001026A0 (matrix x vector) and 001028B8 (vector add):
+ * truncated per operation. */
 static float snow_add(float a, float b)
 {
     return em_effect_float32((double)a + b);
@@ -14,14 +19,14 @@ static float snow_mul(float a, float b)
     return em_effect_float32((double)a * b);
 }
 
-/* The captured original EE DIV.S results round to nearest for these inputs.
- * Truncating the seed quotient changes 49 of 108 AREA11 tile seed mantissas,
- * and therefore changes the VU random sequence. VU division has a different
- * verified rounding path; do not share this operation with that generator. */
-static float snow_div(float a, float b)
-{
-    return (float)((double)a / b);
-}
+/* 001E67C0's own float arithmetic is COP1: em_ee_float.h, the measured EE
+ * model. The captured original EE DIV.S results round to nearest for these
+ * inputs: truncating the seed quotient changes 49 of 108 AREA11 tile seed
+ * mantissas, and therefore changes the VU random sequence. */
+static float ee_add(float a, float b) { return em_ee_add(a, b); }
+static float ee_sub(float a, float b) { return em_ee_sub(a, b); }
+static float ee_mul(float a, float b) { return em_ee_mul(a, b); }
+static float snow_div(float a, float b) { return em_ee_div(a, b); }
 
 /* 00102B08 calls the original 001029E8 sine polynomial at pi/2-|angle|,
  * then obtains the other component with sqrt(1-s*s). Calling host sin/cos
@@ -33,7 +38,8 @@ static void snow_rotation(float angle, float *sine, float *cosine)
         0x1.5d3828p-19f, -0x1.9f643ep-13f,
         0x1.110e7cp-7f, -0x1.555548p-3f
     };
-    float argument = snow_add(0x1.921fb6p+0f, -fabsf(angle));
+    /* 00102B08: pi/2 + angle below zero, else pi/2 - angle (COP1). */
+    float argument = em_ee_sub(0x1.921fb6p+0f, fabsf(angle));
     float square = snow_mul(argument, argument);
     float term[4];
     for (unsigned i = 0; i < 4; ++i)
@@ -76,47 +82,51 @@ int em_snow_config_load(EmSnowConfig *config, const char *path)
     return 1;
 }
 
-void em_snow_tiles(EmWeather *weather, const EmSnowConfig *config,
+int em_snow_tiles(EmWeather *weather, const EmSnowConfig *config,
                    float strength, const float eye[3],
                    EmSnowTile tiles[EM_SNOW_TILE_COUNT])
 {
     float cell[3];
     for (unsigned axis = 0; axis < 3; ++axis) {
         int integral = (int)eye[axis];
-        cell[axis] = snow_add((float)((integral + 100000) % 200),
-                              snow_add(eye[axis], -(float)integral));
+        cell[axis] = ee_add(em_ee_cvt_s_w((integral + 100000) % 200),
+                            ee_sub(eye[axis], em_ee_cvt_s_w(integral)));
     }
     uint32_t seed = weather->seed;
     unsigned index = 0;
-    float drift_step = snow_mul(0.004f, strength);
+    float drift_step = ee_mul(0.004f, strength);
     for (unsigned row = 0; row < 6; ++row) {
         const float *data = config->rows[row];
-        float wave = sinf(snow_mul(6.2831855f, weather->drift[row]));
-        float angle = snow_add(data[0], snow_mul(0.5f, snow_mul(data[0], wave)));
-        angle = snow_div(snow_mul(3.1415927f, angle), 180.0f);
+        float wave = sinf(ee_mul(6.2831855f, weather->drift[row]));
+        float angle = ee_add(data[0], ee_mul(0.5f, ee_mul(data[0], wave)));
+        angle = snow_div(ee_mul(3.1415927f, angle), 180.0f);
         float sine, cosine;
         snow_rotation(angle, &sine, &cosine);
         for (unsigned z = 0; z < 6; ++z) {
             for (unsigned y = 0; y < 3; ++y) {
                 EmSnowTile *tile = &tiles[index++];
                 memcpy(tile->descriptor, config->descriptor, sizeof tile->descriptor);
-                float color_scale = snow_mul(1.3f, strength);
-                for (unsigned component = 0; component < 4; ++component) {
-                    tile->descriptor[2][component] = tile->descriptor[3][component] =
-                        snow_mul(data[8 + component], color_scale);
+                float color_scale = ee_mul(1.3f, strength);
+                /* 00102900(colour, row colour, 1.3 x strength): em_sdk_vu0.h. */
+                uint32_t colour[4], scale;
+                memcpy(colour, data + 8, sizeof colour);
+                memcpy(&scale, &color_scale, sizeof scale);
+                if (em_sdk_vu0_00102900(colour, colour, scale) != EM_EE_FLOAT_OK) return -1;
+                memcpy(tile->descriptor[2], colour, sizeof colour);
+                memcpy(tile->descriptor[3], colour, sizeof colour);
+                for (unsigned component = 0; component < 4; ++component)
                     tile->descriptor[4][component] = tile->descriptor[5][component] = data[4 + component];
-                }
                 float relative[3] = {
-                    snow_add(snow_mul(200.0f, snow_div((float)row, 6.0f)), -cell[0]),
-                    snow_add(snow_mul(100.0f, snow_div((float)y, 3.0f)), -cell[1]),
-                    snow_add(snow_mul(200.0f, snow_div((float)z, 6.0f)), -cell[2])
+                    ee_sub(ee_mul(200.0f, snow_div(em_ee_cvt_s_w((int32_t)row), 6.0f)), cell[0]),
+                    ee_sub(ee_mul(100.0f, snow_div(em_ee_cvt_s_w((int32_t)y), 3.0f)), cell[1]),
+                    ee_sub(ee_mul(200.0f, snow_div(em_ee_cvt_s_w((int32_t)z), 6.0f)), cell[2])
                 };
-                while (relative[0] < 0) relative[0] = snow_add(relative[0], 200.0f);
-                while (relative[1] < 0) relative[1] = snow_add(relative[1], 100.0f);
-                while (relative[2] < 0) relative[2] = snow_add(relative[2], 200.0f);
-                relative[0] = snow_add(relative[0], -100.0f);
-                relative[1] = snow_add(relative[1], -50.0f);
-                relative[2] = snow_add(relative[2], -200.0f);
+                while (relative[0] < 0) relative[0] = ee_add(relative[0], 200.0f);
+                while (relative[1] < 0) relative[1] = ee_add(relative[1], 100.0f);
+                while (relative[2] < 0) relative[2] = ee_add(relative[2], 200.0f);
+                relative[0] = ee_add(relative[0], -100.0f);
+                relative[1] = ee_add(relative[1], -50.0f);
+                relative[2] = ee_add(relative[2], -200.0f);
                 memset(tile->matrix, 0, sizeof tile->matrix);
                 tile->matrix[0] = tile->matrix[15] = 1.0f;
                 tile->matrix[5] = tile->matrix[10] = cosine;
@@ -127,19 +137,20 @@ void em_snow_tiles(EmWeather *weather, const EmSnowConfig *config,
                                                    snow_mul(-sine, relative[2])), eye[1]);
                 tile->matrix[14] = snow_add(snow_add(snow_mul(sine, relative[1]),
                                                    snow_mul(cosine, relative[2])), eye[2]);
-                float fraction = snow_div((float)(seed >> 16), 65535.0f);
+                float fraction = snow_div(em_ee_cvt_s_w((int32_t)(seed >> 16)), 65535.0f);
                 seed = seed * 37U + 11U;
                 /* CFAE0 writes f12/f14/f15/f13 to VU59. The former C
                  * mislabeled these and passed phase in the wrong slot. */
                 tile->params[0] = weather->phase[row];
                 tile->params[1] = 1.0f;
                 tile->params[2] = 0.000001f;
-                tile->params[3] = snow_add(fraction, 0.0001f);
+                tile->params[3] = ee_add(fraction, 0.0001f);
             }
         }
-        weather->drift[row] = snow_add(weather->drift[row], drift_step);
-        weather->phase[row] = snow_add(weather->phase[row], snow_mul(1.5f, snow_mul(data[2], strength)));
+        weather->drift[row] = ee_add(weather->drift[row], drift_step);
+        weather->phase[row] = ee_add(weather->phase[row], ee_mul(1.5f, ee_mul(data[2], strength)));
         if (weather->phase[row] > 2.0f)
-            weather->phase[row] = snow_add(weather->phase[row], -1.0f);
+            weather->phase[row] = ee_add(weather->phase[row], -1.0f);
     }
+    return 0;
 }

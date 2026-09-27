@@ -38,16 +38,9 @@
 #define MOVE_PROBE_PAD 0.01f  /* func_0019AD00 f12 = 0x3C23D70A */
 #define FLT_MAX_EE 3.40282347e38f /* 0x7F7FFFFF: EE overflow result */
 
-/* Finite binary32 arithmetic in the original compact-face routines uses
- * R5900 round-toward-zero after each operation. */
-static float face_float(double value)
-{
-    float result=(float)value;
-    if ((value>0 && result>value) || (value<0 && result<value))
-        result=nextafterf(result,0);
-    return result;
-}
-
+/* The compact-face routines 001A4D10 / 001A50A0 do their float arithmetic
+ * on the EE FPU (COP1 only): em_ee_float.h, the measured EE model
+ * (docs/EE_FLOAT_MODEL.md; the quotients round to nearest). */
 int em_collision_box_face(const EmCollBoxFace *box, const float start[3],
                           const float end[3], int movement, EmCollHit *hit)
 {
@@ -55,17 +48,17 @@ int em_collision_box_face(const EmCollBoxFace *box, const float start[3],
     if (!face || face>6 || (movement && (face==3 || face==4))) return 0;
     float delta[3], lo[3], hi[3], relative[3];
     for (unsigned k=0;k<3;++k) {
-        delta[k]=face_float((double)end[k]-start[k]);
+        delta[k]=em_ee_sub(end[k],start[k]);
         if (delta[k]<0 ? face==2*k+2 : face==2*k+1) return 0;
-        float other=face_float((double)box->origin[k]+box->extent[k]);
+        float other=em_ee_add(box->origin[k],box->extent[k]);
         lo[k]=box->extent[k]>0 ? box->origin[k] : other;
         hi[k]=box->extent[k]>0 ? other : box->origin[k];
-        relative[k]=face_float((double)box->origin[k]-start[k]);
+        relative[k]=em_ee_sub(box->origin[k],start[k]);
     }
     unsigned axis=(face-1)/2;
-    float remaining=face_float((double)lo[axis]-end[axis]);
-    if (!(face_float((double)relative[axis]*remaining)<0)) return 0;
-    float t=face_float((double)relative[axis]/delta[axis]);
+    float remaining=em_ee_sub(lo[axis],end[axis]);
+    if (!(em_ee_mul(relative[axis],remaining)<0)) return 0;
+    float t=em_ee_div(relative[axis],delta[axis]);
     float point[3];
     for (unsigned k=0;k<3;++k) {
         if (k==axis) point[k]=box->origin[k];
@@ -74,9 +67,9 @@ int em_collision_box_face(const EmCollBoxFace *box, const float start[3],
             if (point[k]<lo[k] || point[k]>hi[k]) return 0;
         } else {
             float offset=movement
-                ? face_float((double)face_float((double)delta[k]*relative[axis])/delta[axis])
-                : face_float((double)delta[k]*t);
-            point[k]=face_float((double)start[k]+offset);
+                ? em_ee_div(em_ee_mul(delta[k],relative[axis]),delta[axis])
+                : em_ee_mul(delta[k],t);
+            point[k]=em_ee_add(start[k],offset);
             if (!(point[k]>lo[k] && point[k]<hi[k])) return 0;
         }
     }

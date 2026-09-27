@@ -14,6 +14,7 @@
 #include <string.h>
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 /* ---- Byte access (little-endian original layout) ------------------------- */
 
@@ -66,14 +67,14 @@ static int sdk_add(float out[4], const float a[4], const float b[4])
 
 /* 00102738(a, b): the three-lane product a * b, then its y and z lanes
  * summed into x; the x lane. */
+/* 00102738: em_sdk_vu0.h's translation. */
 static int sdk_dot(float *out, const float a[4], const float b[4])
 {
-    float v[4];
-    memcpy(v, b, sizeof v);
-    if (vu(EM_VU_MUL, 0xE, EM_VU_NO_BC, a, v, v)) return -1;   /* 0x102740 */
-    if (vu(EM_VU_ADDBC, 0x8, 1, v, v, v)) return -1;            /* 0x102744 */
-    if (vu(EM_VU_ADDBC, 0x8, 2, v, v, v)) return -1;            /* 0x102748 */
-    *out = v[0];
+    uint32_t x[4], y[4], d;
+    memcpy(x, a, sizeof x);
+    memcpy(y, b, sizeof y);
+    if (em_sdk_vu0_00102738(&d, x, y) != EM_EE_FLOAT_OK) return -1;
+    memcpy(out, &d, sizeof d);
     return 0;
 }
 

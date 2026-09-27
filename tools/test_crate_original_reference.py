@@ -26,7 +26,6 @@ import sys
 from test_item_sdk_math_reference import Original as SdkOriginal
 from test_interaction_scan_reference import ELF_SHA, DECOMP
 from test_point_light_reference import RETURN, STACK, bits, number, signed, fp
-import ee_float_model as M
 
 ROOT = Path(__file__).resolve().parents[1]
 CAPTURES = DECOMP/'build/startup-reference'
@@ -41,47 +40,25 @@ SCRATCH = (0x70000000, 0x70004000)
 
 # ------------------------------------------------------------------ oracle
 
-# The owners' own COP1 arithmetic (add.s / sub.s / mul.s / div.s /
-# cvt.s.w inside 001551B0 and 00156620) follows the measured EE model
-# (tools/ee_float_model.py, docs/EE_FLOAT_MODEL.md: the pre-trimmed
-# truncating sum and product, the round-to-nearest quotient), as the native
-# owners compute it through em_ee_float.h. The SDK routines they call keep
-# the ITEM SDK oracle's semantics, which their translations were verified
-# against.
-EE_RANGES = ((CRATE, CRATE_END), (0x156620, 0x156F30))
+# Every COP1 instruction (the owners' 001551B0 / 00156620 and the SDK
+# routines they call) follows the measured EE model in the base Oracle
+# (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md: the pre-trimmed truncating sum
+# and product, the round-to-nearest quotient), as the native owners and
+# em_item_sdk_math.c compute it through em_ee_float.h.
 
 
 class Oracle(SdkOriginal):
     """ITEM SDK oracle (64-bit EE scalar semantics, VU0 macro, soft float)
     + indirect calls, call stubs that return to the link address, watch
-    points, write logging, pc coverage and an optional captured RAM image.
-    COP1 inside EE_RANGES goes through the EE model."""
+    points, write logging, pc coverage and an optional captured RAM image."""
 
     def __init__(self, elf, ram=None):
         self.ram = ram
         self.watch = {}
         self.writes = set()
         self.pcs = set()
-        self.ee_cop1 = False
         super().__init__(elf)
         self.writes.clear()
-
-    def plain(self, word):
-        op, fmt, fn = word >> 26, word >> 21 & 31, word & 63
-        if self.ee_cop1 and op == 17 and ((fmt == 16 and fn in (0, 1, 2, 3)) or (fmt == 20 and fn == 32)):
-            fs, ft, fd = word >> 11 & 31, word >> 16 & 31, word >> 6 & 31
-            a, b = self.f[fs] & 0xFFFFFFFF, self.f[ft] & 0xFFFFFFFF
-            if fmt == 20: self.f[fd] = M.ee_cvt_s_w(a)
-            elif fn == 0: self.f[fd] = M.ee_add(a, b)
-            elif fn == 1: self.f[fd] = M.ee_sub(a, b)
-            elif fn == 2: self.f[fd] = M.ee_mul(a, b)
-            else: self.f[fd] = M.ee_div(a, b)
-            self.r[0] = 0
-            return
-        super().plain(word)
-
-    def owner_pc(self, pc):
-        self.ee_cop1 = any(lo <= pc < hi for lo, hi in EE_RANGES)
 
     def save(self, address, value, size=4):
         for i in range(size):
@@ -114,7 +91,6 @@ class Oracle(SdkOriginal):
             if pc == stop: return
             if pc in self.watch: self.watch[pc](self)
             self.pcs.add(pc)
-            self.owner_pc(pc)
             word = self.load(pc)
             op, rs, rt, rd = word >> 26, word >> 21 & 31, word >> 16 & 31, word >> 11 & 31
             offset = signed(word & 65535, 16) * 4
@@ -348,7 +324,8 @@ def build():
                     '-fPIC', '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
                     'src/game/em_crate_original.c', 'src/game/em_drum_original.c',
                     'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
-                    'src/game/em_item_trail.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
+                    'src/game/em_item_trail.c', 'src/game/em_owner_services_original.c',
+                    'src/game/em_effect_original.c', '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
     native.em_crate_original_tick.argtypes = [C.POINTER(Crate), C.POINTER(Input), C.POINTER(Hooks)]
     return native, out
@@ -749,7 +726,9 @@ def validate_math(elf, native):
     lib.em_crate_sdk_rotate.argtypes = [C.POINTER(C.c_float), C.POINTER(C.c_float), C.c_float, C.c_int]
     lib.em_crate_sdk_euler.argtypes = [C.POINTER(C.c_float), C.POINTER(C.c_float)]
     lib.em_crate_sdk_multiply.argtypes = [C.POINTER(C.c_float)] * 3
-    lib.em_crate_sdk_wrap.argtypes = [C.c_float]; lib.em_crate_sdk_wrap.restype = C.c_float
+    lib.em_crate_sdk_wrap.argtypes = [C.c_float, C.POINTER(C.c_float)]
+    for name in ('rotate', 'euler', 'multiply', 'wrap'):
+        getattr(lib, 'em_crate_sdk_' + name).restype = C.c_int
     lib.em_crate_sdk_float_to_int.argtypes = [C.c_float]; lib.em_crate_sdk_float_to_int.restype = C.c_int32
     cases = 0
     for _ in range(600):
@@ -761,7 +740,7 @@ def validate_math(elf, native):
             for i in range(16): o.save(0x500000 + 4*i, bits(m[i]))
             o.run(entry, (0x500040, 0x500000), (angle,))
             out = (C.c_float * 16)()
-            lib.em_crate_sdk_rotate(out, m, angle, axis)
+            assert lib.em_crate_sdk_rotate(out, m, angle, axis) == 0
             assert tuple(bits(v) for v in out) == o.words(0x500040, 16), (axis, angle)
             cases += 1
         e = (C.c_float * 3)(*(rng.uniform(-0.2, 0.2) for _ in range(3)))
@@ -770,12 +749,14 @@ def validate_math(elf, native):
         for i in range(3): o.save(0x500100 + 4*i, bits(e[i]))
         o.run(0x102C58, (0x500000, 0x500000, 0x500100))
         mm = (C.c_float * 16)(*m)
-        lib.em_crate_sdk_euler(mm, e)
+        assert lib.em_crate_sdk_euler(mm, e) == 0
         assert tuple(bits(v) for v in mm) == o.words(0x500000, 16)
         value = rng.choice([rng.uniform(-40, 40), 3.1415927, -3.1415927, 3.1415928, -3.1415928,
                             rng.uniform(-1e4, 1e4)])
         o = Oracle(elf); o.run(0x1B1470, floats=(value,))
-        assert bits(lib.em_crate_sdk_wrap(value)) == o.f[0], value
+        wrapped = C.c_float()
+        assert lib.em_crate_sdk_wrap(value, C.byref(wrapped)) == 0, value
+        assert bits(wrapped.value) == o.f[0], value
         value = rng.choice([rng.uniform(-3e9, 3e9), rng.uniform(-70000, 70000), 0.5, -0.5,
                             2147483648.0, -2147483648.0, 1019.9])
         o = Oracle(elf); o.run(0x1281C0, floats=(value,))

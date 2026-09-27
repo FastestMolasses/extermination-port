@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1114,6 +1114,68 @@ boundary 443 (was 659 / 78 / 3 / 0 / 1 / 443). 80,726 of the 87,968
 non-boundary instructions are live (91.8%). Section 2 and the section 3
 subsection counts are recomputed from the rows.
 
+### 1.29 Update (2026-09-27, chain C8: EE-float harmonization of the older oracles)
+
+The older oracle interpreters computed COP1 with host floats (no add/sub
+pre-trim, no DAZ/FTZ/saturation, MSUB as product - ACC in two of them,
+truncated DIV.S or round-to-nearest CVT.S.W in others) and VU0 with a
+truncated host double. A translation verified only against them could carry
+the one-ULP error found in 001BBE40. Every interpreter now runs COP1 through
+`tools/ee_cop1.py` and VU0 through `ee_float_model.vu_lane` (EE_FLOAT_MODEL.md
+section 5a lists every oracle and its model), and every translation that then
+differed was moved onto `em_ee_float.h` (section 5b there).
+
+- **No status changes.** Every route row touched was already live; only its
+  evidence changed. The totals below are recounted from the section 3 rows.
+- **Notes updated (live, now verified on the measured model):**
+  - 001D7C30 (em_point_light: its COP1 sites through em_ee_*, the flicker
+    matrix through em_owner_services' 001029C0 / 00102B08 / 00102BB0);
+  - 0018CBD0 (em_camera_retarget) and the 00102C58 / 001026A0 behind
+    em_camera_rotation (now the owner-services and em_effect_original
+    translations);
+  - 001E55F0 (em_weather: the strength quotient rounds to nearest) and
+    001E67C0 (em_snow: its own arithmetic, and the tile colour through
+    em_sdk_vu0_00102900; the captured tiles still equal);
+  - 001D0720 / 001D0C70 (em_opening_face: COP1 on the model, was host
+    round-to-nearest);
+  - 00183EF0, 001B1630 and 001B1470 (em_interaction_scan, em_door_candidate,
+    em_roger candidate, em_panel candidate, em_item_device);
+  - 0011C7B0 / 0011CB90 / 0011CCC8 / 0011D770 and 0011C4C8 / 0011DBB8
+    (em_item_sdk_math, em_interaction_scan's atan: they now equal the
+    original on all 360 level-script sine values, test_area_script_reference
+    asserts it; they were 257 misses);
+  - 001B7F90 / 001B1240 / 001B12B0 / 001B8FC0 (em_pickup_motion);
+  - 0022EEF0 (em_cinematic_camera and em_cinematic_playback; the opening
+    capture's eye and target bytes and the Roger capture's up / zoom bytes
+    still equal);
+  - 001551B0 / 00156620 (the crates' and drums' SDK calls now go to the one
+    bound translation of 001029C0, 00102A60 / 00102B08 / 00102BB0, 00102C58,
+    00102918, 001026D0, 001026A0, 00102738, 001B1470 and 001281C0);
+  - 00102738 (one translation, em_sdk_vu0.h; ten private copies and the
+    crate's host-float one reduced);
+  - 0021B550 (em_load_veil), 001B6F00 (em_interaction_alignment),
+    001DD980 (em_interaction_projection), 008235F0 (em_area11_effect),
+    0015AE20 (em_pickup_owner), 001B9BA0 (em_panel_program), 0017B910 /
+    0017C030 (em_player_foot_stop), 001760C0 / 0019AB20 (em_player's probe
+    glue, gated), 001B1EA0 (em_director_original's MULA / MADD / MSUB),
+    001A4D10 / 001A50A0 (em_collision's second compact-face translation).
+- **Evidence.**
+  - All make test-* targets pass. The point-light, camera-retarget,
+    cinematic, snow-tile (`--reference-ee/--reference-tiles`), crate and
+    trail oracles still match their captures.
+  - make test-level-smoke-full passes with --require-through.
+  - newgame-control gives 9.599849 (unchanged).
+  - EM_TEST_FULL=1 test_item_sdk_math_reference (6,418 sin/cos results
+    exact) and test_snow_tiles_reference pass.
+- **Left (EE_FLOAT_MODEL.md section 5c):** VU0 per-lane helpers on a
+  truncated host double (exact except a tiny opposite-sign addend), the
+  duplicate SDK math in em_item_sdk_math / em_interaction_scan, em_snow's
+  host sinf wave, em_lighting (L40), em_status_draw's battery ramp.
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443 (unchanged). 80,726 of the 87,968 non-boundary instructions
+are live (91.8%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1141,7 +1203,7 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27 and 1.28) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28 and 1.29) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -2078,7 +2140,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001026A0 | — | AI | live | em_camera_rotation.c / em_owner_services_original.c (VU0 forms) — test_camera_rotation_reference; test_camera_retarget_reference |  | S1_newgame_load |
 | 0x001026D0 | — | AI | live | em_sdk_vu0 em_sdk_vu0_001026D0, the one translation (section 1.28; docs/SDK_VU0.md): em_locomotion_display, em_equipment_live, em_effect_manager, em_shadow_actor_route, em_status_models, em_frame_render_heads and em_shadow_original call it — test_sdk_vu0_reference (executes 001026D0: specials, the three aliasing forms); test_locomotion_display_reference, test_effect_manager_reference, test_shadow_actor_route_reference, test_shadow_original_reference (run it inside their composites) | recount 2026-09-25: executed on the live path (18483 calls over the five measured runs, as em_loco_001026D0); em_crate_original's em_crate_sdk_multiply keeps its own arithmetic (its oracle's SDK semantics are not the measured VU0 model; SDK_VU0.md) | S0_title |
 | 0x00102718 | — | AI | live | em_effect_original / em_coll_* (inline) — test_effect_original_reference | recount 2026-09-25: em_effect_original_00102718 executed on the live path (36094 calls over the five measured runs) | S1_newgame_load |
-| 0x00102738 | — | AI | live | em_coll_probe_original sdk_dot, em_actor_collision vu_dot, em_pickup_items_original vdot — test_coll_probe_reference.py, test_pickup_items_reference (both run 00102738 as original code inside the executed callers) |  | S2_opening |
+| 0x00102738 | — | AI | live | em_sdk_vu0 em_sdk_vu0_00102738, the one translation (section 1.29; docs/SDK_VU0.md): em_coll_probe_original sdk_dot (em_actor_collision vu_dot), em_coll_list_passes_walkers, em_coll_grid_hull, em_coll_move_original, em_pickup_items_original vdot, em_owner_draw_original, em_actor_light_001D89D0, the camera modules, em_crate_original — test_sdk_vu0_reference (executes 00102738); test_coll_probe_reference.py, test_pickup_items_reference (both run 00102738 as original code inside the executed callers) |  | S2_opening |
 | 0x00102760 | — | AW | live | em_pickup_items_original vnormalize (001F1180's facing test) — test_pickup_items_reference (runs 00102760 as original code) | the em_interaction_scan.c / em_camera_probe.c copies are checked only against the tests' normalize models | S1_newgame_load |
 | 0x00102798 | — | AI | live | em_camera_commit_original em_camera_commit_00102798 (0018C0D0) — test_camera_live_reference (runs the original leaf); em_actor_light_001D89D0 sdk_00102798 — test_actor_light_001d89d0_reference | live since census L13..L16 (12008 calls); em_render_frame.c char_rig_build still re-derives the view basis in host float | S1_newgame_load |
 | 0x001027E0 | — | AW | live | em_render_verify_rest em_rvr_001027E0 (inside em_cs_00102CD0) — test_render_verify_rest_reference; test_census_standins_reference | live since census L13..L16 (12008 calls) | S1_newgame_load |
