@@ -5,14 +5,14 @@ Original executable SHA-256:
 
 Lane "roger-actor-original". `em_roger.c` (docs/ROGER_ORIGINAL.md) translates
 the Roger controller at overlay `008237E0` for lifecycles 1 to 3. For
-lifecycle 0 it returns -1, so Roger can never start. This lane translates the
+lifecycle 0 it returned -1, so Roger could never start. This lane translated the
 missing lifecycle-0 case and everything it reaches. It also covers the two face
 services the controller calls every frame (`001BA580` and `001BA540`) and the
 equipment node that rides on Roger (area11[9], callback `001C5C90`). The work
 matters for WP-9 and route beat 14 (the Roger encounter).
 
-The module is **built and tested but not wired**. Section 4 lists what the
-coordinator binds.
+The module is **live since census L22** (2026-09-24) through
+`em_area11_roger.{h,c}`; section 4 is the as-built binding.
 
 ## 1. What the original does
 

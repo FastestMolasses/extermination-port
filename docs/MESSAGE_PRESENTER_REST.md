@@ -84,10 +84,9 @@ fail:
    loader takes it as a parameter. With that value, the words 001FD0E0
    stores (block +0x18 / +0x1C and the slot tables) equal the original's.
 
-## 3. Binding notes (for the chain)
+## 3. Binding (as built in `em_message_presenters_live.c`)
 
-In `em_message_live.c`, next to the `EmCsPresenters` of
-docs/CENSUS_STANDINS.md 3:
+Next to the `EmCsPresenters` of docs/CENSUS_STANDINS.md 3:
 
 - Data: `em_mpr_data_load(&mpr, "assets/message/message_presenters.emmp",
   0x011739C0)`. Pass `&mpr.cs` as the `data` of `em_cs_presenters_init`.
@@ -100,19 +99,12 @@ docs/CENSUS_STANDINS.md 3:
   `EmSulWorkers.sound` adapter fits as is.
 - `EmCsMode3Workers mode3 = { &walker, <reset = em_message_reset>,
   em_mpr_worker_line_draw }`. Nothing is left NULL.
-- Then the stand-ins listed in docs/CENSUS_STANDINS.md 3 go, with the step-F
-  gate `message_gate` first (WP-8 decision (b)).
+- Done: em_message_presenters_live.c binds the presenters over this data
+  and walker, and the step-F gate stand-in `message_gate` (WP-8 decision
+  (b)) is gone: no `message_gate` remains in `src/`.
 
-Makefile hunks (the lead applies them):
-
-```make
-# source list, after src/game/em_message_live.c \
-           src/game/em_message_presenter_rest.c \
-
-.PHONY: test-message-presenter-rest-reference
-test-message-presenter-rest-reference:
-	python3 tools/test_message_presenter_rest_reference.py
-```
+`em_message_presenter_rest.c` is in `COMMON`; the target is
+`test-message-presenter-rest-reference`.
 
 ## 4. Conventions and limits
 

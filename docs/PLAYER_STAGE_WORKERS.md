@@ -126,7 +126,8 @@ from the admission row to the release row, where 00182DF0's tail holds).
 The panel, the terminal and the items keep the interaction runtime's
 takeover: its acquire stands in for 00174A50 + 00182D70 on the record (live_major1
 writes the admission's +5 / +6 / +1F0 and runs 00182D70), its per-stage tick
-(their scripts' animation core, em_interaction_animation) for the commit and
+(their scripts' animation core, em_interaction_animation,
+INTERACTION_ANIMATION.md) for the commit and
 advance, and its release runs the record's 00182DF0 through the same
 translation (`player_pose_release` over the bound release worker); +4 stays 1
 there. On the port's idle/walk under 0x70003B8D without an owner (the

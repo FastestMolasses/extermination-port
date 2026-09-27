@@ -523,24 +523,15 @@ codes are listed in each header.
   lockstep and scenarios, and patches only its `Env` (a 001CA700 result
   override) and its synthetic-arena size, inside this process.
 
-## 7. Changes needed in existing files (lead / coordinator)
+## 7. Changes still needed in existing files (lead / coordinator)
 
-- **Makefile.** Add the test targets below. When a binding lands, also add
-  `src/game/em_script_door_fan.c src/game/em_script_door_fan_husk.c` to
-  `COMMON`.
-- **Rebinding.** `em_opening_runtime.c` case 20 (op14) and
-  `em_area11_bindings.c` (the rows 0x825940, 0x827490 and 0x823CE0, and
-  `tick_enemy_00825940`'s child spawn) are rebound as section 5 describes.
-  `EmScriptHostWorkers.w_001B0080` binds to the new adapter.
-- **Census.** Apply the corrections of 1.4 and the after-statuses of section 1
-  in the next classification pass.
-
-```make
-.PHONY: test-script-door-fan
-test-script-door-fan:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/script_door_fan_test.c src/game/em_script_door_fan.c src/game/em_script_door_fan_husk.c -lm -o build/script_door_fan_test && ./build/script_door_fan_test
-
-.PHONY: test-script-door-fan-reference
-test-script-door-fan-reference:
-	python3 tools/test_script_door_fan_reference.py
-```
+- **Makefile.** `src/game/em_script_door_fan.c` is in `COMMON`, and both
+  targets (`test-script-door-fan`, `test-script-door-fan-reference`) exist.
+  Add `src/game/em_script_door_fan_husk.c` to `COMMON` when the husk
+  binding lands.
+- **Rebinding.** Still to do as section 5 describes: `em_opening_runtime.c`
+  case 20 (op14, still the no-op stand-in; census 001BAC00 verified-unbound)
+  and `em_area11_bindings.c`'s husk rows 0x825940, 0x827490 and 0x823CE0
+  (and `tick_enemy_00825940`'s child spawn; census verified-unbound). Done:
+  `EmScriptHostWorkers.w_001B0080` is bound (em_camera_live, census L13..L16),
+  and the census has taken the corrections of 1.4.

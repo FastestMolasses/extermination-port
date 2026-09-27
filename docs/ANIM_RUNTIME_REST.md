@@ -141,8 +141,8 @@ One `EmAnimRest` for the game.
 | Slot | Bind to |
 |---|---|
 | `w_0011E748`, `sqrt_ctx` | `em_anim_rest_sqrt_0011E748` with the shared `EmSdkMathContext` (SDK_MATH_ORIGINAL.md section 7). The SDK doc's gate on sqrt sites is satisfied for this site: the argument is 1 plus a non-negative sum on every path, and the sweep (section 5) found no negative argument. |
-| `w_001D88B0` | The L32 lane's 001D88B0 (`em_lighting.c` "face lighting mode" today, census **unverified**). Until it is verified, bind nothing: 001C7900 then faults. |
-| `w_001CB760` | No translation exists (see census correction 1). Until L39 translates it, bind nothing: 001CAAC0 then faults. |
+| `w_001D88B0` | `em_frh_001D88B0` (em_frame_render_heads, FRAME_RENDER_HEADS.md; census verified-unbound, test_frame_render_heads_reference). Nothing binds it into this module yet: 001C7900 faults until the face-unit binder (Roger's 001CB3C0) wires it. |
+| `w_001CB760` | `em_packet_chain_w_001CB760` (em_packet_chain_original, PACKET_CHAIN.md; census live through em_render_context_live and em_effects_live). The adapter exists; this module's slot is not bound yet, so 001CAAC0 faults until its caller binds. |
 | `w_001CABA0` | The renderer boundary (001CABA0 builds GS packets; the census counts it as boundary). |
 
 **Live call sites and stand-ins replaced:**
@@ -159,7 +159,12 @@ One `EmAnimRest` for the game.
   and `em_anim_rest_001CB2C0(r, owner, 0x3F3, 0)`. What reaches the GPU
   today in their place is the native renderer (em_render_frame.c).
 - 001CAAC0 has two route callers: 001CABA0 (boundary) and the effect manager
-  001F6210 (lane L26, missing). Bind it into L26's translation.
+  001F6210, which is translated and live (em_effect_manager through
+  em_effects_live, EFFECT_MANAGER.md section 8), but its list loop, the path
+  that calls 001CAAC0, is bound NULL there (no AREA11 key has a model-sprite
+  list). So what still blocks binding 001CAAC0 is a live caller: the indicator
+  children's 001CACB0 -> 001CABA0 draw (OWNER_DRAW.md section 11). 001C7900
+  and 001CB2C0 wait on 001CB3C0 (above).
 - 001CACB0 is the draw method +0x4C of the indicator children (the 001CA5F0
   table entry 2; the owners 0x7ACBC0.., see ORIGINAL_FRAME_ORDER.md rows 39–48).
   The coordinator's method dispatch for 0x001CACB0 calls

@@ -8,7 +8,8 @@ Module: `src/game/em_actor_collision.{h,c}`, with query support added to
 Unit fixture: `tests/actor_collision_test.c`. Since census L07 (2026-09-24) the
 publication half is live through `src/game/em_collision_world.{h,c}` (section 7
 has what is bound and what waits); the query half (0019AB20, 0019BC40) is bound
-only into the gated FLOOR mechanism.
+into the player's FLOOR mechanism, engaged in AREA11 since the Boxes step
+(2026-09-24).
 
 ## 1. What the original does
 
@@ -328,11 +329,11 @@ retired, and the oracle compares the ground exactly.
 
 ## 6. Not translated (fail-stop or unbound)
 
-- **The horizontal walkers' pass 2.** `0019FE50` (the `0019AD00` move probes) is
-  translated (docs/COLL_MOVE.md) but not bound: its grid pass `0019CB60` and the
-  hull lock `001A6440` have no translation. The segment (`001A0B10`) and camera
-  (`001A1390`) walkers are translated (docs/COLL_SEGMENT_WALKERS.md); the camera
-  one is live (section 7).
+- **The horizontal walkers' pass 2** is no longer a gap: `0019FE50` (the
+  `0019AD00` move probes, docs/COLL_MOVE.md) with its grid pass `0019CB60` and
+  the hull lock `001A6440` (em_coll_grid_hull, docs/COLL_GRID_HULL.md) is
+  translated and live. The segment (`001A0B10`) and camera (`001A1390`) walkers
+  are translated and live (docs/COLL_SEGMENT_WALKERS.md).
 - The `D_00275B54/B58` list: nothing pushes to it in the translated code
   (`001B1CE0` has no translation; `001B17A0` reaches it only in D_00810CA5 mode 6
   for classes 2/7/8/0xA).
@@ -382,14 +383,14 @@ only; a scene without an original roster keeps em_collision.c).
      drums' (5, 6) are there when visible or within 50 units. The capture
      test compares all six records with route 04, and the last frame's list
      with beat 04's.
-   - **Truck #24, `0x825940`, the prop 001C4820 (not bound: L23, L24,
-     L35).** When those owners bind:
-     - the truck's `EmTruckHooks.hull` / `.hull_bounds` / `.publish` =
-       `em_actor_collision_owner_hull` / `_hull_bounds` / `_publish`;
-     - `0x825940` re-transforms with its bone-3 matrix.
-
-     The original publishes these every frame (uids 17, 14, 3). The port's
-     class-4 list lacks them until then.
+   - **Truck #24 (live since census L23) and the prop 001C4820 (live since
+     census section 1.25).** em_area11_boxes.c binds the truck's
+     `EmTruckHooks.hull` / `.hull_bounds` / `.publish` over
+     `em_actor_collision_owner_hull_bounds` and the world's 001A2370 /
+     001B1B70; the prop publishes through 001B17A0.
+   - **`0x825940` (not bound: L24).** When it binds, it re-transforms its cell
+     with its bone-3 matrix. The original publishes it every frame; the
+     port's class-4 list lacks it until then.
 4. **Player stage `w_0015BCF0` (live since the census L02 step,
    2026-09-24: FLOOR engaged in AREA11).** `em_collision_world_bind_player`
    (called by em_player_stage_live.c) binds the query half:
@@ -456,9 +457,10 @@ only; a scene without an original roster keeps em_collision.c).
      - `em_actor_collision_player_link_kind`, the climb's +308 kind (2 for
        behaviour 00828700/00827880, 1 other, 0 none).
 
-     FIRST_CONTROL.md "Live player states" has the binding and the gates that
-     keep FLOOR off (the collision prerequisites, 0019B6C0/0019B8C0 and the
-     EMCL node class included, are met since census L06/L07).
+     FIRST_CONTROL.md "Live player states" has the binding (FLOOR is
+     engaged in AREA11 since the Boxes step; the collision prerequisites,
+     0019B6C0/0019B8C0 and the EMCL node class included, are met since census
+     L06/L07).
    - `0015BA50` copies `+0x214` to `+0x308` and clears it, at its original
      position in each player stage.
    - `EmTruckWorld.ground_kind` = `&((EmActor *)D_008104C4)->param` (+0x0D),
@@ -467,8 +469,11 @@ only; a scene without an original roster keeps em_collision.c).
 5. **Makefile.** `src/game/em_actor_collision.c` (with the collision walkers
    and em_collision_world.c) is in COMMON since census L07; the
    `test-actor-collision` and `test-actor-collision-reference` targets exist.
-6. **Retire after binding.** The legacy `em_collision_moving_*` /
-   `em_collision_blocker_*` registries and the EMCL set-2 static walk
-   (em_collision.h marks them) still serve the port's own player movement
-   (em_player.c's probes: census L05 waits on 0019CB60 / 001A6440) and the
-   port's follow camera (L13); they go when those bind.
+6. **Retire.** The legacy `em_collision_moving_*` / `em_collision_blocker_*`
+   registries serve nothing live: only the em_collision.c self-tests register
+   into them, so in AREA11 they are always empty and em_player.c's carry and
+   push-out calls are no-ops (`em_game_legacy_collision_clears` in em_game.c
+   records this); they remain only for the scenes without an original
+   world. The EMCL set-2 static walk that em_collision.h also marks is not
+   covered by this note (the camera's walkers are live since census L13,
+   docs/COLL_SEGMENT_WALKERS.md).

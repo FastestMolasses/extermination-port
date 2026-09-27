@@ -286,10 +286,9 @@ Probe notes:
 
 ## 5. Open items for other lanes
 
-- `docs/SFX_PITCH.md` ("Current export (71 entries …)") and
-  `docs/SFX_SEQUENCER.md` ("71 entries") still give the old counts. The
-  current counts are 277 entries (259 audible, 16 absent, 2 unsupported)
-  and 141 samples. The census rows in `FIRST_LEVEL_AUDIT.md` /
+- `docs/SFX_PITCH.md` and `docs/SFX_SEQUENCER.md` now point here for the
+  counts (277 entries: 259 audible, 16 absent, 2 unsupported; 141
+  samples). The census rows in `FIRST_LEVEL_AUDIT.md` /
   `FIRST_LEVEL_CENSUS.md` that say "not in the exported registry (WP-14)"
   can now be closed: 0x12E, 0x74, 0x12B, 0xEC, the footsteps, 0x455, and
   the ladder's 0x107/0x10E/0x10F.

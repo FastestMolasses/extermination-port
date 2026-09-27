@@ -333,8 +333,9 @@ It was deleted when the indicator children were bound to this translation
 
 ## 4. Binding (coordinator)
 
-em_effect_kinds.c is in COMMON since the render + UI step (2026-09-25), for 001F54E0 only (4.5); nothing else here is bound. Section 5 gives the sources hunk. Each subsection names the call site, the stand-in
-the translation replaces, and the workers it needs.
+em_effect_kinds.c is in COMMON since the render + UI step (2026-09-25). The rows section 1 marks live are bound
+through em_effects_live (EFFECT_MANAGER.md section 8); the point-light list rows (4.4) are verified-unbound. Each
+subsection names the call site, the stand-in the translation replaces, and the workers it needs.
 
 ### 4.1 Handlers → `em_effect_original`'s `w_handler`
 
@@ -347,10 +348,8 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
   - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over
     the live D_00275670 and scratchpad 0x70003AC0, and a block that stands for D_0081F8F0. It has the same
     shape as the block `em_head_sprite_original_001CFA60` fills (`EmHeadSpriteOriginalXf`), but it is a
-    different function. **Blocked (Effects step, 2026-09-24):** no live code produced 0x70003AC0 or the
-    render-context block (EFFECT_MANAGER.md 5.0); since the render context step (2026-09-25) both exist
-    live (RENDER_CONTEXT.md section 8).
-  - **w_001CFBE0.** Bind it to `em_head_sprite_original_001CFBE0` (verified-unbound). Pass the adapter's
+    different function. Live through em_effects_live over the render context (RENDER_CONTEXT.md section 8).
+  - **w_001CFBE0.** Bound to `em_head_sprite_original_001CFBE0` (live through em_effects_live). It gets the adapter's
     D_0081F8F0 block as `xf`, the source by address (D_00256700 / D_002568B0 / D_00256940 / D_002569D0 /
     D_002565E0 / D_00256670, 0x90 bytes each from the ELF), `kind` = 1 and `copy`, with the frame's packet
     cursor.
@@ -426,32 +425,17 @@ docs/CENSUS_UNVERIFIED.md "001C5680 and 001C5760"):
 The instance is a stack `EmEffectKinds` with only these two workers: 001F54E0
 reads no tables or globals.
 
-## 5. Makefile hunks (for the lead; this lane does not edit the Makefile)
+## 5. Makefile
 
-Test targets:
-
-```make
-.PHONY: test-effect-kinds
-test-effect-kinds:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/effect_kinds_test.c src/game/em_effect_kinds.c -lm -o build/effect_kinds_test && ./build/effect_kinds_test
-
-.PHONY: test-effect-kinds-reference
-test-effect-kinds-reference:
-	python3 tools/test_effect_kinds_reference.py
-```
-
-Sources, when bound: add `src/game/em_effect_kinds.c` to `COMMON`. It needs `em_effect_original.h` (types only),
-so em_effect_original.c must be linked when the handlers are bound through it.
+`src/game/em_effect_kinds.c` is in `COMMON`; the targets are `test-effect-kinds` and
+`test-effect-kinds-reference`.
 
 ## 6. Limits
 
 - **Workers translated elsewhere.**
-  - 001F4D40 is L26 (em_effect_manager).
-  - 001D80B0 is L32 (em_frame_render_heads).
-  - 001CFBE0 is L39 (em_head_sprite_original).
-
-  None of them is bound live. The handlers and the markers also read the render-context views
-  (EFFECT_MANAGER.md 5.0), so they stay unwired until those exist.
+  - 001F4D40 is L26 (em_effect_manager), live through em_effects_live.
+  - 001CFBE0 is L39 (em_head_sprite_original), live through em_effects_live.
+  - 001D80B0 is L32 (em_frame_render_heads), verified-unbound.
 - **The 001CFB50 capture check** covers the last draw of each captured frame only (one per beat with a live
   puff); the sweeps cover the rest.
 - **Scripted worker results.** The oracle scripts the results of 0011DF78 (except under 001CFB50, where the

@@ -1,16 +1,19 @@
 # SDK float math: the boot ELF's sin/cos/tan/atan/atan2/sqrt
 
 Status: 2026-09-23 (landed with WP-5). A translation with an
-original-instruction oracle. One site is live: the status background
-0020A7A0 draws its sine through `em_sdk_math_original_float_0011E2A8`
-(`em_status_background_draw.c`), over the tables of the user's ELF
-exported by `tools/export_sdk_math_tables.py` to `assets/sdk_math_tables.emsm`
+original-instruction oracle, over the tables of the user's ELF exported by
+`tools/export_sdk_math_tables.py` to `assets/sdk_math_tables.emsm`
 (docs/STARTUP.md). The collision world (`em_collision_world.c`) holds the one
-shared SDK context, with the soft-float workers of SDK_SOFT_FLOAT.md bound
-since 2026-09-24, so 0011E620 atan2f and 0011E748 sqrtf are complete; its
-column and the gated FLOOR use it. The other sites are not wired; section 7
-is the binding recipe for them. The section 7 gate on the atan2f/sqrtf sites
-is lifted (option 1, section 7).
+shared SDK context (`em_collision_world_sdk`), with the soft-float workers of
+SDK_SOFT_FLOAT.md bound since 2026-09-24, so 0011E620 atan2f and 0011E748
+sqrtf are complete. It is live: the status background 0020A7A0 draws its sine
+through `em_sdk_math_original_float_0011E2A8` (`em_status_background_draw.c`),
+and the live consumers call it over that one context, among them the player
+closure and FLOOR (engaged in AREA11 since the Boxes step), the collision
+walkers, the camera (`em_camera_live.c`, `em_camera_follow_original.c`), the
+render context, the effects, the shadow, Roger, the door and the script
+host. Section 7 stays as the binding recipe for any site still unbound. The
+section 7 gate on the atan2f/sqrtf sites is lifted (option 1, section 7).
 
 Files:
 - `src/game/em_sdk_math_original.{h,c}`: the translation.

@@ -187,8 +187,8 @@ Tests are asset-free unless explicitly described as reference comparisons:
 
 ```sh
 make test-input test-task test-fade test-startup test-movie-export test-startup-audio
-make test-area11-flow test-collision test-script test-area11-opening
-make test-cinematic-camera test-opening-actor test-opening-media test-bgm-ticks
+make test-collision test-script test-area11-opening
+make test-cinematic-camera test-opening-actor test-opening-media
 make test-opening-runtime
 python3 tools/test_random_reference.py
 python3 tools/test_continue_reset_reference.py
@@ -288,12 +288,10 @@ approximations and must not be treated as original behavior.
 The previous “grate” was the original static switch panel. Its invented blocker
 and slide have been removed; the elevator body and two indicator meshes now use
 the original resource bindings. Roger's body was also mislabeled as a battery
-console, so that false pickup/examine placement has been removed. Original panel
-interaction scripts are still being connected. See docs/OPENING_SCENERY.md.
-
-Weather controller C is present as an isolated verified module:12,000 original
-instruction comparisons check state and random-call ordering. It is not yet
-connected to the frame loop, pending recovery of the original snow renderer.
+console, so that false pickup/examine placement has been removed. See
+docs/OPENING_SCENERY.md. The current status of the first level's owners
+(the panel, the weather node 001E55F0 and the snow among them, all live) is
+in docs/FIRST_LEVEL_AUDIT.md and docs/FIRST_LEVEL_CENSUS.md.
 
 The title audio sequencer preserves the original events, waits, pitches and
 sample data, but its current dry mixer does not reproduce SPU2 ADSR, Gaussian

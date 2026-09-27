@@ -201,8 +201,5 @@ exact scaling.
 
 ## 6. Makefile
 
-The make target `test-player-heading-record-reference` exists. When the
-binding chain wires the routine live, COMMON needs
-`src/game/em_player_heading_record.c` and, unless it is already there,
-`src/game/em_script_host_workers.c`. A private lane link of the live build
-with both added had zero warnings and no duplicate symbols (2026-09-24).
+The target is `test-player-heading-record-reference`;
+`em_player_heading_record.c` and `em_script_host_workers.c` are in COMMON.

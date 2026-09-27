@@ -439,11 +439,12 @@ Results (2026-09-23, third fix round):
   em_sdk_soft_float.c and em_effect_original.c added, build into the game
   binary with the game's flags without a warning (private lane build).
 
-## 4. Binding notes (for the coordinator)
+## 4. Binding (as built)
 
-**Bound since census L08 (2026-09-24):** items 1 (the retarget's ground query)
-and 4 (the nine hooks), through `src/game/em_collision_world.{h,c}`; items 2
-and 3 are not bound. What each translation replaces and what it needs:
+All four items are bound: items 1 (the retarget's ground query) and 4 (the
+nine hooks) through `src/game/em_collision_world.{h,c}` since census L08
+(2026-09-24), item 2 through the live ladder entry (the Boxes step) and
+item 3 since 2026-09-27. What each translation replaced and what it needs:
 
 1. **0019B7D0 / 0019E280 (bound for the retarget).** `interaction_camera_query`'s
    `ground_only` branch in `em_camera.c` is `em_collision_world_0019B7D0` when
@@ -455,19 +456,16 @@ and 3 are not bound. What each translation replaces and what it needs:
    `EmCameraFollowWorkers.ground` (em_camera_follow_original, same
    signature, exercised by the oracle) and, for the legacy camera, call
    `em_coll_list_passes_0019B7D0` there. Needs em_coll_probe_original.c.
-2. **0019BA80 / 001A3980 / 0019E930**: the only caller is 00176F90 (the
-   ladder attribute refresh, `em_player_ladder_entry`, not live). Its worker
-   `EmPlayerLadderWorkers.probe_0019BA80` needs an adapter that runs
-   `em_coll_list_passes_0019BA80(world, state, actor +0x14, actor +2, point,
-   box, mask)` and fills `EmPlayerLadderScratch`: s31B0 = state.point, record
-   = CELL / OTHER / NONE from state.record, s31D8 = the result, entity and
-   entity_0E from state.entity. The scratch's `record_bytes` (the whole
-   64-byte record 0x700031D0 names) cannot be filled from EmCollProbeState and
-   EmCollProbeGrid alone (the grid node's +0x18..+0x23 and +0x2C..+0x3F and
-   the cell record's other words are not carried), so that adapter must fault
-   on a read of a missing field rather than invent one. The live Use/ladder
-   code today uses `em_collision_segment_query`, which knows no 0x1E..0x59
-   attribute walk.
+2. **0019BA80 / 001A3980 / 0019E930 (bound, live).** The only caller is
+   00176F90 (the ladder attribute refresh, `em_player_ladder_entry`, live;
+   census). Its worker `EmPlayerLadderWorkers.probe_0019BA80` is
+   `le_probe_0019BA80` in em_player_closure_live.c, which runs
+   `em_coll_list_passes_0019BA80` over the collision world's one segment
+   state and reads the hit back from that state. The whole 64-byte record
+   0x700031D0 names cannot be filled from EmCollProbeState and EmCollProbeGrid
+   alone (the grid node's +0x18..+0x23 and +0x2C..+0x3F and the cell record's
+   other words are not carried), so a read of a missing field must fault
+   rather than invent one.
 3. **0019F330 (bound 2026-09-27).** `column_node` is gone from
    `em_collision.c`. `em_collision_column_finish` (0019BC40 pass 2, which
    `em_actor_collision_column_0019BC40` uses) calls the column math's `cross`

@@ -375,18 +375,10 @@ live for the player first. It is exact against the same original
 instructions, so either path is original. The record-owned path leaves only
 one clock and one bank.
 
-### 5.3 Makefile hunks (not applied: the record owns the player's pose, section 6)
+### 5.3 Makefile
 
-```make
-# COMMON: em_pose_chain.c and its one dependency. A private lane build with
-# these two added links with zero warnings; no live code references them yet.
-           src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_player_pose.c src/game/em_player_pose_host.c \
-+          src/game/em_pose_chain.c src/game/em_stream_lanes_original.c \
-
-+.PHONY: test-pose-chain-reference
-+test-pose-chain-reference:
-+	python3 tools/test_pose_chain_reference.py
-```
+`em_pose_chain.c` stays test-only (not in `COMMON`); `test-pose-chain-reference`
+exists. The record owns the player's pose (section 6).
 
 ## 6. The binding (display step, 2026-09-24)
 

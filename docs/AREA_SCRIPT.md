@@ -8,10 +8,10 @@ handlers those scripts use. Status: **live for the truck trigger 008251E0
 L22 (2026-09-24)** through the
 binder `em_area11_script_host` (section 6); the level smoke's
 `truck_preview` phase reproduces route 07 and its `roger` phase route 14
-row for row. The director's scripts (L21) are not bound yet: Roger's
-alternate script 0x828990, which writes the D_00810813 = 1 the director's
-beat 0 waits for, now has every worker it needs (DIRECTOR_ORIGINAL.md
-section 6).
+row for row. The director's scripts (L21) run through the same host since
+WP-8b (2026-09-25): the director is live at pool node #21
+(DIRECTOR_ORIGINAL.md). Roger's alternate script 0x828990 writes the
+D_00810813 = 1 the director's beat 0 waits for.
 
 ## 1. What it is
 
@@ -20,7 +20,8 @@ section 6).
 - Handlers that already have a verified native translation are **called**, not
   re-translated:
   - 001B82D0 (op07) subs 0/2/4/13 → `em_interaction_frame_command`;
-    subs 9–12 → `em_interaction_cinematic_command`. The host adapts them to
+    subs 9–12 → `em_interaction_cinematic_command` (INTERACTION_CINEMATIC.md).
+    The host adapts them to
     the canonical storage (load before, publish after, publish/reload around
     every worker call). Subs 1/3/7/8 are the module's 0/2 plus, at the module's
     scope-zero event (after the skip byte, before 001D2610, the original order),
@@ -258,11 +259,17 @@ sides; it makes no timing claim about the original services.
   them.
 - Not captured on the route (still lockstep-only): director beat 3 0x829E80,
   Roger 0x828810 / 0x828A10, and the skip paths (the route presses no skip).
-- 00182BF0, 001B0C00, 001B6250, 001B0460 and 001B1240 / 001B12B0 / 001B1380
-  are translated in `em_script_host_workers` (SCRIPT_HOST_WORKERS.md) but
-  not bound to this host yet: only the director's and Roger's scripts reach
-  them. 001DFE10 / 001DFE40 (the manager callbacks) and Roger's sub-owners
-  00823910 / 00823B70 / 00823C40 remain.
+- The `em_script_host_workers` translations (SCRIPT_HOST_WORKERS.md) are
+  live (census): 00182BF0 through this host (op16, L22), 001B1380 through its
+  w_001B1380 (op15), 001B0460 and 001B1240 through em_camera_live, 001B12B0
+  through em_player_slide and 001B6250 through em_pad_actuator (L23).
+  001B0C00 is bound to this host (`w_001B0C00`, the skip landing) but has no
+  census row: the route presses no skip. Roger's 00823910 / 00823B70 are live
+  in em_roger through em_area11_roger (L22); his departure 00823C40 (script
+  0x828A10) is translated in the same tick and bound, but not on the route.
+  001DFE10 / 001DFE40 (the manager callbacks 0x825900 / 0x825920) have no
+  translation and no census row; the manager 008257A0's scripted state 1 is
+  untranslated and faults if reached (no AREA11 capture reaches it).
 - Script images: `roger/programs.emsc` (0x8283D0..0x828BD0), `elevator.emsc`
   (0x82A750..0x82AB10), `panel/scripts.emsc`, and since the script host
   workers lane `area11_scripts/scripts.emsc` (0x8292C0..0x82A3C0: the truck
@@ -355,8 +362,7 @@ owner's script holds the shared player takeover (Roger's 0x828990 inside
 the director's 0x8294C0, route 10 f1094) does not claim it again
 (`em_area11_interaction_host_script_held`): 0015B130's admission reads
 0x70003B8D, not the owner. `em_area11_script_host_director_quads` hands the
-director its three quads. Only the director verification run reaches these
-today (the director is not bound until WP-8b).
+director its three quads.
 
 **Census L18 (the fence door 001BC350, 2026-09-25; DOOR_ORIGINAL.md
 "Binding").** The host resolves starts in 0x24DBC0..0x24DF80 to the ELF's

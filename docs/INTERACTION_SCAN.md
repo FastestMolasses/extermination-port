@@ -3,9 +3,11 @@
 `em_interaction_scan.c` translates the original single-winner use scan,
 elevator predicate, pickup predicate and camera publication gate. The local
 EMIS exporter/loader keeps all eleven initial interactive owners identifiable,
-including the distant door and Roger. Live game bindings remain a separate
-integration step; these helpers do not make the legacy pickup collection or
-generic examine controllers faithful.
+including the distant door and Roger. Live, the AREA11 interaction host
+(`em_area11_interaction_host.c`) runs the scan at the player's Use poll over
+the collision world's published list, which holds the panel, the terminal,
+the items, Roger (census L22) and the fence door (census L18); the census
+rows 00183EF0 / 00184BA0 are live.
 
 ## Evidence and verification
 
@@ -154,6 +156,17 @@ or dynamic owner identity mapping is complete. Missing required workers
 return -1; the host adapter must raise its concrete failure and never pass
 that -1 into the general scan as a successful predicate.
 
+`em_interaction_scene_scan_checked` (the host's entry) refreshes each
+canonical owner's live status, class flags and armed byte in published order
+and runs the scan on temporary armed bytes. A native predicate result of -1
+means a missing required worker, not an eligible original actor: it commits
+no arm or scan state, and the caller stops the dispatch. Global gates leave
+the prior score untouched and evaluate no owners. Valid predicate results
+keep score writes on rejected candidates, first-winner ties and an immediate
+result 2. The scene regression injects the failure at every position of the
+actual 11-owner list (including after an earlier eligible candidate) and
+checks that no owner is armed.
+
 Action2D accepts only class7 and uses a separate mode6 ray from player+1Y,
 material flag2000, normalized camera-target/item directions and original
 distance/dot thresholds. It returns2 and leaves the planar score unchanged.
@@ -161,7 +174,20 @@ distance/dot thresholds. It returns2 and leaves the planar score unchanged.
 ## Door and Roger follow-up boundaries
 
 Both can become competitors when approached. Neither is silently omitted
-from the metadata. Their complete game controllers still need bindings.
+from the metadata. Both are bound live: the fence door through
+`em_area11_door` (census L18; its 001BC300 publishes the door through
+001B1B30 for the next frame's scan) and Roger through `em_area11_roger`
+(census L22, predicate `em_roger_candidate`).
+
+The door's predicate is `em_door_candidate`, 00183EF0's selector-0 class-5
+branch. For subtypes 3 and 0x15 the distance is measured from the doorway
+centre shifted by the original sine/cosine; the front/back bearing is still
+measured from the owner origin. A radius success publishes the planar score
+before the height and facing tests, even when either later rejects. The
+final facing window is pi/4, and action 0x2D rejects the class before the
+door branch. `tools/test_door_candidate_reference.py` executes the original
+predicate and SDK bodies for 3,725 cases, 75 of them on the real AREA11
+placement and descriptor; return values and the shared score bits agree.
 
 The first door is class5/subtype3/selector0. Its candidate point is shifted
 by the authored door angle, and its two-sided facing gate is distinct from

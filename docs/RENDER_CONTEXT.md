@@ -314,17 +314,12 @@ uses a0 = 0).
 **001D2300** (L31, reached from `gs_readback_queue_run`).
 - Bind `em_render_context_001E0DF0` at its call.
 
-**001DD980**, the live `em_interaction_projection_publish`
-(`em_interaction_projection.c`). This is a stand-in for the 001DD950 part:
-- it stores the target's xyz with w = 1 at +0x2450;
-- the original copies the whole quadword at a0 (D_008105E0), w lane
-  included. Its w is 1.0 in the captures, but it is not forced.
-- it computes the +0x2460 quotient in host double arithmetic, where the
-  original uses DIV.S (em_ee_div_bits).
-
-Replace the store half with `em_render_context_001DD950(s, 0x008105E0,
-bits(2 + 1.02 * d), bits(d))`. The distance d still comes from 001DD980,
-which is live and verified elsewhere.
+**001DD980** (done). `em_interaction_projection_001DD980`
+(`em_interaction_projection.c`) computes the distance half, and its callers
+(em_camera_live.c, the interaction host) run the store half as
+`em_rcl_001DD950(0x008105E0, bits(2 + 1.02 * d), bits(d))`, the render
+context's 001DD950 (census live). The former stand-in store (xyz with a
+forced w = 1, a host-double quotient) is gone.
 
 **001D2830**, the flag setter, called from many owners.
 - For a0 in 0x20..0x3F it is 001E0C80. Bind `em_render_context_001E0C80`

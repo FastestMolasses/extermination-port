@@ -174,7 +174,8 @@ typedef struct {
     int (*w_001CB5F0)(void *ctx, uint32_t a0, int32_t id, int32_t count, uint8_t **out);
     /* 001CB6B0(a0, id, count, address): reference tag to `address`. */
     int (*w_001CB6B0)(void *ctx, uint32_t a0, int32_t id, int32_t count, uint32_t address);
-    /* 001CB760(a0, id, tbl, ent). */
+    /* 001CB760(a0, id, tbl, ent). 001CB760 never reads `ent` (the fourth
+     * argument register); the adapter em_packet_chain_w_001CB760_4 drops it. */
     int (*w_001CB760)(void *ctx, uint32_t a0, int32_t id, uint32_t tbl, uint32_t ent);
     /* 001CB900(a0, id, mode). */
     int (*w_001CB900)(void *ctx, uint32_t a0, int32_t id, int32_t mode);

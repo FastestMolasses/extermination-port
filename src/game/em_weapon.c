@@ -144,8 +144,9 @@
  * Survivors insert into the table sorted by the step-2 distance
  * (E0 <= E4 <= E8, nearest first). The engine tail also draws reticle
  * markers (func_001DD170 — lock-on: E0 only; manual: all three
- * slots): UNTRANSLATED (the port has no marker sprite pass; flagged
- * in PORT_DIFFERENCES H3). */
+ * slots): UNTRANSLATED (the port has no marker sprite pass; the
+ * decomp's FINDINGS.md "AUTO-AIM FULLY DECODED" section 1 has the
+ * reticle-marker call and section 5 flags it). */
 #define WPN_AIM_GS_X    256.0f  /* NDC -> GS-center px, x (half-width)     */
 #define WPN_AIM_GS_Y    168.0f  /* NDC -> the engine's 1.5-scaled y        */
 #define WPN_AIM_BOX_X   66.0f   /* manual cone: |sx| <= 66 + 50*s          */
@@ -1094,7 +1095,8 @@ static int weapon_viewproj(float m[16])
  * tick, exactly the engine's state-2 call. The port runs the MANUAL
  * box cone (aim option D_00810CA4 = 0, the engine default — the
  * lock-on option's radial cone is documented above, not selectable
- * yet: PORT_DIFFERENCES H16). */
+ * yet; the aim option D_00810CA4 is in the decomp's FINDINGS.md
+ * "WEAPON SYSTEM" section 1 and docs/PLAYER_EQUIPMENT.md). */
 static void weapon_acquire(const EmCollision *coll, const float pos[3],
                            float yaw)
 {
@@ -1292,7 +1294,8 @@ static void laser_update(const EmCollision *coll, const float pos[3],
  *    index that died inside the one-frame fire-event latency is
  *    dropped. NO TARGET: muzzle + dir*4.5 (WPN_BULLET_FREE — the
  *    engine's un-locked leg; CORRECTED from 260). (Lock-on option 1
- *    always shoots E0 — not selectable yet, PORT_DIFFERENCES H16.)
+ *    always shoots E0 — not selectable yet; D_00810CA4 in the decomp's
+ *    FINDINGS.md "WEAPON SYSTEM" section 1 and docs/PLAYER_EQUIPMENT.md.)
  * 2. One world segment query (mask 7, id 0x20).
  * 3. VICTIM TEST before crediting the world hit: the segment against
  *    every live enemy's hit sphere (em_enemy_ray_test); the NEAREST of

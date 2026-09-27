@@ -269,14 +269,8 @@ at the crates entering the ledge climb. The climbs equal route 05 row for row
 
 ## 5. Makefile
 
-The coordinator adds the test target (this lane does not edit the
-Makefile):
-
-```
-.PHONY: test-player-use-dispatch-reference
-test-player-use-dispatch-reference:
-	python3 tools/test_player_use_dispatch_reference.py
-```
+The target is `test-player-use-dispatch-reference`; `em_player_use_dispatch.c`
+is in COMMON.
 
 ## 6. Limits
 

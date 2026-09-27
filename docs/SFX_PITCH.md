@@ -124,18 +124,13 @@ The loader rejects the following:
 - duplicate scopes;
 - trailing bytes.
 
-## Current export (71 entries: 68 audible, 3 absent, 0 unsupported)
+## Current export
 
-- **Formerly unsupported, now audible:** 0x452/0x453 (elevator: 145 ticks,
-  6 key-ons, portamento on the two looping motor tones, 2 key-offs), 0x413
-  (flame: looping tone keyed on and off in one flush) and 0x14D (looping
-  tone keyed off after 29 ticks). See `docs/SFX_SEQUENCER.md`.
-- **Absent:** 0x3EE in 11.0, and 0x7D8/0x3F2 in 2.1. The legacy registry
-  borrowed 0x7D8/0x3F2 through `gen_sfx_registry`'s region fallback. In 2.1
-  the original remap is FF, so they now play nothing.
-- **Key-offs:** every velocity-0 A0 event is a key-off operation.
-  `001176E0` matches only sustained (voice `+0x0C`) voices at run time, so
-  key-offs of one-shot tones find nothing.
+The first-level export and its per-entry status are in
+`docs/SFX_REGISTRY_FIRST_LEVEL.md` (it supersedes this lane's 71-entry
+export). **Key-offs:** every velocity-0 A0 event is a key-off operation.
+`001176E0` matches only sustained (voice `+0x0C`) voices at run time, so
+key-offs of one-shot tones find nothing.
 
 ## Boundaries (not reproduced, not claimed)
 
@@ -157,7 +152,10 @@ The loader rejects the following:
   starts at the first audio callback after the driver was idle, so a
   first play has no wait; later plays wait for the next tick, as in the
   original.
-- **Voice allocation.** Translated (`00117428`, verified). The initial
+- **Voice allocation.** Translated (`00117428`, verified). The original
+  never steals an SFX voice: `00119EA0` refuses a 49th concurrent track
+  (`em_sfx_drops()`) and `00117428` refuses key-ons past 44 busy voices
+  (`em_sfx_voice_refusals()`), so `em_sfx_steals()` is always 0. The initial
   allocation cursor and key-on serial are 0 at boot; the captures only
   show later values.
 - **Mono option.** `D_0027F778` (and `D_0028215B` in `001FBF50`) is not
@@ -165,30 +163,6 @@ The loader rejects the following:
 - **Office scope (2.1).** It comes from the `gen_sfx_registry` preset and a
   script-coverage region match (`chunk04.n0`, coverage 1.0, not unique).
   There is no capture, so these entries are not executed.
-
-## Effect on existing port behaviour
-
-- **`EM_SFX_TEST` (suite self-test) now FAILs.** It plays 0x162, 0x164
-  and 0x7D8 without binding a scope and requires 63 plays. 0x7D8 is
-  area-dependent: it resolves through the `001FB9F0` area remap and was
-  exported only for 2.1, where it is FF (absent). With no scope it is
-  refused as unscoped, so the run gives 62 plays and FAIL. The legacy
-  `sfx.txt` mapped 0x7D8 to a region-fallback WAV, which is why the test
-  used to pass. The self-test lives in `em_game_selftest.c`, which is
-  coordinator-owned. The fix is to replace the third id with a global
-  (-1,-1) audible id such as 0x165 and to assert that 0x7D8 is
-  unavailable without a scope. It was checked in a private build: 63 plays,
-  PASS.
-- **`EM_SFX_TEST` voice-steal expectations are obsolete.** The self-test's
-  60-play burst expects 12–15 oldest-voice steals and no drops. The
-  original never steals an SFX voice (`00117428`) and refuses a 49th
-  concurrent track (`00119EA0`), so `em_sfx_steals()` is now always 0 and
-  the burst is counted in `em_sfx_drops()`/`em_sfx_voice_refusals()`
-  (`docs/SFX_SEQUENCER.md`).
-- **Enemy death sound 0x7D8 is silent in the office.** `em_enemy.c` plays
-  it through `em_sfx_play_at` in two places. With no scope bound it is
-  refused as unscoped. With 2.1 bound it is original-absent. It is audible
-  only if the office turns out to be 2.0, which would need a 2.0 export.
 
 ## Binding
 
@@ -198,7 +172,6 @@ The loader rejects the following:
 
 - AREA11 must be bound as (11,0). This call already exists in the AREA11
   interaction host.
-- The office scene must be bound with its real sub-area.
 
 Until a scope is bound, area-dependent ids are refused, counted in
 `em_sfx_unscoped_cues`, and reported once on stderr. Global group-1 ids play

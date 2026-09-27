@@ -293,17 +293,17 @@ capture 81 s; the rest about 4 min.
 - **The app.** It does not compile em_player_climb.c or em_player_slide.c
   yet, so COMMON needs nothing until FLOOR is bound.
 
-## 6. What binding still needs
+## 6. Binding status
 
-- **The coordinator's closure binder** (em_player.c,
-  `player_states_bind`) must fill `EmPlayerClimbLive` / `EmPlayerSlideLive`
-  as in section 3, and the fall's EmPlayerLandWorkers `test_001755B0` /
-  `test_0017F320` / `pose_clip` with the record entries (one
-  `EmPlayerRecordHelpers` and the one `EmPlayerLandScratch`).
-- **FLOOR's other blockers** are unchanged by this lane: the move walkers'
-  grid pass 0019CB60 and hull lock 001A6440 (census L05), and the live
-  effect owner for 001EFD90 (L26).
-- **Duplicate translations elsewhere, left alone** (not this lane's files):
+- **Bound** in `em_player_closure_live.c` since the Boxes step (2026-09-24):
+  it holds the one `EmPlayerRecordHelpers` and binds the climb / slide live
+  views and the fall's `test_001755B0` / `test_0017F320` / `pose_clip` to
+  the record entries (section 3).
+- **FLOOR's former blockers** are live: the move walkers' grid pass
+  0019CB60 and hull lock 001A6440 (em_coll_grid_hull, census L05) and the
+  effect owner for 001EFD90 (em_effects_live, L26).
+- **Duplicate translations elsewhere, left alone** (not this lane's files;
+  still present after the 2026-09-27 duplicate reduction):
   - em_player_floor.c's `em_player_sdk_*` (old model) are duplicates of
     the SDK owners;
   - em_player_recovery.c translates 001B1470, 001026A0, 001028B8 and

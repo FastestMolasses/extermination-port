@@ -1,8 +1,11 @@
-# The seven unverified census rows, checked against the original
+# Seven once-unverified census rows, checked against the original
 
 Date: 2026-09-24. Scope: the seven rows `docs/FIRST_LEVEL_CENSUS.md` (recount
-2026-09-24) marks **unverified**: 0015AC00, 0015CF90, 001B1190, 001C5680,
-001C5760, 001CF470 and 0020DFA0.
+2026-09-24) marked **unverified**: 0015AC00, 0015CF90, 001B1190, 001C5680,
+001C5760, 001CF470 and 0020DFA0. Current census status (2026-09-27):
+0015AC00, 001C5680, 001C5760, 001CF470 and 0020DFA0 are **live**; only
+0015CF90 and 001B1190 are still **unverified** (see "Census status" at the
+end).
 
 Test: `tools/test_census_unverified_reference.py`. The default run takes about
 5 s; `EM_TEST_FULL=1` takes about 11 s. The test runs each original routine
@@ -52,12 +55,12 @@ scratch copies of `src/` (the live tree was not touched):
 | Row | Verdict | First-level impact | Fix for the chain |
 |---|---|---|---|
 | 0015AC00 | **verified**, live since the owners step (em_pickup_owner_0015AC00 over the map item's record: scale, colour, bind, 001C6380, 001F1110; test_pickup_owner_reference executes it call for call) | none today | optional: em_pickup's legacy instances of 00219550 items keep scale 1.0 (they no longer draw a bound owner) |
-| 0015CF90 | **verified** except the compare model | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
-| 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
+| 0015CF90 | **verified** except the compare model; census still unverified | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
+| 001B1190 | **verified** (areas 0..0x16, capture 00→01); census still unverified | none | none needed for AREA11 |
 | 001C5680 | **verified**, live per node (em_indicator_child); its bind 001C2360 and placement 001C6380 are the translations since the status UI step (em_indicator_bind_live) | none: every child draws its 001F54E0 in walk order | the children's own model draw (OWNER_DRAW.md P1) |
 | 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live; bind 001C22A0 / placement as 001C5680; the terminal's 0x827E6C copy into its slot is live (the owners step) | none (red in the refusal, green once powered, as routes 02 and 04) | the +0x4C draw 001CABA0 (a stand-in) |
 | 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired; live since census L29 (em_shadow_live, FIRST_LEVEL_CENSUS.md section 1.20) | the decal draws on the route (beats 02, 04, 05, 08) | none |
-| 0020DFA0 | **verified**: every callee runs on the CONFIGURE path since the status UI step (2026-09-26) | none | none |
+| 0020DFA0 | **verified**, live: every callee runs on the CONFIGURE path since the status UI step (2026-09-26) | none | none |
 
 ## 0015AC00 (the 0015AFA0 owner's state 0)
 
@@ -409,18 +412,17 @@ touches, so the world's fog is the original's again from that frame on.
 constant, with a stand-in note for the four callees above. Its module column
 should name the host's CONFIGURE case.
 
-## Census corrections this implies
+## Census status
 
-- 001CF470: unverified → **missing** (module: none).
-- 001CE300: verified-unbound → **missing**. Its only test records the call.
-- 0015AC00: unverified → live. Module: `em_area11_interaction_host_pickup_state0`,
-  plus em_pickup.c's scale.
-- 0015CF90: unverified → live, once the `em_ee_c_le` fix lands. It is
-  verified for every reachable input already.
-- 001B1190: unverified → live.
-- 001C5680: unverified → live with a stand-in note (the missing 0x7A draw;
-  the bind and placement workers; the cull).
-- 001C5760: unverified → live with a stand-in note (the bind and placement
-  workers; the cull).
-- 0020DFA0: unverified → live with a stand-in note (0020E020, 0021BAC0 and
-  0021B9A0 not run; 001D2610 with its 0021B970 runs on the render context).
+The corrections this check suggested for 0015AC00, 001C5680, 001C5760,
+001CF470 and 0020DFA0 are applied: the census has all five live. Two rows
+are still **unverified** there:
+
+- 0015CF90: the census row says no oracle it counts executes 0015CF90, and
+  the `em_ee_c_le` fix above is not applied (em_player_frame.c still compares
+  health natively). This check found it verified for every reachable input;
+  it becomes live once the fix lands and the row takes this test's evidence.
+- 001B1190: the census row counts only test_pickup_owner_reference, which
+  hooks 001B1190 instead of executing it. This check executes it (verified,
+  with the latent area > 0x16 divergence above); the row has not taken this
+  test's evidence.

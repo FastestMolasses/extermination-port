@@ -188,23 +188,11 @@ entry), ...)`: the trigger 008251E0 uses 0x8292C0, the director 008253F0 uses
 `em_area11_scripts_director_quads(&s, world.quad)` to `em_director_original`.
 The images are mutated in place (section 2), so reload them for every visit.
 
-### Makefile (the lead edits; not edited here)
+### Makefile
 
-```make
-.PHONY: test-script-host-workers-reference
-test-script-host-workers-reference:
-	python3 tools/test_script_host_workers_reference.py
-
-.PHONY: test-script-host-workers
-test-script-host-workers:
-	@mkdir -p build/script_host_workers
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/script_host_workers_test.c src/game/em_script_host_workers.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c src/game/em_script.c -o build/script_host_workers/script_host_workers_test
-	build/script_host_workers/script_host_workers_test build/script_host_workers
-```
-
-When the module is bound, add `src/game/em_script_host_workers.c` and
-`src/game/em_player_stage_workers.c` to `COMMON` if the latter is not there
-yet. A private build of COMMON plus both files links with zero warnings.
+`em_script_host_workers.c` and `em_player_stage_workers.c` are in `COMMON`;
+the targets are `test-script-host-workers-reference` and
+`test-script-host-workers`.
 
 ## 4. Verification
 

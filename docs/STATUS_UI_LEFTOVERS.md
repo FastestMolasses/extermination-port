@@ -353,16 +353,10 @@ saves bind where their callers are translated (001D8FD0 -> 0021B8E0; 0020DFA0
 0021B9A0 -> 0021B900) on the port's single mirror of the *(D_00275670)
 block, with `block_copy` a 32-byte move inside it.
 
-### Makefile hunk (test target; the lead applies it)
+### Makefile
 
-```
-.PHONY: test-status-ui-leftovers-reference
-test-status-ui-leftovers-reference:
-	python3 tools/test_status_ui_leftovers_reference.py
-```
-
-When bound, add `src/game/em_status_ui_leftovers.c` to `COMMON`. A private
-full build with it appended (lane `b7-status-ui-leftovers`) has zero warnings.
+`src/game/em_status_ui_leftovers.c` is in `COMMON`; the target is
+`test-status-ui-leftovers-reference`.
 
 ## 4. Limits
 

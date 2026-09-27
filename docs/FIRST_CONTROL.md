@@ -587,17 +587,18 @@ mechanism still lacks; in AREA11 it lacks nothing):
   001EF9D0 node view is not bound, and only the hit and death paths call it
   (EFFECT_MANAGER.md 8.2).
 - **Stand-ins that remain.**
-  - D_008106A0 (the camera heading the misc lane reads) is the SDK atan2 of
-    the port camera's forward (L13, the camera lane).
-  - The port's own idle / walk callbacks keep +5 = 0 / 1 until L12 binds
-    00161020 / 001612D0.
-  - The interaction runtime stands in for the scripted takeover (0015B130's
-    prelude writes on admission, PLAYER_USE_DISPATCH.md section 4).
+  - The interaction runtime still stands in for the takeover of the panel,
+    the terminal and the items (0015B130's prelude writes on admission,
+    PLAYER_USE_DISPATCH.md section 4). A script owner's frame (the
+    director, Roger, the truck trigger, the fence door) is the stage's own
+    takeover since chain C7 (PLAYER_STAGE_WORKERS.md "The takeover").
+  - No longer stand-ins: D_008106A0 is read from the live camera block
+    (`em_camera_live_bytes`, census L13), and idle / walk are 00161020 /
+    001612D0 (em_locomotion_display, census L12).
 
-- **Outside AREA11** (the office / drawbridge fixtures, no original
-  collision world) the closure is not bound, so FLOOR and USE stay gated
-  there. A port enemy hit still goes through 0021C440 into the unbound
-  +4 = 2 states and quits, as it has since L01. No AREA11 owner posts a hit.
+- **Outside AREA11** (scenes without an original collision world, outside
+  the first level) the closure is not bound and FLOOR / USE stay gated. No
+  AREA11 owner posts a hit.
 
 **Evidence of the engagement** (level smoke, all live phases PASS against
 the captures):

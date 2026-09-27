@@ -201,7 +201,7 @@ exporter also executes the `001FCA10` mode-4 presenter
 captured RAM, so the ten group-0 help lines are original tall-font calls,
 split per line 12 GS half-lines apart, in style `0x606060`.
 
-The earlier uncommitted header was corrected against the original code:
+Facts read from the original code:
 
 * The UI+20 clock is shared status UI state, not page state. `00208AD0`
   also runs from `0020AE40` pages with flag 8 (`002160B0`), and only the
@@ -210,10 +210,9 @@ The earlier uncommitted header was corrected against the original code:
 * The trail is the shared `D_00821300` ring and `D_00275C90` cursor. It
   is reset by `0020E020` on hub (`0020CDC0` step 0), ITEM (`0020EE50`) and
   other page entry (`00211970`, `0020DFA0`). The caller passes it too.
-* The proposed background layer was removed. `em_hud_background_sprite`
-  was not a verified `0020A7A0` (it is deleted since WP-5); the translated
-  `em_status_background` is the hub's EM_STATUS_HUB_BACKGROUND worker when
-  this hub is bound.
+* There is no separate background layer. The translated
+  `em_status_background` (0020A7A0) is the hub's EM_STATUS_HUB_BACKGROUND
+  worker; the unverified `em_hud_background_sprite` is deleted since WP-5.
 
 Reference check: `python3 tools/test_status_hub_ui_reference.py`
 compares 167 prepared streams (19,968 ordered calls) with original
@@ -231,7 +230,10 @@ lifecycle, atlas invalidation, rejected display values (including the
 inherited-TEX0 selector) and injected font/texture/triangle failures, all
 latched.
 
-Boundaries: SDK transcendental values (host libm on both sides), byte
+Boundaries: SDK transcendental values (the reference check uses host libm on
+both sides; live, the AREA11 interaction host binds the hub's `EmItemMath`
+through `em_item_sdk_math_bind`, the SDK sine / cosine / sqrt translation on
+the EE model with the interaction scan's SDK atan2, ITEM_SDK_MATH.md), byte
 string copy/append/length/memset workers, glyph metrics, one-GS-pixel
 marker line coverage and final GS/Metal pixels. Metal flushes glyphs after
 all decor, so text is composited above sprites the original submits after

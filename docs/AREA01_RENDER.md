@@ -1018,9 +1018,10 @@ call 0 (actor byte +7 differs at entry).
   callee on a private stack at 0x7F000000, outside both compared regions.
   On the EE, crt0 (`_start`, decomp `src/_start.c`) gives the main thread
   the 1 MiB below 0x01F00000 through SetupThread. The other CreateThread
-  users found (func_0010C648's alarm thread, whose stack is the RAM block
-  D_00276890, and func_00111740, which takes its stack as an argument) are
-  SDK threads. The equivalence arguments below that rest on a callee's
+  users found (func_0010C648, which creates, starts and reprioritises a
+  thread (CreateThread, StartThread, ChangeThreadPriority, GetThreadId)
+  whose stack is the RAM block D_00276890, and func_00111740, which takes
+  its stack as an argument) are SDK threads. The equivalence arguments below that rest on a callee's
   stack stores assume that the thread running these routines has its
   stack in main RAM, away from the scratchpad and the words the routine
   reads back: `N_070_return_cached` and `N_frame_state_hoist`.

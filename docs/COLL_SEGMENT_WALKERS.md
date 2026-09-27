@@ -136,7 +136,7 @@ and store. All EE COP1 and VU0 macro arithmetic goes through `em_ee_float.h`.
 - 001A0B10, 001A50A0, 0019D330, 0019D770: the C agrees with the .s (names
   aside: its lo/hi box names are swapped).
 
-## 3. Binding (coordinator)
+## 3. Binding (as built)
 
 **Live since census L06b (2026-09-24):** the collision world
 (`src/game/em_collision_world.{h,c}`) holds the one `EmCollProbeState`, the
@@ -150,10 +150,15 @@ item ray (the interaction host's `pickup_ray`, the `EmInteractionRaycast`
 slot: `hit` = result != 0, `flags` = the record's +0x1A halfword, `kind` =
 the result, `owner` = the hit owner's record, which the item's identity
 matches when the ray ends in its own published cell). The installed EMCL
-carries the rank section (flags 7). Not bound yet: 0019A570 and its walkers
-(the climb, the ledge catch, the drum and the shadow are not bound), the
-port's follow camera (L13; it still queries em_collision.c) and the lock
-workers 001A6440 / 001A6AD0 (untranslated). Evidence for the live binding:
+carries the rank section (flags 7). 0019A570 is live too (census): the
+player closure's segment worker (`w_segment_r` in em_player_closure_live.c:
+the climb, the ledge catch, the recovery and the ladder entry) and the
+shadow (em_shadow_live.c); the drum's break test (00156620, mask 4) is still
+reported unbound in em_area11_boxes.c. The camera walker
+001A1390 is live, and the lock workers 001A6440 / 001A6AD0 are translated in
+em_coll_grid_hull (docs/COLL_GRID_HULL.md), bound with no chain reader since
+no AREA11 owner the port runs publishes class 2. Evidence for the first
+live binding:
 `tools/test_camera_interaction_fixture.py` runs the retarget over the
 captured scene's own cell directory and published class-4 list and matches
 the panel and refusal captures (the refusal's overhead point is now exact),
@@ -195,9 +200,9 @@ view of an EMCL with flags 7, installed since census L07).
   mask 6; em_camera_probe.h is retired): the result and
   `em_coll_segment_hit` give the point, the record +0x1A halfword and +0x24
   normal the camera reads.
-- The shadow's 0015BF90 route (mode 6, then the point and record +0x24) is
-  still untranslated in em_shadow_original; `em_coll_segment_hit` supplies
-  what it reads.
+- The shadow's 0015BF90 route is translated and live
+  (em_shadow_actor_route through em_shadow_live, census L29), which calls
+  `em_coll_segment_0019A570`.
 
 **Workers still open.** 001A6440 and 001A6AD0 (the hull locks, mask bit 0):
 with `workers` NULL a query with bit 0 faults. The camera's mode-2 queries

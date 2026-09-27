@@ -168,7 +168,16 @@ shade is bounded by 32 + |74*d1 + 38*d2|, about 108, which is below 128.
 
 ## Caller contract (`em_gfx.h`, owned by the render coordinator)
 
-This contract is proven equal to the original above but not yet wired:
+This contract is proven equal to the original above but is not wired into
+`char_rig_build`. Since the owner-draw steps (2026-09-25/26) the bound
+AREA11 owners do not use it: the crates, drums, truck, fence door,
+terminal/elevator, panel, placed prop, items, the parachute canopy, the
+player and its equipment nodes light through the translated 001D89D0 on the
+object-unit path (OWNER_DRAW.md, ACTOR_LIGHT_001D89D0.md). The owners that
+OWNER_DRAW.md section 11 lists as not on that path yet (Roger, the fan pair,
+the husks, the player during the opening) draw port meshes; where such a
+draw takes a rig, and for the status-menu player, it is `em_render_frame.c`'s
+`char_rig_build`, which the points below describe:
 
 1. Slot 0 is zero unless actor+2 bit 0x20 is set.
 2. The fold runs only when `em_lighting_fold_gate(type, radius)` passes.
@@ -178,8 +187,9 @@ This contract is proven equal to the original above but not yet wired:
    rig currently uses identity RGB.
 5. Each vertex is lit with its own node's matrix.
 
-With today's wiring, the report measures these maximum differences: item
-0B 162, husk partner 17, door 14, truck 5 and parachute 2 GS units.
+On the `char_rig_build` path, the report measures these maximum differences:
+item 0B 162, husk partner 17, door 14, truck 5 and parachute 2 GS units (the
+item, door, truck and parachute now draw through 001D89D0 instead).
 
 ## Limits
 
@@ -189,11 +199,9 @@ With today's wiring, the report measures these maximum differences: item
   differs too. It needs a per-node palette from its owner.
 - **Gibs and the global office crate.** They were relit with verified
   geometry, but they are not present in any capture.
-- **Rig-less scenes.** `assets/scene` and `scene_office0` have no rig
-  lines, so their actor draws are now rejected. That includes the player
-  and the status-menu turntable, whose fallback fill depended on the
-  deleted exception. `export_level.py --lightrig` for (2,1) and (2,0)
-  restores the original rigs, but it also emits their fog records.
+- **Rig-less scenes** (`assets/scene`, `scene_office0`; outside the first
+  level) reject their actor draws; `export_level.py --lightrig` restores
+  their rigs.
 - **Status-menu backplate, in every scene including AREA11.**
   `em_render_frame.c` draws the black backplate (a flags-0 mesh) through
   `em_gfx_draw_skinned_tinted` before any `em_gfx_char_rig` call, and the
@@ -210,8 +218,8 @@ With today's wiring, the report measures these maximum differences: item
   (0.741) are constant instead:
   - Referenced and still drawn: `tendril.emdl` and
     `enemy_crate_cardboard_n1.emdl` (em_enemy), `fx/light_cone.emdl`
-    (em_weapon), and the drawbridge scene's doors (m03, m09, m15), props
-    (item 4d, 58, 6c, 72, area item 0d) and `12_placed.emdl`.
+    (em_weapon); outside the first level, the drawbridge scene's doors,
+    props and `12_placed.emdl`.
   - In `scene_snow/props` but referenced by no manifest or source file:
     `area_battery_terminal`, `area_internal_terminal`, `area_item_11`,
     `area_item_battery` and `item_4d/4f/57/58/6c`. The AREA11 pickups

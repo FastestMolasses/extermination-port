@@ -959,7 +959,9 @@ float cam_wrap_pi(float a)               /* func_001B1470 */
 
 /* func_0018DD20 — THE blocked-eye solver, DECODED 2026-06-11 (s61)
  * from the full 6984-byte .s read; replaces the port-invented rise
- * model (PORT_DIFFERENCES D3). This is the STYLE-0 path — the one the
+ * model (the decomp's FINDINGS.md "CAMERA WALL SOLVER func_0018DD20
+ * DECODED"; the census translation is em_camleft_0018DD20,
+ * docs/CAMERA_LEFTOVERS.md). This is the STYLE-0 path — the one the
  * whole generic gameplay camera uses: the idle states (1/0x26/0x27,
  * func_001921D0 tail) and the locomotion states (2/4/0xF,
  * func_00230000) both call func_0018D7B0(cam, 0), which runs this

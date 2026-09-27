@@ -272,8 +272,6 @@ therefore observed, not proven (as for the rest of the closure).
 
 **Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
-Nothing is wired.
-
 ### 5.1 Stage slots
 
 `b.stage.state[0xE] = em_player_closure_state0E`, `state[0x13] =

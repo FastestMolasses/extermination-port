@@ -30,7 +30,7 @@ typedef struct {
 } EmStatusInput;
 
 /* One ITEM > BATTERY page call (002149F0, the ITEM root's child page 5),
- * over the original records (docs/STATUS_PAGE_RECORD.md section 4):
+ * over the original records (docs/STATUS_PAGE_RECORD.md sections 4 and 7):
  *   ui           the one 0xA0-byte UI block D_00810130 (0020E060's memset
  *                clears it); EmStatusPage / EmItemRoot are views of its
  *                +0..+6, +8, +0xC, +0x10, +0x11, +0x15, +0x16, loaded before

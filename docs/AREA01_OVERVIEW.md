@@ -571,7 +571,7 @@ Lane notes (manual):
 - **O4.** 0x826D40 (5,552 bytes, the largest, AU; +0x8282F0 NM, 0x8287C0 C) and 0x828850 (C): three record pairs live at f801 (slots 9..14); both entry functions ran in all 12 route beats.
 - **O5.** The shaft door 0x823580 ([12], door id 0, area change → area 0 entry 0; AU jr-table dispatcher); scripts 0x829860 and 0x8298E0 (05/8 and 12/0 not admitted). It ran in all 12 route beats and is the level exit. Door transit workers are census functions (001BBE40/001BC150).
 - **C0.** Paths of first-level census owners (crate, drum, door, pickups, prop, indicator) that the first level never exercised.
-- **S1.** Only reachable through the fan's direct exit after Roger's departure (FIRST_LEVEL_EXIT.md section 4); not on the main route.
+- **S1.** Statically reached only from sub-1 owners. One known way into sub 1 is the fan's direct exit after Roger's departure has run once (FIRST_LEVEL_EXIT.md section 4); other ways in (doors from other areas) have not been excluded. The sub-1 owners are not on the main route, but 17C370, 187EC0 and 21BC40 ran on the route through other callers (tagged "route" below; the decomp's CURIOSITIES.md entry 23).
 
 Delta functions per lane (address, bytes, status at bdd40fb; "arrival" = ran in beat 15 per the exit census; "route" = ran on the AREA01 route per `a01_delta.json`; "port" = the port's `src/game` at b7868e1 names the address, grep only):
 

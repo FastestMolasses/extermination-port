@@ -15,7 +15,7 @@ Same conventions as FIRST_LEVEL_ROUTE.md section 3 (trace frames `f`, main-loop 
 
 | # | Beat (folder) | Source | Frames | Counters | Original owners and scripts | Port owner |
 |---|---|---|---|---|---|---|
-| 15 | `15_level_exit` | 14 | 801 | 15761..16562 | fan r2 00827630 (record [2]): Z < 156 exit-or-bit, D_008107D8 \|= 0x80; Roger r8 departure (runtime 0x823C40 starts script 0x828A10; 0x823C80 calls 001B0C60(1, 0, 4)); script op 0F plays movie selector 1 (`MOVIE/E001.PSS`); 001AD010 → 001ADF50 → 001FF080(1, 0) → 001FFCD0 area load; AREA01 sub 0 spawn entry 4 | em_fan_original (verified-unbound), em_roger (not bound, H3), em_area_script, em_scene_task (001AD010/001ADF50 live), em_scene_request_area_change_001B0C60; AREA01 not exported |
+| 15 | `15_level_exit` | 14 | 801 | 15761..16562 | fan r2 00827630 (record [2]): Z < 156 exit-or-bit, D_008107D8 \|= 0x80; Roger r8 departure (runtime 0x823C40 starts script 0x828A10; 0x823C80 calls 001B0C60(1, 0, 4)); script op 0F plays movie selector 1 (`MOVIE/E001.PSS`); 001AD010 → 001ADF50 → 001FF080(1, 0) → 001FFCD0 area load; AREA01 sub 0 spawn entry 4 | em_fan_original (verified-unbound), em_roger (live, L22), em_area_script, em_scene_task (001AD010/001ADF50 live), em_scene_request_area_change_001B0C60; AREA01 not exported |
 
 The main line becomes 01 → … → 13 → 14 → 15. The snapshot
 `../Extermination/build/s87/route/15_level_exit/state.p2s` (with `eeMemory.bin`, `gs.bin`,
@@ -118,13 +118,15 @@ the boundary sampling is the unperturbed reference).
 - **Roger r8 departure**: runtime 0x823C40 (splat `func_overlay_AREA11_00823C00`, 64 bytes)
   and 0x823C80 (splat `func_overlay_AREA11_00823C40`, 96 bytes) run for the first time in this
   beat (both AU). 001B0C60(1, 0, 4) returns to 0x823CA8, inside 0x823C80. Port: `em_roger.c`
-  has the departure branch (ROGER_ORIGINAL.md), not bound live (FIRST_LEVEL_AUDIT H3).
+  has the departure branch (ROGER_ORIGINAL.md), bound live through `em_area11_roger` (census L22;
+  FIRST_LEVEL_AUDIT H3 fixed), whose `EM_ROGER_REMOVE_GROUP` worker calls
+  `em_scene_request_area_change_001B0C60(1, 0, 4)`.
   **Naming note for the port:** `em_roger.h` already comments its completion worker
   `EM_ROGER_REMOVE_GROUP` as `1B0C60(1,0,4)`, and the capture confirms that call is the
   area-change request 001B0C60(1, 0, 4) (3B8D = 3, B5..B8 = 01 00 04 01). What misleads is
   the enum name and the ROGER_ORIGINAL.md sentence "completion removes the original actor
-  group": both should be renamed / reworded to the area-change request, and the binding must
-  go to the byte-matched `em_scene_request_area_change_001B0C60`.
+  group": both should be renamed / reworded to the area-change request (the binding already
+  goes to the byte-matched `em_scene_request_area_change_001B0C60`).
 - **Script 0x828A10** runs on the area-script interpreter; op 0F is 001B7A30 (BM, first
   executed in this beat). The movie itself is the main loop's movie arm (00203350, selector
   D_00275C78 = 1). The port's movie path is the S12a New Game one (selector 0, E900); nothing

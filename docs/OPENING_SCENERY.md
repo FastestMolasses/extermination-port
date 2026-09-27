@@ -236,7 +236,8 @@ writes the integer part into XYZF2. The GS then blends toward FOGCOL by `F/255`.
 `export_level.py --lightrig` now writes `fog -209 304 48 48 48` from the
 record into the light-rig block. It also drops any older standalone `fog`
 line. The Metal backend takes its coefficients from
-`src/gfx/metal/em_fog_gs.h` and evaluates `F` per vertex. It interpolates
+`src/gfx/metal/em_fog_gs.h`, whose `em_fog_gs_coefficients` is a thin call of
+`em_packet_chain_0021B920` (PACKET_CHAIN.md), and evaluates `F` per vertex. It interpolates
 `F` without perspective correction, as the GS does. FOGCOL is scaled as
 framebuffer units (`/255`). The previous shader scaled the colour by `/128`
 (twice as bright) and computed a perspective-correct fraction per fragment.
@@ -255,9 +256,8 @@ the level kernel's own fog instructions, remain WP-13 work.
 and then sets `D_00810792 = 1`. The truck `00823FF0` arms only when the
 player stands on it (actor kind 9 at `D_008104C4`). The port's AABB trigger,
 65-frame fall, -0.9 rad tumble and moving-surface carry were invented. They
-are removed. The truck is drawn static at its manifest placement and
-registers nothing. `EM_TRUCK_TEST` now asserts that interim contract. WP-12
-translates both overlay functions.
+are removed. Both overlay functions are translated and live since census L23
+(TRUCK_ORIGINAL.md).
 
 **Fan pair (H20).** Records 1/2 (`pickup 0x13 ... prop`) are driven by
 `00827630`, a timed spin cycle on actor `+0xC8`. `build_trs_matrix` feeds
@@ -269,4 +269,5 @@ at their placement pose; WP-11 translates the cycle.
 **Director cue (H10 partial).** Beats 1/2 carry op `0x0C` sub 0, arg 151/153.
 That op is the message op `001B7D60` (request kind 2, a line plus a VOICE.DAT
 cue), not a sound. The `em_sfx_play(0x97/0x99)` calls are removed. No
-replacement is invented; WP-8/WP-10 bring the message service.
+replacement is invented; the message service is live since WP-8
+(MESSAGE_SERVICE.md).

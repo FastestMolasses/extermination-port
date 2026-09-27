@@ -4,11 +4,10 @@ Date: 2026-09-23. Lane "render-verify-rest". Scope: the rows of
 `docs/FIRST_LEVEL_CENSUS.md` that were still missing or unverified in
 **L31-background-weather-load** (5 missing, 5 unverified),
 **L37-sdk-math-leaves** (3 missing), **L29b-shadow-gs** (5 unverified) and the
-one missing row of **L20-message-service**. **L22-roger-encounter** has no
-missing or unverified row; its 24 verified-unbound rows get binding notes
-only (section 5).
+one missing row of **L20-message-service**. **L22-roger-encounter** had no
+missing or unverified row (its rows are live since census L22).
 
-Files (new, not yet in the build):
+Files (`em_render_verify_rest.c` is in COMMON):
 
 | File | Contents |
 |---|---|
@@ -22,8 +21,10 @@ at run time; the translations take it as arguments.
 
 ## 1. Status per function
 
-"Before" is the census row; "after" is what this lane delivers. Nothing here
-is bound into the live game (section 4), so no row becomes live.
+"Before" is the census row; "after" is what this lane delivered. The current
+live status of each row is `docs/FIRST_LEVEL_CENSUS.md`'s: most are live
+since the render context and status UI steps (001E0CF0 and 00102850 are
+still verified-unbound).
 
 | Address | Decomp | Before | After | What it does |
 |---|---|---|---|---|
@@ -85,8 +86,9 @@ original instructions (the split listing) were read, not the decomp C.
    - `tools/test_shadow_original_reference.py`: PASS;
    - `tests/shadow_original_test.c` (ASan/UBSan): PASS.
 
-   `EM_RVR_SHADOW_SRC=<path>` points this test at such a copy. The module
-   is not in COMMON, so the fix changes no live behaviour.
+   `EM_RVR_SHADOW_SRC=<path>` points this test at such a copy. Applied:
+   em_shadow_original.c uses em_ee_add / em_ee_sub / em_ee_div in both
+   places, and the module is live (census L29).
 2. **001DA290 passes its own a0 to 001D1F80.** The listing sets only a1 = 2
    and a2 = 9 before the call. The decomp C (asm-linked, not byte-matched)
    writes `func_001D1F80(0, 2, 9)`, which is not what executes. The unit
@@ -175,18 +177,13 @@ applied (via EM_RVR_SHADOW_SRC), both modes pass.
 
 ## 4. Binding notes (for the coordinator)
 
-Nothing here is called by the live game yet. Makefile hunks:
-
-```
-.PHONY: test-render-verify-rest-reference
-test-render-verify-rest-reference:
-	python3 tools/test_render_verify_rest_reference.py
-```
-
-When a routine is bound, add to COMMON: `src/game/em_render_verify_rest.c`
-and `src/game/em_sdk_soft_float.c` (001000E0 calls
-em_sdk_soft_float_001274B0; that module is not in COMMON yet). The lane
-build with both files added links with zero warnings.
+`src/game/em_render_verify_rest.c` and `src/game/em_sdk_soft_float.c`
+(001000E0 calls em_sdk_soft_float_001274B0) are in COMMON; the target is
+`test-render-verify-rest-reference`. The notes below were the brief; the
+census rows give the as-built binding (001C1DC0, 001C1E70..001C1F50,
+001E2260 / 001E2270 through em_render_context_live; 001C22A0 / 001C2360
+through em_indicator_bind_live; 001027E0, 001000E0 and 001FCF10 live;
+001E0CF0 and 00102850 still verified-unbound).
 
 - **001C1DC0**: replaces `w_001C1DC0` in `em_scene_bindings.c` (called from
   the 0x1AE040 frame machine, `em_scene_frame.c` SF_001AE040), which today
@@ -247,51 +244,13 @@ build with both files added links with zero warnings.
   record layout is in section 1's row, and the builder should be written
   where it is bound.
 
-## 5. Verified-unbound rows of these lanes (binding notes only)
+## 5. Verified-unbound rows of these lanes
 
-- **L31**:
-  - 001E1E60 and 001D2300: `em_background_gs.h` + the Metal backend
-    (`test_background_reference.py`); not in COMMON. 001E1E60 is
-    em_rvr_001E0CF0's w_001E1E60.
-  - 001D8FD0, 0021B970, 0021BA80: `em_fog_gs.h`
-    (`test_area11_fog_reference.py`). The live stand-in is the exported
-    fog record.
-  - 0021B920 and 0021B9A0: `em_packet_chain_original`
-    (`test_packet_chain_reference.py`, docs/PACKET_CHAIN.md). 0021B920 is
-    live: `em_fog_gs_coefficients` calls it for the Metal fog.
-- **L29b**:
-  - 001D98A0, 001D9EE0, 001DA290, 001DA6A0, 001D4CD0, 001D4FB0:
-    `em_shadow_original.c` (not in COMMON) and its GS side (`em_gfx.h`
-    em_gfx_shadow_*, `em_shadow_gs.h`), all checked by
-    `test_shadow_original_reference.py`.
-  - The live route into them is 0015C160 (census L29,
-    `em_shadow_original_route_0015C160`).
-  - Apply Findings 1 before binding.
-- **L37**:
-  - 0011C4C8, 0011D878, 0011E398, 0011DBB8, 0011DE90: `em_sdk_math_original`
-    (in COMMON; the stand-ins are em_player.c `probe_atan` with host atanf,
-    and em_player_heading.c with host trig).
-  - 0011DB90, 0011FD78, 00126AB8, 00126BE8, 00127398, 001274B0, 00127728,
-    00127758, 001277B0, 00128320: `em_sdk_soft_float` (not in COMMON; the
-    critic notes the live em_item_root uses a host cast for 00128350).
-  - 00102718 and 00102738: inline in em_effect_original / em_coll_*.
-- **L20**: the 16 verified-unbound rows are in `em_message_service.c` and
-  `em_message_draw_original.c`, neither in COMMON. The live panel message
-  service reports 001FC9B0 as no-effect (um_001FC9B0). 001FCB90 is the
-  stand-in row.
-- **L22** (live since census L22, 2026-09-24: FIRST_LEVEL_CENSUS.md section
-  1.10; below is the state before it): all 24 rows were verified-unbound. Owners:
-  - `em_roger_actor_original.c` (not in COMMON): 008237E0, 001C5C90,
-    001BA540..001BA8E0, 001CA5E0..001CA770, 001D0690..001D0C70,
-    001B10B0, 001B1020, 001AF780, 001AF890, 001D8BF0.
-  - `em_roger.c` / `em_roger_runtime.c` (in COMMON; WP-9): 00823910,
-    00823950, 00823B70. Roger is unbound; today's pool node draws him
-    static.
-  - `em_cinematic_playback.c` (not in COMMON, H4): 0022EEF0, 0022EC30.
+The census (`docs/FIRST_LEVEL_CENSUS.md`, lanes L31, L29b, L37, L20 and L22)
+now holds each row's owner and live status; most of these rows are live.
 
 ## 6. Limits
 
-- None of these translations is live. The coordinator binds them (section 4).
 - **001D2910 in the route runs** executes the original over the capture. The
   flag results (1, 2, 0 in all 22 captures/beats) are fed to the native
   side, so they are replayed, not independently derived.

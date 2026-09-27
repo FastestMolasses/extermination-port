@@ -83,7 +83,7 @@ words at +0x4000.
    +0x04, +0x10, slot read, +0x14 or head, slot write, cursor re-read and
    write.
 
-Nothing is bounded. 001CB800 (a renderer boundary) later walks slots
+001CB800 (translated since the render context step; CHAIN_PAGE.md) later walks slots
 0..0xFFF, splices each slot's list into the frame chain (start tag → newest
 block of the first slot → ... → its head → newest of the next slot ...), and
 clears the slot words. It never clears the head words, so stale heads from
@@ -296,7 +296,7 @@ An ASan/UBSan scratch build over INT_MIN/INT_MAX ids, counts and modes,
 UINT64_MAX payloads, a wrapping table address, every 0021B9A0 adapter over
 special floats and an unmapped context is clean (re-run in the fix round).
 
-## 5. Binding notes (for the coordinator chain; nothing is wired)
+## 5. Binding notes (live; the page's consumer is CHAIN_PAGE.md)
 
 **Memory and ctx.** The coordinator owns one `EmPacketChain`:
 - regions: the render context (0x100 bytes from D_00275670), the packet
@@ -325,7 +325,7 @@ function. The adapters show the exact argument mapping.
 | em_effect_kinds | `w_0021B9A0(ctx, a0, f12 bits, f13 bits)` | `em_packet_chain_0021B9A0` | (2, 0, 1e5), (3, 0, 1e6), (1, 0, 0) (001F4CC0) |
 | em_area_script | `w_0021B9A0(ctx, mode, float, float)` | float adapter | (0, 0, 0) |
 | em_frame_render_heads (001D1DC0) | `w_0021B9A0(ctx, f12, f13, a0)` | `em_packet_chain_w_0021B9A0_heads` | **argument order differs**: floats first, mode last; the call is mode 0 |
-| em_snow_runtime | (none: hard-coded fog) | when 001E67C0 is bound: 0021B9A0(2, 0, 0), (3, 0, 300) … (1, 0, 0) | its constants (255, 2048, 300·k, −k) with k = 255/300 equal this module's EE result bit for bit |
+| em_snow_runtime (001E67C0) | `em_rcl_0021B9A0` on the render context | `em_packet_chain_0021B9A0` | 0021B9A0(2, 0, 0), (3, 0, 300) … (1, 0, 0) | its constants (255, 2048, 300·k, −k) with k = 255/300 equal this module's EE result bit for bit |
 
 **Required: one translation of 0021B920 (done in the Effects step,
 2026-09-24).** `em_fog_gs_coefficients` (`src/gfx/metal/em_fog_gs.h`) was a
@@ -353,19 +353,24 @@ and the +0xC0 latch. Every consumer that reads the fog quadword must read it
 from the same context block the programmer writes, never from a copy made
 before the call.
 
-## 6. Corrections found on the way (for the lead; no existing file was edited)
+## 6. Corrections found on the way
+
+Items 1, 2 and 4 are applied: the census rows 001CB5F0, 001CB6B0, 001CB760,
+001CB900, 001CB9B0 and 0021B9A0 are live, and em_fog_gs_coefficients is a
+thin call of em_packet_chain_0021B920 (section 5). The port half of item 3
+and item 5 are applied too. Open: the decomp half of item 3.
 
 1. **The census "No translation" rows** for 001CB5F0, 001CB6B0, 001CB760,
-   001CB900 and 0021B9A0 become verified-unbound (section 1).
-2. **001CB9B0** is listed as a renderer boundary. It is game-visible (it
-   picks the blend-state block). It now has a verified translation.
+   001CB900 and 0021B9A0 (applied).
+2. **001CB9B0** is game-visible (it picks the blend-state block), not a
+   renderer boundary (applied).
 3. **Wrong labels for 0021B9A0**, which is the fog programmer:
    - port: `em_effect_original.h` ("pad rumble", flagged by
      EFFECT_MANAGER.md finding 1; corrected in the Effects step);
-   - decomp comments: `func_001EB600.c` ("chan, vol, pan") and
+   - **open:** decomp comments: `func_001EB600.c` ("chan, vol, pan") and
      `func_001F4CC0.c` ("audio/effect parameter ranges"). Other decomp
      prototypes call its first argument "chan" or "id".
-4. **em_fog_gs_coefficients is not bit-exact.** It lives in
+4. **em_fog_gs_coefficients was not bit-exact** (applied: now a thin call). It lives in
    `src/gfx/metal/em_fog_gs.h` and is the census's translation of 0021B920.
    It computes in host binary32, rounding to nearest, while the original's
    SUB.S and MUL.S chop:
@@ -383,17 +388,11 @@ before the call.
    reviewer independently reproduced the beat-15 values (capture and EE
    translation 0x433F3FFF, em_fog_gs 0x433F4000).
 5. **The head sprite's 001CB760 worker** has a fifth argument (`ent`).
-   001CB760 never reads it. That is harmless, but the header should say so.
+   001CB760 never reads it; `em_head_sprite_original.h` says so (applied).
 
-## 7. Makefile hunk (not applied; the Makefile belongs to the lead)
+## 7. Makefile
 
-```make
-.PHONY: test-packet-chain-reference
-test-packet-chain-reference:
-	python3 tools/test_packet_chain_reference.py
-```
-
-Since the Effects step `src/game/em_packet_chain_original.c` and
+The target is `test-packet-chain-reference`. Since the Effects step `src/game/em_packet_chain_original.c` and
 `src/game/em_status_ui_leftovers.c` (for em_sul_0021B900) are in `COMMON`.
 The two tests that compile `em_fog_gs.h` shims, test_area11_fog_reference
 and test_shadow_original_reference, link both files.

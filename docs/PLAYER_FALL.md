@@ -393,9 +393,6 @@ binds the original 0017C580/00224290 there.
 
 **Bound live in AREA11 since the Boxes step (2026-09-24):** `em_player_closure_live.c` binds this module over the live player record (FIRST_CONTROL.md "Engaged"). Workers with no translation are fail-stop workers that name their original. The notes below are the binding it follows.
 
-Nothing is wired. When the FLOOR layer's closure is bound
-(FIRST_CONTROL.md "FLOOR state closure"):
-
 ### Stage slots
 
 - **0015B130:**

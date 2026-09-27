@@ -173,16 +173,14 @@ those three holds do not re-register while an earlier hold (for example aim)
 is active, so the first owner can be stale. Row 1 (low health) defaults to clip 0x0A, which is not
 exported, so at low health the hold stays.
 
-A failed foot-stop begin (palette or solve failure, a clock below 1, tier-2
+A failed foot-stop begin (palette or solve failure, non-finite inputs, tier-2
 select failure) is a native unsupported path, not an original stand-in.
 `player_pose_unsupported_hold()` reports it once with the reason and holds; the
 next `player_move` then snaps the source to the row default with no blend. That
 snap is a host adaptation: 0017C030 mode 3 runs the 0017B910 solve without a
 failure case. An active pose transition is not a failure: mode 3 has no blend
 gate, so the begin runs on the transition's current channels and clock (see the
-foot-placement section). The clock-below-1 refusal lives in
-`em_player_foot_stop_begin`; 0017B910 instead clamps the walk duration to 1 and
-uses 10 for jog, so that refusal is also not original. `player_pose_invalidate()` is kept only for genuine native failures:
+foot-placement section). `player_pose_invalidate()` is kept only for genuine native failures:
 a failed advance, an unknown clip, a failed re-seed, or a foot-stop callback
 fault.
 
@@ -277,7 +275,15 @@ accepted walking check returns before that tail, matching 61020 and 612D0.
 
 ## Walk and jog foot-placement stops
 
-`em_player_foot_stop.c` implements 0017B910 entry and 0017C030 mode 5. Entry
+In AREA11 the live foot stop is the record-level
+`em_player_foot_stop_0017B910` (LOCOMOTION_DISPLAY.md section 4);
+`em_player_foot_stop_begin` / `_tick` below serve only the legacy scenes
+without an original world.
+
+`em_player_foot_stop.c` implements 0017B910 entry and 0017C030 mode 5.
+`em_player_foot_stop_begin` covers only the +0x236 == 0 arm of 0017B910 (the
++0x236 != 0 row-default arm is not modelled), and its fixed limits come from
+the healthy D_0024875C rows only; other rows are not modelled. Entry
 evaluates the existing raw source skeleton, then selects foot node 18 when
 remaining time is below the original healthy-row boundary (58 for walk, 24
 for jog), or node 17 otherwise. 0017C030 mode 3 calls 0017B910 without a blend
@@ -291,7 +297,12 @@ rotated by the original SDK Euler routines to produce each callback's step.
 Walk retains clip 1 and halves its residual planting interval, clamped to at
 least one. Its moving callbacks publish animation multiplier 2. Jog requests
 clip 4 at frame 0 with blend 10, moves for ten callbacks, then waits for the
-original clip-end flag. Both return through idle state 0 on the following
+original clip-end flag. 0017B910 has no lower bound on the +0x3C clock: a
+clock below 1 takes the cur < lim arm with the negative residual cur - 1, so
+walk clamps to 1 and jog uses 10 (the oracle covers clocks in (0, 1); its
+report has `clock_below_one_cases`). `em_player_foot_stop_begin` refuses
+(returns 0) only non-finite inputs or a tier outside {1, 2}, a native-only
+check the original does not have. Both return through idle state 0 on the following
 callback and its default blend 12. The new path publishes channel-derived
 palettes only during this stop and its idle return; ordinary gait display
 blending retains its documented approximation.

@@ -1,5 +1,5 @@
 /* em_battery_page_live.h - the ITEM > BATTERY page 002149F0 bound live, with
- * its page draws (docs/STATUS_PAGE_RECORD.md section 4).
+ * its page draws (docs/STATUS_PAGE_RECORD.md sections 4 and 7).
  *
  * This module adds no behaviour of its own. One call runs the original
  * page (em_spr_002149F0, em_status_page_record) over the caller's records

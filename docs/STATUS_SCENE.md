@@ -193,9 +193,9 @@ EE_FLOAT_MODEL.md. The module has no other port dependency.
   The native loader run over that header with immediate I/O ends in exactly those bytes.
 - **The native minimum is 10 dispatches.** Steps 0, 1, 2 (three dispatches for the one chunk), 3, 4, 5 and 7 give 9 calls, plus one call at 0x63.
 - **The other 14 dispatches are I/O time.** They are 00200730 busy polls, or D_00282157 read gates, spread over the header read, the one 0x50800-byte chunk read and the empty payload read. The captures do not record how the 14 are split.
-- **Next step (needs the emulator lane).** In route 03 f391..f414, log slot 2's +9/+0xB, 00200730's v0 and D_00282157 once per frame.
+- **Probe done.** `STATUS_LOAD_WAIT_PROBE.md` logged those fields on the original (routes 01 and 03): the busy counts are 6 for the module-0x21 header read, 8 for its 0x50800-byte chunk and 0 for the empty payload read, and D_00282157 stays 0 through both waits (its section 3 is the resulting I/O model).
 - **The port today.** The port's reads are synchronous, and `em_status_runtime.c` loads modules 0x1F/0x21 instantly. That is why the level smoke leaves the prompt window out of the comparison.
-- **The lead's decision.** Reproducing the 24 dispatches requires the loader translated here, bound with an I/O model whose busy counts come from that probe. The I/O model is a runtime-timing property, not game code.
+- **The lead's decision.** Reproducing the 24 dispatches requires the loader translated here, bound with an I/O model whose busy counts come from that probe. The I/O model is a runtime-timing property, not game code; under the user's 2026-09-27 rule (CLAUDE.md "Two profiles") the disc answers at host speed by default and measured drive timing is an optional switch (LAUNCHER_OPTIONS.md "PS2 disc-drive timing").
 
 ## 4. Corrections found
 

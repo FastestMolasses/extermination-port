@@ -16,8 +16,12 @@ The port binds both as reported no-port-code calls
 (`UM_0021B1B0` / `UM_0021B500` in `em_scene_bindings.c`), so the veil shows
 black and the block's +0x04 phase never moves. This lane translates both and
 every packet builder 0021B1B0 reaches, in `src/game/em_load_veil_particles.c/.h`.
-The module is **built and tested but not wired**. Section 3 lists what the
-coordinator binds. The GS side (drawing the packets) is a boundary; section 5
+The veil routines 0021B1B0 / 0021B500 are **not wired** (census
+verified-unbound): the seam still reports `UM_0021B1B0` / `UM_0021B500`.
+The packet-builder helpers are live elsewhere: 001D1F20, 001D1FF0 and
+001D2040 through em_render_context_live, and 001D1F80 through `em_rcl_001D1F80`
+(em_owner_draw_live's 001CA990 worker). Section 3 lists what the veil
+binding needs. The GS side (drawing the packets) is a boundary; section 5
 says what it needs.
 
 ## 1. What the original does
@@ -222,7 +226,8 @@ the channel memory held.
 
 ## 3. Binding (coordinator)
 
-Nothing is wired. The seam is `em_scene_bindings.c`:
+The veil itself is not wired (the helpers above are live through the render
+context and the owner draw). The seam is `em_scene_bindings.c`:
 
 - `veil_0021B1B0` and `veil_0021B500` are the `EmLoadVeilWorkers.w_0021B1B0`
   and `.w_0021B500` of `k_veil_workers`. They report `UM_0021B1B0` and

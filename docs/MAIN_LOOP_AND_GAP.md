@@ -96,9 +96,10 @@ What the callees are (read, not assumed from labels):
   register. The J-block call sites are their only callers.
 - **001AB590** clears the ASP bits of the DMA channel 0, 1 and 2 CHCR
   registers when set (hardware; lane L34 has the translation).
-- **0010BAA0** is a four-instruction kernel syscall stub with syscall number
-  100 (the public EE syscall table lists 100 as FlushCache). The splat label
-  `DisableDmacHandler` is wrong.
+- **0010BAA0** is FlushCache: a four-instruction kernel syscall stub with
+  syscall number 100 (the public EE syscall table lists 100 as FlushCache).
+  The decomp labels it `FlushCache` since its syscall relabel (2026-09-27);
+  the old splat label `DisableDmacHandler` was wrong. Step T is FlushCache(0).
 - **001D2580** stores its argument (the field bit) into word +0x98 of the
   render context D_00275670. It is a game-memory store, not packet building.
 - **Timer 0**: a static scan of the boot ELF (addresses built from an upper-half constant) found only stores to 0x10000000 /
@@ -430,8 +431,8 @@ translation exists only to prove the identification.
    (on ten labels, 71 call sites) is not evidence of it. The cause is open;
    the constant route vsync offset points to a census artifact (section 2.4).
 5. Name fixes for the boundary rows: 00100A60 is a path-idle wait with a
-   timeout (not a DMA submit); 0010BAA0 is the syscall-100 stub (not
-   DisableDmacHandler).
+   timeout (not a DMA submit); 0010BAA0 is the syscall-100 stub FlushCache
+   (not DisableDmacHandler; the decomp's label since its syscall relabel).
 6. **001D2580** is listed as "GS/VIF packet build" but is a single store of
    the field bit into render-context word +0x98 (game memory); classify it
    by what reads that word.

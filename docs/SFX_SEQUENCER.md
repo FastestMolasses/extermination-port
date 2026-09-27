@@ -11,7 +11,8 @@ ids that used to be refused are now audible registry entries:
 - 0x413: AREA11 flame/steam.
 - 0x14D: looping tone with a sustained key-off.
 
-The current export has 71 entries: 68 audible, 3 absent and 0 unsupported.
+The current first-level export has 277 entries (259 audible, 16 absent, 2
+unsupported) and 141 samples: docs/SFX_REGISTRY_FIRST_LEVEL.md.
 
 ## What is translated (original evidence)
 
@@ -123,7 +124,6 @@ Its script keys the looping tone on and off in the same flush. The original IOP 
 
 - **Step H.** Call `em_sfx_frame_snapshot()` once per frame where `001FB100` runs. Frame step H is gated with the other `D_00821058 != 1` work; see `ORIGINAL_FRAME_ORDER.md`.
 - **Flame owner.** Call `em_sfx_loop_service(&owner_handle, 0x411/0x412/0x413, pos, 100.0f, D_70003B68, D_70003B8A)` from the translated flame owner (`001E3D90` / owner `008235F0`), and `em_sfx_loop_release` from its teardown (`001FC520`).
-- **`EM_SFX_TEST` self-test** (`em_game_selftest.c`). It encodes the retired steal policy: 12–15 steals, 63 plays and 0 drops for a 60-play burst. The original refuses the 49th concurrent track (`em_sfx_drops`) and never steals (`em_sfx_steals() == 0`), and 00117428 drops key-ons past 44 busy voices (`em_sfx_voice_refusals`).
 
 ## Registry format
 

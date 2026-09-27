@@ -376,9 +376,9 @@ void player_pose_legacy_hold(const char *owner)
  * same hold/re-seed, but report the failure once so it stays visible. The
  * snap to the row default on release is a host adaptation; 0017C030 mode 3
  * runs the 0017B910 solve without a failure case. The remaining native
- * refusals are invalid palette/solve inputs, a failed tier-2 clip 4 select
- * and a clock below 1 (em_player_foot_stop_begin refuses it, although
- * 0017B910 clamps the tier-1 duration to 1 and uses 10 for tier 2); an
+ * refusals are invalid palette/solve inputs (em_player_foot_stop_begin
+ * refuses only non-finite inputs or a tier outside {1, 2}; a clock below 1
+ * is not refused, as in 0017B910) and a failed tier-2 clip 4 select; an
  * active pose blend is no longer one. */
 void player_pose_unsupported_hold(const char *reason)
 {

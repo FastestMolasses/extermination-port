@@ -2,7 +2,7 @@
 
 Status: 2026-09-23, lane `effect-puff-original`. The translation and its oracle are done. **Live since
 2026-09-25** (census L26 / L27 / L39 step): `em_effects_live` binds it over the canonical render context
-(docs/EFFECT_MANAGER.md section 8); "Binding" below was the brief.
+(docs/EFFECT_MANAGER.md section 8).
 
 Files:
 - `src/game/em_effect_original.{h,c}`: the native translation.
@@ -283,38 +283,14 @@ Faults:
 **Not measured.** VCLIPw is not part of EE_FLOAT_MODEL. Both sides use the IEEE comparison of DAZ'd finite
 values: x > |w| / x < −|w|.
 
-## Binding (for the coordinator chain; nothing is wired)
+## Binding
 
-**Blocked on the render-context views (Effects step, 2026-09-24).** **Resolved by the render context step (2026-09-25):** the canonical render context runs live (em_render_context_live, docs/RENDER_CONTEXT.md section 8): context +0x2240..+0x233F, +0xA0, the scratchpad 0x70003A40 / 0x70003AC0, the packet cursors and the chain table D_007635C0 (spliced and cleared by 001D1EA0's 001CB800 every frame) are produced every world frame; reach them through em_rcl_bytes and the module's views. Before that step: the
-`view` below has no live producer: the port has no canonical render-context
-block, and no live code writes 0x70003AC0 or context +0x2240. The driver
-calls 001CCF70 and the handler on every state-1 tick, so binding the spawns
-without the view would fault at the first footstep puff. What has to exist
-first is in EFFECT_MANAGER.md 5.0. em_effect_original.c is in COMMON only
-for the SDK leaves that the live player closure uses (001026A0, 00102760).
-
-The coordinator owns one `EmEffectOriginal`:
-- `tables` from `em_effect_original_load_tables(elf)`. It is the same ELF buffer em_director_original reads.
-- `globals` mirroring D_008101E4, D_00810700, D_00275C38, the 0x70003B68 clock, D_008102E8, and the scratchpad
-  words.
-- `decals` (7 lanes of 32 slots).
-- `view`: the render context +0x2240 clip matrix, +0xA0 fog quad, and the 0x70003AC0 camera matrix, refreshed
-  wherever the original writes them.
-- `workers` as above.
-
-**Callers to bind** (each existing worker slot, the original call site, the data):
-
-| Caller (module, worker slot) | Original | Call |
-|---|---|---|
-| footstep `em_player_floor.h` `effect` (00187EE0) | 001EFD90(id, foot − 1.5, actor+C0) | `em_effect_original_001EFD90(e, id, pos4, rot4, &node)` |
-| footstep `decal` | 001F0460(1, M), M built by 00187EE0 (identity, 00102BB0 yaw, 00102B08 pitch, row 3 = position) | `em_effect_original_001F0460(e, 1, M)` |
-| climb `em_player_climb.h` `effect` (0x80000028) | 001EFD90(id, pos, p+C0) | same as footstep |
-| slide `em_player_slide.h` `effect` (0x80000065 every 8 ticks) | 001EFD90(id, p+B0, p+C0) | same |
-| the walk's skid `em_locomotion_display.h` `effect(id, p)` (0x80000033 / 0x80000012) | 001EFD90(id, p+B0, p+C0) | the binder supplies the record's +0xB0/+0xC0 (em_player_closure_live.c `lw_effect`) |
-| truck `em_truck_original.h` `effect` (0x80000049) | 001EFD20(id, pos) | `em_effect_original_001EFD20(e, id, pos4, &node)` |
-| drum `em_drum_original.h` `effect_matrix` (preset 4) / `effect` | 001F0460 / 001EFD20 | `_001F0460` / `_001EFD20` |
-| crate `em_crate_original.h` `effect` | 001EFD90(id, pos, rot) | `_001EFD90` |
-| area weather node (em_area11_bindings `spawn_001EF9D0`, 0x80000017) | 001EFD20 | can move to `_001EFD20` (same record bytes, now loaded from the ELF) |
+Live since 2026-09-25: `em_effects_live` owns the one `EmEffectOriginal`
+(tables from the ELF image, the mirrored globals, the shared `decals`, the
+render-context `view`) and binds every caller; EFFECT_MANAGER.md section 8.1
+lists the storage and workers and section 8.2 where each spawn and the
+001EA240 walk run. What the draws read from the render context is in
+EFFECT_MANAGER.md 5.0.
 
 **Important data details.**
 - **The rotation's 4th lane (actor +0xCC) is load-bearing.** 001EFD90 passes rot[3] as f12, and for
@@ -339,9 +315,11 @@ The coordinator owns one `EmEffectOriginal`:
 
 ## Open items
 
-1. Translate the handlers 001EC3F0 (5), 001EC470 (0x24), 001EBF10 (0x20), 001EAD70 (1), and those of
-   2/0xA/0xD/9/0x22/0x25..0x27/7, together with 001CFB50/001CFBE0/001D0540. Those are the actual packets.
-2. The ring consumer 001F0720 (age + draw) and the reset 001F03D0.
-3. The effect types for crate/drum breaks (0x0A 001F2BA0, 0x13 001E4CE0, 0x1C/0x2E 001E4610) belong to the
+1. The handlers not yet translated: those of subtypes 2/0xD/9/0x22/0x25..0x27/7 and the skid's packet-only
+   001EAD70 (1) / 001EC270 (0xB), which are the counted gap (EFFECT_MANAGER.md 8.2). The route handlers
+   001EC3F0 (5), 001EC470 (0x24), 001EBF10 (0x20) and 001EC1F0 (0x0A), with 001CFB50 / 001D0540
+   (em_effect_kinds) and 001CFBE0 (em_head_sprite_original), are translated and live, as are the ring
+   consumer 001F0720 (em_effect_manager) and the reset 001F03D0.
+2. The effect types for crate/drum breaks (0x0A 001F2BA0, 0x13 001E4CE0, 0x1C/0x2E 001E4610) belong to the
    separate breakable-fx lane.
-4. VCLIPw on non-finite operands. It is unreachable here and was not measured.
+3. VCLIPw on non-finite operands. It is unreachable here and was not measured.

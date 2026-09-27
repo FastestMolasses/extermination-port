@@ -1,5 +1,5 @@
 /* The BATTERY page's 2D layer: the EMBA atlas and the ordered leaf draw
- * calls of one 002149F0 frame (docs/STATUS_PAGE_RECORD.md section 4).
+ * calls of one 002149F0 frame (docs/STATUS_PAGE_RECORD.md sections 4 and 7).
  *
  * The page logic and its draws are the original translations bound by
  * em_battery_page_live (002149F0 em_status_page_record; 0020AE40 /

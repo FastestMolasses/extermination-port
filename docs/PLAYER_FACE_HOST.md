@@ -104,5 +104,6 @@ captured face weights are not used as universal initial state.
 `em_area11_interaction_host` now owns one instance: it loads it with the
 host, attaches at the B81D0 service, forwards the direct FD950 talk events,
 ticks it first in the ready2 player worker and detaches at the frame close
-(see `AREA11_INTERACTION_HOST.md`). The live Roger script/dialogue binding
-and a paired original cinematic rendering comparison remain open.
+(see `AREA11_INTERACTION_HOST.md`). The Roger encounter's script and
+dialogue are live since census L22 (ROGER_ORIGINAL.md "Binding"); a paired
+original cinematic rendering comparison remains open.

@@ -4,12 +4,12 @@ Original executable SHA-256:
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
 
 Module: `src/game/em_coll_move_original.{h,c}`. Oracle:
-`tools/test_coll_move_reference.py`. Nothing here is wired into the live game
-yet: census L05 (2026-09-24) found it **blocked** on two untranslated workers,
-0019CB60 and 001A6440 (section 4 item 2). The census rows of both were
-corrected from verified-unbound to missing: the oracle runs them as original
-instructions on both sides (a worker hook), which verifies the walkers around
-them but is not a translation. Section 4 says how the coordinator binds it.
+`tools/test_coll_move_reference.py`. **Live** in AREA11 (census L05, the Boxes
+step, 2026-09-24): 0019AD00 / 0019AFE0 serve the player's probes and the
+closure through `em_collision_world` and `em_player_closure_live.c`. The
+workers 0019CB60 and 001A6440 (and 001A7280), which blocked L05 at first, are
+translated in `em_coll_grid_hull` (docs/COLL_GRID_HULL.md) and bound directly
+inside this module; their census rows are live. Section 4 is the binding.
 
 ## 1. What the original does
 
@@ -264,7 +264,7 @@ on 8 workers. The 06 route slice is the longest item.
     end, so a hull beyond the hit cannot hit;
   - `0 + Q` vs `Q` in 00102760.
 
-## 4. Binding (for the coordinator)
+## 4. Binding (as built)
 
 1. **World.** One `EmCollMoveWorld` per area: `.cells` = the
    `EmActorCollisionWorld` of docs/ACTOR_COLLISION.md §7 (the same table and
@@ -275,26 +275,17 @@ on 8 workers. The 06 route slice is the longest item.
 2. **Workers.**
    - `.sqrt` = a wrapper returning `em_item_sdk_sqrt(x)` (0011E748's
      nonnegative path). Both 001A4830 arguments are ≥ 0.
-   - `.grid` = **0019CB60, untranslated.** It needs the grid rank tables and
-     spans (0019F1A0, `0x70003210` / `0x70003228` / `0x70003240`) that the EMCL
-     lacks: docs/ACTOR_COLLISION.md "KNOWN INEXACT".
-   - `.lock_6440` / `.lock_7280` = **001A6440 / 001A7280, untranslated.** The
-     player's mask-7 probes (player +0 bit 0 set, class 0) call 001A6440
-     every time.
+   - The grid pass 0019CB60 and the hull locks 001A6440 / 001A7280 are
+     `em_coll_grid_hull`'s translations, called directly (docs/COLL_GRID_HULL.md;
+     no worker slot). The player's mask-7 probes (player +0 bit 0 set, class
+     0) call 001A6440 every time. The hull world has no chain reader, since
+     no AREA11 owner the port runs publishes class 2 (em_collision_world.c),
+     so a lock that would need one faults.
 
-   Until these three exist, every player mask (6, 7, 0x80000006) faults, so
-   nothing may be bound live. Census L05 stopped here (2026-09-24): the world
-   the adapters need is live (`src/game/em_collision_world.c`: the cell
-   directory, the class lists the live owners publish into, the flags-7 grid),
-   so the remaining work is the translation of 0019CB60 (a rank-span grid
-   walk over 0019F1A0 / 0019ED80, like 0019D330, into this module's scratch)
-   and of 001A6440 (the class-2 list's +0x58 geometry chains; the port's
-   class-2 list is empty in AREA11 until Roger, L22, publishes), each with its
-   oracle extended from this test's worker harness, then the bindings of item
-   3. The port's player keeps `em_collision_move_probe` (em_player.c
-   `probe_move` / `probe_sweep`) in the scenes without the original world; the
-   legacy `em_door_probe` hull is not placed in AREA11 (the fence door is its
-   original owner since census L18: class 5, no class list).
+   The port's player keeps `em_collision_move_probe` (em_player.c) only in
+   the scenes without the original world; the legacy `em_door_probe` hull is
+   not placed in AREA11 (the fence door is its original owner since census
+   L18: class 5, no class list).
 3. **Player stage (w_0015BCF0), context `EmCollMovePlayer`** = { world,
    scratch, `player_states_actor()` (the live record: +0x00, +0x02, +0x52),
    self = that same live pointer }.
@@ -321,7 +312,7 @@ on 8 workers. The 06 route slice is the longest item.
    `&EmDrumOriginal.position` }. It serves the flight arm's
    0019AD00(self, point, 0x80000007). That arm belongs to models 0xA/0xC,
    which AREA11 never places.
-5. **What this replaces (do not rewire yet).** The legacy
+5. **What this replaced.** The legacy
    `em_collision_move_probe` (em_player.c `probe_move` / `probe_sweep`,
    em_game.c:479). It differs from the original in several ways:
    - it walks the EMCL set-2 static n-gons and the `EmCollCell` faces, not
@@ -332,18 +323,15 @@ on 8 workers. The 06 route slice is the longest item.
      with no hit. The original adds delta to the actor's own +0xB0/+0xB8 and
      leaves them alone with no hit.**
 
-   Retire it when these adapters are bound.
-6. **Makefile (not edited; hunks in the lane report).**
-   - `test-coll-move-reference`;
-   - `src/game/em_coll_move_original.c` added to `COMMON` after
-     `src/game/em_collision.c` when it is bound. It needs only the
-     `em_actor_collision.h` types, not its object.
+   In AREA11 the adapters above replace it; it remains for the scenes
+   without the original world.
+6. **Makefile.** `src/game/em_coll_move_original.c` is in `COMMON`; the
+   target is `test-coll-move-reference`.
 
 ## 5. Limits
 
-- 0019CB60, 001A6440 and 001A7280 are workers (section 4). The test runs
-  them as original instructions, so the walkers are verified, but the native
-  port has no implementation of them.
+- 0019CB60, 001A6440 and 001A7280 are em_coll_grid_hull's translations
+  (section 4); this oracle compares the walkers end to end with them bound.
 - The route mode replays only the player stage (no camera stage, owners or
   scripts), as `RouteReplay` documents. Its purpose here is to produce the
   original's own walker calls on a real world.

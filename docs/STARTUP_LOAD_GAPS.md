@@ -198,8 +198,9 @@ bytes +9/+0xA are cleared on every transition, as the original does.
   (em_startup.c, live-translated; test_title_menu_reference);
   001AB790 → `em_task_replace_current` with the 001ACEC0 task;
   001FBC50 → the lane L36 translation (verified-unbound; `em_sfx_stop_all`
-  is the live stand-in). 001D1EF0 and 001D2830 are census-missing (lane
-  L32). 001D2880 is reported no-effect (UM_001D2880).
+  is the live stand-in). 001D1EF0 and 001D2830 are translated and live
+  (em_frame_render_heads through the render context, lane L32). 001D2880 is
+  reported no-effect (UM_001D2880).
   001AC3B0, 001ACA20, 00225A00, 00225AC0, 001AF150 and 00200A40 never ran on
   the route, so their workers may stay NULL. They fault if reached.
 - Route: states 2 → 4 only (census: 001AC3B0, 001ACA20, 001AF150 never ran).
@@ -436,34 +437,26 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
    D_00281B70/C30 (this retires `em_sfx_frame_snapshot`).
 6. The 001AC070 task: `em_slg_001AC070` replaces
    `em_game_legacy_continue_task_001AC070` and em_startup's title-flow
-   states. This needs 001D1EF0 and 001D2830 (census-missing, L32) first;
-   otherwise their NULL workers fault at the first tick.
-7. New Game reset: call `em_slg_001AF470(map, D_00810708)` where 001AF2C0
-   does, and point the spad 3B74..3B82 readers at that block.
+   states. Its prerequisites 001D1EF0 and 001D2830 are live since the
+   render context step / chain C7 step V (em_frame_render_heads), so it can
+   bind to them.
+7. **Done (live, census):** the player closure's binder
+   (em_player_closure_live.c) runs `em_slg_001AF470` with config 0 into its
+   0x70003B74..0x70003B82 block, and the Use mask readers (0x70003B76) read
+   that block.
 8. Opening script actors: `em_slg_001BB0E0` as the 001BB0E0 pool behaviour
    once 001BAD40 (L19) is translated.
 9. The rest (001AB4E0, 008237C0, 001B0F60, the bank upload) wait for their
    consumers: the presenter, the per-level record readers, the door
    kickoff, and the module loaders.
-10. 001AB590 should be reclassified as a boundary.
+10. 001AB590 should be reclassified as a boundary (the census row notes
+    this; its status is still verified-unbound).
 
-## 5. Makefile (for the lead; not edited by this lane)
+## 5. Makefile
 
-Test target:
-
-```make
-# Census lane L34: the title / New Game / load originals, executed from the
-# user's ELF and compared with em_startup_load_gaps*.c and em_task.c.
-.PHONY: test-startup-load-gaps-reference
-test-startup-load-gaps-reference:
-	python3 tools/test_startup_load_gaps_reference.py
-```
-
-When the first binding lands, add
-`src/game/em_startup_load_gaps.c src/game/em_startup_load_gaps_sound.c` to
-COMMON. Both compile with zero warnings in the app build (checked with the
-private lane build `build/b7-startup-load-gaps`) and under
-`-Wall -Wextra -Werror -Wpedantic`.
+`src/game/em_startup_load_gaps.c` is in `COMMON` (001AF470 and 001B0F60 are
+live from it); add `src/game/em_startup_load_gaps_sound.c` when step H's
+001FB100 binds (item 5). The target is `test-startup-load-gaps-reference`.
 
 ## 6. Limits
 
@@ -476,5 +469,6 @@ private lane build `build/b7-startup-load-gaps`) and under
 - 001002E0 (display), libpad, the SIF/IOP/SPU calls and the overlay dispatch
   are boundaries. The oracle checks the arguments passed to them, not
   their effect.
-- Nothing in this lane is live except the task table. Section 4 lists the
-  bindings in the order they can land.
+- Live from this lane: the task table, 001AF470 (item 7) and 001B0F60 (the
+  fence door's 001BBDA0, census L18). Section 4 lists the other bindings in
+  the order they can land.

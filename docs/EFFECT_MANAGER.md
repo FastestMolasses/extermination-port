@@ -8,7 +8,7 @@ translation and its oracle are done. **Live since 2026-09-25** (the effects
 step, census L26 / L27 / L39): `src/game/em_effects_live.{h,c}` binds this
 module with em_effect_original, em_effect_kinds, em_head_sprite_original and
 em_player_equipment_sprite over the one render context; section 8 is the
-live binding, section 5 the brief it followed.
+live binding, section 5 the prerequisite the brief found.
 
 Files:
 - `src/game/em_effect_manager.{h,c}`: the native translation.
@@ -32,7 +32,7 @@ Files:
 | 001F4D40 pulsed 001CD520 sprite | AI | missing | live (section 8) | em_effect_manager; oracle, from the .s |
 | 001F1110 aura init | BM | missing | **live** (classification correction) | em_pickup_items_original, bound in em_area11_interaction_host.c; test_pickup_items_reference executes it |
 | 001F1180 aura step | NM | missing | **live**, its draw block too (section 8) | em_pickup_items_original (live); the draw block 0x1F136C..0x1F1470 is `em_effect_manager_aura_draw` through em_effects_live (the interaction host's aura-draw hook) |
-| 001EA240, 001EF940, 001EF9D0, 001EFD20, 001EFD90 | BM/NM | verified-unbound | live (section 8) | em_effect_original (docs/EFFECT_ORIGINAL.md); binding notes in section 5.4 |
+| 001EA240, 001EF940, 001EF9D0, 001EFD20, 001EFD90 | BM/NM | verified-unbound | live (section 8) | em_effect_original (docs/EFFECT_ORIGINAL.md); binding in section 8 |
 
 No census row of this lane is left "missing" or "unverified".
 
@@ -183,42 +183,34 @@ On the route it is reached through 001F5C20 → 001F5940 (lane L27).
   - a non-finite VCLIP input: the VMULAx/VMADDw forms clamp, so the clip input is always finite;
   - a fog weight ≥ 256: fog.x is always 255.0, because 0021B920 writes it and 001F0A60 calls 0021B9A0 → 0021B920 before reading the fog. Swapping the ≥ 256 clamp value therefore cannot be observed; it is the only mutation that survived (section 6).
 
-## 4. Corrections found on the way (for the lead; no existing file was edited)
+## 4. Corrections found on the way
 
-1. **0021B9A0 is the fog/depth-range programmer, not a pad rumble.** Its NEARMISS C:
-   - mode 1 = preset pair +0xD8/+0xDC;
-   - modes 2/4: near = bias + near·scale;
-   - modes 3/5: far = bias + far·scale;
-   - modes 0/other: preset pair +0xF8/+0xFC;
-   - then 0021B920 writes context +0xA0 = (255, 2048, far·k, −k) with k = 255/(far − near).
-
-   `em_effect_original.h` ("pad rumble"), docs/EFFECT_ORIGINAL.md (steps 1 and 6 of 001EA240 and the Boundaries table) and SCENE_COORDINATOR_DESIGN.md ("0021B9A0 rumble channel") carried the wrong label (all three corrected in the Effects step, 2026-09-24). 001EA240's calls (2, 1, 100), (3, 1, 100) … (1, 0, 0) push the fog range out while a puff draws. Its worker must be bound to the same fog programmer as here.
-2. **Census row 0021B9A0** says "verified-unbound (em_game, em_effect_original)". test_effect_original_reference only stubs it, and no native translation exists. It is missing (lane L31).
-3. **Census rows 001F1110 and 001F1180** say "missing". Both are translated and live (above). The census missed em_pickup_items_original.
-4. **001CB5F0 / 001CB760 / 001CB900** (census: verified-unbound via em_head_sprite_original) have no native translation. They are workers there and here, so the packet sink still has to be written.
-5. **Decomp comments:**
+1. **0021B9A0 is the fog/depth-range programmer, not a pad rumble.** Mode 1
+   takes the preset pair +0xD8/+0xDC; modes 2/4 set near = bias + near·scale;
+   modes 3/5 set far = bias + far·scale; mode 0/other takes the preset pair
+   +0xF8/+0xFC; then 0021B920 writes context +0xA0 = (255, 2048, far·k, −k)
+   with k = 255/(far − near). 001EA240's calls (2, 1, 100), (3, 1, 100) …
+   (1, 0, 0) push the fog range out while a puff draws. The port's labels
+   were corrected in the Effects step (2026-09-24); the translation is
+   em_packet_chain_0021B9A0 (PACKET_CHAIN.md), bound as em_rcl_0021B9A0 on
+   the render context (section 8.1).
+   Items 2-4 (census corrections for 0021B9A0, 001F1110 / 001F1180 and the
+   packet sink 001CB5F0 / 001CB760 / 001CB900) are applied: all are
+   translated and live in the census.
+5. **Decomp comments (still open; comment-only fixes in the decomp):**
    - 001F6BB0's header says the slot-0 guards must be 0xFF; they must not be.
    - 001F6210's header says "translate … scale"; the calls are rotate (00102C58) and translate (00102918).
 
-## 5. Binding (the brief; live since 2026-09-25, section 8)
+## 5. Binding
 
-### 5.0 Prerequisite: the render-context views (found by the Effects step, 2026-09-24)
+Live since 2026-09-25: section 8 is the as-built binding.
 
-**Met since the render context step (2026-09-25, docs/RENDER_CONTEXT.md
-section 8).** The one canonical render context runs live: every world frame
-head builds P / V / K and the four 001D2D20 projections (+0x2240..+0x233F)
-from the camera pool's D_00810610, copies P to 0x70003A40 and K to
-0x70003AC0, and re-programs the fog block +0xA0 with 0021B9A0(0, 0, 0); the
-area load writes the fog presets (001D8FD0); main-loop step B sets the packet
-cursors (+0x18 among them) and 001D1EA0's 001CB800 splices and clears the
-chain table D_007635C0 each frame. The effect binding reaches all of them
-through em_rcl_bytes / the module's views (D_00810E80 is em_frame's). What
-follows is the finding as it was written.
+### 5.0 The render-context prerequisite (met)
 
-The Effects step tried to bind this module, em_effect_original, em_effect_kinds,
-em_head_sprite_original and em_player_equipment_sprite live, and stopped here.
-Every draw of theirs reads original render-context bytes that no live code
-produces:
+The brief found one
+prerequisite, met since the render context step (docs/RENDER_CONTEXT.md
+section 8): every draw of these modules reads original render-context bytes,
+which the one canonical render context now produces each frame.
 
 | Reader | What it reads |
 |---|---|
@@ -228,81 +220,10 @@ produces:
 | 001F0720 (the barrel's six lanes) | context +0x22C0 (001CD370(2)), 0x70003AC0, +0xA0; the chain |
 | 001F0A60 (the pickup glint), 001F4D40 → 001CD520 (the glow markers) | context +0x2240, 0x70003AC0, 0x70003A40, +0xA0 (001F0A60 also calls the fog programmer 0021B9A0 on that block) |
 
-The node lifecycle itself does not depend on them, but 001EA240 calls
-001CCF70 and the handler on every state-1 tick. A spawn bound without the
-views would fault at the first footstep puff (fail-stop) and end the level,
-which is worse than today's counted gap (em_player.c `player_effect_gap`).
-So nothing here is wired yet.
-
-In the original the views come from the frame head 001D1C50:
-- 001D2960(D_00810610) writes P (+0x2340), V (+0x2380), K (+0x23C0) and the
-  four 001D2D20 projections (+0x2240, +0x2280, +0x22C0, +0x2300);
-- 001D1C50 copies P to 0x70003A40 and K to 0x70003AC0;
-- the fog block +0xA0 comes from 0021B970 at the area load and from
-  0021B9A0(0, 0, 0) per frame (while bit 0x80 is clear).
-
-The binding therefore needs, first (lanes L32 and L30):
-1. **One canonical render-context block** (FRAME_RENDER_HEADS.md section 4:
-   "The port has no canonical render-context storage today"), with a packet
-   window and the chain table for em_packet_chain_original.
-2. **em_frh_001D2960 bound over the live view.** D_00810610 is the live
-   camera's view in the original convention. em_snow_runtime already derives
-   that form from the native view (rows 1 and 2 negated). Its
-   em_snow_projection_matrices was a private copy (deleted since) of 001D2960's P / K and of
-   the +0x2240 projection. It must become a reader of the one owner, so that
-   one original keeps one translation.
-3. **The fog block written by the fog programmer**
-   (em_packet_chain_0021B9A0 / 0021B920, which the Metal fog already uses
-   since this step; docs/PACKET_CHAIN.md).
-
-Then the effect binding below applies as written. The puffs' pixels still
-need the renderer to consume their 001CFBE0 packets. Their VU1 program is
-table 0x231770 (kind 1), the program the live AREA11 flame already draws
-through em_effect_sprite_project over em_snow_particles_generate
-(docs/AREA11_EFFECT.md), fed by the source block (D_002568B0 and the
-others) and the transform block that em_effect_kinds_001CFB50 now fills.
-
-### 5.1 The barrel
-
-- **Live call site:** `em_scene_bindings.c` `w_001F0360`: `em_effects_live_001F0360()` in the roster scene, −1 mapped to the scene fault (section 8.2); `unmirrored(UM_001F0360)` remains only for a scene without the roster.
-- **The manager holds:**
-  - `tables` from `em_effect_manager_load_tables(elf)`, the same ELF buffer the other original modules read;
-  - `globals` mirrored per frame from em_scene_state: D_00810700/01/02, and the bytes D_0081075D/778/77B/79E. D_00275C44 is owned by this module and starts at 0 after 001F3FA0 (L27). The scratchpad words 0x70003400..7F, 3600..0F and 3A20 are module-local, since no other translated reader exists;
-  - `decals`: **the same `EmEffectOriginalDecals` as em_effect_original** (001F0460 writes it, 001F0720 ages and draws it). Its initial bytes must be 001F03D0's reset (L27);
-  - `view`: context +0x2240 (001CD370(0)), +0x22C0 (001CD370(2)), +0xA0 (fog), and the scratchpad matrices 0x70003AC0 and 0x70003A40, as the original holds them when the barrel runs. The lane-draw capture check shows the latest frame's packet 4 equals the snapshot's view;
-  - `entities`: D_007709C0 +0x80/+0x82. No entity is live on the route, and the writer 001F4010 never ran.
-- **Workers:**
-
-  | Worker | Needed in AREA11 | Bind to |
-  |---|---|---|
-  | w_001F5CA0 | yes (returns 0) | lane L27's 001F5CA0 translation (a pure key switch) |
-  | w_001F5C20 | yes | lane L27's 001F5C20 (which reaches 001F5640, 001F5940 and **em_effect_manager_001F4D40**) |
-  | w_001CB5F0, w_001CB760, w_001CB900 | yes | the renderer's packet sink (not yet written; section 4.4) |
-  | 001F6210 loop workers, w_list_at | no | NULL until another area is in scope (a NULL reached worker faults) |
-  | 001F6BB0/6EB0 workers, w_word | no (see 5.3) | NULL |
-  | w_001F3620, w_001F3E30 | no | NULL |
-
-- **Prerequisites:** the barrel should stay unwired until L27 (001F5C20 and the 001F03D0 ring reset), the packet sink and the render-context view exist. Otherwise it would fault every frame by design.
-
-### 5.2 The pickup glint
-
-- **Live stand-in:** `aura_draw` in `em_area11_interaction_host.c`. It is a no-op that prints "not translated; not drawn" once, so the map pickup's glint is missing today.
-- **Replacement:** an adapter that calls
-  `em_effect_manager_aura_draw(&manager, owner_d0, record, angle, timer)`, where `owner_d0` is the stepping owner's `slot->world` (its +0xD0 matrix, raw bits).
-- **Workers:**
-  - `w_0011E2A8` → `em_sdk_math_original_w_0011E2A8` (bits ↔ float adapter);
-  - `w_0021B9A0` → the fog programmer (L31; it must rewrite `view.fog` as 0021B920 does);
-  - `w_001CB5F0` and `w_001CB900` → the packet sink;
-  - `view` as in 5.1.
-- **Frame order:** it runs inside the owner tick (0015AE20's tail while D_70003B92 == 0), where em_pickup_aura_001F1180 already runs.
-
-### 5.3 001F6BB0 / 001F6EB0 call paths (not on the route)
-
-Neither selector takes a call path on the route. They first run in S2, where the key is 0xB00, and 001F6AC0 never ran in the census. Their workers (L27's point-light chain 001F6760/001F66F0/001F6640/001F6850, and 001F6E40/001F6E80) stay NULL in AREA11. The S1 point-light calls the census saw come from 001F68B0 and 001D7BB0, whose stand-in is the offline export (tools/export_point_lights.py, critic note 7.2), not from these selectors.
-
-### 5.4 em_effect_original (001EA240, 001EF940, 001EF9D0, 001EFD20, 001EFD90)
-
-These are unchanged. Bind them as docs/EFFECT_ORIGINAL.md "Binding" says, with one correction: `w_0021B9A0` is the fog programmer (section 4.1), not a rumble service. The per-subtype handlers and 001CFB50/001CFBE0 belong to lane L27/L39. The ring they write through 001F0460 is the `decals` this module draws.
+001F6BB0 / 001F6EB0 take no call path on the route: they first run in S2,
+where the key is 0xB00, and 001F6AC0 never ran in the census. The S1
+point-light calls the census saw come from 001F68B0 and 001D7BB0, whose
+stand-in is the offline export (tools/export_point_lights.py).
 
 ## 6. Verification
 

@@ -256,131 +256,47 @@ D_00282240 = 3.
 | route 03..14 | 6 (discharge), timer 30, charge 8 | the next call that reaches the timer completes the power-up (verified: +0xA = 1, +0xB = 5, 0x70003B8D = 3) |
 | route 00, 15 | 0 (page cleared) | route 00 owns no battery, so there are no rows |
 
-## 4. Binding notes (for the coordinator)
+## 4. Binding details (beyond section 7)
 
-Nothing here is wired. The live path today is:
-- `em_status_runtime.c` `battery_tick`: `EM_ITEM_CHILD_PAGE` argument 5,
-  reached from `em_status_runtime_page_tick`;
-- `em_battery_ui.c`: its tick, and its hand-placed render in `DRAW_BATTERY`;
-- `em_panel.c` `em_panel_battery_begin/step`: the type-24 branch of states
-  4/5/6;
-- the host's `battery_finished` hook, which writes 3B8D = 3.
+Section 7 is the live binding. The pre-binding brief's details that section 7
+does not restate:
 
-`em_spr_002149F0` replaces all four.
+- **Call site.** `em_spr_002149F0(&workers, &records, &fault)` runs once per
+  frame from the ITEM root's child page 5, where the original calls
+  002149F0; a -1 goes to the runtime's `fail()` with `fault.address`.
+- **Page exits.** The page itself writes UI +1..+6 on its exits: +1 = 3
+  with +2..+5 = 0 is the ITEM return; +1 = 6 is the request-6 exit. The
+  page writes 0x70003B8D = 3 itself.
+- **Inventory bytes.** D_00810C7F / CB2 / CB7 are a per-call view of
+  em_pickup's `read_inventory` / `write_charge` / `write_battery_capacity`
+  (only CB2 and CB7 are written). One canonical copy through
+  `em_scene_progress_at(scene, 0x810C7F, 3)` / `(0x810CB2, 2)` /
+  `(0x810CB7, 1)` would be the cleaner home.
+- **Owner.** `owner_read` / `owner_write` accept only the address D_008106D0
+  holds: in AREA11 the bound panel's +0x14 value (0x7AA590 in the
+  captures); any other address faults.
+- **Worker arguments.** `frame` (0020AE40) draws its gauge through
+  `em_status_battery_draw` (00209280, x 0x96, y 0xB4, compact 1); `arrows`
+  (0020B0D0) reads D_00810E70, the held word; `marker` (0020CCB0) is
+  `em_cs_0020CCB0` with `float_to_int` = `em_player_float_to_int` and its
+  rectangle the 00207F80 draw the status hub renders
+  (x/16 - 1792, (y/16 - 1936) * 2); the background (0020A7A0) tile's TEX0
+  0x20043C859D422150 is EMBA sprite 26. `list_refill` (0020BBE0) and
+  `list_scroll` (0020BC50) fault: the list has at most one row, so the
+  original 0020B210 never raises the wrap event and state 2 cannot be
+  reached from this page (section 2). Neither routine is translated.
+- **em_sul memory.** The ELF data window 0x265C50..0x266000 (the two tables,
+  exported) and the game-block words D_00810E70, D_00810E78,
+  D_00810C70..72 and D_00810C64.. (read only with flag 8), as regions over
+  their canonical storage.
+- **Census.** 002149F0, 0020AE40 / 0020B0D0 / 0020B210 / 0020CCB0 /
+  0020CD40..A0 / 001FCF10 are live (FIRST_LEVEL_CENSUS.md section 1.21);
+  0020CD80 is bound but the route never reaches it (no census row).
 
-**Call site.** In `battery_tick` (the ITEM root's child page 5), call
-`em_spr_002149F0(&workers, &records, &fault)` once per frame, where the
-original calls 002149F0. A -1 goes to `fail()` with `fault.address`.
+## 5. Makefile
 
-**Records.**
-- **`page`.** Give the runtime one persistent 0xA0-byte store for
-  D_00810130. The 0020E060 memset (`EM_STATUS_RESET_UI`) clears it.
-  `EmStatusPage` (UI+0..+3) and `EmItemRoot` (UI+4..+6, +0x10, +0x11, +0x15,
-  +0x16) become views of it: load before the call and store after, or better,
-  accessors. The page itself writes +1..+6 on its exits:
-  - +1 = 3 with +2..+5 = 0 is the ITEM return, today's `BACK_TO_STATUS`;
-  - +1 = 6 is the request-6 exit.
-
-  The other fields (+0x12.., +0x30, +0x3C, the ring) exist only in this
-  store.
-- **Request block.** `d8106B0` / `d8106B1` / `d8106C5` are the pointers
-  `em_status_runtime_page_tick` already receives (`&scene->req[...]`).
-  `d8106D0` is `em_scene_req_at(scene, 0x008106D0)`; the page tick must
-  pass it through.
-- **`d810C7F` (3 bytes), `d810CB2` (2), `d810CB7` (1).** Today em_pickup
-  holds them (the `read_inventory` / `write_charge` /
-  `write_battery_capacity` hooks). There are two ways to bind them:
-  - migrate them to `em_scene_progress_at(scene, 0x810C7F, 3)` / `(0x810CB2, 2)`
-    / `(0x810CB7, 1)`, which is one canonical copy and preferred;
-  - or use a per-call view: load from `read_inventory`, and after the call
-    store D_00810CB2 / D_00810CB7 through `write_charge` /
-    `write_battery_capacity` when they changed. Only these two are written.
-- **`d810E74`.** `(uint8_t *)&scene->d810E74` (the hosts are little-endian),
-  or a 2-byte view of `input->pressed`. It is read only.
-- **Message words.** `d2821B0` / `d2821B4` / `d2821B8` =
-  `&block.mode` / `&block.phase` / `(int32_t *)&block.line` of the live
-  message service's `EmMessageBlock`, as `em_area11_script_host.c` binds
-  them.
-  - **D_00282240** has no canonical port storage today. `EmItemRoot.message_group`
-    plays that role, and it needs one single home that both this page and
-    `em_sul_0020B210` (its 4 -> 3 drop) use.
-  - Once bound, the page layer's own mode-4 copy of the request block goes
-    (CENSUS_STANDINS "delete the stand-ins").
-- **`spad3B8D`.** `&scene->spad3B8D`. The page writes 3 itself, so the
-  `battery_finished` hook's 3B8D write is retired.
-  D_008106C5 = 0xFF reaches 0020CDC0 through `c5` as today.
-
-**Owner workers.**
-- `owner_read` / `owner_write` accept only the address D_008106D0 holds. In
-  AREA11 that is the bound panel's +0x14 value, 0x7AA590 in the captures.
-  Any other address faults, because only the panel is published (W22).
-- The fields map as follows:
-
-  | Original offset | Native value |
-  |---|---|
-  | +3 | the panel's type byte, 0x24 in the capture (the class byte the host already holds for the panel record) |
-  | +0x34 | `EmPanel.cost` |
-  | +0xA | `EmPanel.charged` |
-  | +0xB | `EmPanel.armed` |
-
-- `find_device` = `em_item_device_find` (00185420, verified by
-  test_item_device_reference) over the published list. It maps the returned
-  owner to its record address (the panel, or 0).
-
-**The four page draws (and the other draw workers).** The original builds
-its GS packets inside 002149F0. So during the tick the draw workers must
-record the leaf commands (00207D00 blend, 00207E40 sprite, 00207F80
-rectangle, 00209280 gauge, the text calls). `em_status_runtime_render`'s
-`DRAW_BATTERY` then submits them in that order. That replaces
-`em_battery_ui_render`'s block from "Original0020AE40 flags2" through the
-arrows, the `battery()` helper and the No/Yes marker sprite.
-
-| Worker | Bind to | Notes |
-|---|---|---|
-| `background` (0020A7A0) | `em_status_background_render` with the page tile | The TEX0 0x20043C859D422150 is EMBA sprite 26, as em_battery_ui draws it today. |
-| `frame` (0020AE40) | `em_sul_0020AE40(sulw, mem, EM_SPR_PAGE_ADDRESS, table, flags)` | Its `battery` worker is `em_status_battery_draw` (00209280, x 0x96, y 0xB4, compact 1). |
-| `list` (0020B210) | `em_sul_0020B210(sulw, mem, r->page, r->page_size, table, glyph, flags, &g, result)` | `g` is loaded from and stored to `*d2821B4` / `*d2821B8` / `*d282240` around the call. |
-| `arrows` (0020B0D0) | `em_sul_0020B0D0(sulw, mem, table)` | It reads D_00810E70, the held word `scene->d810E70`. |
-| `marker` (0020CCB0) | `em_cs_0020CCB0(&rect, r->page, r->page_size)` | `float_to_int` = `em_player_float_to_int`. `rectangle` = the 00207F80 draw that the status hub renders (x/16 - 1792, (y/16 - 1936) * 2). |
-| `message_line` (001FCF10) | `em_rvr_001FCF10` with `w_001FCB90` = `em_cs_001FCB90` on the service's `EmCsPresenters` (CENSUS_STANDINS binding) | This replaces the `text(ui, gfx, 0, 270, 408)` Yes/No line. The other `text(..., 138, 336)` lines are the D_002821B8 lines that step F presents from the request the page writes (WP-8b). |
-| `cue_accept` / `cue_back` / `cue_cursor` | `em_sul_0020CD40` / `60` / `A0` | |
-| `cue_refuse` | `em_spr_0020CD80` | |
-| `sound` | the port's 001FB9F0 submit | UI cues 0/1/2/4 stay silent until WP-14 exports them. Unit sound 6 is the same path. |
-| `blend` | the ordered overlay blend | |
-| `list_refill` (0020BBE0), `list_scroll` (0020BC50) | a faulting worker ("unreachable on the BATTERY page") | Section 2 and the test's single-row check: the list has at most one row, and the original 0020B210 then never raises the wrap event. So state 2 cannot be reached from this page. Neither routine is translated. |
-
-The `mem` of the `em_sul_*` calls:
-- the ELF data window 0x265C50..0x266000 (the two tables; an exporter must
-  write them, since the port reads no ELF at run time);
-- the game-block words D_00810E70, D_00810E78, D_00810C70..72 and
-  D_00810C64.. (read only with flag 8), as regions over their canonical
-  storage.
-
-The sprites map TEX0 to the EMBA atlas records. `tools/export_panel.py`
-writes each record's TEX0 at +24; the current loader ignores it.
-
-**Retired with the binding** (rule 4; the list is under "Retired" below):
-the stand-in page in `em_battery_ui.c` (only the EMBA atlas and the leaf
-call list remain), `em_panel_battery_begin` / `_step`, `battery_tick`'s
-synthesized message fields and capacities, and the stand-in tests. The
-census rows 002149F0, 0020AE40 / 0020B0D0 / 0020B210 / 0020CCB0 /
-0020CD40..A0 / 001FCF10 are live (FIRST_LEVEL_CENSUS.md section 1.21);
-0020CD80 is bound but the route never reaches it (no census row).
-
-The level smoke's battery phase (the notice in route 01 f220..f459, the
-panel confirmation of route 03) then exercises the page.
-
-## 5. Makefile hunk (test target; the lead applies it)
-
-```
-.PHONY: test-status-page-record-reference
-test-status-page-record-reference:
-	python3 tools/test_status_page_record_reference.py
-```
-
-When bound, add `src/game/em_status_page_record.c` to `COMMON`.
-`em_status_ui_leftovers.c`, `em_census_standins.c` and
-`em_render_verify_rest.c` are already there.
+`src/game/em_status_page_record.c` is in `COMMON`; the target is
+`test-status-page-record-reference`.
 
 ## 6. Limits
 

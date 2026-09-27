@@ -10,13 +10,13 @@ option 2 (a route measurement proving the path is never reached) is
 **refuted**: the AREA11 route reaches a domain-error tail of 0011E620 or
 0011E748 in beat 03 (and again in beat 05).
 
-The bound context serves the column's sqrt and the gated FLOOR's
-0011E620 / 0011E748. No live caller reaches the error tails yet:
-- the column's argument is never negative;
-- FLOOR is not engaged.
-
-So the route's EDOM is not reproduced live yet. The call site that raises it is
-not identified (section 5).
+The bound context serves the column's sqrt, FLOOR's 0011E620 / 0011E748
+(FLOOR is engaged in AREA11 since the Boxes step) and the other live
+consumers of SDK_MATH_ORIGINAL.md. The column's argument is never negative;
+whether a live call site reaches an error tail on the route (section 5: beats
+03 and 05 in the original), and so reproduces the route's EDOM, has not been
+measured in the port. The original call site that raises it is not
+identified (section 5).
 
 Files:
 - `src/game/em_sdk_soft_float.{h,c}`: the translation.
@@ -312,22 +312,10 @@ It is built with `-fsanitize=address,undefined -fno-sanitize-recover=undefined` 
 em_player_recovery uses for 00128350 + 001000C0 (001274B0(d, 0x3FFE28C740000000) < 0). It equals this module's
 chain on **all 2^32 words** (0 differences; a one-off native sweep, 23 s).
 
-## 7. Makefile (for the lead)
+## 7. Makefile
 
-Test targets, following the sdk-math-original pair:
-
-```make
-.PHONY: test-sdk-soft-float-reference test-sdk-soft-float
-test-sdk-soft-float-reference:
-	python3 tools/test_sdk_soft_float_reference.py
-
-test-sdk-soft-float:
-	@mkdir -p build/sdk_soft_float
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -fno-sanitize-recover=undefined -Isrc tests/sdk_soft_float_test.c src/game/em_sdk_soft_float.c src/game/em_sdk_math_original.c -lm -o build/sdk_soft_float/sdk_soft_float_test
-	build/sdk_soft_float/sdk_soft_float_test ../Extermination/config/SCUS_971.12
-```
-
-`src/game/em_sdk_soft_float.c` is in the game sources, and both targets are in the Makefile.
+`src/game/em_sdk_soft_float.c` is in `COMMON`; both targets
+(`test-sdk-soft-float-reference`, `test-sdk-soft-float`) exist.
 
 ## 8. Findings for other lanes
 
