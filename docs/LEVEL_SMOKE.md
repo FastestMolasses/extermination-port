@@ -338,7 +338,12 @@ B0/B1 from the request row), and from the Yes confirmation (B0 0 -> 1)
 through the discharge, the exit, script 0x247BE0, the power bit and the
 release (plus B0/B1); its player Y is checked as retained while the
 script owns the player (001B6F00 keeps the ground Y of the approach, which is
-navigation input), and equal to the capture after the release. The tick log gained
+navigation input), and equal to the capture after the release. The elevator
+window also compares the terminal record 00827B10 with the route rows'
+`elevator_r19` row for row: its +0x04 and +0xB0..+0xB8 (the carry
+00828050's +0xB4 steps, 230 down to 190; the tick log's `terminal`, since the
+owners step: the record's own model bind, 001C6380 and +0x4C,
+OWNER_DRAW.md section 10). The tick log gained
 the fields these need (em_scene_bindings.c): `screen8`, `msg_pre`, `cam4`,
 `power`, `floor`, `pos_post`, `yaw_post`, `eye_post`, `tgt_post`, and for
 the boxes `player`. Negative
@@ -920,24 +925,30 @@ whose bind ran (em_indicator_bind_live): its record address, +0x10, +0x04,
 - each child's record fields equal the route snapshots' child at the same
   record address (the snapshots agree), the model handles included;
 - its first slot's matrix (001C6380's placement) equals theirs bit for bit;
-  the terminal's 001C5760 child is compared with routes 00..03 only on the
-  ticks before the elevator phase's scan (state['ride_scan']); from the
-  scan on, the original copies the terminal's own node matrix into it every
-  frame (0x827E6C), which the port does not bind, so those ticks are
-  skipped and counted in the PASS line, never compared with a non-original
-  matrix;
+- the terminal's 001C5760 child: 00827B10 copies its own node 0 matrix into
+  the child's slot on every phase-1 call (0x827E6C), and the child's own
+  state-0 placement equals the terminal's node in every capture, so on
+  every tick the child's slot equals the terminal's node 0 of the tick log's
+  `terminal` record (its address, +0x04, +0x09, +0x0C, +0x44, +0x4C, node 0's
+  +0x90 and +0xB0) bit for bit; that record equals routes 00..03' before the
+  elevator phase's window (state['ride_scan']) and routes 04..14' after it
+  (state['ride_end']; the elevator phase compares the window's rows);
 - the slot words are nonzero exactly up to +0x09 (their addresses are not
   compared: the stack's history is not yet the original's);
 - at the aligned snapshot ticks (the effects' `snapshots`) the set of bound
-  children equals the snapshot's.
+  children equals the snapshot's, and the terminal record equals the
+  snapshot's.
 
 Measured (full route): 9 children over 13,000 ticks (the five lights, the
 battery's light until its take, the husk's 0x7A child, the panel's child
-until the power, the terminal's: compared on 3,062 ticks before the
-elevator scan, 9,938 skipped after it) and the same set as the snapshot at
-all 6 aligned snapshots; the save slot of check_render_context over 11,599 ticks.
-Side beat 00 (no status screen in its run): 1,650 ticks; side beat 09:
-5,563 ticks, 1 snapshot.
+until the power, the terminal's: the terminal's node on all 13,000 ticks,
+the record equal to routes 00..03 on 3,062 ticks before the ride and to
+routes 04..14 on 9,550 after it) and the same set and terminal as the
+snapshot at all 6 aligned snapshots (scratch mutations of the log: one bit
+of the child's slot, of the terminal's node after the ride, or of its +0xB4
+in the carry each fail the check); the save slot of check_render_context
+over 11,599 ticks. Side beat 00 (no status screen in its run): 1,650 ticks;
+side beat 09: 5,563 ticks, 1 snapshot.
 
 ### The effects (`check_effects`, census L26 / L27 / L28 / L39)
 
@@ -978,14 +989,17 @@ skipped; 08: 7 equipment nodes, 2 head sprites, 8 truck puffs; 10: packet
 
 Not a phase: at the same aligned snapshot ticks as check_effects. The tick
 log's `owner_units` carries, per 001CAA00 call of the last drawn frame (the
-crates, drums, truck and fence door, the seven player equipment nodes and
-the player on em_owner_draw_live), the owner's record address, the unit's
+crates, drums, truck and fence door, the terminal, the panel, the prop
+001C4820, the items 00219550 / 0015AFA0, the canopy 00823E80, the seven
+player equipment nodes and the player on em_owner_draw_live), the owner's record address, the unit's
 byte count (0: culled), the clip pass, digests of the colour matrix B, the
 lighting rows, the position rows, the point-light slots and the lighting
 rows' lanes y and z, the point 001CAA00 culled and lit the owner at (three
 float bit patterns) and a digest of its nodes' +0x90 matrices. For every
 such owner the ORIGINAL 001CAA00 runs over the snapshot (the owner-draw
-oracle; the player after the walk, as 0015C160 calls its +0x4C). The
+oracle; the player after the walk, as 0015C160 calls its +0x4C; an item
+only where the snapshot's +0x01 is set: the items call their +0x4C only
+when their 001B17A0 found them visible). The
 equipment nodes are matched by their flavour +0x03 and variant +0x0D (the
 port's pool places the respawned flavour-2 nodes at other records;
 check_effects compares their bytes), the other owners by their record.
@@ -1020,13 +1034,15 @@ units) are counted, not judged. Full route: 11,271 live post-steps, 1,302
 reported (the opening, with the seven equipment nodes listed in every one),
 428 ticks not judged.
 
-Measured (full route, the player step): 08: 11 units drawn in both, B and
-the rig lanes compared for the 3 world owners (the player stands elsewhere
-at that tick); 10: 10, all compared, camera exact with all 16 owners (the
-door, the truck, the player and its seven equipment nodes) equal in bytes,
-clip and position rows; 11: 9 (1 compared); 12: 8 (0); 13: 16 (8, the world
-owners); 14: 8, all compared, camera exact with all 16 owners equal (the
-player and its equipment drawn, the rest culled as in the capture). In 10
+Measured (full route, 2026-09-26, with the terminal, the panel, the prop,
+the items and the canopy on the path): 08: 14 units drawn in both, B and the
+rig lanes compared for the 6 placed world owners (the player stands
+elsewhere at that tick); 10: 12 drawn, all compared, camera exact with all
+22 owners (the door, the truck, the two visible items, the player and its
+seven equipment nodes drawn; the other world owners culled as in the
+capture) equal in bytes, clip and position rows; 11: 10 (2 compared); 12: 9
+(1); 13: 22 (14, the world owners); 14: 11, all compared, camera exact with
+all 20 owners equal. In 10
 and 14 the player and all seven equipment nodes stand at the snapshot's
 point with its pose. A scratch mutation of the tick log (the player's pose,
 point or rows, and one equipment node's pose, in 10 and 14; an equipment
@@ -1124,7 +1140,6 @@ never silently skipped. What removes each:
 | cage_roof, crevice_prompt, east_tower (10, 11, 13) | the voiced line's teardown and what follows it land 8 / 6 / 6 rows early; the checker allows exactly that shift | the port's IOP stream drive completes a read at its first poll | a new capture of the stream / voice lanes (FIRST_LEVEL_AUDIT.md WP-8b; the VOICE step's capture list) |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
-| check_indicator_children | the terminal child's matrix after the elevator scan (9,938 ticks skipped and counted) | 0x827E6C, the terminal's copy of its node matrix into the child's slot, is not bound: the terminal's pose is still the legacy elevator's | the terminal owner's node on original slots (CENSUS_UNVERIFIED.md) |
 | check_owner_units | the whole lighting rows (compared for 0 units; the colour matrix and the rig lanes are compared) | the point-light slots' sway follows rand() (001D7C30), and the port's rand() order is not yet the original's | the RNG order audit |
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |

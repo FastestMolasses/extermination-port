@@ -54,6 +54,13 @@ uint32_t em_indicator_bind_live_fault(void);
 int em_indicator_bind_live_bind(EmActor *child, uint32_t fn, int32_t *result);
 /* 001C6380 over the child (its model, slots, +0xB0, +0xC0, +0x60). */
 int em_indicator_bind_live_place(EmActor *child);
+/* 00102958 copy_qw4 of `matrix` into slot k's +0x90 of a bound child (the
+ * terminal's 0x827E6C copy of its node matrix into its child). 0, or -1
+ * (not a bound child, or no slot k). */
+int em_indicator_bind_live_set_node(EmActor *child, unsigned k, const float matrix[16]);
+/* Slot k's +0x90 of a bound child (the stand-in draws of the children's
+ * +0x4C read their own node matrices). 0, or -1. */
+int em_indicator_bind_live_node(const EmActor *child, unsigned k, float matrix[16]);
 /* 001AF800 for an indicator child: 1 handled, 0 not a bound child, -1. */
 int em_indicator_bind_live_001AF800(EmActor *child);
 

@@ -326,6 +326,49 @@ docs/CHAIN_PAGE.md, census 1.24):**
   translation of the sprite program until that owner is bound); Metal's
   rasterization stands for the GS DDA.
 
+**Status update (2026-09-26, the owners step: the remaining world owners on
+their records; OWNER_DRAW.md section 10, census 1.25):**
+- The terminal / elevator 00827B10, the panel 00159210, the placed prop
+  001C4820 (bound live: em_sul_001C4820 at its node), the six items 00219550
+  and the map item 0015AFA0, and the opening controller 00823E80's parachute
+  canopy bind their models (001B0FD0 / 001B1020 over the world bank or the
+  D_0028A56C library), place their nodes (001C6380 into their records' bone
+  slots: the terminal's state 0, every carry tick and the completion) and
+  draw through their +0x4C, 001CAA00 over their own records
+  (`em_area11_boxes_owner_*`, the object-unit renderer). The terminal's
+  per-frame copy of its node 0 into its indicator child's slot (0x827E6C) is
+  bound. The canopy's state 1 publishes its record (001B1B70) as the
+  original does, and the prop's 001B17A0 publishes its cell: the published
+  class-4 list at beat 04 now equals the original's exactly.
+- Retired: the legacy elevator platform mesh (`g.elev_*`, `elevator_pose`;
+  the manifest's `elevator` line is no longer read), the legacy panel mesh
+  (the `grate` line installs only cell 18), the bound items' legacy instance
+  draw, and the canopy / record-20 prop instances (retired at their owners'
+  placement when the owners bind). The indicator children's stand-in draw now
+  sits at the child's own node (its slot), not the parent's legacy palette.
+  `tools/export_object_textures.py` adds the items' model 0x72 (303 TEX0,
+  resident in all 15 route captures): users re-run it.
+- Evidence: check_owner_units compares the new owners' units with the
+  snapshots (in the camera-exact beats 10 and 14 every owner that ran its
+  +0x4C, the two visible items included, equals the original's unit bytes,
+  clip pass and position rows); check_indicator_children holds the terminal
+  child's slot equal to the terminal's node on every tick and the terminal
+  record equal to the captures before and after the ride (the relaxed
+  "0x827E6C" row of LEVEL_SMOKE.md is gone); the elevator phase compares the
+  terminal record's +0x04 and +0xB0..+0xB8 row for row over route 04;
+  test_collision_world_capture's published list gained uids 17 and 3;
+  test_pickup_owner_reference now executes the items' state 0 (0015AC00 and
+  00219550's), which moved 0015AC00 to live (census 644 / 84 / 4 / 0 / 1)
+  and found the decomp's NEARMISS C of 00219550 inverting a test.
+  newgame-control 9.599849, compare_frame_order idle04 / walk04 / st03 /
+  cut02 / cut15 PASS.
+- Still open: the fan pair and the husks (census L24: their owners are not
+  bound, so their legacy meshes draw; the fan's exit / hit consumers and its
+  call count from spawn, the creature's lifecycles 1 / 4 and rand() in its
+  wait); the indicator children's own draw 001CABA0 (channel 3, the depth
+  sort into the chain page and the class-3 GS state: still the additive mesh
+  stand-in); Roger's face units (001CB3C0).
+
 ---
 
 ## 2. Live call graph (normal run)

@@ -1809,8 +1809,7 @@ void em_game_shutdown(void)
         free(g.scene[i].palette);
     }
     g.n_scene = 0;
-    elevator_unload(gfx);       /* AREA-11 platform mesh */
-    grate_unload(gfx);          /* AREA-11 power-panel mesh */
+    grate_unload(gfx);          /* AREA-11 panel cell 18, indicator meshes */
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);

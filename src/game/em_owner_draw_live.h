@@ -44,7 +44,7 @@
 extern "C" {
 #endif
 
-#define EM_OWNER_DRAW_LIVE_UNITS 32u              /* units kept per frame */
+#define EM_OWNER_DRAW_LIVE_UNITS 64u              /* units kept per frame */
 #define EM_OWNER_DRAW_LIVE_TEXTURES "assets/scene_snow/object_textures.emot"
 
 /* 001CAA00(owner). `bank` is the model bank the owner's +0x44 points into

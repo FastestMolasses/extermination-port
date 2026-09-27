@@ -141,6 +141,87 @@ def controller(elf, lib, callback, lifecycle, phase, armed, child, action,
         actual_state=actual_state, expected_state=expected_state)
 
 
+class State0(C.Structure):
+    _fields_ = [('status', C.c_uint8), ('subtype', C.c_uint8), ('mode', C.c_uint8), ('model', C.c_uint8),
+                ('flags2', C.c_uint16), ('scale', C.c_float * 3), ('color', C.c_float * 3)]
+
+
+BIND0 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_int32))
+BIND1 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_int32, C.c_int32, C.POINTER(C.c_int32))
+VOID = C.CFUNCTYPE(C.c_int, C.c_void_p)
+AURA = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int16)
+
+
+class State0Hooks(C.Structure):
+    _fields_ = [('context', C.c_void_p), ('bind0', BIND0), ('bind1', BIND1), ('place', VOID),
+                ('aura', AURA), ('cell', VOID)]
+
+
+# The record bytes state 0 reads or writes (+0x04 is the bind workers'; the
+# +0x30 store is not modelled) and the other record bytes, which must stay.
+STATE0_BYTES = (0x00, 0x03, 0x08, 0x0D, 0x2E, 0x2F) + tuple(range(0x60, 0x6C)) + tuple(range(0x80, 0x8C))
+
+
+def state0(elf, lib, callback, model, subtype, flags2, item3, result):
+    """The original state 0 (0015AFA0's 0015AC00, entered through 0015AFA0
+    with +0x04 = 0; 00219550's with +0x04 = 0) against em_pickup_owner's:
+    every call (001B0FD0 / 001B1020 with their arguments, 001C6380, 001F1110
+    with its variant, 001A2370, and 00219550's 001C5570 child spawn, the end
+    of the modelled part) in order and every modelled record byte."""
+    o = OwnerOracle(elf)
+    for offset, value in ((0x00, 2), (0x03, subtype), (0x04, 0), (0x08, 0), (0x0D, model)):
+        o.save(ACTOR+offset, value, 1)
+    o.save(ACTOR+0x2E, flags2, 2)
+    for k in range(3):
+        o.save(ACTOR+0x60+4*k, bits(1.0)); o.save(ACTOR+0x80+4*k, bits(1.0))
+    o.save(0x810C64+3, item3, 1)
+    o.save(0x810700, 0x0B, 1)
+    expected = []
+    def bind0(r):
+        assert r.r[4] == ACTOR
+        expected.append(('001B0FD0',)); r.r[2] = result
+    def bind1(r):
+        assert r.r[4] == ACTOR
+        expected.append(('001B1020', r.r[5] & 0xFF, signed(r.r[6]), signed(r.r[7]))); r.r[2] = result
+    def place(r):
+        assert r.r[4] == ACTOR
+        expected.append(('001C6380',))
+    def aura(r):
+        assert r.r[4] == ACTOR
+        expected.append(('001F1110', signed(r.r[5] & 0xFFFF, 16)))
+    def cell(r):
+        assert r.r[4] == ACTOR and r.r[5] == ACTOR+0xD0
+        expected.append(('001A2370',))
+    def spawn(r):
+        expected.append(('001C5570',)); r.r[2] = CHILD
+    o.calls.update({0x1b0fd0: bind0, 0x1b1020: bind1, 0x1c6380: place, 0x1f1110: aura, 0x1a2370: cell,
+                    0x1c5570: spawn})
+    o.run(callback, (ACTOR,))
+    if callback == 0x219550 and expected and expected[-1] == ('001C5570',):
+        expected.pop()                     # the child spawn: the node's, after this call
+    rec = State0(2, subtype, 0, model, flags2, (C.c_float*3)(1, 1, 1), (C.c_float*3)(1, 1, 1))
+    actual = []
+    def n_bind0(_, res):
+        actual.append(('001B0FD0',)); res[0] = result; return 0
+    def n_bind1(_, a1, a2, a3, res):
+        actual.append(('001B1020', a1, a2, a3)); res[0] = result; return 0
+    hooks = State0Hooks(None, BIND0(n_bind0), BIND1(n_bind1),
+                        VOID(lambda _: actual.append(('001C6380',)) or 0),
+                        AURA(lambda _, v: actual.append(('001F1110', v)) or 0),
+                        VOID(lambda _: actual.append(('001A2370',)) or 0))
+    if callback == 0x15afa0:
+        rc = lib.em_pickup_owner_0015AC00(C.byref(rec), C.byref(hooks))
+    else:
+        rc = lib.em_pickup_owner_00219550_state0(C.byref(rec), item3, C.byref(hooks))
+    want = [o.load(ACTOR+off, 1) for off in STATE0_BYTES]
+    have = ([rec.status, rec.subtype, rec.mode, rec.model] + list(struct.pack('<H', rec.flags2))
+            + list(struct.pack('<3f', *rec.scale)) + list(struct.pack('<3f', *rec.color)))
+    ok = rc in (0, 1) and actual == expected and have == want and o.load(ACTOR+4, 1) == 0
+    assert ok, dict(callback=hex(callback), model=hex(model), subtype=hex(subtype), flags2=hex(flags2),
+                    item3=item3, result=result, rc=rc, actual=actual, expected=expected, have=have, want=want)
+    return expected
+
+
 def take(elf, lib, subtype, item_type, initial):
     o = OwnerOracle(elf); o.save(ACTOR+3, subtype, 1); o.save(ACTOR+0x2e, item_type, 2)
     o.save(0x8106b0, 9, 1); o.save(0x8106b1, 17, 1)
@@ -174,6 +255,8 @@ def main():
         C.c_uint8, C.c_uint8, C.c_uint8, C.POINTER(Hooks)]
     lib.em_pickup_owner_take.argtypes = [C.POINTER(Owner), C.POINTER(C.c_uint8),
         C.POINTER(C.c_uint8), C.POINTER(Request), ADD, C.c_void_p]
+    lib.em_pickup_owner_0015AC00.argtypes = [C.POINTER(State0), C.POINTER(State0Hooks)]
+    lib.em_pickup_owner_00219550_state0.argtypes = [C.POINTER(State0), C.c_uint8, C.POINTER(State0Hooks)]
     count = 0
     for callback, lifecycle, phase, armed, child, action, no_grab, scripted, done, visible in itertools.product(
             (0x15afa0, 0x219550), (1, 2, 3, 255), (0, 1, 2), (0, 1, 4, 255),
@@ -186,17 +269,34 @@ def main():
         item_y = C.c_float(player_y+offset).value
         controller(elf, lib, callback, 1, 0, 4, 1, 0, 0, 0, 0, 1, item_y, player_y)
         count += 1
+    # State 0: 0015AC00 over every scale class of its model id, the four
+    # (+0x03 & 0xF) arms (1: 001B0FD0 with the 4.0 colour; else 001B1020),
+    # the 0x34 aura variant and both bind results; 00219550's two bind arms
+    # (+0x03 == 0 with +0x2E == 0x28: 001B0FD0) and its +0x2E rewrite.
+    state0_count = 0
+    arms = set()
+    for model, subtype, result in itertools.product(
+            (0x5B, 0x6D, 0x6C, 0x40, 0x45, 0x59, 0x0B, 0x34, 0x72, 0x00, 0xFF),
+            (0x00, 0x01, 0x02, 0x03, 0x11, 0x12, 0xF1, 0xFF), (0, 1)):
+        arms.add(tuple(state0(elf, lib, 0x15afa0, model, subtype, 0x1b, 0, result))[:1])
+        state0_count += 1
+    for model, subtype, flags2, item3, result in itertools.product(
+            (0x72, 0x0B), (0x00, 0x01, 0x02), (0x28, 0x03, 0x1b, 0x00), (0, 1), (0, 1)):
+        arms.add(tuple(state0(elf, lib, 0x219550, model, subtype, flags2, item3, result))[:1])
+        state0_count += 1
+    assert {('001B0FD0',), ('001B1020', 0x72, -1, 0)} <= {a[0] for a in arms if a}, arms
     take_count = 0
     for subtype, item_type, initial in itertools.product((0, 1, 2, 255),
             (0, 1, 8, 0x10, 0x1b, 0x1f, 0x20, 0x32, 0xff), (0, 1, 254, 255)):
         take(elf, lib, subtype, item_type, initial); take_count += 1
-    report = dict(elf_sha256=ELF_SHA, controller_cases=count, take_cases=take_count,
+    report = dict(elf_sha256=ELF_SHA, controller_cases=count, state0_cases=state0_count, take_cases=take_count,
         boundaries=['model initialization', 'script worker', 'publication visibility',
                     'render', 'sound', 'item inventory001C40B0'],
         source_sha256={str(p.relative_to(ROOT)): hashlib.sha256(p.read_bytes()).hexdigest()
             for p in (ROOT/'src/game/em_pickup_owner.c', ROOT/'src/game/em_pickup_owner.h', Path(__file__))})
     (build/'report.json').write_text(json.dumps(report, indent=2)+'\n')
     print(f'Original pickup owner: {count} lifecycle/order/height cases PASS')
+    print(f'Original pickup state 0 (0015AC00, 00219550): {state0_count} model/arm/bind cases PASS')
     print(f'Original pickup consume: {take_count} inventory-family/status cases PASS')
 
 

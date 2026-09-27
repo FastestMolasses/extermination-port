@@ -20,8 +20,9 @@ Files (all new; nothing existing was edited):
 The BATTERY page draw (0020AE40 / 0020B0D0 / 0020B210 / 0020BEF0), the UI
 cues and 0021BAC0 are **bound live since the status UI step (2026-09-26)**:
 em_battery_page_live and em_rcl_0021BAC0 (docs/STATUS_PAGE_RECORD.md
-section 7). The area title 001C5930 / 001C5860 and 001C4820 are still
-unbound; the binding notes below say what they replace.
+section 7). 001C4820 is **bound live since the owners step (2026-09-26)**
+(the pickup node below). The area title 001C5930 / 001C5860 is still
+unbound; the binding notes below say what it replaces.
 
 ## 1. Result
 
@@ -332,10 +333,18 @@ line.
   since the port reads no ELF at run time); the scratchpad mode byte
   0x70003B8D.
 
-**Pickup node.** The `em_area11_bindings.c` entry for 001C4820 ("prop:
-render-only") gets `em_sul_001C4820` with the owner-services workers in
-2.10. The pickup's draw then goes through 001CAA00 instead of the scene-props
-draw in `em_render_frame.c`.
+**Pickup node (bound, the owners step).** The `em_area11_bindings.c` entry
+for 001C4820 (area11[20], tick_prop_001C4820) runs `em_sul_001C4820` over the
+record's +0x04 and +0x4C with the workers of 2.10 on its own record:
+`model_bind` = em_area11_boxes_owner_001B0FD0 (the world bank's model
+0x04), `place` = em_area11_boxes_owner_001C6380, `publish` = the
+interaction host's 001B17A0 services (001B1630 on the camera, 001B1B70 onto
+the collision world's class lists: its cell uid 17), `method` =
+em_area11_boxes_owner_draw (001CAA00 through em_owner_draw_live, the
+object-unit renderer; OWNER_DRAW.md section 10), `free_actor` = 001AFC10.
+The manifest's legacy prop instance at its +0xB0 stops drawing once the bind
+succeeds. The level smoke compares its unit with the snapshots
+(check_owner_units) and test_collision_world_capture its published cell.
 
 **Render context.** `em_render_context.c` (lane L30) declares the worker
 `w_0022EBE0`; bind it to `em_sul_0022EBE0(D_008101E4, mode byte)`. The context

@@ -1,5 +1,15 @@
 # AREA11 opening scenery evidence
 
+**Current state (the owners step, 2026-09-26).** The canopy (00823E80), the
+panel (00159210), the elevator (00827B10), the record-20 prop (001C4820)
+and the items (00219550, 0015AFA0) no longer draw the EMDL meshes this
+document describes: each draws its original 001CAA00 unit over its own
+record (docs/OWNER_DRAW.md section 10). The EMDLs of the indicator children
+(model 0x73, 0x75, 0x10) are still drawn, by the children's +0x4C stand-in,
+now at each child's own node matrix; the fan pair still draws its EMDL
+(its owner is not bound, census L24). The sections below are the evidence
+for those exports and placements.
+
 These changes use the original SCUS-97112 overlay, boot ELF, model library,
 and a cold-boot PCSX2 reference. The old port and older forced-state scene
 exports are comparisons, not authorities. Generated assets remain ignored.

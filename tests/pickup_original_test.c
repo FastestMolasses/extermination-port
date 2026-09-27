@@ -6,7 +6,7 @@
 #undef main
 
 typedef struct {
-    int status_calls, pending_status, turn_calls, camera_calls, sounds, publications;
+    int status_calls, pending_status, turn_calls, camera_calls, sounds, publications, draws;
     uint8_t kind, index;
 } Host;
 
@@ -40,6 +40,8 @@ static int owner_event(void *context, uint32_t source_id, EmPickupOwnerEvent eve
 {
     Host *host=context; (void)source_id;
     if (event==EM_PICKUP_OWNER_PUBLISH) ++host->publications;
+    /* A visible owner's +0x4C (001CAA00 over its record): the host's. */
+    else if (event==EM_PICKUP_OWNER_DRAW) { assert(host->draws<host->publications); ++host->draws; }
     else if (event==EM_PICKUP_OWNER_TAKE_SOUND) { assert(argument==0x194); ++host->sounds; }
     else assert(event==EM_PICKUP_OWNER_AURA);
     return 1;
@@ -77,6 +79,11 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     uint8_t action=short_program?0x2D:0;
     assert(em_pickup_original_tick(229.9f,action,0,0,1)==1);
     assert(owner->phase==1 && s.p[0].program.script.phase==0 && frame.selector==3);
+    {   /* the live, visible, bound owner: no legacy instance draw */
+        const float *unused_palette; EmGfxMesh *unused_mesh; uint32_t unused_bones;
+        assert(s.p[0].used && host.draws==1 &&
+               !em_pickup_draw(0,&unused_mesh,&unused_palette,&unused_bones));
+    }
     int frames=0;
     while (!host.pending_status) {
         assert(++frames<100);
@@ -109,6 +116,10 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(em_interaction_runtime_player_tick(&interaction,1)>=0);
     assert(em_pickup_original_tick(229.9f,action,0,frame.ready,1)==1);
     assert(owner->freed && !s.p[0].used && em_pickup_taken(metadata.uid));
+    /* Every publication found the owner visible (the fixture's 001B17A0
+     * answers 1), so every one was followed by its +0x4C; the legacy
+     * instance never draws a bound owner. */
+    assert(host.publications>0 && host.draws==host.publications);
     assert(!em_scene_state()->req[EM_SCENE_REQ_B0] && !em_interaction_runtime_owner(&interaction));
     em_pickup_scene_clear(gfx);
     assert(em_pickup_original_bind(&metadata,&interaction,path,&hooks)==-2);

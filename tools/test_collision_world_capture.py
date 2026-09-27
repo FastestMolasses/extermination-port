@@ -24,8 +24,11 @@ scratchpad word 0x70003250):
     owners the port runs (panel, terminal, items, the crates and drums on
     their original owners since census L25: the crates publish their cells,
     uids 7..10, on every rest tick; the drums, uids 5 and 6, when 001B17A0
-    finds them visible or the player is within 50 units; and since census
-    L23 the truck, uid 14, on every wedged tick), in the original order.
+    finds them visible or the player is within 50 units; since census
+    L23 the truck, uid 14, on every wedged tick; and since the owners step
+    the placed prop 001C4820, uid 17, when its 001B17A0 finds it visible,
+    and the opening controller 00823E80's canopy, uid 3, which its state 1
+    publishes with 001B1B70 on every call), in the original order.
 
 Every other uid must equal the disc directory in the port. The original moves
 one of them that the port's owners do not publish yet: 0x825940's plate
@@ -47,7 +50,8 @@ ROUTE = ROOT.parent / 'Extermination/build/s87/route'
 DISC = ROOT / 'assets/scene_snow/area11_cells.bin'
 OUT = ROOT / 'build/collision_world'
 PORT_MOVED = {4, 14, 19, 21, 22, 23, 24, 25}   # the terminal, the truck and the item owners
-PORT_OWNERS = {4, 18, 14, 5, 6, 7, 8, 9, 10}  # terminal, panel, truck, drums, crates (+ items 19..26)
+PORT_OWNERS = {4, 18, 14, 5, 6, 7, 8, 9, 10, 17, 3}  # terminal, panel, truck, drums, crates, the prop
+                                                     # 001C4820, the parachute 00823E80 (+ items 19..26)
 NOT_PUBLISHED = {15: "0x825940's plate (census L24)"}
 
 
@@ -191,9 +195,10 @@ def main():
         failures.append(f'the port re-transformed {moved_first} / {moved_last}, expected {sorted(PORT_MOVED)}')
     # The last frame's published class-4 list: the original's entries whose
     # owners the port runs (the panel, the terminal, the items, and since
-    # census L25 the drums, uids 5 and 6, and the crates, uids 7..10, and
-    # since census L23 the truck, uid 14), in the
-    # original order (newest push first = reverse pool-walk order).
+    # census L25 the drums, uids 5 and 6, and the crates, uids 7..10, since
+    # census L23 the truck, uid 14, the prop 001C4820, uid 17, and the
+    # canopy 00823E80, uid 3), in the original order (newest push first =
+    # reverse pool-walk order).
     ported = [u for u in list04 if u in PORT_OWNERS or 19 <= u <= 26]
     if last_list != ported:
         failures.append(f'published class-4 list {last_list}, expected the original\'s ported '

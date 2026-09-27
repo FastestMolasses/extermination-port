@@ -133,6 +133,38 @@ const EmOwnerModel *em_area11_boxes_world_model(uint32_t address);
 /* *D_0028A59C (the table address), or 0 when the bank is not loaded. */
 uint32_t em_area11_boxes_world_bank_word(void);
 
+/* The other AREA11 world-model owners on their original records
+ * (docs/OWNER_DRAW.md section 10): the terminal 00827B10, the panel
+ * 00159210, the prop 001C4820 and the item owners 0015AFA0 / 00219550.
+ * Their behaviours stay where they are (the interaction host, the node
+ * bindings); these are the original callees they reach, over the same bank,
+ * bone-slot stack and draw list as the boxes:
+ *   001B0FD0(actor)              em_owner_services_001B0FD0 over *D_0028A59C
+ *   001B1020(actor, a1, a2, a3)  em_owner_services_001B1020 over D_0028A56C
+ *                                (the Roger export's global library; the
+ *                                model joins a table-less library bank at
+ *                                its original address)
+ *   001C6380(actor)              em_owner_services_001C6380 over the record's
+ *                                +0xB0 / +0xC0 / +0x60 and its slots; *world
+ *                                = the new +0xD0 (NULL: not wanted)
+ *   +0x4C                        001CAA00 through em_owner_draw_live over the
+ *                                record's +0x02, +0x03, +0x80, +0x90, +0x94,
+ *                                +0x98, +0xB0 and the slots
+ * A bind writes the record's +0x04 (+= 1, or 3 over the bone cap), +0x09 and
+ * +0x0C; *ret = the original result (0 bound, 1 refused). The slots go back
+ * through em_area11_boxes_001AF800 when the pool frees the record. Each
+ * returns 0, or -1 (reported on stderr). */
+int em_area11_boxes_owner_001B0FD0(EmActor *actor, EmActorPool *pool, int32_t *ret);
+int em_area11_boxes_owner_001B1020(EmActor *actor, EmActorPool *pool, uint32_t a1, int32_t a2, int32_t a3,
+                                   int32_t *ret);
+int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16]);
+int em_area11_boxes_owner_draw(EmActor *actor);
+/* A bound world owner's +0x44 (the model's original address) and +0x4C,
+ * for the tick log: 1, or 0 when `actor` is not a bound world owner. */
+int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t *method);
+/* Node k's +0x90 world matrix (slot k of a bound world owner). 0, or -1. */
+int em_area11_boxes_owner_node(const EmActor *actor, unsigned k, float out[16]);
+
 /* Scene unload: the frame's draw state and the kept units. */
 void em_area11_boxes_shutdown(void);
 

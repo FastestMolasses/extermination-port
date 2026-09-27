@@ -1,8 +1,12 @@
-/* The panel / terminal indicator draws (the children's +0x4C 001CACB0 at
- * the owner's matrix, with 001F54E0's colour), the fixed panel and its cell.
+/* The panel / terminal indicator draws (the children's +0x4C 001CACB0 stand-in
+ * at the child's own node 0, with 001F54E0's colour) and the panel's cell 18.
+ * The panel and the terminal draw themselves through 001CAA00 over their
+ * records (em_area11_boxes_owner_draw; the level smoke's check_owner_units).
  * The children's behaviour and the terminal's level tail are
  * em_indicator_child (tests/indicator_child_test.c,
- * tools/test_census_unverified_reference.py). */
+ * tools/test_census_unverified_reference.py); their node matrices (001C6380,
+ * the terminal's 0x827E6C copy) are checked against the route captures by
+ * the level smoke's check_indicator_children. */
 #include <assert.h>
 #include "../src/game/em_props.c"
 #include "game/em_effect_kinds.h"
@@ -35,22 +39,6 @@ static void c80_001F54E0(uint32_t r, const float colour[4], float c80[4])
 int em_model_load(EmModel *m, const char *path)
 { (void)path; memset(m,0,sizeof *m); m->bone_count=2; return 0; }
 void em_model_free(EmModel *m) { memset(m,0,sizeof *m); }
-void em_model_palette_at(const EmModel *m, uint32_t clip, double time, float *out)
-{
-    (void)clip; (void)time;
-    memset(out,0,m->bone_count*16*sizeof(float));
-    for (uint32_t i=0;i<m->bone_count;++i)
-        for (unsigned j=0;j<4;++j) out[i*16+j*5]=1;
-}
-void palette_apply_placement(float *out, uint32_t count, const float pos[3], float yaw)
-{
-    for (uint32_t i=0;i<count;++i) {
-        float *m=out+i*16;
-        m[0]=cosf(yaw); m[2]=-sinf(yaw);
-        m[8]=sinf(yaw); m[10]=cosf(yaw);
-        memcpy(m+12,pos,3*sizeof(float));
-    }
-}
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t count,
     const uint32_t *indices, uint32_t index_count, const EmGfxTexDesc *texs,
     uint32_t tex_count, const uint8_t *texels, uint32_t flags)
@@ -71,6 +59,14 @@ void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
     memcpy(last_tint,rgba,sizeof last_tint);
 }
 
+/* A node matrix in the original row layout (row 3 the translation). */
+static void node_at(float m[16], float x, float y, float z, float c, float sn)
+{
+    memset(m,0,16*sizeof(float));
+    m[0]=c; m[2]=-sn; m[5]=1; m[8]=sn; m[10]=c; m[15]=1;
+    m[12]=x; m[13]=y; m[14]=z;
+}
+
 int main(void)
 {
     float delta[4];
@@ -83,50 +79,48 @@ int main(void)
     random_calls=0;
 
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
-    const float panel[3]={240,245,232.8f}, vp[16]={0};
-    assert(grate_install(gfx,"scene","panel",panel,-3.14159274f)==0);
+    const float vp[16]={0};
+    assert(grate_install("scene")==0 && g.grate_present);
     grate_update();assert(collision_published);
     assert(em_props_indicator_install(gfx,"scene","panel","red")==0);
-    em_model_load(&g.elev_model,"elevator");
-    g.elev_mesh=(EmGfxMesh *)(uintptr_t)2;
-    g.elev_palette=calloc(32,sizeof(float));
-    g.elev_has_mesh=1;
-    g.elev_pos[0]=224; g.elev_pos[1]=230; g.elev_pos[2]=250.7f;
-    elevator_pose();
     assert(em_props_indicator_install(gfx,"scene","elevator","red")==0);
+    assert(em_props_indicator_install(gfx,"scene","lamp","red")==-1);
     em_props_indicators_draw(gfx,vp);
     assert(draws==0);                          /* nothing submitted */
-    float c80[4];
+    float c80[4], upper[16], lower[16], panel[16];
+    node_at(upper,224,230,250.7f,1,0);
+    node_at(lower,224,190,250.7f,1,0);
+    node_at(panel,240,245,232.8f,-1,0);
     c80_001F54E0(0x40000000,red_elevator,c80);
-    assert(em_props_indicator_submit(1,c80)==0);
-    assert(em_props_indicator_submit(2,c80)==-1);
+    assert(em_props_indicator_submit(1,c80,upper)==0);
+    assert(em_props_indicator_submit(2,c80,upper)==-1);
+    assert(em_props_indicator_submit(1,c80,NULL)==-1);
     em_props_indicators_draw(gfx,vp);
     assert(draws==1 && last_tint[0]==1 && last_tint[1]==1.0f/128);
-    assert(last_palette[12]==224 && last_palette[13]==230);
+    /* Every bone of the model takes the child's node 0, unchanged. */
+    assert(memcmp(last_palette,upper,sizeof upper)==0 && memcmp(last_palette+16,upper,sizeof upper)==0);
     em_props_indicators_draw(gfx,vp);
     assert(draws==1);                          /* one draw per 001F54E0 */
+    /* The terminal's child after the ride: its slot holds the terminal's
+     * node at the lower floor (0x827E6C). */
     const float green_elevator[4]={0,1,0,.25f};
     c80_001F54E0(0x40000000,green_elevator,c80);
-    assert(em_props_indicator_submit(1,c80)==0);
+    assert(em_props_indicator_submit(1,c80,lower)==0);
     c80_001F54E0(0x40000000,red_panel,c80);
-    assert(em_props_indicator_submit(0,c80)==0);
+    assert(em_props_indicator_submit(0,c80,panel)==0);
     grate_update();
     em_props_indicators_draw(gfx,vp);
     assert(draws==3 && last_tint[0]==1.0f/128 && last_tint[1]==1);   /* slot 1 last */
-    assert(g.grate_palette[12]==240 && g.grate_palette[13]==245);
+    assert(memcmp(last_palette,lower,sizeof lower)==0);
     assert(collision_published);
 
-    /* The ride (00828050's carry) moved to the AREA11 interaction host in
-     * WP-4 (tools/test_elevator_reference.py checks it against route 04);
-     * the legacy elevator_tick this test drove is gone. */
-    elevator_unload(gfx);
     grate_unload(gfx);
-    assert(!collision_published);
+    assert(!collision_published && !g.grate_present);
     assert(!indicators[0].mesh && !indicators[1].mesh);
     int previous=draws;
-    assert(em_props_indicator_submit(0,c80)==-1);   /* no mesh after the unload */
+    assert(em_props_indicator_submit(0,c80,panel)==-1);   /* no mesh after the unload */
     em_props_indicators_draw(gfx,vp);
     assert(draws==previous);
-    puts("original prop indicators and fixed panel: PASS");
+    puts("original prop indicators and the panel's cell: PASS");
     return 0;
 }

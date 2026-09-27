@@ -108,11 +108,22 @@ fixture below still drives it as its stand-in for 0x1AE040 states 3/5. It
 goes when the fixtures drive the page route (WP-5 remainder).
 
 The fixture's `elevator_state0_floor` scenario loads the host with
-D_0081083A = 1 and = 0 over the manifest's 230 placement and asserts that
-00827B10's state 0 leaves the drawn elevator Y (g.elev_pos[1], the input of
-elevator_pose), the owner height, the three script heights and the Use
+D_0081083A = 1 and = 0 over the placement record's 230 and asserts that
+00827B10's state 0 leaves the record's +0xB4 (one 001C6380 over it through
+the place hook), the owner height, the three script heights and the Use
 descriptor's height at 190/205/245 (lower) or 230/245/205 (upper), and that
 a second state 0 on an owner that already armed faults.
+
+**The owners' record services** (the owners step, OWNER_DRAW.md section 10):
+the host reaches the terminal's, the panel's and the items' model binds
+(001B0FD0 / 001B1020), 001C6380, +0x4C (001CAA00) and the terminal's
+0x827E6C copy through `EmArea11HostOwnerHooks`, set by the bindings over
+em_area11_boxes' world owners; unset, an owner that reaches one faults. The
+terminal's +0xB4 is its record's (the floor, the carry's height), its
+001A2370 reads the +0xD0 its last 001C6380 built, and its sounds play at its
+record's +0xB0. The fixture binds counting stubs and asserts one panel and
+one terminal +0x4C per state-1 call and the terminal's +0xB4 equal to the
+owner's height.
 
 ## Fixture
 

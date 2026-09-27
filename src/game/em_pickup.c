@@ -51,6 +51,7 @@ typedef struct {
     int     type;         /* item TYPE (actor +0x2E / record +0x07) */
     int     uid;          /* (area << 8) | puid; 0 = no persistence */
     int     prop;         /* display prop: render-only (kind-0xB) */
+    int     retired;      /* its original owner draws it (em_pickup_prop_retire) */
     float   pos[3];       /* placement (actor +0xB0) */
     float   yaw;          /* placement ry (actor +0xC4) */
     float   roll;         /* rot.z (actor +0xC8), 0 unless an owner init
@@ -72,6 +73,7 @@ typedef struct {
     int model;
     int visible;          /* submitted this frame (em_pickup_light_submit) */
     float tint[4];
+    float node[16];       /* the child's node 0 +0x90 at the submit */
     float palette[PICKUP_BONE_MAX * 16];
 } PickupLight;
 
@@ -434,17 +436,19 @@ void em_pickup_reset(void)
     item_store(0x00810C63u, 2);
 }
 
-int em_pickup_light_submit(uint32_t source_id, const float c80[4])
+int em_pickup_light_submit(uint32_t source_id, const float c80[4], const float node[16])
 {
     /* The +0x4C draw (001CACB0) of an item owner's 001C5680 child, called
      * from 001F54E0 inside the child's own behaviour (em_area11_bindings.c
-     * tick_indicator): this frame's colour, drawn at the close-out. */
-    if (!c80) return -1;
+     * tick_indicator): this frame's colour and the child's node 0 matrix,
+     * drawn at the close-out. */
+    if (!c80 || !node) return -1;
     for (int i=0;i<s.n_lights;++i) {
         PickupLight *light=&s.lights[i];
         Pickup *owner=&s.p[light->owner];
         if (!owner->used || owner->source_id!=source_id) continue;
         em_effect_color_gs(c80,light->tint);
+        memcpy(light->node,node,sizeof light->node);
         light->visible=1;
         return 0;
     }
@@ -481,11 +485,12 @@ void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16])
         Pickup *owner=&s.p[light->owner];
         if (!light->visible || !owner->used) continue;
         PickupModel *model=&s.models[light->model];
-        /* Original model73 uses bone0; all three original nodes carry
-         * the same parent placement matrix. Native EMDL also includes
-         * its ordinary identity fallback slot. */
+        /* Original model73's vertices all name node 0: every EMDL bone
+         * takes the child's node 0 +0x90 (001C6380's placement from the
+         * +0xB0 / +0xC0 its spawn copied from the owner; the original row
+         * layout is the palette's column-major matrix). */
         for (uint32_t bone=0;bone<model->model.bone_count;++bone)
-            memcpy(light->palette+bone*16,owner->palette,16*sizeof(float));
+            memcpy(light->palette+bone*16,light->node,16*sizeof(float));
         em_gfx_draw_skinned_additive(gfx,model->mesh,viewproj,light->palette,
                                      model->model.bone_count,light->tint);
         light->visible=0; /* one draw per submitted 001F54E0 */
@@ -494,13 +499,30 @@ void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16])
 
 int em_pickup_count(void) { return s.n; }
 
+int em_pickup_prop_retire(const float position[3])
+{
+    if (!position) return 0;
+    int n = 0;
+    for (int i = 0; i < s.n; ++i) {
+        Pickup *p = &s.p[i];
+        if (!p->used || !p->prop || p->retired) continue;
+        if (p->pos[0] == position[0] && p->pos[1] == position[1] && p->pos[2] == position[2]) {
+            p->retired = 1;
+            ++n;
+        }
+    }
+    return n;
+}
+
 int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
                    uint32_t *bone_count)
 {
     if (i < 0 || i >= s.n) return 0;
     Pickup *p = &s.p[i];
-    if (!p->used || p->model < 0) return 0;
-    if (p->original_bound && !p->original_visible) return 0;
+    if (!p->used || p->model < 0 || p->retired) return 0;
+    /* A bound item owner draws itself: its +0x4C is 001CAA00 over its own
+     * record (the host's draw hook, docs/OWNER_DRAW.md section 10). */
+    if (p->original_bound) return 0;
     *mesh       = s.models[p->model].mesh;
     *palette    = p->palette;
     *bone_count = s.models[p->model].model.bone_count;
@@ -633,8 +655,9 @@ static int original_event(void *context, EmPickupOwnerEvent event, uint32_t argu
             if (&s.p[s.lights[i].owner] == p) s.lights[i].visible = 0;
         return 1;
     case EM_PICKUP_OWNER_DRAW:
+        /* The owner's +0x4C (001CAA00 over its record): the host's draw. */
         p->original_visible = 1;
-        return 1;
+        return p->original_hooks.event(p->original_hooks.context, p->source_id, event, argument);
     default:
         return p->original_hooks.event(p->original_hooks.context, p->source_id, event, argument);
     }

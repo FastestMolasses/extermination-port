@@ -69,6 +69,62 @@ int em_pickup_owner_tick(EmPickupOwner *p, float item_y, float player_y,
     return publish(h);
 }
 
+int em_pickup_owner_0015AC00(EmPickupState0 *r, const EmPickupState0Hooks *h)
+{
+    if (!r || !h || !h->bind_001B0FD0 || !h->bind_001B1020 || !h->place_001C6380 || !h->aura_001F1110)
+        return -1;
+    float v;
+    switch (r->model) {                       /* +0x0D */
+    case 0x5B: v = 1.5f; break;               /* 0x3FC00000 */
+    case 0x6D: case 0x6C: case 0x59: case 0x57: case 0x56: case 0x55: case 0x4F: case 0x4E:
+    case 0x4D: case 0x45: case 0x42: case 0x41: case 0x40: v = 2.0f; break;   /* 0x40000000 */
+    default: v = 1.0f; break;                 /* 0x3F800000 */
+    }
+    r->scale[2] = v;                          /* +0x68 */
+    r->scale[1] = v;                          /* +0x64 */
+    r->scale[0] = v;                          /* +0x60 */
+    int32_t refused = 0;
+    if ((r->subtype & 0xF) == 1) {
+        r->color[0] = r->color[1] = r->color[2] = 4.0f;   /* +0x80..+0x88 = 0x40800000 */
+        if (h->bind_001B0FD0(h->context, &refused) < 0) return -1;
+    } else if (h->bind_001B1020(h->context, r->model, -1, 0, &refused) < 0) {
+        return -1;
+    }
+    if (refused != 0) return 1;
+    if (h->place_001C6380(h->context) < 0) return -1;
+    r->status = 1;                            /* +0x00 */
+    r->mode = 3;                              /* +0x08 */
+    int16_t variant;
+    switch (r->subtype & 0xF) {
+    case 1: variant = 1; break;
+    case 2: variant = 4; break;
+    case 0: variant = r->model == 0x34 ? 5 : 0; break;
+    default: variant = 0; break;
+    }
+    return h->aura_001F1110(h->context, variant) < 0 ? -1 : 0;
+}
+
+int em_pickup_owner_00219550_state0(EmPickupState0 *r, uint8_t item3, const EmPickupState0Hooks *h)
+{
+    if (!r || !h || !h->bind_001B0FD0 || !h->bind_001B1020 || !h->place_001C6380 || !h->cell_001A2370)
+        return -1;
+    int32_t result = 0;
+    if (r->subtype == 0 && r->flags2 == 0x28) {
+        if (h->bind_001B0FD0(h->context, &result) < 0) return -1;
+        if (result != 0) return 1;
+    } else if (h->bind_001B1020(h->context, r->model, -1, 0, &result) < 0) {
+        return -1;
+    }
+    /* +0x03 == 0 (the original tests it again after the bind; the decomp's
+     * NEARMISS C inverts this test), +0x2E == 3 and D_00810C64[+0x2E] held:
+     * +0x2E = 0x14. */
+    if (r->subtype == 0 && r->flags2 == 3 && item3 != 0) r->flags2 = 0x14;
+    if (h->place_001C6380(h->context) < 0) return -1;
+    r->status = 1;                            /* +0x00 */
+    r->mode = 3;                              /* +0x08 */
+    return h->cell_001A2370(h->context) < 0 ? -1 : 0;
+}
+
 int em_pickup_owner_take(const EmPickupOwner *p, uint8_t maps[256],
     uint8_t keys[256], EmPickupStatusRequest *request,
     int (*add_item)(void *, uint16_t, int), void *context)

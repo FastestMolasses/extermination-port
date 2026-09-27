@@ -85,6 +85,7 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_workers.h" /* EM_SCENE_D_008102B0 */
 #include "game/em_snow_runtime.h"
+#include "game/em_status_ui_leftovers.h"
 
 static EmActorPool *s_pool;
 static EmSceneState *s_scene;
@@ -399,12 +400,45 @@ static int tick_manager_8257A0(EmActor *actor, Node *node, const EmArea11World *
     return 1;
 }
 
+/* 00823E80, the opening controller (area11[10]; overlay AREA11, runtime
+ * 0x823E80..0x823FE8), by its +0x04. State 0: 001B0FD0 (0x823ECC,
+ * em_area11_boxes_owner_001B0FD0: the world bank's model 0x11, the
+ * parachute canopy, and its slot; a refusal returns), 001C6380 (0x823EDC),
+ * +0x04 = 1 and +0x00 = 1. State 1: its script machine (001BA1C0(self,
+ * 0x39), the opening script through 001BA1A0 / 001BA1F0 and the
+ * completion's writes: the port's em_opening_runtime, whose own first call
+ * stands for this state 0), then on every path 001B1B70(self) (0x823FAC:
+ * the record onto the collision world's class lists, its cell uid 3) and
+ * its +0x4C (0x823FB8), 001CAA00 over its record (em_area11_boxes_owner_draw):
+ * the canopy keeps drawing after the script ends. States 2 / 3 free the
+ * record (0x823FCC): not reached in the first level, a fault. The legacy
+ * canopy prop the manifest placed at its +0xB0 stops drawing once the owner
+ * is bound. */
 static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
     (void)node;
     (void)world;
+    if (actor->u04[0] == 0) {
+        int32_t refused = 0;
+        if (em_area11_boxes_owner_001B0FD0(actor, s_pool, &refused) < 0)
+            return fault(0x001B0FD0u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 0: 001B0FD0 faulted");
+        if (!refused) {
+            if (em_area11_boxes_owner_001C6380(actor, NULL) < 0)
+                return fault(0x001C6380u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 0: 001C6380 faulted");
+            actor->u04[0] = 1;   /* +0x04 */
+            actor->status = 1;   /* +0x00 */
+            em_pickup_prop_retire(actor->pos);
+        }
+        em_opening_runtime_tick();
+        return 1;
+    }
+    if (actor->u04[0] != 1)
+        return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX, "00823E80: the free of states 2 / 3 is not bound");
     em_opening_runtime_tick();
+    if (em_collision_world_publish_001B1B70(actor) < 0)
+        return fault(0x001B1B70u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: 001B1B70 faulted");
+    if (em_area11_boxes_owner_draw(actor) < 0)
+        return fault(0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: its +0x4C 001CAA00 faulted");
     return 1;
 }
 
@@ -516,21 +550,41 @@ static int tick_truck(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 00159210 panel (area11[18]). State 0 (the first call): the child (see the
- * file comment); the powered bit is D_00810841[0x0B] bit (+0x2E), the
- * canonical D_0081084C bit 7 (em_game_terminal_powered), so any other bit
- * faults. Later calls are state 1, the original owner in the AREA11
- * interaction host (WP-4): em_area11_interaction_host_panel_tick runs
- * 00159210/00157860 and its 001B17A0 publication tail (census L07: the
- * record bound at state 0 goes onto the collision world's lists, its cell
- * uid 18), in both variants. grate_update keeps the port's static panel pose
- * and binds cell 18 into the port's own collision world (em_props.c) for
- * the port's own queries (player movement, follow camera) that still use it. */
+/* 00159210 panel (area11[18]), by its +0x04 (decomp src/func_00159210.c).
+ * State 0: 001B0FD0 (em_area11_boxes_owner_001B0FD0: the world bank's model
+ * 0x04 and its bone slot; a refusal leaves the record in state 0), then
+ * 001C6380 over the record and its slot, then the child (see the file
+ * comment); the powered bit is D_00810841[0x0B] bit (+0x2E), the canonical
+ * D_0081084C bit 7 (em_game_terminal_powered), so any other bit faults.
+ * State 1 is the original owner in the AREA11 interaction host (WP-4):
+ * em_area11_interaction_host_panel_tick runs 00159210/00157860 and its tail,
+ * 001B17A0 (census L07: the record bound at state 0 goes onto the collision
+ * world's lists, its cell uid 18) and the +0x4C 001CAA00 (the host's draw
+ * hook, em_area11_boxes_owner_draw), in both variants. grate_update binds
+ * cell 18 into the port's own collision world (em_props.c) for the port's
+ * own queries (player movement, follow camera) that still use it. The
+ * panel's states 2 and 3 (+0x04 += 1, then 001AFC10) are not reached: the
+ * owner never leaves state 1 in the first level, and a record in another
+ * state faults. */
 static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
     grate_update();
-    if (!node->ticked) {
+    if (actor->u04[0] == 0) {
+        if (!node->ticked) {
+            em_area11_interaction_host_set_panel_address(address_of(actor));
+            /* Census L07: the record its 001B17A0 publishes (cell uid 18). */
+            if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0)
+                return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                             "00159210 state 0: the interaction host failed");
+        }
+        int32_t refused = 0;
+        if (em_area11_boxes_owner_001B0FD0(actor, s_pool, &refused) < 0)
+            return fault(0x001B0FD0u, EM_SCENE_FAULT_WORKER_FAILED, "00159210 state 0: 001B0FD0 faulted");
+        if (refused)
+            return 1;
+        if (em_area11_boxes_owner_001C6380(actor, NULL) < 0)
+            return fault(0x001C6380u, EM_SCENE_FAULT_WORKER_FAILED, "00159210 state 0: 001C6380 faulted");
         /* 00159210 state 0: model 0x2C takes 0x700038A0 = (0, 1.0, 0, 1.0)
          * and 001C5570(p, .., 0x74, 1); otherwise, unless the power bit is
          * set, (1.0, 0, 0, 1.0) and 001C5570(p, .., 0x75, 1); +0x20 = the
@@ -548,43 +602,57 @@ static int tick_panel(EmActor *actor, Node *node, const EmArea11World *world)
                 spawn_001C5570_child(actor, k_red, 0x75, 1, &s_panel_child) < 0)
                 return -1;
         }
-        em_area11_interaction_host_set_panel_address(address_of(actor));
-        /* Census L07: the record its 001B17A0 publishes (cell uid 18). */
-        if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0)
-            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
-                         "00159210 state 0: the interaction host failed");
         return 1;
     }
+    if (actor->u04[0] != 1)
+        return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX, "00159210 states 2 / 3 are not bound");
     if (em_area11_interaction_host_panel_tick() < 0)
         return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "00159210: the interaction host failed");
     return 1;
 }
 
-/* 0x827B10 terminal and elevator (area11[19]). State 0 (the first call):
- * the floor placement (D_0081083A -> +0xB4 190/230, 001C6380; the host's
+/* 0x827B10 terminal and elevator (area11[19]), by its +0x04 (overlay AREA11,
+ * runtime 0x827B10..0x828040). State 0: 001B0FD0 (0x827BC8,
+ * em_area11_boxes_owner_001B0FD0: the world bank's model 0x0F and its bone
+ * slot; a refusal leaves +0x04 = 3 and returns), +0x00 = 1, +0x08 = 1,
+ * +0x30 = 0x0082AB10 (its use descriptor), then the floor placement
+ * (D_0081083A -> +0xB4 190/230, 001C6380, 001A2370; the host's
  * em_area11_interaction_host_elevator_state0), then its 001C5760 child,
- * allocated inline (0x827BD8..0x827C4C: +0xD 0x10, +0xA0 = (1.0, 0, 0,
+ * allocated inline (0x827C18..0x827C8C: +0xD 0x10, +0xA0 = (1.0, 0, 0,
  * 0.25), stored at its +0x2E4); the owner reads D_00810841[0x0B] bit
- * (+0x2E), which only bit 7 of the canonical D_0081084C stores. Later
- * calls are state 1, the original owner in the AREA11 interaction host
- * (WP-4): refusal 0x82A990 or powered 0x82A750 with the carry 00828050, and
- * its 001B17A0 publication and the +0x28 level step (em_elevator_tick), in
- * both variants; then the tail 0x827EAC writes the child's colour
- * (em_indicator_00827B10_colour).
+ * (+0x2E), which only bit 7 of the canonical D_0081084C stores. State 1 is
+ * the original owner in the AREA11 interaction host (WP-4): refusal 0x82A990
+ * or powered 0x82A750 with the carry 00828050 (its 001C6380 per tick), the
+ * phase-1 copy of its node matrix into the child's slot (0x827E6C), its
+ * 001B17A0 publication and its +0x4C 001CAA00 and the +0x28 level step
+ * (em_elevator_tick), in both variants; then the tail 0x827EAC writes the
+ * child's colour (em_indicator_00827B10_colour). +0x04 == 3 (and any state
+ * other than 0 / 1) frees the record in the original (0x827B30 / 0x828024):
+ * not reached in the first level (the host keeps the record), so it faults.
  * The legacy em_examine terminal and the legacy ride it ran were retired in
  * WP-4. */
 static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)world;
-    if (!node->ticked) {
+    if (actor->u04[0] == 0) {
         if (s_scene->d810700 != 0x0B || actor->flags2 != 7)
             return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX,
                          "00827B10 reads a D_00810841 bit the port does not store");
-        /* 0x827B54..0x827BF0: +0xB4 from D_0081083A, then 001C6380 and
-         * 001A2370 (0x827C04, over the record bound here: census L07),
-         * before the child spawn at 0x827C18. */
-        if (em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0 ||
-            em_area11_interaction_host_elevator_state0() < 0)
+        if (!node->ticked && em_area11_interaction_host_bind_actor(actor->source_id, actor) < 0)
+            return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                         "00827B10 state 0: the interaction host failed");
+        int32_t refused = 0;
+        if (em_area11_boxes_owner_001B0FD0(actor, s_pool, &refused) < 0)
+            return fault(0x001B0FD0u, EM_SCENE_FAULT_WORKER_FAILED, "00827B10 state 0: 001B0FD0 faulted");
+        if (refused)
+            return 1;
+        actor->status = 1;          /* +0x00 */
+        actor->u04[4] = 1;          /* +0x08 */
+        actor->w30 = 0x0082AB10u;   /* +0x30 */
+        /* 0x827B54..0x827BF0 (+0xB4 from D_0081083A), 0x827BF0 001C6380 and
+         * 0x827C04 001A2370 (over the record bound here: census L07), before
+         * the child spawn at 0x827C18. */
+        if (em_area11_interaction_host_elevator_state0() < 0)
             return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                          "00827B10 state 0: the interaction host failed");
         static const float k_unpowered[4] = {1.0f, 0.0f, 0.0f, 0.25f};
@@ -592,6 +660,9 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
             return -1;
         return 1;
     }
+    if (actor->u04[0] != 1)
+        return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX,
+                     "00827B10: the free of a record in state 3 (or another state) is not bound");
     if (em_area11_interaction_host_elevator_tick() < 0)
         return fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED, "00827B10: the interaction host failed");
     /* 0x827EAC: the child's colour from the +0x28 level, which the host's
@@ -608,6 +679,138 @@ static int tick_terminal(EmActor *actor, Node *node, const EmArea11World *world)
     if (elevator->owner.indicator_level != 0)
         em_player_closure_live_store_3A20(spad3A20);
     return 1;
+}
+
+/* 0x827E60..0x827E70 (the host's copy_child worker): 00102958(child
+ * +0x110[0] + 0x90, self +0x110[0] + 0x90), the terminal's node 0 matrix
+ * into its +0x2E4 child's slot 0. The child's bind (001C22A0) ran in its
+ * own first call, long before any phase-1 call; a child without a slot
+ * faults (the original would read address 0 + 0x110). */
+static int terminal_copy_child(EmActor *terminal)
+{
+    Node *node = node_of(terminal);
+    float matrix[16];
+    if (!node || !node->child)
+        return fault(0x00827B10u, EM_SCENE_FAULT_NULL_WORKER, "0x827E6C: no child at +0x2E4");
+    if (em_area11_boxes_owner_node(terminal, 0, matrix) < 0 ||
+        em_indicator_bind_live_set_node(node->child, 0, matrix) < 0)
+        return fault(0x00102958u, EM_SCENE_FAULT_WORKER_FAILED, "0x827E6C: a slot +0x90 is missing");
+    return 0;
+}
+
+/* 001C4820, the placed prop (area11[20], per-area model 0x04): the one
+ * translation em_sul_001C4820 (byte-matched decomp src/func_001C4820.c) over
+ * the record's +0x04 and +0x4C. State 0: 001B0FD0 (the world bank's model
+ * and its slot; em_area11_boxes_owner_001B0FD0), then 001C6380 unless it
+ * refused; state 1: 001B17A0 (the interaction host's services: 001B1630 on
+ * the camera, 001B1B70 onto the collision world's class lists), then the
+ * +0x4C, 001CAA00 (em_area11_boxes_owner_draw) whatever 001B17A0 found;
+ * states 2 / 3: 001AFC10. The legacy prop instance the manifest placed at
+ * its +0xB0 stops drawing once its owner is bound. */
+typedef struct {
+    EmActor *actor;
+    int freed;
+} PropCall;
+
+static int prop_model_bind(void *context, uint8_t *image, int32_t *result)
+{
+    PropCall *c = context;
+    if (em_area11_boxes_owner_001B0FD0(c->actor, s_pool, result) < 0) return -1;
+    image[4] = c->actor->u04[0];
+    if (*result == 0) em_pickup_prop_retire(c->actor->pos);
+    return 0;
+}
+
+static int prop_place(void *context, uint8_t *image)
+{
+    (void)image;
+    PropCall *c = context;
+    return em_area11_boxes_owner_001C6380(c->actor, NULL);
+}
+
+static int prop_publish(void *context, uint8_t *image)
+{
+    (void)image;
+    PropCall *c = context;
+    EmOwnerServicesOwner view;
+    memset(&view, 0, sizeof view);
+    view.cls = c->actor->cls;
+    view.kind = c->actor->model;
+    view.model_id = c->actor->param;
+    view.flags2 = c->actor->flags2;
+    memcpy(view.pos, c->actor->pos, sizeof view.pos);
+    return em_area11_interaction_host_offer_001B17A0(c->actor, &view) < 0 ? -1 : 0;
+}
+
+static int prop_method(void *context, uint8_t *image, uint32_t method)
+{
+    (void)image;
+    PropCall *c = context;
+    return method == 0x001CAA00u ? em_area11_boxes_owner_draw(c->actor) : -1;
+}
+
+static int prop_free(void *context, uint8_t *image)
+{
+    (void)image;
+    PropCall *c = context;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->actor) < 0) return -1;
+    c->freed = 1;
+    return 0;
+}
+
+static int tick_prop_001C4820(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    PropCall call = {actor, 0};
+    EmSulWorkers w;
+    memset(&w, 0, sizeof w);
+    w.context = &call;
+    w.model_bind = prop_model_bind;
+    w.place = prop_place;
+    w.publish = prop_publish;
+    w.method = prop_method;
+    w.free_actor = prop_free;
+    uint8_t image[0x50];
+    memset(image, 0, sizeof image);
+    image[4] = actor->u04[0];
+    uint32_t model = 0, method = 0;
+    if (em_area11_boxes_owner_state(actor, &model, &method))
+        memcpy(image + 0x4C, &method, 4);
+    if (em_sul_001C4820(&w, image, sizeof image) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "001C4820: a worker failed (em_area11_boxes / the host)");
+    return 1;
+}
+
+/* The host owners' record services (em_area11_interaction_host.h). */
+static int owner_place(EmActor *actor, float world[16])
+{
+    return em_area11_boxes_owner_001C6380(actor, world) < 0
+               ? fault(0x001C6380u, EM_SCENE_FAULT_WORKER_FAILED, "001C6380 faulted (a host owner)")
+               : 0;
+}
+
+static int owner_bind_001B0FD0(EmActor *actor, int32_t *ret)
+{
+    return em_area11_boxes_owner_001B0FD0(actor, s_pool, ret) < 0
+               ? fault(0x001B0FD0u, EM_SCENE_FAULT_WORKER_FAILED, "001B0FD0 faulted (a host owner)")
+               : 0;
+}
+
+static int owner_bind_001B1020(EmActor *actor, uint32_t a1, int32_t a2, int32_t a3, int32_t *ret)
+{
+    return em_area11_boxes_owner_001B1020(actor, s_pool, a1, a2, a3, ret) < 0
+               ? fault(0x001B1020u, EM_SCENE_FAULT_WORKER_FAILED, "001B1020 faulted (a host owner)")
+               : 0;
+}
+
+static int owner_draw(EmActor *actor)
+{
+    return em_area11_boxes_owner_draw(actor) < 0
+               ? fault(0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED, "001CAA00 faulted (a host owner)")
+               : 0;
 }
 
 /* 001EA240 (the puff driver) and 001E2560 (the head-bone sprite): the
@@ -715,8 +918,8 @@ static int indicator_init(void *ctx, uint32_t fn, int32_t *result)
 
 /* 001C6380 over the child's +0xB0 / +0xC0 / +0x60 (the spawn copied the
  * owner's) and its bound slots (em_indicator_bind_live). The port's +0x4C
- * draw still submits the owner's indicator mesh with the owner's palette
- * (indicator_draw below; OWNER_DRAW.md P1). */
+ * draw is still a stand-in: the child's model mesh, additive, at the
+ * child's own node 0 (indicator_draw below; OWNER_DRAW.md section 11). */
 static int indicator_place(void *ctx)
 {
     IndicatorCall *c = ctx;
@@ -730,7 +933,11 @@ static int indicator_rand(void *ctx, int32_t *v0)
     return 0;
 }
 
-/* The +0x4C method 001CACB0, called by 001F54E0 with the child's new +0x80. */
+/* The +0x4C method 001CACB0, called by 001F54E0 with the child's new +0x80.
+ * 001CABA0 (its packet builder: channel 3, lighting mode 1, 001D3990 /
+ * 001D3D90 and the 001CAAC0 depth sort into page D_007635C0) is not
+ * translated: the stand-in draws the child's model mesh additively at the
+ * child's own node 0 (its slot +0x90). */
 static int indicator_draw(void *ctx, uint32_t fn, void *obj)
 {
     IndicatorCall *c = ctx;
@@ -738,13 +945,16 @@ static int indicator_draw(void *ctx, uint32_t fn, void *obj)
     if (fn != EM_INDICATOR_CHILD_DRAW_001CACB0 || obj != c->actor || !parent)
         return -1;
     const float *c80 = c->actor->f80;
+    float node[16];
+    if (parent->callback != 0x00825940u && em_indicator_bind_live_node(c->actor, 0, node) < 0)
+        return -1;
     switch (parent->callback) {
     case 0x00219550u:
-        return em_pickup_light_submit(parent->source_id, c80);
+        return em_pickup_light_submit(parent->source_id, c80, node);
     case 0x00159210u:
-        return em_props_indicator_submit(0, c80);
+        return em_props_indicator_submit(0, c80, node);
     case 0x00827B10u:
-        return em_props_indicator_submit(1, c80);
+        return em_props_indicator_submit(1, c80, node);
     case 0x00825940u: {
         /* Model 0x7A (bank D_0028A56C) has no port mesh yet: its draw is the
          * object-unit draw of docs/OWNER_DRAW.md (P1). Its colour is
@@ -850,8 +1060,8 @@ static const Binding k_bindings[] = {
     {0x00159210u, "panel: em_area11_interaction_host_panel_tick", NULL, GROUP_NONE, tick_panel, NULL},
     {0x00827B10u, "terminal: em_area11_interaction_host_elevator_tick", NULL, GROUP_NONE, tick_terminal,
      NULL},
-    {0x001C4820u, "prop: render-only", NULL, GROUP_NONE, NULL,
-     "001C4820 (area11[20]): render-only; the port draws it from the scene props"},
+    {0x001C4820u, "prop: em_sul_001C4820 (em_area11_boxes world owner)", NULL, GROUP_NONE, tick_prop_001C4820,
+     NULL},
     {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)", NULL, GROUP_NONE,
      tick_weather, NULL},
     {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", NULL,
@@ -986,6 +1196,9 @@ int em_area11_bindings_effects_attach(void)
         return -1;
     em_equipment_live_set_spawn(equipment_spawn);
     em_area11_interaction_host_set_aura_draw(em_effects_live_aura_draw);
+    static const EmArea11HostOwnerHooks k_owner = {owner_bind_001B0FD0, owner_bind_001B1020, owner_place,
+                                                   owner_draw, terminal_copy_child};
+    em_area11_interaction_host_set_owner_hooks(&k_owner);
     /* 001AFCA0's 001D0660: 001F0310, the effect pools' reset. */
     return em_effects_live_001F0310();
 }

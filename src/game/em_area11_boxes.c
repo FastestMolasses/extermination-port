@@ -32,7 +32,10 @@
 #include "game/em_truck_original.h"
 
 enum {
-    BOX_MAX = 10,                 /* four crates, two drums, the truck and the door */
+    /* four crates, two drums, the truck and the door, and the other world
+     * owners bound through em_area11_boxes_owner_* (the terminal, the panel,
+     * the prop 001C4820, the item owners; room for the rest) */
+    BOX_MAX = 32,
     BONE_SLOTS = EM_SLG_BONE_SLOTS,
     RATTLE_ROWS = 7
 };
@@ -54,6 +57,8 @@ typedef struct {
     int drum;
     int truck;            /* 00823FF0 (census L23) */
     int door;             /* 001BC350: only its 001B0EA0 slots (census L18) */
+    int world;            /* another world owner (em_area11_boxes_owner_*) */
+    const EmWorldModels *bank;  /* the bank its +0x44 lies in (world or library) */
     EmCrateOriginal crate;
     EmDrumOriginal drum_state;
     EmTruckOriginal truck_state;
@@ -86,6 +91,12 @@ static struct {
     EmWorldModels bank;
     uint32_t bank_word;
     int bank_tried;
+    /* D_0028A56C, the global model library (the Roger export,
+     * em_area11_roger; D_0028A490[0x37]), and the library models the
+     * owners bound (001B1020's 001B0DC0), each at its original address in a
+     * table-less bank (em_world_models_add). */
+    uint32_t library_word;
+    EmWorldModels library;
     /* D_002468B0 (7 rattle rows), D_00246A00 / D_00246A10. */
     int tables_tried, tables_loaded;
     float rattle[RATTLE_ROWS][4][3];
@@ -181,14 +192,39 @@ static int load_tables(void)
 
 /* ------------------------------------------- owner services workers */
 
+/* 001C6120(bank, id) over the bank the word names: *D_0028A59C (the world
+ * model bank) or D_0028A56C (the global library in the Roger export,
+ * em_area11_roger_001C6120; 001B1020's 001B0DC0). */
 static int w_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
 {
     (void)ctx;
+    if (S.library_word && bank == S.library_word)
+        return em_area11_roger_001C6120(bank, id, handle) < 0 ? -1 : 0;
     return em_world_models_001C6120(&S.bank, bank, id, handle) < 0 ? -1 : 0;
 }
 
+/* A library model (a D_0028A56C handle) added to the table-less library
+ * bank at its original address, its bytes the Roger export's. */
+static const EmWorldModel *library_model(uint32_t handle)
+{
+    const EmWorldModel *have = em_world_models_at(&S.library, handle);
+    if (have) return have;
+    const uint8_t *m = em_area11_roger_resource(handle, 0x40);
+    if (!m) return NULL;
+    uint32_t bones, skeleton;
+    memcpy(&bones, m + 8, 4);
+    memcpy(&skeleton, m + 0xC, 4);
+    if (bones == 0 || bones > EM_OWNER_SERVICES_MAX_BONES || skeleton > 0x01000000u) return NULL;
+    const uint32_t size = skeleton + 0x50u * bones;
+    const uint8_t *all = em_area11_roger_resource(handle, size);
+    const EmWorldModel *entry = NULL;
+    if (!all || em_world_models_add(&S.library, handle, all, size, &entry) < 0) return NULL;
+    return entry;
+}
+
 /* 001CA6E0 = 001CA5E0(owner, handle, 0): +0x44 = the model, then 001CA5F0
- * kind 0: +0x4C = 001CAA00. */
+ * kind 0: +0x4C = 001CAA00. The model is the world bank's, or (001B1020's
+ * handles) the library's. */
 static int w_001CA6E0(void *ctx, EmOwnerServicesOwner *owner, uint32_t handle)
 {
     (void)ctx;
@@ -196,10 +232,16 @@ static int w_001CA6E0(void *ctx, EmOwnerServicesOwner *owner, uint32_t handle)
     EmRogerActorRecord record;
     memset(&record, 0, sizeof record);
     if (!b || em_roger_actor_001CA6E0(&S.stack, &record, handle) < 0) return -1;
+    const EmWorldModels *bank = &S.bank;
     const EmWorldModel *m = em_world_models_at(&S.bank, record.model);
+    if (!m && b->world) {
+        bank = &S.library;
+        m = library_model(record.model);
+    }
     if (!m) return -1;
     owner->model = &m->model;   /* +0x44 */
     b->method = record.draw;    /* +0x4C */
+    b->bank = bank;
     return 0;
 }
 
@@ -561,6 +603,7 @@ static void services_bind(void)
 {
     memset(&S.services, 0, sizeof S.services);
     S.services.world.d0028A59C = &S.bank_word;
+    S.services.world.d0028A56C = &S.library_word;
     S.services.world.d00275BCC = &S.bones.count;
     S.services.world.scratch = &S.spr;
     S.services.workers.w_001C6120 = w_001C6120;
@@ -574,6 +617,8 @@ int32_t *em_area11_boxes_carry31F0(void) { return &S.carry31F0; }
 void em_area11_boxes_reset(void)
 {
     memset(S.box, 0, sizeof S.box);
+    memset(&S.library, 0, sizeof S.library);
+    S.library_word = 0;
     /* 001AF710: zero the 0x480 slots, the stack holds each one's address,
      * the cursor at its base and the count 0x480. */
     S.bones.records = S.records;
@@ -710,6 +755,133 @@ const EmOwnerModel *em_area11_boxes_world_model(uint32_t address)
 uint32_t em_area11_boxes_world_bank_word(void)
 {
     return load_bank() < 0 ? 0 : S.bank_word;
+}
+
+/* ------------------------------------ the other world owners (generic) */
+
+/* The owner-services view of a world owner's record: its canonical bytes
+ * (+0x02, +0x03, +0x04, +0x0D, +0x2E, +0x60, +0x90, +0x94, +0x98, +0xB0,
+ * +0xC0); +0x09 / +0x0C / +0x44 / +0x4C and the slots are the view's own
+ * (the binds write them, the record mirrors +0x09 / +0x0C). */
+static void owner_view_sync(Box *b)
+{
+    const EmActor *a = b->actor;
+    EmOwnerServicesOwner *v = &b->view;
+    v->cls = a->cls;
+    v->kind = a->model;
+    v->lifecycle = a->u04[0];
+    v->model_id = a->param;
+    v->flags2 = a->flags2;
+    v->attachment = a->w90;
+    v->collapsed_bone = a->h94;
+    v->pose_bone = a->b98;
+    memcpy(v->scale, a->f60, sizeof v->scale);
+    memcpy(v->pos, a->pos, sizeof v->pos);
+    memcpy(v->rot, a->rot, sizeof v->rot);
+}
+
+static Box *owner_box(const EmActor *actor)
+{
+    for (unsigned i = 0; i < BOX_MAX; ++i) {
+        Box *b = &S.box[i];
+        if (b->actor == actor && b->world && !b->freed && b->generation == actor->generation) return b;
+    }
+    return NULL;
+}
+
+/* The box of a world owner's first bind, or its box again (a refused bind
+ * leaves the owner in state 0 and it binds again next call). */
+static Box *owner_box_bind(EmActor *actor, EmActorPool *pool)
+{
+    if (!S.stack.world.d00275BCC) em_area11_boxes_reset();
+    Box *b = owner_box(actor);
+    if (b) return b;
+    b = box_for(actor);
+    if (!b) return NULL;
+    b->world = 1;
+    b->pool = pool;
+    return b;
+}
+
+static int owner_bound(Box *b, int32_t r, const char *where)
+{
+    if (r < 0 || services_fault(where) < 0) return -1;
+    b->actor->u04[0] = b->view.lifecycle;     /* +0x04: += 1, or 3 over the bone cap */
+    b->actor->bones = b->view.bones_held;     /* +0x09 */
+    b->actor->u0A[2] = b->view.bone_count;    /* +0x0C = 001C6150(model) */
+    return 0;
+}
+
+int em_area11_boxes_owner_001B0FD0(EmActor *actor, EmActorPool *pool, int32_t *ret)
+{
+    if (!actor || !pool || !ret) return -1;
+    if (load_bank() < 0) return -1;
+    Box *b = owner_box_bind(actor, pool);
+    if (!b) return report("more AREA11 world-model owners than box slots");
+    owner_view_sync(b);
+    int32_t r = em_owner_services_001B0FD0(&S.services, &b->view);
+    if (owner_bound(b, r, "001B0FD0") < 0) return -1;
+    *ret = r;
+    return 0;
+}
+
+int em_area11_boxes_owner_001B1020(EmActor *actor, EmActorPool *pool, uint32_t a1, int32_t a2, int32_t a3,
+                                   int32_t *ret)
+{
+    if (!actor || !pool || !ret) return -1;
+    if (load_bank() < 0) return -1;
+    if (!S.library_word &&
+        em_area11_roger_table_word(0x0028A490u + 4u * 0x37u, &S.library_word) < 0)
+        return report("001B1020: D_0028A56C (the Roger export) is not loaded");
+    Box *b = owner_box_bind(actor, pool);
+    if (!b) return report("more AREA11 world-model owners than box slots");
+    owner_view_sync(b);
+    int32_t r = em_owner_services_001B1020(&S.services, &b->view, a1, a2, a3);
+    if (owner_bound(b, r, "001B1020") < 0) return -1;
+    *ret = r;
+    return 0;
+}
+
+int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16])
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b) return report("001C6380 on a world owner that is not bound");
+    owner_view_sync(b);
+    if (em_owner_services_001C6380(&S.services, &b->view) < 0 || services_fault("001C6380") < 0) return -1;
+    if (world) memcpy(world, b->view.world, sizeof b->view.world);
+    return 0;
+}
+
+int em_area11_boxes_owner_draw(EmActor *actor)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b) return report("+0x4C on a world owner that is not bound");
+    if (b->method != METHOD_001CAA00 || !b->bank) return report("a world owner's +0x4C is not 001CAA00");
+    owner_view_sync(b);
+    uint32_t rgb[4];
+    memcpy(rgb, actor->f80, sizeof rgb);   /* +0x80..+0x8F */
+    if (em_owner_draw_live_001CAA00(b->bank, &b->view, rgb, em_actor_pool_address(b->pool, actor)) < 0)
+        return report("001CAA00 faulted (a world owner)");
+    b->drawn = 1;
+    return 0;
+}
+
+int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t *method)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b || !model || !method) return 0;
+    const EmWorldModel *m = b->bank ? em_world_models_of(b->bank, b->view.model) : NULL;
+    *model = m ? m->address : 0;   /* +0x44 */
+    *method = b->method;           /* +0x4C */
+    return 1;
+}
+
+int em_area11_boxes_owner_node(const EmActor *actor, unsigned k, float out[16])
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b || !out || k >= b->view.bones_held || !b->view.bone[k]) return -1;
+    memcpy(out, b->view.bone[k]->world, sizeof b->view.bone[k]->world);
+    return 0;
 }
 
 const EmRogerActorWorld *em_area11_boxes_slot_world(void)
@@ -1032,14 +1204,15 @@ static void dump_if_requested(void)
     uint32_t count = 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         const Box *b = &S.box[i];
-        count += b->actor && !b->freed && !b->truck && b->actor->generation == b->generation && b->pool;
+        count += b->actor && !b->freed && !b->truck && !b->world && b->actor->generation == b->generation && b->pool;
     }
     const uint32_t head[2] = {0x58424D45u /* "EMBX" */, 1};
     fwrite(head, sizeof head, 1, f);
     fwrite(&count, sizeof count, 1, f);
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         const Box *b = &S.box[i];
-        if (!b->actor || b->freed || b->truck || b->actor->generation != b->generation || !b->pool) continue;
+        if (!b->actor || b->freed || b->truck || b->world || b->actor->generation != b->generation || !b->pool)
+            continue;
         uint8_t image[EM_ACTOR_RECORD_SIZE];
         em_actor_pool_record_image(b->pool, b->actor, image);
         if (b->drum) {

@@ -19,12 +19,14 @@ The port code is used as it is, never edited:
     (001C5680 / 001C5760) run em_indicator_child.c and the one 001F54E0
     translation (em_effect_kinds.c) as they are linked into the game, with
     the spawn colours read from em_area11_bindings.c.
-  * Two pieces of live code sit inside large functions that cannot run in
-    isolation: the 0015CF90 lines of em_player_0015BCF0 (em_player_frame.c)
-    and the 0015AC00 switches of em_area11_interaction_host_pickup_state0.
+  * One piece of live code sits inside a large function that cannot run in
+    isolation: the 0015CF90 lines of em_player_0015BCF0 (em_player_frame.c).
     The harness copies those exact source lines (located by their text; the
     test fails when the text moves) into a function and compiles them
-    against the real headers.
+    against the real headers. 0015AC00 runs its one translation,
+    em_pickup_owner_0015AC00 (em_pickup_owner.c, which the live
+    em_area11_interaction_host_pickup_state0 calls since the owners step;
+    tools/test_pickup_owner_reference.py executes it call for call).
 
 Hooked callees are recorded boundaries, never simulated as claims about the
 callee. Known divergences are pinned in EXPECTED: the run fails when a new
@@ -63,8 +65,6 @@ F1, F15, F2, F4 = 0x3F800000, 0x3FC00000, 0x40000000, 0x40800000
 
 # Pinned divergences (docs/CENSUS_UNVERIFIED.md). Key -> short reason.
 EXPECTED = {
-    '0015AC00/early-return': 'bone-slot refusal (001B0FD0/001B1020 != 0) keeps the original in state 0; '
-                             'the host state 0 has no such path (port convention: slots always available)',
     '0015AC00/scale-219550': 'em_pickup_add applies the 0015AC00 scale to 00219550 items too; 00219550 '
                              'state 0 never writes +0x60 (latent: every AREA11 00219550 item is model 0x72)',
     '0015CF90/c.le-daz': 'health <= 0 is a native compare; the EE compare reads a positive denormal as 0 '
@@ -279,14 +279,29 @@ def frame_harness():
             '    *ob9 = h_scene.req[EM_SCENE_REQ_B9];\n    return rc;\n}\n')
 
 
-def host_harness():
-    rel = 'game/em_area11_interaction_host.c'
-    scale = extract(rel, r'\n(    float scale = 1\.0f;\n    switch \(param\) \{.*?\n    \}\n)', '0015AC00 scale switch')
-    variant = extract(rel, r'\n(    int16_t variant;\n    switch \(model & 0xF\) \{.*?\n    \}\n)',
-                      '0015AC00 001F1110 variant switch')
-    return ('#include <stdint.h>\n'
-            'void h_state0(uint8_t model, uint8_t param, float *scale_out, int *variant_out)\n{\n'
-            + scale + variant + '    *scale_out = scale;\n    *variant_out = variant;\n}\n')
+# 0015AC00: the live translation (em_pickup_owner_0015AC00) over a record
+# with the +0x03 / +0x0D bytes, the bind result `refused`; the scale it
+# stores, the 001F1110 variant (-1: not called), whether 001C6380 ran, and
+# its result (1: the bind refused).
+HOST_HARNESS = r'''
+#include <string.h>
+#include "game/em_pickup_owner.h"
+static int h_variant, h_placed; static int32_t h_refused;
+static int h_b0(void *c, int32_t *r) { (void)c; *r = h_refused; return 0; }
+static int h_b1(void *c, uint32_t a1, int32_t a2, int32_t a3, int32_t *r)
+{ (void)c; (void)a1; (void)a2; (void)a3; *r = h_refused; return 0; }
+static int h_pl(void *c) { (void)c; h_placed = 1; return 0; }
+static int h_au(void *c, int16_t v) { (void)c; h_variant = v; return 0; }
+int h_state0(uint8_t model, uint8_t param, int refused, float *scale_out, int *variant_out, int *placed)
+{
+    EmPickupState0 r; memset(&r, 0, sizeof r); r.subtype = model; r.model = param;
+    const EmPickupState0Hooks h = {0, h_b0, h_b1, h_pl, h_au, 0};
+    h_variant = -1; h_placed = 0; h_refused = refused;
+    int rc = em_pickup_owner_0015AC00(&r, &h);
+    *scale_out = r.scale[0]; *variant_out = h_variant; *placed = h_placed;
+    return rc;
+}
+'''
 
 
 def compile_all():
@@ -298,7 +313,7 @@ def compile_all():
         'child': (CHILD_HARNESS, [str(SRC / 'game/em_indicator_child.c'), str(SRC / 'game/em_effect_kinds.c')]),
         'models': (MODELS_HARNESS, [str(SRC / 'game/em_owner_services_original.c')]),
         'frame': (frame_harness(), []),
-        'host': (host_harness(), []),
+        'host': (HOST_HARNESS, [str(SRC / 'game/em_pickup_owner.c')]),
     }
     libs, system = {}, C.CDLL(None)
     for name, (text, extra) in units.items():
@@ -339,7 +354,8 @@ def compile_all():
     L['models'].h_configure.argtypes = [C.POINTER(C.c_uint32), C.POINTER(C.c_uint32), C.POINTER(C.c_int)]
     L['frame'].h_cf90.argtypes = [C.c_int, C.c_uint32, C.c_uint8, C.c_uint8,
                                   C.POINTER(C.c_uint8), C.POINTER(C.c_uint8)]
-    L['host'].h_state0.argtypes = [C.c_uint8, C.c_uint8, C.POINTER(C.c_float), C.POINTER(C.c_int)]
+    L['host'].h_state0.argtypes = [C.c_uint8, C.c_uint8, C.c_int, C.POINTER(C.c_float), C.POINTER(C.c_int),
+                                   C.POINTER(C.c_int)]
     return L
 
 
@@ -406,9 +422,9 @@ def part_15ac00(elf, L):
                     res.ok('em_pickup.c pickup_model_scale == +0x60/+0x64/+0x68')
                 else:
                     res.diverge('0015AC00/scale', (hex(model_id), hex(native), hex(scale_word)))
-                # host state 0 (the live INIT for AREA11's 0015AFA0 owner).
-                sc, var = C.c_float(), C.c_int()
-                L['host'].h_state0(byte3, model_id, C.byref(sc), C.byref(var))
+                # the live state 0 of AREA11's 0015AFA0 owner (em_pickup_owner_0015AC00).
+                sc, var, placed = C.c_float(), C.c_int(), C.c_int()
+                native_rc = L['host'].h_state0(byte3, model_id, rv, C.byref(sc), C.byref(var), C.byref(placed))
                 if fbits(sc.value) == scale_word:
                     res.ok('host state-0 scale == +0x60')
                 else:
@@ -417,7 +433,10 @@ def part_15ac00(elf, L):
                 if rv:
                     # The original returns 1 before 001C6380 / +0 / +8 / +0x30 / 001F1110.
                     assert v0 == 1 and not aura and ('001C6380', ACTOR) not in calls
-                    res.diverge('0015AC00/early-return', (hex(model_id), hex(byte3)))
+                    if native_rc == 1 and not placed.value and var.value == -1:
+                        res.ok('host state-0 refusal returns 1 before 001C6380 and 001F1110')
+                    else:
+                        res.diverge('0015AC00/early-return', (hex(model_id), hex(byte3), native_rc))
                     continue
                 assert v0 == 0 and len(aura) == 1 and calls[-2] == ('001C6380', ACTOR)
                 if aura[0][2] == var.value:

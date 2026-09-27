@@ -54,6 +54,11 @@ void em_pickup_reset(void);
 /* Render-chain accessors (door/enemy draw contract): slot count + one
  * draw per LIVE slot — returns 0 for despawned/model-less slots. */
 int em_pickup_count(void);
+/* A placed prop whose original owner now draws itself from its own record
+ * (its +0x4C 001CAA00, em_area11_boxes_owner_draw): the legacy prop
+ * instance at exactly that placement (+0xB0) stops drawing. Returns the
+ * number of instances retired (0 when the manifest names none there). */
+int em_pickup_prop_retire(const float position[3]);
 int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
                    uint32_t *bone_count);
 
@@ -64,9 +69,12 @@ int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
 int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
                         const char *model_file);
 /* The child's +0x4C draw (001CACB0), reached from its 001F54E0: `source_id`
- * is the owner's EMIS record, c80 the child's +0x80 after 001F54E0. Queues
- * this frame's draw; -1 when no light belongs to that owner. */
-int em_pickup_light_submit(uint32_t source_id, const float c80[4]);
+ * is the owner's EMIS record, c80 the child's +0x80 after 001F54E0, `node`
+ * the child's node 0 +0x90 (its slot, em_indicator_bind_live). Queues this
+ * frame's draw (the model mesh, additive: the stand-in for the untranslated
+ * 001CABA0, docs/OWNER_DRAW.md section 11); -1 when no light belongs to
+ * that owner. */
+int em_pickup_light_submit(uint32_t source_id, const float c80[4], const float node[16]);
 /* Draws the lights submitted since the last call, then clears them. */
 void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16]);
 

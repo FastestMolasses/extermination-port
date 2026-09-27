@@ -161,25 +161,9 @@ void render_chain_build(void)
                            g.scene[i].model.bone_count,
                            NULL, 0, 0, 0 };
     }
-    /* ELEVATOR PLATFORM (the AREA-11 descent actor's own mesh, ov
-     * 0x00828050 +0xB4). Drawn as a rigid prop whose pose elevator_tick
-     * re-bakes each frame (the Y descends with the ride). Absent when
-     * no `elevator` manifest line/mesh is provided — the ride still
-     * works (player + camera descend), the platform just isn't shown. */
-    if (g.elev_has_mesh && g.elev_mesh && g.elev_palette) {
-        ChainDraw *cd = chain_push();
-        if (cd)
-            *cd = (ChainDraw){ g.elev_mesh, g.elev_palette,
-                               g.elev_model.bone_count, NULL, 0, 0, 0 };
-    }
-    /* AREA11's static power panel, original record18/model04. The legacy
-     * manifest and struct field names retain the former grate label. */
-    if (g.grate_present && g.grate_mesh && g.grate_palette) {
-        ChainDraw *cd = chain_push();
-        if (cd)
-            *cd = (ChainDraw){ g.grate_mesh, g.grate_palette,
-                               g.grate_model.bone_count, NULL, 0, 0, 0 };
-    }
+    /* The AREA11 terminal 00827B10 and the panel 00159210 build their units
+     * in their own +0x4C (001CAA00, em_area11_boxes_owner_draw, inside the
+     * host's state-1 tail): frame_close_out draws them with the walk's. */
     /* Interactive doors (actor draws — func_001BC300's publish). The
      * chain records palette POINTERS; em_door_update (the world-services
      * slot, after this build) writes this frame's pose into them before

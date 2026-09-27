@@ -622,13 +622,27 @@ def check_elevator(ticks, run, state):
     carried = [k for k in range(count) if rows[f0 + k]['pos'][1] < top - 0.1 and selector(rows[f0 + k]['spad']) != '00']
     assert len(carried) >= 150, ('the capture window holds no 150-call carry', len(carried))
     follow = check_follow_after_release(ticks, i0, rows, f0, 'elevator', 'exact')
-    state['ride_scan'] = i0   # check_indicator_children: the terminal child's last compared tick is before it
+    # The terminal record 00827B10 (the route rows' elevator_r19): its +0x04
+    # and +0xB0..+0xB8 row for row over the window, the carry 00828050's
+    # +0xB4 steps included (em_area11_boxes_owner_*; the tick log's
+    # `terminal`). The record's +0x05 / +0x0B are the host owner's
+    # (EmElevator), which the phase compares through the script above.
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[f0 + k]
+        term = t.get('terminal')
+        assert term, ('elevator', 'port tick', t['tick'], 'no terminal record in the tick log')
+        want = [round(v, 5) for v in row['elevator_r19']['pos']]
+        got = [round(f32(b), 5) for b in term[7]]
+        assert got == want and term[1] == bytes.fromhex(row['elevator_r19']['h'])[4], \
+            ('elevator', f'row f{row["f"]}', 'terminal +0x04 / +0xB0', term[1], got, want)
+    state['ride_scan'] = i0             # check_indicator_children: the window of the ride
+    state['ride_end'] = i0 + count
     print(f'elevator: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 04 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: powered 0x82A750 from the scan through the carry '
           f'(player Y f{rows[f0 + carried[0]]["f"]}..f{rows[f0 + carried[-1]]["f"]}, ending '
           f'{rows[f0 + carried[-1]]["pos"][1]}) to the release at f{rows[r]["f"]} and {AFTER_RELEASE} rows '
           f'after, in spad, camera byte, letterbox, message, power, placement, heading and the script\'s camera '
-          f'eye/target; {follow})')
+          f'eye/target, and the terminal record\'s +0x04 and +0xB0..+0xB8 (the carry\'s +0xB4); {follow})')
 
 
 # ----------------------------------------------------- fence door (census L18)
@@ -1792,6 +1806,28 @@ def captured_children():
     return out
 
 
+def captured_terminal():
+    """The terminal 00827B10 of every in-scope route snapshot: (+0x04, +0x09,
+    +0x0C, +0x44, +0x4C), node 0's +0x90 (its first slot, 16 words) and
+    +0xB0..+0xB8 (3 words), per beat."""
+    out = {}
+    for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        u32 = lambda a: struct.unpack_from('<I', m, a)[0]
+        a = u32(0x275BC0)
+        while a:
+            if u32(a + 0x10) == TERMINAL:
+                slot = u32(a + 0x110)
+                out[beat] = (a, (m[a + 4], m[a + 9], m[a + 0xC], u32(a + 0x44), u32(a + 0x4C)),
+                             tuple(u32(slot + 0x90 + 4 * k) for k in range(16)),
+                             tuple(u32(a + 0xB0 + 4 * k) for k in range(3)))
+            a = u32(a + 0x1C)
+    return out
+
+
+TERMINAL = 0x827B10
+
+
 def check_indicator_children(ticks, state):
     """The indicator children's bind and placement (001C2360 / 001C22A0 and
     001C6380, em_indicator_bind_live; docs/CENSUS_UNVERIFIED.md "001C5680
@@ -1799,17 +1835,21 @@ def check_indicator_children(ticks, state):
     (+0x10, +0x04, +0x09, +0x0C, +0x0D, the model handle +0x44, the draw
     method +0x4C) equals the route snapshots' child at the same record
     address, and its first slot's +0x90 matrix (the 001C6380 placement)
-    equals theirs bit for bit. The terminal's 001C5760 child is compared
-    with routes 00..03 (its state-0 placement) only before the elevator
-    phase's scan: from then on 00827B10 copies the terminal's own node
-    matrix into the child's slot every frame (0x827E6C), which the port does
-    not bind yet (the terminal's own slots are not on the original path),
-    so those ticks are skipped and counted, never compared with a
-    non-original matrix. At the aligned snapshot ticks the set of bound
-    children equals the snapshot's. The slot addresses (+0x110) are not
-    compared: the stack's history before the children is not yet the
-    original's (other owners' slots)."""
+    equals theirs bit for bit. The terminal's 001C5760 child: 00827B10
+    copies its own node 0 matrix into the child's slot on every phase-1
+    call (0x827E6C), and the child's own state-0 placement equals the
+    terminal's node in every capture, so on every tick the child's slot
+    equals the terminal's node 0 of the tick log's `terminal` record, bit
+    for bit; that node (and the terminal's +0x04, +0x09, +0x0C, +0x44, +0x4C
+    at the same record address) equals routes 00..03' before the elevator
+    phase's window and routes 04..14' after it (the carry's rows are
+    compared by the elevator phase). At the aligned snapshot ticks the set
+    of bound children equals the snapshot's, and the terminal's node equals
+    that snapshot's. The slot addresses (+0x110) are not compared: the
+    stack's history before the children is not yet the original's (other
+    owners' slots)."""
     caps = captured_children()
+    terms = captured_terminal()
     ref = {}
     for beat, kids in caps.items():
         for a, (fields, world) in kids.items():
@@ -1817,9 +1857,14 @@ def check_indicator_children(ticks, state):
                 assert ref[a][0] == fields, ('indicator children: the snapshots disagree', beat, hex(a))
             else:
                 ref[a] = (fields, world)
-    pre_ride = {a: w for a, (f, w) in caps['01_battery'].items()}
-    ride_scan = state.get('ride_scan', len(ticks))
-    seen, ticks_seen, terminal_compared, terminal_skipped = set(), 0, 0, 0
+    upper = {terms[b][1:] for b in terms if b[:2] < '04'}
+    lower = {terms[b][1:] for b in terms if b[:2] >= '04'}
+    assert len(upper) == 1 and len(lower) == 1 and len({terms[b][0] for b in terms}) == 1, \
+        ('the snapshots disagree on the terminal', upper, lower)
+    (upper,), (lower,) = upper, lower
+    term_addr = next(iter(terms.values()))[0]
+    ride = (state.get('ride_scan', len(ticks)), state.get('ride_end', len(ticks)))
+    seen, ticks_seen, terminal_copies, terminal_states = set(), 0, 0, [0, 0]
     for i, t in enumerate(ticks):
         kids = t.get('children')
         if not kids:
@@ -1832,31 +1877,40 @@ def check_indicator_children(ticks, state):
             assert (cb, st, b9, bc, bd, model, method) == fields, (where, (cb, st, b9, bc, bd, hex(model),
                                                                          hex(method)), fields)
             if cb == 0x1C5760:
-                if i >= ride_scan:
-                    terminal_skipped += 1   # 0x827E6C's copy is not bound (see the docstring)
-                    want = None
-                else:
-                    assert addr in pre_ride, (where, 'the terminal child is not in route 01')
-                    terminal_compared += 1
-                    want = pre_ride[addr]
+                term = t.get('terminal')
+                assert term and term[0] == term_addr, (where, 'no terminal record at the captured address', term)
+                assert tuple(world) == tuple(term[6]), (where, 'the child\'s slot is not the terminal\'s node 0 '
+                                                        '(0x827E6C)', world, term[6])
+                got = (tuple(term[1:6]), tuple(term[6]), tuple(term[7]))
+                if i < ride[0] or i >= ride[1]:
+                    want = upper if i < ride[0] else lower
+                    assert got == want, (where, 'the terminal (+0x04, +0x09, +0x0C, +0x44, +0x4C, node 0, '
+                                                '+0xB0) differs from the routes\' '
+                                         + ('00..03' if i < ride[0] else '04..14'), got, want)
+                    terminal_states[i >= ride[1]] += 1
+                terminal_copies += 1
             else:
-                want = cworld
-            if want is not None:
-                assert tuple(world) == want, (where, 'the first slot +0x90 (001C6380)', world, want)
+                assert tuple(world) == cworld, (where, 'the first slot +0x90 (001C6380)', world, cworld)
             assert all(slots[k] for k in range(b9)) and not any(slots[b9:]), (where, 'slot words', slots)
             seen.add(addr)
     for beat, i in state.get('snapshots', []):
         port = {c[0] for c in ticks[i].get('children', [])}
         assert port == set(caps[beat]), ('indicator children', beat, 'port tick', ticks[i]['tick'],
                                          sorted(map(hex, port)), sorted(map(hex, caps[beat])))
+        term = ticks[i].get('terminal')
+        assert term and (tuple(term[1:6]), tuple(term[6]), tuple(term[7])) == terms[beat][1:], \
+            ('indicator children', beat, 'port tick', ticks[i]['tick'], 'the terminal', term, terms[beat])
     assert ticks_seen >= 100 and len(seen) >= 7, ('indicator children too little exercised', ticks_seen, seen)
-    assert terminal_compared >= 1, 'indicator children: the terminal child was never compared before the ride'
+    assert terminal_states[0] >= 1, 'indicator children: the terminal was never compared before the ride'
+    reached = ride[1] < len(ticks)
+    assert not reached or terminal_states[1] >= 1, 'indicator children: the terminal was never compared after the ride'
     print(f'indicator children: PASS ({len(seen)} children over {ticks_seen} ticks: +0x09, +0x0C, +0x0D, the '
           f'model handle +0x44 and the draw method 001CACB0 equal the route snapshots\' at the same record, and '
-          f'the first slot\'s 001C6380 matrix bit for bit (the terminal\'s child: its state-0 placement of '
-          f'routes 00..03 on {terminal_compared} tick(s) before the elevator scan; {terminal_skipped} tick(s) '
-          f'from the scan on skipped, its 0x827E6C copy not bound); '
-          f'{len(state.get("snapshots", []))} aligned snapshot(s) hold the same set of children)')
+          f'the first slot\'s 001C6380 matrix bit for bit; the terminal\'s child holds the terminal\'s node 0 '
+          f'(0x827E6C) on all {terminal_copies} tick(s), the terminal equal to routes 00..03 on '
+          f'{terminal_states[0]} tick(s) before the ride and to routes 04..14 on {terminal_states[1]} after it; '
+          f'{len(state.get("snapshots", []))} aligned snapshot(s) hold the same set of children and the same '
+          f'terminal)')
 
 
 LANES = (0, 1, 3, 4, 5, 6)   # 001F0360's 001F0720 calls
@@ -2008,7 +2062,10 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
 OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x001BC350: 'door',
+               0x00827B10: 'terminal', 0x00159210: 'panel', 0x001C4820: 'prop', 0x00219550: 'item',
+               0x0015AFA0: 'map item', 0x00823E80: 'parachute',
                EQUIPMENT_NODE: 'equipment'}   # and the player D_008102B0 (0015C160's +0x4C)
+OWNER_DRAWN_IF_VISIBLE = (0x00219550, 0x0015AFA0)
 
 
 def fnv_words(h, words):
@@ -2073,6 +2130,11 @@ def check_owner_units(ticks, state):
             walk.append(PLAYER)                   # 0015C160's +0x4C, after the walk
         for a in walk:
             behaviour = u32(a + 0x10)
+            # The item owners call their +0x4C only when their 001B17A0 found
+            # them visible (0015AE20's tail, 00219550's `out` / state 2): the
+            # record's +0x01, which 001B17A0 stored in that call.
+            if behaviour in OWNER_DRAWN_IF_VISIBLE and not ram[a + 1]:
+                continue
             if u32(a + 0x4C) == tod.DRAW and (behaviour in OWNER_DRAWN or a == PLAYER):
                 key = ('equipment', ram[a + 3], ram[a + 0x0D]) if behaviour == EQUIPMENT_NODE and a != PLAYER else a
                 o, ctx = tod.original_draw(ram, spr, a)

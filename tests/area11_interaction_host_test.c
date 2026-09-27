@@ -192,7 +192,6 @@ int em_scene_bindings_001FAE70(int a0) { assert(a0 == 1); ++resumes; return 0; }
  * (00159210 case 2 skips both stores when +0x20 == 0). */
 static int panel_child_slot = 1;
 int em_area11_bindings_panel_child_stop(void) { ++indicators; return panel_child_slot; }
-void elevator_pose(void) {}
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t vertices,
     const uint32_t *indices, uint32_t count, const EmGfxTexDesc *textures,
     uint32_t texture_count, const uint8_t *texels, uint32_t flags)
@@ -314,6 +313,9 @@ static void bind_records(void)
         EmActor *record = &records[i];
         record->status = 1;
         record->cls = owner->class_flags;
+        record->model = owner->role == EM_INTERACTION_PICKUP ? owner->subtype : 0;
+        record->param = owner->role != EM_INTERACTION_PICKUP ? 0
+                        : owner->callback == 0x0015AFA0u ? 0x0B : 0x72;
         record->uid = 0xFF00;
         record->self = record;
         record->source_id = owner->source_id;
@@ -324,15 +326,71 @@ static void bind_records(void)
     }
 }
 
-/* Each bound item node's first call (state 0), after a host load. */
+/* Each bound item node's first call (state 0), after a host load: the
+ * record's +0x03 / +0x0D (the fixture's records carry the EMIS subtype and
+ * the item's library model 0x72 / map model 0x0B). */
 static void pickups_state0(void)
 {
     EmInteractionScene *scene_owners = em_area11_interaction_host_scene();
     for (size_t i = 0; i < scene_owners->count; ++i) {
         const EmInteractionSceneOwner *record = &scene_owners->owners[i];
         if (record->role == EM_INTERACTION_PICKUP && record->native_owner)
-            assert(em_area11_interaction_host_pickup_state0(record->source_id, record->subtype, 0) == 0);
+            assert(em_area11_interaction_host_pickup_state0(record->source_id, records[i].model,
+                                                            records[i].param) == 0);
     }
+}
+
+static EmActor *record_of(EmInteractionRole role)
+{
+    EmInteractionScene *scene_owners = em_area11_interaction_host_scene();
+    for (size_t i = 0; scene_owners && i < scene_owners->count; ++i)
+        if (scene_owners->owners[i].role == role) return &records[i];
+    return NULL;
+}
+
+/* The owners' record services (the game binds em_area11_boxes' world owners
+ * over the model bank, the bone-slot stack and the object-unit draw; the
+ * level smoke compares their units and node matrices with the route
+ * captures). The fixture counts the host's calls: every model bind, every
+ * 001C6380 (its +0xD0 the record's TRS), every +0x4C and every 0x827E6C
+ * copy, per record. */
+static unsigned owner_binds, owner_places[EM_INTERACTION_CAPACITY], owner_draws[EM_INTERACTION_CAPACITY],
+    child_copies;
+static int fx_bind_001B0FD0(EmActor *a, int32_t *ret)
+{
+    assert(a >= records && a < records + EM_INTERACTION_CAPACITY);
+    ++owner_binds;
+    a->u04[0] += 1;
+    *ret = 0;
+    return 0;
+}
+static int fx_bind_001B1020(EmActor *a, uint32_t a1, int32_t a2, int32_t a3, int32_t *ret)
+{
+    assert(a >= records && a < records + EM_INTERACTION_CAPACITY && a1 == a->param && a2 == -1 && a3 == 0);
+    ++owner_binds;
+    a->u04[0] += 1;
+    *ret = 0;
+    return 0;
+}
+static int fx_place(EmActor *a, float world[16])
+{
+    assert(a >= records && a < records + EM_INTERACTION_CAPACITY && world);
+    ++owner_places[a - records];
+    return em_owner_services_build_trs_matrix(world, a->pos, a->rot, a->f60) == 0 ? 0 : -1;
+}
+static int fx_draw(EmActor *a)
+{
+    assert(a >= records && a < records + EM_INTERACTION_CAPACITY);
+    ++owner_draws[a - records];
+    return 0;
+}
+static int fx_copy_child(EmActor *a)
+{
+    assert(a == record_of(EM_INTERACTION_ELEVATOR));
+    assert(em_area11_interaction_host_elevator()->owner.phase == 1 ||
+           !em_area11_interaction_host_elevator()->owner.armed);   /* phase 1, or its completion */
+    ++child_copies;
+    return 0;
 }
 
 static int rcl_sdk_sqrt(void *ctx, uint32_t x, uint32_t *out)
@@ -397,8 +455,7 @@ static void setup(int reset_inventory)
     assert(!em_collision_world_load(&g.coll, "assets/scene_snow/snow.emcl",
                                     EM_COLLISION_WORLD_CELLS_PATH, EM_COLLISION_WORLD_SDK_PATH));
     g.mesh = (EmGfxMesh *)1;
-    g.grate_present = g.elev_has_mesh = 1;
-    g.elev_pos[1] = 230;
+    g.grate_present = 1;
     g.status.health = 100;
     g.loco_rate = 1;
     unsigned char *ram = malloc(0x2000000); assert(ram);
@@ -479,6 +536,12 @@ static void setup(int reset_inventory)
             assert(em_pickup_add(NULL, "assets/scene_snow", (int)placed.owners[i].item_type,
                                  placed.owners[i].position, placed.owners[i].angles[1],
                                  placed.owners[i].uid, NULL, 0) != -1);
+    static const EmArea11HostOwnerHooks owner_hooks = {fx_bind_001B0FD0, fx_bind_001B1020, fx_place, fx_draw,
+                                                       fx_copy_child};
+    em_area11_interaction_host_set_owner_hooks(&owner_hooks);
+    owner_binds = child_copies = 0;
+    memset(owner_places, 0, sizeof owner_places);
+    memset(owner_draws, 0, sizeof owner_draws);
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
     em_message_live_set_host(em_area11_interaction_host_message_host());
     bind_records();
@@ -573,7 +636,12 @@ static int outer(unsigned pressed)
     float old_feet[3], old_hip[3];
     memcpy(old_feet, g.pos, sizeof old_feet);
     assert(player_pose_hip(old_hip));
+    EmActor *panel_record = record_of(EM_INTERACTION_PANEL), *terminal_record = record_of(EM_INTERACTION_ELEVATOR);
+    const unsigned panel_drawn = owner_draws[panel_record - records];
+    const unsigned terminal_drawn = owner_draws[terminal_record - records];
     assert(!em_area11_interaction_host_panel_tick());
+    /* 00159210 state 1 ends with 001B17A0 and its +0x4C on every call. */
+    assert(owner_draws[panel_record - records] == panel_drawn + 1);
     if (aligning) {
         /* Original panel capture pins the transformed X/Z and facing.
          * Ground Y is the live player's prior Y, as001B6F00 specifies. */
@@ -589,6 +657,10 @@ static int outer(unsigned pressed)
         assert(euler[1] == panel_yaw);
     }
     assert(!em_area11_interaction_host_elevator_tick());
+    /* So does 00827B10's (0x827E78 / 0x827E84), and its +0xB4 is the
+     * owner's height (the floor, or the carry 00828050's). */
+    assert(owner_draws[terminal_record - records] == terminal_drawn + 1);
+    assert(terminal_record->pos[1] == em_area11_interaction_host_elevator()->owner.height);
     EmInteractionFrame *frame = em_area11_interaction_host_shared()->frame;
     (void)pickup_ticks(); /* the item owners at their nodes (they store their frame view) */
     assert(em_message_live_tick() == 0);
@@ -809,14 +881,18 @@ static void elevator_state0_floor(void)
         assert(floor);
         *floor = (uint8_t)lower;
         setup(0);
-        g.elev_pos[1] = 230; /* em_scene.c's manifest placement */
+        EmActor *terminal = record_of(EM_INTERACTION_ELEVATOR);
+        assert(terminal && terminal->pos[1] == 230.0f); /* the placement record's (upper) */
+        const unsigned placed = owner_places[terminal - records];
         assert(em_area11_interaction_host_elevator_state0() == 0);
         const float expected = lower ? 190.0f : 230.0f;
         const EmInteractionSceneOwner *record = em_interaction_scene_role(
             em_area11_interaction_host_scene(), EM_INTERACTION_ELEVATOR);
         const EmElevator *owner = &em_area11_interaction_host_elevator()->owner;
-        assert(record && g.elev_pos[1] == expected && owner->height == expected &&
+        /* The record's +0xB4 is the floor, and 001C6380 ran once over it. */
+        assert(record && terminal->pos[1] == expected && owner->height == expected &&
                record->descriptor[1] == expected && owner->lower == lower);
+        assert(owner_places[terminal - records] == placed + 1);
         assert(owner->script_heights[0] == expected &&
                owner->script_heights[1] == (lower ? 205.0f : 245.0f) &&
                owner->script_heights[2] == (lower ? 245.0f : 205.0f));

@@ -4,14 +4,22 @@
 through the AREA11 interaction host at pool node #27 (AREA11_INTERACTION_HOST.md);
 the old `em_examine` terminal and the legacy ride (`elevator_tick`) are
 retired, and the level smoke matches the refusal and the ride with route
-beats 02 and 04 row for row. Its state 0 (0x827B54..0x827BF0) is bound
-too: the floor byte D_0081083A selects the actor's +0xB4 (190 or 230) and
-the script heights, and 001C6380 builds its matrix before the child spawn;
-the host's `em_area11_interaction_host_elevator_state0` places the port's
-elevator mesh there, so an AREA11 rebuild after the ride draws it at the
-lower floor. Model creation and
-indicator allocation remain scene responsibilities; this core does not
-manufacture missing actors or report a missing script as completed.
+beats 02 and 04 row for row. Its state 0 is bound too (runtime
+0x827B54..0x827C8C): 001B0FD0 binds the world bank's model 0x0F and one bone
+slot to its pool record, the floor byte D_0081083A selects the record's
++0xB4 (190 or 230) and the script heights, and 001C6380 builds its +0xD0
+and node matrix before 001A2370 and the child spawn. Since the owners step
+the record is the one storage the rest works on (em_area11_boxes_owner_*,
+OWNER_DRAW.md section 10): the carry 00828050 writes the record's +0xB4 and
+rebuilds its node with 001C6380 every tick, the completion does the same at
+the new floor, every state-1 call ends with 001B17A0 and the +0x4C
+001CAA00 (its original unit, drawn by the object-unit renderer; the legacy
+platform EMDL is retired), and every phase-1 call copies its node 0 matrix
+into its indicator child's slot (0x827E6C). The level smoke compares the
+record's +0x04 and +0xB0..+0xB8 with route 04's rows over the whole window
+and the child's slot with the terminal's node on every tick.
+This core does not manufacture missing actors or report a missing script
+as completed.
 
 The owner chooses powered script82A750 or refusal82A990 on arm bit4. It
 starts that script on one callback and first ticks it on the next callback.

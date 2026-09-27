@@ -319,71 +319,28 @@ void scene_manifest_load(void)
                                      gyaw);
                 }
             }
-        } else if ((gn = sscanf(line, "elevator %255s %f %f %f %f",
-                                 name, &x, &y, &z, &yaw)) >= 4) {
-            /* AREA-11 ELEVATOR PLATFORM placement (batch-2 contract F).
-             * Form: `elevator <model.emdl> <x> <y> <z> [yaw]`. The mesh
-             * is the descending platform (ov 0x00828050 +0xB4); the ride
-             * (em_game_elevator_start / elevator_tick) drives this Y down
-             * with the player + camera. The placement spot is "right next
-             * to the battery terminal (224, 230, 250.7)"
-             * (INVESTIGATION_area11_elevator.md §4). Only one platform per
-             * scene; a second line replaces the first. The ride works
-             * WITHOUT this line (player + camera still descend — the
-             * platform just isn't drawn), so a missing/failed mesh is
-             * non-fatal. */
-            EmGfx *egfx = em_frame_gfx();
-            elevator_unload(egfx);          /* drop any prior platform */
-            g.elev_pos[0] = x;
-            g.elev_pos[1] = y;
-            g.elev_pos[2] = z;
-            g.elev_yaw    = (gn >= 5) ? yaw : 0.0f;
-            char epath[1024];
-            snprintf(epath, sizeof epath, "%s/%s", g.scene_dir, name);
-            if (em_model_load(&g.elev_model, epath) != 0) {
-                printf("manifest: elevator mesh %s failed to load — ride "
-                       "runs WITHOUT a platform (player+camera descend), "
-                       "FLAGGED\n", epath);
-            } else {
-                g.elev_mesh = em_gfx_mesh_create(
-                    egfx, g.elev_model.verts, g.elev_model.vert_count,
-                    g.elev_model.indices, g.elev_model.index_count,
-                    (const EmGfxTexDesc *)g.elev_model.texs,
-                    g.elev_model.tex_count, g.elev_model.texels,
-                    g.elev_model.flags);
-                g.elev_palette = malloc(g.elev_model.bone_count * 16 *
-                                        sizeof(float));
-                if (!g.elev_mesh || !g.elev_palette) {
-                    printf("manifest: elevator mesh %s GPU/palette alloc "
-                           "failed — ride runs WITHOUT a platform, "
-                           "FLAGGED\n", epath);
-                    elevator_unload(egfx);
-                } else {
-                    g.elev_has_mesh = 1;
-                    elevator_pose();        /* bake the placed frame-0 pose */
-                    printf("manifest: ELEVATOR platform %s at (%.1f, "
-                           "%.1f, %.1f) yaw %.3f — %u verts\n", name,
-                           x, y, z, g.elev_yaw, g.elev_model.vert_count);
-                }
-            }
+        } else if (strncmp(line, "elevator ", 9) == 0) {
+            /* AREA-11 terminal / elevator (placement record 19): its
+             * original owner 00827B10 places and draws it from its own
+             * record (its 001B0FD0 binds the bank's model 0x0F, its
+             * 001C6380 / the carry 00828050 build its node, its +0x4C is
+             * 001CAA00: em_area11_boxes_owner_*, docs/OWNER_DRAW.md section
+             * 10). The manifest line's model and placement are not read. */
         } else if (strncmp(line, "truck ", 6) == 0) {
             /* AREA-11 truck (placement record 16): its original owner
              * 00823FF0 places and draws it from its own record
              * (em_area11_boxes, census L23; its +0x4C builds the original
              * unit of the bank's model 9, em_owner_draw_live). The manifest
              * line's placement is not read. */
-        } else if ((gn = sscanf(line, "grate %255s %f %f %f %f",
-                                 name, &x, &y, &z, &yaw)) >= 4) {
-            /* Legacy manifest name for AREA11's static power panel,
-             * placement18 /00159210 /per-area model04. The prior sliding
-             * grate interpretation and generated blocker hull were wrong.
-             * Record20 reuses this mesh as ordinary static scenery. */
-            float gp[3] = { x, y, z };
-            if (grate_install(em_frame_gfx(), g.scene_dir, name, gp,
-                              (gn >= 5) ? yaw : 0.0f) == 0)
-                printf("manifest: power panel %s at (%.1f, %.1f, %.1f) "
-                       "yaw %.3f\n",
-                       name, x, y, z, (gn >= 5) ? yaw : 0.0f);
+        } else if (strncmp(line, "grate ", 6) == 0) {
+            /* Legacy manifest name for AREA11's power panel, placement18 /
+             * 00159210 / per-area model04. Its original owner places and
+             * draws it from its own record (001B0FD0, 001C6380, +0x4C
+             * 001CAA00: em_area11_boxes_owner_*); the line's model and
+             * placement are not read. It installs the panel's cell 18 for
+             * the port's own collision queries (em_props.c). */
+            if (grate_install(g.scene_dir) == 0)
+                printf("manifest: power panel cell 18\n");
             else
                 printf("manifest: grate line failed to load: %s", line);
         } else if (sscanf(line, "areatitle %d", &gk) == 1) {
@@ -771,9 +728,8 @@ void scene_unload(EmGfx *gfx)
     em_examine_reset();         /* examine objects are per-scene
                                  * placements (no persistent state —
                                  * the engine re-arms them anyway) */
-    elevator_unload(gfx);       /* the AREA-11 platform mesh (re-parsed
-                                 * from the new scene's manifest) */
-    grate_unload(gfx);          /* the AREA-11 static power-panel mesh
+    grate_unload(gfx);          /* the AREA-11 panel's cell 18 and the
+                                 * indicator children's stand-in meshes
                                  * (re-installed from the new scene's
-                                 * `grate` line) */
+                                 * `grate` / `prop_indicator` lines) */
 }

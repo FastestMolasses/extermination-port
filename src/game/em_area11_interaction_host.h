@@ -40,6 +40,33 @@ typedef int (*EmArea11AuraDraw)(const float owner_d0[16], uint32_t record, uint3
                                 uint32_t timer);
 void em_area11_interaction_host_set_aura_draw(EmArea11AuraDraw draw);
 
+/* The host owners' record services (docs/OWNER_DRAW.md section 10), set by
+ * the bindings (em_area11_bindings_effects_attach) over em_area11_boxes'
+ * world owners:
+ *   bind_001B0FD0(actor, ret)
+ *   bind_001B1020(actor, a1, a2, a3, ret)
+ *                        the model binds of the item owners' state 0
+ *                        (0015AC00, 00219550): the record's model, +0x09,
+ *                        +0x0C and bone slots; *ret the original result
+ *   place(actor, world)  001C6380 over the record and its slots; world = its
+ *                        new +0xD0 (the terminal's state 0, its carry
+ *                        00828050 and its completion; the item owners'
+ *                        state 0)
+ *   draw(actor)          the record's +0x4C, 001CAA00 (the panel's and the
+ *                        terminal's state-1 tail after 001B17A0; an item
+ *                        owner's when its 001B17A0 found it visible)
+ *   copy_child(actor)    the terminal's 0x827E6C: 00102958 of its node 0's
+ *                        +0x90 into its +0x2E4 child's slot 0 +0x90
+ * Unset, an owner that reaches one faults (a missing worker). 0, or -1. */
+typedef struct {
+    int (*bind_001B0FD0)(EmActor *actor, int32_t *ret);
+    int (*bind_001B1020)(EmActor *actor, uint32_t a1, int32_t a2, int32_t a3, int32_t *ret);
+    int (*place)(EmActor *actor, float world[16]);
+    int (*draw)(EmActor *actor);
+    int (*copy_child)(EmActor *actor);
+} EmArea11HostOwnerHooks;
+void em_area11_interaction_host_set_owner_hooks(const EmArea11HostOwnerHooks *hooks);
+
 EmInteractionScene *em_area11_interaction_host_scene(void);
 EmInteractionRuntime *em_area11_interaction_host_shared(void);
 EmPanelRuntime *em_area11_interaction_host_panel(void);
@@ -82,13 +109,17 @@ int em_area11_interaction_host_panel_tick(void);
 int em_area11_interaction_host_elevator_tick(void);
 /* The AREA11 item owners (WP-6), at their pool nodes by EMIS source id
  * (the roster record address): state 0 (the node's first call; `model` and
- * `param` are the actor's +0x03 and +0x0D), then one owner update per call
- * (1 allocated, 0 freed: the node frees itself, -1 fault). */
+ * `param` are the actor's +0x03 and +0x0D: 0015AC00 or 00219550's state 0
+ * over the record, its model bind and 001C6380 through the owner hooks),
+ * then one owner update per call (1 allocated, 0 freed: the node frees
+ * itself, -1 fault); a visible owner's +0x4C is the draw hook. */
 int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param);
 int em_area11_interaction_host_pickup_tick(uint32_t source_id);
-/* 00827B10 state 0's placement (0x827B54..0x827BF0): the floor byte
- * D_0081083A selects 190/230 for the actor's +0xB4 and the script-height
- * words, then 001C6380 builds the actor's matrix. 0, or -1 fault. */
+/* 00827B10 state 0's placement (0x827B54..0x827C04), after the node's
+ * 001B0FD0 bound the record's model and slots: the floor byte D_0081083A
+ * selects 190/230 for the record's +0xB4 and the script-height words, then
+ * 001C6380 (the place hook) builds the record's +0xD0 and node matrix and
+ * 001A2370 re-transforms its collision cell by that +0xD0. 0, or -1 fault. */
 int em_area11_interaction_host_elevator_state0(void);
 /* The panel pool record's original address (its +0x14), which 00157F60
  * stores in D_008106D0. */

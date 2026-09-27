@@ -1989,27 +1989,11 @@ typedef struct {
      * elev_pending, elev_frame, elev_rate) was retired in WP-4: the
      * original owners 00159210 / 00827B10 and the carry 00828050 run in
      * the AREA11 interaction host (em_area11_interaction_host.c). */
-    /* ELEVATOR PLATFORM mesh (optional — manifest `elevator <model> x y
-     * z`). When present it descends with the ride; when absent the ride
-     * still works (player + camera descend) and the missing mesh is
-     * flagged. */
-    int         elev_has_mesh;   /* a parsed+loaded elevator platform */
-    EmModel     elev_model;      /* platform model (valid if elev_has_mesh) */
-    EmGfxMesh  *elev_mesh;       /* platform GPU mesh */
-    float      *elev_palette;    /* platform pose palette (world-placed) */
-    float       elev_pos[3];     /* platform placement (world); +0xB4 = [1]
-                                  * descends with the ride */
-    float       elev_yaw;        /* platform facing */
-
-    /* Original AREA11 switch actor00159210 / per-area model04.
-     * Legacy grate_* field names remain local to the scene/props boundary;
-     * this actor has no translated gate slide or synthetic blocker. */
+    /* The AREA11 panel 00159210's cell 18 is installed (em_props.c,
+     * grate_install; the legacy manifest verb `grate`). The panel and the
+     * terminal 00827B10 place and draw themselves from their own records
+     * (em_area11_boxes_owner_*). */
     int         grate_present;
-    EmModel     grate_model;
-    EmGfxMesh  *grate_mesh;
-    float      *grate_palette;
-    float       grate_pos[3];
-    float       grate_yaw;
 
     /* AREA-11 AREA-TITLE CARD ("FORT STEWART - REAR ENTRANCE", string table
      * 0x00273B80 idx1 — INVESTIGATION_area11_director.md §4.4. Rides the

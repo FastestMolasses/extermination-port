@@ -74,6 +74,9 @@ static struct {
     /* Census L07: the panel's and the terminal's pool records (bound by
      * their nodes), and the record 001B17A0's 001B1B70 is publishing. */
     EmActor *panel_actor, *elevator_actor, *publishing;
+    /* The terminal record's +0xD0, as its last 001C6380 (the place hook)
+     * built it: 001A2370's argument at 0x827C04 and 0x827E54. */
+    float elevator_d0[16];
     /* Census L22: Roger's pool record (bound by its lifecycle 0) and its
      * EMIS record (00183EF0's selector-0 class-10 candidate). */
     EmActor *roger_actor;
@@ -799,24 +802,46 @@ static int camera_chase(void *context)
         camera_interaction_retarget_distance_area11(&g.cam, euler, -20.0f);
 }
 
+/* The owners' record services (em_area11_interaction_host_set_owner_hooks). */
+static EmArea11HostOwnerHooks s_owner;
+
+void em_area11_interaction_host_set_owner_hooks(const EmArea11HostOwnerHooks *hooks)
+{
+    if (hooks) s_owner = *hooks;
+    else memset(&s_owner, 0, sizeof s_owner);
+}
+
+/* 001FBD50(self, cue, 0, radius) at the terminal record's +0xB0 (its +0xB4
+ * the floor or the carry's height). */
 static void elevator_sound(void *context, unsigned cue, float radius)
 {
     (void)context;
-    em_sfx_play_at(cue, g.elev_pos, radius);
+    if (!world.elevator_actor) { world.offer_failed = 1; return; }
+    em_sfx_play_at(cue, world.elevator_actor->pos, radius);
 }
 
+/* The record's +0xB4 = height, then 001C6380(self) (the place hook): its
+ * +0xD0 and node 0's +0x90 (state 0 at 0x827BF0 after the floor store, the
+ * carry 00828050 at 0x82812C after its add.s, the completion at 0x827E48
+ * after the floor toggle). */
 static void elevator_rebuild(void *context, float height)
 {
     (void)context;
-    g.elev_pos[1] = height;
-    elevator_pose();
+    EmActor *a = world.elevator_actor;
+    if (!a || !s_owner.place) { world.offer_failed = 1; return; }
+    a->pos[1] = height;   /* +0xB4 */
+    if (s_owner.place(a, world.elevator_d0) < 0) world.offer_failed = 1;
 }
 
+/* 0x827E60..0x827E70, every phase-1 call after the script step (and the
+ * completion's 001C6380 / 001A2370): 00102958(child +0x110[0] + 0x90,
+ * self +0x110[0] + 0x90), the terminal's node matrix into its +0x2E4
+ * child's slot. */
 static void elevator_copy_child(void *context)
 {
     (void)context;
-    /* em_props_indicators_draw reads the rebuilt parent's node0 world
-     * matrix directly. There is no stale separate native transform. */
+    if (!world.elevator_actor || !s_owner.copy_child || s_owner.copy_child(world.elevator_actor) < 0)
+        world.offer_failed = 1;
 }
 
 /* 001B17A0 (byte-matched; em_owner_services_001B17A0), the owners' state-1
@@ -864,36 +889,24 @@ static int publish_owner(EmActor *actor, uint8_t cls, const float position[3])
 }
 
 /* 00827B10's tail at 0x827E78: 001B17A0 (publication), then its virtual
- * +0x4C update, which has no port counterpart. Its +0xB4 is the owner's
- * floor height. */
+ * +0x4C (0x827E84), 001CAA00 (the draw hook), whether 001B17A0 found it
+ * visible or not. Its +0xB4 is the owner's floor height. */
 static void elevator_update_actor(void *context)
 {
     (void)context;
-    const EmActor *a = world.elevator_actor;
-    if (!a) { world.offer_failed = 1; return; }
-    const float position[3] = {a->pos[0], world.elevator.owner.height, a->pos[2]};
-    if (publish_owner(world.elevator_actor, world.elevator_class, position) < 0)
+    EmActor *a = world.elevator_actor;
+    if (!a || !s_owner.draw) { world.offer_failed = 1; return; }
+    if (publish_owner(a, world.elevator_class, a->pos) < 0 || s_owner.draw(a) < 0)
         world.offer_failed = 1;
 }
 
-/* 001C6380's matrix (build_trs_matrix(+0xD0, +0xB0, +0xC0, +0x60)) of a pool
- * record, with its +0xB4 given, then 001A2370(self, +0xD0): the record's
- * extended collision cell follows it (census L07). 0, or -1. */
-static int retransform_record(const EmActor *actor, float y, float matrix[16])
-{
-    if (!actor) return -1;
-    const float position[3] = {actor->pos[0], y, actor->pos[2]};
-    if (em_owner_services_build_trs_matrix(matrix, position, actor->rot, actor->f60) != 0) return -1;
-    return em_collision_world_retransform_001A2370(actor, matrix) < 0 ? -1 : 0;
-}
-
 /* 0x827E54: 001A2370(self, +0xD0) after the ride's completion rebuilt the
- * matrix at the new floor. */
+ * matrix at the new floor (elevator_rebuild). */
 static void elevator_retransform(void *context)
 {
     (void)context;
-    float matrix[16];
-    if (retransform_record(world.elevator_actor, world.elevator.owner.height, matrix) < 0)
+    if (!world.elevator_actor ||
+        em_collision_world_retransform_001A2370(world.elevator_actor, world.elevator_d0) < 0)
         world.offer_failed = 1;
 }
 
@@ -1101,6 +1114,12 @@ static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent ev
         o.pos[3] = 1.0f;
         return publish_view(slot->actor, &o);
     }
+    case EM_PICKUP_OWNER_DRAW:
+        /* The visible owner's +0x4C (0015AE20's tail, 00219550's `out` /
+         * state 2 after 001B17A0): 001CAA00 over its record (the draw
+         * hook, em_area11_boxes_owner_draw). */
+        if (!slot->actor || !s_owner.draw) return -1;
+        return s_owner.draw(slot->actor) < 0 ? -1 : 1;
     case EM_PICKUP_OWNER_TAKE_SOUND:
         /* 001FBD50(self, 0x194, 0, 300.0). Cue 0x194 is not in the exported
          * AREA11 sound scope (the sound export, WP-14): like the status
@@ -1172,7 +1191,7 @@ int em_area11_interaction_host_load(const char *directory,
     const EmItemMath *math, const EmStatusRuntimeHooks *status_hooks)
 {
     if (!directory || ((!math) != (!status_hooks)) || world.loaded ||
-        !g.grate_present || !g.elev_has_mesh || !g.coll.blob ||
+        !g.grate_present || !g.coll.blob ||
         g.model.bone_count != 22 || !em_frame_gfx()) return 0;
     memset(&world, 0, sizeof world);
     char path[1024];
@@ -1462,10 +1481,13 @@ int em_area11_interaction_host_panel_tick(void)
     script_store(&world.panel.program.script);
     view_store();
     if (result < 0) return fail("panel worker");
-    /* 00159210 state 1 always ends with 001B17A0(p), then its virtual. */
+    /* 00159210 state 1 always ends with 001B17A0(p), then its virtual +0x4C,
+     * 001CAA00 (the draw hook). */
     if (!world.panel_actor) return fail("panel publication (no pool record bound)");
-    return publish_owner(world.panel_actor, world.panel_class, world.panel_actor->pos) >= 0
-               ? 0 : fail("panel publication");
+    if (publish_owner(world.panel_actor, world.panel_class, world.panel_actor->pos) < 0)
+        return fail("panel publication");
+    if (!s_owner.draw) return fail("the panel's +0x4C (no draw worker bound)");
+    return s_owner.draw(world.panel_actor) < 0 ? fail("the panel's +0x4C 001CAA00") : 0;
 }
 
 /* The pool record of a host owner (census L07): the panel 00159210, the
@@ -1572,10 +1594,11 @@ int em_area11_interaction_host_elevator_state0(void)
         return fail("00827B10 state 0 after the owner ran");
     em_elevator_init(&world.elevator.owner, *floor != 0);
     world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
+    world.offer_failed = 0;
     elevator_rebuild(NULL, world.elevator.owner.height);
-    float matrix[16];
-    if (retransform_record(world.elevator_actor, world.elevator.owner.height, matrix) < 0)
-        return fail("00827B10 state 0: 001A2370 (no pool record or collision world)");
+    if (world.offer_failed) return fail("00827B10 state 0: 001C6380 (no pool record or no place worker)");
+    if (em_collision_world_retransform_001A2370(world.elevator_actor, world.elevator_d0) < 0)
+        return fail("00827B10 state 0: 001A2370 (no collision world)");
     return 0;
 }
 
@@ -1595,53 +1618,96 @@ int em_area11_interaction_host_elevator_tick(void)
     *floor = world.elevator.owner.lower;
     world.elevator_record->descriptor[1] = world.elevator.owner.lower ? 190 : 230;
     if (result < 0) return fail("elevator worker");
-    return world.offer_failed ? fail("elevator publication") : result;
+    return world.offer_failed ? fail("elevator record worker (001B17A0, +0x4C, 001C6380, 0x827E6C or 001FBD50)")
+                              : result;
 }
 
-/* The pickup node's first call (state 0). 0015AFA0 runs 0015AC00: the
- * +0x60 scale by the model id +0x0D, 001C6380's +0xD0 matrix (the aura's
- * facing test reads it) and 001F1110(self, variant by +0x03 & 0xF), whose
- * rand() is the first draw of the aura. 00219550 (NEARMISS
- * src/func_00219550.c state 0) runs 001C6380 over its record (+0xB0, +0xC0,
- * the +0x60 scale 001AFA90 left at 1.0) and then 001A2370(self, +0xD0): its
- * collision cell moves to the item (census L07). The instance's model, bones
- * and palette are em_pickup's (em_pickup_add); 00219550's 001C5570 child is
- * spawned by the node itself after this call, as the original spawns it
- * after 001A2370. */
+/* The pickup node's first call (state 0), over the owner's pool record: the
+ * one translation of 0015AFA0's 0015AC00 and of 00219550's state 0
+ * (em_pickup_owner_0015AC00 / em_pickup_owner_00219550_state0, oracle
+ * tools/test_pickup_owner_reference.py) with its workers on the record:
+ * the binds 001B0FD0 / 001B1020, 001C6380 (the record's +0xD0 into
+ * slot->world, which the aura's facing test and 001A2370 read) through the
+ * owner hooks, 0015AC00's 001F1110 (the aura's first rand() draw) and
+ * 00219550's 001A2370 (its collision cell moves to the item, census L07).
+ * 00219550's 001C5570 child is spawned by the node itself after this call,
+ * as the original spawns it after 001A2370. A refused bind (the original
+ * would free the owner on its next call, +0x04 = 3) is not reached in the
+ * first level and faults. */
+typedef struct {
+    HostPickup *slot;
+    EmActor *actor;
+} PickupState0;
+
+static int state0_bind_001B0FD0(void *context, int32_t *result)
+{
+    PickupState0 *c = context;
+    return s_owner.bind_001B0FD0(c->actor, result);
+}
+
+static int state0_bind_001B1020(void *context, uint32_t a1, int32_t a2, int32_t a3, int32_t *result)
+{
+    PickupState0 *c = context;
+    return s_owner.bind_001B1020(c->actor, a1, a2, a3, result);
+}
+
+static int state0_place(void *context)
+{
+    PickupState0 *c = context;
+    return s_owner.place(c->actor, c->slot->world);
+}
+
+static int state0_aura(void *context, int16_t variant)
+{
+    PickupState0 *c = context;
+    const EmPickupAuraWorkers workers = {c->slot->world, aura_rand, aura_draw};
+    return em_pickup_aura_001F1110(&c->slot->aura, variant, &workers) == 0 ? 0 : -1;
+}
+
+static int state0_cell(void *context)
+{
+    PickupState0 *c = context;
+    return em_collision_world_retransform_001A2370(c->actor, c->slot->world) < 0 ? -1 : 0;
+}
+
 int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param)
 {
     if (!world.loaded || world.failed) return -1;
     HostPickup *slot = pickup_slot(source_id);
     if (!slot || slot->state0) return fail("pickup state 0 (unbound or repeated)");
+    EmActor *a = slot->actor;
+    if (!a || a->model != model || a->param != param) return fail("pickup state 0 without its pool record");
+    if (!s_owner.bind_001B0FD0 || !s_owner.bind_001B1020 || !s_owner.place)
+        return fail("pickup state 0: no record worker bound (001B0FD0 / 001B1020 / 001C6380)");
     slot->state0 = 1;
     slot->model = model;
     slot->param = param;
+    PickupState0 context = {slot, a};
+    const EmPickupState0Hooks hooks = {&context, state0_bind_001B0FD0, state0_bind_001B1020, state0_place,
+                                       state0_aura, state0_cell};
+    EmPickupState0 r = {a->status, a->model, a->u04[4], a->param, a->flags2,
+                        {a->f60[0], a->f60[1], a->f60[2]}, {a->f80[0], a->f80[1], a->f80[2]}};
+    int result;
     if (slot->record->callback == 0x00219550u) {
-        if (!slot->actor || retransform_record(slot->actor, slot->actor->pos[1], slot->world) < 0)
-            return fail("00219550 state 0: 001C6380 / 001A2370 (no pool record or collision world)");
-        return 0;
+        const uint8_t *item3 = em_scene_progress_at(em_scene_state(), 0x00810C64u + 3u, 1);
+        if (!item3) return fail("00219550 state 0: D_00810C64[3] is not canonical");
+        result = em_pickup_owner_00219550_state0(&r, *item3, &hooks);
+    } else if (slot->record->callback == 0x0015AFA0u) {
+        result = em_pickup_owner_0015AC00(&r, &hooks);
+    } else {
+        return fail("pickup state 0 of an unknown owner");
     }
-    if (slot->record->callback != 0x0015AFA0u) return 0;
-    float scale = 1.0f;
-    switch (param) {
-    case 0x5B: scale = 1.5f; break;
-    case 0x6D: case 0x6C: case 0x59: case 0x57: case 0x56: case 0x55: case 0x4F: case 0x4E:
-    case 0x4D: case 0x45: case 0x42: case 0x41: case 0x40: scale = 2.0f; break;
-    default: break;
+    /* The record's bytes the routine wrote (+0x04 is the bind's). */
+    a->status = r.status;       /* +0x00 */
+    a->u04[4] = r.mode;         /* +0x08 */
+    a->flags2 = r.flags2;       /* +0x2E */
+    for (unsigned k = 0; k < 3; ++k) {
+        a->f60[k] = r.scale[k]; /* +0x60..+0x68 */
+        a->f80[k] = r.color[k]; /* +0x80..+0x88 */
     }
-    const float scales[3] = {scale, scale, scale};
-    if (em_owner_services_build_trs_matrix(slot->world, slot->record->position, slot->record->angles,
-                                           scales) != 0)
-        return fail("0015AC00 placement");
-    int16_t variant;
-    switch (model & 0xF) {
-    case 1: variant = 1; break;
-    case 2: variant = 4; break;
-    case 0: variant = param == 0x34 ? 5 : 0; break;
-    default: variant = 0; break;
-    }
-    const EmPickupAuraWorkers workers = {slot->world, aura_rand, aura_draw};
-    return em_pickup_aura_001F1110(&slot->aura, variant, &workers) == 0 ? 0 : fail("001F1110");
+    if (result < 0) return fail("pickup state 0: a record worker failed");
+    if (result > 0) return fail("pickup state 0: a refused model bind is not bound");
+    return 0;
 }
 
 /* Every later call: 00219550 states 1..3 / 0015AFA0 states 1..3 over the

@@ -1,5 +1,5 @@
 /* The pickup light's colour (001F54E0 = em_effect_kinds_001F54E0, then the
- * 001D8C30 mode-1 GS conversion), its draw at the owner's transform, and the
+ * 001D8C30 mode-1 GS conversion), its draw at the child's node 0, and the
  * battery inventory. The child's behaviour (init frame, stop) is
  * em_indicator_child (tests/indicator_child_test.c and
  * tools/test_census_unverified_reference.py). Model/GPU boundaries are
@@ -124,19 +124,25 @@ int main(void)
     float c80[4];
     colour_001F54E0(0x40000000,green,c80,NULL);
     c80[3]=1.0f;
-    assert(em_pickup_light_submit(0x2B,c80)==-1);   /* no light of that owner */
-    assert(em_pickup_light_submit(0x2A,c80)==0);
+    /* The child's node 0 +0x90 (its 001C6380 placement from the +0xB0 /
+     * +0xC0 its spawn copied from the owner), in the original row layout. */
+    float node[16]={0};
+    node[2]=1; node[5]=1; node[8]=-1; node[15]=1;
+    node[12]=pos[0]; node[13]=pos[1]; node[14]=pos[2];
+    assert(em_pickup_light_submit(0x2B,c80,node)==-1);   /* no light of that owner */
+    assert(em_pickup_light_submit(0x2A,c80,NULL)==-1);   /* no node */
+    assert(em_pickup_light_submit(0x2A,c80,node)==0);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1 && drawn_tint[1]==1.0f);
-    assert(drawn_palette[12]==pos[0] && drawn_palette[13]==pos[1]);
-    assert(drawn_palette[14]==pos[2] && fabsf(drawn_palette[2]-1)<1e-6f);
+    /* Every bone of the model takes the child's node 0, unchanged. */
+    assert(memcmp(drawn_palette,node,sizeof node)==0);
     assert(memcmp(drawn_palette,drawn_palette+16,16*sizeof(float))==0);
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1);          /* one draw per submitted 001F54E0 */
     /* The owner's FREE (00219550 state 3's 001AFC10) and its taken bit. */
     s.p[0].used=0;
     taken_set(0xb01);
-    assert(em_pickup_light_submit(0x2A,c80)==-1);   /* owner gone: no stale draw */
+    assert(em_pickup_light_submit(0x2A,c80,node)==-1);   /* owner gone: no stale draw */
     em_pickup_lights_draw(gfx,viewproj);
     assert(draws==1);
     assert(random_calls==0);   /* the RNG is the child's 001F54E0 worker's, not em_pickup's */

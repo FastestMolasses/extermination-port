@@ -847,6 +847,35 @@ static void log_tick_end(int rc)
         }
     }
     fputc(']', f);
+    /* The terminal 00827B10's record (em_area11_boxes_owner_*): its address,
+     * +0x04, +0x09, +0x0C, +0x44, +0x4C, node 0's +0x90 (float bits;
+     * 001C6380's, the carry's) and +0xB0..+0xB8 (float bits), or null while
+     * it is not bound.
+     * tools/test_level_smoke.py check_indicator_children (its 0x827E6C copy
+     * into the child's slot). */
+    fputs(", \"terminal\": ", f);
+    {
+        const EmActor *term = NULL;
+        for (const EmActor *a = s_pool.head; a && !term; a = a->next)
+            if (a->callback == 0x00827B10u) term = a;
+        uint32_t model = 0, method = 0;
+        float node[16];
+        if (term && em_area11_boxes_owner_state(term, &model, &method) &&
+            em_area11_boxes_owner_node(term, 0, node) == 0) {
+            fprintf(f, "[%u, %u, %u, %u, %u, %u, [", em_actor_pool_address(&s_pool, term), term->u04[0],
+                    term->bones, term->u0A[2], model, method);
+            for (int k = 0; k < 16; ++k) {
+                uint32_t bits;
+                memcpy(&bits, &node[k], 4);
+                fprintf(f, "%s%u", k ? ", " : "", bits);
+            }
+            uint32_t pos[3];
+            memcpy(pos, term->pos, sizeof pos);
+            fprintf(f, "], [%u, %u, %u]]", pos[0], pos[1], pos[2]);
+        } else {
+            fputs("null", f);
+        }
+    }
     /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
      * record address, unit bytes, clip, the colour / lighting-row /
      * position-row / point-light-slot / rig-lane digests, the owner's point

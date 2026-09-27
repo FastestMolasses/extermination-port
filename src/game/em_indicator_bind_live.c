@@ -270,6 +270,27 @@ int em_indicator_bind_live_place(EmActor *child)
     return 0;
 }
 
+int em_indicator_bind_live_set_node(EmActor *child, unsigned k, const float matrix[16])
+{
+    if (S.fault) return -1;
+    Child *c = child_of(child);
+    if (!c || !matrix || !c->live || c->generation != child->generation || k >= c->held ||
+        k >= child->bones || !c->word[k])
+        return fail(0x00102958u, "00102958 into an indicator child's slot it does not hold");
+    em_owner_services_copy_qw4_00102958(c->bone[k].world, matrix);
+    return 0;
+}
+
+int em_indicator_bind_live_node(const EmActor *child, unsigned k, float matrix[16])
+{
+    const Child *c = child_of(child);
+    if (!c || !matrix || !c->live || c->generation != child->generation || k >= c->held ||
+        k >= child->bones || !c->word[k])
+        return -1;
+    memcpy(matrix, c->bone[k].world, sizeof c->bone[k].world);
+    return 0;
+}
+
 int em_indicator_bind_live_001AF800(EmActor *child)
 {
     Child *c = child_of(child);

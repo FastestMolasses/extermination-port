@@ -20,13 +20,12 @@ no port file was edited:
 - The indicator children run em_indicator_child.c and em_effect_kinds.c
   (the one 001F54E0 translation) as the game links them; the spawn colours
   are read from em_area11_bindings.c's source.
-- Two live pieces sit inside functions that cannot run alone:
-  - the 0015CF90 lines of `em_player_0015BCF0`;
-  - the two 0015AC00 switches of `em_area11_interaction_host_pickup_state0`.
-
-  For these, the harness copies the exact source lines, found by their text,
-  and compiles them against the real headers. If the text moves, the test
-  fails.
+- One live piece sits inside a function that cannot run alone: the
+  0015CF90 lines of `em_player_0015BCF0`. The harness copies the exact
+  source lines, found by their text, and compiles them against the real
+  headers. If the text moves, the test fails. 0015AC00 runs its one
+  translation, `em_pickup_owner_0015AC00` (em_pickup_owner.c), which the
+  live host calls since the owners step.
 
 The test pins every known divergence (`EXPECTED`). It fails when a new
 divergence appears, and also when a pinned one disappears. When that happens,
@@ -52,29 +51,33 @@ scratch copies of `src/` (the live tree was not touched):
 
 | Row | Verdict | First-level impact | Fix for the chain |
 |---|---|---|---|
-| 0015AC00 | **verified** (scale switch, 001F1110 variant); two boundaries | none today | optional: 00219550 items keep scale 1.0 |
+| 0015AC00 | **verified**, live since the owners step (em_pickup_owner_0015AC00 over the map item's record: scale, colour, bind, 001C6380, 001F1110; test_pickup_owner_reference executes it call for call) | none today | optional: em_pickup's legacy instances of 00219550 items keep scale 1.0 (they no longer draw a bound owner) |
 | 0015CF90 | **verified** except the compare model | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
 | 001B1190 | **verified** (areas 0..0x16, capture 00→01) | none | none needed for AREA11 |
 | 001C5680 | **verified**, live per node (em_indicator_child); its bind 001C2360 and placement 001C6380 are the translations since the status UI step (em_indicator_bind_live) | none: every child draws its 001F54E0 in walk order | the children's own model draw (OWNER_DRAW.md P1) |
-| 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live; bind 001C22A0 / placement as 001C5680 | none (red in the refusal, green once powered, as routes 02 and 04) | the terminal's 0x827E6C copy of its node matrix into the child's slot |
+| 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live; bind 001C22A0 / placement as 001C5680; the terminal's 0x827E6C copy into its slot is live (the owners step) | none (red in the refusal, green once powered, as routes 02 and 04) | the +0x4C draw 001CABA0 (a stand-in) |
 | 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired; live since census L29 (em_shadow_live, FIRST_LEVEL_CENSUS.md section 1.20) | the decal draws on the route (beats 02, 04, 05, 08) | none |
 | 0020DFA0 | **verified**: every callee runs on the CONFIGURE path since the status UI step (2026-09-26) | none | none |
 
 ## 0015AC00 (the 0015AFA0 owner's state 0)
 
-**Where the live code is.** The census module column names only em_pickup.c.
-The live INIT for AREA11's 0015AFA0 owner is in `em_area11_interaction_host_pickup_state0`
-(em_area11_interaction_host.c). It holds the scale switch on +0x0D and the
-001F1110 variant switch on +0x03 & 0xF. em_pickup.c `pickup_model_scale` is
-the draw-side copy of the scale.
+**Where the live code is.** Since the owners step (2026-09-26) the live
+state 0 of AREA11's 0015AFA0 owner is `em_pickup_owner_0015AC00`
+(em_pickup_owner.c), called by `em_area11_interaction_host_pickup_state0`
+over the owner's pool record (its model bind, 001C6380 and the aura's
+001F1110 are workers on the record; OWNER_DRAW.md section 10). em_pickup.c
+`pickup_model_scale` is the legacy instance's copy of the scale, which no
+longer draws a bound owner.
 
 **Checked.**
 - The original ran over every +0x0D (0..255) and eight +0x03 bytes, with the
   model-bind result 0 and 1. The full run gave:
   - em_pickup's `pickup_model_scale("props/item_XX.emdl")` equals
     +0x60/+0x64/+0x68: 4,096 of 4,096;
-  - the host's scale equals +0x60: 4,096 of 4,096;
-  - the host's variant equals the original's 001F1110 a1: 2,048 of 2,048.
+  - the live translation's scale equals +0x60: 4,096 of 4,096;
+  - its variant equals the original's 001F1110 a1: 2,048 of 2,048;
+  - with the bind refused it returns 1 before 001C6380 and 001F1110, as
+    the original: 2,048 of 2,048.
 - The original's write set was confirmed:
   - +0x60..+0x68;
   - +0x80..+0x88 = 4.0 when the nibble is 1;
@@ -84,12 +87,10 @@ the draw-side copy of the scale.
   the em_pickup scale of its manifest model equals the captured +0x60.
 
 **Divergences.**
-1. `0015AC00/early-return` (a boundary, not a defect). When 001B0FD0 or
-   001B1020 returns nonzero (the bone-slot stack is exhausted), the original
-   returns 1 before 001C6380, the +0/+8/+0x30 stores and 001F1110. The actor
-   stays in state 0 and retries on the next frame. The host has no such path.
-   That follows the port's convention that every slot request succeeds
-   (em_area11_bindings.h).
+1. `0015AC00/early-return` is retired (the owners step): the translation
+   returns 1 on a refused bind, as the original. The live host faults on
+   it (the original's owner would free itself on its next call, +0x04 = 3
+   from the allocator); the first level never refuses a bind.
 2. `0015AC00/scale-219550` (latent). The original 00219550 state 0 was run
    whole, with its callees recorded. It never stores +0x60..+0x6B, so the
    001AFA90 value 1.0 stays. `em_pickup_add` still applies the 0015AC00
@@ -103,9 +104,10 @@ the draw-side copy of the scale.
    **Fix:** in `em_pickup_original_bind`, before its `pickup_build_palette(p)`,
    set `p->scale = 1.0f` when `record->callback == 0x00219550u`.
 
-**Not modelled, no reader in this row.** The +0x80..+0x88 = 4.0 store
-(nibble 1; the captured map owner uid 0x0B09 holds it) has no port field. Its
-reader is outside this row.
+**Modelled since the owners step.** The +0x80..+0x88 = 4.0 store (nibble 1;
+the captured map owner uid 0x0B09 holds it) is the record's +0x80 words,
+which the map item's 001CAA00 reads for its colour matrix. The +0x30 store
+(0x275488) has no port reader and is not modelled.
 
 **Suggested census status:** live, with the module column naming
 `em_area11_interaction_host_pickup_state0` and em_pickup.c's scale.
@@ -274,19 +276,20 @@ bit (the smoke through the elevator: 9 children over 3,458 ticks; a
 placement shifted by one unit fails at the first tick).
 
 **Still not original:**
-- **The draw:** the +0x4C 001CACB0 submits the owner's indicator mesh
-  (em_pickup_light_submit / em_props_indicator_submit with the owner's
-  palette); the children's own models and their 001CABA0 / 001CA7B0 cull
-  wait on the object-unit draw (OWNER_DRAW.md P1).
-- **The terminal's copy:** 00827B10 copies its own node matrix into the
-  child's first slot every state-1 frame (0x827E6C, 00102958). The
-  terminal's own bone slots are not on the original path in the port (its
-  pose is the legacy elevator's), so the child's slot keeps its state-0
-  placement: the captures hold the terminal's y 190 there after the ride,
-  the port 230 (check_indicator_children compares the terminal child's
-  matrix with routes 00..03 only before the elevator scan, and skips and
-  counts its ticks from the scan on). The drawn arrow follows the ride (the
-  legacy draw reads the parent's node matrix).
+- **The draw:** the +0x4C 001CACB0 (-> 001CABA0) is not translated: the
+  stand-in draws the child's model mesh additively
+  (em_pickup_light_submit / em_props_indicator_submit) at the child's own
+  node 0 (its slot +0x90, since the owners step); the 0x7A child draws
+  nothing; 001CABA0's channel-3 unit, its depth sort into the chain page and
+  its 001CA7B0 cull wait on OWNER_DRAW.md section 11.
+
+**The terminal's copy (bound since the owners step, 2026-09-26):** 00827B10
+copies its own node 0 matrix into the child's first slot on every phase-1
+call (0x827E6C, 00102958), over the terminal's own record and slots
+(em_area11_bindings.c terminal_copy_child, em_indicator_bind_live_set_node).
+check_indicator_children holds the child's slot equal to the terminal's node
+on every tick, and the terminal's node equal to routes 00..03 before the
+ride and to routes 04..14 (y 190) after it.
 - **The slot addresses:** the stack's history before the children is not the
   original's yet (other owners' slot use), so the +0x110 words differ from
   the captures' (0x7D7C00.. against 0x7DA640..); nothing reads the

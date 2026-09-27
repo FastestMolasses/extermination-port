@@ -1,17 +1,22 @@
 # World-owner draw (001CAA00): the original packets and the native path
 
 Date: 2026-09-24; binding 2026-09-25 (step "GS-exact actor draw"); the
-player and its equipment 2026-09-26 (the player step). **Live** for the
-crates (001551B0), drums (00156620), truck (00823FF0), fence door
-(001BC350), the player (D_008102B0, 0015C160's +0x4C) and its seven
-equipment nodes (0018A6B0): their +0x4C builds the original unit through
-the translations (section 10) and the renderer draws the triangles the
-original VU1 programs kick (section 7). The other owners this document
-names still draw through their legacy stand-ins (section 11).
+player and its equipment 2026-09-26 (the player step); the remaining world
+owners 2026-09-26 (the owners step). **Live** for the crates (001551B0),
+drums (00156620), truck (00823FF0), fence door (001BC350), the player
+(D_008102B0, 0015C160's +0x4C) and its seven equipment nodes (0018A6B0),
+the terminal / elevator (00827B10), the panel (00159210), the placed prop
+(001C4820), the items (00219550) and the map item (0015AFA0), and the
+opening controller's parachute canopy (00823E80): their +0x4C builds the
+original unit through the translations (section 10) and the renderer draws
+the triangles the original VU1 programs kick (section 7). The fan pair, the
+husks, Roger and the indicator children still draw through stand-ins
+(section 11).
 
 This document answers three questions for the AREA11 world owners: the crates
 (001551B0), drums (00156620), fan (00827630), truck (00823FF0), elevator
-(00827B10) and husks (00825940, 00827490).
+(00827B10), panel (00159210), prop (001C4820), items (00219550, 0015AFA0),
+canopy (00823E80) and husks (00825940, 00827490).
 
 1. What does the original draw for one owner? What goes to VU1 and the GS?
 2. How does the port reproduce it, and with what evidence?
@@ -31,11 +36,12 @@ original code, data or disassembly.
 | `tests/owner_draw_test.c` | ASan/UBSan fixture. It pins the fail-stop contract, the packet layout, the bank refusals and the 001C6120 masking. |
 | `src/game/em_object_unit.{h,c}` | P1/P2 on the CPU (section 7): `em_object_unit_parse` reads a unit's DMA tags into the VU1 uploads (`EmGfxObjectUnit`, em_gfx.h), `em_object_unit_run` runs the object kernel (em_vu1_object_kernel.h) over every model block and, for a clip unit, the clip program (em_vu1_object_clip.h) after it, and returns every drawn triangle in GS terms and GS order. A face unit (001CB3C0's, CALL 0x0023C480) runs the face morph program (em_vu1_face_morph.h) the same way. |
 | `src/em_gfx.h`, `src/gfx/metal/em_gfx_metal.m` | `em_gfx_object_unit` / `em_gfx_object_texture`: the GS class-0 pixel path over those triangles (section 7). The D3D12 / Vulkan stubs return -1. |
-| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 291 TEX0 values of the bank's, the player's and the equipment models' blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
+| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 303 TEX0 values of the bank's, the player's, the equipment models' and the items' model 0x72's blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
 | `src/game/em_owner_draw_live.{h,c}` | The binding (section 10): 001CAA00 with every worker bound to its translation over canonical storage, the unit parsed at once and drawn at the frame's end (the walk's units, then the post-step's after the shadow). |
 | `src/game/em_player_draw_live.{h,c}` | The player (section 10): its model (`player_model.emom`, a table-less bank), 001C6150 over it for 0015C1F0, and 0015C160's +0x4C: 001CAA00's owner view over the player record and its node records. |
 | `tools/export_player_model.py` | Writes `assets/scene_snow/player_model.emom` / `.json` (ignored): the player's model, resource 0x3B (`chunk28/f00_id3b.bin`, 0x4C170 bytes), placed at D_0028A490[0x3B] = 0x00D1C1C0 and checked byte for byte against RAM in 16 captures, with the player record's +0x2FF, +0x44, +0x4C, +0x0C, +0x09 and slots. |
 | `src/game/em_skin_arena_init.h` | skin_arena_init (001D2E20), the skin records' templates; run by the render context at every area load (section 10). |
+| `src/game/em_area11_boxes.{h,c}` `em_area11_boxes_owner_*` | The other world owners' record services (section 10): 001B0FD0 / 001B1020 over the world bank or the global library D_0028A56C (a table-less library bank), 001C6380 into the record's slots, the +0x4C 001CAA00, each slot's +0x90. |
 | `tools/test_object_unit_reference.py` | The object-unit path against the original VU1 microcode over every captured owner unit and every captured face unit (section 8). |
 | `tests/object_unit_test.c` | ASan/UBSan fixture: the parser's refusals, synthetic plain, clip and face units, the run's refusals. |
 | `tests/object_unit_gpu_test.c`, `tools/test_object_unit_gpu.py` | The Metal pixel path over captured units against a model of the documented GS pixel path (section 8.1). |
@@ -447,7 +453,8 @@ carry 137 distinct values (CLD ignored): 136 PSMT4 and one PSMT8, all
 CPSM PSMCT32, CSM1, CSA 0, TCC 1, TFX 2 (the exporter refuses any other
 form). The player's model (51 values) and the equipment models 0018A8D0
 can bind (0x2F; 0x30, 0x40, 0x6D; 0x31..0x3D; 0x6A) bring the export to
-291 values. One equipment model carries another form: 0x36 (flavour 2,
+291 values, and the items' library model 0x72 (00219550's 001B1020 binds
+id +0x0D = 0x72) to 303. One equipment model carries another form: 0x36 (flavour 2,
 variant 4, which no capture binds) kicks TEX0 0 on four vertices of block
 13; that value is left out and listed in the JSON, so a unit of that model
 faults at em_gfx_object_unit (no registered texture). Variant 4 cannot be
@@ -543,7 +550,10 @@ pass and digests of B, of the lighting rows, of the position rows, of the
 point-light slots and of the lighting rows' lanes y and z.
 `check_owner_units` (tools/test_level_smoke.py) runs the ORIGINAL 001CAA00
 over each route snapshot a phase aligned (08, 10, 11, 12, 13, 14): the
-world owners, the seven equipment nodes (keyed by flavour +0x03 and
+world owners (the crates, drums, truck, door, terminal, panel, prop,
+canopy, and the items where the snapshot's +0x01 says their 001B17A0 found
+them visible: only then do they call their +0x4C), the seven equipment
+nodes (keyed by flavour +0x03 and
 variant +0x0D: the port's pool places the respawned flavour-2 nodes at
 other records, whose bytes check_effects compares) and the player (after
 the walk, 0015C160's +0x4C). The log also carries each call's point (the
@@ -565,12 +575,16 @@ matrices. It compares:
 - in the camera-exact beats (10, 14): the set of owners that ran 001CAA00,
   their byte counts and clip passes, and the position rows (node x VP),
   the player and the equipment wherever their point and pose equal the
-  snapshot's — equal for all 16 owners in both beats (the door, the truck,
-  the player and its equipment in 10; the player and its equipment in 14,
-  the rest culled).
+  snapshot's — equal for all 22 owners in 10 (12 drawn in both: the door,
+  the truck, the two visible items, the player and its equipment) and all
+  20 in 14 (11 drawn in both: the player, its equipment and three world
+  owners).
 
 The smoke's phases all pass with the owners on this path (18 live phases
-through Roger, side beats 00 and 09).
+through Roger, side beats 00 and 09). The terminal's own record is compared
+too: its +0x04 and +0xB0..+0xB8 row for row over route 04 (the carry's
++0xB4), and its node 0 and its child's slot (0x827E6C) on every tick
+(LEVEL_SMOKE.md check_indicator_children).
 
 `EM_STARTUP_TEST=newgame-control` still travels 9.599849 in its 30 input
 ticks, and the frame order (compare_frame_order idle04 / walk04 / st03 at
@@ -580,7 +594,8 @@ native index 1330, cut02 / cut15) passes event for event.
 
 `src/game/em_owner_draw_live.{h,c}`; callers: `em_area11_boxes.c` (h_draw,
 the crates, drums and truck; `em_area11_boxes_door_draw` for the door,
-whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md),
+whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md;
+`em_area11_boxes_owner_draw` for the other world owners below),
 `em_equipment_live.c` (w_method, the equipment nodes) and
 `em_player_draw_live.c` (the player, from w_0015C160).
 
@@ -631,6 +646,32 @@ original's:
   the record (`em_player_draw_live_node_world`); the gfx layer's bone
   publish (`em_gfx_last_skinned_bone`) is retired.
 
+**The other world owners (em_area11_boxes_owner_*).** Each owner's
+behaviour stays where it was bound (the AREA11 interaction host for the
+terminal, the panel and the items; em_area11_bindings.c for the prop and the
+canopy); the record services it reaches run over its own pool record, in
+the boxes' storage (the bank, the one bone-slot stack, the box's owner
+view: +0x44, +0x4C and the slots):
+
+| Owner | Model bind (state 0) | 001C6380 | +0x4C 001CAA00 |
+|---|---|---|---|
+| terminal 00827B10 | 001B0FD0 at 0x827BC8 (model 0x0F); +0x00 = 1, +0x08 = 1, +0x30 = 0x0082AB10 | state 0 after the floor's +0xB4 (0x827BF0); every carry tick of 00828050 (0x82812C); the completion (0x827E48) | every state-1 call after 001B17A0 (0x827E84), through the host's owner hooks |
+| panel 00159210 | 001B0FD0 (model 0x04) | state 0 | every state-1 call after 001B17A0 |
+| prop 001C4820 | 001B0FD0 (model 0x04), in em_sul_001C4820 | state 0, unless the bind refused | every state-1 call after 001B17A0 |
+| items 00219550 | 001B1020(self, +0x0D, -1, 0): model 0x72 of D_0028A56C (001B0FD0 only for +0x03 == 0 with +0x2E == 0x28, which no AREA11 item has); em_pickup_owner_00219550_state0 | state 0, then 001A2370 over its +0xD0 | when 001B17A0 found it visible |
+| map item 0015AFA0 | 0015AC00 (em_pickup_owner_0015AC00): +0x60..+0x68 by +0x0D, (+0x03 & 0xF) == 1: +0x80..+0x88 = 4.0 and 001B0FD0 (model 0x0B), else 001B1020 | state 0 (the aura reads its +0xD0) | when 001B17A0 found it visible |
+| canopy 00823E80 | 001B0FD0 (model 0x11) | state 0 | every state-1 call, after its 001B1B70 (it publishes without 001B17A0) |
+
+The terminal's phase-1 calls also copy its node 0's +0x90 into its 001C5760
+child's slot 0 (0x827E6C; the bindings' terminal_copy_child over
+`em_indicator_bind_live_set_node`), which the smoke checks on every tick.
+Each owner's legacy draw is retired: the elevator platform EMDL (the
+manifest's `elevator` line is no longer read), the panel EMDL (its `grate`
+line installs only cell 18), the item instances (em_pickup draws no bound
+owner) and the canopy and record-20 prop instances (`em_pickup_prop_retire`
+at the owner's +0xB0 when its bind succeeds). The indicator children are
+drawn by their stand-in at their own node 0 (section 11).
+
 **The equipment (em_equipment_live).** Each node's 001CA6E0 worker adds its
 model (the Roger export's bytes at the original library address) to a
 table-less bank (`em_world_models_add`); the node's +0x44 view and the
@@ -670,7 +711,9 @@ for the opening's reported frames and the status screen's menu player.
 | the player during the opening (design risk 2) | the opening runtime's actors, then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening player on the record pose |
 | Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
 | Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
-| elevator, panel, pickups, fan, husks, parachute, 001C4820, 001C5760, 001C5680 | their legacy meshes | each owner live on its original record with bone slots (their own census lanes) |
+| the fan pair 00827630 | the legacy prop instances (static: no spin) | the owner itself (census L24): em_fan_original is verified, but its tail reaches the level exit 001B0C60(1, 1, 4) and the player hit (+0x00 = 3, +0x0F = 6, +0x224), whose consumers are not verified; its spin cycle counts the owner's calls from its spawn, and whether the port's call count at each snapshot equals the original's (the opening's length differs: the stream drive's latency, VOICE limitations) has not been measured |
+| the husks 00825940 / 00827490 | em_enemy's legacy meshes (group 'enemies') | the owners (census L24): the creature's lifecycles 1 and 4 are untranslated, its dormant 0x64 wait draws rand(), the partner's hit reaches 001EFE00 and 001B11E0 |
+| the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the 0x7A child draws nothing | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
 ## 12. Limits
 
@@ -713,4 +756,21 @@ for the opening's reported frames and the status screen's menu player.
   player's nodes (the back, the thigh); the legacy mesh showed a rifle in
   the hands at first control, the original's player holds none. It is not
   a test.
+- **The items draw only when visible.** 00219550 and 0015AFA0 call their
+  +0x4C only when their 001B17A0 found them visible (001B1630 over the
+  port's camera): the smoke compares them wherever the snapshot's +0x01
+  says the original drew them, and in the camera-exact beats the sets are
+  equal. Their state 0 (0015AC00, 00219550's) is executed against the
+  original by test_pickup_owner_reference (PICKUP_OWNERS.md).
+- **Pixels (the owners step).** The elevator phase's end frame
+  (`EM_LEVEL_SMOKE_PHASE_CAPTURE=elevator:...`, build/captures/owners/
+  port_elevator_end.png) was inspected by eye against route 04's
+  original.png (orig_elevator_end.png): the terminal's unit at the lower
+  floor and its green indicator arrow sit where the original's do. It is
+  not a test.
+- **Legacy props are retired by placement.** A manifest prop instance at
+  exactly an owner's +0xB0 stops drawing when that owner's bind succeeds
+  (the canopy, the record-20 prop). A manifest that places a prop elsewhere
+  would draw it twice; the shipped exporters place both at the records'
+  positions.
 - **Beat 15** (the level exit) is out of scope.

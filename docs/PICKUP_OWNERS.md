@@ -9,6 +9,32 @@ through the translated 001B17A0, resolves Use for them in its single
 inventory add, Found line and the interact-clip lock are deleted; placed
 items of scenes without a bound owner are drawn and never taken.
 
+**Their records and draw (the owners step, 2026-09-26).** Each owner's state
+0 runs over its own pool record (em_area11_interaction_host_pickup_state0
+over the one translation of each: `em_pickup_owner_00219550_state0` and
+`em_pickup_owner_0015AC00`): 00219550 binds with 001B1020(self, +0x0D, -1,
+0) (model 0x72 of the global library D_0028A56C, three bone slots; 001B0FD0
+only when +0x03 == 0 with +0x2E == 0x28), rewrites +0x2E 3 -> 0x14 when
++0x03 == 0 and item 3 is held, then 001C6380 and 001A2370; 0015AFA0 runs
+0015AC00 (the +0x60 scale by +0x0D, +0x80 = 4.0 and 001B0FD0 over the world
+bank's model 0x0B for (+0x03 & 0xF) == 1, else 001B1020, then 001C6380 and
+the aura's 001F1110). Both set +0x00 = 1 and +0x08 = 3; the +0x30 store is
+not modelled (no reader). A visible owner's +0x4C (after 001B17A0) is
+001CAA00 over its record (em_area11_boxes_owner_draw, OWNER_DRAW.md section
+10): the legacy item instance no longer draws a bound owner.
+
+`tools/test_pickup_owner_reference.py` executes the original state 0 of both
+owners (0015AC00 through 0015AFA0, 272 cases: every scale class, the four
+(+0x03 & 0xF) arms, the 0x34 aura variant, both bind results, 00219550's two
+bind arms and its rewrite) against the native functions: every call with
+its arguments and every modelled record byte. It found the decomp's NEARMISS
+C of 00219550 inverting the +0x03 test of the rewrite (the original rewrites
+when +0x03 == 0). Four injected defects (the 0x5B scale, an aura variant,
++0x08, the bind arm selector) are each caught. The units the records then
+draw are compared with the route snapshots by the level smoke's
+check_owner_units (in the camera-exact beat 10, the two visible items' unit
+bytes and position rows).
+
 ## Original evidence
 
 Tests read the user's pinned `SCUS_971.12` locally, SHA256

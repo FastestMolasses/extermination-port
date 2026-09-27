@@ -15,7 +15,10 @@ controls the CLUT cache) of every model block of
     build(): 0015C1F0's D_0028A490[0x3B], drawn by 0015C160's +0x4C);
   * the player equipment models, the ids 0018A8D0 can bind from the global
     library D_0028A56C (extract/chunk27/f01_id37.bin's table: 0x2F; 0x30,
-    0x40, 0x6D; 0x31..0x3D; 0x6A; docs/PLAYER_EQUIPMENT.md section 2),
+    0x40, 0x6D; 0x31..0x3D; 0x6A; docs/PLAYER_EQUIPMENT.md section 2);
+  * the item owners' library model: 00219550's 001B1020(self, +0x0D, -1, 0)
+    binds id +0x0D = 0x72 of the same library for the six AREA11 items
+    (docs/OWNER_DRAW.md section 10),
 all from the user's extract, and decodes
 each from the GS local memory of every AREA11 route capture (beats 00..14:
 ../Extermination/build/s87/route/<beat>/gs.bin, the user's own PCSX2
@@ -79,6 +82,9 @@ def tex0_fields(t: int) -> dict:
 # flavour 1: 0x30 / 0x40 / 0x6D; flavour 2: 0x32..0x36, 0x31, 0x37, 0x38,
 # 0x39..0x3D; flavour 4: 0x6A), in the global library D_0028A56C.
 EQUIPMENT_IDS = (0x2F, 0x30, 0x40, 0x6D, *range(0x31, 0x3E), 0x6A)
+# The AREA11 item owners 00219550's model (+0x0D of every placed item), in
+# the same library.
+ITEM_IDS = (0x72,)
 
 
 def block_tex0(data: bytes, off: int, blocks: int, label: str, out: dict):
@@ -101,17 +107,19 @@ def model_tex0(x) -> dict:
 
 
 def player_tex0(extract: Path, out: dict):
-    """The player's model (resource 0x3B) and the equipment models."""
+    """The player's model (resource 0x3B), the equipment models and the
+    item owners' model."""
     p = epm.build(extract)
     block_tex0(p['model'], 0, p['blocks'], 'player 0x3b', out)
     library = (extract / 'chunk27/f01_id37.bin').read_bytes()
     count = struct.unpack_from('<I', library, 0)[0]
-    for ident in EQUIPMENT_IDS:
-        if ident >= count:
-            raise SystemExit(f'chunk27/f01_id37.bin: equipment id {ident:#x} outside the table ({count})')
-        off = struct.unpack_from('<i', library, 4 + 4 * ident)[0] >> 2 << 2
-        blocks = ewm.model_record(library, off, ident)[0]
-        block_tex0(library, off, blocks, f'equipment {ident:#x}', out)
+    for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS)):
+        for ident in ids:
+            if ident >= count:
+                raise SystemExit(f'chunk27/f01_id37.bin: {kind} id {ident:#x} outside the table ({count})')
+            off = struct.unpack_from('<i', library, 4 + 4 * ident)[0] >> 2 << 2
+            blocks = ewm.model_record(library, off, ident)[0]
+            block_tex0(library, off, blocks, f'{kind} {ident:#x}', out)
 
 
 def decode(lm: bytes, t: int) -> bytes:
