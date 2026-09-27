@@ -11,7 +11,7 @@ from **one codebase**:
 | Scaling | Nearest-neighbour integer or aspect-correct scaling, **no smoothing** | Filtering and AA of the user's choosing |
 | Colours | GS-exact: the same blend, fog, alpha test, dither and clamp arithmetic, so the pixels match | May differ |
 | CRT / scanline simulation | **None** (user: "no simulating CRT") | Not planned |
-| Frame rate and timing | The game's own 59.94 Hz tick and the timing its choreography depends on (e.g. the stream drive model the director waits on). PS2 hardware limits are not reproduced: loads run at host speed and the PS2's slowdowns/hitches are not emulated (user, 2026-09-27; docs/FIDELITY_FEATURES.md) | Higher rates allowed |
+| Frame rate and timing | The game's own 59.94 Hz tick (all logic counts fields). Hardware timing is not reproduced: the disc drive answers at host speed and the PS2's slowdowns are not emulated (user, 2026-09-27). The recorded PS2 disc-drive timing is an optional switch, off by default | Higher display rates allowed, but logic and streamed audio stay at 59.94 Hz with rendering decoupled (the stream ring needs field pacing, IOP_STREAM.md "Clock domains") |
 | Controls | The original DualShock 2 mapping and behaviour | Better controls (list below) |
 | Content | Only what the shipped game reaches | May restore cut content (list below) |
 
@@ -72,3 +72,9 @@ from **one codebase**:
 3. **Profile switch plumbing.** One settings struct with an Original value for
    every switch, chosen at launch. Rendering switches go first.
 4. **Enhancement items**, one switch each, in the order the user picks.
+
+## Options and pending decisions
+
+Every option, with its Original value, and every decision the user still has
+to review (for example the presentation of the 512x224 fields) are listed in
+`docs/LAUNCHER_OPTIONS.md`, the registry for the future launcher.

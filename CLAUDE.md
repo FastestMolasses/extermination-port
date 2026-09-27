@@ -25,12 +25,26 @@ built from one codebase (full rules: `docs/PORT_PROFILES.md`).
   buffer shown as 448 lines), shown at 4:3 with no smoothing and no CRT
   simulation. Its colours are GS-exact, and its logic and controls are the
   original's.
-- **Experience, not hardware (user, 2026-09-27).** Reproduce the game's
-  behaviour and the timing of everything the player sees and hears, including
-  timing the game's own choreography depends on (the 59.94 Hz tick, the stream
-  drive model the director waits on). Do NOT emulate PS2 hardware limits:
-  loads run at host speed, the PS2's slowdowns/hitches are not reproduced, no
-  CRT/scanline/interlace simulation.
+- **The original code is the oracle; hardware timing is not reproduced (user,
+  2026-09-27).** Reproduce exactly what the game's code does, including the
+  59.94 Hz tick its logic counts. Timing that comes from PS2 hardware rather
+  than the code is not reproduced by default: the disc drive answers at host
+  speed (loads, module loads and streamed audio alike), the PS2's
+  slowdowns/hitches are not emulated, and there is no CRT/scanline/interlace
+  simulation. The disc-drive timing measured from the recordings (C7
+  VOICELAT) becomes an optional switch, off by default, for PS2-identical
+  dialogue timing. How the 512x224 fields are presented is deferred: it is a
+  platform-layer choice after the framebuffer (the code and the GS frame stay
+  exact either way); show the user both options later.
+- **Launcher options:** the finished port gets a launcher for enhancements,
+  bug fixes, graphics settings and cut content. `docs/LAUNCHER_OPTIONS.md` is
+  the registry of every option (with its Original value) and of the decisions
+  the user still has to review; add to it whenever an option is decided,
+  built or found.
+- **PS2 compile target (user goal, 2026-09-27):** the user eventually wants to
+  compile the port's game code for the PS2 and put it in the ELF to test it in
+  the emulator. Keep game logic separable from platform code so this stays
+  possible.
 - **Fidelity features list:** `docs/FIDELITY_FEATURES.md` is the public,
   evidence-backed list of what the port reproduces (relative to PCSX2). When
   a step makes a player-facing behaviour provably original (oracle or

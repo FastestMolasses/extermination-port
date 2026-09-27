@@ -1,0 +1,125 @@
+# Launcher options (registry)
+
+The finished port will have a **launcher** where players turn on enhancements,
+bug fixes, graphics settings, cut content and similar options (user plan,
+2026-09-27). This file is the single list of every option decided or proposed
+so far, so none is forgotten when the launcher is built. It also holds the
+**decisions the user still has to review**.
+
+Rules (from `PORT_PROFILES.md`):
+
+- Every option has an **Original value**. With every option at its Original
+  value the port is the Original profile, which is the default and the only
+  thing fidelity work measures (`FIDELITY_FEATURES.md`).
+- Options never fork the game logic. A gameplay option is a patch applied on
+  top of a verified translated function, behind its switch.
+- Rendering-only options (resolution, filtering, presentation) are kept apart
+  from options that change gameplay (controls, bug fixes, cut content).
+- Cut content comes from the disc only, and only entries marked **decoded** in
+  the decomp's `docs/CURIOSITIES.md` may become options.
+
+Status tags: **REVIEW** (the user has to decide), **DECIDED** (decided, not
+built yet), **BUILT** (implemented behind its switch), **CANDIDATE** (a source
+lists it; needs a decision and, for cut content, a decode).
+
+Maintenance: whenever work adds, decides or builds an option, or finds a
+candidate (for example an original bug that could get an optional fix), update
+this file in the same commit.
+
+---
+
+## Decisions for the user to review
+
+| Option | Choices | Notes | Status |
+|---|---|---|---|
+| **Field presentation** (Original profile) | (a) line-double each 512x224 field and place it at its correct interlaced height, so the game's half-line draw offset cancels and the image is stable; (b) plain line-doubling (edges shimmer by one line every field); (c) combine each field with the previous one (sharper on still scenes, combs on motion) | Pure platform-layer presentation after the GS framebuffer: the game code and the frame bytes stay exact with any choice, and a future PS2 build is unaffected. The user wants to see the looks side by side before choosing; this may become a launcher option. Measured facts: decomp `docs/CAPTURES_C7.md` 5/5b. | REVIEW |
+
+---
+
+## Timing and authenticity
+
+| Option | Original value | Other values | Notes | Status |
+|---|---|---|---|---|
+| **PS2 disc-drive timing** | Off: the disc answers at host speed (loads, module loads and streamed audio) | On: the drive timing measured from the PCSX2 recordings (C7 VOICELAT model), so voiced lines start and end on the PS2's frames | User decision 2026-09-27 ("make it a switch"). The model is in `IOP_STREAM.md` "Drive model"; today it is always on and must be moved behind this switch. The opening music's extra seek from the intro movie's disc position is not modelled either way (the code does not model it). | DECIDED |
+
+The 59.94 Hz game tick is not an option: all game logic counts fields.
+
+---
+
+## Graphics and display
+
+| Option | Original value | Other values | Notes | Status |
+|---|---|---|---|---|
+| Resolution | The exact GS framebuffer (512x224 fields shown as 448 lines), 4:3 | Native / higher resolutions | `PORT_PROFILES.md` | CANDIDATE |
+| Texture filtering | None (nearest) | Bilinear and better | | CANDIDATE |
+| Anti-aliasing | None | The user's choice | | CANDIDATE |
+| Widescreen / aspect ratio | 4:3 | Wider aspect ratios | Needs the camera's projection widened, a rendering-only change | CANDIDATE |
+| Display frame rate | 59.94 Hz | Higher rates | Logic and streamed audio stay at 59.94 Hz; rendering is decoupled (`IOP_STREAM.md` "Clock domains") | CANDIDATE |
+| Field presentation | see "Decisions for the user to review" | | | REVIEW |
+
+Not planned: CRT, scanline or interlace simulation (user, 2026-09-23 and
+2026-09-27).
+
+---
+
+## Controls and quality of life
+
+From the "Future Enhancements" list in the port's `README.md` (the user's
+file; read, never edit):
+
+| Option | Original value | Enhanced value | Status |
+|---|---|---|---|
+| Slide down ladders | Climb down only | Slide down | CANDIDATE |
+| Inverted aiming | Inverted (original) | Not inverted | CANDIDATE |
+| Camera control | Classic (original) | Modern camera | CANDIDATE |
+| Move while aiming | Not possible (original) | Allowed | CANDIDATE |
+| Door transitions | Full black fade in/out on some doors (original) | No full black fade | CANDIDATE |
+| Window follows the OS theme | Fixed | macOS window updates on dark/light theme changes | CANDIDATE |
+| Subtitle fixes | Original subtitles | Corrected subtitles | CANDIDATE |
+
+---
+
+## Bug fixes (original behaviour is the default)
+
+Places where the original code reads values its caller happened to leave in
+registers. The Original value reproduces the original behaviour where the
+port can; a fix option would give a defined result instead.
+
+| Candidate | Original behaviour | Notes | Status |
+|---|---|---|---|
+| 0019D770 camera grid walker, no-span path | Walks using the $s1/$s2/$s4 its caller left (undefined in C) | Decomp FINDINGS "NEARMISS body corrections from the AREA01 lanes"; not shown to be reachable on the shipped data. The port currently refuses this path (a divergence to resolve first). | CANDIDATE |
+| 0022BBC0 trail period / burst kind | With seq[0xD] >= 10 and a live actor, divides by the caller's $s1; a burst kind >= 6 reuses the previous actor's burst | Decomp FINDINGS "NEARMISS body corrections from the AREA01 wave-2 lanes" | CANDIDATE |
+
+Add new original bugs here as they are found. Subtitle fixes are listed
+under quality of life.
+
+---
+
+## Cut and hidden content
+
+The source of truth is the decomp's `docs/CURIOSITIES.md`. Only its
+**decoded** entries may become options, and each restored item gets its own
+switch (Original value: off). Candidates named in `PORT_PROFILES.md`:
+
+- the light-based stealth system;
+- hidden animation directory entries;
+- passcode keypads;
+- dead code shipped on the disc;
+- the 15 named RECON dogtags;
+- the infection diary;
+- the unlabelled 7th config row;
+- cutscene multi-actor track sets.
+
+Their decode status is kept in `CURIOSITIES.md`, not here, so this list can't
+go out of date. Re-check it before any of them becomes an option.
+
+---
+
+## Not launcher options (recorded so they are not mistaken for options)
+
+- **PS2 compile target:** the user eventually wants to compile the port's game
+  code for the PS2 and put it in the ELF to test it in the emulator. That is a
+  build target, not a player option.
+- **Windows and Linux support:** platform backends, not options.
+
+Last updated: 2026-09-27.
