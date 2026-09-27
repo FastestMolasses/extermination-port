@@ -21,6 +21,7 @@
 #include "game/em_player_ladder_entry.h"
 #include "game/em_player_ladder_climb.h"
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -125,14 +126,9 @@ static int16_t rec16(const EmPlayerLadderScratch *s, unsigned at)
 
 /* ---- 00102948 and 001031E0 ---------------------------------------------- */
 
-/* 00102948(dst, src): the quadword copy (lq, sq); a third argument some
+/* 00102948(dst, src): em_sdk_vu0.h's quadword copy; a third argument some
  * callers pass is not read. */
-static void copy4(uint32_t dst[4], const uint32_t src[4])
-{
-    uint32_t t[4];
-    memcpy(t, src, sizeof t);
-    memcpy(dst, t, sizeof t);
-}
+static void copy4(uint32_t dst[4], const uint32_t src[4]) { em_sdk_vu0_00102948(dst, src); }
 /* 001031E0(dst, src): three words (lwc1/swc1, no conversion). */
 static void copy3(uint32_t dst[3], const uint32_t src[3])
 {

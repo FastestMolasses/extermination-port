@@ -22,13 +22,14 @@ come from the user's ELF and captured RAM at run time.
 
 "Before" is the census row; "after" is what this lane delivered. Since census
 L08 (2026-09-24) the nine hooks, 0019B7D0 and 0019E280 are live (section 4 and
-the census rows); the others stay verified-unbound.
+the census rows), and since the one-owner step (2026-09-27, census 1.28)
+0019F330 too; the others stay verified-unbound.
 
 | Address | Decomp | Before | After | What it does |
 |---|---|---|---|---|
 | 0019E280 | BM | stand-in (em_camera.c `interaction_camera_query` ground branch) | verified-unbound | The camera's grid ground walk: all six rank directions (0019F1A0 on both segment ends, twice), the narrowest rank-table span, each node's six rank bounds, attr **0x78** only, 0019ED80. On a hit the segment end moves to the crossing and the last accepted node is the record. |
 | 0019E930 | NM (.s) | stand-in (em_collision.c) | verified-unbound | The attribute grid walk of 0019BA80: the y-ordered 0019F1A0 pairs (masks 8/4, then 0x37/8, or the mirror), a span pick in which directions 2 and 3 use the first pair's y ranks as helper indices, the six rank bounds (+0x0C..+0x16), attr **0x1E..0x59**, 0019ED80; each hit moves the segment end's y to the crossing's y. Returns 0 on a hit. |
-| 0019F330 | AW (.s) | stand-in (em_collision.c `column_node`) | verified-unbound | 0019BC40 pass 2's plane crossing: the line a -> b against the node plane (no front-face test), the ring edge test (<= 1e-5), q[0..2] the crossing, 0x70003680 = sqrt(nx^2 + nz^2) (0011E748), 0x70003684 = \|ny\| / that (or 0x7F7FC99E below 1e-4), q[3] = +-(pi/2 - atan(0x70003684)) by the sign of ny. |
+| 0019F330 | AW (.s) | stand-in (em_collision.c `column_node`) | **live** (2026-09-27: 0019BC40 pass 2's `cross` worker; `column_node` removed) | 0019BC40 pass 2's plane crossing: the line a -> b against the node plane (no front-face test), the ring edge test (<= 1e-5), q[0..2] the crossing, 0x70003680 = sqrt(nx^2 + nz^2) (0011E748), 0x70003684 = \|ny\| / that (or 0x7F7FC99E below 1e-4), q[3] = +-(pi/2 - atan(0x70003684)) by the sign of ny. |
 | 001A3980 | NM (.s) | stand-in (em_collision.c) | verified-unbound | The attribute cell walk of 0019BA80: pass 1 the static cells (the leading directory words with 0x80000000, stopping at the first without it; 0x40000000 skips a word, 0x20000000 skips it while the query class 0x7000324E is 0) whose D_0024D7C0 kind byte is **0x1E..0x59**, the hull at tbl + (word & 0x3FFFFFFF); pass 2 every published class-4 owner **with no kind gate** (unlike its sibling 001A32C0); a hull is tested when the segment's y range overlaps its AABB's and the segment start's x/z lies inside it; prim tests 001A4030 / 001A4650 / 001A44B0 (0x8000 prims only in pass 2; an unknown type nibble is neither tested nor stepped over); each hit clamps the segment's y, narrows the y range to [start, hit] and stores the kind in 0x700030CA's low byte. Returns 0 on a hit. |
 | 001A7870 | NM (.s) | stand-in (census: em_collision.c; in fact nothing runs, 001AAD00 is reported unmirrored) | verified-unbound | Class-2 capsule push-apart. Pass 1 writes +0x50 = 1 for an active entry whose +0x58 record is set, has a nonzero first word, -2 at +0xA and shares a bit of its +6 byte with the entry's +0x5E, else 0. Pass 2: for each marked outer entry and each marked entry after it, the capsules (the +0x58 offsets on the +0x110[slot] node, +0xC4 is the long axis) overlap on the long axis and within the radii in x/z; unless the inner entry's +0x52 bit 0 is set, the inner entry's +0xB0/+0xB8 are pushed out (only +0xB0 += overlap when 001000C0(00128350(len), 0.001) says len < 0.001). |
 | 001A8660 | BM | missing | verified-unbound | The player (a0) against one class-0xD type-1 entry: x/z circle test (0011E748) and the height test (half heights from the +0x30 records); on overlap the entry's +0x34 behaviour(entry, player, player + 0xB0); if the player's state byte is 1: 0021BD10 for +0xD = 0xB (player +0xF = 2), the knock-back speed from D_0024A740/D_0024A780 by D_0081070A into +0x22C (+0xD 3/4) or +0x224, state = 3, the direction normalize(player +0xA0 - entry +0xB0, w = 1) into +0x70; then 0x70003B86 = 0 (ends 001A8BE0's walk). |
@@ -467,15 +468,18 @@ and 3 are not bound. What each translation replaces and what it needs:
    on a read of a missing field rather than invent one. The live Use/ladder
    code today uses `em_collision_segment_query`, which knows no 0x1E..0x59
    attribute walk.
-3. **0019F330** replaces `column_node` in `em_collision.c` (called by
-   `em_collision_column_finish`, which `em_actor_collision_column_0019BC40`
-   uses): call `em_coll_list_passes_0019F330(grid, math, state,
-   &face.cross[0], pos, pos + (0, 1, 0) (EE add), node, q)`. It needs the
-   `EmSdkMathContext` (0011E748, 0011DBB8) and the one scratchpad state
-   (0x70003680 is `state->ratio`, 0x70003684 is
-   `EmCollSegmentFaceScratch.cross[0]`). The pass-2 node walk around it
-   (0019BC40's rank span and gates) is still the inexact walk of
-   em_collision.c; that belongs to the 0019BC40 row, not this lane.
+3. **0019F330 (bound 2026-09-27).** `column_node` is gone from
+   `em_collision.c`. `em_collision_column_finish` (0019BC40 pass 2, which
+   `em_actor_collision_column_0019BC40` uses) calls the column math's `cross`
+   worker with the node's EMCL poly and the line pos -> pos + (0, 1, 0) (EE
+   add). `em_collision_world` binds it to `em_coll_list_passes_0019F330(grid,
+   math, state, &face.cross[0], a, b, poly - grid.first, q)` over the world's
+   one scratchpad state (0x70003680 is `state.ratio`, 0x70003684 is
+   `EmCollSegmentFaceScratch.cross[0]`) and its SDK context (0011E748,
+   0011DBB8). Pass 2 faults without the worker. A private instrumented build
+   over the full smoke counted 65,478 calls and 103 crossings. The pass-2
+   node walk around it (0019BC40's rank span and gates) is still the inexact
+   walk of em_collision.c; that belongs to the 0019BC40 row, not this lane.
 4. **The nine hooks of 001AAD00 (bound).** `w_001AAD00` runs
    `em_collision_world_close_out_001AAD00`: the nine hooks over the live
    lists (cursor = base - 4 * live, count = live), then the list swap. The
@@ -547,8 +551,11 @@ and 3 are not bound. What each translation replaces and what it needs:
 - The route evidence for the passes is the snapshot lists, not the
   frame-by-frame lists. The census shows every pass running every frame from
   S2 on, but it does not record which branches ran.
-- 0019F330 is verified alone. Its caller's node walk (0019BC40 pass 2) is not
-  part of this lane.
+- 0019F330 is verified alone here, and inside the composite 0019BC40
+  comparisons: test_actor_collision_reference's columns and
+  test_player_climb_reference's world sample, where the original 0019BC40 runs
+  with 0019F330 and its SDK calls unhooked. Its caller's node walk (0019BC40
+  pass 2) is not part of this lane.
 - 0019E280's x and z maximum rank bounds (+0x0E, +0x16) at equality are
   not exercised because no input can reach them on AREA11's grid (see
   "0019E280's rank bounds at equality"). A strict-inequality mutant of

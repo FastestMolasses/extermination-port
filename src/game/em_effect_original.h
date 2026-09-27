@@ -12,7 +12,7 @@
  *   001CD390  look-at rows                     NEARMISS: read from the .s
  *   001F0460  ring decal slots                 byte-matched C
  * and the SDK leaves they reach (001029C0, 00102918, 001026A0, 00102760,
- * 00102718, 001031E0, 00102948, copy_qw4, 001029E8, 00102A60, 00102BB0,
+ * 00102718, 001031E0, 00102948 (em_sdk_vu0.h's), copy_qw4, 001029E8, 00102A60, 00102BB0,
  * 00102B08, 00102C58, 001B1470, 0011E860, float_to_int 001281C0 with its
  * unpack 001278C0). Every float operation follows the measured EE/VU0 model
  * of docs/EE_FLOAT_MODEL.md bit for bit (EE add/sub pre-trim, truncation,

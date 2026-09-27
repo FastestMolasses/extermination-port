@@ -11,6 +11,7 @@
  * instructions and compares every record byte, scratch word and worker call. */
 #include "game/em_player_recovery.h"
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -785,7 +786,7 @@ int em_player_recovery_ledge_catch(EmPlayerLiveActor *a, const EmPlayerRecoveryS
         const float from[4] = { float_of(add(px, mul(K_1_5, nx))), float_of(height),
                                 float_of(add(pz, mul(K_1_5, nz))), 1.0f };   /* 0017D6C0..0017D6E8 */
         float to[4];
-        memcpy(to, from, sizeof to);                                   /* 00102948 at 0017D6E4 */
+        em_sdk_vu0_00102948(to, from);                                 /* 00102948 at 0017D6E4 */
         to[1] = float_of(sub(height, K_20_5));                         /* 0017D708/0017D718 */
         FAULT(w->segment(w->context, from, to, 6, 0, &blocked));       /* 0017D71C */
         if (blocked) return 0;                                         /* 0017D724 */

@@ -14,9 +14,9 @@
  *   0017B460  D_00248AB0[a][b] (byte-matched)
  *   00179D20  the per-node local pose seed (byte-matched)
  *   00179FF0  the per-node world matrices under the record's TRS (byte-matched)
- * and, privately, the two SDK VU0 leaves the display reaches that no module
- * exports: 001026D0 (4x4 product) and 00103230 (row xyz times a scalar).
+ * and, privately, the SDK VU0 leaf 00103230 (row xyz times a scalar).
  * The other leaves are the verified translations, called directly:
+ *   001026D0              em_sdk_vu0_001026D0 (em_sdk_vu0.h)
  *   001029C0 / 00102C58   em_owner_services_identity_001029C0 / _euler_00102C58
  *   001CA0A0 / 001CA1C0   em_pose_host_001CA0A0 / em_pose_host_001CA1C0
  *   001C94B0              em_pose_host_build_trs_matrix
@@ -176,9 +176,9 @@ int em_loco_0017B490(EmLocoHost *host, const EmPlayerLiveActor *actor, int cmd, 
  * read through `pose`'s regions. */
 int em_loco_0017B460(const EmPoseHost *pose, int a, int b, int16_t *value);
 
-/* The private SDK leaves, exported for the oracle (bit patterns). Each
- * returns 0 or -1 when em_ee_float refuses a form. */
-int em_loco_001026D0(uint32_t dst[16], const uint32_t a[16], const uint32_t b[16]);
+/* The private SDK leaf 00103230, exported for the oracle (bit patterns).
+ * Returns 0 or -1 when em_ee_float refuses a form. (001026D0 is
+ * em_sdk_vu0.h's.) */
 int em_loco_00103230(uint32_t dst[4], const uint32_t src[4], uint32_t scale);
 
 #endif

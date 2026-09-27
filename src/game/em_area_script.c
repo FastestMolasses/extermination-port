@@ -7,6 +7,7 @@
 #include "game/em_interaction_cinematic.h"
 #include "game/em_interaction_frame.h"
 #include "game/em_pose_math.h"
+#include "game/em_sdk_vu0.h"
 
 /* Handler results use 001BA1F0's numbering (EmScriptCommandResult):
  * 0 stay, 1 advance, 2 advance and continue, 3 abort. FAIL is a fault. */
@@ -61,7 +62,7 @@ static uint8_t phase(const Op *o) { return (uint8_t)o->st->phase; }
 static void set_phase(Op *o, uint8_t value) { o->st->phase = (o->st->phase & ~0xFF) | value; }
 
 /* 00102948 (lq/sq): four-lane copy. */
-static void quad(float *dst, const float *src) { memmove(dst, src, 16); }
+static void quad(float *dst, const float *src) { em_sdk_vu0_00102948(dst, src); }
 /* 001028D0 (VU0 vsub.xyzw): dst = a - b, four lanes, truncating. */
 static void vsub(float *dst, const float *a, const float *b)
 {

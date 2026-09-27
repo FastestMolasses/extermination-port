@@ -52,7 +52,6 @@ static int c61d0(void *ctx, uint32_t bank, int16_t clip, int32_t *result) { (voi
 static int c67e0(void *ctx, int16_t clip, float a, float b) { (void)ctx; (void)clip; (void)a; (void)b; ++calls; return 0; }
 static int u32w(void *ctx, uint32_t v) { (void)ctx; (void)v; return 0; }
 static int b1630(void *ctx, float x, float y, float z, int32_t *result) { (void)ctx; (void)y; (void)z; *result = x > 0.0f; return 0; }
-static int c64f0(void *ctx, float step, int16_t *flags) { (void)ctx; (void)step; *flags = 0x10; return 0; }
 
 static int wrap(void *ctx, float a, float *r) { (void)ctx; *r = a; return 0; }
 static int ident(void *ctx, uint32_t m[16]) { (void)ctx; memset(m, 0, 64); return 0; }
@@ -68,7 +67,7 @@ static EmSdfWorkers sdf_workers(void)
     w.w_0022EC30 = u32w; w.w_001C5C90 = c5c90; w.w_001C6150 = c6150; w.w_001AF780 = af780;
     w.w_001BA8E0 = obj16; w.w_001D8BF0 = obj32; w.w_001CA6F0 = obj8; w.w_001CB5B0 = u8w;
     w.w_001C63E0 = obj16; w.w_001C61D0 = c61d0; w.w_001C67E0 = c67e0; w.w_001B1630 = b1630;
-    w.w_001B1B70 = ok; w.w_001C64F0 = c64f0; w.w_001BC150 = ok;
+    w.w_001B1B70 = ok;
     w.w_001B1470 = wrap; w.w_001029C0 = ident; w.w_00102C58 = rot; w.w_001026A0 = mul;
     return w;
 }
@@ -113,9 +112,9 @@ static void test_sdf(void)
     int32_t m0 = 0, m4 = 0, m8 = 0;
     uint32_t c0 = 0, t250 = 0;
     float t254 = 1.0f, t258 = 0.0f;
-    uint8_t e4 = 0, b8 = 1;
+    uint8_t e4 = 0;
     int16_t s24e = 0, cap = 0x40;
-    EmSdfWorld world = {&m0, &m4, &m8, &c0, &t250, &t254, &t258, &e4, &s24e, &cap, &b8};
+    EmSdfWorld world = {&m0, &m4, &m8, &c0, &t250, &t254, &t258, &e4, &s24e, &cap};
     uint8_t ev[EM_SDF_ENTRY_SIZE];
     memset(ev, 0, sizeof ev);
     put16(ev + 4, 0x47); put16(ev + 6, 0x98); put16(ev + 8, 2); put16(ev + 0xA, 4);
@@ -134,16 +133,12 @@ static void test_sdf(void)
           fault.code == EM_SDF_FAULT_CAPACITY);
     bone_count = 3; cap = 0x40;
 
-    /* 001B1B30, 001BC240, 001BC290, 001BBD60. */
+    /* 001B1B30, 001BBD60 (001BC240 / 001BC290 are em_door_original's phases 4
+     * and 5, tested with it). */
     uint8_t visible = 9;
     fault.code = 0;
     CHECK(em_sdf_001B1B30(&visible, 1.0f, 0, 0, &w, &fault) == 1 && visible == 1);
     CHECK(em_sdf_001B1B30(&visible, -1.0f, 0, 0, &w, &fault) == 0 && visible == 0);
-    EmSdfDoorStep door = {4, 0};
-    CHECK(em_sdf_001BC240(&door, &w, &fault) == 0 && door.anim_flags == 0x10);
-    CHECK(em_sdf_001BC290(&door, &world, &w, &fault) == 0 && door.b0B == 4);
-    b8 = 0;
-    CHECK(em_sdf_001BC290(&door, &world, &w, &fault) == 1 && door.b0B == 0);
     uint32_t word = 0;
     CHECK(em_sdf_001BBD60(0x0400, 1, &word, &w, &fault) == 0 && word == ((0x24DB80u + 16 + 2) & 0xFFFF));
     /* 001B0080: fixed seat, then the player-relative seat. */
@@ -159,9 +154,10 @@ static void test_sdf(void)
     seat.f0C = 25.0f;
     CHECK(em_sdf_001B0080(&seat, 2.0f, &sw, &w, &fault) == 0 && seat.tgt_20[1] == 37.0f &&
           seat.eye_10[1] == 40.0f && eye[0] == 11.0f && vec[2] == 0x41C80000u);
-    w.w_001BC150 = fail;
-    CHECK(em_sdf_001BC240(&door, &w, &fault) == -1 && fault.address == 0x001BC150u &&
+    w.w_001B1B70 = fail;
+    CHECK(em_sdf_001B1B30(&visible, 1.0f, 0, 0, &w, &fault) == -1 && fault.address == 0x001B1B70u &&
           fault.code == EM_SDF_FAULT_WORKER_FAILED);
+    w.w_001B1B70 = ok;
     calls = 0;
     CHECK(em_sdf_001B1B30(&visible, 1.0f, 0, 0, &w, &fault) == -1 && calls == 0);
 }

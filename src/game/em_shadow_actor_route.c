@@ -18,6 +18,7 @@
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sdk_vu0.h"
 #include "game/em_stream_lanes_original.h"
 
 #include <string.h>
@@ -68,7 +69,8 @@ int em_shadow_actor_route_load_tables(const uint8_t *elf, size_t size,
     return 0;
 }
 
-/* ---- the SDK VU0 leaves translated here ----------------------------------------- */
+/* ---- 001F8D30's inline VU0 rows ------------------------------------------------ */
+/* The SDK leaves it calls (001026D0, 00102900, 00102948) are em_sdk_vu0.h's. */
 
 static const uint32_t kVF0[4] = { F_ZERO, F_ZERO, F_ZERO, F_ONE };
 
@@ -82,36 +84,6 @@ static int vu_row(uint32_t out[4], const uint32_t m[16], const uint32_t v[4], co
     if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDABC, 15, 1, m + 4, v, 0, acc, acc);
     if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDABC, 15, 2, m + 8, v, 0, acc, acc);
     if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDBC, 15, 3, m + 12, w3, 0, acc, out);
-    return st;
-}
-
-/* 001026D0(dst, a, b): the rows of `a` are loaded first (001026D0..001026DC),
- * then each row of `b` goes through them with its own w (the vmaddw's
- * broadcast is the row's w, 001026F4) and is stored to the same row of dst.
- * dst may alias a or b: each row of b is read before its row of dst is
- * written, and a is held in registers. */
-static int vu_product_001026D0(uint32_t dst[16], const uint32_t a[16], const uint32_t b[16])
-{
-    uint32_t m[16];
-    memcpy(m, a, sizeof m);
-    for (unsigned row = 0; row < 4; ++row) {
-        uint32_t v[4], out[4] = { 0, 0, 0, 0 };
-        memcpy(v, b + 4 * row, sizeof v);
-        int st = vu_row(out, m, v, v);
-        if (st != EM_EE_FLOAT_OK) return st;
-        memcpy(dst + 4 * row, out, sizeof out);
-    }
-    return EM_EE_FLOAT_OK;
-}
-
-/* 00102900(dst, v, s): dst = v * s in all four lanes (s is the x lane of the
- * register the float is moved into). */
-static int vu_scale_00102900(uint32_t dst[4], const uint32_t v[4], uint32_t s)
-{
-    const uint32_t t[4] = { s, 0, 0, 0 };
-    uint32_t out[4] = { 0, 0, 0, 0 };
-    int st = em_vu_vec_bits(EM_VU_MULBC, 15, 0, v, t, 0, NULL, out);
-    if (st == EM_EE_FLOAT_OK) memcpy(dst, out, sizeof out);
     return st;
 }
 
@@ -146,7 +118,7 @@ static int decal_001F8D30(EmShadowActorRoute *r, const uint32_t owner[4], const 
     VU(r, 0x00102A60u, em_owner_services_rotate_z_00102A60(fm, fm, yaw));  /* 001F8D94 */
     to_words(basis, fm);
     WORKER(r, 0x001CD390u, w->look_at(w->context, surf, normal));         /* 001F8DA0 (sp+0xB0) */
-    VU(r, 0x001026D0u, vu_product_001026D0(basis, surf, basis));          /* 001F8DB0 */
+    VU(r, 0x001026D0u, em_sdk_vu0_001026D0(basis, surf, basis));          /* 001F8DB0 */
     to_floats(fm, basis);
     memcpy(fv, point, sizeof fv);                                          /* only x, y, z are added */
     VU(r, 0x00102918u, em_owner_services_translate_00102918(fm, fm, fv));  /* 001F8DC0 */
@@ -168,7 +140,7 @@ static int decal_001F8D30(EmShadowActorRoute *r, const uint32_t owner[4], const 
 
     /* 3. The colour (00102900 at 001F8E58) and its four bytes. */
     uint32_t tinted[4];
-    VU(r, 0x00102900u, vu_scale_00102900(tinted, colour, fade));
+    VU(r, 0x00102900u, em_sdk_vu0_00102900(tinted, colour, fade));
     uint32_t rgba = em_stream_lanes_00128250(tinted[0]);                   /* 001F8E60 */
     rgba |= em_stream_lanes_00128250(tinted[1]) << 8;                      /* 001F8E6C */
     rgba |= em_stream_lanes_00128250(tinted[2]) << 16;                     /* 001F8E7C */
@@ -266,7 +238,7 @@ int em_shadow_actor_route_0015BF90(EmShadowActorRoute *r, const EmPlayerLiveActo
 
     uint32_t *a = sc->s38A0, *b = sc->s38B0, owner[4];
     for (unsigned i = 0; i < 4; ++i) owner[i] = em_live_u32(p, 0xB0 + 4 * i);
-    memcpy(a, owner, sizeof owner);                                        /* 0015BFB8 00102948 */
+    em_sdk_vu0_00102948(a, owner);                                         /* 0015BFB8 00102948 */
 
     /* The lower of the two node heights (0015BFC0..0015BFE8): c.lt.s a, b;
      * a when a < b, else b (also when either is a NaN). */
@@ -287,7 +259,7 @@ int em_shadow_actor_route_0015BF90(EmShadowActorRoute *r, const EmPlayerLiveActo
         return call_001F9100(r, owner, a, b, F_4_2);                       /* 0015C074 */
     }
 
-    memcpy(b, a, 16);                                                      /* 0015C090 00102948 */
+    em_sdk_vu0_00102948(b, a);                                             /* 0015C090 00102948 */
     b[1] = em_ee_sub_bits(b[1], F_100);                                    /* 0015C0B4, stored 0015C0C4 */
     int32_t hit = 0;
     uint32_t point[4] = { 0, 0, 0, 0 }, normal[3] = { 0, 0, 0 };
@@ -297,7 +269,7 @@ int em_shadow_actor_route_0015BF90(EmShadowActorRoute *r, const EmPlayerLiveActo
     WORKER(r, 0x0019A570u, w->segment(w->context, from, to, 6, 0, &hit, point, normal)); /* 0015C0C8 */
     if (hit == 0)                                                          /* 0015C0D0 */
         return 0;
-    memcpy(a, point, 16);                                                  /* 0015C0E4 00102948(38A0, 31B0) */
+    em_sdk_vu0_00102948(a, point);                                         /* 0015C0E4 00102948(38A0, 31B0) */
     b[0] = normal[0];                                                      /* 0015C118 */
     b[1] = normal[1];                                                      /* 0015C12C */
     b[2] = normal[2];                                                      /* 0015C138 */

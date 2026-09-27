@@ -34,9 +34,9 @@
  *   001D88B0  lighting-mode dispatch: 001D8C30 or 001D8130/8340/8690
  *   001D8C30  fixed-lighting matrix/colour fill by mode (NEARMISS C; .s
  *             followed, including the order of every load and store)
- * and the SDK leaves they reach, translated privately: copy_qw4 (00102958),
- * 00102948 (one quadword copy), 001026D0 (VU0 4x4 product) and 001029C0 (VU0
- * identity).
+ * and the SDK leaves they reach, translated privately: copy_qw4 (00102958)
+ * and 001029C0 (VU0 identity). 00102948 (one quadword copy) and 001026D0 (VU0
+ * 4x4 product) are em_sdk_vu0.h's, over this module's memory views.
  *
  * Memory model. These routines address original memory by address: the
  * render context is whatever D_00275670 points at, the display list is

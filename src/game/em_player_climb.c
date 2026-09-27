@@ -13,6 +13,7 @@
 #include "game/em_player_stage_workers.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -375,7 +376,7 @@ int em_player_climb_probe(EmPlayerClimbActor *a, const EmPlayerClimbScene *s, in
                 if (!hit.pickup_box) continue;
             }
             float top[4];
-            memcpy(top, b, sizeof top);                                /* 00102948 */
+            em_sdk_vu0_00102948(top, b);                               /* 00102948 */
             store_38A0(w, top);
             static const float plus[4] = { 4.0f, 0.0f, -0.5f, 0.0f };
             static const float minus[4] = { -4.0f, 0.0f, -0.5f, 0.0f };

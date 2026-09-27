@@ -18,8 +18,8 @@
  *   0021E650  the +7 countdown of +3C (rumble, sounds)
  *   0015C1F0  player model kind (+2FF), 001CA6E0 bind, +C, +96, 00200890
  *   001EFE00  effect spawned at the actor (001EF9D0), linked to it
- * Inline: 00102948 (quadword copy), 001031E0 (three-word copy), 0011DF78
- * (sign-bit clear). Reused directly: 001281C0 float_to_int
+ * Inline: 001031E0 (three-word copy), 0011DF78 (sign-bit clear); 00102948
+ * (quadword copy) is em_sdk_vu0.h's. Reused directly: 001281C0 float_to_int
  * (em_player_float_to_int, em_player_stage_workers.c).
  *
  * Not translated here because another lane already did: 0021C120, 0021C190

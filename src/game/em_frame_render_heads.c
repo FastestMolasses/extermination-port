@@ -5,12 +5,13 @@
  * (001D1EA0, 001D1EF0, 001D19D0, 001D19E0, 001D2960, 001D2D20, 001D25F0,
  * 001D2610, 001C1D00, 001D8060, 001D80B0, 001D88B0), the split listing for
  * the NEARMISS units (001D1C50, 001D30A0, 001D8C30, 001D9070), the asm-word
- * unit 001D2830 and the inline-asm units 001D2590, copy_qw4, 00102948,
- * 001026D0 and 001029C0. The original address a branch, load or store comes
+ * unit 001D2830 and the inline-asm units 001D2590, copy_qw4 and 001029C0
+ * (00102948 and 001026D0 are em_sdk_vu0.h's). The original address a branch, load or store comes
  * from is cited beside it. Float arithmetic and compares go through
  * em_ee_float.h on bit patterns, as the COP1 and VU0 instructions execute. */
 #include "game/em_frame_render_heads.h"
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -186,37 +187,28 @@ static int copy_qw4(EmFrh *h, uint32_t dst, uint32_t src)
     return 0;
 }
 
-/* 00102948(dst, src): one quadword. */
+/* 00102948(dst, src): em_sdk_vu0.h's translation over the quadwords its lq
+ * and sq address (address & ~15; the load's first). */
 static int copy_qw(EmFrh *h, uint32_t dst, uint32_t src)
 {
-    uint32_t q[4];
-    TRY(lq(h, src, q));
-    return sq(h, dst, q);
-}
-
-/* 001026D0's row: ACC = a0 * v.x; ACC += a1 * v.y; ACC += a2 * v.z;
- * out = ACC + a3 * v.w (the MULAbc x, MADDAbc y and z, MADDbc w forms, all
- * four lanes). */
-static int vu_row(EmFrh *h, uint32_t out[4], const uint32_t a[16], const uint32_t v[4])
-{
-    uint32_t acc[4] = {0, 0, 0, 0};
-    VU(em_vu_vec_bits(EM_VU_MULABC, 15, 0, a + 0, v, 0, NULL, acc));
-    VU(em_vu_vec_bits(EM_VU_MADDABC, 15, 1, a + 4, v, 0, acc, acc));
-    VU(em_vu_vec_bits(EM_VU_MADDABC, 15, 2, a + 8, v, 0, acc, acc));
-    VU(em_vu_vec_bits(EM_VU_MADDBC, 15, 3, a + 12, v, 0, acc, out));
+    const uint8_t *from = map(h, src & ~UINT32_C(15), 16, 0);
+    if (!from) return fail(h, EM_FRH_FAULT_BAD_ADDRESS, src & ~UINT32_C(15));
+    uint8_t *to = map(h, dst & ~UINT32_C(15), 16, 1);
+    if (!to) return fail(h, EM_FRH_FAULT_BAD_ADDRESS, dst & ~UINT32_C(15));
+    em_sdk_vu0_00102948(to, from);
     return 0;
 }
 
-/* 001026D0(dst, a, b) with `a` already in registers: each row of b (read at
- * b + 16 r just before its row of dst is stored) goes through a. */
+/* 001026D0(dst, a, b) with `a` already in registers: em_sdk_vu0.h's
+ * translation over the four rows of b, stored to dst row by row. Its callers
+ * never pass a dst that overlaps b, so loading b's rows before the first
+ * store gives the rows the original computes. */
 static int vu_product(EmFrh *h, uint32_t dst, const uint32_t a[16], uint32_t b)
 {
-    for (unsigned r = 0; r < 4; ++r) {
-        uint32_t v[4], out[4] = {0, 0, 0, 0};
-        TRY(lq(h, b + 16 * r, v));
-        TRY(vu_row(h, out, a, v));
-        TRY(sq(h, dst + 16 * r, out));
-    }
+    uint32_t v[16], out[16];
+    for (unsigned r = 0; r < 4; ++r) TRY(lq(h, b + 16 * r, v + 4 * r));
+    VU(em_sdk_vu0_001026D0(out, a, v));
+    for (unsigned r = 0; r < 4; ++r) TRY(sq(h, dst + 16 * r, out + 4 * r));
     return 0;
 }
 

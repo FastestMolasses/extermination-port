@@ -10,6 +10,7 @@
 #include "game/em_owner_services_original.h"
 #include "game/em_player_pose.h"
 #include "game/em_random.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -142,7 +143,7 @@ static float *scratch_matrix(EmStatusModels *m, uint32_t address)
     return bone ? bone->world : NULL;
 }
 
-/* The VU0 row transform of 001026D0/001026A0 (the forms 001C9610 uses:
+/* The VU0 row transform of 001026A0 (the forms 001C9610 uses:
  * MULABC /x, MADDABC /y and /z, MADDBC /w, all four lanes). */
 static int vu_row(uint32_t out[4], const uint32_t mat[16], const uint32_t v[4])
 {
@@ -258,13 +259,17 @@ static int w_001CA6E0(void *ctx, EmStatusSceneActor *a, uint32_t token)
     return 0;
 }
 
+/* 001C6150(model): em_owner_services_001C6150 over the model's view. */
 static int w_001C6150(void *ctx, uint32_t word44, uint32_t *value)
 {
     EmStatusModels *m = ctx;
     Model *model = model_of(m, word44);
     if (!model)
         return fault(m, 0x001C6150u, "a model word without a model");
-    *value = model->owner.bone_count; /* the byte at model + 8 */
+    uint8_t count = 0;
+    if (em_owner_services_001C6150(&m->services, &model->owner, &count) < 0)
+        return fault(m, m->services.fault.address, "001C6150 faulted");
+    *value = count;
     return 0;
 }
 
@@ -443,7 +448,8 @@ static int w_00102A60(void *ctx, uint32_t d, uint32_t s, uint32_t angle)
     return rotate(ctx, 0x00102A60u, d, s, angle);
 }
 
-/* 001026D0(out, a, b): out rows = b rows x a (a is read first). */
+/* 001026D0(out, a, b): em_sdk_vu0.h's translation over the scratchpad
+ * matrices the addresses name. */
 static int w_001026D0(void *ctx, uint32_t out, uint32_t a, uint32_t b)
 {
     EmStatusModels *m = ctx;
@@ -453,9 +459,8 @@ static int w_001026D0(void *ctx, uint32_t out, uint32_t a, uint32_t b)
     uint32_t ma[16], mb[16], result[16];
     memcpy(ma, pa, sizeof ma);
     memcpy(mb, pb, sizeof mb);
-    for (int row = 0; row < 4; ++row)
-        if (vu_row(result + 4 * row, ma, mb + 4 * row))
-            return fault(m, 0x001026D0u, "an unmeasured VU form");
+    if (em_sdk_vu0_001026D0(result, ma, mb) != EM_EE_FLOAT_OK)
+        return fault(m, 0x001026D0u, "an unmeasured VU form");
     memcpy(o, result, sizeof result);
     return 0;
 }

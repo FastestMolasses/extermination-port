@@ -13,6 +13,7 @@
 #include "game/em_ee_float.h"
 #include "game/em_player_stage_workers.h"
 #include "game/em_random.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -202,8 +203,8 @@ static int gain(EmPlayerMiscHost *h, const float obj[4], int32_t *a, int32_t *b,
 
     *b = 0;                                                    /* 001FBF74 */
     *a = 0;                                                    /* 001FBF88 */
-    memcpy(s->s3600, sc->d810360, 16);                         /* 001FBFA0: 00102948 */
-    memcpy(s->s3610, obj, 16);                                 /* 001FBFB0: 00102948(3610, obj + B0) */
+    em_sdk_vu0_00102948(s->s3600, sc->d810360);                /* 001FBFA0: 00102948 */
+    em_sdk_vu0_00102948(s->s3610, obj);                        /* 001FBFB0: 00102948(3610, obj + B0) */
     if ((int8_t)(uint8_t)flat != 0) {                          /* 001FBFB8: the low byte, signed */
         set_word(s->s3610, 1, 0);                              /* 001FBFCC */
         set_word(s->s3600, 1, 0);                              /* 001FBFD4 */
@@ -760,7 +761,7 @@ int em_player_misc_001EFE00(EmPlayerMiscHost *h, uint32_t id, EmPlayerLiveActor 
     if (!a || !node || !bound(h, N_SPAWN, 0, 0)) return -1;
     const EmPlayerMiscWorkers *w = h->workers;
     float pos[4];
-    memcpy(pos, a->bytes + 0xB0, 16);                              /* 001EFE20: 00102948(sp+30, p+B0) */
+    em_sdk_vu0_00102948(pos, a->bytes + 0xB0);                     /* 001EFE20: 00102948(sp+30, p+B0) */
     if (id == UINT32_C(0x80000027))                                /* 001EFE2C */
         set_word(pos, 1, em_ee_add_bits(word(pos, 1), K_10));      /* 001EFE3C..001EFE4C */
     EmPlayerMiscEffectView view = { NULL, NULL, NULL };
@@ -770,8 +771,8 @@ int em_player_misc_001EFE00(EmPlayerMiscHost *h, uint32_t id, EmPlayerLiveActor 
     if (spawned == 0) return 0;                                    /* 001EFE6C */
     if (!view.w24 || !view.pos || !view.rot) return -1;
     *view.w24 = w32(a, 0x14);                                      /* 001EFE70 / 001EFE80 */
-    memcpy(view.pos, a->bytes + 0xB0, 16);                         /* 001EFE7C: 00102948 */
-    memcpy(view.rot, a->bytes + 0xC0, 16);                         /* 001EFE88: 00102948 */
+    em_sdk_vu0_00102948(view.pos, a->bytes + 0xB0);                /* 001EFE7C: 00102948 */
+    em_sdk_vu0_00102948(view.rot, a->bytes + 0xC0);                /* 001EFE88: 00102948 */
     return 0;
 }
 

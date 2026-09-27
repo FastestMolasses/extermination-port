@@ -158,7 +158,7 @@ Corrections to the readable C (the `.s` is the authority):
 | File | Original routines |
 |---|---|
 | `em_actor_collision.c` | 001A2370 (001026A0 via em_effect_original, 00102738 via em_coll_probe_original), 001B1B70, 001B1D20 (and the other pushes), 001AAD00 list block, 001AF8E0 list half, 0019AB20 (its prim tests and segment state are em_coll_probe_original's; its grid pass is `em_coll_probe_0019C830`), 0019F730 (both passes), 0019BC40 pass 1, 001A56A0, 001A58B0, the player's 001760C0 |
-| `em_collision.c` | `em_collision_column_finish` (0019BC40 pass 2 + sort + cull, split out of `em_collision_column_table`, which is unchanged in behaviour), `em_collision_column_box_face` (001A5760), the column node test 0019F330 |
+| `em_collision.c` | `em_collision_column_finish` (0019BC40 pass 2 + sort + cull, split out of `em_collision_column_table`, which is unchanged in behaviour), `em_collision_column_box_face` (001A5760). Pass 2's node test 0019F330 is the column math's `cross` worker, bound to its one translation `em_coll_list_passes_0019F330` (COLL_LIST_PASSES.md item 3, 2026-09-27) |
 
 - The directory is kept in its original byte layout. The owners are the pool's
   `EmActor` records, and the lists hold `EmActor.self`.
@@ -232,9 +232,11 @@ executed from RAM is checked against the ELF.
     `0019F330` call the original `0011E748` (sqrt, via `0011CB90`) and
     `0011DBB8` (atan), executed as instructions (their code, with their
     whole static call graph, is checked against the ELF). The native
-    column's `EmCollColumnMath` workers call back into the same original
-    executions, so the aux values are compared against original
-    instructions end to end.
+    column's `sqrt` / `atan` workers (001A58B0's) call back into the same
+    original executions. Its `cross` worker (pass 2's 0019F330) is
+    `em_coll_list_passes_0019F330` over the EMCL rank grid with
+    em_sdk_math_original's 0011E748 / 0011DBB8. The aux values are
+    therefore compared against original instructions end to end.
   - **Named workers.** Separately, each distinct SDK argument is given to
     the workers section 7 names for the live binding, and the agreement is
     printed (not asserted): `em_item_sdk_sqrt` equals `0011E748` on every

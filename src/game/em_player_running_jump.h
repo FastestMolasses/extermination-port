@@ -18,8 +18,8 @@
  * The SDK leaves they reach come from the modules that translate them:
  * 001029C0 / 00102BB0 / 00102918 from em_owner_services_original.h,
  * 001B1470 from em_player_recovery.h (em_player_recovery_wrap); 001026A0
- * (four VU0 macro ops), 00102948 (a quadword copy) and 0011DF78 (fabs) are
- * written inline on em_ee_float.h.
+ * (four VU0 macro ops) and 0011DF78 (fabs) are written inline on
+ * em_ee_float.h; 00102948 (a quadword copy) is em_sdk_vu0.h's.
  *
  * 00161790 (+5 2, ledge climb) and 00162190 (+5 3, vault) are translated by
  * em_player_climb.h (em_player_climb_live_state); they are not repeated here.

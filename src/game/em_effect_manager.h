@@ -12,8 +12,8 @@
  *   001F0A60  camera-facing glint sprite (two triangles)     asm only: the .s
  *   001F4D40  rand-pulsed 001CD520 sprite                    asm only: the .s
  *   the draw block of 001F1180 (0x1F136C..0x1F1470)          NEARMISS: the .s
- * and the inline leaves 001F6AC0 (a word compare), 00102948 (quadword copy),
- * 001028B8 (vector add) and 001026D0 (four 001026A0 rows).
+ * and the inline leaves 001F6AC0 (a word compare) and 001028B8 (vector add).
+ * 001026D0 (4x4 product) and 00102948 (quadword copy) are em_sdk_vu0.h's.
  *
  * Reused verified translations: em_effect_original (001026A0, float_to_int
  * 001281C0, the 001F0460 ring type) and em_owner_services_original (001029C0,

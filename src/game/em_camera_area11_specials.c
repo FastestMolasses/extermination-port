@@ -18,6 +18,7 @@
  * instructions and compares every byte, word and worker call. */
 #include "game/em_camera_area11_specials.h"
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -76,7 +77,7 @@ static uint32_t pw(const EmPlayerLiveActor *p, unsigned at) { return em_live_u32
 static int32_t code_of(const EmPlayerLiveActor *p) { return (int32_t)em_live_u32(p, 0x230); }
 
 /* 00102948: the 16-byte copy (dst, src). */
-static void copy16(void *dst, const void *src) { memmove(dst, src, 16); }
+static void copy16(void *dst, const void *src) { em_sdk_vu0_00102948(dst, src); }
 /* 0011DF78: fabsf, the sign bit cleared (an integer AND in the original). */
 static uint32_t fabs_bits(uint32_t x) { return x & UINT32_C(0x7FFFFFFF); }
 

@@ -55,8 +55,8 @@ original instructions of the row with no hook on them.
 | Function | Before | After | Translation | Oracle |
 |---|---|---|---|---|
 | 001B1B30 visibility publish | unverified (legacy em_door.c) | **v-u** | `em_sdf_001B1B30` (new) | part 2 |
-| 001BC240 door phase 4 | unverified (legacy em_door.c) | **v-u** | `em_sdf_001BC240` (new); `em_door_original` phase 4 inline | part 2 + route 09; test_door_original_reference runs it unhooked inside 001BC350 |
-| 001BC290 door phase 5 | unverified (legacy em_door.c) | **v-u** | `em_sdf_001BC290` (new); `em_door_original` phase 5 inline | part 2 + route 09; test_door_original_reference as above |
+| 001BC240 door phase 4 | unverified (legacy em_door.c) | **live** | `em_door_original` phase 4 (the one translation; the standalone `em_sdf_001BC240` was removed 2026-09-27) | test_door_original_reference: unhooked inside 001BC350 over every flag answer, request byte and armed byte, and the route 09 replay |
+| 001BC290 door phase 5 | unverified (legacy em_door.c) | **live** | `em_door_original` phase 5 (the one translation; `em_sdf_001BC290` removed 2026-09-27) | test_door_original_reference as above |
 | 001BBD60 door sound patch | stand-in (em_door.c sound patch) | **v-u** | `em_sdf_001BBD60` (new) | part 2 + route 09 capture |
 | 001B0080 room-entry camera seat | v-u **(wrong: no translation existed, only the worker slot `w_001B0080` of em_script_host_workers, hooked in its test)** | **v-u** | `em_sdf_001B0080` (new) | part 2 |
 | 001BC350, 001BBDA0, 001BC0E0, 001BC300 | v-u | v-u | `em_door_original` | test_door_original_reference |
@@ -280,7 +280,6 @@ identical. Full mode runs all 46.
 | 001BAC00 | 15 / 15 | the opening's own list 0x828F30 from the captured overlay (both spawn, one or both allocations fail); generated lists: commands 0/3/5/−1 × handler 0/non-zero, 0x270E with and without a node, negative bank indices, a first entry whose short is −1, four entries with one failed spawn |
 | 001BAD40 | 71 / 299 | messages 0x270D/0x270C; commands 0..9, 0x7FFF, −1 × bone counts 0/2/3/5/0x78 × budgets −1/0/2/3/0x40/0x78 × 001C61D0 results × the 001C5C90 lifecycle; both opening entries |
 | 001B1B30 | 7 / 7 | +1 in, 001B1630 0/1, denormal and −0 arguments |
-| 001BC240/001BC290 | 40 / 90 | +0xB, 001C64F0 result (including 0x8000), B8 0/1/2 |
 | 001BBD60 | 48 / 515 | all 256 rows × sides 0/1, negative link, sides 2 and 0xFFFF; the rows the doors read equal the user's ELF file |
 | 001B0080 | 20 / 40 | fixed seat (1, 4) and the four non-fixed gate combinations with random player, angles, length and a1; 001B1470/001029C0/00102C58/001026A0 run as original instructions (VU0 through the measured model), and their logged results answer the native workers with inputs asserted |
 
@@ -293,16 +292,17 @@ Captures:
   command-5 handler, rewrites them every tick (its decomp C stores them).
 - **Opening capture, 001BAD40.** The native 001BAD40 runs on the first
   actor's entry. It reproduces the captured +0x40, +9 and +0xC.
-- **Route beat 09 (fence door).** Over the 66 door rows in phase 4 or 5:
-  - there is exactly one 001BC240 commit;
-  - 001BC290 returns 1 exactly on the row where the capture resets the phase,
-    with the captured +0xB.
+- **Route beat 09 (fence door).** The replay of the 66 door rows in phase 4
+  or 5 (exactly one 001BC240 commit; 001BC290 restarts exactly on the row
+  where the capture resets the phase, with the captured +0xB) now runs on
+  the one translation, `em_door_original`, in test_door_original_reference
+  (2026-09-27).
 - **Beat-09 snapshot.** The native 001BBD60 over the door's +0x56 and side 0
   gives the patched open-script sound word at 0x24DC58 (0x401). The ELF has 0
   there. The capture's 0x24DC14 = 0x45 shows 001BBE40 took the side-0 arm,
   which sets +0x2E = 0 first.
 - **Fail-stop.** A missing worker faults at its address before the step it
-  guards, and a fault latches. An entry outside the image faults. A bone count
+  guards (001B1B30's 001B1630), and a fault latches. An entry outside the image faults. A bone count
   past the +0x110 array faults before +0xC is written. The husk trio faults
   on a missing 001B17A0.
 
@@ -336,8 +336,9 @@ Captures:
 ### 3.4 Branch coverage and mutations
 
 Every conditional branch inside the translated ranges is observed both ways.
-The ranges are 001BA510, 001BAC00, 001BAD40, 001B1B30, 001BC240, 001BC290,
-001BBD60 and 001B0080; the creature's 0x825940..0x825B74 and
+The ranges are 001BA510, 001BAC00, 001BAD40, 001B1B30, 001BBD60 and
+001B0080 (001BC240 / 001BC290 run in test_door_original_reference, whose
+cases take both ways of 001BC290's D_008106B8 test); the creature's 0x825940..0x825B74 and
 0x826D60..0x826F2C; the whole partner and the whole manager. The test asserts
 this in both modes, with no exceptions.
 
@@ -345,7 +346,6 @@ Each of these mutations fails the default run:
 
 - 001BAD40 mode `< 3` → `<= 3`;
 - the 001BAC00 default-handler test on +0xA != 4;
-- 001BC290 without the +0xB clear;
 - the creature timer shift;
 - partner `< 10` → `<= 10`;
 - the swing angle with host float arithmetic;
@@ -439,9 +439,12 @@ codes are listed in each header.
   - 001BC350 / 001BBDA0 / 001BC0E0 / 001BC300 (with 001BC240 / 001BC290
     inline) through `em_door_original_tick`, 001BBE40 through
     `em_door_transit_kickoff`: the fence door's node (`tick_door`).
-- **Unbound copies:** `em_sdf_001BC240` / `em_sdf_001BC290` are standalone
-  translations of what `em_door_original` phases 4 and 5 run inline (the
-  bound owner); they stay for the oracle's call-shape cases.
+- **One owner (2026-09-27):** the standalone `em_sdf_001BC240` /
+  `em_sdf_001BC290` are removed. `em_door_original`'s phases 4 and 5 are the
+  one translation. Their cases moved to test_door_original_reference: every
+  flag answer, request byte and armed byte, and the route beat 09 phase-4/5
+  replay over the captured rows (66 frames: one commit, one restart on the
+  capture's row).
 - 001B94F0 (op01) is em_area_script's; the door program does not use it.
 
 ### 5.3 L24

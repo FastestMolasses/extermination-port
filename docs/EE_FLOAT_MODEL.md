@@ -246,9 +246,11 @@ tools/ee_float_model.py in the same change:
   test_actor_collision_reference uses test_coll_move_reference.FloatEE.
   Its KNOWN INEXACT ground allowance is gone: the ground is compared
   exactly.
-- `em_collision.c`: column_face 001A5760, column_node 0019F330 and the
-  cull. The duplicate grid helpers (grid_f, grid_dot, grid_div, the vertical
-  node walk) are deleted, leaving one owner, em_coll_probe_original.
+- `em_collision.c`: column_face 001A5760 and the cull. The duplicate grid
+  helpers (grid_f, grid_dot, grid_div, the vertical node walk) are deleted,
+  leaving one owner, em_coll_probe_original. column_node's 0019F330 is also
+  gone (2026-09-27): pass 2 calls the one translation in
+  em_coll_list_passes_walkers (COLL_LIST_PASSES.md item 3).
 - `em_player_floor.c`: every COP1 site through em_ee_*. The SDK VU parts keep
   per-operation truncation (`vu_*`). test_player_floor_reference,
   test_player_footstep_reference and test_player_probe_reference route COP1

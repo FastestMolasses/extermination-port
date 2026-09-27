@@ -254,7 +254,7 @@ original does not call 001AF890 there).
 | w_001CA6E0, w_anim_bone_array_setup | `em_roger_actor_001CA6E0`; the model (header, blocks, skeleton records from the Roger export) is added at its library address to the equipment bank (`em_world_models_add`), which gives the +0x44 view and the draw's model REF |
 | w_001AF780 | `em_roger_actor_001AF780` on the one 001AF710 bone-slot stack (em_area11_boxes' world) |
 | w_bone_init_default_1, w_001C9610 | `em_owner_services_001C62C0`, `em_owner_services_001C9610` |
-| w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_loco_001026D0`, `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
+| w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_sdk_vu0_001026D0` (SDK_VU0.md), `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
 | w_001B0070 | D_008106C8 (the request block) |
 | w_0015C310 | the bindings' 0015C310 (`em_area11_spawn_player_equipment_0015C310`; arg1 = 1 from the equipment change D_008106CC, which the status page writes) |
 | w_001B61C0, w_0019A570 and every untranslated callee: w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0, w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | faults (none ran in any census label; 001B61C0 / 0019A570 are reached only from the untranslated ones) |

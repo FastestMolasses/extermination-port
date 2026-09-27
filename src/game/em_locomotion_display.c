@@ -20,6 +20,7 @@
 #include "game/em_locomotion_display.h"
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -117,27 +118,6 @@ static int check(EmLocoHost *h, uint32_t entry)
 }
 
 /* ---- the private SDK leaves --------------------------------------------- */
-
-/* 001026D0(dst, a, b): a's four rows are loaded first; then each row v of b
- * gives dst's row: ACC = a0 * v.x, ACC += a1 * v.y, ACC += a2 * v.z, then
- * row = ACC + a3 * v.w (all four lanes), stored before the next row of b is
- * loaded. dst may alias a or b. */
-int em_loco_001026D0(uint32_t dst[16], const uint32_t a[16], const uint32_t b[16])
-{
-    uint32_t m[16];
-    memcpy(m, a, sizeof m);
-    for (unsigned row = 0; row < 4; ++row) {
-        uint32_t v[4], acc[4] = {0, 0, 0, 0}, out[4] = {0, 0, 0, 0};
-        memcpy(v, b + 4 * row, sizeof v);
-        int st = em_vu_vec_bits(EM_VU_MULABC, 15, 0, m + 0, v, 0, NULL, acc);
-        if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDABC, 15, 1, m + 4, v, 0, acc, acc);
-        if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDABC, 15, 2, m + 8, v, 0, acc, acc);
-        if (st == EM_EE_FLOAT_OK) st = em_vu_vec_bits(EM_VU_MADDBC, 15, 3, m + 12, v, 0, acc, out);
-        if (st != EM_EE_FLOAT_OK) return -1;
-        memcpy(dst + 4 * row, out, sizeof out);
-    }
-    return 0;
-}
 
 /* 00103230(dst, src, s): the quadword src with x, y, z times s (the x lane
  * of the register s is moved into); w is carried over. */
@@ -297,7 +277,7 @@ static int pose_seed(EmLocoHost *h, EmPlayerLiveActor *a)
         for (unsigned k = 0; k < 3; ++k) s[k] = fixed_4_12(b + 0x88 + 2 * k);
         CALL(h, 0x00103230u, scale_rows(g->spad3440, s));                  /* 00179F28.. */
         uint32_t out[16];
-        CALL(h, 0x001026D0u, em_loco_001026D0(out, g->spad3400, g->spad3440)); /* 00179FB0 */
+        CALL(h, 0x001026D0u, em_sdk_vu0_001026D0(out, g->spad3400, g->spad3440)); /* 00179FB0 */
         store16(b + 0x90, out);
     }
     return 0;
@@ -341,7 +321,7 @@ static int world_matrices(EmLocoHost *h, EmPlayerLiveActor *a)
         } else {                                                           /* 0017A06C */
             for (unsigned k = 0; k < 16; ++k) parent_m[k] = w32(a, 0xD0 + 4 * k);
         }
-        CALL(h, 0x001026D0u, em_loco_001026D0(result, parent_m, local));
+        CALL(h, 0x001026D0u, em_sdk_vu0_001026D0(result, parent_m, local));
         store16(bone + 0x90, result);
     }
     put8(a, 0x303, 1);                                                     /* 0017A094 */

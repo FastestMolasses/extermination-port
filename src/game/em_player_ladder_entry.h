@@ -22,8 +22,8 @@
  *   0017FC80  the clip request by +2F1 (001885D0 or 001885F0)
  *   00182A70  the climb step sound (00179B90 base + 0x109)
  *   001B61C0  the pad vibration request (EmPlayerRumble below)
- * and the two SDK copies they call, 00102948 (quadword copy) and 001031E0
- * (three-word copy).
+ * and the two SDK copies they call, 00102948 (quadword copy, em_sdk_vu0.h's)
+ * and 001031E0 (three-word copy).
  *
  * Every other original callee is a worker (EmPlayerLadderWorkers). A worker
  * that is missing is a fault: each entry point checks the whole worker set

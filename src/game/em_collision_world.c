@@ -409,6 +409,16 @@ static int pw_pose(void *c, float blend)
     if (!s_probe.pose || !s_probe.actor) return -1;
     return s_probe.pose(s_probe.pose_context, s_probe.actor, blend);
 }
+/* 0019BC40 pass 2's 0019F330: its one translation over the world's grid,
+ * SDK context and one scratchpad state (0x70003680 is state.ratio,
+ * 0x70003684 the segment scratch's cross[0]). */
+static int column_cross(void *c, uint32_t poly, const float a[3], const float b[3], float q[4])
+{
+    (void)c;
+    if (!w.loaded || poly < w.grid.first || poly - w.grid.first >= w.grid.count) return -1;
+    return em_coll_list_passes_0019F330(&w.grid, &w.math, &w.state, &w.face.cross[0], a, b,
+                                        (int)(poly - w.grid.first), q);
+}
 static float pw_sqrt(void *c, float x) { (void)c; return em_sdk_math_original_float_0011E748(&w.math, x); }
 static float pw_atan(void *c, float x) { (void)c; return em_sdk_math_original_float_0011DBB8(&w.math, x); }
 
@@ -435,7 +445,8 @@ int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, u
                                           { self, cls, NULL } };
     w.ground_player = (EmActorCollisionPlayer){ &w.acw, { self, cls, NULL }, NULL };
     w.column_math = (EmCollColumnMath){ em_sdk_math_original_float_0011E748,
-                                        em_sdk_math_original_float_0011DBB8, &w.math };
+                                        em_sdk_math_original_float_0011DBB8, &w.math,
+                                        column_cross, NULL };
     w.column_player = (EmActorCollisionPlayerColumn){ &w.acw, &w.column_math };
     b->ground = em_actor_collision_player_ground;
     b->ground_context = &w.ground_player;

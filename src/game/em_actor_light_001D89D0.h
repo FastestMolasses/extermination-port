@@ -20,9 +20,10 @@
  *             biased by 8388608 (NEARMISS C; the instructions were followed)
  *   SDK VU0 routines: 001026A0 (row transform), 00102738 (xyz dot),
  *             00102760 (xyz normalise, w = 0), 00102798 (4x4 transpose),
- *             001028B8 (add), 001028D0 (subtract), 00102900 (scale),
- *             00102948 / 00102958 (quadword copies); 001029C0, 00102A60,
- *             00102B08 and 00102BB0 are em_owner_services' verified ones.
+ *             001028B8 (add), 001028D0 (subtract), 00102958 (the
+ *             four-quadword copy); 00102900 (scale) and 00102948 (quadword copy) are
+ *             em_sdk_vu0.h's, and 001029C0, 00102A60, 00102B08 and 00102BB0
+ *             em_owner_services' verified ones.
  *
  * Verified by tools/test_actor_light_001d89d0_reference.py: the original
  * instructions run over synthetic states and over every captured AREA11

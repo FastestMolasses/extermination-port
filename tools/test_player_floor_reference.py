@@ -1124,7 +1124,8 @@ def real_world_section(elf, result):
                        'src/game/em_actor_collision.c', 'src/game/em_collision.c',
                        'src/game/em_coll_probe_original.c', 'src/game/em_effect_original.c',
                        'src/game/em_actor_pool.c', 'src/game/em_director_original.c',
-                       'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c', '-lm',
+                       'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
+                       'src/game/em_coll_list_passes_walkers.c', 'src/game/em_sdk_math_original.c', '-lm',
                        '-o', str(lib)])
     native = C.CDLL(str(lib))
     V, U8, U16, U32, I = C.c_void_p, C.c_uint8, C.c_uint16, C.c_uint32, C.c_int

@@ -18,7 +18,8 @@
  *                         0x0A through em_player_pose (the original channel
  *                         evaluator, docs/PLAYER_POSE.md).
  *   001C62C0, 001C6380, 001029C0, 00102B08/BB0/A60   em_owner_services_original.
- *   001026D0, 001026A0    the VU0 row transform (same forms as 001C9610).
+ *   001026D0             em_sdk_vu0.h's translation.
+ *   001026A0              the VU0 row transform (same forms as 001C9610).
  *   001C69A0              the animated bone pose: per bone quat_to_mat3 of the
  *                         evaluated channels, rows scaled by the channel scale,
  *                         then 001C9610's rest x animation x parent chain over

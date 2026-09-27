@@ -39,10 +39,9 @@
  *   001029C0 identity, 00102A60 z turn, 00102918 translate
  *            (em_owner_services_original.c),
  *   0011DF78 fabsf (em_sdk_math_original.c),
- *   00128250 float -> unsigned (em_stream_lanes_original.c).
- * Translated here (two SDK VU0 leaves no module exports in the EE float
- * model): 001026D0 (4x4 product) and 00102900 (vector times scalar), and the
- * quadword copy 00102948.
+ *   00128250 float -> unsigned (em_stream_lanes_original.c),
+ *   001026D0 4x4 product, 00102900 vector times scalar and 00102948
+ *            quadword copy (em_sdk_vu0.h, the one translation of each).
  *
  * Every other original callee is a worker (EmShadowActorRouteWorkers). A
  * missing worker, table, scratch word or player record is a fault: each

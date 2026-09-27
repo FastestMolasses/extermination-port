@@ -14,7 +14,7 @@
  *                           bone_init_default_1 001C62C0 and 001C9610
  *                           (em_owner_services_original)
  *   the SDK VU0 leaves      001026A0 / 00102760 (em_effect_original),
- *                           001026D0 (em_loco_001026D0), 001028B8
+ *                           001026D0 (em_sdk_vu0.h), 001028B8
  *                           (em_player_hang_vadd), 001028D0 (VSUB.xyzw),
  *                           001029C0 / 00102BB0 (em_owner_services_original)
  *   0015C310(player, 1)     the bindings' 0015C310 spawn (the equipment

@@ -12,7 +12,7 @@ Files (new, not yet in the build):
 
 | File | Contents |
 |---|---|
-| `src/game/em_render_verify_rest.h/.c` | 001C1DC0, 001C1E70, 001C1E80, 001C1E90, 001C1F50, 001E2260, 001E2270, 001E2280, 001E0CF0, 001C22A0, 001C2360, 001027E0, 00102850, 001000E0, 001FCF10, 001D4B50, 001DA1E0, 001DA290 |
+| `src/game/em_render_verify_rest.h/.c` | 001C1DC0, 001C1E70, 001C1E80, 001C1E90, 001C1F50, 001E2260, 001E2270, 001E2280, 001E0CF0, 001C22A0, 001C2360, 001027E0, 00102850, 001000E0, 001FCF10 (its 001D4B50, 001DA1E0 and 001DA290 were removed on 2026-09-27: the shadow passes are their one owner, see section 4) |
 | `tools/test_render_verify_rest_reference.py` | the original-instruction oracle for all of the above, and the per-function verification of em_shadow_original.c's 001DA080, 001DA310 and 001D5C80 |
 
 No original code, data or disassembly is in these files. The data the
@@ -42,9 +42,9 @@ is bound into the live game (section 4), so no row becomes live.
 | 00102850 | AI (.s) | missing | verified-unbound | Q = 1.0 / s (VDIV, reciprocal form (3,0)), out = v x Q on all four lanes. out may alias v (00209280 calls it in place with s = 12.0). |
 | 001000E0 | BM | missing | verified-unbound | Returns 1 when 001274B0(a, b) <= 0, else 0, a and b the full 64-bit argument registers (the soft-float double compare; em_sdk_soft_float_001274B0). |
 | 001FCF10 | BM | missing | verified-unbound | 001FCB90(0x10E, 0xCC, 5, 0) (the BATTERY page's message-bank group-5 line, called from 002149F0 state 4). |
-| 001D4B50 | BM | unverified (em_gfx comment) | verified-unbound | 001D49D0(obj) then 001D4B10(obj): the class-2 receiver's clip-pass packets. |
-| 001DA1E0 | BM | unverified | verified-unbound | The 0x80-byte CNT/DIRECT record at channel `a0`'s cursor (ctx+0x10+4*a0): +0 half 7, +3 byte 0x10, +4 word 0 (bytes +2 and +8..+0xF keep their value), +0x10..+0x1B 0, +0x1C 0x50000006, +0x20 0x5022400000008001, +0x28 0x44441, +0x30..+0x3B 0, +0x3C a2, +0x40..+0x7F the 64 bytes at a1 (read one quadword at a time after the header stores); the cursor += 0x80; returns record+0x10. |
-| 001DA290 | CL (.s) | verified-unbound (as a worker call in em_shadow_original) | packet content added here | 001D1F80(**a0**, 2, 9), then 001DA1E0(a0, a stack copy of D_002531D0, a1). See Findings 2. |
+| 001D4B50 | BM | unverified (em_gfx comment) | verified-unbound; since 2026-09-27 the shadow passes are its one owner (em_rvr_001D4B50 removed) | 001D49D0(obj) then 001D4B10(obj): the class-2 receiver's clip-pass packets. |
+| 001DA1E0 | BM | unverified | verified-unbound; since 2026-09-27 the shadow passes are its one owner (em_rvr_001DA1E0 removed) | The 0x80-byte CNT/DIRECT record at channel `a0`'s cursor (ctx+0x10+4*a0): +0 half 7, +3 byte 0x10, +4 word 0 (bytes +2 and +8..+0xF keep their value), +0x10..+0x1B 0, +0x1C 0x50000006, +0x20 0x5022400000008001, +0x28 0x44441, +0x30..+0x3B 0, +0x3C a2, +0x40..+0x7F the 64 bytes at a1 (read one quadword at a time after the header stores); the cursor += 0x80; returns record+0x10. |
+| 001DA290 | CL (.s) | verified-unbound (as a worker call in em_shadow_original) | packet content added here; removed again 2026-09-27 (one owner: the shadow passes) | 001D1F80(**a0**, 2, 9), then 001DA1E0(a0, a stack copy of D_002531D0, a1). See Findings 2. |
 | 001DA080 | BM | unverified (inline in em_shadow_original.c) | verified-unbound (tree file unchanged) | The two node picks: the smallest 00102738 dot with *a3 (near, D_00817FB0) and the largest with D_00817FC0 (far, D_00817FA0), both starting at node 1. |
 | 001DA310 | NM | unverified (em_shadow_original.c `box_pass`) | verified-unbound (tree file unchanged) | One destination-alpha box pass; see docs/SHADOW_ORIGINAL.md. |
 | 001D5C80 | NM | unverified (em_shadow_original.c `receivers`) | **fails** with the tree file; verified-unbound once the two hunks of Findings 1 are applied | The receiver sweep; see docs/SHADOW_ORIGINAL.md. |
@@ -91,8 +91,8 @@ original instructions (the split listing) were read, not the decomp C.
    and a2 = 9 before the call. The decomp C (asm-linked, not byte-matched)
    writes `func_001D1F80(0, 2, 9)`, which is not what executes. The unit
    oracle caught this with a0 = 1. 001DA6A0 passes 0, so on the shadow route
-   both forms give 0; em_rvr_001DA290 passes a0. The decomp comment should
-   be corrected (decomp repo, not this lane).
+   both forms give 0; the removed em_rvr_001DA290 passed a0. The decomp
+   comment should be corrected (decomp repo, not this lane).
 3. **em_player_fall.c: the 001000E0 argument is truncated.** 0017C580 copies
    00128350's whole 64-bit double into a0 (a 128-bit register copy) and
    calls 001000E0(a0, 0). EmPlayerLandWorkers types both `convert_00128350`'s
@@ -140,7 +140,6 @@ jump targets.
 | B 00102850 | random/special v and s (zero, denormal, Inf, NaN, 12.0), half in place | 600 | 6,000 |
 | B 001000E0 | special doubles, doubles of floats, random 64-bit patterns | 410 | 4,010 |
 | C 001FCF10 | the call | 1 | 1 |
-| D units | 001D4B50 (hooked 001D49D0/001D4B10); 001DA1E0 (4 channels, garbage windows, payload in place at +0x40 and overlapping the header); 001DA290 (hooked 001D1F80) | 190 | 1,900 |
 | D shadow | 001CB590 + 001DA6A0 executed with 001DA080, 001DA290, 001DA1E0, 001DA310, 001D5C80, 001D4B50 intercepted, against em_shadow_original_001DA6A0 (see below) | playable, opening, 06, 14, 8 synthetic, boundary | 7 captures, 15 beats, 48 synthetic, boundary |
 | E fail-stop | NULL workers, a failing worker, the latch, short views, the bone-table bound | 7 | 7 |
 
@@ -148,14 +147,18 @@ The D shadow section checks these fields against the native plan:
 - 001DA080: its arguments (D_00817FB0, D_00817FA0, the player),
   D_00817FC0 and *a3 at entry, both picks, and both indices.
 - 001DA290/001DA1E0: 001D1F80(a0, 2, 9); the arguments (the D_002531D0
-  template, a1); em_rvr_001DA1E0 over the pre-call window gives the same
-  record, cursors and return value.
+  template, a1). The record's native copy (em_rvr_001DA1E0) was removed on
+  2026-09-27. The strip it encodes is compared as drawn:
+  test_shadow_original_reference F checks em_gfx_shadow_alpha_clear's GS
+  state against the captured chains.
 - 001DA310 x2: anchor, size, colour, model object, colour row, camera and
   normal uploads, the 001D7080 RGBAQ, D_70003AC0 at its 001D4FB0 (the clip
   pass), and D_70003AC0 restored.
 - 001D5C80: its argument, both clip matrices, the 001C6120 probe order (ids),
   and the 001D4FB0 draw order with each 001D4B50 class-2 follow-up.
-- 001D4B50: em_rvr_001D4B50's worker calls.
+- 001D4B50: called exactly for the plan's class-2 receivers, each with
+  001D49D0(obj) then 001D4B10(obj). em_gfx_shadow_receiver's class-2
+  re-pass is the one owner.
 
 Synthetic cases jitter the nodes, move the whole body by up to 40 units,
 leave two nodes, and vary D_00817FF0. Both outcomes of every conditional
@@ -236,11 +239,13 @@ build with both files added links with zero warnings.
   receivers (the GS-side worker, Metal `em_gfx_shadow_*`). Its workers
   001D49D0 / 001D4B10 are census boundary (the clip-pass VIF packets; the
   port's clip kernel translation is `em_vu1_shadow_clip.h`).
-- **001DA1E0 / 001DA290**: the packet content behind em_shadow_original's
-  `w_alpha_clear` (Metal `em_gfx_shadow_alpha_clear` draws the strip
-  natively). Use em_rvr_001DA290 wherever the port compares or replays the
-  original packet bytes. Needs D_002531D0 (64 bytes of ELF data) and a
-  render-context/cursor view.
+- **001DA1E0 / 001DA290**: the packet behind em_shadow_original's
+  `w_alpha_clear`. Metal `em_gfx_shadow_alpha_clear` draws the strip
+  natively, and it is the one owner. The standalone packet builders
+  em_rvr_001DA1E0 / em_rvr_001DA290 were removed on 2026-09-27 as unbound
+  duplicates. If the port ever builds the shadow's DMA chain natively, the
+  record layout is in section 1's row, and the builder should be written
+  where it is bound.
 
 ## 5. Verified-unbound rows of these lanes (binding notes only)
 

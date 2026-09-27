@@ -3,11 +3,8 @@
  *
  * Read from the original instructions: the byte-matched decomp C for
  * 001C1DC0, 001C1E70, 001C1E80, 001C1E90, 001C22A0, 001C2360, 001E2260,
- * 001E2270, 001E2280, 001E0CF0, 001FCF10, 001000E0, 001D4B50 and 001DA1E0;
- * the split listing for 001DA290 (asm-linked: its decomp C's first
- * argument to 001D1F80 is not what executes),
- * the NEARMISS 001C1F50, the asm-word 001027E0 and the inline-asm
- * 00102850. Every original address a branch, call or store
+ * 001E2270, 001E2280, 001E0CF0, 001FCF10 and 001000E0; the NEARMISS
+ * 001C1F50, the asm-word 001027E0 and the inline-asm 00102850. Every original address a branch, call or store
  * comes from is cited beside it. */
 #include "game/em_render_verify_rest.h"
 #include "game/em_ee_float.h"
@@ -43,7 +40,6 @@ static int worker(EmRvrFault *fault, uint32_t address, int result)
 
 /* ---- little-endian record access ----------------------------------------- */
 
-static void put16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 
 static void put32(uint8_t *p, uint32_t v)
 {
@@ -379,70 +375,3 @@ int em_rvr_001FCF10(const EmRvrMessageWorkers *w, EmRvrFault *fault)
     return 0;
 }
 
-/* ======================================================================
- * L29b
- * ====================================================================== */
-
-int em_rvr_001D4B50(const EmRvrClipWorkers *w, uint32_t obj, EmRvrFault *fault)
-{
-    if (latched(fault)) return -1;
-    NEED(w, 0x001D4B50u);
-    NEED(w->w_001D49D0, 0x001D49D0u);
-    NEED(w->w_001D4B10, 0x001D4B10u);
-    CALL(0x001D49D0u, w->w_001D49D0(w->ctx, obj));
-    CALL(0x001D4B10u, w->w_001D4B10(w->ctx, obj));
-    return 0;
-}
-
-/* 001DA1E0. The cursor word is ctx + 0x10 + 4 * channel (the routine
- * indexes the render context as a word array). The record is checked to lie
- * inside `mem` before any byte is written. The payload is read one qword
- * at a time after the header stores, as the original interleaves it. */
-int em_rvr_001DA1E0(EmRvrRenderContext *rc, EmRvrMemory *mem, int32_t channel,
-                    const uint8_t payload[64], uint32_t word, uint32_t *body, EmRvrFault *fault)
-{
-    if (latched(fault)) return -1;
-    if (!payload || !body || !mem || !mem->bytes || channel < 0 || channel > 0x3FFFFFFB)
-        return fail(fault, 0x001DA1E0u, EM_RVR_FAULT_BAD_INPUT);
-    uint32_t slot = 0x10u + 4u * (uint32_t)channel;
-    if (!rc_span(rc, slot, 4)) return fail(fault, 0x001DA1E0u, EM_RVR_FAULT_BAD_INPUT);
-    uint32_t record = get32(rc->bytes + slot);
-    if (record < mem->base || record - mem->base > mem->size || mem->size - (record - mem->base) < 0x80)
-        return fail(fault, 0x001DA1E0u, EM_RVR_FAULT_BAD_INPUT);
-    uint8_t *p = mem->bytes + (record - mem->base);
-    p[3] = 0x10;                                                   /* 0x1DA214 */
-    put32(p + 4, 0);                                               /* 0x1DA224 */
-    put16(p + 0, 7);                                               /* 0x1DA22C */
-    put32(rc->bytes + slot, record + 0x80);                        /* 0x1DA238 */
-    memset(p + 0x10, 0, 16);                                       /* 0x1DA23C */
-    put32(p + 0x1C, 0x50000006u);                                  /* 0x1DA240 */
-    put64(p + 0x20, UINT64_C(0x5022400000008001));                 /* 0x1DA244 */
-    put64(p + 0x28, UINT64_C(0x44441));                            /* 0x1DA248 */
-    put32(p + 0x30, 0);                                            /* 0x1DA24C */
-    put32(p + 0x34, 0);
-    put32(p + 0x38, 0);
-    put32(p + 0x3C, word);                                         /* 0x1DA258 */
-    for (int k = 0; k < 4; ++k) {                                  /* 0x1DA25C..0x1DA280: */
-        uint8_t q[16];                                             /* each qword read, then */
-        memcpy(q, payload + 16 * k, 16);                           /* stored, in order */
-        memcpy(p + 0x40 + 16 * k, q, 16);
-    }
-    *body = record + 0x10;
-    return 0;
-}
-
-int em_rvr_001DA290(EmRvrRenderContext *rc, EmRvrMemory *mem, const EmRvrStateWorkers *w,
-                    const uint8_t template_2531D0[64], int32_t a0, uint32_t a1, EmRvrFault *fault)
-{
-    if (latched(fault)) return -1;
-    if (!template_2531D0) return fail(fault, 0x001DA290u, EM_RVR_FAULT_BAD_INPUT);
-    NEED(w, 0x001DA290u);
-    NEED(w->w_001D1F80, 0x001D1F80u);
-    uint8_t tmp[64];
-    memcpy(tmp, template_2531D0, sizeof tmp);                      /* the stack copy */
-    /* 0x1DA2D8: a0 is passed through unchanged (the listing sets only a1 = 2
-     * and a2 = 9; the decomp C's literal 0 is not what executes). */
-    CALL(0x001D1F80u, w->w_001D1F80(w->ctx, a0, 2, 9));
-    uint32_t body = 0;                                             /* 0x1DA2E8: */
-    return em_rvr_001DA1E0(rc, mem, a0, tmp, a1, &body, fault);
-}

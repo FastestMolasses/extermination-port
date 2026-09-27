@@ -10,14 +10,16 @@ handler executed (the handlers run as original instructions inside the
 original 001BA1F0; none is hooked) while every lockstep comparison of that
 test passes, and asserts that each handler's entry ran.
 
-Part 2, em_script_door_fan.c: 001BA510, 001BAC00, 001BAD40, 001B1B30,
-001BC240, 001BC290 and 001BBD60 execute as original instructions from the
+Part 2, em_script_door_fan.c: 001BA510, 001BAC00, 001BAD40, 001B1B30 and
+001BBD60 execute as original instructions from the
 user's pinned ELF over the captured first-control RAM; every callee is a
 hook recorded with its arguments and answered from one per-case script that
 also answers the native workers. Compared: the result, the ordered calls,
 every modelled record/global byte, and every original write must fall inside
 the modelled bytes. The opening capture checks the fields 001BAC00/001BAD40
-leave on the two actors the opening spawns.
+leave on the two actors the opening spawns. (The door's phase wrappers 001BC240 / 001BC290 are
+em_door_original's phases 4 and 5; tools/test_door_original_reference.py
+runs them, with the route beat 09 replay.)
 
 Part 3, em_script_door_fan_husk.c: the AREA11 overlay functions 0x825940,
 0x827490 and 0x823CE0 execute from the captured RAM (the test first asserts
@@ -76,7 +78,6 @@ DRAW = 0x01F80000                   # sentinel +0x4C draw callback address
 RANGES = {
     '001BA510': (0x1BA510, 0x1BA540), '001BAC00': (0x1BAC00, 0x1BAD3C),
     '001BAD40': (0x1BAD40, 0x1BB0E0), '001B1B30': (0x1B1B30, 0x1B1B70),
-    '001BC240': (0x1BC240, 0x1BC284), '001BC290': (0x1BC290, 0x1BC300),
     '001BBD60': (0x1BBD60, 0x1BBD94), '001B0080': (0x1B0080, 0x1B0244),
     'creature': (0x825940, 0x825B74), 'creature-2': (0x826D60, 0x826F2C),
     'partner': (0x827490, 0x827628), 'manager': (0x823CE0, 0x823E80),
@@ -198,11 +199,7 @@ class EventActor(C.Structure):
 class World(C.Structure):
     _fields_ = [('d2821B0', PI32), ('d2821B4', PI32), ('d2821B8', PI32), ('d8106C0', P32),
                 ('d810250', P32), ('d810254', PF), ('d810258', PF), ('d8101E4', P8),
-                ('d81024E', P16), ('d275BCC', P16), ('d8106B8', P8)]
-
-
-class DoorStep(C.Structure):
-    _fields_ = [('b0B', C.c_uint8), ('anim_flags', C.c_int16)]
+                ('d81024E', P16), ('d275BCC', P16)]
 
 
 class Seat(C.Structure):
@@ -239,8 +236,6 @@ SDF_WORKERS = [
     ('w_001C67E0', F(C.c_int, C.c_void_p, C.c_int16, C.c_float, C.c_float)),
     ('w_001B1630', F(C.c_int, C.c_void_p, C.c_float, C.c_float, C.c_float, PI32)),
     ('w_001B1B70', F(C.c_int, C.c_void_p)),
-    ('w_001C64F0', F(C.c_int, C.c_void_p, C.c_float, P16)),
-    ('w_001BC150', F(C.c_int, C.c_void_p)),
     ('w_001B1470', F(C.c_int, C.c_void_p, C.c_float, PF)),
     ('w_001029C0', F(C.c_int, C.c_void_p, P32)),
     ('w_00102C58', F(C.c_int, C.c_void_p, P32, P32, PF)),
@@ -325,8 +320,8 @@ LAYOUT = r'''
 int main(void) {
   S(EmSdfSpawned); O(EmSdfSpawned, s2E); O(EmSdfSpawned, rot_C0);
   S(EmSdfSpawnOwner); S(EmSdfEventActor); O(EmSdfEventActor, bones_110);
-  S(EmSdfWorld); O(EmSdfWorld, d8106B8); S(EmSdfDoorStep); S(EmSdfImage);
-  S(EmSdfWorkers); O(EmSdfWorkers, w_001BC150); S(EmSdfSeat); S(EmSdfSeatWorld);
+  S(EmSdfWorld); O(EmSdfWorld, d275BCC); S(EmSdfImage);
+  S(EmSdfWorkers); O(EmSdfWorkers, w_001B1B70); S(EmSdfSeat); S(EmSdfSeatWorld);
   S(EmHuskChild); O(EmHuskChild, bone3_11C); S(EmHuskCreature); O(EmHuskCreature, freed);
   S(EmHuskPartner); S(EmHuskLinked); S(EmHuskManager); S(EmHuskWorld);
   S(EmHuskWorkers); O(EmHuskWorkers, w_001FAE70);
@@ -349,8 +344,8 @@ def build():
                                           check=True).stdout.split()]
     mine = [C.sizeof(Spawned), Spawned.s2E.offset, Spawned.rot_C0.offset, C.sizeof(SpawnOwner),
             C.sizeof(EventActor), EventActor.bones_110.offset, C.sizeof(World),
-            World.d8106B8.offset, C.sizeof(DoorStep), C.sizeof(Image), C.sizeof(SdfWorkers),
-            SdfWorkers.w_001BC150.offset, C.sizeof(Seat), C.sizeof(SeatWorld), C.sizeof(Child), Child.bone3_11C.offset,
+            World.d275BCC.offset, C.sizeof(Image), C.sizeof(SdfWorkers),
+            SdfWorkers.w_001B1B70.offset, C.sizeof(Seat), C.sizeof(SeatWorld), C.sizeof(Child), Child.bone3_11C.offset,
             C.sizeof(Creature), Creature.freed.offset, C.sizeof(Partner), C.sizeof(Linked),
             C.sizeof(Manager), C.sizeof(HuskWorld), C.sizeof(HuskWorkers),
             HuskWorkers.w_001FAE70.offset]
@@ -362,9 +357,6 @@ def build():
     native.em_sdf_001BAD40.argtypes = [PEA, C.POINTER(C.c_ubyte), C.POINTER(World),
                                        C.POINTER(SdfWorkers), C.POINTER(Fault)]
     native.em_sdf_001B1B30.argtypes = [P8, C.c_float, C.c_float, C.c_float,
-                                       C.POINTER(SdfWorkers), C.POINTER(Fault)]
-    native.em_sdf_001BC240.argtypes = [C.POINTER(DoorStep), C.POINTER(SdfWorkers), C.POINTER(Fault)]
-    native.em_sdf_001BC290.argtypes = [C.POINTER(DoorStep), C.POINTER(World),
                                        C.POINTER(SdfWorkers), C.POINTER(Fault)]
     native.em_sdf_001B0080.argtypes = [C.POINTER(Seat), C.c_float, C.POINTER(SeatWorld),
                                        C.POINTER(SdfWorkers), C.POINTER(Fault)]
@@ -633,7 +625,6 @@ def sdf_workers(env, calls, mem, views, keep):
         'w_001C6120': rec('w_001C6120', out=True),
         'w_001C6150': rec('w_001C6150', out=True), 'w_001AF780': rec('w_001AF780', out=True),
         'w_001C61D0': rec('w_001C61D0', out=True), 'w_001B1630': rec('w_001B1630', out=True),
-        'w_001C64F0': rec('w_001C64F0', out=True, cast=s16),
     }
     for name, _ in SDF_WORKERS:
         if name not in table: table[name] = rec(name)
@@ -674,8 +665,7 @@ def sdf_hooks(o, env, calls):
         0x1CA6F0: ('w_001CA6F0', 'ob', False), 0x1CB5B0: ('w_001CB5B0', 'b', False),
         0x1C63E0: ('w_001C63E0', 'oh', False), 0x1C61D0: ('w_001C61D0', 'uh', True),
         0x1C67E0: ('w_001C67E0', 'xhff', False), 0x1B1630: ('w_001B1630', 'fff', True),
-        0x1B1B70: ('w_001B1B70', 'x', False), 0x1C64F0: ('w_001C64F0', 'xf', True),
-        0x1BC150: ('w_001BC150', 'x', False),
+        0x1B1B70: ('w_001B1B70', 'x', False),
     }
     for address, (name, kinds, result) in table.items():
         hook(o, address, rec(name, kinds, result))
@@ -829,11 +819,11 @@ ACTOR_FIELDS = [(0x04, 1, 'lifecycle'), (0x09, 1, 'b09'), (0x0C, 1, 'b0C'), (0x1
 GLOBALS = [('d2821B0', 0x2821B0, 4), ('d2821B4', 0x2821B4, 4), ('d2821B8', 0x2821B8, 4),
            ('d8106C0', 0x8106C0, 4), ('d810250', 0x810250, 4), ('d810254', 0x810254, 4),
            ('d810258', 0x810258, 4), ('d8101E4', 0x8101E4, 1), ('d81024E', 0x81024E, 2),
-           ('d275BCC', 0x275BCC, 2), ('d8106B8', 0x8106B8, 1)]
+           ('d275BCC', 0x275BCC, 2)]
 GLOBAL_CT = {'d2821B0': C.c_int32, 'd2821B4': C.c_int32, 'd2821B8': C.c_int32,
              'd8106C0': C.c_uint32, 'd810250': C.c_uint32, 'd810254': C.c_float,
              'd810258': C.c_float, 'd8101E4': C.c_uint8, 'd81024E': C.c_int16,
-             'd275BCC': C.c_int16, 'd8106B8': C.c_uint8}
+             'd275BCC': C.c_int16}
 
 
 def world_from(o):
@@ -975,52 +965,6 @@ def b1b30_cases():
         out.append((f'visible {visible} answer {answer}', visible, xyz, answer))
     out.append(('denormal and -0 arguments', 3, (0x00000001, 0x80000000, 0x7F7FFFFF), 1))
     return out
-
-
-# ---- 001BC240 / 001BC290 ---------------------------------------------------
-
-def case_door(case):
-    label, entry, b0b, flags_in, answer, b8 = case
-    env = Env(w_001C64F0=answer)
-    o = new_oracle()
-    ocalls = []
-    sdf_hooks(o, env, ocalls)
-    o.seed(ACT + 0xB, b0b, 1)
-    o.seed(ACT + 0x1FE, flags_in, 2)
-    o.seed(0x8106B8, b8, 1)
-    result = run_original(o, entry, (ACT, ACT + 0x1F0))
-    door = DoorStep(b0b, s16(flags_in))
-    world, cells = world_from(new_oracle_with(0x8106B8, b8))
-    ncalls, keep = [], []
-    workers = sdf_workers(Env(w_001C64F0=answer), ncalls, {}, {}, keep)
-    fault = Fault()
-    if entry == 0x1BC240:
-        got = CONTEXT['lib'].em_sdf_001BC240(C.byref(door), C.byref(workers), C.byref(fault))
-    else:
-        got = CONTEXT['lib'].em_sdf_001BC290(C.byref(door), C.byref(world), C.byref(workers),
-                                             C.byref(fault))
-    check_fault(fault, label)
-    if entry == 0x1BC290:
-        assert s32(result) == got, (label, result, got)
-    assert ocalls == ncalls, (label, ocalls, ncalls)
-    assert (o.load(ACT + 0xB, 1), s16(o.load(ACT + 0x1FE, 2))) == (door.b0B, door.anim_flags), label
-    assert_written(o, span(ACT + 0xB, 1) | span(ACT + 0x1FE, 2), label)
-    return o.outcomes
-
-
-def new_oracle_with(address, value):
-    o = new_oracle()
-    o.seed(address, value, 1)
-    return o
-
-
-def door_cases():
-    out = []
-    for entry, b0b, answer, b8 in itertools.product((0x1BC240, 0x1BC290), (0, 4, 0xFF),
-                                                    (0, 1, 0x7FFF, 0x8000, 0x1234), (0, 1, 2)):
-        out.append((f'{entry:06X} b0B {b0b} flags {answer:#x} B8 {b8}', entry, b0b, 0x5555,
-                    answer, b8))
-    return select(out, 40, 0x1BC240, axes=(lambda c: c[1], lambda c: c[4], lambda c: c[5]))
 
 
 # ---- 001BBD60 ------------------------------------------------------------
@@ -1694,53 +1638,12 @@ def husk_unit_cases():
 # ======================================================================
 
 def check_route_door():
-    """Replay 001BC240 / 001BC290 over the door rows of route beat 09.
-    Each frame t whose previous row shows the door (node r0) in phase 4 or 5
-    runs the native leaf with 001C64F0 answered by row t's +0x1FE (derived
-    from the capture, not a claim) and D_008106B8 = row t's request byte B8
-    (the room loader clears it earlier in the same frame: the capture shows
-    B8 and the phase reset in the same row). Asserted: exactly one 001BC240
-    commit, then 001BC290 returns 1 exactly on the row where the capture
-    resets the phase to 0, and its +0x0B equals that row's armed byte.
-    The beat-09 snapshot also holds the door open script's sound word
+    """The beat-09 snapshot holds the door open script's sound word
     (0x24DC58) that 001BBD60 patched when the door opened: the native
-    001BBD60 over the door's +0x56 and side must produce it."""
-    import json
-    trace = json.loads((ROUTE / '09_fence_door/trace.json').read_text())
-    rows = trace['rows']
-    head = lambda r: bytes.fromhex(r['door_r0']['h'])
-    block = lambda r: bytes.fromhex(r['door_r0']['s1F0'])
+    001BBD60 over the door's +0x56 and side must produce it. (The phase-4/5
+    replay of 001BC240 / 001BC290 over the beat's rows runs on their one
+    translation, em_door_original: tools/test_door_original_reference.py.)"""
     lib = CONTEXT['lib']
-    commits = restarts = frames = 0
-    for t in range(1, len(rows)):
-        prev, cur = rows[t - 1], rows[t]
-        phase = head(prev)[5]
-        if phase not in (4, 5):
-            continue
-        frames += 1
-        flags = s16(int.from_bytes(block(cur)[14:16], 'little'))
-        calls, keep = [], []
-        workers = sdf_workers(Env(w_001C64F0=flags), calls, {}, {}, keep)
-        door = DoorStep(head(prev)[11], s16(int.from_bytes(block(prev)[14:16], 'little')))
-        fault = Fault()
-        if phase == 4:
-            assert lib.em_sdf_001BC240(C.byref(door), C.byref(workers), C.byref(fault)) == 0
-            assert calls == [('w_001C64F0', bits(1.0)), ('w_001BC150',)], calls
-            commits += 1
-        else:
-            b8 = C.c_uint8(bytes.fromhex(cur['req'])[8])
-            world, cells = world_from(new_oracle())
-            world.d8106B8 = C.pointer(b8)
-            result = lib.em_sdf_001BC290(C.byref(door), C.byref(world), C.byref(workers),
-                                         C.byref(fault))
-            assert (result == 1) == (head(cur)[5] == 0), (t, result, head(cur)[5])
-            if result == 1:
-                assert door.b0B == head(cur)[11] and \
-                    ('w_001C67E0', 0, 0, 0) in calls, (t, door.b0B, calls)
-                restarts += 1
-        check_fault(fault, f'route 09 row {t}')
-        assert door.anim_flags == flags
-    assert (commits, restarts) == (1, 1), (commits, restarts)
     m = CONTEXT['images']['s87/route/09_fence_door/eeMemory.bin'] \
         if 's87/route/09_fence_door/eeMemory.bin' in CONTEXT['images'] else \
         (ROUTE / '09_fence_door/eeMemory.bin').read_bytes()
@@ -1762,7 +1665,7 @@ def check_route_door():
     finally:
         CONTEXT['base'] = CONTEXT.pop('base_saved')
     assert word.value == patched, (hex(word.value), hex(patched))
-    return frames + 1
+    return 1
 
 
 def check_fail_stop():
@@ -1772,11 +1675,11 @@ def check_fail_stop():
     calls, keep = [], []
     empty = SdfWorkers()
     fault = Fault()
-    door = DoorStep(4, 0)
-    assert lib.em_sdf_001BC240(C.byref(door), C.byref(empty), C.byref(fault)) == -1
-    assert (fault.address, fault.code, door.anim_flags) == (0x1C64F0, 1, 0); n += 1
-    assert lib.em_sdf_001BC240(C.byref(door), C.byref(empty), C.byref(fault)) == -1
-    assert fault.address == 0x1C64F0; n += 1          # latched
+    visible = C.c_uint8(9)
+    assert lib.em_sdf_001B1B30(C.byref(visible), 1.0, 0.0, 0.0, C.byref(empty), C.byref(fault)) == -1
+    assert (fault.address, fault.code, visible.value) == (0x1B1630, 1, 9); n += 1
+    assert lib.em_sdf_001B1B30(C.byref(visible), 1.0, 0.0, 0.0, C.byref(empty), C.byref(fault)) == -1
+    assert fault.address == 0x1B1630; n += 1          # latched
     workers = sdf_workers(Env(w_001AFA90=[NODES]), calls, {}, {NODES: Spawned()}, keep)
     record = (C.c_ubyte * 0x40)(); struct.pack_into('<I', record, 0x14, 0x01D10800)
     data = bytes(0x10)
@@ -1877,7 +1780,6 @@ def main():
     bad = bad40_cases()
     run('001BAD40', case_bad40, bad)
     run('001B1B30', case_b1b30, b1b30_cases())
-    run('001BC240/290', case_door, door_cases())
     run('001BBD60', case_bbd60, bbd60_cases(), size=len)
     run('001B0080', case_b0080, b0080_cases())
     counts['001BBD60'] = sum(len(c) for c in bbd60_cases())
@@ -1901,7 +1803,7 @@ def main():
         if results and results[-1] == 'untranslated': untranslated.add(label)
     missing = branch_report(outcomes)
     assert not missing, ('conditional branches not observed both ways', missing)
-    counts['route 09 door frames'] = check_route_door()
+    counts['route 09 door sound word'] = check_route_door()
     counts['native fail-stop checks'] = check_fail_stop()
     print('part 2:', ', '.join(f'{k} {v}' for k, v in counts.items()), 'cases/fields match')
     print('part 3: captured states',

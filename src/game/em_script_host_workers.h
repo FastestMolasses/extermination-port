@@ -17,8 +17,8 @@
  *   001B1470  em_player_001B1470 (em_player_stage_workers.c), over the
  *             argument domain below
  *   0011E620  em_sdk_math_original_0011E620 (em_sdk_math_original.c)
- * 00102948 (the four-word lq/sq copy) is written inline where 001B0460 calls
- * it. The other callees (00111018, 001AEDE0, 001FAD70; for 001B0460:
+ * 00102948 (the four-word lq/sq copy) is em_sdk_vu0.h's, called where
+ * 001B0460 calls it. The other callees (00111018, 001AEDE0, 001FAD70; for 001B0460:
  * 001B0250, 001B0B50, 001B0080, 0018C0D0, 001DD980 and the VU0 leaves
  * 001029C0, 00102C58, 001026A0, 001028B8) are workers.
  *

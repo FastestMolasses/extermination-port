@@ -26,16 +26,19 @@ A. L31 (001C1F50, 001C1DC0 with the thunks 001C1E70/80/90, 001E2260,
 B. L37 (001027E0, 00102850, 001000E0): random and special bit patterns and
    the captured view matrices; every output bit.
 C. L20 (001FCF10): the call.
-D. L29b. 001D4B50, 001DA1E0 and 001DA290 as units (call logs, record bytes,
-   cursor, the in-place payload order). Then the original 001CB590 +
-   001DA6A0 over every capture and route beat (quick: four of them) and
-   over synthetic node/light perturbations, with 001DA080, 001DA310,
-   001D5C80, 001D4B50 and 001DA290 intercepted (executed, their inputs and
-   outputs recorded) and compared with em_shadow_original_001DA6A0's plan:
-   picks and indices, box inputs/uploads/RGBAQ/clip pass, receiver probe
-   order, receiver draw order and classes, the two clip matrices; and the
-   001DA290 record with em_rvr_001DA290. Both outcomes of every conditional
-   branch of 001DA080 are asserted reached.
+D. L29b. The original 001CB590 + 001DA6A0 over every capture and route beat
+   (quick: four of them) and over synthetic node/light perturbations, with
+   001DA080, 001DA310, 001D5C80, 001D4B50 and 001DA290 intercepted
+   (executed, their inputs and outputs recorded) and compared with
+   em_shadow_original_001DA6A0's plan: picks and indices, box
+   inputs/uploads/RGBAQ/clip pass, receiver probe order, receiver draw order
+   and classes, the two clip matrices; 001DA290's 001D1F80(a0, 2, 9) and
+   001DA1E0(a0, D_002531D0, a1) arguments, and 001D4B50 exactly for the
+   class-2 receivers with its 001D49D0 / 001D4B10 calls. Both outcomes of
+   every conditional branch of 001DA080 are asserted reached. (001D4B50,
+   001DA290 and 001DA1E0 have one owner, the shadow passes drawn by
+   em_gfx_shadow_*; test_shadow_original_reference F compares their GS
+   state with the captured chains.)
 E. Fail-stop: NULL workers, failing workers, a latched fault, views too small.
 """
 import ctypes as C
@@ -223,10 +226,6 @@ class RenderCtx(C.Structure):
     _fields_ = [('bytes', P(U8)), ('size', U32)]
 
 
-class Memory(C.Structure):
-    _fields_ = [('bytes', P(U8)), ('base', U32), ('size', U32)]
-
-
 AREA_FIELDS = [('ctx', VP), ('w_001D2830', FN(I, VP, I32, I32)), ('w_001E2260', FN(I, VP, U64)),
                ('w_001E2270', FN(I, VP, U32)), ('w_001E2280', FN(I, VP, U64)), ('w_001D52E0', FN(I, VP)),
                ('w_001D8FD0', FN(I, VP)), ('w_001C1EA0', FN(I, VP, U32))]
@@ -237,8 +236,6 @@ MODEL_FIELDS = [('ctx', VP), ('w_001C6120', FN(I, VP, U32, U32, P(U32))),
                 ('w_001AF780', FN(I, VP, P(U32))), ('w_001CB5B0', FN(I, VP, I32)),
                 ('w_001C62C0', FN(I, VP, P(U8), U32))]
 MSG_FIELDS = [('ctx', VP), ('w_001FCB90', FN(I, VP, I32, I32, I32, I32))]
-CLIP_FIELDS = [('ctx', VP), ('w_001D49D0', FN(I, VP, U32)), ('w_001D4B10', FN(I, VP, U32))]
-STATE_FIELDS = [('ctx', VP), ('w_001D1F80', FN(I, VP, I32, I32, I32))]
 
 
 def struct_of(name, fields):
@@ -249,8 +246,6 @@ AreaW = struct_of('AreaW', AREA_FIELDS)
 BgW = struct_of('BgW', BG_FIELDS)
 ModelW = struct_of('ModelW', MODEL_FIELDS)
 MsgW = struct_of('MsgW', MSG_FIELDS)
-ClipW = struct_of('ClipW', CLIP_FIELDS)
-StateW = struct_of('StateW', STATE_FIELDS)
 
 
 def build_native():
@@ -277,9 +272,6 @@ def build_native():
     n.em_rvr_001000E0.argtypes = [U64, U64]
     n.em_rvr_001000E0.restype = I32
     n.em_rvr_001FCF10.argtypes = [P(MsgW), F]
-    n.em_rvr_001D4B50.argtypes = [P(ClipW), U32, F]
-    n.em_rvr_001DA1E0.argtypes = [P(RenderCtx), P(Memory), I32, P(U8), U32, P(U32), F]
-    n.em_rvr_001DA290.argtypes = [P(RenderCtx), P(Memory), P(StateW), P(U8), I32, U32, F]
     return n
 
 
@@ -690,96 +682,6 @@ def section_c(e, n):
 # D. L29b
 # ======================================================================
 
-def clip_native(n, obj):
-    nlog = []
-    cbs = [FN(I, VP, U32)(lambda _, o: nlog.append(('001D49D0', o)) or 0),
-           FN(I, VP, U32)(lambda _, o: nlog.append(('001D4B10', o)) or 0)]
-    w, fault = ClipW(None, *cbs), Fault()
-    assert n.em_rvr_001D4B50(C.byref(w), obj, C.byref(fault)) == 0
-    return nlog
-
-
-def record_native(n, ctx_bytes, window_base, window, channel, payload_addr, payload, word,
-                  a290=None, template=None):
-    """em_rvr_001DA1E0 (or 001DA290) over copies; returns (window, ctx, body, log)."""
-    rcb = u8buf(ctx_bytes)
-    rc = RenderCtx(rcb, len(ctx_bytes))
-    mb = u8buf(window)
-    mem = Memory(mb, window_base, len(window))
-    fault, body = Fault(), U32()
-    if a290 is None:
-        # the payload may lie in the window: read it through the window view
-        if window_base <= payload_addr < window_base + len(window):
-            pp = C.cast(C.byref(mb, payload_addr - window_base), P(U8))
-        else:
-            pp = u8buf(payload)
-        assert n.em_rvr_001DA1E0(C.byref(rc), C.byref(mem), channel, pp, word, C.byref(body),
-                                 C.byref(fault)) == 0, fault.code
-        return bytes(mb), bytes(rcb), body.value, []
-    nlog = []
-    cb = FN(I, VP, I32, I32, I32)(lambda _, a, b, c: nlog.append(('001D1F80', a & MASK32, b & MASK32,
-                                                                  c & MASK32)) or 0)
-    w = StateW(None, cb)
-    assert n.em_rvr_001DA290(C.byref(rc), C.byref(mem), C.byref(w), u8buf(template), a290[0], a290[1],
-                             C.byref(fault)) == 0, fault.code
-    return bytes(mb), bytes(rcb), None, nlog
-
-
-def section_d_units(e, n, ctx, rng, template):
-    assert_callees(e, 0x1D4B50, (0x1D49D0, 0x1D4B10))
-    assert_callees(e, 0x1DA1E0, ())
-    assert_callees(e, 0x1DA290, (0x1D1F80,), (0x1DA1E0,))
-    for i in range(RM.pick(400, 40)):
-        obj = rng.getrandbits(32)
-        log = Log(e)
-        log.hook(0x1D49D0, '001D49D0', 1)
-        log.hook(0x1D4B10, '001D4B10', 1)
-        e.r[29] = STACK_TOP
-        e.call64(0x1D4B50, (obj,))
-        e.hooks.pop(0x1D49D0); e.hooks.pop(0x1D4B10)
-        same('001D4B50', clip_native(n, obj), log.calls)
-        count('D 001D4B50 cases')
-    WIN = 0x6C0000
-    for i in range(RM.pick(1500, 150)):
-        use290 = i % 3 == 0
-        channel = 0 if use290 and i % 2 else rng.randrange(0, 4)
-        rec = WIN + 0x100 + 0x10 * rng.randrange(0, 16)
-        garbage = bytes(rng.getrandbits(8) for _ in range(0x400))
-        payload_addr = WIN + 0x300
-        mode = rng.randrange(4)
-        if mode == 1: payload_addr = rec + 0x40     # the payload is the record's own tail
-        if mode == 2: payload_addr = rec + 0x10     # the payload overlaps the header stores
-        word = rng.getrandbits(32)
-        region = Region(e, [(WIN, 0x400), (ctx, 0x40)])
-        e.write(WIN, garbage)
-        for c in range(4):
-            e.save(ctx + 0x10 + 4 * c, rec if c == channel else rng.getrandbits(32))
-        ctx_before, win_before = e.read(ctx, 0x40), e.read(WIN, 0x400)
-        payload = e.read(payload_addr, 64)
-        log = Log(e)
-        e.r[29] = STACK_TOP
-        if use290:
-            log.hook(0x1D1F80, '001D1F80', 3)
-            e.call64(0x1DA290, (channel, word))
-            e.hooks.pop(0x1D1F80)
-            v0 = None
-        else:
-            v0 = e.call64(0x1DA1E0, (channel, payload_addr, word)) & MASK32
-        win_after, ctx_after = e.read(WIN, 0x400), e.read(ctx, 0x40)
-        region.restore()
-        mb, rcb, body, nlog = record_native(n, ctx_before, WIN, win_before, channel, payload_addr, payload,
-                                            word, (channel, word) if use290 else None, template)
-        same('001DA1E0/001DA290 window', mb, win_after)
-        same('001DA1E0/001DA290 ctx cursors', rcb, ctx_after)
-        if use290:
-            same('001DA290 calls', nlog, log.calls)
-            count('D 001DA290 cases')
-        else:
-            same('001DA1E0 v0', body, v0)
-            count('D 001DA1E0 cases')
-            if mode in (1, 2): count('D 001DA1E0 aliased payload cases')
-
-
 # ---- D4: the shadow chain intercepted ---------------------------------------
 
 def box_library(ram):
@@ -926,11 +828,7 @@ def shadow_compare(n, lib, label, ram, scratch, template, ff0=None):
     r290, r = rec['1DA290'][0], rec['1DA1E0'][0]
     same(f'{label} 001DA290 calls', [('001D1F80', r290['a0'], 2, 9)], r290['calls'])
     same(f'{label} 001DA1E0 arguments', (r290['a0'], TEMPLATE[0], r290['a1']), (r['a0'], r['payload'], r['a2']))
-    mb, rcb, body, _ = record_native(n, r['ctx'], r['cursor'], r['window'], s32(r['a0']), 0, r['payload'], r['a2'])
-    same(f'{label} 001DA1E0 record', mb, r['window_after'])
-    same(f'{label} 001DA1E0 cursors', rcb, r['ctx_after'])
-    same(f'{label} 001DA1E0 v0', body, r['v0'])
-    count('D shadow 001DA290/001DA1E0 records')
+    count('D shadow 001DA290/001DA1E0 calls')
     # 001DA310 x2
     assert len(rec['1DA310']) == 2, label
     lib_models = box_library(ram)
@@ -968,7 +866,7 @@ def shadow_compare(n, lib, label, ram, scratch, template, ff0=None):
     same(f'{label} 001D4B50 calls', [x[0] for x in want if x[1] == 2], [st['obj'] for st in b50])
     expect = []
     for st in b50:
-        expect += clip_native(n, st['obj'])
+        expect += [('001D49D0', st['obj']), ('001D4B10', st['obj'])]
     same(f'{label} 001D4B50 worker calls', expect, rec['b50_calls'])
     count('D shadow 001D4B50 calls', len(b50))
     return {'label': label, 'drawn': 1, 'receivers': p.receiver_count,
@@ -1129,12 +1027,6 @@ def section_e(n):
     rc = RenderCtx(u8buf(bytes(0x1D4)), 0x1D4)
     fault = Fault()
     assert n.em_rvr_001E2260(C.byref(rc), 1, C.byref(fault)) == -1 and fault.code == 3
-    rc = RenderCtx(u8buf(struct.pack('<4I', 0, 0, 0, 0) + struct.pack('<I', 0x1000) + bytes(0x40)), 0x54)
-    mem = Memory(u8buf(bytes(0x7F)), 0x1000, 0x7F)
-    fault, body = Fault(), U32()
-    assert n.em_rvr_001DA1E0(C.byref(rc), C.byref(mem), 0, u8buf(bytes(64)), 0, C.byref(body),
-                             C.byref(fault)) == -1 and fault.code == 3
-    assert bytes(C.string_at(mem.bytes, 0x7F)) == bytes(0x7F), 'wrote before the fault'
     # 001C22A0: a record too short for the bone table faults at the store
     SIZE = 0x118
     rec = u8buf(bytes(SIZE))
@@ -1197,7 +1089,6 @@ def main():
                           for off in (0x2380, 0x2340, 0x2240, 0x23C0)] +
               [struct.unpack('<16I', playable[0x810610:0x810650])])
     section_c(e, n)
-    section_d_units(e, n, ctx, rng, template)
     report['shadow'] = section_d_shadow()
     section_e(n)
 

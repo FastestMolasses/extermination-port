@@ -6,6 +6,7 @@
  * the model's VU_FORMS table. Comments describe what the original computes;
  * they never reproduce its instruction stream. */
 #include "game/em_effect_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <math.h>
 #include <string.h>
@@ -822,8 +823,8 @@ int em_effect_original_001EFD90(EmEffectOriginal *e, uint32_t id, const float po
     if (!node)
         return 0;
     NEED(pos, 0x00102948u);
-    memcpy(node->pos, pos, sizeof node->pos);   /* 00102948(p + 0xB0, pos) */
-    memcpy(node->rot, rot, sizeof node->rot);   /* 00102948(p + 0xC0, rot) */
+    em_sdk_vu0_00102948(node->pos, pos);        /* 00102948(p + 0xB0, pos) */
+    em_sdk_vu0_00102948(node->rot, rot);        /* 00102948(p + 0xC0, rot) */
     node->pos[3] = bfloat(FP_ONE);              /* node +0xBC = 1.0 (integer store) */
     *out = node;
     return 0;
@@ -905,7 +906,7 @@ int em_effect_original_001F0460(EmEffectOriginal *e, int32_t n, const float src[
     slot->tag = tag;
     slot->life = count * 60;
     memcpy(slot->source, src, sizeof slot->source); /* copy_qw4 */
-    memcpy(slot->params, params, sizeof slot->params); /* 00102948(p + 0x40, buf) */
+    em_sdk_vu0_00102948(slot->params, params);         /* 00102948(p + 0x40, buf) */
     return 0;
 }
 

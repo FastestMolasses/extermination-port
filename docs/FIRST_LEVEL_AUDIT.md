@@ -448,6 +448,39 @@ stage; PLAYER_STAGE_WORKERS.md 2.1, census 1.26):**
   frame without the background, which the route never shows); the movie
   frame's flag 4 (001D1C10, step N) is not set.
 
+**Status update (2026-09-27, chain C8: duplicate translations reduced to
+one bound owner; docs/SDK_VU0.md, census 1.28):**
+- **SDK VU0 leaves.** 001026D0, 00102900 and 00102948 each have one
+  translation, the header-only em_sdk_vu0.h, checked by the new
+  test_sdk_vu0_reference against the original instructions. Every module
+  that carried a copy calls it:
+  - the shadow route, the locomotion display, the equipment, the effect
+    manager, the actor light, the camera leftovers, the status models, the
+    frame render heads and em_shadow_original;
+  - em_shadow_original's product now runs on the measured VU0 model instead
+    of a host-double truncation. The full shadow sweep and check_shadow pass.
+- **0019F330 (census live).** It runs its one translation
+  (em_coll_list_passes_walkers) as 0019BC40 pass 2's worker, over the
+  collision world's scratchpad state. em_collision.c's column_node is gone.
+- **One owner each for the rest:**
+  - 001C6150: the status pages' and indicator children's byte reads call
+    em_owner_services_001C6150;
+  - 001BC240 / 001BC290: em_door_original's phases 4 / 5 (em_sdf_ copies
+    removed, their cases moved to test_door_original_reference);
+  - 001D4B50 / 001DA1E0 / 001DA290: the shadow passes (em_rvr_ packet
+    builders removed).
+- **Evidence.** All make test-* pass. test-level-smoke-full passes with
+  --require-through. newgame-control 9.599849. Census: live 660,
+  verified-unbound 77, unverified 3, missing 1, boundary 443 (91.8% by
+  instructions).
+- **Open (SDK_VU0.md "Not reduced"):**
+  - em_crate_original's 001026D0 and em_snow's inline 00102900 keep their
+    own arithmetic, because their oracles are not on the measured model.
+    The crate oracle's SDK semantics give a denormal where the VU0 model
+    gives 0, a fidelity question for the live crates.
+  - Roger's 001C6150 read stays on his resource bytes.
+  - 001026A0 / 00103230 still have several copies.
+
 ---
 
 ## 2. Live call graph (normal run)

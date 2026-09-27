@@ -964,17 +964,49 @@ class Column(C.Structure):
                 ('object_node', C.c_int16 * 20), ('object_kind', C.c_uint8 * 20)]
 
 
-class ColumnMath(C.Structure):
-    _fields_ = [('sqrt', MATH1_FN), ('atan', MATH1_FN), ('context', C.c_void_p)]
-
-
+# The native column over the user's EMCL, with 0019BC40 pass 2's 0019F330
+# bound to its one translation (em_coll_list_passes_0019F330) over the EMCL's
+# rank grid, the SDK math tables and a scratchpad state, as
+# em_collision_world binds it.
 COLUMN_BRIDGE = r"""
 #include <stdlib.h>
+#include <string.h>
 #include "game/em_collision.h"
-void *world_new(const char *path) {
-    EmCollision *c = calloc(1, sizeof *c);
-    if (!c || em_collision_load(c, path)) { free(c); return 0; }
-    return c;
+#include "game/em_coll_list_passes_walkers.h"
+#include "game/em_sdk_math_original.h"
+typedef struct {
+    EmCollision c;
+    EmCollProbeGrid grid;
+    EmSdkMathTables tables;
+    int32_t d26C5D0;
+    EmSdkMathContext math;
+    EmCollProbeState state;
+    float s3684;
+} World;
+static int cross(void *ctx, uint32_t poly, const float a[3], const float b[3], float q[4]) {
+    World *w = ctx;
+    if (poly < w->grid.first || poly - w->grid.first >= w->grid.count) return -1;
+    return em_coll_list_passes_0019F330(&w->grid, &w->math, &w->state, &w->s3684, a, b,
+                                        (int)(poly - w->grid.first), q);
+}
+void *world_new(const char *path, const char *sdk) {
+    World *w = calloc(1, sizeof *w);
+    if (!w || em_collision_load(&w->c, path) || em_coll_probe_grid_load(&w->grid, &w->c, path) ||
+        em_sdk_math_original_load_export(sdk, &w->tables, &w->d26C5D0)) { free(w); return 0; }
+    w->math.tables = &w->tables;
+    w->math.world.d26C5D0 = &w->d26C5D0;
+    return w;
+}
+int column(void *world, const EmCollColumnOwner *owners, unsigned count, const float pos[3],
+           EmCollColumn *out) {
+    World *w = world;
+    EmCollColumnMath m;
+    memset(&m, 0, sizeof m);
+    m.cross = cross;
+    m.cross_context = w;
+    w->math.fault = 0;
+    int n = em_collision_column_table(&w->c, owners, count, pos, &m, out);
+    return w->math.fault ? -1 : n;
 }
 """
 
@@ -1026,26 +1058,27 @@ def world_column(points, seed=0x19BC40, explicit=None):
     source, lib = out / 'column_bridge.c', out / ('column.dylib' if sys.platform == 'darwin' else 'column.so')
     source.write_text(COLUMN_BRIDGE)
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
-                    '-fPIC', '-Isrc', str(source), 'src/game/em_collision.c', '-lm', '-o', str(lib)],
+                    '-fPIC', '-Isrc', str(source), 'src/game/em_collision.c',
+                    'src/game/em_coll_list_passes_walkers.c', 'src/game/em_coll_probe_original.c',
+                    'src/game/em_sdk_math_original.c', 'src/game/em_actor_collision.c',
+                    'src/game/em_actor_pool.c', 'src/game/em_effect_original.c', '-lm', '-o', str(lib)],
                    cwd=ROOT, check=True)
     native = C.CDLL(str(lib))
-    native.world_new.restype = C.c_void_p; native.world_new.argtypes = [C.c_char_p]
-    native.em_collision_column_table.argtypes = [C.c_void_p, C.POINTER(ColumnOwner), C.c_uint,
-                                                 C.POINTER(C.c_float), C.POINTER(ColumnMath),
-                                                 C.POINTER(Column)]
-    world = native.world_new(str(ROOT / 'assets/scene_snow/snow.emcl').encode())
-    assert world, 'assets/scene_snow/snow.emcl'
+    native.world_new.restype = C.c_void_p; native.world_new.argtypes = [C.c_char_p, C.c_char_p]
+    native.column.argtypes = [C.c_void_p, C.POINTER(ColumnOwner), C.c_uint, C.POINTER(C.c_float),
+                              C.POINTER(Column)]
+    sdk = ROOT / 'assets/sdk_math_tables.emsm'
+    world = native.world_new(str(ROOT / 'assets/scene_snow/snow.emcl').encode(), str(sdk).encode())
+    assert world, ('assets/scene_snow/snow.emcl (flags 7)', sdk)
     owners, count, keep, unsupported = column_owners(ram, spad)
-    math_workers = ColumnMath(MATH1_FN(lambda _, x: LIBC.sqrtf(x)), MATH1_FN(lambda _, x: LIBC.atanf(x)), None)
     rng = random.Random(seed)
     # COP1 and the VU0 macro ops through the measured EE model, as the native
-    # column (em_collision.c / em_actor_collision.c on em_ee_float.h) computes
-    # them (EE_FLOAT_MODEL.md 5c).
+    # column (em_collision.c on em_ee_float.h, 0019F330 through
+    # em_coll_list_passes_walkers and the SDK's 0011E748 / 0011DBB8 / 0011DF78
+    # through em_sdk_math_original) computes them (EE_FLOAT_MODEL.md 5c): the
+    # original 0019BC40 runs with every callee unhooked.
     from test_coll_move_reference import FloatEE
     ee = FloatEE(ELF, ram, spad)
-    ee.hooks[SQRT] = lambda e: e.ret_float(LIBC.sqrtf(e.farg(0)))
-    ee.hooks[0x11DBB8] = lambda e: e.ret_float(LIBC.atanf(e.farg(0)))
-    ee.hooks[FABS] = lambda e: e.ret_float(abs(e.farg(0)))
     spad_before = bytes(ee.spad)
     node_base = struct.unpack_from('<I', ram, struct.unpack_from('<I', ram, 0x28A598)[0] + 0x20)[0] + \
         struct.unpack_from('<I', ram, 0x28A598)[0]
@@ -1077,8 +1110,8 @@ def world_column(points, seed=0x19BC40, explicit=None):
             expect.append((ee.load(0x70003170 + 2 * i, 2), ee.load(0x700030F0 + 4 * i),
                            ee.load(0x282250 + 4 * i), ee.load(obj + 0x54, 1), ee.load(obj + 0x1A, 1)))
         col = Column()
-        native.em_collision_column_table(world, owners, count, (C.c_float * 3)(x, y, z),
-                                         C.byref(math_workers), C.byref(col))
+        assert native.column(world, owners, count, (C.c_float * 3)(x, y, z), C.byref(col)) >= 0, \
+            ('native column faulted', x, y, z)
         got = []
         for i in range(col.count):
             kind = col.object_kind[i] if col.owner[i] >= 0 else None

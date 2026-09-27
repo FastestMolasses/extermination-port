@@ -24,7 +24,7 @@
  *   00191210  the area-0x10 eye clamp (a leaf all of them share).
  *
  * Inline leaves (translated where they are called): 0011DF78 (fabsf: the
- * sign bit cleared), 00102948 (a 16-byte copy), 001031E0 (a 3-word copy),
+ * sign bit cleared), 00102948 (a 16-byte copy, em_sdk_vu0.h's), 001031E0 (a 3-word copy),
  * 001029C0 (the identity matrix), 001028D0 (VSUB.xyzw) and 00102738
  * (VMUL.xyz, VADDy.x, VADDz.x).
  *

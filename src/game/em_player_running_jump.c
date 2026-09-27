@@ -20,6 +20,7 @@
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_player_fall.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -320,7 +321,7 @@ static int probe(EmPlayerLiveActor *a, const EmPlayerRunningJumpScene *scene,
     /* 0015F740: the reach by the size tier +25C. */
     unsigned tier = u8(a, 0x25C);
     F reach = tier < 2 ? K_2 : tier == 2 ? K_3 : K_4;
-    memcpy(v, kForward, sizeof kForward);                              /* 0015F790 00102948 */
+    em_sdk_vu0_00102948(v, kForward);                                  /* 0015F790 00102948 */
     v[2] = mul(v[2], reach);                                           /* 0015F7B0 */
     F m[16];
     record_matrix(a, m);

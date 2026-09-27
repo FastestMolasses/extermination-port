@@ -19,6 +19,7 @@
 #include "game/em_player_hang.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_roger_actor_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -126,7 +127,7 @@ static int w_001026A0(void *ctx, const u32 m[16], const u32 v[4], u32 out[4])
 static int w_001026D0(void *ctx, const u32 a[16], const u32 b[16], u32 out[16])
 {
     (void)ctx;
-    return em_loco_001026D0(out, a, b) < 0 ? -1 : 0;
+    return em_sdk_vu0_001026D0(out, a, b) != EM_EE_FLOAT_OK ? -1 : 0;
 }
 static int w_001028B8(void *ctx, const u32 a[4], const u32 b[4], u32 out[4])
 {

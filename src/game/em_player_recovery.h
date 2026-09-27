@@ -14,7 +14,7 @@
  * and the pure leaves they call, translated inline and executed unhooked by
  * the oracle: 0011DF78 (fabs), float_to_int (001281C0), 001B1470 (angle
  * wrap), 001026A0 (matrix x vector, VU0), 001028B8 (vector add, VU0),
- * 00102948 (quadword copy), 0017D040 (owner test) and 00128350 + 001000C0
+ * 00102948 (quadword copy, em_sdk_vu0.h), 0017D040 (owner test) and 00128350 + 001000C0
  * (the soft-float double compare).
  *
  * Every routine works on the raw 0x320-byte player record (EmPlayerLiveActor,

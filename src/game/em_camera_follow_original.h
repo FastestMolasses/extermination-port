@@ -32,7 +32,7 @@
  *   The SDK vector leaves they reach, as their VU0 macro instructions:
  *   001028D0 (sub), 001028B8 (add), 00102760 (normalize), 00103230
  *   (scale), 00102738 (dot), 001026A0 (matrix x vector), 00102948 (quad
- *   copy) and 001031E0 (xyz copy).
+ *   copy, em_sdk_vu0.h's) and 001031E0 (xyz copy).
  *
  * 0011DF78 (fabsf) is the translation in em_sdk_math_original.c. Every
  * other original callee is a worker (EmCameraFollowWorkers). A worker that

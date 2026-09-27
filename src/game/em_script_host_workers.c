@@ -9,6 +9,7 @@
 #include "game/em_script_host_workers.h"
 #include "game/em_ee_float.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_sdk_vu0.h"
 
 #include <string.h>
 
@@ -212,7 +213,7 @@ static int elf_word(const EmScriptHostWorkersWorld *w, uint32_t address, uint32_
     return 0;
 }
 
-static void qcopy(float *dst, const float *src) { memmove(dst, src, 16); }   /* 00102948 */
+static void qcopy(float *dst, const float *src) { em_sdk_vu0_00102948(dst, src); }   /* 00102948 */
 static uint32_t fword(const float *p, int i) { uint32_t v; memcpy(&v, p + i, 4); return v; }
 static void set_fword(float *p, int i, uint32_t v) { memcpy(p + i, &v, 4); }
 

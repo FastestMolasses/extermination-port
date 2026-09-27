@@ -890,7 +890,7 @@ Result: live 640, verified-unbound 87, unverified 5, stand-in 0, missing 1, boun
 against em_collision.c's column crossing, which the live 0019BC40 still uses), 001BC240 / 001BC290 (the unbound
 em_sdf_ copies next to em_door_original), 001D4B50 / 001DA1E0 (the unbound em_rvr_ copies next to the shadow
 passes) and 00102948 (inline copies in em_anim_runtime_rest, em_camera_retarget.c, em_camera.c,
-em_camera_probe.c, em_player_ladder_entry.c).
+em_camera_probe.c, em_player_ladder_entry.c). All of them are reduced in section 1.28.
 
 ### 1.23 Update (2026-09-26, the player step: the player and its equipment on the object-unit draw)
 
@@ -1044,6 +1044,76 @@ Result: live 659, verified-unbound 78, unverified 3, stand-in 0, missing 1, boun
 1 / 451); 80,516 of the 87,968 non-boundary instructions are live (91.5%). Section 2, the section 3 subsection
 counts and section 4's two boundary groups are recomputed from the rows.
 
+### 1.28 Update (2026-09-27, chain C8: duplicate translations reduced to one bound owner)
+
+Section 1.22 listed duplicate translations: the byte read 001C6150, 0019F330,
+001BC240 / 001BC290, 001D4B50 / 001DA1E0 and 00102948. SHADOW_ACTOR_ROUTE.md
+L5 listed the SDK VU0 leaves 001026D0 / 00102900. Each now has one bound
+owner, and each reduced copy's oracle coverage runs through that owner.
+
+- **SDK VU0 leaves (001026D0, 00102900, 00102948).**
+  - They are now the header-only `em_sdk_vu0.h` (docs/SDK_VU0.md). It needs
+    nothing but em_ee_float.h, so linking it drags no pose host into any
+    test.
+  - Its callers: em_shadow_actor_route, em_locomotion_display (its
+    `em_loco_001026D0` export is removed), em_equipment_live,
+    em_effect_manager, em_actor_light_001D89D0, em_camera_leftovers,
+    em_status_models, em_frame_render_heads, em_shadow_original, and every
+    host quadword copy whose comment cites 00102948 (SDK_VU0.md lists them).
+  - New oracle: tools/test_sdk_vu0_reference.py executes all three
+    originals.
+  - Two copies remain because their oracles are not on the measured model:
+    em_crate_original's multiply (its oracle's SDK semantics give a denormal
+    where VU0 gives 0) and em_snow's inline tile-colour scale. SDK_VU0.md
+    "Not reduced" has both.
+- **001C6150.** em_status_models' and em_indicator_bind_live's w_001C6150
+  now call em_owner_services_001C6150, as em_equipment_live's does.
+  em_roger_actor_original's read over Roger's resource bytes stays (see its
+  row).
+- **0019F330 (verified-unbound -> live).**
+  - em_collision.c's `column_node` is removed.
+  - 0019BC40 pass 2 calls the column math's `cross` worker. em_collision_world
+    binds it to `em_coll_list_passes_0019F330` over the world's grid, SDK
+    context and one scratchpad state (COLL_LIST_PASSES.md item 3).
+  - A private instrumented build over the full smoke counted 65,478 calls and
+    103 crossings.
+  - test_actor_collision_reference and test_player_climb_reference now run
+    the original 0019BC40 with 0019F330 and its SDK calls unhooked. The climb
+    sample previously hooked sqrt / atan to the host libm.
+- **001BC240 / 001BC290.** The unbound em_sdf_ copies are removed.
+  em_door_original's phases 4 and 5 are the one translation. Their cases
+  moved to test_door_original_reference: every flag answer, request byte and
+  armed byte against the original 001BC350, and the route 09 phase-4/5
+  replay (66 frames: one commit, one restart on the capture's row, +0x0B).
+- **001D4B50 / 001DA1E0 (and 001DA290).** The unbound em_rvr_ packet
+  builders are removed. The shadow passes (em_shadow_original's worker calls
+  drawn by em_gfx_shadow_*) are the one owner.
+  - test_shadow_original_reference F compares their GS state with the
+    captured chains.
+  - test_render_verify_rest_reference asserts the original's 001DA290 /
+    001DA1E0 arguments, and that 001D4B50 is called exactly for the class-2
+    receivers.
+- **Tests.** No test was retired. These moved to the surviving owner:
+  - test_script_door_fan_reference's 001BC240 / 001BC290 cases and route 09
+    replay, to test_door_original_reference;
+  - test_locomotion_display_reference's 001026D0 leaf sweep, to
+    test_sdk_vu0_reference;
+  - test_render_verify_rest_reference's native record comparisons of the
+    removed builders, to test_shadow_original_reference's drawn-state
+    comparison.
+- **Evidence.**
+  - All make test-* targets pass, including the new test-sdk-vu0-reference.
+  - make test-level-smoke-full passes with --require-through, including
+    check_shadow on the measured-model em_shadow_original.
+  - newgame-control gives 9.599849 (unchanged).
+  - EM_TEST_FULL=1 test_shadow_original_reference passes (6,144 area keys,
+    192 clip batches, 15 route beats).
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443 (was 659 / 78 / 3 / 0 / 1 / 443). 80,726 of the 87,968
+non-boundary instructions are live (91.8%). Section 2 and the section 3
+subsection counts are recomputed from the rows.
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1063,15 +1133,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 659 | 80,516 | 614 (77,161) | 45 (3,355) |
-| verified-unbound | 78 | 7,279 | 45 (4,949) | 33 (2,330) |
+| live | 660 | 80,726 | 615 (77,371) | 45 (3,355) |
+| verified-unbound | 77 | 7,069 | 44 (4,739) | 33 (2,330) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 1 | 46 | 1 (46) | 0 (0) |
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 659 (88.9%) are live and verified; by instructions 80,516 of 87,968 (91.5%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 78 functions (7,279 instructions, 8.3%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, section 1.27) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27 and 1.28) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1088,22 +1158,22 @@ Of the 741 non-boundary functions, 659 (88.9%) are live and verified; by instruc
 | 02_elevator_refusal | 405 / 30 / 1 / 0 / 1 / 98 | 15 / 0 / 0 / 0 / 0 / 2 |
 | 03_panel_power | 468 / 35 / 2 / 0 / 1 / 124 | 20 / 1 / 0 / 0 / 0 / 1 |
 | 04_elevator_ride | 397 / 30 / 1 / 0 / 1 / 131 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 397 / 30 / 1 / 0 / 1 / 93 | 22 / 1 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 361 / 30 / 1 / 0 / 1 / 96 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 05_boxes | 398 / 29 / 1 / 0 / 1 / 93 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 362 / 29 / 1 / 0 / 1 / 96 | 12 / 0 / 0 / 0 / 0 / 0 |
 | 07_truck_preview | 373 / 32 / 1 / 0 / 1 / 114 | 0 / 1 / 0 / 0 / 0 / 0 |
 | 08_truck_crossing | 361 / 31 / 1 / 0 / 1 / 129 | 2 / 0 / 0 / 0 / 0 / 0 |
 | 09_fence_door | 415 / 33 / 2 / 0 / 1 / 104 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 449 / 37 / 1 / 0 / 1 / 139 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 445 / 36 / 1 / 0 / 1 / 136 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 377 / 33 / 1 / 0 / 1 / 92 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 419 / 35 / 1 / 0 / 1 / 137 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 442 / 38 / 2 / 0 / 1 / 104 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 450 / 36 / 1 / 0 / 1 / 139 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 446 / 35 / 1 / 0 / 1 / 136 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 378 / 32 / 1 / 0 / 1 / 92 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 420 / 34 / 1 / 0 / 1 / 137 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 443 / 37 / 2 / 0 / 1 / 104 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
-State at chain C7's step-V step of 2026-09-27 (section 1.27; the full-route recount is section 1.22).
+State at chain C8's one-owner step of 2026-09-27 (section 1.28; the full-route recount is section 1.22).
 
-- **Live and verified: 659 of 741 non-boundary functions (91.5% by instructions).** Every main-line route phase the
+- **Live and verified: 660 of 741 non-boundary functions (91.8% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; the voiced lines tear down 8 / 6 / 6 rows early, the
@@ -1137,7 +1207,7 @@ State at chain C7's step-V step of 2026-09-27 (section 1.27; the full-route reco
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
   is the original 00182DF0 since section 1.26). A script owner's takeover is the stage's own since
   section 1.26 (0015B130's prelude, 0015B530, 00182DF0).
-- **Verified but not run live: 78 functions (7,279 instructions).** The largest groups are the lighting and unbound
+- **Verified but not run live: 77 functions (7,069 instructions).** The largest groups are the lighting and unbound
   render heads (section 3.16: 15), the effects' room point-light lists (3.18: 7), the anim runtime leaves (3.14: 6),
   the render context's unbound rows and weather (3.17: 6), the sound-side rows of 3.19 (9: the sound-bank loader,
   001FB100's rest, 001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 5: the overlay init,
@@ -1412,7 +1482,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.7 Collision walkers (0x19A000..0x1A7FFF)
 
-38 functions, 9,919 instructions: live 37, verified-unbound 1 (recount 2026-09-26, shadow step).
+38 functions, 9,919 instructions: live 38 (recount 2026-09-27, one-owner step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -1438,7 +1508,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0019E930 | — | NM | live | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | recount 2026-09-25: em_coll_list_passes_0019E930 executed on the live path (9 calls over the five measured runs) | 05_boxes |
 | 0x0019ED80 | — | AW | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_coll_list_passes_reference.py | the node test of the live grid walkers 0019D770 and 0019E280 | S2_opening |
 | 0x0019F1A0 | — | NM | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py, test_coll_list_passes_reference.py | the ranks of the live grid walkers 0019D770 and 0019E280 (the installed flags-7 EMCL) | S2_opening |
-| 0x0019F330 | — | AW | verified-unbound | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | 0019BC40 pass 2's crossing; em_collision.c column_node still stands in | 05_boxes |
+| 0x0019F330 | — | AW | live | em_coll_list_passes_walkers em_coll_list_passes_0019F330, 0019BC40 pass 2's `cross` worker through em_collision_world (section 1.28; em_collision.c's column_node removed) — test_coll_list_passes_reference.py (executes 0019F330); test_actor_collision_reference.py and test_player_climb_reference.py (the original 0019BC40 with 0019F330 and its SDK calls unhooked against the native column) | a private instrumented build over the full smoke: 65,478 calls, 103 crossings; the pass-2 node walk around it is 0019BC40's KNOWN INEXACT walk | 05_boxes |
 | 0x0019F730 | — | NM | live | em_actor_collision — test_actor_collision_reference.py, test_coll_probe_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
 | 0x0019FE50 | — | NM | live | em_coll_move_original — test_coll_move_reference.py | recount 2026-09-25: em_coll_move_walk_0019FE50 executed on the live path (88348 calls over the five measured runs) | S2_opening |
 | 0x001A0B10 | — | NM | live | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py | recount 2026-09-25: em_coll_segment_001A0B10 executed on the live path (5 calls over the five measured runs) | 02_elevator_refusal |
@@ -1562,8 +1632,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001BBE40 | — | BM | live | em_door_transit em_door_transit_kickoff (EE float model) via em_area11_door (census L18) — test_door_transit_reference (on FallEE; route 09's f309 alignment); test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
 | 0x001BC0E0 | — | BM | live | em_door_original phases 1..3 over the AREA11 script host (em_area11_door; census L18) — test_door_original_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): the door's block and +0x1FE |  | 09_fence_door |
 | 0x001BC150 | — | BM | live | em_door_transit_commit via em_area11_door's transition hook (census L18) — test_door_transit_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) with test_room_move_reference's sequence checks |  | 09_fence_door |
-| 0x001BC240 | — | BM | live | em_door_original phase 4 inline via em_area11_door (census L18; em_sdf_001BC240 is an unbound standalone copy) — test_door_original_reference, test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
-| 0x001BC290 | — | BM | live | em_door_original phase 5 inline via em_area11_door (census L18; em_sdf_001BC290 is an unbound standalone copy) — test_door_original_reference, test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
+| 0x001BC240 | — | BM | live | em_door_original phase 4 via em_area11_door (census L18; the one translation since section 1.28, em_sdf_001BC240 removed) — test_door_original_reference (unhooked inside 001BC350 over every flag answer, request byte and armed byte; the route 09 phase-4/5 replay); test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
+| 0x001BC290 | — | BM | live | em_door_original phase 5 via em_area11_door (census L18; the one translation since section 1.28, em_sdf_001BC290 removed) — test_door_original_reference (as 001BC240; the replay restarts on the capture's row with its +0x0B); test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | 09_fence_door |
 | 0x001BC300 | — | BM | live | em_door_original via em_area11_door (the runtime's pose, 001B1B30, the actor draw; census L18) — test_door_original_reference, test_door_original_runtime; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
 | 0x001BC350 | — | BM | live | em_door_original em_door_original_tick via em_area11_door (node tick_door; census L18) — test_door_original_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row) |  | S2_opening |
 
@@ -1602,7 +1672,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
 | 0x001C6120 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose), em_owner_services_original — test_player_record_pose_reference, test_owner_services_reference.py, test_pose_host_workers_reference.py, test_shadow_original_reference.py |  | S0_title |
-| 0x001C6150 | — | BM | live | em_owner_services_original em_owner_services_001C6150 (001B0EA0: the boxes and the fence door, em_area11_boxes; the player's 0015C1F0 through em_player_draw_live and the equipment's 0018A8D0 through em_equipment_live since section 1.23) and em_roger_actor_original model_bone_count (001B10B0: Roger, via em_area11_roger) — test_owner_services_reference.py, test_roger_actor_original_reference.py (both execute 001C6150 unhooked); test_player_misc_workers_reference.py | recount 2026-09-26 (section 1.22): measured running on the live path. Two further copies read the same byte and run live without an oracle: w_001C6150 in em_status_models and em_indicator_bind_live (to reduce to one owner; em_equipment_live's now calls em_owner_services_001C6150) | S1_newgame_load |
+| 0x001C6150 | — | BM | live | em_owner_services_original em_owner_services_001C6150 (001B0EA0: the boxes and the fence door, em_area11_boxes; the player's 0015C1F0 through em_player_draw_live and the equipment's 0018A8D0 through em_equipment_live since section 1.23) and em_roger_actor_original model_bone_count (001B10B0: Roger, via em_area11_roger) — test_owner_services_reference.py, test_roger_actor_original_reference.py (both execute 001C6150 unhooked); test_player_misc_workers_reference.py | recount 2026-09-26 (section 1.22): measured running on the live path. Since section 1.28 the status pages' (em_status_models) and the indicator children's (em_indicator_bind_live) w_001C6150 call em_owner_services_001C6150 too, as em_equipment_live's does since section 1.23. em_roger_actor_original's model_bone_count stays a second read of the byte over Roger's original resource bytes (no EmOwnerModel view of his body model exists yet; its oracle executes 001C6150 unhooked) | S1_newgame_load |
 | 0x001C61D0 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose: the host's clip frames), em_weapon — test_player_record_pose_reference; test_pose_host_workers_reference, test_player_fall_reference.py, test_player_reaction_reference.py, test_player_recovery_reference.py |  | 00_panel_no_battery |
 | 0x001C62C0 | bone_init_default_1 | AW | live | em_status_models, em_owner_services_original — test_owner_services_reference.py |  | S2_opening |
 | 0x001C6380 | — | BM | live | em_owner_services_original, em_status_models — test_owner_services_reference.py |  | S2_opening |
@@ -1731,7 +1801,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D3AD0 | — | BM | live | em_owner_draw_original through em_owner_draw_live (the clip pass's tags; object-unit step) — test_owner_draw_reference; tools/test_object_unit_reference.py | moved in from the GS/VIF boundary list (section 4) | S2_opening |
 | 0x001D3BA0 | — | BM | live | em_owner_draw_original em_owner_draw_001D3BA0 through em_owner_draw_live (object-unit step) — test_owner_draw_reference; tools/test_object_unit_reference.py | the clip unit; formerly a GS/VIF boundary row | S2_opening |
 | 0x001D3C30 | — | BM | live | em_owner_draw_original (001CA940's thunk to 001D3BA0) through em_owner_draw_live (object-unit step) — test_owner_draw_reference | moved in from the GS/VIF boundary list (section 4) | S2_opening |
-| 0x001D4B50 | — | BM | live | em_gfx_shadow_receiver's class-2 re-pass (001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0 as one call; the 0023E8A0 kernel in em_vu1_shadow_clip.h) through em_shadow_live; em_render_verify_rest em_rvr_001D4B50 (linked, not called) — test_shadow_original_reference (F / G: the clip kernel kick for kick, the backend's data memory); test_render_verify_rest_reference; test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) | the GS side is the Metal backend's (SHADOW_ORIGINAL.md "GS side" approximations) | S2_opening |
+| 0x001D4B50 | — | BM | live | em_gfx_shadow_receiver's class-2 re-pass (001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0 as one call; the 0023E8A0 kernel in em_vu1_shadow_clip.h) through em_shadow_live (the one owner since section 1.28: em_rvr_001D4B50 removed) — test_shadow_original_reference (F / G: the clip kernel kick for kick, the backend's data memory); test_render_verify_rest_reference (the original 001DA6A0 calls it exactly for the plan's class-2 receivers); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) | the GS side is the Metal backend's (SHADOW_ORIGINAL.md "GS side" approximations) | S2_opening |
 | 0x001D4CD0 | — | BM | live | em_shadow_original (w_receiver_begin) and em_gfx_shadow_receiver_begin through em_shadow_live — test_shadow_original_reference.py (TEX0, the state blocks, the UV upload); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) |  | S2_opening |
 | 0x001D4FB0 | — | BM | live | em_shadow_original (the receiver list) and em_gfx_shadow_receiver through em_shadow_live — test_shadow_original_reference.py (C, F, G); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) |  | S2_opening |
 | 0x001D52E0 | — | BM | verified-unbound | em_render_context em_render_context_001D52E0 — test_render_context_reference | its live caller 001C1E70 (em_rvr_001C1E70 through em_render_context_live) reaches a reported no-effect binding instead (em_scene_bindings rcl_grid_header, UM_001D52E0; measured 2026-09-26) | S1_newgame_load |
@@ -1765,7 +1835,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D98A0 | — | NM | live | em_shadow_original through em_shadow_live — test_shadow_original_reference.py; test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) (D_00817F20..D_00817FF0 and ctx+0x24B0) |  | S2_opening |
 | 0x001D9EE0 | — | BM | live | em_shadow_original and em_gfx_shadow_silhouette through em_shadow_live — test_shadow_original_reference.py (the silhouette VP and bone palette; the Metal target texel for texel); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) (the silhouette VP) | the proxy mesh is assets/player_shadow.emdl (D_0028A490[0x28], ../Extermination/tools/export_shadow_proxy.py) | S2_opening |
 | 0x001DA080 | — | BM | live | em_shadow_original (inline) through em_shadow_live — test_render_verify_rest_reference (both outcomes of every branch asserted); test_shadow_original_reference; test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) (D_00817FA0 / D_00817FB0) |  | S2_opening |
-| 0x001DA1E0 | — | BM | live | em_gfx_shadow_alpha_clear (001DA290's two-triangle strip) through em_shadow_live; em_render_verify_rest em_rvr_001DA1E0 (linked, not called) — test_render_verify_rest_reference; test_shadow_original_reference (F: the draw's GS state) |  | S2_opening |
+| 0x001DA1E0 | — | BM | live | em_gfx_shadow_alpha_clear (001DA290's two-triangle strip) through em_shadow_live (the one owner since section 1.28: em_rvr_001DA1E0 / em_rvr_001DA290 removed) — test_shadow_original_reference (F: the draw's GS state against the captured chains); test_render_verify_rest_reference (the original's 001DA290 / 001DA1E0 arguments) |  | S2_opening |
 | 0x001DA290 | — | CL | live | em_shadow_original and em_gfx_shadow_alpha_clear through em_shadow_live — test_shadow_original_reference.py (F) |  | S2_opening |
 | 0x001DA310 | — | NM | live | em_shadow_original box_pass and em_gfx_shadow_box through em_shadow_live — test_render_verify_rest_reference; test_shadow_original_reference (the box uploads, 00237180 / 00239C90); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) (both box uploads) |  | S2_opening |
 | 0x001DA6A0 | — | NM | live | em_shadow_original em_shadow_original_001DA6A0 through em_shadow_live (the player's post-step, census L29); em_roger_actor_original — test_shadow_original_reference.py, test_shadow_actor_route_reference.py, test_roger_actor_original_reference.py; test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) | Roger's 001BA580 still reaches it as a reported no-effect binding (UM_001DA6A0: his kind 0x29 proxy D_0028A490[0x29] is not exported, census L22) | S2_opening |
@@ -2006,7 +2076,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001015A8 | — | AW | live | em_frame_kick (half_offset) through step V's draw environment of slot + 0x40 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the SDK DMA/VIF/VU1 boundary group; step S's call on the display environment stays the renderer's | S0_title |
 | 0x00101810 | — | AW | live | em_frame_kick (half_offset) through step V's draw environment of slot + 0xC0 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the SDK DMA/VIF/VU1 boundary group; step S's call stays the renderer's | S0_title |
 | 0x001026A0 | — | AI | live | em_camera_rotation.c / em_owner_services_original.c (VU0 forms) — test_camera_rotation_reference; test_camera_retarget_reference |  | S1_newgame_load |
-| 0x001026D0 | — | AI | live | em_locomotion_display em_loco_001026D0, em_effect_manager sdk_001026D0, em_shadow_actor_route vu_product_001026D0 (through em_shadow_live, census L29; its oracle runs 001026D0 as original) — test_locomotion_display_reference, test_effect_manager_reference (run 001026D0 unhooked) | em_status_models.c w_001026D0: test_status_scene_reference records the call ("mul") and test_render_context_reference replays the original's bytes, so no oracle compares it; recount 2026-09-25: em_loco_001026D0 executed on the live path (18483 calls over the five measured runs) | S0_title |
+| 0x001026D0 | — | AI | live | em_sdk_vu0 em_sdk_vu0_001026D0, the one translation (section 1.28; docs/SDK_VU0.md): em_locomotion_display, em_equipment_live, em_effect_manager, em_shadow_actor_route, em_status_models, em_frame_render_heads and em_shadow_original call it — test_sdk_vu0_reference (executes 001026D0: specials, the three aliasing forms); test_locomotion_display_reference, test_effect_manager_reference, test_shadow_actor_route_reference, test_shadow_original_reference (run it inside their composites) | recount 2026-09-25: executed on the live path (18483 calls over the five measured runs, as em_loco_001026D0); em_crate_original's em_crate_sdk_multiply keeps its own arithmetic (its oracle's SDK semantics are not the measured VU0 model; SDK_VU0.md) | S0_title |
 | 0x00102718 | — | AI | live | em_effect_original / em_coll_* (inline) — test_effect_original_reference | recount 2026-09-25: em_effect_original_00102718 executed on the live path (36094 calls over the five measured runs) | S1_newgame_load |
 | 0x00102738 | — | AI | live | em_coll_probe_original sdk_dot, em_actor_collision vu_dot, em_pickup_items_original vdot — test_coll_probe_reference.py, test_pickup_items_reference (both run 00102738 as original code inside the executed callers) |  | S2_opening |
 | 0x00102760 | — | AW | live | em_pickup_items_original vnormalize (001F1180's facing test) — test_pickup_items_reference (runs 00102760 as original code) | the em_interaction_scan.c / em_camera_probe.c copies are checked only against the tests' normalize models | S1_newgame_load |
@@ -2015,9 +2085,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00102850 | — | AI | verified-unbound | em_render_verify_rest em_rvr_00102850 — test_render_verify_rest_reference | not bound | 01_battery |
 | 0x001028B8 | — | AI | live | em_coll_probe_original sdk_add (the live grid walkers) — test_coll_probe_reference.py (runs 001028B8 as original code) | the em_camera_probe.c inline copy is checked only against test_camera_probe_reference's model of the leaf | S2_opening |
 | 0x001028D0 | — | AI | live | em_coll_probe_original sdk_sub, em_pickup_items_original vsub4 — test_coll_probe_reference.py, test_pickup_items_reference (run 001028D0 as original code) | the em_camera_retarget.c / em_camera.c inline copies are checked only against the retarget/probe/commit tests' models of the leaf | S1_newgame_load |
-| 0x00102900 | — | AI | live | em_shadow_actor_route vu_scale_00102900 through em_shadow_live (001F8D30's colour, census L29); em_actor_light_001D89D0 sdk_00102900 through em_owner_draw_live — test_shadow_actor_route_reference (runs 00102900 as original), test_actor_light_001d89d0_reference | em_snow.c inline scale; test_snow_tiles_reference models the leaf | S1_newgame_load |
+| 0x00102900 | — | AI | live | em_sdk_vu0 em_sdk_vu0_00102900, the one translation (section 1.28): em_shadow_actor_route through em_shadow_live (001F8D30's colour, census L29), em_actor_light_001D89D0 through em_owner_draw_live, em_camera_leftovers — test_sdk_vu0_reference (executes 00102900); test_shadow_actor_route_reference, test_actor_light_001d89d0_reference, test_camera_leftovers_reference | em_snow.c's tile colour is an inline scale on its own host model (test_snow_tiles_reference models the leaf rather than executing it; SDK_VU0.md) | S1_newgame_load |
 | 0x00102918 | — | AI | live | em_owner_services_original.c (live through em_status_models) — test_owner_services_reference |  | S1_newgame_load |
-| 0x00102948 | — | AI | live | em_frame_render_heads copy_qw (inside em_frh_001D30A0 and the row guard, through em_render_context_live) — test_frame_render_heads_reference (executes 00102948 with the heads); test_anim_runtime_rest_reference (runs 00102948 unhooked); test_effect_manager_reference | recount 2026-09-26 (section 1.22): copy_qw measured running on the live path; the em_anim_runtime_rest inline copy (001CAAC0 / 001CB2C0) is not bound, and the em_camera_retarget.c / em_camera.c / em_camera_probe.c copies are checked only against the tests' copy hooks | S0_title |
+| 0x00102948 | — | AI | live | em_sdk_vu0 em_sdk_vu0_00102948, the one translation (section 1.28; SDK_VU0.md lists the callers): em_frame_render_heads copy_qw (inside em_frh_001D30A0 and the row guard, through em_render_context_live), em_anim_runtime_rest, em_player_ladder_entry, the camera leftovers, the shadow route, the effects and the other host quadword copies — test_sdk_vu0_reference (executes 00102948); test_frame_render_heads_reference, test_anim_runtime_rest_reference (run it unhooked); test_effect_manager_reference | recount 2026-09-26 (section 1.22): copy_qw measured running on the live path. Copies through a module's own record or address accessors stay accessor loads and stores (SDK_VU0.md); em_camera.c's mentions are comments, and em_camera_retarget.c / em_camera_probe.c hold none | S0_title |
 | 0x00102958 | copy_qw4 | AI | live | em_owner_services_original em_owner_services_copy_qw4_00102958 — test_owner_services_reference (executes it alone) | the em_status_scene_original.c copy is checked only against the status-scene test's copy hook; the terminal's 0x827E6C copy runs this translation since section 1.25 (em_indicator_bind_live_set_node); recount 2026-09-25: em_owner_services_copy_qw4_00102958 executed on the live path (82747 calls over the five measured runs) | S0_title |
 | 0x001029C0 | — | AI | live | em_owner_services_original.c (live through em_status_models) — test_owner_services_reference |  | S0_title |
 | 0x001029E8 | — | NM | live | em_owner_services_original.c (live through em_status_models) — test_owner_services_reference |  | S1_newgame_load |

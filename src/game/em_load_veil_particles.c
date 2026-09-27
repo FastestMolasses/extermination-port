@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 typedef uint32_t u32;
 typedef uint64_t u64;
@@ -691,8 +692,8 @@ int em_load_veil_particles_0021B1B0(S *s, const EmLoadVeilParticlesBlock *veil)
             return -1;
         if (r == 4)
             *veil->seed = next;
-        memcpy(q70, q80, sizeof q70);   /* 00102948(sp+0x70, sp+0x80) */
-        memcpy(q90, qA0, sizeof q90);   /* 00102948(sp+0x90, sp+0xA0) */
+        em_sdk_vu0_00102948(q70, q80);  /* 00102948(sp+0x70, sp+0x80) */
+        em_sdk_vu0_00102948(q90, qA0);  /* 00102948(sp+0x90, sp+0xA0) */
     }
     if (em_load_veil_particles_001D1F80(s, 0, 0, 7) < 0 ||
         em_load_veil_particles_001DFA40(s, 0, 0, 0x80808080u, F_LENS, NULL) < 0 ||

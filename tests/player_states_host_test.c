@@ -686,7 +686,7 @@ int main(void)
     const float over_box[3] = { 2, 5, 2 };
     EmActorCollisionPlayerColumn column_query = { &world, NULL };
     assert(em_actor_collision_player_column(&column_query, over_box, &column) == -1);
-    static const EmCollColumnMath kMath = { sdk_sqrt, sdk_atan, NULL };
+    static const EmCollColumnMath kMath = { sdk_sqrt, sdk_atan, NULL, NULL, NULL };
     column_query.math = &kMath;
     assert(em_actor_collision_player_column(&column_query, over_box, &column) == 0);
     int found_top = 0;

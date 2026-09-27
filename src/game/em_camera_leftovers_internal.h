@@ -8,9 +8,9 @@
  *   001028B8(out, a, b)  out = a + b, all four lanes (VADD.xyzw)
  *   00102760(out, v)     xyz of v times 1/sqrt(v.v), w = 0
  *   00103230(out, v, s)  out.xyz = v.xyz * s, out.w = v.w (VMULx.xyz)
- *   00102900(out, v, s)  out = v * s, all four lanes (VMULx.xyzw)
+ *   00102900(out, v, s)  out = v * s, all four lanes (em_sdk_vu0.h)
  *   00102738(a, b)       a.x*b.x + a.y*b.y + a.z*b.z (VMUL.xyz, VADDy.x, VADDz.x)
- *   00102948(out, v)     a 16-byte copy
+ *   00102948(out, v)     a 16-byte copy (em_sdk_vu0.h)
  *   001031E0(out, v)     a 12-byte copy
  * A VU form em_ee_float.h has not measured is a fault (-1). */
 #ifndef EM_CAMERA_LEFTOVERS_INTERNAL_H
@@ -19,6 +19,7 @@
 #include "game/em_camera_leftovers.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <string.h>
 
@@ -167,12 +168,12 @@ static inline int cl_v_scale(void *out, const void *in, uint32_t s)
     cl_store4(out, r);
     return 0;
 }
-/* 00102900: out = v * s, all four lanes. */
+/* 00102900: out = v * s, all four lanes (em_sdk_vu0.h's translation). */
 static inline int cl_v_scale4(void *out, const void *in, uint32_t s)
 {
-    uint32_t v[4], r[4] = { 0, 0, 0, 0 }, b[4] = { s, 0, 0, 0 };
+    uint32_t v[4], r[4];
     cl_load4(v, in);
-    CL_VU(em_vu_vec_bits(EM_VU_MULBC, 15, 0, v, b, 0, NULL, r));
+    CL_VU(em_sdk_vu0_00102900(r, v, s));
     cl_store4(out, r);
     return 0;
 }
@@ -187,8 +188,8 @@ static inline int cl_v_dot(const void *a, const void *b, uint32_t *out)
     *out = t[0];
     return 0;
 }
-/* 00102948 */
-static inline void cl_v_copy(void *out, const void *in) { memmove(out, in, 16); }
+/* 00102948 (em_sdk_vu0.h's translation) */
+static inline void cl_v_copy(void *out, const void *in) { em_sdk_vu0_00102948(out, in); }
 /* 001031E0 */
 static inline void cl_v_copy3(void *out, const void *in) { memmove(out, in, 12); }
 

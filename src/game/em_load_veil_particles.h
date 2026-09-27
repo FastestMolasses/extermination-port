@@ -28,7 +28,7 @@
  *             &D_00241010)
  *   001D6BA0  TEX0 packet (NEARMISS C; .s followed)
  *   001D7080  RGBAQ packet (word asm)
- *   00102948  quadword copy (inlined as a 16-byte copy)
+ *   00102948  quadword copy (em_sdk_vu0.h's)
  *
  * Workers (reused translations, bound by the caller): 0011DF78 fabsf and
  * 001281C0 float_to_int.

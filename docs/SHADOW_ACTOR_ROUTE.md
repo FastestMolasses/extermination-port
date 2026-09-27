@@ -167,11 +167,10 @@ The following are reused, not re-translated:
 - `em_owner_services_identity_001029C0`, `_rotate_z_00102A60` and
   `_translate_00102918`;
 - `em_sdk_math_original_0011DF78`;
-- `em_stream_lanes_00128250`.
-
-Two SDK leaves are translated here, because no module exports them in the
-EE float model: 001026D0 (4x4 product) and 00102900 (scale). The
-quadword copy 00102948 is a memcpy.
+- `em_stream_lanes_00128250`;
+- `em_sdk_vu0_001026D0` (4x4 product), `em_sdk_vu0_00102900` (scale) and
+  `em_sdk_vu0_00102948` (quadword copy), the one translation of each
+  (docs/SDK_VU0.md).
 
 **Workers** (`EmShadowActorRouteWorkers`). Each returns 0, or a negative
 value on a fault:
@@ -335,12 +334,11 @@ the full route).
   elevator, the crates and the truck (640 calls on the default smoke, 628
   with a decal), and the smoke re-executes the original over sampled calls
   (section 4); the mid-beat frames are still not compared with a capture.
-- **L5: private SDK leaves.** The module keeps its own 001026D0 and
-  00102900 (its oracle runs both as original); the codebase has other live
-  copies of these VU0 leaves (em_loco_001026D0, em_effect_manager's,
-  em_actor_light_001D89D0's, em_camera_leftovers'). One shared SDK VU0
-  module would leave one owner each; linking em_locomotion_display here
-  would drag its pose-host dependencies into this module's tests.
+- **L5 (closed): private SDK leaves.** The module's own 001026D0 and
+  00102900 are gone. It calls the header-only em_sdk_vu0.h, the one
+  translation that em_locomotion_display, em_effect_manager,
+  em_actor_light_001D89D0 and em_camera_leftovers also call (SDK_VU0.md).
+  The header links nothing, so this module's tests pull in no pose host.
 - **L4: VU0 register state.** The native side does not model the VU0
   registers that 001F8D30 leaves behind (vf1, vf2, vf20..vf23, vf28..vf31,
   ACC, Q). 001CE300, the only later consumer on this path, reloads vf23 and

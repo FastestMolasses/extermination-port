@@ -11,7 +11,11 @@ executed unmodified and compared:
   0017B5C0  walk entry blend      0017B490  clip-table selector
   0017B460  D_00248AB0 lookup     00179D20  node pose seed
   00179FF0  node world matrices   00182D40  +1F0 == 0x17
-  001026D0  VU0 4x4 product       00103230  VU0 row scale
+  00103230  VU0 row scale
+
+001026D0 (VU0 4x4 product) is em_sdk_vu0.h's; test_sdk_vu0_reference.py
+sweeps it against the original, and the cases here run it inside the
+composite routines on both sides.
 
 The display leaves (001029C0, 00102C58, quat_nlerp, quat_to_mat3,
 build_trs_matrix, copy_qw4, 001C9D50 with its 001C9E40 and SDK sqrtf) run
@@ -318,7 +322,6 @@ def build_native():
     n.em_loco_0017B460.argtypes = [C.POINTER(PoseHost), I, I, C.POINTER(C.c_int16)]
     n.em_player_00182D40.argtypes = [VP]   # 00182D40's one translation (em_player_stage_workers)
     n.em_loco_bound.argtypes = [H]
-    n.em_loco_001026D0.argtypes = [PU32, PU32, PU32]
     n.em_loco_00103230.argtypes = [PU32, PU32, U32]
     n.em_anim_rest_sqrt_0011E748.argtypes = [VP, U32, PU32]
     n.em_sdk_math_original_load_tables.argtypes = [C.c_char_p, C.c_size_t, VP]
@@ -950,19 +953,8 @@ def leaf_words(rng, count):
 
 def check_leaves(rng, count):
     ee = FloatEE(ELF)
-    src_a, src_b, dst = 0x01F00000, 0x01F00100, 0x01F00200
+    src_a, dst = 0x01F00000, 0x01F00200
     for index in range(count):
-        a, b = leaf_words(rng, 16), leaf_words(rng, 16)
-        ee.write(src_a, struct.pack('<16I', *a))
-        ee.write(src_b, struct.pack('<16I', *b))
-        alias = index % 3
-        target = (dst, src_a, src_b)[alias]
-        ee.invoke(PRODUCT, (target, src_a, src_b))
-        want = list(struct.unpack('<16I', ee.read(target, 64)))
-        A, B = (U32 * 16)(*a), (U32 * 16)(*b)
-        out = (A, B)[alias - 1] if alias else (U32 * 16)()
-        assert LIB.em_loco_001026D0(out, A, B) == 0, ('001026D0 refused', index)
-        assert list(out) == want, ('001026D0', index, alias, [hex(v) for v in want], [hex(v) for v in out])
         v, s = leaf_words(rng, 4), leaf_words(rng, 1)[0]
         ee.write(src_a, struct.pack('<4I', *v))
         ee.invoke(ROWSCALE, (dst, src_a), (s,))

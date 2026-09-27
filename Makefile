@@ -703,6 +703,12 @@ test-startup-load-gaps-reference:
 test-locomotion-display-reference:
 	python3 tools/test_locomotion_display_reference.py
 
+# The SDK VU0 leaves 001026D0 / 00102900 / 00102948 (em_sdk_vu0.h, their one
+# translation) against the original instructions (docs/SDK_VU0.md).
+.PHONY: test-sdk-vu0-reference
+test-sdk-vu0-reference:
+	python3 tools/test_sdk_vu0_reference.py
+
 .PHONY: test-camera-leftovers-reference
 test-camera-leftovers-reference:
 	python3 tools/test_camera_leftovers_reference.py

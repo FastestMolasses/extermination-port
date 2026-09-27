@@ -12,6 +12,7 @@
 #include "game/em_effect_manager.h"
 #include "game/em_ee_float.h"
 #include "game/em_owner_services_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <string.h>
 
@@ -164,12 +165,6 @@ static void sdk_001026A0(u32 out[4], const u32 mtx[16], const u32 v[4])
     memcpy(out, fo, sizeof fo);
 }
 
-/* 001026D0(out, a, b): out row i = 001026A0(a, b row i), rows 0..3. */
-static void sdk_001026D0(u32 out[16], const u32 a[16], const u32 b[16])
-{
-    for (int i = 0; i < 4; ++i) sdk_001026A0(out + 4 * i, a, b + 4 * i);
-}
-
 static int32_t sdk_float_to_int(u32 bits) /* 001281C0 */
 {
     float f;
@@ -308,7 +303,7 @@ int em_effect_manager_001F0720(EmEffectManager *m, int32_t n)
     wr32(p + 0xC, 0x6C090000u);
     for (int i = 0; i < 4; ++i) wrq(p + 0x10 + 16 * i, m->view->clip2 + 4 * i);
     for (int i = 0; i < 4; ++i) wrq(p + 0x50 + 16 * i, m->view->camera + 4 * i);
-    wrq(p + 0x90, m->view->fog);
+    em_sdk_vu0_00102948(p + 0x90, m->view->fog);                                   /* 00102948 */
 
     const EmEffectManagerWorkers *w = m->workers;
     CALL(0x001CB760u, w->w_001CB760(w->ctx, chain, 0, EM_EFFECT_MANAGER_MICROCODE)); /* 0x1F0A10 */
@@ -789,9 +784,9 @@ int em_effect_manager_001F6210(EmEffectManager *m)
         wr32(q + 0x18, 0);
         wr32(q + 0x1C, 0x6C080000u);
         u32 prod[16];
-        sdk_001026D0(prod, m->view->camera, spA0);
+        FORM(0x001026D0u, em_sdk_vu0_001026D0(prod, m->view->camera, spA0));
         for (int i = 0; i < 4; ++i) wrq(q + 0x20 + 16 * i, prod + 4 * i);
-        sdk_001026D0(prod, g->spad3400, spA0);
+        FORM(0x001026D0u, em_sdk_vu0_001026D0(prod, g->spad3400, spA0));
         for (int i = 0; i < 4; ++i) wrq(q + 0x60 + 16 * i, prod + 4 * i);
 
         CALL(0x001D3D90u, w->w_001D3D90(w->ctx, handle)); /* 0x1F65B4 */

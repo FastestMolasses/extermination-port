@@ -9,6 +9,7 @@
 #include "game/em_actor_light_001D89D0.h"
 
 #include "game/em_ee_float.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -143,13 +144,11 @@ static void sdk_001028D0(int *st, u32 out[4], const u32 a[4], const u32 b[4])
     if (*st == EM_EE_FLOAT_OK) memcpy(out, r, sizeof r);
 }
 
-/* 00102900(out, v, f12): out = v * f12 (VMULbc xyzw, the scalar moved into
- * the x lane of the second operand). */
+/* 00102900(out, v, f12): em_sdk_vu0.h's translation, skipped once a form
+ * has been refused. */
 static void sdk_00102900(int *st, u32 out[4], const u32 v[4], u32 f12)
 {
-    u32 k[4] = {f12, 0, 0, 0}, r[4] = {0, 0, 0, 0};
-    vu(st, EM_VU_MULBC, DXYZW, 0, v, k, 0, NULL, r);
-    if (*st == EM_EE_FLOAT_OK) memcpy(out, r, sizeof r);
+    if (*st == EM_EE_FLOAT_OK) *st = em_sdk_vu0_00102900(out, v, f12);
 }
 
 static void u2f16(float out[16], const u32 in[16]) { memcpy(out, in, 16 * sizeof(u32)); }
@@ -356,7 +355,7 @@ static int compose(const EmActorLightWorld *w, int gate, u32 flag, const u32 poi
     memcpy(acc, w->d00253170, sizeof acc);
     sdk_00102900(&st, tmp, g + G(0xC0), g[G(0xFC)]);
     sdk_001028B8(&st, acc, acc, tmp);
-    memcpy(wacc, g + G(0xF0), sizeof wacc);
+    em_sdk_vu0_00102948(wacc, g + G(0xF0));                    /* 00102948 */
     if (st != EM_EE_FLOAT_OK) {
         *where = 0x00102900u;
         return st;
@@ -390,8 +389,8 @@ static int compose(const EmActorLightWorld *w, int gate, u32 flag, const u32 poi
         *where = 0x00102760u;
         return st;
     }
-    memcpy(g + G(0xC0), res, sizeof res);
-    memcpy(g + G(0xF0), wacc, sizeof wacc);
+    em_sdk_vu0_00102948(g + G(0xC0), res);                     /* 00102948 */
+    em_sdk_vu0_00102948(g + G(0xF0), wacc);                    /* 00102948 */
     return EM_EE_FLOAT_OK;
 }
 

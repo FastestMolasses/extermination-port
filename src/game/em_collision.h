@@ -184,8 +184,9 @@ int em_collision_move_probe(const EmCollision *c, float pos[3],
  * the type-0x2000 faces of each owner's cell (001A5760: only faces 3/4, x and
  * z strictly inside; top faces give flag 0x8001 and aux 1e-8, bottom faces
  * 0x8000 and -1e-8). Pass 2 walks the grid nodes with |ny| >= 0.001 and attr
- * < 0x50 through 0019F330 (plane crossing, edge test <= 1e-5, aux = +-(pi/2
- * - atan(|ny| / |n.xz|)), flag 0x4000 | (aux > 0)). The original visits the
+ * < 0x50 through 0019F330 (the math's `cross` worker: plane crossing, edge
+ * test <= 1e-5, aux = +-(pi/2 - atan(|ny| / |n.xz|)); flag 0x4000 |
+ * (aux > 0)). The original visits the
  * grid nodes one rank-table span admits; the port visits every grid poly in
  * EMCL node order. KNOWN INEXACT: the rank tables are not a pure prune, so
  * without them this query can report extra grid entries the original never
@@ -218,18 +219,26 @@ typedef struct {
     uint8_t object_kind[EM_COLL_COLUMN_MAX]; /* cell: owner +0x54 */
 } EmCollColumn;
 
-/* The SDK transcendental calls 0019F330 makes (0011E748 sqrt, 0011DBB8 atan).
- * em_actor_collision_column_0019BC40 requires both workers (it faults
- * without them; docs/ACTOR_COLLISION.md section 7 names the translations
- * to bind). em_collision_column_table (the climb lane's legacy EmCollCell
- * entry) still falls back to host sqrtf/atanf on NULL: NOT ORIGINAL. */
+/* The original callees of 0019BC40's passes. `sqrt` / `atan` are the SDK
+ * 0011E748 / 0011DBB8 that pass 1's 001A58B0 calls (em_actor_collision;
+ * docs/ACTOR_COLLISION.md section 7 names the translations to bind).
+ * `cross` is pass 2's 0019F330(pos, pos + (0, 1, 0), q, node): its one
+ * translation is em_coll_list_passes_0019F330 (em_coll_list_passes_walkers,
+ * over the caller world's grid, SDK context and scratchpad state;
+ * em_collision_world binds it). `poly` is the node's EMCL poly index, a / b
+ * the line; it returns 1 (q[0..2] the crossing, q[3] the signed slope
+ * term), 0 (an edge test rejects the node) or -1 (a fault). Pass 2 faults
+ * (-1) without it once a node passes the |ny| / attr gates. */
 typedef struct {
     float (*sqrt)(void *context, float x);
     float (*atan)(void *context, float x);
     void *context;
+    int (*cross)(void *context, uint32_t poly, const float a[3], const float b[3], float q[4]);
+    void *cross_context;
 } EmCollColumnMath;
 
-/* 0019BC40(pos). Returns the survivor count (also out->count). */
+/* 0019BC40(pos). Returns the survivor count (also out->count), or 0 when
+ * pass 2 faults (a missing or failing `cross`). */
 int em_collision_column_table(const EmCollision *c, const EmCollColumnOwner *owners,
                               unsigned owner_count, const float pos[3],
                               const EmCollColumnMath *math, EmCollColumn *out);

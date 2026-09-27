@@ -97,8 +97,10 @@ BRIDGE = r"""
 #include <string.h>
 #include "game/em_actor_collision.h"
 #include "game/em_coll_probe_original.h"
+#include "game/em_coll_list_passes_walkers.h"
 #include "game/em_director_original.h"
 #include "game/em_item_sdk_math.h"
+#include "game/em_sdk_math_original.h"
 
 typedef struct {
     int kind, record, poly;
@@ -120,6 +122,13 @@ typedef struct {
     EmActorCollisionWorld world;
     uint8_t kinds[256];
     EmDirectorAtanTables atan;      /* 0011DBB8's tables, from the user's ELF */
+    /* 0019BC40 pass 2's 0019F330 (em_coll_list_passes_0019F330): the SDK
+     * context from the user's ELF, a scratchpad state, 0x70003684. */
+    EmSdkMathTables sdk_tables;
+    int32_t d26C5D0;
+    EmSdkMathContext sdk;
+    EmCollProbeState state;
+    float s3684;
 } Bridge;
 
 static int find(Bridge *b, uint32_t addr)
@@ -223,13 +232,28 @@ int bridge_ground(Bridge *b, uint32_t self_addr, uint8_t cls, const float *pos, 
 
 int bridge_math(Bridge *b, const uint8_t *elf, uint32_t size)
 {
+    if (em_sdk_math_original_load_tables(elf, size, &b->sdk_tables)) return -1;
+    memcpy(&b->d26C5D0, elf + (0x0026C5D0u - 0x00100000u + 0x300u), 4);   /* D_0026C5D0 */
+    b->sdk.tables = &b->sdk_tables;
+    b->sdk.world.d26C5D0 = &b->d26C5D0;
     return em_director_original_load_atan_tables(elf, size, &b->atan);
 }
 
-/* The column comparison binds the SDK calls to the ORIGINAL 0011E748 /
- * 0011DBB8 instructions, executed by the oracle (sdk_hook), so both sides
- * see the same SDK results and every entry, aux included, is compared
- * against original instructions end to end. */
+/* 0019F330 through its one translation, as em_collision_world binds it. */
+static int bridge_cross(void *ctx, uint32_t poly, const float a[3], const float b3[3], float q[4])
+{
+    Bridge *b = ctx;
+    if (!b->world.ranks || poly < b->ranks.first || poly - b->ranks.first >= b->ranks.count) return -1;
+    return em_coll_list_passes_0019F330(&b->ranks, &b->sdk, &b->state, &b->s3684, a, b3,
+                                        (int)(poly - b->ranks.first), q);
+}
+
+/* The column comparison binds 001A58B0's SDK calls to the ORIGINAL 0011E748
+ * / 0011DBB8 instructions, executed by the oracle (sdk_hook), so both sides
+ * see the same SDK results; pass 2's 0019F330 runs its one translation
+ * (bridge_cross, with em_sdk_math_original's 0011E748 / 0011DBB8), so every
+ * entry, aux included, is compared against original instructions end to
+ * end. */
 typedef float (*BridgeSdk)(int which, float x);
 static BridgeSdk sdk_hook;
 void bridge_sdk_hook(BridgeSdk f) { sdk_hook = f; }
@@ -250,8 +274,10 @@ float bridge_named_atan(Bridge *b, float x)
 int bridge_column(Bridge *b, const float *pos, EmCollColumn *out, uint32_t *owner_addr)
 {
     if (!sdk_hook) return -2;
-    EmCollColumnMath m = { hook_sqrt, hook_atan, NULL };
+    EmCollColumnMath m = { hook_sqrt, hook_atan, NULL, bridge_cross, b };
+    b->sdk.fault = 0;
     int r = em_actor_collision_column_0019BC40(&b->world, pos, &m, out);
+    if (b->sdk.fault) return -3;
     for (int i = 0; i < out->count; ++i)
         owner_addr[i] = out->owner[i] >= 0
             ? addr_of(b, em_actor_class_list_entry(&b->lists, EM_ACTOR_LIST_CLASS4, out->owner[i])) : 0;
@@ -284,6 +310,7 @@ def build_native():
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
                     '-fPIC', '-Isrc', str(source), 'src/game/em_actor_collision.c', 'src/game/em_collision.c', 'src/game/em_actor_pool.c',
                     'src/game/em_coll_probe_original.c', 'src/game/em_effect_original.c',
+                    'src/game/em_coll_list_passes_walkers.c', 'src/game/em_sdk_math_original.c',
                     'src/game/em_director_original.c', 'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))

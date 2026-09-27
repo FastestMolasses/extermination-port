@@ -152,13 +152,15 @@ static int w_001CA5E0(void *ctx, uint8_t *self, u32 self_address, u32 model, int
     return 0;
 }
 
-/* 001C6150(model): the byte at model +0x08. */
+/* 001C6150(model): em_owner_services_001C6150 over the child's model view. */
 static int w_001C6150(void *ctx, u32 value, u32 *result)
 {
     (void)ctx;
     const Child *c = S.current;
     if (!c || value != c->model_address) return -1;
-    *result = c->model.bone_count;
+    uint8_t count = 0;
+    if (em_owner_services_001C6150(&S.services, &c->model, &count) < 0) return -1;
+    *result = count;
     return 0;
 }
 

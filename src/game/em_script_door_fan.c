@@ -314,49 +314,6 @@ int em_sdf_001B1B30(uint8_t *visible, float x, float y, float z, const EmSdfWork
     return *visible; /* 0x1B1B5C reloads the byte */
 }
 
-/* ---- 001BC240 / 001BC290 ------------------------------------------------- */
-
-static int sdf_advance(EmSdfDoorStep *door, const EmSdfWorkers *w, EmSdfFault *fault)
-{
-    int16_t flags;
-    NEED(w->w_001C64F0, 0x001C64F0u);
-    CALL(0x001C64F0u, w->w_001C64F0(w->ctx, 1.0f, &flags));
-    door->anim_flags = flags; /* block +0x0E */
-    return 0;
-}
-
-int em_sdf_001BC240(EmSdfDoorStep *door, const EmSdfWorkers *w, EmSdfFault *fault)
-{
-    if (sdf_latched(fault))
-        return -1;
-    NEED(door, 0x001BC240u);
-    NEED(w, 0x001BC240u);
-    if (sdf_advance(door, w, fault) < 0)
-        return -1;
-    NEED(w->w_001BC150, 0x001BC150u);
-    CALL(0x001BC150u, w->w_001BC150(w->ctx));
-    return 0;
-}
-
-int em_sdf_001BC290(EmSdfDoorStep *door, const EmSdfWorld *world, const EmSdfWorkers *w,
-                    EmSdfFault *fault)
-{
-    if (sdf_latched(fault))
-        return -1;
-    NEED(door, 0x001BC290u);
-    NEED(world, 0x001BC290u);
-    NEED(w, 0x001BC290u);
-    if (sdf_advance(door, w, fault) < 0)
-        return -1;
-    NEED(world->d8106B8, 0x008106B8u);
-    if (*world->d8106B8 != 0)
-        return 0;
-    NEED(w->w_001C67E0, 0x001C67E0u);
-    CALL(0x001C67E0u, w->w_001C67E0(w->ctx, 0, 0.0f, 0.0f));
-    door->b0B = 0;
-    return 1;
-}
-
 /* ---- 001BBD60 ------------------------------------------------------------ */
 
 int em_sdf_001BBD60(int16_t link_56, uint16_t side_2E, uint32_t *record_18,

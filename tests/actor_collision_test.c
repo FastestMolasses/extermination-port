@@ -237,8 +237,8 @@ static void test_column_and_adapters(void)
     EmCollColumn col;
     const float at[3] = { 2, 0, 2 };
     /* The SDK workers are required: no host stand-in is substituted. */
-    const EmCollColumnMath math = { stub_math, stub_math, NULL };
-    const EmCollColumnMath no_atan = { stub_math, NULL, NULL };
+    const EmCollColumnMath math = { stub_math, stub_math, NULL, NULL, NULL };
+    const EmCollColumnMath no_atan = { stub_math, NULL, NULL, NULL, NULL };
     CHECK(em_actor_collision_column_0019BC40(&w, at, NULL, &col) == -1);
     CHECK(em_actor_collision_column_0019BC40(&w, at, &no_atan, &col) == -1);
     math_calls = 0;

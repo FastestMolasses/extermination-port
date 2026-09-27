@@ -12,6 +12,7 @@
 
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -388,8 +389,8 @@ int em_anim_rest_001CB2C0(EmAnimRest *r, uint32_t owner, int32_t vuaddr, int32_t
     put32(p + 0x14, 0);
     put32(p + 0x18, 0x01000404u);                               /* STCYCL 4/4 */
     put32(p + 0x1C, 0x6C020000u | (u32)vuaddr);                 /* UNPACK V4-32 x2 to vuaddr */
-    memcpy(p + 0x20, q40, 16);                                  /* 00102948(p + 0x20, base + 0x40) */
-    memcpy(p + 0x30, q50, 16);                                  /* 00102948(p + 0x30, base + 0x50) */
+    em_sdk_vu0_00102948(p + 0x20, q40);                         /* 00102948(p + 0x20, base + 0x40) */
+    em_sdk_vu0_00102948(p + 0x30, q50);                         /* 00102948(p + 0x30, base + 0x50) */
     return 0;
 }
 
@@ -407,7 +408,7 @@ int em_anim_rest_001CAAC0(EmAnimRest *r, uint32_t position, uint32_t payload, in
     const uint8_t *src = map(r, position & ~15u, 16);
     if (!src) return fault(r, 0x00102948u, EM_ANIM_REST_FAULT_BAD_INDEX);
     u32 p[4];
-    for (int k = 0; k < 4; ++k) p[k] = rd32(src + 4 * k);
+    em_sdk_vu0_00102948(p, src);
 
     /* The projection (0x001CAB14..0x001CAB30): c = VP row 0 * p.x + row 1 *
      * p.y + row 2 * p.z + row 3 * 1.0 (the constant register's w, not p.w);

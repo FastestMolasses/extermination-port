@@ -13,15 +13,13 @@
  *             copied)
  *   001B1B30  visibility publish: +0x01 = 001B1630(x, y, z), then 001B1B70
  *             (byte-matched C)
- *   001BC240  door phase 4: advance the clip, commit the transition
- *             (byte-matched C)
- *   001BC290  door phase 5: advance the clip, restart it when D_008106B8 == 0
- *             (byte-matched C)
  *   001BBD60  door open-script sound: record word +0x18 = D_0024DB80 row
  *             (+0x56 >> 8) column (+0x2E) (byte-matched C)
  *   001B0080  room-entry camera seat on the camera object D_008101E0
  *             (byte-matched C; census row L18, listed there as verified but
  *             only a worker slot of em_script_host_workers existed)
+ * The door's phase wrappers 001BC240 and 001BC290 are em_door_original's
+ * phases 4 and 5 (their one translation).
  *
  * Every record byte a function reads or writes is a field named by its
  * original offset. Every original callee is one worker of EmSdfWorkers named
@@ -116,14 +114,7 @@ typedef struct {
     uint8_t *d8101E4;                     /* camera mode byte */
     int16_t *d81024E;                     /* camera +0x6E scene id */
     const int16_t *d275BCC;               /* bone budget (lh) */
-    uint8_t *d8106B8;                     /* area-change request byte (001BC290) */
 } EmSdfWorld;
-
-/* Door record bytes 001BC240 / 001BC290 read or write. */
-typedef struct {
-    uint8_t b0B;         /* +0x0B: 001BC290 clears it (the armed bits) */
-    int16_t anim_flags;  /* +0x1FE (script block +0x0E) */
-} EmSdfDoorStep;
 
 /* Camera object D_008101E0 bytes 001B0080 (arg0) reads or writes. Quads are
  * moved as bit patterns (00102948 is a 16-byte copy). */
@@ -171,17 +162,12 @@ typedef struct EmSdfWorkers {
     int (*w_001C63E0)(void *ctx, EmSdfEventActor *obj, int16_t clip);
     int (*w_001C61D0)(void *ctx, uint32_t bank, int16_t clip, int32_t *result);
 
-    /* anim_clip_init 001C67E0(actor, clip, f12, f13): 001BAD40, 001BC290. */
+    /* anim_clip_init 001C67E0(actor, clip, f12, f13): 001BAD40. */
     int (*w_001C67E0)(void *ctx, int16_t clip, float start, float length);
 
     /* 001B1B30 */
     int (*w_001B1630)(void *ctx, float x, float y, float z, int32_t *result);
     int (*w_001B1B70)(void *ctx);
-
-    /* 001BC240 / 001BC290: anim_advance_time 001C64F0(actor, step) returns
-     * the animation flags (a short); 001BC150 is the transition commit. */
-    int (*w_001C64F0)(void *ctx, float step, int16_t *flags);
-    int (*w_001BC150)(void *ctx);
 
     /* 001B0080: 001B1470 (wrap to (-pi, pi]) and the VU0 matrix leaves
      * 001029C0(m) (identity), 00102C58(dst, src, angles) (Euler rotation;
@@ -211,13 +197,6 @@ int em_sdf_001BAD40(EmSdfEventActor *obj, const uint8_t *entry, const EmSdfWorld
 /* 001B1B30(actor, x, y, z): *visible = byte of 001B1630(x, y, z); 001B1B70
  * when it is nonzero. Returns the +0x01 byte, or -1. */
 int em_sdf_001B1B30(uint8_t *visible, float x, float y, float z, const EmSdfWorkers *w,
-                    EmSdfFault *fault);
-
-/* 001BC240(door, block): returns 0, or -1. */
-int em_sdf_001BC240(EmSdfDoorStep *door, const EmSdfWorkers *w, EmSdfFault *fault);
-
-/* 001BC290(door, block): the original result (1 restarted, 0 waiting), or -1. */
-int em_sdf_001BC290(EmSdfDoorStep *door, const EmSdfWorld *world, const EmSdfWorkers *w,
                     EmSdfFault *fault);
 
 /* 001BBD60(door, record): *record_18 = D_0024DB80 halfword at

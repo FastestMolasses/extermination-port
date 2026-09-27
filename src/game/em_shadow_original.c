@@ -3,6 +3,7 @@
  * reproduces; tools/test_shadow_original_reference.py checks the results
  * byte for byte against the executed original instructions. */
 #include "game/em_shadow_original.h"
+#include "game/em_sdk_vu0.h"
 #include "game/em_ee_float.h"
 
 #include <math.h>
@@ -66,13 +67,14 @@ static void vu0_transform(float out[4], const float m[16], const float v[4])
     memcpy(out, r, sizeof r);
 }
 
-/* 001026D0(dst, a, b): each row of b through a, i.e. dst = b x a in the
- * row-vector convention. dst may alias a or b (rows are read first). */
+/* 001026D0(dst, a, b): em_sdk_vu0.h's translation (each row of b through
+ * a, i.e. dst = b x a in the row-vector convention; dst may alias a or b). */
 static void vu0_product(float dst[16], const float a[16], const float b[16])
 {
-    float out[16], am[16];
-    memcpy(am, a, sizeof am);
-    for (int row = 0; row < 4; ++row) vu0_transform(out + 4*row, am, b + 4*row);
+    uint32_t ua[16], ub[16], out[16];
+    memcpy(ua, a, sizeof ua);
+    memcpy(ub, b, sizeof ub);
+    (void)em_sdk_vu0_001026D0(out, ua, ub);   /* its forms are measured: no refusal */
     memcpy(dst, out, sizeof out);
 }
 

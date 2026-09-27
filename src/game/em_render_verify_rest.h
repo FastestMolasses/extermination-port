@@ -29,11 +29,6 @@
  *        00102850  VU0 vector / scalar (Q = 1 / s, then v * Q)
  *        001000E0  001274B0(a, b) <= 0 (the soft-float double compare)
  *   L20  001FCF10  001FCB90(0x10E, 0xCC, 5, 0)
- *   L29b 001D4B50  001D49D0(obj) then 001D4B10(obj)
- *        001DA1E0  the 0x80-byte CNT/DIRECT record at a channel cursor
- *        001DA290  001D1F80(a0, 2, 9) then 001DA1E0(a0, copy of
- *                  D_002531D0, a1) (the only caller of 001DA1E0; its
- *                  packet content, next to em_shadow_original's worker)
  *
  * Conventions (the house style of em_player_stage_workers.h):
  *   - Every original callee that is not translated here is an explicit
@@ -54,7 +49,10 @@
  * tools/ee_float_model.py) and compares every write and every worker call.
  * It also verifies, by per-function interception inside the original
  * 001DA6A0, the em_shadow_original.c translations of 001DA080, 001DA310
- * and 001D5C80 (census L29b). */
+ * and 001D5C80 and its 001D4B50 / 001DA290 calls (census L29b). The
+ * shadow's 001D4B50, 001DA290 and 001DA1E0 have one owner, the shadow
+ * passes (em_shadow_original's worker calls drawn by em_gfx_shadow_*;
+ * docs/SHADOW_ORIGINAL.md), so this module keeps no second copy of them. */
 #ifndef EM_RENDER_VERIFY_REST_H
 #define EM_RENDER_VERIFY_REST_H
 
@@ -84,14 +82,6 @@ typedef struct {
     uint8_t *bytes;
     uint32_t size;
 } EmRvrRenderContext;
-
-/* A window of EE memory holding display-list records: `bytes` is the
- * content of original addresses base .. base + size - 1. */
-typedef struct {
-    uint8_t *bytes;
-    uint32_t base;
-    uint32_t size;
-} EmRvrMemory;
 
 /* ======================================================================
  * L31: area render init (001C1DC0 family) and the background build
@@ -205,45 +195,6 @@ typedef struct {
 } EmRvrMessageWorkers;
 
 int em_rvr_001FCF10(const EmRvrMessageWorkers *w, EmRvrFault *fault);
-
-/* ======================================================================
- * L29b: 001D4B50, 001DA1E0 (+ its caller 001DA290)
- * ====================================================================== */
-
-typedef struct {
-    void *ctx;
-    /* 001D49D0(obj) and 001D4B10(obj) (census: boundary, VIF packets of
-     * the 0023E8A0 clip pass). obj = the object's original address. */
-    int (*w_001D49D0)(void *ctx, uint32_t obj);
-    int (*w_001D4B10)(void *ctx, uint32_t obj);
-} EmRvrClipWorkers;
-
-int em_rvr_001D4B50(const EmRvrClipWorkers *w, uint32_t obj, EmRvrFault *fault);
-
-/* 001DA1E0(channel, payload, word): the record at the channel's cursor
- * (ctx + 0x10 + 4 * channel), which must lie in `mem`:
- *   +0 half 7, +3 byte 0x10, +4 word 0 (bytes +2 and +8..+0xF keep their
- *   value), +0x10..+0x1B zero, +0x1C 0x50000006, +0x20 dword
- *   0x5022400000008001, +0x28 dword 0x44441, +0x30..+0x3B zero, +0x3C
- *   `word`, +0x40..+0x7F the 64 payload bytes; the cursor advances by
- *   0x80 and *body = record + 0x10. */
-int em_rvr_001DA1E0(EmRvrRenderContext *rc, EmRvrMemory *mem, int32_t channel,
-                    const uint8_t payload[64], uint32_t word, uint32_t *body, EmRvrFault *fault);
-
-typedef struct {
-    void *ctx;
-    /* 001D1F80(channel, a, b): state block push (em_load_veil_particles /
-     * em_owner_services_original). */
-    int (*w_001D1F80)(void *ctx, int32_t channel, int32_t a, int32_t b);
-} EmRvrStateWorkers;
-
-/* 001DA290(a0, a1): 001D1F80(a0, 2, 9) - the listing passes its own a0
- * through (the decomp C of this asm-linked unit says 0; 001DA6A0 passes 0,
- * so the two agree on the shadow route) - then 001DA1E0(a0, copy of the
- * template, a1). template = the 64 bytes of D_002531D0 (boot ELF data,
- * supplied by the binder). */
-int em_rvr_001DA290(EmRvrRenderContext *rc, EmRvrMemory *mem, const EmRvrStateWorkers *w,
-                    const uint8_t template_2531D0[64], int32_t a0, uint32_t a1, EmRvrFault *fault);
 
 #ifdef __cplusplus
 }

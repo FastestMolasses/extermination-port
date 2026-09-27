@@ -4,6 +4,11 @@
 Model allocation, script workers, pose construction and device output are
 explicit callbacks. The controller and its nested phase wrappers execute
 their actual original instructions. No instruction bytes are distributed.
+
+em_door_original is the one translation of the phase wrappers 001BC240
+(phase 4) and 001BC290 (phase 5): besides the controller sweep, their
+cases run every animation-flag answer, request byte and armed byte, and
+the route beat 09 replay drives phases 4 and 5 from the captured rows.
 """
 import ctypes as C
 import hashlib
@@ -59,7 +64,7 @@ class Hooks(C.Structure):
 
 
 def compare(elf, lib, lifecycle, phase, armed, active, done, pending, subtype,
-            unlocked, initialized=1, link=0x400, side=0x1203, y=184.8):
+            unlocked, initialized=1, link=0x400, side=0x1203, y=184.8, answer=0xFEDC):
     original = DoorOracle(elf)
     door = Door(2, 73, 0x85, subtype, lifecycle, phase, armed, 0, active,
                 -32768, 0x1234, side, link, (423, y, 290.3), (7, 8, 9))
@@ -98,7 +103,7 @@ def compare(elf, lib, lifecycle, phase, armed, active, done, pending, subtype,
     def advance(o):
         assert (o.r[4], o.f[12]) == (ACTOR, bits(1))
         expected.append(('advance',))
-        o.r[2] = 0xFEDC
+        o.r[2] = answer
 
     def pump(o):
         assert o.r[4] == ACTOR
@@ -132,7 +137,7 @@ def compare(elf, lib, lifecycle, phase, armed, active, done, pending, subtype,
         return CALL(callback)
 
     def native_advance(_, output):
-        actual.append(('advance',)); output[0] = signed(0xfedc, 16); return 1
+        actual.append(('advance',)); output[0] = signed(answer, 16); return 1
 
     hooks = Hooks(None, CALL(lambda _: actual.append(('initialize',)) or initialized),
         KICK(lambda _, mode: actual.append(('kickoff', mode)) or 1), ADVANCE(native_advance),
@@ -157,6 +162,63 @@ def compare(elf, lib, lifecycle, phase, armed, active, done, pending, subtype,
         original.load(ACTOR + 0x80 + i*4) for i in range(3))
 
 
+def route_door(lib):
+    """Route beat 09: every frame t whose previous row shows the door (node
+    r0) in phase 4 or 5 runs em_door_original_tick from that row's header and
+    script block, with 001C64F0 answered by row t's +0x1FE (derived from the
+    capture) and D_008106B8 = row t's request byte B8 (the room loader clears
+    it earlier in the same frame: the capture shows B8 and the phase reset in
+    the same row). Asserted: exactly one phase-4 commit (001BC150), then
+    phase 5 restarts the clip (001C67E0) and returns to phase 0 exactly on
+    the row where the capture does, with the capture's +0x0B and +0x1FE."""
+    route = DECOMP/'build/s87/route/09_fence_door/trace.json'
+    if not route.exists():
+        print('route 09 door replay: SKIP (no capture)')
+        return 0
+    rows = json.loads(route.read_text())['rows']
+    head = lambda r: bytes.fromhex(r['door_r0']['h'])
+    block = lambda r: bytes.fromhex(r['door_r0']['s1F0'])
+    commits = restarts = frames = 0
+    for t in range(1, len(rows)):
+        prev, cur = rows[t - 1], rows[t]
+        h = head(prev)
+        if h[4] != 1 or h[5] not in (4, 5):
+            continue
+        frames += 1
+        flags = int.from_bytes(block(cur)[14:16], 'little')
+        door = Door(h[0], h[1], h[2], h[3], h[4], h[5], h[11], 0,
+                    signed(block(prev)[12], 8), signed(int.from_bytes(block(prev)[14:16], 'little'), 16),
+                    0, 0, 0, (0, 0, 0), (1, 1, 1))
+        calls = []
+
+        def event(name):
+            def callback(_): calls.append(name); return 1
+            return CALL(callback)
+
+        def native_advance(_, output):
+            calls.append('advance'); output[0] = signed(flags, 16); return 1
+        hooks = Hooks(None, event('initialize'), KICK(lambda _, mode: calls.append('kickoff') or 1),
+                      ADVANCE(native_advance), event('tick'), START(lambda _, a: calls.append('start') or 1),
+                      event('transition'), event('reset'), event('place'),
+                      PUBLISH(lambda _, point: calls.append('publish') or 0), event('draw'), event('free'))
+        b8 = bytes.fromhex(cur['req'])[8]
+        phase = h[5]
+        assert lib.em_door_original_tick(C.byref(door), 1, b8, C.byref(hooks)) == 1, (t, calls)
+        assert door.animation_flags == signed(flags, 16), (t, door.animation_flags, flags)
+        if phase == 4:
+            assert calls[:2] == ['advance', 'transition'] and door.phase == 5, (t, calls, door.phase)
+            commits += 1
+        else:
+            restarted = head(cur)[5] == 0
+            assert (door.phase == 0) == restarted and ('reset' in calls) == restarted, \
+                (t, calls, door.phase, head(cur)[5])
+            if restarted:
+                assert door.armed == head(cur)[11], (t, door.armed, head(cur)[11])
+                restarts += 1
+    assert (commits, restarts) == (1, 1), (commits, restarts)
+    return frames
+
+
 def main():
     elf = (DECOMP/'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA
@@ -176,16 +238,24 @@ def main():
     for initialized, link, side in itertools.product((0, 1), (0, 0x40, 0x80, 0xc0, 0xffff), (0, 127, 0x12ff)):
         compare(elf, lib, 0, 0, 0, 0, 0, 0, 3, 0, initialized, link, side)
         count += 1
+    # 001BC240 / 001BC290 (phases 4 and 5): every animation-flag answer,
+    # request byte and armed byte.
+    for phase, answer, pending, armed in itertools.product((4, 5), (0, 1, 0x10, 0x7FFF, 0x8000, 0x1234, 0xFFFF),
+                                                           (0, 1, 2), (0, 4, 0xFF)):
+        compare(elf, lib, 1, phase, armed, 0, 0, pending, 3, 0, answer=answer)
+        count += 1
+    route = route_door(lib)
     rng = random.Random(0x1bc300)
     for _ in range(256):
         compare(elf, lib, 1, 0, 0, 0, 0, 0, 3, 0, y=rng.uniform(-10000, 10000))
         count += 1
-    (build/'result.json').write_text(json.dumps(dict(status='PASS', cases=count,
+    (build/'result.json').write_text(json.dumps(dict(status='PASS', cases=count, route_frames=route,
         original_functions=['001BBDA0', '001B0F60', '001BC350', '001BC0E0',
                             '001BC240', '001BC290', '001BC300'],
         limits='Model allocation, kickoff/script, transition and pose/device workers are explicit hooks.'),
         indent=2)+'\n')
-    print(f'Original door controller: PASS {count} instruction/state/order cases')
+    print(f'Original door controller: PASS {count} instruction/state/order cases, '
+          f'{route} route beat 09 phase-4/5 frames')
 
 
 if __name__ == '__main__': main()

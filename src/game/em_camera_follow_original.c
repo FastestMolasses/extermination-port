@@ -14,6 +14,7 @@
 #include "game/em_camera_follow_original.h"
 #include "game/em_ee_float.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -513,8 +514,8 @@ int em_camera_follow_0018D7B0(const EmCameraFollowWorld *W, int style, int *resu
     }
     cbset(c, 7, (unsigned)s0 & 0xFF);
     if (style == 1) {
-        memcpy(W->globals->target, c->bytes + 0x20, 16);               /* 00102948(D_008105E0, cam+20) */
-        memcpy(W->globals->eye, c->bytes + 0x10, 16);                  /* 00102948(D_008105D0, cam+10) */
+        em_sdk_vu0_00102948(W->globals->target, c->bytes + 0x20);      /* 00102948(D_008105E0, cam+20) */
+        em_sdk_vu0_00102948(W->globals->eye, c->bytes + 0x10);         /* 00102948(D_008105D0, cam+10) */
     } else if (style == 0) {
         chase_eye(W, F_4, F_4);                                        /* 0018C6A0 / 0018C4B0 at 4.0 */
     }

@@ -729,66 +729,6 @@ static void em_carry_test_ctor(void)
 
 /* ---- func_0019BC40 column table ------------------------------------------ */
 
-static float column_sqrt(const EmCollColumnMath *m, float x)
-{
-    return m && m->sqrt ? m->sqrt(m->context, x) : sqrtf(x);
-}
-
-static float column_atan(const EmCollColumnMath *m, float x)
-{
-    return m && m->atan ? m->atan(m->context, x) : atanf(x);
-}
-
-/* The SDK VU0 leaves 0019F330 calls, over em_ee_float.h's VU0 macro model
- * (the forms em_coll_probe_original's walkers use): 001028D0 (four-lane
- * difference), 001028B8 (four-lane sum), 00102738 (the three-lane dot:
- * a product, then the y and z lanes summed into x) and 00103230 (three
- * lanes scaled by one scalar). Each returns 0, or -1 when a form is
- * refused. */
-static int col_vu(em_vu_op op, unsigned dest, int bc, const float fs[4], const float ft[4],
-                  float dst[4])
-{
-    uint32_t a[4], b[4], d[4];
-    memcpy(a, fs, sizeof a);
-    memcpy(b, ft, sizeof b);
-    memcpy(d, dst, sizeof d);
-    if (em_vu_vec_bits(op, dest, bc, a, b, 0, NULL, d) != EM_EE_FLOAT_OK) return -1;
-    memcpy(dst, d, sizeof d);
-    return 0;
-}
-static int col_sub(float out[4], const float a[4], const float b[4])
-{
-    float r[4] = { 0 };
-    if (col_vu(EM_VU_SUB, 0xF, EM_VU_NO_BC, a, b, r)) return -1;
-    memcpy(out, r, sizeof r);
-    return 0;
-}
-static int col_add(float out[4], const float a[4], const float b[4])
-{
-    float r[4] = { 0 };
-    if (col_vu(EM_VU_ADD, 0xF, EM_VU_NO_BC, a, b, r)) return -1;
-    memcpy(out, r, sizeof r);
-    return 0;
-}
-static int col_dot(float *out, const float a[4], const float b[4])
-{
-    float v[4];
-    memcpy(v, b, sizeof v);
-    if (col_vu(EM_VU_MUL, 0xE, EM_VU_NO_BC, a, v, v)) return -1;
-    if (col_vu(EM_VU_ADDBC, 0x8, 1, v, v, v)) return -1;
-    if (col_vu(EM_VU_ADDBC, 0x8, 2, v, v, v)) return -1;
-    *out = v[0];
-    return 0;
-}
-static int col_scale(float out[4], const float v[4], float t)
-{
-    float r[4], q[4] = { t, t, t, t };
-    memcpy(r, v, sizeof r);
-    if (col_vu(EM_VU_MULBC, 0xE, 0, r, q, r)) return -1;
-    memcpy(out, r, sizeof r);
-    return 0;
-}
-
 /* 001A5760 for a type-0x2000 face: out[0]/out[2] top crossing, out[1]/out[3]
  * bottom crossing, extra[0]/extra[1] the 0x7000319C / 0x700031AC values.
  * The bounds are EE add.s (em_ee_float.h). */
@@ -811,39 +751,6 @@ static int column_face(const EmCollBoxFace *f, float x, float z, float out[4], f
         out[0] = negbig.f; out[1] = f->origin[1]; out[2] = 0.0f; out[3] = -1.0f;
         extra[1] = negsmall.f;
     }
-    return 1;
-}
-
-/* 0019F330(pos, pos + (0,1,0), q, node): q[1] the crossing height, q[3] the
- * signed slope complement. 1 / 0, or -1 when a VU form is refused. COP1
- * operations are em_ee_float.h's; the VU0 leaves col_*. */
-static int column_node(const EmCollision *c, const EmCollPoly *p, const float a[3],
-                       const EmCollColumnMath *m, float q[4])
-{
-    /* 0019BC40 passes v1 = pos and v2 = pos with y + 1.0 (add.s); 001028D0
-     * takes the difference, so d.y is (y + 1) - y in EE arithmetic. */
-    const float v1[4] = { a[0], a[1], a[2], 0.0f };
-    const float v2[4] = { a[0], em_ee_add(a[1], 1.0f), a[2], 0.0f };
-    const float n[4] = { p->plane[0], p->plane[1], p->plane[2], 0.0f };
-    float d[4], along, nq, hit[4];
-    if (col_sub(d, v2, v1) || col_dot(&along, d, n) || col_dot(&nq, n, v1)) return -1;
-    float t = em_ee_div(em_ee_sub(p->plane[3], nq), along);         /* sub.s, div.s */
-    if (col_scale(hit, d, t) || col_add(hit, v1, hit)) return -1;   /* 00103230, 001028B8 */
-    for (unsigned k = 0; k < p->vcount; ++k) {
-        const float *v = c->verts + 3u * c->indices[p->first + k];
-        const float *e = c->edge_n + 3u * (p->first + k);
-        const float vv[4] = { v[0], v[1], v[2], 0.0f }, ee[4] = { e[0], e[1], e[2], 0.0f };
-        float rel[4], dot;
-        if (col_sub(rel, hit, vv) || col_dot(&dot, rel, ee)) return -1;
-        if (!em_ee_c_le(dot, em_ee_float(0x3727C5ACu))) return 0;    /* +1e-5 */
-    }
-    for (int k = 0; k < 3; ++k) q[k] = hit[k];
-    float h = column_sqrt(m, em_ee_madd(em_ee_mula(n[0], n[0]), n[2], n[2]));  /* mula.s, madd.s */
-    union { uint32_t u; float f; } big = { 0x7F7FC99Eu };
-    float ratio = em_ee_c_lt(h, em_ee_float(0x38D1B717u)) ? big.f           /* 1e-4 */
-                : em_ee_div(em_ee_float(em_ee_bits(n[1]) & 0x7FFFFFFFu), h); /* 0011DF78, div.s */
-    float angle = em_ee_sub(em_ee_float(0x3FC90FDBu), column_atan(m, ratio));  /* pi/2 - atan */
-    q[3] = em_ee_c_lt(n[1], 0.0f) ? em_ee_neg(angle) : angle;
     return 1;
 }
 
@@ -917,8 +824,13 @@ int em_collision_column_finish(const EmCollision *c, const EmCollColumnSeed *see
             if (p->set != EM_COLL_SET_GRID) continue;
             if (fabsf(p->plane[1]) < 0.001f) continue;              /* 0011DF78 */
             if (p->attr >= 0x50) continue;
+            /* 0019F330(v1, v2, q, node): v1 = pos, v2 = pos with y + 1.0
+             * (add.s), through its one translation (the `cross` worker). */
+            if (!math || !math->cross) return -1;
+            const float v1[3] = { pos[0], pos[1], pos[2] };
+            const float v2[3] = { pos[0], em_ee_add(pos[1], 1.0f), pos[2] };
             float q[4];
-            int crossed = column_node(c, p, pos, math, q);
+            int crossed = math->cross(math->cross_context, i, v1, v2, q);
             if (crossed < 0) return -1;
             if (!crossed) continue;
             if (!(n < EM_COLL_COLUMN_MAX)) break;
