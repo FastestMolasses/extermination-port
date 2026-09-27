@@ -91,8 +91,16 @@ const EmOpeningFace *em_area11_interaction_host_face_state(void);
 
 /* Actual player-stage callback for player_pose_set_stage_hook. Ordinary
  * source advancement already happened when unowned; acquired callbacks
- * advance only inside the shared interaction worker. */
+ * advance only inside the shared interaction worker. 2 while a script
+ * owner holds the token: its takeover is the stage's own (0015B130's
+ * prelude, 0015B530, 00182DF0), which em_player.c then runs. */
 int em_area11_interaction_host_player(void *unused);
+/* 001D0C70 for the player stage's 00183090 (0x70003B8F == 2): the attached
+ * face's tick. 0, or -1 (latched). */
+int em_area11_interaction_host_face_tick_001D0C70(void);
+/* player_pose_set_takeover_end_hook worker: the stage's 00182DF0 released
+ * a script owner's player; its token ends. 1, or -1 (latched). */
+int em_area11_interaction_host_staged_released(void *unused);
 /* player_use_set_hook worker: the Use dispatcher 00160220 over the live
  * record (em_player_closure_live_use_press, with this host's 00184BA0 as its
  * scan). 1 an action took the press (the record's +5 names it: 0x25 an
@@ -172,9 +180,12 @@ int em_area11_interaction_host_camera_publish(void);
  * AREA11 script host runs, over the same bindings as the host's own
  * scripts. 1 accepted, -1 refused or a fault (latched). */
 int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event);
-/* A script owner outside the host (the truck trigger) claims the shared
- * player takeover after its op07 wrote the selector; the runtime releases
- * it when the selector clears. 1 claimed (or already its), -1 refused. */
+/* A script owner outside the host (the truck trigger, the director, Roger)
+ * claims the shared player token after its op07 wrote the selector; the
+ * takeover itself is the player stage's (0015B130's prelude admits the
+ * player, 0015B530's 00182DF0 releases it when the selector clears; the
+ * special bank's regions are mapped into the record's pose storage here).
+ * 1 claimed (or already its), -1 refused. */
 int em_area11_interaction_host_claim_script(const void *owner);
 int em_area11_interaction_host_owns(const void *owner);
 /* 1 while a script owner (em_area11_interaction_host_claim_script) holds

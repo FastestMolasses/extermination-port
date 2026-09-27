@@ -40,14 +40,14 @@ Census status before the lane, then now. "Verified" means that `tools/test_locom
 | 0017B5C0 | BM | unverified (em_player.c eight-tick entry blend) | **live** (`em_loco_0017B5C0`) | Walk entry, as described below. |
 | 00179D20 | BM | missing | **live** (`em_loco_00179D20`) | Node pose seed, as described below. |
 | 00179FF0 | BM | missing | **live** (`em_loco_00179FF0`) | The record's TRS matrix into `+D0` (build_trs_matrix), then each node's world matrix. A node with parent -1 uses the root; otherwise its parent's world matrix. Then `+303 = 1`. |
-| 00182D40 | BM | unverified (em_player_pose_host.c release tail) | **translated + verified, unbound** (`em_loco_00182D40`; its caller 00182DF0 is not translated on the record) | Returns 1 when `+1F0 == 0x17`, else 0. |
+| 00182D40 | BM | unverified (em_player_pose_host.c release tail) | **live** (`em_player_00182D40` in em_player_stage_workers, inside 00182DF0's translation since chain C7; this module's copy is removed) | Returns 1 when `+1F0 == 0x17`, else 0. |
 | 0017B490 | BM | verified-unbound (a retired copy with embedded rows) | **live** (`em_loco_0017B490`) | Clip selection, as described below. |
 | 0017C030 | BM | verified-unbound (a retired copy of cases 6/7) | **live** (`em_loco_0017C030`, all eight cases) | All eight cases, as described below. |
 | 00178B90 | AI | verified-unbound (em_player_recovery) | **live** (the `translate` worker) | The translation along `+C4` by `+38` (worker `translate`). |
 | 001749F0 | BM | verified-unbound (em_pose_host_workers) | live (the `arbiter` worker) | anim_clip_arbiter (worker `arbiter`). |
 | 00187350 | BM | verified-unbound (em_player_floor, test_player_footstep_reference) | **live** (after every player stage, `em_player_closure_live_footstep`) | The footstep dispatch 0015BCF0 calls after 0015BA50. |
 | 00187EE0 | BM | verified-unbound (em_player_floor) | live (inside 00187350, and the ladder dismount) | The footstep sound and effect that 00187350 calls. |
-| 00187DC0 | BM | verified-unbound (em_player_floor, test_player_floor_reference) | inside the floor service (first contact with surface 0x5A) | The floor service's first-contact handler (surface 0x5A). |
+| 00187DC0 | BM | verified-unbound (em_player_floor, test_player_floor_reference) | **live** (`em_player_first_contact` in em_player_floor, the floor service's first_contact worker's body since chain C7; the floor oracle executes the original 00187DC0 and compares its id, 0 flag and 300.0) | The floor service's first-contact handler (surface 0x5A). |
 
 **00161020 (idle state), by `+6`:**
 
@@ -196,5 +196,5 @@ The oracle found one translation error during development, and it is fixed. The 
 - **Case coverage in play.** The smoke reaches every routine above; which 0017C030 cases it reached is not recorded (the reversal skid 6 / 7 needs a stick reversal above speed 0.5, which no route beat makes). The skid is verified only by the instruction oracle.
 - **Effects and decals.** 001612D0's skid effects and the footstep's surface effects spawn through the live effect binder (em_effects_live, L26). The skid's handlers (0x80000033 → 001EAD70 on snow, 0x80000012 → 001EC270) are not translated: their nodes live, their packets are the binder's counted gap (EFFECT_MANAGER.md 8.2). The footstep's decal 001F0460 and wading 001E8B90 fault if reached.
 - **Legacy scenes.** The scenes without an original world keep the legacy callbacks, `em_player_motor_tick` (now an adapter over the record-level motor), the mirror foot stop `em_player_foot_stop_begin` / `_tick` and the legacy re-entry / stop metadata. They are outside the first level.
-- **00182D40** stays unbound: its caller 00182DF0 is not translated on the record (the pose host's release mirrors it).
+- **00182D40** is translated once, in em_player_stage_workers (`em_player_00182D40`), where 00182DF0's translation runs it; this lane's oracle calls that one (chain C7).
 - **D_00275B40** is the player's +110 by construction in the closure (001CB5B0's value for the player); a canonical D_00275B40 / D_00275B48 pair for every host (census L33, 001CB5B0) is not built.

@@ -55,6 +55,13 @@ typedef struct {
      * 001AFCF0 clears 3B8F with 3B8D under a held player (the fence door's
      * room move): the takeover's tick and release then still run. */
     int acquired;
+    /* The owner's takeover is the player stage's own (census L01 / C7): a
+     * script owner (em_area11_script_host) whose frame 0015B130's prelude
+     * admits (00182B30, +4 = 4, 00182D70), whose stages run 0015BA50's
+     * +4 = 4 commit and advance and 0015B530 (001837A0), and whose release is
+     * 0015B530's 00182DF0. The runtime then holds only the owner token:
+     * player_tick does nothing for it, and staged_release ends it. */
+    int staged;
 } EmInteractionRuntime;
 
 /* local_palette has at least model->bone_count*16 floats and belongs to
@@ -73,9 +80,17 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
 /* An owner whose own script opened the scripted frame (op07 already wrote
  * the selector, e.g. the truck trigger 008251E0's 0x8292C0): the player
  * takeover the next player stage performs (0015B130's 00182B30 admission)
- * serves that owner. Requires a nonzero selector and a free, unacquired
- * player; writes nothing to the frame. 1 claimed, 0 refused. */
+ * serves that owner, staged (see `staged`). Requires a nonzero selector and
+ * a free, unacquired player; writes nothing to the frame. 1 claimed, 0
+ * refused. */
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner);
+/* The owner a scan claim (em_interaction_runtime_claim) gave the token to
+ * runs a script whose takeover is the player stage's: mark it staged before
+ * the player is taken. 1, or 0 (not the owner, or already taken). */
+int em_interaction_runtime_stage_owner(EmInteractionRuntime *runtime, const void *owner);
+/* The player stage's 00182DF0 released a staged owner's player (3B8F = 0,
+ * +4 = 1): the token ends. 1, or 0 when no staged owner holds it. */
+int em_interaction_runtime_staged_release(EmInteractionRuntime *runtime);
 int em_interaction_runtime_owns(const EmInteractionRuntime *runtime, const void *owner);
 const void *em_interaction_runtime_owner(const EmInteractionRuntime *runtime);
 int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime);
@@ -90,7 +105,8 @@ int em_interaction_runtime_animation_done(const EmInteractionRuntime *runtime, c
 
 /* Call exactly once at the actual player stage. ordinary_tasks_enabled=0
  * during original status/menu frames: no acquisition, cursor or release
- * advances. Returns-1 failure,0 no takeover,1 player owned for this call.
+ * advances. Returns-1 failure,0 no takeover (or a staged owner's, which the
+ * stage performs itself),1 player owned for this call.
  * When selector clears, the original player advances first, then182DF0
  * releases it. Ownership clears only after successful release. */
 int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordinary_tasks_enabled);

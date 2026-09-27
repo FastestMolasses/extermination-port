@@ -13,7 +13,8 @@
  *                  assets/scene_snow/world_models.emwm) and the bone-slot
  *                  stack of 001AF710 (D_00275BD0 / D_00275BCC, 0x480 slots at
  *                  every area build), popped by 001AF780 and pushed back by
- *                  001AF800 / 001AF890 when the pool frees the record
+ *                  001AF800 (its own inline loop) when the pool frees the
+ *                  record
  *   001B1B70 / 001B1D20  the collision world's class lists (the crates'
  *                  cells, uids 7..10, and the drums', uids 5 and 6)
  *   001B17A0      the interaction host's services (the drum's visibility)
@@ -102,8 +103,11 @@ void em_area11_boxes_reset(void);
 int32_t *em_area11_boxes_carry31F0(void);
 
 /* 001AF800(actor): the pool's bone-slot return for a record with +0x09 != 0
- * (EmActorPool.w_001AF800). Every slot goes back through 001AF890. 0, or -1
- * for a record that is not a box. */
+ * (EmActorPool.w_001AF800): em_roger_actor_001AF800, which pushes every
+ * slot back itself (the original 001AF800 does not call 001AF890). The
+ * records of Roger, the equipment nodes and the indicator children go to
+ * their binders' views of the same translation. 0, or -1 for a record that
+ * is not a box. */
 int em_area11_boxes_001AF800(void *ctx, EmActor *actor);
 
 /* The fence door 001BC350's 001B0EA0 (called by 001B0F60 in its 001BBDA0;

@@ -42,7 +42,7 @@ static struct {
     u32 d0028A56C;                 /* D_0028A490[0x37] */
     Child child[EM_ACTOR_POOL_CAPACITY];
     Child *current;
-    EmRogerActor stack;            /* 001AF780 / 001AF890 on the one stack */
+    EmRogerActor stack;            /* 001AF780 / 001AF800 on the one stack */
     EmOwnerServices services;      /* 001C62C0 / 001C6380 */
     EmOwnerServicesScratch scratch;
 } S;
@@ -296,8 +296,18 @@ int em_indicator_bind_live_001AF800(EmActor *child)
     Child *c = child_of(child);
     if (!S.attached || !c || !c->live || c->generation != child->generation) return 0;
     if (S.fault) return -1;
-    for (unsigned k = 0; k < child->bones && k < c->held; ++k)
-        if (em_roger_actor_001AF890(&S.stack, c->word[k]) < 0) return fail(0x001AF890u, "001AF890 faulted");
+    /* 001AF800 (em_roger_actor_001AF800, its own slot loop) over the
+     * child's +0x09, +0x0C and the +0x110 words it popped. */
+    if (child->bones > c->held) return fail(0x001AF800u, "001AF800: +0x09 names a slot the child did not pop");
+    EmRogerActorRecord v;
+    memset(&v, 0, sizeof v);
+    v.address = em_actor_pool_address(S.pool, child);
+    v.bones_held = child->bones;
+    v.bone_count = child->u0A[2];
+    for (unsigned k = 0; k < c->held; ++k) v.bone[k] = c->word[k];
+    if (em_roger_actor_001AF800(&S.stack, &v) < 0) return fail(0x001AF800u, "001AF800 faulted");
+    child->bones = v.bones_held;
+    child->u0A[2] = v.bone_count;
     memset(c, 0, sizeof *c);
     return 1;
 }

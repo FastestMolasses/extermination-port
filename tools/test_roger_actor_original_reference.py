@@ -7,6 +7,7 @@ are embedded here. Routines executed unmodified (instructions copied from the
 ELF / overlay file over the captured RAM, and checked equal to it):
 
   008237E0 lifecycle-0 case     001BA1C0  001B10B0  001AF780  001AF890
+  001AF800 (the pool free's slot return, its own inline loop)
   001C6150  001CA6E0  001CA5E0  001CA5F0  001CA6F0  001BA8E0  001CA700
   001D0690  001D06D0  001D06E0  001D0C70  001D8BF0  001BA580  001BA540
   001CA770  001C5C90  00102958  001026A0  001028D0  00102760
@@ -76,7 +77,7 @@ DRAW = 0x1CAA00
 EM_SLOT = 0xD0                             # bone / face slot size (001AF890 clears 13 qw)
 
 # Translated routines (start: size, from the splat listing of each).
-SIZES = {0x1BA1C0: 0x30, 0x1B10B0: 0xE0, 0x1AF780: 0x38, 0x1AF890: 0x44, 0x1C6150: 0x8,
+SIZES = {0x1BA1C0: 0x30, 0x1B10B0: 0xE0, 0x1AF780: 0x38, 0x1AF890: 0x44, 0x1AF800: 0x84, 0x1C6150: 0x8,
          0x1CA6E0: 0x8, 0x1CA5E0: 0xC, 0x1CA5F0: 0xEC, 0x1CA6F0: 0x8, 0x1BA8E0: 0x320,
          0x1CA700: 0x6C, 0x1D0690: 0x40, 0x1D06D0: 0xC, 0x1D06E0: 0x38, 0x1D0C70: 0x8,
          0x1D8BF0: 0x2C, 0x1BA580: 0x268, 0x1BA540: 0x3C, 0x1CA770: 0x40, 0x1C5C90: 0x318,
@@ -436,6 +437,10 @@ MUTANTS = [
     ('0x4E no longer copies', 'case 0x47: case 0x4E:', 'case 0x47:'),
     ('001B10B0 +0x0C dropped', '    a->bone_count = count;\n', ''),
     ('001AF890 stack word dropped', '    *word = slot;\n', ''),
+    ('001AF800 +0x110 word kept', '        a->bone[i] = 0;\n', ''),
+    ('001AF800 count not grown', '*s->world.d00275BCC = (int16_t)(*s->world.d00275BCC + a->bones_held);',
+     '*s->world.d00275BCC = (int16_t)(*s->world.d00275BCC + 0);'),
+    ('001AF800 +0x0C kept', '    a->bone_count = 0;\n    return 0;', '    return 0;'),
     ('001CA700 +0x94 dropped', '    a->face_bone = (int16_t)a2; ', '    '),
     ('001C5C90 +0xC0 = vb - va dropped', '    memcpy(e->fC0, dir, sizeof dir);\n    if (sdk_00102760',
      '    if (sdk_00102760'),
@@ -469,6 +474,7 @@ def build_native():
     native.em_roger_actor_001B10B0.argtypes = [S, RP, U32, I32]
     native.em_roger_actor_001AF780.argtypes = [S, C.POINTER(U32)]
     native.em_roger_actor_001AF890.argtypes = [S, U32]
+    native.em_roger_actor_001AF800.argtypes = [S, RP]
     native.em_roger_actor_001BA1C0.argtypes = [S, U32]
     native.em_roger_actor_001D0690.argtypes = [S, U32]
     native.em_roger_actor_001D06D0.argtypes = [S, RP, U32]
@@ -693,6 +699,10 @@ def run_pass(ee, lib, resources, case, perturb):
         ee.run_routine(entry_pc, (ROGER, case['a1']))
         result = fn(C.byref(native.state), C.byref(natives[ROGER]), case['a1'])
         expect = 0
+    elif which == 'free':
+        ee.run_routine(0x1AF800, (case['owner'],))
+        result = lib.em_roger_actor_001AF800(C.byref(native.state), C.byref(natives[case['owner']]))
+        expect = 0
     elif which == 'bind':
         ee.run_routine(0x1B10B0, (ROGER, case['a1'], case['a2']))
         result = lib.em_roger_actor_001B10B0(C.byref(native.state), C.byref(natives[ROGER]),
@@ -807,6 +817,24 @@ def unit_cases(ee):
                 cases.append(dict(name=f'release 56={active} face={has_face} cls={cls:#x}',
                                   what='release', entry='001BA540', records=(ROGER,), pokes=pokes,
                                   axes=(active, has_face, cls), keep=True))
+    # 001AF800 on Roger's record (21 held slots) and the equipment node's
+    # (1): +0x09 = 0, 1, 2 or all, the free count around the halfword's
+    # sign, sentinel slot bytes and sentinel stack words below the cursor
+    # (so every clear and every push is a visible change).
+    cursor = ee.load(BD0)
+    stack_seed = [(cursor - 4 * (i + 1), sentinel_word(cursor - 4 * (i + 1)), 4) for i in range(24)]
+    for owner in (ROGER, EQUIP):
+        held = ee.load(owner + 9, 1)
+        words = [ee.load(owner + 0x110 + 4 * i) for i in range(held)]
+        assert held and all(words), ('001AF800 case needs held slots', hex(owner), held)
+        slot_seed = sum((sentinel_slot(word) for word in words), [])
+        for count in sorted({0, 1, min(2, held), held}):
+            for bcc in (0, 1035, 32767 - count + 1):
+                pokes = slot_seed + stack_seed + [(owner + 9, count, 1), (BCC, bcc, 2),
+                                                  (owner + 0xC, 0xA5, 1)]
+                cases.append(dict(name=f'free {owner:#x} +9={count} bcc={bcc}', what='free', entry='001AF800',
+                                  records=(owner,), pokes=pokes, owner=owner, axes=(owner, count, bcc),
+                                  keep=True))
     # 001B10B0 directly: a2 == -1 (no +0x40 store) and a few table indices.
     for a1, a2 in ((0x47, -1), (0x47, 0x4A), (0x6B, -1), (0x6B, 0x10)):
         for bcc in (20, 21, 31, 40, 1035):

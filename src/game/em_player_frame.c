@@ -93,8 +93,9 @@ static void actor_update(void)
     if (g.pd_state != 2 && player_states_stage_live()) {
         /* Census L01: the original player stage (em_player.c
          * player_states_stage): 0015BA50 advances the display source by
-         * +34, the takeover stand-in may consume the stage at 0015B130's
-         * prelude position, 0015B130 runs 0021C440 / the idle/walk states
+         * +34, the interaction runtime's takeover may consume the stage at
+         * 0015B130's prelude position (a script owner's takeover is the
+         * stage's own: +4 = 4, 0015B530), 0015B130 runs 0021C440 / the idle/walk states
          * (00161020 / 001612D0 in AREA11 since census L12) / the +20E
          * countdown / 0015D100 / 0015D000, then 0015BA50's tail and
          * 0015BCF0's -200 check, loop-sound stop, skeleton evaluation and

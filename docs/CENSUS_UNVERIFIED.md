@@ -262,8 +262,9 @@ models) or em_rvr_001C22A0 (001C5760, *D_0028A59C: the terminal's model
 001C62C0 (em_owner_services_001C62C0); a nonzero result (the bone cap)
 keeps the child in state 0, as the original. `indicator_place` runs
 em_owner_services_001C6380 over the child's +0xB0 / +0xC0 / +0x60 and its
-slots. The pool's 001AF800 returns a freed child's slots through 001AF890
-(em_area11_boxes_001AF800 dispatches to em_indicator_bind_live_001AF800).
+slots. The pool's 001AF800 returns a freed child's slots in its own loop
+(em_area11_boxes_001AF800 dispatches to em_indicator_bind_live_001AF800,
+which runs `em_roger_actor_001AF800` over the child's view).
 The stand-in pins `001C5680/live-init-stub`, `001C5760/live-init-stub`,
 `001C5680/live-place-stub` and `001C5760/live-place-stub` are retired.
 

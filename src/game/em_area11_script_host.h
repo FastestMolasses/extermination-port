@@ -34,9 +34,13 @@
  *
  * The player takeover. When a script's op07 has opened the scripted frame
  * (0x70003B8D != 0), the owner claims the interaction host's shared player
- * takeover (the stand-in for 0015B130's 00182B30 admission that the panel
- * and elevator scripts use); the host releases it when the selector
- * clears. */
+ * token (staged). The takeover itself is the player stage's own: 0015B130's
+ * prelude admits the player (00182B30, +4 = 4, 00174A50, 00182D70), its
+ * +4 = 4 stages run 00183090 (with the face's 001D0C70 under 3B8F == 2)
+ * and 0015B530 (001837A0), and 0015B530's 00182DF0 releases it once the
+ * selector clears, ending the token. 001CA770 on the player is the face
+ * host's detach: the port's player face is not in a pool slot (001CA700 /
+ * 001CA770 on the record's +0x90 wait for the attachment draw 001CB3C0). */
 #ifndef EM_AREA11_SCRIPT_HOST_H
 #define EM_AREA11_SCRIPT_HOST_H
 

@@ -39,6 +39,25 @@ int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const v
         !runtime->frame->selector || runtime->frame->player_ready || runtime->acquired)
         return 0;
     runtime->owner = owner;
+    runtime->staged = 1;
+    return 1;
+}
+
+int em_interaction_runtime_stage_owner(EmInteractionRuntime *runtime, const void *owner)
+{
+    if (!em_interaction_runtime_owns(runtime, owner) || runtime->acquired || runtime->frame->player_ready)
+        return 0;
+    runtime->staged = 1;
+    return 1;
+}
+
+int em_interaction_runtime_staged_release(EmInteractionRuntime *runtime)
+{
+    if (!runtime || runtime->failed || !runtime->owner || !runtime->staged || runtime->acquired)
+        return 0;
+    runtime->owner = NULL;
+    runtime->staged = 0;
+    em_interaction_animation_clear(&runtime->animation);
     return 1;
 }
 
@@ -128,7 +147,7 @@ int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordina
 {
     if (!runtime || runtime->failed)
         return -1;
-    if (!ordinary_tasks_enabled || !runtime->owner)
+    if (!ordinary_tasks_enabled || !runtime->owner || runtime->staged)
         return 0;
     EmInteractionFrame *frame = runtime->frame;
     EmInteractionRuntimeHooks *hooks = &runtime->hooks;

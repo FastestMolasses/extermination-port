@@ -7,7 +7,8 @@
 > keeps its API over the record. `em_player_pose` / `em_pose_bank` /
 > `em_pose_transition` still pose the status models, and their tests keep
 > running (Roger and the special bank run on the original pose workers since
-> census L22: `em_area11_roger`, `player_pose_commit_tick`); the
+> census L22: `em_area11_roger`; the script owners' takeover is the player
+> stage's own since chain C7, PLAYER_STAGE_WORKERS.md section 2.1); the
 > player-specific entries below (acquire, idle tick, release, script tick,
 > gait base) are no longer on the player's live path. What follows is the
 > module's history and its remaining users' reference.

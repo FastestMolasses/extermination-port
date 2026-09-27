@@ -887,3 +887,64 @@ int em_player_stage_0015B530(void *context, EmPlayerLiveActor *a)
     }
     return m->routine[which](m->routine_context[which], a) < 0 ? -1 : 0;
 }
+
+/* ---- 00182DF0 ------------------------------------------------------------------- */
+
+/* 00182D40 (byte-matched): 1 when +0x1F0 is 0x17. 00182DF0's first call
+ * passes no argument; a0 still holds the record there. */
+int em_player_00182D40(const EmPlayerLiveActor *a) { return b(a, 0x1F0) == 0x17 ? 1 : 0; }
+static int mode_17(const EmPlayerLiveActor *a) { return em_player_00182D40(a); }
+
+/* The statements of the byte-matched src/func_00182DF0.c, in order. */
+int em_player_stage_00182DF0(void *context, EmPlayerLiveActor *a)
+{
+    const EmPlayerStageRelease *r = context;
+    EmPlayerStageHost *hs = r ? r->host : NULL;
+    const EmPlayerStageCallees *c = ready(hs);
+    if (!c || !c->bone_init || !c->clip_lookup || !c->request || !c->link1C || !r->d0028A580 ||
+        !r->w001C6150 || !r->d00248A00 || !r->d00248C90 || !r->w00174AB0 || !a)
+        return -1;
+    if (b(a, 0x2F3) != 0) {
+        setb(a, 0x2F3, 0);
+        uint32_t bank;
+        CALL(r->d0028A580(r->context, &bank));
+        setw(a, 0x40, bank);
+        uint8_t count;
+        CALL(r->w001C6150(r->context, w(a, 0x44), &count));
+        setb(a, 0xC, count);
+        int16_t clip;
+        CALL(r->d00248A00(r->context, b(a, 0x235), &clip));
+        seth(a, 0x20C, clip);
+        CALL(c->bone_init(c->context, a, h(a, 0x20C)));
+    } else if (!mode_17(a)) {
+        int16_t current = h(a, 0x20C), row;
+        CALL(c->clip_lookup(c->context, a, 0, b(a, 0x235), 0, &row));
+        if (current != row) {
+            int first = current < 0;
+            if (!first) {
+                int16_t value;
+                CALL(r->d00248C90(r->context, current, &value));
+                first = value == 0;
+            }
+            if (first) CALL(r->w00174AB0(r->context, a));   /* 00174AB0 */
+            CALL(em_player_stage_row_request(hs, a, 16.0f));  /* 00174A50(p, 16.0) */
+        }
+    }
+    hs->stage->spad3B8F = 0;
+    setb(a, 4, 1);
+    setb(a, 6, 0);
+    if (!mode_17(a)) {
+        setb(a, 5, 0);
+        setb(a, 0x1F0, 0);
+    } else if (b(a, 0x1F0) == 0x17) {
+        setb(a, 5, 0xC);
+    }
+    uint32_t link = w(a, 0x1C);
+    if (link != 0) CALL(c->link1C(c->context, link, 1));
+    if (!is_zero(a, 0x224) || !is_zero(a, 0x22C)) {
+        setw(a, 0x224, ZERO);
+        setw(a, 0x22C, ZERO);
+        setb(a, 0, 1);
+    }
+    return 0;
+}

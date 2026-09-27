@@ -9,7 +9,7 @@
  *   - the gate: with any prerequisite missing nothing of the live layer runs;
  *   - the stage (census L01): 0015BA50 / 0015B130 / 0015BCF0's tail run on
  *     every stage, the port's idle and walk callbacks included (they are
- *     0015B130's state[0] / state[1]); the takeover stand-in consumes a stage
+ *     0015B130's state[0] / state[1]); the runtime's takeover consumes a stage
  *     at 0015B130's prelude position; the vitals are a per-stage view of the
  *     port's storage;
  *   - once engaged, the idle and walk tails lower +B4 by 0.2 / 0.4 and run
@@ -84,6 +84,11 @@ int em_player_closure_live_footstep(EmPlayerLiveActor *p) { (void)p; assert(!"fo
 /* No scripted takeover in this fixture (em_player.c reads it at every stage). */
 int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }
+/* The stage's own takeover (a script owner's frame): the pose host's side,
+ * counted. */
+static unsigned takeover_prepares, takeover_admissions;
+int player_pose_takeover_prepare(void) { ++takeover_prepares; return 1; }
+int player_pose_takeover_admitted(void) { ++takeover_admissions; return 1; }
 int player_use_poll(void) { return 0; }
 int player_pose_use_accepted_port(void) { return 1; } /* never reached: player_use_poll returns 0 */
 int player_pose_entry_return_tick(void) { return 0; }
@@ -346,7 +351,8 @@ static int w_reaction(void *c, EmPlayerLiveActor *a, int *r)
 }
 static int w_drain(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; ++stage_calls[SC_DRAIN]; return 0; }
 static int w_heartbeat(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; ++stage_calls[SC_HEARTBEAT]; return 0; }
-static int w_check(void *c, EmPlayerLiveActor *a, int *r) { (void)c; (void)a; ++stage_calls[SC_CHECK]; *r = 1; return 0; }
+static int check_result = 1;   /* 00182B30's result: 1 refuses, 0 admits */
+static int w_check(void *c, EmPlayerLiveActor *a, int *r) { (void)c; (void)a; ++stage_calls[SC_CHECK]; *r = check_result; return 0; }
 static int w_notify(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; ++stage_calls[SC_NOTIFY]; return 0; }
 static int w_row(void *c, EmPlayerLiveActor *a, float blend) { (void)c; (void)a; (void)blend; ++stage_calls[SC_ROW]; return 0; }
 static int fade_args[2];
@@ -540,15 +546,16 @@ static void tick(void)
     else player_move();
 }
 
-/* The takeover stand-in (EmPlayerStatesBinding.takeover): consumes the
- * stage while set, and stores 3B8F as the interaction runtime's frame view
- * does. */
+/* The takeover hook (EmPlayerStatesBinding.takeover): 1 consumes the stage
+ * (the interaction runtime's takeover) and stores 3B8F as the runtime's
+ * frame view does; 2 is a script owner's frame, whose takeover the stage's
+ * own 0015B130 performs. */
 static int takeover_consumes, takeover_calls;
 static int w_takeover(void *c)
 {
     (void)c;
     ++takeover_calls;
-    if (takeover_consumes) scene_state.spad3B8F = 2;
+    if (takeover_consumes == 1) scene_state.spad3B8F = 2;
     return takeover_consumes;
 }
 
@@ -910,7 +917,7 @@ int main(void)
     reaction_binding.scene = &reaction_scene;
 
     /* 13. Census L01 binding specifics.
-     *  a) The takeover stand-in consumes the stage at 0015B130's prelude
+     *  a) The runtime's takeover consumes the stage at 0015B130's prelude
      *     position: 0015B130 (0021C440, the callback, 0015D100, 0015D000)
      *     does not run, 0015BA50's begin / end and 0015BCF0's writes do, and
      *     the 3B8F the stand-in stored is not overwritten by the stage's
@@ -944,6 +951,31 @@ int main(void)
     assert(player_states_stage() == 0);
     assert(stage_calls[SC_CHECK] == 0 && stage_calls[SC_NOTIFY] == 0 &&
            stage_calls[SC_REACTION] == 0 && call_count >= 2 && em_live_u8(a, 4) == 1);
+    /*  c2) A script owner's frame (the hook returns 2): 0015B130 runs its
+     *      prelude under 0x70003B8D; 00182B30's admission writes +4 = 4,
+     *      +5 = 0, +6 = 0, +1F0 = 0x41 and runs 00174A50 and 00182D70, the
+     *      pose host is told (after letting a stand-in go), and 0015B130's
+     *      tick (0021C440, the callback, 0015D100, 0015D000) does not run. */
+    scene_state.spad3B8D = 2;
+    takeover_consumes = 2; check_result = 0;
+    memset(stage_calls, 0, sizeof stage_calls);
+    call_count = 0; takeover_prepares = takeover_admissions = 0;
+    assert(player_states_stage() == 0);
+    assert(stage_calls[SC_CHECK] == 1 && stage_calls[SC_ROW] == 1 && stage_calls[SC_NOTIFY] == 1 &&
+           stage_calls[SC_REACTION] == 0 && stage_calls[SC_DRAIN] == 0 && stage_calls[SC_HEARTBEAT] == 0 &&
+           call_count == 0 && takeover_prepares == 1 && takeover_admissions == 1);
+    assert(em_live_u8(a, 4) == 4 && em_live_u8(a, 5) == 0 && em_live_u8(a, 6) == 0 &&
+           em_live_u8(a, 0x1F0) == 0x41 && quit_requests == 0);
+    /*      With 00182B30 refusing, the tick runs and nothing is admitted. */
+    em_live_set_u8(player_states_actor_mut(), 4, 1);
+    em_live_set_u8(player_states_actor_mut(), 0x1F0, 0);
+    check_result = 1;
+    memset(stage_calls, 0, sizeof stage_calls);
+    call_count = 0; takeover_admissions = 0;
+    assert(player_states_stage() == 0);
+    assert(stage_calls[SC_CHECK] == 1 && stage_calls[SC_NOTIFY] == 0 && stage_calls[SC_REACTION] == 1 &&
+           call_count >= 1 && takeover_admissions == 0 && em_live_u8(a, 4) == 1);
+    takeover_consumes = 0;
     scene_state.spad3B8D = 0;
     /*  d) The vitals are a per-stage view of the port's storage: pending
      *     damage the port's producers left reaches the stage's 0021C440 as

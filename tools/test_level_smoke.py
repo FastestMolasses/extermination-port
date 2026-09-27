@@ -419,6 +419,31 @@ def scan_alignment(ticks, run, phase, beat, after):
     return i, rows, f
 
 
+def check_stage_takeover(ticks, i0, count, what):
+    """A script owner's takeover is the player stage's own (0015B130's
+    prelude, 0015B530, 00182DF0; em_player.c live_major1): inside the
+    window, the first tick whose record +4 is 4 is the admission (+5 = 0,
+    +1F0 = 0x41, 0x70003B8F != 0: 0015B130 at the 00182B30 admission), every
+    tick after it holds +4 = 4 until the release tick, where 0015B530's
+    00182DF0 has left +4 = 1, +5 = 0, +1F0 = 0 and 0x70003B8F = 0 with the
+    selector already 0. The route rows do not sample +4; their +5 / +1F0 /
+    3B8F rows are compared by the phase itself. Returns the admission and
+    release ticks."""
+    four = [k for k in range(count) if ticks[i0 + k]['player'][7] == 4]
+    assert four, (what, 'no tick holds +4 = 4: the takeover is not the stage\'s own')
+    ka = four[0]
+    p, spad = ticks[i0 + ka]['player'], port_view(ticks, i0 + ka)['spad']
+    assert (p[0], p[1]) == (0, 0x41) and spad[6:8] != '00' and selector(spad) != '00', \
+        (what, 'the admission tick', ticks[i0 + ka]['tick'], p, spad)
+    kr = next((k for k in range(ka, count) if ticks[i0 + k]['player'][7] != 4), None)
+    assert kr is not None, (what, 'the takeover never released inside the window')
+    assert four == list(range(ka, kr)), (what, '+4 left 4 before the release', ticks[i0 + ka]['tick'])
+    p, spad = ticks[i0 + kr]['player'], port_view(ticks, i0 + kr)['spad']
+    assert (p[7], p[0], p[1]) == (1, 0, 0) and spad[6:8] == '00' and selector(spad) == '00', \
+        (what, 'the release tick', ticks[i0 + kr]['tick'], p, spad)
+    return ticks[i0 + ka]['tick'], ticks[i0 + kr]['tick']
+
+
 def compare_window(ticks, i0, rows, f0, count, what, y_mode='scripted', req=False):
     """Row k of the capture against tick i0 + k (both one per frame)."""
     base = orig_view(rows[f0])
@@ -697,8 +722,10 @@ def check_fence_door(ticks, run, state):
     s4_tick, _ = trm.check_state4(elf, sub, c, place)
     trm.check_nodes_and_door(sub, c, place)
     follow = check_follow_after_release(ticks, i0, rows, f0, 'fence_door', 'exact')
+    admit, free = check_stage_takeover(ticks, i0, count, 'fence_door')
     state['cursor'] = i0 + count
-    print(f'fence_door: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 09 '
+    print(f'fence_door: PASS (the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 '
+          f'at {free}; port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 09 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the scan and 001BBE40 at f{rows[f0]["f"]} (the '
           f'alignment and heading), the program 0x24DE40 (clip 0x45, door clip 2, the 90-tick wait), '
           f'001BC150 at f{f_commit}, the re-place at f{f_place} and the {count - (r - f0)} rows after it, in spad, camera '
@@ -966,8 +993,11 @@ def check_truck_preview(ticks, run, state):
             got = (p[0], p[1], p[2], p[3], hex(p[5]))
             want = (o['p5'], o['m1F0'], o['m1F1'], o['clip'], o['ground'])
             assert got == want, ('truck_preview player +5/+1F0/+1F1/clip/ground', o['f'], got, want)
+    admit, free = check_stage_takeover(ticks, i0, count, 'truck_preview')
     state['cursor'] = i0 + count
-    print(f'truck_preview: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 07 '
+    print(f'truck_preview: PASS (the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to '
+          f'00182DF0 at {free}; '
+          f'port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 07 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: 0x8292C0 from its frame to the release at '
           f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message, power, '
           f'D_00810792 and the player record (+5, +1F0, +1F1, clip, ground: the admission and the release); placement from f{rows[f0 + placed]["f"]}, heading from f{rows[f0 + faced]["f"]}, the '
@@ -1423,9 +1453,11 @@ def check_roger(ticks, run, state):
                                                                   p['yaw'], o['yaw'])
     cam3 = next(k for k in range(count) if rows[f0 + k]['cam_mode'][:2] == '03')
     follow = check_follow_after_release(ticks, i0, rows, f0, 'roger', 'exact')
+    admit, free = check_stage_takeover(ticks, i0, count, 'roger')
     state['cursor'] = i0 + count
     state.setdefault('snapshots', []).append(('14_roger_encounter', i0 + count - 1))
-    print(f'roger: PASS (the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
+    print(f'roger: PASS (the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 at '
+          f'{free}; the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
           f'record and block, held at op16 until the landing ({i0 - t0} ticks in the port, {f0 - s0} rows in the '
           f'original: the jump is navigation); port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 14 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the frame, the fade, the bars, the message, the bank 0x96 '
@@ -1569,12 +1601,14 @@ def check_director_beat(ticks, run, state, phase):
         # Beat 0's camera is the director's (the absolute clock) and its
         # stance is exact: the follow camera from the release row for row.
         follow = '; ' + check_follow_after_release(ticks, i0, rows, f0, phase, 'exact')
+    admit, free = check_stage_takeover(ticks, i0, count, phase)
     state['cursor'] = i0 + count
     state.setdefault('snapshots', []).append((beat, i0 + count - 1))
     step = bytes.fromhex(rows[-1]['d2'])[0x3B]
     extra = ", Roger's record and block (0x828990)" if roger else ''
     line = orig[e_orig]['msg'][2]
-    return (f'port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route {beat[:2]} '
+    return (f'the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 at {free}; '
+            f'port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route {beat[:2]} '
             f'f{rows[f0]["f"]}..f{rows[-1]["f"]} in spad, camera byte, letterbox, message, power, the camera '
             f'(the scripts\' shots; the follow camera relative to the stance), the player (the stance '
             f'({stance[0]:+.5f}, {stance[1]:+.5f}) off the capture\'s: navigation), D_008107D8 / D_00810793 / '

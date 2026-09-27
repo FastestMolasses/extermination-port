@@ -38,6 +38,8 @@ and store.
 | `row_request` | 00174A50 | 001749A0(p, (short)0017B490(p, 0, +235, 0), 0, blend). |
 | `stop_sound` | 0011A070 | Track = arg & 0x7FFF; hard = arg & 0x8000. The body is `em_sfx_driver_stop` (em_sfx_bank.c), which tools/test_area11_sfx_reference.py already verifies. |
 | `major[4]` | 0015B530 | With 0x70003B8D == 0 it calls 00182DF0. Otherwise it switches on +5: 0 → 001837A0, 1 → 001837B0, 5 → 00162DB0, 8 → 00163B40, 0xC → 001838B0, 0x17 → 00183910, anything else → nothing. |
+| (routine) | 00182DF0 | 0015B530's release (`em_player_stage_00182DF0`). With +2F3 != 0 (a special bank on the record): +2F3 = 0, +40 = D_0028A580, +C = 001C6150(+44), +20C = D_00248A00[+235], bone_init_default_2(+20C). Otherwise, unless 00182D40 (+1F0 == 0x17): when +20C differs from 0017B490(p, 0, +235, 0), a negative +20C or a zero D_00248C90[6 · +20C] first runs 00174AB0, then 00174A50(p, 16.0). The tail: 0x70003B8F = 0, +4 = 1, +6 = 0; +5 = 0 and +1F0 = 0, or +5 = 0xC when +1F0 is 0x17; *(+1C)+4 = 1 when +1C is nonzero; a nonzero +224 or +22C: both 0 and +0 = 1. |
+| (helper) | 00182D40 | `em_player_00182D40`: 1 when +1F0 == 0x17 (its one translation; em_locomotion_display used to keep a copy). 00182DF0's first call passes no argument; a0 still holds the record. |
 
 Every float operation goes through `em_ee_float.h`:
 - 0021C350's sub.s and 0021C270's add.s (pre-trim);
@@ -65,12 +67,12 @@ alone elsewhere. A missing
 | Slot | Bound to |
 |---|---|
 | `clip_rate` | D_00248C98 from the local export (`em_player_clip_rates_load`) |
-| `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It returns the +200 flags, or 0 when a stand-in holds the source or the interaction runtime owns it. `em_player_stage_anim_advance` (the record-level translation) waits for the display lane. |
+| `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It advances the record (em_player_record_pose_advance, the record-level `em_player_stage_anim_advance` over the pose host) and returns the +200 flags; on the stage's own takeover (+4 = 4) by the step 0015BA50 passes (+1F4 after 00183090 returned 1); 0 without advancing when a stand-in holds the source or the interaction runtime's takeover owns it. |
 | `commit`, `reaction`, `drain`, `heartbeat`, `scripted_check`, `scripted_notify`, `row_request`, `stop_sound` | the translations (`em_player_stage_workers_bind`) |
-| `major[4]` | `em_player_stage_0015B530` (bound but not reached while the interaction runtime owns the takeover; census verified-unbound): 001837A0 bound (the byte-matched C is empty); 00182DF0 (record side), 001837B0, 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 fail-stop (FLOOR, L02) |
+| `major[4]` | `em_player_stage_0015B530`, live on a script owner's takeover since chain C7: 001837A0 bound (the byte-matched C is empty); 00182DF0 bound (`player_pose_stage_release`: the pose host runs `em_player_stage_00182DF0` with `live.release`, then ends the interaction host's token); 001837B0, 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 fail-stop (FLOOR, L02) |
 | `major[6]` | `em_player_stage_0015D460` with the live 001AEDE0 (`em_frame_fade_start_colour(1, a0, a1)`) |
 | `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`); state[0] / state[1] are 00161020 / 001612D0 from the closure binder behind the port's stand-ins (`live_idle` / `live_walk`, census L12), or the legacy callbacks (`live_port_state`) in the scenes without an original world |
-| `takeover` | `player_pose_stage_hook()`: the AREA11 interaction runtime at 0015B130's prelude position (consumes the stage while it owns the player) |
+| `takeover` | `player_pose_stage_hook()`: the AREA11 interaction host at 0015B130's prelude position. 1: the runtime's takeover of the panel, terminal or an item consumed the stage; 2: a script owner's frame, whose takeover the stage performs itself (em_player.c `live_major1` runs 0015B130 and its prelude) |
 | `load` | before every stage: D_008106C8 (request word C8), D_00810701, D_0081083C and D_00810C7E (canonical progress bytes; D_0081083C migrated by L01) and the D_00810707 pointer. D_00810770 is not canonical (L19): the load refuses area 8 room 2, the only place 0021C3F0 reads it |
 
 Callees (`host.callees`):
@@ -79,7 +81,8 @@ Callees (`host.callees`):
 |---|---|
 | `sound` | the live 001FBD50: `em_sfx_play_at(id, record +B0, radius)` |
 | `sound_stop` | `em_sfx_stop_track(track, hard)` (em_sfx.c: T_STOP, or T_HALT for 0x8000) |
-| `w001D0C70`, `bone_init`, `clip_init` | fail-stop (the +4 = 4 commit; reached only after the prelude) |
+| `w001D0C70` | the AREA11 interaction host's face tick (`em_area11_interaction_host_face_tick_001D0C70`: `em_player_face_host_tick_before_body` on the attached face; a fault without it) |
+| `bone_init`, `clip_init` | 001C63E0 / 001C67E0 on the record pose (`em_pose_host_stage_bone_init` / `_clip_init`) |
 | `cue` (001B61C0) | fail-stop (untranslated; 0015D000 at health <= 35, 0021C440's 0x3C path) |
 | `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |
 | `atan2`, `link20` | fail-stop (hit facing; the port keeps no +20 handle, census 7.2) |
@@ -103,19 +106,32 @@ them before 0015BA50 and stores them (and +235 bit 0 into g.pd_low) after
 0015BCF0's tail. The port's hit mailbox (em_enemy) is mapped onto the
 pending floats before the stage (em_player_frame.c player_hit_mailbox).
 
-**The takeover.** While the interaction runtime owns the player it consumes
-the stage at the prelude position (its acquire stands in for 00174A50 +
-00182D70 on the display, its tick for the +4 = 4 commit and advance, its
-release for 00182DF0); 0015BA50's begin / end and 0015BCF0's writes still
-run. On the port's idle/walk under 0x70003B8D without that owner (the
-area-change fade after 001B0C60) 0015B130 does not run: the prelude would
-request 00174A50. Its 0017B490 row lookup is bound since the Boxes step
-(`em_player_closure_live_0017B490`). The port's callbacks still keep those
-stages until the takeover moves onto the stage. The bound prelude workers (00182B30,
-00182D70) and the +4 = 4 handler (0015B530, 001837A0) are therefore not
-reached in the live app, although the original runs them on every scripted
-takeover (12 of the 19 census labels); the census keeps them
-verified-unbound until the takeover moves onto the stage.
+**The takeover (chain C7).** A script owner's frame (the director, Roger,
+the truck trigger, the fence door: `em_area11_script_host`; the interaction
+host marks its token staged) is the stage's own takeover, as in the
+original. The hook returns 2 and `live_major1` runs 0015B130: under
+0x70003B8D its prelude admits the player (00182B30 returns 0: +4 = 4, +5 = 0,
++6 = 0, +1F0 = 0x41, 00174A50(p, 8.0), 00182D70), and the pose host holds
+the source (`player_pose_takeover_admitted`; a port stand-in holding the
+source lets go first, `player_pose_takeover_prepare`). Each following stage
+is 0015BA50's +4 = 4 path: 00183090 (with 001D0C70 when 3B8F == 2) and, when
+it returns 1, the advance by +1F4 (`player_pose_stage_advance` advances the
+record while +4 = 4), then 0015B530: +5 = 0 runs 001837A0; once the selector
+is clear, 00182DF0 releases the player (+4 = 1, 3B8F = 0) and the pose host's
+end hook ends the interaction host's token
+(`em_area11_interaction_host_staged_released`). The level smoke's
+`check_stage_takeover` asserts it on routes 07, 09, 10, 11, 13 and 14 (+4 = 4
+from the admission row to the release row, where 00182DF0's tail holds).
+
+The panel, the terminal and the items keep the interaction runtime's
+takeover: its acquire stands in for 00174A50 + 00182D70 on the record (live_major1
+writes the admission's +5 / +6 / +1F0 and runs 00182D70), its per-stage tick
+(their scripts' animation core, em_interaction_animation) for the commit and
+advance, and its release runs the record's 00182DF0 through the same
+translation (`player_pose_release` over the bound release worker); +4 stays 1
+there. On the port's idle/walk under 0x70003B8D without an owner (the
+area-change fade after 001B0C60) 0015B130 does not run: the idle/walk states
+keep those stages.
 
 **Hits outside AREA11.** In AREA11 the +4 = 2 reaction states are bound
 (em_player_closure_live.c). Outside it (no original collision world) a port
@@ -139,10 +155,16 @@ AREA11 owner posts a hit.
   context.
 
 All seven are required. 00162DB0 and 00163B40 are FLOOR-closure state
-routines that another lane is translating (`em_player_fall.h`:
-`em_player_fall_state5` / `_state8`; not checked here). Bind them here with
-their own contexts. The other five (00182DF0,
-001837A0, 001837B0, 001838B0, 00183910) are untranslated.
+routines (`em_player_fall.h`: `em_player_fall_state5` / `_state8`; not
+checked here). 001837A0 is empty (byte-matched). 00182DF0 is
+`em_player_stage_00182DF0` with an `EmPlayerStageRelease` context: `host`
+(bone_init, clip_lookup, request, link1C and the stage scene's 0x70003B8F),
+the four readers of the words it loads outside the record (D_0028A580, the
+model's +8 byte through 001C6150, D_00248A00[i], D_00248C90[6 · clip]) and
+the 00174AB0 worker (its one translation is em_player_ladder_climb's). The
+live binder routes it through the pose host (`player_pose_stage_release`),
+which also runs it for the interaction runtime's release. 001837B0,
+001838B0 and 00183910 are untranslated.
 
 **The host.**
 
@@ -229,7 +251,10 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
 - **What runs.** Originals run unhooked: 0021C440 with all its own callees
   (including copy_qw4), 0015D100 with 001B0070, 0015D000, 00183090, 00182B30,
   00182D70, 00174A50, anim_advance_time with float_to_int and 001278C0,
-  0015B530 and 0011A070. Only the callees in the table above are hooked.
+  0015B530, 00182DF0 with 00182D40 and 001C6150, and 0011A070. Only the
+  callees in the table above are hooked (for 00182DF0 also 00174AB0). A
+  hooked `j` (a tail call, as 00174AB0's into 001749A0) returns to $ra; the
+  fetch loop's earlier pc + 8 fell into the next function.
 - **Synthetic sweeps.** Reaction 700, commit 60, drain 150, heartbeat 100,
   scripted_check 60, notify 20, row 20 and advance 260 cases; `EM_TEST_FULL=1`
   runs 12,000 / 1,500 / 3,000 / 1,500 / 1,500 / 600 / 600 / 4,000.
@@ -259,6 +284,11 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
   - 0021BB00/0021BC40/0021D640 over every +1F0 value with 9 byte contexts
     (6,912 cases).
   - 0015B530: 27 cases.
+  - 00182DF0: 120 synthetic records by default (3,000 in the full run) over
+    every branch (+2F3 zero or not, +1F0 0x17 or not, +20C against the row
+    lookup's clip, a negative +20C, D_00248C90's +0 halfword zero or not,
+    +1C, +224 / +22C including denormals), the player record of every
+    captured image with +2F3 0 and 1, and 13 fail-stop checks.
 - **0011A070's decode.** The original frees track arg & 0x7FFF through
   00121A28 and sends command 3 to the track's kind-2 voice only when
   arg & 0x8000. The forwarder hands the same (track, hard) to the stop
@@ -272,8 +302,8 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
 - **Fail-stop.** For every routine and every worker it can reach, a NULL
   worker must give −1 with no record, scene, global or callee change. The
   same holds for a NULL stage scene or globals pointer (39 checks).
-- **Coverage (asserted).** Every reachable instruction of the 23 executed
-  original functions must run in the default run: 1,935 instructions. The
+- **Coverage (asserted).** Every reachable instruction of the 26 executed
+  original functions must run in the default run: 2,049 instructions. The
   only exclusions are 20 value-dead instructions, each listed with its
   reason in `DEAD_BY_VALUE`:
   - anim_advance_time's unsigned fix-up after `lhu` (never negative);
@@ -292,14 +322,28 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
     +24C store, the +2F3 step and the event-loop break;
   - reads: the +8E sign and the D_00810C7E test;
   - routing: 0015B530's 0x17 route and the 0011A070 decode.
+- **00182DF0 mutants (chain C7, scratch harness):** 7 killed by the release
+  checks: the +5 = 0xC tail dropped, the *(+1C)+4 value, the D_00248C90 test
+  inverted, 3B8F kept, the +224 clear dropped, the special branch's +C
+  dropped, and 00182D40's skip ignored. On the live path, a build whose
+  script owners are not staged (the runtime's stand-in takeover again) still
+  passes route 07's row comparisons and fails the smoke's
+  `check_stage_takeover` ("no tick holds +4 = 4").
 
 Build: the module and its live binder (em_player_stage_live.c) are in the
 Makefile's COMMON list since L01. The live binding is proven by the level
 smoke (its tick log is byte-identical to the pre-L01 build over the six live
 phases), by `EM_STARTUP_TEST=newgame-control` (30 ticks, 9.599989, the
 EM_FRAME_TRACE byte-identical to the pre-L01 build) and by
-`tests/player_states_host_test.c` section 13 (the takeover stand-in, the
-prelude gate and the vitals view).
+`tests/player_states_host_test.c` section 13 (the runtime's takeover, the
+staged takeover's prelude with 00182B30 admitting and refusing, the prelude
+gate and the vitals view). Since chain C7 the script owners' takeover is the
+stage's own: the level smoke's full route plays it on routes 07, 09, 10, 11,
+13 and 14 (`check_stage_takeover`), its tick log equal to the stand-in's
+apart from the record's +4 = 4 during the takeovers, and
+`tools/test_player_cinematic_reference.py` runs the 0015BA50 +4 = 4
+composition, 0015B530 and 00182DF0 against the original 00183090 / 001C64F0
+/ 00182DF0 over Roger's bank 0x96 (1,388 stages).
 
 ## 4. What 0021C440 enters (FLOOR closure input)
 
@@ -326,9 +370,10 @@ The other stage workers enter no state:
 - 0015C9D0 only requests clips;
 - 00182B30 and 00182D70 write no +4/+5.
 
-0015B530's seven routines (00182DF0, 001837A0, 001837B0, 001838B0, 00183910
-and the two state routines) have not been followed. They are the remaining
-part of the gap.
+0015B530's routines: 00182DF0 writes +4 = 1 with +5 = 0 or 0xC (translated,
+section 1); 001837A0 writes nothing. 001837B0, 001838B0, 00183910 and the two
+state routines have not been followed; they are the remaining part of the
+gap.
 
 ## 5. Limits
 
@@ -339,11 +384,11 @@ part of the gap.
     workers; display lane);
   - the effect and rumble binders;
   - the two object links (+20, +1C);
-  - 0015C9D0, 00182DF0's record side, 001837B0, 001838B0 and 00183910,
-    which are untranslated.
-- **Bound but unreached (L01).** 00182B30, 00182D70, 0015B530 and 001837A0
-  wait for the scripted takeover to move from the interaction runtime onto
-  the stage (00182DF0's record side, the display's commit/advance).
+  - 0015C9D0, 001837B0, 001838B0 and 00183910, which are untranslated.
+- **The panel, terminal and item takeovers** stay the interaction runtime's
+  (their scripts request clips through em_interaction_animation, not the
+  record's +1F2 / 00183090): +4 stays 1 while they hold the player. Their
+  release is the one 00182DF0 translation.
 - **Hits outside AREA11.** Port enemy hits fault in the +4 = 2 reaction
   states, which are bound only in AREA11 (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor

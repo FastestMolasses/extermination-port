@@ -14,7 +14,6 @@
  *   0017B460  D_00248AB0[a][b] (byte-matched)
  *   00179D20  the per-node local pose seed (byte-matched)
  *   00179FF0  the per-node world matrices under the record's TRS (byte-matched)
- *   00182D40  +1F0 == 0x17 (byte-matched)
  * and, privately, the two SDK VU0 leaves the display reaches that no module
  * exports: 001026D0 (4x4 product) and 00103230 (row xyz times a scalar).
  * The other leaves are the verified translations, called directly:
@@ -176,8 +175,6 @@ int em_loco_0017B490(EmLocoHost *host, const EmPlayerLiveActor *actor, int cmd, 
 /* 0017B460(a, b) = D_00248AB0[a][b]: the halfword at *(0x248AB0 + 4a) + 2b,
  * read through `pose`'s regions. */
 int em_loco_0017B460(const EmPoseHost *pose, int a, int b, int16_t *value);
-/* 00182D40(p): 1 when +1F0 == 0x17, else 0. */
-int em_loco_00182D40(const EmPlayerLiveActor *actor);
 
 /* The private SDK leaves, exported for the oracle (bit patterns). Each
  * returns 0 or -1 when em_ee_float refuses a form. */

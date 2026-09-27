@@ -30,22 +30,26 @@ The legacy request `player_pose_cinematic_request` (a borrowed decoded bank
 held off the record) is deleted. The live path is the original's: the
 script's op0A sub 1 (001B9A00, em_area_script) stores the bank
 D_0028A490[0x96] at the player record's +0x40, clip 1 at +0x1F2, the rate at
-+0x1F4, +0x2F3 = 1 and +0x200 = 0; the AREA11 interaction host, while a script
-owner holds the player, runs 00183090 on the record every stage
-(`player_pose_commit_tick`: its initializer returns 1 and turns +0x2F3 to
-2, then 001C64F0 by +0x1F4 into +0x200) and 0015BCF0's animate step, which
-for +0x2F3 = 2 uses the identity owner matrix (001C6960): the palette is the
-world-positioned channel palette. Bank 0x96 is mapped read-only into the
-record's pose host from `roger/resources.emrs` at its EE address. The
-release takes 00182DF0's nonzero-+0x2F3 branch (`record_release_special`:
-+0x40 = the default bank, +0x20C = D_00248A00[+0x235], 001C63E0), leaving 80
-frames before the next ordinary callback advances to 79.
++0x1F4, +0x2F3 = 1 and +0x200 = 0; while Roger's script holds the frame the
+player stage is on its own takeover (+4 = 4 since chain C7,
+PLAYER_STAGE_WORKERS.md section 2.1): 0015BA50 runs 00183090 on the record
+every stage (its initializer returns 1 and turns +0x2F3 to 2), then 001C64F0
+by +0x1F4 into +0x200, then 0015B530 (001837A0), and 0015BCF0's animate step,
+which for +0x2F3 = 2 uses the identity owner matrix (001C6960): the palette
+is the world-positioned channel palette. Bank 0x96 is mapped read-only into
+the record's pose host from `roger/resources.emrs` at its EE address when
+Roger's script claims the player token. The release is 0015B530's 00182DF0
+(`em_player_stage_00182DF0`, its nonzero-+0x2F3 branch: +0x40 = D_0028A580,
++0x20C = D_00248A00[+0x235], 001C63E0), leaving 80 frames before the next
+ordinary callback advances to 79.
 
 `make test-player-cinematic-reference` runs the original 001B9A00 /
-00183090 / 001C64F0 / 00182DF0 against that record path: 1,388 player
-callbacks, the first sample-call order and the release state; its ASan/UBSan
-fixture runs the record path under the shared runtime with 120 frozen status
-callbacks and the consumed release callback. The level smoke's `roger` phase
+00183090 / 001C64F0 / 00182DF0 against that record path (the native side is
+the stage's 0015BA50 +4 = 4 composition, 0015B530 and the 00182DF0
+translation): 1,388 player stages, the first sample-call order and the
+release state (+4, +5, +6, +1F0, +C, +20C and 3B8F against the original's);
+its ASan/UBSan fixture holds the staged token through 120 runtime ticks that
+take nothing, the 1,388 stages, and the release that ends the token. The level smoke's `roger` phase
 compares the player record (+5, +1F0, +1F1, clip, clock, +0x2F3) with route 14
 row for row through the encounter and the release.
 

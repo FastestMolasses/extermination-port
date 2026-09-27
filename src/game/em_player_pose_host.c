@@ -23,9 +23,13 @@ static struct {
     int script_active;
     unsigned script_clip;
     unsigned flags;         /* the last advance result (the value 0015BA50 stores to +200) */
-    /* 00183090's 001D0C70 (0x70003B8F == 2): the attached face's tick,
-     * supplied by the takeover's special tick (player_pose_special_tick). */
-    int (*face_tick)(void);
+    /* 00182DF0 on the record (em_player_stage_00182DF0 with the live
+     * stage's workers, bound by em_player_stage_live), and the hook told
+     * when the stage's own 00182DF0 released a staged takeover. */
+    int (*release_worker)(void *, EmPlayerLiveActor *);
+    void *release_context;
+    int (*end_hook)(void *);
+    void *end_context;
     int started;
     int idle_phase;
     int idle_fidget;
@@ -182,6 +186,18 @@ void player_pose_set_stage_hook(int (*hook)(void *), void *context)
 {
     source.stage_hook = hook;
     source.stage_context = context;
+}
+
+void player_pose_set_release_worker(int (*worker)(void *, EmPlayerLiveActor *), void *context)
+{
+    source.release_worker = worker;
+    source.release_context = context;
+}
+
+void player_pose_set_takeover_end_hook(int (*hook)(void *), void *context)
+{
+    source.end_hook = hook;
+    source.end_context = context;
 }
 
 void player_use_set_hook(int (*hook)(void *), void *context)
@@ -456,6 +472,18 @@ int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *t
 int player_pose_stage_advance(float step, uint32_t *flags)
 {
     if (flags) *flags = 0;
+    if (source.started && source.acquired && source.valid && source.record.actor &&
+        source.record.actor->bytes[4] == 4) {
+        /* The stage's own takeover (+4 = 4 after 0015B130's prelude):
+         * 0015BA50 advances the record by +0x1F4 when 00183090 returns 1
+         * (+5 0 / 0x17), else by +0x34. */
+        if (!record_advance(step)) {
+            player_pose_invalidate("original animation advance failed (the takeover)");
+            return -1;
+        }
+        if (flags) *flags = source.flags;
+        return 0;
+    }
     source.idle_handled = 0;
     source.previous_entry = g.loco_entry_ticks;
     source.previous_stop = g.loco_stop.phase;
@@ -494,13 +522,21 @@ int player_pose_stage_advance(float step, uint32_t *flags)
 int player_pose_stage(void)
 {
     (void)player_pose_stage_advance(g.loco_rate, NULL);
-    return player_pose_stage_hook();
+    int consumed = player_pose_stage_hook();
+    if (consumed == 2) {
+        /* A staged takeover needs the live player stage's 0015B130. */
+        fprintf(stderr, "player pose: a script owner's takeover without the live player stage at frame %d\n",
+                g.frame_no);
+        em_frame_request_quit();
+        return -1;
+    }
+    return consumed;
 }
 
 int player_pose_stage_hook(void)
 {
     int consumed = source.stage_hook ? source.stage_hook(source.stage_context) : 0;
-    if (consumed < 0 || consumed > 1 || (player_pose_owned() && !consumed)) {
+    if (consumed < 0 || consumed > 2 || (player_pose_owned() && consumed != 1)) {
         fprintf(stderr, "player pose: shared player-stage worker failed at frame %d\n", g.frame_no);
         em_frame_request_quit();
         return -1;
@@ -918,60 +954,6 @@ int player_pose_special_active(void)
     return source.started && source.valid && a && a->bytes[0x2F3] != 0;
 }
 
-/* 00183090's 001D0C70 worker (context: the record's pose host). */
-static int stage_face_001D0C70(void *context)
-{
-    (void)context;
-    return source.face_tick && source.face_tick() ? 0 : -1;
-}
-
-/* 0015BA50's +4 = 4 path (+5 0 or 0x17) while the takeover holds the
- * player for a script owner: 00183090 (em_player_stage_commit: with
- * 0x70003B8F == 2 the face's 001D0C70 first; +0x2F3 1 / 3:
- * bone_init_default_2(p, +0x1F2) over the record's +0x40 bank, +0x200 = 0,
- * +0x2F3 += 1, then 1; +0x2F3 2 / 4: 1; +0x2F3 0: a +0x1F2 other than
- * +0x20C becomes +0x20C with anim_clip_init(p, +0x20C, +0x1F8, 0.0) and
- * +0x200 = 0, then 0, else 1) and, when it returns 1, 001C64F0(p, +0x1F4)
- * into +0x200; then the palette of the record's skeleton (0015BCF0's
- * animate step). 1, or -1 on a fault. */
-int player_pose_commit_tick(int (*face_tick)(void), float *local_palette)
-{
-    EmPlayerLiveActor *a = source.record.actor;
-    EmPlayerStageHost *host = em_player_record_pose_advance_host(&source.record);
-    if (!source.started || !source.valid || !source.acquired || !a || !host || !face_tick ||
-        !local_palette) {
-        fprintf(stderr, "player pose: 00183090 without an acquired record\n");
-        return -1;
-    }
-    source.face_tick = face_tick;
-    host->callees.w001D0C70 = stage_face_001D0C70;
-    int committed = 0;
-    int rc = em_player_stage_commit(host, a, &committed);
-    host->callees.w001D0C70 = NULL;
-    source.face_tick = NULL;
-    if (rc < 0) {
-        fprintf(stderr, "player pose: 00183090 faulted (+0x40 %08X, +0x1F2 %d, +0x2F3 %u)\n",
-                (unsigned)em_live_u32(a, 0x40), (int)(int16_t)em_live_u16(a, 0x1F2), a->bytes[0x2F3]);
-        return -1;
-    }
-    if (committed) {
-        float rate;
-        memcpy(&rate, a->bytes + 0x1F4, 4);
-        if (!record_advance(rate)) {
-            fprintf(stderr, "player pose: 001C64F0 faulted (rate %g)\n", (double)rate);
-            return -1;
-        }
-        em_live_set_u32(a, 0x200, source.flags);
-    } else {
-        source.flags = 0;
-    }
-    if (!record_palette(local_palette)) {
-        fprintf(stderr, "player pose: the record's skeleton faulted after 00183090\n");
-        return -1;
-    }
-    return 1;
-}
-
 /* The 16 bytes at `offset` of node `node` (the record's +0x110 word names
  * it; 001B9A00 sub 5 reads node 1's +0xC0). 1, or 0. */
 int player_pose_node_quad(unsigned node, unsigned offset, float out[4])
@@ -1018,54 +1000,82 @@ int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
     return record_palette(local_palette);
 }
 
-/* 00182DF0 on the record: +20C against the row default (0017B490 with the
- * healthy row gives clip 0: the approximation legacy_reseed names); a
- * negative +20C or a zero D_00248C90 +0 halfword requests 00174AB0 (clip 0,
- * flags 1, no blend) first, then 00174A50(16.0) (clip 0, flags 0). */
-static int record_release(void)
-{
-    if (!source.valid || !source.acquired) return 0;
-    int16_t current = em_player_record_pose_requested(&source.record);
-    if (current != 0) {
-        int16_t row = 0;
-        if (current >= 0 && em_player_record_pose_row0(&source.record, current, &row) < 0) return 0;
-        if ((current < 0 || row == 0) && !record_select(0, 0, 0, 1)) return 0;
-        if (!record_select(0, 0, 16, 0)) return 0;
-    }
-    source.acquired = 0;
-    source.script_active = 0;
-    return 1;
-}
-
-/* 00182DF0's nonzero-+0x2F3 branch: +0x2F3 = 0, +0x40 = D_0028A580 (the
- * default bank), +0x0C = 001C6150(+0x44) (the player model's 21 nodes, the
- * count the record's attach wrote), +0x20C = D_00248A00[+0x235] and
- * bone_init_default_2(p, +0x20C). No blend: the foreign bank's channels are
- * not blended into an ordinary clip. */
-static int record_release_special(void)
+/* 00182DF0 on the record: the one translation (em_player_stage_00182DF0,
+ * bound by em_player_stage_live over the live stage's workers:
+ * test_player_stage_workers_reference), then the port's own bookkeeping of
+ * the ordinary source (reset_default_state: the idle/walk callbacks'
+ * state starts afresh). 1, or 0. */
+static int release_record(void)
 {
     EmPlayerLiveActor *a = source.record.actor;
-    int16_t clip;
-    if (!source.valid || !source.acquired || !a ||
-        em_player_record_pose_table16(&source.record, UINT32_C(0x00248A00) + 2u * a->bytes[0x235], &clip) < 0)
+    if (!source.started || !source.valid || !source.acquired || !a) return 0;
+    if (!source.release_worker) {
+        fprintf(stderr, "player pose: 00182DF0 is not bound (em_player_stage_live)\n");
         return 0;
-    a->bytes[0x2F3] = 0;
-    em_live_set_u32(a, 0x40, EM_PLAYER_POSE_BANK_ADDRESS);
-    a->bytes[0x0C] = EM_PLAYER_POSE_NODES;
-    em_live_set_u16(a, 0x20C, (uint16_t)clip);
-    if (em_player_record_pose_default(&source.record, clip) < 0) return 0;
-    source.flags = 0;
+    }
+    if (source.release_worker(source.release_context, a) < 0) {
+        fprintf(stderr, "player pose: 00182DF0 faulted (+0x20C %d, +0x2F3 %u)\n",
+                (int)(int16_t)em_live_u16(a, 0x20C), a->bytes[0x2F3]);
+        return 0;
+    }
     source.acquired = source.script_active = 0;
+    reset_default_state();
     return 1;
 }
 
+/* The release of a takeover the interaction runtime performs (its release
+ * hook, with the selector clear): 00182DF0, then the default pose is
+ * published for the runtime's own display. */
 int player_pose_release(void)
 {
-    if (source.record.actor && source.record.actor->bytes[0x2F3] != 0) {
-        if (!record_release_special()) return 0;
-    } else if (!record_release()) return 0;
-    reset_default_state();
+    if (!release_record()) return 0;
     /* Release follows the consumed script/idle callback. Publish its default
      * reset now, then let the next ordinary callback advance it exactly once. */
     return publish_current();
+}
+
+/* 0015B530's 00182DF0 on the stage's own takeover (+4 = 4): the release,
+ * then the takeover's end hook (the interaction host's token). 0, or -1. */
+int player_pose_stage_release(EmPlayerLiveActor *actor)
+{
+    if (!actor || actor != source.record.actor || !release_record()) return -1;
+    if (source.end_hook && source.end_hook(source.end_context) != 1) {
+        fprintf(stderr, "player pose: the takeover's end hook refused the release\n");
+        return -1;
+    }
+    return 0;
+}
+
+/* Before 0015B130 runs its prelude for a staged takeover: a port stand-in
+ * still holding the source re-seeds it first, as an acquisition does (the
+ * prelude's 00174A50 then requests over it). 1, or 0 when the stand-in
+ * cannot let go (reported). */
+int player_pose_takeover_prepare(void)
+{
+    if (!source.started || !source.valid) return 1;   /* no source: the stage records only */
+    if (!source.legacy || player_pose_legacy_release()) return 1;
+    fprintf(stderr, "player pose: a staged takeover while a stand-in holds the source: %s\n",
+            legacy_blocker() ? legacy_blocker() : "held source did not re-seed");
+    return 0;
+}
+
+/* 0015B130's prelude admitted the player (+4 = 4, 00174A50(p, 8.0) and
+ * 00182D70 ran on the record): the takeover holds the source until 0015B530's
+ * 00182DF0. The port's idle/walk callbacks stop (their gait and speed). 1, or
+ * 0 when there is no source to hold. */
+int player_pose_takeover_admitted(void)
+{
+    if (!source.started || !source.valid || source.acquired) return 0;
+    source.acquired = 1;
+    source.script_active = 0;
+    g.gait = 0;
+    g.move_speed = 0;
+    return 1;
+}
+
+/* D_00248C90's +0 halfword of row `clip` (assets/player_clip_row0.emch):
+ * 0, or -1 outside the rows. */
+int player_pose_row0(int clip, int16_t *value)
+{
+    return em_player_record_pose_row0(&source.record, clip, value);
 }

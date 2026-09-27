@@ -344,7 +344,7 @@ static struct {
     EmPlayerStage stage;          /* context of stage.major[1] / major[2] */
     int busy_known;
     uint8_t loaded3B8F;           /* 3B8F as the scene view last loaded it */
-    int consumed;                 /* this stage: the takeover stand-in owned it */
+    int consumed;                 /* this stage: the interaction runtime's takeover owned it */
     int port_ran;                 /* this stage: a port callback (legacy idle/walk or a stand-in) ran */
     /* 00161020 / 001612D0 as the binder bound them (census L12; the closure
      * binder over the original world): 0015B130's state[0] / state[1] run
@@ -655,23 +655,30 @@ static int live_surface39(void *context, int handler)
     if (!live.b.surface39) return -1;
     return live.b.surface39(live.b.surface39_context, handler);
 }
+/* The first-contact one-shots (em_player_first_contact: 00187DC0 /
+ * 00187EA0, test_player_floor_reference) with the live sound calls:
+ * 001FBD50(p, id, 0, radius) at the floor view's +B0 (the record's position
+ * while the service runs) and 001FB9F0(id, 0x1000, 0x1000, 0x1000). Any
+ * other argument is not what these bindings play: -1. 00187DE0 (0x5B) is
+ * not translated; no AREA11 grid node carries 0x5B. */
+static int live_contact_001FBD50(void *context, int16_t id, int32_t a2, float radius)
+{
+    const LiveFloorContext *c = context;
+    if (id < 0 || a2 != 0) return -1;
+    em_sfx_play_at((unsigned)id, c->floor->position, radius);
+    return 0;
+}
+static int live_contact_001FB9F0(void *context, int32_t a0, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)context;
+    if (a0 < 0 || a1 != 0x1000 || a2 != 0x1000 || a3 != 0x1000) return -1;
+    em_sfx_play((unsigned)a0);
+    return 0;
+}
 static int live_first_contact(void *context, uint8_t surface)
 {
-    LiveFloorContext *c = context;
-    switch (surface) {
-    case 0x5A:
-        /* 00187DC0 (byte-matched): 001FBD50(p, 0x86, 0, 300.0). */
-        em_sfx_play_at(0x86, c->floor->position, 300.0f);
-        return 0;
-    case 0x5C:
-        /* 00187EA0 (byte-matched): 001FB9F0(0xA8, 0x1000, 0x1000, 0x1000). */
-        em_sfx_play(0xA8);
-        return 0;
-    default:
-        /* 00187DE0 (0x5B) copies 0x700031B0, the depth probe's point, which
-         * this worker does not receive; no AREA11 grid node carries 0x5B. */
-        return -1;
-    }
+    const EmPlayerContactWorkers w = { context, live_contact_001FBD50, live_contact_001FB9F0 };
+    return em_player_first_contact(&w, surface);
 }
 static float live_atan2(void *context, float y, float x)
 {
@@ -1014,62 +1021,65 @@ static int live_stance(void *context, EmPlayerLiveActor *a)
     return live.loco[0](live.loco_context[0], a);
 }
 
-/* 0015BA50's +4 = 1 entry. The AREA11 interaction runtime (through the pose
- * host, player_pose_stage_hook) stands in for the scripted takeover: while
- * it owns the player it consumes the stage at the position of 0015B130's
- * prelude (its acquire is 00174A50 + 00182D70 on the display, its per-stage
- * tick the +4 = 4 commit and advance, its release 00182DF0; census row
- * 0015B130's stand-in), and 0015B130 does not run.
- * Otherwise 0015B130 runs, except on the idle/walk states under 0x70003B8D
- * without that owner (the area-change fade after 001B0C60): there the
- * prelude would admit the player (00182B30) and force +4 = 4, whose 0015B530
- * routines 001837B0 and the record's 00182DF0 release are not bound
- * (em_player_stage_live.c), so the idle/walk states keep those stages as
- * before L01. */
+/* 0015BA50's +4 = 1 entry, with the AREA11 interaction host at 0015B130's
+ * prelude position (player_pose_stage_hook):
+ *  - 2: a script owner's frame (the director, Roger, the truck trigger, the
+ *    fence door; em_area11_script_host): its takeover is the stage's own.
+ *    0015B130 runs; under 0x70003B8D its prelude admits the player (00182B30
+ *    returns 0: +4 = 4, +5 = 0, +6 = 0, +1F0 = 0x41, 00174A50(p, 8.0),
+ *    00182D70), and from the next stage 0015BA50's +4 = 4 path runs
+ *    00183090 and the advance, then 0015B530 (+5 0: 001837A0; 0x70003B8D
+ *    clear: 00182DF0, which releases the player and ends the token).
+ *  - 1: the runtime's takeover of the panel, the terminal or an item (their
+ *    scripts' animation core, em_interaction_animation): it consumed the
+ *    stage in place of +4 = 4 (its acquire stands in for 00174A50 +
+ *    00182D70 on the record, its tick for the commit and advance, its
+ *    release runs the record's 00182DF0), and 0015B130 does not run.
+ *  - 0: 0015B130 runs, except on the idle/walk states under 0x70003B8D
+ *    without an owner (the area-change fade after 001B0C60): the idle/walk
+ *    states keep those stages as before L01 (the prelude's admission there
+ *    would lead to 0015B530 with no owner's frame to end it). */
 static int live_major1(void *context, EmPlayerLiveActor *a)
 {
     if (live.b.takeover) {
         const uint8_t before3B8F = live.scene.spad3B8F;
-        const int held_before = player_pose_owned();
         int consumed = live.b.takeover(live.b.takeover_context);
-        if (consumed < 0 || consumed > 1) return -1;
+        if (consumed < 0 || consumed > 2) return -1;
         /* The takeover stores 3B8D / 3B8F (its frame view): reload. */
         live.busy_known = live_scene_load();
         live.loaded3B8F = live.scene.spad3B8F;
+        if (consumed == 2) {
+            /* A port stand-in holding the source lets go first; then
+             * 0015B130 with its prelude. */
+            if (!player_pose_takeover_prepare()) return -1;
+            const uint8_t major = em_live_u8(a, 4);
+            if (em_player_stage_0015B130(context, a) < 0) return -1;
+            /* The prelude admitted the player (+4 = 4): the source is the
+             * takeover's until 0015B530's 00182DF0. */
+            if (major != 4 && em_live_u8(a, 4) == 4 && !player_pose_takeover_admitted()) return -1;
+            return 0;
+        }
         if (consumed) {
             /* The prelude that admits the owner's script writes +4 = 4,
              * +5 = 0, +6 = 0 and +1F0 = 0x41 (0015B130's general branch at
              * the 00182B30 admission, the stage whose 00182D70 sets 3B8F =
              * 1): after a scan winner's hand-off (00160220 left +5 = 0x25;
              * route 04 shows +5 = 0 / +1F0 = 0x41 on the frame after the
-             * scan) and when a script owner's own op07 opened the frame
-             * over a walking or idle player (the truck trigger; route 07
-             * f165). 0015B130's ladder (+5 0x19) and +1F0 0x2A / 0x17
+             * scan). 0015B130's ladder (+5 0x19) and +1F0 0x2A / 0x17
              * branches write other values and are not reached by an
-             * admission here. The stand-in consumes the stage in place of
-             * +4 = 4. */
+             * admission here. The runtime consumes the stage in place of
+             * +4 = 4; its release ran the record's 00182DF0 (+4 = 1, +5 =
+             * 0, +6 = 0, +1F0 = 0). */
             const int admitted = before3B8F == 0 && live.scene.spad3B8F != 0 &&
                                  em_live_u8(a, 5) != 0x19 && em_live_u8(a, 0x1F0) != 0x2A &&
                                  em_live_u8(a, 0x1F0) != 0x17;
-            /* The stage whose takeover released the player (the selector
-             * had cleared): 00182DF0's tail on the record, +4 = 1, +5 = 0,
-             * +6 = 0, +1F0 = 0 (the pose host mirrors the same tail into
-             * the port's callbacks, reset_default_state; route 07 f527). */
-            if (held_before && !player_pose_owned()) {
-                em_live_set_u8(a, 4, 1);
-                em_live_set_u8(a, 5, 0);
-                em_live_set_u8(a, 6, 0);
-                em_live_set_u8(a, 0x1F0, 0);
-            }
             if (em_live_u8(a, 4) == 1 && (em_live_u8(a, 5) == 0x25 || admitted)) {
                 em_live_set_u8(a, 5, 0);
                 em_live_set_u8(a, 6, 0);
                 em_live_set_u8(a, 0x1F0, 0x41);
                 /* The admission's 00182D70 after 00174A50 (0015B130's
-                 * general branch; census L22): +0x1F2 = +0x20C, +0x1F4 =
-                 * 1.0, +0x1F8 = 0, +0x2F3 = 0 and its other clears, which a
-                 * script owner's 00183090 then reads (its +0x1F2 requests,
-                 * player_pose_commit_tick). */
+                 * general branch): +0x1F2 = +0x20C, +0x1F4 = 1.0, +0x1F8 =
+                 * 0, +0x2F3 = 0 and its other clears. */
                 if (!live.b.stage.scripted_notify ||
                     live.b.stage.scripted_notify(live.b.stage.context, a) < 0)
                     return -1;

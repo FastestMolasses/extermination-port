@@ -1794,6 +1794,7 @@ void em_game_shutdown(void)
      * first, then its owner tokens, face meshes and status UI. */
     player_use_set_hook(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
+    player_pose_set_takeover_end_hook(NULL, NULL);
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
     player_pose_unload();

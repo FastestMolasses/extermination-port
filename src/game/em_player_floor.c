@@ -489,6 +489,19 @@ int em_player_floor_apply(EmPlayerFloorActor *a, const EmPlayerProbeHit *hit, in
     return 0;
 }
 
+int em_player_first_contact(const EmPlayerContactWorkers *w, uint8_t surface)
+{
+    if (!w) return -1;
+    switch (surface) {
+    case 0x5A:   /* 00187DC0 */
+        return w->w001FBD50 && w->w001FBD50(w->context, 0x86, 0, 300.0f) >= 0 ? 0 : -1;
+    case 0x5C:   /* 00187EA0 */
+        return w->w001FB9F0 && w->w001FB9F0(w->context, 0xA8, 0x1000, 0x1000, 0x1000) >= 0 ? 0 : -1;
+    default:     /* 00187DE0 (0x5B) is not translated */
+        return -1;
+    }
+}
+
 int em_player_floor_service(EmPlayerFloorActor *a, int search, float at[3],
                             const EmPlayerFloorWorkers *w)
 {

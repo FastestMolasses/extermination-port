@@ -61,7 +61,8 @@ void em_area11_roger_reset(void);
 int em_area11_roger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
 /* One owner call of the equipment node (callback 001C5C90). */
 int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
-/* 001AF800 for either record: its +0x110 slots pushed back (001AF890).
+/* 001AF800 for either record: em_roger_actor_001AF800 over its typed view
+ * (the +0x110 slots pushed back in 001AF800's own loop).
  * 1 handled, 0 not one of these records, -1 a fault. */
 int em_area11_roger_001AF800(EmActor *actor);
 

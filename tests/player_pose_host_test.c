@@ -1,6 +1,10 @@
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_locomotion_display.h"
+#include "game/em_player_ladder_climb.h"
+#include "game/em_player_record_pose.h"
+#include "game/em_pose_host_workers.h"
 
 #include <assert.h>
 #include <math.h>
@@ -40,6 +44,73 @@ static uint8_t d8106F3, d8106F1, d810707;
 static EmPlayerStageScene stage_scene = { .d8106F1 = &d8106F1 };
 static EmPlayerStageGlobals stage_globals = { .d810707 = &d810707 };
 
+/* 00182DF0 on the record: the one release (em_player_stage_00182DF0,
+ * test_player_stage_workers_reference) over the pose's own callees, with the
+ * row lookup 0017B490 as em_loco_0017B490 over the record pose's tables
+ * (D_008106C8 = 0 for 001B0070). The record's +0x1C is 0 (no link). */
+static EmPlayerStageHost release_host;
+static EmPlayerStageRelease release_context;
+static EmLocoHost loco;
+static int mode_001B0070(void *c, int32_t *value) { (void)c; *value = 0; return 0; }
+static int row_lookup(void *c, EmPlayerLiveActor *a, int a1, int a2, int a3, int16_t *clip)
+{
+    (void)c;
+    return em_loco_0017B490(&loco, a, a1, a2, a3, clip);
+}
+static int no_link(void *c, uint32_t word, uint8_t value) { (void)c; (void)word; (void)value; return -1; }
+static int bank_word(void *c, uint32_t *word) { (void)c; *word = EM_PLAYER_POSE_BANK_ADDRESS; return 0; }
+static int node_count(void *c, uint32_t model, uint8_t *count)
+{
+    (void)c; (void)model;
+    *count = EM_PLAYER_POSE_NODES;
+    return 0;
+}
+static int row_a00(void *c, unsigned index, int16_t *clip)
+{
+    (void)c;
+    const uint8_t *p = player_pose_record_bytes(0x00248A00u + 2u * index, 2);
+    if (!p) return -1;
+    *clip = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+    return 0;
+}
+static int row_c90(void *c, int clip, int16_t *value) { (void)c; return player_pose_row0(clip, value); }
+/* 00174AB0: its one translation (em_player_ladder_climb's) over the pose's
+ * 001749A0. */
+static int pose_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
+{
+    (void)c;
+    return em_pose_host_stage_request(player_pose_record_host(), a, clip, flags, blend);
+}
+static int clip_zero(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    EmPlayerLadderClimbWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.request = pose_request;
+    EmPlayerLadderClimb ladder = { &workers, NULL };
+    return em_player_ladder_climb_00174AB0(&ladder, a);
+}
+
+static void bind_release(void)
+{
+    memset(&loco, 0, sizeof loco);
+    loco.workers.mode = mode_001B0070;
+    loco.display.pose = player_pose_record_host();
+    memset(&release_host, 0, sizeof release_host);
+    release_host.stage = &stage_scene;
+    release_host.globals = &stage_globals;
+    EmPlayerStageCallees *c = &release_host.callees;
+    c->context = player_pose_record_host();
+    c->bone_init = em_pose_host_stage_bone_init;
+    c->clip_init = em_pose_host_stage_clip_init;
+    c->request = em_pose_host_stage_request;
+    c->clip_lookup = row_lookup;
+    c->link1C = no_link;
+    release_context = (EmPlayerStageRelease){ &release_host, NULL, bank_word, node_count, row_a00, row_c90,
+                                              clip_zero };
+    player_pose_set_release_worker(em_player_stage_00182DF0, &release_context);
+}
+
 static void reset(void)
 {
     player_pose_unload();
@@ -57,6 +128,7 @@ static void reset(void)
     assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
     assert(player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals));
     assert(player_pose_opening_release());
+    bind_release();
 }
 
 static void expected(unsigned clip, float time, int transition)

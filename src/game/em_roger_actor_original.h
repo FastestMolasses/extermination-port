@@ -200,6 +200,13 @@ int em_roger_actor_001B10B0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t a1,
 int em_roger_actor_001AF780(EmRogerActor *s, uint32_t *slot);
 /* 001AF890(slot): clears the slot's 0xD0 bytes and pushes it back. */
 int em_roger_actor_001AF890(EmRogerActor *s, uint32_t slot);
+/* 001AF800(actor) (NEARMISS src/func_001AF800.c; the pool free 001AFC10's
+ * slot return): for each of the +0x09 held slots, in order, its 13
+ * quadwords are cleared, the cursor moves down one word, the slot address
+ * is stored there and +0x110[i] = 0; it does not call 001AF890. Then the
+ * count grows by +0x09, and +0x09 = +0x0C = 0. Only bones_held, bone_count
+ * and bone[] of `a` are read or written. */
+int em_roger_actor_001AF800(EmRogerActor *s, EmRogerActorRecord *a);
 /* 001CA6E0(actor, model). */
 int em_roger_actor_001CA6E0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t model);
 /* 001BA8E0(actor, kind). */

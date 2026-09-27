@@ -44,6 +44,12 @@ struct EmPoseHost;
 int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
                        struct EmPlayerStageGlobals *globals);
 int player_pose_record_ready(void);
+/* 00182DF0 on the record (em_player_stage_00182DF0 with its context, bound
+ * by em_player_stage_live): the one release both takeovers run. */
+void player_pose_set_release_worker(int (*worker)(void *, EmPlayerLiveActor *), void *context);
+/* 0015B530's 00182DF0 on the stage's own takeover: the release, then the
+ * takeover's end hook. 0, or -1. */
+int player_pose_stage_release(EmPlayerLiveActor *actor);
 /* 1 when the record holds the pose the port displays (the source started
  * at the opening release, valid, and no port stand-in holds the display):
  * only then are its node records the player's drawn pose (0015C160's
@@ -169,11 +175,12 @@ typedef struct EmPlayerStatesBinding {
      * fault: the stage does not run). NULL when the workers read none. */
     int (*load)(void *context);
     void *load_context;
-    /* The scripted takeover stand-in at 0015B130's prelude position (the
-     * AREA11 interaction runtime through the pose host,
-     * player_pose_stage_hook): -1 fault, 0 ordinary, 1 consumed (the
-     * runtime owns the player this stage: 0015B130 does not run). NULL: no
-     * takeover owner. */
+    /* The takeover hook at 0015B130's prelude position (the AREA11
+     * interaction host through the pose host, player_pose_stage_hook): -1
+     * fault, 0 ordinary, 1 consumed (the interaction runtime's takeover of
+     * the panel, terminal or an item owns the player this stage: 0015B130
+     * does not run), 2 a script owner's frame (the takeover is the stage's
+     * own: 0015B130 runs its prelude). NULL: no takeover owner. */
     int (*takeover)(void *context);
     void *takeover_context;
 } EmPlayerStatesBinding;
@@ -245,9 +252,9 @@ int player_states_stage_live(void);
  * actor_update, uses the port's legacy path otherwise): the vitals view
  * load, 0015BA50 (begin, the switch with the display's advance and the +4
  * handler, end), 0015BCF0's writes after it, the vitals store. Returns 1
- * when the takeover stand-in consumed the stage (the interaction runtime
- * published the player's palette), 0 otherwise (also after a fault, which
- * is fail-stop: reported once, counted, em_frame_request_quit). */
+ * when the interaction runtime's takeover consumed the stage (it published
+ * the player's palette), 0 otherwise (also after a fault, which is
+ * fail-stop: reported once, counted, em_frame_request_quit). */
 int player_states_stage(void);
 /* D_008106B3 as this stage's 0015BA50 left it; -1 while STAGE is gated
  * off. (The canonical B3 byte is still written by em_player_0015BCF0's

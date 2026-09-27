@@ -240,7 +240,9 @@ node's walk position (001AFD70). The binder keeps one
 the node's bone slots as D_00275B40 before the call (001CB590's publication)
 and writes the node's bytes back after it. 0015C310's spawn 0018A880 is
 the bindings' `spawn_0018A880`; 001AFC10's 001AF800 on one of these nodes
-pushes its slots back (`em_equipment_live_001AF800`, 001AF890).
+pushes its slots back (`em_equipment_live_001AF800`: 001AF800's one
+translation, `em_roger_actor_001AF800`, whose own loop pushes them; the
+original does not call 001AF890 there).
 
 ### 4.2 Workers
 

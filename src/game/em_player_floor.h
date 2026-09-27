@@ -257,6 +257,19 @@ static inline int em_player_link_00175640(int present, uint8_t type, uint32_t be
 /* The same, exported for the oracle. */
 int em_player_floor_link_test(int present, uint8_t type, uint32_t behaviour);
 
+/* The floor service's first-contact one-shots (its first_contact worker's
+ * body): 0x5A is 00187DC0(p) (byte-matched): 001FBD50(p, 0x86, 0, 300.0);
+ * 0x5C is 00187EA0() (byte-matched): 001FB9F0(0xA8, 0x1000, 0x1000,
+ * 0x1000). 0x5B is 00187DE0, whose 0x700031B0 probe point the worker does
+ * not receive: -1, as for any other surface. The workers are the two sound
+ * calls (001FBD50 at the record p). 0, or -1. */
+typedef struct {
+    void *context;
+    int (*w001FBD50)(void *context, int16_t id, int32_t a2, float radius);
+    int (*w001FB9F0)(void *context, int32_t a0, int32_t a1, int32_t a2, int32_t a3);
+} EmPlayerContactWorkers;
+int em_player_first_contact(const EmPlayerContactWorkers *workers, uint8_t surface);
+
 /* 0019A310(out): the slope angle of the hit node's normal. */
 void em_player_slope_angle(const EmPlayerProbeHit *hit, const EmPlayerFloorWorkers *workers,
                            float *out);

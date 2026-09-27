@@ -982,6 +982,8 @@ test-player-pose-host:
 	@mkdir -p build/player_pose_channels
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
 	    tests/player_pose_host_test.c src/game/em_player_pose_host.c src/game/em_player_pose.c \
+	    src/game/em_locomotion_display.c src/game/em_anim_runtime_rest.c src/game/em_sdk_math_original.c \
+	    src/game/em_player_ladder_climb.c src/game/em_player_major2.c \
 	    src/game/em_pose_bank.c src/game/em_pose_transition.c src/game/em_fade.c \
 	    src/game/em_player_foot_stop.c src/game/em_camera_rotation.c src/game/em_effect_original.c \
 	    $(PLAYER_RECORD_POSE_SRC) -lm \

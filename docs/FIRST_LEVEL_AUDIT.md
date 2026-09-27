@@ -369,6 +369,46 @@ their records; OWNER_DRAW.md section 10, census 1.25):**
   sort into the chain page and the class-3 GS state: still the additive mesh
   stand-in); Roger's face units (001CB3C0).
 
+**Status update (2026-09-26, chain C7: the scripted takeover on the player
+stage; PLAYER_STAGE_WORKERS.md 2.1, census 1.26):**
+- A script owner's frame (the truck trigger, the fence door, the director,
+  Roger) is the player stage's own takeover, as in the original: 0015B130's
+  prelude admits the player (00182B30, +4 = 4, 00174A50(8.0), 00182D70),
+  each stage runs 0015BA50's +4 = 4 path (00183090 with the face's 001D0C70,
+  the +1F4 advance) and 0015B530 (001837A0), and 0015B530's 00182DF0
+  releases the player. The interaction host keeps only a staged token for
+  these owners. 00182DF0 is one translation (em_player_stage_00182DF0), also
+  used by the runtime's release of the panel, the terminal and the items; the
+  pose host's approximated releases and player_pose_commit_tick are gone.
+  The pool free's 001AF800 pushes its slots in its own loop
+  (em_roger_actor_001AF800) for every AREA11 binder instead of calling
+  001AF890 per slot. The floor service's first contact runs
+  em_player_first_contact (00187DC0 / 00187EA0), executed by the floor oracle.
+  00182D40 and 00174AB0 each have one translation (em_player_00182D40,
+  em_player_ladder_climb's).
+- Evidence: the full route and both side runs pass with --require-through;
+  the new check_stage_takeover holds +4 = 4 from the admission to the
+  release in routes 07, 09, 10, 11, 13 and 14 while the phases' row-for-row
+  comparisons are unchanged; the tick log equals the previous build's on all
+  13,017 ticks apart from +4 during the takeovers.
+  test_player_stage_workers_reference (00182DF0), test_player_cinematic_reference
+  (the stage composition and 00182DF0 over bank 0x96),
+  test_roger_actor_original_reference (001AF800) and test_player_floor_reference
+  (00187DC0) execute the originals. newgame-control 9.599849. Census: live
+  648, verified-unbound 81, unverified 3, missing 1 (91.3% by instructions).
+- Not done (blocked): the player's 001CA770 (001B82D0 sub 4) and 001CA700
+  (001B81D0) on the record's +0x90. The port's player face is the face
+  host's state, not a pool slot; putting it in a slot at +0x90 makes the
+  player's 001CAA00 reach the attachment draw 001CB3C0, which is not
+  translated (em_owner_draw_live faults on it). 001CA770 therefore stays the
+  face host's detach and 001AF890 is verified-unbound (reached in the port
+  only through Roger's 001CA770, not on the route). Needs: Roger's face units
+  (001CB3C0 with 001D3F50 / 001D3E40, 001C7900, 001CB2C0), then the face
+  state in the slot.
+- Still the interaction runtime's: the panel, the terminal and the items'
+  takeovers (their scripts request clips through em_interaction_animation,
+  not +1F2 / 00183090); +4 stays 1 there.
+
 ---
 
 ## 2. Live call graph (normal run)

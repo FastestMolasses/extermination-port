@@ -701,12 +701,14 @@ static void log_tick_end(int rc)
         /* The live player record at the tick end, as the route rows sample
          * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
          * +3C (float bits) and the ground owner +214 (its original record
-         * address; 0 none). */
+         * address; 0 none); then +0x2F3 and +4 (the takeover's +4 = 4,
+         * which the route rows do not sample). */
         const EmPlayerLiveActor *a = player_states_actor();
         uint32_t clock = em_live_u32(a, 0x3C);
         uint32_t ground = a->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)a->link_owner) : 0;
-        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
-                em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3));
+        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
+                em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3),
+                em_live_u8(a, 4));
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */
@@ -1272,6 +1274,7 @@ static int w_001AFCA0(void *ctx)
     player_use_set_hook(NULL, NULL);
     em_player_closure_live_set_scan(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
+    player_pose_set_takeover_end_hook(NULL, NULL);
     em_message_live_set_host(NULL);
     em_area11_interaction_host_clear();
     em_game_legacy_state0();
@@ -1825,6 +1828,7 @@ static int w_001B6990(void *ctx)
         return em_scene_fault(&s_state, 0x00159210u, EM_SCENE_FAULT_NULL_WORKER);
     }
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
+    player_pose_set_takeover_end_hook(em_area11_interaction_host_staged_released, NULL);
     player_use_set_hook(em_area11_interaction_host_use, NULL);
     em_player_closure_live_set_scan(em_area11_interaction_host_scan_00184BA0, NULL);
     em_message_live_set_host(em_area11_interaction_host_message_host());

@@ -593,10 +593,10 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
     deleted and the manifest's `truck` line is no longer read.
   - em_area11_script_host binds em_area_script (AREA_SCRIPT.md 6.1). A script
     owner whose op07 opens the frame claims the interaction host's shared
-    player takeover (`em_interaction_runtime_claim_scripted`); the player
-    stage writes the admission's +5 / +6 / +1F0 and 00182DF0's release tail
-    on the record and keeps the port's mirrors off it while the takeover
-    holds the player.
+    player token (`em_interaction_runtime_claim_scripted`, staged since chain
+    C7); the takeover is then the player stage's own: 0015B130's prelude
+    admits the player (+4 = 4), 0015B530 runs on each stage, and its 00182DF0
+    releases the player and ends the token (PLAYER_STAGE_WORKERS.md 2.1).
   - Main-loop step I: `em_frame_set_step_i` runs 001B5B70 over the new pad
     block D_00810E40 (em_pad_actuator) after step G.
   - **Verified.** The level smoke passes ten live phases (`truck_preview`,

@@ -19,6 +19,8 @@
  *               decode; the body is em_sfx_driver_stop (em_sfx_bank.c,
  *               verified by tools/test_area11_sfx_reference.py)
  *   0015B530    the +4 = 4 handler           (.major[4])
+ *   00182DF0    0015B530's release           (em_player_stage_00182DF0), with
+ *               00182D40 (em_player_00182D40)
  *
  * Every routine works on the raw 0x320-byte player record (EmPlayerLiveActor)
  * by its original offsets. Every original callee that is not translated here
@@ -178,6 +180,8 @@ int em_player_0021BB00(const EmPlayerLiveActor *actor);
 int em_player_0021BC40(const EmPlayerLiveActor *actor);
 int em_player_0021D640(const EmPlayerLiveActor *actor);
 int em_player_0021C3F0(const EmPlayerStageScene *stage, const EmPlayerStageGlobals *globals);
+/* 00182D40 (byte-matched): 1 when +0x1F0 is 0x17, else 0 (00182DF0's test). */
+int em_player_00182D40(const EmPlayerLiveActor *actor);
 /* 001B1470 (angle wrap into (-pi, pi]) and 001281C0 (float_to_int), bit
  * patterns in and out. */
 uint32_t em_player_001B1470(uint32_t angle);
@@ -198,5 +202,32 @@ typedef struct EmPlayerStageMajor4 {
     void *routine_context[EM_PLAYER_MAJOR4_COUNT];
 } EmPlayerStageMajor4;
 int em_player_stage_0015B530(void *major4, EmPlayerLiveActor *actor);
+
+/* ---- 00182DF0: 0015B530's routine with 0x70003B8D == 0 (the release) -----
+ * The byte-matched src/func_00182DF0.c. With +0x2F3 != 0 (a special bank on
+ * the record): +0x2F3 = 0, +0x40 = D_0028A580, +0x0C = 001C6150(+0x44),
+ * +0x20C = D_00248A00[+0x235], bone_init_default_2(p, +0x20C). Otherwise,
+ * unless 00182D40 (+0x1F0 == 0x17): when +0x20C differs from
+ * 0017B490(p, 0, +0x235, 0), a negative +0x20C or a zero
+ * D_00248C90[6 * +0x20C] first runs 00174AB0 (the w00174AB0 worker: its
+ * one translation is em_player_ladder_climb's), then 00174A50(p, 16.0)
+ * (em_player_stage_row_request). The tail: 0x70003B8F = 0, +4 = 1, +6 = 0; +5 = 0 and
+ * +0x1F0 = 0, or +5 = 0xC when +0x1F0 is 0x17; *(+0x1C) + 4 = 1 when +0x1C
+ * is nonzero; a nonzero +0x224 or +0x22C: both 0 and +0 = 1.
+ *
+ * `host` supplies bone_init, clip_lookup, request and link1C and the stage
+ * scene (0x70003B8F). The four readers are the words the routine loads
+ * outside the record; w00174AB0 is the call it makes. Every worker is
+ * required (a missing one: -1 before the first write). */
+typedef struct EmPlayerStageRelease {
+    EmPlayerStageHost *host;
+    void *context;                                                     /* the readers' */
+    int (*d0028A580)(void *context, uint32_t *word);                   /* the word D_0028A580 */
+    int (*w001C6150)(void *context, uint32_t model, uint8_t *count);   /* 001C6150(+0x44) */
+    int (*d00248A00)(void *context, unsigned index, int16_t *clip);    /* D_00248A00[index] */
+    int (*d00248C90)(void *context, int clip, int16_t *value);         /* D_00248C90[6 * clip] */
+    int (*w00174AB0)(void *context, EmPlayerLiveActor *actor);         /* 00174AB0(p) */
+} EmPlayerStageRelease;
+int em_player_stage_00182DF0(void *release, EmPlayerLiveActor *actor);
 
 #endif

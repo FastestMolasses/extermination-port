@@ -353,8 +353,10 @@ What the layer does once engaged:
     the original's positions (+34, or +1F4 after 00183090 for +4 = 4 with
     +5 = 0/0x17), then the +4 handler. The advance is the live display's
     001C64F0 (`player_pose_stage_advance`). +4 = 1 is the translated
-    0015B130 behind the takeover stand-in (the interaction runtime consumes
-    the stage there while it owns the player), +4 = 2 the translated
+    0015B130 (the interaction runtime's takeover of the panel, terminal or
+    an item consumes the stage there while it owns the player; a script
+    owner's frame runs 0015B130's own prelude, whose admission sets +4 = 4,
+    chain C7), +4 = 2 the translated
     0015B770, 4 is 0015B530 and 6 is `em_player_stage_0015D460`. The port's
     own idle and walk (+4 = 1, +5 = 0/1) are 0015B130's state[0] / state[1];
     under 0x70003B8D without the takeover owner they keep the stage without
@@ -401,7 +403,9 @@ What the layer does once engaged:
   `em_frame_request_quit` is called.
 - **Footsteps.** 00187350 reads +A, +23A, +23C and +250 from the service.
 - **First contact.** 0x5A plays 00187DC0 (001FBD50(p, 0x86, 0, 300)), and
-  0x5C plays 00187EA0 (001FB9F0(0xA8, ...)). 0x5B (00187DE0) needs the
+  0x5C plays 00187EA0 (001FB9F0(0xA8, ...)), both through
+  `em_player_first_contact` (em_player_floor.c; the floor oracle executes
+  both originals and compares every argument). 0x5B (00187DE0) needs the
   depth probe's 0x700031B0, so it faults. The AREA11 grid has no 0x5B, 0x5C,
   0x35 or 0x39 node; the census of the user's EMCL is 0x00 112, 0x03 16,
   0x04 626, 0x05 1559, 0x32 12, 0x3C 2, 0x46 8, 0x50 416, 0x51 229, 0x5A 42,
@@ -737,8 +741,10 @@ the captures):
     clip end hands back to the port's idle;
   - fail-stop, and the adapters refusing unbound workers;
   - (L01) 0015B130 around the port's idle callback on every +4 = 1 stage;
-    the takeover stand-in consuming a stage at the prelude position (begin,
-    end and 0015BCF0's writes still run; its 3B8F store survives); the
+    the runtime's takeover consuming a stage at the prelude position (begin,
+    end and 0015BCF0's writes still run; its 3B8F store survives); a script
+    owner's frame running 0015B130's prelude (00182B30 admitting: +4 = 4,
+    00174A50, 00182D70; refusing: the tick runs); the
     idle under 0x70003B8D without that owner keeping the port's callback;
     the vitals view (pending damage in, the +20E countdown and +220 out).
 - `tools/test_player_floor_reference.py` also checks the owner flow on real

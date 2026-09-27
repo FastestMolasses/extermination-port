@@ -26,6 +26,8 @@ MODULES = (
     'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '
     # The player's one pose owner (docs/PLAYER_CLIPS.md section 6).
     'em_player_record_pose em_pose_host_workers em_player_stage_workers em_player_floor '
+    # 00182DF0's row lookup 0017B490 (em_loco_0017B490) in the release fixture.
+    'em_locomotion_display em_anim_runtime_rest em_player_ladder_climb '
     'em_player_reaction em_player_fall em_stream_lanes_original '
     # The render context (census L32 / L30, docs/RENDER_CONTEXT.md section 8).
     'em_render_context_live em_gs_blocks_original em_frame_render_heads em_render_context em_packet_chain_original '

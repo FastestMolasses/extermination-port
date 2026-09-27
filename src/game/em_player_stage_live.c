@@ -5,11 +5,15 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_interaction_host.h"
+#include "game/em_area11_roger.h"
 #include "game/em_collision_world.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_player.h"
 #include "game/em_player_closure_live.h"
+#include "game/em_player_draw_live.h"
+#include "game/em_player_ladder_climb.h"
 #include "game/em_player_stage_workers.h"
 #include "game/em_pose_host_workers.h"
 #include "game/em_scene_state.h"
@@ -23,6 +27,7 @@ static struct {
     EmPlayerStageGlobals globals;
     EmPlayerStageHost host;
     EmPlayerStageMajor4 major4;
+    EmPlayerStageRelease release;   /* 00182DF0's context */
     EmPlayerStageFade fade;
     unsigned faults;
     int reported;
@@ -43,10 +48,12 @@ static int unbound(const char *callee)
     return -1;
 }
 
-static int stub_001D0C70(void *c)
+/* 001D0C70 (00183090 under 0x70003B8F == 2): the attached face's tick on
+ * the AREA11 interaction host (em_player_face_host). */
+static int w_001D0C70(void *c)
 {
     (void)c;
-    return unbound("001D0C70 (00183090 under 0x70003B8F == 2)");
+    return em_area11_interaction_host_face_tick_001D0C70() < 0 ? -1 : 0;
 }
 /* 001B61C0 (0015D000's low-health heartbeat): the pad block D_00810E40
  * (em_pad_actuator, since census L23). */
@@ -98,12 +105,62 @@ static int stub_link1C(void *c, uint32_t word, uint8_t value)
     return unbound("the +1C object's +4 (00182D70; the port keeps no +1C object)");
 }
 
-/* 0015B530's routines that are not bound. */
-static int stub_00182DF0(void *c, EmPlayerLiveActor *a)
+/* 0015B530 with 0x70003B8D clear: 00182DF0 on the stage's own takeover
+ * (the pose host runs em_player_stage_00182DF0 with live.release, then ends
+ * the interaction host's token). */
+static int w_00182DF0(void *c, EmPlayerLiveActor *a)
 {
-    (void)c; (void)a;
-    return unbound("00182DF0 on the record (0015B530 with 0x70003B8D clear)");
+    (void)c;
+    return player_pose_stage_release(a);
 }
+
+/* 00182DF0's loads outside the record. D_0028A580 is word 0x3C of the
+ * D_0028A490 table (the Roger export's copy, em_area11_roger_table_word);
+ * 001C6150(+0x44) is the exported player model's +8 byte
+ * (em_player_draw_live_001C6150); D_00248A00 is in the record pose's table
+ * region; D_00248C90's +0 column is the row column the pose loaded. */
+static int r_0028A580(void *c, uint32_t *word)
+{
+    (void)c;
+    return em_area11_roger_table_word(0x0028A580u, word) < 0 ? unbound("D_0028A580 (00182DF0; the Roger export)") : 0;
+}
+static int r_001C6150(void *c, uint32_t model, uint8_t *count)
+{
+    (void)c;
+    return em_player_draw_live_001C6150(model, count) < 0 ? unbound("001C6150 on the player's +0x44 (00182DF0)") : 0;
+}
+static int r_00248A00(void *c, unsigned index, int16_t *clip)
+{
+    (void)c;
+    const uint8_t *p = player_pose_record_bytes(0x00248A00u + 2u * index, 2);
+    if (!p) return unbound("D_00248A00[+0x235] (00182DF0) outside the pose's table region");
+    *clip = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+    return 0;
+}
+static int r_00248C90(void *c, int clip, int16_t *value)
+{
+    (void)c;
+    return player_pose_row0(clip, value) < 0 ? unbound("D_00248C90[6 * +0x20C] (00182DF0) outside the rows") : 0;
+}
+
+/* 00182DF0's 00174AB0(p): its one translation (em_player_ladder_climb's)
+ * over the record pose's 001749A0, as the 0x0E/0x18 closure runs it. */
+static int release_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
+{
+    (void)c;
+    return em_pose_host_stage_request(live.host.callees.context, a, clip, flags, blend);
+}
+static int w_00174AB0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    EmPlayerLadderClimbWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.request = release_request;
+    EmPlayerLadderClimb ladder = { &workers, NULL };
+    return em_player_ladder_climb_00174AB0(&ladder, a);
+}
+
+/* 0015B530's routines that are not bound. */
 static int stub_001837B0(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
@@ -171,7 +228,7 @@ static int w_fade(void *c, int a0, int a1)
     return 0;
 }
 
-/* The takeover stand-in (em_player.h EmPlayerStatesBinding.takeover). */
+/* The takeover hook (em_player.h EmPlayerStatesBinding.takeover). */
 static int w_takeover(void *c)
 {
     (void)c;
@@ -240,7 +297,7 @@ int em_player_stage_live_bind(void)
     /* Every callee below ignores its context except the pose workers, whose
      * context is the record's EmPoseHost. */
     c->context = pose;
-    c->w001D0C70 = stub_001D0C70;
+    c->w001D0C70 = w_001D0C70;
     /* 00183090's bone_init_default_2 / anim_clip_init and 00174A50 /
      * 0017C370's 001749A0 on the record: the pose owner's routines. */
     c->bone_init = em_pose_host_stage_bone_init;
@@ -268,7 +325,7 @@ int em_player_stage_live_bind(void)
     c->sound_stop = w_sound_stop;
 
     live.major4.stage = player_states_scene();
-    live.major4.routine[EM_PLAYER_MAJOR4_00182DF0] = stub_00182DF0;
+    live.major4.routine[EM_PLAYER_MAJOR4_00182DF0] = w_00182DF0;
     live.major4.routine[EM_PLAYER_MAJOR4_001837A0] = w_001837A0;
     live.major4.routine[EM_PLAYER_MAJOR4_001837B0] = stub_001837B0;
     live.major4.routine[EM_PLAYER_MAJOR4_00162DB0] = stub_00162DB0;
@@ -276,6 +333,11 @@ int em_player_stage_live_bind(void)
     live.major4.routine[EM_PLAYER_MAJOR4_001838B0] = stub_001838B0;
     live.major4.routine[EM_PLAYER_MAJOR4_00183910] = stub_00183910;
     live.fade = (EmPlayerStageFade){ NULL, w_fade };
+    /* 00182DF0: the one release of both takeovers (the stage's own and the
+     * interaction runtime's), through the pose host. */
+    live.release = (EmPlayerStageRelease){ &live.host, NULL, r_0028A580, r_001C6150, r_00248A00, r_00248C90,
+                                           w_00174AB0 };
+    player_pose_set_release_worker(em_player_stage_00182DF0, &live.release);
 
     EmPlayerStatesBinding b;
     memset(&b, 0, sizeof b);

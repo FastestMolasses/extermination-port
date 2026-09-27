@@ -63,7 +63,7 @@ static struct {
     EmPlayerEquipmentWorkers workers;
     EmPlayerEquipmentFault efault;
     EmPlayerEquipment e;
-    /* 001AF780 / 001AF890 / 001CA6E0 on the one slot stack */
+    /* 001AF780 / 001AF800 / 001CA6E0 on the one slot stack */
     EmRogerActor stack;
     /* 001C62C0 / 001C9610 */
     EmOwnerServices services;
@@ -530,8 +530,19 @@ int em_equipment_live_001AF800(EmActor *actor)
     if (i < 0 || !S.attached || actor->callback != EM_PLAYER_EQUIPMENT_CALLBACK) return 0;
     Slot *s = &S.slot[i];
     if (!s->live || s->generation != actor->generation) return 0;
-    for (unsigned k = 0; k < actor->bones && k < s->held; ++k)
-        if (em_roger_actor_001AF890(&S.stack, s->word[k]) < 0) return fail(0x001AF890u, "001AF890 faulted");
+    /* 001AF800 (em_roger_actor_001AF800, its own slot loop) over the
+     * node's +0x09, +0x0C and the +0x110 words it popped. */
+    if (actor->bones > s->held) return fail(0x001AF800u, "001AF800: +0x09 names a slot the node did not pop");
+    EmRogerActorRecord v;
+    memset(&v, 0, sizeof v);
+    v.address = em_actor_pool_address(S.pool, actor);
+    v.bones_held = actor->bones;
+    v.bone_count = actor->u0A[2];
+    for (unsigned k = 0; k < s->held; ++k) v.bone[k] = s->word[k];
+    if (em_roger_actor_001AF800(&S.stack, &v) < 0) return fail(0x001AF800u, "001AF800 faulted");
+    for (unsigned k = 0; k < s->held; ++k) s->word[k] = v.bone[k];
+    actor->bones = s->n.bones_held = v.bones_held;
+    actor->u0A[2] = s->n.bone_count = v.bone_count;
     return 1;
 }
 

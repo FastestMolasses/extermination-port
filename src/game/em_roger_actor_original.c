@@ -128,6 +128,33 @@ int em_roger_actor_001AF890(EmRogerActor *s, uint32_t slot)
     return 0;
 }
 
+int em_roger_actor_001AF800(EmRogerActor *s, EmRogerActorRecord *a)
+{
+    ENTER(0x001AF800u, a);
+    NEED(s->world.d00275BD0, 0x00275BD0u);
+    NEED(s->world.d00275BCC, 0x00275BCCu);
+    if (a->bones_held > EM_ROGER_ACTOR_MAX_BONES) return fault(s, 0x001AF800u, EM_ROGER_ACTOR_FAULT_BAD_INDEX);
+    /* The loop bound is +0x09, re-read each pass (nothing in the loop
+     * writes it). Per slot: the 13 quadwords of the slot +0x110[i] names
+     * cleared, D_00275BD0 -= 4, *D_00275BD0 = the slot, +0x110[i] = 0. */
+    for (unsigned i = 0; i < a->bones_held; ++i) {
+        uint8_t *bytes = slot_bytes(s, a->bone[i], EM_ROGER_ACTOR_SLOT_BYTES);
+        u32 cursor = *s->world.d00275BD0 - 4u;
+        u32 *word = stack_word(s, cursor);
+        if (!bytes || !word) return fault(s, 0x001AF800u, EM_ROGER_ACTOR_FAULT_BAD_INDEX);
+        memset(bytes, 0, EM_ROGER_ACTOR_SLOT_BYTES);
+        *s->world.d00275BD0 = cursor;
+        *word = a->bone[i];
+        a->bone[i] = 0;
+    }
+    /* After the loop: D_00275BCC += +0x09 (signed halfword), +0x09 = 0,
+     * +0x0C = 0. */
+    *s->world.d00275BCC = (int16_t)(*s->world.d00275BCC + a->bones_held);
+    a->bones_held = 0;
+    a->bone_count = 0;
+    return 0;
+}
+
 /* ======================================================================
  * Model binding: 001CA6E0, 001C6150, 001B10B0
  * ==================================================================== */

@@ -74,8 +74,8 @@ static struct {
     Box box[BOX_MAX];
     /* 001AF710's bone-slot stack (em_slg_001AF710): the D_007D5840 records,
      * the D_007D4640 address words, the cursor D_00275BD0 and the count
-     * D_00275BCC. 001AF780 / 001AF890 work on it through em_roger_actor's
-     * translations. `slots` is the owner services' typed view of the same
+     * D_00275BCC. 001AF780 / 001AF800 / 001AF890 work on it through
+     * em_roger_actor's translations. `slots` is the owner services' typed view of the same
      * 0xD0-byte records: a slot is cleared in both whenever the original
      * clears it. */
     uint8_t records[EM_SLG_BONE_SLOTS * EM_SLG_BONE_SLOT_SIZE];
@@ -278,15 +278,6 @@ static int w_001AF780(void *ctx, EmOwnerBone **slot)
         return 0;
     }
     if (!(*slot = slot_of(word))) return report("001AF780 returned a word outside the slot records");
-    return 0;
-}
-
-/* 001AF890 (em_roger_actor_001AF890): the slot is cleared and pushed back. */
-static int push_001AF890(EmOwnerBone *slot)
-{
-    if (!slot || slot < S.slots || slot >= S.slots + BONE_SLOTS) return -1;
-    if (em_roger_actor_001AF890(&S.stack, word_of(slot)) < 0) return roger_fault("001AF890");
-    memset(slot, 0, sizeof *slot);
     return 0;
 }
 
@@ -672,8 +663,29 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;
-        for (unsigned j = 0; j < actor->bones; ++j)
-            if (push_001AF890(b->view.bone[j]) < 0) return -1;
+        /* 001AF800 (em_roger_actor_001AF800, its own slot loop) over the
+         * record's +0x09, +0x0C and its +0x110 words (the view's slots). */
+        if (actor->bones > EM_ROGER_ACTOR_MAX_BONES || actor->bones > EM_OWNER_SERVICES_MAX_BONES)
+            return report("001AF800: +0x09 is past the record's +0x110 words");
+        EmRogerActorRecord v;
+        memset(&v, 0, sizeof v);
+        v.address = EM_SLG_BONE_RECORDS;   /* any nonzero: the routine reads only the fields below */
+        v.bones_held = actor->bones;
+        v.bone_count = actor->u0A[2];
+        for (unsigned j = 0; j < actor->bones; ++j) {
+            EmOwnerBone *slot = b->view.bone[j];
+            if (!slot || slot < S.slots || slot >= S.slots + BONE_SLOTS)
+                return report("001AF800: a +0x110 word names no bone slot");
+            v.bone[j] = word_of(slot);
+        }
+        if (em_roger_actor_001AF800(&S.stack, &v) < 0) return roger_fault("001AF800");
+        /* The typed views of the pushed slots are cleared with their bytes. */
+        for (unsigned j = 0; j < actor->bones; ++j) {
+            memset(b->view.bone[j], 0, sizeof *b->view.bone[j]);
+            b->view.bone[j] = NULL;
+        }
+        actor->bones = v.bones_held;
+        actor->u0A[2] = v.bone_count;
         return 0;
     }
     return report("001AF800 on a record that holds no box bone slots");

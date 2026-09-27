@@ -29,7 +29,10 @@ survive; talking, state machines, mouth fields and targets reset; speed
 becomes 1. The current morph positions are uploaded before the next draw.
 
 `em_player_face_host_detach` models the cleared state after `001CA770` and
-`001AF890`. It disables the alternate draw and clears face state. It retains
+`001AF890` (the stand-in for the player's 001CA770 in 001B82D0 sub 4: the
+face is this host's state, not a pool slot at the record's +0x90; 001CA700 /
+001CA770 on the record wait for the attachment draw 001CB3C0, which a
+nonzero +0x90 reaches). It disables the alternate draw and clears face state. It retains
 the prepared CPU/GPU resources so later attachment requires no destructive
 edit of the ordinary mesh. This resource caching is a host adaptation;
 fresh face state still follows the original allocator's zeroing behavior.

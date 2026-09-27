@@ -876,9 +876,10 @@ int em_area11_script_host_tick(EmActor *actor, int32_t *result)
     }
     if (view_store() < 0) return -1;
     block_store(o);
-    /* The scripted frame is open: the shared player takeover serves this
-     * owner (0015B130 admits the player at its next stage). The owner's
-     * pool record is the token (the Use scan claims Roger with it too).
+    /* The scripted frame is open: this owner holds the shared player token
+     * (staged: 0015B130's prelude admits the player at its next stage). The
+     * owner's pool record is the token (the Use scan claims Roger with it
+     * too).
      * 0015B130's admission reads 0x70003B8D, not the owner: a second
      * script running inside a frame another owner's script opened (route
      * 10: Roger's 0x828990 inside the director's 0x8294C0) runs under the

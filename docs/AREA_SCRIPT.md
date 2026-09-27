@@ -362,11 +362,10 @@ kickoff rewrites every patched word). Workers added: op0B's 001C67E0 on the
 door → `em_area11_door_clip_init` (the door's source bank, blend and start
 0), and op0B sub 6's 001FBD50(owner, id, 0, 300) → `em_sfx_play_at` at the
 owner's +0xB0 (a flat cue, a2 != 0, faults). The door's takeover is the
-scan's claim (00184BA0, the door record as token). 0x1AE040 state 4's
-001AFCF0 clears 3B8D and 3B8F under the held player: the shared runtime
-keeps the hold (`EmInteractionRuntime.acquired`, the original's +4 == 4) and
-its next stage runs 00183090 and releases on the cleared 3B8D (0015BA50 /
-0015B530 / 00182DF0). `test_area_script_reference.py` replays 0x24DE40 over
+scan's claim (00184BA0, the door record as token, marked staged). 0x1AE040
+state 4's 001AFCF0 clears 3B8D and 3B8F under the held player (+4 == 4): the
+next stage runs 0015BA50's +4 = 4 path (00183090, the advance) and 0015B530's
+00182DF0 releases on the cleared 3B8D. `test_area_script_reference.py` replays 0x24DE40 over
 route 09 (the door record 0x7A70B0, the patched words from the beat's end
 snapshot) with no difference, and its synthetic 'owner clip' script covers
 op0B subs 6 and 0 against the executed 001B8020.
@@ -375,36 +374,33 @@ Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D sub 1 (001B0460),
 op0F's stream handshake bytes (Roger's departure 0x828A10, not in the first
 visit).
 
-The player takeover: after a tick whose op07 opened the scripted frame
-(3B8D != 0), the owner claims the interaction host's shared player runtime
-(`em_area11_interaction_host_claim_script`, the stand-in for 0015B130's
-00182B30 admission the panel and elevator scripts use); the runtime acquires
-the player at its next stage (in the cutscene variant, after the pool walk:
-3B8F = 1 one row after 3B8D = 2, route 07 f164 / f165) and releases it when
-the selector clears. On the acquiring stage the record gets the admission's
-+5 = 0, +6 = 0 and +1F0 = 0x41 (its +4 = 4 is not written: the stand-in
-consumes the stage in place of the +4 = 4 handler), the port's idle/walk
-mirrors are not loaded over the record while the takeover holds the player,
-and the releasing stage writes 00182DF0's tail (+4 = 1, +5 = 0, +6 = 0,
-+1F0 = 0) (em_player.c `live_major1`, `player_states_stage`); route 07 shows
-exactly these values row for row.
-
-Since census L22 the token is the owner's pool record (the Use scan claims
-Roger with the same token for his armed talk 0x828810), the admission
-also runs 00182D70 on the record (`em_player_stage_scripted_notify`:
-+0x1F2 = +0x20C, +0x1F4 = 1.0, +0x1F8 = 0, +0x2F3 = 0 and its clears), and
-every stage of a script owner's takeover runs 00183090 on the record
-(`player_pose_commit_tick`: the face's 001D0C70 when 3B8F = 2, the special
-bank of a nonzero +0x2F3 (001B9A00 sub 1 / 4: the bank at +0x40, here bank
-0x96 of `roger/resources.emrs`, mapped read-only into the record's pose
-host), a +0x1F2 request (op0A sub 0 / 7, op15), then 001C64F0 by +0x1F4 into
-+0x200 when it returns 1) and 0015BCF0's animate step (001C6960 while
-+0x2F3 is 2). The release takes 00182DF0's nonzero-+0x2F3 branch (+0x40 =
-D_0028A580, +0x20C = D_00248A00[+0x235], 001C63E0). The legacy decoded
-special bank (`player_pose_cinematic_*`, em_player_pose over
-encounter_player.empc) is deleted. Route 14 reproduces the player record
-(+5, +1F0, +1F1, the clip, the clock and +0x2F3) row for row through the
-encounter, the release and 60 rows after it.
+The player takeover (the stage's own since chain C7): after a tick whose
+op07 opened the scripted frame (3B8D != 0), the owner claims the interaction
+host's shared player token (`em_area11_interaction_host_claim_script`,
+staged; the Use scan marks Roger's and the door's token staged the same way).
+The token only keeps the other interaction owners out; the takeover itself is
+the original's, on the player stage (PLAYER_STAGE_WORKERS.md section 2.1):
+at its next stage (in the cutscene variant after the pool walk: 3B8F = 1 one
+row after 3B8D = 2, route 07 f164 / f165) 0015B130's prelude admits the
+player (00182B30 returns 0: +4 = 4, +5 = 0, +6 = 0, +1F0 = 0x41, 00174A50(p,
+8.0), 00182D70: +0x1F2 = +0x20C, +0x1F4 = 1.0, +0x1F8 = 0, +0x2F3 = 0 and its
+clears). Every following stage is 0015BA50's +4 = 4 path: 00183090 on the
+record (the face's 001D0C70 when 3B8F = 2; the special bank of a nonzero
++0x2F3, 001B9A00 sub 1 / 4: the bank at +0x40, here bank 0x96 of
+`roger/resources.emrs`, mapped read-only into the record's pose host when the
+owner claims the token; a +0x1F2 request, op0A sub 0 / 7, op15), 001C64F0 by
++0x1F4 into +0x200 when it returns 1, then 0015B530 (+5 = 0: 001837A0), and
+0015BCF0's animate step (001C6960 while +0x2F3 is 2). Once the selector is
+clear, 0015B530's 00182DF0 releases the player (`em_player_stage_00182DF0`:
+its nonzero-+0x2F3 branch +0x40 = D_0028A580, +0x20C = D_00248A00[+0x235],
+001C63E0, or the row-default requests; the tail +4 = 1, +5 = 0, +6 = 0,
++1F0 = 0, 3B8F = 0) and ends the token. Routes 07, 09, 10, 11, 13 and 14
+reproduce the player record (+5, +1F0, +1F1, the clip, the clock and +0x2F3)
+row for row, and the level smoke checks +4 = 4 from the admission to the
+release (`check_stage_takeover`). 001B82D0 sub 4's 001CA770 on the player is
+the face host's detach: the port's player face is not in a pool slot
+(001CA700 / 001CA770 on the record's +0x90 wait for the attachment draw
+001CB3C0).
 
 ### 6.2 The design binding (for the remaining owners)
 

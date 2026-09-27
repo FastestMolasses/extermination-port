@@ -54,7 +54,17 @@ handoff and roger-encounter).
   returns the word the cursor pointed at.
 - **001AF890 (push):** it clears the 0xD0-byte slot (13 quadwords). Then it
   moves the cursor down 4, stores the slot address there and increments the
-  count.
+  count. Its route caller is 001CA770 (the face release).
+- **001AF800 (the pool free's slot return; NEARMISS C, read from the
+  instructions):** for each of the record's +0x09 held slots, in order, the
+  same clear and push inline (it does not call 001AF890), then +0x110[i] = 0;
+  after the loop the count grows by +0x09 and +0x09 = +0x0C = 0.
+  `em_roger_actor_001AF800` is its one translation for the AREA11 pool: the
+  boxes' dispatcher `em_area11_boxes_001AF800` and Roger's, the equipment
+  nodes' and the indicator children's binders run it over a view of the
+  record (+0x09, +0x0C, the +0x110 words) since chain C7; before, each
+  pushed its slots through 001AF890. (The status hub's static pool keeps
+  `em_status_scene_bones_001AF800` over its own non-canonical slots.)
 
 ### 001BA8E0(a, kind): the first-tick face attach (NEARMISS; read from the instructions)
 
@@ -207,7 +217,7 @@ Entry points:
 
 - `em_roger_actor_008237E0_init`;
 - `_001BA8E0`, `_001BA580`, `_001BA540` and `_001C5C90`;
-- the helpers `_001B10B0`, `_001AF780`, `_001AF890`, `_001CA6E0`,
+- the helpers `_001B10B0`, `_001AF780`, `_001AF890`, `_001AF800`, `_001CA6E0`,
   `_001CA700`, `_001D0690`, `_001D06D0`, `_001D06E0`, `_001D8BF0`,
   `_001CA770` and `_001BA1C0` (entry 0 only).
 
@@ -247,6 +257,7 @@ itself (001C5D0C), so those stores never survive the call.
 - **Instructions:** it copies them from the pinned ELF and from
   `extract/OVERLAY/AREA11.BIN`, asserting they equal the capture's bytes.
   The routines are 008237E0 case 0, 001BA1C0, 001B10B0, 001AF780, 001AF890,
+  001AF800,
   001C6150, 001CA6E0, 001CA5E0, 001CA5F0, 001CA6F0, 001BA8E0, 001CA700,
   001D0690, 001D06D0, 001D06E0, 001D0C70, 001D8BF0, 001BA580, 001BA540,
   001CA770, 001C5C90, 00102958, 001026A0, 001028D0 and 00102760.
@@ -376,12 +387,19 @@ or 001CAB00 with the parent drawn: each faults before any record, slot,
 stack, activity or scratch byte changes, and (NULL workers) the latched
 fault refuses the next call.
 
-**Results (2026-09-23, fix round 3):**
+**001AF800 (chain C7).** 18 unit cases: Roger's record (21 held slots) and
+the equipment node's (1), with +0x09 = 0, 1, 2 or all, the free count at 0,
+1035 and just below the halfword's sign, sentinel slot bytes and sentinel
+stack words below the cursor, so every clear and every push is a visible
+change; always kept by the selection. Three more mutants (+0x110 word kept,
+count not grown, +0x0C kept) are killed.
 
-- Default mode: 2,400 of 11,661 unit cases, 400 float cases and 4 captures
+**Results (2026-09-23, fix round 3; 001AF800 added 2026-09-26):**
+
+- Default mode: 2,400 of 11,679 unit cases, 400 float cases and 4 captures
   (playable, 00, 10, 14), 24 route runs, each in both passes. It takes
   about 5.5 s of CPU.
-- `EM_TEST_FULL=1`: all 11,661 unit cases, 3,000 float cases and 19
+- `EM_TEST_FULL=1`: all 11,679 unit cases, 3,000 float cases and 19
   captures, 114 route runs, each in both passes. It takes about 29 s of
   CPU and finds the same 158 live store instances, all visible.
 - Mutation check, reproducible with
@@ -399,6 +417,8 @@ fault refuses the next call.
   - 0x4E no longer copying the matrix;
   - 001B10B0 without +0x0C;
   - 001AF890 without its stack-word push;
+  - 001AF800 keeping its +0x110 word, not growing the count, or keeping
+    +0x0C;
   - 001CA700 without +0x94;
   - 001C5C90 without the +0xC0 = vb - va store;
   - 001BA580 not consuming activity 1.

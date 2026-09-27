@@ -19,6 +19,10 @@ Executed, unmodified (never hooked):
   001C64F0 anim_advance_time with float_to_int (001281C0 / 001278C0), and
            over captured RAM also anim_clip_resolve (001C8480 / 001C6120)
   0015B530 (+4 = 4 handler);  0011A070 (argument decode, see below)
+  00182DF0 (0015B530's release) with 00182D40, 00174A50 and 001C6150
+           (00174AB0 hooked: its translation is em_player_ladder_climb's);
+           D_0028A580 and the model's +8 byte from the case's memory,
+           D_00248A00 / D_00248C90 from the ELF
 
 Hooked boundaries, scripted per case and recorded on both sides (order and
 arguments): 001FBD50 sound, 001B61C0 rumble, 001EFE00, 001F00A0 (returns a
@@ -93,6 +97,7 @@ EXECUTED = {
     0x183090: 'func_00183090', 0x182B30: 'func_00182B30', 0x182D70: 'func_00182D70',
     0x174A50: 'func_00174A50', 0x1C64F0: 'anim_advance_time', 0x1281C0: 'float_to_int',
     0x1278C0: 'func_001278C0', 0x15B530: 'func_0015B530',
+    0x182DF0: 'func_00182DF0', 0x182D40: 'func_00182D40', 0x1C6150: 'func_001C6150',
 }
 
 LIBC = C.CDLL(None)
@@ -227,7 +232,9 @@ class EE(PlayerCallbackOracle):
                 self.plain(self.load(pc + 4))
                 if target in self.calls:
                     self.calls[target](self)
-                    pc += 8
+                    # A hooked jal returns past its delay slot; a hooked j is
+                    # a tail call (00174AB0's into 001749A0): it returns to $ra.
+                    pc = pc + 8 if op == 3 else self.r[31] & 0xFFFFFFFF
                 else:
                     pc = target
                 continue
@@ -423,6 +430,7 @@ def build_native(source=ROOT / 'src/game/em_player_stage_workers.c', name='stage
     native.em_player_stage_stop_sound.argtypes = [C.c_void_p, C.c_int]
     native.em_player_stage_clip_rate.argtypes = [C.c_void_p, C.c_int, C.POINTER(C.c_float)]
     native.em_player_stage_0015B530.argtypes = [C.c_void_p, PA]
+    native.em_player_stage_00182DF0.argtypes = [C.c_void_p, PA]
     native.em_player_clip_rates_load.argtypes = [C.POINTER(ClipRates), C.c_char_p]
     native.em_player_clip_rates_parse.argtypes = [C.POINTER(ClipRates), C.c_char_p, C.c_size_t]
     native.em_player_float_to_int.argtypes = [C.c_uint32]
@@ -1210,6 +1218,140 @@ def check_major4(elf, lib, coverage):
     return cases
 
 
+RELEASE = 0x182DF0
+MODEL = 0x6F0000          # synthetic +0x44 model (001C6150 reads its +8 byte)
+READ580 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_uint32))
+READ6150 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.POINTER(C.c_uint8))
+READA00 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint, C.POINTER(C.c_int16))
+READC90 = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int, C.POINTER(C.c_int16))
+
+
+class Release(C.Structure):
+    """EmPlayerStageRelease (em_player_stage_workers.h)."""
+    _fields_ = [('host', C.POINTER(Host)), ('context', C.c_void_p), ('d0028A580', READ580),
+                ('w001C6150', READ6150), ('d00248A00', READA00), ('d00248C90', READC90),
+                ('w00174AB0', STATE_FN)]
+
+
+def elf_s16(elf, address):
+    return struct.unpack_from('<h', elf, address - 0x100000 + 0x300)[0]
+
+
+def release_case(elf, rng, label, rows):
+    """A record for 00182DF0: +0x2F3 (special bank or not), +0x1F0 (0x17 or
+    not), +0x20C against the row lookup's clip, D_00248C90's +0 halfword zero
+    or not, +0x1C, +0x224 / +0x22C."""
+    raw = random_raw(rng)
+    raw[0x2F3] = rng.choice([0, 0, 0, 1, 2, 4, 0xFF])
+    raw[0x1F0] = rng.choice([0, 0x41, 0x41, 0x17, 0x17, rng.randrange(256)])
+    raw[0x235] = rng.choice([0, 0, 1, 2, 3])
+    zero, nonzero = rows
+    current = rng.choice([0, 0, -1, -0x8000, rng.choice(zero), rng.choice(nonzero), rng.randrange(459)])
+    put(raw, 0x20C, current, 2)
+    put(raw, 0x44, MODEL, 4)
+    for at in (0x224, 0x22C):
+        putf(raw, at, rng.choice([0.0, 0.0, 0.0, 1.0, 0x00000001, 0x80000000, rng.uniform(0, 100)]))
+    case = Case(raw, scene=dict(spad3B8F=rng.choice([0, 1, 2]), d8106F1=rng.choice([0, 1])),
+                script=dict(clip=rng.choice([current, 0, 0, rng.randrange(459)])))
+    case.bank = rng.choice([0x00D689C0, rng.randrange(1 << 32)])
+    case.count = rng.choice([21, rng.randrange(256)])
+    case.label = label
+    return case
+
+
+def run_release(elf, lib, case, coverage=None):
+    o = case.oracle(elf)
+    del o.calls[RELEASE]                  # the routine itself runs unhooked
+    o.calls[0x174AB0] = lambda o: (o.log.append(('00174AB0',)), o.r.__setitem__(2, 0))
+    if case.ram is None:
+        o.save(0x28A580, case.bank)
+        o.save(MODEL + 8, case.count, 1)
+        model = MODEL
+    else:                                 # the captured D_0028A580 and model
+        case.bank = o.load(0x28A580)
+        model = struct.unpack_from('<I', case.raw, 0x44)[0]
+        case.count = o.load(model + 8, 1)
+    o.run(RELEASE, (case.base,))
+    if coverage is not None: coverage |= o.pcs
+    expected = case.oracle_state(o)
+    keep = []
+
+    def call(lib, host, actor, log):
+        def bank(_, out):
+            out[0] = case.bank; return 0
+
+        def count(_, handle, out):
+            assert handle == model, hex(handle)
+            out[0] = case.count; return 0
+
+        def a00(_, index, out):
+            out[0] = elf_s16(elf, 0x248A00 + 2 * index); return 0
+
+        def c90(_, clip, out):
+            out[0] = elf_s16(elf, 0x248C90 + 12 * clip); return 0
+        workers = [READ580(bank), READ6150(count), READA00(a00), READC90(c90),
+                   STATE_FN(lambda _, actor: (log.append(('00174AB0',)), 0)[1])]
+        keep.extend(workers)
+        release = Release(C.pointer(host), None, *workers)
+        keep.append(release)
+        return (lib.em_player_stage_00182DF0(C.byref(release), C.byref(actor)),)
+    result, record, scene, glob, extra, log = case.native(lib, call)
+    where = ('00182DF0', case.label)
+    assert result[0] == 0, (where, 'native fault')
+    for k in range(0x320):
+        assert record[k] == expected[0][k], (where, 'record', hex(k), record[k], expected[0][k])
+    assert scene == expected[1], (where, 'scene', scene, expected[1])
+    assert extra == expected[3], (where, 'extra memory')
+    assert log == o.log, (where, 'callees', log, o.log)
+    return case
+
+
+def check_release(elf, lib, rng, coverage):
+    """00182DF0 (0015B530's release) against the original: synthetic records
+    over every branch, then the captured player records with +0x2F3 = 0 and
+    = 1 (the special bank's release), and the fail-stop checks."""
+    zero = [c for c in range(459) if elf_s16(elf, 0x248C90 + 12 * c) == 0]
+    nonzero = [c for c in range(459) if elf_s16(elf, 0x248C90 + 12 * c) != 0]
+    assert zero and nonzero
+    cases = 0
+    for i in range(reference_mode.pick(3000, 120)):
+        run_release(elf, lib, release_case(elf, rng, i, (zero, nonzero)), coverage)
+        cases += 1
+    # The captured player records (0x8102B0 at the images' frames), as
+    # captured (+0x2F3 0) and with the special bank's +0x2F3 = 1.
+    for label, ram in captured_images():
+        raw = bytearray(ram[PLAYER:PLAYER + 0x320])
+        for special in (0, 1):
+            raw[0x2F3] = special
+            case = Case(raw, scene=dict(spad3B8F=2), script=dict(clip=0), ram=ram, base=PLAYER)
+            case.label = (label, special)
+            run_release(elf, lib, case, coverage)
+            cases += 1
+    # A missing worker: -1, nothing written, no call.
+    case = release_case(elf, rng, 'fail-stop', (zero, nonzero))
+    for missing in ('bone_init', 'clip_lookup', 'request', 'link1C', 'd0028A580', 'w001C6150',
+                    'd00248A00', 'd00248C90', 'w00174AB0', '__stage__', '__globals__', 'd8106F1', 'd810707'):
+        host_missing = missing if missing in CALLEE_ORDER or missing.startswith('__') or \
+            missing in ('d8106F1', 'd810707') else None
+        keep = []
+
+        def call(lib, host, actor, log):
+            workers = {'d0028A580': READ580(lambda _, out: 0), 'w001C6150': READ6150(lambda _, m, out: 0),
+                       'd00248A00': READA00(lambda _, i, out: 0), 'd00248C90': READC90(lambda _, c, out: 0),
+                       'w00174AB0': STATE_FN(lambda _, actor: 0)}
+            if missing in workers: workers[missing] = type(workers[missing])()
+            keep.append(workers)
+            release = Release(C.pointer(host), None, workers['d0028A580'], workers['w001C6150'],
+                              workers['d00248A00'], workers['d00248C90'], workers['w00174AB0'])
+            keep.append(release)
+            return (lib.em_player_stage_00182DF0(C.byref(release), C.byref(actor)),)
+        result, record, scene, glob, extra, log = case.native(lib, call, missing=host_missing)
+        assert result[0] == -1 and record == bytes(case.raw) and not log, ('00182DF0 fail-stop', missing)
+        assert scene == case.scene, ('00182DF0 fail-stop scene', missing)
+        cases += 1
+    return cases
+
+
 def check_stop_sound(elf, lib):
     """0011A070's argument decode: the original frees track (arg & 0x7FFF)
     (00121A28 over D_0027E0C0 + track * 0x78) and, with arg & 0x8000, sends
@@ -1331,6 +1473,7 @@ def main():
             captured += 1
     helpers = check_float_helpers(elf, lib, rng, coverage)
     major4 = check_major4(elf, lib, coverage)
+    release = check_release(elf, lib, rng, coverage)
     stops = check_stop_sound(elf, lib)
     fail_stop = check_fail_stop(lib, rng)
 
@@ -1351,7 +1494,7 @@ def main():
     reference_mode.banner(*parts)
     print(f'player stage workers: {sum(counts.values())} synthetic + {captured} captured-RAM cases '
           f'({len(images)} images), {helpers} float_to_int/001B1470 values, {major4} 0015B530 '
-          f'cases, {stops} 0011A070 decodes, 459 clip-rate rows (captured +34 agrees on {agree}/{rows_total}), '
+          f'cases, {release} 00182DF0 cases, {stops} 0011A070 decodes, 459 clip-rate rows (captured +34 agrees on {agree}/{rows_total}), '
           f'{fail_stop} fail-stop checks, {len(REACTION_SCENARIOS)} 0021C440 scenarios, {predicates} '
           f'predicate cases; {instructions} reachable original instructions in {len(EXECUTED)} functions all '
           f'executed ({len(DEAD_BY_VALUE)} value-dead excluded); {time.time() - start:.1f} s')

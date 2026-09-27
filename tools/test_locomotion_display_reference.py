@@ -316,7 +316,7 @@ def build_native():
         fn.argtypes, fn.restype = [H if name not in ('00161020', '001612D0') else VP, VP], C.c_int
     n.em_loco_0017B490.argtypes = [H, VP, I, I, I, C.POINTER(C.c_int16)]
     n.em_loco_0017B460.argtypes = [C.POINTER(PoseHost), I, I, C.POINTER(C.c_int16)]
-    n.em_loco_00182D40.argtypes = [VP]
+    n.em_player_00182D40.argtypes = [VP]   # 00182D40's one translation (em_player_stage_workers)
     n.em_loco_bound.argtypes = [H]
     n.em_loco_001026D0.argtypes = [PU32, PU32, PU32]
     n.em_loco_00103230.argtypes = [PU32, PU32, U32]
@@ -789,7 +789,7 @@ def run_case(case):
         want, got = v0 & MASK, value.value & MASK
     elif entry == SCRIPTED:
         v0, _ = ee.invoke(entry, (actor,))
-        status, want, got = 0, v0 & MASK, LIB.em_loco_00182D40(native.ptr(actor)) & MASK
+        status, want, got = 0, v0 & MASK, LIB.em_player_00182D40(native.ptr(actor)) & MASK
     else:
         ee.invoke(entry, (actor,))
         fn = getattr(LIB, 'em_loco_' + ENTRY_NAMES[entry])

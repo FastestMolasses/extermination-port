@@ -71,7 +71,8 @@ uint32_t em_equipment_live_fault(void);
  * free, -1 on a fault. */
 int em_equipment_live_tick(EmActor *actor);
 
-/* 001AF800 for a node of this module (its slots pushed back with 001AF890):
+/* 001AF800 for a node of this module (em_roger_actor_001AF800, which pushes
+ * its slots back in its own loop):
  * 1 handled, 0 not one of these nodes, -1 a fault. */
 int em_equipment_live_001AF800(EmActor *actor);
 

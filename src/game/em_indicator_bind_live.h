@@ -23,8 +23,9 @@
  *     001C62C0                  em_owner_services_001C62C0
  *   001C6380              em_owner_services_001C6380 over the child's
  *                         +0xB0 / +0xC0 / +0x60 and its slots
- *   001AF800              each held slot back through 001AF890 (the pool's
- *                         free of a child with +0x09 != 0)
+ *   001AF800              em_roger_actor_001AF800 over the child's +0x09,
+ *                         +0x0C and held words (the pool's free of a child
+ *                         with +0x09 != 0; its own loop, not 001AF890)
  *
  * The child's +0x4C draw (001CACB0 -> 001CABA0 -> 001CA7B0 / 001CAA00) is
  * not this module's: the draw submits the owner's indicator mesh

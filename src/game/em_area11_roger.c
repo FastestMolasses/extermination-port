@@ -1184,15 +1184,22 @@ int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneSta
     return 1;
 }
 
+/* 001AF800 (em_roger_actor_001AF800, its own slot loop) over the record's
+ * typed view: its +0x09 slots go back onto the one stack, +0x110.. = 0,
+ * +0x09 = +0x0C = 0. */
 int em_area11_roger_001AF800(EmActor *actor)
 {
     Owner *o = actor == R.roger.actor ? &R.roger : actor == R.equip.actor ? &R.equip : NULL;
     if (!o || o->freed || o->actor->generation != o->generation) return 0;
-    for (unsigned j = 0; j < actor->bones; ++j) {
-        if (em_roger_actor_001AF890(&R.ra, rd32(o->rec.bytes + 0x110 + 4 * j)) < 0)
-            return actor_fault("001AF800 -> 001AF890");
-        if (o == &R.equip && j == 0) R.ebone_word = 0;
+    sync_in(o);
+    typed_load(o);
+    if (em_roger_actor_001AF800(&R.ra, &o->typed) < 0) {
+        R.faulted = 1;
+        return actor_fault("001AF800");
     }
+    typed_store(o);
+    sync_out(o);
+    if (o == &R.equip) R.ebone_word = o->typed.bone[0];
     return 1;
 }
 

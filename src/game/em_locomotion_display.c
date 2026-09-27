@@ -252,13 +252,6 @@ int em_loco_0017B490(EmLocoHost *h, const EmPlayerLiveActor *a, int cmd, int idx
     return 0;
 }
 
-/* ---- 00182D40 ----------------------------------------------------------- */
-
-int em_loco_00182D40(const EmPlayerLiveActor *a)
-{
-    return b8(a, 0x1F0) == 0x17 ? 1 : 0;
-}
-
 /* ---- 00179D20: the local pose seed --------------------------------------- */
 
 static int pose_seed(EmLocoHost *h, EmPlayerLiveActor *a)

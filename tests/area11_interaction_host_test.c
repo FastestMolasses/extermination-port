@@ -18,6 +18,10 @@
 #include "game/em_pickup.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_locomotion_display.h"
+#include "game/em_player_ladder_climb.h"
+#include "game/em_player_record_pose.h"
+#include "game/em_pose_host_workers.h"
 #include "game/em_pickup_original.h"
 #include "game/em_pickup_motion.h"
 #include "game/em_random.h"
@@ -445,6 +449,73 @@ static float rcl_float(uint32_t offset)
     return v;
 }
 
+/* 00182DF0 on the record: the one release (em_player_stage_00182DF0) the
+ * runtime's release hook runs, over the pose's own callees, with the row
+ * lookup 0017B490 as em_loco_0017B490 over the record pose's tables
+ * (D_008106C8 = 0 for 001B0070). The record's +0x1C is 0 (no link); the
+ * special branch's words are the attach's (the bank, 21 nodes). */
+static EmPlayerStageHost release_host;
+static EmPlayerStageRelease release_context;
+static EmLocoHost release_loco;
+static int release_mode(void *c, int32_t *value) { (void)c; *value = 0; return 0; }
+static int release_lookup(void *c, EmPlayerLiveActor *a, int a1, int a2, int a3, int16_t *clip)
+{
+    (void)c;
+    return em_loco_0017B490(&release_loco, a, a1, a2, a3, clip);
+}
+static int release_link(void *c, uint32_t word, uint8_t value) { (void)c; (void)word; (void)value; return -1; }
+static int release_bank(void *c, uint32_t *word) { (void)c; *word = EM_PLAYER_POSE_BANK_ADDRESS; return 0; }
+static int release_nodes(void *c, uint32_t model, uint8_t *count)
+{
+    (void)c; (void)model;
+    *count = EM_PLAYER_POSE_NODES;
+    return 0;
+}
+static int release_a00(void *c, unsigned index, int16_t *clip)
+{
+    (void)c;
+    const uint8_t *p = player_pose_record_bytes(0x00248A00u + 2u * index, 2);
+    if (!p) return -1;
+    *clip = (int16_t)(uint16_t)(p[0] | p[1] << 8);
+    return 0;
+}
+static int release_c90(void *c, int clip, int16_t *value) { (void)c; return player_pose_row0(clip, value); }
+/* 00174AB0: its one translation (em_player_ladder_climb's) over the pose's
+ * 001749A0. */
+static int release_request(void *c, EmPlayerLiveActor *a, int clip, int flags, float blend)
+{
+    (void)c;
+    return em_pose_host_stage_request(player_pose_record_host(), a, clip, flags, blend);
+}
+static int release_00174AB0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c;
+    EmPlayerLadderClimbWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.request = release_request;
+    EmPlayerLadderClimb ladder = { &workers, NULL };
+    return em_player_ladder_climb_00174AB0(&ladder, a);
+}
+static void bind_release(EmPlayerStageScene *stage, EmPlayerStageGlobals *globals)
+{
+    memset(&release_loco, 0, sizeof release_loco);
+    release_loco.workers.mode = release_mode;
+    release_loco.display.pose = player_pose_record_host();
+    memset(&release_host, 0, sizeof release_host);
+    release_host.stage = stage;
+    release_host.globals = globals;
+    EmPlayerStageCallees *c = &release_host.callees;
+    c->context = player_pose_record_host();
+    c->bone_init = em_pose_host_stage_bone_init;
+    c->clip_init = em_pose_host_stage_clip_init;
+    c->request = em_pose_host_stage_request;
+    c->clip_lookup = release_lookup;
+    c->link1C = release_link;
+    release_context = (EmPlayerStageRelease){ &release_host, NULL, release_bank, release_nodes, release_a00,
+                                              release_c90, release_00174AB0 };
+    player_pose_set_release_worker(em_player_stage_00182DF0, &release_context);
+}
+
 static void setup(int reset_inventory)
 {
     memset(&g, 0, sizeof g);
@@ -517,6 +588,7 @@ static void setup(int reset_inventory)
     assert(player_pose_attach(&player_record, em_scene_req_at(scene, 0x008106F3u), &stage_scene,
                               &stage_globals));
     assert(player_pose_opening_release());
+    bind_release(&stage_scene, &stage_globals);
     player_pose_finish_palette();
     /* The live message service (step F) the panel and terminal lines run on. */
     assert(em_message_live_install("assets/message/message_data.emmd"));

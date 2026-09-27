@@ -109,20 +109,14 @@ static int acquire(void *context)
     return player_pose_acquire();
 }
 
-static int face_tick_001D0C70(void);
 static int map_special(void *context, uint32_t address, uint32_t size, const uint8_t *bytes);
 
-/* 00183090 with player-ready 1: a nonzero +0x2F3 (the special bank still
- * on the record after 001B82D0 sub 4 detached the face, 0x70003B8F = 1)
- * takes its special path on the stage that releases the player, as the
- * original's +4 = 4 stage does before 00182DF0 (census L22). */
+/* The default clip of a takeover the runtime performs (the panel, the
+ * terminal and the items; a script owner's takeover is the player stage's
+ * own, em_interaction_runtime staged). */
 static int idle(void *context, float *palette)
 {
     (void)context;
-    if (world.script_owner && world.shared.owner == world.script_owner) {
-        if (em_area11_roger_regions(map_special, NULL) < 0) return -1;
-        return player_pose_commit_tick(face_tick_001D0C70, palette);
-    }
     return player_pose_idle_tick(palette);
 }
 
@@ -151,14 +145,10 @@ static uint32_t face_random(void *context)
     return em_random_next();
 }
 
-/* 00183090's 001D0C70 (0x70003B8F == 2): the attached face's tick. */
-static int face_tick_001D0C70(void)
-{
-    return em_player_face_host_tick_before_body(&world.face);
-}
-
 /* The special bank on the record (census L22): the regions of Roger's
- * resource export (bank 0x96 holds the player's encounter clip 1). */
+ * resource export (bank 0x96 holds the player's encounter clip 1), mapped
+ * into the record's pose storage when a script owner takes the player (a
+ * mapping stays until the record is re-attached). */
 static int map_special(void *context, uint32_t address, uint32_t size, const uint8_t *bytes)
 {
     (void)context;
@@ -171,13 +161,6 @@ static int cinematic_player(void *context, float *palette)
     if (!world.face.attached) {
         fprintf(stderr, "AREA11 interaction: player-ready 2 without the attached face\n");
         return -1;
-    }
-    /* A script owner's takeover (em_area11_script_host): 00183090 on the
-     * record, its +0x2F3 special bank and its +0x1F2 requests, the face
-     * ticked inside it (player_pose_commit_tick). */
-    if (world.script_owner && world.shared.owner == world.script_owner) {
-        if (em_area11_roger_regions(map_special, NULL) < 0) return -1;
-        return player_pose_commit_tick(face_tick_001D0C70, palette);
     }
     /*83090 advances the attached face before choosing a body request. A
      * prepared mesh alone is not an attached original face allocation. */
@@ -213,6 +196,12 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
         em_frame_fade_start(-1, 4);
         return 1;
     case EM_INTERACTION_RELEASE_SKELETON:
+        /* 001CA770(player) pushes the face slot at +0x90 back onto the
+         * 001AF710 stack (001AF890) and writes +0x90 = 0, +0x94 = -1. The
+         * port's player face is the face host's own state, not a pool slot:
+         * 001CA700 / 001CA770 on the record's +0x90 wait for the attachment
+         * draw 001CB3C0, which a nonzero +0x90 reaches (em_owner_draw_live
+         * faults on it). Until then this is the face host's detach. */
         if (!world.face.attached || world.face.failed) return 0;
         em_player_face_host_detach(&world.face);
         return 1; /* The original frame core writes player_ready1 next. */
@@ -780,8 +769,32 @@ int em_area11_interaction_host_claim_script(const void *owner)
     view_load();
     int claimed = em_interaction_runtime_claim_scripted(&world.shared, owner);
     view_store();
-    if (claimed) world.script_owner = owner;
-    return claimed ? 1 : fail("scripted owner claim (the shared player is busy)");
+    if (!claimed) return fail("scripted owner claim (the shared player is busy)");
+    world.script_owner = owner;
+    if (em_area11_roger_regions(map_special, NULL) < 0) return fail("the special bank's regions (Roger's export)");
+    return 1;
+}
+
+/* 00183090's 001D0C70 on the player stage (0x70003B8F == 2): the attached
+ * face's tick before the body (em_player_face_host). */
+int em_area11_interaction_host_face_tick_001D0C70(void)
+{
+    if (!world.loaded || world.failed) return -1;
+    if (!world.face.attached) return fail("001D0C70 under 0x70003B8F == 2 without the attached face");
+    return em_player_face_host_tick_before_body(&world.face) ? 0 : fail("001D0C70 (the face tick)");
+}
+
+/* The player stage's 00182DF0 released a script owner's player: its token
+ * ends (em_interaction_runtime_staged_release). */
+int em_area11_interaction_host_staged_released(void *unused)
+{
+    (void)unused;
+    if (!world.loaded || world.failed) return -1;
+    if (!world.script_owner || world.shared.owner != world.script_owner ||
+        !em_interaction_runtime_staged_release(&world.shared))
+        return fail("00182DF0 released a player no script owner held");
+    world.script_owner = NULL;
+    return 1;
 }
 
 int em_area11_interaction_host_owns(const void *owner)
@@ -1347,6 +1360,9 @@ int em_area11_interaction_host_player(void *unused)
 {
     (void)unused;
     if (!world.loaded || world.failed) return -1;
+    /* A script owner's takeover is the stage's own: 2 lets 0015B130 (its
+     * prelude, 00182B30) take the player. */
+    if (world.shared.owner && world.shared.staged) return 2;
     view_load();
     int result = em_interaction_runtime_player_tick(&world.shared,
         em_status_runtime_ordinary_enabled(world.status));
@@ -1452,10 +1468,14 @@ int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *a
     const EmInteractionSceneOwner *record = world.scene.list.active[winner].owner;
     int claimed = em_interaction_runtime_claim(&world.shared, record->native_owner);
     view_store();
-    /* Roger's armed talk 0x828810 runs on the AREA11 script host: his
-     * takeover is a script owner's (00183090 on the record). */
-    if (claimed && (record == world.roger_record || record == world.door_record))
+    /* Roger's armed talk 0x828810 and the fence door's program run on the
+     * AREA11 script host: their takeover is the player stage's own. */
+    if (claimed && (record == world.roger_record || record == world.door_record)) {
         world.script_owner = record->native_owner;
+        if (!em_interaction_runtime_stage_owner(&world.shared, world.script_owner) ||
+            em_area11_roger_regions(map_special, NULL) < 0)
+            return fail("00184BA0 winner: the script owner's staged takeover");
+    }
     if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
     *result = 1;
     return 0;

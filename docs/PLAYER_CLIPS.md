@@ -321,9 +321,10 @@ oracle shows each difference, or the cited routines do:
 4. **Release table.** `em_player_pose_release` hard-codes the release column
    of D_00248C90 (the halfword at +0 of the 12-byte row) for the 14 exported
    ids, and fails on any other clip. The original 00182DF0 reads the row for
-   whatever clip is current. A binding must read the 459-row table
-   (`tools/export_player_tables.py` exports it; the stage lane already reads
-   its +8 rate column, D_00248C98) rather than a fixed id list.
+   whatever clip is current. The player's live release is
+   `em_player_stage_00182DF0` since chain C7, which reads the 459-row column
+   (`assets/player_clip_row0.emch`); `em_player_pose_release` is off the live
+   path (its tests only).
 
 `player_pose_request` also invalidates the pose on any clip outside the
 14-clip bank. This is the "unsupported ordinary clip request" path that
@@ -394,8 +395,8 @@ anim_eval_skeleton for the player are `em_pose_host_workers` (and
 `em_player_stage_anim_advance`) over the player's own record, as section
 5.2 recommends. `em_player_pose` and `em_pose_chain` are no longer on the
 player's live path: `em_player_pose` still poses the status models (the
-special bank runs on the record since census L22: 00183090 through
-`player_pose_commit_tick`; Roger runs on the same workers over his own
+special bank runs on the record since census L22: 00183090 on the player
+stage's own takeover since chain C7; Roger runs on the same workers over his own
 record, em_area11_roger), and `em_pose_chain` stays a verified, unbound translation of the same
 routines over decoded channels.
 
@@ -432,9 +433,8 @@ its port bookkeeping; every pose operation is now a record operation:
 | a request at a source frame (walk entry, run stop, gait tier change) | 001749F0(p, clip, blend, frame) |
 | the stage advance, idle and script ticks | 001C64F0 (`em_player_stage_anim_advance`) |
 | the opening release, a legacy re-seed | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 |
-| a script owner's takeover (census L22) | 00183090 (`em_player_stage_commit`: 001C63E0 for a +2F3 of 1 / 3, 001C67E0 for a +1F2 request), then 001C64F0 by +1F4 |
-| the special-bank release (census L22) | 00182DF0's nonzero-2F3 branch: +40 = the default bank, +20C = D_00248A00[+235], 001C63E0 |
-| the takeover release | 00182DF0: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16) |
+| a script owner's takeover (the stage's own, +4 = 4, chain C7) | 0015BA50's +4 = 4 path: 00183090 (`em_player_stage_commit`: 001C63E0 for a +2F3 of 1 / 3, 001C67E0 for a +1F2 request), then 001C64F0 by +1F4 (`player_pose_stage_advance`) |
+| every takeover release (the stage's 0015B530 and the interaction runtime's release) | 00182DF0 (`em_player_stage_00182DF0`): its nonzero-2F3 branch (+40 = D_0028A580, +20C = D_00248A00[+235], 001C63E0), or against the row default 0017B490: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16); its tail (+4 = 1, 3B8F = 0) |
 | the foot-stop begin | 0017B910's anim_eval_skeleton, nodes 17 / 18 at +C0 |
 | every published palette | 0015BCF0's animate step: the node world matrices +90, and the owner matrix +D0 in the model's trailing slot (the identity in actor space) |
 

@@ -872,6 +872,29 @@ em_sfx_play silently and are reported once), the effects (0017DEB0's and
 00187EE0's 001EFD90 spawns run the live effect binder, L26; its nodes are
 compared at the effect beats only).
 
+### The script owners' takeover (`check_stage_takeover`, chain C7)
+
+A script owner's frame (the truck trigger in route 07, the fence door in 09,
+the director in 10 / 11 / 13, Roger in 14) is the player stage's own
+takeover, as in the original (PLAYER_STAGE_WORKERS.md section 2.1):
+0015B130's prelude admits the player (+4 = 4), 0015BA50's +4 = 4 path and
+0015B530 run each stage, and 0015B530's 00182DF0 releases it. The tick log's
+`player` list carries the record's +4 as its eighth value (the route rows do
+not sample +4). Inside each of these phases' windows the checker requires:
+the first tick with +4 = 4 is the admission (+5 = 0, +1F0 = 0x41, 3B8F and
+the selector nonzero); every tick after it holds +4 = 4 until the release
+tick, where 00182DF0 has left +4 = 1, +5 = 0, +1F0 = 0, 3B8F = 0 with the
+selector 0. The phases' own row-for-row comparisons (+5, +1F0, +1F1, the
+clip, the clock, +0x2F3, 3B8F in the spad bytes) cover the values the route
+rows sample. Measured on the full route: route 07 from port tick 4444 to
+4806, 09 (its own run) 5345 to 5507, 10 6143 to 8560, 11 9462 to 9949, 13
+10920 to 11131, 14 11485 to 12954; the admission rows are the captures' first
+3B8F = 1 rows and the release rows their first rows with 3B8F = 0 again (6
+rows early in 11 and 13, whose whole frame follows the voiced line's early
+teardown, the known divergence of the director's beats). The
+tick log is otherwise equal to the stand-in's (the interaction runtime's
+takeover before C7) on every tick.
+
 ### The render context (`check_render_context`, census L32 / L30)
 
 Not a phase: after the phases, over every tick from first control to the

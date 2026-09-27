@@ -2033,7 +2033,8 @@ void palette_apply_placement(float *pal, uint32_t bone_count,
                              const float pos[3], float yaw);
 
 /* Original-channel player source and shared interaction host boundary.
- * The stage hook returns -1 fault,0 ordinary callback,1 callback consumed. */
+ * The stage hook returns -1 fault,0 ordinary callback,1 callback consumed,
+ * 2 a staged takeover (the live stage's 0015B130 takes the player). */
 void player_pose_set_stage_hook(int (*hook)(void *), void *context);
 void player_use_set_hook(int (*hook)(void *), void *context);
 int player_use_poll(void);
@@ -2073,16 +2074,25 @@ int player_pose_use_accepted_port(void);
 int player_pose_idle_tick(float *local_palette);
 /* The special bank on the record (census L22): a read-only EE region for
  * the record's pose host (the bank a script's 001B9A00 sub 1 / 4 names at
- * +0x40), whether +0x2F3 is nonzero, and the takeover's stage for a
- * script owner (00183090 with the face's 001D0C70 as `face_tick`, then
- * 001C64F0 by +0x1F4 when it returns 1, and the record's palette; 1, or
- * -1). player_pose_release takes 00182DF0's nonzero-+0x2F3 branch. */
+ * +0x40), and whether +0x2F3 is nonzero. */
 int player_pose_map_region(uint32_t address, uint32_t size, const uint8_t *bytes);
 int player_pose_special_active(void);
-int player_pose_commit_tick(int (*face_tick)(void), float *local_palette);
 /* 16 bytes of the record's node `node` at `offset` (1, or 0). */
 int player_pose_node_quad(unsigned node, unsigned offset, float out[4]);
+/* The runtime's release (00182DF0 on the record through the bound release
+ * worker, then the default pose published): 1, or 0. */
 int player_pose_release(void);
+/* The takeover the player stage performs itself (a script owner's, the
+ * interaction host's staged token; em_player.c): the stage hook's end hook,
+ * run after the stage's own 00182DF0 (1 accepted); a port stand-in let go
+ * before 0015B130's prelude (1, or 0 reported); the prelude's admission
+ * (+4 = 4: the source is held until 00182DF0; 1, or 0). */
+void player_pose_set_takeover_end_hook(int (*hook)(void *), void *context);
+int player_pose_takeover_prepare(void);
+int player_pose_takeover_admitted(void);
+/* D_00248C90's +0 halfword of row `clip` (the row column the record pose
+ * loaded): 0, or -1. */
+int player_pose_row0(int clip, int16_t *value);
 int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
                             float *local_palette);
 /* The source's palettes (idle_tick, script_tick, special_tick, publish)

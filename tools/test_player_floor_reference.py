@@ -249,6 +249,87 @@ def cached_build(lib, command):
     stamp.write_text(digest.hexdigest())
 
 
+SOUND_AT = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int16, C.c_int32, C.c_float)
+SOUND_UI = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int32, C.c_int32, C.c_int32, C.c_int32)
+
+
+class ContactWorkers(C.Structure):
+    """EmPlayerContactWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('w001FBD50', SOUND_AT), ('w001FB9F0', SOUND_UI)]
+
+
+def contact_workers(log):
+    """Native workers that log their calls in the original hooks' form."""
+    at = SOUND_AT(lambda _, i, a2, radius: (log.append((0x1FBD50, i, a2, bits(radius))), 0)[1])
+    ui = SOUND_UI(lambda _, a0, a1, a2, a3: (log.append((0x1FB9F0, a0, a1, a2, a3)), 0)[1])
+    return ContactWorkers(None, at, ui), (at, ui)
+
+
+def sx16(value):
+    value &= 0xFFFF
+    return value - 0x10000 if value & 0x8000 else value
+
+
+def sx32(value):
+    value &= 0xFFFFFFFF
+    return value - (1 << 32) if value >> 31 else value
+
+
+def original_sound_hooks(log):
+    """001FBD50(p, id, a2, radius) and 001FB9F0(a0..a3) on the original side,
+    logged with every argument (the id a signed halfword, the radius as bits)."""
+    def at(o):
+        log.append((0x1FBD50, sx16(o.r[5]), sx32(o.r[6]), o.f[12] & 0xFFFFFFFF))
+        o.r[2] = 0
+
+    def ui(o):
+        log.append((0x1FB9F0, sx32(o.r[4]), sx32(o.r[5]), sx32(o.r[6]), sx32(o.r[7])))
+        o.r[2] = 0
+    return {0x1FBD50: at, 0x1FB9F0: ui}
+
+
+def first_contact_section(elf, native, result):
+    """em_player_first_contact (the live first-contact worker's body in
+    em_player.c) against the original one-shots: 00187DC0(p) and 00187EA0()
+    executed with their sound calls hooked, every argument compared (the id,
+    the 0 flag, 300.0; the three 0x1000); every other surface, 0x5B
+    included, returns -1 with no call; a missing worker returns -1."""
+    class Returned(Exception):
+        pass
+
+    def returning(hook):
+        # Each one-shot's sound call is its last act (a tail jump in both);
+        # the interpreter's hooks assume a jal, so the call ends the run.
+        def run(o):
+            hook(o)
+            raise Returned
+        return run
+    cases = 0
+    for surface, entry in ((0x5A, 0x187DC0), (0x5C, 0x187EA0)):
+        original = Floor(elf)
+        log = []
+        original.calls.update({a: returning(h) for a, h in original_sound_hooks(log).items()})
+        try:
+            original.call(entry, ACTOR)
+        except Returned:
+            pass
+        native_log = []
+        workers, keep = contact_workers(native_log)
+        assert native.em_player_first_contact(C.byref(workers), surface) == 0
+        assert native_log == log and len(log) == 1, ('first contact', hex(surface), native_log, log)
+        blank = ContactWorkers(None, keep[0], keep[1])
+        if surface == 0x5A: blank.w001FBD50 = SOUND_AT()
+        else: blank.w001FB9F0 = SOUND_UI()
+        assert native.em_player_first_contact(C.byref(blank), surface) == -1
+        cases += 2
+    for surface in [s for s in range(256) if s not in (0x5A, 0x5C)]:
+        native_log = []
+        workers, keep = contact_workers(native_log)
+        assert native.em_player_first_contact(C.byref(workers), surface) == -1 and not native_log
+        cases += 1
+    result['first_contact_cases'] = cases
+
+
 def build_native():
     out = ROOT / 'build/player_floor_reference'
     out.mkdir(parents=True, exist_ok=True)
@@ -262,6 +343,7 @@ def build_native():
     native.em_player_floor_service.argtypes = [C.POINTER(FloorActor), C.c_int, C.POINTER(C.c_float),
                                                C.POINTER(FloorWorkers)]
     native.em_player_floor_link_test.argtypes = [C.c_int, C.c_uint8, C.c_uint32]
+    native.em_player_first_contact.argtypes = [C.POINTER(ContactWorkers), C.c_uint8]
     return out, native
 
 
@@ -941,13 +1023,15 @@ FLOOR_BRIDGE = r"""
 #include "game/em_player_floor.h"
 typedef float (*FloorSdk)(int which, float a, float b);
 typedef int (*FloorRecord)(int which, EmPlayerProbeHit *hit);
-typedef int (*FloorContact)(int surface);
+typedef int (*FloorSoundAt)(int id, int a2, float radius);
+typedef int (*FloorSoundUi)(int a0, int a1, int a2, int a3);
 static FloorSdk floor_sdk;
 static FloorRecord floor_record;
-static FloorContact floor_contact;
-void floorbridge_hooks(FloorSdk s, FloorRecord r, FloorContact c)
+static FloorSoundAt floor_at;
+static FloorSoundUi floor_ui;
+void floorbridge_hooks(FloorSdk s, FloorRecord r, FloorSoundAt a, FloorSoundUi u)
 {
-    floor_sdk = s; floor_record = r; floor_contact = c;
+    floor_sdk = s; floor_record = r; floor_at = a; floor_ui = u;
 }
 typedef struct { EmActorCollisionPlayer player; } FloorCtx;
 static int fb_ground(void *c, const float *p, const float *q, unsigned m, EmPlayerProbeHit *h)
@@ -964,7 +1048,18 @@ static int fb_object(void *c, const float *at, const float *p, unsigned m, EmPla
 }
 static int fb_link(void *c, const void *o, int *r) { (void)c; return em_actor_collision_player_link(NULL, o, r); }
 static int fb_s39(void *c, int h) { (void)c; (void)h; return -1; }
-static int fb_contact(void *c, uint8_t s) { (void)c; return floor_contact(s); }
+static int fb_at(void *c, int16_t id, int32_t a2, float r) { (void)c; return floor_at(id, a2, r); }
+static int fb_ui(void *c, int32_t a0, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)c; return floor_ui(a0, a1, a2, a3);
+}
+/* The live first-contact worker's body (em_player.c live_first_contact). */
+static int fb_contact(void *c, uint8_t s)
+{
+    (void)c;
+    const EmPlayerContactWorkers w = { NULL, fb_at, fb_ui };
+    return em_player_first_contact(&w, s);
+}
 static float fb_atan2(void *c, float y, float x) { (void)c; return floor_sdk(0, y, x); }
 static float fb_cos(void *c, float x) { (void)c; return floor_sdk(1, x, 0); }
 static float fb_atan(void *c, float x) { (void)c; return floor_sdk(2, x, 0); }
@@ -990,7 +1085,8 @@ int floorbridge_service(Bridge *b, uint8_t cls, EmPlayerFloorActor *a, int searc
 
 SDK_FLOOR = C.CFUNCTYPE(C.c_float, C.c_int, C.c_float, C.c_float)
 RECORD_FN = C.CFUNCTYPE(C.c_int, C.c_int, C.POINTER(ProbeHit))
-CONTACT_HOOK = C.CFUNCTYPE(C.c_int, C.c_int)
+HOOK_AT = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.c_float)
+HOOK_UI = C.CFUNCTYPE(C.c_int, C.c_int, C.c_int, C.c_int, C.c_int)
 SOUND_CALLS = (0x1FBD50, 0x1FB9F0, 0x1EFD90, 0x1E8B90)
 # The routines this section executes beyond the actor-collision oracle's own
 # checked walkers (address, size from the decomp's splat listing); each must
@@ -1036,7 +1132,7 @@ def real_world_section(elf, result):
     native.bridge_actor.argtypes = [V, U32, U8, U8, U16, U16, U8]
     native.bridge_list.argtypes = [V, I, C.POINTER(U32), I, I, I]
     native.floorbridge_model.argtypes = [V, U32, U8, U32]
-    native.floorbridge_hooks.argtypes = [SDK_FLOOR, RECORD_FN, CONTACT_HOOK]
+    native.floorbridge_hooks.argtypes = [SDK_FLOOR, RECORD_FN, HOOK_AT, HOOK_UI]
     native.floorbridge_service.argtypes = [V, U8, C.POINTER(FloorActor), I, C.POINTER(C.c_float),
                                            C.POINTER(U32)]
     cases = {}
@@ -1082,11 +1178,9 @@ def real_world_section(elf, result):
             return hit.kind
         native_sounds = []
 
-        def contact(surface):
-            if surface == 0x5A: native_sounds.append((0x1FBD50, 0x86)); return 0
-            if surface == 0x5C: native_sounds.append((0x1FB9F0, 0xA8)); return 0
-            return -1
-        hooks = (SDK_FLOOR(sdk), RECORD_FN(record), CONTACT_HOOK(contact))
+        hooks = (SDK_FLOOR(sdk), RECORD_FN(record),
+                 HOOK_AT(lambda i, a2, r: (native_sounds.append((0x1FBD50, i, a2, bits(r))), 0)[1]),
+                 HOOK_UI(lambda a0, a1, a2, a3: (native_sounds.append((0x1FB9F0, a0, a1, a2, a3)), 0)[1]))
         native.floorbridge_hooks(*hooks)
         for row in rows:
             ee.mem[:] = ram0; ee.spad[:] = spad0
@@ -1113,6 +1207,12 @@ def real_world_section(elf, result):
             for address in SOUND_CALLS:
                 ee.hooks[address] = (lambda a: lambda e: (sounds.append((a, e.arg(1) & 0xFFFF)),
                                                           e.ret_int(-1)))(address)
+            # The first-contact sounds with every argument (00187DC0's id,
+            # 0 flag and 300.0; 00187EA0's four words).
+            ee.hooks[0x1FBD50] = lambda e: (sounds.append((0x1FBD50, sx16(e.arg(1)), sx32(e.arg(2)),
+                                                            e.f[12] & 0xFFFFFFFF)), e.ret_int(-1))
+            ee.hooks[0x1FB9F0] = lambda e: (sounds.append((0x1FB9F0, sx32(e.arg(0)), sx32(e.arg(1)),
+                                                            sx32(e.arg(2)), sx32(e.arg(3)))), e.ret_int(-1))
 
             def after_probe(name):
                 def fn(e, _):
@@ -1154,6 +1254,8 @@ def real_world_section(elf, result):
             stored = ee.load(base + 0x214)
             assert link.value == stored, ('real world +214', beat, row['f'], hex(link.value), hex(stored))
             assert native_sounds == sounds, ('first-contact sounds', native_sounds, sounds)
+            result['real_world_first_contact_sounds'] = result.get('real_world_first_contact_sounds', 0) + \
+                sum(1 for entry in sounds if entry[0] in (0x1FBD50, 0x1FB9F0))
             key = (beat, row['ground'])
             entry = cases.setdefault(key, {'rows': 0, 'trace_agrees': 0})
             entry['rows'] += 1
@@ -1347,6 +1449,9 @@ def main():
 
     # 4c''. The player stage around the state callbacks.
     stage_section(elf, native, rng, result)
+
+    # 4c-3. The first-contact one-shots (00187DC0 / 00187EA0).
+    first_contact_section(elf, native, result)
 
     # 4d. Real captured worlds: +214 from the owners the player stands on.
     real_world_section(elf, result)
