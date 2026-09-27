@@ -2091,6 +2091,10 @@ int player_pose_release(void);
 void player_pose_set_takeover_end_hook(int (*hook)(void *), void *context);
 int player_pose_takeover_prepare(void);
 int player_pose_takeover_admitted(void);
+/* 001B07C0(1) re-stated the held player as +4 = 5 / +5 = 1 / +6 = 0 (the
+ * arrival walk-out): the hold ends without 00182DF0, then the end hook
+ * (1; 0 when nothing was held; -1 when the end hook refused). */
+int player_pose_takeover_restated(void);
 /* D_00248C90's +0 halfword of row `clip` (the row column the record pose
  * loaded): 0, or -1. */
 int player_pose_row0(int clip, int16_t *value);

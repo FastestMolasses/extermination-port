@@ -559,9 +559,11 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
       stand-in's admission.
   - **Room move.** With the floor service engaged, the re-place tick would
     re-ground the player a frame early. So the legacy door's movement lock
-    now releases at that tick's player stage (`em_door_movement_stage_release`),
-    where the original's stage is the door script's release 00182DF0 and
-    runs no callback tail. Route 09 shows +1F0 0x41 through the re-place
+    now releases at that tick's player stage (`em_door_movement_stage_release`,
+    removed on 2026-09-27: since census L18 no legacy door runs in AREA11,
+    and the side-1 walk-out is the player's 0015B610 / 00183250,
+    DOOR_ORIGINAL.md "Side 1"), where the original's stage is the door
+    script's release 00182DF0 and runs no callback tail. Route 09 shows +1F0 0x41 through the re-place
     row, then y 184.8 on it and 184.84021 from the next row, and
     test_room_move_reference now shows the same.
   - **Verified.**

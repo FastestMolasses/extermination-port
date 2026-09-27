@@ -440,6 +440,54 @@ typedef struct EmPlayerStageFade {
 } EmPlayerStageFade;
 int em_player_stage_0015D460(void *fade, EmPlayerLiveActor *actor);
 
+/* ---- 0015B610: the +4 = 5 handler (EmPlayerStageWorkers.major[5]) -------
+ * With 0x70003B8D 0 or 4, or when 00182B30(p) returns nonzero: by +5, 0 ->
+ * 00183240, 1 -> 00183250, 2 -> 001833F0, 3 -> 00183440, 4 -> 001834E0;
+ * any other +5 calls nothing. When 00182B30 returns 0 (a scripted owner
+ * admits the player): +5 = 3 writes +4 = 4, +5 = 0xC, +6 = 0, +1F0 = 0x17;
+ * any other +5 first runs 00174A50(p, 8.0) when +5 is 1, then writes +4 =
+ * 4, +5 = 0, +6 = 0, +1F0 = 0x41; both then call 00182D70(p). The stage's
+ * workers supply 00182B30 (scripted_check), 00174A50 (row_request) and
+ * 00182D70 (scripted_notify). A missing worker or routine the handler
+ * reaches is a fault (-1). */
+enum {
+    EM_PLAYER_MAJOR5_00183240, EM_PLAYER_MAJOR5_00183250, EM_PLAYER_MAJOR5_001833F0,
+    EM_PLAYER_MAJOR5_00183440, EM_PLAYER_MAJOR5_001834E0, EM_PLAYER_MAJOR5_COUNT
+};
+typedef struct EmPlayerStageMajor5 {
+    EmPlayerStage stage;
+    EmPlayerStateCallback routine[EM_PLAYER_MAJOR5_COUNT];
+    void *routine_context[EM_PLAYER_MAJOR5_COUNT];
+} EmPlayerStageMajor5;
+int em_player_stage_0015B610(void *major5, EmPlayerLiveActor *actor);
+
+/* ---- 00183250: 0015B610's routine for +5 = 1 (the arrival walk-out) ------
+ * 001B07C0(1) writes +4 = 5, +5 = 1, +6 = 0 when the spawn record's +0x14
+ * byte is 1 (entry 1 of AREA11: the fence door's side-1 arrival). The phase
+ * is +6, the timer the halfword +0x28; each counting phase stores the timer
+ * less one and tests the old value:
+ *   0: +6 = 1, +7 = 0, +0x38 = 0.3, +0x25C = 2, then 001749A0(p,
+ *      0017B490(p, 1, +0x235, +0x25C), 0, 1.0), +0x28 = 50;
+ *   1: at timer 0, +6 += 1 and +0x28 = 30;
+ *   2: at timer 0, +6 += 1 and +0x28 = 30; otherwise 00178B90(p, 0);
+ *   3: at timer 0, +4 = 1, +5 = 0, +6 = 0, +0x1F0 = 0 and 0x70003B8D = 0;
+ *      otherwise 00178B90(p, 0), then +0x38 -= 0.01137, and when that is
+ *      below 0, +0x38 = 0 and 00174A50(p, 12.0);
+ * then, whatever the phase, +0xB4 += -0.2 and 00175900(p, 1). Every FPU
+ * operation is the EE model's (em_ee_float.h). */
+typedef struct EmPlayerArrivalWorkers {
+    void *context;
+    /* 0017B490(p, cmd, index, table): *clip is its return, as a halfword. */
+    int (*clip_lookup)(void *context, EmPlayerLiveActor *actor, int cmd, int index, int table,
+                       int16_t *clip);
+    int (*request)(void *context, EmPlayerLiveActor *actor, int clip, int flags, float blend); /* 001749A0 */
+    int (*translate)(void *context, EmPlayerLiveActor *actor, int arg);                       /* 00178B90 */
+    int (*row_request)(void *context, EmPlayerLiveActor *actor, float blend);                 /* 00174A50 */
+    int (*floor)(void *context, EmPlayerLiveActor *actor, int search, int *result);           /* 00175900 */
+    uint8_t *spad3B8D; /* 0x70003B8D: phase 3's exit clears it */
+} EmPlayerArrivalWorkers;
+int em_player_00183250(void *workers, EmPlayerLiveActor *actor);
+
 /* ---- 001764E0 radial wall probes, 001756E0 clearance release ------------ */
 
 typedef struct EmPlayerProbeActor {

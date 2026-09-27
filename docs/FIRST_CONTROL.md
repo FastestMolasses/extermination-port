@@ -357,7 +357,9 @@ What the layer does once engaged:
     an item consumes the stage there while it owns the player; a script
     owner's frame runs 0015B130's own prelude, whose admission sets +4 = 4,
     chain C7), +4 = 2 the translated
-    0015B770, 4 is 0015B530 and 6 is `em_player_stage_0015D460`. The port's
+    0015B770, 4 is 0015B530, 5 is `em_player_stage_0015B610` (entered only
+    by 001B07C0(1)'s arrival walk-out at the fence door's side 1,
+    DOOR_ORIGINAL.md "Side 1") and 6 is `em_player_stage_0015D460`. The port's
     own idle and walk (+4 = 1, +5 = 0/1) are 0015B130's state[0] / state[1];
     under 0x70003B8D without the takeover owner they keep the stage without
     0015B130 (its prelude's 00174A50 needs 0017B490, L12).
@@ -623,7 +625,11 @@ the captures):
     - `state[]` indexed by +5 (0015B130's table) and `state2[]` /
       `phase13[]` / `phase14[]` (0015B770's);
     - `major[0/4/5/6]`: `major[6] = em_player_stage_0015D460` with an
-      `EmPlayerStageFade` { ctx, 001AEDE0 };
+      `EmPlayerStageFade` { ctx, 001AEDE0 }; `major[5] =
+      em_player_stage_0015B610` with an `EmPlayerStageMajor5` (the stage
+      scene, the stage workers' 00182B30 / 00174A50 / 00182D70, and its +5
+      routines: 00183240 an empty leaf, 00183250 = `em_player_00183250`
+      bound by the closure binder, 001833F0 / 00183440 / 001834E0 faulting);
     - `major[1]`/`major[2]` are installed by `player_states_bind` itself;
   - `b.stage.state[0x1C] = em_player_slide_live_state`, with
     `EmPlayerSlideLive` { workers, `player_states_floor_service`,

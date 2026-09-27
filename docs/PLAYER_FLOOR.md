@@ -332,7 +332,7 @@ helpers they use (`em_player_sdk_trs`, `em_player_sdk_yaw_matrix`,
 `em_player_sdk_apply`, `em_player_sdk_yaw_transform`); the probe oracle is
 unchanged and passes.
 
-## The player stage: 0015BCF0 / 0015BA50 / 0015B130 / 0015B770 / 0015D460 (player-states-live lane)
+## The player stage: 0015BCF0 / 0015BA50 / 0015B130 / 0015B770 / 0015D460 / 0015B610 (player-states-live lane)
 
 `em_player_floor.c` translates the stage around the state callbacks over
 the live actor (`em_player_stage_begin` / `_dispatch` / `_end` / `_tail`,
@@ -356,8 +356,23 @@ The comparison covers the whole 0x320-byte actor image, +214/+308,
 D_00248C98 comes from the pinned ELF on both sides: the native side reads
 it through its `clip_rate` worker.
 
-Deterministic scenarios reach 28 asserted path classes in the default run.
+Deterministic scenarios reach every asserted path class in the default run
+(28 before 0015B610, which adds 11: its five routines, selector 4, the
+00182B30 pass, its three admission branches and a +5 with no routine).
 There are 150 cases by default and 3,000 under `EM_TEST_FULL=1`.
+
+Since the fence door's side 1 (2026-09-27; DOOR_ORIGINAL.md "Side 1"),
+the file also translates the +4 = 5 handler 0015B610
+(`em_player_stage_0015B610`, with its EmPlayerStageMajor5 routine table)
+and its +5 = 1 routine 00183250 (`em_player_00183250`, the arrival
+walk-out over EmPlayerArrivalWorkers). The stage cases run the original
+0015B610 like the other +4 handlers: its five routines are hooked, and
+00182B30 / 00174A50 / 00182D70 are hooked as for 0015B130's prelude. The
+"arrival" cases run the original 00183250 with 0017B490, 001749A0,
+00178B90, 00174A50 and 00175900 hooked and recorded, together with the
+record words each callee can see. They cover random phases, timers and
+speeds (64 by default, 1,200 with `EM_TEST_FULL=1`) and the whole
+walk-out on one record, from 001B07C0's 5 / 1 / 0 to the +4 = 1 return.
 
 The two shared-library compiles of this test (the floor library and the
 real-world bridge) are cached by a hash of the command, the .c files and

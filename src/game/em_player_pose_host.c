@@ -1073,6 +1073,26 @@ int player_pose_takeover_admitted(void)
     return 1;
 }
 
+/* 0x1AE040 state 4's 001B07C0(1) re-states a player the stage's own
+ * takeover holds (+4 = 4 since 0015B130's prelude) as +4 = 5, +5 = 1, +6 =
+ * 0 when the arrival's spawn record asks for the walk-out (AREA11 entry 1,
+ * the fence door's side 1). The record then belongs to 0015B610's 00183250,
+ * whose own exit returns +4 = 1 (captures C7 DOOR1: +1F0 stays 0x41 from
+ * the commit f371 to f484), so 0015B530's 00182DF0 never runs for this
+ * takeover. The port's bookkeeping of the hold ends here without touching
+ * the record, and the takeover's end hook ends the script owner's token.
+ * 1 when a hold ended, 0 when none was held, -1 when the end hook refused. */
+int player_pose_takeover_restated(void)
+{
+    if (!source.started || !source.acquired) return 0;
+    source.acquired = source.script_active = 0;
+    if (source.end_hook && source.end_hook(source.end_context) != 1) {
+        fprintf(stderr, "player pose: the takeover's end hook refused the re-stated player\n");
+        return -1;
+    }
+    return 1;
+}
+
 /* D_00248C90's +0 halfword of row `clip` (assets/player_clip_row0.emch):
  * 0, or -1 outside the rows. */
 int player_pose_row0(int clip, int16_t *value)

@@ -62,6 +62,12 @@ WRITERS = {
         "game/em_status_page_record.c": "002149F0 record-level (d85512e, not bound): the owner's completion "
                                         "(=3) through the caller's pointer view onto the canonical byte "
                                         "(EmStatusPageRecord.spad3B8D)",
+        "game/em_player_floor.c": "00183250's exit (=0; 0015B610's +5 = 1 routine, the fence door's side-1 "
+                                  "walk-out) through its pointer at the player stage's per-stage view "
+                                  "(EmPlayerArrivalWorkers.spad3B8D)",
+        "game/em_player.c": "player_states_stage: the per-stage view stored back to the canonical byte after "
+                            "0015BA50 when a routine changed it (00183250's =0); live_scene_load fills the "
+                            "view from it before each stage",
     },
     "spad3B91": {
         "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
@@ -105,11 +111,6 @@ VIEW_LOADS = [
      "reason": "sample_common: the level smoke's sample of canonical 3B8D at the 0015C160 shadow call "
                "(EmShadowLiveSample, test instrumentation for tools/level_smoke_shadow.py; never read back)",
      "removed_by": "permanent (a per-call sample)"},
-    {"file": "game/em_player.c", "field": "spad3B8D",
-     "pattern": r"live\.scene\.spad3B8D\s*=\s*s->spad3B8D;",
-     "reason": "live_scene_load: the player stage's per-stage view of canonical 3B8D (0015BA50 / "
-               "0015B130 read it; the stage never writes 3B8D, only 3B8F is stored back)",
-     "removed_by": "permanent (a per-stage view)"},
     {"file": "game/em_player_closure_live.c", "field": "spad3B8D",
      "pattern": r"P\.spad3B8D\s*=\s*scene\(\)->spad3B8D;",
      "reason": "refresh_pad: the closure binder's per-call view of canonical 3B8D, loaded before "
@@ -258,8 +259,14 @@ ALLOWED = [
      "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_player_floor.h", "name": "spad3B8D",
      "reason": "EmPlayerStageScene: the player stage's per-stage view of canonical 3B8D, loaded by "
-               "em_player.c live_scene_load before 0015BA50; the stage only reads it",
+               "em_player.c live_scene_load before 0015BA50; 00183250's exit clears it, which "
+               "player_states_stage stores back to the canonical byte",
      "removed_by": "permanent (a per-stage view)"},
+    {"file": "game/em_player.c", "name": "loaded3B8D",
+     "reason": "the value the stage's per-stage view of canonical 3B8D was loaded with: "
+               "player_states_stage compares the view with it after 0015BA50 and stores only a "
+               "change back (00183250's =0); never read as 3B8D",
+     "removed_by": "permanent (a per-stage view's load value)"},
     {"file": "game/em_spawn_table.h", "name": "spad3B8D",
      "reason": "EmSpawnIo: 001B07C0's per-call input, filled from canonical 3B8D by w_001B07C0 "
                "before every placement and never stored back",

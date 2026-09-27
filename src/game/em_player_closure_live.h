@@ -29,12 +29,14 @@
 
 /* Fill b->stage.state[] / state2[] with the closure's and the Use roots'
  * callbacks, the 0015B530 routines 00162DB0 / 00163B40 in *major4, the
+ * 0015B610 routine 00183250 (the arrival walk-out) in *major5, the
  * pose host's 00178910 callees, and the Use chain's workers. `stage_host`
  * is the stage workers' host (0021C270 / 0021C350 / 00174A50 run on it),
  * `pose` the record pose's host. The collision world must be loaded
  * (em_collision_world_bind_player has filled b). 0, or -1 (nothing bound). */
 int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *stage_host,
-                                EmPoseHost *pose, EmPlayerStageMajor4 *major4);
+                                EmPoseHost *pose, EmPlayerStageMajor4 *major4,
+                                EmPlayerStageMajor5 *major5);
 
 /* The Use dispatcher 00160220 over the live record with every worker
  * bound (the scan is `scan`: the interaction host's 00184BA0 with its

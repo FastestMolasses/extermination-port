@@ -132,7 +132,6 @@ uint32_t em_random_next(void) { return 0; }
 int em_door_transit_active(float t[3], float *yaw) { (void)t; (void)yaw; return 0; }
 int em_door_walkout_active(float *yaw, float *speed) { (void)yaw; (void)speed; return 0; }
 int em_door_movement_locked(void) { return 0; }
-int em_door_movement_stage_release(void) { return 0; }
 int em_examine_input_locked(void) { return 0; }
 int em_game_player_interact_busy(void) { return 0; }
 int em_weapon_is_aiming(void) { return 0; }
@@ -473,6 +472,7 @@ static EmPlayerStatesBinding full_binding(void)
                                         0x12, 0x13, 0x14, 0x16, 0x17, 0x18, 0x19 };
     for (unsigned i = 0; i < sizeof kStates2; ++i) w->state2[kStates2[i]] = fake_state2;
     w->major[4] = fake_major; w->major_context[4] = (void *)(uintptr_t)4;
+    w->major[5] = fake_major; w->major_context[5] = (void *)(uintptr_t)5;
     w->major[6] = em_player_stage_0015D460; w->major_context[6] = &fade;
     return b;
 }

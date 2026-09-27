@@ -100,6 +100,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ROUTE = DECOMP / 'build/s87/route'
 STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
+C7_DOOR1 = DECOMP / 'build/s87/c7cap/door1/c7_door1_fence_door_side1'   # decomp docs/CAPTURES_C7.md section 4
 STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
 # The original's camera block D_008101E0 sampled every frame from the cold
 # New Game (area load at frame 2639) and from save state 03 through the
@@ -407,14 +408,14 @@ def selector(spad_hex):
     return spad_hex[2:4]
 
 
-def scan_alignment(ticks, run, phase, beat, after):
+def scan_alignment(ticks, run, phase, beat, after, rows=None):
     m = re.search(rf'^level smoke: {phase}: PASS scan_d810750=(\d+)', run, re.M)
     assert m, f'no {phase} PASS line with scan_d810750'
     n = int(m.group(1))
     i = next(i for i in range(after, len(ticks)) if port_view(ticks, i)['variants'] == n)
     assert selector(port_view(ticks, i)['spad']) != '00' and selector(port_view(ticks, i - 1)['spad']) == '00', \
         (phase, 'the printed scan tick is not the first tick with 3B8D != 0', ticks[i]['tick'])
-    rows = route_rows(beat)
+    rows = route_rows(beat) if rows is None else rows
     f = next(k for k in range(1, len(rows)) if selector(rows[k]['spad']) != '00'
              and selector(rows[k - 1]['spad']) == '00')
     return i, rows, f
@@ -734,6 +735,83 @@ def check_fence_door(ticks, run, state):
           f'+0x00..+0x0F / +0x1F0..+0x1FF; the room move: {span} rows of B5..B9 and the fade block from the '
           f'B8 = 2 row, 001AD010 against the executed original, state 4 at tick {s4_tick} with its nine calls, '
           f'one weather and one title node before and after; {follow})')
+
+
+# ------------------------------------ fence door side 1 (the C7 DOOR1 capture)
+
+def check_fence_door_side1(ticks, run, state):
+    """The C7 capture c7_door1_fence_door_side1 (decomp CAPTURES_C7.md
+    section 4) from the Use scan (f228: 00184BA0 armed the door from the
+    south and its 001BBE40 ran in the same frame, side 1) to the capture's
+    end (f544), row for row, as check_fence_door compares route 09: spad,
+    camera byte, letterbox, message, power and B0/B1; the player's X / Z, Y
+    and heading on every row (001BBE40's alignment and heading, then
+    001B07C0(1)'s entry 1 and 00183250's walk-out); the player record's +5,
+    +1F0, +1F1 and clip on every row and its clock from the program's clip
+    0x43 on (f232); the door record's +0x00..+0x0F and +0x1F0..+0x1FF; the
+    room move through tools/test_room_move_reference.py (B5..B9 and the fade
+    block from the B8 = 2 row, the re-place, 001AD010 against the executed
+    original, state 4's nine calls, the weather and title nodes); the follow
+    camera from the re-place to the end; and the player's +4 (the tick log's
+    8th player value; the capture does not sample it): 4 from 0015B130's
+    admission to the re-place tick, where 001B07C0(1) leaves 5 with +5 = 1
+    and +1F0 still 0x41, 5 through 0015B610 / 00183250's walk-out, and 1 from
+    the tick 00183250's exit returns control (f484: +5 = 0, +1F0 = 0)."""
+    import test_room_move_reference as trm
+    what = 'fence_door_side1'
+    path = C7_DOOR1 / 'trace.json'
+    assert path.exists(), f'C7 capture missing: {path} (decomp docs/CAPTURES_C7.md section 4)'
+    capture = json.loads(path.read_text())['rows']
+    i0, rows, f0 = scan_alignment(ticks, run, what, None, state.get('cursor', 0), rows=capture)
+    count = len(rows) - f0    # to the capture's end, 60 rows after control returns
+    compare_window(ticks, i0, rows, f0, count, what, req=True)
+    # The clock from the program's clip 0x43 on (f232): before it the idle
+    # clip's clock counts from the press stance the navigation reached.
+    scripted = next(k for k in range(count) if rows[f0 + k]['clip'] == 0x43)
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[f0 + k]
+        where = f'{what} row f{row["f"]} (port tick {t["tick"]})'
+        p = port_view(ticks, i0 + k)
+        assert p['pos'] == [round(v, 5) for v in row['pos']] or \
+            (p['pos'][0], p['pos'][2]) == (row['pos'][0], row['pos'][2]) and abs(p['pos'][1] - row['pos'][1]) <= 1e-5, \
+            (where, 'player position', p['pos'], row['pos'])
+        assert p['yaw'] == round(row['yaw'], 5), (where, 'heading', p['yaw'], row['yaw'])
+        pl = t['player']
+        got = (pl[0], pl[1], pl[2], pl[3], round(f32(pl[4]), 5) if k >= scripted else None)
+        want = (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['clock'] if k >= scripted else None)
+        assert got == want, (where, 'player +5/+1F0/+1F1/clip/clock', got, want)
+        door = door_view_port(t)
+        assert door is not None, (where, 'no door record in the tick log')
+        assert door == (row['door_r0']['h'], row['door_r0']['s1F0']), \
+            (where, 'door +0x00..+0x0F / +0x1F0..+0x1FF', door, row['door_r0']['h'], row['door_r0']['s1F0'])
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    sub = ticks[i0:]
+    c, place, span, f_commit, f_place = trm.check_capture_sequence(sub, rows)
+    s4_tick, _ = trm.check_state4(elf, sub, c, place)
+    trm.check_nodes_and_door(sub, c, place)
+    follow = check_follow_after_release(ticks, i0, rows, f0, what, 'exact')
+    # The player's +4 across the window.
+    # The state-4 tick (check_state4's: `place` is the tick whose start
+    # sample is the re-place row, so its post sample is the tick before).
+    kp = place - 1
+    kc = next(k for k in range(kp, count) if (rows[f0 + k]['p5'], rows[f0 + k]['m1F0']) == (0, 0))
+    ka = next(k for k in range(count) if ticks[i0 + k]['player'][7] == 4)
+    for k in range(count):
+        pl, where = ticks[i0 + k]['player'], f'{what} +4 at f{rows[f0 + k]["f"]}'
+        want = 1 if k < ka or k >= kc else 4 if k < kp else 5
+        assert pl[7] == want, (where, pl[7], want)
+    pl, spad = ticks[i0 + kp]['player'], port_view(ticks, i0 + kp)['spad']
+    assert (pl[0], pl[1]) == (1, 0x41) and selector(spad) == '00', (what, 'the re-place tick', pl, spad)
+    state['cursor'] = i0 + count
+    print(f'{what}: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal the C7 capture '
+          f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the scan and 001BBE40 at f{rows[f0]["f"]} (side 1: '
+          f'the alignment and heading), the program 0x24DE40 (clip 0x43, door clip 2), 001BC150 at f{f_commit} '
+          f'(B7 = 1), the re-place at entry 1 at f{f_place}, 0015B610 / 00183250\'s walk-out to control at '
+          f'f{rows[f0 + kc]["f"]} and the rows after it, in spad, camera byte, letterbox, message, power, B0/B1, '
+          f'placement, heading, the player record (+4 = 4 from the admission, 5 from the re-place, 1 from '
+          f'the walk-out\'s exit) and the door record; the room move: {span} rows of B5..B9 and the fade block, '
+          f'001AD010 against the executed original, state 4 at tick {s4_tick} with its nine calls, one weather '
+          f'and one title node before and after; {follow})')
 
 
 # ----------------------------------------------------- boxes (census L25)
@@ -1712,6 +1790,7 @@ PHASES = [
     ('truck_preview', check_truck_preview),
     ('truck_crossing', check_truck_crossing),
     ('fence_door', check_fence_door),
+    ('fence_door_side1', check_fence_door_side1),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
@@ -2255,7 +2334,10 @@ def check_effects(ticks, state):
           f'nodes equal the port\'s at their aligned ticks: {"; ".join(done)})')
 
 
-SIDE = ('panel_no_battery', 'fence_door')
+SIDE = ('panel_no_battery', 'fence_door', 'fence_door_side1')
+# A side phase that starts from another side phase's end (em_level_smoke_test.c
+# Phase.from_side): its run plays that one first.
+FROM_SIDE = {'fence_door_side1': 'fence_door'}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
          ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
@@ -2538,7 +2620,8 @@ def main():
         names = [p[0] for p in PHASES]
         until = main_line[-1] if args.require_through == 'last' else args.require_through
         assert until in names, ('--require-through: unknown phase', until, names)
-        required = [p for p in names[:names.index(until)] if p not in SIDE] + [until]
+        required = [p for p in names[:names.index(until)] if p not in SIDE] + \
+            ([FROM_SIDE[until]] if until in FROM_SIDE else []) + [until]
         missing = [p for p in required if p not in checked]
         assert not missing, ('level smoke: phases the run had to play were not checked live against their '
                              'captures (NOT-LIVE, driven or not reached)', missing)

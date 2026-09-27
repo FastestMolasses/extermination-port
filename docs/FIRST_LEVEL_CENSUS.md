@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -700,8 +700,8 @@ smoke (the default run).
   f309..f532 row for row (LEVEL_SMOKE.md); `test_area_script_reference.py`
   replays the program over route 09 with no difference; the render context
   and effects checks pass over the run (one state-4 re-seat tick counted).
-- **Not moved:** side 1 (entry 1: no capture; its walk-out is still the
-  legacy walk-out), the locked program (subtype 0x15) and the door id's bit
+- **Not moved:** side 1 (entry 1: no capture then; its walk-out was the
+  legacy walk-out until section 1.31), the locked program (subtype 0x15) and the door id's bit
   7 fault; em_sdf_001BC240 / em_sdf_001BC290 stay unbound standalone copies
   of em_door_original's inline phases.
 
@@ -1205,6 +1205,41 @@ other 19 are one field off: the sub-field poll phase, which no capture records.
 Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1, boundary 443 (unchanged). 80,726 of the
 87,968 non-boundary instructions are live (91.8%).
 
+### 1.31 Update (2026-09-27, the fence door's side 1: the arrival walk-out)
+
+The fence door's side 1 now runs on originals from the Use scan to control
+(DOOR_ORIGINAL.md "Side 1"). The level smoke's new `fence_door_side1` phase
+equals the decomp's C7 DOOR1 capture row for row (LEVEL_SMOKE.md).
+
+- **No status changes.** The census labels are the route beats 00..14 and
+  the startup labels, and none of them enters +4 = 5. So 0015B610, 00183250
+  and 00183240 are not census rows. They are now live and checked by
+  test_player_floor_reference (the executed originals) and by the smoke's
+  side-1 phase (the capture). The census rows the side-1 capture also runs
+  (001BBE40, 001BC150, 001B07C0, the room move) were already live.
+- **Stand-ins retired (none were census rows):**
+  - the AREA11 hook of em_door.c's legacy walk-out
+    (`em_door_legacy_walkout_tick`);
+  - `em_door_room_move_arrival`;
+  - `em_door_movement_stage_release`.
+- **Renderer.** The shadow backend's unprojection
+  (`em_shadow_gs_clip_unproject`, SHADOW_ORIGINAL.md) now searches the
+  binary32 neighbours of a rounded point that misses its GS pixel. Before
+  this, the port quit at the side-1 stance, where a receiver vertex at
+  w 0.24 missed by 0.08 pixel.
+- **Evidence.**
+  - make test-level-smoke-full with --require-through (the side-9 run now
+    requires fence_door and fence_door_side1).
+  - test-player-floor-reference.
+  - newgame-control 9.599849.
+  - compare_frame_order PASS: idle04 / walk04 / st03 at native index 1336,
+    cut02 / cut15.
+  - All make test-* pass.
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443, recounted from the section 3 rows (741 rows) and unchanged.
+80,726 of the 87,968 non-boundary instructions are live (91.8%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1232,7 +1267,7 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29 and 1.30) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 660 (89.1%) are live and verified; by instructions 80,726 of 87,968 (91.8%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 77 functions (7,069 instructions, 8.0%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30 and 1.31) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1269,8 +1304,8 @@ State at chain C8's one-owner step of 2026-09-27 (section 1.28; the full-route r
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.30 the lines 0x97 / 0x99 tear down on
   the capture's rows and 0x7F 2 rows early, the music refill's phase), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; the side beats
-  00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18), each in its own
-  run. Since section 1.20 the player's drop shadow runs on its originals from first control on (the projected
+  00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18; with the door's
+  side 1 and its arrival walk-out since section 1.31), each in its own run. Since section 1.20 the player's drop shadow runs on its originals from first control on (the projected
   shadow 001DA6A0 and, on an actor, the 0015BF90 decal), checked against the original re-executed over the port's
   own inputs (check_shadow). Since section 1.21 the status pages run on their originals too: the BATTERY page
   002149F0 with its page draws, the mode-3 / mode-4 presenters at step F (the step-F gate is gone), the fog record's

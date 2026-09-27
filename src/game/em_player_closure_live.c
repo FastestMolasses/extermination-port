@@ -157,6 +157,9 @@ static struct {
     Slot state[EM_PLAYER_STATE1_COUNT];
     Slot state2[EM_PLAYER_STATE2_COUNT];
     Slot major4[EM_PLAYER_MAJOR4_COUNT];
+    /* 00183250 (0015B610's +5 = 1) and its workers over the record. */
+    EmPlayerArrivalWorkers arrival;
+    Slot major5_00183250;
 } L;
 
 /* The running module's by-value copy of 0x70003A20, or NULL. */
@@ -2873,9 +2876,11 @@ static void set2(EmPlayerStatesBinding *b, unsigned state, EmPlayerStateCallback
 }
 
 int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *stage_host,
-                                EmPoseHost *pose, EmPlayerStageMajor4 *major4)
+                                EmPoseHost *pose, EmPlayerStageMajor4 *major4,
+                                EmPlayerStageMajor5 *major5)
 {
-    if (!b || !stage_host || !stage_host->globals || !pose || !pose->globals || !major4 ||
+    if (!b || !stage_host || !stage_host->globals || !pose || !pose->globals || !major4 || !major5 ||
+        !major5->stage.scene ||
         !em_collision_world_loaded() || !em_collision_world_sdk() || !em_collision_world_player() ||
         !em_collision_world_move_player() || !em_collision_world_column_player())
         return -1;
@@ -2994,6 +2999,15 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     major4->routine_context[EM_PLAYER_MAJOR4_00162DB0] = &L.major4[EM_PLAYER_MAJOR4_00162DB0];
     major4->routine[EM_PLAYER_MAJOR4_00163B40] = slot_run;
     major4->routine_context[EM_PLAYER_MAJOR4_00163B40] = &L.major4[EM_PLAYER_MAJOR4_00163B40];
+
+    /* 0015B610's 00183250 (PLAYER_FLOOR.md, DOOR_ORIGINAL.md "Side 1"):
+     * 0017B490, 001749A0, 00178B90, 00174A50 and 00175900 on the record,
+     * 0x70003B8D through the stage's scene view. */
+    L.arrival = (EmPlayerArrivalWorkers){ NULL, em_player_closure_live_0017B490, w_request, w_translate,
+                                          w_row_request, w_floor, &major5->stage.scene->spad3B8D };
+    slot(&L.major5_00183250, em_player_00183250, &L.arrival, NULL, NULL, NULL, "00183250");
+    major5->routine[EM_PLAYER_MAJOR5_00183250] = slot_run;
+    major5->routine_context[EM_PLAYER_MAJOR5_00183250] = &L.major5_00183250;
 
     L.bound = 1;
     return 0;

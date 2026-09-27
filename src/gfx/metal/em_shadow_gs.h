@@ -738,14 +738,34 @@ static inline int em_shadow_gs_clip_vertices(int kernel, const EmVu1ClipResult *
     return (int)n;
 }
 
+/* How far [p, 1] x cam lands from GS pixel (x, y) at w: the larger X / Y
+ * miss in pixels, or -1 when its w misses by more than 1e-3 (relative). */
+static inline double em_shadow_gs_clip_miss(const float cam[16], const float p[3], float x,
+                                            float y, float w)
+{
+    double back[4];
+    for (unsigned k = 0; k < 4; ++k)
+        back[k] = (double)p[0] * cam[k] + (double)p[1] * cam[4 + k] +
+                  (double)p[2] * cam[8 + k] + cam[12 + k];
+    if (!(fabs(back[3] - w) <= 1e-3 * fmax(1.0, fabs((double)w)))) return -1.0;
+    const double mx = fabs(back[0] / back[3] - x), my = fabs(back[1] / back[3] - y);
+    return mx > my ? mx : my;
+}
+
 /* The point of GS pixel (x, y) at clip-space w under `cam` (row-vector,
  * GS clip x = X * w, y = Y * w): the solution p of [p, 1] x cam = (x * w,
  * y * w, ., w) on the x, y and w columns. The backends draw a clip
  * kernel's vertices through their own view-projection from this point,
  * so they meet the level's depth the way the kernel's other triangles do
- * (w = 1/Q of the vertex's ST, which both kernels compute). Returns -1
- * when the columns are singular or the binary32 point does not project
- * back onto (x, y) within the GS 1/16-pixel grid and onto w within 1e-3. */
+ * (w = 1/Q of the vertex's ST, which both kernels compute). The binary32
+ * point is the solution rounded; when that misses the pixel by more than
+ * the GS 1/16-pixel grid (a vertex close to the w = 0.1 plane, where one
+ * ulp of p moves the projection by more than 1/16 pixel: met live at the
+ * fence door's side-1 stance, whose camera looks down from above the
+ * door), the nearest binary32 point within two ulps of the rounding on
+ * each axis that projects back within the grid. Returns -1 when the
+ * columns are singular or no such binary32 point projects back onto
+ * (x, y) within 1/16 pixel and onto w within 1e-3. */
 static inline int em_shadow_gs_clip_unproject(const float cam[16], float x,
                                               float y, float w, float p[3])
 {
@@ -768,13 +788,28 @@ static inline int em_shadow_gs_clip_unproject(const float cam[16], float x,
         p[c] = (float)(d / det);
         if (!isfinite(p[c])) return -1;
     }
-    double back[4];
-    for (unsigned k = 0; k < 4; ++k)
-        back[k] = (double)p[0] * cam[k] + (double)p[1] * cam[4 + k] +
-                  (double)p[2] * cam[8 + k] + cam[12 + k];
-    if (!(fabs(back[3] - w) <= 1e-3 * fmax(1.0, fabs((double)w)))) return -1;
-    if (!(fabs(back[0] / back[3] - x) <= 1.0 / 16.0) ||
-        !(fabs(back[1] / back[3] - y) <= 1.0 / 16.0)) return -1;
+    const double miss = em_shadow_gs_clip_miss(cam, p, x, y, w);
+    if (miss >= 0.0 && miss <= 1.0 / 16.0) return 0;
+    float best[3] = { 0, 0, 0 };
+    double best_miss = -1.0;
+    for (int i = -2; i <= 2; ++i)
+        for (int j = -2; j <= 2; ++j)
+            for (int k = -2; k <= 2; ++k) {
+                const int step[3] = { i, j, k };
+                float q[3];
+                for (unsigned c = 0; c < 3; ++c) {
+                    q[c] = p[c];
+                    for (int s = 0; s < (step[c] < 0 ? -step[c] : step[c]); ++s)
+                        q[c] = nextafterf(q[c], step[c] > 0 ? INFINITY : -INFINITY);
+                }
+                const double e = em_shadow_gs_clip_miss(cam, q, x, y, w);
+                if (e >= 0.0 && e <= 1.0 / 16.0 && (best_miss < 0.0 || e < best_miss)) {
+                    best_miss = e;
+                    memcpy(best, q, sizeof best);
+                }
+            }
+    if (best_miss < 0.0) return -1;
+    memcpy(p, best, sizeof best);
     return 0;
 }
 

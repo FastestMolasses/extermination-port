@@ -59,7 +59,6 @@
 
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_door.h"
-#include "game/em_door.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
@@ -312,9 +311,8 @@ static int tick_enemy_00825940(EmActor *actor, Node *node, const EmArea11World *
  * (em_area11_door: 001BC350 with 001BBE40 and the ELF program 0x24DE40 on
  * the AREA11 script host, 001BC150's room move through B8) in both walk
  * variants (class 5 is walked by 001AFD70 modes 0 and 1). The side-1
- * arrival's walk-out (001B07C0(1) writes 5/1/0 at entry 1; route beat 09 is
- * side 0) is still the port's legacy walk-out, ticked here where the legacy
- * door ticked it (em_door_legacy_walkout_tick). */
+ * arrival's walk-out (001B07C0(1) writes 5/1/0 at entry 1) is the player's
+ * own stage: 0015B610 / 00183250 (em_player_floor.c). */
 static int tick_door(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
@@ -323,7 +321,6 @@ static int tick_door(EmActor *actor, Node *node, const EmArea11World *world)
         return em_scene_faulted(s_scene) ? -1
                                          : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
                                                  "fence door owner: a worker failed (em_area11_door)");
-    em_door_legacy_walkout_tick();
     return 1;
 }
 

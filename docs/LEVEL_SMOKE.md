@@ -37,15 +37,17 @@ line naming every route beat 00..14 and the state of each of its phases
 (live, NOT-LIVE driven, NOT-LIVE, or not reached). As of 2026-09-26: beats
 01..14 live on the main line (18 phases), the side beats 00 and 09 each in
 its own run, and `make test-level-smoke-full` requires all of them
-(`--require-through`, "Running it").
+(`--require-through`, "Running it"). Since 2026-09-27 the side-9 run goes on
+to the fence door's side 1 (`fence_door_side1`, the decomp's C7 DOOR1
+capture, not a route beat), which the same targets require.
 
 ## Running it
 
 ```sh
-make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door (about 16 s)
+make test-level-smoke                  # through truck_crossing, then side beat 09 fence_door and fence_door_side1 (about 16 s; side 1 adds about 5 s)
 make test-level-smoke-full             # the whole route through roger (about 30 s), then the side runs below (about 20 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 4 s), then side beat 09 (about 16 s), each its own run
+make test-level-smoke-side             # side beat 00 (about 4 s), then side beat 09 with side 1 (about 21 s), each its own run
 EM_LEVEL_SMOKE_UNTIL=first_control make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=status make test-level-smoke
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke
@@ -68,7 +70,7 @@ The make target does the following:
    2026-09-26). The side runs pass their own phase.
 
 `EM_LEVEL_SMOKE_UNTIL` takes a phase name from the table below. The binary's
-default is the last phase; the make target's default is `fence_door` (the main line through `truck_crossing`, then side beat 09)
+default is the last phase; the make target's default is `fence_door_side1` (the main line through `truck_crossing`, then side beat 09, then the fence door's side 1)
 (rule 4 of "Adding a phase"), and `EM_TEST_FULL=1` or
 `test-level-smoke-full` lifts it. An unknown name fails and lists the phases. The run stops
 at the first NOT-LIVE phase, because every later beat starts from the state
@@ -128,8 +130,12 @@ beats 00 and 09 are side phases (`Phase.side`): the main line names them
 starts from its own snapshot in the route. `EM_LEVEL_SMOKE_UNTIL=<side
 phase>` runs the main line up to it and then only it: `panel_no_battery`
 (beat 00, from first control) and `fence_door` (beat 09, from the truck
-crossing's end; the default `make test-level-smoke` run) are live, each in
-its own run (`make test-level-smoke-side` runs both).
+crossing's end) are live, each in its own run (`make test-level-smoke-side`
+runs both). `fence_door_side1` starts from `fence_door`'s end
+(`Phase.from_side`): `EM_LEVEL_SMOKE_UNTIL=fence_door_side1` runs the main
+line, `fence_door`, then it (the default `make test-level-smoke` run and the
+side-9 run of `make test-level-smoke-side`), and `--require-through
+fence_door_side1` requires both side phases.
 
 | Phase | Route beat | Original owners | Live | Waits on |
 |---|---|---|---|---|
@@ -145,6 +151,7 @@ its own run (`make test-level-smoke-side` runs both).
 | truck_preview | 07 | trigger 0x8251E0, camera script 0x8292C0 | yes (census L23, L19) | — |
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | fence_door (side) | 09 | door 001BC350 (001BBE40, the ELF program 0x24DE40 on the AREA11 script host, 001BC150), room move to entry 2 (0x1AE040 state 4) | yes, its own run (census L18) | — |
+| fence_door_side1 (side, from fence_door) | C7 DOOR1 (not a route beat) | the same door from behind the fence (clip 0x43, B7 = 1), room move to entry 1, 001B07C0(1)'s walk-out 5 / 1 / 0: the player's 0015B610 / 00183250 | yes, after fence_door in its run (2026-09-27) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
@@ -742,6 +749,55 @@ its 001BBE40 ran in the same frame), row for row to the capture's end (f532,
   001AE5E0, one weather and one title node before and after;
 - the follow camera from the re-place to f532, exact (eye, target, the
   block's +0x10 / +0x20 and +4..+7).
+
+### fence_door_side1 (the C7 DOOR1 capture, from fence_door's end)
+
+The capture is the decomp's `build/s87/c7cap/door1/c7_door1_fence_door_side1`
+(CAPTURES_C7.md section 4). It starts from route 09's end snapshot: entry 2,
+behind the fence, heading pi. The capture's own walk to the door (f0..f224)
+is its tool's navigation, not a route, and is not compared.
+
+The runner (`fence_door_side1_frame`) starts where `fence_door` ends. It:
+- turns toward the door (two `nav_face` calls, since the turn from pi takes
+  longer than one);
+- walks to (422.8, 282.0) at 0.6 stick, within 1.0;
+- walks to the capture's press stance (422.757, 284.633; f225) at 0.4
+  stick, within 0.1;
+- faces the capture's heading -0.12148 and presses Cross for two frames.
+
+It then waits, with the pad neutral, for the door's phases 3, 4 and 5, the
+player record at +4 = 5 / +5 = 1, the door back in phase 0, D_00810702 = 1
+and the record back at +4 = 1, +5 = 0, +1F0 = 0 with control. It settles 61
+frames (the capture ends 60 rows after control returns).
+
+**In process:** the scan, the door's phases 3 / 4 / 5 and 0 with its armed
+byte clear, B8 = 2 seen, the walk-out's state 5 / 1 seen, the player
+re-placed in room 1 and returned to +4 = 1.
+
+**Against the capture** (`check_fence_door_side1`), aligned on the scan
+(f228), row for row to the capture's end (f544, 317 rows), with the same
+fields as `check_fence_door`:
+- spad, the camera byte, the letterbox, the message block, power and
+  B0 / B1, and the script's camera while the frame is open;
+- the player's position (X / Z exact, Y within 1e-5) and heading on every
+  row: 001BBE40's side-1 alignment at f228, 001B07C0(1)'s entry 1 at f371,
+  then 00183250's walk-out (Z +0.3 per frame from f423, the hand-over frame
+  f453, the slowing steps to Z 312.51059 at f483);
+- the record's +5, +1F0, +1F1 and clip on every row, and its clock from the
+  program's clip 0x43 on (f232). This covers clip 2 from f371 with its clock
+  (1.0, then 45 counting down) and clip 0 from f480;
+- the door record's +0x00..+0x0F and +0x1F0..+0x1FF;
+- the room move through `tools/test_room_move_reference.py`'s checks (B7 =
+  1 this time);
+- the follow camera from the re-place (f371) to f544, exact;
+- the record's +4 (the tick log's `player` 8th value), which the capture does
+  not sample. It is 1 before 0015B130's admission, 4 from the admission to
+  the tick before the re-place, and 5 from the state-4 tick (001B07C0(1),
+  with +5 = 1, +1F0 still 0x41 and the selector 0). It is 1 again from
+  00183250's exit (f484), with +5 = 0 and +1F0 = 0.
+
+A mutation run (00183250's standing timer 49 instead of 50) fails at f422
+on the player's Z.
 
 ### crevice_climbs
 

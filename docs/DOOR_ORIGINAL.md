@@ -95,9 +95,6 @@ and +0x1F0..+0x1FF, the room move (B5..B9 and the fade block from f407,
 weather and title nodes) and the follow camera from the re-place.
 
 **Limits.**
-- Side 1 (entry 1) is not captured. Its arrival's walk-out (001B07C0 writes
-  5/1/0) is still em_door.c's legacy walk-out, ticked by the door's node
-  (`em_door_legacy_walkout_tick`).
 - The locked program (subtype 0x15, 0x24DEC0) faults: AREA11's door is
   subtype 3.
 - The door id's bit 7 (001B0C00, a whole-area change) faults: the exported
@@ -106,3 +103,67 @@ weather and title nodes) and the follow camera from the re-place.
   +0x4C (the nodes' +0x90, which the runtime test compares with the
   first-control capture word for word); only the draw reads them. The
   runtime's model is no longer uploaded as a mesh.
+
+## Side 1: the arrival walk-out (live, 2026-09-27)
+
+Pressing Cross at the door from behind the fence (side 1) moves the player
+to entry 1 (413.7, 184.84, 299.4), heading 0. The spawn record of entry 1
+has the walk-out byte (+0x14) set, so state 4's 001B07C0(1) writes the
+player's +4 = 5, +5 = 1, +6 = 0. The original capture is the decomp's C7
+DOOR1 (`c7_door1_fence_door_side1`, CAPTURES_C7.md section 4).
+
+The walk-out is the player's own stage, with no door code involved:
+
+| Original | Port |
+|---|---|
+| 001B07C0(1)'s +4 / +5 / +6 | `spawn_commit` (em_scene_bindings.c) writes them into the live record |
+| 0015BA50 +4 = 5 | `em_player_stage_dispatch`: the advance by +0x34, then major[5] |
+| 0015B610 | `em_player_stage_0015B610` (em_player_floor.c), bound by em_player_stage_live over the stage's 00182B30 / 00174A50 / 00182D70 |
+| 00183240 (+5 = 0) | an empty leaf (byte-matched) |
+| 00183250 (+5 = 1) | `em_player_00183250` (em_player_floor.c), bound by em_player_closure_live: 0017B490 (`em_player_closure_live_0017B490`), 001749A0 (the record pose), 00178B90 (the recovery lane's translate), 00174A50, 00175900 (the floor service), 0x70003B8D through the stage's view |
+| 001833F0 / 00183440 / 001834E0 (+5 = 2..4) | not translated: reaching one faults (no first-level spawn record or script writes them) |
+
+00183250 runs the walk-out's phases:
+- 1 frame starts clip 2 (0017B490(p, 1, +0x235, 2)) at speed 0.3;
+- 51 frames stand (the timer counts down from 50);
+- 31 frames: 30 moves (00178B90 along +0xC4 by +0x38), then the hand-over
+  frame with no move (f453);
+- 31 frames: 30 moves while +0x38 drops by 0.01137 per frame, then the exit
+  frame, which returns +4 = 1, +5 = 0, +6 = 0, +0x1F0 = 0 and 0x70003B8D =
+  0.
+
+When +0x38 falls below 0 it is cleared and 00174A50(p, 12.0) requests the
+row's clip. This happens on the 27th slowing frame (f480) and on every
+slowing frame after it. The whole walk-out is 114 frames, f371..f484 in the
+capture.
+
+The door script's takeover still holds the player when 001B07C0 re-states
+it. 0015B530's 00182DF0 never runs for that takeover (+0x1F0 stays 0x41
+until f484). So the pose host's hold and the script owner's token end at
+the re-place (`player_pose_takeover_restated`), without touching the
+record.
+
+**Evidence.**
+- `tools/test_player_floor_reference.py` executes the original 0015B610
+  (the "stage" cases: every +5 routine, selector 0 / 4, 00182B30's pass,
+  both admission branches) and the original 00183250. The 00183250 cases
+  are random phases, timers and speeds, plus the whole walk-out on one
+  record: 114 frames, 60 moves, and the first 00174A50 on frame 109.
+  Every record byte, 0x70003B8D and every callee call with its arguments
+  are compared.
+- The level smoke's `fence_door_side1` phase (LEVEL_SMOKE.md) equals the
+  capture row for row from the Use scan (f228) to its end (f544):
+  - the alignment, the program with clip 0x43, the room move with B7 = 1,
+    the re-place at entry 1;
+  - the walk-out's 52 standing frames, 30 walking, 30 slowing, the stop at
+    f480 and control at f484, with the clip and its clock;
+  - the door record;
+  - the follow camera.
+
+**Retired:** the AREA11 hook of em_door.c's legacy walk-out
+(`em_door_legacy_walkout_tick` on the door's node, and the walk-out that
+`em_door_room_move_arrival` armed at the re-place). `em_door_room_move_arrival`
+and the S12b stage release `em_door_movement_stage_release` are removed with
+it: without a legacy door in AREA11 they had nothing to release. The legacy
+walk-out stays only for the legacy doors of the scenes without an original
+roster.

@@ -343,6 +343,7 @@ static struct {
     EmPlayerStage stage;          /* context of stage.major[1] / major[2] */
     int busy_known;
     uint8_t loaded3B8F;           /* 3B8F as the scene view last loaded it */
+    uint8_t loaded3B8D;           /* 3B8D as the scene view last loaded it */
     int consumed;                 /* this stage: the interaction runtime's takeover owned it */
     int port_ran;                 /* this stage: a port callback (legacy idle/walk or a stand-in) ran */
     /* 00161020 / 001612D0 as the binder bound them (census L12; the closure
@@ -384,6 +385,7 @@ static unsigned stage_missing_names(const char **names, unsigned capacity)
         { s->scripted_notify != NULL, "00182D70 (0015B130 prelude)" },
         { s->row_request != NULL, "00174A50 (0015B130 prelude)" },
         { s->major[4] != NULL, "0015B530 (+4 = 4, entered by 0015B130's prelude)" },
+        { s->major[5] != NULL, "0015B610 (+4 = 5, entered by 001B07C0(1)'s walk-out)" },
         { s->major[6] != NULL, "0015D460 (+4 = 6, entered by 0015BCF0's -200 check)" },
     };
     unsigned count = 0;
@@ -1047,6 +1049,7 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
         /* The takeover stores 3B8D / 3B8F (its frame view): reload. */
         live.busy_known = live_scene_load();
         live.loaded3B8F = live.scene.spad3B8F;
+        live.loaded3B8D = live.scene.spad3B8D;
         if (consumed == 2) {
             /* A port stand-in holding the source lets go first; then
              * 0015B130 with its prelude. */
@@ -1125,6 +1128,7 @@ int player_states_stage(void)
     }
     live.busy_known = live_scene_load();
     live.loaded3B8F = live.scene.spad3B8F;
+    live.loaded3B8D = live.scene.spad3B8D;
     if (live.b.load && live.b.load(live.b.load_context) < 0) {
         live_fault("the stage workers' scene view is not available");
         return 0;
@@ -1177,6 +1181,8 @@ int player_states_stage(void)
     }
     /* 0015B130 / 00182D70 write 0x70003B8F through the stage's view. */
     if (live.scene.spad3B8F != live.loaded3B8F) em_scene_state()->spad3B8F = live.scene.spad3B8F;
+    /* 00183250's exit (+4 = 5's walk-out) clears 0x70003B8D through the view. */
+    if (live.scene.spad3B8D != live.loaded3B8D) em_scene_state()->spad3B8D = live.scene.spad3B8D;
     /* 0015BCF0 after 0015BA50: +BC, the -200 check and the loop-sound stop. */
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
     if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
@@ -1481,22 +1487,12 @@ static int player_standin_callbacks(void)
         }
     }
 
-    /* ARRIVAL WALK-OUT (engine player state 5/1, func_00183250 —
-     * em_door.h step 4).
-     * PROVENANCE (audit): func_00183250 is byte-matched but exists in
-     * the decomp ONLY as an asm-void .word body (src/func_00183250.c) —
-     * there is no recovered C, so the frame counts and speeds below
-     * cannot be re-checked against it. Treat them as OBSERVED /
-     * port stand-in until that function gets a readable decompilation,
-     * not as source-derived constants.
-     * After the re-place the
-     * player UNINTERRUPTIBLY walks out through the door along the exit
-     * yaw — 50 frames of clip-in-place (mostly under the fade-in), 30
-     * frames at the locIdx-2 speed (0.3 u/tick), 30 frames decaying to
-     * a stop (~12.8 u total). The stick is never read (state 5 has no
-     * free-move spine); em_door owns the phases, this consumes the
-     * per-frame command. Collision-free like the transit MOVE-TO (the
-     * engine runs its own mover in the destination area's geometry). */
+    /* The legacy door's ARRIVAL WALK-OUT (the scenes without an original
+     * roster only; em_door.c's warp arms it). AREA11's arrival is the
+     * original's: 001B07C0(1) writes +4 = 5, +5 = 1, +6 = 0 and the stage
+     * runs 0015B610 / 00183250 (em_player_floor.c, DOOR_ORIGINAL.md
+     * "Side 1"). This stand-in's frame counts and speeds are observed,
+     * not read from 00183250. */
     {
         float wyaw, wspeed;
         if (em_door_walkout_active(&wyaw, &wspeed)) {
@@ -1527,10 +1523,6 @@ static int player_standin_callbacks(void)
      * is separate (em_door_menu_locked, consumed by em_hud) and ends
      * earlier, at fade-in completion. */
     if (em_door_movement_locked()) {
-        /* A re-place's release happens here, in the stage (see
-         * em_door_movement_stage_release): this callback still returns
-         * without its tail, as the original's release stage does. */
-        (void)em_door_movement_stage_release();
         player_pose_legacy_hold("legacy door interaction source is not recovered");
         g.move_speed = 0.0f;
         g.loco_tier  = 0;          /* scripted mode exits locomotion:

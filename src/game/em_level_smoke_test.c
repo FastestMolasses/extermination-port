@@ -60,6 +60,10 @@ typedef struct {
      * skips it and names it NOT-LIVE / side; EM_LEVEL_SMOKE_UNTIL=<it>
      * runs the main line up to it and then only it. */
     int side;
+    /* 1: a side beat that starts from the previous side beat's end (the
+     * C7 side-1 capture starts from beat 09's end): EM_LEVEL_SMOKE_UNTIL=<it>
+     * runs the main line, that previous side beat, then it. */
+    int from_side;
 } Phase;
 
 static void first_control_begin(void);
@@ -86,6 +90,8 @@ static void truck_crossing_begin(void);
 static int truck_crossing_frame(void);
 static void fence_door_begin(void);
 static int fence_door_frame(void);
+static void fence_door_side1_begin(void);
+static int fence_door_side1_frame(void);
 static int walk_path(const float (*path)[2], int count, float tol);
 static void cage_ladders_begin(void);
 static int cage_ladders_frame(void);
@@ -105,70 +111,75 @@ static int roger_frame(void);
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
      "0x1AE040 state 1 with 001AE5E0; the AREA11 pool of 49 nodes (ORIGINAL_FRAME_ORDER.md 2, 4)",
-     "S12a", first_control_begin, first_control_frame, 0, 0},
+     "S12a", first_control_begin, first_control_frame, 0, 0, 0},
     {"panel_no_battery", "00_panel_no_battery (side, slot 04)", 0x00159210u,
      "panel 00159210 (r18) without item 0x1B: script 0x246F20, message 0x80000018, letterbox",
      "WP-4 (the panel's original owner and its scripts)", panel_no_battery_begin, panel_no_battery_frame, 0,
-     1},
+     1, 0},
     {"status", "01_battery (status exit); frame_trace2/status_04.json", 0,
      "001AE7E0 r==2 -> state 3 (0020E060, 0020CDC0) -> state 5 -> state 1 (ORIGINAL_FRAME_ORDER.md Q7)",
-     "S11b", status_begin, status_frame, 0, 0},
+     "S11b", status_begin, status_frame, 0, 0, 0},
     {"battery", "01_battery", 0x00219550u,
      "pickup 00219550 g0.0 (item 0x1B): take script 0x266620, B0=1/B1=0x1B, status ITEM page",
      "WP-6 (pickup owner and Use arbiter) with WP-5 (status ITEM page)", battery_begin, battery_frame,
-     0, 0},
+     0, 0, 0},
     {"elevator_refusal", "02_elevator_refusal", 0x00827B10u,
      "terminal 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox",
-     "WP-4", refusal_begin, refusal_frame, 0, 0},
+     "WP-4", refusal_begin, refusal_frame, 0, 0, 0},
     {"panel", "03_panel_power", 0x00159210u,
      "panel 00159210 (r18): script 0x2477A0, 00157F60 B0=1/B1=0x82 (BATTERY page), discharge, "
      "script 0x247BE0, power bit 0x80",
-     "WP-4", panel_begin, panel_frame, 0, 0},
+     "WP-4", panel_begin, panel_frame, 0, 0, 0},
     {"elevator", "04_elevator_ride", 0x00827B10u,
      "terminal 0x827B10: powered script 0x82A750, clip 0x47, carry 0x828050 down to y 190", "WP-4",
-     elevator_begin, elevator_frame, 0, 0},
+     elevator_begin, elevator_frame, 0, 0, 0},
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
-     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0},
+     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
-     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0},
+     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
-     truck_preview_frame, 0, 0},
+     truck_preview_frame, 0, 0, 0},
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
-     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0},
+     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0, 0},
     {"fence_door", "09_fence_door (side, from 08)", 0x001BC350u,
      "door 001BC350 (r0): scripts 0x24DE40 / 0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2",
      "the fence door's original owner and the ELF program on the AREA11 script host (census L18)",
-     fence_door_begin, fence_door_frame, 0, 1},
+     fence_door_begin, fence_door_frame, 0, 1, 0},
+    {"fence_door_side1", "c7_door1_fence_door_side1 (side, from 09; decomp CAPTURES_C7.md section 4)", 0x001BC350u,
+     "door 001BC350 (r0) from behind the fence: scripts 0x24DE40 / 0x24DC00, clip 0x43, room move B7=1/B8=2 "
+     "to entry 1; the arrival walk-out 001B07C0(1) 5/1/0 on the player's 0015B610 / 00183250",
+     "the player's +4 = 5 handler 0015B610 and 00183250 (fence door side 1)", fence_door_side1_begin,
+     fence_door_side1_frame, 0, 1, 1},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
-     cage_ladders_frame, 0, 0},
+     cage_ladders_frame, 0, 0, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
      "director 0x8253F0 beat 0 script 0x8294C0 (260 <= Y <= 280, quad 0x82ABE0); Roger 0x8237E0 script "
      "0x828990 (voiced line 0x7F, VOICE.DAT cues 143..148); D_00810813 0 -> 1 -> 0x10 -> 0x11",
      "census L21 with WP-8b (the director on its original scripts, the voice lanes)", director_begin,
-     cage_roof_frame, 0, 0},
+     cage_roof_frame, 0, 0, 0},
     {"crevice_climbs", "11_crevice_prompt", 0,
      "tank ledge climb (state 2, +1F0 8), the pipes (fall 5 / 0xB), pipe-end ledge climb",
      "the ledge climb and fall on the live record (census L04, L02)", crevice_climbs_begin,
-     crevice_climbs_frame, 0, 0},
+     crevice_climbs_frame, 0, 0, 0},
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
      "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97, VOICE.DAT cue 150); D_00810813 -> 0x20",
-     "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0},
+     "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
-     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0},
+     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0},
     {"east_tower_climb", "13_east_tower", 0, "high ledge climb (state 2, +1F0 8) onto the east tower top",
-     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0},
+     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0, 0},
     {"east_tower", "13_east_tower", 0x008253F0u,
      "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99, VOICE.DAT cue 149); D_00810813 -> 0xFF",
-     "census L21 with WP-8b", director_begin, east_tower_frame, 0, 0},
+     "census L21 with WP-8b", director_begin, east_tower_frame, 0, 0, 0},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
-     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0},
+     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0, 0},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -225,11 +236,18 @@ static uint8_t task_byte(unsigned offset)
     return b ? *b : 0xFF;
 }
 
+/* A side phase the run to `until` plays: `until` itself, or the side phase
+ * it starts from (Phase.from_side). */
+static int side_played(int i)
+{
+    return i == t.until || (k_phases[t.until].from_side && i == t.until - 1);
+}
+
 static void report_not_live(int from)
 {
     for (int i = from; i <= t.until; ++i) {
         const Phase *p = &k_phases[i];
-        if (p->side && i != t.until)
+        if (p->side && !side_played(i))
             continue;
         const char *binding = p->owner ? em_scene_bindings_pool_binding(p->owner) : NULL;
         char owner[160] = "";
@@ -301,7 +319,7 @@ static void next_phase(void)
     ++t.current;
     /* The main line passes a side beat by: named, not run (it starts from
      * its own snapshot in the route). */
-    while (t.current < t.until && k_phases[t.current].side) {
+    while (t.current < t.until && k_phases[t.current].side && !side_played(t.current)) {
         const Phase *p = &k_phases[t.current];
         if (p->begin) {
             fprintf(stderr, "level smoke: %s: side beat, not on the main line (route beat %s; live, run on its "
@@ -1593,6 +1611,89 @@ static int fence_door_frame(void)
         }
         fprintf(stderr, "level smoke: fence_door: PASS scan_d810750=%d player=(%.3f,%.5f,%.3f) yaw=%.5f room=%u\n",
                 (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw, em_scene_state()->d810702);
+        return 1;
+    }
+    }
+}
+
+/* ---------------------------------------------------- fence_door_side1
+ *
+ * The C7 capture c7_door1_fence_door_side1 (decomp docs/CAPTURES_C7.md
+ * section 4), from route beat 09's end (entry 2, behind the fence): the
+ * stick turns toward the door, walks to (422.8, 282.0; 0.6 stick, within
+ * 1.0), then to
+ * the capture's press stance (422.757, 284.633; f225) at 0.4 stick within
+ * 0.1, faces its heading -0.12148 and presses Cross (f225, two
+ * frames). The capture's own approach walk (f0..f224) is its tool's
+ * navigation, not compared. 00184BA0 selects the door from the south; its
+ * 001BBE40 (f228: side 1, the alignment and heading) starts the program
+ * with clip 0x43; 001BC150 (f306: B7 = 1, B8 = 2); 0x1AE040 state 4 re-places
+ * the player at entry 1 (f371), where 001B07C0(1) writes +4 = 5, +5 = 1, +6 =
+ * 0: 0015B610 runs 00183250, the arrival walk-out (52 frames standing, 30
+ * walking, 30 slowing), whose exit returns +4 = 1, +5 = 0, +1F0 = 0 (f484).
+ * In process: the scan, the door's phases 3 / 4 / 5 and 0, B8 = 2, the
+ * record at +4 = 5 after the re-place, D_00810702 = 1, and control back on
+ * +4 = 1. tools/test_level_smoke.py check_fence_door_side1 compares the
+ * capture row for row. */
+enum { FENCE_DOOR_SIDE1_LIMIT = 900 };
+
+static void fence_door_side1_begin(void)
+{
+    nav_reset();
+    if (em_scene_state()->d810700 != 0x0B || em_scene_state()->d810702 != 2)
+        fail("fence door side 1 starts in AREA11 room 2 (route beat 09's end)");
+}
+
+static int fence_door_side1_frame(void)
+{
+    uint8_t head[16], block[16];
+    int door = em_area11_door_state(head, block);
+    const EmPlayerLiveActor *rec = player_states_actor();
+    if (door && head[5] == 3) t.saw[0] = 1;
+    if (door && head[5] == 4) t.saw[1] = 1;
+    if (door && head[5] == 5) t.saw[2] = 1;
+    if (em_scene_state()->req[EM_SCENE_REQ_B8] == 2) t.saw[3] = 1;
+    if (rec->bytes[4] == 5 && rec->bytes[5] == 1) t.saw[4] = 1;
+    switch (t.step) {
+    case 0: /* the turn from entry 2's heading pi takes longer than one face() */
+    case 1: NAV_STEP(nav_face(-0.14f));
+    case 2: NAV_STEP(nav_goto(422.8f, 282.0f, 1.0f, 0.6f, 0));
+    case 3: NAV_STEP(nav_settle(5));
+    case 4: NAV_STEP(nav_goto(422.757f, 284.633f, 0.1f, 0.4f, 1));
+    case 5: NAV_STEP(nav_settle(20));
+    case 6: NAV_STEP(nav_face(-0.12148f));
+    case 7: NAV_STEP(nav_settle(30));
+    case 8:
+        (void)scan_accepted();
+        NAV_STEP(nav_press(EM_PAD_CROSS, 2));
+    case 9:
+        (void)scan_accepted();
+        pad_apply(0, 0, 0);
+        if (!(door && t.saw[4] && head[5] == 0 && em_scene_state()->d810702 == 1 && rec->bytes[4] == 1 &&
+              rec->bytes[5] == 0 && rec->bytes[0x1F0] == 0 && in_control())) {
+            if (++t.nav_frames > FENCE_DOOR_SIDE1_LIMIT)
+                fail(t.saw[4] ? "the arrival walk-out did not return the player (+4 = 1)"
+                     : t.saw[0] ? "the door's room move did not re-place the player at entry 1 in state 5/1"
+                                : "Cross at the fence door from side 1 did not start the door (+5 = 3)");
+            return 0;
+        }
+        nav_reset();
+        ++t.step;
+        return 0;
+    default: {
+        /* 61 frames: the capture ends 60 rows after control returns (f544). */
+        int r = nav_settle(61);
+        if (r <= 0)
+            return 0;
+        if (!t.saw[7] || !t.saw[0] || !t.saw[1] || !t.saw[2] || !t.saw[3] || head[0x0B] != 0) {
+            fprintf(stderr, "level smoke: fence_door_side1: scan %u phases 3/4/5 %u/%u/%u B8=2 %u armed %02X\n",
+                    t.saw[7], t.saw[0], t.saw[1], t.saw[2], t.saw[3], head[0x0B]);
+            fail("the door did not run its phases 3, 4, 5 and the room move from the Use scan");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: fence_door_side1: PASS scan_d810750=%d player=(%.3f,%.5f,%.3f) yaw=%.5f "
+                        "room=%u\n", (int)t.scan_variants, g.pos[0], g.pos[1], g.pos[2], g.yaw,
+                em_scene_state()->d810702);
         return 1;
     }
     }

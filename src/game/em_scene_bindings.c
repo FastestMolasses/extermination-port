@@ -1453,9 +1453,12 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *   +0x224/+0x22C     g.pd_pend_hp/g.pd_pend_inf (arg0 1 drops them)
  *   +0x00             arg0 1 with pending damage writes 1: no port storage
  *                     (1 in every capture)
- *   +0x04/+0x05/+0x06 arg0 1 with the record's +0x14 byte 1 writes 5/1/0,
- *                     the walk-out state 5/1: the legacy walk-out
- *                     (em_door_room_move_arrival, S12b)
+ *   +0x04/+0x05/+0x06 arg0 1 with the record's +0x14 byte 1 writes 5/1/0
+ *                     (AREA11 entry 1): committed to the live record, whose
+ *                     stage then runs 0015B610 / 00183250, the arrival
+ *                     walk-out (em_player_floor.c); a takeover the stage
+ *                     held ends there without 00182DF0
+ *                     (player_pose_takeover_restated)
  * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
  * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
  * pose D_00810710..728 has no canonical storage; its only writer, 0x1AE040
@@ -1473,6 +1476,13 @@ static void spawn_commit(const EmSpawnIo *io)
     for (unsigned i = 0; rec && i < 4u; ++i) {
         em_live_set_f32(rec, 0x60 + 4 * i, io->player.f060[i]);   /* 001B07C0's scale words */
         em_live_set_f32(rec, 0x80 + 4 * i, io->player.f080[i]);   /* ... and colour words */
+    }
+    if (rec && io->player.b004 != 0) {
+        /* The walk-out branch is 001B07C0's only +4/+5/+6 store (the image
+         * starts zeroed): 5 / 1 / 0. */
+        em_live_set_u8(rec, 4, io->player.b004);
+        em_live_set_u8(rec, 5, io->player.b005);
+        em_live_set_u8(rec, 6, io->player.b006);
     }
     g.pos[0] = io->player.f0B0[0];
     g.pos[1] = io->player.f0B0[1];
@@ -1668,13 +1678,15 @@ static int w_001B07C0(void *ctx, int a0)
         em_game_legacy_state0_fixtures();
         return 0;
     }
-    /* State 4: the player state 001B07C0 wrote (5/1/0 = the walk-out at
-     * entry 1: still the legacy walk-out, em_door.c; route beat 09's entry 2
-     * has none). The door and its program are the original owner's since
-     * census L18 (em_area11_door); 0x1AE040 clears the camera byte
-     * D_008101E4 below (0x1AE0BC, stored at w_0018D7B0). */
-    em_door_room_move_arrival(io.player.b004 == 5 && io.player.b005 == 1 && io.player.b006 == 0,
-                              g.yaw);
+    /* State 4: 001B07C0 wrote the walk-out (5/1/0, entry 1: the fence
+     * door's side 1; route beat 09's entry 2 has none) into the record
+     * (spawn_commit), which the door script's takeover still held: its
+     * hold ends here (player_pose_takeover_restated), as 0015B530's
+     * 00182DF0 never runs for it. The door and its program are the
+     * original owner's since census L18 (em_area11_door); 0x1AE040 clears
+     * the camera byte D_008101E4 below (0x1AE0BC, stored at w_0018D7B0). */
+    if (io.player.b004 != 0 && player_pose_takeover_restated() < 0)
+        return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_WORKER_FAILED);
     return 0;
 }
 

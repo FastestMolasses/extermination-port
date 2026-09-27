@@ -572,6 +572,48 @@ C7 capture; IOP_STREAM.md "Drive model", census 1.30):**
   - Census unchanged: live 660, verified-unbound 77, unverified 3,
     missing 1, boundary 443.
 
+**Status update (2026-09-27, the fence door's side 1: the arrival
+walk-out on its originals; DOOR_ORIGINAL.md "Side 1", census 1.31):**
+- **Side 1 is live and compared.** The decomp's C7 DOOR1 capture presses
+  Cross at the door from behind the fence. The level smoke's
+  `fence_door_side1` phase plays it from `fence_door`'s end and equals the
+  capture row for row from the scan (f228) to f544. This covers the side-1
+  alignment, clip 0x43, B7 = 1, the re-place at entry 1, the walk-out, the
+  door record and the follow camera.
+- **The walk-out is the player's own stage.**
+  - 001B07C0(1)'s +4 / +5 / +6 = 5 / 1 / 0 go into the live record.
+  - The stage's +4 = 5 handler is the translated 0015B610.
+  - Its +5 = 1 routine is the translated 00183250, bound by the closure
+    binder over the record's 0017B490, 001749A0, 00178B90, 00174A50 and
+    00175900.
+  - Its +5 = 2..4 routines (001833F0, 00183440, 001834E0) fault: no
+    first-level record writes them.
+  - The hold of the door script's takeover ends at the re-place without
+    00182DF0 (`player_pose_takeover_restated`), because the original never
+    runs 00182DF0 for it.
+- **Retired:** the legacy walk-out's AREA11 hook
+  (`em_door_legacy_walkout_tick`), `em_door_room_move_arrival` and
+  `em_door_movement_stage_release`. The legacy walk-out stays only for the
+  legacy doors of the scenes without an original roster.
+- **Renderer fix found on the way.** Before this step the port quit at the
+  side-1 press stance. There the camera looks down from above the door, and
+  a receiver vertex of the shadow's clip kernel at w 0.24 could not be
+  unprojected to a binary32 point within 1/16 pixel. The unprojection now
+  searches the rounded point's binary32 neighbours. The 1/16-pixel check
+  itself is unchanged (SHADOW_ORIGINAL.md).
+- **Evidence.**
+  - test-player-floor-reference: the executed 0015B610 and 00183250, plus
+    the whole walk-out on one record (114 frames, 60 moves, the first stop
+    request on frame 109).
+  - test-level-smoke-full with --require-through (the side-9 run now plays
+    and requires fence_door_side1 too).
+  - A mutation run (standing timer 49) fails at f422.
+  - newgame-control 9.599849.
+  - compare_frame_order PASS.
+  - All make test-* pass.
+  - Census unchanged: live 660, verified-unbound 77, unverified 3,
+    missing 1, boundary 443.
+
 ---
 
 ## 2. Live call graph (normal run)

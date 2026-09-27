@@ -671,6 +671,11 @@ class StageFade(C.Structure):
     _fields_ = [('context', C.c_void_p), ('fade', FADE_FN)]
 
 
+class StageMajor5(C.Structure):
+    """EmPlayerStageMajor5 (em_player_floor.h)."""
+    _fields_ = [('stage', Stage), ('routine', STATE_FN * 5), ('routine_context', C.c_void_p * 5)]
+
+
 STAGE_BEGIN_ADDR, STAGE_ACTOR_ADDR = 0x15BA50, 0x15BCF0
 WRAPPER1, WRAPPER2, KILL_PLANE = 0x15B130, 0x15B770, 0x15D460
 ADVANCE_TIME, COMMIT = 0x1C64F0, 0x183090
@@ -690,6 +695,8 @@ TABLE2 = {0: 0x21D800, 23: 0x21D800, 1: 0x21E240, 2: 0x21E490, 24: 0x21E490, 3: 
           19: 0x21EAD0, 20: 0x21EF30, 21: 0x224FE0, 22: 0x225570, 25: 0x2255C0}
 PHASE13 = (0x21FB40, 0x2208C0, 0x220D30, 0x221630, 0x221C70)
 PHASE14 = (0x21FED0, 0x220B50, 0x221060, 0x2217C0)
+# 0015B610's routines by +5 (EmPlayerStageMajor5.routine).
+MAJOR5 = (0x183240, 0x183250, 0x1833F0, 0x183440, 0x1834E0)
 STAGE_NOOPS = (0x102948, 0x1C6DA0, 0x1C68C0, 0x1C6960, 0x15CF90, 0x15CBA0, 0x187350)
 
 
@@ -709,7 +716,7 @@ class StageOracle(Floor):
             return run
         for n, address in MAJORS.items(): self.calls[address] = routine(('major', n))
         for i, address in enumerate(TABLE1): self.calls[address] = routine(('state', address))
-        for address in set(TABLE2.values()) | set(PHASE13) | set(PHASE14):
+        for address in set(TABLE2.values()) | set(PHASE13) | set(PHASE14) | set(MAJOR5):
             self.calls[address] = routine(('state', address))
         def result(tag, address):
             return lambda o: (o.log.append(tag),
@@ -778,6 +785,7 @@ class NativeStage:
         for i, address in TABLE2.items(): w.state2[i] = routine(('state', address))
         for i, address in enumerate(PHASE13): w.phase13[i] = routine(('state', address))
         for i, address in enumerate(PHASE14): w.phase14[i] = routine(('state', address))
+        self.major5 = [routine(('state', address)) for address in MAJOR5]
 
 
 # Deterministic scenarios, one per case at the start of each routine's run
@@ -818,6 +826,12 @@ STAGE_SCENARIOS = {
                 [_sc({5: 0xE, 0xD: n}) for n in (3, 4)] +
                 [_sc({5: 8}), _sc({5: 0x19}), _sc({5: 0x1A}), _sc({5: 23}), _sc({5: 24})],
     '0015D460': [_sc({5: n}) for n in range(4)],
+    '0015B610': [_sc({5: n}, scene={'spad3B8D': 0}) for n in (0, 1, 2, 3, 4, 5)] +
+                [_sc({5: 1}, scene={'spad3B8D': 4}),
+                 _sc({5: 1}, scene={'spad3B8D': 3}, results={SCRIPTED_CHECK: 1}),
+                 _sc({5: 3}, scene={'spad3B8D': 3}, results={SCRIPTED_CHECK: 0}),
+                 _sc({5: 1}, scene={'spad3B8D': 3}, results={SCRIPTED_CHECK: 0}),
+                 _sc({5: 2}, scene={'spad3B8D': 1}, results={SCRIPTED_CHECK: 0})],
 }
 
 
@@ -866,12 +880,14 @@ def stage_section(elf, native, rng, result):
     native.em_player_stage_0015B130.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
     native.em_player_stage_0015B770.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
     native.em_player_stage_0015D460.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
-    counts = {'0015BA50': 0, '0015BCF0': 0, '0015B130': 0, '0015B770': 0, '0015D460': 0}
+    native.em_player_stage_0015B610.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    routines = ('0015BA50', '0015BCF0', '0015B130', '0015B770', '0015D460', '0015B610')
+    counts = {name: 0 for name in routines}
     samples = reference_mode.pick(3000, 150)
     paths = set()
     for case in range(samples):
         raw = stage_actor(rng)
-        routine = ('0015BA50', '0015BCF0', '0015B130', '0015B770', '0015D460')[case % 5]
+        routine = routines[case % len(routines)]
         scene = StageScene(rng.choice([0, 0, 3]), rng.choice([0, 1, 2, 2, 3]), rng.choice([0xB, 0xB, 0x15]),
                            rng.choice([0, 0, 1]), rng.choice([0, 0, 1]), rng.choice([0, 1]))
         exits = {}
@@ -894,11 +910,14 @@ def stage_section(elf, native, rng, result):
             raw[5] = rng.choice(list(range(0x29)) + [0x19, 0x19, 5, 0x1C])
         elif routine == '0015B770':
             raw[5] = rng.choice(list(range(0x1D)) + [0xD, 0xE, 0x19]); raw[0xD] = rng.randrange(6)
+        elif routine == '0015B610':
+            raw[4] = 5; raw[5] = rng.choice([0, 1, 1, 2, 3, 4, 5, 0x17])
+            scene.spad3B8D = rng.choice([0, 0, 1, 3, 4])
         else:
             raw[5] = rng.choice([0, 1, 2, 3])
         scenarios = STAGE_SCENARIOS[routine]
-        if case // 5 < len(scenarios):
-            forced = scenarios[case // 5]
+        if case // len(routines) < len(scenarios):
+            forced = scenarios[case // len(routines)]
             for offset, value in forced['raw'].items(): raw[offset] = value
             for name, value in forced['scene'].items(): setattr(scene, name, value)
             results.update(forced['results'])
@@ -932,6 +951,11 @@ def stage_section(elf, native, rng, result):
         elif routine == '0015B770':
             oracle.call(WRAPPER2, ACTOR)
             assert native.em_player_stage_0015B770(C.addressof(stage), C.byref(live)) == 0
+        elif routine == '0015B610':
+            major5 = StageMajor5(stage)
+            for i, fn in enumerate(side.major5): major5.routine[i] = fn
+            oracle.call(MAJORS[5], ACTOR)
+            assert native.em_player_stage_0015B610(C.addressof(major5), C.byref(live)) == 0
         else:
             fade = StageFade(None, FADE_FN(lambda _, a0, a1: (side.log.append(('fade', a0, a1)), 0)[1]))
             oracle.call(KILL_PLANE, ACTOR)
@@ -966,12 +990,23 @@ def stage_section(elf, native, rng, result):
         elif routine == '0015B770':
             if raw[5] in (0xD, 0xE) and 'state' in tags: paths.add('phase')
             if raw[5] == 0x19: paths.add('0x19')
+        elif routine == '0015B610':
+            if 'state' in tags: paths.add(('0015B610 routine', want[-1][1]))
+            if 'state' in tags and scene.spad3B8D == 4: paths.add('0015B610 selector 4')
+            if 'state' in tags and 'check' in tags: paths.add('0015B610 check passes')
+            if 'notify' in tags and raw[5] == 3: paths.add('0015B610 admits 0x17')
+            if 'notify' in tags and 'row' in tags: paths.add('0015B610 admits with 00174A50')
+            if 'notify' in tags and raw[5] not in (1, 3): paths.add('0015B610 admits')
+            if not want: paths.add('0015B610 no routine')
         else:
             if 'fade' in tags: paths.add('fade')
     need = {('major', n) for n in range(8)} | {'busy', 'commit', 'below -200', ('stop', 0x5DD),
             ('stop', 0x12E), ('stop', 0x135), ('stop outside +4 1', 0x12E), ('stop outside +4 1', 0x135),
             ('kept', 0x12E), ('kept', 0x135), ('kept', 0x5DD), 'prelude', 'prelude falls through', 'reaction skips',
-            'drain', '0x19 takeover', 'state routine', 'phase', '0x19', 'fade'}
+            'drain', '0x19 takeover', 'state routine', 'phase', '0x19', 'fade',
+            '0015B610 selector 4', '0015B610 check passes', '0015B610 admits 0x17',
+            '0015B610 admits with 00174A50', '0015B610 admits', '0015B610 no routine'} | \
+        {('0015B610 routine', address) for address in MAJOR5}
     assert need <= paths, sorted(map(str, need - paths))
     # A missing worker the routine reaches is a fault.
     live = LiveActor(); live.bytes[4] = 1
@@ -987,6 +1022,133 @@ def stage_section(elf, native, rng, result):
         assert live.bytes[0xB] == 1 and scene.busy == 0, drop
     result['stage_cases'] = counts
     result['stage_paths'] = len(paths)
+
+
+# ------------------------------------------ 00183250, the arrival walk-out
+
+ARRIVAL = 0x183250
+CLIP_LOOKUP, REQUEST_CLIP, TRANSLATE_P, ROW_P = 0x17B490, 0x1749A0, 0x178B90, 0x174A50
+LOOKUP_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor), C.c_int, C.c_int, C.c_int,
+                        C.POINTER(C.c_int16))
+REQUEST_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor), C.c_int, C.c_int, C.c_float)
+TRANSLATE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor), C.c_int)
+FLOOR_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(LiveActor), C.c_int, C.POINTER(C.c_int))
+
+
+class ArrivalWorkers(C.Structure):
+    """EmPlayerArrivalWorkers (em_player_floor.h)."""
+    _fields_ = [('context', C.c_void_p), ('clip_lookup', LOOKUP_FN), ('request', REQUEST_FN),
+                ('translate', TRANSLATE_FN), ('row_request', BLEND_FN), ('floor', FLOOR_FN),
+                ('spad3B8D', C.POINTER(C.c_uint8))]
+
+
+def arrival_case(elf, native, raw, spad3B8D, clip):
+    """00183250 executed over `raw` against em_player_00183250: every
+    callee hooked and recorded with the record words it can see (+0x38 at
+    00178B90 and 00174A50, +0xB4 at 00175900), 0017B490 answering `clip`
+    (a 32-bit return whose low halfword the routine keeps). Returns the
+    native image and the call log."""
+    oracle = Floor(elf)
+    log = []
+    def lookup(o):
+        log.append(('lookup', o.r[5] & 0xffffffff, o.r[6] & 0xffffffff, o.r[7] & 0xffffffff))
+        o.r[2] = clip & 0xffffffff
+    def request(o):
+        log.append(('request', sx32(o.r[5]), o.r[6] & 0xffffffff, o.f[12] & 0xffffffff))
+        o.r[2] = 0
+    def translate(o):
+        log.append(('translate', o.r[5] & 0xffffffff, o.load(ACTOR + 0x38)))
+        o.r[2] = 0
+    def row(o):
+        log.append(('row', o.f[12] & 0xffffffff, o.load(ACTOR + 0x38)))
+        o.r[2] = 0
+    def floor(o):
+        log.append(('floor', o.r[5] & 0xffffffff, o.load(ACTOR + 0xB4)))
+        o.r[2] = 0
+    oracle.calls.update({CLIP_LOOKUP: lookup, REQUEST_CLIP: request, TRANSLATE_P: translate, ROW_P: row,
+                         FLOOR_SERVICE: floor})
+    oracle.write(ACTOR, bytes(raw))
+    oracle.save(0x70003B8D, spad3B8D, 1)
+    oracle.call(ARRIVAL, ACTOR)
+
+    mine = []
+    keep = [
+        LOOKUP_FN(lambda _, a, cmd, idx, tbl, out: (mine.append(('lookup', cmd, idx, tbl)),
+                                                  out.__setitem__(0, sx16(clip)), 0)[2]),
+        REQUEST_FN(lambda _, a, c, flags, blend: (mine.append(('request', c, flags, bits(blend))), 0)[1]),
+        TRANSLATE_FN(lambda _, a, arg: (mine.append(('translate', arg,
+                                                     struct.unpack_from('<I', bytes(a.contents.bytes), 0x38)[0])),
+                                        0)[1]),
+        BLEND_FN(lambda _, a, blend: (mine.append(('row', bits(blend),
+                                                   struct.unpack_from('<I', bytes(a.contents.bytes), 0x38)[0])),
+                                      0)[1]),
+        FLOOR_FN(lambda _, a, search, out: (mine.append(('floor', search,
+                                                         struct.unpack_from('<I', bytes(a.contents.bytes), 0xB4)[0])),
+                                            out.__setitem__(0, 0), 0)[2]),
+    ]
+    cell = C.c_uint8(spad3B8D)
+    workers = ArrivalWorkers(None, *keep, C.pointer(cell))
+    live = LiveActor(); C.memmove(live.bytes, bytes(raw), 0x320)
+    assert native.em_player_00183250(C.byref(workers), C.byref(live)) == 0
+    assert mine == log, ('00183250 calls', mine, log)
+    image = bytes(live.bytes)
+    for k in range(0x320):
+        assert image[k] == oracle.load(ACTOR + k, 1), ('00183250 byte', hex(k), image[k], oracle.load(ACTOR + k, 1))
+    assert cell.value == oracle.load(0x70003B8D, 1), ('00183250 0x70003B8D', cell.value)
+    return image, log
+
+
+def arrival_section(elf, native, rng, result):
+    """00183250 (0015B610's +5 = 1 routine, the arrival walk-out 001B07C0(1)
+    enters with +4 = 5, +5 = 1, +6 = 0), executed, against
+    em_player_00183250: random phases, timers and speeds (every branch,
+    the timer's sign and wrap, the speed's sign change at and around
+    0.01137), then the whole walk-out from phase 0 to the +4 = 1 return
+    frame by frame on one record (the capture's 52 standing frames, 30
+    walking, 30 slowing; CAPTURES_C7.md section 4)."""
+    native.em_player_00183250.argtypes = [C.c_void_p, C.POINTER(LiveActor)]
+    speeds = (0x3E99999A, 0x3C3A2E8C, 0x3C3A2E8D, 0x3C3A2E8B, 0, 0x80000000, 0x3F800000, 0xBF000000)
+    timers = (0, 1, 2, 30, 50, 0xFFFF, 0x8000, 0x7FFF)
+    samples = reference_mode.pick(1200, 64)
+    paths = set()
+    for case in range(samples):
+        raw = bytearray(rng.randrange(256) for _ in range(0x320))
+        raw[6] = case % 5 if case < 40 else rng.choice([0, 1, 2, 3, 3, 4, 0xFF])
+        struct.pack_into('<H', raw, 0x28, timers[case % len(timers)] if case < 64 else rng.randrange(65536))
+        struct.pack_into('<I', raw, 0x38, rng.choice(speeds) if case % 3 else bits(rng.uniform(-0.1, 0.4)))
+        struct.pack_into('<f', raw, 0xB4, rng.choice([184.84021, 0.0, -199.9, rng.uniform(-300, 300)]))
+        clip = rng.choice([2, 0x12, 0xFFFF, 0x1234FFFE, rng.randrange(1 << 32)])
+        _, log = arrival_case(elf, native, raw, rng.choice([0, 0, 3]), clip)
+        tags = [e[0] for e in log]
+        timer = struct.unpack_from('<h', raw, 0x28)[0]
+        if raw[6] == 0: paths.add('start')
+        elif raw[6] in (1, 2, 3) and timer == 0: paths.add(('advance', raw[6]))
+        elif raw[6] in (1, 2, 3): paths.add(('count', raw[6]))
+        else: paths.add('other phase')
+        if 'row' in tags: paths.add('stopped')
+        if raw[6] == 3 and timer != 0 and 'row' not in tags: paths.add('slowing')
+    need = {'start', 'other phase', 'stopped', 'slowing'} | {('advance', n) for n in (1, 2, 3)} | \
+        {('count', n) for n in (1, 2, 3)}
+    assert need <= paths, sorted(map(str, need - paths))
+    # The whole walk-out on one record, from the state 001B07C0(1) writes.
+    raw = bytearray(0x320)
+    raw[4], raw[5], raw[6], raw[0x1F0] = 5, 1, 0, 0x41
+    struct.pack_into('<f', raw, 0xB4, 184.84021)
+    frames, moves, stopped = 0, 0, None
+    while raw[4] == 5:
+        image, log = arrival_case(elf, native, raw, 0, 2)
+        moves += sum(1 for e in log if e[0] == 'translate')
+        if stopped is None and any(e[0] == 'row' for e in log): stopped = frames
+        raw = bytearray(image)
+        frames += 1
+        assert frames < 200, 'the walk-out did not return the player'
+    # 114 frames (f371..f484 in the capture), 60 moves (f423..f452 and
+    # f454..f483), the first 00174A50(p, 12.0) on frame 109 (f480: clip 0);
+    # it repeats on every later phase-3 frame (+0x38 goes below 0 again).
+    assert (raw[4], raw[5], raw[6], raw[0x1F0]) == (1, 0, 0, 0) and frames == 114 and moves == 60 and \
+        stopped == 109, (frames, moves, stopped)
+    result['arrival_cases'] = samples
+    result['arrival_run'] = {'frames': frames, 'moves': moves, 'stop_frame': stopped}
 
 
 # ---------------------------------------------------- real worlds, +214
@@ -1424,6 +1586,9 @@ def main():
 
     # 4c''. The player stage around the state callbacks.
     stage_section(elf, native, rng, result)
+
+    # 4c-2. 00183250, the arrival walk-out (0015B610's +5 = 1 routine).
+    arrival_section(elf, native, rng, result)
 
     # 4c-3. The first-contact one-shots (00187DC0 / 00187EA0).
     first_contact_section(elf, native, result)

@@ -523,7 +523,15 @@ Backend (`em_gfx_shadow_*`):
   NOP and TEX0_1 skipped). Each vertex is drawn from the point
   `em_shadow_gs_clip_unproject` gives: the solution of the camera's x, y
   and w columns for the GS pixel (X, Y) at w = 1/Q (the kernel's Q, which
-  both kernels leave in the vertex's first slot), within 1/16 pixel. So the
+  both kernels leave in the vertex's first slot), within 1/16 pixel. The
+  point is the solution rounded to binary32. When that point misses the
+  pixel by more than 1/16, the helper takes the nearest binary32 point
+  within two ulps of it on each axis that projects back within 1/16. This
+  happens near the w = 0.1 plane, where one ulp moves the projection by
+  more than 1/16 pixel. It was first met at the fence door's side-1 stance
+  (2026-09-27): a receiver vertex at w 0.24 missed by 0.08 pixel under the
+  camera that looks down from above the door (LEVEL_SMOKE.md
+  `fence_door_side1`). So the
   clipped triangles go through the same native view-projection as the
   rest and meet the level's depth as they do; their per-vertex A, F, S/Q,
   T/Q are the kernel's. APPROXIMATION: the GS rasterizes the kicked

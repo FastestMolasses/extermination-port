@@ -27,6 +27,10 @@ static struct {
     EmPlayerStageGlobals globals;
     EmPlayerStageHost host;
     EmPlayerStageMajor4 major4;
+    /* 0015B610 (+4 = 5): its routines, and the stage workers its admission
+     * branch calls (00182B30 / 00174A50 / 00182D70 on `host`). */
+    EmPlayerStageMajor5 major5;
+    EmPlayerStageWorkers major5_workers;
     EmPlayerStageRelease release;   /* 00182DF0's context */
     EmPlayerStageFade fade;
     unsigned faults;
@@ -187,10 +191,41 @@ static int stub_00183910(void *c, EmPlayerLiveActor *a)
     return unbound("00183910 (0015B530 +5 = 0x17; untranslated)");
 }
 
+/* 0015B610's routines that are not bound: +5 = 2, 3 and 4 (no first-level
+ * spawn record or script writes them; 00183250, +5 = 1, is bound by the
+ * closure binder over the original world). */
+static int stub_00183250(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; (void)a;
+    return unbound("00183250 (0015B610 +5 = 1; the original world's closure is not bound)");
+}
+static int stub_001833F0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; (void)a;
+    return unbound("001833F0 (0015B610 +5 = 2; untranslated)");
+}
+static int stub_00183440(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; (void)a;
+    return unbound("00183440 (0015B610 +5 = 3; untranslated)");
+}
+static int stub_001834E0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; (void)a;
+    return unbound("001834E0 (0015B610 +5 = 4; untranslated)");
+}
+
 /* ---- bound workers ------------------------------------------------------ */
 
 /* 001837A0 (byte-matched, src/func_001837A0.c): an empty leaf. */
 static int w_001837A0(void *c, EmPlayerLiveActor *a)
+{
+    (void)c; (void)a;
+    return 0;
+}
+
+/* 00183240 (byte-matched, src/func_00183240.c): an empty leaf. */
+static int w_00183240(void *c, EmPlayerLiveActor *a)
 {
     (void)c; (void)a;
     return 0;
@@ -333,6 +368,17 @@ int em_player_stage_live_bind(void)
     live.major4.routine[EM_PLAYER_MAJOR4_001838B0] = stub_001838B0;
     live.major4.routine[EM_PLAYER_MAJOR4_00183910] = stub_00183910;
     live.fade = (EmPlayerStageFade){ NULL, w_fade };
+    /* 0015B610: the scene view and the same host's 00182B30 / 00174A50 /
+     * 00182D70 as the stage's; 00183250 is the closure binder's. */
+    memset(&live.major5_workers, 0, sizeof live.major5_workers);
+    em_player_stage_workers_bind(&live.major5_workers, &live.host);
+    live.major5.stage.scene = player_states_scene();
+    live.major5.stage.workers = &live.major5_workers;
+    live.major5.routine[EM_PLAYER_MAJOR5_00183240] = w_00183240;
+    live.major5.routine[EM_PLAYER_MAJOR5_00183250] = stub_00183250;
+    live.major5.routine[EM_PLAYER_MAJOR5_001833F0] = stub_001833F0;
+    live.major5.routine[EM_PLAYER_MAJOR5_00183440] = stub_00183440;
+    live.major5.routine[EM_PLAYER_MAJOR5_001834E0] = stub_001834E0;
     /* 00182DF0: the one release of both takeovers (the stage's own and the
      * interaction runtime's), through the pose host. */
     live.release = (EmPlayerStageRelease){ &live.host, NULL, r_0028A580, r_001C6150, r_00248A00, r_00248C90,
@@ -345,6 +391,8 @@ int em_player_stage_live_bind(void)
     b.stage.advance = w_advance;
     b.stage.major[4] = em_player_stage_0015B530;
     b.stage.major_context[4] = &live.major4;
+    b.stage.major[5] = em_player_stage_0015B610;
+    b.stage.major_context[5] = &live.major5;
     b.stage.major[6] = em_player_stage_0015D460;
     b.stage.major_context[6] = &live.fade;
     b.load = w_load;
@@ -363,7 +411,7 @@ int em_player_stage_live_bind(void)
         /* The FLOOR state closure and the Use roots (census L02 / L04 / L09;
          * em_player_closure_live.c binds every state callback with the
          * translations the module docs name). */
-        if (em_player_closure_live_bind(&b, &live.host, pose, &live.major4) < 0) {
+        if (em_player_closure_live_bind(&b, &live.host, pose, &live.major4, &live.major5) < 0) {
             fprintf(stderr, "player stage: the FLOOR closure could not be bound\n");
             player_states_bind(NULL);
             return -1;
