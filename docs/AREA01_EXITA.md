@@ -363,10 +363,12 @@ None of them is from the reviewer's set; every reviewer mutant is now killed.
   f12 on every path (measured). The call is therefore 001B13F0(arg2, arg1, +-fparg0); the C
   compiles to the same instructions only because nothing overwrites a1 first. The C should
   declare and pass the second argument.
-- **00113478, the callee 0010B840.** The decomp calls it `CreateSema`. 0010B840 is a two-word
-  syscall stub with call number 0x42; in the EE kernel's numbering 0x40 is CreateSema and 0x42
-  SignalSema, and 00113478 passes it an existing semaphore id (the word D_00241D0C). The label is
-  a claim that the code contradicts; the port names the callee by address.
+- **00113478, the callee 0010B840.** The decomp used to call it `CreateSema`. 0010B840 is a
+  two-word syscall stub with call number 0x42; in the EE kernel's numbering 0x40 is CreateSema and
+  0x42 SignalSema, and 00113478 passes it an existing semaphore id (the word D_00241D0C). The
+  decomp's syscall-stub labels were relabelled from the numbers they load (2026-09-27, decomp
+  commit 2f8227f and the whole-table pass after it), and 0010B840 is now `SignalSema` there. The
+  port names the callee by address.
 - **0022DCD0, NEARMISS C.** Confirmed against the instructions: state 1 keeps the seed from
   c +4 in a register and never stores it back, and the state-0 fill runs state 1 in the same
   call. The C is right on both.
