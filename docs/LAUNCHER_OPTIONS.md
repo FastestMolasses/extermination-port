@@ -97,21 +97,27 @@ under quality of life.
 
 ## Cut and hidden content
 
-The source of truth is the decomp's `docs/CURIOSITIES.md`. Only its
-**decoded** entries may become options, and each restored item gets its own
-switch (Original value: off). Candidates named in `PORT_PROFILES.md`:
+The source of truth is the decomp's `docs/CURIOSITIES.md` (reviewed
+2026-09-27). Only its entries of a **restorable** kind (hidden system, hidden
+or unreached UI, unreached content, cut content that left something on the
+disc) may become options, and only once they are **decoded**. Each restored
+item gets its own switch (Original value: off). Engine quirks are Original
+behaviour; an optional fix for one belongs under "Bug fixes" above.
 
-- the light-based stealth system;
-- hidden animation directory entries;
-- passcode keypads;
-- dead code shipped on the disc;
-- the 15 named RECON dogtags;
-- the infection diary;
-- the unlabelled 7th config row;
-- cutscene multi-actor track sets.
+Restorable candidates today (none is decoded yet, so none is eligible):
 
-Their decode status is kept in `CURIOSITIES.md`, not here, so this list can't
-go out of date. Re-check it before any of them becomes an option.
+| CURIOSITIES entry | Kind | Status |
+|---|---|---|
+| 1. Light and enemy perception (the old "light-based stealth system" premise is withdrawn; what remains is small) | hidden system | partial |
+| 4. Passcode keypads with codes in memory | hidden or unreached UI | partial |
+| 17. Area flag bit 2: alternate locomotion rows and a slow health drain | hidden system | partial |
+| 23. Content on the disc not reached on the recorded routes | unreached content | partial |
+
+Not candidates (corrected 2026-09-27): the "hidden animation entries" are
+ordinary player clips, two of them on the first-level route (entry 3); the
+15 dogtags, the infection diary and the 7th config row are shipped features
+(entries 9, 10, 12). Re-read CURIOSITIES before any item becomes an option;
+its statuses are the ones that count.
 
 ---
 

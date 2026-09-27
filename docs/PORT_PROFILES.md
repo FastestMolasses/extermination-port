@@ -45,17 +45,17 @@ from **one codebase**:
   no inverted aiming, toggle between classic and modern camera, move while
   aiming, no full black fade on some doors, macOS window follows the dark/light
   theme, and subtitle fixes.
-- **Cut and hidden content** — the decomp's `docs/CURIOSITIES.md`. Examples: the
-  light-based stealth system, hidden animation directory entries, passcode
-  keypads, dead code shipped on the disc, the 15 named RECON dogtags, the
-  infection diary, the unlabelled 7th config row, and cutscene multi-actor
-  tracks. Each entry's decode status is recorded there. Only `decoded` entries
-  can become switches.
+- **Cut and hidden content** — the decomp's `docs/CURIOSITIES.md`. Only
+  entries of a restorable kind (hidden system, hidden or unreached UI,
+  unreached content, cut content that left something on the disc) that are
+  `decoded` can become switches. The candidates and their current status are
+  listed in `docs/LAUNCHER_OPTIONS.md` (the 2026-09-27 review withdrew the old
+  "light-based stealth system" premise and found that the "hidden animation
+  entries", dogtags, diary and 7th config row are not cut content).
 - **Presentation** — higher resolution, texture filtering, anti-aliasing,
   widescreen and higher frame rates, as described to the user on 2026-09-23.
-- The decomp's `docs/PORT_DIFFERENCES.md` (2026-06-11) is the old inventory of
-  where the port differs from the engine. It is mostly about fidelity bugs, not
-  enhancements, and like every older claim it has to be checked.
+- The decomp's old `PORT_DIFFERENCES.md` inventory was deleted on 2026-09-27
+  (superseded by `FIRST_LEVEL_AUDIT.md` and `FIRST_LEVEL_CENSUS.md`).
 
 ## Queued work (after the first level is faithful)
 
