@@ -117,7 +117,73 @@ derived from the captures.
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00 |
-| Drive | 00113280 → 2; 00112610 accepts a read (fault when one is in flight or a sector is not exported); 00112D18 answers busy for `latency` polls (default 0), then lands the data; 00113478 drops the read. A read the EE abandons without 00113478 (001FABB0 resets `D_00282157` while a read is in flight: the status open during a refill) is finished by the drive: with no latency left it lands by the next 00113280, and one still waiting for polls faults (outside the model) | libcdvd contract as the lanes use it. The drive's real latency is hardware timing: the live route shows it (the opening's prefill and the voiced lines' teardowns, STREAM_LANES.md "Drive latency"); the live binding runs latency 0 |
+| Drive | One read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position, then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned; 00113478 drops the read | Measured in the original (the C7 stream capture): section "Drive model" below |
+
+## Drive model (measured, 2026-09-27)
+
+The timing of the drive behind 00113280 / 00112610 / 00112D18 / 00113478, from the decomp's C7 stream capture
+(`docs/CAPTURES_C7.md` section 1, `build/s87/c7cap/stream/`). The capture holds the lanes' bytes at every main-loop
+top of four stretches (the New Game opening's stream request; routes 10, 11 and 13 around the voiced lines 0x7F,
+0x97 and 0x99). In four windows it also holds every vsync ISR sample of the IOP's CDVD registers. It has 209
+00112610 reads, 205 of them after another read of the same stretch.
+
+What the capture shows, and the model:
+- **One read at a time.** 00113280(1) reports ready (2) only when the drive has finished its read. A read the EE
+  abandoned also counts: at the opening, 001FABB0 in n2 left the area music's read running, and the new read
+  waited until it was done in n18. While a read is in flight the model answers 6, the value the decomp's
+  00113280 returns when the drive is not ready (the lanes test only for 2). This replaces the old rule "an
+  abandoned read lands at the next query, or faults".
+- **Position.** The CDVD position registers hold the sector after the last read. The reference test checks this
+  against 110 idle samples. A read begins with a seek: status 0x12, with the position held. Its length depends on
+  the signed distance d = sector - position.
+- **Read time.** After the seek, a read of up to 16 sectors (the lanes' largest) is done within one field. The
+  model faults on a longer read. The panel prompt's 161-sector module read took 7 fields of reading (H7), which
+  the lanes never issue.
+- **Seek fields per distance.** "Busy polls" are the 00112D18 polls that answer 1. A read with s seek fields
+  completes at the (s + 1)-th poll after its issue frame.
+
+  | d | reads | busy polls | model |
+  |---|---:|---|---:|
+  | 0 (contiguous) | 119 | all 0 | 0 |
+  | +14 (read-through ahead) | 1 | 0 | 0 |
+  | -1604..-23 and +29..+194 | 12 | 11 × 2, 1 × 1 | 2 |
+  | -89445..-88337 and +72124..+89372 | 73 | 55 × 6, 18 × 7 | 6 |
+
+  The fast and the full seek were each measured in both directions, so the model applies each over the |d|
+  range measured in either direction (23..1604 and 72124..89445).
+
+  The one-field spreads follow the sub-field phase at which the EE polls. No capture records that phase, so the
+  model takes each class's majority. The four reads the first level's timing rests on all took exactly 6: the
+  opening's cue 0x3F prefill (d = 72124) and each voiced line's first voice read (d = 89272, 88363, 89372).
+- **Unmeasured distances.** A distance outside every measured range takes the class of the nearest measured
+  distance. `stats.unmeasured` counts these reads, and the level smoke reports them. On the route they are
+  Roger's music cue 29 read and the cue 25 resume after it (d = +3026 and -4394, served as fast seeks): 2 of the
+  full route's 419 reads. The Roger phase equals route 14 row for row with either class (both were tried), so the
+  route capture does not pin them. A capture of route 14's stream would.
+- **No position.** The port's first read has no position: the port does not model the boot's, the movie's or the
+  area-entry music's reads. A read after a break also has none. Both are served as a full seek. In the first level
+  the first read is the opening's cue 0x3F prefill, which the capture measured as a full seek. 00113478 is never
+  reached on the route (0 breaks).
+- **Outside the model.** The opening's area-music read (from the intro movie's position, d = +131414) sought for
+  16 fields. The capture cannot tell whether that comes from the distance or from the drive's state after the
+  movie's stream reads. The port has neither that read nor the movie's reads, because 0x1AE040's area-entry
+  001FAE70(1) is unbound (it draws one rand(), and the RNG order audit is pending).
+
+**What it gives the live route.**
+- The voiced lines' voice reads take the capture's 7 fields, and each key-on follows 2 fields later, as in the
+  capture. 0x97 and 0x99 now tear down on the capture's rows (they were 6 rows early).
+- 0x7F is 2 rows early. The original's read sequencer 001FA0D0 served a lane-0 music refill first: its read
+  started in the voice's first frame, in f1164. That refill falls where it does because of the music's phase:
+  1. The music was keyed on 3583 fields before the voice in the original (vsync 15472, after route 03's status
+     close) and 3449 in the port. The difference is navigation.
+  2. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
+- The opening's stream request now reaches its key-on 12 fields after the request frame, where it took 6.
+  - The port's 12 fields are 1 frame to the read's issue, then the capture's 7 fields for the read and 4 for the
+    hold.
+  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read in flight
+    (above).
+  - newgame-control reaches first control 6 frames later: locked_ticks 1307, where it was 1301.
+  - The 30-tick displacement is unchanged at 9.599849.
 
 ## Stream exporter
 
@@ -143,7 +209,7 @@ equals them.
 It needs `assets/streams/streams.emst`, the decomp's disc image (for `SNDN2DRV.IRX`), the 11 startup-reference
 images and the `build/s87/route` images. On its first run it extracts the IOP and SPU2 RAM of each route save
 state, with the decomp's venv (zstd), into `build/iop_stream_reference/states/`, a regenerable cache.
-Last runs, 2026-09-23:
+Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
 - **Driver oracle.**
   - The original module runs in a MIPS interpreter over captured IOP RAM, with libsd and sysclib replaced by
     recorders with identical scripted answers.
@@ -177,7 +243,8 @@ Last runs, 2026-09-23:
   - The lane state (state, half, last half, load, read sector and address) matches in 21/23. The other 2 were
     captured mid-read (route 09 and route 12: state 1); their settled read (half and sector once the read lands)
     matches. That makes 46/46 settled across both cadences.
-  - At cadence 2 the cursor matches 22/23. The miss is route 14 at +56 fields, which sits on a transfer boundary.
+  - At cadence 2 the cursor matches 23/23 with the drive model. The zero-latency drive missed route 14 at +56
+    fields, which sits on a transfer boundary. The lane state at cadence 2 matches 20/23, as before.
   - The IOP-side status snapshot matches for 31 of the 32 stream voices of the 16 route images. The miss is route
     14's voice 0: that image was captured between the two voices' transfers.
   - Voice lanes (routes 10..14: cues 147, 148, 150, 149, played to their timer end): the final record matches
@@ -188,6 +255,10 @@ Last runs, 2026-09-23:
   - The status page: open (001FABB0) leaves every lane idle and every status word 0, as in the status-hub,
     panel and panel-root images. Close (001FAE70(1)) reproduces the panel-animation and route-01 images 12
     fields after the resume.
+- **Drive model** (section "Drive model"). It covers every read of the C7 stream capture:
+  - 205 reads: 186 equal to the model and 19 one field off, the sub-field phase;
+  - each class matches the majority of its reads, and the four key reads match exactly;
+  - the position register equals the last read's end in 110 idle samples.
 - **Continuity.** The voices' played samples equal an independent decode of the exported cue 25 for 700,000
   samples in quick mode (12 buffer passes). In full mode it is 3,000,000 samples, a full loop and its wrap.
 - **Mutation controls** (each applied to the module, then reverted). The reference test caught:
@@ -216,7 +287,9 @@ Last runs, 2026-09-23:
 - 0011A2B0's claim, take-over and end-index command;
 - the directory and its fault;
 - the command decode;
-- reader latency and faults;
+- the drive model: every measured class and the nearest-measured rule, the first read with no position, contiguous,
+  read-through, fast and full seeks, the abandoned read at 00113280, the break, and the faults (a read in flight,
+  more than 16 sectors, a sector not exported);
 - a synthetic stereo cue through 001F9820 / 001FA790 / 001F9CF0 for 900 fields. It checks the cursor order
   0x4000 → 0x8000 → 0xC000 → 0x4000, and that both voices' samples play every channel block in order over 5
   buffer passes and 5 loops;
@@ -228,7 +301,8 @@ Last runs, 2026-09-23:
 - Not translated: the driver's SFX commands (1, 3, 5, 6, 0xA..0xD, ...), which go to the forward sink; its PCM
   input path (0x46..0x4F, the `+0x8680` records); and the non-0x64 RPC function.
 - Not modelled: SPU2 reverb, which makes 0x16 inaudible; Gaussian interpolation; core master volumes; the drive's
-  latency; the SIF DMA's timing inside a field; and the driver tick's phase against the field.
+  sub-field timing (the one-field spreads of section "Drive model"); the SIF DMA's timing inside a field; and the
+  driver tick's phase against the field.
 - One EE queue is shared with SFX in the original (255 commands per field). In the port the SFX driver has its
   own path, so that shared limit is not modelled.
 - 001FB100 (step H, which calls 001F9CF0) is not bound here (docs/STREAM_LANES.md "Still missing" 4).

@@ -28,7 +28,10 @@
  *     completion (within one driver tick).
  *  4. A sector reader standing in for the libcdvd calls 00113280 / 00112610 /
  *     00112D18 / 00113478 / 00111C28 over the locally exported EMST file
- *     (tools/export_streams.py); it never reads the disc at run time.
+ *     (tools/export_streams.py); it never reads the disc at run time. Its
+ *     timing is the drive model measured in the original (one read at a
+ *     time; a seek of 0, 2 or 6 fields by the distance from the drive's
+ *     position, then the read within a field).
  *  5. The mixer interface: the SPU output is rendered on the game thread,
  *     field by field, into a lock-free ring the audio thread drains
  *     (em_iop_stream_mix, summed like em_sfx_mix).
@@ -195,9 +198,21 @@ void em_iop_stream_disc_free(EmIopStreamDisc *disc);
  * require for the lane-0 cue >= 68 reach). */
 void em_iop_stream_lanes_data(const EmIopStreamDisc *disc, EmStreamLanesData *out);
 void em_iop_stream_attach_disc(EmIopStream *s, const EmIopStreamDisc *disc);
-/* Polls 00112D18 answers "busy" before a read completes (0 = the first
- * poll completes it). A stated model of the drive, default 0. */
-void em_iop_stream_set_disc_latency(EmIopStream *s, uint32_t polls);
+/* The drive model (docs/IOP_STREAM.md "Drive model", measured in the
+ * decomp's docs/CAPTURES_C7.md section 1): the seek fields for a signed
+ * distance d = sector - position (*measured = 1 when d lies inside a
+ * measured range; outside, the nearest measured distance's class). */
+uint32_t em_iop_stream_drive_seek_fields(int64_t d, int *measured);
+typedef struct {
+    uint32_t reads;           /* reads 00112610 accepted                       */
+    uint32_t by_fields[8];    /* reads per seek fields (0, 2, 6)               */
+    uint32_t unmeasured;      /* distances outside every measured range        */
+    int64_t last_unmeasured;  /* the last such distance                        */
+    uint32_t no_position;     /* reads with no position (served as full seeks) */
+    uint32_t breaks;          /* 00113478 with a read in flight                */
+    uint32_t abandoned;       /* reads left in flight, landed at a ready query */
+} EmIopDriveStats;
+void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out);
 
 /* ---- EE side ------------------------------------------------------------ */
 uint32_t em_iop_stream_001FA6A0(EmIopStream *s, int32_t size);

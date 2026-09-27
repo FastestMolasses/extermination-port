@@ -239,7 +239,9 @@ equipment and head sprite live):**
   with a shorter route (LEVEL_SMOKE.md "Running it").
 - The checks that are still relaxed are listed in LEVEL_SMOKE.md "What the
   full route does not yet compare". Each has a named cause and remover: the
-  module-0x21 load (H7), the voice drive's latency (a new capture), Roger's
+  module-0x21 load (H7), beat 0's voiced-line teardown (2 rows: the music
+  refill's phase, navigation; since the measured drive model of 2026-09-27
+  below, the drive's latency is no longer a cause), Roger's
   idle phase before f358 (navigation), the slide / step-off stance
   (navigation), the terminal's 0x827E6C copy, the rand() order in the
   point-light sway, lane 3's parameters, and the opening's post-step.
@@ -252,9 +254,8 @@ equipment and head sprite live):**
 - Frame order: the reported idle04 / walk04 failure at HEAD is an alignment
   artefact of running the comparator without `--native-index`. On a
   post-control window every frame passes (LEVEL_SMOKE.md "Frame order").
-- New original captures needed (for the lead): the stream / voice lanes
-  around the voiced lines (the VOICE step's list). Without them the
-  teardown shift stays an allowed divergence.
+- The stream / voice capture this update asked for was recorded (the
+  decomp's CAPTURES_C7.md section 1) and is used by the drive model below.
 
 **Status update (2026-09-26, the player step: the player and its equipment
 on the object-unit draw; OWNER_DRAW.md section 10, census 1.23):**
@@ -520,6 +521,57 @@ oracles; docs/EE_FLOAT_MODEL.md section 5, census 1.29):**
   em_item_sdk_math / em_interaction_scan, em_snow's host sinf wave,
   em_lighting (L40), em_status_draw's battery ramp.
 
+**Status update (2026-09-27, the stream drive's timing from the
+C7 capture; IOP_STREAM.md "Drive model", census 1.30):**
+- **The drive model is measured, not zero-latency.** The C7 stream capture
+  (decomp CAPTURES_C7.md section 1) holds 209 00112610 reads with the
+  drive's status and position registers.
+  - One read at a time. 00113280 answers 6 until the read in flight is done,
+    also one the EE abandoned.
+  - The position is the sector after the last read.
+  - A seek of 0, 2 or 6 fields, by the distance class, then the read within
+    one field.
+  - Of the 205 reads with a previous read, 186 equal the model and 19 are
+    one field off, which is the unrecorded sub-field poll phase.
+  - The opening's cue 0x3F prefill and all three voiced lines' first voice
+    reads took exactly 6 seek fields.
+  - Distances outside the measured ranges (Roger's cue 29 read and its
+    resume) take the nearest measured class and are reported by the level
+    smoke.
+- **The teardown exemption is removed.** check_director_beat no longer
+  allows a free early teardown. Its new check_voice_drive compares the first
+  voice lane with the capture: the start row, the read's 7 fields, the
+  2-field hold, and the sequencer's wait up to the fields spent on lane 0's
+  refill first. The teardown must lie exactly at the key-on's shift.
+  - 0x97 and 0x99: on the capture's rows.
+  - 0x7F: 2 rows early. The original served a lane-0 music refill first
+    (f1164), because its music was keyed on 3583 fields before the voice
+    where the port's was 3449: navigation since route 03's status close.
+  - Mutation controls: a zero-latency drive and a 7-field full seek each
+    fail at cage_roof.
+- **The opening is not yet the original's (blocked).** The stream request
+  reaches its key-on in 12 fields, which was 6. The original takes 27,
+  because it first waits 15 fields for the area music's read. Two things are
+  missing:
+  - 0x1AE040's area-entry 001FAE70(1), which is unbound: it draws one
+    rand(), and the RNG order audit is pending;
+  - a mechanism for that read's 16-field seek from the intro movie's
+    position (+131414). The capture cannot separate the distance from the
+    drive's state after the movie's stream reads, and the port has no movie
+    reads.
+- **Evidence.**
+  - test-iop-stream: the new drive-model check against every captured
+    read, and the contract test.
+  - The co-simulation: cursor 46/46, which was 45/46.
+  - test-level-smoke-full with --require-through.
+  - newgame-control 9.599849. First control is 6 frames later (locked_ticks
+    1307).
+  - compare_frame_order: idle04 / walk04 / st03 at native index 1336, cut02
+    and cut15 PASS, as at HEAD.
+  - All make test-* pass.
+  - Census unchanged: live 660, verified-unbound 77, unverified 3,
+    missing 1, boundary 443.
+
 ---
 
 ## 2. Live call graph (normal run)
@@ -756,13 +808,12 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   drive's next ready query (IOP_STREAM.md). Verified: the full level smoke (every live phase, the director's three
   beats and Roger's voiced conversation compared with routes 10, 11 and 13), `test-opening-runtime` over the real
   lanes, `test-iop-stream`, `test-stream-lanes`, newgame-control (9.599849, as HEAD), all `make test-*` targets.
-  **Open:** (1) the drive's read time: the port's zero-latency drive completes the opening's prefill in 4 fields
-  where the original takes about 24 (newgame_samples 2642 -> 2667), and the voiced lines tear down 8 / 6 / 6 rows
-  early; the level smoke reports the offsets. **Needs a new original capture (for the lead):** per field, through
-  the opening's stream request (New Game, frames ~2640..2670) and through Roger's line 0x7F's first voice and the
-  lines 0x97 / 0x99 (routes 10 f1160..f1180, 11 f870..f890, 13 f533..f550): `D_00282154..58`, the three lane records
-  `D_00281FD0 + 0x60 * lane` (+0x00..+0x03, +0x30..+0x38, +0x50), `D_00810E90`, `D_008106F4/F5`, and the IOP drive
-  state if the probe can reach it; with it the drive's latency becomes a stated model fitted to the capture. (2)
+  **Open:** (1) the drive's read time: since 2026-09-27 the drive runs the model measured in the C7 stream
+  capture (IOP_STREAM.md "Drive model"). The voiced lines 0x97 / 0x99 tear down on the capture's rows and 0x7F 2
+  rows early: the original's sequencer served a lane-0 music refill first, a navigation-dependent phase. The
+  opening's stream request reaches its key-on 12 fields after the request frame. The original takes 27, because
+  it first waits 15 fields for the area music's read, which (2) below would issue; that read's 16-field seek from
+  the movie's position is outside the model. (2)
   0x1AE040's state-0 area-entry 001FAE70(1), the state-4 room move's 001FAE70(0), state 2 r == 1 and state 6 stay
   reported (UM_001FAE70: rand() order unaudited). (3) The rest of 001FB100 (the output-mode commit, the
   `D_00281B70` copy, 001FC6E0) is unbound; the mode bytes are 0 in every capture. (4) 001FC280's `D_00282160` cache

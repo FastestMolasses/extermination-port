@@ -99,6 +99,7 @@ import test_scene_task_reference as tsr
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ROUTE = DECOMP / 'build/s87/route'
+STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
 STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
 # The original's camera block D_008101E0 sampled every frame from the cold
 # New Game (area load at frame 2639) and from save state 03 through the
@@ -1515,6 +1516,69 @@ def director_view(p, row_or_tick, is_port, roger, stance, camera_kind):
             'roger': (rv['h'], rv['pos'], rv['block']) if roger else None}
 
 
+# route beat -> the C7 stream capture's stretch of the same beat
+DIRECTOR_STREAMS = {'cage_roof': 'r10', 'crevice_prompt': 'r11', 'east_tower': 'r13'}
+
+
+def voice_timeline(rows_of, first):
+    """The line's first voice lane (lane 1) from its start: the row (a
+    main-loop-top sample: the state the previous frame's step H left) where
+    D_00282155 leaves 0, where its read is in flight (D_00282157 = 2 with
+    D_00282158 = 1), where its +0x03 is 2 (the read done) and where
+    D_00282155 is 2 (the key-on); and the rows in [start, issue) whose
+    sequencer is on lane 0's read (D_00282157 1 or 2 with D_00282158 = 0).
+    rows_of(k) -> (active0, active1, active2, phase, lane, load0, load1,
+    load2) or None past the end."""
+    k = first
+    while rows_of(k)[1] == 0:
+        k += 1
+    start = k
+    while not (rows_of(k)[3] == 2 and rows_of(k)[4] == 1):
+        k += 1
+    issue = k
+    while rows_of(k)[6] != 2:
+        k += 1
+    done = k
+    while rows_of(k)[1] != 2:
+        k += 1
+    keyon = k
+    lane0 = sum(1 for j in range(start, issue) if rows_of(j)[3] in (1, 2) and rows_of(j)[4] == 0)
+    return {'start': start, 'issue': issue, 'done': done, 'keyon': keyon, 'lane0': lane0}
+
+
+def check_voice_drive(ticks, i0, count, rows, f0, phase):
+    """The voiced line's first voice lane against the C7 stream capture of the
+    same beat (decomp docs/CAPTURES_C7.md section 1: D_00282154..58 and the
+    lane records at every main-loop top, with the capture's recorded route
+    row rec_f), aligned on the director's frame. The lane starts on the
+    capture's row; the drive part (read issue to read done: the stated drive
+    model, IOP_STREAM.md "Drive model") and the hold part (read done to
+    key-on) take the capture's fields exactly; the sequencer part (start to
+    issue) may differ only by the fields 001FA0D0 spends on lane 0's read
+    first (the music's refill phase at the line's start, which follows the
+    time since the music's last start: navigation). Returns (the key-on's
+    row shift, the timelines)."""
+    frames = [json.loads(line) for line in (STREAM_CAPTURE / DIRECTOR_STREAMS[phase] / 'frames.jsonl').open()]
+    by_rec = {r['rec_f']: r for r in frames}
+    def orig(k):
+        r = by_rec[rows[f0]['f'] + k]
+        lb = bytes.fromhex(r['lb'])
+        return (lb[0], lb[1], lb[2], lb[3], lb[4]) + tuple(int(r['L%d' % n]['b0_3'][6:8], 16) for n in range(3))
+    def port(k):
+        # The log's "stream" is the state before the tick's frame (the task
+        # runs before step H); the route rows are the state after the frame.
+        st = ticks[i0 + k + 1]['stream']
+        return tuple(st[3:6]) + (st[1], st[2]) + tuple(st[6:9])
+    o = voice_timeline(orig, 0)
+    p = voice_timeline(port, 0)
+    assert p['start'] == o['start'], (phase, 'the voice lane starts off the capture\'s row', p, o)
+    assert (p['done'] - p['issue'], p['keyon'] - p['done']) == (o['done'] - o['issue'], o['keyon'] - o['done']), \
+        (phase, 'the voice read (the drive) or its hold to the key-on differs from the capture', p, o)
+    assert (p['issue'] - p['start']) - p['lane0'] == (o['issue'] - o['start']) - o['lane0'], \
+        (phase, 'the sequencer\'s wait for the voice read differs by more than lane 0\'s read', p, o)
+    return o['keyon'] - p['keyon'], p, o
+
+
 def check_director_beat(ticks, run, state, phase):
     """A director beat on the original owner (008253F0 over
     em_area11_script_host, live since WP-8b), aligned on the director's frame
@@ -1529,16 +1593,16 @@ def check_director_beat(ticks, run, state, phase):
 
     The voiced line's teardown: a voiced line holds its teardown (the
     message block's phase 2) until the last voice lane's timer ends
-    (D_00282155/156), and the lane's key-on waits for its prefill, whose disc
-    read completes at the drive's first poll in the port (the stated
-    zero-latency drive, IOP_STREAM.md) where the original's drive takes its
-    hardware time. The port's line may therefore tear down s rows early
-    (s >= 0; a zero-latency drive cannot be late). The fields that follow the
-    teardown (TEARDOWN_FIELDS) are compared on its clock from the port's
-    teardown on (the port's row k against the capture's row k + s), and the
-    capture's s rows before its own teardown must hold the line's state
-    unchanged; every other field keeps the capture's own rows. s is
-    reported."""
+    (D_00282155/156), which runs from its key-on. check_voice_drive compares
+    the first voice lane's start, read and key-on with the C7 stream
+    capture: the key-on may differ from the capture's row only by the fields
+    the read sequencer 001FA0D0 spent on lane 0's music refill first (in the
+    original, not in the port, or the reverse), the music's refill phase at
+    the line's start. The teardown must then lie exactly that many rows (s)
+    from the capture's; s = 0 when neither side served lane 0 first. The
+    fields that follow the teardown are compared on its clock from the
+    port's teardown on (the port's row k against the capture's row k + s),
+    and every other field keeps the capture's own rows. s is reported."""
     beat, frame, search = DIRECTOR_BEATS[phase]
     rows = route_rows(beat)
     f0 = next(k for k in range(search, len(rows)) if selector(rows[k]['spad']) != '00'
@@ -1556,8 +1620,9 @@ def check_director_beat(ticks, run, state, phase):
     e_orig = next(k for k in range(count) if orig_view(rows[f0 + k])['msg'][:2] == (2, 2))
     e_port = next(k for k in range(count) if port_view(ticks, i0 + k)['msg'][:2] == (2, 2))
     shift = e_orig - e_port
-    assert shift >= 0, (phase, 'the port\'s voiced line tears down after the original\'s (a zero-latency drive '
-                               'cannot be late)', e_port, e_orig)
+    keyon_shift, vp, vo = check_voice_drive(ticks, i0, count, rows, f0, phase)
+    assert shift == keyon_shift, (phase, 'the voiced line\'s teardown is not its key-on\'s shift', shift, keyon_shift,
+                                  vp, vo)
     p0, o0 = port_view(ticks, i0), orig_view(rows[f0])
     stance = (p0['pos'][0] - o0['pos'][0], p0['pos'][2] - o0['pos'][2])
     if phase == 'cage_roof':
@@ -1581,7 +1646,7 @@ def check_director_beat(ticks, run, state, phase):
         ov = [(k, orig[k][key]) for k in range(first, count) if k == first or orig[k][key] != orig[k - 1][key]]
         # On the teardown's clock the port's last `shift` rows run past the
         # capture's end: the changes there have no capture row to meet.
-        while len(pv) > len(ov) and pv[-1][0] >= count - shift:
+        while len(pv) > len(ov) and shift > 0 and pv[-1][0] >= count - shift:
             pv.pop()
         assert [v for _, v in pv] == [v for _, v in ov], \
             (phase, key, 'the sequence of values differs', [(rows[f0 + k]['f'], v) for k, v in pv][:12],
@@ -1592,8 +1657,8 @@ def check_director_beat(ticks, run, state, phase):
                 if kp > first:
                     clocks['frame'] += 1
             else:
-                assert kp == ko - shift and kp >= e_port, (where, 'a change on neither the frame\'s rows nor the '
-                                                           'teardown\'s (s = %d)' % shift)
+                assert shift != 0 and kp == ko - shift and kp >= e_port, \
+                    (where, 'a change on neither the frame\'s rows nor the teardown\'s (s = %d)' % shift)
                 clocks['teardown'] += 1
     release = release_row(rows, f0)
     follow = ''
@@ -1613,10 +1678,13 @@ def check_director_beat(ticks, run, state, phase):
             f'(the scripts\' shots; the follow camera relative to the stance), the player (the stance '
             f'({stance[0]:+.5f}, {stance[1]:+.5f}) off the capture\'s: navigation), D_008107D8 / D_00810793 / '
             f'D_00810813 (0x{step:02X} at the end){extra}, the release at f{rows[release]["f"]}; the voiced line '
-            f'{line:#x} tears down {shift} row(s) earlier in the port (f{rows[f0 + e_port]["f"]} against '
-            f'f{rows[f0 + e_orig]["f"]}: the drive\'s read time, IOP_STREAM.md, zero-latency reads): '
-            f'{clocks["frame"]} changes on the capture\'s rows, {clocks["teardown"]} on the teardown\'s '
-            f's rows early{follow})')
+            f'{line:#x}: its voice lane starts on the capture\'s row f{rows[f0 + vo["start"]]["f"]}, its read '
+            f'takes the capture\'s {vo["done"] - vo["issue"]} fields (the drive model) and its key-on follows '
+            f'{vo["keyon"] - vo["done"]} fields later as in the capture; the sequencer served lane 0\'s music '
+            f'refill first for {vo["lane0"]} field(s) in the original and {vp["lane0"]} in the port, so the key-on '
+            f'and the teardown are {shift} row(s) earlier in the port (f{rows[f0 + e_port]["f"]} against '
+            f'f{rows[f0 + e_orig]["f"]}): {clocks["frame"]} changes on the capture\'s rows, '
+            f'{clocks["teardown"]} on the teardown\'s{follow})')
 
 
 def check_cage_roof(ticks, run, state):
@@ -2461,6 +2529,11 @@ def main():
     beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
                       for beat, phases in BEATS)
     print(f'level smoke: route beats: {beats}')
+    drive = re.search(r'^stream drive: .*$', run, re.M)
+    if drive:
+        # The drive model's counters (IOP_STREAM.md "Drive model"): reads
+        # outside the measured distances take the nearest measured class.
+        print(f'level smoke: {drive.group(0)}')
     if args.require_through:
         names = [p[0] for p in PHASES]
         until = main_line[-1] if args.require_through == 'last' else args.require_through

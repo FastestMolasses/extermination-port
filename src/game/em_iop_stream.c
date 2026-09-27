@@ -54,8 +54,12 @@ struct EmIopStream {
     EmIopVoiceTable voice_table;
     /* disc */
     const EmIopStreamDisc *disc;
-    uint32_t disc_latency;
-    struct { uint8_t busy; uint32_t polls, sector, count, addr; } read;
+    /* The drive (section 4): the read in flight and the field it completes
+     * in, and the head position (the sector after the last read). */
+    struct { uint8_t busy; uint64_t done_field; uint32_t sector, count, addr; } read;
+    uint8_t head_known;
+    uint32_t head;
+    EmIopDriveStats drive;
     /* mixer ring */
     float pcm[EM_IOP_PCM_FRAMES * 2];
     _Atomic uint64_t pcm_write, pcm_read;
@@ -505,7 +509,6 @@ void em_iop_stream_lanes_data(const EmIopStreamDisc *disc, EmStreamLanesData *ou
 }
 
 void em_iop_stream_attach_disc(EmIopStream *s, const EmIopStreamDisc *disc) { s->disc = disc; }
-void em_iop_stream_set_disc_latency(EmIopStream *s, uint32_t polls) { s->disc_latency = polls; }
 
 /* The exported bytes of one sector, or NULL. */
 static const uint8_t *disc_sector(const EmIopStreamDisc *d, uint32_t lsn)
@@ -696,13 +699,73 @@ const uint32_t (*em_iop_stream_ee_queue(const EmIopStream *s, uint32_t *count))[
 uint32_t em_iop_stream_heap_next(const EmIopStream *s) { return s->heap_next; }
 void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next) { s->heap_next = next; }
 
-/* ---- 4. the sector reader (libcdvd contract as the lanes use it) -------- */
+/* ---- 4. the drive (libcdvd contract as the lanes use it) ---------------- *
+ *
+ * A stated model measured in the original (decomp docs/CAPTURES_C7.md
+ * section 1: the 209 00112610 reads of four stretches, 205 of them after
+ * another read of the same stretch, with the drive's status and position
+ * registers in every field of four windows; docs/IOP_STREAM.md
+ * "Drive model"). What the capture shows:
+ *  - one read at a time: 00113280(1) reports ready (2) only when the drive
+ *    has finished the read in flight, also one the EE abandoned (the
+ *    opening: 001FABB0 at n2 leaves the area music's read running, and the
+ *    new read waits until it is done at n18);
+ *  - the position register holds the sector after the last read, and a read
+ *    starts with a seek (status 0x12, position held) whose length depends
+ *    on the signed distance d = sector - position;
+ *  - after the seek, a read of up to 16 sectors (the lanes' largest) is done
+ *    within one field (status 0x06 for one ISR sample at most).
+ * Measured seek fields per distance class (the first poll after the issue
+ * frame is poll 1; a read with s seek fields completes at poll s + 1):
+ *    d == 0 (119 reads) and d == +14 (1 read):            0 fields
+ *    d from -1604 to -23 and from +29 to +194 (12 reads):  2 fields (11; 1 took 1)
+ *    d from -89445 to -88337 and +72124 to +89372 (73):    6 fields (55; 18 took 7)
+ * The fast and the full seek were measured in both directions; the model
+ * takes each over the |d| range measured in either direction (23..1604 and
+ * 72124..89445). The one-field spreads follow the sub-field phase of the
+ * EE's poll, which no capture records; the model takes the majority. Every
+ * voiced line's first read and the opening's cue 0x3F prefill took exactly
+ * 6. A distance outside every measured range takes the class of the nearest
+ * measured distance and is counted (stats.unmeasured): the bounds between
+ * the measured ranges are not captured. The opening's first read of the
+ * area music (from the intro movie's position, +131414) sought for 16
+ * fields; the capture cannot tell the distance from the drive's state after
+ * the movie's reads, so that read is outside the model (the port has
+ * neither the movie's reads nor that read: 0x1AE040's area-entry 001FAE70(1)
+ * is unbound). A read with no position (the drive's first in the port,
+ * whose boot, movie and area-entry reads are not modelled, or the first
+ * after a break) is served as a full seek: in the first level that read is
+ * the opening's cue 0x3F prefill, which the capture measured as a full seek
+ * (72124 sectors, 6 fields). */
 
-/* A read the EE left in flight (001FABB0 resets D_00282157 without the
- * 00113478 break) is not lost: the drive finishes it on its own and its
- * sectors land in IOP RAM. With no latency left (the default drive model)
- * it has finished by the drive's next query; a read that still has polls
- * to wait for is outside the model (the caller faults). */
+enum { DRIVE_MAX_SECTORS = 16 };
+
+static const struct { int64_t lo, hi; uint32_t fields; } k_drive_measured[] = {
+    { -89445, -72124, 6 }, { -1604, -23, 2 }, { 0, 0, 0 }, { 14, 14, 0 },
+    { 23, 1604, 2 }, { 72124, 89445, 6 },
+};
+enum { DRIVE_FULL_SEEK = 5 };   /* k_drive_measured's full-seek row */
+
+uint32_t em_iop_stream_drive_seek_fields(int64_t d, int *measured)
+{
+    uint32_t i, best = 0;
+    int64_t gap, best_gap = INT64_MAX;
+    for (i = 0; i < sizeof k_drive_measured / sizeof k_drive_measured[0]; i++) {
+        gap = d < k_drive_measured[i].lo ? k_drive_measured[i].lo - d
+            : d > k_drive_measured[i].hi ? d - k_drive_measured[i].hi : 0;
+        if (gap < best_gap) {
+            best_gap = gap;
+            best = i;
+        }
+    }
+    if (measured)
+        *measured = best_gap == 0;
+    return k_drive_measured[best].fields;
+}
+
+static uint64_t drive_field(const EmIopStream *s) { return s->half_lines / HALF_LINES_PER_FIELD; }
+
+/* The read's sectors land in IOP RAM and the drive is idle. */
 static void read_land(EmIopStream *s)
 {
     uint32_t i;
@@ -711,15 +774,21 @@ static void read_land(EmIopStream *s)
     s->read.busy = 0;
 }
 
-/* 00113280(mode): 2 = the drive is ready (the value 001FA0D0 waits for). */
+/* 00113280(mode): 2 = the drive is ready (the value 001FA0D0 waits for);
+ * while a read is in flight (also one the EE abandoned) it answers 6, the
+ * value the decomp's 00113280 returns when the drive is not ready (the
+ * lanes test only for 2). */
 int em_iop_stream_00113280(EmIopStream *s, int32_t mode, int32_t *result)
 {
     (void)mode;
     if (latched(s))
         return -1;
     if (s->read.busy) {
-        if (s->read.polls)
-            return fault(s, 0x00113280u, EM_IOP_FAULT_UNSUPPORTED);
+        if (drive_field(s) < s->read.done_field) {
+            *result = 6;
+            return 0;
+        }
+        s->drive.abandoned += 1;
         read_land(s);
     }
     *result = 2;
@@ -728,28 +797,44 @@ int em_iop_stream_00113280(EmIopStream *s, int32_t mode, int32_t *result)
 
 /* 00112610(sector, count, IOP address, mode): accept a read of whole sectors
  * into IOP RAM (the lane buffers are IOP heap blocks). Every sector must be
- * exported; the data land when 00112D18 reports completion. */
+ * exported; the data land when the drive completes (00112D18 / 00113280). */
 int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint32_t addr,
                            const uint8_t mode[3], int32_t *result)
 {
-    uint32_t i;
+    uint32_t i, seek;
+    int measured = 1;
     (void)mode;
     if (latched(s))
         return -1;
     if (!s->disc)
         return fault(s, 0x00112610u, EM_IOP_FAULT_NULL_WORKER);
-    if (s->read.busy)
+    if (s->read.busy || count > DRIVE_MAX_SECTORS)
         return fault(s, 0x00112610u, EM_IOP_FAULT_UNSUPPORTED);
     if (addr > EM_IOP_RAM_SIZE || (uint64_t)count * 2048u > EM_IOP_RAM_SIZE - addr)
         return fault(s, 0x00112610u, EM_IOP_FAULT_BAD_INDEX);
     for (i = 0; i < count; i++)
         if (!disc_sector(s->disc, sector + i))
             return fault(s, 0x00112610u, EM_IOP_FAULT_NOT_EXPORTED);
+    if (s->head_known) {
+        int64_t d = (int64_t)sector - (int64_t)s->head;
+        seek = em_iop_stream_drive_seek_fields(d, &measured);
+        if (!measured) {
+            s->drive.unmeasured += 1;
+            s->drive.last_unmeasured = d;
+        }
+    } else {
+        seek = k_drive_measured[DRIVE_FULL_SEEK].fields;
+        s->drive.no_position += 1;
+    }
+    s->drive.reads += 1;
+    s->drive.by_fields[seek < 7u ? seek : 7u] += 1;
     s->read.busy = 1;
-    s->read.polls = s->disc_latency;
+    s->read.done_field = drive_field(s) + 1u + seek;
     s->read.sector = sector;
     s->read.count = count;
     s->read.addr = addr;
+    s->head_known = 1;
+    s->head = sector + count;
     *result = 1;
     return 0;
 }
@@ -760,8 +845,7 @@ int em_iop_stream_00112D18(EmIopStream *s, int32_t mode, int32_t *result)
     (void)mode;
     if (latched(s))
         return -1;
-    if (s->read.busy && s->read.polls) {
-        s->read.polls--;
+    if (s->read.busy && drive_field(s) < s->read.done_field) {
         *result = 1;
         return 0;
     }
@@ -771,15 +855,23 @@ int em_iop_stream_00112D18(EmIopStream *s, int32_t mode, int32_t *result)
     return 0;
 }
 
-/* 00113478(1): the read is abandoned (its data never land). */
+/* 00113478(1): the read is abandoned (its data never land). The drive's
+ * position after a break is not captured: the next read is served as one
+ * with no position. */
 int em_iop_stream_00113478(EmIopStream *s, int32_t mode)
 {
     (void)mode;
     if (latched(s))
         return -1;
+    if (s->read.busy) {
+        s->drive.breaks += 1;
+        s->head_known = 0;
+    }
     s->read.busy = 0;
     return 0;
 }
+
+void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out) { *out = s->drive; }
 
 /* ---- the lanes' worker adapters (ctx: first member is the stream) -------- */
 

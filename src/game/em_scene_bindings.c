@@ -739,6 +739,20 @@ static void log_tick_end(int rc)
         fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
                 em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3),
                 em_live_u8(a, 4));
+        /* The stream lanes as the previous frame's step H left them (the
+         * task runs before step H), as the C7 stream capture's main-loop-top
+         * rows sample them (decomp docs/CAPTURES_C7.md section 1): D_00810E90, the read
+         * phase / lane D_00282157 / 58, the active bytes D_00282154..56 and
+         * each lane's +0x03; null before the lanes' boot.
+         * tools/test_level_smoke.py check_director_beat. */
+        {
+            uint32_t st[9];
+            if (em_stream_live_log(st))
+                fprintf(f, ", \"stream\": [%u, %u, %u, %u, %u, %u, %u, %u, %u]", st[0], st[1], st[2], st[3], st[4],
+                        st[5], st[6], st[7], st[8]);
+            else
+                fputs(", \"stream\": null", f);
+        }
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..
          * +0x2EF), or null while no truck node is live. */

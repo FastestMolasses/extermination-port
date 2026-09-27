@@ -33,6 +33,10 @@ docs/IOP_STREAM.md).
      status page's stop/resume, and the voice lanes' end states;
    - the played samples of a long co-simulated stream against an independent
      decode of the exported cue (continuity over buffer wraps and the loop).
+4. The drive model (IOP_STREAM.md "Drive model") against every read of the
+   decomp's C7 stream capture (docs/CAPTURES_C7.md section 1): each read's
+   busy polls against the model's seek fields for its distance, and the
+   drive's position register against the last read's end.
 
 Quick mode samples the bulk sweeps; EM_TEST_FULL=1 runs them all.
 """
@@ -40,6 +44,7 @@ from __future__ import annotations
 
 import ctypes as C
 import hashlib
+import json
 import os
 import random
 import shutil
@@ -543,7 +548,7 @@ static void tap(void *c, int voice, int16_t s)
     for (k = 0; k < 2; k++)
         if (voice == tap_voice[k] && tap_n[k] < tap_cap) tap_buf[k][tap_n[k]++] = s;
 }
-int sim_open(const char *path, uint32_t latency, uint32_t seed)
+int sim_open(const char *path, uint32_t seed)
 {
     EmStreamLanesWorkers w;
     if (!disc_loaded) { if (em_iop_stream_disc_load(&DISC, path)) return -1; disc_loaded = 1; }
@@ -553,7 +558,6 @@ int sim_open(const char *path, uint32_t latency, uint32_t seed)
     if (!(SM.iop = em_iop_stream_create())) return -1;
     SM.lcg = seed;
     em_iop_stream_attach_disc(SM.iop, &DISC);
-    em_iop_stream_set_disc_latency(SM.iop, latency);
     { EmIopVoiceTable t = {VT, &VM}; em_iop_stream_set_voice_table(SM.iop, &t); }
     em_iop_stream_set_tap(SM.iop, tap, 0);
     if (em_iop_stream_boot_buffers(SM.iop, buffers)) return -2;
@@ -646,6 +650,8 @@ class Native:
         self.lib = C.CDLL(str(lib))
         self.lib.ee_001FA6A0.restype = C.c_uint32
         self.lib.sim_digest.restype = C.c_uint64
+        self.lib.em_iop_stream_drive_seek_fields.restype = C.c_uint32
+        self.lib.em_iop_stream_drive_seek_fields.argtypes = (C.c_int64, C.POINTER(C.c_int))
         self.log = (C.c_uint32 * (16384 * 6))()
 
 
@@ -1190,7 +1196,7 @@ def capture_evidence(captures, routes, states, disc, irx, native):
     report['spu2_ram_offset'] = hex(spu_off)
     # the native driver's configuration after the native 001F9820 (sim boot)
     lib = native.lib
-    assert lib.sim_open(str(EMST).encode(), 0, 1) == 0
+    assert lib.sim_open(str(EMST).encode(), 1) == 0
     for _ in range(3):
         assert lib.sim_field(0) == 0
     native_voices = []
@@ -1258,9 +1264,9 @@ GLOBALS = ((0x810E90, 4), (0x8106C8, 4), (0x810D38, 4), (0x810700, 1), (0x8104E4
 
 
 class Sim:
-    def __init__(self, native, latency=0, seed=1):
+    def __init__(self, native, seed=1):
         self.lib = native.lib
-        assert self.lib.sim_open(str(EMST).encode(), latency, seed) == 0
+        assert self.lib.sim_open(str(EMST).encode(), seed) == 0
         self.g = (C.c_int32 * 7)()
         self.lib.sim_globals(0, self.g)
 
@@ -1542,6 +1548,89 @@ def scenario_status(captures, native):
     return out
 
 
+# ----------------------------------------------------------------- the drive model
+
+STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
+
+
+def bcd(b):
+    return (b >> 4) * 10 + (b & 15)
+
+
+def drive_position(cdvd_hex):
+    """The CDVD current-position registers 0x1F40200C..0E (minute, second,
+    frame, BCD; the minute byte wraps at 160), as a sector modulo 720000."""
+    b = bytes.fromhex(cdvd_hex)
+    return (bcd(b[8]) * 4500 + (bcd(b[9]) - 2) * 75 + bcd(b[10])) % 720000
+
+
+def drive_model(native):
+    """The stated drive model (IOP_STREAM.md "Drive model") against every
+    00112610 read of the C7 stream capture: each read's busy polls (the
+    frames whose main-loop top still shows D_00282157 = 2 after the issue
+    frame) against the model's seek fields for its distance from the previous
+    read's end; the position register against that end in every idle
+    per-field sample. The four reads the first level's timing rests on (the
+    opening's cue 0x3F prefill and each voiced line's first voice read) must
+    equal exactly; every other read may differ by the one-field spread the
+    sub-field poll phase makes (the model takes the majority)."""
+    lib = native.lib
+    stats = {'reads': 0, 'equal': 0, 'spread': 0, 'unmeasured': 0, 'positions': 0}
+    per_class = {}   # the model's fields -> [equal, one off]
+    key = []
+    for stretch in ('opening', 'r10', 'r11', 'r13'):
+        folder = STREAM_CAPTURE / stretch
+        assert folder.exists(), f'C7 stream capture missing: {folder} (decomp docs/CAPTURES_C7.md section 1)'
+        events = [json.loads(line) for line in (folder / 'events.jsonl').open()]
+        frames = {r['counter']: r for r in (json.loads(line) for line in (folder / 'frames.jsonl').open())}
+        reads = []
+        for e in events:
+            if not e['what'].startswith('00112610'):
+                continue
+            k = e['counter'] + 1
+            while k in frames and frames[k]['lb'][6:8] == '02':
+                k += 1
+            reads.append((e['counter'], int(e['a0'], 16), int(e['a1'], 16), k - 1 - e['counter'] - 1))
+        first_voice = next(i for i, r in enumerate(reads) if r[1] >= 800000) if stretch != 'opening' else 1
+        for i in range(1, len(reads)):
+            counter, sector, count, busy = reads[i]
+            prev = reads[i - 1]
+            d = sector - (prev[1] + prev[2])
+            measured = C.c_int()
+            fields = lib.em_iop_stream_drive_seek_fields(d, C.byref(measured))
+            stats['reads'] += 1
+            stats['unmeasured'] += not measured.value
+            assert measured.value, (stretch, counter, 'a captured distance outside the measured table', d)
+            tally = per_class.setdefault(fields, [0, 0])
+            if fields == busy:
+                stats['equal'] += 1
+                tally[0] += 1
+            else:
+                assert abs(fields - busy) == 1, (stretch, counter, d, 'model', fields, 'capture', busy)
+                stats['spread'] += 1
+                tally[1] += 1
+            if i == first_voice:
+                assert fields == busy == 6, (stretch, 'the key read', counter, d, fields, busy)
+                key.append((stretch, d, busy))
+        # the position register: the sector after the last read, when idle
+        ends = [(r[0], r[1] + r[2]) for r in reads]
+        for line in (folder / 'fields.jsonl').open():
+            r = json.loads(line)
+            cd = bytes.fromhex(r['iop']['cdvd'])
+            # (a top sample precedes its frame; an ISR sample follows its
+            # frame's dispatch, so a read issued in that frame may be done)
+            done = [end for c, end in ends if c < r['counter'] or (r['phase'] == 'isr' and c == r['counter'])]
+            if cd[6] == 0x0A and done:
+                assert drive_position(r['iop']['cdvd']) == done[-1] % 720000, \
+                    (stretch, r['counter'], r['phase'], 'position', drive_position(r['iop']['cdvd']), done[-1])
+                stats['positions'] += 1
+    assert len(key) == 4, key
+    # each class takes the majority of its reads
+    assert sorted(per_class) == [0, 2, 6] and all(a > b for a, b in per_class.values()), per_class
+    stats['classes'] = per_class
+    return stats, key
+
+
 def continuity(native, disc):
     """A long lane-0 run of cue 25: voice 1 (left) and voice 0 (right) must
     play the exported cue's channels in order, over buffer wraps and the loop."""
@@ -1634,6 +1723,7 @@ def main():
         opening = scenario_opening(captures, native)
         status = scenario_status(captures, native)
         played, cue_samples = continuity(native, disc)
+        drive, drive_key = drive_model(native)
     finally:
         shutil.rmtree(work, ignore_errors=True)
     print('driver module: %d non-relocated words equal to the disc module; driver cases %d, lockstep calls %d'
@@ -1657,6 +1747,11 @@ def main():
     print('status page scenario:')
     for label, sim_v, cap_v in status:
         print(f"  {label}: sim {sim_v} capture {cap_v} {'=' if sim_v == cap_v else 'X'}")
+    print(f"drive model against the C7 stream capture: {drive['reads']} reads, {drive['equal']} equal, "
+          f"{drive['spread']} one field off (the sub-field poll phase; per class fields: [equal, off] "
+          f"{drive['classes']}), {drive['unmeasured']} outside the measured "
+          f"table; the position register equals the last read's end in {drive['positions']} idle samples; key reads "
+          + ', '.join(f'{st} d={d} {b} fields' for st, d, b in drive_key))
     print(f'continuity: {played} samples per channel of cue 25 ({cue_samples} per loop) equal to the independent decode')
     banner(part(TOTALS['commands'][0], TOTALS['commands'][1], 'command cases'),
            f'{driver_count} driver cases over {len(oracles)} of {len(ROUTES)} IOP images', f'{time.time() - started:.1f} s')

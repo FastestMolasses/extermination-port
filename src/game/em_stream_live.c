@@ -280,6 +280,26 @@ uint8_t em_stream_live_read_phase(void)
     return S.booted ? (uint8_t)S.lanes.state.read_phase : 0;
 }
 
+int em_stream_live_log(uint32_t out[9])
+{
+    if (!S.booted) return 0;
+    out[0] = S.globals.d810E90;
+    out[1] = (uint8_t)S.lanes.state.read_phase;
+    out[2] = (uint8_t)S.lanes.state.read_lane;
+    for (int i = 0; i < EM_STREAM_LANES; ++i) {
+        out[3 + i] = (uint8_t)S.lanes.state.active[i];
+        out[6 + i] = (uint8_t)S.lanes.state.lane[i].load;
+    }
+    return 1;
+}
+
+int em_stream_live_drive_stats(EmIopDriveStats *out)
+{
+    if (!S.booted || !S.ctx.iop) return 0;
+    em_iop_stream_drive_stats(S.ctx.iop, out);
+    return 1;
+}
+
 int32_t em_stream_live_cue(int lane)
 {
     return S.booted && lane >= 0 && lane < EM_STREAM_LANES ? S.lanes.state.cue[lane] : 0;

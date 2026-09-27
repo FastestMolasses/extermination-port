@@ -298,13 +298,15 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
   (em_stream_live).
 - **Verified:** the level smoke's cage_roof (route 10 f1090..f3568),
   crevice_prompt (route 11 f706..f1260) and east_tower (route 13
-  f531..f809) phases, row for row except the voiced lines' teardowns, which
-  come 8, 6 and 6 rows early in the port (the drive's read time: the
-  backend's zero-latency drive, STREAM_LANES.md "Drive latency"); the
-  changes that follow a teardown (the message block, beat 0's Roger record
-  and D_00810813 = 1, the player's clip; beats 1 and 2's whole frame, whose
-  scripts hold the op0C) keep that offset, everything else keeps the
-  capture's rows (LEVEL_SMOKE.md). Beat 0's D_00810813 reaches 0x10 then
+  f531..f809) phases, row for row. Since the measured drive model
+  (IOP_STREAM.md "Drive model", 2026-09-27), the lines 0x97 and 0x99 tear
+  down on the capture's rows. 0x7F tears down 2 rows early: the original's
+  read sequencer served a lane-0 music refill before the voice read, and
+  where that refill falls is the music's phase, which follows navigation.
+  check_voice_drive in the level smoke proves this against the C7 stream
+  capture. The changes that follow that teardown (the message block,
+  Roger's record and D_00810813 = 1, the player's clip) keep its offset.
+  Everything else keeps the capture's rows (LEVEL_SMOKE.md). Beat 0's D_00810813 reaches 0x10 then
   0x11 (Roger's ordinary branch) on the capture's rows f3508 / f3509.
 - **Retired with the binding:** `em_director.c` (`director_tick`,
   `kCineBeats`, `director_camera`, `director_letterbox_alpha`, the

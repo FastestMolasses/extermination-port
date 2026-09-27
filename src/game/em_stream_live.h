@@ -29,6 +29,8 @@
 
 #include <stdint.h>
 
+#include "game/em_iop_stream.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -66,6 +68,13 @@ int8_t em_stream_live_active(int lane);
 uint8_t em_stream_live_read_phase(void);
 /* D_00282178 + 4 * lane: the lane's cue; 0 before the boot. */
 int32_t em_stream_live_cue(int lane);
+/* The tick log's "stream" row (tools/test_level_smoke.py
+ * check_director_beat): D_00810E90, D_00282157 (read phase), D_00282158
+ * (read lane), D_00282154..56 (active) and each lane's +0x03 (load).
+ * 0 before the boot. */
+int em_stream_live_log(uint32_t out[9]);
+/* The drive model's counters (em_iop_stream_drive_stats); 0 before the boot. */
+int em_stream_live_drive_stats(EmIopDriveStats *out);
 
 /* Audio thread: sum the rendered stream frames (em_iop_stream_mix). */
 void em_stream_live_mix(float *out, int frames, int device_rate);

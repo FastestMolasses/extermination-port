@@ -644,22 +644,40 @@ frame's first shot is the walk's, not compared; from the release's restore
 row relative to the stance) and, in beat 0, Roger's record and script block
 and the follow camera after the release row for row.
 
-**The voiced line's teardown (a known divergence).** A voiced line holds
-its teardown until the last voice lane's timer ends (D_00282155/156), and a
-voice's key-on waits for its prefill. The port's drive completes a read at
-its first poll (IOP_STREAM.md, the stated zero-latency drive); the
-original's takes hardware time, so the port's lines tear down early: 0x7F by
-8 rows (f3374 against f3382), 0x97 by 6 (f1037 / f1043), 0x99 by 6 (f740 /
-f746). The checker compares every field's sequence of values and requires
-each change on the capture's row, or, from the port's teardown on, exactly
-that many rows early (the changes that follow the teardown: the message
-block, and in beat 0 Roger's record, his D_00810813 = 1 and the player's
-clip back to idle; in beats 1 and 2 the whole frame, whose scripts hold the
-op0C). Everything else, including beat 0's camera shots and its release at
-f3508, keeps the capture's rows. Measured 2026-09-25: beat 0 822 changes on
-the capture's rows and 8 on the teardown's; beat 1 170 and 128; beat 2 70
-and 68. Pinning the drive's timing needs a new capture (FIRST_LEVEL_AUDIT.md
-WP-8b).
+**The voiced line's teardown (check_voice_drive).** A voiced line holds its
+teardown until the last voice lane's timer ends (D_00282155/156). The timer
+runs from the lane's key-on, and the key-on waits for the lane's first disc
+read. The port's drive runs the model measured in the original
+(IOP_STREAM.md "Drive model").
+
+The checker compares the line's first voice lane with the C7 stream capture
+of the same beat (the decomp's `build/s87/c7cap/stream/r10|r11|r13`,
+CAPTURES_C7.md section 1). It reads the tick log's `stream` row: D_00810E90,
+D_00282157 / 58, the active bytes and each lane's +0x03. It requires:
+- the lane's start on the capture's row;
+- the read, from issue to done, taking the capture's fields (7);
+- the key-on following the capture's 2 fields later;
+- the sequencer's wait before the read differing only by the fields 001FA0D0
+  spent on lane 0's music refill first;
+- the teardown lying exactly the key-on's shift s from the capture's row.
+
+The fields that follow the teardown are then compared on its clock: the
+message block, and in beat 0 Roger's record, his D_00810813 = 1 and the
+player's clip back to idle. Every other field keeps the capture's rows,
+including beat 0's camera shots and its release at f3508.
+
+Measured 2026-09-27:
+- **0x97 and 0x99:** s = 0, every change on the capture's rows (beat 1 298,
+  beat 2 138).
+- **0x7F:** s = 2 (f3380 against f3382), 822 changes on the capture's rows
+  and 8 on the teardown's. The original's sequencer served a lane-0 refill
+  for 2 fields first, its read issued in f1164. The port's music was then in
+  another phase: keyed on 3449 fields before the voice, against the
+  original's 3583 (vsync 15472, after route 03's status close). That
+  difference is navigation.
+
+Mutation controls: a zero-latency drive and a 7-field full seek each fail
+check_voice_drive at cage_roof.
 
 ### panel_no_battery (side beat 00)
 
@@ -890,8 +908,8 @@ rows sample. Measured on the full route: route 07 from port tick 4444 to
 4806, 09 (its own run) 5345 to 5507, 10 6143 to 8560, 11 9462 to 9949, 13
 10920 to 11131, 14 11485 to 12954; the admission rows are the captures' first
 3B8F = 1 rows and the release rows their first rows with 3B8F = 0 again (6
-rows early in 11 and 13, whose whole frame follows the voiced line's early
-teardown, the known divergence of the director's beats). The
+rows early in 11 and 13 before the drive model of 2026-09-27, whose whole
+frame follows the voiced line's teardown; on the capture's rows since). The
 tick log is otherwise equal to the stand-in's (the interaction runtime's
 takeover before C7) on every tick.
 
@@ -1183,7 +1201,7 @@ never silently skipped. What removes each:
 | Where | What is relaxed | Why | What removes it |
 |---|---|---|---|
 | panel (03) | the prompt window between the request and the Yes press: the port's page takes 7 ticks, the original's 30 | the ITEM root's module-0x21 load takes 24 loader dispatches in the original; the port's load is instant (H7) | the module loader's dispatch count (FIRST_LEVEL_AUDIT.md WP-5) |
-| cage_roof, crevice_prompt, east_tower (10, 11, 13) | the voiced line's teardown and what follows it land 8 / 6 / 6 rows early; the checker allows exactly that shift | the port's IOP stream drive completes a read at its first poll | a new capture of the stream / voice lanes (FIRST_LEVEL_AUDIT.md WP-8b; the VOICE step's capture list) |
+| cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows early; check_voice_drive allows exactly the key-on's shift, which it proves is the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
 | check_owner_units | the whole lighting rows (compared for 0 units; the colour matrix and the rig lanes are compared) | the point-light slots' sway follows rand() (001D7C30), and the port's rand() order is not yet the original's | the RNG order audit |
@@ -1207,9 +1225,10 @@ LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
 three selector-0 ticks at the opening's end, where record 13 (008257A0)
 still ticks. The report then shows "drum area11[14] against 008257A0
 area11[13]". That is an alignment artefact, not a node-order divergence:
-from native index 1330 (counter 2587, after first control) idle04, walk04
+from native index 1336 (counter 2593, after first control) idle04, walk04
 and st03 PASS event for event, and cut02 / cut15 PASS on their own windows
-(2026-09-26, port HEAD 097fbd9).
+(2026-09-27; the index was 1330 before the drive model, which moved first
+control 6 frames later).
 
 ## Adding a phase (the contract for WP-4 onward)
 

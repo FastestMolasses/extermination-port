@@ -346,10 +346,12 @@ voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); `make test-ope
 the real lanes (the hold protocol 0 -> 2 at 001FD4C0, 2 -> 1 at step H once lane 0's prefill is in, 1 -> 0 at step F,
 key-on at the next step H; cue 25 resumed at the end; the skip's stops); newgame-control and the full suite.
 
-**Drive latency (a known divergence).** The backend's drive completes a read at its first poll (the stated model,
-IOP_STREAM.md). The original's drive takes hardware time, which the captures show only indirectly: the opening's
-stream request (001FD4C0, newgame_samples frame 2642) reaches `D_008106F4 == 1` about 24 fields later (the ops-9..12
-fade-in 001AEE10(0x10) starts at 2667), the port's 4 fields later; the voiced lines tear down 8 (0x7F), 6 (0x97) and
-6 (0x99) rows later than the port's. Nothing else on the route depends on it (the level smoke compares everything
-else row for row). Pinning it needs a per-field capture of the lanes and the drive (see FIRST_LEVEL_AUDIT.md WP-8b).
+**Drive timing (measured, 2026-09-27).** The backend's drive runs the model measured in the original's C7 stream
+capture (IOP_STREAM.md "Drive model"): one read at a time, and a seek of 0, 2 or 6 fields by the distance from the
+drive's position.
+- **Voiced lines.** Each voice read takes the capture's 7 fields and each key-on the capture's 2 more. 0x97 and 0x99
+  tear down on the capture's rows. 0x7F is 2 rows early, because the original's sequencer served a lane-0 music
+  refill first. That refill's phase is the time since the music's last start, which is navigation.
+- **Opening.** The prefill reaches its key-on 12 fields after the stream request. The original takes 27: it first
+  waits 15 fields for the area music's read, which 0x1AE040's unbound area-entry 001FAE70(1) would issue.
 
