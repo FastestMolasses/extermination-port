@@ -14,6 +14,7 @@
 #include "em_audio.h"
 #include "em_gfx.h"
 #include "em_platform.h"
+#include "em_settings.h"
 #include "game/em_frame.h"
 #include "game/em_game.h"
 #include "game/em_frontend.h"
@@ -290,6 +291,10 @@ int main(void)
      * a stderr report line. */
     setvbuf(stdout, NULL, _IOLBF, 0);
     scene_redirect();   /* EM_SCENE — must precede every file open */
+    /* The switches, chosen once at launch (em_settings.h; the launcher's
+     * stand-in reads them from the environment). */
+    if (em_settings_from_env() != 0)
+        return 1;
 
     EmWindow *win = em_window_create("Extermination (native port)", 960, 720);
     if (!win) {

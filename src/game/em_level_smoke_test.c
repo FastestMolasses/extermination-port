@@ -269,16 +269,10 @@ static void finish(void)
                 k_phases[t.until].name);
     else
         fputc('\n', stderr);
-    /* The stream drive model's counters over the run (IOP_STREAM.md "Drive
-     * model"; tools/test_level_smoke.py reports them). */
-    {
-        EmIopDriveStats d;
-        if (em_stream_live_drive_stats(&d))
-            fprintf(stderr, "stream drive: %u reads: %u contiguous, %u fast seeks, %u full seeks; %u with no "
-                            "position; %u outside the measured distances (last %lld); %u breaks; %u abandoned\n",
-                    d.reads, d.by_fields[0], d.by_fields[2], d.by_fields[6], d.no_position, d.unmeasured,
-                    (long long)d.last_unmeasured, d.breaks, d.abandoned);
-    }
+    /* The stream drive's mode and counters over the run (IOP_STREAM.md
+     * "Drive model"; tools/test_level_smoke.py reads the mode from this line
+     * and checks the voiced lines and the opening's end for it). */
+    em_stream_live_drive_report(stderr);
     /* Hand the pad back to the keyboard map (the navigation below drives
      * it through the gamepad overlay, em_input_set_gamepad). */
     if (t.pad_on)

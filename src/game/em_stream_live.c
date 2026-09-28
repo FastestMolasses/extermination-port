@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "em_settings.h"
 #include "game/em_bgm.h"
 #include "game/em_game_internal.h"
 #include "game/em_iop_stream.h"
@@ -154,6 +155,9 @@ int em_stream_live_boot(const char *path)
     S.ctx.iop = em_iop_stream_create();
     if (!S.ctx.iop) return fail("em_iop_stream_create");
     em_iop_stream_attach_disc(S.ctx.iop, &S.disc);
+    /* The PS2 disc-drive timing switch (em_settings, LAUNCHER_OPTIONS.md):
+     * off by default, the disc answers at host speed. */
+    em_iop_stream_set_ps2_drive_timing(S.ctx.iop, em_settings()->ps2_disc_drive_timing);
     EmIopVoiceTable table = {S.voice_table, &S.voice_scan};
     em_iop_stream_set_voice_table(S.ctx.iop, &table);
     /* sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail: the five IOP heap blocks. */
@@ -293,11 +297,26 @@ int em_stream_live_log(uint32_t out[9])
     return 1;
 }
 
-int em_stream_live_drive_stats(EmIopDriveStats *out)
+int em_stream_live_drive_stats(EmIopDriveStats *out, int *ps2_timing)
 {
     if (!S.booted || !S.ctx.iop) return 0;
     em_iop_stream_drive_stats(S.ctx.iop, out);
+    *ps2_timing = em_iop_stream_ps2_drive_timing(S.ctx.iop);
     return 1;
+}
+
+void em_stream_live_drive_report(FILE *out)
+{
+    EmIopDriveStats d;
+    int ps2 = 0;
+    if (!em_stream_live_drive_stats(&d, &ps2))
+        return;
+    fprintf(out, "stream drive: %s: %u reads (%u at host speed); the model's classes: %u contiguous, %u fast "
+                 "seeks, %u full seeks; %u with no position; %u outside the measured distances (last %lld); "
+                 "%u breaks; %u abandoned\n",
+            ps2 ? "PS2 disc-drive timing on" : "host speed", d.reads, d.host_speed, d.by_fields[0],
+            d.by_fields[2], d.by_fields[6], d.no_position, d.unmeasured, (long long)d.last_unmeasured, d.breaks,
+            d.abandoned);
 }
 
 int32_t em_stream_live_cue(int lane)

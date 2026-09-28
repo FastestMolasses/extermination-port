@@ -1362,6 +1362,38 @@ boundary 443 (unchanged). 80,726 of the 87,968 non-boundary instructions are
 live (91.8%). What remains between the port and the original first level is
 the prioritized list in FIRST_LEVEL_AUDIT.md section 1b.
 
+### 1.34 Update (2026-09-27, the PS2 disc-drive timing behind a launcher switch)
+
+The drive model of section 1.30 now runs only with the PS2 disc-drive timing
+switch on (`src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1`;
+LAUNCHER_OPTIONS.md BUILT). By default the stream reads are served at host
+speed: each is done at the first query after its issue (IOP_STREAM.md "Host
+speed and the PS2 disc-drive timing switch").
+
+- **No status changes.** The drive functions (00112610, 00112D18, 00113280,
+  00113478) stay section 4 boundary rows (lane L36); only their
+  substitute's timing has two modes. 001FA0D0, 001F9CF0 and the rest of the
+  lanes are unchanged and still live.
+- **Evidence.**
+  - make test-level-smoke-full (host speed) and make
+    test-level-smoke-ps2-drive (the switch on) with --require-through; the
+    side runs in both modes. check_voice_drive and the opening's end follow
+    the run's mode (LEVEL_SMOKE.md "The stream drive's two modes").
+  - make test-rand-order in both modes (first control exactly 21 frames
+    before the original's at host speed; 11 with the switch on).
+  - make test-iop-stream: tests/iop_stream_test.c covers both modes; the
+    reference co-simulation runs with the switch on (cursor 46/46 in full
+    mode).
+  - newgame-control 9.599849 in both modes (locked_ticks 1301 / 1311).
+  - compare_frame_order PASS at native index 1330 (host) and 1340 (switch
+    on).
+  - 237 of 238 make test-* pass; test-scene-no-shadow fails only on the
+    B15 file em_status_pages_item.c (commit 8655157).
+
+Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1,
+boundary 443, recounted from the section 3 rows (741 rows) and unchanged.
+80,726 of the 87,968 non-boundary instructions are live (91.8%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1424,8 +1456,9 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
 - **Live and verified: 660 of 741 non-boundary functions (91.8% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
-  three beats with Roger's voiced conversation (since WP-8b; since section 1.30 the lines 0x97 / 0x99 tear down on
-  the capture's rows and 0x7F 2 rows early, the music refill's phase), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; the side beats
+  three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
+  exactly the drive's 6 rows early at host speed, the default, and on the capture's rows with the PS2 disc-drive
+  timing switch; 0x7F 2 rows earlier still, the music refill's phase), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; the side beats
   00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18; with the door's
   side 1 and its arrival walk-out since section 1.31), each in its own run. Since section 1.20 the player's drop shadow runs on its originals from first control on (the projected
   shadow 001DA6A0 and, on an actor, the 0015BF90 decal), checked against the original re-executed over the port's

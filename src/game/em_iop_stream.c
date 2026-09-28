@@ -57,6 +57,7 @@ struct EmIopStream {
     /* The drive (section 4): the read in flight and the field it completes
      * in, and the head position (the sector after the last read). */
     struct { uint8_t busy; uint64_t done_field; uint32_t sector, count, addr; } read;
+    uint8_t ps2_drive_timing;   /* the switch (0: host speed, the default) */
     uint8_t head_known;
     uint32_t head;
     EmIopDriveStats drive;
@@ -701,7 +702,20 @@ void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next) { s->heap_next =
 
 /* ---- 4. the drive (libcdvd contract as the lanes use it) ---------------- *
  *
- * A stated model measured in the original (decomp docs/CAPTURES_C7.md
+ * Two timings, chosen by the PS2 disc-drive timing switch
+ * (docs/LAUNCHER_OPTIONS.md; em_settings):
+ *  - off (the default, the Original profile's value): host speed. The
+ *    exported sectors are in memory, so a read is done as soon as it is
+ *    issued: the first 00112D18 / 00113280 query after the 00112610 call
+ *    finds it done and lands its sectors, whatever the distance. What the
+ *    game's code does around the drive (001FA0D0's one step per field, its
+ *    ready query before each issue, the hold before a key-on) is unchanged;
+ *    only the drive's wait is gone.
+ *  - on: the drive model below.
+ * Both modes keep the position and classify each read's distance in the
+ * counters (what the PS2 drive would have taken).
+ *
+ * The drive model: a stated model measured in the original (decomp docs/CAPTURES_C7.md
  * section 1: the 209 00112610 reads of four stretches, 205 of them after
  * another read of the same stretch, with the drive's status and position
  * registers in every field of four windows; docs/IOP_STREAM.md
@@ -827,7 +841,12 @@ int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint
     s->drive.reads += 1;
     s->drive.by_fields[seek < 7u ? seek : 7u] += 1;
     s->read.busy = 1;
-    s->read.done_field = drive_field(s) + 1u + seek;
+    if (s->ps2_drive_timing) {
+        s->read.done_field = drive_field(s) + 1u + seek;
+    } else {
+        s->drive.host_speed += 1;
+        s->read.done_field = drive_field(s);   /* done at the next query */
+    }
     s->read.sector = sector;
     s->read.count = count;
     s->read.addr = addr;
@@ -870,6 +889,8 @@ int em_iop_stream_00113478(EmIopStream *s, int32_t mode)
 }
 
 void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out) { *out = s->drive; }
+void em_iop_stream_set_ps2_drive_timing(EmIopStream *s, int on) { s->ps2_drive_timing = on != 0; }
+int em_iop_stream_ps2_drive_timing(const EmIopStream *s) { return s->ps2_drive_timing; }
 
 /* ---- the lanes' worker adapters (ctx: first member is the stream) -------- */
 

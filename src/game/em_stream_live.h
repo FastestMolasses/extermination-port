@@ -28,6 +28,7 @@
 #define EM_STREAM_LIVE_H
 
 #include <stdint.h>
+#include <stdio.h>
 
 #include "game/em_iop_stream.h"
 
@@ -73,8 +74,14 @@ int32_t em_stream_live_cue(int lane);
  * (read lane), D_00282154..56 (active) and each lane's +0x03 (load).
  * 0 before the boot. */
 int em_stream_live_log(uint32_t out[9]);
-/* The drive model's counters (em_iop_stream_drive_stats); 0 before the boot. */
-int em_stream_live_drive_stats(EmIopDriveStats *out);
+/* The drive's counters (em_iop_stream_drive_stats) and whether the PS2
+ * disc-drive timing switch was on at the boot (*ps2_timing; em_settings);
+ * 0 before the boot. */
+int em_stream_live_drive_stats(EmIopDriveStats *out, int *ps2_timing);
+/* One "stream drive: <mode>: ..." line with the mode and the counters (the
+ * level smoke and newgame-control print it; tools/test_level_smoke.py and
+ * tools/test_rand_order.py read the mode from it). Nothing before the boot. */
+void em_stream_live_drive_report(FILE *out);
 
 /* Audio thread: sum the rendered stream frames (em_iop_stream_mix). */
 void em_stream_live_mix(float *out, int frames, int device_rate);

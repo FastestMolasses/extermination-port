@@ -3,8 +3,10 @@
  * driver's command decode, a synthetic stereo stream driven through the
  * original lanes (em_stream_lanes_original) field by field with the played
  * samples checked for continuity across buffer wraps, fail-stop faults and
- * the mixer ring, and the drive model's timing. No assets needed; the original-instruction oracle and the
- * capture comparisons are tools/test_iop_stream_reference.py. */
+ * the mixer ring, and the drive's two timings (host speed, the default, and
+ * the drive model behind the PS2 disc-drive timing switch). No assets
+ * needed; the original-instruction oracle and the capture comparisons are
+ * tools/test_iop_stream_reference.py. */
 #include "game/em_iop_stream.h"
 
 #include <stdio.h>
@@ -185,11 +187,13 @@ static void test_commands(void)
     em_iop_stream_destroy(s);
 }
 
-/* The synthetic cue through 001F9820, 001FA790 and 001F9CF0 once per field. */
-static void test_stream(const EmIopStreamDisc *disc)
+/* The synthetic cue through 001F9820, 001FA790 and 001F9CF0 once per field,
+ * with the drive at host speed (ps2 = 0) or on the drive model (1). */
+static void test_stream(const EmIopStreamDisc *disc, int ps2)
 {
     static Tap t;
     EmIopStream *s = em_iop_stream_create();
+    em_iop_stream_set_ps2_drive_timing(s, ps2);
     EmIopVoiceTable table = {voice_table, &sdk_mask};
     EmStreamLanes L;
     EmStreamLanesData data;
@@ -320,6 +324,9 @@ static void test_reader(const EmIopStreamDisc *music_only)
     CHECK(em_iop_stream_drive_seek_fields(-20, &measured) == 2 && !measured);
 
     EmIopStream *s = em_iop_stream_create();
+    CHECK(em_iop_stream_ps2_drive_timing(s) == 0);   /* host speed by default */
+    em_iop_stream_set_ps2_drive_timing(s, 1);
+    CHECK(em_iop_stream_ps2_drive_timing(s) == 1);
     em_iop_stream_attach_disc(s, &disc);
     CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 2);
     /* The first read has no position: a full seek, done at the 7th poll. */
@@ -367,6 +374,7 @@ static void test_reader(const EmIopStreamDisc *music_only)
         em_iop_stream_drive_stats(s, &st);
         CHECK(st.reads == 9 && st.by_fields[0] == 3 && st.by_fields[2] == 2 && st.by_fields[6] == 4);
         CHECK(st.no_position == 2 && st.breaks == 1 && st.abandoned == 1 && st.unmeasured == 0);
+        CHECK(st.host_speed == 0);
     }
     /* Faults: a read while one is in flight, a read longer than 16 sectors
      * (outside the model), a sector the export does not hold. */
@@ -390,6 +398,60 @@ static void test_reader(const EmIopStreamDisc *music_only)
     em_iop_stream_destroy(s);
 }
 
+/* Host speed (the switch off, the default): the same reads as test_reader,
+ * each done at the first query after its issue whatever its distance, with
+ * the same data, abandoned-read and break rules; the counters still classify
+ * the distances. */
+static void test_reader_host(const EmIopStreamDisc *music_only)
+{
+    const uint8_t mode[3] = {0, 0, 0};
+    int32_t r = 0;
+    EmIopStreamDisc disc = *music_only;
+    EmIopStreamExtent ext[2] = {music_only->extent[0], {MUSIC_LSN + 80000u, 8, CUE_SECTORS * 2048u, 1}};
+    static const struct { uint32_t sector, count, addr; } reads[] = {
+        {MUSIC_LSN + 2, 3, 0xADC00},       /* no position (full-seek class)   */
+        {MUSIC_LSN + 5, 16, 0xBDD00},      /* contiguous                      */
+        {MUSIC_LSN + 35, 1, 0xBDD00},      /* +14 read-through                */
+        {MUSIC_LSN + 0, 1, 0xBDD00},       /* d = -36: fast-seek class        */
+        {MUSIC_LSN + 80000u, 8, 0xCDE00},  /* full-seek class                 */
+        {MUSIC_LSN + 1, 1, 0xCDE00},       /* full-seek class back            */
+    };
+    disc.extent = ext;
+    disc.extents = 2;
+    EmIopStream *s = em_iop_stream_create();
+    em_iop_stream_attach_disc(s, &disc);
+    for (unsigned i = 0; i < sizeof reads / sizeof reads[0]; i++) {
+        const uint8_t *want = reads[i].sector >= MUSIC_LSN + 80000u
+            ? disc_data + CUE_SECTORS * 2048 : disc_data + (reads[i].sector - MUSIC_LSN) * 2048;
+        CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 2);
+        CHECK(em_iop_stream_00112610(s, reads[i].sector, reads[i].count, reads[i].addr, mode, &r) == 0 && r == 1);
+        CHECK(busy_polls(s) == 0);
+        CHECK(!memcmp(em_iop_stream_iop_ram(s) + reads[i].addr, want, reads[i].count * 2048u));
+    }
+    /* A query in the issue field already finds the read done. */
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 1, 0xADC00, mode, &r) == 0);
+    CHECK(em_iop_stream_00112D18(s, 1, &r) == 0 && r == 0);
+    /* An abandoned read lands at the next ready query, which answers 2. */
+    memset(em_iop_stream_iop_ram(s) + 0xCDE00, 0, 2048);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 30, 1, 0xCDE00, mode, &r) == 0);
+    CHECK(em_iop_stream_field(s) == 0);
+    CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 2);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xCDE00, disc_data + 30 * 2048, 2048));
+    /* A break before any query drops the read: its data never land. */
+    memset(em_iop_stream_iop_ram(s) + 0xCDE00, 0, 2048);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 31, 1, 0xCDE00, mode, &r) == 0);
+    CHECK(em_iop_stream_00113478(s, 1) == 0);
+    CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 2);
+    CHECK(em_iop_stream_iop_ram(s)[0xCDE00] == 0 && em_iop_stream_iop_ram(s)[0xCDE00 + 2047] == 0);
+    {
+        EmIopDriveStats st;
+        em_iop_stream_drive_stats(s, &st);
+        CHECK(st.reads == 9 && st.host_speed == 9 && st.breaks == 1 && st.abandoned == 1);
+        CHECK(st.by_fields[0] == 4 && st.by_fields[2] == 2 && st.by_fields[6] == 3 && st.no_position == 1);
+    }
+    em_iop_stream_destroy(s);
+}
+
 int main(void)
 {
     EmIopStreamDisc disc;
@@ -398,7 +460,9 @@ int main(void)
     test_directory(&disc);
     test_commands();
     test_reader(&disc);
-    test_stream(&disc);
+    test_reader_host(&disc);
+    test_stream(&disc, 0);
+    test_stream(&disc, 1);
     if (failures) {
         fprintf(stderr, "iop_stream_test: %d failure(s)\n", failures);
         return 1;

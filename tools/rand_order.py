@@ -257,18 +257,88 @@ def fmt_totals(t):
 # legacy em_enemy group runs in its place). Every later value of the stream
 # is one step off, so the value-driven callers' frames differ after it.
 KNOWN_FIRST_DIFFERENCE = (1, 0x825940)
-# The opening's end: the original waited on the area music's read (the
-# intro movie's disc position: a 16-field seek, IOP_STREAM.md "Drive
-# model"); the port's drive model serves a first read as a full seek (6
-# fields) and disc timing is not reproduced by default (CLAUDE.md, the
-# Original profile). So the port's first control may come up to 16 frames
-# earlier; never later.
+# The opening's end with the PS2 disc-drive timing switch on (the drive
+# model): the original waited on the area music's read (the intro movie's
+# disc position: a 16-field seek, IOP_STREAM.md "Drive model"); the model
+# serves a first read as a full seek (6 fields). So the port's first control
+# may come up to 16 frames earlier; never later. With the switch off (host
+# speed, the default) check_opening requires the exact difference instead.
 OPENING_END_SLACK = 16
 
 
-def check_opening(port_frames, orig_frames, orig_marks):
+# ------------------------------------------------------------ the drive mode
+
+# The stream drive's mode, from the "stream drive: <mode>:" line the level
+# smoke and newgame-control print (em_stream_live_drive_report; the switch is
+# em_settings' EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
+# timing"): 'ps2' (the drive model) or 'host' (host speed, the default).
+def drive_mode(run_log):
+    m = re.search(r'^stream drive: (PS2 disc-drive timing on|host speed): ', run_log, re.M)
+    assert m, 'the run log has no "stream drive:" line (the drive mode)'
+    return 'ps2' if m.group(1).startswith('PS2') else 'host'
+
+
+# A host-speed read in the main-loop-top rows (IOP_STREAM.md section 4): the
+# read sequencer 001FA0D0 takes one step per field; its ready query 00113280
+# (phase 1) finds the drive idle, so phase 1 lasts one row; it issues the
+# read (phase 2) and its next step's 00112D18 finds it done, so phase 2 lasts
+# one row. Everything else around the read is the code's.
+HOST_READY_ROWS = 1
+HOST_READ_ROWS = 1
+
+STREAM_OPENING = DECOMP / 'build/s87/c7cap/stream/opening/frames.jsonl'   # CAPTURES_C7.md section 1
+
+
+def lane0_request(rows):
+    """The opening's stream request on lane 0 (001FD4C0 -> 001FA790(0, 0x3F)
+    with the D_008106F4 hold), over main-loop-top rows (active0, phase, lane,
+    load0) that start before it: the lane's start (the last 0 -> 1 of
+    D_00282154 before the first key-on), the first row the sequencer is in
+    phase 1 on lane 0, the read's issue (phase 2), done (+0x03 = 2) and the
+    key-on (D_00282154 = 2). `wait` is the fields the drive made the
+    sequencer wait beyond a host-speed read: the ready query's extra rows
+    plus the read's extra rows."""
+    keyon = next(k for k, r in enumerate(rows) if r[0] == 2)
+    start = max(k for k in range(1, keyon) if rows[k][0] == 1 and rows[k - 1][0] == 0)
+    p1 = next(k for k in range(start, keyon) if rows[k][1] == 1 and rows[k][2] == 0)
+    issue = next(k for k in range(p1, keyon) if rows[k][1] == 2 and rows[k][2] == 0)
+    done = next(k for k in range(issue, keyon) if rows[k][3] == 2)
+    return dict(start=start, p1=p1, issue=issue, done=done, keyon=keyon,
+                wait=(issue - p1 - HOST_READY_ROWS) + (done - issue - HOST_READ_ROWS))
+
+
+def lane0_request_capture():
+    """lane0_request over the C7 stream capture of the New Game opening."""
+    rows = []
+    for line in STREAM_OPENING.open():
+        r = json.loads(line)
+        lb = bytes.fromhex(r['lb'])
+        rows.append((lb[0], lb[3], lb[4], int(r['L0']['b0_3'][6:8], 16)))
+    return lane0_request(rows)
+
+
+def lane0_request_port(ticks):
+    """lane0_request over the port's tick log (EM_AREA_CHANGE_LOG): each
+    tick's "stream" row is the state before its frame, the main-loop top."""
+    rows = [(t['stream'][3], t['stream'][1], t['stream'][2], t['stream'][6]) for t in ticks if 'stream' in t]
+    return lane0_request(rows)
+
+
+def check_opening(port_frames, orig_frames, orig_marks, drive):
     """Asserts the opening's rand() order against the C7 newgame capture and
-    returns the report and a summary line."""
+    returns the report and a summary line. `drive` is (mode, the port's
+    lane0_request) with mode 'ps2' or 'host' (drive_mode).
+
+    The opening's end: with the PS2 disc-drive timing switch on, first
+    control may come up to OPENING_END_SLACK frames earlier than the
+    original's, never later. With the switch off (host speed) the stream
+    request must run as the capture's with every drive wait gone: the
+    port's ready query and read take the host-speed rows, the hold from the
+    read's end to the key-on equals the capture's, and first control comes
+    exactly the capture's drive wait earlier (the C7 stream capture's
+    opening, whose run matches newgame_samples' fade-in frame, CAPTURES_C7.md
+    section 1)."""
+    mode, port_req = drive
     rep = opening(port_frames, orig_frames, orig_marks)
     o0, p0 = rep['o0'], rep['p0']
     po = [(fn, s) for fn, s, _ in port_frames[p0]]
@@ -284,12 +354,31 @@ def check_opening(port_frames, orig_frames, orig_marks):
             ('rand order: an opening frame\'s deterministic callers differ', 'AE+%d' % k,
              [name(c) for c in ps], [name(c) for c in os_])
     late = (rep['oc'] - o0) - (rep['pc'] - p0)
-    assert 0 <= late <= OPENING_END_SLACK, ('rand order: the opening\'s end', rep['pc'] - p0, rep['oc'] - o0)
+    orig_req = lane0_request_capture()
+    rep['late'], rep['orig_request'], rep['port_request'] = late, orig_req, port_req
+    if mode == 'ps2':
+        assert 0 <= late <= OPENING_END_SLACK, ('rand order: the opening\'s end', rep['pc'] - p0, rep['oc'] - o0)
+        end = (f'first control {late} frame(s) earlier than the original\'s AE+{rep["oc"] - o0} (the area music\'s '
+               f'read: disc timing; the drive model waits {port_req["wait"]} field(s) in the stream request, the '
+               f'capture {orig_req["wait"]})')
+    else:
+        assert mode == 'host', ('rand order: unknown drive mode', mode)
+        assert (port_req['issue'] - port_req['p1'], port_req['done'] - port_req['issue']) == \
+            (HOST_READY_ROWS, HOST_READ_ROWS) and port_req['wait'] == 0, \
+            ('rand order: the opening\'s stream request did not read at host speed', port_req)
+        assert port_req['keyon'] - port_req['done'] == orig_req['keyon'] - orig_req['done'], \
+            ('rand order: the opening\'s hold from the read to the key-on differs from the capture', port_req, orig_req)
+        assert late == orig_req['wait'], \
+            ('rand order: the opening\'s end is not the capture\'s drive wait earlier', late, orig_req)
+        end = (f'first control {late} frame(s) earlier than the original\'s AE+{rep["oc"] - o0}, exactly the '
+               f'fields the capture\'s stream request waited on the drive ({orig_req["issue"] - orig_req["p1"]} '
+               f'rows for the ready query and {orig_req["done"] - orig_req["issue"]} for the read, against host '
+               f'speed\'s {HOST_READY_ROWS} and {HOST_READ_ROWS}; the hold to the key-on '
+               f'{orig_req["keyon"] - orig_req["done"]} rows in both)')
     return rep, (f'the area entry (port counter {p0} = original frame n{o0}) and {rep["equal_calls"]} calls equal '
                  f'in caller and state, up to the husk 00825940\'s missing lifecycle-0 draw at AE+1 (census L24); '
                  f'the deterministic callers (sway, indicators, glow markers, music, item, effect owner) equal '
-                 f'frame for frame over AE+1..AE+{rep["window"] - 1}; first control {late} frame(s) earlier '
-                 f'than the original\'s AE+{rep["oc"] - o0} (the area music\'s read: disc timing)')
+                 f'frame for frame over AE+1..AE+{rep["window"] - 1}; {end}')
 
 
 def check_after_control(port_frames, pc, orig_frames, oc, count):

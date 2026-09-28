@@ -711,6 +711,46 @@ the remaining gaps; census 1.33):**
 
   Frame order is unaffected: no code changed.
 
+**Status update (2026-09-27, the PS2 disc-drive timing behind a launcher
+switch, off by default; LAUNCHER_OPTIONS.md BUILT):**
+- **The switch.** `src/em_settings.{h,c}` is the one settings struct the
+  profiles use (PORT_PROFILES.md "Profile switch plumbing"): one field per
+  switch, `em_settings_original` with the Original values, chosen at launch
+  (`em_settings_from_env` until the launcher exists). Its first switch is
+  `ps2_disc_drive_timing` (`EM_PS2_DISC_DRIVE_TIMING=1`), Original value 0.
+  `em_stream_live_boot` applies it to the IOP stream backend.
+- **Host speed (the default).** A stream read is done at the first query
+  after its issue (IOP_STREAM.md "Host speed and the PS2 disc-drive timing
+  switch"). The read sequencer, its ready query and the key-on hold are
+  the translated code in both modes. The drive model is unchanged behind
+  the switch.
+- **Effect.** First control comes 10 frames earlier than with the switch
+  (newgame-control locked_ticks 1301 against 1311; 9.599849 in both), 21
+  frames before the original's, exactly the capture's drive wait in the
+  opening's stream request. Each voiced line's read takes 1 field against
+  the recording's 7, so 0x97 / 0x99 tear down 6 rows early and 0x7F 8 (with
+  its 2 rows of navigation). The frame-order post-control window is native
+  index 1330 (1340 with the switch).
+- **The smoke in both modes** (LEVEL_SMOKE.md "The stream drive's two
+  modes"). The checker reads the run's mode. With the switch on
+  (`make test-level-smoke-ps2-drive`) check_voice_drive and the opening's
+  end compare as before. At host speed they compare the same events and
+  require the timing difference to be exactly the host-speed reads':
+  every read before the key-on takes the host-speed rows, the holds equal
+  the capture's, and the opening ends exactly 21 frames early. No
+  assertion was loosened; mutations (a host read one field slower) fail
+  both checks.
+- **Evidence.** 237 of the 238 make test-* targets pass (with the new one); the other,
+  test-scene-no-shadow, fails only on the B15 status-pages file
+  em_status_pages_item.c (commit 8655157), outside this step;
+  `make test-level-smoke-full` (host speed) and `make
+  test-level-smoke-ps2-drive` pass with `--require-through`, and the side
+  runs pass in both modes; `make test-rand-order` passes in both modes;
+  newgame-control 9.599849 in both; compare_frame_order idle04 / walk04 /
+  st03 PASS at native index 1330 (host) and 1340 (switch on), cut02 /
+  cut15 PASS in both; `make all` with no warnings. Census unchanged
+  (section 1.34).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -803,13 +843,14 @@ The items are ordered in four groups:
      flame's 0x413).
    - Capture: nothing records SPU2 output today, and the smoke compares no
      sound.
-7. **Policy: the disc-drive timing is always on.** LAUNCHER_OPTIONS.md
-   (DECIDED 2026-09-27) makes the drive model measured from the recordings
-   an option, off by default; the Original profile has host-speed loads and
-   streams. Today the IOP stream backend always runs the model.
-   - Turning it off moves first control and the voiced lines' key-ons.
-     check_voice_drive and the frame-order window (native index 1340) must
-     then follow the switch.
+7. **Policy: the disc-drive timing switch. Resolved 2026-09-27.** The drive
+   model measured from the recordings is behind the PS2 disc-drive timing
+   switch (LAUNCHER_OPTIONS.md BUILT), off by default: the Original profile's
+   streams read at host speed. check_voice_drive, the opening's end and the
+   frame-order window (native index 1330 at host speed, 1340 with the
+   switch) follow the run's mode (LEVEL_SMOKE.md "The stream drive's two
+   modes"). The module loader's disc time (H7) is host speed in both
+   modes.
 
 **B. On the route, now and then**
 
@@ -1163,12 +1204,15 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   drive's next ready query (IOP_STREAM.md). Verified: the full level smoke (every live phase, the director's three
   beats and Roger's voiced conversation compared with routes 10, 11 and 13), `test-opening-runtime` over the real
   lanes, `test-iop-stream`, `test-stream-lanes`, newgame-control (9.599849, as HEAD), all `make test-*` targets.
-  **Open:** (1) the drive's read time: since 2026-09-27 the drive runs the model measured in the C7 stream
-  capture (IOP_STREAM.md "Drive model"). The voiced lines 0x97 / 0x99 tear down on the capture's rows and 0x7F 2
-  rows early: the original's sequencer served a lane-0 music refill first, a navigation-dependent phase. The
-  opening's stream request reaches its key-on 17 fields after the request frame, 5 of them waiting for the area
-  music's read that the area-entry 001FAE70(1) issues (bound since the rand() order audit). The original takes 27:
-  it waits 15 fields, because that read's 16-field seek from the movie's position is outside the model. (2)
+  **Open:** (1) the drive's read time: by default the disc answers at host speed; with the PS2 disc-drive timing
+  switch on (2026-09-27) the drive runs the model measured in the C7 stream capture (IOP_STREAM.md "Host speed and
+  the PS2 disc-drive timing switch", "Drive model"). At host speed the voiced lines tear down exactly the drive's
+  6 rows early (0x7F 8, with 2 rows of navigation) and the opening's stream request keys on 7 fields after the
+  request frame. With the switch on, 0x97 / 0x99 tear down on the capture's rows and 0x7F 2 rows early (the
+  original's sequencer served a lane-0 music refill first, a navigation-dependent phase), and the opening's request
+  keys on after 17 fields, 5 of them waiting for the area music's read that the area-entry 001FAE70(1) issues. The
+  original takes 27: it waits 15 fields, because that read's 16-field seek from the movie's position is outside
+  the model. (2)
   0x1AE040's state 2 r == 1 and state 6 stay reported (UM_001FAE70); the state-0 area-entry 001FAE70(1) and the
   state-4 room move's 001FAE70(0) are bound since the rand() order audit (RAND_ORDER.md). (3) The rest of 001FB100 (the output-mode commit, the
   `D_00281B70` copy, 001FC6E0) is unbound; the mode bytes are 0 in every capture. (4) 001FC280's `D_00282160` cache

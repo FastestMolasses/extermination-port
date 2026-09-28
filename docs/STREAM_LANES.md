@@ -346,13 +346,17 @@ voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); `make test-ope
 the real lanes (the hold protocol 0 -> 2 at 001FD4C0, 2 -> 1 at step H once lane 0's prefill is in, 1 -> 0 at step F,
 key-on at the next step H; cue 25 resumed at the end; the skip's stops); newgame-control and the full suite.
 
-**Drive timing (measured, 2026-09-27).** The backend's drive runs the model measured in the original's C7 stream
-capture (IOP_STREAM.md "Drive model"): one read at a time, and a seek of 0, 2 or 6 fields by the distance from the
-drive's position.
-- **Voiced lines.** Each voice read takes the capture's 7 fields and each key-on the capture's 2 more. 0x97 and 0x99
-  tear down on the capture's rows. 0x7F is 2 rows early, because the original's sequencer served a lane-0 music
-  refill first. That refill's phase is the time since the music's last start, which is navigation.
-- **Opening.** The prefill reaches its key-on 17 fields after the stream request: it first waits 5 fields for the
-  area music's read that the area-entry 001FAE70(1) issued (a first read: the model's 6-field full seek). The
-  original takes 27: it waits 15 fields for that read's 16-field seek from the movie's position (disc timing).
+**Drive timing (2026-09-27).** By default the backend's disc answers at host speed: a read is done at the first
+query after its issue. With the PS2 disc-drive timing switch on (`EM_PS2_DISC_DRIVE_TIMING=1`, LAUNCHER_OPTIONS.md)
+it runs the model measured in the original's C7 stream capture (IOP_STREAM.md "Host speed and the PS2 disc-drive
+timing switch", "Drive model"): one read at a time, and a seek of 0, 2 or 6 fields by the distance from the
+drive's position. The lanes' own steps (001FA0D0's one step per field, the holds) are the same in both modes.
+- **Voiced lines.** Each voice read takes 1 field at host speed (the capture's 7 with the switch), and each key-on
+  the capture's 2 more. 0x97 and 0x99 tear down 6 rows early at host speed, on the capture's rows with the switch.
+  0x7F is 2 rows earlier still, because the original's sequencer served a lane-0 music refill first. That
+  refill's phase is the time since the music's last start, which is navigation.
+- **Opening.** At host speed the prefill reaches its key-on 7 fields after the stream request. With the switch it
+  takes 17: it first waits 5 fields for the area music's read that the area-entry 001FAE70(1) issued (a first
+  read: the model's 6-field full seek). The original takes 27: it waits 15 fields for that read's 16-field seek
+  from the movie's position (disc timing).
 

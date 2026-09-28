@@ -95,6 +95,7 @@ import re
 import struct
 import sys
 
+import rand_order as R
 import test_scene_task_reference as tsr
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -1625,21 +1626,40 @@ def voice_timeline(rows_of, first):
         k += 1
     keyon = k
     lane0 = sum(1 for j in range(start, issue) if rows_of(j)[3] in (1, 2) and rows_of(j)[4] == 0)
-    return {'start': start, 'issue': issue, 'done': done, 'keyon': keyon, 'lane0': lane0}
+    # The sequencer's runs in [start, issue): (phase, lane, rows) for each
+    # stretch of equal phase 1 or 2 and lane (the ready query and the read
+    # of each lane's read).
+    runs = []
+    for j in range(start, issue):
+        ph, ln = rows_of(j)[3], rows_of(j)[4]
+        if ph not in (1, 2):
+            continue
+        if runs and tuple(runs[-1][:2]) == (ph, ln) and j > start and tuple(rows_of(j - 1)[3:5]) == (ph, ln):
+            runs[-1][2] += 1
+        else:
+            runs.append([ph, ln, 1])
+    return {'start': start, 'issue': issue, 'done': done, 'keyon': keyon, 'lane0': lane0, 'runs': runs}
 
 
-def check_voice_drive(ticks, i0, count, rows, f0, phase):
+def check_voice_drive(ticks, i0, count, rows, f0, phase, drive):
     """The voiced line's first voice lane against the C7 stream capture of the
     same beat (decomp docs/CAPTURES_C7.md section 1: D_00282154..58 and the
     lane records at every main-loop top, with the capture's recorded route
     row rec_f), aligned on the director's frame. The lane starts on the
-    capture's row; the drive part (read issue to read done: the stated drive
-    model, IOP_STREAM.md "Drive model") and the hold part (read done to
-    key-on) take the capture's fields exactly; the sequencer part (start to
-    issue) may differ only by the fields 001FA0D0 spends on lane 0's read
-    first (the music's refill phase at the line's start, which follows the
-    time since the music's last start: navigation). Returns (the key-on's
-    row shift, the timelines)."""
+    capture's row; the hold part (read done to key-on) takes the capture's
+    fields exactly; the sequencer part (start to issue) may differ only by
+    the fields 001FA0D0 spends on lane 0's read first (the music's refill
+    phase at the line's start, which follows the time since the music's last
+    start: navigation). The drive part (read issue to read done) depends on
+    the run's drive mode (`drive`, R.drive_mode):
+    - 'ps2' (the PS2 disc-drive timing switch on: the stated drive model,
+      IOP_STREAM.md "Drive model"): the capture's fields exactly;
+    - 'host' (host speed, the default): the host-speed read's rows
+      (R.HOST_READ_ROWS), and every ready query and lane-0 read the
+      sequencer served before the voice read took the host-speed rows too,
+      so the key-on lies exactly the capture's drive wait (plus lane 0's
+      difference) earlier.
+    Returns (the key-on's row shift, the timelines)."""
     frames = [json.loads(line) for line in (STREAM_CAPTURE / DIRECTOR_STREAMS[phase] / 'frames.jsonl').open()]
     by_rec = {r['rec_f']: r for r in frames}
     def orig(k):
@@ -1654,8 +1674,17 @@ def check_voice_drive(ticks, i0, count, rows, f0, phase):
     o = voice_timeline(orig, 0)
     p = voice_timeline(port, 0)
     assert p['start'] == o['start'], (phase, 'the voice lane starts off the capture\'s row', p, o)
-    assert (p['done'] - p['issue'], p['keyon'] - p['done']) == (o['done'] - o['issue'], o['keyon'] - o['done']), \
-        (phase, 'the voice read (the drive) or its hold to the key-on differs from the capture', p, o)
+    if drive == 'ps2':
+        assert (p['done'] - p['issue'], p['keyon'] - p['done']) == (o['done'] - o['issue'], o['keyon'] - o['done']), \
+            (phase, 'the voice read (the drive) or its hold to the key-on differs from the capture', p, o)
+    else:
+        assert drive == 'host', (phase, 'unknown drive mode', drive)
+        assert p['keyon'] - p['done'] == o['keyon'] - o['done'], \
+            (phase, 'the voice read\'s hold to the key-on differs from the capture', p, o)
+        assert p['done'] - p['issue'] == R.HOST_READ_ROWS, \
+            (phase, 'the voice read did not take the host-speed read\'s rows', p, o)
+        slow = [r for r in p['runs'] if r[2] > (R.HOST_READY_ROWS if r[0] == 1 else R.HOST_READ_ROWS)]
+        assert not slow, (phase, 'a ready query or read before the voice read waited on the drive', slow, p)
     assert (p['issue'] - p['start']) - p['lane0'] == (o['issue'] - o['start']) - o['lane0'], \
         (phase, 'the sequencer\'s wait for the voice read differs by more than lane 0\'s read', p, o)
     return o['keyon'] - p['keyon'], p, o
@@ -1702,7 +1731,7 @@ def check_director_beat(ticks, run, state, phase):
     e_orig = next(k for k in range(count) if orig_view(rows[f0 + k])['msg'][:2] == (2, 2))
     e_port = next(k for k in range(count) if port_view(ticks, i0 + k)['msg'][:2] == (2, 2))
     shift = e_orig - e_port
-    keyon_shift, vp, vo = check_voice_drive(ticks, i0, count, rows, f0, phase)
+    keyon_shift, vp, vo = check_voice_drive(ticks, i0, count, rows, f0, phase, state['drive'])
     assert shift == keyon_shift, (phase, 'the voiced line\'s teardown is not its key-on\'s shift', shift, keyon_shift,
                                   vp, vo)
     p0, o0 = port_view(ticks, i0), orig_view(rows[f0])
@@ -1755,6 +1784,11 @@ def check_director_beat(ticks, run, state, phase):
     step = bytes.fromhex(rows[-1]['d2'])[0x3B]
     extra = ", Roger's record and block (0x828990)" if roger else ''
     line = orig[e_orig]['msg'][2]
+    if state['drive'] == 'ps2':
+        read_text = f'takes the capture\'s {vo["done"] - vo["issue"]} fields (the drive model, PS2 disc-drive timing on)'
+    else:
+        read_text = (f'takes {vp["done"] - vp["issue"]} field at host speed against the capture\'s '
+                     f'{vo["done"] - vo["issue"]} (the PS2 drive), every read before it at host speed too,')
     return (f'the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 at {free}; '
             f'port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route {beat[:2]} '
             f'f{rows[f0]["f"]}..f{rows[-1]["f"]} in spad, camera byte, letterbox, message, power, the camera '
@@ -1762,7 +1796,7 @@ def check_director_beat(ticks, run, state, phase):
             f'({stance[0]:+.5f}, {stance[1]:+.5f}) off the capture\'s: navigation), D_008107D8 / D_00810793 / '
             f'D_00810813 (0x{step:02X} at the end){extra}, the release at f{rows[release]["f"]}; the voiced line '
             f'{line:#x}: its voice lane starts on the capture\'s row f{rows[f0 + vo["start"]]["f"]}, its read '
-            f'takes the capture\'s {vo["done"] - vo["issue"]} fields (the drive model) and its key-on follows '
+            f'{read_text} and its key-on follows '
             f'{vo["keyon"] - vo["done"]} fields later as in the capture; the sequencer served lane 0\'s music '
             f'refill first for {vo["lane0"]} field(s) in the original and {vp["lane0"]} in the port, so the key-on '
             f'and the teardown are {shift} row(s) earlier in the port (f{rows[f0 + e_port]["f"]} against '
@@ -2588,11 +2622,10 @@ def check_rand_order(ticks, state, trace):
       the capture holds (01's battery take, 10's director beat): each
       frame's deterministic callers equal the capture's frame (the values
       differ: the port's stream reaches the window from its own route)."""
-    import rand_order as R
     frames = R.port(trace, ROOT / 'build/extermination')
     state['rand'] = frames
     orig, marks = R.original('newgame')
-    rep, line = R.check_opening(frames, orig, marks)
+    rep, line = R.check_opening(frames, orig, marks, (state['drive'], R.lane0_request_port(ticks)))
     after = R.check_after_control(frames, rep['pc'], orig, rep['oc'], 30)
     windows = []
     for beat, i0, f0, count in state.get('aligned', []):
@@ -2875,7 +2908,10 @@ def main():
     assert 'level smoke: FAIL' not in run, 'the run reported a failure'
     ticks = [json.loads(line) for line in args.log.open()]
     assert re.search(r'^level smoke: PASS ', run, re.M), 'the run has no final PASS line'
-    state = {}
+    # The stream drive's mode (the run's "stream drive:" line; em_settings'
+    # EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
+    # timing"): check_voice_drive and the opening's end follow it.
+    state = {'drive': R.drive_mode(run)}
     checked, not_live, driven, side_named = [], [], [], []
     for name, check in PHASES:
         if re.search(rf'^level smoke: {name}: PASS', run, re.M):
@@ -2926,7 +2962,7 @@ def main():
     print(f'level smoke: route beats: {beats}')
     drive = re.search(r'^stream drive: .*$', run, re.M)
     if drive:
-        # The drive model's counters (IOP_STREAM.md "Drive model"): reads
+        # The drive's mode and counters (IOP_STREAM.md "Drive model"): reads
         # outside the measured distances take the nearest measured class.
         print(f'level smoke: {drive.group(0)}')
     if args.require_through:

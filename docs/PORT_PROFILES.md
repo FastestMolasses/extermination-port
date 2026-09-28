@@ -11,7 +11,7 @@ from **one codebase**:
 | Scaling | Nearest-neighbour integer or aspect-correct scaling, **no smoothing** | Filtering and AA of the user's choosing |
 | Colours | GS-exact: the same blend, fog, alpha test, dither and clamp arithmetic, so the pixels match | May differ |
 | CRT / scanline simulation | **None** (user: "no simulating CRT") | Not planned |
-| Frame rate and timing | The game's own 59.94 Hz tick (all logic counts fields). Hardware timing is not reproduced: the disc drive answers at host speed and the PS2's slowdowns are not emulated (user, 2026-09-27). The recorded PS2 disc-drive timing is an optional switch, off by default | Higher display rates allowed, but logic and streamed audio stay at 59.94 Hz with rendering decoupled (the stream ring needs field pacing, IOP_STREAM.md "Clock domains") |
+| Frame rate and timing | The game's own 59.94 Hz tick (all logic counts fields). Hardware timing is not reproduced: the disc drive answers at host speed and the PS2's slowdowns are not emulated (user, 2026-09-27). The recorded PS2 disc-drive timing is an optional switch, off by default (built: `EM_PS2_DISC_DRIVE_TIMING=1`, `src/em_settings.h`) | Higher display rates allowed, but logic and streamed audio stay at 59.94 Hz with rendering decoupled (the stream ring needs field pacing, IOP_STREAM.md "Clock domains") |
 | Controls | The original DualShock 2 mapping and behaviour | Better controls (list below) |
 | Content | Only what the shipped game reaches | May restore cut content (list below) |
 
@@ -70,7 +70,11 @@ from **one codebase**:
 2. **GS-exact Original rendering.** Render each field at 512x224 as the GS does, apply the GS blend, fog,
    alpha-test and dither rules exactly, and scale to 4:3 without filtering.
 3. **Profile switch plumbing.** One settings struct with an Original value for
-   every switch, chosen at launch. Rendering switches go first.
+   every switch, chosen at launch. Started 2026-09-27: `src/em_settings.{h,c}`
+   (`EmSettings`, `em_settings_original`, `em_settings()`), read from the
+   environment by `em_settings_from_env` until the launcher sets it. Its one
+   switch so far is the PS2 disc-drive timing (`LAUNCHER_OPTIONS.md`, BUILT).
+   Rendering switches go next.
 4. **Enhancement items**, one switch each, in the order the user picks.
 
 ## Options and pending decisions

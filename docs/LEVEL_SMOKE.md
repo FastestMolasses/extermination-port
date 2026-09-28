@@ -53,7 +53,13 @@ EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_cr
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
 EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
 EM_LEVEL_SMOKE_UNTIL=fence_door make test-level-smoke         # side beat 09 without side 1
+make test-level-smoke-ps2-drive        # the main route through roger with the PS2 disc-drive timing switch on (about 110 s)
+EM_PS2_DISC_DRIVE_TIMING=1 make test-level-smoke-side          # any target with the switch on (the side runs, about 70 s)
 ```
+
+Every target runs with the switches in its environment (`src/em_settings.h`);
+without any, that is the Original profile, whose disc answers at host speed.
+See "The stream drive's two modes".
 
 **Supported end phases.** A run may end at `battery` or at any later phase
 of the table below, main line or side. Each of them passes the make target
@@ -135,6 +141,46 @@ Files:
   `PHASES`.
 - `em_scene_bindings_pool_binding()`: the current binding of an owner, for
   the NOT-LIVE lines.
+
+### The stream drive's two modes
+
+The PS2 disc-drive timing switch (`LAUNCHER_OPTIONS.md`, built 2026-09-27;
+`EM_PS2_DISC_DRIVE_TIMING=1`) chooses the IOP stream backend's drive: off
+(the default, the Original profile) the disc answers at host speed; on, the
+drive model measured in the original runs (IOP_STREAM.md "Host speed and
+the PS2 disc-drive timing switch", "Drive model"). The run prints its mode
+on the `stream drive:` line (`stream drive: host speed: ...` or `stream
+drive: PS2 disc-drive timing on: ...`), and the checker reads it there
+(tools/rand_order.py `drive_mode`; a run log without the line fails). Two
+checks depend on it; both compare the same code-determined events against
+the same captures in either mode:
+
+| Check | Switch on (`make test-level-smoke-ps2-drive`) | Host speed (the default, `make test-level-smoke-full`) |
+|---|---|---|
+| `check_voice_drive` (cage_roof, crevice_prompt, east_tower) | the voice read takes the capture's fields (7); the lane's start, the hold to the key-on and the sequencer's wait (less lane 0's read) equal the capture's | the voice read takes the host-speed read's 1 field; every ready query and lane-0 read before it takes the host-speed rows (1 row each); the lane's start, the hold to the key-on and the sequencer's wait (less lane 0's read) equal the capture's |
+| the teardown in `check_director_beat` | exactly the key-on's shift from the capture's row | the same rule; the shift is now the drive's 6 fields plus lane 0's difference |
+| the opening's end in `check_rand_order` and `make test-rand-order` | first control at most 16 frames earlier than the original's (the area music's 16-field seek from the intro movie's position is outside the model) | the port's stream request reads at host speed (1 row of ready query, 1 row of read), its hold to the key-on equals the capture's (4 rows), and first control comes exactly the capture's drive wait earlier: 21 frames, the C7 stream capture's opening request (15 extra rows of ready query while the area music's read finished, 6 extra rows of read) |
+
+The opening's exact rule rests on one thing no single capture shows: the
+C7 newgame rand() capture (first control) and the C7 stream capture (the
+opening's drive wait) are two runs of the same opening. The stream capture's
+fade-in frame equals newgame_samples' (CAPTURES_C7.md section 1), and the
+switch-on run obeys the same equation (11 = 21 - the model's 10), so the
+two runs' drive waits agree.
+
+Measured 2026-09-27 (full route, both modes; newgame-control):
+
+| | Host speed | Switch on |
+|---|---|---|
+| first control (newgame-control locked_ticks) | 1301 | 1311 |
+| first control against the original's AE+1324 | AE+1303, 21 frames earlier | AE+1313, 11 frames earlier |
+| 0x7F key-on and teardown (s) | 8 rows early (6 drive + 2 lane 0) | 2 rows early (lane 0) |
+| 0x97, 0x99 key-on and teardown (s) | 6 rows early | on the capture's rows |
+| stream reads over the full route | 420, all at host speed | 420 (328 contiguous, 19 fast, 73 full seeks) |
+| the frame-order post-control window | native index 1330 | native index 1340 |
+
+The 30-tick displacement is 9.599849 in both modes. The side runs pass in
+both modes too.
 
 ### Frame captures
 
@@ -692,15 +738,18 @@ and the follow camera after the release row for row.
 **The voiced line's teardown (check_voice_drive).** A voiced line holds its
 teardown until the last voice lane's timer ends (D_00282155/156). The timer
 runs from the lane's key-on, and the key-on waits for the lane's first disc
-read. The port's drive runs the model measured in the original
-(IOP_STREAM.md "Drive model").
+read. The port's drive answers at host speed by default, or runs the model
+measured in the original with the PS2 disc-drive timing switch on
+(IOP_STREAM.md; "The stream drive's two modes" above).
 
 The checker compares the line's first voice lane with the C7 stream capture
 of the same beat (the decomp's `build/s87/c7cap/stream/r10|r11|r13`,
 CAPTURES_C7.md section 1). It reads the tick log's `stream` row: D_00810E90,
 D_00282157 / 58, the active bytes and each lane's +0x03. It requires:
 - the lane's start on the capture's row;
-- the read, from issue to done, taking the capture's fields (7);
+- the read, from issue to done, taking the capture's fields (7) with the
+  switch on, or the host-speed read's 1 field at host speed, where every
+  ready query and lane-0 read before it must also take the host-speed rows;
 - the key-on following the capture's 2 fields later;
 - the sequencer's wait before the read differing only by the fields 001FA0D0
   spent on lane 0's music refill first;
@@ -711,7 +760,7 @@ message block, and in beat 0 Roger's record, his D_00810813 = 1 and the
 player's clip back to idle. Every other field keeps the capture's rows,
 including beat 0's camera shots and its release at f3508.
 
-Measured 2026-09-27:
+Measured 2026-09-27, switch on:
 - **0x97 and 0x99:** s = 0, every change on the capture's rows (beat 1 298,
   beat 2 138).
 - **0x7F:** s = 2 (f3380 against f3382), 822 changes on the capture's rows
@@ -721,8 +770,15 @@ Measured 2026-09-27:
   original's 3583 (vsync 15472, after route 03's status close). That
   difference is navigation.
 
-Mutation controls: a zero-latency drive and a 7-field full seek each fail
-check_voice_drive at cage_roof.
+Measured 2026-09-27, host speed (the default):
+- **0x97 and 0x99:** s = 6, the drive's read time (beat 1: 170 changes on
+  the capture's rows and 128 on the teardown's; beat 2: 70 and 68).
+- **0x7F:** s = 8 (f3374 against f3382): the same 6 plus lane 0's 2; 822
+  changes on the capture's rows and 8 on the teardown's.
+
+Mutation controls: with the switch on, a zero-latency drive and a 7-field
+full seek each fail check_voice_drive at cage_roof. At host speed, a read
+one field slower fails it (and the opening's exact end).
 
 ### panel_no_battery (side beat 00)
 
@@ -1003,7 +1059,9 @@ rows sample. Measured on the full route: route 07 from port tick 4444 to
 10920 to 11131, 14 11485 to 12954; the admission rows are the captures' first
 3B8F = 1 rows and the release rows their first rows with 3B8F = 0 again (6
 rows early in 11 and 13 before the drive model of 2026-09-27, whose whole
-frame follows the voiced line's teardown; on the capture's rows since). The
+frame follows the voiced line's teardown; on the capture's rows since with
+the PS2 disc-drive timing switch on; at host speed, the default, they lie
+exactly on the teardown's clock, 6 rows early). The
 tick log is otherwise equal to the stand-in's (the interaction runtime's
 takeover before C7) on every tick.
 
@@ -1237,8 +1295,11 @@ unknown rand() caller fails the check.
     glow markers, the music, the item and effect-owner first ticks) equal
     frame for frame to the port's first control, and the 30 frames after
     it;
-  - first control at most 16 frames earlier than the original's (the area
-    music's read: disc timing).
+  - the opening's end by the run's drive mode ("The stream drive's two
+    modes"): at host speed first control exactly the capture's drive wait
+    (21 frames) earlier, with the stream request read at host speed and
+    its hold equal to the capture's; with the switch on, at most 16 frames
+    earlier (the area music's read: disc timing).
 
   Then every frame of the phase windows aligned row for row with a stretch
   the capture holds (route 01's battery take, route 10's director beat) has
@@ -1260,8 +1321,9 @@ unknown rand() caller fails the check.
   pool order, and every draw is used.
 
 Measured (full route, 2026-09-27): 4 calls equal up to the husk's draw;
-the skeleton equal over AE+1..AE+1312 (the husk's frame aside) and 30
-frames after control; first control 11 frames earlier; the windows 01 (66
+the skeleton equal over AE+1..AE+1302 (the husk's frame aside) and 30
+frames after control; first control 21 frames earlier, the capture's drive
+wait (AE+1312 and 11 frames with the switch on); the windows 01 (66
 frames) and 10 (311 frames) equal; the sway on 46 sampled ticks (90 draws);
 the markers in 506 calls of 46 barrel frames, and snapshot 10's 5 captured
 markers; the head sprites: 2 new, 149 flips, 149 ramp ends, 13,369 wait
@@ -1357,14 +1419,14 @@ never silently skipped. What removes each:
 | Where | What is relaxed | Why | What removes it |
 |---|---|---|---|
 | panel (03) | the prompt window between the request and the Yes press: the port's page takes 7 ticks, the original's 30 | the ITEM root's module-0x21 load takes 24 loader dispatches in the original; the port's load is instant (H7) | the module loader's dispatch count (FIRST_LEVEL_AUDIT.md WP-5) |
-| cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows early; check_voice_drive allows exactly the key-on's shift, which it proves is the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
+| cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows earlier than the drive mode alone explains (8 at host speed, 2 with the switch on); check_voice_drive allows exactly the key-on's shift, which it proves is the drive's difference plus the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
-| check_rand_order | the opening's values after AE+1, and its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); the area music's 16-field seek is disc timing | L24; the opening's actors on their records |
+| check_rand_order | the opening's values after AE+1, and (switch on only) its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | L24; the opening's actors on their records |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 
@@ -1381,11 +1443,12 @@ LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
 three selector-0 ticks at the opening's end, where record 13 (008257A0)
 still ticks. The report then shows "drum area11[14] against 008257A0
 area11[13]". That is an alignment artefact, not a node-order divergence:
-from native index 1340 (counter 2597, first control + 11) idle04, walk04
+from native index 1330 (counter 2587, first control + 11) idle04, walk04
 and st03 PASS event for event, and cut02 / cut15 PASS on their own windows
-(2026-09-27; the index was 1336 before the area-entry 001FAE70(1) was
-bound, whose area-music read moved first control 4 frames later, and 1330
-before the drive model).
+(2026-09-27, host speed, the default). With the PS2 disc-drive timing
+switch on (`EM_PS2_DISC_DRIVE_TIMING=1`) first control comes 10 frames
+later and the window is native index 1340 (counter 2597), where the same
+five PASS.
 
 ## Adding a phase (the contract for WP-4 onward)
 

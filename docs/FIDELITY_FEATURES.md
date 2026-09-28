@@ -282,7 +282,9 @@ catches each break.
   `EFFECT_MANAGER.md`: 49 of 50. `PACKET_CHAIN.md`: 25 of 27 (2 equivalent).
   `CAMERA_LEFTOVERS.md`: 24 of 26. `COLL_LIST_PASSES.md`: 11 survivors of 117,
   each analysed. Commits e99d8cb (6 mutations killed), 6e659ac and 4366957
-  (zero-latency and 7-field-seek drives fail at cage_roof).
+  (zero-latency and 7-field-seek drives fail at cage_roof; since the drive
+  switch, a host-speed read one field slower fails at cage_roof and at the
+  opening's end).
 - Status: **PARTIAL**. Done module by module, not as one sweep over the whole
   port. Some survivors are documented rather than killed. Mutation runs are
   scratch work; the counts come from the docs.
@@ -582,30 +584,54 @@ Loops wrap at the same sample. Nothing is re-encoded or shipped.
   interpolation, core master volumes. Transfer completion tick and driver
   tick phase are stated models.
 
-**Voiced lines wait on the disc drive as the recording does**
+**The disc drive: host speed by default, the recorded PS2 drive as a switch**
 
 In the original, a cutscene waits for a voice line to finish, and a line
-cannot start until the disc has read it. The port reproduces that read
-delay as measured in PCSX2, so conversations keep their pacing: in two of
-the three Director beats, the line ends and the scene moves on on the same
-frame as the recording. Ordinary loading is not slowed down.
+cannot start until the disc has read it. By default the port's disc answers
+at host speed (the code is the oracle; PS2 hardware timing is not
+reproduced): every step the game's code takes around a read still runs, but
+the drive's own wait is gone. So each voiced line starts and ends 6 fields
+sooner than in the recording, and the opening hands over control 21 frames
+sooner. The launcher switch "PS2 disc-drive timing" (off by default,
+`LAUNCHER_OPTIONS.md`) applies the drive timing measured in PCSX2 instead,
+so conversations keep the recording's pacing.
 
-- How: a drive model measured from the C7 capture: one read at a time; the
-  position is where the last read ended; a 0-, 2- or 6-field seek by
-  distance class; a read of up to 16 sectors completes within one field. The
-  model faults on longer reads, which only module loads issue; those run at
-  host speed.
-- Evidence: `IOP_STREAM.md` "Drive model (measured, 2026-09-27)"; decomp
-  `CAPTURES_C7.md` 1: the model equals 186 of 205 captured reads, the other
-  19 one field off (sub-field poll phase); the four reads the first level's
-  timing rests on took the model's 6 seek fields. `LEVEL_SMOKE.md`: lines
-  0x97 and 0x99 change on the capture's rows. Commit 4366957: full route 419
-  reads, 0 breaks; zero-latency and 7-field-seek mutations fail at cage_roof.
-- Status: **PARTIAL**. Relative to PCSX2's CDVD emulation. Line 0x7F ends 2
-  rows early (navigation timing of an earlier music refill). The opening's
-  stream request reaches key-on in 12 fields where the original takes 27
-  (the area-music read is not issued yet). Two Roger music reads fall outside
-  the measured distances. Music timing is not claimed.
+- How: the IOP stream backend's reader (`IOP_STREAM.md` section 4) serves
+  the exported sectors. Host speed: a read is done at the first query after
+  its issue, whatever its distance. The read sequencer 001FA0D0 (one step
+  per field, its ready query before each issue) and the hold before a
+  key-on are the translated code in both modes. Switch on: a drive model
+  measured from the C7 capture: one read at a time; the position is where
+  the last read ended; a 0-, 2- or 6-field seek by distance class; a read
+  of up to 16 sectors completes within one field. The model faults on
+  longer reads, which only module loads issue; those run at host speed in
+  both modes. The switch lives in the one settings struct
+  (`src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher
+  exists).
+- Evidence: `LEVEL_SMOKE.md` "The stream drive's two modes". Host speed
+  (`make test-level-smoke-full`): `check_voice_drive` requires each voiced
+  line's lane to start on the capture's row, its read to take one field
+  against the capture's 7, every ready query and lane-0 read before it to
+  take the host-speed rows, and its hold to the key-on to equal the
+  capture's; the teardown then lies exactly the key-on's shift from the
+  capture's row (6 rows for 0x97 and 0x99, 8 for 0x7F with its 2 rows of
+  navigation). `check_rand_order` / `make test-rand-order` require first
+  control exactly 21 frames before the original's: the fields the capture's
+  opening stream request waited on the drive (15 for the ready query, 6 for
+  the read). Switch on (`make test-level-smoke-ps2-drive`): the checks
+  compare the capture's rows as before. `IOP_STREAM.md` "Drive model
+  (measured, 2026-09-27)"; decomp `CAPTURES_C7.md` 1: the model equals 186
+  of 205 captured reads, the other 19 one field off (sub-field poll phase);
+  the four reads the first level's timing rests on took the model's 6 seek
+  fields. `tests/iop_stream_test.c` covers both modes.
+- Status: **VERIFIED** at host speed on the recorded route (the event order
+  is the capture's and the timing difference is exactly the drive's wait),
+  relative to PCSX2 recordings. **PARTIAL** with the switch on: relative to
+  PCSX2's CDVD emulation; line 0x7F ends 2 rows early (navigation timing of
+  an earlier music refill); the opening's first control comes 11 frames
+  early (the area-music read's 16-field seek from the intro movie's position
+  is not modelled); two Roger music reads fall outside the measured
+  distances. Music timing is not claimed.
 
 **Director beats and the Roger encounter on the original scripts, frame by frame against the recordings**
 
@@ -734,8 +760,10 @@ fades change on the same ticks as in the recordings.
   1,531 rows (f288..f1818) with every compared field equal. Mutations fail
   the checks: truck placement Y +0.001 fails at f167, slide entry speed
   0.2→0.21 fails at f82, the ladder step 3.0→3.0156 fails at f356, the
-  running-jump launch speed 1.8→1.8005 fails at f240, a zero-latency or a
-  7-field-seek drive fails `check_voice_drive` at cage_roof.
+  running-jump launch speed 1.8→1.8005 fails at f240; with the PS2
+  disc-drive timing switch on, a zero-latency or a 7-field-seek drive fails
+  `check_voice_drive` at cage_roof, and at host speed (the default) a read
+  one field slower fails it there and fails the opening's exact end.
 - Status: **VERIFIED**. The reference is the PCSX2 recordings, not a real
   PS2. Only the first level (AREA11) is covered, and only route beats
   00..14. The level exit (beat 15) is a separate PLANNED entry. The smoke's
@@ -1047,30 +1075,35 @@ did in the recordings.
   interpreter and host ops. A script owner's frame is the player stage's
   own takeover, as in the original: the translated prelude admits the
   player, the stage runs each step, and the original release 00182DF0 hands
-  control back. The voiced lines play on the stream lanes. Their timing uses
-  the disc-drive model measured in PCSX2, because the scripts wait for each
-  line to end.
+  control back. The voiced lines play on the stream lanes, and the scripts
+  wait for each line to end. By default the disc answers at host speed, so
+  each line's read takes one field where the recording's took 7; with the
+  PS2 disc-drive timing switch on, the reads use the drive model measured
+  in PCSX2 (see the disc drive entry above).
 - Evidence: `AREA_SCRIPT.md`, `SCRIPT_HOST_WORKERS.md`,
   `PLAYER_STAGE_WORKERS.md` section 2.1, `DIRECTOR_ORIGINAL.md`,
   `STREAM_LANES.md`, `IOP_STREAM.md` "Drive model". `LEVEL_SMOKE.md`
   `check_stage_takeover` requires +4 = 4 from the admission to the release
   in routes 07, 09, 10, 11, 13 and 14, with the admissions on the captures'
   first 3B8F = 1 rows and the releases on their first 3B8F = 0 rows. Before
-  the drive model, beats 11 and 13 released 6 rows early; now they release
-  on the capture's rows (census 1.30, commit 4366957). The drive model
-  equals 186 of the 205 captured reads. Lines 0x97 and 0x99 tear down on the
-  capture's rows (`check_voice_drive`). `AREA_SCRIPT.md`: the script sine
+  the drive model, beats 11 and 13 released 6 rows early; with the PS2
+  disc-drive timing switch on they release on the capture's rows (census
+  1.30, commit 4366957; `make test-level-smoke-ps2-drive`). The drive model
+  equals 186 of the 205 captured reads. At host speed (the default) lines
+  0x97 and 0x99 tear down exactly 6 rows early, the drive's read time, and
+  `check_voice_drive` requires that shift and nothing else. `AREA_SCRIPT.md`: the script sine
   translation equals the original instructions on 88,818 arguments (full
   sweep). `test_player_cinematic_reference` covers 1,388 stages over bank
   0x96. `test_director_original_reference`'s SDK atan2f part is
   bit-identical on 726 cases (quick) and 18,366 (full), plus the owner-tick
   sweeps.
-- Status: **VERIFIED**. First level, relative to PCSX2 recordings. The
-  drive model's seek and read timings come from PCSX2's CDVD emulation, not
-  measured hardware. 19 of the 205 captured reads are one field off,
-  because of a sub-field poll phase that no capture records. Line 0x7F
-  tears down 2 rows early because a music refill lands at a different
-  phase. That phase depends on how long the player has walked since the
+- Status: **VERIFIED**. First level, relative to PCSX2 recordings. At host
+  speed the voiced lines end earlier by exactly the drive's read time. With
+  the switch on, the drive model's seek and read timings come from PCSX2's
+  CDVD emulation, not measured hardware, and 19 of the 205 captured reads
+  are one field off, because of a sub-field poll phase that no capture
+  records. Line 0x7F tears down 2 more rows early in both modes because a
+  music refill lands at a different phase. That phase depends on how long the player has walked since the
   music last started (3583 fields in the original against 3449 in the
   port's run), so it is navigation, not a mechanism difference. The panel,
   terminal and item takeovers still go through the port's interaction
@@ -1234,11 +1267,11 @@ from the PS2 hardware rather than the code is not reproduced by default.
   are served as fast as the host allows. The game's own code still runs every
   step it runs on the PS2 (for example the status panel's loader keeps its own
   state steps); only the hardware wait is gone.
-  - **Optional switch:** the PS2 disc-drive timing measured from the PCSX2
-    recordings (`IOP_STREAM.md` "Drive model") can be turned on for
-    PS2-identical dialogue timing. It is off by default
-    (`LAUNCHER_OPTIONS.md`; moving today's always-on model behind the switch
-    is queued).
+  - **Optional switch (built 2026-09-27):** the PS2 disc-drive timing
+    measured from the PCSX2 recordings (`IOP_STREAM.md` "Drive model") can
+    be turned on for PS2-identical dialogue timing. It is off by default
+    (`LAUNCHER_OPTIONS.md`; `src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1`
+    until the launcher exists). The level smoke runs both ways.
 - **No PS2 slowdowns or hitches.** The port runs one game tick per field. On
   the recorded first-level route the original under PCSX2 also ran one field
   per iteration (`MAIN_LOOP_AND_GAP.md` 2.4); the extra fields seen in some

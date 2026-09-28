@@ -7,6 +7,8 @@ through 001157F0 and 0011A730; "Binding notes" records how it was bound.
 
 Files:
 - `src/game/em_iop_stream.{h,c}`: the backend.
+- `src/em_settings.{h,c}`: the PS2 disc-drive timing switch (section "Host speed and the PS2 disc-drive timing
+  switch"), which `em_stream_live` applies at the boot.
 - `tools/export_streams.py`: the local stream exporter. It writes `assets/streams/streams.emst`, which is ignored
   and never committed.
 - `tests/iop_stream_test.c`: the native contract test. It needs no assets.
@@ -117,11 +119,43 @@ derived from the captures.
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00 |
-| Drive | One read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position, then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned; 00113478 drops the read | Measured in the original (the C7 stream capture): section "Drive model" below |
+| Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position, then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
+
+## Host speed and the PS2 disc-drive timing switch
+
+The reader has two timings (user decision 2026-09-27, `LAUNCHER_OPTIONS.md` "PS2 disc-drive timing", built the
+same day). The switch is `EmSettings.ps2_disc_drive_timing` (`src/em_settings.h`), 0 in the Original profile, read
+at launch from `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher sets it; `em_stream_live_boot` applies it with
+`em_iop_stream_set_ps2_drive_timing`.
+
+- **Off (the default): host speed.** The exported sectors are in memory, so a read is done as soon as it is issued:
+  the first 00112D18 / 00113280 query after the 00112610 call finds it done and lands its sectors, whatever the
+  distance. An abandoned read lands at the next ready query; a break before any query drops it. Everything the
+  game's code does around the drive is unchanged: 001FA0D0 takes one step per field (its ready query, then the
+  issue, then the poll in the next field), and the hold before a key-on is the lanes' own. In the main-loop-top
+  rows a host-speed read shows one row of ready query (phase 1) and one row in flight (phase 2).
+- **On: the drive model** (next section).
+- Both modes keep the drive's position and classify every read's distance in the counters
+  (`EmIopDriveStats.by_fields`, what the PS2 drive would have taken; `host_speed` counts the reads served at host
+  speed). The level smoke prints them with the mode (`stream drive: host speed: ...` or `stream drive: PS2
+  disc-drive timing on: ...`).
+
+**What host speed gives the live route** (measured 2026-09-27, `LEVEL_SMOKE.md` "The stream drive's two modes"):
+- The voiced lines: each voice read takes 1 field against the capture's 7, and the key-on follows 2 fields later as
+  in the capture. 0x97 and 0x99 key on and tear down exactly 6 rows early. 0x7F is 8 rows early: the same 6, plus
+  the 2 fields the original's sequencer spent on a lane-0 music refill first (navigation, below).
+- The opening: the stream request reaches its key-on 7 fields after the request frame. That is 1 frame to the
+  sequencer's first phase-1 row, 1 field of ready query (the area music's read the opening abandoned has landed),
+  1 field of read, and the 4-field hold. The original takes 27, of which 21 are the drive's (15 extra fields of
+  ready query while the area music's read finished, and 6 extra fields of read).
+- First control comes exactly those 21 frames before the original's (AE+1303 against AE+1324 in the C7 newgame
+  capture); the switch on gives AE+1313. newgame-control: locked_ticks 1301 (1311 with the switch on), the 30-tick
+  displacement unchanged at 9.599849. The frame-order post-control window is at native index 1330 (counter 2587,
+  first control + 11); 1340 with the switch on.
 
 ## Drive model (measured, 2026-09-27)
 
-The timing of the drive behind 00113280 / 00112610 / 00112D18 / 00113478, from the decomp's C7 stream capture
+The model runs only with the PS2 disc-drive timing switch on (previous section). The timing of the drive behind 00113280 / 00112610 / 00112D18 / 00113478, from the decomp's C7 stream capture
 (`docs/CAPTURES_C7.md` section 1, `build/s87/c7cap/stream/`). The capture holds the lanes' bytes at every main-loop
 top of four stretches (the New Game opening's stream request; routes 10, 11 and 13 around the voiced lines 0x7F,
 0x97 and 0x99). In four windows it also holds every vsync ISR sample of the IOP's CDVD registers. It has 209
@@ -169,7 +203,7 @@ What the capture shows, and the model:
   movie's stream reads. The port serves it as a first read, a full seek of 6 fields; disc timing is not part of
   the Original profile (CLAUDE.md, 2026-09-27).
 
-**What it gives the live route.**
+**What it gives the live route with the switch on.**
 - The voiced lines' voice reads take the capture's 7 fields, and each key-on follows 2 fields later, as in the
   capture. 0x97 and 0x99 now tear down on the capture's rows (they were 6 rows early).
 - 0x7F is 2 rows early. The original's read sequencer 001FA0D0 served a lane-0 music refill first: its read
@@ -184,8 +218,7 @@ What the capture shows, and the model:
     in the original), then the capture's 7 fields for the read and 4 for the hold.
   - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read, whose seek from
     the movie's position took 16 fields (above).
-  - newgame-control reaches first control 4 frames later than without the area-music read: locked_ticks 1311
-    (1307 before, 1301 before the drive model).
+  - newgame-control reaches first control at locked_ticks 1311 (1301 at host speed).
   - The 30-tick displacement is unchanged at 9.599849.
 
 ## Stream exporter
@@ -241,6 +274,7 @@ Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
   - Every lane-0 IOP half of the settled (state 0) images holds the exported sectors the lane's read state names.
   - Every stream SPU half holds the de-interleaved exported chunk with the model's four flag bytes.
 - **Co-simulation (native lanes + backend, field by field, from each captured stream start; 23 lane-0 images).**
+  It compares the PS2's own timing, so it runs with the PS2 disc-drive timing switch on.
   - At the lane service cadence of 1 field, the cursor word matches in 23/23 images, including 140 s into
     cue 25 (+8405 fields).
   - The lane state (state, half, last half, load, read sector and address) matches in 21/23. The other 2 were
@@ -290,10 +324,13 @@ Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
 - 0011A2B0's claim, take-over and end-index command;
 - the directory and its fault;
 - the command decode;
-- the drive model: every measured class and the nearest-measured rule, the first read with no position, contiguous,
-  read-through, fast and full seeks, the abandoned read at 00113280, the break, and the faults (a read in flight,
-  more than 16 sectors, a sector not exported);
-- a synthetic stereo cue through 001F9820 / 001FA790 / 001F9CF0 for 900 fields. It checks the cursor order
+- the switch: host speed by default;
+- the drive model (the switch on): every measured class and the nearest-measured rule, the first read with no
+  position, contiguous, read-through, fast and full seeks, the abandoned read at 00113280, the break, and the faults
+  (a read in flight, more than 16 sectors, a sector not exported);
+- host speed (the default): the same reads, each done at the first query whatever its distance, with its data; a
+  query in the issue field; the abandoned read landing at the next ready query; the break; the counters;
+- a synthetic stereo cue through 001F9820 / 001FA790 / 001F9CF0 for 900 fields, in both modes. It checks the cursor order
   0x4000 → 0x8000 → 0xC000 → 0x4000, and that both voices' samples play every channel block in order over 5
   buffer passes and 5 loops;
 - key-off to 0;
@@ -324,6 +361,9 @@ device drains it at its own 48 kHz clock. The port's field pacing must
 therefore run at the original's field rate (59.94 Hz NTSC); at any other rate
 the ring will over- or underrun (`em_iop_stream_mix` counts both). Binding must
 state the pacing it uses.
+
+Drive timing: `em_stream_live_boot` sets the backend's drive from `em_settings()` (host speed unless the PS2
+disc-drive timing switch is on), before the first read.
 
 Storage: one `EmIopStream` (`em_iop_stream_create`) and one `EmIopStreamDisc` (`em_iop_stream_disc_load` of
 `assets/streams/streams.emst`). If the file is missing, the boot must fail-stop, not play silence.

@@ -28,7 +28,11 @@
  *     completion (within one driver tick).
  *  4. A sector reader standing in for the libcdvd calls 00113280 / 00112610 /
  *     00112D18 / 00113478 / 00111C28 over the locally exported EMST file
- *     (tools/export_streams.py); it never reads the disc at run time. Its
+ *     (tools/export_streams.py); it never reads the disc at run time. By
+ *     default it answers at host speed: a read is done at the first query
+ *     after its issue (the Original profile; PS2 hardware timing is not
+ *     reproduced). With the PS2 disc-drive timing switch on
+ *     (em_iop_stream_set_ps2_drive_timing; docs/LAUNCHER_OPTIONS.md) its
  *     timing is the drive model measured in the original (one read at a
  *     time; a seek of 0, 2 or 6 fields by the distance from the drive's
  *     position, then the read within a field).
@@ -198,17 +202,29 @@ void em_iop_stream_disc_free(EmIopStreamDisc *disc);
  * require for the lane-0 cue >= 68 reach). */
 void em_iop_stream_lanes_data(const EmIopStreamDisc *disc, EmStreamLanesData *out);
 void em_iop_stream_attach_disc(EmIopStream *s, const EmIopStreamDisc *disc);
+/* The PS2 disc-drive timing switch (docs/LAUNCHER_OPTIONS.md "PS2
+ * disc-drive timing"; the setting lives in em_settings, which the binder
+ * applies). 0 (the default and the Original value): host speed, every read
+ * is done at the first 00112D18 / 00113280 query after the call that
+ * issued it, whatever its distance. 1: the drive model below. Set it before
+ * the first read. */
+void em_iop_stream_set_ps2_drive_timing(EmIopStream *s, int on);
+int em_iop_stream_ps2_drive_timing(const EmIopStream *s);
 /* The drive model (docs/IOP_STREAM.md "Drive model", measured in the
  * decomp's docs/CAPTURES_C7.md section 1): the seek fields for a signed
  * distance d = sector - position (*measured = 1 when d lies inside a
  * measured range; outside, the nearest measured distance's class). */
 uint32_t em_iop_stream_drive_seek_fields(int64_t d, int *measured);
+/* The counters classify every read by the model's distance class in both
+ * modes (what the PS2 drive would have taken); only with the switch on do
+ * the reads take those fields. */
 typedef struct {
     uint32_t reads;           /* reads 00112610 accepted                       */
-    uint32_t by_fields[8];    /* reads per seek fields (0, 2, 6)               */
+    uint32_t host_speed;      /* reads served at host speed (the switch off)   */
+    uint32_t by_fields[8];    /* reads per model seek fields (0, 2, 6)         */
     uint32_t unmeasured;      /* distances outside every measured range        */
     int64_t last_unmeasured;  /* the last such distance                        */
-    uint32_t no_position;     /* reads with no position (served as full seeks) */
+    uint32_t no_position;     /* reads with no position (full-seek class)      */
     uint32_t breaks;          /* 00113478 with a read in flight                */
     uint32_t abandoned;       /* reads left in flight, landed at a ready query */
 } EmIopDriveStats;

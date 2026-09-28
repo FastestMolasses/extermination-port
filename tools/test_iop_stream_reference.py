@@ -33,6 +33,10 @@ docs/IOP_STREAM.md).
      status page's stop/resume, and the voice lanes' end states;
    - the played samples of a long co-simulated stream against an independent
      decode of the exported cue (continuity over buffer wraps and the loop).
+   The co-simulation runs the drive on the measured model (the PS2
+   disc-drive timing switch on): it compares the PS2's own timing. Host
+   speed (the port's default) is covered by tests/iop_stream_test.c and the
+   level smoke.
 4. The drive model (IOP_STREAM.md "Drive model") against every read of the
    decomp's C7 stream capture (docs/CAPTURES_C7.md section 1): each read's
    busy polls against the model's seek fields for its distance, and the
@@ -557,6 +561,10 @@ int sim_open(const char *path, uint32_t seed)
     memset(VT, 0, sizeof VT); VM = 0;
     if (!(SM.iop = em_iop_stream_create())) return -1;
     SM.lcg = seed;
+    /* The co-simulation compares the PS2's captures: the drive runs on the
+     * measured model (the PS2 disc-drive timing switch on; the port's
+     * default is host speed, IOP_STREAM.md section 4 / "Drive model"). */
+    em_iop_stream_set_ps2_drive_timing(SM.iop, 1);
     em_iop_stream_attach_disc(SM.iop, &DISC);
     { EmIopVoiceTable t = {VT, &VM}; em_iop_stream_set_voice_table(SM.iop, &t); }
     em_iop_stream_set_tap(SM.iop, tap, 0);

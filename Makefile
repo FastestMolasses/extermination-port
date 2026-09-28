@@ -9,7 +9,7 @@ UNAME := $(shell uname)
 
 BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
-COMMON  := src/main.c src/em_model.c src/em_input.c \
+COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c \
@@ -219,7 +219,7 @@ OPENING_TEST_SRC := tests/opening_runtime_test.c src/game/em_opening_runtime.c \
     src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
     src/game/em_message_glyph_original.c src/game/em_director_original.c \
     src/game/em_stream_live.c src/game/em_stream_lanes_original.c src/game/em_iop_stream.c \
-    src/game/em_sfx_bank.c
+    src/game/em_sfx_bank.c src/em_settings.c
 .PHONY: test-opening-runtime
 test-opening-runtime: $(OPENING_TEST_SRC)
 	@mkdir -p build
@@ -380,6 +380,13 @@ test-collision-world-capture: $(BIN)
 # each phase the run was asked to play to be checked live against its
 # capture (--require-through: a NOT-LIVE, driven or unreached phase fails
 # the target).
+# The runs use the switches in the environment (src/em_settings.h): by
+# default the Original profile, whose disc answers at host speed.
+# test-level-smoke-ps2-drive plays the main route through roger with the
+# PS2 disc-drive timing switch on (EM_PS2_DISC_DRIVE_TIMING=1,
+# LAUNCHER_OPTIONS.md), where the voiced lines and the opening compare the
+# capture's drive fields (about 120 s). The checker reads the mode from the
+# run's "stream drive:" line (LEVEL_SMOKE.md "The stream drive's two modes").
 LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
 
 .PHONY: test-level-smoke
@@ -397,6 +404,10 @@ test-level-smoke: $(BIN)
 .PHONY: test-level-smoke-full
 test-level-smoke-full: $(BIN)
 	$(MAKE) test-level-smoke EM_TEST_FULL=1
+
+.PHONY: test-level-smoke-ps2-drive
+test-level-smoke-ps2-drive: $(BIN)
+	EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=roger $(MAKE) test-level-smoke
 
 # The side beats, each in its own run: 00 (from slot 04: first control, then
 # the panel without the battery; about 14 s) and 09 with the fence door's

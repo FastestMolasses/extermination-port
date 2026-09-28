@@ -76,9 +76,11 @@ fails the tool. Both traces become (original function, state) per call.
   reaches them.
 - **Effect on the opening.** The area music's read is now in flight when the
   opening's cue-0x3F prefill is requested, and the prefill waits for it, as in the
-  original. First control comes 4 frames later: newgame-control locked_ticks 1311,
-  where it was 1307. The displacement is unchanged (9.599849). The frame-order
-  post-control window moves to native index 1340 (counter 2597).
+  original. At host speed (the default) the prefill waits one field for it; with the
+  PS2 disc-drive timing switch on, the drive model's 6-field seek (section 3).
+  newgame-control: locked_ticks 1301 at host speed, 1311 with the switch; the
+  displacement is 9.599849 in both. The frame-order post-control window is native
+  index 1330 (counter 2587) at host speed, 1340 (counter 2597) with the switch.
 
 ## 3. The New Game opening (the newgame capture)
 
@@ -89,14 +91,20 @@ The two traces are aligned on the area entry: port counter 1273 = original frame
 | The area-entry frame | Equal: one call, 001FAE70 from state 1 |
 | Call for call (caller and state) | 4 calls equal: the area entry, then AE+1's two sway draws and 001F1110 |
 | First difference | AE+1: the original's husk creature 00825940 draws (0x8259F0) before the effect owner 008235F0; the port has no husk draw. From there on every value is one step off. |
-| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to AE+1312, except AE+1, where only the husk's draw is missing |
+| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1312 with the switch), except AE+1, where only the husk's draw is missing |
 | The 30 frames after first control | Equal |
-| The opening's end | Port AE+1313 against the original's AE+1324 (11 frames earlier) |
+| The opening's end | Port AE+1303 at host speed (the default) against the original's AE+1324: exactly 21 frames earlier. AE+1313 (11 earlier) with the PS2 disc-drive timing switch on |
 
-**Why the opening ends 11 frames earlier.** The original's area-music read seeks 16
-fields from the intro movie's disc position. The port's drive model serves a first
-read as a full seek, 6 fields (IOP_STREAM.md "Drive model"). Disc timing is not part
-of the Original profile (CLAUDE.md, 2026-09-27).
+**Why the opening ends earlier.** The opening hands over control when its stream
+request (cue 0x3F, with the D_008106F4 hold) keys on. In the C7 stream capture of the
+opening that request waited 21 fields on the drive: 15 extra fields of ready query
+while the area music's read finished its 16-field seek from the intro movie's disc
+position, and 6 extra fields of read. At host speed (the default; disc timing is not
+part of the Original profile, CLAUDE.md 2026-09-27) the port's request reads at once,
+so first control comes exactly those 21 frames earlier, which check_opening requires
+(LEVEL_SMOKE.md "The stream drive's two modes"). With the switch on, the drive model
+serves the area music's read as a first read (a 6-field full seek), the request waits
+10 fields, and first control comes 11 frames earlier (allowed up to 16).
 
 **The value-driven callers over the opening** (reported, not asserted):
 

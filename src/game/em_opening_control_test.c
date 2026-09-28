@@ -7,6 +7,7 @@
 #include "game/em_player.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_spawn_table.h"
+#include "game/em_stream_live.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -261,6 +262,8 @@ void em_opening_control_test_after_frame(void)
                 "move_ticks=%d displacement=%.6f pos=(%.6f,%.6f,%.6f) ground=%.6f census=%d\n",
                 test.locked_ticks,test.max_locked_distance,test.moving_ticks,distance,
                 g.pos[0],g.pos[1],g.pos[2],ground.point[1],test.census);
+        /* The stream drive's mode (em_settings; tools/test_rand_order.py). */
+        em_stream_live_drive_report(stderr);
         if (test.area_change) {
             em_scene_request_area_change_001B0C60(0x0B, 0, 0);
             test.area_last_frame = g.frame_no;

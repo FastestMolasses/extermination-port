@@ -298,9 +298,12 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
   (em_stream_live).
 - **Verified:** the level smoke's cage_roof (route 10 f1090..f3568),
   crevice_prompt (route 11 f706..f1260) and east_tower (route 13
-  f531..f809) phases, row for row. Since the measured drive model
-  (IOP_STREAM.md "Drive model", 2026-09-27), the lines 0x97 and 0x99 tear
-  down on the capture's rows. 0x7F tears down 2 rows early: the original's
+  f531..f809) phases, row for row. By default the disc answers at host
+  speed, so each line's voice read takes 1 field against the recording's
+  7 and the lines 0x97 and 0x99 tear down exactly 6 rows early. With the
+  PS2 disc-drive timing switch on (the measured drive model, IOP_STREAM.md
+  "Drive model", 2026-09-27) they tear down on the capture's rows. 0x7F
+  tears down 2 rows earlier still in either mode: the original's
   read sequencer served a lane-0 music refill before the voice read, and
   where that refill falls is the music's phase, which follows navigation.
   check_voice_drive in the level smoke proves this against the C7 stream
