@@ -89,8 +89,9 @@ The two traces are aligned on the area entry: port counter 1273 = original frame
 | Check | Result |
 |---|---|
 | The area-entry frame | Equal: one call, 001FAE70 from state 1 |
-| Call for call (caller and state) | 126 calls equal (4 before census L24): the area entry, AE+1's calls including the security gun's 0x8259F0 draw, and every call up to AE+5 |
-| First difference | AE+5: the original's player stage draws for the player's face (00183090 -> 001D0C70 -> 001D0720, after the barrel); the port's opening faces run on em_opening_actor from AE+16 (design risk 2), so that draw is missing and the port's next call draws from the same state. From there on every value is one step off. (Until census L24 it was AE+1: the security gun's lifecycle-0 draw, which the gun now draws on its own record.) |
+| Call for call (caller and state) | 227 calls equal at host speed (447 with the switch on): the area entry, AE+1's calls including the security gun's 0x8259F0 draw, Roger's owner's face at AE+2, the player's face in the player stage after the barrel from AE+5, and every call up to the opening's actors' spawn |
+| First difference | The opening's actors' spawn, the frame the script's op14 runs once the stream request's wait ends: AE+10 at host speed (AE+20 with the switch), where the original, still waiting, spawns them at AE+31. In that frame the port's opening body draws its face's first values (001D0720, in the pool walk after the indicator children) where the original draws its glow markers (001F4D40), from the same state. (Before chain C8b OPENING it was the player face's AE+5 draw, missing while em_opening_actor ran the faces; before census L24 the security gun's AE+1 draw.) |
+| From the spawn, caller for caller | Each frame's callers equal the original's frame 21 later (11 with the switch) for 32 frames: the body's face and the head sprite its 001BA8E0 spawned, the player's face after the barrel. Then a value-driven timer, drawn from a state the wait moved, differs first (a head sprite at the original's AE+63) |
 | Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1312 with the switch), the security gun's AE+1 draw included |
 | The 30 frames after first control | Equal |
 | The opening's end | Port AE+1303 at host speed (the default) against the original's AE+1324: exactly 21 frames earlier. AE+1313 (11 earlier) with the PS2 disc-drive timing switch on |
@@ -110,19 +111,18 @@ serves the area music's read as a first read (a 6-field full seek), the request 
 
 | Caller | Original | Port | Why |
 |---|---:|---:|---|
-| 001D0720 faces | 712 (460 in the pool walk, 252 after the barrel) | 732 (all in the pool walk) | see below |
-| 001E2560 head sprites | 35 | 18 | the values differ after AE+1 |
-| 001E55F0 weather | 23 | 26 | the values differ after AE+1 |
+| 001D0720 faces | 712 (460 in the pool walk, 252 after the barrel) | 717 (463 in the pool walk, 254 after the barrel) | the values differ after the spawn |
+| 001E2560 head sprites | 35 | 35 | the values differ after the spawn |
+| 001E55F0 weather | 23 | 28 | the values differ after the spawn |
 
-**The faces.** In the original's opening:
-- Roger's face ticks in his owner, in the pool walk, from AE+2.
+**The faces.** In the original's opening, and in the port's since chain C8b
+OPENING (OPENING_ORIGINAL.md):
+- Roger's owner 008237E0 ticks his face in the pool walk (its first values at AE+2).
 - The player's face ticks in the player stage, after the barrel: 0015BA50, then
   00183090 under 3B8F == 2, then 001D0C70, from AE+5.
-
-In the port's opening, em_opening_actor (the opening runtime's stand-in for both
-actors, design risk 2) ticks two faces inside the opening controller's node, from
-AE+16. The port's draws through Roger's owner (w_001D0720 from 001BA580) come only
-at AE+2 (4 calls).
+- The opening body (the script's class-9 001BB0E0 record) ticks its face in the pool
+  walk from its spawn, after the indicator children; the head sprite its 001BA8E0
+  spawned draws right after it.
 
 ## 4. Gameplay: the route windows
 
@@ -201,13 +201,12 @@ instructions.
 1. **Done (census L24): the security gun 00825940.** Its lifecycle-0 draw at AE+1
    (0x8259F0) now runs on its own record (SECURITY_GUN.md 5.1); the opening is equal
    call for call up to the faces' divergence below.
-2. **The faces in the opening** (design risk 2): now the first difference (AE+5).
-   - The player's face must tick at the player stage's 00183090 under 3B8F == 2,
-     after the barrel, from AE+5.
-   - Roger's face must tick in his owner, in the pool walk, from AE+2.
-
-   Both need the opening's actors on their records instead of em_opening_actor.
-3. **The opening's end** is 11 frames earlier (disc timing, section 3). With the
+2. **Done (chain C8b OPENING): the faces in the opening.** The player's face ticks
+   at the player stage's 00183090 from AE+5 and the opening body's in its own record
+   from its spawn (OPENING_ORIGINAL.md). The first difference is now the spawn frame
+   itself: the drive's timing (item 3).
+3. **The opening's actors' spawn and its end** come 21 frames earlier at host speed
+   (the policy) and 11 with the switch (disc timing, section 3). With the
    drive-timing switch (LAUNCHER_OPTIONS.md) it would need the original's 16-field
    seek from the movie's position, which no capture explains.
 4. **The status background's draw** has no capture of its frame position.

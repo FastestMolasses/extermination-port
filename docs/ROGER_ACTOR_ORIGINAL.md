@@ -465,6 +465,15 @@ The world in this test is synthetic bookkeeping, not original data.
   `em_roger_actor_001C5C90` with the parent at +0x18 (the pool's prev link,
   checked to be Roger's record) and `world.d00275B40` = the equipment's own
   +0x110 words.
+- **The opening's pair** (since chain C8b OPENING, OPENING_ORIGINAL.md): the
+  opening script's two 001BB0E0 records (001BAC00's class-9 body on model
+  0x47 with bank 0x98's clip 2, and the class-8 node 001C5C90 rides on it)
+  are this module's second pair of records (`R.pair[1]`;
+  `em_area11_roger_opening_tick`), run by `em_slg_001BB0E0` with
+  `em_sdf_001BAD40` and the same workers below; `R.cur` names the pair the
+  running call works on. em_roger_actor's 001C6150 and 001CA6F0 are
+  exported for 001BAD40's tail. The head sprite's owner view and the
+  001AF800 hand-back cover both pairs.
 - **Storage.** The EmActor fields are the canonical record bytes they name
   (+0x00..+0x1F, +0x2E..+0x33, +0x36, +0x52..+0x9A, +0x9C..+0x9E, +0xB0..+0xCF,
   the +0x1F0 block); the binder keeps the record's other bytes (+0x20..+0x2D,

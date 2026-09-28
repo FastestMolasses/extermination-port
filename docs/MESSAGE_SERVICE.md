@@ -188,14 +188,15 @@ installs it at bring-up as the step-F frame service
     built in the task (002149F0's 001FCF10) is drawn at this frame's step-F
     render before step F's own.
 - **Requests routed into it:**
-  - the opening (em_opening_runtime): op0C (001B7D60) on the live block; the
-    001B82D0 op12 phase-0 stream request 001FD4C0(0x66) and its phase-3 wait
-    for `D_008106F4 == 1`; the op-4 and 001B6BF0 stores `D_002821B4 = 2`;
-    the actors' talk from the activity bytes `D_008106D4[0/1]` as 001BA580
-    consumes them (1 on, 2 off, then 0). The actors' callbacks run in the
-    task, before step F, so a speaker's mouth starts and stops one frame
-    after the present tick that wrote the byte, as in the original's order
-    (the former opening clock set it on the same tick).
+  - the opening (since chain C8b OPENING on the AREA11 script host,
+    OPENING_ORIGINAL.md): op0C (001B7D60) on the live block; the 001B82D0
+    sub 12 phase-0 stream request 001FD4C0(0x66) and its phase-3 wait for
+    `D_008106F4 == 1`; the sub-4 and 001B6BF0 stores `D_002821B4 = 2`; the
+    speakers' talk from the activity bytes `D_008106D4[]` as their original
+    consumers take them (the opening body's and Roger's 001BA580, the
+    player's stage). Those run in the task, before step F, so a speaker's
+    mouth starts and stops one frame after the present tick that wrote the
+    byte, as in the original's order.
   - the AREA11 host's panel and terminal scripts (001B7D60 case 0 through
     `em_message_live_post`; completion when `D_002821B4 == 2`); the host's
     frame view loads and stores `D_002821B4` from the live block.
@@ -210,7 +211,8 @@ installs it at bring-up as the step-F frame service
   service on the exported data against the original for 0x80000018 and
   0x8000001A (delays 0/1/30, 1,052 ticks); `test_roger_media_reference.py`
   the encounter line (4,143 ticks, the face-talk calls 1,0,1,0);
-  `test-opening-runtime` the opening end to end (the line's glyphs, the
-  `D_008106F4` protocol 2 -> 1 -> 0); the level smoke compares the block with
+  the level smoke plays the opening end to end on it (the line's glyphs,
+  the `D_008106F4` protocol 2 -> 1 -> 0; `test-opening-runtime`, which ran
+  the retired opening executor, is retired); the level smoke compares the block with
   routes 02/03/04 row for row; `test_message_capture.py` compares a refusal
   frame with the original screenshot.

@@ -127,7 +127,7 @@ static void reset(void)
     quit = 0;
     assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
     assert(player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals));
-    assert(player_pose_opening_release());
+    assert(player_pose_record_displayed());   /* the source is the record from the attach */
     bind_release();
 }
 

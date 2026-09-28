@@ -4,9 +4,11 @@
 This bounded EE interpreter executes only 001D0720, supplies an identical
 sequence of RNG return values to both implementations, and compares every
 state byte and RNG call count. COP1 follows the measured EE model
-(tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md). The VU1 morph oracle keeps host
-float32 (VU1 was not measured). No original instructions, face geometry, or
-captured memory are embedded here.
+(tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md). The face positions are the VU1
+face program's (tools/test_vu1_face_morph_reference.py); the host-float
+morph this test once compared, em_opening_face_position, retired with the
+opening's baked actors (chain C8b OPENING). No original instructions, face
+geometry, or captured memory are embedded here.
 """
 from __future__ import annotations
 import argparse
@@ -115,38 +117,10 @@ def oracle(elf,initial,draws):
         else:plain(w);pc+=4
     raise AssertionError('face instruction oracle did not return')
 
-def morph_oracle(elf,record,weights):
-    """Execute original VU blend/load words; upper reads precede lower writes."""
-    vectors=[[0.0]*4 for _ in range(32)];vectors[0][3]=1.0
-    vectors[3][:3]=struct.unpack_from('<3f',record,48)
-    vectors[16]=list(weights[:4]);vectors[27]=list(weights[4:])
-    acc=[0.0]*4
-    def fp(x):return as_float(float_bits(x))
-    for pc in range(0x23C558,0x23C5B8,8):
-        lower,upper=struct.unpack_from('<II',elf,pc-0x100000+0x300)
-        op,fs,ft,fd=upper&63,upper>>11&31,upper>>16&31,upper>>6&31
-        if upper!=0x2FF:
-            product=[fp(vectors[fs][c]*vectors[ft][op&3]) for c in range(3)]
-            if op>=0x3C and fd==6:acc[:3]=product
-            elif op>=0x3C and fd==2:acc[:3]=[fp(acc[c]+product[c]) for c in range(3)]
-            elif op&~3==8:vectors[fd][:3]=[fp(acc[c]+product[c]) for c in range(3)]
-            else:raise AssertionError(('VU upper',hex(pc),hex(upper)))
-        if lower!=0x8000033C:
-            assert lower>>25==0,('VU lower',hex(lower))
-            target=lower>>16&31;offset=signed(lower&2047,11)*16
-            # Loads from vi10 fetch matrix slots into vf28..31; these are
-            # outside this position blend. vi14 is the vertex record base.
-            if lower>>11&31==14:
-                for c in range(4):
-                    if lower&(1<<(24-c)):
-                        vectors[target][c]=struct.unpack_from('<f',record,offset+4*c)[0]
-    return vectors[3][:3]
-
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--decomp-root',type=Path,default=ROOT.parent/'Extermination')
     p.add_argument('--reference-ee',type=Path)
-    p.add_argument('--morph-assets',action='store_true',help='also verify every original face record and all seven delta channels')
     args=p.parse_args();elf=(args.decomp_root/'config/SCUS_971.12').read_bytes()
     assert elf[:6]==b'\x7fELF\x01\x01'
     rng=random.Random(0x1D0720);cases=[]
@@ -195,27 +169,6 @@ def main():
         assert bytes(f)[:32]==before[:32]
         assert not f.blink_state and not f.expression_state and not f.mouth_wait
         assert not f.current_shape and not f.previous_shape and not any(f.target)
-        morph_cases=0
-        if args.morph_assets:
-            sys.path.insert(0,str(args.decomp_root/'tools'))
-            import export_opening_faces as export
-            fp=C.POINTER(C.c_float)
-            native.em_opening_face_position.argtypes=[fp,fp,fp,fp]
-            for name,source,offset,address,actor,resource in export.FACES:
-                data=(args.decomp_root/'extract'/source).read_bytes()
-                size=struct.unpack_from('<I',data,offset+12)[0]
-                for block in export.records(data[offset:offset+size]):
-                    for record in block:
-                        base=(C.c_float*3)(*struct.unpack_from('<3f',record,48))
-                        delta=(C.c_float*21)(*(x for i in range(7) for x in struct.unpack_from('<3f',record,64+16*i)))
-                        for index in range(8):
-                            weights=[float(i==index) if index<7 else rng.random() for i in range(8)]
-                            w=(C.c_float*8)(*weights);out=(C.c_float*3)()
-                            native.em_opening_face_position(out,base,delta,w)
-                            expected=morph_oracle(elf,record,list(w))
-                            assert bytes(out)==struct.pack('<3f',*expected),(name,index,'morph mismatch')
-                            morph_cases+=1
     print(f'opening face reference: PASS {comparisons} full-state comparisons, {draw_count} identical RNG calls')
-    if morph_cases:print(f'opening face morph: PASS {morph_cases} original VU blend comparisons')
 
 if __name__=='__main__':main()

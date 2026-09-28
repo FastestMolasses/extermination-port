@@ -31,6 +31,12 @@
  * its +0x4C draw (em_owner_draw_live over its record: library model 0x6B,
  * its one node, which 001C5C90 copies from Roger's bone 1).
  *
+ * The opening's pair (chain C8b OPENING, docs/OPENING_ORIGINAL.md): the
+ * opening script's two 001BB0E0 records (001BAC00's class-9 body on model
+ * 0x47 with bank 0x98's clip 2, and the class-8 node 001C5C90 rides on it)
+ * run on the same workers through em_area11_roger_opening_tick
+ * (em_slg_001BB0E0 with em_sdf_001BAD40).
+ *
  * Storage. The EmActor fields are the canonical record bytes they name;
  * every other byte of the two records (+0x20..+0x2D, +0x40, +0x44, +0x4C,
  * +0xA0.., +0xD0.., the +0x110 slot words) lives here, loaded and stored
@@ -51,6 +57,7 @@
 
 #define EM_AREA11_ROGER_CALLBACK 0x008237E0u
 #define EM_AREA11_ROGER_EQUIPMENT_CALLBACK 0x001C5C90u
+#define EM_AREA11_ROGER_OPENING_CALLBACK 0x001BB0E0u
 
 /* The area build: drop both owners (the resources and meshes stay). */
 void em_area11_roger_reset(void);
@@ -59,6 +66,16 @@ void em_area11_roger_reset(void);
 int em_area11_roger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
 /* One owner call of the equipment node (callback 001C5C90). */
 int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene);
+/* One call of an opening actor (callback 001BB0E0, which the opening
+ * script's 001BAC00 spawned; em_slg_001BB0E0 with 001BAD40 = em_sdf_001BAD40):
+ * `entry` the 0x2C bytes of its placement entry (its +0x20, at
+ * `entry_address`) and `controller` the record its +0x24 names (00823E80,
+ * whose +0x2E is the done mask). Entry command 0 is the class-9 body
+ * (Roger's model 0x47 on bank 0x98's clip 2, his face, his shadow, the +0x4C
+ * draw), command 5 the class-8 node 001C5C90 rides on it. 1 allocated, 0
+ * freed, -1 a fault. */
+int em_area11_roger_opening_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene, const uint8_t *entry,
+                                 uint32_t entry_address, EmActor *controller);
 /* 001AF800 for either record: em_roger_actor_001AF800 over its typed view
  * (the +0x110 slots pushed back in 001AF800's own loop).
  * 1 handled, 0 not one of these records, -1 a fault. */

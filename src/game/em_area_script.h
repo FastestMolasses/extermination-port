@@ -177,6 +177,12 @@ typedef struct EmAreaScriptWorkers {
     /* 001B8020 (op0B) sub 6: 001FBD50(owner, id, a2, radius), the sound
      * before the clip init (census L18: the door program's 0x24DC40). */
     int (*w_001FBD50)(void *ctx, uint32_t actor, int32_t id, int32_t a2, float radius);
+
+    /* 001BAC00 (op14, ftab_0024D880[0x14]): the spawn list, called as
+     * 001BA1F0 dispatches it (the owner, its script block +0x1F0 and the
+     * record, all as original addresses); *result is its return value (1).
+     * The opening 0x828FC0's actors (em_sdf_001BAC00 in the binder). */
+    int (*w_001BAC00)(void *ctx, uint32_t actor, uint32_t script, uint32_t record, int32_t *result);
 } EmAreaScriptWorkers;
 
 struct EmAreaScript {

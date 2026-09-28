@@ -179,6 +179,20 @@ static int model_bone_count(EmRogerActor *s, u32 model, uint8_t *count)
     return 0;
 }
 
+int em_roger_actor_001C6150(EmRogerActor *s, uint32_t model, uint8_t *count)
+{
+    if (!s || !count) return -1;
+    if (latched(s)) return -1;
+    return model_bone_count(s, model, count);
+}
+
+int em_roger_actor_001CA6F0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t a1)
+{
+    ENTER(0x001CA6F0u, a);
+    a->pose_bone = (uint8_t)a1;                     /* +0x98 = a1 (byte store) */
+    return 0;
+}
+
 int em_roger_actor_001B10B0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t a1, int32_t a2)
 {
     ENTER(0x001B10B0u, a);

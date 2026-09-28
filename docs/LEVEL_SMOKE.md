@@ -87,7 +87,8 @@ way and checks both against their captures. The side run
 The default run checks `first_control`, `status` and `battery` against
 their captures, and runs the whole-run checks (render context, indicator
 children, player draw gate, rand order, sway, marker colour, head sprites,
-shadow, chain page, load veil; and the stream-drive report) over its ticks. Every
+shadow, chain page, load veil, face attachments, the opening's actors; and
+the stream-drive report) over its ticks. Every
 later phase, both side runs and the whole route's `--require-through last`
 run only under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); run it
 before any commit that touches a phase past `battery`. The full target runs
@@ -1401,11 +1402,20 @@ unknown rand() caller fails the check.
   capture, aligned on the area entry (0x1AE040 state 0's 001FAE70(1), the
   first draw from the unseeded state 1):
   - the area-entry frame equal, and every call equal in caller and state
-    up to the known difference, which must be the first: the original's
-    player-face draw at AE+5 (the opening's faces, design risk 2), which
-    the port misses (its next call draws from the same state); the
-    security gun 00825940's lifecycle-0 draw at AE+1 is among the equal
-    calls since census L24;
+    up to the opening's actors' spawn, which must be the first difference:
+    the script's op14 runs when the stream request's wait ends, which the
+    drive makes shorter than the original's (at host speed by the capture's
+    wait; the switch, by the model's), so in that frame the port's opening
+    body draws its face's first values where the still-waiting original
+    draws its glow markers, from the same state. The spawn frame plus the
+    opening's end difference must be the original's own spawn frame. The
+    security gun's AE+1 draw (census L24), Roger's owner's face at AE+2 and
+    the player's face in the player stage after the barrel from AE+5 are
+    among the equal calls (the chain's OPENING step);
+  - from the spawn, every frame's callers equal the original's frame the
+    same shift later, caller for caller, until the first difference, which
+    must involve a value-driven caller (a timer drawn from a state the wait
+    moved);
   - every frame's deterministic callers (the sway, the indicators, the
     glow markers, the music, the item, effect-owner and security-gun first
     ticks) equal
@@ -1436,9 +1446,11 @@ unknown rand() caller fails the check.
   scalar follow 001E2560's transitions over the port's 001E2560 draws in
   pool order, and every draw is used.
 
-Measured (full route, 2026-09-28): 126 calls equal up to the player face's
-draw at AE+5 (4 before census L24, up to the gun's then-missing draw);
-the skeleton equal over AE+1..AE+1302 and 30
+Measured (2026-09-28, chain C8b OPENING): 227 calls equal up to the
+actors' spawn at AE+10 (the original's AE+31; 447 calls up to AE+20 with
+the switch on, 11 frames before), then 32 frames caller for caller at the
+shift (126 calls up to the player face's then-missing AE+5 draw before the
+step; 4 before census L24); the skeleton equal over AE+1..AE+1302 and 30
 frames after control; first control 21 frames earlier, the capture's drive
 wait (AE+1312 and 11 frames with the switch on); the windows 01 (66
 frames) and 10 (311 frames) equal; the sway on 46 sampled ticks (90 draws);
@@ -1469,8 +1481,11 @@ and outputs in hex. It checks:
   D_00810610, the area bytes, D_00817FF0), write the port's light globals
   D_00817F20..D_00817FF0, ctx+0x24B0, the silhouette VP, both box uploads,
   the UV upload and the receiver sequence with its classes; the sample's
-  views equal the tick's render context (V, K, the +0x2240 projection, the
-  zoom);
+  views equal the tick's render context (V, K, the +0x2240 projection) and
+  its zoom +0x2468 the render context's at the end of that tick or of the
+  one before (the camera stage's 001D25F0 rewrites it after 0015C160, as
+  the opening's timeline does every frame since its post-steps are
+  computed, chain C8b OPENING);
 - sampled 0015BF90 calls (quick: three; full: all): the ORIGINAL 0015BF90 ->
   001F9100 -> 001F8D30, executed over route 04's RAM with the port's record,
   node records, 0x70003B8D, camera, fog and clip matrix and its 0019A570
@@ -1494,7 +1509,9 @@ call draws, as the captures' do.
 
 Measured (the run through the fence door, `EM_LEVEL_SMOKE_UNTIL=fence_door_side1`): 3,194 001DA6A0 calls, all
 drawn and flushed; 640 0015BF90 calls, 628 decals drawn; 1,302 reported
-post-steps (the opening); samples 4 of 32 and 3 of 32 re-executed. Full
+post-steps (the opening, before chain C8b OPENING; none since: 5,065
+calls through the fence door, 11,933 on the full route); samples 4 of 32
+and 3 of 32 re-executed. Full
 route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
 32 samples re-executed, all equal. Mutations of a node, the camera, the area
 byte, a packet byte and the segment answer each fail it. Roger (full route
@@ -1527,6 +1544,29 @@ bytes) and every byte the call appended. It checks:
 Measured (full route to roger, 2026-09-28): 15,328 face units over as many
 attached calls (Roger 10,812, the player 4,516); 78 samples (Roger 55, the
 player 23; bodies culled and drawn), all equal in full mode.
+
+### The opening's actors (`check_opening_actors`, chain C8b OPENING; tools/level_smoke_opening.py)
+
+Not a phase: after the phases, whenever first control was checked. The
+original is the decomp's opening capture (build/startup-reference/
+opening_ee.bin). The run is aligned on the one port tick whose camera
+block holds the capture's timeline words +0x6C..+0x7B (scene 0x22, bank
+0x98's clip-0 track, the cursor and the head: 001B8FC0 kind 6 started the
+timeline and the cursor counts the camera stage's samples). At that tick:
+- the capture's two 001BB0E0 records (001BAC00's) and the head-sprite node
+  after them are live in the port at the same record addresses;
+- the units of the opening body, its class-8 node and the player
+  (the tick log's `owner_units`) hold the capture's pose digest (every
+  node record's +0x90..+0xCF matrix) and lighting point bit for bit;
+- the player's route-row bytes (+5, +1F0, +1F1, +20C, +3C, +214, +2F3, +4)
+  equal the capture's.
+Over the run, the body draws with its face unit, and its node with it, in
+every frame whose walk ran from its spawn to the done mask; neither draws
+in the frames after, and the last is before first control.
+
+Measured (2026-09-28): aligned at port tick 295 (cursor 135 of 646); the
+records 0x7A96E0 (21 nodes), 0x7AE920 (1 node) and the player (21 nodes)
+equal; the body drew on 1,293 ticks.
 
 ### The chain page (`check_chain_page`, WP-13; tools/level_smoke_chain_page.py)
 
@@ -1611,9 +1651,8 @@ never silently skipped. What removes each:
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
 | check_owner_units, check_face | Roger's and his equipment's units at snapshots 08, 10..13 (only the face unit's length; compared in full at 14), and the face units' content against the captures (the sampled re-execution over the port's own inputs proves it) | Roger's clip phase follows the time since the area load; his face weights follow the port's rand() stream | walk timing equal to the capture's (navigation); a stream at the capture's position |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
-| check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
-| check_rand_order | the opening's values after AE+5, and (switch on only) its end | the opening's faces run on em_opening_actor (design risk 2): the player face's AE+5 draw is missing; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | the opening's actors on their records |
+| check_rand_order | the opening's values from the actors' spawn on (compared caller for caller at the drive's shift until a value-driven timer differs), and (switch on only) its end | the stream request's wait: at host speed the drive answers at once (the Original profile's policy), so the spawn and the end come the capture's wait earlier and the values drawn after differ; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | none at host speed (policy); with the switch, a drive model of the seek from the movie's position |
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
@@ -1633,12 +1672,18 @@ LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
 three selector-0 ticks at the opening's end, where record 13 (008257A0)
 still ticks. The report then shows "drum area11[14] against 008257A0
 area11[13]". That is an alignment artefact, not a node-order divergence:
-from native index 1330 (counter 2587, first control + 11) idle04, walk04
-and st03 PASS event for event, and cut02 / cut15 PASS on their own windows
-(2026-09-27, host speed, the default). With the PS2 disc-drive timing
+from native index 1330 (counter 2587, first control + 11) idle04 and walk04
+PASS event for event, and cut15 on its own window (2026-09-27, host speed,
+the default). Since chain C8b OPENING (2026-09-28) the opening's two
+001BB0E0 records and their head sprite are in the walk, as in the
+original, and their allow entries are gone: cut02 PASSes from native index
+26 (the actors' spawn, AE+10; before it the walk lacks them) and st03 at
+native index 1321 (the records' last walk after the controller's done mask,
+the original's frame 3965). With the PS2 disc-drive timing
 switch on (`EM_PS2_DISC_DRIVE_TIMING=1`) first control comes 10 frames
-later and the window is native index 1340 (counter 2597), where the same
-five PASS.
+later and the windows are native index 1340 (counter 2597) for idle04 and
+walk04, 36 for cut02 (the spawn at AE+20) and 1331 for st03, where the same
+five PASS (2026-09-28).
 
 ## Adding a phase (the contract for WP-4 onward)
 

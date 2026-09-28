@@ -2037,7 +2037,6 @@ int player_use_poll(void);
  * record once player_pose_attach (em_player.h) binds it. */
 int player_pose_load(const char *bank_path, const char *row0_path);
 void player_pose_unload(void);
-int player_pose_opening_release(void);
 int player_pose_stage(void);
 /* player_pose_stage's two halves, for the live player stage (census L01,
  * em_player.c): the display's anim_advance_time(step) at 0015BA50's switch

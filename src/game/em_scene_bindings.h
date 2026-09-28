@@ -81,8 +81,8 @@ int em_scene_bindings_001FBC50(void);
 int em_scene_bindings_001FC280(void);
 int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release);
 /* 1 when the player record's node records are the displayed pose this frame
- * (the opening runtime's actors are not drawn, the record pose source holds
- * the display and this frame's 0015BCF0 posed the record): then the
+ * (the record pose source holds the display; every stage poses the record,
+ * the opening's included since chain C8b OPENING): then the
  * player's +0x4C (001CAA00) and its equipment nodes' draw the original
  * units; otherwise the port's own player mesh displays the pose (and
  * carries the equipment models). em_scene_bindings.c w_0015C160. */

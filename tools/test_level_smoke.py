@@ -182,20 +182,6 @@ def camera_diff(port, orig, exempt=(), bits=None):
     return out
 
 
-# Camera block bytes the port does not produce as the original does, with
-# the reason (docs/CAMERA_LIVE.md section 5):
-# - the opening's timeline words +0x6C..+0x7B (001B8FC0 kind 6 / 0022EEF0 on
-#   the opening's bank-0x98 track): the opening's camera track plays through
-#   em_opening_runtime (the opening lane, census L33), which keeps its own
-#   cursor;
-# - the ceiling the state-0 frame's 0018D330 finds over the player's hip
-#   (+0x5A bit 0x80, +0x60): at the area load the port evaluates no player
-#   pose (the hip +B0 is the pose host's from first control on), so the probe
-#   starts at the placed position; no camera routine reads bit 0x80 or +0x60,
-#   and the first walking prepass rewrites +0x5A.
-CAMERA_OPENING_TIMELINE = frozenset(range(0x6C, 0x7C))
-CAMERA_STATE0_CEILING = frozenset(range(0x60, 0x64))
-CAMERA_STATE0_CEILING_BITS = {0x5A: 0x80}
 
 
 def check_first_control_camera(ticks, first_control):
@@ -203,16 +189,19 @@ def check_first_control_camera(ticks, first_control):
     against the original's per-frame samples of the camera block:
     - the area load (newgame_samples.jsonl): the 001B0460 seat (frame 2639)
       and 0018B9C0's state-0 frame (2640), the first two port ticks with a
-      seated block, byte for byte (the state-0 ceiling excepted);
+      seated block, byte for byte (the ceiling 0018D330 finds over the hip
+      included: since chain C8b OPENING the player's pose is evaluated from
+      the area load);
     - the hand-off (postcinema_samples.jsonl, save state 03 on): aligned on
       the tick where the mode-8 settle 001914A0 clears the action +6 (frame
       4027; the port's first-control tick), the 24 frames before it byte for
-      byte (the exceptions above), and every earlier sampled frame from the
-      hand-off (3964) equal except the eye and target heights (+0x14,
-      +0x24) and the forward +0xB0 that the settle is still chasing: the
-      port's opening stand-in releases the camera one settle frame earlier
-      (em_opening_runtime.c, census L33), and the eye-height difference must
-      never grow. A frame's last sample may predate its camera stage: it must
+      byte (the opening's timeline words +0x6C..+0x7B included since chain
+      C8b OPENING), and every earlier sampled frame from the hand-off (3964)
+      equal except the eye and target heights (+0x14, +0x24) and the
+      forward +0xB0 that the settle is still chasing: the opening lane's
+      camera stand-in (em_opening_runtime.c, census L33) releases the camera
+      one settle frame earlier, and the eye-height difference must never
+      grow. A frame's last sample may predate its camera stage: it must
       equal the port's block at the end of that frame or of the one before."""
     load = camera_samples(NEWGAME_SAMPLES)
     seated = [i for i, t in enumerate(ticks) if camera_block(t) and any(camera_block(t))]
@@ -222,8 +211,7 @@ def check_first_control_camera(ticks, first_control):
     assert f_seat == 2639, ('newgame samples: the seat frame moved', f_seat)
     d = camera_diff(camera_block(ticks[seat]), load[f_seat])
     assert not d, ('001B0460 seat vs frame 2639', [hex(o) for o in d])
-    d = camera_diff(camera_block(ticks[state0]), load[f_seat + 1], CAMERA_STATE0_CEILING,
-                    CAMERA_STATE0_CEILING_BITS)
+    d = camera_diff(camera_block(ticks[state0]), load[f_seat + 1])
     assert not d, ('0018B9C0 state 0 vs frame 2640', [hex(o) for o in d])
     post = camera_samples(POSTCINEMA_SAMPLES)
     frames = sorted(post)
@@ -231,7 +219,7 @@ def check_first_control_camera(ticks, first_control):
     t_end = next(i for i in range(state0 + 1, len(ticks)) if camera_block(ticks[i]) and camera_block(ticks[i])[6] == 0)
     assert t_end == first_control, ('the settle ends away from first control', ticks[t_end]['tick'],
                                     ticks[first_control]['tick'])
-    exempt = CAMERA_OPENING_TIMELINE | CAMERA_STATE0_CEILING
+    exempt = frozenset()
     chase = frozenset(range(0x14, 0x18)) | frozenset(range(0x24, 0x28)) | frozenset(range(0xB0, 0xBC))
     exact, settling, prev = 0, 0, None
     for f in frames:
@@ -243,11 +231,11 @@ def check_first_control_camera(ticks, first_control):
         # before.
         cands = [camera_block(ticks[t_end - (f_end - f) - back]) for back in (0, 1)]
         if f > f_end - 24:
-            ds = [camera_diff(c, post[f], exempt, CAMERA_STATE0_CEILING_BITS) for c in cands]
+            ds = [camera_diff(c, post[f], exempt) for c in cands]
             assert not all(ds), ('hand-off camera frame', f, [hex(o) for o in ds[0]])
             exact += 1
         else:
-            ds = [camera_diff(c, post[f], exempt | chase, CAMERA_STATE0_CEILING_BITS) for c in cands]
+            ds = [camera_diff(c, post[f], exempt | chase) for c in cands]
             assert not all(ds), ('hand-off camera frame (settling)', f, [hex(o) for o in ds[0]])
             dys = [abs(struct.unpack_from('<f', c, 0x14)[0] - struct.unpack_from('<f', post[f], 0x14)[0])
                    for c in cands]
@@ -2955,9 +2943,11 @@ def check_rand_order(ticks, state, trace):
     """The run's rand() calls (EM_RAND_TRACE, resolved by tools/rand_order.py)
     against the decomp's C7 per-call captures (docs/RAND_ORDER.md):
     - the opening from the area entry (the newgame capture): the area-entry
-      frame and every call equal in caller and state up to the known
-      divergence (the player face's missing draw at AE+5, design risk 2;
-      the security gun's AE+1 draw is among the equal calls), and every
+      frame and every call equal in caller and state up to the opening's
+      actors' spawn at the stream request's end, then caller for caller at
+      the drive's shift until a value-driven timer differs (the security
+      gun's AE+1 draw and the faces of Roger's owner and the player are
+      among the equal calls), and every
       frame's deterministic callers (the sway, the indicators, the glow
       markers, the music, the item and effect-owner first ticks) frame for
       frame to first control and 30 frames after it;
@@ -3198,7 +3188,7 @@ def check_player_draw_gate(ticks):
     equipment nodes' +0x4C in the walk (em_equipment_live: their 001CAA00
     units, or none while the port's mesh carries the models) and by
     0015C160's post-step (em_player_draw_live's unit, or the reported
-    UM_0015C160_OPENING with the port's mesh). Both reads must agree in
+    UM_0015C160_UNPOSED with the port's mesh). Both reads must agree in
     every tick, or a frame draws the equipment twice or not at all: a
     reported post-step (the tick log's shadow route -1) builds no player and
     no equipment unit, a live post-step that reaches the +0x4C (D_008102B1
@@ -3294,6 +3284,8 @@ def main():
         level_smoke_load_veil.check_load_veil(ticks, state)
         import level_smoke_face         # 001CB3C0 (em_face_attach through em_owner_draw_live)
         level_smoke_face.check_face(ticks, state)
+        import level_smoke_opening      # the opening's actors on their records (chain C8b OPENING)
+        level_smoke_opening.check_opening_actors(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

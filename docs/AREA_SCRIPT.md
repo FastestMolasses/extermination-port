@@ -43,14 +43,18 @@ D_00810813 = 1 the director's beat 0 waits for.
   0011CCC8 are asm-void in the decomp; 0011C7B0 is NEARMISS): the SDK sine
   0011E2A8 over |x| ≤ 0x4016CBE3 as `em_area_script_sin_0011E2A8` /
   `em_area_script_w_0011E2A8`, the `w_0011E2A8` binding (section 2).
-- **Not admitted (fault):** opcodes 03, 05, 08, 0E, 11–14, 17, 19, 1A; op00/op01
+- **op14 (001BAC00)** since chain C8b OPENING (2026-09-28): the whole handler
+  is the `w_001BAC00` worker (001BA1F0's arguments: the owner, its script block,
+  the record), bound to em_sdf_001BAC00 over the pool (OPENING_ORIGINAL.md); its
+  result is the command result.
+- **Not admitted (fault):** opcodes 03, 05, 08, 0E, 11–13, 17, 19, 1A; op00/op01
   kind 8 (settle/orbit: 0018C6A0/0018C4B0/0011DE90; `em_pickup_camera_settle`
   is the module to delegate op00 kind 8 to when a script needs it); op0A sub8
   (001798D0); op0B subs other than 0, 4 and 6; out-of-range kinds. Of the AREA11
   first-visit scripts only the pickup grab programs use them (op0E sub1 and
   op00 kind 8; the battery runs 0x266620, section 2). Those programs stay on
   `em_pickup_program`, which translates both. op14 (001BAC00 spawn) is used only
-  by the opening 0x828FC0 (hosted by `em_opening_runtime`) and by 00823CE0's
+  by the opening 0x828FC0 (hosted here since chain C8b OPENING) and by 00823CE0's
   0x828C70, which is dormant in the first visit (FIRST_LEVEL_AUDIT INV-08).
 
 ### Data and calls
@@ -151,9 +155,9 @@ Start sites are the `jal 001BA1A0` in each owner with its resolved `a1`.
 | 0x246F20 / 0x2477A0 / 0x247BE0 / 0x247DA0 panel | 00159210 (AREA11_PANEL.md) | 07/2, 0D/3, 0C/0, 07/4 · 07/2, 0D/3, 0C/0, 09 (0x157F60) · 0D/3, 0A/0 (0x15C), 02, 09 (0x1575B0), 02, 09 (0x1580C0), 07/4 · 02, 07/4 |
 | 0x248480 / 0x2667E0 pickup, short program | 0015AFA0 / 00219550 (PICKUP_OWNERS.md) | 07/13, 09 (0x1B6EA0), 07/4 |
 | 0x2482C0 / 0x266620 pickup, grab program (**not admitted**) | 0015AFA0 / 00219550 | 0x266620: 07/13, 0E/1, 0A/0 (clip 0x42), 00/8, 0A/3, 09 (0x1B6EA0), 07/4. The battery (route beat 01) runs this program. It stays on `em_pickup_program`. |
+| 0x828FC0 opening | controller 00823E80 (0x823F3C) | 07/12, 06/0 (0x39), 0C/1 (0x66), 0A/1 (bank 0x98), 14 (0x828F30), 00/6, 0D/0, 18, 0A/5, 01/9, 00/0, 07/5 (0x39) |
 
-Not hosted: 0x828FC0 opening (00823E80, 0x823F3C; op14) stays on
-`em_opening_runtime`; 0x828C70 (00823CE0, 0x823D8C; op14) is revisit content.
+Not hosted: 0x828C70 (00823CE0, 0x823D8C; op14) is revisit content.
 The two manager callbacks are tiny: 0x825900 calls 001DFE10() and returns 1;
 0x825920 calls 001DFE40() and returns 1.
 
@@ -286,7 +290,14 @@ sides; it makes no timing claim about the original services.
 ### 6.1 As built (census L19 / L23 / L22, 2026-09-24)
 
 `src/game/em_area11_script_host.{h,c}` binds the host for the AREA11 overlay
-owners. Bound owner: the truck trigger 008251E0 (its 0x8292C0). At every
+owners. Bound owner: the truck trigger 008251E0 (its 0x8292C0); since chain
+C8b OPENING also the opening controller 00823E80 (0x828FC0 from the opening's
+own image `assets/scene_snow/opening.emsc`, 0x828F30..0x8292C0, loaded when a
+start names it and dropped at every area build; its op14 through
+`w_001BAC00` -> `em_area11_bindings_001BAC00`; its 00/6 on bank 0x98's clip 0
+starts the opening lane's scene-0x22 timeline, em_opening_runtime; the
+four-lane views keep the camera's and D_008105D0 / E0's w lanes in the live
+camera's bytes; OPENING_ORIGINAL.md section 2). At every
 area build (`em_area11_bindings_reset`) the images are dropped; the first
 start of a visit loads fresh `scripts.emsc` / `director_quads.emsc`
 (`em_area11_scripts_load`; the scripts are mutated in place). Each owner

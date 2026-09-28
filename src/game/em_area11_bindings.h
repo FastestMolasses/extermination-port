@@ -45,6 +45,7 @@
 #include "game/em_actor_pool.h"
 #include "game/em_actor_roster.h"
 #include "game/em_scene_state.h"
+#include "game/em_script_door_fan.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -86,6 +87,15 @@ int em_area11_spawn_player_equipment_0015C310(int32_t arg1);
  * head-bone sprite node linked to `owner_address` (+0x24 = owner +0x14).
  * 0 (also when the alloc is refused, as the original returns 0), or -1. */
 int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key);
+
+/* 001BAC00(owner, script, record) (script op14; the opening 0x828FC0):
+ * em_sdf_001BAC00 over `owner`'s record and the list its record's +0x14
+ * names in `image`, with the pool's 001AFA90; each spawned record takes
+ * the entry's stores (+0x03, +0x0D, +0xB0.., +0xC0.., +0x10, +0x2E) and is
+ * bound by its +0x10 (001BB0E0: em_area11_roger_opening_tick), its +0x20 /
+ * +0x24 kept by the binder. *result = the original result (1). 0, or -1. */
+int em_area11_bindings_001BAC00(EmActor *owner, const uint8_t *record, const EmSdfImage *image,
+                                int32_t *result);
 
 /* 001C1DC0 -> 001C1EA0 -> 001EFD20(0x80000017, D_00250F00/10/20): the
  * weather node chosen by the canonical D_008106C8 (see the .c). 0 or -1. */

@@ -80,7 +80,7 @@ int setup(const uint8_t *bank, uint32_t size) {
     if(!special)return 0;
     memcpy(special,bank,size);
     if (!player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH) ||
-        !player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) || !player_pose_opening_release())
+        !player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) || !player_pose_record_displayed())
         return 0;
     host.stage = &stage_scene; host.globals = &stage_globals;
     EmPlayerStageCallees *c = &host.callees;

@@ -47,7 +47,7 @@ int load(const char *bank, const char *row0) {
     g.model.bone_count = 22;
     g.status.health = 100;
     return player_pose_load(bank, row0) && player_pose_attach(&actor, &d8106F3, &stage_scene, &stage_globals) &&
-           player_pose_opening_release();
+           player_pose_record_displayed();
 }
 /* The record at `clip` / `frame` with no transition: anim_clip_arbiter with
  * no blend (+20C = clip, +3C = frames - frame). */

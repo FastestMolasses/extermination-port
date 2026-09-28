@@ -565,12 +565,12 @@ Backend (`em_gfx_shadow_*`):
    +0x4C draw.
 2. `001CB590(player, 0x320, player[9])` (`w_001CB590`: D_00275B44 = the
    player).
-3. While the player record does not hold the displayed pose (the opening
-   runtime owns the displayed player, design risk 2; the pose source has not
-   started; a port stand-in holds the display; a frame whose 0015BCF0 was
-   reported: `em_scene_bindings_player_record_drawn`) the post-step is
-   reported (UM_0015C160_OPENING) and the port's own player mesh draw is
-   requested; nothing is computed from the record.
+3. While the player record does not hold the displayed pose (the pose
+   source has not started, or a port stand-in holds the display:
+   `em_scene_bindings_player_record_drawn`) the post-step is reported
+   (UM_0015C160_UNPOSED) and the port's own player mesh draw is requested;
+   nothing is computed from the record. Since chain C8b OPENING no route
+   frame reports it: the opening's player is the record's too.
 4. `em_shadow_original_route_0015C160(+0x01, D_00810771, +0x214)`:
    D_00810771 is event 0x19 in the EmProgress region (migrated by this step;
    0 on the route), +0x214 the record of the actor the player stands on.
@@ -768,10 +768,10 @@ baked frame.
   framebuffer capture).
 - The GS side is bound in the Metal backend (Binding above); D3D12 and
   Vulkan have stubs that return -1 (the caller faults).
-- The post-step during the opening is reported, not computed: the opening
-  runtime owns the displayed player and the record holds no original pose
-  (design risk 2). The opening capture's list holds the original's chain,
-  so the opening's shadow is a remaining gap.
+- The post-step during the opening is computed since chain C8b OPENING
+  (OPENING_ORIGINAL.md): the player's record holds the opening's pose, its
+  node matrices equal the opening capture's, and the opening body's own
+  001BA580 draws its kind-0x29 shadow as Roger's does.
 - The clip kernels are translated and kick for kick equal to the executed
   kernels on every batch the captures and route beats give them and on
   the synthetic sweep. The interpreter's timing model (stalls, flag and Q

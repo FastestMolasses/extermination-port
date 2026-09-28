@@ -63,11 +63,11 @@ C. Synthetic batches: random units and TOPs, fog-off rows, ADC data bits,
 D. GS decode: every captured and synthetic packet goes through
    em_vu1_object_kernel_decode and _triangles against the object test's
    independent PACKED decode (gs_decode) and strip enumeration.
-E. TEX0/ST path and the port's CPU consumer: every kicked TEX0 qword is the
-   vertex's qword 0; ST x/y equal s * Q and t * Q with the Q in ST z; ST w
-   is the carried register. em_opening_face_position (the port's host-float
-   morph, src/game/em_opening_face.c) against the exact morph on every
-   compared captured vertex (counted, reported).
+E. TEX0/ST path: every kicked TEX0 qword is the vertex's qword 0; ST x/y
+   equal s * Q and t * Q with the Q in ST z; ST w is the carried register.
+   (The port's host-float morph em_opening_face_position, once counted
+   here against the exact morph, retired with the opening's baked actors in
+   chain C8b OPENING: this program is the one translation.)
 --defects: injects defects into a copy of the header and requires the
    quick checks to catch each one (not part of the default run).
 """
@@ -188,7 +188,6 @@ class State(C.Structure):
 
 SHIM = r'''
 #include "game/em_vu1_face_morph.h"
-#include "game/em_opening_face.h"
 
 int run(int cont, EmVu1FaceState *s, EmVu1ObjQword *m, uint32_t top, EmVu1FaceBatch *b)
 { return cont ? em_vu1_face_morph_mscnt(s, m, top, b) : em_vu1_face_morph_mscal(s, m, top, b); }
@@ -202,9 +201,6 @@ unsigned sizes(void) { return (unsigned)(sizeof(EmVu1FaceState) | sizeof(EmVu1Fa
 /* The exact morph of one vertex (w = dmem 1011.xyzw, 1012.xyz). */
 uint32_t position(const uint32_t *w, const uint32_t *base, const uint32_t *delta, uint32_t *out)
 { return em_vu1_face_morph_position(w, base, (const uint32_t (*)[3])delta, out); }
-/* The port's host-float morph (em_opening_face.c) over the same words. */
-void host_position(const float *w, const float *base, const float *delta, float *out)
-{ em_opening_face_position(out, base, delta, w); }
 '''
 
 
@@ -216,8 +212,7 @@ def native_library(path_header=None, tag='native'):
         text = SHIM.replace('#include "game/em_vu1_face_morph.h"', f'#include "{path_header}"')
     src.write_text(text)
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
-                    '-fPIC', '-I' + str(ROOT / 'src'), str(src), str(ROOT / 'src/game/em_opening_face.c'),
-                    '-o', str(lib_path)], check=True)
+                    '-fPIC', '-I' + str(ROOT / 'src'), str(src), '-o', str(lib_path)], check=True)
     lib = C.CDLL(str(lib_path))
     lib.run.argtypes = [C.c_int, C.POINTER(State), C.POINTER(Q), C.c_uint32, C.POINTER(Batch)]
     lib.decode.argtypes = [C.POINTER(Q), C.c_uint32, C.POINTER(GsVertex), C.POINTER(C.c_uint32),
@@ -230,7 +225,6 @@ def native_library(path_header=None, tag='native'):
     lib.top_of.restype = C.c_uint32
     lib.position.argtypes = [C.POINTER(C.c_uint32)] * 4
     lib.position.restype = C.c_uint32
-    lib.host_position.argtypes = [C.POINTER(C.c_float)] * 4
     s = lib.sizes()
     if (s & 0xFFF, s >> 12 & 0xFFF, s >> 24) != (C.sizeof(State), C.sizeof(Batch), C.sizeof(GsVertex)):
         fail('ctypes layout differs from the header')
@@ -244,14 +238,6 @@ def exact_position(lib, w7, base, delta21):
     out = (C.c_uint32 * 3)()
     bad = lib.position((C.c_uint32 * 7)(*w7), (C.c_uint32 * 3)(*base), (C.c_uint32 * 21)(*delta21), out)
     return tuple(out), bad
-
-
-def host_position(lib, w8, base, delta21):
-    """em_opening_face_position over the same words, as bit patterns."""
-    f = lambda ws: struct.unpack(f'<{len(ws)}f', struct.pack(f'<{len(ws)}I', *ws))
-    out = (C.c_float * 3)()
-    lib.host_position((C.c_float * 8)(*f(w8)), (C.c_float * 3)(*f(base)), (C.c_float * 21)(*f(delta21)), out)
-    return struct.unpack('<3I', struct.pack('<3f', *out))
 
 
 def vertex_inputs(mem, top, i):
@@ -287,7 +273,6 @@ class Replay:
         self.census = collections.Counter()
         self.recipes = collections.Counter()
         self.tex0 = collections.Counter()
-        self.consumer = collections.Counter()
         self.units = collections.defaultdict(collections.Counter)   # CALL tag -> vertices, drawing, ...
         self.synthetic = False
         self.tame = False
@@ -446,7 +431,6 @@ class Replay:
             st['loop_exits'] += sum(1 for e in vu.events if e[0] == 'pc' and e[1] == MICRO_EXIT)
             st['resumes'] += sum(1 for e in vu.events if e[0] == 'pc' and e[1] == MICRO_RESUME)
             self.why_against_oracle(b)
-            if not self.synthetic: self.consumers(before, top, w7)
         else:
             vu.mem[:] = after
             st['native_only_batches'] += 1
@@ -513,21 +497,6 @@ class Replay:
                     fail(f'{self.name}: why[{i}] = {w} but the kicked ADC bit differs (top {top:#x})')
                 st['why_checked_against_kicked_adc'] += 1
         st['why_checked_against_data_word'] += 32
-
-    def consumers(self, before, top, w7):
-        """em_opening_face_position against the exact morph (E)."""
-        w8 = words(before, 1011) + words(before, 1012)
-        for i in range(32):
-            base, delta = vertex_inputs(before, top, i)
-            p, _ = exact_position(self.lib, w7, base, delta)
-            h = host_position(self.lib, w8, base, delta)
-            self.consumer['vertices'] += 1
-            lanes = sum(1 for a, c in zip(p, h) if a != c)
-            self.consumer['lanes_differ'] += lanes
-            if lanes: self.consumer['vertices_differ'] += 1
-            for a, c in zip(p, h):
-                if a != c and (a ^ c) >> 31 == 0: self.consumer[f'ulp_{min(abs(a - c), 3)}'] += 1
-                elif a != c: self.consumer['sign_differs'] += 1
 
     def checks(self, before, top, after, b, state_before):
         """D (GS decode, triangles) and E (TEX0/ST) on one batch."""
@@ -625,7 +594,7 @@ def list_job(item):
                                                               ('vertices', 'drawing', 'adc_clip', 'adc_data')})
              for tag, face, s in calls]
     return dict(stats=dict(stats), census=list(rp.census.items()), recipes=list(rp.recipes.items()),
-                tex0=dict(rp.tex0), consumer=dict(rp.consumer), calls=[tuple(c[1:]) for c in calls],
+                tex0=dict(rp.tex0), calls=[tuple(c[1:]) for c in calls],
                 units=units, name=name, head=head, after_face=dict(after_face))
 
 
@@ -941,10 +910,10 @@ def main(argv):
     # B. captured lists (every list in both modes: the census is whole)
     items = [(name, path, head) for name, path in caps for head in lm.LIST_HEADS]
     results = parallel_map(list_job, items, cost=lambda i: 1)
-    total, tex0, consumer = {}, collections.Counter(), {}
+    total, tex0 = {}, collections.Counter()
     calls, census, recipes = [], [], []
     for r in results:
-        merge(total, r['stats']); tex0.update(r['tex0']); merge(consumer, r['consumer'])
+        merge(total, r['stats']); tex0.update(r['tex0'])
         calls += r['calls']; census += r['census']; recipes += r['recipes']
     if not total.get('compared_batches'): fail('no captured batch compared')
     for key in ('input_not_uploaded_outside_stale_units', 'face_unit_batch_not_face_program',
@@ -999,9 +968,8 @@ def main(argv):
         q_latency_assumed=Q_LATENCY,
         vertices_div_to_q_multiply_at_exactly_that=gaps['div_to_q_multiply_cycles_'][Q_LATENCY])
 
-    # E. consumers and TEX0
-    report['E_consumers'] = dict(em_opening_face_position=consumer,
-                                 distinct_tex0=len(tex0),
+    # E. TEX0
+    report['E_tex0'] = dict(distinct_tex0=len(tex0),
                                  tex0_fields=sorted({(t >> 20 & 0x3F, t >> 34 & 1, t >> 35 & 3) for t in tex0}))
     line = banner(f"{len(calls)} face CALLs, {total['batches']:,} batches replayed, "
                   + part(total['compared_batches'], total['batches'], 'batches compared'),
@@ -1013,7 +981,6 @@ def main(argv):
         json.dumps(report, indent=1, default=str) + '\n')
     summary = {k: report[k] for k in ('status', 'mode', 'seconds')}
     summary['compared'] = dict(captured=total['compared_batches'], synthetic=sstats.get('compared_batches', 0))
-    summary['em_opening_face_position'] = consumer
     print(json.dumps(summary))
     return 0
 

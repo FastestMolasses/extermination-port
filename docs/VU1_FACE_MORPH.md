@@ -256,22 +256,18 @@ vertices and 11,776 synthetic ones.
 
 ## 6. How P1 uses it (built: em_object_unit_run)
 
-The renderer should draw exactly what this header kicks.
-`em_opening_face_position` and the combined body+face asset path of the
-opening's actors (em_opening_actor) are not the original. Their morphed
-positions differ by 1 to 3 ulp on 13% of the captured vertices, and they do
-not reproduce the guard-band drop. Since chain C8b's FACE step Roger's and
-the player's faces outside the opening are 001CB3C0's face units through
-this program (FACE_ATTACH.md); em_face_model.c is retired.
+The renderer should draw exactly what this header kicks. Since chain C8b's
+FACE step Roger's and the player's faces are 001CB3C0's face units through
+this program (FACE_ATTACH.md; em_face_model.c is retired), and since the
+OPENING step the opening's too (OPENING_ORIGINAL.md).
 
-`em_opening_face_position` and `em_vu1_face_morph_position` translate the
-same original instructions (micro 0x019..0x020), so the port holds two
-translations of one original. `em_opening_face_position` is left only in
-em_opening_actor (the opening's actors, design risk 2); it retires with the
-chain's OPENING step. The `morph_oracle` in
-`tools/test_opening_face_reference.py` calls itself the original VU blend
-but rounds to nearest; under the retirement rule for tests that encode
-non-original behaviour it should be retired or pointed at this header.
+**One translation (chain C8b OPENING).** `em_opening_face_position`, the
+host-float morph the opening's baked actors (em_opening_actor) drew with,
+translated the same instructions (micro 0x019..0x020) and differed by 1 to
+3 ulp on 13% of the captured vertices without the guard-band drop. It is
+deleted with em_opening_actor, together with the rounding-to-nearest
+`morph_oracle` of `tools/test_opening_face_reference.py` that checked it and
+this test's part-E count of its differences.
 
 **The recipe for one face unit**, without a VIF interpreter:
 

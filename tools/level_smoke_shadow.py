@@ -173,8 +173,10 @@ def execute_actor(so, elf, ram, scratch, start, actor, stop=None):
 
 
 def sample_route1(item, base='01_battery', actor=PLAYER):
-    """B for one sample: (tick, sample, rctx of the tick)."""
-    tick, sample, rctx = item
+    """B for one sample: (tick, sample, rctx of the tick[, the zooms the
+    post-step may have read])."""
+    tick, sample, rctx = item[:3]
+    zooms = item[3] if len(item) > 3 else ({rctx[3]} if rctx is not None else set())
     so = shadow_original()
     elf = so.ELF_BYTES[0]
     ram, scratch, ctx = patched_route1(sample, base, actor)
@@ -188,7 +190,12 @@ def sample_route1(item, base='01_battery', actor=PLAYER):
         assert sample['view_2380'] == k['V'], (where, 'ctx+0x2380 != the render context')
         assert sample['clip_2240'] == k['clip'], (where, 'ctx+0x2240 != the render context')
         assert sample['camera_3AC0'] == k['K'], (where, '0x70003AC0 != K (ctx+0x23C0)')
-        assert struct.pack('<I', sample['zoom_2468']).hex() == rctx[3], (where, 'zoom')
+        # The zoom +0x2468 the post-step read: the render context's at the
+        # post-step, which the tick log holds at the end of this tick or of
+        # the one before (the camera stage's 001D25F0, e.g. the opening's
+        # timeline, rewrites it after 0015C160, as the original's
+        # 0022EEF0 does; a script's in the walk writes it before).
+        assert struct.pack('<I', sample['zoom_2468']).hex() in zooms, (where, 'zoom')
     o, end, _ = execute_actor(so, elf, ram, scratch, CHAIN_AT, actor)
     if plan.drawn == 0:
         assert end == CHAIN_AT, (where, 'the port returned early; the original built a chain')
@@ -415,10 +422,11 @@ def sample_item(item):
 
 def check_shadow(ticks, state):
     counts, drawn, decals = check_run(ticks, state)
-    samples = [(t['tick'], t['shadow'][2], t.get('rctx')) for t in ticks
-               if t.get('shadow') and t['shadow'][2]]
-    route1 = [(tick, s, r) for tick, s, r in samples if s['route'] == 1]
-    route2 = [(tick, s) for tick, s, _ in samples if s['route'] == 2]
+    samples = [(t['tick'], t['shadow'][2], t.get('rctx'),
+                {r[3] for r in (t.get('rctx'), ticks[i - 1].get('rctx') if i else None) if r is not None})
+               for i, t in enumerate(ticks) if t.get('shadow') and t['shadow'][2]]
+    route1 = [(tick, s, r, z) for tick, s, r, z in samples if s['route'] == 1]
+    route2 = [(tick, s) for tick, s, _, _ in samples if s['route'] == 2]
     assert route1, 'shadow: no sampled 001DA6A0 call'
     pick1 = route1 if RM.FULL else sorted({0, len(route1) // 3, 2 * len(route1) // 3, len(route1) - 1})
     pick1 = [route1[k] for k in pick1] if not RM.FULL else route1

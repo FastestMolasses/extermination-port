@@ -676,8 +676,14 @@ the captures):
   em_player_stage_live_bind attaches the record pose (`player_pose_attach`):
   0015C420's pose half (+C = 21, +40 = the default bank, +60 = 1.0, the
   +110 node words, +20C = D_00248A00[+235] = 0, bone_init_default_2 and
-  001C68C0). Before the first opening release the source stays unstarted,
-  as before; a room rebuild keeps a started source going from that pose.
+  001C68C0). Since chain C8b OPENING the source is the record's from this
+  attach on (the opening's takeover plays bank 0x98 on it; the port's
+  `player_pose_opening_release` is retired); a room rebuild keeps a
+  started source going from that pose. The first player stage after the
+  wipe is 0015BA50's +4 = 0 call: its switch is 0015C420 alone
+  (`player_states_stage_rebuild`, from w_0015BCF0's 0015C420 spawn), so
+  the idle state's first floor snap comes on the next stage, as
+  newgame_samples frames 2640 / 2641 show (OPENING_ORIGINAL.md).
 - **The stage calls.** em_player_frame.c actor_update calls
   `player_states_stage` while STAGE is engaged (L01); `player_move` is the
   port's callbacks alone (the unbound path). While the legacy bug-latch

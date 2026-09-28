@@ -51,7 +51,6 @@
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_scene_bindings.h"
-#include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_render_context_live.h"
 #include "game/em_census_standins.h"
@@ -68,8 +67,8 @@ static int s_request_status_frame;
 /* 0015C160, the player post-step, bound (the first level: census L29): the
  * player's own draw (its +0x4C method) is not collected into the chain.
  * The post-step builds its 001CAA00 unit (em_player_draw_live) or, in a
- * frame whose post-step is reported (the record not the displayed pose:
- * the opening's hand-off), requests the port's own mesh draw
+ * frame whose post-step is reported (the record not the displayed pose: a
+ * port stand-in holds the source), requests the port's own mesh draw
  * (em_render_player_draw_0015C160); frame_close_out makes either after the
  * shadow's passes, where 001AE5E0 / 001AE6B0 call 0015C160: after the
  * level and the walked actors (docs/SHADOW_ORIGINAL.md "Binding",
@@ -213,7 +212,7 @@ void render_chain_build(void)
             g.chain_len++;
         }
     }
-    if (g.mesh && !em_opening_runtime_actors_active() && !s_player_post_step) {
+    if (g.mesh && !s_player_post_step) {
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.mesh, g.player_palette,
@@ -787,8 +786,7 @@ void frame_close_out(void)
         if (s_player_post_step) {
             if (em_shadow_live_flush(gfx, viewproj) < 0)   /* reported; fail-stop */
                 em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
-            if (s_player_draw_frame == em_frame_counter() && g.mesh &&
-                !em_opening_runtime_actors_active()) {
+            if (s_player_draw_frame == em_frame_counter() && g.mesh) {
                 const ChainDraw player = { g.mesh, g.player_palette, g.model.bone_count, NULL };
                 chain_draw(gfx, &player, 1, viewproj);
             }
@@ -796,34 +794,6 @@ void frame_close_out(void)
         em_gfx_char_rig(gfx, NULL);
         if (em_owner_draw_live_flush(gfx) < 0)   /* the post-step's units; reported; fail-stop */
             em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
-        /* Original opening palettes already contain world placement.
-         * They replace the ordinary player pose only while the script
-         * owns the actors. The same scene lighting applies to each. */
-        if (em_opening_runtime_actors_active()) {
-            for (unsigned index=0;index<3;++index) {
-                EmGfxMesh *mesh;
-                const float *palette;
-                uint32_t bone_count;
-                if (!em_opening_actor_record(index,
-                        em_opening_runtime_half_tick(),&mesh,&palette,
-                        &bone_count)) continue;
-                if (g.rig_on) {
-                    EmGfxCharRig rig;
-                    /* Original actor+98 selects light-reference bones
-                     * 1/2/0; actor+2 bit0x20 is set on both humans. */
-                    unsigned anchor_bone=index==0?1:index==1?2:0;
-                    char_rig_build(&rig,palette+anchor_bone*16+12,index<2,1);
-                    em_gfx_char_rig(gfx,&rig);
-                    if (index < 2) {
-                        /* Original face 001D88B0 enables camera fill and
-                         * passes owner=NULL, bypassing dynamic lamps. */
-                        char_rig_build(&rig,NULL,1,0);
-                        em_gfx_char_face_rig(gfx,&rig);
-                    }
-                } else em_gfx_char_rig(gfx,NULL);
-                em_gfx_draw_skinned(gfx,mesh,viewproj,palette,bone_count);
-            }
-        }
         /* Original pickup children use unlit additive drawing after the
          * opaque owner meshes, with the owner's current world matrix. */
         em_pickup_lights_draw(gfx, viewproj);

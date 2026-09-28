@@ -1,38 +1,58 @@
 #include "game/em_area11_opening.h"
 
-#include <string.h>
+#include <stddef.h>
 
-void em_area11_opening_init(EmArea11Opening *opening, uint32_t script_entry)
-{
-    memset(opening,0,sizeof *opening);
-    opening->entry=script_entry;
-}
+#define CALL(address, expr) \
+    do { \
+        if ((expr) < 0) { \
+            if (fault_address) *fault_address = (address); \
+            return -1; \
+        } \
+    } while (0)
+#define NEED(worker, address) \
+    do { \
+        if (!w->worker) { \
+            if (fault_address) *fault_address = (address); \
+            return -1; \
+        } \
+    } while (0)
 
-EmScriptResult em_area11_opening_tick(EmArea11Opening *opening,
-        int resources_ready, uint8_t event_39, EmScriptResolve resolve,
-        EmScriptExecute execute, EmOpeningNotify notify, void *context)
+int em_area11_opening_state1(EmArea11Opening *self, const EmArea11OpeningWorkers *w, uint32_t *fault_address)
 {
-    if (!resolve || !execute || !notify) return EM_SCRIPT_FAULT;
-    if (opening->actor_state == 0) {
-        if (resources_ready) opening->actor_state=1;
-        return EM_SCRIPT_YIELDED;
+    if (!self || !w) {
+        if (fault_address) *fault_address = 0x00823E80u;
+        return -1;
     }
-    if (event_39 == 0xFF || opening->substate == 2) return EM_SCRIPT_FINISHED;
-    if (opening->substate == 0) {
-        em_script_start(&opening->script,opening->entry);
-        notify(context,EM_OPENING_STOP_STREAM);
-        opening->substate=1;
-        return EM_SCRIPT_YIELDED;
+    int32_t done = 0;
+    NEED(w_001BA1C0, 0x001BA1C0u);
+    CALL(0x001BA1C0u, w->w_001BA1C0(w->ctx, EM_AREA11_OPENING_EVENT, &done));
+    if (done) return 0;                                        /* 0x823F00 */
+    switch (self->b05) {
+    case 0:                                                    /* 0x823F34 */
+        NEED(w_001BA1A0, 0x001BA1A0u);
+        NEED(w_001FABB0, 0x001FABB0u);
+        CALL(0x001BA1A0u, w->w_001BA1A0(w->ctx, EM_AREA11_OPENING_SCRIPT));
+        CALL(0x001FABB0u, w->w_001FABB0(w->ctx));
+        self->b05 = 1;
+        return 0;
+    case 1: {                                                  /* 0x823F5C */
+        int32_t result = 0;
+        NEED(w_001BA1F0, 0x001BA1F0u);
+        CALL(0x001BA1F0u, w->w_001BA1F0(w->ctx, &result));
+        if (result == 0) return 0;
+        NEED(s_00810811, 0x00810811u);
+        NEED(w_001C4760, 0x001C4760u);
+        NEED(w_001FAE70, 0x001FAE70u);
+        NEED(w_001AEE10, 0x001AEE10u);
+        self->h2E = 0xFFFF;                                    /* 0x823F70 */
+        CALL(0x00810811u, w->s_00810811(w->ctx, 0xFF));        /* 0x823F80 */
+        CALL(0x001C4760u, w->w_001C4760(w->ctx, 0, 1));
+        CALL(0x001FAE70u, w->w_001FAE70(w->ctx, 0));
+        self->b05 = 2;                                         /* 0x823F9C */
+        CALL(0x001AEE10u, w->w_001AEE10(w->ctx, 4, 0));
+        return 0;
     }
-    EmScriptResult result=em_script_tick(&opening->script,resolve,execute,context);
-    if (result == EM_SCRIPT_FAULT || result == EM_SCRIPT_YIELDED) return result;
-    /* 0x00823F28..0x00823F68. The controller's final side effects run
-     * for either normal script completion or its nonzero abort result. */
-    notify(context,EM_OPENING_STOP_CHILD_ACTORS);
-    notify(context,EM_OPENING_EVENT_B9_COMPLETE);
-    notify(context,EM_OPENING_ADD_KEY_ITEM_ZERO);
-    notify(context,EM_OPENING_RESUME_MUSIC);
-    opening->substate=2;
-    notify(context,EM_OPENING_FADE_IN_FOUR);
-    return EM_SCRIPT_FINISHED;
+    default:                                                   /* 2 and others */
+        return 0;
+    }
 }

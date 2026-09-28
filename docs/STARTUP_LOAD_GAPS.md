@@ -35,7 +35,7 @@ coordinator chain; section 4 says exactly what each binding replaces.
 | 001B0F60 node start | missing | verified-unbound | `em_slg_001B0F60` | oracle |
 | 001B57E0 pad read | unverified | verified-unbound | `em_slg_001B57E0` | oracle, unit + every capture |
 | 001B5F40 libpad state machine | unverified (partial) | verified-unbound | `em_slg_001B5F40` (+ `em_slg_001B62A0`) | oracle |
-| 001BB0E0 opening-script actor | unverified | verified-unbound | `em_slg_001BB0E0` | oracle, unit + the 2 resident actors of the opening RAM |
+| 001BB0E0 opening-script actor | unverified | verified-unbound; **live** since chain C8b OPENING | `em_slg_001BB0E0` | oracle, unit + the 2 resident actors of the opening RAM |
 | 001FB100 sound frame | stand-in | verified-unbound | `em_slg_001FB100` | oracle, unit + captured |
 | 001FC6E0 delayed cues | missing | verified-unbound | `em_slg_001FC6E0` | oracle |
 | 001FB370 bank-load gate | missing | verified-unbound | `em_slg_001FB370` | oracle |
@@ -303,12 +303,12 @@ States (node +4):
 - 2: state 3, then 001BA540 unless the key is 0x270D or the kind is not 0.
 - 3: 001AFC10 (free).
 
-- Binding: the pool behaviour for nodes whose +0x10 is 0x1BB0E0
-  (`em_actor_roster.c` lists it as "opening-script actor (script op 0x14)").
-  It replaces the model/palette playback of `em_opening_actor.c`, which is
-  not a translation of this routine. The view is built per call: `node` =
-  the record bytes, `entry` = the spawn entry bytes, `owner` = the script
-  owner's record.
+- Binding (done, chain C8b OPENING, 2026-09-28; OPENING_ORIGINAL.md): the
+  pool behaviour of the nodes whose +0x10 is 0x1BB0E0 (`em_area11_bindings.c`
+  tick_opening_actor -> `em_area11_roger_opening_tick`). It replaced the
+  model/palette playback of `em_opening_actor.c` (retired). The view is built
+  per call: `node` = the record bytes, `entry` = the spawn entry bytes (the
+  opening's image), `owner` = the controller's +0x2E (the done mask).
 - Workers: 001BAD40 (census-missing, lane L19); 001BA580, 001BA540, 001C5C90
   → `em_roger_actor_original` (verified-unbound); 001C68C0 →
   em_pose_host_workers (verified-unbound); 001C64F0 → anim_advance_time
@@ -446,8 +446,9 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
    (em_player_closure_live.c) runs `em_slg_001AF470` with config 0 into its
    0x70003B74..0x70003B82 block, and the Use mask readers (0x70003B76) read
    that block.
-8. Opening script actors: `em_slg_001BB0E0` as the 001BB0E0 pool behaviour
-   once 001BAD40 (L19) is translated.
+8. **Done (chain C8b OPENING, 2026-09-28):** the opening script actors run
+   `em_slg_001BB0E0` as the 001BB0E0 pool behaviour, with 001BAD40
+   (OPENING_ORIGINAL.md).
 9. The rest (001AB4E0, 008237C0, 001B0F60, the bank upload) wait for their
    consumers: the presenter, the per-level record readers, the door
    kickoff, and the module loaders.

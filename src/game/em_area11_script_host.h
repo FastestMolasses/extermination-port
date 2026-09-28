@@ -6,8 +6,10 @@
  *
  * Bound owners: the truck trigger 008251E0 (0x8292C0, census L23), Roger
  * 008237E0 (census L22), the director 008253F0 (0x8294C0 / 0x829A40 /
- * 0x829CC0, census L21) and the fence door 001BC350 (the ELF program
- * 0x24DE40, census L18).
+ * 0x829CC0, census L21), the fence door 001BC350 (the ELF program
+ * 0x24DE40, census L18) and the opening controller 00823E80 (0x828FC0 from
+ * the opening's own image, with its op14 001BAC00 over the pool; chain C8b
+ * OPENING).
  *
  * Storage. Every byte a handler reaches is one pointer of EmAreaScriptWorld
  * into its canonical storage: the scratchpad bytes and the request block in
@@ -72,6 +74,17 @@ int em_area11_script_host_tick(EmActor *actor, int32_t *result);
 #define EM_AREA11_DOOR_PROGRAM_BASE 0x0024DBC0u
 #define EM_AREA11_DOOR_PROGRAM_END  0x0024DF80u
 EmScriptImage *em_area11_script_host_door_program(void);
+
+/* The opening's image (census L19's host for the controller 00823E80, the
+ * chain's OPENING step): 0x828F30..0x8292C0 of the user's AREA11 overlay,
+ * the op14 placement list 0x828F30 and the script 0x828FC0, exported by
+ * tools/export_area11_opening.py. The host resolves starts there. */
+#define EM_AREA11_OPENING_IMAGE_PATH "assets/scene_snow/opening.emsc"
+#define EM_AREA11_OPENING_IMAGE_BASE 0x00828F30u
+#define EM_AREA11_OPENING_IMAGE_END  0x008292C0u
+/* Bytes [address, address + size) of the opening's image (the placement
+ * entries the 001BB0E0 records' +0x20 name), or NULL. */
+const uint8_t *em_area11_script_host_opening_bytes(uint32_t address, uint32_t size);
 
 /* The director 008253F0's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60 from
  * the visit's director_quads.emsc (loaded with the scripts). 0, or -1

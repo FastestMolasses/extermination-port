@@ -424,7 +424,7 @@ its port bookkeeping; every pose operation is now a record operation:
 | a request at frame 0 (`player_pose_request`, idle, acquire, Use, tier-2 stop) | 001749A0(p, clip, force, blend) |
 | a request at a source frame (walk entry, run stop, gait tier change) | 001749F0(p, clip, blend, frame) |
 | the stage advance, idle and script ticks | 001C64F0 (`em_player_stage_anim_advance`) |
-| the opening release, a legacy re-seed | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 |
+| a legacy re-seed | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 (the opening's end is the stage's own 00182DF0 since chain C8b OPENING) |
 | a script owner's takeover (the stage's own, +4 = 4, chain C7) | 0015BA50's +4 = 4 path: 00183090 (`em_player_stage_commit`: 001C63E0 for a +2F3 of 1 / 3, 001C67E0 for a +1F2 request), then 001C64F0 by +1F4 (`player_pose_stage_advance`) |
 | every takeover release (the stage's 0015B530 and the interaction runtime's release) | 00182DF0 (`em_player_stage_00182DF0`): its nonzero-2F3 branch (+40 = D_0028A580, +20C = D_00248A00[+235], 001C63E0), or against the row default 0017B490: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16); its tail (+4 = 1, 3B8F = 0) |
 | the foot-stop begin | 0017B910's anim_eval_skeleton, nodes 17 / 18 at +C0 |

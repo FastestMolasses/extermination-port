@@ -156,11 +156,9 @@ as recorded in PCSX2 on the same route.
   relaxed checks (the panel prompt window, 7 ticks in the port against 30 in
   the original; line 0x7F's teardown 2 rows early; Roger's flags before his
   clip init; slide/ladder landings within one row; the opening's rand()
-  values after the player face's missing AE+5 draw (the opening's faces,
-  design risk 2); the fans' phase at the snapshot ticks (only their cycle
-  is compared); the
-  opening's 1,302 post-steps reported, not drawn;
-  001DDE10's frame-copy sprites). The level exit is not in the smoke.
+  values after its actors' spawn, which the stream request's wait moves
+  (host speed, the policy); the fans' phase at the snapshot ticks (only
+  their cycle is compared); 001DDE10's frame-copy sprites). The level exit is not in the smoke.
 
 **PS2 floating-point math reproduced bit for bit, as measured in PCSX2**
 
@@ -239,9 +237,10 @@ as the original.
 - Status: **PARTIAL**. The generator and start state are verified. The
   **order** of calls is audited (the random-events entry below;
   `RAND_ORDER.md`): the opening's sequence equals the original's for its
-  first 126 calls (the security gun's AE+1 draw included since census L24)
-  and then misses one draw (the player's face at AE+5, design risk 2), so
-  the values after it differ. In PCSX2 the original's own call order
+  first 227 calls (the security gun's AE+1 draw, Roger's owner's face at
+  AE+2 and the player's face from AE+5 included), up to its actors' spawn,
+  which the stream request's wait moves (at host speed, the policy, 21
+  frames earlier), so the values after it differ. In PCSX2 the original's own call order
   during the opening differs between runs after about 689 calls. The start
   state was measured on a path where the attract demo had not run.
 
@@ -264,7 +263,7 @@ found and deleted.
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
   live route (census 2.3: the examine/aim camera, the flame and snow drawn outside the chain page, 001C1D00's
-  empty render-env step, the opening's displayed player, and the
+  empty render-env step, the opening's camera timeline, and the
   panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
   reaches stops the game: DATABASE, SPR4, MAP and the non-battery takes run
@@ -350,8 +349,9 @@ them. No remade models, no guessed lighting shader.
   fan pair, the security gun and its cable are on this path (their units
   compared at the snapshots; the fans over the port's own spin angle through
   the original 001C6380). Since chain C8b's FACE step Roger and his
-  equipment are on this path too (next entry). The indicator children and
-  the opening's actors are not. Object textures (346 TEX0) are decoded from
+  equipment are on this path too (next entry), and since chain C8b's
+  OPENING step the opening's actors (the opening cinematic entry). The
+  indicator children are not. Object textures (346 TEX0) are decoded from
   PCSX2 capture GS memory, not the disc, so an end user cannot build them
   yet. Metal only.
 
@@ -382,9 +382,39 @@ and the equipment on him are the original object units.
 - Status: **PARTIAL**. The face weights follow the port's rand() draws,
   which sit where the original's do but carry other values than a recording
   (the random-events entry), so a recorded frame's face expression is not
-  matched frame for frame. During the opening the displayed Roger and
-  player are still the opening runtime's actors (not this path). Pixels
-  compared only by eye. Metal only.
+  matched frame for frame. Since chain C8b's OPENING step the opening's
+  Roger and player are on this path too. Pixels compared only by eye.
+  Metal only.
+
+**The opening cinematic on its original records**
+
+The New Game opening plays as the original plays it: its script runs on
+the original script interpreter, its Roger and the equipment on him are
+records the script spawns, and Dennis plays the opening on his own record
+and stage. Their faces tick where the original ticks them and their
+skeletons equal the original's bit for bit.
+
+- How: the controller 00823E80's state 1 (translated from its
+  instructions) starts 0x828FC0 on the AREA11 script host; op14 (001BAC00)
+  spawns the two 001BB0E0 records (001BAD40, 001BA580, anim_advance_time,
+  001C68C0, their units with Roger's face and shadow, the class-8 node's
+  001C5C90); the player's stage takes the player over (bank 0x98's clip 1
+  through 00183090, the face through 001D0C70, the post-step's shadow and
+  unit). `OPENING_ORIGINAL.md`.
+- Evidence: `make test-area-script-reference` (the opening script and three
+  skip variants in lockstep with the original 001BA1F0 and its handlers);
+  the level smoke's `check_opening_actors` (at the opening capture's camera
+  cursor: the opening body's 21, its node's 1 and the player's 21 node
+  matrices equal the capture's bit for bit, the records at the capture's
+  addresses) and `check_rand_order` (every call equal up to the actors'
+  spawn); `compare_frame_order` cut02 and st03 event for event with the
+  records in the walk.
+- Status: **PARTIAL**. The camera timeline of the opening (scene 0x22) is
+  still the opening lane's stand-in (census L33): its timeline words are the
+  original's, its eye / target sampling and fade-event cursor are not. At
+  host speed (the policy) the stream request's wait is shorter, so the
+  actors spawn and the opening ends 21 frames earlier than in the
+  recording. Pixels compared only by eye. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
 
@@ -493,7 +523,8 @@ original does.
   c8e658f, d7ef847.
 - Status: **PARTIAL**. Inputs and draw plan verified; pixels compared only
   by eye. The decal route is captured only at the ends of beats 02 and 04.
-  The shadow is not computed during the opening. Needs framebuffer fetch
+  Since chain C8b's OPENING step it is computed during the opening too.
+  Needs framebuffer fetch
   (Apple GPUs). Decal texture from PCSX2 captures.
 
 **Roger's own projected drop shadow**
@@ -718,7 +749,7 @@ Advertise the items above only.
   census lane L38.
 - Status: **PLANNED**. Roger is drawn from an exported model (the face-morph
   program is translated and proven on 60 face units but its builders are not
-  bound). The opening's player uses a legacy mesh. The security gun's lamp
+  bound). The security gun's lamp
   (a dark indicator child in the first level) is not drawn. The level geometry uses exported meshes. The
   area-load veil runs and is drawn from its own packets, but the port's area
   read finishes inside one call, so the veil draws only one frame, at level 0
@@ -1012,8 +1043,8 @@ units per second.
   code runs. Census 2.3 still lists stand-in behaviour on the route: the
   camera stand-ins that pre-empt the examine and aim actions (L28), the
   indicator children's +0x4C draw, parts of the chain page (the four-sprite pass, the
-  AREA11 flame, the snow), the empty render-env step 001C1D00, the port's
-  player mesh during the opening, and the interaction runtime's acquire and
+  AREA11 flame, the snow), the empty render-env step 001C1D00, the opening's
+  camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
   6 notes that oracle strength varies (the fade oracle compares against
   compiled decomp C, and the spawn helpers are checked only for spawn set
@@ -1167,9 +1198,9 @@ equipment are drawn from the same skeleton the PS2 computes.
 - Status: **VERIFIED**. First level only, relative to PCSX2. The
   3,459,456-field `test_pose_chain_reference` run belongs to
   `em_pose_chain`, a verified translation that is not bound. It is not
-  evidence for the live path. During the opening cinematic the displayed
-  player is still the port's own mesh (design risk 2): the smoke reports
-  1,302 post-steps there instead of drawing the original unit. A port
+  evidence for the live path. Since chain C8b's OPENING step the opening's
+  player draws its original unit too, its node matrices equal the opening
+  capture's bit for bit (`check_opening_actors`). A port
   stand-in's frames (for example the camera's examine/aim stand-ins, L28)
   keep the legacy baked display. The player's face attachment slot waits on
   the attachment draw 001CB3C0, which is still missing. The whole lighting
@@ -1409,16 +1440,17 @@ numbers at the same places in each frame as the original.
 - Evidence: `RAND_ORDER.md`; `make test-rand-order`; the level smoke's
   `check_rand_order`, `check_sway`, `check_marker_colour` and
   `check_head_sprites`. From the area entry the port equals the original
-  call for call (caller and value) for the first 126 calls (4 before census
-  L24); every frame's
+  call for call (caller and value) for the first 227 calls, up to the
+  opening's actors' spawn, then caller for caller at the drive's shift for
+  32 frames (126 calls before chain C8b's OPENING step); every frame's
   fixed-schedule callers (the sway, the indicators, the glow markers, the
   music) equal the original's over the opening, the 30 frames after first
   control and two aligned route windows (01: 66 frames, 10: 311 frames).
-- Status: **PARTIAL**. The opening misses one draw at AE+5 (the player's
-  face; until census L24 it was the security gun's setup draw at AE+1), so
-  its values differ after it: its faces draw from the opening's stand-in
-  actors, not from the player stage
-  and Roger's owner (design risk 2). A recording's exact values cannot be
+- Status: **PARTIAL**. Every draw of the opening sits at its original caller
+  (since chain C8b's OPENING step). Its values differ from the actors' spawn
+  on, because the stream request's wait is shorter at host speed (the
+  Original profile's policy: the spawn comes 21 frames earlier; 11 with the
+  PS2 disc-drive timing switch). A recording's exact values cannot be
   reproduced: the original's own order in the opening varies between runs
   after about 689 calls, and the port reaches each moment by its own route.
   The smoke therefore checks each random value as the original code over
@@ -1518,8 +1550,6 @@ Resolved by the user on 2026-09-27:
 
 Missing faithful behaviour that blocks a "first level complete" claim:
 
-- the rand() order's remaining difference: the opening's faces (design risk
-  2; the player face's AE+5 draw) (`RAND_ORDER.md` 6);
 - the load veil's duration: the area read finishes inside one call (the
   loader task 001FF0D0's own steps, H7: the area streamer 001FFCD0 is
   translated, blocked on the sound-bank upload 001FB370's EE sound library

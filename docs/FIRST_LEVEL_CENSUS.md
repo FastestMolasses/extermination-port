@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1593,6 +1593,43 @@ Result: live 680, verified-unbound 60, unverified 3, stand-in 0, missing 0,
 boundary 441, recounted from the section 3 rows (743 rows). 83,735 of the
 88,039 non-boundary instructions are live (95.1%).
 
+### 1.41 Update (2026-09-28, chain C8b OPENING: the opening's actors on their original records)
+
+The New Game opening's actors are records of the pool and its script runs on
+the AREA11 script host (OPENING_ORIGINAL.md). The controller 00823E80's state
+1 (em_area11_opening) starts 0x828FC0 through em_area11_script_host; its op14
+(001BAC00, admitted by em_area_script) spawns the two 001BB0E0 records, which
+em_area11_roger runs as its second pair (001BB0E0 with 001BAD40, 001BA580,
+anim_advance_time, 001C68C0 and the +0x4C draw; the class-8 node's
+001C5C90); the player is on its own stage (the takeover, bank 0x98's clip 1
+through 00183090, its face through 001D0C70, its post-step computed). The
+first stage after the 001AF5C0 wipe is 0015BA50's +4 = 0 call (0015C420
+alone). Retired: em_opening_actor (and the opening/*.emdl / *.emfm assets it
+read), em_opening_runtime's script executor, player_pose_opening_release,
+UM_0015BCF0_CUTSCENE, the opening lock in em_game_player_interact_busy.
+
+- **Status changes:** 001BB0E0, 001BAC00, 001BAD40 and 001BA540
+  verified-unbound -> live.
+- **Row notes changed, no status change:** 00823E80 (em_area11_opening's
+  state-1 translation), 0015BCF0 (both variants; the first call), 0015C160
+  (no reported post-step on the route), 001B82D0, 001BA1F0 (the opening's
+  script on the host), 001C63E0 (the opening body's pose), 001D0720 (every
+  call from its original caller).
+- **Evidence.** test-area-script-reference (the opening 0x828FC0 and three
+  skip variants in lockstep with the original 001BA1F0 and its handlers);
+  the level smoke's check_opening_actors (at the tick whose camera holds the
+  opening capture's timeline words, the body's 21, the class-8 node's 1 and
+  the player's 21 node matrices equal the capture's bit for bit, the
+  records sit at the capture's addresses) and check_rand_order (every call
+  equal to the original's up to the actors' spawn at the stream request's
+  end, then caller for caller at the drive's shift); compare_frame_order
+  cut02 (native index 26) and st03 (1321) with the three opening allow
+  entries removed; newgame-control 9.599849 (unchanged).
+
+Result: live 684, verified-unbound 56, unverified 3, stand-in 0, missing 0,
+boundary 441, recounted from the section 3 rows (743 rows). 84,199 of the
+88,039 non-boundary instructions are live (95.6%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1612,15 +1649,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 680 | 83,735 | 630 (79,838) | 50 (3,897) |
-| verified-unbound | 60 | 4,177 | 32 (2,389) | 28 (1,788) |
+| live | 684 | 84,199 | 632 (79,991) | 52 (4,208) |
+| verified-unbound | 56 | 3,713 | 30 (2,236) | 26 (1,477) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
 | boundary | 441 | 23,725 | 163 (10,425) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 743 non-boundary functions, 680 (91.5%) are live and verified; by instructions 83,735 of 88,039 (95.1%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 60 functions (4,177 instructions, 4.7%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39 and 1.40) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 743 non-boundary functions, 684 (92.1%) are live and verified; by instructions 84,199 of 88,039 (95.6%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 56 functions (3,713 instructions, 4.2%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40 and 1.41) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -1630,8 +1667,8 @@ Of the 743 non-boundary functions, 680 (91.5%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 77 / 12 / 0 / 0 / 0 / 383 | 77 / 12 / 0 / 0 / 0 / 383 |
 | S1_newgame_load | 164 / 28 / 1 / 0 / 0 / 86 | 99 / 22 / 1 / 0 / 0 / 18 |
-| S2_opening | 428 / 28 / 2 / 0 / 0 / 122 | 311 / 21 / 1 / 0 / 0 / 30 |
-| S3_first_control_idle | 333 / 23 / 1 / 0 / 0 / 114 | 11 / 1 / 0 / 0 / 0 / 0 |
+| S2_opening | 431 / 25 / 2 / 0 / 0 / 122 | 314 / 18 / 1 / 0 / 0 / 30 |
+| S3_first_control_idle | 335 / 21 / 1 / 0 / 0 / 114 | 12 / 0 / 0 / 0 / 0 / 0 |
 | 00_panel_no_battery | 401 / 22 / 1 / 0 / 0 / 94 | 32 / 0 / 0 / 0 / 0 / 0 |
 | 01_battery | 446 / 23 / 3 / 0 / 0 / 151 | 30 / 1 / 1 / 0 / 0 / 5 |
 | 02_elevator_refusal | 416 / 22 / 1 / 0 / 0 / 96 | 15 / 0 / 0 / 0 / 0 / 2 |
@@ -1650,9 +1687,9 @@ Of the 743 non-boundary functions, 680 (91.5%) are live and verified; by instruc
 
 ### 2.3 What the numbers say
 
-State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.40. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
+State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.41. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 680 of 743 non-boundary functions (95.1% by instructions).** Every main-line route phase the
+- **Live and verified: 684 of 743 non-boundary functions (95.6% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -1672,7 +1709,12 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   original owners and draw their original units (the fans' spin cycle; the dormant gun's one setup rand() draw is
   the original's AE+1 call). Since section 1.40 Roger and his equipment draw their original units, Roger's
   and (while a script holds it) the player's face through the attachment draw 001CB3C0, the player's face slot is
-  001CA700 / 001CA770 on its record, and Roger's 001BA580 draws his own drop shadow. Since section 1.27 the main loop's steps V and W run their originals (the frame's
+  001CA700 / 001CA770 on its record, and Roger's 001BA580 draws his own drop shadow. Since section 1.41 the New
+  Game opening runs on its original records: its script 0x828FC0 on the AREA11 script host (op14 001BAC00
+  spawning the two 001BB0E0 records: Roger's opening body on bank 0x98's clip 2 with his face and shadow, and
+  the model-0x6B node on it), the player on its own stage's takeover (bank 0x98's clip 1 through 00183090, its
+  face through 001D0C70, its post-step's shadow and unit), their node matrices bit for bit the opening
+  capture's. Since section 1.27 the main loop's steps V and W run their originals (the frame's
   DMA list with its clear, 001E0DF0, the field), with the status frames' and the tear-down frames' render flag 3
   and the UI view of the status pages on the one storage.
 - **What still stands in on the route:** the camera stand-ins that pre-empt action 0 for the examine and the aim
@@ -1681,10 +1723,9 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   walked over, and the AREA11 flame and the snow, which draw outside the page (008235F0's 001D04B0 and the weather's
   001E0D70 kick are not bound);
   001C1D00 (em_render_001C1D00, the empty render-env step: its 001D5370 needs the static-object bank); 001FC280's body
-  (unverified since WP-8b: the D_00282160 cache is not modelled); the post-step during the opening (reported while
-  the opening runtime owns the displayed player, design risk 2: the port's player mesh draws the displayed pose and
-  carries the equipment models there; from the hand-off on, the player's and the equipment's +0x4C are their
-  original units since section 1.23); the panel's, the terminal's and the items' takeovers
+  (unverified since WP-8b: the D_00282160 cache is not modelled); the opening's scene-0x22 camera timeline (the
+  opening lane's stand-in for 0022EEF0 with its fade track, census L33: its +0x6C..+0x7B words are the
+  original's since section 1.41, its eye / target sampling and the +0x80 event cursor are not); the panel's, the terminal's and the items' takeovers
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
   is the original 00182DF0 since section 1.26). A script owner's takeover is the stage's own since
   section 1.26 (0015B130's prelude, 0015B530, 00182DF0).
@@ -1804,9 +1845,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015B130 | — | BM | live | em_player_floor.c em_player_stage_0015B130 (every +4 = 1 stage since L01, em_player.c live_major1) — test_player_floor_reference (stage cases); test_level_smoke.py | state[0]/[1] are 00161020 / 001612D0 since L12 (behind the port's stand-ins); a script owner's frame runs its prelude (00182B30's admission: +4 = 4, 00174A50, 00182D70; chain C7, section 1.26); the panel, terminal and item takeovers keep the interaction runtime's (it consumes the stage while it owns the player); under 0x70003B8D without an owner the idle / walk states keep the stage | S2_opening |
 | 0x0015B530 | — | AI | live | em_player_stage_workers em_player_stage_0015B530 (stage major[4]: every +4 = 4 stage of a script owner's takeover, which is the stage's own since chain C7, section 1.26) — test_player_stage_workers_reference (27 cases; the 0015BA50 +4 = 4 composition); test_player_cinematic_reference (1,388 stages and the release against the original 00183090 / 001C64F0 / 00182DF0); test_level_smoke.py (check_stage_takeover: +4 = 4 from the admission to 00182DF0 on routes 07, 09, 10, 11, 13 and 14, whose +5 / +1F0 / +1F1 / clip / clock / +2F3 rows match) | its routines: 001837A0 and 00182DF0 bound; 001837B0, 001838B0 and 00183910 untranslated and 00162DB0 / 00163B40 FLOOR's (fail-stop workers, reached only through 0015B130's +1F0 0x2A / 0x17 branches or a +5 = 1 under the takeover, none on the route). The panel, terminal and item takeovers keep the interaction runtime (their scripts' animation core; +4 stays 1 there) | S2_opening |
 | 0x0015BA50 | — | BM | live | em_player_floor.c em_player_stage_begin/_dispatch/_end over the record every stage (em_player.c player_states_stage, L01) — test_player_floor_reference (stage cases); test_level_smoke.py | the advance worker is the live display's 001C64F0 (em_player_pose_advance through player_pose_stage_advance); D_00248C98 from the local export; the B3 byte is still em_player_0015BCF0's stand-in expression | S2_opening |
-| 0x0015BCF0 | — | BM | live (partial: tail, animate, 00187350) | em_player_floor.c em_player_stage_tail (+BC, the -200 check, the +31B loop-sound stop; L01), em_player_record_pose_animate (the animate step; display step) and 00187350 on the record (L12) inside em_player.c player_states_stage — test_player_floor_reference (stage cases); test_player_record_pose_reference; test-first-control-reference | 0015CBA0 is the camera's translation; the +A0/+B0 copies are the port's own position and camera paths | S2_opening |
+| 0x0015BCF0 | — | BM | live (partial: tail, animate, 00187350) | em_player_floor.c em_player_stage_tail (+BC, the -200 check, the +31B loop-sound stop; L01), em_player_record_pose_animate (the animate step; display step) and 00187350 on the record (L12) inside em_player.c player_states_stage, in both variants (the opening's cutscene frames since section 1.41; its first call 0015BA50's +4 = 0 switch, 0015C420 alone) — test_player_floor_reference (stage cases); test_player_record_pose_reference; test-first-control-reference; test_level_smoke.py first_control (the state-0 frame's camera equal to newgame_samples frame 2640) | 0015CBA0 is the camera's translation; the +A0/+B0 copies are the port's own position and camera paths | S2_opening |
 | 0x0015BF90 | — | NM | live | em_shadow_actor_route em_shadow_actor_route_0015BF90 through em_shadow_live (w_0015C160 with +0x214 != 0; census L29) — test_shadow_actor_route_reference; test_level_smoke.py check_shadow (C: the ORIGINAL 0015BF90 + 001CE300 over the port's sampled inputs write the port's packets) | 0019A570's fourth hit word is not kept (0 in every capture, read by nothing on the path; SHADOW_ACTOR_ROUTE.md L2) | 02_elevator_refusal |
-| 0x0015C160 | — | BM | live | em_scene_bindings.c w_0015C160 with em_shadow_original_route_0015C160 and em_shadow_live (census L29); its +0x4C 001CAA00(player) through em_player_draw_live and em_owner_draw_live (the player step, section 1.23) — test_shadow_original_reference (0015C160 executed over 36 gate cases); test_level_smoke.py check_shadow (A: the route of every post-step of the run, the draws flushed; the first-control frame draws the shadow) and check_owner_units (the player's unit against the route snapshots) | while the player record does not hold the displayed pose (the opening, design risk 2; em_scene_bindings_player_record_drawn) the post-step is reported (UM_0015C160_OPENING) and the +0x4C is the port's player mesh of the displayed pose | S2_opening |
+| 0x0015C160 | — | BM | live | em_scene_bindings.c w_0015C160 with em_shadow_original_route_0015C160 and em_shadow_live (census L29); its +0x4C 001CAA00(player) through em_player_draw_live and em_owner_draw_live (the player step, section 1.23) — test_shadow_original_reference (0015C160 executed over 36 gate cases); test_level_smoke.py check_shadow (A: the route of every post-step of the run, the draws flushed; the first-control frame draws the shadow) and check_owner_units (the player's unit against the route snapshots), check_opening_actors (the opening's player unit against the opening capture) | since section 1.41 no post-step of the route is reported: the opening's are computed from the record (a port stand-in holding the display would still report it, UM_0015C160_UNPOSED) | S2_opening |
 | 0x0015C1F0 | — | NM | live | em_player_misc_workers em_player_misc_0015C1F0 through spawn_w_0015C1F0 (the player step, section 1.23: the kind +0x2FF, 001CA6E0 = em_roger_actor_001CA6E0, 001C6150 over the exported player model, +0x96; 00200890 is the boundary) — test_player_misc_workers_reference; test_level_smoke.py check_owner_units (the player's +0x44 model unit against the route snapshots) | only kind 0x3B's model is exported (the other kinds fault at 001C6150) | S1_newgame_load |
 | 0x0015C310 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only (node bytes not compared) | S2_opening |
 | 0x0015C420 | — | BM | live | em_area11_bindings.c em_area11_spawn_player_children_0015C420 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn set and order only; its 001CA6F0(player, 1) (+0x98 = 1) and +9 = +0xC are stored by player_states_reset / player_pose_attach (census L29) | S2_opening* |
@@ -2068,7 +2109,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.11 Script host and script ops (0x1B6BF0..0x1BBD5F)
 
-29 functions, 3,487 instructions: live 24, verified-unbound 5 (recount 2026-09-26, full-route recount).
+29 functions, 3,487 instructions: live 28, verified-unbound 1 (recount 2026-09-28, the opening step, section 1.41).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2084,7 +2125,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B7F90 | — | BM | live | em_pickup_motion em_pickup_turn via the interaction host — test_pickup_motion_reference.py (executes 001B7F90) |  | 01_battery |
 | 0x001B8020 | — | BM | live | em_area_script op0B (subs 0, 4, 6 admitted) via em_area11_script_host (Roger's 0x8283D0, census L22; the fence door's 0x24DC40, census L18) — test_area_script_reference (synthetic subs 6 / 0; route 09); test_level_smoke.py (roger: route 14; fence_door: route 09 row for row) |  | 09_fence_door |
 | 0x001B81D0 | — | BM | live | em_area_script face_attach via em_area11_script_host (census L22) — test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
-| 0x001B82D0 | — | BM | live | em_script.c / em_opening_runtime.c execute; em_area_script op07 via em_area11_script_host (the truck and Roger's scripts, census L19 / L22) — test_interaction_frame_reference; test_script_reference; test_area_script_reference; test_level_smoke.py (roger: route 14 row for row) | op subset used by the opening, panel and elevator scripts | S2_opening |
+| 0x001B82D0 | — | BM | live | em_area_script op07 via em_area11_script_host (the truck's, Roger's, the director's scripts and, since section 1.41, the opening 0x828FC0: em_interaction_frame / em_interaction_cinematic) — test_interaction_frame_reference; test_script_reference; test_area_script_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001B8FC0 | — | BM | live | em_area_script op00 (kinds 0, 1, 2 live in 0x8292C0; census L19) — test_area_script_reference (route 07 replay); test_level_smoke.py (truck_preview: every camera shot row for row) | the opening camera track is em_opening_runtime.c + em_cinematic_camera.c; em_elevator_program runs its own op00 sub0 (one bound owner per handler is open, AREA_SCRIPT.md 5); the pickup grab program's op00 camera settle runs live as em_pickup_motion em_pickup_camera_settle (test_pickup_motion_reference executes 001B8FC0 for that case) | S2_opening |
 | 0x001B94F0 | — | BM | live | em_area_script op01 (kind 1 live in 0x8292C0: 00182F90 through the pose host; census L19) — test_area_script_reference; test_level_smoke.py (truck_preview placement) | em_elevator_program runs its own op01 sub1 (AREA_SCRIPT.md 5) | S2_opening |
 | 0x001B99F0 | — | NM | live | em_panel_program.c / em_opening_runtime.c op 9 — test_player_cinematic_reference; test_area_script_reference |  | 01_battery |
@@ -2093,14 +2134,14 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001BA080 | — | BM | live | em_area_script op06 via em_area11_script_host (census L22) — test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001BA1A0 | — | BM | live | em_area_script em_area_script_start via em_area11_script_host (the truck trigger, census L19 / L23) — test_director_original_reference, test_area_script_reference; test_level_smoke.py (truck_preview) | em_script.c starts the opening, panel and elevator scripts (their own hosts); Roger's starts run here since census L22, the director's since WP-8b | S2_opening |
 | 0x001BA1C0 | — | CL | live | em_manager_008257A0.c — test_manager_8257a0_reference |  | S2_opening |
-| 0x001BA1F0 | — | NM | live | em_script.c — test_script_reference |  | S2_opening |
+| 0x001BA1F0 | — | NM | live | em_script.c through em_area_script (every AREA11 script, the opening's since section 1.41) — test_script_reference; test_area_script_reference |  | S2_opening |
 | 0x001BA510 | — | CL | verified-unbound | em_script_door_fan em_sdf_001BA510 — test_script_door_fan_reference | not bound (also inline in em_interaction_frame) | S2_opening |
-| 0x001BA540 | — | BM | verified-unbound | em_roger_actor_original — test_roger_actor_original_reference.py | bound in em_area11_roger (census L22); not reached on the route | S3_first_control_idle |
+| 0x001BA540 | — | BM | live | em_roger_actor_original em_roger_actor_001BA540 through em_area11_roger (the opening body's 001BB0E0 phase 2 after the done mask, section 1.41; Roger's own release is not reached on the route) — test_roger_actor_original_reference.py; test_level_smoke.py check_opening_actors (the records end before first control) |  | S3_first_control_idle |
 | 0x001BA580 | — | NM | live | em_roger_actor_original em_roger_actor_001BA580 via em_area11_roger (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) | its 001DA6A0 is em_shadow_live's actor call since section 1.40 | S2_opening |
 | 0x001BA8E0 | — | NM | live | em_roger_actor_original em_roger_actor_001BA8E0 via em_area11_roger (Roger's face slot; census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening* |
-| 0x001BAC00 | — | BM | verified-unbound | em_script_door_fan em_sdf_001BAC00 — test_script_door_fan_reference | em_opening_runtime.c op 0x14 case is a no-op stand-in | S2_opening* |
-| 0x001BAD40 | — | NM | verified-unbound | em_script_door_fan em_sdf_001BAD40 — test_script_door_fan_reference | not bound | S2_opening* |
-| 0x001BB0E0 | — | AW | verified-unbound | em_startup_load_gaps em_slg_001BB0E0 — test_startup_load_gaps_reference | em_opening_actor.c (opening actors checked by fixtures and one capture frame) | S2_opening |
+| 0x001BAC00 | — | BM | live | em_script_door_fan em_sdf_001BAC00 through em_area_script op14 (em_area11_script_host's w_001BAC00, em_area11_bindings_001BAC00 with the pool's 001AFA90; section 1.41) — test_script_door_fan_reference; test_area_script_reference (the opening 0x828FC0 in lockstep with the original 001BA1F0); test_level_smoke.py check_opening_actors (the records at the capture's addresses) |  | S2_opening* |
+| 0x001BAD40 | — | NM | live | em_script_door_fan em_sdf_001BAD40 through em_area11_roger's 001BB0E0 (commands 0 and 5; section 1.41) — test_script_door_fan_reference; test_level_smoke.py check_opening_actors |  | S2_opening* |
+| 0x001BB0E0 | — | AW | live | em_startup_load_gaps em_slg_001BB0E0 through em_area11_roger_opening_tick (the opening script's two records, section 1.41) — test_startup_load_gaps_reference; test_level_smoke.py check_opening_actors (the body's, the class-8 node's and the player's node matrices bit for bit equal to the opening capture's at its camera cursor), check_rand_order (the body's face and head sprite in the pool walk), compare_frame_order cut02 / st03 (the records in the walk) |  | S2_opening |
 
 ### 3.12 Door (0x1BBD60..0x1BC3FF)
 
@@ -2157,7 +2198,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C61D0 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose: the host's clip frames), em_weapon — test_player_record_pose_reference; test_pose_host_workers_reference, test_player_fall_reference.py, test_player_reaction_reference.py, test_player_recovery_reference.py |  | 00_panel_no_battery |
 | 0x001C62C0 | bone_init_default_1 | AW | live | em_status_models, em_owner_services_original — test_owner_services_reference.py |  | S2_opening |
 | 0x001C6380 | — | BM | live | em_owner_services_original, em_status_models — test_owner_services_reference.py |  | S2_opening |
-| 0x001C63E0 | bone_init_default_2 | BM | live | em_pose_host_workers on the player record (em_player_record_pose_default: the opening release, 0015C420's pose half at the attach, the legacy re-seed, the special-bank release) and on Roger's record (em_area11_roger, census L22), em_status_models — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_cinematic_reference |  | S2_opening |
+| 0x001C63E0 | bone_init_default_2 | BM | live | em_pose_host_workers on the player record (em_player_record_pose_default: 0015C420's pose half at the attach, the legacy re-seed, the special-bank release), on Roger's record and the opening body's (em_area11_roger, census L22, section 1.41), em_status_models — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_cinematic_reference |  | S2_opening |
 | 0x001C64F0 | anim_advance_time | NM | live | em_player_stage_workers em_player_stage_anim_advance on the player record (em_player_record_pose: 0015BA50's advance, the idle and script ticks; the chain step) — test_player_record_pose_reference; test_pose_host_workers_reference; test_player_pose_live_reference | em_player_pose.c em_player_pose_advance poses the status models; Roger's record runs em_player_stage_anim_advance through em_area11_roger (census L22); the interaction runtime's baked clock (em_interaction_animation.c) is checked against the record every tick | S2_opening |
 | 0x001C67E0 | anim_clip_init | BM | live | em_pose_host_workers (clip init) on the player record (em_player_record_pose) — test_player_record_pose_reference; test_pose_host_workers_reference |  | 00_panel_no_battery |
 | 0x001C68C0 | — | BM | live | em_pose_host_workers on the player record (0015BCF0's animate step for a zero D_00248C90 row: the takeover clips; 0015C420's pose half) and on Roger's record (em_area11_roger, census L22), em_door — test_player_record_pose_reference; test_pose_host_workers_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
@@ -2235,7 +2276,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D0690 | — | BM | live | em_roger_actor_original via em_area11_roger (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001D06D0 | — | BM | live | em_roger_actor_original via em_area11_roger and, on the player, em_face_slot (the script host's w_001D06D0, section 1.40) — test_roger_actor_original_reference.py; test_face_slot_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001D06E0 | — | BM | live | em_roger_actor_original em_roger_actor_001D06E0 on the player's face slot through em_face_slot (001FD950's talk via the message host, section 1.40; Roger's through 001BA580) — test_roger_actor_original_reference.py; test_face_slot_reference.py (the ORIGINAL talk events and 001FD950's call sites) |  | S2_opening |
-| 0x001D0720 | — | NM | live | em_opening_face.c — test_opening_face_reference; test_rand_order / check_rand_order (the draws' stage positions, RAND_ORDER.md) | during the opening its calls come from em_opening_actor inside the opening controller (design risk 2), not from Roger's owner and the player stage 00183090 (section 1.32) | S2_opening |
+| 0x001D0720 | — | NM | live | em_opening_face.c em_opening_face_tick_slot (through Roger's 001BA580, the opening body's 001BA580 and the player's 00183090 -> 001D0C70) — test_opening_face_reference; test_rand_order / check_rand_order (the draws' stage positions, RAND_ORDER.md) | since section 1.41 every call comes from its original caller, the opening's included | S2_opening |
 | 0x001D0C70 | — | BM | live | 00183090's call (em_player_stage_commit w001D0C70) -> em_face_slot_001D0C70: 001D0720 (em_opening_face_tick_slot) on the slot at the player's +0x90 (section 1.40) — test_player_cinematic_reference; test_face_slot_reference.py; test_opening_face_reference; test_level_smoke.py (roger: route 14 row for row) | Roger's own face slot ticks through em_area11_roger's w_001D0720 (the same em_opening_face_tick_slot) | S2_opening |
 
 ### 3.16 Render heads, projection, lighting, shadow, veil particles (0x1D19D0..0x1DAFFF)
@@ -2529,7 +2570,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00823950 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) | the ordinary branch (0x8283D0, route 14) and, since WP-8b, the alternate 0x828990 (route 10, with the director) run | 10_cage_roof_roger |
 | 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
 | 0x00823CE0 | — | AU | verified-unbound | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; renamed from em_script_door_fan_husk in L24) — test_script_door_fan_reference (part 3) | dormant in the first visit (waits on D_00810788); the node is bound with no port code | S2_opening |
-| 0x00823E80 | — | AU | live | em_area11_opening.c / em_opening_runtime.c; its state 0 (001B0FD0, 001C6380) and state 1's tail (001B1B70, +0x4C 001CAA00) over its record in em_area11_bindings.c tick_opening since section 1.25 — test_continue_reset_reference (0x823F74..80 slice); opening capture frame; test_level_smoke.py check_owner_units (the canopy's unit), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | partial oracle coverage; the legacy canopy prop is retired (section 1.25) | S2_opening |
+| 0x00823E80 | — | AU | live | em_area11_opening.c em_area11_opening_state1 (state 1's script machine over em_area11_script_host: 001BA1C0, 001BA1A0 / 001BA1F0 of 0x828FC0, 001FABB0, the completion's +0x2E done mask, D_00810811, 001C4760, 001FAE70, 001AEE10; section 1.41) with its state 0 (001B0FD0, 001C6380) and state 1's tail (001B1B70, +0x4C 001CAA00) over its record in em_area11_bindings.c tick_opening — test_area11_opening (fixture); test_area_script_reference (its script); test_continue_reset_reference (0x823F74..80 slice); test_level_smoke.py check_rand_order and check_opening_actors (the script's records and their end), check_owner_units (the canopy's unit), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | partial oracle coverage (no oracle executes 00823E80's own instructions) | S2_opening |
 | 0x00823FF0 | — | AU | live | em_truck_original via em_area11_boxes em_area11_boxes_truck_tick (census L23) — test_truck_original_reference; test_level_smoke.py (truck_crossing: route 08 row for row from the arm) | its 001EFD20 spawns run em_effects_live (census L26; the eight live puffs equal route 08's); sounds 0x454 / 0x455 not in the exported registry (WP-14) | S2_opening |
 | 0x008251E0 | — | AU | live | em_truck_original em_truck_trigger_tick via em_area11_boxes (census L23) — test_truck_original_reference; test_level_smoke.py (truck_preview: route 07 row for row) |  | S2_opening |
 | 0x008253F0 | — | AU | live | em_director_original via em_area11_bindings tick_director_original (node #21, census L21 with WP-8b) — test_director_original_reference; test_level_smoke.py (cage_roof, crevice_prompt, east_tower: routes 10, 11, 13) | since the measured drive model (section 1.30) the voiced lines 0x97 / 0x99 tear down on the capture's rows; 0x7F 2 rows early, which check_voice_drive proves is the original's lane-0 music refill served first (the music's phase: navigation; LEVEL_SMOKE.md) | S2_opening |

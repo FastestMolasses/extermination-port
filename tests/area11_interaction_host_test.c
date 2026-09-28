@@ -637,7 +637,7 @@ static void setup(int reset_inventory)
     assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
     assert(player_pose_attach(&player_record, em_scene_req_at(scene, 0x008106F3u), &stage_scene,
                               &stage_globals));
-    assert(player_pose_opening_release());
+    assert(player_pose_record_displayed());   /* the source is the record from the attach */
     bind_release(&stage_scene, &stage_globals);
     player_pose_finish_palette();
     /* The live message service (step F) the panel and terminal lines run on. */

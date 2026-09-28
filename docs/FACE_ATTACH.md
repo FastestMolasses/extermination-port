@@ -2,8 +2,9 @@
 
 Status (2026-09-28, chain C8b FACE): **live.** The +0x90 attachment draw of
 the 001CAA00 owners runs from em_owner_draw_live's `w_001CB3C0` for Roger
-(008237E0, every frame his +0x4C runs) and for the player while a script
-holds its face slot (001B81D0's 001CA700 .. 001B82D0 sub 4's 001CA770, now
+(008237E0, every frame his +0x4C runs; since chain C8b OPENING also the
+opening's 001BB0E0 body) and for the player while a script holds its face
+slot (001B81D0's 001CA700 .. 001B82D0 sub 4's 001CA770, now
 on the player record's own +0x90 slot, `em_face_slot`). The face unit it
 appends is parsed with the owner's unit and drawn by the object-unit
 renderer's face-morph program (OWNER_DRAW.md section 8 F). Roger's and his
@@ -305,11 +306,11 @@ random variants, because D_00250FB0 is zero in every capture.
   (ANIM_RUNTIME_REST.md 6); not modelled.
 - **001D3E40 on channels other than 0** is not verified (section 3); no
   first-level caller passes another.
-- **The opening.** During the opening the displayed Roger and player (and
-  their faces) are still the opening runtime's actors (em_opening_actor,
-  design risk 2; the chain's OPENING step). Roger's own owner draws his
-  units only in the frames it runs (AE+2 onwards), which the opening's
-  actors cover; the captured opening units are proved offline (section 4).
+- **The opening.** Since chain C8b OPENING the opening's Roger (the
+  script's class-9 001BB0E0 record, em_area11_roger's second pair) and the
+  player draw their faces through this path too (OPENING_ORIGINAL.md); the
+  level smoke's check_face samples the opening body's calls (record
+  0x7A96E0) like Roger's own.
 - **Pixels.** Rasterization is Metal's (OWNER_DRAW.md section 12); no
   framebuffer capture of a face frame is compared.
 - **The bone-slot stack.** The port's player node records (0x7D5840..) are

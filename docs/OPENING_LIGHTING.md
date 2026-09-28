@@ -75,7 +75,7 @@ interpolation and normalization. It does not include occlusion, textures or
 fog and is not a count of differing screenshot pixels.
 
 ```
-make test-lighting test-opening-actor test-opening-runtime
+make test-lighting
 make test-lighting-reference
 python3 tools/audit_opening_lighting.py \
   --report build/opening_lighting/audit.json

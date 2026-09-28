@@ -1,5 +1,7 @@
-/* Translation of original 001D0690/001D06E0/001D0720 (the opening's
- * actors, and every face slot through em_opening_face_tick_slot).
+/* Translation of original 001D0690/001D06E0/001D0720 (every face slot
+ * through em_opening_face_tick_slot: Roger's, the opening body's and the
+ * player's). The face positions are the VU1 face program's
+ * (em_vu1_face_morph, the one translation since chain C8b OPENING).
  * The caller supplies the original shared-RNG stream; this module does not
  * invent an opening seed or advance a private substitute RNG. */
 #ifndef EM_OPENING_FACE_H
@@ -26,9 +28,4 @@ void em_opening_face_tick(EmOpeningFace *face, EmFaceRandom random,
  * names: +0x40..+0x5F the weights, +0x70..+0xA7 the control block), one
  * em_opening_face_tick over them. */
 void em_opening_face_tick_slot(uint8_t *slot, EmFaceRandom random, void *context);
-/* 0023C578..0023C5B0: seven delta products accumulate before adding base.
- * Normals are not morphed by the original kernel. Host float rounding has
- * not been asserted bit-identical to the EE/VU execution units. */
-void em_opening_face_position(float out[3], const float base[3],
-                               const float delta[21], const float weight[8]);
 #endif

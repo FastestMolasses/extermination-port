@@ -260,7 +260,7 @@ from the rebuilt image and read only uploaded blocks (test F):
 | `export_door_original.py` (18) | `opening_gs.bin` (hard-coded) | 5 | area |
 | `export_area11_effect.py` (19, flame) | `--gs` | 1 | library |
 | `export_snow.py` (21) | `--gs` | 1 | library |
-| decomp `export_opening_actors.py` / `export_opening_faces.py` (26/27) | `--gs opening_gs.bin` | all 7 outputs rerun on the rebuilt image are byte-identical | area / library / player packet |
+| decomp `export_opening_actors.py` / `export_opening_faces.py` (26/27; their outputs are no longer read since chain C8b OPENING) | `--gs opening_gs.bin` | all 7 outputs rerun on the rebuilt image are byte-identical | area / library / player packet |
 | `export_roger_resources.py` (39) | `opening_gs.bin` (hard-coded) | 68 | area |
 
 `tools/export_status_map.py` (STARTUP.md step 55, the MAP page's 22 map

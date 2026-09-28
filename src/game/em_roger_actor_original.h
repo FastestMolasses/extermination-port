@@ -209,6 +209,10 @@ int em_roger_actor_001AF890(EmRogerActor *s, uint32_t slot);
 int em_roger_actor_001AF800(EmRogerActor *s, EmRogerActorRecord *a);
 /* 001CA6E0(actor, model). */
 int em_roger_actor_001CA6E0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t model);
+/* 001C6150(model): *count = the byte at model +0x08 (through world.resource). */
+int em_roger_actor_001C6150(EmRogerActor *s, uint32_t model, uint8_t *count);
+/* 001CA6F0(actor, a1): +0x98 = a1 (the byte 008237E0 stores inline). */
+int em_roger_actor_001CA6F0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t a1);
 /* 001BA8E0(actor, kind). */
 int em_roger_actor_001BA8E0(EmRogerActor *s, EmRogerActorRecord *a, uint32_t kind);
 /* 001CA700(actor, resource, a2): 1 attached, 0 when no slot was free. */

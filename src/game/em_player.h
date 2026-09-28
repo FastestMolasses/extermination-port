@@ -35,8 +35,9 @@ void player_pose_unsupported_hold(const char *reason);
  * clock, node channels and skeleton live in the live record, worked by the
  * original routines (em_player_record_pose over em_pose_host_workers).
  * player_pose_attach binds the loaded bank to `actor` (after
- * player_pose_load): it writes the record's structural words and leaves the
- * source unstarted until the opening release. d8106F3 is the canonical
+ * player_pose_load): it writes the record's structural words, and the
+ * source is the record's from then on (a room rebuild keeps a started
+ * source going). d8106F3 is the canonical
  * byte; scene / globals are the player stage's views
  * (em_player_record_pose_attach). 1, or 0. */
 struct EmPlayerStageGlobals;
@@ -51,7 +52,7 @@ void player_pose_set_release_worker(int (*worker)(void *, EmPlayerLiveActor *), 
  * takeover's end hook. 0, or -1. */
 int player_pose_stage_release(EmPlayerLiveActor *actor);
 /* 1 when the record holds the pose the port displays (the source started
- * at the opening release, valid, and no port stand-in holds the display):
+ * at the attach, valid, and no port stand-in holds the display):
  * only then are its node records the player's drawn pose (0015C160's
  * shadow reads them, em_shadow_live). */
 int player_pose_record_displayed(void);
@@ -256,6 +257,9 @@ int player_states_stage_live(void);
  * the player's palette), 0 otherwise (also after a fault, which is
  * fail-stop: reported once, counted, em_frame_request_quit). */
 int player_states_stage(void);
+/* The next player_states_stage is 0015BA50's +4 = 0 call, the first after
+ * the 001AF5C0 wipe: its switch runs 0015C420 alone (see the .c). */
+void player_states_stage_rebuild(void);
 /* D_008106B3 as this stage's 0015BA50 left it; -1 while STAGE is gated
  * off. (The canonical B3 byte is still written by em_player_0015BCF0's
  * stand-in expression.) */

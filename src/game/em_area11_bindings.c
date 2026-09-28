@@ -62,6 +62,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_door.h"
 #include "game/em_area11_effect_runtime.h"
+#include "game/em_area11_opening.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
@@ -87,6 +88,7 @@
 #include "game/em_props.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_workers.h" /* EM_SCENE_D_008102B0 */
+#include "game/em_script_door_fan.h"
 #include "game/em_security_gun.h"
 #include "game/em_security_gun_rest.h"
 #include "game/em_sfx.h"
@@ -130,6 +132,10 @@ struct Node {
      * writes them before it reads them. */
     int16_t h28, h34;
     float f38;
+    /* The opening script's 001BB0E0 records (001BAC00): +0x20, their
+     * placement entry's address (the controller that spawned them is
+     * `parent`, their +0x24). */
+    uint32_t entry_20;
 };
 
 static Node s_nodes[EM_ACTOR_POOL_CAPACITY];
@@ -971,16 +977,77 @@ static int tick_manager_8257A0(EmActor *actor, Node *node, const EmArea11World *
  * 0x823E80..0x823FE8), by its +0x04. State 0: 001B0FD0 (0x823ECC,
  * em_area11_boxes_owner_001B0FD0: the world bank's model 0x11, the
  * parachute canopy, and its slot; a refusal returns), 001C6380 (0x823EDC),
- * +0x04 = 1 and +0x00 = 1. State 1: its script machine (001BA1C0(self,
- * 0x39), the opening script through 001BA1A0 / 001BA1F0 and the
- * completion's writes: the port's em_opening_runtime, whose own first call
- * stands for this state 0), then on every path 001B1B70(self) (0x823FAC:
- * the record onto the collision world's class lists, its cell uid 3) and
- * its +0x4C (0x823FB8), 001CAA00 over its record (em_area11_boxes_owner_draw):
- * the canopy keeps drawing after the script ends. States 2 / 3 free the
- * record (0x823FCC): not reached in the first level, a fault. The legacy
- * canopy prop the manifest placed at its +0xB0 stops drawing once the owner
- * is bound. */
+ * +0x04 = 1 and +0x00 = 1. State 1: the script machine
+ * (em_area11_opening_state1: 001BA1C0(self, 0x39); +0x05 0 starts the
+ * script 0x828FC0 on the AREA11 script host and stops the streams; +0x05 1
+ * polls it and, when it ends, runs the completion: +0x2E = 0xFFFF,
+ * D_00810811 = 0xFF, 001C4760(0, 1), 001FAE70(0), +0x05 = 2, 001AEE10(4,
+ * 0)), then on every path 001B1B70(self) (0x823FAC: the record onto the
+ * collision world's class lists, its cell uid 3) and its +0x4C (0x823FB8),
+ * 001CAA00 over its record (em_area11_boxes_owner_draw): the canopy keeps
+ * drawing after the script ends. States 2 / 3 free the record (0x823FCC):
+ * not reached in the first level, a fault. The script's actors are pool
+ * records (001BAC00 spawns them; tick_opening_actor), the player's its own
+ * stage's (the script host's takeover). */
+typedef struct {
+    EmActor *self;
+} OpeningCall;
+
+static int opening_001BA1C0(void *ctx, uint32_t a1, int32_t *result)
+{
+    (void)ctx;
+    const uint8_t *flag = em_scene_progress_at(s_scene, 0x00810758u + a1, 1);
+    if (!flag)
+        return -1;
+    *result = *flag == 0xFF;
+    return 0;
+}
+
+static int opening_001BA1A0(void *ctx, uint32_t entry)
+{
+    OpeningCall *c = ctx;
+    return em_area11_script_host_start(c->self, entry);
+}
+
+static int opening_001BA1F0(void *ctx, int32_t *result)
+{
+    OpeningCall *c = ctx;
+    return em_area11_script_host_tick(c->self, result);
+}
+
+static int opening_001FABB0(void *ctx)
+{
+    (void)ctx;
+    return em_scene_bindings_001FABB0();
+}
+
+static int opening_00810811(void *ctx, uint8_t value)
+{
+    (void)ctx;
+    g.opening_complete = value;   /* D_00810811 (em_game.h) */
+    return 0;
+}
+
+static int opening_001C4760(void *ctx, int32_t a0, int32_t a1)
+{
+    (void)ctx;
+    /* The canonical key byte D_00810CC3[a0]. */
+    return em_director_original_001C4760_scene(s_scene, a0, a1);
+}
+
+static int opening_001FAE70(void *ctx, int32_t a0)
+{
+    (void)ctx;
+    return em_scene_bindings_001FAE70(a0);
+}
+
+static int opening_001AEE10(void *ctx, int16_t a0, uint8_t a1)
+{
+    (void)ctx;
+    em_frame_fade_start_colour(-1, a0, a1);
+    return 0;
+}
+
 static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
@@ -996,16 +1063,46 @@ static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
             actor->status = 1;   /* +0x00 */
             em_pickup_prop_retire(actor->pos);
         }
-        em_opening_runtime_tick();
         return 1;
     }
     if (actor->u04[0] != 1)
         return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX, "00823E80: the free of states 2 / 3 is not bound");
-    em_opening_runtime_tick();
+    OpeningCall call = {actor};
+    const EmArea11OpeningWorkers w = {&call,           opening_001BA1C0, opening_001BA1A0, opening_001BA1F0,
+                                      opening_001FABB0, opening_00810811, opening_001C4760, opening_001FAE70,
+                                      opening_001AEE10};
+    EmArea11Opening op = {actor->u04[1], actor->flags2};
+    const uint8_t before = op.b05;
+    uint32_t at = 0;
+    if (em_area11_opening_state1(&op, &w, &at) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(at, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 1: a callee faulted");
+    actor->u04[1] = op.b05;   /* +0x05 */
+    actor->flags2 = op.h2E;   /* +0x2E */
+    if (before == 1 && op.b05 == 2)
+        em_opening_runtime_complete();
     if (em_collision_world_publish_001B1B70(actor) < 0)
         return fault(0x001B1B70u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: 001B1B70 faulted");
     if (em_area11_boxes_owner_draw(actor) < 0)
         return fault(0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: its +0x4C 001CAA00 faulted");
+    return 1;
+}
+
+/* The opening script's actors (callback 001BB0E0, spawned by 001BAC00 in
+ * the controller's script; em_area11_roger_opening_tick): the entry their
+ * +0x20 names from the opening's image, their +0x24 the controller. They
+ * tick in both walk variants (classes 9 and 8: 001AFD70 modes 0 and 1). */
+static int tick_opening_actor(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)world;
+    const uint8_t *entry = em_area11_script_host_opening_bytes(node->entry_20, EM_SDF_ENTRY_SIZE);
+    if (!entry || !node->parent)
+        return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX, "001BB0E0: no placement entry or controller");
+    int r = em_area11_roger_opening_tick(actor, s_pool, s_scene, entry, node->entry_20, node->parent);
+    if (r < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "opening actor: a worker failed (em_area11_roger)");
     return 1;
 }
 
@@ -1614,7 +1711,8 @@ static const Binding k_bindings[] = {
      tick_roger, NULL},
     {0x001C5C90u, "equipment: em_roger_actor_001C5C90 (em_area11_roger)", tick_roger,
      NULL},
-    {0x00823E80u, "opening controller: em_opening_runtime_tick", tick_opening, NULL},
+    {0x00823E80u, "opening controller: em_area11_opening over em_area11_script_host", tick_opening, NULL},
+    {0x001BB0E0u, "opening actor: em_slg_001BB0E0 (em_area11_roger)", tick_opening_actor, NULL},
     {0x00823CE0u, "manager: dormant", NULL,
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
     {0x008253F0u, "director: em_director_original over em_area11_script_host",
@@ -1757,6 +1855,72 @@ int em_area11_bindings_effects_attach(void)
     em_area11_interaction_host_set_owner_hooks(&k_owner);
     /* 001AFCA0's 001D0660: 001F0310, the effect pools' reset. */
     return em_effects_live_001F0310();
+}
+
+/* 001BAC00's 001AFA90: the record and em_sdf's view of its stores, which
+ * em_area11_bindings_001BAC00 applies once the walk of the list returns. */
+enum { SPAWN_LIST_MAX = 8 };
+typedef struct {
+    EmActor *actor[SPAWN_LIST_MAX];
+    EmSdfSpawned view[SPAWN_LIST_MAX];
+    unsigned count;
+} SpawnList;
+
+static int spawn_001AFA90(void *ctx, uint8_t type, uint32_t *node, EmSdfSpawned **view)
+{
+    SpawnList *l = ctx;
+    *node = 0;
+    *view = NULL;
+    if (l->count >= SPAWN_LIST_MAX)
+        return fault(0x001BAC00u, EM_SCENE_FAULT_BAD_INDEX, "001BAC00: more entries than the binder holds");
+    EmActor *p = em_actor_pool_alloc_001AFA90(s_pool, s_scene, type);
+    if (!p)
+        return em_scene_faulted(s_scene) ? -1 : 0;   /* a refused alloc answers 0, as the original */
+    memset(&l->view[l->count], 0, sizeof l->view[l->count]);
+    l->actor[l->count] = p;
+    *node = address_of(p);
+    *view = &l->view[l->count++];
+    return 0;
+}
+
+int em_area11_bindings_001BAC00(EmActor *owner, const uint8_t *record, const EmSdfImage *image, int32_t *result)
+{
+    if (!owner || !record || !image || !result || em_scene_faulted(s_scene))
+        return -1;
+    SpawnList list;
+    memset(&list, 0, sizeof list);
+    EmSdfWorkers w;
+    memset(&w, 0, sizeof w);
+    w.ctx = &list;
+    w.w_001AFA90 = spawn_001AFA90;
+    /* The 0x270E path (001C8140) is not in the opening's list: NULL. */
+    EmSdfSpawnOwner view = {address_of(owner), (int16_t)owner->flags2};
+    EmSdfFault f = {0, 0};
+    int r = em_sdf_001BAC00(&view, record, image, &w, &f);
+    if (r < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(f.address ? f.address : 0x001BAC00u, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "001BAC00 faulted (em_sdf_001BAC00)");
+    owner->flags2 = (uint16_t)view.s2E;   /* owner +0x2E = 0 */
+    for (unsigned i = 0; i < list.count; ++i) {
+        EmActor *p = list.actor[i];
+        const EmSdfSpawned *v = &list.view[i];
+        if (v->owner_24 != address_of(owner))
+            return fault(0x001BAC00u, EM_SCENE_FAULT_BAD_RESULT, "001BAC00: a record's +0x24 is not its owner");
+        p->model = v->b03;                          /* +0x03 */
+        p->param = v->b0D;                          /* +0x0D */
+        memcpy(p->pos, v->pos_B0, sizeof v->pos_B0); /* +0xB0..+0xB8 */
+        memcpy(p->rot, v->rot_C0, sizeof v->rot_C0); /* +0xC0..+0xC8 */
+        p->callback = v->handler_10;                /* +0x10 */
+        p->flags2 = (uint16_t)v->s2E;               /* +0x2E */
+        if (bind_node(p, NULL) < 0)
+            return -1;
+        Node *node = node_of(p);
+        node->parent = owner;                       /* +0x24 */
+        node->entry_20 = v->entry_20;               /* +0x20 */
+    }
+    *result = r;
+    return 0;
 }
 
 int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key)

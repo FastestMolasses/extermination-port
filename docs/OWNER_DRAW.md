@@ -654,12 +654,11 @@ original's:
   post-step's unit (`em_owner_draw_live_flush`), as 0015C160 orders its
   001DA6A0 before its +0x4C.
 - While the record is not the displayed pose
-  (`em_scene_bindings_player_record_drawn`: the opening runtime's actors
-  drawn, the pose source not started or held by a stand-in, or a frame whose
-  0015BCF0 was reported) the post-step stays reported (UM_0015C160_OPENING)
+  (`em_scene_bindings_player_record_drawn`: the pose source not started or
+  held by a port stand-in) the post-step stays reported (UM_0015C160_UNPOSED)
   and the port's player mesh draws the displayed pose, carrying the
-  equipment models (design risk 2). On the route that is the opening's 1,302
-  post-steps only.
+  equipment models. Since chain C8b OPENING no route frame is reported: the
+  opening's post-steps draw the player's unit (OPENING_ORIGINAL.md).
 - em_weapon reads the player's node 4 (the gun node 00188630's bone 0) from
   the record (`em_player_draw_live_node_world`); the gfx layer's bone
   publish (`em_gfx_last_skinned_bone`) is retired.
@@ -749,7 +748,6 @@ renderer's skinned path.
 
 | Owner | Draws today | Waits on |
 |---|---|---|
-| the player and Roger during the opening (design risk 2) | the opening runtime's actors (em_opening_actor: their EMDL meshes with the host-float face morph), then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening's actors on their records (the chain's OPENING step) |
 | the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the security gun's 0x7A lamp draws nothing (dark in the first level: its colour is (0, 0, 0, 0.25)) | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
 ## 12. Limits
@@ -783,9 +781,10 @@ renderer's skinned path.
   001C6150; equipment 0x36's TEX0 0 is not exported (section 7.3). Neither
   occurs on the first level's route, and variant 4 (model 0x36) cannot be
   bound anywhere in AREA11 (PLAYER_EQUIPMENT.md section 7).
-- **The opening.** The player's 1,302 reported post-steps (the opening
-  runtime owns the displayed player, design risk 2) keep the port's player
-  mesh, which carries the equipment models there.
+- **The opening.** Since chain C8b OPENING the opening's player, its
+  equipment nodes, the script's opening body and its class-8 node draw
+  their original units (OPENING_ORIGINAL.md); no route frame keeps the
+  port's player mesh.
 - **Pixels.** The first-control frame with the player's unit
   (build/captures/player_unit/first_control.png, `EM_STARTUP_TEST=
   newgame-control EM_CAPTURE_FRAME=1340`) was inspected by eye against

@@ -346,6 +346,9 @@ static struct {
     uint8_t loaded3B8D;           /* 3B8D as the scene view last loaded it */
     int consumed;                 /* this stage: the interaction runtime's takeover owned it */
     int port_ran;                 /* this stage: a port callback (legacy idle/walk or a stand-in) ran */
+    /* The next stage is 0015BA50's +4 = 0 call (player_states_stage_rebuild):
+     * its switch runs 0015C420 alone. */
+    int rebuild;
     /* 00161020 / 001612D0 as the binder bound them (census L12; the closure
      * binder over the original world): 0015B130's state[0] / state[1] run
      * them through live_idle / live_walk. NULL in the scenes without an
@@ -507,6 +510,11 @@ void player_states_report(FILE *out)
         }
         fputc('\n', out);
     }
+}
+
+void player_states_stage_rebuild(void)
+{
+    live.rebuild = 1;
 }
 
 void player_states_reset(void)
@@ -1141,7 +1149,18 @@ int player_states_stage(void)
         live_fault("0015BA50 D_00248C98 worker fault");
         return 0;
     }
-    if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
+    if (live.rebuild) {
+        /* 0015BA50's switch with +4 = 0 (the first stage after the
+         * 001AF5C0 wipe) is 0015C420 alone: no advance, no state callback.
+         * 0015C420's own writes are the port's spawn values
+         * (player_states_spawn_values, +4 = 1 among them), its children the
+         * caller's (em_area11_spawn_player_children_0015C420) and the pose's
+         * rebuild the record's (player_pose_attach at the area bind); the
+         * idle state runs from the next stage on (the New Game capture:
+         * newgame_samples frames 2640 / 2641, the floor service's first
+         * snap in the second). */
+        live.rebuild = 0;
+    } else if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
         live_fault("player stage worker or state callback fault");
         return 0;
     }

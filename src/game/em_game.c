@@ -198,7 +198,6 @@
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
-#include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_level_smoke_test.h"
@@ -717,16 +716,16 @@ int em_game_terminal_powered(void)
     return (*power & 0x80) != 0;
 }
 
-/* em_game_player_interact_busy — 1 while a port stand-in or an original
- * interaction owns the player: the opening runtime, or an acquired original
- * player source
- * (player_pose_owned: the AREA11 interaction host's 0015B130 takeover).
+/* em_game_player_interact_busy — 1 while an original interaction owns the
+ * player: an acquired original player source (player_pose_owned: the
+ * 0015B130 takeover of the AREA11 interaction host or of a script owner,
+ * the New Game opening's controller included).
  * The legacy elevator ride that used to fold in here was retired in WP-4
  * with the examine terminal (the terminal is the original owner 00827B10
  * in the interaction host). */
 int em_game_player_interact_busy(void)
 {
-    return em_opening_runtime_busy() || player_pose_owned();
+    return player_pose_owned();
 }
 
 /* em_game_player_face_step — the examine op04 FACE pre-roll: turn the
@@ -1136,7 +1135,6 @@ void em_game_legacy_pool_gameplay(void)
      * binds it. Before S10a it was bound before that frame's player
      * update. */
     grate_update();
-    em_opening_runtime_tick(); /* automatic AREA11 actor in pool phase */
     em_area11_effect_runtime_tick();
     render_chain_build();    /* port-native draw list (no original
                               * counterpart); it ran just before 001C1D00,
@@ -1150,10 +1148,10 @@ void em_game_legacy_pool_gameplay(void)
 }
 
 /* 001AE6B0's 001AFD70(1) position: the S10a cutscene legacy block, kept
- * as the cutscene behaviour of the `legacy_world` node. The player's opening
- * pose comes from original bank 0x98 (em_opening_runtime), so the ordinary
- * movement/weapon/menu handlers do not run. The snow tick keeps reading the
- * camera eye from before this frame's camera stage, as it did. */
+ * as the cutscene behaviour of the `legacy_world` node (a scene without an
+ * original roster; the AREA11 opening's controller is a roster node). The
+ * snow tick keeps reading the camera eye from before this frame's camera
+ * stage, as it did. */
 void em_game_legacy_pool_cutscene(void)
 {
     float previous_eye[3];
@@ -1162,7 +1160,6 @@ void em_game_legacy_pool_cutscene(void)
      * expire each frame, just as they do in the gameplay block. */
     em_collision_moving_clear();
     em_collision_blocker_clear();
-    em_opening_runtime_tick();
     em_area11_effect_runtime_tick();
     grate_update();
     em_snow_runtime_tick(previous_eye, 1);

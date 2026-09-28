@@ -156,13 +156,3 @@ void em_opening_face_tick_slot(uint8_t *slot, EmFaceRandom random, void *context
     memcpy(slot + 0x8C, &f.previous_shape, 4);
     memcpy(slot + 0x90, f.target, sizeof f.target);
 }
-
-void em_opening_face_position(float out[3], const float base[3],
-                               const float delta[21], const float weight[8])
-{
-    for (int c=0;c<3;++c) {
-        float sum=delta[c]*weight[0];
-        for (int i=1;i<7;++i) sum+=delta[3*i+c]*weight[i];
-        out[c]=sum+base[c];
-    }
-}

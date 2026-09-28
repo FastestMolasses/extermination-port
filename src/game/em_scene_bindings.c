@@ -25,14 +25,14 @@
  *     001B6990 whose behaviour is the S10a legacy block, unchanged;
  *   - S11a: spad 3B8D and 3B91 have one storage, s_state. The port's
  *     writers are the ported counterparts of the original writers (the
- *     opening runtime's 001B82D0 op-12/op-5 counterpart, 001AFCF0, and
+ *     script host's 001B82D0 (the opening's included), 001AFCF0, and
  *     001AE6B0's 3B91 1 -> 2 promotion); they write it where the original
  *     does, inside the world frame's 001AFD70 walk, so a selector written
  *     during frame N picks frame N+1's variant. The input words D_00810E74,
  *     D_00810E70 and D_00810E50 are written at the start of every tick by
  *     em_frame_scene_input (em_frame.c), the one translation of step C;
- *     spad 3B92 is canonical too (lead decision D5; em_opening_runtime.c
- *     writes it where 001B82D0 does);
+ *     spad 3B92 is canonical too (lead decision D5; the script host's
+ *     001B82D0 writes it);
  *   - S11b: the frame machine acts on 001AE7E0. r == 2 (a START/TRIANGLE
  *     edge in gameplay, or a B0/C5 request) opens the status screen:
  *     states 3 and 5 run with the world frozen (see "status screen"
@@ -233,9 +233,8 @@ enum {
     UM_001C5C50_LEGACY_WORLD,
     UM_001D1EF0,
     UM_001CB590,
-    UM_0015BCF0_CUTSCENE,
     UM_0015C160,
-    UM_0015C160_OPENING,
+    UM_0015C160_UNPOSED,
     UM_001F0360,
     UM_001AAD00,
     UM_001E0CC0,
@@ -272,17 +271,13 @@ static const struct {
                                   "section 9)"},
     [UM_001CB590] = {0x001CB590u, "current actor stored; its anim_bone_array_setup tail has no port "
                                   "counterpart (the port's bone palettes are per model)"},
-    [UM_0015BCF0_CUTSCENE] = {0x0015BCF0u, "001AE6B0 player stage; the port poses the player through "
-                                           "the opening runtime in the 001AFD70 block (design risk 2)"},
     [UM_0015C160] = {0x0015C160u, "player post-step in a scene without the shadow binding (not the "
                                   "first level, whose post-step is em_shadow_live): no shadow, and the "
                                   "port draws the player from its draw list"},
-    [UM_0015C160_OPENING] = {0x0015C160u, "player post-step while the player record does not hold the "
-                                          "displayed pose (the opening runtime owns the displayed player, "
-                                          "design risk 2, or the pose source has not started or a port "
+    [UM_0015C160_UNPOSED] = {0x0015C160u, "player post-step while the player record does not hold the "
+                                          "displayed pose (the pose source has not started, or a port "
                                           "stand-in holds it): no shadow is computed from the record and "
-                                          "the +0x4C draw is the port's own mesh draw (the opening's "
-                                          "actors while they are active)"},
+                                          "the +0x4C draw is the port's own mesh draw"},
     [UM_001F0360] = {0x001F0360u, "effect-manager barrel (001F6210 .. 001F0720); no port counterpart"},
     [UM_001AAD00] = {0x001AAD00u, "scene without an original roster: no collision world, so its "
                                   "nine list-pass hooks and class lists have no port counterpart"},
@@ -2183,7 +2178,8 @@ static int w_001AE6B0(void *ctx)
  *
  *   001CB590(a0, ...)  both   D_00275B44 = a0; tail unmirrored
  *   0015BCF0(player)   5E0    em_player_0015BCF0
- *                      6B0    unmirrored (opening-player path, design risk 2)
+ *                      6B0    em_player_0015BCF0 (the scripted frames, the opening's
+ *                             included)
  *   001CB5A0           both   empty leaf (src/func_001CB5A0.c)
  *   001D1C50           both   em_rcl_001D1C50 on the render context (census
  *                             L32); em_render_001D1C50 without it
@@ -2229,8 +2225,12 @@ static int w_0015BCF0(void *ctx, uint32_t actor)
          * only; a legacy_world scene keeps its legacy frame). */
         if (s_player_init_pending) {
             s_player_init_pending = 0;
-            if (s_pool_mode == POOL_ROSTER && em_area11_spawn_player_children_0015C420() < 0)
-                return -1;
+            if (s_pool_mode == POOL_ROSTER) {
+                if (em_area11_spawn_player_children_0015C420() < 0)
+                    return -1;
+                /* This stage is 0015BA50's +4 = 0 call: 0015C420 alone. */
+                player_states_stage_rebuild();
+            }
         }
         return em_player_0015BCF0();
     }
@@ -2239,16 +2239,13 @@ static int w_0015BCF0(void *ctx, uint32_t actor)
          * not guess its children there. */
         if (s_player_init_pending && s_pool_mode == POOL_ROSTER)
             return em_scene_fault(&s_state, 0x0015C420u, EM_SCENE_FAULT_NULL_WORKER);
-        /* The original runs 0015BCF0 in this variant too. While the opening
-         * runtime owns the player its pose comes from the opening's bank
-         * (design risk 2, the interim opening path). Otherwise (WP-4: an
-         * AREA11 interaction's 3B8D = 3 or 2) the player stage runs, so the
-         * interaction host's shared player worker (0015B130 takeover,
-         * scripted animation, 00182DF0 release) runs at its original
-         * position, between 001AFD70(1) and 001AFD70(2). */
-        if (!em_opening_runtime_busy())
-            return em_player_0015BCF0();
-        return unmirrored(UM_0015BCF0_CUTSCENE);
+        /* The original runs 0015BCF0 in this variant too (the opening's
+         * frames included): a script's 3B8D = 2 or 3 (the opening 0x828FC0,
+         * an AREA11 interaction) has the player stage run, so the shared
+         * player worker (0015B130 takeover, the scripted clip through
+         * 00183090 with the face's 001D0C70, 00182DF0 release) runs at its
+         * original position, between 001AFD70(1) and 001AFD70(2). */
+        return em_player_0015BCF0();
     }
     return -1;
 }
@@ -2333,16 +2330,12 @@ static int walk_001AFD70(void *ctx, int mode)
 }
 
 /* 1 when the player record's node records are the pose the port displays
- * this frame: the opening runtime's actors are not drawn, the record pose
- * source holds the display (player_pose_record_displayed) and this frame's
- * 0015BCF0 posed the record (it is reported, UM_0015BCF0_CUTSCENE, while
- * the opening runtime owns the cutscene variant: the port then displays the
- * opening's hand-off pose, not the record's). */
+ * this frame: the record pose source holds the display
+ * (player_pose_record_displayed; every stage poses the record, the
+ * opening's included). */
 int em_scene_bindings_player_record_drawn(void)
 {
-    if (em_opening_runtime_actors_active() || !player_pose_record_displayed())
-        return 0;
-    return !(s_variant == VARIANT_CUTSCENE && em_opening_runtime_busy());
+    return player_pose_record_displayed();
 }
 
 /* 0015C160 (byte-matched src/func_0015C160.c), the player post-step. In the
@@ -2354,11 +2347,10 @@ int em_scene_bindings_player_record_drawn(void)
  * the +0x4C method: 001CAA00(player) (em_player_draw_live through
  * em_owner_draw_live), whose unit frame_close_out draws after the shadow's
  * passes (em_owner_draw_live_post_step). While the record's nodes are not
- * the displayed pose (em_scene_bindings_player_record_drawn: the opening
- * runtime owns the displayed player, design risk 2; the pose source not yet
- * started; a port stand-in holding the display) the post-step is reported
- * (UM_0015C160_OPENING) after its 001CB590 and the +0x4C request is the
- * port's own mesh draw of the displayed pose. A scene without the shadow
+ * the displayed pose (em_scene_bindings_player_record_drawn: the pose
+ * source not yet started; a port stand-in holding the display) the
+ * post-step is reported (UM_0015C160_UNPOSED) after its 001CB590 and the
+ * +0x4C request is the port's own mesh draw of the displayed pose. A scene without the shadow
  * binding keeps the reported no-effect binding. The gate bytes and the
  * route are kept for the tick log (s_post_step). */
 static int w_0015C160(void *ctx)
@@ -2385,7 +2377,7 @@ static int w_0015C160(void *ctx)
     if (!em_scene_bindings_player_record_drawn()) {
         s_post_step.route = -1;   /* the tick log's "reported" */
         em_render_player_draw_0015C160();   /* the port's own +0x4C draw */
-        return unmirrored(UM_0015C160_OPENING);
+        return unmirrored(UM_0015C160_UNPOSED);
     }
     EmShadowOriginalFault fault = {0, 0};
     const int route = em_shadow_original_route_0015C160(s_post_step.b1, s_post_step.d771,

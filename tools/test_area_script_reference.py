@@ -59,6 +59,7 @@ TRACK = 0x01E80000                   # 001C6120 result (worker-owned)
 SCRATCH = 0x01E90000                 # scratch execution area for math workers
 SYNTHETIC_OWNER = 0x01E00000
 ROGER = 0x7A8830                     # Roger's pool node in the capture
+OPENING = 0x7A8E10                   # the opening controller 00823E80's pool node
 PLAYER = 0x8102B0
 
 # ---------------------------------------------------------------- memory model
@@ -293,6 +294,7 @@ WORKERS = [
     ('w_00182BF0', 0x182BF0, 'a', 'io'),
     ('w_001B0C00', 0x1B0C00, 'i', ''), ('w_001B6250', 0x1B6250, 'a', ''),
     ('w_001FBD50', 0x1FBD50, 'aiif', ''),
+    ('w_001BAC00', 0x1BAC00, 'aaa', 'io'),
 ]
 PASSTHROUGH = {0x11E2A8, 0x1B1240, 0x1B12B0, 0x1B1380, 0x1B1470, 0x182F90, 0x1B7D60}
 KIND_CTYPE = {'i': C.c_int, 'h': C.c_int16, 'b': C.c_uint8, 'a': C.c_uint32, 'f': C.c_float,
@@ -406,6 +408,8 @@ class Env:
             return 1 if self.frame_calls <= self.s.get('frame_busy', 1) else 0
         elif name == 'w_001CA700':
             return 1
+        elif name == 'w_001BAC00':
+            return 1        # 001BAC00 always returns 1 (em_sdf_001BAC00's own oracle)
         elif name == 'w_001C6120':
             return TRACK
         elif name == 'c_record':
@@ -738,7 +742,7 @@ def synthetic_arena():
     script('owner clip', [rec(7, 0, w14=1), rec(0x0B, 6, f0c=0., w14=2, w18=0x401),
                           rec(0x0B, 0, f0c=0.5, w14=3), rec(0x0B, 6, f0c=1., w14=0, w18=0x402),
                           rec(7, 4, END)])
-    script('unported opcode', [rec(7, 0, w14=1), rec(0x14), rec(7, 4, END)])
+    script('unported opcode', [rec(7, 0, w14=1), rec(0x13), rec(7, 4, END)])
     script('unadmitted kind', [rec(7, 0, w14=1), rec(0, 8, f0c=3.), rec(7, 4, END)])
     return scripts, bytes(data)
 
@@ -786,6 +790,14 @@ def scenarios():
     add('roger 828A10', 0x828A10, owner=ROGER, init=SPAD_IDLE+[(0x70003B8D, 3, 1),
                                                               (0x282157, 1, 1)])
     add('roger 828990', 0x828990, owner=ROGER)
+    # The opening 0x828FC0 (controller 00823E80's record; the chain's
+    # OPENING step): op07 sub 12 with the stream hold, op06, op0C, op0A
+    # sub 1 (bank 0x98), op14 (001BAC00, a worker: em_sdf_001BAC00 has its
+    # own oracle), op00 kind 6, op0D sub 0, op18, op0A sub 5, op01 sub 9,
+    # op00 kind 0 and op07 sub 5 on flag 0x39; and its skip path.
+    add('opening 828FC0', 0x828FC0, owner=OPENING)
+    for skip in (5, 12, 20):
+        add(f'opening 828FC0 skip@{skip}', 0x828FC0, owner=OPENING, skip_tick=skip)
     # Panel scripts (owner 00159210 family; ELF arena).
     for entry in (0x246F20, 0x2477A0, 0x247BE0, 0x247DA0):
         add(f'panel {entry:X}', entry, arena=PANEL, callbacks=PANEL_CALLBACKS)
@@ -799,7 +811,7 @@ def scenarios():
     scripts, _ = synthetic_arena()
     for name, entry in scripts.items():
         extra = {}
-        if name == 'unported opcode': extra = dict(expect_fault=0x24D880+4*0x14)
+        if name == 'unported opcode': extra = dict(expect_fault=0x24D880+4*0x13)
         if name == 'unadmitted kind': extra = dict(expect_fault=0x1B8FC0)
         if name == 'skippable':
             for skip in (2, 5, 9):

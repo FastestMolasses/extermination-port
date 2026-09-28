@@ -374,7 +374,7 @@ advances".
 | #31–37 0018A6B0 ×7 (cls 1) | 0018A880 ← 0015C310/0015C420 (player-init path) | interim node allocation at the player-init position; UNBOUND behaviour |
 | #38, #46 001E2560 (cls 12) | table near 0x24CCC8; unresolved | interim allocation, UNBOUND |
 | #39–45, #47 001C5680; #48 001C5760 (cls 12) | 001C5570, from the owning pickup (00219550, 00219870) or panel (00159210) behaviour | the pickup/panel adapter allocates its child through the pool |
-| opening 001BB0E0 ×2 | 001BAC00 (script op 0x14) | em_opening_runtime allocates them through the pool (S10b); interim: allow-listed |
+| opening 001BB0E0 ×2 (+ their 001E2560) | 001BAC00 (script op 0x14; 001BA8E0's 001F0120) | since chain C8b OPENING: em_area11_bindings_001BAC00 (em_sdf_001BAC00 over the pool's 001AFA90) from the script host's op14; bound to em_area11_roger_opening_tick (OPENING_ORIGINAL.md); the frame-order allow entries are gone |
 | walking 001EA240 | table near 0x24CCC8 (0021B9A0, the fog / depth-range programmer) | UNBOUND; allow-listed |
 
 Interim allocations are flagged `interim_spawn=1` and named in the census and trace output.
@@ -393,7 +393,7 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | #16 | flame 008235F0 (r7) | `em_area11_effect_runtime_tick` | — |
 | #17 | Roger 008237E0 (r8) | since census L22 (WP-9): `tick_roger` → `em_area11_roger_tick` (em_roger_actor_008237E0_init at lifecycle 0, then em_roger_tick over the record; the scripts on em_area11_script_host) | — |
 | #18 | equipment 001C5C90 (r9) | since census L22 (WP-9): `em_area11_roger_equipment_tick` (em_roger_actor_001C5C90 over the record, parent Roger) | — |
-| #19 | opening controller 00823E80 (r10) | `em_opening_runtime_tick`; its camera is `em_opening_runtime_camera()` at the 0018B9C0 stage | WP-10 unifies it with em_script |
+| #19 | opening controller 00823E80 (r10) | since chain C8b OPENING: `tick_opening` → em_area11_opening's state 1 over em_area11_script_host (0x828FC0); the scene-0x22 camera timeline stand-in is em_opening_runtime's at the +4 == 3 timeline (census L33) | — |
 | #20 | manager 00823CE0 (r11) | dormant no-op, traced (it waits on D_00810788) | — |
 | #21 | manager 008253F0 (r12) | legacy `director_tick` (em_director_original waits on Roger, L22: DIRECTOR_ORIGINAL.md section 6) | WP-10 after WP-9 |
 | — | manager 008257A0 (r13) | since S12a: `em_manager_008257A0` (states 0/2/3 translated from the overlay, oracle `test_manager_8257a0_reference`; frees itself on the second world frame, Q3); state 1 (event 0x30 set) faults | WP-10 (its script arm) |

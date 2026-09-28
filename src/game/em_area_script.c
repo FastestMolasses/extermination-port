@@ -691,6 +691,18 @@ static EmScriptCommandResult op09(Op *o)
     return (EmScriptCommandResult)result;
 }
 
+/* 001BAC00 (ftab_0024D880[0x14]): the record's spawn list. The whole
+ * handler is the worker (the verified em_sdf_001BAC00 over the owner's
+ * record and the pool in the binder); its return value is the command
+ * result, as 001BA1F0 takes it. */
+static EmScriptCommandResult op14(Op *o)
+{
+    int32_t result;
+    WORKER(w_001BAC00, 0x001BAC00u);
+    CALL(0x001BAC00u, o->k->w_001BAC00(o->ctx, o->w->self, o->w->self + 0x1F0u, o->st->pc, &result));
+    return (EmScriptCommandResult)result;
+}
+
 /* 001B9A00 (ftab_0024D880[10]): player animation fields. */
 static EmScriptCommandResult op0A(Op *o)
 {
@@ -1290,11 +1302,12 @@ static EmScriptCommandResult execute(void *context, EmScript *script, unsigned c
     case 0x0D: return op0D(&o);
     case 0x0F: return op0F(&o);
     case 0x10: return op10(&o);
+    case 0x14: return op14(&o);
     case 0x15: return op15(&o);
     case 0x16: return op16(&o);
     case 0x18: return op18(&o);
     default:
-        /* Opcodes 03, 05, 08, 0E, 11..14, 17, 19, 1A: not used by the
+        /* Opcodes 03, 05, 08, 0E, 11..13, 17, 19, 1A: not used by the
          * AREA11 scripts this host admits (docs/AREA_SCRIPT.md). */
         return fault(&o, 0x0024D880u + 4u * (u32(record, 0) & 0xFFF));
     }

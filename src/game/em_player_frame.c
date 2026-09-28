@@ -43,7 +43,6 @@
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
-#include "game/em_opening_actor.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
@@ -517,8 +516,8 @@ static void player_hit_mailbox(void)
  *     stores (D_00810706 = +0x235, D_00810858/85C = +0x220/+0x228)
  *     target progress bytes that are not canonical yet (D2); 001B07C0
  *     reads the port's g.pd_low/g.status for them.
- * In the cutscene variant the bindings do not call this: the port poses
- * the player through the opening runtime (design risk 2). */
+ * The bindings call this in both variants (the opening's scripted frames
+ * included since chain C8b OPENING). */
 int em_player_0015BCF0(void)
 {
     player_hit_mailbox();

@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "game/em_area11_bindings.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_door.h"
@@ -21,8 +22,10 @@
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_message_live.h"
+#include "game/em_opening_runtime.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_workers.h"
+#include "game/em_script_door_fan.h"
 #include "game/em_script_host_workers.h"
 #include "game/em_sfx.h"
 
@@ -45,6 +48,12 @@ static struct {
      * each start (census L18). */
     EmScriptImage door_program;
     int door_program_tried;
+    /* The opening's image 0x828F30..0x8292C0 (the placement list 0x828F30
+     * its op14 reads and the script 0x828FC0; tools/export_area11_opening.py),
+     * the controller 00823E80's; dropped at every area build (its op00
+     * records are mutated in place). */
+    EmScriptImage opening;
+    int opening_tried;
     Owner owner[OWNERS];
     EmAreaScriptWorkers workers;
     /* The four-lane views (see the header) and the bytes with no port
@@ -91,12 +100,28 @@ static void vec_out(float c[3], const float v[4])
     c[2] = v[2];
 }
 
+/* The w lanes of the camera's +0x10 / +0x20 and of D_008105D0 / E0: the
+ * live camera's own bytes (em_camera_live_bytes), the canonical storage of
+ * the lane the g.cam view does not carry. 001B8FC0's quad copies (00102948,
+ * all four words) write them. Without the live camera they stay here. */
+static const uint32_t k_w_lanes[4] = {0x008101FCu, 0x0081020Cu, 0x008105DCu, 0x008105ECu};
+
+static float *w_lane(unsigned i)
+{
+    float *views[4] = {&H.cam10[3], &H.cam20[3], &H.eye[3], &H.tgt[3]};
+    return views[i];
+}
+
 static void view_load(void)
 {
     vec_in(H.cam10, g.cam.eye_des);
     vec_in(H.cam20, g.cam.tgt_des);
     vec_in(H.eye, g.cam.eye);
     vec_in(H.tgt, g.cam.tgt);
+    for (unsigned i = 0; i < 4; ++i) {
+        const uint8_t *b = em_camera_live_bytes(k_w_lanes[i], 4);
+        if (b) memcpy(w_lane(i), b, 4);
+    }
     vec_in(H.up, g.cam.up);
     vec_in(H.pA0, g.pos);
     float hip[3];
@@ -119,6 +144,10 @@ static int view_store(void)
     vec_out(g.cam.tgt_des, H.cam20);
     vec_out(g.cam.eye, H.eye);
     vec_out(g.cam.tgt, H.tgt);
+    for (unsigned i = 0; i < 4; ++i) {
+        uint8_t *b = em_camera_live_bytes(k_w_lanes[i], 4);
+        if (b) memcpy(b, w_lane(i), 4);
+    }
     vec_out(g.cam.up, H.up);
     vec_out(g.pos, H.pA0);
     EmPlayerLiveActor *a = player_states_actor_mut();
@@ -356,7 +385,20 @@ static int w_0022EC30(void *ctx, uint32_t camera)
 {
     (void)ctx;
     uint32_t bank, expected;
-    if (camera != EM_AREA_SCRIPT_D_008101E0 || track_ready() < 0 ||
+    if (camera != EM_AREA_SCRIPT_D_008101E0) return -1;
+    /* The opening's track, bank 0x98's clip 0 (001B8FC0 kind 6 in
+     * 0x828FC0, scene 0x22): its timeline is the opening lane's stand-in
+     * (em_opening_runtime, census L33) over the camera's +0x74. */
+    if (em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * 0x98u, &bank) < 0 ||
+        w_001C6120(NULL, bank, 0, &expected) < 0)
+        return -1;
+    int opening = em_opening_runtime_camera_start(g.cam.cine_track, expected, g.cam.cine_head);
+    if (opening < 0) return report("0022EC30: the opening's camera track was refused (em_opening_runtime)");
+    if (opening) {
+        H.playing = 0;
+        return 0;
+    }
+    if (track_ready() < 0 ||
         em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * 0x96u, &bank) < 0 ||
         w_001C6120(NULL, bank, 0, &expected) < 0)
         return -1;
@@ -390,6 +432,26 @@ static int w_001C67E0(void *ctx, uint32_t actor, int16_t clip, float a, float b)
                                                            : em_area11_roger_clip_init(o->actor, clip, a, b);
     view_load();
     return rc;
+}
+
+/* 001BAC00(actor, script, record) (op14; the opening 0x828FC0's 0x8290C0):
+ * em_sdf_001BAC00 over the owner's record, with the placement list the
+ * record's +0x14 names in the opening image and the pool's 001AFA90
+ * (em_area11_bindings_001BAC00). A record outside that image has no bound
+ * list (fail-stop). */
+static int w_001BAC00(void *ctx, uint32_t actor, uint32_t script, uint32_t record, int32_t *result)
+{
+    (void)ctx;
+    Owner *o = owner_at(actor);
+    const unsigned char *rec = H.opening.bytes ? em_script_image_read(&H.opening, record, EM_SCRIPT_RECORD_SIZE)
+                                                : NULL;
+    if (!o || script != actor + 0x1F0u || !rec)
+        return report("001BAC00 outside the opening's image or on an owner without a script");
+    const EmSdfImage image = {H.opening.bytes, H.opening.base, H.opening.length};
+    if (view_store() < 0) return -1;
+    int rc = em_area11_bindings_001BAC00(o->actor, rec, &image, result);
+    view_load();
+    return rc < 0 ? report("001BAC00 faulted") : 0;
 }
 
 /* 001FBD50(owner, id, 0, radius) (op0B sub 6): the positional cue at the
@@ -666,6 +728,8 @@ static void workers_bind(void)
     H.workers.w_0018D7B0 = w_0018D7B0;
     /* Census L18: the fence door's program (op0B sub 6). */
     H.workers.w_001FBD50 = w_001FBD50;
+    /* The opening 0x828FC0 (the chain's OPENING step): its op14. */
+    H.workers.w_001BAC00 = w_001BAC00;
 }
 
 static void world_bind(Owner *o)
@@ -785,6 +849,7 @@ void em_area11_script_host_reset(EmActorPool *pool, EmSceneState *scene)
 {
     if (H.images_loaded) em_area11_scripts_free(&H.images);
     em_script_image_free(&H.door_program);
+    em_script_image_free(&H.opening);
     memset(&H, 0, sizeof H);
     H.pool = pool;
     H.scene = scene;
@@ -803,6 +868,28 @@ static int images_ready(void)
                       " (export them with tools/export_area11_scripts.py and tools/export_roger_resources.py)");
     H.images_loaded = 1;
     return 0;
+}
+
+/* The opening's image (see H.opening), or NULL (reported). */
+static EmScriptImage *opening_image(void)
+{
+    if (H.opening.bytes) return &H.opening;
+    if (H.opening_tried) return NULL;
+    H.opening_tried = 1;
+    if (!em_script_image_load(&H.opening, EM_AREA11_OPENING_IMAGE_PATH) ||
+        H.opening.base != EM_AREA11_OPENING_IMAGE_BASE || H.opening.entry != 0x00828FC0u ||
+        H.opening.length != EM_AREA11_OPENING_IMAGE_END - EM_AREA11_OPENING_IMAGE_BASE) {
+        em_script_image_free(&H.opening);
+        report("no valid " EM_AREA11_OPENING_IMAGE_PATH " (tools/export_area11_opening.py)");
+        return NULL;
+    }
+    return &H.opening;
+}
+
+const uint8_t *em_area11_script_host_opening_bytes(uint32_t address, uint32_t size)
+{
+    EmScriptImage *image = opening_image();
+    return image ? em_script_image_read(image, address, size) : NULL;
 }
 
 EmScriptImage *em_area11_script_host_door_program(void)
@@ -853,6 +940,8 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry)
     EmScriptImage *image;
     if (entry >= EM_AREA11_DOOR_PROGRAM_BASE && entry < EM_AREA11_DOOR_PROGRAM_END) {
         image = em_area11_script_host_door_program();
+    } else if (entry >= EM_AREA11_OPENING_IMAGE_BASE && entry < EM_AREA11_OPENING_IMAGE_END) {
+        image = opening_image();
     } else {
         if (images_ready() < 0) return -1;
         image = em_area11_scripts_image(&H.images, entry);

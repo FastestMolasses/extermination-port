@@ -7,10 +7,15 @@ stretch (build/s87/c7cap/rng/newgame, CAPTURES_C7.md section 3), aligned on
 the area entry (0x1AE040 state 0's 001FAE70(1), which draws from the
 unseeded state 1 in both):
 - the area-entry frame and every call after it equal in caller and state up
-  to the known divergence, which must be the first difference: the
-  original's player-face draw at AE+5 (the opening's faces, design risk 2);
-  the security gun 00825940's AE+1 draw (census L24) is among the equal
-  calls;
+  to the opening's actors' spawn (the script's op14 once the stream
+  request's wait ends; its frame follows the drive as the opening's end
+  does), which must be the first difference: the port's opening body draws
+  its face's first values where the still-waiting original draws its glow
+  markers. The security gun 00825940's AE+1 draw (census L24), Roger's
+  owner's face at AE+2 and the player's face in the player stage from AE+5
+  are among the equal calls. From the spawn, each frame's callers equal the
+  original's frame as much later as the opening's end, until a value-driven
+  caller's timer differs;
 - every opening frame's deterministic callers equal the original's frame for
   frame, and the 30 frames after first control;
 - the value-driven callers' totals and the faces' positions are reported;

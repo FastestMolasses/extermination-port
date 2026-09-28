@@ -253,14 +253,18 @@ int player_pose_load(const char *bank_path, const char *row0_path)
     return 0;
 }
 
+static int publish_current(void);
+
 /* The rebuild (001AF5C0's wipe, then 0015C420 on the first stage) gives the
  * player record its pose storage and a fresh pose: +40 = the default bank,
  * +20C = D_00248A00[+235] (the wiped +235 is row 0: clip 0), the node
  * records (001AF780) with anim_bone_array_setup, bone_init_default_2(+20C)
- * and 001C68C0. A source the port had started (a room rebuild) continues
- * from that pose; before the first opening release it stays unstarted (the
- * opening runtime owns the player until 00182DF0 releases it). A stand-in's
- * hold (the door sequence) is kept: its release re-seeds as before. */
+ * and 001C68C0. The source is the record's from then on (the New Game
+ * opening's stages included: its script's takeover plays bank 0x98 on the
+ * record). A source the port had started (a room rebuild) continues from
+ * that pose, and a stand-in's hold (the door sequence) is kept: its release
+ * re-seeds as before. A fresh source starts with the idle/walk callbacks'
+ * bookkeeping at its defaults. */
 int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStageScene *scene,
                        struct EmPlayerStageGlobals *globals)
 {
@@ -281,11 +285,18 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
         source.legacy_owner = NULL;
         return 0;
     }
-    source.started = was_started;
+    source.started = 1;
     if (!was_started) {
         source.legacy = 0;
         source.legacy_owner = NULL;
         source.hip_valid = source.saved_euler_valid = 0;
+        source.idle_phase = source.idle_fidget = 0;
+        source.idle_count = 300;
+        source.idle_return = 0;
+        source.foot_stop.active = source.foot_display = 0;
+        g.loco_rate = 1;
+        g.idle_t = 0;
+        (void)publish_current();   /* the display, once the player model is loaded */
     }
     return 1;
 }
@@ -436,24 +447,6 @@ int player_pose_legacy_release(void)
     return legacy_reseed();
 }
 
-int player_pose_opening_release(void)
-{
-    /* Original external-bank release 182DF0 ->1C63E0; immutable state03
-     * has idle0 remaining80 before the next ordinary player callback. */
-    if (!record_default()) return 0;
-    source.acquired = source.script_active = 0;
-    source.legacy = 0;
-    source.legacy_owner = NULL;
-    source.started = 1;
-    source.idle_phase = source.idle_fidget = 0;
-    source.idle_count = 300;
-    source.idle_return = 0;
-    source.foot_stop.active = source.foot_display = 0;
-    g.loco_rate = 1;
-    g.idle_t = 0;
-    return publish_current();
-}
-
 int player_pose_owned(void)
 {
     return source.started && source.acquired;
@@ -547,7 +540,7 @@ int player_pose_stage_hook(void)
 int player_pose_animate(void)
 {
     /* 0015BCF0 evaluates the record after every player stage. Before the
-     * first pose (the opening release) there is nothing to evaluate. */
+     * first pose (the record's rebuild) there is nothing to evaluate. */
     if (!source.started || !source.valid) return 0;
     return em_player_record_pose_animate(&source.record) < 0 ? -1 : 0;
 }

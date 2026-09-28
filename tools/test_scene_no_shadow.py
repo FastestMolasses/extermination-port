@@ -54,7 +54,6 @@ WRITERS = {
         "game/em_area11_script_host.c": "L19: binds em_area_script's world pointer at the canonical byte "
                                         "(world_bind); the writes are em_area_script's",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
-        "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=2) and op 4 (=0)",
         "game/em_scene_bindings.c": "001B0C60 area-change request (=3; S12a)",
         "game/em_area11_interaction_host.c": "WP-4: the host's frame view store (001B82D0 sub0/2/13 "
                                              "=2/1, sub4 =0; 00184BA0's winner claim =3) and "
@@ -77,7 +76,6 @@ WRITERS = {
                                  "(frame_store writes the running script's skip byte back)",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
         "game/em_scene_frame.c": "001AE6B0 promotes 1 -> 2 (0x1AE6E0)",
-        "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 0 (=0), phase 3 (=1), op 4 (=0)",
         "game/em_area11_interaction_host.c": "WP-4: the running script's skip byte stored back after "
                                              "its owner tick (001B82D0 sub0/sub4 clear it)",
     },
@@ -87,7 +85,6 @@ WRITERS = {
         "game/em_area_script.c": "001B82D0 (L19): the frame view store (frame_store) and its "
                                  "sub 6 teardown (=0); a pointer view onto the canonical byte",
         "game/em_scene_task.c": "001AFCF0 clears it at every area load",
-        "game/em_opening_runtime.c": "001B82D0 ops 9..12 phase 3 (=1, 0x1B874C) and op 4 (=0, 0x1B8940)",
         "game/em_area11_interaction_host.c": "WP-4: the host's frame view store (001B82D0 sub0/2/13 "
                                              "phase 1 =1, sub4 =0)",
     },
@@ -194,7 +191,6 @@ REACHERS = {
     0x00810CC3: {
         "game/em_pickup.c": "001B6EA0's key take (em_pickup_owner_take adds to D_00810CC3[t]) and the "
                             "key accessor em_pickup_keys",
-        "game/em_opening_runtime.c": "00823E80's 001C4760(0, 1) (0x823F84) and its completion report",
         "game/em_opening_control_test.c": "reads D_00810CC3[0] to check the opening hand-off "
                                           "(test instrumentation, never written)",
         "game/em_director_original.c": "001C4760 (em_director_original_001C4760, byte-matched "
@@ -202,7 +198,9 @@ REACHERS = {
                                        "(em_director_original_001C4760_scene)",
         "game/em_director_original.h": "declares that binding",
         "game/em_area11_bindings.c": "008253F0 beat 0's 001C4760(1, 1) through em_director_original "
-                                     "(EmDirectorOriginalWorld.d810CC3, census L21, live since WP-8b)",
+                                     "(EmDirectorOriginalWorld.d810CC3, census L21, live since WP-8b) "
+                                     "and 00823E80's completion 001C4760(0, 1) (0x823F84; chain C8b "
+                                     "OPENING, em_area11_opening's worker)",
     },
     0x00810CB6: {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
@@ -244,8 +242,7 @@ ALLOWED = [
      "removed_by": "permanent"},
     {"file": "game/em_script.h", "name": "skip_request",
      "reason": "the interpreter's per-tick view of canonical 3B91 (relabelled in S11b): "
-               "em_opening_runtime publishes the canonical byte before each tick and writes "
-               "both; since WP-4 the AREA11 interaction host loads it before each owner tick "
+               "em_area_script publishes the canonical byte before each tick; since WP-4 the AREA11 interaction host loads it before each owner tick "
                "and stores it after (script_load/script_store)",
      "removed_by": "permanent (a per-tick view)"},
     {"file": "game/em_interaction_frame.h", "name": "selector",

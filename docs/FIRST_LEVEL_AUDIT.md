@@ -970,6 +970,57 @@ Roger's shadow; FACE_ATTACH.md, SHADOW_ORIGINAL.md "Roger", census 1.40):**
   slots below the original's and the first 21 pops alias the player's node
   addresses (FACE_ATTACH.md section 5).
 
+**Status update (2026-09-28, chain C8b OPENING: the opening's actors on
+their original records, design risk 2 closed; OPENING_ORIGINAL.md, census
+1.41):**
+- **The script on the host.** The controller 00823E80's state 1
+  (em_area11_opening, translated from its instructions) starts 0x828FC0 on
+  em_area11_script_host (the opening's image 0x828F30..0x8292C0);
+  em_area_script admits op14. em_opening_runtime keeps only the New Game
+  request, the busy state and the scene-0x22 camera timeline stand-in
+  (census L33), which 001B8FC0 kind 6's 0022EC30 now starts on the camera's
+  +0x6E..+0x78 words.
+- **The actors are records.** op14's 001BAC00 (em_sdf_001BAC00 over the
+  pool) spawns the two 001BB0E0 records; em_area11_roger runs them as its
+  second pair (001BAD40, 001BA580 with the face and the kind-0x29 shadow,
+  anim_advance_time on bank 0x98's clip 2, 001C68C0, the +0x4C unit with
+  001CB3C0; the class-8 node's 001C5C90 on model 0x6B); the controller's
+  completion (+0x2E = 0xFFFF) ends them before first control.
+- **The player on its stage.** w_0015BCF0 runs the stage in the cutscene
+  variant too: the script host's takeover plays bank 0x98's clip 1 through
+  00183090, the face ticks through 001D0C70 from AE+5, the post-step
+  computes its shadow and unit (no reported post-step on the route). The
+  first stage after the wipe is 0015BA50's +4 = 0 call (0015C420 alone),
+  so the idle state's first floor snap comes one frame after the state-0
+  frame, as newgame_samples 2640 / 2641 show; the port's lock that held the
+  player through the opening (em_game_player_interact_busy) is gone.
+- **Retired:** em_opening_actor (and its baked opening/*.emdl / *.emfm
+  assets), em_opening_runtime's script executor and actor draws,
+  player_pose_opening_release, UM_0015BCF0_CUTSCENE, em_opening_face_position
+  (a second translation of the VU1 face morph, with its test parts); tests
+  opening_actor_test.c / test-opening-actor and opening_runtime_test.c /
+  test-opening-runtime (rule 2: the mechanism is no longer on the live
+  path; the script is covered by test_area_script_reference's lockstep
+  cases, the actors by the level smoke's check_opening_actors); the three
+  frame-order allow entries S10b-opening-* (removed: a stricter comparison).
+- **Evidence.**
+  - test-area-script-reference: 0x828FC0 and three skip variants in lockstep
+    with the original 001BA1F0 and its handlers.
+  - check_opening_actors (new): at the tick whose camera holds the opening
+    capture's timeline words, the opening body's 21, its node's 1 and the
+    player's 21 node matrices equal the capture's bit for bit, and the
+    records sit at the capture's addresses.
+  - check_rand_order: every call equal up to the actors' spawn at the stream
+    request's end (AE+10 at host speed, 21 frames before the original's
+    AE+31, the drive's wait), then caller for caller at that shift until a
+    value-driven timer differs (32 frames).
+  - compare_frame_order: cut02 from native index 26 and st03 at 1321 PASS
+    with the opening's records in the walk; idle04 / walk04 at 1330.
+  - check_first_control: the camera's timeline words are no longer exempt;
+    the state-0 frame equals frame 2640.
+  - newgame-control 9.599849 (unchanged); census live 684, verified-unbound
+    56, unverified 3, boundary 441.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1003,19 +1054,15 @@ The items are ordered in four groups:
    001EFE00 (unreached: no live +0x36 writer); the flag-0x30 manager
    00823CE0 is still a no-code node; the gun's lamp does not draw (item on
    the indicator children's 001CABA0 path).
-2. **Look / logic: during the opening, the player and the faces come from the
-   opening runtime, not from the records** (design risk 2).
-   - During the opening the displayed player is not the record's pose. The
-     shadow's post-step is reported, not drawn, on 1,312 ticks.
-   - em_opening_actor ticks both faces inside the opening controller from
-     AE+16. The original ticks Roger's face in his owner from AE+2 and the
-     player's face in the player stage from AE+5. The opening's rand()
-     values differ from these calls on.
-   - The opening runtime also stands in for four verified-unbound script
-     ops: 001BAC00 (op 0x14 is a no-op there), 001BB0E0 (em_opening_actor),
-     001BAD40 and 001BA510.
-   - What removes it: the opening's actors on their records. The player's
-     0015C160 post-step is then computed.
+2. **Done (chain C8b OPENING, 2026-09-28): the opening's actors are on their
+   original records** (OPENING_ORIGINAL.md). The script 0x828FC0 runs on the
+   script host, its op14 spawns the two 001BB0E0 records, the player plays
+   the opening on its own stage; their faces tick at the original callers
+   and their node matrices equal the opening capture's. What remains of the
+   opening: the scene-0x22 camera timeline's stand-in (census L33: its
+   sampling and the +0x80 event cursor), and the drive's timing (the
+   user's host-speed policy: the actors spawn and the opening ends 21
+   frames earlier than the original's).
 3. **Look: the static world does not use the original's static-object path.**
    Rows 001C1D00, 001D5370, 001D52E0, 001E0CF0 and 001D21B0;
    RENDER_CONTEXT.md 8.4; lane L31.
@@ -1593,9 +1640,10 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   and 0015BF90 + 001CE300 re-executed over the port's sampled inputs give
   the port's plan and packets), test_shadow_decal_reference's Metal pixel
   check, newgame-control 9.599849 and the frame trace unchanged. Still open:
-  the post-step during the opening (reported: the opening runtime owns the
-  displayed player, design risk 2), Roger's 001DA6A0 (kind 0x29 proxy not
-  exported), the decal texture's uploader (exported from the route
+  the post-step during the opening (reported: the opening runtime owned the
+  displayed player, design risk 2; computed since chain C8b OPENING,
+  2026-09-28), Roger's 001DA6A0 (kind 0x29 proxy not exported; drawn since
+  chain C8b FACE), the decal texture's uploader (exported from the route
   captures' GS memory), and Metal's rasterization of the passes (SHADOW_ORIGINAL.md
   "GS side").
 

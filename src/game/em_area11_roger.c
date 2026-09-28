@@ -31,7 +31,9 @@
 #include "game/em_roger_actor_original.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_script_door_fan.h"
 #include "game/em_shadow_live.h"
+#include "game/em_startup_load_gaps.h"
 
 enum {
     TABLE_WORDS = 0xC0,
@@ -60,6 +62,24 @@ typedef struct {
     int freed;
 } Owner;
 
+/* A body and the equipment node that rides on it (+0x18 = the body): Roger
+ * 008237E0 with his 001C5C90 node (pair 0), or the opening's two 001BB0E0
+ * records that 001BAC00 spawns from the opening script's placement list
+ * 0x828F30 (pair 1: class 9, model 0x47 with bank 0x98's clip 2, and class
+ * 8, the model 0x6B node 001BAD40's command 5 runs 001C5C90 on). The
+ * equipment's one bone slot has its typed view here (001C62C0 writes it). */
+typedef struct {
+    Owner body, equip;
+    EmOwnerBone ebone;
+    uint32_t ebone_word;
+    int opening;                 /* 1: the 001BB0E0 pair */
+    /* The opening pair: each record's +0x20 (its placement entry, the
+     * 0x2C bytes of the opening image) and +0x24 (the spawning controller
+     * 00823E80, whose +0x2E is the done mask 001BB0E0 reads). */
+    uint32_t entry[2];
+    EmActor *controller;
+} Pair;
+
 static struct {
     /* assets/scene_snow/roger/resources.emrs */
     uint8_t *file;
@@ -70,8 +90,11 @@ static struct {
     /* trigger.empg: the quad 0x82AB80 (four x, y, z, w records) */
     float polygon[4][4];
     int polygon_loaded;
-    /* Roger, the equipment */
-    Owner roger, equip;
+    /* Roger and his equipment (pair 0), the opening's two actors (pair 1);
+     * `cur` is the pair whose record the running call works on (every
+     * worker below reads it). */
+    Pair pair[2];
+    Pair *cur;
     EmActorPool *pool;
     EmSceneState *scene;
     EmRogerActor ra;             /* em_roger_actor_original: views, workers, fault */
@@ -97,8 +120,6 @@ static struct {
     /* the equipment: 001B1020's services over D_0028A56C */
     EmOwnerServices services;
     EmOwnerServicesOwner eview;
-    EmOwnerBone ebone;           /* the typed view of its one slot (001C62C0 writes it) */
-    uint32_t ebone_word;
     uint32_t d0028A56C;
     int faulted;
 } R;
@@ -353,7 +374,7 @@ static uint8_t *progress(uint32_t address)
 
 static int view_load(void)
 {
-    const uint8_t *r = R.roger.rec.bytes;
+    const uint8_t *r = R.pair[0].body.rec.bytes;
     EmRoger *v = &R.view;
     v->status = r[0x00];
     v->rendered = r[0x01];
@@ -377,7 +398,7 @@ static int view_load(void)
 
 static void view_store(void)
 {
-    uint8_t *r = R.roger.rec.bytes;
+    uint8_t *r = R.pair[0].body.rec.bytes;
     const EmRoger *v = &R.view;
     r[0x00] = v->status;
     r[0x01] = v->rendered;
@@ -400,12 +421,12 @@ static void view_store(void)
 static void push(void)
 {
     view_store();
-    sync_out(&R.roger);
+    sync_out(&R.pair[0].body);
 }
 
 static int pull(void)
 {
-    sync_in(&R.roger);
+    sync_in(&R.pair[0].body);
     return view_load();
 }
 
@@ -455,7 +476,9 @@ static const uint8_t *resource_view(void *ctx, uint32_t address, uint32_t size)
 
 /* ------------------------------------------------------------ the pose */
 
-static int pose_bind(void)
+/* The pose host over one body record (Roger's, or the opening Roger's):
+ * the export's regions, the slot arena and the record. */
+static int pose_bind(Owner *o)
 {
     const EmRogerActorWorld *w = &R.ra.world;
     EmPoseHost *h = &R.host;
@@ -464,7 +487,7 @@ static int pose_bind(void)
         h->region[h->region_count++] =
             (EmPoseRegion){R.region[i].address, R.region[i].size, (uint8_t *)R.region[i].bytes, 0};
     h->region[h->region_count++] = (EmPoseRegion){w->slots_base, w->slots_size, w->slots, 1};
-    h->region[h->region_count++] = (EmPoseRegion){R.roger.address, RECORD, R.roger.rec.bytes, 1};
+    h->region[h->region_count++] = (EmPoseRegion){o->address, RECORD, o->rec.bytes, 1};
     EmPoseGlobals *g = &R.globals;
     memset(g, 0, sizeof *g);
     g->d8106F3 = em_scene_req_at(R.scene, 0x008106F3u);
@@ -606,8 +629,8 @@ static int owner_draw(Owner *o)
 
 static int roger_draw(void)
 {
-    if (R.roger.rec.bytes[0x0C] != ROGER_NODES) return report("Roger's +0x0C is not 21");
-    return owner_draw(&R.roger);
+    if (R.pair[0].body.rec.bytes[0x0C] != ROGER_NODES) return report("Roger's +0x0C is not 21");
+    return owner_draw(&R.pair[0].body);
 }
 
 /* ------------------------------------------- em_roger_actor workers */
@@ -615,8 +638,8 @@ static int roger_draw(void)
 static int w_001C63E0(void *ctx, EmRogerActorRecord *actor, int32_t clip)
 {
     (void)ctx;
-    Owner *o = &R.roger;
-    if (actor != &o->typed) return report("001C63E0 on a record other than Roger's");
+    Owner *o = &R.cur->body;
+    if (actor != &o->typed) return report("001C63E0 on a record other than the body's");
     typed_store(o);
     if (em_pose_host_001C63E0(&R.host, o->rec.bytes, RECORD, clip) < 0)
         return report("001C63E0 (bone_init_default_2) faulted on Roger's record");
@@ -646,8 +669,8 @@ static int w_001F0120(void *ctx, uint32_t owner14, int32_t key)
 static int w_001DA6A0(void *ctx, EmRogerActorRecord *actor)
 {
     (void)ctx;
-    Owner *o = &R.roger;
-    if (actor != &o->typed) return report("001DA6A0 on a record other than Roger's");
+    Owner *o = &R.cur->body;
+    if (actor != &o->typed) return report("001DA6A0 on a record other than the body's");
     typed_store(o);
     const uint8_t *r = o->rec.bytes;
     const uint8_t *nodes[ROGER_NODES];
@@ -704,7 +727,7 @@ static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
 static int e_001CA6E0(void *ctx, EmOwnerServicesOwner *owner, uint32_t handle)
 {
     (void)ctx;
-    Owner *o = &R.equip;
+    Owner *o = &R.cur->equip;
     if (owner != &R.eview) return report("001CA6E0 on a view other than the equipment's");
     if (em_roger_actor_001CA6E0(&R.ra, &o->typed, handle) < 0) return actor_fault("001CA6E0");
     const EmWorldModel *m = bank_model(handle);
@@ -722,11 +745,11 @@ static int e_001AF780(void *ctx, EmOwnerBone **slot)
         *slot = NULL;
         return 0;
     }
-    if (R.ebone_word) return report("the equipment popped a second bone slot");
+    if (R.cur->ebone_word) return report("the equipment popped a second bone slot");
     if (!slot_bytes(word)) return report("001AF780 returned a word outside the slot arena");
-    R.ebone_word = word;
-    memset(&R.ebone, 0, sizeof R.ebone);
-    *slot = &R.ebone;
+    R.cur->ebone_word = word;
+    memset(&R.cur->ebone, 0, sizeof R.cur->ebone);
+    *slot = &R.cur->ebone;
     return 0;
 }
 
@@ -741,13 +764,14 @@ static int e_anim_bone_array_setup(void *ctx, uint8_t count)
  * the slot bytes the draw and 001C5C90 read. */
 static int ebone_store(void)
 {
-    uint8_t *s = slot_bytes(R.ebone_word);
+    const EmOwnerBone *b = &R.cur->ebone;
+    uint8_t *s = slot_bytes(R.cur->ebone_word);
     if (!s) return report("the equipment's slot is outside the arena");
-    memcpy(s + 0x00, R.ebone.bind, 64);
-    wr16(s + 0x64, (uint16_t)R.ebone.parent);
-    memcpy(s + 0x70, R.ebone.rot, 12);
-    memcpy(s + 0x7C, R.ebone.trans, 12);
-    for (unsigned k = 0; k < 3; ++k) wr16(s + 0x88 + 2 * k, (uint16_t)R.ebone.scale[k]);
+    memcpy(s + 0x00, b->bind, 64);
+    wr16(s + 0x64, (uint16_t)b->parent);
+    memcpy(s + 0x70, b->rot, 12);
+    memcpy(s + 0x7C, b->trans, 12);
+    for (unsigned k = 0; k < 3; ++k) wr16(s + 0x88 + 2 * k, (uint16_t)b->scale[k]);
     return 0;
 }
 
@@ -771,7 +795,7 @@ static int w_001B1020(void *ctx, EmRogerActorRecord *actor, uint32_t a1, int32_t
                       int32_t *result)
 {
     (void)ctx;
-    Owner *o = &R.equip;
+    Owner *o = &R.cur->equip;
     if (actor != &o->typed) return report("001B1020 on a record other than the equipment's");
     EmOwnerServicesOwner *v = &R.eview;
     memset(v, 0, sizeof *v);
@@ -798,8 +822,8 @@ static int w_001B1020(void *ctx, EmRogerActorRecord *actor, uint32_t a1, int32_t
     actor->bone_count = v->bone_count;
     actor->anim = v->anim;
     if (v->bones_held) {
-        if (v->bones_held != 1 || v->bone[0] != &R.ebone) return report("the equipment's bone slots");
-        actor->bone[0] = R.ebone_word;
+        if (v->bones_held != 1 || v->bone[0] != &R.cur->ebone) return report("the equipment's bone slots");
+        actor->bone[0] = R.cur->ebone_word;
         if (ebone_store() < 0) return -1;
     }
     *result = r;
@@ -813,15 +837,15 @@ static int w_001B1020(void *ctx, EmRogerActorRecord *actor, uint32_t a1, int32_t
 static int w_draw(void *ctx, EmRogerActorRecord *actor)
 {
     (void)ctx;
-    if (actor != &R.equip.typed || actor->draw != METHOD_001CAA00) return report("the equipment's +0x4C");
-    typed_store(&R.equip);
-    return owner_draw(&R.equip);
+    if (actor != &R.cur->equip.typed || actor->draw != METHOD_001CAA00) return report("the equipment's +0x4C");
+    typed_store(&R.cur->equip);
+    return owner_draw(&R.cur->equip);
 }
 
 static int w_001AFC10(void *ctx, EmRogerActorRecord *actor)
 {
     (void)ctx;
-    Owner *o = actor == &R.equip.typed ? &R.equip : actor == &R.roger.typed ? &R.roger : NULL;
+    Owner *o = actor == &R.cur->equip.typed ? &R.cur->equip : actor == &R.cur->body.typed ? &R.cur->body : NULL;
     if (!o) return report("001AFC10 on an unknown record");
     typed_store(o);
     sync_out(o);
@@ -853,7 +877,7 @@ static int h_script_start(void *ctx, uint32_t entry)
 {
     (void)ctx;
     push();
-    int rc = em_area11_script_host_start(R.roger.actor, entry);
+    int rc = em_area11_script_host_start(R.pair[0].body.actor, entry);
     if (pull() < 0) return -1;
     return rc < 0 ? -1 : 1;
 }
@@ -864,7 +888,7 @@ static int h_script_tick(void *ctx)
     (void)ctx;
     int32_t result = 0;
     push();
-    int rc = em_area11_script_host_tick(R.roger.actor, &result);
+    int rc = em_area11_script_host_tick(R.pair[0].body.actor, &result);
     if (pull() < 0) return -1;
     if (rc < 0) return -1;
     return result != 0;
@@ -899,7 +923,7 @@ static int h_animation_init(void *ctx, uint16_t clip, float blend, float start)
 {
     (void)ctx;
     view_store();
-    if (em_pose_host_001C67E0(&R.host, R.roger.rec.bytes, RECORD, (int16_t)clip, blend, start) < 0)
+    if (em_pose_host_001C67E0(&R.host, R.pair[0].body.rec.bytes, RECORD, (int16_t)clip, blend, start) < 0)
         return report("001C67E0 (anim_clip_init) faulted on Roger's record");
     return view_load() < 0 ? 0 : 1;
 }
@@ -909,7 +933,7 @@ static int h_animation_tick(void *ctx, float rate, uint16_t *result)
     (void)ctx;
     uint32_t flags = 0;
     view_store();
-    if (em_player_stage_anim_advance(&R.advance, &R.roger.rec, rate, &flags) < 0)
+    if (em_player_stage_anim_advance(&R.advance, &R.pair[0].body.rec, rate, &flags) < 0)
         return report("001C64F0 (anim_advance_time) faulted on Roger's record");
     *result = (uint16_t)flags;
     return view_load() < 0 ? 0 : 1;
@@ -924,7 +948,7 @@ static int h_publish(void *ctx)
     push();
     EmOwnerServicesOwner v;
     memset(&v, 0, sizeof v);
-    const EmActor *a = R.roger.actor;
+    const EmActor *a = R.pair[0].body.actor;
     v.drawn = a->drawn;
     v.cls = a->cls;
     v.kind = a->model;
@@ -933,7 +957,7 @@ static int h_publish(void *ctx)
     v.flags2 = a->flags2;
     memcpy(v.pos, a->pos, sizeof v.pos);
     memcpy(v.rot, a->rot, sizeof v.rot);
-    int r = em_area11_interaction_host_offer_001B17A0(R.roger.actor, &v);
+    int r = em_area11_interaction_host_offer_001B17A0(R.pair[0].body.actor, &v);
     if (pull() < 0) return -1;
     return r;
 }
@@ -941,7 +965,7 @@ static int h_publish(void *ctx)
 static int h_event(void *ctx, EmRogerEvent type, unsigned argument)
 {
     (void)ctx;
-    Owner *o = &R.roger;
+    Owner *o = &R.pair[0].body;
     switch (type) {
     case EM_ROGER_STOP_STREAMS:        /* 001FABB0 */
         return em_scene_bindings_001FABB0() < 0 ? 0 : 1;
@@ -995,7 +1019,7 @@ static int h_event(void *ctx, EmRogerEvent type, unsigned argument)
 static uint8_t *collision_record_bytes(void *context, uint32_t address, uint32_t size)
 {
     (void)context;
-    Owner *o = &R.roger;
+    Owner *o = &R.pair[0].body;
     if (o->actor && !o->freed && o->actor->generation == o->generation && address >= o->address &&
         size <= RECORD && address - o->address <= RECORD - size) {
         sync_in(o);
@@ -1004,14 +1028,19 @@ static uint8_t *collision_record_bytes(void *context, uint32_t address, uint32_t
     return (uint8_t *)(uintptr_t)em_area11_roger_resource(address, size);
 }
 
+/* Roger's record, or the opening Roger's (the head sprite 001BA8E0's
+ * 001F0120 spawned for either reads its owner through this view). */
 const uint8_t *em_area11_roger_record_bytes(uint32_t address, uint32_t size)
 {
-    Owner *o = &R.roger;
-    if (!o->actor || o->freed || o->actor->generation != o->generation || address < o->address ||
-        size > RECORD || address - o->address > RECORD - size)
-        return NULL;
-    sync_in(o);
-    return o->rec.bytes + (address - o->address);
+    for (unsigned i = 0; i < 2; ++i) {
+        Owner *o = &R.pair[i].body;
+        if (!o->actor || o->freed || o->actor->generation != o->generation || address < o->address ||
+            size > RECORD || address - o->address > RECORD - size)
+            continue;
+        sync_in(o);
+        return o->rec.bytes + (address - o->address);
+    }
+    return NULL;
 }
 
 const uint8_t *em_area11_roger_slot_bytes(uint32_t address, uint32_t size)
@@ -1034,7 +1063,7 @@ static float s_chain_slots[ROGER_NODES * 16];
 static int collision_chain(void *context, const EmActor *body, EmCollHullChain *out)
 {
     (void)context;
-    Owner *o = &R.roger;
+    Owner *o = &R.pair[0].body;
     if (!body || body != o->actor || o->freed || !out) return report("a hull chain for a record Roger's owner does not hold");
     sync_in(o);
     const uint8_t *r = o->rec.bytes;
@@ -1072,6 +1101,10 @@ static int owner_for(Owner *o, EmActor *actor)
 static int ready(EmActorPool *pool, EmSceneState *scene)
 {
     if (R.faulted) return -1;
+    if (!R.cur) {
+        R.cur = &R.pair[0];
+        R.pair[1].opening = 1;
+    }
     R.pool = pool;
     R.scene = scene;
     if (load_resources() < 0 || world_bind() < 0) return -1;
@@ -1085,10 +1118,10 @@ static int ready(EmActorPool *pool, EmSceneState *scene)
 
 void em_area11_roger_reset(void)
 {
-    memset(&R.roger, 0, sizeof R.roger);
-    memset(&R.equip, 0, sizeof R.equip);
+    memset(R.pair, 0, sizeof R.pair);
+    R.pair[1].opening = 1;
+    R.cur = &R.pair[0];
     memset(&R.ra, 0, sizeof R.ra);
-    R.ebone_word = 0;
     R.faulted = 0;
 }
 
@@ -1096,9 +1129,10 @@ int em_area11_roger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
 {
     if (!actor || !pool || !scene || actor->callback != EM_AREA11_ROGER_CALLBACK) return -1;
     if (ready(pool, scene) < 0) return -1;
-    Owner *o = &R.roger;
+    R.cur = &R.pair[0];
+    Owner *o = &R.cur->body;
     if (owner_for(o, actor) < 0) return -1;
-    if (pose_bind() < 0) return -1;
+    if (pose_bind(o) < 0) return -1;
     sync_in(o);
     int result;
     if (o->rec.bytes[0x04] == 0) {
@@ -1140,9 +1174,10 @@ int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneSta
 {
     if (!actor || !pool || !scene || actor->callback != EM_AREA11_ROGER_EQUIPMENT_CALLBACK) return -1;
     if (ready(pool, scene) < 0) return -1;
-    Owner *o = &R.equip;
+    R.cur = &R.pair[0];
+    Owner *o = &R.cur->equip;
     if (owner_for(o, actor) < 0) return -1;
-    Owner *parent = &R.roger;
+    Owner *parent = &R.cur->body;
     if (!parent->actor || parent->freed || em_actor_pool_address(pool, actor->prev) != parent->address)
         return report("001C5C90: +0x18 is not Roger's record");
     sync_in(o);
@@ -1161,12 +1196,334 @@ int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneSta
     return 1;
 }
 
+/* ------------------------------------------ the opening's actors (001BB0E0)
+ *
+ * The opening script 0x828FC0's op14 (001BAC00, em_area11_script_host)
+ * spawns two records from the placement list 0x828F30 with the default
+ * behaviour 001BB0E0 (em_slg_001BB0E0): the class-9 body (entry command 0:
+ * 001BAD40 binds D_0028A490[0x47], Roger's model, and bank 0x98 (+0x40)
+ * with clip 2 by 001C63E0; 001BA8E0 attaches his face; each tick 001BA580,
+ * anim_advance_time by the entry's 0.5, 001C68C0 and the +0x4C draw) and
+ * the class-8 node that rides on it (command 5: 001C5C90, the equipment
+ * node, over +0x18 = the body). They form pair 1; the controller 00823E80's
+ * +0x2E done mask ends them (phase 2, then the free). */
+
+typedef struct {
+    Pair *pair;
+    Owner *o;                   /* the record this call works on */
+    const uint8_t *entry;       /* its +0x20: the 0x2C-byte placement entry */
+} OpeningCall;
+
+/* The record bytes 001BAD40 reads or writes <-> em_sdf's view of them. */
+static void event_load(const Owner *o, EmSdfEventActor *v)
+{
+    const uint8_t *r = o->rec.bytes;
+    v->lifecycle = r[0x04];
+    v->b09 = r[0x09];
+    v->b0C = r[0x0C];
+    v->w18 = rd32(r + 0x18);
+    v->bank_40 = rd32(r + 0x40);
+    v->w44 = rd32(r + 0x44);
+    for (unsigned i = 0; i < EM_SDF_BONE_SLOTS; ++i) v->bones_110[i] = rd32(r + 0x110 + 4 * i);
+}
+
+static void event_store(Owner *o, const EmSdfEventActor *v)
+{
+    uint8_t *r = o->rec.bytes;
+    r[0x04] = v->lifecycle;
+    r[0x09] = v->b09;
+    r[0x0C] = v->b0C;
+    wr32(r + 0x40, v->bank_40);
+    wr32(r + 0x44, v->w44);
+    for (unsigned i = 0; i < EM_SDF_BONE_SLOTS; ++i) wr32(r + 0x110 + 4 * i, v->bones_110[i]);
+}
+
+/* Around a callee that works on the typed record: the view to the record,
+ * the record to the typed view; and back after it. */
+static void event_enter(OpeningCall *c, const EmSdfEventActor *v)
+{
+    event_store(c->o, v);
+    typed_load(c->o);
+}
+
+static void event_leave(OpeningCall *c, EmSdfEventActor *v)
+{
+    typed_store(c->o);
+    event_load(c->o, v);
+}
+
+static int sdf_r_0028A490(void *ctx, int32_t index, uint32_t *value)
+{
+    (void)ctx;
+    if (index < 0 || index >= TABLE_WORDS) return report("001BAD40: a D_0028A490 index outside the export");
+    *value = R.table[index];
+    return 0;
+}
+
+static int sdf_001CA6E0(void *ctx, EmSdfEventActor *obj, uint32_t bank)
+{
+    OpeningCall *c = ctx;
+    event_enter(c, obj);
+    int r = em_roger_actor_001CA6E0(&R.ra, &c->o->typed, bank);
+    event_leave(c, obj);
+    return r < 0 ? actor_fault("001CA6E0") : 0;
+}
+
+static int opening_001C5C90(OpeningCall *c);
+
+/* 001BAD40 command 5: 001C5C90 on the class-8 record (a0 is the actor). */
+static int sdf_001C5C90(void *ctx, EmSdfEventActor *obj)
+{
+    OpeningCall *c = ctx;
+    if (c->o != &c->pair->equip) return report("001BAD40 command 5 on a record other than the class-8 node");
+    event_store(c->o, obj);
+    int r = opening_001C5C90(c);
+    if (r < 0) return -1;
+    if (!c->o->freed) event_load(c->o, obj);
+    return 0;
+}
+
+static int sdf_001C6150(void *ctx, uint32_t model, int32_t *result)
+{
+    (void)ctx;
+    uint8_t count;
+    if (em_roger_actor_001C6150(&R.ra, model, &count) < 0) return actor_fault("001C6150");
+    *result = count;
+    return 0;
+}
+
+static int sdf_001AF780(void *ctx, uint32_t *handle)
+{
+    (void)ctx;
+    return em_roger_actor_001AF780(&R.ra, handle) < 0 ? actor_fault("001AF780") : 0;
+}
+
+static int sdf_001BA8E0(void *ctx, EmSdfEventActor *obj, int16_t type)
+{
+    OpeningCall *c = ctx;
+    event_enter(c, obj);
+    int r = em_roger_actor_001BA8E0(&R.ra, &c->o->typed, (uint32_t)(uint16_t)type);
+    event_leave(c, obj);
+    return r < 0 ? actor_fault("001BA8E0") : 0;
+}
+
+static int sdf_001CA6F0(void *ctx, EmSdfEventActor *obj, uint8_t mode)
+{
+    OpeningCall *c = ctx;
+    event_enter(c, obj);
+    int r = em_roger_actor_001CA6F0(&R.ra, &c->o->typed, mode);
+    event_leave(c, obj);
+    return r < 0 ? actor_fault("001CA6F0") : 0;
+}
+
+static int sdf_001CB5B0(void *ctx, uint8_t count)
+{
+    (void)ctx;
+    return w_001CB5B0(NULL, count);
+}
+
+/* bone_init_default_2(obj, clip) over the body's pose host (bank +0x40). */
+static int sdf_001C63E0(void *ctx, EmSdfEventActor *obj, int16_t clip)
+{
+    OpeningCall *c = ctx;
+    event_store(c->o, obj);
+    if (em_pose_host_001C63E0(&R.host, c->o->rec.bytes, RECORD, clip) < 0)
+        return report("001C63E0 (bone_init_default_2) faulted on the opening body's record");
+    event_load(c->o, obj);
+    return 0;
+}
+
+/* 001C5C90 on the class-8 record over its +0x18, which must be the pair's
+ * body (001BAC00 spawned the two back to back). 0, or -1. */
+static int opening_001C5C90(OpeningCall *c)
+{
+    Owner *o = &c->pair->equip, *parent = &c->pair->body;
+    if (!parent->actor || parent->freed || rd32(o->rec.bytes + 0x18) != parent->address)
+        return report("001C5C90: the class-8 node's +0x18 is not the opening body's record");
+    typed_load(o);
+    sync_in(parent);
+    typed_load(parent);
+    R.ra.world.d00275B40 = (const uint32_t *)(const void *)(o->rec.bytes + 0x110);
+    R.ra.world.d00275B40_count = EM_ROGER_ACTOR_MAX_BONES;
+    int r = em_roger_actor_001C5C90(&R.ra, &o->typed, &parent->typed);
+    if (r < 0) return actor_fault("001C5C90");
+    if (!o->freed) typed_store(o);
+    return 0;
+}
+
+static int slg_001BAD40(void *ctx, const EmSlgScriptActor *a, int32_t *ret)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    EmSdfEventActor v;
+    event_load(c->o, &v);
+    EmSdfWorld world;
+    memset(&world, 0, sizeof world);
+    world.d275BCC = R.ra.world.d00275BCC;
+    EmSdfWorkers w;
+    memset(&w, 0, sizeof w);
+    w.ctx = c;
+    w.r_0028A490 = sdf_r_0028A490;
+    w.w_001CA6E0 = sdf_001CA6E0;
+    w.w_001C5C90 = sdf_001C5C90;
+    w.w_001C6150 = sdf_001C6150;
+    w.w_001AF780 = sdf_001AF780;
+    w.w_001BA8E0 = sdf_001BA8E0;
+    w.w_001CA6F0 = sdf_001CA6F0;
+    w.w_001CB5B0 = sdf_001CB5B0;
+    w.w_001C63E0 = sdf_001C63E0;
+    /* 0x270D / 0x270C, commands 1..4, 6 and 8 (001C6120, 0022EC30,
+     * 001D8BF0, 001C61D0, 001C67E0) are not in the opening's list: their
+     * views and workers stay NULL (fail-stop). */
+    EmSdfFault fault = {0, 0};
+    int r = em_sdf_001BAD40(&v, c->entry, &world, &w, &fault);
+    if (r < 0) {
+        fprintf(stderr, "em_area11 roger: 001BAD40 faulted at %08X code %d\n", (unsigned)fault.address,
+                (int)fault.code);
+        return -1;
+    }
+    if (!c->o->freed) event_store(c->o, &v);
+    *ret = r;
+    return 0;
+}
+
+static int slg_001C5C90(void *ctx, const EmSlgScriptActor *a)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    if (c->o != &c->pair->equip) return report("001BB0E0 command 5 on a record other than the class-8 node");
+    return opening_001C5C90(c);
+}
+
+static int slg_001C68C0(void *ctx, const EmSlgScriptActor *a)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    return em_pose_host_001C68C0(&R.host, c->o->rec.bytes, RECORD) < 0
+               ? report("001C68C0 faulted on the opening body's record")
+               : 0;
+}
+
+static int slg_001BA580(void *ctx, const EmSlgScriptActor *a, int32_t key)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    typed_load(c->o);
+    if (em_roger_actor_001BA580(&R.ra, &c->o->typed, (uint32_t)key) < 0) return actor_fault("001BA580");
+    typed_store(c->o);
+    return 0;
+}
+
+/* anim_advance_time(actor, the entry's +0x0C) (001C64F0, as Roger's own). */
+static int slg_001C64F0(void *ctx, const EmSlgScriptActor *a, uint32_t dt_bits)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    float rate;
+    uint32_t flags = 0;
+    memcpy(&rate, &dt_bits, 4);
+    if (em_player_stage_anim_advance(&R.advance, &c->o->rec, rate, &flags) < 0)
+        return report("001C64F0 (anim_advance_time) faulted on the opening body's record");
+    return 0;
+}
+
+/* 001F9660 (command 6): not in the opening's list (fail-stop). */
+static int slg_001F9660(void *ctx, const EmSlgScriptActor *a, int32_t key)
+{
+    (void)ctx;
+    (void)a;
+    (void)key;
+    return report("001BB0E0 command 6 (001F9660) is not reached by the opening's list");
+}
+
+static int slg_001BA540(void *ctx, const EmSlgScriptActor *a)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    typed_load(c->o);
+    if (em_roger_actor_001BA540(&R.ra, &c->o->typed) < 0) return actor_fault("001BA540");
+    typed_store(c->o);
+    return 0;
+}
+
+static int slg_001AFC10(void *ctx, const EmSlgScriptActor *a)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    typed_load(c->o);
+    return w_001AFC10(NULL, &c->o->typed);
+}
+
+/* jalr *(+0x4C): 001CAA00 on the body (the equipment draws from inside
+ * 001C5C90, its w_draw). */
+static int slg_method_4C(void *ctx, const EmSlgScriptActor *a)
+{
+    (void)a;
+    OpeningCall *c = ctx;
+    if (c->o != &c->pair->body) return report("001BB0E0's +0x4C on a record other than the opening body");
+    if (c->o->rec.bytes[0x0C] != ROGER_NODES) return report("the opening body's +0x0C is not 21");
+    return owner_draw(c->o);
+}
+
+int em_area11_roger_opening_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene, const uint8_t *entry,
+                                 uint32_t entry_address, EmActor *controller)
+{
+    if (!actor || !pool || !scene || !entry || !controller || actor->callback != EM_AREA11_ROGER_OPENING_CALLBACK)
+        return -1;
+    if (ready(pool, scene) < 0) return -1;
+    R.cur = &R.pair[1];
+    Pair *pair = R.cur;
+    /* The entry's command (+0x0A): 0 the body, 5 the equipment node. */
+    int16_t command = (int16_t)rd16(entry + 0x0A);
+    Owner *o = command == 0 ? &pair->body : command == 5 ? &pair->equip : NULL;
+    if (!o) return report("an opening actor whose entry command is neither 0 nor 5");
+    int fresh = o->actor != actor || o->generation != actor->generation || o->freed;
+    if (owner_for(o, actor) < 0) return -1;
+    if (fresh) {
+        if (o == &pair->body) pair->ebone_word = 0;
+        pair->entry[o == &pair->equip] = entry_address;
+        pair->controller = controller;
+        /* +0x18 (the pool's prev), +0x20 and +0x24 (001BAC00's stores). */
+        wr32(o->rec.bytes + 0x18, em_actor_pool_address(pool, actor->prev));
+        wr32(o->rec.bytes + 0x20, entry_address);
+        wr32(o->rec.bytes + 0x24, em_actor_pool_address(pool, controller));
+    }
+    if (pair->entry[o == &pair->equip] != entry_address || pair->controller != controller)
+        return report("an opening actor's +0x20 / +0x24 changed");
+    if (o == &pair->body && pose_bind(o) < 0) return -1;
+    sync_in(o);
+    R.ra.world.d00275B40 = (const uint32_t *)(const void *)(o->rec.bytes + 0x110);
+    R.ra.world.d00275B40_count = EM_ROGER_ACTOR_MAX_BONES;
+    /* The controller's +0x2E (the done mask) as 001BB0E0 reads it. */
+    uint8_t owner_bytes[0x30];
+    memset(owner_bytes, 0, sizeof owner_bytes);
+    wr16(owner_bytes + 0x2E, controller->flags2);
+    OpeningCall call = {pair, o, entry};
+    const EmSlgScriptActorWorkers w = {&call,        slg_001BAD40, slg_001C5C90, slg_001C68C0, slg_001BA580,
+                                       slg_001C64F0, slg_001F9660, slg_001BA540, slg_001AFC10, slg_method_4C};
+    const EmSlgScriptActor a = {o->rec.bytes, entry, owner_bytes};
+    if (em_slg_001BB0E0(&w, &a) < 0) {
+        R.faulted = 1;
+        fprintf(stderr, "em_area11 roger: 001BB0E0 faulted (record %08X, lifecycle %u)\n", (unsigned)o->address,
+                (unsigned)o->rec.bytes[0x04]);
+        return -1;
+    }
+    if (o->freed) return 0;
+    sync_out(o);
+    return 1;
+}
+
 /* 001AF800 (em_roger_actor_001AF800, its own slot loop) over the record's
  * typed view: its +0x09 slots go back onto the one stack, +0x110.. = 0,
  * +0x09 = +0x0C = 0. */
 int em_area11_roger_001AF800(EmActor *actor)
 {
-    Owner *o = actor == R.roger.actor ? &R.roger : actor == R.equip.actor ? &R.equip : NULL;
+    Owner *o = NULL;
+    Pair *pair = NULL;
+    for (unsigned i = 0; i < 2 && !o; ++i) {
+        pair = &R.pair[i];
+        o = actor == pair->body.actor ? &pair->body : actor == pair->equip.actor ? &pair->equip : NULL;
+    }
     if (!o || o->freed || o->actor->generation != o->generation) return 0;
     sync_in(o);
     typed_load(o);
@@ -1176,25 +1533,27 @@ int em_area11_roger_001AF800(EmActor *actor)
     }
     typed_store(o);
     sync_out(o);
-    if (o == &R.equip) R.ebone_word = o->typed.bone[0];
+    if (o == &pair->equip) pair->ebone_word = o->typed.bone[0];
     return 1;
 }
 
 uint32_t *em_area11_roger_bank_word(const EmActor *actor)
 {
-    if (!actor || actor != R.roger.actor || R.roger.freed) return NULL;
-    return (uint32_t *)(void *)(R.roger.rec.bytes + 0x40);
+    Owner *o = &R.pair[0].body;
+    if (!actor || actor != o->actor || o->freed) return NULL;
+    return (uint32_t *)(void *)(o->rec.bytes + 0x40);
 }
 
 /* 001C67E0(Roger, clip, blend, frame) for the script host (op0B sub 4, op15):
  * the record image is current while Roger's owner call runs the script. */
 int em_area11_roger_clip_init(const EmActor *actor, int16_t clip, float blend, float frame)
 {
-    if (!actor || actor != R.roger.actor || R.roger.freed) return report("001C67E0 on a record other than Roger's");
-    sync_in(&R.roger);
-    if (em_pose_host_001C67E0(&R.host, R.roger.rec.bytes, RECORD, clip, blend, frame) < 0)
+    Owner *o = &R.pair[0].body;
+    if (!actor || actor != o->actor || o->freed) return report("001C67E0 on a record other than Roger's");
+    sync_in(o);
+    if (em_pose_host_001C67E0(&R.host, o->rec.bytes, RECORD, clip, blend, frame) < 0)
         return report("001C67E0 (anim_clip_init) faulted on Roger's record");
-    sync_out(&R.roger);
+    sync_out(o);
     return 0;
 }
 
@@ -1221,11 +1580,11 @@ static int owner_state(const Owner *o, uint32_t *record, uint8_t header[16], flo
 
 int em_area11_roger_state(uint32_t *record, uint8_t header[16], float position[3], uint8_t block[16])
 {
-    return owner_state(&R.roger, record, header, position, block);
+    return owner_state(&R.pair[0].body, record, header, position, block);
 }
 
 int em_area11_roger_equipment_state(uint32_t *record, uint8_t header[16], float position[3])
 {
     uint8_t block[16];
-    return owner_state(&R.equip, record, header, position, block);
+    return owner_state(&R.pair[0].equip, record, header, position, block);
 }

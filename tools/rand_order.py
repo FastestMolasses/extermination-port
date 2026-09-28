@@ -228,6 +228,38 @@ def stage_positions(frames, lo, hi, fn):
     return out
 
 
+def spawn_frame(frames, f0, f1):
+    """The first frame in [f0, f1) with a face draw (001D0720) in the pool
+    walk after the indicator children (the frame's last 001F54E0) and before
+    the glow markers (its first 001F4D40): the opening script's class-9
+    001BB0E0 record's first tick (op14 001BAC00 spawned it at the tail of the
+    walk; 001BAD40's 001BA8E0 attaches its face and 001BB0E0 falls through
+    into 001BA580). Its frame follows the stream request's wait (op07 sub
+    12's phase 3), as the opening's end does."""
+    for f in range(f0, f1):
+        seq = [c[0] for c in frames.get(f, [])]
+        ind = [i for i, c in enumerate(seq) if c == 0x1F54E0]
+        glow = [i for i, c in enumerate(seq) if c == 0x1F4D40]
+        if not ind or not glow:
+            continue
+        if any(c == 0x1D0720 and ind[-1] < i < glow[0] for i, c in enumerate(seq)):
+            return f
+    raise AssertionError('no frame with the opening body\'s first face tick')
+
+
+def structure_after(port_frames, p, orig_frames, o, count):
+    """From port frame p against original frame o, frame for frame: the
+    number of frames whose caller sequences are equal before the first
+    difference, and that difference (k, port callers, original callers) or
+    None."""
+    for k in range(count):
+        ps = [c[0] for c in port_frames.get(p + k, [])]
+        os_ = [c[0] for c in orig_frames.get(o + k, [])]
+        if ps != os_:
+            return k, (k, ps, os_)
+    return count, None
+
+
 def opening(port_frames, orig_frames, orig_marks):
     """The New Game opening, aligned on the area entry. Returns a report."""
     o0, p0 = area_entry_original(orig_frames, orig_marks), area_entry_port(port_frames)
@@ -253,16 +285,22 @@ def fmt_totals(t):
 
 # ------------------------------------------------------------ the checks
 
-# The first divergence the opening still has (docs/RAND_ORDER.md section 3):
-# at AE+5 the original's player stage draws for the player's face (00183090
-# -> 001D0C70 -> 001D0720, after the barrel); the port's opening faces run
-# on em_opening_actor inside the opening controller node from AE+16 (design
-# risk 2), so that draw is missing and the port's next call draws from the
-# state the original's face drew from. Every later value is one step off, so
-# the value-driven callers' frames differ after it. (Until census L24 the
-# first difference was the security gun 00825940's lifecycle-0 draw at
-# AE+1, 0x8259F0; the gun draws it on its own record since.)
-KNOWN_FIRST_DIFFERENCE = (5, 0x1D0720)
+# The first divergence the opening has (docs/RAND_ORDER.md section 3): the
+# stream request's wait. op07 sub 12 holds the script in its phase 3 until
+# the request's read keys on (D_008106F4 == 1); the original's drive made it
+# wait longer than the port's (host speed, the default: the fields the
+# capture's request waited; the PS2 disc-drive timing switch: the drive
+# model's). So the port's op14 (001BAC00) spawns the opening's actors that
+# many frames earlier, and in their first frame the port's class-9 record
+# draws its face's first values (001D0720) where the original, still
+# waiting, draws its glow markers (001F4D40) from the same state. Every
+# earlier call is equal in caller and state: the security gun's AE+1 draw
+# (census L24), Roger's owner's face at AE+2 and the player's face in the
+# player stage after the barrel from AE+5 (00183090 -> 001D0C70 -> 001D0720,
+# the chain's OPENING step). From the spawn on the port's frames are the
+# original's that many frames later, caller for caller, until a value-driven
+# caller's timer (drawn from a state the wait moved) first differs.
+FIRST_DIFFERENCE_CALLERS = (0x1D0720, 0x1F4D40)
 # The opening's end with the PS2 disc-drive timing switch on (the drive
 # model): the original waited on the area music's read (the intro movie's
 # disc position: a 16-field seek, IOP_STREAM.md "Drive model"); the model
@@ -350,13 +388,33 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
     po = [(fn, s) for fn, s, _ in port_frames[p0]]
     assert po == orig_frames[o0], ('rand order: the area-entry frame', po, orig_frames[o0])
     diff = rep['first_difference']
-    # The original's call is the player's face draw at AE+5, and the port's
-    # next call draws from the same state: exactly that one draw is missing.
-    assert diff is not None and (diff[1][0], diff[1][1]) == KNOWN_FIRST_DIFFERENCE and \
-        diff[0][2] == diff[1][2] and diff[0][0] >= diff[1][0], \
-        ('rand order: the first difference is not the player face\'s missing draw at AE+5 (design risk 2)',
+    late = (rep['oc'] - o0) - (rep['pc'] - p0)
+    o_spawn = spawn_frame(orig_frames, o0, rep['oc']) - o0
+    p_spawn = spawn_frame(port_frames, p0, rep['pc']) - p0
+    # The opening's actors spawn when the stream request's wait ends: as
+    # much earlier as the opening's end.
+    assert p_spawn + late == o_spawn, \
+        ('rand order: the opening\'s actors spawn away from the stream request\'s end', p_spawn, o_spawn, late)
+    # The first difference is that frame's: the port's body draws its face
+    # where the original draws its glow markers, from the same state.
+    assert diff is not None and diff[0][0] == diff[1][0] == p_spawn and \
+        (diff[0][1], diff[1][1]) == FIRST_DIFFERENCE_CALLERS and diff[0][2] == diff[1][2], \
+        ('rand order: the first difference is not the opening actors\' spawn at the stream request\'s end',
          rep['equal_calls'], diff and (diff[0][0], name(diff[0][1]), hex(diff[0][2])),
-         diff and (diff[1][0], name(diff[1][1]), hex(diff[1][2])))
+         diff and (diff[1][0], name(diff[1][1]), hex(diff[1][2])), p_spawn)
+    # From the spawn: the original's frames `late` later, caller for caller,
+    # until a value-driven caller first differs.
+    equal, sdiff = structure_after(port_frames, p0 + p_spawn, orig_frames, o0 + o_spawn,
+                                   rep['pc'] - p0 - p_spawn)
+    assert equal >= 1, ('rand order: the spawn frame\'s callers differ from the original\'s', sdiff)
+    if sdiff:
+        k, ps, os_ = sdiff
+        i = next(i for i in range(max(len(ps), len(os_))) if i >= len(ps) or i >= len(os_) or ps[i] != os_[i])
+        involved = {c for c in (ps[i] if i < len(ps) else None, os_[i] if i < len(os_) else None) if c is not None}
+        assert involved - DETERMINISTIC, \
+            ('rand order: after the spawn a deterministic caller differs first', 'AE+%d' % (p_spawn + k),
+             [name(c) for c in ps], [name(c) for c in os_])
+    rep['spawn'], rep['late_spawn'], rep['after_spawn'] = p_spawn, late, equal
     # Every opening frame's deterministic callers, the security gun's AE+1
     # draw included, equal the original's.
     assert not rep['skeleton_bad'], \
@@ -385,10 +443,14 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
                f'speed\'s {HOST_READY_ROWS} and {HOST_READ_ROWS}; the hold to the key-on '
                f'{orig_req["keyon"] - orig_req["done"]} rows in both)')
     return rep, (f'the area entry (port counter {p0} = original frame n{o0}) and {rep["equal_calls"]} calls equal '
-                 f'in caller and state, the security gun 00825940\'s lifecycle-0 draw at AE+1 included, up to the '
-                 f'player face\'s missing draw at AE+5 (the opening\'s faces, design risk 2); the deterministic '
-                 f'callers (sway, indicators, glow markers, music, item, effect owner, security gun) equal frame '
-                 f'for frame over AE+1..AE+{rep["window"] - 1}; {end}')
+                 f'in caller and state (the security gun\'s AE+1 draw, Roger\'s owner\'s face at AE+2, the player\'s '
+                 f'face in the player stage after the barrel from AE+5) up to the opening\'s actors\' spawn at '
+                 f'AE+{rep["spawn"]}, the stream request\'s end, {late} frame(s) before the original\'s '
+                 f'AE+{rep["spawn"] + late}; from there {rep["after_spawn"]} frame(s) equal the original\'s '
+                 f'{late} later caller for caller (the body\'s face and head sprite in the pool walk, the player\'s '
+                 f'face after the barrel) until a value-driven caller\'s timer differs; the deterministic callers '
+                 f'(sway, indicators, glow markers, music, item, effect owner, security gun) equal frame for frame '
+                 f'over AE+1..AE+{rep["window"] - 1}; {end}')
 
 
 def check_after_control(port_frames, pc, orig_frames, oc, count):
@@ -404,5 +466,5 @@ def report_driven(rep):
     face = lambda c: ', '.join(f'{v} {k}' for k, v in sorted(c.items()))
     return (f'value-driven callers over the opening: original {fmt_totals(driven(rep["orig_totals"]))}; '
             f'port {fmt_totals(driven(rep["port_totals"]))}; the faces 001D0720 run {face(rep["orig_face"])} '
-            f'in the original (Roger\'s owner; the player stage 00183090 -> 001D0C70) and '
-            f'{face(rep["port_face"])} in the port (em_opening_actor, design risk 2)')
+            f'in the original and {face(rep["port_face"])} in the port (in the pool walk Roger\'s owner and the '
+            f'opening\'s 001BB0E0 body; after the barrel the player stage 00183090 -> 001D0C70)')

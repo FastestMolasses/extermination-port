@@ -43,9 +43,9 @@ original instructions of the row with no hook on them.
 | 001B7840 op10 fades | unverified | **v-u** | `em_area_script` op10 | part 1 |
 | 001B81D0 face attach | unverified | **v-u** | `em_area_script` `face_attach` | part 1 |
 | 001BA080 op06 flags/counters | unverified | **v-u** | `em_area_script` op06 | part 1 |
-| 001BAC00 op14 spawn list | unverified (em_opening_runtime case 20 is a no-op stand-in) | **v-u** | `em_sdf_001BAC00` (new) | part 2 + opening capture |
+| 001BAC00 op14 spawn list | unverified (em_opening_runtime case 20 was a no-op stand-in) | **v-u**; **live** since chain C8b OPENING | `em_sdf_001BAC00` (new) | part 2 + opening capture |
 | 001BA510 activity clear | missing | **v-u** | `em_sdf_001BA510` (new); also inline in `em_interaction_frame` (see 1.4) | part 2 |
-| 001BAD40 spawned-actor event handler | missing | **v-u** | `em_sdf_001BAD40` (new) | part 2 + opening capture |
+| 001BAD40 spawned-actor event handler | missing | **v-u**; **live** since chain C8b OPENING | `em_sdf_001BAD40` (new) | part 2 + opening capture |
 | 00182BF0, 001B0460, 001B12B0, 001B1380, 001B6250 | v-u | v-u | `em_script_host_workers` | test_script_host_workers_reference |
 | 001B0B50 | v-u | v-u | `em_player_closure1019_001B0B50` | test_player_closure_10_12_19_reference |
 | 001B15D0 | v-u | v-u | `em_player_misc_001B15D0` | test_player_misc_workers_reference |
@@ -375,45 +375,25 @@ codes are listed in each header.
 
 - **The seven handler rows** need nothing new. They go live when
   `em_area_script` is bound (AREA_SCRIPT.md section 6).
-- **001BAC00 (op14).** Two live places run op14, and both need changes.
-  - `em_opening_runtime.c` case 20 accepts the opening's list and does
-    nothing: a stand-in. Replace it with `em_sdf_001BAC00(owner, record,
-    image, w, fault)`, where:
-    - `owner.self_14` is the opening owner node (0x823E80's record) and
-      `s2E` its +0x2E;
-    - `image` is the AREA11 overlay arena (0x823500..0x82AD00) or the
-      EMSC image holding 0x828F30;
-    - `w_001AFA90` is the `em_actor_pool` alloc (the 001AFA90 translation),
-      returning the record's original address and a view onto its fields;
-    - `w_001C8140` is not reached by the opening list (fail-stop otherwise);
-    - `r_0028A490` reads the bank table.
-  - Or admit op14 in `em_area_script` by calling the same function.
-  - **Dependency.** The two actors get +0x10 = 001BB0E0. Their behaviour is
-    `em_slg_001BB0E0` (lane L34, `em_startup_load_gaps.c`). Binding
-    001BAC00 before that is bound would spawn nodes that fault on their first
-    tick. Bind both together, and retire the prepared-pose path of
-    `em_opening_actor` for these two actors at the same time.
-- **001BAD40.** Bind `EmSlgScriptActorWorkers.w_001BAD40(ctx, a, &ret)` to
-  an adapter:
-  - build `EmSdfEventActor` from `a->node` (+4, +9, +0xC, +0x18, +0x40, +0x44
-    and +0x110..);
-  - call `em_sdf_001BAD40(view, a->entry, world, w, fault)`, write the view
-    back, and set `*ret` to the result.
-  - `world` points at the message request words (the `EmMessageService`
-    block), D_008106C0, the camera object's +0x70/+0x74/+0x78/+0x04/+0x6E
-    (the same storage as `EmAreaScriptWorld.cam_70/74/78`, d8101E4 and
-    cam_6E) and D_00275BCC (the bone budget the pool owns).
-  - The workers are:
-    - 001CA6E0 → a model bind that sets +0x44 (em_roger_actor_001CA6E0);
-    - 001C6120 → the bank/index resolver (em_cinematic_camera);
-    - 001C5C90 → the equipment child tick (L22, UNBOUND today);
-    - 001AF780 → the pool's bone-slot pop;
-    - 001BA8E0, 001D8BF0, 001CA6F0 → the L22 translations;
-    - 001CB5B0 → `em_pose_host_workers` (anim_bone_array_setup);
-    - 001C63E0 → bone_init_default_2;
-    - 001C61D0 → the bank clip length;
-    - 001C67E0 → anim_clip_init;
-    - 0022EC30 → `em_cinematic_playback_start`.
+- **001BAC00 (op14) and 001BAD40: bound (chain C8b OPENING, 2026-09-28;
+  OPENING_ORIGINAL.md section 2).**
+  - em_area_script admits op14: its `w_001BAC00` worker runs
+    `em_area11_bindings_001BAC00`, which calls `em_sdf_001BAC00` with
+    `owner` = the controller 00823E80's record (+0x14, +0x2E), `image` = the
+    opening's image (0x828F30..0x8292C0, the script host's) and `w_001AFA90`
+    = the pool's alloc. Each spawned record takes the view's stores and is
+    bound by its +0x10 (001BB0E0); its +0x20 / +0x24 live in its node.
+    `w_001C8140` stays NULL (the 0x270E path is not in the opening's list).
+  - The two records run `em_slg_001BB0E0` through `em_area11_roger_opening_tick`;
+    its `w_001BAD40` builds `EmSdfEventActor` from the record's bytes and
+    calls `em_sdf_001BAD40` with `world.d275BCC` = the one bone budget and
+    the workers 001CA6E0 / 001C6150 / 001AF780 / 001BA8E0 / 001CA6F0 /
+    001C5C90 (em_roger_actor), 001CB5B0 (the one-word publication, as for
+    Roger) and 001C63E0 (the pose host). The message, publish and camera
+    views and 001C6120 / 0022EC30 / 001D8BF0 / 001C61D0 / 001C67E0 stay
+    NULL: the opening's commands 0 and 5 do not reach them (fail-stop).
+  - `em_opening_actor`'s prepared poses and em_opening_runtime's case 20
+    are retired.
 - **001BA510.** `em_interaction_frame` already carries it inline. Other
   callers bind `em_sdf_001BA510(EmSceneState.req + 0x24, fault)`.
 - **Verified-unbound rows.**
@@ -505,9 +485,8 @@ codes are listed in each header.
   (`test-script-door-fan`, `test-script-door-fan-reference`) exist.
 - **Rebinding.** Done in census L24: `em_area11_bindings.c` binds 0x825940
   and 0x827490 (SECURITY_GUN.md 5), and the gun's lifecycle 0 spawns its
-  own lamp (the interim child spawn is deleted). Still to do:
-  `em_opening_runtime.c` case 20 (op14, still the no-op stand-in; census
-  001BAC00 verified-unbound) and the flag-0x30 manager 0x823CE0's row
-  ("manager: dormant", no code). Done earlier:
+  own lamp (the interim child spawn is deleted). Done in chain C8b OPENING:
+  op14 (001BAC00) and the 001BB0E0 records (section 5.1). Still to do: the
+  flag-0x30 manager 0x823CE0's row ("manager: dormant", no code). Done earlier:
   `EmScriptHostWorkers.w_001B0080` is bound (em_camera_live, census
   L13..L16), and the census has taken the corrections of 1.4.

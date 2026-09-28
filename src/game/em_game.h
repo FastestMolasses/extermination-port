@@ -223,9 +223,9 @@ void  em_game_aim_dir(float out[3]);
  *   00828050 inside the host's elevator program. */
 int  em_game_terminal_powered(void);
 
-/* em_game_player_interact_busy — 1 while the opening runtime or an
- *   acquired original player source (the interaction host's 0015B130
- *   takeover) owns the player, so
+/* em_game_player_interact_busy — 1 while an acquired original player
+ *   source (a 0015B130 takeover: the interaction host's, or a script
+ *   owner's such as the opening controller's) owns the player, so
  *   the legacy use scans (examine, doors) do not start a second
  *   interaction while one is in flight. (The legacy interact-clip lock of
  *   the legacy pickup take was deleted in WP-6.)

@@ -342,9 +342,10 @@ lanes' entry points:
   on). **Still reported:** state 2's r == 1 and state 6's (UM_001FAE70); no level smoke run reaches them.
 
 Verified live: the level smoke plays the whole route with the lanes (every phase's capture check, and the director's
-voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); `make test-opening-runtime` runs the opening over
-the real lanes (the hold protocol 0 -> 2 at 001FD4C0, 2 -> 1 at step H once lane 0's prefill is in, 1 -> 0 at step F,
-key-on at the next step H; cue 25 resumed at the end; the skip's stops); newgame-control and the full suite.
+voiced lines 0x7F / 0x97 / 0x99 end to end: docs/LEVEL_SMOKE.md); the opening's stream request on the real lanes
+(the hold protocol 0 -> 2 at 001FD4C0, 2 -> 1 at step H once lane 0's prefill is in, 1 -> 0 at step F, key-on at the
+next step H; cue 25 resumed at the end) is the level smoke's and test-rand-order's (`test-opening-runtime`, which
+ran the retired opening executor over the lanes, is retired since chain C8b OPENING); newgame-control and the full suite.
 
 **Drive timing (2026-09-27).** By default the backend's disc answers at host speed: a read is done at the first
 query after its issue. With the PS2 disc-drive timing switch on (`EM_PS2_DISC_DRIVE_TIMING=1`, LAUNCHER_OPTIONS.md)

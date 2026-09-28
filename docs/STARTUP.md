@@ -64,11 +64,11 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 20 | `python3 tools/export_point_lights.py` | `point_lights.emlp` | R | em_point_light |
 | 21 | `python3 tools/export_snow.py --gs ../Extermination/build/startup-reference/opening_gs.bin --reference-ee ../Extermination/build/startup-reference/opening_ee.bin` | `snow.emsn`, `snow.emtx` | L | the weather node 001C1EA0 (em_snow_runtime) |
 | 22 | `python3 tools/export_streams.py [--iso /path/to/owned.iso]` (IOP_STREAM.md "Stream exporter") | `streams/streams.emst`, `streams.json` | R (since WP-8b: the boot stops without it, fail-stop) | em_stream_live: the stream lanes' clip rows and the IOP backend's disc sectors (music cues 13, 25, 29, 54, 63, 0x18, 0x1B; voice cues 143..151). (The former step 22, `export_area11_flow.py`, fed the legacy director stand-in, deleted with it in WP-8b.) |
-| 23 | `python3 tools/export_area11_opening.py` | `opening.emsc` | R | em_opening_runtime |
+| 23 | `python3 tools/export_area11_opening.py` | `opening.emsc` | R | the opening controller 00823E80's script 0x828FC0 and op14's placement list on the AREA11 script host (OPENING_ORIGINAL.md) |
 | 24 | `python3 tools/export_opening_camera.py --source ../Extermination/extract/chunk15/f12_id44.bin --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc` | `opening_camera.emcc` | R | the opening camera |
 | 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R (`opening.emfx`); X (the two WAVs: the streams play from step 22 since WP-8b) | em_opening_media's fade track |
-| 26 | `cd ../Extermination && python3 tools/export_opening_actors.py --gs build/startup-reference/opening_gs.bin --reference-ee build/startup-reference/opening_ee.bin --out ../extermination-port/assets/scene_snow/opening --report build/area11_original/opening_export.json` (decomp OPENING_ACTORS.md) | `opening/player.emdl`, `roger.emdl`, `equipment_6b.emdl` | R | the opening actors |
-| 27 | `cd ../Extermination && python3 tools/export_opening_faces.py` with the same inputs (decomp OPENING_ACTORS.md) | `opening/*_face.emdl/.emfm` | R | the opening faces |
+| 26 | (retired in chain C8b OPENING: the decomp's `export_opening_actors.py`) | `opening/player.emdl`, `roger.emdl`, `equipment_6b.emdl` | X | nothing reads them: the opening's actors are records drawing their original units (OPENING_ORIGINAL.md) |
+| 27 | (retired in chain C8b OPENING: the decomp's `export_opening_faces.py`) | `opening/*_face.emdl/.emfm` | X | nothing reads them: the faces are 001CB3C0's face units |
 | 28 | `python3 tools/export_area11_roster.py` | `roster.emro` | R | 001B6990 (the state-0 roster spawn) |
 | 29 | `python3 tools/export_spawn_table.py` | `spawn/spawn_table.emsp` | R | 001B07C0 |
 | 30 | `python3 tools/export_interaction_scan.py` | `interaction.emis` | R | the AREA11 interaction host |
@@ -168,19 +168,19 @@ samples including lookahead, and advances 0.5 per ordinary tick.
   opening frame its six eye/target floats match original runtime bytes exactly.
   Cinematic mode 3 uses the authored eye without the gameplay forward push.
   Its native view matrix agrees with the captured original within 0.000031.
-- Body animation uses the original stateful half-tick cursors, cut flags and
-  unnormalized quaternion blend. Original rifle and knife child meshes attach
-  to Dennis bones 4 and 14; Roger equipment follows his bone 1.
-- The opening runs its exported script and original dialogue/fade tracks. Both
-  normal and skip paths restore the final script position/camera and story
-  flags once. Missing required resources fail explicitly.
+- The opening's actors are records (chain C8b OPENING, OPENING_ORIGINAL.md):
+  the script 0x828FC0 runs on the AREA11 script host, its op14 spawns the
+  two 001BB0E0 records (Roger's opening body on bank 0x98's clip 2 and the
+  model-0x6B node on it), and the player plays bank 0x98's clip 1 on its own
+  stage; their node matrices equal the opening capture's bit for bit.
+  Missing required resources fail explicitly.
 - Random arithmetic matches the original SDK leaf, including 32-bit stored
   state and 31-bit output. The call order is audited against the C7
   per-call capture (RAND_ORDER.md): from the area entry the port equals the
-  original call for call up to the player face's missing draw at AE+5 (the
-  opening's faces, design risk 2; the security gun's AE+1 draw is among the
-  equal calls since census L24), and every frame's fixed-schedule callers
-  equal the original's.
+  original call for call up to the opening's actors' spawn, which the
+  stream request's wait moves (the security gun's AE+1 draw and the faces
+  of Roger's owner and the player are among the equal calls), and every
+  frame's fixed-schedule callers equal the original's.
 - The original head meshes carry seven morph channels. Blink/mouth state and
   vertex blending pass original instruction comparisons; exact pooled initial
   weights and separate head-light selection remain work.
@@ -194,8 +194,7 @@ Tests are asset-free unless explicitly described as reference comparisons:
 ```sh
 make test-input test-task test-fade test-startup test-movie-export test-startup-audio
 make test-collision test-script test-area11-opening
-make test-cinematic-camera test-opening-actor test-opening-media
-make test-opening-runtime
+make test-cinematic-camera test-opening-media
 python3 tools/test_random_reference.py
 python3 tools/test_continue_reset_reference.py
 python3 tools/test_collision_reference.py --help

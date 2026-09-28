@@ -248,29 +248,27 @@ region since this step; nothing writes them in AREA11.
 
 - **Substitutions in the camera's player view** (`player_refresh`,
   em_camera_live.c). The original's 0015BCF0 evaluates the pose and
-  publishes it every frame; the port evaluates none before first control,
-  so while the pose host has no evaluated pose:
+  publishes it every frame. While the pose host has no evaluated pose (only
+  before the area's first player stage since chain C8b OPENING, which
+  evaluates the record's pose from the area load):
   - +B0 (the bone-1 position 0015BCF0's tail copies from node 1's +C0)
     reads the placement g.pos;
   - 0x70003B50 (the tail's copy of +C0..+CC) reads the record's +C0, g.yaw
     and +C8.
-  What replaces both: the player's pose evaluated from the area load
-  (0015BCF0's animate step and tail publication running before first
-  control), after which the pose host's hip and Euler are the tail's
-  publication on every frame. Their visible effect is the state-0 ceiling
-  below; the smoke's exemption for it goes with them.
-- **The state-0 ceiling.** At the area load the port evaluates no player pose
-  before the opening releases the player, so 0018D330's ceiling probe
-  starts from the placed position instead of the hip (the +B0 substitution
-  above). The original finds the
-  0x8800 ceiling at y 440 (+5A bit 0x80, +60); the port does not. No camera
-  routine reads bit 0x80 or +60, and the first walking prepass rewrites
-  +5A.
-- **The opening's timeline words** +6C..+7B (001B8FC0 kind 6 / 0022EEF0 on
-  bank 0x98) stay the opening runtime's. It plays its track itself
-  (em_opening_runtime, the opening's timeline stand-in, census L33) and keeps
-  its own cursor. It also releases the camera one settle frame earlier than
-  the original, which the hand-off check shows converging.
+- **The state-0 ceiling** (resolved in chain C8b OPENING). The state-0
+  frame's 0018D330 now finds the original's 0x8800 ceiling at y 440 (+5A
+  bit 0x80, +60) over the evaluated hip: the level smoke compares the
+  seat and state-0 frames with newgame_samples 2639 / 2640 with no
+  exemption.
+- **The opening's timeline** (scene 0x22 on bank 0x98's clip 0). Since
+  chain C8b OPENING its words +6C..+7B are the original's: the script's
+  001B8FC0 kind 6 writes them on the AREA11 script host and the opening
+  lane's stand-in (em_opening_runtime, census L33) samples the track at the
+  camera's +74 and advances it; the level smoke no longer exempts them and
+  the opening capture's block holds them byte for byte. The stand-in's eye
+  / target sampling (+14/+15 and +24 at the capture's cursor) and 0022EEF0's
+  event cursor +80..+82 and +89 are not the original's
+  (OPENING_ORIGINAL.md section 3).
 - **Faults where an original has no translation**:
   - camera actions 1/2 (aim: 00197D20, 00198650), 5, 9..15, and mode 1's
     001B0300;
@@ -300,8 +298,9 @@ stay the original's:
 | `em_examine_camera` | an examine cue's op00 shot | (no AREA11 route beat) |
 | `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 | L28 |
 
-The +4 == 3 timeline is the opening runtime's track while it owns the
-camera, and otherwise the AREA11 script host's 0022EEF0 (census L22).
+The +4 == 3 timeline is the opening lane's scene-0x22 stand-in while the
+opening's track runs (started by the script's 0022EC30), and otherwise the
+AREA11 script host's 0022EEF0 (census L22).
 
 Since census L18 the fence door's camera is its program's op0D sub 5 on the
 AREA11 script host (0018CBD0 with -20, 0018D7B0(5) and (1)) and 0x1AE040
