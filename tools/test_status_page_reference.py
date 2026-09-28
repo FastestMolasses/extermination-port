@@ -116,7 +116,8 @@ def main():
     library = out / ('page.dylib' if sys.platform == 'darwin' else 'page.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
         '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
-        'src/game/em_status_page.c', '-o', str(library)], cwd=ROOT, check=True)
+        'src/game/em_status_page.c', 'src/game/em_status_scene_original.c', '-o', str(library)],
+        cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     Worker = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(State), C.c_int, C.c_uint)
     native.em_status_page_tick.argtypes = [C.POINTER(State), C.c_uint, Worker, C.c_void_p]

@@ -74,7 +74,12 @@ landed"):
   SPR4, the ITEM children) run through `em_status_pages_live` since chain
   C8b (STATUS_PAGES.md section 7); a page the first level cannot reach
   faults in 0020CDC0 with a report naming the page. The panel owner is bound only for B0 != 0 with
-  B1 & 0x80 (a stale B1 stays after a request). The hub phase is the
+  B1 & 0x80 (a stale B1 stays after a request). Since chain C8b LOADER the
+  load binds the runtime's D_00275BD8 to the scene state's byte
+  (`em_status_runtime_bind_busy`) and the live screen-module loader
+  (`em_status_runtime_bind_loader`, the one em_scene_bindings boots):
+  module 0x21's load before the BATTERY page runs the loader's own steps
+  on task slot 2 (MODULE_LOADER.md section 4). The hub phase is the
   original `em_status_hub` inside the runtime (WP-5;
   `em_status_runtime_bind_hub` with `panel/status_hub.emhs` and
   `panel/status_hub_atlas.emha`). The host supplies its 00209DF0 inputs
@@ -139,7 +144,11 @@ The actual-asset sanitizer fixture links the native player pose host, raw
 channels, model, collision, camera, scripts, inventory and status modules.
 It checks panel refusal (156 ordinary callbacks), the first battery with
 actual turn/camera settling (118), default-No/reselection/cancellation (170),
-and successful discharge followed by panel power and release (285). Since
+and successful discharge followed by panel power and release (285). The
+fixture binds its own screen-module loader over the scene state's
+D_00275BD8 and dispatches the task table after each status frame, so each
+module-0x21 load takes the loader's 10 host-speed dispatches (9 status
+callbacks more than the instant load it counted before). Since
 WP-6 the items are the host's own bindings: the fixture places the seven
 instances before the load, runs each node's state 0 and the host's item
 ticks every ordinary callback, and checks that the desired camera vectors

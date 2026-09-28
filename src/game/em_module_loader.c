@@ -477,11 +477,11 @@ EmModuleLoader *em_module_loader_open(const char *pack_path)
     ml->d28A488[1] = u32_at(data + 0x1C);
     ml->ld.d275C70 = u32_at(data + 0x20);
     ml->ld.d275C74 = u32_at(data + 0x24);
-    ml->ld.d28A5A0 = u32_at(data + 0x28);
-    ml->ld.d28A738 = u32_at(data + 0x2C);
-    ml->ld.d28A73C = u32_at(data + 0x30);
-    ml->ld.d28A744 = u32_at(data + 0x34);
-    ml->ld.d28A748 = u32_at(data + 0x38);
+    ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A5A0] = u32_at(data + 0x28);
+    ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A738] = u32_at(data + 0x2C);
+    ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C] = u32_at(data + 0x30);
+    ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A744] = u32_at(data + 0x34);
+    ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A748] = u32_at(data + 0x38);
     ml->sdk = (EmModuleLoaderSdk){ml,         drive_ready, drive_read, drive_sync, drive_error,
                                   dma_channel, dma_wait,   dma_send,   NULL};
     ml->workers.ctx = ml;
@@ -545,6 +545,16 @@ void em_module_loader_bind_live(EmModuleLoader *ml)
     s_live = ml;
     if (ml)
         s_orphan = (EmStatusSceneFault){0, EM_STATUS_SCENE_FAULT_NONE};
+}
+
+EmModuleLoader *em_module_loader_live(void)
+{
+    return s_live;
+}
+
+const EmTask *em_module_loader_record(const EmModuleLoader *ml)
+{
+    return ml ? ml->record : NULL;
 }
 
 int em_module_loader_orphaned(EmStatusSceneFault *out)
@@ -673,10 +683,9 @@ void em_module_loader_snapshot(const EmModuleLoader *ml, const EmTask *record,
     p += 25;
     *p++ = ml->in_dispatch ? ld->d275BD8 : view_in(ml->views.d275BD8, ml->local_bd8);
     *p++ = ml->in_dispatch ? ld->d282157 : gate(ml);
-    const uint32_t words[7] = {ld->d275C70, ld->d275C74, ld->d28A5A0, ld->d28A738,
-                               ld->d28A73C, ld->d28A744, ld->d28A748};
-    for (int i = 0; i < 7; ++i, p += 4)
-        u32_put(p, words[i]);
+    u32_put(p, ld->d275C70);
+    u32_put(p + 4, ld->d275C74);
+    p += 8;
     for (int i = 0; i < EM_STATUS_SCENE_RELOC_WORDS; ++i, p += 4)
         u32_put(p, ld->d28A490[i]);
     memcpy(p, ld->header, sizeof ld->header);

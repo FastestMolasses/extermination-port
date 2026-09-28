@@ -272,7 +272,15 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
 
 /* The stream lanes' hooks for the frame loop and the message service
  * (em_stream_live; the message workers return 1 ok, 0 fault). */
-static int stream_field(void *context) { (void)context; return em_stream_live_field(); }
+static int stream_field(void *context)
+{
+    (void)context;
+    /* The field is also the screen-module loader's drive clock (it counts
+     * only under the PS2 disc-drive timing switch). */
+    em_scene_bindings_module_loader_field();
+    return em_stream_live_field();
+}
+static int loader_check(void *context) { (void)context; return em_scene_bindings_module_loader_check(); }
 /* Main-loop step B: 001D1AE0(D_00810E80) on the render context. */
 static int rcl_step_b(void *context, int32_t index) { (void)context; return em_rcl_001D1AE0(index); }
 /* Main-loop steps V and W: 001D2300 and 001D2580(field) on the render context.
@@ -368,6 +376,16 @@ int main(void)
         em_window_destroy(win);
         return 1;
     }
+    /* The screen-module loader (H7, docs/MODULE_LOADER.md): the slot-2
+     * task 001FF0D0 over the user's exported sectors. Without them the
+     * game cannot start (fail-stop). */
+    if (em_scene_bindings_module_loader_boot("assets/module_loader/modules.emml") != 0) {
+        em_stream_live_shutdown();
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
+    em_frame_set_task_check(loader_check, NULL);
     static const EmFrameSoundService sound = {stream_field, stream_step_h, NULL};
     em_frame_set_sound_service(&sound);
     /* Main-loop step F: the message service 001FCA10 (WP-8), with the
@@ -390,6 +408,8 @@ int main(void)
     if (em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) != 0 ||
         em_rcl_frame_views(em_frame_d810E88(), &em_scene_state()->req[EM_SCENE_REQ_C4]) != 0) {
         em_frame_set_sound_service(NULL);
+        em_frame_set_task_check(NULL, NULL);
+        em_scene_bindings_module_loader_shutdown();
         em_message_presenters_live_shutdown();
         em_message_live_shutdown();
         em_stream_live_shutdown();
@@ -417,6 +437,9 @@ int main(void)
     em_frontend_shutdown();
     em_game_shutdown();         /* em_bgm_shutdown: the device no longer mixes */
     em_frame_set_sound_service(NULL);
+    em_frame_set_task_check(NULL, NULL);
+    int loader_failed = em_scene_bindings_module_loader_check() < 0;
+    em_scene_bindings_module_loader_shutdown();
     int stream_failed = em_stream_live_failed();
     em_stream_live_shutdown();
     int message_failed = em_message_live_fault() != NULL;
@@ -442,5 +465,6 @@ int main(void)
     em_gfx_destroy(gfx);
     em_window_destroy(win);
     return em_frontend_failed() || em_opening_runtime_failed() || message_failed || stream_failed ||
+           loader_failed ||
            em_opening_control_test_failed() || em_level_smoke_test_failed() ? 1 : 0;
 }

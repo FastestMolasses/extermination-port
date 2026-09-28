@@ -55,6 +55,11 @@
  *     translated request). See "the load arms" below;
  *   - spad 3B90 (001ACEC0 writes 2 every tick) and C4 are forwarded to the
  *     step-D letterbox gate at the end of every task tick (design 2.1);
+ *   - the screen-module loader (H7, docs/MODULE_LOADER.md): booted once at
+ *     start-up over this file's s_state (D_00275BD8, spad 3B90, the
+ *     D_00810CA4 / CA6 progress bytes) and the stream lanes' D_00282157;
+ *     its slot-2 task runs module 0x21's load for the status runtime (see
+ *     "the screen-module loader" at the end of this file);
  *   - the S6 trace contract (design 10.1) when EM_FRAME_TRACE is set.
  *
  * Worker bindings. Every worker the chain reaches in legacy mode is bound;
@@ -144,6 +149,8 @@
 #include "game/em_player_misc_workers.h"
 #include "game/em_roger_actor_original.h"
 #include "game/em_startup_load_gaps.h"
+#include "game/em_module_loader.h"
+#include "em_settings.h"
 
 /* ------------------------------------------------------------ storage */
 
@@ -483,6 +490,7 @@ static struct {
     int weather, title, door[3];
     uint32_t msg[3];
     uint32_t counter;   /* 0x70003B64 at the tick start (EM_RAND_TRACE's clock) */
+    uint8_t loader[27]; /* the loader's record and bytes after the previous frame */
 } s_tick;
 
 static FILE *log_file(void)
@@ -612,6 +620,17 @@ static void log_tick_begin(void)
     s_tick.msg[0] = block ? (uint32_t)block->mode : 0;
     s_tick.msg[1] = block ? (uint32_t)block->phase : 0;
     s_tick.msg[2] = block ? block->line : 0;
+    /* The screen-module loader after the previous frame's slot-2 dispatch
+     * (it runs after this task in em_task_dispatch): the slot record +0,
+     * +8..+0x1F, D_00275BD8 and D_00282157, the first 27 bytes of
+     * em_module_loader_snapshot (docs/MODULE_LOADER.md Binding item 9). */
+    {
+        EmModuleLoader *ml = em_module_loader_live();
+        static uint8_t snap[EM_MODULE_LOADER_SNAPSHOT_SIZE];
+        const EmTask *slot2 = em_task_slot(EM_MODULE_LOADER_TASK_SLOT);
+        em_module_loader_snapshot(ml, slot2, snap);
+        memcpy(s_tick.loader, snap, sizeof s_tick.loader);
+    }
 }
 
 static void log_tick_end(int rc)
@@ -662,7 +681,10 @@ static void log_tick_end(int rc)
         memcpy(tgt, g.cam.tgt, sizeof tgt);
         fputs(", \"screen8\": ", f);
         log_hex(f, screen, sizeof screen);
-        fprintf(f, ", \"msg_pre\": [%u, %u, %u], \"cam4\": ", message[0], message[1], message[2]);
+        fprintf(f, ", \"msg_pre\": [%u, %u, %u], \"loader_pre\": ", message[0], message[1],
+                message[2]);
+        log_hex(f, s_tick.loader, sizeof s_tick.loader);
+        fputs(", \"cam4\": ", f);
         log_hex(f, cam4, sizeof cam4);
         fprintf(f, ", \"power\": %d, \"floor\": %d, \"pos_post\": [%u, %u, %u], \"yaw_post\": %u",
                 power ? *power : -1, floor ? *floor : -1, pos[0], pos[1], pos[2], yaw);
@@ -2942,4 +2964,85 @@ void em_scene_task_001ACEC0(void)
                 "em_scene: FAULT at %08X (code %d); the game task is stopped (fail-stop)\n",
                 (unsigned)s_state.fault.address, (int)s_state.fault.code);
     }
+}
+
+/* ------------------------------------------- the screen-module loader (H7)
+ *
+ * docs/MODULE_LOADER.md "Binding": the slot-2 task 001FF0D0's disc and DMA
+ * layer over the user's exported sectors (assets/module_loader/modules.emml,
+ * tools/export_module_loader.py). Its views are the one storage of each
+ * byte it reads: D_00275BD8 and 0x70003B90 of the scene state, D_00282157
+ * through the stream lanes' read phase, D_00810CA4 / D_00810CA6 of the
+ * progress block. The disc answers at host speed; the PS2 disc-drive
+ * timing switch (EM_PS2_DISC_DRIVE_TIMING, em_settings) selects the
+ * recorded drive time instead (MODULE_LOADER.md 1.7). */
+static EmModuleLoader *s_loader;
+static int s_loader_reported;
+
+int em_scene_bindings_module_loader_boot(const char *pack_path)
+{
+    em_scene_bindings_module_loader_shutdown();
+    EmModuleLoader *ml = em_module_loader_open(pack_path);
+    const uint8_t *ca = em_scene_progress_at(&s_state, 0x00810CA4u, 4);
+    if (!ml || !ca) {
+        em_module_loader_close(ml);
+        fprintf(stderr, "em_scene: the screen-module loader's sectors %s are missing or malformed "
+                "(python3 tools/export_module_loader.py; docs/STARTUP.md)\n", pack_path);
+        return -1;
+    }
+    const EmModuleLoaderViews views = {&s_state.d275BD8, r_00282157, NULL, ca, ca + 2,
+                                       &s_state.spad3B90};
+    em_module_loader_set_views(ml, &views);
+    if (em_module_loader_set_drive(ml, em_settings()->ps2_disc_drive_timing
+                                           ? EM_MODULE_LOADER_DRIVE_MEASURED
+                                           : EM_MODULE_LOADER_DRIVE_HOST) != 0) {
+        em_module_loader_close(ml);
+        return -1;
+    }
+    em_module_loader_bind_live(ml);
+    s_loader = ml;
+    s_loader_reported = 0;
+    return 0;
+}
+
+void em_scene_bindings_module_loader_shutdown(void)
+{
+    if (!s_loader)
+        return;
+    em_module_loader_bind_live(NULL);
+    em_module_loader_close(s_loader);
+    s_loader = NULL;
+}
+
+void em_scene_bindings_module_loader_field(void)
+{
+    em_module_loader_field(s_loader);
+}
+
+int em_scene_bindings_module_loader_check(void)
+{
+    EmStatusSceneFault f = {0, EM_STATUS_SCENE_FAULT_NONE};
+    if (!s_loader || (!em_module_loader_failed(s_loader, &f) && !em_module_loader_orphaned(&f)))
+        return 0;
+    if (!s_loader_reported) {
+        s_loader_reported = 1;
+        fprintf(stderr, "em_scene: the screen-module loader faulted at %08X (code %d); the game "
+                "stops (fail-stop)\n", (unsigned)f.address, (int)f.code);
+    }
+    return -1;
+}
+
+void em_scene_bindings_module_loader_report(FILE *out)
+{
+    if (!s_loader || !out)
+        return;
+    uint32_t dispatches, reads, unmeasured;
+    em_module_loader_counts(s_loader, &dispatches, &reads, &unmeasured);
+    if (em_settings()->ps2_disc_drive_timing)
+        fprintf(out, "module loader: PS2 disc-drive timing on: %u dispatches, %u reads (%u without a "
+                     "recorded drive time, answered at host speed)\n",
+                (unsigned)dispatches, (unsigned)reads, (unsigned)unmeasured);
+    else
+        fprintf(out, "module loader: host speed: %u dispatches, %u reads\n", (unsigned)dispatches,
+                (unsigned)reads);
 }

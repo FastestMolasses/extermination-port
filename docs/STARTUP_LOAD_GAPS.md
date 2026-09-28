@@ -44,8 +44,8 @@ coordinator chain; section 4 says exactly what each binding replaces.
 | 008237C0 AREA11 overlay init | missing (critic 7.2: stand-in) | verified-unbound | `em_slg_008237C0` | oracle + every capture |
 | 00199C50 collision tables | missing | verified-unbound | `em_slg_00199C50` | oracle, unit + every capture |
 | 0015C1F0 player model kind | verified-unbound | unchanged | `em_player_misc_0015C1F0` | test_player_misc_workers_reference |
-| 001AB7D0 task stop | verified-unbound | unchanged | em_status_scene_original | test_status_scene_reference |
-| 001FEF70 bank selector | verified-unbound | unchanged | `em_status_scene_bank_001FEF70` | test_status_scene_reference |
+| 001AB7D0 task stop | verified-unbound | live since chain C8b LOADER (the loader's 0x63 step) | em_status_scene_original | test_status_scene_reference, test_module_loader_reference |
+| 001FEF70 bank selector | verified-unbound | live since chain C8b LOADER (the page core's exit) | `em_status_scene_bank_001FEF70` | test_status_scene_reference, test_status_page_reference |
 
 Also translated, not in the census (it never ran on the route): 001B62A0, the
 pad-block reset 001B5F40 calls on a disconnect.
@@ -408,17 +408,19 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
 - Route: the translation reproduces the captured scratchpad of every
   capture.
 
-### 0015C1F0, 001AB7D0, 001FEF70 — verified-unbound, binding notes only
+### 0015C1F0, 001AB7D0, 001FEF70 — binding notes
 
 - 0015C1F0: bind `em_player_misc_w_0015C1F0` (em_player_misc_workers.c)
   at 001B07C0's call site. It replaces the reported no-effect
   `UM_0015C1F0` in em_scene_bindings.c.
 - 001AB7D0: em_status_scene_original's slot-2 loader stops itself
-  (`*slot_state = 0`). It becomes live when that loader is bound. With
-  em_task that is `em_task_current()->state = 0`, which this oracle also
-  exercises against the original 001AB7D0.
+  (`*slot_state = 0`, the em_task slot-2 record's state). Live since chain
+  C8b LOADER: the loader runs for module 0x21 (MODULE_LOADER.md).
 - 001FEF70: `em_status_scene_bank_001FEF70` (status scene loader, lanes
-  L20/L35). It is bound together with that loader.
+  L20/L35). Live since chain C8b LOADER: the page core's exit
+  (em_status_page, 0020E0C0 case 0) calls it; its own copy there is
+  deleted. Its call in the loader's +8 = 1 branch waits on the area
+  streamer's binding.
 
 ## 4. Binding summary for the lead
 

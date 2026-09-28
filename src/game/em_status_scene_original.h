@@ -63,8 +63,23 @@ extern "C" {
 #define EM_STATUS_SCENE_SPR_38A0 0x700038A0u    /* 001F4BF0 position */
 #define EM_STATUS_SCENE_SPR_38B0 0x700038B0u    /* 001F4BF0 colour words */
 #define EM_STATUS_SCENE_TEX0_001F4BF0 UINT64_C(0x20045B0599421EF0) /* its sprite TEX0 */
-/* D_0028A490[] words modelled: 0x28A490 up to the next global D_0028A5A0. */
-#define EM_STATUS_SCENE_RELOC_WORDS 68
+/* D_0028A490[]: the loader's resource-slot table, 0x28A490 up to the task
+ * table D_0028A750 (0xB0 words). The relocation step writes
+ * D_0028A490[e >> 24], so a slot is also the address 0x28A490 + 4 * slot:
+ * the named globals below are slots of this one table (real module
+ * headers name slots up to 0x9A; 001FFCD0 passes 0xAB / 0xAC to 001FF590).
+ * A slot at or past 0xB0 would store into the task table: the port faults. */
+#define EM_STATUS_SCENE_RELOC_WORDS 0xB0
+#define EM_STATUS_SCENE_SLOT(address) (((address) - 0x0028A490u) >> 2)
+#define EM_STATUS_SCENE_SLOT_D_0028A4B0 0x08u /* the player texture packets 4B0..4C0 */
+#define EM_STATUS_SCENE_SLOT_D_0028A564 0x35u /* the library texture packet */
+#define EM_STATUS_SCENE_SLOT_D_0028A5A0 0x44u /* 001FF830 kind-2 cursor (module 0x1D) */
+#define EM_STATUS_SCENE_SLOT_D_0028A734 0xA9u /* boot loader end */
+#define EM_STATUS_SCENE_SLOT_D_0028A738 0xAAu /* 001FF830 kind-0 base (modules 2/3) */
+#define EM_STATUS_SCENE_SLOT_D_0028A73C 0xABu /* kind-0 end; the area load's base */
+#define EM_STATUS_SCENE_SLOT_D_0028A740 0xACu /* the area's second block base */
+#define EM_STATUS_SCENE_SLOT_D_0028A744 0xADu /* kind-3 base / kind-2 end */
+#define EM_STATUS_SCENE_SLOT_D_0028A748 0xAEu /* default kind-1 base */
 /* Static actor records (D_0028B020, 0x2F0 bytes): +0x110 bone slots that fit. */
 #define EM_STATUS_SCENE_BONE_SLOTS 120
 #define EM_STATUS_SCENE_POOL_RECORDS 24
@@ -194,10 +209,26 @@ typedef struct {
     uint8_t d810CA4, d810CA6; /* 001FEF70 inputs */
     uint32_t d275C70;         /* D_00275C70: current header (PS2 address) */
     uint32_t d275C74;         /* D_00275C74: destination buffer (PS2 address) */
-    uint32_t d28A5A0, d28A738, d28A73C, d28A744, d28A748; /* buffer cursors */
-    uint32_t d28A490[EM_STATUS_SCENE_RELOC_WORDS];        /* relocation table */
+    /* D_0028A490..D_0028A74F: the resource-slot table and, as its slots,
+     * the buffer cursors D_0028A5A0 and D_0028A734..D_0028A748
+     * (EM_STATUS_SCENE_SLOT_*). One storage. */
+    uint32_t d28A490[EM_STATUS_SCENE_RELOC_WORDS];
     uint8_t header[0x800];    /* D_00289BC0 */
 } EmStatusSceneLoader;
+
+/* 001FFCD0's own inputs and outputs besides the loader globals: the area
+ * and room D_00810700 / D_00810701 (read; state 7 clears D_00810701), the
+ * latches D_00810703 (the area whose header is in, state 3) and
+ * D_00810704 (the nested room, state 7), the overlay arena word
+ * D_00275304[0] (the destination of the area's overlay file) and the
+ * descriptor table D_0028A3C0 {lsn, size} x 0x17 (boot's 001FEE60 fills it
+ * from the disc directory: tools/export_module_loader.py). */
+#define EM_STATUS_SCENE_AREA_FILES 0x17
+typedef struct {
+    uint8_t d810700, d810701, d810703, d810704;
+    uint32_t d275304;
+    uint32_t d28A3C0[EM_STATUS_SCENE_AREA_FILES][2];
+} EmStatusSceneArea;
 
 /* ---------------------------------------------------------------------------
  * Workers, one per original callee. All return >= 0 on success and < 0 on a
@@ -252,6 +283,11 @@ typedef struct {
     int (*w_00200730)(void *ctx, int32_t *status); /* 0 busy, 1 done, other error */
     int (*w_00200830)(void *ctx, uint32_t address);
     int (*w_001FB370)(void *ctx, uint32_t address, uint32_t *result); /* 0: not yet */
+    /* 001FFCD0's: 00200890 (the player's texture packet, over the slots
+     * 8..12 and D_00810707 / D_00810C60) and 002009E0(p, off) (FlushCache,
+     * then the overlay's +0x14 bytes at p + off cleared). */
+    int (*w_00200890)(void *ctx);
+    int (*w_002009E0)(void *ctx, uint32_t p, uint32_t off);
 } EmStatusSceneWorkers;
 
 /* ---- the static actor pool D_0028B020 ---- */
@@ -320,6 +356,15 @@ void em_status_scene_loader_request_001FF080(uint8_t *slot_state, uint8_t user[2
  * once per frame while the slot state is 2). Returns 0, or -1. */
 int em_status_scene_loader_001FF0D0(uint8_t *slot_state, uint8_t user[24], EmStatusSceneLoader *ld,
                                     const EmStatusSceneWorkers *w, EmStatusSceneFault *fault);
+
+/* One 001FFCD0 call (the slot-2 record with +8 == 1): the area load of
+ * D_00810700 / D_00810701 (NEARMISS C, read against the .s; verified by
+ * tools/test_status_scene_reference.py over the original instructions),
+ * with its bank-chunk streamer 001FF590 (byte-matched C) inline. user is
+ * the record's +8..+0x1F. Returns 0, or -1 with *fault. */
+int em_status_scene_area_001FFCD0(uint8_t user[24], EmStatusSceneLoader *ld,
+                                  EmStatusSceneArea *area, const EmStatusSceneWorkers *w,
+                                  EmStatusSceneFault *fault);
 
 /* 001FEF70 over D_00810CA4/CA6: 0x35/0x32/0x33/0x34 or -1. */
 int32_t em_status_scene_bank_001FEF70(uint8_t ca4, uint8_t ca6);

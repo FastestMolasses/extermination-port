@@ -1,4 +1,5 @@
 #include "game/em_area11_interaction_host.h"
+#include "game/em_module_loader.h"
 #include "game/em_battery_page_live.h"
 #include "game/em_door_candidate.h"
 #include "game/em_render_context_live.h"
@@ -1332,6 +1333,11 @@ int em_area11_interaction_host_load(const char *directory,
     snprintf(item_path, sizeof item_path, "%s/panel/item_root.emir", directory);
     world.status = em_status_runtime_load(path, item_path, math, status_hooks);
     if (!world.status) goto failed;
+    /* D_00275BD8 is the scene state's byte (the page's busy field is its
+     * per-call view), and module 0x21's load runs the live screen-module
+     * loader's own steps (docs/MODULE_LOADER.md Binding). */
+    em_status_runtime_bind_busy(world.status, &em_scene_state()->d275BD8);
+    if (!em_status_runtime_bind_loader(world.status, em_module_loader_live())) goto failed;
     /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF. */
     if (!em_status_background_load_sdk("assets/sdk_math_tables.emsm")) goto failed;
     /* The hub's 3D models (tools/export_status_models.py). */

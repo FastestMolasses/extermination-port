@@ -52,6 +52,8 @@ static struct {
     EmFrameMessageService message;    /* step F 001FCA10 presenter */
     int (*step_i)(void *);            /* step I 001B5B70 (em_pad_actuator) */
     void        *step_i_context;
+    int (*task_check)(void *);        /* after step E: a latched task fault */
+    void        *task_check_context;
     int (*step_b)(void *, int32_t);   /* step B 001D1AE0 (em_render_context_live) */
     void        *step_b_context;
     int (*step_v)(void *);            /* step V 001D2300 (em_render_context_live) */
@@ -135,6 +137,12 @@ void em_frame_set_movie_pump(EmFrameMoviePump pump, void *user)
 {
     s_frame.movie_pump = pump;
     s_frame.movie_user = user;
+}
+
+void em_frame_set_task_check(int (*check)(void *context), void *context)
+{
+    s_frame.task_check = check;
+    s_frame.task_check_context = context;
 }
 
 void em_frame_set_step_i(int (*service)(void *context), void *context)
@@ -361,6 +369,12 @@ int em_frame_step(void)
 
     /* E/F/G: task requests affect the transition's SAME-frame tick. */
     em_task_dispatch();
+    /* A task whose worker latched a fault (the screen-module loader's
+     * slot-2 task) stops the game here: fail-stop, never a hung wait. */
+    if (s_frame.task_check && s_frame.task_check(s_frame.task_check_context) < 0) {
+        s_frame.quit = true;
+        return 0;
+    }
     /* F: 001FCA10, the message service, after every script worker. */
     if (s_frame.message.tick && s_frame.message.tick(s_frame.message.context) < 0)
         s_frame.quit = true;

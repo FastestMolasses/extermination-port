@@ -77,9 +77,14 @@ MASK = 0xFFFFFFFF
 
 SLOT, SPAD_SLOT, SPAD_3B90 = 0x28A790, 0x70003B6C, 0x70003B90
 HEADER, BD8, GATE = 0x289BC0, 0x275BD8, 0x282157
-WORDS = (0x275C70, 0x275C74, 0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
+WORDS = (0x275C70, 0x275C74)
+# D_0028A490..D_0028A74F: the resource-slot table, whose slots are also the
+# cursors D_0028A5A0 and D_0028A734..D_0028A748 (one storage), up to the
+# task table D_0028A750.
 RELOC = 0x28A490
-SNAP = 1 + 24 + 2 + 7 * 4 + 68 * 4 + 0x800
+RELOC_WORDS = 0xB0
+CURSORS = (0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
+SNAP = 1 + 24 + 2 + 2 * 4 + RELOC_WORDS * 4 + 0x800
 
 READ, POLL, DMA, PACKET, RESTORE = 0x200780, 0x200730, 0x200830, 0x200890, 0x200970
 READY, CDREAD, SYNC, ERROR = 0x113280, 0x112440, 0x112D18, 0x113680
@@ -153,7 +158,7 @@ class LoaderEE(EE):
         out += bytes([self.load(BD8, 1), self.load(GATE, 1)])
         for a in WORDS:
             out += struct.pack('<I', self.load(a))
-        out += self.read(RELOC, 68 * 4)
+        out += self.read(RELOC, RELOC_WORDS * 4)
         out += self.read(HEADER, 0x800)
         return bytes(out)
 
@@ -163,7 +168,7 @@ def modelled():
     s = {SLOT} | set(range(SLOT + 8, SLOT + 0x20)) | {BD8}
     for a in WORDS:
         s |= set(range(a, a + 4))
-    return s | set(range(RELOC, RELOC + 68 * 4)) | set(range(HEADER, HEADER + 0x800))
+    return s | set(range(RELOC, RELOC + RELOC_WORDS * 4)) | set(range(HEADER, HEADER + 0x800))
 
 
 MODELLED = modelled()
@@ -209,11 +214,21 @@ class Views(C.Structure):
                 ('d810CA4', U8P), ('d810CA6', U8P), ('spad3B90', U8P)]
 
 
+def _slot_word(address):
+    slot = (address - RELOC) >> 2
+    return property(lambda self: self.d28A490[slot],
+                    lambda self, value: self.d28A490.__setitem__(slot, value))
+
+
 class Loader(C.Structure):  # EmStatusSceneLoader
     _fields_ = [(n, C.c_uint8) for n in ('d282157', 'd275BD8', 'spad3B90', 'd810CA4', 'd810CA6')] + [
-        (n, C.c_uint32) for n in ('d275C70', 'd275C74', 'd28A5A0', 'd28A738', 'd28A73C',
-                                   'd28A744', 'd28A748')] + [
-        ('d28A490', C.c_uint32 * 68), ('header', C.c_uint8 * 0x800)]
+        (n, C.c_uint32) for n in ('d275C70', 'd275C74')] + [
+        ('d28A490', C.c_uint32 * RELOC_WORDS), ('header', C.c_uint8 * 0x800)]
+    d28A5A0 = _slot_word(0x28A5A0)
+    d28A738 = _slot_word(0x28A738)
+    d28A73C = _slot_word(0x28A73C)
+    d28A744 = _slot_word(0x28A744)
+    d28A748 = _slot_word(0x28A748)
 
 
 TRACE = C.CFUNCTYPE(None, C.c_void_p, C.c_uint32, C.c_uint32, C.c_uint32, C.c_uint32, C.c_uint32)
@@ -517,7 +532,7 @@ def pack_globals(path):
     """{address: word} of the descriptors and cursor seeds a pack carries."""
     data = Path(path).read_bytes()[:0x40]
     words = struct.unpack_from('<11I', data, 0x10)
-    addrs = (0x28A480, 0x28A484, 0x28A488, 0x28A48C) + WORDS
+    addrs = (0x28A480, 0x28A484, 0x28A488, 0x28A48C) + WORDS + CURSORS
     return dict(zip(addrs, words))
 
 
@@ -533,7 +548,8 @@ def relocated_pack(src, dst, shift, before, after, seeds):
     g.update(seeds)
     order = sorted(load_pack(src))
     blob = bytearray(struct.pack('<4sIII', b'EMML', 1, len(order), 0))
-    blob += struct.pack('<11I', *(g[a] for a in (0x28A480, 0x28A484, 0x28A488, 0x28A48C) + WORDS)) + bytes(4)
+    blob += struct.pack('<11I', *(g[a] for a in (0x28A480, 0x28A484, 0x28A488, 0x28A48C) + WORDS + CURSORS)) \
+        + bytes(4)
     offset = 0x40 + 0x10 * len(order)
     table, payload = bytearray(), bytearray()
     for lsn, sectors in order:
@@ -587,9 +603,9 @@ class WholeLoad:
         lib.em_module_loader_set_views(self.ml, C.byref(self.views))
         st = lib.em_module_loader_state(self.ml).contents
         for name, a in zip(('d275C70', 'd275C74', 'd28A5A0', 'd28A738', 'd28A73C', 'd28A744', 'd28A748'),
-                           WORDS):
+                           WORDS + CURSORS):
             assert getattr(st, name) == o.load(a), ('pack cursor differs from the capture', name)
-        for i in range(68):
+        for i in range(RELOC_WORDS):
             st.d28A490[i] = o.load(RELOC + 4 * i)
         C.memmove(st.header, o.read(HEADER, 0x800), 0x800)
         self.trace_cb = TRACE(self.n_trace)
@@ -932,12 +948,12 @@ def module_header(disc, m):
 
 def out_of_table(h):
     """(address, code) of the native fail-stop for the first relocation slot
-    past the 68 modelled words, or None."""
+    past the slot table (slot 0xB0 on: the task table D_0028A750), or None."""
     a, b, c = struct.unpack_from('<H', h, 0xE)[0], struct.unpack_from('<I', h, 0x10)[0], \
         struct.unpack_from('<I', h, 0x1C)[0]
     for k in range(c):
         idx = struct.unpack_from('<I', h, 0x20 + 8 * (a + b) + 4 * k)[0] >> 24
-        if idx >= 68:
+        if idx >= RELOC_WORDS:
             return (RELOC + 4 * idx, 4)
     return None
 
@@ -968,9 +984,12 @@ def build_full_pack(modules):
 
 
 def check_other_modules(elf, lib):
-    """Whole loads of real module headers at host speed. A module whose
-    relocations name a slot past the 68 modelled words must fail-stop at
-    exactly the address the original writes (the named global there)."""
+    """Whole loads of real module headers at host speed. Since the slot
+    table is modelled whole (0xB0 words, its cursors among them), every
+    real header loads through: the 14 that stopped at the old 68-word model
+    (slots such as 0x44 = D_0028A5A0, 0x86, 0x87, up to 0x9A) now write the
+    same words as the original. A slot past the table would still fail-stop
+    at the address the original writes."""
     import export_module_loader as X
     disc = X.Disc(ISO)
     ram = (ROUTE / '03_panel_power/eeMemory.bin').read_bytes()
@@ -1000,6 +1019,7 @@ def check_other_modules(elf, lib):
         finally:
             w.close()
         assert got == [HEADER, dest], (value, [hex(b) for b in got])
+    assert not stopped, ('a real module header names a slot past D_0028A490[0xAF]', stopped)
     return done, stopped
 
 
@@ -1224,7 +1244,7 @@ def main():
            f"{counts['dma_00200830']} 00200830 + {counts['packet_00200890_restore_00200970']} "
            f"00200890/00200970 cases",
            f"module 0x21: host {host} dispatches, measured {measured} (route 03) / {r01} (route 01)",
-           f"{len(done)} other whole loads + {len(stopped)} fail-stops past the modelled slots",
+           f"{len(done)} other whole loads (none past the slot table)",
            f"pinned: {counts['pinned_whole_loads']} whole loads (gate, relocated pack, disc-only pack), "
            f"3 module-0x2B spad loads, {counts['packet_after_module3']} 00200890 after module 3")
     print(f"Module loader: PASS; host-speed rows = captured rows minus {busy} busy polls; "

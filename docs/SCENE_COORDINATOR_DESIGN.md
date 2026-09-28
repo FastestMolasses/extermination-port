@@ -780,7 +780,9 @@ test-actor-pool, test-frame-trace, test-actor-census.
   path from a local export of the letter bank D_0028A56C, and em_gfx gets an ordered 2D layer so
   0020A7A0's sprites draw before the models and 00209DF0's layer after them. (c) em_sdk_math_original
   lands with WP-5 (its targets and the sdk_math_tables export in STARTUP.md). (d) The module-load
-  wait stays open until a PCSX2 I/O probe measures it; H7 stays PARTIAL.
+  wait stays open until a PCSX2 I/O probe measures it; H7 stays PARTIAL. (Done for module 0x21 in
+  chain C8b LOADER, 2026-09-28: the loader's own steps at host speed, the probe's busy counts behind
+  the PS2 disc-drive timing switch; MODULE_LOADER.md. The area read is still the native one.)
 - **D2 (2026-09-22): canonical game-progress storage.** The whole 0x640-byte block at D_00810700 that
   001AF2C0 resets (area bytes, D_00810730 table, D_00810758 slot table, D_00810778/788, the D_00810860
   per-area bits, D_00810B40, opening-complete D_00810811, power bits D_00810841, inventory D_00810C60..) gets

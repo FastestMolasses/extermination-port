@@ -227,15 +227,37 @@ class PlayerGlobals(C.Structure):
         ('view', C.c_float * 12), ('health', C.c_float), ('infection', C.c_float)]
 
 
+RELOC_WORDS = 0xB0   # D_0028A490..D_0028A74F, up to the task table D_0028A750
+
+
+def _slot_word(address):
+    """A loader cursor global as its slot of D_0028A490 (one storage)."""
+    slot = (address - 0x28A490) >> 2
+    return property(lambda self: self.d28A490[slot],
+                    lambda self, value: self.d28A490.__setitem__(slot, value))
+
+
 class Loader(C.Structure):
     _fields_ = [(n, C.c_uint8) for n in ('d282157', 'd275BD8', 'spad3B90', 'd810CA4', 'd810CA6')] + [
-        (n, C.c_uint32) for n in ('d275C70', 'd275C74', 'd28A5A0', 'd28A738', 'd28A73C',
-                                   'd28A744', 'd28A748')] + [
-        ('d28A490', C.c_uint32 * 68), ('header', C.c_uint8 * 0x800)]
+        (n, C.c_uint32) for n in ('d275C70', 'd275C74')] + [
+        ('d28A490', C.c_uint32 * RELOC_WORDS), ('header', C.c_uint8 * 0x800)]
+    d28A5A0 = _slot_word(0x28A5A0)
+    d28A738 = _slot_word(0x28A738)
+    d28A73C = _slot_word(0x28A73C)
+    d28A744 = _slot_word(0x28A744)
+    d28A748 = _slot_word(0x28A748)
 
 
 class Fault(C.Structure):
     _fields_ = [('address', C.c_uint32), ('code', C.c_int32)]
+
+
+AREA_FILES = 0x17
+
+
+class Area(C.Structure):  # EmStatusSceneArea
+    _fields_ = [(n, C.c_uint8) for n in ('d810700', 'd810701', 'd810703', 'd810704')] + [
+        ('d275304', C.c_uint32), ('d28A3C0', (C.c_uint32 * 2) * AREA_FILES)]
 
 
 PA = C.POINTER(Actor)
@@ -277,6 +299,8 @@ WORKER_TYPES = [
     ('w_00200730', C.CFUNCTYPE(C.c_int, C.c_void_p, I32P)),
     ('w_00200830', C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32)),
     ('w_001FB370', C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, U32P)),
+    ('w_00200890', C.CFUNCTYPE(C.c_int, C.c_void_p)),
+    ('w_002009E0', C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_uint32)),
 ]
 WT = dict(WORKER_TYPES)
 
@@ -337,6 +361,8 @@ def build():
     lib.em_status_scene_loader_001FF0D0.argtypes = [U8P, U8P, C.POINTER(Loader),
                                                     C.POINTER(Workers), C.POINTER(Fault)]
     lib.em_status_scene_bank_001FEF70.argtypes = [C.c_uint8, C.c_uint8]
+    lib.em_status_scene_area_001FFCD0.argtypes = [U8P, C.POINTER(Loader), C.POINTER(Area),
+                                                  C.POINTER(Workers), C.POINTER(Fault)]
     return out, lib
 
 
@@ -1150,8 +1176,8 @@ class LoaderRig:
         ld = self.ld
         ld.d282157, ld.d275BD8, ld.spad3B90 = gate, 1, spad
         ld.d810CA4, ld.d810CA6 = ca
+        for i in range(RELOC_WORDS): ld.d28A490[i] = 0xAB000000 + i
         for name, _ in LD_WORDS: setattr(ld, name, g.get(name, 0))
-        for i in range(68): ld.d28A490[i] = 0xAB000000 + i
         C.memmove(ld.header, header, 0x800)
         o = self.o
         o.calls.update({0x200780: self.o_read, 0x200730: self.o_poll, 0x200830: self.o_section,
@@ -1165,8 +1191,8 @@ class LoaderRig:
         for i in range(24): o.save(SLOT + 8 + i, self.user[i], 1)
         o.save(0x282157, ld.d282157, 1); o.save(0x275BD8, ld.d275BD8, 1); o.save(SPAD_3B90, ld.spad3B90, 1)
         o.save(0x810CA4, ld.d810CA4, 1); o.save(0x810CA6, ld.d810CA6, 1)
+        for i in range(RELOC_WORDS): o.save(0x28A490 + 4 * i, ld.d28A490[i])
         for name, addr in LD_WORDS: o.save(addr, getattr(ld, name))
-        for i in range(68): o.save(0x28A490 + 4 * i, ld.d28A490[i])
         o.write(HEADER, bytes(ld.header))
 
     def o_read(self, o):
@@ -1220,10 +1246,10 @@ class LoaderRig:
     def oracle_state(self):
         o = self.o
         return ([o.load(SLOT, 1)] + [o.load(SLOT + 8 + i, 1) for i in range(24)] + [o.load(0x275BD8, 1)]
-                + [o.load(a) for _, a in LD_WORDS] + [o.load(0x28A490 + 4 * i) for i in range(68)])
+                + [o.load(a) for _, a in LD_WORDS] + [o.load(0x28A490 + 4 * i) for i in range(RELOC_WORDS)])
 
     def allowed(self):
-        a = span(SLOT, 1) | span(SLOT + 8, 24) | {0x275BD8} | span(0x28A490, 4 * 68)
+        a = span(SLOT, 1) | span(SLOT + 8, 24) | {0x275BD8} | span(0x28A490, 4 * RELOC_WORDS)
         for _, addr in LD_WORDS: a |= span(addr, 4)
         return a
 
@@ -1318,16 +1344,222 @@ def check_loader(elf, lib, capture_header):
             rig = LoaderRig(elf, header_bytes(0x21, 1, 1, (0x02000100,)), user=user, globals_=GLOBALS)
             rig.dispatch(lib, ('step', step, kind))
             n += 1
-    # A relocation index past D_0028A5A0: the original writes outside the
-    # modelled table; the native module faults instead.
+    # Relocations into the named slots of the one table: 0x44 is D_0028A5A0,
+    # 0xAB / 0xAE the cursors D_0028A73C / D_0028A748, 0xAF the table's last
+    # word. Both sides write the same words (rig.dispatch compares them).
+    for slots in ((0x44,), (0xAB, 0xAE), (0xAF, 0x08, 0x35)):
+        user = [0] * 24; user[1] = 7; user[6] = 0x21
+        relocs = tuple(slot << 24 | 0x100 * k for k, slot in enumerate(slots))
+        rig = LoaderRig(elf, header_bytes(0x21, 1, 0, relocs), user=user, globals_=GLOBALS)
+        rig.dispatch(lib, ('reloc slots', slots))
+        assert rig.o.load(0x28A490 + 4 * slots[0]) == GLOBALS['d275C74'], ('slot alias', slots)
+        n += 1
+    # A relocation slot past the table (0xB0 = the task table D_0028A750):
+    # the original stores into the task table; the native module faults.
     user = [0] * 24; user[1] = 7; user[6] = 0x21
-    rig = LoaderRig(elf, header_bytes(0x21, 1, 0, (0x44000000,)), user=user, globals_=GLOBALS)
+    rig = LoaderRig(elf, header_bytes(0x21, 1, 0, (0xB0000000,)), user=user, globals_=GLOBALS)
     rig.o.run(0x1FF0D0)
-    assert rig.o.load(0x28A5A0) == GLOBALS['d275C74'], 'reloc 0x44 did not alias D_0028A5A0'
+    assert rig.o.load(0x28A750) == GLOBALS['d275C74'], 'reloc 0xB0 did not store at D_0028A750'
     fault = Fault()
     r = lib.em_status_scene_loader_001FF0D0(rig.slot, rig.user, C.byref(rig.ld),
                                             C.byref(rig.native_workers()), C.byref(fault))
-    assert r == -1 and fault.code == 4 and fault.address == 0x28A5A0, ('reloc fault', r, fault.code)
+    assert r == -1 and fault.code == 4 and fault.address == 0x28A750, ('reloc fault', r, fault.code)
+    return n, loads
+
+
+# ------------------------------------------- H': the area streamer ------
+
+AREA_BYTES = (('d810700', 0x810700), ('d810701', 0x810701), ('d810703', 0x810703),
+              ('d810704', 0x810704))
+OVERLAY_ARENA = 0x823500     # D_00275304[0] in the ELF's .data
+
+
+def area_header(c, e, n, relocs, nested=0, total=0x791000, resident=0x123000, base=0x76E7800,
+                ident=0xF, sizes=None):
+    """An area descriptor block of 0x70 bytes, as 001FFCD0 reads it: +0x04
+    the DATA.DAT base, +0x08 the size, +0x0C / +0x0E the bank (C) and
+    A-entry (E) counts, +0x10 the B sections, +0x14 the resident offset,
+    +0x18 nested, +0x1C the pointer words; entries from +0x20."""
+    h = bytearray(0x800)
+    struct.pack_into('<IIIHH', h, 0, ident, base, total, c, e)
+    struct.pack_into('<IIII', h, 0x10, n, resident, nested, len(relocs))
+    for i in range(c + e + n):
+        off, size = sizes[i] if sizes else (0x9000 * i, 0x4000 + 0x100 * i)
+        struct.pack_into('<II', h, 0x20 + 8 * i, off, size)
+    at = 0x20 + 8 * (c + e + n)
+    for k, word in enumerate(relocs):
+        struct.pack_into('<I', h, at + 4 * k, word)
+    return h
+
+
+def nested_header(blocks):
+    """A header whose first block names nested blocks (+0x18 != 0) and whose
+    rooms' blocks sit at 0x100 + room * 0x70 (001FFCD0 state 7)."""
+    h = bytearray(area_header(1, 2, 2, (0xAB000100, 0x44000040, 0x08000200), nested=1))
+    for room, (c, e, n, relocs) in enumerate(blocks):
+        b = area_header(c, e, n, relocs, base=0x7000000 + room * 0x100000, total=0x60000,
+                        resident=0x20000, ident=0x100 + room)
+        blob = b[:0x20 + 8 * (c + e + n) + 4 * len(relocs)]
+        assert len(blob) <= 0x70, 'nested block too long'
+        h[0x100 + room * 0x70:0x100 + room * 0x70 + len(blob)] = blob
+    return bytes(h)
+
+
+class AreaRig:
+    """001FFCD0 on both sides over one slot-2 record (+8 = 1). The original
+    runs over the ELF with the record at SLOT (spad 0x70003B6C) and its
+    callees 00200780 / 00200730 / 00200830 / 001FB370 / 00200890 / 002009E0
+    hooked and scripted; 001FF590 runs as original code."""
+
+    def __init__(self, elf, header, area=0x0B, room=0, polls=(), fb=(), globals_=None):
+        self.o = fresh(elf)
+        self.ld, self.area = Loader(), Area()
+        self.user = (C.c_uint8 * 24)(*([1] + [0] * 23))
+        self.polls_o, self.polls_n = list(polls), list(polls)
+        self.fb_o, self.fb_n = list(fb), list(fb)
+        self.expected, self.actual = [], []
+        ld, ar = self.ld, self.area
+        for i in range(RELOC_WORDS): ld.d28A490[i] = 0xAB000000 + i
+        for name, _ in LD_WORDS: setattr(ld, name, (globals_ or GLOBALS).get(name, 0))
+        C.memmove(ld.header, bytes(header), 0x800)
+        ar.d810700, ar.d810701, ar.d810703, ar.d810704 = area, room, 0x5A, 0xA5
+        ar.d275304 = OVERLAY_ARENA
+        for i in range(AREA_FILES):
+            ar.d28A3C0[i][0], ar.d28A3C0[i][1] = 0x9D800 + 0x20 * i, 0x5000 + 0x80 * i
+        o = self.o
+        o.save(SPAD_SLOT, SLOT)
+        o.save(SLOT, 2, 1); o.save(SLOT + 4, 0x1FF0D0)
+        for i in range(24): o.save(SLOT + 8 + i, self.user[i], 1)
+        for i in range(RELOC_WORDS): o.save(0x28A490 + 4 * i, ld.d28A490[i])
+        for name, addr in LD_WORDS: o.save(addr, getattr(ld, name))
+        for name, addr in AREA_BYTES: o.save(addr, getattr(ar, name), 1)
+        o.save(0x275304, OVERLAY_ARENA)
+        for i in range(AREA_FILES):
+            o.save(0x28A3C0 + 8 * i, ar.d28A3C0[i][0]); o.save(0x28A3C4 + 8 * i, ar.d28A3C0[i][1])
+        o.write(HEADER, bytes(ld.header))
+        o.calls.update({0x200780: self.o_read, 0x200730: self.o_poll, 0x200830: self.o_section,
+                        0x1FB370: self.o_fb, 0x200890: self.o_packet, 0x2009E0: self.o_clear})
+
+    def o_read(self, o):
+        self.expected.append(('read', o.r[4] & MASK, o.r[5] & MASK, o.r[6] & MASK, o.r[7] & MASK))
+
+    def o_poll(self, o):
+        self.expected.append(('poll',)); o.r[2] = self.polls_o.pop(0) & MASK
+
+    def o_section(self, o):
+        self.expected.append(('section', o.r[4] & MASK))
+
+    def o_fb(self, o):
+        self.expected.append(('fb', o.r[4] & MASK)); o.r[2] = self.fb_o.pop(0)
+
+    def o_packet(self, o):
+        self.expected.append(('packet',))
+
+    def o_clear(self, o):
+        self.expected.append(('clear', o.r[4] & MASK, o.r[5] & MASK))
+
+    def native_workers(self):
+        A = self.actual
+
+        def read(_, file, buf, offset, size, header):
+            assert bool(header) == (buf == HEADER), ('header pointer', buf)
+            A.append(('read', file, buf, offset & MASK, size & MASK)); return 0
+
+        def poll(_, out):
+            A.append(('poll',)); out[0] = signed(self.polls_n.pop(0)); return 0
+
+        def fb(_, address, out):
+            A.append(('fb', address)); out[0] = self.fb_n.pop(0); return 0
+        return workers(w_00200780=read, w_00200730=poll,
+                       w_00200830=lambda _, a: A.append(('section', a)) or 0, w_001FB370=fb,
+                       w_00200890=lambda _: A.append(('packet',)) or 0,
+                       w_002009E0=lambda _, q, off: A.append(('clear', q, off)) or 0)
+
+    def state(self):
+        ld, ar = self.ld, self.area
+        return (list(self.user) + [ld.d275C70, ld.d275C74] + list(ld.d28A490)
+                + [getattr(ar, n) for n, _ in AREA_BYTES])
+
+    def oracle_state(self):
+        o = self.o
+        return ([o.load(SLOT + 8 + i, 1) for i in range(24)] + [o.load(0x275C70), o.load(0x275C74)]
+                + [o.load(0x28A490 + 4 * i) for i in range(RELOC_WORDS)]
+                + [o.load(a, 1) for _, a in AREA_BYTES])
+
+    def allowed(self):
+        a = span(SLOT + 8, 24) | span(0x275C70, 8) | span(0x28A490, 4 * RELOC_WORDS)
+        for _, addr in AREA_BYTES: a |= {addr}
+        return a
+
+    def dispatch(self, lib, label):
+        o = self.o
+        o.r = [0] * 32; o.f = [0] * 32; o.r[28], o.r[29] = 0x27D370, STACK
+        before = dict(o.mem)
+        self.expected.clear(); self.actual.clear()
+        o.run(0x1FFCD0)
+        fault = Fault()
+        r = lib.em_status_scene_area_001FFCD0(self.user, C.byref(self.ld), C.byref(self.area),
+                                              C.byref(self.native_workers()), C.byref(fault))
+        assert r == 0 and fault.code == 0, (label, fault.address, fault.code)
+        diff = changed_bytes(o, before) - self.allowed()
+        assert not diff, (label, sorted(hex(a) for a in diff)[:8])
+        assert self.actual == self.expected, (label, self.actual, self.expected)
+        assert self.state() == self.oracle_state(), (label, first_diff(self.state(), self.oracle_state()))
+        assert bytes(self.ld.header) == o.read(HEADER, 0x800), (label, 'header')
+
+
+def run_area(elf, lib, label, header, polls, fb, room=0, limit=200):
+    """001FFCD0 until its status byte is 0x63; returns the dispatch count."""
+    rig = AreaRig(elf, header, room=room, polls=polls, fb=fb)
+    for n in range(1, limit + 1):
+        rig.dispatch(lib, (label, n))
+        if rig.user[0] == 0x63:
+            assert not rig.polls_n and not rig.fb_n, (label, 'unused scripted results')
+            return n, rig
+    raise AssertionError((label, 'the area load did not finish'))
+
+
+def check_area(elf, lib, disc_header):
+    """001FFCD0 + 001FF590 against the original instructions: AREA11's own
+    header (INDEX.IDX sector 0x0F from the user's disc) and synthetic
+    headers that reach every state: no bank, no A entries, B sections,
+    pointer words into the named slots (0xAB = D_0028A73C: the later words
+    follow it), a nested block per room (states 8..11), busy and error
+    polls, and 001FB370's not-yet results."""
+    n = loads = 0
+    # AREA11: overlay read + clear, header, the bank (001FB370 twice not
+    # yet), one A entry, the resident region, 19 pointer words, 00200890.
+    count, rig = run_area(elf, lib, 'area 0x0B', disc_header, polls=[1] * 5, fb=[0, 0, 0x1335F40])
+    assert rig.ld.d28A5A0 == rig.ld.d28A490[0xAB] + 0x1E1000, 'AREA11 relocates D_0028A5A0'
+    assert rig.area.d810703 == 0x0B and count == 14, (count, rig.area.d810703)
+    n += count; loads += 1
+    cases = [('busy', disc_header, [0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 1, 1], [0x1335F40]),
+             # overlay poll 2 (back to state 0), header poll 3 (state 2 again),
+             # the bank poll 7 (001FF590 back to 0), an A-entry poll 9 (its
+             # read again)
+             ('errors', disc_header, [2, 1, 3, 1, 7, 1, 9, 1, 1], [0x1335F40]),
+             # Polls: the overlay, the header, the bank (when +0x0C != 0),
+             # each A entry and the resident region, then the same for a
+             # nested block.
+             ('no bank, no A', area_header(0, 0, 0, (0xAC000010,)), [1, 1, 1], []),
+             ('two A, B', area_header(1, 2, 2, (0xAB000100, 0x44000040, 0xAF000000)), [1] * 6,
+              [0x12000]),
+             ('nested room 0', nested_header([(1, 1, 1, (0xAC000020, 0x45000000)),
+                                              (0, 2, 0, (0x46000010,))]), [1] * 9, [0x3000, 0, 0x4000]),
+             ('nested room 1', nested_header([(1, 1, 1, (0xAC000020, 0x45000000)),
+                                              (0, 2, 0, (0x46000010,))]), [1] * 9, [0x3000])]
+    for label, header, polls, fb in cases:
+        room = 1 if label == 'nested room 1' else 0
+        if not FULL and label in ('busy',):
+            continue
+        count, _ = run_area(elf, lib, label, header, polls, fb, room=room)
+        n += count; loads += 1
+    # A room index past the table: the native module refuses the read.
+    rig = AreaRig(elf, disc_header, area=AREA_FILES)
+    fault = Fault()
+    assert lib.em_status_scene_area_001FFCD0(rig.user, C.byref(rig.ld), C.byref(rig.area),
+                                             C.byref(rig.native_workers()), C.byref(fault)) == -1 \
+        and fault.code == 4 and fault.address == 0x28A3C0 + 8 * AREA_FILES, ('area index fault', fault.code)
     return n, loads
 
 
@@ -1523,6 +1755,11 @@ def main():
     loader_cases, loads = check_loader(elf, lib, route03[HEADER:HEADER + 0x800])
     counts['loader_dispatch_cases'] = loader_cases
     counts['loader_whole_loads'] = loads
+    import export_module_loader as X
+    disc = X.Disc(DECOMP / 'Extermination-rebuilt.iso')
+    area_calls, area_loads = check_area(elf, lib, disc.sectors(disc.index[0] + 0x0F, 1))
+    counts['area_dispatches'] = area_calls
+    counts['area_loads'] = area_loads
 
     hub = ram(REF / 'status-hub/eeMemory.bin')
     cap_letters, player_frames = check_capture_models(elf, lib, hub)
@@ -1538,14 +1775,16 @@ def main():
                                       '001B0000', '0020E1E0', '0020E250', '0020E3A0', '0020E460',
                                       '0020E6F0', '0020EC80', '001031E0', '001F4BF0',
                                       '001FF080', '001AB740', '001FF0D0', '001FF830', '001FF3F0',
-                                      '001FEF70', '001AB7D0', '001C6120 (capture only)'])
+                                      '001FEF70', '001AB7D0', '001FFCD0', '001FF590',
+                                      '001C6120 (capture only)'])
     (out / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
     banner(f"{counts['glyph']} glyph codes, {counts['pool']} pool cases",
            f"{letters} letter cases ({e250_total} 0020E250 inputs in full), "
            f"{counts['letter_behaviour']} 0020E460 cases",
            f"{player} player states + {player_ticks} lockstep ticks",
            f"{counts['publish']} 0020EC80 + {counts['glow']} 001F4BF0 cases",
-           f"{loader_cases} loader dispatches + {loads} whole loads")
+           f"{loader_cases} loader dispatches + {loads} whole loads",
+           f"{area_calls} 001FFCD0 dispatches over {area_loads} area loads")
     print(f"Status scene workers: PASS; captures: pool records 0..6 (6 letters, menu player at "
           f"call {player_frames}), loader record; ITEM wait "
           f"{waits['03_panel_power']} dispatches in routes 01/03 vs native minimum {dispatches} "

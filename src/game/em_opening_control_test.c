@@ -264,6 +264,7 @@ void em_opening_control_test_after_frame(void)
                 g.pos[0],g.pos[1],g.pos[2],ground.point[1],test.census);
         /* The stream drive's mode (em_settings; tools/test_rand_order.py). */
         em_stream_live_drive_report(stderr);
+        em_scene_bindings_module_loader_report(stderr);
         if (test.area_change) {
             em_scene_request_area_change_001B0C60(0x0B, 0, 0);
             test.area_last_frame = g.frame_no;

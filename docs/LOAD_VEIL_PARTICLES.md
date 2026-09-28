@@ -22,8 +22,10 @@ packets REF comes from the boot builder's GS blocks, now translated
 (em_gs_blocks_original, RENDER_CONTEXT.md 8.3).
 
 **What a player sees today.** The port's area read completes inside
-001FF080(1, 0) (a stand-in for the loader task 001FF0D0, whose own steps are
-not run yet: H7, the module loader), so the load takes no tick at host
+001FF080(1, 0) (a stand-in for the loader task 001FF0D0's area streamer
+001FFCD0: translated since chain C8b LOADER but not bound, because its
+sound-bank step 001FB370 runs the EE sound library and the IOP, which are
+not live; MODULE_LOADER.md section 5), so the load takes no tick at host
 speed. 0021B550 then goes from state 0 straight to state 2 and draws the
 veil exactly once, at level 0: by the original's own code that frame is
 black (section 5). The veil becomes visible for as many ticks as the load
@@ -408,9 +410,15 @@ lines, bent outward from the centre and glowing, over black.
   level 0: black lines and black lens passes, as the original's code draws
   a load that ends at once. On the PS2 the New Game load drew 258 veil
   ticks and the AREA01 load about 142. The PS2 disc-drive timing switch
-  does not lengthen area reads (it models the stream reads only). The veil
-  shows once the loader task 001FF0D0's own steps run (the module loader,
-  H7), for as many ticks as they take at host speed.
+  does not lengthen area reads (it models the stream reads and module
+  0x21's). The veil shows once the loader task 001FF0D0's own steps run
+  the area read (the module loader, H7), for as many ticks as they take at
+  host speed. The loader is live for module 0x21 since chain C8b LOADER;
+  its area streamer 001FFCD0 (with 001FF590) is translated and verified
+  but not bound: its first bank step waits on the sound-bank upload
+  001FB370, whose callees (the EE sound library's handle table and command
+  queue, the SIF DMA, the sound driver's command 0x20) decide how many
+  ticks it takes and are not live (MODULE_LOADER.md section 5).
 - **Rasterization.** Metal rasterizes at the GS's resolution with the GS
   sample points, but its triangle and line rules and its float
   interpolation are not the GS DDA. A line pixel Metal places past an end

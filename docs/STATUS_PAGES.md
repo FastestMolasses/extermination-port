@@ -554,8 +554,11 @@ under "Unreachable in AREA11".
 ticks 1..3 call it over the canonical bytes (the page core's views of the
 status block, the request bytes and the message words are stored before
 the call and loaded after it, as for BATTERY). The page modules (0x1E..0x24,
-0x2C..0x31) complete at host speed, as 0x1F / 0x21 do, and apply their GS
-blocks; `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1)) applies the restore.
+0x2C..0x31) complete at once, as 0x1F does, and apply their GS blocks
+(module 0x21, the BATTERY page, runs the screen-module loader's own steps
+since chain C8b LOADER and applies its blocks at the loader's chunk step:
+MODULE_LOADER.md section 4); `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1))
+applies the restore.
 
 **`em_status_pages_live.c`** runs the translations over views of the port's
 storage (the list is its header's; every other address faults) and

@@ -152,6 +152,11 @@ void em_frame_set_message_service(const EmFrameMessageService *service);
  * uninstalls it. */
 void em_frame_set_step_i(int (*service)(void *context), void *context);
 
+/* After step E's task dispatch: -1 means a task latched a fault (the
+ * screen-module loader, em_scene_bindings_module_loader_check) and the
+ * frame loop stops. NULL uninstalls it. */
+void em_frame_set_task_check(int (*check)(void *context), void *context);
+
 /* Main-loop step B (0x1AAF34), 001D1AE0(D_00810E80): the frame buffer
  * set-up of the render context (em_rcl_001D1AE0). It runs at the top of every
  * main iteration, not while the blocking movie holds the iteration; `index`

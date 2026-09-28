@@ -36,7 +36,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
-           src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_status_models.c \
+           src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c \
            src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
@@ -1162,6 +1162,13 @@ test-sdk-math-original:
 test-status-scene-reference:
 	python3 tools/test_status_scene_reference.py
 
+# The screen-module loader's disc/DMA layer and its live slot-2 binding
+# (docs/MODULE_LOADER.md): the leaf routines and whole loads against the
+# original instructions, the captured load rows, the ASan/UBSan driver.
+.PHONY: test-module-loader-reference
+test-module-loader-reference:
+	python3 tools/test_module_loader_reference.py
+
 test-status-scene-original:
 	@mkdir -p build/status_scene_reference
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_scene_original_test.c src/game/em_status_scene_original.c -lm -o build/status_scene_reference/status_scene_original_test
@@ -1182,9 +1189,11 @@ test-status-runtime:
 	    src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_status_ui_leftovers.c src/game/em_census_standins.c src/game/em_render_verify_rest.c src/game/em_player_stage_workers.c \
 	    src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c src/game/em_status_pages_helpers.c \
 	    src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c src/game/em_status_pages_parts.c \
-	    src/game/em_area01_ui_pages.c src/game/em_pickup_items_original.c -lm -o build/status_page_reference/status_runtime_test
+	    src/game/em_area01_ui_pages.c src/game/em_pickup_items_original.c \
+	    src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_task.c -lm -o build/status_page_reference/status_runtime_test
 	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir \
-	    assets/scene_snow/panel/status_hub.emhs assets/scene_snow/panel/status_hub_atlas.emha
+	    assets/scene_snow/panel/status_hub.emhs assets/scene_snow/panel/status_hub_atlas.emha \
+	    assets/module_loader/modules.emml
 
 .PHONY: test-panel-message-reference
 test-panel-message-reference:

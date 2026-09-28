@@ -140,7 +140,7 @@ EE_FLOAT_MODEL.md. The module has no other port dependency.
 - **001FF0D0:**
   - Nothing happens while D_00282157 != 0.
   - +8 = 0: 001FF830(+0xE).
-  - +8 = 1: 001FFCD0 (worker). Then, if +8 == 0x63 and 001FEF70(CA4, CA6) != -1, +0xE = that bank and +8..+0xC = 0.
+  - +8 = 1: 001FFCD0 (worker; the area streamer, translated as `em_status_scene_area_001FFCD0`, MODULE_LOADER.md section 1.9). Then, if +8 == 0x63 and 001FEF70(CA4, CA6) != -1, +0xE = that bank and +8..+0xC = 0.
   - +8 = 2: 00200360 (worker).
   - +8 = 0x63: D_00275BD8 = 0 and 001AB7D0 (slot state 0).
 - **001FF830, on step +9:**
@@ -154,7 +154,7 @@ EE_FLOAT_MODEL.md. The module has no other port dependency.
   | 4 | Poll: 1 → step 5; any other nonzero value → step 3. |
   | 5 | Step = 7, then a cursor commit by kind: 0 gives 73C, 2 gives 744 = 748, 3 gives step 6. |
   | 6 | 001FB370(C74); a nonzero result gives 748 = result and step 7. |
-  | 7 | 00200830 per section (+0x10 of them, each advancing by the size word at +0x24 of record +0xE + i), then the relocations D_0028A490[e >> 24] = (e & 0xFFFFFF) + C74. Finally +8 = 0x63 and +9 = 0. |
+  | 7 | 00200830 per section (+0x10 of them, each advancing by the size word at +0x24 of record +0xE + i), then the relocations D_0028A490[e >> 24] = (e & 0xFFFFFF) + C74. Finally +8 = 0x63 and +9 = 0. D_0028A490 is one table of 0xB0 words (D_0028A490..D_0028A74F); the cursors D_0028A5A0 and D_0028A734..D_0028A748 are its slots 0x44 and 0xA9..0xAE (`EM_STATUS_SCENE_SLOT_*`), so a relocation into a cursor's slot moves it. A slot past 0xAF (the task table) faults. |
 
   Buffer and kind by module, in step 0:
 
@@ -194,7 +194,7 @@ EE_FLOAT_MODEL.md. The module has no other port dependency.
 - **The native minimum is 10 dispatches.** Steps 0, 1, 2 (three dispatches for the one chunk), 3, 4, 5 and 7 give 9 calls, plus one call at 0x63.
 - **The other 14 dispatches are I/O time.** They are 00200730 busy polls, or D_00282157 read gates, spread over the header read, the one 0x50800-byte chunk read and the empty payload read. The captures do not record how the 14 are split.
 - **Probe done.** `STATUS_LOAD_WAIT_PROBE.md` logged those fields on the original (routes 01 and 03): the busy counts are 6 for the module-0x21 header read, 8 for its 0x50800-byte chunk and 0 for the empty payload read, and D_00282157 stays 0 through both waits (its section 3 is the resulting I/O model).
-- **The port today.** The port's reads are synchronous, and `em_status_runtime.c` loads modules 0x1F/0x21 instantly. That is why the level smoke leaves the prompt window out of the comparison.
+- **The port since chain C8b LOADER.** Module 0x21 loads through the loader's own steps (`em_module_loader`, MODULE_LOADER.md section 4): 10 dispatches at host speed, the captured 24 with the PS2 disc-drive timing switch; the level smoke compares the loader rows and, from the load's completion, the prompt window (MODULE_LOADER.md section 4.1). Module 0x1F and the other page modules still load at once (resident).
 - **The lead's decision.** Reproducing the 24 dispatches requires the loader translated here, bound with an I/O model whose busy counts come from that probe. The I/O model is a runtime-timing property, not game code; under the user's 2026-09-27 rule (CLAUDE.md "Two profiles") the disc answers at host speed by default and measured drive timing is an optional switch (LAUNCHER_OPTIONS.md "PS2 disc-drive timing").
 
 ## 4. Corrections found
@@ -226,9 +226,11 @@ Live bindings are in `em_status_models.c` (section 7).
 | `w_001D2040` | GS state packet channel 0 | only (0, 1) before and (0, 0) after a draw |
 | `w_00122BB8` | rand | the **shared** LCG `em_random_next()` (low 31 bits). A value < 0 faults (BAD_RESULT). |
 | `w_001CD520` | the glow sprite | not translated: faults (reached only when D_008104E4 == 1) |
-| `w_001FFCD0`, `w_00200360` | loader states 1 and 2 | not bound (the loader is not wired) |
-| `w_00200780`, `w_00200730` | start a read, poll (0 busy, 1 done, other error) | not bound |
-| `w_00200830`, `w_001FB370` | per-section DMA; kind-3 finaliser (modules 0x32-0x35) | not bound |
+| `w_001FFCD0`, `w_00200360` | loader states 1 and 2 | not bound in the live loader (fault): 001FFCD0 is translated (`em_status_scene_area_001FFCD0`), blocked on 001FB370 (MODULE_LOADER.md section 5); 00200360 is untranslated |
+| `w_00200780`, `w_00200730` | start a read, poll (0 busy, 1 done, other error) | bound: `em_module_loader` (00200780 / 00200730 over the host drive) |
+| `w_00200830` | per-section DMA | bound: `em_module_loader` (00200830; the status runtime is the DMA consumer of module 0x21's chunk) |
+| `w_001FB370` | kind-3 finaliser (modules 0x32-0x35), the area's sound bank | not bound (fault) |
+| `w_00200890`, `w_002009E0` | 001FFCD0's player texture packet and overlay clear | not bound (001FFCD0 is not) |
 
 ## 6. Verification
 
@@ -301,11 +303,4 @@ Capture checks (exact bits, over the user's RAM images):
   - The host fixture's hub route asserts that the backdrop is flushed before the model draws in every hub frame.
   - Compared with hub.png (the smoke's `EM_LEVEL_SMOKE_HUB_CAPTURE`, 2026-09-23), the menu player's bright-pixel box is (371..439, 46..191) against the capture's (372..438, 46..192) in the 640x480 image; the SPR4 model and the ammunition icon sit where the capture shows them.
 - **The MAP page's nodes (chain C8b's fix round; STATUS_PAGES.md section 7, "MAP").** The pool also carries 0020F950's 22 nodes (+0x10 = 002101C0). `EmStatusSceneActor` is the record's byte layout (every field at its original offset, the bytes between them as padding, 0x2F0 bytes; static asserts), so `em_status_models_pool_bytes` is the byte view a translation that addresses a record by its original address reads. The walk runs a +0x10 it does not translate through the node hook (`em_status_models_set_node`: the host runs 002101C0). `em_status_models_call` serves the node's callees by original address: 001AFF10 / 001B0000 / 001AFF90, 001C6120 over the MAP bank D_0028A570 (module 0x1E slot 0x38, `em_status_models_load_map` from `assets/status_map`, `tools/export_status_map.py`), 001CA5E0 (+0x44, then 001CA5F0's +0x4C), 001C6150, 001AF7C0, 001CB5B0, 001C62C0, 001C6380 and the kind-7 draw 001CB480: lighting mode 2 through the light hook (`em_status_models_set_light`: 001D8C20(2) + 001D89D0, the room rig with the +0x02 glow), queued with the node matrices and a rig of A's slot directions, B's colour rows and B's ambient row less the bias. `em_status_models_free_slots` is what the page's D_00275BCC view holds. `make test-status-map-reference` checks 001C6120 / 001C6150 over the disc bank against the original.
-- **Load wait (not bound).**
-  - At `EM_ITEM_LOAD_MODULE` (em_item_root, 0020EE50 state 3), and at 0020CDC0's own `001FF080(0, sel)`:
-    1. `em_task_register(2, <adapter>)`;
-    2. `em_status_scene_loader_request_001FF080(&rec->state, rec->user, 0, module)`.
-  - The adapter calls `em_status_scene_loader_001FF0D0` with an `EmStatusSceneLoader` whose d275BD8 is the canonical BD8 (em_item_root's `asset_busy`; copy it in and out). d282157 is `r_00282157`. d810CA4/CA6 are the D2 bytes.
-  - `w_00200780` must supply the module's 0x800-byte bank header (disc-derived, exported locally; its location is the captured D_0028A480 descriptor, LSN 0x9D7D0 + module).
-  - `w_00200730`'s busy counts are the open timing question of section 3.
-  - Until this is bound, em_status_runtime's instant 0x1F/0x21 load stays as it is (FIRST_LEVEL_AUDIT H7, PARTIAL).
+- **Load wait (bound since chain C8b LOADER).** The ITEM root's `EM_ITEM_LOAD_MODULE` for module 0x21 calls `em_module_loader_request_001FF080` on the live loader (em_task slot 2, `em_module_loader_task_001FF0D0` over `em_status_scene_loader_001FF0D0`); its D_00275BD8 is the scene state's byte, of which the page's busy field is a per-call view. MODULE_LOADER.md section 4 lists the binding; `make test-module-loader-reference` and the level smoke's `check_module_load` verify it.

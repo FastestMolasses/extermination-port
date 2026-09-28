@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1488,6 +1488,40 @@ markers draw on the map. The marker gates' event bytes D_0081077F, 782,
 Result: live 666, verified-unbound 71, unverified 3, stand-in 0, missing 1,
 boundary 443 (unchanged; no section 3 row changed status).
 
+### 1.38 Update (2026-09-28, chain C8b LOADER: the module loader live for module 0x21)
+
+The screen-module loader runs its own steps for module 0x21 (the BATTERY
+page; MODULE_LOADER.md): one `em_module_loader` booted by em_scene_bindings
+over the user's exported sectors, its slot-2 task 001FF0D0 dispatched after
+the game task, 001FF830 / 001FF3F0 with 00200780 / 00200730 / 00200830 on
+the host drive, D_00275BD8 unified in the scene state, the slot table
+D_0028A490 modelled whole with the cursors as its slots. The page core's
+exit calls the one 001FEF70. 001FFCD0 and 001FF590 (the area streamer) are
+translated and verified but not bound (the sound-bank step, H7).
+
+- **Status changes (verified-unbound -> live, two rows):** 001AB7D0 (3.1:
+  the loader's 0x63 step on em_task slot 2, at the end of every module-0x21
+  load) and 001FEF70 (3.20: em_status_page's exit now calls
+  em_status_scene_bank_001FEF70; its duplicate is deleted).
+- **Boundary rows** (section 4, "module loader and disc read"): 001FF080,
+  001FF0D0, 001FF3F0, 001FF830, 00200730, 00200780 and 00200830 run live
+  for module 0x21 with their oracles; 001FFCD0 and 001FF590 carry verified
+  translations that are not bound; 00200890 and 00200970 stay
+  verified-unbound translations; 002009E0 has none. They stay boundary rows
+  (section 4 note: moving the loader into section 3 is a lead decision), so
+  the totals do not count them.
+- **Evidence.** The level smoke's `check_module_load` (routes 01 and 03,
+  every run through the battery and the panel; with the PS2 disc-drive
+  timing switch in `make test-level-smoke-ps2-drive`); make
+  test-module-loader-reference, test-status-scene-reference (001FFCD0 /
+  001FF590 and the widened table), test-status-page-reference (the exit's
+  001FEF70), test-status-runtime and test-area11-interaction-host (the
+  fixtures run the loader); newgame-control 9.599849 (unchanged).
+
+Result: live 668, verified-unbound 69, unverified 3, stand-in 0, missing 1,
+boundary 443, recounted from the section 3 rows (741 rows). 81,330 of the
+87,968 non-boundary instructions are live (92.5%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1507,15 +1541,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 666 | 81,298 | 616 (77,401) | 50 (3,897) |
-| verified-unbound | 71 | 6,497 | 43 (4,709) | 28 (1,788) |
+| live | 668 | 81,330 | 618 (77,433) | 50 (3,897) |
+| verified-unbound | 69 | 6,465 | 41 (4,677) | 28 (1,788) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 1 | 46 | 1 (46) | 0 (0) |
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 666 (89.9%) are live and verified; by instructions 81,298 of 87,968 (92.4%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 71 functions (6,497 instructions, 7.4%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 668 (90.1%) are live and verified; by instructions 81,330 of 87,968 (92.5%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 69 functions (6,465 instructions, 7.3%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, section 1.38) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1523,14 +1557,14 @@ Of the 741 non-boundary functions, 666 (89.9%) are live and verified; by instruc
 
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
-| S0_title | 76 / 13 / 0 / 0 / 0 / 383 | 76 / 13 / 0 / 0 / 0 / 383 |
-| S1_newgame_load | 162 / 30 / 1 / 0 / 0 / 86 | 98 / 23 / 1 / 0 / 0 / 18 |
+| S0_title | 77 / 12 / 0 / 0 / 0 / 383 | 77 / 12 / 0 / 0 / 0 / 383 |
+| S1_newgame_load | 164 / 28 / 1 / 0 / 0 / 86 | 99 / 22 / 1 / 0 / 0 / 18 |
 | S2_opening | 416 / 37 / 2 / 0 / 1 / 124 | 299 / 30 / 1 / 0 / 1 / 32 |
 | S3_first_control_idle | 321 / 32 / 1 / 0 / 1 / 116 | 11 / 1 / 0 / 0 / 0 / 0 |
 | 00_panel_no_battery | 391 / 29 / 1 / 0 / 1 / 96 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 434 / 32 / 3 / 0 / 1 / 153 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 01_battery | 436 / 30 / 3 / 0 / 1 / 153 | 30 / 1 / 1 / 0 / 0 / 5 |
 | 02_elevator_refusal | 406 / 29 / 1 / 0 / 1 / 98 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 469 / 34 / 2 / 0 / 1 / 124 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 03_panel_power | 471 / 32 / 2 / 0 / 1 / 124 | 20 / 1 / 0 / 0 / 0 / 1 |
 | 04_elevator_ride | 398 / 29 / 1 / 0 / 1 / 131 | 2 / 0 / 0 / 0 / 0 / 2 |
 | 05_boxes | 399 / 28 / 1 / 0 / 1 / 93 | 23 / 0 / 0 / 0 / 0 / 0 |
 | 06_hill_slide | 363 / 28 / 1 / 0 / 1 / 96 | 12 / 0 / 0 / 0 / 0 / 0 |
@@ -1547,7 +1581,7 @@ Of the 741 non-boundary functions, 666 (89.9%) are live and verified; by instruc
 
 State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22). What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 666 of 741 non-boundary functions (92.4% by instructions).** Every main-line route phase the
+- **Live and verified: 668 of 741 non-boundary functions (92.5% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -1582,7 +1616,7 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
   is the original 00182DF0 since section 1.26). A script owner's takeover is the stage's own since
   section 1.26 (0015B130's prelude, 0015B530, 00182DF0).
-- **Verified but not run live: 71 functions (6,497 instructions).** The largest groups are the lighting and unbound
+- **Verified but not run live: 69 functions (6,465 instructions).** The largest groups are the lighting and unbound
   render heads (section 3.16: 12), the effects' room point-light lists (3.18: 7), the anim runtime leaves (3.14: 6),
   the render context's unbound rows and weather (3.17: 5), the sound-side rows of 3.19 (9: the sound-bank loader,
   001FB100's rest, 001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 5: the overlay init,
@@ -1596,7 +1630,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.1 Main-loop tasks, frame machine and fades (0x1AA200..0x1AEFFF)
 
-32 functions, 2,205 instructions: live 26, verified-unbound 6 (recount 2026-09-26, shadow step).
+32 functions, 2,205 instructions: live 27, verified-unbound 5 (recount 2026-09-28, the module loader step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -1606,7 +1640,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001AB6A0 | — | BM | live | em_task.c em_task_dispatch — test_startup_load_gaps_reference (executes 001AB6A0 against em_task.c) |  | S0_title |
 | 0x001AB740 | — | BM | live | em_task.c em_task_register — test_startup_load_gaps_reference | the live New Game registers the 001ACEC0 task through it (em_game_install_new) | S0_title |
 | 0x001AB790 | — | BM | verified-unbound | em_task.c em_task_replace_current — test_startup_load_gaps_reference | em_task_replace_current never runs on the live path: the port's New Game registers the 001ACEC0 task with em_task_register (em_game_install_new) where 001AC070 state 4 calls 001AB790 | S0_title* |
-| 0x001AB7D0 | — | BM | verified-unbound | em_status_scene_original — test_status_scene_reference.py |  | S0_title |
+| 0x001AB7D0 | — | BM | live | em_status_scene_original (the loader's 0x63 step, `*slot_state = 0` on em_task slot 2) via em_module_loader — test_status_scene_reference.py, test_module_loader_reference.py (the whole loads execute 001AB7D0); test_level_smoke.py check_module_load (slot 2 idle at the load's completion, routes 01 / 03) | runs live at the end of every module-0x21 load (chain C8b LOADER) | S0_title |
 | 0x001ABF90 | — | BM | verified-unbound | em_scene_task, em_scene_bindings — test_scene_task_reference.py | recount 2026-09-25: not executed in the measured runs; its translation (push_packet_001ABF90, em_render_001ABF90) is on the game-over path only, and the port's title (em_startup) does not reach it | S0_title* |
 | 0x001AC070 | — | BM | verified-unbound | em_startup_load_gaps em_slg_001AC070 — test_startup_load_gaps_reference | em_game.c em_game_legacy_continue_task_001AC070 (installed through w_001AB790) and the em_startup.c / em_frontend.c title flow | S0_title* |
 | 0x001AC480 | — | BM | live | em_startup.c title menu — test_title_menu_reference |  | S0_title* |
@@ -2338,7 +2372,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.20 Message draw (0x1FE000..0x1FEFFF)
 
-7 functions, 400 instructions: live 6, verified-unbound 1 (recount 2026-09-26, shadow step).
+7 functions, 400 instructions: live 7 (recount 2026-09-28, the module loader step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2348,7 +2382,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FE4B0 | — | BM | live | em_message_draw_original em_message_bank_records via em_message_live — test_message_draw_reference.py (executes 001FE4B0) |  | S2_opening |
 | 0x001FE4D0 | — | BM | live | em_message_draw_original em_message_bank_record via em_message_live — test_message_draw_reference.py (executes 001FE4D0) |  | S2_opening |
 | 0x001FE530 | — | AW | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
-| 0x001FEF70 | — | BM | verified-unbound | em_status_scene_original — test_status_scene_reference.py |  | S1_newgame_load |
+| 0x001FEF70 | — | BM | live | em_status_scene_original em_status_scene_bank_001FEF70, the one owner (em_status_page's exit calls it since chain C8b LOADER; its copy there is deleted) — test_status_scene_reference.py, test_status_page_reference.py (0020E0C0 executed with 001FEF70 inline) | live at every status exit (0020E0C0 case 0); its 001FF0D0 area-chaining call is not run (the area streamer is not bound, H7) | S1_newgame_load |
 
 ### 3.21 Status UI: hub, ITEM/BATTERY pages, pickups (0x207000..0x21AFFF)
 
@@ -2529,7 +2563,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | heap / runtime | 18 | 982 | host allocator | n/a |
 | SDK DMA/VIF/VU1 library | 11 | 700 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
 | SDK libmc / SIF RPC | 13 | 747 | local directory for the card check (STARTUP.md); RPC not needed | no |
-| module loader and disc read | 12 | 1,039 | native area/module reads (em_game_legacy_area_load; status pages load instantly) | area-load tick sequence (test_area_load_reference); the module-0x21 wait is instant (H7) |
+| module loader and disc read | 12 | 1,039 | module 0x21: the loader's own steps (em_module_loader over em_status_scene_original, host-speed drive; section 1.38); the area read: em_game_legacy_area_load; the other page modules load at once | module 0x21: test_module_loader_reference and the level smoke's check_module_load; 001FFCD0 / 001FF590 translated and verified, not bound (test_status_scene_reference); area-load tick sequence (test_area_load_reference) |
 | SDK libcdvd disc read | 9 | 346 | host file reads of locally exported assets | n/a |
 | 2D GS draw layer | 9 | 284 | em_gfx 2D layer (em_status_background_draw.c, em_status_draw.c) | 6: no; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference, test_status_page_record_reference; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference; 1: draw commands compared: test_status_draw_reference, test_status_hub_ui_reference |
 | GS/VIF packet build (sprites, flush) | 3 | 202 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
@@ -2606,9 +2640,9 @@ Addresses per kind:
 Boundary notes:
 
 - **Sound library.** The port plays AREA11 cues through the pitch path verified by `test_area11_sfx_reference` (00115850 bend, 00117918), but its mixer has no SPU2 ADSR, Gaussian interpolation or reverb (WP-14, AM-03/04). Since WP-8b the streams play from the IOP stream backend (em_iop_stream: the SNDN2DRV.IRX stream subset and an SPU2 voice model, test_iop_stream_reference); 00119828's 0x1999 is the driver's effect-return volume (command 0x16), kept but inaudible without SPU2 reverb.
-- **Module loader.** The native area read replaces 001FF080(1, 0) and the load arms run through the verified cores; the status-page module 0x1F/0x21 load is instant where the original waits 24 dispatches (H7).
+- **Module loader.** Since chain C8b LOADER module 0x21 loads through the loader's own steps (10 dispatches at host speed, the captured 24 with the PS2 disc-drive timing switch; MODULE_LOADER.md). The native area read still replaces 001FF080(1, 0) (the area streamer is translated, blocked on the sound-bank step 001FB370; H7), and the other page modules load at once.
 - **Message glyphs (WP-8).** 001CC1E0 (tall-font strip layout) is translated and live in `em_message_glyph_original`; since the recount it is a section 3 row (live), as the render-range rule above requires. 001CC8A0/001CCB00 remain its upload/reset boundary there; `test_message_glyph_reference.py` compares every upload call and every packed pass with the executed original. The glyph texels are the port's atlas.
-- **Translations inside boundaries (recount 2026-09-24).** Moved to section 3 by the render-range rule: 001D21B0, 001D2710, 001D2910, 001D2DE0, 001D2E00, 001D6B10, 001D6C90 (em_render_context helpers, test_render_context_reference) and 001D38A0, 001D3BA0 (em_owner_draw_original, test_owner_draw_reference), all verified-unbound. Kept as boundaries although they carry translations (their oracles were not re-read in the recount; since WP-8b they run live inside em_stream_live, section 1.15): the IOP stream driver side 00112610, 00112D18, 00113280, 001157F0, 0011A2B0 (em_iop_stream, test_iop_stream_reference, WP-8b), the stream-lane SDK commands 00119828, 0011A4E8, 0011A608, 0011A658 and the IOP tick 001F9820 (em_stream_lanes_original), and the module loader 001FF080, 001FF0D0, 001FF3F0, 001FF830 (em_status_scene_original). Whether those become section 3 rows is a lead decision (the IOP/disc boundary of lane L36).
+- **Translations inside boundaries (recount 2026-09-24).** Moved to section 3 by the render-range rule: 001D21B0, 001D2710, 001D2910, 001D2DE0, 001D2E00, 001D6B10, 001D6C90 (em_render_context helpers, test_render_context_reference) and 001D38A0, 001D3BA0 (em_owner_draw_original, test_owner_draw_reference), all verified-unbound. Kept as boundaries although they carry translations (their oracles were not re-read in the recount; since WP-8b they run live inside em_stream_live, section 1.15): the IOP stream driver side 00112610, 00112D18, 00113280, 001157F0, 0011A2B0 (em_iop_stream, test_iop_stream_reference, WP-8b), the stream-lane SDK commands 00119828, 0011A4E8, 0011A608, 0011A658 and the IOP tick 001F9820 (em_stream_lanes_original), and the module loader 001FF080, 001FF0D0, 001FF3F0, 001FF830 (em_status_scene_original; live for module 0x21 since section 1.38, with 00200780, 00200730 and 00200830 of em_module_loader) and 001FFCD0, 001FF590 (translated, not bound). Whether those become section 3 rows is a lead decision (the IOP/disc boundary of lane L36).
 - **GS/VU1.** The renderer is the port's own. Individual packet builders have no per-call comparison; the level material, overlay blend, fog, snow and status draw tests compare their results where they exist. The game-side render heads (001D1C50, 001D1EA0, 001D30A0) and the projection helpers are **not** treated as boundaries: they are stand-ins in section 3.
 - **Movies.** Title-only MPEG code and the unidentified 0x205050..0x205F90 glue (title only, adjacent to the MPEG glue) are replaced by the native movie path; no original comparison exists.
 

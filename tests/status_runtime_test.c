@@ -7,6 +7,8 @@
 #include "game/em_owner_services_original.h"
 #include "game/em_render_context_live.h"
 #include "game/em_status_models.h"
+#include "game/em_module_loader.h"
+#include "game/em_task.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -356,7 +358,15 @@ static int hub_render(void *context, EmGfx *gfx, const EmStatusPage *page)
     return 1; /* Renderer is separately validated; do not invent a game host. */
 }
 
-static const char *const *asset_paths; /* battery.emba, item_root.emir, hub records, atlas */
+static const char *const *asset_paths; /* battery.emba, item_root.emir, hub records, atlas,
+                                        * the module loader's sectors */
+
+/* Module 0x21's load runs the screen-module loader's own steps
+ * (docs/MODULE_LOADER.md): the fixture binds one live, with D_00275BD8 in
+ * s_bd8, and dispatches the task table after each status tick (step E
+ * follows the game task's status frame in the original main loop). */
+static EmModuleLoader *s_loader;
+static uint8_t s_bd8;
 
 /* pickup: 0 the panel request 0x82, 1 the pickup request 1/0x1B, 2 the
  * normal hub route. page: bind the original BATTERY page (battery_page,
@@ -390,6 +400,17 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, int pickup, int pag
     EmStatusRuntime *runtime =
         em_status_runtime_load(asset_paths[0], asset_paths[1], &math, &hooks);
     assert(runtime);
+    if (!s_loader) {
+        s_loader = em_module_loader_open(asset_paths[4]);
+        assert(s_loader);
+        const EmModuleLoaderViews views = {&s_bd8, NULL, NULL, NULL, NULL, NULL};
+        em_module_loader_set_views(s_loader, &views);
+        em_module_loader_bind_live(s_loader);
+    }
+    em_task_init();
+    s_bd8 = 0;
+    em_status_runtime_bind_busy(runtime, &s_bd8);
+    assert(em_status_runtime_bind_loader(runtime, s_loader));
     if (page)
         assert(em_status_runtime_bind_hub(
             runtime, em_status_hub_ui_load(asset_paths[2], asset_paths[3], &math)));
@@ -415,14 +436,20 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, int pickup, int pag
 static int tick(EmStatusRuntime *runtime, unsigned pressed, uint8_t x, uint8_t y)
 {
     EmStatusInput input = {.pressed = pressed, .stick_x = x, .stick_y = y};
-    return em_status_runtime_tick(runtime, &input);
+    int result = em_status_runtime_tick(runtime, &input);
+    em_task_dispatch();
+    assert(!em_module_loader_failed(s_loader, NULL));
+    return result;
 }
 
 /* The panel request's first frames: 002149F0 state 0 takes the request
- * (B1 & 0x80) into the confirmation, state 4 with the cursor on No. */
+ * (B1 & 0x80) into the confirmation, state 4 with the cursor on No. The
+ * ITEM root's module-0x21 load in between runs the loader's 10 host-speed
+ * dispatches (MODULE_LOADER.md finding 2), 9 frames more than the instant
+ * load this fixture counted before (7). */
 static void confirmation(EmStatusRuntime *runtime)
 {
-    for (unsigned i = 0; i < 7; ++i) {
+    for (unsigned i = 0; i < 16; ++i) {
         assert(tick(runtime, 0, 128, 128) == 1);
         assert(!em_status_runtime_ordinary_enabled(runtime));
     }
@@ -433,7 +460,7 @@ static void confirmation(EmStatusRuntime *runtime)
 
 int main(int argc, char **argv)
 {
-    assert(argc == 5);
+    assert(argc == 6);
     asset_paths = (const char *const *)(argv + 1);
     World world;
     EmPanel owner;
@@ -477,9 +504,10 @@ int main(int argc, char **argv)
     assert(em_status_runtime_render(runtime, (EmGfx *)1) == 1);
     assert(world.triangle_count == 512);
     assert(em_status_runtime_render(runtime, (EmGfx *)1) == 1 && world.triangle_count == 512);
-    /* Up selects original ITEM wedge3; reopening BATTERY starts browsing. */
+    /* Up selects original ITEM wedge3; reopening BATTERY starts browsing
+     * (after the module-0x21 load's 10 loader dispatches: 4 + 9 frames). */
     assert(tick(runtime, 0x40, 128, 0) == 1);
-    for (unsigned i = 0; i < 4; ++i)
+    for (unsigned i = 0; i < 13; ++i)
         assert(tick(runtime, 0, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->item.step == 1);
     assert(tick(runtime, 0x40, 128, 128) == 1);
@@ -534,7 +562,7 @@ int main(int argc, char **argv)
     runtime = create(&world, &owner, 1, 1);
     world.device = 0;
     world.inventory.charge = world.inventory.capacity = 0; /* no pack before the pickup */
-    for (unsigned i = 0; i < 7; ++i)
+    for (unsigned i = 0; i < 16; ++i) /* 7 + the module-0x21 load's 9 more frames */
         assert(tick(runtime, 0, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->item.step == 3);
     assert(world.words[3] == 4);
@@ -562,7 +590,7 @@ int main(int argc, char **argv)
     world.inventory.charge = 7;
     world.inventory.capacity = 11;
     world.fail_write = 1;
-    for (unsigned i = 0; i < 6; ++i)
+    for (unsigned i = 0; i < 15; ++i) /* 6 + the module-0x21 load's 9 more frames */
         assert(tick(runtime, 0, 128, 128) == 1);
     assert(tick(runtime, 0, 128, 128) == -1);
     assert(!em_status_runtime_ordinary_enabled(runtime));
@@ -609,6 +637,8 @@ int main(int argc, char **argv)
     assert(em_status_runtime_ordinary_enabled(runtime));
     assert(world.hub_workers && !world.writes && !owner.charged);
     em_status_runtime_free(runtime);
+    em_module_loader_bind_live(NULL);
+    em_module_loader_close(s_loader);
     puts("PASS original status adapter on the bound 002149F0: Yes/discharge, default No, "
          "Back/ITEM/reselect, module 0x32 reload gate, charge and capacity write faults, the "
          "pickup notice and empty lookup, the hub route, final-frame ownership");

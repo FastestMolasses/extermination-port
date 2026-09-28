@@ -248,7 +248,7 @@ static void test_loader(void)
     uint8_t slot = 0, user[24];
     memset(user, 0xAA, sizeof user);
     ld->d275BD8 = 1;
-    ld->d28A748 = 0x19A3F40u;
+    ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A748] = 0x19A3F40u;
     ld->header[0] = 0x21;
     ld->header[0xE] = 1;                 /* one chunk */
     ld->header[0x24] = 0x08;             /* chunk size */

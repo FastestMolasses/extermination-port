@@ -1,4 +1,5 @@
 #include "game/em_status_page.h"
+#include "game/em_status_scene_original.h"
 
 static int emit(EmStatusPageWorker worker, void *context, EmStatusPage *state,
                 EmStatusPageEvent event, unsigned argument)
@@ -6,22 +7,11 @@ static int emit(EmStatusPageWorker worker, void *context, EmStatusPage *state,
     return worker && worker(context, state, event, argument) == 1;
 }
 
+/* 001FEF70 (em_status_scene_original's translation, the one owner): the
+ * inventory's bank module; the saved module gates the reload on exit. */
 static int inventory_module(const EmStatusPage *state)
 {
-    /* Original001FEF70; the saved module gates the actual reload on exit. */
-    if (state->inventory_primary == 2)
-        return 0x35;
-    switch (state->inventory_secondary) {
-    case 1:
-        return 0x32;
-    case 2:
-    case 3:
-        return 0x33;
-    case 4:
-        return 0x34;
-    default:
-        return -1;
-    }
+    return em_status_scene_bank_001FEF70(state->inventory_primary, state->inventory_secondary);
 }
 
 static int exit_tick(EmStatusPage *state, EmStatusPageWorker worker, void *context)

@@ -51,3 +51,8 @@ EmTask *em_task_current(void)
 {
     return s_current;
 }
+
+const EmTask *em_task_slot(int slot)
+{
+    return slot >= 0 && slot < EM_TASK_SLOTS ? &s_table[slot] : NULL;
+}

@@ -15,7 +15,12 @@
  *                          not reproduced). 1: the IOP stream backend's
  *                          drive model measured from the PCSX2 recordings
  *                          (docs/IOP_STREAM.md "Drive model"), so voiced
- *                          lines start and end on the PS2's frames.
+ *                          lines start and end on the PS2's frames; and the
+ *                          screen-module loader's recorded drive time
+ *                          (docs/MODULE_LOADER.md 1.7: module 0x21's two
+ *                          reads), so the BATTERY page's load takes the
+ *                          PS2's 24 frames instead of its 10 host-speed
+ *                          dispatches.
  *                          Environment: EM_PS2_DISC_DRIVE_TIMING=0|1.
  */
 #ifndef EM_SETTINGS_H

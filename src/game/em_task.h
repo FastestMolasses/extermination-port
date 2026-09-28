@@ -81,6 +81,10 @@ void em_task_dispatch(void);
  * mirror). NULL outside of a dispatch. */
 EmTask *em_task_current(void);
 
+/* A slot's record for inspection (the tick log, tests); NULL for an
+ * invalid slot. */
+const EmTask *em_task_slot(int slot);
+
 #ifdef __cplusplus
 }
 #endif

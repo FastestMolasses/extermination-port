@@ -17,8 +17,15 @@
  * "drive": every read is answered at host speed from the user's exported
  * disc sectors (tools/export_module_loader.py), so the loader's steps all
  * run and only the drive's time goes (port CLAUDE.md, 2026-09-27). The
- * measured PCSX2 drive time of the module-0x21 load is an optional switch
- * (EM_MODULE_LOADER_DRIVE_MEASURED), off by default.
+ * measured PCSX2 drive time of the module-0x21 load is the drive mode
+ * EM_MODULE_LOADER_DRIVE_MEASURED, which the PS2 disc-drive timing switch
+ * selects (em_settings, EM_PS2_DISC_DRIVE_TIMING; off by default).
+ *
+ * Live (docs/MODULE_LOADER.md section 4): em_scene_bindings boots one
+ * instance over the scene state's bytes; module 0x21 (the BATTERY page)
+ * loads through it from em_status_runtime. The area streamer 001FFCD0 is
+ * translated (em_status_scene_area_001FFCD0) but not bound here: its
+ * sound-bank step 001FB370 is not live (MODULE_LOADER.md section 5).
  *
  * Game logic stays separable from the platform: the translations take an
  * EmModuleLoaderSdk, the host drive is one implementation of it.
@@ -158,6 +165,12 @@ int em_module_loader_set_drive(EmModuleLoader *ml, int mode);
  * instance clears the orphan fault. */
 void em_module_loader_bind_live(EmModuleLoader *ml);
 
+/* The instance bound live (NULL when none). */
+EmModuleLoader *em_module_loader_live(void);
+/* The slot-2 record of the running (or last) load, NULL before the first
+ * request. */
+const EmTask *em_module_loader_record(const EmModuleLoader *ml);
+
 /* 1 with *fault = {0x001FF0D0, NULL_WORKER} once the slot-2 task ran while
  * no loader was bound (unbound or closed mid-load), else 0. The host checks
  * it with em_module_loader_failed every frame. */
@@ -197,10 +210,11 @@ void em_module_loader_counts(const EmModuleLoader *ml, uint32_t *dispatches, uin
 
 /* The modelled original bytes, in this order: slot record +0, +8..+0x1F
  * (24), D_00275BD8, D_00282157, then little-endian words D_00275C70,
- * D_00275C74, D_0028A5A0, D_0028A738, D_0028A73C, D_0028A744, D_0028A748,
- * the relocation words D_0028A490[0..67], and the header D_00289BC0
- * (0x800). `record` NULL: the last request's record. */
-#define EM_MODULE_LOADER_SNAPSHOT_SIZE (1u + 24u + 2u + 7u * 4u + 68u * 4u + 0x800u)
+ * D_00275C74 and the slot table D_0028A490[0..0xAF] (its cursors
+ * D_0028A5A0 and D_0028A734..D_0028A748 among them), and the header
+ * D_00289BC0 (0x800). `record` NULL: the last request's record. */
+#define EM_MODULE_LOADER_SNAPSHOT_SIZE \
+    (1u + 24u + 2u + 2u * 4u + EM_STATUS_SCENE_RELOC_WORDS * 4u + 0x800u)
 void em_module_loader_snapshot(const EmModuleLoader *ml, const EmTask *record,
                                uint8_t out[EM_MODULE_LOADER_SNAPSHOT_SIZE]);
 

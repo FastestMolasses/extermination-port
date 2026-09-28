@@ -169,6 +169,13 @@ fade-in frame equals newgame_samples' (CAPTURES_C7.md section 1), and the
 switch-on run obeys the same equation (11 = 21 - the model's 10), so the
 two runs' drive waits agree.
 
+The same switch selects the screen-module loader's drive (MODULE_LOADER.md
+1.7): the module-0x21 loads of the battery pop-up and the panel prompt take
+the loader's 10 host-speed dispatches, or with the switch the captured 24
+frames. `check_module_load` (below, "battery" and "panel") compares the
+loader rows by the run's mode; the run's `module loader:` line (printed
+after the `stream drive:` line) gives the mode and the counters.
+
 Measured 2026-09-27 (full route, both modes; newgame-control):
 
 | | Host speed | Switch on |
@@ -399,10 +406,14 @@ from the legacy follow camera's target (about one unit lower); the check
 now requires the original's row, and in both runs the post two rows after
 the settle's last target change (the settled record, the animation-end
 wait, then op09) with the settle ending on the item's X/Z (to 1e-3). Aligned on the post,
-row for row again to the page's module load (f189..f192; the load wait is
-WP-5's). The turn (op0E) is not compared either: its step count depends on
-the stance. Negative controls: a changed spad or request byte in the
-window fails.
+row for row again to the page's module load (f189..f192). Then the ITEM
+root's module-0x21 load (`check_module_load`, MODULE_LOADER.md section 4.1):
+the tick log's `loader_pre` bytes (slot 2's record and D_00275BD8 after each
+frame) from the request row f194 to the load's completion equal the
+load-wait probe's rows f194..f217, without their 14 busy polls at host
+speed (10 rows), all 24 with the PS2 disc-drive timing switch. The turn
+(op0E) is not compared either: its step count depends on the stance.
+Negative controls: a changed spad or request byte in the window fails.
 
 ### elevator_refusal, panel, elevator
 
@@ -426,10 +437,17 @@ placement on, the player Y while the script owns the player (the ride's 150
 carried values included), the heading from the script's facing on, and the
 camera eye/target D_008105D0/E0 from the script's first shot until the
 release (at the panel with the retained-Y offset). The
-panel is compared in two windows: from the scan through the status open (plus
-B0/B1 from the request row), and from the Yes confirmation (B0 0 -> 1)
-through the discharge, the exit, script 0x247BE0, the power bit and the
-release (plus B0/B1); its player Y is checked as retained while the
+panel is compared from the scan through the status open (plus B0/B1 from the
+request row); then the ITEM root's module-0x21 load (`check_module_load`,
+MODULE_LOADER.md section 4.1: the `loader_pre` rows from the request f391 to
+the load's completion equal h7's f391..f414, without the 14 busy polls at
+host speed, all 24 with the PS2 disc-drive timing switch); from the load's
+completion to the Yes press, row for row at the drive's shift (14 at host
+speed, 0 with the switch), with the prompt taking the request exactly that
+shift earlier than the original's 30 ticks (16 at host speed); and from the
+Yes confirmation (B0 0 -> 1) through the discharge, the exit, script
+0x247BE0, the power bit and the release (plus B0/B1); its player Y is
+checked as retained while the
 script owns the player (001B6F00 keeps the ground Y of the approach, which is
 navigation input), and equal to the capture after the release. The elevator
 window also compares the terminal record 00827B10 with the route rows'
@@ -439,7 +457,9 @@ owners step: the record's own model bind, 001C6380 and +0x4C,
 OWNER_DRAW.md section 10). The tick log gained
 the fields these need (em_scene_bindings.c): `screen8`, `msg_pre`, `cam4`,
 `power`, `floor`, `pos_post`, `yaw_post`, `eye_post`, `tgt_post`, and for
-the boxes `player`. Negative
+the boxes `player`; since chain C8b LOADER also `loader_pre` (slot 2's
+record +0, +8..+0x1F, D_00275BD8 and D_00282157 after the previous frame's
+dispatch, MODULE_LOADER.md section 4 item 9). Negative
 controls (one tampered letterbox byte, carried Y, camera eye, power byte,
 message phase, message kind or message token in a copy of the log) each fail
 the check.
@@ -451,15 +471,15 @@ panel, 0x8000001A refusal) through 001B7D60 case 0, the phase through the
 service's ticks and its 001FC9B0 teardown.
 
 **Known divergences, reported, not compared:**
-- *The status page's module load.* The original's ITEM root waits 24
-  loader dispatches on its load of module 0x21, the BATTERY page (item
-  state 3, route 03 f390..f414, and route 01 f193..f217), before the
-  prompt; the port's status modules are resident, so its prompt consumes
-  the request 7 ticks after the post against the original's 30. Everything
-  from the Yes confirmation on is tick-exact. The wait is the disc read of
-  001FF080 (D_00275BD8 clears when it completes): the translated loader
-  needs 10 dispatches, the other 14 are I/O time whose split the captures
-  do not record (STATUS_SCENE.md section 3; open, H7).
+- *The status page's module load at host speed.* The ITEM root's
+  module-0x21 load runs the loader's own steps (MODULE_LOADER.md): at host
+  speed it takes 10 dispatches where the original's disc takes 24, so from
+  the load on the port runs 14 frames ahead of the capture (the rows are
+  compared at that shift). Across it, the frame counters and the stream
+  lanes' refill phase run 14 behind and the port's rand() sequence is 28
+  draws behind (the wait's 001D7C30 draws twice per frame); rand() values
+  are not compared (check_rand_order compares the aligned windows'
+  callers). With the PS2 disc-drive timing switch the shift is 0.
 - *The camera after a release* is compared since the live camera (census
   L13..L16, `check_follow_after_release`): from the release to the end of
   the capture, the eye / target D_008105D0 / E0, the block's desired
@@ -473,8 +493,7 @@ service's ticks and its 001FC9B0 teardown.
 - *The panel's player and camera Y.* While the script owns the player the
   panel windows check the player Y as retained (equal to the port's own
   approach Y, not the capture's) and the scripted camera Y with that same
-  offset; the prompt window between the
-  request and the Yes press is not compared (the module load above).
+  offset, also in the prompt window between the load and the Yes press.
 - *D_00282157 and the voice lanes D_00282155/156* are the stream lanes'
   (em_stream_live, WP-8b): D_00282157 is the phase of 001FA0D0's disc read,
   read by 0x1AE040 state 3 and passed to the status page input (which does
@@ -1486,7 +1505,7 @@ where the captures, after the PS2 disc load, hold 0.806 (258 steps). The
 port's area read completes inside 001FF080(1, 0), so the load spans no tick
 (LOAD_VEIL_PARTICLES.md section 5).
 
-## What the full route does not yet compare (2026-09-27)
+## What the full route does not yet compare (2026-09-28)
 
 `make test-level-smoke-full` plays route beats 01..14 on the main line and 00
 and 09 in their own runs, and every phase reproduces its capture. These are
@@ -1495,7 +1514,6 @@ never silently skipped. What removes each:
 
 | Where | What is relaxed | Why | What removes it |
 |---|---|---|---|
-| panel (03) | the prompt window between the request and the Yes press: the port's page takes 7 ticks, the original's 30 | the ITEM root's module-0x21 load takes 24 loader dispatches in the original; the port's load is instant (H7) | the module loader's dispatch count (FIRST_LEVEL_AUDIT.md WP-5) |
 | cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows earlier than the drive mode alone explains (8 at host speed, 2 with the switch on); check_voice_drive allows exactly the key-on's shift, which it proves is the drive's difference plus the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
 | status_pages (designed) | no capture: the page calls are replayed through the original instructions over the status-hub capture, not compared with a recording; pixels are not compared; the stack's register save slots are not compared; the takes are the scan's claim made directly, not walked to | no route capture shows a status page open | a PCSX2 capture of each page (hub → page) and of each take |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
@@ -1507,7 +1525,7 @@ never silently skipped. What removes each:
 | check_rand_order | the opening's values after AE+1, and (switch on only) its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | L24; the opening's actors on their records |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
-| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258 (the loader task's own steps are not run: H7) | a capture of a frame mid-load (the decomp's fb2 method); the loader task 001FF0D0 run live |
+| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258: the area streamer 001FFCD0 is translated but not bound, because its sound-bank step 001FB370 needs the EE sound library's queue, the SIF DMA and the driver's command 0x20 (MODULE_LOADER.md section 5) | a capture of a frame mid-load (the decomp's fb2 method); 001FB370's callees live, then 001FFCD0 bound |
 
 Not compared at all: the sounds (WP-14), the pixels (the renderer compares
 by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`;

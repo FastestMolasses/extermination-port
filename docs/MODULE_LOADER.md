@@ -1,34 +1,38 @@
 # MODULE_LOADER: the screen-module loader behind the panel prompt (H7)
 
-Lane b15 "module_loader", 2026-09-27. New files only:
-`src/game/em_module_loader.{h,c}`, `tools/export_module_loader.py`,
-`tools/test_module_loader_reference.py`, this doc. Nothing is wired yet;
-the "Binding" section tells the chain how to wire it.
+Lane b15 "module_loader" (2026-09-27) translated the loader's disc and DMA
+layer; chain C8b LOADER (2026-09-28) bound it live and translated the area
+streamer. Files: `src/game/em_module_loader.{h,c}`,
+`tools/export_module_loader.py`, `tools/test_module_loader_reference.py`
+(`make test-module-loader-reference`), this doc; the state machine is in
+`em_status_scene_original.c` (STATUS_SCENE.md section 2).
 
-**What this adds.** The loader's state machine was already translated and
-verified in `em_status_scene_original.c` (STATUS_SCENE.md section 2). This
-lane reuses that translation as is:
-- 001FF080, the request;
-- 001FF0D0, the slot-2 task;
-- 001FF830, the bank streamer;
-- 001FF3F0, the chunk streamer;
-- 001FEF70, the bank chaining.
+**What is live (chain C8b LOADER).** Module 0x21, the BATTERY page, loads
+through the loader's own steps on every status screen that opens it (the
+panel's prompt, route 03, and the battery pop-up, route 01):
+- `em_scene_bindings` boots one loader at start-up over the user's
+  exported sectors and binds its slot-2 task (section 4);
+- the ITEM root's 001FF080(0, 0x21) registers the task 001FF0D0, which runs
+  001FF830 / 001FF3F0 and the I/O routines 00200780, 00200730 and 00200830
+  once per frame, after the game task (em_task slot 2);
+- its 0x63 step clears D_00275BD8 and stops the slot (001AB7D0), and the
+  ITEM root's state 3 advances on the cleared byte.
 
-This lane adds:
-- translations of the I/O routines the loader calls: 00200780, 00200730
-  and 00200830;
-- translations of the two player-texture routines in the same range:
-  00200890 and 00200970;
-- a host "drive" that answers the SDK leaves at host speed from the user's
-  exported disc sectors;
-- a live em_task slot-2 binding.
+The drive's time goes (user policy, port CLAUDE.md 2026-09-27): the load
+takes the loader's **10 dispatches** at host speed, where the original takes
+24. With the PS2 disc-drive timing switch (`EM_PS2_DISC_DRIVE_TIMING=1`,
+LAUNCHER_OPTIONS.md) the drive answers with the recorded busy fields and
+the load takes the captured 24 frames. The level smoke compares both
+(section 4.1).
 
-So the port runs the loader's own steps. The drive's time goes (user policy,
-port CLAUDE.md 2026-09-27): the module-0x21 load takes the loader's
-**10 dispatches** at host speed, where the original takes 24. The measured
-PCSX2 drive time is available as an option (`EM_MODULE_LOADER_DRIVE_MEASURED`,
-off by default). With the option on, the load reproduces all 24 captured
-frames exactly.
+**What is translated but not live.** The area streamer 001FFCD0 and its
+bank-chunk streamer 001FF590 (section 1.9), verified against the original
+instructions. The area load 001FF080(1, 0) cannot run through them yet:
+their first bank step hands the area's sound bank to 001FB370, whose steps
+are the EE sound library and the IOP (section 5). Until then the area read
+is the port's own (em_game_legacy_area_load) and completes inside the
+call, so the load veil draws one black frame (LOAD_VEIL_PARTICLES.md
+section 5).
 
 ## 1. Behaviour (by original address)
 
@@ -50,11 +54,17 @@ it through `em_module_loader_failed` and never substitutes a result.
   slot 1 → 2 in the same pass as the request, and slot 2 runs after slot 0.
 - Does nothing while D_00282157 != 0.
 - +8 == 0 runs the bank streamer 001FF830.
-- +8 == 1 runs 001FFCD0 and +8 == 2 runs 00200360. Both are untranslated,
-  so they fault.
+- +8 == 1 runs 001FFCD0 (the area streamer, section 1.9: translated, not
+  bound in the live loader, so it faults there) and +8 == 2 runs 00200360
+  (untranslated: it faults). After 001FFCD0 reports 0x63, 001FEF70 picks
+  the inventory's bank module 0x32..0x35 over D_00810CA4 / D_00810CA6 and
+  restarts the record on it (+8..+0xC cleared); every AREA11 capture holds
+  CA4 = 0xFF, CA6 = 0, so the first level never chains.
 - +8 == 0x63: D_00275BD8 = 0 and the slot goes idle (001AB7D0).
 - Native form: `em_status_scene_loader_001FF0D0`, called by
-  `em_module_loader_dispatch` over the em_task record.
+  `em_module_loader_dispatch` over the em_task record. Its 0x63 step's
+  D_00275BD8 store goes to the loader's view of the byte (section 4) and
+  its 001AB7D0 is the record's state byte (em_task slot 2).
 
 **001FF830 / 001FF3F0** (STATUS_SCENE.md section 2) run a load as a sequence
 of steps:
@@ -65,6 +75,12 @@ of steps:
 4. The cursor commit by kind.
 5. The section DMAs.
 6. The relocation words D_0028A490[e >> 24] = (e & 0xFFFFFF) + base.
+   The table is one storage of 0xB0 words, D_0028A490..D_0028A74F (the
+   task table D_0028A750 follows), and the loader's cursors are its slots:
+   D_0028A5A0 is slot 0x44, D_0028A734..D_0028A748 are slots 0xA9..0xAE
+   (`EM_STATUS_SCENE_SLOT_*`). A relocation that names a cursor's slot
+   moves that cursor, as in the original. A slot at or past 0xB0 would
+   store into the task table: the port faults at that address instead.
 
 ### 1.2 00200780: start a disc read
 
@@ -140,9 +156,11 @@ Destinations:
 - Every other destination is a host region keyed by its original address.
   A later read that overlaps a region replaces it.
 
-**The measured option.**
+**The measured option** (the PS2 disc-drive timing switch,
+`EM_PS2_DISC_DRIVE_TIMING=1`; `em_settings`).
 - A read keeps sync busy for its measured number of fields, counted on
-  `em_module_loader_field`, which is called once per frame.
+  `em_module_loader_field`, which main.c's field hook calls once per frame
+  at the top of the frame, before the task dispatch.
 - The only measurements are module 0x21's reads, named by file, sector
   inside the file and sector count, so a disc image that places the two
   files elsewhere still matches them:
@@ -187,6 +205,70 @@ differs, because the next area is loading. The exporter writes these seeds
 (`AREA11_SEEDS`) unless it is given `--capture`. They are observed
 addresses, not disc data, and the port does not compute them (section 5).
 
+The New Game loads the port does not run through this loader account for
+all but two of them (section 1.9): module 3 (kind 0, from D_0028A738 =
+0x10E99C0) ends at 0x13351C0; the area load's sound bank there returns
+0x1335F40 = D_0028A73C (001FB370's aligned end of the bank's resident
+part); the area's resident region (0x66E000 bytes) puts D_0028A740 =
+D_0028A744 = D_0028A748 at 0x19A3F40; its pointer word for slot 0x44
+makes D_0028A5A0 = 0x1335F40 + 0x1E1000 = 0x1516F40; module 3's load
+leaves D_00275C74 = 0x10E99C0 (route 00's value). Only D_0028A738 (the boot
+loader 001FF1E0's) is left once those loads run through the loader. These
+numbers are the disc's (INDEX.IDX sectors 3 and 0x0F, the bank's +0x10 word)
+through the translated steps; the oracle's AREA11 case reproduces D_0028A5A0
+from the captured D_0028A73C.
+
+### 1.9 001FFCD0 and 001FF590: the area streamer (translated, not bound)
+
+`em_status_scene_area_001FFCD0` (em_status_scene_original.c; 001FFCD0 is
+NEARMISS C, 001FF590 byte-matched C, both read against the original
+instructions by the oracle, section 3 F). The record's +8 is the status
+(0x63 at the end), +9 the state, +0xA the open phases' sub-state, +0xB
+001FF590's state, +0x14 / +0x16 its chunk count and index. Its own inputs
+and outputs (`EmStatusSceneArea`): the area and room D_00810700 /
+D_00810701, the latches D_00810703 / D_00810704, the overlay arena word
+D_00275304[0] and the descriptor table D_0028A3C0 (0x17 x {lsn, size},
+which the boot's 001FEE60 fills from the disc directory).
+
+| State | What it does |
+|---|---|
+| 0 | Reads the area's overlay file whole (size -1) to D_00275304[0] through the descriptor D_0028A3C0[area] |
+| 1 | Poll: done calls 002009E0(D_00275304[0], the descriptor's size word): FlushCache(2), then the overlay's +0x14 bytes at the file's end are cleared; an error goes back to state 0 |
+| 2 | Reads INDEX.IDX sector area + 4 (the area's header) to D_00289BC0 |
+| 3 | Poll: done latches D_00810703 = D_00810700 |
+| 4 | Open phase A: D_00275C70 = the header; 001FF590(0xAB, 0), then 001FF590(0xAB, 1) |
+| 5 | D_0028A740 = D_0028A73C + (+8 - +0x14); reads the resident region (+4 + +0x14, size +8 - +0x14) to D_0028A73C |
+| 6 | Poll |
+| 7 | The B sections from D_0028A73C through 00200830, the pointer words D_0028A490[e >> 24] = D_0028A73C + (e & 0xFFFFFF) (the cursor is re-read for every word), then 00200890. +0x18 == 0: D_00810701 = D_00810704 = 0, D_0028A744 = D_0028A748 = D_0028A740, status 0x63. Otherwise D_00810704 = D_00810701 and D_00275C70 = the nested block D_00289BC0 + 0x100 + room * 0x70 |
+| 8 | Open phase B on the nested block: 001FF590(0xAC, 0), then (0xAC, 1) |
+| 9 | D_0028A744 = D_0028A740 + (+8 - +0x14); reads the nested block's resident region to D_0028A740 |
+| 10 | Poll: done sets D_0028A748 = D_0028A744 |
+| 11 | The nested block's B sections and pointer words from D_0028A740; status 0x63 |
+
+A poll that reports an error (not 0 or 1) repeats the step before it.
+
+001FF590(slot, mode) over the descriptor D_00275C70:
+- mode 0: when +0x0C != 0 it reads entry 0 (the area's sound bank) to
+  D_0028A490[slot], polls it (an error starts over) and hands it to
+  001FB370 once per call until that returns an address, which becomes
+  D_0028A490[slot];
+- mode 1: it reads the entries +0x0C .. +0x0C + (+0x0E) - 1 one at a time
+  to D_0028A490[slot] and sends each through 00200830 (an error re-reads
+  the entry).
+The slots 0xAB / 0xAC are D_0028A73C / D_0028A740: the bank and the A
+entries land at the cursor, and the bank's end moves it.
+
+**AREA11** (INDEX.IDX sector 0x0F): one bank entry (0x4A800 bytes), one A
+entry (0xD8800, the area's texture upload: DISC_TEXTURES.md), no B
+section, a resident region of 0x66E000 bytes from DATA.DAT byte 0x76E7800
++ 0x123000, 19 pointer words (slots 0x41..0x98, D_0028A5A0 among them), no
+nested block. With every poll done at once and 001FB370 scripted to
+finish on its third call, the oracle's AREA11 case takes 14 dispatches of
+001FFCD0; how many calls 001FB370 really needs is its own steps' count
+(section 5).
+
+
+
 ## 2. Findings (evidence in section 3)
 
 1. **The module-0x21 load is the BATTERY page's texture upload.**
@@ -213,19 +295,16 @@ addresses, not disc data, and the port does not compute them (section 5).
    - Each wait frame calls rand() exactly twice, from 001D7C30 (return
      addresses 0x1D7D44 and 0x1D7DD4). This is measured on route 01's
      identical load, f194..f217. There is no route-03 rand capture.
-4. **The relocation slot table is larger than the 68 words the existing
-   translation models.** Real module headers name slots up to 0x9A. Slot
-   0x44 is D_0028A5A0 itself (module 0x1D relocates its own kind-2 cursor),
-   0x86 is 0x28A6A8 and 0x87 is 0x28A6AC.
-   - 14 of the disc's headers stop at such a slot in the native module
-     (EM_STATUS_SCENE_RELOC_WORDS = 68): 4..8, 0xB, 0xC, 0x13, 0x14,
-     0x16, 0x17, 0x1A, 0x1D and 0x36.
-   - The kind-3 banks 0x32..0x35 (slot 0x86) would stop there too, after
-     001FB370.
-   - In each case the original writes the named global at exactly the
-     faulting address; the sweep checks this.
-   - None is on the first-level route: 0x21 and 0x1F have no relocations,
-     and module 3 uses slots 8..52.
+4. **The relocation slot table is D_0028A490..D_0028A74F, and the
+   loader's cursors are its slots.** Real module headers name slots up to
+   0x9A; slot 0x44 is D_0028A5A0 itself (module 0x1D and the AREA11 area
+   load relocate it), 0x86 is 0x28A6A8 and 0x87 is 0x28A6AC; 001FFCD0
+   passes 0xAB (D_0028A73C) and 0xAC (D_0028A740) to 001FF590. Since chain
+   C8b LOADER the native table is that whole range (0xB0 words, the
+   cursors as named slots): the 14 disc headers that stopped at the old
+   68-word model (4..8, 0xB, 0xC, 0x13, 0x14, 0x16, 0x17, 0x1A, 0x1D and
+   0x36) and every other self-naming header under 6 MiB load through and
+   write the original's words (the full sweep, section 3 B).
 5. **00200890 / 00200970 read loader relocation slots.** This is checked in
    the captured RAM of route 03:
    - D_0028A4B0..C0 are module 3's slots 8..12, at base D_0028A738 =
@@ -237,18 +316,25 @@ addresses, not disc data, and the port does not compute them (section 5).
 6. **D_00275BD8 = 1 is raised by the ITEM root one frame before its
    request.** 0020EE50 state 2 writes it, and the store is captured at
    0x20F06C in f390 (CAPTURES_C7.md section 6). The port's `em_item_root`
-   state 2 already sets `asset_busy = 1` there, so the loader needs no
-   extra writer.
+   state 2 sets its busy view there (section 4 item 4), so the loader needs
+   no extra writer.
+7. **The live load reproduces the capture** (chain C8b LOADER, the level
+   smoke). At host speed the port's rows R..D of routes 01 and 03 equal the
+   captured rows without the 14 busy polls, and the BATTERY prompt takes the
+   request 16 ticks after the post, against the original's 30 = 16 + 14;
+   with the PS2 disc-drive timing switch the 24 rows and the 30 ticks are
+   the capture's.
 
 ## 3. Verification
 
-`python3 tools/test_module_loader_reference.py`:
+`python3 tools/test_module_loader_reference.py` (`make
+test-module-loader-reference`):
 - builds a private dylib under `build/b15/module_loader/`;
 - exports two private packs there from the user's ISO: one with
   `--capture` (route 03, its checks and its cursors), and the disc-only one
   an end user makes. The test requires the two to differ only in the
   D_00275C74 seed word;
-- takes about **1.8 s**. `EM_TEST_FULL=1` takes about **6.4 s**.
+- takes about **2.2 s**. `EM_TEST_FULL=1` takes about **7 s**.
 
 Every check below runs in both modes.
 
@@ -301,7 +387,8 @@ Compared:
 - **At every callee entry:** the callee, its arguments and the whole
   modelled memory. The callees are 00200780, 00200730, 00200830 and each
   SDK leaf. The modelled memory is the slot record, D_00275BD8,
-  D_00282157, the seven cursors, 68 relocation words and the header.
+  D_00282157, D_00275C70 / D_00275C74, the whole slot table D_0028A490..
+  D_0028A74F (0xB0 words, the five cursors among them) and the header.
 - **After every frame:** the same memory.
 - **Every store** the original instructions make must be inside the
   modelled set, and every store the drive makes must be inside a delivered
@@ -313,8 +400,9 @@ Runs:
 - Module 0x21: host speed and measured.
 - Modules 0x1F, 3 and 4 in the quick run.
 - In full, all 45 self-naming disc headers under 6 MiB except 0x21 and the
-  kind-3 ids: 31 load through; 14 stop at a slot past the model, at the
-  address the original writes.
+  kind-3 ids: all 45 load through and write the original's words (before
+  the table was widened, 14 stopped at a slot past the 68-word model). The
+  sweep requires that no real header names a slot past the table.
 
 **C. Captures.**
 - **Host speed:** 10 dispatches, whose rows are the captured rows without
@@ -361,7 +449,8 @@ Runs:
 
 **Fault checks:**
 - a header the pack lacks: 0x00112440, BAD_INDEX;
-- +8 = 1 or 2: 001FFCD0 / 00200360, NULL_WORKER;
+- +8 = 1 or 2: 001FFCD0 / 00200360, NULL_WORKER (the live loader binds
+  neither);
 - no DMA consumer: 0x00101F08, NULL_WORKER;
 - the orphan fault (D);
 - an unbound request;
@@ -402,218 +491,224 @@ default run. The file is restored afterwards.
 
 `python3 tools/check_no_disassembly.py` is clean on all five files.
 
-## 4. Binding (for the chain)
+**F. The area streamer (`tools/test_status_scene_reference.py`, `make
+test-status-scene-reference`).** 001FFCD0 runs as original code over the
+pinned ELF with the record at D_0028A790 (spad 0x70003B6C) and 001FF590 as
+original code under it; 00200780, 00200730, 00200830, 001FB370, 00200890
+and 002009E0 are hooked and scripted on both sides. After every dispatch
+the record, D_00275C70 / D_00275C74, the whole slot table, D_00810700 /
+701 / 703 / 704 and the header are compared, with every callee and its
+arguments, and every store the original makes must be inside that set.
+- AREA11's own header (INDEX.IDX sector 0x0F from the user's disc): 14
+  dispatches (001FB370 scripted to answer on its third call); its pointer word for
+  slot 0x44 makes D_0028A5A0 = D_0028A73C + 0x1E1000.
+- Synthetic headers that reach every state: errors on the overlay, header,
+  bank and A-entry polls; no bank and no A entry; two A entries, two B
+  sections and pointer words into slot 0xAB (the later words follow the
+  moved D_0028A73C) and 0xAF; a nested block per room (states 8..11) for
+  rooms 0 and 1, the first with its own bank. Busy polls in full mode.
+- An area index past D_0028A3C0's 0x17 descriptors is refused (the
+  original would read D_0028A480 as a descriptor).
+- Negative controls (a scratch copy, restored): the cursor not re-read in
+  the pointer loop, D_00810703 from D_00810701, the A entries counted from
+  0 instead of +0x0C, a 0x60 nested-block stride, a bank-poll error to
+  state 3: each fails the default run. State 1's error to "state - 1" is
+  the same as the original's 0 there (equivalent).
 
-1. **Asset.** `python3 tools/export_module_loader.py` needs only the
-   user's disc image. It writes `assets/module_loader/modules.emml` and
-   `modules.json` (ignored, disc-derived):
-   - the file descriptors are the ISO's INDEX.IDX and DATA.DAT extents;
-   - the cursor seeds are `AREA11_SEEDS` (section 1.8);
-   - module 0x21 by default; add others with `--modules 0x21,0x1F,...`
-     (item 8).
+**G. Live (the level smoke).** `check_module_load` (tools/test_level_smoke.py,
+every run through the battery and the panel): the loader bytes the tick
+log records after each frame (`loader_pre`: slot +0, +8..+0x1F,
+D_00275BD8, D_00282157) against h7 and the route-01 probe, by the run's
+drive mode (section 4.1). The run log's "module loader:" line gives the
+counters.
 
-   `--capture <folder>` (developer only) adds the capture checks: the
-   descriptors, the 0x21 header against D_00289BC0, the chunk against
-   D_00275C74, and whether the captured cursors equal `AREA11_SEEDS`. It
-   also takes that capture's cursors as the seeds.
-2. **Create** the loader once, where the AREA11 interaction host binds the
-   status models:
-   - `ml = em_module_loader_open(path)`. A NULL result refuses the host
-     load, as em_status_models does.
-   - `em_module_loader_bind_live(ml)`.
-   - At unload: `em_module_loader_bind_live(NULL)`, then
-     `em_module_loader_close(ml)`. Unload only while slot 2 is idle; a
-     slot-2 dispatch with nothing bound latches the orphan fault.
-3. **Faults.** Every frame, after `em_task_dispatch()`, the host calls
-   `em_module_loader_failed(ml, &f)` and `em_module_loader_orphaned(&f)`.
-   If either returns 1, the host fails at once (the interaction runtime's
-   `failed`, with `f.address` and `f.code` in the log). A latched fault
-   stops every later dispatch, slot 2 stays running and D_00275BD8 stays 1,
-   so without this check a fail-stop shows only as an ITEM root hung in
-   state 3.
-4. **Views** (`em_module_loader_set_views`):
+## 4. Binding (live since chain C8b LOADER)
 
-   | View | Point it at |
+1. **Asset.** `python3 tools/export_module_loader.py` (STARTUP.md) needs
+   only the user's disc image. It writes `assets/module_loader/modules.emml`
+   and `modules.json` (ignored, disc-derived): the ISO's INDEX.IDX and
+   DATA.DAT extents, the cursor seeds `AREA11_SEEDS` (section 1.8) and
+   module 0x21's sectors (add others with `--modules 0x21,0x1F,...`).
+   `--capture <folder>` (developer only) adds the capture checks and takes
+   that capture's cursors as the seeds. The game does not start without the
+   pack (fail-stop, like the stream export).
+2. **One loader for the game.** `em_scene_bindings_module_loader_boot`
+   (main.c, at start-up after the stream boot) opens the pack, sets the
+   views and the drive mode, and binds the slot-2 task live;
+   `em_scene_bindings_module_loader_shutdown` unbinds and closes it at exit.
+3. **Faults.** After every task dispatch (step E) the frame loop runs
+   `em_scene_bindings_module_loader_check` (`em_frame_set_task_check`): a
+   latched loader fault or the orphan fault prints its address and code
+   once and stops the frame loop (fail-stop, not a hung ITEM root); the
+   run's exit status reports it.
+4. **Views** (the one storage of each byte):
+
+   | View | Storage |
    |---|---|
-   | `d275BD8` | the one unified D_00275BD8 (below) |
-   | `r_00282157` (+ ctx) | a `uint8_t (*)(void *)` reader of the stream lanes' D_00282157. `em_stream_live_read_phase()` is `uint8_t(void)`, so pass a one-line wrapper; em_scene_bindings.c's static `r_00282157` is exactly that wrapper |
-   | `d810CA4` / `d810CA6` | the D2 bytes (read only after 001FFCD0, untranslated) |
-   | `spad3B90` | the port's 0x70003B90 byte, or NULL (only modules 0x2A/0x2B read it) |
+   | `d275BD8` | the scene state's `d275BD8` (D_00275BD8, below) |
+   | `r_00282157` | em_scene_bindings' `r_00282157` over `em_stream_live_read_phase()` |
+   | `d810CA4` / `d810CA6` | the scene state's progress bytes D_00810CA4 / CA6 |
+   | `spad3B90` | the scene state's `spad3B90` (0x70003B90) |
 
-   **D_00275BD8 has more than one storage in the port today.** The
-   original has one byte:
-   - `EmStatusRuntime.page.item.asset_busy`: em_item_root.c (state 2 raises
-     it, state 3 waits on it), em_status_page.c and em_status_runtime.c
-     (`begin_module` clears it);
-   - `em_scene_state()->d275BD8` (em_scene_bindings.c `s_state`): the scene
-     tick log's byte (em_scene_bindings.c:541), 001AE040's world-frame test
-     and its state-6 wait (em_scene_frame.c:356 and :468), the scene tasks'
-     module-3 / 0x27 waits (em_scene_task.c:262..334) and the bindings'
-     resident loads (em_scene_bindings.c:1807..1813, :2635, :2641);
-   - `SP_D_00275BD8`, the status-pages lane's memory-model address.
+   **D_00275BD8 is one byte**: the scene state's (em_scene_state()->
+   d275BD8), which 001ADF50 / 001AD4E0 / 001AD1A0, 0x1AE040's tests and
+   the scene tick log read. The status runtime binds it
+   (`em_status_runtime_bind_busy`, at the AREA11 interaction host's load);
+   the page core's `EmItemRoot.asset_busy` is a per-call view of it,
+   loaded before 0020CDC0 runs and stored after (as the request bytes
+   are), and the status pages' `SP_D_00275BD8` is a view of that view
+   inside the call. The loader reads and writes the byte through its view.
+5. **DMA consumer.** `em_status_runtime_bind_loader` installs the status
+   runtime as the chain hook. It accepts only module 0x21's chunk: the
+   record's +8 = 0 and +0xE = 0x21, chain == D_00275C74, at least 0x50800
+   bytes (finding 1); with the status pages bound it applies the module's
+   GS blocks to their GS memory then (`em_gs_texture`, the same upload),
+   at the chunk step instead of at the request. Anything else is refused
+   (a loader fault).
+6. **Clock.** main.c's field hook (the top of every frame) calls
+   `em_scene_bindings_module_loader_field` before the dispatch. Only the
+   measured drive reads it.
+7. **Request.** `em_status_runtime.c` `begin_module`: module 0x21 calls
+   `em_module_loader_request_001FF080(loader, 0, 0x21)` and leaves the busy
+   byte as the ITEM root set it; the loader's 0x63 step clears it. Without a
+   bound loader module 0x21 faults (no instant path is left). The port-side
+   `em_item_ui_deactivate` / `em_battery_ui_deactivate` calls stay (they
+   are not original calls). Module 0x1F and the other page modules keep
+   the resident path (item 8).
+8. **Other modules** move to the loader once each is exported and its
+   upload is proven equal to the atlas the port draws, as in finding 1:
+   the pages 0x1F (hub), 0x20, 0x22, 0x23, 0x2C and 0x2D..0x31 (the last
+   six the status pages' `SP_001FF080`). The New Game module 3 (001AD1A0)
+   and the area load go through it together with the area streamer
+   (section 5).
+9. **Tick log.** Every tick carries `loader_pre`: the first 27 bytes of
+   `em_module_loader_snapshot` (slot +0, +8..+0x1F, D_00275BD8,
+   D_00282157) after the previous frame's slot-2 dispatch (the task runs
+   after the game task that logs the tick). The run log's "module loader:"
+   line (level smoke, newgame-control) gives the drive mode and the
+   dispatch / read counters.
+10. **The PS2 disc-drive timing switch** selects the measured drive
+    (em_settings; LAUNCHER_OPTIONS.md "PS2 disc-drive timing").
 
-   Before the loader is bound these must become one byte, and `d275BD8`
-   must point at it. Until then, from L (f390) to D the scene tick log's
-   byte is 0 where the original's is 1, and 001AE040's `D_00275BD8 == 0`
-   branches would see 0 during the load. The smoke must then list the scene
-   log's `d275BD8` column in L..D as a known divergence, not compare it.
-5. **DMA consumer** (`em_module_loader_set_chain_hook`).
-   - For module 0x21 the chain is the BATTERY page's upload, and the port's
-     resident `battery.emba` holds exactly those texels (finding 1).
-   - The hook must return 0 only when it receives that chain: chain ==
-     D_00275C74 while slot 2's +0xE is 0x21, size >= 0x50800. Anything
-     else returns -1, which is a fail-stop, never a silent accept.
-   - The GS memory before the upload is not modelled. The atlas is resident
-     all the time, and the page draws from it only from item state 5, after
-     the load.
-6. **Clock.** Call `em_module_loader_field(ml)` once per frame, before
-   `em_task_dispatch()` (em_frame, before step E). Only the measured option
-   reads it.
-7. **Request.** In `em_status_runtime.c` `begin_module`, module 0x21 must
-   call `em_module_loader_request_001FF080(ml, 0, 0x21)` instead of the
-   resident branch. That branch clears `asset_busy` at once. Return 1 on
-   success and leave `asset_busy` alone: the loader's 0x63 step clears it,
-   and em_item_root's state 3 step 1 advances on it.
-   - Module 0x1F stays on the resident branch until item 8 is done.
-   - Keep the port-side `em_item_ui_deactivate` / `em_battery_ui_deactivate`
-     calls; they are not original calls. Moving them is the chain's call.
-8. **Other modules.** Other page loads can use the same request once each
-   meets two conditions:
-   - its sectors are exported;
-   - its upload is proven equal to the atlas the port draws, as in finding
-     1. Only 0x21 is proven here.
+### 4.1 The level smoke's rule for a module-0x21 load (the panel prompt and the battery pop-up)
 
-   The pages are 0x1F (hub), 0x20, 0x22, 0x23, 0x2C and 0x2D..0x31.
-   The last six are the status-pages lane's `SP_001FF080`. The New Game
-   module 3 (001AD1A0) is verified as a whole load (B), but it has no
-   consumer: its data is resident port assets.
-9. **Tick log.** Add the 27 first bytes of `em_module_loader_snapshot`
-   (slot +0, +8..+0x1F, BD8, gate) as a `loader` field. The smoke needs it
-   for the rule below.
-10. **Retire when bound.**
-    - `begin_module`'s instant path for 0x21.
-    - The LEVEL_SMOKE "What the full route does not yet compare" row
-      "panel (03) … prompt window", and the matching "known divergence"
-      paragraph. Both are replaced by the rule below.
-    - FIRST_LEVEL_AUDIT H7's load-wait part.
-    - The census rows 00200780 / 00200730 / 00200830 become live through
-      this binding. 00200890 / 00200970 stay verified-unbound (gaps).
-    - STATUS_SCENE.md section 5: `w_00200780`, `w_00200730` and
-      `w_00200830` become bound.
-    - Record the measured-drive switch in `docs/LAUNCHER_OPTIONS.md`
-      (Original value: off).
+`check_module_load` (tools/test_level_smoke.py) runs in both checks that
+contain the load, with these names:
+- L is the row whose ITEM state becomes 3: route 03 f390, route 01 f193
+  (asserted); the port's tick is the one the preceding row-for-row window
+  ends on.
+- R = L + 1 is the request row (001FF080(0, 0x21) and the loader's first
+  dispatch in the same frame).
+- D is the port's first tick after R whose `loader` bytes show slot 2
+  idle and D_00275BD8 = 0.
 
-### 4.1 The rule for the smoke's panel-prompt check (and the battery pop-up)
-
-**Which drive the smoke runs.** The strict 1:1 comparison of a beat that
-contains a 0x21 load runs with the measured drive
-(`EM_MODULE_LOADER_DRIVE_MEASURED`): the shift is 0, the 24 load rows and
-every later row, rand-derived fields included, compare 1:1 (section 3 C).
-The host-speed default (the Original profile as shipped) gets the shift
-rule below. Both are required: the measured run proves the steps and
-everything after them, and the host-speed run proves that removing the
-drive's time removes nothing else.
-
-Use the following names:
-- L is the row whose ITEM state is 3 at step 0. The original's is f390 in
-  route 03 and f193 in route 01; the port has the same row today.
-- R = L + 1 is the request row: the port's tick with `loader` +8 = 0,
-  +9 = 1.
-- D is the port's first tick after R with the slot idle (+0 = 0) and
-  BD8 = 0.
-
-The host-speed rule:
-1. **Up to the load.** Compare 1:1 through L, as today (`compare_window`
-   'panel open' / 'panel request'; for route 01, 'battery request').
-2. **The load.** The port's rows R..D are compared with the capture's
-   rows f391..f414 in their `loader` bytes, after dropping each captured
-   row that equals its predecessor while the slot state is 2. Those are
-   the 14 busy polls f392..f397 and f400..f407; route 01's are f195..f200
-   and f203..f210.
-   - The source for route 03 is h7's `frames.jsonl`; for route 01 it is
-     `loadwait/01_battery/probe_boundary.json`.
-   - Require D - R + 1 == 10 == 24 - 14.
-3. **From the load's completion on**, the port's tick D + 1 + k is the
-   capture's row f415 + k (route 01: f218 + k): a constant shift of
-   exactly 14 rows per host-speed load (a run spanning several loads adds
-   14 for each).
-   - Compare every field that does not come from rand() at this shift
-     until the Yes confirmation. That window aligns on its own `yes_*`
-     rows, as today.
-   - Require prompt_port - posted == prompt_orig - posted - 14. Today's
-     numbers become 16 == 30 - 14.
-   - For route 01, the battery notice's 239-frame hand-over is measured
-     from its own sub-state 3 row, so the shift leaves it unchanged.
-4. **Fields that do not follow the shift** are reported, not compared, in
-   the host-speed run:
-   - the frame counters (`counter`, `f`, vsync) run 14 behind;
-   - **every rand()-derived value, for the rest of the run.** During the
-     wait only 001D7C30 draws, twice per frame (return addresses 0x1D7D44
-     and 0x1D7DD4; route 01's rand capture shows only those two from f192
-     to f484). The 14 dropped frames therefore leave the port's rand()
-     sequence 28 draws behind at every aligned row after the load. When
-     the page closes, the world's callers resume (return addresses
-     0x1F4D74, 11 per frame, and 0x1F54FC, 9 then 8 per frame, from f486
-     in route 01), and their values (particles, effects, anything seeded
-     from rand()) differ from the capture's at the aligned rows until the
-     run ends. `check_rand_order` holds in index form: counted from the
-     request, the port's n-th draw after the load equals the capture's
-     (n - 28)-th (for n < 28, a capture draw inside the load);
-   - anything that counts fields in real time (the stream lanes' refill
-     phase) is 14 fields behind at that point.
+1. **Up to the load**: 1:1 through L (`compare_window` 'panel open' /
+   'panel request'; for route 01, 'battery request').
+2. **The load.** The port's `loader` rows R..D against the capture's
+   f391..f414 (h7's `frames.jsonl`; route 01: f194..f217 of the load-wait
+   probe, in its field form). At host speed the capture's rows that equal
+   their predecessor while the slot runs are dropped (the 14 busy polls):
+   10 rows, a shift of 14. With the PS2 disc-drive timing switch all 24
+   rows, shift 0.
+3. **From the load's completion to the Yes press** (route 03): the port's
+   tick D + 1 + k against the capture's f415 + k in spad, camera byte,
+   letterbox, message, power, B0/B1, the retained placement and heading,
+   up to the first Yes press of either side (navigation input: the
+   runner's press schedule starts at the prompt); and prompt_port - posted
+   == prompt_orig - posted - shift (16 == 30 - 14 at host speed, 30 == 30
+   with the switch). From the Yes confirmation on, the existing window
+   aligns on its own rows. Route 01's notice (239 frames) is measured from
+   its own sub-state 3 row, so the shift leaves it unchanged.
+4. **Not compared across a host-speed load** (reported by their own
+   checks): the frame counters run 14 behind; rand()-derived values:
+   during the wait only 001D7C30 draws, twice per frame (route 01's rand
+   capture), so the port's sequence is 28 draws behind the capture's at
+   every aligned row after the load, and `check_rand_order` compares the
+   aligned windows' callers, not the values; the stream lanes' refill
+   phase counts fields in real time and is 14 behind.
 
 ## 5. Known gaps
 
-- **Untranslated loader paths.** These are reached only off the
-  module-0x21 path, and every one faults:
-  - 001FFCD0, the area streamer (+8 = 1), with its 001FF590 and 002009E0;
-  - 00200360, the bank-set streamer (+8 = 2);
-  - 001FB370, the kind-3 finaliser (modules 0x32..0x35);
-  - 001FF1E0 / 00200700, the boot-time synchronous loader.
+- **The area load does not run through the loader yet** (the step's
+  blocker; FIRST_LEVEL_AUDIT.md 1b item 11). 001FFCD0 and 001FF590 are
+  translated and verified (section 1.9), but binding them live needs their
+  first bank step, 001FF590(0xAB, 0) -> 001FB370, which uploads the area's
+  sound bank (AREA11: one; its +0x0C is 1). 001FB370 / 001FB3E0 / 001FB910
+  are translated (em_startup_load_gaps_sound, verified-unbound), but the
+  number of dispatches their steps take (which is what the load veil
+  shows) is decided by what they call, and none of it is live in the port:
+  - the EE sound library's handle table and command queue: 00119528 /
+    001194B8 (the handle: the first free entry of D_0027C6C0), 00119400
+    (queues command 0x20 through 001157F0 and counts it in D_0027F740 +
+    0x48), 00119450 (the queue is caught up when the IOP's reply word
+    D_002817C0 + 0x1C0 equals that count), 001199F0 and 001195A8 (the
+    latter scans the voice table D_0027CCC0);
+  - the SIF DMA of the bank's records to IOP memory (the kernel calls
+    0010BC00, 0010BAA0, 0010BBE0, 0010BBC0) and the IOP heap RPC 0010F8F8 /
+    0010F968;
+  - the sound driver's handling of command 0x20 (the SPU transfer of a
+    registered block) and its acknowledgement in the status block:
+    em_iop_stream translates the driver's stream subset and faults on any
+    other command (IOP_STREAM.md).
+  Answering these at "host speed" with values chosen by the port would
+  decide the veil's length by invention, so the step stops here. What
+  unblocks it: extend em_iop_stream with command 0x20 and the SIF DMA
+  (translated from the user's SNDN2DRV.IRX, as its stream part is), bind
+  the EE sound library's handle table and queue (00119528, 00119400,
+  00119450, 001199F0, 001195A8) over its existing 001157F0 and status
+  block, bind 001FB370 on them, then bind 001FFCD0 (with 002009E0 over the
+  drive's overlay region and 00200890 over the views D_00810707 /
+  D_00810C60) and route the New Game module-3 load (001AD1A0) and the area
+  read (001ADF50's 001FF080(1, 0)) through the loader. The exporter then
+  needs the AREA11 overlay file and sector 0x0F's DATA.DAT spans, and the
+  descriptor table D_0028A3C0 from the disc directory (the names come from
+  the ELF's D_00264E40, which the ISO carries).
+- **Other untranslated loader paths**, each a fault if reached (none is on
+  the first-level route): 00200360, the bank-set streamer (+8 = 2); the
+  kind-3 finaliser 001FB370's live binding (modules 0x32..0x35, the item
+  above); 001FF1E0 / 00200700, the boot-time synchronous loader; 002009E0
+  (a worker of the unbound 001FFCD0).
 - **The cursor seeds are observed, not computed** (section 1.8). The loads
   that produce them (001FF1E0, the New Game module-3 load, 001FFCD0) do
   not run through this loader in the port. The seeds are the values every
-  first-level capture shows; they hold for AREA11 only. Translating and
-  binding the area streamer replaces them. For module 0x21 only D_0028A748
-  matters.
-- **D_00275BD8 has three storages in the port** (Binding item 4). The
-  loader writes the byte its view names; unifying them is the chain's
-  first step.
-- **The relocation table** stops at 68 words (finding 4). When 001FFCD0 is
-  bound, its 001FEF70 chaining into 0x32..0x35 needs the table widened to
-  the real slot range, with the named globals it aliases (at least up to
-  slot 0x9A, including D_0028A5A0 at 0x44). That change belongs to
-  `em_status_scene_original.c` and its test.
-- **The `d810CA4` / `d810CA6` views are unexercised**: nothing reaches
-  them before 001FFCD0 is translated (section 3, negative controls).
+  first-level capture shows; they hold for AREA11 only, and section 1.8
+  shows the translated steps compute the same values from the disc. For
+  module 0x21 only D_0028A748 matters.
+- **The `d810CA4` / `d810CA6` views** are bound but read only after
+  001FFCD0 (the 001FEF70 chaining), which the live loader does not run.
 - **00200890 / 00200970** are translated and verified, but have no
   consumer. Their packets are module 3 / 0x1B relocation slots, which the
   drive only delivers if those modules load through it, and 001CCB10 is
   untranslated. The page core's `EM_STATUS_PAGE_PLAYER_TEXTURE` and the
   player step 0015C1F0 keep their current boundaries.
 - **Measured timing** exists for module 0x21's two reads only (two data
-  points, PCSX2 on the rebuilt image). The option answers every other read
-  at host speed and counts it.
+  points, PCSX2 on the rebuilt image). With the switch on every other read
+  is answered at host speed and counted (`unmeasured`).
 - **Module 0x1F and the other page modules** have no upload-equals-atlas
-  proof yet (Binding item 8).
+  proof yet (Binding item 8): they stay on the resident path.
 - **Route 03 has no rand capture.** The 2-draws-per-frame figure is route
   01's identical load.
-- **The consumer hook is port-side.** It accepts a proven upload and
-  models no GS memory. A GS-memory model would be needed only if a page
-  sampled what was in that region before its upload; none on the route
-  does, because pages draw after the load.
+- **The consumer hook is port-side.** It accepts the proven upload and
+  applies the module's GS blocks from the status pages' GS image; it does
+  not decode the chain's transfer itself.
+- **The loader bytes are logged after the dispatch.** The scene tick log's
+  `post` byte D_00275BD8 is sampled when the game task ends, before slot 2
+  runs, so on the load's last row it still shows 1 where the capture's
+  frame-end sample shows 0; the smoke compares the `loader_pre` bytes,
+  which are sampled after the dispatch.
 
 ## 6. Reproduce
 
 ```
 python3 tools/export_module_loader.py                 # assets/module_loader/modules.emml (disc only)
-python3 tools/test_module_loader_reference.py         # ~1.8 s
-EM_TEST_FULL=1 python3 tools/test_module_loader_reference.py   # ~6.4 s
+python3 tools/test_module_loader_reference.py         # ~2.2 s (make test-module-loader-reference)
+EM_TEST_FULL=1 python3 tools/test_module_loader_reference.py   # ~7 s
+python3 tools/test_status_scene_reference.py          # the area streamer (section 3 F), ~2.5 s
 python3 tools/check_no_disassembly.py src/game/em_module_loader.c src/game/em_module_loader.h \
     tools/export_module_loader.py tools/test_module_loader_reference.py docs/MODULE_LOADER.md
 ```
 Inputs, all local and never committed. The exporter needs only the disc
-image; the test also needs:
+image; the tests also need:
 - the pinned ELF;
 - `../Extermination/Extermination-rebuilt.iso`;
 - `build/s87/route/{01_battery,03_panel_power}`;

@@ -5,6 +5,8 @@
  * and the previous publication list are fixture inputs; this does not test
  * the outer game's Use-input/culling arbitration. */
 #include "game/em_area11_interaction_host.h"
+#include "game/em_module_loader.h"
+#include "game/em_task.h"
 #include "game/em_area11_roger.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
@@ -637,6 +639,19 @@ static void setup(int reset_inventory)
     owner_binds = child_copies = 0;
     memset(owner_places, 0, sizeof owner_places);
     memset(owner_draws, 0, sizeof owner_draws);
+    /* Module 0x21's load runs the live screen-module loader's own steps
+     * (docs/MODULE_LOADER.md): the game boots it (em_scene_bindings); the
+     * fixture binds one over the scene state's D_00275BD8 and dispatches
+     * the task table after each status frame (step E). */
+    if (!em_module_loader_live()) {
+        EmModuleLoader *loader = em_module_loader_open("assets/module_loader/modules.emml");
+        assert(loader);
+        const EmModuleLoaderViews views = {&em_scene_state()->d275BD8, NULL, NULL, NULL, NULL, NULL};
+        em_module_loader_set_views(loader, &views);
+        em_module_loader_bind_live(loader);
+    }
+    em_task_init();
+    em_scene_state()->d275BD8 = 0;
     assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
     em_message_live_set_host(em_area11_interaction_host_message_host());
     bind_records();
@@ -694,6 +709,8 @@ static int outer(unsigned pressed)
     EmInteractionAnimation animation = em_area11_interaction_host_shared()->animation;
     bridge_status_request();
     int result = em_status_runtime_tick(status, &input);
+    em_task_dispatch();
+    assert(!em_module_loader_failed(em_module_loader_live(), NULL));
     if (result < 0) {
         const EmStatusFrame *f = em_status_runtime_frame(status);
         const EmStatusPage *p = em_status_runtime_page(status);
@@ -809,7 +826,10 @@ static void first_battery(void)
         assert(!memcmp(desired + 3, g.cam.tgt_des, 3 * sizeof(float)));
     }
     assert(owner->lifecycle == 1 && owner->phase == 1 && shared->owner == owner);
-    for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
+    /* The ITEM root's module-0x21 load takes the loader's 10 host-speed
+     * dispatches (MODULE_LOADER.md finding 2): 9 frames more than the
+     * instant load this fixture counted before (7). */
+    for (unsigned i = 1; i < 16; ++i) assert(outer(0) == 1);
     EmStatusRuntime *status = em_area11_interaction_host_status();
     assert(em_status_runtime_page(status)->item.step == 3);
     assert(em_pickup_battery_charge() == 12 && em_pickup_battery_capacity() == 12);
@@ -997,7 +1017,7 @@ static void panel_menu(int discharge, int child_slot)
     unsigned ticks = 0, old_resumes = resumes, old_indicators = indicators;
     unsigned old_stops = stream_stops, old_channels = channel_sets;
     while (!outer(0)) assert(++ticks < 200);
-    for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
+    for (unsigned i = 1; i < 16; ++i) assert(outer(0) == 1); /* 0x21: 10 loader dispatches */
     EmStatusRuntime *status = em_area11_interaction_host_status();
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
     assert(panel->owner.phase == 6 && shared->owner == panel && player_pose_owned());
@@ -1174,7 +1194,7 @@ static void cinematic_face(int reject_update)
     assert(em_area11_interaction_host_player(NULL) == 0);
     assert(face_updates == before && !memcmp(&paused, em_area11_interaction_host_face_state(), sizeof paused));
     /* Clear this standalone controlled status request via the real page. */
-    for (unsigned i = 1; i < 7; ++i) assert(outer(0) == 1);
+    for (unsigned i = 1; i < 16; ++i) assert(outer(0) == 1); /* 0x21: 10 loader dispatches */
     assert(outer(0x40) == 1);
     assert(outer(0x10) == 1);
     while (em_status_runtime_frame(em_area11_interaction_host_status())->phase != 1)
@@ -1356,6 +1376,7 @@ int main(void)
     other_take(0x0B07, 3, 0x32);
     other_take(0x0B08, 1, 0x10);
     other_take(0x0B09, 2, 0x08);
+    em_module_loader_close(em_module_loader_live());
     puts("AREA11 native interaction host PASS");
     return 0;
 }

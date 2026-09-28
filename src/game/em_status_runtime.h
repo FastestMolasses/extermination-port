@@ -133,10 +133,23 @@ int em_status_runtime_bind_hub(EmStatusRuntime *, EmStatusHubUI *ui);
 /* Bind the status pages MAP / SPR4 / DATABASE and the ITEM children
  * EQUIPMENT / EVENT / HEALING (the runtime owns `pages` from now on, also
  * on failure; it needs the pages_frame hook and a bound hub). Their module
- * loads (0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31) complete at host speed,
- * as 0x1F / 0x21 do, and apply the module's GS blocks; 00200970(1) applies
- * the restore. Without it those pages fault. 1 bound, 0 failure. */
+ * loads (0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31) complete at once, as
+ * 0x1F does, and apply the module's GS blocks (module 0x21 applies its
+ * blocks at the bound loader's chunk step); 00200970(1) applies the
+ * restore. Without it those pages fault. 1 bound, 0 failure. */
 int em_status_runtime_bind_pages(EmStatusRuntime *, EmStatusPagesLive *pages);
+/* D_00275BD8, the module-load busy byte: `d275BD8` is its one storage
+ * (the scene state's). The page core's EmItemRoot.asset_busy is a per-call
+ * view of it: loaded before the page layer runs and stored after it.
+ * Unbound (the sanitizer fixtures without a host) the view is the byte. */
+void em_status_runtime_bind_busy(EmStatusRuntime *, uint8_t *d275BD8);
+/* The screen-module loader (em_module_loader, bound live) that module
+ * 0x21's load runs on: 001FF080(0, 0x21) registers its slot-2 task and the
+ * page waits on D_00275BD8, which the task's 0x63 step clears. Binding also
+ * installs the runtime as the loader's DMA consumer for that module's
+ * upload. Without a loader module 0x21 faults. NULL unbinds. 1 bound. */
+struct EmModuleLoader;
+int em_status_runtime_bind_loader(EmStatusRuntime *, struct EmModuleLoader *loader);
 /* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset
  * clears it), for tests. */
 uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *);

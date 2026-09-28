@@ -284,6 +284,7 @@ static void finish(void)
      * "Drive model"; tools/test_level_smoke.py reads the mode from this line
      * and checks the voiced lines and the opening's end for it). */
     em_stream_live_drive_report(stderr);
+    em_scene_bindings_module_loader_report(stderr);
     /* Hand the pad back to the keyboard map (the navigation below drives
      * it through the gamepad overlay, em_input_set_gamepad). */
     if (t.pad_on)

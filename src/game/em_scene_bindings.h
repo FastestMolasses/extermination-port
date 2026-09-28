@@ -29,6 +29,8 @@
 #ifndef EM_SCENE_BINDINGS_H
 #define EM_SCENE_BINDINGS_H
 
+#include <stdio.h>
+
 #include "game/em_scene_state.h"
 #include "game/em_task.h"
 
@@ -97,6 +99,19 @@ int em_scene_bindings_001B0250(void);
  * the stream lanes' packer (em_stream_live). 0, or -1 on a fault. */
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r);
 
+/* The screen-module loader (docs/MODULE_LOADER.md, H7): boot opens the
+ * user's exported sectors, points the loader's views at the scene state
+ * and binds its slot-2 task live (0, or -1 with a message: the game cannot
+ * start without it). `field` is the drive's clock, once per frame before
+ * the task dispatch; `check` runs after the dispatch: -1 (reported once)
+ * when the loader latched a fault, so the frame stops. */
+int em_scene_bindings_module_loader_boot(const char *pack_path);
+void em_scene_bindings_module_loader_shutdown(void);
+void em_scene_bindings_module_loader_field(void);
+int em_scene_bindings_module_loader_check(void);
+/* One "module loader: <drive mode>: ..." line with the run's counters
+ * (the level smoke and newgame-control print it). */
+void em_scene_bindings_module_loader_report(FILE *out);
 /* The number of live nodes in the actor pool (D_00275BC0 list length) when
  * the pool holds the AREA11 roster, else -1 (test instrumentation). */
 int em_scene_bindings_pool_census(void);

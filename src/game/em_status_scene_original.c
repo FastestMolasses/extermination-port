@@ -582,6 +582,9 @@ static int section(uint32_t address, const EmStatusSceneWorkers *w, EmStatusScen
     return 0;
 }
 
+/* A cursor global of the loader: its slot of D_0028A490 (one storage). */
+#define CUR(ld, name) ((ld)->d28A490[EM_STATUS_SCENE_SLOT_##name])
+
 /* 001FF3F0 (translated from the .s): 1 when every chunk is in. */
 static int chunks_001FF3F0(uint8_t *user, EmStatusSceneLoader *ld, const EmStatusSceneWorkers *w,
                            EmStatusSceneFault *fault, int *done)
@@ -651,7 +654,7 @@ static int bank_001FF830(uint8_t module, uint8_t *user, EmStatusSceneLoader *ld,
         switch (module) {
         case 2:
         case 3:
-            ld->d275C74 = ld->d28A738;
+            ld->d275C74 = CUR(ld, D_0028A738);
             user[U_KIND] = 0;
             break;
         case 1:
@@ -663,27 +666,27 @@ static int bank_001FF830(uint8_t module, uint8_t *user, EmStatusSceneLoader *ld,
             user[U_KIND] = 1;
             break;
         case 0x1D:
-            ld->d275C74 = ld->d28A5A0;
+            ld->d275C74 = CUR(ld, D_0028A5A0);
             user[U_KIND] = 2;
             break;
         case 0x32:
         case 0x33:
         case 0x34:
         case 0x35:
-            ld->d275C74 = ld->d28A744;
+            ld->d275C74 = CUR(ld, D_0028A744);
             user[U_KIND] = 3;
             break;
         case 0x36:
-            ld->d275C74 = ld->d28A748;
+            ld->d275C74 = CUR(ld, D_0028A748);
             user[U_KIND] = 2;
             break;
         case 0x2A:
         case 0x2B:
-            ld->d275C74 = ld->spad3B90 == 0 ? EM_STATUS_SCENE_FIXED_BUFFER : ld->d28A748;
+            ld->d275C74 = ld->spad3B90 == 0 ? EM_STATUS_SCENE_FIXED_BUFFER : CUR(ld, D_0028A748);
             user[U_KIND] = 1;
             break;
         default:
-            ld->d275C74 = ld->d28A748;
+            ld->d275C74 = CUR(ld, D_0028A748);
             user[U_KIND] = 1;
             break;
         }
@@ -719,10 +722,10 @@ static int bank_001FF830(uint8_t module, uint8_t *user, EmStatusSceneLoader *ld,
         HDR(ld->d275C70 + 0x14, 4, &a);
         uint32_t end = ld->d275C74 + (c - a);
         if (user[U_KIND] == 0) {
-            ld->d28A73C = end;
+            CUR(ld, D_0028A73C) = end;
         } else if (user[U_KIND] == 2) {
-            ld->d28A744 = end;
-            ld->d28A748 = ld->d28A744;
+            CUR(ld, D_0028A744) = end;
+            CUR(ld, D_0028A748) = CUR(ld, D_0028A744);
         } else if (user[U_KIND] == 3) {
             user[U_STEP] = 6;
         }
@@ -733,7 +736,7 @@ static int bank_001FF830(uint8_t module, uint8_t *user, EmStatusSceneLoader *ld,
         NEED(w_001FB370, 0x001FB370u);
         CALL(0x001FB370u, w->w_001FB370(w->ctx, ld->d275C74, &result));
         if (result) {
-            ld->d28A748 = result;
+            CUR(ld, D_0028A748) = result;
             user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
         }
         return 0;
@@ -760,6 +763,289 @@ static int bank_001FF830(uint8_t module, uint8_t *user, EmStatusSceneLoader *ld,
         user[U_STEP] = 0;
         return 0;
     }
+    default:
+        return 0;
+    }
+}
+
+/* ------------------------------------------------------------------------
+ * The area streamer 001FFCD0 (record +8 == 1) and its bank-chunk streamer
+ * 001FF590. Record bytes: +8 (user[0]) the status (0x63 when done), +9
+ * (user[1]) the state, +0xA (user[2]) the open phases' sub-state, +0xB
+ * (user[3]) 001FF590's state, +0x14 / +0x16 its chunk count and index. */
+#define U_AREA_SUB 2 /* +0x0A */
+
+/* 001FF590(slot, mode) (byte-matched C): mode 0 reads entry 0 of the
+ * descriptor D_00275C70 (the sound bank) to D_0028A490[slot] and hands it
+ * to 001FB370; mode 1 reads the entries +0x0C .. +0x0C + (+0x0E) - 1 one at
+ * a time to D_0028A490[slot] and sends each through 00200830. *done = 1 when
+ * the mode's work is complete (the original returns 1). */
+static int chunks_001FF590(uint32_t slot, int mode, uint8_t *user, EmStatusSceneLoader *ld,
+                           const EmStatusSceneWorkers *w, EmStatusSceneFault *fault, int *done)
+{
+    uint32_t v, off, size, base;
+    int32_t status;
+    *done = 0;
+    if (slot >= EM_STATUS_SCENE_RELOC_WORDS)
+        return fail(fault, 0x0028A490u + 4 * slot, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+    switch (user[U_SUB]) {
+    case 0:
+        if (mode == 0) {
+            HDR(ld->d275C70 + 0xC, 2, &v);
+            if (v == 0) {
+                *done = 1;
+                return 0;
+            }
+            HDR(ld->d275C70 + 0x20, 4, &off);
+            HDR(ld->d275C70 + 4, 4, &base);
+            HDR(ld->d275C70 + 0x24, 4, &size);
+            if (read_start(ld, EM_STATUS_SCENE_D_0028A488, ld->d28A490[slot], off + base, size, w,
+                           fault) < 0)
+                return -1;
+            user[U_SUB] = 4;
+            return 0;
+        }
+        HDR(ld->d275C70 + 0xE, 2, &v);
+        u16_put(user + U_COUNT, (uint16_t)v);
+        if (!u16_at(user + U_COUNT)) {
+            *done = 1;
+            return 0;
+        }
+        HDR(ld->d275C70 + 0xC, 2, &v);
+        u16_put(user + U_INDEX, (uint16_t)v);
+        user[U_SUB] = (uint8_t)(user[U_SUB] + 1);
+        /* fall through */
+    case 1: {
+        uint32_t entry = ((uint32_t)u16_at(user + U_INDEX) << 3) + ld->d275C70;
+        HDR(ld->d275C70 + 4, 4, &base);
+        HDR(entry + 0x20, 4, &off);
+        HDR(entry + 0x24, 4, &size);
+        if (read_start(ld, EM_STATUS_SCENE_D_0028A488, ld->d28A490[slot], off + base, size, w,
+                       fault) < 0)
+            return -1;
+        user[U_SUB] = (uint8_t)(user[U_SUB] + 1);
+        return 0;
+    }
+    case 2:
+        if (poll(w, fault, &status) < 0)
+            return -1;
+        if (status == 0)
+            return 0;
+        if (status == 1) {
+            u16_put(user + U_INDEX, (uint16_t)(u16_at(user + U_INDEX) + 1));
+            user[U_SUB] = (uint8_t)(user[U_SUB] + 1);
+        } else {
+            user[U_SUB] = (uint8_t)(user[U_SUB] - 1);
+        }
+        return 0;
+    case 3:
+        if (section(ld->d28A490[slot], w, fault) < 0)
+            return -1;
+        u16_put(user + U_COUNT, (uint16_t)(u16_at(user + U_COUNT) - 1));
+        if (!u16_at(user + U_COUNT)) {
+            user[U_SUB] = 0;
+            *done = 1;
+            return 0;
+        }
+        user[U_SUB] = 1;
+        return 0;
+    case 4:
+        if (poll(w, fault, &status) < 0)
+            return -1;
+        if (status == 0)
+            return 0;
+        user[U_SUB] = status == 1 ? (uint8_t)(user[U_SUB] + 1) : 0;
+        return 0;
+    case 5: {
+        uint32_t result = 0;
+        NEED(w_001FB370, 0x001FB370u);
+        CALL(0x001FB370u, w->w_001FB370(w->ctx, ld->d28A490[slot], &result));
+        if (result) {
+            ld->d28A490[slot] = result;
+            user[U_SUB] = 0;
+            *done = 1;
+        }
+        return 0;
+    }
+    default:
+        return 0;
+    }
+}
+
+/* 001FFCD0 states 7 and 11: the B sections from `cursor` (sent
+ * consecutively through 00200830) and the pointer table
+ * D_0028A490[e >> 24] = cursor + (e & 0xFFFFFF). The cursor global is read
+ * at every use, as the original's volatile loads do, so a relocation that
+ * names the cursor's own slot moves the later words. */
+static int area_fixup(uint32_t cursor_slot, EmStatusSceneLoader *ld, const EmStatusSceneWorkers *w,
+                      EmStatusSceneFault *fault)
+{
+    uint32_t c, e, n, count, a, b;
+    HDR(ld->d275C70 + 0xC, 2, &c);
+    HDR(ld->d275C70 + 0xE, 2, &e);
+    HDR(ld->d275C70 + 0x10, 4, &n);
+    const uint32_t first = c + e;
+    uint32_t total = 0;
+    for (uint32_t i = 0; i < n; ++i) {
+        if (section(ld->d28A490[cursor_slot] + total, w, fault) < 0)
+            return -1;
+        HDR(ld->d275C70 + (first + i) * 8 + 0x24, 4, &a);
+        total += a;
+    }
+    HDR(ld->d275C70 + 0x1C, 4, &count);
+    for (uint32_t k = 0; k < count; ++k) {
+        HDR(ld->d275C70 + (first + n) * 8 + 0x20 + 4 * k, 4, &b);
+        if ((b >> 24) >= EM_STATUS_SCENE_RELOC_WORDS)
+            return fail(fault, 0x0028A490u + 4 * (b >> 24), EM_STATUS_SCENE_FAULT_BAD_INDEX);
+        ld->d28A490[b >> 24] = ld->d28A490[cursor_slot] + (b & 0xFFFFFFu);
+    }
+    return 0;
+}
+
+int em_status_scene_area_001FFCD0(uint8_t user[24], EmStatusSceneLoader *ld,
+                                  EmStatusSceneArea *area, const EmStatusSceneWorkers *w,
+                                  EmStatusSceneFault *fault)
+{
+    uint32_t h4, h8, h14, h18;
+    int32_t status;
+    int done;
+    if (latched(w, fault))
+        return -1;
+    if (!user || !ld || !area)
+        return fail(fault, 0x001FFCD0u, EM_STATUS_SCENE_FAULT_NULL_WORKER);
+    switch (user[U_STEP]) {
+    case 0:
+        /* D_0028A3C0[area] {lsn, size}: the table holds 0x17 descriptors
+         * (a larger area index would name D_0028A480 and on: refused). */
+        if (area->d810700 >= EM_STATUS_SCENE_AREA_FILES)
+            return fail(fault, 0x0028A3C0u + 8u * area->d810700, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+        user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        /* The area's overlay file, whole (size -1), into D_00275304[0]. */
+        return read_start(ld, 0x0028A3C0u + 8u * area->d810700, area->d275304, 0, 0xFFFFFFFFu, w,
+                          fault);
+    case 1:
+        if (poll(w, fault, &status) < 0)
+            return -1;
+        if (status == 0)
+            return 0;
+        if (status != 1) {
+            user[U_STEP] = 0;
+            return 0;
+        }
+        user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        if (area->d810700 >= EM_STATUS_SCENE_AREA_FILES)
+            return fail(fault, 0x0028A3C4u + 8u * area->d810700, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+        NEED(w_002009E0, 0x002009E0u);
+        CALL(0x002009E0u,
+             w->w_002009E0(w->ctx, area->d275304, area->d28A3C0[area->d810700][1]));
+        return 0;
+    case 2:
+        user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        return read_start(ld, EM_STATUS_SCENE_D_0028A480, EM_STATUS_SCENE_D_00289BC0,
+                          (uint32_t)(area->d810700 + 4) << 11, 0x800, w, fault);
+    case 3:
+    case 6:
+    case 10:
+        if (poll(w, fault, &status) < 0)
+            return -1;
+        if (status == 0)
+            return 0;
+        if (status != 1) {
+            user[U_STEP] = (uint8_t)(user[U_STEP] - 1);
+            return 0;
+        }
+        if (user[U_STEP] == 3)
+            area->d810703 = area->d810700;
+        else if (user[U_STEP] == 10)
+            CUR(ld, D_0028A748) = CUR(ld, D_0028A744);
+        user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        return 0;
+    case 4:
+        /* Open phase A: D_00275C70 = the header, then 001FF590(0xAB, 0)
+         * (the sound bank) and 001FF590(0xAB, 1) (the A entries). */
+        switch (user[U_AREA_SUB]) {
+        case 0:
+            ld->d275C70 = EM_STATUS_SCENE_D_00289BC0;
+            user[U_AREA_SUB] = (uint8_t)(user[U_AREA_SUB] + 1);
+            /* fall through */
+        case 1:
+            if (chunks_001FF590(0xABu, 0, user, ld, w, fault, &done) < 0)
+                return -1;
+            if (!done)
+                return 0;
+            user[U_AREA_SUB] = (uint8_t)(user[U_AREA_SUB] + 1);
+            /* fall through */
+        case 2:
+            if (chunks_001FF590(0xABu, 1, user, ld, w, fault, &done) < 0)
+                return -1;
+            if (!done)
+                return 0;
+            user[U_AREA_SUB] = 0;
+            user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+            return 0;
+        default:
+            return 0;
+        }
+    case 8:
+        /* Open phase B: the same with tag 0xAC, on the nested block. */
+        switch (user[U_AREA_SUB]) {
+        case 0:
+            if (chunks_001FF590(0xACu, 0, user, ld, w, fault, &done) < 0)
+                return -1;
+            if (!done)
+                return 0;
+            user[U_AREA_SUB] = (uint8_t)(user[U_AREA_SUB] + 1);
+            /* fall through */
+        case 1:
+            if (chunks_001FF590(0xACu, 1, user, ld, w, fault, &done) < 0)
+                return -1;
+            if (!done)
+                return 0;
+            user[U_AREA_SUB] = 0;
+            user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+            return 0;
+        default:
+            return 0;
+        }
+    case 5:
+    case 9: {
+        const int second = user[U_STEP] == 9;
+        user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        HDR(ld->d275C70 + 4, 4, &h4);
+        HDR(ld->d275C70 + 0x14, 4, &h14);
+        HDR(ld->d275C70 + 8, 4, &h8);
+        const uint32_t from = second ? CUR(ld, D_0028A740) : CUR(ld, D_0028A73C);
+        if (second)
+            CUR(ld, D_0028A744) = CUR(ld, D_0028A740) + (h8 - h14);
+        else
+            CUR(ld, D_0028A740) = CUR(ld, D_0028A73C) + (h8 - h14);
+        return read_start(ld, EM_STATUS_SCENE_D_0028A488, from, h4 + h14, h8 - h14, w, fault);
+    }
+    case 7:
+        if (area_fixup(EM_STATUS_SCENE_SLOT_D_0028A73C, ld, w, fault) < 0)
+            return -1;
+        NEED(w_00200890, 0x00200890u);
+        CALL(0x00200890u, w->w_00200890(w->ctx));
+        HDR(ld->d275C70 + 0x18, 4, &h18);
+        if (h18 == 0) {
+            area->d810701 = 0;
+            area->d810704 = 0;
+            CUR(ld, D_0028A748) = CUR(ld, D_0028A740);
+            CUR(ld, D_0028A744) = CUR(ld, D_0028A740);
+            user[U_STATE] = 0x63;
+            user[U_STEP] = 0;
+        } else {
+            area->d810704 = area->d810701;
+            ld->d275C70 = EM_STATUS_SCENE_D_00289BC0 + (uint32_t)area->d810701 * 0x70u + 0x100u;
+            user[U_STEP] = (uint8_t)(user[U_STEP] + 1);
+        }
+        return 0;
+    case 11:
+        if (area_fixup(EM_STATUS_SCENE_SLOT_D_0028A740, ld, w, fault) < 0)
+            return -1;
+        user[U_STATE] = 0x63;
+        user[U_STEP] = 0;
+        return 0;
     default:
         return 0;
     }

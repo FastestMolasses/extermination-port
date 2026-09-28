@@ -2,6 +2,7 @@
 #include "game/em_battery_ui.h"
 #include "game/em_item_ui.h"
 #include "game/em_status_background.h"
+#include "game/em_module_loader.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,8 @@ struct EmStatusRuntime {
     EmItemUI *item;
     EmStatusHubUI *hub;
     EmStatusPagesLive *pages; /* MAP / SPR4 / DATABASE and the ITEM children */
+    uint8_t *d275BD8;         /* the one D_00275BD8 (em_status_runtime_bind_busy) */
+    EmModuleLoader *loader;   /* 001FF080's task (em_status_runtime_bind_loader) */
     EmStatusHubDisplay hub_display;
     EmItemStick hub_stick;
     uint32_t ui_clock; /* UI+0x20 (D_00810150) */
@@ -52,6 +55,17 @@ static int sound(EmStatusRuntime *runtime, unsigned cue)
     return runtime->hooks.sound(runtime->hooks.context, cue) == 1;
 }
 
+/* D_00275BD8 is one byte, the host's (em_status_runtime_bind_busy):
+ * page->item.asset_busy is its per-call view, loaded before the page
+ * layer runs and stored after it (viewed_page_tick), as the request bytes
+ * are. A write outside that window goes to both. */
+static void busy_store(EmStatusRuntime *runtime, uint8_t value)
+{
+    runtime->page.item.asset_busy = value;
+    if (runtime->d275BD8)
+        *runtime->d275BD8 = value;
+}
+
 static int module_ready(EmStatusRuntime *runtime)
 {
     if (runtime->pending_module < 0)
@@ -63,7 +77,7 @@ static int module_ready(EmStatusRuntime *runtime)
     if (result < 0 || result > 1)
         return 0;
     if (result) {
-        runtime->page.item.asset_busy = 0;
+        busy_store(runtime, 0);
         runtime->pending_module = -1;
     }
     return 1;
@@ -78,24 +92,40 @@ static int page_module(unsigned module)
 
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
 {
-    /* The page modules complete at host speed (user policy, PORT_PROFILES):
-     * 001FF830's GS uploads are applied to the pages' GS memory at once
-     * (em_gs_texture); 1F / 21 are also the actual parsed original artwork
-     * and text of the ITEM root and BATTERY adapters. */
+    /* Module 0x21 (the BATTERY page) runs the loader's own steps
+     * (docs/MODULE_LOADER.md): 001FF080(0, 0x21) registers the slot-2 task
+     * 001FF0D0, whose steps read the header and the chunk at host speed
+     * (or the recorded drive time, EM_PS2_DISC_DRIVE_TIMING) and send the
+     * chunk (the page's texture upload, loader_chain below);
+     * its 0x63 step clears D_00275BD8, which the ITEM root's state 3 and
+     * the page core wait on. The busy byte stays as the caller set it. */
+    if (module == 0x21 && runtime->loader) {
+        em_item_ui_deactivate(runtime->item);
+        em_battery_ui_deactivate(runtime->battery);
+        return em_module_loader_request_001FF080(runtime->loader, 0, 0x21) == 0;
+    }
+    /* The other page modules complete at host speed (user policy,
+     * PORT_PROFILES): 001FF830's GS uploads are applied to the pages' GS
+     * memory at once (em_gs_texture); 1F is also the actual parsed
+     * original artwork and text of the ITEM root adapter. Each moves to
+     * the loader once its upload is proven equal to the port's atlas
+     * (MODULE_LOADER.md Binding item 8). */
+    if (module == 0x21)
+        return 0; /* no loader bound: fail-stop, never an instant load */
     if (runtime->pages && page_module(module)) {
         if (!em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), module))
             return 0;
-        if (module == 0x1F || module == 0x21) {
+        if (module == 0x1F) {
             em_item_ui_deactivate(runtime->item);
             em_battery_ui_deactivate(runtime->battery);
         }
-        runtime->page.item.asset_busy = 0;
+        busy_store(runtime, 0);
         return 1;
     }
-    if (module == 0x1F || module == 0x21) {
+    if (module == 0x1F) {
         em_item_ui_deactivate(runtime->item);
         em_battery_ui_deactivate(runtime->battery);
-        runtime->page.item.asset_busy = 0;
+        busy_store(runtime, 0);
         return 1;
     }
     if (runtime->pending_module >= 0 || !runtime->hooks.module_begin ||
@@ -459,6 +489,8 @@ static int viewed_page_tick(EmStatusRuntime *runtime)
 {
     EmStatusPage *page = &runtime->page;
     int32_t *words[4] = {NULL, NULL, NULL, NULL};
+    if (runtime->d275BD8)
+        page->item.asset_busy = *runtime->d275BD8;
     runtime->message_view = 0;
     if (runtime->hooks.message_words) {
         if (runtime->hooks.message_words(runtime->hooks.context, words) != 1 || !words[0] ||
@@ -477,6 +509,8 @@ static int viewed_page_tick(EmStatusRuntime *runtime)
         *words[2] = (int32_t)page->item.message_line;
         *words[3] = (int32_t)page->item.message_group;
     }
+    if (runtime->d275BD8)
+        *runtime->d275BD8 = page->item.asset_busy;
     return result;
 }
 
@@ -512,6 +546,7 @@ void em_status_runtime_free(EmStatusRuntime *runtime)
 {
     if (!runtime)
         return;
+    em_status_runtime_bind_loader(runtime, NULL);
     em_battery_ui_free(runtime->battery);
     em_item_ui_free(runtime->item);
     em_status_hub_ui_free(runtime->hub);
@@ -526,6 +561,46 @@ int em_status_runtime_bind_pages(EmStatusRuntime *runtime, EmStatusPagesLive *pa
         return 0;
     }
     runtime->pages = pages;
+    return 1;
+}
+
+void em_status_runtime_bind_busy(EmStatusRuntime *runtime, uint8_t *d275BD8)
+{
+    if (runtime)
+        runtime->d275BD8 = d275BD8;
+}
+
+/* The chain module 0x21's chunk step sends (001FF3F0 state 3, 00200830 of
+ * D_00275C74): the BATTERY page's texture upload, one VIF1 chain of one
+ * PSMCT32 transfer (docs/MODULE_LOADER.md finding 1: it equals the GS
+ * memory the port's battery atlas and the status pages' GS image were
+ * exported from). With the status pages bound, the upload is the
+ * module's step of their GS memory (em_gs_texture, the same blocks);
+ * without them the resident atlas already holds its texels. Any other
+ * chain is refused (fail-stop). */
+static int loader_chain(void *context, uint32_t chain, const uint8_t *bytes, uint32_t size)
+{
+    EmStatusRuntime *runtime = context;
+    const EmTask *record = em_module_loader_record(runtime->loader);
+    const EmStatusSceneLoader *ld = em_module_loader_state(runtime->loader);
+    if (!bytes || !record || !ld || record->user[0] != 0 || record->user[6] != 0x21 ||
+        chain != ld->d275C74 || size < 0x50800u)
+        return -1;
+    if (runtime->pages &&
+        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), 0x21))
+        return -1;
+    return 0;
+}
+
+int em_status_runtime_bind_loader(EmStatusRuntime *runtime, EmModuleLoader *loader)
+{
+    if (!runtime)
+        return 0;
+    if (runtime->loader)
+        em_module_loader_set_chain_hook(runtime->loader, NULL, NULL);
+    runtime->loader = loader;
+    if (loader)
+        em_module_loader_set_chain_hook(loader, loader_chain, runtime);
     return 1;
 }
 

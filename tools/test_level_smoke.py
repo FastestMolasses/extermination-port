@@ -46,6 +46,9 @@ battery
     ITEM page's BATTERY acquisition notice, the TRIANGLE exit) is asserted
     in process only (the take and its timing are the legacy owner's). Later phases compare their own windows only
     (the original's leftover B1 = 0x1B from the ITEM request is not compared).
+    The ITEM root's module-0x21 load: the loader rows (the tick log's
+    loader_pre) against route 01's load-wait probe f194..f217 by the drive
+    mode (check_module_load, MODULE_LOADER.md 4.1).
 elevator_refusal, elevator
     Aligned on the scan tick (the first tick with 3B8D != 0 after the press,
     the tick whose D_00810750 the run printed) and route 02/04's first row
@@ -68,13 +71,16 @@ panel
     the release and 25 rows after it as above, plus B0/B1, with the player
     Y compared as retained while the script owns the player (the script
     keeps the ground Y of the approach, which is navigation input) and as
-    the original's after the release (the floor service re-grounds it). Between them the port's page must consume
-    the request (B0 1 -> 0) for the prompt; its delay is printed, not
-    compared: the port's status modules 0x1F/0x21 are resident, the
-    original's ITEM root waits 25 frames on its load of module 0x21 (item
-    state 3, route 03 f390..f414, a known WP-5 divergence). The follow
-    camera after the release converges to the capture exactly
-    (check_follow_after_release 'converge').
+    the original's after the release (the floor service re-grounds it).
+    Between them the ITEM root's module-0x21 load (item state 3, route 03
+    f390..f414): the loader rows equal h7's by the drive mode (10 rows at
+    host speed, the 14 busy polls dropped; all 24 with the PS2 disc-drive
+    timing switch), the rows from the load's completion to the Yes press
+    equal the capture's at that shift, and the prompt consumes the request
+    (B0 1 -> 0) exactly the shift earlier than the original's 30 ticks
+    (check_module_load, MODULE_LOADER.md 4.1). The follow camera after the
+    release converges to the capture exactly (check_follow_after_release
+    'converge').
 boxes
     Both ledge climbs of route 05 row for row (check_boxes).
 slide
@@ -104,6 +110,11 @@ ROUTE = DECOMP / 'build/s87/route'
 STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
 C7_DOOR1 = DECOMP / 'build/s87/c7cap/door1/c7_door1_fence_door_side1'   # decomp docs/CAPTURES_C7.md section 4
 STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
+# The module-0x21 loads' slot-2 record and D_00275BD8 per frame: route 03's
+# (decomp docs/CAPTURES_C7.md section 6, h7) and route 01's load-wait probe
+# (docs/STATUS_LOAD_WAIT_PROBE.md), in the route rows' frame numbering.
+H7_FRAMES = DECOMP / 'build/s87/c7cap/h7/fields/frames.jsonl'
+PROBE01 = DECOMP / 'build/s87/loadwait/01_battery/probe_boundary.json'
 # The original's camera block D_008101E0 sampled every frame from the cold
 # New Game (area load at frame 2639) and from save state 03 through the
 # hand-off to state 04 (startup-reference/newgame_probe.py,
@@ -493,6 +504,73 @@ def compare_window(ticks, i0, rows, f0, count, what, y_mode='scripted', req=Fals
     return placed, faced
 
 
+# ------------------------------------ the screen-module loader (H7, 4.1)
+
+def loader_after(ticks, i):
+    """The slot-2 record (+0, +8..+0x1F), D_00275BD8 and D_00282157 after
+    port tick i's frame: the next tick's `loader_pre` (the task dispatch
+    runs the loader after the game task that logs the tick)."""
+    assert i + 1 < len(ticks) and 'loader_pre' in ticks[i + 1], ('no loader record after port tick',
+                                                                 ticks[i]['tick'])
+    return bytes.fromhex(ticks[i + 1]['loader_pre'])
+
+
+def loader_rows_03():
+    """Route 03's load (h7): {f: +0, +8..+0x1F, BD8} (26 bytes)."""
+    out = {}
+    for line in H7_FRAMES.read_text().splitlines():
+        r = json.loads(line)
+        slot = bytes.fromhex(r['slot2'])
+        out[r['f']] = slot[:1] + slot[8:32] + bytes([r['bd8']])
+    return out, lambda b: b[:26]
+
+
+def loader_rows_01():
+    """Route 01's load (the load-wait probe): {f: (state, +8, +9, +A, +B,
+    module, kind, count, index, BD8)}."""
+    out = {}
+    for r in json.loads(PROBE01.read_text())['frame_rows']:
+        s = r['slot2']
+        out[r['f']] = (s['state'], s['s8'], s['s9'], s['sA'], s['sB'], s['module'], s['kind'],
+                       s['count14'], s['index16'], r['bd8'])
+
+    def key(b):
+        u = b[1:25]
+        return (b[0], u[0], u[1], u[2], u[3], u[6], u[7], u[12] | u[13] << 8, u[14] | u[15] << 8, b[25])
+    return out, key
+
+
+def check_module_load(ticks, i_l, f_l, source, drive, what):
+    """The ITEM root's module-0x21 load (docs/MODULE_LOADER.md section 4.1).
+    L (port tick i_l, capture row f_l) is the row whose ITEM state becomes 3;
+    the request row R = L + 1 runs 001FF080(0, 0x21) and the loader's first
+    dispatch; D is the first port tick after R with slot 2 idle and
+    D_00275BD8 = 0. With the PS2 disc-drive timing switch the port's rows
+    R..D equal the capture's 24 rows f_l + 1..f_l + 24 (shift 0). At host
+    speed they equal the capture's rows without the busy polls (each row
+    equal to its predecessor while the slot runs: 14 of the 24): 10 rows,
+    a shift of 14. Returns (D, shift, the capture's last load row)."""
+    rows, key = source
+    assert ticks and key(loader_after(ticks, i_l))[0] == 0 and loader_after(ticks, i_l)[25] == 1 \
+        and rows[f_l][0] == 0 and rows[f_l][-1] == 1, (what, 'L: the slot idle and D_00275BD8 raised')
+    last = next(f for f in range(f_l + 1, max(rows) + 1) if rows[f][0] == 0 and rows[f][-1] == 0)
+    captured = [rows[f] for f in range(f_l + 1, last + 1)]
+    assert len(captured) == 24, (what, 'the capture\'s load is not 24 rows', len(captured))
+    i_d = next(i for i in range(i_l + 1, len(ticks) - 1)
+               if loader_after(ticks, i)[0] == 0 and loader_after(ticks, i)[25] == 0)
+    port = [key(loader_after(ticks, i)) for i in range(i_l + 1, i_d + 1)]
+    if drive == 'ps2':
+        want, shift = captured, 0
+    else:
+        want = [r for k, r in enumerate(captured) if k == 0 or r != captured[k - 1] or r[0] != 2]
+        shift = len(captured) - len(want)
+        assert shift == 14, (what, 'busy polls in the capture', shift)
+    assert port == want, (what, f'the loader rows R..D (drive {drive})',
+                          next((k for k, (a, b) in enumerate(zip(port, want)) if a != b), len(port)),
+                          len(port), len(want))
+    return i_d, shift, last
+
+
 def release_row(rows, f0):
     return next(k for k in range(f0 + 1, len(rows)) if selector(rows[k]['spad']) == '00')
 
@@ -549,6 +627,14 @@ def check_battery(ticks, run, state):
     load = next(k for k in range(posted_o, len(rows) - f0) if rows[f0 + k]['ui'][8:10] == '03')
     for k in range(load - posted_o):
         same(posted_p + k, posted_o + k, 'battery request')
+    # The ITEM root's module-0x21 load (MODULE_LOADER.md 4.1): L is route
+    # 01's f193; the loader's rows R..D follow the load-wait probe's rows at
+    # the drive mode's shift. The pop-up notice after it is measured from
+    # its own sub-state 3 row (in process), so the shift leaves it alone.
+    assert rows[f0 + load]['f'] == 193, ('route 01 ITEM state 3 row moved', rows[f0 + load]['f'])
+    i_l = i0 + posted_p + load - posted_o
+    i_d, shift, last = check_module_load(ticks, i_l, 193, loader_rows_01(), state['drive'],
+                                         'battery module 0x21')
     state['cursor'] = i0 + posted_p + load - posted_o
     # The window row for row from the scan to the page load (posted_p ==
     # posted_o): check_rand_order compares its frames with the C7 capture.
@@ -558,7 +644,9 @@ def check_battery(ticks, run, state):
           f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan as in the original (the live camera\'s '
           f'target settle from the pad-navigated stance), two rows '
           f'after the settle in both; from the post to the page load, route f{rows[f0 + posted_o]["f"]}..'
-          f'f{rows[f0 + load - 1]["f"]}, row for row)')
+          f'f{rows[f0 + load - 1]["f"]}, row for row; the ITEM root\'s module-0x21 load: the loader\'s rows '
+          f'(port ticks {ticks[i_l + 1]["tick"]}..{ticks[i_d]["tick"]}) equal f194..f{last} '
+          f'{"row for row (the PS2 disc-drive timing)" if shift == 0 else f"without its {shift} busy polls (host speed)"})')
 
 
 def check_elevator_refusal(ticks, run, state):
@@ -583,12 +671,30 @@ def check_panel(ticks, run, state):
     compare_window(ticks, i0 + posted, rows, f0 + posted, load - posted, 'panel request', y_mode='retained',
                    req=True)
     opened = next(k for k in range(posted, load) if port_view(ticks, i0 + k)['task'][0] == 3)
+    # The ITEM root's module-0x21 load (MODULE_LOADER.md 4.1): L is row
+    # `load` (f390), the loader's rows R..D follow the capture (h7) at the
+    # drive mode's shift, and from the load's completion on the port's tick
+    # D + 1 + k is the capture's row after the load + k.
+    assert rows[f0 + load]['f'] == 390, ('route 03 ITEM state 3 row moved', rows[f0 + load]['f'])
+    i_d, shift, last = check_module_load(ticks, i0 + load, 390, loader_rows_03(), state['drive'],
+                                         'panel module 0x21')
+    assert i_d - (i0 + load) == 24 - shift, ('panel: the load\'s length', i_d - i0 - load, shift)
     # Between: the port's page consumes the request for the prompt.
     prompt_port = next(k for k in range(load, 2000) if port_view(ticks, i0 + k)['req'] == '0082')
     prompt_orig = next(k for k in range(load, len(rows) - f0) if orig_view(rows[f0 + k])['req'] == '0082')
+    assert prompt_port - posted == prompt_orig - posted - shift, \
+        ('panel: the prompt takes the request', prompt_port - posted, prompt_orig - posted, shift)
     # Window 2: from the Yes confirmation (B0 0 -> 1) through the release.
     yes_port = next(k for k in range(prompt_port, 2000) if port_view(ticks, i0 + k)['req'] == '0182')
     yes_orig = next(k for k in range(prompt_orig, len(rows) - f0) if orig_view(rows[f0 + k])['req'] == '0182')
+    # From the load's completion to the Yes press (navigation input: the
+    # runner's press schedule starts at the prompt, route_capture's at its
+    # own), row for row at the shift.
+    after = last - rows[f0]['f'] + 1
+    prompt_rows = min(yes_port - (i_d + 1 - i0), yes_orig - after)
+    assert prompt_rows > 0, ('panel: no row between the load and the Yes press', prompt_rows)
+    compare_window(ticks, i_d + 1, rows, f0 + after, prompt_rows, 'panel prompt', y_mode='retained',
+                   req=True)
     r = release_row(rows, f0 + yes_orig)
     count = r - (f0 + yes_orig) + AFTER_RELEASE
     compare_window(ticks, i0 + yes_port, rows, f0 + yes_orig, count, 'panel discharge', y_mode='retained',
@@ -598,9 +704,13 @@ def check_panel(ticks, run, state):
     state['cursor'] = i0 + yes_port + count
     print(f'panel: PASS (scan to the status open: port ticks {ticks[i0]["tick"]}..{ticks[i0 + load - 1]["tick"]} '
           f'equal route 03 f{rows[f0]["f"]}..f{rows[f0 + load - 1]["f"]}, B0 = 1 / B1 = 0x82 at '
-          f'f{rows[f0 + posted]["f"]}, +B = 3 at f{rows[f0 + opened]["f"]}; the prompt consumed the request '
-          f'{prompt_port - posted} ticks after it (original {prompt_orig - posted}: its page waits on the module '
-          f'load, WP-5); from the Yes confirmation f{rows[f0 + yes_orig]["f"]} through the discharge, the exit, '
+          f'f{rows[f0 + posted]["f"]}, +B = 3 at f{rows[f0 + opened]["f"]}; the ITEM root\'s module-0x21 load: '
+          f'the loader\'s rows R..D (port ticks {ticks[i0 + load + 1]["tick"]}..{ticks[i_d]["tick"]}) equal '
+          f'f391..f{last} {"row for row (the PS2 disc-drive timing)" if shift == 0 else f"without its {shift} busy polls (host speed)"}; '
+          f'from its completion the {prompt_rows} rows to the Yes press equal f{last + 1}.. at a shift of {shift}; '
+          f'the prompt consumed the request {prompt_port - posted} ticks after it (original {prompt_orig - posted} '
+          f'= {prompt_port - posted} + {shift}); from the Yes confirmation f{rows[f0 + yes_orig]["f"]} through '
+          f'the discharge, the exit, '
           f'script 0x247BE0, power 0x80 at f{rows[f0 + power_row]["f"]} and the release at f{rows[r]["f"]} '
           f'+ {AFTER_RELEASE}: port ticks {ticks[i0 + yes_port]["tick"]}..'
           f'{ticks[i0 + yes_port + count - 1]["tick"]} equal in spad, camera byte, letterbox, message, power, '
@@ -3007,6 +3117,11 @@ def main():
         # The drive's mode and counters (IOP_STREAM.md "Drive model"): reads
         # outside the measured distances take the nearest measured class.
         print(f'level smoke: {drive.group(0)}')
+    loader = re.search(r'^module loader: .*$', run, re.M)
+    if loader:
+        # The screen-module loader's drive (MODULE_LOADER.md 1.7): host speed,
+        # or the recorded drive time where one exists.
+        print(f'level smoke: {loader.group(0)}')
     if args.require_through:
         names = [p[0] for p in PHASES]
         until = main_line[-1] if args.require_through == 'last' else args.require_through

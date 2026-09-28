@@ -427,7 +427,10 @@ own GS list, at the GS's resolution.
   on 439,792 unambiguous pixels; `make test-load-veil-gpu`).
 - Status: **PARTIAL**. The veil runs and is drawn, but today it is black:
   the port's area read is a stand-in that finishes inside one call (the
-  loader task's own steps are not run yet, H7), so the load spans no tick
+  loader's area streamer 001FFCD0 is translated but not bound: its
+  sound-bank step 001FB370 needs the EE sound library's command queue, the
+  SIF DMA and the sound driver's command 0x20, which are not live;
+  MODULE_LOADER.md section 5), so the load spans no tick
   and the veil draws a single frame at level 0, exactly as the original's
   code does for a load that ends at once. On PCSX2 the New Game load drew
   258 veil frames. No capture holds a frame taken during a load, so the
@@ -578,8 +581,42 @@ long notices stay up.
 - Status: **PARTIAL**. The area-title card is not bound. Glyph pixels are
   drawn from the port's own atlas (bilinear, where the original samples
   nearest) and are not compared.
-  The module load before the ITEM page is instant by policy (7 ticks against
-  the original's 30; see "Resolved and open policy questions").
+  The BATTERY page's module load runs the original loader's own steps
+  since chain C8b LOADER (see "The status page's module load" below).
+
+**The status page's module load: the original loader's own steps**
+
+Before the BATTERY page (the battery pop-up and the panel's prompt) the ITEM
+root loads module 0x21, the page's texture upload, and waits for it. The
+port runs the original loader for it, step by step, once per frame, as the
+PS2 does: the request 001FF080, the slot-2 task 001FF0D0, the bank and chunk
+streamers 001FF830 / 001FF3F0, the disc read, poll and DMA routines 00200780
+/ 00200730 / 00200830, and the busy byte D_00275BD8 the page waits on. The
+disc answers at host speed, so the load takes the loader's 10 steps where
+the PS2 took 24 frames and the prompt comes 14 frames sooner (16 ticks after
+the request instead of 30); with the PS2 disc-drive timing switch it takes
+the recorded 24.
+
+- How: `em_module_loader` (the I/O routines and a host drive over the
+  user's exported disc sectors, `tools/export_module_loader.py`) and the
+  translated state machine of `em_status_scene_original`, bound live on the
+  task table's slot 2 (MODULE_LOADER.md section 4). The page's upload is
+  applied when the loader's chunk step sends it.
+- Evidence: the level smoke's `check_module_load` (routes 01 and 03, every
+  run through the battery and the panel): after every frame, the loader's
+  record and busy byte equal the capture's rows without the drive's 14 busy
+  polls (host speed), or all 24 rows (the switch, `make
+  test-level-smoke-ps2-drive`); the panel's rows from the load's completion
+  to the Yes press equal route 03's at that shift, and the prompt comes
+  exactly 14 ticks sooner (0 with the switch). `make
+  test-module-loader-reference`: the routines and whole loads against the
+  original instructions over captured RAM, 45 of the disc's module headers
+  included.
+- Status: **VERIFIED** for module 0x21 on the recorded route, relative to
+  PCSX2 recordings. The other page modules (the ITEM root's 0x1F, the pages'
+  0x1E / 0x20 / 0x22..0x24 / 0x2C..0x31) still load at once (their uploads
+  are not yet proven equal to the port's atlas), and the area load is not
+  yet the loader's (see the load veil entry).
 
 **The original camera: follow camera, scripted shots and director beats**
 
@@ -698,8 +735,10 @@ so conversations keep the recording's pacing.
   measured from the C7 capture: one read at a time; the position is where
   the last read ended; a 0-, 2- or 6-field seek by distance class; a read
   of up to 16 sectors completes within one field. The model faults on
-  longer reads, which only module loads issue; those run at host speed in
-  both modes. The switch lives in the one settings struct
+  longer reads, which only module loads issue; module loads go through the
+  screen-module loader's own drive instead: host speed, and with the switch
+  the busy fields recorded for module 0x21's two reads (the BATTERY page:
+  24 frames; every other module read stays at host speed and is counted). The switch lives in the one settings struct
   (`src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher
   exists).
 - Evidence: `LEVEL_SMOKE.md` "The stream drive's two modes". Host speed
@@ -864,10 +903,9 @@ fades change on the same ticks as in the recordings.
   own walking between the scripted and climbing windows is navigation and
   is not compared. Relaxations the smoke reports (`LEVEL_SMOKE.md` "What the
   full route does not yet compare" and "Known divergences"): (1) the status
-  page's module-0x21 load: the original waits 24 loader dispatches before
-  the BATTERY prompt, both at the battery (route 01) and at the panel (route
-  03). The port's prompt comes 7 ticks after the request instead of 30, and
-  that window is not compared (see "Resolved and open policy questions" below). (2) The
+  page's module-0x21 load runs the loader's own steps; at host speed it
+  takes 10 dispatches against the original's 24, and the rows after it are
+  compared at that shift of 14 (0 with the PS2 disc-drive timing switch). (2) The
   voiced line 0x7F tears down 2 rows early because a music refill lands at
   a different phase. That phase comes from navigation timing. (3) Slide and
   beat-10 landings may land one row off, and slide heading changes two rows
@@ -1104,15 +1142,16 @@ states, timings and positions, and their draws come from the original data.
   cases, and the ride matches route 04 row for row. `PICKUP_OWNERS.md`:
   6,216 lifecycle/event/height cases, 144 consume-helper cases and 1,104
   facing cases, and the item cells equal captures 00 and 04 byte for byte.
-  The panel matches route 03 row for row outside the status page's module
-  load (`AREA11_PANEL.md`, `LEVEL_SMOKE.md`). Census 1.25: the terminal,
+  The panel matches route 03 row for row, across the status page's module
+  load at the host-speed drive's shift (`AREA11_PANEL.md`, `LEVEL_SMOKE.md`). Census 1.25: the terminal,
   panel, prop, items and canopy draw their original units, and
   `check_indicator_children` compares against routes 00..14.
 - Status: **VERIFIED**. Covers AREA11 and the recorded route, relative to
-  PCSX2. The BATTERY prompt window is not compared, at the battery (route
-  01) or at the panel (route 03): the original's module-0x21 load takes 24
-  loader dispatches (a 30-tick prompt window against the port's 7). Under
-  the host-speed disc policy the I/O part of that difference is intended (see "Resolved and open policy questions" below). The map and the other non-battery items are drawn and
+  PCSX2. The BATTERY prompt window is compared from the module-0x21 load's
+  completion, at the battery (route 01, its loader rows) and at the panel
+  (route 03, the rows to the Yes press): the load runs the loader's own
+  steps, 10 at host speed against the original's 24, the drive's I/O time
+  (see "Resolved and open policy questions" below). The map and the other non-battery items are drawn and
   animated on their records. Taking 0x1E / 0x1F (HEALING 002160B0), the key
   0x32 (DATABASE 00214020) or the magazine 0x10 (SPR4 00211970) opens its
   original page since chain C8b (the level smoke's `status_pages` run,
@@ -1365,7 +1404,9 @@ from the PS2 hardware rather than the code is not reproduced by default.
   state steps); only the hardware wait is gone.
   - **Optional switch (built 2026-09-27):** the PS2 disc-drive timing
     measured from the PCSX2 recordings (`IOP_STREAM.md` "Drive model") can
-    be turned on for PS2-identical dialogue timing. It is off by default
+    be turned on for PS2-identical dialogue timing; since chain C8b LOADER
+    it also gives the BATTERY page's module load its recorded 24 frames
+    (MODULE_LOADER.md 1.7). It is off by default
     (`LAUNCHER_OPTIONS.md`; `src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1`
     until the launcher exists). The level smoke runs both ways.
 - **No PS2 slowdowns or hitches.** The port runs one game tick per field. On
@@ -1394,7 +1435,8 @@ Resolved by the user on 2026-09-27:
 
 1. **The panel page's load (H7):** the loader's own state steps are game code
    and stay; the drive's I/O time is hardware and goes (host speed). The
-   smoke's panel-prompt check aligns on the load's completion.
+   smoke's panel-prompt check aligns on the load's completion. Built in
+   chain C8b LOADER (the status page's module load entry above).
 2. **The opening's stream timing:** the extra seek from the intro movie's disc
    position is not modelled (the code does not model it). The area-entry
    001FAE70(1) is game code and is bound (`RAND_ORDER.md` 2).
@@ -1406,14 +1448,17 @@ Resolved by the user on 2026-09-27:
 6. **The load screen:** the load veil is game code, so it must be shown for
    however long the host load takes. Since 2026-09-27 it is bound and drawn
    (the entry above); it shows for as many ticks as the load spans, which is
-   none until the area read runs the loader task's own steps (H7).
+   none until the area read runs the loader task's own steps (H7: the
+   area streamer is translated; its sound-bank step is not live yet).
 
 Missing faithful behaviour that blocks a "first level complete" claim:
 
 - the rand() order's two remaining differences: the husk creature's draw
   (census L24) and the opening's faces (design risk 2) (`RAND_ORDER.md` 6);
 - the load veil's duration: the area read finishes inside one call (the
-  loader task 001FF0D0's own steps, H7), so the veil draws one black frame;
+  loader task 001FF0D0's own steps, H7: the area streamer 001FFCD0 is
+  translated, blocked on the sound-bank upload 001FB370's EE sound library
+  and IOP side), so the veil draws one black frame;
 - audio output: no SPU2 reverb, Gaussian interpolation or master volumes;
   sounds are not compared in the smoke;
 - visuals: pixels not compared with the reference frames; the GS-exact
