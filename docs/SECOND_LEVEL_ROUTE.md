@@ -378,6 +378,9 @@ at its end.
 
 ## 6. Census: what AREA01 executes beyond the first level
 
+(The four room beats of section 9 were replayed later; section 9.7 gives
+the totals with them. The numbers below are the twelve beats of sections 3..5.)
+
 `route_census.py run --segments a01 --pass A01` replayed every AREA01 beat
 (main and side) from its recorded source snapshot with the one-shot breakpoint on
 all 3019 candidates: the 2957 boot functions of FUNCTIONS.csv and the 62 splat
@@ -816,7 +819,11 @@ turns are floor squares with attribute 0x1F.
   can set is therefore D_0081075E, after AREA00 has run 0x8286E0: then [42]
   rests at 0 and [41] at pi/18 (state 0 of the byte-identical C). Whether
   that makes the north room walkable, and that nothing else opens it
-  earlier, was not measured; the later visit was not played.
+  earlier, was not measured; the later visit was not played. (Round 2:
+  AREA00's progression exit, THIRD_LEVEL_ROUTE.md beat a00_10, ends in
+  AREA01 sub 0 with D_0081075E = 0xFF, and its end snapshot has [41]
+  +0xC0 = 0.1745 = pi/18 and [42] +0xC0 = 0, as state 0 gives; the north
+  room itself was still not walked.)
 - Door [14] is also lock-gated (model 0x15: D_00810841[1] bit 1, 0 in every
   capture). Spawn entries 3 (-25, 0, -197) and 5 (39, 0, -225) are the north
   room's arrival points from AREA02.
@@ -869,23 +876,60 @@ bridges stay raised ([41] 1.0472, [42] -1.0472 in the end snapshot).
 The duct beat waits 90 frames after the crawl starts (the first capture
 attempt, which crawled at once, did not move and was discarded).
 
-### 9.7 Census of the room beats: not yet replayed
+### 9.7 Census of the room beats (replayed, s88 round 2)
 
-Lane "census" (s88) ran no emulator, so a01_s4..a01_s7 have no census replay
-yet and section 6's numbers stay those of the twelve earlier beats.
-`route_census.py a01-delta` now also reports, per beat, the functions no other
-AREA01 beat and not the first level ran (`new_vs_first_level_and_other_a01`;
-on the twelve recorded beats: a01_07 30, a01_s3 16, a01_s2 14, a01_03 4,
-a01_05 2, a01_04 1, the rest 0), and in its summary the functions only the
-room beats ran (`new_only_in_room_beats`, 0 until they are replayed). To fill
-it (a capture-lane step, hidden PCSX2):
+Lane "capture" replayed the four room beats with the one-shot breakpoints of
+section 6 (`route_census.py run --segments a01_s4,a01_s5,a01_s6,a01_s7 --pass
+A01`, hidden PCSX2, 150 / 197 / 59 / 103 s) and reran `a01-delta --passes
+A01` over all sixteen beats.
 
-```sh
-.venv/bin/python tools/route_census.py run --segments a01_s4,a01_s5,a01_s6,a01_s7 --pass A01
-.venv/bin/python tools/route_census.py a01-delta --passes A01
-```
+**Replay fidelity.** a01_s4 reproduced its trace row for row (1225/1225). The
+other three completed their checks but not the exact frames: a01_s5 took the
+closed loop in 3112 frames against 3117 recorded (2 identical rows), a01_s6
+started one counter later (227 against 228, no identical row), a01_s7 ran 980
+against 981 (2 identical rows). The player's end state equals the recorded
+snapshot's in s4, s5 and s6, not in s7. As in section 6, their function sets
+are those of the same route shape, not of the exact recorded frames.
 
-`a01-delta` reads the working tree's `src/overlays/AREA01` for overlay
-statuses; at the s88 run other lanes' uncommitted AREA01 sources changed two
-of them (the two AU functions of section 6 read as one NM and one OC: NM 54 /
-OC 13 / AU 0 against NM 53 / OC 12 / AU 2). THIRD_LEVEL_ROUTE.md section 9 has AREA00's census.
+**Per beat** (functions run; not in the first-level census; and, of those,
+run by no other AREA01 beat): a01_s4 699 / 62 / 4, a01_s5 634 / 54 / 14,
+a01_s6 525 / 56 / 2, a01_s7 558 / 40 / 0.
+
+**Totals with the room beats.** The sixteen AREA01 beats run **982
+functions** (968 boot, 14 AREA01 overlay); **174 are new** against the
+first-level census (116,132 bytes: 160 boot, 14 overlay). The main-line group
+(89) and the exit group (28) of section 6 are unchanged; the side-only group
+grows from 37 to **57**: the 20 functions only the room beats run (18,740
+bytes; BM 13, NM 5, AW 1, AI 1):
+
+| Address | Size | Status | First (beat, census frame) | Context of the first hit |
+|---|---:|---|---|---|
+| 0x0016D130 | 3332 | BM | a01_s5 f136 | the callback of player state +5 = 0x18 (0015B130 case 24): the duct entry |
+| 0x0016DE40 | 3420 | BM | a01_s5 f282 | the callback of +5 = 0x19 (case 25): the crawl |
+| 0x0016EBA0 | 940 | NM | a01_s5 f3021 | the callback of +5 = 0x1A (case 26): the duct exit |
+| 0x00179010 | 152 | BM | a01_s5 f282 | during the crawl |
+| 0x001790B0 | 156 | AW | a01_s5 f376 | during the crawl |
+| 0x00179150 | 128 | BM | a01_s5 f376 | during the crawl |
+| 0x00179910 | 640 | NM | a01_s5 f376 | during the crawl |
+| 0x001823E0 | 68 | BM | a01_s5 f346 | during the crawl |
+| 0x00188610 | 28 | BM | a01_s5 f282 | during the crawl |
+| 0x00198D90 | 372 | NM | a01_s5 f282 | during the crawl |
+| 0x001D0D60 | 444 | AI | a01_s5 f904 | during the crawl |
+| 0x002082B0 | 1180 | NM | a01_s5 f1633 | the healing-item page of the duct pickup opens |
+| 0x00208AD0 | 1960 | BM | a01_s5 f1633 | the same page |
+| 0x002160B0 | 4056 | BM | a01_s5 f1632 | the same page |
+| 0x001BB400 | 284 | BM | a01_s4 f250 | while the slider door [17] opens (Use at f242) |
+| 0x001BB7C0 | 40 | BM | a01_s4 f246 | while the slider door [17] opens (Use at f242) |
+| 0x001BB7F0 | 108 | BM | a01_s4 f334 | while the slider door [17] opens (Use at f242) |
+| 0x00225A00 | 20 | BM | a01_s4 f679 | the save terminal's battery page opens |
+| 0x0015FDF0 | 1068 | NM | a01_s6 f158 | the aim solver: the untaken Use at the bridge falls through to it (PLAYER_USE_DISPATCH.md step 8) |
+| 0x001AA4E0 | 344 | BM | a01_s6 f158 | its target scan |
+
+The last column is what the beat was doing at the first hit; only the first
+three rows are read from code (the callbacks of 0015B130's cases 24..26);
+the other functions were not traced to a caller. Statuses are the
+census's classification of the working tree at the run (FUNCTIONS.csv and the
+src markers). The overall `new_by_status` is NM 58, BM 79, OC 14, AW 11,
+AI 9, CL 2, no source 1; other lanes' uncommitted AREA01 sources were in the
+tree, as in the round-1 note. THIRD_LEVEL_ROUTE.md section 9 has AREA00's
+census.
