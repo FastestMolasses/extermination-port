@@ -162,6 +162,9 @@ REACHERS = {
                                           "closure binder (Boxes step)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (em_player_stage_anim_advance, census L22): "
                                   "the stage globals pointer the stage workers run with",
+        "game/em_status_pages_item.c": "002160B0's read (HEALING page, phase B15, not bound yet): the byte "
+                                       "caps health at 60 when 1; the module reads original memory through its "
+                                       "EE view, which the binding maps onto the canonical byte",
         "game/em_area01_sys.c": "001A8840's read (AREA01 level-2 lane, not bound): the module reads original "
                                 "memory through its own EE view; the AREA01 binding (phase 3) maps that view "
                                 "onto the canonical byte",
