@@ -534,9 +534,15 @@ Round 1:
 1. The AREA01 revisit with D_0081075E set: a00_10 ends there with the bridge
    halves at their D_0081075E tilts (section 2.2); whether the north room and
    AREA02 behind it are walkable was not played.
-2. D_00810701 = 1 after the switch: the next AREA00 load would use sub 1
-   (placement table 0x82BB50, level data `chunk04.n1`); not played. What
-   selects sub 2 is still not found.
+2. D_00810701 = 1 after the switch (a00_08 f363). Sub 1 (placement table
+   0x82BB50, level data `chunk04.n1`) was played: the a00_08 and a00_09 end
+   images hold the `chunk04.n1` load, not the `chunk04.n0` one (their RAM
+   differs from the n1 load map in 519 16-byte rows, all in the cell
+   directory, and from the n0 map in 225,791; a00_07's is the reverse,
+   518 / 225,790). Measured by the port's
+   `export_area00_common.loaded_sub_proof` (AREA00_ASSETS.md finding 1). The
+   frame of the reload inside a00_08 was not located. What selects sub 2 is
+   still not found; sub 2 was not played.
 3. The attacker in the north-east room and the taken bits of the creature
    records [52], [53], [56], [57] set during a00_09.
 4. Not visited (round 1 list below): the west room behind door [56], the
@@ -686,7 +692,9 @@ The 21 that did not run: 0x823540 (the entry pad), 0x823C50, 0x823CF0,
 0x823E10, 0x823EB0, 0x824130, 0x8241B0, 0x8247C0, 0x8247D0, 0x824BB0,
 0x824E00, 0x824E40, 0x825D70, 0x825E80, 0x825FC0, 0x8260B0, 0x8260F0,
 0x826790 (the sub-2 owner with the AREA14 move), 0x826BE0, 0x826CB0 and
-0x826CC0. Sub 1 and sub 2 were not played.
+0x826CC0. Sub 1 was played: a00_08 (after the switch; the reload frame was
+not located) and a00_09 run with `chunk04.n1` loaded (section 7 item 2), so
+the 21 did not run in sub 0 or in sub 1 as played. Sub 2 was not played.
 
 **Reproduce** (hidden PCSX2; the twelve replays took 34 minutes of beat time):
 
