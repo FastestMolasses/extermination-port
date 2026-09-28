@@ -95,3 +95,8 @@ int em_gfx_gs_frame(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs
 }
 int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba)
 { (void)gfx; (void)fbp; (void)fbw; (void)height; (void)rgba; return -1; }
+
+/* The status MAP page's ordered 2D flush and 3D scissor (em_gfx.h): not
+ * implemented on this backend yet. */
+void em_gfx_overlay_decor_flush(EmGfx *gfx) { (void)gfx; }
+void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]) { (void)gfx; (void)rect; }

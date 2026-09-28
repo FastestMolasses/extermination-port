@@ -70,9 +70,10 @@ landed"):
   B1 = 0x82 / D_008106D0 = the panel's record address; 002149F0's exit
   writes 3B8D = 3), a battery pickup's 001C47A0 request (B0 = 1 / B1 =
   0x1B..0x1D: the ITEM page's BATTERY acquisition notice) and START/TRIANGLE
-  (B0 == 0: the hub phase). A request whose page is not translated (the
-  other item takes: MAP, DATABASE, SPR4, the ITEM child) faults in 0020CDC0
-  with a report naming the page. The panel owner is bound only for B0 != 0 with
+  (B0 == 0: the hub phase). The other item takes' pages (MAP, DATABASE,
+  SPR4, the ITEM children) run through `em_status_pages_live` since chain
+  C8b (STATUS_PAGES.md section 7); a page the first level cannot reach
+  faults in 0020CDC0 with a report naming the page. The panel owner is bound only for B0 != 0 with
   B1 & 0x80 (a stale B1 stays after a request). The hub phase is the
   original `em_status_hub` inside the runtime (WP-5;
   `em_status_runtime_bind_hub` with `panel/status_hub.emhs` and
@@ -91,7 +92,14 @@ landed"):
   the backdrop flushed before the seven model draws, and one 00209DF0 per
   sub-state-1 frame, UI+0x20), hover 4 + X into ITEM and Back to the hub
   with the texture slot re-uploaded, the 0020E0C0 exit's two extra ticks
-  and the fault on X at hover 3 (MAP).
+  and X at hover 3: MAP (22 nodes, no map owned, the 2D layer flushed
+  before the pool's models each list frame), Circle back to the hub. For
+  MAP the host also loads `assets/status_map` into the models
+  (`em_status_models_load_map`), binds their light (`models_light`:
+  001CB480's 001D8C20(2) + 001D89D0, em_owner_draw_live_light) and draws
+  the pool's models at the page's 001B0000 place (`pages_models_draw`,
+  inside its SCISSOR_1 window); the pages' frame gives the pool, g.pos /
+  g.yaw (the player record's +0xA0 / +0xC4) and the area bytes.
 - **Canonical storage.** The shared EmInteractionFrame is a per-call view:
   every entry point loads it from EmSceneState (3B8D, 3B8F, 3B92, 3B84,
   D_008106D4..DF, D_008106EF, D_008106F3), the port camera (D_008101E1/E3/E4/
@@ -138,7 +146,13 @@ ticks every ordinary callback, and checks that the desired camera vectors
 stay put during the battery's op00 sub8 settle; `other_take` runs the takes
 of 0x0B04 (0x1E), 0x0B07 (key 0x32), 0x0B08 (0x10: the magazine bytes
 C62/CB4 written directly) and 0x0B09 (the map, class 7 with its aura) to
-their original requests and checks that the page each opens faults. The
+their original requests; the pages of the first three run (the take's
+request is consumed, HEALING's notice lasts 240 calls, START closes the
+screen: em_status_pages_live, STATUS_PAGES.md section 7), and the map's
+MAP page opens zoomed on map 8 (its 22 nodes; map 8's two bind D_0028A570
++ the bank's offsets with the draw 001CB480) before START closes it. The
+fixture loads the area's point lights (`assets/scene_snow/point_lights.emlp`,
+as the scene manifest does) for 001CB480's light. The
 discharge occupies61 status callbacks. These are fixture callback counts,
 not claimed unassisted original playthrough timings. Direct owner claims,
 the previous published list, ordinary camera evolution, GPU submission and

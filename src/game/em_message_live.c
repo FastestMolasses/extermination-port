@@ -470,6 +470,23 @@ int em_message_live_help_draw(int32_t x, int32_t y, int32_t group, int32_t line)
     return 0;
 }
 
+int em_message_live_record_draw(int32_t line, int32_t x, int32_t y)
+{
+    if (!ready()) { report(); return -1; }
+    if (!w_record_draw(NULL, (uint32_t)line, x, y) || s.fault) { report(); return -1; }
+    return 0;
+}
+
+int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, int32_t y,
+                          int32_t *result)
+{
+    if (!ready()) { report(); return -1; }
+    const int r = bank && result ? em_message_draw_fe070(&s.draw, bank, index, x, y) : -1;
+    if (r < 0) { fail("001FE070"); report(); return -1; }
+    *result = r;
+    return 0;
+}
+
 EmMessageBlock *em_message_live_block(void)
 {
     return s.installed ? &s.service.block : NULL;

@@ -708,6 +708,14 @@ step retires the legacy player mesh as 0015C160's +0x4C (and with it the
 equipment models it carried) from the hand-off on; the mesh stays loaded
 for the opening's reported frames and the status screen's menu player.
 
+**The light of another draw method.** `em_owner_draw_live_light(mode,
+owner, rgb, A, B)` runs 001D8C20(mode) (the context's +0x246C) and 001D89D0
+with the same views and bindings as 001CAA00's (the rig table, the point
+lights, the rig record D_00817BC0), for a draw that composes the same light
+without this module's unit: the status MAP page's 001CB480 (lighting mode 2;
+STATUS_PAGES.md section 7, "MAP"), whose models em_status_models draws on the
+renderer's skinned path.
+
 ## 11. Owners not on this path yet
 
 | Owner | Draws today | Waits on |

@@ -49,6 +49,14 @@ static void digits(char *output, int value, unsigned width, int leading_blank)
     *output = 0;
 }
 
+int em_status_draw_001C5FB0(char out[8], int32_t value, int32_t width, int32_t blank)
+{
+    if (!out || width < 1 || width > 4)
+        return 0;
+    digits(out, value, (unsigned)width, blank != 0);
+    return 1;
+}
+
 int em_status_health_draw(uint32_t *counter, float health, uint8_t warning, int x, int y,
                           const EmStatusHealthData *data, const EmStatusDrawWorkers *workers)
 {

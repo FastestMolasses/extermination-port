@@ -192,12 +192,20 @@ def span(address, size):
 # ------------------------------------------------------------------ native --
 
 class Actor(C.Structure):
+    # EmStatusSceneActor: the record's byte layout (every field at its
+    # original offset, the bytes between them as padding, 0x2F0 bytes).
     _fields_ = [(f'b{i:02X}', C.c_uint8) for i in range(16)] + [
-        ('w10', C.c_uint32), ('w14', C.c_uint32), ('h36', C.c_uint16), ('f38', C.c_float),
-        ('w40', C.c_uint32), ('w44', C.c_uint32), ('w4C', C.c_uint32), ('f60', C.c_float * 4),
-        ('f80', C.c_float * 4), ('w90', C.c_uint32), ('h94', C.c_int16), ('b98', C.c_uint8),
-        ('b99', C.c_uint8), ('b9A', C.c_uint8), ('fB0', C.c_float * 3), ('fC0', C.c_float * 3),
+        ('w10', C.c_uint32), ('w14', C.c_uint32), ('pad18', C.c_uint8 * 0x1E), ('h36', C.c_uint16),
+        ('f38', C.c_float), ('pad3C', C.c_uint8 * 4), ('w40', C.c_uint32), ('w44', C.c_uint32),
+        ('pad48', C.c_uint8 * 4), ('w4C', C.c_uint32), ('pad50', C.c_uint8 * 0x10),
+        ('f60', C.c_float * 4), ('pad70', C.c_uint8 * 0x10), ('f80', C.c_float * 4),
+        ('w90', C.c_uint32), ('h94', C.c_int16), ('pad96', C.c_uint8 * 2), ('b98', C.c_uint8),
+        ('b99', C.c_uint8), ('b9A', C.c_uint8), ('pad9B', C.c_uint8 * 0x15), ('fB0', C.c_float * 3),
+        ('padBC', C.c_uint8 * 4), ('fC0', C.c_float * 3), ('padCC', C.c_uint8 * 0x44),
         ('w110', C.c_uint32 * 120)]
+
+
+assert C.sizeof(Actor) == 0x2F0 and Actor.w110.offset == 0x110 and Actor.fB0.offset == 0xB0
 
 
 class Pool(C.Structure):

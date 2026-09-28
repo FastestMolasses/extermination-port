@@ -1,7 +1,12 @@
 #include "game/em_battery_page_live.h"
 #include "game/em_hud.h"
 #include "game/em_status_hub.h"
+#include "game/em_message_live.h"
 #include "game/em_status_runtime.h"
+#include "game/em_effect_original.h"
+#include "game/em_owner_services_original.h"
+#include "game/em_render_context_live.h"
+#include "game/em_status_models.h"
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -22,6 +27,62 @@ typedef struct {
 } World;
 
 static World *drawing;
+/* The status pages' message entries (em_message_live): this fixture binds
+ * no status pages, so reaching them is a fault. */
+int em_message_live_record_draw(int32_t line, int32_t x, int32_t y)
+{
+    (void)line;
+    (void)x;
+    (void)y;
+    return -1;
+}
+int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, int32_t y,
+                          int32_t *result)
+{
+    (void)bank;
+    (void)index;
+    (void)x;
+    (void)y;
+    (void)result;
+    return -1;
+}
+/* The MAP page's workers (em_status_pages_live: the UI pool em_status_models,
+ * the SDK leaves, the render context, the 2D flush before the pool's
+ * models): this fixture binds no status pages and no UI pool, so reaching
+ * one is a fault. */
+int em_status_models_call(EmStatusModels *m, uint32_t target, const uint64_t *a, unsigned na,
+                          uint64_t *v0)
+{
+    (void)m; (void)target; (void)a; (void)na; (void)v0;
+    assert(!"em_status_models_call without a UI pool");
+    return -1;
+}
+unsigned em_status_models_free_slots(const EmStatusModels *m) { (void)m; assert(!"no UI pool"); return 0; }
+uint8_t *em_status_models_pool_bytes(EmStatusModels *m) { (void)m; assert(!"no UI pool"); return NULL; }
+uint8_t *em_status_models_view_bytes(EmStatusModels *m) { (void)m; assert(!"no UI pool"); return NULL; }
+void em_status_models_set_node(EmStatusModels *m, uint32_t fn, EmStatusModelsNodeFn node, void *ctx)
+{
+    (void)m; (void)fn; (void)node; (void)ctx;
+    assert(!"em_status_models_set_node without a UI pool");
+}
+void em_effect_original_001026A0(float out[4], const float m[16], const float v[4])
+{
+    (void)out; (void)m; (void)v;
+    assert(!"001026A0 outside MAP");
+}
+int em_owner_services_identity_001029C0(float m[16]) { (void)m; assert(!"001029C0 outside MAP"); return -1; }
+int em_owner_services_rotate_y_00102BB0(float dst[16], const float src[16], uint32_t angle)
+{
+    (void)dst; (void)src; (void)angle;
+    assert(!"00102BB0 outside MAP");
+    return -1;
+}
+const uint8_t *em_rcl_bytes(uint32_t address, uint32_t size) { (void)address; (void)size; return NULL; }
+void em_gfx_overlay_decor_flush(EmGfx *g)
+{
+    (void)g;
+    assert(!"em_gfx_overlay_decor_flush without the MAP page");
+}
 int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *p, uint32_t w, uint32_t h)
 {
     (void)g;

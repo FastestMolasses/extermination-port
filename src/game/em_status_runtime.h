@@ -13,6 +13,7 @@
 #include "game/em_status_hub.h"
 #include "game/em_status_hub_ui.h"
 #include "game/em_status_page.h"
+#include "game/em_status_pages_live.h"
 
 typedef struct EmStatusRuntime EmStatusRuntime;
 
@@ -114,6 +115,12 @@ typedef struct {
      * presenters are not used. 1 bound. NULL keeps the private copy (the
      * sanitizer fixtures' route). */
     int (*message_words)(void *, int32_t *words[4]);
+    /* The host's storage for the status pages (em_status_pages_live, bound
+     * with em_status_runtime_bind_pages): the request bytes, the progress
+     * block, the message block, the mode byte 0x70003B8D, the vitals and
+     * D_008104E4, and the main-loop counter. The runtime fills the status
+     * block, the busy byte, the pads and the gauge records. 1 bound. */
+    int (*pages_frame)(void *, EmStatusPagesFrame *);
 } EmStatusRuntimeHooks;
 
 EmStatusRuntime *em_status_runtime_load(const char *battery_path, const char *item_path,
@@ -123,6 +130,13 @@ void em_status_runtime_free(EmStatusRuntime *); /* owner tears down the game fir
  * on, also on failure). Without it EM_STATUS_PAGE_HUB_TICK reaches the
  * other_page hooks (the fixtures' path). 1 bound, 0 failure. */
 int em_status_runtime_bind_hub(EmStatusRuntime *, EmStatusHubUI *ui);
+/* Bind the status pages MAP / SPR4 / DATABASE and the ITEM children
+ * EQUIPMENT / EVENT / HEALING (the runtime owns `pages` from now on, also
+ * on failure; it needs the pages_frame hook and a bound hub). Their module
+ * loads (0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31) complete at host speed,
+ * as 0x1F / 0x21 do, and apply the module's GS blocks; 00200970(1) applies
+ * the restore. Without it those pages fault. 1 bound, 0 failure. */
+int em_status_runtime_bind_pages(EmStatusRuntime *, EmStatusPagesLive *pages);
 /* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset
  * clears it), for tests. */
 uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *);

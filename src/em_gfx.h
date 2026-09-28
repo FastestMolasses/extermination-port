@@ -410,6 +410,23 @@ void em_gfx_overlay_backdrop(EmGfx *gfx, float x, float y, float w, float h,
  * with nothing queued. */
 void em_gfx_overlay_backdrop_flush(EmGfx *gfx);
 
+/* The whole ordered 2D layer so far: em_gfx_overlay_backdrop_flush, then
+ * the UI decor queue (sprites, rectangles and triangles, in call order)
+ * drawn NOW; glyphs stay in end_frame's pass. The status MAP page needs it:
+ * 0020F950 puts its frame sprites, then 001B0000's model packets, then its
+ * markers on one GS list (slot 1), so the models (em_gfx_draw_skinned right
+ * after this call) composite over the sprites and the later overlays over
+ * the models. Depth is neither tested nor written by the flushed quads. The
+ * flushed queues are empty afterwards. No-op outside begin/end_frame. */
+void em_gfx_overlay_decor_flush(EmGfx *gfx);
+
+/* A scissor for the following 3D draws: rect = x0, y0, x1, y1 (half-open)
+ * on the current overlay canvas (em_gfx_overlay_canvas); NULL restores the
+ * whole game frame (begin_frame's). The status MAP page's SCISSOR_1
+ * (00207D90) also clips its models, which share the page's GS list. An
+ * empty rect is the caller's to skip (the backend keeps at least a pixel). */
+void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]);
+
 /* --- World-space beam pass (laser sight) ------------------------------ */
 
 /* Queue one world-space BEAM SEGMENT for this frame: a thin quad from `a`

@@ -94,6 +94,8 @@ def build_library():
     lib = C.CDLL(str(path))
     lib.em_pickup_items_001C40B0.argtypes = [AT, C.c_void_p, C.c_int32, C.c_int32]
     lib.em_pickup_items_001C40B0.restype = C.c_int
+    lib.em_pickup_items_001C47E0.argtypes = [AT, C.c_void_p, C.c_int32, C.c_int32, C.POINTER(C.c_int32)]
+    lib.em_pickup_items_001C47E0.restype = C.c_int
     lib.em_pickup_aura_001F1110.argtypes = [C.POINTER(Aura), C.c_int16, C.POINTER(Workers)]
     lib.em_pickup_aura_001F1110.restype = C.c_int
     lib.em_pickup_aura_001F1180.argtypes = [C.POINTER(Aura), C.POINTER(C.c_float), C.POINTER(C.c_float),
@@ -146,6 +148,39 @@ def items_cases(rng):
                 for f in (0x70, 0x71, 0x72):
                     img[f] = rng.choice((0, 1))
             cases.append((t, n, bytes(img)))
+    return cases
+
+
+def consume_case(elf, lib, a0, a1, image):
+    """001C47E0 (the HEALING consume) over the block: the store and v0."""
+    o = Oracle(elf)
+    o.put(REGION, image)
+    # The EE holds a 32-bit int argument sign-extended to 64 bits.
+    o.run(0x1C47E0, (a0 & 0xFFFFFFFFFFFFFFFF, a1 & 0xFFFFFFFFFFFFFFFF))
+    written = {a for a in o.written if not (REGION <= a < REGION + REGION_SIZE)}
+    assert not written, ('001C47E0 wrote outside the modelled block', sorted(hex(a) for a in written)[:4])
+    expected = o.read(REGION, REGION_SIZE)
+    buf = C.create_string_buffer(bytes(image), REGION_SIZE)
+    base = C.addressof(buf)
+
+    def at(_, address, size):
+        if REGION <= address and address + size <= REGION + REGION_SIZE:
+            return base + address - REGION
+        return None
+    v0 = C.c_int32()
+    result = lib.em_pickup_items_001C47E0(AT(at), None, a0, a1, C.byref(v0))
+    assert result == 0 and buf.raw == expected and v0.value == s32(o.g(2) & M32), dict(
+        a0=hex(a0), a1=a1, v0=v0.value, want=s32(o.g(2) & M32))
+
+
+def consume_cases(rng):
+    cases = []
+    for t, n, have in itertools.product((0, 0x10, 0x1E, 0x1F, 0x20, 0x22, 0x5F, 0xFF),
+                                        (1, 0, -1, 2, 0x100), (0, 1, 2, 0x7F, 0x80, 0xFF)):
+        img = bytearray(rng.randrange(256) for _ in range(REGION_SIZE))
+        if 0x810C64 + t < REGION + REGION_SIZE:
+            img[0x810C64 + t - REGION] = have
+        cases.append((t, n, bytes(img)))
     return cases
 
 
@@ -269,13 +304,18 @@ def main():
     for t, n, img in run_items:
         items_case(elf, lib, t, n, img)
     items_null_storage(lib)
+    consumes = [c for c in consume_cases(random.Random(0x1C47E0)) if 0x810C64 + c[0] < REGION + REGION_SIZE]
+    run_consumes = select(consumes, 60, 3, axes=(lambda c: c[0], lambda c: c[1]))
+    for t, n, img in run_consumes:
+        consume_case(elf, lib, t, n, img)
     auras = aura_cases(random.Random(0x1F1180))
     run_auras = select(auras, 400, 2, axes=(lambda c: c[0], lambda c: (c[1].state, c[1].variant),
                                              lambda c: c[1].timer, lambda c: c[1].angle, lambda c: c[4]))
     for case in run_auras:
         aura_case(elf, lib, *case)
-    banner(part(len(run_items), len(items), '001C40B0 cases'), part(len(run_auras), len(auras), 'aura cases'))
-    print('pickup items reference: 001C40B0, 001F1110 and 001F1180 match the original instructions PASS')
+    banner(part(len(run_items), len(items), '001C40B0 cases'),
+           part(len(run_consumes), len(consumes), '001C47E0 cases'), part(len(run_auras), len(auras), 'aura cases'))
+    print('pickup items reference: 001C40B0, 001C47E0, 001F1110 and 001F1180 match the original instructions PASS')
     return 0
 
 

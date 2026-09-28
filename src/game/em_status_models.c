@@ -28,9 +28,12 @@
 #define SLOT_BASE 0x02000000u
 #define SLOT_SIZE 0xD0u
 #define SLOTS 256
-#define MODELS 8
+#define MODELS 32
 #define PALETTE 64
 #define DRAW_001CB580 0x001CB580u
+#define DRAW_001CB480 0x001CB480u
+#define MAP_MODELS 22 /* the MAP bank D_0028A570's directory (module 0x1E slot 0x38) */
+#define F_BIAS 0x4B000000u /* 8388608.0 */
 
 typedef struct {
     uint32_t token;
@@ -38,6 +41,8 @@ typedef struct {
     EmGfxMesh *mesh;
     EmOwnerSkeletonRecord skeleton[PALETTE];
     EmOwnerModel owner;
+    int map;             /* a model of the MAP bank D_0028A570 */
+    uint32_t map_offset; /* its directory offset: 001C6120 returns bank + offset */
 } Model;
 
 typedef struct {
@@ -75,6 +80,15 @@ struct EmStatusModels {
     unsigned draw_count;
     unsigned long drawn;
     int failed;
+    /* The MAP page (em_status_models_load_map / _set_node / _set_light). */
+    int map_models[MAP_MODELS]; /* model index by bank code, -1 none */
+    unsigned map_count;
+    uint32_t map_bank;          /* D_0028A570 as 001C6120 was first given it */
+    uint32_t node_fn;           /* a +0x10 behaviour the host runs (002101C0) */
+    EmStatusModelsNodeFn node;
+    void *node_ctx;
+    EmStatusModelsLightFn light;
+    void *light_ctx;
 };
 
 static int fault(EmStatusModels *m, uint32_t address, const char *what)
@@ -108,7 +122,8 @@ static EmOwnerBone *slot_of(EmStatusModels *m, uint32_t handle)
 static Model *model_of(EmStatusModels *m, uint32_t token)
 {
     for (unsigned i = 0; i < m->model_count; ++i)
-        if (m->model[i].token == token)
+        if (m->model[i].map ? m->map_bank && m->map_bank + m->model[i].map_offset == token
+                            : m->model[i].token == token)
             return &m->model[i];
     return NULL;
 }
@@ -208,6 +223,15 @@ static int w_call(void *ctx, EmStatusSceneActor *a, uint32_t fn)
     case DRAW_001CB580:
         return draw(m, a);
     default:
+        if (m->node && fn == m->node_fn) {
+            /* 002101C0 (the MAP page's nodes): the host runs the
+             * translation over the record's bytes at its original address. */
+            r = m->node(m->node_ctx, fn, EM_STATUS_SCENE_D_0028B020 +
+                                             (uint32_t)record_of(m, a) * EM_STATUS_SCENE_RECORD_SIZE);
+            if (r < 0)
+                return fault(m, fn, "the node behaviour faulted");
+            return 0;
+        }
         return fault(m, fn, "a behaviour or draw method the status models do not translate");
     }
     if (r < 0)
@@ -589,6 +613,22 @@ static int w_001CD520(void *ctx, int32_t a0, int32_t a1, uint32_t position, uint
                                    "translated");
 }
 
+/* The node matrices +0x90 of a record's bones as the draw's palette, then
+ * the EMDL's trailing identity slot. */
+static int palette_of(EmStatusModels *m, EmStatusSceneActor *a, Draw *d, uint32_t fn)
+{
+    for (unsigned i = 0; i < a->b0C; ++i) {
+        EmOwnerBone *bone = slot_of(m, a->w110[i]);
+        if (!bone)
+            return fault(m, fn, "a bone slot word the port did not hand out");
+        memcpy(d->palette + 16 * i, bone->world, sizeof bone->world); /* +0x90 */
+    }
+    float *identity = d->palette + 16 * a->b0C;
+    memset(identity, 0, 16 * sizeof(float));
+    identity[0] = identity[5] = identity[10] = identity[15] = 1.0f;
+    return 0;
+}
+
 /* 001CB580 -> 001CB4F0(a, +0x44): lighting mode 1 over the node matrices. */
 static int draw(EmStatusModels *m, EmStatusSceneActor *a)
 {
@@ -603,15 +643,8 @@ static int draw(EmStatusModels *m, EmStatusSceneActor *a)
     Draw *d = &m->draw[m->draw_count];
     d->model = m->record_model[r];
     d->bones = model->model.bone_count;
-    for (unsigned i = 0; i < a->b0C; ++i) {
-        EmOwnerBone *bone = slot_of(m, a->w110[i]);
-        if (!bone)
-            return fault(m, DRAW_001CB580, "a bone slot word the port did not hand out");
-        memcpy(d->palette + 16 * i, bone->world, sizeof bone->world); /* +0x90 */
-    }
-    float *identity = d->palette + 16 * a->b0C; /* the EMDL's trailing slot */
-    memset(identity, 0, 16 * sizeof(float));
-    identity[0] = identity[5] = identity[10] = identity[15] = 1.0f;
+    if (palette_of(m, a, d, DRAW_001CB580) < 0)
+        return -1;
     /* 001D8C30 case 1: light directions and colours zero; ambient lane k =
      * 8388608 + (128 + actor +0x80 + 4k), w = 8388608 + 64 * max(+0x8C - 1,
      * 0); the kernel reads the biased value's integer part. */
@@ -625,6 +658,59 @@ static int draw(EmStatusModels *m, EmStatusSceneActor *a)
     if (em_ee_c_le_bits(t, 0))
         t = 0;
     d->rig.amb[3] = em_ee_float(em_ee_sub_bits(em_ee_add_bits(bias, em_ee_mul_bits(f64, t)), bias));
+    m->draw_count++;
+    return 0;
+}
+
+/* 001CB480(a) (the method 001CA5F0 installs for kind 7; the MAP page's
+ * nodes, docs/STATUS_PAGES.md section 7): 001D2910(0) kept, 001D8C20(2),
+ * 001D2830(0, 0), 001C7420(a, 0x3F5, 1), 001D3BA0(1, +0x44), 001D2830(0,
+ * kept). Lighting mode 2 is not one of the modes 001D89D0 hands to
+ * 001D8C30 (1, 3..6): it composes the room rig for the record (the light
+ * binding: em_owner_draw_live_light), with the glow add of +0x02 bit 0x40
+ * (002101C0 sets it: B's ambient row += 64 x the +0x80 colour). The draw
+ * is queued like 001CB580's: the palette is the node matrices, and the rig
+ * the renderer lights the vertices with is A's three slot directions (its
+ * columns), B's three colour rows and B's ambient row less the 8388608
+ * bias (em_gfx.h EmGfxCharRig: the formula 001C7420's colour matrix feeds
+ * the object kernel). 001D2830(0, 0) sets no fog (as for 001CB580). */
+static int draw_001CB480(EmStatusModels *m, EmStatusSceneActor *a)
+{
+    int r = record_of(m, a);
+    if (r < 0 || m->record_model[r] < 0)
+        return fault(m, DRAW_001CB480, "a draw without a bound model");
+    if (!m->light)
+        return fault(m, DRAW_001CB480, "no light binding (001D89D0)");
+    Model *model = &m->model[m->record_model[r]];
+    if (a->b0C + 1u != model->model.bone_count || m->draw_count >= EM_STATUS_SCENE_POOL_RECORDS)
+        return fault(m, DRAW_001CB480, "the node count differs from the exported model");
+    if (a->h94 != -1)
+        return fault(m, DRAW_001CB480, "a collapsed bone (+0x94), which the palette does not model");
+    EmOwnerServicesOwner o;
+    if (owner_view(m, a, &o) < 0)
+        return -1;
+    o.cls = a->b02;
+    o.kind = a->b03;
+    o.pose_bone = a->b98;
+    o.collapsed_bone = a->h94;
+    uint32_t rgb[4];
+    memcpy(rgb, a->f80, sizeof rgb);
+    float la[16], lb[16];
+    if (m->light(m->light_ctx, 2, &o, rgb, la, lb) < 0)
+        return fault(m, 0x001D89D0u, "the light binding faulted");
+    Draw *d = &m->draw[m->draw_count];
+    d->model = m->record_model[r];
+    d->bones = model->model.bone_count;
+    if (palette_of(m, a, d, DRAW_001CB480) < 0)
+        return -1;
+    memset(&d->rig, 0, sizeof d->rig);
+    for (int k = 0; k < 3; ++k)
+        for (int axis = 0; axis < 3; ++axis) {
+            d->rig.dir[k][axis] = la[4 * axis + k];
+            d->rig.col[k][axis] = lb[4 * k + axis];
+        }
+    for (int c = 0; c < 3; ++c)
+        d->rig.amb[c] = em_ee_float(em_ee_sub_bits(em_ee_bits(lb[12 + c]), F_BIAS));
     m->draw_count++;
     return 0;
 }
@@ -849,4 +935,182 @@ int em_status_models_node_world(const EmStatusModels *m, unsigned record, unsign
         return 0;
     memcpy(out, b->world, sizeof b->world);
     return 1;
+}
+
+/* ------------------------------------------------------------ the MAP page --- */
+
+int em_status_models_load_map(EmStatusModels *m, const char *directory)
+{
+    char path[1024];
+    if (!m || !directory || m->map_count)
+        return -1;
+    snprintf(path, sizeof path, "%s/map_models.emmp", directory);
+    FILE *f = fopen(path, "rb");
+    uint32_t header[3];
+    int ok = f && fread(header, sizeof header, 1, f) == 1 && !memcmp(header, "EMMP", 4) &&
+             header[1] == 1 && header[2] == MAP_MODELS && m->model_count + MAP_MODELS <= MODELS;
+    const unsigned first = m->model_count;
+    for (unsigned i = 0; i < MAP_MODELS; ++i)
+        m->map_models[i] = -1;
+    for (unsigned i = 0; ok && i < MAP_MODELS; ++i) {
+        uint32_t entry[4]; /* code, directory offset, node count (+8), radius bits (+0x20) */
+        ok = fread(entry, sizeof entry, 1, f) == 1 && entry[0] < MAP_MODELS &&
+             m->map_models[entry[0]] < 0 && entry[2] && entry[2] < PALETTE;
+        if (!ok)
+            break;
+        Model *model = &m->model[m->model_count];
+        memset(model, 0, sizeof *model);
+        snprintf(path, sizeof path, "%s/map_%02x.emdl", directory, (unsigned)entry[0]);
+        ok = em_model_load(&model->model, path) == 0 && model->model.bone_count == entry[2] + 1;
+        for (unsigned n = 0; ok && n < entry[2]; ++n) {
+            int32_t parent;
+            ok = fread(&parent, 4, 1, f) == 1 && fread(model->skeleton[n].bind, 64, 1, f) == 1 &&
+                 parent >= -1 && parent < (int32_t)n;
+            model->skeleton[n].parent = (int16_t)parent;
+        }
+        if (!ok) {
+            em_model_free(&model->model);
+            break;
+        }
+        model->map = 1;
+        model->map_offset = entry[1];
+        model->owner.bone_count = (uint8_t)entry[2];
+        memcpy(&model->owner.radius, &entry[3], 4);
+        model->owner.skeleton = model->skeleton;
+        model->owner.skeleton_records = entry[2];
+        m->map_models[entry[0]] = (int)m->model_count++;
+    }
+    ok = ok && fgetc(f) == EOF;
+    if (f)
+        fclose(f);
+    if (!ok) {
+        while (m->model_count > first)
+            em_model_free(&m->model[--m->model_count].model);
+        for (unsigned i = 0; i < MAP_MODELS; ++i)
+            m->map_models[i] = -1;
+        fprintf(stderr, "status models: %s/map_models.emmp or a map_XX.emdl is missing or invalid "
+                        "(tools/export_status_map.py)\n", directory);
+        return -1;
+    }
+    m->map_count = MAP_MODELS;
+    return 1;
+}
+
+void em_status_models_set_node(EmStatusModels *m, uint32_t fn, EmStatusModelsNodeFn node, void *ctx)
+{
+    if (!m)
+        return;
+    m->node_fn = fn;
+    m->node = node;
+    m->node_ctx = ctx;
+}
+
+void em_status_models_set_light(EmStatusModels *m, EmStatusModelsLightFn light, void *ctx)
+{
+    if (!m)
+        return;
+    m->light = light;
+    m->light_ctx = ctx;
+}
+
+uint8_t *em_status_models_pool_bytes(EmStatusModels *m)
+{
+    return m ? (uint8_t *)(void *)m->pool.record : NULL;
+}
+
+unsigned em_status_models_free_slots(const EmStatusModels *m)
+{
+    unsigned n = 0;
+    for (unsigned i = 0; m && i < SLOTS; ++i)
+        n += !m->slot_used[i];
+    return n;
+}
+
+uint8_t *em_status_models_view_bytes(EmStatusModels *m)
+{
+    return m ? (uint8_t *)(void *)m->view : NULL;
+}
+
+/* The record a0 names (its original address), or NULL. */
+static EmStatusSceneActor *record_at(EmStatusModels *m, uint32_t address)
+{
+    const uint32_t offset = address - EM_STATUS_SCENE_D_0028B020;
+    if (address < EM_STATUS_SCENE_D_0028B020 || offset % EM_STATUS_SCENE_RECORD_SIZE ||
+        offset / EM_STATUS_SCENE_RECORD_SIZE >= EM_STATUS_SCENE_POOL_RECORDS)
+        return NULL;
+    return &m->pool.record[offset / EM_STATUS_SCENE_RECORD_SIZE];
+}
+
+int em_status_models_call(EmStatusModels *m, uint32_t target, const uint64_t *a, unsigned na,
+                          uint64_t *v0)
+{
+    if (!ready(m) || !v0 || (na && !a))
+        return -1;
+    const uint32_t a0 = na > 0 ? (uint32_t)a[0] : 0, a1 = na > 1 ? (uint32_t)a[1] : 0;
+    const uint32_t a2 = na > 2 ? (uint32_t)a[2] : 0;
+    EmStatusSceneActor *rec = NULL;
+    uint32_t value = 0;
+    switch (target) {
+    case 0x001AFF10u: {
+        EmStatusSceneActor *got = NULL;
+        if (w_001AFF10(m, &got) < 0)
+            return -1;
+        *v0 = got ? (uint64_t)(int64_t)(int32_t)got->w14 : 0;
+        return 0;
+    }
+    case 0x001B0000u:
+        if (!m->configured)
+            return fault(m, 0x001B0000u, "the walk ran before 0020DFA0 set D_00810610");
+        m->draw_count = 0;
+        m->current = NULL;
+        if (em_status_scene_walk_001B0000(&m->pool, &m->workers, &m->fault) < 0)
+            return (m->failed = 1, -1);
+        return 0;
+    case 0x001C6120u: {
+        /* 001C6120(bank, code): bank + the directory word at bank + 4 +
+         * 4 x (code & 0x7FFF); the bank is D_0028A570, the MAP bank. */
+        const uint32_t id = a1 & 0xFFFFu & ~0x8000u;
+        if (!m->map_count)
+            return fault(m, target, "the MAP bank D_0028A570 is not exported (tools/export_status_map.py)");
+        if (!a0 || (m->map_bank && a0 != m->map_bank))
+            return fault(m, target, "a bank other than D_0028A570 (module 0x1E slot 0x38)");
+        if (id >= MAP_MODELS || m->map_models[id] < 0)
+            return fault(m, target, "a code outside the MAP bank's directory");
+        m->map_bank = a0;
+        *v0 = (uint64_t)(int64_t)(int32_t)(a0 + m->model[m->map_models[id]].map_offset);
+        return 0;
+    }
+    case 0x001CA5E0u: {
+        /* 001CA5E0(a, model, kind): +0x44 = model; 001CA5F0(a, kind). */
+        Model *model = model_of(m, a1);
+        if (!(rec = record_at(m, a0)) || !model)
+            return fault(m, target, "a record or model word the port did not hand out");
+        rec->w44 = a1;
+        (void)w_001CA5F0(m, rec, (int32_t)a2);
+        m->record_model[record_of(m, rec)] = (int)(model - m->model);
+        return 0;
+    }
+    case 0x001C6150u:
+        if (w_001C6150(m, a0, &value) < 0)
+            return -1;
+        *v0 = value;
+        return 0;
+    case 0x001AF7C0u:
+        if (w_001AF7C0(m, &value) < 0)
+            return -1;
+        *v0 = (uint64_t)(int64_t)(int32_t)value;
+        return 0;
+    case 0x001CB5B0u:
+        return w_001CB5B0(m, a0);
+    case 0x001C62C0u:
+        return (rec = record_at(m, a0)) ? w_001C62C0(m, rec) : fault(m, target, "not a pool record");
+    case 0x001C6380u:
+        return (rec = record_at(m, a0)) ? w_001C6380(m, rec) : fault(m, target, "not a pool record");
+    case 0x001AFF90u:
+        return (rec = record_at(m, a0)) ? w_001AFF90(m, rec) : fault(m, target, "not a pool record");
+    case DRAW_001CB480:
+        return (rec = record_at(m, a0)) ? draw_001CB480(m, rec) : fault(m, target, "not a pool record");
+    default:
+        return fault(m, target, "not a status-model worker");
+    }
 }

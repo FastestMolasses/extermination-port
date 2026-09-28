@@ -11,7 +11,7 @@ typedef struct {
     unsigned intensity;
 } TrailTriangle;
 
-enum { DRAW_NONE, DRAW_BATTERY, DRAW_ITEM, DRAW_OTHER, DRAW_HUB };
+enum { DRAW_NONE, DRAW_BATTERY, DRAW_ITEM, DRAW_OTHER, DRAW_HUB, DRAW_PAGE };
 
 /* The hub's 0020A7A0 tile (0020CDC0 phase 1/2 step 1). */
 #define HUB_BACKGROUND_TEX0 UINT64_C(0x20045EE59D421E40)
@@ -29,6 +29,7 @@ struct EmStatusRuntime {
     uint8_t ui[0xA0];           /* the UI block D_00810130 */
     EmItemUI *item;
     EmStatusHubUI *hub;
+    EmStatusPagesLive *pages; /* MAP / SPR4 / DATABASE and the ITEM children */
     EmStatusHubDisplay hub_display;
     EmItemStick hub_stick;
     uint32_t ui_clock; /* UI+0x20 (D_00810150) */
@@ -68,10 +69,29 @@ static int module_ready(EmStatusRuntime *runtime)
     return 1;
 }
 
+/* The page modules the status pages load (0020CDC0 phase 3, the ITEM root
+ * and the SPR4 part pages). */
+static int page_module(unsigned module)
+{
+    return (module >= 0x1E && module <= 0x24) || (module >= 0x2C && module <= 0x31);
+}
+
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
 {
-    /* Native modules1F/21 are the actual parsed original artwork and text,
-     * already validated at load. No fake asynchronous timer is needed. */
+    /* The page modules complete at host speed (user policy, PORT_PROFILES):
+     * 001FF830's GS uploads are applied to the pages' GS memory at once
+     * (em_gs_texture); 1F / 21 are also the actual parsed original artwork
+     * and text of the ITEM root and BATTERY adapters. */
+    if (runtime->pages && page_module(module)) {
+        if (!em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), module))
+            return 0;
+        if (module == 0x1F || module == 0x21) {
+            em_item_ui_deactivate(runtime->item);
+            em_battery_ui_deactivate(runtime->battery);
+        }
+        runtime->page.item.asset_busy = 0;
+        return 1;
+    }
     if (module == 0x1F || module == 0x21) {
         em_item_ui_deactivate(runtime->item);
         em_battery_ui_deactivate(runtime->battery);
@@ -190,6 +210,63 @@ static int battery_tick(EmStatusRuntime *runtime)
     return 1;
 }
 
+/* 001FF080(0, module) from inside a page (the SPR4 part pages). */
+static int pages_module(void *context, uint32_t module)
+{
+    return begin_module(context, module);
+}
+
+/* One call of a status page (em_status_pages_live) over the canonical
+ * bytes: the page core's views (the status block, the request bytes, the
+ * message words) are stored before the call and loaded after it, as
+ * battery_tick does. */
+static int pages_tick(EmStatusRuntime *runtime, uint32_t address)
+{
+    EmStatusPage *page = &runtime->page;
+    EmStatusPagesFrame frame;
+    memset(&frame, 0, sizeof frame);
+    if (!runtime->pages || !runtime->hooks.pages_frame || !runtime->message_view ||
+        runtime->hooks.pages_frame(runtime->hooks.context, &frame) != 1 || !frame.req ||
+        !frame.message)
+        return 0;
+    ui_load(runtime->ui, page);
+    frame.ui = runtime->ui;
+    frame.ui_clock = &runtime->ui_clock;
+    frame.busy = &page->item.asset_busy;
+    frame.held = runtime->input.held;
+    frame.pressed = runtime->input.pressed;
+    frame.repeat = runtime->input.repeat;
+    frame.stick_x = runtime->input.stick_x;
+    frame.stick_y = runtime->input.stick_y;
+    frame.health_data = em_status_hub_ui_health_data(runtime->hub);
+    frame.module_load = pages_module;
+    frame.module_context = runtime;
+    frame.math = &runtime->math;
+    frame.trail = &runtime->trail;
+    frame.req[EM_STATUS_PAGES_REQ_B0] = page->request;
+    frame.req[EM_STATUS_PAGES_REQ_B1] = page->request_kind;
+    frame.req[EM_STATUS_PAGES_REQ_C5] = page->status_request;
+    frame.req[EM_STATUS_PAGES_REQ_CC] = page->restore_textures;
+    frame.message->mode = (int32_t)page->item.message_mode;
+    frame.message->phase = (int32_t)page->item.message_phase;
+    frame.message->line = page->item.message_line;
+    frame.message->aux_mode = (int32_t)page->item.message_group;
+    const int result = em_status_pages_live_tick(runtime->pages, address, &frame);
+    ui_store(runtime->ui, page);
+    page->request = frame.req[EM_STATUS_PAGES_REQ_B0];
+    page->request_kind = frame.req[EM_STATUS_PAGES_REQ_B1];
+    page->status_request = frame.req[EM_STATUS_PAGES_REQ_C5];
+    page->restore_textures = frame.req[EM_STATUS_PAGES_REQ_CC];
+    page->item.message_mode = (uint32_t)frame.message->mode;
+    page->item.message_phase = (uint32_t)frame.message->phase;
+    page->item.message_line = frame.message->line;
+    page->item.message_group = (uint32_t)frame.message->aux_mode;
+    if (result < 0)
+        return 0;
+    runtime->draw_kind = DRAW_PAGE;
+    return 1;
+}
+
 static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, unsigned argument)
 {
     EmStatusRuntime *runtime = context;
@@ -224,7 +301,16 @@ static int item_worker(void *context, EmItemRoot *item, EmItemRootEvent event, u
     case EM_ITEM_LOAD_MODULE:
         return begin_module(runtime, argument);
     case EM_ITEM_CHILD_PAGE:
-        return argument == 5 ? battery_tick(runtime) : other_tick(runtime);
+        /* 0020EE50 states 4..7: 00214570 EQUIPMENT, 002149F0 BATTERY,
+         * 00215870 EVENT, 002160B0 HEALING. */
+        if (argument == 5)
+            return battery_tick(runtime);
+        if (runtime->pages)
+            return argument == 4   ? pages_tick(runtime, 0x00214570u)
+                   : argument == 6 ? pages_tick(runtime, 0x00215870u)
+                   : argument == 7 ? pages_tick(runtime, 0x002160B0u)
+                                   : 0;
+        return other_tick(runtime);
     }
     return 0;
 }
@@ -324,6 +410,20 @@ static int page_worker(void *context, EmStatusPage *page, EmStatusPageEvent even
             return 0;
         em_item_trail_reset(&runtime->trail);
         return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
+    case EM_STATUS_PAGE_PAGE_TICK: {
+        /* 0020CDC0 phase 3 sub-state 2: page id 1 MAP, 2 SPR4, 3 DATABASE. */
+        static const uint32_t pages[4] = {0, 0x0020F950u, 0x00211970u, 0x00214020u};
+        if (!runtime->pages || argument < 1 || argument > 3)
+            return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
+        return pages_tick(runtime, pages[argument]);
+    }
+    case EM_STATUS_PAGE_PLAYER_TEXTURE:
+        /* 00200970(1): the library slot 0x35 and the player texture packet
+         * go back into the GS memory a page module overwrote. */
+        if (runtime->pages &&
+            !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+            return 0;
+        return runtime->hooks.page_event(runtime->hooks.context, event, argument) == 1;
     case EM_STATUS_PAGE_HUB_TICK:
         if (runtime->hub)
             return hub_tick(runtime);
@@ -415,7 +515,18 @@ void em_status_runtime_free(EmStatusRuntime *runtime)
     em_battery_ui_free(runtime->battery);
     em_item_ui_free(runtime->item);
     em_status_hub_ui_free(runtime->hub);
+    em_status_pages_live_free(runtime->pages);
     free(runtime);
+}
+
+int em_status_runtime_bind_pages(EmStatusRuntime *runtime, EmStatusPagesLive *pages)
+{
+    if (!runtime || !pages || runtime->pages || !runtime->hooks.pages_frame) {
+        em_status_pages_live_free(pages);
+        return 0;
+    }
+    runtime->pages = pages;
+    return 1;
 }
 
 int em_status_runtime_bind_hub(EmStatusRuntime *runtime, EmStatusHubUI *ui)
@@ -446,6 +557,9 @@ static void release_slot(EmStatusRuntime *runtime)
         break;
     case DRAW_HUB:
         em_status_hub_ui_deactivate(runtime->hub);
+        break;
+    case DRAW_PAGE:
+        em_status_pages_live_deactivate(runtime->pages);
         break;
     default:
         break;
@@ -527,6 +641,7 @@ int em_status_runtime_tick(EmStatusRuntime *runtime, const EmStatusInput *input)
         em_battery_ui_deactivate(runtime->battery);
         em_item_ui_deactivate(runtime->item);
         em_status_hub_ui_deactivate(runtime->hub);
+        em_status_pages_live_deactivate(runtime->pages);
         runtime->owner = NULL;
     }
     return 1;
@@ -575,6 +690,7 @@ int em_status_runtime_page_tick(EmStatusRuntime *runtime, const EmStatusInput *i
         em_battery_ui_deactivate(runtime->battery);
         em_item_ui_deactivate(runtime->item);
         em_status_hub_ui_deactivate(runtime->hub);
+        em_status_pages_live_deactivate(runtime->pages);
         runtime->owner = NULL;
     }
     return result;
@@ -641,6 +757,9 @@ int em_status_runtime_render(EmStatusRuntime *runtime, EmGfx *gfx)
         break;
     case DRAW_OTHER:
         result = runtime->hooks.other_page_render(runtime->hooks.context, gfx, &runtime->page);
+        break;
+    case DRAW_PAGE:
+        result = em_status_pages_live_render(runtime->pages, gfx);
         break;
     default:
         break;

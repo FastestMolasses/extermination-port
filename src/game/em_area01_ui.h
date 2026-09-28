@@ -75,6 +75,13 @@ typedef struct {
     EmArea01UiCall call;
     void *ctx;
     uint32_t sp; /* the EE stack pointer at entry */
+    /* Nonzero: 0020F950 and 00210F30 reach 00207D90 and 00208040 through
+     * `call` (by original address, the register images the original passes)
+     * instead of running their translations here, for a binder whose 2D
+     * layer consumes the calls rather than the render context's packet
+     * arena (em_status_pages_live). 0 (the lane's tests): the translations
+     * write the packets, as the original does inside those calls. */
+    uint32_t leaf_calls;
 } EmArea01Ui;
 
 /* All entries: 0 on success, -1 on a fault (latched). */

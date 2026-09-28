@@ -232,8 +232,14 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
-        {0x00810788u, 0x00810789u},
-        {0x0081078Bu, 0x0081078Cu}, /* event 0x33: 00191210's gate (L13) */
+        /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
+         * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes
+         * them in the first level) */
+        {0x0081077Fu, 0x00810780u},
+        {0x00810782u, 0x00810783u},
+        {0x00810784u, 0x00810785u},
+        {0x00810788u, 0x0081078Au},
+        {0x0081078Bu, 0x0081078Du}, /* event 0x33: 00191210's gate (L13); 0x34 (MAP) */
         {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
         {0x008107D8u, 0x008107D9u}, /* counter 0: Roger's story progress (L22) */

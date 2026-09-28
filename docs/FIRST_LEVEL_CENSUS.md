@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1431,6 +1431,63 @@ Result: live 666, verified-unbound 71, unverified 3, stand-in 0, missing 1,
 boundary 443, recounted from the section 3 rows (741 rows). 81,298 of the
 87,968 non-boundary instructions are live (92.4%).
 
+### 1.36 Update (2026-09-27, chain C8b: the status pages live)
+
+The status hub's DATABASE (00214020) and SPR4 (00211970, with its selector
+and five part pages) and the ITEM children EQUIPMENT (00214570), EVENT
+(00215870) and HEALING (002160B0) run live through `em_status_pages_live`,
+with their page-module textures decoded from the GS memory the original
+holds (`em_gs_texture`, `tools/export_status_pages.py`); the page core
+follows 0020CDC0 case 0's whole request map; the callee gaps are
+translated (0020D930 mode 2 in the one owner `em_menu_hover`, 001C47E0,
+0015C700 / 0015C7C0) or proven unreachable in AREA11 (0015C750, 00185420's
+non-battery kinds, 00182B30; STATUS_PAGES.md section 7).
+
+- **No status change.** None of these functions is a census row: the
+  recorded route never opens a status page (the census records what the
+  route beats ran). The 0x0020CDC0 row's limitation is now only the MAP
+  page 0020F950 (not bound) and the unreachable branches; the 0x001C5FB0
+  row names its one translation (em_status_draw_001C5FB0, which the hub's
+  infection field now uses too).
+- **Evidence.** The level smoke's designed side run `status_pages`: 1,143
+  page calls replayed through the original instructions over the
+  status-hub capture, 12,636 callee entries and every view byte equal
+  (`tools/test_status_pages_live.py`); make test-status-page-reference,
+  test-status-pages-reference, test-menu-hover-reference,
+  test-pickup-items-reference, test-player-heal-reference,
+  test-gs-texture-reference, test-area11-interaction-host.
+
+Result: live 666, verified-unbound 71, unverified 3, stand-in 0, missing 1,
+boundary 443 (unchanged), recounted from the section 3 rows (741 rows).
+
+### 1.37 Update (2026-09-27, chain C8b's fix round: the MAP page live)
+
+The MAP page 0020F950 runs live (STATUS_PAGES.md section 7, "MAP"): its
+22 UI-pool nodes run 002101C0 in `em_status_models`' pool (the record is
+now the original's byte layout), the map models come from the disc's
+module 0x1E bank D_0028A570 (`tools/export_status_map.py`; the relocated
+word from the EMSP), 001CB480 draws them lit by 001D89D0 in mode 2
+(`em_owner_draw_live_light`), and 00210F30's marker and 00211400's item
+markers draw on the map. The marker gates' event bytes D_0081077F, 782,
+784, 789 and 78C are migrated progress bytes.
+
+- **No status change.** 0020F950, 002101C0, 00210030, 00210A00, 00210C00,
+  00210F30, 00211400, 00208040 and 001CB480 are not census rows (the
+  recorded route never opens MAP). The hub's rows the MAP nodes also reach
+  (001AFF10, 001AFF90, 001B0000, 001C6120, 001C6150, 001AF7C0, 001CB5B0,
+  001C62C0, 001C6380, 001D89D0) keep their statuses. The 0x0020CDC0 row's
+  limitation no longer names MAP.
+- **Evidence.** The level smoke's designed side run `status_pages`: 6,643
+  page and node calls (242 MAP, 5,258 of its nodes) replayed through the
+  original instructions over the status-hub capture, 19,660 callee entries
+  and every view byte equal (`tools/test_status_pages_live.py`); make
+  test-status-map-reference (the original 001C6120 / 001C6150 over the disc
+  bank at the relocated D_0028A570); make test-area11-interaction-host (the
+  map take and hub hover 3 open MAP).
+
+Result: live 666, verified-unbound 71, unverified 3, stand-in 0, missing 1,
+boundary 443 (unchanged; no section 3 row changed status).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1981,7 +2038,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C5930 | — | NM | verified-unbound | em_status_ui_leftovers em_sul_001C5930 — test_status_ui_leftovers_reference | em_hud.c legacy area-title card; node lifecycle translated in em_area11_bindings.c tick_area_title (from the .s) | S2_opening |
 | 0x001C5C50 | — | BM | live | em_actor_roster.c em_actor_roster_spawn_001C5C50 — test_actor_census_reference |  | S1_newgame_load |
 | 0x001C5C90 | — | BM | live | em_roger_actor_original em_roger_actor_001C5C90 via em_area11_roger (the equipment node area11[9]; census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) (attach_r9 +0x00..+0x0F, +0xB0) | its +0x4C draw is the port actor draw of opening/equipment_6b.emdl at the bone-0 matrix | S2_opening |
-| 0x001C5FB0 | — | NM | live | em_status_hub_ui.c (inline number format) — test_status_hub_ui_reference |  | 01_battery |
+| 0x001C5FB0 | — | NM | live | em_status_draw.c em_status_draw_001C5FB0 (the one translation: the hub's infection field, 00208AD0 / 00209280 and the status pages' numbers) — test_status_hub_ui_reference; test_status_draw_reference; test_level_smoke.py status_pages |  | 01_battery |
 
 ### 3.14 Animation runtime (0x1C6000..0x1CC16F)
 
@@ -2309,7 +2366,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0020CD40 | — | BM | live | em_status_ui_leftovers em_sul_0020CD40 through em_battery_page_live — test_status_ui_leftovers_reference; test_status_page_record_reference | status UI step 2026-09-26 (section 1.21); the cue's sample is not exported (silent, WP-14) | 03_panel_power |
 | 0x0020CD60 | — | BM | live | em_status_ui_leftovers em_sul_0020CD60 through em_battery_page_live — test_status_ui_leftovers_reference; test_status_page_record_reference | status UI step 2026-09-26 (section 1.21); silent (WP-14) | 01_battery |
 | 0x0020CDA0 | — | BM | live | em_status_ui_leftovers em_sul_0020CDA0 through em_battery_page_live — test_status_ui_leftovers_reference; test_status_page_record_reference | status UI step 2026-09-26 (section 1.21); silent (WP-14) | 03_panel_power |
-| 0x0020CDC0 | — | NM | live | em_status_runtime.c / em_status_page.c page core (w_0020CDC0) — test_status_page_reference; test_status_hub_reference; test_level_smoke.py | MAP/SPR4/DATABASE pages fault (untranslated); module-0x21 wait instant (H7) | 01_battery |
+| 0x0020CDC0 | — | NM | live | em_status_runtime.c / em_status_page.c page core (w_0020CDC0; case 0's whole request map; pages 1..3 through em_status_pages_live since chain C8b) — test_status_page_reference; test_status_hub_reference; test_level_smoke.py (status, status_pages) | requests 6 and the passcode pages fault (unreachable in AREA11, STATUS_PAGES.md section 7); module loads instant (H7); MAP 0020F950 live since chain C8b's fix round (section 1.37) | 01_battery |
 | 0x0020DFA0 | — | BM | live | the CONFIGURE event in 0020DFA0's order: em_status_runtime issues the host's RESET_DRAW (001AFE60, em_status_models_clear), runs 0020E020, then the host's status_page_event CONFIGURE (em_status_models_configure, em_rcl_0021BAC0(0), em_rcl_0021B9A0(5, 0.0, 1e6), em_rcl_001D2610(0)) — test_census_unverified_reference (the original 0020DFA0 executed: every callee in order; the CONFIGURE path runs each, 001AFE60 / 0020E020 / the rest in that order); test_level_smoke.py check_render_context (the save slot 0 +0x120 equals routes 01..14 after the first status screen) | status UI step 2026-09-26 (section 1.21); its D_00810610 is the camera pool's since section 1.27 (em_status_models_set_view): the status frames' 001D1C50 projects the UI view | 01_battery |
 | 0x0020E020 | — | BM | live | em_item_root.c / em_status_hub_ui.c trail adapter — test_status_hub_ui_reference (executes 0020E020); test_item_root_reference hooks it as a worker |  | 01_battery |
 | 0x0020E060 | — | BM | live | em_status_runtime.c page reset (w_0020E060) — test_status_hub_ui_reference; test_status_frame_reference |  | 01_battery |

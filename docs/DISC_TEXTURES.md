@@ -263,6 +263,12 @@ from the rebuilt image and read only uploaded blocks (test F):
 | decomp `export_opening_actors.py` / `export_opening_faces.py` (26/27) | `--gs opening_gs.bin` | all 7 outputs rerun on the rebuilt image are byte-identical | area / library / player packet |
 | `export_roger_resources.py` (39) | `opening_gs.bin` (hard-coded) | 68 | area |
 
+`tools/export_status_map.py` (STARTUP.md step 55, the MAP page's 22 map
+models of module 0x1E's bank D_0028A570) builds its texels from this lane's
+disc model only: the first level's world image with `FirstLevel.page(world,
+0x1E)` applied (module 0x1E's one A section is the page's upload), and it
+refuses a model TEX0 that reads a block no upload wrote.
+
 Most of these also read capture RAM for their non-texture data or checks
 (`opening_ee.bin`, `playable_ee.bin`, the reference VU dump); that is outside
 this lane (see Known gaps).

@@ -264,9 +264,10 @@ found and deleted.
   legacy meshes, the flame and snow drawn outside the chain page, 001C1D00's
   empty render-env step, the opening's displayed player, and the
   panel/terminal/item takeovers). Some duplicate translations remain
-  (`EE_FLOAT_MODEL.md` 5c). The fail-stop is player-reachable today: choosing
-  DATABASE, SPR4 or MAP on the status hub, or taking a non-battery item,
-  stops the game.
+  (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
+  reaches stops the game: DATABASE, SPR4, MAP and the non-battery takes run
+  their original pages (`STATUS_PAGES.md` section 7); the fail-stops left
+  there guard branches section 7 proves unreachable in AREA11.
 
 **The tests are themselves tested (mutation testing)**
 
@@ -513,10 +514,43 @@ long notices stay up.
   and the discharge match route 03 row for row. `STATUS_HUB.md`: 17,520 cases;
   500 arc descriptors equal the original. `MESSAGE_GLYPH.md`: layout oracle
   plus a coarse capture check. Commit 097fbd9.
-- Status: **PARTIAL**. Only the hub, ITEM and BATTERY pages. MAP, SPR4 and
-  DATABASE are untranslated and fail-stop when chosen (player-reachable). The
-  area-title card is not bound. Glyph pixels are drawn from the port's own
-  atlas (bilinear, where the original samples nearest) and are not compared.
+- Since chain C8b (FAILSTOPS) the DATABASE page 00214020, the SPR4 page
+  00211970 with its five part pages, and the ITEM children EQUIPMENT
+  00214570, EVENT 00215870 and HEALING 002160B0 run live too
+  (`em_status_pages_live`), with their page-module textures decoded from the
+  GS memory the original holds (`em_gs_texture`, from the user's disc). The
+  level smoke's designed `status_pages` run opens each from the hub, backs
+  out, changes the fire mode on SELECTOR, and takes 0x1E, 0x1F, the key 0x32
+  and the magazine 0x10 (a medicine used from health 30 through the
+  count-up and 0015C700): all 1,143 page calls replayed through the original
+  instructions over the status-hub capture give the port's 12,636 callee
+  entries and every byte (`STATUS_PAGES.md` section 7). No capture shows a
+  page open, so their pixels are not compared.
+- The MAP page 0020F950 runs live too (chain C8b MAP): its 22 UI-pool nodes
+  run 002101C0 in the status models' pool, the map models come from the
+  disc's module 0x1E bank (D_0028A570, `tools/export_status_map.py`) and are
+  lit as 001CB480 lights them (lighting mode 2: the room rig through
+  001D89D0, with the +0x02 glow) and drawn inside the page's SCISSOR_1
+  window between its 2D layers; the player's marker triangle (00210F30 /
+  00208040) and the item markers draw on the map. The `status_pages` run
+  opens MAP from the hub (no map, then map 8), and takes the map 0x08 (MAP
+  zoomed on map 8; R1 / R2 zoom, the D-pad pans, Circle to the list, Cross
+  zooms again): with the other pages, 6,643 page and node calls (242 MAP,
+  5,258 of its nodes) replayed through the original instructions give the
+  port's 19,660 callee entries and every view byte. 001C6120 / 001C6150 over
+  the disc bank are compared with the original (`make
+  test-status-map-reference`). The map models' pixels are the port
+  renderer's (the hub models' skinned path with 001D89D0's matrices), not
+  compared.
+- Page sprites: the original's 00207E40 sets CLAMP_1 = 5 (clamp both axes)
+  for each sprite, and every 00207D00 blend block sets TEX1_1 = 0x60
+  (bilinear magnification and minification; the blocks' bytes in the
+  status-hub capture). The port samples the page atlas bilinearly with each
+  texture's edge texels repeated around it, which is that clamp; the GS's
+  exact bilinear weights are the renderer's (not compared).
+- Status: **PARTIAL**. The area-title card is not bound. Glyph pixels are
+  drawn from the port's own atlas (bilinear, where the original samples
+  nearest) and are not compared.
   The module load before the ITEM page is instant by policy (7 ticks against
   the original's 30; see "Resolved and open policy questions").
 
@@ -1052,11 +1086,13 @@ states, timings and positions, and their draws come from the original data.
   01) or at the panel (route 03): the original's module-0x21 load takes 24
   loader dispatches (a 30-tick prompt window against the port's 7). Under
   the host-speed disc policy the I/O part of that difference is intended (see "Resolved and open policy questions" below). The map and the other non-battery items are drawn and
-  animated on their records, but taking one (types 0x1E/0x1F, 0x10, key
-  0x32, map 0x08) opens a status page that is not bound in AREA11
-  (002160B0, 00211970, 00214020, 0020F950), and the port stops with a fault
-  (`PICKUP_OWNERS.md` "Requests and pages", fixture `other_take`; still true
-  at HEAD). These takes are off the recorded route. The fan pair and the
+  animated on their records. Taking 0x1E / 0x1F (HEALING 002160B0), the key
+  0x32 (DATABASE 00214020) or the magazine 0x10 (SPR4 00211970) opens its
+  original page since chain C8b (the level smoke's `status_pages` run,
+  replayed through the original instructions); taking the map 0x08 opens
+  the MAP page 0020F950 zoomed on map 8, bound since chain C8b MAP (the same
+  run; `PICKUP_OWNERS.md` "Requests and pages", fixture `other_take`). These
+  takes are off the recorded route. The fan pair and the
   husks are not on their records yet (PLANNED entry). The panel, terminal
   and item takeovers still use the port's interaction runtime for acquire
   and per-stage ticking.
@@ -1347,8 +1383,6 @@ Resolved by the user on 2026-09-27:
 
 Missing faithful behaviour that blocks a "first level complete" claim:
 
-- player-reachable fail-stops: DATABASE/SPR4/MAP on the status hub and
-  non-battery item takes;
 - the rand() order's two remaining differences: the husk creature's draw
   (census L24) and the opening's faces (design risk 2) (`RAND_ORDER.md` 6);
 - the load veil's duration: the area read finishes inside one call (the

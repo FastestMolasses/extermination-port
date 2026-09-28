@@ -8,8 +8,10 @@ native translation, and it removes the page fail-stops from the port's side:
 - the pages the non-battery item takes open (types 0x1E/0x1F, 0x10, the key
   0x32 and the map 0x08).
 
-Nothing is wired and no tracked file was edited. The binding is the chain's
-job (section 5).
+The lane (phase B15) wired nothing; chain C8b (FAILSTOPS, then its MAP
+fix round) bound the pages live: section 7 is the current state (DATABASE,
+SPR4 with its part pages, MAP with its model nodes and the ITEM children run
+live; no page the first level reaches is left unbound).
 
 Files (all new):
 
@@ -74,7 +76,7 @@ t[0x15] values are the part-page hovers 00211970 state 2 maps to modules
 | ITEM > BATTERY (0x21) | 002149F0 | ITEM hover 3; takes 0x1B..0x1D or with B1 & 0xC0; B0 = 6; the panel | `em_spr_002149F0` (existing) |
 | ITEM > EVENT (0x22) | 00215870 | ITEM hover 4; takes 0x23..0x3F | **translated here** |
 | ITEM > HEALING (0x23) | 002160B0 | ITEM hover 5; takes 0x1E..0x22 (AREA11 has 0x1E/0x1F) and B0 = 4; both set t[0x15] = 5 | **translated here** |
-| 1 MAP | 0020F950 | hub hover 3; the map take (B0 = 2) | `em_area01_ui_0020F950` (AREA01 lane), its helpers here |
+| 1 MAP | 0020F950 | hub hover 3; the map take (B0 = 2) | `em_area01_ui_0020F950` (AREA01 lane), its helpers here; its nodes 002101C0 in the UI pool (section 7) |
 | 2 SPR4 | 00211970 | hub hover 2; B0 = 1 with B1 < 0x17 and no bit 0xC0 (0x10..0x16 open state 9's notice; B1 < 0x10 opens a part page directly through t[0x15]); B0 = 5 (the refill) | **translated here** |
 | SPR4 part pages | 00218D90, 00217090, 00218640, 002177B0, 00217FA0 | SPR4 hovers 6, 2, 5, 3 and 4 (modules 0x2D, 0x2E, 0x2F, 0x30, 0x31) | **translated here** |
 | 3 DATABASE | 00214020 | hub hover 1; the key take (B0 = 3; any B0 other than 0, 1, 2, 4, 5, 6 too) | `em_area01_ui_00214020` (AREA01 lane), its helpers here |
@@ -304,14 +306,15 @@ Results:
   - no views give code 4 (00212F30 reads no memory and completes);
   - a failing first callee gives code 2 and stops there.
 
-**Default run** (342 cases, serial: 10.4 to 11.8 s CPU and wall on the M1, 2026-09-27):
+**Default run** (342 cases; up to four worker processes: 13.9 s CPU, 4.9 s wall on the M1, 2026-09-27; `EM_TEST_JOBS=1` serial: 12.7 s):
 - It keeps the greedy outcome cover (`QUICK_PINS`, 300 items from the
   `cover` command), the cases the first mutation check needed
   (`EXTRA_PINS`) and the review's survivor pins (`SURVIVOR_PINS`, 11
   cases, below), so it also reaches all 826 outcomes.
-- It is serial: the memo below lives in each process, and worker
-  processes re-run the heavy callees (measured before the pins: 4 workers
-  cost 13.3 s CPU for 4.6 s wall, serial 10.0 s CPU).
+- The memo below lives in each process, so worker processes re-run the
+  heavy callees: the parallel default run costs about 10 % more CPU than a
+  serial one, and fits the ~10 s wall budget (chain C8b MAP; the serial run
+  took 13 s).
 - The oracle memoises the heavy callees (0020A7A0, 0020AC70, 00213A00,
   001FCF30, 001FCF60, 001FE070, 0020B210, 0020AE40, 001CBA50, 0020B0D0,
   001C5FB0, 001FCF10), keyed on the full entry, and replays a recording
@@ -351,8 +354,9 @@ Not verified:
 - final pixels: the 2D workers are callees here;
 - the page-module textures, which are not resident in these images (they
   come from each page's own module);
-- the MAP node model bank: the AREA01 lane's stand-in-bank caveat still
-  holds.
+- the MAP node model bank in this test: the AREA01 lane's stand-in-bank
+  caveat holds here; the live binding uses the disc's bank (section 7, `make
+  test-status-map-reference`).
 
 `python3 tools/check_no_disassembly.py` passes on every file of the lane.
 
@@ -462,14 +466,15 @@ native or the gap):
 | 001FF080 | the module loader (`em_status_scene_loader_request_001FF080`) | modules 0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31 |
 | 0020E020 | `em_item_trail_reset` | |
 | 0020AC70 | `em_item_trail` | base (212, 170) for SPR4 |
-| 0020D930 | **gap**: mode 2 (the SPR4 six-way table) | `em_status_hub` has table 0, `em_item_root_hover` table 1 |
+| 0020D930 | `em_menu_hover_0020D930` (all three tables; chain C8b) | the one owner: the hub, the ITEM root and 002125B0 call it |
 | 001281C0 (float_to_int) | `em_ee_cvt_w_s_bits` semantics | |
 | 001026A0, 001029C0, 00102BB0 | the SDK vector helpers (`em_sdk_vu0` / player record helpers) | |
-| 00185420 | **partial**: `em_item_device_find` covers only the battery branch of 00184D20 | kinds 0x20, 0x23..0x27 need the rest of 00184D20 |
-| 00182B30 | `em_player_stage_workers` | |
-| 0015C700 | the player frame / pose host | |
-| 0015C750 | **gap** | HEALING kind 2 device hand-off |
-| 001C47E0 | **gap** | the item-use consume call of HEALING |
+| 00185420 | the host's `page_find_device` (`em_item_device_find`: the battery branch of 00184D20) | the other kinds are unreachable in AREA11 (section 7); a device other than the panel faults |
+| 001AFF10 / 001B0000 / 001AFF90, 001C6120 / 001CA5E0 / 001C6150 / 001AF7C0 / 001CB5B0 / 001C62C0 / 001C6380, 001CB480 | `em_status_models_call` (MAP, section 7) | the UI pool and the MAP bank |
+| 00182B30 | faults (unreachable in AREA11, section 7) | |
+| 0015C700 | `em_player_0015C700` (with 0015C7C0; chain C8b) through `player_pose_0015C700` | |
+| 0015C750 | faults (unreachable in AREA11, section 7) | HEALING kind 2 device hand-off |
+| 001C47E0 | `em_pickup_items_001C47E0` (chain C8b) | the item-use consume call of HEALING |
 
 **Dispatcher glue the chain must test.** The `reuse` group runs the
 AREA01 page functions with this lane's helpers as original-code callees,
@@ -505,24 +510,237 @@ cover it:
 ## 6. Known gaps
 
 - **No capture of any page open.** All evidence is designed input over the
-  hub and route images, verified against original instructions. A PCSX2
-  capture of each page (hub → page) would add real call shapes; none was
-  taken, because this lane does not launch PCSX2.
-- **Textures and render.** The pages submit 2D draws through callees.
-  Neither of these exists yet:
-  - the page-module texture atlases (modules 0x1E / 0x20 / 0x22 / 0x23 /
-    0x24 / 0x2C..0x31), with their exporter;
-  - a renderer consumer for these packets.
-- **Callee gaps:** see the dispatcher table (0020D930 mode 2, 00185420
-  non-battery kinds, 0015C750, 001C47E0), plus the loader's module
-  contents.
-- **The MAP page's model bank** (asset slot D_0028A570[0]) is resident in
-  no image. 002101C0's model paths were verified on stand-in banks by the
-  AREA01 lane, and the reuse cases here do not add model setups.
-- **0015C750 is a boundary** in the test: its entry is checked, but its
-  effect is not run.
+  hub and route images (this lane) and the live pages replayed over the
+  status-hub capture (section 7), verified against original instructions. A
+  PCSX2 capture of each page (hub → page) would add real call shapes and
+  pixels; none was taken (the lanes do not launch PCSX2).
+- **The MAP models' pixels** are the port renderer's (section 7): no
+  capture shows the page, and the draw 001CB480 runs on the renderer's
+  skinned path with the original's light matrices.
+- **0015C750 is a boundary** in this lane's test (its entry is checked, its
+  effect is not run); it is unreachable in AREA11 (section 7).
 - **Quick-mode boundaries.** 0020A7A0 and 0020AC70 are not run in the
   default run (see section 3). The full run runs them.
-- **Dispatcher glue.** The native composition of the AREA01 page functions
-  with this lane's helpers through the chain's dispatcher is not run here
-  (section 5, "Dispatcher glue the chain must test").
+- The texture atlases, the renderer, the callee gaps 0020D930 mode 2,
+  001C47E0 and 0015C700, the dispatcher glue and the MAP page are done
+  (section 7).
+
+## 7. The live binding (chain C8b FAILSTOPS, 2026-09-27)
+
+**Live:** the status hub's DATABASE (00214020, the AREA01 lane's
+translation), SPR4 (00211970 with its selector and the five part pages) and
+MAP (0020F950, the AREA01 lane's translation, with its nodes 002101C0; below,
+"MAP"), the ITEM children EQUIPMENT 00214570, EVENT 00215870 and HEALING
+002160B0, and the takes that open them (0x1E / 0x1F HEALING, the key 0x32
+DATABASE, the magazine 0x10 SPR4, the map 0x08 MAP). No page the first
+level reaches is unbound; the fail-stops left guard the branches listed
+under "Unreachable in AREA11".
+
+**Page core** (`em_status_page.c`, 0020CDC0):
+- the cold entry is case 0's whole request map (section 1's table, in its
+  test order); it faults before any side effect only for request 6
+  (00225A00) and, without a request, a nonzero D_008106C5 (the passcode
+  pages); `tools/test_status_page_reference.py` runs every request 1..5, 7
+  and 0xFF over the B1 boundaries (every B1 with `EM_TEST_FULL=1`) against
+  the original, with t[0x15] starting at a sentinel;
+- phase 3 sub-state 1 loads module 0x1F / 0x1E / 0x2C / 0x24 for page 0..3
+  and only advances t[3] for any other page id; sub-state 2 ticks page 0
+  (the ITEM root) and pages 1..3 (`EM_STATUS_PAGE_PAGE_TICK`), returns to
+  the hub for any other id, and faults for the passcode pages 4 / 5 and
+  page 8 (phase 2), which AREA11 cannot reach.
+
+**Runtime** (`em_status_runtime.c`): `em_status_runtime_bind_pages` binds
+`em_status_pages_live`; the ITEM root's child states 4 / 6 / 7 and the page
+ticks 1..3 call it over the canonical bytes (the page core's views of the
+status block, the request bytes and the message words are stored before
+the call and loaded after it, as for BATTERY). The page modules (0x1E..0x24,
+0x2C..0x31) complete at host speed, as 0x1F / 0x21 do, and apply their GS
+blocks; `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1)) applies the restore.
+
+**`em_status_pages_live.c`** runs the translations over views of the port's
+storage (the list is its header's; every other address faults) and
+dispatches every callee by original address:
+
+| Callee | Binding |
+|---|---|
+| 00207D00 / 00207E40 / 00207D90 | `em_page_draw` (blend, sprite, SCISSOR_1: the A+D register 0x40 of the packet em_area01_ui_00207D90 builds) |
+| 0020A7A0 | `em_page_draw` background (em_status_background, stepped at the draw) |
+| 0020AE40 / 0020B210 / 0020B0D0 / 0020BEF0 / 0020CD40 / 60 / A0 | `em_sul_*` over the views; 00208AD0 (flag 8) is `em_status_health_draw` with the hub's records |
+| 0020CD80 / 0020CCB0 / 001FCF10 | `em_spr_0020CD80`, `em_cs_0020CCB0`, `em_rvr_001FCF10` (the host's 001FCB90) |
+| 001C5FB0 / 00123168 / 001CBA50 | `em_status_draw_001C5FB0` into its buffer D_008111D0, a copy over the views, `em_page_draw` text |
+| 001FCF60 / 001FE070 | `em_message_live_record_draw` / `em_message_live_fe070` (the record container *D_0028A49C, module 0 slot 3, is a view at its original address 0x00B0B800) |
+| 0020D930 / 0020E020 / 0020AC70 | `em_menu_hover_0020D930` with 001B62C0's record at 0x700038A0, the shared trail reset, `em_item_trail_step` (a2 != 0 zeroes the new slot; the base floats get 1792 / 1824 added) |
+| 001FF080 | the runtime's module worker |
+| 00185420 | the host's device lookup (the battery branch; a device other than the panel faults) |
+| 001C47E0 / 0015C700 | `em_pickup_items_001C47E0` over the item block; `player_pose_0015C700` (`em_player_0015C700`) after the vitals are stored |
+| 00211240 / 00211310 / 002117D0 / 00213A00 / 00213C50 / 00213CC0 / 001FCF30 | this lane's translations, when an AREA01 page calls them |
+| 001AFF10 / 001B0000 / 001AFF90 and MAP's model callees | `em_status_models_call` (below, "MAP") |
+| 00208040 | `em_page_draw_flat` (00210F30's marker: its corners' XYZF2 X / Y from float_to_int of x and z, as the packet builds them) |
+| 001029C0 / 00102BB0 / 001026A0 / 001026D0 / 001031E0 / 001B1470 | the SDK leaves over the views (`em_owner_services` identity / rotate-y, `em_effect_original_001026A0`, `em_sdk_vu0_001026D0`, the xyz copy, `em_player_001B1470`) |
+| 00182B30 / 0015C750 | fault: unreachable in AREA11 (below) |
+
+The vitals D_00810858 / 5C are g.status (the port's one copy); the
+player's +0x220 (D_008104D0) is the same value there, so a +0x220 store
+that D_00810858 does not hold faults. D_00810C61 / C62 / CB4 are
+em_weapon's (a fire mode em_weapon refuses faults). 002160B0 state 4's
+probe byte 0x010202B0 holds 0x2B, the byte every route image and the
+status-hub image hold there (section 2).
+
+**Textures** (`em_gs_texture.c`, `tools/export_status_pages.py` ->
+`assets/status_pages/status_pages.emsp`): the first level's GS memory after
+a New Game (DISC_TEXTURES.md's disc replay), the blocks each page module
+load and the 00200970(1) restore write, and the .data windows the pages
+read (their tables, the clip pairs 0015C7C0 reads, and the record
+container). Every window equals the status-hub capture's RAM byte for
+byte. `em_page_draw` decodes each TEX0 from the GS memory the original
+would hold at that moment (PSMT8 / PSMT4 with a PSMCT32 CSM1 CLUT; a texel
+or CLUT in a block no upload wrote refuses the frame) into an atlas.
+`tools/test_gs_texture_reference.py` compares the decode with the decomp's
+`decode_token_lm` for every TEX0 word of the windows and the translations'
+constants, over the world and every module state (full run).
+
+**Unreachable in AREA11** (the fail-stops kept):
+- 0015C750 and page 8 (HEALING kinds 2..4, items 0x20..0x22, and request 4
+  from 00157F30): AREA11's seven item owners are types 0x1B, 0x1E (two),
+  0x1F, 0x32, 0x10 and 0x08 (the interaction scene's pickups); 001C40B0's
+  default case raises D_00810C64 + type, so only kinds 0 / 1 (C82 / C83)
+  can be owned; C84..C86 are 0 in every route capture 00..15.
+- 00185420's non-battery kinds and 00182B30 (EVENT's Cross): EVENT's list
+  holds C87 / C88 and the event items 0x25..0x3B (0x810C89..); all are 0
+  in every route capture and no AREA11 take writes them (the key 0x32
+  raises D_00810CC3 + 0x32, the map D_00810CB8 + 8). Cross on an empty list
+  does nothing.
+- The part pages' commits other than SELECTOR's: each list holds only the
+  equipped part in AREA11 (C64, C69, C6B are 1; C65..C68, C6A, C6C, C6D and
+  MULTI's C6E..C72 are 0 in every route capture, and no AREA11 take gives
+  a part), so Cross is refused; MULTI's D_0081070B (not a canonical byte
+  yet) would fault if reached. SELECTOR's entries 0 and 1 are always
+  listed: its Yes sets the fire mode (em_weapon).
+- The passcode pages, request 6 and request 5 (section 1).
+
+**Verification:**
+- `make test-status-page-reference`, `test-status-pages-reference` (the
+  lane's), `test-menu-hover-reference` (the one 0020D930 against every
+  original table), `test-pickup-items-reference` (001C47E0 added),
+  `test-player-heal-reference` (0015C700 / 0015C7C0),
+  `test-gs-texture-reference`, `test-status-map-reference` (below, "MAP"),
+  `test-area11-interaction-host` (the takes of 0x1E, 0x32, 0x10 and the map
+  0x08 open their pages; HEALING's notice lasts 240 calls; START closes; hub
+  hover 3 opens MAP and Circle returns).
+- The level smoke's designed side run `status_pages`
+  (`EM_LEVEL_SMOKE_UNTIL=status_pages`, part of `make
+  test-level-smoke-side`): from first control it opens DATABASE, SPR4 (the
+  LOWER U.R.S. and SELECTOR SWITCH part pages, whose Yes changes the fire
+  mode), MAP, EQUIPMENT, EVENT and HEALING from the hub and backs out of
+  each, then takes 0x1E and 0x1F (each used from its notice through the
+  count-up and 0015C700, from health 30), the key 0x32, the magazine 0x10
+  and the map 0x08 (the take is the use claim the scan makes, taken
+  directly: test input). Every page call is written to
+  `EM_STATUS_PAGES_TRACE`, and `tools/test_status_pages_live.py` replays
+  each through the original instructions over the status-hub capture with
+  the port's views written over it: 6,643 calls (MAP's nodes included),
+  19,660 callee entries (address, stack pointer, argument register images,
+  float arguments) and every view byte after the call equal the original's
+  (before MAP was bound: 1,143 calls, 12,636 entries). This is the dispatcher glue section 5 asked
+  for: the 64-bit register images, the v0 results, and s0 as 002160B0's
+  third argument.
+
+**Not verified:** pixels (no capture shows a page open;
+`EM_LEVEL_SMOKE_PAGES_CAPTURE=<dir>` writes one frame of each page for a
+look); the stack's register save slots (the replay compares the stack only
+through the callees' arguments).
+
+**MAP** (chain C8b's fix round, 2026-09-27). 0020F950 runs as the other
+pages do, with these additions:
+- **The UI pool.** `em_status_models`' pool D_0028B020 is the one storage
+  of the 24 records; `EmStatusSceneActor` is now the record's byte layout
+  (every field at its original offset, 0x2F0 bytes, static asserts), so the
+  pool is a view at its original address. 001AFF10 / 001B0000 / 001AFF90 go
+  to `em_status_models_call`; the walk runs each node's +0x10 through the
+  node hook, where `em_status_pages_live` runs the AREA01 translation
+  002101C0 over the same views (its stack pointer 0x30 below the 001B0000
+  dispatch's, 001B0000's frame).
+- **The bank.** 002101C0 binds 001C6120(D_0028A570, the table 0x2658C0's
+  code) through 001CA5E0(p, model, 7). D_0028A570 is D_0028A490[0x38], the
+  word 001FF830 state 7 relocates when module 0x1E loads (0020CDC0 phase 3
+  loads 0x1E for page 1): its destination D_0028A748 (default case of state
+  0; 0x19A3F40 in every AREA11 capture) plus slot 0x38's descriptor offset
+  (0). `tools/export_status_pages.py` writes that relocation into the EMSP
+  (version 2); `em_gs_texture` sets the word when it applies module 0x1E's
+  step (0 before, as in every capture). The bank itself (22 single-node
+  models, codes 0..0x15; map i's nodes use codes i and 0xB + i) is read from
+  the disc by `tools/export_status_map.py` into `assets/status_map/`, the
+  texels from the GS memory with module 0x1E's upload applied.
+  `em_status_models_call` serves 001C6120 (the bank address + the model's
+  directory offset), 001CA5E0 (+0x44, then 001CA5F0's +0x4C: kind 7 is
+  001CB480), 001C6150 (the node count), 001AF7C0 / 001CB5B0 / 001C62C0 /
+  001C6380 (the hub's workers) and the draw 001CB480.
+- **001CB480** (the kind-7 draw method): 001D2910(0) kept, 001D8C20(2),
+  001D2830(0, 0), 001C7420(p, 0x3F5, 1), 001D3BA0(1, +0x44), 001D2830(0,
+  kept). Mode 2 is not one of the modes 001D89D0 hands to 001D8C30 (1,
+  3..6), so the light is the room rig: `em_owner_draw_live_light` runs
+  001D8C20(2) and 001D89D0 with the same bindings as the world owners'
+  001CAA00 (the rig table, the point lights, the rig record D_00817BC0), and
+  002101C0's +0x02 bit 0x40 adds the glow (B's ambient row += 64 x the +0x80
+  colour: (0, 0, 0.5) for a map not selected, (0, 0.15 or 0.55, same) for
+  the current map, (2, 2, 2) for the selected map's second node). The draw
+  is queued with the node matrices as the palette and the rig the renderer
+  lights vertices with: A's three slot directions (its columns), B's three
+  colour rows and B's ambient row less the 8388608 bias (em_gfx.h
+  EmGfxCharRig, the formula the object kernel applies to the colour matrix
+  001C7420 uploads). The channel-1 GS state it draws in is the page's: TEST_1
+  0x5000D in blend mode 3 (the 00207D00 block in the status-hub capture:
+  alpha test greater than 0, depth test GEQUAL), the kernel template's PRIM
+  0x03C (no blending), fog off (001D2830(0, 0)), as the renderer's skinned
+  path draws.
+- **Order and scissor.** 001B0000 puts the models on the page's own GS list
+  (channel 1): `em_page_draw_models` marks the place in the stream; at render
+  the 2D layer so far is drawn (`em_gfx_overlay_decor_flush`), then the
+  host's `models_draw` renders the queued draws inside the SCISSOR_1 window
+  (`em_gfx_draw_scissor`; mode 2's window 0x12..0x1EF x 9..0x96), and the
+  later 2D calls over them. 0020F950 and 00210F30 reach 00207D90 / 00208040
+  through the dispatcher (`EmArea01Ui.leaf_calls`) so the scissor and the
+  marker triangle land in the same stream.
+- **Views** (the header lists them): the area bytes D_00810700..702, the
+  pool, D_00810610 (the models' view), D_0028A570, D_00275BCC (the port's
+  free bone slots: the original's free count is the cap 002101C0 compares
+  with, the port's slots stand for its stack), the player record's
+  +0xA0..+0xA8 and +0xC4 (g.pos, g.yaw) and the render context word
+  D_00275670 and its +0x2468 (`em_rcl_bytes`). The .data windows and the
+  other read-only views are compared after every call: a store into one
+  faults (the review's point on the untraced windows).
+- **The marker gates.** 00211400 reads the event bytes D_0081077F, 782,
+  784, 789 and 78C (and the item bytes C8D / C8E): they are migrated
+  progress bytes now (`em_scene_state.h`): 0 in every route capture 00..15
+  and in the status-hub capture, and only 001AF2C0's New Game clear writes
+  them in the first level. 0x81076D and 0x810770 (read only when C8D / C8E
+  is set, which no AREA11 take does) stay unmigrated: reading them faults.
+
+**MAP verification:**
+- The `status_pages` run opens MAP from the hub with no map (the list, then
+  Circle), takes the map 0x08 (MAP zoomed on map 8 with both its nodes'
+  models, R1 then R2 zoom, the D-pad pans, Circle to the list, Cross zooms
+  again with the player's marker, Circle twice to the hub) and opens MAP
+  again with map 8 owned. Every call is traced: a node's 002101C0 is its own
+  record (page 0x002101C0, a0 = the record, its pool view the record alone).
+  `tools/test_status_pages_live.py` replays 6,643 calls (242 MAP, 5,258
+  node, the rest the other pages): 19,660 callee entries and every view byte
+  equal the original's; `tools/test_level_smoke.py` also requires the MAP
+  node binds (4) and 001CB480 draws (390). A single mutant (the selected
+  current map's colour 0x3F0CCCCD -> 0x3F0CCCCE in 002101C0) fails the
+  replay (195 view differences).
+- `make test-status-map-reference`: D_0028A570's relocation (the EMSP
+  record, D_0028A748 in six AREA11 captures), the original 001C6120 over
+  the disc bank at that address for 66 codes (the table's, the directory's
+  and masked ones) and 001C6150, the radius and the skeleton records of all
+  22 models.
+- `make test-area11-interaction-host`: the map take opens MAP (22 nodes;
+  map 8's two bind D_0028A570 + the bank's offsets with +0x4C = 001CB480)
+  and START closes; hub hover 3 opens MAP (22 nodes, no model, the 2D layer
+  flushed before the pool's models each list frame) and Circle returns.
+
+**Not verified (MAP):** the models' pixels (the renderer's skinned path;
+its normal normalisation is the host's, the object kernel's clip pass
+001D3BA0 is not run, GS rasterisation is Metal's), and D_00275BCC's value
+(the port's free slot count; the branch it gates needs more than 250 slots
+per node).

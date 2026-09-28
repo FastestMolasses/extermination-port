@@ -2111,6 +2111,17 @@ int player_pose_align(const float position[3]);
 int player_pose_face(float yaw);
 int player_pose_script_euler(float out[3]);
 int player_pose_owned(void);
+/* 0015C700(D_008102B0) on the player record (byte-matched C, with its
+ * callee 0015C7C0): +0x220 = health (D_00810858); when health > 35.0 the
+ * low-health latch goes (+0x235 &= 2) and 0015C7C0 turns a hurt loop clip
+ * back into its normal clip: the live clip +0x20C against the halfwords
+ * D_00248A02 (then D_00248A08 when 001B0070() & 4, else D_00248A00),
+ * D_00248A06 (D_00248A04) and D_002754C2 / C6 / CA / CE / D2 / D6 / DA
+ * (D_002754C0 / C4 / C8 / CC / D0 / D4 / D8), requested through 001749A0
+ * (flags 0, blend 1.0). `d8106C8` is 001B0070()'s D_008106C8; table16
+ * reads a .data halfword by original address. 1, or 0 on a fault. */
+int player_pose_0015C700(float health, uint32_t d8106C8,
+                         int (*table16)(void *, uint32_t, int16_t *), void *context);
 int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *transition);
 
 /* Aim direction for the current frame (player lane, defined in em_game.c).

@@ -222,6 +222,28 @@ static uint32_t fnv(uint32_t h, const uint32_t *w, uint32_t n)
     return h;
 }
 
+/* 001D8C20(mode), then 001D89D0(owner, 0x70003400, 0x70003440, owner +
+ * 0x80) over the same views (see the header). */
+int em_owner_draw_live_light(int32_t mode, const EmOwnerServicesOwner *owner, const uint32_t rgb[4],
+                             float a[16], float b[16])
+{
+    if (!owner || !rgb || !a || !b) return report(0x001D89D0u, "NULL argument");
+    if (em_rcl_fault()) return report(em_rcl_fault(), "the render context has faulted");
+    if (bind_views(NULL) < 0) return -1;
+    if (w_001D8C20(NULL, mode) < 0) return report(0x001D8C20u, "the context +0x246C view is missing");
+    static EmActorLightBinding binding;
+    binding.light = &L.light;
+    binding.ctx = NULL;
+    binding.w_owner_rgb = w_owner_rgb;
+    L.owner_rgb = rgb;
+    memset(&L.light.fault, 0, sizeof L.light.fault);
+    const int rc = em_actor_light_w_001D89D0(&binding, owner, a, b);
+    L.owner_rgb = NULL;
+    if (rc < 0)
+        return report(L.light.fault.address, "001D89D0 faulted");
+    return 0;
+}
+
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record)
 {

@@ -115,9 +115,11 @@ weapon bytes unbound) faults.
 battery types 0x1B..0x1D open the ITEM root's BATTERY page (WP-5). The
 other AREA11 takes post their original requests too: 0x1E/0x1F (B0 = 1, the
 ITEM child 002160B0), 0x10 (B0 = 1, SPR4 00211970), key 0x32 (B0 = 3,
-DATABASE 00214020) and the map 0x08 (B0 = 2, MAP 0020F950). Those pages are
-not translated: the host's 0020CDC0 faults with a report naming the page
-(fixture `other_take`).
+DATABASE 00214020) and the map 0x08 (B0 = 2, MAP 0020F950). Since chain
+C8b the first three pages run live, and MAP since its fix round
+(STATUS_PAGES.md section 7; the level smoke's `status_pages` run takes 0x1E,
+0x1F, 0x32, 0x10 and the map 0x08 and replays every page and MAP node call
+through the original instructions; fixture `other_take`).
 
 **The class-7 aura** (the map owner 0015AFA0): 0015AC00's state 0 calls
 001F1110 (one rand() for the first countdown) and 0015AE20's tail calls

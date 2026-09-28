@@ -863,6 +863,35 @@ void em_player_stage_workers_bind(EmPlayerStageWorkers *wk, EmPlayerStageHost *h
     wk->stop_sound = em_player_stage_stop_sound;
 }
 
+/* ---- 0015C700 / 0015C7C0 ------------------------------------------------------- */
+
+int em_player_0015C700(EmPlayerLiveActor *a, uint32_t health_bits, uint32_t d8106C8,
+                       EmPlayerTable16 table16, void *table_context, EmPlayerClipRequest request,
+                       void *request_context)
+{
+    if (!a || !table16 || !request) return -1;
+    setw(a, 0x220, health_bits);
+    float health;
+    memcpy(&health, &health_bits, 4);
+    if (!(health > 35.0f)) return 0;                         /* 35.0 < health, on the FPU */
+    setb(a, 0x235, (uint8_t)(b(a, 0x235) & 2));
+    /* 0015C7C0: {hurt clip, its normal clip} in test order. */
+    static const uint32_t pairs[9][2] = {
+        {0x00248A02u, 0x00248A00u}, {0x00248A06u, 0x00248A04u}, {0x002754C2u, 0x002754C0u},
+        {0x002754C6u, 0x002754C4u}, {0x002754CAu, 0x002754C8u}, {0x002754CEu, 0x002754CCu},
+        {0x002754D2u, 0x002754D0u}, {0x002754D6u, 0x002754D4u}, {0x002754DAu, 0x002754D8u}};
+    const int16_t clip = (int16_t)h(a, 0x20C);
+    for (unsigned i = 0; i < 9; ++i) {
+        int16_t hurt, normal;
+        if (table16(table_context, pairs[i][0], &hurt) < 0) return -1;
+        if (clip != hurt) continue;
+        const uint32_t address = i == 0 && (d8106C8 & 4) ? 0x00248A08u : pairs[i][1];
+        if (table16(table_context, address, &normal) < 0) return -1;
+        return request(request_context, a, normal, 0, 1.0f) < 0 ? -1 : 0;
+    }
+    return 0;
+}
+
 /* ---- 0015B530 ------------------------------------------------------------------- */
 
 int em_player_stage_0015B530(void *context, EmPlayerLiveActor *a)

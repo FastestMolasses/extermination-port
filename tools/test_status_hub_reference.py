@@ -66,7 +66,7 @@ def main():
     library = output / ('hub.dylib' if sys.platform == 'darwin' else 'hub.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
         '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
-        'src/game/em_status_hub.c', '-lm', '-o', str(library)], cwd=ROOT, check=True)
+        'src/game/em_status_hub.c', 'src/game/em_menu_hover.c', '-lm', '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     Worker = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(State), C.c_int, C.c_uint)
     native.em_status_hub_tick.argtypes = [C.POINTER(State), C.c_float, C.c_uint,

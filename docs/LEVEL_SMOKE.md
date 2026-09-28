@@ -48,7 +48,8 @@ capture, not a route beat), which the same targets require.
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
 make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace
+make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace
+EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
 EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
@@ -225,6 +226,7 @@ fence_door_side1` requires both side phases.
 | first_control | 01 row f0 (slot 04) | 0x1AE040 state 1 / 001AE5E0, 49 pool nodes | yes (S12a) | — |
 | panel_no_battery (side) | 00 | panel 00159210 without item 0x1B, script 0x246F20, message 0x80000018 | yes, its own run (WP-4; compared since 2026-09-25) | — |
 | status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b; the original page core, hub, models and 0020E0C0 exit since WP-5) | — |
+| status_pages (side, designed) | none: no capture shows a page open | 0020CDC0 phase 3: DATABASE 00214020, SPR4 00211970 and its part pages, MAP 0020F950 and its nodes 002101C0, EQUIPMENT / EVENT / HEALING, the takes of 0x1E / 0x1F / 0x32 / 0x10 / 0x08 | yes, its own run (chain C8b FAILSTOPS and its MAP fix round; every page and node call replayed through the original instructions) | pixels (no capture) |
 | battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | yes (WP-6; the status pop-up since WP-5) | — |
 | elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
@@ -803,6 +805,52 @@ The follow-camera convergence check allows one unit of the capture's
 five-decimal rounding per row (1e-5 plus the binary representation of the
 rounded decimals); before, 0.00023 after 0.00022 failed on the float
 representation of 1e-5.
+
+### status_pages (designed side run, chain C8b)
+
+No route capture shows a status page open, so this run is designed input
+(`make test-level-smoke-side`; STATUS_PAGES.md section 7). **Runner**
+(`status_pages_frame`, a script of pad steps): from first control, after the
+status phase and 120 idle gameplay frames, START opens the hub; the stick
+selects hub hover 1 (DATABASE: the category list, D-pad right, Cross),
+hover 2 (SPR4: the selector's hover 6, LOWER U.R.S., Cross on its equipped
+entry; hover 4, SELECTOR SWITCH, down, Cross, left to Yes, Cross: the fire
+mode changes), hover 3 (MAP with no map owned: the list, D-pad down) and
+hover 4 (ITEM: its hovers 1 EQUIPMENT, 4 EVENT and 5 HEALING), leaving each
+page with Circle (the pages' back, pad bit 0x20;
+Triangle 0x10 and START 0x800 close the whole screen, as 0020CDC0's 0x810
+test and the hub's 0x830 say). Then START closes, and the takes run: the use
+claim of the pickup owner (the claim the scan makes, taken directly: test
+input) for 0x1E and 0x1F, each used from its HEALING notice (Cross, Cross,
+left to Yes, Cross) from health 30 (test input) through 002160B0's
+count-up and 0015C700 (60, then 100), the key 0x32 (DATABASE on its record),
+the magazine 0x10 (SPR4's notice) and the map 0x08 (MAP zoomed on map 8:
+R1 for 8 frames, the D-pad right and up for 6 each, Circle to the list,
+Cross zooms again with the player's marker, R2 for 4 frames, Circle twice
+to the hub; then MAP from the hub again with map 8 owned: Cross, Circle,
+Circle), each closed with START. **In process:** every step's page-core
+state is reached in time, MAP, SPR4, DATABASE, EQUIPMENT, EVENT and HEALING
+were shown, the fire mode changed and
+the health ends at 60 and then 100. **Against the original
+(check_status_pages):** the run writes every page call to
+`EM_STATUS_PAGES_TRACE` (em_status_pages_live: the views before, each
+callee's entry and the bytes it wrote, the views after), and
+`tools/test_status_pages_live.py` runs each call's original page routine in
+the EE interpreter over the status-hub capture with the port's views
+written over it, hooking each callee the port dispatched: every callee
+entry (address, stack pointer, 64-bit argument registers, float arguments)
+and every view byte after the call must equal the original's (the stack's
+register save slots excepted). A MAP node's 002101C0 call (from the pool
+walk 001B0000) is its own traced call, with its pool record as the view.
+The checker also requires MAP's model path: its nodes bound map models
+(001CA5E0) and drew them (001CB480). Measured 2026-09-27 (chain C8b's fix
+round): 6,643 page and node calls (MAP 242, its nodes 5,258, SPR4 331,
+DATABASE 152, EQUIPMENT 55, EVENT 45, HEALING 560), 19,660 callee entries,
+4 model binds and 390 001CB480 draws. The whole-run checks (render context, rand() order, sway, marker
+colour, head sprites, shadow, chain page, load veil) run over this run too.
+`EM_LEVEL_SMOKE_PAGES_CAPTURE=<dir>` writes one frame of each page for a
+look (no capture to compare with; MAP writes one per mode: map_<t[3],
++ 4 once map 8 is owned>.bmp).
 
 ### fence_door (side beat 09, census L18)
 
@@ -1449,6 +1497,7 @@ never silently skipped. What removes each:
 |---|---|---|---|
 | panel (03) | the prompt window between the request and the Yes press: the port's page takes 7 ticks, the original's 30 | the ITEM root's module-0x21 load takes 24 loader dispatches in the original; the port's load is instant (H7) | the module loader's dispatch count (FIRST_LEVEL_AUDIT.md WP-5) |
 | cage_roof (10) | the voiced line 0x7F's teardown and what follows it land 2 rows earlier than the drive mode alone explains (8 at host speed, 2 with the switch on); check_voice_drive allows exactly the key-on's shift, which it proves is the drive's difference plus the fields the original's read sequencer spent on a lane-0 music refill first | the music's refill phase at the line's start is the time since the music's last start (3583 fields in the original, 3449 in the port): navigation | walk timing equal to the capture's since route 03's status close (navigation) |
+| status_pages (designed) | no capture: the page calls are replayed through the original instructions over the status-hub capture, not compared with a recording; pixels are not compared; the stack's register save slots are not compared; the takes are the scan's claim made directly, not walked to | no route capture shows a status page open | a PCSX2 capture of each page (hub → page) and of each take |
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |

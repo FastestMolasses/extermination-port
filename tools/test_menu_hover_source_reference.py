@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Compare the actual readable D930 C source with every original menu table."""
+"""Compare the readable D930 C source and the port's em_menu_hover (the one
+native 0020D930) with every original menu table."""
 import ctypes as C
 import hashlib
 import itertools
@@ -48,6 +49,13 @@ void func_001FB9F0(int cue, int a, int b, int c) {
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
         '-dynamiclib' if sys.platform == 'darwin' else '-shared',
         str(decomp / 'src/func_0020D930.c'), str(shim), '-o', str(library)], check=True)
+    port_library = output / ('port.dylib' if sys.platform == 'darwin' else 'port.so')
+    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
+        '-ffp-contract=off', '-dynamiclib' if sys.platform == 'darwin' else '-shared',
+        '-I', str(ROOT / 'src'), str(ROOT / 'src/game/em_menu_hover.c'), '-o', str(port_library)],
+        check=True)
+    port = C.CDLL(str(port_library))
+    port.em_menu_hover_0020D930.argtypes = [C.POINTER(C.c_uint8), C.c_int32, C.c_float, C.c_float]
     native = C.CDLL(str(library))
     native.test_input.argtypes = [C.c_float, C.c_float]
     native.func_0020D930.argtypes = [C.POINTER(C.c_uint8), C.c_int]
@@ -74,8 +82,13 @@ void func_001FB9F0(int cue, int a, int b, int c) {
                                                        state[17], original.load(0x960011, 1))
         assert all(call == (5, 4096, 4096, 4096) for call in sound_calls)
         assert native.test_sounds() == len(sound_calls)
+        hover = C.c_uint8(previous)
+        sound = port.em_menu_hover_0020D930(C.byref(hover), selector, magnitude, angle)
+        assert hover.value == original.load(0x960011, 1) and sound == len(sound_calls), (
+            'em_menu_hover', selector, previous, magnitude, angle, hover.value, sound)
         checks += 1
     result = {'readable_source': 'Extermination/src/func_0020D930.c',
+              'native': 'src/game/em_menu_hover.c',
               'all_table_state_and_sound_cases': checks, 'result': 'PASS',
               'boundaries': 'stick sampling supplied identically; original soft-double bodies execute'}
     (output / 'result.json').write_text(json.dumps(result, indent=2) + '\n')

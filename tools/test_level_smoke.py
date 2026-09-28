@@ -1816,10 +1816,47 @@ def check_east_tower(ticks, run, state):
     print(f'east_tower: PASS ({check_director_beat(ticks, run, state, "east_tower")})')
 
 
+def check_status_pages(ticks, run, state):
+    """The designed side run (em_level_smoke_test.c status_pages; no route
+    capture shows a page open): every page call it made is replayed through
+    the original instructions (tools/test_status_pages_live.py) from the
+    run's EM_STATUS_PAGES_TRACE, and every bound page must have run."""
+    import test_status_pages_live as L
+    trace = state.get('status_pages_trace')
+    assert trace and trace.exists() and trace.stat().st_size, \
+        'status_pages: the run wrote no EM_STATUS_PAGES_TRACE (pass --status-pages-trace)'
+    elf = L.read_elf()
+    ram = (L.IMAGE / 'eeMemory.bin').read_bytes()
+    spad = (L.IMAGE / 'scratchpad.bin').read_bytes()
+    calls = L.parse(trace.read_bytes())
+    failures, pages, callees = [], {}, 0
+    for i, call in enumerate(calls):
+        failures += L.replay(elf, ram, spad, call, i)
+        pages[call['page']] = pages.get(call['page'], 0) + 1
+        callees += len(call['callees'])
+    assert not failures, ('status_pages: the port\'s page calls differ from the original', failures[:8])
+    need = {0x0020F950: 'MAP', 0x002101C0: 'MAP node', 0x00211970: 'SPR4', 0x00214020: 'DATABASE',
+            0x00214570: 'EQUIPMENT', 0x00215870: 'EVENT', 0x002160B0: 'HEALING'}
+    missing = [name for page, name in need.items() if page not in pages]
+    assert not missing, ('status_pages: pages the run did not call', missing)
+    # MAP's model path: the map take's nodes bind the bank's models
+    # (001C6120 / 001CA5E0) and draw them (001CB480, lit through 001D89D0).
+    drawn = sum(1 for c in calls if c['page'] == 0x002101C0
+                for e in c['callees'] if e['target'] == 0x001CB480)
+    bound = sum(1 for c in calls if c['page'] == 0x002101C0
+                for e in c['callees'] if e['target'] == 0x001CA5E0)
+    assert bound >= 2 and drawn, ('status_pages: no MAP node bound and drew a map model', bound, drawn)
+    summary = ', '.join(f'{need[p]} {n}' for p, n in sorted(pages.items()))
+    print(f'status_pages: PASS ({len(calls)} page calls: {summary}; {callees} callee entries and every '
+          f'view byte equal to the original instructions over the status-hub capture; {bound} MAP '
+          f'model binds, {drawn} 001CB480 draws)')
+
+
 PHASES = [
     ('first_control', check_first_control),
     ('panel_no_battery', check_panel_no_battery),
     ('status', check_status),
+    ('status_pages', check_status_pages),
     ('battery', check_battery),
     ('elevator_refusal', check_elevator_refusal),
     ('panel', check_panel),
@@ -2373,12 +2410,13 @@ def check_effects(ticks, state):
           f'nodes equal the port\'s at their aligned ticks: {"; ".join(done)})')
 
 
-SIDE = ('panel_no_battery', 'fence_door', 'fence_door_side1')
+SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door'}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
+         ('designed', ('status_pages',)),
          ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
          ('06', ('slide',)), ('07', ('truck_preview',)), ('08', ('truck_crossing',)), ('09', ('fence_door',)),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
@@ -2899,6 +2937,8 @@ def main():
     parser.add_argument('--run-log', type=Path, required=True, help='stderr of the same run')
     parser.add_argument('--rand-trace', type=Path,
                         help='EM_RAND_TRACE of the same run: check_rand_order (docs/RAND_ORDER.md)')
+    parser.add_argument('--status-pages-trace', type=Path,
+                        help='EM_STATUS_PAGES_TRACE of the same run: check_status_pages replays it')
     parser.add_argument('--require-through', metavar='PHASE',
                         help='fail unless every phase the run was asked to play (the main line up to PHASE, '
                              'then PHASE itself when it is a side phase; "last" for the whole main line) '
@@ -2911,7 +2951,7 @@ def main():
     # The stream drive's mode (the run's "stream drive:" line; em_settings'
     # EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
     # timing"): check_voice_drive and the opening's end follow it.
-    state = {'drive': R.drive_mode(run)}
+    state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace}
     checked, not_live, driven, side_named = [], [], [], []
     for name, check in PHASES:
         if re.search(rf'^level smoke: {name}: PASS', run, re.M):

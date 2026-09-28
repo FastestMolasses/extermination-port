@@ -320,7 +320,8 @@ CALL = C.CFUNCTYPE(C.c_int, C.c_void_p, U32, U32, P(U64), C.c_uint, P(U32), C.c_
 
 
 class UiState(C.Structure):
-    _fields_ = [('core', R.Core), ('call', CALL), ('ctx', C.c_void_p), ('sp', U32)]
+    _fields_ = [('core', R.Core), ('call', CALL), ('ctx', C.c_void_p), ('sp', U32),
+                ('leaf_calls', U32)]
 
 
 # native entry -> (argument ctypes, has a v0 result, oracle register layout)

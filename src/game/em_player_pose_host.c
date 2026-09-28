@@ -1099,3 +1099,23 @@ int player_pose_row0(int clip, int16_t *value)
 {
     return em_player_record_pose_row0(&source.record, clip, value);
 }
+
+/* 001749A0 on the player record's pose (em_player_record_pose). */
+static int heal_request(void *context, EmPlayerLiveActor *actor, int clip, int flags, float blend)
+{
+    (void)context;
+    int result = 0;
+    if (actor != source.record.actor) return -1;
+    return em_player_record_pose_request(&source.record, clip, flags, blend, &result) < 0 ? -1 : 0;
+}
+
+int player_pose_0015C700(float health, uint32_t d8106C8,
+                         int (*table16)(void *, uint32_t, int16_t *), void *context)
+{
+    EmPlayerLiveActor *a = source.record.actor;
+    if (!a || !table16 || !em_player_record_pose_ready(&source.record))
+        return 0;
+    uint32_t bits;
+    memcpy(&bits, &health, 4);
+    return em_player_0015C700(a, bits, d8106C8, table16, context, heal_request, NULL) == 0;
+}

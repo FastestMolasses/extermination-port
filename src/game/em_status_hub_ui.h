@@ -85,6 +85,9 @@ int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4]);
  * the separator of the loaded records), for the other pages that call
  * 00209280 (the BATTERY page's 0020AE40). NULL before a load. */
 const EmStatusBatteryData *em_status_hub_ui_battery_data(const EmStatusHubUI *ui);
+/* 00208AD0's resident records (the same the hub draws with), for the
+ * HEALING page's 0020AE40 flag 8. NULL until loaded. */
+const EmStatusHealthData *em_status_hub_ui_health_data(const EmStatusHubUI *ui);
 
 /* Read-only view of the prepared stream and the original help-line calls. */
 unsigned em_status_hub_ui_command_count(const EmStatusHubUI *ui);

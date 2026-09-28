@@ -1,28 +1,12 @@
 #include "game/em_status_hub.h"
 #include <math.h>
 
+#include "game/em_menu_hover.h"
+
 static int emit(EmStatusHubWorker worker, void *context, EmStatusPage *page, EmStatusHubEvent event,
                 unsigned argument)
 {
     return worker && worker(context, page, event, argument) == 1;
-}
-
-static unsigned hover(const EmItemStick *stick)
-{
-    /* D930 promotes the float magnitude and compares against double0.8. */
-    if ((double)stick->magnitude <= 0.8)
-        return 0;
-    float angle = stick->angle;
-    if (angle < -0.7853981852531433f) {
-        if (angle < -2.356194496154785f)
-            return 4;
-        return 3;
-    }
-    if (angle < 0.7853981852531433f)
-        return 2;
-    if (angle < 2.356194496154785f)
-        return 1;
-    return 4;
 }
 
 int em_status_hub_tick(EmStatusPage *page, float infection, unsigned buttons,
@@ -48,11 +32,13 @@ int em_status_hub_tick(EmStatusPage *page, float infection, unsigned buttons,
         if (!emit(worker, context, page, EM_STATUS_HUB_BACKGROUND, 0) ||
             !emit(worker, context, page, EM_STATUS_HUB_ACTORS_TICK, 0))
             return -1;
-        unsigned selected = hover(stick);
-        if (selected && selected != page->item.hover &&
+        /* 0020D930(t, 0): the hub's table. */
+        uint8_t hovered = page->item.hover;
+        if (em_menu_hover_0020D930(&hovered, 0, stick->magnitude, stick->angle) &&
             !emit(worker, context, page, EM_STATUS_HUB_SOUND, 5))
             return -1;
-        page->item.hover = (uint8_t)selected;
+        const unsigned selected = hovered;
+        page->item.hover = hovered;
         if (!emit(worker, context, page, EM_STATUS_HUB_DRAW, 0))
             return -1;
         if (selected) {

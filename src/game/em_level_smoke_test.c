@@ -28,8 +28,13 @@
 #include "game/em_frame.h"
 #include "game/em_game.h"
 #include "game/em_game_internal.h"
+#include "game/em_interaction_runtime.h"
+#include "game/em_interaction_scene.h"
+#include "game/em_pickup_owner.h"
+#include "game/em_weapon.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
+#include "game/em_pickup_original.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_state.h"
 #include "game/em_status_background.h"
@@ -72,6 +77,8 @@ static void panel_no_battery_begin(void);
 static int panel_no_battery_frame(void);
 static void status_begin(void);
 static int status_frame(void);
+static void status_pages_begin(void);
+static int status_pages_frame(void);
 static void battery_begin(void);
 static int battery_frame(void);
 static void refusal_begin(void);
@@ -119,6 +126,10 @@ static const Phase k_phases[] = {
     {"status", "01_battery (status exit); frame_trace2/status_04.json", 0,
      "001AE7E0 r==2 -> state 3 (0020E060, 0020CDC0) -> state 5 -> state 1 (ORIGINAL_FRAME_ORDER.md Q7)",
      "S11b", status_begin, status_frame, 0, 0, 0},
+    {"status_pages", "(designed: no route capture shows a status page open)", 0x0020CDC0u,
+     "0020CDC0 phase 3: DATABASE 00214020, SPR4 00211970 with its part pages, the ITEM children "
+     "00214570 / 00215870 / 002160B0, and the takes of 0x1E / 0x1F / 0x32 / 0x10",
+     "chain C8b FAILSTOPS (em_status_pages_live)", status_pages_begin, status_pages_frame, 0, 1, 0},
     {"battery", "01_battery", 0x00219550u,
      "pickup 00219550 g0.0 (item 0x1B): take script 0x266620, B0=1/B1=0x1B, status ITEM page",
      "WP-6 (pickup owner and Use arbiter) with WP-5 (status ITEM page)", battery_begin, battery_frame,
@@ -784,6 +795,322 @@ static int panel_no_battery_frame(void)
  * (route f459 -> f479) closes the screen, control returns and the owner has
  * set its taken bit. tools/test_level_smoke.py check_battery compares the
  * take with route 01 row for row (LEVEL_SMOKE.md). */
+/* ------------------------------------------------------------ status_pages
+ *
+ * A designed side run from first control (no route capture shows a status
+ * page open; docs/STATUS_PAGES.md section 6): the pad opens every status
+ * page the first level reaches from the hub (DATABASE, SPR4 with the LOWER
+ * U.R.S. and SELECTOR SWITCH part pages, MAP with no map owned, and the
+ * ITEM children EQUIPMENT, EVENT and HEALING) and backs out of each with
+ * Circle (pad bit 0x20; the pages' back), Triangle (0x10) and START (0x800)
+ * closing the screen, then the take of each item type with a page (0x1E
+ * and 0x1F HEALING, the key 0x32 DATABASE, the magazine 0x10 SPR4, the map
+ * 0x08 MAP) runs its original owner (the use claim the scan makes, taken
+ * directly: test input) and the page it opens, including a medicine used
+ * from health 30 (test input) through 002160B0's count-up and 0015C700, and
+ * the map: MAP opens zoomed on map 8 (its two model nodes lit and drawn),
+ * R1 zooms, the D-pad pans, Circle to the list, Cross zooms again (the
+ * player's marker, the current map), Circle twice to the hub; then MAP from
+ * the hub with map 8 owned.
+ * Every page call is traced (EM_STATUS_PAGES_TRACE) and the checker replays
+ * each through the original instructions (tools/test_status_pages_live.py).
+ * Every value here is test input, not game behaviour. */
+enum { SP_PRESS = 1, SP_STICK, SP_HOLD, SP_WAIT, SP_BACK, SP_HOVER, SP_TAKE, SP_HEALTH, SP_CHECK,
+       SP_END };
+typedef struct {
+    int op;
+    uint16_t buttons; /* SP_PRESS */
+    float lx, ly;     /* SP_STICK */
+    int frames;       /* SP_PRESS / SP_HOLD */
+    int phase, screen, child; /* SP_WAIT: page core t[1], t[0x10], ITEM t[4] (-1: any) */
+    int value;        /* SP_HOVER (t[0x11]), SP_TAKE (uid), SP_CHECK (what) */
+    const char *what;
+} PageStep;
+
+#define PRESS(b) {SP_PRESS, (b), 0, 0, 2, 0, 0, 0, 0, NULL}
+#define STICK(x, y) {SP_STICK, 0, (x), (y), 0, 0, 0, 0, 0, NULL}
+#define HOLD(n) {SP_HOLD, 0, 0, 0, (n), 0, 0, 0, 0, NULL}
+#define WAIT(ph, sc, ch, w) {SP_WAIT, 0, 0, 0, 0, (ph), (sc), (ch), 0, (w)}
+/* Circle (a 2-frame press every 20 frames, at most 5) until WAIT's state. */
+#define BACK(ph, sc, ch, w) {SP_BACK, 0, 0, 0, 0, (ph), (sc), (ch), 0, (w)}
+#define HOVER(v, w) {SP_HOVER, 0, 0, 0, 0, 0, 0, 0, (v), (w)}
+#define TAKE(u, w) {SP_TAKE, 0, 0, 0, 0, 0, 0, 0, (u), (w)}
+enum { CHECK_FIRE_MODE = 1, CHECK_HEALTH_60, CHECK_HEALTH_100, CHECK_CLOSED };
+#define CHECK(v, w) {SP_CHECK, 0, 0, 0, 0, 0, 0, 0, (v), (w)}
+
+static const PageStep k_page_steps[] = {
+    /* 120 idle gameplay frames first: the run's whole-run checks (the render
+     * context, the rand() order) need gameplay ticks, not status frames. */
+    HOLD(120), PRESS(EM_PAD_START), WAIT(1, -1, -1, "START opens the hub"),
+    /* DATABASE: hub hover 1 (stick down), the category list, D-pad right
+     * (the next category), Cross, Circle twice back to the hub. */
+    STICK(0, 1), HOVER(1, "hub hover 1 (DATABASE)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 3, -1, "Cross opens DATABASE"), HOLD(30), PRESS(EM_PAD_RIGHT), HOLD(20),
+    PRESS(EM_PAD_CROSS), HOLD(30), BACK(1, -1, -1, "Circle returns from DATABASE to the hub"),
+    /* SPR4: hub hover 2 (right); the part selector (0020D930 mode 2): hover 6
+     * (down-left) LOWER U.R.S., Cross on its equipped entry (refused),
+     * Circle; hover 4 (right) SELECTOR SWITCH, down to the other fire
+     * mode, Cross, Yes (left), Cross; Circle back to the hub. */
+    STICK(1, 0), HOVER(2, "hub hover 2 (SPR4)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 2, -1, "Cross opens SPR4"), HOLD(30),
+    STICK(-0.7071f, 0.7071f), HOVER(6, "SPR4 hover 6 (LOWER U.R.S.)"), PRESS(EM_PAD_CROSS),
+    STICK(0, 0), HOLD(40), PRESS(EM_PAD_CROSS), HOLD(30), BACK(3, 2, -1, "Circle returns to the selector"),
+    HOLD(30),
+    STICK(1, 0), HOVER(4, "SPR4 hover 4 (SELECTOR SWITCH)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    HOLD(40), PRESS(EM_PAD_DOWN), HOLD(20), PRESS(EM_PAD_CROSS), HOLD(10), PRESS(EM_PAD_LEFT),
+    HOLD(10), PRESS(EM_PAD_CROSS), HOLD(30), CHECK(CHECK_FIRE_MODE, "SELECTOR's Yes set D_00810C61"),
+    BACK(1, -1, -1, "Circle returns from SPR4 to the hub"),
+    /* MAP: hub hover 3 (up); no map is owned yet: the list view with no
+     * model; Circle back to the hub. */
+    STICK(0, -1), HOVER(3, "hub hover 3 (MAP)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 1, -1, "Cross opens MAP"), HOLD(30), PRESS(EM_PAD_DOWN), HOLD(10),
+    BACK(1, -1, -1, "Circle returns from MAP to the hub"),
+    /* ITEM: hub hover 4 (left); the root's hovers 1 (down) EQUIPMENT, 4
+     * (left) EVENT and 5 (down-left) HEALING, each opened and left. */
+    STICK(-1, 0), HOVER(4, "hub hover 4 (ITEM)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 0, 1, "Cross opens the ITEM root"), HOLD(10),
+    STICK(0, 1), HOVER(1, "ITEM hover 1 (EQUIPMENT)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 0, 4, "Cross opens EQUIPMENT"), HOLD(30), PRESS(EM_PAD_CROSS), HOLD(20),
+    BACK(3, 0, 1, "Circle returns from EQUIPMENT to the root"), HOLD(10),
+    STICK(-1, -0.2f), HOVER(4, "ITEM hover 4 (EVENT)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 0, 6, "Cross opens EVENT"), HOLD(30), PRESS(EM_PAD_CROSS), HOLD(10),
+    BACK(3, 0, 1, "Circle returns from EVENT to the root"), HOLD(10),
+    STICK(-0.7071f, 0.7071f), HOVER(5, "ITEM hover 5 (HEALING)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 0, 7, "Cross opens HEALING"), HOLD(30),
+    BACK(3, 0, 1, "Circle returns from HEALING to the root"), HOLD(10),
+    BACK(1, -1, -1, "Circle returns from ITEM to the hub"), HOLD(10), PRESS(EM_PAD_START),
+    CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* The takes. 0x1E from health 30: the notice, Cross (skips it), Cross
+     * (the prompt, No), left (Yes), Cross: the count-up to 60, START. */
+    {SP_HEALTH, 0, 0, 0, 0, 0, 0, 0, 30, "health set to 30 (test input)"},
+    TAKE(0x0B04, "the take of 0x1E (0x0B04)"), WAIT(3, 0, 7, "the 0x1E take opens HEALING"),
+    HOLD(20), PRESS(EM_PAD_CROSS), HOLD(10), PRESS(EM_PAD_CROSS), HOLD(10), PRESS(EM_PAD_LEFT),
+    HOLD(10), PRESS(EM_PAD_CROSS), HOLD(200), CHECK(CHECK_HEALTH_60, "0x1E's count-up ends at 60"),
+    PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* 0x1F: the same use, to 100. */
+    TAKE(0x0B05, "the take of 0x1F (0x0B05)"), WAIT(3, 0, 7, "the 0x1F take opens HEALING"),
+    HOLD(20), PRESS(EM_PAD_CROSS), HOLD(10), PRESS(EM_PAD_CROSS), HOLD(10), PRESS(EM_PAD_LEFT),
+    HOLD(10), PRESS(EM_PAD_CROSS), HOLD(200), CHECK(CHECK_HEALTH_100, "0x1F's count-up ends at 100"),
+    PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* The key 0x32: DATABASE on its record; Circle to the list, START. */
+    TAKE(0x0B07, "the take of the key 0x32 (0x0B07)"), WAIT(3, 3, -1, "the 0x32 take opens DATABASE"),
+    HOLD(40), PRESS(EM_PAD_CIRCLE), HOLD(20), PRESS(EM_PAD_START),
+    CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* The magazine 0x10: SPR4's take notice, START. */
+    TAKE(0x0B08, "the take of 0x10 (0x0B08)"), WAIT(3, 2, -1, "the 0x10 take opens SPR4"),
+    HOLD(60), PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
+    /* The map 0x08: MAP zoomed on map 8 (0020F950 mode 0 with the request),
+     * R1 (pad bit 8: zoom in), the D-pad right and up (pans), Circle to the
+     * list, Cross (zoom again, from the list: the player's marker), Circle
+     * twice to the hub, START. */
+    TAKE(0x0B09, "the take of the map 0x08 (0x0B09)"), WAIT(3, 1, -1, "the 0x08 take opens MAP"),
+    HOLD(20), {SP_PRESS, EM_PAD_R1, 0, 0, 8, 0, 0, 0, 0, NULL}, HOLD(10),
+    {SP_PRESS, EM_PAD_RIGHT, 0, 0, 6, 0, 0, 0, 0, NULL}, {SP_PRESS, EM_PAD_UP, 0, 0, 6, 0, 0, 0, 0, NULL},
+    HOLD(10), PRESS(EM_PAD_CIRCLE), HOLD(20), PRESS(EM_PAD_CROSS), HOLD(20),
+    {SP_PRESS, EM_PAD_R2, 0, 0, 4, 0, 0, 0, 0, NULL}, HOLD(10), PRESS(EM_PAD_CIRCLE), HOLD(10),
+    BACK(1, -1, -1, "Circle returns from MAP to the hub"), HOLD(10),
+    /* MAP from the hub with map 8 owned: the list with its model, Circle. */
+    STICK(0, -1), HOVER(3, "hub hover 3 (MAP, map 8 owned)"), PRESS(EM_PAD_CROSS), STICK(0, 0),
+    WAIT(3, 1, -1, "Cross opens MAP"), HOLD(20), PRESS(EM_PAD_CROSS), HOLD(20),
+    PRESS(EM_PAD_CIRCLE), HOLD(10), BACK(1, -1, -1, "Circle returns from MAP to the hub"),
+    HOLD(10), PRESS(EM_PAD_START), CHECK(CHECK_CLOSED, "START closes the status screen"),
+    {SP_END, 0, 0, 0, 0, 0, 0, 0, 0, NULL},
+};
+
+static struct {
+    unsigned i;
+    int frames, total, press;
+    float lx, ly;
+    uint16_t buttons;
+    uint8_t fire_mode;
+    unsigned seen[8]; /* page core states visited: MAP/SPR4/DATABASE, ITEM children */
+    unsigned captured[2], page_key, page_frames;
+} sp;
+
+static const EmStatusPage *page_core(void)
+{
+    return em_status_runtime_page(em_area11_interaction_host_status());
+}
+
+static void status_pages_begin(void)
+{
+    memset(&sp, 0, sizeof sp);
+    sp.fire_mode = em_weapon_fire_mode();
+    nav_reset();
+    pad_apply(0, 0, 0);
+}
+
+static void sp_next(void)
+{
+    ++sp.i;
+    sp.frames = 0;
+}
+
+static int status_pages_frame(void)
+{
+    const PageStep *step = &k_page_steps[sp.i];
+    const EmStatusPage *page = page_core();
+    if (getenv("EM_LEVEL_SMOKE_PAGES_DEBUG") && page)
+        fprintf(stderr, "pages: step %u op %d f%d t1=%u t2=%u t3=%u t4=%u t5=%u t10=%u t11=%u B0=%u\n",
+                sp.i, step->op, sp.frames, page->phase, page->step, page->transition_step,
+                page->item.state, page->item.step, page->item.screen, page->item.hover,
+                em_scene_state()->req[EM_SCENE_REQ_B0]);
+    if (++sp.total > 6000) {
+        fail("status_pages: the script did not finish in 6000 frames");
+        return 0;
+    }
+    if (page && page->phase == 3 && page->step == 2) {
+        if (page->item.screen >= 1 && page->item.screen <= 3)
+            sp.seen[page->item.screen] = 1;
+        if (page->item.screen == 0 && page->item.state >= 4 && page->item.state <= 7)
+            sp.seen[page->item.state] = 1;
+        /* Verification aid: EM_LEVEL_SMOKE_PAGES_CAPTURE=<dir> writes one
+         * frame of each page state 25 frames after the script reaches it
+         * (<dir>/page_<t[0x10]>_<t[4]>.bmp; MAP: map_<t[3], + 4 once map 8 is
+         * owned>.bmp), for a look. */
+        const char *dir = getenv("EM_LEVEL_SMOKE_PAGES_CAPTURE");
+        /* MAP (screen 1): its mode t[3], and whether map 8 is owned. */
+        const unsigned key = page->item.screen == 1
+                                 ? 16u + page->transition_step + (em_pickup_maps()[8] ? 4u : 0u)
+                                 : page->item.screen * 16u + page->item.state;
+        if (dir && *dir && key < 64 && !(sp.captured[key / 32] & (1u << (key % 32)))) {
+            if (sp.page_key != key + 1) {
+                sp.page_key = key + 1;
+                sp.page_frames = 0;
+            } else if (++sp.page_frames == 25) {
+                char path[512];
+                if (page->item.screen == 1) /* map_<t[3] + 4 once map 8 is owned> */
+                    snprintf(path, sizeof path, "%s/map_%u.bmp", dir, key - 16u);
+                else
+                    snprintf(path, sizeof path, "%s/page_%u_%u.bmp", dir, (unsigned)page->item.screen,
+                             (unsigned)page->item.state);
+                em_gfx_request_capture(em_frame_gfx(), path);
+                sp.captured[key / 32] |= 1u << (key % 32);
+            }
+        }
+    }
+    switch (step->op) {
+    case SP_PRESS:
+        if (sp.frames++ < step->frames) {
+            pad_apply(step->buttons, sp.lx, sp.ly);
+            return 0;
+        }
+        pad_apply(0, sp.lx, sp.ly);
+        sp_next();
+        return 0;
+    case SP_STICK:
+        sp.lx = step->lx;
+        sp.ly = step->ly;
+        pad_apply(0, sp.lx, sp.ly);
+        sp_next();
+        return 0;
+    case SP_HOLD:
+        pad_apply(0, sp.lx, sp.ly);
+        if (++sp.frames >= step->frames)
+            sp_next();
+        return 0;
+    case SP_HOVER:
+        pad_apply(0, sp.lx, sp.ly);
+        if (page && page->item.hover == step->value) {
+            sp_next();
+            return 0;
+        }
+        if (++sp.frames > 60)
+            fail(step->what);
+        return 0;
+    case SP_WAIT: {
+        pad_apply(0, sp.lx, sp.ly);
+        const int ok = page && page->phase == step->phase &&
+                       (step->phase == 1 ? page->step == 1
+                                         : page->step == 2 &&
+                                               (step->screen < 0 || page->item.screen == step->screen) &&
+                                               (step->child < 0 || page->item.state == step->child));
+        if (ok) {
+            sp_next();
+            return 0;
+        }
+        if (++sp.frames > 900)
+            fail(step->what);
+        return 0;
+    }
+    case SP_BACK: {
+        const int ok = page && page->phase == step->phase &&
+                       (step->phase == 1 ? page->step == 1
+                                         : page->step == 2 &&
+                                               (step->screen < 0 || page->item.screen == step->screen) &&
+                                               (step->child < 0 || page->item.state == step->child) &&
+                                               (step->screen != 2 || page->item.state == 1));
+        if (ok && sp.frames % 20 >= 2) {
+            pad_apply(0, sp.lx, sp.ly);
+            sp_next();
+            return 0;
+        }
+        pad_apply(sp.frames % 20 < 2 ? EM_PAD_CIRCLE : 0, sp.lx, sp.ly);
+        if (++sp.frames > 100)
+            fail(step->what);
+        return 0;
+    }
+    case SP_HEALTH:
+        g.status.health = (float)step->value;
+        sp_next();
+        return 0;
+    case SP_TAKE: {
+        /* The use scan's claim of the owner (em_interaction_runtime_claim
+         * with the scan's 3B8D = 3 and the owner armed), as the host
+         * fixture's other_take makes it. */
+        if (sp.frames++ == 0) {
+            EmInteractionSceneOwner *record =
+                em_interaction_scene_pickup(em_area11_interaction_host_scene(), (uint16_t)step->value);
+            EmPickupOwner *owner = record ? record->native_owner : NULL;
+            if (!owner || !in_control() || !player_pose_use_accepted_port() ||
+                !em_interaction_runtime_claim(em_area11_interaction_host_shared(), owner)) {
+                fail(step->what);
+                return 0;
+            }
+            em_area11_interaction_host_camera_fields();
+            owner->armed = 4;
+        }
+        if (task_byte(EM_SCENE_TASK_0B) == 3) {
+            sp_next();
+            return 0;
+        }
+        if (sp.frames > 900)
+            fail(step->what);
+        return 0;
+    }
+    case SP_CHECK: {
+        pad_apply(0, sp.lx, sp.ly);
+        int ok = 0;
+        if (step->value == CHECK_FIRE_MODE)
+            ok = em_weapon_fire_mode() != sp.fire_mode;
+        else if (step->value == CHECK_HEALTH_60)
+            ok = g.status.health == 60.0f && page && page->item.step == 1;
+        else if (step->value == CHECK_HEALTH_100)
+            ok = g.status.health == 100.0f && page && page->item.step == 1;
+        else if (step->value == CHECK_CLOSED)
+            ok = in_control();
+        if (ok) {
+            sp_next();
+            return 0;
+        }
+        if (++sp.frames > (step->value == CHECK_CLOSED ? 600 : 1))
+            fail(step->what);
+        return 0;
+    }
+    default:
+        break;
+    }
+    pad_apply(0, 0, 0);
+    if (!sp.seen[1] || !sp.seen[2] || !sp.seen[3] || !sp.seen[4] || !sp.seen[6] || !sp.seen[7]) {
+        fail("status_pages: a page was not shown (MAP, SPR4, DATABASE, EQUIPMENT, EVENT, HEALING)");
+        return 0;
+    }
+    fprintf(stderr, "level smoke: status_pages: PASS frames=%d pages=MAP,SPR4,DATABASE,EQUIPMENT,"
+            "EVENT,HEALING takes=0x1E,0x1F,0x32,0x10,0x08 fire_mode=%u->%u health=%.1f\n", sp.total,
+            (unsigned)sp.fire_mode, (unsigned)em_weapon_fire_mode(), (double)g.status.health);
+    return 1;
+}
+
 static void battery_begin(void)
 {
     nav_reset();

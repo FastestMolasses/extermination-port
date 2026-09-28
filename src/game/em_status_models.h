@@ -44,6 +44,7 @@
 #include <stdint.h>
 
 #include "em_gfx.h"
+#include "game/em_owner_services_original.h"
 #include "game/em_status_hub.h"
 #include "game/em_status_scene_original.h"
 
@@ -108,5 +109,50 @@ typedef struct {
 int em_status_models_pose_001C69A0(const float object[16], const float scale[4],
                                    const EmStatusModelsNode *nodes, unsigned count,
                                    float (*world)[16]);
+
+/* ---- the MAP page (0020F950 / 002101C0, docs/STATUS_PAGES.md section 7) ----
+ *
+ * 0020F950 spawns its 22 nodes in this pool (001AFF10), walks it every
+ * frame (001B0000) and each node runs 002101C0, a translation that reaches
+ * its record by its original address: the pool is that byte storage
+ * (em_status_models_pool_bytes; the record layout is the original's). The
+ * host runs 002101C0 through the node hook and hands its callees here by
+ * original address (em_status_models_call):
+ *   001AFF10(), 001B0000(), 001AFF90(p)    the pool (as the hub's)
+ *   001C6120(bank, code)  the MAP bank D_0028A570 (module 0x1E slot 0x38,
+ *                         tools/export_status_map.py): bank + the model's
+ *                         directory offset; any other bank faults
+ *   001CA5E0(p, model, kind)  +0x44 = model, then 001CA5F0(p, kind)
+ *   001C6150(model), 001AF7C0(), 001CB5B0(n), 001C62C0(p), 001C6380(p)
+ *                         as the hub's workers
+ *   001CB480(p)           the kind-7 draw method: lighting mode 2 through
+ *                         the light hook (001D8C20(2) + 001D89D0, the room
+ *                         rig with +0x02's glow), queued with the node
+ *                         matrices and drawn by em_status_models_render.
+ * Without the map export, a map model faults at 001C6120. */
+
+/* Loads assets/status_map (map_models.emmp and map_XX.emdl). 1, or -1
+ * (reported; the MAP models then fault when a node binds one). */
+int em_status_models_load_map(EmStatusModels *models, const char *directory);
+/* The +0x10 behaviour `fn` (0x002101C0) the host runs: node(ctx, fn,
+ * record address) from the walk. 0, or negative (a fault). */
+typedef int (*EmStatusModelsNodeFn)(void *ctx, uint32_t fn, uint32_t record);
+void em_status_models_set_node(EmStatusModels *models, uint32_t fn, EmStatusModelsNodeFn node,
+                               void *ctx);
+/* 001D8C20(mode) + 001D89D0(owner, A, B, rgb): a / b receive A and B. 0, or
+ * negative. */
+typedef int (*EmStatusModelsLightFn)(void *ctx, int32_t mode, const EmOwnerServicesOwner *owner,
+                                     const uint32_t rgb[4], float a[16], float b[16]);
+void em_status_models_set_light(EmStatusModels *models, EmStatusModelsLightFn light, void *ctx);
+/* D_0028B020's 24 x 0x2F0 bytes, and D_00810610's 64 (the models' view). */
+uint8_t *em_status_models_pool_bytes(EmStatusModels *models);
+uint8_t *em_status_models_view_bytes(EmStatusModels *models);
+/* The port's free bone slots (001AF7C0 pops one, 001AF800 pushes it back):
+ * what the original's free count D_00275BCC stands for here. */
+unsigned em_status_models_free_slots(const EmStatusModels *models);
+/* One of the callees above by original address: a[] the argument register
+ * images, *v0 the result. 0, or -1 (a fault, reported and latched). */
+int em_status_models_call(EmStatusModels *models, uint32_t target, const uint64_t *a, unsigned na,
+                          uint64_t *v0);
 
 #endif

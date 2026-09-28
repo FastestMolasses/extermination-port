@@ -29,7 +29,10 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
-           src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c \
+           src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
+           src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
+           src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
+           src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
@@ -392,12 +395,14 @@ LEVEL_SMOKE_UNTIL = $(if $(EM_TEST_FULL),,battery)
 .PHONY: test-level-smoke
 test-level-smoke: $(BIN)
 	mkdir -p build/level_smoke
+	rm -f build/level_smoke/status_pages.trace
 	EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$${EM_LEVEL_SMOKE_UNTIL:-$(LEVEL_SMOKE_UNTIL)} \
 	    EM_AREA_CHANGE_LOG=build/level_smoke/ticks.jsonl EM_RAND_TRACE=build/level_smoke/rand.trace \
+	    EM_STATUS_PAGES_TRACE=build/level_smoke/status_pages.trace \
 	    $(BIN) > build/level_smoke/run.log 2>&1 || (grep "level smoke" build/level_smoke/run.log; false)
 	grep "level smoke:" build/level_smoke/run.log
 	python3 tools/test_level_smoke.py --log build/level_smoke/ticks.jsonl --run-log build/level_smoke/run.log \
-	    --rand-trace build/level_smoke/rand.trace \
+	    --rand-trace build/level_smoke/rand.trace --status-pages-trace build/level_smoke/status_pages.trace \
 	    --require-through $${EM_LEVEL_SMOKE_UNTIL:-$(or $(LEVEL_SMOKE_UNTIL),last)}
 	$(if $(EM_TEST_FULL),$(MAKE) test-level-smoke-side)
 
@@ -410,7 +415,11 @@ test-level-smoke-ps2-drive: $(BIN)
 	EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=roger $(MAKE) test-level-smoke
 
 # The side beats, each in its own run: 00 (from slot 04: first control, then
-# the panel without the battery; about 14 s) and 09 with the fence door's
+# the panel without the battery; about 14 s), the designed status_pages run
+# (first control, the status phase, then every bound status page, MAP
+# included, and the takes that open one, each page and MAP node call replayed
+# through the original instructions from EM_STATUS_PAGES_TRACE; about 47 s)
+# and 09 with the fence door's
 # side 1 (the main line through truck_crossing, then the fence door from
 # both sides; about 56 s). LEVEL_SMOKE.md. Each side run writes its own
 # EM_RAND_TRACE and hands it to the checker, so the whole-run rand checks
@@ -418,13 +427,16 @@ test-level-smoke-ps2-drive: $(BIN)
 .PHONY: test-level-smoke-side
 test-level-smoke-side: $(BIN)
 	mkdir -p build/level_smoke_side
-	for side in panel_no_battery fence_door_side1; do \
+	for side in panel_no_battery status_pages fence_door_side1; do \
+	    rm -f build/level_smoke_side/status_pages.trace; \
 	    EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=$$side \
 	        EM_AREA_CHANGE_LOG=build/level_smoke_side/ticks.jsonl EM_RAND_TRACE=build/level_smoke_side/rand.trace \
+	        EM_STATUS_PAGES_TRACE=build/level_smoke_side/status_pages.trace \
 	        $(BIN) > build/level_smoke_side/run.log 2>&1 || { grep "level smoke" build/level_smoke_side/run.log; exit 1; }; \
 	    grep "level smoke:" build/level_smoke_side/run.log; \
 	    python3 tools/test_level_smoke.py --log build/level_smoke_side/ticks.jsonl \
 	        --run-log build/level_smoke_side/run.log --rand-trace build/level_smoke_side/rand.trace \
+	        --status-pages-trace build/level_smoke_side/status_pages.trace \
 	        --require-through $$side || exit 1; \
 	done
 
@@ -1069,6 +1081,30 @@ test-status-frame-reference:
 test-status-page-reference:
 	python3 tools/test_status_page_reference.py
 
+# The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
+# (em_menu_hover) against the original instructions; the MAP page's model
+# bank D_0028A570 (tools/export_status_map.py, the EMSP relocation) against
+# the original 001C6120 / 001C6150.
+.PHONY: test-status-pages-reference test-menu-hover-reference test-status-map-reference
+test-status-pages-reference:
+	python3 tools/test_status_pages_reference.py
+
+test-status-map-reference:
+	python3 tools/test_status_map_reference.py
+
+test-menu-hover-reference:
+	python3 tools/test_menu_hover_source_reference.py
+
+# The status pages' GS memory and TEX0 decode (em_gs_texture) against the
+# disc model and the decomp's decoder, and HEALING's player worker
+# 0015C700 / 0015C7C0 against the original instructions.
+.PHONY: test-gs-texture-reference test-player-heal-reference
+test-gs-texture-reference:
+	python3 tools/test_gs_texture_reference.py
+
+test-player-heal-reference:
+	python3 tools/test_player_heal_reference.py
+
 test-item-root-reference:
 	python3 tools/test_item_root_reference.py
 
@@ -1136,8 +1172,11 @@ test-item-device-reference:
 
 test-status-runtime:
 	@mkdir -p build/status_page_reference
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c \
-	    src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_status_ui_leftovers.c src/game/em_census_standins.c src/game/em_render_verify_rest.c src/game/em_player_stage_workers.c -lm -o build/status_page_reference/status_runtime_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc tests/status_runtime_test.c src/game/em_status_hub.c src/game/em_status_runtime.c src/game/em_status_frame.c src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c src/game/em_item_trail.c src/game/em_battery_ui.c src/game/em_panel.c src/game/em_status_hub_ui.c src/game/em_status_draw.c src/game/em_item_geometry.c src/game/em_item_sdk_math.c \
+	    src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_status_ui_leftovers.c src/game/em_census_standins.c src/game/em_render_verify_rest.c src/game/em_player_stage_workers.c \
+	    src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c src/game/em_status_pages_helpers.c \
+	    src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c src/game/em_status_pages_parts.c \
+	    src/game/em_area01_ui_pages.c src/game/em_pickup_items_original.c -lm -o build/status_page_reference/status_runtime_test
 	build/status_page_reference/status_runtime_test assets/scene_snow/panel/battery.emba assets/scene_snow/panel/item_root.emir \
 	    assets/scene_snow/panel/status_hub.emhs assets/scene_snow/panel/status_hub_atlas.emha
 

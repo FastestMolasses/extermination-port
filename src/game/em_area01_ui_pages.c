@@ -88,6 +88,30 @@ int em_area01_ui_00208040(EmArea01Ui *s, int32_t slot, uint32_t a1, uint32_t a2,
     return ui_leave(s, fr);
 }
 
+/* 0020F950's and 00210F30's calls of 00207D90 / 00208040: the translations
+ * above, or with EmArea01Ui.leaf_calls the call itself through `call` (the
+ * argument registers as the original loads them). */
+static void leaf_00207D90(EmArea01Ui *s, int32_t slot, int32_t b0, int32_t b2, int32_t b1, int32_t b3)
+{
+    if (!s->leaf_calls) {
+        (void)em_area01_ui_00207D90(s, slot, b0, b2, b1, b3);
+        return;
+    }
+    uint64_t a[5] = {ui_sx((uint32_t)slot), ui_sx((uint32_t)b0), ui_sx((uint32_t)b2), ui_sx((uint32_t)b1),
+                     ui_sx((uint32_t)b3)};
+    ui_call(s, UI_00207D90, 5, a, 0, NULL, NULL, NULL);
+}
+
+static void leaf_00208040(EmArea01Ui *s, int32_t slot, uint32_t a1, uint32_t a2, uint32_t a3, uint64_t a4)
+{
+    if (!s->leaf_calls) {
+        (void)em_area01_ui_00208040(s, slot, a1, a2, a3, a4);
+        return;
+    }
+    uint64_t a[5] = {ui_sx((uint32_t)slot), ui_sx(a1), ui_sx(a2), ui_sx(a3), a4};
+    ui_call(s, UI_00208040, 5, a, 0, NULL, NULL, NULL);
+}
+
 /* ------------------------------------------------------------------ */
 /* 00210A00(a0): 0020A7A0(0x20043C259D422050); blend 0; five sprites;
  * a sixth when a0 != 0; blend 3; one more sprite. */
@@ -454,7 +478,7 @@ int em_area01_ui_00210F30(EmArea01Ui *s, uint32_t t)
     ui_sw(s, 0x700038B8u, ui_fmul(k16, ui_fadd(k1936, ui_fdiv(bz, UI_F_TWO))));
     ui_sw(s, 0x700038C8u, ui_fmul(k16, ui_fadd(k1936, ui_fdiv(cz, UI_F_TWO))));
     blend(s, 3);
-    (void)em_area01_ui_00208040(s, 1, 0x700038A0u, 0x700038B0u, 0x700038C0u, UINT64_C(0xFFFFFFFF802040A0));
+    leaf_00208040(s, 1, 0x700038A0u, 0x700038B0u, 0x700038C0u, UINT64_C(0xFFFFFFFF802040A0));
     return ui_leave(s, fr);
 }
 
@@ -554,11 +578,11 @@ int em_area01_ui_0020F950(EmArea01Ui *s, uint32_t t)
     if (mode == 2) {
         (void)em_area01_ui_00210A00(s, 1);
         blend(s, 3);
-        (void)em_area01_ui_00207D90(s, 1, 0x12, 9, 0x1EF, 0x96);
+        leaf_00207D90(s, 1, 0x12, 9, 0x1EF, 0x96);
         (void)ui_call0(s, UI_001B0000);
         if ((ui_lbu(s, UI_D_008106CD) & 0xFu) == ui_lbu(s, t + 0x12u)) (void)em_area01_ui_00210F30(s, t);
         (void)em_area01_ui_00211400(s, t, 1);
-        (void)em_area01_ui_00207D90(s, 1, 0, 0, 0x200, 0xE0);
+        leaf_00207D90(s, 1, 0, 0, 0x200, 0xE0);
         blit(s, 0x7080, 0x7900, 0x80, 0x40, RGBA_80, sprite_tex);
         (void)em_area01_ui_00210C00(s, 1);
         if (ui_lhu(s, UI_D_00810E74) & 0x20u) {

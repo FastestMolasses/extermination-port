@@ -175,6 +175,24 @@ int em_pickup_items_001C40B0(EmPickupItemsAt at, void *ctx, int32_t a0, int32_t 
     return m.failed ? -1 : 0;
 }
 
+/* ---- 001C47E0 ------------------------------------------------------------ */
+
+int em_pickup_items_001C47E0(EmPickupItemsAt at, void *ctx, int32_t a0, int32_t a1, int32_t *v0)
+{
+    if (!at || !v0) return -1;
+    Items m = {at, ctx, 0};
+    const uint32_t count = C64 + (uint32_t)a0;
+    const int32_t have = (int32_t)lbu(&m, count);
+    if (m.failed) return -1;
+    if (have < a1) {
+        *v0 = -1;
+        return 0;
+    }
+    sb(&m, count, (uint32_t)(have - a1));
+    *v0 = (int32_t)lbu(&m, count);
+    return m.failed ? -1 : 0;
+}
+
 /* ---- 001F1110 / 001F1180 ------------------------------------------------- */
 
 enum {

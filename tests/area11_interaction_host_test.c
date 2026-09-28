@@ -9,6 +9,8 @@
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
+#include "game/em_point_light.h"
+#include "game/em_status_models.h"
 #include "game/em_render_context_live.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_ee_float.h"
@@ -96,6 +98,13 @@ void em_status_background_frame(struct EmGfx *g)
 }
 /* The hub's 00209DF0 draw (em_status_hub_ui): its arcs and CB4 reserve. */
 int16_t em_weapon_reserve(void) { return 60; }
+/* em_weapon's C61 / C62 / CB4 storage the status pages view. */
+static uint8_t fixture_mag, fixture_mode;
+static int16_t fixture_reserve = 60;
+uint8_t *em_weapon_mag_byte(void) { return &fixture_mag; }
+int16_t *em_weapon_reserve_word(void) { return &fixture_reserve; }
+uint8_t em_weapon_fire_mode(void) { return fixture_mode; }
+void em_weapon_set_fire_mode(uint8_t mode) { if (mode < 3) fixture_mode = mode; }
 void em_hud_text(EmGfx *g, float x, float y, const char *s, EmHudTextStyle style)
 {
     (void)g;
@@ -211,6 +220,11 @@ void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; }
 static unsigned flushed_frame, model_draws;
 static int hub_rendering;
 void em_gfx_overlay_backdrop_flush(EmGfx *gfx) { assert(gfx); flushed_frame = background_frames; }
+/* The MAP page's draw stream (em_page_draw): its 2D layer is drawn before
+ * the UI pool's models (001B0000), which the SCISSOR_1 window clips. */
+static unsigned decor_flushes, scissor_sets;
+void em_gfx_overlay_decor_flush(EmGfx *gfx) { assert(gfx); ++decor_flushes; flushed_frame = background_frames; }
+void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]) { assert(gfx); (void)rect; ++scissor_sets; }
 void em_gfx_draw_skinned(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
                          const float *palette, uint32_t bones)
 {
@@ -554,6 +568,15 @@ static void setup(int reset_inventory)
     assert(em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) == 0);
     assert(em_rcl_poke(EM_RCL_CONTEXT + 0x2468, ram + EM_RCL_CONTEXT + 0x2468, 4) == 0);
     rcl_bind_fixture();
+    /* The area's point lights on the context's +0x220 pool, as the scene
+     * manifest's `pointlights` line loads them in the game (em_scene.c):
+     * the MAP page's model draw 001CB480 lights through 001D89D0. */
+    if (!g.point_lights_loaded) {
+        assert(em_rcl_point_lights() &&
+               em_point_light_load(em_rcl_point_lights(), &g.point_lights_area_key,
+                                   "assets/scene_snow/point_lights.emlp"));
+        g.point_lights_loaded = 1;
+    }
     /* The live camera over the area's collision world, its bytes the
      * capture's camera block and vector pool (the g.cam view follows). */
     assert(em_camera_live_bind(&camera_host) == 0);
@@ -806,11 +829,27 @@ static void first_battery(void)
     teardown();
 }
 
+/* A MAP bank model's directory offset (assets/status_map/map_models.emmp,
+ * tools/export_status_map.py). */
+static uint32_t map_offset(uint32_t code)
+{
+    FILE *f = fopen("assets/status_map/map_models.emmp", "rb");
+    uint32_t header[3], entry[4], found = 0;
+    assert(f && fread(header, sizeof header, 1, f) == 1 && header[2] == 22);
+    for (uint32_t i = 0; i < header[2] && !found; ++i) {
+        assert(fread(entry, sizeof entry, 1, f) == 1);
+        if (entry[0] == code) found = entry[1];
+        assert(!fseek(f, (long)entry[2] * 0x44, SEEK_CUR));
+    }
+    fclose(f);
+    assert(found);
+    return found;
+}
+
 /* The other AREA11 takes (001B6EA0 families): each posts its original
  * request (001C47A0 B0 = 1 / 001C4720 B0 = 2 / 001C4760 B0 = 3, B1 = the
- * type) after its inventory write, and the page 0020CDC0 would open for it
- * is not translated: the host's page faults with a report, never a silent
- * nothing. */
+ * type) after its inventory write, and 0020CDC0 opens the page it maps the
+ * request to (em_status_pages_live): HEALING, DATABASE, SPR4 or MAP. */
 static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
 {
     setup(1);
@@ -836,9 +875,84 @@ static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
     if (type == 0x10) assert(mag == 30 && reserve == 90 && em_pickup_mag_packs() == 3);
     assert(em_area11_interaction_host_status_open() == 1);
     EmStatusInput input = {.stick_x = 128, .stick_y = 128};
-    assert(em_area11_interaction_host_status_page(&input) == -1 && em_area11_interaction_host_failed());
-    printf("AREA11 native host take %04X: B0 = %u, B1 = %#04x after %u callbacks; its page faults PASS\n",
-           (unsigned)uid, (unsigned)kind, (unsigned)type, ticks);
+    /* 0020CDC0's cold entry maps the request (the page core's own test
+     * checks the map). A bound page (em_status_pages_live) shows the take's
+     * notice until its countdown or a press ends it and clears B0; START
+     * then closes the screen (phase 3's 0x810 edge). A page that is not
+     * bound yet faults at its module load or tick, with a report. */
+    const EmStatusPage *page = em_status_runtime_page(em_area11_interaction_host_status());
+    const int bound = type == 0x1E || type == 0x32 || type == 0x10 || type == 0x08;
+    unsigned page_ticks = 0;
+    int page_result;
+    if (bound) {
+        /* The page takes the request (B0 cleared: 002160B0 / 00214020 state
+         * 0, 00211970's notice). HEALING's notice then counts 240 calls
+         * (002160B0 state 0 sets t[6] = 0xF0, state 3 counts it down once a
+         * call and hands over to the list at 0). */
+        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0 &&
+               state->req[EM_SCENE_REQ_B0])
+            assert(++page_ticks < 16);
+        assert(page_result == 0 && page->phase == 3);
+        unsigned notice = 0;
+        if (type == 0x1E) {
+            assert(page->item.screen == 0 && page->item.state == 7 && page->item.step == 3);
+            while ((page_result = em_area11_interaction_host_status_page(&input)) == 0 &&
+                   page->item.step == 3)
+                assert(++notice < 400);
+            ++notice;
+            assert(page_result == 0 && page->item.step == 1 && notice == 240);
+        } else if (type == 0x08) {
+            /* MAP (0020F950 mode 0 with the request: map D_008106B1 = 8,
+             * zoomed, t[3] = 2): its 22 nodes run 002101C0; map 8's two
+             * (p[0xD] 0 and 1, the selected map) bind the bank's codes 8
+             * and 0x13 (001C6120(D_0028A570, ...), 001CA5E0(p, model, 7):
+             * +0x4C = 001CB480) and run (+4 = 1); the other maps' nodes
+             * bind nothing (D_00810CB8[i] clear). */
+            assert(page->item.screen == 1);
+            assert(em_area11_interaction_host_status_page(&input) == 0);
+            const EmStatusScenePool *pool =
+                em_status_models_pool(em_area11_interaction_host_status_models());
+            unsigned nodes = 0, bound_models = 0;
+            for (unsigned r = 0; r < EM_STATUS_SCENE_POOL_RECORDS; ++r) {
+                const EmStatusSceneActor *a = &pool->record[r];
+                if (!a->b00 || a->w10 != 0x002101C0u) continue;
+                ++nodes;
+                assert(a->b04 == 1 && (a->b02 & 0x40));
+                if (a->b03 == 8) {
+                    /* +0x44 is 001C6120's result: D_0028A570 (0x019A3F40)
+                     * + the code's directory offset, the value
+                     * tools/test_status_map_reference.py proves against
+                     * the original 001C6120 */
+                    assert(a->w44 == 0x019A3F40u + map_offset(a->b0D ? 0x13 : 8));
+                    assert(a->w4C == 0x001CB480u && a->b0C == 1 && a->b09 == 1);
+                    ++bound_models;
+                } else {
+                    assert(!a->w44 && !a->w4C);
+                }
+            }
+            assert(nodes == 22 && bound_models == 2);
+        } else {
+            assert(page->item.screen == (type == 0x32 ? 3 : 2));
+        }
+        input.pressed = 0x800;
+        assert(em_area11_interaction_host_status_page(&input) == 0 && page->phase == 5);
+        input.pressed = 0;
+        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0)
+            assert(++page_ticks < 440);
+        assert(page_result == 1 && !em_area11_interaction_host_failed());
+        printf("AREA11 native host take %04X: B0 = %u, B1 = %#04x after %u callbacks; page %u "
+               "takes the request (notice %u ticks), START closes PASS\n", (unsigned)uid,
+               (unsigned)kind, (unsigned)type, ticks, (unsigned)page->item.screen, notice);
+    } else {
+        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0)
+            assert(++page_ticks < 8);
+        assert(page_result == -1 && em_area11_interaction_host_failed());
+        assert(page->phase == 3 &&
+               page->item.screen == (kind == 2 ? 1 : kind == 3 ? 3 : type == 0x10 ? 2 : 0));
+        printf("AREA11 native host take %04X: B0 = %u, B1 = %#04x after %u callbacks; its page %u "
+               "faults after %u ticks PASS\n", (unsigned)uid, (unsigned)kind, (unsigned)type,
+               ticks, (unsigned)page->item.screen, page_ticks);
+    }
     em_pickup_set_weapon_ammo(NULL, NULL);
     teardown();
 }
@@ -1104,8 +1218,8 @@ static void cinematic_face(int reject_update)
  * inventory) and returns nonzero from case 2 on the next frame, where
  * 0020E080 has cleared B0 and C5: the original's two-frame close latency
  * (status_04: TRIANGLE f200 -> +B = 5 at f204, START f10 -> +B = 3 at
- * f12). X on hovers 1..3 selects MAP/SPR4/DATABASE, which are not
- * translated: the page core faults. */
+ * f12). X on hover 3 selects MAP (em_status_pages_live), whose Circle
+ * returns to the hub. */
 static int hub_frame(const EmStatusInput *input)
 {
     int result = em_area11_interaction_host_status_page(input);
@@ -1177,19 +1291,50 @@ static void status_hub_route(void)
     assert(hub_frame(&input) == 0 && *cc == 1 && background_steps == steps + 2);
     assert(hub_frame(&input) == 1 && page->phase == 0 &&
            !scene->req[EM_SCENE_REQ_B0] && !scene->req[EM_SCENE_REQ_C5]);
-    /* X on hover 3 (up): MAP, not translated. */
+    /* X on hover 3 (up): MAP (0020F950, em_status_pages_live). No map is
+     * owned here (D_00810CB8.. clear): mode 0 spawns the 22 nodes (002101C0)
+     * and the list view walks them without a model; each MAP frame draws its
+     * 2D layer before the pool's models (em_gfx_overlay_decor_flush) inside
+     * the SCISSOR_1 window, and Circle (0x20) returns to the hub. */
     assert(em_area11_interaction_host_status_open() == 1 && em_status_runtime_ui_clock(status) == 0);
     assert(hub_frame(&input) == 0 && hub_frame(&input) == 0 && page->step == 1);
     input.stick_y = 0;
     input.pressed = 0x40;
     assert(hub_frame(&input) == 0 && page->phase == 3 && page->item.screen == 1);
     input.pressed = 0;
-    assert(em_area11_interaction_host_status_page(&input) == 0 && page->step == 1);
-    assert(em_area11_interaction_host_status_page(&input) == -1);
+    input.stick_y = 128;
+    for (int i = 0; i < 8 && page->step != 2; ++i)
+        assert(hub_frame(&input) == 0);
+    assert(page->phase == 3 && page->step == 2);
+    {
+        const unsigned flushes = decor_flushes, scissors = scissor_sets;
+        for (unsigned i = 0; i < 3; ++i)
+            assert(hub_frame(&input) == 0 && page->phase == 3 && page->item.screen == 1);
+        /* The first page call is mode 0 (the nodes, no walk); the next two
+         * are the list view's, each with one 001B0000. */
+        assert(decor_flushes == flushes + 2 && scissor_sets == scissors + 4);
+        const EmStatusScenePool *pool =
+            em_status_models_pool(em_area11_interaction_host_status_models());
+        unsigned nodes = 0;
+        for (unsigned r = 0; r < EM_STATUS_SCENE_POOL_RECORDS; ++r)
+            if (pool->record[r].b00 && pool->record[r].w10 == 0x002101C0u) {
+                assert(pool->record[r].b04 == 1 && !pool->record[r].w44);
+                ++nodes;
+            }
+        assert(nodes == 22);
+    }
+    input.pressed = 0x20;
+    for (int i = 0; i < 8 && page->phase == 3; ++i) {
+        assert(hub_frame(&input) == 0);
+        input.pressed = 0;
+    }
+    for (int i = 0; i < 8 && !(page->phase == 1 && page->step == 1); ++i)
+        assert(hub_frame(&input) == 0);
+    assert(page->phase == 1 && page->step == 1 && !em_area11_interaction_host_failed());
     teardown();
     puts("AREA11 native host original START/TRIANGLE hub: sub-state 0 draws nothing, one "
          "0020A7A0 step, the backdrop flushed before the seven model draws and 00209DF0 per "
-         "hub frame, ITEM and back, 0020E0C0 exit latency, untranslated pages fault PASS");
+         "hub frame, ITEM and back, 0020E0C0 exit latency, MAP and back PASS");
 }
 
 int main(void)

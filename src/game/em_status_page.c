@@ -73,10 +73,12 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         return -1;
     switch (state->phase) {
     case 0:
-        if ((!state->request && state->status_request) ||
-            (state->request && (state->request != 1 ||
-                                (!(state->request_kind & 0xC0) &&
-                                 (state->request_kind < 0x1B || state->request_kind >= 0x1E)))))
+        /* 0020CDC0 case 0. Two branches reach untranslated pages and fault
+         * before any side effect: request 6 (00225A00 / 00225AC0, posted
+         * only by 00157F60 for an owner of type 0x38) and, with no request,
+         * a nonzero D_008106C5 (the passcode pages 002072C0). Neither is
+         * reachable in AREA11 (docs/STATUS_PAGES.md section 1). */
+        if (state->request == 6 || (!state->request && state->status_request))
             return -1;
         if (!emit(worker, context, state, EM_STATUS_PAGE_BLACK_HOLD, 0) ||
             !emit(worker, context, state, EM_STATUS_PAGE_OPEN_SOUND, 0))
@@ -89,11 +91,47 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         state->saved_module = inventory_module(state);
         if (!state->request)
             break;
+        /* The request map, in 0020CDC0's test order. The B1 compares are
+         * signed compares of the zero-extended byte; bit 0xC0 is tested
+         * first. Branches that do not store t[0x15] keep its old value. */
         state->phase = 3;
-        state->item.screen = 0;
-        state->step = 2;
-        state->item.state = 2;
-        state->item.selected = 3;
+        if (state->request == 5) {
+            state->item.screen = 2;
+        } else if (state->request == 4) {
+            state->item.screen = 0;
+            state->step = 2;
+            state->item.state = 2;
+            state->item.selected = 5;
+        } else if (state->request == 1) {
+            const unsigned kind = state->request_kind;
+            state->step = 2;
+            state->item.state = 2;
+            if (kind & 0xC0) {
+                state->item.screen = 0;
+                state->item.selected = 3;
+            } else if (kind < 0x17) {
+                state->item.screen = 2;
+                if (kind < 5)
+                    state->item.selected = 6;
+                else if (kind < 7)
+                    state->item.selected = 2;
+                else if (kind < 0xA)
+                    state->item.selected = 5;
+                else if (kind < 0xF)
+                    state->item.selected = 3;
+                else if (kind < 0x10)
+                    state->item.selected = 4;
+                else
+                    state->step = state->item.state = 0;
+            } else {
+                state->item.screen = 0;
+                state->item.selected = kind < 0x1B ? 1 : kind < 0x1E ? 3 : kind < 0x23 ? 5 : 4;
+            }
+        } else if (state->request == 2) {
+            state->item.screen = 1;
+        } else {
+            state->item.screen = 3;
+        }
         break;
     case 1:
     case 2:
@@ -109,11 +147,19 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
             break;
         case 1:
             if (!state->transition_step) {
-                if (state->item.screen != 0)
+                /* The page module: 0x1F ITEM, 0x1E MAP, 0x2C SPR4, 0x24
+                 * DATABASE (0x25 / 0x26, the passcode pages, are not
+                 * reachable in AREA11: fault). Any other page id only
+                 * advances t[3]. */
+                static const uint8_t modules[4] = {0x1F, 0x1E, 0x2C, 0x24};
+                if (state->item.screen == 4 || state->item.screen == 5)
                     return -1;
-                state->item.asset_busy = 1;
-                if (!emit(worker, context, state, EM_STATUS_PAGE_LOAD, 0x1F))
-                    return -1;
+                if (state->item.screen < 4) {
+                    state->item.asset_busy = 1;
+                    if (!emit(worker, context, state, EM_STATUS_PAGE_LOAD,
+                              modules[state->item.screen]))
+                        return -1;
+                }
                 state->transition_step = 1;
             } else if (state->transition_step == 1 && !state->item.asset_busy) {
                 state->step = 2;
@@ -135,14 +181,22 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
             } else if (state->item.screen == 0) {
                 if (!emit(worker, context, state, EM_STATUS_PAGE_ITEM_TICK, 0))
                     return -1;
-            } else if (state->item.screen == 0x63) {
+            } else if (state->item.screen >= 1 && state->item.screen <= 3) {
+                /* 0020F950 MAP, 00211970 SPR4, 00214020 DATABASE. */
+                if (!emit(worker, context, state, EM_STATUS_PAGE_PAGE_TICK, state->item.screen))
+                    return -1;
+            } else if (state->item.screen == 4 || state->item.screen == 5 ||
+                       state->item.screen == 8) {
+                /* The passcode pages and page 8 (phase 2, the health count-up
+                 * of HEALING kinds 2..4): not reachable in AREA11. */
+                return -1;
+            } else {
+                /* 0x63 and every other page id return to the hub. */
                 state->item.message_phase = 0;
                 state->phase = 4;
                 state->step = state->transition_step = 0;
                 if (!emit(worker, context, state, EM_STATUS_PAGE_PLAYER_TEXTURE, 1))
                     return -1;
-            } else {
-                return -1;
             }
             break;
         default:

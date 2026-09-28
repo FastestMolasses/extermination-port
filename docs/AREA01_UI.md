@@ -48,6 +48,21 @@ contact, where it drives the player's burn particles. (The decomp comment
 calls it the staff-roll director; seq[0xD] selects variants 0..9, of which
 the route showed 9 only.)
 
+**Bound in AREA11 (chain C8b):** 00214020 (DATABASE) with 002131B0,
+002134C0 and 00213F30 runs live in the first level through
+`em_status_pages_live` (STATUS_PAGES.md section 7), with its callees
+dispatched there (00207D90 is its SCISSOR_1 packet's leaf in
+`em_page_draw`); these files are in the main build. Since chain C8b's fix
+round 0020F950 (MAP) with 002101C0 (its nodes, run from the UI pool's walk),
+00210030, 00210A00, 00210C00, 00210F30 and 00211400 run live there too.
+With `EmArea01Ui.leaf_calls` set (the live binding only), 0020F950 and
+00210F30 reach 00207D90 and 00208040 through `call` (the argument registers
+the original loads) instead of running their translations, so the scissor
+and the marker triangle land in `em_page_draw`'s stream; with it 0 (this
+lane's test, the status lane's) they run as before. The model bank the
+nodes bind is the disc's (STATUS_PAGES.md section 7, "MAP"), not this
+lane's stand-in banks.
+
 **Overlap with existing port files** (grep of src/ for each address; no
 translation of any of the 17 exists):
 - `src/game/em_area11_interaction_host.c` and `src/game/em_hud.c` name

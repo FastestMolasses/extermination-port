@@ -1,23 +1,11 @@
 #include "game/em_item_root.h"
+#include "game/em_menu_hover.h"
 
 int em_item_root_hover(EmItemRoot *state, float magnitude, float angle)
 {
     if (!state)
         return -1;
-    unsigned hover = 0;
-    if ((double)magnitude >= 0.8) {
-        if (angle < -0.5235988f)
-            hover = angle < -2.0071287f ? 4 : 3;
-        else if (angle < 0.5235988f)
-            hover = 2;
-        else if (angle < 2.0071287f)
-            hover = 1;
-        else
-            hover = angle < 3.1415927f ? 5 : 4;
-    }
-    int sound = hover != 0 && hover != state->hover;
-    state->hover = (uint8_t)hover;
-    return sound;
+    return em_menu_hover_0020D930(&state->hover, 1, magnitude, angle);
 }
 
 static int emit(EmItemRootWorker worker, void *context, EmItemRoot *state, EmItemRootEvent event,

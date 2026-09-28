@@ -132,7 +132,7 @@ def main():
     library = out / ('item.dylib' if sys.platform == 'darwin' else 'item.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
         '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
-        'src/game/em_item_root.c', '-o', str(library)], cwd=ROOT, check=True)
+        'src/game/em_item_root.c', 'src/game/em_menu_hover.c', '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     Worker = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(State), C.c_int, C.c_uint)
     native.em_item_root_tick.argtypes = [C.POINTER(State), C.c_uint, Worker, C.c_void_p]

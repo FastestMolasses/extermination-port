@@ -1,6 +1,7 @@
 /* em_pickup_items_original.h - original pickup workers the AREA11 item
  * owners reach, translated from the pinned SCUS-97112 boot ELF:
  *
+ *   001C47E0  the item-use consume (see below)
  *   001C40B0  the inventory worker (001C47A0's first call): one switch on
  *             the item type that adds to the D_00810C64 count byte and the
  *             meters it feeds (NEARMISS C; the .s was followed: every clamp
@@ -47,6 +48,14 @@ typedef uint8_t *(*EmPickupItemsAt)(void *ctx, uint32_t address, uint32_t size);
  * (the count byte is D_00810C64 + a0; a1 is added in 32 bits and stored in
  * the byte/halfword width of the destination). */
 int em_pickup_items_001C40B0(EmPickupItemsAt at, void *ctx, int32_t a0, int32_t a1);
+
+/* 001C47E0(a0, a1), the item-use consume (HEALING 002160B0's Yes calls it
+ * with the item type and 1; byte-matched C): the count byte D_00810C64 + a0
+ * (zero-extended) below a1 (a signed compare) returns -1 with no store;
+ * otherwise the byte becomes count - a1 and the reloaded byte is returned.
+ * *v0 receives the original's return value. 0, or -1 when the byte has no
+ * storage (nothing written). */
+int em_pickup_items_001C47E0(EmPickupItemsAt at, void *ctx, int32_t a0, int32_t a1, int32_t *v0);
 
 /* The aura block at owner +0x2D0 (001F1110 writes it, 001F1180 steps it). */
 typedef struct {

@@ -15,6 +15,11 @@ typedef struct {
     int (*sprite)(void *, int x, int y, int w, int h, uint32_t rgba, uint64_t tex0);
 } EmStatusDrawWorkers;
 
+/* Original 001C5FB0(value, width, blank): the decimal field the status
+ * screens print (width 1..4 places, leading blanks when `blank` is nonzero;
+ * see digits() in em_status_draw.c). 1, or 0 for a width outside 1..4. */
+int em_status_draw_001C5FB0(char out[8], int32_t value, int32_t width, int32_t blank);
+
 typedef struct {
     float arcs[4][24];   /* Original00265390/3F0/450/4B0 records. */
     uint64_t white, red; /* Original00265510/528 text style records. */

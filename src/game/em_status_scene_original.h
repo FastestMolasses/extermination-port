@@ -39,6 +39,7 @@
 #ifndef EM_STATUS_SCENE_ORIGINAL_H
 #define EM_STATUS_SCENE_ORIGINAL_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -85,8 +86,12 @@ typedef struct {
 
 /* ---------------------------------------------------------------------------
  * Static actor record (D_0028B020[24][0x2F0]): the bytes the translated
- * functions read or write, by original offset. 001AFE60 clears a whole
- * record; here that is every field below. */
+ * functions read or write, by original offset. The struct is the record's
+ * byte layout (every field at its original offset, the bytes between them
+ * as padding, 0x2F0 bytes; little-endian hosts), so the pool is also the
+ * byte storage a translation that addresses a record by its original
+ * address reads (the MAP page's 002101C0, em_status_pages_live). 001AFE60
+ * clears a whole record; here that is every byte. */
 typedef struct {
     uint8_t b00;          /* +0x00: in use (001AFF10 writes 2; 001B0000 tests it) */
     uint8_t b01, b02, b03;/* +0x01..+0x03: cleared by 001AFF90 */
@@ -101,20 +106,46 @@ typedef struct {
     uint8_t b0E, b0F;     /* +0x0E, +0x0F: cleared by 001AFF90 */
     uint32_t w10;         /* +0x10: behaviour callback (0x20E460 / 0x20E6F0) */
     uint32_t w14;         /* +0x14: the record's own address (001AFF10) */
+    uint8_t pad18[0x1E];
     uint16_t h36;         /* +0x36: cleared by 001AFF90 */
     float f38;            /* +0x38: 0020E6F0 breathe scale */
+    uint8_t pad3C[4];
     uint32_t w40;         /* +0x40: D_0028A580 (0020E6F0 state 0) */
     uint32_t w44;         /* +0x44: model word; written by the 001CA6E0 worker */
+    uint8_t pad48[4];
     uint32_t w4C;         /* +0x4C: draw method; written by the 001CA5F0 worker */
+    uint8_t pad50[0x10];
     float f60[4];         /* +0x60..+0x6C: scale (001AFF10: 1.0) */
+    uint8_t pad70[0x10];
     float f80[4];         /* +0x80..+0x8C: colour (001AFF10: 1.0; 0020E460: 1.5; 0020E6F0 tint) */
     uint32_t w90;         /* +0x90: cleared by 001AFF90 */
     int16_t h94;          /* +0x94: 001AFF10: -1 */
+    uint8_t pad96[2];
     uint8_t b98, b99, b9A;/* +0x98 (001AFF90), +0x99/+0x9A (001AFF10) */
+    uint8_t pad9B[0x15];
     float fB0[3];         /* +0xB0..+0xB8: position */
+    uint8_t padBC[4];
     float fC0[3];         /* +0xC0..+0xC8: rotation (+0xC4 yaw) */
+    uint8_t padCC[0x44];
     uint32_t w110[EM_STATUS_SCENE_BONE_SLOTS]; /* +0x110..+0x2EF: bone slot words */
 } EmStatusSceneActor;
+
+_Static_assert(sizeof(EmStatusSceneActor) == EM_STATUS_SCENE_RECORD_SIZE,
+               "a pool record is 0x2F0 bytes");
+_Static_assert(offsetof(EmStatusSceneActor, w10) == 0x10 &&
+                   offsetof(EmStatusSceneActor, h36) == 0x36 &&
+                   offsetof(EmStatusSceneActor, f38) == 0x38 &&
+                   offsetof(EmStatusSceneActor, w40) == 0x40 &&
+                   offsetof(EmStatusSceneActor, w4C) == 0x4C &&
+                   offsetof(EmStatusSceneActor, f60) == 0x60 &&
+                   offsetof(EmStatusSceneActor, f80) == 0x80 &&
+                   offsetof(EmStatusSceneActor, w90) == 0x90 &&
+                   offsetof(EmStatusSceneActor, h94) == 0x94 &&
+                   offsetof(EmStatusSceneActor, b98) == 0x98 &&
+                   offsetof(EmStatusSceneActor, fB0) == 0xB0 &&
+                   offsetof(EmStatusSceneActor, fC0) == 0xC0 &&
+                   offsetof(EmStatusSceneActor, w110) == 0x110,
+               "every pool record field at its original offset");
 
 typedef struct {
     EmStatusSceneActor record[EM_STATUS_SCENE_POOL_RECORDS]; /* D_0028B020 */

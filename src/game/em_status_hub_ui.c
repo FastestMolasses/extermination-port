@@ -593,10 +593,13 @@ int em_status_hub_ui_prepare(EmStatusHubUI *ui, const EmStatusHubDisplay *displa
         case RECORD_TEXT:
             if (integer(p + 20) & TEXT_INFECTION) {
                 /* 209DF0: 00123168(D_002862C0, 001C5FB0(n,3,1)), then
-                 * 00122EF0 appends D_00273570. Here 0 <= n <= 99, so the
-                 * formatter blanks leading zeros of a three-place field. */
-                char value[72] = {' ', infection >= 10 ? (char)('0' + infection / 10) : ' ',
-                                  (char)('0' + infection % 10), 0};
+                 * 00122EF0 appends D_00273570 (001C5FB0: the one
+                 * translation, em_status_draw_001C5FB0). */
+                char value[72];
+                if (!em_status_draw_001C5FB0(value, infection, 3, 1)) {
+                    ok = 0;
+                    break;
+                }
                 strcat(value, ui->percent);
                 ok = text_command(ui, 0, integer(p + 4), integer(p + 8), integer(p + 12),
                                   integer(p + 16), value, wide(p + 24), 0);
@@ -801,6 +804,14 @@ static void help_view(const Record *record, EmStatusHubUICommand *out)
 const EmStatusBatteryData *em_status_hub_ui_battery_data(const EmStatusHubUI *ui)
 {
     return ui && ui->battery.label && ui->battery.separator ? &ui->battery : NULL;
+}
+
+const EmStatusHealthData *em_status_hub_ui_health_data(const EmStatusHubUI *ui)
+{
+    return ui && ui->health.label && ui->health.warning_max && ui->health.normal_max &&
+                   ui->health.separator
+               ? &ui->health
+               : NULL;
 }
 
 int em_status_hub_ui_tile(const EmStatusHubUI *ui, uint64_t tex0, float out[4])

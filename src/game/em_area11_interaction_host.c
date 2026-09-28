@@ -27,6 +27,7 @@
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
 #include "game/em_status_background.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_status_models.h"
 
 /* One AREA11 item owner (00219550 x6, 0015AFA0) the host binds (WP-6). */
@@ -703,6 +704,73 @@ static int message_words(void *context, int32_t *words[4])
     return 1;
 }
 
+/* 0015C700(D_008102B0): the player record's +0x220 and low-health latch
+ * and 0015C7C0's clip (player_pose_0015C700), with 001B0070()'s word
+ * D_008106C8 from the canonical request block. */
+static int page_player_0015C700(void *context, int (*table16)(void *, uint32_t, int16_t *),
+                                void *table_context)
+{
+    (void)context;
+    const uint8_t *c8 = em_scene_req_at(em_scene_state(), 0x008106C8u);
+    const uint32_t word = (uint32_t)c8[0] | (uint32_t)c8[1] << 8 | (uint32_t)c8[2] << 16 |
+                          (uint32_t)c8[3] << 24;
+    return player_pose_0015C700(g.status.health, word, table16, table_context) ? 0 : -1;
+}
+
+/* The MAP page's 001B0000 models at their place in the page's draw
+ * stream (em_status_pages_live): the walk's queued draws on 0020DFA0's
+ * camera (as the hub's), clipped to the page's SCISSOR_1 window. */
+static int pages_models_draw(void *context, EmGfx *gfx, const float clip[4])
+{
+    (void)context;
+    /* An empty SCISSOR_1 window draws nothing (the next walk resets the
+     * queue before any draw). */
+    if (!(clip[2] > clip[0] && clip[3] > clip[1]))
+        return 1;
+    em_gfx_draw_scissor(gfx, clip);
+    const int ok = em_status_models_render(world.models, gfx, em_rcl_zoom()) == 1;
+    em_gfx_draw_scissor(gfx, NULL);
+    return ok;
+}
+
+/* 001CB480's light (the MAP nodes' kind-7 draw): 001D8C20(2) and 001D89D0
+ * over the render context's canonical storage (em_owner_draw_live). */
+static int models_light(void *context, int32_t mode, const EmOwnerServicesOwner *owner,
+                        const uint32_t rgb[4], float a[16], float b[16])
+{
+    (void)context;
+    return em_owner_draw_live_light(mode, owner, rgb, a, b);
+}
+
+/* The status pages' storage (em_status_pages_live.h): the canonical
+ * request and progress bytes, the live message block, the mode byte, the
+ * vitals g.status (D_00810858 / 5C, the port's only copy), D_008104E4 =
+ * g.pd_infected, the main-loop counter, em_weapon's C61 / C62 / CB4, and
+ * for MAP the UI pool (world.models) and the player record's +0xA0 / +0xC4
+ * (g.pos / g.yaw, the port's copies of D_00810350 / D_00810374). */
+static int pages_frame(void *context, EmStatusPagesFrame *frame)
+{
+    (void)context;
+    EmSceneState *scene = em_scene_state();
+    frame->req = scene->req;
+    frame->progress = scene->progress.bytes;
+    frame->message = em_message_live_block();
+    frame->spad3B8D = &scene->spad3B8D;
+    frame->health = &g.status.health;
+    frame->infection = &g.status.infection;
+    frame->warning = (uint8_t)g.pd_infected;
+    frame->counter = em_frame_counter();
+    frame->c62 = em_weapon_mag_byte();
+    frame->cb4 = em_weapon_reserve_word();
+    frame->fire_mode = em_weapon_fire_mode;
+    frame->set_fire_mode = em_weapon_set_fire_mode;
+    frame->models = world.models;
+    frame->player_position = g.pos;
+    frame->player_yaw = &g.yaw;
+    frame->area = &scene->d810700;
+    return frame->message && frame->c62 && frame->cb4 ? 1 : 0;
+}
+
 static EmStatusRuntimeHooks native_status_hooks(void)
 {
     return (EmStatusRuntimeHooks){.read_inventory = read_inventory,
@@ -710,7 +778,7 @@ static EmStatusRuntimeHooks native_status_hooks(void)
         .frame_event = status_frame_event, .page_event = status_page_event,
         .sound = status_sound, .battery_page = battery_page, .hub_display = hub_display,
         .hub_models = hub_models, .hub_models_draw = hub_models_draw,
-        .message_words = message_words};
+        .message_words = message_words, .pages_frame = pages_frame};
 }
 
 static int align_player(void *context, const float position[3])
@@ -1269,11 +1337,31 @@ int em_area11_interaction_host_load(const char *directory,
     /* The hub's 3D models (tools/export_status_models.py). */
     world.models = em_status_models_load("assets/status_models");
     if (!world.models) goto failed;
+    /* The MAP page's model bank D_0028A570 (tools/export_status_map.py):
+     * without it a node that binds a map model faults (reported). */
+    (void)em_status_models_load_map(world.models, "assets/status_map");
+    em_status_models_set_light(world.models, models_light, NULL);
     /* The original hub's 00209DF0 records (tools/export_status_hub.py). */
     snprintf(path, sizeof path, "%s/panel/status_hub.emhs", directory);
     snprintf(item_path, sizeof item_path, "%s/panel/status_hub_atlas.emha", directory);
     if (!em_status_runtime_bind_hub(world.status, em_status_hub_ui_load(path, item_path, math)))
         goto failed;
+    /* The status pages MAP / SPR4 / DATABASE and the ITEM children
+     * (tools/export_status_pages.py): without the data they stay unbound
+     * and fault when the player opens one, as before. */
+    {
+        static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
+                                                     page_find_device, page_player_0015C700,
+                                                     pages_models_draw};
+        EmStatusPagesLive *pages =
+            em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
+        if (!pages)
+            fprintf(stderr, "AREA11 interaction: assets/status_pages/status_pages.emsp is missing "
+                    "(python3 tools/export_status_pages.py): the status pages MAP, SPR4, "
+                    "DATABASE, EQUIPMENT, EVENT and HEALING stay unbound\n");
+        else if (!em_status_runtime_bind_pages(world.status, pages))
+            goto failed;
+    }
     world.panel_class = world.panel_record->class_flags;
     world.elevator_class = world.elevator_record->class_flags;
     world.elevator_status = world.elevator_record->initial_status;
@@ -1812,15 +1900,23 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input)
         &scene->req[EM_SCENE_REQ_B1], &scene->req[EM_SCENE_REQ_C5],
         em_scene_req_at(scene, 0x008106CCu));
     if (result < 0) {
-        /* A request whose page is not translated: name it (0020CDC0 case
-         * 0's mapping of B0/B1). */
-        const uint8_t b0 = scene->req[EM_SCENE_REQ_B0], b1 = scene->req[EM_SCENE_REQ_B1];
-        const char *page = b0 == 2 ? "MAP 0020F950" : b0 == 3 ? "DATABASE 00214020" :
-                           b0 != 1 || (b1 & 0x80) || (b1 >= 0x1B && b1 <= 0x1D) ? NULL :
-                           b1 < 0x17 ? "SPR4 00211970" : "the ITEM child 002160B0";
-        if (page && !world.failed)
-            fprintf(stderr, "AREA11 interaction: status request B0 = %u, B1 = %#04x opens %s, "
-                    "which is not translated\n", (unsigned)b0, (unsigned)b1, page);
+        /* A page that is not bound: name it from the page core's block
+         * (0020CDC0 t[0x10], and the ITEM root's state t[4] / next state
+         * t[6] for its children). */
+        const EmStatusPage *page = em_status_runtime_page(world.status);
+        static const char *const pages[4] = {"ITEM 0020EE50", "MAP 0020F950", "SPR4 00211970",
+                                             "DATABASE 00214020"};
+        const unsigned child = page ? (page->item.state == 3 ? page->item.next_state
+                                                              : page->item.state) : 0;
+        const char *name = !page || page->phase != 3 || page->item.screen > 3 ? NULL :
+                           page->item.screen != 0 ? pages[page->item.screen] :
+                           child == 4 ? "the ITEM child EQUIPMENT 00214570" :
+                           child == 6 ? "the ITEM child EVENT 00215870" :
+                           child == 7 ? "the ITEM child HEALING 002160B0" : NULL;
+        if (name && !world.failed)
+            fprintf(stderr, "AREA11 interaction: the status page %s is not bound (B0 = %u, "
+                    "B1 = %#04x)\n", name, (unsigned)scene->req[EM_SCENE_REQ_B0],
+                    (unsigned)scene->req[EM_SCENE_REQ_B1]);
         return fail("0020CDC0");
     }
     return result;

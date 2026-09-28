@@ -2590,6 +2590,54 @@ void em_gfx_overlay_backdrop_flush(EmGfx *g)
     backdrop_flush(g);
 }
 
+/* The ordered 2D layer so far (em_gfx.h): the backdrop, then the decor
+ * queue with its per-record blends; end_frame then finds them empty. */
+void em_gfx_overlay_decor_flush(EmGfx *g)
+{
+    if (!g || !g->enc) return;
+    backdrop_flush(g);
+    texquad_flush(g, EM_GFX_OVERLAY_TEX_UI, g->spriteVerts, &g->spriteVertCount, g->spriteBlend);
+}
+
+/* The game frame rect begin_frame set (viewport and scissor), in drawable
+ * pixels. */
+static void game_frame_rect(EmGfx *g, double *vx, double *vy, double *vw, double *vh)
+{
+    double dw = (double)g->target.width, dh = (double)g->target.height;
+    *vw = dw; *vh = dh; *vx = 0.0; *vy = 0.0;
+    if (dw * 3.0 >= dh * 4.0) { *vw = dh * 4.0 / 3.0; *vx = (dw - *vw) * 0.5; }
+    else                      { *vh = dw * 3.0 / 4.0; *vy = (dh - *vh) * 0.5; }
+}
+
+void em_gfx_draw_scissor(EmGfx *g, const float rect[4])
+{
+    if (!g || !g->enc || !g->target) return;
+    double vx, vy, vw, vh;
+    game_frame_rect(g, &vx, &vy, &vw, &vh);
+    if (!rect || g->overlayW <= 0.0f || g->overlayH <= 0.0f) { /* begin_frame's rect */
+        [g->enc setScissorRect:(MTLScissorRect){(NSUInteger)vx, (NSUInteger)vy, (NSUInteger)vw,
+                                                (NSUInteger)vh}];
+        return;
+    }
+    double x0 = vx, y0 = vy, x1 = vx + vw, y1 = vy + vh;
+    {
+        const double sx = vw / g->overlayW, sy = vh / g->overlayH;
+        double rx0 = vx + rect[0] * sx, ry0 = vy + rect[1] * sy;
+        double rx1 = vx + rect[2] * sx, ry1 = vy + rect[3] * sy;
+        x0 = rx0 > x0 ? rx0 : x0; y0 = ry0 > y0 ? ry0 : y0;
+        x1 = rx1 < x1 ? rx1 : x1; y1 = ry1 < y1 ? ry1 : y1;
+    }
+    NSUInteger ix0 = (NSUInteger)(x0 + 0.5), iy0 = (NSUInteger)(y0 + 0.5);
+    NSUInteger ix1 = x1 > x0 ? (NSUInteger)(x1 + 0.5) : ix0, iy1 = y1 > y0 ? (NSUInteger)(y1 + 0.5) : iy0;
+    /* Metal refuses an empty rect; the callers skip their draws for an
+     * empty window, so this only keeps the encoder valid. */
+    if (ix1 <= ix0) ix1 = ix0 + 1;
+    if (iy1 <= iy0) iy1 = iy0 + 1;
+    if (ix1 > g->target.width) { ix1 = g->target.width; if (ix0 >= ix1) ix0 = ix1 - 1; }
+    if (iy1 > g->target.height) { iy1 = g->target.height; if (iy0 >= iy1) iy0 = iy1 - 1; }
+    [g->enc setScissorRect:(MTLScissorRect){ix0, iy0, ix1 - ix0, iy1 - iy0}];
+}
+
 /* --- Player drop shadow (em_gfx.h, em_shadow_gs.h) ----------------------- */
 
 /* Shadow shaders. v_shadow_world: world position through the frame's

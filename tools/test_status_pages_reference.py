@@ -35,8 +35,8 @@ cover (QUICK_PINS, from the `cover` command) plus EXTRA_PINS, with the
 heavy callees memoised / replayed and 0020A7A0 / 0020AC70 as entry-checked
 boundaries (docs/STATUS_PAGES.md section 3). Both runs add SURVIVOR_PINS,
 the cases that kill the review's surviving mutants. Commands: `debug`,
-`cover`, `mutants`. The default run is serial; EM_TEST_FULL=1 uses up to
-four worker processes; EM_TEST_JOBS=n overrides either.
+`cover`, `mutants`. Both runs use up to four worker processes;
+EM_TEST_JOBS=n overrides (1: serial).
 """
 import ctypes as C
 import hashlib
@@ -64,10 +64,12 @@ R.OUT = U.OUT = OUT
 F = R.F
 T = 0x810130                       # the status block D_00810130
 FREE = 0x1A00000                   # zero in every capture: crafted inputs live here
-# Worker processes: the default run is serial (the quick-mode memo is per
-# process, so workers re-run the heavy callees and cost more CPU than they
-# save); EM_TEST_FULL=1 uses up to four. EM_TEST_JOBS overrides both.
-JOBS = R.JOBS if (RM.FULL or os.environ.get('EM_TEST_JOBS')) else 1
+# Worker processes: up to four in both runs (EM_TEST_JOBS overrides). The
+# quick-mode memo is per process, so workers re-run the heavy callees: the
+# default run costs about 10 % more CPU in parallel (13.9 s against 12.7 s
+# serial on the M1, 2026-09-27) but ends in about 5 s of wall time instead
+# of 13 s (the ~10 s default budget). EM_TEST_JOBS=1 runs it serially.
+JOBS = R.JOBS
 
 CAP = ROOT.parent / 'Extermination' / 'build'
 IMAGES = {  # name -> capture directory (eeMemory.bin, scratchpad.bin)

@@ -17,7 +17,7 @@ MODULES = (
     'em_collision em_panel_runtime em_panel_program em_panel em_message_live em_message_service '
     'em_message_draw_original em_message_glyph_original '
     'em_elevator_runtime em_elevator_program em_elevator em_status_runtime em_status_frame '
-    'em_status_page em_item_root em_item_ui em_item_trail em_item_sdk_math em_item_device '
+    'em_status_page em_item_root em_menu_hover em_gs_texture em_page_draw em_status_pages_live em_status_pages_helpers em_status_pages_item em_status_pages_spr4 em_status_pages_parts em_area01_ui_pages em_item_ui em_item_trail em_item_sdk_math em_item_device '
     'em_battery_ui em_battery_page_live em_status_page_record em_message_presenters_live '
     'em_message_presenter_rest em_status_hub em_status_hub_ui em_status_draw em_status_models em_status_scene_original '
     'em_owner_services_original em_item_geometry em_pickup em_pickup_items_original em_pickup_owner em_pickup_program em_pickup_motion '
@@ -31,7 +31,8 @@ MODULES = (
     'em_player_reaction em_player_fall em_stream_lanes_original '
     # The render context (census L32 / L30, docs/RENDER_CONTEXT.md section 8).
     'em_render_context_live em_gs_blocks_original em_frame_kick em_frame_render_heads em_render_context em_packet_chain_original '
-    'em_status_ui_leftovers em_load_veil_particles em_actor_light_001D89D0 em_player_equipment'
+    'em_status_ui_leftovers em_load_veil_particles em_actor_light_001D89D0 em_player_equipment '
+    'em_owner_draw_live em_owner_draw_original em_object_unit em_point_light'
 ).split()
 
 

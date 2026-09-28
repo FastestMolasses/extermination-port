@@ -1,6 +1,6 @@
-/* Original0020CDC0 ITEM/BATTERY route and0020E0C0 exit lifecycle.
- * The broader status hub and other inventory pages remain required workers;
- * Back is never substituted with closing the interaction. */
+/* Original 0020CDC0 (the status screen's page core) and the 0020E0C0 exit
+ * lifecycle. The hub, the ITEM root and the pages MAP / SPR4 / DATABASE are
+ * required workers; Back is never substituted with closing the interaction. */
 #ifndef EM_STATUS_PAGE_H
 #define EM_STATUS_PAGE_H
 
@@ -28,7 +28,9 @@ typedef enum {
     EM_STATUS_PAGE_RESTORE_PLAYER, /*0015C7B0(player) */
     EM_STATUS_PAGE_END_PROJECTION, /*0021BAE0(0) inside0020E080 */
     EM_STATUS_PAGE_CLOSE_SOUND,    /*001FB9F0(D,1000,1000,1000) */
-    EM_STATUS_PAGE_BACK_SOUND      /*0020CD60 */
+    EM_STATUS_PAGE_BACK_SOUND,     /*0020CD60 */
+    EM_STATUS_PAGE_PAGE_TICK       /* phase 3 sub-state 2, argument t[0x10]: 1 0020F950 MAP,
+                                    * 2 00211970 SPR4, 3 00214020 DATABASE */
 } EmStatusPageEvent;
 
 /* All side effects return1 only after accepted work. Actual asynchronous
@@ -37,11 +39,13 @@ typedef enum {
 typedef int (*EmStatusPageWorker)(void *context, EmStatusPage *state, EmStatusPageEvent event,
                                   unsigned argument);
 
-/*0 waiting,1 actual exit completed,-1 unsupported route or worker failure.
- * Cold entry supports the normal hub (request0/status_request0), original
- * panel request1 with kind&C0 and battery
- * acquisition indices1B..1D. Phase3
- * supports ITEM screen0 and the original63 return to the status hub. */
+/* 0 waiting, 1 actual exit completed, -1 unsupported route or worker failure.
+ * Cold entry follows 0020CDC0 case 0's request map (docs/STATUS_PAGES.md
+ * section 1) for every request except 6 (00225A00) and, without a request,
+ * a nonzero D_008106C5 (the passcode pages): those fault before any side
+ * effect. Phase 3 loads the module of pages 0..3, ticks them and returns to
+ * the hub on any other page id; the passcode pages 4 / 5 and page 8 (phase
+ * 2) fault. None of the faulting branches is reachable in AREA11. */
 int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorker worker,
                         void *context);
 
