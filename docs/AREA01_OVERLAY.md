@@ -89,7 +89,7 @@ supply the node addresses and placements (SECOND_LEVEL_ROUTE.md section 1).
 
 | Entry | Ground truth | Behaviour |
 |---|---|---|
-| 0x823580 | original code (asm in the decomp) | Owner of the shaft door (placement [12], node 0x7ABD10). **+0x04:** 0 calls 001BBDA0 and sets +0x00 = 1; 1 runs; 2 and 3 free the node (001AFC10). **Running:** +0x05 selects one of seven steps. Step 0 is the kickoff: 001BBE40(self, self+0x1F0, mode), with mode 0 when the story byte D_008107D9 is 0x81 (the next step is then 3) and mode 1 otherwise (the next step is 1). Step 1 waits on 001BC0E0, then starts script 0x829860. Step 2 waits on 001BC0E0; if the story byte is 0 or 0x80 it stores 0x80, starts script 0x8298E0, ticks it once and moves to step 6; otherwise it clears +0x0B and returns to step 0. Step 3 waits on 001BC0E0. Step 4 calls 001BC240. Step 5 waits on 001BC290, then returns to step 0. Step 6 ticks the script until it ends, then clears +0x0B and +0x05. **Every running frame then** sets byte +0x0B of the node whose address it read from its own +0x1C at entry: 1 when the story byte is 0x81, else 0. It then calls 001BC300. |
+| 0x823580 | original code (decomp C byte-identical, NEARMISS: its jump table cannot link yet) | Owner of the shaft door (placement [12], node 0x7ABD10). **+0x04:** 0 calls 001BBDA0 and sets +0x00 = 1; 1 runs; 2 and 3 free the node (001AFC10). **Running:** +0x05 selects one of seven steps. Step 0 is the kickoff: 001BBE40(self, self+0x1F0, mode), with mode 0 when the story byte D_008107D9 is 0x81 (the next step is then 3) and mode 1 otherwise (the next step is 1). Step 1 waits on 001BC0E0, then starts script 0x829860. Step 2 waits on 001BC0E0; if the story byte is 0 or 0x80 it stores 0x80, starts script 0x8298E0, ticks it once and moves to step 6; otherwise it clears +0x0B and returns to step 0. Step 3 waits on 001BC0E0. Step 4 calls 001BC240. Step 5 waits on 001BC290, then returns to step 0. Step 6 ticks the script until it ends, then clears +0x0B and +0x05. **Every running frame then** sets byte +0x0B of the node whose address it read from its own +0x1C at entry: 1 when the story byte is 0x81, else 0. It then calls 001BC300. |
 | 0x825130 | decomp C | Script op09 callback (owner, script block, record). Phase 0 chooses clip 6 or 5 from 001B1380(D_00810350, self+0xB0, yaw), blend 20. Phase 1 turns yaw (+0xC4) toward the point D_00810350+0x10/+0x18 (001B1240 goal, 001B12B0 at the record's +0x0C rate). It returns 1 when the turned yaw equals the goal. |
 | 0x825240 | decomp C | Script op09 callback. Phase 0 chooses clip 5 when the wrapped (yaw − record +0x24) is > 0, else clip 6. Phase 1 turns yaw toward the record's +0x24. On arrival it plays the record's +0x1C clip (blend 20, frame 0) and returns 1. |
 | 0x825350 | decomp C | Owner of the control-room NPC (placement [36], node 0x7B0390). **+0x04:** 0 is set-up (it goes to 3 when D_0081075A != 0): 001B10B0, 001C63E0, 001BA8E0, then +0x30 = 0x82A7A0 and +0x58 = D_0028A5C4. 1 runs the talk machine that the story byte selects (0 → 0x8254B0, 0x80 → 0x825590, 0x81 → 0x825670), then calls 001BA580, 001C64F0(1.0), 001C68C0, 001B17A0 and the +0x4C callback. 2 is idle. 3 calls 001BA540 and frees the node. |
@@ -100,7 +100,7 @@ supply the node addresses and placements (SECOND_LEVEL_ROUTE.md section 1).
 | (shared tail) | decomp C | 001C6380; header byte +0x01 = 1 when 001B1EA0(0, D_00810350, 0x82CC20, 4) or, failing that, the same call with 0x82CC60 returns 1; then 001B1B70, 001A2370(self, self+0xD0) and the +0x4C callback. |
 | 0x8267C0 | decomp C | Owner of placement [45]. **+0x04:** 0 calls 001B0FD0; on 0 it calls 001C6380 and sets +0x00 = 1. 1: while 001BA1C0(self, 15) is 0 and 001BA1C0(self, 7) is non-zero, it starts script 0x82B590 once 001B1EA0(0, D_00810350, 0x82CCA0, 4) and 001B1EA0(2, …) are both non-zero, then ticks the script until it ends. It draws when 001B17A0 != 0. 2 and 3 free the node. |
 | 0x826CF0 | decomp C | Owner of placement [37] and of a sub-0 group. Header byte +0x03 == 1 calls 001C5C90; any other value calls 001C4820. |
-| 0x826D40 | original code (asm in the decomp) | Deferred-group owner (three nodes per sub). Its fields are described in the file header. **+0x04:** 0 is set-up: timers, steps, a random +0x28, the B-record angle, and a class-0xC companion node (001AFA90, behaviour 001C5680) stored at +0x220. It moves to 0x64, or to 4 when 001BA1C0(self, 6) is non-zero. 0x64 waits for that result, then goes to 4. 4 sweeps: A+0x74 (clamped to ±1.134464) and the phase +0x1FC drive B+0x78 = −0.829 + 0.305·sin(phase), with random re-seeding and sounds 0x423/0x424/0x428. While +0x208 <= 0 it also calls 0x8282F0 every frame and moves to 1 once +0x204 is non-zero. 1 follows the record at +0x204: from the flattened, normalised direction between A (+0xC0) and that record (+0xB0) it steps A+0x74 by ±0.011635528 or, inside that dead band, sets it from atan (001B1470-wrapped); it steps B+0x78 toward atan(y / sqrt(x² + z²)). When +0x200 reaches 14 and 0x8282F0 returned non-zero it plays sound 0x425, calls 0x8287C0 and requests an effect through 001EFD90 whose id depends on 0x700031D8 and the records at 0x700031D0/0x700031D4 (0x80000003/06/07/26/2C/67; 0019B6C0 decides one branch). It returns to 4 when +0x2A goes negative. 2 winds the phase to −pi/2, then fades the companion (lane chosen by +0x224) over +0x21C frames. 3 and unknown values free the node. In states 4 and 1, while +0x208 is positive it counts down; below 0x1F it fades the companion's +0xA0..+0xAC words instead of sweeping. |
+| 0x826D40 | decomp C (byte-identical, links from C) | Deferred-group owner (three nodes per sub). Its fields are described in the file header. **+0x04:** 0 is set-up: timers, steps, a random +0x28, the B-record angle, and a class-0xC companion node (001AFA90, behaviour 001C5680) stored at +0x220. It moves to 0x64, or to 4 when 001BA1C0(self, 6) is non-zero. 0x64 waits for that result, then goes to 4. 4 sweeps: A+0x74 (clamped to ±1.134464) and the phase +0x1FC drive B+0x78 = −0.829 + 0.305·sin(phase), with random re-seeding and sounds 0x423/0x424/0x428. While +0x208 <= 0 it also calls 0x8282F0 every frame and moves to 1 once +0x204 is non-zero. 1 follows the record at +0x204: from the flattened, normalised direction between A (+0xC0) and that record (+0xB0) it steps A+0x74 by ±0.011635528 or, inside that dead band, sets it from atan (001B1470-wrapped); it steps B+0x78 toward atan(y / sqrt(x² + z²)). When +0x200 reaches 14 and 0x8282F0 returned non-zero it plays sound 0x425, calls 0x8287C0 and requests an effect through 001EFD90 whose id depends on 0x700031D8 and the records at 0x700031D0/0x700031D4 (0x80000003/06/07/26/2C/67; 0019B6C0 decides one branch). It returns to 4 when +0x2A goes negative. 2 winds the phase to −pi/2, then fades the companion (lane chosen by +0x224) over +0x21C frames. 3 and unknown values free the node. In states 4 and 1, while +0x208 is positive it counts down; below 0x1F it fades the companion's +0xA0..+0xAC words instead of sweeping. |
 | 0x828850 | decomp C | The partner of 0x826D40 (its +0x18 points at the 0x826D40 node). **+0x04:** 0 calls 001B0FD0; on 0 it sets +0x34 = 1 and +0x00 = 1, and when 001B11E0(+0x9A) is set it sets partner +0x04 = 2 and its own +0x04 = 3. 1: when +0x36 != 0, it sets +0x00 = 2, partner +0x04 = 2 and partner +0x21C = 0x5A, then either 001EFE00(0x80000045, self) → sound 0x426 and state 2, or state 3. Otherwise it animates and draws. 2 counts +0x28 up to 10 (sound 0x427 at 10), then calls 001B1190(+0x9A) and draws. 3 and above free the node. |
 
 ### Facts this lane measured
@@ -768,7 +768,7 @@ It compiles the module into `build/area01/ovl/area01_overlay.dylib` with
     0x80000000 and 0xFFFFFFFF (with 2, 3, 0x100, 0x10000) at all 35 tests
     of a callee's integer result;
   - Z29: the tracker's 0x8282F0 result 3, 0x102, 0x10002, 0x80000000 and
-    0xFFFFFFFF at `== 2` (no range proof is used; 0x8282F0 is NEARMISS);
+    0xFFFFFFFF at `== 2` (no range proof is used; 0x8282F0 is now byte-matched decomp C, which returns only 0, 1 or 2);
   - Z18: 001B1EA0 scribbles move D_00810350+4 across 2.0 both ways, and
     the ordered access log sees the moved read;
   - Z14: the three talk machines' +0x05 gets 0, 1, 2 with each bit
@@ -1157,7 +1157,7 @@ Mutation-sweep costs (scratch, at most 4 workers; compile time included):
   hook to its verified port translation, or to a fail-stop stand-in.
 - **The callees are not verified here.** Their behaviour is the other lanes' work
   and the port's existing modules. Of the ones reached only from this set:
-  0x8282F0 (NEARMISS in the decomp) and 0x8287C0 (decomp C) are called only by
+  0x8282F0 and 0x8287C0 (both byte-matched decomp C) are called only by
   0x826D40, and neither ran on the recorded route. The
   pool-side 001AFA90 companion spawn and 001C5680 are also untranslated here.
 - **Unused register arguments (not proven by the test).** Where the original
@@ -1179,7 +1179,8 @@ Mutation-sweep costs (scratch, at most 4 workers; compile time included):
   original makes (for example set-up's `001BA1C0(self, 6) != 0`, where a
   translation testing `== 1` now fails). No proof of a callee's range is
   used anywhere, so none rests on the NEARMISS callees (001BA1F0,
-  0019B6C0, 00182BF0, 001B11E0, 0x8282F0). What the real callees return is
+  0019B6C0, 00182BF0, 001B11E0; 0x8282F0 has been byte-matched C since
+  the decomp's A01C lane, 2026-09-28). What the real callees return is
   still their definitions' business. 001BA1C0's compiled decomp C returns
   `D_00810758[a1] == 0xFF` (only 0 or 1), and 0011DF78 clears the sign
   bit, so with the real callees some of those forms could not be told
@@ -1211,7 +1212,14 @@ Mutation-sweep costs (scratch, at most 4 workers; compile time included):
   if that model changed.
 - **Live evidence for 0x826D40's states 4, 1 and 2** would need a route on which
   001BA1C0(node, 6) becomes non-zero. The recorded route leaves the three nodes in
-  0x64. (SECOND_LEVEL_ROUTE.md calls them sentry guns only as a guess.)
+  0x64. (SECOND_LEVEL_ROUTE.md called them sentry guns as a guess. Since
+  2026-09-27 the decomp's FINDINGS (s78 section 7 correction) and CURIOSITIES
+  26 decode AREA11's 0x825940 / 0x827490 as a security gun, dormant in state
+  0x64 until a story flag is set, and its power cable, and report the same
+  pair in AREA01; the overlay scan they cite (decomp
+  build/workflows/verify-area11-husks.output.json) has AREA01's gun gated on
+  story flag 6. That fits these nodes and the 001BA1C0(node, 6) gate above, but the identity was not
+  checked against this translation and no capture shows them switched on.)
 
 ## Known limitation of the parallel test runner (2026-09-26)
 

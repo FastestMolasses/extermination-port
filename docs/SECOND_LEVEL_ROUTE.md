@@ -2,7 +2,9 @@
 
 Lane "a01-route", 2026-09-25 (session s87); revised the same day after review
 (lane "route-doc": census regrouped by real overlay function at decomp commit
-bdd40fb, story-gate and message claims narrowed to what the captures show).
+bdd40fb, story-gate and message claims narrowed to what the captures show);
+refreshed 2026-09-28 (lane "A01DOC": facts later commits changed, at decomp
+fa4b42c and port aaacac6).
 Original executable SHA-256
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
 
@@ -12,9 +14,10 @@ from that arrival to its exit into AREA00. Every beat was played in the original
 game (hidden PCSX2, exact one-frame steps) by `../Extermination/tools/route_capture.py`,
 with pad input only: no teleports and no memory writes. Each beat has a
 per-frame trace and a snapshot that later sessions can resume from. Nothing here
-is port behaviour, and nothing in the port consumes it yet: the first level is
-still the only goal (CLAUDE.md). The document exists so that AREA01 work, when it
-starts, starts from facts.
+is port behaviour. Since 2026-09-26 the port's AREA01 phase-2 modules (standalone
+translations and asset exports, commits e21bd95 and efe9f83, docs AREA01_*.md)
+use these captures as oracle inputs; none of them is bound into the game, and the
+first level is still the main goal (CLAUDE.md).
 
 It names addresses, values and frames only; in-game text (dialogue, page
 titles) is described, never quoted. Positions are world units; yaw is the
@@ -25,6 +28,8 @@ once per frame, so a change that is undone within one frame is not seen.
 
 The AREA01 beats are an opt-in group of `route_capture.py`. `--beats all` still
 runs only beats 00..14, and beat 15 stays opt-in; beats 00..15 are unchanged.
+Session s88 added four side beats (a01_s4..a01_s7, section 9) to the group;
+the twelve earlier beats and their code are unchanged.
 
 ```sh
 # decomp repo, .venv python, repo root
@@ -71,8 +76,20 @@ runs only beats 00..14, and beat 15 stays opt-in; beats 00..15 are unchanged.
   position and a 001C5680 indicator node at the same position. The tunnel
   pickup opens a DATA BASE page (message 04/0x48); its on-screen content was
   seen only in the exploratory run (section 8), where it concerned sentry guns.
-  That the 0x826D40 nodes are those guns is a guess from that page and their
-  wall positions, not an observation.
+  That the 0x826D40 nodes are those guns was first a guess from that page and
+  their wall positions. Later support, still not an observation: the decomp's
+  FINDINGS (s78 section 7 correction, 2026-09-27) and CURIOSITIES 26 decode
+  AREA11's pair 0x825940 / 0x827490 as a security gun (dormant in state 0x64
+  until a story flag is set; a lamp child 001C5680) and its power cable, and
+  report the same pair (sounds 0x423..0x428) in AREA01; the overlay scan they
+  cite (decomp build/workflows/verify-area11-husks.output.json) adds type bytes
+  0x1A (gun) and 0x29 (cable) at one position and, in AREA01, a gate on story
+  flag 6.
+  AREA01's 0x826D40 records carry model 0x1A and the 0x828850 records 0x29
+  (AREA01_OVERVIEW.md section 7.2), and the port's translation of 0x826D40
+  keeps all three nodes in state 0x64 on this route, leaving it only when
+  001BA1C0(node, 6) is non-zero (AREA01_OVERLAY.md). No beat shows them
+  switched on.
 
 ## 2. The level, from the original's own data
 
@@ -99,12 +116,12 @@ otherwise.
   | Record | Callback | Position | Door id | Destination record | Route |
   |---|---|---|---|---|---|
   | [12] | overlay 0x823580 | (-35.5, -35, -1276.5) | 0\|0x80 | 00 00 00 00 | locked, then the **level exit** (beats a01_03, a01_07) |
-  | [14] | 001BC350 | (-20.5, 0, -192) | 1\|0x80 | 02 00 00 00 | north room beyond the bridges; not reached |
+  | [14] | 001BC350 | (-20.5, 0, -192) | 1\|0x80 | 02 00 00 00 | north room beyond the bridges; unreachable on the first visit (section 9.3) |
   | [15] | 001BC350 | (60.5, 0.5, -559) | 2 | 01 02 00 00 (room move) | control room, both ways (a01_04, a01_06, a01_s0) |
-  | [16] | 001BC350 | (50, 0, -220.5) | 3\|0x80 | 02 01 01 01 | north room; not reached |
-  | [17] | 001BB860 | (128.6, 0, -610) | 4 | 09 08 00 00 (room move) | east corridor; not tried |
-  | [18] | 001BB860 | (120, 60, -318.8) | 5\|0x80 | 16 05 00 00 | upper floor; not reached |
-  | [19] | 001BC350 | (-109.5, 60, -674.5) | 6\|0x80 | 06 00 00 00 | upper floor; not reached |
+  | [16] | 001BC350 | (50, 0, -220.5) | 3\|0x80 | 02 01 01 01 | north room; unreachable on the first visit (section 9.3) |
+  | [17] | 001BB860 | (128.6, 0, -610) | 4 | 09 08 00 00 (room move) | east room, both ways (a01_s4, section 9.1) |
+  | [18] | 001BB860 | (120, 60, -318.8) | 5\|0x80 | 16 05 00 00 | upper floor; not reachable from the ground (section 9.4) |
+  | [19] | 001BC350 | (-109.5, 60, -674.5) | 6\|0x80 | 06 00 00 00 | upper floor; not reachable from the ground (section 9.4) |
 
 - **Spawn table** (sub 0, 0x24B1A0, 0x30-byte records): entry 4 (41, 0, -565.6)
   yaw -1.43411 is the arrival; the room-move door uses entry 1 (64, 0, -563) yaw
@@ -120,7 +137,7 @@ otherwise.
   - **0x80 at a01_03 f296** comes with the shaft door's switch from the
     locked-door script 0x829860 to script 0x8298E0 in the same frame. The shaft
     door (0x823580, splat `overlay_AREA01_func_00823540`, still assembly at
-    bdd40fb) is one of two AREA01 overlay functions whose code stores to the
+    bdd40fb and at fa4b42c) is one of two AREA01 overlay functions whose code stores to the
     byte by name (a symbol search of the overlay; 0x825350 only reads it). On
     Use with D_008107D9 == 0x81 it runs the ordinary door kickoff and opens;
     with any other value it plays the locked-door program and then, when the
@@ -168,7 +185,10 @@ otherwise.
   drawbridge decode) and the retired drawbridge export called placement [36]
   "the drawbridge crank". The capture shows a class-10 character standing at
   the console who holds two conversations (the a01_s0 end image); nothing on
-  the route lowers a bridge.
+  the route lowers a bridge. FINDINGS now withdraws the crank and
+  bridge-lowering readings ("AREA01 route capture — measured facts and
+  corrections"), and CURIOSITIES 22 records the character and its optional
+  first conversation.
 - **Scripts on the route** (0x40-byte records read from the overlay data,
   op/sub as in AREA_SCRIPT.md; parentheses: the operand at +0x14 of op0A/op0C,
   the callback of op09):
@@ -350,7 +370,11 @@ at its end.
   Which function applies the burn was not identified. 001E3D90 (NEARMISS; its
   decomp comment calls it a muzzle-flash driver, a label that is not evidence)
   is the fire nodes' callback and installs 001E3D20 as their +0x34 tick
-  callback; see section 6 for the frame evidence.
+  callback; see section 6 for the frame evidence. The burn's particles are
+  0022BBC0's: in the a01_s3 end image the pool node 0x7B0F50 runs it over the
+  player block (AREA01_UI.md, port efe9f83), so its census subsystem
+  "ui_credits" and its decomp "staff-roll director" label do not fit this route
+  (FINDINGS "NEARMISS body corrections from the AREA01 wave-2 lanes").
 
 ## 6. Census: what AREA01 executes beyond the first level
 
@@ -420,7 +444,12 @@ overlay). **789 of them are already in the first-level census; 154 are new
   NEARMISS or asm marker as OC, so after that commit OC means byte-identical
   only once the overlay gate has passed again. The two AU overlay functions are
   0x823580 (a jr-table dispatcher) and 0x826D40 (not started). The boot
-  statuses are those of the src tree when a01-delta last ran.
+  statuses are those of the src tree when a01-delta last ran. Re-checked
+  2026-09-28 at decomp fa4b42c: every boot name and status in the three tables
+  below is unchanged (the syscall-stub relabels renamed none of them; the
+  NEARMISS body corrections of 2026-09-26/27 kept those functions NM), the
+  AREA01 overlay sources are unchanged since bdd40fb, and a fresh compile of
+  each OC file still equals the original bytes (AREA01_OVERVIEW.md section 8).
 - 13 hits at AREA01 candidate addresses while the AREA00 overlay (id 1) was
   resident (a01_07 after f240) are AREA00 code and are excluded.
 - **Frames** are the census replay's; a function that runs every frame shows
@@ -619,20 +648,22 @@ overlay). **789 of them are already in the first-level census; 154 are new
 
 ## 7. Not covered
 
-- The north room beyond the two 0x8261A0 bridges (doors [14] and [16] to
-  AREA02), the east corridor (room move [17]) and the upper floor at y 60
-  (doors [18] to area 0x16 and [19] to AREA06, the six 00128C10 class-2 nodes).
-  None is on the main path; the bridge owners' sampled state never changed.
-- The NPC's third branch (D_008107D9 == 0x81, script 0x82A660), the second NPC
-  record [38] (overlay 0x825740, not spawned in this load), the crate-top pickup
-  at (14.8, 14.5, -717.3), the remaining deferred pickups
-  (0015AFA0 at (136.5, 60.1, -473.1), (111.8, 8, -509.5), (142.8, 2.1, -416.2),
-  (-69.3, 25.4, -731.1); 00219550 g0.0 at (-34.8, 14.8, -722.6)): none was
-  taken. The 0x828850 nodes, the 00156620 nests and the 0015A2C0 nodes were
+- Section 9 (session s88) settles the three rooms this list used to name:
+  the east room behind [17] is reachable and recorded (a01_s4); the north room
+  beyond the two 0x8261A0 bridges (doors [14] and [16] to AREA02) is
+  unreachable on the first visit; the upper floor at y 60 (doors [18] to area
+  0x16 and [19] to AREA06, the six 00128C10 class-2 nodes) is not reachable
+  from the ground. It also records the NPC's third branch (a01_s7) and the
+  control-room duct with its pickup (a01_s5).
+- The second NPC record [38] (overlay 0x825740, not spawned in this load), the
+  crate-top pickup at (14.8, 14.5, -717.3), the remaining deferred pickups
+  (0015AFA0 at (136.5, 60.1, -473.1), (111.8, 8, -509.5), (-69.3, 25.4,
+  -731.1); 00219550 g0.0 at (-34.8, 14.8, -722.6)): none was taken in a kept
+  beat. The 0x828850 nodes, the 00156620 nests and the 0015A2C0 nodes were
   not sampled; of the 0x826D40 nodes only the +1 toggle was seen (section 1).
 - Combat: the player's health changed only in a01_s3 (the burn); no attack on
   the player was recorded.
-- AREA00 after its arrival control.
+- AREA00 after its arrival control: THIRD_LEVEL_ROUTE.md (session s88).
 
 ## 8. Reproduce and limits
 
@@ -663,3 +694,198 @@ snapshot slot file is moved into the beat folder).
 - Walkable space was planned from the level's collision polygons exported by the
   retired drawbridge exporter (the geometry only; every path was then walked in
   the original).
+
+## 9. AREA01 completeness (session s88, lane "capture")
+
+The route of sections 3..5 left three areas unreached: the north room beyond
+the two bridge owners (doors [14], [16]), the east room behind door [17] and
+the upper floor at y 60 (doors [18], [19]). This section settles each one for
+the first visit, from the original code and by playing it. Four new side beats
+(same tool, same A01 sampler and row format as sections 1 and 3) record
+everything that could be reached. Nothing in sections 1..8 changed.
+
+| Beat (folder) | Source | Frames | Counters | Presses | What happens |
+|---|---|---|---|---|---|
+| `a01_s4_east_room` | 15_level_exit | 1224 | 16563..17787 | f190 (not taken), f242, f558, f626, f739, f935 | door [17] to the east room, the save terminal declined, back through [17] |
+| `a01_s5_duct` | a01_s0_npc_first_talk | 3117 | 17998..21115 | f137, f1601, f1670 (Triangle) | crawl through the control-room duct, take its pickup, crawl out |
+| `a01_s6_bridge_blocked` | 15_level_exit | 228 | 16563..16791 | f156 (not taken) | walk north into the raised bridge [41]: stopped |
+| `a01_s7_npc_third_talk` | a01_05_npc_bridge_talk | 981 | 25154..26135 | f148 | the NPC's third conversation (D_008107D9 == 0x81) |
+
+All four snapshots resumed on the first try (no tail idle). Health stays 100 in
+all four; D_008107D9 stays 0x00 (s4, s5, s6) or 0x81 (s7).
+
+### 9.1 The east room (door [17]): reachable, a01_s4
+
+- **Why it opens.** [17] is a slider, 001BB860 (NEARMISS C; the linker uses
+  the .s). Its sub-state 0 tests the unlock bit D_00810841[D_00810700] only for
+  model bytes (+3) 0x16, 0x17 and 0x3E; [17] has model 0x09, so it always runs
+  the plain kickoff. Its record 09 08 is a room move: from the train-room side
+  to spawn entry 8 (143, 0, -609.7), from the east side to entry 9 (115.5, 0,
+  -609.7).
+- **Measured.** From the arrival, Use at f242 from (122.5, -609.9) facing +x
+  (f190 was not taken): 3B8D = 2 at f245, action 0x41 at f246, fade out f333
+  with the request B7/B8 = 08/02, D_00810702 = 8 at f397, control at f398 at
+  (143, 0, -609.7). The slider plays no player door clip (clip stays 0).
+- **The save terminal [20]** (00159B90, class 0x84, model 0x38, at (167, 7,
+  -626.7), with a 001C5680 indicator): Use at f558 from (169.0, -618.1), yaw -3.12 (facing
+  -z): 3B8D = 2 at f561, action 0x41; its description line (message
+  0x80000012, mode 2) f566..f675, advanced by Cross at f626; then the status
+  request B0/B1 = 06/0x80 (f676) opens the BATTERY page with a yes/no prompt
+  about spending battery units, cursor on No; Cross at f739 keeps No; B0/B1 =
+  00/0x80 at f745, control at f812. The battery charge D_00810CB2 stayed 8, so
+  nothing was saved (the prompt's text is described, not quoted).
+- **Back out.** Use at f935 from (134.5, -611.0) facing -x: fade f1026 with
+  B7/B8 = 09/02, D_00810702 = 9 at f1090, control at f1091; the arrival walk
+  ends at (102.4, 0, -609.7).
+- **The room** (collision, `assets/area01/area01.emcl`): x 133.5..173.5,
+  z -590..-630, ceiling y 35; two steps (y 8.5 and 20, walls attribute 0x0B)
+  and the terminal's shelf (y 7). No exit other than [17].
+
+### 9.2 The control-room duct: reachable, a01_s5
+
+Not one of the three rooms, but found on the way: the control room's east
+wall has a 7 x 7 floor square with attribute 0x37 at (131.5..138.5, y 0,
+-533..-526). Behind it a duct (floor y 1.5..1.6) runs east to (166.5, -529.5),
+north to (166.5, -416.5) and west to a dead end at (143.5, -416.5); the three
+turns are floor squares with attribute 0x1F.
+
+- Use at f137 from (134.0, -529.2) facing +x: action 0x2C at f140, a fade
+  (f222..f286), action 0x2D from f286 (first-person view; crawl clips 327 and
+  331). Stick up crawls about 0.25 units a frame; stick x turns the view in
+  steps of 0.07 rad a frame to the next quarter turn (stick right lowers
+  +0xC4). The first ~60 frames after the fade ignore the stick.
+- At the dead end the 0015AFA0 pickup at (142.8, 2.1, -416.2) is taken: Use at
+  f1601, B0/B1 = 01/0x1E at f1607, a healing-item page (message 04/0x1E) from
+  f1637, Triangle at f1670, back in the crawl at f1677; taken byte 0x810880
+  bit 4.
+- Out: crawling back to the entry square leaves the duct (a fade f2961..f3024,
+  action 0x2E with clip 339 at f3025, control at f3097 at (133.2, 0, -529.5)).
+
+### 9.3 The north room (doors [14], [16]): unreachable on the first visit
+
+- **What blocks it.** The gap z -320..-520 between the train room and the
+  north room has no floor above y -40 (collision: the gap's floors are at
+  y -40.24, attribute 0x5D, and y -280). The two 0x8261A0 owners are the
+  bridge halves: [41] at z -525 (dispatch +0x0D = 2, 0x826200) and [42] at
+  z -315 (+0x0D = 3, 0x826440). Their state 0 sets the tilt +0xC0 from story
+  flags (byte-identical C):
+  - [41]: pi/3 when D_0081075E == 0, pi/18 when it is set; pi/3 again when
+    D_00810760 != 0; 0 when D_00810784 != 0.
+  - [42]: -pi/3 when D_0081075E == 0, else 0; 0 when D_00810760 != 0 or
+    D_00810784 != 0.
+  In the end snapshots of beat 15 and of all 16 AREA01 beats D_0081075E =
+  D_00810760 = D_00810784 = 0, and (except a01_07, which ends in AREA00)
+  [41] +0xC0 = 1.0472 and [42] +0xC0 = -1.0472: both halves raised.
+- **Measured (a01_s6).** From (41, -565.6) the stick pushes north f92..f121;
+  the player walks north at x -3.4, is held from f101 at z -525.3..-525.45
+  against [41] while the stick still pushes, stands (action 0) from f145, and
+  Use at f156 is not taken.
+- **Limits of "unreachable".** One walk, at x -3.4. The collision (grid
+  world, `assets/area01/area01.emcl`) closes the rest of the edge: at
+  z -520.5 the train room's north edge has walls facing -z over x -54.5..-25
+  and 25..61, y 0..11.5, and 10-high blocks at x -45..-25 and 25..45 (tops
+  y 10, attribute 0x46 over x -35..-25 and 25..35), so the only opening is
+  x -25..25. That [41] blocks the whole opening, at every x in it, was not
+  tested; neither was climbing onto the y-10 block tops.
+- **The D_008107E0 path (what it does to [41] is not known).** [41]'s
+  sub 0 starts its script 0x82B4D0 (with the looping sound 0x8A9) only when
+  D_00810760 != 0xFF and D_008107E0 != 0. D_008107E0 (D_008107D8[8]) is set
+  to 1 only by [42]: when 001BA1C0(self, 8) is 0 (D_00810760 != 0xFF), 3B8D
+  is 0, the player's position is inside the quad 0x82CC60 (x -30..30,
+  z -315..-420, the north half of the gap, whose floors are at y -40 and
+  below), its y is at most 2.0 and 00182BF0(player) is 0, [42] starts
+  script 0x82B0D0. Its records set D_008107E0 = 0xE0 (0x82B1D0) and 2
+  (0x82B3D0) and end with D_00810760 = 0xFF (0x82B490, op07 sub 5 slot 8);
+  at the script's end [42]'s code sets D_008107E0 = 0xFF. This path does not
+  show a lowering of [41]: script 0x82B4D0 is 02/0 05/0 02/0 with op05 not
+  decoded, and on any later load [41]'s state 0 turns D_00810760 != 0 into
+  +0xC0 = pi/3, raised. The trigger needs the player over the north half at
+  y <= 2, i.e. north of the raised [41], so it cannot start from the south
+  on the first visit. (The other quad, 0x82CC20, x -30..30, z -420..-490,
+  only sets the owners' +1 flag.)
+- **Who sets the flags.** A scan of every overlay file (`extract/OVERLAY`) and
+  the boot ELF for 0x40-byte script records that store these flag slots
+  (op06 sub 0/1 and op07 sub 5, D_00810758[slot]): D_0081075E (slot 6) = 0xFF
+  only by AREA00 record 0x8287A0 (script 0x8286E0, started by AREA00's shaft
+  door 0x823580, THIRD_LEVEL_ROUTE.md); D_00810760 (slot 8) only by AREA01
+  record 0x82B490 above; D_00810784 (slot 0x2C) = 1 by AREA15 records
+  0x829370 and 0x829630, and by name in the code of AREA00 0x826790 (a sub-2
+  owner) and AREA14 0x823760 (a symbol search of the splat output). Writers
+  through other paths (other record layouts, computed addresses) were not
+  excluded. Of the flags the bridges' state 0 reads, the first one the route
+  can set is therefore D_0081075E, after AREA00 has run 0x8286E0: then [42]
+  rests at 0 and [41] at pi/18 (state 0 of the byte-identical C). Whether
+  that makes the north room walkable, and that nothing else opens it
+  earlier, was not measured; the later visit was not played.
+- Door [14] is also lock-gated (model 0x15: D_00810841[1] bit 1, 0 in every
+  capture). Spawn entries 3 (-25, 0, -197) and 5 (39, 0, -225) are the north
+  room's arrival points from AREA02.
+
+### 9.4 The upper floor (doors [18], [19]): not reachable from the ground
+
+- **Geometry** (the collision export): the floors at y 60 are a catwalk from
+  door [19] (-109.5, 60, -674.5) east along z -661..-679 to x 140, north along
+  x 120..140 to z -440, and a separate platform at door [18] (x 101..140,
+  z -320..-400). Between z -400 and -440 the catwalk has a gap; a wall with
+  attribute 0x3B (x 139.6, y 60..109, z -481..-489) and a strip with
+  attribute 0x3D at y 107..110 (x 135.5..141, z -342..-477) are the only
+  surfaces there. The six 00128C10 class-2 nodes stand on the catwalks
+  ((128.9, 82.6, -671.5), (82.8, 75.9, -662.4) and four at x 125..134,
+  y 60.4, z -383..-398).
+- **No way up.** No surface with a ladder or climb attribute joins the ground
+  floors to y 60: the only attribute-0x32 ladder (x -74..-66, z -719) ends at
+  a ledge at y 25 (the deferred pickup (-69.3, 25.4, -731.1) lies on it). In
+  the exploratory runs of this session (not kept; their scratch snapshots were
+  deleted) the ladder, the ledge, the west walkway it leads to (walked to
+  (-40, 23.5, -819); in the collision it continues along the tunnel's west
+  wall down to y -35 at z -1205, a ledge above the lower tunnel) and the roof
+  of the tilted train car were all walked; the highest point reached was the car's
+  north end at (-11.5, 28.4, -680.3), right under the catwalk, where Use was
+  not taken. The fires at (-11, -653), (-52, -661), (-35, -677) and
+  (-60, -684) guard the ladder foot (three burns on the way there, health
+  100 → 85).
+- **Therefore** the upper floor is the arrival side of the two area changes:
+  spawn entries 6 (119, 60, -336) and 7 (-97.5, 60, -670.3) are where [18]
+  (from area 0x16) and [19] (from AREA06) put the player. That the upper floor
+  cannot be reached from the ground is a finding from the collision data and
+  these attempts, not a proof over every input.
+
+### 9.5 The NPC's third conversation: a01_s7
+
+From the a01_05 end (D_008107D9 = 0x81), Use at the NPC at f148: 3B8D = 3 at
+f151 and 2 at f152, script 0x82A660 (records 0x82A6A0 .. 0x82A760; ops 07/8,
+15, 18, 04/1, 07/4), clip 0x166 at f197, one message line (0x38) f197..f874,
+clip 0x165 at f874, control at f951 (26105). No story byte changes; the
+bridges stay raised ([41] 1.0472, [42] -1.0472 in the end snapshot).
+
+### 9.6 Reproduce
+
+```sh
+# decomp repo, .venv python
+.venv/bin/python tools/route_capture.py run --beats a01_s4,a01_s5,a01_s6,a01_s7
+.venv/bin/python tools/route_capture.py events --beats a01_s5_duct
+```
+
+The duct beat waits 90 frames after the crawl starts (the first capture
+attempt, which crawled at once, did not move and was discarded).
+
+### 9.7 Census of the room beats: not yet replayed
+
+Lane "census" (s88) ran no emulator, so a01_s4..a01_s7 have no census replay
+yet and section 6's numbers stay those of the twelve earlier beats.
+`route_census.py a01-delta` now also reports, per beat, the functions no other
+AREA01 beat and not the first level ran (`new_vs_first_level_and_other_a01`;
+on the twelve recorded beats: a01_07 30, a01_s3 16, a01_s2 14, a01_03 4,
+a01_05 2, a01_04 1, the rest 0), and in its summary the functions only the
+room beats ran (`new_only_in_room_beats`, 0 until they are replayed). To fill
+it (a capture-lane step, hidden PCSX2):
+
+```sh
+.venv/bin/python tools/route_census.py run --segments a01_s4,a01_s5,a01_s6,a01_s7 --pass A01
+.venv/bin/python tools/route_census.py a01-delta --passes A01
+```
+
+`a01-delta` reads the working tree's `src/overlays/AREA01` for overlay
+statuses; at the s88 run other lanes' uncommitted AREA01 sources changed two
+of them (the two AU functions of section 6 read as one NM and one OC: NM 54 /
+OC 13 / AU 0 against NM 53 / OC 12 / AU 2). THIRD_LEVEL_ROUTE.md section 9 has AREA00's census.
