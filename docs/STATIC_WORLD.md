@@ -1,17 +1,32 @@
-# Static world and background channel (lane STATIC)
+# Static world and background channel
 
-Date: 2026-09-27. Lane b15 / STATIC. New files only:
+Translated 2026-09-27 (lane b15 / STATIC); bound live and drawn from its
+packets 2026-09-28 (chain step "Static world and background channel live").
+Files:
 
-- `src/game/em_static_world.{h,c}`: the translations this lane adds.
+- `src/game/em_static_world.{h,c}`: the static-object packet builders and
+  the background channel 001E1E60 / 001E1AD0.
 - `src/game/em_static_world_compose.{h,c}`: 001C1D00's whole call tree and
   001D52E0, composed from the verified translations over one set of
-  original-address views. This is the entry the binder calls.
+  original-address views. The render context calls it
+  (`em_rcl_001C1D00`, `em_rcl`'s 001D52E0 worker).
+- `src/game/em_vu1_level_kernel.h`: the level kernel 0x00237180 (79
+  instructions), translated from its VU1 microcode (section 7).
+- `src/game/em_static_world_draw.{h,c}`: the channel-0 run as the DMA sends
+  it to VU1 and the GS (section 7).
+- `src/game/em_static_world_live.{h,c}`: the run drawn at the frame close,
+  and the channel-3 list's GS writes for the background gate.
 - `tools/export_static_world.py`: the static-object bank and the
   background .data block, from the user's own disc and ELF.
-- `tools/test_static_world_reference.py`: the original-instruction oracle.
+- `tools/test_static_world_reference.py`: the original-instruction oracle of
+  the builders; `tools/test_static_world_draw_reference.py`: the run's
+  draw against the original VU1 microcode; `tools/test_static_world_gpu.py`
+  (+ `tests/static_world_gpu_test.c`): the Metal pixel path;
+  `tools/level_smoke_static_world.py`: the level smoke's check.
 
-Nothing is bound yet. Every routine below is **verified-unbound**. Section 5
-says how to bind them.
+Every routine below is **live** on the first level (section 5). The level
+is drawn from the original packets; the legacy zone meshes no longer load
+in AREA11 (section 7.4).
 
 Names describe what the instructions do. They are not claims about what the
 player sees ("a label is not evidence").
@@ -24,31 +39,33 @@ The Form column says what the translation was read from:
 - asm: asm words;
 - und: undecompiled, the .s followed.
 
-| Function | Form | Before (census) | After | Where |
+| Function | Form | Status | What | Where |
 |---|---|---|---|---|
-| 001C1D00 | BM | verified-unbound | verified-unbound; the whole tree is now composed (em_swc_001C1D00) | reused: em_frh_001C1D00 |
-| 001E0CF0 | BM | verified-unbound | as above | reused: em_rvr_001E0CF0 |
-| 001D5370 | NM | verified-unbound | as above | reused: em_render_context_001D5370 |
-| 001D52E0 | BM | verified-unbound (UM_001D52E0 reported) | composed: em_swc_001D52E0 | reused: em_render_context_001D52E0 |
-| 001E1E60 | NM | "live" as the renderer's own matrix and kernel model (em_background_gs); no packet translation | the channel-3 list, byte for byte | **new**: em_static_world_001E1E60 |
-| 001E1AD0 | NM (53%) | not in the census (flag 0x22 is never set on the first level) | unit-verified | **new** |
-| 001E0E80 | und | not in the census | unit-verified (inside 001E1AD0) | **new** |
-| 001D4FB0 | BM | "live" as the shadow receiver draw (em_shadow_live, a renderer stand-in) | the channel-0 REF run | **new**: em_static_world_001D4FB0 |
-| 001D4F30 | NM | not in the census | as 001D4FB0 | **new** |
-| 001D4B20 | BM | boundary list (GS/VIF packet build) | the guard-band re-pass | **new** |
-| 001D4960 | asm | boundary list | as 001D4B20 | **new** |
-| 001D4B10 | BM | boundary list | as 001D4B20 | **new** |
-| 001D4A90 | readable C, but wrong | boundary list | as 001D4B20 (read from the .s) | **new** |
-| 001D4DA0 | NM | boundary list | the channel-0 upload / REF head | **new** |
-| 001D4750 (vif_build_unpack_const) | und | boundary list | as 001D4DA0 | **new** |
-| 001D2090 (vif_append_ref_tag) | und | live inside em_owner_draw_original (a static copy) | public memory form | **new** (the owner draw keeps its own copy) |
-| 00102958 (copy_qw4) | und | not in the census | inside 001D4750 | **new** |
-| 001D6F60, 001D7000, 001D7100, 001D71A0 | und | not in the census | the TEX0, TEXA, upload and MSCAL packets | **new** |
-| 00121870 (block_copy) | und | "host memcpy" in other lanes | the exact chunked forward copy | **new** |
-| 00102798 | asm | em_camera_commit_00102798 | memory form | reused: em_camera_commit_00102798 |
-| 001026D0 | asm | em_sdk_vu0_001026D0 | memory form | reused: em_sdk_vu0_001026D0 |
-| 001C6120 | BM | copies inside several modules, each bound to its own bank | memory form over the views | **new** (5 lines) |
-| 001D5BD0 | BM | em_area01_render_001D5BD0 (AREA01 lane; not in the Makefile) | a host worker of the composition | reused as is; not reached in AREA11 |
+| 001C1D00 | BM | live (both world variants) | the whole tree (em_swc_001C1D00) | em_frh_001C1D00 |
+| 001E0CF0 | BM | live | the background channel | em_rvr_001E0CF0 |
+| 001D5370 | NM | live | the grid pass | em_render_context_001D5370 |
+| 001D52E0 | BM | live (the area load's 001C1E70) | the grid header | em_render_context_001D52E0 |
+| 001E1E60 | NM | live | the channel-3 list, byte for byte | em_static_world_001E1E60 |
+| 001E1AD0 | NM (53%) | unit-verified; not reached (flag 0x22 is never set on the first level) | | em_static_world |
+| 001E0E80 | und | unit-verified (inside 001E1AD0) | | em_static_world |
+| 001D4FB0 | BM | live | the channel-0 REF run | em_static_world_001D4FB0 |
+| 001D4F30 | NM | live | as 001D4FB0 | em_static_world |
+| 001D4B20 | BM | live | the guard-band re-pass | em_static_world |
+| 001D4960 | asm | live | as 001D4B20 | em_static_world |
+| 001D4B10 | BM | live | as 001D4B20 | em_static_world |
+| 001D4A90 | readable C, but wrong | live | as 001D4B20 (read from the .s) | em_static_world |
+| 001D4DA0 | NM | live | the channel-0 upload / REF head | em_static_world |
+| 001D4750 (vif_build_unpack_const) | und | live | as 001D4DA0 | em_static_world |
+| 001D2090 (vif_append_ref_tag) | und | live | the one translation is em_owner_draw_vif_append_ref_tag; em_static_world's memory form checks the views, then runs it | em_owner_draw_original |
+| 00102958 (copy_qw4) | und | live (inside 001D4750) | four quadwords, all loaded before any store | em_static_world (memory form; the owner services' host form is a memmove) |
+| 001D6F60, 001D7000, 001D7100, 001D71A0 | und | live (001D7000 only inside 001E1AD0) | the TEX0, TEXA, upload and MSCAL packets | em_static_world |
+| 00121870 (block_copy) | und | live (inside 001D7100) | the exact chunked forward copy | em_static_world |
+| 00102798 | asm | live | memory form | em_camera_commit_00102798 |
+| 001026D0 | asm | live | memory form | em_sdk_vu0_001026D0 |
+| 001C6120 | BM | live | memory form over the views (5 lines; several modules keep their own copy over their own bank, as before) | em_static_world |
+| 001D5BD0 | BM | not reached in AREA11 (key 0x0B00 is not in its list) | a host worker of the composition, bound to a fault | |
+| VU1 0x00237180 | microcode | live | the level kernel (section 7) | em_vu1_level_kernel.h |
+| VU1 0x00239C90 | microcode | live | the guard-band clip kernel | em_vu1_shadow_clip.h (the box kernel of the shadow chain, the same program) |
 
 The composition also reuses these verified translations as its workers:
 - em_load_veil_particles: 001D1F80, 001D1FF0, 001D2040, 001D7080, 001D6BA0;
@@ -337,11 +354,11 @@ channel changed in the call alone both fail).
   - a misaligned cursor faults at 001D4750's first word store, with only
     the tag byte written;
   - a latched fault stops the next entry.
-- **E. The binding rehearsal.** 001C1D00 runs through em_swc over 26
-  separate views: exactly the 20 that em_render_context_live's
+- **E. The binding rehearsal.** 001C1D00 runs through em_swc over 27
+  separate views: exactly the ones em_render_context_live's
   `build_views()` makes once the binder and the frame loop have handed over
-  every external view (section 5.2), with its read-only marking, plus the
-  six ranges of section 5.2 (the bank and D_0028A5A0 read-only). There is no
+  every external view (section 5.2), with its read-only marking (the bank,
+  D_0028A5A0 and the other external views read-only). There is no
   fault, every view equals the original's bytes, and the original writes
   nothing outside them and nothing inside a read-only one. The marking is
   enforced: with D_00253560 marked read-only, 001E1E60's first store there
@@ -397,177 +414,163 @@ Native cost (M1, -O2): 001C1D00 takes about 1.7 ms per call. Of that,
 001D5370's grid walk and VU0 corner tests take 1.70 ms; they are
 em_render_context's. 001E0CF0 takes 6 µs.
 
-## 5. Binding (for the chain)
-
-The binder calls **em_swc_001C1D00(&swc, 0x8101D0)** where the frame calls
-001C1D00. The views are exactly em_render_context_live's (its own storage
-and every external view, with its read-only marking) plus the six
-additions below. Rehearsal E proves that exact set of 26 views.
+## 5. The binding (live)
 
 ### 5.1 Callers
 
 - **001C1D00.** 0x1AE040's frame variants 001AE5E0 and 001AE6B0 call it
-  right after 001D1C50 (em_scene_frame.c `SF_CALL(..., 0x1C1D00u, w_001C1D00,
-  EM_SCENE_D_008101D0)` in both). em_scene_bindings.c `w_001C1D00` routes it
-  to the stand-in em_render_001C1D00 (em_render_frame.c, `render_env_init`,
-  empty).
-  - Replace that with a new `em_rcl_001C1D00()` in em_render_context_live.c.
-  - `em_rcl_001C1D00` builds an EmSwc over its views, latches
-    `c.fault.address` into em_rcl's fault, and returns -1 on a fault.
-  - Keep em_render_001C1D00 only for scenes without the render context.
-- **001D52E0.** At the area load, 001C1DC0 -> 001C1E70 -> 001D52E0
-  (em_rvr_001C1E70). em_render_context_live's `EmRclWorkers.w_001D52E0` is
-  the binder's report today (em_scene_bindings.c `rcl_grid_header` ->
-  `unmirrored(UM_001D52E0)`). Bind it to `em_rcl_001D52E0()` ->
-  `em_swc_001D52E0`. The bank must be in the views by then.
-- **Direct binding, if the binder prefers it.** It can instead bind
-  em_frh's `w_001E0CF0` / `w_001D5370` (em_render_context_live.c `wire`,
-  today `unbound`) to `em_swc_001E0CF0` / `em_swc_001D5370`. The result is
-  the same.
+  right after 001D1C50 (em_scene_frame.c `SF_CALL(..., 0x1C1D00u,
+  w_001C1D00, EM_SCENE_D_008101D0)`). em_scene_bindings.c `w_001C1D00`
+  runs `em_rcl_001C1D00(0x8101D0)` when the render context is live (the
+  first level). `em_rcl_001C1D00` builds an EmSwc over its views, calls
+  `em_swc_001C1D00`, latches the innermost fault's address as the render
+  context's fault (fail-stop) and records the channel-0 run it wrote
+  ([cursor before, cursor after): `em_rcl_static_run`, cleared by the frame
+  head 001D1AE0). A scene without the render context keeps
+  em_render_001C1D00 (em_render_frame.c, the empty render-env step).
+- **001D52E0.** The area load's 001C1DC0 -> 001C1E70 -> 001D52E0
+  (em_rvr_001C1E70) reaches em_rcl's own worker, `em_swc_001D52E0` over the
+  same views. The binder's report (`rcl_grid_header`, UM_001D52E0) and the
+  EmRclWorkers slot `w_001D52E0` are gone.
+- **001E0DF0 / 001D21B0.** Step V (001D2300, em_frame_kick) already ran
+  001E0DF0 every world frame; with +0x1D8 built it now tags the channel-3
+  list through 001D21B0: a world frame's main list holds seven tags, as in
+  every route capture.
 
 ### 5.2 Views
 
-**Build a separate view array for em_swc.** Do not cast em_rcl's
-`rc_views` to EmStaticWorldView: the layouts agree today
-(`{address, size, bytes}`), but nothing ties them. Fill one
-`EmStaticWorldView swc_views[32]` and one `uint8_t swc_read_only[32]` from
-the same `add_view()` calls, and pass `swc.read_only = swc_read_only`.
+em_render_context_live keeps one view list for all its lane modules
+(`add_view`: EmFrhView with the writable flag, EmRenderContextView,
+EmPacketChainRegion) and, from the same calls, the EmStaticWorldView array
+and its read-only flags (a view is read-only for em_static_world exactly
+when it is not writable for em_frh). Capacity: 32 (`VIEWS_MAX`, faulting
+beyond it); a first-level bind has 27:
 
-**Read-only marking.** em_rcl marks views read-only only for em_frh
-(`EmFrhView.writable`; its `rc_views` and `pc_regions` have no such flag).
-em_swc keeps that marking: `EmSwc.read_only[i] != 0` gives
-`EmFrhView.writable = 0` for em_frh and makes em_static_world's stores
-into that view fault. em_render_context and em_load_veil_particles have no
-read-only notion, in em_rcl or here. Rehearsal E checks that the original
-writes nothing inside a view marked read-only, and that the marking is
-enforced.
+- its own storage: the arena 0x0028F700..0x0076B5BF, the context through
+  the skin records 0x00811CC0..0x0081723F, D_00250F30 (0x2250),
+  D_00275670 (0x30), the scratchpad 0x70003A40 (0x100), 0x70003B60 and
+  0x70003B70 (4 each); read only: D_00241010 (8), D_0026E510, D_0026E850 and
+  D_0026E880 (16 each);
+- the static world's: D_00253560 (0x90, block 1 of static_world.emsw; its
+  0x253570..AF and 0x2535B8 are rewritten every frame), D_00817240 (0x80,
+  zero at start), the scratchpad 0x70003400 (0x80, zero at start), the
+  state block D_008101D0..DF (0x10; the bind zeroes it, as 001AF690 does at
+  0x1AE040 state 0, the step the binder binds at) and, read only, the bank
+  (block 0 of static_world.emsw at its original address 0x01516F40,
+  0x2D6FE0 bytes; `em_rcl_static_world_load`, called by the binder's
+  rcl_bind: fail-stop when the export is missing);
+- read only, the external views: D_00810E80 (2), D_00810610 (0x40),
+  D_008105E0 (0x10), D_008106B0 (0x48), D_00810700..702, D_008101E4 (1),
+  0x70003B8D (1), D_008102B0 (0x320), D_00810E88 (2), D_008106C4 (1) and
+  D_0028A5A0 (4): the bank's address word, which is slot 0x44 of the
+  screen-module loader's resource table (em_module_loader's `d28A490`, the
+  one storage of D_0028A490..; the export seeds it with 0x01516F40, the
+  value every AREA11 capture holds).
 
-**Capacity.** em_rcl's `frh_views`, `rc_views` and `pc_regions` hold 24
-entries. `build_views()` adds 10 of its own and up to 10 external ones
-(X_COUNT); with the six additions below that is 26. The binder must enlarge
-those arrays (to 32, say) and the em_swc arrays alike; em_swc accepts up to
-32 views (MAX_VIEWS in em_static_world_compose.c) and faults on more.
-
-The 20 views em_render_context_live builds (em_render_context_live.c,
-`build_views()`; read-only marked RO):
-- the arena ARENA_BASE..ARENA_END, 0x0028F700..0x0076B5BF (the chain
-  table D_007635C0 ends at 0x0076B5C0);
-- the context through the skin records CTX_BASE..CTX_END,
-  0x00811CC0..0x0081723F;
-- D_00250F30..D_0025317F (0x2250 bytes);
-- D_00275670..9F;
-- the scratchpad 0x70003A40..0x70003B3F, 0x70003B60..63 and
-  0x70003B70..73;
-- RO: D_00241010 (8 bytes), D_0026E510 and D_0026E850 (16 bytes each);
-- RO, the external views: D_00810E80 (2), D_00810610 (0x40, the camera
-  pool's view), D_008105E0 (0x10), D_008106B0 (0x48), D_00810700..702,
-  D_008101E4 (1), 0x70003B8D (1), D_008102B0 (0x320), D_00810E88 (2),
-  D_008106C4 (1).
-
-To add:
-
-| Range | Size | Owner / source (RO = mark read-only; rehearsal E proves the tree never writes them) |
-|---|---|---|
-| 0x01516F40 | 0x2D6FE0 | RO. The bank: block 0 of static_world.emsw, loaded at the area bind (fail-stop if missing, like render_context.emrc) |
-| 0x0028A5A0 | 4 | RO. The bank address word (the loader's D_0028A490[0x44]). Before adding an owner, check whether em_module_loader's `d28A5A0` is meant to be this word; if not, store the export's bank address at the area bind |
-| 0x00253560 | 0x90 | block 1 of static_world.emsw (001E1E60 rewrites 0x253570..AF and 0x2535B8 every frame) |
-| 0x00817240 | 0x80 | .bss; 001D4750 rewrites all of it on every call (start zero) |
-| 0x70003400 | 0x80 | the scratchpad clip matrices; 001D5370 writes them before it reads them (start zero) |
-| 0x008101D0 | 1 (hold 0x10) | 001C1D00's state byte. 001AF690 zeroes 0x10 bytes there at 0x1AE040 state 0 (the port's w_001AFCA0; em_slg_001AF690 is translated but not live); 001C1D00 sets it 0 -> 1 on its first run. The body is the same for states 0 and 1 |
-
-Not needed on the first level: D_00275C0C and D_008105D4 (001E1AD0 only). A
-missing view faults if it is reached.
+Rehearsal E of test_static_world_reference runs 001C1D00 over exactly this
+set, marking included.
 
 ### 5.3 Host workers
 
-Bind all eight EmSwcHostWorkers to a fault:
-- 001D5BD0: key 0x0B00 is not in its list, and AREA11's D_0028A5A4 is 0.
-  Bind em_area01_render_001D5BD0 only when another area needs it.
-- the sound branch: 00122BB8, 001D73A0, 001D72D0, 001D75E0, 001CEFD0.
-  Flag 0x23 is clear in every capture (+0x174 = 3).
-- 001E1760 and 001E17E0: flag 0x22 is cleared by 001C1F50 for key 0x0B00.
+All eight EmSwcHostWorkers are NULL: reaching one faults (001D5BD0: key
+0x0B00 is not in its list; the sound branch 00122BB8, 001D73A0, 001D72D0,
+001D75E0, 001CEFD0: flag 0x23 is clear, +0x174 = 3 in every capture;
+001E1760 / 001E17E0: flag 0x22 is cleared by 001C1F50 for key 0x0B00).
 
-### 5.4 Makefile
+### 5.4 The background gate
 
-- Add `src/game/em_static_world.c` and `src/game/em_static_world_compose.c`
-  to COMMON. Every module they link is already in COMMON:
-  - em_render_context, em_render_verify_rest, em_frame_render_heads;
-  - em_load_veil_particles, em_stream_lanes_original,
-    em_player_stage_workers;
-  - em_sdk_math_original, em_effect_original, em_sdk_soft_float;
-  - em_camera_commit_original.
-- Add a target `test-static-world-reference: python3
-  tools/test_static_world_reference.py`.
-- Add STARTUP.md an exporter row for tools/export_static_world.py.
-
-### 5.5 What to retire or update in the binding commit
-
-- **em_render_001C1D00 / render_env_init** (em_render_frame.c) on the
-  render-context path. Its census row changes accordingly.
-- **The flag-0x21 stand-in in `background_gate`** (em_render_frame.c).
-  - 001E0DF0 (decomp func_001E0DF0.c, byte-matched) releases the list
-    only when 001D2910(0x20) != 0 AND the +0x1D8 word != 0 (then +0x1E8 the
-    same way). The replacement gate must test both: the render flag 0x20
-    and the word, which is now built.
-  - The native background draw can then be checked against the list's
-    TEX0 / RGBAQ packets at +0x1D8 instead of the context words.
-  - em_background_gs_matrix duplicates the D_00253570 computation. It may
-    read the matrix and D_002535B8 from the storage instead, or be kept
-    and compared.
-- **Step V's missing CALL** (C7 limitation; RENDER_CONTEXT.md 9.4). A world
-  frame's main list now holds the +0x1D8 CALL: seven tags, as in the
-  captures.
-  - The level smoke's `check_render_context` must expect it.
-  - 001D21B0 becomes live, reached by 001E0DF0.
-- **Reports.** UM_001D52E0 and `rcl_grid_header` go.
-- **Docs.** Update:
-  - RENDER_CONTEXT.md 8.4 (the 001C1D00 and 001D52E0 rows);
-  - FIRST_LEVEL_AUDIT.md item 3 (the bank export and the background channel
-    are done; the renderer decision remains);
-  - FIRST_LEVEL_CENSUS.md rows 001C1D00, 001D5370, 001D52E0, 001E0CF0,
-    001E1E60, 001D4FB0 and the boundary-list entries 001D4750, 001D4960,
-    001D4A90, 001D4B10, 001D4B20, 001D4DA0;
-  - FIDELITY_FEATURES.md ("the +0x1D8 channel-3 list is a native stand-in";
-    "001C1D00's empty render-env step" among the stand-ins).
-- **Frame cost.** Measure the added 1.7 ms per world frame on the live
-  build (section 4).
-
-### 5.6 The renderer boundary (not decided here)
-
-Once bound, the channel-0 run holds, per frame:
-- the objects the original draws, in its order, as REF tags into the bank
-  (object + 0x40 + 0x820 k, 0x82 quadwords per block);
-- the kernel for each: CALL 0x00237180 for the level kernel; CALL
-  0x00239C90 after 001D4B20 for the guard-band clip kernel;
-- the skin-record REFs.
-
-The port still draws the level from exported zone meshes (LEVEL_MATERIALS.md
-"PARTIAL"). Nothing consumes the run yet. It is not part of the chain page
-(em_chain_page_live walks the page at context +0x00 / +0x04, not channel 0),
-so binding does not change any draw. Drawing the static world from the run
-would reproduce the original's culling and order; that is the renderer
-decision FIRST_LEVEL_AUDIT item 3 still lists.
+em_render_frame.c `background_gate` reads 001E0DF0's own condition: step
+V's gate (`em_rcl_001D2300_calls_001E0DF0`, with the movie frame's flag 4)
+and the context's +0x1D8 word; flag 0x21 no longer stands in for it. The
+draw's TEX0 and RGBAQ are the ones the list's own A+D packets write
+(001D6F60, 001D7080; `em_static_world_live_background_state` reads them
+from the list's bytes up to its RET), and the loaded background asset must
+hold exactly those (fail-stop otherwise). em_background_gs still draws the
+grid kernel 0x0023C990 natively (BACKGROUND.md); its matrix is computed
+from the frame head's view as 001E1E60 computes D_00253570, not read from
+that storage (section 6).
 
 ## 6. Known gaps
 
 - **001E1AD0's 001E1760 and 001E17E0 are not translated.** Nor are
   001E1760's 001D6E60 path, 001E10A0 and 001E13E0. They are host workers
-  (flag 0x22; the first level never sets it). The unit oracle stubs them on
-  both sides.
+  (flag 0x22; the first level never sets it), bound to a fault. The unit
+  oracle stubs them on both sides.
 - **The flag-0x23 sound branch's callees are not translated** (00122BB8,
-  001D73A0, 001D72D0, 001D75E0, 001CEFD0). They are host workers; their
-  arguments, including the id and level blocks, are compared.
-- **001D5BD0 is not bound in the composition.** The AREA01 lane's verified
-  em_area01_render_001D5BD0 is not in the Makefile.
-- **The capture comparison covers only the captured frames' lists** (17
-  frames). Per-frame lists over the full route need the level smoke (after
-  binding).
+  001D73A0, 001D72D0, 001D75E0, 001CEFD0). They are host workers, bound to
+  a fault; their arguments, including the id and level blocks, are compared
+  by the unit oracle.
+- **001D5BD0 is not bound** (a fault when reached). The AREA01 lane's
+  verified em_area01_render_001D5BD0 is not in the Makefile.
 - **The scratchpad matrices 0x70003400..7F are not compared with the
   captures** (they are reused later in the frame). They are compared with
-  the original, run over the same input.
+  the original, run over the same input, and the level smoke's samples
+  re-execute 001C1D00 over them.
 - **The 001D5370 clip rule (VCLIPW) is em_render_context's documented
   model** (RENDER_CONTEXT.md section 4). It is the same on both sides of the
-  test.
+  tests.
+- **em_background_gs recomputes 001E1E60's matrix.** The background draw
+  (the grid kernel 0x0023C990's native model) builds its matrix from the
+  frame head's view and zoom, as 001E1E60 builds D_00253570 / D_002535B8;
+  it does not read that storage. test_background_reference compares the
+  model with the captures.
+- **Frame cost (measured; fixed in the C8 fix round).** 001C1D00 and the
+  run's draw run every world frame on the CPU. With the integer float
+  model's lanes (em_ee_float.h) the level kernel alone cost up to 7.7 ms of
+  CPU on the heaviest captured run (08_truck_crossing: 600 level and 67
+  clip batches, 4,292 triangles) and the first level no longer held the
+  16.68 ms NTSC tick: the capped newgame-control run took 25.6 s for its
+  1,301 locked ticks (about 51 Hz; the review measured 25.48 s) and 639 of
+  its 1,331 in-level ticks were over the period.
+  The fix keeps every result and changes only how the lanes are computed:
+  - `em_vu_host_lanes.h`: a VU multiply / add / subtract / reciprocal on
+    finite operands is one host FPU instruction in round-toward-zero,
+    flush-to-zero (arm64 FPCR RMode 3 + FZ; x86-64 MXCSR RC 3 + FTZ + DAZ),
+    which is exactly the model's rule (exact result truncated, FTZ, +-MAX
+    on overflow; a zero divisor handled as the model). The level kernel
+    runs one batch text with `host` 0 (the model: tests, the shadow's box)
+    or 1 (em_vu1_level_kernel_batch_host, the live walk); the object and
+    face kernels take the host lanes in em_object_unit.c
+    (EMVUO_HOST_LANES). A faulting level batch is re-run on the model, so
+    fault codes and vertices are the model's too.
+  - `em_ee_float.h` (every user): the bit length is one count-leading-zeros,
+    the exact product knows its 47- or 48-bit width, and the VU form table
+    is binary-searched; old against new header over 50 million random and
+    edge operands and every (op, dest, bc) form: identical
+    (`test-ee-float-header` quick and full pass).
+  Proof: `test-vu-host-lanes` (55,283 boundary + 400,000 random lane
+  operations; EM_TEST_FULL=1 8,000,000: every one equal to the model, and
+  the environment shown to be in effect); `test-static-world-draw-reference`
+  (every captured run walked with the host lanes equals the original
+  microcode; every synthetic batch run both ways, equal word for word);
+  `test-object-unit-reference` EM_TEST_FULL=1 (375 owner draws and 60 face
+  units through em_object_unit_run with the host lanes, every triangle
+  equal to the original microcode's); the level smoke.
+  Measured on the user's M1 (`EM_FRAME_TIMING=<file>`, em_frame.c: per
+  step wall and main-thread CPU time, the pacing sleep excluded; headless
+  newgame-control, "before" is this step's build with the integer lanes,
+  both at machine load average about 5..12):
+
+  | newgame-control, in-level ticks (1,331) | before | after |
+  |---|---|---|
+  | main-thread CPU per tick, mean | 15.9 ms | 5.6 ms |
+  | p95 / p99 / max | 29.0 / 29.3 / 29.7 ms | 9.0 / 9.2 / 9.5 ms |
+  | ticks over 16.68 ms | 472 | 0 |
+  | the 30 moving ticks, mean | 18.0 ms | 6.2 ms |
+  | capped run, "holding W" to "fade clear" | 25.90 s | 22.79 s |
+
+  The capped window is 1,366 paced steps, not 1,301 (it also holds the
+  steps between the print and the first locked tick and the fade): 22.79 s
+  is 1,366.0 NTSC periods, so every step in it met its deadline (the
+  capped run's timing file: no step over the period after step 1,537; the
+  four over it are the loads before the window). The review measured HEAD
+  (the legacy meshes) at 22.80 s over the same window. Under the heavy
+  load of other lanes (load average 140..190) the after-build still kept
+  every in-level tick under the period (CPU mean 6.2 ms, max 10.7 ms).
+  The heaviest captured run's walk (08_truck_crossing) now costs 1.8 ms of
+  CPU (level kernel 38 %, the walk's DMA / GIF / GS queue about 30 %, the
+  clip kernel about 17 %). Remaining CPU in the frame is mostly the object
+  units' walk and 001D5370's VU0 corner tests (em_vu_vec_bits).
 - **The trace hook exists only for the test.** It is NULL in the game.
 - **Decomp-side registry (not this lane's files).** The decomp's
   docs/FUNCTIONS.csv lists 001D4A90 as `readable`, but its C
@@ -576,3 +579,144 @@ decision FIRST_LEVEL_AUDIT item 3 still lists.
   confirmed it against the .s; this lane translated from the .s). It also
   lists 001E0DF0 as `undecompiled`, although src/func_001E0DF0.c is a
   byte-matched C body. Both rows need a decomp-side correction.
+
+## 7. The static world drawn from its packets
+
+### 7.1 What the run sends
+
+The channel-0 run 001D5370 writes (section 2.2) is the first thing channel 0
+holds in a world frame; step V's list sends channel 0 right after the
+channel-3 background. The DMAC walks it with tag transfer off (the upper
+eight bytes of a tag are never written; the captures hold stale bytes
+there). Its shapes, read from every captured run:
+
+- CNT (001D4750): a FLUSH and UNPACK V4-32 of 8 qwords to VU address 0 (the
+  scratchpad view projection D_70003AC0 and the first four rows of
+  D_00817240), then a CNT with UNPACK of 4 qwords to 0x3F5;
+- REF 1 qword to *D_00275674 (a VIF FLUSH);
+- CALL (qwc 0) to the kernel packet 0x00237180 or, for 001D4960, 0x00239C90;
+- REF 9 qwords to D_00815360 (001D1F80(0, 1, 0): set 1, class 0 of the GS
+  state bank: TEST 0x5000D, TEX1 0x60, ZBUF ZMSK 0, ALPHA 0x80000000A8,
+  CLAMP 0, COLCLAMP 1);
+- REF 8 qwords to the skin record D_00816440 + (context +0x9C << 7): STCYCL
+  4,4 and UNPACK V4-32 of 7 qwords to 0x3F9..0x3FF (the clip kernel's tags,
+  the template, the fog row and the guard rows);
+- REFs of an object's blocks (runs of up to 0x1F8 blocks of 0x82 qwords):
+  each block is STCYCL 4,4, UNPACK V4-32 of 128 qwords to TOPS, 32 vertices
+  (TEX0, (s, t, 1, 0), the colour / 128, position + data word) and MSCAL 0
+  (an object's first block) or MSCNT.
+
+The kernel packets (read from the ELF by the draw test) set STCYCL 4,4,
+BASE 0x190 and OFFSET 0x109 (level) / 0x101 (clip), which returns the VIF
+double buffer to BASE; every MSCAL / MSCNT flips it. The run's first UNPACK
+inherits the cycle the list left: the channel-3 list ends with the
+background kernel packet 0x0023C990's STCYCL 4,4.
+
+### 7.2 The level kernel (em_vu1_level_kernel.h)
+
+The 79-instruction program at 0x002371B0: per vertex c = p x M (M = dmem
+0..3), Q = 1 / c.w, the guard-band CLIP history, s = c.xyz Q, fog, the
+back-face cull (the S flag of the screen cross product times the data
+word's float value, the strip's winding), ADC = data bit 15 | CLIP of
+vertices i-2..i | cull; out: TEX0 (the vertex's), ST = (s, t, 1) Q,
+RGBAQ = the colour + 65536.0 (its low byte per lane), XYZF2 = ftoi4(s.xyz,
+fog [+ 2048 when ADC]); the packet (template + 32 x 4 qwords) is kicked at
+TOP + 0x84. An MSCNT re-runs the whole set-up (the program's last
+instruction branches to micro 0). The loop is software-pipelined: the
+carried registers (the previous batch's last screen point and edge, the w
+iteration 30 loaded, the four output registers) are modelled; a vertex 0 or
+1 whose ADC would depend on registers another program left faults
+(STALE): every block of the AREA11 bank carries data bit 15 on both. The
+drop shadow's box pass (001DA310) runs the same program: its
+em_shadow_gs_level_batch is now an adapter over this translation (one
+owner). The batch is one text instantiated twice: on the model's integer
+lanes (em_vu1_level_kernel_batch) and on the host FPU lanes
+(em_vu1_level_kernel_batch_host, em_vu_host_lanes.h), which the live walk
+uses (section 6).
+
+### 7.3 The walk and the draw (em_static_world_draw, em_static_world_live)
+
+em_static_world_draw walks [start, end) over the render context's storage
+and the bank (em_rcl_bytes): CNT, REF and the kernel CALLs; the VIF codes
+NOP, STCYCL, FLUSH*, UNPACK V4-32 (to an address or, with FLG, TOPS),
+MSCAL 0, MSCNT and DIRECT (only inside the GS state REF, which must be
+exactly the class-0 packet, em_object_unit_gs_state_check); MSCAL / MSCNT
+run the level kernel's translation or the clip kernel's
+(em_vu1_shadow_clip_run, EM_VU1_CLIP_BOX: 00239C90 is the box's clip
+kernel); every XGKICK's PACKED packet goes through the GS vertex queue
+(strips under ADC, triangle lists) and every drawn triangle is handed to
+`em_gfx_gs_opaque` in GS order with the state in force. Every other tag,
+code, register or program faults (fail-stop).
+
+frame_close_out calls `em_static_world_live_draw` after the background and
+the frame's fog, before the owner walk's units: channel 0's order.
+`em_gfx_gs_opaque` (em_gfx.h) draws the triangles with the object units'
+class-0 pixel path (Metal: the same pipeline, position from the GS words
+through em_background_gs_ndc and the GS-depth mapping, bilinear REPEAT with
+4-bit weights, alpha test > 0, the measured fog blend, no blending), with
+the TEX0's texture function: every static-world TEX0 is MODULATE (TFX 0,
+TCC 1): Cv = min(Ct Cf >> 7, 255), Av = min(At Af >> 7, 255). The 119
+bank TEX0s are in the object texture export (tools/export_object_textures.py
+now reads the bank too; each decodes identically from the GS memory of the
+15 route captures).
+
+The shadow chain's box and receivers are positioned from their own kicked
+words the same way (SHADOW_ORIGINAL.md), so a receiver meets the level
+surface it lies on at the same depth, as on the GS.
+
+### 7.4 Retired
+
+- **The legacy level meshes.** AREA11 loads no scene EMDL any more
+  (em_scene.c scene_load): 00_zone_main .. 04_zone_e4 held exactly the
+  bank's geometry (every record the old exporter found lies in a bank
+  block; five bank vertices it missed), and 05_movables held the bank's
+  last 181 vertices plus three skinned models (resources 0x50, 0x06, 0x5A
+  of f17) that the old exporter placed at the world origin and that no
+  captured frame REFs. Their draw (the chain's scene entries, the baked
+  vertex colour and the native projection) is gone from the first level.
+  The legacy path stays for scenes without the render context.
+- **em_render_001C1D00 on the first level** (it stays for scenes without the
+  render context), the flag-0x21 stand-in in background_gate, UM_001D52E0 and
+  `rcl_grid_header`.
+
+## 8. Evidence
+
+- **test_static_world_reference** (section 4): the builders against the
+  original instructions; rehearsal E now over exactly the live 27 views.
+- **test_static_world_draw_reference** (`make
+  test-static-world-draw-reference`, about 2 s; EM_TEST_FULL=1 about 9 s):
+  A: the kernel packets' VIF codes from the ELF. B: every captured run (the
+  opening, 00..14, the c7cap capture) replayed on one persistent VU1 with
+  the ORIGINAL microcode and walked natively: every XGKICK equal byte for
+  byte (program, TOP, packet; the level packets' ST w lane after a clip
+  batch, the clip kernel's register, masked), and every triangle equal (an
+  independent GS walk). 17 of 17 runs: 0xB00..0x3150 bytes, 36..321 object
+  REFs, 45..600 level and 2..67 clip batches, 237..4,292 triangles. C: 576
+  synthetic batches (every ADC reason, both fog clamps, the carried
+  registers of vertices 0 and 1, a zero cross product culled by its -0)
+  equal over the whole data memory; STALE and OPERAND faults; each also run
+  on the host lanes and equal to the model's word for word, faults
+  included. B and D walk with the host lanes. D: fail-stop cases.
+- **test_vu_host_lanes** (`make test-vu-host-lanes`): the host lanes
+  against em_ee_float.h (section 6).
+- **test_static_world_gpu** (`make test-static-world-gpu`): the Metal pixel
+  path over 05_boxes' run (1,187 triangles) against the GS pixel model over
+  the original microcode's triangles: 99.78 % of 1,007,297 interior pixels
+  exact, 100 % within 2.
+- **The level smoke** (check_static_world, LEVEL_SMOKE.md): over the whole
+  route every 001C1D00 run is drawn in its tick (12,572 runs on the main
+  line); 32 sampled calls re-executed: the ORIGINAL 001C1D00 over the
+  port's inputs writes the port's channel-0 run, channel-3 list and
+  D_00253560 byte for byte, and the original microcode draws the port's
+  triangles; at the view-exact snapshots 10 and 14 the port's triangles are
+  the ones the capture's own run draws (2,457 and 847); a main-line run
+  that reaches Roger must compare both (VIEW_EXACT_MAIN_LINE), so a camera
+  regression cannot drop them silently. check_render_context
+  compares the seven-tag world list with the captures'.
+- **Pixels.** By eye: the first-control frame before and after (the legacy
+  meshes against the packets: the same geometry; the railing bars now draw
+  solid, without the bright fringes, as the fb2 reference frame shows) and
+  05_boxes' run against its fb2 frame. The shadow harness
+  (`test_shadow_original_reference.py --capture`, now drawing the beat's
+  own run) gives level pixels around the shadow within 1 of the original
+  screenshot's means (01, 08, 12).

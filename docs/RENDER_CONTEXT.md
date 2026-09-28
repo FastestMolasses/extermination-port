@@ -300,16 +300,13 @@ uses a0 = 0).
   which 001E0CC0 does not read.
 - 001E0CC0 is also called by anim_frame_top_b and by 001E0CF0.
 
-**001C1D00(D_008101D0)**, render-env step.
-- Live stand-in: `em_render_001C1D00`, which calls `render_env_init()` and
-  is described as a "skeleton no-op".
-- The original calls 001E0CF0 and then 001D5370 in state 1 (and 001E2260
-  first for key 0x1500).
-- Bind `em_render_context_001D5370` after 001E0CF0. 001E0CF0 and 001E2260
-  belong to L31.
+**001C1D00(D_008101D0)**, the background channel and the static world:
+bound on the render context since 2026-09-28 (`em_rcl_001C1D00`,
+STATIC_WORLD.md section 5). The original calls 001E0CF0 and then 001D5370
+(and 001E2260 first for key 0x1500).
 
-**001C1E70**, a thunk to 001D52E0, reached from 001C1DC0 (L31).
-- Bind `em_render_context_001D52E0` there.
+**001C1E70**, a thunk to 001D52E0, reached from 001C1DC0: em_rcl's own
+worker runs `em_swc_001D52E0` over the bank (STATIC_WORLD.md 5.1).
 
 **001D2300** (L31, reached from `gs_readback_queue_run`).
 - Bind `em_render_context_001E0DF0` at its call.
@@ -456,8 +453,9 @@ Mutation check, run by hand on a scratch copy and not kept:
 ## 6. Limits (honest)
 
 - **Bound in part.** Section 8 lists what runs live since 2026-09-25 and
-  what is still not bound (001D5370, 001D52E0, 001DD7B0 / 001DD940,
-  001E0C30 / 001E1010 at 001D19E0, 001E0DF0 / 001D21B0 at 001D2300).
+  what is still not bound (001DD7B0 / 001DD940, 001E0C30 / 001E1010 at
+  001D19E0). 001D5370, 001D52E0 and 001E0DF0 / 001D21B0 run live since the
+  static-world step (STATIC_WORLD.md 5).
 - **Replay workers.** In the test, 0015D2F0, 0022EBE0, 001B0070, 001026A0,
   001CB760, 001D2D20, 001026D0 and 001C6120 take their effects from the
   original. The test proves the calls and arguments, not those callees.
@@ -525,8 +523,12 @@ written it). The lane modules are composed over this one storage; each
 worker of one is the translation of the other (the module adds no
 behaviour). The workers the port does not translate are the binder's: the
 point-light tick 001D7C30 (em_point_light), the SDK sqrtf / tanf of the
-area's collision world, 001C1DC0's weather spawn 001C1EA0 and the reported
-001D52E0. The four 001DDA00 effect callees the first level never reaches
+area's collision world and 001C1DC0's weather spawn 001C1EA0 (001D52E0 runs
+on this module's views since the static-world step, STATIC_WORLD.md). The
+static world adds its storage and views here too (D_00253560, D_00817240,
+the scratchpad 0x70003400, the state block D_008101D0 and, read only, the
+bank and the loader's D_0028A5A0 word; STATIC_WORLD.md 5.2). The four
+001DDA00 effect callees the first level never reaches
 (001DF110, 001DE920, 001DDB70, 001DFF70) and every callee of the entries
 that are not bound are bound to a fault.
 
@@ -537,7 +539,8 @@ that are not bound are bound to a fault.
 | 001D1AE0 | main-loop step B, every iteration the movie does not hold (em_frame_set_step_b, main.c) | nothing (em_gfx_begin_frame was the whole step) |
 | 001D1C50 (with 001D2830, 001D2730 / 001E0C80, 0021B9A0, 001D2960, 001D2D20, 001D30A0, 001D7C30) | both world variants and the status frame (w_001D1C50) | em_render_001D1C50 (the point-light tick only), which stays for a scene without the render context |
 | 001D1EA0 (001D2910, 001E0D70, 001DDA00 -> 001DEEE0, 001DDAA0, 001DDE10, and the kick 001CB800) | both world variants (a0 = 1) and the status frame (a0 = 0), before the renderer's presentation | nothing: frame_close_out was the whole close |
-| 001C1DC0 (the eight registrations, 001C1E70 -> 001D52E0 reported, 001C1E80 -> 001D8FD0, 001C1E90, 001C1EA0, 001C1F50) | 0x1AE040 states 0 and 4 (w_001C1DC0) | the weather spawn alone (UM_001C1DC0, kept for a scene without the render context) |
+| 001C1DC0 (the eight registrations, 001C1E70 -> 001D52E0, 001C1E80 -> 001D8FD0, 001C1E90, 001C1EA0, 001C1F50) | 0x1AE040 states 0 and 4 (w_001C1DC0) | the weather spawn alone (UM_001C1DC0, kept for a scene without the render context) |
+| 001C1D00 (001E0CF0 -> 001E1E60, 001D5370 and the static-object builders; em_swc_001C1D00) | both world variants, after 001D1C50 (w_001C1D00) | em_render_001C1D00 (an empty step), which stays for a scene without the render context; its channel-0 run is drawn from its packets (STATIC_WORLD.md 7) |
 | 001E0CC0 | the status close (w_001E0CC0) | UM_001E0CC0 |
 | 001D25F0, 001D2610 (001D2590, 0021B970) | the interaction host's ZOOM_DEFAULT, SCOPE_ZOOM_ZERO and CONFIGURE, the script host's op workers and Roger's timeline (0022EEF0) zoom, the opening runtime's zoom stores | `g.cam.zoom` (removed), `em_camera_scope_zoom` (removed), the hard-coded 0x43F02F4F |
 | 001DD950 | 001DD980's tail (the camera's 0018BC20 action 8 and 001B0460, the interaction host's and the script host's publications) | the EmInteractionProjection record in em_camera_live (removed) and its host-double quotient |
@@ -611,8 +614,6 @@ by `em_rcl_page` (section 7 of that doc).
 
 | Original | Why not | What it needs |
 |---|---|---|
-| 001C1D00 (001E0CF0, 001D5370) | 001D5370 reads the static-object bank *D_0028A5A0 (0x1516F40 in every AREA11 capture), which is not exported, and its callees 001D4FB0 / 001D4B20 / 001D4DA0 / 001D5BD0 build the static world's packets (renderer boundary to decide); 001E0CF0 calls the background channel 001E1E60 / 001E1AD0 (lane L31) | an export of the bank (it lies in the chunk15 concatenation at 0x304000; 0x48D000 bytes equal the captures from there) and the boundary decision; em_render_001C1D00 stays the stand-in |
-| 001D52E0 (001C1DC0's 001C1E70) | the same bank | reported (UM_001D52E0); its only reader is 001D5370 |
 | 001D19E0 (except skin_arena_init, 8.2) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
 | 001D1EF0 before the area bind (the New Game bring-up 001ACEC0 case 0, 001AD360 steps 0, 1, 2, 5) | its 001D1C50 needs the views the area load hands over (the camera pool's D_00810610, the collision world's SDK sqrtf / tanf) | reported (UM_001D1EF0); from the area build on it is bound (section 9) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
@@ -745,9 +746,11 @@ phase; it is outside the first level.
   as in the captures. Only the load veil's frames send them to the GS the
   port draws (em_load_veil_live); every other frame's renderer maps GS
   coordinates itself.
-- **The +0x1D8 channel-3 list is not built** (001C1D00 / 001E0CF0 are not
-  bound, 8.4), so a world frame's list has no CALL there: six tags where the
-  captures hold seven. The native background draw stands for that CALL.
+- **The +0x1D8 channel-3 list** is built since the static-world step
+  (001C1D00 / 001E0CF0 bound, STATIC_WORLD.md): a world frame's list holds
+  seven tags, as the captures do. The native background draw (em_background_gs,
+  the grid kernel 0x0023C990's model) draws what that CALL sends; its gate
+  and TEX0 / RGBAQ come from the list itself.
 - **The clear.** Step V selects the Z-only clear (+0x3A0) or the black
   clear (+0x420) exactly, but the port's renderer does not keep the colour
   buffer between frames: it clears to black at every frame begin, which
@@ -784,8 +787,8 @@ phase; it is outside the first level.
   +0x98 store each fail it.
 - The level smoke (`check_render_context`, LEVEL_SMOKE.md): on every tick
   +0x98 = 1 - +0x9C (the captures' phase); every world frame after a world
-  frame holds the route snapshots' main list (without the +0x1D8 CALL) with
-  the cursor at its end; every status frame after a status frame holds the
+  frame holds the route snapshots' main list (seven tags, with the +0x1D8
+  CALL) with the cursor at its end; every status frame after a status frame holds the
   two status captures' (startup-reference status-hub and panel, taken
   mid-iteration after the status frame's 001D2830(3, 1)) flag words 0x0B /
   0x03, fog block, save slot 0 and main list (the black clear +0x420, the

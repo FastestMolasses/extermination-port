@@ -1,4 +1,7 @@
 /* em_object_unit.c - see em_object_unit.h and docs/OWNER_DRAW.md. */
+/* The object and face kernels' multiplies and adds run on the host FPU
+ * (em_vu_host_lanes.h), inside object_kernel / face_kernel below. */
+#define EMVUO_HOST_LANES 1
 #include "game/em_object_unit.h"
 
 #include <stdlib.h>
@@ -379,6 +382,41 @@ static int block_codes(const uint8_t *block, uint32_t k)
            codes_are(block + 16u * 129u, k ? 0x17000000u : 0x14000000u, 0, 0, 0);
 }
 
+/* One object-kernel batch (MSCAL for block 0, MSCNT after) on the host
+ * lanes: the core holds every host float operation and runs only inside
+ * the host environment. */
+static EM_VU_HOST_NOINLINE int object_kernel_core(EmVu1ObjState *s, EmVu1ObjQword *dmem, uint32_t top,
+                                                  EmVu1ObjBatch *b, uint32_t k)
+{
+    return k ? em_vu1_object_kernel_mscnt(s, dmem, top, b) : em_vu1_object_kernel_mscal(s, dmem, top, b);
+}
+
+static EM_VU_HOST_NOINLINE int object_kernel(EmVu1ObjState *s, EmVu1ObjQword *dmem, uint32_t top,
+                                             EmVu1ObjBatch *b, uint32_t k)
+{
+    EmVuHostEnv env;
+    em_vu_host_enter(&env);
+    const int rc = object_kernel_core(s, dmem, top, b, k);
+    em_vu_host_leave(&env);
+    return rc;
+}
+
+static EM_VU_HOST_NOINLINE int face_kernel_core(EmVu1FaceState *s, EmVu1ObjQword *dmem, uint32_t top,
+                                                EmVu1FaceBatch *b, uint32_t k)
+{
+    return k ? em_vu1_face_morph_mscnt(s, dmem, top, b) : em_vu1_face_morph_mscal(s, dmem, top, b);
+}
+
+static EM_VU_HOST_NOINLINE int face_kernel(EmVu1FaceState *s, EmVu1ObjQword *dmem, uint32_t top,
+                                           EmVu1FaceBatch *b, uint32_t k)
+{
+    EmVuHostEnv env;
+    em_vu_host_enter(&env);
+    const int rc = face_kernel_core(s, dmem, top, b, k);
+    em_vu_host_leave(&env);
+    return rc;
+}
+
 static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1ObjQword *dmem)
 {
     memset(dmem, 0, EM_VU1_OBJ_DMEM_QWORDS * sizeof *dmem);
@@ -397,8 +435,7 @@ static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1Obj
         const uint32_t top = em_vu1_object_kernel_top(k);
         memcpy(&dmem[top], block + 16u, 128u * sizeof *dmem);
         EmVu1ObjBatch b;
-        const int rc = k ? em_vu1_object_kernel_mscnt(&s, dmem, top, &b)
-                         : em_vu1_object_kernel_mscal(&s, dmem, top, &b);
+        const int rc = object_kernel(&s, dmem, top, &b, k);
         if (rc || b.fault) return fail(r, "the object kernel faulted (an exponent-255 live operand)", k);
         if (push_strips(r, dmem, b.kick, k) < 0) return -1;
     }
@@ -435,7 +472,7 @@ static int face_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1ObjQw
         if (((tmpl >> 47) & 0x7FFu) != EM_OBJECT_UNIT_TEMPLATE_PRIM || !((tmpl >> 46) & 1u))
             return fail(r, "the kernel's GIF template is not PRE with PRIM 0x03C", k);
         EmVu1FaceBatch b;
-        const int rc = k ? em_vu1_face_morph_mscnt(&s, dmem, top, &b) : em_vu1_face_morph_mscal(&s, dmem, top, &b);
+        const int rc = face_kernel(&s, dmem, top, &b, k);
         if (rc || b.fault) return fail(r, "the face program faulted (an exponent-255 live operand)", k);
         if (push_strips(r, dmem, b.kick, k) < 0) return -1;
     }

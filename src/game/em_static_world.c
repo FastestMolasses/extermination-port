@@ -4,6 +4,7 @@
  * order of loads, stores and calls, including the reload of the channel
  * cursor word before every tag field it writes. */
 #include "game/em_static_world.h"
+#include "game/em_owner_draw_original.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -338,18 +339,39 @@ int em_static_world_001C6120(S *s, u32 bank, int32_t id, u32 *result)
 /* 001D71A0.                                                          */
 /* ------------------------------------------------------------------ */
 
+/* 001D2090 is em_owner_draw_vif_append_ref_tag, the one translation (the
+ * owner draw's and the face attachment's callers use it too): this memory
+ * form checks what it touches over the views (the context and block
+ * words, the channel's cursor word, the 0x20 bytes of the two tags and the
+ * context +0x50 + 4 chan word, all writable) and runs it on those host
+ * bytes: REF 1 qword to *D_00275674, +0x50 + 4 chan = target, CALL target;
+ * then the cursor advances past both tags. A view or alignment fault is
+ * therefore raised before the first tag byte is written. */
 static int ref_tag(S *s, int32_t chan, u32 target)
 {
-    u32 ctx, word, block;
+    u32 ctx, word, block, c;
+    if (chan < 0 || chan > 3) return fault(s, EM_SW_FAULT_BAD_ADDRESS, (u32)chan);
     TRY(context(s, &ctx));
     word = ctx + ((u32)chan << 2) + 0x10u;
     TRY(ld32(s, EM_SW_D_00275674, &block));                   /* 001D2098 */
-    TRY(tag(s, word, 0x30u, block, 1u, 0x10u, NULL));          /* 001D20B4..001D20D0 */
-    TRY(context(s, &ctx));
-    TRY(st32(s, ((u32)chan << 2) + ctx + 0x50u, target));      /* 001D20DC */
-    TRY(context(s, &ctx));
-    word = ctx + ((u32)chan << 2) + 0x10u;
-    return tag(s, word, 0x50u, target, 0u, 0x10u, NULL);       /* 001D20E8..001D2108 */
+    TRY(ld32(s, word, &c));
+    uint8_t *packet = memw(s, c, 0x20u, 4);                    /* 001D20B4..001D2108 */
+    if (!packet) return -1;
+    uint8_t *call = memw(s, ctx + 0x50u + ((u32)chan << 2), 4, 4);   /* 001D20DC */
+    if (!call || !memw(s, word, 4, 4)) return -1;
+    EmOwnerServicesChannel channel[4];
+    memset(channel, 0, sizeof channel);
+    channel[chan].cursor = packet;
+    channel[chan].end = packet + 0x20u;
+    EmOwnerDrawWorld w;
+    memset(&w, 0, sizeof w);
+    w.channel = channel;
+    w.channel_count = 4u;
+    w.d00275674 = &block;
+    w.ctx_50 = (uint32_t *)(void *)(call - 4u * (u32)chan);
+    w.ctx_50_count = 4u;
+    em_owner_draw_vif_append_ref_tag(&w, chan, target);
+    return st32(s, word, c + 0x20u);
 }
 
 int em_static_world_001D2090(S *s, int32_t chan, u32 target)

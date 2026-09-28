@@ -2471,11 +2471,14 @@ def metal_receiver_pixels(metal, gslib, stats, report):
     tmp = Path(tempfile.mkdtemp(prefix='shadow_gs_'))
     for a in (36, 90, 200):
         for passes in (1, 2):
-            # camera: clip = (x, y, 0, w) with w = 20 -> F = floor(A + B*20)
+            # camera: clip = (256 w x + 2048 w, 112 w y + 2048 w, 2^23 w, w)
+            # with w = 20 -> F = floor(A + B*20); the receivers are drawn at
+            # their kicked GS words, so the quad (+-1, +-1) spans the whole
+            # 512 x 224 field (GS 1792..2304 x 1936..2160) at Z 2^23
             w = 20.0
-            camera = [1.0, 0, 0, 0, 0, 1.0, 0, 0, 0, 0, 0, 0, 2048.0*w, 2048.0*w, 0, w]
+            camera = [256.0*w, 0, 0, 0, 0, 112.0*w, 0, 0, 0, 0, 0, 0, 2048.0*w, 2048.0*w, 8388608.0*w, w]
             uv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 1.0, 8388608.0+a]
-            # a world quad covering the frame at NDC depth 0.5 (viewproj = identity)
+            # the quad's model points (the camera above places them)
             strip = []
             for x, y in ((-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)):
                 strip.append((x, y, 0.5, struct.unpack('<f', struct.pack('<I', 0x3F800000))[0]))
@@ -2515,9 +2518,9 @@ def metal_receiver_pixels(metal, gslib, stats, report):
     # vertex outside the guard band (GS X 7168: +x only, so not rejected; its data
     # word +1.0 keeps the clip kernels' back-face test from dropping it).
     # The camera is w = 40 z (row 2) and GS X = 256 x + 2048, so the plane
-    # z = 0.5 sits at w = 20 as above, the quad spans 512 GS pixels and the
-    # x, y, w columns are regular (em_shadow_gs_clip_unproject). NDC
-    # (0.5, 0.5) lies only in that
+    # z = 0.5 sits at w = 20 as above, the quad spans 512 GS pixels, and GS
+    # Z = 2^23 (row 3: the kicked words place every pass, the level's
+    # mapping). NDC (0.5, 0.5) lies only in that
     # triangle. Receivers: class 2 (0023E8A0 re-pass) shadows it, class 0
     # (no re-pass) leaves the frame. Box: 00239C90's part of the box writes
     # destination alpha 128 there, so a following receiver over the whole
@@ -2526,7 +2529,7 @@ def metal_receiver_pixels(metal, gslib, stats, report):
                                       C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_float)]
     lib.em_gfx_shadow_alpha_clear.argtypes = [C.c_void_p]
     w = 20.0
-    camera = [256.0*w, 0, 0, 0, 0, 256.0*w, 0, 0, 2048.0*40, 2048.0*40, 0, 40.0, 0, 0, 0, 0]
+    camera = [256.0*w, 0, 0, 0, 0, 256.0*w, 0, 0, 2048.0*40, 2048.0*40, 0, 40.0, 0, 0, 8388608.0*w, 0]
     uv = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.5, 0.5, 1.0, 8388608.0+200]
     word = lambda u: struct.unpack('<f', struct.pack('<I', u))[0]
 
@@ -2601,9 +2604,11 @@ def read_bmp_centre(path):
 # ------------------------------------------------------ capture metric ----
 # --capture BEAT: a headless native frame of a route beat
 # (../Extermination/build/s87/route/BEAT/, FIRST_LEVEL_ROUTE.md) against
-# its original.png. The harness draws what the port's render stage will:
-# the background, the six AREA11 zone meshes with the area fog, then the
-# shadow chain through em_gfx_shadow_* with the inputs the native
+# its original.png. The harness draws what the port's render stage does:
+# the background, the static world from the beat's own channel-0 run (the
+# triangles the ORIGINAL level and clip kernels kick, through
+# em_gfx_gs_opaque, docs/STATIC_WORLD.md section 7) with the area fog, then
+# the shadow chain through em_gfx_shadow_* with the inputs the native
 # em_shadow_original computes over the beat's RAM (the box and receiver
 # strips are the original objects' VU1 vertex lists, taken from the chain
 # the original 001DA6A0 builds over that RAM). It writes three frames to
@@ -2611,7 +2616,41 @@ def read_bmp_centre(path):
 # mask) and reports the shadow region against the original screenshot.
 ROUTE = DECOMP/'build/s87/route'
 CAPTURE_IOU_MIN, CAPTURE_RATIO_TOL = 0.80, 0.05
-ZONES = ('00_zone_main', '01_zone_e1', '02_zone_e2', '03_zone_e3', '04_zone_e4', '05_movables')
+
+
+class GsVertex(C.Structure):
+    _fields_ = [('x', C.c_uint16), ('y', C.c_uint16), ('z', C.c_uint32), ('f', C.c_uint8),
+                ('has_f', C.c_uint8), ('rgba', C.c_uint8 * 4), ('q', C.c_uint32), ('s', C.c_uint32),
+                ('t', C.c_uint32), ('u', C.c_uint16), ('v', C.c_uint16)]
+
+
+class GsPrim(C.Structure):
+    _fields_ = [('prim', C.c_uint32), ('set', C.c_uint32), ('tex0', C.c_uint64), ('clamp', C.c_uint64),
+                ('tex1', C.c_uint64), ('alpha', C.c_uint64), ('test', C.c_uint64), ('colclamp', C.c_uint64),
+                ('count', C.c_uint32), ('v', GsVertex * 3)]
+
+
+def static_world_prims(elf, ram):
+    """The beat's own static run drawn by the ORIGINAL level and clip kernels
+    (tools/test_static_world_draw_reference.py): em_gfx_gs_opaque's input,
+    with the class-0 state every run's GS state REF sends."""
+    import test_static_world_draw_reference as dr
+    start, end, tags = dr.static_run(ram)
+    kicks = []
+    for kernel, top, _b, _k, _s, events in kernel_replay(elf, ram, [t[:4] for t in tags]):
+        kicks += [(kernel, top, e[3]) for e in events if e[0] == 'kick']
+    tris = dr.gs_triangles(kicks)
+    arr = (GsPrim * max(1, len(tris)))()
+    for i, (prim, tex0, verts) in enumerate(tris):
+        p = arr[i]
+        p.prim, p.set, p.tex0, p.count = prim, 0x3F, tex0, 3
+        p.clamp, p.tex1, p.alpha, p.test, p.colclamp = 0, 0x60, 0x80000000A8, 0x5000D, 1
+        for k, (x, y, z, f, rgba, s_, t_, q) in enumerate(verts):
+            v = p.v[k]
+            v.x, v.y, v.z, v.f, v.has_f = x, y, z, f, 1
+            v.rgba[:] = list(rgba)
+            v.s, v.t, v.q = s_, t_, q
+    return arr, len(tris)
 
 
 class EmModel(C.Structure):
@@ -2679,8 +2718,8 @@ def capture_metric(elf, lib, gslib, beat, report):
     folder = ROUTE/beat
     ram = (folder/'eeMemory.bin').read_bytes()
     scratch = (folder/'scratchpad.bin').read_bytes()
-    need = [ROOT/'assets/scene_snow'/(z+'.emdl') for z in ZONES] + \
-           [PROXY_EMDL, ROOT/'assets/player.emdl', ROOT/'assets/scene_snow/background.embg']
+    need = [ROOT/'assets/scene_snow/object_textures.emot', PROXY_EMDL, ROOT/'assets/player.emdl',
+            ROOT/'assets/scene_snow/background.embg']
     missing = [str(p) for p in need if not p.exists()]
     assert not missing, ('capture needs the exported assets', missing)
     scene = scene_view(ram, scratch)
@@ -2725,14 +2764,13 @@ def capture_metric(elf, lib, gslib, beat, report):
                                                    C.POINTER(C.c_float)]
     lib_g.em_gfx_shadow_receiver.argtypes = [C.c_void_p, C.POINTER(Strips), C.c_uint32]
     lib_g.em_gfx_shadow_receiver_end.argtypes = [C.c_void_p]
-    meshes = []
-    for z in ZONES:
-        m = EmModel()
-        assert lib_g.em_model_load(C.byref(m), str(ROOT/'assets/scene_snow'/(z+'.emdl')).encode()) == 0
-        mesh = lib_g.em_gfx_mesh_create(gfx, m.verts, m.vert_count, m.indices, m.index_count, m.texs,
-                                        m.tex_count, m.texels, m.flags)
-        assert mesh, z
-        meshes.append((mesh, m.palette, m.bone_count, m))
+    lib_g.em_gfx_object_texture.argtypes = [C.c_void_p, C.c_uint64, C.c_char_p, C.c_uint32, C.c_uint32]
+    lib_g.em_gfx_gs_opaque.argtypes = [C.c_void_p, C.POINTER(GsPrim), C.c_uint32]
+    emot = (ROOT/'assets/scene_snow/object_textures.emot').read_bytes()
+    for i in range(u32(emot, 8)):
+        t, tw, th, at, _ = struct.unpack_from('<Q4I', emot, 0x10+24*i)
+        assert lib_g.em_gfx_object_texture(gfx, t, emot[at:at+4*tw*th], tw, th) == 0, hex(t)
+    prims, nprims = static_world_prims(elf, ram)
     player = EmModel()
     assert lib_g.em_model_load(C.byref(player), str(ROOT/'assets/player.emdl').encode()) == 0
     pmesh = lib_g.em_gfx_mesh_create(gfx, player.verts, player.vert_count, player.indices, player.index_count,
@@ -2754,8 +2792,7 @@ def capture_metric(elf, lib, gslib, beat, report):
         lib_g.em_gfx_background_draw(gfx, viewa, zoom)
         lib_g.em_gfx_fog(gfx, -209.0, 304.0, fog_rgb)
         lib_g.em_gfx_char_rig(gfx, None)
-        for mesh, pal, bc, _ in meshes:
-            lib_g.em_gfx_draw_skinned(gfx, mesh, vpa, pal, bc)
+        assert lib_g.em_gfx_gs_opaque(gfx, prims, nprims) == 0, (beat, 'em_gfx_gs_opaque refused the run')
         if mode != 'noshadow':
             assert lib_g.em_gfx_shadow_alpha_clear(gfx) == 0
             for k in range(2):
@@ -2796,10 +2833,13 @@ def capture_bounds(metric):
     """The --capture pass/fail: no worker fault (a fault stops the live
     chain: the untranslated clip kernels), IoU of the native shadow with
     the original's dark pixels >= CAPTURE_IOU_MIN and the shadowed/lit
-    luminance ratios within CAPTURE_RATIO_TOL. Measured (lane shadow-gs):
-    01_battery 0.841 / 0.601 vs 0.600, 08_truck_crossing 0.837 / 0.585 vs
-    0.590, 12_crevice_jump 0.861 / 0.605 vs 0.593. The frame is the
-    harness's render (zone meshes + fog, no level lighting), not the live
+    luminance ratios within CAPTURE_RATIO_TOL. Measured since the
+    static-world step (the level is the beat's own run, the box and the
+    receivers are placed at their kicked words): 01_battery 0.836 / 0.602
+    vs 0.600, 08_truck_crossing 0.828 / 0.588 vs 0.592, 12_crevice_jump
+    0.854 / 0.610 vs 0.595; with the legacy zone meshes they were 0.841,
+    0.837 and 0.861 (docs/SHADOW_ORIGINAL.md explains the change). The
+    frame is the harness's render (the static world + fog), not the live
     port."""
     beat = metric['beat']
     assert not metric['faults'], (beat, 'the shadow chain faults (untranslated clip kernel)',

@@ -778,8 +778,14 @@ void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
  *
  * Original matrices are passed as the 16 floats of their memory (rows
  * contiguous, row-vector convention, exactly as em_shadow_original's plan
- * holds them). `viewproj` is the frame's native column-major P*V (the
- * matrix the level meshes are drawn with). Every call returns 0, or -1
+ * holds them). The box and the receivers are positioned from the words
+ * their kernels kick (GS X / Y through em_background_gs_ndc, Z through the
+ * object units' depth mapping, w = 1), as the static world's triangles
+ * are (em_gfx_gs_opaque): a receiver meets the level surface it shades at
+ * the same depth, and the box's faces meet the level's depth as the GS
+ * compares them. `viewproj` (the frame's native column-major P*V) is kept
+ * in the calls for the callers; no pass positions a vertex with it any
+ * more. Every call returns 0, or -1
  * when it cannot draw exactly what the original draws (outside a frame, a
  * missing input, a GPU without framebuffer fetch, receivers without the
  * frame's fog, a clip-kernel fault, the per-frame
@@ -806,11 +812,12 @@ int em_gfx_shadow_alpha_clear(EmGfx *gfx);
  * its original strips) through kernel 00237180's cull: its triangles
  * write destination alpha = the A byte of `rgbaq` where they lie in front
  * of the frame's depth (GEQUAL, no depth write); colour is kept. `world`
- * is the box plan's W (placement), `clip` its (W x V) x P (the kernel's
- * dmem 0..3, which decides the cull), then 00239C90's clipped triangles.
- * Returns -1 only when that kernel faults (FTOI outside int32), a data word
- * names a matrix other than dmem 0, or a kicked point cannot be
- * unprojected. */
+ * is the box plan's W (placement, not needed: the kicked words place the
+ * triangles), `clip` its (W x V) x P (the kernel's dmem 0..3, which decides
+ * the cull and the words), then 00239C90's clipped triangles.
+ * Returns -1 only when a kernel faults (a strip start that would need
+ * another program's registers, an FTOI outside int32) or a data word names
+ * a matrix other than dmem 0. */
 int em_gfx_shadow_box(EmGfx *gfx, const EmGfxShadowStrips *model,
                       const float world[16], const float clip[16],
                       uint32_t rgbaq, const float viewproj[16]);
@@ -842,9 +849,10 @@ int em_gfx_shadow_receiver_begin(EmGfx *gfx, const float uv[16],
  * RGBAQ (0,0,0,A) and F, sampling the silhouette target with the GS pixel
  * pipeline: bilinear MODULATE, fog, alpha test A > 0, destination alpha
  * bit 7 set, depth GEQUAL without write, Cv = (Cs - Cd) * As >> 7 + Cd,
- * written alpha As. The positions go through `viewproj` of the begin call
- * exactly as the level mesh's (identity palette), so the level's own
- * depth passes. Triangles with a vertex outside the guard band are not
+ * written alpha As. The positions are the kicked XYZF2 words (the level's
+ * own words for the same vertex: the same camera D_70003AC0 and the same
+ * arithmetic), so the level's depth passes; S, T and Q are interpolated
+ * screen-linearly and divided per pixel (the GS's STQ). Triangles with a vertex outside the guard band are not
  * drawn by 0023C200; for cls 2 the original then runs 0023E8A0 over the
  * same strips, and its clipped triangles are drawn after the object's own
  * (-1 only on the faults named for the box). cls > 2 returns -1. */
@@ -918,6 +926,27 @@ typedef struct {
  * depth mapping. Returns 0, or -1 when a primitive needs anything else (the
  * reason is printed once): there is no stand-in. */
 int em_gfx_gs_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count);
+
+/* --- Opaque class-0 GS triangles: the static world's run ------------------
+ * em_static_world_draw (src/game/em_static_world_draw.h) walks the static
+ * world's channel-0 run as the DMA sends it, runs the level kernel 00237180
+ * and its guard-band clip kernel 00239C90 (their translations) and hands
+ * the renderer every triangle the GS draws, in GS order, with the state in
+ * force (docs/STATIC_WORLD.md section 7). Each primitive must be a
+ * triangle (count 3) with PRIM type 3 or 4, IIP 1, TME 1, FGE 1, ABE 0,
+ * AA1 0, FST 0, CTXT 0, and the GS state 001D1F80(0, 1, 0) sends (set 1,
+ * class 0, em_object_unit_gs_state_check): TEST_1 0x5000D, TEX1_1 0x60,
+ * CLAMP_1 0, COLCLAMP 1 (ZBUF ZMSK 0 is checked by the walk); its TEX0 must
+ * be registered through em_gfx_object_texture with TCC 1 and TFX MODULATE
+ * (0) or HIGHLIGHT (2). They draw with the object units' pixel path
+ * (em_gfx_object_unit above: the same position and depth mapping, the
+ * bilinear REPEAT sampling, the alpha test, the fog and no blending), with
+ * the TEX0's texture function:
+ *   MODULATE   Cv = min(Ct * Cf >> 7, 255), Av = min(At * Af >> 7, 255);
+ *   HIGHLIGHT  as em_gfx_object_unit.
+ * Returns 0, or -1 when a primitive needs anything else (the reason is
+ * printed once): there is no stand-in. */
+int em_gfx_gs_opaque(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count);
 
 /* The TEX0 -> texture binding of the chain page, as em_gfx_object_texture's
  * (CLD ignored; raw CLUT entries R, G, B, A with the GS alpha 0..0xFF; the
@@ -1045,7 +1074,8 @@ typedef struct {
 } EmGfxObjectUnit;
 int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 
-/* The TEX0 -> texture binding for object units. `tex0` is the register
+/* The TEX0 -> texture binding for object units and em_gfx_gs_opaque (TCC 1,
+ * TFX MODULATE or HIGHLIGHT). `tex0` is the register
  * value with CLD (bits 61..63) ignored; `rgba` holds width x height texels,
  * rows top-down, each the CLUT entry's four bytes as GS memory holds them
  * (R, G, B and the GS alpha 0..0xFF, where 0x80 is 1.0: NOT rescaled). The

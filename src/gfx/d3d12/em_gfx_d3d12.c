@@ -60,6 +60,8 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit)
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height)
 { (void)gfx; (void)tex0; (void)rgba; (void)width; (void)height; return -1; }
+int em_gfx_gs_opaque(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count)
+{ (void)gfx; (void)prims; (void)count; return -1; }
 /* Player drop shadow and its decal (em_gfx.h): not implemented on this
  * backend; -1 is the contract's "cannot draw exactly" (the caller faults). */
 int em_gfx_shadow_alpha_clear(EmGfx *gfx) { (void)gfx; return -1; }

@@ -141,8 +141,12 @@ static inline int em_eei_uexp(uint32_t b)
     return em_eei_exp(b) == 0 ? 0 : (int)em_eei_exp(b) - 150;
 }
 
+/* The bit length of v (0 for 0). */
 static inline int em_eei_bitlen64(uint64_t v)
 {
+#if defined(__GNUC__) || defined(__clang__)
+    return v ? 64 - __builtin_clzll(v) : 0;
+#else
     int n = 0;
     if (v >> 32) { v >>= 32; n += 32; }
     if (v >> 16) { v >>= 16; n += 16; }
@@ -151,6 +155,7 @@ static inline int em_eei_bitlen64(uint64_t v)
     if (v >> 2) { v >>= 2; n += 2; }
     if (v >> 1) { v >>= 1; n += 1; }
     return n + (int)v;
+#endif
 }
 
 /* Round sign * mag * 2**exp (mag > 0) to binary32. nearest = 0 truncates,
@@ -214,12 +219,20 @@ static inline uint32_t em_eei_exact_sum(uint32_t a, uint32_t b)
     return em_eei_pack(sb, y - x, ea - 39, 0, 0);
 }
 
-/* Finite DAZ-applied a * b, truncated. */
+/* Finite DAZ-applied a * b, truncated: em_eei_pack(sign, ma * mb,
+ * uexp(a) + uexp(b), 0, 0) with its shift known. Both significands are in
+ * [2**23, 2**24), so the product is in [2**46, 2**48): its bit length is 47
+ * or 48 and truncation keeps the top 24 bits (no carry can follow). */
 static inline uint32_t em_eei_exact_product(uint32_t a, uint32_t b)
 {
     uint32_t ma = em_eei_sig(a), mb = em_eei_sig(b), sign = (a ^ b) >> 31;
     if (ma == 0 || mb == 0) return sign << 31;
-    return em_eei_pack(sign, (uint64_t)ma * mb, em_eei_uexp(a) + em_eei_uexp(b), 0, 0);
+    const uint64_t mag = (uint64_t)ma * mb;
+    const int shift = 23 + (int)(mag >> 47);
+    const int biased = (int)em_eei_exp(a) + (int)em_eei_exp(b) - 150 + shift;
+    if (biased <= 0) return sign << 31;
+    if (biased >= 0xFF) return (sign << 31) | EM_EE_MAX;
+    return (sign << 31) | ((uint32_t)biased << 23) | ((uint32_t)(mag >> shift) & UINT32_C(0x7FFFFF));
 }
 
 /* Finite DAZ-applied a / b, b nonzero. The quotient carries at least 39
@@ -485,7 +498,8 @@ static inline int em_vu_op_reads_acc(em_vu_op op)
 
 /* One entry per form that occurs in the original boot ELF's code, each
  * recorded on a real instance (docs/EE_FLOAT_MODEL.md section 4). Keep this
- * table identical to ee_float_model.VU_FORMS; the header test checks every
+ * table identical to ee_float_model.VU_FORMS and sorted by (op, dest, bc)
+ * (the lookup is a binary search); the header test checks every
  * (op, dest, bc) combination against it. */
 static inline int em_vu_form_lookup(em_vu_op op, unsigned dest, int bc, em_vu_form *form)
 {
@@ -555,17 +569,23 @@ static inline int em_vu_form_lookup(em_vu_op op, unsigned dest, int bc, em_vu_fo
         {EM_VU_OPMULA, 14, -1, 0, 0, 0, 0},
         {EM_VU_OPMSUB, 14, -1, 0, 0, 0, 0},
     };
-    for (size_t i = 0; i < sizeof table / sizeof table[0]; i++) {
-        if ((int)table[i].op == (int)op && (unsigned)table[i].dest == dest && (int)table[i].bc == bc) {
-            if (form) {
-                form->op = op;
-                form->clamp_fs = table[i].cs;
-                form->clamp_ft = table[i].ct;
-                form->clamp_acc = table[i].ca;
-                form->product_nan_first = table[i].order;
-            }
-            return EM_EE_FLOAT_OK;
+    /* The table is sorted by (op, dest, bc): a binary search. */
+    size_t lo = 0, hi = sizeof table / sizeof table[0];
+    while (lo < hi) {
+        const size_t i = lo + (hi - lo) / 2;
+        int cmp = (int)table[i].op < (int)op ? -1 : (int)table[i].op > (int)op ? 1 : 0;
+        if (!cmp) cmp = (unsigned)table[i].dest < dest ? -1 : (unsigned)table[i].dest > dest ? 1 : 0;
+        if (!cmp) cmp = (int)table[i].bc < bc ? -1 : (int)table[i].bc > bc ? 1 : 0;
+        if (cmp < 0) { lo = i + 1; continue; }
+        if (cmp > 0) { hi = i; continue; }
+        if (form) {
+            form->op = op;
+            form->clamp_fs = table[i].cs;
+            form->clamp_ft = table[i].ct;
+            form->clamp_acc = table[i].ca;
+            form->product_nan_first = table[i].order;
         }
+        return EM_EE_FLOAT_OK;
     }
     return EM_EE_FLOAT_UNMEASURED;
 }

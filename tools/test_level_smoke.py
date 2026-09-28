@@ -2053,10 +2053,10 @@ def rctx_status_reference():
 def rctx_world_lists():
     """Both slots' main lists of a world frame as the route snapshots 00..14
     hold them (asserted equal across the beats): the draw environment, the
-    Z-only clear +0x3A0, the CALL of the channel-3 list at ctx+0x1D8 (001E0DF0),
-    channel 0, the page, channel 1, the end. Returned without the CALL: the
-    port does not build the +0x1D8 list (001C1D00 / 001E0CF0 are not bound,
-    RENDER_CONTEXT.md 8.4), so its 001E0DF0 emits no tag there."""
+    Z-only clear +0x3A0, the CALL of the channel-3 list at ctx+0x1D8 (001E0DF0
+    -> 001D21B0; the list 001C1D00 -> 001E0CF0 -> 001E1E60 builds, bound on
+    the render context since the static-world step, STATIC_WORLD.md),
+    channel 0, the page, channel 1, the end: seven tags."""
     ref = None
     for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
         m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
@@ -2065,7 +2065,7 @@ def rctx_world_lists():
         ref = lists
     for s in (0, 1):
         assert ref[s][0x23] == 0x50 and struct.unpack_from('<I', ref[s], 0x24)[0] != 0, ('world list CALL', s)
-    return tuple(l[:0x20] + l[0x30:] for l in ref)
+    return ref
 
 
 def check_render_context(ticks, state):
@@ -2085,7 +2085,8 @@ def check_render_context(ticks, state):
       field W stored) is 1 - +0x9C, the phase every capture holds; the list
       the previous step V built equals the captures' (status frames: the
       status captures' list with the black clear; world frames: the route
-      snapshots' list without the +0x1D8 CALL), with the cursor at its end;
+      snapshots' seven-tag list with the +0x1D8 CALL), with the cursor at its
+      end;
     - every status-screen frame (0x1AE040 +B = 3 after a status frame)
       holds the status captures' flag words (flag 3 set by its 001D2830(3,
       1), cleared by the step V that follows), fog block and save slot, and
@@ -2123,7 +2124,8 @@ def check_render_context(ticks, state):
             where, 'step W field +0x98 / slot +0x9C', r['field98'].hex())
         fields += 1
         other = 1 - slot
-        cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x60)
+        cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x60)        # status: 6 tags
+        world_cursor = struct.pack('<I', RCTX_ARENA + (other << 14) + 0x70)  # world: 7 tags
         pr = rctx(ticks[i - 1]) if i > 0 else None
         pstate = snap(ticks[i - 1])['task'][2] if i > 0 else None
         # 0x1AE040 state 3's status frame ran in the tick (its 001D2830(3, 1)
@@ -2135,7 +2137,7 @@ def check_render_context(ticks, state):
             assert r['flags0c'] == status_ref['flags0c'] and r['flags174'] == status_ref['flags174'], (
                 where, 'status frame flags', r['flags0c'].hex())
             assert r['fog'] == status_ref['fog'] and r['slot0'] == status_ref['slot0'], (where, 'status fog')
-            assert rctx_tags(r['list']) == rctx_tags(status_ref['lists'][other]) and r['cursor8'] == cursor, (
+            assert rctx_tags(r['list'][:0x60]) == rctx_tags(status_ref['lists'][other]) and r['cursor8'] == cursor, (
                 where, 'status frame step V list', r['list'].hex(), status_ref['lists'][other].hex())
             status_frames += 1
             if pr['cam610'] == status_ref['v']:
@@ -2152,7 +2154,7 @@ def check_render_context(ticks, state):
             assert r['bars'][0x10:] == ref['widths'], (where, 'widths +0x2500..+0x2513', r['bars'][0x10:].hex())
             assert r['depth'][0xC:] == ref['tail'], (where, '+0x245C..+0x2467', r['depth'][0xC:].hex())
             if pr is not None and pstate == 1 and snap(ticks[i - 1])['variant']:
-                assert rctx_tags(r['list']) == rctx_tags(world_lists[other]) and r['cursor8'] == cursor, (
+                assert rctx_tags(r['list']) == rctx_tags(world_lists[other]) and r['cursor8'] == world_cursor, (
                     where, 'world frame step V list', r['list'].hex(), world_lists[other].hex())
                 world_list_ticks += 1
             gameplay += 1
@@ -3286,6 +3288,9 @@ def main():
         level_smoke_face.check_face(ticks, state)
         import level_smoke_opening      # the opening's actors on their records (chain C8b OPENING)
         level_smoke_opening.check_opening_actors(ticks, state)
+        import level_smoke_static_world  # 001C1D00 and the static world's draw (em_static_world_live)
+        level_smoke_static_world.check_static_world(
+            ticks, state, level_smoke_static_world.VIEW_EXACT_MAIN_LINE if 'roger' in checked else ())
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

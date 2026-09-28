@@ -150,6 +150,7 @@
 #include "game/em_roger_actor_original.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_module_loader.h"
+#include "game/em_static_world_live.h"
 #include "em_settings.h"
 
 /* ------------------------------------------------------------ storage */
@@ -241,7 +242,6 @@ enum {
     UM_001D2880,
     UM_00200830,
     UM_001D19D0,
-    UM_001D52E0,
     UM_COUNT
 };
 
@@ -287,10 +287,6 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
-    [UM_001D52E0] = {0x001D52E0u, "001C1DC0's 001C1E70: the static-object grid header into render "
-                                  "context +0x140..+0x167; the bank *D_0028A5A0 is not exported and "
-                                  "its only reader 001D5370 (001C1D00) is not bound "
-                                  "(RENDER_CONTEXT.md section 8)"},
 };
 
 static uint64_t s_unmirrored_seen;     /* reached at least once */
@@ -623,6 +619,10 @@ static void log_tick_begin(void)
     }
 }
 
+/* check_static_world samples every STATIC_SAMPLE_EVERY-th 001C1D00 call. */
+#define STATIC_SAMPLE_EVERY 400u
+static uint32_t s_static_logged;
+
 static void log_tick_end(int rc)
 {
     FILE *f = log_file();
@@ -708,8 +708,9 @@ static void log_tick_end(int rc)
          * 0021BAC0(0)), D_00275690 / D_00275694, and the camera pool's
          * D_00810610 (the view the NEXT frame head projects); then the list
          * cursor +0x08, +0x98 / +0x9C (step W's field, step B's slot) and
-         * the first 0x60 bytes of the other slot's main list (the one the
-         * previous iteration's step V 001D2300 built and kicked).
+         * the first 0x70 bytes of the other slot's main list (the one the
+         * previous iteration's step V 001D2300 built and kicked: seven tags
+         * in a world frame, six in a status frame).
          * tools/test_level_smoke.py check_render_context. */
         {
             static const struct { uint32_t offset, size; } k_rctx[] = {
@@ -735,11 +736,66 @@ static void log_tick_end(int rc)
                 fputs(", ", f);
                 log_hex(f, em_rcl_bytes(EM_RCL_CONTEXT + 0x98, 8), 8);
                 fputs(", ", f);
-                log_hex(f, em_rcl_bytes(0x0028F700u + (other << 14), 0x60), 0x60);
+                log_hex(f, em_rcl_bytes(0x0028F700u + (other << 14), 0x70), 0x70);
                 fputc(']', f);
             } else {
                 fputs("null", f);
             }
+        }
+        /* The static world (docs/STATIC_WORLD.md section 7), null before its
+         * first 001C1D00: the live draw's log (its frame, runs drawn, the
+         * last run's start / end, the FNV-1a of its bytes and of its
+         * triangles, the level / clip batches and triangles, the culled
+         * vertices) and em_rcl_static_runs(); then, for every
+         * STATIC_SAMPLE_EVERY-th 001C1D00 call made in this tick, its inputs
+         * (the context, the scratchpad, D_00810610, D_00810700..702,
+         * D_008101D0, D_00253560, D_00817240 and the skin records before
+         * the call) and its
+         * output (the channel-0 run, the channel-3 list and D_00253560
+         * after). tools/test_level_smoke.py check_static_world re-executes
+         * the original 001C1D00 over the inputs. */
+        {
+            EmStaticWorldLiveLog sl;
+            em_static_world_live_log(&sl);
+            const uint32_t runs = em_rcl_static_runs();
+            if (runs)
+                fprintf(f, ", \"static\": [%u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u]", sl.frame, sl.runs,
+                        sl.start, sl.end, sl.digest, sl.prim_digest, sl.batches[0], sl.batches[1],
+                        sl.triangles[0], sl.triangles[1], sl.culled, runs);
+            else
+                fputs(", \"static\": null", f);
+            const EmRclStaticSample *sm = em_rcl_static_sample();
+            if (sm && sm->runs != s_static_logged && sm->runs % STATIC_SAMPLE_EVERY == 1u) {
+                const uint8_t *run = em_rcl_bytes(sm->ch0_start, sm->ch0_end - sm->ch0_start);
+                const uint8_t *ch3 = em_rcl_bytes(sm->ch3_start, sm->ch3_end - sm->ch3_start);
+                const uint8_t *d253560 = em_rcl_bytes(0x00253560u, 0x90);
+                if (run && ch3 && d253560) {
+                    fprintf(f, ", \"static_sample\": [%u, ", sm->runs);
+                    log_hex(f, sm->ctx, sizeof sm->ctx);
+                    fputs(", ", f);
+                    log_hex(f, sm->spad, sizeof sm->spad);
+                    fputs(", ", f);
+                    log_hex(f, sm->cam610, sizeof sm->cam610);
+                    fputs(", ", f);
+                    log_hex(f, sm->area, sizeof sm->area);
+                    fputs(", ", f);
+                    log_hex(f, sm->state, sizeof sm->state);
+                    fputs(", ", f);
+                    log_hex(f, sm->d253560, sizeof sm->d253560);
+                    fputs(", ", f);
+                    log_hex(f, sm->d817240, sizeof sm->d817240);
+                    fputs(", ", f);
+                    log_hex(f, sm->skin, sizeof sm->skin);
+                    fprintf(f, ", %u, ", sm->ch0_start);
+                    log_hex(f, run, sm->ch0_end - sm->ch0_start);
+                    fprintf(f, ", %u, ", sm->ch3_start);
+                    log_hex(f, ch3, sm->ch3_end - sm->ch3_start);
+                    fputs(", ", f);
+                    log_hex(f, d253560, 0x90);
+                    fputc(']', f);
+                }
+            }
+            if (sm) s_static_logged = sm->runs;
         }
         /* The live player record at the tick end, as the route rows sample
          * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
@@ -1440,17 +1496,21 @@ static int rcl_weather(void *ctx, uint32_t block)
     return em_area11_spawn_weather_001C1EA0();
 }
 
-static int rcl_grid_header(void *ctx)
-{
-    (void)ctx;
-    return unmirrored(UM_001D52E0);
-}
-
 _Static_assert(offsetof(EmSceneState, d810702) == offsetof(EmSceneState, d810700) + 2,
                "the area bytes D_00810700..702 are one view");
 
 static int rcl_bind(void)
 {
+    /* D_0028A5A0, the static-object bank's address: slot 0x44 of the
+     * screen-module loader's resource table (em_module_loader, the one
+     * storage of D_0028A490..; read only here). */
+    EmModuleLoader *ml = em_module_loader_live();
+    EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+    uint8_t *bank_word = ld ? (uint8_t *)&ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A5A0] : NULL;
+    if (!bank_word) {
+        fprintf(stderr, "em_scene: the render context needs the screen-module loader's D_0028A5A0\n");
+        return -1;
+    }
     const EmRclExternal views[] = {
         {0x00810610u, 0x40u, em_camera_live_bytes(0x00810610u, 0x40u)},
         {0x008105E0u, 0x10u, em_camera_live_bytes(0x008105E0u, 0x10u)},
@@ -1460,9 +1520,13 @@ static int rcl_bind(void)
         {0x70003B8Du, 1u, &s_state.spad3B8D},
         /* Read only: the camera's view of D_008102B0 (CAMERA_LIVE.md 5). */
         {0x008102B0u, 0x320u, (uint8_t *)(uintptr_t)em_camera_live_player_bytes()},
+        {0x0028A5A0u, 4u, bank_word},
     };
-    static const EmRclWorkers workers = {NULL, rcl_point_light, rcl_sqrt, rcl_tan, rcl_weather,
-                                         rcl_grid_header};
+    static const EmRclWorkers workers = {NULL, rcl_point_light, rcl_sqrt, rcl_tan, rcl_weather};
+    /* The static-object bank and 001E1E60's upload block (the area's
+     * static world, docs/STATIC_WORLD.md): fail-stop without the export. */
+    if (em_rcl_static_world_load(NULL) < 0)
+        return -1;
     return em_rcl_bind(views, sizeof views / sizeof views[0], &workers);
 }
 
@@ -2183,7 +2247,9 @@ static int w_001AE6B0(void *ctx)
  *   001CB5A0           both   empty leaf (src/func_001CB5A0.c)
  *   001D1C50           both   em_rcl_001D1C50 on the render context (census
  *                             L32); em_render_001D1C50 without it
- *   001C1D00(0x8101D0) both   em_render_001C1D00 (not bound: RENDER_CONTEXT.md 8.4)
+ *   001C1D00(0x8101D0) both   em_rcl_001C1D00 on the render context (the background
+ *                             channel and the static world, STATIC_WORLD.md);
+ *                             em_render_001C1D00 without it
  *   001AFD70(mode)     both   em_actor_pool_walk_001AFD70 (S10b): mode 0
  *                             in 5E0, modes 1 and 2 in 6B0
  *   0015C160           both   unmirrored
@@ -2276,11 +2342,17 @@ static int w_001D1C50(void *ctx)
     return em_render_001D1C50();
 }
 
+/* 001C1D00(D_008101D0), both variants: in the first level the whole tree
+ * on the render context (em_rcl_001C1D00: the channel-3 background list and
+ * the static world's channel-0 run, docs/STATIC_WORLD.md); a scene without
+ * the render context keeps em_render_001C1D00. */
 static int w_001C1D00(void *ctx, uint32_t a0)
 {
     (void)ctx;
     if (!in_variant() || a0 != EM_SCENE_D_008101D0)
         return -1;
+    if (rcl_live())
+        return em_rcl_001C1D00(a0) < 0 ? rcl_fault() : 0;
     return em_render_001C1D00();
 }
 

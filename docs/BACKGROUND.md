@@ -232,25 +232,24 @@ translation.
 - Whether a world frame draws it is the live render context's (since the
   status UI step, 2026-09-26; em_render_frame.c `background_gate`): the
   world branch of `frame_close_out` calls `em_gfx_background_draw(gfx, view,
-  zoom)` before the fog and every other draw when render flags 0x20 (the
-  001D2300 call of 001E0DF0) and 0x21 are set in the
-  context's +0x174 word (001C1F50 arms both for keys 0x0B00..0x1200 at the
-  area render init, em_render_context_live), flag 4 (+0x0C bit 4) is clear,
-  `D_008106C4 == 0` and no movie played in the frame (`em_frame_movie_active()`,
-  the D_00821058 == 1 mirror: 001D1C10 would set flag 4 only in such a frame
-  and is not bound). The loaded asset's TEX0 and RGBAQ must equal the
-  context's ctx+0x1D0 and int(128 * ctx+0x1C0..+0x1CC) (001E2260 / 001E2270's
-  stores, as 001E1E60's 001D6F60 / 001D7080 read them); flags armed with no
-  asset or another one fault (the game quits with the reason). The first
-  control frame still draws it (tools/test_background_reference.py
-  --native: 0 black samples in the sky box).
-- Why flag 0x21: 001E0DF0 CALLs the list only when ctx+0x1D8 is non-zero.
-  001C1D00 (state 1, every world frame) runs 001E0CF0, whose 001E0CC0
-  zeroes +0x1D8 before 001E1E60 rebuilds it under 0x20 and 0x21. 001C1D00
-  is not bound in the port (RENDER_CONTEXT.md section 8), so the word is
-  not built; the gate reads its build condition, flag 0x21, instead. With
-  0x20 set and 0x21 clear the original CALLs nothing, so the port draws
-  nothing (no fault).
+  zoom)` before the fog and every other draw when 001D2300 calls 001E0DF0
+  (render flag 0x20 set in the context's +0x174 word, flag 4 (+0x0C bit 4)
+  clear, `D_008106C4 == 0`, and no movie played in the frame:
+  `em_frame_movie_active()`, the D_00821058 == 1 mirror; 001D1C10 would set
+  flag 4 only in such a frame and is not bound) and 001E0DF0's own
+  condition holds: the context's +0x1D8 word is non-zero. Since the
+  static-world step (2026-09-28, STATIC_WORLD.md) 001C1D00 runs every world
+  frame on the render context: its 001E0CF0 zeroes +0x1D8 (001E0CC0) and
+  001E1E60 rebuilds the channel-3 list there under flags 0x20 and 0x21, so
+  the gate reads the word itself (before, it read the build condition,
+  flag 0x21). With 0x20 set and +0x1D8 zero the original CALLs nothing, so
+  the port draws nothing (no fault). The loaded asset's TEX0 and RGBAQ must
+  equal the TEX0_1 and RGBAQ the list's own A+D packets write (001D6F60,
+  001D7080: `em_static_world_live_background_state` reads them from the
+  list up to its RET); a built list with no asset or another one faults
+  (the game quits with the reason). The first control frame still draws it
+  (tools/test_background_reference.py --native: 0 black samples in the sky
+  box).
 - The status-screen scenes (the hub, the request pages, the UI scene) do not
   draw it: the original hub frame has no background CALL.
 - Since 2026-09-27 main-loop step V 001D2300 itself is bound
@@ -304,11 +303,17 @@ translation.
 
 ## Open
 
-- The draw-state checks still read an EE capture taken inside AREA11:
-  TEX0 at ctx+0x1D0, RGBAQ from ctx+0x1C0, and the channel-3 list. These
-  are ELF constants from 001C1F50, 001E2260/D_00250F30 and 001D1F80. A
-  capture-free exporter would translate 001C1F50's per-area TEX0 table
-  directly. The texels are disc-only.
+- The asset's draw-state checks (the exporter) still read an EE capture
+  taken inside AREA11: TEX0 at ctx+0x1D0, RGBAQ from ctx+0x1C0, and the
+  channel-3 list. These are ELF constants from 001C1F50,
+  001E2260/D_00250F30 and 001D1F80. A capture-free exporter would translate
+  001C1F50's per-area TEX0 table directly. The texels are disc-only. (Live,
+  the gate compares the asset with the list the port builds.)
+- The grid itself is still drawn by em_background_gs's model of the kernel
+  0x0023C990 (the matrix recomputed from the frame head's view and zoom as
+  001E1E60 builds D_00253570, not read from that storage), not by walking
+  the channel-3 list's packets as the static world's run is walked
+  (STATIC_WORLD.md section 6).
 - The disc replay models only what sector 15 contains: CNT/RET/END chains,
   VIF NOP/FLUSH/DIRECT, and A+D transfer registers with PSMCT32 IMAGE data.
   Anything else fails with a message. GS writes made after the area load

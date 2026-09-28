@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1630,6 +1630,50 @@ Result: live 684, verified-unbound 56, unverified 3, stand-in 0, missing 0,
 boundary 441, recounted from the section 3 rows (743 rows). 84,199 of the
 88,039 non-boundary instructions are live (95.6%).
 
+### 1.42 Update (2026-09-28, the static world and the background channel live; the level drawn from its original packets)
+
+001C1D00 runs on the render context in both world variants (em_rcl_001C1D00:
+em_static_world_compose's em_swc_001C1D00 over the render context's views,
+with the static-object bank *D_0028A5A0 and D_00253560 exported by
+tools/export_static_world.py and the loader's D_0028A5A0 word as a view):
+001E0CF0 builds the channel-3 list at +0x1D8 (001E1E60), step V's 001E0DF0
+tags it through 001D21B0 (seven tags), and 001D5370 writes the static
+world's channel-0 run. The area load's 001C1E70 runs 001D52E0 on the same
+views. The run is drawn at the frame close from its own packets
+(em_static_world_live: the DMA / VIF / GS walk em_static_world_draw with the
+level kernel 0x00237180's translation em_vu1_level_kernel.h and the clip
+kernel 0x00239C90's, em_gfx_gs_opaque); the background gate reads +0x1D8
+and the list's own TEX0 / RGBAQ (STATIC_WORLD.md). Retired: the AREA11 zone
+meshes' load and draw, em_render_001C1D00 on the first level, the flag-0x21
+stand-in, UM_001D52E0 and rcl_grid_header; the shadow box's copy of the level
+kernel's position path is now an adapter over the one translation.
+
+- **Status changes:** 001C1D00, 001D52E0 and 001D5370 (3.13, 3.16),
+  001E0CF0 (3.17) and 001D21B0 (3.16) verified-unbound -> live; 001D4750,
+  001D4960, 001D4A90, 001D4B10, 001D4B20, 001D4DA0, 001D4F30, 001D6F60,
+  001D7100 and 001D71A0 boundary -> live (moved out of the section 4 GS/VIF
+  list by the render-range rule; boundary 441 -> 431).
+- **Row notes changed, no status change:** 001E1E60 (the translation, not
+  the renderer's model, builds the list; em_background_gs draws its CALL),
+  001E0DF0 (tags +0x1D8), 001D4FB0 (the static world's objects too).
+- **Not in the census:** 001E1AD0, 001E0E80 and 001D7000 (flag 0x22, never
+  set on the first level) and block_copy 00121870 stays in the C runtime
+  boundary group (a translation inside a non-render boundary range stays a
+  boundary, section 1.4).
+- **Evidence.** test-static-world-reference (17 captured trees; rehearsal E
+  over the live 27 views), test-static-world-draw-reference (every captured
+  run's kicks equal to the original microcode byte for byte, every triangle
+  equal), test-static-world-gpu (the Metal pixel path), the level smoke's
+  check_static_world (every 001C1D00 run drawn in its tick; 32 sampled calls
+  on the main line re-executed by the ORIGINAL 001C1D00 over the port's
+  inputs; the view-exact snapshots 10 and 14 draw the captures' own runs'
+  triangles) and check_render_context (the seven-tag world list);
+  newgame-control 9.599849 (unchanged).
+
+Result: live 699, verified-unbound 51, unverified 3, stand-in 0, missing 0,
+boundary 431, recounted from the section 3 rows (753 rows). 85,139 of the
+88,405 non-boundary instructions are live (96.3%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1649,15 +1693,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 684 | 84,199 | 632 (79,991) | 52 (4,208) |
-| verified-unbound | 56 | 3,713 | 30 (2,236) | 26 (1,477) |
+| live | 699 | 85,139 | 647 (80,931) | 52 (4,208) |
+| verified-unbound | 51 | 3,139 | 25 (1,662) | 26 (1,477) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
-| boundary | 441 | 23,725 | 163 (10,425) | 278 (13,300) |
+| boundary | 431 | 23,359 | 153 (10,059) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 743 non-boundary functions, 684 (92.1%) are live and verified; by instructions 84,199 of 88,039 (95.6%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 56 functions (3,713 instructions, 4.2%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40 and 1.41) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 753 non-boundary functions, 699 (92.8%) are live and verified; by instructions 85,139 of 88,405 (96.3%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 51 functions (3,139 instructions, 3.6%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41 and 1.42) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -1666,30 +1710,30 @@ Of the 743 non-boundary functions, 684 (92.1%) are live and verified; by instruc
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
 | S0_title | 77 / 12 / 0 / 0 / 0 / 383 | 77 / 12 / 0 / 0 / 0 / 383 |
-| S1_newgame_load | 164 / 28 / 1 / 0 / 0 / 86 | 99 / 22 / 1 / 0 / 0 / 18 |
-| S2_opening | 431 / 25 / 2 / 0 / 0 / 122 | 314 / 18 / 1 / 0 / 0 / 30 |
-| S3_first_control_idle | 335 / 21 / 1 / 0 / 0 / 114 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 401 / 22 / 1 / 0 / 0 / 94 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 446 / 23 / 3 / 0 / 0 / 151 | 30 / 1 / 1 / 0 / 0 / 5 |
-| 02_elevator_refusal | 416 / 22 / 1 / 0 / 0 / 96 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 481 / 25 / 2 / 0 / 0 / 122 | 20 / 1 / 0 / 0 / 0 / 1 |
-| 04_elevator_ride | 408 / 22 / 1 / 0 / 0 / 129 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 409 / 21 / 1 / 0 / 0 / 91 | 23 / 0 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 373 / 21 / 1 / 0 / 0 / 94 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 384 / 24 / 1 / 0 / 0 / 112 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 372 / 23 / 1 / 0 / 0 / 127 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 426 / 25 / 2 / 0 / 0 / 102 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 463 / 26 / 1 / 0 / 0 / 137 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 459 / 25 / 1 / 0 / 0 / 134 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 389 / 24 / 1 / 0 / 0 / 90 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 433 / 24 / 1 / 0 / 0 / 135 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 456 / 27 / 2 / 0 / 0 / 102 | 2 / 0 / 0 / 0 / 0 / 0 |
+| S1_newgame_load | 165 / 27 / 1 / 0 / 0 / 86 | 100 / 21 / 1 / 0 / 0 / 18 |
+| S2_opening | 445 / 21 / 2 / 0 / 0 / 112 | 328 / 14 / 1 / 0 / 0 / 20 |
+| S3_first_control_idle | 349 / 17 / 1 / 0 / 0 / 104 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 415 / 18 / 1 / 0 / 0 / 84 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 460 / 19 / 3 / 0 / 0 / 141 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 02_elevator_refusal | 430 / 18 / 1 / 0 / 0 / 86 | 15 / 0 / 0 / 0 / 0 / 2 |
+| 03_panel_power | 495 / 21 / 2 / 0 / 0 / 112 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 04_elevator_ride | 422 / 18 / 1 / 0 / 0 / 119 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 423 / 17 / 1 / 0 / 0 / 81 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 387 / 17 / 1 / 0 / 0 / 84 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 398 / 20 / 1 / 0 / 0 / 102 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 386 / 19 / 1 / 0 / 0 / 117 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 441 / 20 / 2 / 0 / 0 / 92 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 477 / 22 / 1 / 0 / 0 / 127 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 473 / 21 / 1 / 0 / 0 / 124 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 403 / 20 / 1 / 0 / 0 / 80 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 447 / 20 / 1 / 0 / 0 / 125 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 470 / 23 / 2 / 0 / 0 / 92 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
-State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.41. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
+State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.42. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 684 of 743 non-boundary functions (95.6% by instructions).** Every main-line route phase the
+- **Live and verified: 699 of 753 non-boundary functions (96.3% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -1716,22 +1760,24 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   face through 001D0C70, its post-step's shadow and unit), their node matrices bit for bit the opening
   capture's. Since section 1.27 the main loop's steps V and W run their originals (the frame's
   DMA list with its clear, 001E0DF0, the field), with the status frames' and the tear-down frames' render flag 3
-  and the UI view of the status pages on the one storage.
+  and the UI view of the status pages on the one storage. Since section 1.42 001C1D00 runs its whole tree (the
+  channel-3 background list, the static world's grid pass over the exported bank) and the level is drawn from
+  that run's own packets through the level and clip kernels' translations, in place of the legacy zone meshes.
 - **What still stands in on the route:** the camera stand-ins that pre-empt action 0 for the examine and the aim
   (L28); the indicator children's +0x4C draw 001CABA0 (the child's model mesh drawn additively at the child's own
   node, section 1.25; the security gun's 0x7A lamp draws nothing); on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
   walked over, and the AREA11 flame and the snow, which draw outside the page (008235F0's 001D04B0 and the weather's
   001E0D70 kick are not bound);
-  001C1D00 (em_render_001C1D00, the empty render-env step: its 001D5370 needs the static-object bank); 001FC280's body
+  001FC280's body
   (unverified since WP-8b: the D_00282160 cache is not modelled); the opening's scene-0x22 camera timeline (the
   opening lane's stand-in for 0022EEF0 with its fade track, census L33: its +0x6C..+0x7B words are the
   original's since section 1.41, its eye / target sampling and the +0x80 event cursor are not); the panel's, the terminal's and the items' takeovers
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
   is the original 00182DF0 since section 1.26). A script owner's takeover is the stage's own since
   section 1.26 (0015B130's prelude, 0015B530, 00182DF0).
-- **Verified but not run live: 60 functions (4,177 instructions).** The largest groups are the lighting and unbound
+- **Verified but not run live: 51 functions (3,139 instructions).** The largest groups are the lighting and unbound
   render heads (section 3.16: 10), the effects' room point-light lists (3.18: 7), the anim runtime leaves (3.14: 3),
-  the render context's unbound rows and weather (3.17: 5), the sound-side rows of 3.19 (9: the sound-bank loader,
+  the render context's unbound rows and weather (3.17: 4), the sound-side rows of 3.19 (9: the sound-bank loader,
   001FB100's rest, 001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 2: the overlay init
   and the flag-0x30 manager 00823CE0).
 - **No verified translation:** 3 functions (127 instructions): 3 unverified rows (section 2.1); no stand-in and no
@@ -2161,11 +2207,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.13 Area services, child spawns, area title (0x1BC400..0x1C5FFF)
 
-21 functions, 1,659 instructions: live 18, verified-unbound 3 (recount 2026-09-26, owners step).
+21 functions, 1,659 instructions: live 19, verified-unbound 2 (recount 2026-09-28, the static-world step, section 1.42).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001C1D00 | — | BM | verified-unbound | em_frame_render_heads em_frh_001C1D00 — test_frame_render_heads_reference | em_render_frame.c em_render_001C1D00 (port render-env init) | S2_opening |
+| 0x001C1D00 | — | BM | live | em_frame_render_heads em_frh_001C1D00, composed by em_static_world_compose em_swc_001C1D00 through em_rcl_001C1D00 (w_001C1D00, both world variants) — test_frame_render_heads_reference; test_static_world_reference (the whole tree over 17 captures); test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | em_render_001C1D00 stays only for a scene without the render context (static-world step, section 1.42) | S2_opening |
 | 0x001C1DC0 | — | BM | live | em_render_verify_rest em_rvr_001C1DC0 through em_render_context_live (w_001C1DC0, 0x1AE040 states 0 and 4) — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | its 001C1E70 -> 001D52E0 reported (UM_001D52E0: the static-object bank is not exported) | S1_newgame_load |
 | 0x001C1E70 | — | BM | live | em_render_verify_rest em_rvr_001C1E70 through em_render_context_live — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | its 001D52E0 is reported (UM_001D52E0) | S1_newgame_load |
 | 0x001C1E80 | — | BM | live | em_render_verify_rest em_rvr_001C1E80 through em_render_context_live — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
@@ -2281,7 +2327,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.16 Render heads, projection, lighting, shadow, veil particles (0x1D19D0..0x1DAFFF)
 
-78 functions, 6,147 instructions: live 68, verified-unbound 10 (recount 2026-09-28, the face step, section 1.40: 001D3E40 and 001D3F50 moved in from section 4).
+88 functions, 6,513 instructions: live 81, verified-unbound 7 (recount 2026-09-28, the static-world step, section 1.42: 001D4750, 001D4960, 001D4A90, 001D4B10, 001D4B20, 001D4DA0, 001D4F30, 001D6F60, 001D7100 and 001D71A0 moved in from section 4; the face step, section 1.40: 001D3E40 and 001D3F50).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2300,7 +2346,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D2130 | — | BM | live | em_frame_kick (001D2300's helper) through em_rcl_001D2300 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the GS/VIF boundary group | S0_title |
 | 0x001D2160 | — | BM | live | em_frame_kick (001D2300's helper) through em_rcl_001D2300 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the GS/VIF boundary group | S0_title |
 | 0x001D2180 | — | BM | live | em_frame_kick (001D2300's helper) through em_rcl_001D2300 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the GS/VIF boundary group | S0_title |
-| 0x001D21B0 | — | BM | verified-unbound | em_render_context em_render_context_001D21B0 — test_render_context_reference | formerly a GS/VIF boundary row; a render-context helper | S2_opening |
+| 0x001D21B0 | — | BM | live | em_render_context em_render_context_001D21B0 (001E0DF0's tag of the +0x1D8 list) through em_rcl_001D2300 (step V) — test_render_context_reference; test_level_smoke.py check_render_context (the seven-tag world list of the captures) | formerly a GS/VIF boundary row; reached since +0x1D8 is built (static-world step, section 1.42) | S2_opening |
 | 0x001D21E0 | — | NM | live | em_frame_kick (001D2300's helper) through em_rcl_001D2300 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27): its closing tag; the DMA / VIF1 kick (0011B9E0, 0010BAA0, 00101F08) is the renderer's presentation, its list address compared; moved from the GS/VIF boundary group | S0_title |
 | 0x001D2300 | — | NM | live | em_frame_kick em_frame_kick_001D2300 through em_rcl_001D2300 at main-loop step V (em_frame_step, every iteration) — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists); test_background_reference.py | chain C7 step V (section 1.27): the list, the clear it selects (+0x3A0 / +0x420 under flag 3) and 001E0DF0 exact; its hardware kick is the renderer's presentation; the renderer's channel-3 gate reads its gate code (em_rcl_001D2300_calls_001E0DF0); the draw environments' SCISSOR (boot bank A) is not modelled (RENDER_CONTEXT.md 9.4) | S0_title |
 | 0x001D2580 | — | BM | live | em_frame_kick em_frame_kick_001D2580 through em_rcl_001D2580 at main-loop step W (the field model em_frame_d810E88) — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) (+0x98 = 1 - slot on every tick) | chain C7 step V (section 1.27); moved from the GS/VIF boundary group (MAIN_LOOP_AND_GAP.md 8: a game-memory store) | S0_title |
@@ -2325,11 +2371,18 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D3C30 | — | BM | live | em_owner_draw_original (001CA940's thunk to 001D3BA0) through em_owner_draw_live (object-unit step) — test_owner_draw_reference | moved in from the GS/VIF boundary list (section 4) | S2_opening |
 | 0x001D3E40 | — | NM | live | em_face_attach em_face_attach_001D3E40 (with em_owner_draw_original's vif_append_ref_tag / tag writer and em_render_context's 001D2910) through em_owner_draw_live (001CB3C0's face submit; moved out of the section 4 GS/VIF boundary list by the render-range rule, section 1.40) — test_face_attach_reference.py (the ORIGINAL 001D3E40 inside 001CB3C0; the REF 2 path; channel 0); test_level_smoke.py check_face | verified for channel 0 only (the one 001D3F50 passes) | S2_opening |
 | 0x001D3F50 | — | BM | live | em_face_attach em_face_attach_001D3F50 (the tail jump to 001D3E40 with channel 0) through em_owner_draw_live (section 1.40; moved out of the section 4 boundary list) — test_face_attach_reference.py; test_level_smoke.py check_face |  | S2_opening |
+| 0x001D4750 | vif_build_unpack_const | NM | live | em_static_world em_static_world_001D4750: the constant block D_00817240 and the two UNPACK packets (001D4DA0's, 001D4960's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4960 | — | AW | live | em_static_world em_static_world_001D4960: the clip kernel's header (001D4B20's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4A90 | — | CL | live | em_static_world em_static_world_001D4A90: the guard-band re-pass's REF runs (001D4B10's; translated from the .s, its readable C is wrong), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4B10 | — | BM | live | em_static_world em_static_world_001D4B10: 001D4A90(0, obj) (001D4B20's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4B20 | — | BM | live | em_static_world em_static_world_001D4B20: a guard-band object's clip-kernel re-pass (001D5370's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
 | 0x001D4B50 | — | BM | live | em_gfx_shadow_receiver's class-2 re-pass (001D4FB0, 001D1F80(0,2,6), 001D4B50, 001D4CD0 as one call; the 0023E8A0 kernel in em_vu1_shadow_clip.h) through em_shadow_live (the one owner since section 1.28: em_rvr_001D4B50 removed) — test_shadow_original_reference (F / G: the clip kernel kick for kick, the backend's data memory); test_render_verify_rest_reference (the original 001DA6A0 calls it exactly for the plan's class-2 receivers); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) | the GS side is the Metal backend's (SHADOW_ORIGINAL.md "GS side" approximations) | S2_opening |
 | 0x001D4CD0 | — | BM | live | em_shadow_original (w_receiver_begin) and em_gfx_shadow_receiver_begin through em_shadow_live — test_shadow_original_reference.py (TEX0, the state blocks, the UV upload); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) |  | S2_opening |
-| 0x001D4FB0 | — | BM | live | em_shadow_original (the receiver list) and em_gfx_shadow_receiver through em_shadow_live — test_shadow_original_reference.py (C, F, G); test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) |  | S2_opening |
-| 0x001D52E0 | — | BM | verified-unbound | em_render_context em_render_context_001D52E0 — test_render_context_reference | its live caller 001C1E70 (em_rvr_001C1E70 through em_render_context_live) reaches a reported no-effect binding instead (em_scene_bindings rcl_grid_header, UM_001D52E0; measured 2026-09-26) | S1_newgame_load |
-| 0x001D5370 | — | NM | verified-unbound | em_render_context em_render_context_001D5370 — test_render_context_reference |  | S2_opening |
+| 0x001D4DA0 | — | NM | live | em_static_world em_static_world_001D4DA0: the level kernel's header (001D5370's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4F30 | — | NM | live | em_static_world em_static_world_001D4F30: an object's REF runs (001D4FB0's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D4FB0 | — | BM | live | em_shadow_original (the receiver list) and em_gfx_shadow_receiver through em_shadow_live; em_static_world em_static_world_001D4FB0 in the static world's run (001D5370's, through em_rcl_001C1D00) — test_shadow_original_reference.py (C, F, G); test_static_world_reference; test_level_smoke.py check_shadow and check_static_world | the static world's objects (static-world step, section 1.42) | S2_opening |
+| 0x001D52E0 | — | BM | live | em_render_context em_render_context_001D52E0, composed by em_swc_001D52E0 through em_rcl's 001C1E70 worker (the area load's 001C1DC0) over the exported bank — test_render_context_reference; test_static_world_reference; test_render_context_live_reference (001C1DC0 on the live module against the original, the grid header byte for byte) | UM_001D52E0 and rcl_grid_header removed (static-world step, section 1.42) | S1_newgame_load |
+| 0x001D5370 | — | NM | live | em_render_context em_render_context_001D5370 with em_static_world's builders through em_rcl_001C1D00 — test_render_context_reference; test_static_world_reference (17 captured runs byte for byte); test_static_world_draw_reference (the runs drawn by the original microcode); test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | its run is drawn from its packets (em_static_world_live) (static-world step, section 1.42) | S2_opening |
 | 0x001D5C80 | — | NM | live | em_shadow_original receivers through em_shadow_live — test_render_verify_rest_reference (intercepted inside the executed 001DA6A0); test_shadow_original_reference; test_level_smoke.py check_shadow (B: the ORIGINAL 001DA6A0 over the port's sampled inputs builds the port's plan) (the receiver sequence and classes) | the grid and objects come from the exported static-object bank (assets/scene_snow/shadow_receivers.emsr); 001D52E0 is not bound | S2_opening |
 | 0x001D63B0 | — | NM | live | em_load_veil_particles, through em_rcl_0021B1B0 (em_scene_bindings' veil_0021B1B0 at 0021B550, the load veil; step V's list drawn by em_load_veil_live, LOAD_VEIL_PARTICLES.md 3) — test_load_veil_particles_reference.py; test_level_smoke.py check_load_veil (the live run equals the ORIGINAL 0021B1B0 executed at the same call, section 1.35) | the load spans one tick at host speed: one black veil frame | S1_newgame_load* |
 | 0x001D6930 | — | NM | live | em_load_veil_particles em_load_veil_particles_001D6930 (001D6B10's) through em_render_context_live — test_load_veil_particles_reference.py; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
@@ -2338,7 +2391,10 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001D6BA0 | — | NM | live | em_load_veil_particles em_load_veil_particles_001D6BA0 (001DDE10's) through em_render_context_live — test_load_veil_particles_reference.py; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001D6C90 | — | NM | live | em_render_context em_render_context_001D6C90 (001DDE10's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | the four-sprite packet; walked over by the chain page's consumer (not drawn: CHAIN_PAGE.md section 6) | S2_opening |
 | 0x001D6E60 | — | NM | live | em_load_veil_particles em_load_veil_particles_001D6E60 (001D6930's) through em_render_context_live — test_load_veil_particles_reference.py; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
+| 0x001D6F60 | — | AW | live | em_static_world em_static_world_001D6F60: the TEX0 / TEXA packet (001E1E60's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
 | 0x001D7080 | — | AW | live | em_load_veil_particles, through em_rcl_0021B1B0 (em_scene_bindings' veil_0021B1B0 at 0021B550, the load veil; step V's list drawn by em_load_veil_live, LOAD_VEIL_PARTICLES.md 3) — test_load_veil_particles_reference.py; test_level_smoke.py check_load_veil (the live run equals the ORIGINAL 0021B1B0 executed at the same call, section 1.35) | live through 001DFA40 only; its other callers on the route (the background 001E1E60, the static world) are their own rows | S1_newgame_load |
+| 0x001D7100 | — | NM | live | em_static_world em_static_world_001D7100: the VU1 uploads (001E1E60's, with block_copy), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
+| 0x001D71A0 | — | CL | live | em_static_world em_static_world_001D71A0: the MSCAL packet (001E1E60's), through em_rcl_001C1D00 (em_swc_001C1D00) — test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | moved in from the section 4 GS/VIF boundary list by the render-range rule (static-world step, section 1.42) | S2_opening |
 | 0x001D7B30 | — | BM | live | em_actor_light_001D89D0 em_actor_light_001D7B30 (001D8FD0's) through em_render_context_live over the exported D_00251C50 — test_actor_light_001d89d0_reference; test_packet_chain_reference.py (001D8FD0 whole); test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | the actor lighting's room rig is still the manifest's rig lines (lane L40) | S1_newgame_load |
 | 0x001D7BB0 | — | BM | live | em_point_light.c — test_point_light_reference | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S1_newgame_load* |
 | 0x001D7C30 | — | NM | live | em_point_light.c — test_point_light_reference; test_level_smoke.py check_sway (the original over the port's pool and draws on sampled ticks) and check_rand_order | on the render context's slots +0x210..+0x221F (em_rcl_point_lights; section 1.27) | S0_title |
@@ -2366,7 +2422,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.17 Render context, background, weather and snow (0x1DB000..0x1EEFFF)
 
-30 functions, 3,752 instructions: live 25, verified-unbound 5 (recount 2026-09-27, load veil step).
+30 functions, 3,752 instructions: live 26, verified-unbound 4 (recount 2026-09-28, the static-world step, section 1.42).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2383,11 +2439,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001E0C60 | — | BM | live | em_render_context em_render_context_001E0C60 (001D2910's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S0_title |
 | 0x001E0C80 | — | CL | live | em_render_context em_render_context_001E0C80 (001D2830's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E0CC0 | — | BM | live | em_render_context em_render_context_001E0CC0 through em_render_context_live (w_001E0CC0 at the status close) — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
-| 0x001E0CF0 | — | BM | verified-unbound | em_render_verify_rest em_rvr_001E0CF0 — test_render_verify_rest_reference | the module is linked; em_rvr_001E0CF0 is not called (its caller 001C1D00 is not bound) | S2_opening |
+| 0x001E0CF0 | — | BM | live | em_render_verify_rest em_rvr_001E0CF0 through em_rcl_001C1D00 — test_render_verify_rest_reference; test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | bound (static-world step, section 1.42) | S2_opening |
 | 0x001E0D70 | — | BM | live | em_render_context em_render_context_001E0D70 (001D1EA0's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S2_opening |
-| 0x001E0DF0 | — | BM | live | em_render_context em_render_context_001E0DF0 through step V (em_frame_kick) — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); the port builds no +0x1D8 list (001C1D00 unbound), so it CALLs nothing there | S1_newgame_load |
+| 0x001E0DF0 | — | BM | live | em_render_context em_render_context_001E0DF0 through step V (em_frame_kick) — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); since the static-world step it tags the +0x1D8 list 001C1D00 builds (seven tags, as the captures) | S1_newgame_load |
 | 0x001E1010 | — | BM | verified-unbound | em_render_context em_render_context_001E1010 — test_render_context_reference | not bound | S1_newgame_load* |
-| 0x001E1E60 | — | NM | live | em_background_gs, em_gfx_metal: em_gfx_background_draw first in every world frame, gated as 001D2300 / 001E0DF0 gate its CALL (flag 0x20; flag 0x21 standing for the +0x1D8 list 001E0CF0 builds) (status UI step 2026-09-26 (section 1.21)) — test_background_reference.py (sky metric: 0 black) |  | S2_opening |
+| 0x001E1E60 | — | NM | live | em_static_world em_static_world_001E1E60 through em_rcl_001C1D00 (the channel-3 list at +0x1D8, byte for byte); its CALL drawn by em_background_gs (the grid kernel 0x0023C990's model), gated as 001D2300 / 001E0DF0 gate it, with the list's own TEX0 / RGBAQ (em_static_world_live_background_state) — test_static_world_reference (17 captured lists); test_background_reference.py (sky metric: 0 black); test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | flag 0x21 no longer stands in for +0x1D8 (static-world step, section 1.42) | S2_opening |
 | 0x001E2260 | — | BM | live | em_render_verify_rest em_rvr_001E2260 (001C1F50's) through em_render_context_live — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E2270 | — | BM | live | em_render_verify_rest em_rvr_001E2270 (001C1F50's, the exported D_00250F30) through em_render_context_live — test_render_verify_rest_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E2290 | — | BM | live | em_head_sprite_original through em_effects_live — test_head_sprite_reference | | S2_opening* |
@@ -2661,7 +2717,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ## 4. Platform boundaries
 
-441 functions (23,725 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+431 functions (23,359 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
@@ -2670,7 +2726,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | SDK libmpeg / IPU movie decode | 102 | 6,893 | em_movie_mac.m (AVFoundation) over movies exported by tools/export_movie.py | no original comparison (movie export test only) |
 | EE sound library (SPU2 voices, sequencer, IOP sound RPC) | 59 | 3,207 | em_sfx.c + em_sfx_bank.c + em_audio_mac.c | 41: no (dry mixer; no SPU2 ADSR/reverb, AM-03/04); 9: partly: test_area11_sfx_reference; 5: partly: test_stream_lanes_reference; 3: partly: test_area11_sfx_reference, test_area11_sfx_runtime; 1: partly: test_area11_sfx_reference, test_area11_sfx_runtime, test_stream_lanes_reference |
 | EE kernel syscalls, interrupts, threads, SIF DMA glue | 57 | 1,085 | host OS; nothing to reproduce | n/a |
-| GS/VIF packet build / VU1 kick | 26 | 807 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | partly: level material and overlay-blend tests; fog, snow and status draws checked in their own tests |
+| GS/VIF packet build / VU1 kick | 16 | 441 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | partly: level material and overlay-blend tests; fog, snow and status draws checked in their own tests |
 | unidentified title-only SDK glue (probable MPEG) | 29 | 984 | em_frontend.c title / movie path | no |
 | MPEG movie glue | 29 | 995 | em_movie_mac.m | no |
 | C runtime (heap, stdio, string, init) | 25 | 2,885 | host libc | n/a |
@@ -2716,10 +2772,10 @@ Addresses per kind:
   0010BC50, 0010BCD0, 0010BD30, 0010BE68, 0010BF10, 0010BF18, 0010C020, 0010C0C8, 0010C290, 0010C2F8,
   0010C360, 0010C3C8, 0010C710, 0010C7E8, 0010CE28, 0010DD00, 0010DE38, 0010DEB8, 0010DFD8, 0010E088,
   0010E270, 0010E318, 0010E3A8, 0010E8A8, 0010EA60, 0010F8F8, 0010F968.
-- **GS/VIF packet build / VU1 kick** (26; 001D2090, 001D2E20, 001D37D0, 001D38F0, 001D3AD0 and 001D3C30 moved to section 3.16 by the object-unit step; 001D2110, 001D2130, 001D2160, 001D2180, 001D21E0 and 001D2580 by chain C7 step V, section 1.27; 001D3E40 and 001D3F50 by chain C8b's FACE step, section 1.40): 001D1C10,
+- **GS/VIF packet build / VU1 kick** (16; 001D2090, 001D2E20, 001D37D0, 001D38F0, 001D3AD0 and 001D3C30 moved to section 3.16 by the object-unit step; 001D2110, 001D2130, 001D2160, 001D2180, 001D21E0 and 001D2580 by chain C7 step V, section 1.27; 001D3E40 and 001D3F50 by chain C8b's FACE step, section 1.40; 001D4750, 001D4960, 001D4A90, 001D4B10, 001D4B20, 001D4DA0, 001D4F30, 001D6F60, 001D7100 and 001D71A0 by the static-world step, section 1.42): 001D1C10,
   001D3900, 001D3990, 001D3CF0, 001D3D90,
-  001D4650, 001D4740, 001D4750, 001D4960, 001D49D0, 001D4A90, 001D4B10, 001D4B20, 001D4B80,
-  001D4C20, 001D4DA0, 001D4E20, 001D4EA0, 001D4F30, 001D6F60, 001D7100, 001D71A0, 001D71F0, 001D7410,
+  001D4650, 001D4740, 001D49D0, 001D4B80,
+  001D4C20, 001D4E20, 001D4EA0, 001D71F0, 001D7410,
   001D9060, 001D9720.
 - **unidentified title-only SDK glue (probable MPEG)** (29): 00205050, 00205240, 00205700, 00205740, 00205810, 002058D0, 00205990, 00205A00, 00205A50, 00205A80,
   00205A90, 00205B00, 00205BC0, 00205C60, 00205C80, 00205CD0, 00205D00, 00205D40, 00205DD0, 00205E10,
@@ -2798,9 +2854,9 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 29 | **L08-coll-missing-and-list-passes**: Translate the untranslated collision originals and the actor list passes. **Translated 2026-09-23; bound 2026-09-24:** the nine hooks, 0019B7D0 / 0019E280 live; 001A8660 waits on a class-0xD owner (the flame), 0019E930 / 001A3980 on L09, 0019F330 on the column's pass 2 | bind | 2,081 | 14 (live 10, verified-unbound 4) | every frame; 05, 07..14 | L09, the flame owner, original-layout records for class 1/2/0xD |
 | 30 | **L29-shadow-route**: Bind the shadow actor route (0015BF90) and its packet producers. **Live 2026-09-26 (section 1.20):** w_0015C160 runs 0015C160's gate and route; 0015BF90 / 001F9100 / 001F8D30 / 001CD390 and the decal packet 001CE300 / 001CF470 (with 001CF870 / 001CF970 / 001CB950, moved in from the boundary list) run through em_shadow_live; the fans are drawn by em_gfx_shadow_decal_fan at the page splice; left: the decal texture's uploader (the texture is exported from the route captures' GS memory) | bind+verify | 974 | 7 (live 7) | every frame from 02 (player shadow) | renderer |
 | 31 | **L29b-shadow-gs**: Bind em_shadow_original / em_shadow_gs (receiver passes, clip kernels). **Recount 2026-09-24:** the five former unverified rows pass test_render_verify_rest_reference (part D; 001D5C80 with the em_ee_float.h fix). **Live 2026-09-26 (section 1.20):** 001DA6A0 and its steps run through em_shadow_live after the level and the walked actors, the Metal passes em_gfx_shadow_* draw them; the player's own draw moved behind them (0015C160's +0x4C); left: Roger's 001DA6A0 (kind 0x29, its proxy is not exported; census L22) and the opening's post-step (design risk 2) | bind | 1,779 | 11 (live 11) | every frame (shadow receivers) | L29-shadow-route |
-| 32 | **L32-frame-render-heads**: Replace the port collectors at 001D1C50/001D1EA0/001D30A0 and the projection with translations. **Recount 2026-09-24:** em_frame_render_heads translates all 18 rows; the port collectors and em_math.h projection are the stand-ins to retire **Render context step 2026-09-25 (section 1.16):** bound through em_render_context_live: 001D1C50, 001D1EA0, 001D30A0, 001D2960, 001D2D20, 001D2830 and the zoom helpers live, plus 001D1AE0 (moved in from the boundary list); not bound: 001C1D00 (001D5370 needs the static-object bank export), 001D19E0, 001D19D0 / 001D9070, 001D8060 / 001D80B0, 001D88B0 / 001D8C30 (RENDER_CONTEXT.md 8.4) **Chain C7 step V 2026-09-27 (section 1.27):** 001D1EF0 bound with step V 001D2300 (before the area bind still reported) | bind | 1,545 | 18 (live 10, verified-unbound 8) | every frame (frame setup, projection) | the static-object bank export (001C1D00); L33 / L40 (lighting, fade weights) |
-| 33 | **L30-render-context**: Bind the render-context / HUD bar / area-specials path (em_render_context). **Recount 2026-09-24:** all 16 rows translated, plus the seven render-range helpers that were boundary rows (001D21B0, 001D2710, 001D2910, 001D2DE0, 001D2E00, 001D6B10, 001D6C90) **Render context step 2026-09-25 (section 1.16):** 001DDA00 / 001DDAA0 / 001DDE10 / 001DEEE0 (the four-sprite path), 001E0D70, 001E0CC0, 001DD950, the flag and slot helpers live on the one context, plus 001D2730 (moved in from the boundary list); not bound: 001D5370 / 001D52E0 (the bank), 001DD7B0 / 001DD940 and 001E0C30 / 001E1010 (001D19E0), 001D21B0 (reached only with a +0x1D8 / +0x1E8 / +0x2520 word, none built in the port; 001E0DF0 is live through step V since section 1.27); the four sprites' packets reach no native consumer | bind | 1,754 | 23 (live 16, verified-unbound 7) | every frame (render context, HUD bar) | the static-object bank export; 001D19E0; a renderer consumer for the four-sprite packets |
-| 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family). **Recount 2026-09-24:** the 001C1DC0 family, 001C1F50, 001E0CF0, 001E2260 / 001E2270 and 001C22A0 / 001C2360 are em_render_verify_rest translations; 0021B9A0 (the fog programmer) is translated since afa091b (em_packet_chain_original, verified-unbound); **Effects step 2026-09-24:** 0021B920 is live as the one translation behind the Metal fog (em_fog_gs_coefficients is a call of em_packet_chain_0021B920). **Render + UI step 2026-09-25 (section 1.13):** 001E1E60 and kernel 0x0023C990 (em_background_gs) draw live first in every world frame, gated as 001D2300 gates its CALL **Render context step 2026-09-25:** the 001C1DC0 family (its 001C1E70 -> 001D52E0 reported), the area fog 001D8FD0, 0021B970 / 0021B9A0 / 0021BA80 live on the render context **Chain C7 step V 2026-09-27 (section 1.27):** 001D2300 live (em_frame_kick at main-loop step V) | translate+bind | 932 | 17 (live 16, verified-unbound 1) | S1 (area load), 09 (room move), every frame (background) | renderer |
+| 32 | **L32-frame-render-heads**: Replace the port collectors at 001D1C50/001D1EA0/001D30A0 and the projection with translations. **Recount 2026-09-24:** em_frame_render_heads translates all 18 rows; the port collectors and em_math.h projection are the stand-ins to retire **Render context step 2026-09-25 (section 1.16):** bound through em_render_context_live: 001D1C50, 001D1EA0, 001D30A0, 001D2960, 001D2D20, 001D2830 and the zoom helpers live, plus 001D1AE0 (moved in from the boundary list); not bound: 001C1D00 (001D5370 needs the static-object bank export), 001D19E0, 001D19D0 / 001D9070, 001D8060 / 001D80B0, 001D88B0 / 001D8C30 (RENDER_CONTEXT.md 8.4) **Chain C7 step V 2026-09-27 (section 1.27):** 001D1EF0 bound with step V 001D2300 (before the area bind still reported) **Static-world step 2026-09-28 (section 1.42):** 001C1D00 live over the exported bank (em_rcl_001C1D00) | bind | 1,545 | 18 (live 11, verified-unbound 7) | every frame (frame setup, projection) | L33 / L40 (lighting, fade weights) |
+| 33 | **L30-render-context**: Bind the render-context / HUD bar / area-specials path (em_render_context). **Recount 2026-09-24:** all 16 rows translated, plus the seven render-range helpers that were boundary rows (001D21B0, 001D2710, 001D2910, 001D2DE0, 001D2E00, 001D6B10, 001D6C90) **Render context step 2026-09-25 (section 1.16):** 001DDA00 / 001DDAA0 / 001DDE10 / 001DEEE0 (the four-sprite path), 001E0D70, 001E0CC0, 001DD950, the flag and slot helpers live on the one context, plus 001D2730 (moved in from the boundary list); not bound: 001D5370 / 001D52E0 (the bank), 001DD7B0 / 001DD940 and 001E0C30 / 001E1010 (001D19E0), 001D21B0 (reached only with a +0x1D8 / +0x1E8 / +0x2520 word, none built in the port; 001E0DF0 is live through step V since section 1.27); the four sprites' packets reach no native consumer **Static-world step 2026-09-28 (section 1.42):** 001D5370 / 001D52E0 live over the exported bank, 001D21B0 live (001E0DF0 tags the +0x1D8 list) | bind | 1,754 | 23 (live 19, verified-unbound 4) | every frame (render context, HUD bar) | 001D19E0; a renderer consumer for the four-sprite packets |
+| 34 | **L31-background-weather-load**: Bind em_background_gs and the area-load render passes (001C1DC0 family). **Recount 2026-09-24:** the 001C1DC0 family, 001C1F50, 001E0CF0, 001E2260 / 001E2270 and 001C22A0 / 001C2360 are em_render_verify_rest translations; 0021B9A0 (the fog programmer) is translated since afa091b (em_packet_chain_original, verified-unbound); **Effects step 2026-09-24:** 0021B920 is live as the one translation behind the Metal fog (em_fog_gs_coefficients is a call of em_packet_chain_0021B920). **Render + UI step 2026-09-25 (section 1.13):** 001E1E60 and kernel 0x0023C990 (em_background_gs) draw live first in every world frame, gated as 001D2300 gates its CALL **Render context step 2026-09-25:** the 001C1DC0 family (its 001C1E70 -> 001D52E0 reported), the area fog 001D8FD0, 0021B970 / 0021B9A0 / 0021BA80 live on the render context **Chain C7 step V 2026-09-27 (section 1.27):** 001D2300 live (em_frame_kick at main-loop step V) **Static-world step 2026-09-28 (section 1.42):** 001E0CF0 live, 001E1E60's translation builds the +0x1D8 list and the gate reads it | translate+bind | 932 | 17 (live 17) | S1 (area load), 09 (room move), every frame (background) | done |
 | 35 | **L33-anim-runtime-rest**: Bind the remaining animation-runtime originals. **Bound 2026-09-24 (display step, partial):** em_pose_host_workers is the player's one pose owner (em_player_record_pose over the live record): 11 rows live. **2026-09-25 (section 1.12):** 001C9D50 / 001C9E40 live through 0017B660. **2026-09-28 (section 1.40):** 001C7900 and 001CB2C0 live inside 001CB3C0 (the face step). Still unbound, each on another lane: 001CAAC0 (001CB760 L39, 001F6210 L26), 001CACB0 (001CABA0, renderer boundary), 001CB5B0 (one canonical D_00275B40 / D_00275B48 for every host); 001C7C00 is live for S2 (critic 7.2) and stays in the lane for beat 14 | bind | 1,819 | 22 (live 14, verified-unbound 8) | every frame (animation) | nothing |
 | 36 | **L36-stream-lanes-sound**: Bind the stream lanes (music/voice) and the gain/positional sound originals. **2026-09-25 (WP-8b, section 1.15):** the stream lanes are live (em_stream_live); left: 001FBC50's body (em_sfx_stop_all, no oracle), 001FC280's body (unverified) and the positional voices 001FBF50 / 001FC3C0 / 001FBDB0 (001FB100's rest and 001FC6E0 are lane L34's) | bind | 1,530 | 17 (live 12, verified-unbound 4, unverified 1) | every frame (music and voice streams) | IOP/disc boundary decisions; the area-entry 001FAE70(1) (the RNG order audit) for the opening's prefill wait (section 1.30) |
 | 37 | **L38-load-veil-particles**: Bind the load-veil particles (0021B1B0/0021B500) so the load is not black **Render context step 2026-09-25:** the REF tags and 001D6930 / 001D6E60 / 001006D8 / 00100610 / 00100268 / 001D6BA0 run live under 001D1AE0 and 001DDE10. **DONE (load veil step, 2026-09-27, section 1.35):** the veil draw and phase step are bound at 0021B550 and step V's list is drawn by the GS frame stage; the veil stays black until the area read runs the loader task's own ticks (H7) | bind | 1,074 | 16 (live 16) | S1, 09 (loads) | nothing |

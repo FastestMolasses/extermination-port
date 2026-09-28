@@ -433,13 +433,75 @@ movie_phase:
     return !s_frame.quit;
 }
 
+/* EM_FRAME_TIMING=<file>: a diagnostic that writes one line per step of
+ * em_frame_run ("step wall_ns cpu_ns": the step's wall time and the main
+ * thread's CPU time, the pacing sleep excluded) and prints a summary
+ * against the 16.683 ms NTSC period at exit. It changes nothing the game
+ * computes. */
+static int64_t timing_ns(clockid_t clock)
+{
+    struct timespec t;
+    clock_gettime(clock, &t);
+    return (int64_t)t.tv_sec * 1000000000 + t.tv_nsec;
+}
+
+static int timing_cmp(const void *a, const void *b)
+{
+    const int64_t x = *(const int64_t *)a, y = *(const int64_t *)b;
+    return (x > y) - (x < y);
+}
+
+static void timing_summary(const char *what, int64_t *v, size_t n)
+{
+    if (!n) return;
+    int64_t sum = 0;
+    size_t over = 0;
+    for (size_t i = 0; i < n; ++i) {
+        sum += v[i];
+        over += v[i] > 16683350;
+    }
+    qsort(v, n, sizeof *v, timing_cmp);
+    fprintf(stderr, "frame timing: %s mean %.2f ms, p50 %.2f, p95 %.2f, p99 %.2f, max %.2f; %zu of %zu steps over the 16.68 ms period\n",
+            what, (double)sum / (double)n / 1e6, (double)v[n / 2] / 1e6, (double)v[n * 95 / 100] / 1e6,
+            (double)v[n * 99 / 100] / 1e6, (double)v[n - 1] / 1e6, over, n);
+}
+
 void em_frame_run(void)
 {
+    const char *timing = getenv("EM_FRAME_TIMING");
+    FILE *tf = (timing && timing[0]) ? fopen(timing, "w") : NULL;
+    int64_t *wall = NULL, *cpu = NULL;
+    size_t n = 0, cap = 0;
     while (!s_frame.quit) {
+        const int64_t w0 = tf ? timing_ns(CLOCK_MONOTONIC) : 0, c0 = tf ? timing_ns(CLOCK_THREAD_CPUTIME_ID) : 0;
         em_frame_step();
+        if (tf) {
+            const int64_t dw = timing_ns(CLOCK_MONOTONIC) - w0, dc = timing_ns(CLOCK_THREAD_CPUTIME_ID) - c0;
+            fprintf(tf, "%zu %lld %lld\n", n, (long long)dw, (long long)dc);
+            if (n == cap) {
+                const size_t grown = cap ? 2 * cap : 4096;
+                int64_t *nw = realloc(wall, grown * sizeof *wall);
+                if (nw) wall = nw;
+                int64_t *nc = nw ? realloc(cpu, grown * sizeof *cpu) : NULL;
+                if (nc) cpu = nc;
+                if (nw && nc) cap = grown;
+            }
+            if (n < cap) {
+                wall[n] = dw;
+                cpu[n] = dc;
+                n++;
+            }
+        }
         /* One logic tick per NTSC vblank, independent of display rate.
          * Sleeping belongs only to the interactive loop, not the
          * deterministic single-frame interface used by headless tests. */
         frame_pace_ntsc();
     }
+    if (tf) {
+        fclose(tf);
+        timing_summary("wall", wall, n);
+        timing_summary("main-thread cpu", cpu, n);
+    }
+    free(wall);
+    free(cpu);
 }

@@ -10,6 +10,15 @@ FIRST_LEVEL_AUDIT WP-13 listed three render approximations:
 
 This document records what the original does and what the port now does.
 
+**Current state (2026-09-28).** AREA11 no longer loads the zone EMDLs this
+document's material path applied to (em_scene.c scene_load). The level is
+drawn from its original packets: 001C1D00's channel-0 run through the level
+and clip kernels, with each block's own TEX0 and the class-0 GS state its
+GS state REF names (STATIC_WORLD.md section 7). The decoded state below is
+still the state the GS applies; the zone EMDL material words, the
+`*.gsmat.json` reports and tools/test_level_material_reference.py remain as
+the reference the other tests import, not as a live draw path.
+
 ## Where the original sets the state
 
 A level record carries only its TEX0 qword (`export_level.py`, record

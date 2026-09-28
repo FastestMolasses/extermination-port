@@ -562,6 +562,12 @@ static int load_textures(EmGfx *gfx)
     return 0;
 }
 
+int em_owner_draw_live_textures(EmGfx *gfx)
+{
+    if (!gfx) return report(0, "no graphics device");
+    return load_textures(gfx);
+}
+
 void em_owner_draw_live_post_step(void)
 {
     const uint32_t frame = em_frame_counter();

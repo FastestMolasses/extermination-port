@@ -23,7 +23,9 @@
  *             (FLUSH + UNPACK of 8 qwords: D_70003AC0 and D_00817240..7F)
  *             and 5 qwords (UNPACK of 4 qwords: D_00817280..BF)  (.s)
  *   001D2090  (vif_append_ref_tag) REF 1 qword to *D_00275674, context
- *             +0x50 + 4 chan = target, CALL target               (.s)
+ *             +0x50 + 4 chan = target, CALL target: the one translation is
+ *             em_owner_draw_vif_append_ref_tag; this is its memory form
+ *             over the views                                     (.s)
  *   00102958  (copy_qw4) four quadwords, all loaded before any store (.s)
  *
  *   the background channel (001E0CF0's callees)
@@ -77,8 +79,9 @@
  * Arithmetic: every COP1 operation goes through game/em_ee_float.h on raw
  * binary32 bits (docs/EE_FLOAT_MODEL.md); 001026D0 through em_sdk_vu0.h.
  *
- * stdint only, plus the header-only em_ee_float.h / em_sdk_vu0.h and
- * em_camera_commit_original (00102798). */
+ * stdint only, plus the header-only em_ee_float.h / em_sdk_vu0.h,
+ * em_camera_commit_original (00102798) and em_owner_draw_original
+ * (001D2090). */
 #ifndef EM_STATIC_WORLD_H
 #define EM_STATIC_WORLD_H
 

@@ -43,9 +43,12 @@ original's RAM, and the ordered log of the recorded callees must match.
 Recorded callees (both sides record the call, neither executes it):
   001D7C30  the point-light tick: the live binding runs em_point_light
             (test_point_light_reference) on its own storage;
-  001C1EA0  001C1DC0's weather spawn (the scene's pool);
-  001D52E0  001C1E70's grid header: the static-object bank D_0028A5A0 is not
-            exported, so the binder reports this call.
+  001C1EA0  001C1DC0's weather spawn (the scene's pool).
+001C1E70's 001D52E0 (the static-object grid header) runs on both sides: the
+original over the snapshot's bank, the module's em_swc_001D52E0 over the
+exported bank (assets/scene_snow/static_world.emsw, docs/STATIC_WORLD.md).
+The bind performs 001AF690's zeroing of D_008101D0..DF; the original side
+gets the same zeroing at that point.
 sqrtf 0011E748 and tanf 0011E398 run as the ORIGINAL routines in a separate
 interpreter on both sides (test_frame_render_heads_reference.Leaf).
 
@@ -77,14 +80,16 @@ SOURCES = ['em_render_context_live', 'em_gs_blocks_original', 'em_frame_kick', '
            'em_status_ui_leftovers', 'em_load_veil_particles', 'em_actor_light_001D89D0',
            'em_owner_services_original', 'em_effect_original', 'em_player_equipment',
            'em_player_stage_workers', 'em_render_verify_rest', 'em_sdk_math_original', 'em_sdk_soft_float',
-           'em_census_standins', 'em_message_draw_original']
+           'em_census_standins', 'em_message_draw_original', 'em_static_world', 'em_static_world_compose',
+           'em_owner_draw_original', 'em_camera_commit_original', 'em_stream_lanes_original']
+STATIC_WORLD = ROOT / 'assets/scene_snow/static_world.emsw'
 
 OWNED = ((0x28F700, 0x76B5C0 - 0x28F700), (0x811CC0, 0x817240 - 0x811CC0), (0x250F30, 0x2250),
          (0x275670, 0x30), (0x70003A40, 0x100), (0x70003B60, 4), (0x70003B70, 4), (0x241010, 8), (0x26E510, 16),
-         (0x26E850, 16))
+         (0x26E850, 16), (0x253560, 0x90), (0x817240, 0x80), (0x8101D0, 0x10))
 EXTERNAL = ((0x810610, 0x40), (0x8105E0, 0x10), (0x8106B0, 0x48), (0x810700, 3), (0x8101E4, 1),
-            (0x70003B8D, 1), (0x8102B0, 0x320))
-RECORDED = (0x1D7C30, 0x1C1EA0, 0x1D52E0)
+            (0x70003B8D, 1), (0x8102B0, 0x320), (0x28A5A0, 4))
+RECORDED = (0x1D7C30, 0x1C1EA0)
 # 001D21E0's hardware callees (the renderer boundary): recorded on the
 # original side only; 00101F08(channel, list) is compared with em_rcl_kick.
 HARDWARE = {0x101BB8: 'dmac_channel_base', 0x100A60: 'dma_wait_and_submit', 0x11B9E0: '0011B9E0',
@@ -104,7 +109,7 @@ class External(C.Structure):
 
 class Workers(C.Structure):
     _fields_ = [('ctx', VP), ('w_001D7C30', F_VOID), ('w_0011E748', F_LEAF), ('w_0011E398', F_LEAF),
-                ('w_001C1EA0', F_BLOCK), ('w_001D52E0', F_VOID)]
+                ('w_001C1EA0', F_BLOCK)]
 
 
 def build_native():
@@ -115,6 +120,7 @@ def build_native():
                    cwd=ROOT, check=True)
     n = C.CDLL(str(lib))
     n.em_rcl_init.argtypes = [C.c_char_p, VP]
+    n.em_rcl_static_world_load.argtypes = [C.c_char_p]
     n.em_rcl_bind.argtypes = [C.POINTER(External), C.c_uint, C.POINTER(Workers)]
     n.em_rcl_poke.argtypes = [U32, C.c_char_p, U32]
     n.em_rcl_bytes.argtypes = [U32, U32]
@@ -173,6 +179,7 @@ class Pair:
         E88[:] = ram[0x810E88:0x810E8A]
         if first:
             assert NATIVE.em_rcl_init(str(EXPORT).encode(), C.addressof(E80)) == 0, 'em_rcl_init'
+            assert NATIVE.em_rcl_static_world_load(str(STATIC_WORLD).encode()) == 0, 'em_rcl_static_world_load'
         for address, size in OWNED:
             data = self.ee.read(address, size)
             assert NATIVE.em_rcl_poke(address, data, size) == 0, ('poke', hex(address))
@@ -183,9 +190,9 @@ class Pair:
             self.ext.append((address, size, buf))
             views[i] = External(address, size, C.addressof(buf))
         self.workers = Workers(None, F_VOID(self._n_record(0x1D7C30)), F_LEAF(self._n_leaf(0x11E748)),
-                               F_LEAF(self._n_leaf(0x11E398)), F_BLOCK(self._n_block(0x1C1EA0)),
-                               F_VOID(self._n_record(0x1D52E0)))
+                               F_LEAF(self._n_leaf(0x11E398)), F_BLOCK(self._n_block(0x1C1EA0)))
         assert NATIVE.em_rcl_bind(views, len(EXTERNAL), C.byref(self.workers)) == 0, 'em_rcl_bind'
+        self.ee.write(0x8101D0, bytes(16))   # 001AF690 (the bind performs it natively)
         self._views = views
         # The frame loop's views: D_00810E88 and D_008106C4 (inside the
         # request block view, the same bytes as the binder's).

@@ -48,6 +48,7 @@
 #define EM_SHADOW_GS_H
 
 #include "gfx/metal/em_fog_gs.h"
+#include "game/em_vu1_level_kernel.h"
 #include "game/em_vu1_shadow_clip.h"
 
 #include <math.h>
@@ -271,7 +272,7 @@ static inline uint32_t em_shadow_gs_clip(const float v[4])
            (uint32_t)(v[2] > w) << 4 | (uint32_t)(v[2] < -w) << 5;
 }
 
-/* mulA.xyzw ACC = g0 * c; maddbcw.xyzw out = ACC + g1 * c.w (the guard
+/* ACC = g0 * c per lane, then out = ACC + g1 * c.w per lane (the guard
  * scale/offset rows dmem 1022/1023, or 1023/1022 as each kernel loads). */
 static inline void em_shadow_gs_guard(const float g0[4], const float g1[4],
                                       const float c[4], float out[4])
@@ -309,10 +310,9 @@ typedef struct {
                                       the guard band (CLIP flag of
                                       vertices i-2..i, fcand 0x03FFFF) */
 #define EM_SHADOW_GS_ADC_CULL 4u   /* 00237180: negative winding */
-#define EM_SHADOW_GS_ADC_STALE 8u  /* 00237180: a strip's first two
-                                      vertices without the data flag; the
-                                      cull would read the previous batch's
-                                      registers, which is not modelled */
+#define EM_SHADOW_GS_ADC_STALE 8u  /* (unused since the box pass runs
+                                      em_vu1_level_kernel_batch, which
+                                      faults on such a vertex) */
 #define EM_SHADOW_GS_ADC_REJECT 16u /* with CLIP: vertices i-2..i are all
                                       outside the same guard plane, so the
                                       clip kernel skips the triangle too
@@ -325,9 +325,8 @@ typedef struct {
  * of each program, vertex index i = 32 - vi11) goes on to the clipping
  * code only when vertex i has no data ADC (0x8000 / 0xA000), the CLIP
  * history of vertices i-2..i is non-zero (fcand 0x03FFFF), not all three
- * vertices are outside one guard plane (fcor 0xFFEFBE, 0xFFDF7D, 0xFFBEFB,
- * 0xFF7DF7, 0xFEFBEF, 0xFDF7DF) and i >= 2 (isubiu vi1, vi11, 0x1E;
- * ibgtz). Exactly the triangles that kernel left undrawn for CLIP (the
+ * vertices are outside one guard plane (six OR-masks over the CLIP history, one
+ * per plane) and i >= 2 (vi11 < 0x1F). Exactly the triangles that kernel left undrawn for CLIP (the
  * same history test), minus the rejected ones, so the two passes never
  * draw one triangle twice. The clipping itself is translated in
  * src/game/em_vu1_shadow_clip.h; em_shadow_gs_clip_dmem /
@@ -377,62 +376,65 @@ static inline void em_shadow_gs_screen(const float c[4], float q, float s[3],
 /* ------------------------------------------------------ kernel 00237180 -- */
 
 /* The level kernel (MPG 0x002371B0) over one 32-vertex batch, for the box
- * models. `m` = dmem 0..3 (the (W x V) x P matrix 001DA310 uploads),
- * `k1021`/`k1022`/`k1023` the template qwords (fog row (255, 2048, A, B)
- * and the guard rows), `qw3[i]` the vertex's position qword: x, y, z and
- * the data word (its float value is the strip's winding sign, bit 15 the
- * ADC flag). Per vertex i:
+ * models: an adapter over the one translation of the kernel,
+ * em_vu1_level_kernel_batch (src/game/em_vu1_level_kernel.h, which the
+ * static world's run also uses). `m` = dmem 0..3 (the (W x V) x P matrix
+ * 001DA310 uploads), `k1021`/`k1022`/`k1023` the template qwords (fog row
+ * (255, 2048, A, B) and the guard rows), `qw3[i]` the vertex's position
+ * qword: x, y, z and the data word (its float value is the strip's winding
+ * sign, bit 15 the ADC flag); the other vertex qwords are zero (the box
+ * pass kicks only XYZF2). Per vertex i:
  *   clip  c = p x m; Q = 1/c.w; screen s = c.xyz * Q -> XYZF2 (ftoi4);
  *   ADC   = word bit 15
  *         | any CLIP flag of vertices i-2..i (fcand 0x03FFFF; the
  *           00239C90 pass takes those, em_shadow_gs_needs_clip)
  *         | S of (e_i.x * e_{i-1}.y - e_{i-1}.x * e_i.y) * w_i, where e_i =
- *           s_i.xy - s_{i-1}.xy and w_i the data word as a float (msubbcy,
- *           mulbcw, fsand 0x2 at 0x237378).
- * Returns the number of vertices with EM_SHADOW_GS_ADC_STALE (0 for every
- * captured box). */
+ *           s_i.xy - s_{i-1}.xy and w_i the data word as a float.
+ * The batch runs from a fresh state (the box follows another program): a
+ * strip start whose ADC would need the carried registers faults there
+ * (EM_VU1_LVL_FAULT_STALE). Returns 0, or 1 when the translation faulted
+ * (a vertex 0 / 1 without the data flag, or an exponent-255 operand; no
+ * captured box has either). */
 static inline uint32_t em_shadow_gs_level_batch(const float m[16],
     const float k1021[4], const float k1022[4], const float k1023[4],
     const float (*qw3)[4], uint32_t n, EmShadowGsVertex *out)
 {
-    float prev[2][2] = { { 0.0f, 0.0f }, { 0.0f, 0.0f } };
-    uint32_t clip_hist = 0, stale = 0;
-    for (uint32_t i = 0; i < n; ++i) {
-        const float p[3] = { qw3[i][0], qw3[i][1], qw3[i][2] };
-        uint32_t word;
-        memcpy(&word, &qw3[i][3], sizeof word);
-        float c[4], g[4], s[3];
-        em_shadow_gs_xform(m, p, c);
-        em_shadow_gs_guard(k1022, k1023, c, g);
-        clip_hist = ((clip_hist << 6) | em_shadow_gs_clip(g)) & 0xFFFFFFu;
-        const float q = em_fog_gs_vu_trunc(1.0 / (double)c[3]);
-        EmShadowGsVertex *v = &out[i];
-        em_shadow_gs_screen(c, q, s, v->w);
-        v->why = (word & 0x8000u) ? EM_SHADOW_GS_ADC_DATA : 0u;
-        if (clip_hist & 0x3FFFFu) v->why |= EM_SHADOW_GS_ADC_CLIP;
-        if ((clip_hist & 0x3FFFFu) && em_shadow_gs_reject(clip_hist))
-            v->why |= EM_SHADOW_GS_ADC_REJECT;
-        if (i >= 2) {
-            const float e1[2] = { em_shadow_gs_sub(s[0], prev[1][0]),
-                                  em_shadow_gs_sub(s[1], prev[1][1]) };
-            const float e0[2] = { em_shadow_gs_sub(prev[1][0], prev[0][0]),
-                                  em_shadow_gs_sub(prev[1][1], prev[0][1]) };
-            float cross = em_shadow_gs_sub(em_shadow_gs_mul(e1[0], e0[1]),
-                                           em_shadow_gs_mul(e0[0], e1[1]));
-            cross = em_shadow_gs_mul(cross, qw3[i][3]);
-            uint32_t cb;
-            memcpy(&cb, &cross, sizeof cb);
-            if (cb >> 31) v->why |= EM_SHADOW_GS_ADC_CULL;
-        } else if (!(v->why & EM_SHADOW_GS_ADC_DATA)) {
-            v->why |= EM_SHADOW_GS_ADC_STALE;
-            ++stale;
+    static EmVu1ObjQword dmem[1024];
+    const uint32_t top = EM_VU1_LVL_BASE;
+    memset(dmem, 0, sizeof dmem);
+    memcpy(dmem[0].w, m, 64);
+    memcpy(dmem[1021].w, k1021, 16);
+    memcpy(dmem[1022].w, k1022, 16);
+    memcpy(dmem[1023].w, k1023, 16);
+    if (n > EM_VU1_LVL_VERTICES) return 1u;
+    for (uint32_t i = 0; i < EM_VU1_LVL_VERTICES; ++i) {
+        if (i < n) {
+            memcpy(dmem[top + 4u * i + 3u].w, qw3[i], 16);
+        } else {
+            dmem[top + 4u * i + 3u].w[3] = 0x8000u;    /* past n: no kick */
         }
-        v->adc = v->why ? 1u : 0u;
-        v->w[3] = em_shadow_gs_fog_word(k1021, c[3], v->adc);
-        prev[0][0] = prev[1][0]; prev[0][1] = prev[1][1];
-        prev[1][0] = s[0]; prev[1][1] = s[1];
     }
-    return stale;
+    EmVu1LvlState st;
+    EmVu1LvlBatch b;
+    em_vu1_level_kernel_reset(&st);
+    if (em_vu1_level_kernel_batch(&st, dmem, top, &b) < 0) return 1u;
+    for (uint32_t i = 0; i < n; ++i) {
+        EmShadowGsVertex *v = &out[i];
+        const EmVu1ObjQword xyzf = dmem[(b.kick + 1u + 4u * i + 3u) & 1023u];
+        for (unsigned k = 0; k < 4; ++k) v->w[k] = (int32_t)xyzf.w[k];
+        uint32_t why = 0;
+        if (b.why[i] & EM_VU1_LVL_ADC_DATA) why |= EM_SHADOW_GS_ADC_DATA;
+        if (b.why[i] & EM_VU1_LVL_ADC_CLIP) {
+            why |= EM_SHADOW_GS_ADC_CLIP;
+            const uint32_t hist = (i >= 2u ? b.clip[i - 2u] << 12 : 0u) |
+                                  (i >= 1u ? b.clip[i - 1u] << 6 : 0u) | b.clip[i];
+            if (em_shadow_gs_reject(hist)) why |= EM_SHADOW_GS_ADC_REJECT;
+        }
+        if (b.why[i] & EM_VU1_LVL_ADC_CULL) why |= EM_SHADOW_GS_ADC_CULL;
+        v->why = why;
+        v->adc = why ? 1u : 0u;
+    }
+    return 0u;
 }
 
 /* ------------------------------------------------------ kernel 0023C750 -- */

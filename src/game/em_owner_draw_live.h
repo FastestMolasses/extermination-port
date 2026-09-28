@@ -163,6 +163,12 @@ int em_owner_draw_live_flush_walk(EmGfx *gfx);
  * 0, or -1 (reported: a missing export, an em_gfx_object_unit refusal). */
 int em_owner_draw_live_flush(EmGfx *gfx);
 
+/* Register the object textures (EM_OWNER_DRAW_LIVE_TEXTURES) with `gfx`
+ * once per session, as the first draw does: the static world's triangles
+ * (em_static_world_live, drawn before the owner units) sample the same
+ * registry. 0, or -1 (reported). */
+int em_owner_draw_live_textures(EmGfx *gfx);
+
 /* Units kept for the current frame (the level smoke's count). */
 uint32_t em_owner_draw_live_count(void);
 

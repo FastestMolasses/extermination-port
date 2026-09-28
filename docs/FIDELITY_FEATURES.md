@@ -262,8 +262,8 @@ found and deleted.
   mutations failing each owner's test); census 1.31 (three legacy door
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
-  live route (census 2.3: the examine/aim camera, the flame and snow drawn outside the chain page, 001C1D00's
-  empty render-env step, the opening's camera timeline, and the
+  live route (census 2.3: the examine/aim camera, the flame and snow drawn outside the chain page,
+  the opening's camera timeline, and the
   panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
   reaches stops the game: DATABASE, SPR4, MAP and the non-battery takes run
@@ -546,6 +546,48 @@ original does where he stands in view (the east tower and his encounter).
   walk's owner units, not at Roger's position among them (equal for
   depth-tested opaque units). Needs framebuffer fetch (Apple GPUs).
 
+**The level is drawn from the game's own packets, through its own VU1 level program**
+
+The snow level's static geometry (the 701 objects of the area's
+static-object bank) is drawn from the packets the original builds every
+frame: the same objects the original's visibility walk picks, in its order,
+through the same vector-unit program, which transforms, fogs and
+back-face-culls each vertex; objects crossing the screen's guard band go
+through the original's clipping program. The remade level meshes of earlier
+builds are gone from the first level.
+
+- How: 001C1D00 and its whole call tree (the grid walk 001D5370 over the
+  static-object bank, the packet builders) run live over the bank exported
+  from the user's disc (`tools/export_static_world.py`); the level kernel
+  0x00237180 is translated to C (`em_vu1_level_kernel.h`) and the clip
+  kernel 0x00239C90 reuses the shadow chain's translation; a DMA / VIF /
+  GS walk (`em_static_world_draw`) hands every drawn triangle to Metal
+  (`em_gfx_gs_opaque`: the object units' GS pixel path with MODULATE).
+- Evidence: `STATIC_WORLD.md` 8. `test_static_world_draw_reference`: all 17
+  captured runs replayed with the original VU1 microcode, every packet the
+  kernels kick equal byte for byte and every triangle equal (237 to 4,292
+  per frame); 576 synthetic batches equal over the whole VU1 data memory.
+  `test_static_world_gpu`: 99.78 % of 1,007,297 interior pixels of 05_boxes'
+  run exact against the GS pixel model, 100 % within 2. The level smoke's
+  `check_static_world`: over the route to Roger every frame's run drawn;
+  32 sampled frames re-executed by the original 001C1D00 and the original
+  microcode (the port's run and triangles exactly); at the camera-exact
+  snapshots 10 and 14 the port draws the triangles the capture's own run
+  draws. The shadow harness: level pixels around the shadow within 1 of
+  the PCSX2 screenshot's means (routes 01, 08, 12).
+- Status: **VERIFIED** for AREA11's geometry, culling, order and per-vertex
+  values, relative to PCSX2. Caveats: the rasterization is Metal's (float
+  interpolation, not the GS's DDA), compared with a GS model, not a GS
+  framebuffer of the same frame. The kernels run on the CPU every frame;
+  their multiplies and adds use the host FPU in round-toward-zero /
+  flush-to-zero mode (`em_vu_host_lanes.h`, proven equal to the integer
+  float model), which keeps the first level inside the 16.68 ms NTSC tick
+  on an M1: headless newgame-control, main-thread CPU per in-level tick
+  mean 5.6 ms, p99 9.2 ms, none of 1,331 over the period (before this
+  fix: mean 15.9 ms, 472 over); the capped run's locked window takes
+  22.79 s, exactly its 1,366 NTSC periods, as HEAD's legacy meshes did
+  (before the fix 25.90 s) (`STATIC_WORLD.md` 6).
+
 **Original sky background and world fog**
 
 Where no level geometry covers the screen you see the original sky layer,
@@ -569,8 +611,10 @@ coefficients and colour.
   not executed against the original kernel; the fog blend itself is the
   measured GS rule (next entry), but on the level's skinned path it is
   applied to float colours without the GS floor; the +0x1D8 channel-3 list
-  is a native stand-in; pixels are Metal sampling, not compared with a GS
-  framebuffer.
+  is built by the translated 001E1E60 since the static-world step and the
+  draw's gate, TEX0 and RGBAQ are read from it, but the grid itself is
+  still the native model of its VU1 kernel (checked by the tests above);
+  pixels are Metal sampling, not compared with a GS framebuffer.
 
 **The GS fog blend, as PCSX2's software GS computes it**
 
@@ -582,8 +626,9 @@ F = 255 a trace of the fog colour remains, as on the GS.
   one shader copy of it serve every integer fog site of the Metal path: the
   objects drawn by the translated VU1 object program (crates, drums, truck,
   panel, ...), the chain page's decals, sprites and lines, and the player's
-  drop-shadow receivers. The skinned path (level zones and characters)
-  applies the same weights to float colours.
+  drop-shadow receivers and, since the static-world step, the level
+  itself (`em_gfx_gs_opaque`). The skinned path (the characters still on
+  it) applies the same weights to float colours.
 - Evidence: decomp `GS_CONFORMANCE.md` 5.5 measured the rule in PCSX2's
   software GS (4,096 of 4,096 flat-F pixels, 4,096 of 4,096 fogged-MODULATE
   pixels); `GS_EXACT.md` 5.2. `make test-gs-fog-conformance` runs the C
@@ -610,10 +655,13 @@ material state instead of a generic "discard below 50%" shader.
   captured registers; mutations caught. Region metrics: railing histogram
   EMD 4.9 -> 3.0, bright fringe 4.42% -> 2.78% (original 0.04%); grate EMD
   5.4 -> 5.8. Commit 1c3eac6.
-- Status: **PARTIAL**. The level geometry is still drawn from exported
-  meshes, not through the original level VU1 kernel, and its vertex colours
-  are the port's rig bake. The fringe is still far from the original's. The
-  comparison is region metrics, not a pixel match.
+- Status: **PARTIAL**. Since the static-world step (next entry) the level
+  is drawn from the original packets through the translated level kernel,
+  with the class-0 state its packets send (TEST 0x5000D: alpha test
+  GREATER 0, bilinear, no blending) and its own vertex colours; the
+  exported-mesh path this entry measured no longer draws AREA11. The
+  railing's bright fringe is gone in the port's first-control frame, as in
+  the fb2 reference frame (by eye; no pixel metric is re-measured here).
 
 **The status screen, BATTERY page and on-screen messages run on the original UI code**
 
@@ -750,7 +798,7 @@ Advertise the items above only.
 - Status: **PLANNED**. Roger is drawn from an exported model (the face-morph
   program is translated and proven on 60 face units but its builders are not
   bound). The security gun's lamp
-  (a dark indicator child in the first level) is not drawn. The level geometry uses exported meshes. The
+  (a dark indicator child in the first level) is not drawn. The
   area-load veil runs and is drawn from its own packets, but the port's area
   read finishes inside one call, so the veil draws only one frame, at level 0
   (black; the entry above). Roger's drop shadow is not computed (whether the
@@ -1043,7 +1091,7 @@ units per second.
   code runs. Census 2.3 still lists stand-in behaviour on the route: the
   camera stand-ins that pre-empt the examine and aim actions (L28), the
   indicator children's +0x4C draw, parts of the chain page (the four-sprite pass, the
-  AREA11 flame, the snow), the empty render-env step 001C1D00, the opening's
+  AREA11 flame, the snow), the opening's
   camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
   6 notes that oracle strength varies (the fade oracle compares against
@@ -1581,4 +1629,4 @@ Missing faithful behaviour that blocks a "first level complete" claim:
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-09-27.
+Last updated: 2026-09-28.

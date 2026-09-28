@@ -1143,7 +1143,7 @@ log's `rctx` carries, at each tick's end, the render context's flag words
 +0x24F0..+0x2513, the +0x2450 block, D_00275690 / D_00275694, the camera
 pool's D_00810610 (docs/RENDER_CONTEXT.md section 8), and since chain C7's
 step V (RENDER_CONTEXT.md section 9) the list cursor +0x08, +0x98 / +0x9C
-and the first 0x60 bytes of the other slot's main list (the one the
+and the first 0x70 bytes of the other slot's main list (the one the
 previous iteration's step V 001D2300 built). It checks:
 - every gameplay tick (001AE5E0 ran, 3B8D = 0, D_008101E4 != 3) holds the
   route snapshots' values, which all 15 snapshots share: flags 0x43 / 3, the
@@ -1167,16 +1167,17 @@ previous iteration's step V 001D2300 built). It checks:
 - on every tick, step W's field +0x98 = 1 - +0x9C (step B's slot): the
   phase every capture holds (the port's field model);
 - every world gameplay tick after a world frame holds the route snapshots'
-  main list for the other slot (the draw environment, the Z-only clear
-  +0x3A0, channel 0, the page, channel 1, the end; the captures' CALL of the
-  +0x1D8 list is left out: 001C1D00 is not bound) and the cursor at its end;
+  main list for the other slot (seven tags: the draw environment, the Z-only
+  clear +0x3A0, the CALL of the +0x1D8 channel-3 list, channel 0, the page,
+  channel 1, the end; the CALL is there since the static-world step binds
+  001C1D00) and the cursor at its end;
   the tags' written bytes are compared (the count halfword, the id byte, the
   address), not byte +2 and the upper eight, which keep the arena's earlier
   contents;
 - every status frame (+B = 3 with its 001D2830(3, 1)) after a status frame
   holds the two status captures' (startup-reference status-hub and panel,
   taken mid-iteration after that call) flag words 0x0B / 0x03 (flag 3 set,
-  flag 6 clear), fog block, save slot and main list (the black clear +0x420
+  flag 6 clear), fog block, save slot and main list's six tags (the black clear +0x420
   that flag 3 selects, channel 1 before channel 0 as D_008106C4 != 0
   orders), and, once the previous tick's D_00810610 is the UI view, a frame
   head that projected it: the captures' +0x2380 is 0020DFA0's UI view
@@ -1198,6 +1199,40 @@ world lists, 412 status frames (all 412 on the UI view). Side beat 00: 128,
 124 and 1 (284 field ticks, 127 world lists, no status screen). Side beat 09
 (its run): 2,370 gameplay ticks, 2,713 frame heads, one state-4 re-seat,
 4,197 field ticks, 2,363 world lists, 412 status frames.
+
+### The static world (`check_static_world`; tools/level_smoke_static_world.py)
+
+Not a phase: after the phases, over the whole run (STATIC_WORLD.md section
+8). The tick log's `static` carries the static world's live draw (the last
+run drawn: its start and end, the FNV-1a of its bytes and of its triangles,
+its level and clip batches, triangles and culled vertices) and the number of
+001C1D00 calls; `static_sample` carries every 400th call's inputs (the
+render context, the scratchpad 0x70003A40..0x70003B3F, D_00810610,
+D_00810700..702, D_008101D0..DF, D_00253560, D_00817240 and the skin records
+before the call) and output (the channel-0 run, the channel-3 list,
+D_00253560 after). It checks:
+- every tick that ran 001C1D00 drew its run in the same tick (the draw
+  count follows the call count one for one) and every drawn run drew
+  triangles;
+- the sampled calls (default: the first two; `EM_TEST_FULL=1`: all): the
+  ORIGINAL 001C1D00, executed over the 05_boxes snapshot with the port's
+  inputs laid over it (test_static_world_reference's interpreter), writes
+  the port's channel-0 run (every byte it writes; a tag's +2 and +8..+15 are
+  never written and keep the arena's earlier bytes) with the cursor after
+  it, the port's channel-3 list and D_00253560..EF; the run, replayed with
+  the ORIGINAL VU1 microcode of the level and clip kernels
+  (test_static_world_draw_reference's walk), draws exactly the triangles the
+  port drew (their FNV-1a and count);
+- the aligned route snapshots whose frame view (+0x2380) and zoom equal the
+  port tick's: the port's run has the capture's own run's length and draws
+  the triangles the capture's own run draws through the original
+  microcode. A main-line run that checked `roger` must have compared 10
+  and 14 (`VIEW_EXACT_MAIN_LINE`); a side-beat run may compare none.
+
+Measured (full route to Roger): 12,572 runs, 25,651,789 triangles; 32
+sampled calls re-executed; view-exact at snapshots 10 (2,457 triangles) and
+14 (847). Side beat 00: 1,649 runs, 5 samples; status_pages: 3,793 runs,
+10 samples; fence_door_side1: 5,704 runs, 15 samples.
 
 ### The indicator children (`check_indicator_children`, CENSUS_UNVERIFIED.md)
 
@@ -1662,7 +1697,8 @@ Not compared at all: the sounds (WP-14), the pixels (the renderer compares
 by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`;
 the chain page's GS pixel path is checked against a GS pixel model by
 `make test-chain-page-gpu`, the load veil's GS frame by `make
-test-load-veil-gpu`),
+test-load-veil-gpu`, the static world's triangles by `make
+test-static-world-gpu`),
 the walks between the scripted and climbing windows (navigation).
 
 **Frame order.** `tools/compare_frame_order.py` must be given a

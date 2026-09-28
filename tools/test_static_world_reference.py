@@ -42,10 +42,12 @@ C. Units: 001E1E60 (flags 0x23 / 0x24, the handle, random colours, views,
 D. Fail-stop: a reached NULL host worker, a missing view, a misaligned
    cursor, a latched fault.
 E. The binding rehearsal: 001C1D00 through em_swc over separate views:
-   exactly the 20 views em_render_context_live builds (its storage to
-   ARENA_END 0x0076B5C0 and every external view), with its read-only
-   marking, plus the six the doc says to add (the bank and D_0028A5A0
-   read-only); no fault, every view equal to the original's bytes, no byte
+   exactly the 27 views em_render_context_live builds (its storage to
+   ARENA_END 0x0076B5C0, D_0026E880 and every external view, with its
+   read-only marking, and the six of the static world: the bank and
+   D_0028A5A0 read-only, D_00253560, D_00817240, the scratchpad
+   0x70003400 and the state block D_008101D0..DF); no fault, every view
+   equal to the original's bytes, no byte
    the original writes outside them or inside a read-only one; and the
    marking is enforced (D_00253560 marked read-only -> READ_ONLY fault).
    Host workers check the arguments they are actually called with against
@@ -73,7 +75,7 @@ from test_player_slide_reference import read_elf, sx32, REFERENCE, DECOMP  # noq
 
 MASK = 0xFFFFFFFF
 MASK64 = 0xFFFFFFFFFFFFFFFF
-LANE = os.environ.get('EM_LANE', 'b15/static_world')
+LANE = os.environ.get('EM_LANE', 'static_world_reference')
 OUT = ROOT / 'build' / LANE
 RAM_SIZE = 0x2000000
 SPAD, SPAD_SIZE = 0x70000000, 0x4000
@@ -452,7 +454,7 @@ int sw_run(uint8_t *ram, uint8_t *spad, uint32_t fn, const uint64_t *a, const ui
 }
 '''
 
-SOURCES = ['src/game/em_static_world.c', 'src/game/em_static_world_compose.c',
+SOURCES = ['src/game/em_static_world.c', 'src/game/em_static_world_compose.c', 'src/game/em_owner_draw_original.c',
            'src/game/em_render_context.c', 'src/game/em_render_verify_rest.c',
            'src/game/em_frame_render_heads.c', 'src/game/em_load_veil_particles.c',
            'src/game/em_stream_lanes_original.c', 'src/game/em_player_stage_workers.c',
@@ -924,6 +926,7 @@ LIVE_RANGES = [
     (0x00241010, 8, 1, 'D_00241010'),
     (0x0026E510, 16, 1, 'D_0026E510'),
     (0x0026E850, 16, 1, 'D_0026E850'),
+    (0x0026E880, 16, 1, 'D_0026E880 (the load veil\'s colour)'),
     (0x00810E80, 2, 1, 'external D_00810E80'),
     (0x00810610, 0x40, 1, 'external D_00810610 (the live camera pool)'),
     (0x008105E0, 0x10, 1, 'external D_008105E0'),
@@ -941,7 +944,7 @@ ADDED_RANGES = [
     (0x00253560, 0x90, 0, 'D_00253560..D_002535EF (export_static_world.py)'),
     (0x00817240, 0x80, 0, 'D_00817240..BF: 001D4750 constant block (.bss)'),
     (0x70003400, 0x80, 0, 'scratchpad D_70003400 / D_70003440 (001D5370 clip matrices)'),
-    (0x008101D0, 1, 0, 'D_008101D0: 001C1D00 state byte'),
+    (0x008101D0, 0x10, 0, 'D_008101D0..DF: 001C1D00 state block (001AF690 zeroes 0x10)'),
 ]
 
 

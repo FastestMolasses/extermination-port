@@ -231,6 +231,9 @@ struct EmGfx {
     id<MTLRenderPipelineState>   objPipeline;
     EmObjectUnitResult           objResult;
     uint32_t                     objWarned;
+    /* em_gfx_gs_opaque: the triangles in the object path's form */
+    EmObjectUnitTriangle        *opaqueTri;
+    uint32_t                     opaqueCap;
 };
 
 struct EmGfxMesh {
@@ -590,11 +593,29 @@ EM_FOG_GS_MSL
 "    discard_fragment();\n"
 "    return float4(0.0);\n"
 "}\n"
+"/* Shadow receiver vertex: the kicked GS words (em_gfx_shadow_receiver):\n"
+" * v[3 i] the position from XYZF2 X / Y / Z (em_background_gs_ndc and\n"
+" * object_depth, w = 1: the mapping the static world's triangles use, so a\n"
+" * receiver meets the level surface it lies on at the same depth), v[3 i +\n"
+" * 1] (S, T, Q), screen-linear as the GS interpolates them, and v[3 i + 2]\n"
+" * the RGBAQ A and fog F. */\n"
+"vertex VOut v_shadow_recv_gs(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
+"    VOut o;\n"
+"    o.pos = v[3 * vid];\n"
+"    o.nrm = v[3 * vid + 1].xyz;\n"
+"    o.wpos = float3(0.0);\n"
+"    o.light_rgb = float3(v[3 * vid + 2].x / 128.0, v[3 * vid + 2].y / 128.0, 0.0);\n"
+"    o.vcol = float3(1.0);\n"
+"    o.fog_f = 255.0;\n"
+"    o.uv = float2(0.0);\n"
+"    o.slice = 0u;\n"
+"    return o;\n"
+"}\n"
 "/* Shadow receiver pixel (em_gfx_shadow_receiver, em_shadow_gs.h\n"
-" * em_shadow_gs_bilinear_alpha / em_shadow_gs_receiver_pixel): v_skin runs\n"
-" * with mode 4, so light_rgb carries the kernel's RGBAQ A and fog F / 128\n"
-" * (screen-linear interpolation) and uv the 0023C200 (u, v) (perspective,\n"
-" * S/Q and T/Q). dst is the frame pixel (framebuffer fetch). APPROXIMATION,\n"
+" * em_shadow_gs_bilinear_alpha / em_shadow_gs_receiver_pixel): v_shadow_recv_gs\n"
+" * carries in light_rgb the kernel's RGBAQ A and fog F / 128 (screen-linear\n"
+" * interpolation) and in nrm the (S, T, Q) the pixel divides (the GS's STQ:\n"
+" * u = S / Q, v = T / Q per pixel). dst is the frame pixel (framebuffer fetch). APPROXIMATION,\n"
 " * not verified against a GS dump of a drawn shadow: A and F per pixel are\n"
 " * floor(value * 128 + 0.001) of Metal's float interpolation; the GS's own\n"
 " * Gouraud/DDA stepping of A and F is not modelled and the 0.001 epsilon\n"
@@ -603,8 +624,8 @@ EM_FOG_GS_MSL
 "        float4 dst [[color(0)]],\n"
 "        texture2d<float, access::read> sil [[texture(0)]],\n"
 "        constant float4 *fog [[buffer(4)]]) {\n"
-"    int uu = int(floor(in.uv.x * 2048.0)) - 8;\n"
-"    int vv = int(floor(in.uv.y * 2048.0)) - 8;\n"
+"    int uu = int(floor(in.nrm.x / in.nrm.z * 2048.0)) - 8;\n"
+"    int vv = int(floor(in.nrm.y / in.nrm.z * 2048.0)) - 8;\n"
 "    int fu = uu & 15, fv = vv & 15;\n"
 "    int x0 = clamp(uu >> 4, 0, 127), x1 = clamp((uu >> 4) + 1, 0, 127);\n"
 "    int y0 = clamp(vv >> 4, 0, 127), y1 = clamp((vv >> 4) + 1, 0, 127);\n"
@@ -801,6 +822,7 @@ void em_gfx_destroy(EmGfx *g)
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
     [g->objPipeline release];
+    free(g->opaqueTri);
     em_object_unit_result_free(&g->objResult);
     free(g->bgFile);
     for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
@@ -2754,6 +2776,23 @@ int em_gfx_shadow_alpha_clear(EmGfx *g)
     return 0;
 }
 
+static float object_depth(uint32_t z);
+
+/* A kicked vertex's position as the static world's and the object units'
+ * triangles take it (em_gfx_gs_opaque, em_gfx_object_unit): GS X / Y (12.4)
+ * through em_background_gs_ndc, Z (24 bits) through object_depth, w = 1.
+ * The shadow passes position their kicked words the same way, so the box
+ * and the receivers meet the level's depth exactly as the GS compares them
+ * (a receiver lies on the level surface it shades: same words, same
+ * depth). */
+static void shadow_gs_position(uint32_t x16, uint32_t y16, uint32_t z24, float out[4])
+{
+    const uint16_t xy[2] = { (uint16_t)x16, (uint16_t)y16 };
+    em_background_gs_ndc(xy, out);
+    out[2] = object_depth(z24 & 0xFFFFFFu);
+    out[3] = 1.0f;
+}
+
 /* The clip kernels on the CPU: one result buffer per call. */
 static EmVu1ClipResult *shadow_clip_result(void)
 {
@@ -2761,16 +2800,15 @@ static EmVu1ClipResult *shadow_clip_result(void)
 }
 
 /* Run clip kernel `kernel` (em_vu1_shadow_clip.h) on one batch and append
- * the triangles it kicks as points p of `cam`'s space (the GS pixel and
- * w = 1/Q, em_shadow_gs_clip_unproject) with their ST, A and F to `vtx`.
- * Returns the vertex count appended, or -1 (the kernel faulted, a data
- * word names a matrix other than dmem 0, an undecodable packet, a singular
- * camera, more than `cap` vertices). */
+ * the triangles it kicks, positioned from their GS words
+ * (shadow_gs_position), with their ST, A and F. Returns the vertex count
+ * appended, or -1 (the kernel faulted, a data word names a matrix other
+ * than dmem 0, an undecodable packet, more than `cap` vertices). */
 static int shadow_clip_batch(int kernel, const float cam[16], const float *st,
                              const float k1021[4], const float (*qw3)[4],
                              EmVu1Qword *dmem, EmVu1ClipResult *res,
                              EmShadowGsClipVertex *gv, uint32_t cap,
-                             float (*pos)[3])
+                             float (*pos)[4])
 {
     if (em_shadow_gs_clip_dmem(kernel, cam, st, k1021, qw3, EM_SHADOW_GS_CLIP_TOP, dmem))
         return -1;
@@ -2788,9 +2826,8 @@ static int shadow_clip_batch(int kernel, const float cam[16], const float *st,
             continue;
         for (int c = 0; c < 3; ++c) {
             const EmShadowGsClipVertex v = gv[t + c];
-            if (!(v.kq != 0.0f) || !isfinite(1.0f / v.kq)) return -1;
-            if (em_shadow_gs_clip_unproject(cam, v.x, v.y, 1.0f / v.kq, pos[kept]))
-                return -1;
+            /* x / y hold the 12.4 words / 16: exact */
+            shadow_gs_position((uint32_t)(v.x * 16.0f), (uint32_t)(v.y * 16.0f), v.z, pos[kept]);
             gv[kept++] = v;
         }
     }
@@ -2819,7 +2856,7 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
     EmVu1Qword *dmem = malloc(sizeof *dmem * EM_VU1_DMEM_QWORDS);
     EmVu1ClipResult *res = shadow_clip_result();
     EmShadowGsClipVertex *gv = malloc(sizeof *gv * clip_cap);
-    float (*cp)[3] = malloc(sizeof *cp * clip_cap);
+    float (*cp)[4] = malloc(sizeof *cp * clip_cap);
     if (!out || !tri || !dmem || !res || !gv || !cp) {
         free(out); free(tri); free(dmem); free(res); free(gv); free(cp);
         return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
@@ -2827,6 +2864,7 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
     const float (*qw3)[4] = (const float (*)[4])model->qw3;
     uint32_t count = 0;
     int bad = 0;
+    (void)world;   /* the kicked words carry the positions (shadow_gs_position) */
     for (uint32_t b = 0; b < n && !bad; b += EM_GFX_SHADOW_BATCH) {
         if (em_shadow_gs_level_batch(clip, k1021, k1022, k1023, qw3 + b,
                                      EM_GFX_SHADOW_BATCH, out + b))
@@ -2836,30 +2874,21 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
              * leaves for CLIP are 00239C90's (below). */
             if (out[i].why) continue;
             for (unsigned k = 0; k < 3; ++k) {
-                const float *p = qw3[i - 2 + k];
-                for (unsigned l = 0; l < 3; ++l)
-                    tri[count][l] = p[0] * world[l] + p[1] * world[4 + l] +
-                                    p[2] * world[8 + l] + world[12 + l];
-                tri[count][3] = 1.0f;
+                const EmShadowGsVertex *v = &out[i - 2 + k];
+                shadow_gs_position((uint32_t)v->w[0] & 0xFFFFu, (uint32_t)v->w[1] & 0xFFFFu,
+                                   (uint32_t)v->w[2] >> 4, tri[count]);
                 ++count;
             }
         }
     }
     free(out);
     /* 001DA310 runs 00239C90 after the box, over the same batches: its
-     * triangles (model space from the pass's clip matrix, then W). */
+     * triangles, positioned from their kicked words. */
     for (uint32_t b = 0; b < n && !bad; b += EM_GFX_SHADOW_BATCH) {
         const int v = shadow_clip_batch(EM_VU1_CLIP_BOX, clip, NULL, k1021, qw3 + b,
                                         dmem, res, gv, clip_cap, cp);
         if (v < 0) { bad = 2; break; }
-        for (int k = 0; k < v; ++k) {
-            const float *p = cp[k];
-            for (unsigned l = 0; l < 3; ++l)
-                tri[count][l] = p[0] * world[l] + p[1] * world[4 + l] +
-                                p[2] * world[8 + l] + world[12 + l];
-            tri[count][3] = 1.0f;
-            ++count;
-        }
+        for (int k = 0; k < v; ++k) memcpy(tri[count++], cp[k], sizeof cp[k]);
     }
     free(dmem); free(res); free(gv); free(cp);
     if (bad) {
@@ -2880,7 +2909,9 @@ int em_gfx_shadow_box(EmGfx *g, const EmGfxShadowStrips *model,
         [g->enc setDepthStencilState:g->depthGlow];  /* GEQUAL, ZMSK 1 */
         [g->enc setCullMode:MTLCullModeNone];
         [g->enc setVertexBuffer:vb offset:0 atIndex:0];
-        [g->enc setVertexBytes:viewproj length:64 atIndex:1];
+        static const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
+                                         0, 0, 1, 0, 0, 0, 0, 1 };
+        [g->enc setVertexBytes:ident length:64 atIndex:1];   /* positions are NDC */
         [g->enc setFragmentBytes:&alpha length:4 atIndex:0];
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0
                    vertexCount:count];
@@ -3016,7 +3047,7 @@ int em_gfx_shadow_receiver_begin(EmGfx *g, const float uv[16],
         return shadow_fail(g, SHADOW_WARN_FETCH, "the GPU has no framebuffer "
                            "fetch (destination-alpha test and GS blend)");
     if (!g->shadowRecvPipeline)
-        g->shadowRecvPipeline = shadow_pipeline(g, kSkinShaderSrc, @"v_skin",
+        g->shadowRecvPipeline = shadow_pipeline(g, kSkinShaderSrc, @"v_shadow_recv_gs",
             @"f_shadow_receiver", g->layer.pixelFormat, true, MTLColorWriteMaskAll);
     if (!g->shadowRecvPipeline)
         return shadow_fail(g, SHADOW_WARN_GPU, "receiver pipeline unavailable");
@@ -3043,10 +3074,10 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
     em_shadow_gs_level_rows(k1022, k1023);
     const uint32_t n = object->vertex_count;
     EmShadowGsReceiverVertex *out = malloc(sizeof *out * n);
-    float *rec = malloc(sizeof(float) * 10 * 3 * n);
-    uint32_t (*rgba)[4] = malloc(sizeof *rgba * 3 * n);
-    if (!out || !rec || !rgba) {
-        free(out); free(rec); free(rgba);
+    /* per drawn vertex: position (NDC, depth, 1), (S, T, Q, 0), (A, F, 0, 0) */
+    float (*rec)[12] = malloc(sizeof *rec * 3 * n);
+    if (!out || !rec) {
+        free(out); free(rec);
         return shadow_fail(g, SHADOW_WARN_INPUT, "out of memory");
     }
     const float (*qw3)[4] = (const float (*)[4])object->qw3;
@@ -3063,22 +3094,14 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
             const uint32_t why = out[i].xyzf.why;
             if (why) continue;
             for (unsigned k = 0; k < 3; ++k) {
-                const uint32_t j = i - 2 + k;
-                float *r = rec + (size_t)count * 10;
-                uint32_t zero = 0, notex = 0;
-                /* The kernel's (u, v) = (S, T) / Q: the pixel samples at
-                 * S/Q, T/Q; Metal's perspective interpolation of (u, v)
-                 * is that division. */
-                const float u = out[j].s / out[j].q, v = out[j].t / out[j].q;
-                r[0] = qw3[j][0]; r[1] = qw3[j][1]; r[2] = qw3[j][2];
-                r[3] = r[4] = r[5] = 0.0f;
-                r[6] = u; r[7] = v;
-                memcpy(r + 8, &zero, 4);
-                memcpy(r + 9, &notex, 4);
-                rgba[count][0] = out[j].a;
-                rgba[count][1] = (uint32_t)(out[j].xyzf.w[3] >> 4) & 0xFFu;
-                rgba[count][2] = rgba[count][3] = 0;
-                ++count;
+                const EmShadowGsReceiverVertex *v = &out[i - 2 + k];
+                float *r = rec[count++];
+                shadow_gs_position((uint32_t)v->xyzf.w[0] & 0xFFFFu, (uint32_t)v->xyzf.w[1] & 0xFFFFu,
+                                   (uint32_t)v->xyzf.w[2] >> 4, r);
+                r[4] = v->s; r[5] = v->t; r[6] = v->q; r[7] = 0.0f;
+                r[8] = (float)v->a;
+                r[9] = (float)((uint32_t)(v->xyzf.w[3] >> 4) & 0xFFu);
+                r[10] = r[11] = 0.0f;
             }
         }
     }
@@ -3091,75 +3114,50 @@ int em_gfx_shadow_receiver(EmGfx *g, const EmGfxShadowStrips *object,
         EmVu1Qword *dmem = malloc(sizeof *dmem * EM_VU1_DMEM_QWORDS);
         EmVu1ClipResult *res = shadow_clip_result();
         EmShadowGsClipVertex *gv = malloc(sizeof *gv * clip_cap);
-        float (*cp)[3] = malloc(sizeof *cp * clip_cap);
-        float *rec2 = dmem && res && gv && cp
-            ? realloc(rec, sizeof(float) * 10 * (3 * n + clip_cap * (n / EM_GFX_SHADOW_BATCH)))
-            : NULL;
-        uint32_t (*rgba2)[4] = rec2
-            ? realloc(rgba, sizeof *rgba * (3 * n + clip_cap * (n / EM_GFX_SHADOW_BATCH)))
+        float (*cp)[4] = malloc(sizeof *cp * clip_cap);
+        float (*rec2)[12] = dmem && res && gv && cp
+            ? realloc(rec, sizeof *rec * (3 * n + clip_cap * (n / EM_GFX_SHADOW_BATCH)))
             : NULL;
         if (rec2) rec = rec2;
-        if (rgba2) rgba = rgba2;
-        if (!rec2 || !rgba2) clip = 2;
+        else clip = 2;
         for (uint32_t b = 0; b < n && !clip; b += EM_GFX_SHADOW_BATCH) {
             const int v = shadow_clip_batch(EM_VU1_CLIP_RECEIVER, g->shadowCam,
                                             g->shadowUV, k1021, qw3 + b, dmem,
                                             res, gv, clip_cap, cp);
             if (v < 0) { clip = 1; break; }
             for (int k = 0; k < v; ++k) {
-                float *r = rec + (size_t)count * 10;
-                uint32_t zero = 0, notex = 0;
-                r[0] = cp[k][0]; r[1] = cp[k][1]; r[2] = cp[k][2];
-                r[3] = r[4] = r[5] = 0.0f;
-                r[6] = gv[k].s / gv[k].q; r[7] = gv[k].t / gv[k].q;
-                memcpy(r + 8, &zero, 4);
-                memcpy(r + 9, &notex, 4);
-                rgba[count][0] = gv[k].a;
-                rgba[count][1] = gv[k].f;
-                rgba[count][2] = rgba[count][3] = 0;
-                ++count;
+                float *r = rec[count++];
+                memcpy(r, cp[k], sizeof cp[k]);
+                r[4] = gv[k].s; r[5] = gv[k].t; r[6] = gv[k].q; r[7] = 0.0f;
+                r[8] = (float)gv[k].a;
+                r[9] = (float)gv[k].f;
+                r[10] = r[11] = 0.0f;
             }
         }
         free(dmem); free(res); free(gv); free(cp);
     }
     if (clip) {
-        free(rec); free(rgba);
+        free(rec);
         return shadow_fail(g, clip == 2 ? SHADOW_WARN_INPUT : SHADOW_WARN_CLIP,
                            clip == 2 ? "out of memory"
                                      : "receiver clip kernel 0023E8A0 fault (an "
                                        "FTOI outside int32, a data word naming "
-                                       "another matrix, a singular camera)");
+                                       "another matrix)");
     }
     if (count) {
-        static const float ident[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
-                                         0, 0, 1, 0, 0, 0, 0, 1 };
-        static const float scale[2] = { 1.0f, 1.0f };
-        const uint32_t mode = 4u;          /* light_rgb = (A, F) / 128 */
-        const float nofog[8] = { 0 };      /* v_skin's own fog_f unused */
         id<MTLBuffer> vb = [g->device newBufferWithBytes:rec
-                                                  length:sizeof(float) * 10 * count
-                                                 options:MTLResourceStorageModeShared];
-        id<MTLBuffer> cb = [g->device newBufferWithBytes:rgba
-                                                  length:sizeof *rgba * count
+                                                  length:sizeof *rec * count
                                                  options:MTLResourceStorageModeShared];
         [g->enc setRenderPipelineState:g->shadowRecvPipeline];
         [g->enc setDepthStencilState:g->depthGlow];   /* GEQUAL, ZMSK 1 */
         [g->enc setCullMode:MTLCullModeNone];         /* 0023C200 never culls */
         [g->enc setVertexBuffer:vb offset:0 atIndex:0];
-        [g->enc setVertexBytes:ident length:64 atIndex:1];
-        [g->enc setVertexBytes:g->shadowVP length:64 atIndex:2];
-        [g->enc setVertexBytes:scale length:8 atIndex:3];
-        [g->enc setVertexBytes:&mode length:4 atIndex:4];
-        [g->enc setVertexBuffer:cb offset:0 atIndex:5];
-        [g->enc setVertexBytes:nofog length:sizeof nofog atIndex:6];
         [g->enc setFragmentTexture:g->shadowTarget[g->shadowCurrent] atIndex:0];
         [g->enc setFragmentBytes:g->fog length:sizeof(g->fog) atIndex:4];
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:count];
         [vb release];
-        [cb release];
     }
     free(rec);
-    free(rgba);
     return 0;
 }
 
@@ -3206,7 +3204,8 @@ int em_gfx_shadow_target_read(EmGfx *g, uint8_t *rgba)
  * 0..0xFF), read with the GS bilinear rule (sample point U - 0.5 on the
  * 1/16 grid, 4-bit weights, as f_shadow_receiver) and REPEAT wrap (CLAMP
  * 0, power-of-two sizes). k = (width, height, FOGCOL r | g << 8 | b << 16,
- * fog enabled). APPROXIMATION, not verified against a GS dump: the
+ * fog enabled | MODULATE << 1: the TEX0's TFX, MODULATE or HIGHLIGHT).
+ * APPROXIMATION, not verified against a GS dump: the
  * per-pixel values come from Metal's float interpolation, floored with a
  * 0.001 epsilon; the GS DDA stepping is not modelled. */
 static NSString *const kObjectShaderSrc =
@@ -3234,12 +3233,14 @@ EM_FOG_GS_MSL
 "               tex.read(uint2(x0, y1)) * uint((16 - fu) * fv) +\n"
 "               tex.read(uint2(x1, y1)) * uint(fu * fv)) >> 8;\n"
 "    uint4 cf = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
-"    /* TFX HIGHLIGHT, TCC 1 (COLCLAMP 1). */\n"
-"    uint3 c = min(((t.rgb * cf.rgb) >> 7) + cf.a, uint3(255));\n"
-"    uint a = min(t.a + cf.a, 255u);\n"
+"    /* TFX MODULATE or HIGHLIGHT, TCC 1 (COLCLAMP 1). */\n"
+"    uint3 m = min((t.rgb * cf.rgb) >> 7, uint3(255));\n"
+"    uint3 c; uint a;\n"
+"    if ((k.w & 2u) != 0u) { c = m; a = min((t.a * cf.a) >> 7, 255u); }\n"
+"    else { c = min(m + cf.a, uint3(255)); a = min(t.a + cf.a, 255u); }\n"
 "    /* TEST_1: ATE, ATST GREATER, AREF 0, AFAIL KEEP. */\n"
 "    if (a == 0u) discard_fragment();\n"
-"    if (k.w != 0u) {\n"
+"    if ((k.w & 1u) != 0u) {\n"
 "        uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
 "        uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
 "        c = em_fog_gs_blend(c, f, fc);\n"
@@ -3277,10 +3278,12 @@ int em_gfx_object_texture(EmGfx *g, uint64_t tex0, const uint8_t *rgba, uint32_t
     const uint64_t key = tex0 & ~(UINT64_C(7) << 61);
     const uint32_t tw = (uint32_t)(key >> 26) & 15u, th = (uint32_t)(key >> 30) & 15u;
     const uint32_t tcc = (uint32_t)(key >> 34) & 1u, tfx = (uint32_t)(key >> 35) & 3u;
-    /* The shader implements TFX HIGHLIGHT with TCC 1 and power-of-two
-     * REPEAT; anything else is refused, not approximated. */
-    if (tw > 10u || th > 10u || width != (1u << tw) || height != (1u << th) || tcc != 1u || tfx != 2u)
-        return object_fail(g, OBJ_WARN_INPUT, "texture registration", "not a HIGHLIGHT TCC 1 TEX0 of its size");
+    /* The shader implements TFX MODULATE and HIGHLIGHT with TCC 1 and
+     * power-of-two REPEAT; anything else is refused, not approximated. */
+    if (tw > 10u || th > 10u || width != (1u << tw) || height != (1u << th) || tcc != 1u ||
+        (tfx != 0u && tfx != 2u))
+        return object_fail(g, OBJ_WARN_INPUT, "texture registration",
+                           "not a MODULATE / HIGHLIGHT TCC 1 TEX0 of its size");
     struct EmGfxObjectTex *slot = (struct EmGfxObjectTex *)object_texture(g, key);
     if (!slot) {
         if (g->objTexCount >= EM_GFX_OBJECT_TEX_MAX)
@@ -3327,39 +3330,37 @@ static float object_depth(uint32_t z)
     return (float)(far_ / (far_ - near_) * (1.0 - ((double)z - bz) / 16777215.0));
 }
 
-int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
+/* The triangles through the class-0 pixel path (em_gfx_object_unit's and
+ * em_gfx_gs_opaque's): one draw per run of triangles with the same TEX0, in
+ * kick order. */
+static int object_draw(EmGfx *g, const EmObjectUnitTriangle *tri, uint32_t count)
 {
-    if (!g || !g->enc) return object_fail(g, OBJ_WARN_FRAME, "outside a frame", NULL);
-    if (!unit) return object_fail(g, OBJ_WARN_INPUT, "no unit", NULL);
-    if (em_object_unit_run(unit, &g->objResult))
-        return object_fail(g, OBJ_WARN_UNIT, "the VU1 programs refused the unit", g->objResult.why);
-    const EmObjectUnitResult *r = &g->objResult;
     const bool fog = g->fog[3] > 0.0f;
     const struct EmGfxObjectTex *seen = NULL;
     uint64_t seen_tex0 = 0;
-    for (uint32_t i = 0; i < r->count; i++) {
-        if (!seen || r->tri[i].tex0 != seen_tex0) {
-            seen = object_texture(g, r->tri[i].tex0);
-            seen_tex0 = r->tri[i].tex0;
+    for (uint32_t i = 0; i < count; i++) {
+        if (!seen || tri[i].tex0 != seen_tex0) {
+            seen = object_texture(g, tri[i].tex0);
+            seen_tex0 = tri[i].tex0;
         }
         if (!seen)
             return object_fail(g, OBJ_WARN_TEXTURE, "a TEX0 without a registered texture",
                                "run tools/export_object_textures.py");
         for (unsigned c = 0; c < 3u && !fog; c++)
-            if (r->tri[i].v[c].f != 255u)
+            if (tri[i].v[c].f != 255u)
                 return object_fail(g, OBJ_WARN_FOG, "fogged vertices without the frame's FOGCOL",
                                    "em_gfx_fog_coefficients first");
     }
-    if (!r->count) return 0;
+    if (!count) return 0;
     if (!g->objPipeline)
         g->objPipeline = build_pipeline(g, kObjectShaderSrc, @"v_object", @"f_object", EM_BLEND_OPAQUE);
     if (!g->objPipeline) return object_fail(g, OBJ_WARN_GPU, "pipeline unavailable", NULL);
     ensure_depth_states(g);
-    float *v = malloc(sizeof(float) * 36u * r->count);
+    float *v = malloc(sizeof(float) * 36u * count);
     if (!v) return object_fail(g, OBJ_WARN_INPUT, "out of memory", NULL);
-    for (uint32_t i = 0; i < r->count; i++) {
+    for (uint32_t i = 0; i < count; i++) {
         for (unsigned c = 0; c < 3u; c++) {
-            const EmObjectUnitVertex *s = &r->tri[i].v[c];
+            const EmObjectUnitVertex *s = &tri[i].v[c];
             float *o = v + (size_t)(3u * i + c) * 12u;
             const uint16_t xy[2] = { s->x, s->y };
             em_background_gs_ndc(xy, o);
@@ -3372,7 +3373,7 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
             o[11] = (float)s->f;
         }
     }
-    id<MTLBuffer> vb = [g->device newBufferWithBytes:v length:sizeof(float) * 36u * r->count
+    id<MTLBuffer> vb = [g->device newBufferWithBytes:v length:sizeof(float) * 36u * count
                                              options:MTLResourceStorageModeShared];
     free(v);
     const uint32_t fogcol = fog
@@ -3381,14 +3382,14 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
         : 0u;
     [g->enc setRenderPipelineState:g->objPipeline];
     [g->enc setDepthStencilState:g->depthOn];        /* ZTST GEQUAL, ZMSK 0 */
-    [g->enc setCullMode:MTLCullModeNone];            /* the kernels never cull */
+    [g->enc setCullMode:MTLCullModeNone];            /* the GS draws both windings */
     [g->enc setVertexBuffer:vb offset:0 atIndex:0];
-    /* One draw per run of triangles with the same texture, in kick order. */
-    for (uint32_t i = 0; i < r->count;) {
-        const struct EmGfxObjectTex *t = object_texture(g, r->tri[i].tex0);
+    for (uint32_t i = 0; i < count;) {
+        const struct EmGfxObjectTex *t = object_texture(g, tri[i].tex0);
         uint32_t j = i + 1u;
-        while (j < r->count && ((r->tri[j].tex0 ^ r->tri[i].tex0) & ~(UINT64_C(7) << 61)) == 0) j++;
-        const uint32_t k[4] = { t->width, t->height, fogcol, fog ? 1u : 0u };
+        while (j < count && ((tri[j].tex0 ^ tri[i].tex0) & ~(UINT64_C(7) << 61)) == 0) j++;
+        const uint32_t modulate = ((t->tex0 >> 35) & 3u) == 0u ? 1u : 0u;
+        const uint32_t k[4] = { t->width, t->height, fogcol, (fog ? 1u : 0u) | modulate << 1 };
         [g->enc setFragmentTexture:t->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
         [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:3u * i vertexCount:3u * (j - i)];
@@ -3396,6 +3397,59 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
     }
     [vb release];
     return 0;
+}
+
+int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
+{
+    if (!g || !g->enc) return object_fail(g, OBJ_WARN_FRAME, "outside a frame", NULL);
+    if (!unit) return object_fail(g, OBJ_WARN_INPUT, "no unit", NULL);
+    if (em_object_unit_run(unit, &g->objResult))
+        return object_fail(g, OBJ_WARN_UNIT, "the VU1 programs refused the unit", g->objResult.why);
+    return object_draw(g, g->objResult.tri, g->objResult.count);
+}
+
+/* em_gfx_gs_opaque (em_gfx.h): the static world's triangles. The state each
+ * one carries must be exactly the class-0 set the object path reproduces. */
+int em_gfx_gs_opaque(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
+{
+    if (!g || !g->enc) return object_fail(g, OBJ_WARN_FRAME, "outside a frame", NULL);
+    if (!prims && count) return object_fail(g, OBJ_WARN_INPUT, "no primitives", NULL);
+    const uint32_t need = EM_GFX_GS_TEX0 | EM_GFX_GS_TEX1 | EM_GFX_GS_TEST | EM_GFX_GS_CLAMP | EM_GFX_GS_COLCLAMP;
+    for (uint32_t i = 0; i < count; i++) {
+        const EmGfxGsPrim *p = &prims[i];
+        const uint32_t type = p->prim & 7u;
+        /* IIP 0x08, TME 0x10, FGE 0x20 set; ABE 0x40, AA1 0x80, FST 0x100,
+         * CTXT 0x200, FIX 0x400 clear */
+        if (p->count != 3u || (type != 3u && type != 4u) || (p->prim & 0x7F8u) != 0x038u ||
+            (p->set & need) != need || p->test != 0x5000Du || p->tex1 != 0x60u || p->clamp != 0u ||
+            p->colclamp != 1u)
+            return object_fail(g, OBJ_WARN_INPUT, "em_gfx_gs_opaque",
+                               "a primitive outside the class-0 opaque triangle state");
+    }
+    if (count > g->opaqueCap) {
+        EmObjectUnitTriangle *grown = realloc(g->opaqueTri, sizeof *grown * count);
+        if (!grown) return object_fail(g, OBJ_WARN_INPUT, "out of memory", NULL);
+        g->opaqueTri = grown;
+        g->opaqueCap = count;
+    }
+    for (uint32_t i = 0; i < count; i++) {
+        EmObjectUnitTriangle *t = &g->opaqueTri[i];
+        memset(t, 0, sizeof *t);
+        t->tex0 = prims[i].tex0;
+        for (unsigned c = 0; c < 3u; c++) {
+            const EmGfxGsVertex *s = &prims[i].v[c];
+            EmObjectUnitVertex *d = &t->v[c];
+            d->x = s->x;
+            d->y = s->y;
+            d->z = s->z;
+            d->f = s->f;
+            memcpy(d->rgba, s->rgba, 4);
+            d->s = s->s;
+            d->t = s->t;
+            d->q = s->q;
+        }
+    }
+    return object_draw(g, g->opaqueTri, count);
 }
 
 /* --- The chain page: GS primitives (em_gfx_gs_prims — em_gfx.h) ---------- */

@@ -13,7 +13,8 @@ the frame is captured. Independently, the triangles of the same units
 tools/test_object_unit_reference.py) are rasterized here at the capture's
 pixel centres (the em_background_gs_ndc mapping) with the documented pixel
 path: screen-linear RGBA, F and S, T, Q with the per-pixel divide, GS
-bilinear at U - 0.5 with 4-bit weights and REPEAT, TFX HIGHLIGHT with TCC 1,
+bilinear at U - 0.5 with 4-bit weights and REPEAT, TFX HIGHLIGHT with TCC 1
+(MODULATE for a TFX-0 TEX0: tools/test_static_world_gpu.py shares this model),
 the alpha test, the fog blend FOGCOL + ((C - FOGCOL) * F >> 8) (measured in
 PCSX2's software GS, docs/GS_EXACT.md 5.2; the (C * F + FOGCOL * (255 - F))
 >> 8 this model used until 2026-09-28 was non-original), and the nearest
@@ -165,8 +166,12 @@ def model(tris, tex, fogc, W, H):
         ya, yb = (vv >> 4) & (h - 1), ((vv >> 4) + 1) & (h - 1)
         ct = (tx[ya, xa] * ((16 - fu) * (16 - fv))[..., None] + tx[ya, xb] * (fu * (16 - fv))[..., None] +
               tx[yb, xa] * ((16 - fu) * fv)[..., None] + tx[yb, xb] * (fu * fv)[..., None]) >> 8
-        rgb = np.stack([np.minimum(((ct[..., k] * cf[k]) >> 7) + cf[3], 255) for k in range(3)], axis=-1)
-        alpha = np.minimum(ct[..., 3] + cf[3], 255)
+        if (t0 >> 35) & 3 == 0:                                 # TFX MODULATE (the static world)
+            rgb = np.stack([np.minimum((ct[..., k] * cf[k]) >> 7, 255) for k in range(3)], axis=-1)
+            alpha = np.minimum((ct[..., 3] * cf[3]) >> 7, 255)
+        else:                                                    # TFX HIGHLIGHT
+            rgb = np.stack([np.minimum(((ct[..., k] * cf[k]) >> 7) + cf[3], 255) for k in range(3)], axis=-1)
+            alpha = np.minimum(ct[..., 3] + cf[3], 255)
         rgb = fc + (((rgb - fc) * F[..., None]) >> 8)           # measured GS fog (GS_EXACT.md 5.2)
         draw = inside & (alpha > 0)
         sub = (slice(py0, py1 + 1), slice(px0, px1 + 1))

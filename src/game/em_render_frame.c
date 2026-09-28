@@ -52,6 +52,7 @@
 #include "game/em_opening_runtime.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_static_world_live.h"
 #include "game/em_render_context_live.h"
 #include "game/em_census_standins.h"
 #include "game/em_area11_effect_runtime.h"
@@ -615,35 +616,29 @@ static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *
 }
 
 /* The level background's gate, from the live render context (census 1.13;
- * docs/BACKGROUND.md "Wiring"): 001D2300 calls 001E0DF0 when D_008106C4 ==
- * 0, render flag 4 is clear and flag 0x20 is set (em_rcl_001D2300_calls_001E0DF0:
- * the bound step V's own gate code, read here at the frame close because the
- * renderer draws the background before the level, ahead of step V; nothing
- * between the close and step V writes those bytes); 001E0DF0 (again under
- * 0x20) CALLs the channel-3 list at ctx+0x1D8 when that word is non-zero.
- * The word is rebuilt every frame by 001C1D00 (state 1) -> 001E0CF0: its
- * 001E0CC0 zeroes +0x1D8, then 001E1E60 stores the list there only under
- * flags 0x20 and 0x21. 001C1D00 is not bound in the port (RENDER_CONTEXT.md
- * section 8), so +0x1D8 is not built; "+0x1D8 != 0" is therefore read as
- * the condition that built it, flag 0x21 (with 0x20, already required).
- * With 0x20 set and 0x21 clear the original CALLs nothing: a no-draw, not
- * a fault. 001C1F50 arms both flags at the area render init for keys
- * 0x0B00..0x1200 (AREA11 among them). Flags 0x00..0x1F are the word at context +0x0C,
- * 0x20..0x3F the word at +0x174. 001D1C10 (step N) is not bound, so flag 4
- * is never set in the port; the frame a movie played is the mirror
- * em_frame_movie_active (D_00821058 == 1), in which 001D1C10 would set it.
- * The list draws 001E1E60's TEX0 ctx+0x1D0 and RGBAQ int(128 *
- * ctx+0x1C0..+0x1CC) (001D6F60 / 001D7080): the loaded asset
- * (the manifest's `background` line names its file) must hold exactly
- * those, and a gate with no asset or another one faults (fail-stop).
+ * docs/BACKGROUND.md "Wiring", docs/STATIC_WORLD.md section 5): 001D2300
+ * calls 001E0DF0 when D_008106C4 == 0, render flag 4 is clear and flag 0x20
+ * is set (em_rcl_001D2300_calls_001E0DF0: the bound step V's own gate code,
+ * read here at the frame close because the renderer draws the background
+ * before the level, ahead of step V; nothing between the close and step V
+ * writes those bytes); 001E0DF0 (again under 0x20) CALLs the channel-3 list
+ * at ctx+0x1D8 when that word is non-zero. The word is rebuilt every world
+ * frame by 001C1D00 (em_rcl_001C1D00) -> 001E0CF0: its 001E0CC0 zeroes
+ * +0x1D8, then 001E1E60 builds the list and stores its start there under
+ * flags 0x20 and 0x21 (001C1F50 arms both for keys 0x0B00..0x1200). With
+ * 0x20 set and +0x1D8 zero the original CALLs nothing: a no-draw, not a
+ * fault. 001D1C10 (step N) is not bound, so flag 4 is never set in the
+ * port; the frame a movie played is the mirror em_frame_movie_active
+ * (D_00821058 == 1), in which 001D1C10 would set it. The list draws the
+ * TEX0 and RGBAQ its own A+D packets write (001D6F60 / 001D7080: read from
+ * the list, em_static_world_live_background_state): the loaded asset (the
+ * manifest's `background` line names its file) must hold exactly those,
+ * and a gate with no asset or another one faults (fail-stop).
  * 1 draw, 0 no draw, -1 a fault (reported). */
 static int background_gate(EmGfx *gfx)
 {
-    const uint8_t *lo = em_rcl_bytes(EM_RCL_CONTEXT + 0x0C, 4);
-    const uint8_t *hi = em_rcl_bytes(EM_RCL_CONTEXT + 0x174, 4);
-    if (!lo || !hi || !em_rcl_bound())
+    if (!em_rcl_bound())
         return 0; /* no render context: no channel 3 */
-    const int flag21 = (hi[0] >> 1) & 1;
     /* 001D2300's call of 001E0DF0 (its gate), and the movie frame's flag 4
      * that the unbound 001D1C10 would set (em_frame_movie_active). */
     int calls = 0;
@@ -651,28 +646,17 @@ static int background_gate(EmGfx *gfx)
         return -1;
     if (!calls || em_frame_movie_active())
         return 0;
-    /* 001E0DF0's +0x1D8 != 0: built by 001E0CF0 under 0x20 and 0x21. */
-    if (!flag21)
-        return 0;
-    const uint8_t *tag = em_rcl_bytes(EM_RCL_CONTEXT + 0x1D0, 8);
-    const uint8_t *colour = em_rcl_bytes(EM_RCL_CONTEXT + 0x1C0, 16);
-    uint64_t tex0 = 0, want_tex0 = 0;
-    uint32_t rgbaq = 0, want_rgbaq = 0;
-    for (unsigned b = 0; tag && b < 8; ++b)
-        want_tex0 |= (uint64_t)tag[b] << (8 * b);
-    for (unsigned c = 0; colour && c < 4; ++c) {
-        float f;
-        memcpy(&f, colour + 4 * c, 4);
-        const float scaled = 128.0f * f;
-        if (!(scaled >= 0.0f && scaled < 256.0f))
-            break;
-        want_rgbaq |= (uint32_t)(int32_t)scaled << (8 * c);
-    }
+    /* 001E0DF0's +0x1D8 != 0, and the list's TEX0 / RGBAQ. */
+    uint64_t want_tex0 = 0, tex0 = 0;
+    uint32_t want_rgbaq = 0, rgbaq = 0;
+    const int list = em_static_world_live_background_state(&want_tex0, &want_rgbaq);
+    if (list <= 0)
+        return list;
     static int reported;
     if (!em_gfx_background_state(gfx, &tex0, &rgbaq) || tex0 != want_tex0 || rgbaq != want_rgbaq) {
         if (!reported)
-            fprintf(stderr, "background: render flags 0x20 / 0x21 are armed (001C1F50) but the loaded "
-                    "background asset is %s (TEX0 %016llX RGBAQ %08X; the context holds TEX0 %016llX "
+            fprintf(stderr, "background: the channel-3 list at ctx+0x1D8 is built (001E1E60) but the "
+                    "loaded background asset is %s (TEX0 %016llX RGBAQ %08X; the list sends TEX0 %016llX "
                     "RGBAQ %08X; STARTUP.md step 40)\n",
                     em_gfx_background_ready(gfx) ? "another one" : "missing",
                     (unsigned long long)tex0, (unsigned)rgbaq, (unsigned long long)want_tex0,
@@ -762,6 +746,14 @@ void frame_close_out(void)
             em_gfx_fog(gfx, g.fog_near, g.fog_far, g.fog_rgb);
         else
             em_gfx_fog_off(gfx);
+        /* Channel 0 opens with the static world: the run this frame's
+         * 001C1D00 wrote (001D5370's objects through the level kernel and
+         * the guard-band clip kernel), drawn from its packets
+         * (em_static_world_live, docs/STATIC_WORLD.md section 7). In AREA11
+         * it replaces the legacy zone meshes, which no longer load there. */
+        em_gfx_char_rig(gfx, NULL);
+        if (em_static_world_live_draw(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_static_world_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         for (int i = 0; i < g.chain_len; i++)
             chain_draw(gfx, &g.chain[i], i >= g.n_scene, viewproj);
         /* The owner units the walk built this frame (001CAA00 of the
@@ -921,10 +913,12 @@ int em_render_001D1C50(void)
     return point_light_tick();
 }
 
-/* func_001C1D00(0x008101D0) position (both variants). Wraps
- * render_env_init, which is an empty skeleton: the original render-env
- * work is NOT translated. The 0 return means "today's code ran", not
- * "001C1D00 is ported". */
+/* func_001C1D00(0x008101D0) position (both variants) in a scene WITHOUT
+ * the render context (not the first level, whose 001C1D00 is the
+ * translation em_rcl_001C1D00: the background channel and the static
+ * world, docs/STATIC_WORLD.md). Wraps render_env_init, an empty skeleton:
+ * the original's work is not done here. The 0 return means "today's code
+ * ran", not "001C1D00 is ported". */
 int em_render_001C1D00(void)
 {
     render_env_init();

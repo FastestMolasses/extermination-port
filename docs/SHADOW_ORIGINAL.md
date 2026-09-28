@@ -362,7 +362,8 @@ model's VU1 vertex list.
     `EM_TEST_FULL=1` 23 s.
 - **Capture metric** (`python3 tools/test_shadow_original_reference.py
   --capture BEAT`, not in the default run). It renders the beat's frame
-  headless (background, the six zone meshes with the area fog, then the
+  headless (background, the static world from the beat's own channel-0
+  run with the area fog (STATIC_WORLD.md 7), then the
   chain through `em_gfx_shadow_*` with the native module's plan over the
   beat's RAM; box and receiver strips are the original objects' vertex
   lists from the chain executed over that RAM, each receiver object with
@@ -373,14 +374,29 @@ model's VU1 vertex list.
   and outside `capture_bounds`: IoU with the original's dark pixels >=
   0.80, shadowed/lit luminance ratio within 0.05 of the original's.
 
-  With the clip kernels translated, no beat faults (all 15). In bounds:
+  With the clip kernels translated, no beat faults (all 15). In bounds
+  (the harness since the static-world step; the legacy-mesh harness's
+  values before it in brackets):
 
   | Beat | shadow px | IoU | ratio native / original |
   |---|---|---|---|
-  | 01_battery | 847 | 0.841 | 0.601 / 0.600 |
-  | 06_hill_slide | 988 | 0.853 | 0.590 / 0.602 |
-  | 08_truck_crossing | 785 | 0.837 | 0.585 / 0.590 |
-  | 12_crevice_jump | 805 | 0.861 | 0.605 / 0.593 |
+  | 01_battery | 843 [847] | 0.836 [0.841] | 0.602 / 0.600 [0.601 / 0.600] |
+  | 06_hill_slide | 985 [988] | 0.851 [0.853] | 0.592 / 0.602 [0.590 / 0.602] |
+  | 08_truck_crossing | 786 [785] | 0.828 [0.837] | 0.588 / 0.592 [0.585 / 0.590] |
+  | 12_crevice_jump | 808 [805] | 0.854 [0.861] | 0.610 / 0.595 [0.605 / 0.593] |
+
+  Why the values moved (known, not drift): the static-world step changed
+  two inputs of this harness and nothing in the shadow's own plan or
+  arithmetic. (1) The level under the shadow is now the beat's own
+  channel-0 run, drawn at the GS words the original level and clip kernels
+  kick (`em_gfx_gs_opaque`), where the six legacy zone meshes went through
+  the native view-projection; the lit level pixels the ratio divides by
+  and the shadowed pixels at the region's edge change with it. (2) The
+  box and the receivers are placed from their own kicked words (the same
+  mapping), no longer by the native projection. The shadow pixel counts
+  moved by at most 4 of about 800 and the IoU by at most 0.009 (the
+  capture's dark-pixel set is the same image); the difference was not
+  isolated pixel by pixel. The 0.80 / 0.05 bounds are unchanged.
 
   Outside the bounds (the harness's frame, not a fault): 00 and 03
   (original region black), 02 (0 shadow pixels: the player stands on the
@@ -388,8 +404,8 @@ model's VU1 vertex list.
   the shadow falls on the crates, not drawn), 07 (0.242), 09 (IoU 0.832,
   ratio 0.602 vs 0.543), 10 (0.700, 0.667 vs 0.496), 11 (0.441), 13
   (0.291), 14 (0.272, original ratio 0.129: a cutscene frame). The
-  harness draws only the background, the six zone meshes with fog and the
-  shadow: no level lighting, props, elevator, crates or actors, so where
+  harness draws only the background, the static world (the beat's own
+  run) with fog and the shadow: no props, elevator, crates or actors, so where
   the original's shadow lies on those or the lit colour differs, the
   metric cannot pass. This is the harness's rendering, not the live port:
   the live frame is checked by the level smoke instead ("Binding" below).
@@ -485,21 +501,27 @@ Backend (`em_gfx_shadow_*`):
 
 - **alpha clear / box**: an alpha-only colour write (RGB mask off), depth
   test GEQUAL (the port's LessEqual) without write. The box triangles are
-  the ones 00237180 kicks, decided on the CPU with the kernel's own
-  arithmetic from the model's strips and `clip`, then drawn at W x p
-  through the frame's native viewproj. Then 00239C90 over the same
-  batches (below); none of the captured or route boxes kicks a triangle
-  from it.
+  the ones 00237180 kicks, computed on the CPU by the level kernel's one
+  translation (`em_vu1_level_kernel.h`, through the adapter
+  `em_shadow_gs_level_batch`) from the model's strips and `clip`, and drawn
+  at their kicked words (GS X / Y through `em_background_gs_ndc`, Z through
+  the object units' depth mapping, w = 1: since the static-world step the
+  level itself is drawn from its kicked words, STATIC_WORLD.md 7). Then
+  00239C90 over the same batches (below); none of the captured or route
+  boxes kicks a triangle from it.
 - **silhouette**: 001C7420's bone rows (node+0x90 x VP) and the kernel's
   XYZ2 are computed on the CPU bit for bit; the 128x128 RGBA8 target is
   cleared to (128,128,128,0) and the triangles are drawn at the GS 12.4
   positions, mapped so that Metal pixel centres are the GS sample points.
   Each silhouette has its own target, rendered by a command buffer that
   is committed at once, so it runs before the frame buffer samples it.
-- **receivers**: per vertex, (u, v) = (S/Q, T/Q), the RGBAQ A and F come
-  from 0023C200's arithmetic on the CPU; the position goes through
-  `v_skin` with an identity palette, the same vertex function and matrix
-  the level zones use, so the level's own depth passes GEQUAL. The
+- **receivers**: per vertex, the ST, the RGBAQ A and F and the XYZF2 words
+  come from 0023C200's arithmetic on the CPU; the vertex function
+  `v_shadow_recv_gs` places the vertex at its kicked words exactly as the
+  static world's triangles are placed (the receiver is the level object's
+  own strip under the same camera D_70003AC0 and the same arithmetic, so
+  its words and depth are the level's and GEQUAL passes), and S, T, Q are
+  interpolated screen-linearly and divided per pixel (the GS's STQ). The
   fragment function reproduces the GS pixel pipeline with framebuffer
   fetch: 4-bit-weight bilinear of the target alpha (texel grid 1/16,
   half-texel offset, CLAMP), MODULATE (Cf = 0, Af = At * A >> 7), fog
@@ -521,34 +543,17 @@ Backend (`em_gfx_shadow_*`):
   vertices do not depend on them), `em_vu1_shadow_clip_run` runs the
   translation at TOP 0x190 and `em_shadow_gs_clip_vertices` decodes its
   kicks as the GS takes them (PACKED ST / RGBAQ / XYZF2, triangle list,
-  NOP and TEX0_1 skipped). Each vertex is drawn from the point
-  `em_shadow_gs_clip_unproject` gives: the solution of the camera's x, y
-  and w columns for the GS pixel (X, Y) at w = 1/Q (the kernel's Q, which
-  both kernels leave in the vertex's first slot), within 1/16 pixel. The
-  point is the solution rounded to binary32. When that point misses the
-  pixel by more than 1/16, the helper takes the nearest binary32 point
-  within two ulps of it on each axis that projects back within 1/16. This
-  happens near the w = 0.1 plane, where one ulp moves the projection by
-  more than 1/16 pixel. It was first met at the fence door's side-1 stance
-  (2026-09-27): a receiver vertex at w 0.24 missed by 0.08 pixel under the
-  camera that looks down from above the door (LEVEL_SMOKE.md
-  `fence_door_side1`). So the
-  clipped triangles go through the same native view-projection as the
-  rest and meet the level's depth as they do; their per-vertex A, F, S/Q,
-  T/Q are the kernel's. APPROXIMATION: the GS rasterizes the kicked
-  12.4 / 24-bit words; the port rasterizes the unprojected binary32
-  points with its own projection and depth. Coplanar depth ties along the
-  clipped triangles are therefore not the GS's (not checked against a GS
-  dump). The clipped triangles are appended after the object's (box's)
-  own, as the GS draws them. A kicked triangle whose three vertices share
-  one GS X / Y (the kernel's collapse of a triangle wholly outside a
-  screen plane onto (2048, 2048)) has no area, so the GS draws no pixel of
-  it: the backend skips it without unprojecting (such a vertex near
-  w = 0.1 does not survive the binary32 round trip; first met live at
-  first control, in no captured or route batch). -1 only when the
-  translation faults (an FTOI outside int32), a data word names a matrix
-  other than dmem 0, a packet does not decode, or a point of a drawn
-  triangle cannot be unprojected.
+  NOP and TEX0_1 skipped). Each vertex is drawn at its kicked words, as
+  the kernels' other triangles and the static world's are (since the
+  static-world step; before it the port unprojected each GS pixel to a
+  point of the camera's space, `em_shadow_gs_clip_unproject`, which the
+  test harness keeps). Their per-vertex A, F, S, T, Q are the kernel's. The
+  clipped triangles are appended after the object's (box's) own, as the
+  GS draws them. A kicked triangle whose three vertices share one GS X / Y
+  (the kernel's collapse of a triangle wholly outside a screen plane onto
+  (2048, 2048)) has no area, so the GS draws no pixel of it: the backend
+  skips it. -1 only when the translation faults (an FTOI outside int32), a
+  data word names a matrix other than dmem 0 or a packet does not decode.
 - The frame's alpha channel is the GS destination alpha; the CAMetalLayer
   is set opaque so it is never shown.
 

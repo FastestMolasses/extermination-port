@@ -1021,6 +1021,87 @@ their original records, design risk 2 closed; OPENING_ORIGINAL.md, census
   - newgame-control 9.599849 (unchanged); census live 684, verified-unbound
     56, unverified 3, boundary 441.
 
+**Status update (2026-09-28, the static world and the background channel
+live; the level drawn from its original packets; STATIC_WORLD.md, census
+1.42):**
+- **001C1D00 live.** Both world variants run em_rcl_001C1D00: the whole
+  tree (001E0CF0 -> 001E1E60, 001D5370 and the static-object builders)
+  composed by em_static_world_compose over the render context's views,
+  with the bank *D_0028A5A0 and D_00253560 from
+  tools/export_static_world.py (fail-stop without it) and the loader's
+  D_0028A5A0 word as a read-only view. The area load's 001C1E70 runs
+  001D52E0 the same way (UM_001D52E0 is gone). Step V's list holds the
+  +0x1D8 CALL (seven tags, as every capture); the background gate reads
+  +0x1D8 and the list's own TEX0 / RGBAQ in place of flag 0x21.
+- **The renderer boundary, decided.** The channel-0 run is drawn from its
+  packets: em_static_world_draw walks it as the DMA / VIF1 / GIF / GS do,
+  the level kernel 0x00237180 (new: em_vu1_level_kernel.h, 79
+  instructions) and the clip kernel 0x00239C90 (em_vu1_shadow_clip.h) run
+  on the CPU, and em_gfx_gs_opaque draws every triangle through the object
+  units' class-0 pixel path (Metal now takes TFX MODULATE, the static
+  world's texture function). The 119 bank textures join
+  object_textures.emot (re-run tools/export_object_textures.py). The
+  original's culling (001D5370's grid and corner tests, the kernel's
+  guard band and back-face cull) and order are the port's now.
+- **The shadow on the new level.** The box and the receivers are positioned
+  from their kicked words (as the level): a receiver meets the level
+  surface it shades at the same depth. The box's copy of the level
+  kernel's position path (em_shadow_gs_level_batch) is now an adapter over
+  the one translation, and em_static_world's 001D2090 runs the owner
+  draw's em_owner_draw_vif_append_ref_tag (one owner each).
+- **Retired:** the AREA11 zone meshes' load and draw (00..04 held exactly
+  the bank's geometry; 05_movables the bank's last 181 vertices and three
+  models the old exporter placed at the origin that no captured frame
+  REFs), em_render_001C1D00 on the first level, the flag-0x21 stand-in,
+  UM_001D52E0 and rcl_grid_header. No test was retired.
+- **Evidence.**
+  - test-static-world-draw-reference (new): every captured run (17) replayed
+    with the ORIGINAL VU1 microcode: every kick equal byte for byte, every
+    triangle equal; 576 synthetic batches equal over the whole data memory.
+  - test-static-world-gpu (new): the Metal pixel path over 05_boxes' run,
+    99.78 % of the interior pixels exact against the GS model.
+  - test-static-world-reference: rehearsal E over the live 27 views.
+  - The level smoke's check_static_world (new): every 001C1D00 run drawn in
+    its tick (12,572 on the main line to Roger); 32 sampled calls
+    re-executed by the ORIGINAL 001C1D00 over the port's inputs (run, list
+    and D_00253560 byte for byte) and their runs drawn by the original
+    microcode (the port's triangles); at the view-exact snapshots 10 and 14
+    the port's triangles are the captures' own runs'. check_render_context
+    compares the seven-tag world lists.
+  - Pixels: the first-control frame before and after (the same geometry; the
+    railing bars now solid, as the fb2 frame shows), the Roger phase's end
+    against its fb2 frame, and the shadow harness (--capture, now over the
+    beat's own run: the level around the shadow within 1 of the original
+    screenshot's means in 01, 08 and 12).
+  - test-render-context-live-reference: 001C1DC0's 001D52E0 now runs on
+    both sides (the original over the snapshot's bank, the module over the
+    export); the grid header equals byte for byte in all 15 beats.
+  - All 250 `make test-*` targets pass; test-level-smoke-full through
+    roger (18 phases) and the side beats; compare_frame_order idle04 /
+    walk04 (--native-index 1330), st03 (1321), cut02 (26) and cut15 PASS;
+    `make all` has zero warnings.
+  - newgame-control 9.599849 (unchanged); census live 699,
+    verified-unbound 51, unverified 3, boundary 431.
+- **Frame time (the review's blocking finding, fixed in the same step).**
+  With the integer float model's lanes the CPU kernels put the level over
+  the 16.68 ms NTSC tick on the M1 (capped newgame-control: the locked
+  window in 25.5..25.9 s against HEAD's 22.80 s). The VU1 kernels' multiplies, adds and
+  reciprocals now run on the host FPU in round-toward-zero /
+  flush-to-zero (em_vu_host_lanes.h: bit-identical to em_ee_float.h for
+  finite operands, test-vu-host-lanes), for the level kernel on the live
+  walk and the object and face kernels in em_object_unit.c; em_ee_float.h
+  itself got a count-leading-zeros bit length, a fixed-width exact product
+  and a binary-searched form table (identical over 50 million operands and
+  every form). In-level main-thread CPU per tick (EM_FRAME_TIMING, 1,331
+  ticks): mean 15.9 -> 5.6 ms, p99 29.3 -> 9.2 ms, ticks over 16.68 ms
+  472 -> 0; the capped locked window 25.90 -> 22.79 s, which is exactly
+  its 1,366 NTSC periods (every step on time; HEAD 22.80 s)
+  (STATIC_WORLD.md 6). Every captured run, owner draw and face unit still
+  equals the original microcode through the host lanes
+  (test-static-world-draw-reference and test-object-unit-reference, both
+  EM_TEST_FULL=1), and the level smoke's numbers are unchanged (12,572
+  runs, 25,651,789 triangles, view-exact 10 and 14, now required).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1063,21 +1144,18 @@ The items are ordered in four groups:
    sampling and the +0x80 event cursor), and the drive's timing (the
    user's host-speed policy: the actors spawn and the opening ends 21
    frames earlier than the original's).
-3. **Look: the static world does not use the original's static-object path.**
-   Rows 001C1D00, 001D5370, 001D52E0, 001E0CF0 and 001D21B0;
-   RENDER_CONTEXT.md 8.4; lane L31.
-   - The port's level renderer draws the scenery. Its GS state is decoded
-     (LEVEL_MATERIALS.md). Its culling and packet order are not the
-     original's: they do not come from 001D5370's walk over the
-     static-object bank.
-   - Step V's list has no +0x1D8 CALL. The background gate reads flag 0x21
-     in place of the context's +0x1D8 word.
-   - What removes it, three things:
-     - an export of the static-object bank *D_0028A5A0 (in the chunk15
-       concatenation at 0x304000);
-     - a renderer boundary decision for 001D4FB0 / 001D4B20 / 001D4DA0 /
-       001D5BD0;
-     - the background channel 001E1E60 / 001E1AD0.
+3. **Done (2026-09-28, the static-world step): the static world is drawn
+   from its original packets** (STATIC_WORLD.md). 001C1D00 runs its whole
+   tree every world frame over the exported static-object bank; its
+   channel-0 run goes through the level kernel 0x00237180 and the clip
+   kernel 0x00239C90's translations and every triangle the GS would draw
+   is drawn (em_gfx_gs_opaque); step V's list has the +0x1D8 CALL and the
+   background gate reads it. The legacy zone meshes no longer load in
+   AREA11. What remains of it: the frame cost of the CPU kernels
+   (STATIC_WORLD.md section 6), the background grid itself is still drawn
+   by em_background_gs's model of 0x0023C990 (checked by
+   test_background_reference), and 001D5BD0 / the flag-0x22 and flag-0x23
+   branches are bound to a fault (never reached on the first level).
 4. **Look: the lighting stand-ins.** Lanes L40 and L33.
    - The actor fold gate 001D8270 is verified but not called, and the
      renderer's post-draw tint (em_render_frame char_rig_build) stands in for

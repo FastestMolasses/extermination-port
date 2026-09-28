@@ -476,6 +476,14 @@ all 15 decodes are identical: the textures are resident for the whole
 level. The texels are the CLUT entries' bytes with the raw GS alpha. The
 export is ignored (`assets/`), like every disc- or capture-derived asset.
 
+The static-object bank's blocks (the level geometry 001C1D00 emits,
+STATIC_WORLD.md section 7) carry their own TEX0 values: 119 more, all TFX 0
+(MODULATE), which the exporter admits for the static bank only. The export
+now holds 465 textures, identical in 15 captures. The Metal object shader
+takes the TFX per texture (key bit 1): MODULATE gives Cv = min(Ct Cf >> 7,
+255), Av = min(At Af >> 7, 255); HIGHLIGHT is as in 7.2. The static world
+draws through em_gfx_gs_opaque, which shares the object path's pixel stage.
+
 ## 8. Proof of the CPU path (tools/test_object_unit_reference.py)
 
 For every owner with draw method 001CAA00 and a bank model in route beats

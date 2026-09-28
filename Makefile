@@ -72,6 +72,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
            src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
+           src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
+           src/game/em_static_world_live.c \
            src/game/em_load_veil_particles.c src/game/em_actor_light_001D89D0.c src/game/em_player_equipment.c \
            src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
@@ -710,6 +712,31 @@ test-render-context-reference:
 .PHONY: test-render-context
 test-render-context:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/render_context_test.c src/game/em_render_context.c -o build/render_context_test && ./build/render_context_test
+
+# The static world and background channel (docs/STATIC_WORLD.md): 001C1D00's
+# tree against the original instructions over the captures (the channel-3
+# list and the channel-0 run rebuilt byte for byte), and the run drawn from
+# its packets: the level kernel 00237180 and the clip kernel 00239C90 against
+# the original VU1 microcode, kick for kick and triangle for triangle.
+.PHONY: test-static-world-reference
+test-static-world-reference:
+	python3 tools/test_static_world_reference.py
+
+.PHONY: test-static-world-draw-reference
+test-static-world-draw-reference:
+	python3 tools/test_static_world_draw_reference.py
+
+# The VU lane rules on the host FPU (em_vu_host_lanes.h: round toward zero,
+# flush-to-zero) against em_ee_float.h's integer model, bit for bit.
+.PHONY: test-vu-host-lanes
+test-vu-host-lanes:
+	python3 tools/test_vu_host_lanes.py
+
+# The Metal pixel path of em_gfx_gs_opaque over a captured static run
+# against the GS pixel model (the original microcode's triangles).
+.PHONY: test-static-world-gpu
+test-static-world-gpu:
+	python3 tools/test_static_world_gpu.py
 
 .PHONY: test-render-context-live-reference
 test-render-context-live-reference:

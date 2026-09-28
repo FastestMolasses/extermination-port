@@ -27,16 +27,21 @@ controls the CLUT cache) of every model block of
     and Dennis's D_0028A490[0x18] (extract/chunk03/f16_id18.bin, 001B81D0's
     001CA700 on the player). A face block (0x163 qwords) is UNPACK 256
     qwords, UNPACK 96 qwords, MSCAL/MSCNT: vertex i's TEX0 is data qword
-    11 i (docs/VU1_FACE_MORPH.md section 3),
+    11 i (docs/VU1_FACE_MORPH.md section 3);
+  * the static-object bank *D_0028A5A0 (tools/export_static_world.py: the
+    chunk15 concatenation from 0x304000): every block of its 701 objects,
+    which the static world's channel-0 run REFs and the level kernel
+    0x00237180 kicks (docs/STATIC_WORLD.md section 7),
 all from the user's extract, and decodes
 each from the GS local memory of every AREA11 route capture (beats 00..14:
 ../Extermination/build/s87/route/<beat>/gs.bin, the user's own PCSX2
 captures). It fails unless:
   * every TEX0 has PSM PSMT8 or PSMT4, CPSM PSMCT32, CSM1, CSA 0, TCC 1 and
-    TFX 2 (HIGHLIGHT): the one form the renderer reproduces. The one
-    exception is an equipment model the route never binds: its other forms
-    are left out and listed ("not_exported"; equipment 0x36 kicks TEX0 0 on
-    four vertices of block 13), so a unit that kicks one faults;
+    TFX 2 (HIGHLIGHT), or, for the static-object bank's blocks only, TFX 0
+    (MODULATE): the forms the renderer reproduces. The one exception is an
+    equipment model the route never binds: its other forms are left out and
+    listed ("not_exported"; equipment 0x36 kicks TEX0 0 on four vertices of
+    block 13), so a unit that kicks one faults;
   * the decoded texels and CLUT are identical in every capture (residency:
     the texture a draw samples does not depend on the frame).
 The texels are the CLUT entries' four bytes as GS memory holds them: R, G, B
@@ -73,6 +78,7 @@ DECOMP = ROOT.parent / 'Extermination'
 sys.path.insert(0, str(DECOMP / 'tools'))
 
 import export_player_model as epm  # noqa: E402
+import export_static_world as esw  # noqa: E402
 import export_world_models as ewm  # noqa: E402
 
 CLD_MASK = ~(7 << 61) & (2 ** 64 - 1)
@@ -162,6 +168,33 @@ def player_tex0(extract: Path, out: dict):
     face_tex0((extract / 'chunk03/f16_id18.bin').read_bytes(), 0, 'dennis face 0x18', out)
 
 
+STATIC_LABEL = 'static bank'
+
+
+def static_tex0(extract: Path, out: dict):
+    """Every vertex TEX0 (CLD cleared) of every block of the static-object
+    bank's objects (entries 1..n-1: the block count at +0, the blocks of
+    0x820 bytes from +0x40, each STCYCL 4,4 + UNPACK V4-32 128 to TOPS,
+    32 vertices of 4 qwords, MSCAL / MSCNT: checked)."""
+    cat = esw.concatenation(extract / 'chunk15')
+    base = esw.CONCAT_OFFSET
+    span, entries = esw.bank_extent(cat, base)
+    bank = cat[base:base + span]
+    blocks = 0
+    for i, (off, _end) in enumerate(entries[1:], start=1):
+        count = struct.unpack_from('<I', bank, off)[0]
+        for b in range(count):
+            block = off + 0x40 + esw.BLOCK_BYTES * b
+            if struct.unpack_from('<2I', bank, block + 8) != (0x01000404, 0x6C808000) or \
+                    (bank[block + 0x813] not in (0x14, 0x17)):
+                raise SystemExit(f'static bank object {i} block {b}: not STCYCL 4,4 + UNPACK 128 + MSCAL / MSCNT')
+            for v in range(32):
+                t = struct.unpack_from('<Q', bank, block + 16 + 64 * v)[0] & CLD_MASK
+                out.setdefault(t, set()).add(STATIC_LABEL)
+            blocks += 1
+    return blocks
+
+
 def decode(lm: bytes, t: int) -> bytes:
     import clut_pair as cp
     import gs_vram
@@ -193,10 +226,12 @@ def main(argv=None) -> int:
     x = ewm.build(args.extract)
     texes = model_tex0(x)
     player_tex0(args.extract, texes)
+    static_blocks = static_tex0(args.extract, texes)
     left_out = {}
     for t in list(texes):
         f = tex0_fields(t)
-        if f['psm'] not in (PSMT8, PSMT4) or f['cpsm'] or f['csm'] or f['csa'] or f['tcc'] != 1 or f['tfx'] != 2 \
+        tfx_ok = f['tfx'] == 2 or (f['tfx'] == 0 and texes[t] == {STATIC_LABEL})
+        if f['psm'] not in (PSMT8, PSMT4) or f['cpsm'] or f['csm'] or f['csa'] or f['tcc'] != 1 or not tfx_ok \
                 or not (0 < f['tw'] <= 10 and 0 < f['th'] <= 10):
             # Only an equipment model the route never binds may carry another
             # form (equipment 0x36, flavour 2 variant 4: four vertices of
@@ -235,7 +270,9 @@ def main(argv=None) -> int:
         count=len(order), bytes=len(data), captures=[str(p.parent.name) for p in captures],
         textures=index, not_exported=[dict(tex0=hex(t), models=sorted(m)) for t, m in sorted(left_out.items())]),
         indent=1) + '\n')
-    print(f'wrote {args.out}: {len(order)} textures, {len(data)} bytes; identical in {len(captures)} captures'
+    static = sum(1 for t in order if STATIC_LABEL in texes[t])
+    print(f'wrote {args.out}: {len(order)} textures ({static} of the static bank\'s {static_blocks} blocks), '
+          f'{len(data)} bytes; identical in {len(captures)} captures'
           + ''.join(f'; not exported: TEX0 {t:#x} ({", ".join(sorted(m))})' for t, m in sorted(left_out.items())))
     return 0
 

@@ -466,6 +466,10 @@ static int rcl_sdk_tan(void *ctx, uint32_t x, uint32_t *out)
 static int rcl_unreached(void *ctx) { (void)ctx; return -1; }
 static int rcl_unreached_block(void *ctx, uint32_t block) { (void)ctx; (void)block; return -1; }
 
+/* The bank address word D_0028A5A0 (the loader's slot 0x44): 0, no bank;
+ * 001C1D00 is not reached by these cases. */
+static uint8_t rcl_bank_word[4];
+
 static void rcl_bind_fixture(void)
 {
     EmSceneState *scene = em_scene_state();
@@ -477,9 +481,10 @@ static void rcl_bind_fixture(void)
         {0x008101E4u, 1u, &scene->d8101E4},
         {0x70003B8Du, 1u, &scene->spad3B8D},
         {0x008102B0u, 0x320u, (uint8_t *)(uintptr_t)em_camera_live_player_bytes()},
+        {0x0028A5A0u, 4u, rcl_bank_word},
     };
     static const EmRclWorkers workers = {NULL, rcl_unreached, rcl_sdk_sqrt, rcl_sdk_tan,
-                                         rcl_unreached_block, rcl_unreached};
+                                         rcl_unreached_block};
     assert(em_rcl_bind(views, sizeof views / sizeof views[0], &workers) == 0);
 }
 

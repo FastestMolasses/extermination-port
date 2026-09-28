@@ -29,7 +29,7 @@ in-scope AREA11 capture: the six startup-reference EE images and route beats
 | 0x002354A0 | 63 | The clip program of a unit whose sphere crosses the view-z plane (001CA7B0 flags & 1, docs/OWNER_DRAW.md). It always follows a 0x0023C750 pass of the same unit. By owner: parachute 20, player 9, gun cable 7, panel/001C4820 6, fan 4, Roger 4 (+1 with 001BB0E0), elevator 4, truck 2, 001C5760 2, crate 2, door 2. Translated in em_vu1_object_clip.h (P2, VU1_OBJECT_CLIP.md). |
 | 0x0023C480 | 48 | **The face morph program** (1 node, 11-qword vertices whose position is the base plus seven weighted deltas; weights in dmem 1011/1012). Its CALL is appended by 001D3E40, reached as 001CAA00 → 001CB3C0 → 001D3F50 → 001D3E40 (the decomp repo's `func_001D3E40.c`, NEARMISS, and docs/OPENING_ACTORS.md). Every CALL's model REF is a face resource + 0x40: **Roger's face** (0x018C8740) in 41 CALLs, one in every list except `handoff_ee.bin` 0x00293700; **Dennis's face** (0x011749C0) in 7 CALLs of `opening_ee.bin`, `handoff_ee.bin` and `roger-encounter`, 2 of them in the stale tail past a list's write cursor. So this is a first-level actor draw (Roger's head in every frame). Translated in em_vu1_face_morph.h (VU1_FACE_MORPH.md); em_object_unit_run runs it. The test asserts the chain, the address build in 001D3E40 and the attribution (report `census.face_program`). |
 | 0x0023C990 | 42 | Inside a RAM-resident sub-list (two per list). Not an object unit. |
-| 0x00237180 / 0x00239C90, 0x0023C200 / 0x0023E8A0, 0x00233800, 0x00233290, 0x00231770 | 478 / 436, 166 / 123, 4,536, 252, 143 | Level, receiver and other programs (LEVEL_MATERIALS.md, SHADOW_ORIGINAL.md). |
+| 0x00237180 / 0x00239C90, 0x0023C200 / 0x0023E8A0, 0x00233800, 0x00233290, 0x00231770 | 478 / 436, 166 / 123, 4,536, 252, 143 | Level, receiver and other programs (the level kernel 0x00237180 is translated in em_vu1_level_kernel.h: STATIC_WORLD.md section 7; LEVEL_MATERIALS.md, SHADOW_ORIGINAL.md). |
 
 **Owners of the 950 object-kernel units.** The attribution matches a unit's
 model REF to an owner's +0x44 + 0x40. Owners that share one model are named
@@ -197,6 +197,22 @@ clamps depend on the instruction form and were measured for VU0 macro forms
 only. So an **exponent-255 word reaching a live multiply or add faults the
 batch** (EM_VU1_OBJ_FAULT_OPERAND, fail-stop). No capture has one. The
 same word in a dead lane (lighting w, normal w, ST input w) does not fault.
+
+**The live draw computes the lanes on the host FPU** (since the C8
+static-world fix round). em_object_unit.c defines `EMVUO_HOST_LANES` before
+its includes, so `emvuo_mul` / `emvuo_add` (this kernel's and the face
+morph's) are `emvuh_mul` / `emvuh_add` from `em_vu_host_lanes.h`: one host
+instruction in round-toward-zero / flush-to-zero, run only inside
+`object_kernel` / `face_kernel` (noinline, bracketed by
+`em_vu_host_enter` / `em_vu_host_leave`). For finite operands that is
+exactly the rule above (`test-vu-host-lanes`); the liveness checks are
+unchanged, so an exponent-255 operand still faults the batch (the unit is
+dropped; the faulting vertex's own ADC and clip values are then not the
+model's, and nothing reads them). Everywhere else, the reference test
+included, the header is the integer model. Evidence that the live path is
+unchanged: `test-object-unit-reference` EM_TEST_FULL=1 runs
+em_object_unit_run (the host lanes) over all 375 captured owner draws and
+60 face units, every triangle equal to the original microcode's.
 
 **What the captures say about the assumption.** The shadow test's VU1
 interpreter uses host double arithmetic and wraps FTOI. It was run unchanged

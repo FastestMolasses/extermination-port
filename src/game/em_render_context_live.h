@@ -19,10 +19,16 @@
  *   0x70003B60..0x70003B63  scratchpad: the zoom copy (001D25F0)
  *   0x70003B70..0x70003B73  scratchpad: the screen centre 001AB370 stores
  *                           (0x800, 0x800) and step V reads
+ *   0x00817240..0x008172BF  001D4750's constant block (.bss)
+ *   0x70003400..0x7000347F  scratchpad: 001D5370's two clip matrices
+ *   0x008101D0..0x008101DF  001C1D00's state block
  *   .data from the user's ELF (assets/render_context.emrc,
  *   tools/export_render_context.py): D_00241010 (8), D_00250F30..
  *   D_0025316F (the colour, D_002513E0, the room table D_00251C50),
- *   D_0026E510 (16), D_00275670..D_0027569F.
+ *   D_0026E510 (16), D_00275670..D_0027569F; and from the static-world
+ *   export (assets/scene_snow/static_world.emsw, tools/export_static_world.py):
+ *   D_00253560..EF (001E1E60's upload block) and, read only, the
+ *   static-object bank *D_0028A5A0 (0x01516F40, 0x2D6FE0 bytes in AREA11).
  *
  * Every other byte these routines read belongs to another owner and is a
  * view the binder hands over (EmRclExternal): D_00810E80 and D_00810E88
@@ -41,6 +47,8 @@
  * 001D8FD0), em_load_veil_particles (the REF tags, 001DDE10's frame-copy
  * packets and the load veil's draw 0021B1B0), em_gs_blocks_original (the
  * boot builder's GS blocks, at em_rcl_init), em_render_verify_rest (001C1DC0, 001C1F50, 001E2260 / 70 / 80),
+ * em_static_world_compose (001C1D00's whole tree: 001E0CF0, 001E1E60,
+ * 001D5370 and the static-object packets, and 001D52E0),
  * em_actor_light_001D89D0 (001D7B30), em_player_equipment (0015D2F0),
  * em_status_ui_leftovers (0022EBE0) and the SDK leaves em_effect_original
  * (001026A0), em_sdk_math_original (0011DF78) and em_player_stage_workers
@@ -64,6 +72,7 @@ extern "C" {
 #define EM_RCL_CONTEXT 0x00811CC0u   /* the value of D_00275670 (checked at load) */
 #define EM_RCL_CONTEXT_SIZE 0x2580u  /* the context block +0x00..+0x257F */
 #define EM_RCL_EXPORT_PATH "assets/render_context.emrc"
+#define EM_RCL_STATIC_WORLD_PATH "assets/scene_snow/static_world.emsw"
 
 /* A byte range another module owns, by original address. */
 typedef struct {
@@ -82,9 +91,6 @@ typedef struct {
     int (*w_0011E398)(void *ctx, uint32_t x, uint32_t *result);
     /* 001C1DC0's 001C1EA0(block): the weather spawn. */
     int (*w_001C1EA0)(void *ctx, uint32_t block);
-    /* 001C1DC0's 001C1E70 -> 001D52E0 (the static-object grid header): the
-     * binder's report (the bank D_0028A5A0 is not exported yet). */
-    int (*w_001D52E0)(void *ctx);
 } EmRclWorkers;
 
 /* Load the .data blocks (once; later calls return 0) and apply the boot
@@ -95,10 +101,49 @@ int em_rcl_loaded(void);
 
 /* Hand over the external views and workers (at each area load). The views
  * must cover D_00810610 (64), D_008105E0 (16), D_008106B0 (0x48),
- * D_00810700 (3), D_008101E4 (1), 0x70003B8D (1) and D_008102B0 (0x320).
- * 0, or -1 (a view is missing). */
+ * D_00810700 (3), D_008101E4 (1), 0x70003B8D (1), D_008102B0 (0x320) and
+ * the bank address word D_0028A5A0 (4: the screen-module loader's slot
+ * 0x44, em_module_loader). The bind also performs 001AF690's zeroing of
+ * D_008101D0..DF (001C1D00's state block, owned here): the binder binds at
+ * 0x1AE040 state 0, where 001AF690 runs. 0, or -1 (a view is missing). */
 int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *workers);
 int em_rcl_bound(void);
+
+/* The static world (docs/STATIC_WORLD.md): load the static-object bank
+ * *D_0028A5A0 and 001E1E60's .data block D_00253560..EF from the export
+ * (tools/export_static_world.py; once, later calls return 0). The bank is a
+ * read-only view at its original address. 0, or -1 (missing or malformed:
+ * reported). */
+int em_rcl_static_world_load(const char *path);
+int em_rcl_static_world_loaded(void);
+/* 001C1D00(state_address) in both world variants: the background channel
+ * (001E0CF0 -> 001E1E60: the channel-3 list, its start at +0x1D8) and the
+ * static world's grid pass (001D5370: the channel-0 run), composed by
+ * em_swc_001C1D00 over this module's views; needs the bind and the bank. */
+int em_rcl_001C1D00(uint32_t state_address);
+/* The channel-0 run [start, end) this frame's 001C1D00 wrote. Taken once;
+ * the frame head (001D1AE0) forgets it. 0, or -1 (none). */
+int em_rcl_static_run(uint32_t *start, uint32_t *end);
+/* 001C1D00 calls since the start. */
+uint32_t em_rcl_static_runs(void);
+/* The inputs of the last 001C1D00 call, as they were before it ran, and
+ * where its output lies (the level smoke re-executes the original over them:
+ * tools/test_level_smoke.py check_static_world). */
+typedef struct {
+    uint32_t runs;             /* em_rcl_static_runs() after the call        */
+    uint8_t ctx[0x2540];       /* the render context 0x811CC0..               */
+    uint8_t spad[0x100];       /* 0x70003A40..0x70003B3F (K at 0x70003AC0)    */
+    uint8_t cam610[0x40];      /* D_00810610                                 */
+    uint8_t area[3];           /* D_00810700..702                            */
+    uint8_t state[0x10];       /* D_008101D0..DF                             */
+    uint8_t d253560[0x90];     /* D_00253560..EF                             */
+    uint8_t d817240[0x80];     /* D_00817240..BF                             */
+    uint8_t skin[0x700];       /* the 14 skin records D_00816440.. (the run
+                                  REFs one; 001D30A0 filled it this frame)   */
+    uint32_t ch0_start, ch0_end;   /* the channel-0 run it wrote             */
+    uint32_t ch3_start, ch3_end;   /* the channel-3 list (+0x1D8 .. +0x1C)    */
+} EmRclStaticSample;
+const EmRclStaticSample *em_rcl_static_sample(void);
 
 /* The latched fault: the original function address, or 0. */
 uint32_t em_rcl_fault(void);

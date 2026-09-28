@@ -87,7 +87,8 @@
  * multiply or add on a live lane is NOT established: the batch faults
  * (EM_VU1_OBJ_FAULT_OPERAND). No capture has one.
  *
- * Header-only (static inline), pure C, no host float arithmetic: every
+ * Header-only (static inline), pure C, no host float arithmetic unless a
+ * translation unit selects the host lanes (EMVUO_HOST_LANES below): every
  * backend and the reference test (tools/test_vu1_object_kernel_reference.py)
  * share one translation without a build-list change. */
 #ifndef EM_VU1_OBJECT_KERNEL_H
@@ -148,19 +149,39 @@ typedef struct {
 
 /* ------------------------------------------------------- lane arithmetic */
 
+/* EMVUO_HOST_LANES: a translation unit that defines it to 1 before its first
+ * include of this header gets emvuo_mul / emvuo_add on the host FPU
+ * (em_vu_host_lanes.h: equal to the model for every finite operand pair)
+ * and must run every batch inside em_vu_host_enter / em_vu_host_leave
+ * (em_object_unit.c, the live draw). Everywhere else (the reference tests
+ * included) they are em_ee_float.h's integer arithmetic. A batch with an
+ * exponent-255 operand faults either way; the faulting vertex's own
+ * results are then not the model's, and its callers drop the unit. */
+#ifndef EMVUO_HOST_LANES
+#define EMVUO_HOST_LANES 0
+#endif
+#if EMVUO_HOST_LANES
+#include "game/em_vu_host_lanes.h"
+#define EMVUO_MUL_RAW emvuh_mul
+#define EMVUO_ADD_RAW emvuh_add
+#else
+#define EMVUO_MUL_RAW em_eei_vu_mul_raw
+#define EMVUO_ADD_RAW em_eei_vu_add_raw
+#endif
+
 static inline int emvuo_live(uint32_t w) { return (w & 0x7F800000u) != 0x7F800000u; }
 
 /* Operands of a multiply or add: an exponent-255 word faults (*bad). */
 static inline uint32_t emvuo_mul(uint32_t a, uint32_t b, uint32_t *bad)
 {
     if (!emvuo_live(a) || !emvuo_live(b)) *bad = 1u;
-    return em_eei_vu_mul_raw(a, b);
+    return EMVUO_MUL_RAW(a, b);
 }
 
 static inline uint32_t emvuo_add(uint32_t a, uint32_t b, uint32_t *bad)
 {
     if (!emvuo_live(a) || !emvuo_live(b)) *bad = 1u;
-    return em_eei_vu_add_raw(a, b);
+    return EMVUO_ADD_RAW(a, b);
 }
 
 /* ACC + fs * ft, the product truncated first. */

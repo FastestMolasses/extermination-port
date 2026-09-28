@@ -23,6 +23,7 @@
 #include "game/em_render_context.h"
 #include "game/em_render_verify_rest.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_static_world_compose.h"
 #include "game/em_status_ui_leftovers.h"
 
 #include <stdio.h>
@@ -58,6 +59,14 @@ typedef uint32_t u32;
 #define SPAD_3B8D   0x70003B8Du
 #define SKIN_816440 0x00816440u
 #define GS_BLOCKS   0x00814220u   /* the value of D_00275674 (checked at load) */
+/* The static world (docs/STATIC_WORLD.md section 5): 001C1D00's tree. */
+#define D_253560    0x00253560u   /* 001E1E60's upload block (export block 1) */
+#define D_253560_SIZE 0x90u
+#define D_817240    0x00817240u   /* 001D4750's constant block (.bss) */
+#define SPAD_3400   0x70003400u   /* 001D5370's two clip matrices */
+#define D_8101D0    0x008101D0u   /* 001C1D00's state block (001AF690 zeroes 0x10) */
+#define D_28A5A0    0x0028A5A0u   /* the bank address word (the loader's slot 0x44) */
+#define VIEWS_MAX   32u
 
 static uint32_t s_arena_words[(ARENA_END - ARENA_BASE) / 4];
 static uint32_t s_ctx_words[(CTX_END - CTX_BASE) / 4];
@@ -70,6 +79,13 @@ static uint8_t s_d241010[8];
 static uint8_t s_d26E510[16];
 static uint8_t s_d26E850[16];
 static uint8_t s_d26E880[16];
+static uint32_t s_d253560_words[D_253560_SIZE / 4];
+static uint32_t s_d817240_words[0x80 / 4];
+static uint32_t s_spad3400_words[0x80 / 4];
+static uint32_t s_d8101D0_words[0x10 / 4];
+/* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
+static uint8_t *s_bank;
+static uint32_t s_bank_address, s_bank_size;
 /* 001DFA40's 16 x 16 table (its stack frame at sp + 0xD0): lanes 0..2 of
  * each entry are written every call, lane 3 never (docs/LOAD_VEIL_PARTICLES.md
  * section 5). */
@@ -84,11 +100,11 @@ static uint8_t s_veil_table[EM_LOAD_VEIL_PARTICLES_TABLE_BYTES];
  * em_rcl_frame_views: main-loop step V reads them in every iteration, before
  * the first area load too). While the binder's request block is bound,
  * own() resolves D_008106C4 through it first (the same bytes). */
-enum { X_810E80, X_810610, X_8105E0, X_8106B0, X_810700, X_8101E4, X_3B8D, X_8102B0, X_BIND_END,
+enum { X_810E80, X_810610, X_8105E0, X_8106B0, X_810700, X_8101E4, X_3B8D, X_8102B0, X_28A5A0, X_BIND_END,
        X_810E88 = X_BIND_END, X_8106C4, X_COUNT };
 static const struct { u32 address, size; } k_external[X_COUNT] = {
     {D_810E80, 2}, {D_810610, 0x40}, {D_8105E0, 0x10}, {D_8106B0, 0x48},
-    {D_810700, 3}, {D_8101E4, 1}, {SPAD_3B8D, 1}, {D_8102B0, 0x320},
+    {D_810700, 3}, {D_8101E4, 1}, {SPAD_3B8D, 1}, {D_8102B0, 0x320}, {D_28A5A0, 4},
     {0x00810E88u, 2}, {0x008106C4u, 1},
 };
 
@@ -99,9 +115,13 @@ static struct {
     uint8_t *ext[X_COUNT];
     EmRclWorkers host;
     /* the lane modules, all over the storage above */
-    EmFrhView frh_views[24];
-    EmRenderContextView rc_views[24];
-    EmPacketChainRegion pc_regions[24];
+    EmFrhView frh_views[VIEWS_MAX];
+    EmRenderContextView rc_views[VIEWS_MAX];
+    EmPacketChainRegion pc_regions[VIEWS_MAX];
+    /* the same views for 001C1D00's tree (em_static_world_compose), with
+     * the read-only marking em_frh's views carry */
+    EmStaticWorldView swc_views[VIEWS_MAX];
+    uint8_t swc_read_only[VIEWS_MAX];
     unsigned view_count;
     EmFrh frh;
     EmRenderContext rc;
@@ -117,6 +137,11 @@ static struct {
      * buffer index (em_rcl_veil_span), cleared by the frame head */
     u32 veil_start, veil_end, veil_slot;
     int veil_ready;
+    /* 001C1D00 in this frame: its channel-0 static run (em_rcl_static_run),
+     * cleared by the frame head; the static world's bank loaded */
+    u32 static_start, static_end, static_runs;
+    int static_ready, static_loaded;
+    EmSwcFault swc_fault;
     EmFrameKickFault kick_fault;
 } R;
 
@@ -177,10 +202,16 @@ static float f32(u32 bits) { float f; memcpy(&f, &bits, 4); return f; }
 
 static void add_view(u32 address, u32 size, uint8_t *bytes, int writable)
 {
+    if (R.view_count >= VIEWS_MAX) {
+        fail(address, "more views than VIEWS_MAX");
+        return;
+    }
     unsigned i = R.view_count++;
     R.frh_views[i] = (EmFrhView){address, size, bytes, writable};
     R.rc_views[i] = (EmRenderContextView){address, size, bytes};
     R.pc_regions[i] = (EmPacketChainRegion){address, size, bytes};
+    R.swc_views[i] = (EmStaticWorldView){address, size, bytes};
+    R.swc_read_only[i] = writable ? 0 : 1;
 }
 
 static void build_views(void)
@@ -197,6 +228,14 @@ static void build_views(void)
     add_view(D_26E510, 16, s_d26E510, 0);
     add_view(D_26E850, 16, s_d26E850, 0);
     add_view(D_26E880, 16, s_d26E880, 0);
+    /* 001C1D00's tree (docs/STATIC_WORLD.md 5.2): 001E1E60's upload block,
+     * 001D4750's constants, 001D5370's scratchpad matrices, the state block
+     * and, once loaded, the bank (read only). */
+    add_view(D_253560, D_253560_SIZE, (uint8_t *)s_d253560_words, 1);
+    add_view(D_817240, 0x80, (uint8_t *)s_d817240_words, 1);
+    add_view(SPAD_3400, 0x80, (uint8_t *)s_spad3400_words, 1);
+    add_view(D_8101D0, 0x10, (uint8_t *)s_d8101D0_words, 1);
+    if (s_bank) add_view(s_bank_address, s_bank_size, s_bank, 0);
     for (unsigned x = 0; x < X_COUNT; ++x)
         if (R.ext[x]) add_view(k_external[x].address, k_external[x].size, R.ext[x], 0);
     R.frh.views = R.frh_views;
@@ -477,10 +516,33 @@ static int g_001E2280(void *ctx, uint64_t tag)
     EmRvrRenderContext rc = {CTXB, 0x2540u};
     return em_rvr_001E2280(&rc, tag, &s_rvr_fault);
 }
+/* 001C1E70's 001D52E0: the grid header from the bank into +0x140..+0x167
+ * (em_swc_001D52E0 over this module's views; the bank must be loaded). */
+static int swc_setup(EmSwc *c)
+{
+    memset(c, 0, sizeof *c);
+    c->views = R.swc_views;
+    c->view_count = R.view_count;
+    c->read_only = R.swc_read_only;
+    /* c->host: every host worker NULL. 001D5BD0 (keys other than 0x0B00),
+     * the flag-0x23 sound branch and 001E1AD0's 001E1760 / 001E17E0 (flag
+     * 0x22) are not reached on the first level; reaching one faults. */
+    return s_bank ? 0 : -1;
+}
+static int swc_done(EmSwc *c, int rc, u32 entry)
+{
+    if (rc >= 0) return 0;
+    R.swc_fault = c->fault;
+    fprintf(stderr, "render context: static world fault in module %d at %08X (code %d, detail %08X)\n",
+            (int)c->fault.module, (unsigned)c->fault.address, (int)c->fault.code, (unsigned)c->fault.detail);
+    return fail(c->fault.address ? c->fault.address : entry, "static world fault");
+}
 static int g_001D52E0(void *ctx)
 {
     (void)ctx;
-    return R.host.w_001D52E0 ? R.host.w_001D52E0(R.host.ctx) : -1;
+    EmSwc c;
+    if (swc_setup(&c) < 0) return fail(0x001D52E0u, "the static-object bank is not loaded");
+    return swc_done(&c, em_swc_001D52E0(&c), 0x001D52E0u);
 }
 static int g_001D8FD0(void *ctx)
 {
@@ -680,10 +742,15 @@ int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *
     }
     R.host = *workers;
     R.light.world.d00810700 = R.ext[X_810700];
+    /* 001AF690 zeroes D_008101D0..DF at 0x1AE040 state 0; the binder binds
+     * at that step (w_001AFCA0), so 001C1D00 starts from state 0 at every
+     * area build. */
+    memset(s_d8101D0_words, 0, sizeof s_d8101D0_words);
     build_views();
     R.bound = 1;
     R.head_ran = 0;
-    return 0;
+    R.static_ready = 0;
+    return R.fault ? -1 : 0;
 }
 
 /* ---- the bound originals -------------------------------------------------- */
@@ -703,6 +770,7 @@ int em_rcl_001D1AE0(int32_t index)
 {
     READY(0);
     R.veil_ready = 0;   /* the channel cursors start over */
+    R.static_ready = 0;
     return done(em_frh_001D1AE0(&R.frh, index), 0x001D1AE0u);
 }
 
@@ -754,6 +822,93 @@ int em_rcl_001C1DC0(void)
         return fail(s_rvr_fault.address ? s_rvr_fault.address : 0x001C1DC0u, "001C1DC0 fault");
     return done(0, 0x001C1DC0u);
 }
+
+/* ---- the static world (docs/STATIC_WORLD.md) ------------------------------ */
+
+int em_rcl_static_world_load(const char *path)
+{
+    if (!R.loaded || R.fault) return -1;
+    if (s_bank) return 0;
+    FILE *f = fopen(path ? path : EM_RCL_STATIC_WORLD_PATH, "rb");
+    if (!f) {
+        fprintf(stderr, "render context: %s is missing (run tools/export_static_world.py)\n",
+                path ? path : EM_RCL_STATIC_WORLD_PATH);
+        return -1;
+    }
+    uint8_t head[0x30];
+    int ok = fread(head, 1, sizeof head, f) == sizeof head && memcmp(head, "EMSW", 4) == 0 &&
+             rd32(head + 4) == 1 && rd32(head + 8) == 2;
+    const u32 bank_address = ok ? rd32(head + 0x10) : 0, bank_size = ok ? rd32(head + 0x14) : 0;
+    ok = ok && bank_address == rd32(head + 12) && bank_size > 0 && bank_size <= 0x1000000u &&
+         rd32(head + 0x20) == D_253560 && rd32(head + 0x24) == D_253560_SIZE;
+    uint8_t *bank = ok ? malloc(bank_size) : NULL;
+    ok = bank && fseek(f, (long)rd32(head + 0x18), SEEK_SET) == 0 && fread(bank, 1, bank_size, f) == bank_size &&
+         fseek(f, (long)rd32(head + 0x28), SEEK_SET) == 0 &&
+         fread(s_d253560_words, 1, D_253560_SIZE, f) == D_253560_SIZE;
+    fclose(f);
+    if (!ok) {
+        free(bank);
+        fprintf(stderr, "render context: %s is not a static-world export\n", path ? path : EM_RCL_STATIC_WORLD_PATH);
+        return -1;
+    }
+    s_bank = bank;
+    s_bank_address = bank_address;
+    s_bank_size = bank_size;
+    build_views();
+    return R.fault ? -1 : 0;
+}
+
+int em_rcl_static_world_loaded(void) { return s_bank != NULL; }
+
+static EmRclStaticSample s_sample;
+static int s_sample_valid;
+
+int em_rcl_001C1D00(uint32_t state_address)
+{
+    READY(1);
+    EmSwc c;
+    if (swc_setup(&c) < 0) return fail(0x001C1D00u, "the static-object bank is not loaded");
+    const u32 start = s_ctx_words[0x10 / 4], ch3 = s_ctx_words[0x1C / 4];
+    /* the inputs, for the smoke's re-execution of the original */
+    EmRclStaticSample *sm = &s_sample;
+    const uint8_t *cam = R.ext[X_810610], *area = R.ext[X_810700];
+    memcpy(sm->ctx, CTXB, sizeof sm->ctx);
+    memcpy(sm->spad, s_spad3A40_words, sizeof sm->spad);
+    if (cam) memcpy(sm->cam610, cam, sizeof sm->cam610);
+    if (area) memcpy(sm->area, area, sizeof sm->area);
+    memcpy(sm->state, s_d8101D0_words, sizeof sm->state);
+    memcpy(sm->d253560, s_d253560_words, sizeof sm->d253560);
+    memcpy(sm->d817240, s_d817240_words, sizeof sm->d817240);
+    memcpy(sm->skin, own(SKIN_816440, sizeof sm->skin), sizeof sm->skin);
+    if (swc_done(&c, em_swc_001C1D00(&c, state_address), 0x001C1D00u) < 0) return -1;
+    R.static_start = start;
+    R.static_end = s_ctx_words[0x10 / 4];
+    R.static_ready = 1;
+    R.static_runs++;
+    sm->runs = R.static_runs;
+    sm->ch0_start = start;
+    sm->ch0_end = R.static_end;
+    sm->ch3_start = ch3;
+    sm->ch3_end = s_ctx_words[0x1C / 4];
+    s_sample_valid = 1;
+    return 0;
+}
+
+const EmRclStaticSample *em_rcl_static_sample(void)
+{
+    return s_sample_valid ? &s_sample : NULL;
+}
+
+int em_rcl_static_run(uint32_t *start, uint32_t *end)
+{
+    if (!R.loaded || R.fault || !R.static_ready || !start || !end) return -1;
+    *start = R.static_start;
+    *end = R.static_end;
+    R.static_ready = 0;
+    return 0;
+}
+
+uint32_t em_rcl_static_runs(void) { return R.static_runs; }
 
 int em_rcl_001D25F0(uint32_t zoom)
 {
@@ -987,6 +1142,7 @@ uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
     if (p >= s_d241010 && p < s_d241010 + sizeof s_d241010) return NULL;
     if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
     if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
+    if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return NULL;
     return p;
 }
 
@@ -1021,6 +1177,7 @@ int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size)
     if (!p || !bytes) return -1;
     for (unsigned x = 0; x < X_COUNT; ++x)
         if (R.ext[x] && p >= R.ext[x] && p < R.ext[x] + k_external[x].size) return -1;
+    if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return -1;
     memcpy(p, bytes, size);
     return 0;
 }

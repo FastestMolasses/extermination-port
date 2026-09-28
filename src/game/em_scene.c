@@ -645,9 +645,19 @@ static int cmp_str(const void *a, const void *b)
 }
 
 /* Load the active scene dir's EMDL files (alphabetical). Returns the
- * number loaded. */
+ * number loaded. AREA11 loads none: its static world is drawn from the
+ * original packets 001C1D00 writes every world frame (em_rcl_001C1D00,
+ * em_static_world_live; docs/STATIC_WORLD.md section 7). The zone meshes
+ * 00..04 held exactly the static-object bank's geometry; 05_movables held
+ * the bank's last 181 vertices and three resources the original never REFs
+ * (placed at the origin by the old exporter). */
 int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
 {
+    if (strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0) {
+        printf("scene: %s — the static world draws from its original packets; no level mesh loads\n",
+               g.scene_dir);
+        return 0;
+    }
     DIR *dir = opendir(g.scene_dir);
     if (!dir) return 0;
 
