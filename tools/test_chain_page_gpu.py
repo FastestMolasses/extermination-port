@@ -18,7 +18,9 @@ Metal window and reads the frame back:
   the line lights in the frame's centre column;
 and the pixel at the frame centre must equal gs_pixel(): the texture
 sampled bilinearly with the GS 4-bit weights at U - 0.5 (REPEAT), TFX
-MODULATE with TCC 1, fog (C * F + FOGCOL * (255 - F)) >> 8, then
+MODULATE with TCC 1, fog FOGCOL + ((C - FOGCOL) * F >> 8) (the rule measured
+in PCSX2's software GS, docs/GS_EXACT.md 5.2; this model used the
+non-original (C * F + FOGCOL * (255 - F)) >> 8 until 2026-09-28), then
 ((A - B) * C >> 7) + D with COLCLAMP. The textures are decoded from the
 route captures' GS memory (tools/export_object_textures.py decode()).
 Refusals: a HIGHLIGHT TEX0, a fogged primitive without the frame's fog, an
@@ -81,7 +83,7 @@ def gs_pixel(tex, u, v, rgba, f, cd, alpha):
     else:
         cs, a = list(rgba[:3]), rgba[3]
     if f is not None:
-        cs = [(cs[c] * f + FOGCOL[c] * (255 - f)) >> 8 for c in range(3)]
+        cs = [FOGCOL[c] + (((cs[c] - FOGCOL[c]) * f) >> 8) for c in range(3)]
     sel, fix = alpha & 0xFF, alpha >> 32 & 0xFF
     pick = lambda s, c: cs[c] if s == 0 else cd[c] if s == 1 else 0
     cc = a if (sel >> 4) & 3 == 0 else fix

@@ -600,9 +600,19 @@ Evidence:
     weight, 78,223 values are off (44,588 in p6_tfx).
   - GSCAP `fog_cols` and `fog_tex` (constant F): the same formula with
     F7 = F << 7.
-- CHAIN_PAGE.md section 5 and OWNER_DRAW.md section 7.2 state
+- CHAIN_PAGE.md section 5 and OWNER_DRAW.md section 7.2 stated
   (F * C + (255 − F) * FOGCOL) >> 8. That form is wrong: it matches only
   1,040 and 640 of 4,096 pixels (decomp GS_CONFORMANCE.md 5.5).
+- **In the Metal path (2026-09-28).** Every integer fog site (the object
+  units, the chain page's primitives, the shadow receivers) now uses the
+  8-bit form of this rule, FOGCOL + ((C − FOGCOL) * F >> 8), through one
+  shader copy (EM_FOG_GS_MSL) of the CPU mirror `em_fog_gs_blend`
+  (src/gfx/metal/em_fog_gs.h). `tools/test_gs_fog_conformance.py`
+  (`make test-gs-fog-conformance`) requires all 8,192 pixels of GSCAP
+  `fog_cols` and `fog_tex` equal through both. Still open there: a Gouraud F
+  reaches the shaders' fog as floor(F) of Metal's float interpolation, not
+  the GS's 8.7 F7, and the skinned float path (level zones, actors) applies
+  the measured weights F / 256 without the floor.
 
 ### 5.3 Alpha test, DATE, Z test, blend, dither, CT16, FBA, FBMSK, COLCLAMP
 

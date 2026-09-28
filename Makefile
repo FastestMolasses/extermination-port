@@ -886,6 +886,12 @@ test-chain-page-reference:
 test-chain-page-gpu:
 	python3 tools/test_chain_page_gpu.py
 
+# The GS fog rule (em_fog_gs_blend and its shader copy) against the GS
+# conformance captures' fogged pixels (decomp build/b16), CPU and Metal.
+.PHONY: test-gs-fog-conformance
+test-gs-fog-conformance:
+	python3 tools/test_gs_fog_conformance.py
+
 .PHONY: test-chain-page
 test-chain-page:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc \

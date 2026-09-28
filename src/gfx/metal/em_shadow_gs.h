@@ -579,8 +579,9 @@ static inline uint32_t em_shadow_gs_bilinear_alpha(float u, float v,
 }
 
 /* The receiver pixel after texturing: MODULATE with the vertex colour
- * (0, 0, 0, a) and TCC 1 gives Cf = 0, Af = At * a >> 7; fog gives Cs =
- * (F * 0 + (255 - F) * FOGCOL) >> 8; TEST: alpha GREATER 0 (AFAIL KEEP),
+ * (0, 0, 0, a) and TCC 1 gives Cf = 0, Af = At * a >> 7; fog (the measured
+ * rule, em_fog_gs_blend) gives Cs = FOGCOL + ((0 - FOGCOL) * F >> 8) =
+ * ((256 - F) * FOGCOL) >> 8; TEST: alpha GREATER 0 (AFAIL KEEP),
  * then DATE/DATM 1 (destination alpha bit 7 set); ALPHA 0x44 with
  * COLCLAMP: C = clamp(((Cs - Cd) * As >> 7) + Cd, 0, 255); the written
  * alpha is As (FBA 0). Returns 0 when the pixel is not written. The
@@ -593,7 +594,7 @@ static inline int em_shadow_gs_receiver_pixel(uint32_t at, uint32_t a,
     if (as == 0u) return 0;
     if (!(dst[3] & 0x80u)) return 0;
     for (unsigned k = 0; k < 3; ++k) {
-        const int32_t cs = (int32_t)(((255u - f) * fogcol[k]) >> 8);
+        const int32_t cs = (int32_t)em_fog_gs_blend(0u, f, fogcol[k]);
         const int32_t d = (cs - (int32_t)dst[k]) * (int32_t)as;
         int32_t c = (int32_t)floor((double)d / 128.0) + (int32_t)dst[k];
         out[k] = (uint8_t)(c < 0 ? 0 : c > 255 ? 255 : c);

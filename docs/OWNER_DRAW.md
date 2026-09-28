@@ -442,8 +442,12 @@ it cannot draw exactly what the original draws; the reason is printed once.
   u = S / Q, v = T / Q per pixel; bilinear with 4-bit weights at the sample
   point U - 0.5 and REPEAT wrap (as the shadow receiver); TFX HIGHLIGHT
   with TCC 1: Cv = min((Ct Cf >> 7) + Af, 255), Av = min(At + Af, 255);
-  alpha test Av > 0 (fail KEEP); fog Cv = (F Cv + (255 - F) FOGCOL) >> 8
-  with the frame's FOGCOL; depth less-equal with write (the GS GEQUAL on
+  alpha test Av > 0 (fail KEEP); fog Cv = FOGCOL + ((Cv - FOGCOL) F >> 8)
+  (floor shift) with the frame's FOGCOL: the rule measured in PCSX2's
+  software GS (GS_EXACT.md 5.2; em_fog_gs_blend and its shader copy
+  EM_FOG_GS_MSL, tools/test_gs_fog_conformance.py). Until 2026-09-28 this
+  section gave (F Cv + (255 - F) FOGCOL) >> 8, which is not original (1,040
+  of 4,096 conformance pixels); depth less-equal with write (the GS GEQUAL on
   its reversed Z); no culling, no blending.
 
 ### 7.3 Textures (tools/export_object_textures.py)
@@ -533,12 +537,14 @@ documented pixel path in Python and compares, away from triangle edges
 
 | Beat | Units | Triangles | Pixels compared | Exact | Within 2 |
 |---|---|---|---|---|---|
-| 03 (default run) | 15 | 3,724 | 153,163 | 99.73 % | 99.99 % |
+| 03 (default run) | 15 | 3,724 | 153,163 | 99.72 % | 99.99 % |
 | 07 (`EM_TEST_FULL=1`) | 4 | 2,066 | 301,801 | 99.95 % | 100 % |
 
-Defects injected into the shader (2026-09-25): the bilinear sample point
-without its -0.5 texel offset (32 % exact) and the fog weight 256 - F (60 %
-exact) are both caught. The model is of the port's pixel path, not of the
+Defects injected into the shader (2026-09-25, when shader and model both
+used the old (255 - F) fog): the bilinear sample point without its -0.5
+texel offset (32 % exact) and a changed fog weight (60 % exact) are both
+caught. Since 2026-09-28 shader and model use the measured fog rule
+(section 7.2); the counts above are re-measured with it. The model is of the port's pixel path, not of the
 GS: it proves the shader implements section 7.2, not that the GS
 rasterizes the same.
 

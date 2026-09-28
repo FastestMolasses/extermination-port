@@ -232,7 +232,9 @@ near `-209`, far `304`, and fog colour ints `48,48,48`. `0021B920` stores
 the VU fog constants `(255, 2048, far*s, -s)` with `s = 255/(far-near)`.
 `0021BA80` packs the colour into GS FOGCOL. The VU1 skinning kernel
 `0023C780` computes `F = A + B*clip_w` per vertex, clamps it to `[0,255]` and
-writes the integer part into XYZF2. The GS then blends toward FOGCOL by `F/255`.
+writes the integer part into XYZF2. The GS then blends toward FOGCOL:
+`FOGCOL + ((C - FOGCOL) * F >> 8)` (measured, GS_EXACT.md 5.2; an earlier
+version of this line said `F/255`, which is not the GS rule).
 `export_level.py --lightrig` now writes `fog -209 304 48 48 48` from the
 record into the light-rig block. It also drops any older standalone `fog`
 line. The Metal backend takes its coefficients from

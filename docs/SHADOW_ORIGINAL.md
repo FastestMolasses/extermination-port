@@ -503,7 +503,8 @@ Backend (`em_gfx_shadow_*`):
   fragment function reproduces the GS pixel pipeline with framebuffer
   fetch: 4-bit-weight bilinear of the target alpha (texel grid 1/16,
   half-texel offset, CLAMP), MODULATE (Cf = 0, Af = At * A >> 7), fog
-  (255 - F) * FOGCOL >> 8, alpha test As > 0, destination alpha bit 7,
+  (256 - F) * FOGCOL >> 8 (the measured rule FOGCOL + ((0 - FOGCOL) * F
+  >> 8), em_fog_gs_blend; GS_EXACT.md 5.2), alpha test As > 0, destination alpha bit 7,
   ALPHA 0x44 with COLCLAMP, written alpha As. A second receiver on the
   same pixel therefore passes only where the first wrote As >= 128, as
   on the GS. The per-pixel A and F are an APPROXIMATION: floor(x * 128 +

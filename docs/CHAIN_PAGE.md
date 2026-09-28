@@ -200,7 +200,10 @@ through the object units' GS-to-NDC mapping, Z through their depth mapping
 (depth GEQUAL, no Z write: AFAIL RGB_ONLY), colour and F screen-linear
 (Gouraud), S, T, Q screen-linear with the per-pixel divide (STQ); the texture
 through its CT32 CLUT, bilinear with the GS 4-bit weights at U - 0.5 and
-REPEAT, TFX MODULATE with TCC 1; fog (C * F + FOGCOL * (255 - F)) >> 8 with
+REPEAT, TFX MODULATE with TCC 1; fog FOGCOL + ((C - FOGCOL) * F >> 8) (floor
+shift; em_fog_gs_blend, the rule measured in PCSX2's software GS, GS_EXACT.md
+5.2 and tools/test_gs_fog_conformance.py; the (C * F + FOGCOL * (255 - F))
+>> 8 this section gave until 2026-09-28 matched 1,040 of 4,096 pixels) with
 the frame's FOGCOL; the blend ((A - B) * C >> 7) + D with COLCLAMP on the
 frame pixel (framebuffer fetch), RGB only. The GS sprite takes Z, F and RGBA
 from its second vertex and S / Q, T / Q at each corner, affine across the

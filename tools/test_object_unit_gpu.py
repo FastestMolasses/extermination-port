@@ -14,7 +14,10 @@ tools/test_object_unit_reference.py) are rasterized here at the capture's
 pixel centres (the em_background_gs_ndc mapping) with the documented pixel
 path: screen-linear RGBA, F and S, T, Q with the per-pixel divide, GS
 bilinear at U - 0.5 with 4-bit weights and REPEAT, TFX HIGHLIGHT with TCC 1,
-the alpha test, the fog blend with FOGCOL, and the nearest depth wins (ties:
+the alpha test, the fog blend FOGCOL + ((C - FOGCOL) * F >> 8) (measured in
+PCSX2's software GS, docs/GS_EXACT.md 5.2; the (C * F + FOGCOL * (255 - F))
+>> 8 this model used until 2026-09-28 was non-original), and the nearest
+depth wins (ties:
 the later triangle). Pixels within 1.5 output pixels of their triangle's
 edges and pixels where two triangles' depths are within 1e-7 are not
 compared (rasterization edges and ties are the GPU's, section 12).
@@ -164,7 +167,7 @@ def model(tris, tex, fogc, W, H):
               tx[yb, xa] * ((16 - fu) * fv)[..., None] + tx[yb, xb] * (fu * fv)[..., None]) >> 8
         rgb = np.stack([np.minimum(((ct[..., k] * cf[k]) >> 7) + cf[3], 255) for k in range(3)], axis=-1)
         alpha = np.minimum(ct[..., 3] + cf[3], 255)
-        rgb = (rgb * F[..., None] + fc * (255 - F)[..., None]) >> 8
+        rgb = fc + (((rgb - fc) * F[..., None]) >> 8)           # measured GS fog (GS_EXACT.md 5.2)
         draw = inside & (alpha > 0)
         sub = (slice(py0, py1 + 1), slice(px0, px1 + 1))
         d0, s0 = depth[sub], second[sub]

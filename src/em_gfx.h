@@ -685,7 +685,8 @@ void em_gfx_char_face_rig(EmGfx *gfx, const EmGfxCharRig *rig);
  * while 0021BA80 packs the ints into GS FOGCOL (0..255 framebuffer
  * units). The VU1 kernel at 0023C780 computes F = clamp(A + B*clip_w,
  * 0, 255) per VERTEX and writes floor(F) into XYZF2; the GS interpolates
- * F across the primitive and blends out = (F/255)*Cs + (1 - F/255)*FOGCOL.
+ * F across the primitive and blends out = FOGCOL + ((Cs - FOGCOL) * F >> 8)
+ * (measured: em_fog_gs_blend, docs/GS_EXACT.md 5.2).
  * AREA-11 (key 0x0B00) uses near = -209, far = 304, FOGCOL (48,48,48).
  * The NEGATIVE near means geometry at the camera (clip_w = 0) is already
  * partly fogged (F = A ~ 151); the near term is not clamped to 0. clip_w
@@ -906,7 +907,8 @@ typedef struct {
  *   texture   the TEX0 through em_gfx_gs_texture (PSMT4 / PSMT8 through a
  *             CT32 CLUT, TCC 1), TFX MODULATE, TEX1 0x60 (bilinear, GS
  *             4-bit weights), CLAMP 0 (REPEAT);
- *   fog       FGE: (C * F + FOGCOL * (255 - F)) >> 8 with the frame's FOGCOL;
+ *   fog       FGE: FOGCOL + ((C - FOGCOL) * F >> 8) (the measured rule,
+ *             em_fog_gs_blend) with the frame's FOGCOL;
  *   test      TEST 0x53001 (alpha NEVER with AFAIL RGB_ONLY: RGB written, no
  *             alpha and no Z; depth GEQUAL);
  *   blend     ABE with ALPHA 0x44 ((Cs - Cd) * As >> 7 + Cd) or
@@ -1006,7 +1008,7 @@ int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t heig
  *             Cv = min((Ct * Cf >> 7) + Af, 255), Av = min(At + Af, 255);
  *   test      TEST 0x5000D: alpha GREATER than 0 (fail KEEP), depth GEQUAL
  *             (the port's less-equal), depth written;
- *   fog       F screen-linear, Cv = (F * Cv + (255 - F) * FOGCOL) >> 8 with
+ *   fog       F screen-linear, Cv = FOGCOL + ((Cv - FOGCOL) * F >> 8) with
  *             the frame's FOGCOL (em_gfx_fog / em_gfx_fog_coefficients);
  *   blending  none (PRIM 0x03C / 0x03B, ABE 0); no face culling.
  * The GS state these assume is the class-0 set the unit's REF 9 names

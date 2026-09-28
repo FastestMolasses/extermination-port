@@ -827,6 +827,19 @@ status pages live, MAP included; STATUS_PAGES.md section 7, census 1.36 and
   models are drawn by the renderer's skinned path with the original's light
   matrices.
 
+**Status update (2026-09-28, GS fog arithmetic: the measured rule in the
+Metal path; GS_EXACT.md 5.2):**
+- Every integer fog site of the Metal path (object units, chain-page
+  primitives, shadow receivers) uses FOGCOL + ((C - FOGCOL) * F >> 8)
+  through one shader copy of `em_fog_gs_blend`; the skinned float path uses
+  the same weights (F / 256) without the floor. The old
+  (F * C + (255 - F) * FOGCOL) >> 8 was not original.
+- Evidence: `make test-gs-fog-conformance` (8,192 of 8,192 GSCAP fog pixels
+  through the C function and the Metal shader). The GPU fixtures' models
+  (test_chain_page_gpu, test_object_unit_gpu) asserted the old form and now
+  assert the measured one.
+- Open: Gouraud F reaches the fog at 8-bit precision (the GS uses 8.7).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to

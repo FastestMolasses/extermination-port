@@ -425,6 +425,7 @@ static NSString *const kParticleShaderSrc =
 static NSString *const kSkinShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
+EM_FOG_GS_MSL
 "struct VOut { float4 pos [[position]]; float3 nrm; float3 wpos;\n"
 "              float3 light_rgb [[center_no_perspective]];\n"
 "              float3 vcol [[center_no_perspective]];\n"
@@ -500,13 +501,15 @@ static NSString *const kSkinShaderSrc =
 "}\n"
 "/* Distance fog (em_gfx_fog, em_fog_gs.h — the per-area GS fog).\n"
 " * Rows: [0] FOGCOL as [0,1] colour + enable, [1] (A, B) coefficients.\n"
-" * f255 is the GS F value interpolated from the vertices (255 keeps the\n"
-" * colour, 0 is pure FOGCOL). The GS blends toward FOGCOL by F / 255\n"
-" * in 8-bit arithmetic; this is the float mix without that\n"
-" * quantization. */\n"
+" * f255 is the GS F value interpolated from the vertices (0 is pure\n"
+" * FOGCOL). The GS rule is FOGCOL + ((C - FOGCOL) * F >> 8) on 8-bit\n"
+" * colours (em_fog_gs_blend, measured: GS_EXACT.md 5.2), so F = 255\n"
+" * still leaves 1/256 of FOGCOL. This float path has no 8-bit colour to\n"
+" * floor: it applies the measured weights F / 256 without the floor\n"
+" * (APPROXIMATION of the rule, not of its weights). */\n"
 "static float3 fog_apply(float3 c, float f255, constant float4 *fog) {\n"
 "    if (fog[0].w <= 0.0) return c;\n"
-"    return mix(fog[0].rgb, c, f255 * (1.0 / 255.0));\n"
+"    return mix(fog[0].rgb, c, f255 * (1.0 / 256.0));\n"
 "}\n"
 "/* GS TEST_1 alpha test (docs/LEVEL_MATERIALS.md). `a` is the filtered\n"
 " * texel alpha as exported (GS alpha At stored as min(255, 2*At)). For\n"
@@ -618,7 +621,7 @@ static NSString *const kSkinShaderSrc =
 "    uint4 d = uint4(round(dst * 255.0));\n"
 "    if ((d.a & 0x80u) == 0u) discard_fragment();\n"
 "    int3 fc = int3(round(fog[0].rgb * 255.0));\n"
-"    int3 cs = int3((uint3(255u - f) * uint3(fc)) >> 8);\n"
+"    int3 cs = int3(em_fog_gs_blend(uint3(0u), f, uint3(fc)));\n"
 "    int3 dc = int3(d.rgb);\n"
 "    float3 prod = float3((cs - dc) * int(as));\n"
 "    int3 c = clamp(int3(floor(prod / 128.0)) + dc, 0, 255);\n"
@@ -3209,6 +3212,7 @@ int em_gfx_shadow_target_read(EmGfx *g, uint8_t *rgba)
 static NSString *const kObjectShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
+EM_FOG_GS_MSL
 "struct OVOut { float4 pos [[position]];\n"
 "               float4 rgba [[center_no_perspective]];\n"
 "               float4 stqf [[center_no_perspective]]; };\n"
@@ -3238,7 +3242,7 @@ static NSString *const kObjectShaderSrc =
 "    if (k.w != 0u) {\n"
 "        uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
 "        uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
-"        c = (c * f + fc * (255u - f)) >> 8;\n"
+"        c = em_fog_gs_blend(c, f, fc);\n"
 "    }\n"
 "    return float4(float3(c) / 255.0, float(a) / 255.0);\n"
 "}\n";
@@ -3403,7 +3407,8 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
  * divided per pixel (STQ). Texels are the raw CLUT entries, read with the GS
  * bilinear rule (sample point U - 0.5 on the 1/16 grid, 4-bit weights) and
  * REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1: Cf = Ct * Cv >> 7, Af = At *
- * Av >> 7 (untextured: Cv, Av); fog (FGE): (C * F + FOGCOL * (255 - F)) >> 8;
+ * Av >> 7 (untextured: Cv, Av); fog (FGE): FOGCOL + ((C - FOGCOL) * F >> 8)
+ * (em_fog_gs_blend, the measured rule: GS_EXACT.md 5.2);
  * the alpha test NEVER with AFAIL RGB_ONLY writes RGB only (the pipeline
  * masks alpha, the depth state writes no Z; depth GEQUAL); the blend
  * ((A - B) * C >> 7) + D with A, B, D each Cs, Cd or 0 and C As or FIX,
@@ -3417,6 +3422,7 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
 static NSString *const kGsPrimShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
+EM_FOG_GS_MSL
 "struct GVOut { float4 pos [[position]];\n"
 "               float4 rgba [[center_no_perspective]];\n"
 "               float4 stqf [[center_no_perspective]]; };\n"
@@ -3438,7 +3444,7 @@ static NSString *const kGsPrimShaderSrc =
 "    if (k[0].w == 0u) return c;\n"
 "    uint f = uint(clamp(floor(fv + 0.001), 0.0, 255.0));\n"
 "    uint3 fc = uint3(k[0].z & 255u, (k[0].z >> 8) & 255u, (k[0].z >> 16) & 255u);\n"
-"    return (c * f + fc * (255u - f)) >> 8;\n"
+"    return em_fog_gs_blend(c, f, fc);\n"
 "}\n"
 "fragment float4 f_gs_tex(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
 "                         texture2d<uint, access::read> tex [[texture(0)]],\n"

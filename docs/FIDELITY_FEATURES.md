@@ -475,10 +475,37 @@ coefficients and colour.
   `tools/test_area11_fog_reference.py` executes the original fog chain
   against captured AREA11 RAM. Commits 8c9a9ad, ce7271f, fc272a7, e99d8cb.
 - Status: **VERIFIED** for AREA11, relative to PCSX2. Caveats: the ERLENG
-  model is the same on both sides of the test; the shader's final fog
-  evaluation is not executed against the original; the +0x1D8 channel-3 list
+  model is the same on both sides of the test; the shader's per-vertex F is
+  not executed against the original kernel; the fog blend itself is the
+  measured GS rule (next entry), but on the level's skinned path it is
+  applied to float colours without the GS floor; the +0x1D8 channel-3 list
   is a native stand-in; pixels are Metal sampling, not compared with a GS
   framebuffer.
+
+**The GS fog blend, as PCSX2's software GS computes it**
+
+Fogged pixels blend toward the fog colour with the GS's own arithmetic,
+FOGCOL + ((C - FOGCOL) * F >> 8), applied after the texture function. With
+F = 255 a trace of the fog colour remains, as on the GS.
+
+- How: one C function (`em_fog_gs_blend`, src/gfx/metal/em_fog_gs.h) and
+  one shader copy of it serve every integer fog site of the Metal path: the
+  objects drawn by the translated VU1 object program (crates, drums, truck,
+  panel, ...), the chain page's decals, sprites and lines, and the player's
+  drop-shadow receivers. The skinned path (level zones and characters)
+  applies the same weights to float colours.
+- Evidence: decomp `GS_CONFORMANCE.md` 5.5 measured the rule in PCSX2's
+  software GS (4,096 of 4,096 flat-F pixels, 4,096 of 4,096 fogged-MODULATE
+  pixels); `GS_EXACT.md` 5.2. `make test-gs-fog-conformance` runs the C
+  function and the Metal shader over those captured tests' inputs and
+  requires all 8,192 pixels equal to the captures (16,384 with the repeat
+  capture under `EM_TEST_FULL=1`); the form the port used before, (F * C +
+  (255 - F) * FOGCOL) >> 8, matches only 1,040 and 640 of 4,096 there.
+- Status: **PARTIAL**. Exact for a constant F. For an F that varies across a
+  triangle the GS blends with an 8.7 weight, while the shaders use floor(F)
+  of Metal's float interpolation; on the skinned path the result is not
+  floored to 8 bits. No drawn first-level frame is compared with a GS
+  framebuffer yet.
 
 **Original GS material rules on level surfaces**
 
