@@ -150,6 +150,13 @@ int em_actor_roster_spawn_001B6990(const EmActorRoster *roster, EmActorPool *poo
                                    EmActorRosterProgress *progress, EmActorRosterBindFn bind,
                                    void *bind_ctx, EmActorRosterSpawnLog *log);
 
+/* 001B11E0(a0) (the taken-bit test the spawners' condition 1 uses; its
+ * other caller is the gun cable 00827490's lifecycle 0): with a0 & 0xFF == 0
+ * it returns 0, else 1 when bit (a0 & 0x1F) of the word at D_00810860 +
+ * (D_00810700 << 5) + ((a0 & 0xFF) >> 5) * 4 is set, 0 when it is clear. A
+ * word outside `progress` faults (BAD_INDEX, -1). */
+int em_actor_roster_001B11E0(EmSceneState *scene, EmActorRosterProgress *progress, int arg);
+
 /* 001C5C50: alloc(8); on success model 3, param 0, callback 001C5930. An
  * alloc failure returns 0 like the original. Returns 0 or -1 (fault). */
 int em_actor_roster_spawn_001C5C50(EmActorPool *pool, EmSceneState *scene, EmActorRosterBindFn bind,

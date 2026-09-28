@@ -54,8 +54,8 @@ DRAW_MODE0, KERNEL = 0x1CAA00, 0x23C750
 SCRATCH_DIR, SCRATCH_COLOR = 0x70003400, 0x70003440
 # (area-table entry) -> port asset. Behaviour addresses are documentation.
 AREA11_MODELS = {
-    0x06: ('scene_snow/props/area_husk_partner.emdl', '00827490 husk partner'),
-    0x08: ('scene_snow/props/area_husk_creature.emdl', '00825940 husk creature'),
+    0x06: ('scene_snow/props/area_husk_partner.emdl', '00827490 gun cable'),
+    0x08: ('scene_snow/props/area_husk_creature.emdl', '00825940 security gun'),
     0x09: ('scene_snow/props/area_truck.emdl', '00823FF0 truck'),
     0x0B: ('scene_snow/props/area_item_0b.emdl', '0015AFA0 pickup item 0B'),
     0x0D: ('scene_snow/props/enemy_crate.emdl', '001551B0 crate'),

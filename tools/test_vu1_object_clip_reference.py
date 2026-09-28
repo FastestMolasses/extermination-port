@@ -55,7 +55,7 @@ B. Every other intact clip unit found in the captured memory (both display
    including two 21-node units), deduplicated by content: the same checks.
    Quick mode runs a covering sample (one per node count); EM_TEST_FULL=1
    runs all.
-C. Synthetic batches on the husk-partner unit's image (2 nodes), solved back
+C. Synthetic batches on the gun-cable unit's image (2 nodes), solved back
    through its node matrices from GS-space targets: near (w around 0.1),
    wide, huge (many triangles), mix, behind, far (A + B w below 0), flags
    (random data-word bits 10..15, entries at i = 0/1 reading below TOP),
@@ -885,9 +885,9 @@ def main():
         b_items.append((f'{name} {hex(s)}', name, s, e, FULL))
     b_run = select(b_items, 3, 0xB0, axes=(lambda i: u32(CAP[i[1]], i[2] + 96) & 0xFFFF,))
 
-    # C. synthetic, on the husk-partner unit (2 nodes)
-    husk = next(i for i in a_items if i[0].endswith('0x827490'))
-    BASE_UNIT = unit_pieces(CAP[husk[1]], unit_tags(CAP[husk[1]], husk[2], husk[3]))[:4]
+    # C. synthetic, on the gun-cable unit (2 nodes)
+    cable = next(i for i in a_items if i[0].endswith('0x827490'))
+    BASE_UNIT = unit_pieces(CAP[cable[1]], unit_tags(CAP[cable[1]], cable[2], cable[3]))[:4]
     assert BASE_UNIT[1] == 2
     synth = [(s, 1000 * k + j) for k, s in enumerate(STYLES) for j in range(pick(48, 6))]
 

@@ -889,56 +889,10 @@ enum {
     EM_ENEMY_KIND_BUG     = 2,   /* the nest hatchling (s68)           */
     /* 3 was the AREA-11 drum (00156620), retired in census L25 (its
      * original owner runs in em_area11_boxes.c). */
-    EM_ENEMY_KIND_HUSK_CREATURE = 4, /* AREA-11 door-husk scripted creature
-                                  * (deferred record 7, ov 0x00825940 /
-                                  * func_00825900, model 0x1A — FINDINGS
-                                  * "Door-position creature/husk set-piece"
-                                  * + INVESTIGATION_first_level_area11 §5.2
-                                  * + INVESTIGATION_area11_director §5).
-                                  * The staged "first-monster moment" actor
-                                  * by the room-move door at (387,231.8,290.3).
-                                  * SELF-CONTAINED: its own timer/proximity
-                                  * state machine (states 0..4, the live
-                                  * 0x64 scripted timer), reads NO story flag
-                                  * — NOT driven by the D_00810813 director
-                                  * (director §5 static negative). At the
-                                  * OPENING it is STAGED-INERT: present and
-                                  * visible but not aggroing (the opening
-                                  * must stay enemy-free, owner-required).
-                                  * NOT shootable (it is the scripted actor,
-                                  * not the husk). Engine spawns one child
-                                  * through func_001AFA90(0x7A) — and that
-                                  * function is now byte-matched, so the
-                                  * param is settled: it is an actor CLASS
-                                  * byte, not a mesh id. func_001AFA90 masks
-                                  * it with ~0xE0, so 0x7A means class 0x1A
-                                  * with the two high flag bits (0x60) set,
-                                  * stores the whole byte at child +0x02,
-                                  * pops a 0x2F0-byte actor off the free
-                                  * list, gives it identity scales, a zero
-                                  * position and +0x94 = -1, and links it
-                                  * into the active list. It binds NO model
-                                  * at all — whatever the child renders comes
-                                  * from its own init, which is undecoded.
-                                  * FLAGGED, not invented.
-                                  * MESH: <scene>/props/area_husk_creature
-                                  * .emdl. See "DOOR-HUSK PAIR" in em_enemy.c */
-    EM_ENEMY_KIND_HUSK_PARTNER  = 5  /* AREA-11 door-husk SHOOTABLE husk
-                                  * (deferred record 8, ov 0x00827490 /
-                                  * func_00827490, model 0x29 burst-husk-B —
-                                  * same docs as HUSK_CREATURE). HP 1,
-                                  * shootable: polls its +0x36 mailbox and on
-                                  * death BURSTS with gore FX 0x80000045
-                                  * (flagged — not directly reproducible;
-                                  * the port reuses the gib/explosion FX
-                                  * path). Partner-linked (engine puid 0x50,
-                                  * taken-bit persistence — the port models
-                                  * the SHOOTABLE/BURST arm; the link/persist
-                                  * is flagged, see em_enemy.c). At the
-                                  * OPENING it too is STAGED-INERT (no aggro,
-                                  * no attack, no movement — it just stands
-                                  * shootable). MESH: <scene>/props/
-                                  * area_husk_partner.emdl */
+    /* 4 and 5 were the AREA11 security gun 00825940 and its cable
+     * 00827490 (earlier notes called them a "husk" pair), retired in census
+     * L24: their original owners run on their pool nodes
+     * (em_area11_bindings.c, docs/SECURITY_GUN.md). */
 };
 
 /* Reset the instance list (boot / scene reload). Does not free GPU
@@ -953,12 +907,7 @@ int em_enemy_add(EmGfx *gfx, const float pos[3], float yaw);
 /* Kind-aware spawn (manifest dispatch): EM_ENEMY_KIND_CRAWLER is
  * em_enemy_add; EM_ENEMY_KIND_BUG places one bug; EM_ENEMY_KIND_CRATE
  * places the disguised crate with the default nest-group size (and
- * preloads the bug + gib assets its burst will need);
- * EM_ENEMY_KIND_HUSK_CREATURE / EM_ENEMY_KIND_HUSK_PARTNER place the
- * AREA-11 door-husk pair, both STAGED-INERT at the opening (the
- * creature is a scripted idle actor; the partner is HP-1 shootable —
- * see "DOOR-HUSK PAIR" in em_enemy.c). The husk meshes are scene-local
- * (<scene>/props/area_husk_creature.emdl / area_husk_partner.emdl). */
+ * preloads the bug + gib assets its burst will need). */
 int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw);
 
 /* Crate spawn with an explicit nest-group size (`enemy crate ... bugs

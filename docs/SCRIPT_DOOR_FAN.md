@@ -1,14 +1,17 @@
-# Script host, door and fan/husk lanes (`script-door-fan`)
+# Script host, door and fan / security-gun lanes (`script-door-fan`)
 
 Lane "script-door-fan" (build lane `b7-script-door-fan`, session s87,
 2026-09-23). It covers three census lanes of `FIRST_LEVEL_CENSUS.md`:
-**L19-script-host**, **L18-door-original** and **L24-fan-husk**. It
+**L19-script-host**, **L18-door-original** and **L24** (the fan pair and the
+security gun with its cable; the census once named it L24-fan-husk). It
 translates the rows marked missing and stand-in and verifies the rows marked
 unverified. For the verified-unbound rows it adds binding notes only.
 
 - Code: `src/game/em_script_door_fan.{h,c}` (boot-ELF leaves) and
-  `src/game/em_script_door_fan_husk.{h,c}` (the AREA11 overlay owners
-  0x825940, 0x827490 and 0x823CE0).
+  `src/game/em_security_gun.{h,c}` (the AREA11 overlay owners 0x825940,
+  the security gun, 0x827490, its cable, and 0x823CE0, the flag-0x30
+  manager; renamed from em_script_door_fan_husk in census L24, whose
+  identity and binding are docs/SECURITY_GUN.md).
 - Oracle: `tools/test_script_door_fan_reference.py`. It takes about 3 s by
   default and about 60 s with `EM_TEST_FULL=1`.
 - Sanitizer fixture: `tests/script_door_fan_test.c` (ASan/UBSan, 55 checks, no
@@ -16,8 +19,9 @@ unverified. For the verified-unbound rows it adds binding notes only.
 
 **Status:** `em_script_door_fan.c` is in the game build; its 001B0080 is live
 (census L13..L16) and its 001B1B30 / 001BBD60 are live on the fence door
-(census L18). The husk module is built and oracle-verified, not wired. Section 5 gives the binding, and section 7 lists the changes to
-existing files that only the lead or coordinator may make.
+(census L18). Since census L24 (2026-09-28) the gun and its cable run live
+on `em_security_gun` (SECURITY_GUN.md section 5); the flag-0x30 manager is
+built and oracle-verified, not wired. Section 5 gives the binding notes.
 
 Addresses are original runtime addresses. Overlay functions are cited at
 runtime; the splat listing names each one 0x40 lower (the MWo3 header
@@ -63,14 +67,14 @@ original instructions of the row with no hook on them.
 | 001BBE40 | v-u | v-u | `em_door_transit_kickoff` | test_door_transit_reference |
 | 001B94F0 op01 | v-u | v-u | `em_area_script` op01 | test_area_script_reference |
 
-### L24-fan-husk (4 rows)
+### L24 (4 rows)
 
 | Function | Before | After | Translation | Oracle |
 |---|---|---|---|---|
 | 0x827630 fan pair | v-u | v-u | `em_fan_original` | test_fan_original_reference |
-| 0x825940 husk creature | stand-in (em_enemy.c legacy `em_enemy_update`, interim 001C5570 child spawn) | **v-u, partial**: lifecycles 0, 0x64, 2, 3 and "other" are translated; lifecycles 1 and 4 fault | `em_husk_creature_tick` (new) | part 3 |
-| 0x827490 husk partner | stand-in (em_enemy.c legacy) | **v-u** | `em_husk_partner_tick` (new) | part 3 |
-| 0x823CE0 manager r11 | missing (a dormant node with no code) | **v-u** | `em_husk_manager_tick` (new) | part 3 |
+| 0x825940 security gun | stand-in (em_enemy.c legacy `em_enemy_update`, interim 001C5570 child spawn) | **v-u, partial**: lifecycles 0, 0x64, 2, 3 and "other" are translated; lifecycles 1 and 4 fault | `em_gun_tick` (new) | part 3 |
+| 0x827490 gun cable | stand-in (em_enemy.c legacy) | **v-u** | `em_gun_cable_tick` (new) | part 3 |
+| 0x823CE0 flag-0x30 manager | missing (a dormant node with no code) | **v-u** | `em_flag30_manager_tick` (new) | part 3 |
 
 ### 1.4 Census corrections found on the way
 
@@ -163,9 +167,9 @@ original instructions of the row with no hook on them.
   - Either way, D_008105E0 = target and D_008105D0 = eye. The adds go through
     the EE add model.
 
-### em_script_door_fan_husk.c (AREA11 overlay, no decomp C)
+### em_security_gun.c (AREA11 overlay, no decomp C)
 
-- **Husk creature 0x825940.** It dispatches on +4.
+- **Security gun 0x825940.** It dispatches on +4.
   - **Lifecycle 0** runs 001B0FD0 (non-zero result: return), then sets +4 = 4
     when D_00810788 == 0xFF (001BA1C0, inline) and 0x64 otherwise, and +0 = 1.
     It sets +0x28 = 300 + ((300 × (rand >> 16)) >> 15), using 00122BB8 and the
@@ -178,7 +182,7 @@ original instructions of the row with no hook on them.
     = 0. It spawns the class-0xC child through 001AFA90. The child gets +0x9A,
     +3, +0x2E, +0xD = 0x7A, +0xE = 0xFFFF, +0x54, +0x56, +0xA0..+0xAC = (0, 0,
     0, 0.25), the quad copies of +0xB0/+0xC0, and +0x10 = 001C5680. The
-    creature then sets +0x220 = child and +0x224 = 0.
+    gun then sets +0x220 = child and +0x224 = 0.
   - **Lifecycle 0x64 (dormant)** sets +4 = 4 when the flag is 0xFF. Then it
     calls 001C6380, 001B17A0 and the +0x4C draw.
   - **Lifecycle 2** checks the flag first; with the flag not 0xFF it runs only
@@ -186,17 +190,17 @@ original instructions of the row with no hook on them.
     - With the flag, it moves +0x1FC toward −π/2 by +0x1F8, clamped (EE
       add/sub and compare), and sets bone 3 +0x78 = −0.8290 + 0.3054 ×
       sin(+0x1FC).
-    - It then copies the matrix of the creature's bone 3 onto the child's
+    - It then copies the matrix of the gun's bone 3 onto the child's
       (00102958).
     - At exactly −π/2 it counts +0x21C down, puts (+0x21C / 90) into
       0x70003A20, and drives the child's +0xA0 vector: x or y, chosen by +0x224.
   - **Lifecycle 3 and every value not listed** call 001AFC10 (free).
   - **Lifecycles 1 and 4 are not translated.** The native faults at 0x826190 or
-    0x825B74 (EM_HUSK_FAULT_UNTRANSLATED). See section 6.
-- **Husk partner 0x827490.**
+    0x825B74 (EM_GUN_FAULT_UNTRANSLATED). See section 6.
+- **Gun cable 0x827490.**
   - **Lifecycle 0:** 001B0FD0; then +0x34 = 1 and +0 = 1. If 001B11E0(+0x9A)
-    reports the taken bit, the linked record at +0x18 (the creature) gets
-    +4 = 2, and the partner sets its own +4 = 3.
+    reports the taken bit, the linked record at +0x18 (the gun) gets
+    +4 = 2, and the cable sets its own +4 = 3.
   - **Lifecycle 1:** when shot (+0x36 ≠ 0) it sets +0 = 2, linked +4 = 2 and
     linked +0x21C = 0x5A, then calls 001EFE00(0x80000045, actor). If that FX
     call returns 0, it sets +4 = 3. Otherwise it plays sound 0x426 (range 300),
@@ -303,31 +307,32 @@ Captures:
   which sets +0x2E = 0 first.
 - **Fail-stop.** A missing worker faults at its address before the step it
   guards (001B1B30's 001B1630), and a fault latches. An entry outside the image faults. A bone count
-  past the +0x110 array faults before +0xC is written. The husk trio faults
+  past the +0x110 array faults before +0xC is written. The gun trio faults
   on a missing 001B17A0.
 
-### 3.3 Part 3: em_script_door_fan_husk.c
+### 3.3 Part 3: em_security_gun.c
 
 - **Captured states.** Before running anything, the test asserts that the
   three functions' bytes in every image equal the user's
   `extract/OVERLAY/AREA11.BIN`. Every captured AREA11 RAM image is then
   ticked once for all three owners, from the captured node: 24 images in full
   mode (the 9 startup-reference captures other than the opening, and the 15
-  route beats), 4 by default.
-  Every image shows the creature at 0x64, the partner at 1 and the manager at
+  route beats 00..14; route beat 15 is the AREA01 arrival, another overlay,
+  and is left out of the image set since census L24), 4 by default.
+  Every image shows the gun at 0x64, the cable at 1 and the manager at
   1/phase 0, all with D_00810788 = 0. That is the first-visit path.
 - **Unit cases** (289 full, 150 default):
-  - creature setup: flag 0/1/0xFF × 001B0FD0 0/1 × rand extremes × a child or
+  - gun setup: flag 0/1/0xFF × 001B0FD0 0/1 × rand extremes × a child or
     none;
   - every other lifecycle;
   - lifecycle 2 over angles below, above and exactly at −π/2 × steps ×
     countdowns × +0x224 × flag;
-  - the partner and manager state tables in full.
+  - the cable and manager state tables in full.
 - **Multi-tick lockstep runs:**
-  - creature setup → dormant, then the flag rises to 1 and to 0xFF, entering
+  - gun setup → dormant, then the flag rises to 1 and to 0xFF, entering
     lifecycle 4;
-  - creature swing to −π/2 and countdown (20 ticks);
-  - partner setup → shot → fall with sound 0x427 at 10 (16 ticks);
+  - gun swing to −π/2 and countdown (20 ticks);
+  - cable setup → shot → fall with sound 0x427 at 10 (16 ticks);
   - manager wait → start → poll → end → free.
 - **Untranslated lifecycles.** For lifecycles 1 and 4 the oracle hooks the
   original entries 0x826190 and 0x825B74. The test asserts that the original
@@ -338,16 +343,16 @@ Captures:
 Every conditional branch inside the translated ranges is observed both ways.
 The ranges are 001BA510, 001BAC00, 001BAD40, 001B1B30, 001BBD60 and
 001B0080 (001BC240 / 001BC290 run in test_door_original_reference, whose
-cases take both ways of 001BC290's D_008106B8 test); the creature's 0x825940..0x825B74 and
-0x826D60..0x826F2C; the whole partner and the whole manager. The test asserts
+cases take both ways of 001BC290's D_008106B8 test); the gun's 0x825940..0x825B74 and
+0x826D60..0x826F2C; the whole cable and the whole manager. The test asserts
 this in both modes, with no exceptions.
 
 Each of these mutations fails the default run:
 
 - 001BAD40 mode `< 3` → `<= 3`;
 - the 001BAC00 default-handler test on +0xA != 4;
-- the creature timer shift;
-- partner `< 10` → `<= 10`;
+- the gun timer shift;
+- cable `< 10` → `<= 10`;
 - the swing angle with host float arithmetic;
 - the manager mask;
 - 001B0080's +17, a dropped wrap, the host-float y add, and a zeroed vector
@@ -360,7 +365,7 @@ The default run takes about 3 s: part 1 ≈ 1 s on 8 workers, parts 2 and 3
 
 ## 5. Binding (for the coordinator)
 
-General: one `EmSdfWorkers` / `EmHuskWorkers` per owner, with `ctx`
+General: one `EmSdfWorkers` / `EmGunWorkers` per owner, with `ctx`
 identifying the actor. The adapters map the views onto the canonical storage,
 call the function, and write the view back. The fault records use the same
 codes 1 (NULL) and 2 (worker failed) as `EM_SCENE_FAULT_*`. The remaining
@@ -449,59 +454,29 @@ codes are listed in each header.
 
 ### 5.3 L24
 
-- **Fan 0x827630.** Follow FAN_ORIGINAL.md "Binding". It replaces the NULL
-  row "fan: static" of `em_area11_bindings.c` (em_pickup's static draw).
-- **Creature 0x825940.** It replaces `tick_enemy_00825940`, which is the
-  legacy `em_enemy_update` group through `em_game_legacy_enemy_tick` plus its
-  state-0 inline child spawn (0x825A74: 0x7A, (0, 0, 0, 0.25), a 001C5680
-  node of its own; the translation must write that child's +0xA0 through the
-  node the spawn keeps at its +0x220, em_area11_bindings.c).
-  - Call `em_husk_creature_tick(view, world, w, fault)` per pool tick.
-  - The view maps +0, +4, +0x28, +0xB0..+0xCC, +0x11C and +0x1F4..+0x224 of
-    the record.
-  - The world maps `d810758` to `EmProgress` (D_00810758..; 0x30 is
-    D_00810788) and `spad3A20` to scratchpad 0x70003A20. The manager uses
-    `d8106C8` and `d810808`.
-  - Workers:
-    - 001B0FD0 → the model/bone setup (as `em_fan_original`'s w_001B0FD0);
-    - 00122BB8 → the game rand (`em_random`, shared state);
-    - 0011E2A8 → `em_area_script_w_0011E2A8` (verified to |x| ≤ 3π/4;
-      setup passes 0 and the swing keeps +0x1FC within [−π/2, 0]);
-    - r_00275B40 / s_bone_f32 → the current bone work array (the pool walk
-      sets D_00275B40 = node + 0x110 before the behaviour; em_actor_pool
-      notes);
-    - 001A2370 → the actor-hull re-transform (L07);
-    - 001AFA90 → `em_actor_pool` alloc of class 0xC, returning the child's
-      view. The child's +0x10 = 001C5680 must be bound to the indicator
-      light node. The creature spawns it itself: **delete the interim
-      001C5570 spawn** when this binds;
-    - r_child_220 → the record at +0x220;
-    - 00102958 → the matrix copy;
-    - 001C6380, 001B17A0, the draw, and 001AFC10.
-- **Partner 0x827490.** It replaces `tick_enemies` for this node.
-  - `r_link_18` returns the view of the record at +0x18 (in AREA11, the
-    creature node): lifecycle +4 and +0x21C.
-  - Workers: 001B11E0/001B1190 → the taken-bit test/set over
-    `EmProgress` D_00810860 (em_pickup's migrated taken bits); 001EFE00 → FX
-    spawn (L26); 001FBD50 → sound (cue 0x426 and 0x427, range 300).
-  - This restores the partner's persistent taken bit and its shot reaction.
-    The audit W17 residue lists both as missing.
-- **Manager 0x823CE0.** It replaces the NULL row "manager: dormant".
+- **Fan 0x827630, gun 0x825940 and cable 0x827490: bound (census L24,
+  2026-09-28).** The live binding, its workers, what faults and the evidence
+  are SECURITY_GUN.md section 5 and FAN_ORIGINAL.md "Binding". The legacy
+  em_enemy group, the interim lamp spawn and em_pickup's static fan draw are
+  retired.
+- **Manager 0x823CE0** (the flag-0x30 manager; still the NULL row "manager:
+  dormant").
   - Workers: 001BA1A0/001BA1F0 → an `em_area_script` host on this node's
     +0x1F0 block, with the script image holding 0x828C70; 001D2830,
     001C1DC0, 001FABB0, 001AEE10, 001C4760 and 001FAE70 → their
     `EmSceneWorkers` bindings (001C4760 = `em_director_original_001C4760`).
   - In the first visit it only runs its lifecycle 0 → 1 step and 001B17A0
     every tick. The script path is revisit content.
-- **Remove the husk pair from `em_enemy`'s aggregate** when binding, so no
-  node runs twice.
 
 ## 6. Limits and open items
 
-- **Creature lifecycles 1 and 4 are not translated.** They span
+- **Gun lifecycles 1 and 4 are not translated here.** They span
   0x825B74..0x826190 and 0x826190..0x826D60, about 1,150 instructions of the
-  active creature. Their callees include the overlay helpers 0x826F70 and
-  0x827440, the probe 0019B6C0, 001EFD90 and the SDK trig.
+  active gun. Their callees include the overlay helpers 0x826F30 and
+  0x827400 (corrected in SECURITY_GUN.md; an earlier revision of this
+  section named them 0x40 high), the probe 0019B6C0, 001EFD90 and the SDK
+  trig. Phase B15 translated them in `em_security_gun_rest` (verified, not
+  bound in the first level).
   - They are entered only after D_00810788 == 0xFF.
   - In AREA11 only the manager's script 0x828C70 could raise that flag, and the
     manager starts that script only after something else has set the flag
@@ -525,13 +500,14 @@ codes are listed in each header.
 
 ## 7. Changes still needed in existing files (lead / coordinator)
 
-- **Makefile.** `src/game/em_script_door_fan.c` is in `COMMON`, and both
-  targets (`test-script-door-fan`, `test-script-door-fan-reference`) exist.
-  Add `src/game/em_script_door_fan_husk.c` to `COMMON` when the husk
-  binding lands.
-- **Rebinding.** Still to do as section 5 describes: `em_opening_runtime.c`
-  case 20 (op14, still the no-op stand-in; census 001BAC00 verified-unbound)
-  and `em_area11_bindings.c`'s husk rows 0x825940, 0x827490 and 0x823CE0
-  (and `tick_enemy_00825940`'s child spawn; census verified-unbound). Done:
-  `EmScriptHostWorkers.w_001B0080` is bound (em_camera_live, census L13..L16),
-  and the census has taken the corrections of 1.4.
+- **Makefile.** `src/game/em_script_door_fan.c`, and since census L24
+  `src/game/em_security_gun.c`, are in `COMMON`; both targets
+  (`test-script-door-fan`, `test-script-door-fan-reference`) exist.
+- **Rebinding.** Done in census L24: `em_area11_bindings.c` binds 0x825940
+  and 0x827490 (SECURITY_GUN.md 5), and the gun's lifecycle 0 spawns its
+  own lamp (the interim child spawn is deleted). Still to do:
+  `em_opening_runtime.c` case 20 (op14, still the no-op stand-in; census
+  001BAC00 verified-unbound) and the flag-0x30 manager 0x823CE0's row
+  ("manager: dormant", no code). Done earlier:
+  `EmScriptHostWorkers.w_001B0080` is bound (em_camera_live, census
+  L13..L16), and the census has taken the corrections of 1.4.

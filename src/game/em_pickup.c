@@ -25,9 +25,12 @@
  * area_item_13.emdl) are driven in the original by the overlay behaviour
  * 00827630: a timed spin cycle on actor +0xC8 (the rot.z leg of
  * build_trs_matrix, not the placement yaw) with a 60-tick wait, ramp,
- * hold and ramp down, sound 0x451 and a player hit box. The cycle is not
- * translated yet (WP-11, overlay oracle for 00827630); the port draws the
- * pair STATIC. 00827630's state-0 init rot.z (+/-pi/4 by +0x2E) is
+ * hold and ramp down, sound 0x451 and a player hit box. Since census L24
+ * the AREA11 fans run that owner (em_fan_original, em_area11_bindings.c
+ * tick_fan) on their roster nodes and draw their original 001CAA00 units;
+ * the fan's bind retires the static instance here (em_pickup_prop_retire),
+ * which therefore draws only before the owner's first call. 00827630's
+ * state-0 init rot.z (+/-pi/4 by +0x2E) is
  * implemented by em_pickup_owner_init_pose, but it applies ONLY when the
  * manifest pickup line carries `owner 0x827630 <flags2>`; without that
  * suffix (the local manifest as of this writing) the fans are drawn with

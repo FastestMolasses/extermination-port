@@ -132,8 +132,8 @@ over all 193 owners:
 | 001C4820 | 5 | 5 | 5/5 |
 | 001C5680 indicators | 32 | 32 | 99/99 |
 | 00823E80 parachute | 5 | 5 | 5/5 |
-| 00825940 husk creature | 5 | 5 | 20/20 |
-| 00827490 husk partner | 5 | 5 | 10/10 |
+| 00825940 security gun | 5 | 5 | 20/20 |
+| 00827490 gun cable | 5 | 5 | 10/10 |
 | 00823FF0 truck | 5 | 4 (every wedged state 4) | 4/5 |
 | 001C5760 | 5 | 5 | 1/5 |
 | 001BC350 door | 5 | 5 | 0/10 (animated nodes) |

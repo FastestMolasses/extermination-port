@@ -3,7 +3,7 @@
  *
  * Hand translations of (boot ELF SCUS-97112 and the AREA11 overlay):
  *   001C5680  the indicator child behaviour, models from bank D_0028A56C
- *             (pickup lights 0x73, the panel's 0x75, the husk's 0x7A)
+ *             (pickup lights 0x73, the panel's 0x75, the security gun's lamp 0x7A)
  *   001C5760  the same behaviour, models from bank D_0028A59C (the
  *             terminal's 0x10); +0x0A != 0 re-runs 001C6380 before a draw
  *   0x827EAC..0x827FE8  the tail of the AREA11 terminal owner 00827B10 that

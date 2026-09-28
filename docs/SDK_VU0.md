@@ -85,7 +85,7 @@ for an original record or address still copy through those accessors. The
 leaf would add nothing between the accessor's load and store. These are:
 - the record helpers of em_player_closure_0e_18 and em_player_closure_10_12_19
 - em_player_running_jump's and em_player_recovery's +0xB0 loops
-- em_script_door_fan_husk's field loops
+- em_security_gun's field loops
 - em_player_equipment's `spad_put`
 - em_render_context's `ldq`
 

@@ -1,4 +1,4 @@
-/* Sanitizer fixture for em_script_door_fan / em_script_door_fan_husk
+/* Sanitizer fixture for em_script_door_fan / em_security_gun
  * (docs/SCRIPT_DOOR_FAN.md). Behaviour against the original is proven by
  * tools/test_script_door_fan_reference.py; this fixture runs every entry
  * point under ASan/UBSan with scripted workers and checks the fail-stop
@@ -10,7 +10,7 @@
 #include <string.h>
 
 #include "game/em_script_door_fan.h"
-#include "game/em_script_door_fan_husk.h"
+#include "game/em_security_gun.h"
 
 static int failures, checks;
 #define CHECK(cond) do { ++checks; if (!(cond)) { ++failures; \
@@ -162,10 +162,10 @@ static void test_sdf(void)
     CHECK(em_sdf_001B1B30(&visible, 1.0f, 0, 0, &w, &fault) == -1 && calls == 0);
 }
 
-/* ---- husk trio ----------------------------------------------------------- */
+/* ---- gun trio ------------------------------------------------------------ */
 
-static EmHuskChild child;
-static EmHuskLinked linked;
+static EmGunLamp child;
+static EmGunLinked linked;
 static int32_t script_result;
 static int h_ok(void *ctx) { (void)ctx; ++calls; return 0; }
 static int h_res0(void *ctx, int32_t *r) { (void)ctx; *r = 0; return 0; }
@@ -174,21 +174,21 @@ static int h_sin(void *ctx, float x, float *r) { (void)ctx; *r = x; return 0; }
 static int h_slot(void *ctx, uint32_t index, uint32_t *bone) { (void)ctx; *bone = 0x900000u + index; return 0; }
 static int h_bone(void *ctx, uint32_t bone, uint32_t off, float v) { (void)ctx; (void)bone; (void)off; (void)v; return 0; }
 static int h_u32(void *ctx, uint32_t v) { (void)ctx; (void)v; return 0; }
-static int h_alloc(void *ctx, uint8_t cls, uint32_t *node, EmHuskChild **view) { (void)ctx; (void)cls; *node = 0x7ADD60u; *view = &child; return 0; }
-static int h_child(void *ctx, uint32_t a, EmHuskChild **view) { (void)ctx; (void)a; *view = &child; return 0; }
+static int h_alloc(void *ctx, uint8_t cls, uint32_t *node, EmGunLamp **view) { (void)ctx; (void)cls; *node = 0x7ADD60u; *view = &child; return 0; }
+static int h_child(void *ctx, uint32_t a, EmGunLamp **view) { (void)ctx; (void)a; *view = &child; return 0; }
 static int h_u32u32(void *ctx, uint32_t a, uint32_t b) { (void)ctx; (void)a; (void)b; return 0; }
 static int h_bit(void *ctx, uint8_t id, int32_t *r) { (void)ctx; (void)id; *r = 0; return 0; }
 static int h_u8(void *ctx, uint8_t id) { (void)ctx; (void)id; return 0; }
 static int h_fx(void *ctx, uint32_t fx, int32_t *r) { (void)ctx; (void)fx; *r = 1; return 0; }
 static int h_sound(void *ctx, int32_t cue, int32_t a2, float range) { (void)ctx; (void)cue; (void)a2; (void)range; return 0; }
-static int h_link(void *ctx, EmHuskLinked **l) { (void)ctx; *l = &linked; return 0; }
+static int h_link(void *ctx, EmGunLinked **l) { (void)ctx; *l = &linked; return 0; }
 static int h_poll(void *ctx, int32_t *r) { (void)ctx; *r = script_result; return 0; }
 static int h_ii(void *ctx, int32_t a, int32_t b) { (void)ctx; (void)a; (void)b; return 0; }
 static int h_i(void *ctx, int32_t a) { (void)ctx; (void)a; return 0; }
 
-static EmHuskWorkers husk_workers(void)
+static EmGunWorkers gun_workers(void)
 {
-    EmHuskWorkers w;
+    EmGunWorkers w;
     memset(&w, 0, sizeof w);
     w.w_001C6380 = h_ok; w.w_001B17A0 = h_ok; w.w_draw_4C = h_ok; w.w_001AFC10 = h_ok;
     w.w_001B0FD0 = h_res0; w.w_00122BB8 = h_rand; w.w_0011E2A8 = h_sin; w.r_00275B40 = h_slot;
@@ -200,69 +200,69 @@ static EmHuskWorkers husk_workers(void)
     return w;
 }
 
-static void test_husk(void)
+static void test_gun(void)
 {
-    EmHuskWorkers w = husk_workers();
+    EmGunWorkers w = gun_workers();
     uint8_t flags[256];
     memset(flags, 0, sizeof flags);
     uint32_t c6c8 = 0xFFFFFFFFu;
     uint8_t d808 = 0;
     float spad = 0.0f;
-    EmHuskWorld world = {flags, &c6c8, &d808, &spad};
-    EmHuskFault fault = {0, 0};
+    EmGunWorld world = {flags, &c6c8, &d808, &spad};
+    EmGunFault fault = {0, 0};
 
-    EmHuskCreature h;
+    EmGun h;
     memset(&h, 0, sizeof h);
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 0x64 &&
-          h.timer_28 == 300 + 299 && h.child_220 == 0x7ADD60u && child.b0D == EM_HUSK_CHILD_MODEL);
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 0x64);
-    flags[EM_HUSK_FLAG_30] = 0xFF;
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 4);
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == -1 &&
-          fault.code == EM_HUSK_FAULT_UNTRANSLATED && fault.address == 0x00825B74u);
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 0x64 &&
+          h.timer_28 == 300 + 299 && h.child_220 == 0x7ADD60u && child.b0D == EM_GUN_LAMP_MODEL);
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 0x64);
+    flags[EM_GUN_FLAG_30] = 0xFF;
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == 1 && h.lifecycle == 4);
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == -1 &&
+          fault.code == EM_GUN_FAULT_UNTRANSLATED && fault.address == 0x00825B74u);
     fault.code = 0;
     h.lifecycle = 2; h.f1FC = -1.0f; h.f1F8 = 0.25f; h.w21C = 2;
     for (int i = 0; i < 6; ++i)
-        CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == 1);
+        CHECK(em_gun_tick(&h, &world, &w, &fault) == 1);
     CHECK(h.w21C == 0 && spad == 0.0f && child.fA0[3] == 0.25f);
     h.lifecycle = 9;
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == 0 && h.freed == 1);
-    CHECK(em_husk_creature_tick(&h, &world, &w, &fault) == -1 && fault.code == EM_HUSK_FAULT_FREED);
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == 0 && h.freed == 1);
+    CHECK(em_gun_tick(&h, &world, &w, &fault) == -1 && fault.code == EM_GUN_FAULT_FREED);
 
     fault.code = 0;
-    EmHuskPartner p;
+    EmGunCable p;
     memset(&p, 0, sizeof p);
-    CHECK(em_husk_partner_tick(&p, &w, &fault) == 1 && p.lifecycle == 1 && p.h34 == 1);
+    CHECK(em_gun_cable_tick(&p, &w, &fault) == 1 && p.lifecycle == 1 && p.h34 == 1);
     p.hit_36 = 1;
-    CHECK(em_husk_partner_tick(&p, &w, &fault) == 1 && p.lifecycle == 2 && linked.lifecycle == 2 &&
+    CHECK(em_gun_cable_tick(&p, &w, &fault) == 1 && p.lifecycle == 2 && linked.lifecycle == 2 &&
           linked.w21C == 0x5A);
     for (int i = 0; i < 12; ++i)
-        CHECK(em_husk_partner_tick(&p, &w, &fault) == 1);
+        CHECK(em_gun_cable_tick(&p, &w, &fault) == 1);
     CHECK(p.timer_28 == 10);
 
-    EmHuskManager m;
+    EmFlag30Manager m;
     memset(&m, 0, sizeof m);
-    flags[EM_HUSK_FLAG_30] = 0;
-    CHECK(em_husk_manager_tick(&m, &world, &w, &fault) == 1 && m.lifecycle == 1 && m.b00 == 1);
-    flags[EM_HUSK_FLAG_30] = 1;
-    CHECK(em_husk_manager_tick(&m, &world, &w, &fault) == 1 && m.phase == 1 &&
+    flags[EM_GUN_FLAG_30] = 0;
+    CHECK(em_flag30_manager_tick(&m, &world, &w, &fault) == 1 && m.lifecycle == 1 && m.b00 == 1);
+    flags[EM_GUN_FLAG_30] = 1;
+    CHECK(em_flag30_manager_tick(&m, &world, &w, &fault) == 1 && m.phase == 1 &&
           c6c8 == 0xF1FFFF8Fu);
     script_result = 1;
-    CHECK(em_husk_manager_tick(&m, &world, &w, &fault) == 1 && m.lifecycle == 3 && d808 == 0xFF &&
+    CHECK(em_flag30_manager_tick(&m, &world, &w, &fault) == 1 && m.lifecycle == 3 && d808 == 0xFF &&
           m.h2E == 0xFFFF && (c6c8 & 0x40u));
-    CHECK(em_husk_manager_tick(&m, &world, &w, &fault) == 0 && m.freed == 1);
+    CHECK(em_flag30_manager_tick(&m, &world, &w, &fault) == 0 && m.freed == 1);
 
     fault.code = 0;
     memset(&m, 0, sizeof m);
     world.d810758 = NULL;
-    CHECK(em_husk_manager_tick(&m, &world, &w, &fault) == -1 && fault.code == EM_HUSK_FAULT_NULL &&
+    CHECK(em_flag30_manager_tick(&m, &world, &w, &fault) == -1 && fault.code == EM_GUN_FAULT_NULL &&
           fault.address == 0x00810788u);
 }
 
 int main(void)
 {
     test_sdf();
-    test_husk();
+    test_gun();
     printf("script_door_fan_test: %d/%d checks passed\n", checks - failures, checks);
     return failures != 0;
 }

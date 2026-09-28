@@ -16,7 +16,7 @@ bytes in. The table and all 21 models it indexes form one contiguous span.
 Spawn records: the AREA11 overlay's placement table (extract/OVERLAY/
 AREA11.BIN at original address 0x0082A3C0, 40-byte records, halfword +0x04 =
 the model id, word +0x24 = the behaviour) names the id of every placed owner.
-Owners spawned at run time (the husk pair) are found in the captures.
+Owners spawned at run time (the security gun and its cable) are found in the captures.
 
 --verify-ram (repeatable; defaults to playable_ee.bin and every AREA11 route
 capture that exists)
@@ -29,7 +29,7 @@ checks, per captured EE RAM image:
     +0x0C == the model's bone count, and every +0x110 slot below it is set;
   * every placed owner's record id equals its captured +0x0D.
 The run fails unless the crates (001551B0), drums (00156620), fan (00827630),
-truck (00823FF0), elevator (00827B10) and husks (00825940, 00827490) were all
+truck (00823FF0), elevator (00827B10) and the security gun and its cable (00825940, 00827490) were all
 seen bound to bank models.
 
 Output (disc-derived: git-ignored assets/ only):
@@ -66,7 +66,7 @@ BLOCK_HEAD = (0, 0, 0x01000404, 0x6C808000)   # STCYCL 4,4; UNPACK V4-32 128 at 
 BLOCK_TAIL = (0x14000000, 0x17000000)          # MSCAL 0 (first block), MSCNT
 PLACEMENT, OVERLAY_ARENA, RECORD = 0x0082A3C0, 0x00823500, 40
 REQUIRED = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00827630: 'fan', 0x00823FF0: 'truck',
-            0x00827B10: 'elevator', 0x00825940: 'husk creature', 0x00827490: 'husk partner'}
+            0x00827B10: 'elevator', 0x00825940: 'security gun', 0x00827490: 'gun cable'}
 
 
 def u32(b, a): return struct.unpack_from('<I', b, a)[0]

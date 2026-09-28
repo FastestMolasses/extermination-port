@@ -49,7 +49,7 @@ fails the tool. Both traces become (original function, state) per call.
 | 001FAE70 | the music cue's fade length | em_stream_lanes_001FAE70 (music_select) |
 | 001F1110 / 001F1180 | the items' aura | em_pickup_aura_001F1110 / _001F1180, em_effect_manager_aura_draw |
 | 008235F0 (0x8236B4) | the AREA11 effect owner's first tick | em_area11_effect_tick |
-| 00825940 (0x8259F0) | the husk creature's lifecycle 0 | em_script_door_fan_husk (not bound, L24) |
+| 00825940 (0x8259F0) | the security gun's lifecycle 0 (its +0x28 scan timer) | em_gun_tick's gun_setup (em_security_gun, bound since census L24) |
 | 001D0720 | the faces' blink, expression and mouth | em_opening_face_tick |
 | 001E2560 | the head sprites' wait and scalar | em_head_sprite_original_tick |
 | 001E55F0 | the weather | em_weather_tick |
@@ -89,9 +89,9 @@ The two traces are aligned on the area entry: port counter 1273 = original frame
 | Check | Result |
 |---|---|
 | The area-entry frame | Equal: one call, 001FAE70 from state 1 |
-| Call for call (caller and state) | 4 calls equal: the area entry, then AE+1's two sway draws and 001F1110 |
-| First difference | AE+1: the original's husk creature 00825940 draws (0x8259F0) before the effect owner 008235F0; the port has no husk draw. From there on every value is one step off. |
-| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1312 with the switch), except AE+1, where only the husk's draw is missing |
+| Call for call (caller and state) | 126 calls equal (4 before census L24): the area entry, AE+1's calls including the security gun's 0x8259F0 draw, and every call up to AE+5 |
+| First difference | AE+5: the original's player stage draws for the player's face (00183090 -> 001D0C70 -> 001D0720, after the barrel); the port's opening faces run on em_opening_actor from AE+16 (design risk 2), so that draw is missing and the port's next call draws from the same state. From there on every value is one step off. (Until census L24 it was AE+1: the security gun's lifecycle-0 draw, which the gun now draws on its own record.) |
+| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1312 with the switch), the security gun's AE+1 draw included |
 | The 30 frames after first control | Equal |
 | The opening's end | Port AE+1303 at host speed (the default) against the original's AE+1324: exactly 21 frames earlier. AE+1313 (11 earlier) with the PS2 disc-drive timing switch on |
 
@@ -198,11 +198,10 @@ instructions.
 
 ## 6. What still differs (for the lead)
 
-1. **The husk creature 00825940** (census L24, verified-unbound). Its lifecycle-0 draw
-   at AE+1 is the one call the port's opening misses. Binding the creature on its
-   record (SCRIPT_DOOR_FAN.md section 5.3) makes the opening equal call for call up
-   to the next divergence.
-2. **The faces in the opening** (design risk 2).
+1. **Done (census L24): the security gun 00825940.** Its lifecycle-0 draw at AE+1
+   (0x8259F0) now runs on its own record (SECURITY_GUN.md 5.1); the opening is equal
+   call for call up to the faces' divergence below.
+2. **The faces in the opening** (design risk 2): now the first difference (AE+5).
    - The player's face must tick at the player stage's 00183090 under 3B8F == 2,
      after the barrel, from AE+5.
    - Roger's face must tick in his owner, in the pool walk, from AE+2.

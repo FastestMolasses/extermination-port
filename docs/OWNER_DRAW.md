@@ -9,14 +9,16 @@ the terminal / elevator (00827B10), the panel (00159210), the placed prop
 (001C4820), the items (00219550) and the map item (0015AFA0), and the
 opening controller's parachute canopy (00823E80): their +0x4C builds the
 original unit through the translations (section 10) and the renderer draws
-the triangles the original VU1 programs kick (section 7). The fan pair, the
-husks, Roger and the indicator children still draw through stand-ins
-(section 11).
+the triangles the original VU1 programs kick (section 7). Since census L24
+the fan pair (00827630), the security gun (00825940) and its cable
+(00827490) do too, on their original owners (SECURITY_GUN.md,
+FAN_ORIGINAL.md). Roger and the indicator children still draw through
+stand-ins (section 11).
 
 This document answers three questions for the AREA11 world owners: the crates
 (001551B0), drums (00156620), fan (00827630), truck (00823FF0), elevator
 (00827B10), panel (00159210), prop (001C4820), items (00219550, 0015AFA0),
-canopy (00823E80) and husks (00825940, 00827490).
+canopy (00823E80), the security gun (00825940) and its cable (00827490).
 
 1. What does the original draw for one owner? What goes to VU1 and the GS?
 2. How does the port reproduce it, and with what evidence?
@@ -117,7 +119,7 @@ Section 3 lists them.
 
 One owner with n bones and no clip gives **0x100 + 0x80·(n-1) + 0x50 bytes**.
 That is 0x150 for the crate, fan, truck and elevator, 0x1D0 for the drum and
-the husk partner, and 0x2D0 for the husk creature. The clip variant adds 0x40.
+the gun cable, and 0x2D0 for the security gun. The clip variant adds 0x40.
 The units are written at the channel 0 cursor, in this order:
 
 | # | Tag | Written by | Content |
@@ -220,8 +222,8 @@ capture. 001B0EA0 looks models up in it by owner +0x0D. The lookup is
 | Id | Blocks | Bones | Owners (placement record / captured) |
 |---|---|---|---|
 | 0x04 | 13 | 1 | panel 00159210, 001C4820 |
-| 0x06 | 4 | 2 | husk partner 00827490 (spawned at run time) |
-| 0x08 | 16 | 4 | husk creature 00825940 (spawned at run time) |
+| 0x06 | 4 | 2 | gun cable 00827490 (spawned at run time) |
+| 0x08 | 16 | 4 | security gun 00825940 (spawned at run time) |
 | 0x09 | 76 | 1 | truck 00823FF0 |
 | 0x0B | 1 | 1 | pickup 0015AFA0 (captured only) |
 | 0x0D | 6 | 1 | crates 001551B0 |
@@ -290,7 +292,8 @@ and a bank model: 255 owner-frames. For each one:
 1. The **original** 001CAA00 runs over the captured RAM and scratchpad, with
    the draw loop's D_00275B48/44/40 set.
 2. Its unit is located in the captured display list, on every byte the
-   original writes. For crates, drums, fan, truck, elevator and husks, a
+   original writes. For crates, drums, fan, truck, elevator, the security
+   gun and its cable, a
    drawn unit that is missing from the list fails the test.
 3. The **native** chain runs: em_owner_services_001CAA00 with
    - `w_001CA7B0` = em_owner_draw_001CA7B0;
@@ -312,8 +315,8 @@ Full run results:
 | fan 00827630 | 30 | 12 | 0 | 18 | 12 of 12 |
 | truck 00823FF0 | 15 | 8 | 1 | 6 | 9 of 9 |
 | elevator 00827B10 | 15 | 6 | 2 | 7 | 8 of 8 |
-| husk creature 00825940 | 15 | 7 | 0 | 8 | 7 of 7 |
-| husk partner 00827490 | 15 | 6 | 2 | 7 | 8 of 8 |
+| security gun 00825940 | 15 | 7 | 0 | 8 | 7 of 7 |
+| gun cable 00827490 | 15 | 6 | 2 | 7 | 8 of 8 |
 | parachute 00823E80 | 15 | 6 | 5 | 4 | 11 of 11 |
 | door 001BC350 | 15 | 7 | 1 | 7 | 8 of 8 |
 | panel 00159210 | 15 | 6 | 1 | 8 | 7 of 7 |
@@ -334,8 +337,8 @@ Full run results:
   - the truck in 04;
   - the elevator and 001C4820 in 05;
   - a crate in 08;
-  - the husk partner and the door in 09;
-  - the husk partner in 11.
+  - the gun cable and the door in 09;
+  - the gun cable in 11.
 
 **Defect injection** (2026-09-24). 24 native defects were injected, and the
 quick run catches all 24:
@@ -729,9 +732,7 @@ renderer's skinned path.
 | the player during the opening (design risk 2) | the opening runtime's actors, then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening player on the record pose |
 | Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
 | Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
-| the fan pair 00827630 | the legacy prop instances (static: no spin) | the owner itself (census L24): em_fan_original is verified, but its tail reaches the level exit 001B0C60(1, 1, 4) and the player hit (+0x00 = 3, +0x0F = 6, +0x224), whose consumers are not verified; its spin cycle counts the owner's calls from its spawn, and whether the port's call count at each snapshot equals the original's (the opening's length differs: the stream drive's latency, VOICE limitations) has not been measured |
-| the husks 00825940 / 00827490 | em_enemy's legacy meshes (group 'enemies') | the owners (census L24): the creature's lifecycles 1 and 4 are untranslated, its lifecycle 0 draws one rand() (0x8259F0, the +0x28 timer: the one call the port's opening misses, RAND_ORDER.md; the dormant 0x64 wait draws none), the partner's hit reaches 001EFE00 and 001B11E0 |
-| the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the 0x7A child draws nothing | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
+| the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the security gun's 0x7A lamp draws nothing (dark in the first level: its colour is (0, 0, 0, 0.25)) | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
 ## 12. Limits
 

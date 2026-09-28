@@ -34,7 +34,7 @@ then submits the model after DMA CALL 0023C750, the object kernel.
   reproduces this slice (OPENING_LIGHTING.md).
 
 The capture confirms this path. In `playable_ee.bin`, every model record of
-parachute, truck, door, husk pair, crate, egg, fan and item 0B carries a
+parachute, truck, door, security gun and its cable, crate, egg, fan and item 0B carries a
 unit normal with w = 0. That is 4,064 records in total.
 
 ## What changed
@@ -172,10 +172,11 @@ This contract is proven equal to the original above but is not wired into
 `char_rig_build`. Since the owner-draw steps (2026-09-25/26) the bound
 AREA11 owners do not use it: the crates, drums, truck, fence door,
 terminal/elevator, panel, placed prop, items, the parachute canopy, the
-player and its equipment nodes light through the translated 001D89D0 on the
+player and its equipment nodes, and since census L24 the fan pair, the
+security gun and its cable, light through the translated 001D89D0 on the
 object-unit path (OWNER_DRAW.md, ACTOR_LIGHT_001D89D0.md). The owners that
-OWNER_DRAW.md section 11 lists as not on that path yet (Roger, the fan pair,
-the husks, the player during the opening) draw port meshes; where such a
+OWNER_DRAW.md section 11 lists as not on that path yet (Roger, the player
+during the opening) draw port meshes; where such a
 draw takes a rig, and for the status-menu player, it is `em_render_frame.c`'s
 `char_rig_build`, which the points below describe:
 
@@ -188,15 +189,18 @@ draw takes a rig, and for the status-menu player, it is `em_render_frame.c`'s
 5. Each vertex is lit with its own node's matrix.
 
 On the `char_rig_build` path, the report measures these maximum differences:
-item 0B 162, husk partner 17, door 14, truck 5 and parachute 2 GS units (the
-item, door, truck and parachute now draw through 001D89D0 instead).
+item 0B 162, gun cable 17, door 14, truck 5 and parachute 2 GS units (the
+item, door, truck, parachute and gun cable now draw through 001D89D0
+instead).
 
 ## Limits
 
-- **Husk creature.** Captured node 3 carries a 65 degree rotation that
-  node 0 does not. The shipped static mesh bakes rest poses under one palette. On
-  176 records the result differs by up to 58 GS units, and the geometry
-  differs too. It needs a per-node palette from its owner.
+- **Security gun (resolved by census L24).** Captured node 3 carries a 65
+  degree rotation that node 0 does not, which the retired legacy static
+  mesh baked under one palette (up to 58 GS units off on 176 records). The
+  gun now draws its owner's 001CAA00 unit over its own node matrices
+  (SECURITY_GUN.md), which the level smoke's check_owner_units compares
+  with the original's.
 - **Gibs and the global office crate.** They were relit with verified
   geometry, but they are not present in any capture.
 - **Rig-less scenes** (`assets/scene`, `scene_office0`; outside the first

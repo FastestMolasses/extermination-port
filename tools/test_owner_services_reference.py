@@ -1105,7 +1105,7 @@ def case_capture(args):
 # 2) its +0xD0 is the fall result, not a 001C6380 placement.
 REPRODUCED = {0x1551B0: 'crate', 0x156620: 'drum', 0x159210: 'panel', 0x15AFA0: 'pickup 0B',
               0x1C4820: 'prop 1C4820', 0x1C5680: 'indicator', 0x219550: 'pickup', 0x823E80: 'parachute',
-              0x825940: 'husk creature', 0x827490: 'husk partner', 0x827630: 'fan',
+              0x825940: 'security gun', 0x827490: 'gun cable', 0x827630: 'fan',
               0x827B10: 'elevator terminal'}
 PLAYER = 0x8102B0
 

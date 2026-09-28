@@ -21,11 +21,11 @@ leave on the two actors the opening spawns. (The door's phase wrappers 001BC240 
 em_door_original's phases 4 and 5; tools/test_door_original_reference.py
 runs them, with the route beat 09 replay.)
 
-Part 3, em_script_door_fan_husk.c: the AREA11 overlay functions 0x825940,
+Part 3, em_security_gun.c: the AREA11 overlay functions 0x825940,
 0x827490 and 0x823CE0 execute from the captured RAM (the test first asserts
 those bytes equal the user's extract/OVERLAY/AREA11.BIN at the same offsets).
 Every captured AREA11 RAM image is ticked from its captured state; unit
-cases and multi-tick lockstep runs cover the rest. The creature's lifecycles
+cases and multi-tick lockstep runs cover the rest. The gun's lifecycles
 1 and 4 are not translated: the test asserts the original enters them at
 0x826190 / 0x825B74 exactly where the native faults.
 
@@ -79,10 +79,10 @@ RANGES = {
     '001BA510': (0x1BA510, 0x1BA540), '001BAC00': (0x1BAC00, 0x1BAD3C),
     '001BAD40': (0x1BAD40, 0x1BB0E0), '001B1B30': (0x1B1B30, 0x1B1B70),
     '001BBD60': (0x1BBD60, 0x1BBD94), '001B0080': (0x1B0080, 0x1B0244),
-    'creature': (0x825940, 0x825B74), 'creature-2': (0x826D60, 0x826F2C),
-    'partner': (0x827490, 0x827628), 'manager': (0x823CE0, 0x823E80),
+    'gun': (0x825940, 0x825B74), 'gun-2': (0x826D60, 0x826F2C),
+    'cable': (0x827490, 0x827628), 'manager': (0x823CE0, 0x823E80),
 }
-UNTRANSLATED = {1: 0x826190, 4: 0x825B74}   # creature lifecycles (fault)
+UNTRANSLATED = {1: 0x826190, 4: 0x825B74}   # gun lifecycles (fault)
 # Conditional branches that cannot go both ways, with the reason.
 BRANCH_EXCEPTIONS = {}
 
@@ -254,7 +254,7 @@ class Child(C.Structure):
                 ('pos_B0', C.c_uint32 * 4), ('rot_C0', C.c_uint32 * 4), ('bone3_11C', C.c_uint32)]
 
 
-class Creature(C.Structure):
+class GunRec(C.Structure):
     _fields_ = [('b00', C.c_uint8), ('lifecycle', C.c_uint8), ('timer_28', C.c_int16),
                 ('pos_B0', C.c_uint32 * 4), ('rot_C0', C.c_uint32 * 4), ('bone3_11C', C.c_uint32),
                 ('f1F4', C.c_float), ('f1F8', C.c_float), ('f1FC', C.c_float),
@@ -264,7 +264,7 @@ class Creature(C.Structure):
                 ('w224', C.c_int32), ('freed', C.c_uint8)]
 
 
-class Partner(C.Structure):
+class CableRec(C.Structure):
     _fields_ = [('b00', C.c_uint8), ('lifecycle', C.c_uint8), ('timer_28', C.c_int16),
                 ('h34', C.c_int16), ('hit_36', C.c_int16), ('item_9A', C.c_uint8),
                 ('freed', C.c_uint8)]
@@ -279,13 +279,13 @@ class Manager(C.Structure):
                 ('h28', C.c_int16), ('h2E', C.c_uint16), ('freed', C.c_uint8)]
 
 
-class HuskWorld(C.Structure):
+class GunWorld(C.Structure):
     _fields_ = [('d810758', P8), ('d8106C8', P32), ('d810808', P8), ('spad3A20', PF)]
 
 
 PPC = C.POINTER(C.POINTER(Child))
 V = C.c_void_p
-HUSK_WORKERS = [
+GUN_WORKERS = [
     ('w_001C6380', F(C.c_int, V)), ('w_001B17A0', F(C.c_int, V)), ('w_draw_4C', F(C.c_int, V)),
     ('w_001AFC10', F(C.c_int, V)), ('w_001B0FD0', F(C.c_int, V, PI32)),
     ('w_00122BB8', F(C.c_int, V, PI32)), ('w_0011E2A8', F(C.c_int, V, C.c_float, PF)),
@@ -306,15 +306,15 @@ HUSK_WORKERS = [
 ]
 
 
-class HuskWorkers(C.Structure):
-    _fields_ = [('ctx', C.c_void_p)] + [(n, t) for n, t in HUSK_WORKERS]
+class GunWorkers(C.Structure):
+    _fields_ = [('ctx', C.c_void_p)] + [(n, t) for n, t in GUN_WORKERS]
 
 
 LAYOUT = r'''
 #include <stddef.h>
 #include <stdio.h>
 #include "game/em_script_door_fan.h"
-#include "game/em_script_door_fan_husk.h"
+#include "game/em_security_gun.h"
 #define S(t) printf("%zu ", sizeof(t))
 #define O(t, f) printf("%zu ", offsetof(t, f))
 int main(void) {
@@ -322,9 +322,9 @@ int main(void) {
   S(EmSdfSpawnOwner); S(EmSdfEventActor); O(EmSdfEventActor, bones_110);
   S(EmSdfWorld); O(EmSdfWorld, d275BCC); S(EmSdfImage);
   S(EmSdfWorkers); O(EmSdfWorkers, w_001B1B70); S(EmSdfSeat); S(EmSdfSeatWorld);
-  S(EmHuskChild); O(EmHuskChild, bone3_11C); S(EmHuskCreature); O(EmHuskCreature, freed);
-  S(EmHuskPartner); S(EmHuskLinked); S(EmHuskManager); S(EmHuskWorld);
-  S(EmHuskWorkers); O(EmHuskWorkers, w_001FAE70);
+  S(EmGunLamp); O(EmGunLamp, bone3_11C); S(EmGun); O(EmGun, freed);
+  S(EmGunCable); S(EmGunLinked); S(EmFlag30Manager); S(EmGunWorld);
+  S(EmGunWorkers); O(EmGunWorkers, w_001FAE70);
   printf("\n"); return 0; }
 '''
 
@@ -332,7 +332,7 @@ int main(void) {
 def build():
     OUT.mkdir(parents=True, exist_ok=True)
     lib = OUT / 'script_door_fan.dylib'
-    sources = ['src/game/em_script_door_fan.c', 'src/game/em_script_door_fan_husk.c']
+    sources = ['src/game/em_script_door_fan.c', 'src/game/em_security_gun.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc', *sources, '-o', str(lib)],
                    cwd=ROOT, check=True)
@@ -346,9 +346,9 @@ def build():
             C.sizeof(EventActor), EventActor.bones_110.offset, C.sizeof(World),
             World.d275BCC.offset, C.sizeof(Image), C.sizeof(SdfWorkers),
             SdfWorkers.w_001B1B70.offset, C.sizeof(Seat), C.sizeof(SeatWorld), C.sizeof(Child), Child.bone3_11C.offset,
-            C.sizeof(Creature), Creature.freed.offset, C.sizeof(Partner), C.sizeof(Linked),
-            C.sizeof(Manager), C.sizeof(HuskWorld), C.sizeof(HuskWorkers),
-            HuskWorkers.w_001FAE70.offset]
+            C.sizeof(GunRec), GunRec.freed.offset, C.sizeof(CableRec), C.sizeof(Linked),
+            C.sizeof(Manager), C.sizeof(GunWorld), C.sizeof(GunWorkers),
+            GunWorkers.w_001FAE70.offset]
     assert got == mine, ('ctypes layout differs from C', got, mine)
     native = C.CDLL(str(lib))
     native.em_sdf_001BA510.argtypes = [P8, C.POINTER(Fault)]
@@ -362,12 +362,12 @@ def build():
                                        C.POINTER(SdfWorkers), C.POINTER(Fault)]
     native.em_sdf_001BBD60.argtypes = [C.c_int16, C.c_uint16, P32, C.POINTER(SdfWorkers),
                                        C.POINTER(Fault)]
-    native.em_husk_creature_tick.argtypes = [C.POINTER(Creature), C.POINTER(HuskWorld),
-                                             C.POINTER(HuskWorkers), C.POINTER(Fault)]
-    native.em_husk_partner_tick.argtypes = [C.POINTER(Partner), C.POINTER(HuskWorkers),
+    native.em_gun_tick.argtypes = [C.POINTER(GunRec), C.POINTER(GunWorld),
+                                             C.POINTER(GunWorkers), C.POINTER(Fault)]
+    native.em_gun_cable_tick.argtypes = [C.POINTER(CableRec), C.POINTER(GunWorkers),
                                             C.POINTER(Fault)]
-    native.em_husk_manager_tick.argtypes = [C.POINTER(Manager), C.POINTER(HuskWorld),
-                                            C.POINTER(HuskWorkers), C.POINTER(Fault)]
+    native.em_flag30_manager_tick.argtypes = [C.POINTER(Manager), C.POINTER(GunWorld),
+                                            C.POINTER(GunWorkers), C.POINTER(Fault)]
     return native
 
 
@@ -1202,7 +1202,7 @@ def check_opening_capture():
 # Part 3: the AREA11 overlay owners
 # ======================================================================
 
-CREATURE_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x28, 2, 'timer_28'),
+GUN_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x28, 2, 'timer_28'),
                    (0x11C, 4, 'bone3_11C'), (0x1F4, 4, 'f1F4'), (0x1F8, 4, 'f1F8'),
                    (0x1FC, 4, 'f1FC'), (0x200, 4, 'w200'), (0x204, 4, 'w204'), (0x208, 4, 'w208'),
                    (0x20C, 4, 'w20C'), (0x210, 4, 'f210'), (0x214, 4, 'f214'), (0x218, 4, 'f218'),
@@ -1210,7 +1210,7 @@ CREATURE_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x28, 2, 'timer_28
 CHILD_FIELDS = [(0x03, 1, 'b03'), (0x0D, 1, 'b0D'), (0x0E, 2, 'h0E'), (0x10, 4, 'handler_10'),
                 (0x2E, 2, 'h2E'), (0x54, 2, 'h54'), (0x56, 2, 'h56'), (0x9A, 1, 'b9A'),
                 (0x11C, 4, 'bone3_11C')]
-PARTNER_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x28, 2, 'timer_28'),
+CABLE_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x28, 2, 'timer_28'),
                   (0x34, 2, 'h34'), (0x36, 2, 'hit_36'), (0x9A, 1, 'item_9A')]
 MANAGER_FIELDS = [(0x00, 1, 'b00'), (0x04, 1, 'lifecycle'), (0x05, 1, 'phase'), (0x28, 2, 'h28'),
                   (0x2E, 2, 'h2E')]
@@ -1240,7 +1240,7 @@ def compare_fields(v, o, address, fields, label):
             label, name, hex(o.load(address + off, size)), hex(get_field(v, name, size)))
 
 
-class Husk:
+class GunOwner:
     """One original owner node and its native twin, ticked in lockstep."""
 
     def __init__(self, kind, image, node, env, seed=None, words=None):
@@ -1259,20 +1259,20 @@ class Husk:
         self.c6c8 = C.c_uint32(o.load(0x8106C8))
         self.c808 = C.c_uint8(o.load(0x810808, 1))
         self.c3a20 = C.c_float(fnum(o.load(0x70003A20)))
-        self.world = HuskWorld(self.flags, C.pointer(self.c6c8), C.pointer(self.c808),
+        self.world = GunWorld(self.flags, C.pointer(self.c6c8), C.pointer(self.c808),
                                C.pointer(self.c3a20))
         self.child = None
-        if kind == 'creature':
-            self.v = Creature()
-            set_fields(self.v, o, node, CREATURE_FIELDS)
+        if kind == 'gun':
+            self.v = GunRec()
+            set_fields(self.v, o, node, GUN_FIELDS)
             for i in range(4):
                 self.v.pos_B0[i] = o.load(node + 0xB0 + 4 * i)
                 self.v.rot_C0[i] = o.load(node + 0xC0 + 4 * i)
             self.child_address = self.v.child_220 or None
             if self.child_address: self.child = self.child_view(self.child_address)
-        elif kind == 'partner':
-            self.v = Partner()
-            set_fields(self.v, o, node, PARTNER_FIELDS)
+        elif kind == 'cable':
+            self.v = CableRec()
+            set_fields(self.v, o, node, CABLE_FIELDS)
             self.linked_address = o.load(node + 0x18)
             self.linked = Linked(o.load(self.linked_address + 4, 1),
                                  s32(o.load(self.linked_address + 0x21C)))
@@ -1365,7 +1365,7 @@ class Husk:
         for address, fn in table.items(): hook(o, address, fn)
         draw = o.load(node + 0x4C)
         hook(o, draw, plain('w_draw_4C', 'a'))
-        if self.kind == 'creature':
+        if self.kind == 'gun':
             for lifecycle, entry in UNTRANSLATED.items(): hook(o, entry, marker(lifecycle))
 
     # ---- native workers
@@ -1374,7 +1374,7 @@ class Husk:
         table = {}
 
         def mk(name, fn):
-            cb = dict(HUSK_WORKERS)[name](fn)
+            cb = dict(GUN_WORKERS)[name](fn)
             self.keep.append(cb)
             return cb
 
@@ -1388,7 +1388,7 @@ class Husk:
                 if result == 'env': args[-1][0] = env.next(name)
                 return 0
             return fn
-        for name, _ in HUSK_WORKERS:
+        for name, _ in GUN_WORKERS:
             table[name] = plain(name)
         for name in ('w_001B0FD0', 'w_00122BB8', 'w_001B11E0', 'w_001EFE00', 'w_001BA1F0'):
             table[name] = plain(name, 'env')
@@ -1426,7 +1426,7 @@ class Husk:
             calls.append(('w_001A2370', matrix)); return 0
         table.update(w_0011E2A8=sine, r_00275B40=r_slot, s_bone_f32=s_bone, w_001AFA90=alloc,
                      r_child_220=r_child, r_link_18=r_link, w_001A2370=a2370)
-        return HuskWorkers(None, *[mk(n, table[n]) for n, _ in HUSK_WORKERS])
+        return GunWorkers(None, *[mk(n, table[n]) for n, _ in GUN_WORKERS])
 
     def mem_word(self, address):
         return self.seeded.get(address, int.from_bytes(bytes(self.o.base[address:address + 4]),
@@ -1437,21 +1437,21 @@ class Husk:
         o = self.o
         del self.ocalls[:]; del self.ncalls[:]
         o.written.clear()
-        entry = {'creature': 0x825940, 'partner': 0x827490, 'manager': 0x823CE0}[self.kind]
+        entry = {'gun': 0x825940, 'cable': 0x827490, 'manager': 0x823CE0}[self.kind]
         reached = None
         try:
             run_original(o, entry, (self.node,))
         except Untranslated as u:
             reached = u.lifecycle
         lib = CONTEXT['lib']
-        if self.kind == 'creature':
-            got = lib.em_husk_creature_tick(C.byref(self.v), C.byref(self.world),
+        if self.kind == 'gun':
+            got = lib.em_gun_tick(C.byref(self.v), C.byref(self.world),
                                             C.byref(self.workers), C.byref(self.fault))
-        elif self.kind == 'partner':
-            got = lib.em_husk_partner_tick(C.byref(self.v), C.byref(self.workers),
+        elif self.kind == 'cable':
+            got = lib.em_gun_cable_tick(C.byref(self.v), C.byref(self.workers),
                                            C.byref(self.fault))
         else:
-            got = lib.em_husk_manager_tick(C.byref(self.v), C.byref(self.world),
+            got = lib.em_flag30_manager_tick(C.byref(self.v), C.byref(self.world),
                                            C.byref(self.workers), C.byref(self.fault))
         if reached is not None:
             assert got == -1 and self.fault.code == 3 and \
@@ -1465,12 +1465,12 @@ class Husk:
         freed = ('w_001AFC10',) in self.ocalls
         assert got == (0 if freed else 1), (label, got)
         allowed = set()
-        fields = {'creature': CREATURE_FIELDS, 'partner': PARTNER_FIELDS,
+        fields = {'gun': GUN_FIELDS, 'cable': CABLE_FIELDS,
                   'manager': MANAGER_FIELDS}[self.kind]
         if not freed:
             compare_fields(self.v, o, self.node, fields, label)
         for off, size, _ in fields: allowed |= span(self.node + off, size)
-        if self.kind == 'creature':
+        if self.kind == 'gun':
             if self.child is not None:
                 c, a = self.child, self.child_address
                 compare_fields(c, o, a, CHILD_FIELDS, label)
@@ -1485,7 +1485,7 @@ class Husk:
                 allowed |= span(address, 4)
             assert o.load(0x70003A20) == fb(self.c3a20.value), label
             allowed |= span(0x70003A20, 4)
-        if self.kind == 'partner':
+        if self.kind == 'cable':
             la = self.linked_address
             assert (o.load(la + 4, 1), s32(o.load(la + 0x21C))) == (self.linked.lifecycle,
                                                                    self.linked.w21C), label
@@ -1508,24 +1508,24 @@ class Untranslated(Exception):
         self.lifecycle = lifecycle
 
 
-def husk_capture_case(case):
+def gun_capture_case(case):
     """Tick each owner once from a captured AREA11 RAM image."""
     name, kind, node, entry = case
     image = CONTEXT['images'][name]
     assert int.from_bytes(image[node + 0x10:node + 0x14], 'little') == entry, (name, kind)
     state = (image[node + 4], image[node + 5], image[0x810788])
-    h = Husk(kind, image, node, Env())
+    h = GunOwner(kind, image, node, Env())
     outcome = h.tick(f'{name} {kind}')
     return name, kind, state, outcome, h.o.outcomes, h.o.fetched
 
 
-HUSK_NODES = (('creature', 0x7A6AD0, 0x825940), ('partner', 0x7A6DC0, 0x827490),
+GUN_NODES = (('gun', 0x7A6AD0, 0x825940), ('cable', 0x7A6DC0, 0x827490),
               ('manager', 0x7A9100, 0x823CE0))
 
 
-def seeded_husk(kind, fields, env, flag=0, extra=()):
+def seeded_gun(kind, fields, env, flag=0, extra=()):
     """A synthetic node at a scratch address over the playable image."""
-    node = {'creature': 0x01D50000, 'partner': 0x01D51000, 'manager': 0x01D52000}[kind]
+    node = {'gun': 0x01D50000, 'cable': 0x01D51000, 'manager': 0x01D52000}[kind]
 
     def seed(o):
         for off, size, value in fields: o.seed(node + off, value, size)
@@ -1533,13 +1533,13 @@ def seeded_husk(kind, fields, env, flag=0, extra=()):
         o.seed(0x810788, flag, 1)
         for address, value, size in extra: o.seed(address, value, size)
     words = {address: value for address, value, size in extra if size == 4}
-    h = Husk(kind, CONTEXT['base'], node, env, seed, words)
+    h = GunOwner(kind, CONTEXT['base'], node, env, seed, words)
     return h
 
 
-def husk_unit_case(case):
+def gun_unit_case(case):
     label, kind, fields, script, flag, extra, ticks, changes = case
-    h = seeded_husk(kind, fields, Env(**script), flag, extra)
+    h = seeded_gun(kind, fields, Env(**script), flag, extra)
     outcomes = []
     for t in range(ticks):
         if t in changes:
@@ -1556,38 +1556,38 @@ def husk_unit_case(case):
 BONE_EXTRA = ((0x275B40, SLOTS, 4), (SLOTS + 0xC, BONE, 4), (BONE + 0x78, 0x12345678, 4))
 
 
-def husk_unit_cases():
+def gun_unit_cases():
     out = []
-    creature_base = [(0x04, 1, 0), (0x00, 1, 0), (0xB0, 4, bits(310.0)), (0xB4, 4, bits(290.5)),
+    gun_base = [(0x04, 1, 0), (0x00, 1, 0), (0xB0, 4, bits(310.0)), (0xB4, 4, bits(290.5)),
                      (0xB8, 4, bits(-12.25)), (0xBC, 4, bits(1.0)), (0xC0, 4, bits(0.5)),
                      (0xC4, 4, bits(-1.25)), (0xC8, 4, bits(2.0)), (0xCC, 4, 0x3F800000),
                      (0x11C, 4, SELF_BONE)]
     for flag, fd0, rand, child in itertools.product((0, 1, 0xFF), (0, 1),
                                                     (0, 0x7FFFFFFF, 0x12345678), (CHILD, 0)):
-        out.append((f'creature setup flag {flag} fd0 {fd0} rand {rand:#x} child {child:#x}',
-                    'creature', creature_base,
+        out.append((f'gun setup flag {flag} fd0 {fd0} rand {rand:#x} child {child:#x}',
+                    'gun', gun_base,
                     dict(w_001B0FD0=fd0, w_00122BB8=rand, w_001AFA90=child), flag, BONE_EXTRA,
                     1, {}))
     for lifecycle in (3, 5, 0x63, 0x65, 0xFF, 1, 4):
-        out.append((f'creature lifecycle {lifecycle:#x}', 'creature',
-                    creature_base[1:] + [(0x04, 1, lifecycle)], {}, 0, BONE_EXTRA, 1, {}))
+        out.append((f'gun lifecycle {lifecycle:#x}', 'gun',
+                    gun_base[1:] + [(0x04, 1, lifecycle)], {}, 0, BONE_EXTRA, 1, {}))
     for flag in (0, 1, 0xFF):
-        out.append((f'creature dormant flag {flag}', 'creature',
-                    creature_base[1:] + [(0x04, 1, 0x64)], {}, flag, BONE_EXTRA, 1, {}))
+        out.append((f'gun dormant flag {flag}', 'gun',
+                    gun_base[1:] + [(0x04, 1, 0x64)], {}, flag, BONE_EXTRA, 1, {}))
     # Lifecycle 2 (both arms): angles below, above and at -pi/2; countdowns.
     for angle, step, w21c, w224, flag in itertools.product(
             (0.0, -1.0, -1.5707963, -1.6, -3.0, 0.3), (0.0625, 0.5), (0, 1, 5, -2),
             (0, 1), (0, 0xFF)):
-        fields = creature_base[1:] + [(0x04, 1, 2), (0x1FC, 4, bits(angle)),
+        fields = gun_base[1:] + [(0x04, 1, 2), (0x1FC, 4, bits(angle)),
                                       (0x1F8, 4, bits(step)), (0x21C, 4, w21c & MASK),
                                       (0x224, 4, w224), (0x220, 4, CHILD)]
-        out.append((f'creature swing a {angle} s {step} n {w21c} w224 {w224} flag {flag}',
-                    'creature', fields, {}, flag,
+        out.append((f'gun swing a {angle} s {step} n {w21c} w224 {w224} flag {flag}',
+                    'gun', fields, {}, flag,
                     BONE_EXTRA + ((CHILD + 0x11C, CHILD_BONE, 4), (CHILD + 0x10, 0x1C5680, 4)),
                     1, {}))
-    exact = creature_base[1:] + [(0x04, 1, 2), (0x1FC, 4, 0xBFC90FDB), (0x1F8, 4, bits(0.25)),
+    exact = gun_base[1:] + [(0x04, 1, 2), (0x1FC, 4, 0xBFC90FDB), (0x1F8, 4, bits(0.25)),
                                  (0x21C, 4, 3), (0x224, 4, 1), (0x220, 4, CHILD)]
-    out.append(('creature swing exactly -pi/2', 'creature', exact, {}, 0xFF,
+    out.append(('gun swing exactly -pi/2', 'gun', exact, {}, 0xFF,
                 BONE_EXTRA + ((CHILD + 0x11C, CHILD_BONE, 4),), 1, {}))
     link_extra = ((LINKED + 4, 0x64, 1), (LINKED + 0x21C, 0, 4))
     for lifecycle, hit, fd0, taken, fx, timer in itertools.product(
@@ -1597,8 +1597,8 @@ def husk_unit_cases():
         if lifecycle != 1 and (hit or fx): continue
         fields = [(0x04, 1, lifecycle), (0x00, 1, 0), (0x28, 2, timer & 0xFFFF), (0x34, 2, 0),
                   (0x36, 2, hit), (0x9A, 1, 0x1D), (0x18, 4, LINKED)]
-        out.append((f'partner lc {lifecycle} hit {hit} fd0 {fd0} taken {taken} fx {fx} t {timer}',
-                    'partner', fields, dict(w_001B0FD0=fd0, w_001B11E0=taken, w_001EFE00=fx),
+        out.append((f'cable lc {lifecycle} hit {hit} fd0 {fd0} taken {taken} fx {fx} t {timer}',
+                    'cable', fields, dict(w_001B0FD0=fd0, w_001B11E0=taken, w_001EFE00=fx),
                     0, link_extra, 1, {}))
     for lifecycle, phase, flag, poll in itertools.product((0, 1, 2, 3, 4, 0xFF), (0, 1, 2),
                                                           (0, 1, 0xFF), (0, 1, 3)):
@@ -1610,14 +1610,14 @@ def husk_unit_cases():
                     fields, dict(w_001BA1F0=poll), flag,
                     ((0x8106C8, 0x5A5AFFFF, 4), (0x810808, 0x11, 1)), 1, {}))
     # Multi-tick lockstep runs.
-    out.append(('creature setup then dormant, flag rises', 'creature', creature_base,
+    out.append(('gun setup then dormant, flag rises', 'gun', gun_base,
                 dict(w_001B0FD0=0, w_00122BB8=0x2468ACE1, w_001AFA90=CHILD), 0, BONE_EXTRA, 8,
                 {5: [('flag', 1)], 6: [('flag', 0xFF)]}))
-    out.append(('creature swing to -pi/2 and count down', 'creature',
-                creature_base[1:] + [(0x04, 1, 2), (0x1FC, 4, bits(-1.2)), (0x1F8, 4, bits(0.05)),
+    out.append(('gun swing to -pi/2 and count down', 'gun',
+                gun_base[1:] + [(0x04, 1, 2), (0x1FC, 4, bits(-1.2)), (0x1F8, 4, bits(0.05)),
                                      (0x21C, 4, 4), (0x224, 4, 0), (0x220, 4, CHILD)],
                 {}, 0xFF, BONE_EXTRA + ((CHILD + 0x11C, CHILD_BONE, 4),), 20, {}))
-    out.append(('partner setup, shot, falls', 'partner',
+    out.append(('cable setup, shot, falls', 'cable',
                 [(0x04, 1, 0), (0x00, 1, 0), (0x28, 2, 0x55), (0x34, 2, 0), (0x36, 2, 0),
                  (0x9A, 1, 0x21), (0x18, 4, LINKED)],
                 dict(w_001B0FD0=0, w_001B11E0=0, w_001EFE00=1), 0, link_extra, 16,
@@ -1626,7 +1626,7 @@ def husk_unit_cases():
                 [(0x04, 1, 0), (0x05, 1, 0), (0x00, 1, 0), (0x28, 2, 5), (0x2E, 2, 0)],
                 dict(w_001BA1F0=[0, 0, 1]), 0, ((0x8106C8, 0xFFFFFFFF, 4), (0x810808, 0, 1)), 10,
                 {3: [('flag', 1)]}))
-    keep = lambda i, c: (c[6] > 1 or c[1] != 'creature' or 'setup' in c[0] or 'lifecycle' in c[0]
+    keep = lambda i, c: (c[6] > 1 or c[1] != 'gun' or 'setup' in c[0] or 'lifecycle' in c[0]
                          or 'exactly' in c[0])
     lifecycle = lambda c: (c[1], [v for off, _, v in c[2] if off == 4][-1])
     return select(out, 150, 0x825940, keep=keep,
@@ -1697,14 +1697,14 @@ def check_fail_stop():
     assert lib.em_sdf_001BAD40(C.byref(obj), ev, C.byref(world), C.byref(workers),
                                C.byref(fault)) == -1
     assert (fault.code, obj.b0C) == (4, 0); n += 1    # bone overflow faults before +0x0C
-    for kind in ('creature', 'partner', 'manager'):
-        h = seeded_husk(kind, [(0x04, 1, 1 if kind == 'manager' else 0x64)], Env())
+    for kind in ('gun', 'cable', 'manager'):
+        h = seeded_gun(kind, [(0x04, 1, 1 if kind == 'manager' else 0x64)], Env())
         h.workers.w_001B17A0 = type(h.workers.w_001B17A0)()
-        fn = {'creature': lib.em_husk_creature_tick, 'partner': lib.em_husk_partner_tick,
-              'manager': lib.em_husk_manager_tick}[kind]
-        args = (C.byref(h.v),) + ((C.byref(h.world),) if kind != 'partner' else ()) + \
+        fn = {'gun': lib.em_gun_tick, 'cable': lib.em_gun_cable_tick,
+              'manager': lib.em_flag30_manager_tick}[kind]
+        args = (C.byref(h.v),) + ((C.byref(h.world),) if kind != 'cable' else ()) + \
             (C.byref(h.workers), C.byref(h.fault))
-        if kind == 'partner': h.v.lifecycle = 1
+        if kind == 'cable': h.v.lifecycle = 1
         assert fn(*args) == -1 and h.fault.address == 0x1B17A0 and h.fault.code == 1, kind
         n += 1
     return n
@@ -1725,8 +1725,14 @@ def load_images():
     if not FULL:
         wanted = ('02_elevator', '09_fence', '14_roger')
         candidates = [c for c in candidates if any(w in c[0] for w in wanted)]
+    data = AREA11_BIN.read_bytes()
     for name, path in candidates:
-        images[name] = path.read_bytes()
+        image = path.read_bytes()
+        # Route beat 15's snapshot is the AREA01 arrival (another overlay is
+        # resident): it is not an AREA11 image.
+        if image[0x825940:0x825980] != data[0x825940 - ARENA:0x825980 - ARENA]:
+            continue
+        images[name] = image
     return images
 
 
@@ -1786,15 +1792,15 @@ def main():
     counts['opening capture fields'] = check_opening_capture()
 
     captured = [(name, kind, node, entry) for name in CONTEXT['images'] if name != 'opening'
-                for kind, node, entry in HUSK_NODES]
-    cap_results = parallel_map(husk_capture_case, captured)
+                for kind, node, entry in GUN_NODES]
+    cap_results = parallel_map(gun_capture_case, captured)
     states = {}
     for name, kind, state, outcome, oc, fe in cap_results:
         states.setdefault(kind, set()).add(state)
         outcomes |= oc; fetched |= fe
         assert outcome == 'ok', (name, kind, outcome)
-    units = husk_unit_cases()
-    unit_results = parallel_map(husk_unit_case, units)
+    units = gun_unit_cases()
+    unit_results = parallel_map(gun_unit_case, units)
     ticks = 0
     untranslated = set()
     for label, results, oc, fe in unit_results:
@@ -1812,7 +1818,7 @@ def main():
           f'{len(units)} unit/lockstep cases, {ticks} ticks;',
           f'{len(untranslated)} cases reached untranslated lifecycles 1/4 in both')
     print('branch coverage: every conditional branch of the translated ranges observed both ways')
-    banner(f'{len(bac)} 001BAC00, {len(bad)} 001BAD40 cases', f'{len(units)} husk cases',
+    banner(f'{len(bac)} 001BAC00, {len(bad)} 001BAD40 cases', f'{len(units)} gun cases',
            f'{len(CONTEXT["images"])} RAM images')
     print('script-door-fan translations match the original instructions')
 

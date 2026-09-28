@@ -23,7 +23,7 @@
  *     those scenes keep their exact legacy call order.
  *
  * INTERIM spawns (design 4.3 "interim_spawn"): a spawn whose original call
- * site sits in overlay code the port cannot read (0x825940, 0x827B10).
+ * site sits in overlay code the port has no translation of (0x827B10).
  * (Since S12a 001C1EA0's input D_008106C8 is written by 001B0250
  * from the spawn table, so the weather node is no longer interim.) Their timing
  * and argument bytes are the measured ones; they are flagged `interim` in
@@ -101,6 +101,23 @@ int em_area11_spawn_legacy_world(void);
  * draw-list collector and, in gameplay, the legacy player residue. */
 void em_area11_walk_begin(int mode);
 void em_area11_walk_end(int mode);
+
+/* The tick log's record of the security gun 00825940, its cable 00827490
+ * and the fan pair 00827630 (tools/test_level_smoke.py check_gun_fan):
+ * float fields are bit patterns. */
+typedef struct {
+    uint32_t address, callback;
+    uint8_t b00, b04, b05, b09;  /* +0x00, +0x04, +0x05, +0x09 */
+    int16_t h28, h34;            /* +0x28, +0x34 */
+    uint16_t h36;                /* +0x36 */
+    uint32_t f38;                /* +0x38 (the fan's spin) */
+    uint32_t rot[4];             /* +0xC0..+0xCC (the fan's +0xC8) */
+    uint32_t bone3_78;           /* the gun: bone 3 (slot 3) +0x78 */
+    uint32_t w220;               /* the gun: +0x220, its lamp's address */
+    uint32_t lamp_a0[4];         /* the gun: its lamp's +0xA0 colour */
+} EmArea11GunFanLog;
+/* 1 and *out for a bound gun, cable or fan node, else 0. */
+int em_area11_bindings_gun_fan_log(const EmActor *actor, EmArea11GunFanLog *out);
 
 /* Instrumentation for the frame trace: the original tracer's record tag
  * ("area11[i]", "deferred[gG.J]", or NULL for runtime nodes) and the

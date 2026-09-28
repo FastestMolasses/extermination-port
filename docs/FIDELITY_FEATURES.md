@@ -156,7 +156,9 @@ as recorded in PCSX2 on the same route.
   relaxed checks (the panel prompt window, 7 ticks in the port against 30 in
   the original; line 0x7F's teardown 2 rows early; Roger's flags before his
   clip init; slide/ladder landings within one row; the opening's rand()
-  values after its one missing draw (the husk creature, census L24); the
+  values after the player face's missing AE+5 draw (the opening's faces,
+  design risk 2); the fans' phase at the snapshot ticks (only their cycle
+  is compared); the
   opening's 1,302 post-steps reported, not drawn;
   001DDE10's frame-copy sprites). The level exit is not in the smoke.
 
@@ -237,8 +239,9 @@ as the original.
 - Status: **PARTIAL**. The generator and start state are verified. The
   **order** of calls is audited (the random-events entry below;
   `RAND_ORDER.md`): the opening's sequence equals the original's for its
-  first four calls and then misses one draw (the husk creature, census L24),
-  so the values after it differ. In PCSX2 the original's own call order
+  first 126 calls (the security gun's AE+1 draw included since census L24)
+  and then misses one draw (the player's face at AE+5, design risk 2), so
+  the values after it differ. In PCSX2 the original's own call order
   during the opening differs between runs after about 689 calls. The start
   state was measured on a path where the attract demo had not run.
 
@@ -260,8 +263,7 @@ found and deleted.
   mutations failing each owner's test); census 1.31 (three legacy door
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
-  live route (census 2.3: the examine/aim camera, the fan pair's and husks'
-  legacy meshes, the flame and snow drawn outside the chain page, 001C1D00's
+  live route (census 2.3: the examine/aim camera, the flame and snow drawn outside the chain page, 001C1D00's
   empty render-env step, the opening's displayed player, and the
   panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
@@ -344,9 +346,11 @@ them. No remade models, no guessed lighting shader.
   interpolation, not the GS; the GPU test checks the port's shader against
   the port's own formulas, 99.73%/99.95% of compared pixels). The player and
   equipment are compared live only at beats 10 and 14. VU1 arithmetic is
-  assumed to follow the VU0 rules measured in PCSX2. Roger, the fan pair, the
-  husks, the indicator children and the opening's player are not on this
-  path. Object textures (303 TEX0) are decoded from PCSX2 capture GS memory,
+  assumed to follow the VU0 rules measured in PCSX2. Since census L24 the
+  fan pair, the security gun and its cable are on this path (their units
+  compared at the snapshots; the fans over the port's own spin angle through
+  the original 001C6380). Roger, the indicator children and the opening's
+  player are not on this path. Object textures (303 TEX0) are decoded from PCSX2 capture GS memory,
   not the disc, so an end user cannot build them yet. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
@@ -659,12 +663,11 @@ These first-level visuals do not yet come from the original draw path.
 Advertise the items above only.
 
 - Evidence: `OWNER_DRAW.md` 11, `CHAIN_PAGE.md` 6, `LOAD_VEIL_PARTICLES.md`,
-  census lanes L24/L38.
+  census lane L38.
 - Status: **PLANNED**. Roger is drawn from an exported model (the face-morph
   program is translated and proven on 60 face units but its builders are not
-  bound). The fan pair is a static prop with **no spin** (the original spins;
-  `em_fan_original` is verified but unbound). The husks and the opening's
-  player use legacy meshes. The level geometry uses exported meshes. The
+  bound). The opening's player uses a legacy mesh. The security gun's lamp
+  (a dark indicator child in the first level) is not drawn. The level geometry uses exported meshes. The
   area-load veil runs and is drawn from its own packets, but the port's area
   read finishes inside one call, so the veil draws only one frame, at level 0
   (black; the entry above). Roger's drop shadow is not computed (whether the
@@ -956,8 +959,7 @@ units per second.
   attachment draw 001CB3C0. "No stand-in rows" does not mean no stand-in
   code runs. Census 2.3 still lists stand-in behaviour on the route: the
   camera stand-ins that pre-empt the examine and aim actions (L28), the
-  indicator children's +0x4C draw, the fan pair's and the husks' legacy
-  meshes and logic (L24), parts of the chain page (the four-sprite pass, the
+  indicator children's +0x4C draw, parts of the chain page (the four-sprite pass, the
   AREA11 flame, the snow), the empty render-env step 001C1D00, the port's
   player mesh during the opening, and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
@@ -999,9 +1001,10 @@ and movement and camera collision queries hit the same geometry.
 - Status: **VERIFIED**. This covers first-level (AREA11) collision only,
   relative to PCSX2 captures. The world capture check compares two
   snapshots (beats 00 and 04), not every frame, and the later beats are
-  covered only through the movement phases of the level smoke. One original
-  cell is not published yet: the husk's plate (uid 15), which waits on the
-  husk owner (L24). The test lists it instead of hiding it. There is one
+  covered only through the movement phases of the level smoke. Since census
+  L24 the security gun's plate (uid 15) is re-transformed by the gun's own
+  lifecycle 0 and equals the original's in both captures; no original cell
+  is left unpublished. There is one
   known intentional deviation, which the recorded route never triggers
   because the smoke would stop with a fault there. The original 0019BC40
   keeps up to 20 candidates but aliases its result arrays past 16. The port
@@ -1158,8 +1161,7 @@ states, timings and positions, and their draws come from the original data.
   replayed through the original instructions); taking the map 0x08 opens
   the MAP page 0020F950 zoomed on map 8, bound since chain C8b MAP (the same
   run; `PICKUP_OWNERS.md` "Requests and pages", fixture `other_take`). These
-  takes are off the recorded route. The fan pair and the
-  husks are not on their records yet (PLANNED entry). The panel, terminal
+  takes are off the recorded route. The panel, terminal
   and item takeovers still use the port's interaction runtime for acquire
   and per-stage ticking.
 
@@ -1273,32 +1275,40 @@ and your final placement follow the original tick for tick.
   scripted-sequence entry. Roger's departure at the level exit is not bound
   (see the level-exit entry).
 
-**The husks and the fan pair on their original code**
+**The security gun, its cable and the fan pair on their original code**
 
-When this lands, the husk creatures and the two big fans will behave and
-look as in the original. That includes the fans' timed spin-up, hold and
-spin-down cycle, which decides when you can pass the fan safely on the way
-to the exit.
+The dormant security gun above the fence door, its power cable hanging to
+the ground and the two big fans run the original code and draw the
+original's object units. The fans spin up, hold and spin down on the
+original cycle, which decides when you can pass the fan safely on the way to
+the exit. The gun stays switched off for the whole first visit, as in the
+original (it only wakes on a return visit). (Earlier port notes called the
+gun and its cable "husks"; that label was wrong.)
 
-- How: the husk creature 00825940, its partner 00827490, the manager
-  00823CE0 and the fan 00827630 are translated and checked by
-  original-instruction oracles. They are not bound into the game yet
-  (census lane L24 / WP-11).
-- Evidence: `SCRIPT_DOOR_FAN.md` (L24) and `FAN_ORIGINAL.md`; oracles
-  `test_script_door_fan_reference` (part 3) and
-  `test_fan_original_reference`. The census rows for 0x00823CE0,
-  0x00825940, 0x00827490 and 0x00827630 are verified-unbound, and census
-  section 2.3 lists the fan pair's and the husks' draws (their legacy
-  meshes) as still standing in. `FIRST_LEVEL_EXIT.md` section 1 records the
-  fan cycle during beat 15.
-- Status: **PLANNED**. Today the live game runs the legacy `em_enemy.c`
-  `em_enemy_update` for the husks, with an interim child spawn, and draws
-  the fans static with no spin. Per `FIRST_LEVEL_AUDIT.md` H20 (last updated
-  as PENDING), the fans may also still lack the original ±π/4 initial roll.
-  The husk translation is itself partial: lifecycles 1 and 4 fault. The
-  husk manager is dormant on the first visit (it waits on D_00810788). None
-  of this may be advertised as original until it is bound and checked
-  against a capture.
+- How: `em_area11_bindings.c` runs `em_gun_tick` / `em_gun_cable_tick`
+  (em_security_gun) and `em_fan_original_tick` on their pool records; their
+  +0x4C draws go through em_owner_draw_live (census lane L24 / WP-11;
+  `SECURITY_GUN.md` section 5, `FAN_ORIGINAL.md`).
+- Evidence: the original-instruction oracles `test_script_door_fan_reference`
+  (part 3), `test_security_gun_rest_reference` and
+  `test_fan_original_reference`; the level smoke's check_gun_fan (the gun and
+  the cable equal all 15 route snapshots on every tick after their setup,
+  and every captured fan state is one the port's fans run through) and
+  check_owner_units (their units against the original 001CAA00; the fans at
+  the port's angle through the original 001C6380); `make test-rand-order`
+  (the gun's one setup draw is the original's AE+1 call); `make
+  test-collision-world-capture` (the gun's plate, uid 15).
+- Status: **VERIFIED** for the first visit (relative to PCSX2 captures):
+  spawn, the dormant gun and its dark lamp's rand() draws, the idle cable,
+  the fans' cycle and all four draws. Not covered: the fans' phase at a
+  given moment (it follows the recording's timing; only the cycle is
+  compared); the fans' exit and hit boxes (off the smoke's route; the hit's
+  consumer chain is proven by an oracle; the exit bit now starts Roger's
+  departure, which still stops at an untranslated handshake); the cable's
+  shot reaction (nothing in the port can hit it yet, and its effect chain
+  stops at an untranslated packet builder); the gun's own return-visit
+  behaviour (it stops the game if reached); the lamp's draw. The pixels are
+  Metal's, not the GS's.
 
 **The level exit into level 2 (route beat 15)**
 
@@ -1309,18 +1319,19 @@ schedule, with loading at your machine's speed.
 - How: beat 15 is recorded in PCSX2 and documented frame by frame: the
   player waits for the fan's slow phase and crosses it, the fan sets its
   exit bit, Roger's departure script walks the player and plays the movie,
-  and the script's area request leads into the AREA01 arrival. The port
-  needs the fan and Roger's departure bound, plus the AREA01 area data,
-  before it can run this.
+  and the script's area request leads into the AREA01 arrival. The fan is
+  bound since census L24 (its exit bit is set as in the original); the port
+  still needs Roger's departure bound (its op0F handshake stops the game
+  today), plus the AREA01 area data, before it can run this.
 - Evidence: `FIRST_LEVEL_EXIT.md`: route table row 15 and the
   frame-by-frame table, with the fan crossing and the start of Roger's
   departure script at f344, the movie inside f442, the area request
   001B0C60(1, 0, 4) from Roger's script at f445 (001AD010 at f446, 001FF080
   at f447), the loader done at f658, a post-load wait with the veil
   f660..f739, and control in AREA01 at f741. Census section 6: "the level
-  exit ... is not in the census". The census row 0x00827630 is
-  verified-unbound, and `FIRST_LEVEL_EXIT.md` lists Roger's departure as not
-  bound live (audit H3).
+  exit ... is not in the census". The census row 0x00827630 is live since
+  L24, and `FIRST_LEVEL_EXIT.md` lists Roger's departure as not bound live
+  (audit H3).
 - Status: **PLANNED**. Not live: the first level cannot yet be finished in
   the port. The fan does not issue the area request on this route. Roger's
   departure script does (the fan's own exit applies only on a later
@@ -1346,13 +1357,15 @@ numbers at the same places in each frame as the original.
 - Evidence: `RAND_ORDER.md`; `make test-rand-order`; the level smoke's
   `check_rand_order`, `check_sway`, `check_marker_colour` and
   `check_head_sprites`. From the area entry the port equals the original
-  call for call (caller and value) for the first four calls; every frame's
+  call for call (caller and value) for the first 126 calls (4 before census
+  L24); every frame's
   fixed-schedule callers (the sway, the indicators, the glow markers, the
   music) equal the original's over the opening, the 30 frames after first
   control and two aligned route windows (01: 66 frames, 10: 311 frames).
-- Status: **PARTIAL**. The opening misses one draw at its second frame
-  (the husk creature, census L24), so its values differ after it. Its
-  faces draw from the opening's stand-in actors, not from the player stage
+- Status: **PARTIAL**. The opening misses one draw at AE+5 (the player's
+  face; until census L24 it was the security gun's setup draw at AE+1), so
+  its values differ after it: its faces draw from the opening's stand-in
+  actors, not from the player stage
   and Roger's owner (design risk 2). A recording's exact values cannot be
   reproduced: the original's own order in the opening varies between runs
   after about 689 calls, and the port reaches each moment by its own route.
@@ -1453,8 +1466,8 @@ Resolved by the user on 2026-09-27:
 
 Missing faithful behaviour that blocks a "first level complete" claim:
 
-- the rand() order's two remaining differences: the husk creature's draw
-  (census L24) and the opening's faces (design risk 2) (`RAND_ORDER.md` 6);
+- the rand() order's remaining difference: the opening's faces (design risk
+  2; the player face's AE+5 draw) (`RAND_ORDER.md` 6);
 - the load veil's duration: the area read finishes inside one call (the
   loader task 001FF0D0's own steps, H7: the area streamer 001FFCD0 is
   translated, blocked on the sound-bank upload 001FB370's EE sound library

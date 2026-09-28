@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -880,7 +880,8 @@ the director's preparation. This recount measures every row again over the whole
   reported model bind), 001AFCA0 (the port's own re-arm), 001C1D00 (em_render_001C1D00), 001CA770 (the script
   host's frame event, the interaction runtime's skeleton release), 001CB5B0 (three no-op worker slots), 001D19E0 /
   001D52E0 / 0021B1B0 / 0021B500 (reported no-effect bindings), 001FBC50 (em_sfx_stop_all), 001FC280 (unverified,
-  section 1.15) and 00825940 (the legacy husk group). Their rows already say so.
+  section 1.15) and 00825940 (the legacy group of the security gun and its cable, then called the husks; retired
+  in section 1.39). Their rows already say so.
 
 Result: live 640, verified-unbound 87, unverified 5, stand-in 0, missing 1, boundary 451 (was 634 / 94 / 4 / 0 / 1 /
 451). Section 2 and the section 3 subsection counts are recomputed from the rows.
@@ -1249,7 +1250,8 @@ are compared with the decomp's C7 per-call capture (RAND_ORDER.md).
   - From the area entry the port equals the original call for call for 4
     calls.
   - The first difference is 00825940's lifecycle-0 draw at AE+1, which the
-    port misses (L24).
+    port misses (L24; the security gun, bound since section 1.39, after
+    which the first difference is the player face's AE+5 draw).
   - Every frame's fixed-schedule callers equal the original's over the
     opening, the 30 frames after first control and the smoke's aligned
     windows of routes 01 and 10.
@@ -1336,7 +1338,8 @@ recount measures every row again over the whole live route at port HEAD
       w_001CB5B0 slots, um_001D19E0, g_001D52E0 (UM_001D52E0),
       w_001FBC50 (em_sfx_stop_all), em_scene_bindings_001FC280
       (unverified), veil_0021B1B0 / veil_0021B500 (reported) and
-      tick_enemy_00825940 (the legacy husk group).
+      tick_enemy_00825940 (the legacy group of the security gun and its
+      cable, then called the husks; retired in section 1.39).
 - **Boundary rows with a live translation** (section 4's rule). Thirteen
   boundary functions have a translation named after them that ran live:
   - the IOP stream driver: 00112610, 00112D18, 00113280, 001157F0,
@@ -1522,6 +1525,44 @@ Result: live 668, verified-unbound 69, unverified 3, stand-in 0, missing 1,
 boundary 443, recounted from the section 3 rows (741 rows). 81,330 of the
 87,968 non-boundary instructions are live (92.5%).
 
+### 1.39 Update (2026-09-28, census L24: the security gun, its cable and the fan pair on their original owners)
+
+The AREA11 "husk creature" 00825940 is a fixed security gun and the "husk
+partner" 00827490 its power cable (decomp verify-area11-husks; docs
+SECURITY_GUN.md); the labels are renamed in the port (em_security_gun,
+em_security_gun_rest, the lane L24). em_area11_bindings.c runs the gun
+(em_gun_tick), the cable (em_gun_cable_tick) and the fan pair
+(em_fan_original_tick) on their records, and all four draw their 001CAA00
+units. The legacy em_enemy group, the interim lamp spawn and em_pickup's
+static fan draw are retired.
+
+- **Status changes (verified-unbound -> live, three rows, 3.23):** 00825940
+  (lifecycles 0 and 0x64 reached; 4 and 1 fault by design, return visit),
+  00827490 (lifecycles 0 and 1 reached; its hit is unreached: no live +0x36
+  writer, and faults at 001EFE00) and 00827630.
+- **Row notes changed, no status change:** 001B11E0 (exported for the
+  cable), 001B1190 (the verified em_gun_rest_001B1190 bound for the cable's
+  lifecycle 2, unreached; the items still use em_pickup's taken_set:
+  unverified), 001A2370 (the gun's plate, uid 15), 001B0FD0, 001B17A0,
+  001C7420, 001CAA00 (the three owners), 001C5680 (the gun's own lamp
+  spawn) and 00823CE0 (renamed; still a no-code node).
+- **Evidence.** The level smoke's check_gun_fan (the gun and the cable
+  equal all 15 route snapshots on every tick after their setup; every
+  captured fan state is on the port's cycle), check_owner_units (their
+  units against the original 001CAA00; the fans over the port's +0xC8
+  through the original 001C6380), check_rand_order and `make
+  test-rand-order` (the gun's 0x8259F0 draw is the original's AE+1 call:
+  126 calls equal, was 4), `make test-collision-world-capture` (uid 15
+  equals the original in captures 00 and 04), make
+  test-script-door-fan-reference, test-security-gun-rest-reference (new
+  target) and test-fan-original-reference; newgame-control 9.599849
+  (unchanged); compare_frame_order idle04 / walk04 / st03 (--native-index
+  1330), cut02 and cut15 PASS.
+
+Result: live 671, verified-unbound 66, unverified 3, stand-in 0, missing 1,
+boundary 443, recounted from the section 3 rows (741 rows). 83,150 of the
+87,968 non-boundary instructions are live (94.5%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1541,15 +1582,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 668 | 81,330 | 618 (77,433) | 50 (3,897) |
-| verified-unbound | 69 | 6,465 | 41 (4,677) | 28 (1,788) |
+| live | 671 | 83,150 | 621 (79,253) | 50 (3,897) |
+| verified-unbound | 66 | 4,645 | 38 (2,857) | 28 (1,788) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 1 | 46 | 1 (46) | 0 (0) |
 | boundary | 443 | 23,796 | 165 (10,496) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 741 non-boundary functions, 668 (90.1%) are live and verified; by instructions 81,330 of 87,968 (92.5%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 69 functions (6,465 instructions, 7.3%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, section 1.38) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
+Of the 741 non-boundary functions, 671 (90.6%) are live and verified; by instructions 83,150 of 87,968 (94.5%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 66 functions (4,645 instructions, 5.3%) are verified translations the live app does not run. Only 4 functions (173 instructions) have no verified translation on the live path: no stand-in is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26) and 1 missing (001CB3C0, corrected by the object-unit step, section 1.19). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38 and 1.39) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses.
 
 ### 2.2 Per route label
 
@@ -1559,29 +1600,29 @@ Of the 741 non-boundary functions, 668 (90.1%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 77 / 12 / 0 / 0 / 0 / 383 | 77 / 12 / 0 / 0 / 0 / 383 |
 | S1_newgame_load | 164 / 28 / 1 / 0 / 0 / 86 | 99 / 22 / 1 / 0 / 0 / 18 |
-| S2_opening | 416 / 37 / 2 / 0 / 1 / 124 | 299 / 30 / 1 / 0 / 1 / 32 |
-| S3_first_control_idle | 321 / 32 / 1 / 0 / 1 / 116 | 11 / 1 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 391 / 29 / 1 / 0 / 1 / 96 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 436 / 30 / 3 / 0 / 1 / 153 | 30 / 1 / 1 / 0 / 0 / 5 |
-| 02_elevator_refusal | 406 / 29 / 1 / 0 / 1 / 98 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 471 / 32 / 2 / 0 / 1 / 124 | 20 / 1 / 0 / 0 / 0 / 1 |
-| 04_elevator_ride | 398 / 29 / 1 / 0 / 1 / 131 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 399 / 28 / 1 / 0 / 1 / 93 | 23 / 0 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 363 / 28 / 1 / 0 / 1 / 96 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 374 / 31 / 1 / 0 / 1 / 114 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 362 / 30 / 1 / 0 / 1 / 129 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 416 / 32 / 2 / 0 / 1 / 104 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 451 / 35 / 1 / 0 / 1 / 139 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 447 / 34 / 1 / 0 / 1 / 136 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 379 / 31 / 1 / 0 / 1 / 92 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 421 / 33 / 1 / 0 / 1 / 137 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 444 / 36 / 2 / 0 / 1 / 104 | 2 / 0 / 0 / 0 / 0 / 0 |
+| S2_opening | 419 / 34 / 2 / 0 / 1 / 124 | 302 / 27 / 1 / 0 / 1 / 32 |
+| S3_first_control_idle | 324 / 29 / 1 / 0 / 1 / 116 | 11 / 1 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 394 / 26 / 1 / 0 / 1 / 96 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 439 / 27 / 3 / 0 / 1 / 153 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 02_elevator_refusal | 409 / 26 / 1 / 0 / 1 / 98 | 15 / 0 / 0 / 0 / 0 / 2 |
+| 03_panel_power | 474 / 29 / 2 / 0 / 1 / 124 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 04_elevator_ride | 401 / 26 / 1 / 0 / 1 / 131 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 402 / 25 / 1 / 0 / 1 / 93 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 366 / 25 / 1 / 0 / 1 / 96 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 377 / 28 / 1 / 0 / 1 / 114 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 365 / 27 / 1 / 0 / 1 / 129 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 419 / 29 / 2 / 0 / 1 / 104 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 454 / 32 / 1 / 0 / 1 / 139 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 450 / 31 / 1 / 0 / 1 / 136 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 382 / 28 / 1 / 0 / 1 / 92 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 424 / 30 / 1 / 0 / 1 / 137 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 447 / 33 / 2 / 0 / 1 / 104 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
-State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22). What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
+State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.39. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 668 of 741 non-boundary functions (92.5% by instructions).** Every main-line route phase the
+- **Live and verified: 671 of 741 non-boundary functions (94.5% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -1597,13 +1638,14 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   0015C1F0 on a record 001AF5C0 wiped), equal to the original's in the camera-exact snapshots 10 and 14. Since
   section 1.25 the terminal, the panel, the prop 001C4820, the items and the opening controller's canopy draw their
   original units over their own records too, and the terminal copies its node into its indicator child's slot
-  (0x827E6C) as the original does. Since section 1.27 the main loop's steps V and W run their originals (the frame's
+  (0x827E6C) as the original does. Since section 1.39 the security gun, its cable and the fan pair run their
+  original owners and draw their original units (the fans' spin cycle; the dormant gun's one setup rand() draw is
+  the original's AE+1 call). Since section 1.27 the main loop's steps V and W run their originals (the frame's
   DMA list with its clear, 001E0DF0, the field), with the status frames' and the tear-down frames' render flag 3
   and the UI view of the status pages on the one storage.
 - **What still stands in on the route:** the camera stand-ins that pre-empt action 0 for the examine and the aim
   (L28); the indicator children's +0x4C draw 001CABA0 (the child's model mesh drawn additively at the child's own
-  node, section 1.25); the fan pair's and the husks' draws (their legacy meshes: their owners 00827630 / 00825940 /
-  00827490 are not bound, L24); on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
+  node, section 1.25; the security gun's 0x7A lamp draws nothing); on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
   walked over, and the AREA11 flame and the snow, which draw outside the page (008235F0's 001D04B0 and the weather's
   001E0D70 kick are not bound);
   001C1D00 (em_render_001C1D00, the empty render-env step: its 001D5370 needs the static-object bank); 001FC280's body
@@ -1616,11 +1658,11 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
   is the original 00182DF0 since section 1.26). A script owner's takeover is the stage's own since
   section 1.26 (0015B130's prelude, 0015B530, 00182DF0).
-- **Verified but not run live: 69 functions (6,465 instructions).** The largest groups are the lighting and unbound
+- **Verified but not run live: 66 functions (4,645 instructions).** The largest groups are the lighting and unbound
   render heads (section 3.16: 12), the effects' room point-light lists (3.18: 7), the anim runtime leaves (3.14: 6),
   the render context's unbound rows and weather (3.17: 5), the sound-side rows of 3.19 (9: the sound-bank loader,
-  001FB100's rest, 001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 5: the overlay init,
-  the husks' manager and pair, the fan).
+  001FB100's rest, 001FBC50, 001FC6E0, the positional voice) and the AREA11 overlay rows (3.23: 2: the overlay init
+  and the flag-0x30 manager 00823CE0).
 - **No verified translation:** 4 functions (173 instructions): 3 unverified rows and 1 missing row (001CB3C0;
   section 2.1); no stand-in row is left.
 
@@ -1700,7 +1742,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B0DC0 | — | BM | live | em_owner_services_original — test_owner_services_reference.py | recount 2026-09-25: em_owner_services_001B0DC0 executed on the live path (6 calls over the five measured runs) | S2_opening* |
 | 0x001B0EA0 | — | NM | live | em_owner_services_original (the boxes' allocation over the exported bank, em_area11_boxes.c; the fence door's through em_area11_boxes_door_001B0EA0, census L18) — test_owner_services_reference.py; test_collision_world_capture.py (+0x09 / +0x0C / +0x44 bound); test_level_smoke.py fence_door |  | S2_opening* |
 | 0x001B0F60 | — | BM | live | em_startup_load_gaps em_slg_001B0F60 in the fence door's 001BBDA0 (em_area11_door; census L18) — test_startup_load_gaps_reference; test_level_smoke.py fence_door (the door header's +0x09 / +0x0C) |  | S2_opening* |
-| 0x001B0FD0 | — | BM | live | em_crate_original / em_drum_original state 0 (001B0EA0, bone_init, +4 += 1); the truck 00823FF0 state 0 (em_owner_services_001B0FD0 via em_area11_boxes, census L23); since section 1.25 the terminal 00827B10, the panel 00159210, the prop 001C4820, the opening controller 00823E80 and the map item 0015AFA0 (0015AC00) state 0 (em_area11_boxes_owner_001B0FD0) — test_crate_original_reference.py, test_drum_original_reference.py, test_owner_services_reference.py; test_level_smoke.py (truck_crossing: the truck header +0x09 / +0x0C) |  | S2_opening* |
+| 0x001B0FD0 | — | BM | live | em_crate_original / em_drum_original state 0 (001B0EA0, bone_init, +4 += 1); the truck 00823FF0 state 0 (em_owner_services_001B0FD0 via em_area11_boxes, census L23); since section 1.25 the terminal 00827B10, the panel 00159210, the prop 001C4820, the opening controller 00823E80 and the map item 0015AFA0 (0015AC00) state 0, and since section 1.39 the security gun, its cable and the fans (em_area11_boxes_owner_001B0FD0) — test_crate_original_reference.py, test_drum_original_reference.py, test_owner_services_reference.py; test_level_smoke.py (truck_crossing: the truck header +0x09 / +0x0C) |  | S2_opening* |
 
 ### 3.3 Input block and roster spawn (0x1B5000..0x1B6BEF)
 
@@ -1922,7 +1964,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0019FE50 | — | NM | live | em_coll_move_original — test_coll_move_reference.py | recount 2026-09-25: em_coll_move_walk_0019FE50 executed on the live path (88348 calls over the five measured runs) | S2_opening |
 | 0x001A0B10 | — | NM | live | em_coll_segment_walkers, em_enemy — test_coll_segment_walkers_reference.py | recount 2026-09-25: em_coll_segment_001A0B10 executed on the live path (5 calls over the five measured runs) | 02_elevator_refusal |
 | 0x001A1390 | — | NM | live | em_coll_segment_walkers — test_coll_segment_walkers_reference.py | 0019A910's cell walker over the published class-4 cells | S2_opening |
-| 0x001A2370 | — | NM | live | em_actor_collision (em_actor_cells_retransform_001A2370) — test_actor_collision_reference.py, test_collision_world_capture.py | the terminal 00827B10 (state 0, the ride's completion, over the +0xD0 its 001C6380 built since section 1.25), the items 00219550 (state 0, likewise) and since census L23 the truck 00823FF0 (every shake and fall tick) through em_collision_world; the drums (L25) and 0x825940 (L24) wait on their owners | S2_opening |
+| 0x001A2370 | — | NM | live | em_actor_collision (em_actor_cells_retransform_001A2370) — test_actor_collision_reference.py, test_collision_world_capture.py | the terminal 00827B10 (state 0, the ride's completion, over the +0xD0 its 001C6380 built since section 1.25), the items 00219550 (state 0, likewise) and since census L23 the truck 00823FF0 (every shake and fall tick) through em_collision_world, and since section 1.39 the security gun 0x825940's lifecycle 0 (its plate, uid 15, through bone 3); the drums (L25) wait on their owner | S2_opening |
 | 0x001A2AE0 | — | NM | live | em_coll_probe_original, em_coll_segment_walkers — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
 | 0x001A32C0 | — | NM | live | em_coll_probe_original — test_coll_probe_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
 | 0x001A3980 | — | NM | live | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | recount 2026-09-25: em_coll_list_passes_001A3980 executed on the live path (9 calls over the five measured runs) | 05_boxes |
@@ -1975,15 +2017,15 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 |---|---|---|---|---|---|---|
 | 0x001B1020 | — | AI | live | em_owner_services_original em_owner_services_001B1020 via em_area11_roger (the equipment's model 0x6B of D_0028A56C; census L22) and since section 1.25 via em_area11_boxes_owner_001B1020 (the six items 00219550's model 0x72 of D_0028A56C, the library bank) — test_owner_services_reference.py, test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening* |
 | 0x001B10B0 | — | BM | live | em_roger_actor_original em_roger_actor_001B10B0 via em_area11_roger (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening* |
-| 0x001B1190 | — | CL | unverified | em_pickup.c taken_set (the owner's PERSIST event) | test_pickup_owner_reference hooks 001B1190 (persistence); no oracle executes it | 01_battery |
-| 0x001B11E0 | — | NM | live | em_actor_roster, em_enemy — test_actor_census_reference.py |  | S1_newgame_load* |
+| 0x001B1190 | — | CL | unverified | em_pickup.c taken_set (the owner's PERSIST event) | test_pickup_owner_reference hooks 001B1190 (persistence); no oracle executes that copy. The verified translation em_gun_rest_001B1190 (em_security_gun_rest, test_security_gun_rest_reference: 30 cases) is bound for the gun cable's lifecycle 2 since section 1.39, which the route does not reach; the items' path still uses taken_set (to reduce to that one owner) | 01_battery |
+| 0x001B11E0 | — | NM | live | em_actor_roster (the spawners' condition 1; exported as em_actor_roster_001B11E0 for the gun cable 00827490's lifecycle 0 since section 1.39), em_enemy — test_actor_census_reference.py; test_level_smoke.py check_gun_fan (the cable's lifecycle 0 on every run) |  | S1_newgame_load* |
 | 0x001B1240 | — | BM | live | em_script_host_workers em_script_host_001B1240 (0018C0D0 and the camera workers, em_camera_live) — test_script_host_workers_reference; test_camera_live_reference; test_level_smoke.py camera rows (census 1.11) | live since census L13..L16 (21810 calls) | S1_newgame_load |
 | 0x001B12B0 | — | AW | live | em_script_host_workers em_script_host_001B12B0 (bound in em_player_slide) — test_player_slide_reference.py, test_script_host_workers_reference.py, test_camera_follow_original_reference.py; test_level_smoke.py (06_hill_slide row for row, census L03) | live through the slide (0016C6A0 sub-states 1/2 turn +C4 onto +218); its camera and script-host callers are still unbound (legacy follow camera, L19) | 00_panel_no_battery |
 | 0x001B1380 | — | AI | live | em_script_host_workers em_script_host_001B1380 through em_area11_script_host w_001B1380 (op15 001B6FA0: Roger's 0x828990 and the director's beats) — test_script_host_workers_reference.py (lockstep over the original); test_player_misc_workers_reference.py | recount 2026-09-26 (section 1.22): measured running on the full route (op15 only). Its other original caller on every beat, the positional sound request 001FBF50, is em_sfx.c em_sfx_play_at in the port, which does not call it (the 001FBF50 row) | S2_opening |
 | 0x001B1470 | — | BM | live | em_player_stage_workers em_player_001B1470, em_effect_original / em_fan_original wraps — test_player_stage_workers_reference, test_effect_original_reference, test_fan_original_reference | the live copies (em_player_heading.c, em_camera.c cam_wrap_pi) are host wraps; test_player_heading_reference replaces 001B1470 with a host wrap (critic 7.2); recount 2026-09-25: wrap_001B1470 executed on the live path (152 calls over the five measured runs) | S1_newgame_load |
 | 0x001B15D0 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference.py |  | S2_opening |
 | 0x001B1630 | — | NM | live | em_interaction_scan (em_interaction_visible) — test_interaction_pickup_reference.py, test_owner_services_reference.py | 001B17A0's gate for the panel, the terminal and the items (g.cam.eye / fwd) | S2_opening |
-| 0x001B17A0 | — | BM | live | em_owner_services_original — test_owner_services_reference | the one 001B17A0 of the panel, the terminal, the items and Roger (census L22; the host's duplicate em_interaction_scene_offer is retired), the drums (L25) and since section 1.25 the prop 001C4820; the fan tail waits on its owner (L24) | S2_opening |
+| 0x001B17A0 | — | BM | live | em_owner_services_original — test_owner_services_reference | the one 001B17A0 of the panel, the terminal, the items and Roger (census L22; the host's duplicate em_interaction_scene_offer is retired), the drums (L25) and since section 1.25 the prop 001C4820; since section 1.39 the security gun, its cable and the fans' fast arm (em_area11_bindings.c) | S2_opening |
 | 0x001B1B30 | — | BM | live | em_script_door_fan em_sdf_001B1B30 in em_area11_door's publish hook (census L18) — test_script_door_fan_reference; test_level_smoke.py fence_door (route 09 f309..f532 row for row): the door published for the scan |  | S2_opening |
 | 0x001B1B70 | — | BM | live | em_actor_collision (em_actor_class_publish_001B1B70) — test_actor_collision_reference.py, test_owner_services_reference.py, test_collision_world_capture.py | 001B17A0's worker for the panel, the terminal, the items and since section 1.25 the prop 001C4820 (their pool records); the crates and drums since L25, the truck since L23 and the opening controller 00823E80 since section 1.25 publish directly | S2_opening |
 | 0x001B1CA0 | — | BM | verified-unbound | em_actor_collision (001B1B70's class 2/0xA push) — test_actor_collision_reference.py | bound in the live 001B1B70; no owner the port runs publishes class 2/0xA yet (Roger 008237E0, L22) | 03_panel_power |
@@ -2066,7 +2108,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C47A0 | — | BM | live | em_pickup.c pickup_take (B0 = 1, B1 = type) — test_level_smoke.py (battery phase; route 01 f220..f459) | called from em_pickup.c original_take through the original 00219550 program (81414be) | 01_battery |
 | 0x001C4820 | — | BM | live | em_status_ui_leftovers em_sul_001C4820 at the area11[20] node (em_area11_bindings.c tick_prop_001C4820: 001B0FD0 / 001C6380 / +0x4C through em_area11_boxes_owner_*, 001B17A0 through the host's services) — test_status_ui_leftovers_reference; test_level_smoke.py check_owner_units (its 001CAA00 unit against the snapshots), test_collision_world_capture.py (its cell uid 17 on the published class-4 list) | the owners step 2026-09-26 (section 1.25); the manifest's legacy prop instance at its +0xB0 is retired | S2_opening |
 | 0x001C5570 | — | BM | live | em_area11_bindings.c spawn_001C5570 — compare_frame_order.py; test_level_smoke.py (census 49) | spawn only | S2_opening* |
-| 0x001C5680 | — | AI | live | em_indicator_child em_indicator_child_step, per node (em_area11_bindings.c tick_indicator), its bind 001C2360 and placement 001C6380 through em_indicator_bind_live — test_census_unverified_reference (every beat's children in walk order), test-indicator-child; test_level_smoke.py check_indicator_children | stand-in: the +0x4C draw 001CACB0 (001CABA0: channel 3, lighting mode 1, 001D3990 / 001D3D90, the 001CAAC0 depth sort into page D_007635C0) is not translated: the child's model mesh is drawn additively at the child's own node 0 (its slot +0x90, since the owners step, section 1.25), and the 0x7A child draws nothing; 001CABA0's 001CA7B0 cull is not modelled. The bind / placement stand-ins are retired (status UI step 2026-09-26 (section 1.21)) | S2_opening |
+| 0x001C5680 | — | AI | live | em_indicator_child em_indicator_child_step, per node (em_area11_bindings.c tick_indicator), its bind 001C2360 and placement 001C6380 through em_indicator_bind_live — test_census_unverified_reference (every beat's children in walk order), test-indicator-child; test_level_smoke.py check_indicator_children | stand-in: the +0x4C draw 001CACB0 (001CABA0: channel 3, lighting mode 1, 001D3990 / 001D3D90, the 001CAAC0 depth sort into page D_007635C0) is not translated: the child's model mesh is drawn additively at the child's own node 0 (its slot +0x90, since the owners step, section 1.25), and the security gun's 0x7A lamp draws nothing (since section 1.39 the gun's own lifecycle 0 allocates it, no interim spawn); 001CABA0's 001CA7B0 cull is not modelled. The bind / placement stand-ins are retired (status UI step 2026-09-26 (section 1.21)) | S2_opening |
 | 0x001C5760 | — | AI | live | em_indicator_child em_indicator_child_step, per node; its bind 001C22A0 and placement 001C6380 through em_indicator_bind_live; the terminal's colour tail 0x827EAC (em_indicator_00827B10_colour) — test_census_unverified_reference, test-indicator-child; test_level_smoke.py check_indicator_children | stand-in: the draw as 001C5680. The terminal's 00102958 copy of its node 0 matrix into the child's slot (0x827E6C) is bound since the owners step (section 1.25): check_indicator_children holds the child's slot equal to the terminal's node on every tick and the node equal to routes 00..03 before the ride and 04..14 after it | S2_opening |
 | 0x001C5860 | — | BM | verified-unbound | em_status_ui_leftovers em_sul_001C5860 — test_status_ui_leftovers_reference | em_hud.c legacy area-title sub-location line | S2_opening |
 | 0x001C5930 | — | NM | verified-unbound | em_status_ui_leftovers em_sul_001C5930 — test_status_ui_leftovers_reference | em_hud.c legacy area-title card; node lifecycle translated in em_area11_bindings.c tick_area_title (from the .s) | S2_opening |
@@ -2091,7 +2133,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C68C0 | — | BM | live | em_pose_host_workers on the player record (0015BCF0's animate step for a zero D_00248C90 row: the takeover clips; 0015C420's pose half) and on Roger's record (em_area11_roger, census L22), em_door — test_player_record_pose_reference; test_pose_host_workers_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001C6960 | — | BM | live | em_pose_host_workers via em_player_record_pose_animate (+0x2F3 = 2: the special bank on the record, census L22) — test_pose_host_workers_reference.py; test_player_cinematic_reference; test_level_smoke.py (roger: route 14 row for row) (clip / clock with +0x2F3 = 2) |  | S2_opening |
 | 0x001C6DA0 | anim_eval_skeleton | AU | live | em_pose_host_workers em_pose_host_001C6DA0 on the player record (0015BCF0's animate step for a nonzero D_00248C90 row; 0017B910's foot-stop begin) — test_player_record_pose_reference (the captured skeletons re-evaluated byte for byte); test_pose_host_workers_reference | em_pose_bank / em_player_pose evaluation remains for Roger and the status models; other actors use exported matrices | S2_opening |
-| 0x001C7420 | — | NM | live | em_owner_services_original through em_owner_draw_live (the crates, drums, truck, fence door; object-unit step; the player (21 nodes) and its equipment since section 1.23; the terminal, panel, prop, items and canopy since section 1.25) — test_owner_services_reference, test_owner_draw_reference; test_level_smoke.py check_owner_units (the units against the route snapshots) | em_face_model.c / em_opening_actor.c basis collapse for the legacy-drawn actors (Roger, the fan pair, the husks) | S2_opening |
+| 0x001C7420 | — | NM | live | em_owner_services_original through em_owner_draw_live (the crates, drums, truck, fence door; object-unit step; the player (21 nodes) and its equipment since section 1.23; the terminal, panel, prop, items and canopy since section 1.25; the security gun, its cable and the fan pair since section 1.39) — test_owner_services_reference, test_owner_draw_reference; test_level_smoke.py check_owner_units (the units against the route snapshots) | em_face_model.c / em_opening_actor.c basis collapse for the legacy-drawn actors (Roger) | S2_opening |
 | 0x001C7900 | — | NM | verified-unbound | em_anim_runtime_rest em_anim_rest_001C7900 — test_anim_runtime_rest_reference | not bound | S2_opening |
 | 0x001C7C00 | — | NM | live | em_cinematic_camera em_cinematic_camera_sample (em_render_frame.c -> em_opening_runtime_camera every opening frame; em_cinematic_playback_tick for Roger) — test_roger_cinematic_reference.py; test_level_smoke.py (roger) | live for S2 (critic 7.2) and, since census L22, for Roger's bank 0x96 timeline (em_cinematic_playback_tick through the AREA11 script host, measured 2026-09-26; test_level_smoke.py roger compares the camera eye / target from route 14 f358) | S2_opening |
 | 0x001C8480 | anim_clip_resolve | BM | live | em_pose_host_workers on the player record — test_player_record_pose_reference; test_pose_host_workers_reference |  | S2_opening |
@@ -2120,7 +2162,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CA7B0 | — | BM | live | em_owner_draw_original em_owner_draw_001CA7B0 through em_owner_draw_live (object-unit step) — test_owner_draw_reference; test_level_smoke.py check_owner_units (the units against the route snapshots) (the drawn set in the camera-exact beats) |  | S2_opening |
 | 0x001CA940 | — | BM | live | em_owner_draw_original em_owner_draw_001CA940 through em_owner_draw_live (object-unit step) — test_owner_draw_reference; tools/test_object_unit_reference.py; test_level_smoke.py check_owner_units (the units against the route snapshots) |  | S2_opening |
 | 0x001CA990 | — | BM | live | em_owner_services_original through em_owner_draw_live (object-unit step; the player and its equipment since section 1.23) — test_owner_services_reference.py, test_owner_draw_reference.py; test_level_smoke.py check_owner_units (the units against the route snapshots) |  | S2_opening |
-| 0x001CAA00 | — | BM | live | em_owner_services_original em_owner_services_001CAA00 through em_owner_draw_live (the +0x4C of the crates, drums, truck and fence door; object-unit step; since section 1.23 the player's, 0015C160, through em_player_draw_live, and the seven equipment nodes', 0018A6B0; since section 1.25 the terminal's, the panel's, the prop 001C4820's, the items' and the opening controller's canopy, em_area11_boxes_owner_draw) — test_owner_services_reference.py, test_owner_draw_reference.py (D: the native unit equals the original over 255 owner-frames), test_actor_light_001d89d0_reference.py (C: the native chain over 375 owner-frames: the world owners, the player's 15 and the equipment's 105), tools/test_object_unit_reference.py; test_level_smoke.py check_owner_units (the units against the route snapshots; the player and equipment in beats 10 / 14 with their pose) | Roger's +0x4C: the port's actor draw (em_area11_roger_draw, census L22; 001CB3C0 not bound); the fan pair's and the husks' legacy draws are not this function (OWNER_DRAW.md section 11) | S2_opening |
+| 0x001CAA00 | — | BM | live | em_owner_services_original em_owner_services_001CAA00 through em_owner_draw_live (the +0x4C of the crates, drums, truck and fence door; object-unit step; since section 1.23 the player's, 0015C160, through em_player_draw_live, and the seven equipment nodes', 0018A6B0; since section 1.25 the terminal's, the panel's, the prop 001C4820's, the items' and the opening controller's canopy, and since section 1.39 the security gun's, its cable's and the fans', em_area11_boxes_owner_draw) — test_owner_services_reference.py, test_owner_draw_reference.py (D: the native unit equals the original over 255 owner-frames), test_actor_light_001d89d0_reference.py (C: the native chain over 375 owner-frames: the world owners, the player's 15 and the equipment's 105), tools/test_object_unit_reference.py; test_level_smoke.py check_owner_units (the units against the route snapshots; the player and equipment in beats 10 / 14 with their pose) | Roger's +0x4C: the port's actor draw (em_area11_roger_draw, census L22; 001CB3C0 not bound); the fan pair's and the husks' legacy draws are not this function (OWNER_DRAW.md section 11) | S2_opening |
 | 0x001CAAC0 | — | NM | verified-unbound | em_anim_runtime_rest em_anim_rest_001CAAC0 — test_anim_runtime_rest_reference | not bound | S2_opening |
 | 0x001CACB0 | — | BM | verified-unbound | em_anim_runtime_rest em_anim_rest_001CACB0 — test_anim_runtime_rest_reference | not bound | S2_opening |
 | 0x001CB2C0 | — | NM | verified-unbound | em_anim_runtime_rest em_anim_rest_001CB2C0 — test_anim_runtime_rest_reference | not bound | S2_opening |
@@ -2444,7 +2486,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.23 AREA11 overlay owners (0x8235F0..0x828050, runtime addresses)
 
-23 functions, 4,400 instructions: live 18, verified-unbound 5 (recount 2026-09-26, shadow step).
+23 functions, 4,400 instructions: live 21, verified-unbound 2 (recount 2026-09-28, section 1.39).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2454,7 +2496,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00823910 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x00823950 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) | the ordinary branch (0x8283D0, route 14) and, since WP-8b, the alternate 0x828990 (route 10, with the director) run | 10_cage_roof_roger |
 | 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
-| 0x00823CE0 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_manager_tick — test_script_door_fan_reference (part 3) | dormant in the first visit (waits on D_00810788); the node is bound with no port code | S2_opening |
+| 0x00823CE0 | — | AU | verified-unbound | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; renamed from em_script_door_fan_husk in L24) — test_script_door_fan_reference (part 3) | dormant in the first visit (waits on D_00810788); the node is bound with no port code | S2_opening |
 | 0x00823E80 | — | AU | live | em_area11_opening.c / em_opening_runtime.c; its state 0 (001B0FD0, 001C6380) and state 1's tail (001B1B70, +0x4C 001CAA00) over its record in em_area11_bindings.c tick_opening since section 1.25 — test_continue_reset_reference (0x823F74..80 slice); opening capture frame; test_level_smoke.py check_owner_units (the canopy's unit), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | partial oracle coverage; the legacy canopy prop is retired (section 1.25) | S2_opening |
 | 0x00823FF0 | — | AU | live | em_truck_original via em_area11_boxes em_area11_boxes_truck_tick (census L23) — test_truck_original_reference; test_level_smoke.py (truck_crossing: route 08 row for row from the arm) | its 001EFD20 spawns run em_effects_live (census L26; the eight live puffs equal route 08's); sounds 0x454 / 0x455 not in the exported registry (WP-14) | S2_opening |
 | 0x008251E0 | — | AU | live | em_truck_original em_truck_trigger_tick via em_area11_boxes (census L23) — test_truck_original_reference; test_level_smoke.py (truck_preview: route 07 row for row) |  | S2_opening |
@@ -2466,9 +2508,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x008256D0 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
 | 0x00825710 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
 | 0x008257A0 | — | AU | live | em_manager_008257A0.c — test_manager_8257a0_reference |  | S2_opening* |
-| 0x00825940 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_creature_tick (partial: lifecycles 1 and 4 fault) — test_script_door_fan_reference (part 3) | em_enemy.c legacy em_enemy_update (pool group 'enemies'; interim spawn); its lifecycle-0 rand() draw (0x8259F0) is the one call the port's opening misses (section 1.32) | S2_opening |
-| 0x00827490 | — | AU | verified-unbound | em_script_door_fan_husk em_husk_partner_tick — test_script_door_fan_reference (part 3) | em_enemy.c legacy em_enemy_update (pool group 'enemies') | S2_opening |
-| 0x00827630 | — | AU | verified-unbound | em_fan_original — test_fan_original_reference | static fans (em_pickup draw, no spin) | S2_opening |
+| 0x00825940 | — | AU | live | em_security_gun em_gun_tick (the security gun; lifecycles 0, 0x64, 2, 3) through em_area11_bindings.c tick_gun since section 1.39 — test_script_door_fan_reference (part 3), test_security_gun_rest_reference (em_gun_rest_tick, every lifecycle, 24 captures); test_level_smoke.py check_gun_fan (equal to all 15 route snapshots on every tick), check_owner_units (its 001CAA00 unit), check_rand_order (its 0x8259F0 draw at AE+1); test_collision_world_capture.py (its plate, uid 15) | lifecycles 4 and 1 (return visit, D_00810788 == 0xFF) fault by design; em_gun_rest_tick translates them, not bound | S2_opening |
+| 0x00827490 | — | AU | live | em_security_gun em_gun_cable_tick (the gun's cable) through em_area11_bindings.c tick_gun_cable since section 1.39 — test_script_door_fan_reference (part 3); test_level_smoke.py check_gun_fan, check_owner_units | its hit (+0x36: no live writer) is bound up to 001EFE00, which faults (its node view, 0021AAC0 / 0021A500 and 001CE860 are not bound) | S2_opening |
+| 0x00827630 | — | AU | live | em_fan_original through em_area11_bindings.c tick_fan since section 1.39 — test_fan_original_reference, test_security_gun_rest_reference (its player hit through the original 0021C440); test_level_smoke.py check_gun_fan (every captured fan state on the port's cycle), check_owner_units (its units, over the port's +0xC8 through the original 001C6380) | its exit and hit boxes are off the smoke's route | S2_opening |
 | 0x00827B10 | — | AU | live | em_elevator.c / em_area11_interaction_host.c (node #27); since section 1.25 its record: state 0's 001B0FD0 / 001C6380, the carry's and the completion's 001C6380, 0x827E6C and the +0x4C 001CAA00 (em_area11_boxes_owner_*, em_area11_bindings.c terminal_copy_child) — test_elevator_reference; test_level_smoke.py (routes 02/04: the record's +0x04 / +0xB0 row for row over route 04; check_indicator_children; check_owner_units) | the legacy platform mesh is retired (section 1.25) | S2_opening |
 | 0x00828050 | — | AU | live | em_elevator.c em_elevator_motion_tick — test_elevator_reference; test_level_smoke.py (route 04) |  | 04_elevator_ride |
 
@@ -2674,7 +2716,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 20 | **L15-camera-actions**: Bind the camera action dispatch 0018BC20 and em_camera_area11_specials (001921D0, 00193EB0). **Recount 2026-09-24:** 0018BC20 and 00191000 are em_camera_leftovers translations. **Live 2026-09-25 (section 1.11)**; the examine and aim owners still pre-empt action 0 through named stand-ins (CAMERA_LIVE.md section 6; L28; the door cinematic retired with census L18) | bind | 1,951 | 5 (live 5) | every frame from first control | L13 |
 | 21 | **L16-camera-area11-walk**: Bind 00195130 (AREA11 walking specials), 001916C0 and the 0015CBA0 state map. **Recount 2026-09-24:** 0015CBA0 and 001916C0 are translated (em_camera_leftovers). **Live 2026-09-25 (section 1.11)** | bind | 1,843 | 3 (live 3) | every frame from first control (AREA11 walking specials) | L15 |
 | 22 | **L12-locomotion-display**: Replace the legacy idle/walk callbacks and gait display with 00161020/001612D0/0017B660 and their verified workers. **Live 2026-09-25 (section 1.12):** 00161020 / 001612D0 are 0015B130's state[0] / state[1] over the record in AREA11 (behind the port's stand-ins, L21 / L28), with 0017C030, 0017B660, 0017B5C0, 00179D20, 00179FF0, 0017B490 / 0017B460, 00178B90, 00187350 / 00187EE0 and the new record-level 0017BC40 / 0017B910; 00182D40 stays verified-unbound (its caller 00182DF0 is not on the record); 00187DC0 unchanged | bind | 1,742 | 15 (live 13, verified-unbound 2) | every frame from first control (idle/walk look and footsteps) | L01 |
-| 23 | **L24-fan-husk**: WP-11: bind the fan pair and the husk pair. **Recount 2026-09-24:** the husk creature 00825940 (lifecycles 1 and 4 fault), its partner 00827490 and the manager 00823CE0 are translated in em_script_door_fan_husk | bind | 1,924 | 4 (verified-unbound 4) | every frame (husk pair), level exit (fan) | L07 |
+| 23 | **L24 (the fan pair; the security gun and its cable, formerly "L24-fan-husk")**: WP-11: bind the fan pair, the security gun and its cable. **Live 2026-09-28 (section 1.39):** 00825940 (em_gun_tick; its return-visit lifecycles 4 / 1 fault by design), 00827490 (em_gun_cable_tick; its hit faults at 001EFE00, unreached) and 00827630 (em_fan_original_tick) on their records, drawn by 001CAA00; the flag-0x30 manager 00823CE0 (em_flag30_manager_tick) is verified, not bound | bind | 1,924 | 4 (live 3, verified-unbound 1) | every frame (the gun, the cable and the fans), level exit (fan) | L07 |
 | 24 | **L25-crates-drums**: WP-18: bind crates and drums in place of em_enemy. **Live 2026-09-24 (Boxes step):** em_area11_boxes.c runs both owners over their roster nodes (CRATES_DRUMS_ORIGINAL.md "Binding"); the legacy AREA11 copies are retired; the damage paths are fail-stop (no live +0x36 writer; their effect spawns run em_effects_live since section 1.17) | bind | 1,885 | 2 (live 2) | every frame; 05 | L07 |
 | 25 | **L18-door-original**: WP-7: bind the original door runtime/program/transit. **Recount 2026-09-24:** 001B1B30, 001BC240, 001BC290, 001BBD60 and 001B0080 are em_script_door_fan translations; every row is verified-unbound. **Live 2026-09-25 (section 1.18):** em_area11_door; route 09 row for row | bind | 881 | 11 (live 11) | 09 (fence door, side beat) | L17 (Use arbitration) |
 | 26 | **L28-player-equipment**: Bind the player equipment/weapon actors (0018A6B0 nodes) and the gun tick. **Recount 2026-09-24:** em_player_equipment translates all 13 rows (3824c6f); the em_weapon.c gun tick, lamp gate and camera-code stand-ins go when bound **Render context step 2026-09-25:** 0015D2F0 runs live through the render context's calls (001D1C50, 001DDE10) **Live 2026-09-25 (effects step, section 1.17):** the seven 0018A6B0 nodes run em_player_equipment through em_equipment_live (models from the Roger export's D_0028A56C spans, slots from the one stack, the equipment change's respawn after a status screen); the records equal the route snapshots 08 / 10 / 11 / 13 / 14 (check_effects); the em_weapon.c armed-stance stand-ins stay until the aim drawers are translated **Player step 2026-09-26 (section 1.23):** the nodes' +0x4C is 001CAA00 through em_owner_draw_live (their units equal the original's in the camera-exact beats 10 / 14), and em_weapon reads the player's node 4 from the record instead of the gfx bone publish (retired) | bind | 2,101 | 13 (live 13) | every frame (rifle/knife children, gun tick, aim) | L01 |
@@ -2731,7 +2773,7 @@ Functions per lane:
 - **L16-camera-area11-walk**: 00195130, 001916C0, 0015CBA0.
 - **L12-locomotion-display**: 00161020, 001612D0, 0017B660, 0017B460, 0017B5C0, 0017B490, 0017C030, 00178B90, 00179D20, 00179FF0,
   001749F0, 00187350, 00187EE0, 00187DC0, 00182D40.
-- **L24-fan-husk**: 00827630, 00825940, 00827490, 00823CE0.
+- **L24** (the fan pair, the security gun and its cable; formerly L24-fan-husk): 00827630, 00825940, 00827490, 00823CE0.
 - **L25-crates-drums**: 001551B0, 00156620.
 - **L18-door-original**: 001BC350, 001BBE40, 001BBDA0, 001BC0E0, 001BC300, 001BC240, 001BC290, 001BBD60, 001B1B30, 001B0080,
   001B94F0.

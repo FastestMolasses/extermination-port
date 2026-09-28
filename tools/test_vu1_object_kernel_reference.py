@@ -101,7 +101,7 @@ MICRO_FLAG_TEST = 0x02B * 8             # the clip-flag test (CLIP issues at mic
 CLIP_FLAG_LATENCY = 4                   # the interpreter's model: visible 4 cycles after CLIP
 PLAYER = 0x8102B0
 BEHAVIOUR = {0x1551B0: 'crate', 0x156620: 'drum', 0x827630: 'fan', 0x823FF0: 'truck',
-             0x827B10: 'elevator', 0x825940: 'husk creature', 0x827490: 'husk partner',
+             0x827B10: 'elevator', 0x825940: 'security gun', 0x827490: 'gun cable',
              0x823E80: 'parachute', 0x1BC350: 'door', 0x159210: 'panel', 0x1C4820: '001C4820',
              0x15AFA0: 'pickup', 0x18A6B0: 'player equipment', 0x8237E0: 'Roger',
              0x1C5680: 'pickup light', 0x219550: 'item', 0x1C5760: '001C5760'}

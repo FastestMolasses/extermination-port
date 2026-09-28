@@ -2382,6 +2382,116 @@ def check_indicator_children(ticks, state):
           f'terminal)')
 
 
+# ---------------- the security gun, its cable and the fan pair (census L24)
+
+GUN, GUN_CABLE, FAN = 0x825940, 0x827490, 0x827630
+
+
+def captured_gun_fan():
+    """The security gun 00825940, its cable 00827490 and the fan pair
+    00827630 of every in-scope route snapshot (00..14), by record address, in
+    the tick log's `gun_fan` layout: [address, +0x10, +0x00, +0x04, +0x05,
+    +0x09, +0x28, +0x34, +0x36, +0x38, [+0xC0..+0xCC], bone 3 +0x78, +0x220,
+    [the lamp's +0xA0]] (float fields as bits; the bone and lamp words only
+    for the gun)."""
+    out = {}
+    for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15'):
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        u32 = lambda a: struct.unpack_from('<I', m, a)[0]
+        s16 = lambda a: struct.unpack_from('<h', m, a)[0]
+        rows = {}
+        a = u32(0x275BC0)
+        while a:
+            cb = u32(a + 0x10)
+            if cb in (GUN, GUN_CABLE, FAN):
+                bone3 = u32(u32(a + 0x11C) + 0x78) if cb == GUN else 0
+                w220 = u32(a + 0x220) if cb == GUN else 0
+                lamp = [u32(w220 + 0xA0 + 4 * k) for k in range(4)] if w220 else [0, 0, 0, 0]
+                rows[a] = [a, cb, m[a], m[a + 4], m[a + 5], m[a + 9], s16(a + 0x28), s16(a + 0x34),
+                           struct.unpack_from('<H', m, a + 0x36)[0], u32(a + 0x38),
+                           [u32(a + 0xC0 + 4 * k) for k in range(4)], bone3, w220, lamp]
+            a = u32(a + 0x1C)
+        out[beat] = rows
+    return out
+
+
+def fan_state(row):
+    """A fan record's cycle state: +0x04, +0x05, +0x28, +0x38 and +0xC8."""
+    return (row[3], row[4], row[6], row[9], row[10][2])
+
+
+def check_gun_fan(ticks, state):
+    """The security gun 00825940, its cable 00827490 and the fan pair
+    00827630 on their original owners (census L24; docs/SECURITY_GUN.md,
+    FAN_ORIGINAL.md "Binding") against every route snapshot 00..14:
+    - the gun and the cable are the same in every snapshot (the gun dormant
+      in 0x64 with its +0x28 = 584 from its one lifecycle-0 rand() draw,
+      bone 3 +0x78 = -1.1344, the lamp at +0x220 dark at (0, 0, 0, 0.25);
+      the cable in lifecycle 1, +0x34 = 1, not hit), and from the gun's first
+      call on, on every tick of the run the port's gun and cable records (at
+      the same addresses) equal them field for field; before their first
+      call, both still in lifecycle 0 at their records;
+    - the fan pair's spin cycle: every snapshot's fan state (+0x04, +0x05,
+      +0x28, +0x38, +0xC8 of both records, at the same addresses) is a state
+      the port's fans run through on some tick of the run (the translation
+      from the spawn, em_fan_original, over the cycle: wait, spin-up, hold,
+      spin-down); the snapshots' phases differ with the recording's timing,
+      so the phase at an aligned tick is not compared here (check_owner_units
+      draws the fans over the port's +0xC8 instead);
+    - at the aligned snapshot ticks the port holds the same gun, cable and
+      fan records."""
+    caps = captured_gun_fan()
+    static = {}
+    for beat, rows in caps.items():
+        assert {r[1] for r in rows.values()} == {GUN, GUN_CABLE, FAN} and len(rows) == 4, \
+            ('gun/fan: a snapshot without the gun, the cable and both fans', beat, sorted(map(hex, rows)))
+        for a, r in rows.items():
+            if r[1] != FAN:
+                assert static.setdefault(a, r) == r, ('gun/fan: the snapshots disagree on the gun or cable', beat,
+                                                     hex(a), r, static[a])
+    gun = next(r for r in static.values() if r[1] == GUN)
+    assert gun[3] == 0x64 and gun[6] == 584 and gun[11] == 0xBF91361E and gun[13] == [0, 0, 0, 0x3E800000], \
+        ('gun/fan: the captured gun is not the dormant one this check describes', gun)
+    fans = {}
+    for beat, rows in caps.items():
+        for a, r in rows.items():
+            if r[1] == FAN:
+                fans.setdefault(beat, {})[a] = fan_state(r)
+    seen_fan, started, gun_ticks, setup_ticks = set(), set(), 0, 0
+    for t in ticks:
+        rows = t.get('gun_fan')
+        if rows is None:
+            continue
+        for r in rows:
+            where = ('gun/fan', 'port tick', t['tick'], hex(r[0]))
+            if r[1] == FAN:
+                seen_fan.add((r[0], fan_state(r)))
+                continue
+            assert r[0] in static, (where, 'no captured gun or cable at this record')
+            if r[3] == 0:
+                # spawned (001B6660) and not yet called: lifecycle 0
+                assert r[0] not in started, (where, 'back in lifecycle 0 after its first call')
+                setup_ticks += r[1] == GUN
+                continue
+            started.add(r[0])
+            assert r == static[r[0]], (where, 'differs from the snapshots\' record', r, static[r[0]])
+            gun_ticks += r[1] == GUN
+    assert gun_ticks >= 100, ('gun/fan: the gun was too little exercised', gun_ticks)
+    missing = [(beat, hex(a), s) for beat, rows in fans.items() for a, s in rows.items() if (a, s) not in seen_fan]
+    assert not missing, ('gun/fan: a snapshot\'s fan state the port\'s fans never ran through', missing[:4])
+    for beat, i in state.get('snapshots', []):
+        port = {r[0] for r in ticks[i].get('gun_fan', [])}
+        assert port == set(caps[beat]), ('gun/fan', beat, 'port tick', ticks[i]['tick'], sorted(map(hex, port)),
+                                         sorted(map(hex, caps[beat])))
+    cycle = {s for _, s in seen_fan}
+    print(f'gun/fan: PASS (the security gun and its cable equal all {len(caps)} route snapshots\' records on '
+          f'{gun_ticks} tick(s) after the gun\'s setup ({setup_ticks} tick(s) before it): dormant 0x64, +0x28 = '
+          f'584, bone 3 +0x78 = -1.1344, the lamp dark; the cable in lifecycle 1; the '
+          f'{sum(len(r) for r in fans.values())} captured fan states lie on the port\'s fan cycle '
+          f'({len(cycle)} distinct states run); {len(state.get("snapshots", []))} aligned snapshot(s) hold the '
+          f'same records)')
+
+
 LANES = (0, 1, 3, 4, 5, 6)   # 001F0360's 001F0720 calls
 
 
@@ -2536,7 +2646,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
 OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x001BC350: 'door',
                0x00827B10: 'terminal', 0x00159210: 'panel', 0x001C4820: 'prop', 0x00219550: 'item',
-               0x0015AFA0: 'map item', 0x00823E80: 'parachute',
+               0x0015AFA0: 'map item', 0x00823E80: 'parachute', 0x00825940: 'security gun',
+               0x00827490: 'gun cable', 0x00827630: 'fan',
                EQUIPMENT_NODE: 'equipment'}   # and the player D_008102B0 (0015C160's +0x4C)
 OWNER_DRAWN_IF_VISIBLE = (0x00219550, 0x0015AFA0)
 
@@ -2561,6 +2672,24 @@ def port_light_pool(tick):
     for k, data in slots:
         pool[0x10 + 0x80 * k:0x10 + 0x80 * (k + 1)] = bytes.fromhex(data)
     return bytes(pool), key
+
+
+def fan_pose(ram, spr, a, rot_z):
+    """The snapshot RAM with the fan record `a`'s +0xC8 set to the port's
+    `rot_z` (bits) and the ORIGINAL 001C6380 run over it: its +0xD0 and its
+    slots' +0x90 matrices as the original places the port's pose."""
+    import test_owner_draw_reference as tod
+    b = bytearray(ram)
+    struct.pack_into('<I', b, a + 0xC8, rot_z)
+    o = tod.EE(tod.ELF, bytes(b), spr)
+    for at, v in ((0x275B48, a), (0x275B44, a), (0x275B40, a + 0x110)):
+        o.put32(at, v)
+    o.run(0x1C6380, (a,))
+    b[a + 0xD0:a + 0x110] = o.read(a + 0xD0, 0x40)
+    for k in range(b[a + 9]):
+        slot = struct.unpack_from('<I', b, a + 0x110 + 4 * k)[0]
+        b[slot + 0x90:slot + 0xD0] = o.read(slot + 0x90, 0x40)
+    return bytes(b)
 
 
 def lighting_digest(unit, nodes):
@@ -2601,6 +2730,12 @@ def check_owner_units(ticks, state):
     - in the beats whose camera equals the capture's (VIEW_EXACT), the set
       of owners that drew, their byte counts, the clip pass and the
       position rows (node x VP) too;
+    - the fan pair (00827630): its +0xC8 follows its spin cycle from the
+      spawn, whose phase at a snapshot follows the recording's timing
+      (check_gun_fan), so where the port's +0xC8 at the aligned tick differs
+      from the snapshot's, the ORIGINAL 001C6380 first places the fan at the
+      port's +0xC8 over the snapshot (fan_pose; +0xC0 / +0xC4 must equal the
+      snapshot's) and both original draws run over that pose;
     - the movers (the player and its equipment): in the VIEW_EXACT beats
       their lighting point and pose (node records +0x90) must equal the
       snapshot's and they are then compared in full; elsewhere a mover at
@@ -2611,7 +2746,7 @@ def check_owner_units(ticks, state):
     import test_owner_draw_reference as tod
     if not tod.ELF:
         tod.ELF = (DECOMP / 'config/SCUS_971.12').read_bytes()
-    done, complete = [], []
+    done, complete, fans_posed = [], [], []
     for beat, i in state.get('snapshots', []):
         assert i < len(ticks) and 'owner_units' in ticks[i], ('owner units: no log at the snapshot tick', beat)
         ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
@@ -2637,6 +2772,7 @@ def check_owner_units(ticks, state):
         view_diff = sum(view[k:k + 4] != ram[0x810610 + k:0x810614 + k] for k in range(0, 0x40, 4))
         ram_port[0x810610:0x810650] = bytes.fromhex(ticks[i - 1]['view610'])
         ram_port = bytes(ram_port)
+        port_fan = {r[0]: r[10] for r in ticks[i].get('gun_fan', []) if r[1] == FAN}
         orig, a, seen, walk = {}, u32(0x275BC0), set(), []
         while a and a not in seen:
             seen.add(a)
@@ -2653,15 +2789,23 @@ def check_owner_units(ticks, state):
                 continue
             if u32(a + 0x4C) == tod.DRAW and (behaviour in OWNER_DRAWN or a == PLAYER):
                 key = ('equipment', ram[a + 3], ram[a + 0x0D]) if behaviour == EQUIPMENT_NODE and a != PLAYER else a
-                o, ctx = tod.original_draw(ram, spr, a)
+                ram_a, ram_port_a = ram, ram_port
+                if behaviour == FAN:
+                    assert a in port_fan and port_fan[a][:2] == [u32(a + 0xC0), u32(a + 0xC4)], \
+                        ('owner units', beat, hex(a), 'the port\'s fan record', port_fan.get(a))
+                    if port_fan[a][2] != u32(a + 0xC8):
+                        ram_a = fan_pose(ram, spr, a, port_fan[a][2])
+                        ram_port_a = fan_pose(ram_port, spr, a, port_fan[a][2])
+                        fans_posed.append(a)
+                o, ctx = tod.original_draw(ram_a, spr, a)
                 used = o.load(ctx + 0x10) - tod.CAP_DL
                 unit = o.read(tod.CAP_DL, used) if used else b''
                 sub = ram[a + 0x98]
                 at = a + 0xB0 if sub == 0xFF else u32(a + 0x110 + 4 * sub) + 0xC0
-                point = list(struct.unpack_from('<3I', ram, at))
+                point = list(struct.unpack_from('<3I', ram_a, at))
                 pose = 2166136261
                 for k in range(ram[a + 0x0C]):
-                    pose = fnv_words(pose, struct.unpack_from('<16I', ram, u32(a + 0x110 + 4 * k) + 0x90))
+                    pose = fnv_words(pose, struct.unpack_from('<16I', ram_a, u32(a + 0x110 + 4 * k) + 0x90))
                 entry = [a, used, 0, 0, 0, 0, points, 0, point, pose, None]
                 if used:
                     colour = struct.unpack_from('<16I', unit, 0x20)
@@ -2682,7 +2826,7 @@ def check_owner_units(ticks, state):
                     entry = [a, used, int(0x2354A0 in calls), fnv_words(basis, colour), light, position, points,
                              rig, point, pose, None]
                     # The same draw over the port's point-light slots and view.
-                    o2, _ = tod.original_draw(ram_port, spr, a)
+                    o2, _ = tod.original_draw(ram_port_a, spr, a)
                     used2 = o2.load(ctx + 0x10) - tod.CAP_DL
                     if used2 == used:
                         entry[10] = lighting_digest(o2.read(tod.CAP_DL, used2), nodes)
@@ -2751,7 +2895,8 @@ def check_owner_units(ticks, state):
              complete)
     if done:
         print('owner units: PASS (the port\'s 001CAA00 units equal the original\'s at the snapshot ticks: '
-              + '; '.join(done) + ')')
+              + '; '.join(done) + f'; {len(fans_posed)} fan unit(s) drawn by the original over the port\'s '
+              f'+0xC8)')
 
 
 RAND_WINDOWS = {'01_battery': 'r01', '10_cage_roof_roger': 'r10'}   # the C7 rand() captures of route stretches
@@ -2761,8 +2906,9 @@ def check_rand_order(ticks, state, trace):
     """The run's rand() calls (EM_RAND_TRACE, resolved by tools/rand_order.py)
     against the decomp's C7 per-call captures (docs/RAND_ORDER.md):
     - the opening from the area entry (the newgame capture): the area-entry
-      frame and every call equal in caller and state up to the one known
-      divergence (the husk creature's missing draw, census L24), and every
+      frame and every call equal in caller and state up to the known
+      divergence (the player face's missing draw at AE+5, design risk 2;
+      the security gun's AE+1 draw is among the equal calls), and every
       frame's deterministic callers (the sway, the indicators, the glow
       markers, the music, the item and effect-owner first ticks) frame for
       frame to first control and 30 frames after it;
@@ -3080,6 +3226,7 @@ def main():
     if 'first_control' in checked:
         check_render_context(ticks, state)
         check_indicator_children(ticks, state)
+        check_gun_fan(ticks, state)
     if state.get('snapshots'):
         check_effects(ticks, state)
         check_owner_units(ticks, state)

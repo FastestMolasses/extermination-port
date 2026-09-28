@@ -46,7 +46,7 @@ scratch copies of `src/` (the live tree was not touched):
 | the B9 latch check deleted | fails: `0015CF90/synthetic` |
 | em_pickup scales model 0x72 by 2.0 | fails: `0015AC00/capture-scale`, `0015AC00/scale-219550-unscaled-model` |
 | em_indicator_child: +4 = 4 does not free | fails: `001C5680/child`, `001C5760/child` |
-| the husk child's spawn colour w 0.25 → 0.5 | fails: the spawn-colour capture check |
+| the gun lamp's spawn colour w 0.25 → 0.5 | fails: the spawn-colour capture check |
 | fix 3 (`em_ee_c_le`) applied | fails: only `0015CF90/c.le-daz` reported gone |
 | only the 0020E020 part of fix 2 applied | fails: only `0020DFA0/missing-0020E020` reported gone |
 
@@ -273,7 +273,7 @@ The stand-in pins `001C5680/live-init-stub`, `001C5760/live-init-stub`,
 
 Evidence: the level smoke's check_indicator_children (LEVEL_SMOKE.md). On
 every tick, every bound child's +0x09 / +0x0C / +0x0D, the model handle
-+0x44 (0xD115C0 for the lights, 0xD12840 the panel's, 0xD15540 the husk's,
++0x44 (0xD115C0 for the lights, 0xD12840 the panel's, 0xD15540 the gun lamp's,
 0x13A9FC0 the terminal's) and +0x4C equal the route snapshots' child at
 the same record, and its first slot's 001C6380 matrix equals theirs bit for
 bit (the smoke through the elevator: 9 children over 3,458 ticks; a

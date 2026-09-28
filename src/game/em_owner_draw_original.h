@@ -26,7 +26,7 @@
  * Verified by tools/test_owner_draw_reference.py, which executes the original
  * instructions (synthetic and captured AREA11 RAM) and compares every flag,
  * packet byte, cursor and context word; it also executes the whole original
- * 001CAA00 of every captured crate, drum, fan, truck, elevator and husk and
+ * 001CAA00 of every captured crate, drum, fan, truck, elevator, security gun and gun cable and
  * compares the unit with the captured display list, and runs the native
  * chain (em_owner_services 001CAA00 with these workers) against both.
  * tests/owner_draw_test.c pins the fail-stop contract.

@@ -945,6 +945,26 @@ static void log_tick_end(int rc)
             fputs("null", f);
         }
     }
+    /* The security gun 00825940, its cable 00827490 and the fan pair
+     * 00827630 on their owners (em_area11_bindings_gun_fan_log): record
+     * address, +0x10, +0x00, +0x04, +0x05, +0x09, +0x28, +0x34, +0x36,
+     * +0x38 (bits), +0xC0..+0xCC (bits), the gun's bone 3 +0x78 (bits), its
+     * +0x220 and its lamp's +0xA0 (bits). tools/test_level_smoke.py
+     * check_gun_fan. */
+    fputs(", \"gun_fan\": [", f);
+    {
+        int n = 0;
+        for (const EmActor *a = s_pool.head; a; a = a->next) {
+            EmArea11GunFanLog r;
+            if (!em_area11_bindings_gun_fan_log(a, &r))
+                continue;
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %d, %d, %u, %u, [%u, %u, %u, %u], %u, %u, [%u, %u, %u, %u]]",
+                    n++ ? ", " : "", r.address, r.callback, r.b00, r.b04, r.b05, r.b09, r.h28, r.h34, r.h36,
+                    r.f38, r.rot[0], r.rot[1], r.rot[2], r.rot[3], r.bone3_78, r.w220, r.lamp_a0[0],
+                    r.lamp_a0[1], r.lamp_a0[2], r.lamp_a0[3]);
+        }
+    }
+    fputc(']', f);
     /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
      * record address, unit bytes, clip, the colour / lighting-row /
      * position-row / point-light-slot / rig-lane digests, the owner's point

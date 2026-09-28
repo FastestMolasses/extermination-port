@@ -7,8 +7,10 @@ stretch (build/s87/c7cap/rng/newgame, CAPTURES_C7.md section 3), aligned on
 the area entry (0x1AE040 state 0's 001FAE70(1), which draws from the
 unseeded state 1 in both):
 - the area-entry frame and every call after it equal in caller and state up
-  to the one known divergence (the husk creature's missing draw, census
-  L24), which must be the first difference;
+  to the known divergence, which must be the first difference: the
+  original's player-face draw at AE+5 (the opening's faces, design risk 2);
+  the security gun 00825940's AE+1 draw (census L24) is among the equal
+  calls;
 - every opening frame's deterministic callers equal the original's frame for
   frame, and the 30 frames after first control;
 - the value-driven callers' totals and the faces' positions are reported;

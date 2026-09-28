@@ -20,7 +20,7 @@ C. The world model bank: em_world_models_parse over the exporter's bytes
    ORIGINAL 001C6120 run over captured RAM for every id and masked variants.
 D. Captured draws. For every owner with draw method 001CAA00 and a bank model
    in the s87 route captures 00..14 (crates, drums, fan, truck, elevator,
-   husks, panel, door, parachute, ...): the ORIGINAL 001CAA00 runs over the
+   the security gun and its cable, panel, door, parachute, ...): the ORIGINAL 001CAA00 runs over the
    captured RAM and scratchpad with the draw loop's current actor set
    (D_00275B48/44 = owner, D_00275B40 = owner + 0x110, as 001CB590 does
    before the +0x10 callback that draws). Its DMA unit must equal the unit in
@@ -67,7 +67,7 @@ BEATS = ['00_panel_no_battery', '01_battery', '02_elevator_refusal', '03_panel_p
          '05_boxes', '06_hill_slide', '07_truck_preview', '08_truck_crossing', '09_fence_door',
          '10_cage_roof_roger', '11_crevice_prompt', '12_crevice_jump', '13_east_tower', '14_roger_encounter']
 REQUIRED = {0x1551B0: 'crate', 0x156620: 'drum', 0x827630: 'fan', 0x823FF0: 'truck'}
-ALSO = {0x827B10: 'elevator', 0x825940: 'husk creature', 0x827490: 'husk partner'}
+ALSO = {0x827B10: 'elevator', 0x825940: 'security gun', 0x827490: 'gun cable'}
 
 P32 = C.POINTER(C.c_uint32)
 

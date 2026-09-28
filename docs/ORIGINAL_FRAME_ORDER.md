@@ -200,8 +200,8 @@ encounter frame, state 15.
 |---|---|---|---|---|---|---|
 | 0–5 | 0x7A5640…0x7A64F0 (step 0x2F0) | 4 | 00219550 | deferred g0.0–g0.5 (item pickups, cond 1) | 001CAA00 only for the pickups near the view (g0.0, g0.3) | 001CAA00 (g0.1) |
 | 6 | 0x7A67E0 | 7 | 0015AFA0 | deferred g0.6 (pickup) | 001CAA00 | - |
-| 7 | 0x7A6AD0 | 4 | overlay 0x825940 | deferred g0.7 (door-position creature) | - | - |
-| 8 | 0x7A6DC0 | 4 | overlay 0x827490 | deferred g0.8 (husk) | - | - |
+| 7 | 0x7A6AD0 | 4 | overlay 0x825940 | deferred g0.7 (security gun) | - | - |
+| 8 | 0x7A6DC0 | 4 | overlay 0x827490 | deferred g0.8 (gun cable) | - | - |
 | 9 | 0x7A70B0 | 5 | 001BC350 | area11[0] room-move door | 001CAA00 | 001CAA00 |
 | 10, 11 | 0x7A73A0, 0x7A7690 | 4 | overlay 0x827630 | area11[1], [2] | - | - |
 | 12–15 | 0x7A7980…0x7A8250 | 4 | 001551B0 | area11[3]–[6] crawlers | 001CAA00 | 001CAA00 |

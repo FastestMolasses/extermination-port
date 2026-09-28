@@ -28,7 +28,7 @@ addresses, from the user's own extracted disc:
     (Roger's 001C5C90), every id the player equipment's 0018A8D0 can bind
     (0x2F; 0x30, 0x40, 0x6D; 0x31..0x3D; 0x6A; em_equipment_live.c, census
     L28) and the indicator children's 001C2360 models (0x73 the pickup
-    light, 0x74 / 0x75 the panel's, 0x7A the husk's;
+    light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
     em_indicator_bind_live.c).
 
 Every region is checked byte for byte against RAM at its address in every

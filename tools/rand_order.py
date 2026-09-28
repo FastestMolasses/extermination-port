@@ -15,8 +15,8 @@ Classes:
 - DETERMINISTIC callers draw on every frame of a fixed schedule (the sway
   001D7C30 twice, the indicator children's 001F54E0 once each, the barrel's
   eleven 001F4D40 glow markers) or once on a fixed event (001FAE70, the
-  items' 001F1110, the effect owner 008235F0 and the husk 00825940 at their
-  first tick). Their per-frame skeleton (the sequence of these calls) does
+  items' 001F1110, the effect owner 008235F0 and the security gun 00825940
+  at their first tick). Their per-frame skeleton (the sequence of these calls) does
   not depend on the values drawn.
 - The others draw when a timer they took from an earlier draw runs out (the
   faces 001D0720, the head sprites 001E2560, the weather 001E55F0, the aura
@@ -50,7 +50,7 @@ ORIGINAL_RA = {
     0x1EA424: 0x1EA240, 0x1EA430: 0x1EA240, 0x1F11F8: 0x1F1180, 0x1F14F0: 0x1F1180,
     0x1FAF28: 0x1FAE70, 0x1F112C: 0x1F1110,
     0x8236B4: 0x8235F0,   # AREA11 overlay: the effect owner's first tick
-    0x8259F0: 0x825940,   # AREA11 overlay: the husk creature's lifecycle 0
+    0x8259F0: 0x825940,   # AREA11 overlay: the security gun's lifecycle 0
 }
 
 # The port's translated functions (the first non-wrapper frame of a call)
@@ -74,15 +74,17 @@ PORT_FN = {
     'music_select': 0x1FAE70,
     'em_stream_lanes_001FAE70': 0x1FAE70,
     'em_status_background_step': 0x20A7A0,       # the status pages' background pulse
+    'gun_setup': 0x825940,                       # the security gun's lifecycle 0 (em_security_gun)
+    'em_gun_tick': 0x825940,                     # the same when gun_setup is inlined
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
-            'w_00122BB8', 'random_word'}
+            'w_00122BB8', 'random_word', 'gun_rand'}
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
 NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40',
          0x1FAE70: 'music 001FAE70', 0x1F1110: 'item 001F1110', 0x8235F0: 'effect owner 008235F0',
-         0x825940: 'husk 00825940', 0x1D0720: 'face 001D0720', 0x1E2560: 'head sprite 001E2560',
+         0x825940: 'security gun 00825940', 0x1D0720: 'face 001D0720', 0x1E2560: 'head sprite 001E2560',
          0x1E55F0: 'weather 001E55F0', 0x1F1180: 'aura 001F1180', 0x179B90: 'step 00179B90',
          0x1EA240: 'footstep 001EA240', 0x20A7A0: 'status background 0020A7A0'}
 
@@ -251,12 +253,16 @@ def fmt_totals(t):
 
 # ------------------------------------------------------------ the checks
 
-# The one divergence the opening still has (docs/RAND_ORDER.md section 3):
-# the husk creature 00825940's lifecycle-0 draw at AE+1 (0x8259F0, its +0x28
-# timer) is missing, because the creature is not bound (census L24; the
-# legacy em_enemy group runs in its place). Every later value of the stream
-# is one step off, so the value-driven callers' frames differ after it.
-KNOWN_FIRST_DIFFERENCE = (1, 0x825940)
+# The first divergence the opening still has (docs/RAND_ORDER.md section 3):
+# at AE+5 the original's player stage draws for the player's face (00183090
+# -> 001D0C70 -> 001D0720, after the barrel); the port's opening faces run
+# on em_opening_actor inside the opening controller node from AE+16 (design
+# risk 2), so that draw is missing and the port's next call draws from the
+# state the original's face drew from. Every later value is one step off, so
+# the value-driven callers' frames differ after it. (Until census L24 the
+# first difference was the security gun 00825940's lifecycle-0 draw at
+# AE+1, 0x8259F0; the gun draws it on its own record since.)
+KNOWN_FIRST_DIFFERENCE = (5, 0x1D0720)
 # The opening's end with the PS2 disc-drive timing switch on (the drive
 # model): the original waited on the area music's read (the intro movie's
 # disc position: a 16-field seek, IOP_STREAM.md "Drive model"); the model
@@ -344,15 +350,18 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
     po = [(fn, s) for fn, s, _ in port_frames[p0]]
     assert po == orig_frames[o0], ('rand order: the area-entry frame', po, orig_frames[o0])
     diff = rep['first_difference']
+    # The original's call is the player's face draw at AE+5, and the port's
+    # next call draws from the same state: exactly that one draw is missing.
     assert diff is not None and (diff[1][0], diff[1][1]) == KNOWN_FIRST_DIFFERENCE and \
-        diff[0][0] == diff[1][0] and diff[0][2] == diff[1][2], \
-        ('rand order: the first difference is not the husk creature\'s missing draw (census L24)', rep['equal_calls'],
-         diff and (diff[0][0], name(diff[0][1]), hex(diff[0][2])), diff and (diff[1][0], name(diff[1][1]), hex(diff[1][2])))
-    # The husk's frame: the port's skeleton is the original's without it.
-    for k, ps, os_ in rep['skeleton_bad']:
-        assert k == KNOWN_FIRST_DIFFERENCE[0] and ps == [c for c in os_ if c != 0x825940], \
-            ('rand order: an opening frame\'s deterministic callers differ', 'AE+%d' % k,
-             [name(c) for c in ps], [name(c) for c in os_])
+        diff[0][2] == diff[1][2] and diff[0][0] >= diff[1][0], \
+        ('rand order: the first difference is not the player face\'s missing draw at AE+5 (design risk 2)',
+         rep['equal_calls'], diff and (diff[0][0], name(diff[0][1]), hex(diff[0][2])),
+         diff and (diff[1][0], name(diff[1][1]), hex(diff[1][2])))
+    # Every opening frame's deterministic callers, the security gun's AE+1
+    # draw included, equal the original's.
+    assert not rep['skeleton_bad'], \
+        ('rand order: an opening frame\'s deterministic callers differ',
+         [('AE+%d' % k, [name(c) for c in ps], [name(c) for c in os_]) for k, ps, os_ in rep['skeleton_bad'][:3]])
     late = (rep['oc'] - o0) - (rep['pc'] - p0)
     orig_req = lane0_request_capture()
     rep['late'], rep['orig_request'], rep['port_request'] = late, orig_req, port_req
@@ -376,9 +385,10 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
                f'speed\'s {HOST_READY_ROWS} and {HOST_READ_ROWS}; the hold to the key-on '
                f'{orig_req["keyon"] - orig_req["done"]} rows in both)')
     return rep, (f'the area entry (port counter {p0} = original frame n{o0}) and {rep["equal_calls"]} calls equal '
-                 f'in caller and state, up to the husk 00825940\'s missing lifecycle-0 draw at AE+1 (census L24); '
-                 f'the deterministic callers (sway, indicators, glow markers, music, item, effect owner) equal '
-                 f'frame for frame over AE+1..AE+{rep["window"] - 1}; {end}')
+                 f'in caller and state, the security gun 00825940\'s lifecycle-0 draw at AE+1 included, up to the '
+                 f'player face\'s missing draw at AE+5 (the opening\'s faces, design risk 2); the deterministic '
+                 f'callers (sway, indicators, glow markers, music, item, effect owner, security gun) equal frame '
+                 f'for frame over AE+1..AE+{rep["window"] - 1}; {end}')
 
 
 def check_after_control(port_frames, pc, orig_frames, oc, count):

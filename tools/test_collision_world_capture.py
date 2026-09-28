@@ -30,9 +30,10 @@ scratchpad word 0x70003250):
     and the opening controller 00823E80's canopy, uid 3, which its state 1
     publishes with 001B1B70 on every call), in the original order.
 
-Every other uid must equal the disc directory in the port. The original moves
-one of them that the port's owners do not publish yet: 0x825940's plate
-(uid 15, L24); it is listed, not hidden. Both published class-4 lists are printed. List membership depends on
+Every other uid must equal the disc directory in the port. Since census L24
+the security gun 0x825940's plate (uid 15) is re-transformed by the gun's
+lifecycle-0 001A2370 (through its bone 3) and must equal the original's bytes
+in both dumps. Both published class-4 lists are printed. List membership depends on
 each side's camera (001B1630's cone), so the check is made at the smoke's
 last frame, 25 frames after the ride's scripted camera released.
 
@@ -49,10 +50,11 @@ ROOT = Path(__file__).resolve().parents[1]
 ROUTE = ROOT.parent / 'Extermination/build/s87/route'
 DISC = ROOT / 'assets/scene_snow/area11_cells.bin'
 OUT = ROOT / 'build/collision_world'
-PORT_MOVED = {4, 14, 19, 21, 22, 23, 24, 25}   # the terminal, the truck and the item owners
+PORT_MOVED = {4, 14, 15, 19, 21, 22, 23, 24, 25}   # the terminal, the truck, the security gun
+                                                   # (census L24) and the item owners
 PORT_OWNERS = {4, 18, 14, 5, 6, 7, 8, 9, 10, 17, 3}  # terminal, panel, truck, drums, crates, the prop
                                                      # 001C4820, the parachute 00823E80 (+ items 19..26)
-NOT_PUBLISHED = {15: "0x825940's plate (census L24)"}
+NOT_PUBLISHED = {}   # every original re-transform is the port's since census L24
 
 
 def hulls(image):
@@ -208,8 +210,9 @@ def main():
     print(f'last dump: uid 4 at the lower floor, equal to 04_elevator_ride; '
           f'published class-4 uids port {last_list}, original 04 {list04}')
     failures += compare_boxes(boxes)
-    print('not published by the port yet: ' +
-          ', '.join(f'uid {u} ({why})' for u, why in NOT_PUBLISHED.items()))
+    if NOT_PUBLISHED:
+        print('not published by the port yet: ' +
+              ', '.join(f'uid {u} ({why})' for u, why in NOT_PUBLISHED.items()))
     if failures:
         print('collision world capture: FAIL')
         for line in failures:

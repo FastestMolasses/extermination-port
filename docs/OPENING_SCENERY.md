@@ -6,8 +6,9 @@ and the items (00219550, 0015AFA0) no longer draw the EMDL meshes this
 document describes: each draws its original 001CAA00 unit over its own
 record (docs/OWNER_DRAW.md section 10). The EMDLs of the indicator children
 (model 0x73, 0x75, 0x10) are still drawn, by the children's +0x4C stand-in,
-now at each child's own node matrix; the fan pair still draws its EMDL
-(its owner is not bound, census L24). The sections below are the evidence
+now at each child's own node matrix. Since census L24 the fan pair draws
+its original unit too (its owner 00827630 is bound; the EMDL instance is
+retired when it binds). The sections below are the evidence
 for those exports and placements.
 
 These changes use the original SCUS-97112 overlay, boot ELF, model library,

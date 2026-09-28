@@ -388,9 +388,11 @@ only; a scene without an original roster keeps em_collision.c).
      `EmTruckHooks.hull` / `.hull_bounds` / `.publish` over
      `em_actor_collision_owner_hull_bounds` and the world's 001A2370 /
      001B1B70; the prop publishes through 001B17A0.
-   - **`0x825940` (not bound: L24).** When it binds, it re-transforms its cell
-     with its bone-3 matrix. The original publishes it every frame; the
-     port's class-4 list lacks it until then.
+   - **The security gun `0x825940` (live since census L24).** Its lifecycle
+     0 re-transforms its cell (uid 15) with its bone-3 matrix through the
+     world's 001A2370 (equal to captures 00 and 04,
+     test_collision_world_capture), and its 001B17A0 publishes it whenever
+     001B1630 finds it visible (SECURITY_GUN.md 5.1).
 4. **Player stage `w_0015BCF0` (live since the census L02 step,
    2026-09-24: FLOOR engaged in AREA11).** `em_collision_world_bind_player`
    (called by em_player_stage_live.c) binds the query half:

@@ -1223,7 +1223,7 @@ whose bind ran (em_indicator_bind_live): its record address, +0x10, +0x04,
   snapshot's.
 
 Measured (full route): 9 children over 13,000 ticks (the five lights, the
-battery's light until its take, the husk's 0x7A child, the panel's child
+battery's light until its take, the security gun's 0x7A lamp, the panel's child
 until the power, the terminal's: the terminal's node on all 13,000 ticks,
 the record equal to routes 00..03 on 3,062 ticks before the ride and to
 routes 04..14 on 9,550 after it) and the same set and terminal as the
@@ -1232,6 +1232,30 @@ of the child's slot, of the terminal's node after the ride, or of its +0xB4
 in the carry each fail the check); the save slot of check_render_context
 over 11,599 ticks. Side beat 00 (no status screen in its run): 1,650 ticks;
 side beat 09: 5,563 ticks, 1 snapshot.
+
+### The security gun, its cable and the fan pair (`check_gun_fan`, census L24)
+
+Not a phase: after check_indicator_children, over every tick of the run.
+The tick log's `gun_fan` carries the security gun 00825940, its cable
+00827490 and both fan records 00827630 (em_area11_bindings_gun_fan_log:
+record address, +0x10, +0x00, +0x04, +0x05, +0x09, +0x28, +0x34, +0x36,
++0x38, +0xC0..+0xCC, the gun's bone 3 +0x78, +0x220 and its lamp's +0xA0).
+It checks against every route snapshot 00..14 (SECURITY_GUN.md 5.4):
+- the gun and the cable are the same in all 15 snapshots, and from their
+  first call on the port's records at the same addresses equal them field
+  for field on every tick (the gun dormant in 0x64 with +0x28 = 584 from
+  its one lifecycle-0 rand() draw, bone 3 +0x78 = -1.1344, the lamp at
+  +0x220 dark; the cable in lifecycle 1, +0x34 = 1, not hit); before their
+  first call both are in lifecycle 0;
+- every snapshot's fan state (+0x04, +0x05, +0x28, +0x38, +0xC8, both
+  records) is one the port's fans run through on some tick (the fans' phase
+  at a snapshot follows the recording's timing, so it is not compared at
+  the aligned tick; check_owner_units draws them over the port's +0xC8);
+- the aligned snapshot ticks hold the same records.
+
+Measured (full route, 2026-09-28): the gun and cable equal on 13,018 ticks
+after the gun's setup (1 before it); the 30 captured fan states among the
+1,091 distinct states the port's fans ran; 6 aligned snapshots.
 
 ### The effects (`check_effects`, census L26 / L27 / L28 / L39)
 
@@ -1274,8 +1298,10 @@ skipped; 08: 7 equipment nodes, 2 head sprites, 8 truck puffs; 10: packet
 Not a phase: at the same aligned snapshot ticks as check_effects. The tick
 log's `owner_units` carries, per 001CAA00 call of the last drawn frame (the
 crates, drums, truck and fence door, the terminal, the panel, the prop
-001C4820, the items 00219550 / 0015AFA0, the canopy 00823E80, the seven
-player equipment nodes and the player on em_owner_draw_live), the owner's record address, the unit's
+001C4820, the items 00219550 / 0015AFA0, the canopy 00823E80, since census
+L24 the security gun 00825940, its cable 00827490 and the fan pair
+00827630, the seven player equipment nodes and the player on
+em_owner_draw_live), the owner's record address, the unit's
 byte count (0: culled), the clip pass, digests of the colour matrix B, the
 lighting rows, the position rows, the point-light slots and the lighting
 rows' lanes y and z, the point 001CAA00 culled and lit the owner at (three
@@ -1313,7 +1339,15 @@ Then:
   record or +0x110 mapping in em_player_draw_live / em_equipment_live
   fails the smoke;
 - a run with a camera-exact snapshot must have compared the player and all
-  seven equipment nodes in full (with a unit) in at least one of them.
+  seven equipment nodes in full (with a unit) in at least one of them;
+- the fan pair (since census L24): its +0xC8 follows its spin cycle, whose
+  phase at a snapshot follows the recording's timing (check_gun_fan), so
+  where the port's +0xC8 at the aligned tick differs from the snapshot's,
+  the ORIGINAL 001C6380 first places the fan at the port's +0xC8 over the
+  snapshot (+0xC0 / +0xC4 must equal it) and both original draws run over
+  that pose (full route, 2026-09-28: 12 fan units drawn so; 10: 26 owners
+  and 14: 24 owners compared in full, the gun, the cable and the fans
+  included).
 
 The player draw gate (`check_player_draw_gate`, every tick whose post-step
 0015C160 ran in the logged frame): em_scene_bindings_player_record_drawn()
@@ -1356,10 +1390,14 @@ unknown rand() caller fails the check.
   capture, aligned on the area entry (0x1AE040 state 0's 001FAE70(1), the
   first draw from the unseeded state 1):
   - the area-entry frame equal, and every call equal in caller and state
-    up to the one known difference, which must be the first: the husk
-    creature 00825940's lifecycle-0 draw at AE+1 (census L24);
+    up to the known difference, which must be the first: the original's
+    player-face draw at AE+5 (the opening's faces, design risk 2), which
+    the port misses (its next call draws from the same state); the
+    security gun 00825940's lifecycle-0 draw at AE+1 is among the equal
+    calls since census L24;
   - every frame's deterministic callers (the sway, the indicators, the
-    glow markers, the music, the item and effect-owner first ticks) equal
+    glow markers, the music, the item, effect-owner and security-gun first
+    ticks) equal
     frame for frame to the port's first control, and the 30 frames after
     it;
   - the opening's end by the run's drive mode ("The stream drive's two
@@ -1387,8 +1425,9 @@ unknown rand() caller fails the check.
   scalar follow 001E2560's transitions over the port's 001E2560 draws in
   pool order, and every draw is used.
 
-Measured (full route, 2026-09-27): 4 calls equal up to the husk's draw;
-the skeleton equal over AE+1..AE+1302 (the husk's frame aside) and 30
+Measured (full route, 2026-09-28): 126 calls equal up to the player face's
+draw at AE+5 (4 before census L24, up to the gun's then-missing draw);
+the skeleton equal over AE+1..AE+1302 and 30
 frames after control; first control 21 frames earlier, the capture's drive
 wait (AE+1312 and 11 frames with the switch on); the windows 01 (66
 frames) and 10 (311 frames) equal; the sway on 46 sampled ticks (90 draws);
@@ -1522,7 +1561,8 @@ never silently skipped. What removes each:
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
-| check_rand_order | the opening's values after AE+1, and (switch on only) its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | L24; the opening's actors on their records |
+| check_rand_order | the opening's values after AE+5, and (switch on only) its end | the opening's faces run on em_opening_actor (design risk 2): the player face's AE+5 draw is missing; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | the opening's actors on their records |
+| check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 | check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258: the area streamer 001FFCD0 is translated but not bound, because its sound-bank step 001FB370 needs the EE sound library's queue, the SIF DMA and the driver's command 0x20 (MODULE_LOADER.md section 5) | a capture of a frame mid-load (the decomp's fb2 method); 001FB370's callees live, then 001FFCD0 bound |

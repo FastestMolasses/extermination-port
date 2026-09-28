@@ -564,25 +564,21 @@ void scene_manifest_load(void)
             }
         } else if (sscanf(line, "enemy %255s %f %f %f %f", name,
                           &x, &y, &z, &yaw) == 5) {
-            /* Placed enemy instance (em_enemy.c). The AREA-11 door-husk
-             * pair (`husk_creature` / `husk_partner`) ride the same enemy
-             * line: both spawn STAGED-INERT, so the opening stays
-             * enemy-free (INVESTIGATION_first_level_area11 §5.2) — no
-             * separate token or "inert" flag needed (the inertness is
-             * intrinsic to the kind, not a placement option). */
+            /* Placed enemy instance (em_enemy.c). */
             int kind = strcmp(name, "crawler") == 0 ? EM_ENEMY_KIND_CRAWLER
                      : strcmp(name, "crate") == 0   ? EM_ENEMY_KIND_CRATE
                      : strcmp(name, "bug") == 0     ? EM_ENEMY_KIND_BUG
-                     : strcmp(name, "husk_creature") == 0
-                                              ? EM_ENEMY_KIND_HUSK_CREATURE
-                     : strcmp(name, "husk_partner") == 0
-                                              ? EM_ENEMY_KIND_HUSK_PARTNER
                                                     : -1;
             if (strcmp(g.scene_dir, AREA11_SCENE_DIR) == 0 &&
-                (strcmp(name, "crate") == 0 || strcmp(name, "egg") == 0)) {
-                /* AREA11's crates and drums are the roster's 001551B0 /
-                 * 00156620 nodes on their original owners (census L25,
-                 * em_area11_boxes): no legacy em_enemy copy is placed. */
+                (strcmp(name, "crate") == 0 || strcmp(name, "egg") == 0 ||
+                 strcmp(name, "husk_creature") == 0 || strcmp(name, "husk_partner") == 0)) {
+                /* AREA11's crates and drums (census L25, em_area11_boxes)
+                 * and its security gun 00825940 and gun cable 00827490
+                 * (census L24, em_area11_bindings) are the roster's nodes on
+                 * their original owners: no legacy em_enemy copy is placed.
+                 * (`husk_creature` / `husk_partner` are the tokens the
+                 * decomp's tools/export_level.py writes for the gun and its
+                 * cable.) */
             } else if (kind < 0) {
                 printf("manifest: unknown enemy kind, skipped: %s", line);
             } else {

@@ -119,7 +119,7 @@ logs and hash receipt remain ignored under `build/area11_effect_reference`.
 
 The native owner now consumes its original initializer RNG call at the
 original's position: in the rand() order audit (RAND_ORDER.md) its draw is
-AE+1's, after the husk creature's (whose owner is not bound, census L24).
+AE+1's, after the security gun's (bound on its owner since census L24).
 Full actor scheduling remains unfinished. These
 changes establish original-derived behavior and scoped proofs, not complete
 first-level or pixel fidelity.

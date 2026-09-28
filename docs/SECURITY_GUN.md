@@ -1,63 +1,97 @@
-# Husk creature, its partner's hit, and the fan's tail (`husk_fan`)
+# The AREA11 security gun, its cable and the fan pair (census L24)
 
-Lane "husk_fan" (build lane `b15/husk_fan`, 2026-09-27). It closes the pieces
-that `SCRIPT_DOOR_FAN.md` section 5.3 and the C7 chain's OWNERS / RNGORDER
-limitations list as missing before census L24 can bind:
+The AREA11 overlay owners 0x825940 (the **security gun**), 0x827490 (its
+**power cable**) and 0x827630 (the **fan pair**). Since chain step L24
+(2026-09-28) all three run live on their original owners in the pool walk
+and draw on the object-unit path (section 5). Earlier notes and code called
+the gun and its cable the "husk creature" and "husk partner"; that label is
+wrong and is gone from the port.
 
-- the husk creature 0x825940's lifecycles 1 and 4, with their overlay helpers;
-- the creature's lifecycle-0 rand draw, its bone-slot writes, its child spawn
-  (001AFA90) and its hull (001A2370), checked against the captures;
-- the partner 0x827490's hit reach (001EFE00, 001B11E0, 001B1190) as far as
-  the first level can reach it;
-- the fan 0x827630's tail consumers: 001B0C60(1,1,4), `D_008107D8 |= 0x80`
-  and the player-hit writes.
+**Identity** (decomp `build/workflows/verify-area11-husks.output.json`, read
+from the code, the placement records and every AREA11 capture):
+- Both come from area 11's spawn group at 0x828180 (records 0x8282B4 and
+  0x8282E0, condition 0: every entry into area 11 sub 0). They sit at
+  (387, 231.8, 290.3) above the fence door; the gun's yaw is −π/2.
+- Their models are the per-area bank entries 8 (the gun: a housing with a
+  barrel along +x, 4 nodes) and 6 (the cable: a strand hanging about 48
+  units to the ground, 2 nodes) of `*D_0028A59C`, bound from +0x0D. The
+  "husk" name came from reading the cable's +0x03 byte 0x29 as library model
+  0x29 (the crate's burst debris).
+- The gun is a fixed mount with a head bone (2) and a gun bone (3), a
+  60-unit sight probe along the barrel and a lamp child (library model
+  0x7A, behaviour 001C5680) that it tints green while scanning, red while
+  aiming and leaves dark while dormant.
+- On the first visit the gun stays dormant (lifecycle 0x64) for the whole
+  level: it leaves 0x64 only when D_00810788 (event flag 0x30) is 0xFF, which
+  only an AREA17 script (to 1) plus the AREA11 flag-0x30 manager 0x823CE0's
+  script 0x828C70 (to 0xFF) on a later return visit can set. Every AREA11
+  capture has the flag 0, the gun in 0x64 with +0x28 = 584, and the cable in
+  lifecycle 1, not hit.
+- Shooting the cable disables the gun for good (lifecycle 2, and the taken
+  bit +0x9A = 0x50 in area 11's row, which its lifecycle 0 reads on every
+  later visit). The gun has no health and no other off switch.
 
-Files (all new; nothing tracked was edited):
-
-- `src/game/em_husk_fan.{h,c}`: the translations.
-- `tools/test_husk_fan_reference.py`: the original-instruction oracle.
+**Files.**
+- `src/game/em_security_gun.{h,c}` (was em_script_door_fan_husk): the
+  gun's lifecycles 0, 0x64, 2, 3 and "other", the cable 0x827490 and the
+  flag-0x30 manager 0x823CE0 (`em_gun_tick`, `em_gun_cable_tick`,
+  `em_flag30_manager_tick`). Oracle: `tools/test_script_door_fan_reference.py`
+  (SCRIPT_DOOR_FAN.md section 3.3).
+- `src/game/em_security_gun_rest.{h,c}` (was em_husk_fan, phase B15): the
+  rest of the pair's code: the gun's return-visit lifecycles 4 (scan) and 1
+  (aim and fire) with the sight probe 0x826F30 and the shot node 0x827400
+  (`em_gun_rest_tick`, not bound in the first level: 5.1), the taken-bit
+  set 001B1190 (bound), and the cable-hit effect nodes 0021AAC0 / 0021A500
+  and their spawn 001EFEB0 (not bound: 5.2). Oracle:
+  `tools/test_security_gun_rest_reference.py` (`make
+  test-security-gun-rest-reference`).
   - Default: about 6 to 8.5 s wall, about 9 s user CPU. `EM_TEST_FULL=1`:
     about 10 s wall, about 20 s user CPU (measured 2026-09-27, 4 workers).
-  - At most 4 worker processes.
-  - It builds privately into `build/b15/husk_fan/`.
+  - It builds privately into `build/security_gun_rest/`.
+- `src/game/em_fan_original.{h,c}`: the fan (FAN_ORIGINAL.md).
+- The live adapters: `src/game/em_area11_bindings.c` (`tick_gun`,
+  `tick_gun_cable`, `tick_fan`).
+
+Sections 1 to 4 are the B15 lane's record of the rest translations and their
+evidence; section 5 is the live binding.
 
 Addresses are original runtime addresses. The AREA11 overlay listing names
 each function 0x40 lower (its vram is the MWo3 header address).
 
-**Correction to SCRIPT_DOOR_FAN.md section 6.** The creature's two overlay
+**Correction to SCRIPT_DOOR_FAN.md section 6.** The gun's two overlay
 helpers are runtime **0x826F30** and **0x827400**, not 0x826F70 / 0x827440.
 The jal instructions of 0x825940 encode 0x826F30 and 0x827400.
 - 0x826F30 is listed as `..._00826EF0` (a 0x40-byte prologue) falling through
   into `..._00826F30`.
 - 0x827400 is listed as `..._008273C0` falling through into `..._00827400`.
 
-## 1. What was missing, and what it is now
+## 1. What the B15 lane added (em_security_gun_rest)
 
 | Piece | Before | Now | Evidence |
 |---|---|---|---|
-| 0x825940 lifecycle 4 (0x825B74..0x826190) | faulted (untranslated) | `em_husk_fan_creature_tick` | oracle, every branch both ways |
+| 0x825940 lifecycle 4 (0x825B74..0x826190) | faulted (untranslated) | `em_gun_rest_tick` | oracle, every branch both ways |
 | 0x825940 lifecycle 1 (0x826190..0x826D60) | faulted | same | oracle, every branch both ways but one dead arm (3.3) |
 | 0x826F30 sight probe | untranslated | inside the tick (`sight`) | oracle |
 | 0x827400 shot node | untranslated | inside the tick (`shot`) | oracle |
-| lifecycles 0, 0x64, 2, 3, other | `em_husk_creature_tick` (verified) | **reused**; one entry point through a memory adapter | oracle over the adapter, all 24 AREA11 captures |
+| lifecycles 0, 0x64, 2, 3, other | `em_gun_tick` (verified) | **reused**; one entry point through a memory adapter | oracle over the adapter, all 24 AREA11 captures |
 | lifecycle-0 rand draw (0x8259F0) | port draws nothing at AE+1 | reused setup, bound as below | C7 per-call capture + all captures (4.1) |
 | bone-slot writes (bone 3 +0x78, bone 2 +0x74) | views only | read and written through D_00275B40's slots | captures (4.1) + oracle |
 | 001AFA90 child / shot node | interim `spawn_child_record` | worker; `em_actor_pool_alloc_001AFA90` is the verified translation (byte-matched) | reused |
 | 001A2370 hull | worker | worker; `em_actor_cells_retransform_001A2370` is verified and live | reused |
-| 001B1190 taken-bit set | no verified implementation for the partner's `w_001B1190` | `em_husk_fan_001B1190` | oracle (30 cases) |
-| 001B11E0 taken-bit test | verified, static in `em_actor_roster.c` | reused (the chain must export it) | test_actor_census_reference |
-| 001EFE00 (partner FX 0x80000045) | verified (`em_player_misc_001EFE00`); spawn view unbound | reused; the spawned node's behaviour is now translated | see 2.5 |
-| 0021AAC0 (the node 0x80000045 spawns) | untranslated | `em_husk_fan_0021AAC0` | oracle (65 runs incl. spawn to free) |
-| 001EFEB0 (0021AAC0's spawn) | untranslated | `em_husk_fan_001EFEB0` | oracle |
-| 0021A500 (the 0x8000003B strip node) | untranslated | `em_husk_fan_0021A500` | oracle (32 runs) |
+| 001B1190 taken-bit set | no verified implementation for the cable's `w_001B1190` | `em_gun_rest_001B1190` | oracle (30 cases) |
+| 001B11E0 taken-bit test | verified, static in `em_actor_roster.c` | reused, exported as `em_actor_roster_001B11E0` (L24) | test_actor_census_reference |
+| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`); spawn view unbound | reused; the spawned node's behaviour is now translated | see 2.5 |
+| 0021AAC0 (the node 0x80000045 spawns) | untranslated | `em_gun_rest_0021AAC0` | oracle (65 runs incl. spawn to free) |
+| 001EFEB0 (0021AAC0's spawn) | untranslated | `em_gun_rest_001EFEB0` | oracle |
+| 0021A500 (the 0x8000003B strip node) | untranslated | `em_gun_rest_0021A500` | oracle (32 runs) |
 | fan exit-or-bit consumers | unverified | 001B0C60 and Roger's departure are translated and live; reachability settled (5.3) | beat 15 capture |
 | fan player-hit consumer | unverified | the original 0021C440 run over the original fan's writes equals the native `em_player_stage_reaction` | chain oracle (4.3) |
 
 ## 2. Behaviour
 
-### 2.1 The creature 0x825940
+### 2.1 The gun 0x825940
 
-The creature dispatches on its lifecycle byte +0x04.
+The gun dispatches on its lifecycle byte +0x04.
 - Lifecycles 0, 0x64, 2, 3 and "other" are as `SCRIPT_DOOR_FAN.md` 2
   describes.
 - Lifecycle 4 (patrol) is entered only after D_00810788 (event flag 0x30) ==
@@ -82,7 +116,7 @@ words.
   - The ramp value is (0x80 − 4·n)/128. It is stored at 0x70003A20.
   - Lifecycle 1 puts it in x; lifecycle 4 puts it in y. The quad's w is
     0.25.
-  - Then the creature's bone-3 +0x90 matrix is copied onto the child's bone 3
+  - Then the gun's bone-3 +0x90 matrix is copied onto the child's bone 3
     (00102958).
 - **Otherwise, the head sway:**
   - bone 2 +0x74 += +0x210, clamped to ±1.1344 (0x3F91361E). A clamp negates
@@ -111,7 +145,7 @@ words.
 - The tail is 001C6380, 001A2370, 001B17A0, the draw and the sight probe.
 - **Shot reaction.** A hit (+0x36) with +0x208 == 0 sets +0x208 = 480 and
   redraws both sway timers. Bit 3 negates +0x210 and bit 2 negates +0x218.
-- **Target.** Once +0x204 holds a target, the creature goes to lifecycle 1:
+- **Target.** Once +0x204 holds a target, the gun goes to lifecycle 1:
   - +0x224 = 1, +0x28 = −43, +0x2A = 300, +0x200 = 0;
   - cue 0x424 plays when the frame counter 0x70003B68 & 0x3F == 0.
 
@@ -141,7 +175,7 @@ words.
   +0x28 += 1, then the sight probe runs. A result of 2 resets +0x2A = 300;
   anything else costs one.
 - **Fire.** While +0x200 is set, it counts up. At 14, with the sight's result
-  non-zero, the creature fires:
+  non-zero, the gun fires:
   - cue 0x425 plays and 0x827400 spawns the shot;
   - 0x700038A0 = the probe point, and 0x700038B0 = the hit face's
     +0x24..+0x2C with w = 1.
@@ -156,13 +190,13 @@ words.
   - +0x200 = 1 after a fire, or when the sight saw nothing at 14.
   - With +0x200 clear, a positive +0x28 sets +0x200 = 1 and +0x28 = 0.
 - The shot reaction runs as in lifecycle 4, then +0x36 = 0.
-- **Lost target.** A negative +0x2A returns the creature to lifecycle 4:
+- **Lost target.** A negative +0x2A returns the gun to lifecycle 4:
   - +0x224 = 0 and +0x204 = 0;
   - +0x1FC = wrap(asinf(−(+0x78 + 1.1344)/−0.8290)), which recovers the sway
     angle from the pitch;
   - +0x28 = 300 + (300·(rand>>16))>>15, and +0x200 = 1.
 
-### 2.2 The sight probe 0x826F30 (creature, gun matrix)
+### 2.2 The sight probe 0x826F30 (gun, gun matrix)
 
 - **Beam end.** The sight vector (60, 0, 0, 0) is transformed into
   0x700038A0. The gun-tip point (3, −2, 0, 1) is transformed into a local
@@ -198,10 +232,10 @@ words.
 With (a0 & 0xFF) ≠ 0, it sets bit (a0 & 0x1F) of the word at D_00810860 +
 (D_00810700 << 5) + ((a0 & 0xFF) >> 5)·4.
 
-### 2.5 The partner's hit reach
+### 2.5 The cable's hit reach
 
-The partner's lifecycle 1 reacts to a hit (`em_husk_partner_tick`). It calls
-001EFE00(0x80000045, partner), which is `em_player_misc_001EFE00`. That calls
+The cable's lifecycle 1 reacts to a hit (`em_gun_cable_tick`). It calls
+001EFE00(0x80000045, cable), which is `em_player_misc_001EFE00`. That calls
 001EF9D0.
 
 **The spawned node.** Record 0x45 of the global effect table (read from the
@@ -213,10 +247,10 @@ user's ELF) gives:
 - kind 1, so 001D80E0 point light, which `em_effect_original` translates;
 - no sound.
 
-**0021AAC0** (the node's +0x24 is the partner):
+**0021AAC0** (the node's +0x24 is the cable):
 - **State 0:**
   - six phases rand/2³¹ go to +0x268.., with zeros at +0x250..;
-  - the node takes the partner's +0xD0 matrix;
+  - the node takes the cable's +0xD0 matrix;
   - its +0xB0 = that matrix × (0, 0, 1, 1).
 - **State 1** counts +0x288 up:
   - **From 31:** every 6th tick adds a rising point, up to six, each 8.0
@@ -229,7 +263,7 @@ user's ELF) gives:
   - **Below 60:** every 10th tick spawns 001EFEB0(0x8000003B, the π/2-rotated
     matrix at +0xB0). The new node gets +5 = 0, +0x1F0 = 12, +0x1F4 = 48.0
     and +0x1F8 = 0.5.
-  - **At 60** it sets the partner's +0x04 = 3, so the partner frees itself on
+  - **At 60** it sets the cable's +0x04 = 3, so the cable frees itself on
     its next tick.
   - **At ≥ 121** it sets its own +0x04 = 3.
 - **2 and 3** free the node.
@@ -254,7 +288,7 @@ then calls 00102958(node + 0xD0, m).
   - the colour seed steps ×37 + 11;
   - the node ends when +0x204 passes 1.1.
 
-## 3. Verification (`tools/test_husk_fan_reference.py`)
+## 3. Verification (`tools/test_security_gun_rest_reference.py`)
 
 ### 3.1 How it compares
 
@@ -274,11 +308,11 @@ AREA11 RAM.
   workers replay their logged outputs after their inputs are asserted equal.
 - **Hooks that log and answer from a per-case script.** Every other callee.
   The probe hooks also write a scripted result block to 0x70003190..0x700031DB.
-- **Special case: em_husk_creature_tick's two inlined 00102948 copies**
+- **Special case: em_gun_tick's two inlined 00102948 copies**
   (setup) execute unlogged.
 
 **The native side** runs over its own copy of the same memory
-(`EmHuskFanMem`). Per case the test asserts:
+(`EmGunRestMem`). Per case the test asserts:
 - the result;
 - the ordered calls, with vector arguments compared by address (or "local")
   and by content;
@@ -350,8 +384,8 @@ Both sight probes miss in these cases, so the sight cannot reset +0x2A and
 hide a clamp's cost of four.
 
 Each of the six weakened or strengthened compares is killed by its pinned
-case, checked once with `EM_HUSK_FAN_MODULE` on single-edit copies of
-`em_husk_fan.c` (the copies were deleted afterwards):
+case, checked once with `EM_GUN_REST_MODULE` on single-edit copies of
+`em_security_gun_rest.c` (the copies were deleted afterwards):
 - the named survivor (`lt` → `le` at −step) fails "heading d == −step" (call
   differs: the original calls 0011DF78, the mutant does not);
 - `le` → `lt` at +step fails "heading d == +step";
@@ -361,10 +395,10 @@ case, checked once with `EM_HUSK_FAN_MODULE` on single-edit copies of
 
 ## 4. Captures
 
-### 4.1 The creature in every AREA11 image (24)
+### 4.1 The gun in every AREA11 image (24)
 
 Every image has:
-- the creature at 0x7A6AD0 in lifecycle 0x64;
+- the gun at 0x7A6AD0 in lifecycle 0x64;
 - D_00810788 = 0;
 - +0x28 = 584;
 - bone 3 (+0x11C = 0x7D7B30) +0x78 = 0xBF91361E, bone 2 +0x74 = 0;
@@ -378,7 +412,7 @@ exactly one call returning to 0x8259F0. Its position in frame AE+1 is after
   0xBF91361E and the child quad, equal to the captures.
 - So the dormant wait draws nothing; the one draw is lifecycle 0's.
 
-Each image's creature is also ticked once through the adapter against the
+Each image's gun is also ticked once through the adapter against the
 original.
 
 ### 4.2 Lifecycles 1 and 4 are revisit content
@@ -406,171 +440,158 @@ for field and call for call. Results:
 | 100 | 2 | 0x11 (0021E9C0, live in `em_player_closure_live`'s reaction table) | 0x86 | 95 |
 | 5 or 4 | 2 | 1 (the death state) | 0x86 | 0 |
 
-## 5. Binding (for the chain)
+## 5. Binding (live since census L24, 2026-09-28)
 
-### 5.1 The creature 0x825940 (area11 record at 0x7A6AD0)
+### 5.1 The gun 0x825940 (deferred g0.7, record 0x7A6AD0)
 
-**Replace** `tick_enemy_00825940` in `em_area11_bindings.c`, which runs the
-legacy `em_enemy_update` group plus the inline `spawn_child_record` child, with
-`em_husk_fan_creature_tick(record_address, &mem, &workers, &fault)` per pool
-walk. The pool walk must set D_00275B40 = node + 0x110 first, as for every
-owner.
-- Returns: 1 allocated, 0 freed, −1 fault. The fault codes are
-  `EM_HUSK_FAULT_*`, the same values as `EM_SCENE_FAULT_*` 1 and 2.
-- **Retire at the same time:**
-  - the husk pair from `em_enemy`'s aggregate (no node may run twice);
-  - `spawn_child_record` for the 0x7A child: the creature's lifecycle 0 now
-    allocates it through 001AFA90;
-  - the rand-order check's husk exception, in `tools/rand_order.py` (which
-    `tools/test_rand_order.py` imports), not in the test file itself:
-    - `KNOWN_FIRST_DIFFERENCE = (1, 0x825940)` names the missing draw.
-      `check_opening` asserts that the first difference *is* that draw, so
-      after binding it must name the next real divergence, or the check
-      must assert that there is none;
-    - the skeleton assertion in `check_opening` (each bad frame must be AE+1
-      and equal the original's frame minus 0x825940) must be removed or
-      rewritten, because the port's AE+1 frame then contains 0x825940;
-    - the summary line that mentions "the husk 00825940's missing
-      lifecycle-0 draw" must change with it (RAND_ORDER.md section 3 too).
-- **Freed nodes.** A tick whose lifecycle frees the node (001AFC10) returns 0.
-  The pool walk must not tick that node again. `em_husk_fan_creature_tick`
-  builds a fresh view per call and keeps no use-after-free latch (the
-  reused `em_husk_creature_tick`'s EM_HUSK_FAULT_FREED latch does not
-  survive between calls); the original has no guard either.
+`em_area11_bindings.c` `tick_gun` runs `em_gun_tick` (em_security_gun.c)
+over the node's record once per pool-walk call, in every walk mode (class 4
+is not skipped by 001AFD70 modes 0 and 1). The legacy `em_enemy` group that
+drew a static mesh in its place, the interim inline child spawn
+(`spawn_child_record` for the 0x7A lamp) and em_enemy's gun and cable kinds
+are deleted.
 
-**`EmHuskFanMem`** must map every byte below. Anything unmapped faults at its
-address.
-- **Creature record:** +0x00, +0x04, +0x28, +0x2A, +0x36, +0x4C (read), +0xB0..+0xCF,
-  +0x118/+0x11C (slot words), +0x1F4..+0x227.
-- **Bone records** named by the slots and by child +0x11C: +0x74, +0x78,
-  +0x90..+0xCF.
-- **Child record** (the 0x7A node; the shot node too): +0x03, +0x0D, +0x0E,
-  +0x10, +0x2E, +0x54, +0x56, +0x9A, +0xA0..+0x10F, +0x11C.
-- **Target / hit record** (0x700031D4, +0x204): +0x00, +0x02, +0x03, +0x36,
-  +0x70..+0x7F, +0xB0..+0xBF, +0x224.
-- **The hit face** (0x700031D0): +0x1A, +0x24..+0x2F.
-- **Scratchpad:** 0x70003190..0x700031DB, 0x70003600..0x7000361F,
-  0x70003680..0x70003687, 0x700038A0..0x700038DF, 0x70003910..0x7000391F,
-  0x70003A20, 0x70003B68.
-- **Globals:** D_00275B40, D_00810360 (player +0xB0), D_00810788, and the
-  overlay quads 0x82A730 / 0x82A740.
+- **Record.** +0x00, +0x04, +0xB0 and +0xC0 are EmActor's; +0x28 is the
+  node's (`Node.h28`); +0x1F4..+0x227 are the +0x1F0 block
+  (`EmActor.scratch`); +0x220 holds the lamp's original record address.
+- **Workers:**
+  - 001B0FD0 → `em_area11_boxes_owner_001B0FD0` (entry 8 of the per-area
+    bank, 4 bone slots);
+  - the flag → `D_00810758[0x30]` of the canonical progress view
+    (D_00810788);
+  - 00122BB8 → `em_random_next` (the one rand() state);
+  - 0011E2A8 → `em_sdk_math_original_w_0011E2A8` over the collision world's
+    SDK context;
+  - r_00275B40 / the +0x78 store → the gun's own slot 3
+    (`em_area11_boxes_owner_slot`, `EmOwnerBone.rot[2]`);
+  - 001C6380 → `em_area11_boxes_owner_001C6380`;
+  - 001A2370 → `em_collision_world_retransform_001A2370` with bone 3's +0x90
+    (the gun's plate, uid 15);
+  - 001AFA90 → `em_actor_pool_alloc_001AFA90` (class 0xC); the lamp's stores
+    go onto its record and its +0x10 = 001C5680 binds `tick_indicator`;
+  - 001B17A0 → the interaction host's services (the placed prop's view);
+  - +0x4C → `em_area11_boxes_owner_draw` (001CAA00 through
+    em_owner_draw_live);
+  - 001AFC10 → `em_actor_pool_free_001AFC10`.
+- **Fail-stop (not bound, return visit only):** lifecycles 4 and 1 fault at
+  0x825B74 / 0x826190 (`EM_GUN_FAULT_UNTRANSLATED`); so does the
+  lifecycle-2 swing, which only D_00810788 == 0xFF reaches (its lamp view,
+  00102958 and 0x70003A20 are not bound). The verified
+  `em_gun_rest_tick` stays unbound until the port reaches a return visit
+  (it also needs 0011E520, 0019AA80, 001E2BA0 and 001F5040, section 6).
+- **The lamp** (001C5680 on model 0x7A) keeps its (0, 0, 0, 0.25) colour on
+  the first visit and draws its one 001F54E0 rand() per tick
+  (`tick_indicator`); its +0x4C 001CACB0 draws nothing yet (OWNER_DRAW.md
+  section 11, the indicator children's 001CABA0 path).
 
-In the first visit only lifecycle 0 (once, at AE+1) and 0x64 run. They touch
-the record, bone 3 +0x78, the child record, D_00275B40, D_00810788 and
-0x70003A20.
+### 5.2 The cable 0x827490 (deferred g0.8, record 0x7A6DC0)
 
-**Workers** (the port's verified translation for each):
+`tick_gun_cable` runs `em_gun_cable_tick`. +0x00, +0x04, +0x36 and +0x9A
+are EmActor's; +0x28 and +0x34 are the node's.
 
-| Worker | Bind to |
-|---|---|
-| 001B0FD0 | `em_area11_boxes_owner_001B0FD0` (the fan / terminal pattern) |
-| 001C6380 | `em_area11_boxes_owner_001C6380` |
-| 001A2370 | `em_actor_cells_retransform_001A2370` (uid = record +0x0E) |
-| 001B17A0 | the interaction host's services (as Roger and the prop) |
-| draw (+0x4C = 0x1CAA00) | `em_area11_boxes_owner_draw` (001CAA00 unit); retire the legacy husk mesh |
-| 001AFC10 / 001AFA90 | `em_actor_pool_free_001AFC10` / `em_actor_pool_alloc_001AFA90` (class 0xC); the child's +0x10 = 001C5680 goes to `tick_indicator`, the shot node's 001F5040 has no translation (revisit only) |
-| 00122BB8 | `em_random` (`em_player_misc_random_i32`) |
-| 0011E2A8, 0011DF78, 0011DBB8, 0011E748, 001B1470 | `em_sdk_math_original` / `em_item_sdk_sqrt` / `em_player_001B1470` |
-| 0011E520 (asinf) | no verified translation: fault (lifecycle 1 only) |
-| vector leaves | `em_sdk_vu0` / `em_owner_services_original` / `em_coll_probe_original` (census rows) |
-| 0019A570 / 0019B6C0 | `em_coll_segment_walkers` / `em_coll_probe_original` |
-| 0019AA80, 001E2BA0 | no verified translation: fault (lifecycles 1/4 only) |
-| 001EFD90 / 001CD520 | `em_effects_live` / `em_player_equipment_001CD520` |
-| 001FBD50 | `em_sfx_play_at` (cues 0x423, 0x424, 0x425, 0x428) |
+- **Workers:** 001B0FD0, 001C6380, 001B17A0, +0x4C and 001AFC10 as the
+  gun's (entry 6 of the bank, 2 slots); 001B11E0 →
+  `em_actor_roster_001B11E0` over the canonical D_00810860 rows; 001B1190 →
+  `em_gun_rest_001B1190` over D_00810700 and those rows; 001FBD50 →
+  `em_sfx_play_at` (cues 0x426 / 0x427, range 300); the record at +0x18 →
+  the node before it in the pool list (the gun), whose +0x04 and +0x21C
+  it writes.
+- **Reached in the first level:** lifecycle 0 (001B0FD0, +0x34 = 1, +0 = 1,
+  001B11E0(0x50) = 0) and lifecycle 1 every tick (+0x36 == 0: 001C6380,
+  001B17A0, the draw).
+- **The hit** (+0x36 ≠ 0: the gun to lifecycle 2 with +0x21C = 90, then
+  001EFE00(0x80000045), cue 0x426, then lifecycle 2: cue 0x427 at 10 and the
+  taken bit through 001B1190) is bound up to 001EFE00, which faults: its
+  001EF9D0 node view is not bound, and the node it spawns (0021AAC0, verified
+  in em_security_gun_rest) spawns strip nodes 0021A500 whose packet builder
+  001CE860 has no translation. As for the crates and drums, no live code
+  writes a pool record's +0x36 (the port's weapon still hits only em_enemy
+  instances), so the hit is not reachable in the port today. When a +0x36
+  writer lands, 001EFE00's node view, the 0021AAC0 / 0021A500 node
+  behaviours and 001CE860 must be bound first.
 
-### 5.2 The partner 0x827490 and its hit
+### 5.3 The fan 0x827630 (area11[1] and [2])
 
-**Bind** `em_husk_partner_tick` (em_script_door_fan_husk, unchanged) in place
-of `tick_enemies` for this node.
-- `r_link_18`: the creature's +0x04 and +0x21C.
-- 001B11E0: export `em_actor_roster.c`'s static `test_001B11E0` (verified) and
-  bind it.
-- 001B1190: `em_husk_fan_001B1190` over EmProgress (D_00810700, D_00810860).
-  This gives the partner's `w_001B1190` a verified implementation. It
-  retires nothing: the partner runs in the legacy `tick_enemies` today and
-  never calls `em_pickup.c`'s taken_set, which is em_pickup's own persist
-  path (keyed by the uid's area byte, not D_00810700).
-- 001EFE00: `em_player_misc_001EFE00`, with its spawn view bound to
-  `em_effects_live`'s 001EF9D0 (the node's +0x24, +0xB0, +0xC0).
-- 001FBD50: `em_sfx_play_at` (cues 0x426 / 0x427).
+`tick_fan` runs `em_fan_original_tick` (FAN_ORIGINAL.md) over each node's
+record: +0x04, +0x05, +0x2E and +0xC8 are EmActor's (`u04[0]`, `u04[1]`,
+`flags2`, `rot[2]`); +0x28 and +0x38 are the node's.
+- **Workers:** 001B0FD0 / 001C6380 / +0x4C as above (entry 0x13 of the bank;
+  a bound fan retires the legacy em_pickup prop instance at its +0xB0);
+  001B17A0 as above; 001FBD50 → `em_sfx_play_at` (cue 0x451); 001B0C60 →
+  `em_scene_request_area_change_001B0C60`; 001AFC10 as above.
+- **Globals:** D_00810788, D_00810758 and D_008107D8 are canonical progress
+  bytes (D_008107D8 written back); D_008106B8 is the request byte B8; the
+  player D_008102B0 is the live player record (`player_states_actor_mut`):
+  +0x00 and +0xA0..+0xA8 read, +0x00, +0x0F, +0x70..+0x7C and +0x224 written.
+- **The tail.** Record [2]'s box: with the player at z < 156 inside it,
+  `D_008107D8 |= 0x80` (Roger's departure; the first visit takes it, beat
+  15: D_008107D8 = 0x81); 001B0C60(1, 1, 4) needs D_00810758 == 0xFF, which
+  only the departure script's end sets, one tick after Roger's own
+  001B0C60(1, 0, 4) has set B8 = 1 (and B8 gates the box): revisit only. At
+  156 ≤ z < 166.5 with the fast spin, the player hit (+0x00 = 3, +0x0F = 6,
+  +0x224 = 5.0, +0x70 = (0, 0, 1, 1)), which the player stage's 0021C440 and
+  0021E9C0 consume (live; 4.3). Neither box is on the level smoke's route,
+  which ends at Roger's encounter; walking into the exit box after Roger now
+  starts his departure 0x828A10, whose op0F handshake is still a fail-stop
+  (FIRST_LEVEL_AUDIT H3).
 
-**Node behaviours** in the effect binder:
-- 0x21AAC0 → `em_husk_fan_0021AAC0`. Its 001EFEB0 goes to
-  `em_husk_fan_001EFEB0`, whose 001EF9D0 is `em_effects_live`. Its 001CCF70,
-  001CFA60 and 001CFBE0 go to the head-sprite / puff bindings.
-- 0x21A500 → `em_husk_fan_0021A500`.
+### 5.4 Evidence (live)
 
-**`EmHuskFanMem` for the node functions** (anything unmapped faults at its
-address):
-- **The 0x80000045 node** (0021AAC0): +0x04, +0x24 (the partner), +0xB0..+0x10F, +0x1F0..+0x28B (six
-  points at +0x1F0..+0x24F, phases +0x250..+0x267, scales +0x268..+0x27F,
-  +0x280..+0x28B the height, point count and tick count).
-- **The partner** (via +0x24): +0x04 (set to 3 at count 60) and
-  +0xD0..+0x10F (the matrix copied in state 0).
-- **Each 0x8000003B node** 001EFEB0 spawns: +0xD0..+0x10F (written through
-  00102958) and, from 0021AAC0, +0x05 and +0x1F0..+0x1FB.
-- **The strip node** (0021A500): +0x04, +0x05, +0xD0..+0x10F, and
-  +0x1F0..+0x1F0 + 0x48 + 4n − 1, n = +0x1F0 (for 0021AAC0's n = 12,
-  +0x1F0..+0x267).
-- **D_00821400..D_00821400 + 16n − 1** (the strip points).
-- **Scratchpad:** 0x700036A0..0x700036DF (0021AAC0's rotated matrix),
-  0x700038A0..0x700038BF, 0x70003A20..0x70003A23 (0021A500's +5 == 1 fade).
-- **001B1190:** D_00810700 (byte) and D_00810860 + (D_00810700 << 5) +
-  0..0x1F.
-
-**Blocker.** 0021A500's **001CE860** (the strip's GS packet builder, 1,656
-bytes, undecompiled) has no translation. Until the renderer lane translates
-it, 0021A500 faults on its first tick. A shot partner would then stop the game
-task.
-- Do not bind the hit path live before that.
-- Binding the partner with the hit path is otherwise complete: 0021AAC0 frees
-  the partner at +0x288 == 60 (the original behaviour the old port
-  approximated).
-
-### 5.3 The fan 0x827630
-
-**Exit-or-bit.**
-- **`D_008107D8 |= 0x80`** is taken on the first visit (beat 15, f344:
-  D_008107D8 = 0x81). Its consumer is Roger 0x8237E0's departure (0x823C40 /
-  0x823C80 on `em_area11_roger`, live), which calls
-  `em_scene_request_area_change_001B0C60(1, 0, 4)`.
-- **001B0C60(1, 1, 4)** needs D_00810758[0] == 0xFF. That byte becomes 0xFF
-  only when the departure script ends. Roger's 001B0C60(1, 0, 4) sets B8 = 1
-  in the same tick, and B8 gates the fan's box. So the fan's direct exit is
-  revisit-only.
-  - Beat 15 confirms it: B5..B8 = 01 00 04 01, the sub-0 exit, not the fan's
-    sub 1.
-  - Bind `w_001B0C60` to `em_scene_request_area_change_001B0C60` (byte-matched)
-    anyway.
-
-**Player hit.** No binding change is needed beyond binding the fan:
-- the player's next stage runs 0021C440 (`em_player_stage_reaction`, live);
-- case +F 6 calls none of the stage's stub workers;
-- +5 0x11 is 0021E9C0, live in the reaction table.
-
-Follow FAN_ORIGINAL.md "Binding" for the node itself.
+- **Every route snapshot** (`tools/test_level_smoke.py` check_gun_fan, the
+  full route and both side runs): the gun and the cable at their captured
+  records equal all 15 route snapshots field for field on every tick after
+  the gun's first call (lifecycle 0x64, +0x28 = 584, bone 3 +0x78 =
+  0xBF91361E, the lamp at +0x220 with (0, 0, 0, 0.25); the cable in
+  lifecycle 1, +0x34 = 1, +0x36 = 0); every snapshot's fan state (+0x04,
+  +0x05, +0x28, +0x38, +0xC8 of both records) is one the port's fans run
+  through; the aligned snapshots hold the same records.
+- **The draws** (check_owner_units): the gun, the cable and the fans are
+  owner units; the ORIGINAL 001CAA00 over each snapshot equals the port's
+  unit (colour matrix, lighting rows, and in the camera-exact beats 10 and
+  14 the unit bytes, clip pass and position rows). The fans' phase at a
+  snapshot follows the recording's timing, so where the port's +0xC8
+  differs the ORIGINAL 001C6380 first places the fan at the port's +0xC8.
+- **rand() order** (`make test-rand-order`, check_rand_order): the gun's
+  lifecycle-0 draw (0x8259F0) is the original's AE+1 call; the port equals
+  the original call for call from the area entry for 126 calls (4 before
+  L24), up to the player face's missing draw at AE+5 (RAND_ORDER.md).
+- **Collision** (`make test-collision-world-capture`): the gun's plate (uid
+  15) equals the original's bytes in captures 00 and 04.
+- **Frame order**: idle04 / walk04 / st03 (--native-index 1330), cut02 and
+  cut15 PASS.
 
 ## 6. Known gaps
 
-- **001CE860** is untranslated (5.2). The partner's hit path stays unbound
-  live until it is.
+- **The cable's hit** faults at 001EFE00 (5.2): its 001EF9D0 node view, the
+  node behaviours 0021AAC0 / 0021A500 and 001CE860 (the strip's GS packet
+  builder, untranslated) are not bound. No live code writes the cable's
+  +0x36, so the port does not reach it.
+- **The flag-0x30 manager 0x823CE0** (area11[11]) is still a no-code node
+  ("manager: dormant"): `em_flag30_manager_tick` is verified but not bound.
+  On the first visit it would only step lifecycle 0 → 1 and call 001B17A0
+  every tick; its script path is return-visit content.
+- **The gun's lamp** draws nothing (OWNER_DRAW.md section 11); it is dark
+  on the first visit.
+- **The fan's boxes** (the exit bit and the player hit) are off the level
+  smoke's route (5.3); the hit's consumer chain is proven by the oracle
+  (4.3), not live.
 - **Revisit-only callees** with no verified translation: 0011E520, 0019AA80,
   001E2BA0, and the shot node's behaviour 001F5040. They are reached only in
   lifecycles 1/4, which need D_00810788 == 0xFF. They must fault.
-- **Revisit-only effect handlers.** The FX ids the creature's shots spawn (3,
+- **Revisit-only effect handlers.** The FX ids the gun's shots spawn (3,
   6, 7, 0x26, 0x2C, 0x67: all 001EA240 subtypes) include handlers that fault
   today (EFFECT_MANAGER.md 8.2). This is revisit-only.
 - **The oracle scripts** the collision probes, 001CCF70 / 001CFA60 / 001CFB50
   outputs and the effect / sound / draw callees. Their own translations are
   verified by their own tests.
-- **Timer arithmetic.** The creature's timers use signed 32-bit words. The
+- **Timer arithmetic.** The gun's timers use signed 32-bit words. The
   lockstep runs do not cover counter wrap-around (≥ 2³¹ ticks).
 - **Defect in the decomp's NEARMISS C for 0021A500**
   (`Extermination/src/func_0021A500.c`, the `e[5] == 1` end-sprite loop).
   The C uses one variable, `color`, for both the LCG seed (seed·37 + 11) and
   the packed float_to_int sprite colour, so its second sprite would draw
   its fraction from the packed colour. The original keeps them in separate
-  registers: the seed survives the colour packing. `em_husk_fan_0021A500`
+  registers: the seed survives the colour packing. `em_gun_rest_0021A500`
   follows the original (the oracle kills a mutant that merges them). That C
   is treated as port ground truth, so it should be corrected before anyone
   translates from it; this lane did not edit it (tracked file).

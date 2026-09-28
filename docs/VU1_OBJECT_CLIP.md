@@ -240,9 +240,9 @@ object kernel runs, then the clip program. On each of the 243 clip batches:
 | 05 elevator | 36 | 50 | 116 |
 | 05 001C4820 | 13 | 0 | 0 |
 | 08 crate 001551B0 | 6 | 25 | 36 |
-| 09 husk partner 00827490 | 4 | 6 | 9 |
+| 09 gun cable 00827490 | 4 | 6 | 9 |
 | 09 door 001BC350 | 10 | 24 | 51 |
-| 11 husk partner | 4 | 0 | 0 |
+| 11 gun cable | 4 | 0 | 0 |
 
 The captured batches reach every clipping case:
 
@@ -278,7 +278,7 @@ and 1,113 triangles. They pass the same checks as A, including the native
 image and random registers on every batch. The quick run takes one unit per
 node count.
 
-**C. Synthetic sweep.** The batches are built on the 09 husk partner's image
+**C. Synthetic sweep.** The batches are built on the 09 gun cable's image
 (2 nodes). Each vertex is solved back through its node's position matrix
 from a GS-space target (X, Y, w). Every batch starts with random registers.
 The styles:

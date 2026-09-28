@@ -386,9 +386,9 @@ Node numbers are from ORIGINAL_FRAME_ORDER §4.
 | Node | Original | WP-3 binding (interim) | Final (package) |
 |---|---|---|---|
 | #0–5, #6 | pickups 00219550 ×6, 0015AFA0 | since WP-6, each node its own owner: state 0 (00219550's 001C5570 child; 0015AFA0's 0015AC00 matrix and 001F1110) then `em_area11_interaction_host_pickup_tick` (`em_pickup_original_tick_one`, publication through 001B17A0); the take posts its original B0/B1; the owner's free frees the node (001AFC10) | — |
-| #7, #8 | 00825940, 00827490 | group adapter on #7: legacy `em_enemy_update` (the husk pair; interleave approximate) | L24: per node |
+| #7, #8 | 00825940, 00827490 | since census L24: each node its own original owner, the security gun `tick_gun` → `em_gun_tick` and its cable `tick_gun_cable` → `em_gun_cable_tick` (em_security_gun.c; SECURITY_GUN.md "Binding"); the legacy `em_enemy_update` group is retired | — |
 | #9 | door 001BC350 (r0) | legacy `em_door_update`; since S12b its commit is 001BC150 (`em_door_transit_commit`: fade, B8=2, B7) and its sub 5 is 001BC290 | WP-7: `em_door_original_runtime_tick` |
-| #10–11 | fans 00827630 (r1/r2) | static (WP-1 stops the spin) | WP-11 |
+| #10–11 | fans 00827630 (r1/r2) | since census L24: `tick_fan` → `em_fan_original_tick` over each node's record, drawn by 001CAA00 (FAN_ORIGINAL.md "Binding") | — |
 | #12–15 | crates 001551B0 | since census L25: each node its own original owner, `tick_box` → `em_area11_boxes_tick` (em_crate_original over the record) in both variants | — |
 | #16 | flame 008235F0 (r7) | `em_area11_effect_runtime_tick` | — |
 | #17 | Roger 008237E0 (r8) | since census L22 (WP-9): `tick_roger` → `em_area11_roger_tick` (em_roger_actor_008237E0_init at lifecycle 0, then em_roger_tick over the record; the scripts on em_area11_script_host) | — |

@@ -42,9 +42,11 @@
  *             (0x1C5AA8..0x1C5ABC). +5 only goes 0 -> 1 (0x1C5A9C..0x1C5AA4)
  *             and 001AFC10 clears it, so the B8 test runs on every state-1 call.
  *   Overlay owners (no static code): ORIGINAL_FRAME_ORDER.md section 6
- *   measured, on the first world frame, 0x825940 (deferred g0.7) spawning a
- *   001C5680 child (+0xD 0x7A), 0x827B10 (area11[19]) spawning a 001C5760
- *   child at 0x827C20 (+0xD 0x10, +0xA 0). These two are INTERIM spawns.
+ *   measured, on the first world frame, 0x825940 (deferred g0.7, the
+ *   security gun) spawning its 001C5680 lamp child (+0xD 0x7A): its own
+ *   lifecycle 0 does it since census L24 (em_security_gun, below); and
+ *   0x827B10 (area11[19]) spawning a 001C5760 child at 0x827C20 (+0xD 0x10,
+ *   +0xA 0), an INTERIM spawn.
  *   Roger 0x8237E0's 001BA8E0 -> 001F0120(Roger, 0x47) runs in its own
  *   lifecycle 0 since census L22 (em_area11_roger).
  *   The nodes 001EF9D0 allocates (the puffs 001EA240, the head sprites
@@ -67,6 +69,7 @@
 #include "game/em_director_original.h"
 #include "game/em_sdk_math_original.h"
 #include "game/em_effect_kinds.h"
+#include "game/em_fan_original.h"
 #include "game/em_effects_live.h"
 #include "game/em_equipment_live.h"
 #include "game/em_indicator_bind_live.h"
@@ -80,9 +83,13 @@
 #include "game/em_game_internal.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup_original.h"
+#include "game/em_player.h"
 #include "game/em_props.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_scene_workers.h" /* EM_SCENE_D_008102B0 */
+#include "game/em_security_gun.h"
+#include "game/em_security_gun_rest.h"
+#include "game/em_sfx.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_status_ui_leftovers.h"
 
@@ -91,16 +98,12 @@ static EmSceneState *s_scene;
 
 /* ------------------------------------------------------------ node state */
 
-enum { GROUP_NONE, GROUP_ENEMIES, GROUP_COUNT };
-
 typedef struct Node Node;
 typedef int (*NodeTick)(EmActor *actor, Node *node, const EmArea11World *world);
 
 typedef struct {
     uint32_t callback;
-    const char *name;   /* binding name (the group head's, for a group) */
-    const char *member; /* binding name of a non-head group member */
-    uint8_t group;
+    const char *name;   /* binding name */
     NodeTick tick;      /* NULL: no port code; `note` is reported once */
     const char *note;
 } Binding;
@@ -110,7 +113,6 @@ struct Node {
     char record[24];  /* original tracer tag, "" for runtime nodes */
     char name[112];   /* binding name recorded in the trace */
     uint8_t ticked;   /* first behaviour call done */
-    uint8_t head;     /* runs its group's port code */
     EmActor *child;   /* an owner's indicator child (00219550 +0x2EC,
                        * 00827B10 +0x2E4) until the owner stops it */
     /* Indicator children (001C5680 / 001C5760): their owner, and their
@@ -121,10 +123,16 @@ struct Node {
     /* 001E55F0 nodes: the actor's own weather state (its +4 byte and +0x1F0
      * block, em_weather.h); zeroed by bind_node, so a new actor seeds. */
     EmWeather weather;
+    /* Record words EmActor has no field for, of the security gun 00825940,
+     * its cable 00827490 and the fan pair 00827630: +0x28 (the gun's scan
+     * timer, the cable's fall counter, the fan's phase timer), +0x34 (the
+     * cable's) and +0x38 (the fan's spin). Zero at the bind; each owner
+     * writes them before it reads them. */
+    int16_t h28, h34;
+    float f38;
 };
 
 static Node s_nodes[EM_ACTOR_POOL_CAPACITY];
-static EmActor *s_heads[GROUP_COUNT];
 static EmActor *s_panel_child; /* 00159210's +0x20 */
 static uint64_t s_reported; /* one bit per binding row */
 static float s_walk_eye[3]; /* camera eye at the start of the walk */
@@ -266,18 +274,6 @@ static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
     return result ? 1 : free_self_001AFC10(actor);
 }
 
-/* Enemy group: em_enemy is the port's aggregate of the husk pair (0x825940,
- * 0x827490). The legacy cutscene block never ran it, so it stays
- * gameplay-only. (The crates and drums left the group in census L25: they
- * run their original owners, tick_box.) */
-static int tick_enemies(EmActor *actor, Node *node, const EmArea11World *world)
-{
-    (void)actor;
-    if (node->head && !world->cutscene)
-        em_game_legacy_enemy_tick();
-    return 1;
-}
-
 /* Crates 001551B0 (area11[3..6]) and drums 00156620 (area11[14]/[15]):
  * their original owners over the node's own record (em_area11_boxes, census
  * L25), in both walk variants (class 4 is not skipped by 001AFD70 mode 1). */
@@ -292,19 +288,593 @@ static int tick_box(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 0x825940 (deferred g0.7): its state 0 allocates its 001C5680 child inline
- * (overlay 0x825A74..0x825AE0: +0xD 0x7A, +0xA0 = (0, 0, 0, 0.25), stored at
- * its +0x220). Its later states rewrite that colour (0x825D18.., 0x825D6C..,
- * 0x825DE4.., 0x826334.., 0x826388.., 0x826420..); the husk owner itself is
- * still the legacy em_enemy aggregate (census L24), so on the route the
- * child keeps the spawn colour, as every captured beat shows. */
-static int tick_enemy_00825940(EmActor *actor, Node *node, const EmArea11World *world)
+/* ------------------------------------------ the security gun pair (L24) */
+
+/* The security gun 0x825940 (deferred g0.7) and its cable 0x827490
+ * (deferred g0.8) on their original owners: em_gun_tick / em_gun_cable_tick
+ * (em_security_gun.c, oracle tools/test_script_door_fan_reference.py) over
+ * the node's own record (docs/SECURITY_GUN.md "Binding"). Both are world
+ * model owners of the per-area bank (+0x0D: entries 8 and 6 of *D_0028A59C)
+ * and draw through the object-unit path (001CAA00, em_owner_draw_live), in
+ * every walk mode (class 4 is not skipped by 001AFD70 modes 0 and 1).
+ *
+ * Record storage: +0x00, +0x04, +0x9A, +0xB0, +0xC0 and +0x36 are EmActor's;
+ * +0x28 / +0x34 are the node's (h28, h34); the gun's +0x1F4..+0x227 are its
+ * +0x1F0 block (EmActor.scratch); its bone slots are the owner's
+ * (em_area11_boxes_owner_slot). The gun's +0x220 holds its lamp child's
+ * original address, as the original stores it.
+ *
+ * What the first level reaches: the gun's lifecycle 0 (001B0FD0, the flag
+ * test, its one rand() draw for +0x28, bone 3 +0x78, 001C6380, 001A2370 and
+ * the 001AFA90 lamp) and then its dormant 0x64 every tick (the flag test,
+ * 001C6380, 001B17A0, the draw); the cable's lifecycle 0 (001B0FD0, +0x34,
+ * 001B11E0 over the taken bit +0x9A) and then lifecycle 1 every tick (the
+ * +0x36 test, 001C6380, 001B17A0, the draw). Bound but not reached (no live
+ * code writes the cable's +0x36, as for the crates): the cable's hit (the gun
+ * to lifecycle 2 with +0x21C = 90, 001EFE00(0x80000045), cue 0x426) and its
+ * lifecycle 2 (cue 0x427 at 10, 001B1190 over the taken bit, 001B17A0, the
+ * draw), and the gun's lifecycle 2 with the flag clear (the tail only).
+ * Fail-stop: 001EFE00 (its 001EF9D0 node view is not bound, and the node
+ * 0021AAC0 spawns strip nodes 0021A500 whose packet builder 001CE860 is
+ * untranslated); the gun's lifecycles 4 and 1 (EM_GUN_FAULT_UNTRANSLATED at
+ * 0x825B74 / 0x826190) and its lifecycle-2 swing, which only D_00810788 ==
+ * 0xFF reaches (a return visit): its lamp view r_child_220, 00102958 and
+ * 0x70003A20 are unbound. */
+typedef struct {
+    EmActor *actor;
+    Node *node;
+    EmOwnerBone *bone;     /* the slot the last r_00275B40 answered */
+    uint32_t bone_address; /* its original address */
+    EmGunLamp lamp;        /* the 001AFA90 view the gun writes */
+    EmActor *lamp_actor;
+    EmGunLinked linked;    /* the cable's view of the record at its +0x18 */
+    EmActor *linked_actor;
+    int freed;
+} GunCall;
+
+static int gun_report(const char *what)
 {
-    static const float k_husk_child[4] = {0.0f, 0.0f, 0.0f, 0.25f};
-    if (!node->ticked &&
-        spawn_child_record(actor, k_husk_child, 0x7A, 0x001C5680u, 0, &node->child) < 0)
+    fprintf(stderr, "em_area11: security gun pair: %s\n", what);
+    return -1;
+}
+
+/* +0x1F0 block words (the gun's +0x1F4..+0x227). */
+static uint32_t gun_word(const EmActor *a, uint32_t offset)
+{
+    uint32_t v;
+    memcpy(&v, a->scratch + (offset - 0x1F0u), 4);
+    return v;
+}
+
+static void gun_put_word(EmActor *a, uint32_t offset, uint32_t v)
+{
+    memcpy(a->scratch + (offset - 0x1F0u), &v, 4);
+}
+
+static float gun_float(const EmActor *a, uint32_t offset)
+{
+    float f;
+    memcpy(&f, a->scratch + (offset - 0x1F0u), 4);
+    return f;
+}
+
+static void gun_put_float(EmActor *a, uint32_t offset, float f)
+{
+    memcpy(a->scratch + (offset - 0x1F0u), &f, 4);
+}
+
+static void gun_load(const GunCall *c, EmGun *g)
+{
+    const EmActor *a = c->actor;
+    memset(g, 0, sizeof *g);
+    g->b00 = a->status;
+    g->lifecycle = a->u04[0];
+    g->timer_28 = c->node->h28;
+    memcpy(g->pos_B0, a->pos, sizeof g->pos_B0);
+    memcpy(g->rot_C0, a->rot, sizeof g->rot_C0);
+    uint32_t slot3 = 0;
+    (void)em_area11_boxes_owner_slot(a, 3, &slot3); /* +0x11C; 0 before the bind */
+    g->bone3_11C = slot3;
+    g->f1F4 = gun_float(a, 0x1F4);
+    g->f1F8 = gun_float(a, 0x1F8);
+    g->f1FC = gun_float(a, 0x1FC);
+    g->w200 = gun_word(a, 0x200);
+    g->w204 = gun_word(a, 0x204);
+    g->w208 = gun_word(a, 0x208);
+    g->w20C = gun_word(a, 0x20C);
+    g->f210 = gun_float(a, 0x210);
+    g->f214 = gun_float(a, 0x214);
+    g->f218 = gun_float(a, 0x218);
+    g->w21C = (int32_t)gun_word(a, 0x21C);
+    g->child_220 = gun_word(a, 0x220);
+    g->w224 = (int32_t)gun_word(a, 0x224);
+}
+
+static void gun_store(GunCall *c, const EmGun *g)
+{
+    EmActor *a = c->actor;
+    a->status = g->b00;
+    a->u04[0] = g->lifecycle;
+    c->node->h28 = g->timer_28;
+    gun_put_float(a, 0x1F4, g->f1F4);
+    gun_put_float(a, 0x1F8, g->f1F8);
+    gun_put_float(a, 0x1FC, g->f1FC);
+    gun_put_word(a, 0x200, g->w200);
+    gun_put_word(a, 0x204, g->w204);
+    gun_put_word(a, 0x208, g->w208);
+    gun_put_word(a, 0x20C, g->w20C);
+    gun_put_float(a, 0x210, g->f210);
+    gun_put_float(a, 0x214, g->f214);
+    gun_put_float(a, 0x218, g->f218);
+    gun_put_word(a, 0x21C, (uint32_t)g->w21C);
+    gun_put_word(a, 0x220, g->child_220);
+    gun_put_word(a, 0x224, (uint32_t)g->w224);
+}
+
+static int gun_001C6380(void *ctx)
+{
+    GunCall *c = ctx;
+    return em_area11_boxes_owner_001C6380(c->actor, NULL);
+}
+
+/* 001B17A0(self) through the interaction host's services (the view the
+ * placed prop 001C4820 publishes; +0x01 = the 001B1630 byte). */
+static int gun_001B17A0(void *ctx)
+{
+    GunCall *c = ctx;
+    EmOwnerServicesOwner view;
+    memset(&view, 0, sizeof view);
+    view.cls = c->actor->cls;
+    view.kind = c->actor->model;
+    view.model_id = c->actor->param;
+    view.flags2 = c->actor->flags2;
+    memcpy(view.pos, c->actor->pos, sizeof view.pos);
+    return em_area11_interaction_host_offer_001B17A0(c->actor, &view) < 0 ? -1 : 0;
+}
+
+/* +0x4C: 001CAA00 over the record (em_owner_draw_live). */
+static int gun_draw(void *ctx)
+{
+    GunCall *c = ctx;
+    return em_area11_boxes_owner_draw(c->actor);
+}
+
+static int gun_001AFC10(void *ctx)
+{
+    GunCall *c = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->actor) < 0)
         return -1;
-    return tick_enemies(actor, node, world);
+    c->freed = 1;
+    return 0;
+}
+
+/* 001B0FD0 over the per-area bank: *result 0 (bound) or 1 (the bone cap
+ * refused); the module owns the +0x04 it writes. */
+static int gun_001B0FD0(void *ctx, int32_t *result)
+{
+    GunCall *c = ctx;
+    return em_area11_boxes_owner_001B0FD0(c->actor, s_pool, result);
+}
+
+static int gun_rand(void *ctx, int32_t *value)
+{
+    (void)ctx;
+    *value = (int32_t)em_random_next();
+    return 0;
+}
+
+/* 0011E2A8: the one bound SDK sine (the collision world's SDK context). */
+static int gun_sin(void *ctx, float x, float *result)
+{
+    (void)ctx;
+    EmSdkMathContext *sdk = em_collision_world_sdk();
+    if (!sdk)
+        return gun_report("0011E2A8 without the SDK context");
+    return em_sdk_math_original_w_0011E2A8(sdk, x, result) < 0 || sdk->fault ? -1 : 0;
+}
+
+/* D_00275B40[index]: the gun's own slot (the walk set D_00275B40 = node +
+ * 0x110). */
+static int gun_slot(void *ctx, uint32_t index, uint32_t *bone)
+{
+    GunCall *c = ctx;
+    c->bone = em_area11_boxes_owner_slot(c->actor, index, &c->bone_address);
+    if (!c->bone)
+        return gun_report("D_00275B40 slot outside the gun's bound slots");
+    *bone = c->bone_address;
+    return 0;
+}
+
+/* *(float *)(bone + 0x78) (bone 3's Z angle, EmOwnerBone.rot[2]). */
+static int gun_bone_f32(void *ctx, uint32_t bone, uint32_t offset, float value)
+{
+    GunCall *c = ctx;
+    if (!c->bone || bone != c->bone_address || offset != 0x78u)
+        return gun_report("a bone store other than the answered slot's +0x78");
+    c->bone->rot[2] = value;
+    return 0;
+}
+
+/* 001A2370(self, bone 3 + 0x90): the gun's plate (its uid's cell) through
+ * bone 3's world matrix, which 001C6380 has just written. */
+static int gun_001A2370(void *ctx, uint32_t matrix)
+{
+    GunCall *c = ctx;
+    if (!c->bone || matrix != c->bone_address + 0x90u)
+        return gun_report("001A2370 with a matrix other than the answered slot's +0x90");
+    return em_collision_world_retransform_001A2370(c->actor, c->bone->world) < 0 ? -1 : 0;
+}
+
+/* 001AFA90(0xC): the lamp child; the gun writes its bytes through the view
+ * (applied to the record after the call, gun_lamp_apply). A refused alloc
+ * answers 0, as the original. */
+static int gun_001AFA90(void *ctx, uint8_t cls, uint32_t *node, EmGunLamp **view)
+{
+    GunCall *c = ctx;
+    *node = 0;
+    *view = NULL;
+    EmActor *p = em_actor_pool_alloc_001AFA90(s_pool, s_scene, cls);
+    if (!p)
+        return em_scene_faulted(s_scene) ? -1 : 0;
+    memset(&c->lamp, 0, sizeof c->lamp);
+    c->lamp_actor = p;
+    *node = address_of(p);
+    *view = &c->lamp;
+    return 0;
+}
+
+/* The lamp's stores (0x825AC8..0x825B2C) onto its record, then its binding
+ * by +0x10 (001C5680: tick_indicator). */
+static int gun_lamp_apply(GunCall *c)
+{
+    EmActor *p = c->lamp_actor;
+    const EmGunLamp *v = &c->lamp;
+    p->table_index = v->b9A;  /* +0x9A */
+    p->model = v->b03;        /* +0x03 */
+    p->flags2 = v->h2E;       /* +0x2E */
+    p->param = v->b0D;        /* +0x0D */
+    p->uid = v->h0E;          /* +0x0E */
+    p->kind = v->h54;         /* +0x54 */
+    p->link = v->h56;         /* +0x56 */
+    memcpy(p->pos, v->pos_B0, sizeof p->pos);
+    memcpy(p->rot, v->rot_C0, sizeof p->rot);
+    p->callback = v->handler_10;
+    if (bind_node(p, NULL) < 0)
+        return -1;
+    Node *node = node_of(p);
+    node->parent = c->actor;
+    memcpy(node->a0, v->fA0, sizeof node->a0); /* +0xA0 */
+    return 0;
+}
+
+/* 001B11E0(+0x9A): the taken-bit test over the canonical D_00810860 rows. */
+static int cable_001B11E0(void *ctx, uint8_t id, int32_t *result)
+{
+    (void)ctx;
+    int r = em_actor_roster_001B11E0(s_scene, (EmActorRosterProgress *)em_scene_progress_spawn_view(s_scene), id);
+    if (r < 0)
+        return -1;
+    *result = r;
+    return 0;
+}
+
+/* 001B1190(+0x9A): em_gun_rest_001B1190 (the verified translation) over
+ * D_00810700 and the canonical D_00810860 rows. */
+static const uint8_t *cable_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00810700u && size == 1)
+        return &s_scene->d810700;
+    return em_scene_progress_at(s_scene, address, size);
+}
+
+static uint8_t *cable_store(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    return em_scene_progress_at(s_scene, address, size);
+}
+
+static int cable_001B1190(void *ctx, uint8_t id)
+{
+    (void)ctx;
+    const EmGunRestMem mem = {NULL, cable_load, cable_store};
+    EmGunFault f = {0, 0};
+    if (em_gun_rest_001B1190(id, &mem, &f) < 0) {
+        fprintf(stderr, "em_area11: 001B1190 faulted at %08X\n", (unsigned)f.address);
+        return -1;
+    }
+    return 0;
+}
+
+/* 001EFE00(0x80000045, self): not bound (see above). */
+static int cable_001EFE00(void *ctx, uint32_t fx, int32_t *result)
+{
+    (void)ctx;
+    (void)result;
+    fprintf(stderr, "em_area11: the gun cable's 001EFE00(%08X) is not bound: its 001EF9D0 node view, the node "
+                    "0021AAC0 and its strip nodes' 001CE860 (fail-stop; docs/SECURITY_GUN.md)\n",
+            (unsigned)fx);
+    return -1;
+}
+
+/* 001FBD50(self, cue, 0, range). */
+static int cable_001FBD50(void *ctx, int32_t cue, int32_t a2, float range)
+{
+    GunCall *c = ctx;
+    if (a2 != 0)
+        return gun_report("001FBD50 with a nonzero a2 (the flat cue)");
+    em_sfx_play_at((unsigned)cue, c->actor->pos, range);
+    return 0;
+}
+
+/* The record at the cable's +0x18 (the gun, the node spawned just before
+ * it): its +0x04 and +0x21C, written back after the call. */
+static int cable_link_18(void *ctx, EmGunLinked **linked)
+{
+    GunCall *c = ctx;
+    EmActor *prev = c->actor->prev;
+    *linked = NULL;
+    if (!prev)
+        return 0; /* the module faults: the original would store through 0 */
+    c->linked_actor = prev;
+    c->linked.lifecycle = prev->u04[0];
+    c->linked.w21C = (int32_t)gun_word(prev, 0x21C);
+    *linked = &c->linked;
+    return 0;
+}
+
+static int gun_fault(const EmGunFault *f, const char *who)
+{
+    if (em_scene_faulted(s_scene))
+        return -1;
+    const EmSceneFaultCode code =
+        f->code == EM_GUN_FAULT_WORKER_FAILED ? EM_SCENE_FAULT_WORKER_FAILED : EM_SCENE_FAULT_NULL_WORKER;
+    const char *why = f->code == EM_GUN_FAULT_UNTRANSLATED
+                          ? "a return-visit lifecycle (4 or 1) is not bound in the first level"
+                      : f->code == EM_GUN_FAULT_WORKER_FAILED ? "a worker failed"
+                                                               : "an unbound worker or view was reached";
+    fprintf(stderr, "em_area11: %s: %s\n", who, why);
+    return fault(f->address, code, who);
+}
+
+static void gun_workers(GunCall *c, EmGunWorkers *w)
+{
+    memset(w, 0, sizeof *w);
+    w->ctx = c;
+    w->w_001C6380 = gun_001C6380;
+    w->w_001B17A0 = gun_001B17A0;
+    w->w_draw_4C = gun_draw;
+    w->w_001AFC10 = gun_001AFC10;
+    w->w_001B0FD0 = gun_001B0FD0;
+    w->w_00122BB8 = gun_rand;
+    w->w_0011E2A8 = gun_sin;
+    w->r_00275B40 = gun_slot;
+    w->s_bone_f32 = gun_bone_f32;
+    w->w_001A2370 = gun_001A2370;
+    w->w_001AFA90 = gun_001AFA90;
+    /* r_child_220 / w_00102958: the lifecycle-2 swing (return visit). */
+    w->w_001B11E0 = cable_001B11E0;
+    w->w_001B1190 = cable_001B1190;
+    w->w_001EFE00 = cable_001EFE00;
+    w->w_001FBD50 = cable_001FBD50;
+    w->r_link_18 = cable_link_18;
+}
+
+static int tick_gun(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)world;
+    GunCall c;
+    memset(&c, 0, sizeof c);
+    c.actor = actor;
+    c.node = node;
+    if (!em_scene_progress_at(s_scene, 0x00810788u, 1))
+        return fault(0x00810788u, EM_SCENE_FAULT_BAD_INDEX, "D_00810788 is not canonical");
+    /* D_00810758[256]: the gun reads [0x30] only (001BA1C0(self, 0x30)). */
+    const EmGunWorld gw = {em_scene_progress_spawn_view(s_scene), NULL, NULL, NULL};
+    EmGunWorkers w;
+    gun_workers(&c, &w);
+    EmGun g;
+    gun_load(&c, &g);
+    EmGunFault f = {0, 0};
+    if (em_gun_tick(&g, &gw, &w, &f) < 0)
+        return gun_fault(&f, "security gun 00825940");
+    if (c.freed)
+        return 1;
+    gun_store(&c, &g);
+    if (c.lamp_actor && gun_lamp_apply(&c) < 0)
+        return -1;
+    return 1;
+}
+
+static int tick_gun_cable(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)world;
+    GunCall c;
+    memset(&c, 0, sizeof c);
+    c.actor = actor;
+    c.node = node;
+    EmGunWorkers w;
+    gun_workers(&c, &w);
+    EmGunCable cable = {actor->status, actor->u04[0], node->h28, node->h34, (int16_t)actor->h36,
+                        actor->table_index, 0};
+    EmGunFault f = {0, 0};
+    if (em_gun_cable_tick(&cable, &w, &f) < 0)
+        return gun_fault(&f, "gun cable 00827490");
+    if (c.linked_actor) {
+        c.linked_actor->u04[0] = c.linked.lifecycle;
+        gun_put_word(c.linked_actor, 0x21C, (uint32_t)c.linked.w21C);
+    }
+    if (c.freed)
+        return 1;
+    actor->status = cable.b00;
+    actor->u04[0] = cable.lifecycle;
+    node->h28 = cable.timer_28;
+    node->h34 = cable.h34;
+    return 1;
+}
+
+/* ------------------------------------------------ the fan pair (L24) */
+
+/* 0x827630, the fan pair (area11[1] and [2]), on its original owner:
+ * em_fan_original_tick (oracle tools/test_fan_original_reference.py) over
+ * the node's record (docs/FAN_ORIGINAL.md "Binding"): +0x04 / +0x05 /
+ * +0x2E / +0xC8 are EmActor's (u04[0], u04[1], flags2, rot[2]), +0x28 and
+ * +0x38 the node's. A world model owner (+0x0D 0x13 of *D_0028A59C) drawn
+ * through the object-unit path; the legacy em_pickup prop instances the
+ * manifest placed at its +0xB0 stop drawing once it is bound. Its globals:
+ * D_00810788, D_00810758 and D_008107D8 are canonical progress bytes,
+ * D_008106B8 the request byte B8; its player D_008102B0 is the live player
+ * record (+0x00, +0x0F, +0x70..+0x7C, +0xA0..+0xA8, +0x224). The exit box
+ * (the player at z < 156 inside its x/y box, record [2] only, fast arm or
+ * slow) sets D_008107D8 |= 0x80 (Roger's departure; 001B0C60(1, 1, 4) when
+ * D_00810758 == 0xFF); the hit box (156 <= z < 166.5, fast arm) writes the
+ * player hit the player stage's 0021C440 consumes. Neither box is on the
+ * level smoke's route (it ends at Roger's encounter). */
+typedef struct {
+    EmActor *actor;
+    int freed;
+} FanCall;
+
+static int fan_001B0FD0(void *ctx, const EmFanOriginal *fan)
+{
+    (void)fan;
+    FanCall *c = ctx;
+    int32_t r = 0;
+    if (em_area11_boxes_owner_001B0FD0(c->actor, s_pool, &r) < 0)
+        return -1;
+    if (r == 0)
+        em_pickup_prop_retire(c->actor->pos);
+    return r;
+}
+
+static int fan_001FBD50(void *ctx, int32_t cue, int32_t a2, float range)
+{
+    FanCall *c = ctx;
+    if (a2 != 0)
+        return gun_report("the fan's 001FBD50 with a nonzero a2 (the flat cue)");
+    em_sfx_play_at((unsigned)cue, c->actor->pos, range);
+    return 0;
+}
+
+/* 001C6380 after the module stored +0xC8 (rot.z, the Z leg of its TRS). */
+static int fan_001C6380(void *ctx, const EmFanOriginal *fan)
+{
+    FanCall *c = ctx;
+    c->actor->rot[2] = fan->rot_z;
+    return em_area11_boxes_owner_001C6380(c->actor, NULL);
+}
+
+static int fan_001B17A0(void *ctx)
+{
+    FanCall *c = ctx;
+    GunCall g;
+    memset(&g, 0, sizeof g);
+    g.actor = c->actor;
+    return gun_001B17A0(&g);
+}
+
+static int fan_001B0C60(void *ctx, int32_t a0, int32_t a1, int32_t a2)
+{
+    (void)ctx;
+    return em_scene_request_area_change_001B0C60(a0, a1, a2);
+}
+
+static int fan_draw(void *ctx)
+{
+    FanCall *c = ctx;
+    return em_area11_boxes_owner_draw(c->actor);
+}
+
+static int fan_001AFC10(void *ctx)
+{
+    FanCall *c = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->actor) < 0)
+        return -1;
+    c->freed = 1;
+    return 0;
+}
+
+static int tick_fan(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)world;
+    FanCall c = {actor, 0};
+    uint8_t *e788 = em_scene_progress_at(s_scene, 0x00810788u, 1);
+    uint8_t *e758 = em_scene_progress_at(s_scene, 0x00810758u, 1);
+    uint8_t *e7D8 = em_scene_progress_at(s_scene, 0x008107D8u, 1);
+    if (!e788 || !e758 || !e7D8)
+        return fault(EM_FAN_ORIGINAL_CALLBACK, EM_SCENE_FAULT_BAD_INDEX, "the fan's progress bytes are not canonical");
+    EmFanOriginalGlobals globals = {*e788, s_scene->req[EM_SCENE_REQ_B8], *e758, *e7D8};
+    EmPlayerLiveActor *pl = player_states_actor_mut();
+    EmFanOriginalPlayer player;
+    memset(&player, 0, sizeof player);
+    if (pl) {
+        player.b00 = pl->bytes[0x00];
+        player.b0F = pl->bytes[0x0F];
+        memcpy(player.f70, pl->bytes + 0x70, sizeof player.f70);
+        memcpy(player.pos, pl->bytes + 0xA0, sizeof player.pos);
+        memcpy(&player.f224, pl->bytes + 0x224, sizeof player.f224);
+    }
+    EmFanOriginal fan = {actor->u04[0], actor->u04[1], node->h28, actor->flags2, node->f38, actor->rot[2], 0};
+    const EmFanOriginalWorkers w = {&c, fan_001B0FD0, fan_001FBD50, fan_001C6380, fan_001B17A0,
+                                    fan_001B0C60, fan_draw, fan_001AFC10};
+    EmFanOriginalFault f = {0, 0};
+    /* `player` is read only by record [2]'s box (flags2 1, B8 0); without a
+     * player record the module faults there. */
+    if (em_fan_original_tick(&fan, pl ? &player : NULL, &globals, &w, &f) < 0) {
+        if (em_scene_faulted(s_scene))
+            return -1;
+        return fault(f.address, (EmSceneFaultCode)f.code, "fan 00827630: a worker failed (em_fan_original)");
+    }
+    *e7D8 = globals.d8107D8;
+    if (pl) {
+        pl->bytes[0x00] = player.b00;
+        pl->bytes[0x0F] = player.b0F;
+        memcpy(pl->bytes + 0x70, player.f70, sizeof player.f70);
+        memcpy(pl->bytes + 0x224, &player.f224, sizeof player.f224);
+    }
+    if (c.freed)
+        return 1;
+    actor->u04[0] = fan.lifecycle;
+    actor->u04[1] = fan.phase;
+    node->h28 = fan.timer;
+    node->f38 = fan.spin;
+    actor->rot[2] = fan.rot_z;
+    return 1;
+}
+
+int em_area11_bindings_gun_fan_log(const EmActor *actor, EmArea11GunFanLog *out)
+{
+    const Node *node = node_of(actor);
+    if (!node || !node->binding || !out)
+        return 0;
+    const uint32_t cb = actor->callback;
+    if (cb != 0x00825940u && cb != 0x00827490u && cb != 0x00827630u)
+        return 0;
+    memset(out, 0, sizeof *out);
+    out->address = address_of(actor);
+    out->callback = cb;
+    out->b00 = actor->status;
+    out->b04 = actor->u04[0];
+    out->b05 = actor->u04[1];
+    out->b09 = actor->bones;
+    out->h28 = node->h28;
+    out->h34 = node->h34;
+    out->h36 = actor->h36;
+    memcpy(&out->f38, &node->f38, 4);
+    memcpy(out->rot, actor->rot, sizeof out->rot);
+    if (cb == 0x00825940u) {
+        const EmOwnerBone *bone3 = em_area11_boxes_owner_slot(actor, 3, NULL);
+        if (bone3)
+            memcpy(&out->bone3_78, &bone3->rot[2], 4);
+        out->w220 = gun_word(actor, 0x220);
+        for (EmActor *p = s_pool->head; p; p = p->next)
+            if (address_of(p) == out->w220 && out->w220) {
+                const Node *lamp = node_of(p);
+                if (lamp)
+                    memcpy(out->lamp_a0, lamp->a0, sizeof out->lamp_a0);
+            }
+    }
+    return 1;
 }
 
 /* 001BC350, the fence door (census L18): its original owner
@@ -953,14 +1523,16 @@ static int indicator_draw(void *ctx, uint32_t fn, void *obj)
     case 0x00827B10u:
         return em_props_indicator_submit(1, c80, node);
     case 0x00825940u: {
-        /* Model 0x7A (bank D_0028A56C) has no port mesh yet: its draw is the
-         * object-unit draw of docs/OWNER_DRAW.md (P1). Its colour is
-         * (0, 0, 0, 0.25) on the route, which 001D8C30 mode 1 turns into
-         * 1 / 128 of the texel: the RNG draw above is the part that shows. */
+        /* The security gun's lamp (model 0x7A, bank D_0028A56C) has no
+         * port mesh yet: its draw is the object-unit draw of
+         * docs/OWNER_DRAW.md (P1). Its colour is (0, 0, 0, 0.25) in the
+         * first level (the gun stays dormant: the lamp is dark), which
+         * 001D8C30 mode 1 turns into 1 / 128 of the texel: the RNG draw
+         * above is the part that shows. */
         static int reported;
         if (!reported++)
-            fprintf(stderr, "em_area11: 001C5680 child 0x7A of 0x825940: 001CACB0 not drawn (no model 0x7A "
-                            "mesh; OWNER_DRAW.md P1)\n");
+            fprintf(stderr, "em_area11: 001C5680 lamp 0x7A of the security gun 0x825940: 001CACB0 not drawn "
+                            "(no model 0x7A mesh; OWNER_DRAW.md P1)\n");
         return 0;
     }
     default:
@@ -1028,50 +1600,45 @@ static int tick_legacy_world(EmActor *actor, Node *node, const EmArea11World *wo
 
 static const Binding k_bindings[] = {
     /* deferred g0.0-g0.6: item owners */
-    {0x00219550u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
-    {0x0015AFA0u, "pickup: em_area11_interaction_host_pickup_tick", NULL, GROUP_NONE, tick_pickup, NULL},
-    /* deferred g0.7/g0.8 (the husk pair); crates area11[3..6], drums area11[14..15] */
-    {0x00825940u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
-     tick_enemy_00825940, NULL},
-    {0x00827490u, "enemies: legacy em_enemy_update (group head)", "group: enemies", GROUP_ENEMIES,
-     tick_enemies, NULL},
-    {0x001551B0u, "crate: em_crate_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
-    {0x00156620u, "drum: em_drum_original (em_area11_boxes)", NULL, GROUP_NONE, tick_box, NULL},
-    {0x001BC350u, "door: 001BC350 (em_area11_door)", NULL, GROUP_NONE, tick_door, NULL},
-    {0x00827630u, "fan: static", NULL, GROUP_NONE, NULL,
-     "fan (area11[1]/[2]): no port behaviour; em_pickup draws it static (WP-11)"},
-    {0x008235F0u, "flame: em_area11_effect_runtime_tick", NULL, GROUP_NONE, tick_effect, NULL},
-    {0x008237E0u, "Roger: em_roger_tick / em_roger_actor_original (em_area11_roger)", NULL, GROUP_NONE,
+    {0x00219550u, "pickup: em_area11_interaction_host_pickup_tick", tick_pickup, NULL},
+    {0x0015AFA0u, "pickup: em_area11_interaction_host_pickup_tick", tick_pickup, NULL},
+    /* deferred g0.7/g0.8 (the security gun and its cable); crates area11[3..6], drums area11[14..15] */
+    {0x00825940u, "security gun: em_gun_tick (em_security_gun)", tick_gun, NULL},
+    {0x00827490u, "gun cable: em_gun_cable_tick (em_security_gun)", tick_gun_cable, NULL},
+    {0x001551B0u, "crate: em_crate_original (em_area11_boxes)", tick_box, NULL},
+    {0x00156620u, "drum: em_drum_original (em_area11_boxes)", tick_box, NULL},
+    {0x001BC350u, "door: 001BC350 (em_area11_door)", tick_door, NULL},
+    {0x00827630u, "fan: em_fan_original_tick (area11[1]/[2])", tick_fan, NULL},
+    {0x008235F0u, "flame: em_area11_effect_runtime_tick", tick_effect, NULL},
+    {0x008237E0u, "Roger: em_roger_tick / em_roger_actor_original (em_area11_roger)",
      tick_roger, NULL},
-    {0x001C5C90u, "equipment: em_roger_actor_001C5C90 (em_area11_roger)", NULL, GROUP_NONE, tick_roger,
+    {0x001C5C90u, "equipment: em_roger_actor_001C5C90 (em_area11_roger)", tick_roger,
      NULL},
-    {0x00823E80u, "opening controller: em_opening_runtime_tick", NULL, GROUP_NONE, tick_opening, NULL},
-    {0x00823CE0u, "manager: dormant", NULL, GROUP_NONE, NULL,
+    {0x00823E80u, "opening controller: em_opening_runtime_tick", tick_opening, NULL},
+    {0x00823CE0u, "manager: dormant", NULL,
      "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
-    {0x008253F0u, "director: em_director_original over em_area11_script_host", NULL, GROUP_NONE,
+    {0x008253F0u, "director: em_director_original over em_area11_script_host",
      tick_director, NULL},
-    {0x008257A0u, "record 13: em_manager_008257A0", NULL, GROUP_NONE, tick_manager_8257A0, NULL},
-    {0x00823FF0u, "truck: em_truck_original (em_area11_boxes)", NULL, GROUP_NONE, tick_truck, NULL},
-    {0x008251E0u, "truck trigger: em_truck_trigger_tick, script 0x8292C0 (em_area11_script_host)", NULL,
-     GROUP_NONE, tick_truck, NULL},
-    {0x00159210u, "panel: em_area11_interaction_host_panel_tick", NULL, GROUP_NONE, tick_panel, NULL},
-    {0x00827B10u, "terminal: em_area11_interaction_host_elevator_tick", NULL, GROUP_NONE, tick_terminal,
+    {0x008257A0u, "record 13: em_manager_008257A0", tick_manager_8257A0, NULL},
+    {0x00823FF0u, "truck: em_truck_original (em_area11_boxes)", tick_truck, NULL},
+    {0x008251E0u, "truck trigger: em_truck_trigger_tick, script 0x8292C0 (em_area11_script_host)", tick_truck, NULL},
+    {0x00159210u, "panel: em_area11_interaction_host_panel_tick", tick_panel, NULL},
+    {0x00827B10u, "terminal: em_area11_interaction_host_elevator_tick", tick_terminal,
      NULL},
-    {0x001C4820u, "prop: em_sul_001C4820 (em_area11_boxes world owner)", NULL, GROUP_NONE, tick_prop_001C4820,
+    {0x001C4820u, "prop: em_sul_001C4820 (em_area11_boxes world owner)", tick_prop_001C4820,
      NULL},
-    {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)", NULL, GROUP_NONE,
+    {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)",
      tick_weather, NULL},
-    {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", NULL,
-     GROUP_NONE, tick_area_title, NULL},
-    {0x0018A6B0u, "player equipment: em_player_equipment (em_equipment_live)", NULL, GROUP_NONE,
+    {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", tick_area_title, NULL},
+    {0x0018A6B0u, "player equipment: em_player_equipment (em_equipment_live)",
      tick_equipment, NULL},
-    {0x001E2560u, "head-bone sprite: em_head_sprite_original (em_effects_live)", NULL, GROUP_NONE,
+    {0x001E2560u, "head-bone sprite: em_head_sprite_original (em_effects_live)",
      tick_effect_node, NULL},
-    {0x001EA240u, "effect: em_effect_original 001EA240 (em_effects_live)", NULL, GROUP_NONE,
+    {0x001EA240u, "effect: em_effect_original 001EA240 (em_effects_live)",
      tick_effect_node, NULL},
-    {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
-    {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", NULL, GROUP_NONE, tick_indicator, NULL},
-    {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", NULL, GROUP_NONE, tick_legacy_world, NULL},
+    {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", tick_indicator, NULL},
+    {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", tick_indicator, NULL},
+    {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", tick_legacy_world, NULL},
 };
 #define BINDING_COUNT (sizeof k_bindings / sizeof k_bindings[0])
 _Static_assert(BINDING_COUNT <= 64, "s_reported has one bit per row");
@@ -1110,8 +1677,6 @@ static void node_release(EmActor *actor)
     Node *node = node_of(actor);
     if (!node)
         return;
-    if (node->head && node->binding && s_heads[node->binding->group] == actor)
-        s_heads[node->binding->group] = NULL;
     memset(node, 0, sizeof *node);
 }
 
@@ -1127,12 +1692,7 @@ static int bind_node(EmActor *actor, const char *record)
     node->binding = b;
     if (record)
         snprintf(node->record, sizeof node->record, "%s", record);
-    if (b->group != GROUP_NONE && !s_heads[b->group]) {
-        s_heads[b->group] = actor;
-        node->head = 1;
-    }
-    snprintf(node->name, sizeof node->name, "%s",
-             (b->group != GROUP_NONE && !node->head) ? b->member : b->name);
+    snprintf(node->name, sizeof node->name, "%s", b->name);
     actor->behavior = node_behavior;
     actor->release = node_release;
     actor->owner = node;
@@ -1157,7 +1717,6 @@ void em_area11_bindings_attach(EmActorPool *pool, EmSceneState *scene)
 void em_area11_bindings_reset(void)
 {
     memset(s_nodes, 0, sizeof s_nodes);
-    memset(s_heads, 0, sizeof s_heads);
     s_panel_child = NULL;
     em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
     em_area11_roger_reset();

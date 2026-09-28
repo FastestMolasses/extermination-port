@@ -176,8 +176,10 @@ samples including lookahead, and advances 0.5 per ordinary tick.
 - Random arithmetic matches the original SDK leaf, including 32-bit stored
   state and 31-bit output. The call order is audited against the C7
   per-call capture (RAND_ORDER.md): from the area entry the port equals the
-  original call for call up to the husk creature's missing draw (census
-  L24), and every frame's fixed-schedule callers equal the original's.
+  original call for call up to the player face's missing draw at AE+5 (the
+  opening's faces, design risk 2; the security gun's AE+1 draw is among the
+  equal calls since census L24), and every frame's fixed-schedule callers
+  equal the original's.
 - The original head meshes carry seven morph channels. Blink/mouth state and
   vertex blending pass original instruction comparisons; exact pooled initial
   weights and separate head-light selection remain work.

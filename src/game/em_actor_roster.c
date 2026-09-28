@@ -219,6 +219,13 @@ static int test_001B11E0(EmSceneState *scene, EmActorRosterProgress *progress, i
     return (rd32(word) & (1u << (arg & 0x1F))) != 0;
 }
 
+int em_actor_roster_001B11E0(EmSceneState *scene, EmActorRosterProgress *progress, int arg)
+{
+    if (!scene)
+        return -1;
+    return test_001B11E0(scene, progress, arg);
+}
+
 /* D_00810700[index] for the spawners' progress reads; -1 (fault) outside. */
 static int progress_byte(EmSceneState *scene, EmActorRosterProgress *progress, int64_t index, uint32_t fn)
 {

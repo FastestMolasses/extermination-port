@@ -109,7 +109,7 @@ terminal, panel, prop, items, canopy, the player and its equipment) light
 through the translated 001D89D0 on the object-unit path
 ([ACTOR_LIGHT_001D89D0.md](ACTOR_LIGHT_001D89D0.md), OWNER_DRAW.md). The
 actors still drawn through `em_gfx_draw_skinned` with the CPU rig
-(`char_rig_build`: Roger, the fan pair, the husks, the opening's player)
+(`char_rig_build`: Roger, the fan pair, the security gun and its cable, the opening's player)
 get identity actor RGB and an unconditional fold. `em_lighting_actor_rgb`
 reproduces the 001D8690 multiply and `em_lighting_fold_gate` reproduces
 001D8270; both are verified against the AREA11 actors in

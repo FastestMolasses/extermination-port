@@ -719,13 +719,28 @@ def native_child_frames(L, callback, colour_words, frames, alt=0, stop_at=None, 
 
 
 def binding_colours():
-    """The spawn colours the live bindings pass (em_area11_bindings.c)."""
+    """The spawn colours the live bindings pass (em_area11_bindings.c), and
+    the security gun's lamp colour its lifecycle 0 writes (em_security_gun.c
+    gun_setup, 0x825AC8..0x825B2C; bound live since census L24)."""
     text = source('game/em_area11_bindings.c')
     out = {}
-    for name in ('k_light', 'k_red', 'k_green', 'k_husk_child', 'k_unpowered'):
+    for name in ('k_light', 'k_red', 'k_green', 'k_unpowered'):
         m = re.search(r'static const float ' + name + r'\[4\] = \{([^}]*)\};', text)
         assert m, (name, 'the live spawn colour moved; update the extraction')
         out[name] = tuple(fbits(float(v.strip().rstrip('f'))) for v in m.group(1).split(','))
+    gun = source('game/em_security_gun.c')
+    setup = re.search(r'static int gun_setup\(.*?\n}\n', gun, re.S)
+    assert setup, 'the gun\'s lifecycle 0 moved; update the extraction'
+    stores = re.findall(r'c->fA0\[(\d)\] = ([^;]*);', setup.group(0))
+    assert [int(k) for k, _ in stores] == [0, 1, 2, 3], ('the lamp colour stores moved', stores)
+    def word(expr):
+        m = re.fullmatch(r'bits_f\((\w+)\)', expr.strip())
+        if m:
+            d = re.search(r'#define ' + m.group(1) + r' UINT32_C\((0x[0-9A-Fa-f]+)\)', gun)
+            assert d, ('no constant', m.group(1))
+            return int(d.group(1), 16)
+        return fbits(float(expr.strip().rstrip('f')))
+    out['k_gun_lamp'] = tuple(word(e) for _, e in stores)
     return out
 
 
@@ -740,7 +755,7 @@ def part_children(elf, L):
         kinds.setdefault(ram0[base + 0x0D], (w32(ram0, base + 0x10), struct.unpack_from('<4I', ram0, base + 0xA0),
                                              ram0[base + 0x0A]))
     live = binding_colours()
-    spawn = {0x73: live['k_light'], 0x75: live['k_red'], 0x7A: live['k_husk_child'], 0x10: live['k_unpowered']}
+    spawn = {0x73: live['k_light'], 0x75: live['k_red'], 0x7A: live['k_gun_lamp'], 0x10: live['k_unpowered']}
     for kind, colour in spawn.items():
         assert kinds[kind][1] == colour, (hex(kind), 'live spawn colour != captured +0xA0 (beat 00)')
     r80.ok('capture: the bindings\' spawn colours == captured child +0xA0 (0x73, 0x75, 0x7A; beat 00)')
@@ -837,7 +852,7 @@ def part_children(elf, L):
     # guard: the harness above runs em_indicator_child_step, so it must be
     # what the nodes run).
     bindings = source('game/em_area11_bindings.c')
-    rows = [re.search(r'\{0x' + cb + r'u, "[^"]*", NULL, GROUP_NONE, tick_indicator, NULL\}', bindings)
+    rows = [re.search(r'\{0x' + cb + r'u, "[^"]*", tick_indicator, NULL\}', bindings)
             for cb in ('001C5680', '001C5760')]
     tick = re.search(r'static int tick_indicator\(.*?\n\}\n', bindings, re.S)
     if not all(rows) or not tick or 'em_indicator_child_step' not in tick.group(0):

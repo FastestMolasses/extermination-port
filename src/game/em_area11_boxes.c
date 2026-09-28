@@ -896,6 +896,14 @@ int em_area11_boxes_owner_node(const EmActor *actor, unsigned k, float out[16])
     return 0;
 }
 
+EmOwnerBone *em_area11_boxes_owner_slot(const EmActor *actor, unsigned k, uint32_t *address)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b || k >= b->view.bones_held || !b->view.bone[k]) return NULL;
+    if (address) *address = word_of(b->view.bone[k]);
+    return b->view.bone[k];
+}
+
 const EmRogerActorWorld *em_area11_boxes_slot_world(void)
 {
     if (!S.stack.world.d00275BCC) em_area11_boxes_reset();

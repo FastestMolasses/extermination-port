@@ -1,10 +1,10 @@
-/* AREA11 husk creature 0x825940 over original record memory: lifecycles 1
+/* AREA11 security gun 0x825940 over original record memory: lifecycles 1
  * and 4 with the overlay helpers 0x826F30 / 0x827400, the adapter that runs
- * em_husk_creature_tick for every other lifecycle, and 001B1190 (see
- * em_husk_fan.h and docs/HUSK_FAN.md). Addresses in comments are original
+ * em_gun_tick for every other lifecycle, and 001B1190 (see
+ * em_security_gun_rest.h and docs/SECURITY_GUN.md). Addresses in comments are original
  * runtime addresses (overlay listing address + 0x40); float constants are
  * the original bit patterns. */
-#include "game/em_husk_fan.h"
+#include "game/em_security_gun_rest.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -45,15 +45,15 @@
 /* ---- context and fail-stop ------------------------------------------------ */
 
 typedef struct {
-    const EmHuskFanMem *m;
-    const EmHuskFanWorkers *w;
-    EmHuskFault *fault;
-    uint32_t a; /* the creature record */
+    const EmGunRestMem *m;
+    const EmGunRestWorkers *w;
+    EmGunFault *fault;
+    uint32_t a; /* the gun record */
 } Hf;
 
-static int hf_fault(EmHuskFault *fault, uint32_t address, int32_t code)
+static int hf_fault(EmGunFault *fault, uint32_t address, int32_t code)
 {
-    if (fault && fault->code == EM_HUSK_FAULT_NONE) {
+    if (fault && fault->code == EM_GUN_FAULT_NONE) {
         fault->address = address;
         fault->code = code;
     }
@@ -63,9 +63,9 @@ static int hf_fault(EmHuskFault *fault, uint32_t address, int32_t code)
 #define TRY(x) do { if ((x) < 0) return -1; } while (0)
 #define W(address, name, ...)                                                          \
     do {                                                                               \
-        if (!h->w->name) return hf_fault(h->fault, (address), EM_HUSK_FAULT_NULL);     \
+        if (!h->w->name) return hf_fault(h->fault, (address), EM_GUN_FAULT_NULL);     \
         if (h->w->name(h->w->ctx, __VA_ARGS__) < 0)                                    \
-            return hf_fault(h->fault, (address), EM_HUSK_FAULT_WORKER_FAILED);         \
+            return hf_fault(h->fault, (address), EM_GUN_FAULT_WORKER_FAILED);         \
     } while (0)
 
 /* ---- memory ---------------------------------------------------------------- */
@@ -73,13 +73,13 @@ static int hf_fault(EmHuskFault *fault, uint32_t address, int32_t code)
 static int ldp(Hf *h, uint32_t address, uint32_t size, const uint8_t **p)
 {
     *p = h->m->load ? h->m->load(h->m->ctx, address, size) : NULL;
-    return *p ? 0 : hf_fault(h->fault, address, EM_HUSK_FAULT_NULL);
+    return *p ? 0 : hf_fault(h->fault, address, EM_GUN_FAULT_NULL);
 }
 
 static int stp(Hf *h, uint32_t address, uint32_t size, uint8_t **p)
 {
     *p = h->m->store ? h->m->store(h->m->ctx, address, size) : NULL;
-    return *p ? 0 : hf_fault(h->fault, address, EM_HUSK_FAULT_NULL);
+    return *p ? 0 : hf_fault(h->fault, address, EM_GUN_FAULT_NULL);
 }
 
 static int rd(Hf *h, uint32_t address, uint32_t size, uint32_t *out)
@@ -173,11 +173,11 @@ static int draw(Hf *h)
 static int shot(Hf *h, uint32_t matrix)
 {
     uint32_t node;
-    W(0x001AFA90u, w_001AFA90, EM_HUSK_CHILD_CLASS, &node);
+    W(0x001AFA90u, w_001AFA90, EM_GUN_LAMP_CLASS, &node);
     if (node == 0) return 0;                                  /* 0x827420 */
     const uint8_t *q, *src, *m;
     uint8_t *dst, local[16];
-    LD(EM_HUSK_FAN_SHOT_QUAD, 16, &q);                        /* 0x827428..0x827430 */
+    LD(EM_GUN_REST_SHOT_QUAD, 16, &q);                        /* 0x827428..0x827430 */
     memcpy(local, q, 16);
     ST(node + 0xB0, 16, &dst);
     LD(matrix + 0x30, 16, &src);
@@ -188,7 +188,7 @@ static int shot(Hf *h, uint32_t matrix)
     ST(node + 0x100, 16, &dst);
     LD(node + 0xD0, 64, &m);
     W(0x001026A0u, w_001026A0, dst, m, local);                /* 0x82745C */
-    WR32(node + 0x10, EM_HUSK_FAN_SHOT_HANDLER);              /* 0x82746C */
+    WR32(node + 0x10, EM_GUN_REST_SHOT_HANDLER);              /* 0x82746C */
     return 0;
 }
 
@@ -310,7 +310,7 @@ static int sight(Hf *h, uint32_t matrix, int32_t *ret)
         } else {
             RD32(h->a + 0x200, &v);
             if ((int32_t)v >= 0xD) {                          /* 0x82728C */
-                LD(EM_HUSK_FAN_SIGHT_QUAD, 16, &a);           /* 0x827294..0x8272B0 */
+                LD(EM_GUN_REST_SIGHT_QUAD, 16, &a);           /* 0x827294..0x8272B0 */
                 memcpy(local, a, 16);
                 ST(SP(0x38A0), 16, &dst);
                 LD(SP(0x31B0), 16, &a);
@@ -385,7 +385,7 @@ static int child_a0(Hf *h, uint32_t x, uint32_t y, uint32_t w)
     return 0;
 }
 
-/* 00102958(child +0x11C bone + 0x90, creature +0x11C bone + 0x90). */
+/* 00102958(child +0x11C bone + 0x90, gun +0x11C bone + 0x90). */
 static int copy_bone_to_child(Hf *h)
 {
     uint32_t c, self_bone, child_bone;
@@ -865,12 +865,12 @@ static int lifecycle1(Hf *h)
     return 1;
 }
 
-/* ---- the other lifecycles: em_husk_creature_tick over this memory ---------- */
+/* ---- the other lifecycles: em_gun_tick over this memory ---------- */
 
 typedef struct {
     Hf *h;
-    EmHuskCreature v;
-    EmHuskChild c;
+    EmGun v;
+    EmGunLamp c;
     uint32_t child;   /* the open child view's node, or 0 */
     float spad3A20;
     uint8_t flags[256];
@@ -982,7 +982,7 @@ static int view_flush(Adapt *d)
 #define CALLA(address, name, ...)                                                      \
     do {                                                                               \
         BEFORE();                                                                      \
-        if (!h->w->name) return hf_fault(h->fault, (address), EM_HUSK_FAULT_NULL);     \
+        if (!h->w->name) return hf_fault(h->fault, (address), EM_GUN_FAULT_NULL);     \
         if (h->w->name(h->w->ctx, __VA_ARGS__) < 0) return -1;                         \
         AFTER();                                                                       \
     } while (0)
@@ -1041,13 +1041,13 @@ static int a_001A2370(void *ctx, uint32_t matrix)
     const uint8_t *m;
     BEFORE();
     LD(matrix, 64, &m);
-    if (!h->w->w_001A2370) return hf_fault(h->fault, 0x001A2370u, EM_HUSK_FAULT_NULL);
+    if (!h->w->w_001A2370) return hf_fault(h->fault, 0x001A2370u, EM_GUN_FAULT_NULL);
     if (h->w->w_001A2370(h->w->ctx, h->a, m) < 0) return -1;
     AFTER();
     return 0;
 }
 
-static int a_001AFA90(void *ctx, uint8_t cls, uint32_t *node, EmHuskChild **view)
+static int a_001AFA90(void *ctx, uint8_t cls, uint32_t *node, EmGunLamp **view)
 {
     AD(ctx);
     CALLA(0x001AFA90u, w_001AFA90, cls, node);
@@ -1060,7 +1060,7 @@ static int a_001AFA90(void *ctx, uint8_t cls, uint32_t *node, EmHuskChild **view
     return 0;
 }
 
-static int a_child(void *ctx, uint32_t child, EmHuskChild **view)
+static int a_child(void *ctx, uint32_t child, EmGunLamp **view)
 {
     AD(ctx);
     if (d->child != child) {
@@ -1081,7 +1081,7 @@ static int a_00102958(void *ctx, uint32_t dst, uint32_t src)
     BEFORE();
     ST(dst, 64, &p);
     LD(src, 64, &q);
-    if (!h->w->w_00102958) return hf_fault(h->fault, 0x00102958u, EM_HUSK_FAULT_NULL);
+    if (!h->w->w_00102958) return hf_fault(h->fault, 0x00102958u, EM_GUN_FAULT_NULL);
     if (h->w->w_00102958(h->w->ctx, p, q) < 0) return -1;
     AFTER();
     return 0;
@@ -1094,10 +1094,10 @@ static int delegate(Hf *h)
     d.h = h;
     TRY(view_load(&d));
     uint32_t flag;
-    RD8(0x00810758u + EM_HUSK_FLAG_30, &flag);
-    d.flags[EM_HUSK_FLAG_30] = (uint8_t)flag;
-    EmHuskWorld world = {d.flags, NULL, NULL, &d.spad3A20};
-    EmHuskWorkers w;
+    RD8(0x00810758u + EM_GUN_FLAG_30, &flag);
+    d.flags[EM_GUN_FLAG_30] = (uint8_t)flag;
+    EmGunWorld world = {d.flags, NULL, NULL, &d.spad3A20};
+    EmGunWorkers w;
     memset(&w, 0, sizeof w);
     w.ctx = &d;
     w.w_001C6380 = a_001C6380;
@@ -1113,7 +1113,7 @@ static int delegate(Hf *h)
     w.w_001AFA90 = a_001AFA90;
     w.r_child_220 = a_child;
     w.w_00102958 = a_00102958;
-    int r = em_husk_creature_tick(&d.v, &world, &w, h->fault);
+    int r = em_gun_tick(&d.v, &world, &w, h->fault);
     if (r < 0) return -1;
     if (r > 0) TRY(view_flush(&d));
     return r;
@@ -1121,11 +1121,11 @@ static int delegate(Hf *h)
 
 /* ---- entry points ----------------------------------------------------------- */
 
-int em_husk_fan_creature_tick(uint32_t actor, const EmHuskFanMem *mem,
-                              const EmHuskFanWorkers *w, EmHuskFault *fault)
+int em_gun_rest_tick(uint32_t actor, const EmGunRestMem *mem,
+                              const EmGunRestWorkers *w, EmGunFault *fault)
 {
-    if (!fault || fault->code != EM_HUSK_FAULT_NONE) return -1;
-    if (!mem || !w) return hf_fault(fault, EM_HUSK_CREATURE, EM_HUSK_FAULT_NULL);
+    if (!fault || fault->code != EM_GUN_FAULT_NONE) return -1;
+    if (!mem || !w) return hf_fault(fault, EM_GUN, EM_GUN_FAULT_NULL);
     Hf hf = {mem, w, fault, actor};
     Hf *h = &hf;
     uint32_t lifecycle;
@@ -1135,7 +1135,7 @@ int em_husk_fan_creature_tick(uint32_t actor, const EmHuskFanMem *mem,
     return delegate(h);
 }
 
-/* ---- 0021AAC0: the partner's hit effect node --------------------------------- */
+/* ---- 0021AAC0: the cable's hit effect node --------------------------------- */
 
 #define FX_TABLE_A 0x002669C0u   /* 001CFBE0 a2, kind 2 */
 #define FX_TABLE_B 0x00266A50u   /* 001CFBE0 a2, kind 1 */
@@ -1162,11 +1162,11 @@ static int fx_matrix(Hf *h, const uint8_t *v)
     return 0;
 }
 
-int em_husk_fan_0021AAC0(uint32_t node, const EmHuskFanMem *mem, const EmHuskFanWorkers *w,
-                         EmHuskFault *fault)
+int em_gun_rest_0021AAC0(uint32_t node, const EmGunRestMem *mem, const EmGunRestWorkers *w,
+                         EmGunFault *fault)
 {
-    if (!fault || fault->code != EM_HUSK_FAULT_NONE) return -1;
-    if (!mem || !w) return hf_fault(fault, 0x0021AAC0u, EM_HUSK_FAULT_NULL);
+    if (!fault || fault->code != EM_GUN_FAULT_NONE) return -1;
+    if (!mem || !w) return hf_fault(fault, 0x0021AAC0u, EM_GUN_FAULT_NULL);
     Hf hf = {mem, w, fault, node};
     Hf *h = &hf;
     const uint32_t e = node + 0x1F0;
@@ -1301,11 +1301,11 @@ static int strip_offset(Hf *h, uint32_t *out)
     return 0;
 }
 
-int em_husk_fan_0021A500(uint32_t node, const EmHuskFanMem *mem, const EmHuskFanWorkers *w,
-                         EmHuskFault *fault)
+int em_gun_rest_0021A500(uint32_t node, const EmGunRestMem *mem, const EmGunRestWorkers *w,
+                         EmGunFault *fault)
 {
-    if (!fault || fault->code != EM_HUSK_FAULT_NONE) return -1;
-    if (!mem || !w) return hf_fault(fault, 0x0021A500u, EM_HUSK_FAULT_NULL);
+    if (!fault || fault->code != EM_GUN_FAULT_NONE) return -1;
+    if (!mem || !w) return hf_fault(fault, 0x0021A500u, EM_GUN_FAULT_NULL);
     Hf hf = {mem, w, fault, node};
     Hf *h = &hf;
     const uint32_t e = node + 0x1F0;
@@ -1441,11 +1441,11 @@ int em_husk_fan_0021A500(uint32_t node, const EmHuskFanMem *mem, const EmHuskFan
 
 /* ---- 001EFEB0 ------------------------------------------------------------------ */
 
-int em_husk_fan_001EFEB0(uint32_t id, const uint8_t *m, const EmHuskFanMem *mem,
-                         const EmHuskFanWorkers *w, uint32_t *node, EmHuskFault *fault)
+int em_gun_rest_001EFEB0(uint32_t id, const uint8_t *m, const EmGunRestMem *mem,
+                         const EmGunRestWorkers *w, uint32_t *node, EmGunFault *fault)
 {
-    if (!fault || fault->code != EM_HUSK_FAULT_NONE) return -1;
-    if (!mem || !w || !m || !node) return hf_fault(fault, 0x001EFEB0u, EM_HUSK_FAULT_NULL);
+    if (!fault || fault->code != EM_GUN_FAULT_NONE) return -1;
+    if (!mem || !w || !m || !node) return hf_fault(fault, 0x001EFEB0u, EM_GUN_FAULT_NULL);
     Hf hf = {mem, w, fault, 0};
     Hf *h = &hf;
     W(0x001EF9D0u, w_001EF9D0, id, m + 0x30, K_ONE, node);
@@ -1456,10 +1456,10 @@ int em_husk_fan_001EFEB0(uint32_t id, const uint8_t *m, const EmHuskFanMem *mem,
     return 0;
 }
 
-int em_husk_fan_001B1190(int32_t a0, const EmHuskFanMem *mem, EmHuskFault *fault)
+int em_gun_rest_001B1190(int32_t a0, const EmGunRestMem *mem, EmGunFault *fault)
 {
-    if (!fault || fault->code != EM_HUSK_FAULT_NONE) return -1;
-    if (!mem) return hf_fault(fault, 0x001B1190u, EM_HUSK_FAULT_NULL);
+    if (!fault || fault->code != EM_GUN_FAULT_NONE) return -1;
+    if (!mem) return hf_fault(fault, 0x001B1190u, EM_GUN_FAULT_NULL);
     Hf hf = {mem, NULL, fault, 0};
     Hf *h = &hf;
     uint32_t id = (uint32_t)a0 & 0xFFu, area, word;

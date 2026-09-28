@@ -395,7 +395,6 @@
  * in census L25. They run on their original owner (em_drum_original over
  * the roster nodes, em_area11_boxes.c), and the scene manifest's
  * `enemy egg` lines no longer place a copy; no other scene places one.
- * egg_explode (below) stays: the door-husk partner's burst uses it.
  *
  * GENERATOR KIND (em_enemy.h "GENERATOR"; FINDINGS "GENERATOR —
  * func_0015A2C0 RESOLVED", session 28): the engine's organic floor pad
@@ -558,14 +557,9 @@
  * 0x30 story swap) ships as assets/enemy_bug_infected.emdl but the
  * flag machinery is unmodeled, flagged in em_enemy.h "BUG KIND". */
 #define BUG_ASSET        "assets/enemy_bug.emdl"
-/* The AREA-11 DOOR-HUSK PAIR (deferred records 7/8 @(387,231.8,290.3) —
- * FINDINGS "Door-position creature/husk set-piece"; INVESTIGATION_first_
- * level_area11 §5.2; INVESTIGATION_area11_director §5). Both meshes are
- * SCENE-LOCAL AREA-11 content (carved + verified: model 0x1A = the
- * scripted creature, model 0x29 = the shootable burst-husk-B), so they
- * live under <scene>/props/ and never load for a scene that lacks them.
- * The scene loader supplies the active directory explicitly: New Game
- * and room transitions can change it without main.c's EM_SCENE fixture. */
+/* The scene loader supplies the active directory explicitly (the crate's
+ * scene-local mesh): New Game and room transitions can change it without
+ * main.c's EM_SCENE fixture. */
 static char enemy_scene_dir[512] = "assets/scene";
 
 void em_enemy_set_scene_directory(const char *directory)
@@ -902,7 +896,7 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
  * The port plays the sound (em_sfx resolves it if the user's sfx.txt maps
  * it, silent otherwise) and RECORDS the FX ids — the gore particle chain
  * lives outside this module, so the visible burst stays the gib scatter
- * (flagged, as for the husk partner). The generic 0x7D8 hurt-helper death
+ * (flagged). The generic 0x7D8 hurt-helper death
  * sound the port used to play for a crate is REMOVED: state 4 hands
  * straight to state 2 without touching the shared hurt helper, so the
  * engine never plays 0x7D8 for a placed crawler. */
@@ -927,74 +921,6 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
                                    * stand-in for the nest records'
                                    * per-child pos offsets (unexported)   */
 
-/* --- The burst billboard + debris (egg_explode, which the door-husk
- * partner's burst reuses; it was the retired drum kind's explosion) -------
- * The model-0x18 drum does NOT alpha-fade on death — it EXPLODES: an
- * expanding fireball/flash billboard (engine FX 0x80000013 -> child
- * 0x8000006E + flash layer 0x8000001C) at the drum pos with Y+7, plus
- * flung debris chunks. PURELY VISUAL — no radius/blast damage, no chain
- * (LIVE: player stayed at 100.0 HP). The port reuses the gib system for
- * the debris and an in-module expanding-billboard "flash gib" for the
- * fireball (the truly-additive .emtx billboard path lives in em_weapon.c
- * / the gfx beam queue, out of this module's reach — FLAGGED: the flash
- * here is an alpha-blended tinted quad through the enemy draw chain, not
- * the engine's additive 0x8000006E sprite). */
-#define EGG_BLAST_LIFT   7.0f     /* fireball origin Y+7 (LIVE: FX param
-                                   * block pos was drum XZ, Y raised +7.0) */
-#define EGG_DEBRIS_MIN   5        /* flung chunks: 5..8 (spec ~5-8)        */
-#define EGG_DEBRIS_SPAN  4
-#define EGG_FLASH_FRAMES 14       /* fireball life ~12-16 ticks            */
-#define EGG_FLASH_R0     6.0f     /* start radius (units)                  */
-#define EGG_FLASH_R1     20.0f    /* peak radius (the 0x80000013 scale
-                                   * table tops at 10/15/20 u — INVEST.)   */
-#define EGG_FLASH_RGB_R  1.0f     /* bright orange-yellow fireball tint    */
-#define EGG_FLASH_RGB_G  0.65f
-#define EGG_FLASH_RGB_B  0.18f
-
-/* --- AREA-11 DOOR-HUSK PAIR (see "DOOR-HUSK PAIR" in the file header /
- * em_enemy.h kinds 4/5) ------------------------------------------------
- * Records 7/8 @(387,231.8,290.3), the staged "first-monster moment" by
- * the room-move door. The pair is SELF-CONTAINED (its own timer/proximity
- * state machine — func_00825900 / func_001B0FD0, states 0..4 + the live
- * 0x64 scripted timer), reading NO story flag: it is NOT driven by the
- * D_00810813 director (INVESTIGATION_area11_director §5 — static negative).
- * At the OPENING both are STAGED-INERT: present/visible but not aggroing,
- * not moving, not attacking — the opening must stay enemy-free (owner
- * requirement + §5.2 verdict ZERO ACTIVE ENEMIES). Port discipline mirrors
- * the crate/egg INIT->IDLE: spawn -> hold an inert IDLE forever.
- *
- * Both are STATIC posed meshes here (no anim layer is wired — the engine's
- * scripted creature clips and the husk's animation are undecoded; the
- * meshes carve a single rest pose). The creature is NOT shootable; the
- * husk partner IS (HP 1, mailbox poll, burst on death).                  */
-#define HUSK_CREATURE_BONE_MAX 32  /* multi-node rig — generous cap; the
-                                    * actual bone_count is read from the
-                                    * carved mesh and clamped to this      */
-#define HUSK_PARTNER_BONE_MAX  32
-#define HUSK_CREATURE_AIM_Y    4.0f /* unused (creature not shootable) —
-                                    * kept for parity with the other kinds */
-#define HUSK_CREATURE_HIT_R    4.0f
-/* The shootable husk partner (ov 0x827490, model 0x29): HP 1 — any +0x36
- * write is lethal — and on death it BURSTS with gore FX 0x80000045 (the
- * engine's burst particle). The port reuses the husk-B gib/explosion path
- * (grey-cyan family, the same 0x29 husk-B set the crate variant!=6 rebind
- * uses); FX 0x80000045 is the engine's exact particle id — NOT directly
- * reproducible here (the additive particle subsystem lives outside this
- * module), so it is FLAGGED and the visible burst is the reused gib
- * scatter. The engine actor is partner-linked (puid 0x50) with taken-bit
- * persistence; the port models only the shootable/burst arm — the link
- * and across-visit persistence are FLAGGED (the port re-spawns on every
- * scene load, like the egg/crate). */
-#define HUSK_PARTNER_HP        1     /* +0x34 = 1 (HP-1 shootable husk)    */
-#define HUSK_PARTNER_AIM_Y     6.0f  /* PORT: reticle/auto-aim center —
-                                      * mid-height of the 0x29 husk-B body
-                                      * (14x14, 8 tall — FINDINGS s24); the
-                                      * engine target volume is unexported  */
-#define HUSK_PARTNER_HIT_R     7.0f  /* PORT: bullet hit-sphere ~ the husk
-                                      * body half-extent (the engine
-                                      * func_001B1D20 volume is unexported) */
-#define HUSK_PARTNER_FX_BURST  0x80000045u /* gore burst particle (engine
-                                      * id; FLAGGED — reused gib scatter)  */
 
 /* --- Bug kind (s68/s76 — see "THE BUG" in the file header) --------------
  * DOWNGRADED 2026-07-31. The old header here read "and (s76) the attack
@@ -1470,30 +1396,20 @@ typedef struct {
     float      base[GIB_BONE_MAX * 16];   /* frame-0 (identity) palette */
 } GibModel;
 
-/* One airborne/resting gib instance (visual only). Also stands in for the
- * egg/drum EXPLOSION fireball: a `flash` gib is stationary, draws the
- * procedural billboard mesh (s.flash_mesh), expands its `scale` from
- * EGG_FLASH_R0 -> R1 and fades over EGG_FLASH_FRAMES (the in-module
- * approximation of the engine's additive 0x80000013->0x8000006E sprite —
- * see "DEATH = EXPLOSION" in the egg constants block). */
+/* One airborne/resting gib instance (visual only). */
 typedef struct {
     int   active;
-    int   flash;          /* 1 = fireball billboard (not a debris chunk) */
     int   fam;            /* husk family (GIB_FAM_A/B — see GIB_FILES)   */
     int   model;          /* index into s.gibm[fam]                      */
     float pos[3];
     float vel[3];         /* 0.052/tick gravity on [1]                   */
     float yaw, spin;      /* tumble (PORT visual)                        */
-    float scale;          /* uniform scale (1 for debris; the expanding
-                           * radius for a flash billboard)               */
+    float scale;          /* uniform scale (1 for debris)                */
     float y0;             /* launch height = floor fallback (same rule
                            * as the hop's hop_y0)                        */
     int   age;            /* ticks since launch -> rest -> fade -> free  */
-    int   life;           /* flash: total ticks before free (EGG_FLASH_
-                           * FRAMES); debris ignore it                   */
     float tint[4];        /* per-draw RGBA: white, alpha 1 while live /
-                           * resting, 1 -> 0 over the fade window (the
-                           * flash carries a bright fireball RGB)        */
+                           * resting, 1 -> 0 over the fade window       */
     float palette[GIB_BONE_MAX * 16];
 } Gib;
 
@@ -1594,23 +1510,6 @@ static struct {
     uint32_t   crate_bones;
     float      crate_base[CRATE_BONE_MAX * 16];
 
-    /* AREA-11 door-husk pair meshes (scene-local — loaded only when a
-     * husk_creature / husk_partner line is placed, so every other scene
-     * keeps byte-identical output). Static posed meshes, no clips. */
-    int        husk_c_tried;
-    EmGfxMesh *husk_c_mesh;
-    EmModel    husk_c_model;
-    int        husk_c_has_model;
-    uint32_t   husk_c_bones;
-    float      husk_c_base[HUSK_CREATURE_BONE_MAX * 16];
-
-    int        husk_p_tried;
-    EmGfxMesh *husk_p_mesh;
-    EmModel    husk_p_model;
-    int        husk_p_has_model;
-    uint32_t   husk_p_bones;
-    float      husk_p_base[HUSK_PARTNER_BONE_MAX * 16];
-
     Enemy      e[ENEMY_SLOT_MAX];
     int        n;
 
@@ -1621,13 +1520,6 @@ static struct {
     GibModel   gibm[GIB_FAMILY_N][GIB_FAM_FILES];
     int        gibm_n[GIB_FAMILY_N]; /* loaded models per husk family
                                       * (0 = that family fades only)     */
-    /* egg/drum EXPLOSION fireball billboard (procedural quad — original
-     * vertices, NOT disc data; the in-module stand-in for the additive
-     * 0x80000013->0x8000006E sprite, "DEATH = EXPLOSION"). Built lazily
-     * on the first egg/drum spawn; flash gibs draw it via the gib path. */
-    int        flash_tried;
-    EmGfxMesh *flash_mesh;
-    float      flash_base[GIB_BONE_MAX * 16];   /* unit-quad identity pose */
     Gib        gib[ENEMY_SLOT_MAX];
     int        gib_tail;     /* virtual draw slots in use (compact top)  */
     int        gib_next;     /* round-robin cursor over a family's
@@ -1689,7 +1581,6 @@ static struct {
 } s;
 
 static void enemy_build_palette(Enemy *e);
-static int  flash_mesh_get(EmGfx *gfx);   /* egg/drum fireball billboard */
 
 void em_enemy_reset(void)
 {
@@ -1914,100 +1805,6 @@ static int crate_mesh_get(EmGfx *gfx)
     return 0;
 }
 
-/* Load the AREA-11 door-husk CREATURE mesh once (first husk_creature
- * spawn): <scene>/props/area_husk_creature.emdl (model 0x1A — the
- * scripted creature carve, verified). No placeholder fallback: the
- * husk pair is AREA-11-specific scripted content with no procedural
- * stand-in, so a missing mesh skips the actor (logged) rather than
- * inventing a box. Static posed mesh — the scripted creature clips are
- * undecoded (frame-0 rest pose only). Returns 0 ok. */
-static int husk_creature_mesh_get(EmGfx *gfx)
-{
-    if (s.husk_c_mesh) return 0;
-    if (s.husk_c_tried) return -1;
-    s.husk_c_tried = 1;
-    char path[sizeof enemy_scene_dir + 40];
-    snprintf(path, sizeof path, "%s/props/area_husk_creature.emdl", enemy_scene_dir);
-
-    if (em_model_load(&s.husk_c_model, path) != 0) {
-        fprintf(stderr, "enemy: %s not found — door-husk CREATURE "
-                "skipped (AREA-11 scripted content, no placeholder)\n",
-                path);
-        return -1;
-    }
-    if (s.husk_c_model.bone_count > HUSK_CREATURE_BONE_MAX) {
-        fprintf(stderr, "enemy: %s: %u bones > %d\n", path,
-                s.husk_c_model.bone_count, HUSK_CREATURE_BONE_MAX);
-        em_model_free(&s.husk_c_model);
-        return -1;
-    }
-    s.husk_c_mesh = em_gfx_mesh_create(gfx, s.husk_c_model.verts,
-                                       s.husk_c_model.vert_count,
-                                       s.husk_c_model.indices,
-                                       s.husk_c_model.index_count,
-                                       (const EmGfxTexDesc *)
-                                       s.husk_c_model.texs,
-                                       s.husk_c_model.tex_count,
-                                       s.husk_c_model.texels,
-                                       s.husk_c_model.flags);
-    if (!s.husk_c_mesh) {
-        em_model_free(&s.husk_c_model);
-        return -1;
-    }
-    s.husk_c_has_model = 1;
-    s.husk_c_bones     = s.husk_c_model.bone_count;
-    em_model_palette_at(&s.husk_c_model, 0, 0.0, s.husk_c_base);
-    printf("husk creature model: %s — %u verts, %u tris, %u texture(s)\n",
-           path, s.husk_c_model.vert_count,
-           s.husk_c_model.index_count / 3, s.husk_c_model.tex_count);
-    return 0;
-}
-
-/* Load the AREA-11 door-husk PARTNER mesh once (first husk_partner
- * spawn): <scene>/props/area_husk_partner.emdl (model 0x29 burst-husk-B,
- * verified). Same no-placeholder policy as the creature. Returns 0 ok. */
-static int husk_partner_mesh_get(EmGfx *gfx)
-{
-    if (s.husk_p_mesh) return 0;
-    if (s.husk_p_tried) return -1;
-    s.husk_p_tried = 1;
-    char path[sizeof enemy_scene_dir + 40];
-    snprintf(path, sizeof path, "%s/props/area_husk_partner.emdl", enemy_scene_dir);
-
-    if (em_model_load(&s.husk_p_model, path) != 0) {
-        fprintf(stderr, "enemy: %s not found — door-husk PARTNER "
-                "skipped (AREA-11 scripted content, no placeholder)\n",
-                path);
-        return -1;
-    }
-    if (s.husk_p_model.bone_count > HUSK_PARTNER_BONE_MAX) {
-        fprintf(stderr, "enemy: %s: %u bones > %d\n", path,
-                s.husk_p_model.bone_count, HUSK_PARTNER_BONE_MAX);
-        em_model_free(&s.husk_p_model);
-        return -1;
-    }
-    s.husk_p_mesh = em_gfx_mesh_create(gfx, s.husk_p_model.verts,
-                                       s.husk_p_model.vert_count,
-                                       s.husk_p_model.indices,
-                                       s.husk_p_model.index_count,
-                                       (const EmGfxTexDesc *)
-                                       s.husk_p_model.texs,
-                                       s.husk_p_model.tex_count,
-                                       s.husk_p_model.texels,
-                                       s.husk_p_model.flags);
-    if (!s.husk_p_mesh) {
-        em_model_free(&s.husk_p_model);
-        return -1;
-    }
-    s.husk_p_has_model = 1;
-    s.husk_p_bones     = s.husk_p_model.bone_count;
-    em_model_palette_at(&s.husk_p_model, 0, 0.0, s.husk_p_base);
-    printf("husk partner model: %s — %u verts, %u tris, %u texture(s)\n",
-           path, s.husk_p_model.vert_count,
-           s.husk_p_model.index_count / 3, s.husk_p_model.tex_count);
-    return 0;
-}
-
 /* Load the BUG hatchling mesh + clips once (first bug or crate spawn —
  * the crate burst hatches bugs inside em_enemy_update, without a gfx
  * handle, so the crate add preloads this): assets/enemy_bug.emdl =
@@ -2194,8 +1991,6 @@ static int enemy_spawn(int kind, const float pos[3], float yaw)
     printf("enemy %d: %s at (%.1f, %.1f, %.1f) yaw %.3f\n", s.n,
            kind == EM_ENEMY_KIND_CRATE ? "crate"
            : kind == EM_ENEMY_KIND_BUG ? "bug"
-           : kind == EM_ENEMY_KIND_HUSK_CREATURE ? "husk_creature (staged-inert)"
-           : kind == EM_ENEMY_KIND_HUSK_PARTNER ? "husk_partner (staged-inert, shootable)"
            : "crawler",
            pos[0], pos[1], pos[2], yaw);
     return s.n++;
@@ -2217,30 +2012,6 @@ int em_enemy_add_kind(EmGfx *gfx, int kind, const float pos[3], float yaw)
         if (s.n >= ENEMY_SLOT_MAX) return -1;
         if (bug_mesh_get(gfx) != 0) return -1;
         return enemy_spawn(EM_ENEMY_KIND_BUG, pos, yaw);
-    }
-    if (kind == EM_ENEMY_KIND_HUSK_CREATURE) {
-        /* AREA-11 door-husk scripted creature (ov 0x825940, model 0x1A):
-         * a STAGED-INERT scripted actor — spawns and holds an inert idle
-         * (no aggro, no movement, no attack) so the opening stays
-         * enemy-free. NOT shootable. The engine spawns one child via
-         * func_001AFA90 (param 0x7A) — a SEPARATE undecoded mesh, FLAGGED:
-         * the port does NOT invent it (em_enemy.h kind 4). */
-        if (s.n >= ENEMY_SLOT_MAX) return -1;
-        if (husk_creature_mesh_get(gfx) != 0) return -1;
-        return enemy_spawn(EM_ENEMY_KIND_HUSK_CREATURE, pos, yaw);
-    }
-    if (kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-        /* AREA-11 door-husk SHOOTABLE husk (ov 0x827490, model 0x29):
-         * HP 1, shootable, STAGED-INERT (no aggro/movement/attack). On
-         * its damage mailbox it bursts with FX 0x80000045 (flagged) —
-         * reuse the husk-B gib/explosion path, so preload the gib set +
-         * fireball billboard now while a gfx handle is held (the burst
-         * runs in em_enemy_update without one). */
-        if (s.n >= ENEMY_SLOT_MAX) return -1;
-        if (husk_partner_mesh_get(gfx) != 0) return -1;
-        gib_models_load(gfx);     /* husk-B debris (idempotent)          */
-        flash_mesh_get(gfx);      /* burst flash quad (logged if absent) */
-        return enemy_spawn(EM_ENEMY_KIND_HUSK_PARTNER, pos, yaw);
     }
     if (kind != EM_ENEMY_KIND_CRATE) return -1;
     return em_enemy_add_crate(gfx, pos, yaw, -1, -1);
@@ -2315,8 +2086,7 @@ static void enemy_alarm_broadcast(void)
  * func_00153B50 (BYTE-MATCHED), whose death arm plays 0x7D8 and whose
  * survive arm plays 0x7D4. CORRECTED 2026-07-31: the BUG no longer
  * borrows those — its own driver func_00129FC0 plays 0x1B1 on every
- * reaction and 0x1B7 at the collapse, and the port now does too. 0x7D8
- * remains only for the husk partner (its audio really is undecoded). */
+ * reaction and 0x1B7 at the collapse, and the port now does too. */
 static int enemy_mailbox_poll(Enemy *e, const float pp[3])
 {
     if (e->mailbox == 0) return 0;
@@ -2333,8 +2103,7 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
      *     dec = *(unsigned char *)(actor + 0x36);  +0x34 -= dec;
      * (bits 0x0100..0xFF00 are flags: 0x4000 = hurt voice, 0x2000 =
      * force the knockdown branch). */
-    const int prop = e->kind == EM_ENEMY_KIND_CRATE ||
-                     e->kind == EM_ENEMY_KIND_HUSK_PARTNER;
+    const int prop = e->kind == EM_ENEMY_KIND_CRATE;
     int amount = e->mailbox & 0xFF;    /* func_00129FC0: byte load @0x36 */
     e->mailbox = 0;
     if (prop)
@@ -2364,9 +2133,7 @@ static int enemy_mailbox_poll(Enemy *e, const float pp[3])
     } else {
         /* 0x7D8 — engine func_00153B50 plays it positional at the dying
          * actor: play_sound(actor, 0x7D8, 0, 300.0) (radius read off the
-         * call site's f12 = 0x43960000). This arm is now only the HUSK
-         * PARTNER, whose own death audio is undecoded — flagged
-         * stand-in. */
+         * call site's f12 = 0x43960000). */
         em_sfx_play_at(EM_SFX_ENEMY_DEATH, e->pos, 300.0f);
     }
     /* Lethal: record the hit vector for the gib knockback. The engine
@@ -2601,8 +2368,6 @@ static void enemy_build_palette(Enemy *e)
     float z   = e->pos[2];
     uint32_t bones = e->kind == EM_ENEMY_KIND_CRATE ? s.crate_bones
                    : e->kind == EM_ENEMY_KIND_BUG   ? s.bug_bones
-                   : e->kind == EM_ENEMY_KIND_HUSK_CREATURE ? s.husk_c_bones
-                   : e->kind == EM_ENEMY_KIND_HUSK_PARTNER  ? s.husk_p_bones
                                                     : s.bone_count;
 
     /* CRATE IDLE jitter — the DECODED cycle (func_001551B0 state 4,
@@ -2651,14 +2416,6 @@ static void enemy_build_palette(Enemy *e)
 
     if (e->kind == EM_ENEMY_KIND_CRATE) {
         memcpy(e->palette, s.crate_base, bones * 16 * sizeof(float));
-    } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
-        /* door-husk scripted creature: static rest pose (no anim layer —
-         * the scripted clips are undecoded). No idle jitter: the engine
-         * actor is a staged scripted creature, not a wiggling prop. */
-        memcpy(e->palette, s.husk_c_base, bones * 16 * sizeof(float));
-    } else if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-        /* door-husk shootable husk: static rest pose (no anim layer). */
-        memcpy(e->palette, s.husk_p_base, bones * 16 * sizeof(float));
     } else if (e->kind == EM_ENEMY_KIND_BUG) {
         /* the bug pose: walk/flinch evaluation against the BUG model
          * (no actor scale — decoded s68: the brains write no runtime
@@ -2737,14 +2494,11 @@ static void enemy_build_palette(Enemy *e)
 /* World palette of one gib: the model's identity base pose scaled by
  * g->scale, rotated by the tumble yaw and translated to the instance
  * position (the same column rotation + translate composition as
- * enemy_build_palette). Debris gibs run scale 1; the egg/drum FLASH gib
- * uses the expanding billboard mesh and ramps the scale (the fireball). */
+ * enemy_build_palette). Debris gibs run scale 1. */
 static void gib_build_palette(Gib *g)
 {
-    const float *base = g->flash ? s.flash_base
-                                 : s.gibm[g->fam][g->model].base;
-    const uint32_t bones = g->flash ? 1u
-                                    : s.gibm[g->fam][g->model].bone_count;
+    const float *base = s.gibm[g->fam][g->model].base;
+    const uint32_t bones = s.gibm[g->fam][g->model].bone_count;
     const float c  = cosf(g->yaw), sn = sinf(g->yaw);
     const float sc = g->scale != 0.0f ? g->scale : 1.0f;
 
@@ -2838,128 +2592,6 @@ static int gib_burst(const Enemy *e)
     return spawned;
 }
 
-/* Build the FLASH billboard mesh once (the fireball stand-in): a unit
- * camera-agnostic double-sided quad in the XY plane, centered on the
- * origin (gib_build_palette scales it to the blast radius and the gib
- * pos puts it at the drum). Original vertices, NOT disc data — the same
- * runtime-geometry contract as the placeholder boxes. Returns 0 on
- * success, -1 once tried-and-failed (no asset, no retry). NOTE: this is
- * an axial quad, not a true camera-facing billboard (the enemy draw
- * chain has no per-draw camera-orientation hook); FLAGGED — the engine's
- * 0x8000006E sprite is a real additive billboard, see "DEATH = EXPLOSION".
- */
-static int flash_mesh_get(EmGfx *gfx)
-{
-    if (s.flash_mesh) return 0;
-    if (s.flash_tried) return -1;
-    s.flash_tried = 1;
-
-    /* a unit cube (+-0.5) of glowing geometry — box_emit gives a
-     * watertight 6-face box (24 verts / 36 indices); reading as a bright
-     * volume from any angle is a fair fireball stand-in (no texture: the
-     * fireball color comes entirely from the per-draw RGBA tint) */
-    static const float lo[3] = { -0.5f, -0.5f, -0.5f };
-    static const float hi[3] = {  0.5f,  0.5f,  0.5f };
-    float    verts[24 * 10];
-    uint32_t indices[36];
-    uint32_t nv = 0, ni = 0;
-    box_emit(verts, &nv, indices, &ni, lo, hi);
-
-    s.flash_mesh = em_gfx_mesh_create(gfx, verts, nv, indices, ni,
-                                      NULL, 0, NULL, 0);
-    if (!s.flash_mesh) return -1;
-    mat4_identity(s.flash_base);
-    printf("enemy egg/drum: explosion fireball = runtime billboard quad "
-           "(in-module stand-in for the engine's additive 0x8000006E "
-           "sprite — em_weapon.c's .emtx beam queue is out of reach)\n");
-    return 0;
-}
-
-/* Egg/drum EXPLODE (func_00156620 model-0x18 death — INVESTIGATION
- * "DEATH = EXPLOSION"): the drum vanishes behind a fireball + debris
- * spray. PURELY VISUAL — no damage, no chain (the caller applies none).
- * Spawns ONE expanding fireball flash gib at (x, y+7, z) and 5-8 debris
- * chunks flung RADIALLY (omnidirectional — a drum bursts every way, not
- * along a single hit vector). Reuses the gib pool + gib_update 1:1; the
- * debris come from the grey-cyan husk-B set (the metal/industrial family
- * — FLAGGED: no drum-specific shard set is exported, the crate's husk-B
- * stands in). Returns the number of gib slots claimed (flash + debris). */
-static int egg_explode(const Enemy *e)
-{
-    int budget = ENEMY_SLOT_MAX - s.n;
-    int claimed = 0;
-
-    /* (1) the fireball FLASH — one expanding billboard at the blast
-     * origin (drum XZ, Y+7). Needs the billboard mesh; if it didn't
-     * build, the flash is skipped and only the debris fly. */
-    if (s.flash_mesh) {
-        for (int k = 0; k < budget; k++) {
-            Gib *g = &s.gib[k];
-            if (g->active) continue;
-            memset(g, 0, sizeof *g);
-            g->active = 1;
-            g->flash  = 1;
-            g->pos[0] = e->pos[0];
-            g->pos[1] = e->pos[1] + EGG_BLAST_LIFT;
-            g->pos[2] = e->pos[2];
-            g->scale  = EGG_FLASH_R0;
-            g->life   = EGG_FLASH_FRAMES;
-            g->y0     = e->pos[1];
-            g->tint[0] = EGG_FLASH_RGB_R;
-            g->tint[1] = EGG_FLASH_RGB_G;
-            g->tint[2] = EGG_FLASH_RGB_B;
-            g->tint[3] = 1.0f;
-            gib_build_palette(g);
-            if (k >= s.gib_tail) s.gib_tail = k + 1;
-            claimed++;
-            break;
-        }
-    }
-
-    /* (2) DEBRIS — 5-8 metal chunks flung radially under gravity. Uses
-     * the husk-B (grey-cyan/metal) family; if no gib models loaded, the
-     * debris are skipped (flash only). */
-    int want = EGG_DEBRIS_MIN + (int)(gib_rng() % EGG_DEBRIS_SPAN);
-    if (s.gibm_n[GIB_FAM_B] > 0) {
-        int flung = 0;
-        for (int k = 0; k < budget && flung < want; k++) {
-            Gib *g = &s.gib[k];
-            if (g->active) continue;
-
-            /* radial spray: an even fan around the drum + RNG jitter,
-             * so chunks scatter every direction (a drum, not a directed
-             * crate-corpse knockback) */
-            float ang = ((float)flung / (float)want) * (2.0f * ENEMY_PI)
-                      + (float)((int)(gib_rng() % (2 * GIB_JITTER_DEG + 1))
-                                - GIB_JITTER_DEG) * (ENEMY_PI / 180.0f);
-
-            memset(g, 0, sizeof *g);
-            g->active = 1;
-            g->fam    = GIB_FAM_B;
-            g->model  = (s.gibm_n[GIB_FAM_B] == 1)
-                        ? 0 : (int)(s.gib_next++ %
-                                    (unsigned)s.gibm_n[GIB_FAM_B]);
-            g->pos[0] = e->pos[0];
-            g->pos[1] = e->pos[1] + GIB_LAUNCH_LIFT;
-            g->pos[2] = e->pos[2];
-            g->vel[0] = sinf(ang) * GIB_SPEED;
-            g->vel[1] = GIB_VY;
-            g->vel[2] = cosf(ang) * GIB_SPEED;
-            g->yaw    = ang;
-            g->spin   = ((float)(gib_rng() % 2001) / 1000.0f - 1.0f)
-                        * GIB_SPIN_MAX;
-            g->scale  = 1.0f;
-            g->y0     = e->pos[1];
-            g->tint[0] = g->tint[1] = g->tint[2] = g->tint[3] = 1.0f;
-            gib_build_palette(g);
-            if (k >= s.gib_tail) s.gib_tail = k + 1;
-            flung++;
-            claimed++;
-        }
-    }
-    return claimed;
-}
-
 /* Per-tick gib integration: arc under the 0.052 gravity, land on the
  * floor query, rest, then alpha-fade out and free (file header
  * timings; the fade replaces the old sink-despawn — same lifetime). */
@@ -2970,22 +2602,6 @@ static void gib_update(const EmCollision *coll)
         Gib *g = &s.gib[k];
         if (!g->active) continue;
         g->age++;
-        if (g->flash) {
-            /* the egg/drum fireball: expand R0 -> R1 and fade the alpha
-             * out over its life, then free. Stationary (no ballistic
-             * integration). The in-module additive-sprite stand-in. */
-            float t = (float)g->age / (float)g->life;
-            if (t > 1.0f) t = 1.0f;
-            g->scale   = EGG_FLASH_R0 + (EGG_FLASH_R1 - EGG_FLASH_R0) * t;
-            g->tint[3] = 1.0f - t;                 /* fade as it expands */
-            if (g->age >= g->life) {
-                g->active = 0;
-                continue;
-            }
-            gib_build_palette(g);
-            tail = k + 1;
-            continue;
-        }
         if (g->vel[0] != 0.0f || g->vel[1] != 0.0f || g->vel[2] != 0.0f) {
             g->pos[0] += g->vel[0];
             g->pos[2] += g->vel[2];
@@ -4274,23 +3890,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
             e->jit_t   = -1;
             e->jit_row = 0;
             e->state   = EM_ENEMY_IDLE;
-        } else if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
-            /* door-husk scripted creature (ov 0x825940): STAGED-INERT at
-             * the opening. The engine actor runs its own timer/proximity
-             * machine (states 0..4 + the 0x64 scripted timer), but the
-             * opening beat keeps it inert — so the port stages it directly
-             * to a held IDLE: NO HP (not shootable), NO player reference,
-             * NO aggro, NO movement, NO attack. It just stands by the
-             * door. (The scripted-timer wake schedule is undecoded —
-             * FLAGGED; the port holds the inert opening state.) */
-            e->hp    = 0;
-            e->state = EM_ENEMY_IDLE;
-        } else if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-            /* door-husk shootable husk (ov 0x827490): HP 1, STAGED-INERT.
-             * It only reacts to being shot (poll +0x36 in IDLE) — no
-             * aggro/movement/attack at the opening. */
-            e->hp    = HUSK_PARTNER_HP;
-            e->state = EM_ENEMY_IDLE;
         } else if (e->kind == EM_ENEMY_KIND_BUG) {
             /* bug INIT (s68): variant-A HP; yaw toward the player is
              * the PORT stand-in for the nest record's rot (flagged) */
@@ -4312,28 +3911,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
         break;
 
     case EM_ENEMY_IDLE:
-        if (e->kind == EM_ENEMY_KIND_HUSK_CREATURE) {
-            /* door-husk scripted creature: STAGED-INERT — it does NOTHING
-             * at the opening. NOT shootable (no mailbox poll), NO aggro,
-             * NO proximity test, NO movement. The engine's own scripted
-             * timer/proximity wake schedule (func_00825900 / func_001B0FD0,
-             * states 0..4 / 0x64) is undecoded — FLAGGED; the port holds
-             * the inert opening state so the opening stays enemy-free
-             * (INVESTIGATION_first_level_area11 §5.2). */
-            break;
-        }
-        if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-            /* door-husk shootable husk IDLE: poll +0x36 ONLY — HP 1 makes
-             * any nonzero hit lethal -> burst. NO alarm broadcast / wake
-             * (it is not in the placed-crawler whitelist), NO proximity,
-             * NO player reference: STAGED-INERT, only reacts to being
-             * shot. (Same passive-destructible shape as the egg, minus the
-             * idle wobble — the husk is a scripted-set actor, not a
-             * wiggling prop.) */
-            if (enemy_mailbox_poll(e, pp))
-                e->state = EM_ENEMY_DEATH;
-            break;
-        }
         /* crate only below — worms never idle. Decoded state 4: the
          * mailbox is the ONLY direct trigger (no proximity test exists);
          * a kill broadcasts the group alarm to the placed-crawler kind;
@@ -4405,24 +3982,6 @@ static void enemy_tick(const EmCollision *coll, Enemy *e,
     case EM_ENEMY_DEATH:
         if (e->kind == EM_ENEMY_KIND_CRATE) {
             crate_burst(e, pp);   /* husk gibs + the bugs (file header) */
-            break;
-        }
-        if (e->kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-            /* door-husk shootable husk DEATH (ov 0x827490, model 0x29):
-             * the engine bursts with gore FX 0x80000045 (HUSK_PARTNER_FX_
-             * BURST — the exact particle id, FLAGGED: not reproducible in
-             * this module). The port reuses the husk-B gib/explosion path
-             * (egg_explode launches the grey-cyan husk-B family + a flash
-             * billboard — the SAME 0x29 burst-husk-B set this very husk's
-             * model is). The death sound already played on the lethal poll
-             * (enemy_mailbox_poll's generic-death branch). Free the slot
-             * with no corpse fade — the burst FX hides it. */
-            e->state   = EM_ENEMY_FREE;
-            e->active  = 0;
-            e->mailbox = 0;
-            e->fade    = 0;
-            egg_explode(e);          /* husk-B gib scatter + flash (stand-in
-                                      * for FX 0x80000045) */
             break;
         }
         if (e->kind == EM_ENEMY_KIND_BUG) {
@@ -4686,13 +4245,7 @@ void em_enemy_shake_off(void)
 static int enemy_victim(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ||
-           e->kind == EM_ENEMY_KIND_BUG   ||
-           e->kind == EM_ENEMY_KIND_HUSK_PARTNER; /* model 0x29: the HP-1
-                                               * shootable husk (ov 0x827490
-                                               * polls +0x36). The husk
-                                               * CREATURE (model 0x1A) is the
-                                               * scripted actor and is NOT a
-                                               * victim — it is excluded. */
+           e->kind == EM_ENEMY_KIND_BUG;
 }
 
 /* CORRECTED 2026-07-31 — there is NO per-kind targeting-range gate.
@@ -4721,7 +4274,6 @@ static float kind_aim_y(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y
          : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y
-         : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_AIM_Y
                                           : ENEMY_AIM_Y;
 }
 
@@ -4729,7 +4281,6 @@ static float kind_hit_r(const Enemy *e)
 {
     return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R
          : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R
-         : e->kind == EM_ENEMY_KIND_HUSK_PARTNER ? HUSK_PARTNER_HIT_R
                                           : ENEMY_HIT_R;
 }
 
@@ -4918,13 +4469,6 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
             return 1;
         }
         if (!s.gib[k].active) return 0;
-        if (s.gib[k].flash) {              /* egg/drum fireball billboard */
-            if (!s.flash_mesh) return 0;
-            *mesh       = s.flash_mesh;
-            *palette    = s.gib[k].palette;
-            *bone_count = 1;
-            return 1;
-        }
         const GibModel *gm = &s.gibm[s.gib[k].fam][s.gib[k].model];
         *mesh       = gm->mesh;
         *palette    = s.gib[k].palette;
@@ -4944,20 +4488,6 @@ int em_enemy_draw(int i, EmGfxMesh **mesh, const float **palette,
         *mesh       = s.bug_mesh;
         *palette    = s.e[i].palette;
         *bone_count = s.bug_bones;
-        return 1;
-    }
-    if (s.e[i].kind == EM_ENEMY_KIND_HUSK_CREATURE) {
-        if (!s.husk_c_mesh) return 0;
-        *mesh       = s.husk_c_mesh;
-        *palette    = s.e[i].palette;
-        *bone_count = s.husk_c_bones;
-        return 1;
-    }
-    if (s.e[i].kind == EM_ENEMY_KIND_HUSK_PARTNER) {
-        if (!s.husk_p_mesh) return 0;
-        *mesh       = s.husk_p_mesh;
-        *palette    = s.e[i].palette;
-        *bone_count = s.husk_p_bones;
         return 1;
     }
     if (!s.mesh) return 0;
@@ -5061,23 +4591,11 @@ void em_enemy_shutdown(EmGfx *gfx)
         if (s.bug_has_model)
             em_model_free(&s.bug_model);
     }
-    if (s.husk_c_mesh) {
-        em_gfx_mesh_destroy(gfx, s.husk_c_mesh);
-        if (s.husk_c_has_model)
-            em_model_free(&s.husk_c_model);
-    }
-    if (s.husk_p_mesh) {
-        em_gfx_mesh_destroy(gfx, s.husk_p_mesh);
-        if (s.husk_p_has_model)
-            em_model_free(&s.husk_p_model);
-    }
     for (int f = 0; f < GIB_FAMILY_N; f++)
         for (int i = 0; i < s.gibm_n[f]; i++) {
             em_gfx_mesh_destroy(gfx, s.gibm[f][i].mesh);
             em_model_free(&s.gibm[f][i].model);
         }
-    if (s.flash_mesh)
-        em_gfx_mesh_destroy(gfx, s.flash_mesh);
     if (s.gen_mesh)
         em_gfx_mesh_destroy(gfx, s.gen_mesh);
     if (s.tf_mesh) {

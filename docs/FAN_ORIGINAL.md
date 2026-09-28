@@ -1,7 +1,8 @@
 # AREA11 fan pair: overlay behaviour 0x827630
 
-Status: 2026-09-22. WP-11 component (audit H20/H21, INV-01/02). This covers the translation and its oracle. It is
-not bound into the frame yet.
+Status: 2026-09-22. WP-11 component (audit H20/H21, INV-01/02): the translation and its oracle. **Live since census L24
+(2026-09-28):** both fan records run `em_fan_original_tick` in the pool walk and draw through their 001CAA00 unit
+(section "Binding" below; SECURITY_GUN.md 5.3 and 5.4 for the tail and the evidence).
 
 Files:
 - `src/game/em_fan_original.{h,c}`: the native translation.
@@ -138,7 +139,17 @@ lane did not verify that consumer.
 Not modelled: whatever 001B0C60, 001B17A0 and the draw callback do beyond being called. The area-change targets
 (AREA01 sub 1 entry 4) are not exported (INV-02).
 
-## Binding (for the coordinator, nodes #10–11 = area11[1]/[2])
+## Binding (nodes #10–11 = area11[1]/[2]; live since census L24)
+
+**As bound** (`em_area11_bindings.c` `tick_fan`, 2026-09-28): the view is built from the node's record each call
+(+0x04 / +0x05 / +0x2E / +0xC8 are EmActor's u04[0] / u04[1] / flags2 / rot[2], set by 001B6990 from the placement;
++0x28 and +0x38 are the node's) and written back after it; the workers are `em_area11_boxes_owner_001B0FD0` (the
+per-area bank's entry 0x13; a bound fan retires the em_pickup prop instance at its +0xB0, so the static pose
+below no longer draws), `em_sfx_play_at` (cue 0x451), `em_area11_boxes_owner_001C6380` after the module's +0xC8
+store, the interaction host's 001B17A0, `em_scene_request_area_change_001B0C60`, `em_area11_boxes_owner_draw`
+(001CAA00) and `em_actor_pool_free_001AFC10`; the player view is the live player record. Evidence: the level
+smoke's check_gun_fan (every route snapshot's fan state lies on the port's cycle) and check_owner_units (the
+original 001CAA00, over the port's +0xC8 where the phase differs). The notes below are the original plan.
 
 - **Spawn.** Call `em_fan_original_spawn(&fan, flags2, placement_rot_z)` from the roster record: flags2 = record
   byte +3, rot.z = record +0x20.

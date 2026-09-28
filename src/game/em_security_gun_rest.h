@@ -1,9 +1,9 @@
-/* The AREA11 husk creature 0x825940 as one owner, over original record
- * memory (lane "husk_fan", docs/HUSK_FAN.md; oracle
- * tools/test_husk_fan_reference.py).
+/* The AREA11 security gun 0x825940 as one owner, over original record
+ * memory (docs/SECURITY_GUN.md; oracle
+ * tools/test_security_gun_rest_reference.py).
  *
- * What this module adds to em_script_door_fan_husk (which stays the one
- * translation of lifecycles 0, 0x64, 2, 3 and "other", of the partner
+ * What this module adds to em_security_gun (which stays the one
+ * translation of lifecycles 0, 0x64, 2, 3 and "other", of the cable
  * 0x827490 and of the manager 0x823CE0):
  *   0x825940 lifecycle 4 (runtime 0x825B74..0x826190): the idle patrol
  *            (head sway, gun sway, sight line, target pick-up);
@@ -12,9 +12,9 @@
  *   0x826F30 the sight probe (two collision probes from the gun bone, the
  *            sight sprite and beam); its return value picks the aim result;
  *   0x827400 the shot node (a class-0xC pool node at the gun muzzle);
- *   001B1190 the persistent taken-bit set the partner calls (byte-matched
+ *   001B1190 the persistent taken-bit set the cable calls (byte-matched
  *            decomp C; before this lane it had no verified translation);
- *   0021AAC0 the behaviour of the partner's hit effect node (NEARMISS decomp
+ *   0021AAC0 the behaviour of the cable's hit effect node (NEARMISS decomp
  *            C; translated from the listing);
  *   0021A500 the behaviour of the strip nodes 0021AAC0 spawns (NEARMISS;
  *            translated from the listing);
@@ -25,14 +25,14 @@
  * and 0x827400 as ..._008273C0 plus ..._00827400. The jal instructions of
  * 0x825940 encode the runtime addresses 0x826F30 and 0x827400.
  *
- * em_husk_fan_creature_tick runs one call of 0x825940. Lifecycles 1 and 4
+ * em_gun_rest_tick runs one call of 0x825940. Lifecycles 1 and 4
  * are translated here; every other lifecycle delegates to
- * em_husk_creature_tick (em_script_door_fan_husk.c) through an adapter that
+ * em_gun_tick (em_security_gun.c) through an adapter that
  * builds its record/child views from this module's memory and writes them
  * back before every worker call, so the whole function has one entry.
  *
  * Memory. Every byte the function reads or writes is reached through
- * EmHuskFanMem by its original address: the creature record, its child (the
+ * EmGunRestMem by its original address: the gun record, its child (the
  * 0x7A node at +0x220), the bone records the D_00275B40 slots and the +0x11C
  * words name, the target record at +0x204, the hit record the probe leaves
  * in 0x700031D4, the scratchpad ranges 0x70003190..0x700031DB,
@@ -40,52 +40,52 @@
  * 0x70003910..0x7000391F, 0x70003A20..0x70003A23 and 0x70003B68..0x70003B6B,
  * the player position D_00810360, the event flag D_00810788
  * (D_00810758[0x30]), D_00275B40 and the overlay data quads 0x82A730 /
- * 0x82A740 (docs/HUSK_FAN.md 5.1 lists the record offsets). A NULL answer
+ * 0x82A740 (docs/SECURITY_GUN.md 5.1 lists the record offsets). A NULL answer
  * faults at that address.
  *
  * Freed nodes. A call that frees the node (001AFC10) returns 0; the caller
- * must not tick that node again. Unlike em_husk_creature_tick, this entry
+ * must not tick that node again. Unlike em_gun_tick, this entry
  * keeps no use-after-free latch (the original has none either). The two stack locals of 0x826F30 (the gun-tip point and the
  * 0x82A730 quad) and the one of 0x827400 are host locals here.
  *
  * Workers. Every original callee outside the three overlay functions is a
  * worker named by its address. Actor arguments are original record
  * addresses; vector and matrix arguments are host pointers to the 16- or
- * 64-byte original-layout bytes (resolved through EmHuskFanMem, or the
+ * 64-byte original-layout bytes (resolved through EmGunRestMem, or the
  * helper's host locals); float arguments and results are bit patterns.
  * A NULL worker or a negative worker result faults (fail-stop) with
- * EM_HUSK_FAULT_NULL / EM_HUSK_FAULT_WORKER_FAILED at the callee's address;
+ * EM_GUN_FAULT_NULL / EM_GUN_FAULT_WORKER_FAILED at the callee's address;
  * a latched fault makes every later call return -1. Float arithmetic is
  * the EE model of em_ee_float.h on bit patterns. */
-#ifndef EM_HUSK_FAN_H
-#define EM_HUSK_FAN_H
+#ifndef EM_SECURITY_GUN_REST_H
+#define EM_SECURITY_GUN_REST_H
 
 #include <stdint.h>
 
-#include "game/em_script_door_fan_husk.h"
+#include "game/em_security_gun.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define EM_HUSK_FAN_SIGHT 0x00826F30u   /* the sight probe */
-#define EM_HUSK_FAN_SHOT 0x00827400u    /* the shot node */
-#define EM_HUSK_FAN_SHOT_HANDLER 0x001F5040u /* shot node +0x10 */
-#define EM_HUSK_FAN_SIGHT_QUAD 0x0082A730u   /* overlay data quad (0x826F30) */
-#define EM_HUSK_FAN_SHOT_QUAD 0x0082A740u    /* overlay data quad (0x827400) */
+#define EM_GUN_REST_SIGHT 0x00826F30u   /* the sight probe */
+#define EM_GUN_REST_SHOT 0x00827400u    /* the shot node */
+#define EM_GUN_REST_SHOT_HANDLER 0x001F5040u /* shot node +0x10 */
+#define EM_GUN_REST_SIGHT_QUAD 0x0082A730u   /* overlay data quad (0x826F30) */
+#define EM_GUN_REST_SHOT_QUAD 0x0082A740u    /* overlay data quad (0x827400) */
 
-typedef struct EmHuskFanMem {
+typedef struct EmGunRestMem {
     void *ctx;
     /* The `size` bytes at `address` for reading / for writing (the same
      * storage). NULL when the address is not mapped (the module faults). */
     const uint8_t *(*load)(void *ctx, uint32_t address, uint32_t size);
     uint8_t *(*store)(void *ctx, uint32_t address, uint32_t size);
-} EmHuskFanMem;
+} EmGunRestMem;
 
-typedef struct EmHuskFanWorkers {
+typedef struct EmGunRestWorkers {
     void *ctx;
     /* Owner services (actor = record address). */
-    int (*w_001B0FD0)(void *ctx, uint32_t actor, int32_t *result); /* as em_husk: minus +0x04 */
+    int (*w_001B0FD0)(void *ctx, uint32_t actor, int32_t *result); /* as em_gun_tick: minus +0x04 */
     int (*w_001C6380)(void *ctx, uint32_t actor);
     int (*w_001A2370)(void *ctx, uint32_t actor, const uint8_t *matrix);
     int (*w_001B17A0)(void *ctx, uint32_t actor);
@@ -111,7 +111,7 @@ typedef struct EmHuskFanWorkers {
     int (*w_00102760)(void *ctx, uint8_t *dst, const uint8_t *src);            /* normalize */
     int (*w_001031E0)(void *ctx, uint8_t *dst, const uint8_t *src);
     /* Collision probes; they leave their result in scratchpad
-     * 0x70003190..0x700031DB, which the module reads through EmHuskFanMem. */
+     * 0x70003190..0x700031DB, which the module reads through EmGunRestMem. */
     int (*w_0019AA80)(void *ctx, const uint8_t *from, const uint8_t *to, int32_t a2,
                       int32_t *result);
     int (*w_0019A570)(void *ctx, const uint8_t *from, const uint8_t *to, int32_t a2, int32_t a3,
@@ -124,7 +124,7 @@ typedef struct EmHuskFanWorkers {
                       uint32_t t0, uint32_t f12, uint32_t f13, uint32_t f14);
     int (*w_001E2BA0)(void *ctx, const uint8_t *a0, const uint8_t *a1, const uint8_t *a2,
                       uint32_t f12);
-    /* 0021AAC0 (the partner's hit effect node) only. */
+    /* 0021AAC0 (the cable's hit effect node) only. */
     int (*w_001029C0)(void *ctx, uint8_t *m);                                  /* identity */
     int (*w_00102B08)(void *ctx, uint8_t *dst, const uint8_t *src, uint32_t angle);
     int (*w_00102918)(void *ctx, uint8_t *dst, const uint8_t *src, const uint8_t *v);
@@ -142,27 +142,27 @@ typedef struct EmHuskFanWorkers {
     int (*w_001281C0)(void *ctx, uint32_t x, int32_t *value);                 /* float_to_int */
     /* 001EFEB0 (translated here) only: the effect allocator. */
     int (*w_001EF9D0)(void *ctx, uint32_t id, const uint8_t *pos, uint32_t f12, uint32_t *node);
-} EmHuskFanWorkers;
+} EmGunRestWorkers;
 
 /* One call of 0x825940 on the record at `actor`. Returns 1 while allocated,
  * 0 after the 001AFC10 free, -1 on a fault (latched in `fault`). */
-int em_husk_fan_creature_tick(uint32_t actor, const EmHuskFanMem *mem,
-                              const EmHuskFanWorkers *w, EmHuskFault *fault);
+int em_gun_rest_tick(uint32_t actor, const EmGunRestMem *mem,
+                              const EmGunRestWorkers *w, EmGunFault *fault);
 
-/* 0021AAC0: the behaviour (+0x10) of the effect node the partner's hit
- * spawns (001EFE00(0x80000045, partner) -> 001EF9D0: record 0x45 of the
+/* 0021AAC0: the behaviour (+0x10) of the effect node the cable's hit
+ * spawns (001EFE00(0x80000045, cable) -> 001EF9D0: record 0x45 of the
  * global effect table names this callback). One call on the node at `node`;
- * its +0x24 is the partner. Lifecycle +0x04: 0 seeds six random phases and
- * places the node at the partner's +0xD0 matrix, then runs 1; 1 counts
+ * its +0x24 is the cable. Lifecycle +0x04: 0 seeds six random phases and
+ * places the node at the cable's +0xD0 matrix, then runs 1; 1 counts
  * +0x288 (e +0x98) up: from 0x1F, every 6th tick adds one of up to six
  * rising points (8.0 apart) and every point draws two 001CFBE0 packets;
  * below 0x3C, every 10th tick spawns 001EFEB0(0x8000003B) with +5 = 0,
- * +0x1F0 = 0xC, +0x1F4 = 48.0, +0x1F8 = 0.5; at 0x3C it sets the partner's
- * +0x04 = 3 (the partner frees itself on its next tick); at >= 0x79 its own
+ * +0x1F0 = 0xC, +0x1F4 = 48.0, +0x1F8 = 0.5; at 0x3C it sets the cable's
+ * +0x04 = 3 (the cable frees itself on its next tick); at >= 0x79 its own
  * +0x04 = 3; 2 and 3 free the node (001AFC10); other values return.
  * Returns 1 while allocated, 0 after the free, -1 on a fault. */
-int em_husk_fan_0021AAC0(uint32_t node, const EmHuskFanMem *mem, const EmHuskFanWorkers *w,
-                         EmHuskFault *fault);
+int em_gun_rest_0021AAC0(uint32_t node, const EmGunRestMem *mem, const EmGunRestWorkers *w,
+                         EmGunFault *fault);
 
 /* 0021A500: the behaviour of the 0x8000003B nodes 0021AAC0 spawns (record
  * 0x3B of the global effect table names this callback). Word +0x1F0 is the
@@ -174,23 +174,23 @@ int em_husk_fan_0021AAC0(uint32_t node, const EmHuskFanMem *mem, const EmHuskFan
  * with +0x05 == 0 it ends (+0x04 = 3) once +0x200 passes 1.0; with +0x05
  * == 1 it also draws two end sprites per tick until +0x204 passes 1.1.
  * 2 and 3 free. Returns 1 while allocated, 0 after the free, -1. */
-int em_husk_fan_0021A500(uint32_t node, const EmHuskFanMem *mem, const EmHuskFanWorkers *w,
-                         EmHuskFault *fault);
+int em_gun_rest_0021A500(uint32_t node, const EmGunRestMem *mem, const EmGunRestWorkers *w,
+                         EmGunFault *fault);
 
 /* 001EFEB0(id, m): node = 001EF9D0(id, m + 0x30, 1.0); when non-zero,
  * 00102958(node + 0xD0, m). `m` is the 64-byte matrix (host pointer);
  * *node receives the node address. Returns 0 or -1. */
-int em_husk_fan_001EFEB0(uint32_t id, const uint8_t *m, const EmHuskFanMem *mem,
-                         const EmHuskFanWorkers *w, uint32_t *node, EmHuskFault *fault);
+int em_gun_rest_001EFEB0(uint32_t id, const uint8_t *m, const EmGunRestMem *mem,
+                         const EmGunRestWorkers *w, uint32_t *node, EmGunFault *fault);
 
 /* 001B1190(a0): with (a0 & 0xFF) != 0, the word at D_00810860 +
  * (D_00810700 << 5) + ((a0 & 0xFF) >> 5) * 4 gets bit (a0 & 0x1F) set.
  * Only `load` (D_00810700, the word) and `store` (the word) are used.
  * Returns 0, or -1 with a fault at the unmapped address. */
-int em_husk_fan_001B1190(int32_t a0, const EmHuskFanMem *mem, EmHuskFault *fault);
+int em_gun_rest_001B1190(int32_t a0, const EmGunRestMem *mem, EmGunFault *fault);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* EM_HUSK_FAN_H */
+#endif /* EM_SECURITY_GUN_REST_H */

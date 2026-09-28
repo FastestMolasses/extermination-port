@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Execute the original AREA11 husk creature 0x825940 (every lifecycle, with
+"""Execute the original AREA11 security gun 0x825940 (every lifecycle, with
 its overlay helpers 0x826F30 and 0x827400) and 001B1190, and compare the
-native em_husk_fan (docs/HUSK_FAN.md).
+native em_security_gun_rest (docs/SECURITY_GUN.md).
 
 The oracle is the shared FallEE core (COP1 through tools/ee_float_model.py)
 over copy-on-write views of the captured AREA11 RAM; the overlay code runs
@@ -23,7 +23,7 @@ values), and the same byte set at every callee entry (memory checked at
 each call). Every conditional branch of 0x825940, 0x826F30 and 0x827400
 must be observed both ways.
 
-Captures: every AREA11 RAM image is ticked from its captured creature; the
+Captures: every AREA11 RAM image is ticked from its captured gun; the
 C7 per-call rand capture's lifecycle-0 draw (return address 0x8259F0) must
 reproduce the captured timer +0x28, and the native setup over that draw
 the captured bone-3 +0x78 word and child +0xA0 quad.
@@ -55,17 +55,17 @@ from test_player_slide_reference import bits, sx32  # noqa: E402
 MASK = 0xFFFFFFFF
 MASK64 = (1 << 64) - 1
 DECOMP = ROOT.parent / 'Extermination'
-OUT = ROOT / 'build' / 'b15' / 'husk_fan'
+OUT = ROOT / 'build' / 'security_gun_rest'
 RAND_CAPTURE = DECOMP / 'build/s87/c7cap/rng/newgame/rand.jsonl'
 
-CREATURE, CHILD_NODE = 0x7A6AD0, 0x7ADD60      # the captured AREA11 nodes
-PLAYER, PARTNER = 0x8102B0, 0x7A6DC0
+GUN, CHILD_NODE = 0x7A6AD0, 0x7ADD60      # the captured AREA11 nodes
+PLAYER, CABLE = 0x8102B0, 0x7A6DC0
 FACE = 0x01D60000                               # scratch collision face (test data)
 SHOT_NODE = 0x01D61000                          # scratch pool node (test data)
-RANGES = {'creature': (0x825940, 0x826F2C), 'sight': (0x826F30, 0x8273FC),
+RANGES = {'gun': (0x825940, 0x826F2C), 'sight': (0x826F30, 0x8273FC),
           'shot': (0x827400, 0x827484), '0021AAC0': (0x21AAC0, 0x21AE84),
           '0021A500': (0x21A500, 0x21AABC), '001EFEB0': (0x1EFEB0, 0x1EFF0C)}
-SETUP_COPY = (0x8259AC, 0x825B74)   # em_husk inlines this range's two 00102948 copies
+SETUP_COPY = (0x8259AC, 0x825B74)   # em_gun_tick inlines this range's two 00102948 copies
 
 MATH = {0x11E2A8: 'w_0011E2A8', 0x11DF78: 'w_0011DF78', 0x11DBB8: 'w_0011DBB8',
         0x11E748: 'w_0011E748', 0x11E520: 'w_0011E520', 0x1B1470: 'w_001B1470'}
@@ -140,21 +140,21 @@ class Fault(C.Structure):
 LAYOUT = r'''
 #include <stddef.h>
 #include <stdio.h>
-#include "game/em_husk_fan.h"
+#include "game/em_security_gun_rest.h"
 int main(void) {
-  printf("%zu %zu %zu %zu %zu\n", sizeof(EmHuskFanMem), sizeof(EmHuskFanWorkers),
-         offsetof(EmHuskFanWorkers, w_001CD520), offsetof(EmHuskFanWorkers, w_001EF9D0),
-         sizeof(EmHuskFault));
+  printf("%zu %zu %zu %zu %zu\n", sizeof(EmGunRestMem), sizeof(EmGunRestWorkers),
+         offsetof(EmGunRestWorkers, w_001CD520), offsetof(EmGunRestWorkers, w_001EF9D0),
+         sizeof(EmGunFault));
   return 0; }
 '''
 
 
 def build():
     OUT.mkdir(parents=True, exist_ok=True)
-    lib = OUT / 'husk_fan.dylib'
-    # EM_HUSK_FAN_MODULE (the mutation check) names another em_husk_fan.c.
-    sources = [os.environ.get('EM_HUSK_FAN_MODULE', 'src/game/em_husk_fan.c'),
-               'src/game/em_script_door_fan_husk.c']
+    lib = OUT / 'security_gun_rest.dylib'
+    # EM_GUN_REST_MODULE (the mutation check) names another em_security_gun_rest.c.
+    sources = [os.environ.get('EM_GUN_REST_MODULE', 'src/game/em_security_gun_rest.c'),
+               'src/game/em_security_gun.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
                     '-ffp-contract=off', '-shared', '-fPIC', '-Isrc', *sources, '-o', str(lib)],
                    cwd=ROOT, check=True)
@@ -168,14 +168,14 @@ def build():
             Workers.w_001EF9D0.offset, C.sizeof(Fault)]
     assert got == mine, ('ctypes layout differs from C', got, mine)
     native = C.CDLL(str(lib))
-    native.em_husk_fan_creature_tick.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
+    native.em_gun_rest_tick.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
                                                  C.POINTER(Fault)]
-    native.em_husk_fan_001B1190.argtypes = [I32, C.POINTER(Mem), C.POINTER(Fault)]
-    native.em_husk_fan_0021AAC0.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
+    native.em_gun_rest_001B1190.argtypes = [I32, C.POINTER(Mem), C.POINTER(Fault)]
+    native.em_gun_rest_0021AAC0.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
                                             C.POINTER(Fault)]
-    native.em_husk_fan_0021A500.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
+    native.em_gun_rest_0021A500.argtypes = [U32, C.POINTER(Mem), C.POINTER(Workers),
                                             C.POINTER(Fault)]
-    native.em_husk_fan_001EFEB0.argtypes = [U32, PB, C.POINTER(Mem), C.POINTER(Workers), P32,
+    native.em_gun_rest_001EFEB0.argtypes = [U32, PB, C.POINTER(Mem), C.POINTER(Workers), P32,
                                             C.POINTER(Fault)]
     return native
 
@@ -617,8 +617,8 @@ class NativeSide:
     def tick(self, node, entry=0x825940):
         fault = Fault()
         lib = CONTEXT['lib']
-        fn = {0x825940: lib.em_husk_fan_creature_tick, 0x21AAC0: lib.em_husk_fan_0021AAC0,
-              0x21A500: lib.em_husk_fan_0021A500}[entry]
+        fn = {0x825940: lib.em_gun_rest_tick, 0x21AAC0: lib.em_gun_rest_0021AAC0,
+              0x21A500: lib.em_gun_rest_0021A500}[entry]
         got = fn(node, C.byref(self.mem), C.byref(self.workers), C.byref(fault))
         if self.error is not None: raise self.error
         return got, fault
@@ -630,7 +630,7 @@ class NativeSide:
 # A run: ticks of one node on both sides, compared
 # ======================================================================
 
-def run_pair(image, seeds, answers, ticks, node=CREATURE, keys=None, between=None,
+def run_pair(image, seeds, answers, ticks, node=GUN, keys=None, between=None,
              entry=0x825940):
     script_o = Script(**answers)
     o = OracleSide(image, seeds, script_o, keys)
@@ -655,7 +655,7 @@ def run_pair(image, seeds, answers, ticks, node=CREATURE, keys=None, between=Non
     return o, n, results
 
 
-def compare_run(image, seeds, answers, ticks, label, node=CREATURE, between=None,
+def compare_run(image, seeds, answers, ticks, label, node=GUN, between=None,
                 entry=0x825940, sink=None):
     """Pass 1 finds every byte either side writes; pass 2 checks those bytes
     at every callee entry and at the end. `sink` (a list) receives the
@@ -680,31 +680,31 @@ def w32(image, address): return int.from_bytes(image[address:address + 4], 'litt
 
 
 def slots(image):
-    return [w32(image, CREATURE + 0x110 + 4 * i) for i in range(4)]
+    return [w32(image, GUN + 0x110 + 4 * i) for i in range(4)]
 
 
 def fill(rng, lifecycle, image, aim=None):
-    """A random creature state over the captured node, with the D_00275B40
+    """A random gun state over the captured node, with the D_00275B40
     slots set as the pool walk sets them (node + 0x110)."""
     bone2, bone3 = slots(image)[2], slots(image)[3]
     ch = rng.choice
-    seeds = [(0x275B40, CREATURE + 0x110, 4), (CREATURE + 4, lifecycle, 1),
-             (CREATURE + 0x220, CHILD_NODE, 4),
-             (CREATURE + 0x28, ch([0, 1, 2, 3, 4, 0x33, 0x7FFF, 0x8000, 0xFFFB, 100]), 2),
-             (CREATURE + 0x2A, ch([0, 1, 3, 4, 0x12C, 0xFFFF]), 2),
-             (CREATURE + 0x36, ch([0, 0, 1]), 2),
-             (CREATURE + 0x1F4, bits(ch([0.05, -0.05, 0.0, 1.0, -1.0])), 4),
-             (CREATURE + 0x1F8, bits(ch([0.02, 0.3, -0.1])), 4),
-             (CREATURE + 0x1FC, bits(ch([0.0, 3.1, 3.14159, -3.0, 2.95, -0.5])), 4),
-             (CREATURE + 0x200, ch([0, 1, 12, 13, 14, 0xD]), 4),
-             (CREATURE + 0x204, ch([0, PLAYER]), 4),
-             (CREATURE + 0x208, ch([0, 0, -3 & MASK, 1, 2, 0x1E, 0x1F, 0x20, 0x40]), 4),
-             (CREATURE + 0x20C, ch([1, 2, 50, 0]), 4),
-             (CREATURE + 0x210, bits(ch([0.01, -0.01, 0.5, -0.5])), 4),
-             (CREATURE + 0x214, ch([1, 2, 50, 0]), 4),
-             (CREATURE + 0x218, bits(ch([0.02, -0.02, 0.2])), 4),
-             (CREATURE + 0x224, ch([0, 1]), 4),
-             (CREATURE + 0xC4, bits(ch([0.0, -1.5707964, 2.5])), 4),
+    seeds = [(0x275B40, GUN + 0x110, 4), (GUN + 4, lifecycle, 1),
+             (GUN + 0x220, CHILD_NODE, 4),
+             (GUN + 0x28, ch([0, 1, 2, 3, 4, 0x33, 0x7FFF, 0x8000, 0xFFFB, 100]), 2),
+             (GUN + 0x2A, ch([0, 1, 3, 4, 0x12C, 0xFFFF]), 2),
+             (GUN + 0x36, ch([0, 0, 1]), 2),
+             (GUN + 0x1F4, bits(ch([0.05, -0.05, 0.0, 1.0, -1.0])), 4),
+             (GUN + 0x1F8, bits(ch([0.02, 0.3, -0.1])), 4),
+             (GUN + 0x1FC, bits(ch([0.0, 3.1, 3.14159, -3.0, 2.95, -0.5])), 4),
+             (GUN + 0x200, ch([0, 1, 12, 13, 14, 0xD]), 4),
+             (GUN + 0x204, ch([0, PLAYER]), 4),
+             (GUN + 0x208, ch([0, 0, -3 & MASK, 1, 2, 0x1E, 0x1F, 0x20, 0x40]), 4),
+             (GUN + 0x20C, ch([1, 2, 50, 0]), 4),
+             (GUN + 0x210, bits(ch([0.01, -0.01, 0.5, -0.5])), 4),
+             (GUN + 0x214, ch([1, 2, 50, 0]), 4),
+             (GUN + 0x218, bits(ch([0.02, -0.02, 0.2])), 4),
+             (GUN + 0x224, ch([0, 1]), 4),
+             (GUN + 0xC4, bits(ch([0.0, -1.5707964, 2.5])), 4),
              (bone2 + 0x74, bits(ch([0.0, 1.1, -1.1, 1.13, -1.13, 1.2, -1.2])), 4),
              (bone3 + 0x78, bits(ch([-1.1, -1.2, -0.6, -0.5, -0.52, -0.9])), 4),
              (0x70003B68, ch([0, 7, 0x40]), 4),
@@ -740,7 +740,7 @@ def probe_block(rng, near=None, kind=None, hit=None):
                       (0x700031A0, (4.0, 2.5, 3.5, 1.0))):
         for i, v in enumerate(vec): block[base + 4 * i] = (bits(v), 4)
     block[0x700031D0] = (FACE, 4)
-    block[0x700031D4] = (ch([PLAYER, PARTNER]) if hit is None else hit, 4)
+    block[0x700031D4] = (ch([PLAYER, CABLE]) if hit is None else hit, 4)
     block[0x700031D8] = (ch([0, 1, 1, 2]) if kind is None else kind, 4)
     return block
 
@@ -767,25 +767,25 @@ def unit_cases():
         lifecycle = (1, 4)[i % 2]
         idle = i % 4 < 2      # half the cases start outside the alert block
         out.append(('unit', f'lifecycle {lifecycle} #{i}', lifecycle, i,
-                    [(CREATURE + 0x208, 0, 4)] if idle else [], {}))
+                    [(GUN + 0x208, 0, 4)] if idle else [], {}))
     # The aim's three heading arms, the snap on both sides of x = 0.
     for k, aim in enumerate(('left', 'right', 'ahead', 'ahead-x0', 'ahead-neg', 'random') * 3):
         out.append(('unit', f'aim {aim} #{k}', 1, 30_000 + k,
-                    [('aim', aim, 0), (CREATURE + 0x208, 0, 4)], {}))
+                    [('aim', aim, 0), (GUN + 0x208, 0, 4)], {}))
     # The alert gun sway wrapping past pi, in both lifecycles.
     for lifecycle in (1, 4):
         out.append(('unit', f'lifecycle {lifecycle} alert sway wraps', lifecycle, 20_000 + lifecycle,
-                    [(CREATURE + 0x208, 0x40, 4), (CREATURE + 0x214, 5, 4),
-                     (CREATURE + 0x1FC, bits(3.1), 4), (CREATURE + 0x218, bits(0.2), 4)], {}))
+                    [(GUN + 0x208, 0x40, 4), (GUN + 0x214, 5, 4),
+                     (GUN + 0x1FC, bits(3.1), 4), (GUN + 0x218, bits(0.2), 4)], {}))
     # The shot and what it hits: +0x200 reaches 14 with the target in sight.
     n = 0
     for kind, surface, world_hit, hit, byte0 in (
-            (1, 3, 0, PLAYER, 1), (1, 3, 0, PLAYER, 3), (1, 3, 0, PARTNER, 1),
+            (1, 3, 0, PLAYER, 1), (1, 3, 0, PLAYER, 3), (1, 3, 0, CABLE, 1),
             (0, 0x5C, 1, PLAYER, 1), (0, 0x5B, 1, PLAYER, 1), (2, 0x5A, 1, PLAYER, 1),
             (0, 3, 1, PLAYER, 1), (0, 5, 0, PLAYER, 1), (2, 3, 0, PLAYER, 1)):
         for alloc in (0, SHOT_NODE):
-            seeds = [(CREATURE + 0x208, 0, 4), (CREATURE + 0x200, 13, 4),
-                     (CREATURE + 0x204, PLAYER, 4), (PLAYER + 3, 0, 1), (PLAYER + 0, byte0, 1),
+            seeds = [(GUN + 0x208, 0, 4), (GUN + 0x200, 13, 4),
+                     (GUN + 0x204, PLAYER, 4), (PLAYER + 3, 0, 1), (PLAYER + 0, byte0, 1),
                      (FACE + 0x1A, surface, 1)]
             answers = dict(w_0019A570=[('probe', 1, kind, hit)], w_0019B6C0=[('probe', world_hit,
                                                                                0, hit)],
@@ -873,8 +873,8 @@ def boundary_case(case):
     image = CONTEXT['base']
     rng = random.Random(0x826544)
     seeds = fill(rng, 1, image, 'ahead')
-    overrides = overrides + [(CREATURE + 0x208, 0, 4), (CREATURE + 0x204, PLAYER, 4),
-                             (CREATURE + 0x2A, 0x12C, 2), (CREATURE + 0x200, 0, 4)]
+    overrides = overrides + [(GUN + 0x208, 0, 4), (GUN + 0x204, PLAYER, 4),
+                             (GUN + 0x2A, 0x12C, 2), (GUN + 0x200, 0, 4)]
     replaced = {a for a, _, _ in overrides}
     seeds = [x for x in seeds if x[0] not in replaced] + overrides
     answers = unit_answers(rng)
@@ -898,7 +898,7 @@ def boundary_case(case):
         assert d == 0 or d == 0x80000000, (label, 'not in the dead zone', hex(d))
         assert x_abs and not ef.ee_c_lt(0x3A83126F, x_abs[0][1] & 0x7FFFFFFF), (label, 'snapped')
         assert load(bone2 + 0x74, 4) == want, (label, 'yaw moved')
-        assert load(CREATURE + 0x2A, 2) == 0x12C - 1, (label, '+0x2A', load(CREATURE + 0x2A, 2))
+        assert load(GUN + 0x2A, 2) == 0x12C - 1, (label, '+0x2A', load(GUN + 0x2A, 2))
     else:
         start, landed = want
         pitch = [e for e in log if e[0][0] == 'w_0011DBB8'][-1][1]
@@ -908,7 +908,7 @@ def boundary_case(case):
         if not rising:
             assert ef.ee_c_lt(pitch, ef.ee_add(K_STEP, start)), (label, 'dead arm', hex(pitch))
         assert load(slots(image)[3] + 0x78, 4) == landed, (label, 'pitch did not land exactly')
-        assert load(CREATURE + 0x2A, 2) == 0x12C - 1, (label, '+0x2A', load(CREATURE + 0x2A, 2))
+        assert load(GUN + 0x2A, 2) == 0x12C - 1, (label, '+0x2A', load(GUN + 0x2A, 2))
     return label, results, oc, fe, names
 
 
@@ -935,22 +935,22 @@ def multi_cases():
     base = CONTEXT['base']
     rng = random.Random(7)
     common = [s for s in fill(rng, 4, base) if s[0] not in
-              (CREATURE + 0x28, CREATURE + 0x2A, CREATURE + 0x36, CREATURE + 0x200,
-               CREATURE + 0x204, CREATURE + 0x208, PLAYER + 3, PLAYER + 0)]
+              (GUN + 0x28, GUN + 0x2A, GUN + 0x36, GUN + 0x200,
+               GUN + 0x204, GUN + 0x208, PLAYER + 3, PLAYER + 0)]
     bone2, bone3 = slots(base)[2], slots(base)[3]
     common = [s for s in common if s[0] not in (bone2 + 0x74, bone3 + 0x78)]
-    common += [(PLAYER + 3, 0, 1), (PLAYER + 0, 1, 1), (CREATURE + 0x36, 0, 2),
+    common += [(PLAYER + 3, 0, 1), (PLAYER + 0, 1, 1), (GUN + 0x36, 0, 2),
                (bone2 + 0x74, bits(0.3), 4), (bone3 + 0x78, bits(-0.8), 4)]
     runs = [
         ('patrol, sees the player, aims and fires', 4,
-         [(CREATURE + 0x28, 10, 2), (CREATURE + 0x2A, 0, 2), (CREATURE + 0x200, 1, 4),
-          (CREATURE + 0x204, 0, 4), (CREATURE + 0x208, 0, 4)], seen_script(4), 90),
+         [(GUN + 0x28, 10, 2), (GUN + 0x2A, 0, 2), (GUN + 0x200, 1, 4),
+          (GUN + 0x204, 0, 4), (GUN + 0x208, 0, 4)], seen_script(4), 90),
         ('aim, loses the player, back to patrol', 1,
-         [(CREATURE + 0x28, 3, 2), (CREATURE + 0x2A, 9, 2), (CREATURE + 0x200, 0, 4),
-          (CREATURE + 0x204, PLAYER, 4), (CREATURE + 0x208, 0, 4)], seen_script(10 ** 9), 14),
+         [(GUN + 0x28, 3, 2), (GUN + 0x2A, 9, 2), (GUN + 0x200, 0, 4),
+          (GUN + 0x204, PLAYER, 4), (GUN + 0x208, 0, 4)], seen_script(10 ** 9), 14),
         ('alert countdown through the ramp', 4,
-         [(CREATURE + 0x28, 10, 2), (CREATURE + 0x2A, 0, 2), (CREATURE + 0x200, 1, 4),
-          (CREATURE + 0x204, 0, 4), (CREATURE + 0x208, 0x26, 4)], seen_script(10 ** 9), 42),
+         [(GUN + 0x28, 10, 2), (GUN + 0x2A, 0, 2), (GUN + 0x200, 1, 4),
+          (GUN + 0x204, 0, 4), (GUN + 0x208, 0x26, 4)], seen_script(10 ** 9), 42),
     ]
     return [('multi', label, lc, common + extra, script, ticks)
             for label, lc, extra, script, ticks in runs]
@@ -959,7 +959,7 @@ def multi_cases():
 def multi_case(index):
     _, label, lifecycle, seeds, answers, ticks = multi_cases()[index]
     image = CONTEXT['base']
-    seeds = [s for s in seeds if s[0] != CREATURE + 4] + [(CREATURE + 4, lifecycle, 1)]
+    seeds = [s for s in seeds if s[0] != GUN + 4] + [(GUN + 4, lifecycle, 1)]
     results, oc, fe, names = compare_run(image, seeds, answers, ticks, label)
     return label, results, oc, fe, names
 
@@ -985,17 +985,17 @@ def delegate_cases():
 def delegate_case(case):
     if case[0] == 'capture':
         image = CONTEXT['images'][case[1]]
-        assert w32(image, CREATURE + 0x10) == 0x825940, case
+        assert w32(image, GUN + 0x10) == 0x825940, case
         results, oc, fe, names = compare_run(image, [], {}, 1, f'capture {case[1]}')
         return case[1], results, oc, fe, names
     _, lifecycle, flag, fd0, child, angle, w21c, w224 = case
     image = CONTEXT['base']
-    seeds = [(0x275B40, CREATURE + 0x110, 4), (CREATURE + 4, lifecycle, 1),
+    seeds = [(0x275B40, GUN + 0x110, 4), (GUN + 4, lifecycle, 1),
              (0x810788, flag, 1),
-             (CREATURE + 0x1FC, 0xBFC90FDB if angle == 'exact' else bits(angle), 4),
-             (CREATURE + 0x1F8, bits(0.25), 4),
-             (CREATURE + 0x21C, w21c, 4), (CREATURE + 0x224, w224, 4),
-             (CREATURE + 0x220, CHILD_NODE, 4)]
+             (GUN + 0x1FC, 0xBFC90FDB if angle == 'exact' else bits(angle), 4),
+             (GUN + 0x1F8, bits(0.25), 4),
+             (GUN + 0x21C, w21c, 4), (GUN + 0x224, w224, 4),
+             (GUN + 0x220, CHILD_NODE, 4)]
     answers = dict(w_001B0FD0=fd0, w_00122BB8=0x794BDF32, w_001AFA90=child)
     label = (f'delegate lifecycle {lifecycle:#x} flag {flag:#x} fd0 {fd0} child {child:#x} '
              f'angle {angle} n {w21c} w224 {w224}')
@@ -1003,7 +1003,7 @@ def delegate_case(case):
     return label, results, oc, fe, names
 
 
-# The partner's hit effect node 0021AAC0.
+# The cable's hit effect node 0021AAC0.
 def fx_cases():
     out = []
     for st in (0, 1, 2, 3, 5):
@@ -1022,7 +1022,7 @@ def fx_case(case):
     image = CONTEXT['base']
     rng = random.Random(st * 1000 + count * 10 + points)
     e = FX_NODE + 0x1F0
-    seeds = [(FX_NODE + 4, st, 1), (FX_NODE + 0x24, PARTNER, 4), (e + 0x98, count, 4),
+    seeds = [(FX_NODE + 4, st, 1), (FX_NODE + 0x24, CABLE, 4), (e + 0x98, count, 4),
              (e + 0x94, points, 4), (e + 0x90, bits(-8.0 * points), 4)]
     for i in range(6):
         seeds += [(e + 16 * i + j * 4, bits(rng.uniform(-50, 300)), 4) for j in range(3)]
@@ -1086,7 +1086,7 @@ def check_001EFEB0():
         sdf.run_original(o.o, 0x1EFEB0, (0x8000003B, 0x700036A0))
         n = NativeSide(image, seeds, None, o.log)
         out, fault = C.c_uint32(), Fault()
-        got = CONTEXT['lib'].em_husk_fan_001EFEB0(0x8000003B, n.sbase + 0x36A0, C.byref(n.mem),
+        got = CONTEXT['lib'].em_gun_rest_001EFEB0(0x8000003B, n.sbase + 0x36A0, C.byref(n.mem),
                                                   C.byref(n.workers), C.byref(out), C.byref(fault))
         if n.error is not None: raise n.error
         assert got == 0 and fault.code == 0 and out.value == (o.o.r[2] & MASK), ('001EFEB0', node)
@@ -1107,7 +1107,7 @@ def check_fail_stop():
     original address; a latched fault stops every later call."""
     image = CONTEXT['base']
     rng = random.Random(3)
-    seeds = [x for x in fill(rng, 4, image) if x[0] != CREATURE + 0x208] + [(CREATURE + 0x208, 0x40, 4)]
+    seeds = [x for x in fill(rng, 4, image) if x[0] != GUN + 0x208] + [(GUN + 0x208, 0x40, 4)]
     lib = CONTEXT['lib']
     checks = 0
 
@@ -1117,12 +1117,12 @@ def check_fail_stop():
         n.olog = None
         mutate(n)
         fault = Fault()
-        got = lib.em_husk_fan_creature_tick(CREATURE, C.byref(n.mem), C.byref(n.workers),
+        got = lib.em_gun_rest_tick(GUN, C.byref(n.mem), C.byref(n.workers),
                                             C.byref(fault))
         assert got == -1 and (fault.address, fault.code) == (want_address, want_code), (
             'fail-stop', hex(fault.address), fault.code, hex(want_address), want_code)
         calls = len(n.log)
-        assert lib.em_husk_fan_creature_tick(CREATURE, C.byref(n.mem), C.byref(n.workers),
+        assert lib.em_gun_rest_tick(GUN, C.byref(n.mem), C.byref(n.workers),
                                              C.byref(fault)) == -1 and len(n.log) == calls
         checks += 2
 
@@ -1155,27 +1155,27 @@ def check_fail_stop():
 
 def check_rand_capture():
     rows = [json.loads(line) for line in RAND_CAPTURE.open()]
-    husk = [r for r in rows if r.get('ra') == '8259f0']
-    assert len(husk) == 1, ('the creature draws once in the New Game capture', len(husk))
-    value = int(husk[0]['r'], 16)
+    draws = [r for r in rows if r.get('ra') == '8259f0']
+    assert len(draws) == 1, ('the gun draws once in the New Game capture', len(draws))
+    value = int(draws[0]['r'], 16)
     t = value >> 16
     timer = 300 + ((300 * t) >> 15)
     # Its place: the first world frame after the area entry, before 0x8235F0's draw.
-    frame = husk[0]['f']
+    frame = draws[0]['f']
     same = [r for r in rows if r['f'] == frame and 'ra' in r and 'mark' not in r]
     assert [r['ra'] for r in same][:5] == ['1d7d44', '1d7dd4', '1f112c', '8259f0', '8236b4'], same[:5]
     for name, image in CONTEXT['images'].items():
-        assert int.from_bytes(image[CREATURE + 0x28:CREATURE + 0x2A], 'little') == timer, name
+        assert int.from_bytes(image[GUN + 0x28:GUN + 0x2A], 'little') == timer, name
     # The native setup over that draw reproduces the captured words.
     image = CONTEXT['base']
     bone3 = slots(image)[3]
-    seeds = [(0x275B40, CREATURE + 0x110, 4), (CREATURE + 4, 0, 1), (0x810788, 0, 1),
-             (CREATURE + 0x28, 0, 2), (bone3 + 0x78, 0x12345678, 4)]
+    seeds = [(0x275B40, GUN + 0x110, 4), (GUN + 4, 0, 1), (0x810788, 0, 1),
+             (GUN + 0x28, 0, 2), (bone3 + 0x78, 0x12345678, 4)]
     for off in range(0xA0, 0xB0, 4): seeds.append((CHILD_NODE + off, 0x55555555, 4))
     answers = dict(w_001B0FD0=0, w_00122BB8=value, w_001AFA90=CHILD_NODE)
     o, n, _ = run_pair(image, seeds, answers, 1)
-    for k, want in ((CREATURE + 0x28, timer), (bone3 + 0x78, w32(image, bone3 + 0x78))):
-        size = 2 if k == CREATURE + 0x28 else 4
+    for k, want in ((GUN + 0x28, timer), (bone3 + 0x78, w32(image, bone3 + 0x78))):
+        size = 2 if k == GUN + 0x28 else 4
         got = sum(n.value(k + i) << (8 * i) for i in range(size))
         assert got == want, ('capture word', hex(k), hex(got), hex(want))
     for off in range(0xA0, 0xB0, 4):
@@ -1200,7 +1200,7 @@ def check_fan_hit_chain():
     import test_player_stage_workers_reference as psw
     psw.LANE = OUT / 'stage_workers'          # this lane's private build
     psw.ELF = CONTEXT['elf']
-    lib = psw.build_native(name='husk_fan_stage_workers')
+    lib = psw.build_native(name='gun_rest_stage_workers')
     psw.check_clip_rates(CONTEXT['elf'], lib, [])   # loads the clip-rate table (psw.RATES)
     outcomes = []
     names = [n for n in CONTEXT['images'] if pick(True, n in ('playable',) or '14_roger' in n)]
@@ -1261,7 +1261,7 @@ def check_001B1190():
             sdf.run_original(o, 0x1B1190, (a0,))
             n = NativeSide(image, seeds, None, [])
             fault = Fault()
-            assert CONTEXT['lib'].em_husk_fan_001B1190(a0, C.byref(n.mem), C.byref(fault)) == 0
+            assert CONTEXT['lib'].em_gun_rest_001B1190(a0, C.byref(n.mem), C.byref(fault)) == 0
             assert fault.code == 0
             keys = set(o.written) | n.stores
             for k in keys:
@@ -1378,7 +1378,7 @@ def main():
           '0021AAC0, 0021A500 and 001EFEB0 observed both ways')
     banner(f'{len(units)} unit ticks', f'{len(multi)} lockstep runs', f'{len(deleg)} delegated runs',
            f'{len(images)} RAM images')
-    print('husk_fan translations match the original instructions')
+    print('security gun rest translations match the original instructions')
 
 
 if __name__ == '__main__':

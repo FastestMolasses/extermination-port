@@ -32,7 +32,8 @@
  * paths (+0x0E bit 0, +0x56 >= 0, which no AREA11 box has) are fail-stop
  * workers that name their original: 001FC580, 001EFD90 / 001EFD20 /
  * 001F0460, 001B11E0 / 001B1190, 001AFA90's child copy, the 001C6120 husk
- * rebind over D_0028A56C, 0019A570 and 0019AD00. The D_002468B0 /
+ * rebind (the broken crate's debris model) over D_0028A56C, 0019A570 and
+ * 0019AD00. The D_002468B0 /
  * D_00246A00 / D_00246A10 tables come from assets/scene_snow/box_tables.emrg
  * (tools/export_box_tables.py).
  *
@@ -168,6 +169,13 @@ int em_area11_boxes_owner_draw(EmActor *actor);
 int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t *method);
 /* Node k's +0x90 world matrix (slot k of a bound world owner). 0, or -1. */
 int em_area11_boxes_owner_node(const EmActor *actor, unsigned k, float out[16]);
+
+/* Slot k of a bound world owner (D_00275B40[k] while it ticks, its +0x110
+ * word k): the slot record, and in *address its original address. The
+ * security gun 00825940 writes its bone 3's +0x78 through it and hands its
+ * +0x90 to 001A2370 (em_area11_bindings.c). NULL when `actor` is not a
+ * bound world owner or k is not below its +0x09. */
+EmOwnerBone *em_area11_boxes_owner_slot(const EmActor *actor, unsigned k, uint32_t *address);
 
 /* Scene unload: the frame's draw state and the kept units. */
 void em_area11_boxes_shutdown(void);

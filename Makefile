@@ -27,6 +27,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
            src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
+           src/game/em_security_gun.c src/game/em_security_gun_rest.c src/game/em_fan_original.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
@@ -767,11 +768,15 @@ test-camera-leftovers:
 
 .PHONY: test-script-door-fan
 test-script-door-fan:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/script_door_fan_test.c src/game/em_script_door_fan.c src/game/em_script_door_fan_husk.c -lm -o build/script_door_fan_test && ./build/script_door_fan_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/script_door_fan_test.c src/game/em_script_door_fan.c src/game/em_security_gun.c -lm -o build/script_door_fan_test && ./build/script_door_fan_test
 
 .PHONY: test-script-door-fan-reference
 test-script-door-fan-reference:
 	python3 tools/test_script_door_fan_reference.py
+
+.PHONY: test-security-gun-rest-reference
+test-security-gun-rest-reference:
+	python3 tools/test_security_gun_rest_reference.py
 
 .PHONY: test-render-verify-rest-reference
 test-render-verify-rest-reference:

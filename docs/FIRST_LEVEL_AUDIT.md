@@ -364,10 +364,9 @@ their records; OWNER_DRAW.md section 10, census 1.25):**
   and found the decomp's NEARMISS C of 00219550 inverting a test.
   newgame-control 9.599849, compare_frame_order idle04 / walk04 / st03 /
   cut02 / cut15 PASS.
-- Still open: the fan pair and the husks (census L24: their owners are not
-  bound, so their legacy meshes draw; the fan's exit / hit consumers and its
-  call count from spawn, the creature's lifecycles 1 / 4 and rand() in its
-  wait); the indicator children's own draw 001CABA0 (channel 3, the depth
+- Still open: the fan pair and the security gun with its cable (census L24,
+  then called "the husks": their owners were not bound, so their legacy
+  meshes drew; done 2026-09-28, status update below); the indicator children's own draw 001CABA0 (channel 3, the depth
   sort into the chain page and the class-3 GS state: still the additive mesh
   stand-in); Roger's face units (001CB3C0).
 
@@ -622,9 +621,9 @@ walk-out on its originals; DOOR_ORIGINAL.md "Side 1", census 1.31):**
   (`tools/rand_order.py`) and compared with the decomp's newgame, r01 and
   r10 traces.
   - From the area entry the port equals the original call for call for 4
-    calls. The first difference is the husk creature 00825940's
-    lifecycle-0 draw at AE+1, which the port misses (the owner is not
-    bound, census L24).
+    calls. The first difference was the security gun 00825940's
+    lifecycle-0 draw at AE+1, which the port missed (the owner was not
+    bound, census L24; bound 2026-09-28, status update below).
   - Every frame's fixed-schedule callers (the sway, the indicators, the
     glow markers, the music, the item and effect-owner first ticks) equal
     the original's over the opening (AE+1..AE+1312), the 30 frames after
@@ -672,8 +671,8 @@ the remaining gaps; census 1.33):**
 
   Every relaxed check has a named cause and remover in LEVEL_SMOKE.md "What
   the full route does not yet compare". None could be removed faithfully in
-  this step: each needs other work or other data (navigation, the husk
-  owner, the opening's records, the loader, a renderer stage). Nothing in
+  this step: each needs other work or other data (navigation, the security
+  gun's owner (since bound, census L24), the opening's records, the loader, a renderer stage). Nothing in
   the port was changed.
 - **Supported invocations.** Each end phase was run through the make
   target. Every phase from `battery` on passes, main line and side alike.
@@ -880,6 +879,53 @@ module 0x21; MODULE_LOADER.md, census 1.38):**
   command 0x20, none of which is live. The load veil still draws one black
   frame per load.
 
+**Status update (2026-09-28, census L24: the security gun, its cable and the
+fan pair on their original owners; SECURITY_GUN.md, FAN_ORIGINAL.md, census
+1.39):**
+- **Identity and labels.** The "husk creature" 00825940 is a fixed security
+  gun and the "husk partner" 00827490 its power cable (decomp
+  verify-area11-husks). The labels are renamed everywhere in the port:
+  em_script_door_fan_husk → `em_security_gun`, em_husk_fan →
+  `em_security_gun_rest`, HUSK_FAN.md → SECURITY_GUN.md, the tests and the
+  census rows.
+- **Live.** `tick_gun` / `tick_gun_cable` / `tick_fan` in
+  em_area11_bindings.c run `em_gun_tick`, `em_gun_cable_tick` and
+  `em_fan_original_tick` over their records, in every walk mode, and all
+  four draw their 001CAA00 units through em_owner_draw_live. The gun's
+  lifecycle 0 runs 001B0FD0, its one rand() draw, bone 3 +0x78, 001C6380,
+  001A2370 (its plate, uid 15) and allocates its own lamp (001AFA90); then
+  the dormant 0x64 every tick. The cable runs its lifecycle 0 (001B11E0 over
+  the taken bit 0x50, now exported by em_actor_roster) and lifecycle 1
+  every tick; its hit and lifecycle 2 (001B1190 through
+  `em_gun_rest_001B1190`, cues 0x426 / 0x427) are bound up to 001EFE00,
+  which faults (unreached). The fans run their spin cycle and their tail
+  (the exit bit D_008107D8 |= 0x80, 001B0C60, the player hit).
+- **Retired.** em_enemy's gun and cable kinds, their meshes and their
+  fabricated shot burst (with the orphaned egg_explode / flash-gib stand-in),
+  the enemies group in em_area11_bindings, the interim lamp spawn, and
+  em_pickup's static fan draw (a bound fan retires its prop instance). No
+  test was retired.
+- **Kept fail-stop:** the gun's lifecycles 4 and 1 (return visit; the
+  verified `em_gun_rest_tick` is not bound), its lifecycle-2 swing
+  (D_00810788 == 0xFF only), the cable's 001EFE00 node chain (0021AAC0 /
+  0021A500 / 001CE860).
+- **Evidence.** The level smoke's new check_gun_fan (the gun and the cable
+  equal all 15 route snapshots on every tick after their setup; every
+  captured fan state is on the port's cycle) and check_owner_units (the
+  gun, cable and fans as owner units against the ORIGINAL 001CAA00; the fans
+  over the port's +0xC8 through the ORIGINAL 001C6380; camera-exact beats
+  10 and 14 compare 26 and 24 owners in full); `make test-rand-order` and
+  check_rand_order (126 calls equal from the area entry, was 4; the AE+1
+  divergence is gone, the first difference is the player face's AE+5 draw);
+  `make test-collision-world-capture` (uid 15 equals the original in
+  captures 00 and 04; its "not published" exception is removed);
+  compare_frame_order idle04 / walk04 / st03 (--native-index 1330), cut02
+  and cut15 PASS; newgame-control 9.599849 (unchanged).
+- **Not on the smoke's route:** the fan's exit box (after Roger it now
+  starts Roger's departure 0x828A10, whose op0F handshake is still a
+  fail-stop) and its hit box (the chain to 0021C440 / 0021E9C0 is proven by
+  the oracle, not live).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -904,19 +950,15 @@ The items are ordered in four groups:
 
 **A. On the route, every run**
 
-1. **Logic: the husks and the fan pair are the last overlay owners on
-   legacy code.** Census L24 and WP-11. The rows 00825940, 00827490,
-   00823CE0 and 00827630 are all verified-unbound.
-   - em_enemy moves and draws the husks. The fans are static props.
-   - The husk creature's lifecycle-0 rand() draw (0x8259F0) is the one call
-     the port's opening misses (RAND_ORDER.md). From AE+1 on, every
-     rand()-driven value in the level comes from a stream shifted by one
-     draw against the original's: the sway, the head sprites, the markers
-     and the snow's seeds.
-   - What removes it: bind the verified translations on their records.
-     First, the creature's lifecycles 1 and 4 must be translated. The fan's
-     tail reaches the level exit 001B0C60 and the player hit, so the
-     consumers of both must be verified.
+1. **Done (census L24, 2026-09-28): the security gun, its cable and the fan
+   pair are on their original owners** (SECURITY_GUN.md section 5,
+   FAN_ORIGINAL.md). The gun's lifecycle-0 rand() draw (0x8259F0) is now the
+   original's AE+1 call; the opening's first rand() difference is the
+   player face's AE+5 draw (item 2). What remains of it: the gun's
+   return-visit lifecycles 4 / 1 fault by design; the cable's hit faults at
+   001EFE00 (unreached: no live +0x36 writer); the flag-0x30 manager
+   00823CE0 is still a no-code node; the gun's lamp does not draw (item on
+   the indicator children's 001CABA0 path).
 2. **Look / logic: during the opening, the player and the faces come from the
    opening runtime, not from the records** (design risk 2).
    - During the opening the displayed player is not the record's pose. The
@@ -1131,7 +1173,7 @@ slot0 startup_task: logos → E900 → title → New Game → em_game_install_ne
      collision, em_sfx_init → state 0 (001B07C0(0) from the spawn table)]
        manifest installs: legacy door (no goto), elevator mesh, truck, panel-as-static-prop (grate), 1 examine "terminal",
        7 legacy pickups + 6 pickup_lights + 2 prop indicators, 2 type-0x13 "display props" (really fan pair 00827630),
-       4 crates, 2 drums, husk pair, weather/snow, point lights, AREA11 effect, light rig (no fog line)
+       4 crates, 2 drums, the security gun and its cable (then "husk pair"), weather/snow, point lights, AREA11 effect, light rig (no fog line)
     → game_task → ingame_frame_machine (:5219): case 0 (init, falls through the same tick) → case 1 selects:
        [since S8: em_scene_task_001ACEC0 → cores 001ACEC0/001AD250/0x1AE040; state 0 → em_game_legacy_state0, and since S9 the tick ends there (no world frame, as the original);
         since S10a state 1 runs the cores em_sf_001AE5E0/em_sf_001AE6B0 in the original stage order, and the two
@@ -1171,7 +1213,7 @@ Original AREA11 inventory, for reference. Placement table 0x82A3C0 (21 records) 
 | r18 | battery panel 00159210 | since WP-4: the original owner in the AREA11 interaction host (Use, scripts, BATTERY page, power) |
 | r19 | elevator/terminal 00827B10 | since WP-4: the original owner in the AREA11 interaction host (refusal, powered ride, carry) |
 | r20 | prop 001C4820 | render-only |
-| deferred | 7 pickups (00219550 ×6, 0015AFA0 ×1), husk pair 00825940/00827490 | legacy |
+| deferred | 7 pickups (00219550 ×6, 0015AFA0 ×1), the security gun 00825940 and its cable 00827490 | since census L24: their original owners (SECURITY_GUN.md) |
 
 ---
 
@@ -1198,7 +1240,7 @@ All rows below were adversarially CONFIRMED. Where the verifier corrected a find
 | H15 (W10, INV-12, ORCH-08) | FIXED (WP-6, 2026-09-23): the host binds the seven owners at load, each pool node #0..#6 runs its owner (state 0, then `em_area11_interaction_host_pickup_tick`), 00184BA0 arms them from the published list, and `pickup_trigger_scan`, the countdown and the flat inventory add are deleted | Now: `em_area11_interaction_host.c` (bind_pickups, pickup hooks, `_pickup_state0/_tick`), `em_area11_bindings.c` tick_pickup. Found at (deleted in WP-6): `em_pickup.c` pickup_trigger_scan, pickup_take | 0015AFA0/0015AE20 and 00219550: wait for the armed bit 4, start take script 0x2482C0 / 0x248480 (0x266620 / 0x2667E0 for 00219550), wait for 001BA1F0; op-9 take; 00219550 completion plays cue 0x194 and sets taken-bit persistence. | Bind the pickups into the host's interaction scene, tick them from the coordinator, and remove `pickup_trigger_scan` and the countdown (WP-6). |
 | H16 (W16, INV-10) | FIXED (census L23, 2026-09-24: em_truck.c deleted; the original owners are live, TRUCK_ORIGINAL.md) — was FABRICATED | `src/game/em_truck.c:263` (AABB trigger, 65-frame fall, -0.9 tumble) | The trigger 008251E0 **only starts camera script 0x8292C0** (gate D_00810792==0, a two-band X/Z union, D_008102B5<2) and then sets D_00810792=1. The truck 00823FF0 arms when the player **stands on it** (the D_008104C4 actor kind 9), shakes for 47 frames, then falls with beats up to 119 frames and X+Y velocity; sound 0x454 plays at frame 8 and 0x455 at frame 110; 24 FX spawns; 3 rumbles; the end state is D_00810792=0xFF. | Freeze the truck static (drop the invented trigger and fall) until 00823FF0/008251E0 are translated with an overlay oracle (WP-1 now, WP-12 later). |
 | H17 (R01) | NOT_WIRED | `src/game/em_scene.c:167`; `em_game.c:1889-1892`; the live `scene_snow/scene.txt` has no fog line | 001D8FD0 (byte-matched) loads the rig record key 0x0B00 (near -209, far 304, RGB 48,48,48). 001D1C50 restores fog every frame. The face PRIM has FGE=1. The snow test's fog constants agree. | Export fog from the record (not the -208 from the old backup manifest). Check fog_apply against GS F=255·(far−z)/(far−near) (WP-1 quick fix, WP-13 verification). |
-| H18 (R02) | APPROXIMATION of invented lighting (corrected; medium-high) | `../Extermination/tools/export_props.py:404` `attr_color`, `export_level.py` `attr_to_color` | Actors use the default mode 0 of 001D89D0: per-vertex rig from 001D8130/001D8340 plus the point-light fold. No original path computes 0.30+0.70·max(N·L,0). | Re-export parachute, truck, door_m03, husk pair, crate, egg, item_13, item_0b and gibs with real normals and flags=0, and remove the stand-in branch (WP-13). |
+| H18 (R02) | APPROXIMATION of invented lighting (corrected; medium-high) | `../Extermination/tools/export_props.py:404` `attr_color`, `export_level.py` `attr_to_color` | Actors use the default mode 0 of 001D89D0: per-vertex rig from 001D8130/001D8340 plus the point-light fold. No original path computes 0.30+0.70·max(N·L,0). | Re-export parachute, truck, door_m03, the security gun and its cable, crate, egg, item_13, item_0b and gibs with real normals and flags=0, and remove the stand-in branch (WP-13). |
 | H19 (AM-01) | INACCURATE pitch model (corrected from FABRICATED) | `src/game/em_sfx.c:195`; WAV rates from `audio_export.py:462` `tone_rate` | For A0 events, 00115850 stores bend 0x40 before 00117918. The table anchor is D_00241D70[0xD0]=4096. The legacy rates are ×1.531 (+118 steps), about 7.4 semitones sharp and 35% shorter. Cue 0x3EF (oracle): 10101.56 Hz, not 15480. | Re-export every registry id through the verified pitch path used by `export_startup_audio.py`/`export_area11_sfx.py`, storing an integer SPU pitch. Retire `tone_rate` (WP-14). |
 | H20 (INV-01) | FABRICATED | `src/game/em_pickup.c:58` (constant 1°/frame spin) | 00827630 is a timed spin cycle: 60-tick wait, ramp to 0.349 rad/f, hold, ramp down. Record 1 plays 0x451 unless D_00810788==1. Record 2 player box X(318,340) Y(280,320): hit (+0x224=5.0, byte0=3, +0x0F=6); at Z<156, 001B0C60(1,1,4) if D_00810758==0xFF, else D_008107D8 \|= 0x80 (Roger departure trigger). | Translate 00827630 with an overlay oracle (WP-11). Interim: stop the invented spin. |
 | H21 (INV-02) | MISSING | `src/game/em_game.c:5529` (level-exit arms "pending") | There are two AREA11 exits: fan 001B0C60(1,1,4), and Roger departure 0x828A10 → 001B0C60(1,0,4). The area-change request is D_008106B5..B8 → 001AD010 → sub-state 5 → frame case 0. | Implement the area-change consumer (ORCH-06) and targets for AREA01 sub 1 (not exported) and sub 0 (scene_drawbridge) at entry 4 (WP-11). **S12a: the consumer is live** (001AD010 → 001ADF50 native area read → state-0 rebuild → 001B07C0(0) from the exported D_0024D650; `em_scene_request_area_change_001B0C60` is the translated request, exercised by EM_AREA_CHANGE_TEST with AREA11 0x0B/0/0). Still missing: the fan/Roger requests (WP-11/WP-9) and the AREA01 targets (the area read faults for any area but 0x0B/0). |
@@ -1394,6 +1436,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 - **Removes fabrication:** YES.
 
 ### WP-11 Fan pair 00827630 and the AREA11 exit
+- **Status (2026-09-28, census L24): the fan pair is DONE.** Both records run `em_fan_original_tick` on their nodes and draw their 001CAA00 units (FAN_ORIGINAL.md "Binding", SECURITY_GUN.md 5.3 / 5.4); the static em_pickup draw is retired; its `w_001B0C60` is `em_scene_request_area_change_001B0C60`. Open: the AREA01 targets; Roger's departure 0x828A10 (the exit bit's consumer) still faults at its op0F handshake (WP-9); the exit and hit boxes are not on the level smoke's route.
 - **Scope:**
   - Translate 00827630: spin cycle, 0x451, hit box, the Roger 0x80 bit and the exit request.
   - Port the area-change consumer: D_008106B5..B8 → 001AD010 → 001ADF50 load wait → frame case 0 → 001AFCA0 → 001B07C0 spawn placement (ORCH-06). **Done in WP-3 S12a** (bind the fan's `w_001B0C60` to `em_scene_request_area_change_001B0C60`); the AREA01 targets remain.
@@ -1484,7 +1527,8 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   player (done by the player step, 2026-09-26: its model, owner view and
   equipment on this path; em_weapon's bone lookup on the record),
   Roger (001CB3C0's face builders; the face program itself runs),
-  the legacy-drawn owners (elevator, panel, pickups, fan, husks, parachute,
+  the legacy-drawn owners (elevator, panel, pickups, fan, the security gun
+  and its cable, parachute,
   001C4820, the indicator children) until their owners are live, and
   Metal's rasterization (not the GS DDA; no GS framebuffer exists in the
   captures to compare with). OWNER_DRAW.md sections 11 and 12.
@@ -1642,12 +1686,12 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 ### WP-18 Enemies and hazards verification
 - **Scope:**
   - Oracles for crates 001551B0 (alert, leap, husk rebind 0x22/0x29; drop the gibs; W19/W21/INV-19) and drums 00156620 (FX, no debris; W20).
-  - Husk partner taken-bit persistence and 0x426/0x427 (W17 residue).
+  - Gun cable taken-bit persistence and 0x426/0x427 (W17 residue; bound in census L24: SECURITY_GUN.md 5.2).
   - AREA11 crawler mesh param (W18).
   - Flame contact damage 00823580 through the +0x224/+0x0F/+0x00 contract, not the 0x4000 mailbox (INV-17/INV-28). Since census L01 the stage's 0021C440 consumes that contract; its hit paths still reach fail-stop workers and unbound +4 = 2 states (PLAYER_STAGE_WORKERS.md section 2.1).
 - **Depends on:** WP-3.
 - **Removes fabrication:** yes (gibs, the 0x7D8 stand-in).
-- **Status (2026-09-24, census L25):** the crates and drums are live on their original owners (CRATES_DRUMS_ORIGINAL.md "Binding"). The legacy gibs and the 0x7D8 stand-in for them are retired in AREA11. Their break is inert: no live code writes +0x36, and its effects need L26. The husk pair (L24) and the flame's contact damage remain.
+- **Status (2026-09-24, census L25):** the crates and drums are live on their original owners (CRATES_DRUMS_ORIGINAL.md "Binding"). The legacy gibs and the 0x7D8 stand-in for them are retired in AREA11. Their break is inert: no live code writes +0x36, and its effects need L26. The flame's contact damage remains; the security gun and its cable (L24, then "the husk pair") are live on their owners since 2026-09-28.
 
 ---
 
@@ -1655,7 +1699,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 
 ### Refuted (do not re-report)
 - **ORCH-05, "the AREA11 door is the level exit; route it through an area transition": REFUTED.** 001BC150 with door id bit 7 clear (captured RAM, all AREA11 captures) is a **same-area room move** (B8=2) to spawn entry 2 or 1. It is never an area change. The surviving defect is medium: the port re-places at a computed point about 10 u off with the wrong yaw and never writes 0x810702 (tracked in WP-7). **Fixed by S12b (2026-09-23):** the port now re-places through B8 = 2, 001AD010 (0x810702) and 0x1AE040 state 4's 001B07C0(1), matching the route capture's re-place (f472).
-- **W17, "the door husk pair should be an active set piece in the first level": REFUTED.** 00825940 stays dormant in state 0x64 while event flag 0x30 (D_00810788) is clear. Every AREA11 capture shows the flag at 0, creature state 0x64, and the partner in state 1. The inert creature is faithful for the first visit. The residue is low: missing partner taken-bit persistence (it respawns on reload), the approximated partner shot reaction (FX 0x80000045, 0x426/0x427, stays drawn), and the invisible model-0x7A child.
+- **W17, "the door husk pair should be an active set piece in the first level": REFUTED.** The pair is a security gun (00825940) and its power cable (00827490), not creatures (decomp verify-area11-husks, 2026-09-27; SECURITY_GUN.md). The gun stays dormant in state 0x64 while event flag 0x30 (D_00810788) is clear. Every AREA11 capture shows the flag at 0, the gun in state 0x64, and the cable in state 1. The dormant gun is faithful for the first visit. The residue it listed (the cable's taken-bit persistence, its shot reaction, the lamp child 0x7A) is bound since census L24 (2026-09-28) except the hit's 001EFE00 node chain (fail-stop, unreached: no live +0x36 writer) and the lamp's own draw.
 - **R03/R04, "the boot ELF draws nothing for the flashlight; gate the spot and cone off": REFUTED.** 0017A970 sets D_008106C7 with D_00810D3C; 00188ED0 calls 00187780 while D_008106C7 is set; 00187780 calls 001D9530, which draws the cone shell (chunk27 meshes 0x10/0x11/0x16) under the gun light matrix, skipped only when 001B0070() & 0x20000000. In AREA11 that bit is set (D_008106C8 = 0x20081910 in save-state captures 02–15, ORIGINAL_FRAME_ORDER.md P31; 0x20089910 in the 09_fence_door route capture, RENDER_CONTEXT.md and PLAYER_REACTION.md), so the first level skips the cone shells; AREA01 (0x8D00 / 0x8D01) draws them. The original cone is not translated; the port's spot term is a stand-in.
 - **INV-08, "manager 1 (00823CE0) second cinematic reached in the first level": REFUTED.** It only waits on flag 0x30. Within AREA11, only its own script sets that flag, after the cinematic has already started. The only op06 sub0 record that sets it to 1 is in AREA17.BIN. This is revisit content, low priority. INV-09 (manager 3, 008257A0) has the same D_00810788 gate and is therefore also revisit content (not adversarially checked, but it goes dormant when D_00810788==0 per its C).
 - **Partial corrections to confirmed items. Do not repeat the original wording:**
