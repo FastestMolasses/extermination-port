@@ -109,6 +109,7 @@
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_render_context_live.h"
+#include "game/em_load_veil_live.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_shadow_live.h"
 #include "game/em_chain_page_live.h"
@@ -234,8 +235,6 @@ enum {
     UM_001D2880,
     UM_00200830,
     UM_001D19D0,
-    UM_0021B1B0,
-    UM_0021B500,
     UM_001DA6A0,
     UM_001D52E0,
     UM_COUNT
@@ -287,8 +286,6 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
-    [UM_0021B1B0] = {0x0021B1B0u, "001ADF50 loading veil particles (from 0021B550); not drawn"},
-    [UM_0021B500] = {0x0021B500u, "001ADF50 loading veil draw (from 0021B550); not drawn"},
     [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
                                   "no actor shadow: Roger's kind 0x29 proxy D_0028A490[0x29] is not "
                                   "exported (the player's post-step is bound: em_shadow_live, "
@@ -547,7 +544,7 @@ static void log_snapshot(uint8_t out[LOG_SNAP])
     *p++ = s_state.d810E50;
 }
 
-/* The block *D_00275888 at its original offsets (+0x14 is not modelled). */
+/* The block *D_00275888 at its original offsets. */
 static void log_veil(uint8_t out[LOG_VEIL])
 {
     uint8_t *p = out;
@@ -562,7 +559,7 @@ static void log_veil(uint8_t out[LOG_VEIL])
         memcpy(&bits, &s_veil.level[i], 4);
         put_le(&p, bits, 4);
     }
-    p += 4;
+    put_le(&p, s_veil.w14, 4);
     put_le(&p, s_veil.w18, 4);
 }
 
@@ -1122,6 +1119,34 @@ static void log_tick_end(int rc)
                 fputs("null", f);
             }
             fputc(']', f);
+        } else {
+            fputs("null", f);
+        }
+    }
+    /* The load veil's last frame drawn at step V (em_load_veil_live), once,
+     * on the first line after it: its frame counter (the tick whose veil
+     * blocks it drew from), the channel-0 run and slot, the kicked list,
+     * the displayed FRAME_1, the walk's counts, the digest, the brightest
+     * line colour byte and the run's bytes. */
+    {
+        static uint32_t logged_draws;
+        EmLoadVeilLiveLog vl;
+        em_load_veil_live_log(&vl);
+        fputs(", \"veil_draw\": ", f);
+        if (vl.draws != logged_draws) {
+            logged_draws = vl.draws;
+            const EmChainPageCounts *c = &vl.counts;
+            fprintf(f, "{\"frame\": %u, \"draws\": %u, \"start\": %u, \"end\": %u, \"slot\": %u, "
+                    "\"chain\": %u, \"display\": %llu, \"transfers\": %u, \"qwords\": %u, \"direct\": %u, "
+                    "\"prims\": %u, \"types\": [", vl.frame, vl.draws, vl.start, vl.end, vl.slot, vl.chain,
+                    (unsigned long long)vl.display_frame, c->transfers, c->qwords, c->direct, c->prims);
+            for (int k = 0; k < 8; ++k) fprintf(f, "%s%u", k ? ", " : "", c->prim_type[k]);
+            fprintf(f, "], \"digest\": %u, \"max_line_rgb\": %u, \"run\": ", vl.digest, vl.max_line_rgb);
+            uint32_t n = 0;
+            const uint8_t *run = em_load_veil_live_run(&n);
+            if (run) log_hex(f, run, n);
+            else fputs("null", f);
+            fputc('}', f);
         } else {
             fputs("null", f);
         }
@@ -1772,8 +1797,10 @@ static int w_001B07C0(void *ctx, int a0)
  *   D_00275C78, D_00821058  em_frontend_movie_select / _request
  *   001AED80(a0)      em_frame_fade_clear (its translation, em_fade.c)
  *   0021B180/0021B550/0021B840  the veil state machine (em_load_veil.c) over
- *                     s_veil; its 001D2830 calls and particles 0021B1B0/
- *                     0021B500 are reported no-port-code
+ *                     s_veil; its 001D2830 calls on the render context, its
+ *                     draw 0021B1B0 (em_rcl_0021B1B0) and phase step 0021B500
+ *                     (em_load_veil_particles); step V's list draws the veil
+ *                     (em_load_veil_live)
  *   00200830, 001D19D0 reported no-port-code */
 
 static int in_task_step(int s09, int s0A)
@@ -1854,18 +1881,25 @@ static int veil_001D2830(void *ctx, int group, int enable)
     return em_rcl_001D2830(group, enable) < 0 ? rcl_fault() : 0;
 }
 
+/* 0021B1B0, the veil draw (asm-word; em_load_veil_particles), over the
+ * render context: its packets at the channel-0 cursor, which main-loop step
+ * V's list sends and em_load_veil_live draws (docs/LOAD_VEIL_PARTICLES.md
+ * section 3). The block views are s_veil's +0x04 / +0x08 / +0x14 / +0x18. */
 static int veil_0021B1B0(void *ctx, EmLoadVeil *veil)
 {
     (void)ctx;
-    (void)veil;
-    return unmirrored(UM_0021B1B0);
+    EmLoadVeilParticlesBlock b = {&veil->w04, &veil->level[0], &veil->w14, &veil->w18};
+    return em_rcl_0021B1B0(&b) < 0 ? rcl_fault() : 0;
 }
 
+/* 0021B500, the phase step (byte-matched): +0x04 += 0.007, wrapped at 1. */
 static int veil_0021B500(void *ctx, EmLoadVeil *veil)
 {
     (void)ctx;
-    (void)veil;
-    return unmirrored(UM_0021B500);
+    EmLoadVeilParticlesBlock b = {&veil->w04, NULL, NULL, NULL};
+    if (em_load_veil_particles_0021B500(&b) < 0)
+        return em_scene_fault(&s_state, 0x0021B500u, EM_SCENE_FAULT_NULL_WORKER);
+    return 0;
 }
 
 static const EmLoadVeilWorkers k_veil_workers = {NULL, veil_001D2830, veil_0021B1B0, veil_0021B500};

@@ -72,7 +72,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_effect_manager.c src/game/em_head_sprite_original.c src/game/em_player_equipment_sprite.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
-           src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c \
+           src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c src/game/em_load_veil_live.c \
            src/game/em_gs_blocks_original.c src/game/em_frame_kick.c
 
 # ---------------------------------------------------------------- macOS
@@ -618,6 +618,14 @@ test-player-misc-workers-reference:
 .PHONY: test-load-veil-particles-reference
 test-load-veil-particles-reference:
 	python3 tools/test_load_veil_particles_reference.py
+
+.PHONY: test-gs-blocks-reference
+test-gs-blocks-reference:
+	python3 tools/test_gs_blocks_reference.py
+
+.PHONY: test-load-veil-gpu
+test-load-veil-gpu:
+	python3 tools/test_load_veil_gpu.py
 
 .PHONY: test-load-veil-particles
 test-load-veil-particles:

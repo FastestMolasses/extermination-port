@@ -906,6 +906,68 @@ int em_gfx_gs_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count);
 int em_gfx_gs_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba, uint32_t width,
                       uint32_t height);
 
+/* --- The GS frame: a frame the GS list draws whole (docs/LOAD_VEIL_PARTICLES.md) --
+ * A frame whose whole image comes from its GS list (the load veil's: step
+ * V's draw environment and clear, the veil's channel-0 packets, the empty
+ * page and channel 1's environment REFs) is drawn at the GS's own
+ * resolution into GS memory, then shown. em_chain_page's list mode walks
+ * the list and hands every primitive with the environment the list set
+ * before it (EmGfxGsEnv, context 1).
+ *
+ * GS memory is modelled as surfaces: one per frame buffer base (FBP, FBW)
+ * the list draws into, PSMCT32 only, width FBW * 64, height the SCISSOR's.
+ * A texture read (TEX0 TBP0, TBW, PSMCT32) reads the surface of the same
+ * byte address and buffer width (TBP0 * 256 == FBP * 8192, TBW == FBW):
+ * the same pixels, as the GS's memory layout is the same for the same PSM
+ * and width. Anything else faults. Surfaces persist across frames (GS
+ * memory does). */
+#define EM_GFX_GS_ENV_FRAME      0x001u
+#define EM_GFX_GS_ENV_ZBUF       0x002u
+#define EM_GFX_GS_ENV_XYOFFSET   0x004u
+#define EM_GFX_GS_ENV_SCISSOR    0x008u
+#define EM_GFX_GS_ENV_PRMODECONT 0x010u
+#define EM_GFX_GS_ENV_DTHE       0x020u
+#define EM_GFX_GS_ENV_FBA        0x040u
+#define EM_GFX_GS_ENV_PABE       0x080u
+#define EM_GFX_GS_ENV_TEXA       0x100u
+#define EM_GFX_GS_ENV_SCANMSK    0x200u
+typedef struct {
+    uint64_t frame, zbuf, xyoffset, scissor, prmodecont, dthe, fba, pabe, texa, scanmsk;
+    uint32_t set;          /* EM_GFX_GS_ENV_* the list wrote before the primitive */
+} EmGfxGsEnv;
+
+/* Draw `count` primitives in GS order into GS memory with the pixel path
+ * of the GS (evaluated per pixel at the GS's integer sample points, window
+ * position = XYZ - XYOFFSET, within SCISSOR):
+ *   PRIM      points are refused; lines (Gouraud or flat), triangles of
+ *             lists, strips and fans, sprites (colour, Z of the second
+ *             vertex); TME with FST 0 (S / Q, T / Q per pixel) or FST 1
+ *             (UV); CTXT 0, AA1 0; FGE refused;
+ *   texture   a PSMCT32 surface (above); TFX MODULATE, DECAL, HIGHLIGHT,
+ *             HIGHLIGHT2 with TCC; TEX1 MMAG == MMIN nearest or bilinear
+ *             (GS 4-bit weights at U - 0.5), MXL 0; CLAMP_1 REPEAT, CLAMP,
+ *             REGION_CLAMP, REGION_REPEAT on each texel coordinate;
+ *   test      ATE with the eight ATST and the four AFAIL modes; DATE 0; Z
+ *             test ALWAYS only (no primitive of such a frame depends on Z,
+ *             so Z is not stored);
+ *   blend     ABE: ((A - B) * C >> 7) + D with A, B, D in Cs / Cd / 0 and
+ *             C in As / Ad / FIX; COLCLAMP clamp or wrap; FBA; FRAME's
+ *             FBMSK; the written alpha is Af (PABE 0, DTHE 0, PRMODECONT 1,
+ *             SCANMSK 0 required);
+ * then show surface (display_frame's FBP, FBW) of the height display_scissor
+ * gives in the frame's 4:3 game rectangle, nearest-neighbour (its rows
+ * spread over the rectangle's height as every GS-mapped draw of the port).
+ * Rasterization is Metal's at that resolution (float interpolation, Metal's
+ * line rule), not the GS DDA. Returns 0, or -1 when a primitive or state is
+ * outside the above (the reason is printed once): there is no stand-in. */
+int em_gfx_gs_frame(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                    uint64_t display_frame, uint64_t display_scissor);
+
+/* Test hook: after em_gfx_end_frame, copy `height` rows of the surface
+ * (fbp, fbw) as RGBA8 (the GS bytes R, G, B, A), width fbw * 64. 0, or -1
+ * (no such surface, or it is shorter). */
+int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba);
+
 /* --- Object units: the VU1 object kernel, its clip pass, the face morph -- */
 
 /* One draw unit (docs/OWNER_DRAW.md sections 3 and 7) as the VU1 receives

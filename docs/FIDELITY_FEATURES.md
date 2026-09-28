@@ -103,11 +103,11 @@ original machine code on the same inputs and requiring the same results.
   (`EE_FLOAT_MODEL.md` 5a). VU1 microcode and GS rasterization are
   reimplemented natively and are checked by other means (see Visuals).
 
-**First-level census: 91.8% of the original game-logic instructions on the route run live as verified translations**
+**First-level census: 92.4% of the original game-logic instructions on the route run live as verified translations**
 
 Every original function the PS2 game runs on the first level, from New Game
 to meeting Roger, was recorded, and the port was checked for each one.
-Measured by instructions, 91.8% of that game logic runs in the port as a
+Measured by instructions, 92.4% of that game logic runs in the port as a
 verified translation.
 
 - How: the decomp's `tools/route_census.py` set a one-shot breakpoint on
@@ -117,8 +117,8 @@ verified translation.
   reading its evidence. An instrumented port build recorded live
   caller/callee edges (census 1.22, measured again in 1.33).
 - Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 2.1-2.3, recount through
-  1.33 (2026-09-27). Of 741 non-boundary functions: live 660 (80,726 of 87,968
-  instructions = 91.8%; 89.1% by function count); verified but unbound 77;
+  1.35 (2026-09-27). Of 741 non-boundary functions: live 666 (81,298 of 87,968
+  instructions = 92.4%; 89.9% by function count); verified but unbound 71;
   unverified 3 (0015CF90, 001B1190, 001FC280); missing 1 (001CB3C0). 443
   boundary functions (SDK/libc/IOP/driver/GS/VU1, 23,796 instructions) are
   replaced by native platform services and the native renderer.
@@ -129,8 +129,9 @@ verified translation.
   Boundary functions are native replacements, not translations. "Stand-in 0"
   counts census rows only; census 2.3 "What still stands in" lists non-row
   stand-ins still on the route. Instrumented liveness was last measured at
-  1.33 (2026-09-27), which confirmed all 660 live rows and found no non-live
-  row whose translation runs live. The remaining gaps, prioritized, are
+  1.33 (2026-09-27), which confirmed all 660 live rows then and found no
+  non-live row whose translation runs live; the six rows 1.35 moved to live
+  (the load veil) are proven by the level smoke's executed-original check. The remaining gaps, prioritized, are
   `FIRST_LEVEL_AUDIT.md` section 1b.
 
 **The first-level route is replayed headless and checked phase by phase against PCSX2 recordings**
@@ -401,6 +402,37 @@ the original VU1 sprite program.
   outside the page. Page and decal textures come from PCSX2 captures. Metal
   only.
 
+**The area-load veil drawn by the game's own code and its own GS state**
+
+While an area loads, the game's own veil (a glowing wave line bent by two
+lens passes over black) is drawn by the original code, through the frame's
+own GS list, at the GS's resolution.
+
+- How: the veil draw 0021B1B0 and its phase step 0021B500 run at their
+  original caller 0021B550 and write their packets at the render context's
+  channel 0; the GS state they REF (the boot builder's GS blocks: draw
+  environments, clears, presets) is translated; main-loop step V's own list
+  is walked as the DMA sends it (em_chain_page's list mode) and drawn by
+  the GS frame stage: GS-memory surfaces at 512 x 224 and 256 x 256, the
+  frame copied into a texture and drawn back through the lens strips, with
+  the GS's texture, alpha-test and blend rules.
+- Evidence: `LOAD_VEIL_PARTICLES.md` 3-5. The live run's veil packets are
+  byte-equal to the ORIGINAL 0021B1B0 executed at the same call, and the
+  seed it leaves equals all 15 route captures' (level smoke
+  `check_load_veil`); the GS blocks equal the ORIGINAL 001D0F20 executed
+  with its SDK callees and all 18 captures (`make
+  test-gs-blocks-reference`); the drawn frame equals a model of the GS
+  pixel path for a visible veil (both copies on every pixel, the lens passes
+  on 439,792 unambiguous pixels; `make test-load-veil-gpu`).
+- Status: **PARTIAL**. The veil runs and is drawn, but today it is black:
+  the port's area read is a stand-in that finishes inside one call (the
+  loader task's own steps are not run yet, H7), so the load spans no tick
+  and the veil draws a single frame at level 0, exactly as the original's
+  code does for a load that ends at once. On PCSX2 the New Game load drew
+  258 veil frames. No capture holds a frame taken during a load, so the
+  pixels are proven against the GS model, not against a recorded frame.
+  Rasterization is Metal's at the GS resolution. Metal only.
+
 **The player's original projected drop shadow**
 
 From first control, the player casts the original silhouette shadow
@@ -535,9 +567,10 @@ Advertise the items above only.
   bound). The fan pair is a static prop with **no spin** (the original spins;
   `em_fan_original` is verified but unbound). The husks and the opening's
   player use legacy meshes. The level geometry uses exported meshes. The
-  area-load veil particles are translated but unwired, so **the load screen
-  is black**. Roger's drop shadow is not computed (whether the original shows
-  it is unknown).
+  area-load veil runs and is drawn from its own packets, but the port's area
+  read finishes inside one call, so the veil draws only one frame, at level 0
+  (black; the entry above). Roger's drop shadow is not computed (whether the
+  original shows it is unknown).
 
 ### Sound and timing
 
@@ -1308,7 +1341,9 @@ Resolved by the user on 2026-09-27:
    audio at 59.94 Hz with rendering decoupled (`PORT_PROFILES.md`).
 5. **The "PS2 hitches" example:** dropped; see above.
 6. **The load screen:** the load veil is game code, so it must be shown for
-   however long the host load takes; wiring it is queued.
+   however long the host load takes. Since 2026-09-27 it is bound and drawn
+   (the entry above); it shows for as many ticks as the load spans, which is
+   none until the area read runs the loader task's own steps (H7).
 
 Missing faithful behaviour that blocks a "first level complete" claim:
 
@@ -1316,7 +1351,8 @@ Missing faithful behaviour that blocks a "first level complete" claim:
   non-battery item takes;
 - the rand() order's two remaining differences: the husk creature's draw
   (census L24) and the opening's faces (design risk 2) (`RAND_ORDER.md` 6);
-- the load veil (above);
+- the load veil's duration: the area read finishes inside one call (the
+  loader task 001FF0D0's own steps, H7), so the veil draws one black frame;
 - audio output: no SPU2 reverb, Gaussian interpolation or master volumes;
   sounds are not compared in the smoke;
 - visuals: pixels not compared with the reference frames; the GS-exact

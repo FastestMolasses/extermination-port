@@ -347,3 +347,31 @@ test-chain-page:             the ASan / UBSan fixture tests/chain_page_test.c
 
 `src/game/em_chain_page.c`, `src/game/em_chain_page_live.c` and
 `src/game/em_gs_blocks_original.c` are in COMMON.
+
+## 11. List mode: a whole frame list (the load veil, 2026-09-27)
+
+`em_chain_page_run_list` walks a frame's whole list (main-loop step V's, as
+001D21E0 kicks it) with the same DMA / VIF1 / GIF / GS machinery, for the
+load veil's frames (LOAD_VEIL_PARTICLES.md section 3.3):
+
+- **DMA.** The walk ends at the top-level END tag (step V's list closes with
+  a NEXT to the GS block + 0x10, which holds an END); its data is
+  transferred. Page mode still faults on END.
+- **GIF.** A DIRECT may hold several GIF packets: after an EOP, PATH2 reads
+  the next tag until the DIRECT's data is used up (001D6930 sends its TEX0
+  A+D packet and its sprite in one DIRECT 10). Page mode keeps one packet per
+  DIRECT.
+- **Registers.** Besides the page's, list mode takes the A+D writes of the
+  context-1 environment (FRAME_1, ZBUF_1, XYOFFSET_1, SCISSOR_1,
+  PRMODECONT, DTHE, FBA_1, PABE, TEXA, SCANMSK), recorded for every
+  primitive after them in `prim_env` (EmGfxGsEnv); the context-2 set of the
+  draw environments and FOGCOL (accepted; no context-1 primitive reads them);
+  and the vertex registers by A+D: RGBAQ with its Q, ST, UV, XYZF2 and XYZ2
+  (the clear sprite of bank C). The page never holds any of them, so page
+  mode still faults on them.
+- **Verification.** `make test-chain-page` walks a frame list (two GIF
+  packets in one DIRECT, the environment, an A+D sprite, the END; page mode
+  refuses the same bytes) and 5,000 corrupted lists under ASan / UBSan;
+  `make test-load-veil-gpu` walks the veil's lists and draws them; the level
+  smoke's check_load_veil walks the live one (LEVEL_SMOKE.md "The load
+  veil").

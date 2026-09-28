@@ -39,6 +39,9 @@ typedef struct {
     EmGfxGsVertex queue[3];
     uint8_t queue_q[3];
     uint32_t nq;
+    /* list mode: the GS environment registers (context 1) */
+    int list;
+    EmGfxGsEnv env;
 } Walk;
 
 static Walk W;   /* one page at a time (the frame close is single-threaded) */
@@ -78,7 +81,7 @@ static int dma(Walk *w, uint32_t start)
     uint32_t stack[2], depth = 0, cur = start;
     const uint32_t end = start + 0x20u;
     for (uint32_t n = 0;; ++n) {
-        if (cur == end && depth == 0) return 0;
+        if (!w->list && cur == end && depth == 0) return 0;
         if (n >= TAGS_MAX) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, TAGS_MAX);
         const uint8_t *tag = p->read(p->read_ctx, cur, 16);
         if (!tag) return fault(w, EM_CHAIN_PAGE_FAULT_READ, cur, 16);
@@ -108,6 +111,12 @@ static int dma(Walk *w, uint32_t start)
             if (depth == 0) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
             next = stack[--depth];
             break;
+        case 7:                                                           /* END  */
+            /* A frame list's end (list mode only; a page never holds one):
+             * its data is transferred, then the chain stops. */
+            if (!w->list || depth != 0) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
+            next = 0;
+            break;
         default:
             return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
         }
@@ -119,6 +128,7 @@ static int dma(Walk *w, uint32_t start)
             w->seg[w->nseg++] = (Seg){ data, qwc, b };
             p->counts.qwords += qwc;
         }
+        if (id == 7u) return 0;
         cur = next;
     }
 }
@@ -163,6 +173,7 @@ static int emit(Walk *w, uint32_t count)
         memset(&p->prim_q[p->prim_count], 0, sizeof p->prim_q[p->prim_count]);
         for (uint32_t k = 0; k < count; ++k) p->prim_q[p->prim_count].q_known[k] = w->queue_q[k];
     }
+    if (w->list && p->prim_env) p->prim_env[p->prim_count] = w->env;
     p->prim_count++;
     p->counts.prims++;
     p->counts.prim_type[w->prim & 7u]++;
@@ -246,11 +257,62 @@ static int packed(Walk *w, uint32_t reg, const uint8_t *q, uint32_t at)
     }
 }
 
+/* List mode's A+D writes beyond the page's: the context-1 environment
+ * (recorded for the primitives after it), the context-2 set and FOGCOL
+ * (accepted: no context-1 primitive reads them) and the vertex registers.
+ * 1 when handled, 0 when not a list register, -1 on a fault. */
+static int address_data_list(Walk *w, uint32_t reg, uint64_t data, uint32_t at)
+{
+    EmGfxGsEnv *e = &w->env;
+    switch (reg) {
+    case 0x01:                                                    /* RGBAQ */
+        for (unsigned k = 0; k < 4u; ++k) w->rgba[k] = (uint8_t)(data >> (8u * k));
+        w->rq = (uint32_t)(data >> 32);
+        w->rq_known = 1;
+        return 1;
+    case 0x02:                                                    /* ST */
+        w->s = (uint32_t)data; w->t = (uint32_t)(data >> 32);
+        return 1;
+    case 0x03:                                                    /* UV */
+        w->u = (uint16_t)(data & 0x3FFFu); w->v = (uint16_t)((data >> 16) & 0x3FFFu);
+        return 1;
+    case 0x04: case 0x05: {                                       /* XYZF2 / XYZ2 */
+        EmGfxGsVertex v;
+        memset(&v, 0, sizeof v);
+        v.x = (uint16_t)data; v.y = (uint16_t)(data >> 16);
+        if (reg == 0x04) { v.z = (uint32_t)(data >> 32) & 0xFFFFFFu; v.f = (uint8_t)(data >> 56); v.has_f = 1; }
+        else v.z = (uint32_t)(data >> 32);
+        memcpy(v.rgba, w->rgba, 4);
+        v.q = w->rq; v.s = w->s; v.t = w->t; v.u = w->u; v.v = w->v;
+        return vertex(w, &v, 0, at) < 0 ? -1 : 1;
+    }
+    case 0x18: e->xyoffset = data;   e->set |= EM_GFX_GS_ENV_XYOFFSET;   return 1;
+    case 0x1A: e->prmodecont = data; e->set |= EM_GFX_GS_ENV_PRMODECONT; return 1;
+    case 0x22: e->scanmsk = data;    e->set |= EM_GFX_GS_ENV_SCANMSK;    return 1;
+    case 0x3B: e->texa = data;       e->set |= EM_GFX_GS_ENV_TEXA;       return 1;
+    case 0x40: e->scissor = data;    e->set |= EM_GFX_GS_ENV_SCISSOR;    return 1;
+    case 0x45: e->dthe = data;       e->set |= EM_GFX_GS_ENV_DTHE;       return 1;
+    case 0x49: e->pabe = data;       e->set |= EM_GFX_GS_ENV_PABE;       return 1;
+    case 0x4A: e->fba = data;        e->set |= EM_GFX_GS_ENV_FBA;        return 1;
+    case 0x4C: e->frame = data;      e->set |= EM_GFX_GS_ENV_FRAME;      return 1;
+    case 0x4E: e->zbuf = data;       e->set |= EM_GFX_GS_ENV_ZBUF;       return 1;
+    case 0x19: case 0x41: case 0x48: case 0x4D: case 0x4F:        /* context 2 */
+    case 0x3D:                                                    /* FOGCOL */
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 /* One A+D write. */
 static int address_data(Walk *w, const uint8_t *q, uint32_t at)
 {
     const uint64_t data = rd64(q);
     const uint32_t reg = q[8];
+    if (w->list) {
+        const int r = address_data_list(w, reg, data, at);
+        if (r) return r < 0 ? -1 : 0;
+    }
     switch (reg) {
     case 0x00: prim_write(w, (uint32_t)data); return 0;               /* PRIM */
     case 0x06: w->tex0 = data; w->set |= EM_GFX_GS_TEX0; return 0;     /* TEX0_1 */
@@ -416,6 +478,14 @@ static int vif(Walk *w)
             uint32_t used;
             p->counts.direct++;
             if (gif(w, fetch_buffer, direct, cnt, at, &used) < 0) return -1;
+            /* List mode: PATH2 goes on with the next GIF tag after an EOP
+             * until the DIRECT data is used up (001D6930 sends two
+             * packets in one DIRECT). The page's DIRECTs each hold one. */
+            while (w->list && used < cnt) {
+                uint32_t more;
+                if (gif(w, fetch_buffer, direct + 16u * used, cnt - used, at, &more) < 0) return -1;
+                used += more;
+            }
             if (used != cnt) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, used);
             break;
         }
@@ -426,7 +496,7 @@ static int vif(Walk *w)
     return 0;
 }
 
-int em_chain_page_run(EmChainPage *p, uint32_t start)
+static int run(EmChainPage *p, uint32_t start, int list)
 {
     if (!p) return -1;
     if (!p->read || !p->prims || (p->skip_count && !p->skip_calls) || p->skip_count > EM_CHAIN_PAGE_SKIP_MAX) {
@@ -441,9 +511,13 @@ int em_chain_page_run(EmChainPage *p, uint32_t start)
     Walk *w = &W;
     memset(w, 0, sizeof *w);
     w->p = p;
+    w->list = list;
     if (dma(w, start) < 0) return -1;
     return vif(w);
 }
+
+int em_chain_page_run(EmChainPage *p, uint32_t start) { return run(p, start, 0); }
+int em_chain_page_run_list(EmChainPage *p, uint32_t start) { return run(p, start, 1); }
 
 const char *em_chain_page_fault_name(uint32_t fault)
 {

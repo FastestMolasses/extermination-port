@@ -85,3 +85,12 @@ int em_gfx_gs_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count)
 { (void)gfx; (void)prims; (void)count; return -1; }
 int em_gfx_gs_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba, uint32_t width, uint32_t height)
 { (void)gfx; (void)tex0; (void)rgba; (void)width; (void)height; return -1; }
+/* The GS frame (em_gfx.h): not implemented on this backend (the caller faults). */
+int em_gfx_gs_frame(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                    uint64_t display_frame, uint64_t display_scissor)
+{
+    (void)gfx; (void)prims; (void)envs; (void)count; (void)display_frame; (void)display_scissor;
+    return -1;
+}
+int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba)
+{ (void)gfx; (void)fbp; (void)fbw; (void)height; (void)rgba; return -1; }

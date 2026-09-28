@@ -7,10 +7,10 @@
  *             (byte-matched, mwcc 2.3.3)
  *   0021B840  fade-out request: +0 = 2, +3 = +2 = +1 = 0
  * over the block *D_00275888 (EmLoadVeil: only the bytes these three read or
- * write). The particle update and draw 0021B1B0/0021B500 and the display-list
- * registrations 001D2830 are workers; the port binds them as reported
- * no-port-code calls (the veil is not drawn), so what is live is the state
- * machine, which decides the tick on which 001ADF50 finishes. Verified by
+ * write). The veil draw and phase step 0021B1B0 / 0021B500 and the
+ * display-list registrations 001D2830 are workers, bound by em_scene_bindings
+ * to em_load_veil_particles over the render context (the veil's packets are
+ * drawn at step V: docs/LOAD_VEIL_PARTICLES.md section 3). Verified by
  * tools/test_area_load_reference.py (executes the three originals).
  *
  * EE float semantics: add.s and mul.s truncate toward zero; the translation
@@ -33,6 +33,7 @@ typedef struct {
     uint8_t b03;     /* +0x03 */
     uint32_t w04;    /* +0x04 */
     float level[3];  /* +0x08, +0x0C, +0x10 */
+    uint32_t w14;    /* +0x14: 0021B1B0's noise seed */
     uint32_t w18;    /* +0x18 */
 } EmLoadVeil;
 

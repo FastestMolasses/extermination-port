@@ -26,6 +26,8 @@
 #include <stdio.h>
 #include <string.h>
 
+#define EM_GFX_GS_SURFACE_MAX 8u
+
 struct EmGfx {
     NSView                      *view;     /* layer-backed, layer is CAMetalLayer */
     CAMetalLayer                *layer;
@@ -204,6 +206,18 @@ struct EmGfx {
     id<MTLRenderPipelineState>   gsTexPipeline;
     id<MTLRenderPipelineState>   gsFlatPipeline;
     uint32_t                     gsWarned;
+    /* The GS frame (em_gfx_gs_frame): GS-memory surfaces, the GS pixel-path
+     * pipeline that draws into them, the pipeline that shows one in the game
+     * rectangle, and the reasons already printed. */
+    struct EmGfxGsSurface {
+        uint32_t fbp, fbw, height;
+        id<MTLTexture> tex;
+    }                            gsSurf[EM_GFX_GS_SURFACE_MAX];
+    uint32_t                     gsSurfCount;
+    id<MTLRenderPipelineState>   gsfPipeline;
+    id<MTLRenderPipelineState>   gsfShowPipeline;
+    id<MTLTexture>               gsfNoTexture;  /* bound for untextured draws */
+    uint32_t                     gsfWarned;
     /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
      * the TEX0 (CLD cleared) -> texture table, the pipeline of the GS
      * class-0 pixel path, the CPU kernels' result storage and the reasons
@@ -776,6 +790,11 @@ void em_gfx_destroy(EmGfx *g)
     [g->shadowLast release];
     [g->gsTexPipeline release];
     [g->gsFlatPipeline release];
+    for (uint32_t i = 0; i < g->gsSurfCount; i++)
+        [g->gsSurf[i].tex release];
+    [g->gsfPipeline release];
+    [g->gsfShowPipeline release];
+    [g->gsfNoTexture release];
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
     [g->objPipeline release];
@@ -3598,6 +3617,495 @@ int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
     [vb release];
     free(first);
     free(texs);
+    return 0;
+}
+
+/* --- The GS frame (em_gfx_gs_frame — em_gfx.h) ---------------------------- */
+
+/* The GS pixel path of a frame drawn wholly by its GS list, at the GS's own
+ * resolution into GS-memory surfaces (em_gfx.h "The GS frame"). Positions
+ * arrive in NDC of the target surface with the window coordinate w mapped to
+ * w + 0.5, so each Metal pixel centre is a GS integer sample point. RGBA,
+ * S / T / Q and U / V are screen-linear (the GS interpolates them so); a
+ * sprite's U / V (or S / Q, T / Q) are evaluated at the sample point from its
+ * two corners (spr0: window X0, Y0, X1, Y1 and spr1: the corners' texel
+ * coordinates, all in 1/16). Texels are the surface's bytes, read with the
+ * GS rules (nearest at floor(U), or bilinear at U - 0.5 with 4-bit weights),
+ * each coordinate wrapped by CLAMP_1. Then TFX / TCC, the alpha test (ATST,
+ * AREF, AFAIL), the blend ((A - B) * C >> 7) + D, COLCLAMP, FBA and FBMSK
+ * on the surface pixel (framebuffer fetch).
+ * k[0] = (flags, 2^TW, 2^TH, 0); k[1] = (AREF, ALPHA selectors, FIX, FBMSK);
+ * k[2] = (WMS | WMT << 2, MINU | MAXU << 16, MINV | MAXV << 16, 0).
+ * flags: 1 TME, 2 FST, 4 sprite, 8 ABE, 16 bilinear, 32 TCC, TFX << 6,
+ * 256 ATE, ATST << 9, AFAIL << 12, 16384 FBA, 32768 COLCLAMP, 131072 line
+ * (spr0 / spr1 carry its two vertex colours: a pixel Metal's line rule
+ * places past an end takes no colour beyond the ends', as the GS line
+ * steps from one vertex to the other).
+ * APPROXIMATION: coverage is Metal's (its triangle and line rules) and the
+ * interpolated values are Metal's float interpolation, floored with a 0.001
+ * epsilon; the GS DDA is not modelled. */
+static NSString *const kGsFrameShaderSrc =
+@"#include <metal_stdlib>\n"
+"using namespace metal;\n"
+"struct FV { float4 pos; float4 rgba; float4 stq; float4 spr0; float4 spr1; };\n"
+"struct FOut { float4 pos [[position]];\n"
+"              float4 rgba [[center_no_perspective]];\n"
+"              float4 stq [[center_no_perspective]];\n"
+"              float4 spr0 [[flat]]; float4 spr1 [[flat]]; };\n"
+"vertex FOut v_gsf(uint vid [[vertex_id]], const device FV *v [[buffer(0)]]) {\n"
+"    FOut o; o.pos = v[vid].pos; o.rgba = v[vid].rgba; o.stq = v[vid].stq;\n"
+"    o.spr0 = v[vid].spr0; o.spr1 = v[vid].spr1; return o;\n"
+"}\n"
+"static int wrapc(int x, uint mode, int size, int lo, int hi) {\n"
+"    if (mode == 0u) return x & (size - 1);\n"
+"    if (mode == 1u) return clamp(x, 0, size - 1);\n"
+"    if (mode == 2u) return clamp(x, lo, hi);\n"
+"    return (x & lo) | hi;\n"
+"}\n"
+"static uint4 texel(texture2d<float, access::read> t, int x, int y) {\n"
+"    return uint4(round(t.read(uint2(uint(x), uint(y))) * 255.0));\n"
+"}\n"
+"fragment float4 f_gsf(FOut in [[stage_in]], float4 dstf [[color(0)]],\n"
+"                      texture2d<float, access::read> tex [[texture(0)]],\n"
+"                      constant uint4 *k [[buffer(0)]]) {\n"
+"    uint fl = k[0].x;\n"
+"    uint4 dst = uint4(round(dstf * 255.0));\n"
+"    float4 rgba = in.rgba;\n"
+"    if ((fl & 131072u) != 0u) rgba = clamp(rgba, min(in.spr0, in.spr1), max(in.spr0, in.spr1));\n"
+"    uint4 cv = uint4(clamp(floor(rgba + 0.001), 0.0, 255.0));\n"
+"    uint3 c = cv.rgb; uint a = cv.a;\n"
+"    if ((fl & 1u) != 0u) {\n"
+"        int tw = int(k[0].y), th = int(k[0].z);\n"
+"        float u16, v16;\n"
+"        if ((fl & 4u) != 0u) {\n"
+"            float px = (in.pos.x - 0.5) * 16.0, py = (in.pos.y - 0.5) * 16.0;\n"
+"            u16 = in.spr1.x + (px - in.spr0.x) * (in.spr1.z - in.spr1.x) / (in.spr0.z - in.spr0.x);\n"
+"            v16 = in.spr1.y + (py - in.spr0.y) * (in.spr1.w - in.spr1.y) / (in.spr0.w - in.spr0.y);\n"
+"        } else if ((fl & 2u) != 0u) {\n"
+"            u16 = in.stq.x; v16 = in.stq.y;\n"
+"        } else {\n"
+"            u16 = in.stq.x / in.stq.z * float(tw) * 16.0;\n"
+"            v16 = in.stq.y / in.stq.z * float(th) * 16.0;\n"
+"        }\n"
+"        uint wms = k[2].x & 3u, wmt = (k[2].x >> 2) & 3u;\n"
+"        int minu = int(k[2].y & 0xFFFFu), maxu = int(k[2].y >> 16);\n"
+"        int minv = int(k[2].z & 0xFFFFu), maxv = int(k[2].z >> 16);\n"
+"        uint4 t;\n"
+"        if ((fl & 16u) != 0u) {\n"
+"            int uu = int(floor(u16)) - 8, vv = int(floor(v16)) - 8;\n"
+"            int fu = uu & 15, fv = vv & 15;\n"
+"            int x0 = wrapc(uu >> 4, wms, tw, minu, maxu), x1 = wrapc((uu >> 4) + 1, wms, tw, minu, maxu);\n"
+"            int y0 = wrapc(vv >> 4, wmt, th, minv, maxv), y1 = wrapc((vv >> 4) + 1, wmt, th, minv, maxv);\n"
+"            t = (texel(tex, x0, y0) * uint((16 - fu) * (16 - fv)) + texel(tex, x1, y0) * uint(fu * (16 - fv)) +\n"
+"                 texel(tex, x0, y1) * uint((16 - fu) * fv) + texel(tex, x1, y1) * uint(fu * fv)) >> 8;\n"
+"        } else {\n"
+"            t = texel(tex, wrapc(int(floor(u16)) >> 4, wms, tw, minu, maxu),\n"
+"                      wrapc(int(floor(v16)) >> 4, wmt, th, minv, maxv));\n"
+"        }\n"
+"        uint tfx = (fl >> 6) & 3u; bool tcc = (fl & 32u) != 0u;\n"
+"        if (tfx == 1u) { c = t.rgb; a = tcc ? t.a : a; }\n"
+"        else {\n"
+"            uint3 m = min((t.rgb * c) >> 7, uint3(255));\n"
+"            if (tfx == 0u) { c = m; a = tcc ? min((t.a * a) >> 7, 255u) : a; }\n"
+"            else { c = min(m + a, uint3(255)); a = tcc ? (tfx == 2u ? min(t.a + a, 255u) : t.a) : a; }\n"
+"        }\n"
+"    }\n"
+"    bool pass = true;\n"
+"    if ((fl & 256u) != 0u) {\n"
+"        uint atst = (fl >> 9) & 7u, aref = k[1].x;\n"
+"        pass = atst == 1u || (atst == 2u && a < aref) || (atst == 3u && a <= aref) ||\n"
+"               (atst == 4u && a == aref) || (atst == 5u && a >= aref) || (atst == 6u && a > aref) ||\n"
+"               (atst == 7u && a != aref);\n"
+"    }\n"
+"    uint afail = (fl >> 12) & 3u;\n"
+"    bool wrgb = pass || afail == 1u || afail == 3u, wa = pass || afail == 1u;\n"
+"    if (!wrgb) return dstf;\n"
+"    uint3 o = c;\n"
+"    if ((fl & 8u) != 0u) {\n"
+"        int3 cs = int3(c), cd = int3(dst.rgb);\n"
+"        uint sel = k[1].y;\n"
+"        int3 va = (sel & 3u) == 0u ? cs : (sel & 3u) == 1u ? cd : int3(0);\n"
+"        int3 vb = ((sel >> 2) & 3u) == 0u ? cs : ((sel >> 2) & 3u) == 1u ? cd : int3(0);\n"
+"        int vc = ((sel >> 4) & 3u) == 0u ? int(a) : ((sel >> 4) & 3u) == 1u ? int(dst.a) : int(k[1].z);\n"
+"        int3 vd = ((sel >> 6) & 3u) == 0u ? cs : ((sel >> 6) & 3u) == 1u ? cd : int3(0);\n"
+"        int3 r = (((va - vb) * vc) >> 7) + vd;\n"
+"        o = (fl & 32768u) != 0u ? uint3(clamp(r, 0, 255)) : uint3(r) & uint3(255u);\n"
+"    }\n"
+"    uint oa = (a | ((fl & 16384u) != 0u ? 128u : 0u)) & 255u;\n"
+"    uint4 outv = uint4(o, wa ? oa : dst.a);\n"
+"    uint msk = k[1].w;\n"
+"    uint4 m4 = uint4(msk & 255u, (msk >> 8) & 255u, (msk >> 16) & 255u, msk >> 24);\n"
+"    outv = (outv & ~m4) | (dst & m4);\n"
+"    return float4(outv) / 255.0;\n"
+"}\n"
+"struct SOut { float4 pos [[position]]; float2 tc [[center_no_perspective]]; };\n"
+"vertex SOut v_gsshow(uint vid [[vertex_id]], const device float4 *v [[buffer(0)]]) {\n"
+"    SOut o; o.pos = float4(v[vid].xy, 0.0, 1.0); o.tc = v[vid].zw; return o;\n"
+"}\n"
+"fragment float4 f_gsshow(SOut in [[stage_in]], texture2d<float, access::read> tex [[texture(0)]],\n"
+"                         constant uint4 *k [[buffer(0)]]) {\n"
+"    float2 size = float2(k[0].xy);\n"
+"    uint2 p = uint2(min(floor(in.tc * size), size - 1.0));\n"
+"    return float4(tex.read(p).rgb, 1.0);\n"
+"}\n";
+
+enum {
+    GSF_WARN_FRAME = 1u, GSF_WARN_STATE = 2u, GSF_WARN_SURFACE = 4u, GSF_WARN_GPU = 8u,
+    GSF_WARN_INPUT = 16u,
+};
+
+static int gsf_fail(EmGfx *g, uint32_t why, const char *what, uint64_t detail)
+{
+    if (g && !(g->gsfWarned & why)) {
+        g->gsfWarned |= why;
+        fprintf(stderr, "gfx: GS frame: %s (%#llx) — not drawn\n", what, (unsigned long long)detail);
+    }
+    return -1;
+}
+
+static struct EmGfxGsSurface *gsf_find(EmGfx *g, uint32_t fbp, uint32_t fbw)
+{
+    for (uint32_t i = 0; i < g->gsSurfCount; i++)
+        if (g->gsSurf[i].fbp == fbp && g->gsSurf[i].fbw == fbw) return &g->gsSurf[i];
+    return NULL;
+}
+
+/* The surface a FRAME_1 draws into, created (zeroed) at its first use with
+ * the height its SCISSOR reaches. NULL on a refusal. */
+static struct EmGfxGsSurface *gsf_target(EmGfx *g, id<MTLCommandBuffer> cb, uint64_t frame, uint64_t scissor,
+                                         const char **why)
+{
+    const uint32_t fbp = (uint32_t)frame & 0x1FFu, fbw = (uint32_t)(frame >> 16) & 0x3Fu;
+    const uint32_t psm = (uint32_t)(frame >> 24) & 0x3Fu;
+    const uint32_t sx1 = (uint32_t)(scissor >> 16) & 0x7FFu, sy1 = (uint32_t)(scissor >> 48) & 0x7FFu;
+    if (psm != 0u) { *why = "a FRAME_1 other than PSMCT32"; return NULL; }
+    if (fbw == 0u || sx1 >= 64u * fbw) { *why = "a SCISSOR_1 wider than FRAME_1's buffer"; return NULL; }
+    struct EmGfxGsSurface *s = gsf_find(g, fbp, fbw);
+    if (s) {
+        if (sy1 >= s->height) { *why = "a SCISSOR_1 below the surface's first height"; return NULL; }
+        return s;
+    }
+    if (g->gsSurfCount >= EM_GFX_GS_SURFACE_MAX) { *why = "too many GS surfaces"; return NULL; }
+    MTLTextureDescriptor *td = [MTLTextureDescriptor
+        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:64u * fbw height:sy1 + 1u mipmapped:NO];
+    td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+    td.storageMode = MTLStorageModePrivate;
+    id<MTLTexture> t = [g->device newTextureWithDescriptor:td];
+    if (!t) { *why = "surface allocation failed"; return NULL; }
+    MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+    rp.colorAttachments[0].texture = t;
+    rp.colorAttachments[0].loadAction = MTLLoadActionClear;
+    rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+    rp.colorAttachments[0].clearColor = MTLClearColorMake(0.0, 0.0, 0.0, 0.0);
+    id<MTLRenderCommandEncoder> enc = [cb renderCommandEncoderWithDescriptor:rp];
+    [enc endEncoding];
+    s = &g->gsSurf[g->gsSurfCount++];
+    s->fbp = fbp;
+    s->fbw = fbw;
+    s->height = sy1 + 1u;
+    s->tex = t;
+    return s;
+}
+
+/* One primitive's draw state: its uniform, target, texture and scissor. */
+typedef struct {
+    uint32_t k[12];
+    struct EmGfxGsSurface *target, *texture;
+    uint32_t sc[4];          /* scissor x, y, w, h in the target */
+    uint32_t line;           /* 1: a line (a separate Metal primitive type) */
+} GsfState;
+
+static const char *gsf_state(EmGfx *g, id<MTLCommandBuffer> cb, const EmGfxGsPrim *p, const EmGfxGsEnv *e,
+                             GsfState *st)
+{
+    const uint32_t type = p->prim & 7u, iip = (p->prim >> 3) & 1u, tme = (p->prim >> 4) & 1u;
+    const uint32_t fge = (p->prim >> 5) & 1u, abe = (p->prim >> 6) & 1u, fst = (p->prim >> 8) & 1u;
+    (void)iip;
+    memset(st, 0, sizeof *st);
+    if (p->prim & 0x680u) return "PRIM AA1 / CTXT / FIX";
+    if (fge) return "a fogged primitive";
+    if (type == 0u || type == 7u) return "a point or an unknown PRIM type";
+    if ((type == 1u || type == 2u) ? p->count != 2u : type == 6u ? p->count != 2u : p->count != 3u)
+        return "a vertex count the PRIM type does not draw";
+    const uint32_t need_env = EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_XYOFFSET | EM_GFX_GS_ENV_SCISSOR |
+                              EM_GFX_GS_ENV_PRMODECONT;
+    if ((e->set & need_env) != need_env) return "an environment the list did not set";
+    if (!(e->prmodecont & 1u)) return "PRMODECONT 0 (PRMODE attributes)";
+    if ((e->set & EM_GFX_GS_ENV_DTHE) && (e->dthe & 1u)) return "dithering";
+    if ((e->set & EM_GFX_GS_ENV_PABE) && (e->pabe & 1u)) return "PABE";
+    if ((e->set & EM_GFX_GS_ENV_SCANMSK) && (e->scanmsk & 3u)) return "SCANMSK";
+    const uint32_t need = EM_GFX_GS_TEST | EM_GFX_GS_COLCLAMP | (abe ? EM_GFX_GS_ALPHA : 0u) |
+                          (tme ? EM_GFX_GS_TEX0 | EM_GFX_GS_TEX1 | EM_GFX_GS_CLAMP : 0u);
+    if ((p->set & need) != need) return "a drawing state the list did not set";
+    const uint64_t test = p->test;
+    if ((test >> 14) & 1u) return "destination alpha test";
+    if (((test >> 16) & 1u) && ((test >> 17) & 3u) != 1u) return "a Z test other than ALWAYS";
+    const char *why = NULL;
+    st->target = gsf_target(g, cb, e->frame, e->scissor, &why);
+    if (!st->target) return why;
+    uint32_t flags = 0;
+    if (tme) {
+        const uint64_t t0 = p->tex0;
+        const uint32_t tbp = (uint32_t)t0 & 0x3FFFu, tbw = (uint32_t)(t0 >> 14) & 0x3Fu;
+        const uint32_t psm = (uint32_t)(t0 >> 20) & 0x3Fu, tw = (uint32_t)(t0 >> 26) & 15u;
+        const uint32_t th = (uint32_t)(t0 >> 30) & 15u, tcc = (uint32_t)(t0 >> 34) & 1u;
+        const uint32_t tfx = (uint32_t)(t0 >> 35) & 3u;
+        if (psm != 0u) return "a TEX0 other than PSMCT32";
+        if ((tbp & 31u) || tw > 10u || th > 10u) return "a TEX0 that is not a whole frame-buffer page";
+        st->texture = gsf_find(g, tbp >> 5, tbw);
+        if (!st->texture) return "a TEX0 that names no drawn surface";
+        if (st->texture == st->target) return "a texture read of the surface it draws into";
+        const uint64_t t1 = p->tex1;
+        const uint32_t mmag = (uint32_t)(t1 >> 5) & 1u, mmin = (uint32_t)(t1 >> 6) & 7u;
+        if ((t1 & 1u) || ((t1 >> 2) & 7u) || mmin > 1u || mmag != mmin)
+            return "a TEX1_1 other than MMAG == MMIN nearest / bilinear without mipmaps";
+        const uint64_t cl = p->clamp;
+        const uint32_t wms = (uint32_t)cl & 3u, wmt = (uint32_t)(cl >> 2) & 3u;
+        const uint32_t minu = (uint32_t)(cl >> 4) & 0x3FFu, maxu = (uint32_t)(cl >> 14) & 0x3FFu;
+        const uint32_t minv = (uint32_t)(cl >> 24) & 0x3FFu, maxv = (uint32_t)(cl >> 34) & 0x3FFu;
+        /* The texels a coordinate can reach must lie in the surface. */
+        const uint32_t reach_u = wms == 2u ? maxu : wms == 3u ? (minu | maxu) : (1u << tw) - 1u;
+        const uint32_t reach_v = wmt == 2u ? maxv : wmt == 3u ? (minv | maxv) : (1u << th) - 1u;
+        if (reach_u >= 64u * st->texture->fbw || reach_v >= st->texture->height ||
+            (wms == 2u && minu > maxu) || (wmt == 2u && minv > maxv))
+            return "a CLAMP_1 whose texels are outside the surface";
+        flags |= 1u | (fst ? 2u : 0u) | (mmag ? 16u : 0u) | (tcc ? 32u : 0u) | (tfx << 6);
+        st->k[1] = 1u << tw;
+        st->k[2] = 1u << th;
+        st->k[8] = wms | wmt << 2;
+        st->k[9] = minu | maxu << 16;
+        st->k[10] = minv | maxv << 16;
+    }
+    if (type == 6u) flags |= 4u;
+    if (type == 1u || type == 2u) flags |= 131072u;
+    if (abe) {
+        const uint32_t a = (uint32_t)p->alpha & 0xFFu;
+        if ((a & 3u) == 3u || ((a >> 2) & 3u) == 3u || ((a >> 4) & 3u) == 3u || ((a >> 6) & 3u) == 3u)
+            return "a reserved ALPHA_1 selector";
+        flags |= 8u;
+        st->k[5] = a;
+        st->k[6] = (uint32_t)(p->alpha >> 32) & 0xFFu;
+    }
+    if (test & 1u) flags |= 256u | (uint32_t)((test >> 1) & 7u) << 9 | (uint32_t)((test >> 12) & 3u) << 12;
+    st->k[4] = (uint32_t)(test >> 4) & 0xFFu;
+    if ((e->set & EM_GFX_GS_ENV_FBA) && (e->fba & 1u)) flags |= 16384u;
+    if (p->colclamp & 1u) flags |= 32768u;
+    st->k[7] = (uint32_t)(e->frame >> 32);
+    st->k[0] = flags;
+    const uint32_t sx0 = (uint32_t)e->scissor & 0x7FFu, sx1 = (uint32_t)(e->scissor >> 16) & 0x7FFu;
+    const uint32_t sy0 = (uint32_t)(e->scissor >> 32) & 0x7FFu, sy1 = (uint32_t)(e->scissor >> 48) & 0x7FFu;
+    if (sx0 > sx1 || sy0 > sy1) return "an empty SCISSOR_1";
+    st->sc[0] = sx0; st->sc[1] = sy0; st->sc[2] = sx1 - sx0 + 1u; st->sc[3] = sy1 - sy0 + 1u;
+    st->line = type == 1u || type == 2u;
+    return NULL;
+}
+
+/* One vertex: position in the target's NDC, colour, texture coordinates. */
+static void gsf_put(float *o, const EmGfxGsVertex *v, const EmGfxGsEnv *e, const struct EmGfxGsSurface *t,
+                    const uint8_t rgba[4], uint32_t fst)
+{
+    const float wx = ((float)v->x - (float)(e->xyoffset & 0xFFFFu)) / 16.0f;
+    const float wy = ((float)v->y - (float)((e->xyoffset >> 32) & 0xFFFFu)) / 16.0f;
+    memset(o, 0, 20 * sizeof(float));
+    o[0] = (wx + 0.5f) / (float)(64u * t->fbw) * 2.0f - 1.0f;
+    o[1] = 1.0f - (wy + 0.5f) / (float)t->height * 2.0f;
+    o[3] = 1.0f;
+    for (unsigned c = 0; c < 4u; c++) o[4 + c] = (float)rgba[c];
+    if (fst) {
+        o[8] = (float)v->u;
+        o[9] = (float)v->v;
+    } else {
+        o[8] = bits_f(v->s);
+        o[9] = bits_f(v->t);
+        o[10] = bits_f(v->q);
+    }
+}
+
+int em_gfx_gs_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                    uint64_t display_frame, uint64_t display_scissor)
+{
+    if (!g || !g->enc) return gsf_fail(g, GSF_WARN_FRAME, "outside a frame", 0);
+    if (count && (!prims || !envs)) return gsf_fail(g, GSF_WARN_INPUT, "no primitives", 0);
+    if (![g->device supportsFamily:MTLGPUFamilyApple1])
+        return gsf_fail(g, GSF_WARN_GPU, "the GPU has no framebuffer fetch (the GS blend)", 0);
+    if (!g->gsfPipeline)
+        g->gsfPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsf", @"f_gsf", MTLPixelFormatRGBA8Unorm,
+                                         false, MTLColorWriteMaskAll);
+    if (!g->gsfShowPipeline)
+        g->gsfShowPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsshow", @"f_gsshow",
+                                             g->layer.pixelFormat, true, MTLColorWriteMaskAll);
+    if (!g->gsfNoTexture) {
+        MTLTextureDescriptor *td = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm width:1 height:1 mipmapped:NO];
+        td.usage = MTLTextureUsageShaderRead;
+        g->gsfNoTexture = [g->device newTextureWithDescriptor:td];
+    }
+    if (!g->gsfPipeline || !g->gsfShowPipeline || !g->gsfNoTexture)
+        return gsf_fail(g, GSF_WARN_GPU, "pipeline unavailable", 0);
+    GsfState *st = calloc(count ? count : 1u, sizeof *st);
+    float *v = malloc(sizeof(float) * 20u * 6u * (count ? count : 1u));
+    uint32_t *first = malloc(sizeof(uint32_t) * 2u * (count ? count : 1u));
+    if (!st || !v || !first) {
+        free(st); free(v); free(first);
+        return gsf_fail(g, GSF_WARN_INPUT, "out of memory", count);
+    }
+    id<MTLCommandBuffer> cb = [g->queue commandBuffer];
+    uint32_t n = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const EmGfxGsPrim *p = &prims[i];
+        const char *why = gsf_state(g, cb, p, &envs[i], &st[i]);
+        if (why) {
+            [cb commit];
+            free(st); free(v); free(first);
+            return gsf_fail(g, GSF_WARN_STATE, why, p->prim);
+        }
+        const uint32_t type = p->prim & 7u, iip = (p->prim >> 3) & 1u, fst = (p->prim >> 8) & 1u;
+        const EmGfxGsVertex *last = &p->v[p->count - 1u];
+        first[2u * i] = n;
+        if (type == 6u) {
+            /* The GS sprite: colour and Z of the second vertex; the corners'
+             * texel coordinates in 1/16 for the per-pixel evaluation. */
+            const EmGfxGsVertex *a = &p->v[0], *b = &p->v[1];
+            const EmGfxGsEnv *e = &envs[i];
+            const float ox = (float)(e->xyoffset & 0xFFFFu), oy = (float)((e->xyoffset >> 32) & 0xFFFFu);
+            float spr1[4] = { 0, 0, 0, 0 };
+            if ((p->prim >> 4) & 1u) {
+                if (fst) {
+                    spr1[0] = (float)a->u; spr1[1] = (float)a->v; spr1[2] = (float)b->u; spr1[3] = (float)b->v;
+                } else {
+                    const float tw = (float)st[i].k[1], th = (float)st[i].k[2];
+                    spr1[0] = bits_f(a->s) / bits_f(a->q) * tw * 16.0f;
+                    spr1[1] = bits_f(a->t) / bits_f(a->q) * th * 16.0f;
+                    spr1[2] = bits_f(b->s) / bits_f(b->q) * tw * 16.0f;
+                    spr1[3] = bits_f(b->t) / bits_f(b->q) * th * 16.0f;
+                }
+            }
+            const float spr0[4] = { (float)a->x - ox, (float)a->y - oy, (float)b->x - ox, (float)b->y - oy };
+            if (spr0[0] == spr0[2] || spr0[1] == spr0[3]) {
+                first[2u * i + 1u] = 0;     /* an empty sprite draws nothing */
+                continue;
+            }
+            static const unsigned corner[6][2] = { {0, 0}, {1, 0}, {0, 1}, {1, 0}, {1, 1}, {0, 1} };
+            for (unsigned c = 0; c < 6u; c++) {
+                EmGfxGsVertex q = *b;
+                q.x = corner[c][0] ? b->x : a->x;
+                q.y = corner[c][1] ? b->y : a->y;
+                float *o = v + (size_t)(n + c) * 20u;
+                gsf_put(o, &q, e, st[i].target, b->rgba, 1u);
+                memcpy(o + 12, spr0, sizeof spr0);
+                memcpy(o + 16, spr1, sizeof spr1);
+            }
+            n += 6u;
+        } else {
+            for (uint32_t c = 0; c < p->count; c++) {
+                float *o = v + (size_t)(n + c) * 20u;
+                gsf_put(o, &p->v[c], &envs[i], st[i].target, iip ? p->v[c].rgba : last->rgba, fst);
+                if (st[i].line)
+                    for (unsigned q = 0; q < 4u; q++) {
+                        o[12 + q] = (float)(iip ? p->v[0].rgba[q] : last->rgba[q]);
+                        o[16 + q] = (float)last->rgba[q];
+                    }
+            }
+            n += p->count;
+        }
+        first[2u * i + 1u] = n - first[2u * i];
+    }
+    id<MTLBuffer> vb = n ? [g->device newBufferWithBytes:v length:sizeof(float) * 20u * n
+                                                 options:MTLResourceStorageModeShared]
+                         : nil;
+    free(v);
+    /* Runs of primitives with one state become one draw (the Apple GPU keeps
+     * framebuffer-fetch order within a draw); a new target starts a pass. */
+    id<MTLRenderCommandEncoder> enc = nil;
+    struct EmGfxGsSurface *cur = NULL;
+    for (uint32_t i = 0; i < count;) {
+        uint32_t j = i + 1u;
+        while (j < count && st[j].target == st[i].target && st[j].texture == st[i].texture &&
+               st[j].line == st[i].line && memcmp(st[j].k, st[i].k, sizeof st[i].k) == 0 &&
+               memcmp(st[j].sc, st[i].sc, sizeof st[i].sc) == 0 &&
+               first[2u * j] == first[2u * (j - 1u)] + first[2u * (j - 1u) + 1u])
+            j++;
+        uint32_t verts = 0;
+        for (uint32_t m = i; m < j; m++) verts += first[2u * m + 1u];
+        if (verts) {
+            if (st[i].target != cur) {
+                if (enc) [enc endEncoding];
+                MTLRenderPassDescriptor *rp = [MTLRenderPassDescriptor renderPassDescriptor];
+                rp.colorAttachments[0].texture = st[i].target->tex;
+                rp.colorAttachments[0].loadAction = MTLLoadActionLoad;
+                rp.colorAttachments[0].storeAction = MTLStoreActionStore;
+                enc = [cb renderCommandEncoderWithDescriptor:rp];
+                cur = st[i].target;
+                [enc setRenderPipelineState:g->gsfPipeline];
+                [enc setCullMode:MTLCullModeNone];
+                [enc setViewport:(MTLViewport){ 0.0, 0.0, 64.0 * cur->fbw, cur->height, 0.0, 1.0 }];
+                [enc setVertexBuffer:vb offset:0 atIndex:0];
+            }
+            const uint32_t w = cur->fbw * 64u, h = cur->height;
+            const uint32_t x0 = st[i].sc[0] < w ? st[i].sc[0] : w, y0 = st[i].sc[1] < h ? st[i].sc[1] : h;
+            const uint32_t sw = st[i].sc[2] < w - x0 ? st[i].sc[2] : w - x0;
+            const uint32_t sh = st[i].sc[3] < h - y0 ? st[i].sc[3] : h - y0;
+            if (sw && sh) {
+                [enc setScissorRect:(MTLScissorRect){ x0, y0, sw, sh }];
+                const uint32_t k[16] = { st[i].k[0], st[i].k[1], st[i].k[2], 0, st[i].k[4], st[i].k[5],
+                                         st[i].k[6], st[i].k[7], st[i].k[8], st[i].k[9], st[i].k[10], 0,
+                                         0, 0, 0, 0 };
+                [enc setFragmentBytes:k length:sizeof k atIndex:0];
+                [enc setFragmentTexture:st[i].texture ? st[i].texture->tex : g->gsfNoTexture atIndex:0];
+                [enc drawPrimitives:st[i].line ? MTLPrimitiveTypeLine : MTLPrimitiveTypeTriangle
+                        vertexStart:first[2u * i] vertexCount:verts];
+            }
+        }
+        i = j;
+    }
+    if (enc) [enc endEncoding];
+    /* Committed now: it runs before the frame's command buffer (committed by
+     * end_frame), whose game rectangle shows the displayed surface. */
+    [cb commit];
+    [vb release];
+    free(st);
+    free(first);
+    /* Show the displayed surface over the whole game rectangle. */
+    const uint32_t dfbp = (uint32_t)display_frame & 0x1FFu, dfbw = (uint32_t)(display_frame >> 16) & 0x3Fu;
+    const uint32_t dh = (uint32_t)(display_scissor >> 48) & 0x7FFu;
+    struct EmGfxGsSurface *d = gsf_find(g, dfbp, dfbw);
+    if (!d || dh + 1u > d->height)
+        return gsf_fail(g, GSF_WARN_SURFACE, "the displayed frame buffer was not drawn", display_frame);
+    ensure_depth_states(g);
+    static const float quad[6][4] = {
+        { -1.0f,  1.0f, 0.0f, 0.0f }, { 1.0f,  1.0f, 1.0f, 0.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
+        {  1.0f,  1.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 1.0f, 1.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
+    };
+    const uint32_t k[4] = { 64u * d->fbw, dh + 1u, 0u, 0u };
+    [g->enc setRenderPipelineState:g->gsfShowPipeline];
+    [g->enc setDepthStencilState:g->depthOff];
+    [g->enc setCullMode:MTLCullModeNone];
+    [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
+    [g->enc setFragmentTexture:d->tex atIndex:0];
+    [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    return 0;
+}
+
+int em_gfx_gs_surface_read(EmGfx *g, uint32_t fbp, uint32_t fbw, uint32_t height, uint8_t *rgba)
+{
+    if (!g || !rgba) return -1;
+    struct EmGfxGsSurface *s = gsf_find(g, fbp, fbw);
+    if (!s || height > s->height || !height) return -1;
+    @autoreleasepool {   /* called outside begin/end_frame */
+    const NSUInteger row = 64u * fbw * 4u;
+    id<MTLBuffer> buf = [g->device newBufferWithLength:row * height options:MTLResourceStorageModeShared];
+    id<MTLCommandBuffer> cb = [g->queue commandBuffer];
+    id<MTLBlitCommandEncoder> blit = [cb blitCommandEncoder];
+    [blit copyFromTexture:s->tex sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0)
+               sourceSize:MTLSizeMake(64u * fbw, height, 1) toBuffer:buf destinationOffset:0
+      destinationBytesPerRow:row destinationBytesPerImage:row * height];
+    [blit endEncoding];
+    [cb commit];
+    [cb waitUntilCompleted];
+    memcpy(rgba, buf.contents, row * height);
+    [buf release];
+    }
     return 0;
 }
 

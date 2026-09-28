@@ -8,7 +8,10 @@
  * words of it (tags, VIF codes, GIF tags, registers) 20000 times and walks
  * each: every run must return 0 or a latched fault, stay inside the mapped
  * 64 KiB, and never draw more primitives than the capacity it was given.
- * It also checks the argument refusals and the skip list. */
+ * It also checks the argument refusals and the skip list, and list mode
+ * (em_chain_page_run_list): a frame list with the environment registers,
+ * two GIF packets in one DIRECT, an A+D sprite and the END tag, which page
+ * mode refuses, then 5000 corrupted lists. */
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -66,6 +69,42 @@ static uint32_t build(void)
     return link + 16u - START;
 }
 
+/* A frame list (list mode): a DIRECT of two GIF packets (the environment,
+ * then TEST / ALPHA / COLCLAMP), a CNT with an A+D sprite (PRIM, RGBAQ with
+ * its Q, XYZ2 x 2) and the END tag. Returns its size. */
+static uint32_t build_list(void)
+{
+    memset(mem, 0, sizeof mem);
+    uint32_t words[256], n = 0;
+    const uint64_t env[4][2] = { {0x80038, 0x4C}, {0x790800007000u, 0x18}, {0x00DF000001FF0000u, 0x40},
+                                 {1, 0x1A} };
+    const uint64_t st[3][2] = { {0x30000, 0x47}, {0x80000000A8u, 0x42}, {1, 0x46} };
+    const uint64_t spr[4][2] = { {6, 0x00}, {0x3F80000080402010u, 0x01}, {0x79007000u, 0x05},
+                                 {0x0000000587009000u, 0x05} };
+    words[n++] = 0; words[n++] = 0; words[n++] = 0x11000000u; words[n++] = 0x50000009u;   /* DIRECT 9 */
+    words[n++] = 4u | 0x8000u; words[n++] = 0x10000000u; words[n++] = 0xE; words[n++] = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+        words[n++] = (uint32_t)env[i][0]; words[n++] = (uint32_t)(env[i][0] >> 32);
+        words[n++] = (uint32_t)env[i][1]; words[n++] = 0;
+    }
+    words[n++] = 3u | 0x8000u; words[n++] = 0x10000000u; words[n++] = 0xE; words[n++] = 0;
+    for (unsigned i = 0; i < 3; ++i) {
+        words[n++] = (uint32_t)st[i][0]; words[n++] = (uint32_t)(st[i][0] >> 32);
+        words[n++] = (uint32_t)st[i][1]; words[n++] = 0;
+    }
+    words[n++] = 0; words[n++] = 0; words[n++] = 0; words[n++] = 0x50000005u;   /* DIRECT 5 */
+    words[n++] = 4u | 0x8000u; words[n++] = 0x10000000u; words[n++] = 0xE; words[n++] = 0;
+    for (unsigned i = 0; i < 4; ++i) {
+        words[n++] = (uint32_t)spr[i][0]; words[n++] = (uint32_t)(spr[i][0] >> 32);
+        words[n++] = (uint32_t)spr[i][1]; words[n++] = 0;
+    }
+    w32(START, 0x10000000u | (n / 4u));                                         /* CNT */
+    memcpy(mem + START + 16, words, 4u * n);
+    const uint32_t end = START + 16u + 4u * n;
+    w32(end, 0x70000000u);                                                     /* END */
+    return end + 16u - START;
+}
+
 static int run(EmChainPage *p, EmGfxGsPrim *prims, uint32_t capacity, const uint32_t *skip, uint32_t nskip)
 {
     memset(p, 0, sizeof *p);
@@ -110,6 +149,40 @@ int main(void)
     assert(run(&page, prims, 8, &skip, 1) == 0 && page.counts.skipped == 1 && page.prim_count == 1);
     assert(run(&page, prims, 8, NULL, 0) == -1);       /* not skipped: memory at 0x8000 is no program */
 
+    /* list mode: the environment per primitive, two GIF packets in one
+     * DIRECT, A+D vertices, the END tag; the same bytes fault as a page */
+    static EmGfxGsEnv envs[8];
+    const uint32_t lsize = build_list();
+    memset(&page, 0, sizeof page);
+    page.read = reader; page.prims = prims; page.prim_env = envs; page.prim_capacity = 8;
+    assert(em_chain_page_run_list(&page, START) == 0);
+    assert(page.prim_count == 1 && prims[0].prim == 6 && prims[0].count == 2);
+    assert(prims[0].v[0].x == 0x7000 && prims[0].v[1].y == 0x8700 && prims[0].v[1].z == 5);
+    assert(prims[0].v[1].rgba[0] == 0x10 && prims[0].v[1].rgba[3] == 0x80 && prims[0].v[1].q == 0x3F800000u);
+    assert(prims[0].test == 0x30000u && prims[0].alpha == 0x80000000A8u && prims[0].colclamp == 1);
+    assert(envs[0].set == (EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_XYOFFSET | EM_GFX_GS_ENV_SCISSOR |
+                           EM_GFX_GS_ENV_PRMODECONT));
+    assert(envs[0].frame == 0x80038u && envs[0].xyoffset == 0x790800007000u && page.counts.direct == 2);
+    assert(run(&page, prims, 8, NULL, 0) == -1 && page.fault == EM_CHAIN_PAGE_FAULT_DMA);   /* END */
+    srand(0x1157);
+    uint32_t lfaults = 0, lclean = 0;
+    for (unsigned it = 0; it < 5000u; ++it) {
+        build_list();
+        const unsigned flips = 1u + (unsigned)(rand() % 4);
+        for (unsigned f = 0; f < flips; ++f)
+            w32(START + 4u * (uint32_t)(rand() % (int)(lsize / 4u)), (uint32_t)rand() ^ ((uint32_t)rand() << 16));
+        memset(&page, 0, sizeof page);
+        page.read = reader; page.prims = prims; page.prim_env = envs;
+        page.prim_capacity = (uint32_t)(rand() % 3);
+        if (em_chain_page_run_list(&page, START) == 0) {
+            ++lclean;
+            assert(page.prim_count <= page.prim_capacity);
+        } else {
+            ++lfaults;
+            assert(page.fault != EM_CHAIN_PAGE_OK);
+        }
+    }
+
     /* corruption sweep */
     srand(0xC4A1);
     uint32_t faults = 0, clean = 0;
@@ -135,7 +208,8 @@ int main(void)
             assert(page.fault != EM_CHAIN_PAGE_OK);
         }
     }
-    printf("chain_page_test: PASS (1 clean page, 6 refusals, %u corrupted pages walked: %u faulted, %u clean)\n",
-           faults + clean, faults, clean);
+    printf("chain_page_test: PASS (1 clean page, 6 refusals, %u corrupted pages walked: %u faulted, %u clean; "
+           "1 clean frame list, %u corrupted lists walked: %u faulted, %u clean)\n",
+           faults + clean, faults, clean, lfaults + lclean, lfaults, lclean);
     return 0;
 }

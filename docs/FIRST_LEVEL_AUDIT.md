@@ -751,6 +751,42 @@ switch, off by default; LAUNCHER_OPTIONS.md BUILT):**
   cut15 PASS in both; `make all` with no warnings. Census unchanged
   (section 1.34).
 
+**Status update (2026-09-27, chain C8: the load veil live; LOAD_VEIL_PARTICLES.md
+sections 3-5, census 1.35):**
+- **Bound.** The veil draw 0021B1B0 and phase step 0021B500 run at their
+  original caller 0021B550 (em_scene_bindings; em_rcl_0021B1B0 on the render
+  context's one veil module, whose table and D_0026E880 are new storage).
+  UM_0021B1B0 / UM_0021B500 are removed. EmLoadVeil has the seed at +0x14.
+- **Its GS state.** The boot builder's GS blocks are translated whole
+  (em_gs_blocks_original: 001D0F20's banks A..G and header, 00101898,
+  00101630, 001008C0) and built at em_rcl_init; step V's XYOFFSET is now
+  computed from the real draw environments, as in the captures.
+- **Drawn.** After step V, a frame whose 0021B1B0 ran has its kicked list
+  walked as the DMA sends it (em_chain_page's new list mode: END, several GIF
+  packets per DIRECT, the environment registers and A+D vertices) and drawn
+  by the new GS frame stage (em_gfx_gs_frame: GS-memory surfaces at the GS's
+  resolution, the frame copied to a texture and drawn back by the lens
+  strips, the GS texture / alpha-test / blend rules), then shown in the game
+  rectangle (em_load_veil_live).
+- **What a player sees.** The area read completes inside 001FF080(1, 0), so
+  a load spans no tick at host speed: 0021B550 never enters state 1, the
+  level stays 0 and the veil draws one frame, black, as the original's code
+  does for a load that ends at once (the PS2 drew 258 frames at New Game).
+  Item 11 below (the loader task's own steps) is what makes it visible.
+- **Evidence.** The level smoke's `check_load_veil` (every run): the live
+  run is byte-equal to the ORIGINAL 0021B1B0 executed at the same call, its
+  seed equals the port's and all 15 route captures', the original 0021B500
+  steps the phase to the port's. New tests: `make test-gs-blocks-reference`
+  (the executed 001D0F20 with its SDK callees, 18 captures), `make
+  test-load-veil-gpu` (the GS frame stage against a GS pixel model, a
+  visible veil). `make test-area-load-reference` now executes 0021B500 and
+  0021B1B0 in its chain replay; `make test-chain-page` covers list mode.
+  newgame-control 9.599849 (unchanged). Census: six rows to live (live 666,
+  verified-unbound 71; 92.4%).
+- **No capture shows a veil frame** (every capture is taken after a load):
+  its pixels are proven against the GS model only. A PCSX2 software-renderer
+  frame taken mid-load (the fb2 method) would settle them.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -876,8 +912,9 @@ The items are ordered in four groups:
    - If a vertex's RGBAQ comes before any ST on its page, the chain page
      draws it with Q = 1.0.
    - The area title card 001C5860 / 001C5930 is em_hud's legacy card.
-   - The load veil's particles 0021B1B0 / 0021B500 are not drawn, so loads
-     show black.
+   - The load veil is drawn from its own packets since chain C8, but it
+     draws one black frame per load: the area read ends inside one call
+     (item 11; LOAD_VEIL_PARTICLES.md section 5).
 10. **Sound: silent or partly bound cues.**
     - The UI cues 0 / 1 / 2 / 5 / 0xB / 0xD and the unit sound are silent
       (AM-07).
@@ -898,6 +935,10 @@ The items are ordered in four groups:
     - The capture exists (CAPTURES_C7.md section 6).
     - What removes it: translate the loader's dispatch state machine, so the
       prompt waits the code's dispatches at host drive speed.
+    - The same holds for the area read 001FF080(1, 0): the port's read
+      finishes inside the call, so 001ADF50's load and the load veil span no
+      tick. With the loader task 001FF0D0 running, the veil shows for its
+      ticks (LOAD_VEIL_PARTICLES.md section 5).
 12. **Logic: startup, input and frame glue that is still the port's own.**
     All of these rows are verified-unbound. The captures prove only their
     observable results.

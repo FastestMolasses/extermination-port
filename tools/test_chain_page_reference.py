@@ -203,7 +203,8 @@ def build_lib():
     src.write_text(SHIM)
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-shared',
                     '-fPIC', '-I' + str(ROOT / 'src'), str(src), str(ROOT / 'src/game/em_chain_page.c'),
-                    str(ROOT / 'src/game/em_gs_blocks_original.c'), '-o', str(lib_path)], check=True)
+                    str(ROOT / 'src/game/em_gs_blocks_original.c'),
+                    str(ROOT / 'src/game/em_load_veil_particles.c'), '-o', str(lib_path)], check=True)
     lib = C.CDLL(str(lib_path))
     P = C.POINTER
     lib.shim_mscal.argtypes = [C.c_int, P(Regs), DMEM, P(Kicks)]

@@ -42,6 +42,7 @@ typedef uint32_t u32;
 #define D_250F30_SIZE 0x2250u   /* through D_00253170 (001D8340's fold seed) */
 #define D_26E510    0x0026E510u
 #define D_26E850    0x0026E850u
+#define D_26E880    0x0026E880u   /* 001DFA40's frame-copy colour (the load veil) */
 #define D_275670    0x00275670u
 #define SPAD_3A40   0x70003A40u
 #define SPAD_3B60   0x70003B60u
@@ -68,6 +69,11 @@ static uint32_t s_spad3B70_words[1];
 static uint8_t s_d241010[8];
 static uint8_t s_d26E510[16];
 static uint8_t s_d26E850[16];
+static uint8_t s_d26E880[16];
+/* 001DFA40's 16 x 16 table (its stack frame at sp + 0xD0): lanes 0..2 of
+ * each entry are written every call, lane 3 never (docs/LOAD_VEIL_PARTICLES.md
+ * section 5). */
+static uint8_t s_veil_table[EM_LOAD_VEIL_PARTICLES_TABLE_BYTES];
 
 #define ARENA ((uint8_t *)s_arena_words)
 #define CTXB ((uint8_t *)s_ctx_words)
@@ -107,6 +113,10 @@ static struct {
     int page_ready;
     /* main-loop step V (001D2300): its kick's list, the kicks so far */
     u32 kick_chain, kicks;
+    /* the load veil's 0021B1B0 in this frame: its channel-0 run and the
+     * buffer index (em_rcl_veil_span), cleared by the frame head */
+    u32 veil_start, veil_end, veil_slot;
+    int veil_ready;
     EmFrameKickFault kick_fault;
 } R;
 
@@ -186,6 +196,7 @@ static void build_views(void)
     add_view(D_241010, 8, s_d241010, 0);
     add_view(D_26E510, 16, s_d26E510, 0);
     add_view(D_26E850, 16, s_d26E850, 0);
+    add_view(D_26E880, 16, s_d26E880, 0);
     for (unsigned x = 0; x < X_COUNT; ++x)
         if (R.ext[x]) add_view(k_external[x].address, k_external[x].size, R.ext[x], 0);
     R.frh.views = R.frh_views;
@@ -564,6 +575,8 @@ static void wire(void)
     v->d00275674 = s_d275670_words + 1;
     v->d0027568C = s_d275670_words + 7;
     v->d00241010 = s_d241010;
+    v->d0026E880 = s_d26E880;
+    v->table = s_veil_table;
     v->packet = ARENA;
     v->packet_address = ARENA_BASE;
     v->packet_size = ARENA_END - ARENA_BASE;
@@ -586,6 +599,7 @@ static const struct { u32 address, size; uint8_t *bytes; } k_blocks[] = {
     {D_250F30, D_250F30_SIZE, (uint8_t *)s_d250F30_words},
     {D_26E510, 16, s_d26E510},
     {D_26E850, 16, s_d26E850},
+    {D_26E880, 16, s_d26E880},
     {D_275670, 0x30, (uint8_t *)s_d275670_words},
 };
 #define BLOCK_COUNT (sizeof k_blocks / sizeof k_blocks[0])
@@ -631,11 +645,13 @@ int em_rcl_init(const char *export_path, uint8_t *d810E80)
      * stores (the flag registrations, the 0021B970 / 0021BA80 fog pair and
      * the +0xA0 copies) are rewritten by the area load (001C1DC0, 001D8FD0)
      * before a bound routine reads them, except the +0x100 copy that only
-     * 001D2730(0, 0) reads (never on the route); its arena pattern and GS
-     * blocks reach only DMA packet bytes, except its blend-preset bank at
-     * D_00275674 + 0x6A0, which the chain page's 001CB900 REFs send to the
-     * GS (em_chain_page; docs/CHAIN_PAGE.md section 4): that loop runs here.
-     * docs/RENDER_CONTEXT.md section 8. */
+     * 001D2730(0, 0) reads (never on the route); its arena pattern reaches
+     * only DMA packet bytes. Its GS register blocks at D_00275674 (banks
+     * A..G and the header, from 00101898's templates) are the GS state the
+     * frame's REFs send: the chain page's blend presets (docs/CHAIN_PAGE.md
+     * section 4), the draw environments, clears and per-pass presets the
+     * load veil's list sends (docs/LOAD_VEIL_PARTICLES.md section 3); they
+     * run here (em_gs_blocks_001D0F20). docs/RENDER_CONTEXT.md section 8. */
     /* 001AB370 (byte-matched; the start-up's GS set-up, main loop 0x1AAE40)
      * ends with the stores 0x70003B70 = 0x70003B72 = 0x800 (halfwords), the
      * screen centre step V's 001015A8 / 00101810 read; nothing else writes
@@ -643,9 +659,8 @@ int em_rcl_init(const char *export_path, uint8_t *d810E80)
      * double-buffer block D_00810EA0, the clear colours D_00811020 /
      * D_00811190, 0x70003B94 / 96) are the renderer's. */
     s_spad3B70_words[0] = UINT32_C(0x08000800);
-    if (em_gs_blocks_001D0F20_presets(own(GS_BLOCKS + EM_GS_BLOCKS_PRESETS_OFFSET,
-                                          EM_GS_BLOCKS_PRESETS_SIZE)) < 0)
-        return fail(0x001D0F20u, "the blend-preset bank is not in the context storage");
+    if (em_gs_blocks_001D0F20(own(GS_BLOCKS, EM_GS_BLOCKS_SIZE), s_d241010) < 0)
+        return fail(0x001D0F20u, "the GS blocks are not in the context storage");
     if (done(em_frh_001D25F0(&R.frh, UINT32_C(0x43F00000)), 0x001D25F0u) < 0) return -1;
     return done(em_render_context_001DEDE0(&R.rc), 0x001DEDE0u);
 }
@@ -687,7 +702,31 @@ int em_rcl_page(uint32_t *start, uint32_t *four_sprite)
 int em_rcl_001D1AE0(int32_t index)
 {
     READY(0);
+    R.veil_ready = 0;   /* the channel cursors start over */
     return done(em_frh_001D1AE0(&R.frh, index), 0x001D1AE0u);
+}
+
+int em_rcl_0021B1B0(const EmLoadVeilParticlesBlock *veil)
+{
+    READY(0);
+    const u32 start = s_ctx_words[0x10 / 4];
+    if (em_load_veil_particles_0021B1B0(&R.veil, veil) < 0)
+        return fail(R.veil.fault.address ? R.veil.fault.address : 0x0021B1B0u, "0021B1B0 fault");
+    if (!R.veil_ready) R.veil_start = start;
+    R.veil_end = s_ctx_words[0x10 / 4];
+    R.veil_slot = s_ctx_words[0x9C / 4];
+    R.veil_ready = 1;
+    return 0;
+}
+
+int em_rcl_veil_span(uint32_t *start, uint32_t *end, uint32_t *slot)
+{
+    if (!R.loaded || R.fault || !R.veil_ready || !start || !end || !slot) return -1;
+    *start = R.veil_start;
+    *end = R.veil_end;
+    *slot = R.veil_slot;
+    R.veil_ready = 0;
+    return 0;
 }
 
 int em_rcl_001D1C50(void)

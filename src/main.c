@@ -29,6 +29,7 @@
 #include "game/em_pad_actuator.h"
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
+#include "game/em_load_veil_live.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -274,8 +275,15 @@ static int wav_load_pcm16(const char *path, AudioWavTest *wt)
 static int stream_field(void *context) { (void)context; return em_stream_live_field(); }
 /* Main-loop step B: 001D1AE0(D_00810E80) on the render context. */
 static int rcl_step_b(void *context, int32_t index) { (void)context; return em_rcl_001D1AE0(index); }
-/* Main-loop steps V and W: 001D2300 and 001D2580(field) on the render context. */
-static int rcl_step_v(void *context) { (void)context; return em_rcl_001D2300(); }
+/* Main-loop steps V and W: 001D2300 and 001D2580(field) on the render context.
+ * Its kick is the renderer boundary: in a frame the load veil drew
+ * (0021B1B0), the kicked list is the whole frame and the GS frame stage
+ * draws it (em_load_veil_live, docs/LOAD_VEIL_PARTICLES.md section 3). */
+static int rcl_step_v(void *context)
+{
+    if (em_rcl_001D2300() < 0) return -1;
+    return em_load_veil_live_draw((EmGfx *)context);
+}
 static int rcl_step_w(void *context, int32_t field) { (void)context; return em_rcl_001D2580(field); }
 static int stream_step_h(void *context) { (void)context; return em_stream_live_step_h(); }
 static int stream_voice_push(void *context, int32_t cue)
@@ -391,7 +399,7 @@ int main(void)
     }
     em_frame_set_step_b(rcl_step_b, NULL);
     /* Main-loop steps V / W (001D2300, 001D2580) on the same context. */
-    em_frame_set_step_vw(rcl_step_v, rcl_step_w, NULL);
+    em_frame_set_step_vw(rcl_step_v, rcl_step_w, gfx);
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
     em_pad_actuator_reset();

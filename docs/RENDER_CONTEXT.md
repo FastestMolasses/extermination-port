@@ -509,7 +509,7 @@ this lane and of lane L32 addresses, once, by original address:
 | 0x007635C0..0x0076B5BF | the chain table D_007635C0 (slot words, head words) |
 | 0x00811CC0..0x0081723F | the render context, the GS register blocks at D_00275674 (0x814220) and the 14 skin records at D_00816440 |
 | 0x70003A40..0x70003B3F, 0x70003B60 | the scratchpad the frame head copies P / K to, and the zoom copy |
-| .data | D_00241010 (8), D_00250F30..D_0025317F (the 001E2270 colour, D_002513E0, the skin record templates D_002514D0..D_00251BCF, the room table D_00251C50, the fold seed D_00253170), D_0026E510 (16), D_0026E850 (16), D_00275670..D_0027569F |
+| .data | D_00241010 (8), D_00250F30..D_0025317F (the 001E2270 colour, D_002513E0, the skin record templates D_002514D0..D_00251BCF, the room table D_00251C50, the fold seed D_00253170), D_0026E510 (16), D_0026E850 (16), D_0026E880 (16: 001DFA40's copy colour, the load veil), D_00275670..D_0027569F |
 
 The .data comes from the user's ELF through `tools/export_render_context.py`
 (`assets/render_context.emrc`, verified byte for byte against the opening
@@ -585,14 +585,27 @@ em_rcl_init performs them through their translations: 001D25F0(480.0) and
 001DF110). Its other context stores are rewritten by the area load before a
 bound reader: the flag registrations (001C1DC0), the fog pair and latches
 (001D8FD0), except the +0x100 copy, which only 001D2730(0, 0) reads (never on
-the route). Its arena fill (the 128-bit pattern at D_0026E3F0) and GS blocks
-reach only DMA packet bytes (001006D8's read-modify-write of three packet
-dwords, the bytes packets leave as they were): the port's arena starts zero.
-Since WP-13 one of its banks runs: the ten blend presets at D_00275674 +
-0x6A0, which the chain page's 001CB900 REFs send to the GS
-(em_gs_blocks_original, em_rcl_init; docs/CHAIN_PAGE.md section 4). The
-kick's page start and 001DDE10's slot-0xFFF CALL are handed to the page's
-consumer by `em_rcl_page` (section 7 of that doc).
+the route). Its arena fill (the 128-bit pattern at D_0026E3F0) reaches only
+DMA packet bytes (001006D8's read-modify-write of three packet dwords, the
+bytes packets leave as they were): the port's arena starts zero.
+
+**The GS blocks** (em_gs_blocks_original, run at em_rcl_init). Since WP-13
+bank F (the ten blend presets at D_00275674 + 0x6A0 the chain page's 001CB900
+REFs send, docs/CHAIN_PAGE.md section 4) ran; since the load veil step
+(2026-09-27) every bank does: the header (+0x10: the END tag step V's list
+closes on), bank A's two draw environments (from 00101898's templates: its
+001006D8 / 00101630 fills, word asm decoded, and the FRAME pointer patch),
+bank B (FOGCOL), bank C (the Z-only and black clears, 001008C0's sprite),
+banks D and E (CLAMP_1; TEST_1 and ZBUF_1) and bank G (the per-pass
+presets). 00101898's two display environments (001002E0) are not produced:
+no bank reads them. tools/test_gs_blocks_reference.py compares all 0x2220
+bytes with the ORIGINAL 001D0F20 executed with 00101898 and its callees and
+with every capture (docs/LOAD_VEIL_PARTICLES.md section 4). The template's
+read-back dwords keep the boot stack's upper bits in the original (bit 0,
+the only one the GS reads, is equal). The load veil's list sends banks A,
+C, D, E and G to the GS (LOAD_VEIL_PARTICLES.md section 3.2). The kick's
+page start and 001DDE10's slot-0xFFF CALL are handed to the page's consumer
+by `em_rcl_page` (section 7 of that doc).
 
 ### 8.4 Not bound, and why
 
@@ -726,13 +739,12 @@ phase; it is outside the first level.
 
 ### 9.4 Limits
 
-- **The draw environments' bodies (bank A of the boot builder
-  sub_EXTERMINATION, GS block +0x20 / +0x1B0, from the SDK's 00101898) are
-  not modelled** (8.3): in the live port their SCISSOR words are zero, so
-  step V's 001015A8 / 00101810 compute XYOFFSET from w = h = 0. These are
-  DMA packet bytes nothing in the port reads (the renderer maps GS
-  coordinates itself); the translation is exact over the captured blocks
-  (9.5).
+- **The draw environments' bodies** (bank A, GS block +0x20 / +0x1B0) are
+  built from 00101898's templates since the load veil step (8.3), so step
+  V's 001015A8 / 00101810 compute XYOFFSET from their SCISSOR (512 x 224),
+  as in the captures. Only the load veil's frames send them to the GS the
+  port draws (em_load_veil_live); every other frame's renderer maps GS
+  coordinates itself.
 - **The +0x1D8 channel-3 list is not built** (001C1D00 / 001E0CF0 are not
   bound, 8.4), so a world frame's list has no CALL there: six tags where the
   captures hold seven. The native background draw stands for that CALL.

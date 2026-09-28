@@ -38,8 +38,9 @@
  * 001E0C80, 001D2910, 001E0D70, 001DDA00 and the four-sprite pass 001DDE10,
  * 001DD950, 001D2DE0), em_packet_chain_original (001CB760, 001CB800, 001CB8A0,
  * the fog programmer 0021B970 / 0021B9A0 / 0021BA80 / 0021B920, the area fog
- * 001D8FD0), em_load_veil_particles (the REF tags and 001DDE10's frame-copy
- * packets), em_render_verify_rest (001C1DC0, 001C1F50, 001E2260 / 70 / 80),
+ * 001D8FD0), em_load_veil_particles (the REF tags, 001DDE10's frame-copy
+ * packets and the load veil's draw 0021B1B0), em_gs_blocks_original (the
+ * boot builder's GS blocks, at em_rcl_init), em_render_verify_rest (001C1DC0, 001C1F50, 001E2260 / 70 / 80),
  * em_actor_light_001D89D0 (001D7B30), em_player_equipment (0015D2F0),
  * em_status_ui_leftovers (0022EBE0) and the SDK leaves em_effect_original
  * (001026A0), em_sdk_math_original (0011DF78) and em_player_stage_workers
@@ -53,6 +54,7 @@
 
 #include <stdint.h>
 
+#include "game/em_load_veil_particles.h"
 #include "game/em_point_light.h"
 
 #ifdef __cplusplus
@@ -194,6 +196,16 @@ int em_rcl_skin_arena_init(void);
  * channel cursors (em_load_veil_particles over this storage). 0, or -1
  * (not bound, or the fault latched here). */
 int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2);
+/* 0021B1B0(veil): the load veil's draw (0021B550's, docs/
+ * LOAD_VEIL_PARTICLES.md) over this storage: its packets at the channel-0
+ * cursor, with the render context's fabsf / float_to_int workers, 001DFA40's
+ * table and D_0026E880. The run and the buffer index are kept for the step
+ * V consumer (em_rcl_veil_span). 0, or -1 (the fault latched here). */
+int em_rcl_0021B1B0(const EmLoadVeilParticlesBlock *veil);
+/* The channel-0 run [start, end) this frame's 0021B1B0 wrote and the buffer
+ * index (context +0x9C) it drew for. Taken once; the frame head (001D1AE0)
+ * forgets it. 0, or -1 (none). */
+int em_rcl_veil_span(uint32_t *start, uint32_t *end, uint32_t *slot);
 
 /* Test hook: copy original bytes into this module's own storage (only
  * ranges it owns). 0, or -1. */

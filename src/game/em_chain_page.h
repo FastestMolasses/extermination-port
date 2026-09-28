@@ -44,6 +44,17 @@
  * RGBAQ precedes every ST of the page takes the frame's Q, which the port
  * does not model; such vertices carry q_known 0 (section 5 of the doc).
  *
+ * List mode (em_chain_page_run_list; docs/LOAD_VEIL_PARTICLES.md section
+ * 3): the same walk over a whole frame list that ends in an END tag (step
+ * V's main list: 001D21E0 closes it with a NEXT to the GS block's END at
+ * D_00275674 + 0x10), with the GS environment registers a frame list sends
+ * as well (FRAME_1, ZBUF_1, XYOFFSET_1, SCISSOR_1, PRMODECONT, DTHE, FBA_1,
+ * PABE, TEXA, SCANMSK, FOGCOL; the context-2 set of the draw environments,
+ * which no context-1 primitive reads) and A+D vertex registers (RGBAQ with
+ * its Q, ST, UV, XYZF2, XYZ2). Each primitive then also gets the context-1
+ * environment in force (prim_env). The page never holds any of these, so
+ * page mode still faults on them.
+ *
  * Fail-stop: the first fault latches (fault, fault_address) and returns -1;
  * the caller reports it. */
 #ifndef EM_CHAIN_PAGE_H
@@ -109,6 +120,7 @@ typedef struct {
     /* output (caller-owned arrays of prim_capacity) */
     EmGfxGsPrim *prims;
     EmChainPageQ *prim_q;     /* may be NULL */
+    EmGfxGsEnv *prim_env;     /* list mode: may be NULL (page mode: unused) */
     uint32_t prim_capacity;
     uint32_t prim_count;
     EmChainPageCounts counts;
@@ -129,6 +141,10 @@ static inline uint32_t em_chain_page_start(int32_t index, int32_t a1)
 
 /* Walk the page at `start` and fill p->prims. 0, or -1 (p->fault). */
 int em_chain_page_run(EmChainPage *p, uint32_t start);
+
+/* List mode: walk the frame list at `start` up to its top-level END tag
+ * (transferred) and fill p->prims (and p->prim_env). 0, or -1. */
+int em_chain_page_run_list(EmChainPage *p, uint32_t start);
 
 /* A short name of a fault code, for reports. */
 const char *em_chain_page_fault_name(uint32_t fault);

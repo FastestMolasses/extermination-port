@@ -3,26 +3,31 @@
 Original executable SHA-256:
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
 
-Lane "load-veil-particles". While 001ADF50 loads an area (New Game into
-AREA11), its veil state machine 0021B550 (translated in
-`src/game/em_load_veil.c`, docs: SCENE_COORDINATOR_DESIGN.md S12a) calls two
-routines on every tick of state 1 and of state 2 sub-state 0:
+While 001ADF50 loads an area (New Game into AREA11, any later area change),
+its veil state machine 0021B550 (translated in `src/game/em_load_veil.c`,
+docs: SCENE_COORDINATOR_DESIGN.md S12a) calls two routines on every tick of
+state 1 and of state 2 sub-state 0:
 
 - **0021B1B0**, the veil draw: it builds the display-list packets of one
   frame of the veil;
 - **0021B500**, the phase step.
 
-The port binds both as reported no-port-code calls
-(`UM_0021B1B0` / `UM_0021B500` in `em_scene_bindings.c`), so the veil shows
-black and the block's +0x04 phase never moves. This lane translates both and
-every packet builder 0021B1B0 reaches, in `src/game/em_load_veil_particles.c/.h`.
-The veil routines 0021B1B0 / 0021B500 are **not wired** (census
-verified-unbound): the seam still reports `UM_0021B1B0` / `UM_0021B500`.
-The packet-builder helpers are live elsewhere: 001D1F20, 001D1FF0 and
-001D2040 through em_render_context_live, and 001D1F80 through `em_rcl_001D1F80`
-(em_owner_draw_live's 001CA990 worker). Section 3 lists what the veil
-binding needs. The GS side (drawing the packets) is a boundary; section 5
-says what it needs.
+Both are translated, with every packet builder 0021B1B0 reaches, in
+`src/game/em_load_veil_particles.c/.h` (sections 1 and 2), and **both are
+live** since chain C8 (LOADVEIL, 2026-09-27): em_scene_bindings binds them at
+their original caller 0021B550, the packets land at the render context's
+channel-0 cursor, and main-loop step V's own list, which sends them to the
+GS, is drawn whole by the GS frame stage (section 3). The GS state the
+packets REF comes from the boot builder's GS blocks, now translated
+(em_gs_blocks_original, RENDER_CONTEXT.md 8.3).
+
+**What a player sees today.** The port's area read completes inside
+001FF080(1, 0) (a stand-in for the loader task 001FF0D0, whose own steps are
+not run yet: H7, the module loader), so the load takes no tick at host
+speed. 0021B550 then goes from state 0 straight to state 2 and draws the
+veil exactly once, at level 0: by the original's own code that frame is
+black (section 5). The veil becomes visible for as many ticks as the load
+spans once the loader task runs.
 
 ## 1. What the original does
 
@@ -224,192 +229,209 @@ the channel memory held.
   - A worker returning a negative value stops the run where it failed. The
     original has no failure path, so this state exists only in the port.
 
-## 3. Binding (coordinator)
+## 3. Binding (live)
 
-The veil itself is not wired (the helpers above are live through the render
-context and the owner draw). The seam is `em_scene_bindings.c`:
+### 3.1 The two routines
 
-- `veil_0021B1B0` and `veil_0021B500` are the `EmLoadVeilWorkers.w_0021B1B0`
-  and `.w_0021B500` of `k_veil_workers`. They report `UM_0021B1B0` and
-  `UM_0021B500` today.
-- The block is `s_veil` (`EmLoadVeil`, `em_load_veil.h`).
+- **0021B500** (`veil_0021B500`, em_scene_bindings.c): the translation over
+  the veil block's +0x04 (`s_veil.w04`). Only the phase is read or written.
+- **0021B1B0** (`veil_0021B1B0`): `em_rcl_0021B1B0` runs the translation on
+  the render context's one EmLoadVeilParticles (the instance whose REF tags
+  and frame-copy packets the frame heads and 001DDE10 already use), with
+  the views `s_veil.w04`, `level[0]`, `w14` (the seed, a new field of
+  EmLoadVeil at the original +0x14) and `w18`. Its world:
+  - the channel cursors are the context's +0x10.. words, the packet window
+    is the arena D_0028F700.., context +0x9C is the buffer index;
+  - D_00275674 and D_0027568C are the exported D_00275670 block's words;
+  - D_0026E880 (the frame-copy sprite colour, four words of 0x80) is a new
+    block of `assets/render_context.emrc` (tools/export_render_context.py;
+    STARTUP.md row 49: re-export once);
+  - 001DFA40's table is a persistent 0x1000-byte buffer (lane 3, section 5);
+  - the workers are the context's own: 0011DF78 (em_sdk_math_original) and
+    001281C0 (em_player_float_to_int).
 
-### 0021B500 (can bind now; pure state)
+  A fault latches in the render context (em_rcl_fault) and faults the scene.
+  The run the call wrote (its channel-0 start and end) and the buffer index
+  are kept for step V (`em_rcl_veil_span`); the frame head 001D1AE0 forgets
+  them.
 
-```c
-static int veil_0021B500(void *ctx, EmLoadVeil *veil)
-{
-    EmLoadVeilParticlesBlock b = {&veil->w04, NULL, NULL, NULL};
-    (void)ctx;
-    return em_load_veil_particles_0021B500(&b);
-}
-```
+The reported UM_0021B1B0 / UM_0021B500 are removed.
 
-Only `phase` is used. After the New Game load, the captured block's phase
-is exactly 258 executed steps from 0. The port's count will equal that only
-when its load lasts as many veil ticks as the original's (see section 5).
+### 3.2 The GS state the veil's REFs send (em_gs_blocks_original)
 
-### 0021B1B0
+The builders' REFs point into the boot builder sub_EXTERMINATION's GS
+blocks at D_00275674 (0x814220). Since this step all of them are translated
+(001D0F20's bank loops, 00101898, 00101630, 001008C0; 001006D8 and 00100610
+are this module's, one owner) and built at `em_rcl_init`:
 
-**1. Storage.** `EmLoadVeil` has no +0x14. The owner of `em_load_veil.h`
-must add
+| REF | Block | What the veil gets |
+|---|---|---|
+| 001D1F80(0, 0, 7) | bank G, pass 0, preset 7 (+0xBA0 + 0x90 * 7) | PRIM 0x100, TEX1 0x60, TEST 0x30003 (alpha ALWAYS, Z ALWAYS), ZBUF with ZMSK, ALPHA 0x80000000A8 (Cs * 0x80 >> 7), CLAMP REPEAT, COLCLAMP |
+| 001D1F80(0, 0, 2) | bank G, pass 0, preset 2 | TEST 0x33001, ALPHA 0x8000000068 (Cs * 0x80 >> 7 + Cd: additive) |
+| 001D1F20(c) | bank A of context +0x9C (+0x20 + 0x190 * slot) | the frame buffer's draw environment: FRAME_1 FBP 0x38 (slot 0) or 0 (slot 1), FBW 8, PSMCT32; XYOFFSET (with step V's half line); SCISSOR 512 x 224; TEST 0x50000; the tail CLAMP / COLCLAMP / FBA / PABE / SCANMSK / TEX1 / TEXA |
+| 001D2040(c, 0) | bank E, 0 (+0x5A0) | TEST 0x3000D (alpha GREATER than 0, Z ALWAYS), ZBUF with ZMSK |
+| 001D1FF0(c, 1 / 2 / 3) | bank D (+0x4A0 + 0x40 * a) | PRIM 0, then CLAMP_1 REPEAT / REGION_CLAMP 0..511 x 0..223 / REGION_CLAMP 0..255 x 0..255 |
+| step V's clear under flag 3 | bank C, 1 (+0x420) | TEST 0x30000, a sprite over 512 x 224 of RGBA (0, 0, 0, 0x80) |
 
-```c
-    uint32_t w14;    /* +0x14: 0021B1B0's noise seed */
-```
+So in a veil frame the GS sees: the slot's draw environment, the black
+clear, the 512 lines written as their own colour (the blend Cs * 0x80 >> 7
+leaves it as it is; the alpha written is the line's), then per lens pass the frame copied (TBP0 0x700 or
+0, the buffer being drawn, TBW 8, bilinear, REGION_CLAMP to the 512 x 224
+frame, DECAL, TCC 0) into the 256 x 256 surface at 0x258000 and drawn back
+over the whole frame as 15 x 15 textured quads (MODULATE, REGION_CLAMP
+0..255): opaque with colour 0x80, then added with colour 0x40. Every
+primitive has the Z test ALWAYS and ZMSK, so no pixel depends on Z. The
+lens reads the frame buffer the same frame drew: each veil frame is the
+lines, bent outward from the centre and glowing, over black.
 
-between `level[3]` and `w18`. The port's struct is not laid out at the
-original offsets, so this adds a field and moves nothing that is read by
-offset. `tools/test_area_load_reference.py` then can drop its
-`VEIL_MODELLED` exclusion of +0x14..+0x17. The `em_scene_bindings.c`
-veil log (`log_veil`) writes a zero-filled gap there and would write the
-field.
+### 3.3 Drawing it (em_load_veil_live, the GS frame stage)
 
-**2. Adapter.** With one `EmLoadVeilParticles lvp` owned by the coordinator:
-
-```c
-static int veil_0021B1B0(void *ctx, EmLoadVeil *veil)
-{
-    EmLoadVeilParticlesBlock b = {&veil->w04, &veil->level[0], &veil->w14, &veil->w18};
-    (void)ctx;
-    return em_load_veil_particles_0021B1B0(&lvp, &b);
-}
-```
-
-A negative return must go to the scene fault latch, with `lvp.fault`
-naming the address.
-
-**3. `lvp.world`.**
-
-- `cursor` / `cursor_count` are the channel cursor words of the render
-  context (context + 0x10, one word per channel). Only channel 0 is written.
-  If the port keeps host-pointer channels (like
-  `EmOwnerServicesChannel`), give the module
-  `packet = channel base`, `packet_address = the original address that
-  base stands for`, `packet_size = its capacity`, and a cursor word
-  `packet_address + (cursor − base)`. Convert back after the call.
-- `ctx_9C` is the frame-buffer index word.
-- `d00275674` is the static GS block base. Only the REF addresses depend on
-  it. The blocks' contents matter to the GS side only.
-- `d0027568C` is the capture texture's GS byte address: 0x258000 in every
-  capture.
-- `d0026E880` is 16 bytes from the ELF's data: the sprite colour, four
-  words of 0x80.
-- `d00241010` is the first 8 bytes of the SDK GS parameter block.
-- `table` is a persistent 0x1000-byte buffer (section 5 on lane 3).
-
-**4. Workers.** Bind existing translations:
-
-- `w_0011DF78`: an adapter over `em_sdk_math_original_0011DF78`
-  (`em_sdk_math_original.c`, already linked) that passes raw bits through
-  memcpy;
-- `w_001281C0`: an adapter over `em_player_float_to_int`
-  (`em_player_stage_workers.c`, not yet in the Makefile's `COMMON`) or
-  `em_effect_original_float_to_int`. The oracle binds the first one.
-
-**5. Makefile.** Add `src/game/em_load_veil_particles.c` to `COMMON`, plus
-`src/game/em_player_stage_workers.c` if nothing else has linked it yet.
-
-**6. Drawing.** Until the GS side exists (section 5), binding 0021B1B0 only
-produces packets that nothing draws. The veil stays black and the only
-state that changes is +0x14. Bind it together with the channel-0 packet
-consumer.
+- **Where.** Main-loop step V (`rcl_step_v`, main.c): 001D2300 builds and
+  kicks the frame's list; then `em_load_veil_live_draw` runs. In a frame
+  whose 0021B1B0 ran (`em_rcl_veil_span`), it walks the kicked list
+  (`em_rcl_kick`) exactly as the DMA sends it: em_chain_page's list mode
+  (CHAIN_PAGE.md section 11) over the render context's storage, from the
+  list's first tag to the END tag at the GS block + 0x10. The walk hands
+  every primitive with the context-1 environment in force (FRAME_1, ZBUF_1,
+  XYOFFSET_1, SCISSOR_1, PRMODECONT, DTHE, FBA_1, PABE, TEXA, SCANMSK).
+  Frames without the veil are untouched.
+- **Checks before drawing.** Every qword of the veil's channel-0 run was
+  transferred by the walk (the list really sends the run), and the first
+  primitive draws into the slot's frame buffer (bank A's FRAME_1).
+- **The GS frame stage** (`em_gfx_gs_frame`, em_gfx.h "The GS frame",
+  Metal): GS memory as surfaces keyed by (FBP, FBW), PSMCT32; the frame
+  buffers 512 x 224 and the capture surface 256 x 256; a TEX0 reads the
+  surface at the same byte address and buffer width. Each primitive is drawn
+  at the GS's own resolution with the GS pixel path (TFX / TCC, the eight
+  alpha tests and four AFAIL modes, the blend with COLCLAMP, FBA, FBMSK,
+  REGION_CLAMP and the other wrap modes, bilinear with the GS weights) by
+  framebuffer fetch; then the slot's frame buffer is shown over the whole
+  4:3 game rectangle, nearest-neighbour. Anything outside what it
+  implements is refused (points, fog, a Z test other than ALWAYS, DATE,
+  dithering, PABE, a non-CT32 frame or texture, a texture read of the
+  surface being drawn, CTXT, AA1, mipmaps, a texture whose reachable texels
+  lie outside its surface).
+- **Fail-stop.** A walk fault, a refused primitive, or a run the list did
+  not send latches `em_load_veil_live_fault`, and step V stops the loop.
+- **The tick log** (EM_AREA_CHANGE_LOG) gains `veil_draw` on the line after
+  a veil frame: its frame counter, the run, slot, list, displayed FRAME_1,
+  the walk's counts, the digest, the brightest line colour byte and the
+  run's bytes (LEVEL_SMOKE.md "The load veil").
 
 ## 4. Verification
 
-`python3 tools/test_load_veil_particles_reference.py` (proposed
-`make test-load-veil-particles-reference`) builds the module as a shared
-library.
+- **`make test-load-veil-particles-reference`**
+  (tools/test_load_veil_particles_reference.py) builds the module as a
+  shared library.
+  - **The original side.** The oracle (`VeilEE`: the fall lane's `FallEE`,
+    imported and not edited; COP1 through `tools/ee_float_model.py`)
+    executes every routine in section 1 unmodified over a copy of the
+    captured RAM `build/startup-reference/opening_ee.bin`. 0011DF78 and
+    001281C0 also run their original code, in place at the caller's stack
+    pointer; each call is logged with its argument and result. The native
+    workers are bound to `em_sdk_math_original_0011DF78` and
+    `em_player_float_to_int`.
+  - **Callee set.** The jal targets of the translated routines are exactly
+    these routines plus the two workers.
+  - **What is compared.** The native side runs over another copy of the
+    same RAM with a window over all 32 MB. Per case: all 32 MB byte for
+    byte, the return value, the worker call log, and 001DFA40's table (all
+    16 bytes of each entry, the native buffer seeded with the stack words
+    the original frame held at 001DFA40's entry).
+  - **Cases.** 0021B1B0 over the captured block with context + 0x9C = 0
+    and 1 and varied phase, level, base Y, seed and cursor; 001DFA40 with
+    0021B1B0's two argument sets and random ones; 0021B500 on edge and
+    random phases; every builder with random arguments (halfword edges,
+    shift counts past 31, negative values, SDK mode dwords 1 and others).
+    Both outcomes of every conditional branch (16 sites; the one
+    unreachable outcome is listed and asserted never taken).
+  - **Capture evidence.** The veil block (state 3, finished) is identical in
+    18 captures. Its seed 0xA6D22D01 is exactly what one executed 0021B1B0
+    leaves, and its phase 0x3F4E55C8 is reached from 0 by 258 executed
+    0021B500 steps (the native module agrees at every step).
+  - Default 408 cases (about 2 s); `EM_TEST_FULL=1` 3453 (about 8 s).
+    Mutations (a TEST_1 register number, the 64th-segment test, the table's
+    Q lane, the seed step, a 12-byte ST copy) each fail it.
+- **`make test-load-veil-particles`** (tests/load_veil_particles_test.c,
+  ASan / UBSan) pins the fail-stop contract.
+- **`make test-gs-blocks-reference`** (tools/test_gs_blocks_reference.py,
+  about 7 s): the ORIGINAL 001D0F20 executed with 00101898 and every callee
+  it reaches running writes the native 0x2220 bytes (run twice over two
+  stack fills: exactly the 12 read-back dwords' upper bits follow the
+  stack); the native blocks equal all 18 captures outside the words the
+  frame rewrites (XYOFFSET in its boot or step V form, FOGCOL) and those
+  stale bits; 001008C0 and 00101630 executed against the native functions.
+- **`make test-load-veil-gpu`** (tools/test_load_veil_gpu.py, about 6 s):
+  the veil of the translation over the translated GS blocks, walked in list
+  mode and drawn by `em_gfx_gs_frame` in a headless Metal window, against a
+  model of the GS pixel path, for a visible veil (level 1.0) in both slots,
+  cut after the lines, the first copy, the first lens pass and the whole
+  run: every lit line pixel lies on its segment with a colour between its
+  ends; both copies equal the model on every one of the 65,536 pixels; the
+  lens passes equal the model on every pixel whose sample is unambiguous
+  (439,792 compared; the 9,480 within 1e-4 of a triangle edge or 1e-3 of a
+  sub-texel step are Metal's float interpolation standing for the GS DDA).
+  A level-0 veil draws an all-black frame; a GEQUAL Z test, a texture read
+  of its own surface and a PSMCT16 frame are refused.
+- **`make test-chain-page`** covers list mode (CHAIN_PAGE.md section 11).
+- **`make test-area-load-reference`**: the chain replay now executes the
+  ORIGINAL 0021B500 inline and, at each 0021B1B0, the ORIGINAL veil draw
+  over the opening capture on the block as it stands; the logged block
+  (all 0x1C bytes, the seed included) must equal it after every tick.
+- **The level smoke** (`check_load_veil`, tools/level_smoke_load_veil.py;
+  LEVEL_SMOKE.md "The load veil"): every veil frame of the run (the New Game
+  load: one) had its run re-made by the ORIGINAL 0021B1B0 at that call
+  (the tick's block, slot and cursor) byte for byte, except the strips'
+  ST lane 3; its seed and the original 0021B500's phase equal the port's;
+  the list drew the clear, 512 lines, two copies and 900 triangles into the
+  slot's frame buffer; a level-0 veil lit no line; the seed the load leaves
+  equals every route capture's. It prints the phase the load left against
+  the captures' (0.007 after the host-speed load; 0.806 after the PS2's).
 
-- **The original side.** The oracle (`VeilEE`: the fall lane's `FallEE`,
-  imported and not edited; COP1 through `tools/ee_float_model.py`) executes
-  every routine in section 1 unmodified. It runs over a copy of the
-  captured RAM `build/startup-reference/opening_ee.bin`.
-- **The worker leaves.** 0011DF78 and 001281C0 also run their original code,
-  in place at the caller's stack pointer. Each call is logged with its
-  argument and result. The native workers are bound to
-  `em_sdk_math_original_0011DF78` and `em_player_float_to_int`.
-- **Callee set.** The test asserts that the jal targets of the translated
-  routines are exactly these routines plus the two workers.
-- **What is compared.** The native side runs over another copy of the same
-  RAM, with a window that covers all 32 MB. Per case, the test compares:
-  - **all 32 MB** byte for byte;
-  - the return value;
-  - the worker call log (order, argument, result);
-  - 001DFA40's table, all 16 bytes of each entry, against the oracle's
-    stack frame. The native buffer is seeded with the stack words the
-    original frame held at 001DFA40's entry.
-- **Cases.**
-  - 0021B1B0 over the captured block, with context + 0x9C = 0 and 1, and
-    with a varied phase (0 … 0.9999), level (0 … 2.5), base Y, seed and
-    channel-0 cursor.
-  - 001DFA40 with the two 0021B1B0 argument sets, then random channels,
-    a1, rgba, k and 9C.
-  - 0021B500 on edge and random phases.
-  - Every builder with random arguments: halfword edges for the SDK pair,
-    shift counts past 31, negative values, and SDK mode dwords 1 and others.
-- **Branch coverage.** Both outcomes of every conditional branch in the
-  translated routines are asserted: 16 sites. The one unreachable outcome is
-  listed and asserted never taken.
-- **Capture evidence.** The veil block (state 3, finished) is identical in
-  18 captures: opening, playable, handoff and route beats 00–14. Its seed
-  0xA6D22D01 is exactly what one executed 0021B1B0 leaves. Its phase
-  0x3F4E55C8 is reached from 0 by 258 executed 0021B500 steps, and the
-  native module agrees at every step. The route beats start at first
-  control, after the veil has finished, so no route beat runs these
-  routines.
-- **Results** (2026-09-23):
-  - default: 408 cases (4 × 0021B1B0, 4 × 001DFA40, 40 × 0021B500 and 360
-    builder calls), 15168 worker calls, about 2 s;
-  - `EM_TEST_FULL=1`: 3453 cases (24 / 20 / 409 / 3000), 88000 worker
-    calls, about 8 s.
-- **Mutations.** Each of these made the test fail: a wrong TEST_1 register
-  number, the 64th-segment test, the table's Q lane, the seed step, and a
-  12-byte ST copy.
+## 5. What no capture shows, and the limits
 
-`tests/load_veil_particles_test.c` (proposed `make test-load-veil-particles`,
-ASan/UBSan, synthetic world, no original data) pins the fail-stop contract:
-
-- a full run's cursor advance, seed and worker count;
-- every refusal before a write: NULL views and workers, window one qword
-  short, misaligned cursor, cursor below the window, channel outside the
-  view;
-- the latch;
-- a mid-run worker failure;
-- 0021B500's refusal and step.
-
-## 5. Limits and open items
-
-- **The GS side.** The port has no consumer for these packets. Drawing the
-  veil needs:
-  - Gouraud alpha-blended lines (PRIM 0x49);
-  - the sprite copy of the displayed frame into the 256 × 256 texture at
-    0x258000 (PRIM 0x116, with 001D6E60's FRAME/ZBUF/XYOFFSET/SCISSOR/TEST
-    environment);
-  - textured triangle strips from that texture, opaque and then
-    alpha-blended (PRIM 0x14 / 0x54).
-  - the contents of the static GS blocks the REF tags point into:
-    - *D_00275674 + 0x20 + 400n: the per-frame-buffer environment;
-    - +0x4A0 + 64n and +0x5A0 + 64n;
-    - +0xBA0 + 1440a + 144b.
-
-    These are data at *D_00275674 (0x814220 in the captures). This lane did
-    not identify the routine that builds them, and reads nothing from them.
-    Their register contents (alpha, test and clamp modes) decide how the
-    lines and strips blend.
-- **Lane 3 of the table.** The original ships stale stack words in the unused
-  fourth word of every strip ST quadword. The GS ignores that word in a
-  PACKED ST. The test reproduces it exactly by seeding the buffer from the
-  oracle's stack. In the port, the buffer's lane 3 is whatever it holds, so
-  those words differ from the hardware's (GS-invisible). Modelling them
-  would need the full stack history of the frame.
+- **No capture of a veil frame.** Every capture that holds the veil block
+  was taken after the load (state 3, finished): the opening, the playable
+  and handoff images and route beats 00..14 hold the New Game load's end
+  state, route 15 the AREA01 load's (phase 0.995, about 142 steps). No GS
+  frame of a load was ever dumped. So the veil's pixels are proven against
+  the GS model of the GPU test, not against an original frame; the packets
+  are proven against the executed original and the end state against the
+  captures. A PCSX2 software-renderer frame (the decomp's C7 fb2 method)
+  taken mid-load would allow a pixel comparison; that is a new capture for
+  the lead.
+- **The load takes no tick in the port.** The area read is a stand-in that
+  completes inside 001FF080(1, 0); D_00275BD8 is 0 when 001ADF50's case 1
+  first runs 0021B550. So 0021B550 goes from state 0 to state 2 without
+  state 1: the level (+0x08) is never ramped (0 at New Game; the decayed
+  values after a later load), and the veil is drawn for exactly one tick at
+  level 0: black lines and black lens passes, as the original's code draws
+  a load that ends at once. On the PS2 the New Game load drew 258 veil
+  ticks and the AREA01 load about 142. The PS2 disc-drive timing switch
+  does not lengthen area reads (it models the stream reads only). The veil
+  shows once the loader task 001FF0D0's own steps run (the module loader,
+  H7), for as many ticks as they take at host speed.
+- **Rasterization.** Metal rasterizes at the GS's resolution with the GS
+  sample points, but its triangle and line rules and its float
+  interpolation are not the GS DDA. A line pixel Metal places past an end
+  takes no colour beyond the ends'. A sprite's texel coordinates are
+  evaluated exactly at the sample point from its corners.
+- **Z is not stored.** Every veil primitive tests Z ALWAYS; the stage
+  refuses any other Z test.
+- **Lane 3 of the table.** The original ships stale stack words in the
+  unused fourth word of every strip ST quadword; the GS ignores that word
+  of a PACKED ST. The reference test reproduces it by seeding the buffer
+  from the oracle's stack; live, the buffer's lane 3 is whatever it holds
+  (the smoke's comparison skips exactly those words).
+- **Stale stack bits in bank A.** The draw environments' read-back dwords
+  (PRMODECONT, COLCLAMP, DTHE) keep the boot stack's upper bits in the
+  original; the port's are zero. The GS reads only bit 0 of each.
+- **Presentation.** The shown frame buffer is 512 x 224, spread over the
+  game rectangle's height as every GS-mapped draw of the port; how the
+  Original profile presents fields is the open user decision
+  (LAUNCHER_OPTIONS.md). The field's half-line offset is in the drawn
+  surface (step V's XYOFFSET).
 - **Unreachable outcome.** 0021B1B0's unsigned-to-float conversion branch
-  for a negative noise word is never taken, because the word is below 2^30.
-  The translation keeps the path, and no case can reach it.
-- **Load duration.** The final phase depends on how many ticks the veil runs
-  in states 1 and 2 sub 0: 258 in the capture. The original's load waits on
-  disc reads (test_area_load_reference.py "Capture"). The port's tick count
-  is the load chain's business, not this module's.
-- **Channel count.** `cursor_count` is a native bound. The captures show
-  four plausible cursor words at context + 0x10. The veil uses channel 0
-  only.
+  for a negative noise word is never taken (the word is below 2^30).
+- **Channel count.** `cursor_count` is a native bound of four; the veil
+  uses channel 0 only.

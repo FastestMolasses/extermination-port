@@ -19,6 +19,8 @@ Blocks (original address, bytes, what reads them):
                        read by the owner draw's 001D89D0)
   0x0026E510   16      the quadword 001D6B10 hands 001D6930 (001DDE10)
   0x0026E850   16      the three ramp colour words 001DEDE0 copies (boot)
+  0x0026E880   16      the quadword 001DFA40 hands 001D6B60 (the load veil's
+                       lens passes, 0021B1B0): the frame-copy sprite colour
   0x00275670   0x30    D_00275670 (the context address), D_00275674 (the
                        GS block address), D_00275688, D_0027568C, D_00275690
                        and D_00275694 (001DDE10's eases)
@@ -52,7 +54,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00241010, 0x8), (0x00250F30, 0x2250), (0x0026E510, 0x10), (0x0026E850, 0x10),
-          (0x00275670, 0x30))
+          (0x0026E880, 0x10), (0x00275670, 0x30))
 # Words the game writes at run time (address, bytes): not compared.
 # 0x241016: 00100158 (the boot GS reset) stores the GS revision read from
 # CSR there; 001D6E60 masks it out (D_00241010 & 0x0000FFFF0000FFFF).

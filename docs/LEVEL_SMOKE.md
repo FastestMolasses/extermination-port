@@ -86,7 +86,7 @@ way and checks both against their captures. The side run
 The default run checks `first_control`, `status` and `battery` against
 their captures, and runs the whole-run checks (render context, indicator
 children, player draw gate, rand order, sway, marker colour, head sprites,
-shadow, chain page; and the stream-drive report) over its ticks. Every
+shadow, chain page, load veil; and the stream-drive report) over its ticks. Every
 later phase, both side runs and the whole route's `--require-through last`
 run only under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); run it
 before any commit that touches a phase past `battery`. The full target runs
@@ -1409,6 +1409,35 @@ aligned 10 (5 glow markers)
 and 14 (none visible). The run through the fence door (`fence_door_side1`) draws 5,554
 pages, 418 of them the status frames' (empty).
 
+### The load veil (`check_load_veil`; tools/level_smoke_load_veil.py)
+
+Not a phase: after the phases, whenever first control was checked (every
+run plays the New Game load). The tick log's `veil_draw` carries, on the line
+after each frame whose 0021B1B0 drew and whose step-V list the GS frame stage
+drew (em_load_veil_live; docs/LOAD_VEIL_PARTICLES.md section 3.3): the frame
+counter, the channel-0 run and its bytes, the buffer index, the kicked list,
+the displayed FRAME_1, the walk's counts, the digest and the brightest line
+colour byte. For each such frame, with the veil block of the tick whose
+counter it is (its pre phase and base Y, its post levels), it checks:
+- the ORIGINAL 0021B1B0, executed over the opening capture with that block,
+  context +0x9C = the slot and the channel-0 cursor = the run's start, writes
+  the port's run byte for byte, except the fourth word of each of the 30
+  strips' ST quadwords (001DFA40's table lane 3, stale stack words the GS
+  ignores); the seed it leaves is the port's; the ORIGINAL 0021B500 steps the
+  phase to the port's;
+- the list drew the clear, 512 lines, two copy sprites and 900 strip
+  triangles into the slot's frame buffer (FRAME_1 0x80038 or 0x80000);
+- a level-0 veil lit no line (all black);
+- the seed the load leaves equals every route capture's.
+It prints the phase the load left beside the captures'.
+
+Measured (every run, 2026-09-27, host speed and the PS2 disc-drive timing
+switch alike): one veil frame, at the New Game load's tick 10 (counter
+1267), level 0, so black; the phase the load leaves is 0.007 (one step)
+where the captures, after the PS2 disc load, hold 0.806 (258 steps). The
+port's area read completes inside 001FF080(1, 0), so the load spans no tick
+(LOAD_VEIL_PARTICLES.md section 5).
+
 ## What the full route does not yet compare (2026-09-27)
 
 `make test-level-smoke-full` plays route beats 01..14 on the main line and 00
@@ -1429,11 +1458,13 @@ never silently skipped. What removes each:
 | check_rand_order | the opening's values after AE+1, and (switch on only) its end | the husk creature 00825940 is not bound (its lifecycle-0 draw is missing: L24); the opening's faces run on em_opening_actor (design risk 2); with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | L24; the opening's actors on their records |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
+| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258 (the loader task's own steps are not run: H7) | a capture of a frame mid-load (the decomp's fb2 method); the loader task 001FF0D0 run live |
 
 Not compared at all: the sounds (WP-14), the pixels (the renderer compares
 by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`;
 the chain page's GS pixel path is checked against a GS pixel model by
-`make test-chain-page-gpu`),
+`make test-chain-page-gpu`, the load veil's GS frame by `make
+test-load-veil-gpu`),
 the walks between the scripted and climbing windows (navigation).
 
 **Frame order.** `tools/compare_frame_order.py` must be given a

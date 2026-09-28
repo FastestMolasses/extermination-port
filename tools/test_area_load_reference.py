@@ -23,7 +23,11 @@ against the executed original.
    (caller, callee, declared arguments) must be identical. A tick whose frame
    machine called 001AD010 (the area change) replays 001AD010 from the state
    at its call. Every logged veil step is replayed through the executed
-   0021B550/0021B180/0021B840 too. The frame machine's own ticks (+9 = 1) are
+   0021B550/0021B180/0021B840 too, with the veil workers the port binds live:
+   the executed 0021B500 and, at each 0021B1B0, the ORIGINAL veil draw over
+   the opening capture (tools/test_load_veil_particles_reference.py's
+   oracle); the whole 0x1C-byte block, the seed at +0x14 included, must equal
+   the logged one. The frame machine's own ticks (+9 = 1) are
    S2's (tools/test_scene_frame_reference.py) and are not replayed here.
 
 3. Capture. The New Game part of the log must pass through the same
@@ -57,19 +61,27 @@ ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 VEIL = 0x900000
 VEIL_PTR = 0x275888
 VEIL_SIZE = 0x1C
-VEIL_MODELLED = [i for i in range(VEIL_SIZE) if not 0x14 <= i < 0x18]
+VEIL_MODELLED = list(range(VEIL_SIZE))
 VEIL_FUNCS = {0x21B180: 0x2C, 0x21B550: 0x2E4, 0x21B840: 0x1C}
 VEIL_STUBS = (0x1D2830, 0x21B1B0, 0x21B500)
+# The chain replay's veil: 0021B500 (the phase step, byte-matched) runs its
+# own instructions inline, and each 0021B1B0 runs the ORIGINAL veil draw
+# (test_load_veil_particles_reference's oracle over the opening capture)
+# on the block as it stands, which writes the block's +0x14 seed; the port
+# binds both live (em_scene_bindings, docs/LOAD_VEIL_PARTICLES.md).
+REPLAY_FUNCS = {**VEIL_FUNCS, 0x21B500: 0x44}
 CAPTURE = DECOMP / 'build/startup-reference/newgame_samples.jsonl'
 
 
 # ------------------------------------------------------------------ veil oracle
 class VeilOracle(Oracle):
-    """Base oracle; a tail `j` to a stub returns to $ra."""
+    """Base oracle; a tail `j` to a stub returns to $ra. With `draw` (the
+    chain replay), 0021B500 is executed and 0021B1B0 is `draw(block)`."""
 
-    def __init__(self, elf):
+    def __init__(self, elf, draw=None):
         super().__init__(elf)
         self.events = []
+        self.draw = draw
         self.save(VEIL_PTR, VEIL)
 
     def execute(self, entry):
@@ -78,7 +90,8 @@ class VeilOracle(Oracle):
         for _ in range(20000):
             if pc == RETURN:
                 return self.r[2] & 0xFFFFFFFF
-            assert any(s <= pc < s + n for s, n in VEIL_FUNCS.items()), ('pc left the veil', hex(pc))
+            funcs = REPLAY_FUNCS if self.draw else VEIL_FUNCS
+            assert any(s <= pc < s + n for s, n in funcs.items()), ('pc left the veil', hex(pc))
             word = self.load(pc)
             op, rs, rt = word >> 26, word >> 21 & 31, word >> 16 & 31
             if op in (2, 3):
@@ -88,6 +101,11 @@ class VeilOracle(Oracle):
                 self.plain(self.load(pc + 4))
                 assert target in VEIL_STUBS, ('unexpected callee', hex(target))
                 self.events.append((target, self.r[4] & 0xFFFFFFFF, self.r[5] & 0xFFFFFFFF))
+                if self.draw and target == 0x21B500:
+                    pc = target                     # executed; returns to $ra
+                    continue
+                if self.draw and target == 0x21B1B0:
+                    self.write(VEIL, self.draw(bytes(self.read(VEIL, VEIL_SIZE))))
                 pc = pc + 8 if op == 3 else self.r[31]
                 continue
             imm = signed(word & 0xFFFF, 16) * 4
@@ -116,10 +134,10 @@ class VeilOracle(Oracle):
         raise AssertionError('veil function did not return')
 
 
-def veil_original(elf, block, calls):
+def veil_original(elf, block, calls, draw=None):
     """Run `calls` (function addresses) in order over `block`; returns the
     block after each, the results and the callee events per call."""
-    o = VeilOracle(elf)
+    o = VeilOracle(elf, draw)
     o.write(VEIL, block)
     out = []
     for fn in calls:
@@ -140,12 +158,14 @@ static int b500(void *c, EmLoadVeil *v) { (void)c; (void)v; if (rec.n < 64) { re
 static void unpack(EmLoadVeil *v, const unsigned char *b)
 {
     v->state = b[0]; v->sub = b[1]; v->sub2 = b[2]; v->b03 = b[3];
-    memcpy(&v->w04, b + 4, 4); memcpy(v->level, b + 8, 12); memcpy(&v->w18, b + 0x18, 4);
+    memcpy(&v->w04, b + 4, 4); memcpy(v->level, b + 8, 12); memcpy(&v->w14, b + 0x14, 4);
+    memcpy(&v->w18, b + 0x18, 4);
 }
 static void pack(const EmLoadVeil *v, unsigned char *b)
 {
     b[0] = v->state; b[1] = v->sub; b[2] = v->sub2; b[3] = v->b03;
-    memcpy(b + 4, &v->w04, 4); memcpy(b + 8, v->level, 12); memcpy(b + 0x18, &v->w18, 4);
+    memcpy(b + 4, &v->w04, 4); memcpy(b + 8, v->level, 12); memcpy(b + 0x14, &v->w14, 4);
+    memcpy(b + 0x18, &v->w18, 4);
 }
 int veil_shim(unsigned char *block, unsigned fn, unsigned *events, unsigned *nev)
 {
@@ -312,14 +332,37 @@ def replay_chain(elf, ticks):
     return len(chain), len(d010)
 
 
+class VeilDraw:
+    """0021B1B0 as the ORIGINAL executes it over the opening capture (the
+    veil particles test's oracle): the block in, the block out."""
+
+    def __init__(self, elf):
+        import test_load_veil_particles_reference as LVP
+        ram = LVP.CAPTURE.read_bytes()
+        self.ee = LVP.VeilEE(elf, bytearray(ram))
+        self.veil = struct.unpack_from('<I', ram, LVP.VEIL_PTR)[0] & (LVP.RAM_SIZE - 1)
+        self.calls = 0
+
+    def __call__(self, block):
+        self.ee.write(self.veil, block)
+        self.ee.invoke(0x21B1B0, [self.veil])
+        self.calls += 1
+        out = bytes(self.ee.read(self.veil, VEIL_SIZE))
+        assert out[:0x14] == block[:0x14] and out[0x18:] == block[0x18:], '0021B1B0 wrote outside +0x14'
+        return out
+
+
 def replay_veil(elf, ticks):
     steps = 0
+    draw = None
     for t in ticks:
         calls = [e[1] for e in t['trace'] if e[1] in VEIL_FUNCS]
         if not calls:
             continue
         pre, post = bytes.fromhex(t['veil_pre']), bytes.fromhex(t['veil_post'])
-        run = veil_original(elf, pre, calls)
+        if draw is None:
+            draw = VeilDraw(elf)
+        run = veil_original(elf, pre, calls, draw)
         assert modelled(run[-1][0]) == modelled(post), ('tick', t['tick'], 'veil block', calls)
         r = [res for (_, res, _), fn in zip(run, calls) if fn == 0x21B550]
         if r:
