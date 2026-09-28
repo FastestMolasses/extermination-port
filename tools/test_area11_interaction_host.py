@@ -21,7 +21,7 @@ MODULES = (
     'em_battery_ui em_battery_page_live em_status_page_record em_message_presenters_live '
     'em_message_presenter_rest em_status_hub em_status_hub_ui em_status_draw em_status_models em_status_scene_original em_module_loader '
     'em_owner_services_original em_item_geometry em_pickup em_pickup_items_original em_pickup_owner em_pickup_program em_pickup_motion '
-    'em_script em_frame em_fade em_random em_task em_player_face_host em_face_model em_opening_face '
+    'em_script em_frame em_fade em_random em_task em_face_slot em_roger_actor_original em_opening_face '
     'em_collision_world em_actor_collision em_actor_pool em_coll_probe_original em_coll_grid_hull em_coll_segment_walkers '
     'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '
     # The player's one pose owner (docs/PLAYER_CLIPS.md section 6).
@@ -32,7 +32,7 @@ MODULES = (
     # The render context (census L32 / L30, docs/RENDER_CONTEXT.md section 8).
     'em_render_context_live em_gs_blocks_original em_frame_kick em_frame_render_heads em_render_context em_packet_chain_original '
     'em_status_ui_leftovers em_load_veil_particles em_actor_light_001D89D0 em_player_equipment '
-    'em_owner_draw_live em_owner_draw_original em_object_unit em_point_light'
+    'em_owner_draw_live em_owner_draw_original em_object_unit em_point_light em_face_attach'
 ).split()
 
 

@@ -404,7 +404,7 @@ codes are listed in each header.
     (the same storage as `EmAreaScriptWorld.cam_70/74/78`, d8101E4 and
     cam_6E) and D_00275BCC (the bone budget the pool owns).
   - The workers are:
-    - 001CA6E0 → `em_player_face_host`-style bind (it must set +0x44);
+    - 001CA6E0 → a model bind that sets +0x44 (em_roger_actor_001CA6E0);
     - 001C6120 → the bank/index resolver (em_cinematic_camera);
     - 001C5C90 → the equipment child tick (L22, UNBOUND today);
     - 001AF780 → the pool's bone-slot pop;

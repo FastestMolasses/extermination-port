@@ -2648,8 +2648,16 @@ OWNER_DRAWN = {0x001551B0: 'crate', 0x00156620: 'drum', 0x00823FF0: 'truck', 0x0
                0x00827B10: 'terminal', 0x00159210: 'panel', 0x001C4820: 'prop', 0x00219550: 'item',
                0x0015AFA0: 'map item', 0x00823E80: 'parachute', 0x00825940: 'security gun',
                0x00827490: 'gun cable', 0x00827630: 'fan',
+               0x008237E0: 'roger', 0x001C5C90: 'roger equipment',
                EQUIPMENT_NODE: 'equipment'}   # and the player D_008102B0 (0015C160's +0x4C)
-OWNER_DRAWN_IF_VISIBLE = (0x00219550, 0x0015AFA0)
+# 00219550 / 0015AFA0 call their +0x4C only when their 001B17A0 found them
+# visible; Roger 008237E0 (em_roger's draw event) only with his +0x01 set.
+OWNER_DRAWN_IF_VISIBLE = (0x00219550, 0x0015AFA0, 0x008237E0)
+# Roger and his equipment node move with his clip, whose phase at a
+# snapshot is the time since the area load (LEVEL_SMOKE.md, roger's
+# relaxed checks): like the player, compared in full only where the port's
+# point and pose equal the snapshot's.
+ROGER_OWNERS = (0x008237E0, 0x001C5C90)
 
 
 def fnv_words(h, words):
@@ -2742,8 +2750,16 @@ def check_owner_units(ticks, state):
       the snapshot's point must hold the snapshot's pose and its B and rig
       lanes are compared (one elsewhere is counted); a run with a
       VIEW_EXACT snapshot must compare the player and all seven equipment
-      nodes in full in at least one of them."""
+      nodes in full in at least one of them;
+    - Roger 008237E0 and his equipment 001C5C90 (their +0x4C only with
+      Roger's +0x01 set; the equipment once Roger holds his nodes) move with
+      his clip, whose phase follows the area load: compared in full only
+      where both point and pose equal the snapshot's (counted otherwise,
+      also in VIEW_EXACT beats); 001CB3C0's face unit (Roger's +0x90) is split
+      off the original's bytes and its length must equal the port's wherever
+      both ran 001CAA00 (its content: level_smoke_face.py)."""
     import test_owner_draw_reference as tod
+    import level_smoke_face
     if not tod.ELF:
         tod.ELF = (DECOMP / 'config/SCUS_971.12').read_bytes()
     done, complete, fans_posed = [], [], []
@@ -2780,12 +2796,19 @@ def check_owner_units(ticks, state):
             a = u32(a + 0x1C)
         if ram[PLAYER + 1] and u32(PLAYER + 0x4C) == tod.DRAW:
             walk.append(PLAYER)                   # 0015C160's +0x4C, after the walk
+        rogerish = {a for a in walk if a != PLAYER and u32(a + 0x10) in ROGER_OWNERS}
         for a in walk:
             behaviour = u32(a + 0x10)
             # The item owners call their +0x4C only when their 001B17A0 found
             # them visible (0015AE20's tail, 00219550's `out` / state 2): the
-            # record's +0x01, which 001B17A0 stored in that call.
+            # record's +0x01, which 001B17A0 stored in that call; Roger only
+            # with his +0x01 set.
             if behaviour in OWNER_DRAWN_IF_VISIBLE and not ram[a + 1]:
+                continue
+            # 001C5C90 calls its +0x4C only once its parent (+0x18) holds its
+            # nodes (+0x09) and with the parent's +0x01 set (em_roger_actor
+            # 001C5D28 / 001C5F68).
+            if behaviour == 0x001C5C90 and not (ram[u32(a + 0x18) + 9] and ram[u32(a + 0x18) + 1]):
                 continue
             if u32(a + 0x4C) == tod.DRAW and (behaviour in OWNER_DRAWN or a == PLAYER):
                 key = ('equipment', ram[a + 3], ram[a + 0x0D]) if behaviour == EQUIPMENT_NODE and a != PLAYER else a
@@ -2800,13 +2823,24 @@ def check_owner_units(ticks, state):
                 o, ctx = tod.original_draw(ram_a, spr, a)
                 used = o.load(ctx + 0x10) - tod.CAP_DL
                 unit = o.read(tod.CAP_DL, used) if used else b''
+                # 001CB3C0's face unit (+0x90 != 0) follows the owner's own
+                # (or stands alone when 001CA7B0 culled the body): the log's
+                # bytes / digests are the owner unit's, the face's apart.
+                face_at = level_smoke_face.face_part(unit) if used else None
+                face_bytes, face_digest = 0, 0
+                if face_at is not None:
+                    face_bytes = used - face_at
+                    fw = lambda off, n: struct.unpack_from(f'<{n}I', unit, face_at + off)
+                    face_digest = fnv_words(fnv_words(fnv_words(2166136261, fw(0x20, 16)), fw(0x80, 32)),
+                                            fw(0x120, 8))
+                    unit, used = unit[:face_at], face_at
                 sub = ram[a + 0x98]
                 at = a + 0xB0 if sub == 0xFF else u32(a + 0x110 + 4 * sub) + 0xC0
                 point = list(struct.unpack_from('<3I', ram_a, at))
                 pose = 2166136261
                 for k in range(ram[a + 0x0C]):
                     pose = fnv_words(pose, struct.unpack_from('<16I', ram_a, u32(a + 0x110 + 4 * k) + 0x90))
-                entry = [a, used, 0, 0, 0, 0, points, 0, point, pose, None]
+                entry = [a, used, 0, 0, 0, 0, points, 0, point, pose, None, face_bytes, face_digest]
                 if used:
                     colour = struct.unpack_from('<16I', unit, 0x20)
                     nodes = ram[a + 0x0C]
@@ -2824,10 +2858,10 @@ def check_owner_units(ticks, state):
                         if (w0 >> 28) & 7 == 5: calls.append(addr)
                         q += 16 + (16 * (w0 & 0xFFFF) if (w0 >> 28) & 7 == 1 else 0)
                     entry = [a, used, int(0x2354A0 in calls), fnv_words(basis, colour), light, position, points,
-                             rig, point, pose, None]
+                             rig, point, pose, None, face_bytes, face_digest]
                     # The same draw over the port's point-light slots and view.
                     o2, _ = tod.original_draw(ram_port_a, spr, a)
-                    used2 = o2.load(ctx + 0x10) - tod.CAP_DL
+                    used2 = o2.load(ctx + 0x10) - tod.CAP_DL - face_bytes
                     if used2 == used:
                         entry[10] = lighting_digest(o2.read(tod.CAP_DL, used2), nodes)
                 orig[key] = entry
@@ -2846,20 +2880,31 @@ def check_owner_units(ticks, state):
         # snapshot tick): a mover at the snapshot's point must also hold its
         # pose, and its B and rig lanes are compared; one elsewhere is
         # counted.
-        moving = lambda r: r == PLAYER or isinstance(r, tuple)
+        moving = lambda r: r == PLAYER or isinstance(r, tuple) or r in rogerish
         both = [r for r in orig if orig[r][1] and r in port and port[r][1]]
         if beat in VIEW_EXACT:
             assert sorted(port, key=str) == sorted(orig, key=str), \
                 (where, 'owners that ran 001CAA00', sorted(port, key=str), sorted(orig, key=str))
             for r in orig:
-                if moving(r):
+                if moving(r) and r not in rogerish:
                     assert port[r][8] == orig[r][8], (where, hex(r), 'the point 001CAA00 lights the mover at',
                                                       port[r][8], orig[r][8])
                     assert port[r][9] == orig[r][9], (where, hex(r), 'the pose (node records +0x90)')
-        placed = [r for r in both if not moving(r) or port[r][8] == orig[r][8]]
+        # Roger's two owners: at the snapshot's point only with its pose too.
+        placed = [r for r in both if not moving(r) or port[r][8] == orig[r][8] and
+                  (r not in rogerish or port[r][9] == orig[r][9])]
         for r in placed:
             if moving(r):
                 assert port[r][9] == orig[r][9], (where, hex(r), 'the pose at the snapshot point')
+        # 001CB3C0 appends its face unit whenever +0x90 != 0, drawn body or
+        # not: wherever both ran 001CAA00 the face unit's length (the REF 2
+        # of 001D2910(0)) is equal; its content is the sampled re-execution's
+        # (level_smoke_face.py), since the face weights follow the port's
+        # rand() stream.
+        faced = [r for r in orig if r in port and (orig[r][11] or port[r][10])]
+        for r in faced:
+            assert port[r][10] == orig[r][11], (where, hex(r), 'the face unit (001CB3C0) bytes', port[r][10],
+                                                orig[r][11])
         lit = [r for r in placed if port[r][6] == orig[r][6]]
         for r in placed:
             assert port[r][3] == orig[r][3], (where, hex(r), 'colour matrix B (001D89D0)')
@@ -2873,13 +2918,17 @@ def check_owner_units(ticks, state):
         posed = []
         if beat in VIEW_EXACT:
             for r in orig:
+                if r in rogerish and r not in placed:
+                    continue                      # Roger's clip phase: counted below
                 posed.append(r)
                 assert port[r][1:3] == orig[r][1:3], (where, hex(r), 'unit bytes / clip', port[r], orig[r])
                 assert port[r][5] == orig[r][5], (where, hex(r), 'position rows (node x VP)')
             full = {r for r in posed if orig[r][1] and moving(r)}
             complete.append((beat, PLAYER in full, len({r for r in full if isinstance(r, tuple)})))
         movers = [r for r in both if moving(r)]
-        done.append(f'{beat[:2]} ({len(both)} drawn in both: colour and rig lanes equal for {len(placed)}'
+        roger_note = (f', Roger\'s owners {sum(r in placed for r in rogerish)} of {len(rogerish)} at the snapshot '
+                      f'pose, {len(faced)} face unit(s) of equal length' if rogerish else '')
+        done.append(f'{beat[:2]} ({len(both)} drawn in both{roger_note}: colour and rig lanes equal for {len(placed)}'
                     f'{f" ({len(movers)} player / equipment units, {sum(r in placed for r in movers)} at the snapshot point)" if movers else ""}'
                     f'; whole lighting rows equal for {len(placed)} over the port\'s point-light slots and view'
                     f' ({len(lit)} with the snapshot\'s own slots equal; the view D_00810610 differs from the'
@@ -3243,6 +3292,8 @@ def main():
         level_smoke_chain_page.check_chain_page(ticks, state)
         import level_smoke_load_veil    # the load veil (em_load_veil_live)
         level_smoke_load_veil.check_load_veil(ticks, state)
+        import level_smoke_face         # 001CB3C0 (em_face_attach through em_owner_draw_live)
+        level_smoke_face.check_face(ticks, state)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

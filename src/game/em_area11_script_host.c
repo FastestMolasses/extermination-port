@@ -178,11 +178,16 @@ static int w_001D25F0(void *ctx, float a0)
     return em_rcl_001D25F0(em_ee_bits(a0)) < 0 ? report("001D25F0 faulted") : 0;
 }
 
+static int face_slot(uint32_t actor, EmFaceSlot *slot);
+
+/* 001CA770(actor): the record's face slot back onto the 001AF710 stack
+ * (em_face_slot: 001AF890, +0x90 = 0, +0x94 = -1). */
 static int w_001CA770(void *ctx, uint32_t actor)
 {
     (void)ctx;
-    if (actor != EM_AREA_SCRIPT_D_008102B0) return report("001CA770 on an actor other than the player");
-    return frame_event(EM_INTERACTION_RELEASE_SKELETON);
+    EmFaceSlot slot;
+    if (face_slot(actor, &slot) < 0) return -1;
+    return em_face_slot_001CA770(&slot) < 0 ? report("001CA770 faulted") : 0;
 }
 
 /* 001FAE70(a0): the scene bindings' translation (a0 == 0, the resume the
@@ -277,33 +282,35 @@ static int r_0028A490(void *ctx, uint32_t address, uint32_t *value)
     return em_area11_roger_table_word(address, value);
 }
 
-/* 001B81D0's face attach on the player (001CA700(player, D_0028A490[row],
- * 7) and 001D06D0(player, 1)): the interaction host's player face (the
- * face host's attach is B81D0's reset plus speed 1, docs/ROGER_CINEMATIC.md
- * "Original encounter capture"); the attach publishes 0x70003B8F = 2 after
- * both, as the handler does. Only the player's face resource row 0x18
- * (model 0x3B, the captured +0x2FF) is bound. */
+/* The face slot of the record at `actor` (em_face_slot over the interaction
+ * host's views). The area scripts' 001B81D0 / 001B82D0 pass the player
+ * D_008102B0, the one record whose bytes the port holds for them; any
+ * other address has no record view here (fail-stop). */
+static int face_slot(uint32_t actor, EmFaceSlot *slot)
+{
+    if (actor != EM_AREA_SCRIPT_D_008102B0) return report("a face-slot call on a record without a view here");
+    return em_area11_interaction_host_player_face(slot) < 0 ? report("the player's face slot views") : 0;
+}
+
+/* 001CA700(actor, resource, a2) (001B81D0: D_0028A490[row] of the player's
+ * model, 7): em_roger_actor_001CA700 on the record's +0x90 / +0x94 through
+ * em_face_slot (001AF780's pop from the shared 001AF710 stack). */
 static int w_001CA700(void *ctx, uint32_t actor, uint32_t bank, int16_t a2, int32_t *result)
 {
     (void)ctx;
-    uint32_t row;
-    if (actor != EM_AREA_SCRIPT_D_008102B0 || a2 != 7 ||
-        em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * 0x18u, &row) < 0 || bank != row)
-        return report("001CA700 other than the player's row-0x18 face");
-    if (view_store() < 0) return -1;
-    int rc = em_area11_interaction_host_face_attach();
-    view_load();
-    if (!rc) return report("001CA700: the interaction host refused the player face");
-    *result = 1;
+    EmFaceSlot slot;
+    if (face_slot(actor, &slot) < 0) return -1;
+    if (em_face_slot_001CA700(&slot, bank, a2, result) < 0) return report("001CA700 faulted");
     return 0;
 }
 
+/* 001D06D0(actor, a1): the slot's +0x81 (em_face_slot). */
 static int w_001D06D0(void *ctx, uint32_t actor, uint8_t a1)
 {
     (void)ctx;
-    if (actor != EM_AREA_SCRIPT_D_008102B0 || a1 != 1)
-        return report("001D06D0 other than the player's speed 1");
-    return 0;   /* the attach above set the speed (the face host's B81D0 path) */
+    EmFaceSlot slot;
+    if (face_slot(actor, &slot) < 0) return -1;
+    return em_face_slot_001D06D0(&slot, a1) < 0 ? report("001D06D0 faulted") : 0;
 }
 
 /* The track header word 001B8FC0 kind 6 stores at the camera's +0x78:

@@ -12,8 +12,10 @@ original unit through the translations (section 10) and the renderer draws
 the triangles the original VU1 programs kick (section 7). Since census L24
 the fan pair (00827630), the security gun (00825940) and its cable
 (00827490) do too, on their original owners (SECURITY_GUN.md,
-FAN_ORIGINAL.md). Roger and the indicator children still draw through
-stand-ins (section 11).
+FAN_ORIGINAL.md). Since chain C8b's FACE step Roger (008237E0) and his
+equipment node (001C5C90) draw their original units too, Roger's with the
++0x90 attachment's face unit (001CB3C0, FACE_ATTACH.md). The indicator
+children still draw through a stand-in (section 11).
 
 This document answers three questions for the AREA11 world owners: the crates
 (001551B0), drums (00156620), fan (00827630), truck (00823FF0), elevator
@@ -49,15 +51,18 @@ original code, data or disassembly.
 | `tests/object_unit_gpu_test.c`, `tools/test_object_unit_gpu.py` | The Metal pixel path over captured units against a model of the documented GS pixel path (section 8.1). |
 
 With the modules below, every draw worker of 001CAA00 has a native
-translation except **001CB3C0** (the +0x90 attachment, a face unit):
+translation:
 
 - em_owner_services (001CAA00, 001CA990, 001C7420);
 - em_load_veil_particles (001D1F80);
 - em_actor_light_001D89D0 (001D89D0 and its callees; ACTOR_LIGHT_001D89D0.md);
-- em_owner_draw (this lane).
+- em_owner_draw (this lane);
+- em_face_attach (001CB3C0, the +0x90 attachment: a face unit;
+  FACE_ATTACH.md).
 
-None of the bound world owners has an attachment (+0x90 = 0 in every
-capture). Roger's is his face (section 11).
+The world owners have no attachment (+0x90 = 0 in every capture). Roger's
+is his face; the player's is Dennis's face while a script holds it
+(FACE_ATTACH.md section 6).
 
 
 ## 2. The original call chain for one owner
@@ -621,7 +626,7 @@ whose runtime palette is the nodes' +0x90, DOOR_ORIGINAL.md;
 | 001C7420's packets | the render context's channel-0 cursor (context +0x10) in its packet arena; 0x70003AC0 from its scratchpad copy |
 | 001D1F80(0, 1, 0) | `em_rcl_001D1F80` (the render context's veil module; the cursor word is handed over and taken back) |
 | 001CA940 | em_owner_draw_001CA940 over the AREA11 bank |
-| 001CB3C0 | not bound: an owner with +0x90 != 0 faults (Roger's face, section 11) |
+| 001CB3C0 | em_face_attach_001CB3C0 (FACE_ATTACH.md section 6.1): the callers pass the regions it reads by address (`em_owner_draw_live_001CAA00_attached`: Roger, the player); an owner with +0x90 != 0 drawn without them faults. The owner's unit and the face unit are parsed one by one and drawn in build order |
 | skin_arena_init (001D2E20) | `em_rcl_skin_arena_init`, run by the frame machine's 001D19E0 binding at every area load (the rest of 001D19E0 stays unmirrored, RENDER_CONTEXT.md 8.4) |
 
 **The player (em_player_draw_live).** Its record's draw fields are the
@@ -694,6 +699,21 @@ unit's model REF both come from it. The +0x4C worker `w_method` runs
 slots) whenever the player record is the displayed pose; the units are
 drawn with the walk's.
 
+**Roger and his equipment (em_area11_roger, chain C8b FACE).** Roger's +0x4C
+(em_roger's draw event, when his +0x01 is set) and his equipment node's
+(001C5C90's jalr +0x4C, when the parent's +0x01 is set and its nodes held)
+run `em_owner_draw_live_001CAA00_attached` over their records' owner views
+(+0x01, +0x02, +0x03, +0x09, +0x0C, +0x0D, +0x44, +0x80..+0x8F, +0x90,
++0x94, +0x98, +0xB0 and the node records the +0x110 words name); their
+models (0x47 and library 0x6B) come from the Roger export into a
+table-less bank at their original addresses. Roger's +0x90 face slot makes
+001CAA00 collapse node 7 (+0x94) and append 001CB3C0's face unit
+(FACE_ATTACH.md). The smoke compares both like the player (movers: their
+clip phase follows the area load), with the face unit's length at every
+aligned snapshot and a sampled re-execution of the whole call
+(LEVEL_SMOKE.md "Face attachments"). The legacy roger.emdl and
+equipment_6b.emdl draws are retired.
+
 **The GS state and arena REFs are checked by address.** 001D0F20 builds
 the GS state packets (and the arena qword) at boot and is not translated,
 so the port's copy of those bytes is not built. The parser requires the
@@ -729,9 +749,7 @@ renderer's skinned path.
 
 | Owner | Draws today | Waits on |
 |---|---|---|
-| the player during the opening (design risk 2) | the opening runtime's actors, then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening player on the record pose |
-| Roger (008237E0; +0x90 = his face) | roger.emdl with the opening face through em_gfx_draw_skinned | the face unit's EE builders: 001CB3C0 (and its 001026D0 / 001029C0), 001C7900 and 001CB2C0 (verified-unbound in em_anim_runtime_rest), 001D3F50 -> 001D3E40 (untranslated; the decomp's C is a NEARMISS), and the face state's weights from their original updater. The renderer side is ready: em_gfx_object_unit runs a face unit (section 8 F). Roger's body model (0x47) and the unit resolver for the Roger export's models are the binder's |
-| Roger's equipment 001C5C90 | opening/equipment_6b.emdl | a model resolver for the D_0028A56C library (the Roger export holds model 0x6B) |
+| the player and Roger during the opening (design risk 2) | the opening runtime's actors (em_opening_actor: their EMDL meshes with the host-float face morph), then the legacy player EMDL in the reported hand-off frames (the record is not the displayed pose) | the opening's actors on their records (the chain's OPENING step) |
 | the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the security gun's 0x7A lamp draws nothing (dark in the first level: its colour is (0, 0, 0, 0.25)) | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
 ## 12. Limits

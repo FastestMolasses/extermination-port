@@ -242,7 +242,6 @@ enum {
     UM_001D2880,
     UM_00200830,
     UM_001D19D0,
-    UM_001DA6A0,
     UM_001D52E0,
     UM_COUNT
 };
@@ -293,10 +292,6 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
                                   "renderer has no counterpart"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
-    [UM_001DA6A0] = {0x001DA6A0u, "actor drop shadow from 001BA580 (Roger, census L22); the port draws "
-                                  "no actor shadow: Roger's kind 0x29 proxy D_0028A490[0x29] is not "
-                                  "exported (the player's post-step is bound: em_shadow_live, "
-                                  "docs/SHADOW_ORIGINAL.md)"},
     [UM_001D52E0] = {0x001D52E0u, "001C1DC0's 001C1E70: the static-object grid header into render "
                                   "context +0x140..+0x167; the bank *D_0028A5A0 is not exported and "
                                   "its only reader 001D5370 (001C1D00) is not bound "
@@ -975,10 +970,58 @@ static void log_tick_end(int rc)
         EmOwnerDrawLiveLog units[EM_OWNER_DRAW_LIVE_UNITS];
         const int nu = em_owner_draw_live_log(units, EM_OWNER_DRAW_LIVE_UNITS);
         for (int i = 0; i < nu; ++i)
-            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, [%u, %u, %u], %u]", i ? ", " : "", units[i].record,
-                    units[i].bytes, units[i].clip, units[i].colour, units[i].light, units[i].position,
-                    units[i].points, units[i].light_rig, units[i].point[0], units[i].point[1], units[i].point[2],
-                    units[i].pose);
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, [%u, %u, %u], %u, %u, %u]", i ? ", " : "",
+                    units[i].record, units[i].bytes, units[i].clip, units[i].colour, units[i].light,
+                    units[i].position, units[i].points, units[i].light_rig, units[i].point[0], units[i].point[1],
+                    units[i].point[2], units[i].pose, units[i].face_bytes, units[i].face);
+    }
+    fputc(']', f);
+    /* The attached 001CAA00 calls (001CB3C0's face units: Roger, the player
+     * while a script holds its face) of the last drawn frame: per record,
+     * [record, face bytes], and on sampled calls (per record the first, then
+     * every 200th, at most 80) the call's inputs and appended bytes for the
+     * original re-execution (tools/level_smoke_face.py). */
+    fputs(", \"face_units\": [", f);
+    {
+        const EmOwnerDrawLiveSample *sm = NULL;
+        const int ns = em_owner_draw_live_samples(&sm);
+        static uint32_t seen_record[4], seen_frame[4], seen_calls[4], seen_samples[4];
+        for (int i = 0; i < ns; ++i) {
+            const EmOwnerDrawLiveSample *m = &sm[i];
+            unsigned k = 0;
+            while (k < 4 && seen_record[k] && seen_record[k] != m->record) ++k;
+            int emit = 0;
+            if (k < 4 && !(seen_record[k] == m->record && seen_frame[k] == m->frame)) {
+                seen_record[k] = m->record;          /* each drawn call is counted once */
+                seen_frame[k] = m->frame;
+                emit = seen_calls[k]++ % 200u == 0 && seen_samples[k] < 80;
+                seen_samples[k] += emit;
+            }
+            fprintf(f, "%s[%u, %u, %u, ", i ? ", " : "", m->record, m->frame, m->face_bytes);
+            if (!emit) {
+                fputs("null]", f);
+                continue;
+            }
+            fprintf(f, "{\"record_bytes\": ");
+            log_hex(f, m->record_bytes, m->record_size);
+            fputs(", \"nodes\": ", f);
+            log_hex(f, (const uint8_t *)m->nodes, 64u * m->node_count);
+            fprintf(f, ", \"slot_address\": %u, \"slot\": ", m->slot_address);
+            log_hex(f, m->slot, sizeof m->slot);
+            const struct { const char *name; const uint32_t *w; } views[] = {
+                {"view_810610", m->view_810610}, {"planes_2410", m->planes_2410}, {"vp_3AC0", m->vp_3AC0},
+            };
+            for (size_t v = 0; v < sizeof views / sizeof views[0]; ++v) {
+                fprintf(f, ", \"%s\": ", views[v].name);
+                log_hex(f, (const uint8_t *)views[v].w, 0x40);
+            }
+            fprintf(f, ", \"ctx_0C\": %u, \"ctx_9C\": %u, \"rig_word\": %u, \"area\": [%u, %u], \"rig\": ",
+                    m->ctx_0C, m->ctx_9C, m->rig_word, m->area[0], m->area[1]);
+            log_hex(f, (const uint8_t *)m->rig, sizeof m->rig);
+            fprintf(f, ", \"unit_address\": %u, \"unit\": ", m->unit_address);
+            log_hex(f, m->unit, m->unit_bytes);
+            fputs("}]", f);
+        }
     }
     fputc(']', f);
     /* The point-light pool at render context +0x210..+0x221F after this
@@ -1103,6 +1146,52 @@ static void log_tick_end(int rc)
             fputs("null", f);
         }
         fputc(']', f);
+    } else {
+        fputs("null", f);
+    }
+    /* Roger's 001BA580 -> 001DA6A0 in the owner walk (em_shadow_live's
+     * actor call): [fresh (its frame is this tick's), record, the result,
+     * kind, receivers, class-2 receivers, flushed, cumulative calls and
+     * draws, sample]; on sampled calls (the first, then every 100th, at most
+     * 40) the call's inputs for the original re-execution
+     * (tools/level_smoke_shadow.py check_actor). */
+    fputs(", \"shadow_actor\": ", f);
+    if (em_shadow_live_bound()) {
+        EmShadowLiveActorLog a;
+        em_shadow_live_actor_log(&a);
+        const uint32_t now = em_frame_counter();
+        fprintf(f, "[%d, %u, %d, %d, %u, %u, %u, %u, %u, ", a.frame == now, a.record, a.drawn, a.kind,
+                a.receivers, a.receivers_cls2, a.flushed, a.calls, a.drawn_total);
+        static uint32_t acalls, asamples, alast;
+        const EmShadowLiveSample *sm = em_shadow_live_actor_sample();
+        int emit = 0;
+        if (sm && a.frame == now && sm->frame == now && a.calls != alast) {
+            alast = a.calls;
+            emit = acalls++ % 100u == 0 && asamples < 40;
+            asamples += emit;
+        }
+        if (emit) {
+            fprintf(f, "{\"record\": %u, \"record_bytes\": ", sm->record);
+            log_hex(f, sm->player, sm->record_size);
+            fputs(", \"nodes\": ", f);
+            log_hex(f, sm->nodes, sizeof sm->nodes);
+            const struct { const char *name; const uint32_t *w; } views[] = {
+                {"clip_2240", sm->clip_2240}, {"proj_2340", sm->proj_2340}, {"view_2380", sm->view_2380},
+                {"camera_3AC0", sm->camera_3AC0}, {"view_810610", sm->view_810610},
+            };
+            for (size_t i = 0; i < sizeof views / sizeof views[0]; ++i) {
+                fprintf(f, ", \"%s\": ", views[i].name);
+                log_hex(f, (const uint8_t *)views[i].w, 0x40);
+            }
+            fprintf(f, ", \"zoom_2468\": %u, \"area\": [%u, %u], \"ff0\": ", sm->zoom_2468, sm->area_700,
+                    sm->sub_701);
+            log_hex(f, (const uint8_t *)sm->ff0_before, 16);
+            fputs(", \"plan\": ", f);
+            log_hex(f, (const uint8_t *)sm->plan, sm->plan_bytes);
+            fputs("}]", f);
+        } else {
+            fputs("null]", f);
+        }
     } else {
         fputs("null", f);
     }
@@ -2576,11 +2665,6 @@ int em_scene_bindings_001FABB0(void)
 int em_scene_bindings_001FBC50(void)
 {
     return w_001FBC50(NULL);
-}
-
-int em_scene_bindings_report_001DA6A0(void)
-{
-    return unmirrored(UM_001DA6A0);
 }
 
 /* 001B0250 (em_spawn_001B0250, byte-matched) for the scripted camera's

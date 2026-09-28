@@ -408,10 +408,9 @@ its nonzero-+0x2F3 branch +0x40 = D_0028A580, +0x20C = D_00248A00[+0x235],
 +1F0 = 0, 3B8F = 0) and ends the token. Routes 07, 09, 10, 11, 13 and 14
 reproduce the player record (+5, +1F0, +1F1, the clip, the clock and +0x2F3)
 row for row, and the level smoke checks +4 = 4 from the admission to the
-release (`check_stage_takeover`). 001B82D0 sub 4's 001CA770 on the player is
-the face host's detach: the port's player face is not in a pool slot
-(001CA700 / 001CA770 on the record's +0x90 wait for the attachment draw
-001CB3C0).
+release (`check_stage_takeover`). 001B82D0 sub 4's 001CA770 on the player
+releases the face slot at the record's +0x90 (em_face_slot, since chain
+C8b's FACE step; FACE_ATTACH.md section 6.3).
 
 ### 6.2 The design binding (for the remaining owners)
 
@@ -451,7 +450,7 @@ Workers → native services:
 | w_001DD980 | world-camera publish |
 | w_00182F90 | the player position-mirror service |
 | w_0018CBD0 | camera retarget (`em_camera_retarget` holds its scalar part) |
-| w_001CA700, w_001D06D0, w_001CA770 | `em_player_face_host` attach / speed / detach |
+| w_001CA700, w_001D06D0, w_001CA770 | `em_face_slot_001CA700` / `_001D06D0` / `_001CA770` on the player record's +0x90 (the interaction host's views: the one 001AF710 stack and arena) |
 | w_001C67E0 | the owner's `anim_clip_init` (Roger's pose) |
 | w_001B1470 | `em_fan_original_wrap_001B1470` (verified on observed values) |
 | w_0011E2A8 | `em_area_script_w_0011E2A8` (verified: sweep, lockstep, route captures) |

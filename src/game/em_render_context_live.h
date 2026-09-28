@@ -196,6 +196,11 @@ int em_rcl_skin_arena_init(void);
  * channel cursors (em_load_veil_particles over this storage). 0, or -1
  * (not bound, or the fault latched here). */
 int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2);
+/* 001D2910(a0) over the one render context (em_render_context_001D2910):
+ * *result = its return value (for a0 < 0x20, context +0x0C bit a0). The
+ * face attachment's 001D3E40 reaches it (em_owner_draw_live). 0, or -1
+ * (not loaded, or the fault latched here). */
+int em_rcl_001D2910(int32_t a0, uint32_t *result);
 /* 0021B1B0(veil): the load veil's draw (0021B550's, docs/
  * LOAD_VEIL_PARTICLES.md) over this storage: its packets at the channel-0
  * cursor, with the render context's fabsf / float_to_int workers, 001DFA40's

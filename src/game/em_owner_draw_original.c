@@ -152,7 +152,7 @@ static int prepare(S *s, int32_t chan, u32 bytes, u32 fn)
 
 /* A DMA tag at the cursor: byte +3 = id, word +4 = address, halfword +0 =
  * qwc; byte +2 and +8..+0xF are left as they are. The cursor advances 0x10. */
-static void tag(EmOwnerServicesChannel *c, uint8_t id, u32 qwc, u32 address)
+void em_owner_draw_tag(EmOwnerServicesChannel *c, uint8_t id, uint32_t qwc, uint32_t address)
 {
     uint8_t *p = c->cursor;
     p[3] = id;
@@ -161,13 +161,23 @@ static void tag(EmOwnerServicesChannel *c, uint8_t id, u32 qwc, u32 address)
     c->cursor = p + 0x10;
 }
 
+static void tag(EmOwnerServicesChannel *c, uint8_t id, u32 qwc, u32 address)
+{
+    em_owner_draw_tag(c, id, qwc, address);
+}
+
 /* vif_append_ref_tag (001D2090)(chan, target). */
+void em_owner_draw_vif_append_ref_tag(const EmOwnerDrawWorld *w, int32_t chan, uint32_t target)
+{
+    EmOwnerServicesChannel *c = &w->channel[chan];
+    tag(c, 0x30, 1u, *w->d00275674);                /* REF 1 qw to *D_00275674 */
+    w->ctx_50[chan] = target;                       /* context +0x50 + 4 chan */
+    tag(c, 0x50, 0u, target);                        /* CALL */
+}
+
 static void append_ref_tag(S *s, int32_t chan, u32 target)
 {
-    EmOwnerServicesChannel *c = &s->world.channel[chan];
-    tag(c, 0x30, 1u, *s->world.d00275674);          /* REF 1 qw to *D_00275674 */
-    s->world.ctx_50[chan] = target;                 /* context +0x50 + 4 chan */
-    tag(c, 0x50, 0u, target);                        /* CALL */
+    em_owner_draw_vif_append_ref_tag(&s->world, chan, target);
 }
 
 /* 001D37D0 (kernel 0023C750) and 001D3AD0 (kernel 002354A0). */

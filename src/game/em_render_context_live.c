@@ -1008,6 +1008,13 @@ int em_rcl_001D1F80(int32_t a0, int32_t a1, int32_t a2)
     return 0;
 }
 
+int em_rcl_001D2910(int32_t a0, uint32_t *result)
+{
+    if (!R.loaded || R.fault || !result) return -1;
+    if (em_render_context_001D2910(&R.rc, a0, result) < 0) return fail(0x001D2910u, "001D2910 fault");
+    return 0;
+}
+
 int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size)
 {
     uint8_t *p = R.loaded ? own(address, size) : NULL;

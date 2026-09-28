@@ -1382,13 +1382,6 @@ typedef struct {
     const float *palette;
     uint32_t     bone_count;
     const float *tint;
-    /* Census L22 (Roger): the owner's light-reference node (its +0x98,
-     * 001D89D0's anchor; 0 = bone 0 as before), the camera fill of an
-     * owner whose +0x02 has bit 0x20 (001D8BF0), and a mesh with
-     * FACE_LIGHT vertices, which also takes the 001D88B0 face rig. */
-    uint8_t      anchor_bone;
-    uint8_t      cam_fill;
-    uint8_t      face;
 } ChainDraw;
 
 /* CAMERA state — the native mirror of the engine's camera struct at

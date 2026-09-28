@@ -6,6 +6,8 @@
 #include <string.h>
 
 #include "game/em_actor_light_001D89D0.h"
+#include "game/em_anim_runtime_rest.h"
+#include "game/em_face_attach.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_object_unit.h"
@@ -19,6 +21,7 @@
 #define D_00253170 0x00253170u   /* 001D8340's fold seed */
 #define D_00275674 0x00275674u   /* the GS block (arena) address word */
 #define D_00275688 0x00275688u   /* the rig pointer word */
+#define D_00250FB0 0x00250FB0u   /* 001CB3C0's attachment offset (3 words, render_context.emrc) */
 #define SPR_3AC0 0x70003AC0u     /* the view-projection 001D1C50 copies */
 #define CTX EM_RCL_CONTEXT
 #define ARENA_END 0x007635C0u    /* the packet arena ends where the chain table starts */
@@ -50,6 +53,17 @@ static struct {
     uint32_t post_first, post_frame;
     const EmWorldModels *bank;
     int textures_loaded, textures_tried;
+    /* 001CB3C0 (the +0x90 attachment): the anim rest whose region table
+     * serves its EE-address reads (the call's regions), and the face
+     * attachment over this module's views. */
+    EmAnimRest rest;
+    EmFaceAttach face;
+    uint32_t record;                      /* the owner's record address (001CB3C0 a0) */
+    const EmOwnerDrawLiveRegion *regions;
+    unsigned region_count;
+    /* The attached calls' samples (this frame's, the last drawn frame's). */
+    EmOwnerDrawLiveSample sample[EM_OWNER_DRAW_LIVE_SAMPLES], last_sample[EM_OWNER_DRAW_LIVE_SAMPLES];
+    uint32_t sample_count, last_sample_count;
 } L;
 
 static int report(uint32_t address, const char *what)
@@ -145,13 +159,60 @@ static int w_001CA940(void *ctx, int32_t flags, const EmOwnerModel *model)
     return em_owner_draw_001CA940(&L.draw, flags, model);
 }
 
-/* 001CB3C0: the +0x90 attachment (a face unit, 001D3F50 / 001D3E40) has no
- * EE-side translation yet. */
+/* The face attachment's 001D1F80(0, 1, 0): the same cursor handover. */
+static int face_1F80(void *ctx, int32_t a0, int32_t a1, int32_t a2)
+{
+    return w_001D1F80(ctx, a0, a1, a2);
+}
+
+/* The face attachment's 001D2910: the live render context's. */
+static int face_2910(void *ctx, int32_t a0, uint32_t *result)
+{
+    (void)ctx;
+    return em_rcl_001D2910(a0, result);
+}
+
+/* 001CB3C0(owner): em_face_attach_001CB3C0 over this module's channel,
+ * scratch, owner-draw and light views (the rig record of 001D89D0), with
+ * the call's regions as the EE bytes it reads by address (the record's
+ * +0x80..+0x97, the attachment slot, the face resource), D_00250FB0 from
+ * the render context's .data and the owner's node array as D_00275B40. */
 static int w_001CB3C0(void *ctx, EmOwnerServicesOwner *owner)
 {
     (void)ctx;
-    (void)owner;
-    return report(0x001CB3C0u, "the +0x90 attachment draw 001CB3C0 is not bound");
+    const uint32_t *offset = words(D_00250FB0, 12);
+    if (!offset) return report(D_00250FB0, "D_00250FB0 is not in the render context's .data");
+    if (!L.regions || L.region_count > EM_POSE_REGION_MAX)
+        return report(0x001CB3C0u, "an owner with +0x90 != 0 drawn without the attachment's regions");
+    EmAnimRest *r = &L.rest;
+    memset(r, 0, sizeof *r);
+    for (unsigned i = 0; i < L.region_count; ++i)
+        r->world.region[i] = (EmPoseRegion){L.regions[i].address, L.regions[i].size,
+                                            (uint8_t *)(uintptr_t)L.regions[i].bytes, 0};
+    r->world.region_count = L.region_count;
+    r->world.channel = &L.channel;
+    r->world.channel_count = 1;
+    r->world.scratch = &L.spr;
+    r->workers.ctx = &L.face;
+    r->workers.w_001D88B0 = em_face_attach_w_001D88B0;
+    EmFaceAttach *f = &L.face;
+    memset(f, 0, sizeof *f);
+    f->world.anim = r;
+    f->world.draw = &L.draw.world;
+    f->world.light = &L.light;
+    f->world.context_address = CTX;
+    f->world.d00250FB0 = offset;
+    f->world.d00275B40 = owner->bone;
+    f->world.d00275B40_count = owner->bone_count;
+    f->workers.w_001D1F80 = face_1F80;
+    f->workers.w_001D2910 = face_2910;
+    if (em_face_attach_001CB3C0(f, L.record) < 0) {
+        fprintf(stderr, "em_owner_draw_live: 001CB3C0 faulted: %08X/%d (anim rest %08X/%d, light %08X/%d)\n",
+                (unsigned)f->fault.address, (int)f->fault.code, (unsigned)r->fault.address, (int)r->fault.code,
+                (unsigned)L.light.fault.address, (int)L.light.fault.code);
+        return -1;
+    }
+    return 0;
 }
 
 /* Every view, re-pointed before each draw (the render context's storage is
@@ -209,10 +270,19 @@ static int bind_views(const EmWorldModels *bank)
 
 /* ------------------------------------------------ the unit */
 
+/* A REF target: the model bank, then the call's attachment regions (the
+ * face resource's blocks, 001D3E40's REF to face + 0x40), then the render
+ * context's storage. */
 static const uint8_t *resolve(void *ctx, uint32_t address, uint32_t bytes)
 {
     const uint8_t *p = em_world_models_bytes(ctx, address, bytes);
-    return p ? p : em_rcl_bytes(address, bytes);
+    if (p) return p;
+    for (unsigned i = 0; i < L.region_count && L.regions; ++i) {
+        const EmOwnerDrawLiveRegion *g = &L.regions[i];
+        if (g->bytes && bytes <= g->size && address >= g->address && address - g->address <= g->size - bytes)
+            return g->bytes + (address - g->address);
+    }
+    return em_rcl_bytes(address, bytes);
 }
 
 static uint32_t fnv(uint32_t h, const uint32_t *w, uint32_t n)
@@ -247,7 +317,73 @@ int em_owner_draw_live_light(int32_t mode, const EmOwnerServicesOwner *owner, co
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record)
 {
+    return em_owner_draw_live_001CAA00_attached(bank, owner, rgb, record, NULL, 0);
+}
+
+/* The bytes of the call's region holding [address, address + size), or
+ * NULL. */
+static const uint8_t *region_bytes(const EmOwnerDrawLiveRegion *regions, unsigned count, uint32_t address,
+                                   uint32_t size)
+{
+    for (unsigned i = 0; i < count; ++i) {
+        const EmOwnerDrawLiveRegion *g = &regions[i];
+        if (g->bytes && size <= g->size && address >= g->address && address - g->address <= g->size - size)
+            return g->bytes + (address - g->address);
+    }
+    return NULL;
+}
+
+/* An attached call's inputs, before 001CAA00 runs (see the header). */
+static EmOwnerDrawLiveSample *sample_inputs(const EmOwnerServicesOwner *owner, uint32_t record,
+                                            const EmOwnerDrawLiveRegion *regions, unsigned count)
+{
+    if (L.sample_count >= EM_OWNER_DRAW_LIVE_SAMPLES) return NULL;
+    EmOwnerDrawLiveSample *m = &L.sample[L.sample_count];
+    memset(m, 0, sizeof *m);
+    m->frame = em_frame_counter();
+    m->record = record;
+    for (unsigned i = 0; i < count; ++i)
+        if (regions[i].address == record && regions[i].bytes) {
+            m->record_size = regions[i].size < EM_OWNER_DRAW_LIVE_SAMPLE_RECORD ? regions[i].size
+                                                                               : EM_OWNER_DRAW_LIVE_SAMPLE_RECORD;
+            memcpy(m->record_bytes, regions[i].bytes, m->record_size);
+        }
+    m->node_count = owner->bone_count;
+    for (uint32_t k = 0; k < owner->bone_count && k < EM_OWNER_SERVICES_MAX_BONES; ++k)
+        if (owner->bone[k]) memcpy(m->nodes[k], owner->bone[k]->world, 64);
+    const uint8_t *slot = owner->attachment ? region_bytes(regions, count, owner->attachment, 0xD0) : NULL;
+    if (slot) {
+        m->slot_address = owner->attachment;
+        memcpy(m->slot, slot, sizeof m->slot);
+    }
+    const EmOwnerDrawWorld *d = &L.draw.world;
+    memcpy(m->view_810610, d->d00810610, 64);
+    memcpy(m->planes_2410, d->ctx_2410, 64);
+    memcpy(m->vp_3AC0, L.spr.s3AC0, 64);
+    m->ctx_0C = *d->ctx_0C;
+    m->ctx_9C = *d->ctx_9C;
+    memcpy(m->rig, L.rig, sizeof m->rig);
+    m->rig_word = *L.light.world.d00275688;
+    memcpy(m->area, L.light.world.d00810700, 2);
+    ++L.sample_count;
+    return m;
+}
+
+static void log_face(EmOwnerDrawLiveLog *log, const EmObjectUnitPieces *p)
+{
+    uint32_t h = fnv(2166136261u, p->color, 16);
+    h = fnv(h, p->nodes, 32);
+    log->face = fnv(h, p->weights, 8);
+    log->face_bytes = p->bytes;
+}
+
+int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
+                                         const uint32_t rgb[4], uint32_t record,
+                                         const EmOwnerDrawLiveRegion *regions, unsigned region_count)
+{
     if (!bank || !owner || !rgb) return report(0x001CAA00u, "NULL argument");
+    if (region_count > EM_OWNER_DRAW_LIVE_REGIONS || (region_count && !regions))
+        return report(0x001CB3C0u, "more attachment regions than EM_OWNER_DRAW_LIVE_REGIONS");
     if (em_rcl_fault()) return report(em_rcl_fault(), "the render context has faulted");
     if (bind_views(bank) < 0) return -1;
     if (channel_open() < 0) return report(0x00811CD0u, "the channel-0 cursor is outside the packet arena");
@@ -256,6 +392,7 @@ int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner 
         L.unit_frame = frame;
         L.unit_count = 0;
         L.log_count = 0;
+        L.sample_count = 0;
         L.drawn = 0;
     }
     if (L.log_count >= EM_OWNER_DRAW_LIVE_UNITS)
@@ -299,28 +436,81 @@ int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner 
 
     const uint32_t start = channel_address();
     uint8_t *const unit = L.channel.cursor;
+    L.record = record;
+    L.regions = regions;
+    L.region_count = region_count;
+    EmOwnerDrawLiveSample *sample = region_count ? sample_inputs(owner, record, regions, region_count) : NULL;
     const int rc = em_owner_services_001CAA00(s, owner);
     L.owner_rgb = NULL;
     if (rc < 0 || s->fault.code) {
+        L.regions = NULL;
+        L.region_count = 0;
         fprintf(stderr, "em_owner_draw_live: 001CAA00 faulted: services %08X/%d, draw %08X/%d, light %08X/%d\n",
                 (unsigned)s->fault.address, (int)s->fault.code, (unsigned)L.draw.fault.address,
                 (int)L.draw.fault.code, (unsigned)L.light.fault.address, (int)L.light.fault.code);
         return -1;
     }
-    if (channel_store() < 0) return report(0x00811CD0u, "the channel-0 cursor could not be stored");
-    const uint32_t used = channel_address() - start;
-    if (!used) return 0;                           /* 001CA7B0 culled it */
-    if (L.unit_count >= EM_OWNER_DRAW_LIVE_UNITS)
-        return report(0x001CAA00u, "more drawn units in one frame than EM_OWNER_DRAW_LIVE_UNITS");
-    const char *why = NULL;
-    EmObjectUnitPieces *p = &L.units[L.unit_count];
-    if (em_object_unit_parse(unit, used, resolve, (void *)bank, p, &why) < 0) {
-        fprintf(stderr, "em_owner_draw_live: the unit at %08X is refused: %s\n", (unsigned)start, why);
-        return -1;
+    if (channel_store() < 0) {
+        L.regions = NULL;
+        L.region_count = 0;
+        return report(0x00811CD0u, "the channel-0 cursor could not be stored");
     }
+    const uint32_t used = channel_address() - start;
+    if (sample) {
+        sample->unit_address = start;
+        sample->unit_bytes = used < EM_OWNER_DRAW_LIVE_SAMPLE_UNIT ? used : EM_OWNER_DRAW_LIVE_SAMPLE_UNIT;
+        memcpy(sample->unit, unit, sample->unit_bytes);
+    }
+    if (!used) {                                   /* 001CA7B0 culled it, no attachment */
+        L.regions = NULL;
+        L.region_count = 0;
+        return owner->attachment ? report(0x001CB3C0u, "an owner with +0x90 != 0 appended no face unit") : 0;
+    }
+    /* The bytes are the owner's unit (unless 001CA7B0 culled it), then
+     * 001CB3C0's face unit while +0x90 != 0 (appended even for a culled
+     * body). Each is parsed in build order and kept for the flush. */
+    EmObjectUnitPieces *p = NULL;
+    uint32_t at = 0;
+    unsigned parsed = 0;
+    while (at < used) {
+        if (L.unit_count >= EM_OWNER_DRAW_LIVE_UNITS) {
+            L.regions = NULL;
+            L.region_count = 0;
+            return report(0x001CAA00u, "more drawn units in one frame than EM_OWNER_DRAW_LIVE_UNITS");
+        }
+        const char *why = NULL;
+        EmObjectUnitPieces *q = &L.units[L.unit_count];
+        const int one = em_object_unit_parse_one(unit + at, used - at, resolve, (void *)bank, q, &why);
+        const int face = !one && q->unit.program == EM_GFX_OBJECT_FACE;
+        /* The owner unit comes first and never after a face; the face unit
+         * only with +0x90 != 0, at most once. */
+        if (!one && ((face && !owner->attachment) || (!face && parsed) || (face && at + q->bytes != used))) {
+            why = "the owner's bytes are not [owner unit][001CB3C0's face unit]";
+        }
+        if (one || why) {
+            fprintf(stderr, "em_owner_draw_live: the unit at %08X is refused: %s\n", (unsigned)(start + at),
+                    why ? why : "(no reason)");
+            L.regions = NULL;
+            L.region_count = 0;
+            return -1;
+        }
+        if (face) {
+            log_face(log, q);
+            if (sample) sample->face_bytes = q->bytes;
+        } else {
+            p = q;
+        }
+        ++L.unit_count;
+        ++parsed;
+        at += q->bytes;
+    }
+    L.regions = NULL;
+    L.region_count = 0;
+    if (owner->attachment && !log->face_bytes)       /* 001CB3C0 always appends its unit */
+        return report(0x001CB3C0u, "an owner with +0x90 != 0 appended no face unit");
     L.bank = bank;
-    ++L.unit_count;
-    log->bytes = used;
+    log->bytes = used - log->face_bytes;
+    if (!p) return 0;                              /* the body was culled: the face alone */
     log->clip = p->unit.clip;
     const uint32_t basis = 2166136261u;
     log->points = fnv(basis, L.points, POINT_LIGHT_WORDS);
@@ -386,6 +576,7 @@ static int draw_units(EmGfx *gfx, uint32_t end)
     if (L.unit_frame != frame) {                   /* units of an earlier frame are never drawn */
         L.unit_count = 0;
         L.log_count = 0;
+        L.sample_count = 0;
         L.drawn = 0;
     }
     if (end > L.unit_count) end = L.unit_count;
@@ -413,6 +604,9 @@ int em_owner_draw_live_flush(EmGfx *gfx)
     memcpy(L.last, L.log, sizeof L.log[0] * L.log_count);
     L.last_count = L.log_count;
     L.log_count = 0;
+    memcpy(L.last_sample, L.sample, sizeof L.sample[0] * L.sample_count);
+    L.last_sample_count = L.sample_count;
+    L.sample_count = 0;
     L.unit_count = 0;
     L.drawn = 0;
     return rc;
@@ -435,8 +629,15 @@ int em_owner_draw_live_log(EmOwnerDrawLiveLog *out, int capacity)
     return n;
 }
 
+int em_owner_draw_live_samples(const EmOwnerDrawLiveSample **out)
+{
+    if (out) *out = L.last_sample;
+    return (int)L.last_sample_count;
+}
+
 void em_owner_draw_live_reset(void)
 {
+    L.sample_count = L.last_sample_count = 0;
     L.unit_count = 0;
     L.log_count = L.last_count = 0;
     L.unit_frame = 0;

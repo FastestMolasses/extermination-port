@@ -20,7 +20,7 @@
 #include "game/em_owner_services_original.h"
 #include "game/em_player.h"
 #include "game/em_status_runtime.h"
-#include "game/em_player_face_host.h"
+#include "game/em_face_slot.h"
 
 /* Load only after ordinary player, collision and placed prop resources.
  * Status workers are the outer game/status services; geometry, animation,
@@ -76,18 +76,14 @@ EmStatusRuntime *em_area11_interaction_host_status(void);
  * level smoke. */
 const struct EmStatusModels *em_area11_interaction_host_status_models(void);
 
-/* Original B81D0 and FD950 services. Return1 only on success; a required
- * failure latches host failure and retains the shared owner. Attach sets
- * player_ready2 after the actual alternate mesh is ready. Talk is direct,
- * without consuming activity0. Caller preserves the original event gates. */
-int em_area11_interaction_host_face_attach(void);
+/* The player's face slot (em_face_slot, docs/FACE_ATTACH.md 6.3): the live
+ * record D_008102B0's +0x90 / +0x94 over the one 001AF710 stack and arena
+ * (em_area11_boxes) and the shared 00122BB8. The script host runs 001B81D0's
+ * 001CA700 / 001D06D0 and 001B82D0's 001CA770 through it. 0, or -1
+ * (latched). */
+int em_area11_interaction_host_player_face(EmFaceSlot *out);
+/* 001FD950's 001D06E0(player, talking) on that slot. 1, or 0 (latched). */
 int em_area11_interaction_host_face_talk(uint8_t talking);
-/* Alternate player draw:1 active,0 ordinary model,-1 required worker fault.
- * Uses the current original player palette. The drawing coordinator must
- * publish the separate face light rig (camera fill, no dynamic fold). */
-int em_area11_interaction_host_player_record(EmGfxMesh **mesh, const float **palette,
-                                            uint32_t *bones, const EmModel **model);
-const EmOpeningFace *em_area11_interaction_host_face_state(void);
 
 /* Actual player-stage callback for player_pose_set_stage_hook. Ordinary
  * source advancement already happened when unowned; acquired callbacks
@@ -95,8 +91,8 @@ const EmOpeningFace *em_area11_interaction_host_face_state(void);
  * owner holds the token: its takeover is the stage's own (0015B130's
  * prelude, 0015B530, 00182DF0), which em_player.c then runs. */
 int em_area11_interaction_host_player(void *unused);
-/* 001D0C70 for the player stage's 00183090 (0x70003B8F == 2): the attached
- * face's tick. 0, or -1 (latched). */
+/* 001D0C70 for the player stage's 00183090 (0x70003B8F == 2): 001D0720 on
+ * the face slot at the player's +0x90. 0, or -1 (latched). */
 int em_area11_interaction_host_face_tick_001D0C70(void);
 /* player_pose_set_takeover_end_hook worker: the stage's 00182DF0 released
  * a script owner's player; its token ends. 1, or -1 (latched). */

@@ -21,7 +21,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
            src/game/em_sfx.c src/game/em_sfx_bank.c src/game/em_pickup.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_pickup_motion.c src/game/em_pickup_items_original.c src/game/em_roger.c \
-           src/game/em_face_model.c src/game/em_player_face_host.c \
+           src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
            src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c \
@@ -38,7 +38,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_status_models.c \
-           src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c \
+           src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c src/game/em_face_attach.c \
            src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
            src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
@@ -1346,6 +1346,10 @@ test-area11-sfx:
 test-door-transit:
 	python3 tools/test_door_transit_reference.py
 
-.PHONY: test-player-face-host
-test-player-face-host:
-	python3 tools/test_player_face_host.py
+.PHONY: test-face-slot-reference
+test-face-slot-reference:
+	python3 tools/test_face_slot_reference.py
+
+.PHONY: test-face-attach-reference
+test-face-attach-reference:
+	python3 tools/test_face_attach_reference.py

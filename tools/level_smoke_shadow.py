@@ -44,6 +44,8 @@ It checks:
      gate bytes and the route equal the snapshot's; and in every route
      capture the mode-1 blend block the decal renderer implements
      (docs/SHADOW_DECAL.md section 4) is the captured one.
+  E. Roger's shadow (001BA580 -> 001DA6A0 in the owner walk; the tick log's
+     "shadow_actor"): see check_actor.
 """
 from pathlib import Path
 import ctypes as C
@@ -128,17 +130,23 @@ def shadow_original():
     return SO
 
 
-def patched_route1(sample):
+def patched_route1(sample, base='01_battery', actor=PLAYER):
+    """The route capture's RAM and scratchpad with the sample's inputs
+    patched in: the actor's record (the player's 0x320 bytes, or Roger's
+    record bytes at their address) and its 21 node records at its +0x110
+    words, the render context views, D_00810610, the area, D_00817FF0 and
+    the scratchpad camera."""
     so = shadow_original()
-    ram = bytearray((ROUTE / '01_battery' / 'eeMemory.bin').read_bytes())
-    scratch = bytearray((ROUTE / '01_battery' / 'scratchpad.bin').read_bytes())
-    player = bytes.fromhex(sample['player'])
+    ram = bytearray((ROUTE / base / 'eeMemory.bin').read_bytes())
+    scratch = bytearray((ROUTE / base / 'scratchpad.bin').read_bytes())
+    record = bytes.fromhex(sample['player'] if actor == PLAYER else sample['record_bytes'])
     nodes = bytes.fromhex(sample['nodes'])
-    ram[PLAYER:PLAYER + 0x320] = player
-    struct.pack_into('<I', ram, PLAYER + 0x214, 0)          # route 1: +0x214 == 0
+    ram[actor:actor + len(record)] = record
+    if actor == PLAYER:
+        struct.pack_into('<I', ram, PLAYER + 0x214, 0)      # route 1: +0x214 == 0
     for i in range(NODES):
-        a = u32(player, 0x110 + 4 * i)
-        assert a and a == u32(ram, PLAYER + 0x110 + 4 * i)
+        a = u32(record, 0x110 + 4 * i)
+        assert a and (actor != PLAYER or a == u32(ram, PLAYER + 0x110 + 4 * i))
         ram[a:a + NODE_BYTES] = nodes[NODE_BYTES * i:NODE_BYTES * (i + 1)]
     ctx = u32(ram, so.CONTEXT_PTR)
     for name, offset in (('clip_2240', 0x2240), ('proj_2340', 0x2340), ('view_2380', 0x2380)):
@@ -151,24 +159,37 @@ def patched_route1(sample):
     return bytes(ram), bytes(scratch), ctx
 
 
-def sample_route1(item):
+def execute_actor(so, elf, ram, scratch, start, actor, stop=None):
+    """so.execute for any actor: 001CB590(actor) then 001DA6A0(actor)."""
+    if actor == PLAYER:
+        return so.execute(elf, ram, scratch, start) if stop is None else so.execute(elf, ram, scratch, start, stop=stop)
+    o = so.ShadowRam(elf, ram, scratch)
+    ctx = u32(ram, so.CONTEXT_PTR)
+    o.save(ctx + 0x10, start)
+    o.run(so.BEGIN_CTX, [actor, 0x320, ram[actor + 9]])
+    o.watch = {0x1D4FB0: 1, 0x1D4B50: 1}
+    stopped = o.run(so.SHADOW, [actor], stop=so.RETURN if stop is None else stop)
+    return o, u32(bytes(o.read(ctx + 0x10, 4)), 0), stopped
+
+
+def sample_route1(item, base='01_battery', actor=PLAYER):
     """B for one sample: (tick, sample, rctx of the tick)."""
     tick, sample, rctx = item
     so = shadow_original()
     elf = so.ELF_BYTES[0]
-    ram, scratch, ctx = patched_route1(sample)
+    ram, scratch, ctx = patched_route1(sample, base, actor)
     raw = bytes.fromhex(sample['plan'])
     assert len(raw) == C.sizeof(so.Plan), ('plan size', len(raw), C.sizeof(so.Plan))
     plan = so.Plan.from_buffer_copy(raw)
     stats = {}
-    where = ('shadow sample', tick)
+    where = ('shadow sample', tick, hex(actor))
     if rctx is not None:   # the binding's views are the render context's
         k = {'V': rctx[4], 'K': rctx[5], 'clip': rctx[6]}
         assert sample['view_2380'] == k['V'], (where, 'ctx+0x2380 != the render context')
         assert sample['clip_2240'] == k['clip'], (where, 'ctx+0x2240 != the render context')
         assert sample['camera_3AC0'] == k['K'], (where, '0x70003AC0 != K (ctx+0x23C0)')
         assert struct.pack('<I', sample['zoom_2468']).hex() == rctx[3], (where, 'zoom')
-    o, end, _ = so.execute(elf, ram, scratch, CHAIN_AT)
+    o, end, _ = execute_actor(so, elf, ram, scratch, CHAIN_AT, actor)
     if plan.drawn == 0:
         assert end == CHAIN_AT, (where, 'the port returned early; the original built a chain')
         return tick, 0, 0
@@ -190,7 +211,7 @@ def sample_route1(item):
                                      ('D_00817FF0 after', plan.light_817F70, 0x817FF0, 16),
                                      ('ctx+0x24B0', plan.uv_24B0, ctx + 0x24B0, 64)):
         so.eq((where, label), fb(value), g(address, n), stats, 'light_bytes')
-    snap, _, stopped = so.execute(elf, ram, scratch, CHAIN_AT, stop=so.C7420)
+    snap, _, stopped = execute_actor(so, elf, ram, scratch, CHAIN_AT, actor, stop=so.C7420)
     assert stopped, (where, 'no 001C7420 call')
     so.eq((where, 'silhouette VP'), fb(plan.silhouette_vp), snap.read(0x70003AC0, 64), stats, 'light_bytes')
     so.box_checks(buf, units, plan, ram, stats)
@@ -206,7 +227,69 @@ def sample_route1(item):
         if r.cls == 2:
             expected.append((addr, so.CLIP_KERNEL))
     assert so.receiver_sequence(units, first - 3) == expected, (where, 'receiver sequence')
+    # The silhouette pass REFs the kind's proxy D_0028A490[kind] (+0x40).
+    proxy = u32(ram, 0x28A490 + 4 * plan.kind) + 0x40
+    assert any(u[1] == 3 and u[3] == proxy for u in units), (where, 'the proxy REF', hex(proxy))
     return tick, 1, plan.receiver_count
+
+
+def sample_actor(item):
+    """E for one sample: Roger's (tick, sample) over route 14's RAM."""
+    tick, sample = item
+    return sample_route1((tick, sample, None), '14_roger_encounter', sample['record'])
+
+
+# ------------------------------------------------------------------ E
+
+def check_actor(ticks, state):
+    """E. Roger's 001BA580 -> 001DA6A0 in the owner walk (em_shadow_live's
+    actor call): every call of the run is kind 0x29 and every drawn call is
+    flushed (its passes drawn after the walk's units); every sampled call
+    (quick: the first, the last and two between; EM_TEST_FULL=1: all):
+    the ORIGINAL 001CB590 + 001DA6A0 over route 14's RAM with the port's
+    inputs patched in (his record, its 21 node records, the views, D_00817FF0
+    before the call) write the port's plan (the light globals, ctx+0x24B0,
+    the silhouette VP, both box uploads, the UV upload, the receiver
+    sequence) and REF the kind-0x29 proxy D_0028A490[0x29]; in route 13 and
+    14 (whose captures hold Roger's silhouette REF) the port's call at the
+    aligned tick draws."""
+    rows = [t for t in ticks if t.get('shadow_actor') and t['shadow_actor'][0]]
+    if not rows:
+        return None
+    calls = drawn = 0
+    samples = []
+    seen = set()
+    for t in rows:
+        fresh, record, c_drawn, kind, receivers, cls2, flushed, total, drawn_total, sample = t['shadow_actor']
+        if total in seen:
+            continue
+        seen.add(total)
+        where = ('shadow actor', 'tick', t['tick'])
+        calls += 1
+        assert kind == 0x29, (where, 'kind', kind)
+        assert c_drawn in (0, 1) and flushed == c_drawn, (where, 'a drawn actor shadow was not flushed',
+                                                          t['shadow_actor'][:9])
+        drawn += c_drawn
+        if sample:
+            samples.append((t['tick'], dict(sample)))
+    assert samples, 'shadow actor: no sampled call'
+    pick = samples if RM.FULL else [samples[k] for k in sorted({0, len(samples) // 3, 2 * len(samples) // 3,
+                                                                len(samples) - 1})]
+    results = RM.parallel_map(sample_actor, pick)
+    aligned = []
+    for beat, i in state.get('snapshots', []):
+        if beat[:2] not in ('13', '14'):
+            continue
+        row = ticks[i].get('shadow_actor')
+        assert row and row[0] and row[2] == 1 and row[6] == 1, \
+            ('shadow actor: the route snapshot draws Roger\'s shadow; the port\'s aligned tick does not', beat,
+             row[:9] if row else row)
+        aligned.append(beat[:2])
+    return (f'Roger\'s 001BA580 -> 001DA6A0: {calls} calls ({drawn} drawn and flushed after the walk\'s units), '
+            f'the ORIGINAL 001CB590 + 001DA6A0 over route 14\'s RAM with the port\'s inputs builds the port\'s '
+            f'plan in {RM.part(len(pick), len(samples), "sampled calls")} ({sum(x[1] for x in results)} drawn, '
+            f'each with the kind-0x29 proxy REF; {sum(x[2] for x in results)} receivers); drawn at the aligned '
+            f'snapshot(s) {", ".join(aligned) if aligned else "none aligned"} as in their captures')
 
 
 # ------------------------------------------------------------------ C
@@ -347,6 +430,7 @@ def check_shadow(ticks, state):
     r2 = results[len(pick1):]
     blend = check_blend_blocks()
     snaps = check_snapshots(ticks, state)
+    actor = check_actor(ticks, state)
     print(f'shadow: PASS (0015C160 over the run: {counts[1]} 001DA6A0 calls ({drawn} drawn and flushed), '
           f'{counts[2]} 0015BF90 calls ({decals} decals drawn), {counts[-1]} reported (the record not the '
           f'displayed pose), {counts[0]} without a shadow; the first-control frame draws it; the ORIGINAL '
@@ -355,4 +439,4 @@ def check_shadow(ticks, state):
           f'{sum(x[2] for x in r1)} receivers); the ORIGINAL 0015BF90 + 001CE300 write the port\'s packets in '
           f'{RM.part(len(pick2), len(route2), "sampled decal calls")} ({sum(x[1] for x in r2)} fans); the '
           f'mode-1 blend block equals the renderer\'s in {blend} route captures'
-          f'{"; snapshots: " + ", ".join(snaps) if snaps else ""})')
+          f'{"; snapshots: " + ", ".join(snaps) if snaps else ""}{"; " + actor if actor else ""})')

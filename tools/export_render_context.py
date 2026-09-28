@@ -11,7 +11,9 @@ the user's own pinned boot ELF (config/SCUS_971.12, file offset = address -
 Blocks (original address, bytes, what reads them):
   0x00241010   8       00100610's GS parameter words, read by 001D6E60
                        (inside 001D6B10's 001D6930, 001DDE10)
-  0x00250F30   0x2250  D_00250F30 (001C1F50's 001E2270 colour), D_002513E0
+  0x00250F30   0x2250  D_00250F30 (001C1F50's 001E2270 colour), D_00250FB0..B8
+                       (001CB3C0's attachment offset, the face units),
+                       D_002513E0
                        (001D30A0 stores its K copy there), the room table
                        D_00251C50 (45 entries of 0x78 bytes: 001D7B30 /
                        001D8FD0 read the area fog, 001D8130 the room rig)

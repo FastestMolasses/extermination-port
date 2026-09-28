@@ -17,10 +17,10 @@
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
 #include "game/em_director_original.h"
-#include "game/em_face_model.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_face.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_player.h"
 #include "game/em_player_floor.h"
@@ -31,13 +31,12 @@
 #include "game/em_roger_actor_original.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_shadow_live.h"
 
 enum {
     TABLE_WORDS = 0xC0,
     MAX_REGIONS = 8,
     ROGER_NODES = 21,
-    ROGER_PALETTE = 22,
-    EQUIP_PALETTE_MAX = 4,
     RECORD = EM_ACTOR_RECORD_SIZE
 };
 #define TABLE_ADDRESS 0x0028A490u
@@ -88,27 +87,19 @@ static struct {
     EmPlayerStageScene stage;
     EmPlayerStageGlobals stage_globals;
     uint32_t spad3600_actor[4];  /* 0x70003600 for 001C5C90's probes */
-    /* the draw */
-    int mesh_tried;
-    EmModel model;
-    EmFaceModel face;
-    EmGfxMesh *mesh;
-    float palette[ROGER_PALETTE * 16];
-    int drawn;
-    /* the equipment: 001B1020's services over D_0028A56C, its mesh */
+    /* The draw (+0x4C 001CAA00, em_owner_draw_live): the models the two
+     * records' +0x44 name (Roger's 0x47, the equipment's library 0x6B),
+     * added from the export at their original addresses, and the owner
+     * views the draw reads. */
+    EmWorldModels bank;
+    EmOwnerServicesOwner dview;
+    EmOwnerBone dbone[EM_OWNER_SERVICES_MAX_BONES];
+    /* the equipment: 001B1020's services over D_0028A56C */
     EmOwnerServices services;
     EmOwnerServicesOwner eview;
     EmOwnerBone ebone;           /* the typed view of its one slot (001C62C0 writes it) */
     uint32_t ebone_word;
-    EmOwnerModel emodel;
-    EmOwnerSkeletonRecord eskeleton[EQUIP_PALETTE_MAX];
     uint32_t d0028A56C;
-    int emesh_tried;
-    EmModel emesh_model;
-    EmGfxMesh *emesh;
-    float epalette[EQUIP_PALETTE_MAX * 16];
-    int edrawn;
-    int draw_order[2], draw_count;
     int faulted;
 } R;
 
@@ -515,64 +506,108 @@ static int pose_bind(void)
 
 /* ------------------------------------------------------------ the draw */
 
-static int mesh_load(void)
+/* The model at a record's +0x44 (a block model of the export: header,
+ * blocks, skeleton records), added to the table-less bank at its original
+ * address on first use (em_world_models_add checks it like the parser). */
+static const EmWorldModel *bank_model(uint32_t handle)
 {
-    if (R.mesh) return 0;
-    if (R.mesh_tried) return -1;
-    R.mesh_tried = 1;
-    EmGfx *gfx = em_frame_gfx();
-    if (em_model_load(&R.model, EM_AREA11_ROGER_MESH_PATH) != 0 || R.model.bone_count != ROGER_PALETTE)
-        return report("no valid " EM_AREA11_ROGER_MESH_PATH " (tools/export_roger_resources.py)");
-    if (!em_face_model_attach(&R.face, &R.model, EM_AREA11_ROGER_FACE_MESH_PATH,
-                              EM_AREA11_ROGER_FACE_MORPH_PATH))
-        return report("no valid Roger face " EM_AREA11_ROGER_FACE_MESH_PATH " / .emfm "
-                      "(tools/export_opening_media.py's actor export)");
-    if (gfx) {
-        const EmModel *m = &R.model;
-        R.mesh = em_gfx_mesh_create(gfx, m->verts, m->vert_count, m->indices, m->index_count,
-                                    (const EmGfxTexDesc *)m->texs, m->tex_count, m->texels, m->flags);
-        if (!R.mesh) return report("Roger's mesh could not be created");
+    const EmWorldModel *m = em_world_models_at(&R.bank, handle);
+    if (m) return m;
+    const uint8_t *head = em_area11_roger_resource(handle, 0x40);
+    if (!head) {
+        report("a +0x44 model outside the export");
+        return NULL;
     }
+    const uint32_t bones = rd32(head + 8), skeleton = rd32(head + 0xC);
+    if (bones == 0 || bones > EM_OWNER_SERVICES_MAX_BONES || skeleton > 0x01000000u) {
+        report("a +0x44 model is not a block model");
+        return NULL;
+    }
+    const uint32_t size = skeleton + 0x50u * bones;
+    const uint8_t *all = em_area11_roger_resource(handle, size);
+    if (!all || em_world_models_add(&R.bank, handle, all, size, &m) < 0) {
+        report("a +0x44 model the bank refuses");
+        return NULL;
+    }
+    return m;
+}
+
+typedef struct {
+    EmOwnerDrawLiveRegion *out;
+    unsigned count, cap;
+} RegionList;
+
+static int add_region(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes)
+{
+    RegionList *l = ctx;
+    if (l->count >= l->cap) return -1;
+    l->out[l->count++] = (EmOwnerDrawLiveRegion){address, size, bytes};
     return 0;
 }
 
-/* The face slot's weights (+0x40..+0x5F) morph the face vertices
- * (0023C578..0023C5B0, em_opening_face_position). */
-static int face_positions(const uint8_t *slot)
+int em_area11_roger_attachment_regions(uint32_t record, const uint8_t *record_bytes, uint32_t record_size,
+                                       EmOwnerDrawLiveRegion *out, unsigned cap)
 {
-    if (!R.mesh && !em_frame_gfx()) return 0;   /* headless without a device: nothing to upload */
-    if (!R.face.positions || !R.face.deltas) return report("the face morph is not attached");
-    float weight[8];
-    memcpy(weight, slot + 0x40, sizeof weight);
-    for (uint32_t i = 0; i < R.face.count; ++i) {
-        size_t vertex = (size_t)R.face.first + i;
-        em_opening_face_position(R.face.positions + vertex * 3, R.model.verts + vertex * 10,
-                                 R.face.deltas + (size_t)i * 21, weight);
+    const EmRogerActorWorld *w = em_area11_boxes_slot_world();
+    if (!record_bytes || !out || !w || !w->slots || load_resources() < 0) return -1;
+    RegionList l = {out, 0, cap};
+    if (add_region(&l, record, record_size, record_bytes) < 0 ||
+        add_region(&l, w->slots_base, w->slots_size, w->slots) < 0 ||
+        em_area11_roger_regions(add_region, &l) < 0)
+        return -1;
+    return (int)l.count;
+}
+
+/* +0x4C = 001CAA00 on a record of this module: em_owner_draw_live over its
+ * owner view (+0x01, +0x02, +0x03, +0x0C, +0x0D, +0x44, +0x80..+0x8F,
+ * +0x90, +0x94, +0x98, +0xB0 and the node records +0x110 names, whose
+ * +0x90..+0xCF world matrices are D_00275B40), with the attachment's
+ * regions (the record, the slot arena and the export) for 001CB3C0. */
+static int owner_draw(Owner *o)
+{
+    const uint8_t *r = o->rec.bytes;
+    if (rd32(r + 0x4C) != METHOD_001CAA00) return report("a +0x4C other than 001CAA00");
+    const EmWorldModel *m = bank_model(rd32(r + 0x44));
+    if (!m) return -1;
+    const uint8_t count = r[0x0C];
+    if (count != m->model.bone_count || count > EM_OWNER_SERVICES_MAX_BONES)
+        return report("a record's node count is not its model's");
+    EmOwnerServicesOwner *v = &R.dview;
+    memset(v, 0, sizeof *v);
+    v->drawn = r[0x01];
+    v->cls = r[0x02];
+    v->kind = r[0x03];
+    v->bones_held = r[0x09];
+    v->bone_count = count;
+    v->model_id = r[0x0D];
+    v->model = &m->model;                       /* +0x44 */
+    memcpy(&v->attachment, r + 0x90, 4);
+    memcpy(&v->collapsed_bone, r + 0x94, 2);
+    v->pose_bone = r[0x98];
+    memcpy(v->pos, r + 0xB0, sizeof v->pos);
+    for (unsigned k = 0; k < count; ++k) {
+        const uint8_t *node = slot_bytes(rd32(r + 0x110 + 4 * k));
+        if (!node) return report("a +0x110 word outside the slot arena");
+        memcpy(R.dbone[k].world, node + 0x90, sizeof R.dbone[k].world);
+        v->bone[k] = &R.dbone[k];
     }
-    if (R.mesh && !em_gfx_mesh_update_positions(em_frame_gfx(), R.mesh, R.face.positions, R.model.vert_count))
-        return report("the face morph upload failed");
+    uint32_t rgb[4];
+    memcpy(rgb, r + 0x80, sizeof rgb);          /* +0x80..+0x8F */
+    EmOwnerDrawLiveRegion regions[EM_OWNER_DRAW_LIVE_REGIONS];
+    int n = 0;
+    if (v->attachment) {
+        n = em_area11_roger_attachment_regions(o->address, r, RECORD, regions, EM_OWNER_DRAW_LIVE_REGIONS);
+        if (n < 0) return report("the attachment's regions (record, slot arena, export)");
+    }
+    if (em_owner_draw_live_001CAA00_attached(&R.bank, v, rgb, o->address, regions, (unsigned)n) < 0)
+        return report("001CAA00 faulted");
     return 0;
 }
 
-/* +0x4C = 001CAA00 on Roger: the mesh at the node world matrices (node
- * +0x90..+0xCF of the +0x110 slots) and, for the model's trailing identity
- * slot, the record's owner matrix +0xD0. */
 static int roger_draw(void)
 {
-    const uint8_t *r = R.roger.rec.bytes;
-    if (rd32(r + 0x4C) != METHOD_001CAA00) return report("Roger's +0x4C is not 001CAA00");
-    if (mesh_load() < 0) return -1;
-    if (r[0x0C] != ROGER_NODES) return report("Roger's +0x0C is not 21");
-    for (unsigned i = 0; i < ROGER_NODES; ++i) {
-        const uint8_t *node = slot_bytes(rd32(r + 0x110 + 4 * i));
-        if (!node) return report("a Roger +0x110 word outside the slot arena");
-        memcpy(R.palette + 16 * i, node + 0x90, 64);
-    }
-    memcpy(R.palette + 16 * ROGER_NODES, r + 0xD0, 64);
-    for (unsigned k = 0; k < ROGER_PALETTE * 16; ++k)
-        if (!isfinite(R.palette[k])) return report("a Roger node matrix is not finite");
-    R.drawn = 1;
-    return 0;
+    if (R.roger.rec.bytes[0x0C] != ROGER_NODES) return report("Roger's +0x0C is not 21");
+    return owner_draw(&R.roger);
 }
 
 /* ------------------------------------------- em_roger_actor workers */
@@ -604,19 +639,29 @@ static int w_001F0120(void *ctx, uint32_t owner14, int32_t key)
     return em_area11_bindings_spawn_001F0120(owner14, (uint8_t)key) < 0 ? -1 : 0;
 }
 
-/* 001DA6A0(actor): the drop shadow's EE side and GS draw have no port
- * counterpart for any actor (the player's own post-step is reported the
- * same way, docs/SHADOW_ORIGINAL.md): reported, nothing drawn. */
+/* 001DA6A0(actor) (001BA580, every call while +0x56 != 0; Roger's kind
+ * +0x96 = 0x29): em_shadow_live's translation over his record and its 21
+ * node records (the +0x110 slots), drawn after the walk's owner units
+ * (docs/SHADOW_ORIGINAL.md "Roger"). */
 static int w_001DA6A0(void *ctx, EmRogerActorRecord *actor)
 {
     (void)ctx;
-    (void)actor;
-    return em_scene_bindings_report_001DA6A0();
+    Owner *o = &R.roger;
+    if (actor != &o->typed) return report("001DA6A0 on a record other than Roger's");
+    typed_store(o);
+    const uint8_t *r = o->rec.bytes;
+    const uint8_t *nodes[ROGER_NODES];
+    for (unsigned i = 0; i < ROGER_NODES; ++i)
+        if (!(nodes[i] = slot_bytes(rd32(r + 0x110 + 4 * i)))) return report("001DA6A0: a +0x110 word outside the slot arena");
+    return em_shadow_live_actor_001DA6A0(o->address, r, RECORD, nodes, ROGER_NODES) < 0
+               ? report("001DA6A0 faulted (em_shadow_live)")
+               : 0;
 }
 
 /* 001D0720 (through 001D0C70): the face kernel on the slot at +0x90,
- * em_opening_face_tick over the slot bytes +0x40..+0x5F / +0x70..+0xA7 with
- * the shared 00122BB8 RNG; the morph then follows the new weights. */
+ * em_opening_face_tick_slot over the slot bytes +0x40..+0x5F /
+ * +0x70..+0xA7 with the shared 00122BB8 RNG; 001CB3C0 uploads the new
+ * weights with the face unit. */
 static uint32_t face_random(void *context)
 {
     (void)context;
@@ -628,36 +673,8 @@ static int w_001D0720(void *ctx, EmRogerActorRecord *actor)
     (void)ctx;
     uint8_t *slot = slot_bytes(actor->face);
     if (!slot) return report("001D0720: the face slot is outside the arena");
-    EmOpeningFace f;
-    memcpy(f.weight, slot + 0x40, sizeof f.weight);
-    memcpy(&f.blink_state, slot + 0x70, 4);
-    memcpy(&f.blink_wait, slot + 0x74, 4);
-    memcpy(&f.expression_state, slot + 0x78, 4);
-    memcpy(&f.expression_wait, slot + 0x7C, 4);
-    f.talking = slot[0x80];
-    f.speed = slot[0x81];
-    f.reserved[0] = slot[0x82];
-    f.reserved[1] = slot[0x83];
-    memcpy(&f.mouth_wait, slot + 0x84, 4);
-    memcpy(&f.current_shape, slot + 0x88, 4);
-    memcpy(&f.previous_shape, slot + 0x8C, 4);
-    memcpy(f.target, slot + 0x90, sizeof f.target);
-    em_opening_face_tick(&f, face_random, NULL);
-    memcpy(slot + 0x40, f.weight, sizeof f.weight);
-    memcpy(slot + 0x70, &f.blink_state, 4);
-    memcpy(slot + 0x74, &f.blink_wait, 4);
-    memcpy(slot + 0x78, &f.expression_state, 4);
-    memcpy(slot + 0x7C, &f.expression_wait, 4);
-    slot[0x80] = f.talking;
-    slot[0x81] = f.speed;
-    slot[0x82] = f.reserved[0];
-    slot[0x83] = f.reserved[1];
-    memcpy(slot + 0x84, &f.mouth_wait, 4);
-    memcpy(slot + 0x88, &f.current_shape, 4);
-    memcpy(slot + 0x8C, &f.previous_shape, 4);
-    memcpy(slot + 0x90, f.target, sizeof f.target);
-    if (mesh_load() < 0) return -1;
-    return face_positions(slot);
+    em_opening_face_tick_slot(slot, face_random, NULL);
+    return 0;
 }
 
 /* ------------------------------------------- the equipment's services */
@@ -681,29 +698,18 @@ static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
 
 /* 001CA6E0 = 001CA5E0(owner, handle, 0): +0x44, then 001CA5F0 kind 0:
  * +0x4C = 001CAA00 (em_roger_actor_001CA6E0 on the typed record). The
- * owner-services view's model is the parsed skeleton of the handle. */
+ * owner-services view's model is the handle's model in the draw's bank
+ * (header, blocks and skeleton records of the export, at its original
+ * address), the one +0x4C draws. */
 static int e_001CA6E0(void *ctx, EmOwnerServicesOwner *owner, uint32_t handle)
 {
     (void)ctx;
     Owner *o = &R.equip;
     if (owner != &R.eview) return report("001CA6E0 on a view other than the equipment's");
     if (em_roger_actor_001CA6E0(&R.ra, &o->typed, handle) < 0) return actor_fault("001CA6E0");
-    const uint8_t *m = em_area11_roger_resource(handle, 0x40);
+    const EmWorldModel *m = bank_model(handle);
     if (!m) return report("001CA6E0: the equipment model is not in the export");
-    uint32_t bones = rd32(m + 8), skeleton = rd32(m + 0xC);
-    if (bones == 0 || bones > EQUIP_PALETTE_MAX - 1) return report("the equipment model's bone count");
-    const uint8_t *s = em_area11_roger_resource(handle + skeleton, 0x50u * bones);
-    if (!s) return report("the equipment model's skeleton is not in the export");
-    memset(&R.emodel, 0, sizeof R.emodel);
-    R.emodel.bone_count = (uint8_t)bones;
-    memcpy(&R.emodel.radius, m + 0x20, 4);
-    for (uint32_t k = 0; k < bones; ++k) {
-        R.eskeleton[k].parent = (int16_t)rd16(s + 0x50 * k + 4);
-        memcpy(R.eskeleton[k].bind, s + 0x50 * k + 0x10, 64);
-    }
-    R.emodel.skeleton = R.eskeleton;
-    R.emodel.skeleton_records = bones;
-    owner->model = &R.emodel;
+    owner->model = &m->model;
     return 0;
 }
 
@@ -800,41 +806,16 @@ static int w_001B1020(void *ctx, EmRogerActorRecord *actor, uint32_t a1, int32_t
     return 0;
 }
 
-static int emesh_load(void)
-{
-    if (R.emesh) return 0;
-    if (R.emesh_tried) return -1;
-    R.emesh_tried = 1;
-    if (em_model_load(&R.emesh_model, EM_AREA11_EQUIPMENT_MESH_PATH) != 0 ||
-        R.emesh_model.bone_count == 0 || R.emesh_model.bone_count > EQUIP_PALETTE_MAX)
-        return report("no valid " EM_AREA11_EQUIPMENT_MESH_PATH " (the opening actor export)");
-    EmGfx *gfx = em_frame_gfx();
-    if (gfx) {
-        const EmModel *m = &R.emesh_model;
-        R.emesh = em_gfx_mesh_create(gfx, m->verts, m->vert_count, m->indices, m->index_count,
-                                     (const EmGfxTexDesc *)m->texs, m->tex_count, m->texels, m->flags);
-        if (!R.emesh) return report("the equipment mesh could not be created");
-    }
-    return 0;
-}
-
-/* +0x4C = 001CAA00 on the equipment: its mesh at the bone-0 world matrix
- * (slot +0x90, 001C5C90's copy of Roger's bone 1). The export's vertices
- * are in bone 0's space and all use bone 0 (its frame palettes are the
- * opening's baked world track, not a rest pose, and its second matrix is
- * the exporter's trailing slot): every palette entry is that matrix. */
+/* +0x4C = 001CAA00 on the equipment (jalr from 001C5C90): the owner
+ * draw over its record, whose node 0 is the slot 001C5C90 copied Roger's
+ * bone 1 into (slot +0x90). The typed view is stored first: 001C5C90's
+ * writes (+0x01, +0xA0..+0xCC) are the record's at the call. */
 static int w_draw(void *ctx, EmRogerActorRecord *actor)
 {
     (void)ctx;
     if (actor != &R.equip.typed || actor->draw != METHOD_001CAA00) return report("the equipment's +0x4C");
-    const uint8_t *slot = slot_bytes(actor->bone[0]);
-    if (!slot) return report("the equipment draws without its bone slot");
-    if (emesh_load() < 0) return -1;
-    for (uint32_t i = 0; i < R.emesh_model.bone_count; ++i) memcpy(R.epalette + 16 * i, slot + 0x90, 64);
-    for (unsigned k = 0; k < R.emesh_model.bone_count * 16u; ++k)
-        if (!isfinite(R.epalette[k])) return report("the equipment's bone matrix is not finite");
-    R.edrawn = 1;
-    return 0;
+    typed_store(&R.equip);
+    return owner_draw(&R.equip);
 }
 
 static int w_001AFC10(void *ctx, EmRogerActorRecord *actor)
@@ -1108,8 +1089,6 @@ void em_area11_roger_reset(void)
     memset(&R.equip, 0, sizeof R.equip);
     memset(&R.ra, 0, sizeof R.ra);
     R.ebone_word = 0;
-    R.drawn = R.edrawn = 0;
-    R.draw_count = 0;
     R.faulted = 0;
 }
 
@@ -1121,7 +1100,6 @@ int em_area11_roger_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
     if (owner_for(o, actor) < 0) return -1;
     if (pose_bind() < 0) return -1;
     sync_in(o);
-    R.drawn = 0;
     int result;
     if (o->rec.bytes[0x04] == 0) {
         /* 008237E0 case 0: the init (em_roger_actor_original). */
@@ -1170,7 +1148,6 @@ int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneSta
     sync_in(o);
     typed_load(o);
     typed_load(parent);
-    R.edrawn = 0;
     R.ra.world.d00275B40 = (const uint32_t *)(const void *)(o->rec.bytes + 0x110);
     R.ra.world.d00275B40_count = EM_ROGER_ACTOR_MAX_BONES;
     int r = em_roger_actor_001C5C90(&R.ra, &o->typed, &parent->typed);
@@ -1221,49 +1198,12 @@ int em_area11_roger_clip_init(const EmActor *actor, int16_t clip, float blend, f
     return 0;
 }
 
-/* ------------------------------------------------------------ the draw list */
-
-int em_area11_roger_draw_count(void)
-{
-    R.draw_count = 0;
-    if (R.drawn && R.mesh && R.roger.actor && !R.roger.freed) R.draw_order[R.draw_count++] = 0;
-    if (R.edrawn && R.emesh && R.equip.actor && !R.equip.freed) R.draw_order[R.draw_count++] = 1;
-    return R.draw_count;
-}
-
-int em_area11_roger_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_t *bone_count,
-                         uint8_t *anchor_bone, uint8_t *cam_fill, uint8_t *face)
-{
-    if (i < 0 || i >= R.draw_count || !mesh || !palette || !bone_count || !anchor_bone || !cam_fill || !face)
-        return 0;
-    const Owner *o = R.draw_order[i] == 0 ? &R.roger : &R.equip;
-    const uint8_t pose_bone = o->rec.bytes[0x98];
-    if (R.draw_order[i] == 0) {
-        *mesh = R.mesh;
-        *palette = R.palette;
-        *bone_count = ROGER_PALETTE;
-        *face = 1;
-    } else {
-        *mesh = R.emesh;
-        *palette = R.epalette;
-        *bone_count = R.emesh_model.bone_count;
-        *face = 0;
-    }
-    *anchor_bone = pose_bone < *bone_count ? pose_bone : 0;   /* 0xFF: the owner's +0xB0 cull, bone 0 */
-    *cam_fill = (o->rec.bytes[0x02] & 0x20) != 0;
-    return 1;
-}
-
+/* The draw's bank holds views into the export (which stays loaded): the
+ * scene's teardown forgets them. */
 void em_area11_roger_shutdown(EmGfx *gfx)
 {
-    if (R.mesh && gfx) em_gfx_mesh_destroy(gfx, R.mesh);
-    if (R.emesh && gfx) em_gfx_mesh_destroy(gfx, R.emesh);
-    R.mesh = R.emesh = NULL;
-    em_face_model_free(&R.face);
-    em_model_free(&R.model);
-    em_model_free(&R.emesh_model);
-    R.mesh_tried = R.emesh_tried = 0;
-    R.draw_count = 0;
+    (void)gfx;
+    memset(&R.bank, 0, sizeof R.bank);
 }
 
 static int owner_state(const Owner *o, uint32_t *record, uint8_t header[16], float position[3],

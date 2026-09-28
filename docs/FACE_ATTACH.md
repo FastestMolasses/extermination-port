@@ -1,17 +1,23 @@
-# Face attachment draw (001CB3C0) — lane FACE_ATTACH
+# Face attachment draw (001CB3C0) — Roger's face and the player's
 
-Status (2026-09-27, lane b15 FACE_ATTACH): **translated and verified, not
-bound.** The +0x90 attachment draw of the 001CAA00 owners (Roger's face, and
-the player's Dennis face while a script holds his face slot) now has a native
-translation that builds the original face unit byte for byte. The unit is the
-one `em_object_unit` already parses and runs through the face-morph program
-(OWNER_DRAW.md section 8 F). Nothing live calls it yet; section 6 is the
-binding recipe.
+Status (2026-09-28, chain C8b FACE): **live.** The +0x90 attachment draw of
+the 001CAA00 owners runs from em_owner_draw_live's `w_001CB3C0` for Roger
+(008237E0, every frame his +0x4C runs) and for the player while a script
+holds its face slot (001B81D0's 001CA700 .. 001B82D0 sub 4's 001CA770, now
+on the player record's own +0x90 slot, `em_face_slot`). The face unit it
+appends is parsed with the owner's unit and drawn by the object-unit
+renderer's face-morph program (OWNER_DRAW.md section 8 F). Roger's and his
+equipment's legacy meshes and the player's face host are retired. Section 7
+is the live proof.
 
 | File | Role |
 |---|---|
-| `src/game/em_face_attach.{h,c}` | 001CB3C0, 001D3F50, 001D3E40, and inline copies of vif_append_ref_tag (001D2090) and 001D2910(0) (both already live elsewhere, section 2), plus `em_face_attach_w_001D88B0`, the adapter that runs the existing 001D88B0 translation as the EmAnimRest worker |
-| `tools/test_face_attach_reference.py` | The original-instruction oracle (section 4) |
+| `src/game/em_face_attach.{h,c}` | 001CB3C0, 001D3F50, 001D3E40 (with em_owner_draw_original's vif_append_ref_tag / tag writer and a 001D2910 worker), and `em_face_attach_w_001D88B0`, the adapter that runs the existing 001D88B0 translation as the EmAnimRest worker |
+| `src/game/em_owner_draw_live.c` | the binding: `w_001CB3C0`, the owner + face unit parse, `em_owner_draw_live_001CAA00_attached` (section 6.1) |
+| `src/game/em_face_slot.{h,c}` | the player's face slot: 001CA700 / 001D06D0 / 001D06E0 / 001CA770 / 001D0C70 on the record's +0x90 over em_roger_actor_original (section 6.3) |
+| `tools/test_face_attach_reference.py` | The original-instruction oracle of 001CB3C0 (section 4) |
+| `tools/test_face_slot_reference.py` | The original-instruction oracle of the face slot sequence (section 6.3) |
+| `tools/level_smoke_face.py` | The level smoke's live check (section 7) |
 | `docs/FACE_ATTACH.md` | This file |
 
 ## 1. What the originals do
@@ -104,26 +110,12 @@ Every tag is written in the original store order: byte +3 (id), word +4
 |---|---|
 | 001029C0 | `em_owner_services_identity_001029C0` |
 | 001026D0 | `em_sdk_vu0_001026D0` (the aliasing dst == b is the original's) |
-| 001C7900, 001CB2C0 | `em_anim_rest_001C7900` / `_001CB2C0` (ANIM_RUNTIME_REST.md; verified-unbound until now) |
+| 001C7900, 001CB2C0 | `em_anim_rest_001C7900` / `_001CB2C0` (ANIM_RUNTIME_REST.md) |
 | 001D88B0, 001D8C30 | `em_frh_001D88B0` / `em_frh_001D8C30` (em_frame_render_heads), run by `em_face_attach_w_001D88B0` over EmFrh views of the light world, SPR A / B and the token bytes |
 | 001D8130, 001D8340, 001D8690 | `em_actor_light_001D8130` / `_001D8340` (owner NULL) / `_001D8690` (the same rig record as 001D89D0) |
-| 001D1F80 | a worker; the test binds `em_load_veil_particles_001D1F80` |
-
-**Duplicates (verified, but second copies).**
-
-- **vif_append_ref_tag (001D2090) and the tag writer** are also static in
-  em_owner_draw_original.c, where they are live through em_owner_draw_live.
-  That file is tracked, so this lane could not export them.
-- **001D2910(0) / 001D2710(0)** are written inline (context +0x0C bit 0),
-  although exported, live translations exist: `em_render_context_001D2910` /
-  `_001D2710` (em_render_context.h, through em_render_context_live). They are
-  not called because this module holds only the owner-draw world's `ctx_0C`
-  view, not an EmRenderContext; calling them needs the render context the
-  binding already has (em_render_context_live's).
-
-Reduce both copies when binding: call the exported vif_append_ref_tag once
-em_owner_draw_original exports it, and `em_render_context_001D2910(ctx, 0,
-&r)` with the live render context.
+| 001D1F80 | a worker; live: em_owner_draw_live's cursor handover to `em_rcl_001D1F80`; the test binds `em_load_veil_particles_001D1F80` |
+| vif_append_ref_tag (001D2090) and the tag writer | `em_owner_draw_vif_append_ref_tag` / `em_owner_draw_tag` (em_owner_draw_original, exported by this step; the module's inline copies are gone) |
+| 001D2910(0) / 001D2710(0) | a worker: live `em_rcl_001D2910` (em_render_context_001D2910 over the one render context); the test binds `em_render_context_001D2910` over a view of the RAM copy. The inline context +0x0C test is gone. |
 
 ## 3. The native API
 
@@ -131,8 +123,8 @@ em_owner_draw_original exports it, and `em_render_context_001D2910(ctx, 0,
   - **anim**: the one EmAnimRest. Its region table serves every EE-address
     read: record +0x80..+0x97, slot +0x40..+0x63 and face +0x04. Its channel
     and scratch are those of 001C7420 / 001CA940.
-  - **draw**: the owner-draw world (context +0x0C / +0x9C / +0x50,
-    D_00275674). Its channel must be the anim rest's.
+  - **draw**: the owner-draw world (context +0x9C / +0x50, D_00275674).
+    Its channel must be the anim rest's.
   - **light**: the EmActorLight of 001D89D0 (the rig record, D_00275688,
     context +0x246C / +0x2380).
   - **context_address**: *D_00275670.
@@ -141,6 +133,9 @@ em_owner_draw_original exports it, and `em_render_context_001D2910(ctx, 0,
     `EmOwnerServicesWorld.d00275B40`.
 - `EmFaceAttachWorkers`:
   - `w_001D1F80`;
+  - `w_001D2910(ctx, a0, &result)`: 001D2910. It is also queried, untraced,
+    before the first write to size the unit (0x190 or 0x1A0); the query
+    only reads context +0x0C;
   - an optional `trace(callee, a0..a3/t0, frame)`, called at every callee
     entry (tests only).
 - `em_face_attach_001CB3C0(s, record_address)`, `_001D3F50`, `_001D3E40`
@@ -225,7 +220,8 @@ That is 21 owner-frames: 19 Roger, 2 Dennis. On top of these:
   - the face +0x04 high half;
   - random node matrices, D_00250FB0 offsets, +0x80 colours and weights,
     including special words.
-- **23 fail-stop checks.** The node array given to the native has a
+- **24 fail-stop checks** (the 001D2910 worker unbound is the 24th). The
+  node array given to the native has a
   non-NULL guard entry one past the count, so the "+0x94 = count" check is
   refused by the index bound itself (pinned: BAD_INDEX at 0x00275B40), not
   by a NULL read past the end. A bound off by one (`>` for `>=`) fails it.
@@ -271,11 +267,11 @@ So **every drawn face unit of the captures is rebuilt byte for byte**
 
 | Mode | Owner-frames | Synthetic | Callee entries | VU1 units | Wall | CPU |
 |---|---|---|---|---|---|---|
-| default | 21 | 30 of a pool of 42 | 645 | 3 | 2.1–5.2 s | 3.9–6.6 s |
-| `EM_TEST_FULL=1` | 21 | 150 | 2,193 | 40 | 9.0–9.5 s | 32–33 s |
+| default | 21 | 30 of a pool of 42 | 645 | 3 | 2.2–5.6 s | 4.0–6.9 s |
+| `EM_TEST_FULL=1` | 21 | 150 | 2,193 | 40 | 9.4 s | 32 s |
 
-Timings are the lane's and the review's reruns (2026-09-27); the default run
-is slower when the private dylib is rebuilt.
+Timings are the binding step's reruns (2026-09-28); the default run is
+slower when the private dylib is rebuilt.
 
 Both modes use at most 4 workers.
 
@@ -299,171 +295,164 @@ random variants, because D_00250FB0 is zero in every capture.
 
 ## 5. Known gaps
 
-- **Not bound.** Section 6 lists what binding needs.
-- **The face weights.** Slot +0x40..+0x5F are consumed as they are. Their
-  live writer for Roger is em_opening_face_tick over the slot bytes (the
-  001D0720 face kernel). Its header says host float rounding was not
-  asserted bit-identical. Until that kernel is verified, the unit is exact
-  only for exact weights.
-- **The draw-time view.** A face unit, like the player's 001D89D0 camera
-  fill, must be built while D_00810610 still holds the frame's draw-time
-  view (section 4). Whether the port's frame order holds that view at the
-  call has not been checked; check it when binding.
+- **The draw-time view.** The face unit is built at the owner's +0x4C in
+  the walk, with the D_00810610 the walk's draws read (the one the previous
+  tick's camera stage committed, as for the player's 001D89D0 camera fill);
+  the sampled re-execution (section 7) runs the original over that same
+  view, and the camera-exact snapshots 10 and 14 compare it with the
+  capture's (OWNER_DRAW.md section 9).
 - **VU registers.** 001C7900 leaves values in VU0 registers
   (ANIM_RUNTIME_REST.md 6); not modelled.
-- **The duplicates** (section 2): the tag writer / vif_append_ref_tag and
-  the inline 001D2910(0) / 001D2710(0).
-- **001D3E40 on channels other than 0** is not verified (section 3).
-- **No ASan fixture.** The module is exercised from Python through ctypes;
-  the trial link of the app with it added builds with zero warnings.
+- **001D3E40 on channels other than 0** is not verified (section 3); no
+  first-level caller passes another.
+- **The opening.** During the opening the displayed Roger and player (and
+  their faces) are still the opening runtime's actors (em_opening_actor,
+  design risk 2; the chain's OPENING step). Roger's own owner draws his
+  units only in the frames it runs (AE+2 onwards), which the opening's
+  actors cover; the captured opening units are proved offline (section 4).
+- **Pixels.** Rasterization is Metal's (OWNER_DRAW.md section 12); no
+  framebuffer capture of a face frame is compared.
+- **The bone-slot stack.** The port's player node records (0x7D5840..) are
+  em_player_record_pose's storage and are not popped from the shared
+  001AF710 stack (0015C420's 21 pops): every later pop, the face slots
+  included, returns an address 21 slots lower than the original's (route 08
+  snapshot: free count 1063 against 1042, cursor 0x7D47A4 against
+  0x7D47F8), and the first 21 pops alias the player's node addresses in the
+  boxes' arena. The face units do not carry the slot address (their REF
+  names the face resource), so the drawn bytes are unaffected; the stack's
+  state is not compared. Found by this step, not fixed here.
 
-## 6. Binding (for the chain)
+## 6. Binding (done 2026-09-28)
 
-**Sources.** `src/game/em_face_attach.c` joins the app. Everything it calls
-is already in the app build:
+**Build.** `src/game/em_face_attach.c` and `src/game/em_face_slot.c` are in
+the app (COMMON). Make targets: `test-face-attach-reference`,
+`test-face-slot-reference`.
 
-- em_anim_runtime_rest;
-- em_frame_render_heads;
-- em_actor_light_001D89D0;
-- em_owner_draw_original;
-- em_owner_services_original;
-- em_load_veil_particles.
+### 6.1 em_owner_draw_live.c (001CAA00's `w_001CB3C0`)
 
-A trial link on 2026-09-27 (the private lane build command with this file
-appended) had no warnings and no duplicate symbols. Suggested make target:
-`test-face-attach-reference` → `python3 tools/test_face_attach_reference.py`.
+- `w_001CB3C0` runs `em_face_attach_001CB3C0(&L.face, record)` with:
+  - one `EmAnimRest` (`L.rest`): channel = the module's channel-0 cursor
+    (`L.channel`, count 1), scratch = `L.spr`, the region table = the
+    call's regions, `w_001D88B0 = em_face_attach_w_001D88B0` with ctx =
+    `L.face`;
+  - `L.face.world`: draw = `L.draw.world`, light = `L.light` (the rig
+    record D_00817BC0 and D_00275688 of 001D89D0), context_address =
+    D_00275670's value, `d00250FB0` = the render context's .data view
+    (render_context.emrc's D_00250F30 block, byte-checked against the ELF
+    and every capture by tools/export_render_context.py), D_00275B40 = the
+    owner's node array;
+  - workers: `w_001D1F80` = the same cursor handover as 001CAA00's,
+    `w_001D2910` = `em_rcl_001D2910`.
+- `em_owner_draw_live_001CAA00_attached(bank, owner, rgb, record, regions,
+  count)` takes the regions 001CB3C0 reads by address (the record, the slot
+  arena, the face resource); `em_owner_draw_live_001CAA00` is the same with
+  none (an owner with +0x90 != 0 then faults). Callers with an attachment:
+  em_area11_roger (Roger) and em_player_draw_live (the player), both through
+  `em_area11_roger_attachment_regions` (the record's bytes, the one
+  001AF710 arena, the export's regions: Roger's face resource 0x88 and
+  Dennis's 0x18).
+- **The unit parse.** The appended bytes are parsed unit by unit
+  (`em_object_unit_parse_one`): the owner's unit (absent when 001CA7B0
+  culled the body), then 001CB3C0's face unit, which must end the bytes;
+  anything else is refused. Both are kept for the flush in build order; the
+  resolver maps the face REF (face + 0x40, qwc 0x163 per block) into the
+  call's regions.
+- **The log.** `EmOwnerDrawLiveLog` gains the face unit's bytes and a digest
+  (B, the node rows, the weights); `bytes` is the owner unit's alone. The
+  attached calls also leave a sample (`em_owner_draw_live_samples`: the
+  inputs and every appended byte) for the level smoke.
+- **Assets.** `tools/export_object_textures.py` adds Roger's model 0x47, his
+  equipment's library model 0x6B and both face resources (Roger's 13 face
+  TEX0 values; Dennis's 12 were already in the export): 346 textures,
+  resident and identical in all 15 route captures.
+  `tools/export_roger_banks.py` adds Dennis's face resource
+  (extract/chunk03/f16_id18.bin at D_0028A490[0x18] = 0x011749C0, checked
+  against RAM in 16 captures).
 
-### 6.1 em_owner_draw_live.c (the only caller: 001CAA00's `w_001CB3C0`)
+### 6.2 Roger (em_area11_roger, record 0x7A8830) and his equipment (0x7A8B20)
 
-1. Replace the faulting `w_001CB3C0` stub with an adapter that calls
-   `em_face_attach_001CB3C0(&L.face, record)`. `record` is the original
-   record address `em_owner_draw_live_001CAA00` already receives; keep it in
-   L for the adapter.
-2. Set up one `EmAnimRest` in L:
-   - `channel = &L.channel` (count 1) and `scratch = &L.spr`;
-   - `workers.w_001D88B0 = em_face_attach_w_001D88B0` with
-     `workers.ctx = &L.face`.
-3. Give that EmAnimRest these regions, all mapped read-only onto canonical
-   bytes:
-   - the owner record's [+0x80, +0x98): Roger's record image in
-     em_area11_roger, or the player's record;
-   - the face slot's 0xD0 bytes in the shared 001AF710 slot arena
-     (em_area11_boxes / em_roger_actor_original's slot storage);
-   - the face resource's header and blocks.
-4. Set up `L.face.world`:
-   - `draw = &L.draw.world`, `light = &L.light` (the same rig record and
-     D_00275688 as 001D89D0);
-   - `context_address = CTX`;
-   - `d00250FB0`: 3 words that are not yet in any port export. Add them to
-     an exporter (export_render_context or export_roger_banks) with a
-     byte-for-byte check against the ELF; the test already asserts the
-     captures equal the ELF there;
-   - `d00275B40` / count: `s->world.d00275B40` / `d00275B40_count` of the
-     same call (owner->bone);
-   - `workers.w_001D1F80`: the module's existing `w_001D1F80` (the
-     cursor handover).
-5. **The unit parse.** After `em_owner_services_001CAA00`, the used bytes
-   are the owner unit followed by the face unit. **When 001CA7B0 culled the
-   body, only the face unit is there** (used = 0x190 / 0x1A0).
-   - Today's `if (!used) return 0` and the single `em_object_unit_parse`
-     must become: parse the owner unit when the cull flags were ≥ 0, then
-     parse the face unit (`em_object_unit_parse_one` on the rest).
-   - Keep both for the flush, in build order.
-   - The resolver must map face + 0x40 .. + 0x40 + 16·qwc to the face
-     resource.
-6. **Assets:**
-   - **Roger's face resource** (D_0028A490[0x88] = 0x018C8740) is in
-     `assets/scene_snow/roger/resources.emrs` (export_roger_banks: "the face
-     resource 0x88 at +0x86000").
-   - **Dennis's** (D_0028A490[0x18] = 0x011749C0) is in no raw export yet.
-     `opening/player_face.emfm` is a different format. Add a region to an
-     exporter, checked against RAM in the captures.
-   - **Textures:** Roger's face kicks 13 TEX0 values that
-     `object_textures.emot` does not hold. export_object_textures.py must add
-     the face resources' block TEX0s. Dennis's 12 are already exported
-     (shared with the player model). Until the export holds Roger's,
-     `em_gfx_object_unit` faults at his first face unit, which is correct
-     fail-stop.
+- Roger's +0x4C (em_roger's draw event) and the equipment's (001C5C90's
+  jalr +0x4C) run `em_owner_draw_live_001CAA00_attached` over their records'
+  owner views (+0x01, +0x02, +0x03, +0x09, +0x0C, +0x0D, +0x44, +0x80..+0x8F,
+  +0x90, +0x94, +0x98, +0xB0 and the node records +0x110 names). Their
+  models (0x47 at D_0028A490[0x47] = 0x01877740; library 0x6B) are added to
+  a table-less bank from the export at their original addresses. 001C7420
+  collapses node +0x94 = 7 of Roger's body; 001CB3C0 appends his face.
+- The face kernel 001D0720 runs over the slot bytes
+  (`em_opening_face_tick_slot`, shared with the player's slot); 001CB2C0
+  uploads its weights with the face unit.
+- **Retired:** the roger.emdl skinned draw, the em_face_model attach and the
+  em_opening_face_position host-float morph of his face, the
+  opening/equipment_6b.emdl draw at the equipment's bone 0, the draw list
+  (`em_area11_roger_draw_count` / `_draw`) and em_render_frame's Roger chain
+  entries.
 
-### 6.2 Roger (em_area11_roger, record 0x7A8830; +0x4C 001CAA00, +0x90 = his slot, +0x94 = 7)
+### 6.3 The player's face slot (em_face_slot)
 
-- Replace "the port's actor draw of Roger's mesh (roger.emdl) with the face
-  morph of the slot" with `em_owner_draw_live_001CAA00` over Roger's body
-  model 0x47. That model is in resources.emrs; it needs an EmWorldModels
-  entry (em_world_models_add at its address). The call uses his record's
-  owner view with `attachment` = +0x90 and `collapsed_bone` = +0x94.
-- 001C7420 already collapses node +0x94 (it keeps only that node's
-  translation; OWNER_DRAW.md section 3), so the body unit needs no mesh
-  edit under the face, as far as the original's own draw goes.
-- **Retire** for Roger in AREA11:
-  - the roger.emdl skinned draw;
-  - the em_face_model attach / em_opening_face_position host-float morph
-    used to draw his face.
+- `em_area11_interaction_host_player_face` gives the views: the live record
+  D_008102B0, an EmRogerActor over the one 001AF710 stack and arena
+  (em_area11_boxes), the shared 00122BB8.
+- 001B81D0's 001CA700 / 001D06D0 (em_area_script, the script host's
+  `w_001CA700` / `w_001D06D0`), 001B82D0 sub 4's 001CA770 (the script host's
+  `w_001CA770` and the interaction host's RELEASE_SKELETON frame event),
+  00183090's 001D0C70 (em_player_stage_live's `w_001D0C70` and the
+  interaction runtime's cinematic worker) and 001FD950's 001D06E0 (the
+  message host's face talk) run the translations on the record's +0x90 /
+  +0x94. 001AF890 is live through 001CA770. The adapters accept any
+  resource row; a call on a record address other than the player's has no
+  record view in the script host and faults.
+- The draw needs no change beyond the regions: em_player_draw_live's owner
+  view copies +0x90 / +0x94, so 001CAA00 collapses node 7 and reaches
+  001CB3C0 while the slot is held.
+- **Oracle:** `tools/test_face_slot_reference.py` runs the ORIGINAL
+  001B81D0 / 001D06E0 / 001CA770 / 001D0C70 sequence over playable_ee.bin
+  (400 frames) against em_face_slot over a copy: +0x90, +0x94, the slot's
+  0xD0 bytes, D_00275BCC, D_00275BD0, the stack word and the RNG draws equal
+  after every event; plus the original call sites (00183090, 001FD950) and
+  three fail-stop checks.
+- **Retired:** em_player_face_host.{h,c} (its alternate mesh with the face
+  attached, attach / detach / talk / tick / record), em_face_model.{h,c}
+  (used only by it and Roger's morph), the interaction host's `world.face`,
+  `em_area11_interaction_host_face_attach` / `_player_record` /
+  `_face_state`, the RELEASE_SKELETON detach stand-in,
+  `tests/player_face_host_test.c` and `tools/test_player_face_host.py`
+  (superseded by test_face_slot_reference, rule 4; the fixture
+  tests/area11_interaction_host_test.c now drives the slot), and the
+  player-only / row-0x18-only refusals of the script host's adapters.
 
-  The face state and em_opening_face_tick stay (they write the weights
-  001CB2C0 uploads).
+### 6.4 Census rows this changed (FIRST_LEVEL_CENSUS.md section 1.40)
 
-### 6.3 The player: binding 001CA700 / 001CA770 on the player
-
-Today the player's face is `em_player_face_host`'s own state. The
-interaction host's `face_attach` / `em_player_face_host_detach` stand in for
-001B81D0's 001CA700(player, D_0028A490[0x18], 7) + 001D06D0(player, 1), and
-for 001B82D0 sub 4 / the release op's 001CA770(player). Binding the
-originals needs:
-
-1. **The face in a pool slot.**
-   - 001CA700 pops a slot with 001AF780: the one D_00275BD0 stack /
-     D_00275BCC count shared with Roger and every node allocation, which
-     refuses below 31 free.
-   - It stores the player's +0x90 = slot and +0x94 = 7, slot +0x60 = the
-     resource, and resets slot +0x70..+0xA7 (001D0690).
-   - 001D06D0 then sets slot +0x81 = 1.
-   - The translations exist as `em_roger_actor_001CA700` / `_001D06D0` /
-     `_001CA770` / `_001AF780` / `_001AF890`. They are typed on
-     EmRogerActorRecord (only the `face` / `face_bone` fields) and on the
-     Roger actor's slot storage. The player needs the same over the player
-     record's +0x90 / +0x94 and **the same slot arena**: either a generalised
-     record view or an adapter with store-back.
-   - This makes 001AF890 live through its original caller (C7 note).
-2. **The face kernel on the slot.**
-   - `em_area11_interaction_host_face_tick_001D0C70` (00183090's
-     001D0C70 under 0x70003B8F == 2) must run 001D0720 over the slot bytes,
-     as em_area11_roger does for Roger, instead of the face host's state.
-   - 001FD950's 001D06E0(player, 0 / 1) must write slot +0x80 (and clear
-     +0x90..+0xA7 on 0).
-3. **The draw.**
-   - 0015C160's +0x4C (`em_player_draw_live`) already calls
-     `em_owner_draw_live_001CAA00` on the player's owner view, and that view
-     already copies `attachment` / `collapsed_bone` from the record's +0x90 /
-     +0x94 (em_player_draw_live.c). **No change is needed there**: once
-     001CA700 writes a slot to +0x90, the draw reaches 001CB3C0.
-   - With the face slot set, 001CAA00 reaches 001CB3C0 (6.1) and 001C7420
-     collapses node 7.
-   - Dennis's face resource export (6.1, step 6) is required.
-4. **Retire:**
-   - em_player_face_host (the alternate mesh with the face attached, its
-     attach / detach / tick / record API);
-   - the interaction host's `world.face`;
-   - the RELEASE_SKELETON stand-in in em_area11_interaction_host.c;
-   - area11_script_host's `w_001CA700` / `w_001CA770` player-only adapters
-     (bind the translations);
-   - the "001CA770 on an actor other than the player" / "row-0x18 only"
-     refusals: the original takes any actor.
-5. **Out of this lane:** the opening's player and face (design risk 2) stay
-   on em_opening_actor until the opening's actors move onto their records.
-
-### 6.4 Census rows this changes
-
-Checked against FIRST_LEVEL_CENSUS.md on 2026-09-27:
-
-| Row | Today | Change |
+| Row | Before | Now |
 |---|---|---|
-| 001CB3C0 | missing | missing → verified-unbound (em_face_attach); live when 6.1 is bound |
-| 001D3E40, 001D3F50 | no row: in the section 4 "GS/VIF packet build / VU1 kick" boundary list | boundary → verified-unbound, moved out under the section 4 render-range rule ("a function in the render ranges that carries a translation is classified normally"); live when 6.1 is bound |
-| 001D2090 vif_append_ref_tag | live (em_owner_draw_original through em_owner_draw_live) | **no change**; em_face_attach's copy is a duplicate (section 2) |
-| 001D2910, 001D2710 | live (em_render_context through em_render_context_live) | **no change**; the inline 001D2910(0) is a duplicate (section 2) |
-| 001C7900, 001CB2C0 | verified-unbound | no status change; now also exercised inside 001CB3C0 against the original; live when 6.1 is bound |
-| 001D88B0 (em_frh) | verified-unbound | no status change; it now has a bindable adapter and an oracle through 001CB3C0; live when 6.1 is bound |
+| 001CB3C0 | missing | live (em_face_attach through em_owner_draw_live) |
+| 001D3E40, 001D3F50 | boundary (GS/VIF list) | live, moved to section 3.16 under the render-range rule |
+| 001C7900, 001CB2C0 | verified-unbound | live (inside 001CB3C0) |
+| 001D88B0, 001D8690 | verified-unbound | live (001CB3C0's 001C7900 -> em_face_attach_w_001D88B0 -> em_actor_light_001D8690) |
+| 001CA770, 001AF890 | verified-unbound | live (the player's face slot) |
+| 001CA700, 001D06D0, 001D06E0, 001D0C70 | live | evidence: em_face_slot, test_face_slot_reference |
+| 001D2090, 001D2910, 001D2710 | live | no change; em_face_attach now calls them (no second copy) |
 
-The boundary list's count (28) drops by two when 001D3E40 / 001D3F50 move
-out.
+## 7. Live proof (the level smoke; LEVEL_SMOKE.md "Face attachments")
+
+`tools/level_smoke_face.py` (check_face) over the full route:
+
+- **Every attached call appends its face unit:** 15,328 attached 001CAA00
+  calls to Roger (10,812: every frame his +0x4C ran) and the player (4,516:
+  the frames a script held its face), each with one 0x190-byte face unit
+  in the owner log.
+- **Sampled re-execution:** the ORIGINAL 001CAA00 (001CA990's body unit,
+  then 001CB3C0 and its callees) runs over route 14's RAM with the port's
+  inputs of the call patched in (the record, its node records' +0x90
+  matrices, the face slot, the tick's point-light pool, D_00810610, the cull
+  planes, the view-projection, context +0x0C / +0x9C, the rig record and
+  D_00275688, the area bytes): every byte the original writes equals the
+  port's appended byte. Full mode: all 78 samples (Roger 55, the player 23;
+  body culled and drawn, both units), quick mode 4 per record.
+- **Against the captures** (check_owner_units): Roger and his equipment are
+  compared like the player (movers whose clip phase follows the area load):
+  in every aligned snapshot 08, 10..14 their face unit's length equals the
+  original's, and in route 14 (camera exact) both are at the snapshot's
+  point and pose and are compared in full (unit bytes, clip pass, B, the
+  lighting and position rows).
+- The captured face units of routes 10, 14 and the opening are rebuilt byte
+  for byte offline (section 4).

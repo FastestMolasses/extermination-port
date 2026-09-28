@@ -35,28 +35,16 @@ typedef uint32_t u32;
 #define PACKETS_MAX 4u
 #define PACKET_BYTES_MAX 0x400u
 #define FAN_MAX 16u
+#define PASSES 4u                          /* 001DA6A0 calls recorded per frame */
 
 enum { CMD_ALPHA, CMD_BOX, CMD_SIL, CMD_BEGIN, CMD_RECV, CMD_END };
 
-static struct {
-    int loaded, load_tried, bound;
-    u32 fault;
-    /* Assets. */
-    EmShadowReceivers receivers;
-    EmModel proxy;
-    uint8_t *elf;                               /* the D_0025DAE0 window, placed */
-    EmShadowActorRouteTables route_tables;
-    /* D_00817FF0 (BSS: zero at boot; never reset). */
-    EmShadowOriginalState state;
-    /* The call. */
-    EmShadowOriginalScene scene;
-    EmShadowOriginalPlan plan;
-    EmShadowOriginalFault sfault;
-    EmShadowOriginalWorkers workers;
-    const uint8_t *nodes[NODES];
-    /* The recorded 001DA6A0 draw workers of the frame. */
-    uint32_t frame;
-    int route;
+/* One 001DA6A0 call's recorded draw workers: the walk's (an actor's
+ * 001BA580, drawn after the walk's owner units) or the post-step's (the
+ * player's 0015C160, drawn before its +0x4C). */
+typedef struct {
+    int walk;
+    uint32_t record;
     struct { int op, index; } cmd[CMD_MAX];
     uint32_t cmd_count;
     EmShadowOriginalBox box[2];
@@ -66,6 +54,31 @@ static struct {
     float uv[16], camera[16];
     EmShadowOriginalReceiver recv[EM_SHADOW_RECEIVER_MAX];
     uint32_t recv_count;
+} Pass;
+
+static struct {
+    int loaded, load_tried, bound;
+    u32 fault;
+    /* Assets. */
+    EmShadowReceivers receivers;
+    EmModel proxy, proxy_29;               /* D_0028A490[0x28] (the player), [0x29] (Roger) */
+    uint8_t *elf;                               /* the D_0025DAE0 window, placed */
+    EmShadowActorRouteTables route_tables;
+    /* D_00817FF0 (BSS: zero at boot; never reset). */
+    EmShadowOriginalState state;
+    /* The call. */
+    EmShadowOriginalScene scene;
+    EmShadowOriginalPlan plan, aplan;          /* the player's call, the last actor call */
+    EmShadowOriginalFault sfault;
+    EmShadowOriginalWorkers workers;
+    const uint8_t *nodes[NODES];
+    /* The recorded 001DA6A0 calls of the frame (their draw workers), in
+     * call order; `cur` is the running call's. */
+    uint32_t frame;
+    int route;
+    Pass pass[PASSES];
+    uint32_t pass_count, pass_frame;
+    Pass *cur;
     /* The 0015BF90 route. The scratchpad block 0x70003600..0x7000363F is
      * this module's one image for 001CD390 (the effect globals), 001F8D30 and
      * 001CE300; 0x700038A0 is its own (written before any read by every
@@ -85,7 +98,9 @@ static struct {
     uint64_t fan_tex0;
     /* The level smoke's views. */
     EmShadowLiveLog log;
-    EmShadowLiveSample sample;
+    EmShadowLiveActorLog alog;
+    EmShadowLiveSample sample, asample;
+    int asampled;
     uint8_t sample_packets[PACKETS_MAX][PACKET_BYTES_MAX];
     int sampled;
 } S;
@@ -138,6 +153,12 @@ static int load(void)
                         "export_shadow_proxy.py)\n", EM_SHADOW_LIVE_PROXY_PATH);
         return fail(0x001D9EE0u, "no shadow proxy mesh D_0028A490[0x28]");
     }
+    if (em_model_load(&S.proxy_29, EM_SHADOW_LIVE_PROXY_29_PATH) != 0 || !S.proxy_29.verts ||
+        !S.proxy_29.indices || S.proxy_29.index_count % 3) {
+        fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
+                        "export_shadow_proxy.py --kind 0x29)\n", EM_SHADOW_LIVE_PROXY_29_PATH);
+        return fail(0x001D9EE0u, "no shadow proxy mesh D_0028A490[0x29]");
+    }
     if (load_route_tables() < 0) {
         fprintf(stderr, "shadow: D_0025DAE0 / D_0025DAF0 are not in assets/effect_tables.emet "
                         "(re-run tools/export_effect_tables.py)\n");
@@ -170,6 +191,25 @@ static int load_nodes(const EmPlayerLiveActor *player)
         S.nodes[i] = node_record(rd32(player->bytes + 0x110 + 4 * i));
         if (!S.nodes[i]) return fail(0x001DA6A0u, "a player node record is not mapped");
     }
+    return 0;
+}
+
+/* A new call's recorded passes (this frame's list; an earlier frame's
+ * unflushed calls are dropped, as before). */
+static int begin_pass(int walk, uint32_t record)
+{
+    const uint32_t now = em_frame_counter();
+    if (S.pass_frame != now) {
+        S.pass_frame = now;
+        S.pass_count = 0;
+    }
+    if (S.pass_count >= PASSES) return fail(0x001DA6A0u, "more 001DA6A0 calls in one frame than PASSES");
+    Pass *p = &S.pass[S.pass_count++];
+    p->walk = walk;
+    p->record = record;
+    p->cmd_count = p->box_count = p->recv_count = 0;
+    p->sil_kind = 0;
+    S.cur = p;
     return 0;
 }
 
@@ -208,10 +248,11 @@ static int load_scene(void)
 
 static int push(int op, int index)
 {
-    if (S.cmd_count >= CMD_MAX) return -1;
-    S.cmd[S.cmd_count].op = op;
-    S.cmd[S.cmd_count].index = index;
-    S.cmd_count++;
+    Pass *p = S.cur;
+    if (!p || p->cmd_count >= CMD_MAX) return -1;
+    p->cmd[p->cmd_count].op = op;
+    p->cmd[p->cmd_count].index = index;
+    p->cmd_count++;
     return 0;
 }
 
@@ -230,40 +271,53 @@ static int w_alpha_clear(void *ctx)
 static int w_box(void *ctx, const EmShadowOriginalBox *box)
 {
     (void)ctx;
-    if (!box || S.box_count >= 2 || !em_shadow_receivers_box(&S.receivers, box->model)) return -1;
-    S.box[S.box_count] = *box;
-    return push(CMD_BOX, (int)S.box_count++);
+    Pass *p = S.cur;
+    if (!p || !box || p->box_count >= 2 || !em_shadow_receivers_box(&S.receivers, box->model)) return -1;
+    p->box[p->box_count] = *box;
+    return push(CMD_BOX, (int)p->box_count++);
 }
 
-/* 001D9EE0: the proxy exists for kind 0x28 only (assets/player_shadow.emdl);
- * its bones are the actor's node +0x90 matrices as they stand now. */
+/* 001D9EE0: the proxy D_0028A490[kind] (kind 0x28, the player:
+ * assets/player_shadow.emdl; kind 0x29, Roger: assets/roger_shadow.emdl;
+ * no other kind is exported); its bones are the actor's node +0x90
+ * matrices as they stand now. */
+static const EmModel *proxy_of(int32_t kind)
+{
+    if (kind == EM_SHADOW_ORIGINAL_KIND_PLAYER) return &S.proxy;
+    if (kind == EM_SHADOW_LIVE_KIND_ROGER) return &S.proxy_29;
+    return NULL;
+}
+
 static int w_silhouette(void *ctx, int32_t kind, const float vp[16])
 {
     (void)ctx;
-    if (kind != EM_SHADOW_ORIGINAL_KIND_PLAYER || !vp) return -1;
-    S.sil_kind = kind;
-    memcpy(S.sil_vp, vp, sizeof S.sil_vp);
-    for (unsigned i = 0; i < NODES; ++i) memcpy(S.sil_nodes + 16 * i, S.nodes[i] + 0x90, 0x40);
+    Pass *p = S.cur;
+    if (!p || !proxy_of(kind) || !vp) return -1;
+    p->sil_kind = kind;
+    memcpy(p->sil_vp, vp, sizeof p->sil_vp);
+    for (unsigned i = 0; i < NODES; ++i) memcpy(p->sil_nodes + 16 * i, S.nodes[i] + 0x90, 0x40);
     return push(CMD_SIL, 0);
 }
 
 static int w_receiver_begin(void *ctx, const float uv[16])
 {
     (void)ctx;
-    if (!uv) return -1;
-    memcpy(S.uv, uv, sizeof S.uv);
-    memcpy(S.camera, S.scene.camera_3AC0, sizeof S.camera);
+    Pass *p = S.cur;
+    if (!p || !uv) return -1;
+    memcpy(p->uv, uv, sizeof p->uv);
+    memcpy(p->camera, S.scene.camera_3AC0, sizeof p->camera);
     return push(CMD_BEGIN, 0);
 }
 
 static int w_receiver(void *ctx, const EmShadowOriginalReceiver *r)
 {
     (void)ctx;
-    if (!r || r->cls > 2u || S.recv_count >= EM_SHADOW_RECEIVER_MAX ||
+    Pass *p = S.cur;
+    if (!p || !r || r->cls > 2u || p->recv_count >= EM_SHADOW_RECEIVER_MAX ||
         !em_shadow_receivers_object(&S.receivers, r->id))
         return -1;
-    S.recv[S.recv_count] = *r;
-    return push(CMD_RECV, (int)S.recv_count++);
+    p->recv[p->recv_count] = *r;
+    return push(CMD_RECV, (int)p->recv_count++);
 }
 
 static int w_receiver_end(void *ctx)
@@ -428,24 +482,25 @@ int em_shadow_live_bind(void)
     S.aroute.workers = &S.aworkers;
     S.frame = 0;
     S.route = 0;
-    S.cmd_count = S.fan_count = 0;
+    S.pass_count = S.pass_frame = S.fan_count = 0;
+    S.cur = NULL;
     S.bound = 1;
     return 0;
 }
 
 /* ------------------------------------------------------------ the call */
 
-static void sample_common(const EmPlayerLiveActor *player, int route)
+static void sample_common(EmShadowLiveSample *s, uint32_t record, const uint8_t *bytes, uint32_t size,
+                          const uint8_t *const *nodes, int route)
 {
-    EmShadowLiveSample *s = &S.sample;
     memset(s, 0, sizeof *s);
     s->frame = em_frame_counter();
     s->route = route;
-    memcpy(s->player, player->bytes, sizeof s->player);
-    for (unsigned i = 0; i < NODES; ++i) {
-        const uint8_t *n = node_record(rd32(player->bytes + 0x110 + 4 * i));
-        if (n) memcpy(s->nodes + NODE_BYTES * i, n, NODE_BYTES);
-    }
+    s->record = record;
+    s->record_size = size < sizeof s->player ? size : (uint32_t)sizeof s->player;
+    memcpy(s->player, bytes, s->record_size);
+    for (unsigned i = 0; i < NODES; ++i)
+        if (nodes[i]) memcpy(s->nodes + NODE_BYTES * i, nodes[i], NODE_BYTES);
     const u32 views[5] = { CTX + 0x2240, CTX + 0x2340, CTX + 0x2380, 0x70003AC0u, 0 };
     uint32_t *dst[4] = { s->clip_2240, s->proj_2340, s->view_2380, s->camera_3AC0 };
     for (unsigned i = 0; views[i]; ++i) {
@@ -464,11 +519,19 @@ static void sample_common(const EmPlayerLiveActor *player, int route)
     memcpy(s->ff0_before, S.state.d817FF0, 16);
 }
 
+/* The player's node records as the route-2 sample reads them (without the
+ * route-1 load's fault). */
+static void player_nodes(const EmPlayerLiveActor *player, const uint8_t *out[NODES])
+{
+    for (unsigned i = 0; i < NODES; ++i) out[i] = node_record(rd32(player->bytes + 0x110 + 4 * i));
+}
+
 static int call_001DA6A0(const EmPlayerLiveActor *player)
 {
     if (load_nodes(player) < 0 || load_scene() < 0) return -1;
-    sample_common(player, EM_SHADOW_ROUTE_001DA6A0);
-    S.cmd_count = S.box_count = S.recv_count = 0;
+    sample_common(&S.sample, EM_SHADOW_LIVE_PLAYER, player->bytes, EM_PLAYER_ACTOR_SIZE, S.nodes,
+                  EM_SHADOW_ROUTE_001DA6A0);
+    if (begin_pass(0, EM_SHADOW_LIVE_PLAYER) < 0) return -1;
     S.sfault = (EmShadowOriginalFault){ 0, 0 };
     const int r = em_shadow_original_001DA6A0(player->bytes, S.nodes, NODES, &S.scene, &S.state, &S.plan,
                                               &S.workers, &S.sfault);
@@ -477,8 +540,8 @@ static int call_001DA6A0(const EmPlayerLiveActor *player)
     S.sample.plan_bytes = sizeof S.plan;
     S.log.drawn = r;
     S.log.kind = S.plan.kind;
-    S.log.receivers = S.recv_count;
-    for (u32 i = 0; i < S.recv_count; ++i) S.log.receivers_cls2 += S.recv[i].cls == 2u;
+    S.log.receivers = S.cur->recv_count;
+    for (u32 i = 0; i < S.cur->recv_count; ++i) S.log.receivers_cls2 += S.cur->recv[i].cls == 2u;
     return 0;
 }
 
@@ -488,7 +551,10 @@ static int call_0015BF90(const EmPlayerLiveActor *player)
     const uint8_t *camera = em_rcl_bytes(0x70003AC0u, 0x40);
     if (!h || !h->globals || !h->globals->spad38B0 || !h->globals->spad3A20 || !camera)
         return fail(0x0015BF90u, "the scratchpad views are not bound");
-    sample_common(player, EM_SHADOW_ROUTE_0015BF90);
+    const uint8_t *nodes[NODES];
+    player_nodes(player, nodes);
+    sample_common(&S.sample, EM_SHADOW_LIVE_PLAYER, player->bytes, EM_PLAYER_ACTOR_SIZE, nodes,
+                  EM_SHADOW_ROUTE_0015BF90);
     S.aroute.scratch = (EmShadowActorRouteScratch){ S.s38A0, h->globals->spad38B0, h->globals->spad3A20,
                                                     S.eglobals.spad3600, &em_scene_state()->spad3B8D,
                                                     (const uint32_t *)camera };
@@ -541,7 +607,6 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route)
     if (!S.bound || !player) return fail(0x0015C160u, "the shadow is not bound");
     S.frame = em_frame_counter();
     S.route = route;
-    S.cmd_count = 0;
     S.fan_count = 0;
     const EmShadowLiveLog keep = S.log;
     memset(&S.log, 0, sizeof S.log);
@@ -558,45 +623,81 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route)
 
 /* ------------------------------------------------------------ the draws */
 
-int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16])
+/* 001BA580's 001DA6A0(actor) during the owner walk (Roger: kind 0x29). */
+int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_t size,
+                                  const uint8_t *const nodes[], uint32_t node_count)
 {
     if (S.fault) return -1;
-    if (!S.bound || S.frame != em_frame_counter() || S.route != EM_SHADOW_ROUTE_001DA6A0 || !S.cmd_count)
-        return 0;
-    if (!gfx || !viewproj) return fail(0x001DA6A0u, "no frame to draw the shadow in");
-    for (u32 i = 0; i < S.cmd_count; ++i) {
-        const int index = S.cmd[i].index;
+    if (!S.bound) return fail(0x001DA6A0u, "the shadow is not bound");
+    if (!bytes || size < 0x100u || !nodes || node_count != NODES)
+        return fail(0x001DA6A0u, "an actor record or its node records are not mapped");
+    for (unsigned i = 0; i < NODES; ++i) {
+        if (!nodes[i]) return fail(0x001DA6A0u, "an actor node record is not mapped");
+        S.nodes[i] = nodes[i];
+    }
+    if (load_scene() < 0) return -1;
+    const EmShadowLiveActorLog keep = S.alog;
+    memset(&S.alog, 0, sizeof S.alog);
+    S.alog.frame = em_frame_counter();
+    S.alog.record = record;
+    S.alog.calls = keep.calls + 1;
+    S.alog.drawn_total = keep.drawn_total;
+    sample_common(&S.asample, record, bytes, size, S.nodes, EM_SHADOW_ROUTE_001DA6A0);
+    S.asampled = 1;
+    if (begin_pass(1, record) < 0) return -1;
+    S.sfault = (EmShadowOriginalFault){ 0, 0 };
+    const int r = em_shadow_original_001DA6A0(bytes, S.nodes, NODES, &S.scene, &S.state, &S.aplan, &S.workers,
+                                              &S.sfault);
+    if (r < 0) return fail(S.sfault.address, "001DA6A0 faulted (an actor)");
+    S.asample.plan = &S.aplan;
+    S.asample.plan_bytes = sizeof S.aplan;
+    S.alog.drawn = r;
+    S.alog.kind = S.aplan.kind;
+    S.alog.receivers = S.cur->recv_count;
+    for (u32 i = 0; i < S.cur->recv_count; ++i) S.alog.receivers_cls2 += S.cur->recv[i].cls == 2u;
+    return 0;
+}
+
+/* ------------------------------------------------------------ the draws */
+
+static int flush_pass(EmGfx *gfx, const float viewproj[16], Pass *p)
+{
+    for (u32 i = 0; i < p->cmd_count; ++i) {
+        const int index = p->cmd[i].index;
         int r = -1;
         u32 at = 0x001DA6A0u;
-        switch (S.cmd[i].op) {
+        switch (p->cmd[i].op) {
         case CMD_ALPHA:
             at = 0x001DA290u;
             r = em_gfx_shadow_alpha_clear(gfx);
             break;
         case CMD_BOX: {
             at = 0x001DA310u;
-            const EmShadowOriginalBox *b = &S.box[index];
+            const EmShadowOriginalBox *b = &p->box[index];
             const EmShadowReceiverObject *m = em_shadow_receivers_box(&S.receivers, b->model);
             if (!m) break;
             const EmGfxShadowStrips st = { m->qw3, EM_GFX_SHADOW_BATCH * m->batches };
             r = em_gfx_shadow_box(gfx, &st, b->world, b->clip_pass, b->rgbaq, viewproj);
             break;
         }
-        case CMD_SIL:
+        case CMD_SIL: {
             at = 0x001D9EE0u;
-            r = em_gfx_shadow_silhouette(gfx, S.proxy.verts, S.proxy.vert_count, S.proxy.indices,
-                                         S.proxy.index_count, S.sil_nodes, NODES, S.sil_vp);
+            const EmModel *m = proxy_of(p->sil_kind);
+            if (!m) break;
+            r = em_gfx_shadow_silhouette(gfx, m->verts, m->vert_count, m->indices, m->index_count, p->sil_nodes,
+                                         NODES, p->sil_vp);
             break;
+        }
         case CMD_BEGIN:
             at = 0x001D4CD0u;
-            r = em_gfx_shadow_receiver_begin(gfx, S.uv, S.camera, viewproj);
+            r = em_gfx_shadow_receiver_begin(gfx, p->uv, p->camera, viewproj);
             break;
         case CMD_RECV: {
             at = 0x001D4FB0u;
-            const EmShadowReceiverObject *o = em_shadow_receivers_object(&S.receivers, S.recv[index].id);
+            const EmShadowReceiverObject *o = em_shadow_receivers_object(&S.receivers, p->recv[index].id);
             if (!o) break;
             const EmGfxShadowStrips st = { o->qw3, EM_GFX_SHADOW_BATCH * o->batches };
-            r = em_gfx_shadow_receiver(gfx, &st, S.recv[index].cls);
+            r = em_gfx_shadow_receiver(gfx, &st, p->recv[index].cls);
             break;
         }
         case CMD_END:
@@ -606,10 +707,42 @@ int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16])
         }
         if (r < 0) return fail(at, "a shadow pass could not be drawn exactly");
     }
-    S.cmd_count = 0;
-    S.log.flushed = 1;
-    S.log.drawn_total++;
+    p->cmd_count = 0;
     return 0;
+}
+
+/* This frame's recorded calls of one kind (walk: the actors' 001BA580
+ * calls; else the post-step's), in call order. */
+static int flush_calls(EmGfx *gfx, const float viewproj[16], int walk)
+{
+    if (S.fault) return -1;
+    if (!S.bound || S.pass_frame != em_frame_counter()) return 0;
+    for (u32 k = 0; k < S.pass_count; ++k) {
+        Pass *p = &S.pass[k];
+        if (p->walk != walk || !p->cmd_count) continue;
+        if (!gfx || !viewproj) return fail(0x001DA6A0u, "no frame to draw the shadow in");
+        if (flush_pass(gfx, viewproj, p) < 0) return -1;
+        if (walk) {
+            if (p->record == S.alog.record && S.alog.frame == em_frame_counter()) S.alog.flushed = 1;
+            S.alog.drawn_total++;
+        } else {
+            S.log.flushed = 1;
+            S.log.drawn_total++;
+        }
+    }
+    return 0;
+}
+
+int em_shadow_live_flush_walk(EmGfx *gfx, const float viewproj[16])
+{
+    return flush_calls(gfx, viewproj, 1);
+}
+
+int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16])
+{
+    if (S.fault) return -1;
+    if (!S.bound || S.frame != em_frame_counter() || S.route != EM_SHADOW_ROUTE_001DA6A0) return 0;
+    return flush_calls(gfx, viewproj, 0);
 }
 
 int em_shadow_live_page_drew(uint32_t decal_triangles)
@@ -638,4 +771,14 @@ void em_shadow_live_log(EmShadowLiveLog *out)
 const EmShadowLiveSample *em_shadow_live_sample(void)
 {
     return S.sampled ? &S.sample : NULL;
+}
+
+void em_shadow_live_actor_log(EmShadowLiveActorLog *out)
+{
+    if (out) *out = S.alog;
+}
+
+const EmShadowLiveSample *em_shadow_live_actor_sample(void)
+{
+    return S.asampled ? &S.asample : NULL;
 }

@@ -18,17 +18,18 @@
  *   001BA580 / 001BA540   em_roger_actor_original with its face slot, the
  *                         face kernel 001D0720 (em_opening_face_tick over the
  *                         slot bytes, the shared 00122BB8 RNG) and 001DA6A0
- *                         (the actor drop shadow: the port draws no actor
- *                         shadow, reported as the player's post-step is)
+ *                         (the actor drop shadow)
  *   001B17A0              the interaction host's services (the class lists
  *                         and the interactive list the Use scan reads)
- *   +0x4C 001CAA00        the port's actor draw of Roger's mesh at his node
- *                         world matrices, with the face morph of the slot
+ *   +0x4C 001CAA00        em_owner_draw_live over his record (model 0x47 of
+ *                         the export, his node records, +0x90 = the face
+ *                         slot, +0x94 = 7): the body unit and 001CB3C0's
+ *                         face unit (docs/FACE_ATTACH.md section 6)
  *   001FABB0 / 001FAE70 / 001AEE10 / 001B0C60  the scene bindings
  * and the equipment node's 001C5C90 (em_roger_actor_001C5C90) with 001B1020
  * (em_owner_services_001B1020 over the global model table D_0028A56C) and
- * its +0x4C draw (the equipment mesh at its bone-0 matrix, which 001C5C90
- * copies from Roger's bone 1).
+ * its +0x4C draw (em_owner_draw_live over its record: library model 0x6B,
+ * its one node, which 001C5C90 copies from Roger's bone 1).
  *
  * Storage. The EmActor fields are the canonical record bytes they name;
  * every other byte of the two records (+0x20..+0x2D, +0x40, +0x44, +0x4C,
@@ -42,14 +43,11 @@
 
 #include "em_gfx.h"
 #include "game/em_actor_pool.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_scene_state.h"
 
 #define EM_AREA11_ROGER_RESOURCES_PATH "assets/scene_snow/roger/resources.emrs"
-#define EM_AREA11_ROGER_MESH_PATH "assets/scene_snow/roger/roger.emdl"
 #define EM_AREA11_ROGER_TRIGGER_PATH "assets/scene_snow/roger/trigger.empg"
-#define EM_AREA11_ROGER_FACE_MESH_PATH "assets/scene_snow/opening/roger_face.emdl"
-#define EM_AREA11_ROGER_FACE_MORPH_PATH "assets/scene_snow/opening/roger_face.emfm"
-#define EM_AREA11_EQUIPMENT_MESH_PATH "assets/scene_snow/opening/equipment_6b.emdl"
 
 #define EM_AREA11_ROGER_CALLBACK 0x008237E0u
 #define EM_AREA11_ROGER_EQUIPMENT_CALLBACK 0x001C5C90u
@@ -95,13 +93,14 @@ const uint8_t *em_area11_roger_record_bytes(uint32_t address, uint32_t size);
  * the +0x110 words name), or NULL. */
 const uint8_t *em_area11_roger_slot_bytes(uint32_t address, uint32_t size);
 
-/* The draw list: the owners whose +0x4C ran in their last owner call. */
-int em_area11_roger_draw_count(void);
-/* anchor_bone: the owner's +0x98 light-reference node; cam_fill: its +0x02
- * bit 0x20 (001D8BF0); face: the mesh carries the face morph's
- * FACE_LIGHT vertices (the 001D88B0 face rig applies). */
-int em_area11_roger_draw(int i, EmGfxMesh **mesh, const float **palette, uint32_t *bone_count,
-                         uint8_t *anchor_bone, uint8_t *cam_fill, uint8_t *face);
+/* The regions 001CB3C0 reads by address for a record with +0x90 != 0
+ * (em_owner_draw_live_001CAA00_attached): the record's bytes
+ * [record, record + record_size), the one 001AF710 slot arena and the
+ * export's regions (Roger's face resource 0x88, Dennis's 0x18). The count
+ * written, or -1 (not loaded, or more than `cap`). */
+int em_area11_roger_attachment_regions(uint32_t record, const uint8_t *record_bytes, uint32_t record_size,
+                                       EmOwnerDrawLiveRegion *out, unsigned cap);
+/* The scene's teardown: forget the draw's model bank. */
 void em_area11_roger_shutdown(EmGfx *gfx);
 
 /* The tick log's view of Roger's record (the route rows' roger_r8: +0x00..

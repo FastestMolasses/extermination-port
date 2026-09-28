@@ -3,10 +3,11 @@
  *
  * Read from the original instructions (the decomp's build/asm): 001CB3C0 is
  * byte-matched C, 001D3F50 a two-instruction thunk, 001D3E40 NEARMISS C
- * whose .s was followed, vif_append_ref_tag and 001D2910 / 001D2710 asm
- * files. Every address in a comment is the original instruction translated
- * there. Comments describe what the original computes; they never reproduce
- * its instruction stream. */
+ * whose .s was followed. vif_append_ref_tag and the tag writer are
+ * em_owner_draw_original's, 001D2910 is a worker (the live render
+ * context's em_render_context_001D2910). Every address in a comment is the
+ * original instruction translated there. Comments describe what the
+ * original computes; they never reproduce its instruction stream. */
 #include "game/em_face_attach.h"
 
 #include "game/em_ee_float.h"
@@ -47,11 +48,6 @@ static u32 rd32(const uint8_t *p)
     return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24;
 }
 
-static void put32(uint8_t *p, u32 v)
-{
-    p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); p[2] = (uint8_t)(v >> 16); p[3] = (uint8_t)(v >> 24);
-}
-
 /* The host bytes of the EE range [address, address + len) in the anim
  * rest's region table (the one 001CB2C0 reads through), or NULL. */
 static uint8_t *map(const EmFaceAttach *s, u32 address, u32 len)
@@ -75,37 +71,38 @@ static void trace(const EmFaceAttach *s, u32 callee, u32 a0, u32 a1, u32 a2, u32
     s->workers.trace(s->workers.ctx, callee, args, s->frame ? s->frame : none);
 }
 
-/* A DMA tag at the cursor, in the original's store order: byte +3 = id,
- * word +4 = address, halfword +0 = qwc, then the cursor moves 0x10. Byte
- * +2 and +8..+0xF are left as they are. */
-static void tag(EmOwnerServicesChannel *c, uint8_t id, u32 qwc, u32 address)
-{
-    uint8_t *p = c->cursor;
-    p[3] = id;
-    put32(p + 4, address);
-    p[0] = (uint8_t)qwc;
-    p[1] = (uint8_t)(qwc >> 8);
-    c->cursor = p + 0x10;
-}
-
 /* ======================================================================
  * 001D3E40 / 001D3F50: the face unit's submit
  * ==================================================================== */
 
+/* 001D2910(0) through the bound worker (the live render context's
+ * em_render_context_001D2910): 0 while context +0x0C bit 0 is clear. */
+static int query_2910(EmFaceAttach *s, u32 *result)
+{
+    if (!s->workers.w_001D2910) return fault(s, 0x001D2910u, EM_FACE_ATTACH_FAULT_NULL);
+    if (s->workers.w_001D2910(s->workers.ctx, 0, result) < 0)
+        return fault(s, 0x001D2910u, EM_FACE_ATTACH_FAULT_WORKER);
+    return 0;
+}
+
 /* Every view 001D3E40 reaches and its whole run of bytes, before a write.
  * The face +0x04 word is only checked to be mapped here; submit reads it
- * where the original does (0x001D3F08, after the tags before it). */
+ * where the original does (0x001D3F08, after the tags before it). The room
+ * is sized by a 001D2910(0) query (it only reads context +0x0C; the traced
+ * call at 0x001D3EB8 is the original's). */
 static int submit_ready(EmFaceAttach *s, int32_t chan, u32 face, u32 fn)
 {
     if (!s->world.anim) return fault(s, fn, EM_FACE_ATTACH_FAULT_NULL);
     const EmOwnerDrawWorld *d = s->world.draw;
-    if (!d || !d->ctx_0C || !d->ctx_9C || !d->d00275674 || !d->channel || !d->ctx_50)
+    if (!d || !d->ctx_9C || !d->d00275674 || !d->channel || !d->ctx_50)
         return fault(s, 0x00275670u, EM_FACE_ATTACH_FAULT_NULL);
     if (chan < 0 || (u32)chan >= d->channel_count || (u32)chan >= d->ctx_50_count)
         return fault(s, fn, EM_FACE_ATTACH_FAULT_BAD_INDEX);
     if (!map(s, face + 4u, 4)) return fault(s, 0x001D3F08u, EM_FACE_ATTACH_FAULT_BAD_INDEX);
+    u32 flag = 0;
+    if (query_2910(s, &flag) < 0) return -1;
     const EmOwnerServicesChannel *c = &d->channel[chan];
-    u32 bytes = (*d->ctx_0C & 1u) ? 0x40u : 0x50u;
+    u32 bytes = flag ? 0x40u : 0x50u;
     if (!c->cursor || !c->end || c->cursor > c->end || (size_t)(c->end - c->cursor) < bytes)
         return fault(s, fn, EM_FACE_ATTACH_FAULT_BAD_INDEX);
     return 0;
@@ -118,25 +115,26 @@ static int submit(EmFaceAttach *s, int32_t chan, u32 face)
     EmOwnerServicesChannel *c = &d->channel[chan];
 
     /* vif_append_ref_tag(chan, 0x0023C480) (0x001D3E64): REF 1 qw to
-     * *D_00275674; context +0x50 + 4 chan = the target; CALL (qwc 0) to it. */
+     * *D_00275674; context +0x50 + 4 chan = the target; CALL (qwc 0) to it
+     * (em_owner_draw_original's translation, the one bound owner). */
     trace(s, 0x001D2090u, (u32)chan, EM_FACE_ATTACH_KERNEL, 0, 0, 0);
-    tag(c, 0x30, 1u, *d->d00275674);
-    d->ctx_50[chan] = EM_FACE_ATTACH_KERNEL;
-    tag(c, 0x50, 0u, EM_FACE_ATTACH_KERNEL);
+    em_owner_draw_vif_append_ref_tag(d, chan, EM_FACE_ATTACH_KERNEL);
 
     /* REF 8 qw to D_00816440 + (context +0x9C) << 7 (0x001D3E80..0x001D3EBC). */
-    tag(c, 0x30, 8u, EM_FACE_ATTACH_SKIN_RECORD + (*d->ctx_9C << 7));
+    em_owner_draw_tag(c, 0x30, 8u, EM_FACE_ATTACH_SKIN_RECORD + (*d->ctx_9C << 7));
 
-    /* 001D2910(0) (0x001D3EB8): 0 < 0x20, so 001D2710(0) = context +0x0C &
-     * 1; while it is 0, REF 2 qw to D_002514B0. */
+    /* 001D2910(0) (0x001D3EB8): while it returns 0, REF 2 qw to
+     * D_002514B0. */
     trace(s, 0x001D2910u, 0, 0, 0, 0, 0);
-    if ((*d->ctx_0C & 1u) == 0) tag(c, 0x30, 2u, EM_FACE_ATTACH_D_002514B0);
+    u32 flag = 0;
+    if (query_2910(s, &flag) < 0) return -1;
+    if (flag == 0) em_owner_draw_tag(c, 0x30, 2u, EM_FACE_ATTACH_D_002514B0);
 
     /* REF (the halfword store of face +0x04) qw to face + 0x40
      * (0x001D3F04..0x001D3F34). +0x04 is read here, after the tags above,
      * as the original does; submit_ready checked it is mapped. */
     const u32 w04 = rd32(map(s, face + 4u, 4));
-    tag(c, 0x30, w04 & 0xFFFFu, face + 0x40u);
+    em_owner_draw_tag(c, 0x30, w04 & 0xFFFFu, face + 0x40u);
     return 0;
 }
 
@@ -297,12 +295,14 @@ int em_face_attach_001CB3C0(EmFaceAttach *s, uint32_t owner)
     if (!pm) return fault(s, 0x001CB460u, EM_FACE_ATTACH_FAULT_BAD_INDEX);
     const u32 face_at_entry = rd32(pm);
     const EmOwnerDrawWorld *d = w->draw;
-    if (!d->ctx_0C || !d->ctx_9C || !d->d00275674 || !d->ctx_50) return fault(s, 0x00275670u, EM_FACE_ATTACH_FAULT_NULL);
+    if (!d->ctx_9C || !d->d00275674 || !d->ctx_50) return fault(s, 0x00275670u, EM_FACE_ATTACH_FAULT_NULL);
     if (d->channel_count < 1 || d->ctx_50_count < 1 || r->world.channel_count < 1)
         return fault(s, 0x001CB3C0u, EM_FACE_ATTACH_FAULT_BAD_INDEX);
     if (!map(s, face_at_entry + 4u, 4)) return fault(s, 0x001D3F08u, EM_FACE_ATTACH_FAULT_BAD_INDEX);
+    u32 flag = 0;
+    if (query_2910(s, &flag) < 0) return -1;     /* sizes the unit (see submit_ready) */
     const EmOwnerServicesChannel *c = &d->channel[0];
-    const u32 bytes = (*d->ctx_0C & 1u) ? EM_FACE_ATTACH_UNIT_BYTES : EM_FACE_ATTACH_UNIT_BYTES_REF2;
+    const u32 bytes = flag ? EM_FACE_ATTACH_UNIT_BYTES : EM_FACE_ATTACH_UNIT_BYTES_REF2;
     if (!c->cursor || !c->end || c->cursor > c->end || (size_t)(c->end - c->cursor) < bytes)
         return fault(s, 0x001CB3C0u, EM_FACE_ATTACH_FAULT_BAD_INDEX);
 

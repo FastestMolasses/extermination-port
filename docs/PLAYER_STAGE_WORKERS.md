@@ -81,7 +81,7 @@ Callees (`host.callees`):
 |---|---|
 | `sound` | the live 001FBD50: `em_sfx_play_at(id, record +B0, radius)` |
 | `sound_stop` | `em_sfx_stop_track(track, hard)` (em_sfx.c: T_STOP, or T_HALT for 0x8000) |
-| `w001D0C70` | the AREA11 interaction host's face tick (`em_area11_interaction_host_face_tick_001D0C70`: `em_player_face_host_tick_before_body` on the attached face; a fault without it) |
+| `w001D0C70` | the AREA11 interaction host's face tick (`em_area11_interaction_host_face_tick_001D0C70`: `em_face_slot_001D0C70`, 001D0720 on the slot at the player's +0x90; a fault while +0x90 is 0) |
 | `bone_init`, `clip_init` | 001C63E0 / 001C67E0 on the record pose (`em_pose_host_stage_bone_init` / `_clip_init`) |
 | `cue` (001B61C0) | fail-stop (untranslated; 0015D000 at health <= 35, 0021C440's 0x3C path) |
 | `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |

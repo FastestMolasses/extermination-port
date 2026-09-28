@@ -4,6 +4,8 @@
 #include "game/em_door_candidate.h"
 #include "game/em_render_context_live.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_area11_boxes.h"
+#include "game/em_area_script.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_camera_rotation.h"
@@ -49,7 +51,6 @@ static struct {
     EmInteractionRuntime shared;
     EmPanelRuntime panel;
     EmElevatorRuntime elevator;
-    EmPlayerFaceHost face;
     EmStatusRuntime *status;
     /* The hub's static actor pool D_0028B020 and its models (WP-5). */
     EmStatusModels *models;
@@ -160,13 +161,9 @@ static int map_special(void *context, uint32_t address, uint32_t size, const uin
 static int cinematic_player(void *context, float *palette)
 {
     (void)context;
-    if (!world.face.attached) {
-        fprintf(stderr, "AREA11 interaction: player-ready 2 without the attached face\n");
-        return -1;
-    }
-    /*83090 advances the attached face before choosing a body request. A
-     * prepared mesh alone is not an attached original face allocation. */
-    if (!em_player_face_host_tick_before_body(&world.face)) return -1;
+    /* 00183090 advances the attached face (001D0C70 on the record's +0x90
+     * slot) before choosing a body request. */
+    if (em_area11_interaction_host_face_tick_001D0C70() < 0) return -1;
     if (world.shared.animation.active) {
         int result = em_interaction_animation_tick(&world.shared.animation, &g.model, palette);
         if (result < 0 || !player_pose_script_tick(&world.shared.animation, result, palette)) return -1;
@@ -198,15 +195,15 @@ static int frame_event(void *context, EmInteractionFrameEvent event)
         em_frame_fade_start(-1, 4);
         return 1;
     case EM_INTERACTION_RELEASE_SKELETON:
-        /* 001CA770(player) pushes the face slot at +0x90 back onto the
-         * 001AF710 stack (001AF890) and writes +0x90 = 0, +0x94 = -1. The
-         * port's player face is the face host's own state, not a pool slot:
-         * 001CA700 / 001CA770 on the record's +0x90 wait for the attachment
-         * draw 001CB3C0, which a nonzero +0x90 reaches (em_owner_draw_live
-         * faults on it). Until then this is the face host's detach. */
-        if (!world.face.attached || world.face.failed) return 0;
-        em_player_face_host_detach(&world.face);
-        return 1; /* The original frame core writes player_ready1 next. */
+        /* 001CA770(player): the face slot at +0x90 goes back onto the
+         * 001AF710 stack (001AF890), +0x90 = 0, +0x94 = -1 (em_face_slot).
+         * The original frame core writes player_ready 1 next. */
+        {
+            EmFaceSlot slot;
+            if (em_area11_interaction_host_player_face(&slot) < 0 || em_face_slot_001CA770(&slot) < 0)
+                return 0;
+        }
+        return 1;
     case EM_INTERACTION_RESUME_MUSIC:
         /* 001B82D0 op 4 / 6's 001FAE70(0) on an aborted cinematic: the
          * stream lanes (em_stream_live, WP-8b). */
@@ -851,13 +848,36 @@ int em_area11_interaction_host_claim_script(const void *owner)
     return 1;
 }
 
-/* 00183090's 001D0C70 on the player stage (0x70003B8F == 2): the attached
- * face's tick before the body (em_player_face_host). */
+/* The player's face slot views (em_face_slot): the live record D_008102B0,
+ * the one 001AF710 stack and arena (em_area11_boxes), the shared 00122BB8. */
+int em_area11_interaction_host_player_face(EmFaceSlot *out)
+{
+    static EmRogerActor actor;
+    EmPlayerLiveActor *p = player_states_actor_mut();
+    const EmRogerActorWorld *w = em_area11_boxes_slot_world();
+    if (!out || !p || !w || !w->slots) return fail("the player's face slot views (record, 001AF710 arena)");
+    if (actor.fault.code) return fail("the player's face slot has faulted");
+    memset(&actor.world, 0, sizeof actor.world);
+    actor.world.d00275BCC = w->d00275BCC;
+    actor.world.d00275BD0 = w->d00275BD0;
+    actor.world.slot_stack = w->slot_stack;
+    actor.world.slot_stack_base = w->slot_stack_base;
+    actor.world.slot_stack_words = w->slot_stack_words;
+    actor.world.slots = w->slots;
+    actor.world.slots_base = w->slots_base;
+    actor.world.slots_size = w->slots_size;
+    *out = (EmFaceSlot){p->bytes, EM_AREA_SCRIPT_D_008102B0, &actor, face_random, NULL};
+    return 0;
+}
+
+/* 00183090's 001D0C70 on the player stage (0x70003B8F == 2): 001D0720 on
+ * the face slot at the record's +0x90 before the body. */
 int em_area11_interaction_host_face_tick_001D0C70(void)
 {
     if (!world.loaded || world.failed) return -1;
-    if (!world.face.attached) return fail("001D0C70 under 0x70003B8F == 2 without the attached face");
-    return em_player_face_host_tick_before_body(&world.face) ? 0 : fail("001D0C70 (the face tick)");
+    EmFaceSlot slot;
+    if (em_area11_interaction_host_player_face(&slot) < 0) return -1;
+    return em_face_slot_001D0C70(&slot) < 0 ? fail("001D0C70 (the face slot at the player's +0x90)") : 0;
 }
 
 /* The player stage's 00182DF0 released a script owner's player: its token
@@ -1309,9 +1329,7 @@ int em_area11_interaction_host_load(const char *directory,
     if (!em_interaction_runtime_init(&world.shared, &world.frame, &g.model,
                                       world.local_palette, &shared) ||
         !em_interaction_runtime_set_pose_worker(&world.shared, pose) ||
-        !em_interaction_runtime_set_cinematic_player_worker(&world.shared, cinematic_player) ||
-        !em_player_face_host_load(&world.face, em_frame_gfx(), &g.model, directory,
-                                  face_random, NULL)) goto failed;
+        !em_interaction_runtime_set_cinematic_player_worker(&world.shared, cinematic_player)) goto failed;
     EmPanelRuntimeHooks panel = {NULL, align_panel, message_start, message_done,
                                   battery_open, sound, power, stop_indicator};
     snprintf(path, sizeof path, "%s/panel/scripts.emsc", directory);
@@ -1393,7 +1411,6 @@ void em_area11_interaction_host_clear(void)
     em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
     em_pickup_original_unbind_all();
-    em_player_face_host_free(&world.face);
     em_status_runtime_free(world.status);
     em_status_models_free(world.models, em_frame_gfx());
     em_panel_runtime_free(&world.panel);
@@ -1410,51 +1427,18 @@ const EmStatusModels *em_area11_interaction_host_status_models(void)
 { return world.loaded ? world.models : NULL; }
 int em_area11_interaction_host_failed(void) { return world.failed; }
 
-int em_area11_interaction_host_face_attach(void)
-{
-    if (!world.loaded || world.failed) return 0;
-    view_load();
-    if (!world.shared.owner || (world.frame.player_ready != 1 && world.frame.player_ready != 2) ||
-        !em_player_face_host_attach(&world.face)) {
-        fail("face attachment");
-        return 0;
-    }
-    world.frame.player_ready = 2;
-    view_store();
-    return 1;
-}
-
+/* 001FD950's 001D06E0(player, talking) (slot-0 talk in game mode 2) on the
+ * face slot at the record's +0x90 (em_face_slot). 1, or 0 (latched). */
 int em_area11_interaction_host_face_talk(uint8_t talking)
 {
     if (!world.loaded || world.failed) return 0;
-    view_load();
-    if (!world.shared.owner || world.frame.player_ready != 2 ||
-        !em_player_face_host_talk(&world.face, talking)) {
-        fail("direct face talk event");
+    EmFaceSlot slot;
+    if (em_area11_interaction_host_player_face(&slot) < 0) return 0;
+    if (em_face_slot_001D06E0(&slot, talking) < 0) {
+        fail("001D06E0 (the face slot at the player's +0x90)");
         return 0;
     }
     return 1;
-}
-
-int em_area11_interaction_host_player_record(EmGfxMesh **mesh, const float **palette,
-                                            uint32_t *bones, const EmModel **model)
-{
-    if (!world.loaded || world.failed || !mesh || !palette || !bones || !model) return -1;
-    view_load();
-    int result = em_player_face_host_record(&world.face, mesh, model);
-    if (result < 0 || (world.frame.player_ready == 2) != (result == 1))
-        return fail("alternate player draw");
-    if (!result) return 0;
-    if (!player_pose_owned() || !player_pose_source(NULL, NULL, NULL, NULL))
-        return fail("alternate player palette");
-    *palette = g.player_palette;
-    *bones = g.model.bone_count;
-    return 1;
-}
-
-const EmOpeningFace *em_area11_interaction_host_face_state(void)
-{
-    return world.loaded && !world.failed ? em_player_face_host_state(&world.face) : NULL;
 }
 
 int em_area11_interaction_host_player(void *unused)

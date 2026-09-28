@@ -52,8 +52,8 @@ static int unbound(const char *callee)
     return -1;
 }
 
-/* 001D0C70 (00183090 under 0x70003B8F == 2): the attached face's tick on
- * the AREA11 interaction host (em_player_face_host). */
+/* 001D0C70 (00183090 under 0x70003B8F == 2): 001D0720 on the face slot
+ * at the player's +0x90 (the AREA11 interaction host's em_face_slot). */
 static int w_001D0C70(void *c)
 {
     (void)c;

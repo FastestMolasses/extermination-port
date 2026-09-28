@@ -137,7 +137,7 @@ follow the values:
 
 | Window | Original | Port |
 |---|---|---|
-| 10 | faces 172 in the pool walk and 13 after the barrel; head sprites 6; steps 2; weather 1 | faces 144 in the pool walk (Roger's owner) and 16 after the barrel (the player's face host in the scripted frames); head sprites 7; steps 2 |
+| 10 | faces 172 in the pool walk and 13 after the barrel; head sprites 6; steps 2; weather 1 | faces 144 in the pool walk (Roger's owner) and 16 after the barrel (the player's face slot in the scripted frames); head sprites 7; steps 2 |
 | 01 | head sprites 2; faces 1 | head sprites 1; faces 2 |
 
 The status background 0020A7A0 draws once in the port's run, at its 381st status-like

@@ -1300,12 +1300,16 @@ log's `owner_units` carries, per 001CAA00 call of the last drawn frame (the
 crates, drums, truck and fence door, the terminal, the panel, the prop
 001C4820, the items 00219550 / 0015AFA0, the canopy 00823E80, since census
 L24 the security gun 00825940, its cable 00827490 and the fan pair
-00827630, the seven player equipment nodes and the player on
+00827630, since chain C8b's FACE step Roger 008237E0 and his equipment
+node 001C5C90, the seven player equipment nodes and the player on
 em_owner_draw_live), the owner's record address, the unit's
 byte count (0: culled), the clip pass, digests of the colour matrix B, the
 lighting rows, the position rows, the point-light slots and the lighting
 rows' lanes y and z, the point 001CAA00 culled and lit the owner at (three
-float bit patterns) and a digest of its nodes' +0x90 matrices. For every
+float bit patterns), a digest of its nodes' +0x90 matrices, and 001CB3C0's
+face unit (its bytes and digest; the unit bytes above are the owner's
+unit alone). Roger calls his +0x4C only with his +0x01 set, his equipment
+only once Roger holds his nodes and has +0x01 set. For every
 such owner the ORIGINAL 001CAA00 runs over the snapshot (the owner-draw
 oracle; the player after the walk, as 0015C160 calls its +0x4C; an item
 only where the snapshot's +0x01 is set: the items call their +0x4C only
@@ -1340,6 +1344,13 @@ Then:
   fails the smoke;
 - a run with a camera-exact snapshot must have compared the player and all
   seven equipment nodes in full (with a unit) in at least one of them;
+- Roger and his equipment (since chain C8b's FACE step) are movers too:
+  their clip phase follows the time since the area load, so they are
+  compared in full only where the port's point AND pose equal the
+  snapshot's, and counted otherwise, also in the camera-exact snapshots;
+  wherever both ran 001CAA00, 001CB3C0's face unit has the original's length
+  (full route, 2026-09-28: every aligned snapshot 08, 10..14; Roger's two
+  owners at the snapshot's pose in 14, so compared in full there);
 - the fan pair (since census L24): its +0xC8 follows its spin cycle, whose
   phase at a snapshot follows the recording's timing (check_gun_fan), so
   where the port's +0xC8 at the aligned tick differs from the snapshot's,
@@ -1470,12 +1481,52 @@ and outputs in hex. It checks:
   snapshot's (and the kind for route 1); every route capture's mode-1
   blend block holds the writes the decal renderer implements.
 
+Roger's shadow (since chain C8b's FACE step; check_actor, SHADOW_ORIGINAL.md
+"Roger"): the tick log's `shadow_actor` carries his 001BA580 -> 001DA6A0
+call of the walk (the result, kind, receivers, whether the walk flush drew
+it, cumulative calls and draws) and, on sampled calls (the first, then every
+100th, at most 40), its inputs. Every call is kind 0x29 and every drawn call
+is flushed; on sampled calls (quick: four; full: all) the ORIGINAL 001CB590 +
+001DA6A0 over route 14's RAM with his record, its 21 node records and the
+views patched in writes the port's plan (as for the player's) and REFs the
+kind-0x29 proxy; at the aligned snapshots of routes 13 and 14 the port's
+call draws, as the captures' do.
+
 Measured (the run through the fence door, `EM_LEVEL_SMOKE_UNTIL=fence_door_side1`): 3,194 001DA6A0 calls, all
 drawn and flushed; 640 0015BF90 calls, 628 decals drawn; 1,302 reported
 post-steps (the opening); samples 4 of 32 and 3 of 32 re-executed. Full
 route: 10,631 001DA6A0 calls (9,364 drawn), 640 0015BF90 calls; all 40 and
 32 samples re-executed, all equal. Mutations of a node, the camera, the area
-byte, a packet byte and the segment answer each fail it.
+byte, a packet byte and the segment answer each fail it. Roger (full route
+to roger, 2026-09-28): 11,277 calls, 5,116 drawn and flushed; all 40 samples
+re-executed, all equal; drawn at 13 and 14.
+
+### Face attachments (`check_face`, chain C8b FACE; tools/level_smoke_face.py)
+
+Not a phase: after the phases, whenever first control was checked. The tick
+log's `owner_units` carries each 001CAA00 call's face unit (bytes, digest)
+and `face_units`, per attached call of the last drawn frame (the calls
+given the attachment's regions: Roger, and the player while a script holds
+its face slot), [record, frame, face bytes, sample]; on sampled calls (per
+record the first, then every 200th, at most 80) the sample holds the call's
+inputs (the record's bytes, the node records' +0x90 matrices, the face
+slot, D_00810610, context +0x2410..+0x244F, the view-projection 0x70003AC0,
+context +0x0C / +0x9C, the rig record D_00817BC0 and D_00275688, the area
+bytes) and every byte the call appended. It checks:
+- every attached call appended exactly one face unit (0x190 bytes, or
+  0x1A0 with the fog-off REF 2) with its digest in the owner log; Roger
+  drew one;
+- sampled calls (quick: the first, the last and two between per record;
+  `EM_TEST_FULL=1`: all): the ORIGINAL 001CAA00 (the body unit, then
+  001CB3C0 and its callees) over route 14's RAM with those inputs and the
+  tick's point-light pool patched in; every byte it writes (the bytes two
+  runs agree on over a display-list window filled with a pattern and with
+  its complement) equals the port's appended byte, the byte counts and the face unit's length are
+  equal.
+
+Measured (full route to roger, 2026-09-28): 15,328 face units over as many
+attached calls (Roger 10,812, the player 4,516); 78 samples (Roger 55, the
+player 23; bodies culled and drawn), all equal in full mode.
 
 ### The chain page (`check_chain_page`, WP-13; tools/level_smoke_chain_page.py)
 
@@ -1558,6 +1609,7 @@ never silently skipped. What removes each:
 | roger (14) | Roger's +0x1FE flags and the equipment's +0xB0 before his clip init at f358 | his idle clip's phase is the time since the area load, which the smoke's walk does not share with the capture | walk timing equal to the capture's (navigation) |
 | slide (06), cage_ladders (10) | the landing row within one row, the heading crossings within two rows | the stance the stick reaches differs from the original's by up to 0.86 | navigation only; the slide's motion after the landing is exact |
 | check_owner_units | the player's and the equipment's B, rig lanes and rows at snapshots 08, 11, 12 and 13 (compared at 10 and 14) | the player's placement at the aligned tick follows the navigation's timing (the phases compare it on their own windows) | navigation that reaches each snapshot's placement |
+| check_owner_units, check_face | Roger's and his equipment's units at snapshots 08, 10..13 (only the face unit's length; compared in full at 14), and the face units' content against the captures (the sampled re-execution over the port's own inputs proves it) | Roger's clip phase follows the time since the area load; his face weights follow the port's rand() stream | walk timing equal to the capture's (navigation); a stream at the capture's position |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_shadow | 1,302 post-steps during the opening are reported, not drawn (the player's +0x4C there is the port's mesh, not its unit) | the opening runtime owns the displayed player (design risk 2) | the opening player on the record pose |
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |

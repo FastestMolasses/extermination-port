@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """The +0x90 attachment draw (src/game/em_face_attach.c: 001CB3C0, 001D3F50,
-001D3E40, vif_append_ref_tag, 001D2910(0), and the 001D88B0 adapter over
-em_frh_001D88B0 + em_actor_light) against the ORIGINAL instructions.
+001D3E40 with em_owner_draw_original's vif_append_ref_tag / tag writer and
+em_render_context's 001D2910(0) as its worker, and the 001D88B0 adapter
+over em_frh_001D88B0 + em_actor_light) against the ORIGINAL instructions.
 docs/FACE_ATTACH.md.
 
 The user's pinned ELF and the captured AREA11 EE RAM + scratchpad images
@@ -24,9 +25,11 @@ and 001CB3C0's stack matrix), then run the original body.
 Native. em_face_attach_001CB3C0 over a copy of the same image (the EE
 reads through one region over the RAM copy; the channel, scratch, context
 and rig views point into it), with em_anim_rest_001C7900 / _001CB2C0,
-em_face_attach_w_001D88B0 -> em_frh_001D88B0 -> em_actor_light, and
-w_001D1F80 = em_load_veil_particles_001D1F80. Its trace hook snapshots the
-same storage at each callee entry.
+em_face_attach_w_001D88B0 -> em_frh_001D88B0 -> em_actor_light,
+w_001D1F80 = em_load_veil_particles_001D1F80 and w_001D2910 =
+em_render_context_001D2910 over one render-context view of the RAM copy
+(the live binding's em_rcl_001D2910 runs the same translation). Its trace
+hook snapshots the same storage at each callee entry.
 
 Compared: the callee sequence with every argument the native knows (stack
 pointers excluded), the fixed storage subset above at every callee entry
@@ -123,11 +126,25 @@ class FaceWorld(C.Structure):
 
 
 VEIL_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, I32, I32, I32)
+Q2910_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, I32, PU32)
 TRACE_FN = C.CFUNCTYPE(None, C.c_void_p, U32, PU32, PU32)
 
 
 class FaceWorkers(C.Structure):
-    _fields_ = [('ctx', C.c_void_p), ('w_001D1F80', VEIL_FN), ('trace', TRACE_FN)]
+    _fields_ = [('ctx', C.c_void_p), ('w_001D1F80', VEIL_FN), ('w_001D2910', Q2910_FN), ('trace', TRACE_FN)]
+
+
+class RcView(C.Structure):
+    _fields_ = [('address', U32), ('size', U32), ('bytes', C.c_void_p)]
+
+
+class RcWorld(C.Structure):
+    _fields_ = [('ctx', U32), ('views', C.POINTER(RcView)), ('view_count', U32)]
+
+
+# EmRenderContext: its world first; 001D2910 / 001D2710 reach no worker, so
+# a zeroed tail of ample size stands for the workers and the fault.
+RC_BYTES = 0x1000
 
 
 class Face(C.Structure):
@@ -139,7 +156,8 @@ SOURCES = ('src/game/em_face_attach.c', 'src/game/em_anim_runtime_rest.c', 'src/
            'src/game/em_player_fall.c', 'src/game/em_owner_services_original.c',
            'src/game/em_stream_lanes_original.c', 'src/game/em_sdk_math_original.c',
            'src/game/em_actor_light_001D89D0.c', 'src/game/em_owner_draw_original.c',
-           'src/game/em_frame_render_heads.c', 'src/game/em_load_veil_particles.c')
+           'src/game/em_frame_render_heads.c', 'src/game/em_load_veil_particles.c',
+           'src/game/em_render_context.c')
 
 
 def build_native():
@@ -384,6 +402,13 @@ class Native:
         self.log = []
         self.keep = [VEIL_FN(self.w_1f80), TRACE_FN(self.trace)]
         f.workers.w_001D1F80, f.workers.trace = self.keep
+        # 001D2910: em_render_context_001D2910 (the live binding's
+        # translation, em_rcl_001D2910) over one view of the RAM copy.
+        self.rc_view = RcView(0, RAM_SIZE, self.base)
+        self.rc = (U8 * RC_BYTES)()
+        RcWorld.from_buffer(self.rc).__init__(self.ctx, C.pointer(self.rc_view), 1)
+        f.workers.ctx = C.addressof(self.rc)
+        f.workers.w_001D2910 = Q2910_FN(C.cast(LIB.em_render_context_001D2910, C.c_void_p).value)
         r.workers.ctx = C.addressof(f)
         r.workers.w_001D88B0 = ARR.LIGHT_FN(C.cast(LIB.em_face_attach_w_001D88B0, C.c_void_p).value)
 
@@ -565,6 +590,7 @@ def check_fail_stop():
     def no_offset(n): n.face.world.d00250FB0 = PU32()
     def no_nodes(n): n.face.world.d00275B40 = C.POINTER(C.POINTER(OSR.Bone))()
     def no_1f80(n): n.face.workers.w_001D1F80 = VEIL_FN()
+    def no_2910(n): n.face.workers.w_001D2910 = Q2910_FN()
     def unbound_light(n): n.rest.workers.w_001D88B0 = ARR.LIGHT_FN()
     def no_arena(n): n.draw.d00275674 = PU32()
     def bone_high(n):
@@ -587,7 +613,7 @@ def check_fail_stop():
         n.channels[0].end = n.channels[0].cursor + 0x19F
     def latched(n): n.face.fault.code, n.face.fault.address = 1, 0x1234
 
-    for m in (no_anim, no_draw, other_channel, no_light, no_rig, no_view, no_offset, no_nodes, no_1f80,
+    for m in (no_anim, no_draw, other_channel, no_light, no_rig, no_view, no_offset, no_nodes, no_1f80, no_2910,
               unbound_light, no_arena, bone_high, bone_negative, bone_null, unmapped_owner, unmapped_slot,
               unmapped_face, short_room, short_room_ref2, latched):
         attempt(m)

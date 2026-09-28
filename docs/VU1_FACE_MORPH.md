@@ -257,16 +257,18 @@ vertices and 11,776 synthetic ones.
 ## 6. How P1 uses it (built: em_object_unit_run)
 
 The renderer should draw exactly what this header kicks.
-`em_opening_face_position` and the combined body+face asset path
-(`em_face_model.c`) are not the original. Their morphed positions differ by
-1 to 3 ulp on 13% of the captured vertices, and they do not reproduce the
-guard-band drop.
+`em_opening_face_position` and the combined body+face asset path of the
+opening's actors (em_opening_actor) are not the original. Their morphed
+positions differ by 1 to 3 ulp on 13% of the captured vertices, and they do
+not reproduce the guard-band drop. Since chain C8b's FACE step Roger's and
+the player's faces outside the opening are 001CB3C0's face units through
+this program (FACE_ATTACH.md); em_face_model.c is retired.
 
 `em_opening_face_position` and `em_vu1_face_morph_position` translate the
 same original instructions (micro 0x019..0x020), so the port holds two
-translations of one original. Outside this lane: make
-`em_opening_face_position` delegate to `em_vu1_face_morph_position` on bit
-patterns, or retire it when the face path is bound. The `morph_oracle` in
+translations of one original. `em_opening_face_position` is left only in
+em_opening_actor (the opening's actors, design risk 2); it retires with the
+chain's OPENING step. The `morph_oracle` in
 `tools/test_opening_face_reference.py` calls itself the original VU blend
 but rounds to nearest; under the retirement rule for tests that encode
 non-original behaviour it should be retired or pointed at this header.
@@ -288,9 +290,9 @@ non-original behaviour it should be retired or pointed at this header.
 3. The carried registers never reach a drawn GS field, so a fresh state per
    unit draws the same pixels.
 4. No clip pass follows a face (section 2), so nothing else is needed.
-   Roger's face is fully drawable once the unit's uploads come from their
-   original builders (001C7900, 001CB2C0, 001D3E40 and the face-state
-   updater, docs/PLAYER_FACE_HOST.md / OPENING_ACTORS.md).
+   The unit's uploads come from their original builders (001C7900,
+   001CB2C0, 001D3E40 through 001CB3C0, FACE_ATTACH.md) and the face-state
+   updater 001D0720 (em_opening_face_tick_slot).
 
 ## 7. Limits
 

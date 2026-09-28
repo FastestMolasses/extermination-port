@@ -53,7 +53,10 @@ extern "C" {
 #endif
 
 #define EM_SHADOW_LIVE_RECEIVERS_PATH "assets/scene_snow/shadow_receivers.emsr"
-#define EM_SHADOW_LIVE_PROXY_PATH "assets/player_shadow.emdl"
+#define EM_SHADOW_LIVE_PROXY_PATH "assets/player_shadow.emdl"      /* D_0028A490[0x28] */
+#define EM_SHADOW_LIVE_PROXY_29_PATH "assets/roger_shadow.emdl"    /* D_0028A490[0x29] */
+#define EM_SHADOW_LIVE_KIND_ROGER 0x29       /* Roger's +0x96 (001BA8E0 for model 0x47) */
+#define EM_SHADOW_LIVE_PLAYER 0x008102B0u
 
 /* Load the assets (once per session) and check the views; reset the
  * per-frame record.
@@ -69,10 +72,21 @@ uint32_t em_shadow_live_fault(void);
  * 2: 0015BF90). `player` is the live record at D_008102B0. 0, or -1. */
 int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route);
 
+/* 001BA580's 001DA6A0(actor) in the owner walk (Roger, kind 0x29): the
+ * same translation over the actor's record bytes (`size` of them, at its
+ * original address `record`) and its 21 node records (0xD0 bytes each, the
+ * +0x110 words'), the same scene views and D_00817FF0. Its passes are drawn
+ * by em_shadow_live_flush_walk. 0, or -1 (latched). */
+int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_t size,
+                                  const uint8_t *const nodes[], uint32_t node_count);
+
 /* The frame's 001DA6A0 passes (alpha clear, the two boxes, the
  * silhouette, the receivers), recorded this frame, on `gfx` with the
- * frame's native P*V `viewproj` (the level's). Nothing recorded this frame:
+ * frame's native P*V `viewproj` (the level's): em_shadow_live_flush_walk
+ * the owner walk's calls (after the walk's owner units), em_shadow_live_flush
+ * the post-step's (before the player's +0x4C). Nothing recorded this frame:
  * 0. 0, or -1 (latched). */
+int em_shadow_live_flush_walk(EmGfx *gfx, const float viewproj[16]);
 int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
 /* The chain page drew `decal_triangles` fan triangles with the decal's
  * TEX0 this frame (em_chain_page_live): they must be exactly this frame's
@@ -103,6 +117,7 @@ void em_shadow_live_log(EmShadowLiveLog *out);
 typedef struct {
     uint32_t frame;
     int32_t route;
+    uint32_t record, record_size;     /* the actor's address and the bytes of `player` it fills */
     uint8_t player[EM_PLAYER_ACTOR_SIZE];
     uint8_t nodes[21 * 0xD0];
     uint32_t clip_2240[16], proj_2340[16], view_2380[16], camera_3AC0[16], view_810610[16];
@@ -123,6 +138,19 @@ typedef struct {
 } EmShadowLiveSample;
 /* The last call's sample, or NULL before the first call. */
 const EmShadowLiveSample *em_shadow_live_sample(void);
+
+/* The last owner-walk call (em_shadow_live_actor_001DA6A0): its frame,
+ * record, the 001DA6A0 result, kind, receivers (class 2), whether the walk
+ * flush drew it, and the cumulative calls and draws; its sample (the record
+ * bytes in `player`), or NULL before the first call. */
+typedef struct {
+    uint32_t frame, record;
+    int32_t drawn, kind;
+    uint32_t receivers, receivers_cls2, flushed;
+    uint32_t calls, drawn_total;
+} EmShadowLiveActorLog;
+void em_shadow_live_actor_log(EmShadowLiveActorLog *out);
+const EmShadowLiveSample *em_shadow_live_actor_sample(void);
 
 #ifdef __cplusplus
 }

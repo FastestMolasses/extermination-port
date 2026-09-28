@@ -718,7 +718,7 @@ void scene_unload(EmGfx *gfx)
     em_enemy_shutdown(gfx);
     em_enemy_reset();
     em_area11_boxes_shutdown(); /* the boxes' kept object units (OWNER_DRAW.md) */
-    em_area11_roger_shutdown(gfx); /* Roger's and the equipment's meshes (census L22) */
+    em_area11_roger_shutdown(gfx); /* Roger's and the equipment's model bank (census L22) */
     em_area11_door_shutdown();     /* the fence door's resources (census L18) */
     em_pickup_scene_clear(gfx); /* instances only — the inventory and
                                  * the taken-bit set survive (engine

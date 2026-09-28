@@ -8,6 +8,8 @@
 #include "game/em_module_loader.h"
 #include "game/em_task.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area11_boxes.h"
+#include "game/em_face_slot.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
@@ -48,6 +50,9 @@ EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }
 static EmPlayerLiveActor player_record;
 static int32_t carry31F0;
 static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return &player_record; }
+/* The live record D_008102B0 (em_player.c in the game): the face slot's
+ * +0x90 / +0x94 (em_area11_interaction_host_player_face). */
+EmPlayerLiveActor *player_states_actor_mut(void) { return &player_record; }
 static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
 static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
 static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
@@ -58,9 +63,39 @@ const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static unsigned background_steps, background_frames;
 static int sfx_selected, sfx_bank_available = 1;
-static unsigned face_updates;
-static int fail_face_update;
-static float face_update_body_remaining;
+/* The one 001AF710 stack and slot arena (em_area11_boxes' in the game): a
+ * small stand-in built as 001AF710 builds it (each slot's address on the
+ * stack, the cursor at its base, the count the slot total). */
+enum { SLOTS = 64 };
+static uint8_t slot_records[SLOTS * EM_ROGER_ACTOR_SLOT_BYTES];
+static uint32_t slot_stack[SLOTS];
+static int16_t slot_count;
+static uint32_t slot_cursor;
+static EmRogerActorWorld slot_world;
+#define SLOT_RECORDS 0x007D5840u
+#define SLOT_STACK 0x007D4640u
+static void slots_reset(int16_t free_slots)
+{
+    memset(slot_records, 0, sizeof slot_records);
+    for (unsigned i = 0; i < SLOTS; ++i) slot_stack[i] = SLOT_RECORDS + EM_ROGER_ACTOR_SLOT_BYTES * i;
+    slot_count = free_slots;
+    slot_cursor = SLOT_STACK;
+    memset(&slot_world, 0, sizeof slot_world);
+    slot_world.d00275BCC = &slot_count;
+    slot_world.d00275BD0 = &slot_cursor;
+    slot_world.slot_stack = slot_stack;
+    slot_world.slot_stack_base = SLOT_STACK;
+    slot_world.slot_stack_words = SLOTS;
+    slot_world.slots = slot_records;
+    slot_world.slots_base = SLOT_RECORDS;
+    slot_world.slots_size = sizeof slot_records;
+}
+const EmRogerActorWorld *em_area11_boxes_slot_world(void) { return &slot_world; }
+static uint8_t *slot_at(uint32_t address)
+{
+    assert(address >= SLOT_RECORDS && address < SLOT_RECORDS + sizeof slot_records);
+    return slot_records + (address - SLOT_RECORDS);
+}
 static float panel_target[3], panel_yaw;
 
 int em_gfx_overlay_texture_set(EmGfx *g, int slot, const uint8_t *p, uint32_t w, uint32_t h)
@@ -247,16 +282,6 @@ int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t siz
     return -1;
 }
 void em_gfx_fog_off(EmGfx *gfx) { assert(gfx); }
-int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh, const float *positions,
-                                  uint32_t count)
-{
-    assert(gfx && mesh && positions && count > g.model.vert_count);
-    for (uint32_t i = 0; i < count * 3; ++i) assert(isfinite(positions[i]));
-    unsigned clip, flags; int transition;
-    assert(player_pose_source(&clip, &face_update_body_remaining, &flags, &transition));
-    ++face_updates;
-    return !fail_face_update;
-}
 
 /* The ordinary host's existing placement boundary; raw channel state never
  * comes from this displayed palette. */
@@ -1131,13 +1156,26 @@ static void missing_sound_bank(void)
     puts("AREA11 native host missing sound bank and reload PASS");
 }
 
-static void cinematic_face(int reject_update)
+static uint32_t rd32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* The script's face on the player (001B81D0: 001CA700(player,
+ * D_0028A490[0x18], 7), 001D06D0(player, 1), 0x70003B8F = 2) through the
+ * interaction host's face slot (em_face_slot over the record and the one
+ * stack), 001FD950's 001D06E0 talk, 00183090's 001D0C70 before the body, the
+ * status pause and 001B82D0 sub 4's 001CA770. With no_slot, the stack holds
+ * fewer than 31 free slots: 001CA700 returns 0 and stores +0x90 = 0 (the
+ * original's refusal; 001B81D0 then skips 001D06D0 and 0x70003B8F). */
+static void cinematic_face(int no_slot)
 {
     /* Keep the battery actually acquired by first_battery. The status pause
      * below reuses the original pickup request, which the pickup program
      * issues only after 1C40B0 has added the item; an empty inventory is not
      * a reachable request state and the real battery page rejects it. */
     setup(0);
+    slots_reset(no_slot ? 30 : SLOTS);
     assert(em_pickup_item_count(0x1B) == 1 && em_pickup_battery_charge() == 12);
     EmInteractionRuntime *shared = em_area11_interaction_host_shared();
     static const unsigned owner_token = 0x8283D0;
@@ -1147,52 +1185,46 @@ static void cinematic_face(int reject_update)
     assert(!outer(0) && player_pose_owned() && shared->frame->player_ready == 1);
     unsigned clip, flags; float remaining; int transition;
     assert(player_pose_source(&clip, &remaining, &flags, &transition));
-    float ordinary[22 * 16]; memcpy(ordinary, g.player_palette, sizeof ordinary);
-    unsigned previous_updates = face_updates;
-    assert(em_area11_interaction_host_face_attach());
-    assert(face_updates == previous_updates + 1 && shared->frame->player_ready == 2);
-    assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
-    EmGfxMesh *mesh; const float *palette; uint32_t bones; const EmModel *model;
-    assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 1);
-    assert(mesh && palette == g.player_palette && bones == 22 && model != &g.model);
-    assert(!model->palette && model->vert_count > g.model.vert_count);
-    *em_scene_req_at(em_scene_state(), 0x008106D4u) = 0xA5; /* the mailbox D_008106D4 */
-    assert(em_area11_interaction_host_face_talk(1));
-    assert(em_area11_interaction_host_face_state()->talking == 1);
-    assert(!outer(0)); /* 83090 ticks the attached face before the body. */
-    assert(face_update_body_remaining == remaining && !player_pose_special_active());
-    assert(shared->frame->activity[0] == 0xA5);
-    assert(player_pose_source(&clip, &remaining, &flags, &transition));
-    memcpy(ordinary, g.player_palette, sizeof ordinary);
-    unsigned before = face_updates;
-    fail_face_update = reject_update;
-    if (reject_update) {
-        assert(em_area11_interaction_host_player(NULL) == -1);
-        assert(shared->owner == &owner_token && player_pose_owned() && shared->failed);
-        assert(em_area11_interaction_host_failed() && shared->frame->player_ready == 2);
-        assert(!memcmp(ordinary, g.player_palette, sizeof ordinary));
-        float unchanged;
-        assert(player_pose_source(&clip, &unchanged, &flags, &transition) && unchanged == remaining);
-        assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == -1);
-        fail_face_update = 0;
+    uint8_t *record = player_states_actor_mut()->bytes;
+    EmFaceSlot face;
+    assert(em_area11_interaction_host_player_face(&face) == 0);
+    int32_t result = -1;
+    assert(em_face_slot_001CA700(&face, 0x011749C0u, 7, &result) == 0);
+    if (no_slot) {
+        assert(result == 0 && rd32(record + 0x90) == 0 && slot_count == 30 && slot_cursor == SLOT_STACK);
+        assert(em_area11_interaction_host_face_tick_001D0C70() == -1 && em_area11_interaction_host_failed());
         teardown();
-        puts("AREA11 native host retained face failure before the body PASS");
+        puts("AREA11 native host face slot: 001CA700 without a free slot stores 0; 001D0C70 then faults PASS");
         return;
     }
+    assert(result == 1 && em_face_slot_001D06D0(&face, 1) == 0);
+    em_scene_state()->spad3B8F = 2;              /* 001B81D0 after both */
+    const uint32_t slot_address = rd32(record + 0x90);
+    uint8_t *slot = slot_at(slot_address);
+    assert(slot_address == SLOT_RECORDS && slot_count == SLOTS - 1 && slot_cursor == SLOT_STACK + 4);
+    assert((int16_t)(record[0x94] | record[0x95] << 8) == 7 && rd32(slot + 0x60) == 0x011749C0u);
+    assert(slot[0x81] == 1 && slot[0x80] == 0);
+    *em_scene_req_at(em_scene_state(), 0x008106D4u) = 0xA5; /* the mailbox D_008106D4 */
+    assert(em_area11_interaction_host_face_talk(1));
+    assert(slot[0x80] == 1);
+    assert(!outer(0)); /* 00183090 ticks the attached face (001D0C70) before the body. */
+    assert(rd32(slot + 0x70) == 1 && !player_pose_special_active()); /* 001D0720's first blink state */
+    assert(shared->frame->activity[0] == 0xA5);
+    assert(player_pose_source(&clip, &remaining, &flags, &transition));
+    uint8_t before[EM_ROGER_ACTOR_SLOT_BYTES];
+    memcpy(before, slot, sizeof before);
     assert(!outer(0));
-    assert(face_updates == before + 1 && face_update_body_remaining == remaining);
+    assert(memcmp(before, slot, sizeof before) != 0); /* one more 001D0720 step */
     assert(player_pose_source(&clip, &remaining, &flags, &transition) && !player_pose_special_active());
     assert(em_area11_interaction_host_face_talk(0));
-    assert(!em_area11_interaction_host_face_state()->talking && shared->frame->activity[0] == 0xA5);
+    assert(slot[0x80] == 0 && shared->frame->activity[0] == 0xA5);
 
-    /* Original status consumes the frame: neither face nor body
-     * advances, even if their host service is accidentally queried. */
-    EmOpeningFace paused = *em_area11_interaction_host_face_state();
+    /* Original status consumes the frame: neither face nor body advances. */
     assert(em_status_runtime_pickup_request(em_area11_interaction_host_status(), 1, 0x1B));
     assert(outer(0) == 1);
-    before = face_updates;
+    memcpy(before, slot, sizeof before);
     assert(em_area11_interaction_host_player(NULL) == 0);
-    assert(face_updates == before && !memcmp(&paused, em_area11_interaction_host_face_state(), sizeof paused));
+    assert(!memcmp(before, slot, sizeof before));
     /* Clear this standalone controlled status request via the real page. */
     for (unsigned i = 1; i < 16; ++i) assert(outer(0) == 1); /* 0x21: 10 loader dispatches */
     assert(outer(0x40) == 1);
@@ -1200,17 +1232,19 @@ static void cinematic_face(int reject_update)
     while (em_status_runtime_frame(em_area11_interaction_host_status())->phase != 1)
         assert(outer(0) == 1);
 
-    EmScript script = {0}; unsigned char record[32] = {0};
-    record[0] = 7; record[8] = 4;
-    assert(em_interaction_runtime_frame(shared, &owner_token, &script, record) == EM_SCRIPT_ADVANCE);
+    /* 001B82D0 sub 4 with 0x70003B8F == 2: 001CA770(player) (the slot
+     * cleared and pushed back, +0x90 = 0, +0x94 = -1), then player_ready 1. */
+    EmScript script = {0}; unsigned char frame4[32] = {0};
+    frame4[0] = 7; frame4[8] = 4;
+    assert(em_interaction_runtime_frame(shared, &owner_token, &script, frame4) == EM_SCRIPT_ADVANCE);
     em_area11_interaction_host_camera_fields();
     assert(shared->frame->player_ready == 1 && !shared->frame->selector);
     assert(shared->owner == &owner_token && player_pose_owned() && !player_pose_special_active());
-    assert(!em_area11_interaction_host_face_state());
-    assert(em_area11_interaction_host_player_record(&mesh, &palette, &bones, &model) == 0);
-    before = face_updates;
+    assert(rd32(record + 0x90) == 0 && (int16_t)(record[0x94] | record[0x95] << 8) == -1);
+    assert(slot_count == SLOTS && slot_cursor == SLOT_STACK && slot_stack[0] == slot_address);
+    for (unsigned i = 0; i < EM_ROGER_ACTOR_SLOT_BYTES; ++i) assert(slot[i] == 0);
     assert(!outer(0)); /* One final body tick, then the release. */
-    assert(face_updates == before && !shared->owner && !player_pose_owned());
+    assert(!shared->owner && !player_pose_owned());
     assert(!player_pose_special_active() && shared->frame->player_ready == 0);
     assert(player_pose_source(&clip, &remaining, &flags, &transition));
     /* No special bank was ever on the record (+0x2F3 0): 00182DF0's zero
@@ -1219,7 +1253,7 @@ static void cinematic_face(int reject_update)
      * row by the level smoke's roger phase). */
     assert(clip == 0 && remaining > 0 && remaining < 80);
     teardown();
-    puts("AREA11 native host face/status pause/frame4/default idle PASS");
+    puts("AREA11 native host face slot/status pause/frame4/default idle PASS");
 }
 
 /* A START/TRIANGLE screen (B0 == 0) on the host's page route (WP-5): the

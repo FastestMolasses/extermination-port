@@ -641,6 +641,50 @@ darkness (the camera differs; kept under build/captures/shadow_live/).
 newgame-control stays 9.599849 and the frame trace is byte-identical to
 the build before this step.
 
+### Roger (001BA580 -> 001DA6A0, chain C8b FACE)
+
+Roger's 001BA580 (his owner's face update, every call while +0x56 != 0)
+calls 001DA6A0(Roger) in the owner walk; his +0x96 is 0x29 (001BA8E0 for
+model 0x47), so the anchor is node 3's +0xC0 and the silhouette draws the
+proxy D_0028A490[0x29] (extract/chunk03/f33_id29.bin, 166 vertices, 294
+triangles, 21 nodes).
+
+- **The captures draw it.** The ORIGINAL 001CB590 + 001DA6A0 over route
+  13's and 14's RAM builds Roger's chain (381 and 570 qwords), and both
+  captured display lists REF his proxy (+0x40) from a silhouette pass. In
+  beats 08..12 it returns at the clip test.
+- **The binding.** em_area11_roger's `w_001DA6A0` runs
+  `em_shadow_live_actor_001DA6A0` (em_shadow_original_001DA6A0 over his
+  record image, his 21 node records in the 001AF710 arena, the same scene
+  views and the one D_00817FF0, which the calls share in call order as the
+  original's BSS). em_shadow_live keeps every 001DA6A0 call of the frame
+  (the walk's and the post-step's) with its recorded passes;
+  `em_shadow_live_flush_walk` draws the walk's after the walk's owner units,
+  `em_shadow_live_flush` the player's before its +0x4C. The reported
+  no-effect binding UM_001DA6A0 is gone.
+- **Assets.** `../Extermination/tools/export_shadow_proxy.py --kind 0x29
+  --player-emdl ../extermination-port/assets/player.emdl --out
+  ../extermination-port/assets/roger_shadow.emdl --verify-ram
+  build/s87/route/14_roger_encounter/eeMemory.bin` (the REF check now
+  ignores the tag's stale byte +2, as the detector note above says). The
+  baked frames only mirror the player's layout; the port skins the proxy
+  with Roger's live node matrices. Without it the AREA11 build faults at
+  the shadow's bind.
+- **Evidence** (LEVEL_SMOKE.md "The drop shadow", check_actor): every call
+  of the full route is kind 0x29 and every drawn call is flushed (11,277
+  calls, 5,116 drawn); on sampled calls the ORIGINAL 001CB590 + 001DA6A0 over
+  route 14's RAM with the port's inputs writes the port's plan (the light
+  globals, ctx+0x24B0, the silhouette VP, both boxes, the UV upload, the
+  receiver sequence) and REFs the kind-0x29 proxy; at the aligned snapshots
+  of routes 13 and 14 the port's call draws, as the captures' do.
+- **Order.** In the original Roger's chain sits at his position in the
+  walk's list; the port draws the walk's shadow passes after all the walk's
+  owner units. Every owner unit is opaque and depth-tested and the passes
+  keep their own order (the alpha clear, the boxes, the silhouette and the
+  receivers of one call are contiguous in both), so the order only differs
+  for pixels where a later walk owner and the darkened receiver overlap at
+  equal depth; not compared.
+
 ## Assets
 
 **Receivers and boxes.** `../Extermination/tools/export_shadow_receivers.py
@@ -718,14 +762,10 @@ baked frame.
 
 ## Limits and open items
 
-- Roger's drop shadow (census L22): Roger is live on his original owner
-  since 2026-09-24 and his 001BA580 reaches `001DA6A0` every frame (kind
-  0x29); the port reports it as a no-effect binding (UM_001DA6A0,
-  em_scene_bindings.c): the kind 0x29 proxy D_0028A490[0x29] is not
-  exported and the live module draws only kind 0x28. The captured
-  runs all return at the clip test, but during the encounter Roger is on
-  screen, where the original may draw his shadow: no capture of that frame
-  has been checked.
+- Roger's drop shadow: bound since chain C8b's FACE step (section "Roger"
+  below). The kind-0x29 proxy's pixels are drawn by the same Metal
+  silhouette pass; no GS frame of Roger's shadow is compared (no
+  framebuffer capture).
 - The GS side is bound in the Metal backend (Binding above); D3D12 and
   Vulkan have stubs that return -1 (the caller faults).
 - The post-step during the opening is reported, not computed: the opening

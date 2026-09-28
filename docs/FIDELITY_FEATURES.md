@@ -349,9 +349,42 @@ them. No remade models, no guessed lighting shader.
   assumed to follow the VU0 rules measured in PCSX2. Since census L24 the
   fan pair, the security gun and its cable are on this path (their units
   compared at the snapshots; the fans over the port's own spin angle through
-  the original 001C6380). Roger, the indicator children and the opening's
-  player are not on this path. Object textures (303 TEX0) are decoded from PCSX2 capture GS memory,
-  not the disc, so an end user cannot build them yet. Metal only.
+  the original 001C6380). Since chain C8b's FACE step Roger and his
+  equipment are on this path too (next entry). The indicator children and
+  the opening's actors are not. Object textures (346 TEX0) are decoded from
+  PCSX2 capture GS memory, not the disc, so an end user cannot build them
+  yet. Metal only.
+
+**Roger's face and the player's face in the cutscenes, morphed by the original face program**
+
+Roger's talking face, and Dennis's face while a scripted conversation holds
+it, are the original face units: the blink, expression and mouth weights of
+the original face routine, uploaded with the face's lighting by the original
+attachment draw and morphed by the original VU1 face program. Roger's body
+and the equipment on him are the original object units.
+
+- How: the attachment draw 001CB3C0 (with 001C7900, 001CB2C0, 001D3E40 and
+  the face lighting 001D88B0) runs live inside 001CAA00 for Roger and, while
+  a script holds the player's face slot (001CA700 .. 001CA770 on the
+  player's record, over the shared bone-slot stack), for the player; the
+  face unit is drawn by the translated face-morph program
+  (`em_vu1_face_morph`).
+- Evidence: `FACE_ATTACH.md` 4 and 7. Offline: every drawn face unit of the
+  captures (routes 00..14, the opening, the encounter, the fence-door
+  capture) is rebuilt byte for byte by the translation; 40 units, 30,104
+  triangles equal the original face program (`make
+  test-face-attach-reference`, full mode); the face slot sequence equals the
+  original over 400 frames (`make test-face-slot-reference`). Live: the level
+  smoke's `check_face` (15,328 face units on the full route; 78 sampled calls
+  re-executed by the original 001CAA00 + 001CB3C0 over the port's own
+  inputs, every written byte equal) and `check_owner_units` (Roger's and his
+  equipment's units at every aligned snapshot, in full at beat 14).
+- Status: **PARTIAL**. The face weights follow the port's rand() draws,
+  which sit where the original's do but carry other values than a recording
+  (the random-events entry), so a recorded frame's face expression is not
+  matched frame for frame. During the opening the displayed Roger and
+  player are still the opening runtime's actors (not this path). Pixels
+  compared only by eye. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
 
@@ -462,6 +495,25 @@ original does.
   by eye. The decal route is captured only at the ends of beats 02 and 04.
   The shadow is not computed during the opening. Needs framebuffer fetch
   (Apple GPUs). Decal texture from PCSX2 captures.
+
+**Roger's own projected drop shadow**
+
+Roger casts the original silhouette shadow of his own proxy mesh, as the
+original does where he stands in view (the east tower and his encounter).
+
+- How: Roger's face update 001BA580 calls the same original shadow routine
+  001DA6A0 on his record (kind 0x29, his proxy mesh D_0028A490[0x29]) in the
+  owner walk; its passes are drawn after the walk's owner units.
+- Evidence: `SHADOW_ORIGINAL.md` "Roger": the original over the route 13 and
+  14 captures builds Roger's chain and both captured display lists hold his
+  silhouette pass; level smoke `check_shadow` (check_actor): 11,277 calls on
+  the full route (5,116 drawn), 40 sampled calls re-executed as original
+  instructions give the port's plan, and the port draws it at the aligned
+  ticks of routes 13 and 14. Chain C8b FACE.
+- Status: **PARTIAL**. Inputs and draw plan verified; pixels not compared
+  (no framebuffer capture). The walk's shadow passes draw after all the
+  walk's owner units, not at Roger's position among them (equal for
+  depth-tested opaque units). Needs framebuffer fetch (Apple GPUs).
 
 **Original sky background and world fog**
 

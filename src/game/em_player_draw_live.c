@@ -1,11 +1,13 @@
 /* em_player_draw_live.c - see em_player_draw_live.h and docs/OWNER_DRAW.md
- * section 10. Nothing here computes: 001CAA00 is em_owner_draw_live's. */
+ * section 10. Nothing here computes: 001CAA00 is em_owner_draw_live's (with
+ * 001CB3C0's face unit while +0x90 holds a face slot, FACE_ATTACH.md). */
 #include "game/em_player_draw_live.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#include "game/em_area11_roger.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_player.h"
 #include "game/em_scene_bindings.h"
@@ -113,7 +115,17 @@ int em_player_draw_live_001CAA00(void)
     }
     uint32_t rgb[4];
     memcpy(rgb, r + 0x80, sizeof rgb);          /* +0x80..+0x8F */
-    return em_owner_draw_live_001CAA00(bank, v, rgb, EM_PLAYER_DRAW_LIVE_RECORD);
+    /* +0x90 != 0 (a script holds the player's face: 001B81D0's 001CA700):
+     * 001CAA00 reaches 001CB3C0, which reads the record, the face slot and
+     * Dennis's face resource by address (docs/FACE_ATTACH.md 6.3). */
+    EmOwnerDrawLiveRegion regions[EM_OWNER_DRAW_LIVE_REGIONS];
+    int n = 0;
+    if (v->attachment) {
+        n = em_area11_roger_attachment_regions(EM_PLAYER_DRAW_LIVE_RECORD, r, EM_PLAYER_ACTOR_SIZE, regions,
+                                               EM_OWNER_DRAW_LIVE_REGIONS);
+        if (n < 0) return report(EM_PLAYER_DRAW_LIVE_RECORD + 0x90, "the attachment's regions");
+    }
+    return em_owner_draw_live_001CAA00_attached(bank, v, rgb, EM_PLAYER_DRAW_LIVE_RECORD, regions, (unsigned)n);
 }
 
 int em_player_draw_live_node_world(unsigned node, float out16[16])

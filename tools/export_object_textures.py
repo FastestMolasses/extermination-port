@@ -18,7 +18,16 @@ controls the CLUT cache) of every model block of
     0x40, 0x6D; 0x31..0x3D; 0x6A; docs/PLAYER_EQUIPMENT.md section 2);
   * the item owners' library model: 00219550's 001B1020(self, +0x0D, -1, 0)
     binds id +0x0D = 0x72 of the same library for the six AREA11 items
-    (docs/OWNER_DRAW.md section 10),
+    (docs/OWNER_DRAW.md section 10);
+  * Roger's model: 008237E0's 001BA1C0 -> 001CA6E0 binds D_0028A490[0x47]
+    (extract/chunk15/f18_id94.bin +0x35000, tools/export_roger_banks.py),
+    and his equipment node's 001C5C90 binds id 0x6B of the library;
+  * the face resources 001CB3C0's 001D3E40 REFs (docs/FACE_ATTACH.md):
+    Roger's D_0028A490[0x88] (f18_id94.bin +0x86000, 008237E0's 001BA8E0)
+    and Dennis's D_0028A490[0x18] (extract/chunk03/f16_id18.bin, 001B81D0's
+    001CA700 on the player). A face block (0x163 qwords) is UNPACK 256
+    qwords, UNPACK 96 qwords, MSCAL/MSCNT: vertex i's TEX0 is data qword
+    11 i (docs/VU1_FACE_MORPH.md section 3),
 all from the user's extract, and decodes
 each from the GS local memory of every AREA11 route capture (beats 00..14:
 ../Extermination/build/s87/route/<beat>/gs.bin, the user's own PCSX2
@@ -85,6 +94,12 @@ EQUIPMENT_IDS = (0x2F, 0x30, 0x40, 0x6D, *range(0x31, 0x3E), 0x6A)
 # The AREA11 item owners 00219550's model (+0x0D of every placed item), in
 # the same library.
 ITEM_IDS = (0x72,)
+# Roger's equipment node 001C5C90 (001B1020's id 0x6B), in the same library.
+ROGER_EQUIPMENT_IDS = (0x6B,)
+# Roger's model and face resource in extract/chunk15/f18_id94.bin
+# (tools/export_roger_banks.py MODEL_AT / FACE_AT).
+ROGER_MODEL_AT, ROGER_FACE_AT = 0x35000, 0x86000
+FACE_BLOCK_QWORDS = 0x163
 
 
 def block_tex0(data: bytes, off: int, blocks: int, label: str, out: dict):
@@ -94,6 +109,26 @@ def block_tex0(data: bytes, off: int, blocks: int, label: str, out: dict):
         block = off + 0x40 + 16 * BLOCK_QWORDS * b
         for i in range(32):
             t = struct.unpack_from('<Q', data, block + 16 + 64 * i)[0] & CLD_MASK
+            out.setdefault(t, set()).add(label)
+
+
+def face_tex0(data: bytes, off: int, label: str, out: dict):
+    """Every vertex TEX0 (CLD cleared) of the face resource at `off`: its
+    +0x00 word is the block count, the +0x04 low halfword the blocks' qwc
+    (001D3E40's face REF); each block is UNPACK V4-32 256 to TOPS + 0,
+    UNPACK V4-32 96 to TOPS + 256, MSCAL / MSCNT (checked), and vertex i's
+    TEX0 is its data qword 11 i."""
+    blocks, w04 = struct.unpack_from('<2I', data, off)
+    if not 0 < blocks < 0x100 or (w04 & 0xFFFF) != blocks * FACE_BLOCK_QWORDS:
+        raise SystemExit(f'{label}: not a face resource ({blocks} blocks, +0x04 {w04:#x})')
+    for b in range(blocks):
+        block = off + 0x40 + 16 * FACE_BLOCK_QWORDS * b
+        if struct.unpack_from('<2I', data, block + 8) != (0x01000404, 0x6C008000) or \
+                struct.unpack_from('<2I', data, block + 16 * 257 + 8) != (0x01000404, 0x6C608100):
+            raise SystemExit(f'{label}: block {b} is not UNPACK 256 + UNPACK 96')
+        for i in range(32):
+            q = 11 * i
+            t = struct.unpack_from('<Q', data, block + 16 * (q + (1 if q < 256 else 2)))[0] & CLD_MASK
             out.setdefault(t, set()).add(label)
 
 
@@ -107,19 +142,24 @@ def model_tex0(x) -> dict:
 
 
 def player_tex0(extract: Path, out: dict):
-    """The player's model (resource 0x3B), the equipment models and the
-    item owners' model."""
+    """The player's model (resource 0x3B), the equipment models, the item
+    owners' model, Roger's model and equipment, and the two face
+    resources."""
     p = epm.build(extract)
     block_tex0(p['model'], 0, p['blocks'], 'player 0x3b', out)
     library = (extract / 'chunk27/f01_id37.bin').read_bytes()
     count = struct.unpack_from('<I', library, 0)[0]
-    for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS)):
+    for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS), ('roger equipment', ROGER_EQUIPMENT_IDS)):
         for ident in ids:
             if ident >= count:
                 raise SystemExit(f'chunk27/f01_id37.bin: {kind} id {ident:#x} outside the table ({count})')
             off = struct.unpack_from('<i', library, 4 + 4 * ident)[0] >> 2 << 2
             blocks = ewm.model_record(library, off, ident)[0]
             block_tex0(library, off, blocks, f'{kind} {ident:#x}', out)
+    roger = (extract / 'chunk15/f18_id94.bin').read_bytes()
+    block_tex0(roger, ROGER_MODEL_AT, ewm.model_record(roger, ROGER_MODEL_AT, 0x47)[0], 'roger 0x47', out)
+    face_tex0(roger, ROGER_FACE_AT, 'roger face 0x88', out)
+    face_tex0((extract / 'chunk03/f16_id18.bin').read_bytes(), 0, 'dennis face 0x18', out)
 
 
 def decode(lm: bytes, t: int) -> bytes:

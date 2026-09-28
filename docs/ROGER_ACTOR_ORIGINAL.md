@@ -498,26 +498,23 @@ The world in this test is synthetic bookkeeping, not original data.
     record's +0x110).
   - `w_001F0120`: `em_area11_bindings_spawn_001F0120(owner, 0x47)` (the
     head-bone sprite node; the former INTERIM first-tick spawn is deleted).
-  - `w_001DA6A0`: reported no-effect binding (UM_001DA6A0,
-    em_scene_bindings.c). The port draws no actor shadow; the player's own
-    post-step is reported the same way (UM_0015C160). All 11 captured runs of
-    001DA6A0 on Roger return at its clip test (SHADOW_ORIGINAL.md).
-  - `w_001D0720`: `em_opening_face_tick` over the face slot bytes
-    (+0x40..+0x5F, +0x70..+0xA7) with the shared 00122BB8 RNG, then the face
-    morph of the slot's weights on Roger's mesh (em_opening_face_position,
-    em_gfx_mesh_update_positions).
+  - `w_001DA6A0`: `em_shadow_live_actor_001DA6A0` over his record and its 21
+    node records (kind 0x29, the proxy D_0028A490[0x29]); drawn after the
+    walk's owner units (SHADOW_ORIGINAL.md "Roger"; the original draws it in
+    routes 13 and 14).
+  - `w_001D0720`: `em_opening_face_tick_slot` over the face slot bytes
+    (+0x40..+0x5F, +0x70..+0xA7) with the shared 00122BB8 RNG; 001CB3C0
+    uploads the weights with the face unit (FACE_ATTACH.md).
   - `w_001BA7F0`: NULL (kind 0x61 in area 0x0D only).
   - `w_001B1020`: `em_owner_services_001B1020` over the equipment's view,
     D_0028A56C's table and model 0x6B from the export; the one slot its
     001C62C0 fills is laid into the slot bytes.
-  - `w_draw` / Roger's `EM_ROGER_DRAW`: 001CAA00 → the port's actor draw
-    chain (`em_area11_roger_draw`): Roger's mesh (roger/roger.emdl with the
-    opening's face attached, em_face_model_attach) at the 21 node world
-    matrices (node +0x90) and the owner matrix +0xD0 for the exporter's
-    trailing slot; the equipment's mesh (opening/equipment_6b.emdl, whose
-    vertices all use node 0) at its bone-0 matrix. The light reference is
-    the record's +0x98 node (2 for Roger), with the camera fill of +0x02 bit
-    0x20 and the 001D88B0 face rig for the face vertices.
+  - `w_draw` / Roger's `EM_ROGER_DRAW`: 001CAA00 through
+    `em_owner_draw_live_001CAA00_attached` over the record's owner view
+    (model 0x47 / library 0x6B from the export, the node records' +0x90
+    matrices), with the attachment's regions for Roger's 001CB3C0 face unit
+    (OWNER_DRAW.md section 10, FACE_ATTACH.md section 6.2). The legacy
+    roger.emdl / equipment_6b.emdl draws are retired.
   - `w_001AFC10`: the actor pool free.
 - **em_roger hooks.** `script_start` / `script_tick` →
   `em_area11_script_host_start` / `_tick` (AREA_SCRIPT.md 6.1);
@@ -552,10 +549,9 @@ and the whole encounter (AREA_SCRIPT.md, ROGER_CINEMATIC.md).
 ## 5. Limits and open items
 
 - 001D0720's kernel (em_opening_face) computes on the measured EE model
-  (em_ee_float.h, since 2026-09-27). Its morph accumulation
-  (em_opening_face_position) is still host float, not the VU1 morph
-  (VU1_FACE_MORPH.md). 001DA6A0 is a reported no-effect binding
-  (no actor shadow is drawn by the port). 001BA7F0 is unreachable.
+  (em_ee_float.h, since 2026-09-27). The face morph is the VU1 face program's
+  (em_object_unit's, VU1_FACE_MORPH.md) since chain C8b's FACE step.
+  001BA7F0 is unreachable.
 - Lifecycle 0 runs once, at area load, before any capture, so there is no
   capture from the frame the init ran. Its evidence is the unit oracle and
   the init route runs on every capture, with Roger returned to +0x04 = 0.

@@ -22,6 +22,10 @@ addresses, from the user's own extracted disc:
     (+0x39B46..+0x3E0C3) are rewritten at run time and are not exported;
   * extract/chunk15/f18_id94.bin whole at D_0028A490[0x47] - 0x35000 (the
     model 0x47 at +0x35000 and the face resource 0x88 at +0x86000);
+  * extract/chunk03/f16_id18.bin whole at D_0028A490[0x18]: Dennis's face
+    resource, which 001B81D0's 001CA700(player, D_0028A490[0x18], 7) puts in
+    the player's face slot and 001CB3C0's 001D3E40 REFs (+0x40, the +0x04
+    qwc) while a script holds the player's face (docs/FACE_ATTACH.md);
   * extract/chunk27/f01_id37.bin's table head (D_0028A56C = D_0028A490[0x37]:
     the count word and the 126 entry words) and the models it indexes that
     the live owners bind (header, blocks and skeleton records): 0x6B
@@ -61,6 +65,7 @@ DECOMP = ROOT.parent / 'Extermination'
 TABLE, TABLE_WORDS = 0x0028A490, 0xC0
 BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
 GLOBAL_TABLE_INDEX = 0x37
+DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # Roger's equipment 001C5C90 (0x6B) and the ids 0018A8D0 maps (flavour, variant)
 # to: 0x2F; 0x30 / 0x40 / 0x6D; 0x32, 0x33, 0x34, 0x35, 0x36, 0x31, 0x37, 0x38 and
 # 0x39..0x3D; 0x6A. The indicator children's 001C2360 models (001C5570's a2 and
@@ -106,6 +111,7 @@ def main(argv=None) -> int:
     f12 = (args.extract / 'chunk15/f12_id44.bin').read_bytes()
     f18 = (args.extract / 'chunk15/f18_id94.bin').read_bytes()
     f37 = (args.extract / 'chunk27/f01_id37.bin').read_bytes()
+    f16 = (args.extract / 'chunk03/f16_id18.bin').read_bytes()
     base12 = table[0x4A] - BANK_4A_AT
     if table[0x96] != base12 + BANK_96_AT:
         raise SystemExit('D_0028A490[0x96] is not bank 0x96 of the file that holds bank 0x4A')
@@ -122,6 +128,7 @@ def main(argv=None) -> int:
         (base12 + BANK_96_AT, f12[BANK_96_AT:]),
         (base18, f18),
         (global_table, f37[:4 + 4 * count]),
+        (table[DENNIS_FACE_INDEX], f16),
     ]
     for first, last in EQUIPMENT_SPANS:
         offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]

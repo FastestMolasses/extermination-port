@@ -35,7 +35,7 @@ After first control, almost everything the player can interact with runs on **le
 
 The oracle-verified replacements exist but **nothing in `src/` calls them**:
 
-- AREA11 interaction host (panel, battery page, elevator, face host, status runtime)
+- AREA11 interaction host (panel, battery page, elevator, face, status runtime)
 - original door runtime, program and transit
 - original pickup owners
 - Roger runtime and media
@@ -926,6 +926,50 @@ fan pair on their original owners; SECURITY_GUN.md, FAN_ORIGINAL.md, census
   fail-stop) and its hit box (the chain to 0021C440 / 0021E9C0 is proven by
   the oracle, not live).
 
+**Status update (2026-09-28, chain C8b FACE: the face attachments live,
+Roger and his equipment on the object-unit path, the player's face slot,
+Roger's shadow; FACE_ATTACH.md, SHADOW_ORIGINAL.md "Roger", census 1.40):**
+- **001CB3C0 live.** em_owner_draw_live's `w_001CB3C0` runs em_face_attach
+  (001CB3C0 -> 001C7900, 001CB2C0, 001D1F80, 001D3F50 -> 001D3E40) over
+  its views; the callers with an attachment pass the regions it reads by
+  address (`em_owner_draw_live_001CAA00_attached`). The owner's unit and the
+  face unit are parsed one by one (the face alone when 001CA7B0 culled the
+  body) and drawn in build order by the face-morph program. The inline tag
+  writer / vif_append_ref_tag / 001D2910 copies of em_face_attach are gone
+  (em_owner_draw_original's and the render context's are the one owners).
+- **Roger and his equipment** draw their original units (models 0x47 and
+  library 0x6B from the export, Roger's face unit). Retired: roger.emdl, the
+  em_face_model morph of his face, opening/equipment_6b.emdl's draw and the
+  draw list.
+- **The player's face slot** (em_face_slot): 001B81D0's 001CA700 /
+  001D06D0, 001B82D0 sub 4's 001CA770 (with 001AF890), 00183090's 001D0C70
+  and 001FD950's 001D06E0 run on the player record's +0x90 over the one
+  001AF710 stack; the player's 001CAA00 collapses node 7 and appends
+  Dennis's face unit while a script holds it. Retired: em_player_face_host,
+  em_face_model, the RELEASE_SKELETON stand-in, the row-0x18 / player-only
+  refusals, test_player_face_host (superseded by test_face_slot_reference,
+  rule 4).
+- **Roger's shadow** (001BA580 -> 001DA6A0, kind 0x29) is drawn after the
+  walk's owner units (em_shadow_live's actor call, proxy
+  assets/roger_shadow.emdl); UM_001DA6A0 is gone. The original draws it in
+  routes 13 and 14 (their captures REF his proxy).
+- **Assets.** Re-run `tools/export_object_textures.py` (346 textures: Roger's
+  body, equipment and face TEX0s), `tools/export_roger_banks.py` (Dennis's
+  face resource) and the decomp's `tools/export_shadow_proxy.py --kind 0x29`
+  (STARTUP.md).
+- **Evidence.** The level smoke's check_face (15,328 face units over the
+  full route; sampled calls re-executed by the ORIGINAL 001CAA00 +
+  001CB3C0 over route 14's RAM with the port's inputs, every written byte
+  equal), check_owner_units (Roger and his equipment against the original
+  at every aligned snapshot; in full at route 14), check_shadow's
+  check_actor (Roger's 11,277 calls, sampled re-execution, drawn at routes 13
+  and 14 as the captures); test-face-attach-reference, test-face-slot-
+  reference (new targets).
+- **Found, not fixed:** the player's 21 node records are not popped from the
+  shared 001AF710 stack (0015C420's pops), so every later slot address is 21
+  slots below the original's and the first 21 pops alias the player's node
+  addresses (FACE_ATTACH.md section 5).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -988,24 +1032,23 @@ The items are ordered in four groups:
        001D5BD0;
      - the background channel 001E1E60 / 001E1AD0.
 4. **Look: the lighting stand-ins.** Lanes L40 and L33.
-   - The actor fold gate 001D8270 and the actor RGB / self-glow 001D8690
-     are verified but not called. The renderer's post-draw tint stands in
-     for them (em_render_frame char_rig_build).
-   - These are not bound: the face and UI lighting modes 001D88B0 /
-     001D8C30, and the fade weights 001D8060 / 001D80B0 / 001D9070.
+   - The actor fold gate 001D8270 is verified but not called, and the
+     renderer's post-draw tint (em_render_frame char_rig_build) stands in for
+     it and for 001D8690's actor RGB on the legacy meshes that still draw
+     (001D8690 itself runs live inside 001CB3C0's 001D88B0 since chain C8b's
+     FACE step).
+   - These are not bound: the UI lighting mode 001D8C30 and the fade
+     weights 001D8060 / 001D80B0 / 001D9070 (the face lighting 001D88B0 and
+     001D8690 run inside 001CB3C0 since chain C8b's FACE step).
    - The room point-light lists are resolved offline by
      tools/export_point_lights.py. The original resolves them at run time
      in 001F6640 / 001F66F0 / 001F6760 / 001F6D60 / 001F6E40.
-5. **Look: Roger's face and the face units.** OWNER_DRAW.md section 11.
-   - Census rows: 001CB3C0 is missing; 001C7900 and 001CB2C0 are
-     verified-unbound; 001D3F50 and 001D3E40 are untranslated.
-   - Roger draws roger.emdl with the opening face. His equipment 001C5C90
-     draws a legacy mesh.
-   - The player's face is the face host's state, not a pool slot at +0x90.
-     So in beats 10, 11, 13 and 14, 001CA700 / 001CA770 and 001AF890 stay
-     verified-unbound.
-   - What removes it: translate the face units with oracles; add a model
-     resolver for the Roger export; then bind the +0x90 attachment.
+5. **Done (chain C8b FACE, 2026-09-28): Roger's face and the face units.**
+   001CB3C0 is live for Roger and the player (FACE_ATTACH.md); Roger and his
+   equipment draw their original units; the player's 001CA700 / 001CA770
+   run on its +0x90 slot; Roger's shadow draws. What remains of it: the
+   opening's actors (item 2), the shared stack's missing player pops
+   (FACE_ATTACH.md section 5), and no pixel comparison of a face frame.
 6. **Sound: the SPU2 voice model.** Section-4 boundary: 41 EE sound-library
    functions have no original comparison. WP-14 AM-03 / 04 / 26 / 27.
    - The mixer is dry: no ADSR, no reverb bus, no Gaussian interpolation.

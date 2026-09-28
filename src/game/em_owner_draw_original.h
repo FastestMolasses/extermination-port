@@ -187,6 +187,17 @@ int em_owner_draw_001CA940(EmOwnerDraw *s, int32_t flags, const EmOwnerModel *mo
 int em_owner_draw_001D38A0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
 int em_owner_draw_001D3BA0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
 
+/* The DMA tag writer every submit of this chain uses, in the original's
+ * store order: byte +3 = id, word +4 = address, halfword +0 = qwc (bytes +2
+ * and +8..+0xF untouched), then the cursor advances 0x10. The caller has
+ * checked the room. */
+void em_owner_draw_tag(EmOwnerServicesChannel *c, uint8_t id, uint32_t qwc, uint32_t address);
+/* vif_append_ref_tag (001D2090)(chan, target): REF 1 qw to *D_00275674,
+ * context +0x50 + 4 chan = target, CALL (qwc 0) to target. The caller has
+ * checked chan against channel_count / ctx_50_count, the views and 0x20
+ * bytes of room (em_face_attach's 001D3E40 reuses it). */
+void em_owner_draw_vif_append_ref_tag(const EmOwnerDrawWorld *w, int32_t chan, uint32_t target);
+
 /* Bytes 001CA940 appends for `flags`: 0x40 (0x80 when flags & 1), plus
  * 0x10 per 001D37D0 / 001D3AD0 while the D_002514B0 REF is emitted. */
 uint32_t em_owner_draw_001CA940_bytes(int32_t flags, int with_ref2);

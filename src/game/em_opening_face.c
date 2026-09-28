@@ -123,6 +123,40 @@ void em_opening_face_tick(EmOpeningFace *f, EmFaceRandom random, void *context)
         f->weight[i+1]=approach(f->weight[i+1],f->target[i],rate);
 }
 
+/* The slot's bytes <-> EmOpeningFace (the offsets in em_opening_face.h),
+ * around one 001D0720 step. */
+void em_opening_face_tick_slot(uint8_t *slot, EmFaceRandom random, void *context)
+{
+    EmOpeningFace f;
+    memcpy(f.weight, slot + 0x40, sizeof f.weight);
+    memcpy(&f.blink_state, slot + 0x70, 4);
+    memcpy(&f.blink_wait, slot + 0x74, 4);
+    memcpy(&f.expression_state, slot + 0x78, 4);
+    memcpy(&f.expression_wait, slot + 0x7C, 4);
+    f.talking = slot[0x80];
+    f.speed = slot[0x81];
+    f.reserved[0] = slot[0x82];
+    f.reserved[1] = slot[0x83];
+    memcpy(&f.mouth_wait, slot + 0x84, 4);
+    memcpy(&f.current_shape, slot + 0x88, 4);
+    memcpy(&f.previous_shape, slot + 0x8C, 4);
+    memcpy(f.target, slot + 0x90, sizeof f.target);
+    em_opening_face_tick(&f, random, context);
+    memcpy(slot + 0x40, f.weight, sizeof f.weight);
+    memcpy(slot + 0x70, &f.blink_state, 4);
+    memcpy(slot + 0x74, &f.blink_wait, 4);
+    memcpy(slot + 0x78, &f.expression_state, 4);
+    memcpy(slot + 0x7C, &f.expression_wait, 4);
+    slot[0x80] = f.talking;
+    slot[0x81] = f.speed;
+    slot[0x82] = f.reserved[0];
+    slot[0x83] = f.reserved[1];
+    memcpy(slot + 0x84, &f.mouth_wait, 4);
+    memcpy(slot + 0x88, &f.current_shape, 4);
+    memcpy(slot + 0x8C, &f.previous_shape, 4);
+    memcpy(slot + 0x90, f.target, sizeof f.target);
+}
+
 void em_opening_face_position(float out[3], const float base[3],
                                const float delta[21], const float weight[8])
 {

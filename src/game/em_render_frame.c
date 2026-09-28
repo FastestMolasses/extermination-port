@@ -159,7 +159,7 @@ void render_chain_build(void)
         *cd = (ChainDraw){ g.scene[i].mesh,
                            g.scene[i].palette,
                            g.scene[i].model.bone_count,
-                           NULL, 0, 0, 0 };
+                           NULL };
     }
     /* The AREA11 terminal 00827B10 and the panel 00159210 build their units
      * in their own +0x4C (001CAA00, em_area11_boxes_owner_draw, inside the
@@ -196,18 +196,10 @@ void render_chain_build(void)
     (void)em_area11_boxes_draw_count();
     /* The AREA11 fence door 001BC350 (census L18) builds its unit the same
      * way (em_area11_door h_draw -> em_area11_boxes_door_draw). */
-    /* AREA11 Roger 008237E0 and the equipment node 001C5C90 (census L22):
-     * the owners whose +0x4C (001CAA00) ran in their last owner call, at
-     * their node world matrices (em_area11_roger). */
-    for (int i = 0, n = em_area11_roger_draw_count(); i < n; i++) {
-        if (g.chain_len >= CHAIN_CAP) { (void)chain_push(); break; }
-        ChainDraw *cd = &g.chain[g.chain_len];
-        if (em_area11_roger_draw(i, &cd->mesh, &cd->palette, &cd->bone_count, &cd->anchor_bone,
-                                 &cd->cam_fill, &cd->face)) {
-            cd->tint = NULL;
-            g.chain_len++;
-        }
-    }
+    /* AREA11 Roger 008237E0 and the equipment node 001C5C90 (census L22)
+     * build their units in their own +0x4C (001CAA00, em_area11_roger over
+     * em_owner_draw_live, with Roger's face unit from 001CB3C0):
+     * frame_close_out draws them with the walk's. */
     /* Pickups (the func_001C4820/func_0015AFA0 actor draws — rigid
      * props, pose baked at placement; func_001C6380). A collected slot
      * stops drawing the frame it frees (em_pickup_draw returns 0). */
@@ -225,7 +217,7 @@ void render_chain_build(void)
         ChainDraw *cd = chain_push();
         if (cd)
             *cd = (ChainDraw){ g.mesh, g.player_palette,
-                               g.model.bone_count, NULL, 0, 0, 0 };
+                               g.model.bone_count, NULL };
     }
 }
 
@@ -607,17 +599,10 @@ static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *
      * rig anyway (baked vertex color — engine truth). */
     if (g.rig_on && actor) {
         EmGfxCharRig rig;
-        const float *node = cd->palette + 16u * cd->anchor_bone;
+        const float *node = cd->palette;
         const float anchor[3] = { node[12], node[13], node[14] };
-        char_rig_build(&rig, anchor,
-                       cd->palette == g.player_palette || cd->cam_fill, 1);
+        char_rig_build(&rig, anchor, cd->palette == g.player_palette, 1);
         em_gfx_char_rig(gfx, &rig);
-        if (cd->face) {
-            /* Original face 001D88B0: camera fill on, owner NULL
-             * (no dynamic lamps), as the opening's actors. */
-            char_rig_build(&rig, NULL, 1, 0);
-            em_gfx_char_face_rig(gfx, &rig);
-        }
     } else {
         em_gfx_char_rig(gfx, NULL);
     }
@@ -788,6 +773,11 @@ void frame_close_out(void)
         em_gfx_char_rig(gfx, NULL);
         if (em_owner_draw_live_flush_walk(gfx) < 0)   /* reported; fail-stop */
             em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
+        /* The walk's 001DA6A0 calls (Roger's 001BA580, recorded by
+         * em_shadow_live during his owner call): their passes, after the
+         * walk's units (docs/SHADOW_ORIGINAL.md "Roger"). */
+        if (em_shadow_live_flush_walk(gfx, viewproj) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         /* 0015C160, the player post-step (001AE5E0 at 0x1AE654, 001AE6B0 at
          * 0x1AE798): the shadow's passes (001DA6A0, recorded by
          * em_shadow_live at the post-step), then the player's +0x4C: its
@@ -799,7 +789,7 @@ void frame_close_out(void)
                 em_scene_fault(em_scene_state(), em_shadow_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
             if (s_player_draw_frame == em_frame_counter() && g.mesh &&
                 !em_opening_runtime_actors_active()) {
-                const ChainDraw player = { g.mesh, g.player_palette, g.model.bone_count, NULL, 0, 0, 0 };
+                const ChainDraw player = { g.mesh, g.player_palette, g.model.bone_count, NULL };
                 chain_draw(gfx, &player, 1, viewproj);
             }
         }

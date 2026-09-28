@@ -18,8 +18,17 @@
  *                      in its packet arena, 0x70003AC0 from its scratchpad
  *   001D1F80(0, 1, 0)  the render context's veil module (em_rcl_001D1F80)
  *   001CA940           em_owner_draw_001CA940 over the AREA11 model bank
- *   001CB3C0           not bound: an owner with +0x90 != 0 faults
- * The unit it appends to the arena is parsed at once (em_object_unit_parse:
+ *   001CB3C0           em_face_attach_001CB3C0 (the +0x90 attachment: the
+ *                      face unit, docs/FACE_ATTACH.md) over the same
+ *                      channel, scratch, light and owner-draw views, its
+ *                      EE-address reads served by the caller's regions
+ *                      (em_owner_draw_live_001CAA00_attached), D_00250FB0
+ *                      from the render context's .data, 001D2910 the live
+ *                      render context's; an owner with +0x90 != 0 drawn
+ *                      without regions faults
+ * The units it appends to the arena (the owner's, then 001CB3C0's face
+ * unit; the face alone when 001CA7B0 culled the body) are parsed at once
+ * (em_object_unit_parse_one:
  * REF targets from the render context's storage and the bank: a world model
  * bank, or a table-less one such as the player's model or the equipment
  * models) and kept for the frame. em_owner_draw_live_flush_walk draws the
@@ -36,6 +45,7 @@
 #include <stdint.h>
 
 #include "em_gfx.h"
+#include "game/em_actor_light_001D89D0.h"
 #include "game/em_object_unit.h"
 #include "game/em_owner_draw_original.h"
 #include "game/em_owner_services_original.h"
@@ -53,6 +63,25 @@ extern "C" {
  * original record address (the log's key). 0, or -1 (reported). */
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record);
+
+/* An EE range 001CB3C0 reads by address (read-only). */
+typedef struct {
+    uint32_t address, size;
+    const uint8_t *bytes;
+} EmOwnerDrawLiveRegion;
+#define EM_OWNER_DRAW_LIVE_REGIONS 12u    /* EM_POSE_REGION_MAX: the anim rest's region table */
+
+/* 001CAA00(owner) for an owner whose +0x90 may be set (Roger, the player
+ * while a script holds its face): `regions` must map the record's
+ * +0x80..+0x97 (the colour words, +0x90, +0x94), the attachment slot
+ * (+0x40..+0x63 of the 0xD0-byte slot +0x90 names) and the face resource
+ * (+0x04 and its blocks from +0x40, which the face unit's REF names).
+ * The regions are used only during the call (the face blocks' bytes stay
+ * referenced by the kept unit until the flush: they must outlive the
+ * frame). 0, or -1 (reported). */
+int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
+                                         const uint32_t rgb[4], uint32_t record,
+                                         const EmOwnerDrawLiveRegion *regions, unsigned region_count);
 
 /* The light of a draw method other than 001CAA00 (001CB480, the status MAP
  * page's models, docs/STATUS_PAGES.md section 7): 001D8C20(mode) (the
@@ -81,8 +110,41 @@ typedef struct {
     uint32_t record, bytes, clip;
     uint32_t colour, light, position, points, light_rig;
     uint32_t point[3], pose;
+    /* 001CB3C0's face unit (0 bytes: none): its bytes and a digest of its
+     * colour matrix B, its one node's rows and its weights (in that order).
+     * `bytes` above excludes it. */
+    uint32_t face_bytes, face;
 } EmOwnerDrawLiveLog;
 int em_owner_draw_live_log(EmOwnerDrawLiveLog *out, int capacity);
+
+/* The inputs and bytes of the last drawn frame's attached 001CAA00 calls
+ * (those given regions: Roger, the player while a script holds its face),
+ * for the level smoke's original re-execution (tools/level_smoke_face.py):
+ * the record's bytes (the caller's record region), the node records'
+ * +0x90..+0xCF world matrices, the attachment slot (0xD0 bytes; address 0:
+ * none), the views the call read (D_00810610, context +0x2410..+0x244F,
+ * the scratchpad view-projection 0x70003AC0, context +0x0C / +0x9C, the rig
+ * record D_00817BC0 and D_00275688 before the call, D_00810700 / 701), and
+ * every byte the call appended (the owner unit and the face unit). */
+#define EM_OWNER_DRAW_LIVE_SAMPLE_RECORD 0x320u
+#define EM_OWNER_DRAW_LIVE_SAMPLE_UNIT 0x1000u
+#define EM_OWNER_DRAW_LIVE_SAMPLES 2u
+typedef struct {
+    uint32_t frame, record, record_size;
+    uint8_t record_bytes[EM_OWNER_DRAW_LIVE_SAMPLE_RECORD];
+    uint32_t node_count;
+    uint32_t nodes[EM_OWNER_SERVICES_MAX_BONES][16];
+    uint32_t slot_address;
+    uint8_t slot[0xD0];
+    uint32_t view_810610[16], planes_2410[16], vp_3AC0[16], ctx_0C, ctx_9C;
+    uint32_t rig[EM_ACTOR_LIGHT_RIG_WORDS], rig_word;
+    uint8_t area[2];
+    uint32_t unit_address, unit_bytes, face_bytes;
+    uint8_t unit[EM_OWNER_DRAW_LIVE_SAMPLE_UNIT];
+} EmOwnerDrawLiveSample;
+/* The last drawn frame's attached calls (at most EM_OWNER_DRAW_LIVE_SAMPLES):
+ * the count, *out the first. */
+int em_owner_draw_live_samples(const EmOwnerDrawLiveSample **out);
 
 /* The post-step 0015C160 starts: the units built from here on in this frame
  * (the player's +0x4C) are drawn after the shadow's passes, as the original

@@ -17,10 +17,11 @@
  *             (context +0x9C) * 0x80; REF 2 qw to D_002514B0 only while
  *             001D2910(0) is 0; REF (face +0x04 low halfword) qw to face +
  *             0x40
- *   vif_append_ref_tag (001D2090)  REF 1 qw to *D_00275674, context +0x50 +
- *             4 * chan = the target, then a CALL tag (qwc 0) to the target
- *   001D2910(0) = 001D2710(0): context word +0x0C bit 0
  * and binds, without a new translation, the verified ones it reaches:
+ *   vif_append_ref_tag (001D2090) and the tag writer
+ *                       em_owner_draw_vif_append_ref_tag / em_owner_draw_tag
+ *   001D2910(0)         a worker (the live render context's
+ *                       em_render_context_001D2910, em_rcl_001D2910)
  *   001029C0            em_owner_services_identity_001029C0
  *   001026D0            em_sdk_vu0_001026D0
  *   001C7900, 001CB2C0  em_anim_rest_001C7900 / _001CB2C0
@@ -105,8 +106,9 @@ typedef struct {
      * workers.w_001D88B0 must be em_face_attach_w_001D88B0 with
      * workers.ctx = this EmFaceAttach. */
     EmAnimRest *anim;
-    /* 001D3E40's views: channel (== anim->world.channel), ctx_0C, ctx_9C,
-     * d00275674, ctx_50. `models` is not read. */
+    /* 001D3E40's views: channel (== anim->world.channel), ctx_9C,
+     * d00275674, ctx_50. `models` and ctx_0C are not read (001D2910 is the
+     * worker's). */
     const EmOwnerDrawWorld *draw;
     /* 001D88B0's storage and its 001D8130 / 001D8340 / 001D8690. */
     EmActorLight *light;
@@ -128,6 +130,10 @@ typedef struct {
     /* 001D1F80(a0, a1, a2): the GS state REF; it appends at channel 0 and
      * must leave the channel's host cursor advanced past what it wrote. */
     int (*w_001D1F80)(void *ctx, int32_t a0, int32_t a1, int32_t a2);
+    /* 001D2910(a0): *result = its return value (001D3E40 passes 0: the
+     * context's +0x0C bit 0). It is also queried, untraced, before the
+     * first write to size the unit (a read with no side effect). */
+    int (*w_001D2910)(void *ctx, int32_t a0, uint32_t *result);
     /* Optional (tests): called at the entry of every callee these routines
      * reach through a boundary, before the call. `args` are the original
      * argument registers a0..a3 (and t0 in args[4] for 001D8340), except

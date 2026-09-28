@@ -74,15 +74,12 @@ int em_scene_bindings_001FA790(void *ctx, int lane, int32_t cue);
  * then its two 00119828 calls on the lanes), 001FC280 (the lanes' worker
  * inside 001FAE70: the area ambient loop over the spawn record, then its
  * two 00119828 calls), 001FAD70(lane, fade, release) (001B0C00's lane
- * fades), and the report of 001DA6A0 from 001BA580 (the actor drop shadow
- * has no port counterpart: a reported no-effect binding, as the player's
- * post-step). 0, or -1 on a fault. */
+ * fades). 0, or -1 on a fault. */
 int em_scene_bindings_001FAE70(int a0);
 int em_scene_bindings_001FABB0(void);
 int em_scene_bindings_001FBC50(void);
 int em_scene_bindings_001FC280(void);
 int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release);
-int em_scene_bindings_report_001DA6A0(void);
 /* 1 when the player record's node records are the displayed pose this frame
  * (the opening runtime's actors are not drawn, the record pose source holds
  * the display and this frame's 0015BCF0 posed the record): then the
