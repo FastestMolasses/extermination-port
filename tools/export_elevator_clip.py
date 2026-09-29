@@ -5,6 +5,12 @@ Requires the owner's original animation bank and captured lever-animation EE
 state. The capture must match the source bank and all21 world-space bone
 matrices before any asset is changed. Other clips, mesh, textures, parent and
 clip tables remain byte-identical. Generated assets and reports stay ignored.
+
+The clip is baked from the user's disc bank alone. The captured-palette
+proof runs when the capture is present (--reference-ee FILE, default
+../Extermination/build/startup-reference/elevator/clip47_ee.bin); without it
+the export is the same bytes and the report records that no capture
+proof ran.
 """
 
 import argparse
@@ -36,20 +42,24 @@ def main():
 
     bank = (args.decomp/'extract/chunk28/f01_id3c.bin').read_bytes()
     reference = args.reference_ee or args.decomp/'build/startup-reference/elevator/clip47_ee.bin'
-    ram = reference.read_bytes()
-    assert struct.unpack_from('<I', ram, ACTOR+0x40)[0] == BANK
-    assert ram[BANK:BANK+len(bank)] == bank, 'Original animation bank mismatch'
-    assert struct.unpack_from('<H', ram, ACTOR+0x20C)[0] == CLIP_ID
+    ram = reference.read_bytes() if reference.is_file() else None
+    if ram is not None:
+        assert struct.unpack_from('<I', ram, ACTOR+0x40)[0] == BANK
+        assert ram[BANK:BANK+len(bank)] == bank, 'Original animation bank mismatch'
+        assert struct.unpack_from('<H', ram, ACTOR+0x20C)[0] == CLIP_ID
     header = struct.unpack_from('<I', bank, 4+CLIP_ID*4)[0]
     clip = OpeningClip(bank, header)
     assert (clip.bones, clip.length) == (21, 200)
     assert struct.unpack_from('<h', bank, header+4)[0] == -2
     assert struct.unpack_from('<I', bank, header+0x14)[0] == 0
-    owner = [struct.unpack_from('<4f', ram, ACTOR+0xD0+c*16) for c in range(4)]
-    assert tuple(owner[3][:3]) == struct.unpack_from('<3f', ram, ACTOR+0xA0)
-    expected = original_palette(ram, ACTOR, clip.bones)
+    if ram is not None:
+        owner = [struct.unpack_from('<4f', ram, ACTOR+0xD0+c*16) for c in range(4)]
+        assert tuple(owner[3][:3]) == struct.unpack_from('<3f', ram, ACTOR+0xA0)
+        expected = original_palette(ram, ACTOR, clip.bones)
 
     def world_error(palette):
+        if ram is None:
+            return None
         world = [matrix_multiply(owner, matrix) for matrix in palette]
         return max(abs(a-b) for original, matrix in zip(expected, world)
                    for a, b in zip(original, [v for column in matrix for v in column]))
@@ -72,10 +82,12 @@ def main():
             for rotation, translation, scale in zip(clip.rotation, clip.translation, clip.scale):
                 rotation.reciprocal = 0.0
                 translation.velocity = scale.velocity = (0.0, 0.0, 0.0)
-    nearest = min(range(clip.length), key=errors.__getitem__)
-    remaining = struct.unpack_from('<f', ram, ACTOR+0x3C)[0]
-    assert nearest == 39 and remaining == 161.0, 'Unexpected reference cursor'
-    assert errors[nearest] <= 0.0001, ('Original bone palettes differ', errors[nearest])
+    nearest = remaining = None
+    if ram is not None:
+        nearest = min(range(clip.length), key=errors.__getitem__)
+        remaining = struct.unpack_from('<f', ram, ACTOR+0x3C)[0]
+        assert nearest == 39 and remaining == 161.0, 'Unexpected reference cursor'
+        assert errors[nearest] <= 0.0001, ('Original bone palettes differ', errors[nearest])
 
     data = args.player.read_bytes()
     magic, bones, verts, indices, nframes, fps, textures, flags, nclips = struct.unpack_from(
@@ -100,10 +112,12 @@ def main():
                            for frame in frames for matrix in [*frame, mat_identity()])
     end = start+len(replacement)
     assert end <= textures_at and len(replacement) == count*bones*64
-    old_palette = [[struct.unpack_from('<4f', data,
-                    start+nearest*bones*64+bone*64+column*16) for column in range(4)]
-                   for bone in range(clip.bones)]
-    previous_error = world_error(old_palette)
+    previous_error = None
+    if ram is not None:
+        old_palette = [[struct.unpack_from('<4f', data,
+                        start+nearest*bones*64+bone*64+column*16) for column in range(4)]
+                       for bone in range(clip.bones)]
+        previous_error = world_error(old_palette)
     result = data[:start]+replacement+data[end:]
     assert len(result) == len(data) and result[:start] == data[:start] and result[end:] == data[end:]
 
@@ -120,8 +134,9 @@ def main():
     report = {
         'status': 'PASS', 'changed': changed, 'clip': CLIP_ID, 'frames': count,
         'source_bank_header': header, 'source_bank_sha256': sha256(bank),
-        'reference_ee_sha256': sha256(ram), 'reference_cursor': nearest,
-        'reference_remaining_time': remaining, 'max_matrix_error': errors[nearest],
+        'reference_ee_sha256': sha256(ram) if ram is not None else None, 'reference_cursor': nearest,
+        'reference_remaining_time': remaining,
+        'max_matrix_error': errors[nearest] if ram is not None else None,
         'previous_max_matrix_error': previous_error,
         'before_sha256': sha256(data), 'after_sha256': sha256(result),
         'preserved_other_clips': nclips-1, 'preserved_other_frames': nframes-count,
@@ -134,7 +149,7 @@ def main():
     report_path = output/('result.json' if changed else 'idempotence.json')
     report_path.write_text(json.dumps(report, indent=2)+'\n')
     print(f'Lever clip47 {"replaced" if changed else "already verified"}: '
-          f'{count} frames,21 original bones; captured matrix error {errors[nearest]:.9g}; '
+          f'{count} frames,21 original bones; captured matrix error {errors[nearest] if ram is not None else "not checked (no capture)"}; '
           f'{nclips-1} other clips and all mesh/texture bytes preserved')
 
 

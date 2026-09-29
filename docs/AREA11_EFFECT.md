@@ -94,10 +94,10 @@ The ordinal17 in this one capture is not installed as a universal constant.
 Run on native macOS Python with the decomp environment's dependencies:
 
 ```sh
-../Extermination/.venv/bin/python tools/export_area11_effect.py \
-  --ee ../Extermination/build/startup-reference/opening_ee.bin \
-  --gs ../Extermination/build/startup-reference/opening_gs.bin \
-  --vu ../Extermination/build/weather_reference/original_vu1.bin
+../Extermination/.venv/bin/python tools/export_area11_effect.py
+# optional developer checks against the opening capture and its VU1 dump:
+#   --ee ../Extermination/build/startup-reference/opening_ee.bin
+#   --vu ../Extermination/build/weather_reference/original_vu1.bin
 make test-area11-effect-reference
 ```
 

@@ -36,7 +36,7 @@
 #include "game/em_startup_load_gaps.h"
 
 enum {
-    TABLE_WORDS = 0xC0,
+    TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
     MAX_REGIONS = 8,
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
@@ -163,10 +163,11 @@ static int load_resources(void)
     if (!ok) { free(data); return report(EM_AREA11_ROGER_RESOURCES_PATH " is unreadable"); }
     const size_t n = (size_t)size;
     uint32_t words = rd32(data + 0xC), count = rd32(data + 0x10);
-    if (memcmp(data, "EMRS", 4) != 0 || rd32(data + 4) != 1 || rd32(data + 8) != TABLE_ADDRESS ||
+    if (memcmp(data, "EMRS", 4) != 0 || rd32(data + 4) != 2 || rd32(data + 8) != TABLE_ADDRESS ||
         words != TABLE_WORDS || count == 0 || count > MAX_REGIONS || 0x20u + 4u * words > n) {
         free(data);
-        return report(EM_AREA11_ROGER_RESOURCES_PATH " is not an EMRS v1 export");
+        return report(EM_AREA11_ROGER_RESOURCES_PATH " is not an EMRS v2 export "
+                      "(re-run tools/export_roger_banks.py)");
     }
     for (unsigned i = 0; i < TABLE_WORDS; ++i) R.table[i] = rd32(data + 0x20 + 4 * i);
     size_t at = 0x20u + 4u * words;

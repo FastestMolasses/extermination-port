@@ -5,6 +5,18 @@ The original functions execute with draw calls intercepted; hover selection
 and the separate analog-trail renderer are explicit boundaries. The latter
 is retained as an ordered command, never replaced with invented artwork.
 All outputs contain local game data and remain under ignored assets/.
+
+The sprites are decoded from the GS memory of the ITEM root page state
+rebuilt from the user's own disc (tools/export_disc_textures_gs.py: the
+first level's world, the BATTERY module 0x21's upload, then the ITEM root
+module 0x1F's, as the panel opens it; the tokens read only module 0x1F's
+rows, so opening it from the hub gives the same texels; docs/
+DISC_TEXTURES.md); each must read only blocks a disc upload writes. No
+PCSX2 capture is needed. With --capture DIR (optional, developers: the
+panel/root capture) the tool checks the capture's page state and that
+every token decodes identically from the captured GS memory.
+
+Usage (port root): python3 tools/export_item_root.py [--iso FILE | --disc DIR] [--capture DIR]
 """
 import argparse
 import hashlib
@@ -99,31 +111,28 @@ class Original(Base):
         raise AssertionError('Original ITEM root drawer failed to return')
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--decomp', type=Path, default=ROOT.parent / 'Extermination')
-    parser.add_argument('--capture', type=Path)
-    parser.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/panel')
-    args = parser.parse_args()
-    capture = args.capture or args.decomp / 'build/startup-reference/panel/root'
-    sys.path.insert(0, str(args.decomp / 'tools'))
-    from export_ui import decode_token_lm, pack_shelf, parse_outer
-    from gs_vram import read_localmem
-    elf = (args.decomp / 'config/SCUS_971.12').read_bytes()
-    digest = hashlib.sha256(elf).hexdigest()
-    assert digest == 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-    ram = (capture / 'eeMemory.bin').read_bytes()
-    assert len(ram) == 0x2000000 and ram[0x810131:0x810136] == bytes((3, 2, 0, 1, 0))
-    _, local = read_localmem(capture / 'gs.bin')
+ITEM_ROOT_MODULE, BATTERY_MODULE = 0x1F, 0x21
+
+
+def layouts_of(elf: bytes) -> list:
+    """0020F170 / 0020F2A0 executed for the six selections."""
     layouts = []
     for selection in range(6):
         original = Original(elf, selection)
         original.collect(0x20F170)
         original.collect(0x20F2A0)
         layouts.append(original.commands)
+    return layouts
+
+
+def item_root_emir(elf: bytes, decode_token, extract: Path) -> tuple:
+    """(item_root.emir bytes, source report). decode_token(token) ->
+    (RGBA8 bytes, {'w', 'h'}) of one resident page texture."""
+    from export_ui import pack_shelf, parse_outer
+    layouts = layouts_of(elf)
     tokens = list(dict.fromkeys(command['tex0'] for commands in layouts
                                for command in commands if 'tex0' in command))
-    decoded = [decode_token_lm(local, token & 0xFFFFFFFF, token >> 32) for token in tokens]
+    decoded = [decode_token(token) for token in tokens]
     # The original trail is an untextured Gouraud fan. The white texel is
     # a backend carrier only; it does not supply any authored cursor art.
     white_index = len(tokens)
@@ -151,7 +160,7 @@ def main():
                 values = (2, 1, 0, int(command['x']), int(command['y']), 0, 0, 0)
             command_bytes += struct.pack('<8I', *values)
     counts = [len(commands) for commands in layouts]
-    text_source = (args.decomp / 'extract/chunk00/f02_id02.bin').read_bytes()
+    text_source = (extract / 'chunk00/f02_id02.bin').read_bytes()
     directory, _, _, directory_offset = struct.unpack_from('<4I', text_source)
     outer = directory + struct.unpack_from('<I', text_source, directory_offset + 16)[0]
     strings, _ = parse_outer(text_source, outer, 'ITEM help group1')
@@ -174,17 +183,58 @@ def main():
     payload = sprite_records + struct.pack('<6I', *counts) + command_bytes + text_blob + atlas
     header = struct.pack('<4s11I', b'EMIR', 2, width, height, len(tokens),
                          sum(counts), 6, len(payload), 5, len(text_blob), white_index, 0)
-    args.out.mkdir(parents=True, exist_ok=True)
-    (args.out / 'item_root.emir').write_bytes(header + payload)
-    source = {'elf_sha256': digest, 'capture_sha256': hashlib.sha256(ram).hexdigest(),
-              'callbacks': ['0020F170', '0020F2A0'], 'layout_counts': counts,
+    source = {'callbacks': ['0020F170', '0020F2A0'], 'layout_counts': counts,
               'texture_count': len(tokens) - 1, 'layouts': layouts, 'help': text_metadata,
               'boundaries': ['hover quantizer0020D930', 'analog trail0020AC70'],
               'atlas': [{'tex0': hex(token), 'xy': position, 'wh': [meta['w'], meta['h']]}
                         for token, position, (_, meta) in zip(tokens, positions, decoded)]}
+    return header + payload, source
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--decomp', type=Path, default=ROOT.parent / 'Extermination')
+    parser.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    parser.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
+    parser.add_argument('--capture', type=Path, help='optional cross-check: the ITEM root capture folder '
+                        '(e.g. ../Extermination/build/startup-reference/panel/root)')
+    parser.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/panel')
+    args = parser.parse_args()
+    sys.path.insert(0, str(args.decomp / 'tools'))
+    sys.path.insert(0, str(ROOT / 'tools'))
+    from export_ui import decode_token_lm
+    import export_disc_textures_gs as G
+    elf = (args.decomp / 'config/SCUS_971.12').read_bytes()
+    digest = hashlib.sha256(elf).hexdigest()
+    assert digest == 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
+    extract = args.decomp / 'extract'
+    fl = G.FirstLevel(G.Disc(args.iso, args.disc), extract)
+    page = fl.page(fl.page(fl.world(), BATTERY_MODULE), ITEM_ROOT_MODULE)
+    local = bytes(page.lm)
+
+    def decode(token):
+        lo, hi = token & 0xFFFFFFFF, token >> 32
+        if not G.reads_only_covered(page, lambda m: decode_token_lm(m, lo, hi)[0]):
+            raise SystemExit(f'token {token:#018x}: reads GS blocks no disc upload writes')
+        return decode_token_lm(local, lo, hi)
+    emir, source = item_root_emir(elf, decode, extract)
+    source = {'elf_sha256': digest, 'texels': 'disc (FirstLevel.world() + pages 0x21, 0x1F)', **source}
+    if args.capture:
+        from gs_vram import read_localmem
+        ram = (args.capture / 'eeMemory.bin').read_bytes()
+        assert len(ram) == 0x2000000 and ram[0x810131:0x810136] == bytes((3, 2, 0, 1, 0))
+        _, captured = read_localmem(args.capture / 'gs.bin')
+        for entry in source['atlas'][:-1]:
+            token = int(entry['tex0'], 16)
+            if decode_token_lm(captured, token & 0xFFFFFFFF, token >> 32)[0] != decode(token)[0]:
+                raise SystemExit(f'token {token:#018x}: the capture differs from the disc decode')
+        source['capture_sha256'] = hashlib.sha256(ram).hexdigest()
+    args.out.mkdir(parents=True, exist_ok=True)
+    (args.out / 'item_root.emir').write_bytes(emir)
     (args.out / 'item_root_source.json').write_text(json.dumps(source, indent=2) + '\n')
-    print(json.dumps({'original_layouts': 6, 'command_counts': counts,
-                      'textures': len(tokens) - 1, 'help_strings': 5, 'source': str(capture)}))
+    print(json.dumps({'original_layouts': 6, 'command_counts': source['layout_counts'],
+                      'textures': source['texture_count'], 'help_strings': 5,
+                      'texels': 'disc', 'capture_checked': bool(args.capture)}))
 
 
 if __name__ == '__main__':

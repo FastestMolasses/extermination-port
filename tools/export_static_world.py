@@ -165,6 +165,8 @@ def main(argv=None) -> int:
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/static_world.emsw')
     ap.add_argument('--verify-ram', type=Path, action='append', default=None)
     ap.add_argument('--no-verify', action='store_true')
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     args = ap.parse_args(argv)
     elf = args.elf.read_bytes()
     if hashlib.sha256(elf).hexdigest() != ELF_SHA256:
@@ -173,6 +175,16 @@ def main(argv=None) -> int:
     span, entries = bank_extent(cat, CONCAT_OFFSET)
     bank = cat[CONCAT_OFFSET:CONCAT_OFFSET + span]
     data = elf_block(elf, *DATA_BLOCK)
+    # *D_0028A5A0 = D_0028A490[0x44], the AREA11 load's relocated slot, and
+    # the bank bytes the load leaves there, rebuilt from the user's disc
+    # (tools/export_disc_textures_gs.py ResourceTable), must be this bank.
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import export_disc_textures_gs as G
+    table = G.ResourceTable(G.Disc(args.iso, args.disc))
+    if table.words[0x44] != args.bank_address:
+        raise SystemExit(f'D_0028A490[0x44] from the disc is {table.words[0x44]:#x}, not {args.bank_address:#x}')
+    if table.resident_bytes(args.bank_address, span) != bank:
+        raise SystemExit('the AREA11 load leaves other bytes at the bank address than the extract')
     captures = [] if args.no_verify else (args.verify_ram or default_captures())
     checked = 0
     for p in captures:

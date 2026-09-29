@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
 """Export AREA11 owner008235F0's original placement and particle descriptor.
 
-Outputs are generated locally from the user's disc and reference state, and
-belong only in ignored assets/build directories. Existing model files are
+Outputs are generated locally from the user's disc (the AREA11 overlay's
+placement record and descriptor, the ELF's lookup and light rig) and belong
+only in ignored assets/build directories. The optional --ee / --vu captures
+(an AREA11 EE RAM image and a VU1 dump, developers only) are checked
+against the exported bytes when given; the output does not depend on them. Existing model files are
 untouched. This exporter replaces the old guessed steam manifest record.
 The flame's texture is a page texture since the flame draws on the chain
 page (tools/export_page_textures.py / export_disc_textures.py; docs/
@@ -21,8 +24,8 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root',type=Path,default=ROOT.parent/'Extermination')
-    parser.add_argument('--ee',type=Path,required=True)
-    parser.add_argument('--vu',type=Path,required=True)
+    parser.add_argument('--ee',type=Path,help='optional check: an AREA11 EE RAM capture')
+    parser.add_argument('--vu',type=Path,help='optional check: the matching VU1 memory dump')
     parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow')
     args=parser.parse_args()
     sys.path.insert(0,str(args.decomp_root/'tools'))
@@ -32,12 +35,16 @@ def main():
     elf=original.read_bytes()
     assert hashlib.sha256(elf).hexdigest()=='ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
     overlay=(args.decomp_root/'extract/OVERLAY/AREA11.BIN').read_bytes()
-    ram=args.ee.read_bytes(); vu=args.vu.read_bytes()
-    assert len(ram)==32*1024*1024 and len(vu)==16384
-    assert ram[0x810700:0x810702]==b'\x0b\0'
-    assert overlay[0xf0:0x2c0]==ram[0x8235f0:0x8237c0], 'runtime overlay mapping'
+    ram=args.ee.read_bytes() if args.ee else None
+    vu=args.vu.read_bytes() if args.vu else None
     descriptor=overlay[0x4e40:0x4ed0]
-    assert descriptor==ram[0x828340:0x8283d0]==vu[0x500:0x590]
+    if ram is not None:
+        assert len(ram)==32*1024*1024
+        assert ram[0x810700:0x810702]==b'\x0b\0'
+        assert overlay[0xf0:0x2c0]==ram[0x8235f0:0x8237c0], 'runtime overlay mapping'
+        assert descriptor==ram[0x828340:0x8283d0]
+    if vu is not None:
+        assert len(vu)==16384 and descriptor==vu[0x500:0x590]
     assert struct.unpack_from('<4I',descriptor,128)[::2]==(80,9)
     assert struct.unpack_from('<I',descriptor,140)[0]==2
     record=overlay[0x6fd4:0x6ffc]
@@ -45,13 +52,16 @@ def main():
     assert struct.unpack_from('<I',record,4)[0]==0x1000d
     position=record[16:28]; rotation=record[28:40]
     assert rotation==bytes(12), 'unrecovered nonzero placement rotation'
-    assert position==ram[0x7a85f0:0x7a85fc]
-    assert struct.unpack_from('<I',ram,0x7a8550)[0]==0x8235f0
     matrix=struct.pack('<12f',1,0,0,0,0,1,0,0,0,0,1,0)+position+struct.pack('<f',1)
-    assert matrix==ram[0x7a8610:0x7a8650]==vu[0x5a0:0x5e0]
+    if ram is not None:
+        assert position==ram[0x7a85f0:0x7a85fc]
+        assert struct.unpack_from('<I',ram,0x7a8550)[0]==0x8235f0
+        assert matrix==ram[0x7a8610:0x7a8650]
     offset=0x2342bc-0x100000+0x300
     lookup=elf[offset:offset+320]
-    assert lookup==b''.join(vu[i*16:i*16+4] for i in range(80))
+    if vu is not None:
+        assert matrix==vu[0x5a0:0x5e0]
+        assert lookup==b''.join(vu[i*16:i*16+4] for i in range(80))
     rig_index,matched,rig=level.lightrig_read(level.BootElf(original),11,0)
     assert matched
     fog=struct.pack('<2f',*rig['fog'][:2])
@@ -73,7 +83,8 @@ def main():
             'runtime_owner':0x8235f0,'runtime_descriptor':0x828340,
             'placement_file_offset':0x6fd4,'placement':struct.unpack('<3f',position),
             'lookup_address':0x2342bc,'rig_index':rig_index,'fog_near_far':rig['fog'][:2],
-            'texture':texture,'config_sha256':hashlib.sha256(data).hexdigest()}
+            'texture':texture,'config_sha256':hashlib.sha256(data).hexdigest(),
+            'checked_against':{'ee':str(args.ee) if args.ee else None,'vu':str(args.vu) if args.vu else None}}
     output=ROOT/'build/area11_effect_reference';output.mkdir(parents=True,exist_ok=True)
     (output/'export.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f'Exported AREA11 effect: 80 particles, TEX0 {key:#x} (a page texture)')

@@ -1156,6 +1156,52 @@ snow on the chain page; CHAIN_PAGE.md section 6.1, SNOW_PARTICLES.md, census
   through their packets' camera and fog rows; 001DDE10's four-sprite pass;
   the frame's Q premise.
 
+**Status update (2026-09-28, chain step "every first-level asset from the
+user's disc alone"; DISC_TEXTURES.md sections 6 and 9, STARTUP.md):**
+- **Textures from the disc.** Every texture exporter reads the disc only:
+  `export_disc_textures.py` (STARTUP.md step 4: the font, the object and
+  page textures with the 001F8D30 decal, the status models, the BATTERY /
+  ITEM root / hub atlases) and the tools it calls, each disc-first with its
+  capture path an optional cross-check; the fence door, Roger, the AREA11
+  props and pickup bodies / lights take their texels from the GS memory
+  rebuilt from the disc; `player.emdl` and the decomp's `export_props.py`
+  modes take it with `--p2s` (the step-6 bake is byte-identical to the
+  GS-dump bake). The release blocker "disc-sourced textures" is met.
+- **The resource table from the disc.** `ResourceTable` replays the boot,
+  title, New Game and AREA11 loads (001AB430, 001FF1E0(0), 001FB370 /
+  001FB3E0's bank end, 001FF830 kinds 0 / 1, 001FF1E0(0x1B / 0x1C),
+  001FFCD0) and equals D_0028A490[0 .. 0xAF) of all 18 AREA11 captures.
+  `export_roger_banks.py` writes it (EMRS version 2, 0xAF words: version 1
+  carried 0xC0 words from a capture, the last ones the task table);
+  `em_area11_roger.c` loads version 2 only and em_scene_bindings.c's
+  0015C1F0 table copy reads the export's 0xAF words
+  (`EM_AREA11_ROGER_TABLE_WORDS`). The player model, world model and
+  static-world exporters check their addresses against it; the module
+  loader's cursor seeds are computed from it.
+- **The rest.** The weather bits come from 001B0250's room record in the
+  ELF; the door's .data from the ELF; the status hub's EMHS and help lines
+  run over the EE memory the loads leave (its arc block holds the ELF's
+  words where the capture held mid-hub ones, all rewritten by 00208AD0
+  before they are read); the effect, snow, player-clip and clip-append
+  exporters' RAM reads are optional checks.
+- **Evidence.** test-disc-textures-reference (quick and full; the object
+  textures' pin renewed from the capture exporter's current output, the
+  hub token list pinned); new test-disc-assets-reference (quick about 3 s:
+  the table against 3 captures, the weather bits, 24 files byte-identical to
+  the pinned capture-derived ones, 7 controls; full: 18 captures, 33 files,
+  the EMRS table / regions, the EMHS outside the arc words, player.emdl's
+  bake identical to the GS-dump bake); a copy of the tree with no capture
+  visible ran 57 export steps, 113 of the 116 files the level smoke opens
+  came out byte-identical to the installed ones and `make
+  test-level-smoke-full` passed on them (main route through roger, 18
+  phases, and the side runs).
+- **Open:** `interaction.emis` (the use-owners' first-tick status, selector
+  and descriptor pointer) and `background.embg` (render channel 3's GS
+  draw state) still read a capture (DISC_TEXTURES.md 9.4); only `--iso` is
+  exercised; the installed `player.emdl` and `fx/light_cone.emdl` are not
+  reproduced whole by the current exporters (older bakes), though their
+  texels are the disc's.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to

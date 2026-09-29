@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
 """Export original AREA11 snow parameters and the VU lookup.
 
-All outputs are generated locally from the user's original ELF/save state and
-must remain ignored. The 80 scalar lookup values are original VIF upload data,
+All outputs are generated locally from the user's original ELF and must
+remain ignored. The 80 scalar lookup values are original VIF upload data,
 not recomputed sine values. The snow's texture (the descriptor's TEX0 row) is
 a page texture since the snow draws on the chain page (tools/
 export_page_textures.py / export_disc_textures.py; docs/SNOW_PARTICLES.md);
-a snow.emtx of an earlier export is not read. The EE state (a save state
-through --gs, or --reference-ee) only confirms the AREA11 weather branch.
+a snow.emtx of an earlier export is not read.
+
+The weather branch is the ELF's: 001B0250 sets D_008106C8 to the +0x1C word
+of the area's room record D_0024D650[D_00810700][D_00810701] +
+D_00810702 * 0x30 (area 11, room 0, entry 0 after a New Game), then, only
+for area 11 with the event byte D_00810788 set, clears the bits 0x0E000070
+and sets 0x44. A New Game clears D_00810788 (001AF2C0's memset), so the
+first level's weather bits are the record word's. An optional EE state (a
+save state through --gs, or --reference-ee) is checked against it.
 """
 from __future__ import annotations
 import argparse
@@ -19,6 +26,9 @@ import sys
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+ROOM_TABLE = 0x24D650          # D_0024D650: the per-area room record tables (001B0250)
+AREA, ROOM, ENTRY = 11, 0, 0   # the New Game's AREA11 entry (D_00810700..02)
+WEATHER_MASK = 0x0E000070      # the bits 001E67C0 / the weather node test
 
 
 def main():
@@ -33,6 +43,7 @@ def main():
     sys.path.insert(0, str(args.decomp_root / 'tools'))
     import export_native as native
     from audio_export import ElfImage
+    ram = None
     if args.reference_ee:
         ram = args.reference_ee.read_bytes()
     elif args.gs and args.gs.suffix.lower() == '.p2s':
@@ -42,17 +53,21 @@ def main():
             ram = archive.read(info) if info.compress_type != 93 else None
         if ram is None:
             ram = extract_zstd_entry(args.gs, 'eeMemory.bin')
-    else:
-        raise ValueError('Supply --reference-ee, or --gs with a .p2s save state')
-    if len(ram) != 32 * 1024 * 1024 or ram[0x810700:0x810702] != b'\x0b\0':
-        raise ValueError('Expected original AREA11/sub0 reference state')
-    weather_flags = struct.unpack_from('<I', ram, 0x8106C8)[0] & 0x0e000070
-    if weather_flags != 0x10:
-        raise ValueError('Unverified AREA11 weather branch')
     original = args.decomp_root / 'config/SCUS_971.12'
     if hashlib.sha256(original.read_bytes()).hexdigest() != 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a':
         raise ValueError('Expected original SCUS-97112 executable')
     elf = ElfImage(original)
+    # 001B0250: D_0024D650[area][room] + entry * 0x30, its +0x1C word.
+    room = elf.u32(elf.u32(ROOM_TABLE + AREA * 4) + ROOM * 4)
+    record_word = elf.u32(room + ENTRY * 0x30 + 0x1C)
+    weather_flags = record_word & WEATHER_MASK
+    if weather_flags != 0x10:
+        raise ValueError('Unverified AREA11 weather branch')
+    if ram is not None:
+        if len(ram) != 32 * 1024 * 1024 or ram[0x810700:0x810702] != b'\x0b\0':
+            raise ValueError('Expected original AREA11/sub0 reference state')
+        if ram[0x810788] or struct.unpack_from('<I', ram, 0x8106C8)[0] & WEATHER_MASK != weather_flags:
+            raise ValueError('the captured D_008106C8 weather bits differ from the room record')
     descriptor = bytearray(elf.read(0x255170, 9 * 16))
     lookup = elf.read(0x2342BC, 80 * 4)
     rows = elf.read(0x255200, 6 * 48)
@@ -88,7 +103,8 @@ def main():
                   rows_address=0x255200, particles_per_tile=count, tile_count=108,
                   flags=flags, kind=kind, weather_flags=weather_flags, texture=texture,
                   parameters_sha256=hashlib.sha256(payload).hexdigest(),
-                  lookup_compared_to_vu=bool(args.reference_vu))
+                  lookup_compared_to_vu=bool(args.reference_vu),
+                  room_record_word=record_word, checked_against_ram=ram is not None)
     output = ROOT / 'build/weather_reference'
     output.mkdir(parents=True, exist_ok=True)
     (output / 'export.json').write_text(json.dumps(report, indent=2) + '\n')

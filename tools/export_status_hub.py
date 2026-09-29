@@ -4,6 +4,25 @@
 The original209DF0 executes from the local ELF. Arc/marker descriptors and
 actual draw-worker order are exported, with health/battery/ammo/trail kept
 as required dynamic workers. This is not an invented replacement menu.
+
+Everything comes from the user's own disc; no PCSX2 capture is needed:
+  * the EE memory the original runs over is the pinned ELF's image plus the
+    resident regions the boot, New Game and AREA11 loads leave, with the
+    resource table D_0028A490 (tools/export_disc_textures_gs.py
+    ResourceTable / first_level_memory, docs/DISC_TEXTURES.md), after the
+    message reset 001FC9B0 the boot's 001AB430 runs (D_00275C50 / 54, the
+    style the help presenter reads). The hub state is the capture's: hover
+    set per layout, infection 0 or 100, UI+0x11 = 0 and infection 0 for
+    the fixture pass (the status-hub capture's values);
+  * the sprites are decoded from the first level's GS memory rebuilt from
+    the disc (the hub loads no page module), each reading only blocks a
+    disc upload writes.
+With --capture DIR (optional, developers: the status-hub capture) every
+output is also produced over the captured RAM and GS memory: the atlas, the
+layouts, the help lines and the sprite list must be identical, and the
+EMHS may differ only in the arc-block words 00208AD0 writes before they are
+read (ARC_WORDS_WRITTEN); the fixture pass draws the captured health and
+is not compared.
 """
 import argparse
 import hashlib
@@ -321,36 +340,47 @@ def runtime_bundle(original, layouts, helps):
     return struct.pack('<4s5I', b'EMHS', 2, len(payload), len(layouts), len(helps), 0) + payload
 
 
-def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--decomp',type=Path,default=ROOT.parent/'Extermination')
-    parser.add_argument('--capture',type=Path)
-    parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow/panel')
-    args = parser.parse_args()
-    capture = args.capture or args.decomp/'build/startup-reference/status-hub'
-    elf = (args.decomp/'config/SCUS_971.12').read_bytes()
-    assert hashlib.sha256(elf).hexdigest()==ELF_SHA
-    ram=(capture/'eeMemory.bin').read_bytes()
-    assert len(ram)==0x2000000 and ram[0x810131:0x810133]==bytes((1,1))
-    layouts=[]
-    for hover in range(5):
-        for infection in (0,100):
-            original=Original(elf,ram,hover,infection)
-            original.run(0x209df0,(UI,))
-            layouts.append({'hover':hover,'infection_terminal':infection==100,'commands':original.commands})
-    fixture=Original(elf,ram,ram[UI+0x11],number(struct.unpack_from('<I',ram,0x81085c)[0]),True)
-    fixture.run(0x209df0,(UI,))
-    sys.path.insert(0,str(args.decomp/'tools'))
-    from export_ui import decode_token_lm, pack_shelf
-    from gs_vram import read_localmem
-    _, local = read_localmem(capture/'gs.bin')
-    # The live display can select every original secondary icon, even though
-    # the captured first-level equipment has no secondary weapon equipped.
-    tokens = list(dict.fromkeys([0x20045ee59d421e40, 0x20045385554221c2,
-                                0x20045305554221a6, 0x200451a5554221a2,
-                                0x20045325554221b2]+[
-        c['tex0'] for layout in layouts+ [{'commands':fixture.commands}] for c in layout['commands'] if 'tex0' in c]))
-    decoded = [decode_token_lm(local,token & 0xffffffff,token >> 32) for token in tokens]
+HOVERS, INFECTIONS = range(5), (0, 100)
+SECONDARY_ICONS = [0x20045ee59d421e40, 0x20045385554221c2, 0x20045305554221a6,
+                   0x200451a5554221a2, 0x20045325554221b2]
+
+
+# The EMHS starts with the arc block D_00265390 (four 0x60-byte arc
+# descriptors, 96 words). The capture holds the words 00208AD0 had written
+# while the hub was open; the disc gives the ELF's initial words. They
+# differ only in words 00208AD0 writes before each 002082B0 reads them
+# (em_status_draw.c em_status_health_draw): every block's centre (words
+# 0, 1), block 0's and blocks 2 and 3's start / end angles (words 2, 3)
+# and block 1's two colour rows (words 8 .. 23). Word indices are into
+# the 96-word block.
+ARC_WORDS_WRITTEN = ({24 * b + w for b in range(4) for w in (0, 1)} | {2, 3} |
+                     {24 * b + w for b in (2, 3) for w in (2, 3)} | {24 + w for w in range(8, 24)})
+
+
+def arc_words_differing(a: bytes, b: bytes) -> set:
+    """The arc-block words in which two EMHS files differ; any other
+    difference refuses (SystemExit)."""
+    head = 24
+    if len(a) != len(b) or a[:head] != b[:head] or a[head + 384:] != b[head + 384:]:
+        raise SystemExit('EMHS differs outside the arc block D_00265390')
+    return {i for i in range(96) if a[head + 4 * i:head + 4 * i + 4] != b[head + 4 * i:head + 4 * i + 4]}
+
+
+def disc_memory(elf, iso=None, disc=None):
+    """(the EE image the loads leave, the GS world) from the user's disc."""
+    sys.path.insert(0, str(ROOT/'tools'))
+    import export_disc_textures_gs as G
+    d = G.Disc(iso, disc)
+    ram = bytes(G.first_level_memory(elf, G.ResourceTable(d)))
+    return ram, G.FirstLevel(d).world()
+
+
+def atlas_emha(tokens, decode_token):
+    """(status_hub_atlas.emha bytes, sprite list, height, white index): the
+    tokens' decodes and a white helper texel, shelf-packed 1024 wide."""
+    from export_ui import pack_shelf
+    tokens = list(tokens)
+    decoded = [decode_token(token) for token in tokens]
     white_index = len(tokens)
     tokens.append(0)
     decoded.append((bytes((255,255,255,255)),{'w':1,'h':1}))
@@ -363,27 +393,97 @@ def main():
         for row in range(h):
             at=((y+row)*1024+x)*4
             pixels[at:at+w*4]=data[row*w*4:(row+1)*w*4]
-    presenter=Presenter(elf,ram)
-    helps=[{'group':0,'line':line,'commands':presenter.help_line(line)} for line in range(10)]
-    args.out.mkdir(parents=True,exist_ok=True)
     header=struct.pack('<4s6I',b'EMHA',1,1024,height,len(sprites),white_index,len(pixels))
     records=b''.join(struct.pack('<Q4I',s['tex0'],*s['xywh']) for s in sprites)
-    (args.out/'status_hub_atlas.emha').write_bytes(header+records+pixels)
-    output={'elf_sha256':ELF_SHA,'capture_sha256':hashlib.sha256(ram).hexdigest(),
+    return header+records+pixels, sprites, height, white_index
+
+
+def build(elf, ram, decode_token, message_reset):
+    """(status_hub_atlas.emha, status_hub_commands.json dict, status_hub.emhs)
+    over `ram`; decode_token(token) -> (RGBA8, {'w', 'h'}). message_reset:
+    run 001FC9B0 before the help presenter (the disc image; a captured RAM
+    already holds its effect)."""
+    layouts=[]
+    for hover in HOVERS:
+        for infection in INFECTIONS:
+            original=Original(elf,ram,hover,infection)
+            original.run(0x209df0,(UI,))
+            layouts.append({'hover':hover,'infection_terminal':infection==100,'commands':original.commands})
+    fixture=Original(elf,ram,ram[UI+0x11],number(struct.unpack_from('<I',ram,0x81085c)[0]),True)
+    fixture.run(0x209df0,(UI,))
+    # The live display can select every original secondary icon, even though
+    # the captured first-level equipment has no secondary weapon equipped.
+    tokens = list(dict.fromkeys(SECONDARY_ICONS+[
+        c['tex0'] for layout in layouts+ [{'commands':fixture.commands}] for c in layout['commands'] if 'tex0' in c]))
+    emha, sprites, height, white_index = atlas_emha(tokens, decode_token)
+    presenter=Presenter(elf,ram)
+    if message_reset:
+        presenter.run(0x1fc9b0)
+    helps=[{'group':0,'line':line,'commands':presenter.help_line(line)} for line in range(10)]
+    output={'elf_sha256':ELF_SHA,
             'callback':'00209DF0','layouts':layouts,'fixture':fixture.commands,'sprites':sprites,'help':helps,
             'atlas':{'width':1024,'height':height,'white_index':white_index},
             'dynamic_workers':['00208AD0 health','00209280 battery','00209860 ammo','0020AC70 trail'],
-            'help_source':'executed original 001FCB90 group0 over captured RAM',
+            'help_source':'executed original 001FCB90 group0',
             'boundaries':['dynamic worker bodies','original font packet helpers','standard byte string copy/append/memset workers','final GS/Metal rasterization']}
-    (args.out/'status_hub_commands.json').write_text(json.dumps(output,indent=2)+'\n')
     bundle_layouts=[]
-    for hover in range(5):
-        for infection in (0,100):
+    for hover in HOVERS:
+        for infection in INFECTIONS:
             original=Original(elf,ram,hover,infection,record_blend=True)
             original.run(0x209df0,(UI,))
             bundle_layouts.append({'hover':hover,'infection_terminal':infection==100,'commands':original.commands})
-    (args.out/'status_hub.emhs').write_bytes(runtime_bundle(Original(elf, ram, 0, 0), bundle_layouts, helps))
-    print(json.dumps({'original_layouts':len(layouts),'command_counts':[len(x['commands']) for x in layouts],
-                      'textures':len(sprites)-1,'help_lines':len(helps),'source':str(capture)}))
+    emhs=runtime_bundle(Original(elf, ram, 0, 0), bundle_layouts, helps)
+    return emha, output, emhs
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument('--decomp',type=Path,default=ROOT.parent/'Extermination')
+    parser.add_argument('--iso',type=Path,help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    parser.add_argument('--disc',type=Path,help='a mounted disc or a copy of its DATA/ directory')
+    parser.add_argument('--capture',type=Path,help='optional cross-check: the status-hub capture folder '
+                        '(e.g. ../Extermination/build/startup-reference/status-hub)')
+    parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow/panel')
+    args = parser.parse_args()
+    elf = (args.decomp/'config/SCUS_971.12').read_bytes()
+    assert hashlib.sha256(elf).hexdigest()==ELF_SHA
+    sys.path.insert(0,str(args.decomp/'tools'))
+    sys.path.insert(0,str(ROOT/'tools'))
+    from export_ui import decode_token_lm
+    import export_disc_textures_gs as G
+    ram, world = disc_memory(elf, args.iso, args.disc)
+    residency = G.Residency(world)
+
+    def decode(token):
+        lo, hi = token & 0xffffffff, token >> 32
+        if not residency.ok(lambda m: decode_token_lm(m, lo, hi)[0]):
+            raise SystemExit(f'token {token:#018x}: reads GS blocks no disc upload writes')
+        return decode_token_lm(residency.lm, lo, hi)
+    emha, output, emhs = build(elf, ram, decode, True)
+    output['memory'] = 'disc (the ELF image + the loads of ResourceTable, then 001FC9B0)'
+    if args.capture:
+        from gs_vram import read_localmem
+        cram=(args.capture/'eeMemory.bin').read_bytes()
+        assert len(cram)==0x2000000 and cram[0x810131:0x810133]==bytes((1,1))
+        _, local = read_localmem(args.capture/'gs.bin')
+        again = build(elf, cram, lambda t: decode_token_lm(local, t & 0xffffffff, t >> 32), False)
+        if again[0] != emha:
+            raise SystemExit('the status-hub capture gives a different atlas than the disc')
+        for key in ('layouts', 'sprites', 'help', 'atlas'):
+            if again[1][key] != output[key]:
+                raise SystemExit(f'the status-hub capture gives different {key} than the disc')
+        moved = arc_words_differing(emhs, again[2])
+        if not moved <= ARC_WORDS_WRITTEN:
+            raise SystemExit(f'EMHS words {sorted(moved - ARC_WORDS_WRITTEN)} differ from the capture\'s')
+        output['capture_check'] = {'capture': str(args.capture), 'sha256': hashlib.sha256(cram).hexdigest(),
+                                   'outputs': 'identical'}
+    args.out.mkdir(parents=True,exist_ok=True)
+    (args.out/'status_hub_atlas.emha').write_bytes(emha)
+    (args.out/'status_hub_commands.json').write_text(json.dumps(output,indent=2)+'\n')
+    (args.out/'status_hub.emhs').write_bytes(emhs)
+    print(json.dumps({'original_layouts':len(output['layouts']),
+                      'command_counts':[len(x['commands']) for x in output['layouts']],
+                      'textures':len(output['sprites'])-1,'help_lines':len(output['help']),
+                      'memory':'disc','capture_checked':bool(args.capture)}))
 
 if __name__=='__main__':main()

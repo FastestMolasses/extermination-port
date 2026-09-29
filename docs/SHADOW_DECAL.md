@@ -271,14 +271,13 @@ the alpha channel. The test checks residency and equality of the digests across
 beats (4 beats by default, all in full mode). Nothing disc-derived is
 printed or stored.
 
-**The uploader was not identified.** No boot-ELF instruction builds 0x2469
-except 001F8D30's TEX0. Beat 04's captured RAM holds no BITBLTBUF aimed at it.
-The texture is data-driven, probably part of a resource the area load
-uploads.
-
-Until the uploader is translated, the renderer has two options. It can take
-the texture from an export of a captured GS image into the ignored
-`assets/`. Or it can fault. It must not substitute a generated blob.
+**The uploader** (answered by DISC_TEXTURES.md section 2, 2026-09-27): no
+boot-ELF instruction builds 0x2469 except 001F8D30's TEX0, and no transfer
+names it, because the decal is a sub-rectangle of the library sheet module
+0x1B uploads (GS blocks 0x1D00..0x247F; 001AB7E0 step 3's 001FF1E0(0x1B),
+re-sent by 001AD1A0's 00200830(D_0028A564)). The texture is exported from
+the GS memory rebuilt from the user's disc with that upload sequence; it
+must not be substituted by a generated blob.
 
 The draw state the renderer must reproduce is the blend-state block of
 mode 1: 001CB900(page, 0, 1) → 001CB9B0(1) = D_00275674 + 0x720 = 0x814940
@@ -336,8 +335,9 @@ frame's fans' (the sum of n - 2) and then marks the decal flushed.
 (`assets/scene_snow/page_textures.emot`, `tools/export_page_textures.py`,
 STARTUP.md row 52, which replaced `export_shadow_decal_texture.py` and
 `shadow_decal.emdt`): the 16 x 16 texels through the CLUT (raw GS alpha),
-decoded from the route captures' GS memory and required to be identical in
-every capture. Its uploader is still not identified (section 4).
+decoded from the first level's GS memory rebuilt from the disc (the library
+sheet, section 4); test-disc-textures-reference checks the decode equals
+every route capture's.
 
 **Evidence.** The level smoke's check_shadow (C): the original 001CE300,
 run over the port's sampled inputs, writes the port's packets byte for byte
@@ -362,10 +362,8 @@ floor, as in the capture.
   at 0x00811CC0. The translation faults instead. For a triangle, the
   |w| / sign · w mismatch allows at most 5 → 9 → 17 outputs in theory, so
   only a pathological quad could reach it. No generated case did.
-- **S3: the texture uploader** (section 4). The live texture is exported
-  from the user's own route captures' GS memory; a machine without those
-  captures cannot produce it, and the first page that draws the decal then
-  faults (fail-stop, no stand-in blob).
+- **S3: the texture uploader** (section 4): answered; the texture is
+  exported from the disc (DISC_TEXTURES.md), so no capture is needed.
 - **S5: the page's other producers** are drawn with the decal since WP-13
   (docs/CHAIN_PAGE.md), in slot order.
 - **S6: rasterization.** Metal's float interpolation, floored with a 0.001

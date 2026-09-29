@@ -70,9 +70,10 @@ Regenerate with the decomp environment's existing Python dependencies:
 ../Extermination/.venv/bin/python tools/export_pickup_lights.py
 ```
 
-The default texture source is the local cold-boot `opening_gs.bin` freeze
-component; `--gs` accepts another original GS freeze capture. This input is
-local evidence and is not committed.
+The default texture source is the first level's GS memory rebuilt from the
+user's disc (DISC_TEXTURES.md; the texels equal the cold-boot
+`opening_gs.bin` freeze's); `--gs` accepts a GS freeze blob instead. No
+capture is needed.
 
 ## Original color and draw state
 

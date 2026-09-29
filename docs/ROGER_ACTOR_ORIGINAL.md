@@ -493,11 +493,15 @@ The world in this test is synthetic bookkeeping, not original data.
   pushes Roger's and the equipment's +0x110 words back
   (`em_area11_roger_001AF800`).
 - **Resources.** `assets/scene_snow/roger/resources.emrs`
-  (`tools/export_roger_banks.py`): D_0028A490[0..0xC0), the bank file
+  (`tools/export_roger_banks.py`, EMRS version 2): D_0028A490[0..0xAF)
+  rebuilt from the disc with the loaders' rules (DISC_TEXTURES.md 9.1;
+  version 1 held 0xC0 words taken from a capture), the bank file
   chunk15/f12_id44 from +0x41000 (banks 0x96 and 0x4A, the +0x58 chain) at
   its load address, chunk15/f18_id94 (model 0x47, face resource 0x88) and
   the equipment's model 0x6B of chunk27/f01_id37 with D_0028A56C's table
-  head, each checked byte for byte against RAM in every AREA11 capture.
+  head; when the captures are present, each is checked byte for byte
+  against RAM in every AREA11 capture. A read of a table word past 0xAF
+  faults.
 - **Workers.**
   - `w_001C63E0`, 001C67E0, 001C64F0, 001C68C0: `em_pose_host_workers` over
     Roger's record (`em_pose_host_001C63E0 / _001C67E0 / _001C68C0` and

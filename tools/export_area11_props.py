@@ -5,6 +5,9 @@ Original callbacks: switch00159210 uses per-area04 and global child75;
 elevator00827B10 uses per-area0F and child10. Record8 is Roger, not a
 battery terminal. This removes that fabricated console from the normal
 scene and replaces the old grate/elevator descriptions with proven data.
+Texels come from the first level's GS memory rebuilt from the user's own
+disc (tools/export_disc_textures_gs.py; docs/DISC_TEXTURES.md), or from a
+GS freeze blob given with --gs; no PCSX2 capture is needed.
 """
 from __future__ import annotations
 
@@ -121,7 +124,10 @@ def update_manifest(path: Path, panel: dict, elevator: dict):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root', type=Path, default=ROOT.parent/'Extermination')
-    parser.add_argument('--gs', type=Path)
+    parser.add_argument('--gs', type=Path, help='a GS freeze blob to take the texels from; default: the '
+                        'first level\'s GS memory rebuilt from the disc (docs/DISC_TEXTURES.md)')
+    parser.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    parser.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     parser.add_argument('--scene', type=Path, default=ROOT/'assets/scene_snow')
     args = parser.parse_args()
     decomp = args.decomp_root.resolve()
@@ -136,7 +142,12 @@ def main():
     area = ((decomp/'extract/chunk15/f05_id97.bin').read_bytes() +
             (decomp/'extract/chunk15/f06_id98.bin').read_bytes())
     library = (decomp/'extract/chunk27/f01_id37.bin').read_bytes()
-    gs = args.gs or decomp/'build/startup-reference/opening_gs.bin'
+    gs, world = args.gs, None
+    if gs is None:
+        sys.path.insert(0, str(ROOT/'tools'))
+        import export_disc_textures_gs as G
+        world = G.first_level_world(args.iso, args.disc, decomp/'extract')
+        gs = G.first_level_freeze(ROOT/'build/disc_textures/first_level_gs.bin', world)
     metadata = []
     for data, table, model, name in (
             (area, 0x5000, 4, 'area_item_04.emdl'),
@@ -145,6 +156,8 @@ def main():
             (library, 0, 0x75, 'item_75.emdl')):
         offset = props.table_entry_offset(data, table, model)
         sections, textures = exact_static_mesh(props, data, offset)
+        if world is not None:
+            G.require_resident(world, textures, name)
         entries, texels = props.lvl.build_texture_blob(None, textures, p2s=gs)
         if len(entries) != len(textures) or any(
                 e['w'] != 1 << t['tw'] or e['h'] != 1 << t['th']

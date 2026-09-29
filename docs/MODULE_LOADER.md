@@ -201,9 +201,11 @@ The pack carries the seeds (EMML header 0x20). Their values:
 
 The 21 captures are `build/s87/route/00..14`, the five
 `startup-reference` RAM images and `c7cap/door1`. Route 15 (the level exit)
-differs, because the next area is loading. The exporter writes these seeds
-(`AREA11_SEEDS`) unless it is given `--capture`. They are observed
-addresses, not disc data, and the port does not compute them (section 5).
+differs, because the next area is loading. Without `--capture` the
+exporter computes the seeds from the disc (`disc_seeds`: the ResourceTable
+of DISC_TEXTURES.md 9.1, which replays the boot, title, New Game and area
+loads' cursor rules) and requires them to equal `AREA11_SEEDS`; the live
+loader still does not run those loads itself (section 5).
 
 The New Game loads the port does not run through this loader account for
 all but two of them (section 1.9): module 3 (kind 0, from D_0028A738 =
@@ -668,11 +670,12 @@ contain the load, with these names:
   kind-3 finaliser 001FB370's live binding (modules 0x32..0x35, the item
   above); 001FF1E0 / 00200700, the boot-time synchronous loader; 002009E0
   (a worker of the unbound 001FFCD0).
-- **The cursor seeds are observed, not computed** (section 1.8). The loads
-  that produce them (001FF1E0, the New Game module-3 load, 001FFCD0) do
-  not run through this loader in the port. The seeds are the values every
-  first-level capture shows; they hold for AREA11 only, and section 1.8
-  shows the translated steps compute the same values from the disc. For
+- **The cursor seeds are exported, not produced by the live loader**
+  (section 1.8). The loads that produce them (001FF1E0, the New Game
+  module-3 load, 001FFCD0) do not run through this loader in the port; the
+  exporter computes the seeds from the disc with those loads' rules
+  (`disc_seeds`, DISC_TEXTURES.md 9.1), equal to the values every
+  first-level capture shows. They hold for AREA11 only. For
   module 0x21 only D_0028A748 matters.
 - **The `d810CA4` / `d810CA6` views** are bound but read only after
   001FFCD0 (the 001FEF70 chaining), which the live loader does not run.

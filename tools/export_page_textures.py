@@ -5,27 +5,29 @@ The chain page D_007635C0 (docs/CHAIN_PAGE.md) draws the effects' sprites
 (001CFBE0 through the sprite program of table 0x231770), the glow markers
 and equipment sprites (001CD520), the pickup glint (untextured) and the
 0015BF90 drop-shadow decal (001CE300). Their TEX0 words come from the
-original's data and code:
-  * every TEX0 a captured page draws (tools/chain_page_model.py walks the
-    latest page of every route capture 00..14 with the original VU1
-    microcode; the arena CALLs of producers the port does not run on the
-    page are walked over);
+original's data and code, read from the user's ELF and AREA11 overlay:
   * the TEX0 row (+0x70) of each 001CFBE0 source block: D_00253670 (the
     head sprite's) and D_002565E0 + 0x90 k, k = 0..7 (the effect handlers');
   * the TEX0 row (+0x70) of the weather's descriptor D_00255170 (001CFFE0's
-    object for the snow tiles; the snow program sends it with every sprite;
-    the captured pages' weather kicks are walked over here, so the row is
-    read from the ELF and required like a drawn TEX0);
-  * the decal's TEX0 0x2004290511322469 (001F8D30's constant,
-    EM_SHADOW_DECAL_TEX0).
+    object for the snow tiles; the snow program sends it with every sprite);
+  * the TEX0 row (+0x70) of the AREA11 flame's descriptor D_00828340
+    (owner 008235F0, AREA11.BIN file offset 0x4E40; docs/AREA11_EFFECT.md);
+  * two values the original code builds as immediates: 001F8D30's decal
+    0x2004290511322469 (EM_SHADOW_DECAL_TEX0) and 001F4D40 / 001F4BF0's
+    glow marker (EM_STATUS_SCENE_TEX0_001F4BF0), both verified against the
+    executed original by their modules' reference tests.
 None of them is uploaded by the draw: each is resident in GS local memory.
-This tool decodes each from the GS local memory of every AREA11 route
-capture (../Extermination/build/s87/route/<beat>/gs.bin, the user's own
-PCSX2 captures) and fails unless every TEX0 a captured page draws is
-PSMT8 or PSMT4 through a PSMCT32 CLUT (CSM1, CSA 0) with TCC 1 and decodes
-identically in every capture (residency). A source-block TEX0 that is not of
-that form or not resident is left out and listed ("not_exported"): a page
-that draws it faults in the renderer.
+This tool decodes each from the first level's GS local memory rebuilt from
+the user's own disc (tools/export_disc_textures_gs.py FirstLevel.world();
+docs/DISC_TEXTURES.md) and fails unless every TEX0 is PSMT8 or PSMT4
+through a PSMCT32 CLUT (CSM1, CSA 0) with TCC 1 and reads only GS blocks a
+disc upload of the route writes. No PCSX2 capture is needed.
+
+Optional cross-check (--route-captures, for developers with the captures):
+tools/chain_page_model.py walks the latest page of every route capture
+00..14 with the original VU1 microcode; every TEX0 a captured page draws
+must be in the set above, and every texture must decode identically from
+each capture's GS memory.
 The texels are the CLUT entries' four bytes as GS memory holds them: R, G, B
 and the raw GS alpha (0x80 = 1.0), NOT rescaled.
 
@@ -43,7 +45,7 @@ Uses the decomp's GS memory readers (tools/gs_vram.py, clut_pair.py) through
 tools/export_object_textures.py. Runs natively on arm64 macOS (pure Python).
 
 Usage (port root):
-  python3 tools/export_page_textures.py
+  python3 tools/export_page_textures.py [--iso FILE | --disc DIR] [--route-captures]
 """
 from __future__ import annotations
 
@@ -64,12 +66,36 @@ import export_object_textures as eot  # noqa: E402
 
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 DECAL_TEX0 = 0x2004290511322469       # 001F8D30's constant (em_shadow_decal_original.h)
+MARKER_TEX0 = 0x20045B0599421EF0      # 001F4D40 / 001F4BF0's (EM_STATUS_SCENE_TEX0_001F4BF0)
 SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)]
 WEATHER_DESCRIPTOR = 0x00255170       # D_00255170 (001E67C0 / 001CFFE0)
+FLAME_DESCRIPTOR, FLAME_FILE_OFFSET = 0x00828340, 0x4E40   # 008235F0's D_00828340 in AREA11.BIN
 CLD_MASK = eot.CLD_MASK
 
 
+def elf_u64(elf: bytes, address: int) -> int:
+    return struct.unpack_from('<Q', elf, address - 0x100000 + 0x300)[0]
+
+
+def tex0_set(elf: bytes, overlay: bytes) -> dict:
+    """{TEX0 (CLD cleared): the original producers} of the chain page."""
+    if overlay[:4] != b'MWo3' or struct.unpack_from('<I', overlay, 8)[0] != 0x823500:
+        raise SystemExit('extract/OVERLAY/AREA11.BIN: not the AREA11 overlay at 0x823500')
+    out = {}
+    for block in SOURCE_BLOCKS:
+        out.setdefault(elf_u64(elf, block + 0x70) & CLD_MASK, set()).add(f'001CFBE0 source {block:#010x}')
+    out.setdefault(elf_u64(elf, WEATHER_DESCRIPTOR + 0x70) & CLD_MASK, set()).add(
+        f'001CFFE0 weather descriptor {WEATHER_DESCRIPTOR:#010x}')
+    t = struct.unpack_from('<Q', overlay, FLAME_FILE_OFFSET + 0x70)[0] & CLD_MASK
+    out.setdefault(t, set()).add(f'001D04B0 flame descriptor {FLAME_DESCRIPTOR:#010x}')
+    out.setdefault(DECAL_TEX0 & CLD_MASK, set()).add('001F8D30 decal')
+    out.setdefault(MARKER_TEX0 & CLD_MASK, set()).add('001F4D40 / 001F4BF0 glow marker')
+    return out
+
+
 def captured_tex0(route: Path) -> dict:
+    """Optional cross-check: every textured TEX0 the latest page of each
+    route capture 00..14 draws (walked with the original VU1 microcode)."""
     out = {}
     for d in sorted(route.iterdir()):
         ram_path = d / 'eeMemory.bin'
@@ -88,81 +114,65 @@ def captured_tex0(route: Path) -> dict:
     return out
 
 
-def source_tex0(elf: bytes) -> dict:
-    out = {}
-    for block in SOURCE_BLOCKS:
-        o = block + 0x70 - 0x100000 + 0x300
-        t = struct.unpack_from('<Q', elf, o)[0] & CLD_MASK
-        out.setdefault(t, set()).add(f'001CFBE0 source {block:#010x}')
-    return out
-
-
-def weather_tex0(elf: bytes) -> dict:
-    o = WEATHER_DESCRIPTOR + 0x70 - 0x100000 + 0x300
-    return {struct.unpack_from('<Q', elf, o)[0] & CLD_MASK: {f'001CFFE0 weather descriptor {WEATHER_DESCRIPTOR:#010x}'}}
-
-
 def drawable(t: int) -> bool:
     f = eot.tex0_fields(t)
     return (f['psm'] in (eot.PSMT8, eot.PSMT4) and not f['cpsm'] and not f['csm'] and not f['csa']
             and f['tcc'] == 1 and 0 < f['tw'] <= 10 and 0 < f['th'] <= 10)
 
 
+def texels_of(world, texes: dict) -> dict:
+    for t in texes:
+        if not drawable(t):
+            raise SystemExit(f'TEX0 {t:#018x} ({sorted(texes[t])}): not a CT32-CLUT PSMT8/PSMT4 TCC 1 texture')
+    return eot.disc_texels(world, texes)
+
+
+def write(out: Path, texes: dict, texels: dict, captures=()) -> bytes:
+    data = eot.emot(texels)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    index = []
+    for t in sorted(texels):
+        f = eot.tex0_fields(t)
+        index.append(dict(tex0=hex(t), width=1 << f['tw'], height=1 << f['th'], psm=hex(f['psm']), tfx=f['tfx'],
+                          users=sorted(texes[t]), sha256=hashlib.sha256(texels[t]).hexdigest()[:16]))
+    out.with_suffix('.json').write_text(json.dumps(dict(
+        count=len(texels), bytes=len(data), source='disc (FirstLevel.world(), docs/DISC_TEXTURES.md)',
+        cross_checked_captures=[p.parent.name for p in captures], textures=index,
+        not_exported=[]), indent=1) + '\n')
+    return data
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
+    ap.add_argument('--extract', type=Path, default=DECOMP / 'extract')
     ap.add_argument('--elf', type=Path, default=DECOMP / 'config/SCUS_971.12')
-    ap.add_argument('--route', type=Path, default=DECOMP / 'build/s87/route')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/page_textures.emot')
+    ap.add_argument('--route-captures', action='store_true',
+                    help='optional cross-check against the route captures (beats 00..14)')
+    ap.add_argument('--route', type=Path, default=DECOMP / 'build/s87/route')
     args = ap.parse_args(argv)
     elf = args.elf.read_bytes()
     if hashlib.sha256(elf).hexdigest() != ELF_SHA256:
         raise SystemExit(f'{args.elf}: not the pinned SCUS-97112 boot ELF')
-    import gs_vram
-    drawn = captured_tex0(args.route)
-    for t, why in weather_tex0(elf).items():
-        drawn.setdefault(t, set()).update(why)
-    texes = {}
-    for src in (drawn, source_tex0(elf), {DECAL_TEX0 & CLD_MASK: {'001F8D30 decal'}}):
-        for t, why in src.items():
-            texes.setdefault(t, set()).update(why)
-    left_out = {}
-    for t in list(texes):
-        if not drawable(t):
-            if t in drawn:
-                raise SystemExit(f'TEX0 {t:#018x} ({sorted(texes[t])}): not a CT32-CLUT PSMT8/PSMT4 TCC 1 texture')
-            left_out[t] = texes.pop(t)
-    captures = eot.default_captures()
-    if not captures:
-        raise SystemExit('no captured gs.bin (../Extermination/build/s87/route/<beat>/gs.bin)')
-    texels = {}
-    for path in captures:
-        _base, lm = gs_vram.read_localmem(path)
-        for t in list(texes):
-            data = eot.decode(lm, t)
-            if texels.setdefault(t, data) != data:
-                if t in drawn:
-                    raise SystemExit(f'TEX0 {t:#018x} decodes differently in {path}: not resident')
-                left_out[t] = texes.pop(t)
-                texels.pop(t)
-    order = sorted(texes)
-    head = struct.pack('<4s3I', b'EMOT', 1, len(order), 0)
-    offset = 0x10 + 24 * len(order)
-    entries, blob, index = b'', b'', []
-    for t in order:
-        f = eot.tex0_fields(t)
-        w, h = 1 << f['tw'], 1 << f['th']
-        entries += struct.pack('<Q4I', t, w, h, offset + len(blob), 0)
-        blob += texels[t]
-        index.append(dict(tex0=hex(t), width=w, height=h, psm=hex(f['psm']), tfx=f['tfx'],
-                          users=sorted(texes[t]), sha256=hashlib.sha256(texels[t]).hexdigest()[:16]))
-    data = head + entries + blob
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_bytes(data)
-    args.out.with_suffix('.json').write_text(json.dumps(dict(
-        count=len(order), bytes=len(data), captures=[p.parent.name for p in captures], textures=index,
-        not_exported=[dict(tex0=hex(t), users=sorted(u)) for t, u in sorted(left_out.items())]), indent=1) + '\n')
-    print(f'wrote {args.out}: {len(order)} textures, {len(data)} bytes; identical in {len(captures)} captures'
-          + ''.join(f'; not exported: TEX0 {t:#x} ({", ".join(sorted(u))})' for t, u in sorted(left_out.items())))
+    import export_disc_textures_gs as G
+    texes = tex0_set(elf, (args.extract / 'OVERLAY/AREA11.BIN').read_bytes())
+    world = G.FirstLevel(G.Disc(args.iso, args.disc), args.extract).world()
+    texels = texels_of(world, texes)
+    captures = []
+    if args.route_captures:
+        drawn = captured_tex0(args.route)
+        extra = sorted(set(drawn) - set(texes))
+        if extra:
+            raise SystemExit('captured pages draw TEX0 with no listed original producer: '
+                             + ', '.join(f'{t:#x} ({sorted(drawn[t])})' for t in extra))
+        captures = [p for p in eot.default_captures()]
+        eot.cross_check(texels, captures)
+    data = write(args.out, texes, texels, captures)
+    print(f'wrote {args.out}: {len(texels)} textures, {len(data)} bytes; from the disc'
+          + (f'; identical in {len(captures)} captures' if captures else ''))
     return 0
 
 

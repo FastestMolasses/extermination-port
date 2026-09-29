@@ -40,7 +40,7 @@ original code, data or disassembly.
 | `tests/owner_draw_test.c` | ASan/UBSan fixture. It pins the fail-stop contract, the packet layout, the bank refusals and the 001C6120 masking. |
 | `src/game/em_object_unit.{h,c}` | P1/P2 on the CPU (section 7): `em_object_unit_parse` reads a unit's DMA tags into the VU1 uploads (`EmGfxObjectUnit`, em_gfx.h), `em_object_unit_run` runs the object kernel (em_vu1_object_kernel.h) over every model block and, for a clip unit, the clip program (em_vu1_object_clip.h) after it, and returns every drawn triangle in GS terms and GS order. A face unit (001CB3C0's, CALL 0x0023C480) runs the face morph program (em_vu1_face_morph.h) the same way. |
 | `src/em_gfx.h`, `src/gfx/metal/em_gfx_metal.m` | `em_gfx_object_unit` / `em_gfx_object_texture`: the GS class-0 pixel path over those triangles (section 7). The D3D12 / Vulkan stubs return -1. |
-| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 303 TEX0 values of the bank's, the player's, the equipment models' and the items' model 0x72's blocks, decoded from the GS memory of every route capture and identical in all 15 (section 7.3). |
+| `tools/export_object_textures.py` | Writes `assets/scene_snow/object_textures.emot` / `.json` (ignored): the 303 TEX0 values of the bank's, the player's, the equipment models' and the items' model 0x72's blocks, decoded from the GS memory rebuilt from the disc (section 7.3). |
 | `src/game/em_owner_draw_live.{h,c}` | The binding (section 10): 001CAA00 with every worker bound to its translation over canonical storage, the unit parsed at once and drawn at the frame's end (the walk's units, then the post-step's after the shadow). |
 | `src/game/em_player_draw_live.{h,c}` | The player (section 10): its model (`player_model.emom`, a table-less bank), 001C6150 over it for 0015C1F0, and 0015C160's +0x4C: 001CAA00's owner view over the player record and its node records. |
 | `tools/export_player_model.py` | Writes `assets/scene_snow/player_model.emom` / `.json` (ignored): the player's model, resource 0x3B (`chunk28/f00_id3b.bin`, 0x4C170 bytes), placed at D_0028A490[0x3B] = 0x00D1C1C0 and checked byte for byte against RAM in 16 captures, with the player record's +0x2FF, +0x44, +0x4C, +0x0C, +0x09 and slots. |
@@ -470,11 +470,15 @@ id +0x0D = 0x72) to 303. One equipment model carries another form: 0x36 (flavour
 variant 4, which no capture binds) kicks TEX0 0 on four vertices of block
 13; that value is left out and listed in the JSON, so a unit of that model
 faults at em_gfx_object_unit (no registered texture). Variant 4 cannot be
-bound in AREA11 (PLAYER_EQUIPMENT.md section 7 has the writers). Each is decoded from the GS local memory of every route capture
-00..14 with the decomp's GS memory readers, and the exporter fails unless
-all 15 decodes are identical: the textures are resident for the whole
-level. The texels are the CLUT entries' bytes with the raw GS alpha. The
-export is ignored (`assets/`), like every disc- or capture-derived asset.
+bound in AREA11 (PLAYER_EQUIPMENT.md section 7 has the writers). Each is
+decoded, with the decomp's GS memory readers, from the first level's GS
+memory rebuilt from the user's disc (DISC_TEXTURES.md, since 2026-09-28; no
+capture needed), and the exporter fails unless every decode reads only
+blocks a disc upload writes; `--route-captures` also requires the decode
+from every route capture 00..14 to be identical (the textures are resident
+for the whole level; test-disc-textures-reference compares them). The
+texels are the CLUT entries' bytes with the raw GS alpha. The export is
+ignored (`assets/`), like every disc-derived asset.
 
 The static-object bank's blocks (the level geometry 001C1D00 emits,
 STATIC_WORLD.md section 7) carry their own TEX0 values: 119 more, all TFX 0

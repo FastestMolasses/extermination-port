@@ -6,6 +6,9 @@ blend already recovered for opening actors, at rate1.0. Original root
 channel0 has no translation; actor+A0/world placement stays fixed while
 node1/actor+B0 supplies the animated hip. No locomotion recentering,
 matrix interpolation, or fabricated player movement is baked here.
+The clip is baked from the user's disc bank alone; the captured-palette
+proof runs when the capture ../Extermination/build/startup-reference/
+panel/animation_ee.bin is present (the same bytes are written without it).
 """
 import argparse
 import hashlib
@@ -25,26 +28,30 @@ def main():
     from export_opening_actors import OpeningClip,matrix_multiply,original_palette
     from export_native import mat_identity
     bank=(args.decomp/'extract/chunk28/f01_id3c.bin').read_bytes()
-    ram=(args.decomp/'build/startup-reference/panel/animation_ee.bin').read_bytes()
+    reference=args.decomp/'build/startup-reference/panel/animation_ee.bin'
+    ram=reference.read_bytes() if reference.is_file() else None
     actor=0x8102B0
-    assert struct.unpack_from('<I',ram,actor+0x40)[0]==0xD689C0
-    assert ram[0xD689C0:0xD689C0+len(bank)]==bank,'Original animation bank mismatch'
+    if ram is not None:
+        assert struct.unpack_from('<I',ram,actor+0x40)[0]==0xD689C0
+        assert ram[0xD689C0:0xD689C0+len(bank)]==bank,'Original animation bank mismatch'
     header=struct.unpack_from('<I',bank,4+348*4)[0]
     clip=OpeningClip(bank,header)
     assert (clip.bones,clip.length)==(21,121)
     assert struct.unpack_from('<h',bank,header+4)[0]==-2
     assert struct.unpack_from('<I',bank,header+0x14)[0]==0
-    assert struct.unpack_from('<H',ram,actor+0x20C)[0]==348
-    owner=[struct.unpack_from('<4f',ram,actor+0xD0+c*16) for c in range(4)]
-    assert tuple(owner[3][:3])==struct.unpack_from('<3f',ram,actor+0xA0)
-    expected=original_palette(ram,actor,21)
+    if ram is not None:
+        assert struct.unpack_from('<H',ram,actor+0x20C)[0]==348
+        owner=[struct.unpack_from('<4f',ram,actor+0xD0+c*16) for c in range(4)]
+        assert tuple(owner[3][:3])==struct.unpack_from('<3f',ram,actor+0xA0)
+        expected=original_palette(ram,actor,21)
     frames=[];errors=[]
     for frame in range(121):
         assert clip.translation[0].value==(0.0,0.0,0.0),'Unexpected root-motion channel'
         palette=clip.palette();frames.append(palette)
-        world=[matrix_multiply(owner,m) for m in palette]
-        errors.append(max(abs(a-b) for original,matrix in zip(expected,world)
-                          for a,b in zip(original,[v for col in matrix for v in col])))
+        if ram is not None:
+            world=[matrix_multiply(owner,m) for m in palette]
+            errors.append(max(abs(a-b) for original,matrix in zip(expected,world)
+                              for a,b in zip(original,[v for col in matrix for v in col])))
         hold=False
         for r,t,s in zip(clip.rotation,clip.translation,clip.scale):
             r.advance(1.0);t.advance(1.0);flag=s.advance(1.0)
@@ -52,8 +59,10 @@ def main():
         if hold:
             for r,t,s in zip(clip.rotation,clip.translation,clip.scale):
                 r.reciprocal=0.0;t.velocity=s.velocity=(0.0,0.0,0.0)
-    nearest=min(range(121),key=errors.__getitem__)
-    assert nearest==30 and errors[nearest]<=0.0001,('Original palette comparison failed',nearest,errors[nearest])
+    nearest=error=None
+    if ram is not None:
+        nearest=min(range(121),key=errors.__getitem__);error=min(errors)
+        assert nearest==30 and error<=0.0001,('Original palette comparison failed',nearest,error)
 
     data=args.player.read_bytes()
     magic,bones,verts,indices,nframes,fps,textures,flags,nclips=struct.unpack_from('<4sIIIIfIII',data)
@@ -71,7 +80,7 @@ def main():
         assert len(existing)==1 and existing[0][2:]==(121,60.0)
         first=palette_at+existing[0][1]*bones*64
         assert data[first:first+len(added)]==added,'Existing15C differs; refusing overwrite'
-        print(f'Panel clip15C already present and matches original palette proof (max error{errors[nearest]:.9g})')
+        print(f'Panel clip15C already present and identical (captured palette proof max error {error})')
         return
     output=ROOT/'build/panel_clip_export';output.mkdir(parents=True,exist_ok=True)
     backup=output/'player_before_panel.emdl'
@@ -85,7 +94,7 @@ def main():
     assert result[texture_at+16+len(added):]==data[texture_at:]
     report={'before_sha256':hashlib.sha256(data).hexdigest(),
             'after_sha256':hashlib.sha256(result).hexdigest(),
-            'original_capture_frame':nearest,'max_matrix_error':errors[nearest],
+            'original_capture_frame':nearest,'max_matrix_error':error,
             'added_clip':348,'frames':121,'source_bank_header':header,
             'preserved_clips':nclips,'preserved_frames':nframes,
             'mesh_sha256':hashlib.sha256(data[mesh_at:palette_at]).hexdigest(),
@@ -93,7 +102,7 @@ def main():
             'root_motion':'zero; actor placement preserved'}
     args.player.write_bytes(result)
     (output/'result.json').write_text(json.dumps(report,indent=2)+'\n')
-    print(f'Appended panel clip15C:121 frames,21 original bones; captured frame30 max matrix error{errors[nearest]:.9g}; all existing mesh/texture/clip bytes preserved')
+    print(f'Appended panel clip15C:121 frames,21 original bones; captured frame30 max matrix error {error}; all existing mesh/texture/clip bytes preserved')
 
 
 if __name__=='__main__':main()

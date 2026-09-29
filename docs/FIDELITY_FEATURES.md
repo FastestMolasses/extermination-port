@@ -313,9 +313,42 @@ and the tools extract the assets locally.
   original game and SDK routines by design; "no Sony SDK" means no SDK
   binaries are linked. The decomp repository still commits CodeWarrior asm
   function bodies (user decision 2026-09-23), so the "no original code" claim
-  holds for the port repository only. Some textures are still sourced from
-  PCSX2 captures rather than the disc (see Visuals); these must move to
-  disc-sourced exporters before release.
+  holds for the port repository only. Two first-level assets still read a
+  PCSX2 capture (next entry); they must move to the disc before release.
+
+**Every first-level asset from your own disc, rebuilt with the original loaders' rules**
+
+The assets the first level reads are exported from the user's disc image,
+its extract and the boot ELF alone: no PCSX2 capture, GS dump or RAM dump is
+needed, except for two files that are still open (below). The textures come
+from the first level's GS memory rebuilt from the disc with the original's
+own upload sequence (module 0x1B's library sheet, New Game's re-upload, the
+AREA11 load and the player's texture packet; page modules for the status
+pages), and the resource table D_0028A490 from the loaders' own relocation
+rules (boot, title, New Game, area load).
+
+- How: `tools/export_disc_textures.py` (textures and the font) and the
+  disc-first exporters of STARTUP.md; `export_disc_textures_gs.py`
+  (`FirstLevel`, `ResourceTable`, `first_level_memory`). Captures remain
+  optional developer cross-checks (`--capture`, `--verify-ram`).
+- Evidence: `make test-disc-textures-reference` (the original loaders
+  00200830 / 00200890 / 00200970 / 001FF1E0 / 001FF830 / 001FFCD0 executed
+  under the oracle; 5,504 GS blocks equal 19 captures; 15 texture files equal
+  the pinned capture-derived files) and `make test-disc-assets-reference`
+  (D_0028A490[0 .. 0xAF) from the disc equals all 18 AREA11 captures word for
+  word; 33 more files byte-identical to the capture-derived ones, the
+  Roger banks' table and regions equal, the hub's EMHS equal outside the
+  arc words 00208AD0 rewrites; the player model's bake from the rebuilt
+  memory identical to the GS-dump bake). A copy of the tree with no capture visible re-ran 57 export steps,
+  113 of the 116 files the level smoke opens came out byte-identical (the
+  other three differ by construction: DISC_TEXTURES.md 9.3), and the full
+  level smoke passed on it. DISC_TEXTURES.md sections 6 and 9.
+- Status: **PARTIAL**. Still capture-bound: `interaction.emis` (the eleven
+  use-owners' first-tick status, selector and descriptor, STARTUP.md step
+  30) and `background.embg` (the level background's GS draw state, step 40;
+  its texels are the disc's). The installed `player.emdl` is not reproduced
+  whole (eight clips of an older bake differ; its textures are the disc's).
+  Only `--iso` is exercised, not `--disc DIR`.
 
 ### Visuals
 
@@ -350,9 +383,9 @@ them. No remade models, no guessed lighting shader.
   the original 001C6380). Since chain C8b's FACE step Roger and his
   equipment are on this path too (next entry), and since chain C8b's
   OPENING step the opening's actors (the opening cinematic entry). The
-  indicator children are not. Object textures (346 TEX0) are decoded from
-  PCSX2 capture GS memory, not the disc, so an end user cannot build them
-  yet. Metal only.
+  indicator children are not. Object textures (465 TEX0) are decoded from
+  the GS memory rebuilt from the user's disc (DISC_TEXTURES.md; equal to
+  every route capture's decode). Metal only.
 
 **Roger's face and the player's face in the cutscenes, morphed by the original face program**
 
@@ -477,8 +510,9 @@ programs.
   four frame-sampling sprites are not drawn. The snow's and the flame's
   sprites follow their owners' seeds and phases (rand(), the flame's age), so
   their positions are compared with the recordings only through their
-  packets' camera and fog rows. Page and decal textures come from PCSX2
-  captures or the disc (`export_disc_textures.py`). Metal only.
+  packets' camera and fog rows. Page and decal textures come from the
+  disc (`export_disc_textures.py`, equal to every route capture's decode).
+  Metal only.
 
 **The area-load veil drawn by the game's own code and its own GS state**
 
@@ -535,7 +569,8 @@ original does.
   by eye. The decal route is captured only at the ends of beats 02 and 04.
   Since chain C8b's OPENING step it is computed during the opening too.
   Needs framebuffer fetch
-  (Apple GPUs). Decal texture from PCSX2 captures.
+  (Apple GPUs). Decal texture from the disc (a sub-rectangle of module
+  0x1B's library sheet, DISC_TEXTURES.md).
 
 **Roger's own projected drop shadow**
 
@@ -1615,9 +1650,10 @@ Missing faithful behaviour that blocks a "first level complete" claim:
   sounds are not compared in the smoke;
 - visuals: pixels not compared with the reference frames; the GS-exact
   renderer is queued; the fan does not spin; some owners draw legacy meshes;
-- disc-sourced textures: object, page, decal and status-model textures and
-  the font atlas still come from PCSX2 captures or a RAM dump, which end
-  users will not have;
+- disc-sourced assets: every texture and all but two first-level assets
+  come from the disc alone since 2026-09-28; `interaction.emis` and
+  `background.embg` still read a PCSX2 capture, which end users will not
+  have;
 - platforms: Windows and Linux have no renderer yet.
 
 ---

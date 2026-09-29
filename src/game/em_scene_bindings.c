@@ -1866,7 +1866,7 @@ static int spawn_w_0015C1F0(void *ctx, uint32_t player)
     EmPlayerLiveActor *p = player_states_actor_mut();
     if (player != D_PLAYER || !s_spawn_io || !p)
         return -1;
-    static uint32_t table[0xC0];                  /* D_0028A490 */
+    static uint32_t table[EM_AREA11_ROGER_TABLE_WORDS];   /* D_0028A490 (the Roger export's words) */
     for (uint32_t i = 0; i < sizeof table / sizeof table[0]; ++i)
         if (em_area11_roger_table_word(0x0028A490u + 4u * i, &table[i]) < 0)
             return em_scene_fault(&s_state, 0x0028A490u, EM_SCENE_FAULT_NULL_WORKER);

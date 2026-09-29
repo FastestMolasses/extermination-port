@@ -54,6 +54,11 @@
 
 #define EM_AREA11_ROGER_RESOURCES_PATH "assets/scene_snow/roger/resources.emrs"
 #define EM_AREA11_ROGER_TRIGGER_PATH "assets/scene_snow/roger/trigger.empg"
+/* The exported resource table: D_0028A490 .. D_0028A748, the 0xAF words
+ * 001AB430 clears at boot (resource slots and the loader cursors
+ * D_0028A734 .. D_0028A748), rebuilt from the disc by
+ * tools/export_roger_banks.py (EMRS v2). */
+#define EM_AREA11_ROGER_TABLE_WORDS 0xAFu
 
 #define EM_AREA11_ROGER_CALLBACK 0x008237E0u
 #define EM_AREA11_ROGER_EQUIPMENT_CALLBACK 0x001C5C90u

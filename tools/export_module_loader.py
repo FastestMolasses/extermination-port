@@ -60,8 +60,27 @@ DEFAULT_MODULES = (0x21,)
 # captures (build/s87/route 00..14, startup-reference, c7cap). D_00275C70 is
 # D_00289BC0 in all of them. D_00275C74 is 0x10E99C0 before the level's first
 # page load (route 00) and that page's destination afterwards; every bank
-# load writes D_00275C70 and D_00275C74 before it reads them.
+# load writes D_00275C70 and D_00275C74 before it reads them. Without
+# --capture the exporter rebuilds them from the disc (disc_seeds) and
+# requires these values.
 AREA11_SEEDS = (0x289BC0, 0x10E99C0, 0x1516F40, 0x10E99C0, 0x1335F40, 0x19A3F40, 0x19A3F40)
+
+
+def disc_seeds(iso: Path) -> tuple:
+    """The CURSORS values at the first level's entry, rebuilt from the
+    user's disc with the loaders' rules (tools/export_disc_textures_gs.py
+    ResourceTable: the boot's 001FF1E0 loads, the title modules, the New
+    Game's module 3 and the AREA11 load): D_00275C70 is the header buffer
+    D_00289BC0 the area load's state 4 publishes; D_00275C74 is module 3's
+    destination (001FF830 state 0, ids 2 / 3 -> D_0028A738); D_0028A5A0 is
+    D_0028A490[0x44]; the four allocation cursors are the model's."""
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import export_disc_textures_gs as G
+    table = G.ResourceTable(G.Disc(iso))
+    c = table.cursors
+    module3 = next(base for caller, sector, base, _n, _s in table.loads if sector == 3)
+    return (D_00289BC0, module3, table.words[0x44], c['D_0028A738'], c['D_0028A73C'],
+            c['D_0028A744'], c['D_0028A748'])
 
 
 def u32(b, o):
@@ -170,8 +189,11 @@ def main():
                                  f'{a:#x}={v:#x}' for a, v, s in zip(CURSORS, cursors, AREA11_SEEDS) if v != s))
         seeds = f'capture {args.capture}'
     else:
-        cursors = list(AREA11_SEEDS)
-        seeds = 'AREA11_SEEDS'
+        cursors = list(disc_seeds(args.iso))
+        if tuple(cursors) != AREA11_SEEDS:
+            raise SystemExit('the cursors rebuilt from the disc differ from AREA11_SEEDS: ' + ', '.join(
+                f'{a:#x}={v:#x}' for a, v, s in zip(CURSORS, cursors, AREA11_SEEDS) if v != s))
+        seeds = 'the disc (ResourceTable), equal to AREA11_SEEDS'
     ranges, receipt = {}, []
     for module in modules:
         header, reads = module_reads(disc, index, data, module)

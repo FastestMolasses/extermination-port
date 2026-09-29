@@ -33,17 +33,24 @@ controls the CLUT cache) of every model block of
     which the static world's channel-0 run REFs and the level kernel
     0x00237180 kicks (docs/STATIC_WORLD.md section 7),
 all from the user's extract, and decodes
-each from the GS local memory of every AREA11 route capture (beats 00..14:
-../Extermination/build/s87/route/<beat>/gs.bin, the user's own PCSX2
-captures). It fails unless:
+each from the first level's GS local memory rebuilt from the user's own
+disc with the original's upload sequence (tools/export_disc_textures_gs.py
+FirstLevel.world(): module 0x1B's library sheet, 001AD1A0's re-upload,
+the AREA11 load and the player texture packet; docs/DISC_TEXTURES.md).
+No PCSX2 capture is needed. It fails unless:
   * every TEX0 has PSM PSMT8 or PSMT4, CPSM PSMCT32, CSM1, CSA 0, TCC 1 and
     TFX 2 (HIGHLIGHT), or, for the static-object bank's blocks only, TFX 0
     (MODULATE): the forms the renderer reproduces. The one exception is an
     equipment model the route never binds: its other forms are left out and
     listed ("not_exported"; equipment 0x36 kicks TEX0 0 on four vertices of
     block 13), so a unit that kicks one faults;
-  * the decoded texels and CLUT are identical in every capture (residency:
-    the texture a draw samples does not depend on the frame).
+  * every decode reads only GS blocks a disc upload of the route writes
+    (residency: the decode must not change when every other block is
+    filled with 0x00 or with 0xA5).
+With --gs FILE (repeatable) or --route-captures, each texture must also
+decode identically from those captured GS freezes (an optional cross-check
+for developers who have the captures; test_disc_textures_reference.py
+compares the disc decodes with the route captures).
 The texels are the CLUT entries' four bytes as GS memory holds them: R, G, B
 and the raw GS alpha (0x80 = 1.0), NOT rescaled.
 
@@ -62,7 +69,7 @@ extract_textures.py), as tools/export_level.py does for the level
 textures. Runs natively on arm64 macOS (pure Python).
 
 Usage (port root):
-  python3 tools/export_object_textures.py
+  python3 tools/export_object_textures.py [--iso FILE | --disc DIR] [--route-captures]
 """
 from __future__ import annotations
 
@@ -211,22 +218,19 @@ def decode(lm: bytes, t: int) -> bytes:
 
 
 def default_captures():
+    """The AREA11 route captures' GS freezes (optional cross-checks only)."""
     route = DECOMP / 'build/s87/route'
     return sorted(p for p in route.glob('*/gs.bin') if p.parent.name[:2].isdigit() and int(p.parent.name[:2]) <= 14)
 
 
-def main(argv=None) -> int:
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--extract', type=Path, default=DECOMP / 'extract')
-    ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/object_textures.emot')
-    ap.add_argument('--gs', type=Path, action='append', default=None,
-                    help='captured GS freeze blob (repeatable); default: every AREA11 route capture')
-    args = ap.parse_args(argv)
-    import gs_vram
-    x = ewm.build(args.extract)
+def tex0_set(extract: Path):
+    """({TEX0: model labels} the object units sample, {TEX0: labels} left
+    out, the static bank's block count): every vertex TEX0 of the models
+    listed in the module docstring, with the form checks."""
+    x = ewm.build(extract)
     texes = model_tex0(x)
-    player_tex0(args.extract, texes)
-    static_blocks = static_tex0(args.extract, texes)
+    player_tex0(extract, texes)
+    static_blocks = static_tex0(extract, texes)
     left_out = {}
     for t in list(texes):
         f = tex0_fields(t)
@@ -240,39 +244,91 @@ def main(argv=None) -> int:
             if any(not m.startswith('equipment ') for m in texes[t]):
                 raise SystemExit(f'TEX0 {t:#018x}: {f} is not the PSMT8/PSMT4 CSM1 HIGHLIGHT form')
             left_out[t] = texes.pop(t)
-    captures = args.gs if args.gs is not None else default_captures()
-    if not captures:
-        raise SystemExit('no captured gs.bin (../Extermination/build/s87/route/<beat>/gs.bin)')
-    texels = {}
-    for path in captures:
-        _base, lm = gs_vram.read_localmem(path)
-        for t in texes:
-            data = decode(lm, t)
-            if texels.setdefault(t, data) != data:
-                raise SystemExit(f'TEX0 {t:#018x} decodes differently in {path}: not resident')
-    order = sorted(texes)
+    return texes, left_out, static_blocks
+
+
+def emot(texels: dict) -> bytes:
+    """The EMOT file (layout in the module docstring) of {TEX0: texels}."""
+    order = sorted(texels)
     head = struct.pack('<4s3I', b'EMOT', 1, len(order), 0)
     offset = 0x10 + 24 * len(order)
     entries, blob = b'', b''
-    index = []
     for t in order:
         f = tex0_fields(t)
         w, h = 1 << f['tw'], 1 << f['th']
         entries += struct.pack('<Q4I', t, w, h, offset + len(blob), 0)
         blob += texels[t]
-        index.append(dict(tex0=hex(t), width=w, height=h, psm=hex(f['psm']),
+    return head + entries + blob
+
+
+def disc_texels(world, texes) -> dict:
+    """Each TEX0 decoded from the first level's GS memory rebuilt from the
+    disc (tools/export_disc_textures_gs.py FirstLevel.world()); refuses a
+    texture that reads a block no disc upload of the route writes."""
+    import export_disc_textures_gs as G
+    res = G.Residency(world)
+    out = {}
+    for t in texes:
+        out[t] = decode(res.lm, t)
+        if not res.ok(lambda lm, t=t: decode(lm, t)):
+            raise SystemExit(f'TEX0 {t:#018x}: reads GS blocks no disc upload of the route writes')
+    return out
+
+
+def cross_check(texels: dict, captures) -> None:
+    """Optional: every texture decodes to the same texels from each captured
+    GS freeze (a PCSX2 capture of the running original) as from the disc."""
+    import gs_vram
+    for path in captures:
+        _base, lm = gs_vram.read_localmem(path)
+        for t, data in texels.items():
+            if decode(lm, t) != data:
+                raise SystemExit(f'TEX0 {t:#018x}: the capture {path} differs from the disc decode')
+
+
+def write(out: Path, texes: dict, texels: dict, left_out: dict, captures=()) -> bytes:
+    """Writes the EMOT and its JSON report; returns the EMOT bytes."""
+    data = emot(texels)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(data)
+    index = []
+    for t in sorted(texels):
+        f = tex0_fields(t)
+        index.append(dict(tex0=hex(t), width=1 << f['tw'], height=1 << f['th'], psm=hex(f['psm']),
                           models=sorted(texes[t]),
                           sha256=hashlib.sha256(texels[t]).hexdigest()[:16]))
-    data = head + entries + blob
-    args.out.parent.mkdir(parents=True, exist_ok=True)
-    args.out.write_bytes(data)
-    args.out.with_suffix('.json').write_text(json.dumps(dict(
-        count=len(order), bytes=len(data), captures=[str(p.parent.name) for p in captures],
+    out.with_suffix('.json').write_text(json.dumps(dict(
+        count=len(texels), bytes=len(data), source='disc (FirstLevel.world(), docs/DISC_TEXTURES.md)',
+        cross_checked_captures=[str(p.parent.name) for p in captures],
         textures=index, not_exported=[dict(tex0=hex(t), models=sorted(m)) for t, m in sorted(left_out.items())]),
         indent=1) + '\n')
-    static = sum(1 for t in order if STATIC_LABEL in texes[t])
-    print(f'wrote {args.out}: {len(order)} textures ({static} of the static bank\'s {static_blocks} blocks), '
-          f'{len(data)} bytes; identical in {len(captures)} captures'
+    return data
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
+    ap.add_argument('--extract', type=Path, default=DECOMP / 'extract')
+    ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/object_textures.emot')
+    ap.add_argument('--gs', type=Path, action='append', default=None,
+                    help='optional cross-check: a captured GS freeze blob (repeatable) that must decode '
+                         'every texture identically to the disc')
+    ap.add_argument('--route-captures', action='store_true',
+                    help='optional cross-check against every AREA11 route capture (beats 00..14)')
+    args = ap.parse_args(argv)
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import export_disc_textures_gs as G
+    texes, left_out, static_blocks = tex0_set(args.extract)
+    world = G.FirstLevel(G.Disc(args.iso, args.disc), args.extract).world()
+    texels = disc_texels(world, texes)
+    captures = list(args.gs or []) + (default_captures() if args.route_captures else [])
+    cross_check(texels, captures)
+    data = write(args.out, texes, texels, left_out, captures)
+    static = sum(1 for t in texels if STATIC_LABEL in texes[t])
+    print(f'wrote {args.out}: {len(texels)} textures ({static} of the static bank\'s {static_blocks} blocks), '
+          f'{len(data)} bytes; from the disc'
+          + (f'; identical in {len(captures)} captures' if captures else '')
           + ''.join(f'; not exported: TEX0 {t:#x} ({", ".join(sorted(m))})' for t, m in sorted(left_out.items())))
     return 0
 

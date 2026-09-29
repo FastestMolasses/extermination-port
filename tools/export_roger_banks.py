@@ -12,10 +12,13 @@ byte 001C6150 reads) and the equipment's model (D_0028A56C's entry 0x6B,
 001B1020). This tool writes those original bytes at their original
 addresses, from the user's own extracted disc:
 
-  * the resource table: D_0028A490[0 .. 0xC0) (0x300 bytes), the load
-    addresses the engine gives its resource files. The table is runtime data;
-    it is taken from the playable capture and must be identical in every
-    AREA11 route capture;
+  * the resource table: D_0028A490[0 .. 0xAF) (the 0xAF words 001AB430
+    clears; words 0xA9 .. 0xAE are the loader cursors D_0028A734 ..
+    D_0028A748), the load addresses the engine gives its resource files.
+    It is rebuilt from the user's disc with the loaders' own rules
+    (tools/export_disc_textures_gs.py ResourceTable: the boot's 001FF1E0(0),
+    the sound bank's 001FB370, the title modules, 001FF1E0(0x1B / 0x1C),
+    the New Game's module 3 and the AREA11 load; docs/DISC_TEXTURES.md);
   * extract/chunk15/f12_id44.bin from +0x41000 to its end at
     D_0028A490[0x4A] - 0x10E000 + 0x41000 (bank 0x96 at +0x41000, bank 0x4A
     at +0x10E000, the +0x58 word at +0x104800). The file's earlier bytes
@@ -35,12 +38,14 @@ addresses, from the user's own extracted disc:
     light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
     em_indicator_bind_live.c).
 
-Every region is checked byte for byte against RAM at its address in every
-AREA11 capture (default: playable_ee.bin and route beats 00..14).
+No PCSX2 capture is needed. When the developer's AREA11 captures are
+present (default: playable_ee.bin and route beats 00..14; --verify-ram FILE
+to name others, --no-verify to skip) the table and every region are
+checked byte for byte against RAM at their addresses in each.
 
 Output (disc-derived: git-ignored assets/ only; nothing is embedded here):
   assets/scene_snow/roger/resources.emrs, little-endian:
-    0x00 'EMRS', u32 version 1, u32 table address (0x28A490), u32 table words N,
+    0x00 'EMRS', u32 version 2, u32 table address (0x28A490), u32 table words N (0xAF),
     u32 region count R, 3 x u32 0
     0x20 N table words
     then R regions: u32 address, u32 size, u32 writable (0), u32 0, size bytes
@@ -62,7 +67,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-TABLE, TABLE_WORDS = 0x0028A490, 0xC0
+TABLE, TABLE_WORDS = 0x0028A490, 0xAF      # 001AB430's cleared range
+VERSION = 2                                # version 1 carried 0xC0 words taken from a capture
 BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
 GLOBAL_TABLE_INDEX = 0x37
 DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
@@ -100,13 +106,17 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--extract', type=Path, default=DECOMP / 'extract')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/roger/resources.emrs')
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     ap.add_argument('--verify-ram', type=Path, action='append', default=None)
+    ap.add_argument('--no-verify', action='store_true')
     args = ap.parse_args(argv)
-    captures = args.verify_ram if args.verify_ram is not None else default_captures()
-    if not captures:
-        raise SystemExit('no AREA11 capture to take D_0028A490 from')
-    first = captures[0].read_bytes()
-    table = [u32(first, TABLE + 4 * i) for i in range(TABLE_WORDS)]
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import export_disc_textures_gs as G
+    captures = [] if args.no_verify else (args.verify_ram if args.verify_ram is not None else default_captures())
+    model = G.ResourceTable(G.Disc(args.iso, args.disc))
+    table = list(model.words)
+    assert len(table) == TABLE_WORDS == G.TABLE_WORDS
 
     f12 = (args.extract / 'chunk15/f12_id44.bin').read_bytes()
     f18 = (args.extract / 'chunk15/f18_id94.bin').read_bytes()
@@ -151,20 +161,20 @@ def main(argv=None) -> int:
         words = [u32(ram, TABLE + 4 * i) for i in range(TABLE_WORDS)]
         if words != table:
             diff = next(i for i in range(TABLE_WORDS) if words[i] != table[i])
-            raise SystemExit(f'{path}: D_0028A490[{diff:#x}] differs from the first capture')
+            raise SystemExit(f'{path}: D_0028A490[{diff:#x}] = {words[diff]:#x}, the disc model gives {table[diff]:#x}')
         for address, data in regions:
             if ram[address:address + len(data)] != data:
                 diff = next(i for i in range(len(data)) if ram[address + i] != data[i])
                 raise SystemExit(f'{path}: RAM differs from the region at {address:#x} at +{diff:#x}')
         checked.append(str(path.relative_to(DECOMP) if path.is_relative_to(DECOMP) else path))
 
-    out = bytearray(struct.pack('<4s7I', b'EMRS', 1, TABLE, TABLE_WORDS, len(regions), 0, 0, 0))
+    out = bytearray(struct.pack('<4s7I', b'EMRS', VERSION, TABLE, TABLE_WORDS, len(regions), 0, 0, 0))
     out += struct.pack(f'<{TABLE_WORDS}I', *table)
     for address, data in regions:
         out += struct.pack('<4I', address, len(data), 0, 0) + data
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(bytes(out))
-    report = dict(output=str(args.out.relative_to(ROOT)), bytes=len(out),
+    report = dict(output=str(args.out), bytes=len(out),
                   sha256=hashlib.sha256(bytes(out)).hexdigest(),
                   regions=[dict(address=f'{a:08X}', size=len(d), sha256=hashlib.sha256(d).hexdigest())
                            for a, d in regions],
@@ -173,7 +183,7 @@ def main(argv=None) -> int:
     receipt.mkdir(parents=True, exist_ok=True)
     (receipt / 'export.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'roger banks: {len(regions)} regions, table {TABLE_WORDS} words, {len(out)} bytes -> '
-          f'{args.out} (checked against {len(checked)} captures)')
+          f'{args.out} (table from the disc; checked against {len(checked)} captures)')
     return 0
 
 

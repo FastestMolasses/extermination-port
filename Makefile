@@ -1173,6 +1173,20 @@ test-sdk-math-original:
 test-status-scene-reference:
 	python3 tools/test_status_scene_reference.py
 
+# Every first-level asset from the user's disc (docs/DISC_TEXTURES.md): the
+# textures rebuilt from the disc's GS uploads against the original loaders
+# and the captures, and the other exporters run without a capture against
+# the capture-derived files (the resource table D_0028A490, the weather bits,
+# the door, Roger, the flame, the snow, the panel pages, the props; full
+# mode also the hub, the Roger banks, the models, the sprite sheets and
+# player.emdl). Both need the disc image.
+.PHONY: test-disc-textures-reference test-disc-assets-reference
+test-disc-textures-reference:
+	python3 tools/test_disc_textures_reference.py
+
+test-disc-assets-reference:
+	python3 tools/test_disc_assets_reference.py
+
 # The screen-module loader's disc/DMA layer and its live slot-2 binding
 # (docs/MODULE_LOADER.md): the leaf routines and whole loads against the
 # original instructions, the captured load rows, the ASan/UBSan driver.

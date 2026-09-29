@@ -47,7 +47,8 @@ C. The outputs: each texture decoded from the disc equals its decode from
    pinned table (PINNED_SOURCES).
 D. The TEX0 sets: the page set from the ELF / overlay / code constants
    equals the pinned captured set; the status-hub token list written equals
-   export_status_hub.py's list (status_hub_commands.json); full mode also
+   the pinned capture list (CAPTURE_HUB_TOKENS, export_status_hub.py's list
+   over the status-hub capture before it became disc-first); full mode also
    re-executes 00209DF0 over the status-hub capture's RAM and checks the
    exporter executed all 5 x 2 states and the fixture pass.
 E. Controls, all of which must be caught: a wrong player texture slot, the
@@ -717,8 +718,11 @@ def direct_checks(fl, world, hub_list):
 # over an EE RAM dump), taken before this exporter existed. Pinned so the
 # comparison stays independent once the disc exporter writes into assets/.
 CAPTURE_SHA256 = {
+    # chain C8b FACE and the static-world step: 465 TEX0, the face resources 0x88 / 0x18 and the
+    # static bank's 119 MODULATE textures; the capture exporter's output over the 15 route
+    # captures, taken before it became disc-first
     'scene_snow/object_textures.emot':  # sha256
-        'd9472fcdd1b5bf2906521119b0623981beba8c6f66ab0d38618c1ac9f9738c72',
+        '02827237d386a0399dc4231bf4648c057308cdbd4b1fed34a30f87de4c21ca8f',
     'scene_snow/page_textures.emot':  # sha256 (chain C8b FLAMESNOW: + the weather descriptor's TEX0)
         '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927',
     'font.emfn':  # sha256
@@ -748,6 +752,13 @@ CAPTURE_SHA256 = {
     'scene_snow/panel/battery.emba':  # sha256
         '405e617fb6c9272a6e712d81fb7dc98fffa8b77d613510fbae97442af8ed2b29',
 }
+# export_status_hub.py's sprite token list over the status-hub capture's RAM
+# (the capture-derived status_hub_commands.json, pinned before that exporter
+# became disc-first): the five secondary icons, then 00209DF0's tokens.
+CAPTURE_HUB_TOKENS = (0x20045EE59D421E40, 0x20045385554221C2, 0x20045305554221A6, 0x200451A5554221A2,
+                      0x20045325554221B2, 0x2004512515422288, 0x20045EC555422186, 0x20045EC5554221F0,
+                      0x20045EC555422192, 0x20045EC5554221F4, 0x20045505DD421D40, 0x200453A59D421E50,
+                      0x2004518555422196)
 # export_page_textures.py's captured page TEX0 set (CLD-masked), pinned.
 CAPTURE_PAGE_TEX0 = {0x4128555322090, 0x41805113222AE, 0x4290511322469, 0x455E599421ED8,
                      0x457E599421F00, 0x45B0599421EF0,
@@ -1027,10 +1038,7 @@ def main() -> int:
     fl = G.FirstLevel(G.Disc())
     world = fl.world()
     SHARED.update(fl=fl, world=world)
-    captured_hub = ROOT / 'assets/scene_snow/panel/status_hub_commands.json'
-    if not captured_hub.exists():
-        raise SystemExit(f'{captured_hub}: missing (run tools/export_status_hub.py once to compare)')
-    capture_list = [s['tex0'] for s in json.loads(captured_hub.read_text())['sprites'] if s['tex0']]
+    capture_list = list(CAPTURE_HUB_TOKENS)
     if not FULL:
         SHARED['hub_tokens'] = capture_list
     work = [('oracle', c) for c in cases] + [('part', p) for p in parts] + [('sources', None)]

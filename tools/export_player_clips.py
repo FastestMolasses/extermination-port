@@ -15,7 +15,8 @@ Outputs (ignored, never committed):
   build/player_clips_full/export.json   hashes, per-clip header facts, the
                                   first-level clip list and every check made.
 
-Verification, before anything is written:
+Verification, before anything is written (the capture checks run only when
+the developer's PCSX2 captures are present; the output is the same without):
   * the bank file equals the RAM at the player's +40 byte for byte in every
     captured AREA11 image that has the player record (the playable image, the
     panel/elevator/status captures and route beats 00..15 when present);
@@ -218,7 +219,7 @@ def main():
     ap.add_argument('--raw-output', type=Path, default=ROOT / 'assets/player_clips_full.bank')
     ap.add_argument('--first-level', action='store_true', help='export only the first-level clips')
     ap.add_argument('--no-captures', action='store_true',
-                    help='skip the captured-RAM checks (refused unless no capture exists)')
+                    help='accepted for compatibility: without captures the checks are skipped anyway')
     args = ap.parse_args()
     sys.path.insert(0, str(args.decomp / 'tools'))
     from export_opening_actors import OpeningClip
@@ -229,8 +230,10 @@ def main():
 
     # 1. The bank is the RAM image at the player's +40, byte for byte.
     images = captures(args.decomp)
-    if not images and not args.no_captures:
-        sys.exit('no captured RAM image found; pass --no-captures to export unverified')
+    if not images:
+        # A user without PCSX2 captures: the export is the disc bank's bytes
+        # either way; the report records that no RAM check ran.
+        print('note: no captured RAM image found; the bank == RAM check did not run')
     verified = []
     for path in images:
         with open(path, 'rb') as f:

@@ -18,8 +18,10 @@ bytes are the block model: 149 blocks, 21 bones, 0x4C170 bytes in all.
 Checks (every run):
   * the model's header and every block's VIF codes (export_world_models.py
     model_record: STCYCL 4,4, UNPACK V4-32 128, MSCAL / MSCNT);
-per captured EE RAM image (--verify-ram, repeatable; default playable_ee.bin
-and every AREA11 route capture 00..14):
+  * the address equals D_0028A490[0x3B] of the resource table rebuilt from
+    the user's disc (tools/export_disc_textures_gs.py ResourceTable);
+per captured EE RAM image, when the developer has them (--verify-ram,
+repeatable; default playable_ee.bin and every AREA11 route capture 00..14):
   * D_0028A490[0x3B] == the exported address (0x00D1C1C0);
   * the exported bytes equal RAM at that address, byte for byte;
   * the player record: +0x2FF == 0x3B, +0x44 == the address, +0x4C ==
@@ -53,7 +55,7 @@ import export_world_models as ewm
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 RESOURCE_TABLE, KIND = 0x0028A490, 0x3B     # D_0028A490[+0x2FF], 0015C1F0
-ADDRESS = 0x00D1C1C0                         # D_0028A490[0x3B] in every AREA11 capture (checked)
+ADDRESS = 0x00D1C1C0                         # D_0028A490[0x3B]: checked against the disc ResourceTable
 PLAYER = 0x008102B0
 DRAW = 0x001CAA00
 
@@ -95,13 +97,23 @@ def main(argv=None) -> int:
     ap.add_argument('--extract', type=Path, default=DECOMP / 'extract')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/player_model.emom')
     ap.add_argument('--address', type=lambda v: int(v, 0), default=ADDRESS)
+    ap.add_argument('--no-verify', action='store_true')
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     ap.add_argument('--verify-ram', type=Path, action='append', default=None,
                     help='captured EE RAM image (repeatable); default: every AREA11 route capture')
     args = ap.parse_args(argv)
     x = build(args.extract)
-    captures = args.verify_ram if args.verify_ram is not None else ewm.default_captures()
-    if not captures:
-        raise SystemExit('no captured EE RAM image to verify the model against')
+    # The address is D_0028A490[0x3B] as the loaders leave it: module 3's
+    # resource slot 0x3B, rebuilt from the user's disc (tools/
+    # export_disc_textures_gs.py ResourceTable); the captures, when present,
+    # are checked too.
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import export_disc_textures_gs as G
+    table = G.ResourceTable(G.Disc(args.iso, args.disc))
+    if table.words[KIND] != args.address:
+        raise SystemExit(f'D_0028A490[{KIND:#x}] from the disc is {table.words[KIND]:#x}, not {args.address:#x}')
+    captures = [] if args.no_verify else (args.verify_ram if args.verify_ram is not None else ewm.default_captures())
     verified = []
     for path in captures:
         verify_ram(x, path.read_bytes(), args.address)

@@ -59,7 +59,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 TABLE_OFFSET = 0x123000            # the table inside the chunk15 concatenation
-TABLE_ADDRESS = 0x01335F40         # *D_0028A59C in every AREA11 capture (checked)
+TABLE_ADDRESS = 0x01335F40         # *D_0028A59C = D_0028A490[0x43]: checked against the disc ResourceTable
 D_0028A59C, ACTOR_HEAD = 0x28A59C, 0x275BC0
 BLOCK_QWORDS = 0x82
 BLOCK_HEAD = (0, 0, 0x01000404, 0x6C808000)   # STCYCL 4,4; UNPACK V4-32 128 at 0 (+TOPS)
@@ -182,8 +182,17 @@ def main(argv=None) -> int:
     ap.add_argument('--verify-ram', type=Path, action='append', default=None,
                     help='captured EE RAM image (repeatable); default: every AREA11 route capture')
     ap.add_argument('--no-verify', action='store_true')
+    ap.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     args = ap.parse_args(argv)
     x = build(args.extract)
+    # *D_0028A59C = D_0028A490[0x43], the AREA11 load's relocated slot,
+    # rebuilt from the user's disc (tools/export_disc_textures_gs.py).
+    sys.path.insert(0, str(ROOT / 'tools'))
+    import export_disc_textures_gs as G
+    slot = G.ResourceTable(G.Disc(args.iso, args.disc)).words[0x43]
+    if slot != args.table_address:
+        raise SystemExit(f'D_0028A490[0x43] from the disc is {slot:#x}, not {args.table_address:#x}')
     placed = placements((args.extract / 'OVERLAY/AREA11.BIN').read_bytes())
     captures = [] if args.no_verify else (args.verify_ram if args.verify_ram is not None else default_captures())
     seen, report = {}, []

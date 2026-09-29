@@ -197,9 +197,16 @@ prepare time the health `00208AD0`, battery `00209280` and ammunition
 rebuilt as `001C5FB0(n,3,1)` plus the resident `00273570` string, and the
 `0020AC70` trail at base (432,272) runs through `em_item_trail.c`. The
 exporter also executes the `001FCA10` mode-4 presenter
-(`001FCB90(0x8A,0xA8,0,line)` through `001FE070`/`001FC7B0`) over the
-captured RAM, so the ten group-0 help lines are original tall-font calls,
-split per line 12 GS half-lines apart, in style `0x606060`.
+(`001FCB90(0x8A,0xA8,0,line)` through `001FE070`/`001FC7B0`), so the ten
+group-0 help lines are original tall-font calls, split per line 12 GS
+half-lines apart, in style `0x606060`. Since 2026-09-28 it runs over the
+EE memory the boot, New Game and AREA11 loads leave, rebuilt from the disc
+(the ELF image, the resident regions and D_0028A490; the message reset
+001FC9B0 executed first, as the boot's 001AB430 does), not a capture
+(DISC_TEXTURES.md 9.2): the layouts and help lines equal the capture's, and
+the EMHS arc block D_00265390 holds the ELF's words where the capture held
+mid-hub centres and angles, words 00208AD0 writes before 002082B0 reads
+them (`export_status_hub.py` ARC_WORDS_WRITTEN).
 
 Facts read from the original code:
 

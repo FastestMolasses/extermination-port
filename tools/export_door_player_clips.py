@@ -44,8 +44,11 @@ def main():
     parser.add_argument('--channels', type=Path, default=ROOT / 'assets/player_channels.empc')
     args = parser.parse_args()
     bank = (args.decomp / 'extract/chunk28/f01_id3c.bin').read_bytes()
-    ram = (args.decomp / 'build/startup-reference/panel/eeMemory.bin').read_bytes()
-    assert ram[0xD689C0:0xD689C0 + len(bank)] == bank
+    # Optional check: the player's bank in the panel capture (when present)
+    # holds the disc bank's bytes; the export itself reads the disc only.
+    reference = args.decomp / 'build/startup-reference/panel/eeMemory.bin'
+    if reference.is_file():
+        assert reference.read_bytes()[0xD689C0:0xD689C0 + len(bank)] == bank
     elf = (args.decomp / 'config/SCUS_971.12').read_bytes()
     headers = []
     for clip, address in CLIPS.items():

@@ -3,7 +3,12 @@
 
 The user's disc-derived output stays under ignored assets. This does not
 install the encounter's script, player, audio or camera ownership workers.
+From the user's extract and pinned ELF only; with a captured AREA11 RAM
+image present (../Extermination/build/startup-reference/playable_ee.bin, or
+--verify-ram FILE; --no-verify skips it) D_0028A490[0x96] is checked to
+hold the bank's bytes.
 """
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -20,11 +25,19 @@ BANK = 0x41000
 def main():
     sys.path.insert(0, str(DECOMP / 'tools'))
     from export_opening_actors import OpeningClip
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--verify-ram', type=Path, help='optional: a captured AREA11 EE RAM image')
+    ap.add_argument('--no-verify', action='store_true')
+    ap.add_argument('--out', type=Path, default=ROOT / 'assets/scene_snow/roger')
+    args = ap.parse_args()
     source = DECOMP / 'extract/chunk15/f12_id44.bin'
     data = source.read_bytes()
-    ram = (DECOMP / 'build/startup-reference/playable_ee.bin').read_bytes()
-    runtime = struct.unpack_from('<I', ram, 0x28A490 + 0x96 * 4)[0]
-    assert runtime and data[BANK:BANK+64] == ram[runtime:runtime+64]
+    runtime = None
+    ram_path = args.verify_ram or DECOMP / 'build/startup-reference/playable_ee.bin'
+    if not args.no_verify and ram_path.is_file():
+        ram = ram_path.read_bytes()
+        runtime = struct.unpack_from('<I', ram, 0x28A490 + 0x96 * 4)[0]
+        assert runtime and data[BANK:BANK+64] == ram[runtime:runtime+64]
     assert struct.unpack_from('<I', data, BANK)[0] == 3
     header = BANK + (struct.unpack_from('<I', data, BANK+8)[0] & ~3)
     clip = OpeningClip(data, header)
@@ -41,7 +54,7 @@ def main():
             for time, values, hold in channel.keys:
                 payload += struct.pack('<HH4f', time, int(hold), *values,
                                        *((0.,) * (4-len(values))))
-    output = ROOT / 'assets/scene_snow/roger'
+    output = args.out
     output.mkdir(parents=True, exist_ok=True)
     player_path = output / 'encounter_player.empc'
     player_path.write_bytes(payload)

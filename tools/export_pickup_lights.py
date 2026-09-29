@@ -7,6 +7,9 @@ billboard. Placement and persistence belong to the original deferred item
 record. Inputs and generated assets remain local and ignored.
 The owner model72 preserves its three authored rest nodes; the historical
 static export discarded slots1/2 and collapsed the lid into the base.
+Texels come from the first level's GS memory rebuilt from the user's own
+disc (tools/export_disc_textures_gs.py; docs/DISC_TEXTURES.md), or from a
+GS freeze blob given with --gs; no PCSX2 capture is needed.
 """
 from __future__ import annotations
 
@@ -133,7 +136,10 @@ def write_bindings(path: Path, records: list[dict], model: str,
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root', type=Path, default=ROOT.parent/'Extermination')
-    parser.add_argument('--gs', type=Path)
+    parser.add_argument('--gs', type=Path, help='a GS freeze blob to take the texels from; default: the '
+                        'first level\'s GS memory rebuilt from the disc (docs/DISC_TEXTURES.md)')
+    parser.add_argument('--iso', type=Path, help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    parser.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     parser.add_argument('--scene', type=Path, default=ROOT/'assets/scene_snow')
     args = parser.parse_args()
     decomp = args.decomp_root.resolve()
@@ -170,8 +176,15 @@ def main() -> None:
     if model_id != 0x73 or color != (0.0, 1.0, 0.0, 0.25):
         raise ValueError('Unverified pickup child variant')
     library = (decomp/'extract/chunk27/f01_id37.bin').read_bytes()
-    gs = args.gs or decomp/'build/startup-reference/opening_gs.bin'
+    gs, world = args.gs, None
+    if gs is None:
+        sys.path.insert(0, str(ROOT/'tools'))
+        import export_disc_textures_gs as G
+        world = G.first_level_world(args.iso, args.disc, decomp/'extract')
+        gs = G.first_level_freeze(ROOT/'build/disc_textures/first_level_gs.bin', world)
     body, body_textures, parents, frames, body_offset = owner_rest_mesh(props, library)
+    if world is not None:
+        G.require_resident(world, body_textures, 'pickup body 0x72')
     body_entries, body_texels = props.lvl.build_texture_blob(None, body_textures, p2s=gs)
     if len(body_entries) != len(body_textures) or any(
             e['w'] != 1 << t['tw'] or e['h'] != 1 << t['th']
@@ -187,6 +200,8 @@ def main() -> None:
     # Lighting mode1 zeroes normal rows; no guessed normal lighting is
     # baked into these vertices. The additive draw uses only texture/tint.
     sections[0][1][:] = [(1.0, 1.0, 1.0)] * len(sections[0][0])
+    if world is not None:
+        G.require_resident(world, textures, 'pickup light 0x73')
     entries, texels = props.lvl.build_texture_blob(None, textures, p2s=gs)
     if len(entries) != 1 or entries[0]['w'] != 16 or entries[0]['h'] != 16:
         raise ValueError('Original pickup light texture was not resolved')
