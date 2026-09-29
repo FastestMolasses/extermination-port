@@ -1169,6 +1169,45 @@ fades change on the same ticks as in the recordings.
   weapons and aiming, the truck-pit fall, and the west-yard and plateau
   ladders (census section 6).
 
+**Skipping a first-level cutscene behaves as in the original**
+
+Pressing START or SELECT during a cutscene the original lets you skip (the
+AREA11 opening, the director's three voiced beats on the route, Roger's
+encounter) fades out, lands the scene where the original lands it and
+hands control back on the same frame after the press as in PCSX2. Until
+2026-09-29 every such skip stopped the port about 34 frames after the
+press ("0015BA50 D_00248C98 worker fault").
+
+- How: the skip landing (script op18, 001B6BF0) stores -1 in the player's
+  clip index; the player stage reads the rate of that row, the ELF's row
+  before the clip-rate table (0.0), until the release restores the index.
+  The port now exports that row from the user's ELF with the rest of the
+  column and still stops on any index the original never stores.
+- Evidence: `PLAYER_STAGE_WORKERS.md` section 2.2 ("Row -1"),
+  `AREA_SCRIPT.md` "The skip path". `make test-cutscene-skip` (about 7 s)
+  skips the opening in the headless game and compares every frame from
+  the promotion to eight frames after control with the PCSX2 skip capture:
+  the scratchpad bytes, the player's state, clip index, clip rates, the
+  camera mode byte, position and facing, and the frame control returns
+  (promotion + 34) all agree; `EM_TEST_FULL=1` adds a later opening press
+  and the four route scenes (promotion + 36, + 35, + 35, + 35, as
+  captured), each of which also passes the level smoke through roger. A
+  build that refuses the -1 row fails the test with the user's fault
+  line. `make test-player-stage-workers-reference` checks the 0015BA50
+  prologue with the -1 index against the executed original.
+- Status: **VERIFIED** for the opening, director beats 0..2 and Roger's
+  encounter. Not covered: director beat 3 and Roger's armed talk (both
+  skippable, neither reached on the route) and the level exit's departure
+  movie, which is a movie skip. The opening and Roger's encounter place the
+  player and are compared to the bit; for director beats 1 and 2 the
+  position and facing are compared as changes across the skip. Two open
+  differences: the fade substate steps from 3 to 2 one frame later in the
+  port than in the capture in every run (the landing that waits on it runs
+  on the same frame; not explained), and in director beat 0 the position
+  is identical but the facing is one scripted-turn step (0.0349 rad) off,
+  because the port's skip lands 11 frames after the scene arms and the
+  original's 13 (not explained).
+
 **The first-level game logic is the original code, translated and checked function by function**
 
 Along the first-level route, the game's rules run on translations of the

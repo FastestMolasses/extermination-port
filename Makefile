@@ -396,6 +396,15 @@ test-level-smoke-full: $(BIN)
 test-level-smoke-ps2-drive: $(BIN)
 	EM_PS2_DISC_DRIVE_TIMING=1 EM_LEVEL_SMOKE_UNTIL=roger $(MAKE) test-level-smoke
 
+# test-cutscene-skip: a cutscene skipped in the headless game, frame by
+# frame against the original's skip captures (tools/test_cutscene_skip.py,
+# AREA_SCRIPT.md "The skip path"): the opening by default (about 7 s);
+# EM_TEST_FULL=1 adds a later opening press and the four skippable route
+# scenes, each a level-smoke run through roger (about 2 min in parallel).
+.PHONY: test-cutscene-skip
+test-cutscene-skip: $(BIN)
+	python3 tools/test_cutscene_skip.py
+
 # The side beats, each in its own run: 00 (from slot 04: first control, then
 # the panel without the battery; about 14 s), the designed status_pages run
 # (first control, the status phase, then every bound status page, MAP
