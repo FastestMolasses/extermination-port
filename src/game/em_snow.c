@@ -84,8 +84,10 @@ int em_snow_config_load(EmSnowConfig *config, const char *path)
 
 int em_snow_tiles(EmWeather *weather, const EmSnowConfig *config,
                    float strength, const float eye[3],
+                   EmSnowSine sine, void *sine_ctx,
                    EmSnowTile tiles[EM_SNOW_TILE_COUNT])
 {
+    if (!sine) return -1;
     float cell[3];
     for (unsigned axis = 0; axis < 3; ++axis) {
         int integral = (int)eye[axis];
@@ -97,7 +99,9 @@ int em_snow_tiles(EmWeather *weather, const EmSnowConfig *config,
     float drift_step = ee_mul(0.004f, strength);
     for (unsigned row = 0; row < 6; ++row) {
         const float *data = config->rows[row];
-        float wave = sinf(ee_mul(6.2831855f, weather->drift[row]));
+        /* 0011E2A8, the SDK sinf (the original's own; not the host's). */
+        float wave;
+        if (sine(sine_ctx, ee_mul(6.2831855f, weather->drift[row]), &wave) < 0) return -1;
         float angle = ee_add(data[0], ee_mul(0.5f, ee_mul(data[0], wave)));
         angle = snow_div(ee_mul(3.1415927f, angle), 180.0f);
         float sine, cosine;

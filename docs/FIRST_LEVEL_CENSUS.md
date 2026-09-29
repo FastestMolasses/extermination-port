@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42) and by chain C8b's flame-and-snow step on 2026-09-28 (section 1.43). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -1674,6 +1674,43 @@ Result: live 699, verified-unbound 51, unverified 3, stand-in 0, missing 0,
 boundary 431, recounted from the section 3 rows (753 rows). 85,139 of the
 88,405 non-boundary instructions are live (96.3%).
 
+### 1.43 Update (2026-09-28, chain C8b FLAMESNOW: the AREA11 flame and the snow on the chain page)
+
+The flame owner 008235F0's DRAW runs 001D04B0 on em_effects_live
+(em_effects_live_001D04B0: 001CCF70, 001CFA60, 001CFBE0; the overlay
+descriptor D_00828340 readable by the page), and the weather 001E55F0 writes
+its channel-3 list (em_weather_packets: 001E67C0's tiles through 001CFAE0 and
+001CFFE0, the RET and 001D2DE0(0, start)), which the frame close's 001E0D70
+CALLs into the page; the page consumer runs the snow program D_00233800's
+translation on every tile (CHAIN_PAGE.md section 6.1, SNOW_PARTICLES.md).
+001E67C0's drift wave calls the SDK 0011E2A8's translation instead of the
+host sinf. Retired: em_snow_particles.c, em_snow_projection.c
+(em_effect_sprite_project, em_snow_project, em_snow_particles_generate /
+_color), em_area11_effect_runtime_draw, em_snow_runtime_draw and the
+particle renderer entries.
+
+- **Status changes:** 001CFAE0, 001CFFE0 and 001D04B0 boundary -> live
+  (moved out of the section 4 resource / display-object registry group by
+  the render-range rule: they carry a translation; boundary 431 -> 428).
+- **Row notes changed, no status change:** 001CFBE0 (the flame's chain),
+  001E0D70 (its CALL on every world page), 001E55F0 (the list close; the
+  D_008106BF store not modelled, its reader 001DE920 unreached), 001E67C0
+  (the SDK sinf; its tiles on the page), 008235F0 (its DRAW).
+- **Evidence.** test-snow-tiles-reference (the ORIGINAL 001E67C0 with its
+  draw requests executed: the channel-3 bytes equal; every tile exact with
+  the SDK sinf on both sides), test-chain-page-reference (the snow program
+  against the ORIGINAL microcode on the captured pages' snow MSCALs,
+  synthetic snow batches), test-area11-effect-reference (the owner's DRAW
+  call), the level smoke's check_chain_page (every world page's weather list
+  and flame read; 40 sampled pages re-walked with the original microcode;
+  the camera-exact snapshots 10 and 14: the snow's tile packet 3 and the
+  flame's packets 4 and 1 equal the captures'); newgame-control 9.599849
+  (unchanged).
+
+Result: live 702, verified-unbound 51, unverified 3, stand-in 0, missing 0,
+boundary 428, recounted from the section 3 rows (756 rows). 85,463 of the
+88,729 non-boundary instructions are live (96.3%).
+
 ### 1.3 Status values
 
 | Status | Meaning |
@@ -1693,15 +1730,15 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 699 | 85,139 | 647 (80,931) | 52 (4,208) |
+| live | 702 | 85,463 | 650 (81,255) | 52 (4,208) |
 | verified-unbound | 51 | 3,139 | 25 (1,662) | 26 (1,477) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
-| boundary | 431 | 23,359 | 153 (10,059) | 278 (13,300) |
+| boundary | 428 | 23,035 | 150 (9,735) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 753 non-boundary functions, 699 (92.8%) are live and verified; by instructions 85,139 of 88,405 (96.3%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 51 functions (3,139 instructions, 3.6%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41 and 1.42) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 756 non-boundary functions, 702 (92.9%) are live and verified; by instructions 85,463 of 88,729 (96.3%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 51 functions (3,139 instructions, 3.5%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42 and 1.43) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -1711,29 +1748,29 @@ Of the 753 non-boundary functions, 699 (92.8%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 77 / 12 / 0 / 0 / 0 / 383 | 77 / 12 / 0 / 0 / 0 / 383 |
 | S1_newgame_load | 165 / 27 / 1 / 0 / 0 / 86 | 100 / 21 / 1 / 0 / 0 / 18 |
-| S2_opening | 445 / 21 / 2 / 0 / 0 / 112 | 328 / 14 / 1 / 0 / 0 / 20 |
-| S3_first_control_idle | 349 / 17 / 1 / 0 / 0 / 104 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 415 / 18 / 1 / 0 / 0 / 84 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 460 / 19 / 3 / 0 / 0 / 141 | 30 / 1 / 1 / 0 / 0 / 5 |
-| 02_elevator_refusal | 430 / 18 / 1 / 0 / 0 / 86 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 495 / 21 / 2 / 0 / 0 / 112 | 20 / 1 / 0 / 0 / 0 / 1 |
-| 04_elevator_ride | 422 / 18 / 1 / 0 / 0 / 119 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 423 / 17 / 1 / 0 / 0 / 81 | 23 / 0 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 387 / 17 / 1 / 0 / 0 / 84 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 398 / 20 / 1 / 0 / 0 / 102 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 386 / 19 / 1 / 0 / 0 / 117 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 441 / 20 / 2 / 0 / 0 / 92 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 477 / 22 / 1 / 0 / 0 / 127 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 473 / 21 / 1 / 0 / 0 / 124 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 403 / 20 / 1 / 0 / 0 / 80 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 447 / 20 / 1 / 0 / 0 / 125 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 470 / 23 / 2 / 0 / 0 / 92 | 2 / 0 / 0 / 0 / 0 / 0 |
+| S2_opening | 448 / 21 / 2 / 0 / 0 / 109 | 331 / 14 / 1 / 0 / 0 / 17 |
+| S3_first_control_idle | 352 / 17 / 1 / 0 / 0 / 101 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 418 / 18 / 1 / 0 / 0 / 81 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 463 / 19 / 3 / 0 / 0 / 138 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 02_elevator_refusal | 433 / 18 / 1 / 0 / 0 / 83 | 15 / 0 / 0 / 0 / 0 / 2 |
+| 03_panel_power | 498 / 21 / 2 / 0 / 0 / 109 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 04_elevator_ride | 425 / 18 / 1 / 0 / 0 / 116 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 426 / 17 / 1 / 0 / 0 / 78 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 390 / 17 / 1 / 0 / 0 / 81 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 401 / 20 / 1 / 0 / 0 / 99 | 0 / 1 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 389 / 19 / 1 / 0 / 0 / 114 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 444 / 20 / 2 / 0 / 0 / 89 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 480 / 22 / 1 / 0 / 0 / 124 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 476 / 21 / 1 / 0 / 0 / 121 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 406 / 20 / 1 / 0 / 0 / 77 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 450 / 20 / 1 / 0 / 0 / 122 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 473 / 23 / 2 / 0 / 0 / 89 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
-State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.42. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
+State at the full-route recount of 2026-09-27 (section 1.33, which re-measured every row's liveness over the whole route; the earlier measurement is section 1.22), with the row changes of sections 1.34..1.43. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 699 of 753 non-boundary functions (96.3% by instructions).** Every main-line route phase the
+- **Live and verified: 702 of 756 non-boundary functions (96.3% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -1763,11 +1800,12 @@ State at the full-route recount of 2026-09-27 (section 1.33, which re-measured e
   and the UI view of the status pages on the one storage. Since section 1.42 001C1D00 runs its whole tree (the
   channel-3 background list, the static world's grid pass over the exported bank) and the level is drawn from
   that run's own packets through the level and clip kernels' translations, in place of the legacy zone meshes.
+  Since section 1.43 the AREA11 flame (008235F0's 001D04B0) and the snow (the weather's channel-3 list of 001CFFE0
+  tile requests, CALLed by 001E0D70) draw on the chain page through the sprite and snow programs' translations.
 - **What still stands in on the route:** the camera stand-ins that pre-empt action 0 for the examine and the aim
   (L28); the indicator children's +0x4C draw 001CABA0 (the child's model mesh drawn additively at the child's own
   node, section 1.25; the security gun's 0x7A lamp draws nothing); on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
-  walked over, and the AREA11 flame and the snow, which draw outside the page (008235F0's 001D04B0 and the weather's
-  001E0D70 kick are not bound);
+  walked over (the AREA11 flame and the snow draw on the page since section 1.43);
   001FC280's body
   (unverified since WP-8b: the D_00282160 cache is not modelled); the opening's scene-0x22 camera timeline (the
   opening lane's stand-in for 0022EEF0 with its fade track, census L33: its +0x6C..+0x7B words are the
@@ -2300,7 +2338,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.15 Message glyphs, object registry and face (0x1CC170..0x1D19CF)
 
-20 functions, 2,235 instructions: live 20 (recount 2026-09-26, shadow step).
+23 functions, 2,559 instructions: live 23 (recount 2026-09-28, the flame-and-snow step, section 1.43: 001CFAE0, 001CFFE0 and 001D04B0 moved in from section 4; earlier recount 2026-09-26, shadow step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2316,8 +2354,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CF870 | — | AI | live | em_shadow_decal_original em_shadow_decal_001CF870 (001CF470's edge outcode) through em_shadow_live (census L29) — test_shadow_decal_reference.py (leaf sweep; inside every clip) | moved out of the resource / display-object registry boundary group: a clipper leaf (SHADOW_DECAL.md section 1) | 02_elevator_refusal |
 | 0x001CF970 | — | AI | live | em_shadow_decal_original em_shadow_decal_001CF970 (001CF470's plane crossing) through em_shadow_live (census L29) — test_shadow_decal_reference.py (leaf sweep; inside every clip) | moved out of the resource / display-object registry boundary group: a clipper leaf (SHADOW_DECAL.md section 1) | 02_elevator_refusal |
 | 0x001CFA60 | — | BM | live | em_head_sprite_original through em_effects_live (the head sprites' ramp ticks) — test_head_sprite_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening |
+| 0x001CFAE0 | — | BM | live | em_weather_packets em_weather_packets_001CFAE0 (001E67C0's per-tile draw state) through em_snow_runtime — test_snow_tiles_reference.py (the ORIGINAL 001E67C0 run with 001CFAE0 / 001CD370 / 001CFFE0 / 001CB9B0 executed: the 108 tiles' channel-3 bytes equal); test_level_smoke.py check_chain_page (every world page's weather list; the camera-exact snapshots' tile packet 3) | moved out of the resource / display-object registry boundary group by the render-range rule (section 1.43) | S2_opening |
 | 0x001CFB50 | — | BM | live | em_effect_kinds em_effect_kinds_001CFB50 through em_effects_live (every puff handler draw) — test_effect_kinds_reference.py (executed with 001D0540 / 001CD370 / 0011DF78; the captured D_0081F8F0 of beats 05, 08 and 12 reproduced); test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | moved out of the boundary group: the puff handlers' transform block; live since the census L26 / L27 / L39 step | 00_panel_no_battery |
-| 0x001CFBE0 | — | BM | live | em_head_sprite_original through em_effects_live (the head sprites and every puff handler) — test_head_sprite_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | its chains are drawn by the sprite program's translation from the chain page since WP-13 (CHAIN_PAGE.md) | S2_opening |
+| 0x001CFBE0 | — | BM | live | em_head_sprite_original through em_effects_live (the head sprites and every puff handler) — test_head_sprite_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | its chains are drawn by the sprite program's translation from the chain page since WP-13 (CHAIN_PAGE.md); the AREA11 flame's through 001D04B0 since section 1.43 | S2_opening |
+| 0x001CFFE0 | — | NM | live | em_weather_packets em_weather_packets_001CFFE0 (the weather's tile packets into channel 3) through em_snow_runtime — test_snow_tiles_reference.py (the executed original's channel-3 bytes, 108 x 0x260 per case); test_level_smoke.py check_chain_page (the page CALLs the list; the ORIGINAL snow program re-walks the sampled pages; the camera-exact snapshots' tile packet 3 equals the captures') | moved out of the resource / display-object registry boundary group (section 1.43); its snow program D_00233800 runs on the chain page (CHAIN_PAGE.md 6.1) | S2_opening |
+| 0x001D04B0 | — | AI | live | em_effects_live em_effects_live_001D04B0 (the AREA11 flame 008235F0's DRAW: 001CCF70, 001CFA60, 001CFBE0) — test_area11_effect_reference.py (the owner's call and arguments against the original); test_level_smoke.py check_chain_page (the camera-exact snapshots 10 and 14: its 001CFBE0 packets 4 and 1 (phase and seed masked) equal the captures'; its descriptor read once per world page) | moved out of the resource / display-object registry boundary group (section 1.43) | S2_opening |
 | 0x001D0540 | — | NM | live | em_effect_kinds em_effect_kinds_001D0540 (from the .s) through em_effects_live — test_effect_kinds_reference.py | moved out of the boundary group: 001CFB50's depth scale over 0x70003AC0; live since the census L26 / L27 / L39 step | 00_panel_no_battery |
 | 0x001D0690 | — | BM | live | em_roger_actor_original via em_area11_roger (census L22) — test_roger_actor_original_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x001D06D0 | — | BM | live | em_roger_actor_original via em_area11_roger and, on the player, em_face_slot (the script host's w_001D06D0, section 1.40) — test_roger_actor_original_reference.py; test_face_slot_reference.py; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
@@ -2440,7 +2481,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001E0C80 | — | CL | live | em_render_context em_render_context_001E0C80 (001D2830's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E0CC0 | — | BM | live | em_render_context em_render_context_001E0CC0 through em_render_context_live (w_001E0CC0 at the status close) — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001E0CF0 | — | BM | live | em_render_verify_rest em_rvr_001E0CF0 through em_rcl_001C1D00 — test_render_verify_rest_reference; test_static_world_reference; test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | bound (static-world step, section 1.42) | S2_opening |
-| 0x001E0D70 | — | BM | live | em_render_context em_render_context_001E0D70 (001D1EA0's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S2_opening |
+| 0x001E0D70 | — | BM | live | em_render_context em_render_context_001E0D70 (001D1EA0's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context, check_chain_page (the weather list it CALLs on every world page) | since section 1.43 +0x2520 holds the weather's list and its CALL is on every world page | S2_opening |
 | 0x001E0DF0 | — | BM | live | em_render_context em_render_context_001E0DF0 through step V (em_frame_kick) — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); since the static-world step it tags the +0x1D8 list 001C1D00 builds (seven tags, as the captures) | S1_newgame_load |
 | 0x001E1010 | — | BM | verified-unbound | em_render_context em_render_context_001E1010 — test_render_context_reference | not bound | S1_newgame_load* |
 | 0x001E1E60 | — | NM | live | em_static_world em_static_world_001E1E60 through em_rcl_001C1D00 (the channel-3 list at +0x1D8, byte for byte); its CALL drawn by em_background_gs (the grid kernel 0x0023C990's model), gated as 001D2300 / 001E0DF0 gate it, with the list's own TEX0 / RGBAQ (em_static_world_live_background_state) — test_static_world_reference (17 captured lists); test_background_reference.py (sky metric: 0 black); test_level_smoke.py check_static_world (the ORIGINAL 001C1D00 re-executed over the port's inputs on sampled ticks writes the port's run and list) | flag 0x21 no longer stands in for +0x1D8 (static-world step, section 1.42) | S2_opening |
@@ -2449,8 +2490,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001E2290 | — | BM | live | em_head_sprite_original through em_effects_live — test_head_sprite_reference | | S2_opening* |
 | 0x001E23A0 | — | BM | live | em_head_sprite_original through em_effects_live — test_head_sprite_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening* |
 | 0x001E2560 | — | BM | live | em_head_sprite_original em_head_sprite_original_tick through em_effects_live on the pool nodes (the player's and Roger's) — test_head_sprite_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) and check_head_sprites (every tick's sub-state, wait, ramp and scalar over the port's own draws) | | S2_opening |
-| 0x001E55F0 | — | NM | live | em_weather.c via em_snow_runtime (node 001E55F0) — test_weather_reference |  | S2_opening |
-| 0x001E67C0 | — | NM | live | em_snow.c — test_snow_tiles_reference | its 0021B9A0(2, 0, 0) / (3, 0, 300) / (1, 0, 0) run on the render context since the census L26 step (em_snow_runtime; the draw takes the context's fog quadword) | S2_opening |
+| 0x001E55F0 | — | NM | live | em_weather.c via em_snow_runtime (node 001E55F0; its list close: em_weather_packets_close and 001D2DE0(0, start)) — test_weather_reference; test_level_smoke.py check_chain_page (the list the page CALLs is the one its frame closed) | its D_008106BF store (00128250 of the intensity) is not modelled: its one reader 001DE920 is not reached | S2_opening |
+| 0x001E67C0 | — | NM | live | em_snow.c (its drift wave through the SDK 0011E2A8's translation since section 1.43) and em_weather_packets_tile — test_snow_tiles_reference (every tile exact, the SDK sinf executed; the channel-3 packets of the executed original) | its 0021B9A0(2, 0, 0) / (3, 0, 300) / (1, 0, 0) run on the render context since the census L26 step; its tiles draw on the chain page since section 1.43 | S2_opening |
 | 0x001EA240 | — | BM | live | em_effect_original em_effect_original_001EA240 through em_effects_live on the pool nodes (em_area11_bindings, callback 0x1EA240) — test_effect_original_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks): the effect nodes' state, subtype, step, limit, accumulator (and route 08's positions) | | 00_panel_no_battery |
 | 0x001EBF10 | — | NM | live | em_effect_kinds em_effect_kinds_001EBF10 through em_effects_live (the truck puffs) — test_effect_kinds_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | 08_truck_crossing |
 | 0x001EC1F0 | — | NM | live | em_effect_kinds em_effect_kinds_001EC1F0 through em_effects_live — test_effect_kinds_reference | | 05_boxes |
@@ -2619,7 +2660,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x008235F0 | — | AU | live | em_area11_effect_runtime.c (node 008235F0) — test_area11_effect_reference | visuals; contact damage 00823580 not modelled (INV-17) | S2_opening |
+| 0x008235F0 | — | AU | live | em_area11_effect_runtime.c (node 008235F0; its DRAW is 001D04B0 on em_effects_live since section 1.43) — test_area11_effect_reference; test_level_smoke.py check_chain_page | contact damage 00823580 and the sound service 001FC3C0 not modelled (INV-17) | S2_opening |
 | 0x008237C0 | — | CO | verified-unbound | em_startup_load_gaps em_slg_008237C0 — test_startup_load_gaps_reference | the roster spawn stands in for the overlay init | S1_newgame_load* |
 | 0x008237E0 | — | AU | live | em_roger_actor_original em_roger_actor_008237E0_init via em_area11_roger (lifecycle 0; census L22) — test_roger_actor_original_reference; test_level_smoke.py (roger: route 14 row for row) | its 001CA6F0 bank and the +0x30 / +0x58 words from assets/scene_snow/roger/resources.emrs (tools/export_roger_banks.py) | S2_opening |
 | 0x00823910 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
@@ -2717,7 +2758,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ## 4. Platform boundaries
 
-431 functions (23,359 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+428 functions (23,035 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
@@ -2738,7 +2779,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | SDK libcdvd disc read | 9 | 346 | host file reads of locally exported assets | n/a |
 | 2D GS draw layer | 9 | 284 | em_gfx 2D layer (em_status_background_draw.c, em_status_draw.c) | 6: no; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference, test_status_page_record_reference; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference; 1: draw commands compared: test_status_draw_reference, test_status_hub_ui_reference |
 | GS/VIF packet build (sprites, flush) | 3 | 202 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
-| resource / display-object registry | 4 | 333 | locally exported assets (EMDL, roster, props) | no |
+| resource / display-object registry | 1 | 9 | locally exported assets (EMDL, roster, props) | no |
 | GS texture upload | 6 | 426 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) texture upload | not compared per call |
 | C runtime string/format | 3 | 222 | host snprintf/strlen in em_status_hub_ui.c / em_message_draw_original.c | through the callers' oracles (test_status_hub_ui_reference, test_message_draw_reference) |
 | stream / voice IOP service tick | 3 | 304 | 001F9820: em_stream_lanes_original at 001AAE40's start-up (em_stream_live, WP-8b); 001F9B20, 001F9BF0: not bound | 001F9820: test_stream_lanes_reference (init cases) and the 26 captures' lane voices; 001F9B20, 001F9BF0: no |
@@ -2799,7 +2840,7 @@ Addresses per kind:
 - **SDK libcdvd disc read** (9): 00110AB8, 00110B38, 00110B80, 00111018, 001115D0, 00111818, 001118B8, 00111F18, 00112088.
 - **2D GS draw layer** (9): 00207070, 002070A0, 002070D0, 00207100, 00207150, 00207290, 00207D00, 00207E40, 00207F80.
 - **GS/VIF packet build (sprites, flush)** (3; 001CB950 moved to section 3.14 by the shadow step, census L29): 001CABA0, 001CB5C0, 001CBC20.
-- **resource / display-object registry** (4; 001CF870 and 001CF970 moved to section 3.15 by the shadow step, census L29): 001CFAE0, 001CFFE0, 001D04B0, 001D0660.
+- **resource / display-object registry** (1; 001CF870 and 001CF970 moved to section 3.15 by the shadow step, census L29; 001CFAE0, 001CFFE0 and 001D04B0 by the flame-and-snow step, section 1.43): 001D0660.
 - **GS texture upload** (6): 001CC8A0, 001CCB00, 001CCB10, 001CCBD0, 001CCCC0, 001CCE80.
 - **C runtime string/format** (3): 00122EF0, 00123168, 001232E0.
 - **stream / voice IOP service tick** (3): 001F9820, 001F9B20, 001F9BF0.

@@ -45,8 +45,8 @@ static int manifest_word_token(const char *line, const char *tok)
 void scene_manifest_load(void)
 {
     em_gfx_background_unload(em_frame_gfx());
-    em_snow_runtime_clear(em_frame_gfx());
-    em_area11_effect_runtime_clear(em_frame_gfx());
+    em_snow_runtime_clear();
+    em_area11_effect_runtime_clear();
     em_enemy_set_scene_directory(g.scene_dir);
     g.spawn[0]  = kPlayerPos[0];
     g.spawn[1]  = kPlayerPos[1];
@@ -394,12 +394,15 @@ void scene_manifest_load(void)
              * the port — it is bookkeeping only, not a behaviour gate. */
             g.area_title_armed = 1;
             em_hud_area_title(gk);
-        } else if (sscanf(line, "area11effect %255s %63s", name, gname) == 2) {
-            if (!em_area11_effect_runtime_load(em_frame_gfx(), g.scene_dir, name, gname)) {
+        } else if (sscanf(line, "area11effect %255s", name) == 1) {
+            /* The flame's placement and descriptor (a texture token of an
+             * older manifest is not read: its TEX0 is a page texture). */
+            if (!em_area11_effect_runtime_load(g.scene_dir, name)) {
                 fprintf(stderr, "manifest: required AREA11 effect failed to load\n");
                 em_frame_request_quit();
             } else {
-                printf("manifest: original AREA11 effect, 80 particles; audio/contact binding pending\n");
+                printf("manifest: original AREA11 flame (008235F0, 001D04B0 on the chain page); "
+                       "audio/contact binding pending\n");
             }
         } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
                                 "%255s %63s",
@@ -444,9 +447,10 @@ void scene_manifest_load(void)
                     em_frame_request_quit();
                 }
             }
-        } else if (sscanf(line, "weather %i %255s %63s", &gk, name, gname) == 3) {
-            if (!em_snow_runtime_load(em_frame_gfx(), g.scene_dir, name, gname,
-                                       (unsigned)gk))
+        } else if (sscanf(line, "weather %i %255s", &gk, name) == 2) {
+            /* The snow tables (a texture token of an older manifest is not
+             * read: the snow's TEX0 is a page texture). */
+            if (!em_snow_runtime_load(g.scene_dir, name, (unsigned)gk))
                 fprintf(stderr, "manifest: original weather assets failed: %s", line);
         } else if (sscanf(line, "background %255s", name) == 1) {
             /* The level background's asset (docs/BACKGROUND.md): its file.
@@ -715,8 +719,8 @@ int scene_load(EmGfx *gfx, SceneItem *items, int max_items)
 void scene_unload(EmGfx *gfx)
 {
     em_gfx_background_unload(gfx);
-    em_snow_runtime_clear(gfx);
-    em_area11_effect_runtime_clear(gfx);
+    em_snow_runtime_clear();
+    em_area11_effect_runtime_clear();
     for (int i = 0; i < g.n_scene; i++) {
         em_gfx_mesh_destroy(gfx, g.scene[i].mesh);
         em_model_free(&g.scene[i].model);

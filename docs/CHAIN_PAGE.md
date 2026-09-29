@@ -1,4 +1,4 @@
-# The chain page D_007635C0 drawn: DMA, VIF1, the two VU1 programs, GIF and the GS (WP-13)
+# The chain page D_007635C0 drawn: DMA, VIF1, the three VU1 programs, GIF and the GS (WP-13)
 
 Step "FXDRAW" of chain C7, 2026-09-26. Original executable SHA-256:
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
@@ -15,10 +15,15 @@ chain 001CB800 splices at the frame close, runs its VIF codes, the two VU1
 programs it CALLs and its GIF packets, and hands the renderer every primitive
 the GS would draw, in GS order.
 
+Since step FLAMESNOW of chain C8b (2026-09-28) the page also carries the
+AREA11 flame (owner 008235F0's 001D04B0) and the weather's channel-3 list
+(001E55F0 / 001E67C0's 001CFFE0 tiles, CALLed by 001E0D70), and the consumer
+runs a third program, the snow program D_00233800 (section 6.1).
+
 Files:
 - `src/game/em_vu1_page_programs.h`: the lane program (DMA packet
-  D_00233290) and the sprite program (table 0x231770), translated from their
-  VU1 microcode (section 3).
+  D_00233290), the sprite program (table 0x231770) and the snow program
+  (D_00233800), translated from their VU1 microcode (section 3).
 - `src/game/em_chain_page.{h,c}`: the DMA / VIF1 / GIF / GS walk (section 2).
 - `src/game/em_gs_blocks_original.{h,c}`: 001D0F20's blend-preset bank, the GS
   state the page REFs (section 4).
@@ -92,22 +97,25 @@ into the vertex (the GS's internal Q).
 
 **What the captured pages draw** (the latest page of routes 00..14, its start
 at the context's +0; the route snapshots are taken before the next frame's
-001CB8A0): 386 primitives: 369 sprites, 5 triangles of fans, 12 lines of line
-strips; 86 XGKICKs and 208 DIRECT packets. By producer:
+001CB8A0), with the weather's CALL walked over: 386 primitives: 369 sprites,
+5 triangles of fans, 12 lines of line strips; 86 XGKICKs and 208 DIRECT
+packets. Every captured page holds one weather CALL (108 snow MSCALs; route
+10's draws 385 sprites) and the flame's REF of D_00828340. By producer:
 
 | Producer | Shape |
 |---|---|
 | 001F0720 (six lanes a frame) | blend REF (mode 1), CALL D_00233290, three UNPACK packets and an MSCAL: the lane program. No route slot is active (the countdown +0x58 is 0 or below), so the program draws nothing on the route |
-| 001CFBE0 (head sprites, puffs; and in the captures the AREA11 flame 001D04B0) | blend REF, CALL 0x231770, the UNPACKs of the projection rows, the source block (a REF of 9 qwords) and the parameters, MSCAL: the sprite program's sprites (the PRIM of the tag row 001CFBE0 uploads: 0x56 sprite, textured, blended, or 0x76 with fog) |
+| 001CFBE0 (head sprites, puffs, and the AREA11 flame 001D04B0) | blend REF, CALL 0x231770, the UNPACKs of the projection rows, the source block (a REF of 9 qwords; the flame's is its overlay descriptor D_00828340) and the parameters, MSCAL: the sprite program's sprites (the PRIM of the tag row 001CFBE0 uploads: 0x56 sprite, textured, blended, or 0x76 with fog) |
 | 001CD520 (glow markers, equipment sprites) | blend REF, a REF of D_00251220 (the DIRECT code and GIF tag) and 6 qwords of data: one sprite (PRIM 0x76: textured, fogged, blended) |
 | 001F0A60 (the pickup glint) | DIRECT 13: two line strips of three vertices (PRIM 0x6A: Gouraud, fogged, blended, untextured); 001CB900 appends the blend REF after the packet, so the DMA sends the REF first (slot lists run newest first) |
 | 001CE300 (the decal) | the blend REF, the TEX0 packet 001CB950 writes, the fans (PRIM 0x7D) |
-| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts, 001DDE10's four-sprite frame-copy pass (slot 0xFFF), the weather's 001E0D70 kick (slot 0xFFB): see section 6 |
+| 001E0D70 (slot 0xFFB: its id 0xFFC000 is capped) | a CALL of the weather's channel-3 list (context +0x2520): per snow tile 001CFFE0's REF of the mode-2 preset, CALL D_00233800, the UNPACKs of the projection rows (15 to 0x6E), the descriptor (9 to 0x50) and the parameters with the tile matrix (5 to 0x59), MSCAL; then 001E55F0's RET. 108 tiles per list on the route (section 6.1) |
+| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts, 001DDE10's four-sprite frame-copy pass (slot 0xFFF): see section 6 |
 
-## 3. The two VU1 programs (em_vu1_page_programs.h)
+## 3. The three VU1 programs (em_vu1_page_programs.h)
 
-Micro addresses are instruction indices of the uploaded program. Both are
-entered by MSCAL 0.
+Micro addresses are instruction indices of the uploaded program. All three
+are entered by MSCAL 0.
 
 **The lane program** (138 instructions). Rows 0..8 are the clip projection
 001CD370(2), K (0x70003AC0) and the fog row (packet 4 of 001F0720), rows 9..13
@@ -141,6 +149,18 @@ ST (0, 0) and (1, 1)), a clipped one lowers the count; the batch is kicked
 with the tag of row 124 (its NLOOP the visible count). Output alternates
 between 0x100 and 0x280 per batch.
 
+**The snow program** (D_00233800: 256 + 81 instructions; the same lookup
+and constant rows as the sprite program's). Its instructions are the sprite
+program's except in the emission: it copies the particle's K-projected
+position into VF08 (micro 0x118), scales its w by 0.02 (I loaded at 0x11D,
+the multiply at 0x120) and clamps it to 1 (0x127, the branch's delay slot,
+both paths); a visible particle's colour, after the fog weight, is
+multiplied by that near weight (0x13E) before its FTOI0 (0x142) and store
+(0x146). The rest differs only in branch offsets that follow from its two
+extra instructions (0x0F7's exit, 0x147, 0x14B). The translation is the
+sprite program's with a `snow` switch (`em_vu1_snow_program_mscal`); the
+reference test runs both against their own microcode.
+
 **The execution model** is the reference test's VU1 machine
 (tools/chain_page_model.py VuOracle: the shadow test's machine with
 ee_float_model's VU0 lane rules), whose instructions are the ELF's own:
@@ -159,6 +179,7 @@ ee_float_model's VU0 lane rules), whose instructions are the ELF's own:
 | sprite | Q at 0x00F / 0x0D5, 0x0D6 / 0x0DF / 0x11E / 0x125 | DIV 0x008 / 0x0CE / 0x0D6 / 0x117 / 0x11E |
 | sprite | MAC test 0x06A / 0x071 (0x09E / 0x0A5 on the flags-0x10 path) | 0x066 / 0x06D (0x09A / 0x0A1) |
 | sprite | clip test 0x123 | CLIP 0x11F |
+| snow | the sprite program's reads, the same producers | (its extra ops read no Q and set no flag a later read sees first) |
 
   A DIV in the same pair as a Q read (0x0D6, 0x11E) starts after that read.
 - the arithmetic: DAZ operands, truncated results, FTZ, finite overflow to
@@ -229,6 +250,42 @@ frame's fog.
 
 ## 6. What the page walks over, or never holds, in the port
 
+### 6.1 The flame and the snow (step FLAMESNOW, 2026-09-28)
+
+- **The flame.** Owner 008235F0 (em_area11_effect_runtime) calls
+  001D04B0(+0xD0, 1, D_00828340, phase, seed) at its DRAW (0x8236AC); the
+  port's 001D04B0 (`em_effects_live_001D04B0`; the decomp holds it as an asm function, its three calls
+  read from the .s) runs 001CCF70(+0xD0 + 0x30), 001CFA60 and 001CFBE0 on the
+  translations every other effect uses. The descriptor is overlay data: its
+  0x90 bytes (the EMEF export's, equal to the captures') stay readable by
+  address through `em_effects_live_window`, so the page's REF of D_00828340
+  reads them. Retired: `em_area11_effect_runtime_draw`,
+  `em_effect_sprite_project`, the flame's `em_snow_particles_generate` call,
+  the EMTX texture slot 1 and `em_gfx_particles_draw_slot`.
+- **The snow.** The weather actor 001E55F0 (em_snow_runtime) reads the
+  channel-3 cursor (context +0x1C), runs 001E67C0 (em_snow's tiles, with its
+  0021B9A0 calls on the render context) and for every tile 001CFAE0 and
+  001CFFE0(3, 3, D_00255170, state) (`em_weather_packets`), then writes the
+  RET tag and 001D2DE0(0, start): context +0x2520. The frame close's
+  001E0D70 (live since the render context step) CALLs it at slot 0xFFB, and
+  the consumer walks it: 108 tiles, each a CALL of D_00233800 and an MSCAL
+  of the snow program. Retired: `em_snow_runtime_draw`,
+  `em_snow_particles_generate` / `em_snow_particles_color` /
+  `em_snow_project` (em_snow_particles.c, em_snow_projection.c), the EMTX
+  texture slot 0 and `em_gfx_particles_draw` / `em_gfx_particle_texture_set`.
+  The snow's TEX0 (the descriptor's +0x70) is a page texture
+  (tools/export_page_textures.py, export_disc_textures.py).
+- **One owner.** The particle generation, the projection and the colour of
+  both now run only in `em_vu1_page_programs.h` (the sprite and snow
+  programs share one translation). The only CPU-side remains are the owners'
+  own translations: 008235F0's controller (em_area11_effect.c) and 001E67C0's
+  tiles (em_snow.c).
+- **001E0DF0.** Step V's 001E0DF0 would send a pending list 001E0D70 left
+  (with render flag 4, a movie frame, or when flags & 0x0E000000); in the
+  first level 001E0D70 always runs first (flag 4 is never set by the port,
+  AREA11's flags are 0x10) and clears it, as in every capture (+0x2520 = 0
+  at every route snapshot).
+
 - **001DDE10's four-sprite pass (slot 0xFFF).** Every world frame (flag 1)
   001DDE10 CALLs a channel-3 packet: GS environment REFs of the other banks
   (FRAME / ZBUF / TEST / CLAMP), 001D6C90's texture-from-frame packets and
@@ -237,29 +294,26 @@ frame's fog.
   whose address the render context records at 001CB760(0xFFF000)
   (`em_rcl_page`), and counts it; the smoke asserts it is the only CALL
   walked over (12,573 over the full route). It was not drawn before either.
-- **Never in the port's page:** the weather's pending kick (001E0D70 reads
-  context +0x2520, which the port's weather 001E55F0 does not write: the snow
-  draws through em_snow_runtime), the object units 001CAAC0 depth-sorts (not
-  bound), and the AREA11 flame (owner 008235F0's 001D04B0 is not bound: the
-  flame draws through em_area11_effect_runtime, whose `em_effect_sprite_project`
-  and `em_snow_particles_generate` are a second, partial translation of the
-  sprite program; reducing that duplicate needs the flame owner on its
-  original record with 001D04B0 bound, after which the page draws the flame
-  and those two helpers retire). Any of them reaching the page would fault
-  (an unknown CALL into the arena).
-- **The draw order against those two:** the port draws the snow and the flame
-  before the page; the original sends them inside it (the weather's kick at
-  slot 0xFFB, the flame at its depth slot). All three blend additively or
-  with 0x44, so only overlapping pixels can differ.
+- **Never in the port's page:** the object units 001CAAC0 depth-sorts (not
+  bound). Reaching the page, their kernel's CALL would fault (an unknown
+  MPG).
 
 ## 7. Binding (live)
 
 - **001D1EA0's kick.** em_render_context_live wraps the frame close's 001CB800
   (the start = 001CB800's base, D_00810E80 read as it does) and 001DDE10's
   001CB760 (the slot-0xFFF target); `em_rcl_page` hands both out once per kick.
+  001E0D70's 001CB760 (id 0xFFC000, the weather's list) is noted for the
+  smoke (`em_rcl_page_weather`); the consumer walks it like any CALL.
+- **The producers bound for this page since FLAMESNOW** (section 6.1): the
+  flame 008235F0's DRAW -> `em_effects_live_001D04B0` (tick_effect in
+  em_area11_bindings.c); the weather 001E55F0 -> `em_snow_runtime_tick_actor`
+  (tick_weather), its tiles through `em_weather_packets` into channel 3 and
+  +0x2520 through `em_rcl_001D2DE0`.
 - **em_chain_page_live_draw**, in frame_close_out at the page's position: in a
-  world frame after the level, the walked and post-step units, the shadow's
-  passes, the snow and the AREA11 effect, before the fog is switched off; in a
+  world frame after the level, the walked and post-step units and the
+  shadow's passes, before the fog is switched off (the snow and the flame are
+  inside the page since FLAMESNOW); in a
   status frame after the status page (001D1EA0(0) kicks the page too; the
   port's status pages are empty: 418 over the default run); and, since
   2026-09-27, in a tear-down frame (001D1EF0's 001D1EA0(0): the area build,
@@ -267,40 +321,50 @@ frame's fog.
   9). It walks the page
   over the render context's storage (`em_rcl_bytes`: the arena, the chain
   table, the context, the GS blocks, the .data D_00250F30..) and the
-  effect-table export's ELF blocks (`em_effects_live_window`: the two program
-  packets, D_00253670, D_002565E0..), then tells em_shadow_live how many decal
+  effect-table export's ELF blocks (`em_effects_live_window`: the three
+  program packets, D_00253670, D_002565E0.., and the overlay source blocks
+  001D04B0 was handed: the flame's D_00828340), then tells em_shadow_live how many decal
   triangles it drew (`em_shadow_live_page_drew`: they must be exactly the
   frame's 0015BF90 fans'), replaces the frame's Q (section 5) and draws.
-- **Assets:** `python3 tools/export_effect_tables.py` again (the two program
-  packets, 0x00231770 + 0xDD0 and 0x00233290 + 0x570, joined its blocks; each
-  block is checked equal in every capture) and `python3
-  tools/export_page_textures.py` (STARTUP.md rows 50 and 52).
+- **Assets:** `python3 tools/export_effect_tables.py` again (the three program
+  packets, 0x00231770 + 0xDD0, 0x00233290 + 0x570 and, since FLAMESNOW,
+  0x00233800 + 0xDE0, joined its blocks; each block is checked equal in every
+  capture; em_effects_live refuses an export without the three) and `python3
+  tools/export_page_textures.py` (or `export_disc_textures.py`; since
+  FLAMESNOW the set holds the weather descriptor D_00255170's TEX0, 7
+  textures) (STARTUP.md rows 50 and 52).
 - Fail-stop: a page fault, a refused primitive or a decal count mismatch
   latches `em_chain_page_live_fault` and faults the scene.
 
 ## 8. Verification
 
 - **`make test-chain-page-reference`** (tools/test_chain_page_reference.py;
-  quick ~8 s, `EM_TEST_FULL=1` ~50 s):
+  quick ~11 s, `EM_TEST_FULL=1` ~140 s):
   - the latest page of every route capture 00..14: every MSCAL (90 lane, 59
-    sprite) run by the translation and by the ORIGINAL microcode from the same
+    sprite, and the weather's 108 snow MSCALs on one page, 1,620 on all 15 in
+    full) run by the translation and by the ORIGINAL microcode from the same
     data memory and registers: all 16 KiB of data memory, every register and
-    every XGKICK's packet equal; the whole page's primitives (386) equal the
-    model's, with the same DMA, DIRECT, MSCAL, XGKICK and skip counts; three
-    pages (all 15 in full) walked again from random VU1 contents draw the
-    same;
+    every XGKICK's packet equal; the whole page's primitives (386 with the
+    weather's CALL walked over; with it walked, beat 10 alone adds 385) equal
+    the model's, with the same DMA, DIRECT, MSCAL, XGKICK and skip counts;
+    three pages (all 15 in full) walked again from random VU1 contents draw
+    the same;
   - synthetic batches: 40 (600) lane batches with active slots placed around
-    the captures' cameras (clipped, ADC and wrapping countdowns) and 40 (600)
-    sprite batches (counts 1..90, every flags value, the 0x10 path, clipped
-    particles); every conditional branch of both programs both ways; the
-    timing table of section 3 asserted on every run;
-  - faults: an exponent-255 word on a live lane (both programs); nine
+    the captures' cameras (clipped, ADC and wrapping countdowns), 40 (600)
+    sprite and 20 (300) snow batches (counts 1..90, every flags value, the
+    0x10 path, clipped particles); every conditional branch of the three
+    programs both ways; the timing table of section 3 asserted on every run;
+  - faults: an exponent-255 word on a live lane (all three programs); nine
     malformed pages (END, an unknown MPG, an MSCAL before any program, ITOP,
     REGLIST, an A+D FRAME write, an unmapped REF, no room) and one clean fan;
   - the preset bank equal to every capture's bytes, and in full mode to the
     bank the ORIGINAL 001D0F20 writes when executed.
   Full sweep 2026-09-26: 690 lane and 660 sprite MSCALs, 15,944 XGKICKs,
-  3,660,384 packet bytes, all equal.
+  3,660,384 packet bytes, all equal. Full sweep 2026-09-28 (FLAMESNOW):
+  690 lane, 660 sprite and 1,920 snow MSCALs (1,620 of them the captured
+  pages' weather tiles), 17,835 XGKICKs, 4,193,296 packet bytes, all equal;
+  the 15 pages with the weather walked draw 5,219 primitives, equal to the
+  model's.
 - **`make test-chain-page-gpu`** (tools/test_chain_page_gpu.py, ~4 s): the Metal
   pixel at the frame centre equals the GS pixel model for five decal fans
   (the retired decal entry's cases), four sprites (additive and 0x44, with
@@ -309,15 +373,21 @@ frame's fog.
 - **`make test-chain-page`** (tests/chain_page_test.c, ASan / UBSan): a clean
   page, the argument refusals, a CALL walked over, and 20,000 corrupted pages
   walked without a memory error.
-- **The level smoke** (`check_chain_page`, LEVEL_SMOKE.md): full route 12,991
-  pages drawn (12,573 world frames, 418 empty status frames; 159,801 sprites,
-  1,314 triangles, 1,328 lines), the only CALL walked over each frame's
-  001DDE10 one, the lane program run six times in exactly the barrel's
-  frames without a lane drawn; 40 sampled pages re-walked with the
-  original microcode over the port's own page bytes draw exactly the port's
-  primitives, their blend presets equal to the captures'; in the camera-exact
-  snapshots the glow markers drawn equal the capture's own page's (10: five,
-  14: none), colour masked (rand()).
+- **The level smoke** (`check_chain_page`, LEVEL_SMOKE.md): full route 13,013
+  pages drawn (12,573 world frames, the rest empty status and tear-down
+  frames; 4,122,371 sprites, 1,314 triangles, 1,256 lines), the only CALL
+  walked over each frame's 001DDE10 one, the lane program run six times in
+  exactly the barrel's frames without a lane drawn; every world page holds
+  the weather's CALL at the list its frame closed (108 snow MSCALs) and
+  reads the flame's descriptor once; 40 sampled pages re-walked with the
+  original microcode over the port's own page bytes (the weather's CALL
+  walked: the ORIGINAL snow program on every tile) draw exactly the port's
+  primitives, the blend presets, the three program packets and the flame's
+  descriptor they read equal to the captures' (444 reads); in the
+  camera-exact snapshots the glow markers drawn equal the capture's own
+  page's (10: five, 14: none), colour masked (rand()), and so do the
+  weather's tile packet 3 and the flame's 001CFBE0 packets 4 and 1 (phase
+  and seed words masked).
 - **By eye** (build/captures/chain_page/): the cage roof (route 10's end):
   the glow marker at the pillar edge against 10's original.png
   (`port_crop.png` / `orig_crop.png`).
@@ -328,7 +398,12 @@ frame's fog.
   DDA; no GS dump of a drawn frame exists to compare pixels with.
 - The frame's Q and the inherited VIF cycle are premises (section 5).
 - 001DDE10's four-sprite pass is walked over, not drawn (section 6).
-- The flame's duplicate translation and the snow / flame draw order (section 6).
+- The flame's and the snow's sprites follow their owners' phase and seed
+  (the flame's age since its spawn, rand(): 008235F0 state 0 and 001E55F0
+  state 0), which the port's stream does not hold at a capture's position
+  (RAND_ORDER.md): their primitives are compared with the captures only
+  through their packets' camera and fog rows (section 8), and with the
+  original microcode over the port's own packets on the sampled pages.
 - The lane program's drawing path is proven by synthetic batches only: no
   route slot is active, and 001F0460, the only lane-slot writer on the path,
   faults before it (EFFECT_MANAGER.md 8.2).
@@ -336,7 +411,7 @@ frame's fog.
   port's stream is never at a capture's position (RAND_ORDER.md), so the
   smoke compares the drawn primitives with the captures only for the glow
   markers (their colour through check_marker_colour, with each side's own
-  draws).
+  draws), and the flame's and the snow's packets as above.
 - VU1 arithmetic is the VU0 model assumed for VU1, as for the object kernel
   (VU1_OBJECT_KERNEL.md).
 

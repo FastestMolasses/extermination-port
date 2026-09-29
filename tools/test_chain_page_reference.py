@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """The chain page D_007635C0 consumer against the ORIGINAL (docs/CHAIN_PAGE.md).
 
-Checks src/game/em_vu1_page_programs.h (the lane program of D_00233290 and
-the sprite program of table 0x231770, translated from their VU1 microcode)
+Checks src/game/em_vu1_page_programs.h (the lane program of D_00233290, the
+sprite program of table 0x231770 and the snow program of D_00233800,
+translated from their VU1 microcode)
 and src/game/em_chain_page.c (the DMA / VIF1 / GIF / GS walk 001CB800's kick
 starts) against tools/chain_page_model.py, which walks the same pages and
 executes the ORIGINAL microcode the page's MPG codes upload from the pinned
@@ -14,8 +15,11 @@ A. Captured pages. The page the last kick of every route capture 00..14
    spliced (its start tag at the render context's +0, where 001CB800
    stores its base) is walked. CALLs of
    producers the port does not run on the page (object units via 001CAAC0,
-   001DDE10's four-sprite pass, the weather's 001E0D70 kick: every CALL into
-   the packet arena) are walked over by both sides and counted.
+   001DDE10's four-sprite pass: every other CALL into the packet arena) are
+   walked over by both sides and counted. The weather's 001E0D70 kick (the
+   channel-3 list of 001CFFE0's 108 snow tiles, chain_page_model
+   weather_lists) is walked with all its snow MSCALs on the selected beats
+   (quick: one; full: all) and walked over on the others.
    - Every MSCAL: the translation and the oracle start from the same data
      memory and registers; all 16 KiB of data memory, every register (VF,
      VI, ACC, Q, I, R, the clip history) and every XGKICK (address and the
@@ -31,12 +35,13 @@ B. Synthetic lane batches (the route draws no active lane slot): random
    slot matrices placed around the capture's camera (some crossing the view
    planes: clipped and ADC vertices), colours, corner rows, countdowns
    (<= 0, 1..0x7FFF, halfword-signed), fog rows; compared as in A.
-C. Synthetic sprite batches: random descriptors over the captured rows
+C. Synthetic sprite and snow batches: random descriptors over the captured rows
    (counts 1..90 so several 28-particle batches run, every flags value
    0..31 including bit 0x10's path, phases, fade intervals, seeds, gravity,
    blend and life rows), tile matrices moved so particles clip; compared as
    in A. Both outcomes of every conditional branch of both programs are
-   reached (asserted).
+   reached (asserted); the snow batches start from the captured snow
+   MSCALs' memory.
 D. The timing premise of the translation: in every A..C run the oracle logs
    which producer each Q, MAC-flag and clip-flag read sees; it must be the
    one the header names (em_vu1_page_programs.h).
@@ -48,9 +53,10 @@ F. The blend presets the page REFs (001D0F20's bank at D_00275674 + 0x6A0,
    em_gs_blocks_original): equal to every capture's bytes; in full mode
    also to the bank the ORIGINAL 001D0F20 writes when executed.
 
-Quick mode (default): all of A on every beat but the independence re-walk
-on three beats, B and C 40 cases each. EM_TEST_FULL=1: A's independence on
-all beats, B and C 600 cases each.
+Quick mode (default): all of A on every beat but the weather's snow
+MSCALs on one beat and the independence re-walk on three, B and C 40 cases
+each (snow: 20). EM_TEST_FULL=1: the snow MSCALs and the independence on
+all beats, B and C 600 cases each (snow: 300).
 """
 from __future__ import annotations
 
@@ -83,12 +89,19 @@ PRODUCERS = {
                        ('MAC', 0x071): 0x06D, ('MAC', 0x09E): 0x09A, ('MAC', 0x0A5): 0x0A1,
                        ('CF', 0x123): 0x11F},
 }
+# The snow program's reads see the same producers (its extra instructions
+# read no Q and write no flag a test reads before a later producer).
+PRODUCERS[M.PROGRAM_SNOW] = dict(PRODUCERS[M.PROGRAM_SPRITE])
 # Conditional branches (micro address) whose both outcomes must be reached.
 BRANCHES = {
     M.PROGRAM_LANE: (0x017, 0x048, 0x07C),
     M.PROGRAM_SPRITE: (0x026, 0x02A, 0x03D, 0x045, 0x049, 0x059, 0x07E, 0x081, 0x084, 0x087,
                        0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0F7, 0x0F9, 0x126, 0x132, 0x145),
+    M.PROGRAM_SNOW: (0x026, 0x02A, 0x03D, 0x045, 0x049, 0x059, 0x07E, 0x081, 0x084, 0x087,
+                     0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0F7, 0x0F9, 0x126, 0x132, 0x147),
 }
+PROGRAM_ID = {M.PROGRAM_LANE: 0, M.PROGRAM_SPRITE: 1, M.PROGRAM_SNOW: 2}
+PROGRAM_NAME = {M.PROGRAM_LANE: 'lane', M.PROGRAM_SPRITE: 'sprite', M.PROGRAM_SNOW: 'snow'}
 
 SHIM = r'''
 #include "game/em_chain_page.h"
@@ -107,11 +120,12 @@ static int kick_cb(void *ctx, const EmVu1PQword *dmem, uint32_t at)
     k->n++;
     return 0;
 }
-int shim_mscal(int sprite, EmVu1PRegs *r, EmVu1PQword *dmem, Kicks *k)
+int shim_mscal(int program, EmVu1PRegs *r, EmVu1PQword *dmem, Kicks *k)
 {
     k->n = 0;
-    return sprite ? em_vu1_sprite_program_mscal(r, dmem, kick_cb, k)
-                  : em_vu1_lane_program_mscal(r, dmem, kick_cb, k);
+    return program == 2 ? em_vu1_snow_program_mscal(r, dmem, kick_cb, k)
+         : program == 1 ? em_vu1_sprite_program_mscal(r, dmem, kick_cb, k)
+                        : em_vu1_lane_program_mscal(r, dmem, kick_cb, k);
 }
 
 typedef struct { uint32_t base, size; const uint8_t *bytes; } Region;
@@ -185,7 +199,7 @@ class Counts(C.Structure):
     _fields_ = [('transfers', C.c_uint32), ('qwords', C.c_uint32), ('direct', C.c_uint32),
                 ('mscal_lane', C.c_uint32), ('mscal_sprite', C.c_uint32), ('kicks', C.c_uint32),
                 ('prims', C.c_uint32), ('prim_type', C.c_uint32 * 8), ('skipped', C.c_uint32),
-                ('stale_q', C.c_uint32), ('cycle_inherited', C.c_uint32)]
+                ('stale_q', C.c_uint32), ('cycle_inherited', C.c_uint32), ('mscal_snow', C.c_uint32)]
 
 
 DMEM = C.c_uint8 * 16384
@@ -311,7 +325,7 @@ def compare_mscal(lib, vu, program, where, stats, run=None):
         (run or (lambda: vu.run(0)))()
     except M.ModelError as e:
         oracle_error = e
-    rc = lib.shim_mscal(1 if program == M.PROGRAM_SPRITE else 0, C.byref(r), dm, C.byref(k))
+    rc = lib.shim_mscal(PROGRAM_ID[program], C.byref(r), dm, C.byref(k))
     if oracle_error is not None:
         if rc != 2:
             fail(f'{where}: the oracle refused ({oracle_error}), the translation returned {rc}')
@@ -331,7 +345,7 @@ def compare_mscal(lib, vu, program, where, stats, run=None):
         if k.at[j] != e[1] or M.sh.gif_raw(raw[16384 * j:16384 * (j + 1)], e[1]) != e[3]:
             fail(f'{where}: XGKICK {j} differs')
         stats['kicked_packet_bytes'] += len(e[3])
-    stats['mscal_lane' if program == M.PROGRAM_LANE else 'mscal_sprite'] += 1
+    stats['mscal_' + PROGRAM_NAME[program]] += 1
     stats['kicks'] += len(kicks)
     return True
 
@@ -398,12 +412,11 @@ def finite(rng):
             return w
 
 
-def page_skip(ram, start):
-    """The CALLs of producers the port does not run on the page: every
-    top-level CALL into the packet arena."""
-    pg = M.Page(M.ram_reader(ram))
-    pg.dma(start)
-    return sorted({a for (cur, tid, q, a) in pg.transfers if tid == 5 and M.ARENA <= a < 0x800000})
+def page_skip(ram, start, weather):
+    """The CALLs walked over: every top-level CALL into the packet arena of
+    a producer the port does not run on the page, and the weather's kick
+    unless `weather` (chain_page_model.arena_skips)."""
+    return M.arena_skips(M.ram_reader(ram), start, weather)
 
 
 def native_page(lib, regions, start, skip, capacity=4096):
@@ -438,11 +451,15 @@ def compare_prims(model_prims, prims, q, n, where):
 def part_a(lib, stats, elf, seeds):
     pages = []
     indep = set(select(BEATS, 3, 0xC7A, keep=lambda i, b: i == 0))
+    snowy = set(select(BEATS, 1, 0x5A0, keep=lambda i, b: b.startswith('10_')))
     branches = collections.Counter()
     for beat in BEATS:
         ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
         start = M.latest_start(ram)
-        skip = page_skip(ram, start)
+        weather = beat in snowy
+        skip = page_skip(ram, start, weather)
+        if weather and len(set(page_skip(ram, start, False)) - set(skip)) != 1:
+            fail(f'{beat}: the captured page does not hold exactly one weather kick')
         pg = ComparedPage(M.ram_reader(ram), lib, stats, beat, skip)
         pg.run(start)
         branches.update(pg.branches)
@@ -452,8 +469,14 @@ def part_a(lib, stats, elf, seeds):
         if rc or out[0]:
             fail(f'{beat}: the native page faulted ({out[0]} at {out[1]:#x})')
         compare_prims(pg.gs.prims, prims, q, out[2], beat)
-        if (counts.mscal_lane, counts.mscal_sprite) != (pg.mscals[M.PROGRAM_LANE], pg.mscals[M.PROGRAM_SPRITE]):
-            fail(f'{beat}: MSCALs native {counts.mscal_lane}/{counts.mscal_sprite}, original {dict(pg.mscals)}')
+        if (counts.mscal_lane, counts.mscal_sprite, counts.mscal_snow) != \
+                (pg.mscals[M.PROGRAM_LANE], pg.mscals[M.PROGRAM_SPRITE], pg.mscals[M.PROGRAM_SNOW]):
+            fail(f'{beat}: MSCALs native {counts.mscal_lane}/{counts.mscal_sprite}/{counts.mscal_snow}, '
+                 f'original {dict(pg.mscals)}')
+        if weather:
+            if pg.mscals[M.PROGRAM_SNOW] != 108:
+                fail(f'{beat}: the weather kick ran {pg.mscals[M.PROGRAM_SNOW]} snow MSCALs, not 108 tiles')
+            stats['snow_pages'] += 1
         if counts.kicks != len(pg.kicks) or counts.direct != len(pg.directs) or counts.skipped != len(pg.skipped):
             fail(f'{beat}: counts differ: native kicks {counts.kicks} directs {counts.direct} skipped '
                  f'{counts.skipped}; original {len(pg.kicks)} {len(pg.directs)} {len(pg.skipped)}')
@@ -469,7 +492,7 @@ def part_a(lib, stats, elf, seeds):
         for t in range(8):
             if counts.prim_type[t]:
                 stats[f'prim_type_{t}'] += counts.prim_type[t]
-        if beat in indep:
+        if beat in indep and (FULL or not weather):
             rp = RandomStartPage(M.ram_reader(ram), skip, int(hashlib.sha256(beat.encode()).hexdigest()[:8], 16))
             rp.run(start)
             if rp.gs.prims != pg.gs.prims:
@@ -489,8 +512,9 @@ def load_program(vu, elf, program):
     if program == M.PROGRAM_LANE:
         vu.code[0:138 * 8] = elf_code(elf, 0x2332B8, 138 * 8)
     else:
-        vu.code[0:256 * 8] = elf_code(elf, 0x231798, 256 * 8)
-        vu.code[0x800:0x800 + 79 * 8] = elf_code(elf, 0x231FA0, 79 * 8)
+        parts = M.SPRITE_MPG if program == M.PROGRAM_SPRITE else M.SNOW_MPG
+        for code, count, micro in parts:
+            vu.code[micro * 8:(micro + count) * 8] = elf_code(elf, code, count * 8)
 
 
 def f32(x):
@@ -619,14 +643,15 @@ def run_synthetic(lib, elf, program, cases, stats, branches, seed, seeds):
         where = f'synthetic {program:#x} case {n}'
         if compare_mscal(lib, vu, program, where, stats):
             check_timing(vu, program, where)
-            stats['synthetic_' + ('lane' if program == M.PROGRAM_LANE else 'sprite')] += 1
+            stats['synthetic_' + PROGRAM_NAME[program]] += 1
         for key, k in vu.branch.items():
             branches[(program,) + key] += k
 
 
 # ---------------------------------------------------------------- E. faults
 def operand_faults(lib, elf, stats, seeds):
-    for program, rows in ((M.PROGRAM_LANE, [(0x20 + 3, 0)]), (M.PROGRAM_SPRITE, [(89, 0), (86, 2)])):
+    for program, rows in ((M.PROGRAM_LANE, [(0x20 + 3, 0)]), (M.PROGRAM_SPRITE, [(89, 0), (86, 2)]),
+                          (M.PROGRAM_SNOW, [(89, 0), (86, 2)])):
         state = seeds[program][0]
         for r, lane in rows:
             mem = bytearray(state[0])
@@ -758,6 +783,8 @@ def main():
     n_syn = pick(600, 40)
     run_synthetic(lib, elf, M.PROGRAM_LANE, n_syn, stats, branches, 0x1A7E, seeds)
     run_synthetic(lib, elf, M.PROGRAM_SPRITE, n_syn, stats, branches, 0x5B21, seeds)
+    n_snow = pick(300, 20)
+    run_synthetic(lib, elf, M.PROGRAM_SNOW, n_snow, stats, branches, 0x5A0C, seeds)
     for program, sites in BRANCHES.items():
         for site in sites:
             for taken in (True, False):
@@ -767,13 +794,16 @@ def main():
     operand_faults(lib, elf, stats, seeds)
     page_faults(lib, stats)
     presets(lib, elf, stats)
-    if stats['synthetic_lane'] < n_syn // 2 or stats['synthetic_sprite'] < n_syn // 2:
+    if stats['synthetic_lane'] < n_syn // 2 or stats['synthetic_sprite'] < n_syn // 2 or \
+            stats['synthetic_snow'] < n_snow // 2:
         fail(f'too few synthetic cases ran: {stats}')
     banner(part(stats['independence_pages'], stats['pages'], 'pages re-walked from random VU1 state'),
+           part(stats['snow_pages'], stats['pages'], 'pages with the weather kick walked'),
            f"{stats['pages']} captured pages ({stats['page_prims']} primitives, {stats['page_kicks']} XGKICKs, "
            f"{stats['page_directs']} DIRECT packets, {stats['page_skipped_calls']} non-port CALLs walked over)",
-           f"{stats['mscal_lane']} lane and {stats['mscal_sprite']} sprite MSCALs compared "
-           f"({stats['synthetic_lane']} and {stats['synthetic_sprite']} synthetic)",
+           f"{stats['mscal_lane']} lane, {stats['mscal_sprite']} sprite and {stats['mscal_snow']} snow MSCALs "
+           f"compared ({stats['synthetic_lane']}, {stats['synthetic_sprite']} and {stats['synthetic_snow']} "
+           f"synthetic)",
            f"{stats['kicks']} XGKICKs, {stats['kicked_packet_bytes']:,} packet bytes",
            f"{stats['operand_faults']} operand faults, {stats['fault_cases']} page fault cases",
            f"the 001D0F20 blend-preset bank equal in {stats['preset_captures']} captures"

@@ -188,7 +188,6 @@ them, so the same inputs give the same results down to the last bit.
   microcode; unmeasured forms fault. Oracle exceptions as above (5a). Native
   gaps (5c): some VU0 per-lane helpers use a truncated host double (differs
   only at an opposite-sign edge case); duplicate SDK math copies remain; the
-  snow wave uses host `sinf` (5,022 of 5,184 exact in the full sweep); the
   battery colour ramp's original is not established; the quaternion blend
   differs only on overflow.
 
@@ -262,7 +261,7 @@ found and deleted.
   mutations failing each owner's test); census 1.31 (three legacy door
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
-  live route (census 2.3: the examine/aim camera, the flame and snow drawn outside the chain page,
+  live route (census 2.3: the examine/aim camera,
   the opening's camera timeline, and the
   panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
@@ -444,21 +443,30 @@ not follow a recording frame for frame.
 
 **Effects drawn from the game's own packets**
 
-Breath and footstep puffs, pickup glints, glow markers, head sprites and the
-standing-on-object shadow decal are built and drawn by the original code and
-the original VU1 sprite program.
+Breath and footstep puffs, pickup glints, glow markers, head sprites, the
+standing-on-object shadow decal, the falling snow and the AREA11 flame are
+built and drawn by the original code and the original VU1 sprite and snow
+programs.
 
 - How: the effect producers build their packets byte for byte into the
-  render context's chain page; `em_chain_page` walks it as the DMA/VIF/GIF
-  would, runs the two page VU1 programs (translated, `em_vu1_page_programs.h`)
-  and the blend presets of 001D0F20, and hands every GS primitive to Metal in
-  GS order.
+  render context's chain page (the flame through its owner's 001D04B0; the
+  snow through the weather's 108 tile requests 001CFFE0 in channel 3, which
+  the frame close's 001E0D70 CALLs into the page); `em_chain_page` walks it
+  as the DMA/VIF/GIF would, runs the three page VU1 programs (translated,
+  `em_vu1_page_programs.h`) and the blend presets of 001D0F20, and hands
+  every GS primitive to Metal in GS order.
 - Evidence: `CHAIN_PAGE.md` 8: 690 lane and 660 sprite program calls, 15,944
-  kicks and 3,660,384 packet bytes equal the original microcode; the latest
-  page of every route capture 00..14 draws the same 386 primitives as the
-  model. Level smoke `check_chain_page`: 12,991 pages drawn on the full route;
-  40 sampled pages re-walked with the original microcode draw exactly the
-  port's primitives. Commit d7ef847.
+  kicks and 3,660,384 packet bytes equal the original microcode, and the
+  weather's 108 snow MSCALs of every captured page (chain C8b FLAMESNOW);
+  the latest page of every route capture 00..14 draws the same primitives as
+  the model. The weather's channel-3 packets equal the executed original
+  001E67C0 / 001CFAE0 / 001CFFE0 byte for byte (`SNOW_PARTICLES.md`). Level
+  smoke `check_chain_page`: 13,013 pages drawn on the full route, each world
+  page with the weather's list and the flame; 40 sampled pages re-walked with
+  the original microcode draw exactly the port's primitives; in the
+  camera-exact snapshots 10 and 14 the snow's and the flame's packets (their
+  camera, fog and matrix rows) equal the recordings'. Commits d7ef847 and
+  chain C8b FLAMESNOW.
 - Status: **PARTIAL**. First level only. Sprite positions/colours follow the
   draws, whose values differ from a capture's at every snapshot
   (`RAND_ORDER.md`); only glow markers are compared with captures (count and
@@ -466,9 +474,11 @@ the original VU1 sprite program.
   draw, `check_marker_colour`), and the head sprites' phase follows 001E2560
   over the port's own draws (`check_head_sprites`). Rings are proven on synthetic batches only
   and are not drawn on the recorded route; do not advertise them. 001DDE10's
-  four frame-sampling sprites are not drawn. Snow and the AREA11 flame draw
-  outside the page. Page and decal textures come from PCSX2 captures. Metal
-  only.
+  four frame-sampling sprites are not drawn. The snow's and the flame's
+  sprites follow their owners' seeds and phases (rand(), the flame's age), so
+  their positions are compared with the recordings only through their
+  packets' camera and fog rows. Page and decal textures come from PCSX2
+  captures or the disc (`export_disc_textures.py`). Metal only.
 
 **The area-load veil drawn by the game's own code and its own GS state**
 
@@ -1090,8 +1100,7 @@ units per second.
   attachment draw 001CB3C0. "No stand-in rows" does not mean no stand-in
   code runs. Census 2.3 still lists stand-in behaviour on the route: the
   camera stand-ins that pre-empt the examine and aim actions (L28), the
-  indicator children's +0x4C draw, parts of the chain page (the four-sprite pass, the
-  AREA11 flame, the snow), the opening's
+  indicator children's +0x4C draw, the chain page's four-sprite pass, the opening's
   camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
   6 notes that oracle strength varies (the fade oracle compares against

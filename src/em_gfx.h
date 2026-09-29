@@ -447,28 +447,6 @@ void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]);
  * primitives per frame; overflow is dropped. */
 #define EM_GFX_BEAM_MAX 64
 
-/* Original additive particle sprites, projected and quantized by the
- * game-side VU translation. Opposite corners retain their GIF order and
- * texture coordinates; positions are native NDC and share one depth.
- * The GS sprite uses Q=1, so texture interpolation is affine. */
-typedef struct EmGfxParticle {
-    float corner[2][2];
-    float depth;
-    float st[2][2];
-    float color[4];
-} EmGfxParticle;
-#define EM_GFX_PARTICLE_TEX_MAX 4
-int em_gfx_particle_texture_set_slot(EmGfx *gfx, unsigned slot,
-                                      const uint8_t *rgba,
-                                      uint32_t width, uint32_t height);
-void em_gfx_particles_draw_slot(EmGfx *gfx, unsigned slot,
-                                 const EmGfxParticle *particles, unsigned count);
-/* Existing snowfall owns slot0; independent effects retain their textures. */
-int em_gfx_particle_texture_set(EmGfx *gfx, const uint8_t *rgba,
-                                 uint32_t width, uint32_t height);
-void em_gfx_particles_draw(EmGfx *gfx, const EmGfxParticle *particles,
-                            unsigned count);
-
 void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
                  float width, const float rgba_a[4], const float rgba_b[4]);
 

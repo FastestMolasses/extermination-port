@@ -1,41 +1,33 @@
 #include "game/em_area11_effect_runtime.h"
-#include "game/em_render_context_live.h"
-#include "game/em_effect_color.h"
+#include "game/em_effects_live.h"
 #include "game/em_random.h"
-#include "game/em_snow_particles.h"
-#include "game/em_snow_projection.h"
 #include "em_math.h"
 
+#include <math.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
-enum { EFFECT_PARTICLES = 80, EFFECT_TEXTURE = 1 };
+enum { EFFECT_PARTICLES = 80 };
+/* The EMEF record (tools/export_area11_effect.py). The lookup and the rig's
+ * fog range are validated but not read: the sprite program's own packet
+ * uploads the lookup, and 001CFBE0 copies the render context's fog. */
 typedef struct EffectConfig {
     float position[3];
     float descriptor[9][4];
     float lookup[80];
-    float fog_range[2];   /* the export's rig near / far: validated, not read (the
-                           * draw takes the render context's fog, as 001CFBE0) */
+    float fog_range[2];
 } EffectConfig;
 
 static struct {
     EmArea11Effect owner;
     EffectConfig config;
-    /* The render context's +0xA0 fog quadword as the owner's draw 001D04B0
-     * (its 001CFBE0) copies it, at the owner's walk position. */
-    uint32_t fog[4];
-    int fog_read;
     float matrix[16];
-    EmSnowParticle particles[EFFECT_PARTICLES];
-    EmGfxParticle projected[EFFECT_PARTICLES];
-    unsigned count;
     int loaded;
+    int fault;
 } effect;
 
-void em_area11_effect_runtime_clear(EmGfx *gfx)
+void em_area11_effect_runtime_clear(void)
 {
-    em_gfx_particle_texture_set_slot(gfx, EFFECT_TEXTURE, NULL, 0, 0);
     memset(&effect, 0, sizeof effect);
 }
 
@@ -44,11 +36,10 @@ const EmArea11Effect *em_area11_effect_runtime_state(void)
     return effect.loaded ? &effect.owner : NULL;
 }
 
-int em_area11_effect_runtime_load(EmGfx *gfx, const char *directory,
-                                  const char *config, const char *texture)
+int em_area11_effect_runtime_load(const char *directory, const char *config)
 {
-    em_area11_effect_runtime_clear(gfx);
-    if (!directory || !config || !texture) return 0;
+    em_area11_effect_runtime_clear();
+    if (!directory || !config) return 0;
     char path[1024];
     if (snprintf(path, sizeof path, "%s/%s", directory, config) >= (int)sizeof path)
         return 0;
@@ -79,23 +70,6 @@ int em_area11_effect_runtime_load(EmGfx *gfx, const char *directory,
             if (!isfinite(loaded.descriptor[row][lane])) return 0;
     if (!isfinite(loaded.descriptor[7][2]) || !isfinite(loaded.descriptor[7][3]) ||
         !isfinite(loaded.descriptor[8][1])) return 0;
-
-    if (snprintf(path, sizeof path, "%s/%s", directory, texture) >= (int)sizeof path)
-        return 0;
-    file = fopen(path, "rb");
-    if (!file) return 0;
-    valid = fread(header, sizeof header, 1, file) == 1 &&
-        memcmp(header, "EMTX", 4) == 0 && header[1] == 1 &&
-        header[2] > 0 && header[2] <= 256 && header[3] > 0 && header[3] <= 256;
-    if (!valid) { fclose(file); return 0; }
-    size_t size = (size_t)header[2] * header[3] * 4;
-    uint8_t *texels = malloc(size);
-    valid = texels && fread(texels, size, 1, file) == 1 && fgetc(file) == EOF;
-    fclose(file);
-    if (valid) valid = em_gfx_particle_texture_set_slot(gfx, EFFECT_TEXTURE,
-                                                       texels, header[2], header[3]);
-    free(texels);
-    if (!valid) return 0;
     effect.config = loaded;
     effect.loaded = 1;
     return 1;
@@ -105,6 +79,13 @@ static uint32_t effect_random(void *context)
 {
     (void)context;
     return em_random_next();
+}
+
+static uint32_t bits(float f)
+{
+    uint32_t b;
+    memcpy(&b, &f, sizeof b);
+    return b;
 }
 
 static void effect_call(void *context, EmArea11EffectCall call,
@@ -120,21 +101,12 @@ static void effect_call(void *context, EmArea11EffectCall call,
         memcpy(effect.matrix + 12, effect.config.position, 3 * sizeof(float));
         break;
     case EM_AREA11_EFFECT_DRAW: {
-        /* 001D04B0 -> 001CFBE0 copies the context's +0xA0 into its packet at
-         * this call (it does not program the fog itself). */
-        const uint8_t *fog = em_rcl_bytes(EM_RCL_CONTEXT + 0xA0u, 16);
-        effect.fog_read = fog != NULL;
-        if (fog) memcpy(effect.fog, fog, sizeof effect.fog);
-        float params[4] = {owner->phase, 1.0f, 0.000001f, owner->seed};
-        int count = em_snow_particles_generate(effect.config.descriptor,
-            effect.config.lookup, params, effect.matrix, effect.particles,
-            EFFECT_PARTICLES);
-        if (count < 0) {
-            fprintf(stderr, "AREA11 effect: original particle generation failed\n");
-            effect.loaded = 0;
-        } else {
-            effect.count = (unsigned)count;
-        }
+        /* 001D04B0(+0xD0, 1, D_00828340, f12 phase, f13 seed) (0x8236AC). */
+        uint8_t descriptor[0x90];
+        memcpy(descriptor, effect.config.descriptor, sizeof descriptor);
+        if (em_effects_live_001D04B0(effect.matrix, 1, EM_AREA11_EFFECT_DESCRIPTOR, descriptor,
+                                     bits(owner->phase), bits(owner->seed)) < 0)
+            effect.fault = 1;
         break;
     }
     case EM_AREA11_EFFECT_SOUND:
@@ -157,52 +129,14 @@ static void effect_call(void *context, EmArea11EffectCall call,
     }
 }
 
-void em_area11_effect_runtime_tick(void)
+int em_area11_effect_runtime_tick(void)
 {
-    effect.count = 0;
-    if (effect.loaded)
-        em_area11_effect_tick(&effect.owner, effect_random, effect_call, NULL);
-}
-
-void em_area11_effect_runtime_draw(EmGfx *gfx, const float view[16], float zoom)
-{
-    if (!effect.loaded || !effect.count || !gfx || !view) return;
-    if (!effect.fog_read) {
-        fprintf(stderr, "AREA11 effect: no render-context fog at the owner's draw; not drawn\n");
-        return;
+    if (!effect.loaded) return 0;
+    effect.fault = 0;
+    em_area11_effect_tick(&effect.owner, effect_random, effect_call, NULL);
+    if (effect.fault) {
+        fprintf(stderr, "AREA11 effect: 001D04B0 faulted (em_effects_live)\n");
+        return -1;
     }
-    /* The fog quadword the owner's draw read from the render context (the
-     * export's rig near / far, config.fog_range, is no longer read). */
-    EmSnowProjection projection = {0};
-    memcpy(projection.fog, effect.fog, sizeof projection.fog);
-    /* The render context's P, 001CD370(0) clip projection and K, as this
-     * frame's head 001D1C50 built them. */
-    float native_projection[16];
-    uint32_t p[16], clip[16], k[16];
-    if (em_rcl_frame_matrices(p, clip, k) < 0) return;
-    memcpy(projection.extent_projection, p, sizeof p);
-    memcpy(projection.clip_from_world, clip, sizeof clip);
-    memcpy(projection.screen_from_world, k, sizeof k);
-    em_mat4_perspective_gs(native_projection, zoom);
-    unsigned count = 0;
-    for (unsigned i = 0; i < effect.count; ++i) {
-        EmSnowProjected sprite;
-        if (!em_effect_sprite_project(&projection, &effect.particles[i], &sprite))
-            continue;
-        EmGfxParticle *out = &effect.projected[count++];
-        for (unsigned corner = 0; corner < 2; ++corner) {
-            float x = (float)(sprite.xyzf[corner][0] & 0xffffU) / 16.0f;
-            float y = (float)(sprite.xyzf[corner][1] & 0xffffU) / 16.0f;
-            out->corner[corner][0] = (x - 2048.0f) / 256.0f;
-            out->corner[corner][1] = -(y - 2048.0f) / 112.0f;
-        }
-        float gs_depth = (float)((sprite.xyzf[0][2] >> 4) & 0xffffffU);
-        float inverse_w = (gs_depth - projection.extent_projection[10] -
-            projection.depth_bias[2]) / projection.extent_projection[14];
-        out->depth = -native_projection[10] + native_projection[14] * inverse_w;
-        memcpy(out->st, sprite.st, sizeof out->st);
-        for (unsigned lane = 0; lane < 4; ++lane)
-            out->color[lane] = (float)sprite.color[lane] / 128.0f;
-    }
-    em_gfx_particles_draw_slot(gfx, EFFECT_TEXTURE, effect.projected, count);
+    return 0;
 }

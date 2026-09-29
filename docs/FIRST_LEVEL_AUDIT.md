@@ -322,11 +322,9 @@ docs/CHAIN_PAGE.md, census 1.24):**
 - Still open: 001DDE10's four-sprite frame-copy pass is walked over, not
   drawn (it samples the frame buffer); the first sprite of a page whose
   RGBAQ precedes its ST takes the frame's GS Q, drawn as 1.0 (about 1.5
-  vertices a page); the AREA11 flame and the snow still draw outside the
-  page (008235F0's 001D04B0 and the weather's 001E0D70 kick are not bound;
-  the flame's `em_effect_sprite_project` remains a second, partial
-  translation of the sprite program until that owner is bound); Metal's
-  rasterization stands for the GS DDA.
+  vertices a page); Metal's rasterization stands for the GS DDA. (The AREA11
+  flame and the snow, open here, draw on the page since chain C8b FLAMESNOW:
+  see that status update.)
 
 **Status update (2026-09-26, the owners step: the remaining world owners on
 their records; OWNER_DRAW.md section 10, census 1.25):**
@@ -1102,6 +1100,62 @@ live; the level drawn from its original packets; STATIC_WORLD.md, census
   EM_TEST_FULL=1), and the level smoke's numbers are unchanged (12,572
   runs, 25,651,789 triangles, view-exact 10 and 14, now required).
 
+**Status update (2026-09-28, chain C8b FLAMESNOW: the AREA11 flame and the
+snow on the chain page; CHAIN_PAGE.md section 6.1, SNOW_PARTICLES.md, census
+1.43):**
+- **The flame.** 008235F0's DRAW runs 001D04B0 on em_effects_live
+  (em_effects_live_001D04B0: 001CCF70, 001CFA60, 001CFBE0 on the
+  translations every effect uses); its descriptor D_00828340 stays readable
+  by address for the page's REF. The page's sprite program draws it.
+- **The snow.** The weather 001E55F0 writes its channel-3 list
+  (em_weather_packets: per tile 001CFAE0 and 001CFFE0, then the RET and
+  001D2DE0(0, start)); the frame close's 001E0D70 CALLs it into the page
+  (slot 0xFFB), and the consumer runs the new snow program translation
+  (D_00233800: the sprite program's with the near weight,
+  em_vu1_snow_program_mscal). 001E67C0's drift wave calls the SDK 0011E2A8's
+  translation instead of the host sinf.
+- **One owner.** The particle generation, projection and colour now run only
+  in em_vu1_page_programs.h. Retired (their replacement is live in this
+  step): em_snow_particles.c/.h, em_snow_projection.c/.h
+  (em_snow_particles_generate / _color, em_snow_project,
+  em_effect_sprite_project), em_area11_effect_runtime_draw,
+  em_snow_runtime_draw / em_snow_runtime_tick, the particle renderer entries
+  (em_gfx_particles_draw[_slot], em_gfx_particle_texture_set[_slot] on
+  Metal, D3D12 and Vulkan), the EMTX textures of the flame and the snow (now
+  page textures; the exporters no longer write them).
+- **Tests retired** (rule 2: the mechanism is no longer on the live path;
+  rule 4: test-chain-page-reference and test-snow-tiles-reference check the
+  replacement against the original, stricter): test-snow-particles-reference,
+  test-snow-projection-reference, test-snow-particles, test-snow-runtime,
+  test-area11-effect-runtime, and test_area11_effect_reference's generator /
+  projection part (its controller, contact and data-identity parts stay).
+  tools/test_snow_particles_reference.py's VU machine lives on as
+  tools/vu1_vm.py for the shadow, lighting and fog tools.
+- **Evidence.** test-chain-page-reference (the captured pages' snow MSCALs
+  and synthetic snow batches against the ORIGINAL microcode, every branch
+  both ways); test-snow-tiles-reference (the ORIGINAL 001E67C0 with 001CFAE0
+  / 001CD370 / 001CFFE0 / 001CB9B0 executed writes the port's channel-3
+  bytes; every tile exact with the SDK sinf); the level smoke's
+  check_chain_page (every world page CALLs the list its frame closed and
+  runs 108 snow MSCALs; the flame's descriptor read once per page; 40
+  sampled pages re-walked with the original microcode; in the camera-exact
+  snapshots 10 and 14 the snow's tile packet 3 and the flame's packets 4 and
+  1 equal the captures'); test-level-smoke-full through roger (18 phases)
+  and the side beats; 243 of the 244 other `make test-*` targets pass
+  (test-scene-no-shadow fails only on another lane's em_area02_misc.c:411);
+  compare_frame_order idle04 / walk04 (--native-index 1330), st03 (1321),
+  cut02 (26) and cut15 PASS; `make all` has zero warnings; newgame-control
+  9.599849 (unchanged); census live 702, verified-unbound 51, unverified 3,
+  boundary 428.
+- **Frame time.** The 108 snow MSCALs run on the integer VU model: in-level
+  main-thread CPU per tick (EM_FRAME_TIMING, headless newgame-control,
+  1,350 ticks, load average about 8) mean 5.7 -> 7.6 ms, max 9.7 -> 12.6
+  ms; no in-level tick over the 16.68 ms period.
+- **Open:** the flame's and the snow's particles follow their owners' seeds
+  and phases (rand(), the flame's age), compared with the captures only
+  through their packets' camera and fog rows; 001DDE10's four-sprite pass;
+  the frame's Q premise.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1206,12 +1260,8 @@ The items are ordered in four groups:
      child's model mesh additively at the child's own node.
    - Roger's projected shadow 001DA6A0 is reported (UM_001DA6A0), because
      his kind 0x29 proxy is not exported.
-   - The snow and the AREA11 flame draw before the chain page, not inside
-     it (CHAIN_PAGE.md section 6):
-     - the port's weather does not write the context's +0x2520, which
-       001E0D70's kick reads; em_snow_runtime draws the snow;
-     - 008235F0's 001D04B0 is not bound; em_area11_effect_runtime's
-       second, partial translation of the sprite program draws the flame.
+   - (Done in chain C8b FLAMESNOW: the snow and the AREA11 flame draw on
+     the chain page from their original packets, CHAIN_PAGE.md section 6.1.)
    - 001DDE10's frame-copy four-sprite pass is walked over, not drawn.
    - If a vertex's RGBAQ comes before any ST on its page, the chain page
      draws it with Q = 1.0.

@@ -26,6 +26,7 @@ static struct {
     EmChainPageLiveLog log;
     struct { uint32_t address, size; } reads[READS_MAX];
     uint32_t nreads;
+    uint32_t overlay_reads;
 } S;
 
 static uint32_t rd32(const uint8_t *p)
@@ -47,7 +48,8 @@ uint32_t em_chain_page_live_fault(void) { return S.fault; }
 /* Original memory the page reads: the render context's storage (the arena,
  * the chain table, the context, the GS blocks, the .data it exports), then
  * the effect-table export's ELF blocks (the program packets, 001CFBE0's
- * source blocks). Nothing else is mapped. */
+ * source blocks) and the overlay source blocks 001D04B0 was handed (the
+ * AREA11 flame's D_00828340). Nothing else is mapped. */
 const uint8_t *em_chain_page_live_read(uint32_t address, uint32_t size)
 {
     const uint8_t *p = em_rcl_bytes(address, size);
@@ -58,6 +60,7 @@ static const uint8_t *reader(void *ctx, uint32_t address, uint32_t size)
 {
     (void)ctx;
     const uint8_t *p = em_chain_page_live_read(address, size);
+    if (p && address >= 0x00800000u && !em_rcl_bytes(address, size)) S.overlay_reads++;
     if (p && S.nreads < READS_MAX) {
         S.reads[S.nreads].address = address;
         S.reads[S.nreads].size = size;
@@ -162,6 +165,7 @@ int em_chain_page_live_draw(EmGfx *gfx)
     p->skip_calls = S.skip;
     p->skip_count = four ? 1u : 0u;
     S.nreads = 0;
+    S.overlay_reads = 0;
     if (em_chain_page_run(p, start) < 0) {
         fprintf(stderr, "chain page: %s fault at %08X (%08X)\n", em_chain_page_fault_name(p->fault),
                 (unsigned)p->fault_address, (unsigned)p->fault_detail);
@@ -178,6 +182,8 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.four_sprite = four;
     S.log.counts = p->counts;
     S.log.decal_triangles = decal;
+    S.log.weather = em_rcl_page_weather();
+    S.log.overlay_reads = S.overlay_reads;
     S.log.digest = digest(p->prims, S.q, p->prim_count);
     S.log.total_prims += p->prim_count;
     S.log.total_stale_q += p->counts.stale_q;

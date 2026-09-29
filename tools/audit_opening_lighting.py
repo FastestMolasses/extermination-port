@@ -8,7 +8,7 @@ captured light matrices. It is not a complete raster or screenshot comparison.
 """
 from pathlib import Path
 import argparse, ctypes as C, hashlib, json, math, random, struct, subprocess, sys, tempfile
-import test_snow_particles_reference as original
+import vu1_vm as original
 
 ROOT=Path(__file__).resolve().parents[1]
 

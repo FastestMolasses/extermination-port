@@ -562,11 +562,11 @@ Readers of the one context:
   FOGCOL from the GS block 001D1C50 REFs (context +0xB0), through
   em_gfx_fog_coefficients; the manifest's fog line serves only scenes without
   the context.
-- **The snow and the AREA11 effect** take P (+0x2340), the 001CD370(0)
-  projection (+0x2240) and K (+0x23C0) from the context
-  (em_rcl_frame_matrices); `em_snow_projection_matrices`, a private copy of
-  those three, is deleted (the captured matrices equal what it computed, so
-  only the view source changed: the frame head's).
+- **The snow and the AREA11 flame** carry P (0x70003A40), the 001CD370(0)
+  projection (+0x2240) and K (0x70003AC0) in their own packets (001CFFE0 /
+  001CFBE0 copy them at the owner's call) since chain C8b FLAMESNOW; the
+  weather's list is the pending word +0x2520 (001D2DE0) that the frame
+  close's 001E0D70 CALLs into the page (CHAIN_PAGE.md section 6.1).
 - **The zoom** readers (the status models' UI projection, the legacy camera's
   commit, the camera's native view) read +0x2468 (em_rcl_zoom).
 

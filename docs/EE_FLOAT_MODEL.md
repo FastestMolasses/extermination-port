@@ -179,8 +179,9 @@ step 67 classes disagreed; after it all 116 agree. The closure interpreters
 | closures moved in C8 | `tools/ee_cop1.py` | none | camera_retarget, elevator, elevator_commands, opening_face (its 001D0720 part), player_heading, snow_tiles, weather |
 
 Not on the model, by design:
-- **VU1 microcode** (VU1 was not measured, section 1): test_snow_particles_reference,
-  the morph oracle in test_opening_face_reference, test_shadow_original_reference's
+- **VU1 microcode** (VU1 was not measured, section 1): tools/vu1_vm.py (the
+  former snow-generator VM, now the shared VU1 machine of the shadow, lighting
+  and fog tools), the morph oracle in test_opening_face_reference, test_shadow_original_reference's
   MiniVU / VU1, the VU1 kernel oracles.
 - **Hooks that stand in for SDK VU0 routines inside closure oracles**: test_snow_tiles_reference
   (001026A0, 001028B8, 00102900 and the 001029E8 polynomial, per-lane
@@ -236,9 +237,10 @@ names the oracle and any capture it checks.
 - **em_collision.c's `em_collision_box_face`** is a second translation of
   001A4D10 / 001A50A0 beside em_coll_move_original and
   em_coll_segment_walkers (the census's live owners); both are on the model.
-- **em_snow.c's wave** uses host sinf where the original calls the SDK
-  0011E2A8 (test_snow_tiles_reference reports it as the "original SDK matrix"
-  comparison, 5,022 of 5,184 exact in the full sweep).
+- **em_snow.c's wave** calls the SDK 0011E2A8's translation
+  (em_sdk_math_original over the one SDK context) since chain C8b FLAMESNOW
+  (2026-09-28); test_snow_tiles_reference executes the original 0011E2A8 on
+  its side and every tile is exact (it used host sinf before: 5,022 of 5,184).
 - **em_lighting.c** is checked only under its port contract (census L40; the
   bit-exact em_actor_light_001D89D0 is unbound).
 - **em_status_draw.c's battery colour ramp**: the original routine of its

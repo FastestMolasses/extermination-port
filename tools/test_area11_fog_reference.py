@@ -34,7 +34,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ee_float_model as FM  # noqa: E402
 from reference_mode import in_scope_beat  # noqa: E402
 import test_point_light_reference as plr  # noqa: E402
-import test_snow_particles_reference as snow  # noqa: E402
+import vu1_vm as snow  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = plr.CONTEXT

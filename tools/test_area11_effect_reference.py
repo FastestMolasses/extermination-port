@@ -1,9 +1,17 @@
 #!/usr/bin/env python3
-"""Compare AREA11 effect controller/particles/projection with original instructions.
+"""Compare the AREA11 flame's controller (008235F0) and contact callback
+(00823580) with the original instructions (docs/AREA11_EFFECT.md).
+
+The flame's draw 001D04B0 goes into the chain page, whose sprite program
+translation tools/test_chain_page_reference.py checks against the original
+microcode on every captured page (each holds the flame's MSCAL); this test
+keeps the identity checks of the flame's data: the overlay's callback and
+descriptor bytes equal the opening capture's, and the immutable opening VU1
+dump's last effect holds that descriptor, the owner's world matrix and the
+program's lookup.
 
 Requires the user's original ELF, AREA11 overlay and immutable opening EE/VU
-captures. No original data is embedded or downloaded. Rendering tests cover
-finite arithmetic and GIF submission, not a complete GS rasterizer.
+captures. No original data is embedded or downloaded.
 """
 import ctypes as C
 import hashlib
@@ -14,8 +22,6 @@ import struct
 import subprocess
 
 import test_point_light_reference as ee
-import test_snow_particles_reference as vu
-import test_snow_projection_reference as projection
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -27,36 +33,15 @@ class Effect(C.Structure):
                 ('half_extent',C.c_float*3)]
 
 
-def project_original(state, particle):
-    mem = bytearray(16384)
-    mem[0x6e0:0x7d0] = bytes(state)
-    struct.pack_into('<I',mem,0x630,1)
-    struct.pack_into('<I',mem,0x650,0x100)
-    for field,offset in [('position',0),('color',2),('half_size',3)]:
-        mem[0x880+offset*16:0x890+offset*16] = bytes(getattr(particle,field))
-    vm = vu.VU(mem,0x231798); vm.stop_on_kick = True
-    vm.run(0x231f30,0x232208)
-    assert len(vm.kicks) == 1
-    base = vm.kicks[0]; count = vm.read(base)[0] & 0x7fff
-    assert count in (0,1)
-    result = {'clip':vm.clips[0], 'drawn':bool(count)}
-    if count:
-        result.update(xyzf=[vm.read(base+4),vm.read(base+6)],
-                      color=vm.read(base+2),
-                      st=[vm.read(base+3)[:2],vm.read(base+5)[:2]])
-    return result
-
-
 def main():
     decomp = ROOT.parent/'Extermination'
     elf = (decomp/'config/SCUS_971.12').read_bytes()
     overlay = (decomp/'extract/OVERLAY/AREA11.BIN').read_bytes()
     ram = (decomp/'build/startup-reference/opening_ee.bin').read_bytes()
     captured = (decomp/'build/weather_reference/original_vu1.bin').read_bytes()
-    vu.ELF = elf
     output = ROOT/'build/area11_effect_reference'; output.mkdir(parents=True,exist_ok=True)
     library = output/'area11_effect.dylib'
-    sources = ['em_area11_effect.c','em_snow_particles.c','em_snow_projection.c']
+    sources = ['em_area11_effect.c']
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
                     '-shared','-fPIC','-Isrc',*[str(Path('src/game')/s) for s in sources],
                     '-o',str(library)],cwd=ROOT,check=True)
@@ -134,47 +119,12 @@ def main():
     assert captured[0x5a0:0x5e0]==ram[0x7a8610:0x7a8650]
     lookup=struct.unpack_from('<80f',elf,start(0x2342bc))
     assert all(captured[i*16:i*16+4]==struct.pack('<f',lookup[i]) for i in range(80))
-    out=(vu.Particle*80)(); fp=C.POINTER(C.c_float)
-    generate=api.em_snow_particles_generate
-    generate.argtypes=[fp,fp,fp,fp,C.POINTER(vu.Particle),C.c_uint]
-    descriptor=(C.c_float*36).from_buffer_copy(captured[0x500:0x590])
-    params=(C.c_float*4).from_buffer_copy(captured[0x590:0x5a0])
-    matrix=(C.c_float*16).from_buffer_copy(captured[0x5a0:0x5e0])
-    count=generate(descriptor,(C.c_float*80)(*lookup),params,matrix,out,80)
-    assert count==80
-    vm=vu.VU(captured,0x231798); vm.run(0x231798,0x231f30)
-    while vm.read(0x62)[0]:
-        vm.vi[9]=(0x231f30-0x231798)//8; vm.run(0x231880,0x231f30)
-    last=vm.vi[8]; assert last==24
-    captured_bytes=0
-    for i in range(last):
-        for field,offset in [('position',0),('color',2),('half_size',3)]:
-            expected=captured[(0x88+4*i+offset)*16:(0x89+4*i+offset)*16]
-            assert bytes(getattr(out[count-last+i],field))==expected==struct.pack('<4I',*vm.read(0x88+4*i+offset))
-            captured_bytes+=16
-    cases=projection.synthetic_cases()
-    captured_projection=projection.Projection.from_buffer_copy(captured[0x6e0:0x7d0])
-    cases.extend(('captured_effect',captured_projection,out[i]) for i in range(count))
-    project=api.em_effect_sprite_project
-    project.argtypes=[C.POINTER(projection.Projection),C.POINTER(vu.Particle),C.POINTER(projection.Projected)]
-    projection_bytes=0; submitted=0
-    for kind,state,item in cases:
-        expected=project_original(state,item); actual=projection.Projected()
-        drawn=project(C.byref(state),C.byref(item),C.byref(actual))
-        assert bool(drawn)==expected['drawn'],('clip',kind)
-        submitted+=drawn
-        for field in ['clip']+(['xyzf','color','st'] if drawn else []):
-            value=expected[field]
-            words=value if field in ('clip','color') else [x for row in value for x in row]
-            assert bytes(getattr(actual,field))==struct.pack('<'+'I'*len(words),*words),(field,kind)
-            projection_bytes+=len(words)*4
     report={'status':'PASS','controller_cases':controller_cases,'contact_cases':contact_cases,
-            'shared_original_generator_bytes':0x778,'captured_particle_records':last,
-            'captured_particle_bytes':captured_bytes,'projection_cases':len(cases),
-            'projection_submissions':submitted,'projection_bytes':projection_bytes,
+            'shared_original_generator_bytes':0x778,'captured_descriptor_bytes':0x90,
+            'captured_matrix_bytes':0x40,'captured_lookup_scalars':80,
             'original_elf_sha256':hashlib.sha256(elf).hexdigest(),
             'original_overlay_sha256':hashlib.sha256(overlay).hexdigest(),
-            'limitations':['Finite arithmetic; no GS raster-output proof.',
+            'limitations':['The draw (001D04B0) is proven on the chain page (test_chain_page_reference).',
                            'Contact candidate selection and effect80000027 require separate integration.',
                            'Global RNG order, actor schedule and audio SPU envelopes are separate fidelity dependencies.']}
     (output/'report.json').write_text(json.dumps(report,indent=2)+'\n')

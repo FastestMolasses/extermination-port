@@ -44,7 +44,7 @@ import argparse, ctypes as C, hashlib, json, math, random, struct, subprocess, s
 
 import test_point_light_reference as pl
 from test_point_light_reference import signed, bits, number, Pool
-import test_snow_particles_reference as vu
+import vu1_vm as vu
 import audit_opening_lighting as aol
 
 ROOT = Path(__file__).resolve().parents[1]

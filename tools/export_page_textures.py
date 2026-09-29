@@ -12,6 +12,10 @@ original's data and code:
     page are walked over);
   * the TEX0 row (+0x70) of each 001CFBE0 source block: D_00253670 (the
     head sprite's) and D_002565E0 + 0x90 k, k = 0..7 (the effect handlers');
+  * the TEX0 row (+0x70) of the weather's descriptor D_00255170 (001CFFE0's
+    object for the snow tiles; the snow program sends it with every sprite;
+    the captured pages' weather kicks are walked over here, so the row is
+    read from the ELF and required like a drawn TEX0);
   * the decal's TEX0 0x2004290511322469 (001F8D30's constant,
     EM_SHADOW_DECAL_TEX0).
 None of them is uploaded by the draw: each is resident in GS local memory.
@@ -61,6 +65,7 @@ import export_object_textures as eot  # noqa: E402
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 DECAL_TEX0 = 0x2004290511322469       # 001F8D30's constant (em_shadow_decal_original.h)
 SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)]
+WEATHER_DESCRIPTOR = 0x00255170       # D_00255170 (001E67C0 / 001CFFE0)
 CLD_MASK = eot.CLD_MASK
 
 
@@ -92,6 +97,11 @@ def source_tex0(elf: bytes) -> dict:
     return out
 
 
+def weather_tex0(elf: bytes) -> dict:
+    o = WEATHER_DESCRIPTOR + 0x70 - 0x100000 + 0x300
+    return {struct.unpack_from('<Q', elf, o)[0] & CLD_MASK: {f'001CFFE0 weather descriptor {WEATHER_DESCRIPTOR:#010x}'}}
+
+
 def drawable(t: int) -> bool:
     f = eot.tex0_fields(t)
     return (f['psm'] in (eot.PSMT8, eot.PSMT4) and not f['cpsm'] and not f['csm'] and not f['csa']
@@ -109,6 +119,8 @@ def main(argv=None) -> int:
         raise SystemExit(f'{args.elf}: not the pinned SCUS-97112 boot ELF')
     import gs_vram
     drawn = captured_tex0(args.route)
+    for t, why in weather_tex0(elf).items():
+        drawn.setdefault(t, set()).update(why)
     texes = {}
     for src in (drawn, source_tex0(elf), {DECAL_TEX0 & CLD_MASK: {'001F8D30 decal'}}):
         for t, why in src.items():

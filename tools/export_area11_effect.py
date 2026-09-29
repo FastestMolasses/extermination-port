@@ -1,9 +1,12 @@
 #!/usr/bin/env python3
-"""Export AREA11 owner008235F0's original placement/particles/texture.
+"""Export AREA11 owner008235F0's original placement and particle descriptor.
 
 Outputs are generated locally from the user's disc and reference state, and
 belong only in ignored assets/build directories. Existing model files are
 untouched. This exporter replaces the old guessed steam manifest record.
+The flame's texture is a page texture since the flame draws on the chain
+page (tools/export_page_textures.py / export_disc_textures.py; docs/
+AREA11_EFFECT.md); an area11_effect.emtx of an earlier export is not read.
 """
 import argparse
 import hashlib
@@ -19,7 +22,6 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root',type=Path,default=ROOT.parent/'Extermination')
     parser.add_argument('--ee',type=Path,required=True)
-    parser.add_argument('--gs',type=Path,required=True)
     parser.add_argument('--vu',type=Path,required=True)
     parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow')
     args=parser.parse_args()
@@ -55,33 +57,26 @@ def main():
     fog=struct.pack('<2f',*rig['fog'][:2])
     key=struct.unpack_from('<Q',descriptor,112)[0]&native.TEX0_KEY_MASK
     texture=native.tex0_fields(key); texture['key']=key
-    entries,texels=native.build_texture_blob(None,[texture],p2s=args.gs)
-    entry=entries[0]
-    assert 1<entry['w']<=256 and 1<entry['h']<=256
     data=struct.pack('<4s3I',b'EMEF',1,0x0b00,80)+position+descriptor+lookup+fog
-    texture_data=struct.pack('<4s3I',b'EMTX',1,entry['w'],entry['h'])+texels
     args.out.mkdir(parents=True,exist_ok=True)
     (args.out/'area11_effect.emef').write_bytes(data)
-    (args.out/'area11_effect.emtx').write_bytes(texture_data)
     manifest=args.out/'scene.txt'
     if manifest.exists():
         lines=manifest.read_text().splitlines()
         lines=[line for line in lines if not line.startswith(('steam ','area11effect ','# Legacy steam audio/FX',
                 '# Original AREA11 runtime owner008235F0, placement record7.'))]
         lines+=['# Original AREA11 runtime owner008235F0, placement record7.',
-                'area11effect area11_effect.emef area11_effect.emtx']
+                'area11effect area11_effect.emef']
         manifest.write_text('\n'.join(lines)+'\n')
     report={'original_elf_sha256':hashlib.sha256(elf).hexdigest(),
             'original_overlay_sha256':hashlib.sha256(overlay).hexdigest(),
             'runtime_owner':0x8235f0,'runtime_descriptor':0x828340,
             'placement_file_offset':0x6fd4,'placement':struct.unpack('<3f',position),
             'lookup_address':0x2342bc,'rig_index':rig_index,'fog_near_far':rig['fog'][:2],
-            'texture':texture,'texture_width':entry['w'],'texture_height':entry['h'],
-            'config_sha256':hashlib.sha256(data).hexdigest(),
-            'texture_sha256':hashlib.sha256(texture_data).hexdigest()}
+            'texture':texture,'config_sha256':hashlib.sha256(data).hexdigest()}
     output=ROOT/'build/area11_effect_reference';output.mkdir(parents=True,exist_ok=True)
     (output/'export.json').write_text(json.dumps(report,indent=2)+'\n')
-    print(f'Exported AREA11 effect:80 particles, {entry["w"]}x{entry["h"]} texture')
+    print(f'Exported AREA11 effect: 80 particles, TEX0 {key:#x} (a page texture)')
 
 
 if __name__=='__main__': main()

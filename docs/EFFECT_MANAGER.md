@@ -409,10 +409,10 @@ ring lanes through the lane program of D_00233290 (no route slot is active,
 so it draws nothing on the route), the puffs and the head sprites' breath
 through the sprite program of table 0x231770, the glint's line strips, the
 glow markers' and the equipment sprites' sprites, in slot order with the
-0015BF90 decal. The AREA11 effect owner (its 001D04B0 is not bound) and the
-snow (the weather's 001E0D70 kick is not bound) keep their own projection
-path (em_effect_sprite_project / em_snow_project over
-em_snow_particles_generate) with the context's fog; CHAIN_PAGE.md section 6.
+0015BF90 decal. Since chain C8b FLAMESNOW the AREA11 flame (its owner's
+001D04B0 -> em_effects_live_001D04B0: 001CCF70, 001CFA60, 001CFBE0) and the
+snow (the weather's channel-3 list, CALLed by 001E0D70; the snow program of
+D_00233800) are on the page too; CHAIN_PAGE.md section 6.1.
 
 ### 8.4 Evidence
 
@@ -452,8 +452,9 @@ em_snow_particles_generate) with the context's fog; CHAIN_PAGE.md section 6.
   (test_effect_manager_reference, test_effect_original_reference,
   test_effect_kinds_reference, test_head_sprite_reference,
   test_player_equipment_reference, test_packet_chain_reference).
-- **The fog stand-ins:** test-snow-runtime and test-area11-effect-runtime run
-  the real 0021B9A0 on a fixture context (tests/render_context_frame_stub.h);
-  the snow leaves the mode-1 pair (the area's) as 001E67C0 does. The level
-  smoke's check_render_context still holds the snapshots' fog block
-  +0xA0..+0xFF at every gameplay tick's end.
+- **The fog:** the weather's 0021B9A0 calls run on the live render context
+  (em_snow_runtime); the snow leaves the mode-1 pair (the area's) as 001E67C0
+  does, and its tile packets carry the context's fog as the calls left it
+  (the camera-exact snapshots' tile packet 3 equals the captures',
+  check_chain_page). The level smoke's check_render_context still holds the
+  snapshots' fog block +0xA0..+0xFF at every gameplay tick's end.

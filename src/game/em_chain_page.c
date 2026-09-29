@@ -24,7 +24,8 @@ typedef struct {
     uint32_t cl, wl, cycle_set;
     uint32_t base, offset;
     uint32_t program;        /* the uploaded program (0: none)            */
-    uint32_t mpg_parts;      /* sprite program: MPG parts uploaded        */
+    uint32_t mpg_parts;      /* sprite / snow program: MPG parts uploaded */
+    uint32_t mpg_first;      /* the first part's source address           */
     /* GS */
     uint32_t prim;
     uint32_t set;
@@ -380,11 +381,13 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 
 /* ------------------------------------------------------------------ VIF */
 
-/* The two page programs' MPG uploads (source address of the code, micro
+/* The three page programs' MPG uploads (source address of the code, micro
  * load address, instruction count). */
 #define LANE_CODE    0x002332B8u
 #define SPRITE_CODE0 0x00231798u
 #define SPRITE_CODE1 0x00231FA0u
+#define SNOW_CODE0   0x00233828u
+#define SNOW_CODE1   0x00234030u
 
 static int vif(Walk *w)
 {
@@ -440,11 +443,14 @@ static int vif(Walk *w)
             }
             if (first == LANE_CODE && cnt == 138u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
-            } else if (first == SPRITE_CODE0 && cnt == 256u && imm == 0u) {
-                w->program = 0; w->mpg_parts = 1;
+            } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0) && cnt == 256u && imm == 0u) {
+                w->program = 0; w->mpg_parts = 1; w->mpg_first = first;
             } else if (first == SPRITE_CODE1 && cnt == 79u && imm == 0x100u && w->mpg_parts == 1u &&
-                       w->program == 0u) {
+                       w->program == 0u && w->mpg_first == SPRITE_CODE0) {
                 w->program = EM_CHAIN_PAGE_SPRITE; w->mpg_parts = 2;
+            } else if (first == SNOW_CODE1 && cnt == 81u && imm == 0x100u && w->mpg_parts == 1u &&
+                       w->program == 0u && w->mpg_first == SNOW_CODE0) {
+                w->program = EM_CHAIN_PAGE_SNOW; w->mpg_parts = 2;
             } else {
                 w->program = 0; w->mpg_parts = 0;
                 return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, first);
@@ -457,6 +463,9 @@ static int vif(Walk *w)
             if (w->program == EM_CHAIN_PAGE_LANE) {
                 p->counts.mscal_lane++;
                 rc = em_vu1_lane_program_mscal(&p->regs, p->dmem, kick, w);
+            } else if (w->program == EM_CHAIN_PAGE_SNOW) {
+                p->counts.mscal_snow++;
+                rc = em_vu1_snow_program_mscal(&p->regs, p->dmem, kick, w);
             } else {
                 p->counts.mscal_sprite++;
                 rc = em_vu1_sprite_program_mscal(&p->regs, p->dmem, kick, w);

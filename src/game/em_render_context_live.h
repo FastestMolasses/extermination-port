@@ -157,6 +157,10 @@ int em_rcl_001D25F0(uint32_t zoom);     /* zoom store (bits) */
 int em_rcl_001D2610(uint32_t x);        /* scope zoom (bits) */
 int em_rcl_001D2830(int32_t a0, int32_t a1);
 int em_rcl_001E0CC0(void);              /* 001D2DE0(0, 0), +0x1D8 = +0x1E8 = 0 */
+/* 001D2DE0(a0, a1): context word +0x2520 + 4 * a0 = a1 (001E55F0's
+ * 001D2DE0(0, list): the weather's pending channel-3 list, which the frame
+ * close's 001E0D70 CALLs into the page). */
+int em_rcl_001D2DE0(int32_t a0, uint32_t a1);
 int em_rcl_0021B9A0(int32_t mode, uint32_t scale, uint32_t bias);
 /* 0021BAC0(slot) / 0021BAE0(slot): the fog record +0xA0..+0xBF saved to /
  * restored from +0x120 + 32 * slot (em_sul_0021BAC0 / em_cs_0021BAE0 on
@@ -197,6 +201,10 @@ EmPointLightPool *em_rcl_point_lights(void);
  * in that frame (0: none). Taken once: a second call before the next kick
  * returns -1, as it does before any kick. 0, or -1. */
 int em_rcl_page(uint32_t *start, uint32_t *four_sprite);
+/* The CALL target 001E0D70 appended (id 0xFFC000: the weather's channel-3
+ * list, context +0x2520) in the frame of the page em_rcl_page last handed
+ * out; 0 when it appended none. */
+uint32_t em_rcl_page_weather(void);
 
 /* ---- readers ---- */
 /* The context +0x2468 zoom (the one copy). */

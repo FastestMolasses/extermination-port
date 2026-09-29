@@ -13,7 +13,10 @@
  * (001F0720), the head sprites and every puff handler (001CFBE0), the
  * glint (001F0A60), the glow markers and equipment sprites (001CD520) and
  * the 0015BF90 decal (001CE300), whose triangle count goes back to
- * em_shadow_live_page_drew.
+ * em_shadow_live_page_drew; the AREA11 flame (008235F0's 001D04B0 ->
+ * 001CFBE0, its descriptor D_00828340 read through em_effects_live_window)
+ * and the weather's channel-3 list (001E55F0 / 001E67C0's 001CFFE0 tiles,
+ * CALLed by 001E0D70 at slot 0xFFB; the snow program D_00233800).
  *
  * The frame's Q (em_chain_page.h): a vertex whose RGBAQ precedes every ST
  * of the page carries the Q the GS held from the frame's earlier draws,
@@ -59,6 +62,8 @@ typedef struct {
     EmChainPageCounts counts;  /* the last page's                             */
     uint32_t decal_triangles;  /* the last page's decal-TEX0 fan triangles    */
     uint32_t digest;           /* FNV-1a of the last page's primitives        */
+    uint32_t weather;          /* the weather list 001E0D70 CALLed (0: none)  */
+    uint32_t overlay_reads;    /* reads of overlay source blocks (the flame) */
     uint32_t total_prims, total_stale_q, total_skipped;   /* cumulative      */
 } EmChainPageLiveLog;
 void em_chain_page_live_log(EmChainPageLiveLog *out);

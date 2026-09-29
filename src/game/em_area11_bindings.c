@@ -900,12 +900,18 @@ static int tick_door(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
+/* 008235F0, the flame (area11[7]): em_area11_effect's controller; its
+ * DRAW is 001D04B0 on em_effects_live (the packets go into the chain page,
+ * docs/AREA11_EFFECT.md "Binding"). */
 static int tick_effect(EmActor *actor, Node *node, const EmArea11World *world)
 {
-    (void)actor;
     (void)node;
     (void)world;
-    em_area11_effect_runtime_tick();
+    if (em_area11_effect_runtime_tick() < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(em_effects_live_fault() ? em_effects_live_fault() : actor->callback,
+                                                 EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "flame owner: 001D04B0 faulted (em_effects_live)");
     return 1;
 }
 
@@ -1519,8 +1525,10 @@ static int free_self_001AFC10(EmActor *actor)
     return 1;
 }
 
-/* 001E55F0 weather node: em_weather's translation over the node's own state,
- * drawing through the snow runtime. The cutscene block passed the camera eye
+/* 001E55F0 weather node: em_weather's translation over the node's own state;
+ * the snow runtime writes 001E67C0's tile requests (001CFFE0) into the
+ * render context's channel 3 and closes the list at context +0x2520, which
+ * the frame close's 001E0D70 CALLs into the chain page. The cutscene block passed the camera eye
  * from before this frame's camera stage (copied at its start); the gameplay
  * block passed the live eye. The room move (S12b): at the end of state 1,
  * D_008106B8 == 2 with D_0028A9A0 == 2 selects state 3; the next call frees
@@ -1531,7 +1539,8 @@ static int tick_weather(EmActor *actor, Node *node, const EmArea11World *world)
         &node->weather, world->cutscene ? s_walk_eye : g.cam.eye, world->cutscene ? 1u : 0u,
         s_scene->req[EM_SCENE_REQ_B8], (unsigned)(int)em_frame_transition()->substate);
     if (released < 0)
-        return fault(0x0021B9A0u, EM_SCENE_FAULT_WORKER_FAILED, "001E67C0's fog programmer faulted");
+        return fault(0x001E55F0u, EM_SCENE_FAULT_WORKER_FAILED,
+                     "weather: a render-context call or packet write of 001E55F0 / 001E67C0 faulted");
     return released ? free_self_001AFC10(actor) : 1;
 }
 
@@ -1706,7 +1715,7 @@ static const Binding k_bindings[] = {
     {0x00156620u, "drum: em_drum_original (em_area11_boxes)", tick_box, NULL},
     {0x001BC350u, "door: 001BC350 (em_area11_door)", tick_door, NULL},
     {0x00827630u, "fan: em_fan_original_tick (area11[1]/[2])", tick_fan, NULL},
-    {0x008235F0u, "flame: em_area11_effect_runtime_tick", tick_effect, NULL},
+    {0x008235F0u, "flame: em_area11_effect_runtime_tick, 001D04B0 on em_effects_live", tick_effect, NULL},
     {0x008237E0u, "Roger: em_roger_tick / em_roger_actor_original (em_area11_roger)",
      tick_roger, NULL},
     {0x001C5C90u, "equipment: em_roger_actor_001C5C90 (em_area11_roger)", tick_roger,

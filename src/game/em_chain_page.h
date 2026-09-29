@@ -11,12 +11,13 @@
  *          tags not transferred), until the link reaches base + 0x20 at
  *          the top level;
  *   VIF1   runs the transferred words: NOP, STCYCL, BASE, OFFSET, STMASK,
- *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the two page
+ *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the three page
  *          programs' uploads, recognised by their source address), UNPACK
  *          V4-32 / V1-32 without mask, MSCAL 0 and DIRECT;
  *   VU1    MSCAL runs the loaded program's translation
- *          (em_vu1_page_programs.h: the lane program of D_00233290 and the
- *          sprite program of table 0x231770) on a 1024-qword data memory;
+ *          (em_vu1_page_programs.h: the lane program of D_00233290, the
+ *          sprite program of table 0x231770 and the snow program of
+ *          D_00233800) on a 1024-qword data memory;
  *   GIF    DIRECT (PATH2) and each XGKICK (PATH1): PACKED tags with PRE,
  *          the registers RGBAQ, ST, XYZF2, XYZ2, TEX0_1, NOP and A+D writes
  *          of PRIM, TEX0_1, CLAMP_1, TEX1_1, ALPHA_1, COLCLAMP, TEST_1 and
@@ -74,6 +75,7 @@ extern "C" {
 #define EM_CHAIN_PAGE_BUFFER    0x00070000u   /* per D_00810E80 index    */
 #define EM_CHAIN_PAGE_LANE      0x00233290u   /* D_00233290              */
 #define EM_CHAIN_PAGE_SPRITE    0x00231770u   /* table 0x231770          */
+#define EM_CHAIN_PAGE_SNOW      0x00233800u   /* D_00233800              */
 
 enum {
     EM_CHAIN_PAGE_OK = 0,
@@ -103,6 +105,7 @@ typedef struct {
     uint32_t skipped;         /* top-level CALLs to skip_calls walked over */
     uint32_t stale_q;         /* vertices whose Q is the frame's (q_known 0) */
     uint32_t cycle_inherited; /* UNPACKs before the page's first STCYCL      */
+    uint32_t mscal_snow;      /* MSCALs of the snow program (D_00233800)     */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: set by a PACKED

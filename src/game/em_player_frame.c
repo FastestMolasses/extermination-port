@@ -43,8 +43,6 @@
 #include "game/em_scene.h"
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
-#include "game/em_snow_runtime.h"
-#include "game/em_area11_effect_runtime.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_scene_bindings.h"
 

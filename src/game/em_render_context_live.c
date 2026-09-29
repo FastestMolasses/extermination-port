@@ -128,8 +128,10 @@ static struct {
     EmPacketChain pc;
     EmLoadVeilParticles veil;
     EmActorLight light;
-    /* the page 001CB800 spliced at the last kick (em_rcl_page) */
+    /* the page 001CB800 spliced at the last kick (em_rcl_page), and the
+     * weather's list 001E0D70 CALLed into it (em_rcl_page_weather) */
     u32 page_start, page_four_sprite, frame_four_sprite;
+    u32 page_weather, frame_weather;
     int page_ready;
     /* main-loop step V (001D2300): its kick's list, the kicks so far */
     u32 kick_chain, kicks;
@@ -384,18 +386,22 @@ static int f_001CB800(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
         const int16_t index = (int16_t)(R.ext[X_810E80][0] | R.ext[X_810E80][1] << 8);
         R.page_start = em_chain_page_start(index, (int32_t)a1);
         R.page_four_sprite = R.frame_four_sprite;
+        R.page_weather = R.frame_weather;
         R.page_ready = 1;
     }
     R.frame_four_sprite = 0;
+    R.frame_weather = 0;
     return r;
 }
 /* 001DDE10's and 001E0D70's 001CB760: the slot-0xFFF CALL target of this
  * frame (001DDE10's four-sprite packet) is kept for the page's consumer,
- * which walks over it (docs/CHAIN_PAGE.md section 6). */
+ * which walks over it (docs/CHAIN_PAGE.md section 6); 001E0D70's (id
+ * 0xFFC000, the weather's channel-3 list) is noted for the level smoke. */
 static int f_001CB760(void *ctx, uint32_t table, int32_t id, uint32_t address)
 {
     const int r = em_packet_chain_w_001CB760(ctx, table, id, address);
     if (r == 0 && id == 0xFFF000) R.frame_four_sprite = address & 0x0FFFFFFFu;
+    if (r == 0 && id == 0xFFC000) R.frame_weather = address & 0x0FFFFFFFu;
     return r;
 }
 static int f_001CB8A0(void *ctx, uint32_t a0, int32_t a1, uint32_t a2, uint32_t a3)
@@ -766,6 +772,11 @@ int em_rcl_page(uint32_t *start, uint32_t *four_sprite)
     return 0;
 }
 
+uint32_t em_rcl_page_weather(void)
+{
+    return R.loaded ? R.page_weather : 0;
+}
+
 int em_rcl_001D1AE0(int32_t index)
 {
     READY(0);
@@ -933,6 +944,12 @@ int em_rcl_001E0CC0(void)
 {
     READY(0);
     return done(em_render_context_001E0CC0(&R.rc), 0x001E0CC0u);
+}
+
+int em_rcl_001D2DE0(int32_t a0, uint32_t a1)
+{
+    READY(0);
+    return done(em_render_context_001D2DE0(&R.rc, a0, a1), 0x001D2DE0u);
 }
 
 int em_rcl_0021B9A0(int32_t mode, uint32_t scale, uint32_t bias)

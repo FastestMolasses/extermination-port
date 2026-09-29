@@ -44,9 +44,11 @@ Blocks (original address, bytes, what reads them):
                       kinds 1 and 5: VIF codes, the VU1 program, its lookup
                       and constant rows) and its RET tag
   0x00233290  0x570   the lane program's DMA packet D_00233290 (001F0720's
-                      CALL) and its RET tag; both packets are read by the
-                      chain page consumer (em_chain_page_live,
-                      docs/CHAIN_PAGE.md)
+                      CALL) and its RET tag
+  0x00233800  0xDE0   the snow program's DMA packet D_00233800 (001CFFE0's
+                      CALL for the weather's tiles) and its RET tag; the
+                      three packets are read by the chain page consumer
+                      (em_chain_page_live, docs/CHAIN_PAGE.md)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -75,7 +77,8 @@ DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x0026EB20, 0x90),
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
-          (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570))
+          (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
+          (0x00233800, 0xDE0))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

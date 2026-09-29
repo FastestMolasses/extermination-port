@@ -1,265 +1,168 @@
-# Original snow particle generator
+# The AREA11 snow: weather actor 001E55F0, tiles 001E67C0, the snow program D_00233800
 
-`src/game/em_snow_particles.c` translates the particle generation and trajectory
-instructions in the original VU program submitted by `001E67C0`. The controller,
-tile emitter, textures, projection matrices, and graphics submission remain
-separate. No emulator implementation source was used.
+The snow is drawn from its original packets on the chain page (chain C8b
+step FLAMESNOW, 2026-09-28; CHAIN_PAGE.md section 6.1). Every frame the
+weather actor builds its channel-3 list of 108 tile requests, the frame
+close's 001E0D70 CALLs that list into page D_007635C0, and the page consumer
+runs the snow program's translation on every tile. No emulator
+implementation source was used.
 
 The owner's SCUS_971.12 SHA-256 is
 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`.
-Relevant original addresses are:
 
-| Address | Role |
-| --- | --- |
-| `00233828` | Color scale, particle fraction step, random seed initialization |
-| `00233AC0` | Random direction and offset; flags; age rejection |
-| `00233E40` | World transform, gravity, color/size interpolation |
-| `00234110..00234240` | Depth/fog attenuation and integer GS color conversion |
-| `002342BC` | 80 scalar lookup values, uploaded to VU qwords `00..4F` |
-| `00255170` | Nine-qword snow descriptor uploaded to VU `50..58` |
+| Original | Port | Role |
+| --- | --- | --- |
+| 001E55F0 | `em_weather.c`, `em_snow_runtime.c` | the weather actor: intensity controller; state 1 reads the channel-3 cursor, runs 001E67C0, closes the list (RET) and stores it at context +0x2520 (001D2DE0(0, start)) |
+| 001E67C0 | `em_snow.c` | the AREA11 tile emitter: 6 rows x 6 depth steps x 3 vertical steps = 108 tiles; its fog programmer calls 0021B9A0(2), (3, 0, 300), (1) run on the render context |
+| 001CFAE0 | `em_weather_packets.c` | a tile's 0x58-byte draw state (byte-matched C) |
+| 001CFFE0 | `em_weather_packets.c` | a tile's five DMA packets at the channel cursor (NEARMISS C; the .s followed) |
+| 001E0D70 | `em_render_context.c` (live since the render context step) | the frame close's CALL of +0x2520 into the page, slot 0xFFB |
+| D_00233800 | `em_vu1_page_programs.h` (`em_vu1_snow_program_mscal`) | the snow program: generation, trajectory, projection, colour (CHAIN_PAGE.md section 3) |
+| 0011E2A8 | `em_sdk_math_original.c` | the SDK sinf of each row's drift wave |
 
-The lookup values are original six-decimal constants, not host trigonometric
-evaluations. The caller supplies the extracted table and descriptor. VU `59`
-contains **phase, color multiplier, fade-in interval, seed fraction**; VU
-`5A..5D` contains the tile transform. These are not the argument ordering
-previously described in the old readable emitter C.
+## The snow program (D_00233800)
 
-The generator preserves four random advances per source particle, even when
-the age gate suppresses that particle. Two pairs select lookup angles; each
-pair also XORs its binary32 product mantissa into the 23-bit random state.
-This state is local to the tile. The source fraction advances through repeated
-binary32 additions, rather than computing `index/count` independently. The
-snow flags preserve the descriptor's Z direction while randomizing X/Y.
+The program packet uploads 256 + 81 instructions (ELF 0x00233828 to micro 0,
+0x00234030 to micro 0x100), the 80-scalar lookup (ELF 0x002342BC, VU qwords
+0..0x4F, all four lanes) and 17 constant rows (0x6E..0x7E). A tile's packets
+upload the projection rows (0x6E..0x7C), the descriptor D_00255170 (0x50..0x58)
+and VU59 (phase, colour multiplier 1, fade-in interval 0.000001, seed
+fraction) with the tile matrix (0x5A..0x5D), then MSCAL 0.
 
-The final GS color helper preserves the original operation order:
+Its instructions are the sprite program's (table 0x231770, the AREA11 flame's
+and the effects') except five in the emission and the branch offsets that
+follow from them; `em_vu1_page_programs.h` translates both as one function
+with a `snow` switch. What the program does, as its instructions show:
 
-```
-fog_weight = clamp(fog.z + fog.w * clip_w, 0, fog.x)
-near_weight = min(clip_w * 0.02, 1)
-gs_color = truncate(((color * (1/256)) * fog_weight) * near_weight)
-```
+- **Generation.** Four random advances per source particle, even when the
+  age gate suppresses it: two pairs select lookup angles, and each pair XORs
+  its product's mantissa into the 23-bit random state (RINIT from VU59's
+  seed; local to the tile). The source fraction advances by repeated binary32
+  additions. The snow flags keep the descriptor's Z direction and randomize
+  X / Y. The lookup values are the original's constants, not host
+  trigonometry.
+- **Trajectory.** The particle's position through the tile matrix with
+  gravity, its colour and size blends and the fade.
+- **Emission.** A particle passes the clip test `-|W| <= X, Y, Z <= |W|` of
+  the guard-band projection 001CD370(0) (a larger volume than the visible
+  raster; the GS scissor handles the rest). Its GS colour keeps the
+  original's operation order:
 
-Its output is an integer GS channel, not a normalized host shader color. It
-expects a particle that passed the original clip test, with positive clip W.
-The renderer must retain the original additive blend and depth behavior.
+  ```
+  fog_weight  = clamp(fog.z + fog.w * w, 0, fog.x)
+  near_weight = min(w * 0.02, 1)             (the snow program only)
+  gs_color    = FTOI0(((colour * (1/256)) * fog_weight) * near_weight)
+  ```
 
-## Verification
+  with w the particle's K-projected w. Each visible particle writes one
+  sprite: TEX0 (the descriptor's +0x70 row), RGBAQ, ST (0, 0), XYZF2 of the
+  plus corner, ST (1, 1), XYZF2 of the minus corner (FTOI4, each corner
+  rounded on its own), batched by 28 and kicked.
 
-`make test-snow-particles-reference` executes only the relevant original
-instructions from the locally owned ELF and compares the readable C output.
-The independent VM decodes the instruction words, including delayed MAC flags
-and division; it does not translate disassembler strings or call the C helpers.
-It checks 1,280 combinations of all 32 flag values, five particle counts, and
-eight phases across age boundaries. All 8,480 emitted position/color/size
-records match byte for byte. Another 1,000 cases compare the projected color
-helper against the original arithmetic instructions.
+The page's GS path draws the sprites (CHAIN_PAGE.md section 5): additive
+(blend preset 2: the descriptor's kind 2), depth test GEQUAL without a depth
+write, the snow's PSMT8 texture through its CT32 CLUT (a page texture:
+tools/export_page_textures.py / export_disc_textures.py; the shared PSMT8
+palette decode is the decomp's `docs/CLUT_LAYOUT.md`).
 
-An optional immutable opening snapshot supplies an independent runtime check:
+## The channel-3 list
 
-```
-python3 tools/test_snow_particles_reference.py \
-  --reference-vu ../Extermination/build/weather_reference/vu1Memory.bin \
-  --reference-micro ../Extermination/build/weather_reference/vu1MicroMem.bin
-```
+`em_snow_runtime_tick_actor` (the weather node's behaviour, tick_weather in
+em_area11_bindings.c) runs, for a state-1 call with intensity above 0:
 
-The captured VU's last effect has 80 particles, rather than the snow descriptor's
-20. Its first 1,912 microprogram bytes are identical to the snow generator;
-the check verifies this before comparing data. All 24 final-batch particles
-match the original captured positions, colors, and sizes: **1,152 identical
-bytes**, across both readable C and the independent instruction VM. All 80
-lookup values also match the original VU memory's scalar components exactly.
+1. the channel-3 cursor (context +0x1C) as the list's start;
+2. 001E67C0: 0021B9A0(2, 0, 0) and (3, 0, 300.0) on the render context,
+   em_snow_tiles (the 108 tiles), then for every tile 001CFAE0(state, 0,
+   0x700036A0, phase, seed + 0.0001, 1.0, 0.000001) and 001CFFE0(3, 3,
+   D_00255170, state) (`em_weather_packets_tile`), then 0021B9A0(1, 0, 0);
+3. 001E55F0's close: a RET tag at the cursor (+3 = 0x60) and, when the start
+   was not 0, 001D2DE0(0, start) (`em_rcl_001D2DE0`).
 
-`make test-snow-particles` runs 8,960 bounds/finite-output cases with AddressSanitizer
-and UndefinedBehaviorSanitizer. The module also compiles with warnings as errors.
+001CFFE0's packets for (kind 2, variant 3): a REF of the mode-2 blend preset
+(001CB9B0(2), 8 qwords); a CALL of D_00233800; a CNT of 16 qwords (STCYCL 1/1
+and an UNPACK of 15 rows to 0x6E: P from 0x70003A40, the clip projection at
+the state's +0x40, K from 0x70003AC0, the context's +0xA0 fog as 001E67C0's
+fog calls left it, (0, 0, the state's +0x54, 0) and the GIF tag row
+D_00251260[3]); a CNT of 10 (UNPACK 9 rows to 0x50: the descriptor); a CNT
+of 7 (UNPACK 5 rows to 0x59: the state's +0x44, +0x48, +0x50, +0x4C and the
+tile matrix; MSCAL 0; FLUSH). Each tag writes only its QWC halfword, ID byte
+and address word. 0x260 bytes per tile.
 
-Arithmetic follows the operation order and finite binary32 truncation described
-in the [Sony VU User's Manual, version 6.0](https://studylib.net/doc/25815876/vuusersmanual.158394566),
-sections 1.1.2, 2.2, and the random instruction references. The captured runtime
-comparison provides direct evidence for these inputs. Exceptional VU arithmetic
-and every possible hardware rounding edge case are not emulated, and this
-generator's checks do not establish full-renderer pixel equivalence.
+The scene manifest's `weather <flags> <config>` line loads the tables
+(`python3 tools/export_snow.py --reference-ee <an AREA11 EE dump>` or `--gs
+<a .p2s>`: the descriptor, the lookup and the six row records from the ELF;
+the EE state only confirms the snow branch). A texture token of an older
+manifest is not read.
 
-Original images, instruction dumps, binary tables, and snapshot data remain
-local ignored build/assets files; none are embedded in the source or tests.
-
-## Native scene integration
-
-`export_snow.py` exports the descriptor, lookup, six row records and resident
-texture from the user's original ELF/AREA11 state. The scene's `weather`
-record loads them through `em_snow_runtime`. Weather advances before the
-camera update, matching the previous-camera sample used by original tile
-submission. Scene unload/reload clears both state and texture. Other weather
-branches are rejected until their original behavior is recovered.
-
-The Metal path draws the recovered particles as textured additive sprites,
-with depth testing and no depth writes. The verified projection helper now
-uses the live camera, preserves the original guard-band test and independently
-quantizes both GS corners. The backend retains the original reversed ST
-orientation and converts quantized GS depth to the existing native depth
-convention. Full raster/pixel equivalence remains unverified.
-Global random-consumer ordering is still incomplete, so particle locations
-are not claimed to match an arbitrary captured frame.
-
-The first visual smoke found a shared PSMT8 palette decoder bug: it omitted
-the physical PSMCT32 address decode before the CSM1 index permutation. The
-corrected exporter produces the original soft solid flake rather than the
-erroneous ring. See the decomp repository's `docs/CLUT_LAYOUT.md`.
-
-`make test-snow-runtime` exercises240 ticks using the real exported assets
-under ASan/UBSan, checks27,476 quantized particle submissions, including
-15,993 centers outside the viewport but inside the original guard band, and verifies clear/reload, missing assets, unsupported weather and GPU
-texture-allocation failure. These are integration checks, separate from the
-original-instruction generator/emitter comparisons above.
-
-## CPU tile emitter
+## CPU tile emitter (001E67C0)
 
 `em_snow.c` translates the AREA11 branch of original `001E67C0`. It emits six
 rows, each containing six depth steps and three vertical steps: 108 tiles.
 It advances each row's phase and drift once, and keeps the tile seed sequence
-local to the call. The renderer supplies the original scene tables and the
-camera eye from before that frame's camera update.
+local to the call. The node passes the camera eye from before that frame's
+camera update (the cutscene block) or the live eye (gameplay).
 
 The previous readable decompilation labeled this function as an explosion and
-sound spawner. Its `0021B9A0` calls actually configure fog (live: em_snow_runtime's
-tick runs 0021B9A0(2, 0, 0) and (3, 0, 300.0) on the render context before the
-emission, draws with the context's +0xA0 quadword they leave, and restores mode 1
-after it; EFFECT_MANAGER.md 8.2), and its arguments to
-`001CFAE0` were wrong. The actual submission is phase, random fraction plus
-0.0001, color multiplier 1, and fade interval 0.000001; that helper packs them
-into the VU parameter order documented above.
+sound spawner. Its `0021B9A0` calls configure fog, and its arguments to
+`001CFAE0` were wrong: the submission is phase, random fraction plus 0.0001,
+colour multiplier 1 and fade interval 0.000001, which 001CFAE0 packs into
+VU59's order above.
 
-The native emitter's own arithmetic (001E67C0's sums, products, quotients and
-conversions) runs on the measured EE model through em_ee_float.h since
-2026-09-27 (docs/EE_FLOAT_MODEL.md section 5b), and the tile colour is the
-SDK 00102900 (em_sdk_vu0.h). Its divisions are the snapshot-confirmed
-rounded binary32 EE divisions.
-Truncating the random fraction division changes 49 of the latest 108 seed
-mantissas, altering the entire VU random sequence for those tiles. Both
-captured buffers now match all 216 complete parameter qwords and color qwords,
-plus both sets of six resulting phase values (48 bytes). This evidence does
-**not** distinguish the controller's intensity/127 division mode: the latest
-intensity produces the same quotient either way; both quotient modes for the
-previous intensity also produce the same observed colors and phase advances.
+The emitter's own arithmetic (001E67C0's sums, products, quotients and
+conversions) runs on the measured EE model through em_ee_float.h
+(docs/EE_FLOAT_MODEL.md section 5b), the tile colour is the SDK 00102900
+(em_sdk_vu0.h), the tile rotation the recovered 001029E8 polynomial and
+square root, and each row's drift wave the SDK sinf 0011E2A8
+(em_sdk_math_original over the one SDK context, since FLAMESNOW; it was the
+host `sinf` before). Its divisions are the snapshot-confirmed rounded
+binary32 EE divisions: truncating the random fraction division would change
+49 of the latest 108 seed mantissas.
 
-The tile rotation uses the recovered `001029E8` polynomial and square root,
-rather than host sine/cosine for the matrix. The drift waveform still uses
-host `sinf`; this is an explicit remaining fidelity limitation.
+## Verification
 
-`make test-snow-tiles-reference` executes original `001E67C0` instructions and
-compares 48 varied inputs, 5,184 full tile records, and final controller state.
-The flow comparison shares host `sinf` as an intercepted dependency. A separate
-pass executes the original SDK sine instruction tree: 5,022 of 5,184 resulting
-matrices match exactly (full sweep, 2026-09-27); the maximum remaining
-component difference is 0.00006103515625 world units. These are different claims and are reported
-separately.
+- **`make test-snow-tiles-reference`** (tools/test_snow_tiles_reference.py,
+  quick ~3 s): executes the original 001E67C0 (and the SDK sinf 0011E2A8 it
+  calls) and compares em_snow_tiles (with em_sdk_math_original's 0011E2A8)
+  on 24 (48 in full) varied inputs: every tile record (matrix, VU59,
+  descriptor) and the controller state, exact. On 4 (48) of them the
+  original 001E67C0 runs again with its draw requests executed (001CFAE0,
+  001CD370, 001CFFE0, 001CB9B0) over a render context seeded from route
+  capture 10; `em_weather_packets_tile` writes the same 108 x 0x260
+  channel-3 bytes and leaves the same cursor. With
+  `--reference-ee ../Extermination/build/startup-reference/opening_ee.bin
+  --reference-tiles ../Extermination/build/weather_reference/original_tiles.json`
+  it also reproduces the opening snapshot's two captured frames: 216
+  parameter qwords, 216 colours, the six phases, and every tile matrix
+  exactly (camera sample 134.0 for the latest tiles).
+- **`make test-weather-reference`**: 001E55F0's controller (em_weather.c).
+- **`make test-chain-page-reference`**: the snow program's translation against
+  the ORIGINAL microcode on every captured page's 108 snow MSCALs (quick: one
+  page; full: all 15), synthetic snow batches, every branch both ways
+  (CHAIN_PAGE.md section 8).
+- **The level smoke** (`check_chain_page`): every world page holds the
+  weather's CALL at the list its frame closed and runs its 108 snow MSCALs;
+  the sampled pages re-walked with the ORIGINAL microcode (the snow program
+  on every tile) draw the port's primitives; in the camera-exact snapshots
+  10 and 14 the tile packet 3 (P, the clip projection, K, the fog, the GIF
+  tag row) equals the capture's weather list's.
 
-The optional DMA comparison reads the immutable opening EE snapshot and
-`original_tiles.json`. The original camera track's sample134.5 matches the
-saved camera globals byte for byte; latest tile matrices instead correspond
-to sample134.0. Using that original previous sample reduces the largest
-translation discrepancy from 0.003875732421875 to 0.00006103515625. Remaining
-basis discrepancy is at most 0.00000025331974029541016; with the measured EE
-model (2026-09-27) the latest tiles' basis and translation errors are both 0.
-Reconstructing prior drift by inverting the EE addition is not generally
-unique, so these matrix errors are measured, not treated as proof of an
-exact pre-render state.
+## Limits
 
-```
-python3 tools/test_snow_tiles_reference.py \
-  --reference-ee ../Extermination/build/startup-reference/opening_ee.bin \
-  --reference-tiles ../Extermination/build/weather_reference/original_tiles.json
-```
+- The snow's particles follow the weather's state-0 seed and phases (rand())
+  and its intensity walk, which the port's stream does not hold at a
+  capture's position (RAND_ORDER.md): the tiles' VU59, colour rows and
+  matrices are compared with the captures only in the opening snapshot's
+  reconstructed frames, and the camera rows in the camera-exact beats.
+- The other weather branches (001E5AC0, AREA21's cases) are not connected: a
+  weather line whose flags are not the snow branch does not load.
+- 001E67C0's writes of the scratchpad 0x700036A0.. and 0x700038A0.. (its
+  working matrix and vector) are not modelled; no first-level reader of them
+  after the weather's call is known.
+- 001E55F0's D_008106BF store (00128250 of the intensity) is not part of
+  em_weather's frame: its one reader, 001DE920, is not reached on the first
+  level (em_render_context_live binds it to a fault).
+- Exceptional VU arithmetic (an exponent-255 operand) faults instead of
+  being emulated (CHAIN_PAGE.md section 3).
 
-## Projection, clipping and GIF submission
-
-`em_snow_projection.c` independently translates original VU instructions
-`00233FC0..00234270`. Its input is the actual VU6E..7C projection upload:
-three matrices, fog, depth bias and GIF tag. The immutable opening EE dump
-contains this upload immediately before each snow descriptor packet. It is
-not inferred from the last effect left in VU memory, which is another kind.
-
-Since the render context step the three matrices are the render context's
-(em_rcl_frame_matrices: P +0x2340, the 001CD370(0) projection +0x2240 and K
-+0x23C0, as the frame head 001D1C50 built them); the private builder
-`em_snow_projection_matrices` described below is deleted (its output equalled
-the captured context bytes). As it was: it accepted the original Y-down,
-+Z-forward view matrix and the current zoom. A native Y-up, -Z-forward view converts by
-negating its Y and Z rows. Original `001D2960` builds the extent projection
-with `P00=0.8f*zoom`, `P11=0.5f*zoom`, center `(2048,2048)`, depth coefficients
-`0x3F664CB3` and `0x49CCCCCC`, and W=forward depth. `001CD370(0)` selects the
-1280 by 560 guard-band projection produced by `001D2D20`, with divisors640
-and280 and fixed near0.1/far16711680. The native builder preserves the
-observed depth pair1/-0.2. It is not a general emulator of EE scalar addition:
-naively truncating far-minus-near after full-precision host subtraction gives
-a different result because original operand alignment matters.
-
-At the captured zoom1011.6609497070312, actual P00/P11 are809.3287353515625
-and505.8304748535156. P00 uses the original binary32 literal0.8f and truncated
-multiplication. Zoom divisions use rounded binary32 results; matrix products
-and additions use the separately tested finite VU arithmetic. Constructing
-all three matrices from the captured original view and zoom reproduces all
-192 bytes. This does not establish that the port's live view/zoom construction
-is itself identical to the original SDK.
-
-The VU center test is `-abs(W) <= X,Y,Z <= abs(W)`, including equality. It
-uses a larger volume than the visible raster: native visible NDC corresponds
-to twice original clip X and minus1.25 times original clip Y. In the216
-captured snow tiles, the original submits261 of4,320 particles;146 submitted
-centers are outside the visible viewport but inside this guard band. The GS
-scissor handles their eventual raster coverage.
-
-The helper returns the raw FTOI4 XYZF2 qwords, after independent rounding of
-the plus and minus corners. PACKED XYZF2 extracts X/Y from low16 bits,
-Z from bits4..27 of the third word, and F from bits4..11 of the fourth word.
-The final decoded GS Z is therefore approximately `trunc(B+A/W+biasZ)`;
-the integer is not sixteen times that depth. The six-register GIF tag
-supplies TEX0, RGBAQ, ST, XYZF2, ST, XYZF2. ST `(0,0)` belongs to the
-**plus** corner and `(1,1)` to the **minus** corner. Both axes consequently
-run opposite to a conventional top-left `(0,0)` sprite. RGBAQ latches Q=1
-before the ST pair; the intermediate ST Q operand does not divide texture
-coordinates by zero. These packing rules follow the
-[Sony EE User's Manual, GIF PACKED formats](https://manuals.plus/m/55bdc71d3aebc33752a7dad6526b78248b6c258294fcf8a3ebed1f010da22365.pdf),
-section3.4.1, pages153–154.
-
-For native submission, decode each corner independently:
-
-```
-gsX = (rawX & 0xffff) / 16.0
-gsY = (rawY & 0xffff) / 16.0
-gsZ = (rawZ >> 4) & 0xffffff
-ndcX = (gsX - 2048) / 256
-ndcY = -(gsY - 2048) / 112
-```
-
-These GS half extents account for the512 by224 interlaced field raster
-presented at4:3. Preserve each corner's ST association when constructing
-native triangles; deriving one unquantized center and width loses the
-independent1/16-coordinate rounding.
-
-The native scene geometry retains its0..1 depth convention. If its projection
-coefficients are `p10` and `p14`, an affine conversion compatible with that
-convention is `nativeZ = -p10 + p14 * (gsZ - B - biasZ) / A`, where
-`A=1677721.5` and `B=0.8996078372001648`. Use the actual native coefficients
-rather than a newly rounded near/far reconstruction. This keeps the original
-snow depth quantization, but the rest of the geometry still uses native
-unquantized depth. The oracle establishes the original packed outputs, not
-identical raster/depth comparisons against every native surface.
-
-`make test-snow-projection-reference` runs1,055 synthetic boundary and random
-cases against the original instructions. The optional immutable snapshot
-adds all4,320 original snow particles, independently generated by those
-instructions, for5,375 total cases. Clip coordinates, both corner qwords,
-color and ST compare byte for byte (151,664 bytes in the snapshot run).
-The extended bounded VM also passes the existing1,280-case generator,
-1,000-case color and24-record captured-output regressions.
-
-```
-python3 tools/test_snow_projection_reference.py \
-  --reference-ee ../Extermination/build/startup-reference/opening_ee.bin \
-  --report build/weather_reference/projection_validation.json
-```
-
-The projection oracle models finite binary32 inputs and valid nonzero
-reciprocal denominators. Exceptional VU DIV/FTOI behavior, complete GS raster
-coverage and the live native camera's upstream arithmetic remain separate
-fidelity work.
+Original images, instruction dumps, binary tables and snapshot data remain
+local ignored build / assets files; none are embedded in the source or tests.

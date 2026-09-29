@@ -719,8 +719,8 @@ def direct_checks(fl, world, hub_list):
 CAPTURE_SHA256 = {
     'scene_snow/object_textures.emot':  # sha256
         'd9472fcdd1b5bf2906521119b0623981beba8c6f66ab0d38618c1ac9f9738c72',
-    'scene_snow/page_textures.emot':  # sha256
-        'd928d01f13043e52d59543fbba584ba86cd054d169b2ec9b2092b20b79f55d90',
+    'scene_snow/page_textures.emot':  # sha256 (chain C8b FLAMESNOW: + the weather descriptor's TEX0)
+        '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927',
     'font.emfn':  # sha256
         '1ce3b7a2e1e2dccbb32ae4ee7fd161bed39d63385aa22ecce3a971166a2536b5',
     'status_models/menu_player.emdl':  # sha256
@@ -750,7 +750,8 @@ CAPTURE_SHA256 = {
 }
 # export_page_textures.py's captured page TEX0 set (CLD-masked), pinned.
 CAPTURE_PAGE_TEX0 = {0x4128555322090, 0x41805113222AE, 0x4290511322469, 0x455E599421ED8,
-                     0x457E599421F00, 0x45B0599421EF0}
+                     0x457E599421F00, 0x45B0599421EF0,
+                     0x41605113222CD}   # D_00255170's (the snow), chain C8b FLAMESNOW
 # The buffers the model reads for the world, the two page states and the
 # font (caller, source, DATA.DAT offset, size, extract span), pinned from
 # the lane's first disc run; the extract spans are the user's extract file names.

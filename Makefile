@@ -16,7 +16,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
-           src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_snow_runtime.c \
+           src/game/em_weather.c src/game/em_snow.c src/game/em_weather_packets.c src/game/em_snow_runtime.c \
            src/game/em_collision.c src/game/em_actor_collision.c src/game/em_coll_probe_original.c src/game/em_coll_grid_hull.c src/game/em_coll_move_original.c \
            src/game/em_coll_segment_walkers.c src/game/em_coll_list_passes.c src/game/em_coll_list_passes_walkers.c \
            src/game/em_collision_world.c src/game/em_sdk_soft_float.c src/game/em_effect_original.c src/game/em_door.c src/game/em_door_candidate.c src/game/em_door_original.c src/game/em_door_original_runtime.c src/game/em_door_transit.c src/game/em_door_program.c src/game/em_area11_door.c src/game/em_bgm.c \
@@ -1264,28 +1264,13 @@ test-panel-interaction: tests/panel_interaction_test.c src/game/em_panel.c src/g
 test-weather-reference:
 	python3 tools/test_weather_reference.py
 
-.PHONY: test-snow-particles-reference test-snow-particles
+.PHONY: test-area11-effect-reference
 test-area11-effect-reference:
 	python3 tools/test_area11_effect_reference.py
-
-AREA11_EFFECT_TEST_SRC := tests/area11_effect_runtime_test.c src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c src/game/em_random.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_frame_render_heads.c \
-    src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c
-.PHONY: test-area11-effect-runtime test-area11-effect-reference
-test-area11-effect-runtime: $(AREA11_EFFECT_TEST_SRC)
-	@mkdir -p build
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc $(AREA11_EFFECT_TEST_SRC) -lm -o build/area11_effect_runtime_test
-	./build/area11_effect_runtime_test
-
-test-snow-particles-reference:
-	python3 tools/test_snow_particles_reference.py
 
 .PHONY: test-snow-tiles-reference
 test-snow-tiles-reference:
 	python3 tools/test_snow_tiles_reference.py
-
-.PHONY: test-snow-projection-reference
-test-snow-projection-reference:
-	python3 tools/test_snow_projection_reference.py
 
 .PHONY: test-lighting-reference test-lighting
 .PHONY: test-point-light-reference test-point-light
@@ -1304,20 +1289,6 @@ test-lighting: tests/test_lighting.c src/game/em_lighting.c src/game/em_lighting
 	@mkdir -p build
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_lighting.c src/game/em_lighting.c -lm -o build/test_lighting
 	build/test_lighting
-
-test-snow-particles:
-	@mkdir -p build
-	$(CC) -std=c11 -O1 -g -ffp-contract=off -fsanitize=address,undefined -I src tests/test_snow_particles.c src/game/em_snow_particles.c -lm -o build/test_snow_particles
-	build/test_snow_particles ../Extermination/config/SCUS_971.12
-
-SNOW_RUNTIME_TEST_SRC := tests/snow_runtime_test.c src/game/em_snow_runtime.c \
-    src/game/em_weather.c src/game/em_snow.c src/game/em_snow_particles.c src/game/em_snow_projection.c src/game/em_random.c \
-    src/game/em_frame_render_heads.c src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c
-.PHONY: test-snow-runtime
-test-snow-runtime: $(SNOW_RUNTIME_TEST_SRC)
-	@mkdir -p build
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc $(SNOW_RUNTIME_TEST_SRC) -lm -o build/snow_runtime_test
-	build/snow_runtime_test
 
 .PHONY: test-indicator-child
 test-indicator-child: tests/indicator_child_test.c src/game/em_indicator_child.c src/game/em_indicator_child.h

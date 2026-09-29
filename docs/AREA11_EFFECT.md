@@ -5,9 +5,13 @@ a120-tick rise/fade cycle, position(452,279,278), and sound413 retriggers every
 90ticks with radius300. None of those visual/timing choices follows the
 original owner. The actual resident texture is an orange/yellow flame.
 
-The new visual path uses the original placement, particle descriptor, lookup
-table, texture, controller phase and GS projection. It removes the invented
-sound retrigger. **Nearby sound and contact reactions remain unfinished.**
+The flame draws from its original packets on the chain page (step FLAMESNOW,
+2026-09-28; CHAIN_PAGE.md section 6.1): the owner's DRAW is 001D04B0 bound to
+em_effects_live, whose 001CCF70 / 001CFA60 / 001CFBE0 put the flame's
+sprite-program chain into page D_007635C0, and the page consumer runs the
+sprite program's translation (em_vu1_page_programs.h) on it. The invented
+sound retrigger stays removed. **Nearby sound and contact reactions remain
+unfinished.**
 The original auxiliary point light is a separate room table; this actor does
 not register it. See [AREA11_POINT_LIGHT.md](AREA11_POINT_LIGHT.md).
 
@@ -25,11 +29,12 @@ callback and position; its world matrix matches the exported identity plus
 translation in all64bytes. Nonzero authored rotation is rejected by this
 bounded exporter instead of passing through an unverified rotation helper.
 
-Descriptor00828340 contains80 particles, flags9, mode2. Original001D04B0 calls
-001CFA60/001CFBE0 with kind1 and the owner's phase/seed. This chooses micro
-program00231770, whose first1912 instruction bytes are identical to the
-already recovered snow generator. Its VU59 parameters are phase,1,1e-6,seed.
-The80 scalar lookup values come from original ELF002342BC.
+Descriptor 00828340 contains 80 particles, flags 9, mode 2. Original 001D04B0
+(an asm function in the decomp; its three calls read from the .s) runs 001CCF70(+0xD0 + 0x30) for
+the depth key, 001CFA60(block, +0xD0, phase, seed) and 001CFBE0(key, 1,
+D_00828340, block, 0). Mode 2 with kind 1 chooses the sprite program packet
+0x00231770 (its lookup equals the snow program's 002342BC) and blend preset
+2 (additive). Its VU59 parameters are phase, 1, 1e-6, seed.
 
 The immutable opening VU1 dump's last effect is this actor: all144 descriptor
 bytes,64 transform bytes and80 lookup scalars agree. Its final24 particle
@@ -54,19 +59,18 @@ sets owner cooldown60. This callback is translated and tested, but native
 candidate selection, effect80000027 and player reaction semantics are not
 connected. The visual bounds are not used to invent damage.
 
-The00231770 sprite projection matches the snow GS projection except that it
-omits snow's extra near-camera attenuation. It uses the original guard band,
-FTOI4 corner/depth quantization, plus-corner ST(0,0), minus-corner ST(1,1),
-and integer color after fog. Its mode2 GS state is additive Cs+Cd with depth
-test enabled and depth writes disabled. The separate texture occupies native
-particle slot1; snowfall retains slot0. Metal uses the quantized GS corners
-and maps depth to the native scene's existing convention.
+The sprite program's emission is the snow program's without the near
+weight (CHAIN_PAGE.md section 3). Its mode-2 GS state is the preset bank's
+(additive Cs + Cd, TEST 0x53001: depth GEQUAL, no depth write); the page's GS
+path draws it (CHAIN_PAGE.md section 5). The flame's TEX0 is the
+descriptor's +0x70 row, a page texture (tools/export_page_textures.py /
+export_disc_textures.py).
 
-Effect fog is the render context's +0xA0 quadword, copied at the owner's
-DRAW call (its walk position; 001D04B0 programs no fog, its 001CFBE0 copies
-the context's): with AREA11's light-rig entry 30 (near −209, far 304) the
-context holds 255 / 2048 / 151.1111145 / −0.4970760345, as the saved
-context does (EFFECT_MANAGER.md 8.2).
+Effect fog is the render context's +0xA0 quadword, copied into 001CFBE0's
+packet 4 at the owner's DRAW call (its walk position; 001D04B0 programs no
+fog): with AREA11's light-rig entry 30 (near −209, far 304) the context holds
+255 / 2048 / 151.1111145 / −0.4970760345, as the saved context does
+(EFFECT_MANAGER.md 8.2).
 
 ## Sound boundary
 
@@ -94,28 +98,44 @@ Run on native macOS Python with the decomp environment's dependencies:
   --ee ../Extermination/build/startup-reference/opening_ee.bin \
   --gs ../Extermination/build/startup-reference/opening_gs.bin \
   --vu ../Extermination/build/weather_reference/original_vu1.bin
-make test-area11-effect-reference test-area11-effect-runtime
+make test-area11-effect-reference
 ```
 
-The exporter writes ignored EMEF/EMTX assets, replaces the legacy `steam`
-manifest line with `area11effect`, and records source/output hashes under
-`build/area11_effect_reference`. Required malformed/missing effect assets fail
-loading; scene unload and re-entry release/reconstruct the effect state.
+The exporter writes the ignored EMEF asset (placement, descriptor; its EMTX
+texture is no longer read: the manifest's `area11effect <config>` takes an
+optional second token of older manifests and ignores it), replaces the legacy
+`steam` manifest line with `area11effect`, and records source/output hashes
+under `build/area11_effect_reference`. A malformed or missing EMEF fails the
+load; scene unload and re-entry release and reconstruct the effect state.
 
-The original-instruction oracle passes280 controller state/call cases and768
-contact cases. Projection passes1135 cases/67120 compared output bytes.
-The real-asset runtime passes400ticks/30360 submissions under ASan/UBSan,
-including re-entry and cleanup. Shared snow projection/runtime and lamp
-oracle regressions also pass. Finite arithmetic is covered; exceptional VU
-arithmetic and full GS rasterization are outside these tests.
+## Binding (live)
 
-Frozen native opening frame280 exits0 with the unchanged camera134.5,
-actor half-tick269 and script PC829140 witness. Its player, rifle, subtitle
-and scene remain intact. A separate three-frame GPU fixture renders the
-original flame beside a blue slot0 control, proving texture-slot isolation
-and visual submission. That fixture uses a synthetic close camera solely
-for plumbing; it is not a captured original gameplay view. Images, binaries,
-logs and hash receipt remain ignored under `build/area11_effect_reference`.
+- **Owner.** Node 008235F0 (area11[7]) runs tick_effect
+  (em_area11_bindings.c) -> em_area11_effect_runtime_tick ->
+  em_area11_effect_tick; a failed DRAW faults the scene.
+- **DRAW.** em_effects_live_001D04B0(+0xD0 matrix, 1, D_00828340, the
+  descriptor's 0x90 bytes, phase, seed) (em_effects_live.h). The descriptor
+  bytes stay readable through em_effects_live_window until the next attach,
+  so the page's REF of D_00828340 reads them.
+- **Page.** em_chain_page_live walks the flame's chain with every other
+  producer's (CHAIN_PAGE.md section 7).
+
+## Verification
+
+- `make test-area11-effect-reference`: the original-instruction oracle passes
+  280 controller state / call cases (the DRAW call's arguments (1,
+  D_00828340, phase, seed) included) and 768 contact cases; the overlay's
+  callback and descriptor bytes equal the opening capture's, and the opening
+  VU1 dump's last effect holds that descriptor, the owner's matrix and the
+  lookup.
+- `make test-chain-page-reference`: every captured page holds the flame's
+  sprite-program MSCAL; the translation equals the ORIGINAL microcode on it.
+- The level smoke (check_chain_page): every world page reads the flame's
+  descriptor once in the frames its 001D04B0 ran; in the camera-exact
+  snapshots 10 and 14 the flame's 001CFBE0 packets 4 (the projection rows
+  and the fog) and 1 (the matrix and the MSCAL; phase and seed masked) equal
+  the capture's; the sampled pages re-walked with the original microcode
+  draw the port's primitives.
 
 The native owner now consumes its original initializer RNG call at the
 original's position: in the rand() order audit (RAND_ORDER.md) its draw is

@@ -1,10 +1,21 @@
 #!/usr/bin/env python3
-"""Original E67C0 flow, submission parameters, and captured DMA comparison.
+"""Original E67C0 flow, submission parameters, the channel-3 packets, and
+captured DMA comparison.
 
 The owner's original ELF supplies all instruction words and tables. COP1
 follows the measured EE model (tools/ee_cop1.py, docs/EE_FLOAT_MODEL.md;
-the snapshot confirms the rounded DIV.S). SDK sine instructions execute
-directly; VU matrix helpers are independently recovered operations.
+the snapshot confirms the rounded DIV.S). The SDK sinf 0011E2A8 executes
+directly on the original side and runs em_sdk_math_original's translation
+(tables from the ELF) on the native side, as the live weather does; VU
+matrix helpers are independently recovered operations.
+
+Packets (docs/SNOW_PARTICLES.md "The channel-3 list"): on a sample of the
+flow cases the ORIGINAL 001E67C0 runs again with its draw requests executed
+(001CFAE0, 001CD370, 001CFFE0, 001CB9B0) over a render context seeded from
+route capture 10 (the channel-3 cursor, the fog, the 001CD370(0) projection,
+the P / K scratchpad copies); em_snow_tiles plus em_weather_packets_tile
+(em_snow_runtime's per-tile path) must write the same 108 x 0x260 channel-3
+bytes and leave the same cursor.
 """
 from pathlib import Path
 import ctypes as C, struct, subprocess, json, math, random, argparse
@@ -47,7 +58,7 @@ class Tile(C.Structure):
     _fields_=[('descriptor',C.c_float*36),('params',C.c_float*4),('matrix',C.c_float*16)]
 
 def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
-           flags=0, area_entry=0x0b00, player_mode=0, camera_id=0):
+           flags=0, area_entry=0x0b00, player_mode=0, camera_id=0, execute=False, seed=None, out=None):
     memory={};registers=[0]*32;floats=[0]*32;condition=False;hi=0;tiles=[];sines=[];angles=[];sine_return=None
     def save(address,value,size=4):
         for i in range(size):memory[address+i]=value>>(8*i)&255
@@ -59,6 +70,9 @@ def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
     def vec(a,n=4):return [number(load(a+4*i)) for i in range(n)]
     def storevec(a,v):
         for i,x in enumerate(v):save(a+4*i,bits(x))
+    if out is not None: out['load']=load
+    for address,data in (seed or {}).items():
+        for i,b in enumerate(data):memory[address+i]=b
     for i,b in enumerate(initial[:68]):save(ACTOR+0x1f0+i,b,1)
     if descriptor:
         for i,b in enumerate(descriptor):save(0x255170+i,b,1)
@@ -170,11 +184,14 @@ def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
             elif target==0x1028b8:storevec(a0,[truncate(x+y) for x,y in zip(vec(a1),vec(a2))])
             elif target==0x102900:storevec(a0,[truncate(x*number(floats[12])) for x in vec(a1)])
             elif target==0x102948:storevec(a0,vec(a1))
+            elif target in (0x1cfae0,0x1cd370,0x1cb9b0) and execute:
+                registers[31]=pc+8;pc=target;continue
             elif target==0x1cfae0:
                 storevec(a0,vec(a2,16));storevec(a0+0x44,[number(floats[i]) for i in [12,14,13,15]])
             elif target==0x1cffe0:
                 src=registers[7]
                 tiles.append({'matrix':vec(src,16),'params':[number(load(src+i)) for i in [0x44,0x48,0x50,0x4c]],'descriptor':bytes(load(a2+i,1) for i in range(144))})
+                if execute:registers[31]=pc+8;pc=target;continue
             else:raise AssertionError(('callee',hex(target),hex(pc)))
             pc+=8;continue
         if op in (4, 5, 20, 21):
@@ -199,6 +216,104 @@ def oracle(elf, initial, strength, eye, descriptor=None, host_sine=False,
             pc += 4
     raise AssertionError('snow tile oracle failed to return')
 
+TILES_SHIM = r"""
+#include "game/em_snow.h"
+#include "game/em_sdk_math_original.h"
+static EmSdkMathTables g_tables;
+int shim_load(const uint8_t *elf, size_t size) { return em_sdk_math_original_load_tables(elf, size, &g_tables); }
+static int sine(void *ctx, float x, float *result)
+{
+    uint32_t fault = 0;
+    (void)ctx;
+    return em_sdk_math_original_0011E2A8(&g_tables, x, result, &fault) < 0 || fault ? -1 : 0;
+}
+int shim_tiles(EmWeather *w, const EmSnowConfig *c, float strength, const float eye[3], EmSnowTile *out)
+{
+    return em_snow_tiles(w, c, strength, eye, sine, NULL, out);
+}
+"""
+PACKET_SHIM = r"""
+#include "game/em_snow.h"
+#include "game/em_weather_packets.h"
+#include <string.h>
+typedef struct { uint32_t base, size; uint8_t *bytes; } Region;
+static Region *g_r; static unsigned g_n;
+static uint8_t *find(void *ctx, uint32_t a, uint32_t n)
+{
+    (void)ctx;
+    for (unsigned i = 0; i < g_n; ++i)
+        if (a >= g_r[i].base && (uint64_t)a + n <= (uint64_t)g_r[i].base + g_r[i].size)
+            return g_r[i].bytes + (a - g_r[i].base);
+    return NULL;
+}
+static const uint8_t *find_ro(void *ctx, uint32_t a, uint32_t n) { return find(ctx, a, n); }
+/* em_snow_runtime's per-tile path over the caller's regions. */
+int shim_packets(const EmSnowTile *tiles, unsigned count, Region *r, unsigned n, uint32_t *fault)
+{
+    g_r = r; g_n = n;
+    const EmWeatherMem m = { NULL, find_ro, find, 0x00811CC0u, 0x00814220u };
+    for (unsigned i = 0; i < count; ++i) {
+        uint8_t matrix[64], obj[0x90];
+        uint32_t vu59[4];
+        memcpy(matrix, tiles[i].matrix, sizeof matrix);
+        memcpy(obj, tiles[i].descriptor, sizeof obj);
+        memcpy(vu59, tiles[i].params, sizeof vu59);
+        if (em_weather_packets_tile(&m, obj, vu59, matrix, fault) < 0) return -1;
+    }
+    return 0;
+}
+"""
+CTX,ARENA_AT=0x811CC0,0x563810
+SEED_BEAT=ROOT.parent/'Extermination/build/s87/route/10_cage_roof_roger'
+
+
+class Region(C.Structure):
+    _fields_=[('base',C.c_uint32),('size',C.c_uint32),('bytes',C.c_void_p)]
+
+
+def build_packets_lib(outdir):
+    src,lib=outdir/'packets_shim.c',outdir/'snow_packets.dylib'
+    src.write_text(PACKET_SHIM)
+    subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off','-shared','-fPIC','-Isrc',
+                    str(src),'src/game/em_snow.c','src/game/em_weather_packets.c','-o',str(lib)],
+                   cwd=ROOT,check=True)
+    api=C.CDLL(str(lib))
+    api.shim_packets.argtypes=[C.POINTER(Tile),C.c_uint,C.POINTER(Region),C.c_uint,C.POINTER(C.c_uint32)]
+    return api
+
+
+def packet_seed():
+    """The render context bytes 001CFAE0 / 001CFFE0 read, from route
+    capture 10: the context block (its channel-3 cursor moved to an arena
+    address), the P / K scratchpad copies; D_00251260 and D_0027567x come
+    from the ELF image."""
+    ram=(SEED_BEAT/'eeMemory.bin').read_bytes();spad=(SEED_BEAT/'scratchpad.bin').read_bytes()
+    ctx=bytearray(ram[CTX:CTX+0x2580]);struct.pack_into('<I',ctx,0x1C,ARENA_AT)
+    return {CTX:bytes(ctx),0x70003A40:spad[0x3A40:0x3B40]}
+
+
+def compare_packets(elf,api,before,strength,eye,descriptor,native_tiles):
+    seed=packet_seed();size=108*0x260
+    got={}
+    oracle(elf,before,strength,eye,descriptor,host_sine=False,execute=True,seed=seed,out=got)
+    load=got['load']
+    original=bytes(load(ARENA_AT+i,1) for i in range(size))
+    cursor=load(CTX+0x1C)
+    ctx=C.create_string_buffer(seed[CTX],0x2580);spad=C.create_string_buffer(seed[0x70003A40],0x100)
+    arena=C.create_string_buffer(size)
+    d251260=C.create_string_buffer(elf[0x251260-0x100000+0x300:0x251260-0x100000+0x300+0x80],0x80)
+    regions=(Region*4)(Region(CTX,0x2580,C.cast(ctx,C.c_void_p)),Region(0x70003A40,0x100,C.cast(spad,C.c_void_p)),
+                       Region(ARENA_AT,size,C.cast(arena,C.c_void_p)),Region(0x251260,0x80,C.cast(d251260,C.c_void_p)))
+    fault=C.c_uint32(0)
+    assert api.shim_packets(native_tiles,108,regions,4,C.byref(fault))==0,('native packets faulted',hex(fault.value))
+    native_cursor=struct.unpack_from('<I',ctx.raw,0x1C)[0]
+    assert native_cursor==cursor==ARENA_AT+size,('channel-3 cursor',hex(native_cursor),hex(cursor))
+    if arena.raw!=original:
+        at=next(i for i in range(size) if arena.raw[i]!=original[i])
+        raise AssertionError(('channel-3 packets differ at tile',at//0x260,'offset',hex(at%0x260)))
+    return size
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument('--decomp-root',type=Path,default=ROOT.parent/'Extermination')
@@ -208,12 +323,19 @@ def main():
     config=Config.from_buffer_copy((ROOT/'assets/scene_snow/snow.emsn').read_bytes()[20:])
     descriptor=bytes(config.descriptor)
     outdir=ROOT/'build/weather_reference';outdir.mkdir(exist_ok=True,parents=True)
-    lib=outdir/'snow_tiles.dylib'
-    subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off','-shared','-fPIC','-Isrc','src/game/em_snow.c','-o',str(lib)],cwd=ROOT,check=True)
-    native=C.CDLL(str(lib));emit=native.em_snow_tiles
+    lib=outdir/'snow_tiles.dylib';shim=outdir/'tiles_shim.c'
+    shim.write_text(TILES_SHIM)
+    subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off','-shared','-fPIC','-Isrc',str(shim),
+                    'src/game/em_snow.c','src/game/em_sdk_math_original.c','-o',str(lib)],cwd=ROOT,check=True)
+    native=C.CDLL(str(lib));emit=native.shim_tiles
+    native.shim_load.argtypes=[C.c_char_p,C.c_size_t]
+    assert native.shim_load(elf,len(elf))==0,'the SDK math tables did not load from the ELF'
+    packets=build_packets_lib(outdir)
     emit.argtypes=[C.POINTER(Weather),C.POINTER(Config),C.c_float,C.POINTER(C.c_float),C.POINTER(Tile)]
     emit.restype=C.c_int
-    rng=random.Random(0x1e67c0);cases=0;tile_count=0;sdk_matrix_error=0.0;sdk_matrix_matches=0
+    rng=random.Random(0x1e67c0);cases=0;tile_count=0
+    # the packet sample: every case in full, the first case of each strength in quick
+    packet_cases=set(range(48)) if FULL else {0,6,12,18};packet_bytes=packet_runs=0
     # The full sweep draws 12 random weather states per strength. Every draw
     # is made in both modes (same stream); quick runs the first 6 of each
     # strength: every strength, including 0 and 1, with fresh seeds/phases.
@@ -225,7 +347,7 @@ def main():
             eye=[rng.uniform(-800,800) for _ in range(3)]
             if case>=per_strength:continue
             before=bytes(w)
-            expected,tiles,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=True)
+            expected,tiles,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=False)
             out=(Tile*108)();assert emit(C.byref(w),C.byref(config),strength,(C.c_float*3)(*eye),out)==0
             assert bytes(w)[:68]==expected,('poststate',cases)
             assert len(tiles)==108
@@ -234,19 +356,17 @@ def main():
                     want=struct.pack('<'+str(len(ref[field]))+'f',*ref[field])
                     assert bytes(getattr(actual,field))==want,(field,cases,i,list(getattr(actual,field)),ref[field])
                 assert bytes(actual.descriptor)==ref['descriptor'],('descriptor',cases,i)
-            _,sdk_tiles,_,_=oracle(elf,before,strength,eye,descriptor,host_sine=False)
-            for actual,ref in zip(out,sdk_tiles):
-                difference=max(abs(x-y) for x,y in zip(actual.matrix,ref['matrix']))
-                sdk_matrix_error=max(sdk_matrix_error,difference)
-                sdk_matrix_matches+=difference==0.0
+            if cases in packet_cases:
+                packet_bytes+=compare_packets(elf,packets,before,strength,eye,descriptor,out)
+                packet_runs+=1
             cases+=1;tile_count+=108
+    assert packet_runs==len(packet_cases),('packet cases run',packet_runs)
     banner(part(cases,48,'instruction-flow cases (every strength)'),
+           part(packet_runs,48,'cases with the channel-3 packets executed')+f' ({packet_bytes:,} bytes equal)',
            'captured snapshot comparison in full when --reference-ee/--reference-tiles are given')
     report={'status':'PASS','mode':MODE,'instruction_flow_cases':cases,'tiles_compared':tile_count,
-            'flow_sine_dependency':'host sinf shared with native; original SDK waveform checked separately',
-            'original_sdk_matrix_exact_matches':sdk_matrix_matches,
-            'original_sdk_matrix_comparisons':tile_count,
-            'original_sdk_matrix_max_error':sdk_matrix_error}
+            'packet_cases':packet_runs,'packet_bytes_equal':packet_bytes,
+            'sine':'0011E2A8 executed (original) and em_sdk_math_original (native)'}
     if args.reference_ee:
         assert args.reference_tiles
         ram=args.reference_ee.read_bytes();refs=json.loads(args.reference_tiles.read_text())
@@ -318,6 +438,6 @@ def main():
             'snapshot_camera_time':134.5,'latest_tile_camera_time':134.0,
             'matrix_basis_max_error':max(abs(a.matrix[c]-b['matrix'][c])for a,b in zip(out,latest)for c in range(12)),
             'matrix_translation_max_error':max(abs(a.matrix[c]-b['matrix'][c])for a,b in zip(out,latest)for c in range(12,15)),
-            'host_sine_vs_original_sdk_matrix_max_error':max(abs(a.matrix[c]-b['matrix'][c])for a,b in zip(out,original_sdk)for c in range(16))})
+            'native_vs_original_sdk_matrix_max_error':max(abs(a.matrix[c]-b['matrix'][c])for a,b in zip(out,original_sdk)for c in range(16))})
     print(json.dumps(report))
 if __name__=='__main__':main()

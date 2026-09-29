@@ -86,7 +86,8 @@ uint32_t em_effects_live_fault(void);
 const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size);
 /* The same bytes only inside one exported block (NULL outside every block
  * or before the load): the chain page's reads of ELF data (the program
- * packets 0x231770 / D_00233290, 001CFBE0's source blocks). */
+ * packets 0x231770 / D_00233290 / D_00233800, 001CFBE0's source blocks),
+ * and the overlay source blocks 001D04B0 was handed since the attach. */
 const uint8_t *em_effects_live_window(uint32_t address, uint32_t size);
 
 /* 001D0660's 001F0310 (001AFCA0, the area build): 001F3FA0 and 001F03D0
@@ -101,6 +102,16 @@ int em_effects_live_001EFD20(uint32_t id, const float pos[4]);
 int em_effects_live_001F0460(int32_t n, const float m[16]);
 /* 001F0120(owner, key): owner14 is the owner's +0x14 word. */
 int em_effects_live_001F0120(uint32_t owner14, int32_t key);
+/* 001D04B0(m, kind, source, f12, f13): an owner's particle draw (the AREA11
+ * flame 008235F0 calls it with its +0xD0 matrix, kind 1, its descriptor
+ * D_00828340, its phase and seed): 001CCF70(m + 0x30), 001CFA60(block, m,
+ * f12, f13), 001CFBE0(key, kind, source, block, 0) over this module's
+ * translations and the one packet chain. `source` is an overlay address
+ * whose 0x90 bytes the caller hands over; they stay readable through
+ * em_effects_live_window (the page REFs them) until the next attach.
+ * f12 / f13 are bit patterns. 0, or -1 (latched). */
+int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, const uint8_t source_bytes[0x90],
+                             uint32_t f12, uint32_t f13);
 
 /* The pool behaviour of a node this module allocated: 001EA240 or
  * 001E2560 by its +0x10. 1 while allocated, 0 after its 001AFC10 free, -1
@@ -147,11 +158,25 @@ int em_effects_live_nodes(EmEffectsLiveNode *out, int max);
 /* The counters since the attach: 001CD520 emits, 001CFBE0 chains emitted
  * and skipped by its free-space guard, 001F0720 lanes drawn, barrel frames,
  * counted gaps (the two packet-only handlers 001EAD70 / 001EC270, each
- * call once). */
+ * call once), 001D04B0 calls. */
 typedef struct {
     uint32_t sprites, chains, chains_skipped, lanes, frames, gaps;
+    uint32_t overlay_draws;
 } EmEffectsLiveCounters;
 void em_effects_live_counters(EmEffectsLiveCounters *out);
+/* The last 001D04B0 call (the AREA11 flame): its em_frame_counter(), the
+ * calls since the attach, the source block, the depth key 001CCF70 gave,
+ * and CRC-32 digests of its 001CFBE0 packet 1 (0x70 bytes, the phase word
+ * +0x10 and the seed word +0x1C zeroed) and packet 4 (0x100 bytes: P, the
+ * clip projection, K, the fog, the depth bias, the GIF tag row).
+ * tools/level_smoke_chain_page.py compares them with the capture's page in
+ * the camera-exact snapshots. */
+typedef struct {
+    uint32_t frame, calls, source;
+    int32_t key;
+    uint32_t p1_digest, p4_digest;
+} EmEffectsLiveOverlayLog;
+void em_effects_live_overlay_log(EmEffectsLiveOverlayLog *out);
 /* The last barrel's 001F0720 packets as CRC-32 digests, per lane 0, 1, 3,
  * 4, 5, 6: packet 1; packet 2 (the lane) with each slot's +0x40 parameter
  * quadword zeroed; those 32 parameter quadwords; packet 3; packet 4. */

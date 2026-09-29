@@ -1,4 +1,4 @@
-/* em_vu1_page_programs.h — the two VU1 programs the chain page D_007635C0
+/* em_vu1_page_programs.h — the three VU1 programs the chain page D_007635C0
  * CALLs, translated from their VU1 microcode into CPU-exact C
  * (docs/CHAIN_PAGE.md section 3).
  *
@@ -10,9 +10,21 @@
  *                   instructions to micro 0 and 0x100, a 128-word lookup
  *                   (V1-32, all four lanes) to dmem 0..127 and 17 rows to
  *                   dmem 0x6E..0x7E, BASE 0, OFFSET 0.
+ *   snow program    DMA packet D_00233800 (001CFFE0's table of variant 3,
+ *                   the weather 001E67C0's tiles): MPGs of 256 (ELF
+ *                   0x00233828) and 81 (ELF 0x00234030) instructions to
+ *                   micro 0 and 0x100, the same lookup and 17 constant rows
+ *                   (both equal to the sprite program's), BASE 0, OFFSET 0.
+ *                   Its instructions are the sprite program's except five
+ *                   in the emission (the near weight: micro 0x118, 0x11D,
+ *                   0x120, 0x127, 0x13E, with the FTOI0 and its store moved
+ *                   to 0x142 / 0x146) and the branch offsets that follow
+ *                   from its two extra instructions (0x0F7, 0x147, 0x14B):
+ *                   one translation with a `snow` switch
+ *                   (em_vu1_snow_program_mscal).
  *
  * Micro addresses below are instruction indices of the uploaded program.
- * Both programs are entered by MSCAL 0 only (every captured page).
+ * All three programs are entered by MSCAL 0 only (every captured page).
  *
  * Execution model (the reference test's VU1 machine, tools/chain_page_model.py
  * VuOracle, whose MPG bytes are the ELF's):
@@ -488,8 +500,8 @@ static inline int emvup_sprite_batch(EmVu1PCtx *c)
  * and the depth bias; 124: the GIF tag. The program keeps its batch state
  * in rows 96..102 and writes the sprites of each batch to 0x100 or 0x280
  * (six rows per visible particle after a tag row), then kicks the tag. */
-static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                              void *ctx)
+static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
+                                         int snow)
 {
     if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
     EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
@@ -566,6 +578,7 @@ static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
             const uint32_t q_w = emvup_div(c, r->vf[0][3], r->vf[15][3]);   /* 0x117 */
             memcpy(p, r->vf[1], sizeof p);
             for (unsigned k = 0; k < 4; ++k) r->acc[k] = emvup_mul(c, r->vf[20][k], p[0]);   /* 0x118 */
+            if (snow) memcpy(r->vf[8], r->vf[15], sizeof r->vf[8]);    /* 0x118 lower: VF08 = K . p */
             r->vi[1] = (uint16_t)(r->vi[15] | r->vi[14]);              /* 0x119 */
             for (unsigned k = 0; k < 4; ++k) r->acc[k] = emvup_madd(c, r->acc[k], r->vf[21][k], p[1]);
             r->vf[6][0] = (uint32_t)(int32_t)(int16_t)r->vi[1];        /* 0x11A: MFIR */
@@ -574,11 +587,13 @@ static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
             for (unsigned k = 0; k < 4; ++k) r->vf[1][k] = emvup_madd(c, r->acc[k], r->vf[23][k], r->vf[0][3]);
             r->acc[3] = emvup_mul(c, r->vf[0][3], r->vf[28][2]);       /* 0x11C */
             r->vf[15][3] = emvup_madd(c, r->acc[3], r->vf[28][3], r->vf[15][3]);   /* 0x11D */
+            if (snow) r->i = 0x3CA3D70Au;                              /* 0x11D lower: I = 0.02 */
             r->q = q_w;
             for (unsigned k = 0; k < 3; ++k) r->vf[15][k] = emvup_mul(c, r->vf[15][k], r->q);   /* 0x11E */
             const uint32_t q_e = emvup_div(c, r->vf[0][3], r->vf[2][3]);
             emvup_sq(c, 6, r->vi[6]);                                  /* 0x11F */
             emvup_clip(c, r->vf[1]);
+            if (snow) r->vf[8][3] = emvup_mul(c, r->vf[8][3], r->i);   /* 0x120: the screen w x 0.02 */
             r->vf[15][3] = em_vu_min_bits(r->vf[15][3], r->vf[28][0]); /* 0x121 */
             r->vf[15][2] = emvup_add(c, r->vf[15][2], r->vf[9][2]);   /* 0x122 */
             r->i = 0x3B800000u;                                        /* 1/256 */
@@ -588,6 +603,8 @@ static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
             r->q = q_e;
             for (unsigned k = 0; k < 2; ++k) r->vf[2][k] = emvup_mul(c, r->vf[2][k], r->q);   /* 0x125 */
             r->vf[15][3] = em_vu_max_bits(r->vf[15][3], r->vf[0][0]);  /* 0x126 */
+            if (snow)                                                  /* 0x127 (delay slot) */
+                r->vf[8][3] = em_vu_min_bits(r->vf[8][3], r->vf[0][3]);   /* the near weight <= 1 */
             if (c->bad) return EM_VU1P_FAULT_OPERAND;
             if (r->vi[1] != 0) {                                       /* 0x126 -> 0x138 not taken */
                 r->vi[15] = (uint16_t)(r->vi[15] - 1u);                /* 0x128 */
@@ -610,27 +627,49 @@ static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
                     r->vf[4][k] = emvup_add(c, r->vf[15][k], r->vf[2][k]);
                 r->vi[11] = (uint16_t)(r->vi[11] - 1u);
                 r->vi[13] = (uint16_t)(r->vi[13] + 4u);
-                for (unsigned k = 0; k < 4; ++k) r->vf[5][k] = em_vu_ftoi0_bits(r->vf[5][k]);   /* 0x13E */
+                if (snow)                                              /* 0x13E: x the near weight */
+                    for (unsigned k = 0; k < 4; ++k) r->vf[5][k] = emvup_mul(c, r->vf[5][k], r->vf[8][3]);
+                /* 0x13E (sprite) / 0x142 (snow): FTOI0; the stores do not
+                 * read VF01 / VF10 / VF13 / VF14, so the order is kept. */
+                for (unsigned k = 0; k < 4; ++k) r->vf[5][k] = em_vu_ftoi0_bits(r->vf[5][k]);
                 emvup_lq(c, 1, r->vi[13]);
                 for (unsigned k = 0; k < 4; ++k) r->vf[3][k] = em_vu_ftoi4_bits(r->vf[3][k]);   /* 0x13F */
                 emvup_lq(c, 10, 100);
                 for (unsigned k = 0; k < 4; ++k) r->vf[4][k] = em_vu_ftoi4_bits(r->vf[4][k]);   /* 0x140 */
                 emvup_lq(c, 13, r->vi[13] + 3u);
                 emvup_lq(c, 14, r->vi[13] + 2u);
-                emvup_sq(c, 5, r->vi[12] + 1u);                        /* 0x142..0x144 */
-                emvup_sq(c, 3, r->vi[12] + 5u);
-                emvup_sq(c, 4, r->vi[12] + 3u);
-                const int more = (int16_t)r->vi[11] > 0;               /* 0x145 */
-                r->vi[12] = (uint16_t)(r->vi[12] + 6u);                /* 0x146 (delay slot) */
+                emvup_sq(c, 5, r->vi[12] + 1u);                        /* 0x142 (snow 0x146) */
+                emvup_sq(c, 3, r->vi[12] + 5u);                        /* 0x143 */
+                emvup_sq(c, 4, r->vi[12] + 3u);                        /* 0x144 */
+                const int more = (int16_t)r->vi[11] > 0;               /* 0x145 (snow 0x147) */
+                r->vi[12] = (uint16_t)(r->vi[12] + 6u);                /* its delay slot */
                 if (c->bad) return EM_VU1P_FAULT_OPERAND;
                 if (more) continue;
             }
-            if (kick(ctx, dmem, r->vi[6] & 1023u))                     /* 0x134 / 0x147 */
+            if (kick(ctx, dmem, r->vi[6] & 1023u))                     /* 0x134 / 0x147 (snow 0x149) */
                 return EM_VU1P_FAULT_KICK;
             break;                                                     /* -> 0x0F1 */
         }
     }
     return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;
+}
+
+static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
+                                              void *ctx)
+{
+    return emvup_particle_program(r, dmem, kick, ctx, 0);
+}
+
+/* MSCAL 0 of the snow program (D_00233800): the sprite program's dmem
+ * layout and flow; in the emission a visible particle's colour (after the
+ * fog weight) is multiplied by the near weight min(w * 0.02, 1), w the
+ * particle's K-projected w (VF08, micro 0x118..0x13E), before its FTOI0.
+ * VF08 (all four lanes, w scaled) and I = 0.02 between micro 0x11D and 0x122
+ * are the only other register effects. */
+static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
+                                            void *ctx)
+{
+    return emvup_particle_program(r, dmem, kick, ctx, 1);
 }
 
 #endif

@@ -1135,13 +1135,11 @@ void em_game_legacy_pool_gameplay(void)
      * binds it. Before S10a it was bound before that frame's player
      * update. */
     grate_update();
-    em_area11_effect_runtime_tick();
     render_chain_build();    /* port-native draw list (no original
                               * counterpart); it ran just before 001C1D00,
                               * which has no port code, and keeps its
                               * place among the world updates */
     (void)em_game_legacy_door_tick();
-    em_snow_runtime_tick(g.cam.eye, 0);
     em_game_legacy_examine_tick();
     em_game_legacy_enemy_tick();
     em_game_legacy_player_residue();
@@ -1150,19 +1148,15 @@ void em_game_legacy_pool_gameplay(void)
 /* 001AE6B0's 001AFD70(1) position: the S10a cutscene legacy block, kept
  * as the cutscene behaviour of the `legacy_world` node (a scene without an
  * original roster; the AREA11 opening's controller is a roster node). The
- * snow tick keeps reading the camera eye from before this frame's camera
- * stage, as it did. */
+ * flame and the weather are AREA11 roster owners (em_area11_bindings.c);
+ * a scene without a roster loads neither. */
 void em_game_legacy_pool_cutscene(void)
 {
-    float previous_eye[3];
-    memcpy(previous_eye, g.cam.eye, sizeof previous_eye);
     /* This path also runs world actors. Their transient collision entries
      * expire each frame, just as they do in the gameplay block. */
     em_collision_moving_clear();
     em_collision_blocker_clear();
-    em_area11_effect_runtime_tick();
     grate_update();
-    em_snow_runtime_tick(previous_eye, 1);
     render_chain_build();
 }
 
@@ -1811,8 +1805,8 @@ void em_game_shutdown(void)
     em_door_shutdown(gfx);
     em_enemy_shutdown(gfx);
     em_pickup_scene_clear(gfx);
-    em_snow_runtime_clear(gfx);
-    em_area11_effect_runtime_clear(gfx);
+    em_snow_runtime_clear();
+    em_area11_effect_runtime_clear();
     em_examine_reset();
     em_collision_free(&g.coll);
     em_bgm_shutdown();  /* blocks out the audio thread */

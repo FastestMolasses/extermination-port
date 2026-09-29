@@ -57,7 +57,8 @@ sys.path.insert(0, str(DECOMP / 'tools'))
 PARTS = ('objects', 'page', 'font', 'status_models', 'status_hub', 'item_root', 'battery')
 
 # The page textures (tools/export_page_textures.py): the 001CFBE0 source
-# blocks' TEX0 rows (+0x70) in the ELF, the AREA11 flame's descriptor
+# blocks' TEX0 rows (+0x70) in the ELF, the weather's descriptor D_00255170
+# (001CFFE0's, TEX0 row +0x70), the AREA11 flame's descriptor
 # (owner 008235F0's D_00828340, AREA11.BIN file offset 0x4E40, TEX0 row
 # +0x70; docs/AREA11_EFFECT.md), and two TEX0 values the original code
 # builds as immediates: 001F8D30's decal (em_shadow_decal_original.h
@@ -66,6 +67,7 @@ PARTS = ('objects', 'page', 'font', 'status_models', 'status_hub', 'item_root', 
 # EM_STATUS_SCENE_TEX0_001F4BF0), both verified against the executed
 # original by their modules' reference tests.
 SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)]
+WEATHER_DESCRIPTOR = 0x00255170     # D_00255170: 001CFFE0's object (the snow)
 FLAME_DESCRIPTOR, FLAME_FILE_OFFSET = 0x00828340, 0x4E40
 DECAL_TEX0 = 0x2004290511322469
 MARKER_TEX0 = 0x20045B0599421EF0
@@ -154,6 +156,8 @@ def page_tex0(elf: bytes, overlay: bytes) -> dict:
     for block in SOURCE_BLOCKS:
         t = struct.unpack_from('<Q', elf_read(elf, block + 0x70, 8))[0] & eot.CLD_MASK
         out.setdefault(t, set()).add(f'001CFBE0 source {block:#010x}')
+    t = struct.unpack_from('<Q', elf_read(elf, WEATHER_DESCRIPTOR + 0x70, 8))[0] & eot.CLD_MASK
+    out.setdefault(t, set()).add(f'001CFFE0 weather descriptor {WEATHER_DESCRIPTOR:#010x}')
     t = struct.unpack_from('<Q', overlay, FLAME_FILE_OFFSET + 0x70)[0] & eot.CLD_MASK
     out.setdefault(t, set()).add(f'001D04B0 flame descriptor {FLAME_DESCRIPTOR:#010x}')
     out.setdefault(DECAL_TEX0 & eot.CLD_MASK, set()).add('001F8D30 decal')

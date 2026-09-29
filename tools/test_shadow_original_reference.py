@@ -97,7 +97,7 @@ import ee_float_model
 import test_actor_lighting_reference as al
 from reference_mode import FULL, banner, part, pick, select, parallel_map, in_scope_beat
 import test_level_material_reference as lm
-import test_snow_particles_reference as vu
+import vu1_vm as vu
 from test_point_light_reference import signed, bits, number, fp, RETURN
 
 ROOT = Path(__file__).resolve().parents[1]

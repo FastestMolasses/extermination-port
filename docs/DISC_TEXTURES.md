@@ -46,7 +46,7 @@ that upload's blocks and equals the full decode):
 | Asset (capture exporter) | Textures | Source |
 |---|---|---|
 | `scene_snow/object_textures.emot` (`export_object_textures.py`, route `gs.bin`) | 303 TEX0 | 158 library (module 0x1B), 135 area (sector 15), 10 player texture packet (slot 8: the player model's TBP 0x1B80..0x1BF7 textures) |
-| `scene_snow/page_textures.emot` (`export_page_textures.py`, route `gs.bin`) | 6 TEX0, including the 001F8D30 decal 0x2004290511322469 (TBP 0x2469, CBP 0x2148) | all library |
+| `scene_snow/page_textures.emot` (`export_page_textures.py`, route `gs.bin`) | 7 TEX0 (since chain C8b FLAMESNOW: + the weather descriptor D_00255170's, the snow), including the 001F8D30 decal 0x2004290511322469 (TBP 0x2469, CBP 0x2148) | all library |
 | `status_models/*.emdl` (`export_status_models.py`, status-hub `gs.bin`) | 78 distinct TEX0 | 68 library, 10 player texture packet |
 | `scene_snow/panel/status_hub_atlas.emha` (`export_status_hub.py`, status-hub `gs.bin`) | 13 tokens | all library (the hub itself loads no page module) |
 | `scene_snow/panel/item_root.emir` (`export_item_root.py`, panel/root `gs.bin`) | 17 tokens | all ITEM root module 0x1F |
@@ -482,6 +482,7 @@ The chain should:
   runtime state, and it equals the capture's list. A future page whose
   tokens depend on the equipment state must derive them from that state.
 - The page TEX0 set lists its producers explicitly: source blocks, the
+  weather descriptor (the snow, since chain C8b FLAMESNOW), the
   flame, the decal and the glow marker. A producer bound later that draws
   another TEX0 must add its original source here. The capture exporter
   would have found such a TEX0 only if a capture showed it.

@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Export original AREA11 snow parameters, VU lookup and resident texture.
+"""Export original AREA11 snow parameters and the VU lookup.
 
 All outputs are generated locally from the user's original ELF/save state and
 must remain ignored. The 80 scalar lookup values are original VIF upload data,
-not recomputed sine values. The GS state must contain AREA11 textures.
+not recomputed sine values. The snow's texture (the descriptor's TEX0 row) is
+a page texture since the snow draws on the chain page (tools/
+export_page_textures.py / export_disc_textures.py; docs/SNOW_PARTICLES.md);
+a snow.emtx of an earlier export is not read. The EE state (a save state
+through --gs, or --reference-ee) only confirms the AREA11 weather branch.
 """
 from __future__ import annotations
 import argparse
@@ -20,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root', type=Path, default=ROOT.parent / 'Extermination')
-    parser.add_argument('--gs', type=Path, required=True)
+    parser.add_argument('--gs', type=Path, help='a save state (.p2s) holding the EE state')
     parser.add_argument('--reference-vu', type=Path)
     parser.add_argument('--reference-ee', type=Path,
                         help='required when --gs is a bare GS freeze instead of a save state')
@@ -31,7 +35,7 @@ def main():
     from audio_export import ElfImage
     if args.reference_ee:
         ram = args.reference_ee.read_bytes()
-    elif args.gs.suffix.lower() == '.p2s':
+    elif args.gs and args.gs.suffix.lower() == '.p2s':
         from parse_pcsx2_state import extract_zstd_entry
         with zipfile.ZipFile(args.gs) as archive:
             info = archive.getinfo('eeMemory.bin')
@@ -39,7 +43,7 @@ def main():
         if ram is None:
             ram = extract_zstd_entry(args.gs, 'eeMemory.bin')
     else:
-        raise ValueError('Supply --reference-ee with a bare GS freeze')
+        raise ValueError('Supply --reference-ee, or --gs with a .p2s save state')
     if len(ram) != 32 * 1024 * 1024 or ram[0x810700:0x810702] != b'\x0b\0':
         raise ValueError('Expected original AREA11/sub0 reference state')
     weather_flags = struct.unpack_from('<I', ram, 0x8106C8)[0] & 0x0e000070
@@ -71,31 +75,24 @@ def main():
     texture['key'] = key
     if texture['psm'] not in (0x13, 0x14):
         raise ValueError('Unsupported original snow texture format')
-    entries, texels = native.build_texture_blob(None, [texture], p2s=args.gs)
-    entry = entries[0]
-    if not 1 < entry['w'] <= 256 or not 1 < entry['h'] <= 256:
-        raise ValueError('Unexpected snow texture dimensions')
     args.out.mkdir(parents=True, exist_ok=True)
     payload = struct.pack('<4s4I', b'EMSN', 1, 9, 80, 6) + descriptor + lookup + rows
     (args.out / 'snow.emsn').write_bytes(payload)
-    texture_payload = struct.pack('<4s3I', b'EMTX', 1, entry['w'], entry['h']) + texels
-    (args.out / 'snow.emtx').write_bytes(texture_payload)
     manifest = args.out / 'scene.txt'
     if manifest.exists():
         lines = manifest.read_text().splitlines()
         lines = [line for line in lines if not line.startswith('weather ')]
-        lines.append(f'weather {weather_flags:#x} snow.emsn snow.emtx')
+        lines.append(f'weather {weather_flags:#x} snow.emsn')
         manifest.write_text('\n'.join(lines) + '\n')
     report = dict(descriptor_address=0x255170, lookup_address=0x2342BC,
                   rows_address=0x255200, particles_per_tile=count, tile_count=108,
                   flags=flags, kind=kind, weather_flags=weather_flags, texture=texture,
                   parameters_sha256=hashlib.sha256(payload).hexdigest(),
-                  texture_sha256=hashlib.sha256(texture_payload).hexdigest(),
                   lookup_compared_to_vu=bool(args.reference_vu))
     output = ROOT / 'build/weather_reference'
     output.mkdir(parents=True, exist_ok=True)
     (output / 'export.json').write_text(json.dumps(report, indent=2) + '\n')
-    print(f'Exported original snow: {108 * count} particles, {entry["w"]}x{entry["h"]} texture')
+    print(f'Exported original snow: {108 * count} particles, TEX0 {key:#x} (a page texture)')
 
 
 if __name__ == '__main__':

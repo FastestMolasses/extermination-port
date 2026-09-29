@@ -65,6 +65,10 @@ static struct {
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
     struct { uint32_t address, size; } window[32];   /* the exported blocks */
     uint32_t windows;
+    /* 001CFBE0 source blocks an overlay owner hands 001D04B0 (the AREA11
+     * flame's D_00828340): their 0x90 bytes, readable by the page. */
+    struct { uint32_t address; uint8_t bytes[0x90]; } overlay_source[4];
+    uint32_t overlay_sources;
 
     EmActorPool *pool;
     EmSceneState *scene;
@@ -133,6 +137,13 @@ static struct {
     int32_t marker_value;
     u32 marker_rgb;
     const uint8_t *marker_packet;
+    /* 001D04B0's last call (the capture log): the packets its 001CFBE0
+     * opened through 001CB5F0, in order (7, 1 and 16 qwords). */
+    int overlay_recording;
+    const uint8_t *opk[4];
+    uint32_t opk_size[4];
+    int nopk;
+    EmEffectsLiveOverlayLog overlay_log;
 } S;
 
 /* ------------------------------------------------------------ faults */
@@ -182,6 +193,7 @@ static int effects_gap(uint32_t address, uint32_t detail)
 uint32_t em_effects_live_fault(void) { return S.fault; }
 int em_effects_live_attached(void) { return S.attached; }
 
+static u32 crc32_bytes(u32 crc, const uint8_t *p, u32 n);
 static u32 rd32(const uint8_t *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 static u32 fbits(float f) { u32 b; memcpy(&b, &f, 4); return b; }
 static float bfloat(u32 b) { float f; memcpy(&f, &b, 4); return f; }
@@ -222,6 +234,18 @@ int em_effects_live_load(void)
         }
     }
     free(file);
+    /* The chain page's three program packets (the page CALLs them). */
+    static const u32 programs[3][2] = { {0x00231770u, 0xDD0u}, {0x00233290u, 0x570u}, {0x00233800u, 0xDE0u} };
+    for (unsigned k = 0; ok && k < 3; ++k) {
+        int placed = 0;
+        for (u32 i = 0; i < S.windows; ++i)
+            placed |= S.window[i].address == programs[k][0] && S.window[i].size == programs[k][1];
+        if (!placed) {
+            fprintf(stderr, "effects: %s lacks the program packet %08X (re-run tools/export_effect_tables.py)\n",
+                    EM_EFFECTS_LIVE_TABLES_PATH, (unsigned)programs[k][0]);
+            ok = 0;
+        }
+    }
     if (ok) {
         /* The table loaders of the translations, over the placed windows. */
         memcpy(elf, "\x7F" "ELF", 4);
@@ -256,6 +280,10 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
         if (address >= S.window[i].address && size <= S.window[i].size &&
             address - S.window[i].address <= S.window[i].size - size)
             return S.elf + ELF_AT(address);
+    for (uint32_t i = 0; i < S.overlay_sources; ++i)
+        if (address >= S.overlay_source[i].address && size <= 0x90u &&
+            address - S.overlay_source[i].address <= 0x90u - size)
+            return S.overlay_source[i].bytes + (address - S.overlay_source[i].address);
     return NULL;
 }
 
@@ -571,6 +599,19 @@ static int w_manager_001CB5F0(void *ctx, u32 chain, int32_t id, int32_t count, u
     return r;
 }
 
+/* 001CB5F0 for the head sprite's 001CFBE0: during 001D04B0 the packets
+ * are noted for the capture log. */
+static int w_head_001CB5F0(void *ctx, u32 chain, int32_t id, int32_t count, uint8_t **out)
+{
+    int r = em_packet_chain_w_001CB5F0(ctx, chain, id, count, out);
+    if (r >= 0 && S.overlay_recording && S.nopk < 4) {
+        S.opk[S.nopk] = *out;
+        S.opk_size[S.nopk] = (u32)count * 16u;
+        ++S.nopk;
+    }
+    return r;
+}
+
 /* 001CB5F0 for 001CD520 (the glow markers): noted during the barrel. */
 static int w_sprite_001CB5F0(void *ctx, u32 chain, int32_t z, int32_t count, uint8_t **packet)
 {
@@ -783,7 +824,7 @@ static void wire(EmPacketChain *pc)
     hw->w_00102918 = w_head_00102918;
     hw->w_001CCF70 = w_head_001CCF70;
     hw->w_001CD370 = w_head_001CD370;
-    hw->w_001CB5F0 = em_packet_chain_w_001CB5F0;
+    hw->w_001CB5F0 = w_head_001CB5F0;
     hw->w_001CB6B0 = em_packet_chain_w_001CB6B0;
     hw->w_001CB760 = em_packet_chain_w_001CB760_4;
     hw->w_001CB900 = em_packet_chain_w_001CB900;
@@ -829,6 +870,8 @@ int em_effects_live_attach(EmActorPool *pool, EmSceneState *scene, EmEffectsLive
     memset(&S.kglobals, 0, sizeof S.kglobals);
     memset(&S.mglobals, 0, sizeof S.mglobals);
     memset(&S.counters, 0, sizeof S.counters);
+    memset(S.overlay_source, 0, sizeof S.overlay_source);
+    S.overlay_sources = 0;
     wire(pc);
     S.attached = 1;
     return 0;
@@ -920,6 +963,72 @@ int em_effects_live_001F0120(uint32_t owner14, int32_t key)
     EmHeadSpriteOriginal *h = NULL;
     return finish(em_head_sprite_original_spawn_001F0120(owner14, key, &S.hworkers, &h, &S.hfault),
                   0x001F0120u);
+}
+
+/* 001D04B0(m, kind, source, f12, f13) (an asm function; its three calls read from
+ * the .s): 001CCF70(m + 0x30) -> the depth key, 001CFA60(block, m, f12,
+ * f13), 001CFBE0(key, kind, source, block, 0). The source block is an
+ * overlay owner's (it is not in the ELF windows): its bytes are kept by
+ * address so the page's REF of it reads them. */
+static const uint8_t *map_overlay_source(uint32_t address, const uint8_t bytes[0x90])
+{
+    for (uint32_t i = 0; i < S.overlay_sources; ++i)
+        if (S.overlay_source[i].address == address) {
+            memcpy(S.overlay_source[i].bytes, bytes, 0x90);
+            return S.overlay_source[i].bytes;
+        }
+    if (S.overlay_sources >= sizeof S.overlay_source / sizeof S.overlay_source[0]) return NULL;
+    S.overlay_source[S.overlay_sources].address = address;
+    memcpy(S.overlay_source[S.overlay_sources].bytes, bytes, 0x90);
+    return S.overlay_source[S.overlay_sources++].bytes;
+}
+
+int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, const uint8_t source_bytes[0x90],
+                             uint32_t f12, uint32_t f13)
+{
+    READY();
+    if (!m || !source_bytes || (source >= 0x00100000u && source < 0x00275B00u))
+        return fail(0x001D04B0u, "001D04B0 without its matrix or overlay source block");
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    const uint8_t *src = map_overlay_source(source, source_bytes);
+    if (!src) return fail(source, "001D04B0: no room for another overlay source block");
+    int32_t key = 0;
+    if (check(em_effect_original_001CCF70(&S.e, m + 12, &key), 0x001CCF70u) < 0) return -1;
+    EmHeadSpriteOriginalXf x;
+    memset(&x, 0, sizeof x);
+    if (check(em_head_sprite_original_001CFA60(&x, m, f12, f13, &S.hworkers, &S.hfault), 0x001CFA60u) < 0)
+        return -1;
+    const EmHeadSpriteOriginalSource st = {source, src};
+    S.overlay_recording = 1;
+    S.nopk = 0;
+    const int r = chain_001CFBE0(key, (u32)kind, &st, &x, 0);
+    S.overlay_recording = 0;
+    if (check(r, 0x001CFBE0u) < 0) return -1;
+    ++S.counters.overlay_draws;
+    /* The capture log: packet 1 (7 qwords: the parameters, the matrix,
+     * MSCAL) without its phase (+0x10) and seed (+0x1C) words, and packet 4
+     * (16 qwords: the projection rows, the fog, the GIF tag row). */
+    EmEffectsLiveOverlayLog *o = &S.overlay_log;
+    o->frame = em_frame_counter();
+    o->calls++;
+    o->source = source;
+    o->key = key;
+    o->p1_digest = o->p4_digest = 0;
+    if (S.nopk == 3 && S.opk_size[0] == 0x70u && S.opk_size[2] == 0x100u) {
+        uint8_t p1[0x70];
+        memcpy(p1, S.opk[0], sizeof p1);
+        memset(p1 + 0x10, 0, 4);
+        memset(p1 + 0x1C, 0, 4);
+        o->p1_digest = crc32_bytes(0, p1, sizeof p1);
+        o->p4_digest = crc32_bytes(0, S.opk[2], 0x100u);
+    }
+    return 0;
+}
+
+void em_effects_live_overlay_log(EmEffectsLiveOverlayLog *out)
+{
+    if (out) *out = S.overlay_log;
 }
 
 /* ------------------------------------------------------------ the node ticks */

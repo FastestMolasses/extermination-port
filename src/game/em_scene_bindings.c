@@ -104,6 +104,7 @@
 #include "game/em_player_closure_live.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_effects_live.h"
+#include "game/em_snow_runtime.h"
 #include "game/em_equipment_live.h"
 #include "game/em_indicator_bind_live.h"
 #include "game/em_area11_boxes.h"
@@ -1254,8 +1255,11 @@ static void log_tick_end(int rc)
      * primitives' digest, the glow markers (sprites with 001F4D40's TEX0:
      * x0, y0, x1, y1, z, f, s0, t0, q0, q_known0, s1, t1, q1, q_known1; Q
      * 0 where the frame's), and, on sampled pages (the first, then every
-     * 250th, at most 40), every (address, bytes) the walk read, for the
-     * original re-walk (tools/test_level_smoke.py check_chain_page)]. */
+     * 250th, at most 40), every (address, bytes) the walk read (each range
+     * once), for the original re-walk (tools/test_level_smoke.py
+     * check_chain_page); then the snow program's MSCALs, the weather list
+     * 001E0D70 CALLed (0: none) and the reads of overlay source blocks
+     * (the AREA11 flame's descriptor)]. */
     fputs(", \"page\": ", f);
     {
         EmChainPageLiveLog pl;
@@ -1289,9 +1293,16 @@ static void log_tick_end(int rc)
                 const uint32_t *pairs;
                 const uint32_t nr = em_chain_page_live_reads(&pairs);
                 fputc('[', f);
+                int written = 0;
                 for (uint32_t r = 0; r < nr; ++r) {
+                    /* each (address, size) once: the weather's tiles CALL the
+                     * same program packet 108 times */
+                    int seen = 0;
+                    for (uint32_t k = 0; k < r && !seen; ++k)
+                        seen = pairs[2 * k] == pairs[2 * r] && pairs[2 * k + 1] == pairs[2 * r + 1];
+                    if (seen) continue;
                     const uint8_t *b = em_chain_page_live_read(pairs[2 * r], pairs[2 * r + 1]);
-                    fprintf(f, "%s[%u, ", r ? ", " : "", pairs[2 * r]);
+                    fprintf(f, "%s[%u, ", written++ ? ", " : "", pairs[2 * r]);
                     if (b) log_hex(f, b, pairs[2 * r + 1]);
                     else fputs("null", f);
                     fputc(']', f);
@@ -1300,10 +1311,32 @@ static void log_tick_end(int rc)
             } else {
                 fputs("null", f);
             }
-            fputc(']', f);
+            fprintf(f, ", %u, %u, %u]", c->mscal_snow, pl.weather, pl.overlay_reads);
         } else {
             fputs("null", f);
         }
+    }
+    /* The weather's last closed channel-3 list (em_snow_runtime): [closed
+     * in this tick's frame, lists, its first packet, tiles, FNV-1a of tile
+     * 0's packet-3 data, every tile's packet 3 equal]; and the flame's last
+     * 001D04B0 (em_effects_live): [called in this tick's frame, calls,
+     * source, depth key, packet-1 digest (phase, seed zeroed), packet-4
+     * digest]. tools/level_smoke_chain_page.py. */
+    {
+        EmSnowRuntimeLog sl;
+        em_snow_runtime_log(&sl);
+        if (sl.lists)
+            fprintf(f, ", \"snow\": [%d, %u, %u, %u, %u, %u]", sl.frame == em_frame_counter(), sl.lists, sl.start,
+                    sl.tiles, sl.p3_digest, sl.p3_uniform);
+        else
+            fputs(", \"snow\": null", f);
+        EmEffectsLiveOverlayLog ol;
+        em_effects_live_overlay_log(&ol);
+        if (ol.calls)
+            fprintf(f, ", \"flame\": [%d, %u, %u, %d, %u, %u]", ol.frame == em_frame_counter(), ol.calls, ol.source,
+                    ol.key, ol.p1_digest, ol.p4_digest);
+        else
+            fputs(", \"flame\": null", f);
     }
     /* The load veil's last frame drawn at step V (em_load_veil_live), once,
      * on the first line after it: its frame counter (the tick whose veil

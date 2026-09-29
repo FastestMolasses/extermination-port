@@ -1,12 +1,15 @@
 #!/usr/bin/env python3
-"""Compare snow C with the original particle VU instruction slices.
+"""vu1_vm.py - a bounded VU1 machine over the ORIGINAL microcode words.
 
-No original program/data is embedded. The bounded VM decodes only operations
-used by the owner's original 00233828 generator, including delayed MAC flags
-and division. Floating results use binary32 truncation; exceptional hardware
-arithmetic is outside this fixture. RANDU follows Sony VU User Manual v6.0,
-sections1.1.2 and4(RINIT/RNEXT/RXOR), independently verified with captured VU
-scratch particle outputs. No emulator implementation source was used.
+Written for the snow generator's reference test (the particle program of
+D_00233800, docs/SNOW_PARTICLES.md), which the chain page's snow program
+translation and its reference test (tools/test_chain_page_reference.py)
+superseded; it stays the shared VU1 machine of the shadow, actor-lighting,
+AREA11 fog and opening-lighting tools. It decodes the operations those
+programs use, including delayed MAC flags and division. Floating results use
+binary32 truncation; exceptional hardware arithmetic is outside it. RANDU
+follows Sony VU User Manual v6.0, sections 1.1.2 and 4 (RINIT/RNEXT/RXOR).
+No original program or data is embedded; no emulator source was used.
 """
 from pathlib import Path
 import struct, math
@@ -154,96 +157,3 @@ class VU:
     else:raise Exception(('lower',hex(pc),hex(lo),hex(op)))
    self.vi[0]=0;self.v[0]=[0,0,0,bits(1)];pc=nextpc;self.cycle+=1
   raise Exception('runaway')
-
-
-import argparse, ctypes as C, random, subprocess, tempfile, json
-class Particle(C.Structure):
- _fields_=[('position',C.c_float*4),('color',C.c_float*4),('half_size',C.c_float*4),('source_index',C.c_uint32)]
-
-from reference_mode import FULL, MODE, banner, part, select
-
-def main():
- global ELF
- p=argparse.ArgumentParser(description=__doc__)
- p.add_argument('--decomp-root',type=Path,default=ROOT.parent/'Extermination')
- p.add_argument('--reference-vu',type=Path,help='optional original VU1 data dump for independent runtime comparison')
- p.add_argument('--reference-micro',type=Path,help='matching original VU1 instruction dump; confirms the captured effect shares this generator')
- args=p.parse_args();ELF=(args.decomp_root/'config/SCUS_971.12').read_bytes()
- assert ELF[:6]==b'\x7fELF\x01\x01'
- lookup=struct.unpack_from('<80f',ELF,0x2342BC-0x100000+0x300)
- descriptor=ELF[0x255170-0x100000+0x300:0x255200-0x100000+0x300]
- cases=[];rng=random.Random(0x233828)
- for flags in range(32):
-  for count in [1,2,7,20,28]:
-   for phase in [-0.25,0.0,0.5,1.0,1.00001,1.99,49.0,51.0]:
-    desc=bytearray(descriptor);struct.pack_into('<4I',desc,128,count,bits(0.3),flags,2)
-    struct.pack_into('<4f',desc,32,43.25,100.5,32.0,128.)
-    struct.pack_into('<4f',desc,48,87.5,16.0,63.25,32.)
-    struct.pack_into('<4f',desc,80,0.2,0.8,0.1,0.0)
-    params=[phase,rng.random(),1.e-6,rng.random()]
-    matrix=[1.,0.,0.,0.,0.,0.9829571843,0.1838346422,0.,0.,-0.1838346422,0.9829571843,0.,300.,254.901535,201.627594,1.]
-    cases.append((desc,params,matrix,(flags,count,phase)))
- # Quick: every flags value with every count, every count with every phase,
- # plus a fixed-seed sample of the 32x5x8 product.
- total_cases=len(cases)
- cases=select(cases,512,0x233828,axes=(lambda c:c[3][:2],lambda c:c[3][1:]))
- with tempfile.TemporaryDirectory(prefix='em-snow-') as tmp:
-  lib=Path(tmp)/'snow.dylib'
-  subprocess.run(['cc','-std=c11','-O2','-ffp-contract=off','-shared','-fPIC','-I'+str(ROOT/'src'),str(ROOT/'src/game/em_snow_particles.c'),'-o',str(lib)],check=True)
-  api=C.CDLL(str(lib));generate=api.em_snow_particles_generate
-  F=C.POINTER(C.c_float);generate.argtypes=[F,F,F,F,C.POINTER(Particle),C.c_uint];generate.restype=C.c_int
-  shade=api.em_snow_particles_color;shade.argtypes=[F,C.c_float,F,C.POINTER(C.c_uint32)]
-  count_checked=0;runtime_particles=0;runtime_float_bytes=0
-  def native(desc,params,matrix):
-   out=(Particle*256)();d=(C.c_float*36).from_buffer_copy(desc)
-   n=generate(d,(C.c_float*80)(*lookup),(C.c_float*4)(*params),(C.c_float*16)(*matrix),out,256)
-   assert n>=0,n
-   return out,n
-  for desc,params,matrix,_ in cases:
-   mem=bytearray(16384)
-   for i,x in enumerate(lookup):struct.pack_into('<f',mem,i*16,x)
-   mem[0x500:0x590]=desc;struct.pack_into('<4f',mem,0x590,*params);struct.pack_into('<16f',mem,0x5a0,*matrix)
-   oracle=VU(mem);oracle.run(0x233828,0x233fc0);out,n=native(desc,params,matrix)
-   assert n==oracle.vi[8],('count',params,n,oracle.vi[8])
-   for i in range(n):
-    for field,offset in [('position',0),('color',2),('half_size',3)]:
-     expected=struct.pack('<4I',*oracle.read(0x88+4*i+offset));actual=bytes(getattr(out[i],field))
-     assert actual==expected,(field,count_checked,i,list(getattr(out[i],field)),struct.unpack('<4f',expected),params,struct.unpack_from('<4I',desc,128))
-    count_checked+=1
-  if args.reference_vu:
-   assert args.reference_micro, '--reference-vu requires --reference-micro provenance'
-   micro=args.reference_micro.read_bytes()
-   start=0x233828-0x100000+0x300;size=0x233fa0-0x233828
-   assert micro[:size]==ELF[start:start+size], 'captured VU uses a different generator'
-   mem=args.reference_vu.read_bytes();assert len(mem)==16384
-   assert all(mem[i*16:i*16+4]==struct.pack('<f',lookup[i]) for i in range(80))
-   desc=mem[0x500:0x590];params=struct.unpack_from('<4f',mem,0x590);matrix=struct.unpack_from('<16f',mem,0x5a0)
-   out,n=native(desc,params,matrix);oracle=VU(mem);oracle.run(0x233828,0x233fc0)
-   while oracle.read(0x62)[0]:
-    oracle.vi[9]=(0x233fc0-0x233828)//8;oracle.run(0x233910,0x233fc0)
-   last=oracle.vi[8]
-   for i in range(last):
-    for field,offset in [('position',0),('color',2),('half_size',3)]:
-     expected=mem[(0x88+4*i+offset)*16:(0x89+4*i+offset)*16]
-     actual=bytes(getattr(out[n-last+i],field));vm=struct.pack('<4I',*oracle.read(0x88+4*i+offset))
-     assert actual==expected==vm,('runtime',field,i,list(getattr(out[n-last+i],field)),struct.unpack('<4f',expected))
-     runtime_float_bytes+=16
-    runtime_particles+=1
-  color_cases=0
-  for depth in [0.01,1.,20.,49.999,50.,51.,100.,250.,300.,400.]:
-   for sample in range(100):
-    color=[rng.random()*255 for _ in range(4)]
-    if not FULL and sample>=40:continue
-    fog=[255.,2048.,151.11111450195312,-0.49707603454589844]
-    vm=VU(bytearray(16384));vm.color_only=True
-    vm.v[8][3]=bits(depth);vm.v[15][3]=bits(depth);vm.v[28]=list(map(bits,fog));vm.v[14]=list(map(bits,color));vm.q=1.
-    vm.run(0x234110,0x234170)
-    vm.run(0x234200,0x234208);vm.run(0x234220,0x234228);vm.run(0x234240,0x234248)
-    expected=vm.v[5];actual=(C.c_uint32*4)()
-    shade((C.c_float*4)(*color),depth,(C.c_float*4)(*fog),actual)
-    assert list(actual)==expected,('projectioncolor',depth,list(actual),expected)
-    color_cases+=1
-  banner(part(len(cases),total_cases,'original VU generator cases (every flags x count, count x phase)'),
-         part(color_cases,1000,'projected colour cases (every depth)'))
-  print(json.dumps({'status':'PASS','mode':MODE,'original_instruction_cases':len(cases),'particle_records_compared':count_checked,'original_runtime_particles':runtime_particles,'original_runtime_float_bytes_equal':runtime_float_bytes,'projected_color_cases':color_cases}))
-if __name__=='__main__':main()

@@ -47,9 +47,12 @@ BUFFER_STRIDE = 0x70000
 # codes set up VIF1 and upload the program and its constant rows, then RET.
 PROGRAM_LANE = 0x233290           # D_00233290: 001F0720's lanes
 PROGRAM_SPRITE = 0x231770         # table 0x231770: 001CFBE0 kinds 1 and 5
+PROGRAM_SNOW = 0x233800           # D_00233800: 001CFFE0 (kind 1, variant 3), the weather
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
+SNOW_MPG = ((0x233828, 256, 0), (0x234030, 81, 0x100))
+PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW)
 
 VIF_NAMES = {0x00: 'NOP', 0x01: 'STCYCL', 0x02: 'OFFSET', 0x03: 'BASE', 0x05: 'STMOD',
              0x10: 'FLUSHE', 0x11: 'FLUSH', 0x13: 'FLUSHA', 0x14: 'MSCAL', 0x20: 'STMASK',
@@ -440,12 +443,14 @@ class Page:
         self.directs = []          # (source address, gif bytes)
         self.program = None        # the packet address whose MPG is loaded
         self.parts = 0
+        self.first = None          # the first MPG part's source address
         self.mpg = []
         self.known = bytearray(1024)
         self.unknown_reads = 0
         self.transfers = []
         self.skip_calls = set(skip_calls)
         self.skipped = []
+        self.mscal_counts = {}     # program -> MSCALs run
 
     def u(self, a):
         return u32(self.read(a, 4), 0)
@@ -541,10 +546,14 @@ class Page:
                 self.mpg.append((first, imm, cnt))
                 if (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
-                elif (first, cnt, imm) == SPRITE_MPG[0]:
-                    self.program, self.parts = None, 1
-                elif (first, cnt, imm) == SPRITE_MPG[1] and self.parts == 1 and self.program is None:
+                elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0]):
+                    self.program, self.parts, self.first = None, 1, first
+                elif (first, cnt, imm) == SPRITE_MPG[1] and self.parts == 1 and self.program is None \
+                        and self.first == SPRITE_MPG[0][0]:
                     self.program, self.parts = PROGRAM_SPRITE, 2
+                elif (first, cnt, imm) == SNOW_MPG[1] and self.parts == 1 and self.program is None \
+                        and self.first == SNOW_MPG[0][0]:
+                    self.program, self.parts = PROGRAM_SNOW, 2
                 else:
                     fail(f'MPG of {cnt} instructions from {first:#x} to micro {imm:#x} (not a page program)')
                 i += 2 * cnt
@@ -585,7 +594,7 @@ class Page:
         return self
 
     def program_of(self, code_address):
-        for p in (PROGRAM_LANE, PROGRAM_SPRITE):
+        for p in PROGRAMS:
             if p <= code_address < p + 0x1000:
                 return p
         return None
@@ -593,6 +602,7 @@ class Page:
     def mscal(self, imm, at):
         if self.program is None or imm != 0:
             fail(f'MSCAL {imm:#x} at {at:#x}: no page program loaded, or not entry 0')
+        self.mscal_counts[self.program] = self.mscal_counts.get(self.program, 0) + 1
         top = self.tops
         self.dbf ^= 1
         self.tops = self.base + (self.offset if self.dbf else 0)
@@ -606,6 +616,35 @@ class Page:
                 raw = e[3]
                 self.kicks.append((self.program, e[1], raw))
                 gs_feed(self.gs, raw, f'XGKICK {e[1]:#x} of {self.program:#x}')
+
+
+def weather_lists(read, transfers):
+    """The CALL targets among `transfers` (Page.dma's) that are 001E0D70's
+    kick of the weather's channel-3 list (context +0x2520, CALLed at slot
+    0xFFB): lists whose first block is 001CFFE0's, a REF of 8 qwords (the
+    001CB9B0 blend preset) and then a CALL of the snow program D_00233800."""
+    out = set()
+    for (_cur, tid, _q, a) in transfers:
+        if tid != 5 or not ARENA <= a < 0x800000:
+            continue
+        t0, t1 = read(a, 16), read(a + 16, 16)
+        if u32(t0, 0) >> 28 & 7 == 3 and u32(t0, 0) & 0xFFFF == 8 and u32(t1, 0) >> 28 & 7 == 5 \
+                and u32(t1, 4) & 0x0FFFFFFF == PROGRAM_SNOW:
+            out.add(a)
+    return out
+
+
+def arena_skips(read, start, weather=True):
+    """The top-level CALLs into the packet arena a captured page holds that
+    the port does not run on the page (the object units 001CAAC0 sorts,
+    001DDE10's four-sprite pass), and, when `weather` is false, the
+    weather's kick too (walked over: a quick run that does not execute the
+    108 snow MSCALs of every capture)."""
+    probe = Page(read)
+    probe.dma(start)
+    calls = {a for (_c, tid, _q, a) in probe.transfers if tid == 5 and ARENA <= a < 0x800000}
+    keep = weather_lists(read, probe.transfers) if weather else set()
+    return sorted(calls - keep)
 
 
 def ram_reader(ram):

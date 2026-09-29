@@ -51,11 +51,9 @@
 #include "game/em_props.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_scene_bindings.h"
-#include "game/em_snow_runtime.h"
 #include "game/em_static_world_live.h"
 #include "game/em_render_context_live.h"
 #include "game/em_census_standins.h"
-#include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
@@ -790,12 +788,11 @@ void frame_close_out(void)
          * opaque owner meshes, with the owner's current world matrix. */
         em_pickup_lights_draw(gfx, viewproj);
         em_props_indicators_draw(gfx, viewproj);
-        em_snow_runtime_draw(gfx, view, zoom);
-        em_area11_effect_runtime_draw(gfx, view, zoom);
         /* Page D_007635C0 at 001D1EA0's splice (001CB800), as its DMA sends
-         * it to the GS: the effects' lanes and sprites, the glint, the glow
-         * markers and the 0015BF90 decal (em_chain_page_live,
-         * docs/CHAIN_PAGE.md). */
+         * it to the GS: the effects' lanes and sprites (the AREA11 flame's
+         * 001D04B0 among them), the weather's channel-3 list 001E0D70 CALLs
+         * (the snow program's tiles), the glint, the glow markers and the
+         * 0015BF90 decal (em_chain_page_live, docs/CHAIN_PAGE.md). */
         if (em_chain_page_live_draw(gfx) < 0)   /* reported; fail-stop */
             em_scene_fault(em_scene_state(), em_chain_page_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */

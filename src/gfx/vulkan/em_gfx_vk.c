@@ -41,19 +41,6 @@ void   em_gfx_overlay_rect_add(EmGfx *gfx, float x, float y, float w,
                                float h, const float rgb[3])
 { (void)gfx; (void)x; (void)y; (void)w; (void)h; (void)rgb; } /* TODO */
 
-int em_gfx_particle_texture_set(EmGfx *gfx, const uint8_t *rgba,
-                                 uint32_t width, uint32_t height)
-{ (void)gfx; (void)rgba; (void)width; (void)height; return 0; }
-void em_gfx_particles_draw(EmGfx *gfx, const EmGfxParticle *particles,
-                            unsigned count)
-{ (void)gfx; (void)particles; (void)count; } /* TODO */
-int em_gfx_particle_texture_set_slot(EmGfx *gfx, unsigned slot,
-                                      const uint8_t *rgba,
-                                      uint32_t width, uint32_t height)
-{ (void)slot; return em_gfx_particle_texture_set(gfx, rgba, width, height); }
-void em_gfx_particles_draw_slot(EmGfx *gfx, unsigned slot,
-                                 const EmGfxParticle *particles, unsigned count)
-{ (void)slot; em_gfx_particles_draw(gfx, particles, count); }
 /* Object units (em_gfx.h): not implemented on this backend; -1 is the
  * contract's "cannot draw exactly" (the caller faults). */
 int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit)

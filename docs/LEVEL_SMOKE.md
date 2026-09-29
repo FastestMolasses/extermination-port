@@ -1614,32 +1614,49 @@ MSCALs, XGKICKs, primitives by PRIM type, CALLs walked over, vertices with
 the frame's Q, UNPACKs before the page's first STCYCL), the decal triangles,
 the digest of the primitives handed to the renderer, the glow markers'
 primitives and, on sampled pages (the first, then every 250th, at most 40),
-every (address, bytes) the walk read. It checks:
+every (address, bytes) the walk read (each range once); then (since chain
+C8b FLAMESNOW) the snow program's MSCALs, the weather list 001E0D70 CALLed
+and the reads of the flame's descriptor. The tick's `snow` record is the
+weather's last closed channel-3 list (em_snow_runtime: its frame, start,
+tiles, the tile-0 packet-3 digest, whether every tile's packet 3 is the
+same) and `flame` the flame's last 001D04B0 (em_effects_live: its frame,
+key, the digests of its 001CFBE0 packets 1 (phase and seed masked) and 4).
+It checks:
 - every drawn page: the only CALL walked over is that frame's 001DDE10
   four-sprite CALL; the lane program ran 0 or 6 times, 6 in exactly as many
   pages as the barrel (001F0360) ran frames, and no lane drew;
+- the weather: a page CALLs the weather's list exactly when the weather
+  closed one in its frame, at that list's start, and runs its 108 snow
+  MSCALs (none otherwise); the flame: a page reads the flame's descriptor
+  exactly once when the flame's 001D04B0 ran in its frame, never otherwise;
 - sampled pages: the ORIGINAL VU1 microcode with the DMA / VIF / GIF walk and
   the GS vertex queue (tools/chain_page_model.py), over the port's own page
-  bytes, draw exactly the port's primitives (the digest) with the same
-  counts, and the blend presets the page REFs hold the route captures' bytes;
+  bytes (the weather's CALL walked: the snow program on every tile; the
+  re-walks run in forked workers), draw exactly the port's primitives (the
+  digest) with the same counts, and the blend presets, the three program
+  packets and the flame's descriptor the page read hold the route captures'
+  bytes;
 - the camera-exact snapshots (10, 14): the glow markers the port drew equal
   the ones the capture's own latest page draws (the original microcode over
   the capture), vertex for vertex, the colour masked (it follows the draw
   of 001F4D40; check_marker_colour compares it at the EE primitive with
   each side's own draw) and a Q taken from the frame on either side not
-  compared.
+  compared; the weather's tile packet 3 (P, the clip projection, K, the
+  fog, the GIF tag row) and the flame's 001CFBE0 packets 4 and 1 (phase and
+  seed words masked) equal the capture's.
 Every decal the page draws is also counted back to em_shadow_live
 (`em_shadow_live_page_drew`), so check_shadow's "flushed" now means drawn by
 the page.
 
-Measured (full route, 2026-09-26): 12,991 pages drawn (12,573 with the six
-lane MSCALs, one per barrel frame; the other 418 are the status frames',
-empty): 159,801 sprites, 1,314 triangles, 1,328 lines; 12,573 001DDE10
-CALLs walked over; 19,276 vertices with the frame's Q; 40 sampled pages
-re-walked equal (39 of them REF a blend preset, equal to the captures');
-aligned 10 (5 glow markers)
-and 14 (none visible). The run through the fence door (`fence_door_side1`) draws 5,554
-pages, 418 of them the status frames' (empty).
+Measured (full route, 2026-09-28, chain C8b FLAMESNOW): 13,013 pages drawn
+(12,573 with the six lane MSCALs, one per barrel frame, each with the
+weather's 108 snow tiles and the flame; the rest are the status and
+tear-down frames', empty): 4,122,371 sprites, 1,314 triangles, 1,256 lines;
+12,573 001DDE10 CALLs walked over; 25,628 vertices with the frame's Q; 40
+sampled pages re-walked equal (444 reads of the presets, program packets and
+flame descriptor equal to the captures'); aligned 10 (5 glow markers, the
+snow packet 3 and the flame packets 1 / 4) and 14 (0 glow markers, the same
+packets).
 
 ### The load veil (`check_load_veil`; tools/level_smoke_load_veil.py)
 
@@ -1690,7 +1707,8 @@ never silently skipped. What removes each:
 | check_rand_order | the opening's values from the actors' spawn on (compared caller for caller at the drive's shift until a value-driven timer differs), and (switch on only) its end | the stream request's wait: at host speed the drive answers at once (the Original profile's policy), so the spawn and the end come the capture's wait earlier and the values drawn after differ; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | none at host speed (policy); with the switch, a drive model of the seek from the movie's position |
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
-| check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 1.5 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
+| check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
+| check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 2 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 | check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258: the area streamer 001FFCD0 is translated but not bound, because its sound-bank step 001FB370 needs the EE sound library's queue, the SIF DMA and the driver's command 0x20 (MODULE_LOADER.md section 5) | a capture of a frame mid-load (the decomp's fb2 method); 001FB370's callees live, then 001FFCD0 bound |
 
 Not compared at all: the sounds (WP-14), the pixels (the renderer compares
