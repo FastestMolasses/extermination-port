@@ -103,11 +103,11 @@ original machine code on the same inputs and requiring the same results.
   (`EE_FLOAT_MODEL.md` 5a). VU1 microcode and GS rasterization are
   reimplemented natively and are checked by other means (see Visuals).
 
-**First-level census: 92.4% of the original game-logic instructions on the route run live as verified translations**
+**First-level census: 96.4% of the original game-logic instructions on the route run live as verified translations**
 
 Every original function the PS2 game runs on the first level, from New Game
 to meeting Roger, was recorded, and the port was checked for each one.
-Measured by instructions, 92.4% of that game logic runs in the port as a
+Measured by instructions, 96.4% of that game logic runs in the port as a
 verified translation.
 
 - How: the decomp's `tools/route_census.py` set a one-shot breakpoint on
@@ -115,24 +115,27 @@ verified translation.
   original route in hidden PCSX2 (4 startup labels plus route beats 00..14):
   1,184 functions executed (111,764 instructions). Each was classified by
   reading its evidence. An instrumented port build recorded live
-  caller/callee edges (census 1.22, measured again in 1.33).
-- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 2.1-2.3, recount through
-  1.35 (2026-09-27). Of 741 non-boundary functions: live 666 (81,298 of 87,968
-  instructions = 92.4%; 89.9% by function count); verified but unbound 71;
-  unverified 3 (0015CF90, 001B1190, 001FC280); missing 1 (001CB3C0). 443
-  boundary functions (SDK/libc/IOP/driver/GS/VU1, 23,796 instructions) are
-  replaced by native platform services and the native renderer.
+  caller/callee edges (census 1.22, measured again in 1.33 and 1.44).
+- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 1.44, 2.1-2.3. Recount
+  1.44 (chain C8b ROUTE, 2026-09-28, port HEAD 6594182): of 756 non-boundary
+  functions, live 703 (85,512 of 88,729 instructions = 96.4%; 93.0% by
+  function count); verified but unbound 50; unverified 3 (0015CF90,
+  001B1190, 001FC280); stand-in 0; missing 0. 428 boundary functions
+  (SDK/libc/IOP/driver/GS/VU1, 23,035 instructions) are replaced by native
+  platform services and the native renderer. The edge recorder confirmed
+  all 703 live rows (677 by a live candidate, 26 inline in a live function
+  of their module, read by hand) over the full route, the three side runs,
+  newgame-control and the area change, and found no non-live row whose own
+  translation runs live.
 - Status: **PARTIAL**. First level only, and only the played route to
   Roger's encounter. Not covered: the level exit, unplayed branches
   (damage/death, pause/options/save, weapon and camera inputs, the truck-pit
   fall, the west-yard and plateau ladders) and boot before the title.
-  Boundary functions are native replacements, not translations. "Stand-in 0"
-  counts census rows only; census 2.3 "What still stands in" lists non-row
-  stand-ins still on the route. Instrumented liveness was last measured at
-  1.33 (2026-09-27), which confirmed all 660 live rows then and found no
-  non-live row whose translation runs live; the six rows 1.35 moved to live
-  (the load veil) are proven by the level smoke's executed-original check. The remaining gaps, prioritized, are
-  `FIRST_LEVEL_AUDIT.md` section 1b.
+  Boundary functions are native replacements, not translations; the sound
+  library's boundary (the SPU2 output) is the largest uncompared one.
+  "Stand-in 0" counts census rows only; census 2.3 "What still stands in"
+  lists non-row stand-ins still on the route. The remaining gaps,
+  prioritized, are `FIRST_LEVEL_AUDIT.md` section 1b.
 
 **The first-level route is replayed headless and checked phase by phase against PCSX2 recordings**
 
@@ -149,16 +152,24 @@ as recorded in PCSX2 on the same route.
   reached.
 - Evidence: `LEVEL_SMOKE.md` "Route coverage": beats 01..14 live on the main
   line (18 phases), side beats 00 and 09, plus `fence_door_side1` against the
-  C7 DOOR1 capture. Commit 4366957: test-level-smoke-full PASS through roger.
+  C7 DOOR1 capture, and the designed `status_pages` run replayed through the
+  original instructions. Chain C8b ROUTE (2026-09-28, port HEAD 6594182):
+  `make test-level-smoke-full` PASS through roger (NOT-LIVE: none) with its
+  three side runs, and `make test-level-smoke-ps2-drive` PASS.
 - Status: **PARTIAL**. First level only. The walks between scripted windows
   are navigation and are not compared. Pixels and sounds are not compared at
   all. `LEVEL_SMOKE.md` "What the full route does not yet compare" lists the
-  relaxed checks (the panel prompt window, 7 ticks in the port against 30 in
-  the original; line 0x7F's teardown 2 rows early; Roger's flags before his
-  clip init; slide/ladder landings within one row; the opening's rand()
-  values after its actors' spawn, which the stream request's wait moves
-  (host speed, the policy); the fans' phase at the snapshot ticks (only
-  their cycle is compared); 001DDE10's frame-copy sprites). The level exit is not in the smoke.
+  relaxed checks (line 0x7F's teardown 2 rows earlier than the drive mode
+  alone explains; Roger's flags before his clip init; slide/ladder landings
+  within one row; the player's and Roger's units at the snapshots the
+  navigation does not reach exactly; the opening's rand() values after its
+  actors' spawn, which the stream request's wait moves (host speed, the
+  policy); the fans' phase at the snapshot ticks (only their cycle is
+  compared); the rand()-seeded sprites; 001DDE10's frame-copy sprites; the
+  load veil's length). At host speed (the policy) the status page's module
+  load takes the loader's 10 steps where the recording's disc took 24, and
+  the rows after it are compared at that shift. The level exit is not in the
+  smoke.
 
 **PS2 floating-point math reproduced bit for bit, as measured in PCSX2**
 
@@ -206,16 +217,21 @@ timing.
   e99d8cb. `tools/compare_frame_order.py` compares the port's trace event by
   event.
 - Evidence: `ORIGINAL_FRAME_ORDER.md` "How it was measured" and 1-4.
-  `LEVEL_SMOKE.md` "Frame order" and commit e99d8cb: idle04, walk04, st03,
-  cut02 and cut15 PASS (2026-09-27). `SCENE_COORDINATOR_DESIGN.md`: st14 PASS.
-  Decomp `CAPTURES_C7.md` 1: every main-loop frame in the four stream
-  stretches is exactly one field.
-- Status: **PARTIAL**. PASS is subject to `tools/frame_order_allow.json`'s 4
-  known differences (the footstep effect node in walk04, WP-15; the opening
-  script's actors and effect nodes in st03/cut02, WP-10). cut07 passes only
-  with a scratch allow file. Only the traced situations are covered (2-3
-  frames each, plus the smoke's windows); the movie-gated steps M/N/O never
-  ran in any trace. Tests run uncapped (`EM_UNCAPPED=1`), so host pacing is
+  `LEVEL_SMOKE.md` "Frame order": over a newgame-control trace idle04 (native
+  index 1330), walk04 (1392, a walking window), st03 (1321), cut02 (26) and
+  cut15 PASS event for event with an empty allow list (chain C8b ROUTE,
+  2026-09-28, at port HEAD 6594182; with the PS2 disc-drive timing switch
+  on: 1340, 1402, 1331, 36 and cut15, also PASS). Decomp `CAPTURES_C7.md` 1:
+  every main-loop frame in the four stream stretches is exactly one field.
+- Status: **PARTIAL**. `tools/frame_order_allow.json` holds no entry since
+  chain C8b ROUTE: the last one (the walking footstep's effect node in
+  walk04) was retired because the port's walk spawns that node through the
+  original 00187EE0 -> 001EFD90 (census L26), and walk04 now passes in a
+  walking window without it. Only the traced situations are covered (2-3
+  frames each, plus the smoke's windows): cut07 (selector 3) and st14
+  (Roger) find no matching window in a newgame-control trace and were not
+  re-compared; the movie-gated steps M/N/O never ran in any trace. Tests
+  run uncapped (`EM_UNCAPPED=1`), so host pacing is
   not measured by any test.
 
 **The game's own random-number generator, bit-exact**
@@ -813,8 +829,12 @@ original's one-frame view lag is kept.
   the door (09) row for row; the panel exact from f679; the truck preview
   converges to 1e-5. Commits 53b4378, cfc6372, c7a04a4.
 - Status: **PARTIAL**. The opening's camera timeline is still a stand-in
-  (releases one settle frame early). The aim camera and the examine shot are
-  stand-ins. The slide entry is 0.863 units off (relaxation pending review).
+  for its eye / target sampling and event cursor (census L33; its timeline
+  words are the original's, and the hand-off settle at first control
+  equals the capture byte for byte in the level smoke's first_control
+  check). The aim camera and the
+  examine shot are stand-ins. The slide entry is 0.863 units off
+  (relaxation pending review).
 
 **Recorded reference frames for a pixel-accurate Original profile**
 
@@ -838,16 +858,22 @@ measured against them pixel by pixel.
 These first-level visuals do not yet come from the original draw path.
 Advertise the items above only.
 
-- Evidence: `OWNER_DRAW.md` 11, `CHAIN_PAGE.md` 6, `LOAD_VEIL_PARTICLES.md`,
-  census lane L38.
-- Status: **PLANNED**. Roger is drawn from an exported model (the face-morph
-  program is translated and proven on 60 face units but its builders are not
-  bound). The security gun's lamp
-  (a dark indicator child in the first level) is not drawn. The
-  area-load veil runs and is drawn from its own packets, but the port's area
-  read finishes inside one call, so the veil draws only one frame, at level 0
-  (black; the entry above). Roger's drop shadow is not computed (whether the
-  original shows it is unknown).
+- Evidence: `OWNER_DRAW.md` 11, `CHAIN_PAGE.md` 6, `LOAD_VEIL_PARTICLES.md`
+  5, `BACKGROUND.md`, `STATUS_PAGES.md` 7, census lane L38,
+  `FIRST_LEVEL_AUDIT.md` 1b (2026-09-28).
+- Status: **PLANNED**. The indicator children (the pickups' and the
+  terminal's markers) draw their model mesh additively at the child's own
+  node instead of their original unit 001CABA0; the security gun's lamp
+  (dark in the first level) is not drawn. The area-title card is the port's
+  own card, not 001C5860 / 001C5930. The sky grid is a native model of its
+  VU1 kernel (checked against it), not the kernel's own output. The status
+  hub's and the MAP page's models are drawn by the renderer's skinned path
+  with the original's matrices. 001DDE10's four frame-copy sprites are not
+  drawn. The area-load veil runs and is drawn from its own packets, but the
+  port's area read finishes inside one call, so the veil draws only one
+  frame, at level 0 (black; the load-veil entry above). (Roger, his face
+  and his shadow have been drawn by the original code since chain C8b's
+  FACE step: see the face entry and "Roger's own projected drop shadow".)
 
 ### Sound and timing
 
@@ -1065,8 +1091,9 @@ fades change on the same ticks as in the recordings.
   fence door), each in its own run. In the census 1.22 recount (2026-09-26)
   all 18 main-line phases passed and their capture checks passed again on
   the tick log. Census 1.30 (HEAD 4366957) and 1.31 list the same full
-  target as passing, and census 1.33 (HEAD 6da4eb5) re-ran every phase on an
-  instrumented build and the checker on its tick log (PASS). The truck
+  target as passing, and census 1.33 (HEAD 6da4eb5) and 1.44 (HEAD 6594182,
+  chain C8b ROUTE) re-ran every phase on an instrumented build and the
+  checker on its tick log (PASS). The truck
   preview compares every row from f164 through
   the release at f527, plus 25 rows after it. Roger's encounter compares
   1,531 rows (f288..f1818) with every compared field equal. Mutations fail
@@ -1115,26 +1142,25 @@ units per second.
   not count as evidence. Instrumented builds measured which functions
   actually run.
 - Evidence: `FIRST_LEVEL_CENSUS.md` sections 1.1, 2.1 and 2.3. Totals as of
-  section 1.33 (2026-09-27, unchanged since 1.30): 660
-  of the 741 non-boundary functions are live and verified (89.1% of
-  functions; 80,726 of 87,968 instructions, 91.8%). 77 are verified
-  translations that the live app does not run yet, 3 are unverified
-  (0015CF90, 001B1190, 001FC280) and 1 is missing (001CB3C0). 443 are
-  platform boundaries (SDK, IOP, GS and similar). No row is classified
-  stand-in. The last whole-route liveness measurement, section 1.33
-  (2026-09-27, HEAD 6da4eb5), used an edge-recorder build that confirmed all
-  660 live rows (section 1.22 had confirmed the 634 of its time).
+  section 1.44 (2026-09-28, chain C8b ROUTE, HEAD 6594182): 703 of the 756
+  non-boundary functions are live and verified (93.0% of functions; 85,512
+  of 88,729 instructions, 96.4%). 50 are verified translations that the
+  live app does not run yet, 3 are unverified (0015CF90, 001B1190,
+  001FC280) and none is missing. 428 are platform boundaries (SDK, IOP, GS
+  and similar). No row is classified stand-in. The last whole-route
+  liveness measurement, section 1.44, used an edge-recorder build that
+  confirmed all 703 live rows (1.33 had confirmed the 660 of its time).
   `FIRST_LEVEL_AUDIT.md` sections 1 and 4 list the removed
   fabrications (WP-0..WP-2; H8 fixed in 9d4a631; H13 via census L18; H16
   via census L23; H20).
 - Status: **PARTIAL**. The census counts only functions the recorded route
   executes, once per label. It does not record which jump-table cases the
   route used (census 7.1). Beat 15 (the level exit) is not in the census
-  tables. 0015BCF0 is live only in part. The four functions without a
-  verified live translation include 001FC280's body and the player's face
-  attachment draw 001CB3C0. "No stand-in rows" does not mean no stand-in
-  code runs. Census 2.3 still lists stand-in behaviour on the route: the
-  camera stand-ins that pre-empt the examine and aim actions (L28), the
+  tables. 0015BCF0 is live only in part. The three functions without a
+  verified live translation include 001FC280's body. "No stand-in rows"
+  does not mean no stand-in code runs. Census 2.3 still lists stand-in
+  behaviour on the route: the camera stand-ins that pre-empt the examine
+  and aim actions (L28), the
   indicator children's +0x4C draw, the chain page's four-sprite pass, the opening's
   camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
@@ -1640,7 +1666,9 @@ Resolved by the user on 2026-09-27:
    none until the area read runs the loader task's own steps (H7: the
    area streamer is translated; its sound-bank step is not live yet).
 
-Missing faithful behaviour that blocks a "first level complete" claim:
+Missing faithful behaviour that blocks a "first level complete" claim (the
+whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
+2026-09-28 after chain C8b; its headline items):
 
 - the load veil's duration: the area read finishes inside one call (the
   loader task 001FF0D0's own steps, H7: the area streamer 001FFCD0 is
@@ -1648,12 +1676,17 @@ Missing faithful behaviour that blocks a "first level complete" claim:
   and IOP side), so the veil draws one black frame;
 - audio output: no SPU2 reverb, Gaussian interpolation or master volumes;
   sounds are not compared in the smoke;
-- visuals: pixels not compared with the reference frames; the GS-exact
-  renderer is queued; the fan does not spin; some owners draw legacy meshes;
+- visuals: pixels not compared with the reference frames (no harness);
+  the GS-exact renderer is queued (the clean-room GS model of `GS_EXACT.md`
+  is measured but not wired); the draws of the disclosure entry above are
+  not yet the original's;
 - disc-sourced assets: every texture and all but two first-level assets
   come from the disc alone since 2026-09-28; `interaction.emis` and
   `background.embg` still read a PCSX2 capture, which end users will not
   have;
+- logic still on stand-ins on the route: the panel's, the terminal's and the
+  items' takeovers, the opening's camera timeline sampling, the examine and
+  aim camera shots (census 2.3);
 - platforms: Windows and Linux have no renderer yet.
 
 ---

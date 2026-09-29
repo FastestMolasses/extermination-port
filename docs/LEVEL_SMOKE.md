@@ -1692,7 +1692,19 @@ port's area read completes inside 001FF080(1, 0), so the load spans no tick
 `make test-level-smoke-full` plays route beats 01..14 on the main line and 00
 and 09 in their own runs, and every phase reproduces its capture. These are
 the places where a check is still relaxed. Each is reported by its phase,
-never silently skipped. What removes each:
+never silently skipped. Chain C8b ROUTE re-ran the whole route at port
+HEAD 6594182 (2026-09-28: `make test-level-smoke-full`, NOT-LIVE: none, and
+`make test-level-smoke-ps2-drive`) and re-read every row against the run's
+report: each row below still holds as written, and none could be removed
+faithfully in that step (each waits on navigation timing, the rand()
+stream's position, a renderer stage, the area load's sound-bank chain or a
+new capture). Since chain C7's table (2026-09-27) chain C8b removed the
+panel's prompt-window row (the module loader, LOADER) and check_shadow's
+reported opening post-steps (the opening's records, OPENING), and moved
+check_rand_order's row from AE+1 to the actors' spawn (the security gun's
+owner, census L24; OPENING); it added the rows of the checks it created
+(Roger's units and faces, the fans' phase, the flame's and the snow's
+sprites, the load veil). What removes each:
 
 | Where | What is relaxed | Why | What removes it |
 |---|---|---|---|
@@ -1726,18 +1738,26 @@ LOCOMOTION_DISPLAY.md does. Without it the comparator aligns idle04 / walk04
 three selector-0 ticks at the opening's end, where record 13 (008257A0)
 still ticks. The report then shows "drum area11[14] against 008257A0
 area11[13]". That is an alignment artefact, not a node-order divergence:
-from native index 1330 (counter 2587, first control + 11) idle04 and walk04
-PASS event for event, and cut15 on its own window (2026-09-27, host speed,
-the default). Since chain C8b OPENING (2026-09-28) the opening's two
+from native index 1330 (counter 2587, first control + 11) idle04 PASSes
+event for event, and cut15 on its own window (host speed, the default).
+walk04 is compared in a walking window: from native index 1392, the tick
+the port's walk spawns its first footstep effect node (00187EE0 ->
+001EFD90 -> 001EF9D0, callback 001EA240, census L26), it PASSes event for
+event; an idle window (1330) lacks that node, which the original's walking
+frame holds. Since chain C8b OPENING (2026-09-28) the opening's two
 001BB0E0 records and their head sprite are in the walk, as in the
-original, and their allow entries are gone: cut02 PASSes from native index
-26 (the actors' spawn, AE+10; before it the walk lacks them) and st03 at
-native index 1321 (the records' last walk after the controller's done mask,
-the original's frame 3965). With the PS2 disc-drive timing
+original: cut02 PASSes from native index 26 (the actors' spawn, AE+10;
+before it the walk lacks them) and st03 at native index 1321 (the records'
+last walk after the controller's done mask, the original's frame 3965).
+`tools/frame_order_allow.json` has no entry since chain C8b ROUTE
+(2026-09-28): its last entry, the walking footstep node, was retired
+because the port spawns the node through the original chain and walk04
+passes without it (a stricter comparison). With the PS2 disc-drive timing
 switch on (`EM_PS2_DISC_DRIVE_TIMING=1`) first control comes 10 frames
-later and the windows are native index 1340 (counter 2597) for idle04 and
-walk04, 36 for cut02 (the spawn at AE+20) and 1331 for st03, where the same
-five PASS (2026-09-28).
+later and the windows are native index 1340 (counter 2597) for idle04,
+1402 for walk04, 36 for cut02 (the spawn at AE+20) and 1331 for st03,
+where the same five PASS (2026-09-28). cut07 (selector 3) and st14 (Roger)
+have no matching window in a newgame-control trace.
 
 ## Adding a phase (the contract for WP-4 onward)
 

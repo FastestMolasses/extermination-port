@@ -632,7 +632,7 @@ contain the load, with these names:
 ## 5. Known gaps
 
 - **The area load does not run through the loader yet** (the step's
-  blocker; FIRST_LEVEL_AUDIT.md 1b item 11). 001FFCD0 and 001FF590 are
+  blocker; FIRST_LEVEL_AUDIT.md 1b item 3). 001FFCD0 and 001FF590 are
   translated and verified (section 1.9), but binding them live needs their
   first bank step, 001FF590(0xAB, 0) -> 001FB370, which uploads the area's
   sound bank (AREA11: one; its +0x0C is 1). 001FB370 / 001FB3E0 / 001FB910

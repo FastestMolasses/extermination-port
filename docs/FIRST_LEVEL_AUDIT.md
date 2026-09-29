@@ -769,7 +769,8 @@ sections 3-5, census 1.35):**
   a load spans no tick at host speed: 0021B550 never enters state 1, the
   level stays 0 and the veil draws one frame, black, as the original's code
   does for a load that ends at once (the PS2 drew 258 frames at New Game).
-  Item 11 below (the loader task's own steps) is what makes it visible.
+  Item 3 of section 1b (the loader task's own steps) is what makes it
+  visible.
 - **Evidence.** The level smoke's `check_load_veil` (every run): the live
   run is byte-equal to the ORIGINAL 0021B1B0 executed at the same call, its
   seed equals the port's and all 15 route captures', the original 0021B500
@@ -871,7 +872,7 @@ module 0x21; MODULE_LOADER.md, census 1.38):**
   (001FFCD0 and 001FF590 against the original instructions: AREA11's
   header and synthetic headers through every state). newgame-control
   9.599849 (unchanged).
-- **Not done: the area load** (1b item 11). 001FFCD0 / 001FF590 are
+- **Not done: the area load** (1b item 3). 001FFCD0 / 001FF590 are
   translated and verified but not bound: the sound-bank step 001FB370 they
   wait on runs the EE sound library's queue, the SIF DMA and the driver's
   command 0x20, none of which is live. The load veil still draws one black
@@ -1202,12 +1203,66 @@ user's disc alone"; DISC_TEXTURES.md sections 6 and 9, STARTUP.md):**
   reproduced whole by the current exporters (older bakes), though their
   texels are the disc's.
 
-### 1b. What still separates the port from the original first level (prioritized, 2026-09-27)
+**Status update (2026-09-28, chain C8b ROUTE: full route, census re-measured,
+the remaining gaps re-made; census 1.44):**
+- **The whole route passes at port HEAD 6594182.** `make
+  test-level-smoke-full` passes with `--require-through last` (18 main-line
+  phases through roger, NOT-LIVE: none) and its three side runs
+  (`panel_no_battery`, the designed `status_pages`, `fence_door_side1`);
+  `make test-level-smoke-ps2-drive` (the switch on) and the default `make
+  test-level-smoke` pass too. Every relaxed check is still reported by its
+  phase; LEVEL_SMOKE.md "What the full route does not yet compare" was
+  re-read against the run's report and still holds row for row. None could
+  be removed faithfully in this step (each waits on navigation timing, the
+  rand() stream's position, a renderer stage, the area load's sound-bank
+  chain or a new capture).
+- **Frame order: no allowed difference left.** The last entry of
+  `tools/frame_order_allow.json` (the walking footstep's effect node in
+  walk04, "the port's player stage has no 00187EE0 effect spawn") was
+  stale: the port spawns that node through the original 00187EE0 ->
+  001EFD90 -> 001EF9D0 since census L26, and walk04 passes event for event
+  in a walking window (native index 1392; 1402 with the PS2 disc-drive
+  timing switch) with an empty allow list. The entry is retired (a stricter
+  comparison); idle04 (1330), st03 (1321), cut02 (26) and cut15 pass with
+  it gone, in both drive modes (1340 / 1331 / 36 with the switch).
+- **Census 1.44.** The edge recorder re-measured every row over the full
+  route, the three side runs, newgame-control and the area change: all 703
+  live rows are confirmed (677 by a candidate that ran live, 26 inline), no
+  non-live row's own translation runs live, and 001D8270 (the fold gate,
+  inline in the live 001D8340 / 001D89D0 translations) moves to live. Totals:
+  live 703, verified-unbound 50, unverified 3, stand-in 0, missing 0,
+  boundary 428; 96.4% of the non-boundary instructions are live. Twenty
+  boundary functions (the IOP stream driver, the stream packers, the lane
+  init, the pad actuator, the module loader's steps, 001008C0) run named
+  translations and stay boundaries (section 4's rule).
+- **Checker wording.** check_render_context's report said the world lists
+  were compared "without the +0x1D8 CALL, 001C1D00 unbound", which has been
+  false since the static-world step (it compares the seven-tag lists with
+  the CALL); the message now says so. No assertion changed.
+- **What remains** is section 1b below, re-made for the state after chain
+  C8b: 23 items in five groups, the first three being the audio output
+  (the SPU2 model and an audio capture), the GS-exact renderer with a pixel
+  harness, and the area load with its veil; release blockers (platforms,
+  two capture-bound assets, frame cost) are listed apart.
+- **Evidence.** All make test-* targets pass except test-scene-no-shadow,
+  which fails at HEAD only on the committed level-4 file
+  src/game/em_area02_misc.c:411 (outside the first level; for the lead);
+  newgame-control 9.599849 (locked_ticks 1301; 1311 with the switch); `make
+  all` builds with no warnings; `compare_frame_order.py --self-test` passes
+  with the empty allow list.
+
+### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
-Roger's encounter. It was made after the full-route smoke and the census
-re-measurement above. Each item is here because a census row, a relaxed smoke
-check or a module doc names it. The list itself changes nothing.
+Roger's encounter. It was re-made at the end of chain C8b, after the full-route
+smoke and the census re-measurement (section 1.44 of FIRST_LEVEL_CENSUS.md) at
+port HEAD 6594182. Chain C8b closed the previous list's security gun, cable
+and fans (census L24), the opening's actors, the static world, Roger's face
+units and shadow, the flame and the snow on the chain page, the status pages
+and the module-0x21 load; their status updates above say what is left of each,
+and those remainders are folded into the items below. Each item is here because
+a census row, a relaxed smoke check, a module doc or a missing measurement names
+it. The list itself changes nothing.
 
 Each item gives:
 - its area: logic, look, sound or feel;
@@ -1218,209 +1273,197 @@ Each item gives:
 "Capture" marks items that need a new original recording. A chain step must
 not launch PCSX2, so those items go to the lead.
 
-The items are ordered in four groups:
-- A: what differs on the route in every run;
-- B: what differs on the route now and then;
+The groups:
+- A: what a player sees or hears differently on the route, in every run;
+- B: what differs on the route now and then, or in state the player does not
+  see;
 - C: what a player reaches off the recorded route;
-- D: what may already be original but is not yet proven (evidence gaps).
+- D: what may already be original but is not yet proven (evidence gaps);
+- E: what blocks a release without being game behaviour.
 
 **A. On the route, every run**
 
-1. **Done (census L24, 2026-09-28): the security gun, its cable and the fan
-   pair are on their original owners** (SECURITY_GUN.md section 5,
-   FAN_ORIGINAL.md). The gun's lifecycle-0 rand() draw (0x8259F0) is now the
-   original's AE+1 call; the opening's first rand() difference is the
-   player face's AE+5 draw (item 2). What remains of it: the gun's
-   return-visit lifecycles 4 / 1 fault by design; the cable's hit faults at
-   001EFE00 (unreached: no live +0x36 writer); the flag-0x30 manager
-   00823CE0 is still a no-code node; the gun's lamp does not draw (item on
-   the indicator children's 001CABA0 path).
-2. **Done (chain C8b OPENING, 2026-09-28): the opening's actors are on their
-   original records** (OPENING_ORIGINAL.md). The script 0x828FC0 runs on the
-   script host, its op14 spawns the two 001BB0E0 records, the player plays
-   the opening on its own stage; their faces tick at the original callers
-   and their node matrices equal the opening capture's. What remains of the
-   opening: the scene-0x22 camera timeline's stand-in (census L33: its
-   sampling and the +0x80 event cursor), and the drive's timing (the
-   user's host-speed policy: the actors spawn and the opening ends 21
-   frames earlier than the original's).
-3. **Done (2026-09-28, the static-world step): the static world is drawn
-   from its original packets** (STATIC_WORLD.md). 001C1D00 runs its whole
-   tree every world frame over the exported static-object bank; its
-   channel-0 run goes through the level kernel 0x00237180 and the clip
-   kernel 0x00239C90's translations and every triangle the GS would draw
-   is drawn (em_gfx_gs_opaque); step V's list has the +0x1D8 CALL and the
-   background gate reads it. The legacy zone meshes no longer load in
-   AREA11. What remains of it: the frame cost of the CPU kernels
-   (STATIC_WORLD.md section 6), the background grid itself is still drawn
-   by em_background_gs's model of 0x0023C990 (checked by
-   test_background_reference), and 001D5BD0 / the flag-0x22 and flag-0x23
-   branches are bound to a fault (never reached on the first level).
-4. **Look: the lighting stand-ins.** Lanes L40 and L33.
-   - The actor fold gate 001D8270 is verified but not called, and the
-     renderer's post-draw tint (em_render_frame char_rig_build) stands in for
-     it and for 001D8690's actor RGB on the legacy meshes that still draw
-     (001D8690 itself runs live inside 001CB3C0's 001D88B0 since chain C8b's
-     FACE step).
-   - These are not bound: the UI lighting mode 001D8C30 and the fade
-     weights 001D8060 / 001D80B0 / 001D9070 (the face lighting 001D88B0 and
-     001D8690 run inside 001CB3C0 since chain C8b's FACE step).
-   - The room point-light lists are resolved offline by
-     tools/export_point_lights.py. The original resolves them at run time
-     in 001F6640 / 001F66F0 / 001F6760 / 001F6D60 / 001F6E40.
-5. **Done (chain C8b FACE, 2026-09-28): Roger's face and the face units.**
-   001CB3C0 is live for Roger and the player (FACE_ATTACH.md); Roger and his
-   equipment draw their original units; the player's 001CA700 / 001CA770
-   run on its +0x90 slot; Roger's shadow draws. What remains of it: the
-   opening's actors (item 2), the shared stack's missing player pops
-   (FACE_ATTACH.md section 5), and no pixel comparison of a face frame.
-6. **Sound: the SPU2 voice model.** Section-4 boundary: 41 EE sound-library
-   functions have no original comparison. WP-14 AM-03 / 04 / 26 / 27.
-   - The mixer is dry: no ADSR, no reverb bus, no Gaussian interpolation.
-   - The positional gain 001FBF50 (AM-19) has no oracle.
-   - The looped positional voices 001FC3C0 are verified but not bound (the
-     flame's 0x413).
+1. **Sound: the audio output.** Everything the game's code asks of the
+   sound hardware is translated and checked at the command level (the stream
+   lanes, the IOP stream driver, the 277-entry effect registry), but what
+   reaches the speakers is the port's own SPU2 voice model, and nothing
+   compares it with the original.
+   - The mixer is dry: no reverb bus (the status screen's effect-return
+     volume 00119828 is sent and inaudible), no Gaussian interpolation, no
+     core master volumes; the ADSR stepping is a documented-semantics model.
+     Section 4 boundary: 41 EE sound-library functions have no original
+     comparison (WP-14 AM-03 / 04 / 26 / 27).
+   - Cues: the UI cues 0 / 1 / 2 / 5 / 0xB / 0xD (AM-07); the positional
+     gain 001FBF50 has no oracle (AM-19); the looped positional voices
+     001FC3C0 are verified but not bound (the flame's 0x413); 001FBDB0 is
+     verified but not bound; 001FBC50's live part is em_sfx_stop_all, which
+     no oracle checks; 001FC280's body is unverified (its D_00282160 cache is
+     not modelled); the sound-bank loader chain 001FB370 / 001FB3E0 /
+     001FB910 / 001FC6E0 and the rest of 001FB100 (the output-mode commit,
+     the D_00281B70 copy) are not bound (also item 3).
    - Capture: nothing records SPU2 output today, and the smoke compares no
      sound.
-7. **Policy: the disc-drive timing switch. Resolved 2026-09-27.** The drive
-   model measured from the recordings is behind the PS2 disc-drive timing
-   switch (LAUNCHER_OPTIONS.md BUILT), off by default: the Original profile's
-   streams read at host speed. check_voice_drive, the opening's end and the
-   frame-order window (native index 1330 at host speed, 1340 with the
-   switch) follow the run's mode (LEVEL_SMOKE.md "The stream drive's two
-   modes"). Since chain C8b LOADER the same switch selects the module
-   loader's recorded drive time for module 0x21's two reads (H7; 24 frames
-   instead of the 10 host-speed dispatches).
+   - What removes it: an audio capture of the route (the lead), the SPU2
+     reverb, interpolation and volume stages translated from the IOP
+     driver's own tables, then an output comparison in the smoke.
+2. **Look: the GS-exact renderer and the pixel harness.** The inputs of every
+   first-level draw are the original's (the level's packets through the level
+   and clip kernels, the object units, the faces, the chain page, the shadow,
+   the veil), but the pixels are Metal's:
+   - rasterization is Metal's float interpolation at the host resolution,
+     not the GS's DDA, and the world frame is not a 512x224 GS field
+     (PORT_PROFILES.md "Queued work" 2);
+   - the clean-room GS model (phase B16, `src/gs/`, GS_EXACT.md) is measured
+     against PCSX2's software GS but not wired (GS_EXACT.md section 9);
+   - named pixel differences: a Gouraud fog weight reaches the blend at
+     8-bit precision where the GS uses 8.7 (GS_EXACT.md 5.2), the skinned
+     path's fog is not floored, glyphs are sampled bilinearly from the port's
+     atlas (the original's sampling not checked against the font packet's
+     TEX1), 001DDE10's four frame-copy sprites are walked over, not drawn,
+     and a vertex whose RGBAQ precedes every ST of its page is drawn with
+     Q = 1.0 (about 2 per page);
+   - no pixel metric exists: the fb2 software-renderer frames (19 route
+     points, decomp CAPTURES_C7.md 5b) wait for a harness (PORT_PROFILES.md
+     "Queued work" 1); the camera-exact beats 10 and 14 are the candidates;
+   - how the 512x224 fields are presented is the user's open decision
+     (LAUNCHER_OPTIONS.md, REVIEW).
+   - What removes it: the harness first (it turns "looks like" into a
+     number), then the GS model bound for the Original profile.
+3. **Look / feel: the area load and its veil (H7).** The port's area read
+   (em_game_legacy_area_load for 001FF080(1, 0)) finishes inside the call,
+   so 001ADF50's load spans no tick and the load veil 0021B550 draws one
+   black frame (the PS2 drew 258 at New Game). The area streamer 001FFCD0
+   and 001FF590 are translated and verified but not bound: their bank step
+   hands the area's sound bank to 001FB370, whose steps run the EE sound
+   library's handle table and command queue (00119528, 00119400, 00119450,
+   001199F0, 001195A8), the SIF DMA and the sound driver's command 0x20.
+   - What removes it: em_iop_stream's driver extended with command 0x20 and
+     the SIF DMA, the EE sound queue bound over it, 001FB370 bound, then
+     001FFCD0 with New Game's module-3 load (MODULE_LOADER.md section 5).
+     The veil then shows for as many ticks as the loader's steps take at
+     host speed. Capture: a mid-load software-renderer frame for its pixels.
+4. **Look: the lighting stand-ins** (lanes L40 and L33).
+   - On the draws still on the renderer's skinned path (the status hub's
+     and the MAP page's models) the renderer's char_rig_build tint stands in
+     for the fold gate 001D8270 and 001D8690's actor RGB. Both originals run
+     live elsewhere: 001D8270 inline in the 001D8340 / 001D89D0
+     translations of every object-unit draw (census 1.44), 001D8690 inside
+     001CB3C0.
+   - Not bound: the UI lighting mode 001D8C30 and the fade weights 001D8060
+     / 001D80B0 / 001D9070.
+   - The room point-light lists are resolved offline by
+     tools/export_point_lights.py; the original resolves them at run time in
+     001F6640 / 001F66F0 / 001F6760 / 001F6D60 / 001F6E40 (verified-unbound).
+5. **Look: draws not yet on their original units.**
+   - The indicator children's +0x4C is 001CABA0 (001CACB0 / 001CAAC0
+     verified-unbound); the port draws each child's model mesh additively at
+     the child's own node, and the security gun's 0x7A lamp draws nothing
+     (dark in the first level) (OWNER_DRAW.md 11).
+   - The area title card 001C5860 / 001C5930 is em_hud's legacy card.
+   - The sky grid is em_background_gs's model of the VU1 kernel 0x0023C990
+     (checked by test_background_reference), not the kernel run over the
+     kicked +0x1D8 list.
+6. **Look: the opening's camera timeline** (census L33). Scene 0x22's
+   timeline words are the original's since chain C8b OPENING; its eye /
+   target sampling and the +0x80 event cursor are the opening lane's
+   stand-in for 0022EEF0 (em_opening_runtime_camera_sample). The hand-off
+   at first control equals the capture byte for byte (the level smoke's
+   first_control), so the stand-in shows only inside the opening.
+7. **Feel: the examine and aim camera shots** pre-empt camera action 0 with
+   stand-ins (lane L28; census 2.3).
 
-**B. On the route, now and then**
+**B. On the route, now and then, or in state the player does not see**
 
 8. **Logic: the panel's, the terminal's and the items' takeovers.** They run
    the interaction runtime's acquire and per-stage tick over their scripts'
-   animation core. The script owners' takeovers are the stage's own since
-   chain C7 (0015B130's prelude, 0015B530, 00182DF0). These three share
-   only the release, 00182DF0, with them.
-   - What removes it: their scripts request clips through +1F2 / 00183090
-     on the stage.
-9. **Look: draws not yet on their original units.**
-   - The indicator children's +0x4C is 001CABA0. The port still draws each
-     child's model mesh additively at the child's own node.
-   - Roger's projected shadow 001DA6A0 is reported (UM_001DA6A0), because
-     his kind 0x29 proxy is not exported.
-   - (Done in chain C8b FLAMESNOW: the snow and the AREA11 flame draw on
-     the chain page from their original packets, CHAIN_PAGE.md section 6.1.)
-   - 001DDE10's frame-copy four-sprite pass is walked over, not drawn.
-   - If a vertex's RGBAQ comes before any ST on its page, the chain page
-     draws it with Q = 1.0.
-   - The area title card 001C5860 / 001C5930 is em_hud's legacy card.
-   - The load veil is drawn from its own packets since chain C8, but it
-     draws one black frame per load: the area read ends inside one call
-     (item 11: the area streamer is translated but blocked on the sound
-     bank upload; LOAD_VEIL_PARTICLES.md section 5).
-10. **Sound: silent or partly bound cues.**
-    - The UI cues 0 / 1 / 2 / 5 / 0xB / 0xD and the unit sound are silent
-      (AM-07).
-    - These are not bound: the sound-bank loader chain 001FB370 /
-      001FB3E0 / 001FB910 / 001FC6E0, and the rest of 001FB100 (the
-      output-mode commit and the D_00281B70 copy). 001FB370 is also what
-      the area load waits on (item 11).
-    - 001FBC50's live part is em_sfx_stop_all, which no oracle checks.
-    - 001FBDB0 is verified but not bound.
-    - 001FC280's body is unverified: its D_00282160 cache is not modelled.
-11. **Logic / feel: the area load's dispatches (H7).** The module-0x21
-    load (the BATTERY prompt and pop-up) runs the loader's own steps since
-    chain C8b LOADER: the prompt takes the request 16 ticks after the post
-    at host speed (the original's 30 less the drive's 14 busy polls) and 30
-    with the PS2 disc-drive timing switch. What is left is the area read
-    001FF080(1, 0):
-    - the port's read (em_game_legacy_area_load) finishes inside the call,
-      so 001ADF50's load and the load veil span no tick (the PS2: 258
-      frames at New Game);
-    - the area streamer 001FFCD0 and 001FF590 are translated and verified
-      (MODULE_LOADER.md section 1.9), but their bank step hands the area's
-      sound bank to 001FB370, whose steps run the EE sound library's handle
-      table and command queue (00119528, 00119400, 00119450, 001199F0,
-      001195A8), the SIF DMA to IOP memory and the sound driver's command
-      0x20 with its acknowledgement: none of that is live, and a port
-      answer would decide the veil's length by invention;
-    - what removes it: em_iop_stream's driver translation extended with
-      command 0x20 and the SIF DMA, the EE sound library's queue bound over
-      it, 001FB370 bound, then 001FFCD0 bound with the New Game module-3
-      load (001AD1A0) and the area read routed through the loader
-      (MODULE_LOADER.md section 5 lists the exports it then needs).
-12. **Logic: startup, input and frame glue that is still the port's own.**
-    All of these rows are verified-unbound. The captures prove only their
-    observable results.
-    - The pad read 001B57E0 / 001B5F40 is em_frame's frame_input_read.
-      001B5940's block itself is live.
-    - The area build's re-arm 001AF690 / 001AFCA0 is w_001AFCA0. Only its
-      001AF5C0 is original.
-    - The overlay init 008237C0 is the roster spawn.
-    - 001AC070 / 001AB790 are the legacy task installs for Continue and New
-      Game.
-    - 001AB4E0 is not bound.
-    - Camera state 0's 00199C50 is a reported no-effect binding.
-13. **Logic: the three unverified rows.** Each needs an oracle that executes
-    it:
-    - 0015CF90: the D_00810707 / B9 progress bytes;
-    - 001B1190: the pickups' persistence event;
-    - 001FC280.
+   animation core; they share only the release, 00182DF0, with the script
+   owners' takeovers (the stage's own since chain C7). What removes it:
+   their scripts request clips through +1F2 / 00183090 on the stage.
+9. **Logic: the other page modules' loads.** Module 0x21 loads through the
+   loader's own steps (chain C8b LOADER); the ITEM root's 0x1F and the
+   pages' 0x1E / 0x20 / 0x22..0x24 / 0x2C..0x31 still load at once (their
+   uploads are not yet proven equal to the port's atlas). Under the policy
+   the loader's steps are game code and must run, at host speed.
+10. **State: the shared bone-slot stack 001AF710.** The player's 21 node
+    records are not popped from it (0015C420's pops), so every later slot
+    address is 21 slots below the original's and the first 21 pops alias
+    the player's node addresses (FACE_ATTACH.md section 5). No drawn or
+    compared value differs today.
+11. **Logic: startup, input and frame glue that is still the port's own.**
+    All verified-unbound; the captures prove only their observable results:
+    the pad read 001B57E0 / 001B5F40 (em_frame's frame_input_read; 001B5940's
+    block is live), the area build's re-arm 001AF690 / 001AFCA0
+    (w_001AFCA0; its 001AF5C0 is original), the overlay init 008237C0 (the
+    roster spawn), the task installs 001AC070 / 001AB790, 001AB4E0, camera
+    state 0's 00199C50 (a reported no-effect binding) and the render init
+    rows 001D19D0 / 001D19E0.
+12. **Logic: the three unverified rows,** each needing an oracle that
+    executes it: 0015CF90 (the D_00810707 / B9 progress bytes), 001B1190
+    (the pickups' persistence event; the gun cable's copy is verified) and
+    001FC280.
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 
-14. **Feel / logic: damage and death.**
-    - The flame's contact damage 00823580 is not modelled (INV-17). Its
-      class-0xD collision push 001B1DA0 / 001A8660 is not bound.
-    - The stage's hit, infection and low-health paths reach fail-stop
-      workers: 0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0 and the
-      unbound +4 = 2 states.
-    - Nothing exercises the truck-pit fall.
-15. **Feel: weapons and the aiming camera.** Lane L28.
-    - The aim, R1, R2 and melee states (P24..P28) run em_weapon's
-      stand-ins.
-    - Camera actions 1 / 2 (aim), 5 and 9..15 fault.
-    - The aim release 00197490 (CAM-16) is untranslated.
-16. **Logic: the status screen's other pages.**
-    - Since chain C8b the DATABASE and SPR4 pages (with SPR4's part pages)
-      and the ITEM children EQUIPMENT, EVENT and HEALING run live, verified
-      by the level smoke's designed `status_pages` run replayed through the
-      original instructions (STATUS_PAGES.md section 7).
-    - The MAP page (hub hover 3, the map take 0x08) runs live since chain
-      C8b's fix round (STATUS_PAGES.md section 7, "MAP"); its models'
-      pixels are the renderer's (no capture shows the page).
-    - Nothing exercises the options or save paths.
-17. **Content: the unplayed branches.**
-    - The west-yard and plateau ladders (census 7.1) have no capture.
-    - The census records one hit per label, so jump-table cases the route
-      did not take were never recorded.
-    - Capture: a census pass over these branches.
+13. **Feel / logic: damage and death.** The flame's contact damage 00823580
+    is not modelled (INV-17) and its class-0xD push 001B1DA0 / 001A8660 is
+    not bound; the stage's hit, infection and low-health paths reach
+    fail-stop workers (0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0,
+    the unbound +4 = 2 states); the gun cable's shot reaction stops at
+    001EFE00 (its node chain 0021AAC0 / 0021A500 / 001CE860); nothing
+    exercises the truck-pit fall.
+14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
+    melee states (P24..P28) run em_weapon's stand-ins; camera actions 1 / 2
+    (aim), 5 and 9..15 fault; the aim release 00197490 (CAM-16) is
+    untranslated.
+15. **Logic: the status screen's options and save paths.** Every status page
+    the first level reaches runs live (STATUS_PAGES.md section 7); nothing
+    exercises the options or save paths.
+16. **Content: the unplayed branches.** The west-yard and plateau ladders
+    (census 7.1) have no capture; the census records one hit per label, so
+    jump-table cases the route did not take were never recorded; the fans'
+    exit and hit boxes are off the smoke's route. Capture: a census pass
+    over these branches.
+17. **Beyond Roger.** Roger's departure 0x828A10 (its op0F handshake is a
+    fail-stop), the level exit (beat 15) and the AREA01 arrival are in
+    neither the census nor the smoke. They are outside the current goal
+    ("up to Roger"); FIRST_LEVEL_EXIT.md holds the recording.
 
 **D. Evidence gaps (the behaviour may already be original)**
 
-18. **Look: no pixel comparison.** Each beat's renderer output is compared
-    with its original.png by eye only.
-    - The capture lane's software-renderer framebuffers now make a pixel
-      metric possible (CAPTURES_C7.md 5b): the displayed 512x224 field and
-      Z at the 16 route snapshots, plus three extra points.
-    - A metric needs the port at a snapshot's exact state. The camera-exact
-      beats 10 and 14 are the candidates.
-    - Rasterization is Metal's float interpolation, not the GS's DDA.
-    - How the 512x224 fields are presented is a deferred platform choice
-      (CLAUDE.md, PORT_PROFILES.md).
-19. **Feel: the walks between the scripted windows.** They are navigation,
-    and the smoke does not compare them (LEVEL_SMOKE.md "What the full route
-    does not yet compare"):
-    - the slide and step-off stance;
-    - Roger's idle phase before f358;
-    - beat 10's music-refill phase;
-    - the player's units at snapshots 08, 11, 12 and 13.
+18. **Feel: the walks between the scripted windows** are navigation, and the
+    smoke does not compare them (LEVEL_SMOKE.md "What the full route does
+    not yet compare"): the slide and step-off stance, Roger's idle phase
+    before f358, beat 10's music-refill phase (line 0x7F's 2 rows), the
+    player's units at snapshots 08, 11, 12 and 13 and Roger's at 08 and
+    10..13. The walk code itself is live and original: over the first 30
+    ticks of control the displacement equals the original's (9.599849), and
+    the frame order passes event for event in a walking window (native index
+    1392, no allowed difference).
+19. **Look: the random-seeded details.** The flame's and the snow's sprites,
+    the head sprites, the face weights and the light sway draw at their
+    original callers (check_rand_order), and each value is checked as the
+    original code over the port's own draws (check_sway,
+    check_marker_colour, check_head_sprites, check_face), but a recording's
+    values cannot be reproduced: the port's stream is not at the capture's
+    position (RAND_ORDER.md).
+20. **No capture exists for:** a status page open (their pixels), a frame
+    taken mid-load (the veil's pixels), SPU2 output (item 1), and, with the
+    PS2 disc-drive timing switch only, Roger's cue-29 reads and the opening
+    music's seek from the intro movie's position.
 
-    The walk code itself is live and original:
-    - over the first 30 ticks of control the displacement equals the
-      original's (9.599849);
-    - from native index 1340 the frame order passes event for event.
-20. **Beyond Roger.** The level exit (beat 15) is in neither the census nor
-    the smoke. It is outside the current goal ("up to Roger") and waits on
-    item 1's fan tail.
+**E. Release blockers that are not game behaviour**
+
+21. **Platforms.** macOS only: the Windows (D3D12) and Linux (Vulkan)
+    backends are skeletons, the GS frame stage and the GPU pixel tests are
+    Metal only, and the Linux build has no movie playback.
+22. **Two capture-bound assets.** `interaction.emis` and `background.embg`
+    still read a PCSX2 capture (DISC_TEXTURES.md 9.4); only `--iso` is
+    exercised; the installed `player.emdl` and `fx/light_cone.emdl` are
+    older bakes the current exporters do not reproduce whole.
+23. **Frame cost.** The VU1 kernels run on the CPU every frame: on the M1 the
+    in-level main-thread time per tick is 7.6 ms on average with no tick
+    over the 16.68 ms period (chain C8b FLAMESNOW); slower hosts are not
+    measured.
 
 ---
 

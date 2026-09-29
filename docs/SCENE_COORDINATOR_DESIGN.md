@@ -375,7 +375,7 @@ advances".
 | #38, #46 001E2560 (cls 12) | table near 0x24CCC8; unresolved | interim allocation, UNBOUND |
 | #39–45, #47 001C5680; #48 001C5760 (cls 12) | 001C5570, from the owning pickup (00219550, 00219870) or panel (00159210) behaviour | the pickup/panel adapter allocates its child through the pool |
 | opening 001BB0E0 ×2 (+ their 001E2560) | 001BAC00 (script op 0x14; 001BA8E0's 001F0120) | since chain C8b OPENING: em_area11_bindings_001BAC00 (em_sdf_001BAC00 over the pool's 001AFA90) from the script host's op14; bound to em_area11_roger_opening_tick (OPENING_ORIGINAL.md); the frame-order allow entries are gone |
-| walking 001EA240 | table near 0x24CCC8 (0021B9A0, the fog / depth-range programmer) | UNBOUND; allow-listed |
+| walking 001EA240 | table near 0x24CCC8 (0021B9A0, the fog / depth-range programmer) | since census L26: the footstep 00187EE0 -> 001EFD90 -> 001EF9D0 through em_effects_live (EFFECT_MANAGER.md section 8); its frame-order allow entry is retired (chain C8b ROUTE, 2026-09-28: walk04 passes event for event in a walking window, native index 1392) |
 
 Interim allocations are flagged `interim_spawn=1` and named in the census and trace output.
 

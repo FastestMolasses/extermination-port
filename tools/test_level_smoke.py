@@ -2194,8 +2194,9 @@ def check_render_context(ticks, state):
     assert opened is None or (status_frames >= 10 and status_ui >= 10), (
         'render context: the status frames too little exercised', status_frames, status_ui)
     print(f'render context: PASS ({fields} ticks hold step W\'s field +0x98 = 1 - slot +0x9C, the captures\' '
-          f'phase; {world_list_ticks} world frames\' step V lists equal the route snapshots\' (without the '
-          f'+0x1D8 CALL, 001C1D00 unbound); {status_frames} status frames hold the status captures\' flag '
+          f'phase; {world_list_ticks} world frames\' step V lists equal the route snapshots\' (seven tags, '
+          f'with the +0x1D8 CALL of the channel-3 list 001C1D00 builds); {status_frames} status frames hold '
+          f'the status captures\' flag '
           f'words (flag 3 set, cleared by step V), fog block, save slot and step V list with the black clear '
           f'+0x420, {status_ui} of them projecting the UI view 0020DFA0 wrote into D_00810610; '
           f'{gameplay} gameplay ticks hold the route snapshots\' flag words, fog block '

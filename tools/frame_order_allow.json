@@ -1,19 +1,4 @@
 {
   "comment": "Intentional, documented differences between the native frame trace and the original traces in Extermination/build/s87/frame_trace/ (tools/compare_frame_order.py; SCENE_COORDINATOR_DESIGN.md section 3.3). Each entry: id, kind (missing = an original event the native side may lack; extra = a native event the original lacks; field = a per-frame field that may differ, only 'classifier'), traces (original names or '*'), event pattern (any of op/fn/target/callback/record; addresses as hex) or field, reason (with evidence), removed_by (the WP-n or Sn step that deletes the entry). The list must only shrink: add an entry only in the step that introduces the documented difference.",
-  "entries": [
-    {
-      "id": "S10b-footstep-effect-node",
-      "kind": "missing",
-      "traces": [
-        "walk04"
-      ],
-      "event": {
-        "op": "jalr",
-        "fn": "001AFD70",
-        "callback": "001EA240"
-      },
-      "reason": "While walking, 0015BCF0 (0x15BDD8) -> 00187350 -> 00187EE0 -> 001EFD90(0x80000028) -> 001EF9D0 appends a footstep effect node (callback 001EA240, +0xD 5) about every 23 frames (ORIGINAL_FRAME_ORDER.md section 6, Q4). The port's player stage has no 00187EE0 effect spawn, so its pool never holds the node.",
-      "removed_by": "WP-15"
-    }
-  ]
+  "entries": []
 }
