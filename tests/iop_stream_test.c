@@ -452,11 +452,51 @@ static void test_reader_host(const EmIopStreamDisc *music_only)
     em_iop_stream_destroy(s);
 }
 
+/* The sound-bank transfer (docs/IOP_STREAM.md "The sound-bank transfer"):
+ * the heap's first fit with the driver's start-up block, 0010F968, the SIF
+ * DMA at host speed, command 0x20 on the SPU2 model and its callback 0x544
+ * at the next driver tick, which the exchange after it delivers. */
+static void test_bank_transfer(void)
+{
+    EmIopStream *s = em_iop_stream_create();
+    uint32_t b[5], block = 0, other = 0;
+    int32_t id = 0, st = 0;
+    static uint8_t bank[0x100];
+    CHECK(s && em_iop_stream_boot_buffers(s, b) == 0 && em_iop_stream_boot_driver(s) == 0);
+    CHECK(em_iop_stream_heap_next(s) == 0xDE800);
+    CHECK(em_iop_stream_0010F8F8(s, 0x492E0, &block) == 0 && block == 0xDE800);
+    CHECK(em_iop_stream_0010F8F8(s, 0x10, &other) == 0 && other == 0xDE800 + 0x49300);
+    CHECK(em_iop_stream_0010F968(s, block) == 0);
+    CHECK(em_iop_stream_0010F8F8(s, 0x100, &block) == 0 && block == 0xDE800);   /* first fit */
+    CHECK(em_iop_stream_0010F968(s, block) == 0 && em_iop_stream_0010F968(s, other) == 0);
+    for (unsigned i = 0; i < sizeof bank; i++) bank[i] = (uint8_t)(i * 7 + 1);
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, sizeof bank, &id) == 0 && id > 0);
+    CHECK(em_iop_stream_sif_dma_stat(s, id, &st) == 0 && st < 0);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xDE800, bank, sizeof bank));
+    em_iop_stream_seed_transfer_count(s, 5);
+    CHECK(em_iop_stream_ee_status(s)[112] == 5);
+    /* 00119400(0x20, 0xDE800, 0x1A0000, 0x100) with the count 6 */
+    CHECK(em_iop_stream_001157F0(s, 0x20, 6 << 8 | 0x0D, (int32_t)(0xE800u << 16 | 0x1A00u),
+                                 0x100) == 1);
+    CHECK(em_iop_stream_field(s) == 0);    /* the exchange (5), then the field runs 0x20 */
+    CHECK(em_iop_stream_ee_status(s)[112] == 5 && em_iop_stream_driver(s)->trans_count == 6);
+    CHECK(em_iop_stream_driver(s)->status[112] == 6);   /* 0x544 at the next tick */
+    CHECK(!memcmp(em_iop_stream_spu_ram(s) + 0x1A0000, bank, sizeof bank));
+    CHECK(em_iop_stream_field(s) == 0 && em_iop_stream_ee_status(s)[112] == 6);
+    /* faults: an unheld block, a partial quadword */
+    CHECK(em_iop_stream_0010F968(s, 0x12300) == -1 && em_iop_stream_fault(s)->code == EM_IOP_FAULT_BAD_INDEX);
+    em_iop_stream_destroy(s);
+    s = em_iop_stream_create();
+    CHECK(em_iop_stream_sif_set_dma(s, bank, 0xDE800, 0x18, &id) == -1);
+    em_iop_stream_destroy(s);
+}
+
 int main(void)
 {
     EmIopStreamDisc disc;
     build_disc(&disc);
     test_heap_and_table();
+    test_bank_transfer();
     test_directory(&disc);
     test_commands();
     test_reader(&disc);

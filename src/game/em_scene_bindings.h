@@ -151,8 +151,9 @@ void em_game_legacy_camera_rearm(void);
  * spawns) and the opening runtime's asset bind. */
 void em_game_legacy_state0_fixtures(void);
 
-/* The native area read (the bindings' 001FF080(1, 0), and the
- * EM_SKIP_STARTUP fixture): 0, or -1 when the scene cannot be loaded. */
+/* The port's own assets of an area (the bindings' area-done hook of the
+ * loader task's 001FFCD0, and the EM_SKIP_STARTUP fixture): 0, or -1 when
+ * the scene cannot be loaded. */
 int em_game_legacy_area_load(const char *dir);
 
 /* 001AD230's 001AF2C0 (New Game reset), as the port mirrors it. */

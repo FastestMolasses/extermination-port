@@ -210,6 +210,9 @@ int em_stream_lanes_001FD470(EmStreamLanes *L, int32_t mask);
 int em_stream_lanes_001FAE70(EmStreamLanes *L, int32_t a0);
 int em_stream_lanes_001FB0B0(EmStreamLanes *L, int32_t cue);
 int em_stream_lanes_00119828(EmStreamLanes *L, int32_t a0, int32_t a1, int32_t a2);
+/* 0011A608(mask, a1, a2): the volume command 0x40 (001FB100's output-mode
+ * commit calls it too). */
+int em_stream_lanes_0011A608(EmStreamLanes *L, uint64_t mask, int32_t a1, int32_t a2);
 
 /* 0011A4E8(p) (p = the six-word block), exposed for the reference test:
  * its D_0027F740 update and its 001157F0(0x3E, ...) command. */

@@ -14,6 +14,8 @@
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
+#include "game/em_sound_bank.h"
+#include "game/em_startup_load_gaps.h"
 #include "game/em_stream_lanes_original.h"
 
 enum { VOICE_RECORD = 0x6A };
@@ -37,6 +39,20 @@ static struct {
     uint8_t voice_table[48 * VOICE_RECORD];
     uint64_t voice_scan;
     uint32_t irx_buffers[5]; /* D_00275B50, D_00275B28, D_00275B4C, D_00275B24, D_00275B20 */
+    /* The sound-bank upload 001FB370 over this IOP (em_sound_bank; bound by
+     * em_stream_live_bind_sound_bank once the loader's pack gives
+     * D_00264890). */
+    EmSoundBank bank;
+    int bank_bound;
+    /* 001FB100's own storage (step H): D_0081011C, the requested output
+     * mode (the options' sound mode; 0 at the boot and in every capture,
+     * its writer, the options screen, is off the first-level route);
+     * D_0027F778, the SDK's output-mode word 00119870 stores; D_00281F30,
+     * 001FC6E0's ten delayed cues {delay, cue, a2, a3} (001FBC50 leaves
+     * {0, -1, 0, 0}; their writer 001FC580 is unbound in the port). */
+    uint8_t d81011C;
+    int16_t d27F778;
+    int32_t d281F30[EM_SLG_CUES][4];
     int depth;               /* nested entries (a worker re-entering) skip the sync */
     int device;              /* em_bgm's device ensured for the first stream */
     const char *fault;
@@ -163,6 +179,10 @@ int em_stream_live_boot(const char *path)
     /* sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail: the five IOP heap blocks. */
     if (em_iop_stream_boot_buffers(S.ctx.iop, S.irx_buffers) != 0)
         return fail("sub_cdrom0_IRX_SNDN2DRV_IRX_1 (001FA6A0)");
+    /* The measured IOP heap occupancy after the buffers (its owner is not
+     * established; only its end 0xDE800 is pinned: IOP_STREAM.md). */
+    if (em_iop_stream_boot_driver(S.ctx.iop) != 0)
+        return fail("the IOP heap's measured start-up block (owner not established)");
     S.globals.d275B28 = S.irx_buffers[1];
     S.globals.d275B24 = S.irx_buffers[3];
     S.globals.d275B20 = S.irx_buffers[4];
@@ -191,9 +211,19 @@ int em_stream_live_boot(const char *path)
     }
     if (mask != em_sfx_stream_voices())
         return fail("001F9820's stream voices differ from the SFX driver's reserved voices");
+    em_stream_live_001FBC50_cues();
     S.booted = 1;
     atomic_store_explicit(&s_mixer, S.ctx.iop, memory_order_release);
     return 0;
+}
+
+/* 001FBC50's tail over D_00281F30: each record's delay 0 and cue -1. */
+void em_stream_live_001FBC50_cues(void)
+{
+    for (int i = 0; i < EM_SLG_CUES; ++i) {
+        S.d281F30[i][0] = 0;
+        S.d281F30[i][1] = -1;
+    }
 }
 
 void em_stream_live_shutdown(void)
@@ -221,12 +251,69 @@ int em_stream_live_field(void)
     return 0;
 }
 
+/* 001FB100's workers. */
+static int h_001F9CF0(void *ctx, int32_t mode)
+{
+    (void)ctx;
+    (void)mode; /* 001F9CF0 does not read it (em_stream_lanes_original) */
+    return em_stream_lanes_001F9CF0(&S.lanes);
+}
+
+static int h_00119870(void *ctx, int32_t a0)
+{
+    (void)ctx;
+    S.d27F778 = (int16_t)a0; /* 00119870: D_0027F778 = a0 (sh) */
+    return 0;
+}
+
+static int h_0011A608(void *ctx, uint64_t mask, int32_t a1, int32_t a2)
+{
+    (void)ctx;
+    return em_stream_lanes_0011A608(&S.lanes, mask, a1, a2);
+}
+
+static int h_001FB9F0(void *ctx, int32_t cue, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)ctx;
+    if (a1 != 0x1000) return -1; /* 001FC6E0 always passes 0x1000 */
+    em_sfx_submit_001FB9F0((unsigned)cue, a2, a3);
+    return 0;
+}
+
+/* Step H, 001FB100 (byte-matched; em_slg_001FB100) over its views: the
+ * lanes' D_0028215B (mono), D_00281FD4 (lane 0's voice) and D_002820F4,
+ * em_sfx's D_00281B70 / D_00281C30, and this module's D_0081011C and
+ * D_00281F30. em_frame calls it only while D_00821058 != 1 (the port's
+ * movie flag is 1 or 0), so the translation's own gate sees 0. */
+static int step_h_001FB100(void)
+{
+    EmSlgSoundFrame f;
+    memset(&f, 0, sizeof f);
+    f.d821058 = 0;
+    f.d28215B = S.lanes.state.mono;
+    f.d81011C = S.d81011C;
+    f.d281FD4 = S.lanes.state.lane[0].voice;
+    f.d2820F4 = S.lanes.state.voice_right;
+    int32_t requested[48], snapshot[48];
+    em_sfx_tables(requested, snapshot);
+    memcpy(f.d281B70, requested, 0xC0);
+    memcpy(f.d281B70 + 0xC0, snapshot, 0xC0);
+    memcpy(f.d281F30, S.d281F30, sizeof f.d281F30);
+    const EmSlgSoundWorkers w = {NULL, h_001F9CF0, h_00119870, h_0011A608, h_001FB9F0};
+    int rc = em_slg_001FB100(&w, &f);
+    S.lanes.state.mono = f.d28215B;
+    memcpy(snapshot, f.d281B70 + 0xC0, 0xC0);
+    em_sfx_set_snapshot(snapshot);
+    memcpy(S.d281F30, f.d281F30, sizeof S.d281F30);
+    return rc;
+}
+
 int em_stream_live_step_h(void)
 {
     if (S.fault) return -1;
     if (!S.booted) return fail("step H before the boot (001F9820)");
     if (enter() < 0) return -1;
-    int rc = leave(em_stream_lanes_001F9CF0(&S.lanes), "001F9CF0");
+    int rc = leave(step_h_001FB100(), "001FB100");
     /* The shared device (em_bgm) is opened for the first playing lane when
      * the startup audio has not opened it (fixtures without the frontend). */
     if (rc == 0 && !S.device &&
@@ -273,6 +360,44 @@ static int ring_push(int32_t cue)
 
 int em_stream_live_001FA5A0(int32_t cue)
 { ENTRY("001FA5A0", ring_push(cue)); }
+
+/* D_0027CCC0[voice] for 001195A8: the SFX driver owns the records
+ * (em_sfx's published +0x00 / +0x22). */
+static int bank_voice(void *ctx, int32_t voice, uint16_t *state, uint16_t *handle)
+{
+    (void)ctx;
+    return em_sfx_voice_record(voice, state, handle);
+}
+
+int em_stream_live_bind_sound_bank(const int32_t base[5])
+{
+    if (S.fault) return -1;
+    if (!S.booted) return fail("the sound bank bound before the boot");
+    if (em_sound_bank_init(&S.bank, S.ctx.iop, base) != 0) return fail("em_sound_bank_init");
+    em_sound_bank_set_voice(&S.bank, bank_voice, NULL);
+    S.bank_bound = 1;
+    return 0;
+}
+
+int em_stream_live_001FB370(uint32_t address, const uint8_t *bytes, uint32_t size, uint32_t *result)
+{
+    if (S.fault) return -1;
+    if (!S.bank_bound) return fail("001FB370 before the sound bank was bound");
+    if (em_sound_bank_001FB370(&S.bank, address, bytes, size, result) != 0) {
+        uint32_t at = 0;
+        int32_t code = 0;
+        em_sound_bank_failed(&S.bank, &at, &code);
+        fprintf(stderr, "stream lanes: 001FB370 faulted at %08X (code %d)\n", (unsigned)at, (int)code);
+        return fail("001FB370 (the sound-bank upload)");
+    }
+    if (em_iop_stream_fault(S.ctx.iop)->code) return fail("001FB370's IOP work");
+    return 0;
+}
+
+const EmSoundBank *em_stream_live_sound_bank(void)
+{
+    return S.bank_bound ? &S.bank : NULL;
+}
 
 int8_t em_stream_live_active(int lane)
 {

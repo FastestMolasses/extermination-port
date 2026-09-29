@@ -2992,6 +2992,46 @@ def draws(frames, counter, fn):
             for f, st, _ in frames.get(counter, []) if f == fn]
 
 
+def status_entry_tick(ticks, i):
+    """The status run's first tick when tick i is one of the status
+    screen's entry ticks: the frame machine's task +B is 3 with +C 0 or 1,
+    the status run began at this tick or the one before, the tick ran no
+    world frame (neither 001AE5E0 nor 001AE6B0 in its trace), and it lies
+    within as many entry ticks as the original's capture shows without
+    001D7C30 (sway_entry_gap); otherwise None."""
+    def bc(t):
+        return snap(t)['task'][2:]
+    if bc(ticks[i]) not in ((3, 0), (3, 1)):
+        return None
+    first = i if bc(ticks[i - 1])[0] != 3 else i - 1
+    if first != i and (bc(ticks[first]) != (3, 0) or bc(ticks[first - 1])[0] == 3):
+        return None
+    if any(e[1] in (F_001AE5E0, 0x1AE6B0) for e in ticks[i]['trace']):
+        return None
+    return first if i - first < sway_entry_gap() else None
+
+
+_SWAY_ENTRY_GAP = []
+
+
+def sway_entry_gap():
+    """The number of frames the original runs without 001D7C30 at a status
+    entry: route 01's rand() capture (r01) has 001D7C30 draws in every frame
+    but one run, the battery take's status entry after the request posted at
+    f189; its length (2: f190, f191) is returned."""
+    if not _SWAY_ENTRY_GAP:
+        o, _ = R.original('r01')
+        fs = sorted(o)
+        gaps = [f for f in range(fs[0], fs[-1] + 1) if not any(n == 0x1D7C30 for n, _ in o.get(f, []))]
+        assert gaps and gaps == list(range(gaps[0], gaps[0] + len(gaps))), ('sway: the capture\'s frames '
+                                                                          'without 001D7C30', gaps)
+        rows = {r['f']: r for r in route_rows('01_battery')}
+        assert rows[gaps[0] - 1]['req'][:4] == '011b' and rows[gaps[0] - 2]['req'][:4] == '0000', \
+            ('sway: the capture\'s gap does not follow the battery take\'s request', gaps)
+        _SWAY_ENTRY_GAP.append(len(gaps))
+    return _SWAY_ENTRY_GAP[0]
+
+
 def check_sway(ticks, state, frames):
     """The point-light slots' sway (001D7C30, census: the lighting fold
     lane): on sampled ticks (the first, then every 250th, at most 40, and
@@ -3007,24 +3047,57 @@ def check_sway(ticks, state, frames):
                   and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1]
     assert candidates, 'sway: no consecutive ticks with the point-light pool'
     picked = sorted(set(candidates[::250][:40]) | (snaps & set(candidates)))
-    total = 0
-    for i in picked:
-        before, key = port_light_pool(ticks[i - 1])
+    total, frozen = 0, 0
+
+    def run_original(i):
+        before, _key = port_light_pool(ticks[i - 1])
         after, key_now = port_light_pool(ticks[i])
         values = draws(frames, ticks[i]['counter'], 0x1D7C30)
         o = tpl.Oracle(elf, values)
         o.write(tpl.CONTEXT + 0x210, before)
         o.save(0x810700, key_now >> 8, 1)
         o.save(0x810701, key_now & 0xFF, 1)
-        o.run(0x1D7C30)
+        try:
+            o.run(0x1D7C30)
+        except StopIteration:
+            # The original draws where the port's frame made no draw at all.
+            return None, before, after, values
+        return o, before, after, values
+
+    for i in picked:
+        o, before, after, values = run_original(i)
+        first = status_entry_tick(ticks, i) if o is None and not values and before == after else None
+        if first is not None:
+            # The status screen's entry: 0x1AE040's two frames at +B = 3
+            # (+C 0, then 1, as status_04 shows around the open) run no world
+            # frame (no 001AE5E0 / 001AE6B0, so no 001D1C50 -> 001D7C30),
+            # and the original skips 001D7C30 there too: route 01's rand()
+            # capture has no 001D7C30 draw in exactly its two entry frames
+            # (sway_entry_gap, checked below). The port made no draw and left
+            # the pool as it was, where 001D7C30, had it run, would have
+            # drawn. Compared instead: the next candidate tick whose frame
+            # drew. Any other tick where the original would draw and the
+            # port did not fails below.
+            frozen += 1
+            k = candidates.index(i)
+            i = next((c for c in candidates[k + 1:k + 60] if draws(frames, ticks[c]['counter'], 0x1D7C30)),
+                     None)
+            assert i is not None, ('sway: no drawing frame after a frozen tick', ticks[candidates[k]]['tick'])
+            # The port's entry skips exactly the original's frames.
+            assert i == first + sway_entry_gap(), ('sway: the status entry skipped 001D7C30 on',
+                                                   i - first, 'ticks; the original on', sway_entry_gap())
+            o, before, after, values = run_original(i)
         where = ('sway', 'port tick', ticks[i]['tick'])
+        assert o is not None, (where, 'the original draws more than the port did', len(values))
         assert o.rng_calls == len(values), (where, 'draws', o.rng_calls, len(values))
         assert o.pool_bytes() == after, (where, 'the pool after 001D7C30',
                                          next(k for k in range(0x2010) if o.pool_bytes()[k] != after[k]))
         total += len(values)
     print(f'sway: PASS (the original 001D7C30 over the port\'s previous pool and its own draws writes the '
-          f'port\'s pool on {len(picked)} sampled ticks ({len(snaps & set(picked))} of them snapshot ticks), '
-          f'{total} draws)')
+          f'port\'s pool on {len(picked)} sampled ticks ({len(snaps & set(picked))} of them snapshot ticks; '
+          f'{frozen} sampled status-entry frame(s) without the world frame, where the port drew nothing and '
+          f'left the pool, as the original\'s {sway_entry_gap()} entry frames in route 01, replaced by the next '
+          f'drawing frame), {total} draws)')
 
 
 LCG_MUL, LCG_ADD = 0x41C64E6D, 0x3039

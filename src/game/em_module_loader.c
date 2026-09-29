@@ -138,13 +138,16 @@ int em_module_loader_restore_00200970(const EmModuleLoaderSdk *sdk, int32_t a0,
 }
 
 /* ------------------------------------------------------------------------
- * The pack (tools/export_module_loader.py, EMML version 1, little endian):
- *   0x00 'EMML', u32 version 1, u32 range count, u32 0
+ * The pack (tools/export_module_loader.py, EMML version 2, little endian):
+ *   0x00 'EMML', u32 version 2, u32 range count, u32 0
  *   0x10 u32 D_0028A480 {lsn, size}, D_0028A488 {lsn, size}
  *   0x20 u32 D_00275C70, D_00275C74, D_0028A5A0, D_0028A738, D_0028A73C,
  *        D_0028A744, D_0028A748 (the captured values before a load), u32 0
- *   0x40 ranges {u32 lsn, u32 sectors, u32 file offset, u32 0}, then data. */
-#define PACK_HEADER 0x40u
+ *   0x40 u32 D_00275304[0], u32 0, u32 D_00264890[0..4], u32 0
+ *   0x60 D_0028A3C0: 0x17 x {u32 lsn, u32 size}, 8 zero bytes
+ *   0x120 ranges {u32 lsn, u32 sectors, u32 file offset, u32 0}, then data. */
+#define PACK_HEADER 0x120u
+#define PACK_VERSION 2u
 #define PACK_RANGE 0x10u
 #define SECTOR 0x800u
 
@@ -172,9 +175,21 @@ typedef struct {
 typedef struct {
     uint32_t file, sector, sectors, busy;
 } Measured;
+/* File 0x10 + a is the area file D_0028A3C0[a] (001FFCD0 state 0). The
+ * New Game rows are the PCSX2 New Game capture's (the decomp's
+ * build/startup-reference/newgame_samples.jsonl: the slot-2 record sampled
+ * about twice a frame while the VM ran, so each row's frame is known to
+ * within the frame; docs/MODULE_LOADER.md 1.7). */
 static const Measured MEASURED[] = {
     {0u, 0x21u, 1u, 6u},                  /* module 0x21 header: INDEX.IDX sector 0x21 */
     {1u, 0x0E4BC000u >> 11, 161u, 8u},    /* module 0x21 chunk 0: DATA.DAT byte 0xE4BC000 */
+    {0u, 0x03u, 1u, 6u},                  /* New Game module 3 header: INDEX.IDX sector 3 */
+    {1u, 0x00214800u >> 11, 1175u, 54u},  /* module 3 payload: DATA.DAT byte 0x214800 */
+    {0x10u + 0x0Bu, 0u, 15u, 6u},         /* AREA11 overlay: \OVERLAY\AREA11.BIN, whole */
+    {0u, 0x0Fu, 1u, 1u},                  /* AREA11 header: INDEX.IDX sector 0x0F */
+    {1u, 0x076E7800u >> 11, 149u, 11u},   /* AREA11 sound bank: DATA.DAT byte 0x76E7800 */
+    {1u, 0x07732000u >> 11, 433u, 16u},   /* AREA11 A entry 1: DATA.DAT byte 0x7732000 */
+    {1u, 0x0780A800u >> 11, 3292u, 131u}, /* AREA11 resident region: DATA.DAT byte 0x780A800 */
 };
 
 struct EmModuleLoader {
@@ -195,6 +210,16 @@ struct EmModuleLoader {
     /* hooks */
     EmModuleLoaderChainHook chain_hook;
     void *chain_ctx;
+    EmModuleLoaderChainHook area_chain_hook;
+    void *area_chain_ctx;
+    EmModuleLoaderBankHook bank_hook;
+    void *bank_ctx;
+    EmModuleLoaderAreaDone area_done;
+    void *area_done_ctx;
+    /* the boot's tables (the pack's 0x40 block) */
+    uint32_t d275304;
+    int32_t d264890[5];
+    uint32_t d28A3C0[EM_STATUS_SCENE_AREA_FILES][2];
     EmModuleLoaderTrace trace;
     void *trace_ctx;
     /* workers */
@@ -311,7 +336,11 @@ static int drive_read(void *ctx, uint32_t lsn, uint32_t sectors, uint32_t buf,
     if (ml->drive == EM_MODULE_LOADER_DRIVE_MEASURED) {
         int found = sectors == 0; /* a zero-sector read completes at its first poll */
         for (size_t i = 0; !found && i < sizeof MEASURED / sizeof MEASURED[0]; ++i) {
-            const uint32_t base = MEASURED[i].file == 0 ? ml->d28A480[0] : ml->d28A488[0];
+            const uint32_t f = MEASURED[i].file;
+            const uint32_t base = f == 0 ? ml->d28A480[0]
+                                  : f == 1 ? ml->d28A488[0]
+                                  : f - 0x10u < EM_STATUS_SCENE_AREA_FILES ? ml->d28A3C0[f - 0x10u][0]
+                                                                           : 0u;
             if (base + MEASURED[i].sector == lsn && MEASURED[i].sectors == sectors) {
                 busy = MEASURED[i].busy;
                 found = 1;
@@ -368,13 +397,18 @@ static int dma_send(void *ctx, uint32_t base, uint32_t chain)
     trace(ml, 0x00101F08u, base, chain, 0, 0);
     if (base != EM_MODULE_LOADER_DMA_VIF1)
         return fail(&ml->io_fault, 0x00101F08u, EM_STATUS_SCENE_FAULT_BAD_INDEX);
-    if (!ml->chain_hook)
+    /* The area streamer's sends (record +8 == 1) go to the area's consumer,
+     * the bank streamer's to the page consumer. */
+    const int area = ml->record && ml->record->user[0] == 1;
+    EmModuleLoaderChainHook hook = area ? ml->area_chain_hook : ml->chain_hook;
+    void *hook_ctx = area ? ml->area_chain_ctx : ml->chain_ctx;
+    if (!hook)
         return fail(&ml->io_fault, 0x00101F08u, EM_STATUS_SCENE_FAULT_NULL_WORKER);
     for (int i = 0; i < MAX_REGIONS; ++i) {
         const Region *r = &ml->regions[i];
         if (r->bytes && chain >= r->address && chain - r->address < r->size) {
             uint32_t at = chain - r->address;
-            if (ml->chain_hook(ml->chain_ctx, chain, r->bytes + at, r->size - at) < 0)
+            if (hook(hook_ctx, chain, r->bytes + at, r->size - at) < 0)
                 return fail(&ml->io_fault, 0x00101F08u, EM_STATUS_SCENE_FAULT_WORKER_FAILED);
             return 0;
         }
@@ -390,9 +424,14 @@ static int w_read(void *ctx, uint32_t file, uint32_t buf, int32_t offset, int32_
 {
     EmModuleLoader *ml = ctx;
     trace(ml, 0x00200780u, file, buf, (uint32_t)offset, (uint32_t)size);
+    /* The descriptor words: D_0028A480 (INDEX.IDX), D_0028A488 (DATA.DAT)
+     * or an area file of D_0028A3C0 (001FFCD0 state 0). */
     const uint32_t *desc = file == EM_MODULE_LOADER_D_0028A480   ? ml->d28A480
                            : file == EM_MODULE_LOADER_D_0028A488 ? ml->d28A488
                                                                  : NULL;
+    if (!desc && file >= 0x0028A3C0u && file < 0x0028A3C0u + 8u * EM_STATUS_SCENE_AREA_FILES &&
+        (file & 7u) == 0)
+        desc = ml->d28A3C0[(file - 0x0028A3C0u) >> 3];
     if (!desc)
         return fail(&ml->io_fault, file, EM_STATUS_SCENE_FAULT_BAD_INDEX);
     if ((header != NULL) != (buf == EM_STATUS_SCENE_D_00289BC0))
@@ -416,6 +455,92 @@ static int w_section(void *ctx, uint32_t address)
     return em_module_loader_dma_00200830(&ml->sdk, address, &ml->io_fault);
 }
 
+/* The host bytes of the one region that holds [address, address + 4), or NULL. */
+static const Region *region_at(const EmModuleLoader *ml, uint32_t address)
+{
+    for (int i = 0; i < MAX_REGIONS; ++i) {
+        const Region *r = &ml->regions[i];
+        if (r->bytes && address >= r->address && address - r->address < r->size)
+            return r;
+    }
+    return NULL;
+}
+
+/* 001FB370(bank): the file as the drive delivered it, from `address` to
+ * the end of its region, through the binder's bank hook. */
+static int w_bank(void *ctx, uint32_t address, uint32_t *result)
+{
+    EmModuleLoader *ml = ctx;
+    trace(ml, 0x001FB370u, address, 0, 0, 0);
+    const Region *r = region_at(ml, address);
+    if (!ml->bank_hook)
+        return fail(&ml->io_fault, 0x001FB370u, EM_STATUS_SCENE_FAULT_NULL_WORKER);
+    if (!r) /* a bank the drive did not deliver: fail-stop */
+        return fail(&ml->io_fault, address, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+    const uint32_t at = address - r->address;
+    if (ml->bank_hook(ml->bank_ctx, address, r->bytes + at, r->size - at, result) < 0)
+        return fail(&ml->io_fault, 0x001FB370u, EM_STATUS_SCENE_FAULT_WORKER_FAILED);
+    return 0;
+}
+
+/* 00200890: the player's texture packet by D_00810707 / D_00810C60 over
+ * the slot words D_0028A4B0..D_0028A4C0 (the table's slots 8..12). */
+static int w_packet(void *ctx)
+{
+    EmModuleLoader *ml = ctx;
+    if (!ml->views.d810707 || !ml->views.d810C60)
+        return fail(&ml->io_fault, 0x00200890u, EM_STATUS_SCENE_FAULT_NULL_WORKER);
+    return em_module_loader_packet_00200890(&ml->sdk, *ml->views.d810707, *ml->views.d810C60,
+                                            &ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0], NULL,
+                                            &ml->io_fault);
+}
+
+/* 002009E0(p, off) (byte-matched C): FlushCache(2) (the EE caches are not
+ * host state), then n = the overlay's word +0x14 and, when n != 0, the n
+ * bytes at p + off (the overlay's bss after its file) are cleared: here in
+ * the drive's memory, where the loaded overlay is (the port's AREA11
+ * overlay code is native and keeps its own storage). */
+static int w_overlay(void *ctx, uint32_t p, uint32_t off)
+{
+    EmModuleLoader *ml = ctx;
+    trace(ml, 0x002009E0u, p, off, 0, 0);
+    const Region *r = region_at(ml, p + 0x14u);
+    if (!r || r->size - (p + 0x14u - r->address) < 4)
+        return fail(&ml->io_fault, p + 0x14u, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+    const uint32_t n = u32_at(r->bytes + (p + 0x14u - r->address));
+    if (n == 0)
+        return 0;
+    uint8_t *bss = region_for(ml, p + off, n);
+    if (!bss)
+        return fail(&ml->io_fault, p + off, EM_STATUS_SCENE_FAULT_BAD_INDEX);
+    memset(bss, 0, n);
+    return 0;
+}
+
+/* 001FFCD0 over the area views, the pack's D_0028A3C0 and D_00275304[0]. */
+static int w_area(void *ctx, uint8_t user[24])
+{
+    EmModuleLoader *ml = ctx;
+    const EmModuleLoaderViews *v = &ml->views;
+    if (!v->d810700 || !v->d810701 || !v->d810703 || !v->d810704)
+        return fail(&ml->io_fault, 0x001FFCD0u, EM_STATUS_SCENE_FAULT_NULL_WORKER);
+    EmStatusSceneArea area;
+    area.d810700 = *v->d810700;
+    area.d810701 = *v->d810701;
+    area.d810703 = *v->d810703;
+    area.d810704 = *v->d810704;
+    area.d275304 = ml->d275304;
+    memcpy(area.d28A3C0, ml->d28A3C0, sizeof area.d28A3C0);
+    int r = em_status_scene_area_001FFCD0(user, &ml->ld, &area, &ml->workers, &ml->fault);
+    *v->d810701 = area.d810701;
+    *v->d810703 = area.d810703;
+    *v->d810704 = area.d810704;
+    if (r == 0 && user[0] == 0x63 && ml->area_done &&
+        ml->area_done(ml->area_done_ctx, area.d810700, area.d810704) < 0)
+        return fail(&ml->io_fault, 0x001FFCD0u, EM_STATUS_SCENE_FAULT_WORKER_FAILED);
+    return r;
+}
+
 /* ---- lifetime ---- */
 
 EmModuleLoader *em_module_loader_open(const char *pack_path)
@@ -437,7 +562,7 @@ EmModuleLoader *em_module_loader_open(const char *pack_path)
     if (f)
         fclose(f);
     if (!ml || !data || n < (long)PACK_HEADER || memcmp(data, "EMML", 4) != 0 ||
-        u32_at(data + 4) != 1) {
+        u32_at(data + 4) != PACK_VERSION) {
         free(data);
         free(ml);
         return NULL;
@@ -482,14 +607,25 @@ EmModuleLoader *em_module_loader_open(const char *pack_path)
     ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C] = u32_at(data + 0x30);
     ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A744] = u32_at(data + 0x34);
     ml->ld.d28A490[EM_STATUS_SCENE_SLOT_D_0028A748] = u32_at(data + 0x38);
+    ml->d275304 = u32_at(data + 0x40);
+    for (int i = 0; i < 5; ++i)
+        ml->d264890[i] = (int32_t)u32_at(data + 0x48 + 4 * i);
+    for (int i = 0; i < EM_STATUS_SCENE_AREA_FILES; ++i) {
+        ml->d28A3C0[i][0] = u32_at(data + 0x60 + 8 * i);
+        ml->d28A3C0[i][1] = u32_at(data + 0x64 + 8 * i);
+    }
     ml->sdk = (EmModuleLoaderSdk){ml,         drive_ready, drive_read, drive_sync, drive_error,
                                   dma_channel, dma_wait,   dma_send,   NULL};
     ml->workers.ctx = ml;
     ml->workers.w_00200780 = w_read;
     ml->workers.w_00200730 = w_poll;
     ml->workers.w_00200830 = w_section;
-    /* 001FFCD0 (area streamer), 00200360 (bank-set streamer) and 001FB370
-     * (kind-3 finaliser) are not translated: reaching them faults. */
+    ml->workers.w_001FFCD0 = w_area;
+    ml->workers.w_001FB370 = w_bank;
+    ml->workers.w_00200890 = w_packet;
+    ml->workers.w_002009E0 = w_overlay;
+    /* 00200360 (the bank-set streamer, +8 == 2) is not translated: reaching
+     * it faults. */
     return ml;
 }
 
@@ -522,6 +658,37 @@ void em_module_loader_set_chain_hook(EmModuleLoader *ml, EmModuleLoaderChainHook
         return;
     ml->chain_hook = hook;
     ml->chain_ctx = ctx;
+}
+
+void em_module_loader_set_area_chain_hook(EmModuleLoader *ml, EmModuleLoaderChainHook hook,
+                                          void *ctx)
+{
+    if (!ml)
+        return;
+    ml->area_chain_hook = hook;
+    ml->area_chain_ctx = ctx;
+}
+
+void em_module_loader_set_area_done_hook(EmModuleLoader *ml, EmModuleLoaderAreaDone hook, void *ctx)
+{
+    if (!ml)
+        return;
+    ml->area_done = hook;
+    ml->area_done_ctx = ctx;
+}
+
+void em_module_loader_set_bank_hook(EmModuleLoader *ml, EmModuleLoaderBankHook hook, void *ctx)
+{
+    if (!ml)
+        return;
+    ml->bank_hook = hook;
+    ml->bank_ctx = ctx;
+}
+
+void em_module_loader_bank_bases(const EmModuleLoader *ml, int32_t out[5])
+{
+    for (int i = 0; i < 5; ++i)
+        out[i] = ml ? ml->d264890[i] : 0;
 }
 
 void em_module_loader_set_trace(EmModuleLoader *ml, EmModuleLoaderTrace fn, void *ctx)

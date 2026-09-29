@@ -103,11 +103,11 @@ original machine code on the same inputs and requiring the same results.
   (`EE_FLOAT_MODEL.md` 5a). VU1 microcode and GS rasterization are
   reimplemented natively and are checked by other means (see Visuals).
 
-**First-level census: 96.4% of the original game-logic instructions on the route run live as verified translations**
+**First-level census: 96.9% of the original game-logic instructions on the route run live as verified translations**
 
 Every original function the PS2 game runs on the first level, from New Game
 to meeting Roger, was recorded, and the port was checked for each one.
-Measured by instructions, 96.4% of that game logic runs in the port as a
+Measured by instructions, 96.9% of that game logic runs in the port as a
 verified translation.
 
 - How: the decomp's `tools/route_census.py` set a one-shot breakpoint on
@@ -126,7 +126,11 @@ verified translation.
   all 703 live rows (677 by a live candidate, 26 inline in a live function
   of their module, read by hand) over the full route, the three side runs,
   newgame-control and the area change, and found no non-live row whose own
-  translation runs live.
+  translation runs live. Update 1.46 (chain step H7, 2026-09-29, recounted
+  from the rows): 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 bound
+  live (the area load's sound-bank upload and step H's whole 001FB100):
+  live 708 (86,021 of 88,729 instructions = 96.9%; 93.7% by function
+  count), verified but unbound 45, unverified 3, boundary 428.
 - Status: **PARTIAL**. First level only, and only the played route to
   Roger's encounter. Not covered: the level exit, unplayed branches
   (damage/death, pause/options/save, weapon and camera inputs, the truck-pit
@@ -218,10 +222,11 @@ timing.
   event.
 - Evidence: `ORIGINAL_FRAME_ORDER.md` "How it was measured" and 1-4.
   `LEVEL_SMOKE.md` "Frame order": over a newgame-control trace idle04 (native
-  index 1330), walk04 (1392, a walking window), st03 (1321), cut02 (26) and
-  cut15 PASS event for event with an empty allow list (chain C8b ROUTE,
-  2026-09-28, at port HEAD 6594182; with the PS2 disc-drive timing switch
-  on: 1340, 1402, 1331, 36 and cut15, also PASS). Decomp `CAPTURES_C7.md` 1:
+  index 1393), walk04 (1455, a walking window), st03 (1384), cut02 (89) and
+  cut15 PASS event for event with an empty allow list (chain step H7,
+  2026-09-29: the windows moved 63 ticks with the New Game's loads; with the
+  PS2 disc-drive timing switch on: 1665, 1727, 1656, 361 and cut15, also
+  PASS). Decomp `CAPTURES_C7.md` 1:
   every main-loop frame in the four stream stretches is exactly one field.
 - Status: **PARTIAL**. `tools/frame_order_allow.json` holds no entry since
   chain C8b ROUTE: the last one (the walking footstep's effect node in
@@ -552,16 +557,27 @@ own GS list, at the GS's resolution.
   test-gs-blocks-reference`); the drawn frame equals a model of the GS
   pixel path for a visible veil (both copies on every pixel, the lens passes
   on 439,792 unambiguous pixels; `make test-load-veil-gpu`).
-- Status: **PARTIAL**. The veil runs and is drawn, but today it is black:
-  the port's area read is a stand-in that finishes inside one call (the
-  loader's area streamer 001FFCD0 is translated but not bound: its
-  sound-bank step 001FB370 needs the EE sound library's command queue, the
-  SIF DMA and the sound driver's command 0x20, which are not live;
-  MODULE_LOADER.md section 5), so the load spans no tick
-  and the veil draws a single frame at level 0, exactly as the original's
-  code does for a load that ends at once. On PCSX2 the New Game load drew
-  258 veil frames. No capture holds a frame taken during a load, so the
-  pixels are proven against the GS model, not against a recorded frame.
+- How long it shows (chain step H7, 2026-09-29): the area load runs the
+  loader task's own steps (the area streamer 001FFCD0, its sound-bank
+  upload 001FB370 over the translated EE sound library and the IOP's
+  command 0x20; MODULE_LOADER.md 1.9, IOP_STREAM.md "The sound-bank
+  transfer"), so the veil ramps and decays for as long as those steps take:
+  55 frames at host speed (the Original profile: the disc answers at host
+  speed), 257 with the PS2 disc-drive timing switch (the recorded New Game
+  reads), where the PS2 drew 258. Evidence: the whole New Game load against
+  the ORIGINAL loader code (`make test-module-loader-reference` part H:
+  with the switch, every captured loader state appears at its captured
+  frame up to the sound-bank step, and one frame earlier after it, the
+  PS2's ninth 001FB370 call); the
+  sound-bank chain against the ORIGINAL code and route capture 00, its
+  SPU and IOP RAM included (`make test-sound-bank-reference`); the loader's
+  states in the live run equal the New Game capture's (`make
+  test-area-load-reference`).
+- Status: **PARTIAL**. The veil runs, ramps and is drawn for the load's
+  own length. The one frame the switch still misses is the PS2's ninth
+  sound-bank call (most likely its SIF DMA's hardware time, reproduced by
+  no mode). No capture holds a frame taken during a load, so the pixels
+  are proven against the GS model, not against a recorded frame.
   Rasterization is Metal's at the GS resolution. Metal only.
 
 **The player's original projected drop shadow**
@@ -924,7 +940,8 @@ of the game's own stream code; nothing is scripted by hand.
 - Status: **PARTIAL**. First level only. The area-entry and the fence-door
   room move's 001FAE70 run live since the rand() order audit
   (`RAND_ORDER.md` 2). 001FC280 and 001FBC50 run live without
-  an oracle of their bodies. Part of 001FB100 is unbound. The last full sweep
+  an oracle of their bodies. 001FB100 runs whole at step H since chain step
+  H7 (its output-mode commit never fires on the route). The last full sweep
   predates commit 7dea4ce. Audio output is not compared.
 
 **Music plays from your disc's exact stream data, buffered by a translation of the PS2 sound driver**
@@ -1171,11 +1188,11 @@ units per second.
   not count as evidence. Instrumented builds measured which functions
   actually run.
 - Evidence: `FIRST_LEVEL_CENSUS.md` sections 1.1, 2.1 and 2.3. Totals as of
-  section 1.44 (2026-09-28, chain C8b ROUTE, HEAD 6594182): 703 of the 756
-  non-boundary functions are live and verified (93.0% of functions; 85,512
-  of 88,729 instructions, 96.4%). 50 are verified translations that the
-  live app does not run yet, 3 are unverified (0015CF90, 001B1190,
-  001FC280) and none is missing. 428 are platform boundaries (SDK, IOP, GS
+  section 1.46 (2026-09-29, chain step H7, recounted from the rows): 708 of
+  the 756 non-boundary functions are live and verified (93.7% of
+  functions; 86,021 of 88,729 instructions, 96.9%). 45 are verified
+  translations that the live app does not run yet, 3 are unverified
+  (0015CF90, 001B1190, 001FC280) and none is missing. 428 are platform boundaries (SDK, IOP, GS
   and similar). No row is classified stand-in. The last whole-route
   liveness measurement, section 1.44, used an edge-recorder build that
   confirmed all 703 live rows (1.33 had confirmed the 660 of its time).
@@ -1691,18 +1708,14 @@ Resolved by the user on 2026-09-27:
 5. **The "PS2 hitches" example:** dropped; see above.
 6. **The load screen:** the load veil is game code, so it must be shown for
    however long the host load takes. Since 2026-09-27 it is bound and drawn
-   (the entry above); it shows for as many ticks as the load spans, which is
-   none until the area read runs the loader task's own steps (H7: the
-   area streamer is translated; its sound-bank step is not live yet).
+   (the entry above); since chain step H7 (2026-09-29) the area read runs
+   the loader task's own steps, so it shows for as many ticks as they take
+   at host speed (55 at New Game).
 
 Missing faithful behaviour that blocks a "first level complete" claim (the
 whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 2026-09-28 after chain C8b; its headline items):
 
-- the load veil's duration: the area read finishes inside one call (the
-  loader task 001FF0D0's own steps, H7: the area streamer 001FFCD0 is
-  translated, blocked on the sound-bank upload 001FB370's EE sound library
-  and IOP side), so the veil draws one black frame;
 - audio output: no SPU2 reverb, Gaussian interpolation or master volumes;
   sounds are not compared in the smoke;
 - visuals: pixels not compared with the reference frames (no harness);
@@ -1736,4 +1749,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-09-28.
+Last updated: 2026-09-29.

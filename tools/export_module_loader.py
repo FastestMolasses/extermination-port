@@ -2,12 +2,17 @@
 """Export the disc sectors the screen-module loader reads (docs/MODULE_LOADER.md).
 
 The native loader (src/game/em_module_loader.c) runs the original loader's
-steps (001FF080 -> 001FF0D0 -> 001FF830 / 001FF3F0 -> 00200780 / 00200730)
-and answers every read from this pack at host speed. For each requested
-module the pack holds the module's INDEX.IDX header sector and every
-DATA.DAT span that header makes the loader read (its chunk entries and its
-payload), exactly as 00200780 rounds them to sectors. A read the pack does
-not hold faults at run time (fail-stop); nothing is synthesised.
+steps (001FF080 -> 001FF0D0 -> 001FF830 / 001FF3F0, or the area streamer
+001FFCD0 / 001FF590 -> 00200780 / 00200730) and answers every read from this
+pack at host speed. For each requested module the pack holds the module's
+INDEX.IDX header sector and every DATA.DAT span that header makes the loader
+read (its chunk entries and its payload); for each requested area, the
+area's overlay file, its INDEX.IDX header sector (area + 4) and every
+DATA.DAT span 001FFCD0 reads (the sound bank entry 0, the A entries, the
+resident region); all exactly as 00200780 rounds them to sectors. A read the
+pack does not hold faults at run time (fail-stop); nothing is synthesised.
+Default: module 3 (the New Game's 001AD1A0), module 0x21 (the BATTERY
+page) and area 0x0B (AREA11, the New Game's 001FF080(1, 0)).
 
 Inputs (the user's own, read in place, nothing modified):
   --iso      the user's disc image (default ../Extermination/Extermination-rebuilt.iso).
@@ -15,6 +20,15 @@ Inputs (the user's own, read in place, nothing modified):
              are the ISO-9660 extents of DATA/INDEX.IDX and DATA/DATA.DAT.
   --capture  optional: an original RAM capture (a folder holding eeMemory.bin)
              for developer checks and for its loader cursors.
+  --elf      the user's pinned boot ELF (default ../Extermination/config/
+             SCUS_971.12, the file the other exporters read; SHA-256 checked).
+The ELF gives three tables the boot leaves in RAM (addresses and sizes):
+  * D_0028A3C0, 0x17 {lsn, size}: the boot's 001FEE60 looks up each name of
+    the ELF's D_00264E40 table (\\OVERLAY\\AREAnn.BIN;1) in the disc
+    directory; the exporter does the same lookup in the ISO;
+  * D_00275304[0]: the overlay arena (the area overlay's destination);
+  * D_00264890: the five SPU base addresses of the sound-bank buckets
+    (001FB3E0 state 1).
 Loader cursor seeds (the pack's 0x20 block): the values D_00275C70,
 D_00275C74, D_0028A5A0, D_0028A738, D_0028A73C, D_0028A744, D_0028A748 hold
 when the first level runs. Earlier loads the port does not run (the boot
@@ -33,12 +47,14 @@ Checks with --capture:
 Output (ignored, disc-derived): assets/module_loader/modules.emml and a
 receipt modules.json (counts, hashes and check results only).
 
-EMML version 1 (little endian):
-  0x00 'EMML', u32 1, u32 range count, u32 0
+EMML version 2 (little endian):
+  0x00 'EMML', u32 2, u32 range count, u32 0
   0x10 u32 D_0028A480 lsn, size, D_0028A488 lsn, size
   0x20 u32 D_00275C70, D_00275C74, D_0028A5A0, D_0028A738, D_0028A73C,
        D_0028A744, D_0028A748 (the captured loader globals), u32 0
-  0x40 ranges {u32 lsn, u32 sectors, u32 file offset, u32 0}, then data.
+  0x40 u32 D_00275304[0], u32 0, u32 D_00264890[0..4], u32 0
+  0x60 D_0028A3C0: 0x17 x {u32 lsn, u32 size}, then 8 zero bytes
+  0x120 ranges {u32 lsn, u32 sectors, u32 file offset, u32 0}, then data.
 """
 from __future__ import annotations
 
@@ -54,7 +70,12 @@ DECOMP = ROOT.parent / 'Extermination'
 SECTOR = 0x800
 D_00289BC0, D_0028A480, D_0028A488 = 0x289BC0, 0x28A480, 0x28A488
 CURSORS = (0x275C70, 0x275C74, 0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
-DEFAULT_MODULES = (0x21,)
+DEFAULT_MODULES = (3, 0x21)
+DEFAULT_AREAS = (0x0B,)
+HEADER = 0x120
+AREA_FILES = 0x17
+D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890
+ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 # The loader cursors (CURSORS order) at the first level's entry. The five
 # allocation cursors D_0028A5A0..D_0028A748 are equal in all 21 AREA11
 # captures (build/s87/route 00..14, startup-reference, c7cap). D_00275C70 is
@@ -104,6 +125,16 @@ class Disc:
             data = self._lookup(f, pvd[156:190], b'DATA')
             self.index = self._extent(self._lookup(f, data, b'INDEX.IDX'))
             self.data = self._extent(self._lookup(f, data, b'DATA.DAT'))
+            self._root = pvd[156:190]
+
+    def lookup(self, path: str):
+        """(lsn, size) of an ISO path such as \\OVERLAY\\AREA11.BIN;1."""
+        with self.path.open('rb') as f:
+            record = self._root
+            for part in path.strip('\\').split('\\'):
+                record = self._lookup(f, record, part.split(';')[0].encode())
+        return self._extent(record)
+
 
     @staticmethod
     def _sector(f, lsn, n=1):
@@ -157,20 +188,65 @@ def module_reads(disc, index, data, module):
     return header, reads
 
 
+def boot_tables(disc, elf_path: Path):
+    """D_0028A3C0 (0x17 {lsn, size}), D_00275304[0] and D_00264890[0..4]
+    from the pinned ELF, the area file names looked up in the disc's
+    directory (see the module docstring)."""
+    elf = elf_path.read_bytes()
+    if hashlib.sha256(elf).hexdigest() != ELF_SHA256:
+        raise SystemExit(f'{elf_path}: not the pinned boot ELF')
+
+    def word(address):
+        return u32(elf, address - 0x100000 + 0x300)
+
+    def string(address):
+        at = address - 0x100000 + 0x300
+        return elf[at:elf.index(b'\0', at)].decode('ascii')
+
+    names = [string(word(D_00264E40 + 4 * i)) for i in range(AREA_FILES)]
+    return ([disc.lookup(n) for n in names], names, word(D_00275304),
+            [word(D_00264890 + 4 * i) for i in range(5)])
+
+
+def area_reads(disc, index, data, area, files):
+    """[(what, lsn, sectors)] of a whole 001FF080(1, 0) load of `area`
+    (001FFCD0 with 001FF590; no nested block)."""
+    lsn, size = files[area]
+    reads = [('overlay', lsn, (size + 0x7FF) >> 11)]      # 00200780(file, buf, 0, -1)
+    reads.append(('header', *read_span(index, (area + 4) << 11, 0x800)))
+    header = disc.sectors(reads[-1][1], reads[-1][2])
+    base, total, resident = u32(header, 4), u32(header, 8), u32(header, 0x14)
+    first, count = struct.unpack_from('<HH', header, 0xC)
+    if u32(header, 0x18):
+        raise SystemExit(f'area {area:#x}: a nested block is not exported')
+    if first:                                             # 001FF590(0xAB, 0): entry 0, the sound bank
+        reads.append(('bank', *read_span(data, base + u32(header, 0x20), s32(u32(header, 0x24)))))
+    for i in range(first, first + count):                 # 001FF590(0xAB, 1): the A entries
+        off, n = u32(header, 0x20 + 8 * i), u32(header, 0x24 + 8 * i)
+        reads.append((f'a{i}', *read_span(data, base + off, s32(n))))
+    reads.append(('resident', *read_span(data, base + resident, s32(total - resident))))
+    return header, reads
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--iso', type=Path, default=DECOMP / 'Extermination-rebuilt.iso')
+    ap.add_argument('--elf', type=Path, default=DECOMP / 'config/SCUS_971.12')
     ap.add_argument('--capture', type=Path, default=None,
                     help='optional original RAM capture folder (eeMemory.bin): checks and cursor seeds')
     ap.add_argument('--modules', default=','.join(f'{m:#x}' for m in DEFAULT_MODULES),
-                    help='comma-separated module ids (default 0x21)')
+                    help='comma-separated module ids (default 3,0x21)')
+    ap.add_argument('--areas', default=','.join(f'{a:#x}' for a in DEFAULT_AREAS),
+                    help='comma-separated area ids for 001FF080(1, 0) (default 0xb)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')
     args = ap.parse_args()
     modules = [int(m, 0) for m in args.modules.split(',') if m.strip()]
+    areas = [int(a, 0) for a in args.areas.split(',') if a.strip()]
     if not args.iso.is_file():
         raise SystemExit(f'{args.iso}: the user\'s disc image is required')
     disc = Disc(args.iso)
     index, data = disc.index, disc.data
+    files, names, arena, bases = boot_tables(disc, args.elf)
     checks = {}
     ram = None
     if args.capture is not None:
@@ -183,6 +259,11 @@ def main():
             raise SystemExit(f'captured descriptors {captured} differ from the disc extents '
                              f'{index}/{data}')
         checks['descriptors'] = 'disc extents equal the capture'
+        cap_files = [(u32(ram, 0x28A3C0 + 8 * i), u32(ram, 0x28A3C4 + 8 * i)) for i in range(AREA_FILES)]
+        if cap_files != [tuple(f) for f in files] or u32(ram, D_00275304) != arena or \
+                [u32(ram, D_00264890 + 4 * i) for i in range(5)] != bases:
+            raise SystemExit('the captured D_0028A3C0 / D_00275304 / D_00264890 differ from the disc\'s')
+        checks['boot_tables'] = 'D_0028A3C0, D_00275304 and D_00264890 equal the capture'
         cursors = [u32(ram, a) for a in CURSORS]
         checks['cursors'] = ('equal to AREA11_SEEDS' if tuple(cursors) == AREA11_SEEDS else
                              'differ from AREA11_SEEDS: ' + ', '.join(
@@ -214,11 +295,23 @@ def main():
                 checks[f'{module:#x}_chunks'] = f'equal to the capture at {dest:#x} ({length:#x} bytes)'
             else:
                 checks[f'{module:#x}_chunks'] = 'not resident in the capture'
+    for area in areas:
+        if not 0 <= area < AREA_FILES:
+            raise SystemExit(f'area {area:#x}: outside D_0028A3C0')
+        _header, reads = area_reads(disc, index, data, area, files)
+        for what, lsn, sectors in reads:
+            if sectors:
+                ranges[(lsn, sectors)] = None
+            receipt.append(dict(area=area, read=what, lsn=lsn, sectors=sectors))
     order = sorted(ranges)
-    blob = bytearray(struct.pack('<4sIII', b'EMML', 1, len(order), 0))
+    blob = bytearray(struct.pack('<4sIII', b'EMML', 2, len(order), 0))
     blob += struct.pack('<4I', *index, *data)
     blob += struct.pack('<8I', *cursors, 0)
-    offset = 0x40 + 0x10 * len(order)
+    blob += struct.pack('<8I', arena, 0, *bases, 0)
+    for lsn, size in files:
+        blob += struct.pack('<2I', lsn, size)
+    blob += bytes(HEADER - len(blob))
+    offset = HEADER + 0x10 * len(order)
     table, payload = bytearray(), bytearray()
     for lsn, sectors in order:
         table += struct.pack('<4I', lsn, sectors, offset + len(payload), 0)
@@ -226,7 +319,10 @@ def main():
     blob += table + payload
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(bytes(blob))
-    report = dict(modules=[f'{m:#x}' for m in modules], ranges=len(order), bytes=len(blob),
+    report = dict(modules=[f'{m:#x}' for m in modules], areas=[f'{a:#x}' for a in areas],
+                  ranges=len(order), bytes=len(blob),
+                  area_files={n: [hex(v) for v in f] for n, f in zip(names, files)},
+                  d275304=hex(arena), d264890=[hex(v) for v in bases],
                   sha256=hashlib.sha256(blob).hexdigest(), reads=receipt,
                   descriptors=dict(d28A480=[hex(v) for v in index], d28A488=[hex(v) for v in data]),
                   cursors={f'{a:#08x}': hex(v) for a, v in zip(CURSORS, cursors)},

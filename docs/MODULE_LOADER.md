@@ -2,7 +2,8 @@
 
 Lane b15 "module_loader" (2026-09-27) translated the loader's disc and DMA
 layer; chain C8b LOADER (2026-09-28) bound it live and translated the area
-streamer. Files: `src/game/em_module_loader.{h,c}`,
+streamer; chain step H7 (2026-09-29) bound the area streamer with its
+sound-bank step and put the New Game's two loads on it. Files: `src/game/em_module_loader.{h,c}`,
 `tools/export_module_loader.py`, `tools/test_module_loader_reference.py`
 (`make test-module-loader-reference`), this doc; the state machine is in
 `em_status_scene_original.c` (STATUS_SCENE.md section 2).
@@ -25,14 +26,28 @@ LAUNCHER_OPTIONS.md) the drive answers with the recorded busy fields and
 the load takes the captured 24 frames. The level smoke compares both
 (section 4.1).
 
-**What is translated but not live.** The area streamer 001FFCD0 and its
-bank-chunk streamer 001FF590 (section 1.9), verified against the original
-instructions. The area load 001FF080(1, 0) cannot run through them yet:
-their first bank step hands the area's sound bank to 001FB370, whose steps
-are the EE sound library and the IOP (section 5). Until then the area read
-is the port's own (em_game_legacy_area_load) and completes inside the
-call, so the load veil draws one black frame (LOAD_VEIL_PARTICLES.md
-section 5).
+**The New Game's loads (chain step H7).** New Game's 001AD1A0 requests
+module 3 (the player's texture packets, slots 8..52) and 001ADF50 the area
+load 001FF080(1, 0) through the same task:
+- module 3 loads through 001FF830 (kind 0 from D_0028A738): **8 dispatches**
+  at host speed, 68 with the recorded drive (the capture's);
+- the area load runs the area streamer 001FFCD0 with 001FF590 (section
+  1.9), its workers bound here: the overlay file, the area header, the
+  sound bank through **001FB370** (the EE sound library and the IOP's
+  command 0x20: `em_sound_bank` on `em_stream_live`'s backend, IOP_STREAM.md
+  "The sound-bank transfer"; 8 calls), the A entry (the area's texture
+  upload) and the resident region, then 00200890's player packet: **20
+  dispatches** at host speed, 185 with the recorded drive (the capture
+  takes one more: 001FB370's ninth call, most likely the PS2's SIF DMA
+  time);
+- D_00275BD8 clears at the area record's 0x63, so 001ADF50's veil 0021B550
+  ramps for as many ticks as the load takes (LOAD_VEIL_PARTICLES.md
+  section 5): 55 veil frames at host speed, 257 with the switch (the
+  captures: 258).
+The port's own assets of the area (em_game_legacy_area_load: the
+renderer's and the collision's formats) load in the dispatch whose
+001FFCD0 step completes the area, where the original's data are all in
+memory (em_scene_bindings `loader_area_done`).
 
 ## 1. Behaviour (by original address)
 
@@ -157,13 +172,14 @@ Destinations:
   A later read that overlaps a region replaces it.
 
 **The measured option** (the PS2 disc-drive timing switch,
-`EM_PS2_DISC_DRIVE_TIMING=1`; `em_settings`).
+`EM_PS2_DISC_DRIVE_TIMING=1`; `em_settings`). The file names include the
+area files of D_0028A3C0 (file 0x10 + area in the table).
 - A read keeps sync busy for its measured number of fields, counted on
   `em_module_loader_field`, which main.c's field hook calls once per frame
   at the top of the frame, before the task dispatch.
-- The only measurements are module 0x21's reads, named by file, sector
-  inside the file and sector count, so a disc image that places the two
-  files elsewhere still matches them:
+- The measurements are module 0x21's reads and the New Game's (below),
+  each named by file, sector inside the file and sector count, so a disc
+  image that places the files elsewhere still matches them. Module 0x21's:
   - the header, INDEX.IDX sector 0x21 (1 sector), is busy for **6** fields;
   - chunk 0, DATA.DAT sector 0x1C978 = byte 0xE4BC000 (161 sectors), is
     busy for **8**;
@@ -171,6 +187,28 @@ Destinations:
   On the rebuilt image these are lsn 0x9D7F1 and 0x9CB50.
 - Sources: STATUS_LOAD_WAIT_PROBE.md, and CAPTURES_C7.md section 6 in the
   decomp repo.
+- **The New Game's reads** (chain step H7), from the PCSX2 New Game capture
+  (the decomp's `build/startup-reference/newgame_samples.jsonl`: the task
+  records sampled about twice a frame while the VM ran; each busy count is
+  the frames from the read's issue row to its done row, less the done poll):
+
+  | Read | File, sector, sectors | Busy fields |
+  |---|---|---:|
+  | module 3 header | INDEX.IDX 3, 1 | 6 |
+  | module 3 payload | DATA.DAT 0x429 (byte 0x214800), 1175 | 54 |
+  | the AREA11 overlay | \OVERLAY\AREA11.BIN 0, 15 | 6 |
+  | the AREA11 header | INDEX.IDX 0x0F, 1 | 1 |
+  | the AREA11 sound bank | DATA.DAT 0xEDCF (byte 0x76E7800), 149 | 11 |
+  | the AREA11 A entry | DATA.DAT 0xEE64 (byte 0x7732000), 433 | 16 |
+  | the AREA11 resident region | DATA.DAT 0xF015 (byte 0x780A800), 3292 | 131 |
+
+  The test derives the same table from the capture itself and requires the
+  whole load's rows to reach every captured state at the captured frame
+  (relative to each load's first dispatch), except one frame early after
+  the sound-bank step (above). A sample's frame label is only known within
+  its frame (two samples per frame, read while the VM runs), which the
+  veil's phase bounds: the switch's New Game load leaves the veil 257
+  steps, the captures 258, the one being 001FB370's ninth call.
 - Any other read is answered at host speed and counted as `unmeasured`.
   Nothing is extrapolated.
 
@@ -207,8 +245,12 @@ of DISC_TEXTURES.md 9.1, which replays the boot, title, New Game and area
 loads' cursor rules) and requires them to equal `AREA11_SEEDS`; the live
 loader still does not run those loads itself (section 5).
 
-The New Game loads the port does not run through this loader account for
-all but two of them (section 1.9): module 3 (kind 0, from D_0028A738 =
+Since chain step H7 the New Game's module-3 and area loads run through
+this loader and recompute all of them but D_0028A738 (the boot loader's):
+the whole-load test ends with exactly the captured values. The seeds still
+matter for a load before them (none on the route) and for module 0x21's
+D_0028A748, which the area load writes to the same value. How the loads
+produce them (section 1.9): module 3 (kind 0, from D_0028A738 =
 0x10E99C0) ends at 0x13351C0; the area load's sound bank there returns
 0x1335F40 = D_0028A73C (001FB370's aligned end of the bank's resident
 part); the area's resident region (0x66E000 bytes) puts D_0028A740 =
@@ -220,7 +262,7 @@ numbers are the disc's (INDEX.IDX sectors 3 and 0x0F, the bank's +0x10 word)
 through the translated steps; the oracle's AREA11 case reproduces D_0028A5A0
 from the captured D_0028A73C.
 
-### 1.9 001FFCD0 and 001FF590: the area streamer (translated, not bound)
+### 1.9 001FFCD0 and 001FF590: the area streamer (live since chain step H7)
 
 `em_status_scene_area_001FFCD0` (em_status_scene_original.c; 001FFCD0 is
 NEARMISS C, 001FF590 byte-matched C, both read against the original
@@ -266,8 +308,34 @@ section, a resident region of 0x66E000 bytes from DATA.DAT byte 0x76E7800
 + 0x123000, 19 pointer words (slots 0x41..0x98, D_0028A5A0 among them), no
 nested block. With every poll done at once and 001FB370 scripted to
 finish on its third call, the oracle's AREA11 case takes 14 dispatches of
-001FFCD0; how many calls 001FB370 really needs is its own steps' count
-(section 5).
+001FFCD0. Live, 001FB370 takes 8 calls (its own steps: IOP_STREAM.md "The
+sound-bank transfer"), so the area load takes 20 dispatches at host speed.
+
+**The live workers** (em_module_loader.c):
+- 001FB370: the binder's bank hook (`em_module_loader_set_bank_hook`) with
+  the file as the drive delivered it, from its address to the region's
+  end; em_scene_bindings binds `em_stream_live_001FB370`.
+- 00200890: `em_module_loader_packet_00200890` over the views D_00810707
+  and D_00810C60 and the slot words 8..12 (module 3's relocations).
+- 002009E0: FlushCache(2) has no host effect; the overlay's bss (its
+  header's word +0x14 bytes after the file) is cleared in the drive's
+  memory, where the loaded overlay is. The port's AREA11 overlay code is
+  native and keeps its own storage; nothing reads these bytes.
+- The area bytes D_00810700 / 701 / 703 / 704 are views of the scene state
+  (D_00810703 / 704 migrated as progress bytes in this step), copied in
+  before and out after each 001FFCD0 call.
+- The reads of D_0028A3C0's descriptors (the area files) go through the
+  same host drive; the pack carries the table and D_00275304[0].
+- The area's two DMA sends go to the area consumer
+  (`em_module_loader_set_area_chain_hook`; em_scene_bindings
+  `loader_area_chain`): it accepts exactly 001FF590(0xAB, 1)'s A entry at
+  D_0028A73C and 00200890's packet (one of the slot words 8..12) and
+  applies nothing: the port's renderer draws these texels from its disc
+  export, which DISC_TEXTURES test B proves equal to what these uploads
+  write in every route capture. Anything else (a B section) is refused.
+- An area-done hook (`em_module_loader_set_area_done_hook`) runs in the
+  dispatch whose 001FFCD0 step reaches 0x63; the binder loads the port's own
+  assets there.
 
 
 
@@ -336,7 +404,8 @@ test-module-loader-reference`):
   `--capture` (route 03, its checks and its cursors), and the disc-only one
   an end user makes. The test requires the two to differ only in the
   D_00275C74 seed word;
-- takes about **2.2 s**. `EM_TEST_FULL=1` takes about **7 s**.
+- takes about **8 s** (part H is most of it). `EM_TEST_FULL=1` takes
+  longer (the leaf sweep and every eligible header).
 
 Every check below runs in both modes.
 
@@ -451,8 +520,8 @@ Runs:
 
 **Fault checks:**
 - a header the pack lacks: 0x00112440, BAD_INDEX;
-- +8 = 1 or 2: 001FFCD0 / 00200360, NULL_WORKER (the live loader binds
-  neither);
+- +8 = 1 without the area views: 0x001FFCD0, NULL_WORKER; +8 = 2:
+  00200360, NULL_WORKER (not translated);
 - no DMA consumer: 0x00101F08, NULL_WORKER;
 - the orphan fault (D);
 - an unbound request;
@@ -483,13 +552,10 @@ default run. The file is restored afterwards.
   - spad 0x70003B90 sampled before 001CCB10;
   - the measured table keyed by the rebuilt image's absolute lsns
     (relocated pack).
-- **Equivalent, proved in writing: the `d810CA4` / `d810CA6` views
-  ignored.** `em_status_scene_loader_001FF0D0` reads those bytes only in
-  its +8 == 1 branch, and only after `w->w_001FFCD0` has returned (the
-  001FEF70 call after it). `em_module_loader_open` leaves `w_001FFCD0`
-  NULL, so that branch faults at 0x001FFCD0 before the bytes are read. No
-  output of this module can depend on them until 001FFCD0 is translated;
-  the chain that binds it must add a pinned case for them.
+- **The `d810CA4` / `d810CA6` views** are read by 001FF0D0's 001FEF70
+  after the area streamer's 0x63 step; since chain step H7 a pinned case
+  (part H) runs the area load with D_00810CA6 = 1 on both sides and
+  requires the record to become module 0x32's load (+8..+0xC cleared).
 
 `python3 tools/check_no_disassembly.py` is clean on all five files.
 
@@ -517,6 +583,26 @@ arguments, and every store the original makes must be inside that set.
   state 3: each fails the default run. State 1's error to "state - 1" is
   the same as the original's 0 there (equivalent).
 
+**H. The New Game's loads (chain step H7).** Over the route-03 RAM
+(which holds AREA11 and the pre-load cursors), module 3's whole load and
+then 001FF080(1, 0)'s: the original 001FF0D0 + 001FF830 + 001FFCD0 +
+001FF590 + 00200780 / 00200730 / 00200830 / 00200890 + 002009E0 (its
+FlushCache hooked, its memset 00121A28 as original code) against
+em_module_loader with its area workers. 001FB370 answers alike on both
+sides (7 pending calls, then the bank's end, what test_sound_bank_reference
+shows the real chain does). Compared as in part B, plus the area bytes
+D_00810700 / 701 / 703 / 704 after every frame, the overlay's bss clear
+(original stores inside it allowed, its bytes equal and zero) and the two
+DMA sends (the A entry at 0x1335F40 and the player packet at D_0028A4B0).
+The final cursors equal every route capture's (D_0028A73C = 0x1335F40,
+D_0028A740 / 744 / 748 = 0x19A3F40, D_0028A5A0 = 0x1516F40). Host speed:
+8 + 20 dispatches. With the recorded drive (the test derives the reads'
+busy counts from `newgame_samples.jsonl` itself): 68 + 185, and every
+captured loader state appears at its captured frame relative to its load's
+first dispatch, one frame early after the sound-bank step. A pinned case
+with D_00810CA6 = 1 checks the 001FEF70 chaining. The run takes about 8 s
+in all.
+
 **G. Live (the level smoke).** `check_module_load` (tools/test_level_smoke.py,
 every run through the battery and the panel): the loader bytes the tick
 log records after each frame (`loader_pre`: slot +0, +8..+0x1F,
@@ -527,10 +613,14 @@ counters.
 ## 4. Binding (live since chain C8b LOADER)
 
 1. **Asset.** `python3 tools/export_module_loader.py` (STARTUP.md) needs
-   only the user's disc image. It writes `assets/module_loader/modules.emml`
-   and `modules.json` (ignored, disc-derived): the ISO's INDEX.IDX and
-   DATA.DAT extents, the cursor seeds `AREA11_SEEDS` (section 1.8) and
-   module 0x21's sectors (add others with `--modules 0x21,0x1F,...`).
+   only the user's disc image and the pinned ELF. It writes
+   `assets/module_loader/modules.emml` (EMML version 2) and `modules.json`
+   (ignored, disc-derived): the ISO's INDEX.IDX and DATA.DAT extents, the
+   cursor seeds `AREA11_SEEDS` (section 1.8), the boot's tables from the
+   ELF (D_0028A3C0 with the area files looked up in the ISO's directory,
+   D_00275304[0], D_00264890), and the sectors of modules 3 and 0x21 and of
+   area 0x0B (the overlay file, the header, the bank, the A entry and the
+   resident region; 10.7 MB). Add others with `--modules` / `--areas`.
    `--capture <folder>` (developer only) adds the capture checks and takes
    that capture's cursors as the seeds. The game does not start without the
    pack (fail-stop, like the stream export).
@@ -538,6 +628,9 @@ counters.
    (main.c, at start-up after the stream boot) opens the pack, sets the
    views and the drive mode, and binds the slot-2 task live;
    `em_scene_bindings_module_loader_shutdown` unbinds and closes it at exit.
+   The boot also binds the area's workers: the bank hook to
+   `em_stream_live_001FB370` (after `em_stream_live_bind_sound_bank` with the
+   pack's D_00264890), the area consumer and the area-done hook.
 3. **Faults.** After every task dispatch (step E) the frame loop runs
    `em_scene_bindings_module_loader_check` (`em_frame_set_task_check`): a
    latched loader fault or the orphan fault prints its address and code
@@ -570,7 +663,11 @@ counters.
 6. **Clock.** main.c's field hook (the top of every frame) calls
    `em_scene_bindings_module_loader_field` before the dispatch. Only the
    measured drive reads it.
-7. **Request.** `em_status_runtime.c` `begin_module`: module 0x21 calls
+7. **Requests.** New Game's 001AD1A0 (em_scene_bindings `w_001AD1A0`)
+   calls `em_module_loader_request_001FF080(loader, 0, 3)` and 001ADF50's
+   001FF080(1, 0) (`w_001FF080`) `(loader, 1, 0)`; both leave D_00275BD8 as
+   their callers set it (1) for the task's 0x63 step to clear.
+   `em_status_runtime.c` `begin_module`: module 0x21 calls
    `em_module_loader_request_001FF080(loader, 0, 0x21)` and leaves the busy
    byte as the ITEM root set it; the loader's 0x63 step clears it. Without a
    bound loader module 0x21 faults (no instant path is left). The port-side
@@ -581,8 +678,7 @@ counters.
    upload is proven equal to the atlas the port draws, as in finding 1:
    the pages 0x1F (hub), 0x20, 0x22, 0x23, 0x2C and 0x2D..0x31 (the last
    six the status pages' `SP_001FF080`). The New Game module 3 (001AD1A0)
-   and the area load go through it together with the area streamer
-   (section 5).
+   and the area load go through it since chain step H7.
 9. **Tick log.** Every tick carries `loader_pre`: the first 27 bytes of
    `em_module_loader_snapshot` (slot +0, +8..+0x1F, D_00275BD8,
    D_00282157) after the previous frame's slot-2 dispatch (the task runs
@@ -631,59 +727,38 @@ contain the load, with these names:
 
 ## 5. Known gaps
 
-- **The area load does not run through the loader yet** (the step's
-  blocker; FIRST_LEVEL_AUDIT.md 1b item 3). 001FFCD0 and 001FF590 are
-  translated and verified (section 1.9), but binding them live needs their
-  first bank step, 001FF590(0xAB, 0) -> 001FB370, which uploads the area's
-  sound bank (AREA11: one; its +0x0C is 1). 001FB370 / 001FB3E0 / 001FB910
-  are translated (em_startup_load_gaps_sound, verified-unbound), but the
-  number of dispatches their steps take (which is what the load veil
-  shows) is decided by what they call, and none of it is live in the port:
-  - the EE sound library's handle table and command queue: 00119528 /
-    001194B8 (the handle: the first free entry of D_0027C6C0), 00119400
-    (queues command 0x20 through 001157F0 and counts it in D_0027F740 +
-    0x48), 00119450 (the queue is caught up when the IOP's reply word
-    D_002817C0 + 0x1C0 equals that count), 001199F0 and 001195A8 (the
-    latter scans the voice table D_0027CCC0);
-  - the SIF DMA of the bank's records to IOP memory (the kernel calls
-    0010BC00, 0010BAA0, 0010BBE0, 0010BBC0) and the IOP heap RPC 0010F8F8 /
-    0010F968;
-  - the sound driver's handling of command 0x20 (the SPU transfer of a
-    registered block) and its acknowledgement in the status block:
-    em_iop_stream translates the driver's stream subset and faults on any
-    other command (IOP_STREAM.md).
-  Answering these at "host speed" with values chosen by the port would
-  decide the veil's length by invention, so the step stops here. What
-  unblocks it: extend em_iop_stream with command 0x20 and the SIF DMA
-  (translated from the user's SNDN2DRV.IRX, as its stream part is), bind
-  the EE sound library's handle table and queue (00119528, 00119400,
-  00119450, 001199F0, 001195A8) over its existing 001157F0 and status
-  block, bind 001FB370 on them, then bind 001FFCD0 (with 002009E0 over the
-  drive's overlay region and 00200890 over the views D_00810707 /
-  D_00810C60) and route the New Game module-3 load (001AD1A0) and the area
-  read (001ADF50's 001FF080(1, 0)) through the loader. The exporter then
-  needs the AREA11 overlay file and sector 0x0F's DATA.DAT spans, and the
-  descriptor table D_0028A3C0 from the disc directory (the names come from
-  the ELF's D_00264E40, which the ISO carries).
+- **001FB370's ninth call.** The PS2 took one more call on AREA11's bank
+  than the port (section 1.9; IOP_STREAM.md "The sound-bank transfer"):
+  most likely its SIF DMA's hardware time. Neither the Original profile nor
+  the PS2 disc-drive timing switch reproduces it, so with the switch the
+  New Game's veil runs 257 frames against the captures' 258.
+- **The recorded New Game reads are frame-exact only within the capture's
+  sampling** (section 1.7): two samples a frame, read while the VM ran.
+  Only the New Game's reads of module 3 and AREA11 and module 0x21's are
+  measured; any other read is answered at host speed and counted.
+- **The area load after New Game.** Area changes (the level exit, the
+  area-change test's reload) run the same loader. Only AREA11 is exported:
+  another area's reads fault (fail-stop). A reload of AREA11 frees the
+  bank's handle through 001195A8, which reads the SFX driver's published
+  voice records.
 - **Other untranslated loader paths**, each a fault if reached (none is on
-  the first-level route): 00200360, the bank-set streamer (+8 = 2); the
-  kind-3 finaliser 001FB370's live binding (modules 0x32..0x35, the item
-  above); 001FF1E0 / 00200700, the boot-time synchronous loader; 002009E0
-  (a worker of the unbound 001FFCD0).
-- **The cursor seeds are exported, not produced by the live loader**
-  (section 1.8). The loads that produce them (001FF1E0, the New Game
-  module-3 load, 001FFCD0) do not run through this loader in the port; the
-  exporter computes the seeds from the disc with those loads' rules
-  (`disc_seeds`, DISC_TEXTURES.md 9.1), equal to the values every
-  first-level capture shows. They hold for AREA11 only. For
-  module 0x21 only D_0028A748 matters.
-- **The `d810CA4` / `d810CA6` views** are bound but read only after
-  001FFCD0 (the 001FEF70 chaining), which the live loader does not run.
-- **00200890 / 00200970** are translated and verified, but have no
-  consumer. Their packets are module 3 / 0x1B relocation slots, which the
-  drive only delivers if those modules load through it, and 001CCB10 is
-  untranslated. The page core's `EM_STATUS_PAGE_PLAYER_TEXTURE` and the
-  player step 0015C1F0 keep their current boundaries.
+  the first-level route): 00200360, the bank-set streamer (+8 = 2);
+  001FF1E0 / 00200700, the boot-time synchronous loader. The kind-3
+  modules 0x32..0x35 reach 001FB370 through 001FF830 state 6, which is now
+  bound too, but none is exported (their reads fault).
+- **The cursor seeds are exported** (section 1.8). The New Game's loads
+  now recompute every one but D_0028A738 (the boot loader 001FF1E0's,
+  which the port does not run); the exporter computes them from the disc
+  with the loads' rules (`disc_seeds`, DISC_TEXTURES.md 9.1), equal to the
+  values every first-level capture shows. They hold for AREA11 only.
+- **00200970** is translated and verified but has no consumer (001CCB10 is
+  untranslated). 00200890 runs live in the area load (state 7); the page
+  core's `EM_STATUS_PAGE_PLAYER_TEXTURE` and the player step 0015C1F0 keep
+  their current boundaries.
+- **The area consumer applies nothing** (section 1.9): the port's textures
+  are its disc export (DISC_TEXTURES test B); the loaded resident region
+  and overlay are the drive's bytes, which the port's native code does not
+  read.
 - **Measured timing** exists for module 0x21's two reads only (two data
   points, PCSX2 on the rebuilt image). With the switch on every other read
   is answered at host speed and counted (`unmeasured`).
@@ -707,6 +782,7 @@ python3 tools/export_module_loader.py                 # assets/module_loader/mod
 python3 tools/test_module_loader_reference.py         # ~2.2 s (make test-module-loader-reference)
 EM_TEST_FULL=1 python3 tools/test_module_loader_reference.py   # ~7 s
 python3 tools/test_status_scene_reference.py          # the area streamer (section 3 F), ~2.5 s
+python3 tools/test_sound_bank_reference.py            # 001FB370's chain (IOP_STREAM.md), ~3 s
 python3 tools/check_no_disassembly.py src/game/em_module_loader.c src/game/em_module_loader.h \
     tools/export_module_loader.py tools/test_module_loader_reference.py docs/MODULE_LOADER.md
 ```

@@ -36,11 +36,11 @@ coordinator chain; section 4 says exactly what each binding replaces.
 | 001B57E0 pad read | unverified | verified-unbound | `em_slg_001B57E0` | oracle, unit + every capture |
 | 001B5F40 libpad state machine | unverified (partial) | verified-unbound | `em_slg_001B5F40` (+ `em_slg_001B62A0`) | oracle |
 | 001BB0E0 opening-script actor | unverified | verified-unbound; **live** since chain C8b OPENING | `em_slg_001BB0E0` | oracle, unit + the 2 resident actors of the opening RAM |
-| 001FB100 sound frame | stand-in | verified-unbound | `em_slg_001FB100` | oracle, unit + captured |
-| 001FC6E0 delayed cues | missing | verified-unbound | `em_slg_001FC6E0` | oracle |
-| 001FB370 bank-load gate | missing | verified-unbound | `em_slg_001FB370` | oracle |
-| 001FB3E0 bank upload | missing | verified-unbound | `em_slg_001FB3E0` | oracle |
-| 001FB910 SIF DMA kick | missing | verified-unbound | `em_slg_001FB910` | oracle |
+| 001FB100 sound frame | stand-in | verified-unbound; **live** since chain step H7 (step H) | `em_slg_001FB100` | oracle, unit + captured |
+| 001FC6E0 delayed cues | missing | verified-unbound; **live** since chain step H7 (inside 001FB100) | `em_slg_001FC6E0` | oracle |
+| 001FB370 bank-load gate | missing | verified-unbound; **live** since chain step H7 (the area load's bank step, em_sound_bank) | `em_slg_001FB370` | oracle; test_sound_bank_reference |
+| 001FB3E0 bank upload | missing | verified-unbound; **live** since chain step H7 | `em_slg_001FB3E0` | oracle; test_sound_bank_reference |
+| 001FB910 SIF DMA kick | missing | verified-unbound; **live** since chain step H7 | `em_slg_001FB910` | oracle; test_sound_bank_reference |
 | 008237C0 AREA11 overlay init | missing (critic 7.2: stand-in) | verified-unbound | `em_slg_008237C0` | oracle + every capture |
 | 00199C50 collision tables | missing | verified-unbound | `em_slg_00199C50` | oracle, unit + every capture |
 | 0015C1F0 player model kind | verified-unbound | unchanged | `em_player_misc_0015C1F0` | test_player_misc_workers_reference |
@@ -328,13 +328,19 @@ runs 001FC6E0. 001FC6E0 walks the ten cue records D_00281F30 {delay, cue,
 a2, a3}: a nonzero delay counts down; at zero, a cue other than -1 is
 started (001FB9F0(cue, 0x1000, a2, a3), skipped for cue 0) and set to -1.
 
-- Binding: step H of `em_frame_step`, after G. No live call site exists: the
-  copy stand-in `em_sfx_frame_snapshot` has no caller. Storage: `d281B70` =
-  em_sfx's `requested` (+0xC0 = `snapshot`), 48 words each, matching
-  EM_SFX_TRACKS. The cue table D_00281F30 has no port storage yet.
-- Workers: 001F9CF0 → em_stream_lanes_original (verified-unbound, L36);
-  00119870 / 0011A608 → the SPU output mode, a boundary for the native
-  mixer; 001FB9F0 → em_sfx's sfx_start (live).
+- Binding (live since chain step H7): step H of `em_frame_step`, after G,
+  in `em_stream_live_step_h`. Storage (per-call views): `d28215B` = the
+  lanes' `mono` byte, `d281FD4` / `d2820F4` = lane 0's two voices,
+  `d281B70` = em_sfx's `requested` (+0xC0 = `snapshot`, written back through
+  `em_sfx_set_snapshot`), `d281F30` and `d81011C` = em_stream_live's own
+  (D_0081011C 0: its writer, the options screen, is off the route;
+  D_00281F30 {0, -1} as 001FBC50 leaves it, which the 001FBC50 binding now
+  clears). The stand-in copy `em_sfx_frame_snapshot` is deleted.
+- Workers: 001F9CF0 → em_stream_lanes_original (live); 00119870 →
+  em_stream_live's D_0027F778 (the SFX side's 001179E0 reads a constant 0);
+  0011A608 → `em_stream_lanes_0011A608` (command 0x40); 001FB9F0 →
+  `em_sfx_submit_001FB9F0` (unreachable on the route: 001FC580, the only
+  writer of pending cues, is unbound).
 - Route: D_0081011C = 0 and no pending cues in the captures.
 
 ### 001FB370 / 001FB3E0 / 001FB910 — the sound-bank upload
@@ -364,15 +370,16 @@ descriptor {src, dst, size, 0} once per entry and uses the kernel calls at
 count 1). It then polls 0010BBC0 (0x76): 1 while the transfer runs, 0 when
 done, -1 when no transfer id was returned.
 
-- Binding: the kind-3 finaliser of the module loaders (001FF590 state 5 and
-  001FF830 state 6, both boundary rows). In the port, that is the
-  `w_001FB370` worker of em_status_scene_original (not bound) and the S1
-  area load of the AREA11 sound bank. `EmSlgBankFile` is the loaded file
-  (EE address + bytes). `base` = D_00264890, which an exporter must read from
-  the user's ELF (the test reads it the same way). Workers: all IOP/SIF/SPU
-  boundary. The native equivalent of "upload to SPU RAM and register" is
-  em_sfx_bank.c's bank load. The destinations and handles this machine
-  computes are the original's SPU layout.
+- Binding (live since chain step H7): the kind-3 finaliser of the module
+  loaders (001FF590 state 5 and 001FF830 state 6, both boundary rows), the
+  loader's `w_001FB370` through the bank hook to `em_sound_bank`
+  (em_stream_live). `EmSlgBankFile` is the file as the loader's drive
+  delivered it. `base` = D_00264890, read from the user's ELF by
+  tools/export_module_loader.py. Workers: the EE sound library
+  (em_ee_sound_lib) and em_iop_stream's heap, SIF DMA and command 0x20
+  (IOP_STREAM.md "The sound-bank transfer"). The New Game's area load makes
+  8 calls on AREA11's bank; test_sound_bank_reference executes the original
+  chain beside it.
 - Native fail-stop beyond the original: a bucket outside the 5 base words,
   a handle slot outside D_00281D50..D_00281F2F, or a file read outside the
   loaded file faults. The original would read or write neighbouring memory.

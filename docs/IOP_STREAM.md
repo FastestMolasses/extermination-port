@@ -3,7 +3,10 @@
 Status: **live since WP-8b (2026-09-25)**: `em_stream_live` (docs/STREAM_LANES.md "Live binding") owns one
 backend and its exported disc; the field runs at the top of every frame and the mixer is summed by em_bgm's callback.
 This doc covers the IOP side that the stream lanes (`em_stream_lanes_original`, docs/STREAM_LANES.md) talk to
-through 001157F0 and 0011A730; "Binding notes" records how it was bound.
+through 001157F0 and 0011A730; "Binding notes" records how it was bound. Since chain step H7 (2026-09-29) it also
+carries the area load's sound-bank upload: command 0x20, channel 0's transfer callback, the IOP heap's first fit and
+free, and the EE kernel's SIF DMA (section "The sound-bank transfer"), which the EE sound library
+(`em_ee_sound_lib`) and the bound 001FB370 (`em_sound_bank`) run over.
 
 Files:
 - `src/game/em_iop_stream.{h,c}`: the backend.
@@ -32,6 +35,8 @@ Nothing of the module is reproduced in this repository.
 | 0x20C8 | For voices 47 down to 0 with bit 0 of `+0x00` set, it reads NAX into `+0x24`. NAX in (start, start + half] sets `+0x2C` = 0x1000000 (playing the first SPU half; target the second). NAX past start + half sets 0x2000000 (target the first). A changed `+0x2C` queues a transfer of `half` bytes from IOP `+0x10 + cursor` to the target, then `+0x30` = `+0x2C` |
 | 0x23B8 | Runs only while `sceSdVoiceTransStatus(1, 0)` is 1. The finished transfer's voice advances its cursor, `+0x28 = (+0x28 + half * (+0x04 >> 16)) % +0x14`. Then one queue entry runs. 0x1000 is a transfer: copy `0x800 / stride` bytes from every 0x800 into the staging buffer `+0x46B0`, set the flag byte of its first and last ADPCM block, `sceSdVoiceTrans` to SPU RAM, mark it pending. 0x1010 is key-on: `KON` switches, then `+0x00` \|= 1 and `+0x30` = `+0x2C` = 0. 0x1011 is key-off: `+0x00` = cursor = `+0x30` = `+0x2C` = 0, then the `KOFF` switches |
 | 0x2CF4 | The transfer queue push: 0x60 entries at `+0x8080`, write/read counts at `+0x3494` / `+0x3498`. A full queue drops the entry |
+| 0xE98 (command 0x20) | A registered bank's upload: `sceSdVoiceTrans(0, write, IOP source, SPU destination, size)` with the source `(word1 & 0xFF) << 16 \| word2 >> 16`, the destination `(word2 & 0xFFFF) << 8 \| word3 >> 24` and the size `word3 & 0xFFFFFF` (00119400's packing), then `+0x349C` = `word1 >> 8`, the EE's command count |
+| 0x544 | Channel 0's transfer callback (command 0x1E registers it with `sceSdSetTransCallback(0, 0x544)`): status word 112 (`+0x44B0 + 0x1C0`) = `+0x349C`; returns 1. The EE sees it as `D_002817C0 + 0x1C0` after the next exchange, 00119450's acknowledgement |
 
 The stream voice record is `+0x76C0 + v * 0x34` (see `EmIopStreamVoice`).
 
@@ -112,13 +117,14 @@ derived from the captures.
 | Driver tick | every 64 H-lines (128 half-lines), phase 0 at boot | The driver's own timer setup (0x3C00 / 0xF0, H-line source). The tick phase is unknown |
 | SPU2 clock | 48000 Hz against 4.5 MHz / 286 H-lines/s: 572/375 samples per half-line (800.8 per field) | 60 Hz / 800 samples per field fails the long captures (mutation control) |
 | RPC 0x64 | once per field, at its start: queued commands in, the last tick's snapshot out | 001152D8's per-field `001191F0(0x64, ...)`. The phase inside the field is not captured |
-| Transfer completion | issued at a tick, complete from the next tick; SPU RAM written at issue | **Not pinned by any capture**: completing in the same tick also passes every check |
+| Transfer completion | issued at a tick, complete from the next tick; SPU RAM written at issue. A channel-0 transfer (command 0x20) runs its callback 0x544 at the start of the next tick | Channel 1: **not pinned by any capture** (completing in the same tick also passes every check). Channel 0: the count reaches the EE at the exchange after the field that ran the command, which route 00's `D_00275B18` = 0x4E pins (the sound-bank test's mutants: one field earlier leaves 0x4F, one later 0x4D); completing in the same tick gives the same exchange |
 | Key-on | NAX = LSA = SSA, ADPCM history 0, ADSR from the 0x3E words | Standard SPU2 behaviour. Half A's first block also sets LSA (flag 6) |
 | NAX readback | block address + 2 + 2 × (sample / 4) | Captured NAX values are block + 2..0xE |
 | ADPCM | filter > 4 decodes as 0, shift > 12 as 12, no rounding, s16 clamp | Same as the port's exporter decoder. SPU2 Gaussian interpolation is not modelled (as for SFX) |
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
-| IOP heap | first free block 0x85B00, 0x100-byte units | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00 |
+| IOP heap | first free block 0x85B00, 0x100-byte units, first fit; after the boot buffers the IOP holds 0x900 bytes (0xDDF00..0xDE800), a **measured occupancy whose owner is not established**: only its end, 0xDE800, is pinned by the captures, and 0x900 is the size that puts the next first fit there. The port allocates it once at start-up (em_iop_stream_boot_driver), before the first bank upload. Hypothesis only: the block's top in the title capture's IOP RAM holds IOP return addresses, like a thread stack (perhaps the driver thread command 0x1E creates). Follow-up for the lead: confirm the owner from the IRX's thread creation (its stack size and the allocation order); 0010F968 frees a block | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00; the title capture and every route capture: `D_00282194` = 0xDE800 (the bank uploads' block, allocated and freed each time: first fit), and route 00's IOP RAM there holds the AREA11 bank |
+| SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The kernel's ids (`D_002821A0` = 0x530D1702 in the title capture) are not modelled; 001FB910 only tests the id against 0 |
 | Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position, then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
 
 ## Host speed and the PS2 disc-drive timing switch
@@ -150,8 +156,8 @@ at launch from `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher sets it; `em_stre
   ready query while the area music's read finished, and 6 extra fields of read).
 - First control comes exactly those 21 frames before the original's (AE+1303 against AE+1324 in the C7 newgame
   capture); the switch on gives AE+1313. newgame-control: locked_ticks 1301 (1311 with the switch on), the 30-tick
-  displacement unchanged at 9.599849. The frame-order post-control window is at native index 1330 (counter 2587,
-  first control + 11); 1340 with the switch on.
+  displacement unchanged at 9.599849. The frame-order post-control window is at native index 1393 (counter 2650,
+  first control + 11) since chain step H7 (1330 before; the New Game's loads take ticks); 1665 with the switch on.
 
 ## Drive model (measured, 2026-09-27)
 
@@ -220,6 +226,78 @@ What the capture shows, and the model:
     the movie's position took 16 fields (above).
   - newgame-control reaches first control at locked_ticks 1311 (1301 at host speed).
   - The 30-tick displacement is unchanged at 9.599849.
+
+## The sound-bank transfer (chain step H7, 2026-09-29)
+
+The area load's first bank step, 001FF590(0xAB, 0), hands the area's sound bank to 001FB370 (MODULE_LOADER.md
+1.9). Its steps (001FB3E0, one state per call, and 001FB910) run on this backend through `em_sound_bank`
+(`src/game/em_sound_bank.{h,c}`, owned by `em_stream_live` next to the backend):
+
+| Original | Port |
+|---|---|
+| 00119400, 001193A8, 00119528, 001194B8, 00119450, 001195A8, 001199F0 | `em_ee_sound_lib` (translations, see below) over `em_sound_bank`'s `D_0027C6C0` (the bank handles), `D_002819C0` (the handles' pending volumes) and `D_0027F740 + 0x48` (the transfer commands queued) |
+| 001157F0 | this backend's EE queue (shared with the stream lanes, as the original's one queue is) |
+| `D_002817C0 + 0x1C0` | this backend's EE status copy, word 112 |
+| 0010F8F8 / 0010F968 | the heap model (`em_iop_stream_0010F8F8` / `_0010F968`) |
+| 0010BC00 (sceSifSetDChain), 0010BAA0 (FlushCache) | no host effect (the SIF0 receive chain and the EE caches are not host state) |
+| 0010BBE0 / 0010BBC0 (sceSifSetDma / sceSifDmaStat) | `em_iop_stream_sif_set_dma` / `_sif_dma_stat` from the bank file's bytes as the loader delivered them |
+| `D_0027CCC0` (001195A8's scan: `+0x00`, `+0x22`) | `em_sfx_voice_record`: the SFX driver's records as its audio thread last published them |
+
+The EE sound library functions, each read from the original's instructions (the decomp's C for 00119450, 001194B8,
+00119528, 001193A8 is byte-matched ee-gcc; 00119400 and 001199F0 are mwcc; 001195A8 is undecompiled):
+
+- **00119400(a0, a1, a2, a3)**: `D_0027F740 + 0x48` += 1, then (a tail call) 001157F0(a0, count << 8 | (a1 >> 16 &
+  0xFF), a1 << 16 | (a2 >> 8 & 0xFFFF), a2 << 24 | (a3 & 0xFFFFFF)). **001193A8(a0, a1, a2)** = 00119400(0x20, a0, a1,
+  a2), returns 0.
+- **00119528(header, spu)**: -1 unless the word at `header + 0x0C` is "SShd"; else the first of entries 0..0x7E whose
+  `+0` is 0 becomes {1, header, spu >> 3} and its index is returned (-1 when all are taken; entry 0x7F is never taken).
+- **001194B8(iop, header, spu)**: 00119528, then, for a handle, 001193A8(iop, spu, the header's word +4).
+- **00119450(a0)**: a0 0: `D_002817C0 + 0x1C0 == D_0027F740 + 0x48`; a0 1 spins until equal (not reached: the port
+  faults); other: -1.
+- **001195A8(h)**: -1 unless h < 0x80 and the entry's `+0` is 1; -1 while a `D_0027CCC0` voice with `+0x00` 1 has
+  `+0x22` h; otherwise the entry is cleared and it returns 0.
+- **001199F0(h, v)**: -1 unless h < 0x80 and 0 <= v < 0x80; else returns the signed byte `D_002819C0[2h]` and stores
+  v there and 1 at `[2h + 1]`. Its consumer, the SFX sequencer's 00116DB8 (the bank's program volume), is not
+  translated in the port (the SFX driver, section 4 of the census: item 1 of FIRST_LEVEL_AUDIT 1b).
+
+**The state before the New Game load.** The boot's and the title's bank uploads (001AB7E0 step 1's common bank,
+handles 0..2 in bucket 1; the title module's bank, handle 3 in bucket 3) do not run in the port. Their result is
+seeded from the title capture (startup-reference slot 01): `EM_SOUND_BANK_SEEDS` in em_sound_bank.c, the transfer
+count 5 (with the backend's `+0x349C`, status word 112 and its EE copy). They are addresses and counters, not disc data;
+the test checks each against the capture.
+
+**What the AREA11 bank does** (INDEX.IDX sector 0x0F entry 0; one record, bucket 2): call 1 reads the header (the
+record table, the payload offset 0xD60), call 2 selects bucket 2 (`D_00282198` = its SPU base 0x1A0000 from
+`D_00264890`) and allocates 0x492E0 bytes of IOP heap (0xDE800), call 3 sends the 0x492D0 bytes of samples by SIF
+DMA, call 4 finds the previous upload acknowledged, call 5 registers the SShd header as handle 4 (command 0x20
+queued with the count 6), calls 6 and 7 wait for the acknowledgement (it arrives at the exchange two fields after
+the call that queued it), call 8 sets the handle's volume (001199F0(4, 0x64)), frees the heap block and returns
+the bank's end 0x1335F40 (`D_0028A73C`). At host speed that is 8 of the loader's dispatches.
+
+The PS2 took 9 (the New Game capture holds 001FF590's sub-state 5 over nine frames): the one more is most likely
+the SIF DMA of 0x492D0 bytes, not done at 001FB910's first `sceSifDmaStat` in the same call (the wait before the
+acknowledgement is pinned by route 00's `D_00275B18`, so the extra call is not there). That is DMA hardware time,
+which neither the Original profile nor the PS2 disc-drive timing switch reproduces (LAUNCHER_OPTIONS.md).
+
+**Verification.** `make test-sound-bank-reference` (`tools/test_sound_bank_reference.py`, about 3 s):
+- the seven library functions executed over the title RAM (001157F0 and 00121A28 as original code) on the
+  argument edges, full and random handle tables, random voice records, SShd and non-SShd headers and a full queue:
+  140 cases (680 with `EM_TEST_FULL=1`), every byte of the three tables, the return value and every queued
+  command equal;
+- the ORIGINAL 001FB370 chain (001FB3E0, 001FB910, the library, 001157F0) over the title RAM with the AREA11 bank at
+  0x13351C0, one call per frame, against `em_sound_bank` on this backend: every modelled global, the result, the
+  queued commands after each of the 8 calls equal. Only the kernel and RPC leaves are hooked, answered by an
+  independent model of the stated rules, and the acknowledgement comes from an independent model of the exchange;
+- the seeds equal the title capture; after the chain every modelled global equals route capture 00 (except the
+  kernel's DMA id and `D_002819C0`, which the SFX sequencer consumes before that capture); the SPU RAM at 0x1A0000
+  and the IOP RAM at 0xDE800 equal route 00's SPU2 and IOP RAM there (0x492D0 bytes each);
+- the exchange's timing is pinned: its mutants (the acknowledgement one field earlier or later) end with a
+  `D_00275B18` the capture refutes.
+The driver oracle (`test_iop_stream_reference.py`) executes command 0x20 and 0x544 from the user's IRX (the IOP data
+compared by content, `+0x349C` and status word 112 by value): the translated ranges are now 1,845 words, of which
+1,817 execute, the same 28 pinned as before. `tests/iop_stream_test.c` pins the contract: first fit and free, the
+start-up block, the SIF DMA and its faults, command 0x20 on the SPU2 model with the callback one tick later and the
+count at the exchange after.
 
 ## Stream exporter
 
@@ -338,14 +416,18 @@ Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
 
 ## Boundaries
 
-- Not translated: the driver's SFX commands (1, 3, 5, 6, 0xA..0xD, ...), which go to the forward sink; its PCM
+- Not translated: the driver's SFX commands (1, 3, 5, 6, 0xA..0xD, ...), which go to the forward sink; commands 0x21
+  (the SPU-to-IOP read of a bank) and 0x22 (a transfer status query), which no first-level caller sends; its PCM
   input path (0x46..0x4F, the `+0x8680` records); and the non-0x64 RPC function.
 - Not modelled: SPU2 reverb, which makes 0x16 inaudible; Gaussian interpolation; core master volumes; the drive's
   sub-field timing (the one-field spreads of section "Drive model"); the SIF DMA's timing inside a field; and the
   driver tick's phase against the field.
 - One EE queue is shared with SFX in the original (255 commands per field). In the port the SFX driver has its
-  own path, so that shared limit is not modelled.
-- 001FB100 (step H, which calls 001F9CF0) is not bound here (docs/STREAM_LANES.md "Still missing" 4).
+  own path, so that shared limit is not modelled; the stream lanes and the sound-bank upload share it, as in the
+  original.
+- The SPU RAM the boot's and the title's bank uploads fill (the common bank at 0x15040 and the title's at 0x122000)
+  is not modelled: the port's SFX voices play the exported registry's samples (SFX_SEQUENCER.md).
+- 001FB100 (step H) runs whole in `em_stream_live_step_h` since chain step H7 (STREAM_LANES.md "Binding").
 
 ## Binding notes (for the coordinator chain)
 
@@ -353,7 +435,8 @@ Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
 Pacing: `em_frame_step` paces fields at 59.94 Hz (`frame_pace_ntsc`); with `EM_UNCAPPED=1` (the tests) the ring
 overruns are counted and dropped, and the tests do not listen. The mixer hook is in em_bgm's callback (em_bgm is
 now only the device and the mixer). The forward sink stays unset: a command outside the stream set faults (none is
-sent from a fresh voice table). Step 7.7's 001FB100 is bound only as its 001F9CF0 call (see STREAM_LANES.md).
+sent from a fresh voice table). Step 7.7's 001FB100 was bound only as its 001F9CF0 call until chain step H7, which
+binds all of it (see STREAM_LANES.md).
 
 **Clock domains (binding requirement).** The game thread renders exactly 800.8
 samples per `em_iop_stream_field` into a 16384-frame ring, and the audio

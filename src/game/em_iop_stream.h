@@ -12,20 +12,27 @@
  *              NEARMISS C passes 0 where the .s passes the scan end index,
  *              see the doc);
  *     sub_O_STREAM_MUSIC_DAT_1 (D_00282188 / D_0028218C);
- *     001157F0 the EE sound command queue (255 entries per exchange).
+ *     001157F0 the EE sound command queue (255 entries per exchange);
+ *     the IOP heap RPCs 0010F8F8 / 0010F968 on the heap model below.
  *  2. The stream part of the IOP sound driver SNDN2DRV.IRX, translated from
  *     the module the user's disc carries (its code is read locally, never
  *     reproduced): the RPC 0x64 command copy, the per-tick command drain and
  *     status snapshot, commands 0x16, 0x3C, 0x3D, 0x3E, 0x3F, 0x40, 0x41,
  *     0x42, 0x43, the SPU play-address scan, the transfer queue push and its
  *     consumer (deinterleaving copy, ADPCM loop flags, SPU transfer, cursor
- *     advance). Driver .bss offsets are named on each field.
+ *     advance), and the sound-bank upload: command 0x20 (a registered bank's
+ *     sceSdVoiceTrans on channel 0) with channel 0's transfer callback 0x544
+ *     (the status block's word 112, the EE's acknowledgement). Driver .bss
+ *     offsets are named on each field.
  *  3. Hardware models (stated, not translated): the libsd calls the driver
  *     makes are applied to an SPU2 voice model (ADPCM decode, loop flags,
  *     pitch counter, the port's SPU2 ADSR model em_sfx_envelope_*, volume
  *     words), the IOP hard timer (a driver tick every 64 H-lines), the NTSC
- *     field (262.5 H-lines), the SPU2 clock (48000 Hz) and transfer
- *     completion (within one driver tick).
+ *     field (262.5 H-lines), the SPU2 clock (48000 Hz), transfer
+ *     completion (at the next driver tick), the IOP heap (first fit in 0x100
+ *     units above the measured first free block; the driver's start-up
+ *     block after the boot buffers, measured) and the EE kernel's SIF DMA
+ *     (done when queued: host speed).
  *  4. A sector reader standing in for the libcdvd calls 00113280 / 00112610 /
  *     00112D18 / 00113478 / 00111C28 over the locally exported EMST file
  *     (tools/export_streams.py); it never reads the disc at run time. By
@@ -118,11 +125,15 @@ typedef struct {
     int32_t queue_read;                    /* module +0x3498 (.data)              */
     uint32_t pending;                      /* module +0x34A8 (.data): voice | 0x10000000 */
     uint32_t ring[EM_IOP_RING][4];         /* .bss 0x66C0 command ring (0x1000 B) */
+    uint32_t trans_count;                  /* module +0x349C (.data): commands 0x20/0x21
+                                            * store word1 >> 8 (the EE's count) */
     uint32_t ring_write;                   /* module +0x34A0 (.data) bytes written */
     uint32_t ring_read;                    /* module +0x34A4 (.data) bytes drained */
     /* .bss 0x44B0, the RPC 0x64 reply: [0..47] ENVX & 0x7FFF, [48..95] cursor
      * words (the EE's D_00281880), [96..111] the +0xC words of .bss 0x8680's
-     * sixteen 0x20-byte records; [112..127] are not written by this subset. */
+     * sixteen 0x20-byte records; [112] the last completed transfer command's
+     * count (the callback 0x544; the EE's D_002817C0 + 0x1C0, 00119450's
+     * acknowledgement); [113..127] are not written by the translated code. */
     uint32_t status[EM_IOP_STATUS_WORDS];
     uint8_t staging[EM_IOP_STAGING];       /* .bss 0x46B0                         */
     uint32_t records[0x80];                /* .bss 0x8680 (0x200 bytes, 0x3C clears) */
@@ -138,7 +149,8 @@ typedef struct {
     void (*set_addr)(void *ctx, uint16_t reg, uint32_t value);        /* libsd 9  */
     uint32_t (*get_addr)(void *ctx, uint16_t reg);                    /* libsd 10 */
     /* libsd 17 (channel, mode, IOP source, SPU address, size): data is the
-     * staging bytes the driver passes. */
+     * staging bytes the driver passes (channel 1), or the IOP RAM at the
+     * source address (channel 0, command 0x20). */
     void (*voice_trans)(void *ctx, int16_t channel, uint16_t mode, const uint8_t *data,
                         uint32_t spu_addr, uint32_t size);
     int32_t (*voice_trans_status)(void *ctx, int16_t channel, int16_t flag); /* libsd 19 */
@@ -245,9 +257,33 @@ void em_iop_stream_set_voice_table(EmIopStream *s, const EmIopVoiceTable *table)
 int em_iop_stream_001157F0(EmIopStream *s, int32_t cmd, int32_t a1, int32_t a2, int32_t a3);
 /* The commands queued for the next exchange (count in *count). */
 const uint32_t (*em_iop_stream_ee_queue(const EmIopStream *s, uint32_t *count))[4];
-/* Heap model: the next block 0010F8F8 hands out (tests may place it). */
+/* Heap model: the lowest free address at or above the floor (the block a
+ * 0x100-byte request would get); set_heap_next places the floor and forgets
+ * the held blocks (tests). */
 uint32_t em_iop_stream_heap_next(const EmIopStream *s);
 void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next);
+/* 0010F8F8(size) / 0010F968(block): the IOP heap RPCs on the heap model
+ * (first fit in 0x100-byte units; freeing a block the model does not hold
+ * faults). 0, or -1. */
+int em_iop_stream_0010F8F8(EmIopStream *s, int32_t size, uint32_t *block);
+int em_iop_stream_0010F968(EmIopStream *s, uint32_t block);
+/* The measured IOP heap occupancy right after the boot buffers (0x900 bytes
+ * ending at the captured 0xDE800; its owner is not established), placed at
+ * the backend's start-up, which begins with command 0x1E's effects done:
+ * call after em_iop_stream_boot_buffers. */
+int em_iop_stream_boot_driver(EmIopStream *s);
+/* The EE kernel's SIF DMA at host speed: sceSifSetDma of one descriptor
+ * {src, dst, size, 0} copies `size` EE bytes (`src`, the caller's storage of
+ * that EE memory) into IOP RAM at `dst` and returns a nonzero id;
+ * sceSifDmaStat(id) answers done (negative). 0, or -1 (a size or
+ * destination that is not whole quadwords, or outside IOP RAM, faults). */
+int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, uint32_t size,
+                              int32_t *id);
+int em_iop_stream_sif_dma_stat(EmIopStream *s, int32_t id, int32_t *stat);
+/* The transfer-command count the boot's bank uploads left (+0x349C, status
+ * word 112 and its EE copy D_002817C0 + 0x1C0), which the port's boot does
+ * not run (docs/IOP_STREAM.md "The sound-bank transfer"). */
+void em_iop_stream_seed_transfer_count(EmIopStream *s, uint32_t count);
 /* D_002817C0 as the last exchange delivered it (0x80 words); word 48 + v is
  * D_00281880[v], the value 0011A730(v) returns. */
 const int32_t *em_iop_stream_ee_status(const EmIopStream *s);
@@ -278,6 +314,7 @@ int em_iop_stream_drv_scan(EmIopStream *s);                                     
 int em_iop_stream_drv_consume(EmIopStream *s);                                   /* 0x23B8 */
 int em_iop_stream_drv_push(EmIopStream *s, uint32_t a0, uint32_t a1, uint32_t a2,
                            uint32_t a3);                                         /* 0x2CF4 */
+int em_iop_stream_drv_trans_callback(EmIopStream *s);                            /* 0x544 */
 void em_iop_stream_set_libsd(EmIopStream *s, const EmIopLibsd *sd); /* NULL: the SPU2 model */
 void em_iop_stream_set_forward(EmIopStream *s, EmIopStreamForward fn, void *ctx);
 

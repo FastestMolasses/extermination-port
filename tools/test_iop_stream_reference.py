@@ -72,7 +72,8 @@ RETURN = 0x0BADF00C
 IOP_STACK, EE_STACK = 0x1FF000, 0x01F00000
 
 # Driver module offsets of the modelled state (docs/IOP_STREAM.md).
-REGIONS = {'queue_write': (0x3494, 4), 'queue_read': (0x3498, 4), 'ring_write': (0x34A0, 4),
+REGIONS = {'queue_write': (0x3494, 4), 'queue_read': (0x3498, 4), 'trans_count': (0x349C, 4),
+           'ring_write': (0x34A0, 4),
            'ring_read': (0x34A4, 4), 'pending': (0x34A8, 4), 'status': (0x44B0, 0x200),
            'staging': (0x46B0, 0x2000), 'ring': (0x66C0, 0x1000), 'voices': (0x76C0, 0x9C0),
            'queue': (0x8080, 0x600), 'records': (0x8680, 0x200)}
@@ -82,11 +83,11 @@ STUBS = {0x314C: 'set_param', 0x3154: 'get_param', 0x315C: 'set_switch', 0x3164:
          0x316C: 'get_addr', 0x317C: 'voice_trans', 0x318C: 'trans_status', 0x326C: 'memcpy',
          0x3274: 'memset'}
 DRIVER_FUNCS = {'rpc': 0x12C, 'command': 0x634, 'tick': 0x328, 'scan': 0x20C8, 'consume': 0x23B8,
-                'push': 0x2CF4}
+                'push': 0x2CF4, 'callback': 0x544}
 # Translated driver code ranges (for coverage): RPC handler (fno 0x64 part),
 # tick, dispatcher head/tail and the stream handlers, scan, consumer, push.
-DRIVER_RANGES = ((0x12C, 0x2C8), (0x328, 0x544), (0x634, 0x698), (0xC94, 0xCF4), (0x16D4, 0x20C8),
-                 (0x20C8, 0x23B8), (0x23B8, 0x2CF4), (0x2CF4, 0x2E1C))
+DRIVER_RANGES = ((0x12C, 0x2C8), (0x328, 0x544), (0x544, 0x580), (0x634, 0x698), (0xC94, 0xCF4),
+                 (0xE98, 0xF6C), (0x16D4, 0x20C8), (0x20C8, 0x23B8), (0x23B8, 0x2CF4), (0x2CF4, 0x2E1C))
 # Driver words no oracle case reaches, each for a stated reason:
 # 0x1E8: the ring copy's rounding of a negative remainder (the remainder is
 #   always 1..0x1000); 0x288..0x2B0: the RPC function other than 0x64 (a
@@ -450,7 +451,8 @@ static uint32_t r_ga(void *c, uint16_t reg) { (void)c; rec(10, reg, 0, 0, 0, 0);
 static void r_vt(void *c, int16_t ch, uint16_t mode, const uint8_t *d, uint32_t spu, uint32_t size)
 {
     (void)c;
-    rec(17, (uint16_t)ch, mode, spu, size, d == em_iop_stream_driver(S)->staging ? fnv(d, size) : 0xDEADBEEFu);
+    rec(17, (uint16_t)ch, mode, spu, size,
+        d == em_iop_stream_driver(S)->staging || ch == 0 ? fnv(d, size) : 0xDEADBEEFu);
 }
 static int32_t r_ts(void *c, int16_t ch, int16_t fl) { (void)c; rec(19, (uint16_t)ch, (uint16_t)fl, 0, 0, 0); return tst; }
 static void r_fw(void *c, const uint32_t cmd[4]) { (void)c; rec(99, cmd[0], cmd[1], cmd[2], cmd[3], 0); }
@@ -472,6 +474,7 @@ void drv_save(uint8_t *img)
 {
     EmIopDriver *d = em_iop_stream_driver(S);
     PUT(0x3494, &d->queue_write, 4); PUT(0x3498, &d->queue_read, 4); PUT(0x34A0, &d->ring_write, 4);
+    PUT(0x349C, &d->trans_count, 4);
     PUT(0x34A4, &d->ring_read, 4); PUT(0x34A8, &d->pending, 4); PUT(0x44B0, d->status, 0x200);
     PUT(0x46B0, d->staging, 0x2000); PUT(0x66C0, d->ring, 0x1000); PUT(0x76C0, d->voice, 0x9C0);
     PUT(0x8080, d->queue, 0x600); PUT(0x8680, d->records, 0x200);
@@ -480,6 +483,7 @@ void drv_load(const uint8_t *img)
 {
     EmIopDriver *d = em_iop_stream_driver(S);
     GET(0x3494, &d->queue_write, 4); GET(0x3498, &d->queue_read, 4); GET(0x34A0, &d->ring_write, 4);
+    GET(0x349C, &d->trans_count, 4);
     GET(0x34A4, &d->ring_read, 4); GET(0x34A8, &d->pending, 4); GET(0x44B0, d->status, 0x200);
     GET(0x46B0, d->staging, 0x2000); GET(0x66C0, d->ring, 0x1000); GET(0x76C0, d->voice, 0x9C0);
     GET(0x8080, d->queue, 0x600); GET(0x8680, d->records, 0x200);
@@ -494,6 +498,7 @@ int drv_call(int fn, const uint32_t *a, uint32_t n)
     case 0x20C8: return em_iop_stream_drv_scan(S);
     case 0x23B8: return em_iop_stream_drv_consume(S);
     case 0x2CF4: return em_iop_stream_drv_push(S, a[0], a[1], a[2], a[3]);
+    case 0x544: return em_iop_stream_drv_trans_callback(S) == 1 ? 0 : -1;
     }
     return -99;
 }
@@ -717,8 +722,10 @@ class DriverOracle:
                 elif name == 'voice_trans':
                     size = c.load(c.r[29] + 0x10, 4, track=False)
                     data = c.read(a2, size)
+                    # Channel 1 sends the staging buffer; channel 0 (command
+                    # 0x20) a bank's IOP bytes: both compared by content.
                     c.log.append((17, a0 & 0xFFFF, a1 & 0xFFFF, a3, size,
-                                  fnv(data) if a2 == base + 0x46B0 else 0xDEADBEEF))
+                                  fnv(data) if a2 == base + 0x46B0 or a0 & 0xFFFF == 0 else 0xDEADBEEF))
                 elif name == 'trans_status':
                     c.log.append((19, a0 & 0xFFFF, a1 & 0xFFFF, 0, 0, 0))
                     c.r[2] = x64(status)
@@ -783,6 +790,8 @@ class DriverCase:
         else:
             cpu.call(entry)
             result = n.lib.drv_call(DRIVER_FUNCS[name], (C.c_uint32 * 4)(), 0)
+        if name == 'callback':
+            assert x64(cpu.r[2]) == 1 or cpu.r[2] == 1, (label, '0x544 returns 1', cpu.r[2])
         o.covered |= {pc - o.base for pc in cpu.covered}
         cpu.covered = set()
         assert result == 0 and n.lib.drv_fault() == 0, (label, name, result, n.lib.drv_fault())
@@ -884,6 +893,14 @@ def driver_cases(oracle, native, iop_img, rng, name):
         cmds.append([0x43, w1, w2, 0])
     for core in (0, 1, 0xFFFF0001):
         cmds.append([0x16, core, rng.getrandbits(32), rng.getrandbits(32)])
+    # 0x20: a registered bank's upload, 00119400's packing (count << 8 |
+    # IOP >> 16, IOP << 16 | SPU >> 8, SPU << 24 | size): the AREA11 bank's
+    # own words, sizes and addresses at the IOP / SPU edges, counts up to 24 bits.
+    for count, iop, spu, size in ((6, 0xDE800, 0x1A0000, 0x492D0), (5, 0x85B00, 0x15040, 0x10),
+                                  (0xFFFFFF, 0x1FFFF0, 0x1FFFF0, 0x10), (1, 0, 0, 0),
+                                  (0x123456, 0xADC00, 0x122000, 0x2000)):
+        cmds.append([0x20, (count << 8 | iop >> 16) & M32, (iop << 16 | spu >> 8) & M32,
+                     (spu << 24 | size) & M32])
     cmds += [[0x3C, 0, 0, 0], [0x3D, 1, 2, 3]]
     chosen = select(cmds, 40, 0x634 ^ zlib.crc32(name.encode()) & 0xFFFF, axes=(lambda c: c[0],))
     TOTALS['commands'][0] += len(chosen)
@@ -937,6 +954,14 @@ def driver_cases(oracle, native, iop_img, rng, name):
         struct.pack_into('<I', img, 0x34A8, pending)
         case = DriverCase(oracle, native, img, (nax_script(img, rng), envx, rng.choice((1, 1, 0, 2))))
         case.call('consume', label=f'{name} consume {trial}')
+        count += 1
+    # -- 0x544: channel 0's transfer callback publishes +0x349C as word 112
+    for trial in range(pick(8, 3)):
+        img = random_state(bytearray(img0), rng, captured)
+        struct.pack_into('<I', img, 0x349C, rng.choice((0, 5, 6, 0xFFFFFF, rng.getrandbits(24))))
+        struct.pack_into('<I', img, 0x44B0 + 0x1C0, rng.getrandbits(32))
+        case = DriverCase(oracle, native, img, ([0] * 48, envx, 1))
+        case.call('callback', label=f'{name} callback {trial}')
         count += 1
     # -- push, around a full queue and the index wrap
     for start, n in ((0, 0), (0, 0x5F), (0, 0x60), (0x5F, 0x5F), (0x3F7, 0x60), (7, 1)):

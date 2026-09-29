@@ -150,6 +150,13 @@ static int cmd_mask(EmStreamLanes *L, int32_t cmd, uint64_t mask)
     return iop(L, cmd, (int32_t)(mask & 0xFFFFFFu), (int32_t)((mask >> 24) & 0xFFFFFFu), 0);
 }
 
+int em_stream_lanes_0011A608(EmStreamLanes *L, uint64_t mask, int32_t a1, int32_t a2)
+{
+    if (latched(L))
+        return -1;
+    return cmd_0011A608(L, mask, a1, a2);
+}
+
 int em_stream_lanes_00119828(EmStreamLanes *L, int32_t a0, int32_t a1, int32_t a2)
 {
     if (latched(L))

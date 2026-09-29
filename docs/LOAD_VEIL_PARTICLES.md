@@ -21,15 +21,16 @@ GS, is drawn whole by the GS frame stage (section 3). The GS state the
 packets REF comes from the boot builder's GS blocks, now translated
 (em_gs_blocks_original, RENDER_CONTEXT.md 8.3).
 
-**What a player sees today.** The port's area read completes inside
-001FF080(1, 0) (a stand-in for the loader task 001FF0D0's area streamer
-001FFCD0: translated since chain C8b LOADER but not bound, because its
-sound-bank step 001FB370 runs the EE sound library and the IOP, which are
-not live; MODULE_LOADER.md section 5), so the load takes no tick at host
-speed. 0021B550 then goes from state 0 straight to state 2 and draws the
-veil exactly once, at level 0: by the original's own code that frame is
-black (section 5). The veil becomes visible for as many ticks as the load
-spans once the loader task runs.
+**What a player sees today** (since chain step H7, 2026-09-29). The area
+load 001FF080(1, 0) runs the loader task 001FF0D0's own steps (the area
+streamer 001FFCD0 with its sound-bank upload 001FB370; MODULE_LOADER.md
+1.9), so D_00275BD8 stays 1 for as many ticks as those steps take and
+0021B550 ramps the veil through its state 1, then decays it in state 2.
+At host speed (the Original profile) the New Game load draws **55 veil
+frames**: the ramp over the load's 20 dispatches reaches levels 0.2 /
+0.16 / 0.12, then the decay. With the PS2 disc-drive timing switch the
+loader takes the recorded New Game reads and the veil runs **257 frames**
+(the captures' phase says 258: section 5).
 
 ## 1. What the original does
 
@@ -382,13 +383,20 @@ lines, bent outward from the centre and glowing, over black.
   (all 0x1C bytes, the seed included) must equal it after every tick.
 - **The level smoke** (`check_load_veil`, tools/level_smoke_load_veil.py;
   LEVEL_SMOKE.md "The load veil"): every veil frame of the run (the New Game
-  load: one) had its run re-made by the ORIGINAL 0021B1B0 at that call
+  load: 55 at host speed, 257 with the switch) had its run re-made by the ORIGINAL 0021B1B0 at that call
   (the tick's block, slot and cursor) byte for byte, except the strips'
   ST lane 3; its seed and the original 0021B500's phase equal the port's;
   the list drew the clear, 512 lines, two copies and 900 triangles into the
   slot's frame buffer; a level-0 veil lit no line; the seed the load leaves
   equals every route capture's. It prints the phase the load left against
-  the captures' (0.007 after the host-speed load; 0.806 after the PS2's).
+  the captures' (0.385 after the host-speed load's 55 frames, 0.799 after
+  the switch's 257; 0.806 after the PS2's 258).
+- **`make test-area-load-reference`** replays every veil step of the
+  logged loads (two in its run: New Game and the area-change reload) through
+  the executed 0021B550 / 0021B180 / 0021B840; each 0021B1B0 on the way is
+  the ORIGINAL veil draw (the first 3 of a run in quick mode, all with
+  `EM_TEST_FULL=1`: it writes only the seed, which it restarts at every
+  call).
 
 ## 5. What no capture shows, and the limits
 
@@ -402,23 +410,17 @@ lines, bent outward from the centre and glowing, over black.
   captures. A PCSX2 software-renderer frame (the decomp's C7 fb2 method)
   taken mid-load would allow a pixel comparison; that is a new capture for
   the lead.
-- **The load takes no tick in the port.** The area read is a stand-in that
-  completes inside 001FF080(1, 0); D_00275BD8 is 0 when 001ADF50's case 1
-  first runs 0021B550. So 0021B550 goes from state 0 to state 2 without
-  state 1: the level (+0x08) is never ramped (0 at New Game; the decayed
-  values after a later load), and the veil is drawn for exactly one tick at
-  level 0: black lines and black lens passes, as the original's code draws
-  a load that ends at once. On the PS2 the New Game load drew 258 veil
-  ticks and the AREA01 load about 142. The PS2 disc-drive timing switch
-  does not lengthen area reads (it models the stream reads and module
-  0x21's). The veil shows once the loader task 001FF0D0's own steps run
-  the area read (the module loader, H7), for as many ticks as they take at
-  host speed. The loader is live for module 0x21 since chain C8b LOADER;
-  its area streamer 001FFCD0 (with 001FF590) is translated and verified
-  but not bound: its first bank step waits on the sound-bank upload
-  001FB370, whose callees (the EE sound library's handle table and command
-  queue, the SIF DMA, the sound driver's command 0x20) decide how many
-  ticks it takes and are not live (MODULE_LOADER.md section 5).
+- **How long the veil runs.** The load spans the loader task's steps
+  (chain step H7): at host speed the New Game load's 20 dispatches give 55
+  veil frames (the phase the load leaves: 0.385); on the PS2 the New Game
+  load drew 258 (every route capture's phase 0.806: 258 executed 0021B500
+  steps) and the AREA01 load about 142. With the PS2 disc-drive timing
+  switch the New Game's reads take their recorded fields
+  (MODULE_LOADER.md 1.7) and the veil runs 257 frames (phase 0.799): the
+  one frame short is the sound-bank upload's ninth call on the PS2, most
+  likely its SIF DMA's hardware time, which no mode reproduces
+  (IOP_STREAM.md "The sound-bank transfer"). The level smoke checks every
+  one of those frames against the executed original (section 4).
 - **Rasterization.** Metal rasterizes at the GS's resolution with the GS
   sample points, but its triangle and line rules and its float
   interpolation are not the GS DDA. A line pixel Metal places past an end

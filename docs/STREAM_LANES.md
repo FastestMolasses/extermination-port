@@ -264,7 +264,8 @@ Moving a native store past a worker call is not observable, because workers do n
   `D_00282188`/`D_0028218C` is `sub_O_STREAM_MUSIC_DAT_1` (the start sectors of the disc's stream files, found
   through 00111C28); both are 0x9D911 and 0xC3257 in all 26 images; it is not translated. `D_0028215B` is copied
   from D_0081011C by 001FB100 / 001FB210, outside this lane.
-- 001FB100 itself (step H: 001F9CF0, the D_0028215B change, block_copy, 001FC6E0) is not translated here.
+- 001FB100 itself (step H: 001F9CF0, the D_0028215B change, block_copy, 001FC6E0) is translated in
+  em_startup_load_gaps_sound (`em_slg_001FB100`) and runs whole at step H since chain step H7.
 
 ## Binding notes for the coordinator chain
 
@@ -276,7 +277,7 @@ start-up), never from a captured image. The clip rows come from the user's ELF (
 
 | Original caller | Port slot | Bind to |
 |---|---|---|
-| 001FB100 (frame step H) | step H worker | `em_stream_lanes_001F9CF0`, called first when D_00821058 != 1; the rest of 001FB100 (D_0028215B update, block_copy, 001FC6E0) is not translated |
+| 001FB100 (frame step H) | step H worker | `em_slg_001FB100` (em_stream_live_step_h since chain step H7): `em_stream_lanes_001F9CF0` first, then the D_0028215B update (the lanes' `mono`), block_copy and 001FC6E0 |
 | em_area_script (op07 sub12 / sub4, op0F, per the lane brief) | `EmAreaScriptWorkers.w_001FAE70(ctx, a0)`, `.w_001FABB0(ctx)`, `.w_00119828(ctx, a0, a1, a2)` | `em_stream_lanes_001FAE70`, `_001FABB0`, `_00119828` (return 0 / -1 maps directly) |
 | em_area_script `d282157` reader | `const int8_t *d282157` | `&lanes.state.read_phase` |
 | em_scene_workers `w_001FAE70`, `w_001FABB0`, `w_00119828`, `w_001FA790`, `r_00282157` | same | `_001FAE70`, `_001FABB0`, `_00119828`, `_001FA790`, `state.read_phase` |
@@ -310,10 +311,10 @@ lanes' entry points:
   exchange and the driver ticks inside the field). The frame pacing is `frame_pace_ntsc` (59.94 Hz, 16683350 ns per
   field), which the backend's 800.8 samples per field need. **Step H** runs `em_stream_lanes_001F9CF0` after the
   transition (G) and before step I, skipped while `D_00821058 == 1` (a movie armed this frame), as 001FB100 does.
-  The rest of 001FB100 is not bound: the `D_0028215B` / `D_0081011C` output-mode commit (00119870, 0011A608; both bytes
-  are 0 in all 25 route and startup-reference images, so on the route the commit never fires; the lanes' `mono`
-  byte stays 0), the `D_00281B70` copy and 001FC6E0's delayed cues (the SFX
-  owner's; em_slg_001FB100 is translated, not bound).
+  Since chain step H7 step H is the whole 001FB100 (`em_slg_001FB100`): after 001F9CF0 the `D_0028215B` /
+  `D_0081011C` output-mode commit (00119870, 0011A608; both bytes are 0 in all 25 route and startup-reference images,
+  so on the route the commit never fires; the lanes' `mono` byte is D_0028215B's storage), the `D_00281B70` copy
+  (over em_sfx's tables) and 001FC6E0's delayed cues (D_00281F30, em_stream_live's; STARTUP_LOAD_GAPS.md).
 - **The globals view** is loaded from the canonical scene state before every entry (`D_008106C8` = req C8,
   `D_00810D38` progress, `D_00810700`, `D_008104E4` = the player record's +0x234 via `g.pd_infected`, `D_008106F4`,
   `D_008106F5`) and `D_008106F4` / `D_008106F5` / `D_00810D38` are stored back after it; a worker that re-enters the

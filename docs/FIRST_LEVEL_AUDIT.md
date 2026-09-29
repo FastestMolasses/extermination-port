@@ -770,7 +770,8 @@ sections 3-5, census 1.35):**
   level stays 0 and the veil draws one frame, black, as the original's code
   does for a load that ends at once (the PS2 drew 258 frames at New Game).
   Item 3 of section 1b (the loader task's own steps) is what makes it
-  visible.
+  visible. (Superseded by chain step H7, 2026-09-29: the veil now draws 55
+  frames at host speed, 257 with the switch.)
 - **Evidence.** The level smoke's `check_load_veil` (every run): the live
   run is byte-equal to the ORIGINAL 0021B1B0 executed at the same call, its
   seed equals the port's and all 15 route captures', the original 0021B500
@@ -876,7 +877,8 @@ module 0x21; MODULE_LOADER.md, census 1.38):**
   translated and verified but not bound: the sound-bank step 001FB370 they
   wait on runs the EE sound library's queue, the SIF DMA and the driver's
   command 0x20, none of which is live. The load veil still draws one black
-  frame per load.
+  frame per load. (Done since chain step H7, 2026-09-29: status update
+  below.)
 
 **Status update (2026-09-28, census L24: the security gun, its cable and the
 fan pair on their original owners; SECURITY_GUN.md, FAN_ORIGINAL.md, census
@@ -1280,6 +1282,58 @@ item 2 first half):**
 - Census: no row changes status (the changes are the renderer and the page
   consumer's GIF walk, a boundary); section 1.45 of FIRST_LEVEL_CENSUS.md.
 
+**Status update (2026-09-29, chain step H7, audit 1b item 3 and item 1's
+loader-chain sub-point):**
+- **The area load runs the loader's own steps.** New Game's 001AD1A0
+  requests module 3 and 001ADF50's 001FF080(1, 0) the area load through
+  the slot-2 task 001FF0D0 (em_module_loader): module 3 through 001FF830,
+  AREA11 through the area streamer 001FFCD0 / 001FF590 with its workers
+  bound (00200890's player packet over D_00810707 / D_00810C60, 002009E0's
+  overlay bss clear, the area files of D_0028A3C0, the area consumer that
+  accepts the A entry and the player packet). D_00810703 / 704 are
+  canonical progress bytes. `em_game_legacy_area_load` no longer stands for
+  001FF080(1, 0): it loads only the port's own assets, in the dispatch whose
+  001FFCD0 step completes the area (MODULE_LOADER.md 1.9). The pack is EMML
+  version 2 (module 3, AREA11's overlay / header / bank / A entry /
+  resident region, and the ELF's D_0028A3C0 / D_00275304 / D_00264890).
+- **The sound-bank upload is live.** 001FB370 / 001FB3E0 / 001FB910 run
+  over the translated EE sound library (00119400, 001193A8, 00119528,
+  001194B8, 00119450, 001195A8, 001199F0: em_ee_sound_lib) and em_iop_stream's
+  new driver parts (command 0x20 and channel 0's callback 0x544 from the
+  user's SNDN2DRV.IRX; the IOP heap's first fit and free; the SIF DMA at host
+  speed), owned by em_stream_live (em_sound_bank). The state the boot's and
+  title's uploads leave is seeded from the title capture. IOP_STREAM.md
+  "The sound-bank transfer".
+- **Step H runs the whole 001FB100** (the output-mode commit, the
+  D_00281B70 -> D_00281C30 copy over em_sfx's tables, 001FC6E0 over its
+  D_00281F30, which 001FBC50's binding now clears). em_sfx_frame_snapshot,
+  a stand-in copy without a live caller, is deleted.
+- **The veil shows for the load's length:** 55 frames at host speed, 257
+  with the PS2 disc-drive timing switch (the recorded New Game reads,
+  MODULE_LOADER.md 1.7); the PS2 drew 258 (the one frame is its ninth
+  sound-bank call, most likely SIF DMA time, which no mode reproduces).
+- **Evidence.** `make test-sound-bank-reference` (new): the library over the
+  title RAM (140 cases, 680 full), the ORIGINAL 001FB370 chain call for
+  call on the AREA11 bank, the seeds equal the title capture, the end state
+  and the SPU / IOP RAM equal route 00, the exchange's timing pinned by
+  D_00275B18; `make test-iop-stream`: command 0x20 and 0x544 executed from
+  the IRX (1,817 of 1,845 translated words run, the 28 pinned as before)
+  and the contract test; `make test-module-loader-reference` part H: the
+  New Game's two whole loads against the ORIGINAL loader code (8 + 20
+  dispatches; with the recorded drive 68 + 185, every captured loader
+  state appearing at its captured frame up to the sound-bank step and one
+  frame earlier after it, the PS2's ninth 001FB370 call) and the 001FEF70
+  chaining; `make
+  test-area-load-reference`: the live run's loader states equal the New Game
+  capture's (21 states), the chain and veil replays; the level smoke's
+  check_load_veil checks all 55 (257) veil frames against the executed
+  0021B1B0. newgame-control 9.599849 (locked_ticks 1301; 1311 with the
+  switch); the frame-order windows move 63 ticks (325 with the switch) and
+  pass (LEVEL_SMOKE.md "Frame order").
+- Census 1.46: 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 to live
+  (708 / 45 / 3 / 0 / 0 / 428, 96.9%); the loader and sound-library rows
+  stay boundary rows (a lead decision), their contracts now verified.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1327,9 +1381,12 @@ The groups:
      001FC3C0 are verified but not bound (the flame's 0x413); 001FBDB0 is
      verified but not bound; 001FBC50's live part is em_sfx_stop_all, which
      no oracle checks; 001FC280's body is unverified (its D_00282160 cache is
-     not modelled); the sound-bank loader chain 001FB370 / 001FB3E0 /
-     001FB910 / 001FC6E0 and the rest of 001FB100 (the output-mode commit,
-     the D_00281B70 copy) are not bound (also item 3).
+     not modelled). The sound-bank loader chain 001FB370 / 001FB3E0 /
+     001FB910, 001FC6E0 and the rest of 001FB100 are live since chain step
+     H7 (item 3); what they feed the SFX side is not consumed: the bank's
+     SPU samples (the port's SFX play the exported registry), the handle's
+     volume D_002819C0 (the sequencer's 00116DB8 is untranslated) and
+     D_0027F778 (em_sfx_bank's 001179E0 reads a constant 0).
    - Capture: nothing records SPU2 output today, and the smoke compares no
      sound.
    - What removes it: an audio capture of the route (the lead), the SPU2
@@ -1365,19 +1422,23 @@ The groups:
      shaders, then the GS model bound for the Original profile (section 9),
      which also draws 001DDE10's pass; the harness then compares the
      model's field word for word.
-3. **Look / feel: the area load and its veil (H7).** The port's area read
-   (em_game_legacy_area_load for 001FF080(1, 0)) finishes inside the call,
-   so 001ADF50's load spans no tick and the load veil 0021B550 draws one
-   black frame (the PS2 drew 258 at New Game). The area streamer 001FFCD0
-   and 001FF590 are translated and verified but not bound: their bank step
-   hands the area's sound bank to 001FB370, whose steps run the EE sound
-   library's handle table and command queue (00119528, 00119400, 00119450,
-   001199F0, 001195A8), the SIF DMA and the sound driver's command 0x20.
-   - What removes it: em_iop_stream's driver extended with command 0x20 and
-     the SIF DMA, the EE sound queue bound over it, 001FB370 bound, then
-     001FFCD0 with New Game's module-3 load (MODULE_LOADER.md section 5).
-     The veil then shows for as many ticks as the loader's steps take at
-     host speed. Capture: a mid-load software-renderer frame for its pixels.
+3. **Look / feel: the area load and its veil (H7).** Done in chain step H7
+   (status update above): the New Game's module 3 and AREA11 load through
+   the loader's own steps (001FFCD0 with the sound-bank upload 001FB370 on
+   the EE sound library and the IOP's command 0x20), and the veil 0021B550
+   shows for their length: 55 frames at host speed, 257 with the switch.
+   What is left:
+   - the PS2's ninth sound-bank call (the veil's 258th frame): most likely
+     SIF DMA time, reproduced by no mode (LAUNCHER_OPTIONS.md "Not launcher
+     options");
+   - the veil's pixels: no capture holds a mid-load frame (Capture: a
+     mid-load software-renderer frame);
+   - later area loads (the level exit) need their areas exported (only
+     AREA11 is; another area's reads fail-stop).
+   - the IOP heap's 0x900-byte start-up occupancy before 0xDE800 is a
+     measured occupancy whose owner is not established (only its end is
+     pinned by the captures); confirm the owner from the IRX's thread
+     creation (IOP_STREAM.md "Stated models").
 4. **Look: the lighting stand-ins** (lanes L40 and L33).
    - On the draws still on the renderer's skinned path (the status hub's
      and the MAP page's models) the renderer's char_rig_build tint stands in
@@ -1572,7 +1633,7 @@ All rows below were adversarially CONFIRMED. Where the verifier corrected a find
 | H4 (CAM-04) | FIXED for Roger (census L22): em_cinematic_playback is in COMMON; the script host's op00 kind 6 starts it (0022EC30) and em_camera's top mode 3 ticks it (0022EEF0); the opening track stays on em_opening_runtime.c | 0022EEF0 drives the Roger scene-1 camera, zoom and roll (roger-encounter capture, camera+0x74=25). | Add to the build and use it as the single camera-op binding for the opening, Roger and event scripts. |
 | H5 (CAM-05) | FIXED for the scripts (WP-4): the host's retarget and chase hooks run it; the level smoke matches the scripts' camera eye/target with routes 02/04 row for row and with route 03 in the panel's two windows (camera Y with the retained-Y offset). The follow camera after a release: FIXED 2026-09-25 (census L13..L16, CAMERA_LIVE.md): the live camera equals routes 02 / 04 / 14 row for row after the release, route 03 from f679, route 07 converging | Now: `src/game/em_camera.c:1868`, called by `em_area11_interaction_host.c:145` (retarget) and `:470` (chase). Found at: `em_camera.c:1865` (callers only in the then-unwired host) | 001B7B30 cases 2–5: 0018CBD0 seed → 0018D7B0 styles 5 and 1 → cam+0xA0=0x78. Used by the refusal, panel and elevator scenes. | Wired as part of H1. |
 | H6 (ORCH-07, UI-01) | FIXED in AREA11 (WP-5, 2026-09-23): both positions run the original page core in the interaction host's status runtime for every status screen: 0020E060 (the page reset), 0020CDC0 case 0 (001AED80(0), cue 0xB, 0020DFA0, the request map), the hub, the ITEM root and BATTERY page, and the 0020E0C0 exit (D_008106CC = 1, 0020E080 clears B0/C5), so the close takes the original two extra ticks after the edge (status_04: f200 -> f204 against f10 -> f12; `make test-level-smoke` asserts it). The START/TRIANGLE hub (0020CDC0 phase 1) is the original `em_status_hub` + `em_status_hub_ui` + 0020A7A0 in the runtime (the UI+0x20 clock is the runtime's, zeroed by 0020E060; sub-state 0 draws nothing; one 0020A7A0 step and one 00209DF0 per sub-state-1 frame). Its status models run through `em_status_models` (0020DFA0's pool clear and UI view, 001AFEB0/001AFE60, 001AFF10 + 0020E6F0/0020EC80, 0020E250/0020E1E0/0020E3A0/0020E460, the 001B0000 walk; exported models from tools/export_status_models.py) and draw after the background (flushed first through em_gfx's ordered 2D layer) and before 00209DF0's layer; `make test-status-models` matches the status-hub capture's pool and all 27 node world matrices bit for bit, and the level smoke asserts the capture's seven records and their draws. Limits: a glyph, variant or costume the capture does not show is not exported and faults, as does the D_008104E4 == 1 glow sprite 001CD520; every first-level route capture (00..14) holds the captured inputs (CA4..CA7 = FF 05 00 07, D_008104E4 = 0, D_00810C60 = 0). Scenes without the AREA11 host keep the legacy screen. The frame machine opens and closes the screen as the original does (001AE7E0 r == 2 -> state 3 -> 0020CDC0 until nonzero -> state 5 -> state 1, world frozen; the st14 frame order matches) | `em_status_runtime.c` hub_tick/hub_worker/render; `em_status_models.c`; `em_area11_interaction_host.c` hub_display/hub_models/hub_models_draw and status_open/status_page; `em_scene_bindings.c` w_0020E060/w_0020CDC0 | 001AE7E0 returns 2 on Triangle/Start (D_00810E74 & 0x810) or on a pending B0/C5 request, and anim_frame_top_b enters state 3: 001D1C50, 001D2830(3,1), 0020CDC0 until it returns nonzero, then state 5. | Done (WP-5).
-| H7 (UI-02, W12, R23) | PARTIAL (WP-5/WP-6, 2026-09-23): the battery take is the original owner 00219550 (WP-6): its program consumes the item (001B6EA0 -> 001C47A0: 001C40B0, then B0 = 1, B1 = 0x1B) and the status screen pops up on it through the original page core: 0020CDC0 case 0 maps it to the ITEM page (screen 0, state 2, selection 3), the ITEM root loads module 0x21 and 002149F0 shows the acquisition notice (charge and capacity 12; the level smoke asserts its 239 frames, route 01 f220..f459, and compares the take row for row with route 01), then the list; TRIANGLE exits. The Found line is deleted. The other AREA11 takes (types 0x1E/0x1F, 0x10, key 0x32, map 0x08) post their original requests (B0 = 1/1/3/2); since chain C8b (FAILSTOPS and its MAP fix round) the pages they select run live (the ITEM child 002160B0, SPR4 00211970, DATABASE 00214020, MAP 0020F950: `em_status_pages_live`, STATUS_PAGES.md section 7; fixture `other_take`; the level smoke's `status_pages` run takes 0x1E, 0x1F, 0x32, 0x10 and the map 0x08). Since chain C8b LOADER the module-0x21 load runs the loader's own steps (`em_module_loader`, MODULE_LOADER.md): 10 dispatches at host speed, the captured 24 with the PS2 disc-drive timing switch (STATUS_LOAD_WAIT_PROBE.md's busy counts); the level smoke compares the loader rows of routes 01 and 03 and the prompt window at the drive's shift. Open: (1) module 0x1F (and the other page modules) still load at once: each needs its upload proven equal to the port's atlas (MODULE_LOADER.md Binding item 8); (2) closed by chain C8b's fix round: MAP is bound | `em_area11_interaction_host.c` pickup_status (the request) and the 0020CDC0 report; `em_level_smoke_test.c` battery phase (live) | The take path 001B6EA0 → 001C47A0/4720/4760 posts B0=1/2/3 with B1=type. 001AE7E0 then auto-opens the status screen, and 0020CDC0 case 0 maps B0/B1 to a page and message (battery 0x1B–0x1D → ITEM, message 3). There is no in-world toast. | Delete `em_hud_found_show/render`. Post the B0/B1 request into `em_status_runtime` (WP-5/WP-6). |
+| H7 (UI-02, W12, R23) | PARTIAL (WP-5/WP-6, 2026-09-23): the battery take is the original owner 00219550 (WP-6): its program consumes the item (001B6EA0 -> 001C47A0: 001C40B0, then B0 = 1, B1 = 0x1B) and the status screen pops up on it through the original page core: 0020CDC0 case 0 maps it to the ITEM page (screen 0, state 2, selection 3), the ITEM root loads module 0x21 and 002149F0 shows the acquisition notice (charge and capacity 12; the level smoke asserts its 239 frames, route 01 f220..f459, and compares the take row for row with route 01), then the list; TRIANGLE exits. The Found line is deleted. The other AREA11 takes (types 0x1E/0x1F, 0x10, key 0x32, map 0x08) post their original requests (B0 = 1/1/3/2); since chain C8b (FAILSTOPS and its MAP fix round) the pages they select run live (the ITEM child 002160B0, SPR4 00211970, DATABASE 00214020, MAP 0020F950: `em_status_pages_live`, STATUS_PAGES.md section 7; fixture `other_take`; the level smoke's `status_pages` run takes 0x1E, 0x1F, 0x32, 0x10 and the map 0x08). Since chain C8b LOADER the module-0x21 load runs the loader's own steps (`em_module_loader`, MODULE_LOADER.md): 10 dispatches at host speed, the captured 24 with the PS2 disc-drive timing switch (STATUS_LOAD_WAIT_PROBE.md's busy counts); the level smoke compares the loader rows of routes 01 and 03 and the prompt window at the drive's shift. Since chain step H7 (2026-09-29) the New Game's module-3 and AREA11 loads run the loader's steps too (the area streamer with the sound-bank upload; the load veil shows for their length: 1b item 3). Open: (1) module 0x1F (and the other page modules) still load at once: each needs its upload proven equal to the port's atlas (MODULE_LOADER.md Binding item 8); (2) closed by chain C8b's fix round: MAP is bound | `em_area11_interaction_host.c` pickup_status (the request) and the 0020CDC0 report; `em_level_smoke_test.c` battery phase (live) | The take path 001B6EA0 → 001C47A0/4720/4760 posts B0=1/2/3 with B1=type. 001AE7E0 then auto-opens the status screen, and 0020CDC0 case 0 maps B0/B1 to a page and message (battery 0x1B–0x1D → ITEM, message 3). There is no in-world toast. | Delete `em_hud_found_show/render`. Post the B0/B1 request into `em_status_runtime` (WP-5/WP-6). |
 | H8 (UI-03, ORCH-20, SI-15) | FABRICATED | `src/game/em_game.c:5505` (Continue literal 75/60/4/120/4-6, copied from the demo fixture at :5695) | Continue: 001AC070 → 001ACEC0 route 1 → 001AD230 → 001AF2C0, which clears the whole 0x640-byte block at D_00810700 (also progress flags such as D_00810811/D_00810841), copies the restart-area record, and sets health 100, mag 30, reserve 60, battery 0. | Apply the same 001AF2C0 reset `em_game_install_new` uses, clear the progress flags, and reload the restart area (WP-1). |
 | H9 (UI-04) | FIXED in AREA11 (WP-5, 2026-09-23): the invented page views (ui_pageN.emui sheets, "CONTENT TBD"/"PARTIAL" strips, the assumed ITEM rows with "x01") and the hover cue 4 are deleted, and the AREA11 hub is the original em_status_hub (its 00209DF0 layout, 0020D930 hover and help lines): X on hover 4 enters ITEM through the page core, X on hovers 1, 2 and 3 enters DATABASE, SPR4 and MAP (live since chain C8b and its fix round, STATUS_PAGES.md section 7), X with no hover buzzes (cue 2). The legacy em_hud screen serves only scenes without the AREA11 host | `src/game/em_status_hub.c`, `src/game/em_status_page.c` (the dispatch) | 0020CDC0 phase 3 dispatches to real pages: 0020EE50 ITEM, 0020F950 MAP, 00211970 SPR4, 00214020 DATABASE. | Route through `em_status_page` + `em_item_root/ui`. Leave pages with no recovered implementation unreachable rather than showing invented content (WP-5). |
 | H10 (ORCH-10, CAM-17, AM-05/ORCH-11, INV-06/07) | RESOLVED (WP-8b, 2026-09-25): node #21 runs em_director_original over em_area11_script_host; `em_director.c` (kCineBeats, CINE_BAR_FADE, the chase re-seat) and `em_area11_flow.c` are deleted; the lines 0x97 / 0x99 are the message service's with their voices on the stream lanes (DIRECTOR_ORIGINAL.md section 6). Formerly: APPROXIMATION | formerly `src/game/em_director.c:28` (kCineBeats), `:175-182` (em_sfx_play 0x97/0x99) | Manager 008253F0 starts scripts 0x8294C0 / 0x829A40 / 0x829CC0 via 001BA1A0 and polls 001BA1F0. These scripts contain op07 sub8 enter (D_008101E4=1, 3B8D=2, skeleton bind 001B81D0, zoom 0); op06 on flag 0x3B; 0x16/0x18/0D sub2; sine-eased op00 kind-1 blends; and an op07 sub4/5 teardown (sub5 sets D_00810758[0x3B]=0xFF). Op0C sub0 is the **message** op 001B7D60: lines 0x97/0x99 show a text line (118/198 frames) and push VOICE.DAT cues 150/149 through 001FD580 → 001FA5A0. Beat 0 completion calls 001C4760(1,1). | Run the three scripts through `em_script` with shared op bindings (op00 kind 1 sine ease, op07 sub8, op0C → message service with voice push). Delete kCineBeats, the em_sfx_play call and CINE_BAR_FADE. Implement 001C4760 (WP-10). |

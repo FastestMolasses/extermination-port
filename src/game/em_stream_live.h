@@ -4,12 +4,18 @@
  *
  * What runs where (the original's positions):
  *   001AAE40 start-up   em_stream_live_boot: the SNDN2DRV.IRX bring-up's
- *                       buffers (sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail),
+ *                       buffers (sub_cdrom0_IRX_SNDN2DRV_IRX_1's tail), the
+ *                       driver's start-up block (command 0x1E),
  *                       sub_O_STREAM_MUSIC_DAT_1, then 001F9820
+ *   area loads          em_stream_live_001FB370: the sound-bank upload
+ *                       (em_sound_bank) for the module loader's 001FF590
  *   every field         em_stream_live_field: D_00810E90 += 1 (the vblank
  *                       handler), then the IOP's field (001152D8's RPC 0x64
  *                       exchange and the driver ticks inside the field)
- *   step H (001FB100)   em_stream_live_step_h: 001F9CF0 unless D_00821058 == 1
+ *   step H (001FB100)   em_stream_live_step_h: the whole 001FB100 (001F9CF0,
+ *                       the D_0028215B / D_0081011C output-mode commit, the
+ *                       D_00281B70 copy, 001FC6E0's delayed cues) unless
+ *                       D_00821058 == 1
  *   everywhere else     the original entry points below, called by the
  *                       scene bindings, the message service, the scripts
  *   audio thread        em_stream_live_mix (summed by em_bgm's callback)
@@ -31,6 +37,7 @@
 #include <stdio.h>
 
 #include "game/em_iop_stream.h"
+#include "game/em_sound_bank.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,9 +52,12 @@ int em_stream_live_failed(void);
 
 /* One NTSC field (the top of every em_frame_step, movie frames included). */
 int em_stream_live_field(void);
-/* Main-loop step H (001FB100's 001F9CF0; the caller skips it while
+/* Main-loop step H (001FB100, em_slg_001FB100; the caller skips it while
  * D_00821058 == 1, as 001FB100 does). */
 int em_stream_live_step_h(void);
+/* 001FBC50's tail: D_00281F30's ten records back to {0, -1} (the boot, and
+ * every 001FBC50 the scene bindings run). */
+void em_stream_live_001FBC50_cues(void);
 
 /* The original entry points (arguments are the original's; 0, or -1 on a
  * fault). */
@@ -62,6 +72,15 @@ int em_stream_live_00119828(int32_t a0, int32_t a1, int32_t a2);
 /* 001FA5A0(cue): the voice ring push the message service's 001FD580 /
  * 001FD6A0 make (em_message_voice_ring_push over D_00281CF0 / D_00275B30). */
 int em_stream_live_001FA5A0(int32_t cue);
+
+/* The sound-bank upload 001FB370 (em_sound_bank) over this IOP backend:
+ * bind once after the boot with D_00264890 (the loader's pack), then the
+ * module loader's area streamer calls it through its bank hook
+ * (docs/IOP_STREAM.md "The sound-bank transfer"). 0, or -1 (fault). */
+int em_stream_live_bind_sound_bank(const int32_t base[5]);
+int em_stream_live_001FB370(uint32_t address, const uint8_t *bytes, uint32_t size, uint32_t *result);
+/* The bound instance (tick log, tests), NULL before the binding. */
+const EmSoundBank *em_stream_live_sound_bank(void);
 
 /* D_00282154 + lane (lb): a lane's active byte; 0 before the boot. */
 int8_t em_stream_live_active(int lane);

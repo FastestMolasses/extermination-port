@@ -122,6 +122,18 @@ class LoaderEE(EE):
             self.stores.append((a, len(data), self.in_hook))
         super().write(address, data)
 
+    def mmi(self, word, pc):
+        """Adds PCPYH (the C runtime memset 00121A28 broadcasts with it;
+        002009E0's bss clear)."""
+        if word & 63 == 0x29 and (word >> 6 & 31) == 0x1B:
+            rt, rd = word >> 16 & 31, word >> 11 & 31
+            lo, hi = self.r[rt] & 0xFFFF, self.rh[rt] & 0xFFFF
+            if rd:
+                self.r[rd] = lo * 0x0001000100010001
+                self.rh[rd] = hi * 0x0001000100010001
+            return
+        super().mmi(word, pc)
+
     def hook(self, address, fn):
         def wrapped(ee):
             ee.in_hook += 1
@@ -211,7 +223,9 @@ GATE_READER = C.CFUNCTYPE(C.c_uint8, C.c_void_p)
 
 class Views(C.Structure):
     _fields_ = [('d275BD8', U8P), ('r_00282157', GATE_READER), ('r_00282157_ctx', C.c_void_p),
-                ('d810CA4', U8P), ('d810CA6', U8P), ('spad3B90', U8P)]
+                ('d810CA4', U8P), ('d810CA6', U8P), ('spad3B90', U8P),
+                ('d810700', U8P), ('d810701', U8P), ('d810703', U8P), ('d810704', U8P),
+                ('d810707', U8P), ('d810C60', U8P)]
 
 
 def _slot_word(address):
@@ -232,6 +246,8 @@ class Loader(C.Structure):  # EmStatusSceneLoader
 
 
 TRACE = C.CFUNCTYPE(None, C.c_void_p, C.c_uint32, C.c_uint32, C.c_uint32, C.c_uint32, C.c_uint32)
+BANK = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, U8P, C.c_uint32, U32P)
+AREA_BYTES = (0x810700, 0x810701, 0x810703, 0x810704, 0x810707, 0x810C60)
 CHAIN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, U8P, C.c_uint32)
 
 
@@ -261,6 +277,8 @@ def build():
     lib.em_module_loader_close.argtypes = [C.c_void_p]
     lib.em_module_loader_set_views.argtypes = [C.c_void_p, C.POINTER(Views)]
     lib.em_module_loader_set_chain_hook.argtypes = [C.c_void_p, CHAIN, C.c_void_p]
+    lib.em_module_loader_set_area_chain_hook.argtypes = [C.c_void_p, CHAIN, C.c_void_p]
+    lib.em_module_loader_set_bank_hook.argtypes = [C.c_void_p, BANK, C.c_void_p]
     lib.em_module_loader_set_trace.argtypes = [C.c_void_p, TRACE, C.c_void_p]
     lib.em_module_loader_set_drive.argtypes = [C.c_void_p, C.c_int]
     lib.em_module_loader_bind_live.argtypes = [C.c_void_p]
@@ -499,9 +517,10 @@ class Drive:
     sectors) against the descriptors in the oracle's RAM."""
     MEASURED = ((0, 0x21, 1, 6), (1, 0xE4BC000 >> 11, 161, 8))
 
-    def __init__(self, measured, index_lsn, data_lsn, shift=0):
+    def __init__(self, measured, index_lsn, data_lsn, shift=0, area_lsn=0):
         self.measured, self.shift = measured, shift
-        self.base = (index_lsn, data_lsn)
+        self.base = (index_lsn, data_lsn, area_lsn)
+        self.table = self.MEASURED + (NEW_GAME_READS() if measured and area_lsn else ())
         self.field, self.busy_until = 0, 0
         self.delivered = []
 
@@ -511,19 +530,60 @@ class Drive:
             self.delivered.append((buf, sectors * 0x800))
         busy = 0
         if self.measured:
-            for f, sector, n, b in self.MEASURED:
+            for f, sector, n, b in self.table:
                 if self.base[f] + sector == lsn and n == sectors:
                     busy = b
         self.busy_until = self.field + busy + (1 if busy else 0)
 
 
+NEWGAME = DECOMP / 'build/startup-reference/newgame_samples.jsonl'
+_NEW_GAME = []
+
+
+def new_game_transitions():
+    """{state: the frame label of the first New Game sample showing it} for
+    the slot-2 record (state, +8, +9, +A, +B, +0xE) of the PCSX2 New Game
+    capture (samples read about twice a frame while the VM ran)."""
+    out = {}
+    for line in NEWGAME.open():
+        d = json.loads(line)
+        t = d['tasks'][2]
+        u = bytes.fromhex(t['user'])
+        out.setdefault((t['state'], u[0], u[1], u[2], u[3], u[6]), d['frame'])
+    return out
+
+
+def NEW_GAME_READS():
+    """The New Game loads' reads with the busy fields the capture shows,
+    derived here from the samples (issue frame to done frame, less the
+    done poll): (file, sector in file, sectors, busy), file 2 = the area
+    file D_0028A3C0[0x0B]. The native drive's table (em_module_loader.c
+    MEASURED) must equal it."""
+    if not _NEW_GAME:
+        f = new_game_transitions()
+        pairs = (  # (issue state, done state) -> the read
+            (((2, 0, 1, 0, 0, 3), (2, 0, 2, 0, 0, 3)), (0, 3, 1)),
+            (((2, 0, 4, 0, 0, 3), (2, 0, 5, 0, 0, 3)), (1, 0x214800 >> 11, 1175)),
+            (((2, 1, 1, 0, 0, 0), (2, 1, 2, 0, 0, 0)), (2, 0, 15)),
+            (((2, 1, 3, 0, 0, 0), (2, 1, 4, 0, 0, 0)), (0, 0x0F, 1)),
+            (((2, 1, 4, 1, 4, 0), (2, 1, 4, 1, 5, 0)), (1, 0x76E7800 >> 11, 149)),
+            (((2, 1, 4, 2, 2, 0), (2, 1, 4, 2, 3, 0)), (1, 0x7732000 >> 11, 433)),
+            (((2, 1, 6, 0, 0, 0), (2, 1, 7, 0, 0, 0)), (1, 0x780A800 >> 11, 3292)))
+        for (issue, done), (file, sector, n) in pairs:
+            _NEW_GAME.append((file, sector, n, f[done] - f[issue] - 1))
+    return tuple(_NEW_GAME)
+
+
+PACK_HEADER = 0x120   # EMML version 2 (tools/export_module_loader.py)
+
+
 def load_pack(path):
     data = Path(path).read_bytes()
-    assert data[:4] == b'EMML'
+    assert data[:4] == b'EMML' and struct.unpack_from('<I', data, 4)[0] == 2
     n = struct.unpack_from('<I', data, 8)[0]
     out = {}
     for i in range(n):
-        lsn, sectors, off, _ = struct.unpack_from('<4I', data, 0x40 + 0x10 * i)
+        lsn, sectors, off, _ = struct.unpack_from('<4I', data, PACK_HEADER + 0x10 * i)
         out[(lsn, sectors)] = data[off:off + sectors * 0x800]
     return out
 
@@ -547,10 +607,16 @@ def relocated_pack(src, dst, shift, before, after, seeds):
     g[0x28A488] += shift
     g.update(seeds)
     order = sorted(load_pack(src))
-    blob = bytearray(struct.pack('<4sIII', b'EMML', 1, len(order), 0))
+    blob = bytearray(struct.pack('<4sIII', b'EMML', 2, len(order), 0))
     blob += struct.pack('<11I', *(g[a] for a in (0x28A480, 0x28A484, 0x28A488, 0x28A48C) + WORDS + CURSORS)) \
         + bytes(4)
-    offset = 0x40 + 0x10 * len(order)
+    # The boot tables (0x40..0x120): the area files' lsns move with the disc.
+    tables = bytearray(data[0x40:PACK_HEADER])
+    for i in range(0x17):
+        lsn = struct.unpack_from('<I', tables, 0x20 + 8 * i)[0]
+        struct.pack_into('<I', tables, 0x20 + 8 * i, lsn + shift if lsn else 0)
+    blob += tables
+    offset = PACK_HEADER + 0x10 * len(order)
     table, payload = bytearray(), bytearray()
     for lsn, sectors in order:
         n = sectors + before + after
@@ -577,7 +643,8 @@ class WholeLoad:
                 o.save(a, v)
         if spad3b90 is not None:
             o.save(SPAD_3B90, spad3b90, 1)
-        self.drive = Drive(measured, o.load(0x28A480), o.load(0x28A488), shift)
+        self.drive = Drive(measured, o.load(0x28A480), o.load(0x28A488), shift,
+                           o.load(0x28A3C0 + 8 * 0x0B))
         self.expected, self.actual = [], []
         self.sent_o, self.sent_n = [], []
         # The pre-load state of route 03 f390: slot 2 idle with the previous
@@ -598,8 +665,15 @@ class WholeLoad:
         self.ca4, self.ca6 = C.c_uint8(o.load(0x810CA4, 1)), C.c_uint8(o.load(0x810CA6, 1))
         self.s3b90 = C.c_uint8(o.load(SPAD_3B90, 1))
         self.gate_cb = GATE_READER(lambda _: self.gate.value)
+        # 001FFCD0's area bytes and 00200890's two, from the capture.
+        self.area = {a: C.c_uint8(o.load(a, 1)) for a in AREA_BYTES}
         self.views = Views(C.pointer(self.bd8), self.gate_cb, None, C.pointer(self.ca4),
-                           C.pointer(self.ca6), C.pointer(self.s3b90))
+                           C.pointer(self.ca6), C.pointer(self.s3b90),
+                           *(C.pointer(self.area[a]) for a in AREA_BYTES))
+        self.bank_script, self.bank_calls = [], 0
+        self.bank_cb = BANK(self.n_bank)
+        lib.em_module_loader_set_bank_hook(self.ml, self.bank_cb, None)
+        self.extra_modelled = set()
         lib.em_module_loader_set_views(self.ml, C.byref(self.views))
         st = lib.em_module_loader_state(self.ml).contents
         for name, a in zip(('d275C70', 'd275C74', 'd28A5A0', 'd28A738', 'd28A73C', 'd28A744', 'd28A748'),
@@ -612,6 +686,7 @@ class WholeLoad:
         self.chain_cb = CHAIN(self.n_chain)
         lib.em_module_loader_set_trace(self.ml, self.trace_cb, None)
         lib.em_module_loader_set_chain_hook(self.ml, self.chain_cb, None)
+        lib.em_module_loader_set_area_chain_hook(self.ml, self.chain_cb, None)
         self._hooks()
 
     # -- native side
@@ -627,6 +702,13 @@ class WholeLoad:
         self.sent_n.append((chain, size, hashlib.sha256(C.string_at(data, size)).hexdigest()))
         return 0
 
+    def n_bank(self, _, address, data, size, result):
+        """001FB370 (native): the scripted results (the sound-bank test
+        proves the chain itself)."""
+        result[0] = self.bank_script[self.bank_calls] if self.bank_calls < len(self.bank_script) else 0
+        self.bank_calls += 1
+        return 0
+
     # -- oracle side
     def _hooks(self):
         o, d = self.o, self.drive
@@ -638,7 +720,12 @@ class WholeLoad:
             return fn
         o.watch(READ, entry(READ, 4))
         o.watch(POLL, entry(POLL, 0))
-        o.watch(DMA, entry(DMA, 1))
+        def dma(ee):
+            # 00200890's own 00200830 is compared through its leaves: the
+            # native traces the loader's 00200830 worker calls only.
+            if not PACKET <= (ee.r[31] & MASK) < PACKET + SIZES[PACKET]:
+                entry(DMA, 1)(ee)
+        o.watch(DMA, dma)
         o.watch(CHANNEL, entry(CHANNEL, 1))
 
         def ready(ee):
@@ -675,10 +762,23 @@ class WholeLoad:
             def fn(ee):
                 raise AssertionError((name, 'reached: not on the modelled path'))
             return fn
+        self.o_bank_calls = 0
+
+        def bank(ee):
+            """001FB370 (original side): the same script."""
+            entry(0x1FB370, 1)(ee)
+            k = self.o_bank_calls
+            self.o_bank_calls += 1
+            ee.r[2] = self.bank_script[k] if k < len(self.bank_script) else 0
+
+        def flush(ee):
+            ee.r[2] = 0
+
         for a, f in ((READY, ready), (CDREAD, cdread), (SYNC, sync), (ERROR, error), (WAIT, wait),
-                     (SEND, send), (0x1FB370, unreached('001FB370')), (0x1FFCD0, unreached('001FFCD0')),
+                     (SEND, send), (0x1FB370, bank), (0x10BAA0, flush),
                      (0x200360, unreached('00200360'))):
             o.hook(a, f)
+        o.watch(0x2009E0, entry(0x2009E0, 2))
 
     # -- one frame
     def request(self, module):
@@ -731,30 +831,73 @@ class WholeLoad:
             if hooked:
                 assert any(b <= a and a + n <= b + s for b, s in self.drive.delivered), (label, 'drive store', hex(a))
             else:
-                assert span <= MODELLED, (label, 'original store outside the model', hex(a), n)
+                assert span <= MODELLED or span <= self.extra_modelled or \
+                    all(x in MODELLED or x in self.extra_modelled for x in span), \
+                    (label, 'original store outside the model', hex(a), n)
 
     def slot_state(self):
         return self.o.load(SLOT, 1)
 
-    def run(self, module, limit=200, expect_fault=None, gates=None):
+    def request_area(self):
+        """001FF080(1, 0): the area load of D_00810700 / D_00810701."""
+        o = self.o
+        o.r[29] = 0x7F0F0000
+        o.call(0x1FF080, (1, 0))
+        assert self.lib.em_module_loader_request_001FF080(self.ml, 1, 0) == 0
+        assert self.n_snapshot() == o.snapshot(), ('area request', first_diff(self.n_snapshot(), o.snapshot()))
+
+    def area_bytes_equal(self, label):
+        for a, v in self.area.items():
+            assert v.value == self.o.load(a, 1), (label, 'area byte', hex(a), v.value, self.o.load(a, 1))
+
+    def run(self, module, limit=200, expect_fault=None, gates=None, area=False, stop=None):
         """Returns the per-frame snapshots from the request frame on (None
         when the expected fail-stop fault ended the load). gates: {frame:
-        D_00282157 value} (default 0, as in both captured waits)."""
-        self.request(module)
+        D_00282157 value} (default 0, as in both captured waits). area:
+        001FF080(1, 0) instead of a module."""
+        if area:
+            self.request_area()
+            # 001FFCD0's own stores: the area latches (D_00810701 cleared,
+            # D_00810703 / D_00810704), and 002009E0's bss clear after the
+            # overlay file (its word +0x14 bytes at the file's end).
+            self.extra_modelled = set(AREA_BYTES[1:4])
+        else:
+            self.request(module)
         rows = []
         for f in range(limit):
+            if area and f == 1:
+                # The overlay file landed at frame 0's read (the drive
+                # writes at issue): its header names the bss 002009E0 clears.
+                self.bss = self.overlay_bss()
+                self.extra_modelled |= set(range(*self.bss))
             if self.frame((module, f), expect_fault, (gates or {}).get(f, 0)) == 'fault':
                 return None
             rows.append(self.o.snapshot())
-            if self.slot_state() == 0:
+            if area:
+                self.area_bytes_equal((module, f))
+            if self.slot_state() == 0 or (stop and stop(self.o)):
                 break
         else:
             raise AssertionError((module, 'load did not finish'))
         assert self.sent_n == self.sent_o, (module, self.sent_n, self.sent_o)
-        for buf, size in self.drive.delivered:
+        delivered = self.drive.delivered
+        for k, (buf, size) in enumerate(delivered):
+            # A later read over the same bytes replaced them (both sides).
+            if any(b < buf + size and buf < b + n for b, n in delivered[k + 1:]):
+                continue
             got = self.lib.em_module_loader_memory(self.ml, buf, size)
             assert got and C.string_at(got, size) == self.o.read(buf, size), (module, 'delivered bytes', hex(buf))
         return rows
+
+    bss = None
+
+    def overlay_bss(self):
+        """[start, end) of the overlay's bss 002009E0 clears (D_00275304[0]
+        + the file size, the overlay header's word +0x14 long)."""
+        o = self.o
+        area = o.load(0x810700, 1)
+        p, size = o.load(0x275304), o.load(0x28A3C4 + 8 * area)
+        return p + size, p + size + o.load(p + 0x14)
 
     def close(self):
         self.lib.em_module_loader_bind_live(None)
@@ -938,6 +1081,93 @@ def check_packet_after_load(elf, lib, full_pack):
     finally:
         w.close()
     return 9
+
+
+def check_new_game_rows(rows):
+    """The recorded drive's rows against the capture: every distinct
+    loader state first appears at the capture's frame (relative to module
+    3's first dispatch), except that the states after the sound-bank step
+    come one frame earlier: the PS2 made 9 001FB370 calls where the port's
+    host-speed SIF DMA makes 8 (IOP_STREAM.md "The sound-bank transfer")."""
+    cap = new_game_transitions()
+    first = {}
+    for k, snap in enumerate(rows):
+        u = snap[1:25]
+        first.setdefault((snap[0], u[0], u[1], u[2], u[3], u[6]), k)
+    # Each load from its own first dispatch (the slot-0 task's frames between
+    # the two loads are not this test's).
+    starts = {0: (2, 0, 1, 0, 0, 3), 1: (2, 1, 1, 0, 0, 0)}
+    after_bank = False
+    checked = 0
+    for state, k in sorted(first.items(), key=lambda e: e[1]):
+        if state not in cap or state[0] != 2:
+            continue
+        if state[:5] == (2, 1, 4, 2, 2):
+            after_bank = True
+        ref = starts[0 if state[5] == 3 else 1]
+        want = cap[state] - cap[ref] - (1 if after_bank else 0)
+        got = k - first[ref]
+        assert got == want, ('New Game row', state, 'port frame', got, 'capture frame', cap[state] - cap[ref])
+        checked += 1
+    assert checked >= 15, checked
+
+
+def check_new_game_loads(elf, lib, pack, measured=False):
+    """The New Game's two loads through the loader, whole, on both sides
+    over the route-03 RAM (which holds AREA11 and the pre-load cursors):
+    001AD1A0's module 3 (kind 0 from D_0028A738), then 001ADF50's area load
+    001FF080(1, 0) of AREA11: the ORIGINAL 001FF0D0 + 001FFCD0 + 001FF590 +
+    00200780 / 00200730 / 00200830 / 00200890 + 002009E0 (its FlushCache
+    hooked, its memset 00121A28 original) against em_module_loader with its
+    area workers. 001FB370 is scripted alike on both sides (7 pending calls,
+    then the bank's end, as test_sound_bank_reference shows the real chain
+    does); the drive is the model of the pack under test. Compared as for
+    the module loads: every callee entry with the modelled memory, the
+    snapshot after every frame, every original store (the area latches and
+    the overlay's bss clear included), every delivered byte and every DMA
+    send (the area's texture upload and the player's packet), and the area
+    bytes after every frame. Returns (module-3 dispatches, area dispatches)."""
+    ram = (ROUTE / '03_panel_power/eeMemory.bin').read_bytes()
+    spad = (ROUTE / '03_panel_power/scratchpad.bin').read_bytes()
+    w = WholeLoad(elf, lib, ram, spad, pack, measured=measured)
+    try:
+        m3 = w.run(3, limit=800)
+        assert m3 is not None
+        st = lib.em_module_loader_state(w.ml).contents
+        assert st.d28A490[0xAB] == 0x13351C0 == w.o.load(0x28A73C), hex(st.d28A490[0xAB])
+        w.bank_script = [0] * 7 + [0x1335F40]
+        sent_before = len(w.sent_o)
+        area = w.run(0, limit=800, area=True)
+        assert area is not None
+        assert w.bank_calls == w.o_bank_calls == 8, (w.bank_calls, w.o_bank_calls)
+        sends = w.sent_o[sent_before:]
+        assert len(sends) == 2 and sends[0][0] == 0x1335F40 and sends[1][0] == w.o.load(0x28A4B0), \
+            [(hex(c), n) for c, n, _ in sends]
+        if measured:
+            check_new_game_rows(m3 + area)
+        lo, hi = w.bss
+        got = lib.em_module_loader_memory(w.ml, lo, hi - lo)
+        assert got and C.string_at(got, hi - lo) == w.o.read(lo, hi - lo) == bytes(hi - lo), 'bss clear'
+        for a, v in ((0x28A73C, 0x1335F40), (0x28A740, 0x19A3F40), (0x28A744, 0x19A3F40),
+                     (0x28A748, 0x19A3F40), (0x28A5A0, 0x1516F40)):
+            assert w.o.load(a) == v, (hex(a), hex(w.o.load(a)))
+    finally:
+        w.close()
+    # The 001FEF70 chaining (the d810CA4 / d810CA6 views): with D_00810CA6 = 1
+    # the area load's last dispatch turns the record into module 0x32's load
+    # (+8..+0xC cleared, +0xE = 0x32) on both sides; compared up to there.
+    w = WholeLoad(elf, lib, ram, spad, pack, measured=measured)
+    try:
+        assert w.run(3, limit=800) is not None
+        w.o.save(0x810CA6, 1, 1)
+        w.ca6.value = 1
+        w.bank_script = [0] * 7 + [0x1335F40]
+        chained = w.run(0, limit=800, area=True,
+                        stop=lambda o: o.load(SLOT + 8, 1) == 0 and o.load(SLOT + 0xE, 1) == 0x32)
+        assert chained is not None and w.o.load(SLOT + 0xE, 1) == 0x32 and w.slot_state() == 2
+    finally:
+        w.close()
+    return len(m3), len(area)
 
 
 # ============================================ B': other modules (full) ====
@@ -1151,7 +1381,7 @@ static int load(const char *pack, int drive, uint8_t module, uint32_t frames_max
     EmModuleLoader *ml = em_module_loader_open(pack);
     if (!ml) return -1;
     uint8_t bd8 = 1;
-    EmModuleLoaderViews v = {&bd8, NULL, NULL, NULL, NULL, NULL};
+    EmModuleLoaderViews v = {.d275BD8 = &bd8};
     em_module_loader_set_views(ml, &v);
     em_module_loader_set_chain_hook(ml, hook, NULL);
     em_module_loader_set_drive(ml, drive);
@@ -1227,6 +1457,8 @@ def main():
     counts['pinned_whole_loads'] = check_pinned_loads(elf, lib, pack, disc_pack)
     done, stopped = check_other_modules(elf, lib)
     counts['packet_after_module3'] = check_packet_after_load(elf, lib, OUT / 'modules_full.emml')
+    ng_host = check_new_game_loads(elf, lib, pack)
+    ng_measured = check_new_game_loads(elf, lib, pack, measured=True)
     words, toks = check_upload_is_atlas(pack)
     wait_rows, rands = check_wait_facts()
     counts['fault_cases'] = check_faults(lib, pack)
@@ -1246,7 +1478,10 @@ def main():
            f"module 0x21: host {host} dispatches, measured {measured} (route 03) / {r01} (route 01)",
            f"{len(done)} other whole loads (none past the slot table)",
            f"pinned: {counts['pinned_whole_loads']} whole loads (gate, relocated pack, disc-only pack), "
-           f"3 module-0x2B spad loads, {counts['packet_after_module3']} 00200890 after module 3")
+           f"3 module-0x2B spad loads, {counts['packet_after_module3']} 00200890 after module 3",
+           f"New Game at host speed: module 3 in {ng_host[0]} dispatches, AREA11 in {ng_host[1]} "
+           f"(001FFCD0 with 8 001FB370 calls); with the recorded drive {ng_measured[0]} and {ng_measured[1]} "
+           f"(the capture's reads {NEW_GAME_READS()})")
     print(f"Module loader: PASS; host-speed rows = captured rows minus {busy} busy polls; "
           f"upload = panel GS capture ({words} words, {toks} atlas TEX0 inside) "
           f"({time.time() - started:.1f} s)")

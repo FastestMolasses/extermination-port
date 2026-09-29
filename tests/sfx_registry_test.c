@@ -52,6 +52,15 @@ static unsigned parse_list(const char *text, unsigned long *out, unsigned max)
 }
 
 /* One game frame of 48 kHz output (one sequencer tick), asserting silence. */
+/* Main-loop step H's D_00281C30 <- D_00281B70 copy (001FB100's block_copy;
+ * live, em_stream_live_step_h runs the whole translation over this view). */
+static void step_h_copy(void)
+{
+    int32_t requested[48], snapshot[48];
+    em_sfx_tables(requested, snapshot);
+    em_sfx_set_snapshot(requested);
+}
+
 static void silent_frame(unsigned frame)
 {
     float buffer[2 * 1024];
@@ -175,7 +184,7 @@ int main(int argc, char **argv)
     const float flame[3] = {30, 0, 40};
     int32_t handle = -1;
     for (unsigned frame = 0; frame < 60; ++frame) {
-        em_sfx_frame_snapshot();
+        step_h_copy();
         const int32_t result = em_sfx_loop_service(&handle, 0x413, flame, 100.0f,
                                                    (int32_t)frame, 3);
         assert(result == handle);
@@ -189,7 +198,7 @@ int main(int argc, char **argv)
     }
     assert(em_sfx_track_status(0) == 0);
     /* 001FC520 on a live handle: stopped (status 0 at once), cleared. */
-    em_sfx_frame_snapshot();
+    step_h_copy();
     assert(em_sfx_loop_service(&handle, 0x413, flame, 100.0f, 67, 3) == 0);
     assert(em_sfx_track_status(0) == 2);
     em_sfx_loop_release(&handle);

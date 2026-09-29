@@ -186,7 +186,7 @@ Measured 2026-09-27 (full route, both modes; newgame-control):
 | 0x7F key-on and teardown (s) | 8 rows early (6 drive + 2 lane 0) | 2 rows early (lane 0) |
 | 0x97, 0x99 key-on and teardown (s) | 6 rows early | on the capture's rows |
 | stream reads over the full route | 420, all at host speed | 420 (328 contiguous, 19 fast, 73 full seeks) |
-| the frame-order post-control window | native index 1330 | native index 1340 |
+| the frame-order post-control window | native index 1330 (1393 since chain step H7: the New Game's loads and veil take ticks) | native index 1340 (1665 since chain step H7) |
 
 The 30-tick displacement is 9.599849 in both modes. The side runs pass in
 both modes too.
@@ -1380,7 +1380,10 @@ Then:
   port's for every owner compared above, including the player and the
   equipment in 10 and 14. The check reports how many of the tick's 16 view
   words differ from the snapshot's (0 in 10 and 14; check_sway proves the
-  slots follow 001D7C30 over the port's own draws);
+  slots follow 001D7C30 over the port's own draws: on 40 sampled ticks the
+  ORIGINAL 001D7C30 over the port's previous pool and draws writes the
+  port's pool; the one exemption is the status screen's entry, see
+  check_sway below);
 - in the camera-exact snapshots (10, 14): the owners that ran, and every
   owner's byte count, clip pass and position rows (node x VP). There every
   mover's point AND pose must equal the snapshot's (the port's player
@@ -1479,7 +1482,21 @@ unknown rand() caller fails the check.
 - **check_sway.** On sampled ticks (the first, every 250th, at most 40, and
   the snapshot ticks) the ORIGINAL 001D7C30 over the port's pool of the
   tick before and the port's own two draws of the frame writes exactly the
-  port's pool.
+  port's pool. A sampled tick where the original would draw and the port
+  made no draw fails, with one exemption tied to the tick log: the status
+  screen's entry (`status_entry_tick`). There the frame machine's task is at
+  +B = 3 with +C 0, then 1 (the first ticks of the status run, as status_04
+  shows around the open), the tick's trace holds no world frame (neither
+  001AE5E0 nor 001AE6B0, so no 001D1C50 -> 001D7C30), and the tick lies
+  within the original's entry gap: route 01's rand() capture has 001D7C30
+  draws in every frame but f190..f191, the two frames after the battery
+  take's request posts at f189 (`sway_entry_gap` derives the 2 from the
+  capture and checks the request). Such a tick must leave the pool as it
+  was; it is replaced by the next drawing tick, which must be exactly the
+  entry's first tick + 2 (the port skips as many frames as the original).
+  Chain step H7's longer New Game load first put such a tick among the
+  samples, with the PS2 disc-drive timing switch (tick 3001, the battery
+  take's entry).
 - **check_marker_colour.** On sampled barrel frames each of the eleven
   001F4D40 calls drew its value of the trace, and the ORIGINAL 001F4D40
   over its colour words and that value hands 001CD520 the port's rgb (the
@@ -1692,12 +1709,17 @@ counter it is (its pre phase and base Y, its post levels), it checks:
 - the seed the load leaves equals every route capture's.
 It prints the phase the load left beside the captures'.
 
-Measured (every run, 2026-09-27, host speed and the PS2 disc-drive timing
-switch alike): one veil frame, at the New Game load's tick 10 (counter
-1267), level 0, so black; the phase the load leaves is 0.007 (one step)
-where the captures, after the PS2 disc load, hold 0.806 (258 steps). The
-port's area read completes inside 001FF080(1, 0), so the load spans no tick
-(LOAD_VEIL_PARTICLES.md section 5).
+Measured (2026-09-29, chain step H7: the New Game's module 3 and area
+load run the loader task's own steps, MODULE_LOADER.md 1.9): at host
+speed **55 veil frames**, none at level 0 (the ramp over the area load's 20
+dispatches, then the decay), the phase the load leaves 0.385; with the PS2
+disc-drive timing switch (the recorded New Game reads) **257 frames**,
+phase 0.799, where the captures, after the PS2 disc load, hold 0.806 (258
+steps: the one more is the PS2's ninth sound-bank call, IOP_STREAM.md "The
+sound-bank transfer"). Every one of those frames passes the checks above.
+The run log's "module loader:" line gives the dispatches and the area's
+uploads (1 A entry, 1 player packet) and 001FB370's calls (8) and
+command 0x20s (1).
 
 ## What the full route does not yet compare (2026-09-28)
 
@@ -1732,7 +1754,7 @@ sprites, the load veil). What removes each:
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
-| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258: the area streamer 001FFCD0 is translated but not bound, because its sound-bank step 001FB370 needs the EE sound library's queue, the SIF DMA and the driver's command 0x20 (MODULE_LOADER.md section 5) | a capture of a frame mid-load (the decomp's fb2 method); 001FB370's callees live, then 001FFCD0 bound |
+| check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the veil runs as long as the loader's steps take (chain step H7): 55 frames at host speed (the user's policy: the disc answers at host speed), 257 with the PS2 disc-drive timing switch where the PS2 drew 258 (its ninth sound-bank call, most likely SIF DMA time, which no mode reproduces) | a capture of a frame mid-load (the decomp's fb2 method) for the pixels |
 
 Not compared at all: the sounds (WP-14), the pixels (the smoke itself
 compares none; the fb2 pixel harness `make test-fb2-pixels` measures the
@@ -1772,6 +1794,15 @@ later and the windows are native index 1340 (counter 2597) for idle04,
 1402 for walk04, 36 for cut02 (the spawn at AE+20) and 1331 for st03,
 where the same five PASS (2026-09-28). cut07 (selector 3) and st14 (Roger)
 have no matching window in a newgame-control trace.
+
+**Since chain step H7 (2026-09-29)** the New Game's module-3 and area
+loads take the loader task's steps and the veil's ramp and decay, so the
+area entry moves 63 ticks later at host speed (trace index 79, counter
+1336) and 325 with the switch (index 341, counter 1598); every window moves
+with it: at host speed idle04 at native index 1393 (counter 2650), walk04
+1455, st03 1384, cut02 89; with the switch 1665, 1727, 1656 and 361. All
+five PASS in both modes with the empty allow list (cut15 on its own
+window); `--self-test` passes.
 
 ## Adding a phase (the contract for WP-4 onward)
 

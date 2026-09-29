@@ -10,10 +10,12 @@
  *                                        001AD230 (the 001AF2C0 reset,
  *                                        em_game_new_game_reset_001AF2C0),
  *                                        001AD360 (intro movie at step 1)
- *                                        and 001ADF50 (S12a). The native
- *                                        area read is
- *                                        em_game_legacy_area_load, called
- *                                        by the bindings' 001FF080(1, 0).
+ *                                        and 001ADF50 (S12a), whose
+ *                                        001FF080(1, 0) runs the loader
+ *                                        task (chain step H7); the port's
+ *                                        own assets load through
+ *                                        em_game_legacy_area_load when
+ *                                        its area streamer completes.
  *   func_001ACEC0  game task machine     em_scene_task_001ACEC0 (S8,
  *   func_001AD250  sub-machine           em_scene_bindings.c) runs the
  *   func_001AE040  in-game frame machine translated cores em_sf_001ACEC0,
@@ -1504,12 +1506,13 @@ void em_game_legacy_continue_task_001AC070(void)
     frame_close_out();
 }
 
-/* The native area read (S12a; formerly the one-frame game_load_task). The
- * bindings call it as the original 001FF080(1, 0), the area load 001ADF50
- * starts at +A = 0 (the slot-2 task 001FF0D0 state 1 reads AREA%02d from
- * disc and clears D_00275BD8 at state 0x63); the port's read completes
- * inside this call. `dir` is the scene of D_00810700/701 (the bindings
- * resolve it). The first call also loads the player model and the SFX
+/* The port's own assets of an area (S12a; formerly the one-frame
+ * game_load_task): the renderer's and the collision's formats. Since chain
+ * step H7 001ADF50's 001FF080(1, 0) runs the slot-2 loader task 001FF0D0
+ * (the area streamer 001FFCD0 over the original's disc bytes, which clears
+ * D_00275BD8 at its 0x63 step); the bindings call this in the dispatch
+ * whose 001FFCD0 step completes the area (loader_area_done). `dir` is the
+ * scene of D_00810700/701 (the bindings resolve it). The first call also loads the player model and the SFX
  * registry (process-lifetime assets); every later call re-reads the scene
  * (em_game_scene_switch) and returns the player's pose source to its load
  * state, since the area build recreates the player actor. The EM_SKIP_STARTUP

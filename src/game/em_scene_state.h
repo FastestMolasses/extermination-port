@@ -87,6 +87,13 @@ typedef enum {
  * it.
  *
  * Migrated ranges (step that migrated them; original readers and writers):
+ *   D_00810703..D_00810704
+ *                        H7    the area streamer 001FFCD0's latches: state 3
+ *                              stores the area whose header is in
+ *                              (D_00810700), state 7 the nested room
+ *                              (D_00810701) or 0; only 001FFCD0 reads them
+ *                              (through the module loader's views); no port
+ *                              mirror existed.
  *   D_00810707           HK    0015CF90's copy of the player's infected
  *                              latch +0x234 (every player stage;
  *                              em_player_0015BCF0), 0021C270 (=1) and
@@ -229,6 +236,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     static const struct {
         uint32_t first, end;
     } migrated[] = {
+        {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */

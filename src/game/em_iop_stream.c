@@ -30,6 +30,18 @@
  * kernel fact (what the six modules left free), not derivable here. */
 #define IOP_HEAP_FIRST 0x85B00u
 #define IOP_HEAP_UNIT 0x100u
+#define IOP_HEAP_BLOCKS 32u
+/* A measured occupancy of the IOP heap right after the four boot buffers
+ * (0xDDF00..0xDE800); its owner is NOT established. Only its end is pinned:
+ * the title capture (slot 01) and every route capture hold D_00282194 =
+ * 0xDE800, the block the first fit 0010F8F8 gave the bank uploads, so
+ * something holds the 0x900 bytes before it. The size is the one that puts
+ * that first fit at 0xDE800. A hypothesis, not evidence: the block's top in
+ * the title capture's IOP RAM holds IOP return addresses, which looks like a
+ * thread stack (perhaps the driver thread 001190B8's command 0x1E creates).
+ * The port allocates it once at start-up, before the first bank upload;
+ * docs/IOP_STREAM.md "Stated models" (the owner is an open follow-up). */
+#define IOP_HEAP_DRIVER_BLOCK 0x900u
 
 struct EmIopStream {
     uint8_t iop_ram[EM_IOP_RAM_SIZE];
@@ -44,13 +56,22 @@ struct EmIopStream {
     uint16_t evol[2][2];
     uint8_t trans_busy;
     uint64_t trans_tick;
+    /* SPU2 DMA channel 0 (command 0x20's sceSdVoiceTrans): lands in SPU RAM
+     * at issue; its completion interrupt runs the callback 0x544 that
+     * command 0x1E registered, at the next driver tick. */
+    uint8_t ch0_busy;
+    uint64_t ch0_tick;
+    /* SIF DMA ids handed out (sceSifSetDma at host speed completes at once) */
+    int32_t sif_ids;
     /* time */
     uint64_t half_lines, ticks, samples;
     /* EE side */
     uint32_t ee_queue[EM_EE_QUEUE][4];
     uint32_t ee_count;
     int32_t ee_status[EM_IOP_STATUS_WORDS];
-    uint32_t heap_next;
+    uint32_t heap_next;                    /* the floor 0010F8F8 starts its first fit at */
+    struct { uint32_t addr, size; } heap[IOP_HEAP_BLOCKS];  /* held blocks, by address */
+    uint32_t heap_count;
     EmIopVoiceTable voice_table;
     /* disc */
     const EmIopStreamDisc *disc;
@@ -319,16 +340,27 @@ static uint32_t sd_get_addr(void *ctx, uint16_t reg)
 }
 
 /* The transfer lands in SPU RAM when issued and counts as complete from the
- * next driver tick on (a 0x2000-byte SPU2 DMA is far shorter than a tick). */
+ * next driver tick on (a 0x2000-byte SPU2 DMA is far shorter than a tick).
+ * Channel 0 is command 0x20's upload of a registered sound bank: the same
+ * rule, its completion running the channel's callback (0x544) at the next
+ * tick (driver_tick). A second channel-0 transfer while one is in flight is
+ * not modelled (faults); the driver only issues one per bank entry, after
+ * the EE saw the previous one acknowledged. */
 static void sd_voice_trans(void *ctx, int16_t channel, uint16_t mode, const uint8_t *data,
                            uint32_t spu_addr, uint32_t size)
 {
     EmIopStream *s = ctx;
-    if (channel != 1 || mode != 0 || spu_addr > EM_SPU_RAM_SIZE || size > EM_SPU_RAM_SIZE - spu_addr) {
+    if ((channel != 0 && channel != 1) || mode != 0 || !data || spu_addr > EM_SPU_RAM_SIZE ||
+        size > EM_SPU_RAM_SIZE - spu_addr || (channel == 0 && s->ch0_busy)) {
         fault(s, EM_IOP_DRV(0x317C), EM_IOP_FAULT_BAD_INDEX);
         return;
     }
     memcpy(s->spu_ram + spu_addr, data, size);
+    if (channel == 0) {
+        s->ch0_busy = 1;
+        s->ch0_tick = s->ticks;
+        return;
+    }
     s->trans_busy = 1;
     s->trans_tick = s->ticks;
 }
@@ -415,6 +447,13 @@ void em_iop_stream_clock(const EmIopStream *s, uint64_t *half_lines, uint64_t *t
         *ticks = s->ticks;
     if (samples)
         *samples = s->samples;
+}
+
+void em_iop_stream_seed_transfer_count(EmIopStream *s, uint32_t count)
+{
+    s->drv.trans_count = count;
+    s->drv.status[112] = count;
+    s->ee_status[112] = (int32_t)count;
 }
 
 uint64_t em_iop_stream_pcm_digest(const EmIopStream *s) { return s->digest; }
@@ -527,18 +566,114 @@ static const uint8_t *disc_sector(const EmIopStreamDisc *d, uint32_t lsn)
  * 1. EE side                                                                *
  * ======================================================================== */
 
-/* 0010F8F8 through the IOP heap model: the next free block, request rounded
- * up to the 0x100 unit the captured blocks show. */
+/* 0010F8F8 through the IOP heap model (the IOP kernel's allocator, reached
+ * by an RPC): the first free gap at or above the floor that holds the
+ * request rounded up to the 0x100 unit the captured blocks show; the held
+ * blocks are kept by address. First fit is what the captures show: the
+ * boot's bank uploads and the area's (each allocates, uploads and frees)
+ * all got 0xDE800 (D_00282194 in the title capture and every route
+ * capture). */
 static uint32_t iop_heap_alloc(EmIopStream *s, int32_t size)
 {
-    uint32_t block = s->heap_next;
     uint32_t bytes = ((uint32_t)size + IOP_HEAP_UNIT - 1) & ~(IOP_HEAP_UNIT - 1);
-    if (size <= 0 || bytes > EM_IOP_RAM_SIZE - block) {
+    uint32_t block = s->heap_next, i, at;
+    if (size <= 0 || s->heap_count >= IOP_HEAP_BLOCKS) {
         fault(s, 0x0010F8F8u, EM_IOP_FAULT_BAD_INDEX);
         return 0;
     }
-    s->heap_next = block + bytes;
+    for (i = 0; i < s->heap_count; i++) {
+        if (s->heap[i].addr + s->heap[i].size <= block)
+            continue;
+        if (s->heap[i].addr >= block && s->heap[i].addr - block >= bytes)
+            break;
+        block = s->heap[i].addr + s->heap[i].size;
+    }
+    if (bytes > EM_IOP_RAM_SIZE || block > EM_IOP_RAM_SIZE - bytes) {
+        fault(s, 0x0010F8F8u, EM_IOP_FAULT_BAD_INDEX);
+        return 0;
+    }
+    for (at = s->heap_count; at > 0 && s->heap[at - 1].addr > block; at--)
+        s->heap[at] = s->heap[at - 1];
+    s->heap[at].addr = block;
+    s->heap[at].size = bytes;
+    s->heap_count++;
     return block;
+}
+
+/* 0010F968 through the heap model: the held block that starts at `block`
+ * returns to the free gaps. A block the model does not hold faults. */
+static int iop_heap_free(EmIopStream *s, uint32_t block)
+{
+    uint32_t i;
+    for (i = 0; i < s->heap_count; i++)
+        if (s->heap[i].addr == block) {
+            for (; i + 1 < s->heap_count; i++)
+                s->heap[i] = s->heap[i + 1];
+            s->heap_count--;
+            return 0;
+        }
+    return fault(s, 0x0010F968u, EM_IOP_FAULT_BAD_INDEX);
+}
+
+int em_iop_stream_0010F8F8(EmIopStream *s, int32_t size, uint32_t *block)
+{
+    if (latched(s) || !block)
+        return -1;
+    *block = iop_heap_alloc(s, size);
+    return latched(s) ? -1 : 0;
+}
+
+int em_iop_stream_0010F968(EmIopStream *s, uint32_t block)
+{
+    if (latched(s))
+        return -1;
+    return iop_heap_free(s, block);
+}
+
+/* The port's backend starts with 001190B8's command 0x1E (sent at the boot
+ * through RPC 0x65) done: the timer is armed from time 0 and 0x544 is
+ * channel 0's transfer callback. It also places the measured start-up
+ * occupancy IOP_HEAP_DRIVER_BLOCK right after the boot buffers. Which IOP
+ * allocation that block is (command 0x1E's thread is only a hypothesis) is
+ * not established; only its end, 0xDE800, is pinned by the captures. */
+int em_iop_stream_boot_driver(EmIopStream *s)
+{
+    if (latched(s))
+        return -1;
+    (void)iop_heap_alloc(s, (int32_t)IOP_HEAP_DRIVER_BLOCK);
+    return latched(s) ? -1 : 0;
+}
+
+/* The EE kernel's SIF DMA (sceSifSetDma, syscall 0x77 at 0010BBE0, one
+ * descriptor {src, dst, size, attr 0}): EE bytes into IOP RAM. At host
+ * speed the copy is done when it is queued, so sceSifDmaStat (0x76 at
+ * 0010BBC0) answers "done" (negative) at its first query; the PS2's
+ * transfer time is hardware timing (port CLAUDE.md, 2026-09-27). The id is
+ * the port's own nonzero count (the kernel's ids are not modelled; the
+ * caller only tests it against 0). A size that is not whole quadwords, or a
+ * destination outside IOP RAM, faults. */
+int em_iop_stream_sif_set_dma(EmIopStream *s, const uint8_t *src, uint32_t dst, uint32_t size,
+                              int32_t *id)
+{
+    if (latched(s) || !id)
+        return -1;
+    if (!src || (size & 0xFu) || (dst & 0xFu) || dst > EM_IOP_RAM_SIZE || size > EM_IOP_RAM_SIZE - dst)
+        return fault(s, 0x0010BBE0u, EM_IOP_FAULT_BAD_INDEX);
+    memcpy(s->iop_ram + dst, src, size);
+    if (++s->sif_ids <= 0)
+        s->sif_ids = 1;
+    *id = s->sif_ids;
+    return 0;
+}
+
+int em_iop_stream_sif_dma_stat(EmIopStream *s, int32_t id, int32_t *stat)
+{
+    if (latched(s) || !stat)
+        return -1;
+    if (id <= 0 || id > s->sif_ids)
+        return fault(s, 0x0010BBC0u, EM_IOP_FAULT_BAD_INDEX);
+    *stat = -1;
+    return 0;
 }
 
 /* 001FA6A0(size): 0010F8F8(size + 0x10), rounded up to 16 when it is not a
@@ -697,8 +832,22 @@ const uint32_t (*em_iop_stream_ee_queue(const EmIopStream *s, uint32_t *count))[
     return (const uint32_t (*)[4])s->ee_queue;
 }
 
-uint32_t em_iop_stream_heap_next(const EmIopStream *s) { return s->heap_next; }
-void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next) { s->heap_next = next; }
+/* The lowest free address at or above the floor (the block a 0x100-byte
+ * request would get). */
+uint32_t em_iop_stream_heap_next(const EmIopStream *s)
+{
+    uint32_t block = s->heap_next, i;
+    for (i = 0; i < s->heap_count; i++)
+        if (s->heap[i].addr <= block && s->heap[i].addr + s->heap[i].size > block)
+            block = s->heap[i].addr + s->heap[i].size;
+    return block;
+}
+/* Places the floor and forgets every held block (tests). */
+void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next)
+{
+    s->heap_next = next;
+    s->heap_count = 0;
+}
 
 /* ---- 4. the drive (libcdvd contract as the lanes use it) ---------------- *
  *
@@ -1039,6 +1188,21 @@ int em_iop_stream_drv_command(EmIopStream *s, const uint32_t c[4])
     case 0x43:  /* the key-off entry */
         em_iop_stream_drv_push(s, 0x1011, c[1], c[2], 0);
         break;
+    case 0x20: {  /* 0xE98: upload a registered bank to SPU RAM (00119400's packing) */
+        /* IOP source = (word1 & 0xFF) << 16 | word2 >> 16; SPU destination =
+         * (word2 & 0xFFFF) << 8 | word3 >> 24; size = word3 & 0xFFFFFF.
+         * sceSdVoiceTrans(0, write, source, destination, size), then
+         * +0x349C = the EE's command count (word1 >> 8), which the channel's
+         * transfer callback 0x544 publishes when the transfer completes. */
+        uint32_t iop = (c[1] & 0xFF) << 16 | c[2] >> 16;
+        uint32_t spu = (c[2] & 0xFFFF) << 8 | c[3] >> 24;
+        uint32_t size = c[3] & 0xFFFFFF;
+        if (iop > EM_IOP_RAM_SIZE || size > EM_IOP_RAM_SIZE - iop)
+            return fault(s, EM_IOP_DRV(0xF40), EM_IOP_FAULT_BAD_INDEX);
+        s->sd.voice_trans(s->sd.ctx, 0, 0, s->iop_ram + iop, spu, size);
+        d->trans_count = (c[1] & 0xFFFFFF00u) >> 8;
+        break;
+    }
     default:
         if (!s->forward)
             return fault(s, EM_IOP_DRV(0x634), EM_IOP_FAULT_UNSUPPORTED);
@@ -1046,6 +1210,18 @@ int em_iop_stream_drv_command(EmIopStream *s, const uint32_t c[4])
         break;
     }
     return latched(s) ? -1 : 0;
+}
+
+/* 0x544: channel 0's transfer callback (command 0x1E registers it): the
+ * status block's word 112 (+0x1C0, the EE's D_002817C0 + 0x1C0 after the
+ * next exchange) = +0x349C, the count of the transfer command that
+ * completed. Returns 1, as the module does. */
+int em_iop_stream_drv_trans_callback(EmIopStream *s)
+{
+    if (latched(s))
+        return -1;
+    s->drv.status[112] = s->drv.trans_count;
+    return 1;
 }
 
 /* 0x12C with function 0x64: append the received bytes to the 0x1000-byte
@@ -1233,6 +1409,13 @@ int em_iop_stream_drv_consume(EmIopStream *s)
 static int driver_tick(EmIopStream *s)
 {
     s->ticks++;
+    /* A channel-0 transfer issued at an earlier tick completes now: its
+     * interrupt runs the callback before the thread wakes. */
+    if (s->ch0_busy && s->ticks > s->ch0_tick) {
+        s->ch0_busy = 0;
+        if (em_iop_stream_drv_trans_callback(s) < 0)
+            return -1;
+    }
     if (em_iop_stream_drv_tick_commands(s) || em_iop_stream_drv_scan(s))
         return -1;
     return em_iop_stream_drv_consume(s);

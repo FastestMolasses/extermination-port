@@ -384,10 +384,10 @@ int em_frame_step(void)
         s_frame.message.render(s_frame.message.context, s_frame.gfx);
     s_frame.suspended_draw_transition =
         em_transition_fade_tick(&s_frame.transition) != 0;
-    /* H: 001FB100 runs the stream lanes' service 001F9CF0 unless
-     * D_00821058 == 1 (a movie armed this frame). The rest of 001FB100 (the
-     * D_0028215B output-mode commit, the D_00281B70 copy and 001FC6E0's
-     * delayed cues) is not bound (docs/STREAM_LANES.md "Binding"). */
+    /* H: 001FB100 unless D_00821058 == 1 (a movie armed this frame): the
+     * stream lanes' service 001F9CF0, the D_0028215B output-mode commit,
+     * the D_00281B70 copy and 001FC6E0's delayed cues (em_stream_live_step_h;
+     * docs/STREAM_LANES.md "Binding"). */
     if (!s_frame.movie_active && s_frame.sound.step_h &&
         s_frame.sound.step_h(s_frame.sound.context) < 0)
         s_frame.quit = true;

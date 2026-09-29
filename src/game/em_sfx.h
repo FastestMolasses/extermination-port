@@ -302,6 +302,15 @@ int em_sfx_unscoped_cues(void);    /* area-dependent plays whose scope
  * device up through em_bgm if no music has started yet. Game thread
  * only. */
 void em_sfx_play(unsigned id);
+/* func_001FB9F0(id, 0x1000, left, right): the submit with explicit request
+ * words (001FC6E0's delayed cues). Game thread only. */
+void em_sfx_submit_001FB9F0(unsigned id, int32_t left, int32_t right);
+/* D_00281B70 (the id each looped service started on a track) and
+ * D_00281C30 (001FB100's per-frame copy of it), 48 words each: the view
+ * the step-H 001FB100 translation copies with (em_stream_live). Game
+ * thread only. */
+void em_sfx_tables(int32_t requested[48], int32_t snapshot[48]);
+void em_sfx_set_snapshot(const int32_t snapshot[48]);
 
 /* Per-frame listener mirror: player position (the engine's DISTANCE
  * listener D_00810360), camera eye + yaw (the PAN listener D_008105D0 /
@@ -363,9 +372,6 @@ void em_sfx_loop_release(int32_t *handle);
  * stop T_HALT as em_sfx_stop_all does; a track that is not allocated is
  * left alone. Game thread. Returns 0, or -1 for a track outside 0..47. */
 int em_sfx_stop_track(int track, int hard);
-/* func_001FB100's per-frame D_00281C30 <- D_00281B70 copy (frame step H);
- * the service reads the snapshot. Call once per frame where 001FB100 runs. */
-void em_sfx_frame_snapshot(void);
 
 /* Stop every live voice (engine func_001FBC50 — the audio reset/stop-all,
  * mislabelled "Subsystem init" in the decomp): every allocated track is
@@ -380,6 +386,12 @@ void em_sfx_stop_all(void);
  * key-on): the mask em_stream_live's boot checks 001F9820's 0011A2B0 voices
  * against (one storage of D_0027CCC0's stream records). */
 uint64_t em_sfx_stream_voices(void);
+
+/* D_0027CCC0[voice]'s +0x00 (state) and +0x22 (the bank handle), as the
+ * audio thread's driver last left them (published at the end of every
+ * em_sfx_mix; the driver's initial records before the first). What
+ * 001195A8's scan reads (em_sound_bank). Game thread. 0, or -1. */
+int em_sfx_voice_record(int voice, uint16_t *state, uint16_t *bank);
 
 /* Free the preloaded samples. Game thread, AFTER em_bgm_shutdown() (the
  * device-teardown guarantee is what makes the sample memory safe to

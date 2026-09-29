@@ -676,7 +676,7 @@ static void setup(int reset_inventory)
     if (!em_module_loader_live()) {
         EmModuleLoader *loader = em_module_loader_open("assets/module_loader/modules.emml");
         assert(loader);
-        const EmModuleLoaderViews views = {&em_scene_state()->d275BD8, NULL, NULL, NULL, NULL, NULL};
+        const EmModuleLoaderViews views = {.d275BD8 = &em_scene_state()->d275BD8};
         em_module_loader_set_views(loader, &views);
         em_module_loader_bind_live(loader);
     }

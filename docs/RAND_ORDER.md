@@ -80,7 +80,8 @@ fails the tool. Both traces become (original function, state) per call.
   PS2 disc-drive timing switch on, the drive model's 6-field seek (section 3).
   newgame-control: locked_ticks 1301 at host speed, 1311 with the switch; the
   displacement is 9.599849 in both. The frame-order post-control window is native
-  index 1330 (counter 2587) at host speed, 1340 (counter 2597) with the switch.
+  index 1393 (counter 2650) at host speed, 1665 (counter 2922) with the switch since
+  chain step H7 (the New Game's loads take ticks; 1330 / 1340 before).
 
 ## 3. The New Game opening (the newgame capture)
 

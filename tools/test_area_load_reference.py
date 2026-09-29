@@ -16,8 +16,10 @@ against the executed original.
    which the load chain runs (001ACEC0 with +8 = 0, 1, 2, or +8 = 3 and
    +9 = 0 or 5) through the S3 oracle (tools/test_scene_task_reference.py)
    extended to EXECUTE 001AD1A0 as well, with the port's worker model: the
-   screen module and area reads 001FF080 complete inside the call (D_00275BD8
-   = 0 after it), and 001AD230/0021B550 return what the native returned. The
+   screen module and area loads 001FF080 register the slot-2 loader task and
+   leave D_00275BD8 as the caller set it (the task clears it after this
+   task's tick, so the next tick's logged state carries it), and
+   001AD230/0021B550 return what the native returned. The
    state after the tick (task +8..+0x1F, request block, area bytes,
    D_00810730, counters, scratchpad, flags, input words) and the trace
    (caller, callee, declared arguments) must be identical. A tick whose frame
@@ -34,7 +36,13 @@ against the executed original.
    sequence of distinct task states (+8, +9, +A, +B) as the original New Game
    load captured in PCSX2 (build/startup-reference/newgame_samples.jsonl,
    read-only), from the cleared record to state 1: the original's load waits
-   last longer (disc reads), the order is the same.
+   last longer (disc reads), the order is the same. The slot-2 loader task
+   too: its distinct states (slot +0 and +8, +9, +A, +B, +0xE) over module
+   3's load and the area load (001FFCD0) must be the capture's, except the
+   capture's samples taken inside a frame (the samples are read while the
+   VM runs): the registered-not-yet-dispatched record between 001FF080 and
+   the dispatch that follows it in the same frame, and 001FF590's cleared
+   sub-state inside the dispatch in which 001FB370 finished.
 
 The Makefile target runs the app (headless) to write the log: New Game to
 first control, then EM_AREA_CHANGE_TEST's 001B0C60(0x0B, 0, 0) reload.
@@ -261,13 +269,13 @@ TRACE_EXTRA_ARGS = {0x200830: 0, 0x1D19D0: 0}   # D_0028A564 is a pointer the po
 class ChainOracle(tsr.TaskOracle):
     def load(self, address, size=4):
         if self.recording and address == 0x28A564 and size == 4:
-            return 0                   # D_0028A564 (001AD1A0's module-3 packet word)
+            return 0                   # D_0028A564 (001AD1A0's library packet word: slot 0x35, module 0x1B)
         return super().load(address, size)
 
     def stub(self, caller, callee):
+        # 001FF080 registers the slot-2 loader task, which runs after this
+        # task's tick; it leaves D_00275BD8 as the caller set it.
         super().stub(caller, callee)
-        if callee == 0x1FF080:
-            tsr.Oracle.save(self, 0x275BD8, 0, 1)   # the port's reads complete inside the call
 
 
 def chain_original(elf, entry, snap, config):
@@ -342,13 +350,31 @@ class VeilDraw:
         self.ee = LVP.VeilEE(elf, bytearray(ram))
         self.veil = struct.unpack_from('<I', ram, LVP.VEIL_PTR)[0] & (LVP.RAM_SIZE - 1)
         self.calls = 0
+        # The channel-0 cursor (render context +0x10) as the capture holds
+        # it: each draw starts there (the frame's step V list takes the run;
+        # a load that draws many veil frames must not walk off the buffer).
+        self.cursor = self.ee.load(0x811CC0 + 0x10)
+        self.seed = None
+
+    # Quick mode executes the first EXECUTED draws of a load; 0021B1B0
+    # writes only the seed +0x14, which it restarts from 0x07234567 at every
+    # call, so once those agree the later draws take the same seed (asserted
+    # per executed draw; EM_TEST_FULL=1 executes every draw).
+    EXECUTED = 3
 
     def __call__(self, block):
+        if not reference_mode.FULL and self.calls >= self.EXECUTED:
+            self.calls += 1
+            return bytes(block[:0x14]) + self.seed + bytes(block[0x18:])
         self.ee.write(self.veil, block)
+        self.ee.save(0x811CC0 + 0x10, self.cursor)
         self.ee.invoke(0x21B1B0, [self.veil])
         self.calls += 1
         out = bytes(self.ee.read(self.veil, VEIL_SIZE))
         assert out[:0x14] == block[:0x14] and out[0x18:] == block[0x18:], '0021B1B0 wrote outside +0x14'
+        if self.calls > 1:
+            assert out[0x14:0x18] == self.seed, '0021B1B0 left a different seed'
+        self.seed = out[0x14:0x18]
         return out
 
 
@@ -368,7 +394,7 @@ def replay_veil(elf, ticks):
         if r:
             assert r[-1] == t['r_0021B550'], ('tick', t['tick'], '0021B550 result', r[-1], t['r_0021B550'])
         steps += len(calls)
-    return steps
+    return steps, (draw.calls if draw else 0)
 
 
 def distinct(states):
@@ -400,7 +426,44 @@ def check_capture(ticks):
     assert got == want, ('New Game task-state sequence', got, want)
     load_ticks = sum(1 for t in ticks[:len(native) - 1] if bytes.fromhex(t['pre'])[1] == 5
                      and bytes.fromhex(t['pre'])[0] == 3)
-    return len(want), load_ticks
+    loader_states = check_capture_loader(ticks[:len(native)])
+    return len(want), load_ticks, loader_states
+
+
+def loader_state(state, user):
+    """(slot +0, +8, +9, +A, +B, +0xE) of the slot-2 record."""
+    return (state, user[0], user[1], user[2], user[3], user[6])
+
+
+# The capture's samples inside a frame (not end-of-dispatch states): the
+# records 001FF080 registered for module 3 and for the area before the
+# frame's dispatch ran, and 001FF590's cleared sub-state (+0xB = 0 with
+# +0xA = 1) inside the dispatch in which 001FB370 returned the bank's end.
+INTRA_FRAME = {(1, 0, 0, 0, 0, 3), (1, 1, 0, 0, 0, 0), (2, 1, 4, 1, 0, 0)}
+
+
+def check_capture_loader(ticks):
+    """The slot-2 loader's distinct states over the New Game's module-3 and
+    area loads against newgame_samples.jsonl (read while the VM runs)."""
+    captured = []
+    for line in CAPTURE.open():
+        d = json.loads(line)
+        slot0, slot2 = d['tasks'][0], d['tasks'][2]
+        if slot2['fn'] != '0x1ff0d0':
+            continue
+        captured.append(loader_state(slot2['state'], bytes.fromhex(slot2['user'])))
+        if slot0['fn'] == '0x1acec0' and slot0['user'][:8] == '03010001':
+            break
+    native = [loader_state(bytes.fromhex(t['loader_pre'])[0], bytes.fromhex(t['loader_pre'])[1:25])
+              for t in ticks]
+    # From the module-3 request's first dispatch on (the capture starts in
+    # the title's idle record, the log at New Game's first tick).
+    first = next(i for i, s in enumerate(captured) if s[5] == 3 and s[0] == 2)
+    want = [s for s in distinct(captured[first:]) if s not in INTRA_FRAME]
+    start = next(i for i, s in enumerate(native) if s[5] == 3 and s[0] == 2)
+    got = distinct(native[start:])
+    assert got == want, ('New Game loader-state sequence', got, want)
+    return len(want)
 
 
 def main():
@@ -421,13 +484,16 @@ def main():
     ticks = [json.loads(line) for line in args.log.open()]
     assert ticks, 'empty log'
     n_chain, n_d010 = replay_chain(elf, ticks)
-    steps = replay_veil(elf, ticks)
-    n_states, load_ticks = check_capture(ticks)
+    steps, draws = replay_veil(elf, ticks)
+    n_states, load_ticks, loader_states = check_capture(ticks)
     assert n_d010 >= 1, 'the log has no 001AD010 area change (run with EM_AREA_CHANGE_TEST=1)'
     reloads = [t for t in ticks if bytes.fromhex(t['pre'])[:2] == b'\x03\x05']
     print(f'chain: PASS ({n_chain} chain ticks and {n_d010} 001AD010 call(s) of {len(ticks)} logged ticks '
-          f'identical to the executed original; {steps} veil steps replayed)')
-    print(f'capture: PASS (New Game passes the {n_states} captured task states in order; 001ADF50 '
+          f'identical to the executed original; {steps} veil steps replayed, ' +
+          reference_mode.part(min(draws, VeilDraw.EXECUTED) if not reference_mode.FULL else draws, draws,
+                              'veil draws executed as the ORIGINAL 0021B1B0') + ')')
+    print(f'capture: PASS (New Game passes the {n_states} captured task states in order, and the loader '
+          f'task the {loader_states} captured states of module 3\'s and the area\'s loads; 001ADF50 '
           f'took {load_ticks} ticks natively; {len(reloads)} load ticks in the whole log)')
     print('area load reference: PASS')
     return 0

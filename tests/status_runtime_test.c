@@ -403,7 +403,7 @@ static EmStatusRuntime *create(World *world, EmPanel *owner, int pickup, int pag
     if (!s_loader) {
         s_loader = em_module_loader_open(asset_paths[4]);
         assert(s_loader);
-        const EmModuleLoaderViews views = {&s_bd8, NULL, NULL, NULL, NULL, NULL};
+        const EmModuleLoaderViews views = {.d275BD8 = &s_bd8};
         em_module_loader_set_views(s_loader, &views);
         em_module_loader_bind_live(s_loader);
     }

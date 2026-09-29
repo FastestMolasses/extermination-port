@@ -102,6 +102,9 @@ static struct {
     atomic_int  max_concurrent; /* peak sounding voices               */
     atomic_uint no_voice;       /* 00117428 refusals                  */
     CueSlot  cues[SFX_CUE_SLOTS];
+    /* D_0027CCC0[v]'s +0x00 | +0x22 << 16 (state, bank handle) as the audio
+     * thread last left them: what 001195A8's scan reads (em_sfx_voice_record) */
+    _Atomic uint32_t voice_word[EM_SFX_VOICES];
 
     /* audio thread */
     EmSfxDriver driver;
@@ -280,6 +283,16 @@ static void sfx_mix_cues(float *out, int frames, int device_rate)
     }
 }
 
+/* Publishes every voice record's +0x00 and +0x22 for the game thread. */
+static void sfx_publish_voices(void)
+{
+    for (int v = 0; v < EM_SFX_VOICES; ++v)
+        atomic_store_explicit(&s.voice_word[v],
+                              (uint32_t)s.driver.voices[v].state |
+                                  (uint32_t)s.driver.voices[v].bank << 16,
+                              memory_order_release);
+}
+
 void em_sfx_mix(float *out, int frames, int device_rate)
 {
     if (device_rate <= 0 || device_rate > 384000 || frames <= 0 || !out) return;
@@ -287,6 +300,16 @@ void em_sfx_mix(float *out, int frames, int device_rate)
     if (s.registry.entries)
         sfx_mix_driver(out, (unsigned)frames, (unsigned)device_rate);
     sfx_mix_cues(out, frames, device_rate);
+    sfx_publish_voices();
+}
+
+int em_sfx_voice_record(int voice, uint16_t *state, uint16_t *bank)
+{
+    if (voice < 0 || voice >= EM_SFX_VOICES || !state || !bank) return -1;
+    const uint32_t word = atomic_load_explicit(&s.voice_word[voice], memory_order_acquire);
+    *state = (uint16_t)word;
+    *bank = (uint16_t)(word >> 16);
+    return 0;
 }
 
 /* ------------------------------------------------------------------ */
@@ -301,6 +324,7 @@ int em_sfx_init(void)
         for (unsigned i = 0; i < s.registry.entry_count; ++i)
             s.n_sounds += s.registry.entries[i].state == EM_SFX_STATE_AUDIBLE;
         em_sfx_driver_init(&s.driver, &s.registry, SFX_STREAM_VOICES);
+        sfx_publish_voices();
         printf("sfx: %d audible id(s) of %u registry entries from %s\n",
                s.n_sounds, s.registry.entry_count, SFX_REGISTRY);
     } else {
@@ -519,6 +543,24 @@ void em_sfx_play(unsigned id)
     sfx_submit(&snd, 0x1000, 0x1000);
 }
 
+void em_sfx_submit_001FB9F0(unsigned id, int32_t left, int32_t right)
+{
+    SfxSound snd;
+    if (!sfx_accept(id, &snd, 1)) return;
+    sfx_submit(&snd, left, right);
+}
+
+void em_sfx_tables(int32_t requested[EM_SFX_TRACKS], int32_t snapshot[EM_SFX_TRACKS])
+{
+    memcpy(requested, s.requested, sizeof s.requested);
+    memcpy(snapshot, s.snapshot, sizeof s.snapshot);
+}
+
+void em_sfx_set_snapshot(const int32_t snapshot[EM_SFX_TRACKS])
+{
+    memcpy(s.snapshot, snapshot, sizeof s.snapshot);
+}
+
 void em_sfx_play_at(unsigned id, const float pos[3], float radius)
 {
     if (!pos) return;
@@ -649,10 +691,6 @@ uint64_t em_sfx_stream_voices(void)
     return SFX_STREAM_VOICES;
 }
 
-void em_sfx_frame_snapshot(void)
-{
-    memcpy(s.snapshot, s.requested, sizeof s.snapshot);
-}
 
 /* Stop every live voice — func_001FBC50: 0011A198(1) hard-stops every
  * allocated SFX track (0011A070(track | 0x8000)) and D_00281B70/C30 return

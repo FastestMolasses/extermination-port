@@ -29,7 +29,7 @@ unsupported) and 141 samples: docs/SFX_REGISTRY_FIRST_LEVEL.md.
 | `0011A070(track \| hard<<15)` | `em_sfx_driver_stop` | **asm** |
 | `00119890(1, track)` = 2 while `+0x32` | `em_sfx_driver_status`, `em_sfx_track_status` | Decomp C |
 | `001FC3C0` + `001FBDB0` + `001FBD50`, `001FC520` | `em_sfx_service_step/_release`, `em_sfx_loop_service/_release` | **asm** |
-| `001FB100` copies D_00281B70 → D_00281C30 (`block_copy(dst, src)`: quadword loads from src, quadword stores to dst) | `em_sfx_frame_snapshot` | `block_copy` words |
+| `001FB100` copies D_00281B70 → D_00281C30 (`block_copy(dst, src)`: quadword loads from src, quadword stores to dst) | `em_slg_001FB100` at step H over the view `em_sfx_tables` / `em_sfx_set_snapshot` (chain step H7; the stand-in `em_sfx_frame_snapshot` is deleted) | `block_copy` words |
 | Flush: NON (`0xD`, when changed), EON (`0xC`, when changed), KON (`0xA`), KOFF (`0xB`) | tick epilogue | Decomp C plus IOP driver |
 
 ### Where the decomp C is wrong (the lockstep caught or the asm settled)
@@ -122,7 +122,7 @@ Its script keys the looping tone on and off in the same flush. The original IOP 
 
 ## Integration still needed (not in this lane's files)
 
-- **Step H.** Call `em_sfx_frame_snapshot()` once per frame where `001FB100` runs. Frame step H is gated with the other `D_00821058 != 1` work; see `ORIGINAL_FRAME_ORDER.md`.
+- **Step H.** Done in chain step H7: `em_stream_live_step_h` runs the whole 001FB100 every frame it runs (gated with the other `D_00821058 != 1` work), its copy over `em_sfx_tables` / `em_sfx_set_snapshot`. `em_sfx_submit_001FB9F0` is 001FC6E0's 001FB9F0 with its request words; `em_sfx_voice_record` publishes D_0027CCC0's `+0x00` / `+0x22` for 001195A8 (IOP_STREAM.md "The sound-bank transfer").
 - **Flame owner.** Call `em_sfx_loop_service(&owner_handle, 0x411/0x412/0x413, pos, 100.0f, D_70003B68, D_70003B8A)` from the translated flame owner (`001E3D90` / owner `008235F0`), and `em_sfx_loop_release` from its teardown (`001FC520`).
 
 ## Registry format

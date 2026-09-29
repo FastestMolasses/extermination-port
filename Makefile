@@ -51,7 +51,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_stage_workers.c src/game/em_player_stage_live.c \
            src/game/em_player_record_pose.c src/game/em_pose_host_workers.c \
            src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c \
-           src/game/em_iop_stream.c src/game/em_stream_live.c \
+           src/game/em_iop_stream.c src/game/em_stream_live.c src/game/em_ee_sound_lib.c src/game/em_sound_bank.c \
            src/game/em_player_closure_live.c src/game/em_player_hang.c src/game/em_player_recovery.c \
            src/game/em_player_ladder_climb.c src/game/em_player_ladder_entry.c \
            src/game/em_player_closure_0e_18.c src/game/em_player_closure_10_12_19.c \
@@ -61,7 +61,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
            src/game/em_render_verify_rest.c src/game/em_locomotion_display.c \
-           src/game/em_anim_runtime_rest.c src/game/em_startup_load_gaps.c \
+           src/game/em_anim_runtime_rest.c src/game/em_startup_load_gaps.c src/game/em_startup_load_gaps_sound.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
@@ -1203,6 +1203,13 @@ test-disc-assets-reference:
 .PHONY: test-module-loader-reference
 test-module-loader-reference:
 	python3 tools/test_module_loader_reference.py
+
+# The sound-bank upload (docs/IOP_STREAM.md "The sound-bank transfer"): the
+# EE sound library and 001FB370's whole chain against the original
+# instructions over the title capture, and its end state against route 00.
+.PHONY: test-sound-bank-reference
+test-sound-bank-reference:
+	python3 tools/test_sound_bank_reference.py
 
 test-status-scene-original:
 	@mkdir -p build/status_scene_reference

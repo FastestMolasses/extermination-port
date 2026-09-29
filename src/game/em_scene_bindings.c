@@ -47,7 +47,7 @@
  *   - S12a: New Game (and Continue) register this task with a cleared
  *     record, so the chain runs the original load arms: 001AD1A0 (module 3),
  *     001AD230 (the 001AF2C0 reset), 001AD360 (the intro movie at step 1)
- *     and 001ADF50 (the native area read at 001FF080(1, 0), the load veil);
+ *     and 001ADF50 (001FF080(1, 0) through the loader task, the load veil);
  *     the state-0 rebuild places the player with 001B07C0(0) over the
  *     exported spawn table (AREA11; see "spawn placement") and flashes the
  *     transition in with 001AEE40(4); 001AD010's area change (+9 = 5) is
@@ -286,8 +286,9 @@ static const struct {
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset in a scene without the render "
                                   "context (the first level runs em_rcl_001E0CC0)"},
     [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
-    [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the module-3 packet D_0028A564; the native "
-                                  "renderer has no counterpart"},
+    [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the library packet D_0028A564 (slot 0x35, "
+                                  "the boot's module 0x1B, which the port does not load; its texels "
+                                  "are the port's disc export)"},
     [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
 };
 
@@ -2068,12 +2069,19 @@ static int w_001B07C0(void *ctx, int a0)
  * whose state 0 rebuilds the area. The same route replays on Continue
  * (001AC070 option 0). Workers:
  *   001AD1A0          translated here (byte-matched, see w_001AD1A0)
- *   001FF080(0, 3)    screen module 3: resident in the port; D_00275BD8 = 0
- *   001FF080(1, 0)    the area read em_game_legacy_area_load of the scene of
- *                     D_00810700/701 (only 0x0B/0, AREA11, is exported);
- *                     D_00275BD8 = 0 when it returns (the original's slot-2
- *                     task 001FF0D0 clears it at state 0x63; the port's read
- *                     completes inside the call)
+ *   001FF080(0, 3)    screen module 3 through the screen-module loader
+ *                     (em_module_loader, the slot-2 task 001FF0D0 with
+ *                     001FF830; docs/MODULE_LOADER.md): D_00275BD8 stays 1
+ *                     until the task's 0x63 step clears it
+ *   001FF080(1, 0)    the area load through the same task (001FFCD0 with
+ *                     001FF590 and the sound-bank upload 001FB370,
+ *                     em_sound_bank): D_00275BD8 clears when its steps are
+ *                     done, so 0021B550's veil ramps for as many ticks as
+ *                     they take. The port's own assets for D_00810700/701
+ *                     (em_game_legacy_area_load; only 0x0B/0, AREA11, is
+ *                     exported) load in the dispatch whose 001FFCD0 step
+ *                     completes the area (loader_area_done), where the
+ *                     original's data are all in memory
  *   001AD230          em_game_new_game_reset_001AF2C0, returns 4
  *   D_00275C78, D_00821058  em_frontend_movie_select / _request
  *   001AED80(a0)      em_frame_fade_clear (its translation, em_fade.c)
@@ -2091,7 +2099,10 @@ static int in_task_step(int s09, int s0A)
     return b9 && bA && *b9 == s09 && *bA == s0A;
 }
 
-/* The area read for D_00810700/701. */
+/* The port's own assets of the scene of D_00810700/701 (the renderer's and
+ * the collision's formats), loaded when the loader task's area streamer
+ * completes (its 0x63 step, the moment the original's area data are all in
+ * memory; loader_area_done). */
 static int area_read(void)
 {
     if (s_state.d810700 == 0x0B && s_state.d810701 == 0)
@@ -2115,7 +2126,11 @@ static int w_001AD1A0(void *ctx)
         s_state.d275BD8 = 1;
         /* a2 = &slot[9], the record address + 9 (no port address: 0). */
         bind_trace(0x001AD1A0u, 0x001FF080u, 0, 3, 0, 0);
-        s_state.d275BD8 = 0; /* module 3 is resident (no port data to read) */
+        /* Module 3 (the player's texture packets, slots 8..52) through the
+         * loader task; its 0x63 step clears D_00275BD8. */
+        EmModuleLoader *ml = em_module_loader_live();
+        if (!ml || em_module_loader_request_001FF080(ml, 0, 3) != 0)
+            return em_scene_fault(&s_state, 0x001FF080u, EM_SCENE_FAULT_NULL_WORKER);
         return 0;
     }
     if (*sub == 1 && s_state.d275BD8 == 0) {
@@ -2706,6 +2721,8 @@ static int w_001FBC50(void *ctx)
     em_sfx_stop_all();
     if (w_00119828(ctx, 0, 0x1999, 0x1999) < 0 || w_00119828(ctx, 1, 0x1999, 0x1999) < 0)
         return -1;
+    /* Its tail: D_00281F30's ten records back to {0, -1}. */
+    em_stream_live_001FBC50_cues();
     return 0;
 }
 
@@ -2945,9 +2962,11 @@ static int w_001FF080(void *ctx, int a0, int a1)
 {
     (void)ctx;
     if (a0 == 1 && a1 == 0 && in_task_step(5, 1)) {
-        if (area_read() < 0)
-            return -1;
-        s_state.d275BD8 = 0;
+        /* The area load through the loader task (001FFCD0); D_00275BD8,
+         * which 001ADF50 set, clears at the task's 0x63 step. */
+        EmModuleLoader *ml = em_module_loader_live();
+        if (!ml || em_module_loader_request_001FF080(ml, 1, 0) != 0)
+            return em_scene_fault(&s_state, 0x001FF080u, EM_SCENE_FAULT_NULL_WORKER);
         return 0;
     }
     if (a0 != 0 || a1 != 0x27 || !in_game_over())
@@ -3237,6 +3256,59 @@ void em_scene_task_001ACEC0(void)
  * recorded drive time instead (MODULE_LOADER.md 1.7). */
 static EmModuleLoader *s_loader;
 static int s_loader_reported;
+static uint32_t s_area_uploads[2]; /* the A entries and player packets accepted */
+
+static int area_read(void);
+
+/* 001FFCD0's last step (the area streamer's 0x63): the port's own assets of
+ * the area load now (area_read). */
+static int loader_area_done(void *ctx, uint8_t area, uint8_t room)
+{
+    (void)ctx;
+    (void)area;
+    (void)room;
+    return area_read();
+}
+
+/* 001FF590 mode 0's 001FB370: the stream owner's sound-bank upload. */
+static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32_t size,
+                       uint32_t *result)
+{
+    (void)ctx;
+    return em_stream_live_001FB370(address, bytes, size, result);
+}
+
+/* The area load's two kinds of 00200830 send (the record's +8 == 1):
+ *  - 001FF590(0xAB, 1)'s A entries (state 4), each sent from D_0028A73C
+ *    where the drive delivered it: AREA11's one A entry is the area's
+ *    texture upload (docs/DISC_TEXTURES.md section 1: GS blocks
+ *    0x2A00..0x377F);
+ *  - 00200890's player texture packet (state 7): one of the slot words
+ *    D_0028A4B0..D_0028A4C0 that module 3's load relocated (GS blocks
+ *    0x1B80..0x1BFF for slot 8).
+ * The port's renderer draws these texels from its disc export, which
+ * DISC_TEXTURES test B proves equal to what these uploads write in every
+ * route capture; so the consumer accepts exactly these sends and applies
+ * nothing. Any other send (a B section: AREA11 has none) is refused. */
+static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, uint32_t size)
+{
+    EmModuleLoader *ml = ctx;
+    const EmTask *rec = em_module_loader_record(ml);
+    const EmStatusSceneLoader *ld = em_module_loader_state(ml);
+    if (!rec || !ld || !bytes || !size || rec->user[0] != 1)
+        return -1;
+    if (rec->user[1] == 4 && rec->user[2] == 2 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C]) {
+        s_area_uploads[0]++;
+        return 0;
+    }
+    if (rec->user[1] == 7)
+        for (uint32_t k = 0; k < 5; ++k)
+            if (chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0 + k]) {
+                s_area_uploads[1]++;
+                return 0;
+            }
+    return -1;
+}
 
 int em_scene_bindings_module_loader_boot(const char *pack_path)
 {
@@ -3249,9 +3321,29 @@ int em_scene_bindings_module_loader_boot(const char *pack_path)
                 "(python3 tools/export_module_loader.py; docs/STARTUP.md)\n", pack_path);
         return -1;
     }
+    uint8_t *e703 = em_scene_progress_at(&s_state, 0x00810703u, 2);
+    const uint8_t *e707 = em_scene_progress_at(&s_state, 0x00810707u, 1);
+    const uint8_t *eC60 = em_scene_progress_at(&s_state, 0x00810C60u, 1);
+    if (!e703 || !e707 || !eC60) {
+        em_module_loader_close(ml);
+        return -1;
+    }
     const EmModuleLoaderViews views = {&s_state.d275BD8, r_00282157, NULL, ca, ca + 2,
-                                       &s_state.spad3B90};
+                                       &s_state.spad3B90, &s_state.d810700, &s_state.d810701,
+                                       e703, e703 + 1, e707, eC60};
     em_module_loader_set_views(ml, &views);
+    /* The area streamer's sound-bank step 001FB370 runs on the stream
+     * owner's IOP (em_stream_live, em_sound_bank), seeded with the pack's
+     * D_00264890; the area's uploads go to the area consumer. */
+    int32_t bases[5];
+    em_module_loader_bank_bases(ml, bases);
+    if (em_stream_live_bind_sound_bank(bases) != 0) {
+        em_module_loader_close(ml);
+        return -1;
+    }
+    em_module_loader_set_bank_hook(ml, loader_bank, NULL);
+    em_module_loader_set_area_done_hook(ml, loader_area_done, NULL);
+    em_module_loader_set_area_chain_hook(ml, loader_area_chain, ml);
     if (em_module_loader_set_drive(ml, em_settings()->ps2_disc_drive_timing
                                            ? EM_MODULE_LOADER_DRIVE_MEASURED
                                            : EM_MODULE_LOADER_DRIVE_HOST) != 0) {
@@ -3299,9 +3391,14 @@ void em_scene_bindings_module_loader_report(FILE *out)
     em_module_loader_counts(s_loader, &dispatches, &reads, &unmeasured);
     if (em_settings()->ps2_disc_drive_timing)
         fprintf(out, "module loader: PS2 disc-drive timing on: %u dispatches, %u reads (%u without a "
-                     "recorded drive time, answered at host speed)\n",
+                     "recorded drive time, answered at host speed)",
                 (unsigned)dispatches, (unsigned)reads, (unsigned)unmeasured);
     else
-        fprintf(out, "module loader: host speed: %u dispatches, %u reads\n", (unsigned)dispatches,
+        fprintf(out, "module loader: host speed: %u dispatches, %u reads", (unsigned)dispatches,
                 (unsigned)reads);
+    const EmSoundBank *bank = em_stream_live_sound_bank();
+    fprintf(out, "; area uploads accepted: %u A entries, %u player packets; 001FB370: %u calls, %u "
+                 "uploads (command 0x20)\n",
+            (unsigned)s_area_uploads[0], (unsigned)s_area_uploads[1], bank ? (unsigned)bank->calls : 0u,
+            bank ? (unsigned)bank->uploads : 0u);
 }

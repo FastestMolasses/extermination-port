@@ -23,9 +23,13 @@
  *
  * Live (docs/MODULE_LOADER.md section 4): em_scene_bindings boots one
  * instance over the scene state's bytes; module 0x21 (the BATTERY page)
- * loads through it from em_status_runtime. The area streamer 001FFCD0 is
- * translated (em_status_scene_area_001FFCD0) but not bound here: its
- * sound-bank step 001FB370 is not live (MODULE_LOADER.md section 5).
+ * loads through it from em_status_runtime, and the New Game's module 3
+ * (001AD1A0) and area load 001FF080(1, 0) (001ADF50) from the scene
+ * bindings. The area streamer 001FFCD0 (em_status_scene_area_001FFCD0) runs
+ * with its workers bound here: 00200890 (the player's texture packet over
+ * the views D_00810707 / D_00810C60), 002009E0 (the overlay's bss clear in
+ * the drive's memory) and 001FB370 (the sound-bank upload, the binder's
+ * bank hook: em_sound_bank through em_stream_live).
  *
  * Game logic stays separable from the platform: the translations take an
  * EmModuleLoaderSdk, the host drive is one implementation of it.
@@ -135,6 +139,12 @@ typedef struct {
     const uint8_t *d810CA4;              /* 001FEF70 inputs (area chaining only) */
     const uint8_t *d810CA6;
     const uint8_t *spad3B90;             /* modules 0x2A/0x2B buffer choice */
+    /* 001FFCD0's area bytes (the area load, record +8 == 1): the area and
+     * room D_00810700 / D_00810701 (state 7 clears the room), the latches
+     * D_00810703 / D_00810704; 00200890's D_00810707 / D_00810C60. A load
+     * with +8 == 1 faults while any of them is NULL. */
+    uint8_t *d810700, *d810701, *d810703, *d810704;
+    const uint8_t *d810707, *d810C60;
 } EmModuleLoaderViews;
 
 /* Test / log hook: called at every SDK leaf entry with its original
@@ -148,14 +158,35 @@ typedef void (*EmModuleLoaderTrace)(void *ctx, uint32_t callee, uint32_t a0, uin
 typedef int (*EmModuleLoaderChainHook)(void *ctx, uint32_t chain, const uint8_t *bytes,
                                        uint32_t size);
 
-/* Loads the EMML pack (tools/export_module_loader.py): the disc sectors,
- * the two file descriptors and the loader globals' captured start values.
+/* 001FB370(bank) for 001FF590 mode 0 (the area's sound bank): `bytes` /
+ * `size` are the file as the drive delivered it at EE `address`; *result 0
+ * while working, else the 0x40-aligned end. Returns >= 0, or < 0 to fault. */
+typedef int (*EmModuleLoaderBankHook)(void *ctx, uint32_t address, const uint8_t *bytes,
+                                      uint32_t size, uint32_t *result);
+
+/* Loads the EMML pack (tools/export_module_loader.py, version 2): the disc
+ * sectors, the two file descriptors, the loader globals' captured start
+ * values and the boot's tables D_0028A3C0 / D_00275304[0] / D_00264890.
  * NULL on a missing or malformed pack. */
 EmModuleLoader *em_module_loader_open(const char *pack_path);
 void em_module_loader_close(EmModuleLoader *ml);
 
 void em_module_loader_set_views(EmModuleLoader *ml, const EmModuleLoaderViews *views);
 void em_module_loader_set_chain_hook(EmModuleLoader *ml, EmModuleLoaderChainHook hook, void *ctx);
+/* The chain hook for the area loads (the running record's +8 == 1: the A
+ * entries 001FF590(0xAB, 1) sends and 00200890's player packet); the hook
+ * above serves the bank loads (+8 == 0). Unset: such a send faults. */
+void em_module_loader_set_area_chain_hook(EmModuleLoader *ml, EmModuleLoaderChainHook hook,
+                                          void *ctx);
+/* Called once when an area load's record (+8 == 1) reaches 0x63, inside
+ * that dispatch (the original's area data are all in memory then): the
+ * binder loads the port's own assets of the area there. < 0 faults. */
+typedef int (*EmModuleLoaderAreaDone)(void *ctx, uint8_t area, uint8_t room);
+void em_module_loader_set_area_done_hook(EmModuleLoader *ml, EmModuleLoaderAreaDone hook, void *ctx);
+/* 001FB370's binding (unset: reaching it faults). */
+void em_module_loader_set_bank_hook(EmModuleLoader *ml, EmModuleLoaderBankHook hook, void *ctx);
+/* D_00264890[0..4] from the pack (the sound-bank buckets' SPU bases). */
+void em_module_loader_bank_bases(const EmModuleLoader *ml, int32_t out[5]);
 void em_module_loader_set_trace(EmModuleLoader *ml, EmModuleLoaderTrace trace, void *ctx);
 /* EM_MODULE_LOADER_DRIVE_HOST (default) or _MEASURED. 0, or -1. */
 int em_module_loader_set_drive(EmModuleLoader *ml, int mode);
