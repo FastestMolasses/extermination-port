@@ -180,6 +180,12 @@ void em_input_handle_event(const EmEvent *ev);
  * rings are all decoded but unusable without one). */
 void em_input_set_gamepad(const EmPadState *gp);
 
+/* Test fixtures only (em_opening_control_test.c's cutscene skip): buttons
+ * ORed into every snapshot, over the keyboard or a gamepad overlay alike,
+ * so a fixture can press START while the level smoke drives the pad.
+ * 0 (the default) leaves the snapshot untouched. */
+void em_input_set_test_buttons(uint16_t buttons);
+
 void em_input_pad(EmPadState *out);
 
 /* Name of the button at `bit_index` (0..15, canonical order above), e.g.

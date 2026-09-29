@@ -306,9 +306,10 @@ def main():
     rng = random.Random(0x187350)
     result = {}
 
-    # 1. D_00248C90: every row's step frames (the dispatcher needs both).
+    # 1. D_00248C90: every row's step frames (the dispatcher needs both),
+    # and row -1, the one a skip landing's +20C = -1 makes 00187350 read.
     rows = 0
-    for clip in range(STEP_ROWS):
+    for clip in range(-1, STEP_ROWS):
         offset = STEP_TABLE + clip * 12 - 0x100000 + 0x300
         frame_a, frame_b = struct.unpack_from('<hh', elf, offset + 2)
         a, b = C.c_int(-1), C.c_int(-1)

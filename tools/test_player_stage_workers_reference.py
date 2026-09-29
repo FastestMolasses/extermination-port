@@ -358,7 +358,7 @@ class ClipHeader(C.Structure):
 
 
 class ClipRates(C.Structure):
-    _fields_ = [('count', C.c_uint32), ('rate', C.c_float * 459)]
+    _fields_ = [('count', C.c_uint32), ('first', C.c_int32), ('rate', C.c_float * 460)]   # rows first..458
 
 
 PA = C.POINTER(LiveActor)
@@ -773,6 +773,8 @@ def compose_case(which):
             raw[5] = rng.choice([0, 0x17, 1, 5, 8, 0xC, 2])
             put(raw, 0x20C, rng.randrange(459), 2)
             put(raw, 0x1F2, rng.choice([struct.unpack_from('<h', raw, 0x20C)[0], rng.randrange(459)]), 2)
+            if label % 6 == 1:
+                put(raw, 0x20C, -1, 2)   # a skip landing's clip (op18 001B6BF0): row -1
             raw[0x2F3] = rng.choice([0, 0, 1, 3, 5])
             putf(raw, 0x204, rng.choice([1.0, 0.75, 2.0, rng.uniform(0.1, 3.0)]))
             putf(raw, 0x1F4, rng.choice([1.0, 0.5, 2.0]))
@@ -1394,8 +1396,9 @@ def check_stop_sound(elf, lib):
 
 def check_clip_rates(elf, lib, images):
     """The exporter's output, loaded by em_player_clip_rates_load, equals
-    every row of D_00248C98 in the pinned ELF, and the worker faults outside
-    the table."""
+    every row of D_00248C98 in the pinned ELF, rows -1..458 (row -1 is the
+    one the skip landing's +20C = -1 makes 0015BA50 read), and the worker
+    faults on any other index."""
     out = LANE / 'clip_rates.emcr'
     subprocess.run([sys.executable, str(ROOT / 'tools/export_player_tables.py'), '--output', str(out),
                     '--report', str(LANE / 'clip_rates.json')],
@@ -1404,16 +1407,31 @@ def check_clip_rates(elf, lib, images):
     rates = RATES = ClipRates()
     assert lib.em_player_clip_rates_load(C.byref(rates), str(out).encode()) == 0
     host = canonical_host(C.pointer(rates), Callees())
-    for clip in range(459):
+    for clip in range(-1, 459):
         expected = int.from_bytes(elf[0x248C98 - 0x100000 + 0x300 + 12 * clip:][:4], 'little')
         value = C.c_float()
         assert lib.em_player_stage_clip_rate(C.byref(host), clip, C.byref(value)) == 0
         assert F(value.value) == expected, ('clip rate', clip)
-    for clip in (-1, 459, 0x7FFF):
+    for clip in (-2, -0x8000, 459, 0x7FFF):
         assert lib.em_player_stage_clip_rate(C.byref(host), clip, C.byref(C.c_float())) == -1
     data = out.read_bytes()
-    for bad in (data[:-4], data + b'\0\0\0\0', b'EMCX' + data[4:], data[:8] + struct.pack('<I', 458) + data[12:-4]):
+    for bad in (data[:-4], data + b'\0\0\0\0', b'EMCX' + data[4:], data[:4] + struct.pack('<I', 3) + data[8:],
+                data[:12] + struct.pack('<I', 459) + data[16:-4],
+                data[:8] + struct.pack('<i', 0) + data[12:]):
         assert lib.em_player_clip_rates_parse(C.byref(ClipRates()), bad, len(bad)) == -1
+    # A version-1 export (rows 0..458, written before row -1 was exported)
+    # still loads; its row -1 is absent, so -1 faults as before.
+    v1 = b'EMCR' + struct.pack('<II', 1, 459) + data[20:]
+    old = ClipRates()
+    assert lib.em_player_clip_rates_parse(C.byref(old), v1, len(v1)) == 0 and old.first == 0
+    assert lib.em_player_clip_rates_parse(C.byref(ClipRates()), v1[:-4], len(v1) - 4) == -1
+    old_host = canonical_host(C.pointer(old), Callees())
+    for clip in (0, 458):
+        value = C.c_float()
+        assert lib.em_player_stage_clip_rate(C.byref(old_host), clip, C.byref(value)) == 0
+        assert F(value.value) == int.from_bytes(elf[0x248C98 - 0x100000 + 0x300 + 12 * clip:][:4], 'little')
+    for clip in (-1, 459):
+        assert lib.em_player_stage_clip_rate(C.byref(old_host), clip, C.byref(C.c_float())) == -1
     # Captured cross-check (reported, not asserted: +20C may change after
     # 0015BA50 in the same frame): +34 against rate[+20C] * 1.0.
     agree = total = 0
@@ -1494,7 +1512,7 @@ def main():
     reference_mode.banner(*parts)
     print(f'player stage workers: {sum(counts.values())} synthetic + {captured} captured-RAM cases '
           f'({len(images)} images), {helpers} float_to_int/001B1470 values, {major4} 0015B530 '
-          f'cases, {release} 00182DF0 cases, {stops} 0011A070 decodes, 459 clip-rate rows (captured +34 agrees on {agree}/{rows_total}), '
+          f'cases, {release} 00182DF0 cases, {stops} 0011A070 decodes, 460 clip-rate rows -1..458 (captured +34 agrees on {agree}/{rows_total}), '
           f'{fail_stop} fail-stop checks, {len(REACTION_SCENARIOS)} 0021C440 scenarios, {predicates} '
           f'predicate cases; {instructions} reachable original instructions in {len(EXECUTED)} functions all '
           f'executed ({len(DEAD_BY_VALUE)} value-dead excluded); {time.time() - start:.1f} s')

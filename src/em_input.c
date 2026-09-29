@@ -93,11 +93,15 @@ void em_input_set_gamepad(const EmPadState *gp)
     else    { s_gp_present = 0; }
 }
 
+static uint16_t s_test_buttons;
+
+void em_input_set_test_buttons(uint16_t buttons) { s_test_buttons = buttons; }
+
 void em_input_pad(EmPadState *out)
 {
     if (!out) return;
-    if (s_gp_present) { *out = s_gp; return; }
-    out->buttons = s_in.buttons;
+    if (s_gp_present) { *out = s_gp; out->buttons |= s_test_buttons; return; }
+    out->buttons = s_in.buttons | s_test_buttons;
     /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h).
      * The GAIT HOLD TIERS (em_input.h): no modifier = FULL (RUN),
      * Command = the JOG band, Option = the WALK band — the slower

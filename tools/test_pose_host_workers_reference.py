@@ -213,7 +213,7 @@ class StageGlobals(C.Structure):
 
 
 class ClipRates(C.Structure):
-    _fields_ = [('count', U32), ('rate', C.c_float * 459)]
+    _fields_ = [('count', U32), ('first', C.c_int32), ('rate', C.c_float * 460)]   # EmPlayerClipRates: rows first..458
 
 
 STAGE_CALLEES = ('w001D0C70', 'bone_init', 'clip_init', 'clip_resolve', 'skeleton_frame', 'w001C8710',

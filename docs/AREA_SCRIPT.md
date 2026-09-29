@@ -91,6 +91,9 @@ D_00810813 = 1 the director's beat 0 waits for.
   tick; after a skip scan lands on it, it calls 001B0C00(8), waits for the
   transition substate 2, stops streams, sets D_002821B4 = 2, restores the
   player's default bank, and restores the camera when D_008101E4 == 3.
+  Its player writes are +1F2 = 0, +20C = -1, +2F3 = 3 and +40 = the
+  default bank; the -1 clip index is read by the player stage until the
+  release (see "The skip path" in section 4).
 - op09 (001B99F0) **tail-jumps** (`jr`) into the record's callback. An oracle
   that intercepts only `jal`/`jalr` runs the callee's original code instead
   (the test hooks every control transfer to the callback address).
@@ -249,6 +252,54 @@ The two manager callbacks are tiny: 0x825900 calls 001DFE10() and returns 1;
   store-before-face publish, the sub5 flag, the op0D sub0 zoom call): each
   fails the oracle.
 
+### The skip path (live, 2026-09-29)
+
+Skipping works in the running game for every skippable scene the first
+level reaches: the opening 0x828FC0 and, on the route, director beats 0..2
+(0x8294C0, 0x829A40, 0x829CC0) and Roger's encounter 0x8283D0. START or
+SELECT while 3B91 == 1 and the transition substate is 0 promotes 3B91 to 2
+(001AE6B0), the interpreter scans to op18, op18 fades out and lands, and
+00182DF0 releases the player. Until 2026-09-29 the landing's +20C = -1
+stopped the game on its first player stage (the clip-rate worker refused
+row -1; PLAYER_STAGE_WORKERS.md section 2.2). The opening started to fail
+when its script moved onto this host (C8b, 8bc4042: the old opening lane's
+skip never wrote +20C, and its player stage did not run during the
+opening); the route scenes already failed at 21971bf (not bisected
+further), unnoticed because the route and the smoke press no skip.
+
+`python3 tools/test_cutscene_skip.py` (em_opening_control_test.c drives
+only the START press; `EM_STARTUP_TEST=newgame-skip` for the opening,
+`EM_SKIP_SCENE=N` under the level smoke for the N-th skippable scene, and
+`EM_SKIP_DELAY` for the press's distance from the first accepting frame)
+compares every frame from two before the promotion to eight after control
+with the original's skip captures
+(`../Extermination/build/startup-reference/cutscene_skip/`, PCSX2 from the
+user's disc): 3B91, 3B8D, the player's +4, +5, +1F0, +20C, +2F3, +34, +204
+and D_008101E4 agree on every row; control returns on the same frame after
+the promotion (opening +34, beat 0 +36, beats 1 and 2 and Roger +35), with
++20C = -1 on the same rows (1 in the opening, 3 for beat 0, 2 for the
+others); where the landing places the player (the opening, Roger: 0A/5)
+the position and facing are the original's bits; for beats 1 and 2 each
+row's change agrees (the skip does not move the player, and a turn in
+progress freezes after the same step). Beat 0: the position before and
+after the skip is the original's bits, but the facing is one scripted-turn
+step (0.0349 rad) off, because the port's promotion lands 11 frames after
+the first accepting frame and the original's 13 (not yet explained; open
+item). Default run: the opening, START on the first
+accepting frame, about 7 s; `EM_TEST_FULL=1` adds the opening 45 frames
+later and the four route scenes (about 2 min, run in parallel). A build
+whose clip-rate worker refuses -1 fails it with the user's fault line.
+Open item: the transition substate's 3 -> 2 step comes one row later in
+the port than in the original in all six runs (rel 33 against 32). Both
+traces are sampled between frames and aligned on the promotion, so a
+sampling offset does not explain it; the port may step the transition
+substate at a different point relative to the node pass. The landing,
+which waits on substate 2, runs on the same frame in both, and the drawn
+fade level (0x28A8D0) is not compared yet. Not
+exercised: director beat 3 0x829E80 and Roger's armed talk 0x828810 (both
+skippable, ending in op18; no route beat reaches them) and the level
+exit's departure movie (a movie skip, not a 3B91 skip).
+
 Environment used by both tests: services outside the scripts (transition
 substate, message completion, stream readiness, camera cursor, animation-done
 bit, skip promotion, callbacks) are one scripted environment applied to both
@@ -261,14 +312,17 @@ sides; it makes no timing claim about the original services.
   reject that model. Their item/UI callers need the guard-bit model (the lead
   decides). Once they switch, `em_area_script_sin_0011E2A8` can forward to
   them.
-- Not captured on the route (still lockstep-only): director beat 3 0x829E80,
-  Roger 0x828810 / 0x828A10, and the skip paths (the route presses no skip).
+- Not captured on the route (still lockstep-only): director beat 3 0x829E80
+  and Roger 0x828810 / 0x828A10. The skip paths of the opening, beats 0..2
+  and Roger's encounter are captured and compared live (section 4, "The
+  skip path").
 - The `em_script_host_workers` translations (SCRIPT_HOST_WORKERS.md) are
   live (census): 00182BF0 through this host (op16, L22), 001B1380 through its
   w_001B1380 (op15), 001B0460 and 001B1240 through em_camera_live, 001B12B0
   through em_player_slide and 001B6250 through em_pad_actuator (L23).
-  001B0C00 is bound to this host (`w_001B0C00`, the skip landing) but has no
-  census row: the route presses no skip. Roger's 00823910 / 00823B70 are live
+  001B0C00 is bound to this host (`w_001B0C00`, the skip landing) and runs
+  in tools/test_cutscene_skip.py, but has no census row: the route presses
+  no skip. Roger's 00823910 / 00823B70 are live
   in em_roger through em_area11_roger (L22); his departure 00823C40 (script
   0x828A10) is translated in the same tick and bound, but not on the route.
   001DFE10 / 001DFE40 (the manager callbacks 0x825900 / 0x825920) have no

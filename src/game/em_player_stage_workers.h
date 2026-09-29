@@ -46,18 +46,34 @@
 /* ---- D_00248C98: the clip-rate column ----------------------------------
  * D_00248C90 is 459 rows of 12 bytes, one per clip of the player's clip
  * bank (the bank's count word is 459); the float at +8 of row +20C is the
- * rate 0015BA50 multiplies by +204. tools/export_player_tables.py writes
- * the column from the user's ELF into the ignored assets/ (never committed):
- *   "EMCR", u32 version 1, u32 count, then count little-endian floats. */
-#define EM_PLAYER_CLIP_RATE_ROWS 459
+ * rate 0015BA50 multiplies by +204. The original indexes the table with
+ * the signed halfword +20C and no bounds check, and its writers of +20C
+ * store the clips 0..458 or -1: the skip landing op18 (001B6BF0) and
+ * 001B9A00 sub 2 store -1, which the next 0015BA50 prologues read as row
+ * -1, the 12 bytes before the table (its rate is the word at 0x248C8C;
+ * docs/PLAYER_STAGE_WORKERS.md section 2.2). The column therefore spans
+ * rows -1..458. tools/export_player_tables.py writes it from the user's ELF
+ * into the ignored assets/ (never committed):
+ *   "EMCR", u32 version 2, s32 first row (-1), u32 count (460), then count
+ *   little-endian floats, rows first .. first + count - 1.
+ * The version-1 file ("EMCR", u32 1, u32 count 459, rows 0..458) written
+ * before row -1 was exported still loads, without row -1. */
+#define EM_PLAYER_CLIP_RATE_ROWS 459   /* the bank's clips 0..458 */
+#define EM_PLAYER_CLIP_RATE_FIRST (-1) /* the row the skip landing's -1 reads */
+#define EM_PLAYER_CLIP_RATE_SPAN (EM_PLAYER_CLIP_RATE_ROWS - EM_PLAYER_CLIP_RATE_FIRST)
 #define EM_PLAYER_CLIP_RATE_PATH "assets/player_clip_rates.emcr"
 
 typedef struct EmPlayerClipRates {
-    uint32_t count;
-    float rate[EM_PLAYER_CLIP_RATE_ROWS];
+    uint32_t count;                         /* rows loaded */
+    int32_t first;                          /* the first row loaded: -1 (v2) or 0 (v1) */
+    float rate[EM_PLAYER_CLIP_RATE_SPAN];   /* rate[clip - first] */
 } EmPlayerClipRates;
 
-/* 0, or -1 when the data is not an EMCR v1 file of exactly 459 rows. */
+/* 0, or -1 when the data is neither an EMCR v2 file of rows -1..458 nor
+ * a version-1 file of rows 0..458. A v1 file (exported before row -1 was)
+ * still loads, but has no row -1, so the clip-rate worker faults on a
+ * skip's -1 as it did before; em_player_stage_live says so at bind time
+ * (re-run tools/export_player_tables.py). */
 int em_player_clip_rates_parse(EmPlayerClipRates *out, const uint8_t *data, size_t size);
 int em_player_clip_rates_load(EmPlayerClipRates *out, const char *path);
 

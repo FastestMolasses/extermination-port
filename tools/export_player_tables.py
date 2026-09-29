@@ -6,7 +6,12 @@ D_00248C98[*(short *)(p + 0x20C) * 3] * +204: the float at +8 of row +20C
 of D_00248C90, a table of 12-byte rows indexed by the player's clip id.
 It has one row per clip of the player's clip bank (the bank's count word,
 459; tools/test_player_footstep_reference.py walks the same 459 rows). The
-row after the last one is all zeros.
+row after the last one is all zeros. The index is unchecked, and besides
+the clips 0..458 the original stores -1 in +20C: the skip landing op18
+(001B6BF0) and 001B9A00 sub 2 do, and the 0015BA50 prologues that run
+before 00182DF0 restores +20C read row -1, the 12 bytes before the table
+(rate word 0x248C8C). The rate column is therefore exported for rows
+-1..458.
 
 The +0 halfword of the same rows is read by 0015BCF0 (a nonzero row
 evaluates the skeleton with anim_eval_skeleton, a zero row with 001C68C0) and
@@ -14,9 +19,11 @@ by 00182DF0 (a zero row requests 00174AB0 before 00174A50); it is exported as
 its own column.
 
 The outputs are written into the port's ignored assets/ (never committed):
-  assets/player_clip_rates.emcr: "EMCR", u32 version 1, u32 count (459), then
-      count little-endian floats (the +8 column). em_player_clip_rates_load
-      (src/game/em_player_stage_workers.c) reads it.
+  assets/player_clip_rates.emcr: "EMCR", u32 version 2, s32 first row (-1),
+      u32 count (460), then count little-endian floats (the +8 column of
+      rows -1..458). em_player_clip_rates_load
+      (src/game/em_player_stage_workers.c) reads it (a version-1 file, rows
+      0..458 only, still loads but faults on a skip's -1).
   assets/player_clip_row0.emch: "EMCH", u32 version 1, u32 count (459), then
       count little-endian signed halfwords (the +0 column).
       em_player_record_pose_load (src/game/em_player_record_pose.c) reads it.
@@ -42,6 +49,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 TABLE, STRIDE, RATE_AT, ROW0_AT, ROWS = 0x248C90, 12, 8, 0, 459
+RATE_FIRST = -1   # the skip landing's +20C = -1 reads the row before the table
 LOCO_BASE, LOCO_END, LOCO_ROWS = 0x248740, 0x248ACC, 0x248AB0   # D_00248740 .. D_00248AB0[7]
 BANK = 'extract/chunk28/f01_id3c.bin'   # the player's clip bank (count word at +0)
 
@@ -51,9 +59,11 @@ def elf_offset(address):
     return address - 0x100000 + 0x300
 
 
-def rates(elf, rows=ROWS):
+def rates(elf, first=RATE_FIRST, rows=ROWS):
+    """The +8 column of rows first .. rows - 1 (a negative row lies before
+    the table, where the original's unchecked index reads it)."""
     return [struct.unpack_from('<f', elf, elf_offset(TABLE) + STRIDE * row + RATE_AT)[0]
-            for row in range(rows)]
+            for row in range(first, rows)]
 
 
 def row0(elf, rows=ROWS):
@@ -61,8 +71,8 @@ def row0(elf, rows=ROWS):
             for row in range(rows)]
 
 
-def encode(values):
-    return struct.pack('<4sII', b'EMCR', 1, len(values)) + struct.pack(f'<{len(values)}f', *values)
+def encode(values, first=RATE_FIRST):
+    return struct.pack('<4sIiI', b'EMCR', 2, first, len(values)) + struct.pack(f'<{len(values)}f', *values)
 
 
 def encode_row0(values):
@@ -115,7 +125,7 @@ def main():
     args.report.parent.mkdir(parents=True, exist_ok=True)
     histogram = collections.Counter(struct.pack('<f', v).hex() for v in values)
     args.report.write_text(json.dumps({
-        'source_sha256': digest, 'table': hex(TABLE), 'rows': ROWS,
+        'source_sha256': digest, 'table': hex(TABLE), 'rows': ROWS, 'rate_first_row': RATE_FIRST,
         'bank_checked': bank.exists(), 'output': str(args.output),
         'output_sha256': hashlib.sha256(payload).hexdigest(), 'bytes': len(payload),
         'distinct_rates': len(histogram),
@@ -125,7 +135,7 @@ def main():
         'loco_output': str(args.loco_output),
         'loco_sha256': hashlib.sha256(loco_payload).hexdigest(),
         'loco_rows': [hex(p) for p in loco_rows]}, indent=2) + '\n')
-    print(f'player clip rates: {ROWS} rows ({len(histogram)} distinct), {len(payload)} bytes -> {args.output}')
+    print(f'player clip rates: rows {RATE_FIRST}..{ROWS - 1} ({len(histogram)} distinct), {len(payload)} bytes -> {args.output}')
     print(f'player clip row +0: {ROWS} rows, {len(row0_payload)} bytes -> {args.row0_output}')
     print(f'player locomotion tables: {LOCO_BASE:#x}..{LOCO_END:#x}, {len(loco_payload)} bytes -> {args.loco_output}')
 

@@ -45,12 +45,12 @@ static struct {
 } f;
 
 /* The EM_STARTUP_TEST fixtures that choose New Game on the title menu:
- * "newgame", "newgame-control" (em_opening_control_test.c) and
- * "newgame-level" (the S13 level smoke, em_level_smoke_test.c). */
+ * "newgame", "newgame-control" and "newgame-skip" (em_opening_control_test.c)
+ * and "newgame-level" (the S13 level smoke, em_level_smoke_test.c). */
 static int new_game_test(const char *test)
 {
     return strcmp(test, "newgame") == 0 || strcmp(test, "newgame-control") == 0 ||
-           strcmp(test, "newgame-level") == 0;
+           strcmp(test, "newgame-level") == 0 || strcmp(test, "newgame-skip") == 0;
 }
 
 static uint32_t le32(const unsigned char *p)

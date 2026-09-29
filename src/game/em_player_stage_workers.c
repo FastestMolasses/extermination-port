@@ -51,12 +51,29 @@ int em_player_clip_rates_parse(EmPlayerClipRates *out, const uint8_t *data, size
 {
     if (!out || !data || size < 12 || memcmp(data, "EMCR", 4) != 0) return -1;
     uint32_t version, count;
+    int32_t first;
     memcpy(&version, data + 4, 4);
-    memcpy(&count, data + 8, 4);
-    if (version != 1 || count != EM_PLAYER_CLIP_RATE_ROWS || size != 12 + (size_t)count * 4)
+    size_t header;
+    if (version == 2) {
+        /* "EMCR", 2, first row, count, rates. */
+        if (size < 16) return -1;
+        memcpy(&first, data + 8, 4);
+        memcpy(&count, data + 12, 4);
+        header = 16;
+        if (first != EM_PLAYER_CLIP_RATE_FIRST || count != EM_PLAYER_CLIP_RATE_SPAN) return -1;
+    } else if (version == 1) {
+        /* "EMCR", 1, count, rates of rows 0..458 (no row -1). */
+        memcpy(&count, data + 8, 4);
+        first = 0;
+        header = 12;
+        if (count != EM_PLAYER_CLIP_RATE_ROWS) return -1;
+    } else {
         return -1;
+    }
+    if (size != header + (size_t)count * 4) return -1;
     out->count = count;
-    memcpy(out->rate, data + 12, (size_t)count * 4);
+    out->first = first;
+    memcpy(out->rate, data + header, (size_t)count * 4);
     return 0;
 }
 
@@ -65,21 +82,28 @@ int em_player_clip_rates_load(EmPlayerClipRates *out, const char *path)
     if (!out || !path) return -1;
     FILE *file = fopen(path, "rb");
     if (!file) return -1;
-    uint8_t buffer[12 + EM_PLAYER_CLIP_RATE_ROWS * 4 + 1];
+    uint8_t buffer[16 + EM_PLAYER_CLIP_RATE_SPAN * 4 + 1];
     size_t size = fread(buffer, 1, sizeof buffer, file);
     fclose(file);
     return em_player_clip_rates_parse(out, buffer, size);
 }
 
-/* 0015BA50: D_00248C98[*(short *)(p + 0x20C) * 3]. The original reads any
- * index; a clip outside the 459 rows is not data this table defines, so it
- * faults. */
+/* 0015BA50: D_00248C98[*(short *)(p + 0x20C) * 3], unchecked. The clips
+ * the original's writers of +20C store are 0..458 and -1 (the skip landing
+ * op18 / 001B9A00 sub 2); row -1 is the ELF's row before the table, which
+ * the original reads while the skip's -1 stands (+34 = its rate * +204).
+ * Any other index is not a value the original stores there, so it faults,
+ * and so does -1 over a version-1 export, which lacks that row. */
 int em_player_stage_clip_rate(void *host, int clip, float *rate)
 {
     const EmPlayerStageHost *hs = host;
-    if (!hs || !hs->rates || !rate || hs->rates->count != EM_PLAYER_CLIP_RATE_ROWS) return -1;
-    if (clip < 0 || clip >= EM_PLAYER_CLIP_RATE_ROWS) return -1;
-    *rate = hs->rates->rate[clip];
+    const EmPlayerClipRates *t = hs ? hs->rates : NULL;
+    /* A loaded table: rows first..458 with first -1 (v2) or 0 (v1). */
+    if (!t || !rate || (t->first != EM_PLAYER_CLIP_RATE_FIRST && t->first != 0) ||
+        t->count != (uint32_t)(EM_PLAYER_CLIP_RATE_ROWS - t->first))
+        return -1;
+    if (clip < t->first || clip >= EM_PLAYER_CLIP_RATE_ROWS) return -1;
+    *rate = t->rate[clip - t->first];
     return 0;
 }
 

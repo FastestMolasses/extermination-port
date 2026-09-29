@@ -304,6 +304,10 @@ int em_player_stage_live_bind(void)
             return -1;
         }
         live.rates_loaded = 1;
+        if (live.rates.first != EM_PLAYER_CLIP_RATE_FIRST)
+            fprintf(stderr, "player stage: %s is the version-1 export without row -1; skipping a "
+                            "cutscene will fault at 0x0015BA50 (python3 tools/export_player_tables.py)\n",
+                    EM_PLAYER_CLIP_RATE_PATH);
     }
     /* The one pose owner: the player's clip clock, node channels and
      * skeleton live in this record, worked by em_pose_host_workers

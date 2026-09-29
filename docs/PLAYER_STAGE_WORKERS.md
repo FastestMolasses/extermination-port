@@ -185,10 +185,37 @@ which also runs it for the interaction runtime's release. 001837B0,
   A host without the D_008106F1 or D_00810707 pointer is not ready: every
   worker refuses (−1) before its first write.
 - `host.rates`: load with `em_player_clip_rates_load(&rates,
-  EM_PLAYER_CLIP_RATE_PATH)`. The file is `assets/player_clip_rates.emcr`,
-  written by `python3 tools/export_player_tables.py` from the user's ELF,
-  ignored and never committed. The worker faults on a clip outside 0..458,
-  which the original would read as unrelated data.
+  EM_PLAYER_CLIP_RATE_PATH)`. The file is `assets/player_clip_rates.emcr`
+  (EMCR version 2: `"EMCR"`, u32 2, s32 first row -1, u32 count 460, then
+  the rates of rows -1..458), written by `python3
+  tools/export_player_tables.py` from the user's ELF, ignored and never
+  committed. A version-1 file (rows 0..458, written before row -1 was
+  exported) still loads, so an old export does not stop the level from
+  starting, but it has no row -1: the bind says so on stderr and a skip
+  faults as before until the exporter is re-run.
+- **Row -1 (the cutscene skip, 2026-09-29).** 0015BA50 reads
+  D_00248C98[+20C * 3] with no bounds check, and the original stores two
+  kinds of value in +20C: a clip 0..458, or -1. The skip landing op18
+  (001B6BF0, the script record a skip scan stops on) and 001B9A00 sub 2
+  store -1 together with +1F2 = 0, +2F3 = 3 and +40 = the default bank; it
+  stays until 00182DF0's release stores D_00248A00[+235]. The prologues
+  that run meanwhile (one frame after the opening's skip, two or three
+  after the route scenes') read row -1, the 12 bytes before the table,
+  whose rate is the ELF word at 0x248C8C: 0.0 in the boot ELF, in every
+  captured image and at run time, so +34 = 0.0 on those frames (the skip
+  captures in `../Extermination/build/startup-reference/cutscene_skip/`
+  show it frame by frame, with an exec breakpoint on 0015BA50). The worker
+  therefore serves rows -1..458 from the export, and still faults on any
+  other index (-2 and below, 459 and above), which no original writer
+  stores. Before the row was exported the worker refused -1, and every
+  skippable first-level cutscene (the opening, director beats 0..2,
+  Roger's encounter) stopped the game 34 frames after START with
+  "0015BA50 D_00248C98 worker fault". The other readers of +20C are safe
+  at -1 on the skip path, as in the original: 0015BCF0 reads the row's +0
+  only when +2F3 is 0 (it is 3 or 4 there), 00182DF0 tests the sign
+  first, and 00187350 reads row -1's frame pair (0, 0: no footstep; the
+  port's step table has no row -1, and test-player-footstep-reference now
+  checks row -1 against the ELF).
 
 **The callees** (`host.callees`, one context). Every one is required: a
 routine faults (−1) before its first write when any worker it can reach is
@@ -295,9 +322,18 @@ CPU; `EM_TEST_FULL=1` about 95 s of CPU).
   arg & 0x8000. The forwarder hands the same (track, hard) to the stop
   worker (16 cases).
 - **The clip-rate data.** The test runs the exporter into the lane folder
-  and loads the output with `em_player_clip_rates_load`. All 459 rows must
-  equal D_00248C98 bit for bit. Clips −1, 459 and 0x7FFF must fault, and
-  truncated, extended, bad-magic and wrong-count files must be refused.
+  and loads the output with `em_player_clip_rates_load`. All 460 rows
+  (-1..458) must equal D_00248C98 bit for bit. Clips −2, −0x8000, 459 and
+  0x7FFF must fault, and truncated, extended, bad-magic, wrong-version,
+  wrong-count and wrong-first-row files must be refused. A version-1 file
+  loads rows 0..458 and faults on -1. The composed
+  0015BA50 stage runs one case in six with +20C = -1 (the skip landing's
+  value) against the executed original.
+- **The skip on the live path.** `python3 tools/test_cutscene_skip.py`
+  (about 7 s; EM_TEST_FULL=1 adds a later opening press and the four
+  skippable route scenes, about 2 min in parallel) skips cutscenes in the
+  real game, headless, and compares the frames around the landing with
+  the original's skip captures; see AREA_SCRIPT.md "The skip path".
   Reported but not asserted: on every capture, +34 equals rate[+20C]
   (4/4 by default, 16/16 in the full run).
 - **Fail-stop.** For every routine and every worker it can reach, a NULL

@@ -126,8 +126,162 @@ static void fail(const char *reason)
     em_frame_request_quit();
 }
 
+/* ---- The cutscene skip (tools/test_cutscene_skip.py) --------------------
+ * EM_STARTUP_TEST=newgame-skip skips the AREA11 opening; EM_SKIP_SCENE=N
+ * under the level smoke (EM_STARTUP_TEST=newgame-level) skips the N-th
+ * skippable scene of the route instead (1 = the opening). A scene is
+ * skippable while 0x70003B91 == 1 (op07's scope-zero event); the skip is
+ * accepted while D_0028A9A0 (the transition substate) is 0 as well
+ * (001AE6B0, em_scene_frame.c). The fixture presses START EM_SKIP_DELAY
+ * frames after that first accepting frame (default 0 in the opening, 10 in
+ * the route, as the original captures pressed), holds it 2 frames through
+ * em_input_set_test_buttons (the smoke drives the gamepad overlay), and
+ * prints the skip fields every frame from 2 frames before 3B91 becomes 2
+ * until 8 frames after control returns: the scratchpad bytes, the
+ * transition substate, the player record's +4/+5/+1F0/+20C/+2F3/+34/+204/
+ * +C4 and D_008101E4, and the player's position (g.pos: the port keeps it
+ * at record +B0, where the original holds it at +A0). The driver compares
+ * those rows with the original's skip captures. Only input is driven; the
+ * record is read, never written. The fixture fails when the run ends
+ * before control returned (a fault stops the game), or when control does
+ * not return within 120 frames of the promotion. */
+enum { SKIP_HOLD = 2, SKIP_PRE = 2, SKIP_AFTER_CONTROL = 8, SKIP_CONTROL_LIMIT = 120 };
+static struct {
+    int active, opening_run, failed, passed;
+    int scene, delay, run_after;       /* EM_SKIP_SCENE, EM_SKIP_DELAY, EM_SKIP_RUN */
+    int rises, prev3B91, armed_frame, press_frame, released;
+    int promo_frame, control_frame, end_frame, prev_frame;
+    int clip_minus1, clip_bad;
+    char pre[SKIP_PRE][256];           /* the samples before the promotion */
+    int pre_frames[SKIP_PRE];
+} skip;
+
+static void skip_fail(const char *reason)
+{
+    fprintf(stderr, "cutscene skip test: FAIL frame=%d: %s\n", g.frame_no, reason);
+    skip.failed = 1;
+    em_input_set_test_buttons(0);
+    em_frame_request_quit();
+}
+
+static int skip_env(const char *name, int fallback)
+{
+    const char *value = getenv(name);
+    return value && *value ? atoi(value) : fallback;
+}
+
+static void skip_begin(void)
+{
+    memset(&skip, 0, sizeof skip);
+    em_input_set_test_buttons(0);
+    const char *value = getenv("EM_STARTUP_TEST");
+    skip.opening_run = value && strcmp(value, "newgame-skip") == 0;
+    skip.scene = skip.opening_run ? 1 : skip_env("EM_SKIP_SCENE", 0);
+    skip.active = skip.scene > 0;
+    skip.delay = skip_env("EM_SKIP_DELAY", skip.scene == 1 ? 0 : 10);
+    skip.run_after = skip_env("EM_SKIP_RUN", 120);
+    skip.armed_frame = skip.press_frame = skip.promo_frame = skip.control_frame = -1;
+    skip.prev_frame = -1;
+}
+
+static uint32_t rec_w(unsigned at) { return em_live_u32(player_states_actor(), at); }
+static unsigned f32_bits(float v) { uint32_t u; memcpy(&u, &v, 4); return (unsigned)u; }
+
+static void skip_format(char *out, size_t size)
+{
+    const uint8_t *cam = em_camera_live_bytes(0x008101E4u, 1);
+    snprintf(out, size,
+             "b3B91=%u b3B8D=%u fade=%u p4=%u p5=%u m1F0=%u clip=%d b2F3=%u w34=%08x w204=%08x "
+             "pos=%08x,%08x,%08x yaw=%08x cam=%d",
+             em_scene_state()->spad3B91, em_scene_state()->spad3B8D,
+             (unsigned)em_frame_transition()->substate, rec_u8(4), rec_u8(5), rec_u8(0x1F0),
+             (int)(int16_t)em_live_u16(player_states_actor(), 0x20C), rec_u8(0x2F3),
+             (unsigned)rec_w(0x34), (unsigned)rec_w(0x204),
+             f32_bits(g.pos[0]), f32_bits(g.pos[1]), f32_bits(g.pos[2]),
+             (unsigned)rec_w(0xC4), cam ? (int)*cam : -1);
+}
+
+/* Before the frame: arm, press and release. */
+static void skip_before_frame(void)
+{
+    if (!skip.active || skip.failed || skip.control_frame >= 0) return;
+    uint8_t b91 = em_scene_state()->spad3B91;
+    if (b91 == 1 && skip.prev3B91 != 1) ++skip.rises;
+    skip.prev3B91 = b91;
+    if (skip.armed_frame < 0 && skip.rises == skip.scene && b91 == 1 &&
+        em_frame_transition()->substate == 0) {
+        skip.armed_frame = g.frame_no;
+        fprintf(stderr, "cutscene skip: scene %d accepts a skip at frame %d\n", skip.scene, g.frame_no);
+    }
+    if (skip.armed_frame >= 0 && skip.press_frame < 0 && g.frame_no >= skip.armed_frame + skip.delay) {
+        if (b91 != 1) {skip_fail("the scene stopped accepting a skip before the press");return;}
+        skip.press_frame = g.frame_no;
+        em_input_set_test_buttons(EM_PAD_START);
+        fprintf(stderr, "cutscene skip: START pressed at frame %d (accepting frame + %d)\n",
+                g.frame_no, g.frame_no - skip.armed_frame);
+    } else if (skip.press_frame >= 0 && !skip.released && g.frame_no >= skip.press_frame + SKIP_HOLD) {
+        em_input_set_test_buttons(0);
+        skip.released = 1;
+    }
+}
+
+/* After the frame: the samples. */
+static void skip_after_frame(void)
+{
+    if (!skip.active || skip.failed || skip.passed) return;
+    if (g.frame_no == skip.prev_frame) return;
+    skip.prev_frame = g.frame_no;
+    char line[256];
+    skip_format(line, sizeof line);
+    if (skip.promo_frame < 0) {
+        if (skip.press_frame < 0) return;
+        if (em_scene_state()->spad3B91 != 2) {
+            memmove(skip.pre[0], skip.pre[1], sizeof skip.pre[0] * (SKIP_PRE - 1));
+            memmove(&skip.pre_frames[0], &skip.pre_frames[1], sizeof skip.pre_frames[0] * (SKIP_PRE - 1));
+            snprintf(skip.pre[SKIP_PRE - 1], sizeof skip.pre[0], "%s", line);
+            skip.pre_frames[SKIP_PRE - 1] = g.frame_no;
+            if (g.frame_no > skip.press_frame + 30) skip_fail("START did not promote 0x70003B91 to 2");
+            return;
+        }
+        skip.promo_frame = g.frame_no;
+        for (int i = 0; i < SKIP_PRE; ++i)
+            if (skip.pre[i][0])
+                fprintf(stderr, "skip sample: scene=%d rel=%d frame=%d %s\n", skip.scene,
+                        skip.pre_frames[i] - skip.promo_frame, skip.pre_frames[i], skip.pre[i]);
+    }
+    int rel = g.frame_no - skip.promo_frame;
+    int16_t clip = (int16_t)em_live_u16(player_states_actor(), 0x20C);
+    if (clip == -1) ++skip.clip_minus1;
+    if (clip < -1 || clip >= 459) ++skip.clip_bad;
+    if (skip.control_frame < 0 || g.frame_no <= skip.control_frame + SKIP_AFTER_CONTROL)
+        fprintf(stderr, "skip sample: scene=%d rel=%d frame=%d %s\n", skip.scene, rel, g.frame_no, line);
+    if (skip.control_frame < 0) {
+        if (em_scene_state()->spad3B91 == 0 && em_scene_state()->spad3B8D == 0 && rec_u8(4) == 1) {
+            skip.control_frame = g.frame_no;
+            skip.end_frame = g.frame_no + skip.run_after;
+            fprintf(stderr, "cutscene skip: control at frame %d (promotion + %d), +0x20C was -1 "
+                    "on %d sample(s)\n", g.frame_no, rel, skip.clip_minus1);
+        } else if (rel > SKIP_CONTROL_LIMIT) {
+            skip_fail("control did not return after the skip");
+        }
+        return;
+    }
+    if (skip.clip_bad) {skip_fail("+0x20C left the clip rows -1..458");return;}
+    if (skip.opening_run && g.frame_no < skip.end_frame) return;
+    if (skip.opening_run || g.frame_no >= skip.control_frame + SKIP_AFTER_CONTROL) {
+        const uint8_t *event39 = em_scene_progress_at(em_scene_state(), 0x00810791u, 1);
+        fprintf(stderr, "cutscene skip test: PASS scene=%d press=%d promotion=%d control=%d "
+                "(promotion + %d) ran_to=%d event39=%u\n", skip.scene, skip.press_frame,
+                skip.promo_frame, skip.control_frame, skip.control_frame - skip.promo_frame,
+                g.frame_no, event39 ? *event39 : 0u);
+        skip.passed = 1;
+        if (skip.opening_run) em_frame_request_quit();
+    }
+}
+
 void em_opening_control_test_begin(void)
 {
+    skip_begin();
     memset(&test,0,sizeof test);
     const char *value=getenv("EM_STARTUP_TEST");
     test.active=value && strcmp(value,"newgame-control")==0;
@@ -139,6 +293,7 @@ void em_opening_control_test_begin(void)
 
 void em_opening_control_test_before_frame(void)
 {
+    skip_before_frame();
     if (!test.active || test.failed) return;
     if (g.frame_no>3000) {fail("opening/control timeout");return;}
     if (test.phase==11) {
@@ -172,6 +327,7 @@ void em_opening_control_test_before_frame(void)
 
 void em_opening_control_test_after_frame(void)
 {
+    skip_after_frame();
     if (!test.active || test.failed) return;
     for (unsigned axis=0;axis<3;++axis)
         if (!isfinite(g.pos[axis]) || !isfinite(g.cam.eye[axis]) ||
@@ -361,6 +517,12 @@ void em_opening_control_test_after_frame(void)
 
 void em_opening_control_test_scene_stopped(void)
 {
+    if (skip.active && !skip.failed && !skip.passed) {
+        char reason[96];
+        snprintf(reason, sizeof reason, "the scene coordinator faulted at %08X during the skip",
+                 (unsigned)em_scene_state()->fault.address);
+        skip_fail(reason);
+    }
     if (!test.active || test.failed) return;
     const EmSceneFault *fault=&em_scene_state()->fault;
     char reason[96];
@@ -370,4 +532,6 @@ void em_opening_control_test_scene_stopped(void)
 }
 
 int em_opening_control_test_active(void) {return test.active;}
-int em_opening_control_test_failed(void) {return test.failed;}
+/* The skip fixture also fails when the run ended before its PASS: a player
+ * or scene fault stops the game (em_frame_request_quit) without a verdict. */
+int em_opening_control_test_failed(void) {return test.failed || (skip.active && !skip.passed);}
