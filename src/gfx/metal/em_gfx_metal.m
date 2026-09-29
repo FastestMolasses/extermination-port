@@ -54,6 +54,8 @@ struct EmGfx {
     id<MTLTexture>               target;
     id<MTLTexture>               offscreen;
     bool                         headless;
+    /* em_gfx_overlay_glyph_nearest: font quads queued now sample nearest */
+    bool                         glyphNearest;
     id<MTLCommandBuffer>         cmd;
     id<MTLRenderCommandEncoder>  enc;       /* open from begin_frame to end_frame */
     /* headless capture (see em_gfx_request_capture) */
@@ -279,30 +281,37 @@ static NSString *const kTestShaderSrc =
 
 /* Textured-overlay shader (em_gfx_overlay_glyph) — runtime-compiled like
  * the others. Buffer 0 holds 3 float4s per vertex: pre-converted NDC
- * position, modulate color, uv (xy, normalized). The fragment samples the
- * registered overlay texture BILINEAR and modulates — the GS state of the
- * engine's font-strip sprites (TEX1 MMAG/MMIN=1, TFX modulate). */
+ * position, modulate color, uv (xy, normalized; z = 1 to sample nearest).
+ * The fragment samples the registered overlay texture with the queue's
+ * sampler (bilinear), or NEAREST where the vertex asks for it (the message
+ * glyph strips: their packets set TEX1_1 = 0, em_gfx_overlay_glyph_nearest),
+ * and modulates (TFX modulate). */
 static NSString *const kGlyphShaderSrc =
 @"#include <metal_stdlib>\n"
 "using namespace metal;\n"
-"struct VOut { float4 pos [[position]]; float4 color; float2 uv; };\n"
+"struct VOut { float4 pos [[position]]; float4 color; float2 uv; float nearest [[flat]]; };\n"
 "vertex VOut v_glyph(uint vid [[vertex_id]],\n"
 "                    const device float4 *data [[buffer(0)]]) {\n"
 "    VOut o;\n"
 "    o.pos   = float4(data[vid*3].xy, 0.0, 1.0);\n"
 "    o.color = data[vid*3 + 1];\n"
 "    o.uv    = data[vid*3 + 2].xy;\n"
+"    o.nearest = data[vid*3 + 2].z;\n"
 "    return o;\n"
+"}\n"
+"static float4 glyph_texel(VOut in, texture2d<float> tex, sampler smp) {\n"
+"    constexpr sampler nearest_smp(filter::nearest, address::clamp_to_edge);\n"
+"    return in.nearest > 0.5 ? tex.sample(nearest_smp, in.uv) : tex.sample(smp, in.uv);\n"
 "}\n"
 "fragment float4 f_glyph(VOut in [[stage_in]],\n"
 "                        texture2d<float> tex [[texture(0)]],\n"
 "                        sampler smp [[sampler(0)]]) {\n"
-"    return tex.sample(smp, in.uv) * in.color;\n"
+"    return glyph_texel(in, tex, smp) * in.color;\n"
 "}\n"
 "fragment float4 f_glyph_opaque(VOut in [[stage_in]],\n"
 "                        texture2d<float> tex [[texture(0)]],\n"
 "                        sampler smp [[sampler(0)]]) {\n"
-"    float4 color = tex.sample(smp, in.uv) * in.color;\n"
+"    float4 color = glyph_texel(in, tex, smp) * in.color;\n"
 "    if (color.a <= 0.0) discard_fragment();\n"
 "    return color;\n"
 "}\n";
@@ -485,14 +494,20 @@ EM_FOG_GS_MSL
 "/* Distance fog (em_gfx_fog, em_fog_gs.h — the per-area GS fog).\n"
 " * Rows: [0] FOGCOL as [0,1] colour + enable, [1] (A, B) coefficients.\n"
 " * f255 is the GS F value interpolated from the vertices (0 is pure\n"
-" * FOGCOL). The GS rule is FOGCOL + ((C - FOGCOL) * F >> 8) on 8-bit\n"
-" * colours (em_fog_gs_blend, measured: GS_EXACT.md 5.2), so F = 255\n"
-" * still leaves 1/256 of FOGCOL. This float path has no 8-bit colour to\n"
-" * floor: it applies the measured weights F / 256 without the floor\n"
-" * (APPROXIMATION of the rule, not of its weights). */\n"
+" * FOGCOL). The GS rule is FOGCOL + ((C - FOGCOL) * F7 >> 15) on the\n"
+" * texture function's 8-bit colour with the 8.7 weight F7 (em_fog_gs_blend7,\n"
+" * em_fog_gs_weight7, measured: GS_EXACT.md 3.2 / 5.2), so F = 255 still\n"
+" * leaves 1/256 of FOGCOL. c is the texel times the vertex colour / 128\n"
+" * (GS MODULATE), so its 8-bit value is floor(c * 255): the GS's\n"
+" * min(255, Ct * Cv >> 7) for integer texels and colours (0.001 absorbs\n"
+" * float noise). The texel itself is still the Metal sampler's, and the\n"
+" * colour is the 8-bit one (the GS's texture function uses the 8.7 colour,\n"
+" * GS_EXACT.md 5.1). */\n"
 "static float3 fog_apply(float3 c, float f255, constant float4 *fog) {\n"
 "    if (fog[0].w <= 0.0) return c;\n"
-"    return mix(fog[0].rgb, c, f255 * (1.0 / 256.0));\n"
+"    uint3 ci = uint3(clamp(floor(c * 255.0 + 0.001), 0.0, 255.0));\n"
+"    uint3 fc = uint3(round(clamp(fog[0].rgb, 0.0, 1.0) * 255.0));\n"
+"    return float3(em_fog_gs_blend7(ci, em_fog_gs_weight7(f255), fc)) / 255.0;\n"
 "}\n"
 "/* GS TEST_1 alpha test (docs/LEVEL_MATERIALS.md). `a` is the filtered\n"
 " * texel alpha as exported (GS alpha At stored as min(255, 2*At)). For\n"
@@ -596,10 +611,12 @@ EM_FOG_GS_MSL
 " * carries in light_rgb the kernel's RGBAQ A and fog F / 128 (screen-linear\n"
 " * interpolation) and in nrm the (S, T, Q) the pixel divides (the GS's STQ:\n"
 " * u = S / Q, v = T / Q per pixel). dst is the frame pixel (framebuffer fetch). APPROXIMATION,\n"
-" * not verified against a GS dump of a drawn shadow: A and F per pixel are\n"
-" * floor(value * 128 + 0.001) of Metal's float interpolation; the GS's own\n"
-" * Gouraud/DDA stepping of A and F is not modelled and the 0.001 epsilon\n"
-" * is a heuristic (docs/SHADOW_ORIGINAL.md, open items). */\n"
+" * not verified against a GS dump of a drawn shadow: A per pixel is\n"
+" * floor(value * 128 + 0.001) of Metal's float interpolation (8-bit, where\n"
+" * the GS's texture function uses the 8.7 A: GS_EXACT.md 5.1); F is the 8.7\n"
+" * weight em_fog_gs_weight7 (GS_EXACT.md 5.2); the GS's own DDA stepping is\n"
+" * not modelled and the epsilons are heuristics (docs/SHADOW_ORIGINAL.md,\n"
+" * open items). */\n"
 "fragment float4 f_shadow_receiver(VOut in [[stage_in]],\n"
 "        float4 dst [[color(0)]],\n"
 "        texture2d<float, access::read> sil [[texture(0)]],\n"
@@ -616,13 +633,13 @@ EM_FOG_GS_MSL
 "    uint at = (a00 * uint((16 - fu) * (16 - fv)) + a10 * uint(fu * (16 - fv))\n"
 "             + a01 * uint((16 - fu) * fv) + a11 * uint(fu * fv)) >> 8;\n"
 "    uint a = uint(floor(in.light_rgb.x * 128.0 + 0.001));\n"
-"    uint f = uint(floor(in.light_rgb.y * 128.0 + 0.001));\n"
+"    uint f7 = em_fog_gs_weight7(in.light_rgb.y * 128.0);\n"
 "    uint as = min((at * a) >> 7, 255u);\n"
 "    if (as == 0u) discard_fragment();\n"
 "    uint4 d = uint4(round(dst * 255.0));\n"
 "    if ((d.a & 0x80u) == 0u) discard_fragment();\n"
 "    int3 fc = int3(round(fog[0].rgb * 255.0));\n"
-"    int3 cs = int3(em_fog_gs_blend(uint3(0u), f, uint3(fc)));\n"
+"    int3 cs = int3(em_fog_gs_blend7(uint3(0u), f7, uint3(fc)));\n"
 "    int3 dc = int3(d.rgb);\n"
 "    float3 prod = float3((cs - dc) * int(as));\n"
 "    int3 c = clamp(int3(floor(prod / 128.0)) + dc, 0, 255);\n"
@@ -834,6 +851,7 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->beamTriCount = 0;
     g->hasViewProj = false;   /* set again by the frame's 3D draws */
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
+    g->glyphNearest = false;            /* font quads sample bilinear   */
     g->overlayH    = EM_GFX_OVERLAY_H;
     memset(g->spot, 0, sizeof(g->spot)); /* flashlight spot is per-frame */
     memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
@@ -1535,7 +1553,8 @@ static void texquad_push(EmGfx *g, float *verts, uint32_t *count, int slot,
     o[7]  = rgba[3];
     o[8]  = u / g->overlayTexW[slot];
     o[9]  = v / g->overlayTexH[slot];
-    o[10] = 0.0f;
+    /* 1: sample nearest (em_gfx_overlay_glyph_nearest, font quads only). */
+    o[10] = (slot == EM_GFX_OVERLAY_TEX_FONT && g->glyphNearest) ? 1.0f : 0.0f;
     o[11] = 1.0f;
     (*count)++;
 }
@@ -1570,6 +1589,11 @@ void em_gfx_overlay_glyph(EmGfx *g, float x, float y, float w, float h,
     texquad_queue(g, g->glyphVerts, &g->glyphVertCount,
                   EM_GFX_OVERLAY_TEX_FONT, EM_GFX_OVERLAY_MAX,
                   x, y, w, h, u0, v0, u1, v1, rgba);
+}
+
+void em_gfx_overlay_glyph_nearest(EmGfx *g, int on)
+{
+    if (g) g->glyphNearest = on != 0;
 }
 
 /* Original subtitle markup offsets only the glyph's top edge. */
@@ -3127,9 +3151,9 @@ EM_FOG_GS_MSL
 "    /* TEST_1: ATE, ATST GREATER, AREF 0, AFAIL KEEP. */\n"
 "    if (a == 0u) discard_fragment();\n"
 "    if ((k.w & 1u) != 0u) {\n"
-"        uint f = uint(clamp(floor(in.stqf.w + 0.001), 0.0, 255.0));\n"
+"        /* The 8.7 fog weight of the screen-linear F (em_fog_gs.h). */\n"
 "        uint3 fc = uint3(k.z & 255u, (k.z >> 8) & 255u, (k.z >> 16) & 255u);\n"
-"        c = em_fog_gs_blend(c, f, fc);\n"
+"        c = em_fog_gs_blend7(c, em_fog_gs_weight7(in.stqf.w), fc);\n"
 "    }\n"
 "    return float4(float3(c) / 255.0, float(a) / 255.0);\n"
 "}\n";
@@ -3382,9 +3406,9 @@ EM_FOG_GS_MSL
 "}\n"
 "static uint3 gs_fog(uint3 c, float fv, constant uint4 *k) {\n"
 "    if (k[0].w == 0u) return c;\n"
-"    uint f = uint(clamp(floor(fv + 0.001), 0.0, 255.0));\n"
+"    /* The 8.7 fog weight of the screen-linear F (em_fog_gs.h). */\n"
 "    uint3 fc = uint3(k[0].z & 255u, (k[0].z >> 8) & 255u, (k[0].z >> 16) & 255u);\n"
-"    return em_fog_gs_blend(c, f, fc);\n"
+"    return em_fog_gs_blend7(c, em_fog_gs_weight7(fv), fc);\n"
 "}\n"
 "fragment float4 f_gs_tex(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
 "                         texture2d<uint, access::read> tex [[texture(0)]],\n"

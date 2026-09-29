@@ -670,8 +670,7 @@ coefficients and colour.
 - Status: **VERIFIED** for AREA11, relative to PCSX2. Caveats: the ERLENG
   model is the same on both sides of the test; the shader's per-vertex F is
   not executed against the original kernel; the fog blend itself is the
-  measured GS rule (next entry), but on the level's skinned path it is
-  applied to float colours without the GS floor; the +0x1D8 channel-3 list
+  measured GS rule with the 8.7 weight (next entry); the +0x1D8 channel-3 list
   is built by the translated 001E1E60 since the static-world step and the
   draw's gate, TEX0 and RGBAQ are read from it, but the grid itself is
   still the native model of its VU1 kernel (checked by the tests above);
@@ -680,28 +679,39 @@ coefficients and colour.
 **The GS fog blend, as PCSX2's software GS computes it**
 
 Fogged pixels blend toward the fog colour with the GS's own arithmetic,
-FOGCOL + ((C - FOGCOL) * F >> 8), applied after the texture function. With
-F = 255 a trace of the fog colour remains, as on the GS.
+FOGCOL + ((C - FOGCOL) * F7 >> 15), applied after the texture function, with
+the fog weight at the GS's 1/128 precision across a triangle (F7; for a
+constant F this is FOGCOL + ((C - FOGCOL) * F >> 8)). With F = 255 a trace
+of the fog colour remains, as on the GS.
 
-- How: one C function (`em_fog_gs_blend`, src/gfx/metal/em_fog_gs.h) and
-  one shader copy of it serve every integer fog site of the Metal path: the
-  objects drawn by the translated VU1 object program (crates, drums, truck,
-  panel, ...), the chain page's decals, sprites and lines, and the player's
-  drop-shadow receivers and, since the static-world step, the level
-  itself (`em_gfx_gs_opaque`). The skinned path (the characters still on
-  it) applies the same weights to float colours.
+- How: one C function pair (`em_fog_gs_blend7` / `em_fog_gs_blend`,
+  src/gfx/metal/em_fog_gs.h) and one shader copy serve every fog site of
+  the Metal path: the objects drawn by the translated VU1 object program
+  (crates, drums, truck, panel, ...), the level itself (`em_gfx_gs_opaque`),
+  the chain page's decals, sprites and lines, the player's drop-shadow
+  receivers, and (since the fb2 step, 2026-09-28) the skinned path's draws
+  (the status hub's and MAP page's models), whose fogged colour is now the
+  GS's integer result on the 8-bit colour instead of a float blend. The
+  weight of an interpolated F is `em_fog_gs_weight7`, floor(128 * F +
+  0.01).
 - Evidence: decomp `GS_CONFORMANCE.md` 5.5 measured the rule in PCSX2's
   software GS (4,096 of 4,096 flat-F pixels, 4,096 of 4,096 fogged-MODULATE
   pixels); `GS_EXACT.md` 5.2. `make test-gs-fog-conformance` runs the C
   function and the Metal shader over those captured tests' inputs and
   requires all 8,192 pixels equal to the captures (16,384 with the repeat
   capture under `EM_TEST_FULL=1`); the form the port used before, (F * C +
-  (255 - F) * FOGCOL) >> 8, matches only 1,040 and 640 of 4,096 there.
-- Status: **PARTIAL**. Exact for a constant F. For an F that varies across a
-  triangle the GS blends with an 8.7 weight, while the shaders use floor(F)
-  of Metal's float interpolation; on the skinned path the result is not
-  floored to 8 bits. No drawn first-level frame is compared with a GS
-  framebuffer yet.
+  (255 - F) * FOGCOL) >> 8, matches only 1,040 and 640 of 4,096 there. For
+  an F that varies across a triangle (the eight p3_start `fog_*` tests) the
+  8.7 weight at the exact plane value matches 342,349 of 342,831 channel
+  values, the 8-bit weight the shaders used before 186,635 (part C of the
+  same test). The fb2 pixel harness (the entry "The Original profile's
+  frame, measured pixel by pixel") measured the fb2 step's changes together
+  on the drawn frame: at the camera-exact points 10 and 14 the exact pixels
+  went from 28.63 % and 24.88 % to 30.89 % and 28.79 %.
+- Status: **PARTIAL**. The rule is exact; its inputs are not yet the GS's:
+  the per-pixel F is Metal's float interpolation at host resolution, not
+  the GS's DDA stepping (GS_EXACT.md 3.2), and the colour entering the fog
+  is the 8-bit texture function where the GS uses the 8.7 colour (5.1).
 
 **Original GS material rules on level surfaces**
 
@@ -774,9 +784,15 @@ long notices stay up.
   status-hub capture). The port samples the page atlas bilinearly with each
   texture's edge texels repeated around it, which is that clamp; the GS's
   exact bilinear weights are the renderer's (not compared).
+- Message glyphs: their prebuilt packets D_002510C0 and D_00251140 write
+  TEX1_1 = 0 (nearest) before the passes (read from the ELF; the glyph
+  reference test checks the packets equal to it). Since the fb2 step
+  (2026-09-28) the glyph strips sample the port's font atlas nearest
+  (`em_gfx_overlay_glyph_nearest`); before, bilinear (`MESSAGE_GLYPH.md`
+  "The draw boundary").
 - Status: **PARTIAL**. The area-title card is not bound. Glyph pixels are
-  drawn from the port's own atlas (bilinear, where the original samples
-  nearest) and are not compared.
+  drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
+  ALPHA are not modelled) and are not compared (no fb2 frame shows text).
   The BATTERY page's module load runs the original loader's own steps
   since chain C8b LOADER (see "The status page's module load" below).
 
@@ -836,22 +852,35 @@ original's one-frame view lag is kept.
   examine shot are stand-ins. The slide entry is 0.863 units off
   (relaxation pending review).
 
-**Recorded reference frames for a pixel-accurate Original profile**
+**The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
 
-The project holds exact displayed frames, rendered by PCSX2's software GS
-renderer, at 18 points along the first level. The Original profile will be
-measured against them pixel by pixel.
+The project holds exact displayed fields, rendered by PCSX2's software GS
+renderer, at 19 points along the first level, and a harness that compares
+the port's Original-profile frame with them pixel by pixel: "looks like the
+original" is a number.
 
 - How: the decomp's `tools/c7cap_partb.py fb2` loads each snapshot, steps two
   frames and de-swizzles the displayed buffer, draw buffer and Z from GS
-  memory.
+  memory. `tools/test_fb2_pixels.py` (`make test-fb2-pixels`) drives the
+  port headless to the tick the level smoke aligns with the field's game
+  state, captures that frame, samples it at the GS sample points (the
+  Metal frame at 1920x1440, nearest pixel, no filter) and reports the
+  exact-match fraction, mean and maximum channel error and a difference
+  image (GS_EXACT.md section 10).
 - Evidence: decomp `CAPTURES_C7.md` 5b (decode proof: block-seam ratio
   0.93..1.15, luma correlation 0.989..0.998; route03_end reproduced byte for
-  byte). `PORT_PROFILES.md` "Queued work" 1-2; commit c3d1742.
-- Status: **PLANNED**. The captures exist; the comparison harness and the
-  GS-exact 512x224 renderer do not. The software renderer is PCSX2's model of
-  the GS, not hardware. The field-to-buffer pairing rule is not established
-  at 4 of 19 points.
+  byte). At the two points where the port's camera is the original's bit
+  for bit (route snapshots 10 and 14): 35,430 and 33,022 of the 114,688
+  pixels exact (30.89 % and 28.79 %), mean channel error 1.39 and 1.78,
+  median per-pixel error 1. Five more points are compared with the camera
+  not exact (first control, 08, 11, 12, 13), 12 are listed as not aligned.
+- Status: **PARTIAL**. The port's frame is Metal's rasterization, not the
+  GS's (the GS model is measured but not bound, GS_EXACT.md section 9); the
+  remaining differences are the snow and the flame (the port's rand()
+  stream), the fans' phase, edges and a ±1 floor on every surface. The
+  software renderer is PCSX2's model of the GS, not hardware. The
+  field-to-buffer pairing rule is not established at 4 of 19 points (the
+  harness reads each point's pairing from its own registers).
 
 **Still drawn by legacy or stand-in code (disclosure)**
 

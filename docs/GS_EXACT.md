@@ -603,16 +603,27 @@ Evidence:
 - CHAIN_PAGE.md section 5 and OWNER_DRAW.md section 7.2 stated
   (F * C + (255 − F) * FOGCOL) >> 8. That form is wrong: it matches only
   1,040 and 640 of 4,096 pixels (decomp GS_CONFORMANCE.md 5.5).
-- **In the Metal path (2026-09-28).** Every integer fog site (the object
-  units, the chain page's primitives, the shadow receivers) now uses the
-  8-bit form of this rule, FOGCOL + ((C − FOGCOL) * F >> 8), through one
-  shader copy (EM_FOG_GS_MSL) of the CPU mirror `em_fog_gs_blend`
-  (src/gfx/metal/em_fog_gs.h). `tools/test_gs_fog_conformance.py`
+- **In the Metal path (2026-09-28).** Every fog site (the object units and
+  the static world, the chain page's primitives, the shadow receivers, and
+  the skinned path's draws) uses this rule with the 8.7 weight, through one
+  shader copy (EM_FOG_GS_MSL) of the CPU mirror `em_fog_gs_blend7`
+  (src/gfx/metal/em_fog_gs.h; `em_fog_gs_blend` is its constant-F form,
+  F7 = F << 7). The weight of Metal's screen-linear F is
+  `em_fog_gs_weight7`: F7 = floor(128 * F + 0.01), the epsilon absorbing
+  float noise at vertex and constant values. On the skinned path the colour
+  entering the fog is the texture function's 8-bit value floor(Ct * Cv /
+  128) (float noise absorbed by 0.001), and the fogged result is exact
+  8-bit, as the GS writes it. `tools/test_gs_fog_conformance.py`
   (`make test-gs-fog-conformance`) requires all 8,192 pixels of GSCAP
-  `fog_cols` and `fog_tex` equal through both. Still open there: a Gouraud F
-  reaches the shaders' fog as floor(F) of Metal's float interpolation, not
-  the GS's 8.7 F7, and the skinned float path (level zones, actors) applies
-  the measured weights F / 256 without the floor.
+  `fog_cols` and `fog_tex` equal through the CPU and the Metal shader, and,
+  for a Gouraud F (part C, the eight p3_start `fog_*` tests at the exact
+  plane value), 342,349 of 342,831 channel values through
+  `em_fog_gs_weight7` + `em_fog_gs_blend7`, where the 8-bit weight the
+  shaders used before (floor(F + 0.001) with >> 8) gives 186,635; the other
+  482 follow the DDA stepping of 3.2. Still not the GS: the per-pixel F is
+  Metal's float interpolation at its own sample points (no DDA), and the
+  colour entering the fog is the 8-bit texture function (5.1 uses the 8.7
+  colour).
 
 ### 5.3 Alpha test, DATE, Z test, blend, dither, CT16, FBA, FBMSK, COLCLAMP
 
@@ -886,35 +897,103 @@ tracked files belong to the running chain (C8b). The binding steps are:
   times). A batch of 39 tests with 624,640 values (p5_s) takes 29 ms. The
   15 frame tests, including two 512x224 fields, take 4 ms.
 
-## 10. The fb2 reference frames
+## 10. The fb2 reference frames and the pixel harness
 
-**None of the decomp's 19 software-renderer frame points could be
-compared** (`build/s87/c7cap/fb2/<point>/`, CAPTURES_C7.md 5b):
-- the 16 route snapshots `00_panel_no_battery` .. `15_level_exit`;
-- `first_control`, `route03_end` and `route07_end`.
+The decomp's 19 software-renderer frame points (`build/s87/c7cap/fb2/<point>/`,
+CAPTURES_C7.md 5b: the 16 route snapshots `00_panel_no_battery` ..
+`15_level_exit`, `first_control`, `route03_end`, `route07_end`) each hold
+`displayed.bin`, `draw.bin` and `z.bin` two frames after the recorded
+state. `tools/test_fb2_pixels.py` (`make test-fb2-pixels`, 2026-09-28)
+compares the port's Original-profile frame with `displayed.bin` per pixel.
+The port still has no full per-frame GS stream (section 9 is not applied),
+so what it compares today is the port's **Metal frame**, sampled to the
+field; once the model is bound it compares the model's field word for word.
 
-Each holds `displayed.bin`, `draw.bin` and `z.bin` two frames after the
-recorded state.
+**Like with like** (the tool's docstring has the full statement):
+- **Which original field.** At a point the outputs come from loop top s2;
+  the displayed buffer is the one FRAME named at loop top s1 (checked from
+  meta.json at every point), drawn with s1's XYOFFSET (OFY 1936.0 or
+  1936.5), and it shows the game state of route row s1.
+- **Which port frame.** The level smoke's own alignment
+  (tools/test_level_smoke.py) gives the port tick whose post-task state is
+  the snapshot's row (`rec`); the frame compared is that of tick
+  i + (s1 − rec) (for first control, idx + (s1 − 4085), route 01 f0 = slot
+  04). The port writes it through `EM_FB_CAPTURE_TICKS` or
+  `EM_LEVEL_SMOKE_FB_CAPTURE` (em_scene_bindings.h); the tool checks the
+  captured tick is the aligned one, and reports whether the camera eye /
+  target, the player's position / heading and the task bytes equal row s1
+  bit for bit ("camera exact").
+- **What the port frame is.** Metal at the headless target (the 960x720
+  window times the backing scale: 1920x1440 here), the 4:3 game rect, one
+  frame per scene tick after the task. The projection maps the rect's width
+  to the field's 512 pixels and its height to 224 lines at OFY 1936.0.
+- **Sampling.** GS pixel (x, y) is the point (x, y + OFY − 1936) in field
+  units (the GS samples at the integer point, 3.1); the tool takes the
+  Metal pixel whose centre is nearest (column floor(x * 1920 / 512), row
+  floor(y' * 1440 / 224)). No filter, no search, no tolerance. The sampled
+  Metal pixel was itself rasterized up to 0.13 pixel / 0.08 line from the
+  GS sample point; that is the sampling's own error and is not
+  compensated.
+- **RGB only** (PMODE shows circuit 2; no alpha reaches the display).
+- **Metrics.** Exact-match fraction (all three channels equal), mean
+  absolute channel error, maximum channel error, percentiles of the
+  per-pixel maximum error; the sampled port field, the original field and a
+  difference image go to build/fb2_pixels/<point>/.
 
-**Why no point qualifies, and no pixel counts exist:**
-- **No full per-frame GS stream.** The port produces no complete GS stream
-  for a frame:
-  - level geometry, actors, the background and the page each reach Metal
-    on their own path, as triangle lists, not as GS writes;
-  - the frame's environment, upload and CLUT packets are not produced as
-    GS writes;
-  - several owners are unbound or stand-ins (FIRST_LEVEL_CENSUS.md).
-- **No port frame at the same state.** No port frame exists at the same
-  state as the recorded snapshots.
+**Which points are compared.** The quick run (about 17 s) compares
+`first_control` from a smoke run to first control; `EM_TEST_FULL=1` (about
+4.5 min) adds two route runs through Roger (pass 1 aligns, pass 2 captures
+and is re-aligned on its own log; the aligned ticks and their post-task
+state must be identical, so a non-deterministic run fails) and compares
+every snapshot the smoke aligns: 08, 10, 11, 12, 13 and 14. The camera is
+exact at 10 and 14 (the smoke's VIEW_EXACT); elsewhere it follows the
+navigation (08, 12, 13), the opening's earlier end at host speed
+(first_control: the eye still rising, census L33), or has no recorded row at
+s1 (11). Not compared, with the reason the tool prints: 00 and 09 (side
+beats, no snapshot alignment), 01..07 (the smoke aligns their next beats on
+scans and windows, not on the snapshots), 15 (AREA01), route03_end and
+route07_end (repeats). Nothing of the snow or the flame can match: their
+sprites follow the port's rand() stream (RAND_ORDER.md).
 
-A point becomes comparable once two things exist:
-- the frame's full GS stream (the binding of section 9 for every path),
-  started from the snapshot's local memory (`gs.bin` supplies textures
-  and CLUTs);
-- the port state at that snapshot.
+**Numbers** (exact pixels of 114,688; mean absolute channel error; maximum
+channel error). "Before" is port HEAD e654b42 plus the capture hooks;
+"after" is this step (the 8.7 fog weight on every integer fog site, the
+skinned path's fog on the 8-bit colour, nearest glyph sampling, the per-tag
+Q). Claims are relative to PCSX2's software GS.
 
-The model's buffer is then compared with `displayed.bin` / `draw.bin` /
-`z.bin`, word for word.
+| point | camera | before | after |
+|---|---|---|---|
+| 10_cage_roof_roger | exact | 32,834 (28.63 %); 1.39; 213 | 35,430 (30.89 %); 1.39; 213 |
+| 14_roger_encounter | exact | 28,532 (24.88 %); 1.81; 98 | 33,022 (28.79 %); 1.78; 99 |
+| 13_east_tower | not exact (eye, target, position) | 33,956 (29.61 %); 2.92; 80 | 40,544 (35.35 %); 2.92; 80 |
+| 11_crevice_prompt | no row at s1 | 7,811 (6.81 %); 5.76; 143 | 9,173 (8.00 %); 5.76; 143 |
+| 08_truck_crossing | not exact | 3,087 (2.69 %); 7.78; 103 | 3,201 (2.79 %); 7.78; 103 |
+| 12_crevice_jump | not exact | 2,754 (2.40 %); 6.76; 124 | 2,852 (2.49 %); 6.74; 124 |
+| first_control | not exact (eye) | 1,032 (0.90 %); 18.90; 227 | 985 (0.86 %); 18.94; 227 |
+
+At 10 and 14 the per-pixel maximum error is 1 at the median, 3 / 4 at the
+90th percentile and 23 / 29 at the 99th (after). The difference images show
+the geometry in place; the large errors are the snow and the flame (rand()),
+the fans' phase at 14 (FIRST_LEVEL_AUDIT.md 1b), edges (Metal's coverage),
+and the rest is a ±1 floor spread over every surface: each channel alone
+is exact on about half of the pixels. The fog step moved only part of that
+floor. A measurement made for the next step (not applied, not in the
+contract): the texture function at the 8.7 colour of 5.1 in the object /
+static-world shader alone takes 10 to 41,507 (36.19 %) and 14 to 42,703
+(37.23 %). The rest of the floor is Metal's float interpolation at its own
+sample points instead of the DDA (3.2), and Metal's rasterization.
+
+The floors the tool asserts (FLOORS) are the "after" fractions rounded down
+to 0.1 percentage point; a renderer change that gains pixels raises them in
+the same commit. They are measured on this Mac's GPU; another GPU may
+interpolate differently.
+
+**001DDE10's four frame-copy sprites** stay walked over (CHAIN_PAGE.md
+section 6): each blends a copy of the frame, read back through the texture
+state 001D6C90 sets, under a Z test at the slot's depth. That needs the
+displayed buffer as GS memory and the GS Z buffer, which only the model's
+binding (section 9) provides. The harness shows no region-wide difference at
+10 or 14 that the pass would explain, but it cannot isolate the pass.
 
 ## 11. Files
 
@@ -923,8 +1002,10 @@ The model's buffer is then compared with `displayed.bin` / `draw.bin` /
 - `src/gs/em_gs_frame.h`, `src/gs/em_gs_frame.c`: the binding helpers
   (section 9).
 - `tools/test_gs_raster_reference.py`: the verification (section 7).
+- `tools/test_fb2_pixels.py` (`make test-fb2-pixels`): the fb2 pixel
+  harness (section 10).
 - Decomp capture tools (new, this lane): `tools/gs_conformance_probe3.py`
   .. `probe8.py`. Their batches and rules are in decomp
   `docs/GS_CONFORMANCE.md` sections 8 and 9.
 
-None of these files is in the Makefile yet (section 9 is not applied).
+The model files are not in the Makefile yet (section 9 is not applied); the harness is (`test-fb2-pixels`).

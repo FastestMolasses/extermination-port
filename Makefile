@@ -897,11 +897,21 @@ test-chain-page-reference:
 test-chain-page-gpu:
 	python3 tools/test_chain_page_gpu.py
 
-# The GS fog rule (em_fog_gs_blend and its shader copy) against the GS
-# conformance captures' fogged pixels (decomp build/b16), CPU and Metal.
+# The GS fog rule (em_fog_gs_blend / em_fog_gs_blend7 and their shader
+# copy) against the GS conformance captures' fogged pixels (decomp
+# build/b16): constant F on the CPU and in Metal, the 8.7 weight of a
+# Gouraud F on the CPU.
 .PHONY: test-gs-fog-conformance
 test-gs-fog-conformance:
 	python3 tools/test_gs_fog_conformance.py
+
+# The fb2 pixel harness (docs/GS_EXACT.md section 10): the port's
+# Original-profile frame at the fb2 route points against the decomp's
+# software-renderer fields, per pixel. Default: first control (about 17 s);
+# EM_TEST_FULL=1: every point the level smoke aligns (about 4.5 min).
+.PHONY: test-fb2-pixels
+test-fb2-pixels: $(BIN)
+	python3 tools/test_fb2_pixels.py
 
 .PHONY: test-chain-page
 test-chain-page:

@@ -18,10 +18,10 @@
  * and the weather's channel-3 list (001E55F0 / 001E67C0's 001CFFE0 tiles,
  * CALLed by 001E0D70 at slot 0xFFB; the snow program D_00233800).
  *
- * The frame's Q (em_chain_page.h): a vertex whose RGBAQ precedes every ST
- * of the page carries the Q the GS held from the frame's earlier draws,
- * which the port does not model; it is drawn with Q = 1.0, the Q every
- * later sprite of the same packets carries, and counted (log.stale_q).
+ * The Q (em_chain_page.h): a vertex whose PACKED RGBAQ precedes every ST
+ * of its GIF tag takes Q = 1.0, the GS's value at every tag start
+ * (docs/GS_EXACT.md 2.1); a vertex with an unknown Q (log.stale_q) cannot
+ * occur, and one would fault the page.
  *
  * Fail-stop: a page fault, a primitive the renderer does not implement, or
  * a decal count mismatch latches (em_chain_page_live_fault); the caller
@@ -68,8 +68,7 @@ typedef struct {
 } EmChainPageLiveLog;
 void em_chain_page_live_log(EmChainPageLiveLog *out);
 
-/* The last page's primitives as drawn (the frame's Q already replaced by
- * 1.0; em_chain_page_live_q tells which), or NULL. */
+/* The last page's primitives as drawn, or NULL. */
 const EmGfxGsPrim *em_chain_page_live_prims(uint32_t *count);
 
 /* Bytes of original memory the page reads, as the consumer maps them (the

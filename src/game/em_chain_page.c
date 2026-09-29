@@ -338,6 +338,13 @@ static int gif(Walk *w, Fetch fetch, void *ctx, uint32_t limit, uint32_t at, uin
         if (i >= limit) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, i);
         const uint8_t *tag = fetch(w, i++, ctx);
         const uint64_t lo = rd64(tag), hi = rd64(tag + 8);
+        /* The Q a PACKED RGBAQ takes is 1.0 at the start of every GIF tag,
+         * then the Q of the last PACKED ST in that tag (measured in PCSX2's
+         * software GS: p8_gif pk_q_after_packed_st / _ad_rgbaq / _ad_st,
+         * GS_EXACT.md 2.1; the model that kept the Q across tags left 1,024
+         * values off in each). A+D writes of RGBAQ or ST do not change it. */
+        w->q = 0x3F800000u;
+        w->q_known = 1;
         const uint32_t nloop = (uint32_t)(lo & 0x7FFFu), eop = (uint32_t)(lo >> 15) & 1u;
         const uint32_t pre = (uint32_t)(lo >> 46) & 1u, flg = (uint32_t)(lo >> 58) & 3u;
         uint32_t nreg = (uint32_t)(lo >> 60);

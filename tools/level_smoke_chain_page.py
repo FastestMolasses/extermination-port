@@ -35,8 +35,8 @@ checks:
   the glow markers (001CD520's sprites) the port drew equal the ones the
   capture's own page draws (the original microcode and GS walk over the
   capture's latest page), vertex for vertex; the colour is not compared (it
-  follows rand(), 001F4D40), nor the Q of a vertex that takes the frame's Q
-  on either side. There too the weather's tile packet 3 (P, the clip
+  follows rand(), 001F4D40); the Q is (each GIF tag's, 1.0 at the tag's
+  start on both sides: docs/GS_EXACT.md 2.1). There too the weather's tile packet 3 (P, the clip
   projection, K, the fog 001E67C0's 0021B9A0 left, the depth bias and the
   GIF tag row) equals the capture's weather list's, and the flame's
   001CFBE0 packet 4 (the same rows for the sprite program) and packet 1
@@ -241,6 +241,7 @@ def check_chain_page(ticks, state):
         for k in range(8):
             types[k] += by_type[k]
         stale += stale_q
+        assert stale_q == 0, ('chain page', 'a vertex without its GIF tag\'s Q', stale_q)
         skipped += skip
         if sample is not None:
             samples.append((t['tick'], p))
@@ -286,7 +287,7 @@ def check_chain_page(ticks, state):
     print(f'chain page: PASS ({len(drawn)} pages drawn ({lanes} with the barrel\'s six lane MSCALs, '
           f'{snow_pages} with the weather\'s {SNOW_TILES} snow tiles, {flame_pages} with the flame): '
           f'{types[6]} sprites, {types[5] + types[4]} triangles, '
-          f'{types[2]} lines; {skipped} 001DDE10 CALLs walked over; {stale} vertices with the frame\'s Q; '
+          f'{types[2]} lines; {skipped} 001DDE10 CALLs walked over; every vertex with its GIF tag\'s Q; '
           f'{len(samples)} sampled pages re-walked with the original microcode equal the port\'s primitives '
           f'({watched_checked} reads of the presets, program packets and flame descriptor equal the route '
           f'captures\'); aligned: {", ".join(exact) if exact else "none camera-exact"})')

@@ -66,7 +66,11 @@ from **one codebase**:
    snapshots hold no rendered frame). The software renderer is PCSX2's model
    of the GS, not real hardware. Render the port at the same
    game state in the Original profile. Diff the two pixel by pixel. This turns
-   "looks like the original" into a number.
+   "looks like the original" into a number. **Built 2026-09-28**
+   (`tools/test_fb2_pixels.py`, `make test-fb2-pixels`; GS_EXACT.md section
+   10 has the method and the numbers per point). Today it samples the
+   port's Metal frame (host resolution, 4:3) at the GS sample points; once
+   item 2 exists it compares the GS model's field word for word.
 2. **GS-exact Original rendering.** Render each field at 512x224 as the GS does, apply the GS blend, fog,
    alpha-test and dither rules exactly, and scale to 4:3 without filtering.
 3. **Profile switch plumbing.** One settings struct with an Original value for

@@ -122,6 +122,16 @@ const char *em_scene_bindings_pool_binding(uint32_t callback);
 /* The original record address of a pool record (0 outside the pool; test
  * instrumentation: the level smoke's player-ground check). */
 uint32_t em_scene_bindings_pool_address(const void *actor);
+/* Frame captures keyed on the scene tick log (EM_AREA_CHANGE_LOG), for the
+ * fb2 pixel harness (tools/test_fb2_pixels.py, docs/GS_EXACT.md section 10).
+ * `tick` is the "tick" number of a log line; em_scene_bindings_log_tick_next
+ * is the number the next task will log. capture_tick asks em_gfx to write
+ * the frame of the iteration that logs `tick` (the frame drawn after that
+ * task) to `path` as a BMP, and prints "fb capture: tick <n> -> <path>".
+ * Also read from EM_FB_CAPTURE_TICKS="<tick>:<path>[;<tick>:<path>...]".
+ * Test instrumentation: it changes nothing the game computes. */
+uint32_t em_scene_bindings_log_tick_next(void);
+void em_scene_bindings_capture_tick(uint32_t tick, const char *path);
 
 /* ---- Legacy port code the bindings call (implemented in em_game.c) ----
  * Each one is today's code, moved unchanged out of the retired

@@ -1251,6 +1251,35 @@ the remaining gaps re-made; census 1.44):**
   all` builds with no warnings; `compare_frame_order.py --self-test` passes
   with the empty allow list.
 
+**Status update (2026-09-28, chain step "the fb2 pixel harness", audit 1b
+item 2 first half):**
+- **The pixel harness exists.** `tools/test_fb2_pixels.py` (`make
+  test-fb2-pixels`; GS_EXACT.md section 10) captures the port's
+  Original-profile frame at the tick the level smoke aligns with each fb2
+  software-renderer field and compares it per pixel (RGB exact fraction,
+  mean / maximum channel error, a difference image). Default: first
+  control (about 17 s); `EM_TEST_FULL=1`: the 7 points the smoke aligns
+  (10 and 14 camera exact), about 4.5 min, 12 points listed as not aligned
+  with the reason. The port frame is Metal's at 1920x1440, point-sampled
+  at the GS sample points (nearest Metal pixel, the field's OFY honoured).
+- **Named pixel differences removed, each with its measured rule:** the
+  Gouraud fog weight (8.7, GS_EXACT.md 5.2; test_gs_fog_conformance part C:
+  342,349 of 342,831 values against 186,635 for the old 8-bit weight) on
+  the object / static-world, chain-page and shadow-receiver shaders; the
+  skinned path's fog on the 8-bit colour with the integer GS result; the
+  message glyph strips sampled nearest (their packets D_002510C0 /
+  D_00251140 write TEX1_1 = 0); the page's Q per GIF tag (1.0 at every tag
+  start, GS_EXACT.md 2.1), which replaces the "frame's Q" premise (no pixel
+  changed: every premise vertex is 1.0 under the rule).
+- **Numbers (relative to PCSX2's software GS):** camera-exact 10: 28.63 % ->
+  30.89 % of pixels exact; 14: 24.88 % -> 28.79 %; mean channel error 1.39
+  and 1.78 (per point: GS_EXACT.md section 10).
+- **Not removed:** 001DDE10's four frame-copy sprites (they need the frame
+  as GS memory and the GS Z buffer: the GS model's binding, GS_EXACT.md
+  section 9; CHAIN_PAGE.md section 6).
+- Census: no row changes status (the changes are the renderer and the page
+  consumer's GIF walk, a boundary); section 1.45 of FIRST_LEVEL_CENSUS.md.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1315,20 +1344,27 @@ The groups:
      (PORT_PROFILES.md "Queued work" 2);
    - the clean-room GS model (phase B16, `src/gs/`, GS_EXACT.md) is measured
      against PCSX2's software GS but not wired (GS_EXACT.md section 9);
-   - named pixel differences: a Gouraud fog weight reaches the blend at
-     8-bit precision where the GS uses 8.7 (GS_EXACT.md 5.2), the skinned
-     path's fog is not floored, glyphs are sampled bilinearly from the port's
-     atlas (the original's sampling not checked against the font packet's
-     TEX1), 001DDE10's four frame-copy sprites are walked over, not drawn,
-     and a vertex whose RGBAQ precedes every ST of its page is drawn with
-     Q = 1.0 (about 2 per page);
-   - no pixel metric exists: the fb2 software-renderer frames (19 route
-     points, decomp CAPTURES_C7.md 5b) wait for a harness (PORT_PROFILES.md
-     "Queued work" 1); the camera-exact beats 10 and 14 are the candidates;
+   - the pixel metric exists (the fb2 step, 2026-09-28: `make
+     test-fb2-pixels`, GS_EXACT.md section 10): at the camera-exact
+     snapshots 10 and 14, 30.89 % and 28.79 % of the field's pixels are
+     exact, mean channel error 1.39 and 1.78, median per-pixel error 1;
+   - named pixel differences left: 001DDE10's four frame-copy sprites are
+     walked over, not drawn (they need the frame as GS memory and the GS Z
+     buffer); the ±1 floor on every surface: the texture function uses the
+     8-bit colour where the GS uses 8.7 (GS_EXACT.md 5.1; measured, not
+     applied: the object / static-world shader alone would take 10 and 14
+     to 36.19 % and 37.23 %), and Metal's float interpolation and
+     rasterization at host resolution stand in for the GS's DDA; the
+     message glyphs' TEX0 / CLUT, TEST and ALPHA are the atlas's (no fb2
+     frame shows text); the snow's and the flame's sprites follow the
+     port's rand() stream and the fans' phase follows the recording's
+     timing, so they differ at every point (RAND_ORDER.md);
    - how the 512x224 fields are presented is the user's open decision
      (LAUNCHER_OPTIONS.md, REVIEW).
-   - What removes it: the harness first (it turns "looks like" into a
-     number), then the GS model bound for the Original profile.
+   - What removes it: the texture function at 8.7 (5.1) on the integer
+     shaders, then the GS model bound for the Original profile (section 9),
+     which also draws 001DDE10's pass; the harness then compares the
+     model's field word for word.
 3. **Look / feel: the area load and its veil (H7).** The port's area read
    (em_game_legacy_area_load for 001FF080(1, 0)) finishes inside the call,
    so 001ADF50's load spans no tick and the load veil 0021B550 draws one

@@ -221,11 +221,13 @@ through the object units' GS-to-NDC mapping, Z through their depth mapping
 (depth GEQUAL, no Z write: AFAIL RGB_ONLY), colour and F screen-linear
 (Gouraud), S, T, Q screen-linear with the per-pixel divide (STQ); the texture
 through its CT32 CLUT, bilinear with the GS 4-bit weights at U - 0.5 and
-REPEAT, TFX MODULATE with TCC 1; fog FOGCOL + ((C - FOGCOL) * F >> 8) (floor
-shift; em_fog_gs_blend, the rule measured in PCSX2's software GS, GS_EXACT.md
-5.2 and tools/test_gs_fog_conformance.py; the (C * F + FOGCOL * (255 - F))
->> 8 this section gave until 2026-09-28 matched 1,040 of 4,096 pixels) with
-the frame's FOGCOL; the blend ((A - B) * C >> 7) + D with COLCLAMP on the
+REPEAT, TFX MODULATE with TCC 1; fog FOGCOL + ((C - FOGCOL) * F7 >> 15)
+with the 8.7 weight F7 = floor(128 * F + 0.01) of the screen-linear F
+(floor shift; em_fog_gs_blend7 / em_fog_gs_weight7, the rule measured in
+PCSX2's software GS, GS_EXACT.md 3.2 / 5.2 and
+tools/test_gs_fog_conformance.py; for a constant F it is FOGCOL + ((C -
+FOGCOL) * F >> 8), and the (C * F + FOGCOL * (255 - F)) >> 8 this section
+gave until 2026-09-28 matched 1,040 of 4,096 pixels) with the frame's FOGCOL; the blend ((A - B) * C >> 7) + D with COLCLAMP on the
 frame pixel (framebuffer fetch), RGB only. The GS sprite takes Z, F and RGBA
 from its second vertex and S / Q, T / Q at each corner, affine across the
 rectangle. Every other state is refused (-1, the scene faults): PRIM with AA1,
@@ -235,13 +237,29 @@ other than 0; a TEX0 not PSMT4 / PSMT8 through a CT32 CLUT with TCC 1 and
 MODULATE, or not registered; a state the page did not set; FGE without the
 frame's fog.
 
-**Two premises**, stated because no capture shows them:
-- **The frame's Q.** 001CD520's and the sprite program's packets write RGBAQ
-  before ST, so their first sprite takes the Q the GS held from the frame's
-  earlier draws. The port does not model the frame's GS traffic; such a
-  vertex (q_known 0) is drawn with Q = 1.0, the Q every later sprite of those
-  packets carries (their second ST). Counted: 42 vertices over the 15
-  captured pages, 19,276 over the full route (about 1.5 per page).
+**The Q of a PACKED RGBAQ** (since the fb2 step, 2026-09-28). The GS's
+internal Q is 1.0 at the start of every GIF tag and then the Q of the last
+PACKED ST in that tag (measured in PCSX2's software GS: p8_gif
+`pk_q_after_packed_st`, `pk_q_after_ad_rgbaq`, `pk_q_after_ad_st`,
+GS_EXACT.md 2.1). `em_chain_page`'s GIF walk and the reference model
+(tools/chain_page_model.py `Gs.tag`) set it at every tag. The packets'
+register order (read from the captured pages): 001CD520's DIRECT packet
+(D_00251220's tag) and the sprite program's kicks are TEX0, RGBAQ, ST,
+XYZF2, ST, XYZF2 per sprite, and the glint's lines RGBAQ, XYZF2 three times,
+so a sprite's RGBAQ takes the Q before its own STs: the previous sprite's
+second ST in the same tag, or 1.0 for the tag's first. Before this step the
+walk carried the Q across tags and drew a vertex whose RGBAQ preceded every
+ST of the page with Q = 1.0 as a premise (42 vertices over the 15 captured
+pages, 19,276 over the full route); under the measured rule every one of
+those is 1.0, and no other vertex of the captured pages changes Q (the
+walk of all 15 pages with both rules), so no drawn pixel changed. Every
+vertex now has its tag's Q (`stale_q` is 0, asserted by the reference test
+and the level smoke). A sprite's texture coordinates use the second
+vertex's Q at both corners in the GS (GS_EXACT.md 4.5); in these packets
+both vertices carry the same RGBAQ Q, so the port's per-corner divide
+gives the same values.
+
+**One premise**, stated because no capture shows it:
 - **The inherited VIF cycle.** The lane program's constant UNPACK (14 rows to
   row 0) comes before the page's first STCYCL, because its packet's STCYCL
   sits in its DMA tag (section 2). The cycle is then the frame's, taken as
@@ -289,8 +307,24 @@ frame's fog.
 - **001DDE10's four-sprite pass (slot 0xFFF).** Every world frame (flag 1)
   001DDE10 CALLs a channel-3 packet: GS environment REFs of the other banks
   (FRAME / ZBUF / TEST / CLAMP), 001D6C90's texture-from-frame packets and
-  four sprites that sample the frame. Its look is not reproduced (it needs
-  the frame buffer as a texture). The consumer walks over that one CALL,
+  four sprites that sample the frame. What the sprites are (the decomp's
+  func_001DDE10, read 2026-09-28 for the fb2 step): per slot k = 0..3, after
+  001D6B10(3, D_0027568C, 8, 8), 001D6BA0, 001D1FF0(3, 3) and 001D6C90 set
+  the texture state, one PACKED sprite (tag with PRE, registers RGBAQ, UV,
+  XYZF2, UV, XYZF2) covering the whole field, window corners (0x7000,
+  0x7900) and (0x9000, 0x8700), UV (8, 8) to (0x1008, 0x1008) in 1/16
+  texel, RGB 0x80 and alpha the slot's eased value at +0x2500 + 4k (in
+  AREA11, when neither 001D2910(7) nor 0022EBE0 is set, the targets 0x18 /
+  0x28 / 0x38 / 0x48), Z the slot's eased depth
+  (+0x24F0 + 4k, from the tracked point's depth through the slot's gain).
+  So each sprite blends a copy of the frame, read through the texture state
+  001D6C90 sets, over the pixels its Z test passes. Its look is not
+  reproduced: it needs the frame as GS memory (the displayed buffer read
+  back through that texture state) and the GS Z buffer for the test, which
+  only the GS model's binding provides (GS_EXACT.md section 9); the port's
+  Metal frame has neither. The fb2 harness (tools/test_fb2_pixels.py) shows
+  no region-wide difference at the camera-exact points 10 and 14 that this
+  pass would explain, but it cannot isolate the pass either. The consumer walks over that one CALL,
   whose address the render context records at 001CB760(0xFFF000)
   (`em_rcl_page`), and counts it; the smoke asserts it is the only CALL
   walked over (12,573 over the full route). It was not drawn before either.
@@ -325,7 +359,8 @@ frame's fog.
   program packets, D_00253670, D_002565E0.., and the overlay source blocks
   001D04B0 was handed: the flame's D_00828340), then tells em_shadow_live how many decal
   triangles it drew (`em_shadow_live_page_drew`: they must be exactly the
-  frame's 0015BF90 fans'), replaces the frame's Q (section 5) and draws.
+  frame's 0015BF90 fans'), checks every vertex has its GIF tag's Q
+  (section 5) and draws.
 - **Assets:** `python3 tools/export_effect_tables.py` again (the three program
   packets, 0x00231770 + 0xDD0, 0x00233290 + 0x570 and, since FLAMESNOW,
   0x00233800 + 0xDE0, joined its blocks; each block is checked equal in every
@@ -396,7 +431,8 @@ frame's fog.
 
 - Rasterization is Metal's (float interpolation, the line rule), not the GS
   DDA; no GS dump of a drawn frame exists to compare pixels with.
-- The frame's Q and the inherited VIF cycle are premises (section 5).
+- The inherited VIF cycle is a premise (section 5); the Q is the measured
+  per-tag rule since the fb2 step.
 - 001DDE10's four-sprite pass is walked over, not drawn (section 6).
 - The flame's and the snow's sprites follow their owners' phase and seed
   (the flame's age since its spawn, rand(): 008235F0 state 0 and 001E55F0

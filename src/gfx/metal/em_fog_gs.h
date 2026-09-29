@@ -19,11 +19,13 @@
  *     F = min(A + B * clip_w, 255), then max(F, 0), then ftoi4 into the
  *     XYZF2 F field (bits 4..11 of the fixed-point value = floor(F)).
  *   - The GS then blends each pixel toward FOGCOL with F interpolated
- *     linearly across the primitive: C' = FOGCOL + ((C - FOGCOL) * F >> 8)
- *     with a floor shift, after the texture function. F = 0 gives pure
+ *     linearly across the primitive at 1/128 precision (the 8.7 weight F7):
+ *     C' = FOGCOL + ((C - FOGCOL) * F7 >> 15) with a floor shift, after the
+ *     texture function; for a constant F, F7 = F << 7. F = 0 gives pure
  *     FOGCOL; F = 255 still leaves 1/256 of FOGCOL. This is the MEASURED
- *     rule (decomp docs/GS_CONFORMANCE.md 5.5, port docs/GS_EXACT.md 5.2);
- *     em_fog_gs_blend below and EM_FOG_GS_MSL (its one shader copy) hold it.
+ *     rule (decomp docs/GS_CONFORMANCE.md 5.5, port docs/GS_EXACT.md 3.2 and
+ *     5.2); em_fog_gs_blend7 / em_fog_gs_blend below and EM_FOG_GS_MSL (their
+ *     one shader copy) hold it.
  * AREA11 (key 0x0B00): near -209, far 304, FOGCOL 48,48,48; RAM captures
  * hold exactly these constants and the opening GS state holds FOGCOL
  * 0x303030 (checked by tools/test_area11_fog_reference.py).
@@ -95,30 +97,59 @@ static inline float em_fog_gs_factor(const float coef[2], float clip_w)
     return floorf(f);
 }
 
-/* The GS fog blend of one 8-bit channel, as measured in PCSX2's software
- * GS (decomp docs/GS_CONFORMANCE.md 5.5: 4,096 of 4,096 flat-F pixels and
- * 4,096 of 4,096 fogged-MODULATE pixels, where it follows the texture
- * function; port docs/GS_EXACT.md 5.2):
- *     C' = FOGCOL + ((C - FOGCOL) * F >> 8)      (arithmetic shift: floor)
+/* The GS fog blend of one 8-bit channel with the 8.7 fog weight F7, as
+ * measured in PCSX2's software GS (port docs/GS_EXACT.md 3.2 / 5.2):
+ *     C' = FOGCOL + ((C - FOGCOL) * F7 >> 15)    (arithmetic shift: floor)
  * computed here in its equal non-negative form
- *     C' = (F * C + (256 - F) * FOGCOL) >> 8.
- * `c`, `fogcol` and `f` are 0..255. The form (F * C + (255 - F) * FOGCOL)
- * >> 8 the port used before matches only 1,040 of the 4,096 flat-F pixels.
- * For a Gouraud F the GS uses the 8.7 weight F7 (GS_EXACT.md 3.2 / 5.2),
- * C' = FOGCOL + ((C - FOGCOL) * F7 >> 15), which equals this rule when
- * F7 = F << 7; the callers pass the 8-bit F they have. */
-static inline uint32_t em_fog_gs_blend(uint32_t c, uint32_t f, uint32_t fogcol)
+ *     C' = (F7 * C + (32768 - F7) * FOGCOL) >> 15.
+ * `c` and `fogcol` are 0..255, `f7` is 0..32640 (255 << 7). For a
+ * triangle F7 is the Gouraud weight at 1/128 precision (GS_EXACT 3.2); for
+ * a constant F (sprites, flat shading) it is F << 7. Evidence: decomp
+ * build/b16 gscap3 p3_start fog_* (Gouraud F; tools/test_gs_fog_conformance.py
+ * part C) and GSCAP fog_cols / fog_tex (constant F; parts A and B,
+ * decomp docs/GS_CONFORMANCE.md 5.5). */
+static inline uint32_t em_fog_gs_blend7(uint32_t c, uint32_t f7, uint32_t fogcol)
 {
-    return (f * c + (256u - f) * fogcol) >> 8;
+    return (f7 * c + (32768u - f7) * fogcol) >> 15;
 }
 
-/* The same rule as Metal shading-language source, spliced into every
- * shader that fogs integer GS colours (em_gfx_metal.m: the object units,
- * the chain page's primitives and the shadow receivers), so the backend
- * holds one copy of it. c and fc are 0..255 per channel, f is 0..255. */
+/* The same rule for a constant 8-bit F (F7 = F << 7):
+ *     C' = FOGCOL + ((C - FOGCOL) * F >> 8) = (F * C + (256 - F) * FOGCOL) >> 8.
+ * The form (F * C + (255 - F) * FOGCOL) >> 8 the port used before matches
+ * only 1,040 of the 4,096 flat-F pixels (GS_CONFORMANCE.md 5.5). */
+static inline uint32_t em_fog_gs_blend(uint32_t c, uint32_t f, uint32_t fogcol)
+{
+    return em_fog_gs_blend7(c, f << 7, fogcol);
+}
+
+/* The 8.7 weight of an interpolated F (0..255 as a float): floor(128 * F),
+ * with 0.01 of a 1/128 step added so that a vertex or constant F that
+ * Metal's float interpolation returns a few ulp below its integer keeps
+ * its value (|error| <= about 0.004 steps for F <= 255). On the p3_start
+ * fog_* tests (the exact plane at each sample point) this epsilon costs 13
+ * of 342,831 channel values against none (tools/test_gs_fog_conformance.py
+ * part C records both). */
+static inline uint32_t em_fog_gs_weight7(float f)
+{
+    const float w = floorf(f * 128.0f + 0.01f);
+    return w <= 0.0f ? 0u : w >= 32640.0f ? 32640u : (uint32_t)w;
+}
+
+/* The same rules as Metal shading-language source, spliced into every
+ * shader that fogs integer GS colours (em_gfx_metal.m: the object units
+ * and the static world, the chain page's primitives and the shadow
+ * receivers), so the backend holds one copy of them. c and fc are 0..255
+ * per channel, f 0..255, f7 0..32640; em_fog_gs_weight7 takes the
+ * interpolated F. */
 #define EM_FOG_GS_MSL \
+    "static uint3 em_fog_gs_blend7(uint3 c, uint f7, uint3 fc) {\n" \
+    "    return (c * f7 + fc * (32768u - f7)) >> 15;\n" \
+    "}\n" \
     "static uint3 em_fog_gs_blend(uint3 c, uint f, uint3 fc) {\n" \
-    "    return (c * f + fc * (256u - f)) >> 8;\n" \
+    "    return em_fog_gs_blend7(c, f << 7, fc);\n" \
+    "}\n" \
+    "static uint em_fog_gs_weight7(float f) {\n" \
+    "    return uint(clamp(floor(f * 128.0 + 0.01), 0.0, 32640.0));\n" \
     "}\n"
 
 #endif /* EM_FOG_GS_H */

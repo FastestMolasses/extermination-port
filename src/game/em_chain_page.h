@@ -41,9 +41,9 @@
  * uploads, and every drawing state a captured primitive uses is set earlier
  * in its page (the reference test runs every captured page from random
  * VU1 contents and gets the same primitives). The GS's internal Q (the one
- * PACKED ST holds for the next RGBAQ) is the exception: a sprite whose
- * RGBAQ precedes every ST of the page takes the frame's Q, which the port
- * does not model; such vertices carry q_known 0 (section 5 of the doc).
+ * PACKED ST holds for the next PACKED RGBAQ) is 1.0 at the start of every
+ * GIF tag (measured, docs/GS_EXACT.md 2.1), so no vertex takes a Q from
+ * the frame's earlier draws: every q_known is 1 (section 5 of the doc).
  *
  * List mode (em_chain_page_run_list; docs/LOAD_VEIL_PARTICLES.md section
  * 3): the same walk over a whole frame list that ends in an END tag (step
@@ -103,13 +103,14 @@ typedef struct {
     uint32_t prims;           /* primitives drawn                         */
     uint32_t prim_type[8];    /* by PRIM type                             */
     uint32_t skipped;         /* top-level CALLs to skip_calls walked over */
-    uint32_t stale_q;         /* vertices whose Q is the frame's (q_known 0) */
+    uint32_t stale_q;         /* vertices with q_known 0 (none since the per-tag Q) */
     uint32_t cycle_inherited; /* UNPACKs before the page's first STCYCL      */
     uint32_t mscal_snow;      /* MSCALs of the snow program (D_00233800)     */
 } EmChainPageCounts;
 
-/* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: set by a PACKED
- * ST or an A+D RGBAQ of this page). */
+/* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its
+ * GIF tag, 1.0 or a PACKED ST's, or an A+D RGBAQ's; always 1 since the
+ * per-tag Q). */
 typedef struct {
     uint8_t q_known[3];
 } EmChainPageQ;

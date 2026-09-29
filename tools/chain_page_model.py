@@ -298,7 +298,8 @@ class VuOracle(sh.VU1):
 def gif_writes(data, path):
     """GIF packets (PACKED only; REGLIST / IMAGE raise) -> the GS register
     writes in order: [(reg, lo64, hi64)] for the PACKED registers, with A+D
-    written as (target register, value, None). Returns (writes, qwords used)."""
+    written as ('AD', target register, value) and ('TAG', 0, 0) at the start
+    of every GIF tag. Returns (writes, qwords used)."""
     out, q, n = [], 0, len(data) // 16
     while True:
         if q >= n:
@@ -309,6 +310,7 @@ def gif_writes(data, path):
         nreg = (lo >> 60) or 16
         if flg != 0:
             fail(f'{path}: GIF FLG {flg} (only PACKED occurs in the page)')
+        out.append(('TAG', 0, 0))
         if pre:
             out.append(('AD', 0x00, prim))
         regs = [(hi >> (4 * r)) & 15 for r in range(nreg)]
@@ -339,8 +341,10 @@ class Gs:
     Every drawn primitive is recorded as (prim register, state tuple,
     vertices), a vertex being (x, y, z, f or None, (r, g, b, a), q, s, t,
     u, v, q_known). The GS's internal Q (the one PACKED ST holds for the
-    next RGBAQ) starts unknown at the page: a vertex whose RGBAQ precedes
-    every ST of the page takes the frame's Q (q_known 0, Q 0 here)."""
+    next PACKED RGBAQ) is 1.0 at the start of every GIF tag (measured in
+    PCSX2's software GS: p8_gif pk_q_after_packed_st, docs/GS_EXACT.md 2.1),
+    so every vertex's Q is known (q_known 1); the page never takes a Q from
+    the frame's earlier draws."""
 
     def __init__(self):
         self.state = {}
@@ -377,6 +381,10 @@ class Gs:
             pass
         else:
             fail(f'{path}: PACKED register {reg:#x} (not in the page)')
+
+    def tag(self):
+        """A GIF tag starts: the Q a PACKED RGBAQ takes is 1.0 again."""
+        self.q, self.q_known = 0x3F800000, 1
 
     def ad(self, reg, value, path):
         if reg in AD_STATE:
@@ -418,7 +426,9 @@ class Gs:
 def gs_feed(gs, data, path):
     writes, used = gif_writes(data, path)
     for reg, a, b in writes:
-        if reg == 'AD':
+        if reg == 'TAG':
+            gs.tag()
+        elif reg == 'AD':
             gs.ad(a, b, path)
         else:
             gs.write(reg, a, b, path)

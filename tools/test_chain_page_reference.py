@@ -488,6 +488,8 @@ def part_a(lib, stats, elf, seeds):
         stats['page_directs'] += counts.direct
         stats['page_skipped_calls'] += counts.skipped
         stats['page_stale_q'] += counts.stale_q
+        if counts.stale_q:
+            fail(f'{beat}: {counts.stale_q} vertices without their GIF tag\'s Q')
         stats['page_cycle_inherited'] += counts.cycle_inherited
         for t in range(8):
             if counts.prim_type[t]:
@@ -810,7 +812,7 @@ def main():
            + (" and to the executed original" if stats['preset_original'] else ""))
     print('chain page reference: PASS (primitive types ' +
           ', '.join(f'{k[10:]}: {v}' for k, v in sorted(stats.items()) if k.startswith('prim_type_')) +
-          f"; frame Q on {stats['page_stale_q']} captured vertices; "
+          f"; every vertex with its GIF tag's Q; "
           f"{stats['page_cycle_inherited']} UNPACKs before the page's first STCYCL)")
     return 0
 

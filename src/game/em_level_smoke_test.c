@@ -312,6 +312,23 @@ static void next_phase(void)
     if (colon && colon[1] && (size_t)(colon - pc) == strlen(done->name) &&
         strncmp(pc, done->name, (size_t)(colon - pc)) == 0)
         em_gfx_request_capture(em_frame_gfx(), colon + 1);
+    /* The fb2 pixel harness (tools/test_fb2_pixels.py):
+     * EM_LEVEL_SMOKE_FB_CAPTURE=<phase>+<k>:<path.bmp> saves the frame of
+     * the k-th scene tick after the one that ended <phase> (k >= 1; the
+     * hook runs after that tick's frame). The harness checks the logged
+     * tick against the route alignment before it compares a pixel. */
+    const char *fc = getenv("EM_LEVEL_SMOKE_FB_CAPTURE");
+    const char *plus = fc ? strchr(fc, '+') : NULL;
+    const char *fcolon = plus ? strchr(plus, ':') : NULL;
+    if (fcolon && fcolon[1] && (size_t)(plus - fc) == strlen(done->name) &&
+        strncmp(fc, done->name, (size_t)(plus - fc)) == 0) {
+        const int k = atoi(plus + 1);
+        if (k >= 1) {
+            const uint32_t tick = em_scene_bindings_log_tick_next() + (uint32_t)(k - 1);
+            em_scene_bindings_capture_tick(tick, fcolon + 1);
+            fprintf(stderr, "level smoke: fb capture: %s+%d = tick %u\n", done->name, k, (unsigned)tick);
+        }
+    }
     if (done->driven) {
         const char *binding = done->owner ? em_scene_bindings_pool_binding(done->owner) : NULL;
         fprintf(stderr, "level smoke: %s: NOT-LIVE driven (route beat %s; original: %s; port binding of "

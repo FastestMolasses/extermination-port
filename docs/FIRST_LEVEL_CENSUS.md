@@ -1826,6 +1826,30 @@ section 1b (re-made 2026-09-28).
 
 Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links the original assembly), AI asm with mnemonics, AW asm of `.word`s, CL C linked from asm, AU undecompiled, CO overlay C.
 
+### 1.45 Update (2026-09-28, the fb2 pixel harness: renderer and page-walk changes, no status change)
+
+The step built the fb2 pixel harness (tools/test_fb2_pixels.py, GS_EXACT.md
+section 10) and changed only renderer-side code: the 8.7 fog weight on every
+integer fog site and the skinned path's fog on the 8-bit colour
+(em_fog_gs.h, em_gfx_metal.m), nearest sampling for the message glyph strips
+(em_hud_glyph_strip, reading D_002510C0 / D_00251140's TEX1_1 = 0), and the
+page consumer's GIF walk taking Q = 1.0 at every GIF tag (em_chain_page.c,
+the GS register semantics measured in GS_EXACT.md 2.1). The DMA / VIF / GIF
+/ GS walk is the renderer boundary (section 1.24), and no EE function of the
+census gained or lost a translation or a binding.
+
+- **Status changes:** none. **Row notes changed:** none.
+- **Evidence.** test-gs-fog-conformance (part C, the Gouraud-F tests),
+  test-chain-page-reference (every captured vertex with its tag's Q; the
+  reference model's GIF walk takes the same rule), test-object-unit-gpu /
+  test-static-world-gpu (the shared pixel model with the 8.7 weight), the
+  level smoke (check_chain_page asserts no vertex without its tag's Q), the
+  harness's numbers; newgame-control 9.599849 (unchanged).
+
+Result (recounted from the section 3 rows, 756 rows): live 703,
+verified-unbound 50, unverified 3, stand-in 0, missing 0, boundary 428;
+85,512 of the 88,729 non-boundary instructions live (96.4%), as in 1.44.
+
 ## 2. Totals
 
 ### 2.1 All 1184 executed functions
@@ -1840,7 +1864,7 @@ Decomp status codes: BM byte-matched C, NM NEARMISS (readable C, the build links
 | boundary | 428 | 23,035 | 150 (9,735) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 756 non-boundary functions, 703 (93.0%) are live and verified; by instructions 85,512 of 88,729 (96.4%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 50 functions (3,090 instructions, 3.5%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43 and 1.44) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 756 non-boundary functions, 703 (93.0%) are live and verified; by instructions 85,512 of 88,729 (96.4%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 50 functions (3,090 instructions, 3.5%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 

@@ -190,10 +190,9 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.total_skipped += p->counts.skipped;
     if (em_shadow_live_bound() && em_shadow_live_page_drew(decal) < 0)
         return fail(0x001CE300u, "the decal the page drew is not the 0015BF90 route's");
-    /* The frame's Q (em_chain_page_live.h): drawn as 1.0. */
-    for (uint32_t i = 0; i < p->prim_count; ++i)
-        for (uint32_t k = 0; k < p->prims[i].count; ++k)
-            if (!S.q[i].q_known[k]) p->prims[i].v[k].q = 0x3F800000u;
+    /* Every vertex's Q is its GIF tag's (em_chain_page_live.h). */
+    if (p->counts.stale_q)
+        return fail(0x001CB800u, "a page vertex has no Q");
     if (em_gfx_gs_prims(gfx, p->prims, p->prim_count) < 0)
         return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
     return 0;

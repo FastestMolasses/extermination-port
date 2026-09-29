@@ -89,11 +89,24 @@ XYZ2/UV values are mapped with the UI canvas offsets 0x700/0x790 (field lines
 doubled, 512x448) and drawn with `em_gfx_overlay_glyph` (sprite) or
 `em_gfx_overlay_glyph_skew` (strip), modulated by RGBAQ / 0x80.
 
+**Sampling (2026-09-28, the fb2 step).** Both prebuilt packets write
+TEX1_1 = 0 before the passes: in D_002510C0 (sprite) and D_00251140 (strip)
+the A+D GIF tag's fourth register (qword 5 of each block) is TEX1_1 with
+the value 0, so MMAG and MMIN are nearest (read from the user's ELF; the
+reference test checks both packets equal to the pinned ELF). The glyph
+strips now sample the font atlas nearest (`em_gfx_overlay_glyph_nearest`
+around `em_hud_glyph_strip`'s passes); the port's other font quads (the
+legacy HUD text, not drawn from these packets) keep the bilinear sampler.
+The status pages' blend blocks set TEX1_1 = 0x60 (bilinear) for the page
+sprites (FIDELITY_FEATURES.md, the status-screen entry); the glyph packet
+sets its own TEX1 after them, so the two do not conflict.
+
 Not modelled at the boundary (renderer work, WP for the Original profile's GS
 path): the prebuilt packets' TEX0/CLUT (the port's atlas is white with alpha
-coverage), their TEX1 = 0 (nearest sampling; the overlay glyph sampler is
-bilinear), TEST and ALPHA registers, and the GS rasterisation of a sprite
+coverage), TEST and ALPHA registers, and the GS rasterisation of a sprite
 whose texel span (u_end = width + 1) is one texel wider than its pixel span.
+No capture of the fb2 set shows message text (CAPTURES_C7.md 5b), so the
+glyphs' pixels are not compared (tools/test_fb2_pixels.py).
 
 ## Capture compare
 

@@ -753,6 +753,11 @@ void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
 {
     if (!gfx || !f || !font_ensure(gfx)) return;
     em_gfx_overlay_canvas(gfx, EM_GFX_STATUS_W, EM_GFX_STATUS_H);
+    /* The prebuilt packets D_002510C0 (sprite) and D_00251140 (strip)
+     * write TEX1_1 = 0 before the passes: MMAG and MMIN nearest (their A+D
+     * qword 5, read from the ELF; tools/test_message_glyph_reference.py
+     * checks the packets equal to the pinned ELF). */
+    em_gfx_overlay_glyph_nearest(gfx, 1);
     for (int pass = 0; pass < EM_MESSAGE_GLYPH_PASSES; pass++) {
         const EmMessageGlyphPass *p = &f->pass[pass];
         uint32_t c = (uint32_t)p->rgbaq;
@@ -818,6 +823,7 @@ void em_hud_glyph_strip(EmGfx *gfx, const EmMessageGlyphFlush *f)
             col = stop;
         }
     }
+    em_gfx_overlay_glyph_nearest(gfx, 0);
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
 

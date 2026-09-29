@@ -319,9 +319,10 @@ int em_gfx_overlay_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
 /* Queue one TEXTURED overlay quad sampling the FONT slot: (x, y, w, h)
  * in virtual-canvas units like em_gfx_overlay_rect; (u0, v0)-(u1, v1)
  * in TEXELS of the registered texture (the engine's text vocabulary —
- * its glyph sprites carry 12.4 texel UVs). Sampled BILINEAR and
- * modulated by `rgba` (the GS draws the font strip with TEX1
- * MMAG/MMIN=1 + TFX modulate), standard alpha blend. Counts against its
+ * its glyph sprites carry 12.4 texel UVs). Sampled BILINEAR, or
+ * NEAREST after em_gfx_overlay_glyph_nearest(gfx, 1) (the message glyph
+ * strips: their packets set TEX1_1 = 0), and modulated by `rgba` (TFX
+ * modulate), standard alpha blend. Counts against its
  * own EM_GFX_OVERLAY_MAX quad budget; glyph quads flush in one draw
  * LAST in the overlay pass (text composites over panels/gauges AND
  * decor sprites queued the same frame). No-op without a registered
@@ -329,6 +330,13 @@ int em_gfx_overlay_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
 void em_gfx_overlay_glyph(EmGfx *gfx, float x, float y, float w, float h,
                           float u0, float v0, float u1, float v1,
                           const float rgba[4]);
+
+/* The font quads queued after this call sample NEAREST (on != 0) or
+ * bilinear (0, the default; reset at every begin_frame). The message
+ * glyph strips of 001CC3B0 set it: their prebuilt packets D_002510C0 and
+ * D_00251140 write TEX1_1 = 0 (MMAG and MMIN nearest) before the passes
+ * (docs/MESSAGE_GLYPH.md "The draw boundary"). */
+void em_gfx_overlay_glyph_nearest(EmGfx *gfx, int on);
 
 /* Same font quad, with its top edge shifted right by top_skew pixels.
  * Original 001CC3B0 uses this parallelogram for message markup tag 3. */

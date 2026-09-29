@@ -15,9 +15,11 @@ pixel centres (the em_background_gs_ndc mapping) with the documented pixel
 path: screen-linear RGBA, F and S, T, Q with the per-pixel divide, GS
 bilinear at U - 0.5 with 4-bit weights and REPEAT, TFX HIGHLIGHT with TCC 1
 (MODULATE for a TFX-0 TEX0: tools/test_static_world_gpu.py shares this model),
-the alpha test, the fog blend FOGCOL + ((C - FOGCOL) * F >> 8) (measured in
-PCSX2's software GS, docs/GS_EXACT.md 5.2; the (C * F + FOGCOL * (255 - F))
->> 8 this model used until 2026-09-28 was non-original), and the nearest
+the alpha test, the fog blend FOGCOL + ((C - FOGCOL) * F7 >> 15) with the
+8.7 weight F7 = floor(128 * F + 0.01) of the screen-linear F (measured in
+PCSX2's software GS, docs/GS_EXACT.md 3.2 / 5.2; the (C * F + FOGCOL * (255 -
+F)) >> 8 this model used until 2026-09-28 was non-original, and the 8-bit
+F it used until the fb2 step is the GS's only for a constant F), and the nearest
 depth wins (ties:
 the later triangle). Pixels within 1.5 output pixels of their triangle's
 edges and pixels where two triangles' depths are within 1e-7 are not
@@ -155,7 +157,9 @@ def model(tris, tex, fogc, W, H):
         S = sum(lam[k] * f32(vs[k][5]) for k in range(3))
         Tt = sum(lam[k] * f32(vs[k][6]) for k in range(3))
         Q = sum(lam[k] * f32(vs[k][7]) for k in range(3))
-        F = np.clip(np.floor(sum(lam[k] * vs[k][3] for k in range(3)) + 0.001), 0, 255).astype(np.int64)
+        # The 8.7 fog weight of the screen-linear F (GS_EXACT.md 3.2 / 5.2;
+        # em_fog_gs.h em_fog_gs_weight7).
+        F7 = np.clip(np.floor(sum(lam[k] * vs[k][3] for k in range(3)) * 128.0 + 0.01), 0, 32640).astype(np.int64)
         cf = [np.clip(np.floor(sum(lam[k] * vs[k][4][c] for k in range(3)) + 0.001), 0, 255).astype(np.int64)
               for c in range(4)]
         with np.errstate(divide='ignore', invalid='ignore'):
@@ -172,7 +176,7 @@ def model(tris, tex, fogc, W, H):
         else:                                                    # TFX HIGHLIGHT
             rgb = np.stack([np.minimum(((ct[..., k] * cf[k]) >> 7) + cf[3], 255) for k in range(3)], axis=-1)
             alpha = np.minimum(ct[..., 3] + cf[3], 255)
-        rgb = fc + (((rgb - fc) * F[..., None]) >> 8)           # measured GS fog (GS_EXACT.md 5.2)
+        rgb = fc + (((rgb - fc) * F7[..., None]) >> 15)         # measured GS fog (GS_EXACT.md 5.2)
         draw = inside & (alpha > 0)
         sub = (slice(py0, py1 + 1), slice(px0, px1 + 1))
         d0, s0 = depth[sub], second[sub]

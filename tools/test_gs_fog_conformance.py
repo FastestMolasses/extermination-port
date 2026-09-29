@@ -29,9 +29,19 @@ the 4,096 pixels (GS_CONFORMANCE.md 5.5), so the comparison discriminates.
 With that form put back into EM_FOG_GS_MSL (2026-09-28), part B fails on
 3,056 of fog_cols' 4,096 pixels.
 
-Not covered here: a Gouraud F (fog_tri). The GS fogs with the 8.7 weight
-there (docs/GS_EXACT.md 3.2 / 5.2); the Metal shaders interpolate F in float
-and floor it to 8 bits, an open item of GS_EXACT.md.
+  C. a Gouraud F: the eight p3_start fog_* tests (decomp build/b16/gscap3,
+     GS_CONFORMANCE.md section 8: flat colour, F varying across one
+     triangle, 342,831 covered channel values). The GS fogs with the 8.7
+     weight there (docs/GS_EXACT.md 3.2 / 5.2). Per covered pixel the exact
+     plane of F at the integer sample point goes through em_fog_gs_weight7
+     (floor(128 * F + 0.01), the shaders' weight) and em_fog_gs_blend7; the
+     values that match are counted and must equal FOG_TRI_EXACT, and the
+     8-bit weight the shaders used before the fb2 step (floor(F + 0.001), the >> 8
+     rule) must match exactly FOG_TRI_EXACT_8BIT, so the part discriminates.
+     The other 482 values follow the GS's DDA stepping (GS_EXACT.md 3.2),
+     which the plane value does not reproduce (469 with no epsilon). The
+     shaders evaluate the same weight at Metal's own sample points (the fb2
+     pixel harness measures that, tools/test_fb2_pixels.py).
 
 EM_TEST_FULL=1 also checks the repeat capture (build/b16/gscap_repeat).
 Skipped (reported) without the captures; part B is skipped without a Metal
@@ -60,6 +70,10 @@ B16 = Path(os.environ.get('GSCAP_ROOT', DECOMP / 'build/b16'))
 OUT = ROOT / 'build/gs_fog'
 TESTS = ('fog_cols', 'fog_tex')
 OLD_FORM_MATCHES = {'fog_cols': 1040, 'fog_tex': 640}   # GS_CONFORMANCE.md 5.5
+B16_TRI = B16 / 'gscap3/p3_start'
+FOG_TRI_VALUES = 342831          # covered channel values of the eight fog_* tests
+FOG_TRI_EXACT = 342349           # em_fog_gs_weight7 + em_fog_gs_blend7 at the exact plane
+FOG_TRI_EXACT_8BIT = 186635      # floor(F + 0.001) with the >> 8 rule (the shaders before the fb2 step)
 SPRITE_FOG_TEX = 0x76            # sprite | TME | FGE | ABE
 ALPHA_CS = (0x80 << 32) | 0xA8   # the conformance tests' ALPHA_1: (Cs - 0) * FIX 0x80 >> 7 + 0
 # A 1x1 PSMT8 texture with a CT32 CLUT, TCC 1, MODULATE: what em_gfx_gs_texture
@@ -134,7 +148,11 @@ def cpu_mirror():
     src.write_text('#include "gfx/metal/em_fog_gs.h"\n'
                    'void fog_blend_n(const uint32_t *c, const uint32_t *f, const uint32_t *fc,\n'
                    '                 uint32_t *out, uint32_t n)\n'
-                   '{ for (uint32_t i = 0; i < n; i++) out[i] = em_fog_gs_blend(c[i], f[i], fc[i]); }\n')
+                   '{ for (uint32_t i = 0; i < n; i++) out[i] = em_fog_gs_blend(c[i], f[i], fc[i]); }\n'
+                   'void fog_blend7_n(const uint32_t *c, const float *f, const uint32_t *fc,\n'
+                   '                  uint32_t *out, uint32_t n)\n'
+                   '{ for (uint32_t i = 0; i < n; i++)\n'
+                   '      out[i] = em_fog_gs_blend7(c[i], em_fog_gs_weight7(f[i]), fc[i]); }\n')
     head = ROOT / 'src/gfx/metal/em_fog_gs.h'
     if not lib.exists() or max(head.stat().st_mtime, src.stat().st_mtime) > lib.stat().st_mtime:
         subprocess.run(['clang', '-O1', '-std=c11', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC',
@@ -142,13 +160,57 @@ def cpu_mirror():
     dll = C.CDLL(str(lib))
     P = C.POINTER(C.c_uint32)
     dll.fog_blend_n.argtypes = [P, P, P, P, C.c_uint32]
+    dll.fog_blend7_n.argtypes = [P, C.POINTER(C.c_float), P, P, C.c_uint32]
 
     def run(c, f, fc):
         c, f, fc = (np.ascontiguousarray(q.ravel(), np.uint32) for q in (c, f, fc))
         out = np.zeros_like(c)
         dll.fog_blend_n(*(q.ctypes.data_as(P) for q in (c, f, fc, out)), len(c))
         return out
+
+    def run7(c, f, fc):
+        c, fc = (np.ascontiguousarray(q.ravel(), np.uint32) for q in (c, fc))
+        f = np.ascontiguousarray(f.ravel(), np.float32)
+        out = np.zeros_like(c)
+        dll.fog_blend7_n(c.ctypes.data_as(P), f.ctypes.data_as(C.POINTER(C.c_float)), fc.ctypes.data_as(P),
+                         out.ctypes.data_as(P), len(c))
+        return out
+    run.gouraud = run7
     return run
+
+
+def gouraud_fog(mirror):
+    """Part C: (values, 8.7 matches, 8-bit matches) over the p3_start fog_*
+    tests, or None without the captures."""
+    if not (B16_TRI / 'batch.json').exists():
+        return None
+    batch = json.loads((B16_TRI / 'batch.json').read_text())
+    n = ok7 = ok8 = 0
+    for test in batch['tests']:
+        if not test['name'].startswith('fog_'):
+            continue
+        (prim,) = test['meta']['prims']
+        assert prim['kind'] == 'tri' and prim['flags'] == {'iip': 1, 'fge': 1}, (test['name'], prim)
+        v = prim['v']
+        assert all(p['rgba'] == v[0]['rgba'] for p in v), (test['name'], 'a flat colour')
+        fc = np.array(fogcol_of(test), np.int64)
+        col = np.load(B16_TRI / f"{test['name']}.npz")['color'].astype('<u4')
+        ys, xs = np.nonzero(col >> 24)                  # covered: the clear is 0, a drawn pixel has alpha 0x80
+        (x0, y0), (x1, y1), (x2, y2) = [(p['x'], p['y']) for p in v]
+        det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+        l1 = ((xs - x0) * (y2 - y0) - (x2 - x0) * (ys - y0)) / det
+        l2 = ((x1 - x0) * (ys - y0) - (xs - x0) * (y1 - y0)) / det
+        e = v[0]['f'] + (v[1]['f'] - v[0]['f']) * l1 + (v[2]['f'] - v[0]['f']) * l2
+        want = col[ys, xs].view(np.uint8).reshape(-1, 4)[:, :3].astype(np.int64)
+        c = np.broadcast_to(np.array(v[0]['rgba'][:3], np.int64), want.shape)
+        fcs = np.broadcast_to(fc, want.shape)
+        got7 = mirror.gouraud(c, np.broadcast_to(e[:, None], want.shape), fcs).reshape(want.shape)
+        f8 = np.clip(np.floor(e + 0.001), 0, 255).astype(np.int64)[:, None]
+        got8 = fcs + (((c - fcs) * f8) >> 8)
+        n += want.size
+        ok7 += int((got7 == want).sum())
+        ok8 += int((got8 == want).sum())
+    return n, ok7, ok8
 
 
 def read_bmp(path):
@@ -255,6 +317,10 @@ def main():
             uniq = sorted(set(key))
             cases.append((tuple(int(v) for v in fc), uniq))
             where.append((bdir.parent.name, name, key, want.reshape(-1, 3)))
+    tri = gouraud_fog(mirror)
+    if tri is not None:
+        assert tri == (FOG_TRI_VALUES, FOG_TRI_EXACT, FOG_TRI_EXACT_8BIT), ('part C: the Gouraud-F fog tests',
+                                                                          tri)
     frames = gpu_frames(cases)
     if frames is not None:
         for (fc, uniq), frame, (bset, name, key, want) in zip(cases, frames, where):
@@ -268,7 +334,9 @@ def main():
            if frames is not None else 'Metal part skipped')
     print(f"gs fog: PASS (mode {MODE}: {len(where)} captured tests; {counts['mirror_exact']} of "
           f"{counts['pixels']} pixels exact through em_fog_gs_blend, {gpu}; the old (255 - F) form "
-          f"matches only {OLD_FORM_MATCHES['fog_cols']} / {OLD_FORM_MATCHES['fog_tex']} of 4,096)")
+          f"matches only {OLD_FORM_MATCHES['fog_cols']} / {OLD_FORM_MATCHES['fog_tex']} of 4,096; "
+          + (f"Gouraud F (p3_start fog_*): {tri[1]:,} of {tri[0]:,} channel values through em_fog_gs_weight7 + "
+             f"em_fog_gs_blend7, the 8-bit weight {tri[2]:,})" if tri else "Gouraud-F part skipped: no gscap3)"))
     return 0
 
 

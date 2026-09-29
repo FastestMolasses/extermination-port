@@ -97,6 +97,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "game/em_actor_pool.h"
@@ -624,11 +625,68 @@ static void log_tick_begin(void)
 #define STATIC_SAMPLE_EVERY 400u
 static uint32_t s_static_logged;
 
+/* Frame captures keyed on the log's tick (em_scene_bindings.h,
+ * tools/test_fb2_pixels.py). Test instrumentation only. */
+enum { CAPTURE_MAX = 32 };
+static struct {
+    uint32_t tick;
+    char path[512];
+} s_capture[CAPTURE_MAX];
+static int s_capture_count, s_capture_env;
+
+uint32_t em_scene_bindings_log_tick_next(void) { return s_log_tick; }
+
+void em_scene_bindings_capture_tick(uint32_t tick, const char *path)
+{
+    if (!path || !path[0] || s_capture_count >= CAPTURE_MAX) {
+        fprintf(stderr, "fb capture: tick %u not queued (%s)\n", (unsigned)tick,
+                path && path[0] ? "too many captures" : "no path");
+        return;
+    }
+    s_capture[s_capture_count].tick = tick;
+    snprintf(s_capture[s_capture_count].path, sizeof s_capture[0].path, "%s", path);
+    ++s_capture_count;
+}
+
+static void capture_env(void)
+{
+    if (s_capture_env)
+        return;
+    s_capture_env = 1;
+    const char *spec = getenv("EM_FB_CAPTURE_TICKS");
+    while (spec && *spec) {
+        const char *end = strchr(spec, ';');
+        size_t n = end ? (size_t)(end - spec) : strlen(spec);
+        char item[600];
+        if (n < sizeof item) {
+            memcpy(item, spec, n);
+            item[n] = 0;
+            char *colon = strchr(item, ':');
+            if (colon && colon != item) {
+                *colon = 0;
+                em_scene_bindings_capture_tick((uint32_t)strtoul(item, NULL, 10), colon + 1);
+            }
+        }
+        spec = end ? end + 1 : NULL;
+    }
+}
+
+static void capture_check(uint32_t tick)
+{
+    capture_env();
+    for (int i = 0; i < s_capture_count; ++i)
+        if (s_capture[i].tick == tick) {
+            em_gfx_request_capture(em_frame_gfx(), s_capture[i].path);
+            fprintf(stderr, "fb capture: tick %u -> %s\n", (unsigned)tick, s_capture[i].path);
+        }
+}
+
 static void log_tick_end(int rc)
 {
     FILE *f = log_file();
     if (!f)
         return;
+    capture_check(s_log_tick);
     uint8_t post[LOG_SNAP], veil[LOG_VEIL];
     log_snapshot(post);
     log_veil(veil);
@@ -1251,10 +1309,10 @@ static void log_tick_end(int rc)
      * docs/CHAIN_PAGE.md): [drawn this tick, pages, start, the skipped
      * 001DDE10 CALL, transfers, qwords, DIRECT packets, lane / sprite
      * MSCALs, XGKICKs, primitives, [by PRIM type 0..7], skipped CALLs,
-     * frame-Q vertices, inherited-cycle UNPACKs, decal triangles, the
+     * vertices without a Q (0: the per-tag Q), inherited-cycle UNPACKs, decal triangles, the
      * primitives' digest, the glow markers (sprites with 001F4D40's TEX0:
-     * x0, y0, x1, y1, z, f, s0, t0, q0, q_known0, s1, t1, q1, q_known1; Q
-     * 0 where the frame's), and, on sampled pages (the first, then every
+     * x0, y0, x1, y1, z, f, s0, t0, q0, q_known0, s1, t1, q1, q_known1),
+     * and, on sampled pages (the first, then every
      * 250th, at most 40), every (address, bytes) the walk read (each range
      * once), for the original re-walk (tools/test_level_smoke.py
      * check_chain_page); then the snow program's MSCALs, the weather list

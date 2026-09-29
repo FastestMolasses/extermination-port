@@ -201,6 +201,16 @@ not a pixel test. For example, the elevator phase's end frame against
 (docs/CENSUS_UNVERIFIED.md, the indicator children). Keep such files under
 an ignored `build/<task>/` folder.
 
+`EM_LEVEL_SMOKE_FB_CAPTURE=<phase>+<k>:<file.bmp>` saves the frame of the
+k-th scene tick after the one that ended `<phase>` (k >= 1) and prints
+`level smoke: fb capture: <phase>+<k> = tick <n>`; `EM_FB_CAPTURE_TICKS=
+<tick>:<file.bmp>[;...]` saves the frames of those scene-tick-log ticks
+(the log's `tick` numbers; it needs `EM_AREA_CHANGE_LOG`) and prints `fb
+capture: tick <n> -> <file>`. Both serve the fb2 pixel harness
+(`tools/test_fb2_pixels.py`, `make test-fb2-pixels`, GS_EXACT.md section
+10), which checks each captured tick against this checker's own route
+alignment before it compares a pixel.
+
 `EM_LEVEL_SMOKE_PAGE_CAPTURE=<state>:<file.bmp>` saves the second status
 frame in a row whose ITEM > BATTERY page (002149F0, UI+4 = 5) is at state
 <state> (UI+5): 3 the acquisition notice (route 01), 4 the panel's
@@ -1610,8 +1620,8 @@ run). The tick log's `page` carries the chain page em_chain_page_live drew at
 the tick's frame close (docs/CHAIN_PAGE.md): whether it was drawn this tick,
 the cumulative page count, its start tag, the 001DDE10 CALL it walked over,
 em_chain_page's counts (DMA tags, qwords, DIRECT packets, lane and sprite
-MSCALs, XGKICKs, primitives by PRIM type, CALLs walked over, vertices with
-the frame's Q, UNPACKs before the page's first STCYCL), the decal triangles,
+MSCALs, XGKICKs, primitives by PRIM type, CALLs walked over, vertices
+without their GIF tag's Q (0 since the fb2 step, asserted), UNPACKs before the page's first STCYCL), the decal triangles,
 the digest of the primitives handed to the renderer, the glow markers'
 primitives and, on sampled pages (the first, then every 250th, at most 40),
 every (address, bytes) the walk read (each range once); then (since chain
@@ -1652,7 +1662,9 @@ Measured (full route, 2026-09-28, chain C8b FLAMESNOW): 13,013 pages drawn
 (12,573 with the six lane MSCALs, one per barrel frame, each with the
 weather's 108 snow tiles and the flame; the rest are the status and
 tear-down frames', empty): 4,122,371 sprites, 1,314 triangles, 1,256 lines;
-12,573 001DDE10 CALLs walked over; 25,628 vertices with the frame's Q; 40
+12,573 001DDE10 CALLs walked over; every vertex with its GIF tag's Q (the
+25,628 the page premise drew as 1.0 before the fb2 step are 1.0 by the
+measured per-tag rule); 40
 sampled pages re-walked equal (444 reads of the presets, program packets and
 flame descriptor equal to the captures'); aligned 10 (5 glow markers, the
 snow packet 3 and the flame packets 1 / 4) and 14 (0 glow markers, the same
@@ -1720,11 +1732,13 @@ sprites, the load veil). What removes each:
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
-| check_chain_page | a vertex whose RGBAQ precedes every ST of its page is drawn with Q = 1.0 (about 2 per page) | the GS's internal Q comes from the frame's earlier draws, which the port does not model (CHAIN_PAGE.md section 5) | the frame's whole GS order, or a capture of the GS state at the kick |
 | check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the port's area read completes inside 001FF080(1, 0), so the veil draws one frame at level 0 where the PS2 drew 258: the area streamer 001FFCD0 is translated but not bound, because its sound-bank step 001FB370 needs the EE sound library's queue, the SIF DMA and the driver's command 0x20 (MODULE_LOADER.md section 5) | a capture of a frame mid-load (the decomp's fb2 method); 001FB370's callees live, then 001FFCD0 bound |
 
-Not compared at all: the sounds (WP-14), the pixels (the renderer compares
-by eye against each beat's original.png; `EM_LEVEL_SMOKE_PHASE_CAPTURE`;
+Not compared at all: the sounds (WP-14), the pixels (the smoke itself
+compares none; the fb2 pixel harness `make test-fb2-pixels` measures the
+frame at first control and, with `EM_TEST_FULL=1`, at every fb2 point the
+smoke aligns, against the software-renderer fields, GS_EXACT.md section 10;
+by eye against each beat's original.png: `EM_LEVEL_SMOKE_PHASE_CAPTURE`;
 the chain page's GS pixel path is checked against a GS pixel model by
 `make test-chain-page-gpu`, the load veil's GS frame by `make
 test-load-veil-gpu`, the static world's triangles by `make
