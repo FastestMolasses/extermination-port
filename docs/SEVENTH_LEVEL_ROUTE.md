@@ -392,8 +392,10 @@ where a beat exercises it.
   four scripts holds an op09 record naming one. A scan of the boot ELF
   text and of every `extract/OVERLAY/AREA*.BIN` for loads and stores whose
   immediate is D_00810847's low half found one place: **AREA15's overlay**,
-  in the function at runtime 0x824B80 (splat
-  `func_overlay_AREA15_00824B40`, assembly). At the end of its script
+  in the function at runtime 0x824B40 (link name
+  `func_overlay_AREA15_00824B00`, byte-matched C, decomp
+  docs/AREA15_OVERLAY.md; 0x824B80, splat piece 00824B40, is a fake split
+  inside it). At the end of its script
   0x828CA0 it calls 001C47E0(0x2B, 1), stores 0xFFFF in its halfword +0x2E, calls
   001C4760(0x1C, 1), stores D_008107FF = 1 and ORs 4 into D_00810847 (then
   001FB0B0(0)). The scan does not see a write through a computed address
@@ -614,14 +616,22 @@ them as leads.
 1. What script 0x827180's op03/2 and op12/0 records do (the beam itself
    writes D_00810768 = 1 and 0xFF, by A06C's C; section 3.3).
 2. A way out of the pit in this state (section 7), or confirmation that the
-   keypad before AREA15 strands the player.
-3. AREA15's function at 0x824B80: when it runs (it tests the entry byte
-   D_00810702 and its node's +0xD = 0x5A) and where item 0x2B comes from;
+   keypad before AREA15 strands the player. (EIGHTH_LEVEL_ROUTE.md: the
+   beam's collapse test excludes the running jump's +5 = 6; a jump from
+   the west pad's south part crosses the beam intact, a06b_00, and the
+   story continues to AREA04. The decomp's docs/WORLD_GRAPH.md finds no
+   exit from the pit in sub 0.)
+3. AREA15's function at runtime 0x824B40 (link 00824B00): when it runs
+   (it tests the entry byte D_00810702 and its node's +0xD = 0x5A) and
+   where item 0x2B comes from;
    how AREA15 is reached (the door tables show AREA19 -> AREA15 and
    AREA03 -> AREA19; AREA03 from AREA04's door [38] (lock bit 2) or AREA02).
 4. What the story order is: AREA04's door [45] with the keypad's bit (the
    NPC [2], item 0x23, AREA22's reader [9] and the room behind its door
-   [10]) versus AREA15 first. Not played.
+   [10]) versus AREA15 first. Not played. (The decomp's
+   docs/WORLD_GRAPH.md section 7 infers, edge by edge, door [45] first,
+   then AREA04's reader [50] and lift [51] to AREA13; EIGHTH_LEVEL_ROUTE.md
+   played that order up to the arrival in AREA13.)
 5. What the node g[11] (00219870) beside the room does, what hit the
    player in the pit and on the bar, and what the pickups g[11] (AREA01)
    and g[3] (AREA06, beside door [3]) give.
