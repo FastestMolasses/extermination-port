@@ -244,7 +244,7 @@ fence_door_side1` requires both side phases.
 | first_control | 01 row f0 (slot 04) | 0x1AE040 state 1 / 001AE5E0, 49 pool nodes | yes (S12a) | — |
 | panel_no_battery (side) | 00 | panel 00159210 without item 0x1B, script 0x246F20, message 0x80000018 | yes, its own run (WP-4; compared since 2026-09-25) | — |
 | status | 01 status exit; frame_trace2 `status_04.json` | 001AE7E0 r==2 → state 3 → 5 → 1 | yes (S11b; the original page core, hub, models and 0020E0C0 exit since WP-5) | — |
-| status_pages (side, designed) | none: no capture shows a page open | 0020CDC0 phase 3: DATABASE 00214020, SPR4 00211970 and its part pages, MAP 0020F950 and its nodes 002101C0, EQUIPMENT / EVENT / HEALING, the takes of 0x1E / 0x1F / 0x32 / 0x10 / 0x08 | yes, its own run (chain C8b FAILSTOPS and its MAP fix round; every page and node call replayed through the original instructions) | pixels (no capture) |
+| status_pages (side, designed) | none: no capture shows a page open | 0020CDC0 phase 3: DATABASE 00214020, SPR4 00211970 and its part pages, MAP 0020F950 and its nodes 002101C0, EQUIPMENT / EVENT / HEALING, the takes of 0x1E / 0x1F / 0x32 / 0x10 / 0x08 | yes, its own run (chain C8b FAILSTOPS and its MAP fix round; every page and node call replayed through the original instructions; since chain step PAGELOADS every page module load's loader rows) | pixels (no capture); the page loads' drive time (no capture) |
 | battery | 01 | pickup 00219550 g0.0, take script 0x266620, ITEM page | yes (WP-6; the status pop-up since WP-5) | — |
 | elevator_refusal | 02 | terminal 0x827B10, script 0x82A990, message 0x8000001A | yes (WP-4) | — |
 | panel | 03 | panel 00159210, scripts 0x2477A0/0x247BE0, 00157F60 BATTERY page, power 0x80 | yes (WP-4) | — |
@@ -873,10 +873,20 @@ and every view byte after the call must equal the original's (the stack's
 register save slots excepted). A MAP node's 002101C0 call (from the pool
 walk 001B0000) is its own traced call, with its pool record as the view.
 The checker also requires MAP's model path: its nodes bound map models
-(001CA5E0) and drew them (001CB480). Measured 2026-09-27 (chain C8b's fix
-round): 6,643 page and node calls (MAP 242, its nodes 5,258, SPR4 331,
-DATABASE 152, EQUIPMENT 55, EVENT 45, HEALING 560), 19,660 callee entries,
-4 model binds and 390 001CB480 draws. The whole-run checks (render context, rand() order, sway, marker
+(001CA5E0) and drew them (001CB480). **The page modules' loads
+(check_page_module_loads, chain step PAGELOADS):** every page module the run
+loads runs the screen-module loader's steps; from the tick log's
+`loader_pre` bytes each load's rows (the slot-2 record and D_00275BD8
+after each dispatch, from its first to the idle row) must equal route 03's
+captured module-0x21 rows without the 14 busy polls (h7 f391..f414: the
+same one-chunk header shape; MODULE_LOADER.md finding 8) with the record's
+module byte +0xE the page's, and the run must load exactly 0x1E, 0x1F,
+0x20, 0x22, 0x23, 0x24, 0x2C, 0x2D and 0x31. Measured 2026-09-30 (chain
+step PAGELOADS): 6,634 page and node calls (MAP 242, its nodes 5,258, SPR4
+322, DATABASE 152, EQUIPMENT 55, EVENT 45, HEALING 560), 19,192 callee
+entries, 4 model binds, 390 001CB480 draws and 20 page module loads of 10
+dispatches each (before the step the loads were instant: 6,643 calls,
+19,660 entries). The whole-run checks (render context, rand() order, sway, marker
 colour, head sprites, shadow, chain page, load veil) run over this run too.
 `EM_LEVEL_SMOKE_PAGES_CAPTURE=<dir>` writes one frame of each page for a
 look (no capture to compare with; MAP writes one per mode: map_<t[3],

@@ -35,6 +35,16 @@ C. The captures: the host-speed load takes 10 dispatches and its rows are
    rests on (the wait rows change nothing but the frame counters; two
    rand() calls per wait frame from 001D7C30).
 
+I. The page modules (0x1E, 0x1F, 0x20..0x24, 0x2C..0x31): each loads through
+   the original steps over route 03's RAM (as B), in 10 dispatches; the
+   chunk's GS transfer writes exactly the blocks and bytes of the module's
+   step in the port's status-pages GS data (assets/status_pages, EMSP);
+   module 0x1E's relocation D_0028A570 equals the EMSP's; every sprite of
+   the port's ITEM atlas (assets/scene_snow/panel/item_root.emir) decodes
+   from module 0x1F's upload, opened from the hub or after module 0x21.
+   With the measured drive a page read other than module 0x21's has no
+   recording: it is answered at host speed and counted as unmeasured.
+
 D. Pinned cases (named mutants): D_00282157 non-zero on some frames; a
    relocated pack (other disc positions, reads starting inside wider
    ranges, D_0028A748 unlike D_0028A744) under the measured drive; the
@@ -646,7 +656,7 @@ class WholeLoad:
         self.drive = Drive(measured, o.load(0x28A480), o.load(0x28A488), shift,
                            o.load(0x28A3C0 + 8 * 0x0B))
         self.expected, self.actual = [], []
-        self.sent_o, self.sent_n = [], []
+        self.sent_o, self.sent_n, self.sent_data = [], [], []
         # The pre-load state of route 03 f390: slot 2 idle with the previous
         # load's bytes, D_00275BD8 raised by the ITEM root (CAPTURES_C7 6).
         o.save(BD8, 1, 1)
@@ -698,8 +708,12 @@ class WholeLoad:
     def n_trace(self, _, callee, a0, a1, a2, a3):
         self.actual.append((callee, a0, a1, a2, a3, self.n_snapshot()))
 
+    keep = False  # keep the bytes each native send hands the consumer (part I)
+
     def n_chain(self, _, chain, data, size):
         self.sent_n.append((chain, size, hashlib.sha256(C.string_at(data, size)).hexdigest()))
+        if self.keep:
+            self.sent_data.append(C.string_at(data, size))
         return 0
 
     def n_bank(self, _, address, data, size, result):
@@ -1285,6 +1299,175 @@ def check_upload_is_atlas(pack):
     return words, len(toks)
 
 
+# ============================================ I: the page modules ======
+
+# The status pages' modules the first level loads (docs/STATUS_PAGES.md
+# section 1; tools/export_module_loader.py PAGE_MODULES): 0020CDC0 phase 3's
+# 0x1F / 0x1E / 0x2C / 0x24, the ITEM root's children 0x20..0x23, SPR4's
+# part pages 0x2D..0x31.
+PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31)
+EMSP = ROOT / 'assets/status_pages/status_pages.emsp'
+EMIR = ROOT / 'assets/scene_snow/panel/item_root.emir'
+LOCALMEM = 4 << 20
+
+
+def load_emsp(path):
+    """The port's status-pages GS data (tools/export_status_pages.py,
+    em_gs_texture.c): the world image, {step: {block: 256 bytes}} and the
+    relocations {(step, address): value}."""
+    data = Path(path).read_bytes()
+    magic, version, size = struct.unpack_from('<4sII', data)
+    assert magic == b'EMSP' and version == 2 and len(data) == 12 + size, 'EMSP v2 expected'
+    body, p = data[12:], 4
+    for _ in range(struct.unpack_from('<I', body)[0]):
+        p += 8 + struct.unpack_from('<I', body, p + 4)[0]
+    world = body[p:p + LOCALMEM]
+    p += LOCALMEM + LOCALMEM // 256 // 8
+    steps = {}
+    count, p = struct.unpack_from('<I', body, p)[0], p + 4
+    for _ in range(count):
+        ident, n = struct.unpack_from('<II', body, p)
+        step = {}
+        runs, q = struct.unpack_from('<I', body, p + 8)[0], p + 12
+        for _ in range(runs):
+            first, blocks = struct.unpack_from('<II', body, q)
+            q += 8
+            for b in range(blocks):
+                step[first + b] = body[q + 256 * b:q + 256 * (b + 1)]
+            q += 256 * blocks
+        assert q == p + 8 + n
+        steps[ident] = step
+        p += 8 + n
+    relocs = {}
+    for k in range(struct.unpack_from('<I', body, p)[0]):
+        m, address, value = struct.unpack_from('<III', body, p + 4 + 12 * k)
+        relocs[(m, address)] = value
+    assert p + 4 + 12 * len(relocs) == len(body)
+    return world, steps, relocs
+
+
+def upload_blocks(chunk):
+    """00200830's chain as the GS writes it (the decomp's export_level
+    GS upload model): {block: 256 bytes} of every whole-page PSMCT32 sheet
+    it transfers (anything else is refused, as the exporter refuses it)."""
+    sys.path.insert(0, str(DECOMP / 'tools'))
+    import export_level as el
+    lm, log = bytearray(LOCALMEM), []
+    el._bg_gs_upload(el._bg_section_chain(chunk), lm, log)
+    blocks = set()
+    for dbp, dbw, dx, dy, w, h in log:
+        assert not dx and not dy and w % 64 == 0 and h % 32 == 0 and dbw == w // 64, \
+            ('not a whole-page sheet', dbp, w, h)
+        blocks.update(range(dbp, dbp + (w // 64) * (h // 32) * 32))
+    assert log, 'no GS transfer in the chunk'
+    return {b: bytes(lm[256 * b:256 * (b + 1)]) for b in blocks}
+
+
+def native_counts(lib, pack, module, drive):
+    """A native-only load of `module` with drive mode `drive`: (dispatches,
+    reads, unmeasured, nonzero-sector reads)."""
+    lib.em_task_init()
+    ml = lib.em_module_loader_open(str(pack).encode())
+    bd8 = C.c_uint8(1)
+    views = Views(C.pointer(bd8))
+    lib.em_module_loader_set_views(ml, C.byref(views))
+    sent = []
+    cb = CHAIN(lambda _, chain, data, size: sent.append(chain) or 0)
+    lib.em_module_loader_set_chain_hook(ml, cb, None)
+    lib.em_module_loader_set_drive(ml, drive)
+    reads = []
+    tr = TRACE(lambda _, callee, a0, a1, a2, a3: reads.append(a1) if callee == CDREAD else None)
+    lib.em_module_loader_set_trace(ml, tr, None)
+    lib.em_module_loader_bind_live(ml)
+    assert lib.em_module_loader_request_001FF080(ml, 0, module) == 0
+    for _ in range(400):
+        lib.em_module_loader_field(ml)
+        lib.em_task_dispatch()
+        if not bd8.value:
+            break
+    assert not lib.em_module_loader_failed(ml, None) and not bd8.value and len(sent) == 1, (hex(module), sent)
+    d, r, u = C.c_uint32(), C.c_uint32(), C.c_uint32()
+    lib.em_module_loader_counts(ml, C.byref(d), C.byref(r), C.byref(u))
+    lib.em_module_loader_bind_live(None)
+    lib.em_module_loader_close(ml)
+    return d.value, r.value, u.value, sum(1 for n in reads if n)
+
+
+def emir_sprites():
+    """[(token, w, h, RGBA rows)] of the port's ITEM atlas
+    (tools/export_item_root.py's EMIR v2), the white carrier left out."""
+    data = EMIR.read_bytes()
+    magic, version, width, height, count, _, _, size, _, _, white, _ = struct.unpack_from('<4s11I', data)
+    assert magic == b'EMIR' and version == 2 and len(data) == 48 + size
+    atlas = data[len(data) - width * height * 4:]
+    out = []
+    for i in range(count):
+        x, y, w, h, token = struct.unpack_from('<4IQ', data, 48 + 24 * i)
+        if i == white:
+            continue
+        rows = b''.join(atlas[((y + r) * width + x) * 4:((y + r) * width + x + w) * 4] for r in range(h))
+        out.append((token, w, h, rows))
+    return out
+
+
+def check_page_modules(elf, lib, pack):
+    """Every page module the first level loads, through the loader's own
+    steps over route 03's RAM (the original instructions against the native
+    loader, WholeLoad: callees, memory, delivered bytes and the chain each
+    send hands the consumer): 10 dispatches at host speed. Then the proof
+    that the load's upload is what the port draws: the chunk's GS transfer
+    writes exactly the blocks and bytes of that module's step in the port's
+    status-pages GS data (EMSP, em_gs_texture); module 0x1E's relocation
+    D_0028A570 = D_0028A490[0x38] equals the EMSP's; every sprite of the
+    port's ITEM atlas (EMIR) decodes from module 0x1F's upload over the
+    world image, with and without module 0x21's before it. With the PS2
+    disc-drive timing switch the page reads other than module 0x21's have
+    no recording: they are answered at host speed (the same 10 dispatches)
+    and counted as unmeasured."""
+    sys.path.insert(0, str(DECOMP / 'tools'))
+    from export_ui import decode_token_lm
+    ram = (ROUTE / '03_panel_power/eeMemory.bin').read_bytes()
+    spad = (ROUTE / '03_panel_power/scratchpad.bin').read_bytes()
+    world, steps, relocs = load_emsp(EMSP)
+    uploads, blocks_total = {}, 0
+    for m in PAGE_MODULES:
+        w = WholeLoad(elf, lib, ram, spad, pack)
+        w.keep = True
+        try:
+            rows = w.run(m)
+            st = w.lib.em_module_loader_state(w.ml).contents
+            slot38 = st.d28A490[0x38]
+        finally:
+            w.close()
+        assert len(rows) == 10 and len(w.sent_data) == 1, (hex(m), len(rows), len(w.sent_data))
+        up = upload_blocks(w.sent_data[0])
+        step = steps[m]
+        assert set(up) == set(step), (hex(m), 'upload blocks differ from the EMSP step')
+        assert all(up[b] == step[b] for b in up), (hex(m), 'upload bytes differ from the EMSP step')
+        uploads[m] = up
+        blocks_total += len(up)
+        if (m, 0x28A570) in relocs:
+            assert slot38 == relocs[(m, 0x28A570)] == 0x19A3F40, (hex(m), hex(slot38))
+        host = native_counts(lib, pack, m, 0)
+        measured = native_counts(lib, pack, m, 1)
+        assert host[:3] == (10, 3, 0), (hex(m), host)
+        expect_unmeasured = 0 if m == 0x21 else measured[3]
+        assert measured[:3] == (10 if m != 0x21 else 24, 3, expect_unmeasured), (hex(m), measured)
+    assert set(relocs) == {(0x1E, 0x28A570)}, relocs
+    # The ITEM atlas: every EMIR sprite from module 0x1F's upload.
+    sprites = emir_sprites()
+    for label, order in (('hub', (0x1F,)), ('panel', (0x21, 0x1F))):
+        lm = bytearray(world)
+        for m in order:
+            for b, data in uploads[m].items():
+                lm[256 * b:256 * (b + 1)] = data
+        lm = bytes(lm)
+        for token, w_, h_, rows in sprites:
+            pixels, meta = decode_token_lm(lm, token & MASK, token >> 32)
+            assert (meta['w'], meta['h']) == (w_, h_) and pixels == rows, (label, hex(token))
+    return len(PAGE_MODULES), blocks_total, len(sprites)
+
+
 def check_wait_facts():
     """The rows the host-speed load drops change nothing but the frame
     counters (route 03 trace), and each costs two rand() calls from
@@ -1318,8 +1501,8 @@ def check_faults(lib, pack):
     lib.em_task_init()
     ml = lib.em_module_loader_open(str(pack).encode())
     lib.em_module_loader_bind_live(ml)
-    assert lib.em_module_loader_request_001FF080(ml, 0, 0x1F) == 0
-    lib.em_task_dispatch()  # header of 0x1F: not in the default pack
+    assert lib.em_module_loader_request_001FF080(ml, 0, 0x04) == 0
+    lib.em_task_dispatch()  # header of module 4: not in the default pack
     fault = Fault()
     assert lib.em_module_loader_failed(ml, C.byref(fault)) and fault.address == 0x112440 and fault.code == 4
     lib.em_module_loader_close(ml); n += 1
@@ -1403,7 +1586,7 @@ int main(int argc, char **argv)
     if (argc < 3) return 2;
     int host = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x21, 100);
     int measured = load(argv[1], EM_MODULE_LOADER_DRIVE_MEASURED, 0x21, 100);
-    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x1F, 100);
+    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x04, 100);
     int full = load(argv[2], EM_MODULE_LOADER_DRIVE_HOST, 0x03, 100);
     printf("%d %d %d %d %d\n", host, measured, missing, full, sent);
     return 0;
@@ -1460,6 +1643,7 @@ def main():
     ng_host = check_new_game_loads(elf, lib, pack)
     ng_measured = check_new_game_loads(elf, lib, pack, measured=True)
     words, toks = check_upload_is_atlas(pack)
+    pages, page_blocks, item_sprites = check_page_modules(elf, lib, pack)
     wait_rows, rands = check_wait_facts()
     counts['fault_cases'] = check_faults(lib, pack)
     sanitized = check_sanitized(pack, OUT / 'modules_full.emml')
@@ -1469,6 +1653,8 @@ def main():
                   other_modules_loaded=[hex(m) for m in done],
                   other_modules_fail_stop=[(hex(m), hex(a)) for m, a in stopped],
                   upload_words_equal_panel_capture=words, atlas_tex0_inside_upload=toks,
+                  page_modules=pages, page_upload_blocks_equal_emsp=page_blocks,
+                  item_atlas_sprites_from_0x1F=item_sprites,
                   wait_rows_frozen=wait_rows, rand_calls_per_wait_frame=rands,
                   sanitized_dispatches=sanitized, seconds=round(time.time() - started, 1))
     (OUT / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
@@ -1477,6 +1663,8 @@ def main():
            f"00200890/00200970 cases",
            f"module 0x21: host {host} dispatches, measured {measured} (route 03) / {r01} (route 01)",
            f"{len(done)} other whole loads (none past the slot table)",
+           f"{pages} page modules through the loader (10 dispatches each; uploads = the EMSP steps, "
+           f"{page_blocks} GS blocks; {item_sprites} ITEM atlas sprites from module 0x1F's upload)",
            f"pinned: {counts['pinned_whole_loads']} whole loads (gate, relocated pack, disc-only pack), "
            f"3 module-0x2B spad loads, {counts['packet_after_module3']} 00200890 after module 3",
            f"New Game at host speed: module 3 in {ng_host[0]} dispatches, AREA11 in {ng_host[1]} "

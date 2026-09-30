@@ -726,6 +726,18 @@ static int pickup_ticks(void)
     return freed;
 }
 
+/* One frame of the scene core's page route (em_area11_interaction_host_
+ * status_page), then the frame loop's step E: the task table, whose slot 2
+ * runs the screen-module loader every page module loads through (the
+ * page waits on D_00275BD8, which the loader's 0x63 step clears). */
+static int page_frame(const EmStatusInput *input)
+{
+    int result = em_area11_interaction_host_status_page(input);
+    em_task_dispatch();
+    assert(!em_module_loader_failed(em_module_loader_live(), NULL));
+    return result;
+}
+
 static int outer(unsigned pressed)
 {
     EmStatusRuntime *status = em_area11_interaction_host_status();
@@ -939,14 +951,14 @@ static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
          * 0, 00211970's notice). HEALING's notice then counts 240 calls
          * (002160B0 state 0 sets t[6] = 0xF0, state 3 counts it down once a
          * call and hands over to the list at 0). */
-        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0 &&
+        while ((page_result = page_frame(&input)) == 0 &&
                state->req[EM_SCENE_REQ_B0])
-            assert(++page_ticks < 16);
+            assert(++page_ticks < 32); /* the page module's 10 loader dispatches first */
         assert(page_result == 0 && page->phase == 3);
         unsigned notice = 0;
         if (type == 0x1E) {
             assert(page->item.screen == 0 && page->item.state == 7 && page->item.step == 3);
-            while ((page_result = em_area11_interaction_host_status_page(&input)) == 0 &&
+            while ((page_result = page_frame(&input)) == 0 &&
                    page->item.step == 3)
                 assert(++notice < 400);
             ++notice;
@@ -959,7 +971,7 @@ static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
              * +0x4C = 001CB480) and run (+4 = 1); the other maps' nodes
              * bind nothing (D_00810CB8[i] clear). */
             assert(page->item.screen == 1);
-            assert(em_area11_interaction_host_status_page(&input) == 0);
+            assert(page_frame(&input) == 0);
             const EmStatusScenePool *pool =
                 em_status_models_pool(em_area11_interaction_host_status_models());
             unsigned nodes = 0, bound_models = 0;
@@ -985,16 +997,16 @@ static void other_take(uint16_t uid, uint8_t kind, uint8_t type)
             assert(page->item.screen == (type == 0x32 ? 3 : 2));
         }
         input.pressed = 0x800;
-        assert(em_area11_interaction_host_status_page(&input) == 0 && page->phase == 5);
+        assert(page_frame(&input) == 0 && page->phase == 5);
         input.pressed = 0;
-        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0)
+        while ((page_result = page_frame(&input)) == 0)
             assert(++page_ticks < 440);
         assert(page_result == 1 && !em_area11_interaction_host_failed());
         printf("AREA11 native host take %04X: B0 = %u, B1 = %#04x after %u callbacks; page %u "
                "takes the request (notice %u ticks), START closes PASS\n", (unsigned)uid,
                (unsigned)kind, (unsigned)type, ticks, (unsigned)page->item.screen, notice);
     } else {
-        while ((page_result = em_area11_interaction_host_status_page(&input)) == 0)
+        while ((page_result = page_frame(&input)) == 0)
             assert(++page_ticks < 8);
         assert(page_result == -1 && em_area11_interaction_host_failed());
         assert(page->phase == 3 &&
@@ -1281,7 +1293,7 @@ static void cinematic_face(int no_slot)
  * returns to the hub. */
 static int hub_frame(const EmStatusInput *input)
 {
-    int result = em_area11_interaction_host_status_page(input);
+    int result = page_frame(input);
     hub_rendering = 1;
     assert(em_area11_interaction_host_status_render((EmGfx *)1) == 1);
     /* A second draw in the same frame steps nothing. */
@@ -1326,7 +1338,7 @@ static void status_hub_route(void)
            page->item.screen == 0);
     input.pressed = 0;
     input.stick_x = 128;
-    for (int i = 0; i < 8 && page->phase == 3 && page->step != 2; ++i)
+    for (int i = 0; i < 16 && page->phase == 3 && page->step != 2; ++i) /* module 0x1F's load */
         assert(hub_frame(&input) == 0);
     assert(page->phase == 3 && page->step == 2);
     for (int i = 0; i < 8 && uploads == loaded + 1; ++i)
@@ -1362,7 +1374,7 @@ static void status_hub_route(void)
     assert(hub_frame(&input) == 0 && page->phase == 3 && page->item.screen == 1);
     input.pressed = 0;
     input.stick_y = 128;
-    for (int i = 0; i < 8 && page->step != 2; ++i)
+    for (int i = 0; i < 16 && page->step != 2; ++i) /* module 0x1E's load */
         assert(hub_frame(&input) == 0);
     assert(page->phase == 3 && page->step == 2);
     {

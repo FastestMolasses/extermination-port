@@ -553,12 +553,14 @@ under "Unreachable in AREA11".
 `em_status_pages_live`; the ITEM root's child states 4 / 6 / 7 and the page
 ticks 1..3 call it over the canonical bytes (the page core's views of the
 status block, the request bytes and the message words are stored before
-the call and loaded after it, as for BATTERY). The page modules (0x1E..0x24,
-0x2C..0x31) complete at once, as 0x1F does, and apply their GS blocks
-(module 0x21, the BATTERY page, runs the screen-module loader's own steps
-since chain C8b LOADER and applies its blocks at the loader's chunk step:
-MODULE_LOADER.md section 4); `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1))
-applies the restore.
+the call and loaded after it, as for BATTERY). Every page module
+(0x1E..0x24, 0x2C..0x31) runs the screen-module loader's own steps (module
+0x21 since chain C8b LOADER, the others since chain step PAGELOADS) and
+applies its GS blocks at the loader's chunk step, each upload proven equal
+to the module's step in the GS data below (MODULE_LOADER.md finding 8 and
+section 3 I; the level smoke's `status_pages` run compares every load's
+loader rows); `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1)) applies the
+restore.
 
 **`em_status_pages_live.c`** runs the translations over views of the port's
 storage (the list is its header's; every other address faults) and
@@ -670,7 +672,11 @@ pages do, with these additions:
   0; 0x19A3F40 in every AREA11 capture) plus slot 0x38's descriptor offset
   (0). `tools/export_status_pages.py` writes that relocation into the EMSP
   (version 2); `em_gs_texture` sets the word when it applies module 0x1E's
-  step (0 before, as in every capture). The bank itself (22 single-node
+  step (0 before, as in every capture). Live, the page reads the word from
+  the screen-module loader's slot table instead (D_0028A490[0x38], written
+  by 001FF830 state 7 when module 0x1E loads through it: the one storage;
+  `test_module_loader_reference` part I proves it equals the EMSP's
+  relocation). The bank itself (22 single-node
   models, codes 0..0x15; map i's nodes use codes i and 0xB + i) is read from
   the disc by `tools/export_status_map.py` into `assets/status_map/`, the
   texels from the GS memory with module 0x1E's upload applied.

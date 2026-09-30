@@ -73,6 +73,7 @@ extern "C" {
 #define EM_STATUS_SCENE_SLOT(address) (((address) - 0x0028A490u) >> 2)
 #define EM_STATUS_SCENE_SLOT_D_0028A4B0 0x08u /* the player texture packets 4B0..4C0 */
 #define EM_STATUS_SCENE_SLOT_D_0028A564 0x35u /* the library texture packet */
+#define EM_STATUS_SCENE_SLOT_D_0028A570 0x38u /* module 0x1E: the MAP model bank */
 #define EM_STATUS_SCENE_SLOT_D_0028A5A0 0x44u /* 001FF830 kind-2 cursor (module 0x1D) */
 #define EM_STATUS_SCENE_SLOT_D_0028A734 0xA9u /* boot loader end */
 #define EM_STATUS_SCENE_SLOT_D_0028A738 0xAAu /* 001FF830 kind-0 base (modules 2/3) */

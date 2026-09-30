@@ -3,17 +3,22 @@
 Lane b15 "module_loader" (2026-09-27) translated the loader's disc and DMA
 layer; chain C8b LOADER (2026-09-28) bound it live and translated the area
 streamer; chain step H7 (2026-09-29) bound the area streamer with its
-sound-bank step and put the New Game's two loads on it. Files: `src/game/em_module_loader.{h,c}`,
+sound-bank step and put the New Game's two loads on it; chain step
+PAGELOADS (2026-09-30) put every page module the first level loads on it.
+Files: `src/game/em_module_loader.{h,c}`,
 `tools/export_module_loader.py`, `tools/test_module_loader_reference.py`
 (`make test-module-loader-reference`), this doc; the state machine is in
 `em_status_scene_original.c` (STATUS_SCENE.md section 2).
 
 **What is live (chain C8b LOADER).** Module 0x21, the BATTERY page, loads
 through the loader's own steps on every status screen that opens it (the
-panel's prompt, route 03, and the battery pop-up, route 01):
+panel's prompt, route 03, and the battery pop-up, route 01). Since chain
+step PAGELOADS every other page module the first level loads does too (the
+ITEM root's 0x1F, MAP 0x1E, SPR4 0x2C, DATABASE 0x24, the ITEM children
+0x20 / 0x22 / 0x23 and SPR4's part pages 0x2D..0x31; finding 8):
 - `em_scene_bindings` boots one loader at start-up over the user's
   exported sectors and binds its slot-2 task (section 4);
-- the ITEM root's 001FF080(0, 0x21) registers the task 001FF0D0, which runs
+- the page's 001FF080(0, module) (0x21: the ITEM root's) registers the task 001FF0D0, which runs
   001FF830 / 001FF3F0 and the I/O routines 00200780, 00200730 and 00200830
   once per frame, after the game task (em_task slot 2);
 - its 0x63 step clears D_00275BD8 and stops the slot (001AB7D0), and the
@@ -210,7 +215,9 @@ area files of D_0028A3C0 (file 0x10 + area in the table).
   veil's phase bounds: the switch's New Game load leaves the veil 257
   steps, the captures 258, the one being 001FB370's ninth call.
 - Any other read is answered at host speed and counted as `unmeasured`.
-  Nothing is extrapolated.
+  Nothing is extrapolated. The page modules other than 0x21 have no
+  recording (no capture shows a status page open): with the switch their
+  loads take the host-speed 10 dispatches, and their reads are counted.
 
 ### 1.8 The loader's cursor seeds
 
@@ -394,6 +401,21 @@ sound-bank transfer"), so the area load takes 20 dispatches at host speed.
    request 16 ticks after the post, against the original's 30 = 16 + 14;
    with the PS2 disc-drive timing switch the 24 rows and the 30 ticks are
    the capture's.
+
+8. **Every page module is one chunk, and its upload is what the port
+   draws** (chain step PAGELOADS). The INDEX.IDX headers of 0x1E, 0x1F,
+   0x20..0x24 and 0x2C..0x31 all name themselves (word 0) and have one
+   chunk (h[0x0E] = 1, sizes 0x18800..0x78800), no B section and, but for
+   0x1E, an empty payload; 0x1E's payload (0x32000 bytes) is the MAP
+   model bank, and its one relocation word makes slot 0x38 (D_0028A570)
+   = C74 + 0 = 0x19A3F40. Each chunk is one VIF1 chain of whole-page
+   PSMCT32 transfers whose blocks and bytes are exactly the module's step
+   in the port's status-pages GS data (`em_gs_texture`, EMSP: 384 blocks
+   for 0x1F up to 1,920 for 0x2C, 16,000 in all); every sprite of the
+   port's ITEM atlas (`item_root.emir`) decodes from module 0x1F's upload
+   over the world image, opened from the hub or after module 0x21, and
+   from neither the world alone nor module 0x21's upload (section 3 I).
+   At host speed each load takes the same 10 dispatches as module 0x21's.
 
 ## 3. Verification
 
@@ -603,6 +625,25 @@ first dispatch, one frame early after the sound-bank step. A pinned case
 with D_00810CA6 = 1 checks the 001FEF70 chaining. The run takes about 8 s
 in all.
 
+**I. The page modules (chain step PAGELOADS).** `check_page_modules`:
+for each of the 13 page modules (0x21 included), a whole load over route
+03's RAM as in part B (the original 001FF080 / 001FF0D0 / 001FF830 /
+001FF3F0 and the I/O routines against the native loader: every callee,
+the modelled memory, the delivered bytes and the chain each send hands
+the consumer): 10 dispatches, one send. Then:
+- the send's bytes through the decomp's GS upload model
+  (`export_level._bg_gs_upload`, the one the exporters use) write exactly
+  the blocks and bytes of that module's step in the installed
+  `assets/status_pages/status_pages.emsp`;
+- module 0x1E leaves D_0028A490[0x38] = the EMSP's relocation for
+  D_0028A570 = 0x19A3F40 (the only relocation the EMSP holds);
+- every sprite of the installed `assets/scene_snow/panel/item_root.emir`
+  decodes (the decomp's `decode_token_lm`) from the EMSP world image with
+  module 0x1F's upload over it, alone (the hub's order) and after module
+  0x21's (the panel's); without module 0x1F's upload none of the 17 does;
+- native loads with the measured drive: 10 dispatches (0x21: 24), each
+  read other than module 0x21's counted as unmeasured.
+
 **G. Live (the level smoke).** `check_module_load` (tools/test_level_smoke.py,
 every run through the battery and the panel): the loader bytes the tick
 log records after each frame (`loader_pre`: slot +0, +8..+0x1F,
@@ -618,9 +659,10 @@ counters.
    (ignored, disc-derived): the ISO's INDEX.IDX and DATA.DAT extents, the
    cursor seeds `AREA11_SEEDS` (section 1.8), the boot's tables from the
    ELF (D_0028A3C0 with the area files looked up in the ISO's directory,
-   D_00275304[0], D_00264890), and the sectors of modules 3 and 0x21 and of
-   area 0x0B (the overlay file, the header, the bank, the A entry and the
-   resident region; 10.7 MB). Add others with `--modules` / `--areas`.
+   D_00275304[0], D_00264890), and the sectors of module 3, of the page
+   modules (`PAGE_MODULES`: 0x1E..0x24 and 0x2C..0x31) and of area 0x0B
+   (the overlay file, the header, the bank, the A entry and the resident
+   region; 14.7 MB). Add others with `--modules` / `--areas`.
    `--capture <folder>` (developer only) adds the capture checks and takes
    that capture's cursors as the seeds. The game does not start without the
    pack (fail-stop, like the stream export).
@@ -654,12 +696,15 @@ counters.
    are), and the status pages' `SP_D_00275BD8` is a view of that view
    inside the call. The loader reads and writes the byte through its view.
 5. **DMA consumer.** `em_status_runtime_bind_loader` installs the status
-   runtime as the chain hook. It accepts only module 0x21's chunk: the
-   record's +8 = 0 and +0xE = 0x21, chain == D_00275C74, at least 0x50800
-   bytes (finding 1); with the status pages bound it applies the module's
-   GS blocks to their GS memory then (`em_gs_texture`, the same upload),
-   at the chunk step instead of at the request. Anything else is refused
-   (a loader fault).
+   runtime as the chain hook. It accepts only a page module's chunk: the
+   record's +8 = 0 and +0xE a page module, chain == D_00275C74, the loaded
+   header naming that module with one chunk and no B section, and at
+   least the chunk's size (h[0x24]) delivered (findings 1 and 8); with the
+   status pages bound it applies the module's GS blocks to their GS memory
+   then (`em_gs_texture`, the same upload: section 3 I), at the chunk step.
+   Without the status pages only the ITEM root and the BATTERY page can
+   open, and their atlases (EMIR / EMBA) already hold those uploads'
+   texels. Anything else is refused (a loader fault).
 6. **Clock.** main.c's field hook (the top of every frame) calls
    `em_scene_bindings_module_loader_field` before the dispatch. Only the
    measured drive reads it.
@@ -667,18 +712,22 @@ counters.
    calls `em_module_loader_request_001FF080(loader, 0, 3)` and 001ADF50's
    001FF080(1, 0) (`w_001FF080`) `(loader, 1, 0)`; both leave D_00275BD8 as
    their callers set it (1) for the task's 0x63 step to clear.
-   `em_status_runtime.c` `begin_module`: module 0x21 calls
-   `em_module_loader_request_001FF080(loader, 0, 0x21)` and leaves the busy
-   byte as the ITEM root set it; the loader's 0x63 step clears it. Without a
-   bound loader module 0x21 faults (no instant path is left). The port-side
-   `em_item_ui_deactivate` / `em_battery_ui_deactivate` calls stay (they
-   are not original calls). Module 0x1F and the other page modules keep
-   the resident path (item 8).
-8. **Other modules** move to the loader once each is exported and its
-   upload is proven equal to the atlas the port draws, as in finding 1:
-   the pages 0x1F (hub), 0x20, 0x22, 0x23, 0x2C and 0x2D..0x31 (the last
-   six the status pages' `SP_001FF080`). The New Game module 3 (001AD1A0)
-   and the area load go through it since chain step H7.
+   `em_status_runtime.c` `begin_module`: every page module (the page
+   core's phase 3, the ITEM root's state 3, SPR4's state 3) calls
+   `em_module_loader_request_001FF080(loader, 0, module)` and leaves the
+   busy byte as its caller set it; the loader's 0x63 step clears it.
+   Without a bound loader a page module faults (no instant path is left).
+   The port-side `em_item_ui_deactivate` / `em_battery_ui_deactivate` calls
+   stay for 0x1F and 0x21 (they are not original calls). The MAP page's
+   D_0028A570 view is the loader's slot 0x38 (`EmStatusPagesFrame.
+   d28A570`), which 001FF830 state 7 writes when module 0x1E loads (one
+   storage; em_gs_texture's copy of the relocation serves only callers
+   without a loader).
+8. **Every page module** goes through the loader since chain step
+   PAGELOADS (finding 8, section 3 I), as module 0x21 since C8b LOADER;
+   the New Game module 3 (001AD1A0) and the area load since chain step H7.
+   Module 0x27 (game over) and the exit's bank modules 0x32..0x35 are not
+   exported (the first level never loads them).
 9. **Tick log.** Every tick carries `loader_pre`: the first 27 bytes of
    `em_module_loader_snapshot` (slot +0, +8..+0x1F, D_00275BD8,
    D_00282157) after the previous frame's slot-2 dispatch (the task runs
@@ -759,16 +808,21 @@ contain the load, with these names:
   are its disc export (DISC_TEXTURES test B); the loaded resident region
   and overlay are the drive's bytes, which the port's native code does not
   read.
-- **Measured timing** exists for module 0x21's two reads only (two data
-  points, PCSX2 on the rebuilt image). With the switch on every other read
-  is answered at host speed and counted (`unmeasured`).
-- **Module 0x1F and the other page modules** have no upload-equals-atlas
-  proof yet (Binding item 8): they stay on the resident path.
+- **Measured timing** exists for module 0x21's two reads and the New
+  Game's (PCSX2 on the rebuilt image). With the switch on every other read
+  (the other page modules' among them: no capture shows a page open) is
+  answered at host speed and counted (`unmeasured`).
+- **The page modules' payloads are not read by the port.** Module 0x1E's
+  payload (the MAP model bank) lands in the drive's memory at D_0028A570;
+  the MAP page draws its models from `tools/export_status_map.py`'s export
+  of the same disc bytes (not compared byte for byte with the delivered
+  payload).
 - **Route 03 has no rand capture.** The 2-draws-per-frame figure is route
   01's identical load.
 - **The consumer hook is port-side.** It accepts the proven upload and
   applies the module's GS blocks from the status pages' GS image; it does
-  not decode the chain's transfer itself.
+  not decode the chain's transfer itself (section 3 I proves the two
+  equal for the user's disc).
 - **The loader bytes are logged after the dispatch.** The scene tick log's
   `post` byte D_00275BD8 is sampled when the game task ends, before slot 2
   runs, so on the load's last row it still shows 1 where the capture's

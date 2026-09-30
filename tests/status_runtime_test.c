@@ -497,8 +497,11 @@ int main(int argc, char **argv)
     confirmation(runtime);
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Default No. */
     assert(!owner.charged && world.inventory.charge == 12);
-    assert(tick(runtime, 0x20, 128, 128) == 1); /* Browse Back enters ITEM load. */
-    for (unsigned i = 0; i < 5; ++i)
+    /* Browse Back enters the ITEM root's module-0x1F load, which runs the
+     * loader's 10 host-speed dispatches too: 5 + 9 frames (the instant
+     * load this fixture counted before took 5). */
+    assert(tick(runtime, 0x20, 128, 128) == 1);
+    for (unsigned i = 0; i < 14; ++i)
         assert(tick(runtime, 0, 128, 128) == 1);
     assert(em_status_runtime_page(runtime)->item.state == 1);
     assert(em_status_runtime_render(runtime, (EmGfx *)1) == 1);
@@ -515,8 +518,9 @@ int main(int argc, char **argv)
     assert(tick(runtime, 0x40, 128, 128) == 1); /* Again defaults to No. */
     assert(!owner.charged && world.inventory.charge == 12);
     assert(tick(runtime, 0x20, 128, 128) == 1);
-    for (unsigned i = 0; i < 5; ++i)
+    for (unsigned i = 0; i < 14; ++i) /* 5 + the module-0x1F load's 9 more frames */
         assert(tick(runtime, 0, 128, 128) == 1);
+    assert(em_status_runtime_page(runtime)->item.state == 1);
     assert(tick(runtime, 0x20, 128, 128) == 1); /* Root Back -> broader hub. */
     assert(tick(runtime, 0, 128, 128) == 1);
     assert(tick(runtime, 0, 128, 128) == 1);

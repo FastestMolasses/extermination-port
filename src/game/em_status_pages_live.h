@@ -39,8 +39,10 @@
  *   D_0028B020 (24 x 0x2F0)    the UI pool, em_status_models' records
  *   D_00810610 (0x40)          the models' view matrix (the camera pool's)
  *   D_0028A570                 the MAP bank word: 0 until module 0x1E
- *                              loads, then the relocated slot 0x38
- *                              (em_gs_texture_word; read-only)
+ *                              loads, then the relocated slot 0x38 (the
+ *                              loader's slot word, frame d28A570, or
+ *                              without a loader em_gs_texture_word;
+ *                              read-only)
  *   D_00275BCC                 the free bone-slot count, as the port's
  *                              slots stand for the original's stack: the
  *                              free slots of em_status_models' pool
@@ -135,6 +137,12 @@ typedef struct {
     struct EmStatusModels *models;
     const float *player_position, *player_yaw;
     uint8_t *area; /* D_00810700..702, the scene state's area bytes */
+    /* D_0028A570 = D_0028A490[0x38]: the live screen-module loader's slot
+     * word, which its 001FF830 state 7 relocates when module 0x1E loads
+     * (the one storage while a loader is bound). NULL: em_gs_texture's
+     * copy of that relocation (tools/export_status_pages.py; the
+     * fixtures and tests that bind no loader). */
+    const uint32_t *d28A570;
 } EmStatusPagesFrame;
 
 /* Loads the data (assets/status_pages/status_pages.emsp). NULL when it is

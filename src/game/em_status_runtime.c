@@ -92,41 +92,26 @@ static int page_module(unsigned module)
 
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
 {
-    /* Module 0x21 (the BATTERY page) runs the loader's own steps
-     * (docs/MODULE_LOADER.md): 001FF080(0, 0x21) registers the slot-2 task
-     * 001FF0D0, whose steps read the header and the chunk at host speed
-     * (or the recorded drive time, EM_PS2_DISC_DRIVE_TIMING) and send the
-     * chunk (the page's texture upload, loader_chain below);
-     * its 0x63 step clears D_00275BD8, which the ITEM root's state 3 and
-     * the page core wait on. The busy byte stays as the caller set it. */
-    if (module == 0x21 && runtime->loader) {
-        em_item_ui_deactivate(runtime->item);
-        em_battery_ui_deactivate(runtime->battery);
-        return em_module_loader_request_001FF080(runtime->loader, 0, 0x21) == 0;
-    }
-    /* The other page modules complete at host speed (user policy,
-     * PORT_PROFILES): 001FF830's GS uploads are applied to the pages' GS
-     * memory at once (em_gs_texture); 1F is also the actual parsed
-     * original artwork and text of the ITEM root adapter. Each moves to
-     * the loader once its upload is proven equal to the port's atlas
-     * (MODULE_LOADER.md Binding item 8). */
-    if (module == 0x21)
-        return 0; /* no loader bound: fail-stop, never an instant load */
-    if (runtime->pages && page_module(module)) {
-        if (!em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), module))
+    /* Every page module runs the loader's own steps (docs/MODULE_LOADER.md
+     * section 4): 001FF080(0, module) registers the slot-2 task 001FF0D0,
+     * whose steps read the header, the one chunk (the page's texture
+     * upload, sent to loader_chain below) and the payload (module 0x1E's
+     * map model bank, relocated into slot 0x38 = D_0028A570) at host speed
+     * (or with the recorded drive time, EM_PS2_DISC_DRIVE_TIMING, where a
+     * recording exists: module 0x21's); its 0x63 step clears D_00275BD8,
+     * which the page core, the ITEM root and SPR4 wait on. The busy byte
+     * stays as the caller set it. Without a loader a page module faults
+     * (no instant path is left). The ITEM root's (0x1F) and the BATTERY
+     * page's (0x21) uploads replace the texture slot the port's ITEM and
+     * BATTERY atlases stand in (released here, at the request). */
+    if (page_module(module)) {
+        if (!runtime->loader)
             return 0;
-        if (module == 0x1F) {
+        if (module == 0x1F || module == 0x21) {
             em_item_ui_deactivate(runtime->item);
             em_battery_ui_deactivate(runtime->battery);
         }
-        busy_store(runtime, 0);
-        return 1;
-    }
-    if (module == 0x1F) {
-        em_item_ui_deactivate(runtime->item);
-        em_battery_ui_deactivate(runtime->battery);
-        busy_store(runtime, 0);
-        return 1;
+        return em_module_loader_request_001FF080(runtime->loader, 0, (uint8_t)module) == 0;
     }
     if (runtime->pending_module >= 0 || !runtime->hooks.module_begin ||
         !runtime->hooks.module_ready ||
@@ -273,6 +258,10 @@ static int pages_tick(EmStatusRuntime *runtime, uint32_t address)
     frame.module_context = runtime;
     frame.math = &runtime->math;
     frame.trail = &runtime->trail;
+    if (runtime->loader) { /* D_0028A570: the loader's slot 0x38 (one storage) */
+        const EmStatusSceneLoader *ld = em_module_loader_state(runtime->loader);
+        frame.d28A570 = &ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A570];
+    }
     frame.req[EM_STATUS_PAGES_REQ_B0] = page->request;
     frame.req[EM_STATUS_PAGES_REQ_B1] = page->request_kind;
     frame.req[EM_STATUS_PAGES_REQ_C5] = page->status_request;
@@ -570,24 +559,37 @@ void em_status_runtime_bind_busy(EmStatusRuntime *runtime, uint8_t *d275BD8)
         runtime->d275BD8 = d275BD8;
 }
 
-/* The chain module 0x21's chunk step sends (001FF3F0 state 3, 00200830 of
- * D_00275C74): the BATTERY page's texture upload, one VIF1 chain of one
- * PSMCT32 transfer (docs/MODULE_LOADER.md finding 1: it equals the GS
- * memory the port's battery atlas and the status pages' GS image were
- * exported from). With the status pages bound, the upload is the
- * module's step of their GS memory (em_gs_texture, the same blocks);
- * without them the resident atlas already holds its texels. Any other
- * chain is refused (fail-stop). */
+static uint32_t le32(const uint8_t *p)
+{
+    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+}
+
+/* The chain a page module's chunk step sends (001FF3F0 state 3, 00200830
+ * of D_00275C74). Every page module's header (INDEX.IDX sector = module)
+ * has one chunk (h[0x0E] = 1), no B section (h[0x10] = 0): the chunk is
+ * the page's texture upload, one VIF1 chain of whole-page PSMCT32
+ * transfers. docs/MODULE_LOADER.md finding 1 and section 3 I prove that
+ * each chunk's upload writes exactly the blocks and bytes of that
+ * module's step of the status pages' GS memory (em_gs_texture, exported
+ * from the same disc bytes), and that the ITEM atlas decodes from module
+ * 0x1F's upload and the BATTERY atlas from module 0x21's. With the status
+ * pages bound the upload is applied here as that step; without them the
+ * resident ITEM / BATTERY atlases already hold their texels (and the other
+ * pages cannot open). Any other chain is refused (fail-stop). */
 static int loader_chain(void *context, uint32_t chain, const uint8_t *bytes, uint32_t size)
 {
     EmStatusRuntime *runtime = context;
     const EmTask *record = em_module_loader_record(runtime->loader);
     const EmStatusSceneLoader *ld = em_module_loader_state(runtime->loader);
-    if (!bytes || !record || !ld || record->user[0] != 0 || record->user[6] != 0x21 ||
-        chain != ld->d275C74 || size < 0x50800u)
+    if (!bytes || !record || !ld || record->user[0] != 0 || !page_module(record->user[6]) ||
+        chain != ld->d275C74)
+        return -1;
+    const uint8_t *h = ld->header;
+    if (le32(h) != record->user[6] || (h[0x0E] | h[0x0F] << 8) != 1 || le32(h + 0x10) != 0 ||
+        size < le32(h + 0x24))
         return -1;
     if (runtime->pages &&
-        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), 0x21))
+        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), record->user[6]))
         return -1;
     return 0;
 }

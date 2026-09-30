@@ -125,8 +125,10 @@ PINNED_SHA256 = {
         '2b59e06d014001bbd2eab0eef4569d3b2c794328e81d101f58ddaa46fddf7139',
     'scene_snow/static_world.emsw':  # sha256
         '568ba63d44998d910a3da9d3ff91b912776a2254f9c6ae88bd85c7f42226f049',
-    'module_loader/modules.emml':  # sha256 (EMML version 2 since chain step H7: module 3 and AREA11)
-        'cb4865ad6d04daebc9e4080a6e7f1f9051c67c01c51a2451ca3f53f29e0f9232',
+    # EMML version 2 since chain step H7 (module 3 and AREA11); since chain
+    # step PAGELOADS it also holds the page modules 0x1E..0x24 and 0x2C..0x31.
+    'module_loader/modules.emml':  # sha256
+        'd1a7facaa32fb4f80d04e47f4ed5ef113fabc9d436f5ea75b1c7f01dbb61de90',
     'fx/flash_ball.emtx':  # sha256
         '74873c3eab48bbd94c075639915662852ee7ff88d1426c5db80221aa4728759a',
     'fx/flash_puff.emtx':  # sha256

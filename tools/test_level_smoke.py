@@ -1914,11 +1914,62 @@ def check_east_tower(ticks, run, state):
     print(f'east_tower: PASS ({check_director_beat(ticks, run, state, "east_tower")})')
 
 
+# The status pages' modules this run loads (docs/MODULE_LOADER.md section
+# 3 I): DATABASE 0x24, SPR4 0x2C with its part pages 0x2D (LOWER U.R.S.)
+# and 0x31 (SELECTOR SWITCH), MAP 0x1E, the ITEM root 0x1F and its children
+# EQUIPMENT 0x20, EVENT 0x22 and HEALING 0x23.
+STATUS_PAGES_MODULES = {0x1E, 0x1F, 0x20, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x31}
+
+
+def page_module_loads(ticks):
+    """[(port tick of the first dispatch, module, rows)]: every bank load
+    (+8 = 0) of a page module in the run, its rows the slot-2 record (+0,
+    +8..+0x1F) and D_00275BD8 after each dispatch, from the first to the
+    one that leaves the slot idle."""
+    loads, cur = [], None
+    for t in ticks:
+        if 'loader_pre' not in t:
+            continue
+        b = bytes.fromhex(t['loader_pre'])[:26]
+        if cur is None and b[0]:
+            cur = (t['tick'] - 1, b[7], [])
+        if cur is not None:
+            cur[2].append(b)
+            if not b[0]:
+                loads.append(cur)
+                cur = None
+    return [load for load in loads if 0x1E <= load[1] <= 0x24 or 0x2C <= load[1] <= 0x31]
+
+
+def check_page_module_loads(ticks):
+    """Every page module the run opens loads through the screen-module
+    loader's own steps (chain step PAGELOADS): its rows are route 03's
+    captured module-0x21 rows (h7 f391..f414, the same one-chunk header
+    shape) without the 14 busy polls, with the module byte +0xE the page's.
+    No capture records a page module's drive time: with the PS2 disc-drive
+    timing switch these reads are answered at host speed too (the run log's
+    `unmeasured` counts them)."""
+    h7, key = loader_rows_03()
+    captured = [key(h7[f]) for f in range(391, 415)]
+    host = [r for i, r in enumerate(captured) if i == 0 or r != captured[i - 1]]
+    assert len(host) == 10 and host[-1][0] == 0 and host[-1][25] == 0
+    loads = page_module_loads(ticks)
+    for tick, module, rows in loads:
+        expect = [r[:7] + bytes([module]) + r[8:] for r in host]
+        assert rows == expect, ('status_pages: page module load differs from the loader rows',
+                                hex(module), tick, len(rows))
+    seen = {module for _, module, _ in loads}
+    assert seen == STATUS_PAGES_MODULES, ('status_pages: page modules loaded',
+                                          sorted(map(hex, seen)))
+    return len(loads), sorted(seen)
+
+
 def check_status_pages(ticks, run, state):
     """The designed side run (em_level_smoke_test.c status_pages; no route
     capture shows a page open): every page call it made is replayed through
     the original instructions (tools/test_status_pages_live.py) from the
-    run's EM_STATUS_PAGES_TRACE, and every bound page must have run."""
+    run's EM_STATUS_PAGES_TRACE, and every bound page must have run. Every
+    page module it loads runs the loader's steps (check_page_module_loads)."""
     import test_status_pages_live as L
     trace = state.get('status_pages_trace')
     assert trace and trace.exists() and trace.stat().st_size, \
@@ -1944,10 +1995,13 @@ def check_status_pages(ticks, run, state):
     bound = sum(1 for c in calls if c['page'] == 0x002101C0
                 for e in c['callees'] if e['target'] == 0x001CA5E0)
     assert bound >= 2 and drawn, ('status_pages: no MAP node bound and drew a map model', bound, drawn)
+    loads, modules = check_page_module_loads(ticks)
     summary = ', '.join(f'{need[p]} {n}' for p, n in sorted(pages.items()))
     print(f'status_pages: PASS ({len(calls)} page calls: {summary}; {callees} callee entries and every '
           f'view byte equal to the original instructions over the status-hub capture; {bound} MAP '
-          f'model binds, {drawn} 001CB480 draws)')
+          f'model binds, {drawn} 001CB480 draws; {loads} page module loads '
+          f'({", ".join(f"{m:#x}" for m in modules)}) through the loader\'s steps, each the 10 '
+          f'host-speed rows of route 03\'s module-0x21 load with its module byte)')
 
 
 PHASES = [

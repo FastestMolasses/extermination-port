@@ -271,7 +271,10 @@ static void build_views(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
         /* MAP (0020F950, its nodes' 002101C0 and helpers). A source the
          * port does not hold leaves its view out, so a read faults. */
         uint32_t word = 0;
-        (void)em_gs_texture_word(l->gs, D_0028A570, &word);
+        if (f->d28A570)
+            word = *f->d28A570;
+        else
+            (void)em_gs_texture_word(l->gs, D_0028A570, &word);
         put32(l->d28A570, word);
         const unsigned free_slots = em_status_models_free_slots(f->models);
         l->bcc[0] = (uint8_t)free_slots;
@@ -333,7 +336,10 @@ static int check_readonly(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
     if (!f->models)
         return 0;
     uint32_t word = 0;
-    (void)em_gs_texture_word(l->gs, D_0028A570, &word);
+    if (f->d28A570)
+        word = *f->d28A570;
+    else
+        (void)em_gs_texture_word(l->gs, D_0028A570, &word);
     const unsigned free_slots = em_status_models_free_slots(f->models);
     const uint8_t *word_bytes = em_rcl_bytes(0x00275670u, 4);
     const uint8_t *zoom = em_rcl_bytes(EM_RCL_CONTEXT + 0x2468u, 4);

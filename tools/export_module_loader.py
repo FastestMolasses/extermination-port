@@ -11,8 +11,11 @@ area's overlay file, its INDEX.IDX header sector (area + 4) and every
 DATA.DAT span 001FFCD0 reads (the sound bank entry 0, the A entries, the
 resident region); all exactly as 00200780 rounds them to sectors. A read the
 pack does not hold faults at run time (fail-stop); nothing is synthesised.
-Default: module 3 (the New Game's 001AD1A0), module 0x21 (the BATTERY
-page) and area 0x0B (AREA11, the New Game's 001FF080(1, 0)).
+Default: module 3 (the New Game's 001AD1A0), the status pages' modules the
+first level loads (PAGE_MODULES: 0x1F the ITEM root, 0x1E MAP, 0x2C SPR4,
+0x24 DATABASE, the ITEM children 0x20 / 0x21 BATTERY / 0x22 / 0x23 and the
+SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1) and area 0x0B
+(AREA11, the New Game's 001FF080(1, 0)).
 
 Inputs (the user's own, read in place, nothing modified):
   --iso      the user's disc image (default ../Extermination/Extermination-rebuilt.iso).
@@ -70,7 +73,10 @@ DECOMP = ROOT.parent / 'Extermination'
 SECTOR = 0x800
 D_00289BC0, D_0028A480, D_0028A488 = 0x289BC0, 0x28A480, 0x28A488
 CURSORS = (0x275C70, 0x275C74, 0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
-DEFAULT_MODULES = (3, 0x21)
+# 0020CDC0 phase 3 (pages 0..3: 0x1F, 0x1E, 0x2C, 0x24), the ITEM root's
+# children (0x20, 0x21, 0x22, 0x23) and SPR4's part pages (0x2D..0x31).
+PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31)
+DEFAULT_MODULES = (3,) + PAGE_MODULES
 DEFAULT_AREAS = (0x0B,)
 HEADER = 0x120
 AREA_FILES = 0x17
@@ -235,7 +241,7 @@ def main():
     ap.add_argument('--capture', type=Path, default=None,
                     help='optional original RAM capture folder (eeMemory.bin): checks and cursor seeds')
     ap.add_argument('--modules', default=','.join(f'{m:#x}' for m in DEFAULT_MODULES),
-                    help='comma-separated module ids (default 3,0x21)')
+                    help='comma-separated module ids (default 3 and PAGE_MODULES)')
     ap.add_argument('--areas', default=','.join(f'{a:#x}' for a in DEFAULT_AREAS),
                     help='comma-separated area ids for 001FF080(1, 0) (default 0xb)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')

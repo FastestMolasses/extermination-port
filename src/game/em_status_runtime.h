@@ -76,9 +76,11 @@ typedef struct {
      * root reaches its child page 5; it needs the message view below and a
      * bound hub (the gauge text). */
     int (*battery_page)(void *, const EmStatusBatteryPage *);
-    /* Adapter owns its parsed modules1F/21. Other actual module reloads
-     * (e.g.32..35 on exit) require these workers: begin1 accepted;
-     * ready−1 failure,0 pending,1 complete. */
+    /* The page modules (0x1E..0x24, 0x2C..0x31) load through the bound
+     * screen-module loader (em_status_runtime_bind_loader). Other module
+     * reloads (e.g. 0x32..0x35 on exit, which AREA11 never reaches)
+     * require these workers: begin 1 accepted; ready -1 failure, 0
+     * pending, 1 complete. */
     int (*module_begin)(void *, unsigned module);
     int (*module_ready)(void *, unsigned module);
     /* Required only when navigation reaches the broader status hub or
@@ -133,21 +135,23 @@ int em_status_runtime_bind_hub(EmStatusRuntime *, EmStatusHubUI *ui);
 /* Bind the status pages MAP / SPR4 / DATABASE and the ITEM children
  * EQUIPMENT / EVENT / HEALING (the runtime owns `pages` from now on, also
  * on failure; it needs the pages_frame hook and a bound hub). Their module
- * loads (0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31) complete at once, as
- * 0x1F does, and apply the module's GS blocks (module 0x21 applies its
- * blocks at the bound loader's chunk step); 00200970(1) applies the
- * restore. Without it those pages fault. 1 bound, 0 failure. */
+ * loads (0x1E, 0x20, 0x22, 0x23, 0x24, 0x2C..0x31), like 0x1F's and 0x21's,
+ * run the bound loader's steps and apply the module's GS blocks at its
+ * chunk step; 00200970(1) applies the restore. Without it those pages
+ * fault. 1 bound, 0 failure. */
 int em_status_runtime_bind_pages(EmStatusRuntime *, EmStatusPagesLive *pages);
 /* D_00275BD8, the module-load busy byte: `d275BD8` is its one storage
  * (the scene state's). The page core's EmItemRoot.asset_busy is a per-call
  * view of it: loaded before the page layer runs and stored after it.
  * Unbound (the sanitizer fixtures without a host) the view is the byte. */
 void em_status_runtime_bind_busy(EmStatusRuntime *, uint8_t *d275BD8);
-/* The screen-module loader (em_module_loader, bound live) that module
- * 0x21's load runs on: 001FF080(0, 0x21) registers its slot-2 task and the
- * page waits on D_00275BD8, which the task's 0x63 step clears. Binding also
- * installs the runtime as the loader's DMA consumer for that module's
- * upload. Without a loader module 0x21 faults. NULL unbinds. 1 bound. */
+/* The screen-module loader (em_module_loader, bound live) every page
+ * module's load runs on (0x1E..0x24, 0x2C..0x31: docs/MODULE_LOADER.md
+ * section 4): 001FF080(0, module) registers its slot-2 task and the page
+ * waits on D_00275BD8, which the task's 0x63 step clears. Binding also
+ * installs the runtime as the loader's DMA consumer for those modules'
+ * uploads, and the MAP page reads D_0028A570 from the loader's slot 0x38.
+ * Without a loader a page module faults. NULL unbinds. 1 bound. */
 struct EmModuleLoader;
 int em_status_runtime_bind_loader(EmStatusRuntime *, struct EmModuleLoader *loader);
 /* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset

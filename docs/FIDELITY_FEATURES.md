@@ -810,12 +810,16 @@ long notices stay up.
   drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
   ALPHA are not modelled) and are not compared (no fb2 frame shows text).
   The BATTERY page's module load runs the original loader's own steps
-  since chain C8b LOADER (see "The status page's module load" below).
+  since chain C8b LOADER, every other page's since chain step PAGELOADS
+  (see "The status pages' module loads" below).
 
-**The status page's module load: the original loader's own steps**
+**The status pages' module loads: the original loader's own steps**
 
 Before the BATTERY page (the battery pop-up and the panel's prompt) the ITEM
-root loads module 0x21, the page's texture upload, and waits for it. The
+root loads module 0x21, the page's texture upload, and waits for it; every
+other status page loads its module the same way (the ITEM root 0x1F, MAP
+0x1E, SPR4 0x2C, DATABASE 0x24, EQUIPMENT / EVENT / HEALING 0x20 / 0x22 /
+0x23, SPR4's part pages 0x2D..0x31). The
 port runs the original loader for it, step by step, once per frame, as the
 PS2 does: the request 001FF080, the slot-2 task 001FF0D0, the bank and chunk
 streamers 001FF830 / 001FF3F0, the disc read, poll and DMA routines 00200780
@@ -829,7 +833,9 @@ the recorded 24.
   user's exported disc sectors, `tools/export_module_loader.py`) and the
   translated state machine of `em_status_scene_original`, bound live on the
   task table's slot 2 (MODULE_LOADER.md section 4). The page's upload is
-  applied when the loader's chunk step sends it.
+  applied when the loader's chunk step sends it; each page module's upload
+  is proven equal to the texels the port draws the page with
+  (MODULE_LOADER.md finding 8).
 - Evidence: the level smoke's `check_module_load` (routes 01 and 03, every
   run through the battery and the panel): after every frame, the loader's
   record and busy byte equal the capture's rows without the drive's 14 busy
@@ -839,12 +845,17 @@ the recorded 24.
   exactly 14 ticks sooner (0 with the switch). `make
   test-module-loader-reference`: the routines and whole loads against the
   original instructions over captured RAM, 45 of the disc's module headers
-  included.
+  included; part I (chain step PAGELOADS): the 13 page modules' whole loads
+  against the original loader code, each upload against the port's GS data
+  and ITEM atlas. The level smoke's `status_pages` run: its 20 page loads
+  each take the loader's 10 host-speed steps with the loader's rows.
 - Status: **VERIFIED** for module 0x21 on the recorded route, relative to
-  PCSX2 recordings. The other page modules (the ITEM root's 0x1F, the pages'
-  0x1E / 0x20 / 0x22..0x24 / 0x2C..0x31) still load at once (their uploads
-  are not yet proven equal to the port's atlas), and the area load is not
-  yet the loader's (see the load veil entry).
+  PCSX2 recordings. **VERIFIED against the original code** for the other
+  page modules (since chain step PAGELOADS, 2026-09-30): no capture shows a
+  status page open, so their load time is not compared with a recording,
+  and with the PS2 disc-drive timing switch they load at host speed (no
+  recorded drive time exists for them). The area load is the loader's
+  since chain step H7 (see the load veil entry).
 
 **The original camera: follow camera, scripted shots and director beats**
 
@@ -989,7 +1000,8 @@ so conversations keep the recording's pacing.
   longer reads, which only module loads issue; module loads go through the
   screen-module loader's own drive instead: host speed, and with the switch
   the busy fields recorded for module 0x21's two reads (the BATTERY page:
-  24 frames; every other module read stays at host speed and is counted). The switch lives in the one settings struct
+  24 frames) and the New Game's; the other page modules' reads have no
+  recording and stay at host speed (counted as unmeasured). The switch lives in the one settings struct
   (`src/em_settings.h`, `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher
   exists).
 - Evidence: `LEVEL_SMOKE.md` "The stream drive's two modes". Host speed
@@ -1736,7 +1748,8 @@ Resolved by the user on 2026-09-27:
 1. **The panel page's load (H7):** the loader's own state steps are game code
    and stay; the drive's I/O time is hardware and goes (host speed). The
    smoke's panel-prompt check aligns on the load's completion. Built in
-   chain C8b LOADER (the status page's module load entry above).
+   chain C8b LOADER (the status pages' module loads entry above), for every
+   page module since chain step PAGELOADS.
 2. **The opening's stream timing:** the extra seek from the intro movie's disc
    position is not modelled (the code does not model it). The area-entry
    001FAE70(1) is game code and is bound (`RAND_ORDER.md` 2).
