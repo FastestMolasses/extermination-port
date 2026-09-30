@@ -165,6 +165,9 @@ REACHERS = {
         "game/em_area01_sys.c": "001A8840's read (AREA01 level-2 lane, not bound): the module reads original "
                                 "memory through its own EE view; the AREA01 binding (phase 3) maps that view "
                                 "onto the canonical byte",
+        "game/em_area02_misc.c": "0015C750's store (=0) (AREA02 level-4 lane, not bound): the module writes "
+                                 "original memory through its own EE view; the AREA02 binding (phase 3) maps "
+                                 "that view onto the canonical byte",
     },
     0x00810771: {
         "game/em_scene_bindings.c": "0015C160 (w_0015C160, census L29): the shadow gate's read of event "
