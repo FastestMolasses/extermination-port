@@ -313,6 +313,8 @@ at the session's end); leads, not ground truth.
    played. None was needed for hole [5].
 2. AREA19 past its entry-9 ladder (decomp WORLD_GRAPH.md section 7 step 5:
    AREA03 through the panel [24], or sub 1 to AREA15) is not recorded; an
-   AREA19 group would start from a13_05's end.
-3. Whether item 0x1A stops the outdoor health loss.
+   AREA19 group would start from a13_05's end. (Continued in
+   `TENTH_LEVEL_ROUTE.md`: groups `a19` / `a13b` from a13_05's end.)
+3. Whether item 0x1A stops the outdoor health loss. (Answered in
+   `TENTH_LEVEL_ROUTE.md` section 4: it does.)
 4. The use of item 0x20 from the HEALING page (the prompt) is not played.
