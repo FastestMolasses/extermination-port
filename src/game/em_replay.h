@@ -19,7 +19,10 @@
  *                            inputs start on this run's own first tick of
  *                            the next phase. Movies are skipped (START held)
  *                            when the recording skipped them. The run quits
- *                            when the recording is used up.
+ *                            when the recording is used up. A phase change
+ *                            the recording does not have at that point (a
+ *                            flicker) continues the current segment; recorded
+ *                            segments of at most 8 ticks may be skipped.
  *   EM_REPLAY_CAPTURE=<path> during playback, request a frame capture
  *                            (em_gfx_request_capture) at every captured
  *                            tick; a path with a "%u" takes the capture
@@ -27,6 +30,8 @@
  *                            the same path (a FIFO the tool reads).
  *   EM_REPLAY_CAPTURE_EVERY=<k>  capture ticks whose segment offset is a
  *                            multiple of k (default 1), never title ticks.
+ *   EM_REPLAY_MAX_OVERRUN=<n>    stop (desync) when a live segment runs n
+ *                            ticks past its recorded length (default 1800).
  *   EM_REPLAY_AUDIO=<file.wav>   during playback, no audio device: the
  *                            mixer is rendered on the game thread, 800.8
  *                            frames per main-loop step at 48 kHz, into a
