@@ -55,6 +55,7 @@
 #define EM_EFFECTS_LIVE_H
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include "game/em_actor_pool.h"
 #include "game/em_scene_state.h"
@@ -98,6 +99,45 @@ int em_effects_live_001F0310(void);
  * its fourth word to 001EF9D0 as f12. 0, or -1 on a fault. */
 int em_effects_live_001EFD90(uint32_t id, const float pos[4], const float rot[4]);
 int em_effects_live_001EFD20(uint32_t id, const float pos[4]);
+/* Same spawn owners, preserving their original node-address result (zero is
+ * the original no-allocation result). Existing three-argument EFD90 remains
+ * available to callers that discard it. */
+int em_effects_live_001EF9D0(uint32_t id, const float pos[4], uint32_t f12, uint32_t *node);
+int em_effects_live_001EFD90_result(uint32_t id, const float pos[4], const float rot[4], uint32_t *node);
+/* Typed entry points for callers holding their original local transform
+ * block. The first 0x58 bytes are original fields; its final 8 bytes are
+ * untouched. CFBE0 resolves m40 and the source through actual owner views. */
+int em_effects_live_001CCF70(const float pos[4], int32_t *key);
+int em_effects_live_001CFA60(uint8_t block[0x60], const float matrix[16], uint32_t f12, uint32_t f13);
+int em_effects_live_001CFB50(uint8_t block[0x60], int32_t index, const float matrix[16], const uint32_t f[5]);
+int em_effects_live_001CFBE0(int32_t key, int32_t kind, uint32_t source, const uint8_t block[0x60], int32_t copy);
+
+/* Original-address fields of currently allocated effect slots. Returned
+ * pointers alias their actual actor / slot owner, never a reconstructed
+ * record. A range spanning separate native fields or unknown storage returns
+ * NULL. Acquiring a writable +24 view does not make it readable: the caller
+ * reports the completed original store with node_written. This permits an
+ * original region-based worker to acquire its destination before the store.
+ * Known pool fields, position / rotation, matrix and handler work fields are
+ * available; unmapped holes are not synthesized. */
+void *em_effects_live_node_field(uint32_t address, size_t size, int write);
+/* Certify an observed completed +24 word store; never writes the word itself.
+ * Returns -1 for another field, a partial store, or an inactive generation. */
+int em_effects_live_node_written(uint32_t address, size_t size);
+typedef struct {
+    uint32_t address;
+    size_t size;
+    void *bytes;
+} EmEffectsLiveNodeRegion;
+/* Enumerate readable canonical fields of an original node base. Returns the
+ * required count (zero for an inactive/non-effect node), fills up to capacity.
+ * Callers must reject insufficient capacity. Uninitialized +24 is omitted. */
+size_t em_effects_live_node_regions(uint32_t node, EmEffectsLiveNodeRegion *regions, size_t capacity);
+/* Extend KIND_OTHER with an already translated callback. Install after area
+ * attach (detach clears it). Result: 1 alive, 0 freed, -1 fault. */
+typedef int (*EmEffectsLiveOtherTick)(void *, uint32_t address, uint32_t callback);
+int em_effects_live_set_other_tick(EmEffectsLiveOtherTick, void *context);
+
 /* 001F0460(n, M), M 16 floats. */
 int em_effects_live_001F0460(int32_t n, const float m[16]);
 /* 001F0120(owner, key): owner14 is the owner's +0x14 word. */

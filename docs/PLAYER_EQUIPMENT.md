@@ -257,11 +257,13 @@ original does not call 001AF890 there).
 | w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_sdk_vu0_001026D0` (SDK_VU0.md), `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
 | w_001B0070 | D_008106C8 (the request block) |
 | w_0015C310 | the bindings' 0015C310 (`em_area11_spawn_player_equipment_0015C310`; arg1 = 1 from the equipment change D_008106CC, which the status page writes) |
-| w_001B61C0, w_0019A570 and every untranslated callee: w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0, w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | faults (none ran in any census label; 001B61C0 / 0019A570 are reached only from the untranslated ones) |
+| w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0 | behind the aim/fire diagnostic gate: em_aim_fire_target / em_aim_fire_shots through `em_aim_fire_binding_run` (D_00275B40 switched to the node's own slots for the call; AIM_FIRE.md); in ordinary play they fault |
+| w_001B61C0, w_0019A570 and every untranslated callee: w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | faults (none ran in any census label; 001B61C0 / 0019A570 are reached only from the untranslated ones) |
 
 None of the faulting callees can run in the port today: the aim selector
-needs the armed stances, which the port's stand-ins still own (L28,
-P24..P28); the lamp 00187780 needs D_008106C7, which only the port's
+needs the armed stances, which the port's stand-ins still own in ordinary
+play (L28, P24..P28; the original stances run only behind the aim/fire
+gate, AIM_FIRE.md); the lamp 00187780 needs D_008106C7, which only the port's
 em_weapon.c raises in its own storage (the request block's byte stays 0,
 as in every capture); the knife's bit 0 and a camera mode other than 0 are
 not reachable on the idle / walk states.

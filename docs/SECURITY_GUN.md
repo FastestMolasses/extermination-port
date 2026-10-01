@@ -27,9 +27,12 @@ from the code, the placement records and every AREA11 capture):
   script 0x828C70 (to 0xFF) on a later return visit can set. Every AREA11
   capture has the flag 0, the gun in 0x64 with +0x28 = 584, and the cable in
   lifecycle 1, not hit.
-- Shooting the cable disables the gun for good (lifecycle 2, and the taken
+- Cutting the cable disables the gun for good (lifecycle 2, and the taken
   bit +0x9A = 0x50 in area 11's row, which its lifecycle 0 reads on every
-  later visit). The gun has no health and no other off switch.
+  later visit). The gun has no health and no other off switch. In the
+  original a light melee at the strand's foot cuts it; rounds aimed at the
+  cable land on the pillar face behind it and do not (decomp
+  CAPTURES_C10.md "AIM", beats aim_10 / aim_11).
 
 **Files.**
 - `src/game/em_security_gun.{h,c}` (was em_script_door_fan_husk): the
@@ -42,7 +45,7 @@ from the code, the placement records and every AREA11 capture):
   (aim and fire) with the sight probe 0x826F30 and the shot node 0x827400
   (`em_gun_rest_tick`, not bound in the first level: 5.1), the taken-bit
   set 001B1190 (bound), and the cable-hit effect nodes 0021AAC0 / 0021A500
-  and their spawn 001EFEB0 (not bound: 5.2). Oracle:
+  and their spawn 001EFEB0 (bound only behind the aim/fire gate: 5.2). Oracle:
   `tools/test_security_gun_rest_reference.py` (`make
   test-security-gun-rest-reference`).
   - Default: about 6 to 8.5 s wall, about 9 s user CPU. `EM_TEST_FULL=1`:
@@ -80,7 +83,7 @@ The jal instructions of 0x825940 encode 0x826F30 and 0x827400.
 | 001A2370 hull | worker | worker; `em_actor_cells_retransform_001A2370` is verified and live | reused |
 | 001B1190 taken-bit set | no verified implementation for the cable's `w_001B1190` | `em_gun_rest_001B1190` | oracle (30 cases) |
 | 001B11E0 taken-bit test | verified, static in `em_actor_roster.c` | reused, exported as `em_actor_roster_001B11E0` (L24) | test_actor_census_reference |
-| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`); spawn view unbound | reused; the spawned node's behaviour is now translated | see 2.5 |
+| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`, and `em_area01_side_001EFE00`); spawn view unbound | behind the aim/fire gate `em_area01_side_001EFE00` through em_aim_fire_world_live (AIM_FIRE.md); `em_player_misc_001EFE00` stays the player's, unbound | see 2.5 |
 | 0021AAC0 (the node 0x80000045 spawns) | untranslated | `em_gun_rest_0021AAC0` | oracle (65 runs incl. spawn to free) |
 | 001EFEB0 (0021AAC0's spawn) | untranslated | `em_gun_rest_001EFEB0` | oracle |
 | 0021A500 (the 0x8000003B strip node) | untranslated | `em_gun_rest_0021A500` | oracle (32 runs) |
@@ -501,10 +504,15 @@ are EmActor's; +0x28 and +0x34 are the node's.
   001B17A0, the draw).
 - **The hit** (+0x36 ≠ 0: the gun to lifecycle 2 with +0x21C = 90, then
   001EFE00(0x80000045), cue 0x426, then lifecycle 2: cue 0x427 at 10 and the
-  taken bit through 001B1190) is bound up to 001EFE00, which faults: its
-  001EF9D0 node view is not bound, and the node it spawns (0021AAC0, verified
-  in em_security_gun_rest) spawns strip nodes 0021A500 whose packet builder
-  001CE860 has no translation. As for the crates and drums, no live code
+  taken bit through 001B1190) is bound up to 001EFE00, which faults in
+  ordinary play (since chain step AIM through em_aim_fire_binding, which
+  has no world extension outside its diagnostic gate). Behind the aim/fire
+  gate the chain is composed (AIM_FIRE.md): 001EFE00 is
+  `em_area01_side_001EFE00`, the nodes 0021AAC0 / 0021A500 run
+  em_security_gun_rest (bound as pool nodes in em_area11_bindings), and the
+  strip packets 001CE860 run `em_area06_port_001CE860`
+  (tools/test_area06_port_reference.py); it is covered at its adapter
+  boundaries (make test-aim-fire-cable-live), not in a live run. As for the crates and drums, no live code
   writes a pool record's +0x36 (the port's weapon still hits only em_enemy
   instances), so the hit is not reachable in the port today. When a +0x36
   writer lands, 001EFE00's node view, the 0021AAC0 / 0021A500 node
@@ -562,10 +570,10 @@ record: +0x04, +0x05, +0x2E and +0xC8 are EmActor's (`u04[0]`, `u04[1]`,
 
 ## 6. Known gaps
 
-- **The cable's hit** faults at 001EFE00 (5.2): its 001EF9D0 node view, the
-  node behaviours 0021AAC0 / 0021A500 and 001CE860 (the strip's GS packet
-  builder, untranslated) are not bound. No live code writes the cable's
-  +0x36, so the port does not reach it.
+- **The cable's hit** faults at 001EFE00 in ordinary play (5.2); behind the
+  aim/fire gate its chain is composed but not run live. No bound code writes
+  the cable's +0x36 (in the original the knife probe 0019B2C0 of a melee
+  does), so the port does not reach it.
 - **The flag-0x30 manager 0x823CE0** (area11[11]) is still a no-code node
   ("manager: dormant"): `em_flag30_manager_tick` is verified but not bound.
   On the first visit it would only step lifecycle 0 → 1 and call 001B17A0

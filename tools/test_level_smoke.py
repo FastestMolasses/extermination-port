@@ -2639,6 +2639,12 @@ def check_effects(ticks, state):
         od, oh, oe = pool_nodes(beat)
         where = ('effects', beat, 'port tick', ticks[i]['tick'])
         assert sorted(pe) == sorted(oe), (where, 'equipment nodes', sorted(pe), sorted(oe))
+        # The player's links to them: +0x18 the knife (0015C420), +0x20 the
+        # gun (0015C310), as original record addresses (D_008102B0 = the
+        # player record).
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        links = tuple(struct.unpack_from('<I', ram, 0x8102B0 + k)[0] for k in (0x18, 0x20))
+        assert tuple(ticks[i].get('links', ())) == links, (where, 'player +0x18 / +0x20', ticks[i].get('links'), links)
         assert all(q[4] == 1 and q[5] == 1 for q in raw), (where, 'equipment draws', raw)
         assert sorted(ph) == sorted(oh), (where, 'head sprites', ph, oh)
         exact = beat == '08_truck_crossing'
@@ -2666,7 +2672,7 @@ def check_effects(ticks, state):
         markers = marker_digests(ram, chain)
         assert beat not in VIEW_EXACT or ticks[i]['effects'][4] == markers, \
             (where, 'the glow markers\' primitives', ticks[i]['effects'][4], markers)
-        done.append(f'{beat[:2]} ({len(oe)} equipment, {len(oh)} head sprites, {len(od)} effect nodes'
+        done.append(f'{beat[:2]} ({len(oe)} equipment and the player\'s two links, {len(oh)} head sprites, {len(od)} effect nodes'
                     f'{" with their positions" if exact and od else ""}; lane packets 1..3'
                     f'{", packet 4 and " + str(len(markers)) + " glow-marker primitive(s)" if views == 6 else ""})')
     assert done, 'effects: no snapshot was aligned'

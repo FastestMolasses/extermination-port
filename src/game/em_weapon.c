@@ -1,3 +1,6 @@
+/* Legacy stand-in retained until the original aim/fire closure is complete.
+ * Historical fidelity claims below are superseded by docs/AIM_FIRE.md,
+ * including the corrected shot range, hit-call arity and reload rule. */
 /* em_weapon.c — SPR4 firing loop (see em_weapon.h for the engine mapping).
  *
  * Module-level singleton like em_input/em_door: the original game has one
@@ -666,7 +669,7 @@ static struct {
                           * one-shot; func_0018A6B0 drops it whenever the mode
                           * byte leaves 0) while the light itself stays lit.
                           * See em_weapon.h "LIGHT BEACON".               */
-    int     light_on;    /* FLASHLIGHT preference flag (engine D_00810D3C:
+    uint8_t light_on;    /* FLASHLIGHT preference flag (engine D_00810D3C:
                           * persists across aim sessions until toggled —
                           * NO timer; the spot renders only in AIM)       */
     int     shoulder_timer; /* the SEPARATE s28b shoulder-light burst
@@ -2611,6 +2614,8 @@ void em_weapon_render(EmGfx *gfx)
 uint8_t em_weapon_mag(void)      { return w.mag; }
 int16_t em_weapon_reserve(void)  { return w.reserve; }
 uint8_t *em_weapon_mag_byte(void)       { return &w.mag; }
+uint8_t *em_weapon_fire_mode_byte(void) { return &w.fire_mode; }
+uint8_t *em_weapon_flashlight_byte(void){ return &w.light_on; }
 int16_t *em_weapon_reserve_word(void)   { return &w.reserve; }
 uint8_t em_weapon_fire_mode(void){ return w.fire_mode; }
 int     em_weapon_state(void)    { return w.state; }

@@ -147,6 +147,8 @@ typedef struct {
     int (*chain)(void *context, const EmActor *body, EmCollHullChain *out);
 } EmCollisionWorldOwners;
 void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners);
+/* Existing canonical owner views; NULL callbacks remain unavailable. */
+const EmCollisionWorldOwners *em_collision_world_owners(void);
 const EmCollMoveWorld *em_collision_world_move(void);
 EmCollMoveScratch *em_collision_world_move_scratch(void);
 const EmCollSegment *em_collision_world_segment(void);

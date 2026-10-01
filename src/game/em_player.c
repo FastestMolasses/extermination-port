@@ -11,6 +11,7 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
@@ -577,6 +578,7 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
              * L28) run the port's stand-ins (em_weapon's aim, R2 and melee):
              * their own workers are not bound. */
             for (unsigned i = 0x1D; i <= 0x22; ++i) {
+                if (i <= 0x20 && em_aim_fire_diagnostic()) continue;
                 live.b.stage.state[i] = live_stance;
                 live.b.stage.state_context[i] = NULL;
             }
@@ -1640,7 +1642,8 @@ static int player_standin_callbacks(void)
          * no longer has to defer to it. Melee still wins over both — the
          * engine's melee states are a separate family this dispatcher is
          * not reached from. */
-        int want = (rin->held & EM_PAD_R2) && !em_weapon_is_melee();
+        int want = !em_aim_fire_diagnostic() &&
+                   (rin->held & EM_PAD_R2) && !em_weapon_is_melee();
         if (want && !g.r2_aim)
             em_game_anim_hold(0x112, 1.0f);
         else if (!want && g.r2_aim && em_game_anim_active() == 0x112)

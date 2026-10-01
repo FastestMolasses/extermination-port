@@ -1,3 +1,6 @@
+/* Legacy stand-in retained until the original aim/fire closure is complete.
+ * Historical fidelity claims below are superseded by docs/AIM_FIRE.md,
+ * including the corrected shot range, hit-call arity and reload rule. */
 /* em_weapon.h — the SPR4 rifle: native weapon state machine + firing loop.
  *
  * Native translation of the engine's weapon system (decomp repo
@@ -966,6 +969,9 @@ int16_t em_weapon_reserve(void);
 /* The storage of D_00810C62 (w.mag) and D_00810CB4 (w.reserve), which
  * 001C40B0 case 0x10 writes directly (em_pickup_set_weapon_ammo). */
 uint8_t *em_weapon_mag_byte(void);
+/* Canonical bytes consumed by the original aim/fire workers. */
+uint8_t *em_weapon_fire_mode_byte(void);
+uint8_t *em_weapon_flashlight_byte(void);
 int16_t *em_weapon_reserve_word(void);
 
 /* Fire-mode select (D_00810C61). Out-of-range values are ignored. */

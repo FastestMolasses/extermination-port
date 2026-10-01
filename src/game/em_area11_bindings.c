@@ -54,6 +54,8 @@
  *   bind_spawned (em_effects_live's hook); the equipment nodes 0018A6B0 run
  *   em_equipment_live (census L28).
  */
+#include "game/em_aim_fire_runtime.h"
+#include "game/em_aim_fire_binding.h"
 #include "game/em_area11_bindings.h"
 
 #include <stdio.h>
@@ -220,16 +222,25 @@ static int spawn_001C5570_child(EmActor *owner, const float a1[4], uint8_t a2, i
 }
 
 /* 0018A880(a0, a1). */
-static int spawn_0018A880(uint8_t a0, uint8_t a1)
+static int spawn_equipment_link(uint8_t a0, uint8_t a1, unsigned player_link)
 {
     EmActor *v = em_actor_pool_alloc_001AFA90(s_pool, s_scene, 1);
-    if (!v)
-        return 0;
-    v->model = a0;
-    v->callback = 0x0018A6B0u;
-    v->param = a1;
-    return bind_node(v, NULL);
+    if (v) {
+        v->model = a0;
+        v->callback = 0x0018A6B0u;
+        v->param = a1;
+        if (bind_node(v, NULL)<0) return -1;
+    }
+    /* The original caller stores the allocation result, including NULL. */
+    if (player_link) {
+        EmPlayerLiveActor *p=player_states_actor_mut();
+        if (!p) return fault(0x0018A880u,EM_SCENE_FAULT_NULL_WORKER,"no player for equipment link");
+        em_live_set_u32(p,player_link,em_actor_pool_address(s_pool,v));
+    }
+    return 0;
 }
+static int spawn_0018A880(uint8_t a0, uint8_t a1)
+{ return spawn_equipment_link(a0,a1,0); }
 
 /* ------------------------------------------------------- node adapters */
 
@@ -320,9 +331,9 @@ static int tick_box(EmActor *actor, Node *node, const EmArea11World *world)
  * to lifecycle 2 with +0x21C = 90, 001EFE00(0x80000045), cue 0x426) and its
  * lifecycle 2 (cue 0x427 at 10, 001B1190 over the taken bit, 001B17A0, the
  * draw), and the gun's lifecycle 2 with the flag clear (the tail only).
- * Fail-stop: 001EFE00 (its 001EF9D0 node view is not bound, and the node
- * 0021AAC0 spawns strip nodes 0021A500 whose packet builder 001CE860 is
- * untranslated); the gun's lifecycles 4 and 1 (EM_GUN_FAULT_UNTRANSLATED at
+ * The cable hit effect enters the aim/fire composition and fails if one of
+ * its required live owners is unavailable. The gun's lifecycles 4 and 1 remain
+ * fail-stop (EM_GUN_FAULT_UNTRANSLATED at
  * 0x825B74 / 0x826190) and its lifecycle-2 swing, which only D_00810788 ==
  * 0xFF reaches (a return visit): its lamp view r_child_220, 00102958 and
  * 0x70003A20 are unbound. */
@@ -335,6 +346,7 @@ typedef struct {
     EmActor *lamp_actor;
     EmGunLinked linked;    /* the cable's view of the record at its +0x18 */
     EmActor *linked_actor;
+    EmGunCable *cable;     /* active typed view, published at the effect boundary */
     int freed;
 } GunCall;
 
@@ -592,15 +604,31 @@ static int cable_001B1190(void *ctx, uint8_t id)
     return 0;
 }
 
-/* 001EFE00(0x80000045, self): not bound (see above). */
+/* Publish the cable's earlier stores before the effect allocator can observe
+ * its parent or linked gun. The composed original EFE00 retains fail-stop. */
 static int cable_001EFE00(void *ctx, uint32_t fx, int32_t *result)
 {
-    (void)ctx;
-    (void)result;
-    fprintf(stderr, "em_area11: the gun cable's 001EFE00(%08X) is not bound: its 001EF9D0 node view, the node "
-                    "0021AAC0 and its strip nodes' 001CE860 (fail-stop; docs/SECURITY_GUN.md)\n",
-            (unsigned)fx);
-    return -1;
+    GunCall *c = ctx;
+    if (!c || !c->cable || !result)
+        return -1;
+    c->actor->status = c->cable->b00;
+    c->actor->u04[0] = c->cable->lifecycle;
+    c->node->h28 = c->cable->timer_28;
+    c->node->h34 = c->cable->h34;
+    if (c->linked_actor) {
+        c->linked_actor->u04[0] = c->linked.lifecycle;
+        gun_put_word(c->linked_actor, 0x21C, (uint32_t)c->linked.w21C);
+    }
+    const uint32_t address = em_actor_pool_address(s_pool, c->actor);
+    if (!address)
+        return -1;
+    EmAimFireTargetCall call = {.function = 0x001EFE00u, .na = 2};
+    call.a[0] = fx;
+    call.a[1] = address;
+    if (em_aim_fire_binding_frame(&call) < 0)
+        return -1;
+    *result = (int32_t)call.v0;
+    return 0;
 }
 
 /* 001FBD50(self, cue, 0, range). */
@@ -703,6 +731,7 @@ static int tick_gun_cable(EmActor *actor, Node *node, const EmArea11World *world
     gun_workers(&c, &w);
     EmGunCable cable = {actor->status, actor->u04[0], node->h28, node->h34, (int16_t)actor->h36,
                         actor->table_index, 0};
+    c.cable = &cable;
     EmGunFault f = {0, 0};
     if (em_gun_cable_tick(&cable, &w, &f) < 0)
         return gun_fault(&f, "gun cable 00827490");
@@ -1743,6 +1772,10 @@ static const Binding k_bindings[] = {
      tick_effect_node, NULL},
     {0x001EA240u, "effect: em_effect_original 001EA240 (em_effects_live)",
      tick_effect_node, NULL},
+    {0x0021AAC0u, "cable hit effect: em_gun_rest_0021AAC0 (em_effects_live)",
+     tick_effect_node, NULL},
+    {0x0021A500u, "cable strip effect: em_gun_rest_0021A500 (em_effects_live)",
+     tick_effect_node, NULL},
     {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", tick_indicator, NULL},
     {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", tick_indicator, NULL},
     {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", tick_legacy_world, NULL},
@@ -1812,6 +1845,7 @@ void em_area11_bindings_attach(EmActorPool *pool, EmSceneState *scene)
 {
     s_pool = pool;
     s_scene = scene;
+    em_aim_fire_runtime_attach(pool);
     /* 001AF800: the records that hold bone slots (+0x09): the boxes' and
      * (census L22) Roger's and the equipment node's, which the boxes' worker
      * hands to em_area11_roger. */
@@ -1857,6 +1891,7 @@ int em_area11_bindings_effects_attach(void)
     if (em_effects_live_attach(s_pool, s_scene, bind_spawned) < 0 ||
         em_equipment_live_attach(s_pool, s_scene) < 0 || em_indicator_bind_live_attach(s_pool) < 0)
         return -1;
+    if (em_aim_fire_runtime_effects_attach() < 0) return -1;
     em_equipment_live_set_spawn(equipment_spawn);
     em_area11_interaction_host_set_aura_draw(em_effects_live_aura_draw);
     static const EmArea11HostOwnerHooks k_owner = {owner_bind_001B0FD0, owner_bind_001B1020, owner_place,
@@ -1951,7 +1986,7 @@ int em_area11_spawn_player_equipment_0015C310(int32_t arg1)
     uint8_t ca4 = ca[0], ca5 = ca[1], ca6 = ca[2], ca7 = ca[3];
     /* 0015C310 (byte-matched): with a1 == 0 the (0,0) (player +0x20),
      * (1,0) and (1,0x10) nodes first. */
-    if (arg1 == 0 && (spawn_0018A880(0, 0) < 0 || spawn_0018A880(1, 0) < 0 || spawn_0018A880(1, 0x10) < 0))
+    if (arg1 == 0 && (spawn_equipment_link(0, 0, 0x20) < 0 || spawn_0018A880(1, 0) < 0 || spawn_0018A880(1, 0x10) < 0))
         return -1;
     int rc;
     if (ca4 == 2)
@@ -1978,9 +2013,8 @@ int em_area11_spawn_player_children_0015C420(void)
 {
     if (em_scene_faulted(s_scene))
         return -1;
-    /* 0015C420: 0018A880(4, 0) -> player+0x18 (the player is not a pool
-     * record in the port; the handle is not kept). */
-    if (spawn_0018A880(4, 0) < 0)
+    /* 0015C420: keep the returned knife node at player +18. */
+    if (spawn_equipment_link(4, 0, 0x18) < 0)
         return -1;
     /* 0015C310(player, 0). */
     if (em_area11_spawn_player_equipment_0015C310(0) < 0)

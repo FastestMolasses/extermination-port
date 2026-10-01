@@ -28,3 +28,7 @@ scratch_noassets/
 *.swp
 .idea/
 .vscode/
+
+# Runtime-input symlinks in isolated worktrees.
+/assets
+/data

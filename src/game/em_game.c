@@ -169,6 +169,7 @@
  * fire, the empty-mag auto-reload, full-auto cadence, manual top-up,
  * holster — see weapon_test_script / em_weapon.h).
  */
+#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_game.h"
 
 #include <dirent.h>
@@ -1104,6 +1105,7 @@ void em_game_legacy_enemy_tick(void)
  * ran here moved to the player stage in S11b, em_player_frame.c.) */
 void em_game_legacy_player_residue(void)
 {
+    if (em_aim_fire_diagnostic()) return;
     /* WEAPON: the player-side armed-stance/fire state machine (engine:
      * part of the player actor update, modes 0x1D..0x20) plus the
      * gun-actor fire-event consumption (engine: pool tick, one-frame

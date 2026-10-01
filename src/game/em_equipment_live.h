@@ -66,6 +66,19 @@ typedef int (*EmEquipmentLiveSpawn)(int32_t arg1);
 int em_equipment_live_attach(EmActorPool *pool, EmSceneState *scene);
 void em_equipment_live_set_spawn(EmEquipmentLiveSpawn spawn);
 uint32_t em_equipment_live_fault(void);
+/* Canonical represented fields only; an unmodelled hole, stale generation
+ * or freed node has no view. Encoded native pointers are read-only. */
+void *em_equipment_live_field(uint32_t address, size_t size, int write);
+typedef struct {
+    uint32_t address, size;
+    uint8_t *bytes;
+    int writable;
+} EmEquipmentLiveRegion;
+/* Returns the required count, writing at most capacity entries. */
+size_t em_equipment_live_regions(uint32_t address, EmEquipmentLiveRegion *out, size_t capacity);
+typedef int (*EmEquipmentAimFireCall)(uint32_t entry, uint32_t actor);
+void em_equipment_live_set_aim_fire(EmEquipmentAimFireCall call);
+uint32_t em_equipment_live_current_bones(void);
 
 /* 0018A6B0 over the node's record: 1 while allocated, 0 after its 001AFC10
  * free, -1 on a fault. */

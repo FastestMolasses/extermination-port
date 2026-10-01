@@ -12,7 +12,7 @@ CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
-           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
+           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
            src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
@@ -57,6 +57,14 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_closure_0e_18.c src/game/em_player_closure_10_12_19.c \
            src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_player_weapon_states_a.c \
            src/game/em_player_weapon_states_b.c src/game/em_player_major2.c \
+           src/game/em_aim_fire_control.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_pose.c \
+           src/game/em_aim_fire_target.c src/game/em_aim_fire_shots.c src/game/em_aim_fire_reticle.c \
+           src/game/em_aim_fire_tables.c src/game/em_aim_fire_leaves.c \
+           src/game/em_aim_fire_live.c src/game/em_aim_fire_binding.c \
+           src/game/em_aim_fire_render_live.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_runtime.c \
+           src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
+           src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_gs.c \
+           src/game/em_area01_side.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
@@ -1382,3 +1390,69 @@ test-face-slot-reference:
 .PHONY: test-face-attach-reference
 test-face-attach-reference:
 	python3 tools/test_face_attach_reference.py
+
+.PHONY: test-aim-fire-control-reference
+test-aim-fire-control-reference:
+	python3 tools/test_aim_fire_control_reference.py
+
+.PHONY: test-aim-fire-machines-reference
+test-aim-fire-machines-reference:
+	python3 tools/test_aim_fire_machines_reference.py
+
+.PHONY: test-aim-fire-pose-reference
+test-aim-fire-pose-reference:
+	python3 tools/test_aim_fire_pose_reference.py
+
+.PHONY: test-aim-fire-target-reference
+test-aim-fire-target-reference:
+	python3 tools/test_aim_fire_target_reference.py
+
+.PHONY: test-aim-fire-shots-reference
+test-aim-fire-shots-reference:
+	python3 tools/test_aim_fire_shots_reference.py
+
+.PHONY: test-aim-fire-reticle-reference
+test-aim-fire-reticle-reference:
+	python3 tools/test_aim_fire_reticle_reference.py
+
+.PHONY: test-aim-fire-leaves-reference
+test-aim-fire-leaves-reference:
+	python3 tools/test_aim_fire_leaves_reference.py
+
+.PHONY: test-aim-fire-tables
+test-aim-fire-tables:
+	python3 tools/test_aim_fire_tables.py
+
+.PHONY: test-aim-fire-render-reference
+test-aim-fire-render-reference:
+	python3 tools/test_aim_fire_render_reference.py
+
+.PHONY: test-aim-fire-live
+test-aim-fire-live:
+	mkdir -p build/aim-fire
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_live_test.c src/game/em_aim_fire_live.c src/game/em_aim_fire_control.c src/game/em_aim_fire_pose.c src/game/em_aim_fire_target.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_shots.c -lm -o build/aim-fire/live-test
+	./build/aim-fire/live-test
+
+.PHONY: test-aim-fire-world-live
+test-aim-fire-world-live:
+	mkdir -p build/aim-fire
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_gs.c -lm -o build/aim-fire/world-live-test
+	./build/aim-fire/world-live-test
+
+.PHONY: test-aim-fire-sdk-memory-reference
+test-aim-fire-sdk-memory-reference:
+	python3 tools/test_aim_fire_sdk_memory_reference.py
+
+.PHONY: test-aim-fire-cable-live
+test-aim-fire-cable-live:
+	mkdir -p build/aim-fire
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffunction-sections -fdata-sections -Xlinker $(if $(filter Darwin,$(UNAME)),-dead_strip,--gc-sections) -Isrc tests/aim_fire_cable_live_test.c src/game/em_aim_fire_cable_live.c src/game/em_security_gun_rest.c src/game/em_security_gun.c src/game/em_owner_services_original.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_actor_collision.c src/game/em_area06_port_strip.c -lm -o build/aim-fire/cable-live-test
+	./build/aim-fire/cable-live-test
+
+.PHONY: test-aim-fire-effects-live
+test-aim-fire-effects-live:
+	python3 tools/test_aim_fire_effects_live.py
+
+.PHONY: test-aim-fire-equipment-live
+test-aim-fire-equipment-live:
+	python3 tools/test_aim_fire_equipment_live.py

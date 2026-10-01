@@ -16,6 +16,7 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_door.h"
@@ -804,7 +805,7 @@ void frame_close_out(void)
     /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
      * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
      * the default frame stays byte-identical. */
-    em_weapon_render(gfx);
+    if (!em_aim_fire_diagnostic()) em_weapon_render(gfx);
 
     /* STATUS SCREEN over the flushed 3D frame (the engine's GS-sprite
      * status overlay; em_hud queues overlay rects, em_gfx_end_frame

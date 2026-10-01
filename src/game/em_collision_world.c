@@ -88,6 +88,7 @@ static const uint8_t k_no_d24A740[1];
 /* The owners that publish records the passes and the hull locks read
  * (census L22: Roger 008237E0, class 0x0A, em_area11_roger). */
 static EmCollisionWorldOwners s_owners;
+const EmCollisionWorldOwners *em_collision_world_owners(void) { return &s_owners; }
 
 /* The list arrays as original words: slot i of a list at base - 4(i + 1)
  * (em_actor_class_lists_*), the entry's original record address, built at

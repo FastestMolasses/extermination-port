@@ -163,6 +163,9 @@ int em_area11_boxes_owner_001B0FD0(EmActor *actor, EmActorPool *pool, int32_t *r
 int em_area11_boxes_owner_001B1020(EmActor *actor, EmActorPool *pool, uint32_t a1, int32_t a2, int32_t a3,
                                    int32_t *ret);
 int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16]);
+/* Existing canonical +0xD0 matrix, without running pose or allocating a view.
+ * NULL unless this generation is already a bound world owner. */
+float *em_area11_boxes_owner_world(EmActor *actor);
 int em_area11_boxes_owner_draw(EmActor *actor);
 /* A bound world owner's +0x44 (the model's original address) and +0x4C,
  * for the tick log: 1, or 0 when `actor` is not a bound world owner. */

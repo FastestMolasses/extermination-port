@@ -868,6 +868,10 @@ static void log_tick_end(int rc)
         fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
                 em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3),
                 em_live_u8(a, 4));
+        /* The player's equipment links: +0x18 (0015C420's knife node) and
+         * +0x20 (0015C310's gun node), original record addresses.
+         * tools/test_level_smoke.py check_effects. */
+        fprintf(f, ", \"links\": [%u, %u]", em_live_u32(a, 0x18), em_live_u32(a, 0x20));
         /* The stream lanes as the previous frame's step H left them (the
          * task runs before step H), as the C7 stream capture's main-loop-top
          * rows sample them (decomp docs/CAPTURES_C7.md section 1): D_00810E90, the read

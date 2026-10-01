@@ -89,6 +89,7 @@ port can; a fix option would give a defined result instead.
 |---|---|---|---|
 | 0019D770 camera grid walker, no-span path | Walks using the $s1/$s2/$s4 its caller left (undefined in C) | Decomp FINDINGS "NEARMISS body corrections from the AREA01 lanes"; not shown to be reachable on the shipped data. The port currently refuses this path (a divergence to resolve first). | CANDIDATE |
 | 0022BBC0 trail period / burst kind | With seq[0xD] >= 10 and a live actor, divides by the caller's $s1; a burst kind >= 6 reuses the previous actor's burst | Decomp FINDINGS "NEARMISS body corrections from the AREA01 wave-2 lanes" | CANDIDATE |
+| 0017B300 manual reload top-up | A manual reload (L3, mode 2) with fewer rounds left than a full magazine still loads 30: it compares the total D_00810CB4 (which counts the loaded rounds too) against 30 minus the magazine, so magazine 16 with total 17 becomes magazine 30, total 17 | Found 2026-10-01 (AIM_FIRE.md section 8): the byte-matched decomp C and the port's em_aim_fire_control (test-aim-fire-control-reference) agree; the C10 AIM capture's reloads (aim_06, aim_07) do not reach the case. Off the recorded route; what the extra rounds do later (the total going below zero) is not traced. | CANDIDATE |
 
 Add new original bugs here as they are found. Subtitle fixes are listed
 under quality of life.
@@ -142,6 +143,11 @@ its statuses are the ones that count.
     lands at the start of the AREA11 opening with normal control afterwards. `make test-new-game-switch` proves the
     opening starts from the title route's state. Not a launcher option: the
     Original profile always shows the frontend.
+  - `EM_AIM_FIRE_ORIGINAL=1` with `EM_AIM_FIRE_TEST=r1` or `r2` (2026-10-01,
+    chain step AIM; AIM_FIRE.md section 1): the diagnostic gate that runs the
+    original aim / fire workers in the newgame-control fixture instead of
+    em_weapon's stand-ins. Not a launcher option: it exists until the
+    original path is live, and it stops at the aim camera today.
   - `EM_SKIP_STARTUP=1`: the older debug fixture (`em_game_install`): a
     staged fixture scene read at once with demo status values; not the New
     Game route, and it does not reach the AREA11 opening. Kept for the
@@ -152,4 +158,4 @@ its statuses are the ones that count.
   build target, not a player option.
 - **Windows and Linux support:** platform backends, not options.
 
-Last updated: 2026-10-01 (the developer switch EM_NEW_GAME=1 and the older EM_SKIP_STARTUP=1 fixture recorded under "Not launcher options"; no option added or decided).
+Last updated: 2026-10-01 (chain step AIM: the bug-fix candidate "0017B300 manual reload top-up" and the developer switch EM_AIM_FIRE_ORIGINAL recorded; earlier the same day the developer switch EM_NEW_GAME=1 and the older EM_SKIP_STARTUP=1 fixture; no option decided).

@@ -42,6 +42,9 @@
 extern "C" {
 #endif
 
+/* Shared original integer absolute-value leaf. */
+int32_t em_effect_original_0011E860(int32_t value);
+
 #define EM_EFFECT_ORIGINAL_DRIVER 0x001EA240u      /* entity +0x0C for the puff types */
 #define EM_EFFECT_ORIGINAL_TABLE_BASE 0x00257C90u  /* *(D_00259C70): first record */
 #define EM_EFFECT_ORIGINAL_TABLE_LIMIT 0x00259C70u /* D_00259C70 itself: end of the tables */

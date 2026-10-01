@@ -4,6 +4,10 @@
 #include "game/em_camera_live.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_effects_live.h"
+#include "game/em_aim_fire_binding.h"
+#include "game/em_aim_fire_diagnostic.h"
+#include "game/em_equipment_live.h"
+#include "game/em_weapon.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -80,6 +84,7 @@ static struct {
     EmSdkMathContext *sdk;
     uint32_t d275B40;
     EmPoseActorView view;
+    EmPoseRegion aim_regions[9];
 
     /* 0x700038A0..AC and 0x70003A20: the one storage (the fall lane's type). */
     EmPlayerLandScratch land;
@@ -164,6 +169,7 @@ static struct {
 
 /* The running module's by-value copy of 0x70003A20, or NULL. */
 static void *s_mod3A20;
+static int s_weapon_scene; /* 0 outside weapon views, 1 lane A, 2 lane B */
 #define IN3A20()  do { if (s_mod3A20) memcpy(&L.land.s3A20, s_mod3A20, 4); } while (0)
 #define OUT3A20() do { if (s_mod3A20) memcpy(s_mod3A20, &L.land.s3A20, 4); } while (0)
 
@@ -221,6 +227,9 @@ static int slot_run(void *context, EmPlayerLiveActor *actor)
     EmPlayerStageGlobals *g = L.stage_host->globals;
     L.land.s3A20 = g->spad3A20;
     void *outer = s_mod3A20;
+    int outer_weapon = s_weapon_scene;
+    s_weapon_scene = 0;
+    L.d275B40 = PLAYER_NODE_ARRAY;
     s_mod3A20 = slot->mod3A20;
     OUT3A20();
     L.sdk->fault = 0;
@@ -230,6 +239,7 @@ static int slot_run(void *context, EmPlayerLiveActor *actor)
     if (r >= 0 && slot->post) r = slot->post();
     IN3A20();
     s_mod3A20 = outer;
+    s_weapon_scene = outer_weapon;
     g->spad3A20 = L.land.s3A20;
     if (r >= 0 && L.sdk->fault) {
         fprintf(stderr, "player closure: %s: an SDK worker faulted at 0x%08X\n", slot->name,
@@ -1366,6 +1376,7 @@ static int m2_post(void) { L.d275B14 = L.m2_scene.d275B14; return 0; }
 
 static int wa_pre(void)
 {
+    s_weapon_scene = 1;
     EmPlayerWeaponScene *s = &L.wa_scene;
     s->spad3B74 = L.pad_config[0];
     s->spad3B76 = L.pad_config[1];
@@ -1374,12 +1385,7 @@ static int wa_pre(void)
     s->spad3B7E = L.pad_config[5];
     s->d810E70 = scene()->d810E70;
     s->d810E74 = scene()->d810E74;
-    /* D_00810C61 (the fire mode) is still em_weapon's (reserved in the
-     * progress block): the stance routines that read it fault. */
-    uint8_t c61;
-    if (progress_byte(0x00810C61u, &c61) < 0)
-        return unbound("D_00810C61 (the fire mode; em_weapon.c keeps it, census L28)");
-    s->d810C61 = c61;
+    s->d810C61 = *em_weapon_fire_mode_byte();
     uint8_t e0[4];
     for (unsigned i = 0; i < 4; ++i) FAULT(req_byte(0x008106E0u + i, &e0[i]));
     s->d8106E0 = (uint32_t)e0[0] | (uint32_t)e0[1] << 8 | (uint32_t)e0[2] << 16 | (uint32_t)e0[3] << 24;
@@ -1402,6 +1408,7 @@ static uint32_t wb_d8106E0;
 static uint8_t wb_d810CA4;
 static int wb_pre(void)
 {
+    s_weapon_scene = 2;
     uint8_t e0[4];
     for (unsigned i = 0; i < 4; ++i) FAULT(req_byte(0x008106E0u + i, &e0[i]));
     wb_d8106E0 = (uint32_t)e0[0] | (uint32_t)e0[1] << 8 | (uint32_t)e0[2] << 16 | (uint32_t)e0[3] << 24;
@@ -2455,52 +2462,89 @@ static void bind_climb(void)
 
 /* ---- Weapon states A / B ---------------------------------------------------------- */
 
-static int wa_clip_id(void *c, uint32_t table, unsigned index, int16_t *clip)
+/* New workers run on canonical bytes. Keep the older stance modules' scene
+ * views coherent on both sides of every worker boundary, including failure. */
+static int af_worker(uint32_t entry, EmPlayerLiveActor *a, uint32_t arg, uint32_t bits, int *out)
 {
-    (void)c;
-    uint32_t word;
-    FAULT(em_pose_host_node_word(L.pose, table + 2u * index, 0, &word));
-    *clip = (int16_t)(word & 0xFFFF);
+    if (a != L.actor) return -1;
+    int owner = s_weapon_scene;
+    IN3A20();
+    if (owner == 1) { L.land.s3A20 = L.wa_scene.spad3A20; FAULT(wa_post()); }
+    else if (owner == 2) FAULT(wb_post());
+    EmAimFireTargetCall frame = {0};
+    frame.function = entry; frame.a[0] = 0x8102B0; frame.a[1] = arg; frame.f[0] = bits;
+    int r = em_aim_fire_binding_frame(&frame);
+    int sync = owner == 1 ? wa_pre() : owner == 2 ? wb_pre() : 0;
+    L.wa_scene.spad3A20 = L.land.s3A20;
+    OUT3A20();
+    s_weapon_scene = owner;
+    if (r < 0 || sync < 0) return -1;
+    if (out) *out = em_ee_word_int((uint32_t)frame.v0);
     return 0;
 }
-static int wa_matrix(void *c, EmPlayerLiveActor *a)
-{ (void)c; (void)a; return unbound("0017A130 (anim_matrix_dispatch)"); }
-static int wa_bone(void *c, unsigned slot, uint32_t words[16])
-{ (void)c; return em_pose_view_bone(&L.view, slot, words); }
-static int wa_0017C370(void *c, EmPlayerLiveActor *a)
-{ (void)c; IN3A20(); int r = em_player_0017C370(L.stage_host, a); OUT3A20(); return r; }
-static int wa_link20(void *c, uint32_t word, uint32_t *c0, uint32_t *c8)
+#define AF_PLAIN(name, entry) static int name(void *c, EmPlayerLiveActor *a) \
+{ (void)c; return af_worker(entry,a,0,0,NULL); }
+#define AF_ARG(name, entry) static int name(void *c, EmPlayerLiveActor *a,int arg) \
+{ (void)c; return af_worker(entry,a,(uint32_t)arg,0,NULL); }
+#define AF_RESULT(name, entry) static int name(void *c,EmPlayerLiveActor *a,int arg,int *out) \
+{ (void)c; return af_worker(entry,a,(uint32_t)arg,0,out); }
+AF_PLAIN(af_reset,0x16F5D0)
+AF_PLAIN(af_pose,0x17ABA0)
+AF_PLAIN(af_holster,0x16F600)
+AF_PLAIN(af_acquire,0x199220)
+AF_PLAIN(af_fire1,0x171320)
+AF_PLAIN(af_fire2,0x171670)
+AF_PLAIN(af_fire3,0x171B00)
+AF_PLAIN(af_fire4,0x171E90)
+AF_PLAIN(af_fire5,0x1723D0)
+AF_PLAIN(wa_matrix,0x17A130)
+AF_ARG(af_reload,0x17B300)
+AF_ARG(af_draw,0x16F530)
+AF_ARG(af_fire0,0x170A60)
+AF_RESULT(af_select,0x17A8B0)
+AF_RESULT(af_switch,0x17A970)
+#undef AF_PLAIN
+#undef AF_ARG
+#undef AF_RESULT
+static int af_cycle(void *c,EmPlayerLiveActor *a,int *out)
+{ (void)c; return af_worker(0x17AAD0,a,0,0,out); }
+static int af_lock0(void *c,EmPlayerLiveActor *a,uint32_t cur,uint32_t *out)
+{ (void)c; int r; FAULT(af_worker(0x185A10,a,cur,0,&r)); *out=(uint32_t)r; return 0; }
+static int af_lock1(void *c,EmPlayerLiveActor *a,uint32_t cur,uint32_t *out)
+{ (void)c; int r; FAULT(af_worker(0x185E30,a,cur,0,&r)); *out=(uint32_t)r; return 0; }
+static int af_rate(void *c,EmPlayerLiveActor *a,float rate)
+{ (void)c; return af_worker(0x172860,a,0,em_ee_bits(rate),NULL); }
+static int wa_clip_id(void *c,uint32_t table,unsigned index,int16_t *clip)
 {
-    (void)c; (void)word;
-    if (c0) *c0 = 0;
-    if (c8) *c8 = 0;
-    return unbound("the +20 object's +C0 / +C8 (the port keeps no +20 handle)");
+    (void)c;
+    const uint8_t *p=em_aim_fire_binding_bytes(table+2u*index,2,0);
+    if (!p || !clip) return -1;
+    *clip=(int16_t)((uint16_t)p[0]|(uint16_t)p[1]<<8); return 0;
 }
-static int wa_i3(void *c, EmPlayerLiveActor *a, int a1, int *r)
-{ (void)c; (void)a; (void)a1; if (r) *r = 0; return unbound("0017A8B0 / 0017A970 (weapon stance entry)"); }
-static int wa_i1(void *c, EmPlayerLiveActor *a, int *r)
-{ (void)c; (void)a; if (r) *r = 0; return unbound("0017AAD0 (weapon stance test)"); }
-static int wa_arg(void *c, EmPlayerLiveActor *a, int a1)
-{ (void)c; (void)a; (void)a1; return unbound("a weapon stance handler (0017B300 / 0016F530 / 00170A60)"); }
-static int wa_plain(void *c, EmPlayerLiveActor *a)
-{ (void)c; (void)a; return unbound("a weapon stance handler (0016F5D0 / 0017ABA0 / 00199220 / 00171xxx / 0016F600)"); }
-static int wa_lock(void *c, EmPlayerLiveActor *a, uint32_t cur, uint32_t *r)
-{ (void)c; (void)a; (void)cur; if (r) *r = 0; return unbound("00185A10 / 00185E30 (lock target)"); }
-static int wa_rate(void *c, EmPlayerLiveActor *a, float rate)
-{ (void)c; (void)a; (void)rate; return unbound("00172860"); }
+static int wa_bone(void *c,unsigned slot,uint32_t words[16])
+{ (void)c; return em_pose_view_bone(&L.view,slot,words); }
+static int wa_0017C370(void *c,EmPlayerLiveActor *a)
+{ (void)c; IN3A20(); int r=em_player_0017C370(L.stage_host,a); OUT3A20(); return r; }
+static int wa_link20(void *c,uint32_t word,uint32_t *c0,uint32_t *c8)
+{
+    (void)c;
+    const uint8_t *p=em_aim_fire_binding_bytes(word+0xC0,12,0);
+    if (!p || !c0 || !c8) return -1;
+    memcpy(c0,p,4); memcpy(c8,p+8,4); return 0;
+}
 
 static void bind_weapon_a(void)
 {
     EmPlayerWeaponWorkers *w = &L.wa_w;
     memset(w, 0, sizeof *w);
-    w->w0016F5D0 = wa_plain; w->w0017A8B0 = wa_i3; w->w0017A970 = wa_i3; w->w0017AAD0 = wa_i1;
-    w->w0017C370 = wa_0017C370; w->w0017B300 = wa_arg; w->w0016F530 = wa_arg;
+    w->w0016F5D0 = af_reset; w->w0017A8B0 = af_select; w->w0017A970 = af_switch; w->w0017AAD0 = af_cycle;
+    w->w0017C370 = wa_0017C370; w->w0017B300 = af_reload; w->w0016F530 = af_draw;
     w->request = w_request; w->clip_id = wa_clip_id; w->skeleton = w_eval_skeleton;
-    w->matrix = wa_matrix; w->bone = wa_bone; w->w0017ABA0 = wa_plain;
-    w->w00185A10 = wa_lock; w->w00185E30 = wa_lock; w->w00199220 = wa_plain;
-    w->w00170A60 = wa_arg; w->w00171320 = wa_plain; w->w00171670 = wa_plain;
-    w->w00171B00 = wa_plain; w->w00171E90 = wa_plain; w->w001723D0 = wa_plain;
-    w->w00172860 = wa_rate; w->w0016F600 = wa_plain; w->link20 = wa_link20;
+    w->matrix = wa_matrix; w->bone = wa_bone; w->w0017ABA0 = af_pose;
+    w->w00185A10 = af_lock0; w->w00185E30 = af_lock1; w->w00199220 = af_acquire;
+    w->w00170A60 = af_fire0; w->w00171320 = af_fire1; w->w00171670 = af_fire2;
+    w->w00171B00 = af_fire3; w->w00171E90 = af_fire4; w->w001723D0 = af_fire5;
+    w->w00172860 = af_rate; w->w0016F600 = af_holster; w->link20 = wa_link20;
     w->atan2 = w_atan2_bits; w->wrap = w_wrap_bits; w->approach = w_approach_bits;
     w->sound = w_sound_full; w->heading = w_heading; w->reentry = w_reentry; w->handoff = w_handoff;
     w->translate = w_translate; w->probes = w_probes_record; w->floor = w_floor;
@@ -2510,11 +2554,12 @@ static void bind_weapon_a(void)
 
 static int wb_request(void *c, EmPlayerLiveActor *a, int clip, int force, uint32_t blend)
 { (void)c; IN3A20(); int r = em_pose_host_request_bits(L.pose, a, clip, force, blend); OUT3A20(); return r; }
-static int wb_link18(void *c, uint32_t word, uint8_t **record)
+static int wb_link18(void *c,uint32_t word,uint8_t **record)
 {
-    (void)c; (void)word;
-    if (record) *record = NULL;
-    return unbound("the +18 melee target record (the port keeps no +18 handle)");
+    (void)c;
+    if (!record) return -1;
+    *record=em_aim_fire_binding_bytes(word,0x30,1);
+    return *record ? 0 : -1;
 }
 
 static void bind_weapon_b(void)
@@ -2530,10 +2575,10 @@ static void bind_weapon_b(void)
     w->fall_check = w_fall_check; w->reentry = w_reentry; w->handoff = w_handoff;
     w->link18 = wb_link18; w->link20 = wa_link20; w->bone = wa_bone; w->clip_id = wa_clip_id;
     w->skeleton = w_eval_skeleton; w->matrix = wa_matrix;
-    w->reload = wa_arg; w->draw = wa_arg; w->reload_wait = wa_plain; w->pose = wa_plain;
-    w->acquire = wa_plain; w->fire_00170A60 = wa_arg; w->fire_00171320 = wa_plain;
-    w->fire_00171670 = wa_plain; w->fire_00171B00 = wa_plain; w->fire_00171E90 = wa_plain;
-    w->fire_001723D0 = wa_plain;
+    w->reload = af_reload; w->draw = af_draw; w->reload_wait = af_holster; w->pose = af_pose;
+    w->acquire = af_acquire; w->fire_00170A60 = af_fire0; w->fire_00171320 = af_fire1;
+    w->fire_00171670 = af_fire2; w->fire_00171B00 = af_fire3; w->fire_00171E90 = af_fire4;
+    w->fire_001723D0 = af_fire5;
 }
 
 /* ---- Running jump ------------------------------------------------------------------ */
@@ -2595,25 +2640,15 @@ static void bind_running_jump(void)
 static int lw_actions(void *c, EmPlayerLiveActor *a, int *result)
 {
     (void)c;
-    EmPlayerWeaponScene *s = &L.wa_scene;
-    s->spad3B74 = L.pad_config[0];
-    s->spad3B76 = L.pad_config[1];
-    s->spad3B78 = L.pad_config[2];
-    s->spad3B7C = L.pad_config[4];
-    s->spad3B7E = L.pad_config[5];
-    s->d810E70 = scene()->d810E70;
-    s->d810E74 = scene()->d810E74;
-    const uint8_t mode = em_live_u8(a, 0x1F0);
-    if (mode == 0x31 || mode == 0x32 || mode == 0x34 || mode == 0x35) {
-        uint8_t c61;
-        if (progress_byte(0x00810C61u, &c61) < 0)
-            return unbound("D_00810C61 (001607D0's armed forwarding; em_weapon.c keeps it, census L28)");
-        s->d810C61 = c61;
-    }
-    s->spad3A20 = L.land.s3A20;
-    int r = em_player_weapon_001607D0(&L.wa, a, result);
-    L.land.s3A20 = s->spad3A20;
-    return r;
+    int owner=s_weapon_scene;
+    FAULT(wa_pre());
+    L.wa_scene.spad3A20=L.land.s3A20;
+    int r=em_player_weapon_001607D0(&L.wa,a,result);
+    L.land.s3A20=L.wa_scene.spad3A20;
+    int sync=wa_post();
+    s_weapon_scene=owner;
+    OUT3A20();
+    return r<0 || sync<0 ? -1 : 0;
 }
 /* 00160220(p): the Use dispatcher over the record (the scene words were
  * refreshed by the slot). */
@@ -2886,6 +2921,7 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
         return -1;
     memset(&L, 0, sizeof L);
     s_mod3A20 = NULL;
+    s_weapon_scene = 0;
     L.actor = player_states_actor_mut();
     L.pose = pose;
     L.stage_host = stage_host;
@@ -2923,6 +2959,18 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     bind_climb();
     bind_weapon_a();
     bind_weapon_b();
+    L.aim_regions[0]=(EmPoseRegion){0x275B40,4,(uint8_t *)&L.d275B40,1};
+    L.aim_regions[1]=(EmPoseRegion){0x700036A0,64,(uint8_t *)L.foot_36A0,1};
+    L.aim_regions[2]=(EmPoseRegion){0x700038A0,16,(uint8_t *)L.land.s38A0,1};
+    L.aim_regions[3]=(EmPoseRegion){0x700038B0,16,(uint8_t *)L.foot_38B0,1};
+    L.aim_regions[4]=(EmPoseRegion){0x70003A20,4,(uint8_t *)&L.land.s3A20,1};
+    L.aim_regions[5]=(EmPoseRegion){0x70003A24,12,(uint8_t *)L.foot_3A24,1};
+    L.aim_regions[6]=(EmPoseRegion){0x70003B74,sizeof L.pad_config,(uint8_t *)L.pad_config,0};
+    L.aim_regions[7]=(EmPoseRegion){0x810E64,1,&P.lx,0};
+    L.aim_regions[8]=(EmPoseRegion){0x810E65,1,&P.ly,0};
+    EmAimFireBindingConfig aim={L.actor,L.pose,L.sdk,L.aim_regions,9,&L.d275B40,NULL,lw_actions};
+    FAULT(em_aim_fire_binding_configure(&aim));
+    em_equipment_live_set_aim_fire(em_aim_fire_diagnostic() ? em_aim_fire_binding_run : NULL);
     bind_running_jump();
     bind_use();
     bind_loco();

@@ -1330,7 +1330,10 @@ It checks:
   8.2) was reached;
 - at each aligned tick, against the snapshot's pool list (D_00275BC0): the
   equipment nodes' +0x00..+0x0F, +0x44 and +0x4C as a set, each drawn this
-  tick at the player's node its mesh draws it at; the head sprites'
+  tick at the player's node its mesh draws it at; the player's links to
+  them, +0x18 (the knife, 0015C420) and +0x20 (the gun, 0015C310), as
+  original record addresses (the tick log's `links`; since chain step
+  AIM, AIM_FIRE.md section 4); the head sprites'
   lifecycle, key, owner, bone and offset (the sub-state +0x05, wait, ramp
   and scalar follow the draws: check_head_sprites); the effect nodes' state, subtype, step, limit and
   accumulator (route 08: with the truck puffs' +0xB0 and +0x100 rows, bit

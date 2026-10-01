@@ -534,7 +534,7 @@ static int32_t float_to_int_bits(uint32_t b)
 }
 
 /* 0011E860: abs on the low word (INT_MIN stays INT_MIN). */
-static int32_t abs_0011E860(int32_t v) { return v >= 0 ? v : (int32_t)(0u - (uint32_t)v); }
+int32_t em_effect_original_0011E860(int32_t v) { return v >= 0 ? v : (int32_t)(0u - (uint32_t)v); }
 
 /* ---- public wrappers (floats <-> raw words) ---- */
 static void to_quads(Quad q[4], const float *f) { memcpy(q, f, 64); }
@@ -798,7 +798,7 @@ int em_effect_original_001EF9D0(EmEffectOriginal *e, uint32_t id, const float *p
     if (kind == 4) {
         NEED(e->globals, 0x70003B68u);
         EmEffectOriginalGlobals *g = e->globals;
-        int32_t d = abs_0011E860((int32_t)((uint32_t)g->spad3B68 - (uint32_t)g->d275C38));
+        int32_t d = em_effect_original_0011E860((int32_t)((uint32_t)g->spad3B68 - (uint32_t)g->d275C38));
         if (d >= 13) {
             g->d275C38 = g->spad3B68;
             if (point_light(e, pos, entity, 1, 0x3F733333u, 0xBD4CCCCDu) < 0) return -1;

@@ -8,6 +8,7 @@
 #include "game/em_effects_live.h"
 
 #include "game/em_area11_roger.h"
+#include "game/em_aim_fire_tables.h"
 #include "game/em_collision_world.h"
 #include "game/em_effect_kinds.h"
 #include "game/em_effect_manager.h"
@@ -53,6 +54,8 @@ typedef struct {
     int kind;
     EmEffectOriginalNode e;     /* 001EF9D0's bytes and 001EA240's */
     EmHeadSpriteOriginal h;     /* 001F0120's and 001E2560's */
+    uint32_t parent24;          /* KIND_OTHER: first written by its actual spawner */
+    int parent24_valid;
 } Slot;
 
 static struct {
@@ -73,6 +76,8 @@ static struct {
     EmActorPool *pool;
     EmSceneState *scene;
     EmEffectsLiveBind bind;
+    EmEffectsLiveOtherTick other_tick;
+    void *other_context;
     int attached;
     uint32_t fault;
 
@@ -284,7 +289,7 @@ const uint8_t *em_effects_live_window(uint32_t address, uint32_t size)
         if (address >= S.overlay_source[i].address && size <= 0x90u &&
             address - S.overlay_source[i].address <= 0x90u - size)
             return S.overlay_source[i].bytes + (address - S.overlay_source[i].address);
-    return NULL;
+    return em_aim_fire_tables_bytes(address, size);
 }
 
 /* ------------------------------------------------------------ views */
@@ -377,6 +382,97 @@ static void sync_head(Slot *s)
     a->u0A[2] = s->h.b0C;
     a->param = s->h.key;
     memcpy(a->pos, s->h.pos, sizeof a->pos);
+}
+
+static void *field_span(void *p, uint32_t offset, size_t count, uint32_t field, size_t bytes)
+{
+    return offset >= field && count <= bytes && (size_t)(offset-field) <= bytes-count
+        ? (uint8_t *)p + (offset-field) : NULL;
+}
+void *em_effects_live_node_field(uint32_t address, size_t size, int write)
+{
+    if (!S.attached || S.fault || !size || address < EM_ACTOR_POOL_BASE) return NULL;
+    uint32_t index = (address-EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE;
+    uint32_t offset = (address-EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE;
+    if (index >= EM_ACTOR_POOL_CAPACITY || size > EM_ACTOR_RECORD_SIZE-offset) return NULL;
+    Slot *s = &S.slot[index]; EmActor *a = &S.pool->records[index];
+    if (!a->allocated || s->generation != a->generation || s->kind == KIND_NONE) return NULL;
+    void *p;
+#define FIELD(value,off) do { p=field_span(&(value),offset,size,(off),sizeof(value)); if(p)return p; }while(0)
+    /* The pool owns these header bytes as one contiguous original range. */
+    _Static_assert(offsetof(EmActor,callback)==0x10, "pool header layout");
+    p=field_span(&a->status,offset,size,0,0x14); if(p)return p;
+    if (offset >= 0x24 && (uint64_t)offset+size <= 0x28) {
+        if (s->kind == KIND_HEAD) return field_span(&s->h.owner,offset,size,0x24,4);
+        if (write) {
+            if (offset != 0x24 || size != 4) return NULL;
+            return &s->parent24;
+        }
+        return s->parent24_valid ? field_span(&s->parent24,offset,size,0x24,4) : NULL;
+    }
+    FIELD(a->flags2,0x2E); FIELD(a->w30,0x30); FIELD(a->h36,0x36);
+    FIELD(s->e.live38,0x38); FIELD(a->h52,0x52); FIELD(a->kind,0x54);
+    FIELD(a->link,0x56); FIELD(a->w58,0x58); FIELD(a->w5C,0x5C);
+    FIELD(a->f60,0x60); FIELD(a->f80,0x80); FIELD(a->w90,0x90);
+    FIELD(a->h94,0x94); FIELD(a->h96,0x96); FIELD(a->b98,0x98);
+    FIELD(a->b99,0x99); FIELD(a->table_index,0x9A); FIELD(a->b9C,0x9C);
+    FIELD(a->b9D,0x9D); FIELD(a->b9E,0x9E);
+    FIELD(a->pos,0xB0); FIELD(a->rot,0xC0);
+    if (s->kind == KIND_HEAD) {
+        FIELD(s->h.local,0xA0); FIELD(s->h.matrix,0xD0); FIELD(s->h.bone,0x28);
+        FIELD(s->h.timer,0x1F0); FIELD(s->h.ramp,0x244); FIELD(s->h.scalar,0x24C);
+    } else {
+        FIELD(s->e.matrix,0xD0);
+        if (s->kind == KIND_DRIVER) {
+            p=field_span(&s->e.work.seed,offset,size,0x1F0,16); if(p)return p;
+            FIELD(s->e.work.accumulator,0x244); FIELD(s->e.work.fraction,0x24C);
+        } else FIELD(a->scratch,0x1F0);
+    }
+#undef FIELD
+    return NULL;
+}
+int em_effects_live_node_written(uint32_t address, size_t size)
+{
+    if (address < EM_ACTOR_POOL_BASE || size != 4 ||
+        (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE != 0x24 ||
+        !em_effects_live_node_field(address,size,1)) return -1;
+    Slot *s=&S.slot[(address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE];
+    if (s->kind != KIND_HEAD) s->parent24_valid=1;
+    return 0;
+}
+size_t em_effects_live_node_regions(uint32_t address, EmEffectsLiveNodeRegion *regions, size_t capacity)
+{
+    if (address < EM_ACTOR_POOL_BASE ||
+        (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
+        !em_effects_live_node_field(address,0x14,0)) return 0;
+    static const struct { uint16_t offset, size; } fields[]={
+        {0,0x14},{0x24,4},{0x2E,2},{0x30,4},{0x36,2},{0x38,4},
+        {0x52,2},{0x54,2},{0x56,2},{0x58,4},{0x5C,4},{0x60,0x20},
+        {0x80,0x10},{0x90,4},{0x94,2},{0x96,2},{0x98,1},{0x99,1},
+        {0x9A,1},{0x9C,1},{0x9D,1},{0x9E,1},{0xB0,16},{0xC0,16},{0xD0,64}
+    };
+    size_t count=0;
+#define REGION(off,len) do { \
+        void *bytes=em_effects_live_node_field(address+(off),(len),0); \
+        if(bytes) { \
+            if(regions && count<capacity) regions[count]=(EmEffectsLiveNodeRegion){address+(off),(len),bytes}; \
+            ++count; \
+        } \
+    } while(0)
+    for(size_t i=0;i<sizeof fields/sizeof fields[0];++i) REGION(fields[i].offset,fields[i].size);
+    Slot *s=&S.slot[(address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE];
+    if(s->kind==KIND_HEAD) {
+        REGION(0xA0,16);REGION(0x28,4);REGION(0x1F0,4);REGION(0x244,4);REGION(0x24C,4);
+    } else if(s->kind==KIND_DRIVER) {
+        REGION(0x1F0,16);REGION(0x244,4);REGION(0x24C,4);
+    } else REGION(0x1F0,0x100);
+#undef REGION
+    return count;
+}
+int em_effects_live_set_other_tick(EmEffectsLiveOtherTick worker, void *context)
+{
+    if (!S.attached || S.fault) return -1;
+    S.other_tick=worker;S.other_context=context;return 0;
 }
 
 /* ------------------------------------------------------------ workers */
@@ -883,6 +979,8 @@ void em_effects_live_detach(void)
     S.pool = NULL;
     S.scene = NULL;
     S.bind = NULL;
+    S.other_tick = NULL;
+    S.other_context = NULL;
 }
 
 #define READY() do { if (!S.attached || S.fault) return -1; } while (0)
@@ -929,13 +1027,40 @@ static int finish(int rc, u32 entry)
     return check(rc, entry) < 0 || b < 0 ? -1 : 0;
 }
 
-int em_effects_live_001EFD90(uint32_t id, const float pos[4], const float rot[4])
+static int spawn_result(int status, u32 entry, EmEffectOriginalNode *n, u32 *out)
+{
+    if (finish(status, entry) < 0) return -1;
+    if (out) {
+        Slot *s = slot_of_node(n);
+        if (n && !s) return fail(entry, "spawn result outside effect slots");
+        *out = s ? em_actor_pool_address(S.pool, actor_of(s)) : 0;
+    }
+    return 0;
+}
+
+int em_effects_live_001EF9D0(uint32_t id, const float pos[4], uint32_t f12, uint32_t *out)
 {
     READY();
     if (view_refresh() < 0) return -1;
     globals_refresh();
     EmEffectOriginalNode *n = NULL;
-    return finish(em_effect_original_001EFD90(&S.e, id, pos, rot, &n), 0x001EFD90u);
+    int status = em_effect_original_001EF9D0(&S.e, id, pos, bfloat(f12), &n);
+    return spawn_result(status, 0x001EF9D0u, n, out);
+}
+
+int em_effects_live_001EFD90_result(uint32_t id, const float pos[4], const float rot[4], uint32_t *out)
+{
+    READY();
+    if (view_refresh() < 0) return -1;
+    globals_refresh();
+    EmEffectOriginalNode *n = NULL;
+    int status = em_effect_original_001EFD90(&S.e, id, pos, rot, &n);
+    return spawn_result(status, 0x001EFD90u, n, out);
+}
+
+int em_effects_live_001EFD90(uint32_t id, const float pos[4], const float rot[4])
+{
+    return em_effects_live_001EFD90_result(id, pos, rot, NULL);
 }
 
 int em_effects_live_001EFD20(uint32_t id, const float pos[4])
@@ -1026,6 +1151,67 @@ int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, c
     return 0;
 }
 
+static void xf_read(EmHeadSpriteOriginalXf *x, const uint8_t block[0x60])
+{
+    memcpy(x->q, block, 64);
+    x->m40 = rd32(block + 0x40);
+    x->m40_bytes = em_rcl_bytes(x->m40, 64);
+    x->w44 = rd32(block + 0x44); x->w48 = rd32(block + 0x48);
+    x->w4C = rd32(block + 0x4C); x->w50 = rd32(block + 0x50); x->w54 = rd32(block + 0x54);
+}
+static void xf_write(uint8_t block[0x60], const EmHeadSpriteOriginalXf *x)
+{
+    const u32 tail[6] = {x->m40, x->w44, x->w48, x->w4C, x->w50, x->w54};
+    memcpy(block, x->q, 64); memcpy(block + 64, tail, sizeof tail);
+}
+int em_effects_live_001CCF70(const float pos[4], int32_t *key)
+{
+    READY();
+    if (!pos || !key) return fail(0x001CCF70u, "missing position or result");
+    if (view_refresh() < 0) return -1;
+    return check(em_effect_original_001CCF70(&S.e, pos, key), 0x001CCF70u);
+}
+int em_effects_live_001CFA60(uint8_t block[0x60], const float matrix[16], u32 f12, u32 f13)
+{
+    READY();
+    if (!block || !matrix) return fail(0x001CFA60u, "missing local transform block or matrix");
+    /* The original builder does not read its destination. In particular its
+     * caller may supply a previously unwritten local block. The five scalar
+     * stores precede CD370; matrix pointer and rows follow only on success. */
+    EmHeadSpriteOriginalXf x = {0};
+    int prior_fault = S.hfault.code != 0;
+    int status = em_head_sprite_original_001CFA60(&x, matrix, f12, f13, &S.hworkers, &S.hfault);
+    if (status == 0) xf_write(block, &x);
+    else if (!prior_fault) {
+        const u32 written[5] = {x.w44,x.w48,x.w4C,x.w50,x.w54};
+        memcpy(block+0x44,written,sizeof written);
+    }
+    return check(status, 0x001CFA60u);
+}
+int em_effects_live_001CFB50(uint8_t block[0x60], int32_t index, const float matrix[16], const u32 f[5])
+{
+    READY();
+    if (!block || !matrix || !f) return fail(0x001CFB50u, "missing local transform inputs");
+    if (view_refresh() < 0) return -1;
+    EmEffectKindsXf x; u32 words[16];
+    memcpy(&x, block, sizeof x); memcpy(words, matrix, sizeof words);
+    int status = em_effect_kinds_001CFB50(&S.k, &S.xs, &x, index, words, f[0], f[1], f[2], f[3], f[4]);
+    memcpy(block, &x, sizeof x);
+    return check(status, 0x001CFB50u);
+}
+int em_effects_live_001CFBE0(int32_t key, int32_t kind, u32 source, const uint8_t block[0x60], int32_t copy)
+{
+    READY();
+    if (!block) return fail(0x001CFBE0u, "missing local transform block");
+    const uint8_t *src = em_effects_live_window(source, 0x90);
+    if (!src) return fail(source, "source block has no exported owner");
+    EmHeadSpriteOriginalXf x;
+    xf_read(&x, block);
+    if (!x.m40_bytes) return fail(x.m40, "transform matrix has no render-context owner");
+    const EmHeadSpriteOriginalSource st = {source, src};
+    return check(chain_001CFBE0(key, (u32)kind, &st, &x, copy), 0x001CFBE0u);
+}
+
 void em_effects_live_overlay_log(EmEffectsLiveOverlayLog *out)
 {
     if (out) *out = S.overlay_log;
@@ -1067,7 +1253,11 @@ int em_effects_live_tick(EmActor *actor)
     if (view_refresh() < 0) return -1;
     globals_refresh();
     if (s->kind == KIND_DRIVER) {
-        s->e.state = actor->u04[0];
+        s->e.b03=actor->model; s->e.state=actor->u04[0];
+        s->e.b09=actor->bones; s->e.b0C=actor->u0A[2];
+        s->e.subtype=actor->param; s->e.callback=actor->callback;
+        memcpy(s->e.pos,actor->pos,sizeof s->e.pos);
+        memcpy(s->e.rot,actor->rot,sizeof s->e.rot);
         int r = em_effect_original_001EA240(&S.e, &s->e);
         if (r == 1) sync_driver(s);
         if (finish(r, EM_EFFECTS_LIVE_DRIVER) < 0) return -1;
@@ -1084,12 +1274,23 @@ int em_effects_live_tick(EmActor *actor)
         S.hworld.d810E80 = (int16_t)(uint16_t)(e80[0] | e80[1] << 8);
         S.hworld.d8106C8 = (int32_t)em_scene_req_u32(S.scene, EM_SCENE_REQ_C8);
         S.head_owner = s->h.owner;
-        s->h.lifecycle = actor->u04[0];
+        s->h.lifecycle=actor->u04[0]; s->h.sub=actor->u04[1];
+        s->h.b09=actor->bones; s->h.b0C=actor->u0A[2]; s->h.key=actor->param;
+        memcpy(s->h.pos,actor->pos,sizeof s->h.pos);
         int r = em_head_sprite_original_tick(&s->h, have_owner ? &owner : NULL, &S.hworld, &S.hworkers,
                                              &S.hfault);
         if (r == 1) sync_head(s);
         if (finish(r, EM_EFFECTS_LIVE_HEAD_SPRITE) < 0) return -1;
         return r;
+    }
+    if (S.other_tick) {
+        int status = S.other_tick(S.other_context, em_actor_pool_address(S.pool, actor), actor->callback);
+        if (status < 0) return fail(actor->callback, "extended effect behaviour failed");
+        if ((status == 0 && actor->allocated) ||
+            (status > 0 && (!actor->allocated || actor->generation != s->generation)))
+            return fail(actor->callback, "extended effect behaviour returned inconsistent allocation state");
+        if (status == 0) s->kind = KIND_NONE;
+        return finish(status, actor->callback) < 0 ? -1 : status;
     }
     return fail(actor->callback, "an effect node without a translated behaviour");
 }

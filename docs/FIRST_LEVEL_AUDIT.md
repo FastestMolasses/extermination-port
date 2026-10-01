@@ -1553,13 +1553,29 @@ The groups:
     is not modelled (INV-17) and its class-0xD push 001B1DA0 / 001A8660 is
     not bound; the stage's hit, infection and low-health paths reach
     fail-stop workers (0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0,
-    the unbound +4 = 2 states); the gun cable's shot reaction stops at
-    001EFE00 (its node chain 0021AAC0 / 0021A500 / 001CE860); nothing
-    exercises the truck-pit fall.
+    the unbound +4 = 2 states); the gun cable's hit reaction (a melee hit:
+    rounds aimed at the cable land on the pillar behind it, decomp
+    CAPTURES_C10.md aim_10 / aim_11) stops at 001EFE00 in ordinary play;
+    behind the aim/fire gate its chain is composed (em_area01_side_001EFE00,
+    0021AAC0 / 0021A500 in em_security_gun_rest, 001CE860 in
+    em_area06_port_strip; AIM_FIRE.md), but no bound code writes the
+    cable's +0x36 (the knife probe 0019B2C0); nothing exercises the
+    truck-pit fall.
 14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
     melee states (P24..P28) run em_weapon's stand-ins; camera actions 1 / 2
     (aim), 5 and 9..15 fault; the aim release 00197490 (CAM-16) is
-    untranslated.
+    untranslated. **Status (2026-10-01, chain step AIM):** the original
+    aim / fire workers (the Codex branch, audited and merged; AIM_FIRE.md)
+    are on main, instruction-tested, behind the diagnostic gate
+    `EM_AIM_FIRE_ORIGINAL=1` with `EM_AIM_FIRE_TEST=r1|r2`; ordinary play
+    still runs em_weapon's stand-ins. The gated R1 / R2 runs enter the
+    original stances and stop at the camera's 00197D20 / 00198650. Past the
+    camera (measured with the camera handlers stubbed in a private build)
+    they next meet: the gun's +0x200 field, scratch views
+    0x700038C0..DF / 0x70003600..1F / 0x700038F0, the laser dot's texture
+    (TEX0 0x20045BA5154222DC), 00102870 inside the beam and the collision
+    word 0x700031E8 (AIM_FIRE.md section 7). Melee 0x21 / 0x22 stay
+    em_weapon's. Captures for the comparison: decomp CAPTURES_C10.md "AIM".
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths.

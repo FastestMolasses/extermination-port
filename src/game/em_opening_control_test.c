@@ -1,4 +1,5 @@
 #include "game/em_opening_control_test.h"
+#include "game/em_aim_fire_test.h"
 #include "em_input.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
@@ -296,6 +297,10 @@ void em_opening_control_test_before_frame(void)
     skip_before_frame();
     if (!test.active || test.failed) return;
     if (g.frame_no>3000) {fail("opening/control timeout");return;}
+    if (test.phase==7) {
+        em_aim_fire_test_before_frame();
+        return;
+    }
     if (test.phase==11) {
         area_change_before_frame();
         return;
@@ -329,6 +334,12 @@ void em_opening_control_test_after_frame(void)
 {
     skip_after_frame();
     if (!test.active || test.failed) return;
+    if (test.phase==7) {
+        int result = em_aim_fire_test_after_frame();
+        if (result < 0) fail("aim/fire input path did not complete");
+        else if (result > 0) { test.phase=4; em_frame_request_quit(); }
+        return;
+    }
     for (unsigned axis=0;axis<3;++axis)
         if (!isfinite(g.pos[axis]) || !isfinite(g.cam.eye[axis]) ||
             !isfinite(g.cam.tgt[axis])) {fail("nonfinite player/camera");return;}
@@ -421,6 +432,11 @@ void em_opening_control_test_after_frame(void)
         /* The stream drive's mode (em_settings; tools/test_rand_order.py). */
         em_stream_live_drive_report(stderr);
         em_scene_bindings_module_loader_report(stderr);
+        if (getenv("EM_AIM_FIRE_TEST")) {
+            em_aim_fire_test_begin();
+            test.phase=7;
+            return;
+        }
         if (test.area_change) {
             em_scene_request_area_change_001B0C60(0x0B, 0, 0);
             test.area_last_frame = g.frame_no;
@@ -534,4 +550,15 @@ void em_opening_control_test_scene_stopped(void)
 int em_opening_control_test_active(void) {return test.active;}
 /* The skip fixture also fails when the run ended before its PASS: a player
  * or scene fault stops the game (em_frame_request_quit) without a verdict. */
-int em_opening_control_test_failed(void) {return test.failed || (skip.active && !skip.passed);}
+/* The same for the control test: a run that ends before its PASS (phase 4)
+ * was stopped by a fault (live_fault, a scene fault before the hook) and
+ * has no verdict, so it fails. */
+int em_opening_control_test_failed(void)
+{
+    if (test.active && !test.failed && test.phase != 4) {
+        fprintf(stderr, "newgame control test: FAIL frame=%d: the run ended before its verdict "
+                "(phase %d)\n", g.frame_no, test.phase);
+        test.failed = 1;
+    }
+    return test.failed || (skip.active && !skip.passed);
+}

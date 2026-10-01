@@ -208,6 +208,9 @@ REACHERS = {
     0x00810CB6: {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (census L22): the stage scene's pointer",
+        "game/em_aim_fire_live.c": "001723D0's remote byte (fire machine 5, behind the aim/fire diagnostic gate): "
+                                     "the machine scene's pointer, mapped by em_aim_fire_binding through "
+                                     "em_scene_progress_at onto the canonical byte (AIM_FIRE.md section 3)",
     },
     0x008106F1: {
         "game/em_player.c": "0015BA50's busy test and 0021C270's store (the stage workers, bound "

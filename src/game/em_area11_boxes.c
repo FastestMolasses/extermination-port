@@ -864,6 +864,12 @@ int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16])
     return 0;
 }
 
+float *em_area11_boxes_owner_world(EmActor *actor)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    return b ? b->view.world : NULL;
+}
+
 int em_area11_boxes_owner_draw(EmActor *actor)
 {
     Box *b = actor ? owner_box(actor) : NULL;
