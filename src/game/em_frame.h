@@ -24,6 +24,7 @@
 #ifndef EM_FRAME_H
 #define EM_FRAME_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "em_gfx.h"
@@ -97,6 +98,10 @@ uint32_t em_frame_counter(void);
 /* Frame parity (step W's `frame_idx ^= 1`, halfword 0x00810E80) — selects
  * the engine's double-buffered per-frame resources. */
 uint32_t em_frame_parity(void);
+
+/* The host frame pacing's bytes (its flags and wall-clock deadline) as an
+ * address and size, for state comparisons that must skip host clocks. */
+const void *em_frame_host_pacing(size_t *size);
 
 /* Full-screen transition: 001AED80/001AEDB0 force clear/full;
  * 001AEDE0/001AEE10 arm from the existing level. Colour 0 subtracts to

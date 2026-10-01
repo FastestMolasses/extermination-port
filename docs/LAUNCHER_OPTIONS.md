@@ -133,9 +133,23 @@ its statuses are the ones that count.
   with the switch on). No option is proposed; recorded so the one frame is
   not taken for a missing drive measurement.
 
+- **Developer switches** (environment variables for development, not for
+  players; STARTUP.md "Developer switches"):
+  - `EM_NEW_GAME=1` (2026-09-30, workflow chain C10): skips the startup frontend
+    and enters the original New Game route at once (001AC070 state 4,
+    `em_game_install_new`), skipping the intro movie through the original
+    START skip (one-shot: later movies skip by the pad alone); the player
+    lands at the start of the AREA11 opening with normal control afterwards. `make test-new-game-switch` proves the
+    opening starts from the title route's state. Not a launcher option: the
+    Original profile always shows the frontend.
+  - `EM_SKIP_STARTUP=1`: the older debug fixture (`em_game_install`): a
+    staged fixture scene read at once with demo status values; not the New
+    Game route, and it does not reach the AREA11 opening. Kept for the
+    legacy self-tests.
+
 - **PS2 compile target:** the user eventually wants to compile the port's game
   code for the PS2 and put it in the ELF to test it in the emulator. That is a
   build target, not a player option.
 - **Windows and Linux support:** platform backends, not options.
 
-Last updated: 2026-09-29 (chain step H7: the drive switch now also times the New Game's module-3 and area reads; the PS2's DMA time recorded under "Not launcher options"; no option added or decided).
+Last updated: 2026-10-01 (the developer switch EM_NEW_GAME=1 and the older EM_SKIP_STARTUP=1 fixture recorded under "Not launcher options"; no option added or decided).

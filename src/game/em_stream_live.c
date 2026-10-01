@@ -399,6 +399,11 @@ const EmSoundBank *em_stream_live_sound_bank(void)
     return S.bank_bound ? &S.bank : NULL;
 }
 
+const EmIopStream *em_stream_live_iop(void)
+{
+    return S.ctx.iop;
+}
+
 int8_t em_stream_live_active(int lane)
 {
     return S.booted && lane >= 0 && lane < EM_STREAM_LANES ? S.lanes.state.active[lane] : 0;

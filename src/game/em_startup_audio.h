@@ -55,6 +55,14 @@ int em_startup_audio_play(unsigned cue);
 int em_startup_audio_tick(void);  /* once per sequencer VBlank, also in movies */
 void em_startup_audio_stop(void); /* cancel pending scripts and sample voices */
 void em_startup_audio_shutdown(void);
+/* Game thread: what is still to sound from the title's sequencer: its live
+ * tracks plus the queued notes of the current generation (0 after a stop
+ * with no play since). tools/test_new_game_switch.py. */
+unsigned em_startup_audio_pending(void);
+/* The title sequencer's own state (its samples, cues, queue and voices),
+ * which nothing after New Game plays; the test compares em_startup_audio_
+ * pending instead. */
+const void *em_startup_audio_host_state(size_t *size);
 
 /* Audio callback only. Adds to interleaved stereo float PCM. No allocation,
  * file I/O or locks. Safe no-op before initialization. */

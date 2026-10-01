@@ -11,6 +11,7 @@
 #include "game/em_task.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
+#include "game/em_bgm.h"
 #include "em_input.h"
 #include "em_movie.h"
 
@@ -30,6 +31,7 @@ static struct {
     int movie_skip, new_game_movie;
     int movie_selector; /* D_00275C78 as 001AD360 step 1 stored it; -1 = none */
     int installed;      /* em_frontend_install ran (the movie pump is registered) */
+    int new_game_switch; /* EM_NEW_GAME=1: START held in the first game-task movie (cleared when it ends) */
     uint32_t attract_serial;
     unsigned movie_frames;
     uint64_t movie_picture;
@@ -37,6 +39,7 @@ static struct {
     unsigned movie_width, movie_height;
     int have_movie_frame;
     unsigned menu_ticks;
+    unsigned menu_wait;  /* EM_STARTUP_MENU_WAIT (fixtures only) */
     unsigned seen_screens;
     unsigned captured;
     const char *capture_dir;
@@ -171,6 +174,10 @@ static int movie_pump(void *unused)
     if (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
         f.movie_pts >= 2.0)
         held |= EM_PAD_START;
+    /* EM_NEW_GAME=1: START is held from the movie's first picture, so the
+     * original skip test below takes it at the first picture it accepts. */
+    if (f.new_game_switch && f.new_game_movie)
+        held |= EM_PAD_START;
     int skip_ready = f.have_movie_frame && f.movie_picture >= 11;
     if (f.new_game_movie) {
         /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0). The
@@ -192,6 +199,11 @@ static int movie_pump(void *unused)
     if (!f.new_game_movie) {
         em_startup_complete(&f.flow, f.movie_serial, f.failed ? -1 : 1);
     }
+    /* EM_NEW_GAME=1 holds START for its own New Game's intro movie only:
+     * any later 001AD360 step 1 request plays and skips by the player's
+     * pad alone, as on the title route. */
+    if (f.new_game_movie)
+        f.new_game_switch = 0;
     /* A game-task movie (001AD360 step 1) simply returns: the blocking call
      * 00203350 ends and the main loop resumes; the task chain goes on to
      * 001AD360 step 2 (S12a). 001AD250's 001AEDB0 after step 5 and the
@@ -327,11 +339,12 @@ static void startup_task(void)
         case 8: input.held = input.pressed = EM_PAD_UP; expected_cursor = 1; break;
         case 10: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
         case 12: input.held = input.pressed = EM_PAD_UP; expected_cursor = 0; break;
-        case 14:
-            if (new_game_test(f.test))
-                input.held = input.pressed = EM_PAD_CROSS;
-            break;
         }
+        /* EM_STARTUP_MENU_WAIT=N (0..15) holds the title N more idle ticks
+         * before the CROSS (tools/test_new_game_switch.py: title routes of
+         * both field parities and dwells; below the 30-tick menu test). */
+        if (f.menu_ticks == 14 + f.menu_wait && new_game_test(f.test))
+            input.held = input.pressed = EM_PAD_CROSS;
     }
     em_startup_tick(&f.flow, &input);
     EmStartupView view = em_startup_view(&f.flow, &input);
@@ -408,9 +421,39 @@ void em_frontend_install(void)
     f.installed = 1;
     f.capture_dir = getenv("EM_STARTUP_CAPTURE_DIR");
     f.test = getenv("EM_STARTUP_TEST");
+    const char *wait = f.test ? getenv("EM_STARTUP_MENU_WAIT") : NULL;
+    f.menu_wait = wait ? (unsigned)strtoul(wait, NULL, 10) : 0;
+    if (f.menu_wait > 15)
+        f.menu_wait = 15;
     em_startup_init(&f.flow, notify, NULL);
     em_frame_set_movie_pump(movie_pump, NULL);
     em_task_register(0, startup_task);
+}
+
+/* EM_NEW_GAME=1 (em_new_game_switch.h): the frontend's host services only
+ * (the movie player for 001AD360 step 1), no startup task, and the title's
+ * New Game handoff at once: 001AC070 state 4 with D_00275BE0 = 0, the same
+ * em_game_install_new the EM_STARTUP_NEW_GAME event calls. The startup
+ * flow's screens, sound sequencer and card check never run; what the
+ * game state at the opening's first frame owes them is checked by
+ * tools/test_new_game_switch.py. */
+void em_frontend_install_new_game(void)
+{
+    memset(&f, 0, sizeof f);
+    f.texture_screen = f.previous_screen = -1;
+    f.movie_selector = -1;
+    f.installed = 1;
+    f.new_game_switch = 1;
+    /* The shared audio device opens at the boot, as the frontend's boot
+     * resources open it (em_startup_audio_init); the title's own sounds are
+     * not loaded, since nothing after New Game plays them. */
+    if (em_bgm_device_ensure(48000) != 0) {
+        fail("could not open the audio device");
+        return;
+    }
+    em_frame_set_movie_pump(movie_pump, NULL);
+    printf("startup: EM_NEW_GAME=1: no frontend; New Game (001AC070 state 4)\n");
+    em_game_install_new();
 }
 
 void em_frontend_shutdown(void)
@@ -426,3 +469,17 @@ void em_frontend_shutdown(void)
 }
 
 int em_frontend_failed(void) { return f.failed; }
+
+const void *em_frontend_host_state(size_t *size)
+{
+    *size = sizeof f;
+    return &f;
+}
+
+void em_frontend_service_state(int32_t out[4])
+{
+    out[0] = f.installed;
+    out[1] = f.movie_selector;
+    out[2] = f.movie != NULL;
+    out[3] = f.failed;
+}

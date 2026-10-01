@@ -205,6 +205,14 @@ typedef struct EmIopStream EmIopStream;
 EmIopStream *em_iop_stream_create(void);
 void em_iop_stream_destroy(EmIopStream *s);
 const EmIopStreamFault *em_iop_stream_fault(const EmIopStream *s);
+/* The whole IOP object and its size, for the state comparison of the New
+ * Game switch (tools/test_new_game_switch.py); read-only. */
+const void *em_iop_stream_image(const EmIopStream *s, size_t *size);
+/* The bytes of that object the audio thread's mixer ring is made of (the
+ * rendered output, its positions, the overrun / underrun / bad-rate
+ * counters and the digest of every frame mixed): host output, not the
+ * IOP's state. */
+void em_iop_stream_mixer_range(size_t *offset, size_t *size);
 
 /* ---- the exported disc -------------------------------------------------- */
 /* 0 on success, -1 (with a message on stderr) on a missing or bad file. */

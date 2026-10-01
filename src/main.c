@@ -25,6 +25,7 @@
 #include "game/em_stream_live.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_level_smoke_test.h"
+#include "game/em_new_game_switch.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_pad_actuator.h"
 #include "game/em_random.h"
@@ -311,6 +312,9 @@ int main(void)
      * stand-in reads them from the environment). */
     if (em_settings_from_env() != 0)
         return 1;
+    /* EM_NEW_GAME=1, the developer switch (em_new_game_switch.h). */
+    if (em_new_game_switch_check() != 0)
+        return 1;
 
     EmWindow *win = em_window_create("Extermination (native port)", 960, 720);
     if (!win) {
@@ -429,6 +433,8 @@ int main(void)
     const char *skip_startup = getenv("EM_SKIP_STARTUP");
     if (skip_startup && strcmp(skip_startup, "1") == 0)
         em_game_install();  /* explicit gameplay/debug fixture */
+    else if (em_new_game_switch_requested())
+        em_frontend_install_new_game();  /* New Game without the frontend */
     else
         em_frontend_install();
 
@@ -466,5 +472,6 @@ int main(void)
     em_window_destroy(win);
     return em_frontend_failed() || em_opening_runtime_failed() || message_failed || stream_failed ||
            loader_failed ||
-           em_opening_control_test_failed() || em_level_smoke_test_failed() ? 1 : 0;
+           em_opening_control_test_failed() || em_level_smoke_test_failed() ||
+           em_new_game_state_test_failed() ? 1 : 0;
 }

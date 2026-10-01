@@ -12,7 +12,7 @@ CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
-           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c \
+           src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
            src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
@@ -404,6 +404,17 @@ test-level-smoke-ps2-drive: $(BIN)
 .PHONY: test-cutscene-skip
 test-cutscene-skip: $(BIN)
 	python3 tools/test_cutscene_skip.py
+
+# test-new-game-switch: the developer switch EM_NEW_GAME=1 (STARTUP.md
+# "Developer switches") starts the AREA11 opening from the title
+# route's state: the whole static state, the module loader and the IOP at
+# the opening's first frame against the title's New Game of the same field
+# parity, and the switch's refusals (tools/test_new_game_switch.py; about
+# 9 s). EM_TEST_FULL=1 adds
+# newgame-control on both routes (about 17 s).
+.PHONY: test-new-game-switch
+test-new-game-switch: $(BIN)
+	python3 tools/test_new_game_switch.py
 
 # The side beats, each in its own run: 00 (from slot 04: first control, then
 # the panel without the battery; about 14 s), the designed status_pages run

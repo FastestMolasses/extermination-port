@@ -225,6 +225,15 @@ EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
 uint32_t  em_frame_counter(void)        { return s_frame.counter; }
 uint32_t  em_frame_parity(void)         { return s_frame.parity; }
+
+/* The host's frame pacing (frame_pace_ntsc): the pacing flags and the
+ * CLOCK_MONOTONIC deadline. Host state only (no original counterpart);
+ * tools/test_new_game_switch.py leaves these bytes out of its comparison. */
+const void *em_frame_host_pacing(size_t *size)
+{
+    *size = (size_t)((const char *)(&s_frame.next_deadline + 1) - (const char *)&s_frame.pace_initialized);
+    return &s_frame.pace_initialized;
+}
 /* The low two bytes of the (little-endian) parity word are the halfword
  * D_00810E80 (0 or 1). */
 uint8_t  *em_frame_d810E80(void)        { return (uint8_t *)&s_frame.parity; }

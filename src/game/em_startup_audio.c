@@ -175,6 +175,24 @@ void em_startup_audio_stop(void)
     atomic_fetch_add_explicit(&s.generation, 1, memory_order_release);
 }
 
+unsigned em_startup_audio_pending(void)
+{
+    unsigned pending = 0;
+    for (unsigned i = 0; i < EM_STARTUP_AUDIO_TRACKS; ++i)
+        pending += s.sequencer.tracks[i].cue != NULL;
+    const unsigned generation = atomic_load_explicit(&s.generation, memory_order_acquire);
+    const unsigned write = atomic_load_explicit(&s.write, memory_order_acquire);
+    for (unsigned read = atomic_load_explicit(&s.read, memory_order_acquire); read != write; ++read)
+        pending += s.queue[read % QUEUE_SIZE].generation == generation;
+    return pending;
+}
+
+const void *em_startup_audio_host_state(size_t *size)
+{
+    *size = sizeof s;
+    return &s;
+}
+
 void em_startup_audio_shutdown(void)
 {
     /* Caller must have stopped the shared device, including its callback. */

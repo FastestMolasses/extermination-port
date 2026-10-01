@@ -204,6 +204,7 @@
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_level_smoke_test.h"
 #include "game/em_opening_control_test.h"
+#include "game/em_new_game_switch.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_area11_interaction_host.h"
 
@@ -952,6 +953,7 @@ void cam_bounds_settle_0018CE60(EmCamera *cam, const float pt[3],
  * -> 001ADF00 (em_scene_bindings.c). */
 void em_game_legacy_variant_head(int cutscene)
 {
+    em_new_game_state_test_before_frame();
     em_opening_control_test_before_frame();
     if (cutscene)
         return;

@@ -723,6 +723,12 @@ void em_sfx_stop_all(void)
     }
 }
 
+const void *em_sfx_host_clock(size_t *size)
+{
+    *size = (size_t)((const char *)(&s.anchor + 1) - (const char *)&s.frame);
+    return &s.frame;
+}
+
 void em_sfx_shutdown(void)
 {
     /* Caller contract: em_bgm_shutdown already destroyed the device, so

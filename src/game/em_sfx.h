@@ -150,6 +150,7 @@
 #ifndef EM_SFX_H
 #define EM_SFX_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -398,6 +399,10 @@ int em_sfx_voice_record(int voice, uint16_t *state, uint16_t *bank);
  * free). Prints the counters if any sound ever played. */
 
 void em_sfx_shutdown(void);
+/* The audio thread's device clock (the mixed-frame count and the tick
+ * grid's anchor in it): host timing, which the test of the New Game switch
+ * leaves out (tools/test_new_game_switch.py). */
+const void *em_sfx_host_clock(size_t *size);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */
 int  em_sfx_sound_count(void);    /* audible registry entries loaded    */

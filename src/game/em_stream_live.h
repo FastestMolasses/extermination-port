@@ -81,6 +81,8 @@ int em_stream_live_bind_sound_bank(const int32_t base[5]);
 int em_stream_live_001FB370(uint32_t address, const uint8_t *bytes, uint32_t size, uint32_t *result);
 /* The bound instance (tick log, tests), NULL before the binding. */
 const EmSoundBank *em_stream_live_sound_bank(void);
+/* The IOP the lanes run on (tests), NULL before the boot. */
+const EmIopStream *em_stream_live_iop(void);
 
 /* D_00282154 + lane (lb): a lane's active byte; 0 before the boot. */
 int8_t em_stream_live_active(int lane);

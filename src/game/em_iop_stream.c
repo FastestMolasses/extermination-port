@@ -411,6 +411,19 @@ void em_iop_stream_destroy(EmIopStream *s) { free(s); }
 
 const EmIopStreamFault *em_iop_stream_fault(const EmIopStream *s) { return &s->fault; }
 
+const void *em_iop_stream_image(const EmIopStream *s, size_t *size)
+{
+    if (size)
+        *size = s ? sizeof *s : 0;
+    return s;
+}
+
+void em_iop_stream_mixer_range(size_t *offset, size_t *size)
+{
+    *offset = offsetof(EmIopStream, pcm);
+    *size = offsetof(EmIopStream, digest) + sizeof(((EmIopStream *)0)->digest) - *offset;
+}
+
 void em_iop_stream_set_libsd(EmIopStream *s, const EmIopLibsd *sd)
 {
     if (sd)

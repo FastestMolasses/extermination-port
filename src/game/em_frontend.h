@@ -2,11 +2,23 @@
 #ifndef EM_FRONTEND_H
 #define EM_FRONTEND_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 void em_frontend_install(void);
+/* EM_NEW_GAME=1 (em_new_game_switch.h): the movie service without the
+ * startup flow, then the title's New Game handoff (em_game_install_new). */
+void em_frontend_install_new_game(void);
 void em_frontend_shutdown(void);
 int em_frontend_failed(void);
+/* What the game reads of the frontend after New Game (the movie service of
+ * 001AD360 step 1): {installed, the stored selector D_00275C78 (-1 none),
+ * a movie open, failed}. tools/test_new_game_switch.py compares it. */
+void em_frontend_service_state(int32_t out[4]);
+/* The frontend's own host state (the startup flow, its screens and movie
+ * player), which the game reads only through the service above; the test
+ * leaves it out of the comparison. */
+const void *em_frontend_host_state(size_t *size);
 
 /* The game task's movie request (S12a): 001AD360 step 1 stores the movie
  * selector D_00275C78 = 0 and then D_00821058 = 1, which the main loop's

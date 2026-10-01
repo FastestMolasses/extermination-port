@@ -198,6 +198,9 @@ void em_module_loader_bind_live(EmModuleLoader *ml);
 
 /* The instance bound live (NULL when none). */
 EmModuleLoader *em_module_loader_live(void);
+/* The whole loader object and its size, for the state comparison of the
+ * New Game switch (tools/test_new_game_switch.py); read-only. */
+const void *em_module_loader_image(const EmModuleLoader *ml, size_t *size);
 /* The slot-2 record of the running (or last) load, NULL before the first
  * request. */
 const EmTask *em_module_loader_record(const EmModuleLoader *ml);

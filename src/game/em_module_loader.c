@@ -719,6 +719,13 @@ EmModuleLoader *em_module_loader_live(void)
     return s_live;
 }
 
+const void *em_module_loader_image(const EmModuleLoader *ml, size_t *size)
+{
+    if (size)
+        *size = ml ? sizeof *ml : 0;
+    return ml;
+}
+
 const EmTask *em_module_loader_record(const EmModuleLoader *ml)
 {
     return ml ? ml->record : NULL;

@@ -2,8 +2,10 @@
 
 The native entry point now runs the original startup sequence: warning, Sony,
 Deep Space, E900 movie, and the three-choice title. New Game requests E900 again
-before loading AREA11/sub0/entry0. `EM_SKIP_STARTUP=1` selects the older gameplay
-fixture. It is a test override, not the normal opening.
+before loading AREA11/sub0/entry0. Two developer switches start elsewhere
+(section "Developer switches"): `EM_NEW_GAME=1` enters the original New Game
+route without the frontend, and `EM_SKIP_STARTUP=1` selects the older debug
+fixture, which is not the New Game route.
 
 Source evidence is maintained in the sibling decomp's local docs/STARTUP.md.
 The original PS2 executable and local runtime are authoritative. The old and
@@ -254,6 +256,112 @@ original ELF instructions for collision, script sequencing, and random state.
 Host actor matrix differences from EE/VU arithmetic are measured up to 0.000092.
 The native prefill handshake is faster than the original disc/IOP wait; align
 camera/actor cursors when comparing screenshots, rather than scene frame alone.
+
+## Developer switches
+
+Neither is a launcher option (LAUNCHER_OPTIONS.md "Not launcher options").
+Both are read from the environment at launch.
+
+### EM_NEW_GAME=1: straight to the AREA11 opening
+
+Added 2026-09-30 (workflow chain C10's New Game switch step; the request
+came from the workflow's contract): skip the startup frontend and land at
+the start of the AREA11 opening with normal control afterwards. Its name
+does not end in TEST, so the window stays (`EM_HEADLESS=1` still makes the
+run headless). `src/game/em_new_game_switch.{h,c}`, `em_frontend_install_new_game`.
+
+- **What does not run:** the frontend, `em_startup.c` (001AB7E0, 001AB9D0,
+  001ABC60, 001ABE10, 001AC070 states 0..3, 001AC3B0, 001AC480): the warning,
+  Sony and Deep Space screens, the attract E900 movie, the title menu and
+  their sounds.
+- **What runs:** the title's New Game handoff, 001AC070 state 4 with
+  D_00275BE0 = 0, through the same `em_game_install_new` the frontend's
+  `EM_STARTUP_NEW_GAME` event calls; then the whole New Game chain as on the
+  title route (001AD1A0, 001AD230, 001AD360, 001AD250, 001ADF50 and the
+  state-0 rebuild). The intro movie 001AD360 step 1 requests is played by
+  the same movie service and skipped through the original skip test
+  (002036E0: held & 0x800, at the decoder's completed-picture index 11):
+  the switch holds START from the movie's first picture, so the skip is
+  taken at the first picture the original accepts it (picture 11, about
+  0.37 s; the title fixtures hold it from 2 s). The hold is one-shot: it
+  ends when that first game-task movie closes, so any later 001AD360 step 1
+  movie in the same run plays and skips by the player's pad alone. The
+  shared audio device opens at the boot, as the frontend's boot resources
+  open it.
+- **What the frontend leaves that the game reads:** nothing that differs.
+  The boot loads and banks: the port's frontend loads only its own screens
+  and title sounds (the screen modules 0x28 / 0x29 / 1 and the resident
+  banks 0x1B / 0x1C are not loaded by the port on either route; 001AD1A0's
+  library packet comes from the disc export). The loader seeds, the stream
+  boot and the sound driver run in `main` before either route. D_00275BE0
+  is 0 from `em_game_install_new` on both. The settings are the launch
+  switches (em_settings) on both; the title's Option page is not entered.
+  The fade the title leaves (black) is cleared by 001ADF50's 001AED80
+  before the opening on both routes. The title's 001AC3B0 state 0 sends
+  001FBC50's two IOP commands 0x16 (effect-return volume 0x1999 on both
+  cores) that the switch route does not send; both routes send the same
+  pair again after the AREA11 sound-bank upload (command 0x20), so the
+  driver state is equal and only the drained command ring's history
+  differs (21 commands against 19 at the opening's first frame).
+- **Proof:** `make test-new-game-switch` (tools/test_new_game_switch.py,
+  about 9 s): five headless runs write a state image at the opening's
+  first frame (`EM_NEW_GAME_STATE_TEST`): the title route
+  (`EM_STARTUP_TEST=newgame`) with the title held 0..3 frames longer
+  (`EM_STARTUP_MENU_WAIT=0..3`), and the switch. The image is every writable
+  static section of the executable (every module's static state: the scene
+  state with the D_00810700 block and the request bytes, the player record,
+  the task table, the stream lanes and sound bank, the sfx driver, the
+  render context, the fades), the module loader object and its modelled
+  original bytes, the IOP and the field parity D_00810E80. The parity at
+  the opening depends on the frame New Game is pressed, and every buffer
+  it selects differs with it, so the switch is compared with the title run
+  of its own parity (title+k), and the words that count the frames since
+  the boot are taken from title+k against title+k+2 (the same route two
+  frames later). A word may differ between title+k and the switch only as
+  a pointer in both runs; host-only state (the frontend's own state, whose
+  game-facing part, the movie service and the title sequencer's pending
+  sounds, is compared and equal in all five runs; the sfx driver's host
+  clock; the frame pacing's wall-clock deadline); the drained IOP command
+  ring; the audio thread's mixer ring and its digest; or one of those
+  frame-count words, which the test pins per symbol: the main-loop counter
+  (1 word), the stream's field counter D_00810E90, a lane's field stamp and
+  the chain page log's main-loop stamp (3), step V's kick count (1), the
+  loader's drive clock (1) and the IOP clock with its SPU2 DMA stamp (4).
+  A new symbol or more words fail the test, as does anything else, with
+  its symbol. Measured 2026-10-01: nothing else differs, and the module
+  loader's modelled bytes are equal. Negative controls: a switch that does
+  not open the audio device (or, 2026-09-30, sets D_00275BDC) fails. The
+  refusals are checked too. EM_TEST_FULL=1 adds newgame-control on both
+  routes: the same PASS line (locked_ticks 1301, displacement 9.599849,
+  census 49).
+- **Refusals** (exit 1 before any window): a value other than 0 / 1; with
+  `EM_SKIP_STARTUP=1`; with an `EM_STARTUP_TEST` fixture that tests the
+  frontend itself. The New Game fixtures (`newgame`, `newgame-control`,
+  `newgame-skip`, `newgame-level`) combine with it (only their title part
+  does not run): `EM_NEW_GAME=1 EM_STARTUP_TEST=newgame-control` passes with
+  the title route's numbers.
+- **Not equal by design:** the main-loop counter at the opening is smaller
+  than any title route gives (the port reads it only as a same-frame
+  stamp), with the other frame-count words above; and the field parity is
+  whichever the switch reaches (both values occur on the title, depending
+  on the frame the player presses New Game).
+
+```sh
+EM_NEW_GAME=1 build/extermination
+```
+
+### EM_SKIP_STARTUP=1: the older debug fixture
+
+`em_game_install` (em_game.c): no frontend and no New Game. It reads the
+staged fixture scene (`assets/scene`, or the one `EM_SCENE` stages) at once
+through the native area read and enters the game task where a completed
+001ADF50 leaves it (state 0 next tick). It skips 001AD1A0, 001AD230 (the
+001AF2C0 reset, apart from the inventory wipe), 001AD360 (the area bytes
+and the intro movie) and the loader's steps, and it keeps the demo status
+values (health 75, infection 60, mag 4, reserve 120). It serves the
+legacy self-tests (`tests/run_suite.sh` and the EM_*_TEST fixtures of
+em_game_selftest.c); it is not the original route and does not reach the
+AREA11 opening.
 
 ## New Game, Continue and music
 
