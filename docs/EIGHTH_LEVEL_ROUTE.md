@@ -59,8 +59,9 @@ is port behaviour.
   beaten and is not needed for the lift; its hits took the player's health
   from 90 to 45 on the way into the car. The a04b group: 5 beats, 15,952
   frames.
-- **Not recorded: AREA13 itself** (its rooms, and its exits to AREA19),
-  nor the second half of the order.
+- **Not recorded here: AREA13 itself** (its rooms, and its exits to
+  AREA19), nor the second half of the order. AREA13 from this arrival to
+  AREA19 entry 9 is recorded in `NINTH_LEVEL_ROUTE.md` (group `a13`).
 
 In-game text (messages, prompts, item names) is described, never quoted.
 Positions are world units; yaw is the player's +0xC4 (X = sin, Z = cos).
@@ -368,7 +369,8 @@ end); leads, not ground truth.
 
 ## 7. Open
 
-1. AREA13 (entry 0 recorded at a04b_04's end): its rooms, the room moves
+1. (Recorded in `NINTH_LEVEL_ROUTE.md`, group `a13`, up to hole [5] and
+   AREA19 entry 9.) AREA13 (entry 0 recorded at a04b_04's end): its rooms, the room moves
    [15] / [16] / [17] (001BD9F0, flag 0x1C), the holes [5] / [6] (item
    0x27) and the falls into AREA19 (00193EB0), recorded to its exit; an
    AREA13 census group (the owners and the overlay armed).
@@ -382,7 +384,8 @@ end); leads, not ground truth.
    world graph finds no way out of the pit in sub 0; section 6).
 4. Healing: the player holds no medical item on this route (item 0x20,
    the M.T.S. bed's, is held once); health is 45 and infection 80 at
-   AREA13's arrival.
+   AREA13's arrival. See `NINTH_LEVEL_ROUTE.md` section 4 for the item
+   counts measured at that arrival.
 5. AREA22's reader [9] (item 0x23 now held) and the room behind door
    [10], and AREA04's lift [56] (item 0x29, sub 1 only): not played.
 6. a04b_00's census replay never gets door [45] to take the Use (above).
