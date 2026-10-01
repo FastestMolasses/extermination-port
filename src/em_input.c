@@ -97,10 +97,24 @@ static uint16_t s_test_buttons;
 
 void em_input_set_test_buttons(uint16_t buttons) { s_test_buttons = buttons; }
 
+static EmInputFilter s_filter;
+static void *s_filter_user;
+
+void em_input_set_filter(EmInputFilter filter, void *user)
+{
+    s_filter = filter;
+    s_filter_user = user;
+}
+
 void em_input_pad(EmPadState *out)
 {
     if (!out) return;
-    if (s_gp_present) { *out = s_gp; out->buttons |= s_test_buttons; return; }
+    if (s_gp_present) {
+        *out = s_gp;
+        out->buttons |= s_test_buttons;
+        if (s_filter) s_filter(out, s_filter_user);
+        return;
+    }
     out->buttons = s_in.buttons | s_test_buttons;
     /* Opposing keys cancel; -1 = left/up, +1 = right/down (em_input.h).
      * The GAIT HOLD TIERS (em_input.h): no modifier = FULL (RUN),
@@ -131,6 +145,7 @@ void em_input_pad(EmPadState *out)
             out->ry *= diag;
         }
     }
+    if (s_filter) s_filter(out, s_filter_user);
 }
 
 uint16_t em_pad_swap(uint16_t mask)

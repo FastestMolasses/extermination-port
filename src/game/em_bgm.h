@@ -51,6 +51,14 @@ int em_bgm_device_ensure(int sample_rate);
 /* The running device's sample rate; 0 = no device yet. Game thread. */
 int em_bgm_device_rate(void);
 
+/* Offline output for the video comparison (em_replay.c, EM_REPLAY_AUDIO):
+ * call before any producer starts. No device is created afterwards; the
+ * first em_bgm_device_ensure only records its rate, and the caller pulls
+ * the same producers' mix on the game thread with em_bgm_render_offline
+ * (interleaved stereo floats; silence until a producer has started). */
+void em_bgm_set_offline(void);
+void em_bgm_render_offline(float *out, int frames);
+
 #ifdef __cplusplus
 }
 #endif

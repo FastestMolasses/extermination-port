@@ -188,6 +188,13 @@ void em_input_set_test_buttons(uint16_t buttons);
 
 void em_input_pad(EmPadState *out);
 
+/* Input recording / playback for the video comparison (game/em_replay.c):
+ * a filter called on every snapshot, after the keyboard / gamepad / test
+ * buttons are merged; it may record the pad or replace it. NULL (the
+ * default) leaves snapshots untouched. em_input_init keeps the filter. */
+typedef void (*EmInputFilter)(EmPadState *pad, void *user);
+void em_input_set_filter(EmInputFilter filter, void *user);
+
 /* Name of the button at `bit_index` (0..15, canonical order above), e.g.
  * 14 -> "CROSS". Returns "?" for out-of-range values. For debug output. */
 const char *em_pad_button_name(int bit_index);

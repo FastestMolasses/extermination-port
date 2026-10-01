@@ -15,6 +15,7 @@
 static struct {
     EmAudio *audio;
     int device_rate; /* set before em_audio_create, constant while it exists */
+    int offline, offline_running; /* em_bgm_set_offline: no device */
 } s;
 
 /* The render callback (audio thread): silence, then every producer adds. */
@@ -98,8 +99,12 @@ int em_bgm_wav_read(const char *path, EmBgmWav *out, const char *tag)
 
 int em_bgm_device_ensure(int sample_rate)
 {
-    if (s.audio) return 0;
+    if (s.audio || s.offline_running) return 0;
     s.device_rate = sample_rate;
+    if (s.offline) {
+        s.offline_running = 1;
+        return 0;
+    }
     s.audio = em_audio_create(sample_rate, bgm_render, NULL);
     if (!s.audio) {
         fprintf(stderr, "bgm: audio device creation failed\n");
@@ -111,7 +116,17 @@ int em_bgm_device_ensure(int sample_rate)
 
 int em_bgm_device_rate(void)
 {
-    return s.audio ? s.device_rate : 0;
+    return s.audio || s.offline_running ? s.device_rate : 0;
+}
+
+void em_bgm_set_offline(void) { s.offline = 1; }
+
+void em_bgm_render_offline(float *out, int frames)
+{
+    if (s.offline_running)
+        bgm_render(NULL, out, frames);
+    else
+        memset(out, 0, sizeof(float) * 2u * (size_t)frames);
 }
 
 void em_bgm_shutdown(void)

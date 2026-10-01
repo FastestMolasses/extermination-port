@@ -30,6 +30,7 @@
 #include "game/em_pad_actuator.h"
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
+#include "game/em_replay.h"
 #include "game/em_load_veil_live.h"
 
 #include <dirent.h>
@@ -365,6 +366,13 @@ int main(void)
     /* Engine bring-up: frame loop env + input + task table, then the boot
      * task into slot 0 (the engine init's func_001AB740(0, boot)). */
     em_frame_init(win, gfx);
+    /* EM_INPUT_RECORD / EM_INPUT_PLAY: the video comparison's input
+     * recording and playback (game/em_replay.h); inert when unset. */
+    if (em_replay_install() != 0) {
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
     /* EM_RAND_TRACE stamps each rand() call with the main-loop counter
      * (test instrumentation, tools/rand_order.py). */
     em_random_trace_clock(em_frame_counter);
