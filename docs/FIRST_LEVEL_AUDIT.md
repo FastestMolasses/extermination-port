@@ -1499,6 +1499,14 @@ The groups:
    stand-in for 0022EEF0 (em_opening_runtime_camera_sample). The hand-off
    at first control equals the capture byte for byte (the level smoke's
    first_control), so the stand-in shows only inside the opening.
+   **New finding (2026-10-01, the side-by-side video tool,
+   decomp docs/VIDEO_COMPARE.md):** replaying the same inputs in PCSX2 and
+   the port, the port's opening fades in and shows its first subtitle
+   early: at opening tick 24 against the original's 36 with the PS2
+   disc-drive timing switch on (12 ticks), and 20 ticks early at host
+   speed. The rest of the opening and the walk after it line up tick for
+   tick. Find the cause in the opening's fade / timeline path (0022EEF0,
+   the fade, the first message) and fix it with original evidence.
 7. **Feel: the examine and aim camera shots** pre-empt camera action 0 with
    stand-ins (lane L28; census 2.3).
 
@@ -1523,6 +1531,10 @@ The groups:
     the player's node addresses (FACE_ATTACH.md section 5). No drawn or
     compared value differs today.
 11. **Logic: startup, input and frame glue that is still the port's own.**
+    (Also, found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280
+    loop-id read sign-extends with a signed left shift,
+    `(int32_t)(...) << 16 >> 16`, which is undefined behaviour in C;
+    sign-extend through int16_t instead.)
     All verified-unbound; the captures prove only their observable results:
     the pad read 001B57E0 / 001B5F40 (em_frame's frame_input_read; 001B5940's
     block is live), the area build's re-arm 001AF690 / 001AFCA0
