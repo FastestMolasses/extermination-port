@@ -177,8 +177,9 @@ extern "C" {
 /* FIRE-CHAIN TAIL (live-pinned s29, FINDINGS "GAMEPLAY SOUND IDS PINNED
  * LIVE"): each shot is followed by the wall impact/ricochet ~2 frames
  * after the fire sound (office wall hit) and the shell casing hitting
- * the floor ~0.7 s after the shot. em_weapon schedules both off the
- * shot tick (the reload-mag-action pattern).
+ * the floor ~0.7 s after the shot. (The originals play both since
+ * 2026-10-02: the marker 0018ABA0's ricochet, the casing's 001F02C0;
+ * AIM_FIRE.md.)
  * SURFACE-VARIANT FLAG: the soundmap's 0x188/0x18A/0x18B neighbors
  * (snd_0423/0422/0420 — consecutive tones 26..29 of the same program)
  * look like the per-surface impact family the engine's surface-keyed
@@ -199,7 +200,7 @@ extern "C" {
                                      * live; 2-event, snd_0347 — em_sfx
                                      * plays the first event until the
                                      * multi-event trigger scripts land)      */
-/* KNIFE / MELEE (s36 decode — em_weapon.h "KNIFE / MELEE"): the swing/
+/* KNIFE / MELEE (s36 decode; 001735C0 / 00173E60, AIM_FIRE.md): the swing/
  * impact sounds fire at each attack's impact gate, vol 300, hit or
  * whiff (func_001735C0 / func_00173E60; the heavy stab reuses 0x17F).
  * 0x179 is the armed-stance SQUARE sub-weapon toggle-ON sound
@@ -268,8 +269,8 @@ extern "C" {
  *     two defines below remain only as the LEGACY fallback when that
  *     line is absent (silent no-ops unless mapped in the registry).
  *     (The old 0xF002 reload placeholder is GONE: s29 pinned the real
- *     reload pair — start 0x163 + mag action 0x168 — and em_weapon
- *     plays those directly.) ------------------------------------------- */
+ *     reload pair — start 0x163 + mag action 0x168 — which the original
+ *     reload plays.) ------------------------------------------- */
 #define EM_SFX_DOOR_OPEN    0xF000u /* LEGACY fallback — real id = the
                                      * doorsfx pair, played per side      */
 #define EM_SFX_DOOR_CLOSE   0xF001u /* LEGACY fallback — the engine's open

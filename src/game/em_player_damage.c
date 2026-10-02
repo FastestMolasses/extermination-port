@@ -18,6 +18,8 @@
 #include "game/em_player_damage.h"
 
 #include "game/em_game_internal.h"
+#include "game/em_player.h"
+#include "game/em_player_floor.h"
 
 /* Is the player in a hit reaction / dying / at the game-over screen?
  * (the movement + input + menu lock; also the producer-side immunity
@@ -34,7 +36,14 @@ int player_damage_locked(void)
  * marker — the sub handler requests the REAL clip itself. */
 static void player_enter_death(void)
 {
-    int      armed = em_weapon_state() != EM_WPN_HOLSTERED;  /* +0x236 */
+    /* The armed death clip while the live record is in an armed stance
+     * (+5 = 0x1D..0x22, the original stances, AIM_FIRE.md). This legacy
+     * module chose it from the port's weapon stand-in, retired 2026-10-02;
+     * the original's death states (0021E240 / 0021E830) are not translated
+     * (FIRST_LEVEL_AUDIT L02). */
+    const EmPlayerLiveActor *live = player_states_actor();
+    const uint8_t stance = live ? em_live_u8(live, 5) : 0;
+    int      armed = stance >= 0x1D && stance <= 0x22;
     unsigned clip  = g.pd_infected ? PD_CLIP_DEATH_INF
                    : armed         ? PD_CLIP_DEATH_ARM
                                    : PD_CLIP_DEATH;

@@ -989,58 +989,6 @@ int em_enemy_player_hit_take(void);
 int  em_enemy_latched_count(void);
 void em_enemy_shake_off(void);
 
-/* Hitscan support for em_weapon.c — keeps the em_collision world API
- * untouched (port choice, documented in em_weapon.h):
- *
- * ALL THREE queries run the engine's MODEL-keyed victim filter first
- * (func_00183AC0 / func_00183B80, both BYTE-MATCHED and read out in
- * full 2026-07-31 — see "victim filter" at the top of this file for the
- * exact reject sets). The WORM (model 0x0D) is rejected by both — rays
- * pass through it, the auto-aim lock never fills on it, melee whiffs
- * past it. CONFIRMED. Crates (model 0x06) are victims while their
- * +0x9F is 0. CONFIRMED. DOWNGRADED: BUGS are kept shootable on the
- * s68 LIVE observation only — the 0x0F/0x10 once cited here are
- * func_001B10B0 slot ids, not model bytes, and as model bytes they
- * would both be REJECTED by func_00183AC0.
- *
- * em_enemy_acquire: nearest live VICTIM within `max_dist` of `from`
- * whose XZ bearing lies inside the facing cone (dot >= cone_cos).
- * This XZ cone is a PORT construction — no recovered function does it.
- * It remains the MELEE victim resolver (the knife's reach stand-in);
- * the BULLET's acquisition is the func_00199220 screen-cone chain in
- * em_weapon.c, fed by the two queries below. That one IS decoded
- * (CONFIRMED 2026-07-31 against the recovered func_00199220: walk
- * D_00275B8C/D_00275B94, gate on `actor[0] != 0 && func_00183B80 &&
- * *(short *)(actor + 0x34) != 0`, reject distance >= 260.0f, project
- * through the camera and apply the D_00810CA4 cone — radial
- * 50 + 55*s in lock-on mode 1, else the box 66 + 50*s by 45 + 45*s —
- * then two func_0019A570 traces, mask 0x20 onto the candidate and
- * mask 6 for world LOS, then a 3-slot insertion sort by distance).
- *
- * em_enemy_ray_test: nearest live VICTIM whose hit sphere intersects
- * the segment [from, to] (the per-victim test the bullet runs BEFORE
- * crediting a world hit). Writes the entry point. Returns index or -1.
- *
- * em_enemy_targetable: the func_00199220 candidate gate. CONFIRMED
- * against the recovered func_00199220: `actor[0] != 0 &&
- * func_00183B80(actor) != 0 && *(short *)(actor + 0x34) != 0`. Note
- * the third test is != 0, NOT > 0 (tightened 2026-07-31); it is
- * equivalent in practice only because func_00129FC0 clamps +0x34 at 0.
- * Real instance slots only (gib/pad virtual draw slots always 0).
- * (func_00199220 also rejects candidates beyond 260.0 u and applies a
- * screen-space cone before the ray tests — that part lives in
- * em_weapon.c.)
- *
- * em_enemy_aim_point: the func_00183C40 AIM POINT — the
- * port's hit-sphere center (pos + per-kind aim height), the same point
- * em_enemy_ray_test tests against. Unchecked index = garbage in,
- * caller gates with em_enemy_targetable first. */
-int em_enemy_acquire(const float from[3], float yaw, float max_dist,
-                     float cone_cos, float aim_out[3]);
-int em_enemy_ray_test(const float from[3], const float to[3],
-                      float hit_out[3]);
-int  em_enemy_targetable(int i);
-void em_enemy_aim_point(int i, float out[3]);
 
 /* Draw accessors for the render chain. em_enemy_draw returns 0 for an
  * inactive slot, EXCEPT while the death placeholder is still fading

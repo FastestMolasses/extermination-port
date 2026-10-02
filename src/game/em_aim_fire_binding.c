@@ -1,5 +1,6 @@
 /* Canonical live views and adapters to existing verified original owners. */
 #include "game/em_aim_fire_binding.h"
+#include "game/em_anim_runtime_rest.h"
 #include "game/em_aim_fire_tables.h"
 #include "game/em_aim_fire_sdk_memory.h"
 #include "game/em_equipment_live.h"
@@ -131,6 +132,31 @@ static int aim_fire_binding_call(void *context,EmAimFireTargetCall *f)
         if (b!=0x1000 || c!=0x1000 || f->a[3]!=0x1000) return -1;
         em_sfx_play(a);return 0;
     case 0x11A070:return em_sfx_stop_track((int)a&0x7FFF,(a&0x8000)!=0);
+    case 0x1CA1C0: {
+        /* 001CA1C0(m, q, t) quat_to_mat3 (em_pose_host_001CA1C0, the pose
+         * host's): its nine products go to the scratchpad 0x70003760..8B,
+         * the pose globals' one copy. */
+        uint32_t q[4],t[3],m[16];
+        EmPoseGlobals *g=B.config.pose ? B.config.pose->globals : NULL;
+        if (!g || !g->spad3760) return -1;
+        TRY(load(b,q,16));TRY(load(c,t,12));
+        em_pose_host_001CA1C0(m,q,t,g->spad3760);
+        void *dst=em_aim_fire_binding_bytes(a,64,1);
+        if (!dst) return -1;
+        memcpy(dst,m,64);return 0;
+    }
+    case 0x1C9E40: {
+        /* 001C9E40(q, m): the rotation's quaternion (em_anim_rest's, live
+         * through 0017B660), its 0011E748 the SDK square root. */
+        uint32_t m[16],q[4];
+        TRY(load(b,m,64));
+        EmAnimRest r;memset(&r,0,sizeof r);
+        r.workers.sqrt_ctx=sdk;r.workers.w_0011E748=em_anim_rest_sqrt_0011E748;
+        if (em_anim_rest_001C9E40(&r,q,m)<0) return -1;
+        void *dst=em_aim_fire_binding_bytes(a,16,1);
+        if (!dst) return -1;
+        memcpy(dst,q,16);return 0;
+    }
     default:return Extension.call ? Extension.call(Extension.context,&B.live,f) : -1;
     }
 }
@@ -173,6 +199,31 @@ int em_aim_fire_binding_run(uint32_t entry,uint32_t actor)
     int result=em_aim_fire_binding_frame(&f);
     /* D_00275B40 selects the running owner's bone table. Equipment's
      * temporary selection must not leak into the next player callback. */
+    *B.config.bone_array=previous;
+    return result;
+}
+int em_aim_fire_binding_run_bones(uint32_t entry,uint32_t actor,uint32_t bones)
+{
+    if (!B.configured) return -1;
+    uint32_t previous=*B.config.bone_array;
+    *B.config.bone_array=bones;
+    EmAimFireTargetCall f={0};f.function=entry;f.a[0]=actor;f.na=1;
+    int result=em_aim_fire_binding_frame(&f);
+    *B.config.bone_array=previous;
+    return result;
+}
+int em_aim_fire_binding_run_lamp(uint32_t node,int32_t a1,int32_t a2,uint32_t bones)
+{
+    EmAimFireTargetCall f={0};
+    f.function=0x187780;f.a[0]=node;f.a[1]=(uint64_t)(int64_t)a1;f.a[2]=(uint64_t)(int64_t)a2;f.na=3;
+    return em_aim_fire_binding_call_bones(&f,bones);
+}
+int em_aim_fire_binding_call_bones(EmAimFireTargetCall *frame,uint32_t bones)
+{
+    if (!B.configured || !frame) return -1;
+    uint32_t previous=*B.config.bone_array;
+    if (bones) *B.config.bone_array=bones;
+    int result=em_aim_fire_binding_frame(frame);
     *B.config.bone_array=previous;
     return result;
 }

@@ -98,7 +98,33 @@ static int codes_are(const uint8_t *q, uint32_t w0, uint32_t w1, uint32_t stcycl
  * 0x60, TEST_1 0x5000D, ALPHA_1 0x80000000A8 (unused: ABE 0), CLAMP_1 0,
  * COLCLAMP 1, ZBUF_1 with ZMSK 0; PRIM is overwritten by the kernel's PRE
  * template. docs/LEVEL_MATERIALS.md and docs/OWNER_DRAW.md section 3. */
+static int gs_state_check(const uint8_t *p, const char **why, uint64_t test, int zmsk, uint64_t alpha,
+                          const char *refusal);
+
 int em_object_unit_gs_state_check(const uint8_t *p, const char **why)
+{
+    return gs_state_check(p, why, 0x5000Du, 0, 0x80000000A8ull,
+                          "the GS state REF is not the class-0 set the backend reproduces");
+}
+
+int em_object_unit_gs_state_check_2(const uint8_t *p, const char **why)
+{
+    return gs_state_check(p, why, 0x53001u, 1, 0x8000000068ull,
+                          "the GS state REF is not the class-2 set the chain page reproduces");
+}
+
+void em_object_unit_gs_state(uint32_t gs_class, uint64_t *alpha, uint64_t *test, uint64_t *tex1, uint64_t *clamp,
+                             uint64_t *colclamp)
+{
+    *alpha = gs_class == 2u ? 0x8000000068ull : 0x80000000A8ull;
+    *test = gs_class == 2u ? 0x53001u : 0x5000Du;
+    *tex1 = 0x60u;
+    *clamp = 0u;
+    *colclamp = 1u;
+}
+
+static int gs_state_check(const uint8_t *p, const char **why, uint64_t test, int zmsk, uint64_t alpha,
+                          const char *refusal)
 {
     if (!p) return refuse(why, "NULL GS state");
     if (!codes_are(p, 0, 0, 0x11000000u, 0x50000008u))
@@ -115,9 +141,9 @@ int em_object_unit_gs_state_check(const uint8_t *p, const char **why)
         switch (reg) {
         case 0x00u: bit = 1u; break;                                            /* PRIM */
         case 0x14u: bit = 2u; if (value != 0x60u) goto bad; break;             /* TEX1_1 */
-        case 0x47u: bit = 4u; if (value != 0x5000Du) goto bad; break;          /* TEST_1 */
-        case 0x4Eu: bit = 8u; if ((value >> 32) & 1u) goto bad; break;         /* ZBUF_1 ZMSK */
-        case 0x42u: bit = 16u; if (value != 0x80000000A8ull) goto bad; break;  /* ALPHA_1 */
+        case 0x47u: bit = 4u; if (value != test) goto bad; break;              /* TEST_1 */
+        case 0x4Eu: bit = 8u; if (((value >> 32) & 1u) != (uint64_t)zmsk) goto bad; break; /* ZBUF_1 ZMSK */
+        case 0x42u: bit = 16u; if (value != alpha) goto bad; break;            /* ALPHA_1 */
         case 0x08u: bit = 32u; if (value != 0u) goto bad; break;               /* CLAMP_1 */
         case 0x46u: bit = 64u; if (value != 1u) goto bad; break;               /* COLCLAMP */
         default: goto bad;
@@ -128,7 +154,7 @@ int em_object_unit_gs_state_check(const uint8_t *p, const char **why)
     if (seen != 0x7Fu) goto bad;
     return 0;
 bad:
-    return refuse(why, "the GS state REF is not the class-0 set the backend reproduces");
+    return refuse(why, refusal);
 }
 
 /* One pass: REF 8 skin record, REF 1 arena (VIF NOPs / FLUSH only), CALL
@@ -218,8 +244,25 @@ static int parse_face(Walk *w, EmObjectUnitPieces *out, uint32_t *qwc, const uin
     return 0;
 }
 
+static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                      EmObjectUnitPieces *out, const char **why, int inherit);
+
 int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
                              EmObjectUnitPieces *out, const char **why)
+{
+    return parse_unit(unit, size, resolve, ctx, out, why, 0);
+}
+
+int em_object_unit_parse_inherit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                                 EmObjectUnitPieces *out, const char **why)
+{
+    if (parse_unit(unit, size, resolve, ctx, out, why, 1)) return -1;
+    if (out->bytes != size) return refuse(why, "bytes after the unit's last pass");
+    return 0;
+}
+
+static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                      EmObjectUnitPieces *out, const char **why, int inherit)
 {
     if (!unit || !resolve || !out) return refuse(why, "NULL argument");
     memset(out, 0, sizeof *out);
@@ -252,16 +295,26 @@ int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitRes
         for (unsigned k = 0; k < 8u; ++k) out->weights[k] = rd32(t.payload + 16u + 4u * k);
         if (qwords != 8u) return refuse(why, "a face unit with other than one node");
     }
-    /* 001D1F80(0, 1, 0): the GS state REF 9. */
+    /* 001D1F80(0, 1, 0): the GS state REF 9 (absent in an inheriting unit:
+     * its skin record REF 8 follows the node CNTs). */
+    const uint32_t before_state = w.at;
     if (next_tag(&w, &t, why)) return -1;
-    if (t.id != TAG_REF || t.qwc != 9u) return refuse(why, "no GS state REF 9");
+    if (inherit && !face && t.id == TAG_REF && t.qwc == 8u) {
+        w.at = before_state;
+        t.address = EM_OBJECT_UNIT_GS_STATE;
+    } else if (t.id != TAG_REF || t.qwc != 9u) {
+        return refuse(why, "no GS state REF 9");
+    }
     /* The REF names set 1, class 0 of 001D0F20's boot-built GS state
      * packets; its bytes are the class-0 set in every AREA11 capture
      * (em_object_unit_gs_state_check, tools/test_object_unit_reference.py).
      * 001D0F20 is not translated, so the port's copy of those bytes is
      * not built: the address is what is checked here. */
-    if (t.address != EM_OBJECT_UNIT_GS_STATE)
-        return refuse(why, "the GS state REF is not set 1 class 0 (D_00815360), the class the backend reproduces");
+    /* 001CABA0's units (001D3900 / 001D3CF0 on channel 3) REF set 2,
+     * class 2 (D_00815A20) instead; they are object units only. */
+    const uint32_t gs_class = t.address == EM_OBJECT_UNIT_GS_STATE_2 ? 2u : 0u;
+    if (t.address != EM_OBJECT_UNIT_GS_STATE && (t.address != EM_OBJECT_UNIT_GS_STATE_2 || face))
+        return refuse(why, "the GS state REF is not set 1 class 0 (D_00815360) or set 2 class 2 (D_00815A20)");
     EmGfxObjectUnit *u = &out->unit;
     u->color = out->color;
     u->nodes = out->nodes;
@@ -286,15 +339,34 @@ int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitRes
     if (parse_pass(&w, EM_OBJECT_UNIT_KERNEL, out->constants, &out->skin_address[0], &fog0, &out->model_address,
                    &model_qwc, &blocks, why))
         return -1;
+    /* A class-2 unit's skin records are the channel-3 ones (one per
+     * context +0x9C slot, 0x80 apart). */
+    if (gs_class == 2u && out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3 &&
+        out->skin_address[0] != EM_OBJECT_UNIT_SKIN_3 + 0x80u)
+        return refuse(why, "a class-2 unit's skin record is not D_00816B40");
     int clip = 0;
-    if (w.at < w.size && peek_id(&w) != TAG_CNT) {
+    if (w.at < w.size && peek_id(&w) != TAG_CNT && (gs_class == 0u || peek_id(&w) == TAG_REF)) {
+        if (gs_class == 2u) {
+            /* 001D3CF0 sends 001D1F80(3, 2, 2) again before the clip pass;
+             * a next unit or the RET 001CABA0 writes ends the unit. */
+            const uint32_t at = w.at;
+            if (next_tag(&w, &t, why)) return -1;
+            if (t.id != TAG_REF || t.qwc != 9u || t.address != EM_OBJECT_UNIT_GS_STATE_2) {
+                w.at = at;
+                goto passes_done;
+            }
+        }
         if (parse_pass(&w, EM_OBJECT_UNIT_CLIP_KERNEL, out->clip_constants, &out->skin_address[1], &fog1,
                        &model2, &qwc2, &blocks2, why))
             return -1;
+        if (gs_class == 2u && out->skin_address[1] != EM_OBJECT_UNIT_SKIN_3_CLIP &&
+            out->skin_address[1] != EM_OBJECT_UNIT_SKIN_3_CLIP + 0x80u)
+            return refuse(why, "a class-2 unit's clip skin record is not D_00816E40");
         if (model2 != out->model_address || qwc2 != model_qwc)
             return refuse(why, "the clip pass REFs another model than the object pass");
         clip = 1;
     }
+passes_done:
     out->fog_off = (uint32_t)fog0 | (uint32_t)fog1 << 1;
     out->bytes = w.at;
     u->program = EM_GFX_OBJECT_KERNEL;
@@ -302,6 +374,7 @@ int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitRes
     u->blocks = blocks;
     u->block_count = model_qwc / EM_OBJECT_UNIT_BLOCK_QWORDS;
     u->clip = (uint32_t)clip;
+    u->gs_class = gs_class;
     return 0;
 }
 
@@ -337,12 +410,13 @@ static EmObjectUnitTriangle *push(EmObjectUnitResult *r)
 /* The strip triangles of the packet kicked at `kick`: PRE, PRIM 0x03C,
  * REGS TEX0 ST RGBAQ XYZF2 (the object kernel's and the face program's
  * template); vertex i >= 2 without ADC draws (i-2, i-1, i) with its TEX0. */
-static int push_strips(EmObjectUnitResult *r, const EmVu1ObjQword *dmem, uint32_t kick, uint32_t k)
+static int push_strips(EmObjectUnitResult *r, const EmVu1ObjQword *dmem, uint32_t kick, uint32_t k,
+                       uint32_t want)
 {
     EmVu1ObjGsVertex v[EM_VU1_OBJ_VERTICES];
     uint32_t prim = 0, regs = 0;
     const int n = em_vu1_object_kernel_decode(dmem, kick, v, &prim, &regs);
-    if (n < 0 || prim != EM_OBJECT_UNIT_TEMPLATE_PRIM ||
+    if (n < 0 || prim != want ||
         regs != (EM_VU1_OBJ_GS_TEX0 | EM_VU1_OBJ_GS_ST | EM_VU1_OBJ_GS_RGBAQ | EM_VU1_OBJ_GS_XYZF2))
         return fail(r, "the kicked packet is not the PRIM 0x03C TEX0/ST/RGBAQ/XYZF2 form", k);
     uint8_t last[EM_VU1_OBJ_VERTICES];
@@ -417,6 +491,11 @@ static EM_VU_HOST_NOINLINE int face_kernel(EmVu1FaceState *s, EmVu1ObjQword *dme
     return rc;
 }
 
+static uint32_t template_prim(const EmGfxObjectUnit *u)
+{
+    return EM_OBJECT_UNIT_TEMPLATE_PRIM | (u->gs_class == 2u ? EM_OBJECT_UNIT_ABE : 0u);
+}
+
 static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1ObjQword *dmem)
 {
     memset(dmem, 0, EM_VU1_OBJ_DMEM_QWORDS * sizeof *dmem);
@@ -425,8 +504,8 @@ static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1Obj
     memcpy(&dmem[1017], u->constants, 28u * sizeof(uint32_t));
     /* The template (dmem 1020) decides what the GS takes. */
     const uint64_t tmpl = (uint64_t)dmem[1020].w[0] | (uint64_t)dmem[1020].w[1] << 32;
-    if (((tmpl >> 47) & 0x7FFu) != EM_OBJECT_UNIT_TEMPLATE_PRIM || !((tmpl >> 46) & 1u))
-        return fail(r, "the kernel's GIF template is not PRE with PRIM 0x03C", 0);
+    if (((tmpl >> 47) & 0x7FFu) != template_prim(u) || !((tmpl >> 46) & 1u))
+        return fail(r, "the kernel's GIF template is not PRE with the class's PRIM (0x03C / 0x07C)", 0);
     EmVu1ObjState s;
     memset(&s, 0, sizeof s);
     for (uint32_t k = 0; k < u->block_count; ++k) {
@@ -437,7 +516,7 @@ static int object_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1Obj
         EmVu1ObjBatch b;
         const int rc = object_kernel(&s, dmem, top, &b, k);
         if (rc || b.fault) return fail(r, "the object kernel faulted (an exponent-255 live operand)", k);
-        if (push_strips(r, dmem, b.kick, k) < 0) return -1;
+        if (push_strips(r, dmem, b.kick, k, template_prim(u)) < 0) return -1;
     }
     return 0;
 }
@@ -474,7 +553,7 @@ static int face_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r, EmVu1ObjQw
         EmVu1FaceBatch b;
         const int rc = face_kernel(&s, dmem, top, &b, k);
         if (rc || b.fault) return fail(r, "the face program faulted (an exponent-255 live operand)", k);
-        if (push_strips(r, dmem, b.kick, k) < 0) return -1;
+        if (push_strips(r, dmem, b.kick, k, EM_OBJECT_UNIT_TEMPLATE_PRIM) < 0) return -1;
     }
     return 0;
 }
@@ -512,8 +591,8 @@ static int clip_pass(const EmGfxObjectUnit *u, EmObjectUnitResult *r)
         const int n = em_vu1_object_clip_triangles(res, tri, EM_VU1_OBJECT_CLIP_MAX_TRIANGLES * 32u);
         if (n < 0) { rc = fail(r, "the clip program kicked a packet outside its form", k); goto done; }
         for (int i = 0; i < n; ++i) {
-            if (tri[i].prim != EM_OBJECT_UNIT_CLIP_PRIM) {
-                rc = fail(r, "a clip packet's PRIM is not 0x03B", k);
+            if (tri[i].prim != (EM_OBJECT_UNIT_CLIP_PRIM | (u->gs_class == 2u ? EM_OBJECT_UNIT_ABE : 0u))) {
+                rc = fail(r, "a clip packet's PRIM is not the class's (0x03B / 0x07B)", k);
                 goto done;
             }
             EmObjectUnitTriangle *t = push(r);
@@ -560,6 +639,8 @@ int em_object_unit_run(const EmGfxObjectUnit *u, EmObjectUnitResult *r)
     /* The face program's batch buffers start at dmem 0x20: one node only;
      * it has no clip pass (001D3E40 appends none). */
     if (face && (u->node_count != 1u || u->clip)) return fail(r, "a face unit with other than one node, or clip", 0);
+    if (u->gs_class != 0u && (face || u->gs_class != 2u)) return fail(r, "a GS class other than 0 or 2", 0);
+    r->prim = face ? EM_OBJECT_UNIT_TEMPLATE_PRIM : template_prim(u);
     EmVu1ObjQword *dmem = malloc(EM_VU1_OBJ_DMEM_QWORDS * sizeof *dmem);
     if (!dmem) return fail(r, "out of memory", 0);
     int rc = face ? face_pass(u, r, dmem) : object_pass(u, r, dmem);

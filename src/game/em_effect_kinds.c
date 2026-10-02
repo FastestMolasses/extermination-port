@@ -186,6 +186,82 @@ int em_effect_kinds_001EACF0(EmEffectKinds *k, const float matrix[16], int32_t d
     return 0;
 }
 
+/* 001EBBB0 (subtype 7, the effect 0x8000000E 001F0460's ring decal n = 0
+ * spawns through 001EFD20): 001EACF0's template with kind 1 and the source
+ * D_002561F0: 001CFB50(D_0081F8F0, 0, a0, work +0x54, work +0x5C, 1.0,
+ * 1e-6, 3.0), then 001CFBE0(a1, 1, D_002561F0, D_0081F8F0, 0) (the
+ * decomp's C is NEARMISS, register colouring only; the instructions read). */
+int em_effect_kinds_001EBBB0(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work)
+{
+    if (!ready(k)) return -1;
+    const EmEffectKindsWorkers *w = k->workers;
+    NEED(k, w, 0x001EBBB0u);
+    NEED(k, w->w_001CFB50, 0x001CFB50u);
+    NEED(k, w->w_001CFBE0, 0x001CFBE0u);
+    NEED(k, work, 0x001EBBB0u);
+    NEED(k, matrix, 0x001EBBB0u);
+    CALL(worker(k, 0x001CFB50u, w->w_001CFB50(w->ctx, EM_EFFECT_KINDS_XF, 0, matrix,
+                                               fbits(work->accumulator), fbits(work->fraction),
+                                               ONE, E_M6, THREE)));
+    CALL(worker(k, 0x001CFBE0u, w->w_001CFBE0(w->ctx, depth, 1, 0x002561F0u, EM_EFFECT_KINDS_XF, 0)));
+    return 0;
+}
+
+/* 001EAB50 (subtype 0, the effect 0x80000045 the cable hit's 001EFE00
+ * spawns). Read from the instructions (the decomp's C carries no NEARMISS
+ * marker; FUNCTIONS.csv still lists it undecompiled): x = work +0x54;
+ * while x < 0.5: t = (0.5 - x) / 0.5; 0x70003600 = float_to_int(255 t);
+ * u = 192 t; 0x70003604 = float_to_int(u) << 8 (stored before the third
+ * call); 0x70003608 = float_to_int(u) << 16; the size 1.0 + (4.0 x') / 0.5
+ * with x' work +0x54 re-read; the colour register the words sign-extended,
+ * 0x70003608 | 0xFFFFFFFF80000000, then | 0x70003604, then | 0x70003600
+ * (each read back from the scratchpad); 001CD520(0, 2, a0 + 0x30,
+ * 0x20045B2599421E98, colour; size, size, 2.0). Then 001CFB50(D_0081F8F0,
+ * 0, a0, work +0x54, work +0x5C, 1.0, 1e-6, 3.0) and 001CFBE0(a1, 0,
+ * D_00255590, D_0081F8F0, 0). */
+int em_effect_kinds_001EAB50(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work)
+{
+    if (!ready(k)) return -1;
+    const EmEffectKindsWorkers *w = k->workers;
+    NEED(k, w, 0x001EAB50u);
+    NEED(k, w->w_001CFB50, 0x001CFB50u);
+    NEED(k, w->w_001CFBE0, 0x001CFBE0u);
+    NEED(k, w->w_001281C0, 0x001281C0u);
+    NEED(k, w->w_001CD520, 0x001CD520u);
+    NEED(k, work, 0x001EAB50u);
+    NEED(k, matrix, 0x001EAB50u);
+    NEED(k, k->globals, 0x001EAB50u);
+    EmEffectKindsGlobals *g = k->globals;
+    const uint32_t x = fbits(work->accumulator);
+    if (em_ee_c_lt_bits(x, HALF)) {                                      /* 0x1EAB80 */
+        const uint32_t t = em_ee_div_bits(em_ee_sub_bits(HALF, x), HALF); /* 0x1EAB90, 0x1EAB98 */
+        int32_t v;
+        CALL(worker(k, 0x001281C0u, w->w_001281C0(w->ctx, em_ee_mul_bits(UINT32_C(0x437F0000), t), &v)));
+        g->spad3600[0] = (uint32_t)v;                                    /* 0x1EABB0 */
+        const uint32_t u = em_ee_mul_bits(UINT32_C(0x43400000), t);      /* 0x1EABC0: 192 t */
+        CALL(worker(k, 0x001281C0u, w->w_001281C0(w->ctx, u, &v)));
+        g->spad3600[1] = (uint32_t)v << 8;                               /* 0x1EABCC, 0x1EABDC */
+        CALL(worker(k, 0x001281C0u, w->w_001281C0(w->ctx, u, &v)));
+        g->spad3600[2] = (uint32_t)v << 16;                              /* 0x1EABE0, 0x1EABE8 */
+        const uint32_t x2 = fbits(work->accumulator);                   /* 0x1EABEC */
+        const uint32_t q = em_ee_div_bits(em_ee_mul_bits(UINT32_C(0x40800000), x2), HALF); /* 0x1EAC04, 0x1EAC20 */
+        const uint32_t size = em_ee_add_bits(ONE, q);                    /* 0x1EAC68 */
+        const uint64_t c608 = (uint64_t)(int64_t)(int32_t)g->spad3600[2];
+        const uint64_t c604 = (uint64_t)(int64_t)(int32_t)g->spad3600[1];
+        const uint64_t c600 = (uint64_t)(int64_t)(int32_t)g->spad3600[0];
+        const uint64_t colour = c600 | ((c608 | UINT64_C(0xFFFFFFFF80000000)) | c604); /* 0x1EAC28..0x1EAC40 */
+        CALL(worker(k, 0x001CD520u, w->w_001CD520(w->ctx, 0, 2, &matrix[12], UINT64_C(0x20045B2599421E98),
+                                                   colour, size, size, TWO)));   /* 0x1EAC6C */
+    }
+    CALL(worker(k, 0x001CFB50u, w->w_001CFB50(w->ctx, EM_EFFECT_KINDS_XF, 0, matrix,
+                                               fbits(work->accumulator), fbits(work->fraction),
+                                               ONE, E_M6, THREE)));              /* 0x1EACA8 */
+    CALL(worker(k, 0x001CFBE0u, w->w_001CFBE0(w->ctx, depth, 0, 0x00255590u, EM_EFFECT_KINDS_XF, 0))); /* 0x1EACC8 */
+    return 0;
+}
+
 /* 001EBA20 (subtype 0x1B, the impact effect 0x8000002C 001861C0 spawns
  * through 001EFD90): two draws, each 001CFB50(D_0081F8F0, 0, a0, work
  * +0x54, the +4 seed's fraction, 1.0, 1e-6, 3.0) then 001CFBE0(a1, 1,
@@ -356,7 +432,8 @@ int em_effect_kinds_translates(uint32_t handler)
 {
     return handler == EM_EFFECT_KINDS_H_001EC1F0 || handler == EM_EFFECT_KINDS_H_001EC3F0 ||
            handler == EM_EFFECT_KINDS_H_001EC470 || handler == EM_EFFECT_KINDS_H_001EBF10 ||
-           handler == EM_EFFECT_KINDS_H_001EACF0 || handler == EM_EFFECT_KINDS_H_001EBA20;
+           handler == EM_EFFECT_KINDS_H_001EACF0 || handler == EM_EFFECT_KINDS_H_001EBA20 ||
+           handler == EM_EFFECT_KINDS_H_001EBBB0 || handler == EM_EFFECT_KINDS_H_001EAB50;
 }
 
 int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matrix[16],
@@ -370,6 +447,8 @@ int em_effect_kinds_handler(EmEffectKinds *k, uint32_t handler, const float matr
     case EM_EFFECT_KINDS_H_001EBF10: return em_effect_kinds_001EBF10(k, matrix, depth, work);
     case EM_EFFECT_KINDS_H_001EACF0: return em_effect_kinds_001EACF0(k, matrix, depth, work);
     case EM_EFFECT_KINDS_H_001EBA20: return em_effect_kinds_001EBA20(k, matrix, depth, work);
+    case EM_EFFECT_KINDS_H_001EBBB0: return em_effect_kinds_001EBBB0(k, matrix, depth, work);
+    case EM_EFFECT_KINDS_H_001EAB50: return em_effect_kinds_001EAB50(k, matrix, depth, work);
     default: return fail(k, handler, EM_EFFECT_KINDS_FAULT_UNTRANSLATED);
     }
 }

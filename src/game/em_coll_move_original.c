@@ -527,7 +527,7 @@ static int grid_pass(const EmCollMoveWorld *w, EmCollMoveScratch *s, int *result
 /* The shared body of 0019AD00 (sweep = 0) and 0019AFE0 (sweep = 1) after the
  * segment start is staged. */
 static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor,
-                const float to[3], uint32_t flags, int sweep)
+                const float to[3], uint32_t flags, int sweep, int probe)
 {
     float goal[3], dir[4];
     s->start[1] = to[1];                                     /* 0x0019AD48 */
@@ -568,9 +568,10 @@ static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor 
             mode = 1;
         }
     }
-    s->query_class = actor->cls & 0x1F;                     /* 0x0019AEDC */
+    /* 0019B2C0 (probe) stores -1 and 0 for these two; it has no actor. */
+    s->query_class = probe ? (int16_t)-1 : (int16_t)(actor->cls & 0x1F);   /* 0x0019AEDC */
     if (flags & 2) {
-        s->self = actor->self;                               /* 0x0019AEEC */
+        s->self = probe ? NULL : actor->self;                /* 0x0019AEEC */
         int r = em_coll_move_walk_0019FE50(w, s);
         if (r < 0) return -1;
         if (r == 0) mode = 2;
@@ -603,13 +604,13 @@ static int walk(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor 
 
 /* Run on copies; commit the scratch and the actor only on success. */
 static int run(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor, const float from[3],
-               const float to[3], uint32_t flags, int sweep)
+               const float to[3], uint32_t flags, int sweep, int probe)
 {
     EmCollMoveScratch t = *s;
     EmCollMoveActor a = *actor;
     t.start[0] = from[0];                                    /* 0x0019AD30 / 0019AFE0: +0xB0 or from.x */
     t.start[2] = from[2];                                    /* 0x0019AD5C: +0xB8 or from.z */
-    const int mode = walk(w, &t, &a, to, flags, sweep);
+    const int mode = walk(w, &t, &a, to, flags, sweep, probe);
     if (mode < 0) return -1;
     *s = t;
     *actor = a;
@@ -621,14 +622,29 @@ int em_coll_move_0019AD00(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmColl
 {
     if (!s || !actor || !target || !needs_ok(w, actor, flags)) return -1;
     const float from[3] = { actor->position[0], 0.0f, actor->position[2] };
-    return run(w, s, actor, from, target, flags, 0);
+    return run(w, s, actor, from, target, flags, 0, 0);
 }
 
 int em_coll_move_sweep_0019AFE0(const EmCollMoveWorld *w, EmCollMoveScratch *s, EmCollMoveActor *actor,
                                 const float from[3], const float to[3], uint32_t flags)
 {
     if (!s || !actor || !from || !to || !needs_ok(w, actor, flags)) return -1;
-    return run(w, s, actor, from, to, flags, 1);
+    return run(w, s, actor, from, to, flags, 1, 0);
+}
+
+int em_coll_move_probe_0019B2C0(const EmCollMoveWorld *w, EmCollMoveScratch *s, float a0[3],
+                                const float a1[3], uint32_t flags)
+{
+    /* No lock (0019B2C0 never tests bit 0) and no actor: a zero query
+     * record whose position is a0 (bit 31 adds the hit delta to its x / z). */
+    EmCollMoveActor actor;
+    memset(&actor, 0, sizeof actor);
+    if (!s || !a0 || !a1 || !needs_ok(w, &actor, flags)) return -1;
+    memcpy(actor.position, a0, sizeof actor.position);
+    const float from[3] = { a0[0], 0.0f, a0[2] };
+    const int mode = run(w, s, &actor, from, a1, flags, 0, 1);
+    if (mode >= 0) memcpy(a0, actor.position, sizeof actor.position);
+    return mode;
 }
 
 /* ---- Adapters -------------------------------------------------------------- */

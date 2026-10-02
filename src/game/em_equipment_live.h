@@ -76,8 +76,34 @@ typedef struct {
 } EmEquipmentLiveRegion;
 /* Returns the required count, writing at most capacity entries. */
 size_t em_equipment_live_regions(uint32_t address, EmEquipmentLiveRegion *out, size_t capacity);
+/* The pool record of a live node of this module at its original address
+ * (the melee states' +0x18 knife link writes its +0x00, +0x0A and +0x36
+ * header fields), or NULL. */
+EmActor *em_equipment_live_node_actor(uint32_t address);
 typedef int (*EmEquipmentAimFireCall)(uint32_t entry, uint32_t actor);
 void em_equipment_live_set_aim_fire(EmEquipmentAimFireCall call);
+/* The gun lamp 00187780(node, a1, a2) with D_00275B40 = `bones` for the
+ * call (em_aim_fire_binding_run_lamp). NULL: the call faults. */
+typedef int (*EmEquipmentLampCall)(uint32_t node, int32_t a1, int32_t a2, uint32_t bones);
+void em_equipment_live_set_lamp(EmEquipmentLampCall call);
+/* 00188630's 001F4010(index, 0x700036A0): the shell casing's seed, `at` the
+ * node's copy of 0x700036A0..0x700036DF (16 words). NULL: a fault. */
+typedef int (*EmEquipmentCasingCall)(int32_t index, const uint32_t *at);
+void em_equipment_live_set_casing(EmEquipmentCasingCall call);
+/* The knife's (flavour 4: 0018A1F0 / 00189D30) callees through a
+ * composition: call(fn, a, na, f12, nf, spad, v0) runs the original call
+ * with those argument registers after copying the node's staged scratch
+ * `spad` (0x700038A0..0x700038DF, 16 words) to the scratchpad and before
+ * copying it back; read(address, out, n) reads original memory; bytes
+ * (address, n) a grid node record's bytes; temp(words, &address) stages a
+ * quadword the original hands by address. NULL: the knife's callees fault. */
+typedef int (*EmEquipmentWorldCall)(uint32_t fn, const uint32_t *a, unsigned na, uint32_t f12, unsigned nf,
+                                    uint32_t *spad, uint32_t *v0);
+typedef int (*EmEquipmentWorldRead)(uint32_t address, void *out, uint32_t size);
+typedef const uint8_t *(*EmEquipmentWorldBytes)(uint32_t address, uint32_t size);
+typedef int (*EmEquipmentWorldTemp)(const uint32_t words[4], uint32_t *address);
+void em_equipment_live_set_world(EmEquipmentWorldCall call, EmEquipmentWorldRead read, EmEquipmentWorldBytes bytes,
+                                 EmEquipmentWorldTemp temp);
 uint32_t em_equipment_live_current_bones(void);
 
 /* 0018A6B0 over the node's record: 1 while allocated, 0 after its 001AFC10

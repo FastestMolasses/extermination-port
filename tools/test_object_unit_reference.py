@@ -38,6 +38,14 @@ P. The player (D_008102B0, 0015C160's +0x4C: 001CAA00 over the model
    each draw class the captures hold and equipment units covering every
    model and class; EM_TEST_FULL=1 all.
 
+K. The class-2 units (001CACB0 -> 001CABA0 on channel 3: 001D1F80(3, 2,
+   2), the skin records D_00816B40 / D_00816E40, PRIM 0x07C / 0x07B;
+   CHAIN_PAGE.md section 6, the muzzle node's +0x4C): every captured
+   indicator child's unit as the ORIGINAL code writes it, and each owner
+   moved to the camera's point (the clip pass), run the same way; the
+   class-2 GS state REF (D_00815A20) equals em_object_unit_gs_state_check_2's
+   set in every capture.
+
 F. The face units (001CB3C0's, CALL 0x0023C480: Roger's and Dennis's faces,
    docs/VU1_FACE_MORPH.md): every distinct intact face unit in the display
    lists of the route beats 00..14 (the colour, node and weights CNTs, the
@@ -88,6 +96,7 @@ static unsigned g_size;
 static const uint8_t *resolve(void *ctx, uint32_t a, uint32_t n)
 { (void)ctx; if (a > g_size || n > g_size - a) return NULL; return g_ram + a; }
 int shim_gs(const unsigned char *bytes, const char **why) { return em_object_unit_gs_state_check(bytes, why); }
+int shim_gs2(const unsigned char *bytes, const char **why) { return em_object_unit_gs_state_check_2(bytes, why); }
 int shim_run(const unsigned char *ram, unsigned ram_size, const unsigned char *unit, unsigned size,
              EmObjectUnitTriangle *out, unsigned cap, unsigned *object_tris, unsigned *pieces,
              const char **why)
@@ -138,11 +147,17 @@ def build_library():
 
 # ------------------------------------------------------------ the oracle
 
+# The template PRIMs of the GS class the unit's skin records carry: 0x03C /
+# 0x03B (class 0), 0x07C / 0x07B (class 2: 001CABA0's channel-3 units, ABE).
+ABE = {'value': 0}
+
+
 def decode_strip(raw, block):
     """An object-kernel packet: PRE + PACKED, REGS TEX0 ST RGBAQ XYZF2."""
     lo, hi = struct.unpack_from('<QQ', raw, 0)
     nloop, pre, prim, flg, nreg = lo & 0x7FFF, lo >> 46 & 1, lo >> 47 & 0x7FF, lo >> 58 & 3, lo >> 60
-    assert pre and flg == 0 and nreg == 4 and hi == 0x4126 and prim == 0x03C, ('object packet', hex(lo), hex(hi))
+    assert pre and flg == 0 and nreg == 4 and hi == 0x4126 and prim == 0x03C | ABE['value'], \
+        ('object packet', hex(lo), hex(hi))
     verts = []
     for i in range(nloop):
         d = [struct.unpack_from('<4I', raw, 16 + 64 * i + 16 * k) for k in range(4)]
@@ -182,7 +197,8 @@ class ClipDecoder:
                     elif r == 1:
                         rgba = tuple(x & 0xFF for x in w)
                     elif r == 4:
-                        assert pre and prim == 0x03B and not (w[3] >> 15) & 1, ('clip packet', hex(lo))
+                        assert pre and prim == 0x03B | ABE['value'] and not (w[3] >> 15) & 1, \
+                            ('clip packet', hex(lo))
                         tri.append((w[0] & 0xFFFF, w[1] & 0xFFFF, w[2] >> 4 & 0xFFFFFF, w[3] >> 4 & 0xFF,
                                     rgba, st[0], st[1], st[2]))
                         if len(tri) == 3:
@@ -317,6 +333,53 @@ def case(item):
     return res
 
 
+# ------------------------------------------------------------ K. class-2 units
+
+def class2_case(item):
+    """001CACB0 -> 001CABA0's channel-3 unit (an indicator child, or the same
+    owner at the camera's point: the clip pass), written by the ORIGINAL
+    code (tod.case_indicator's run), through the original microcode and the
+    native parse + run (class 2: PRIM 0x07C / 0x07B)."""
+    name, owner, near = item
+    ram, spr = CAP[name]
+    if near:
+        b = bytearray(ram)
+        struct.pack_into('<3f', b, owner + 0xB0, *tod.camera_point(ram))
+        ram = bytes(b)
+    o = tod.EE(ELF, ram, spr)
+    ctx = u32(ram, 0x275670)
+    o.put32(ctx + 0x1C, tod.CAP_DL)
+    for a, v in ((0x275B48, owner), (0x275B44, owner), (0x275B40, owner + 0x110)):
+        o.put32(a, v)
+    o.calls[0x1CAAC0] = lambda r: None
+    o.run(tod.INDICATOR_DRAW, (owner,))
+    used = o.load(ctx + 0x1C) - tod.CAP_DL
+    res = dict(capture=name, owner=hex(owner), near=near, unit=used)
+    if not used:
+        return res
+    unit = o.read(tod.CAP_DL, used)
+    assert unit[-13] == 0x60, ('001CABA0 ends in its RET tag', name, hex(owner))
+    unit = unit[:-16]
+    img = bytearray(ram)
+    img[tod.CAP_DL:tod.CAP_DL + len(unit)] = unit
+    img = bytes(img)
+    ABE['value'] = 0x40
+    try:
+        want, blocks = oracle(img, tod.CAP_DL, len(unit))
+    finally:
+        ABE['value'] = 0
+    n, out, objs, pieces, why = native(img, unit)
+    assert n >= 0, ('native refused a class-2 unit', name, hex(owner), n, why)
+    got = ntris(out, n)
+    if got != want:
+        k = next((i for i, (a, b) in enumerate(zip(got, want)) if a != b), min(len(got), len(want)))
+        raise AssertionError(('class-2 triangles differ', name, hex(owner), len(got), len(want), k,
+                              got[k] if k < len(got) else None, want[k] if k < len(want) else None))
+    assert pieces[4] in (0x816B40, 0x816BC0), ('skin record', hex(pieces[4]))
+    res.update(clip=bool(pieces[2]), triangles=len(want), object_triangles=objs)
+    return res
+
+
 # ------------------------------------------------------------ F. faces
 
 def face_units():
@@ -430,6 +493,8 @@ def main():
         why = C.c_char_p()
         # 001D1F80(0, 1, 0)'s REF target and the arena qword, as 001D0F20 built them at boot
         assert LIB.shim_gs(ram[0x815360:0x815360 + 144], C.byref(why)) == 0, (beat, why.value)
+        # 001D1F80(3, 2, 2)'s (001CABA0's units: set 2 class 2)
+        assert LIB.shim_gs2(ram[0x815A20:0x815A20 + 144], C.byref(why)) == 0, (beat, why.value)
         assert struct.unpack_from('<4I', ram, 0x814220) == (0, 0, 0, 0x11000000), (beat, 'arena qword')
         assert u32(ram, 0x275674) == 0x814220, (beat, 'D_00275674')
     tod.CAP.update(CAP)
@@ -474,6 +539,12 @@ def main():
     picks = [next((f for f in faces if face_of(f) == 'Roger' and f[0][:2] >= '08'), faces[0])]
     picks += [f for f in faces if face_of(f) == 'Dennis'][:1]
     face_results = parallel_map(face_case, faces if FULL else picks)
+    # K: the class-2 units (001CABA0)
+    k_items = [(n, a, near) for beat in CAP for n, a in tod.indicator_owners(beat) for near in (0, 1)]
+    k_chosen = select(k_items, 16, 0xCABA2, axes=(lambda i: CAP[i[0]][0][i[1] + 0x0C], lambda i: i[2]))
+    k_results = [r for r in parallel_map(class2_case, k_chosen) if r['unit']]
+    assert any(r['clip'] for r in k_results) and any(not r['clip'] for r in k_results), \
+        ('class-2 units of both passes', [(r['owner'], r['clip']) for r in k_results])
     sample = next(r for r in drawn if r['clip'])
     refused = refusals(sample['capture'], int(sample['owner'], 16), sample['_unit'])
     tally = {}
@@ -489,6 +560,8 @@ def main():
                   f"{len(equipment)}), "
                   f"{sum(r['triangles'] for r in drawn)} triangles equal the original microcode's",
                   f'{len(refused)} parser refusals',
+                  f"{len(k_results)} class-2 units ({sum(r['clip'] for r in k_results)} clip, "
+                  f"{sum(r['triangles'] for r in k_results)} triangles) equal the original microcode's",
                   part(len(face_results), len(faces), 'face units') +
                   f" ({sum(r['triangles'] for r in face_results)} triangles)")
     for r in results: r.pop('_unit', None)

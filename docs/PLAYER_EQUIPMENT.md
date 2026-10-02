@@ -257,16 +257,16 @@ original does not call 001AF890 there).
 | w_001026A0, w_00102760, w_001026D0, w_001028B8, w_001028D0, w_001029C0, w_00102BB0 | em_effect_original's 001026A0 / 00102760, `em_sdk_vu0_001026D0` (SDK_VU0.md), `em_player_hang_vadd`, VSUB.xyzw (em_ee_float.h), em_owner_services' identity / rotate-y |
 | w_001B0070 | D_008106C8 (the request block) |
 | w_0015C310 | the bindings' 0015C310 (`em_area11_spawn_player_equipment_0015C310`; arg1 = 1 from the equipment change D_008106CC, which the status page writes) |
-| w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0 | behind the aim/fire diagnostic gate: em_aim_fire_target / em_aim_fire_shots through `em_aim_fire_binding_run` (D_00275B40 switched to the node's own slots for the call; AIM_FIRE.md); in ordinary play they fault |
-| w_001B61C0, w_0019A570 and every untranslated callee: w_001EFEB0, w_001F4010, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20, w_00187780, w_001AA840, w_0019B2C0, w_00189EC0, w_001F00A0, w_0018A180, w_00189FE0, w_001EFF10 | faults (none ran in any census label; 001B61C0 / 0019A570 are reached only from the untranslated ones) |
+| w_001854E0, w_00185760, w_001861C0, w_001869A0, w_00186A60, w_001872C0, w_00187CC0 | em_aim_fire_target / em_aim_fire_shots through `em_aim_fire_binding_run` (D_00275B40 switched to the node's own slots for the call; AIM_FIRE.md); in ordinary play since 2026-10-02 (the gate removed, AIM_FIRE.md section 10) |
+| w_001F4010 | `em_equipment_live_set_casing` -> `em_aim_fire_runtime_001F4010` (the frame the node staged goes to the composition's 0x700036A0, then em_area02_misc_001F4010; AIM_FIRE.md section 9.2); in ordinary play since 2026-10-02 |
+| w_001AA840, w_0019B2C0, w_00189EC0, w_face_record, w_001F00A0, w_0018A180, w_0019A570, w_00189FE0, w_001EFF10 (the knife, flavour 4) | (AIMLIVE) `em_equipment_live_set_world` -> `em_aim_fire_runtime_world_*`: each original through the composition with the node's staged 0x700038A0..0x700038DF copied in and back and D_00275B40 = the knife's bones (0019B2C0 is em_coll_move_probe_0019B2C0; the face record of a cell hit is the walker's D_700030B0 words; 0019A570 the live segment walker; AIM_FIRE.md section 9.3; 0018A180's 001B61C0 goes to em_pad_actuator through the composition); in ordinary play since 2026-10-02 |
+| w_00187780 (the gun lamp) | `em_equipment_live_set_lamp` -> `em_aim_fire_binding_run_lamp`: em_aim_fire_lamp's 00187780 through the composition with D_00275B40 = the node's +0x110 (AIM_FIRE.md section 10.2); since 2026-10-02 |
+| w_001B61C0 (the node's own call) and every untranslated callee: w_001EFEB0, w_00188C70, w_00189090, w_00189330, w_001899C0, w_00189A20 | faults (none ran in any census label or AIM capture) |
 
-None of the faulting callees can run in the port today: the aim selector
-needs the armed stances, which the port's stand-ins still own in ordinary
-play (L28, P24..P28; the original stances run only behind the aim/fire
-gate, AIM_FIRE.md); the lamp 00187780 needs D_008106C7, which only the port's
-em_weapon.c raises in its own storage (the request block's byte stays 0,
-as in every capture); the knife's bit 0 and a camera mode other than 0 are
-not reachable on the idle / walk states.
+None of the faulting callees ran in any census label or AIM capture (the
+ten AIM side runs reach none of them, LEVEL_SMOKE.md "The AIM replays");
+the knife's bit 0 and a camera mode other than 0 are not reachable on the
+idle / walk states.
 
 ### 4.3 Data
 
@@ -282,15 +282,17 @@ not reachable on the idle / walk states.
 - The player record image (`player_states_actor_mut`) and its bone world
   matrices (the record pose's node records, copied every tick); D_00275BCC
   and the bone-slot stack: em_area11_boxes' 001AF710 world.
+- A held bone's +0x00..+0x3F (the matrix 001C62C0 copied from the model)
+  is served read-only by original address since chain step AIMLIVE:
+  001EFF10 hands the knife bone + 0x30 to 001EF9D0 and the trail node
+  transforms by its +0x00 (AIM_FIRE.md section 9.3).
 
 ### 4.4 Stand-ins still in place
 
-- **00188630** (em_weapon.c's laser gate): the flavour-0 node runs, but its
-  selector 001854E0 / 00185760 needs the armed stances the port does not
-  run yet; em_weapon.c's laser and muzzle code stay until they do.
-- **00188ED0** (em_weapon.c lamp + `em_gfx_spot_light`): the node's lamp
-  gate runs over the request block's D_008106C7; the lamp itself is 00187780
-  (not translated).
+- None for the equipment nodes since 2026-10-02: em_weapon.c's laser gate,
+  laser and muzzle code, its lamp gate and the gun's `em_gfx_spot_light`
+  use are retired (AIM_FIRE.md section 10.3); 00188630's selector and
+  00188ED0's lamp run their translations in ordinary play.
 - **0015D2F0**: the node calls it live; 001D1C50's, 00187CC0's, 001DDA00's
   and 001DDE10's calls are their own lanes'.
 

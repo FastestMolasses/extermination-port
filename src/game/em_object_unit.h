@@ -49,6 +49,9 @@ extern "C" {
 #define EM_OBJECT_UNIT_FOG_OFF     UINT32_C(0x002514B0)  /* the optional REF 2 */
 #define EM_OBJECT_UNIT_FACE_KERNEL UINT32_C(0x0023C480)  /* 001D3E40's CALL */
 #define EM_OBJECT_UNIT_GS_STATE    UINT32_C(0x00815360)  /* 001D1F80(0, 1, 0): set 1, class 0 */
+#define EM_OBJECT_UNIT_GS_STATE_2  UINT32_C(0x00815A20)  /* 001D1F80(3, 2, 2): set 2, class 2 */
+#define EM_OBJECT_UNIT_SKIN_3      UINT32_C(0x00816B40)  /* 001D3900's skin record (+0x80 per slot) */
+#define EM_OBJECT_UNIT_SKIN_3_CLIP UINT32_C(0x00816E40)  /* 001D3CF0's */
 #define EM_OBJECT_UNIT_ARENA       UINT32_C(0x00814220)  /* *D_00275674: the arena's first qword */
 /* 001C7420 writes at most 0x1B0 / 8 = 54 nodes before the rows would reach
  * the kernel's first batch buffer (dmem 0x1B0); the unit is refused above. */
@@ -57,6 +60,7 @@ extern "C" {
 #define EM_OBJECT_UNIT_FACE_BLOCK_QWORDS 0x163u   /* 3 VIF-code qwords + 32 x 11 */
 #define EM_OBJECT_UNIT_TEMPLATE_PRIM 0x03Cu   /* the kernel's GIF template (dmem 1020) */
 #define EM_OBJECT_UNIT_CLIP_PRIM 0x03Bu       /* skin record 1's triangle-list tag */
+#define EM_OBJECT_UNIT_ABE 0x040u             /* the channel-3 skin records' tags add ABE */
 
 /* A REF target by original address: `bytes` bytes, or NULL (refused). */
 typedef const uint8_t *(*EmObjectUnitResolve)(void *ctx, uint32_t address, uint32_t bytes);
@@ -74,6 +78,11 @@ typedef struct {
     uint32_t bytes;                           /* unit bytes consumed */
 } EmObjectUnitPieces;
 
+/* A unit without a GS state REF of its own (001F3E30's 001C7900 +
+ * 001CA940): parsed as em_object_unit_parse with the REF optional; the
+ * caller establishes that the channel's state in force is class 0. */
+int em_object_unit_parse_inherit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                                 EmObjectUnitPieces *out, const char **why);
 /* Parse the unit at `unit` (`size` bytes, the whole unit: parsing must end
  * exactly at `size`). 0, or -1 with *why set to a static reason. */
 int em_object_unit_parse(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
@@ -90,6 +99,16 @@ int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitRes
  * overrides), else -1 with *why. The parser checks the REF's address;
  * the reference test checks these bytes in every capture. */
 int em_object_unit_gs_state_check(const uint8_t *bytes, const char **why);
+/* The same for 001D1F80(3, 2, 2)'s REF (set 2, class 2): TEX1_1 0x60, TEST_1
+ * 0x53001 (alpha test NEVER with AFAIL RGB_ONLY: no Z or alpha write),
+ * ZBUF_1 with ZMSK 1, ALPHA_1 0x8000000068 ((Cs - 0) * FIX 0x80 >> 7 + Cd),
+ * CLAMP_1 0, COLCLAMP 1 and a PRIM the template overrides; the bytes of
+ * every AREA11 capture (tools/test_object_unit_reference.py). */
+int em_object_unit_gs_state_check_2(const uint8_t *bytes, const char **why);
+/* The GS register values of class `gs_class` (0 or 2) the page path draws
+ * with (EM_GFX_GS_* of em_gfx.h): alpha, test, tex1, clamp, colclamp. */
+void em_object_unit_gs_state(uint32_t gs_class, uint64_t *alpha, uint64_t *test, uint64_t *tex1,
+                             uint64_t *clamp, uint64_t *colclamp);
 
 /* One kicked vertex, as the GS takes it. */
 typedef struct {
@@ -111,6 +130,7 @@ typedef struct {
     EmObjectUnitTriangle *tri;   /* grown with realloc; free with em_object_unit_result_free */
     uint32_t count, capacity;
     uint32_t object_triangles;   /* the first `object_triangles` come from pass 0 */
+    uint32_t prim;               /* pass 0's PRIM (the template's), pass 1's is prim - 1 */
     const char *why;             /* reason of the last -1 */
     uint32_t why_block;
 } EmObjectUnitResult;

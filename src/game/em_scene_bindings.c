@@ -106,8 +106,11 @@
 #include "game/em_area11_bindings.h"
 #include "game/em_effects_live.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_aim_fire_binding.h"
+#include "game/em_aim_fire_runtime.h"
 #include "game/em_aim_fire_tables.h"
 #include "game/em_equipment_live.h"
+#include "game/em_weapon.h"
 #include "game/em_indicator_bind_live.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_door.h"
@@ -892,6 +895,46 @@ static void log_tick_end(int rc)
             }
             fputc(']', f);
         }
+        /* The fire path at the tick end (AIM_FIRE.md section 5, the
+         * aim_fire side run): the fire mode D_00810C61, the magazine
+         * D_00810C62, the reserve D_00810CB4, the light D_00810D3C, the gun
+         * node's +0x2E event (0 without the gun), the player's +0x274..+0x27F
+         * (hex), then every allocated pool record running 0018ABA0 (the
+         * impact marker), 001F5040 (the muzzle node), 001EA240 (an effect
+         * node), 001F18C0 (the knife's trail) or 0021AAC0 / 0021A500 (the
+         * cable reaction's nodes): its address, header +0x00..+0x0F (hex), +0x10 (the
+         * behaviour), +0x28 (-1 when not held) and +0xB0..+0xB8 (float
+         * bits). tools/test_level_smoke.py
+         * check_aim_fire. */
+        {
+            const uint8_t *mode = em_weapon_fire_mode_byte(), *mag = em_weapon_mag_byte();
+            const uint8_t *light = em_weapon_flashlight_byte();
+            const int16_t *reserve = em_weapon_reserve_word();
+            const uint32_t gun = em_live_u32(a, 0x20);
+            const uint8_t *h2e = gun ? em_equipment_live_field(gun + 0x2Eu, 2, 0) : NULL;
+            fprintf(f, ", \"fire\": [%u, %u, %u, %u, %u, \"", mode ? *mode : 0u, mag ? *mag : 0u,
+                    reserve ? (unsigned)(uint16_t)*reserve : 0u, light ? *light : 0u, h2e ? (unsigned)(h2e[0] | h2e[1] << 8) : 0u);
+            for (unsigned k = 0x274; k < 0x280; ++k) fprintf(f, "%02x", em_live_u8(a, k));
+            fputs("\", [", f);
+            int first = 1;
+            for (const EmActor *r = s_pool.head; r; r = r->next) {
+                if (!r->allocated || (r->callback != 0x0018ABA0u && r->callback != 0x001F5040u &&
+                                      r->callback != 0x001EA240u && r->callback != 0x001F18C0u &&
+                                      r->callback != 0x0021AAC0u && r->callback != 0x0021A500u))
+                    continue;
+                const uint32_t at = em_actor_pool_address(&s_pool, r);
+                uint16_t h28v = 0;
+                const int has28 = em_aim_fire_runtime_h28(r, &h28v);
+                uint32_t pos[3];
+                memcpy(pos, r->pos, sizeof pos);
+                fprintf(f, "%s[%u, \"", first ? "" : ", ", at);
+                for (unsigned k = 0; k < 16; ++k) fprintf(f, "%02x", ((const uint8_t *)&r->status)[k]);
+                fprintf(f, "\", %u, %d, %u, %u, %u]", (unsigned)r->callback, has28 ? (int)h28v : -1, pos[0],
+                        pos[1], pos[2]);
+                first = 0;
+            }
+            fputs("]]", f);
+        }
         /* The stream lanes as the previous frame's step H left them (the
          * task runs before step H), as the C7 stream capture's main-loop-top
          * rows sample them (decomp docs/CAPTURES_C7.md section 1): D_00810E90, the read
@@ -1371,8 +1414,25 @@ static void log_tick_end(int rc)
             static uint32_t sampled, last_pages;
             const int fresh = pl.frame == em_frame_counter() && pl.pages != last_pages;
             if (fresh) last_pages = pl.pages;
-            if (fresh && sampled < 40 && (pl.pages == 1 || pl.pages % 250 == 0)) {
-                sampled++;
+            /* Also the first 12 pages that ran the streak program (the
+             * impact effect 0x80000060, no route capture has one). */
+            static uint32_t streak_sampled, flare_sampled, strip_sampled, kind2_sampled;
+            const int streak = fresh && c->mscal_streak && streak_sampled < 12;
+            /* And the first 12 with the gun lamp's flare (00187690). */
+            const int flare = fresh && !streak && pl.flare_sprites && flare_sampled < 12;
+            /* And the first 12 whose lanes drew (an active ring-decal slot,
+             * the shots' impact marks). */
+            const int strip = fresh && !streak && !flare && c->lane_strips && strip_sampled < 12;
+            /* And the first 12 with the kind-2 program (the cable's hit
+             * effect node 0021AAC0). */
+            const int kind2 = fresh && !streak && !flare && !strip && c->mscal_kind2 && kind2_sampled < 12;
+            if (fresh && ((sampled < 40 && (pl.pages == 1 || pl.pages % 250 == 0)) || streak || flare || strip ||
+                          kind2)) {
+                if (streak) streak_sampled++;
+                else if (flare) flare_sampled++;
+                else if (strip) strip_sampled++;
+                else if (kind2) kind2_sampled++;
+                else sampled++;
                 const uint32_t *pairs;
                 const uint32_t nr = em_chain_page_live_reads(&pairs);
                 fputc('[', f);
@@ -1394,7 +1454,18 @@ static void log_tick_end(int rc)
             } else {
                 fputs("null", f);
             }
-            fprintf(f, ", %u, %u, %u]", c->mscal_snow, pl.weather, pl.overlay_reads);
+            /* The class-2 unit CALLs (001CABA0's): [target, primitives, of
+             * them the strip triangles (pass 0), the TEX0 (low, high) and
+             * PRIM it leaves] each, and the digest of the page's other
+             * primitives. */
+            fprintf(f, ", %u, %u, %u, [", c->mscal_snow, pl.weather, pl.overlay_reads);
+            for (uint32_t k = 0; k < pl.units && k < EM_CHAIN_PAGE_UNITS_MAX; ++k)
+                fprintf(f, "%s[%u, %u, %u, %u, %u, %u]", k ? ", " : "", pl.unit_call[k], pl.unit_prims[k],
+                        pl.unit_strips[k], (unsigned)pl.unit_tex0[k], (unsigned)(pl.unit_tex0[k] >> 32),
+                        pl.unit_prim[k]);
+            fprintf(f, "], %u, %u, %u, %u, %u, %u, %u, %u]", pl.digest_without_units, c->mscal_streak,
+                    c->streak_prims, pl.flare_sprites, c->lane_strips, c->mscal_kind2, c->kind2_prims,
+                    c->direct_strips);
         } else {
             fputs("null", f);
         }

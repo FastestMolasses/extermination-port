@@ -435,132 +435,25 @@ void em_gfx_overlay_decor_flush(EmGfx *gfx);
  * empty rect is the caller's to skip (the backend keeps at least a pixel). */
 void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]);
 
-/* --- World-space beam pass (laser sight) ------------------------------ */
+/* --- Forward spot term ---------------------------------------------------- */
 
-/* Queue one world-space BEAM SEGMENT for this frame: a thin quad from `a`
- * to `b` (world coords), `width` units across, extruded perpendicular to
- * the segment in the camera plane (axial billboard), with one RGBA per
- * end (a gradient along the segment). The native stand-in for the
- * engine's laser-sight line pass: func_001E2BA0 draws the SPR4 laser as
- * 32 consecutive GS LINE segments with per-vertex colors (see
- * em_weapon.c for the per-segment flicker rule that feeds this).
+/* Set THIS frame's single forward SPOT LIGHT, applied only by the baked
+ * vertex-colour LEVEL path of the skinned draws (mesh flag
+ * EM_GFX_MESH_VCOLOR); normal-carrying (actor) draws never take it. Reset
+ * OFF at em_gfx_begin_frame; with no call the frame output is
+ * bit-identical (the shader adds exactly 0). `pos` / `dir` world space
+ * (dir normalised by the caller); `rgb` the light colour (components may
+ * exceed 1); `range` the falloff distance (quadratic fade to 0);
+ * `cos_inner` / `cos_outer` the cone (full inside cos_inner, smoothstep
+ * to 0 at cos_outer).
  *
- * Queued beams are flushed inside em_gfx_end_frame BEFORE the overlay
- * pass, as one draw: ADDITIVE blend (GS ALPHA Cv = Cs + Cd — alpha is
- * ignored), depth TEST on / depth WRITE off (ZMSK=1, like the glow
- * pass), using the camera of this frame's LAST em_gfx_draw_skinned call
- * (a world-space pass needs a camera; if no 3D draw ran this frame the
- * queue is dropped). With nothing queued the pass does not run — frame
- * output stays bit-identical to pre-beam builds. At most EM_GFX_BEAM_MAX
- * primitives per frame; overflow is dropped. */
-#define EM_GFX_BEAM_MAX 64
-
-void em_gfx_beam(EmGfx *gfx, const float a[3], const float b[3],
-                 float width, const float rgba_a[4], const float rgba_b[4]);
-
-/* Queue a small camera-facing SQUARE glow (size x size world units) at
- * `p` — the laser hit-point dot (the engine's func_001CD520 billboard
- * sprite at the clipped ray endpoint). Same pass, blend and depth state
- * as em_gfx_beam; counts against the same EM_GFX_BEAM_MAX budget. */
-void em_gfx_beam_dot(EmGfx *gfx, const float p[3], float size,
-                     const float rgba[4]);
-
-/* --- TEXTURED beam sprites (laser dot + muzzle-flash sheets) ----------
- *
- * The engine's weapon FX are TEXTURED additive billboards: the laser
- * dot is a func_001CD520 sprite sampling its own 32x16 glow texture,
- * and the muzzle flash (func_001F5040 variant 0) binds chunk27 models
- * 0x0D/0x08/0x07, whose faces sample three additive effect sheets
- * (decomp FINDINGS "Muzzle flash FX" + "The DOT"). These slots carry
- * those sheets so the beam pass can draw the REAL sprites instead of
- * flat-color quads (em_weapon.c loads the assets/fx .emtx files into
- * them). Slot 4 carries the FLASHLIGHT CONE's glow sheet (the chunk27
- * light-cone family's 0x...3222E9 texture — em_weapon.c "FLASHLIGHT
- * CONE"). */
-#define EM_GFX_BEAM_TEX_MAX 5
-
-/* Register one beam texture slot (0..EM_GFX_BEAM_TEX_MAX-1). `rgba` is
- * w*h RGBA8 texels, rows top-down, copied into a GPU texture (the
- * caller may free it). Returns 1 on success, 0 on failure (no device /
- * bad slot / bad args) — callers fall back to the untextured
- * primitives so a missing asset never regresses the frame. */
-int em_gfx_beam_texture_set(EmGfx *gfx, int slot, const uint8_t *rgba,
-                            uint32_t w, uint32_t h);
-
-/* em_gfx_beam / em_gfx_beam_dot sampling a registered slot's texture
- * across the whole quad (UV 0..1; the FX sheets are full-frame sprite
- * images — the flash models sample them edge to edge). The fragment is
- * sample * rgba through the SAME additive, depth-test-on/write-off
- * state as the untextured beams (additive ignores alpha), in the same
- * flush and against the same EM_GFX_BEAM_MAX budget; textured
- * primitives draw AFTER the untextured set, grouped by slot. For the
- * axial-billboard quad, u runs a -> b along the segment (the flash
- * star's muzzle -> tip axis), v across it. No-op (queues nothing) when
- * the slot has no texture — callers keep their untextured fallback. */
-void em_gfx_beam_tex(EmGfx *gfx, int slot, const float a[3],
-                     const float b[3], float width, const float rgba[4]);
-void em_gfx_beam_dot_tex(EmGfx *gfx, int slot, const float p[3],
-                         float size, const float rgba[4]);
-
-/* em_gfx_beam_tex with an axis ROLL: the axial quad's width vector is
- * rotated `roll` RADIANS around the a->b axis before the camera-plane
- * extrusion. Translates the muzzle-flash FX actor's rotation lerp
- * (engine func_001F5040 tick >= 4: rot += (-128 - rot) * 0.35 per tick,
- * written to all three rotation components — the star tumbling around
- * the barrel as it decays; decomp FINDINGS "Muzzle flash FX"). roll = 0
- * is exactly em_gfx_beam_tex. */
-void em_gfx_beam_tex_roll(EmGfx *gfx, int slot, const float a[3],
-                          const float b[3], float width, float roll,
-                          const float rgba[4]);
-
-/* Queue one world-space TEXTURED TRIANGLE in the same additive beam
- * pass: three world vertices `p` (xyz xyz xyz) with uvs (uv uv uv)
- * sampling beam slot `slot`, modulated by `rgba`. Drawn in the slot's
- * textured flush (additive, depth test on / write off, cull none —
- * the GS state class of the engine's additive FX meshes). The consumer
- * is the FLASHLIGHT CONE mesh (the chunk27 light-cone model exported by
- * the decomp's export_props --cone; em_weapon.c orients its vertices
- * along the muzzle ray and queues its triangles per aim frame). Own
- * per-frame budget; overflow dropped, nothing queued = no extra GPU
- * work (frame output byte-identical). */
-#define EM_GFX_BEAM_TRI_MAX 384
-void em_gfx_beam_tri_tex(EmGfx *gfx, int slot, const float p[9],
-                         const float uv[6], const float rgba[4]);
-
-/* --- Flashlight spot light (forward spot term) ------------------------ */
-
-/* Set THIS frame's single forward SPOT LIGHT. A REAL cone (cos_inner
- * > -1) is applied ONLY by the baked vertex-color LEVEL path of the
- * skinned draws (mesh flag EM_GFX_MESH_VCOLOR — the world geometry):
- * the directional CHARACTER path takes no term (2026-06-11
- * weapon-visual pass — the muzzle-anchored flashlight must never
- * light the player/gun; the reference beam lights the room only).
- * Normal-carrying (actor) draws never take this term: the former
- * degenerate camera-fill exception (cos_inner <= -1) lit them with an
- * invented N.(-L) wrap and is removed (H18). Reset OFF
- * at em_gfx_begin_frame; with no call the frame output is
- * bit-identical to pre-spot builds (the shader adds exactly 0).
- *
- * `pos`/`dir` world-space (dir normalized by the caller); `rgb` the
- * light color/intensity (components may exceed 1); `range` the falloff
- * distance (quadratic fade to 0 at range); `cos_inner`/`cos_outer` the
- * cone: full intensity inside cos(angle) >= cos_inner, smoothstep fade
- * to 0 at cos_outer.
- *
- * ENGINE TRUTH + DOCUMENTED DEVIATION. The old claim that the boot ELF
- * draws nothing for the flashlight is REFUTED (FIRST_LEVEL_AUDIT R03/R04):
- * 0017A970 sets the gun-light draw enable D_008106C7 together with
- * D_00810D3C; while it is set, 00188ED0 calls 00187780, which (unless
- * area flag 001B0070() & 0x20000000) calls 001D9530, the cone-shell draw
- * of chunk27 library meshes 0x10/0x11/0x16 under the gun light matrix.
- * That cone draw is NOT translated. The engine's per-actor VU1 light
- * matrix (func_001D89D0: per-room rig D_00251C50 + an ALWAYS-ON
- * camera-direction light, flag +0x2 bit 0x20, set once for the player at
- * init + <=32 dynamic point lights, func_001D7FA0) lights CHARACTERS
- * only; LEVEL geometry ships baked vertex colors and is never
- * dynamically lit. This forward spot term is therefore a port stand-in,
- * not a translation: the original's visible result is the cone mesh,
- * not per-pixel light on the level. */
+ * A port stand-in, not a translation: the original lights no level
+ * geometry dynamically (func_001D89D0's per-actor light matrix lights
+ * characters only). Its one remaining user is the menu turntable's
+ * rig-less fill (em_render_frame.c, a scene without a room rig). The gun
+ * light no longer feeds it: the lamp is the original's since 2026-10-02
+ * (00187780's flare 00187690; its cone 001D9530 is skipped in AREA11 by
+ * D_008106C8's 0x20000000; AIM_FIRE.md section 10). */
 void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer);
@@ -1057,6 +950,15 @@ typedef struct {
     uint32_t block_count;
     uint32_t clip;                   /* object only: 001CA7B0 flags & 1, the
                                         0x002354A0 pass runs */
+    uint32_t gs_class;               /* object only: 0, the GS state of
+                                        001D1F80(0, 1, 0) (set 1 class 0) and the
+                                        channel-0 skin records (template PRIM
+                                        0x03C); 2, 001D1F80(3, 2, 2)'s set 2 class
+                                        2 and the channel-3 skin records D_00816B40
+                                        / D_00816E40 (PRIM 0x07C / 0x07B: ABE, the
+                                        FIX 0x80 additive blend, no Z write), drawn
+                                        on the chain page (CHAIN_PAGE.md section 6),
+                                        never by em_gfx_object_unit */
 } EmGfxObjectUnit;
 int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 
@@ -1070,20 +972,8 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height);
 
-/* --- the last skinned draw's camera ------------------------------------ */
 
-/* em_gfx_last_viewproj copies the column-major P*V of the LAST skinned
- * draw into out16 and returns 1; returns 0 (out untouched) before any
- * skinned draw has run. The same record the beam flush already renders
- * with — published for gameplay consumers that need the engine's
- * camera-matrix reads (the spad 0x70003AC0 matrix func_00199220
- * projects target aim points through for the screen-space acquisition
- * cone; em_weapon is the consumer). One frame of latency by
- * construction — the cone test runs against the previous frame's
- * camera, the same staleness class as the fire-event mailbox. */
-int em_gfx_last_viewproj(EmGfx *gfx, float out16[16]);
-
-/* End the frame: flush the queued world-space beams, then the overlay
+/* End the frame: flush the overlay
  * (backdrop fill + backdrop quads, then untextured rects/arcs, then
  * decor sprites, then font glyphs, then the reverse-subtract rects —
  * the screen fade covers everything), then present the swapchain

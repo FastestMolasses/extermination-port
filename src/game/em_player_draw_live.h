@@ -51,13 +51,6 @@ int em_player_draw_live_001C6150(uint32_t handle, uint8_t *count);
  * (reported). */
 int em_player_draw_live_001CAA00(void);
 
-/* The player's node `node` world matrix (+0x90..+0xCF of the node record
- * the record's +0x110 word `node` names, 16 floats in the original's row
- * layout = column-major here) while the record is the displayed pose
- * (em_scene_bindings_player_record_drawn): 1, or 0 (not the displayed
- * pose, no record, the node not mapped). em_weapon reads node 4, the rifle
- * node its gun node 00188630 reads (docs/PLAYER_EQUIPMENT.md section 2). */
-int em_player_draw_live_node_world(unsigned node, float out16[16]);
 
 /* Forget the loaded model (a session end; the next use reloads it). */
 void em_player_draw_live_unload(void);

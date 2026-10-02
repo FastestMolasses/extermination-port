@@ -98,7 +98,9 @@ int em_area11_roger_table_word(uint32_t address, uint32_t *value);
 const uint8_t *em_area11_roger_resource(uint32_t address, uint32_t size);
 /* The resource file's regions for another pose host (the player's
  * encounter clip lives in bank 0x96): calls `map` for each read-only
- * region. 0, or -1 when the resources are not loaded. */
+ * region, except the library model spans the exporter flags (the shot's
+ * models: no pose host reads them). 0, or -1 when the resources are not
+ * loaded. */
 int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes),
                             void *ctx);
 

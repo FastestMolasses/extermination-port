@@ -15,14 +15,16 @@ Original code executed (from the captured RAM, checked against the ELF):
             SDK 001028B8 / 001028D0 / 00102738 / 00103230, 0011E748 (with
             0011CB90 / 0011E080), 0011DF78, 0011DBB8
   passes    001A9D20, 001A8DA0, 001A9F60, 001AA140, 001A7870, 001A8BE0,
-            001A8660, 001A9000, 001A97B0, 001A9B10, with 0011E748,
+            001A8660, 001A9000, 001A97B0, 001A9B10, and 001A9C40 on its own
+            (staged pairs), with 0011E748,
             00128350 (001278C0 / 00127728 / 00126AB8), 001000C0 (001274B0 /
             00126BE8 / 00127398), 001028D0 and 00102760
 Hooked boundaries (recorded, scripted, compared call by call with the
 native workers): 001A8840, 001A8970, 001A8CE0, 001A8E80, 001A8F40,
-001A9360, 001A96F0, 001A9480, 001A99E0, 001A9C40, 001A9E00, 001AA000,
-0021BD10 and the entry's +0x34 behaviour of 001A8660. None of them ran on
-the census route; the scripts make some of them shorten the scratchpad walks
+001A9360, 001A96F0, 001A9480, 001A99E0, 001A9C40 (inside the passes;
+executed and compared on its own as well), 001A9E00, 001AA000, 0021BD10
+and the entry's +0x34 behaviour of 001A8660. None of them ran on the
+census route (001A9C40 first ran in the AIM capture aim_04); the scripts make some of them shorten the scratchpad walks
 (0x70003B86 / 0x70003B88), as 001A9360 and 001A99E0 do.
 
 Walkers: every case compares the whole scratchpad state (0x70003190..
@@ -89,8 +91,10 @@ u32, s16, u16 = cp.u32, cp.s16, cp.u16
 GROUND, GRID78, LADDER, ATTR_CELLS, ATTR_GRID, COLUMN = 0x19B7D0, 0x19E280, 0x19BA80, 0x1A3980, 0x19E930, 0x19F330
 P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P8660, P9000, P97B0, P9B10 = (
     0x1A9D20, 0x1A8DA0, 0x1A9F60, 0x1AA140, 0x1A7870, 0x1A8BE0, 0x1A8660, 0x1A9000, 0x1A97B0, 0x1A9B10)
+P9C40 = 0x1A9C40      # 001A9D20's pair callee: hooked for the passes, executed on its own
 HOOK_ORDER = (P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P9000, P97B0, P9B10)   # 001AAD00
-WHICH = {P9D20: 0, P8DA0: 1, P9F60: 2, PA140: 3, P7870: 4, P8BE0: 5, P9000: 6, P97B0: 7, P9B10: 8}
+WHICH = {P9D20: 0, P8DA0: 1, P9F60: 2, PA140: 3, P7870: 4, P8BE0: 5, P9000: 6, P97B0: 7, P9B10: 8,
+         'hooks': 10, P8660: 9, P9C40: 11}
 PAIR_WORKERS = (0x1A8840, 0x1A8970, 0x1A8CE0, 0x1A8E80, 0x1A8F40, 0x1A9360, 0x1A96F0, 0x1A9480,
                 0x1A99E0, 0x1A9C40, 0x1A9E00)
 QUAD_WORKER, BD10 = 0x1AA000, 0x21BD10
@@ -426,7 +430,7 @@ uint32_t lp_fault(LBridge *b) { return b->passes.fault; }
 int lp_bound(LBridge *b) { return em_coll_list_passes_bound(&b->passes); }
 
 /* which: 0..8 the nine hooks (001AAD00 order), 9 001A8660(player, entry),
- * 10 the whole hook sequence; drop (fault cases): 1 unbinds 001A9C40, 2 the
+ * 10 the whole hook sequence, 11 001A9C40(player, entry) (any two records); drop (fault cases): 1 unbinds 001A9C40, 2 the
  * normalize worker; 3..6 bind the unported variants for 001A8840, 001AA000,
  * 0021BD10 and the +0x34 behaviour. */
 int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_t entry, int drop)
@@ -455,6 +459,7 @@ int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_
     case 8: r = em_coll_list_001A9B10(p); break;
     case 9: r = em_coll_list_001A8660(p, player, entry); break;
     case 10: r = em_coll_list_passes_001AAD00_hooks(p, player); break;
+    case 11: r = em_coll_list_001A9C40(p, player, entry); break;
     default: r = -9;
     }
     p->workers = saved;
@@ -1563,9 +1568,11 @@ class ListWorld:
         ee = self.ee
         self.script, self.bd10, self.calls = dict(script or {}), bd10, []
         self.hooks(self.behaviour_fns())
+        if which == P9C40:
+            del self.ee.hooks[P9C40]     # executed, not a boundary
         g = self.globals()
         if drop:     # a fail-stop case: the native side alone
-            code = 10 if which == 'hooks' else 9 if which == P8660 else WHICH[which]
+            code = WHICH[which]
             self.native.lp_script(self.b, 0, None, None, None, 0)
             return self.native.lp_run(self.b, code, C.byref(g), player, entry, drop), self.native.lp_fault(self.b)
         spad_before = bytes(ee.spad)
@@ -1582,8 +1589,8 @@ class ListWorld:
             if which == 'hooks':
                 for entry_addr in HOOK_ORDER:
                     ee.call(entry_addr, (player,) if entry_addr in (P9F60, P8BE0) else ())
-            elif which == P8660:
-                ee.call(P8660, (player, entry))
+            elif which in (P8660, P9C40):
+                ee.call(which, (player, entry))
             else:
                 ee.call(which, (player,) if which in (P9F60, P8BE0) else ())
         finally:
@@ -1603,7 +1610,7 @@ class ListWorld:
         self.native.lp_script(self.b, n, (C.c_int * max(1, n))(*[k for k, _, _ in flat]),
                               (C.c_int * max(1, n))(*[w for _, w, _ in flat]),
                               (C.c_int16 * max(1, n))(*[cp.sx16(v & 0xFFFF) for _, _, v in flat]), bd10)
-        code = 10 if which == 'hooks' else 9 if which == P8660 else WHICH[which]
+        code = WHICH[which]
         r = self.native.lp_run(self.b, code, C.byref(g), player, entry, 0)
         assert r == 0, (self.beat, where, 'native fault', r, hex(self.native.lp_fault(self.b)))
         calls = (LCall * 512)()
@@ -2008,6 +2015,46 @@ def run_synthetic_lists(item):
         w.set_list(0x275B90, [e1])
         w.run(f'staged 001A97B0 class {cls:#x}', P97B0)
     out['runs'] += w.nruns - staged0
+    # 001A9C40 (001A9D20's pair callee) executed on its own: every inner
+    # type byte of a sweep (the jump table's radii 15 / 20 / none), the
+    # inner +0 bit 1 gate, the distance at each radius exactly (dx dy dz
+    # (9, 12, 0) = 15 and (0, 12, 16) = 20, sums the accumulator holds
+    # exactly) and one ulp beyond, near and far, and the inner +0x0A's other
+    # bits kept.
+    staged0 = w.nruns
+    flagged = [0, 0]
+    base = (0.0, 0.0, 0.0)     # the inner point at -d exactly: the differences are d
+    for typ in tuple(range(0, 10)) + (0x13, 0x80, 0xFF):
+        for status in (0, 1, 2, 3):
+            for d in ((9.0, 12.0, 0.0), (0.0, 12.0, 16.0), (9.0, ulps(12.0, 1), 0.0), (0.0, 12.0, ulps(16.0, 1)),
+                      (1.0, 1.0, 1.0), (60.0, 0.0, 0.0)):
+                if status not in (0, 2) and d != (1.0, 1.0, 1.0):
+                    continue
+                for preset in (0, 0xFE):
+                    w.poke(e1 + 0xB0, struct.pack('<3f', *base))
+                    w.poke(e2 + 0xB0, struct.pack('<3f', *[f32(base[j] - d[j]) for j in range(3)]))
+                    w.poke(e2, bytes([status]))
+                    w.poke(e2 + 3, bytes([typ]))
+                    w.poke(e2 + 0xA, bytes([preset]))
+                    w.run(f'staged 001A9C40 type {typ:#x} status {status} d {d} +0A {preset:#x}', P9C40,
+                          player=e1, entry=e2)
+        w.restore()
+    # The outcome counts (a separate pass on the original side alone).
+    for typ, d, want in ((0, (9.0, 12.0, 0.0), 1), (4, (9.0, 12.0, 0.0), 1), (1, (0.0, 12.0, 16.0), 1),
+                         (7, (0.0, 12.0, 16.0), 1), (0, (0.0, 12.0, 16.0), 0), (2, (1.0, 1.0, 1.0), 0),
+                         (8, (1.0, 1.0, 1.0), 0), (0, (9.0, ulps(12.0, 1), 0.0), 0)):
+        w.poke(e2 + 0xB0, struct.pack('<3f', *[f32(base[j] - d[j]) for j in range(3)]))
+        w.poke(e1 + 0xB0, struct.pack('<3f', *base))
+        w.poke(e2, bytes([0])); w.poke(e2 + 3, bytes([typ])); w.poke(e2 + 0xA, bytes([0]))
+        w.hooks(w.behaviour_fns())
+        del w.ee.hooks[P9C40]
+        w.ee.call(P9C40, (e1, e2))
+        got = w.ee.mem[e2 + 0xA] & 1
+        assert got == want, ('001A9C40 staged outcome', typ, d, got, want)
+        flagged[got] += 1
+        w.restore()
+    out['c40'] = (w.nruns - staged0, flagged)
+    out['runs'] += w.nruns - staged0
     # Fail-stop: an unbound worker faults before any write; an explicitly
     # unported worker faults when reached.
     r, fault = w.run('drop 001A9C40', P9D20, drop=1)
@@ -2133,6 +2180,9 @@ def main():
         for key, v in o['by_id'].items():
             by_id[key] = by_id.get(key, 0) + v
     hits = by_id.get(-1, 0)          # 001A8660 overlaps: its +0x34 behaviour ran
+    c40 = sum(o['c40'][0] for o in syn)
+    c40_flagged = [sum(o['c40'][1][k] for o in syn) for k in (0, 1)]
+    assert c40 > 0 and all(c40_flagged), ('coverage: 001A9C40 inside and outside its radius', c40, c40_flagged)
     pushes, tiny, knock = (sum(o[k] for o in syn) for k in ('pushes', 'tiny', 'knock'))
     wanted = set(PAIR_WORKERS) | {QUAD_WORKER, BD10, -1}
     assert set(by_id) == wanted, ('coverage: workers never reached', sorted(hex(x) for x in wanted - set(by_id)))
@@ -2164,6 +2214,9 @@ def main():
     print(f'synthetic lists: {sruns} runs, all {len(by_id)} worker kinds reached ({sum(by_id.values())} calls), '
           f'{hits} 001A8660 overlaps ({knock} knock-backs), 001A7870 pushes {pushes} ({tiny} |len| < 0.001), '
           f'fail-stop checks PASS')
+    print(f'001A9C40 executed: {c40} staged runs (every type 0..9 and 0x13 / 0x80 / 0xFF, the +0 bit 1 gate, '
+          f'the radii 15 / 20 at equality and one ulp beyond), outcomes inside / outside '
+          f'{c40_flagged[1]} / {c40_flagged[0]} PASS')
     reference_mode.banner(reference_mode.part(picked_rows, total_rows, 'route rows'),
                           f'{wcases} walker cases', f'{rruns + sruns} list-pass runs')
 

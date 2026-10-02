@@ -7,16 +7,22 @@ and equipment sprites (001CD520), the pickup glint (untextured) and the
 0015BF90 drop-shadow decal (001CE300). Their TEX0 words come from the
 original's data and code, read from the user's ELF and AREA11 overlay:
   * the TEX0 row (+0x70) of each 001CFBE0 source block: D_00253670 (the
-    head sprite's) and D_002565E0 + 0x90 k, k = 0..7 (the effect handlers');
+    head sprite's), D_002565E0 + 0x90 k, k = 0..7 (the effect handlers'),
+    and the impact effects' D_002560D0 / D_00256160 (001EBA20) and
+    D_00255620 (001EACF0), D_002561F0 (001EBBB0) and D_00255590 (001EAB50);
   * the TEX0 row (+0x70) of the weather's descriptor D_00255170 (001CFFE0's
     object for the snow tiles; the snow program sends it with every sprite);
   * the TEX0 row (+0x70) of the AREA11 flame's descriptor D_00828340
     (owner 008235F0, AREA11.BIN file offset 0x4E40; docs/AREA11_EFFECT.md);
-  * three values the original code builds as immediates: 001F8D30's decal
+  * values the original code builds as immediates: 001F8D30's decal
     0x2004290511322469 (EM_SHADOW_DECAL_TEX0), 001F4D40 / 001F4BF0's
-    glow marker (EM_STATUS_SCENE_TEX0_001F4BF0) and the laser dot
+    glow marker (EM_STATUS_SCENE_TEX0_001F4BF0), the laser dot
     0x20045BA5154222DC that 001854E0 / 00185760 pass to 001CD520 (the aim
-    sight, em_aim_fire_target.c), each verified against the executed
+    sight, em_aim_fire_target.c), 001F0460's three ring-decal tags (the
+    shots' impact marks, em_effect_original.c), 00187780's two flare
+    words (the gun lamp, em_aim_fire_lamp.c), 001EAB50's sprite word (the
+    cable hit, em_effect_kinds.c) and 0021A500's strip word (the parted
+    strand, em_security_gun_rest.c), each verified against the executed
     original by its module's reference test.
 None of them is uploaded by the draw: each is resident in GS local memory.
 This tool decodes each from the first level's GS local memory rebuilt from
@@ -70,7 +76,25 @@ ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 DECAL_TEX0 = 0x2004290511322469       # 001F8D30's constant (em_shadow_decal_original.h)
 MARKER_TEX0 = 0x20045B0599421EF0      # 001F4D40 / 001F4BF0's (EM_STATUS_SCENE_TEX0_001F4BF0)
 DOT_TEX0 = 0x20045BA5154222DC         # 001854E0 / 00185760's laser dot (em_aim_fire_target.c sprite)
-SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)]
+# 001F0460's ring decals (the shots' impact marks): its slots' tags by n
+# (em_effect_original.c, test-effect-original-reference): n 0 / 4 / 5 / 6,
+# n 1 / 2 and n 3.
+RING_TEX0 = (0x20040F8555322078, 0x200418851532218C, 0x2004108555322080)
+# 00187780's flare words (00187690 stores them at D_00248850, the +0x70 TEX0
+# row of its source block D_002487E0; em_aim_fire_lamp.c,
+# test-aim-fire-lamp-reference): mode 0 and mode 1.
+FLARE_TEX0 = (0x20045D05554221F6, 0x20048D0599422050)
+# 001EAB50's fading sprite (the cable hit's effect 0x80000045; em_effect_kinds,
+# test-effect-kinds-reference): the immediate it hands 001CD520.
+CABLE_SPRITE_TEX0 = 0x20045B2599421E98
+# 0021A500's strip word (the cable's parted strand, the strip packets it
+# builds for 001CE860; em_security_gun_rest, tools/test_security_gun_rest_reference.py).
+CABLE_STRIP_TEX0 = 0x20045D8555422188
+SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)] + [
+    0x002560D0, 0x00256160,           # 001EBA20's (the impact effect 0x8000002C; AIM_FIRE.md)
+    0x00255620,                       # 001EACF0's (the impact effect 0x80000060)
+    0x002561F0,                       # 001EBBB0's (the effect 0x8000000E of 001F0460's ring decal)
+    0x00255590]                       # 001EAB50's (the cable hit's effect 0x80000045)
 WEATHER_DESCRIPTOR = 0x00255170       # D_00255170 (001E67C0 / 001CFFE0)
 FLAME_DESCRIPTOR, FLAME_FILE_OFFSET = 0x00828340, 0x4E40   # 008235F0's D_00828340 in AREA11.BIN
 CLD_MASK = eot.CLD_MASK
@@ -94,6 +118,12 @@ def tex0_set(elf: bytes, overlay: bytes) -> dict:
     out.setdefault(DECAL_TEX0 & CLD_MASK, set()).add('001F8D30 decal')
     out.setdefault(MARKER_TEX0 & CLD_MASK, set()).add('001F4D40 / 001F4BF0 glow marker')
     out.setdefault(DOT_TEX0 & CLD_MASK, set()).add('001854E0 / 00185760 laser dot')
+    for t in RING_TEX0:
+        out.setdefault(t & CLD_MASK, set()).add('001F0460 ring decal')
+    for t in FLARE_TEX0:
+        out.setdefault(t & CLD_MASK, set()).add('00187780 / 00187690 lamp flare')
+    out.setdefault(CABLE_SPRITE_TEX0 & CLD_MASK, set()).add('001EAB50 cable-hit sprite')
+    out.setdefault(CABLE_STRIP_TEX0 & CLD_MASK, set()).add('0021A500 cable strand strip')
     return out
 
 

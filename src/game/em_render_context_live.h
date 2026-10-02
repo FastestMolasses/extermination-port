@@ -215,6 +215,11 @@ float em_rcl_zoom(void);
 /* Host bytes of [address, address + size) in this module's own storage, or
  * NULL. For the consumers that read the context by address. */
 const uint8_t *em_rcl_bytes(uint32_t address, uint32_t size);
+/* The render context's storage views (address, size, bytes, writable), for
+ * a region-only owner's view list (the muzzle node's lines through
+ * em_aim_fire_world_live). Returns the count, writing at most `capacity`
+ * (0 before the load). The external windows are read-only. */
+unsigned em_rcl_views(uint32_t *address, uint32_t *size, uint8_t **bytes, int *writable, unsigned capacity);
 /* The fog the frame's world draws use: the context +0xA8 / +0xAC pair
  * 001D30A0 copied into the skin records (A, B) and FOGCOL (context +0xB0
  * as 001D1C50 copied it to the GS block: r, g, b in 0..255). 0, or -1 when

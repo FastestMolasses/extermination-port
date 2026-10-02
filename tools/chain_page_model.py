@@ -48,11 +48,59 @@ BUFFER_STRIDE = 0x70000
 PROGRAM_LANE = 0x233290           # D_00233290: 001F0720's lanes
 PROGRAM_SPRITE = 0x231770         # table 0x231770: 001CFBE0 kinds 1 and 5
 PROGRAM_SNOW = 0x233800           # D_00233800: 001CFFE0 (kind 1, variant 3), the weather
+PROGRAM_STREAK = 0x230800         # table 0x230800: 001CFBE0 kinds 0 and 4 (the impact effect 0x80000060)
+PROGRAM_KIND2 = 0x232540          # table 0x232540: 001CFBE0 kind 2 (the cable's hit effect node 0021AAC0)
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
 SNOW_MPG = ((0x233828, 256, 0), (0x234030, 81, 0x100))
-PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW)
+STREAK_MPG = ((0x230828, 256, 0), (0x231030, 126, 0x100))
+KIND2_MPG = ((0x232568, 256, 0), (0x232D70, 66, 0x100))
+PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2)
+# Each packet's bytes: its CNT tag and data, then its RET tag.
+PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW: 0xDE0, PROGRAM_STREAK: 0xF70,
+                       PROGRAM_KIND2: 0xD50}
+
+# The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
+# capture holds an EFU result, so its arithmetic is a model, the one the
+# background's ERLENG already uses (em_background_gs.h, docs/BACKGROUND.md):
+# ERLENG = 1 / sqrt(x*x + y*y + z*z) and ERCPR = 1 / x, each evaluated
+# exactly enough (double; the quotient as VDIV's) and truncated to binary32
+# with denormals flushed. The latencies are the VU manual's table, the one
+# whose DIV 7 / RSQRT 13 the machine already uses: P is written ERCPR 12 /
+# ERLENG 24 cycles after issue; WAITP and a following EFU op stall for it,
+# MFP does not (the streak program leaves exactly 12 cycles before each
+# MFP that follows an ERCPR, and a WAITP before the one after its ERLENG).
+EFU_LATENCY = {0x7BE: 12, 0x73F: 24}            # ERCPR, ERLENG (lower fn)
+
+
+def efu_trunc(r):
+    """A positive double to binary32, truncated, denormals flushed."""
+    w = struct.unpack('<I', struct.pack('<f', r))[0]
+    if struct.unpack('<f', struct.pack('<I', w))[0] > r:
+        w -= 1
+    return 0 if w & EXP255 == 0 else w
+
+
+def efu_ercpr(x):
+    """ERCPR P = 1 / x. A zero (or denormal) operand is not established."""
+    live(x)
+    x = fm._daz(x)
+    if fm._is_zero(x):
+        raise ModelError('ERCPR of zero (not established)')
+    return fm._quotient(0x3F800000, x, False)
+
+
+def efu_erleng(x, y, z):
+    """ERLENG P = 1 / sqrt(x*x + y*y + z*z). A zero length is not established."""
+    live(x, y, z)
+    a, b, c = (struct.unpack('<f', struct.pack('<I', fm._daz(w)))[0] for w in (x, y, z))
+    s = a * a
+    s = s + b * b
+    s = s + c * c
+    if s == 0.0:
+        raise ModelError('ERLENG of a zero vector (not established)')
+    return efu_trunc(1.0 / __import__('math').sqrt(s))
 
 VIF_NAMES = {0x00: 'NOP', 0x01: 'STCYCL', 0x02: 'OFFSET', 0x03: 'BASE', 0x05: 'STMOD',
              0x10: 'FLUSHE', 0x11: 'FLUSH', 0x13: 'FLUSHA', 0x14: 'MSCAL', 0x20: 'STMASK',
@@ -122,6 +170,16 @@ class VuOracle(sh.VU1):
         self.iw = 0
         self.r = 0
         self.mac = 0
+        self.p = 0
+        self.p_ready = 0
+
+    @staticmethod
+    def lower_reads(lo):
+        if lo >> 25 == 0x40 and (lo & 0x7FF) == 0x7BE:              # ERCPR fs.fsf
+            return [(lo >> 11 & 31, lo >> 21 & 3)]
+        if lo >> 25 == 0x40 and (lo & 0x7FF) == 0x73F:              # ERLENG fs.xyz
+            return [(lo >> 11 & 31, c) for c in range(3)]
+        return sh.VU1.lower_reads(lo)
 
     # -- upper
     def upper(self, pc, up):
@@ -220,6 +278,8 @@ class VuOracle(sh.VU1):
                 self.mac = value
             elif kind == 'q':
                 self.q = value
+            elif kind == 'p':
+                self.p = value
             self.pending.remove(p)
 
     # -- lower
@@ -248,6 +308,24 @@ class VuOracle(sh.VU1):
                         self.v[it][c] = 0x3F800000 | self.r
                         self.ready[it][c] = self.cycle + 4
                 return None
+            if fn == 0x7BE:                                   # ERCPR P = 1 / fs.fsf
+                self.later(EFU_LATENCY[fn], 'p', efu_ercpr(self.v[iss][lo >> 21 & 3]))
+                self.p_ready = self.cycle + EFU_LATENCY[fn]
+                return None
+            if fn == 0x73F:                                   # ERLENG P = 1 / |fs.xyz|
+                if mask != 0xE:
+                    fail(f'ERLENG {lo:#010x} at {pc:#x}: not the xyz form')
+                self.later(EFU_LATENCY[fn], 'p', efu_erleng(*self.v[iss][:3]))
+                self.p_ready = self.cycle + EFU_LATENCY[fn]
+                return None
+            if fn == 0x67C:                                   # MFP ft.dest = P
+                for c in FIELDS(mask):
+                    if it:
+                        self.v[it][c] = self.p
+                        self.ready[it][c] = self.cycle + 4
+                return None
+            if fn == 0x7BF:                                   # WAITP (the stall is in run)
+                return None
             if fn in (0x3BD, 0x3BE, 0x43D):
                 fail(f'VU lower {lo:#010x} at {pc:#x} (not in the page programs)')
         if op == 0x1A:                                        # FMAND vi_t = vi_s & MAC
@@ -267,6 +345,8 @@ class VuOracle(sh.VU1):
             wait = max([self.ready[r][c] for r, c in reads if r] + [self.cycle])
             if not up >> 31 and lo >> 25 == 0x40 and (lo & 0x7FF) in (0x3BF, 0x3BC, 0x3BD, 0x3BE):
                 wait = max(wait, self.q_ready)
+            if not up >> 31 and lo >> 25 == 0x40 and (lo & 0x7FF) in (0x7BF, 0x7BE, 0x73F):
+                wait = max(wait, self.p_ready)                # WAITP / an EFU op on a busy EFU
             self.cycle = wait
             self.settle()
             nxt = branch if branch is not None else pc + 8
@@ -441,8 +521,13 @@ class Page:
     capture's RAM, or the port's page dump). elf: the boot ELF bytes (the
     oracle's instruction fetch comes from the MPG uploads in the stream)."""
 
-    def __init__(self, read, elf=None, skip_calls=()):
+    def __init__(self, read, elf=None, skip_calls=(), units=None):
         self.read = read
+        # Class-2 object units walked over (001CABA0's CALLs, CHAIN_PAGE.md
+        # section 6): {target: (last TEX0, last PRIM)}. The unit's GS state
+        # REF (001D1F80(3, 2, 2): set 2 class 2) and its last kicked TEX0 /
+        # PRIM hold for what follows; its triangles are compared elsewhere.
+        self.units = dict(units or {})
         self.vu = VuOracle(elf)
         self.base = self.offset = self.tops = self.dbf = 0
         self.cl = self.wl = 1
@@ -485,11 +570,13 @@ class Page:
             elif tid == 5:                                  # CALL
                 if len(stack) >= 2:
                     fail(f'DMA CALL at {cur:#x}: a third nesting level')
-                if addr in self.skip_calls and not stack:
+                if (addr in self.skip_calls or addr in self.units) and not stack:
                     self.skipped.append((cur, addr))
                     data, nxt = cur + 16, cur + 16 + 16 * qwc
                     if qwc:
                         out.append((data, self.read(data, 16 * qwc)))
+                    if addr in self.units:
+                        out.append((None, addr))
                     cur = nxt
                     continue
                 data = cur + 16
@@ -512,12 +599,23 @@ class Page:
         # one flat VIF stream with each word's source address
         words = []
         for src, data in stream:
+            if src is None:                                 # a class-2 unit's CALL
+                words.append((None, data))
+                continue
             for i in range(0, len(data), 4):
                 words.append((src + i, u32(data, i)))
         i, n = 0, len(words)
         while i < n:
             at, v = words[i]
             i += 1
+            if at is None:
+                tex0, prim = self.units[v]
+                self.gs.state.update({'TEX0_1': tex0, 'CLAMP_1': 0, 'TEX1_1': 0x60, 'ALPHA_1': 0x8000000068,
+                                      'TEST_1': 0x53001, 'COLCLAMP': 1})
+                self.gs.prim, self.gs.queue = prim, []
+                self.cycle_set, self.cl, self.wl = True, 4, 4
+                self.program, self.parts = None, 0
+                continue
             cmd, num, imm = v >> 24 & 0x7F, v >> 16 & 0xFF, v & 0xFFFF
             if v >> 31:
                 fail(f'VIF code {v:#010x} at {at:#x}: interrupt bit')
@@ -556,7 +654,7 @@ class Page:
                 self.mpg.append((first, imm, cnt))
                 if (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
-                elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0]):
+                elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0]):
                     self.program, self.parts, self.first = None, 1, first
                 elif (first, cnt, imm) == SPRITE_MPG[1] and self.parts == 1 and self.program is None \
                         and self.first == SPRITE_MPG[0][0]:
@@ -564,6 +662,12 @@ class Page:
                 elif (first, cnt, imm) == SNOW_MPG[1] and self.parts == 1 and self.program is None \
                         and self.first == SNOW_MPG[0][0]:
                     self.program, self.parts = PROGRAM_SNOW, 2
+                elif (first, cnt, imm) == STREAK_MPG[1] and self.parts == 1 and self.program is None \
+                        and self.first == STREAK_MPG[0][0]:
+                    self.program, self.parts = PROGRAM_STREAK, 2
+                elif (first, cnt, imm) == KIND2_MPG[1] and self.parts == 1 and self.program is None \
+                        and self.first == KIND2_MPG[0][0]:
+                    self.program, self.parts = PROGRAM_KIND2, 2
                 else:
                     fail(f'MPG of {cnt} instructions from {first:#x} to micro {imm:#x} (not a page program)')
                 i += 2 * cnt
@@ -605,7 +709,7 @@ class Page:
 
     def program_of(self, code_address):
         for p in PROGRAMS:
-            if p <= code_address < p + 0x1000:
+            if p <= code_address < p + PROGRAM_PACKET_SIZE[p]:
                 return p
         return None
 
@@ -618,7 +722,7 @@ class Page:
         self.tops = self.base + (self.offset if self.dbf else 0)
         vu = self.vu
         vu.kicks, vu.events, vu.top, vu.watch = [], [], top, set()
-        vu.pending, vu.cycle, vu.q_ready = [], 0, 0
+        vu.pending, vu.cycle, vu.q_ready, vu.p_ready = [], 0, 0, 0
         vu.ready = [[0] * 4 for _ in range(32)]
         vu.run(imm * 8)
         for e in vu.events:

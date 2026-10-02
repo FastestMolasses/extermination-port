@@ -431,6 +431,9 @@ WORKERS = [
     ('w_001CB3C0', W(C.c_int, C.c_void_p, PO)),
     ('w_001B61C0', W(C.c_int, C.c_void_p, C.c_uint8, C.c_uint8, C.c_int64, C.c_int32)),
     ('w_001B6250', W(C.c_int, C.c_void_p)),
+    ('w_001D3990', W(C.c_int, C.c_void_p, C.c_void_p)),
+    ('w_001D3D90', W(C.c_int, C.c_void_p, C.c_void_p)),
+    ('w_001CAAC0', W(C.c_int, C.c_void_p, PO, C.c_void_p)),
 ]
 WORKER_TYPES = dict(WORKERS)
 

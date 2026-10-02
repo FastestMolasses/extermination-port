@@ -102,6 +102,8 @@ static int fence_door_side1_frame(void);
 static void aim_hold_begin(void);
 static int aim_r1_hold_frame(void);
 static int aim_r2_hold_frame(void);
+static int aim_replay_frame(void);
+static void aim_script_begin(void);
 static int walk_path(const float (*path)[2], int count, float tol);
 static void cage_ladders_begin(void);
 static int cage_ladders_frame(void);
@@ -175,6 +177,34 @@ static const Phase k_phases[] = {
      "R2 stance 001703E0 (+5 0x1E, +1F0 0x32), camera action 2 00198650 and its release 00197490",
      "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r2_hold_frame, 0, 1,
      0},
+    {"aim_fire", "aim_03_single_fire (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "R1 / R2 single fire: 00170A60 states 0x0A / 0x0B, the round 001861C0, the muzzle node 001F5040 (00187CC0), the shell casing 001F4010, the impact marker 0018ABA0",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_reload", "aim_06_reload_partial (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "L3 reload 0017B300 mode 2 (+6 3, +1F0 0x33), L3 on a full magazine, the release mid-reload (0016F600)",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_reload_empty", "aim_07_reload_empty (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "60 single rounds: the automatic reload at an empty magazine, the empty reserve, dry presses",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_light", "aim_08_light_holster (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "Square: the gun light D_00810D3C / the lamp D_008106C7 (0017A970), Cross 0017AAD0, holster, R2 redraw",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_both", "aim_02_r1_r2_both (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "R1 and R2 together: the stance switch 0x1D / 0x1E, both from idle",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_melee", "aim_09_melee (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "melee from idle: Circle 001735C0 (+5 0x21, +1F0 0x36) and its combo, Square 00173E60 (+5 0x22)",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+    {"aim_world", "aim_04_world_hit (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "the walk and the left-stick aim (0017ABA0), rounds into the ground, the pillar, past the fence and a miss: "
+     "the impact marker 0018ABA0 and the impact effects 0x80000060 (001EACF0, the streak program 0x230800)",
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_script_begin, aim_replay_frame, 0, 1,
+     0},
+    {"aim_cable", "aim_10_cable_shots, then aim_11_cable_melee (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "R1 / R2 rounds aimed at the security gun's cable (onto the pillar), then the knife at the cable's foot: "
+     "the cable reaction 001EFE00 / 001EFEB0 / 0021AAC0 / 0021A500, the gun's lifecycle 2, taken bit 0x50",
+     "the original aim / fire path and the cable reaction (AIM_FIRE.md)", aim_script_begin, aim_replay_frame, 0,
+     1, 0},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
@@ -1984,8 +2014,8 @@ static int fence_door_frame(void)
  * stance and its action code at the first held tick, +6 = 2 sixteen ticks
  * later, 0x63 on the release tick, idle at the end, no fault.
  * tools/test_level_smoke.py check_aim_hold compares every row from the
- * stance on (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold"). Runs behind the
- * aim/fire gate (EM_AIM_FIRE_ORIGINAL=1, AIM_FIRE.md section 1). */
+ * stance on (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold"). The original
+ * aim / fire path is the only one (AIM_FIRE.md section 10). */
 /* The rows after the stance: aim_00 ends at f146, aim_01 at f154 (its
  * ramp-out is eight frames longer). */
 enum { AIM_HOLD_TICKS = 79, AIM_R1_TAIL = 133, AIM_R2_TAIL = 141, AIM_CLOCK_LIMIT = 400 };
@@ -1995,6 +2025,10 @@ enum { AIM_HOLD_TICKS = 79, AIM_R1_TAIL = 133, AIM_R2_TAIL = 141, AIM_CLOCK_LIMI
 #define AIM_RUNUP 6.0f
 #define AIM_WALK 0.6f
 #define AIM_STOP 1.80f
+
+/* The idle clip's +3C aim_hold_frame aligns on (13.0: aim_00 / aim_01's
+ * f12; the AIM replays set their capture's own). */
+static uint32_t s_aim_align_clock = 0x41500000u;
 
 static void aim_hold_begin(void)
 {
@@ -2035,7 +2069,7 @@ static int aim_hold_frame(uint16_t button, unsigned state, unsigned action, int 
         /* The idle clip's +3C at the capture's row f12. */
         pad_apply(0, 0, 0);
         uint32_t clock = em_live_u32(a, 0x3C);
-        if (idle_clip() && in_control() && clock == 0x41500000u) {
+        if (idle_clip() && in_control() && clock == s_aim_align_clock) {
             pad_apply(button, 0, 0);
             t.frames = 0;
             ++t.step;
@@ -2082,6 +2116,194 @@ static int aim_hold_frame(uint16_t button, unsigned state, unsigned action, int 
 
 static int aim_r1_hold_frame(void) { return aim_hold_frame(EM_PAD_R1, 0x1D, 0x31, AIM_R1_TAIL); }
 static int aim_r2_hold_frame(void) { return aim_hold_frame(EM_PAD_R2, 0x1E, 0x32, AIM_R2_TAIL); }
+
+/* ---------------------------------------------------- the AIM replays
+ *
+ * The AIM captures (decomp docs/CAPTURES_C10.md "AIM") that start from
+ * route 08's end, replayed from the same place: the walk-in of
+ * aim_hold_frame and its alignment on the idle clip's +3C at the capture's
+ * row first + 2 (each beat's own value), then the capture's own pad script
+ * from its frame `first` on (10, or 5 for the stick replays). A capture pad
+ * state set before frame f shows in the player at f + 3, the port's at the
+ * next tick: the port's tick k after the alignment takes the capture's
+ * input of frame k + first and is compared with its row k + first + 2, to
+ * the capture's last row. In process: no fault, the capture's +5 / +1F0 at
+ * k = 1 (the stance, the melee state, or idle for a stick replay), the
+ * player idle at the end.
+ * tools/test_level_smoke.py check_aim_replay compares the rows
+ * (LEVEL_SMOKE.md "The AIM replays"). The pad scripts are the captures'
+ * (test input, not game data). The stick replays (aim_world, aim_cable)
+ * start at the capture's first stick input, frame 5 (`first`), and are
+ * compared from its row 8; the other replays' first input is frame 10. */
+typedef struct {
+    int f;
+    uint16_t buttons;
+} AimInput;
+typedef struct {
+    const char *phase;
+    const AimInput *inputs;      /* NULL: the stick script (aim_script_begin) */
+    unsigned count;
+    uint32_t align_clock;        /* the idle clip's +3C at the capture's row first + 2 */
+    uint8_t state, action;       /* +5 / +1F0 at the capture's row first + 3 */
+    int last;                    /* the capture's last row */
+    int first;                   /* the capture's first input frame */
+} AimReplay;
+/* The replays with the left stick (aim_world: aim_04; aim_cable: aim_10
+ * and then aim_11 from aim_10's end, its frame f as frame 1448 + f: the
+ * seven frames between the two recordings, their frame counters 9386 to
+ * 9393, are idle: the idle clip's +3C runs 43.0 to 36.0) take the captures' pad
+ * scripts with both stick bytes from the file EM_AIM_PAD_SCRIPT, which
+ * tools/test_level_smoke_aim.py writes from the captures' trace.json
+ * (lines "frame buttons lx ly"): test input, not game data. */
+typedef struct {
+    int f;
+    uint16_t buttons;
+    uint8_t lx, ly;
+} AimStick;
+enum { AIM_SCRIPT_MAX = 4096 };
+static AimStick s_aim_script[AIM_SCRIPT_MAX];
+static unsigned s_aim_script_n;
+static const AimInput k_aim_fire_inputs[] = { /* aim_03_single_fire */
+    {10, 0x0800}, {39, 0x2800}, {41, 0x0800}, {55, 0x2800}, {57, 0x0800}, {71, 0x2800}, {73, 0x0800},
+    {87, 0x2800}, {177, 0x0800}, {207, 0x0000}, {244, 0x0200}, {273, 0x2200}, {275, 0x0200}, {289, 0x2200},
+    {291, 0x0200}, {305, 0x2200}, {365, 0x0200}, {395, 0x0000}};
+static const AimInput k_aim_reload_inputs[] = { /* aim_06_reload_partial */
+    {10, 0x0800}, {39, 0x2800}, {41, 0x0800}, {55, 0x2800}, {57, 0x0800}, {71, 0x2800}, {73, 0x0800},
+    {87, 0x2800}, {89, 0x0800}, {103, 0x2800}, {105, 0x0800}, {119, 0x0802}, {121, 0x0800}, {221, 0x0802},
+    {223, 0x0800}, {263, 0x2800}, {265, 0x0800}, {279, 0x2800}, {281, 0x0800}, {295, 0x0802}, {297, 0x0800},
+    {310, 0x0000}};
+static const AimInput k_aim_reload_empty_inputs[] = { /* aim_07_reload_empty */
+    {10, 0x0800}, {39, 0x2800}, {41, 0x0800}, {55, 0x2800}, {57, 0x0800}, {71, 0x2800}, {73, 0x0800},
+    {87, 0x2800}, {89, 0x0800}, {103, 0x2800}, {105, 0x0800}, {119, 0x2800}, {121, 0x0800}, {135, 0x2800},
+    {137, 0x0800}, {151, 0x2800}, {153, 0x0800}, {167, 0x2800}, {169, 0x0800}, {183, 0x2800}, {185, 0x0800},
+    {199, 0x2800}, {201, 0x0800}, {215, 0x2800}, {217, 0x0800}, {231, 0x2800}, {233, 0x0800}, {247, 0x2800},
+    {249, 0x0800}, {263, 0x2800}, {265, 0x0800}, {279, 0x2800}, {281, 0x0800}, {295, 0x2800}, {297, 0x0800},
+    {311, 0x2800}, {313, 0x0800}, {327, 0x2800}, {329, 0x0800}, {343, 0x2800}, {345, 0x0800}, {359, 0x2800},
+    {361, 0x0800}, {375, 0x2800}, {377, 0x0800}, {391, 0x2800}, {393, 0x0800}, {407, 0x2800}, {409, 0x0800},
+    {423, 0x2800}, {425, 0x0800}, {439, 0x2800}, {441, 0x0800}, {455, 0x2800}, {457, 0x0800}, {471, 0x2800},
+    {473, 0x0800}, {487, 0x2800}, {489, 0x0800}, {503, 0x2800}, {505, 0x0800}, {598, 0x2800}, {600, 0x0800},
+    {614, 0x2800}, {616, 0x0800}, {630, 0x2800}, {632, 0x0800}, {646, 0x2800}, {648, 0x0800}, {662, 0x2800},
+    {664, 0x0800}, {678, 0x2800}, {680, 0x0800}, {694, 0x2800}, {696, 0x0800}, {710, 0x2800}, {712, 0x0800},
+    {726, 0x2800}, {728, 0x0800}, {742, 0x2800}, {744, 0x0800}, {758, 0x2800}, {760, 0x0800}, {774, 0x2800},
+    {776, 0x0800}, {790, 0x2800}, {792, 0x0800}, {806, 0x2800}, {808, 0x0800}, {822, 0x2800}, {824, 0x0800},
+    {838, 0x2800}, {840, 0x0800}, {854, 0x2800}, {856, 0x0800}, {870, 0x2800}, {872, 0x0800}, {886, 0x2800},
+    {888, 0x0800}, {902, 0x2800}, {904, 0x0800}, {918, 0x2800}, {920, 0x0800}, {934, 0x2800}, {936, 0x0800},
+    {950, 0x2800}, {952, 0x0800}, {966, 0x2800}, {968, 0x0800}, {982, 0x2800}, {984, 0x0800}, {998, 0x2800},
+    {1000, 0x0800}, {1014, 0x2800}, {1016, 0x0800}, {1030, 0x2800}, {1032, 0x0800}, {1046, 0x2800},
+    {1048, 0x0800}, {1062, 0x2800}, {1064, 0x0800}, {1078, 0x2800}, {1080, 0x0800}, {1110, 0x2800},
+    {1112, 0x0800}, {1142, 0x0802}, {1144, 0x0800}, {1174, 0x0000}};
+static const AimInput k_aim_light_inputs[] = { /* aim_08_light_holster */
+    {10, 0x0800}, {39, 0x8800}, {41, 0x0800}, {81, 0x4800}, {83, 0x0800}, {123, 0x0000}, {170, 0x0200},
+    {219, 0x8200}, {221, 0x0200}, {251, 0x0000}};
+static const AimInput k_aim_both_inputs[] = { /* aim_02_r1_r2_both */
+    {10, 0x0800}, {49, 0x0A00}, {89, 0x0800}, {129, 0x0A00}, {159, 0x0200}, {199, 0x0000}, {264, 0x0A00},
+    {303, 0x0000}};
+static const AimInput k_aim_melee_inputs[] = { /* aim_09_melee */
+    {10, 0x2000}, {12, 0x0000}, {71, 0x2000}, {73, 0x0000}, {86, 0x2000}, {88, 0x0000}, {100, 0x2000},
+    {102, 0x0000}, {181, 0x8000}, {183, 0x0000}};
+static const AimReplay k_aim_replays[] = {
+    {"aim_fire", k_aim_fire_inputs, sizeof k_aim_fire_inputs / sizeof k_aim_fire_inputs[0], 0x41400000u, 0x1D, 0x31, 460, 10},
+    {"aim_reload", k_aim_reload_inputs, sizeof k_aim_reload_inputs / sizeof k_aim_reload_inputs[0], 0x41000000u, 0x1D, 0x31, 417, 10},
+    {"aim_reload_empty", k_aim_reload_empty_inputs, sizeof k_aim_reload_empty_inputs / sizeof k_aim_reload_empty_inputs[0], 0x41500000u, 0x1D, 0x31, 1231, 10},
+    {"aim_light", k_aim_light_inputs, sizeof k_aim_light_inputs / sizeof k_aim_light_inputs[0], 0x41500000u, 0x1D, 0x31, 316, 10},
+    {"aim_both", k_aim_both_inputs, sizeof k_aim_both_inputs / sizeof k_aim_both_inputs[0], 0x41400000u, 0x1D, 0x31, 368, 10},
+    {"aim_melee", k_aim_melee_inputs, sizeof k_aim_melee_inputs / sizeof k_aim_melee_inputs[0], 0x41500000u, 0x21, 0x36, 267, 10},
+    {"aim_world", NULL, 0, 0x41200000u, 0x00, 0x00, 1404, 5},
+    {"aim_cable", NULL, 0, 0x41900000u, 0x00, 0x00, 1448 + 585, 5},
+};
+
+static uint16_t aim_input_at(const AimInput *in, unsigned n, int frame)
+{
+    uint16_t b = 0;
+    for (unsigned i = 0; i < n && in[i].f <= frame; ++i) b = in[i].buttons;
+    return b;
+}
+
+
+static void aim_script_begin(void)
+{
+    aim_hold_begin();
+    s_aim_script_n = 0;
+    const char *path = getenv("EM_AIM_PAD_SCRIPT");
+    FILE *f = path ? fopen(path, "r") : NULL;
+    if (!f) {
+        fail("the stick replays need the capture's pad script (EM_AIM_PAD_SCRIPT; tools/test_level_smoke_aim.py)");
+        return;
+    }
+    int fr;
+    unsigned b, lx, ly;
+    while (fscanf(f, "%d %x %u %u", &fr, &b, &lx, &ly) == 4) {
+        if (s_aim_script_n == AIM_SCRIPT_MAX || lx > 255 || ly > 255 ||
+            (s_aim_script_n && fr < s_aim_script[s_aim_script_n - 1].f)) {
+            fail("the pad script is too long, out of range or out of order");
+            break;
+        }
+        s_aim_script[s_aim_script_n++] = (AimStick){fr, (uint16_t)b, (uint8_t)lx, (uint8_t)ly};
+    }
+    fclose(f);
+    if (!s_aim_script_n) fail("the pad script is empty");
+}
+
+/* The capture's pad at its frame: both stick bytes as the pad delivers them
+ * (em_pad_raw: 0x80 + axis * 128). Before the script's first entry the
+ * stick rests at 0x80 and no button is held. */
+static void aim_script_apply(int frame)
+{
+    const AimStick *in = NULL;
+    for (unsigned i = 0; i < s_aim_script_n && s_aim_script[i].f <= frame; ++i) in = &s_aim_script[i];
+    if (!in) {
+        pad_apply(0, 0, 0);
+        return;
+    }
+    pad_apply(in->buttons, (in->lx - 128) / 128.0f, (in->ly - 128) / 128.0f);
+}
+
+static int aim_replay_frame(void)
+{
+    const AimReplay *r = NULL;
+    for (unsigned i = 0; i < sizeof k_aim_replays / sizeof k_aim_replays[0]; ++i)
+        if (strcmp(k_aim_replays[i].phase, k_phases[t.current].name) == 0) r = &k_aim_replays[i];
+    if (!r) {
+        fail("an AIM replay phase without its capture script");
+        return 0;
+    }
+    const EmPlayerLiveActor *a = player_states_actor();
+    if (t.step < 6) {
+        /* The walk-in and the alignment of aim_hold_frame, which presses
+         * the capture's input of frame 10 at the aligned tick. */
+        s_aim_align_clock = r->align_clock;
+        const int rc = aim_hold_frame(r->inputs ? aim_input_at(r->inputs, r->count, r->first) : 0, r->state,
+                                      r->action, 0);
+        s_aim_align_clock = 0x41500000u;
+        if (t.step == 6) {
+            /* aligned: this tick takes the capture's input of its first
+             * frame; tools/test_level_smoke.py finds the tick by this line */
+            if (!r->inputs) aim_script_apply(r->first);
+            fprintf(stderr, "level smoke: %s: aligned counter=%u\n", k_phases[t.current].name,
+                    em_frame_counter());
+        }
+        return rc;
+    }
+    ++t.frames;
+    const int frame = t.frames + r->first;
+    if (t.frames == 1 && (em_live_u8(a, 5) != r->state || em_live_u8(a, 0x1F0) != r->action)) {
+        fail("the capture's first input did not enter its state on the next tick (the capture's f13)");
+        return 0;
+    }
+    if (frame + 2 < r->last) {
+        if (r->inputs) pad_apply(aim_input_at(r->inputs, r->count, frame), 0, 0);
+        else aim_script_apply(frame);
+        return 0;
+    }
+    pad_apply(0, 0, 0);
+    if (em_live_u8(a, 5) != 0) {
+        fail("the player is not back in idle at the capture's last row");
+        return 0;
+    }
+    fprintf(stderr, "level smoke: %s: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", k_phases[t.current].name,
+            g.pos[0], g.pos[1], g.pos[2], g.yaw);
+    return 1;
+}
 
 /* ---------------------------------------------------- fence_door_side1
  *

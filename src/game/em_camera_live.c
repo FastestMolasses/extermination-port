@@ -641,9 +641,8 @@ static int lw_001DD980(void *ctx, uint32_t *eye, uint32_t *target)
 }
 
 /* Camera action 0 (00195130). While a legacy stand-in owns the camera
- * (em_camera.c camera_area11_standins: the director beats of census L21,
- * the fence door cinematic of L18, the examine cue, the port's aim camera
- * of L28) it runs in 00195130's place; otherwise the translation. */
+ * (em_camera.c camera_area11_standins: the examine cue) it runs in
+ * 00195130's place; otherwise the translation. */
 static int lw_00195130(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
 {
     (void)ctx;
@@ -652,7 +651,6 @@ static int lw_00195130(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *
     int owned = C.host.standins(C.host.context);
     view_load();
     if (owned == CAMERA_STANDIN_OWNS) return 0;
-    if (owned == CAMERA_STANDIN_AIM) return solve_dispatch(0, NULL);
     specials_load();
     int rc = em_cam_specials_action_00195130(&C.sp, cam->bytes, e);
     specials_store();

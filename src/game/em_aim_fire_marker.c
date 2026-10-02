@@ -69,7 +69,7 @@ static EmAimFireTargetCall call(Run *r, uint32_t fn, unsigned na, unsigned nf, u
 
 /* 001FBD50(node, id, 0, 300.0): the ricochet; id + 1 when bit 12 of rand()
  * is clear (00122BB8). */
-static void ricochet(Run *r, uint32_t node, uint32_t id)
+static void marker_ricochet(Run *r, uint32_t node, uint32_t id)
 {
     uint32_t v = (uint32_t)call(r, 0x00122BB8u, 0, 0, 0, 0, 0, 0, 0).v0;
     if (r->h->fault) return;
@@ -118,13 +118,13 @@ int em_aim_fire_marker_0018ABA0(EmAimFireTarget *h, uint32_t node)
                     uint32_t again = readn(r, node + 0x2E, 2);       /* 0018ACF4 */
                     (void)call(r, 0x001F00A0u, 4, 0, 0x80000060u, node + 0xB0, node + 0xA0, again & 1, 0);
                     if (readn(r, node + 0xD, 1) != 2)                /* 0018AD10 */
-                        ricochet(r, node, (readn(r, node + 0x2E, 2) & 0x10) ? 0x18Au : 0x188u);
+                        marker_ricochet(r, node, (readn(r, node + 0x2E, 2) & 0x10) ? 0x18Au : 0x188u);
                 } else if (flags & 0x100) {                          /* 0018ADE4 */
                     (void)call(r, 0x001F00A0u, 4, 0, 0x80000003u, node + 0xB0, node + 0xA0, flags & 1, 0);
-                    if (readn(r, node + 0xD, 1) != 2) ricochet(r, node, 0x188u);   /* 0018AE04 */
+                    if (readn(r, node + 0xD, 1) != 2) marker_ricochet(r, node, 0x188u);   /* 0018AE04 */
                 } else {
                     (void)call(r, 0x001F00A0u, 4, 0, 0x80000060u, node + 0xB0, node + 0xA0, flags & 1, 0);
-                    if (readn(r, node + 0xD, 1) != 2) ricochet(r, node, 0x18Au);   /* 0018AE84 */
+                    if (readn(r, node + 0xD, 1) != 2) marker_ricochet(r, node, 0x18Au);   /* 0018AE84 */
                 }
             }
         }

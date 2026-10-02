@@ -16,7 +16,6 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
-#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_door.h"
@@ -393,10 +392,7 @@ static void ui_scene_render(EmGfx *gfx)
     }
 
     /* Black backplate first (the engine's empty UI frame), then the
-     * player over it. NOTE: this makes the UI player the renderer's
-     * "last skinned palette" — em_weapon's muzzle anchor reads a menu
-     * pose next frame, which only matters in the untestable
-     * FORCE+aiming combination. */
+     * player over it. */
     {
         static const float kBlack[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
         static const float kIdent[16] = { 1, 0, 0, 0, 0, 1, 0, 0,
@@ -802,11 +798,6 @@ void frame_close_out(void)
     g.ui_prev = ui_scene;     /* edge tracking for the scene re-init */
     em_hud_scene_3d(ui_scene);  /* background skips its base fill */
 
-    /* Weapon feedback overlays (crosshair / muzzle-flash placeholders —
-     * em_weapon.h "VISUAL FEEDBACK"); queues nothing while holstered, so
-     * the default frame stays byte-identical. */
-    if (!em_aim_fire_diagnostic()) em_weapon_render(gfx);
-
     /* STATUS SCREEN over the flushed 3D frame (the engine's GS-sprite
      * status overlay; em_hud queues overlay rects, em_gfx_end_frame
      * draws them last). HIDDEN by default — the original shows no
@@ -890,7 +881,7 @@ void frame_close_out(void)
     /* A scripted self-test owns the quit when combined with a capture,
      * so a mid-script capture doesn't cut the script short. */
     if (!em_opening_control_test_active() && !em_level_smoke_test_active() && g.capture_path &&
-        !g.move_test && !g.weapon_test && !g.door_test &&
+        !g.move_test && !g.door_test &&
         !g.transit_test && !g.slider_test &&
         g.frame_no > g.capture_frame + 1)
         em_frame_request_quit();

@@ -105,49 +105,7 @@ struct EmGfx {
     uint32_t                     backdropVertCount;
     bool                         backdropFillOn;
     float                        backdropFill[4];
-    /* World-space beam pass (em_gfx_beam / em_gfx_beam_dot): primitives
-     * queued during the frame as raw records; the camera-plane extrusion
-     * needs the camera, so vertices are built at flush time from the
-     * viewproj of the frame's LAST skinned draw. */
-    struct EmGfxBeamRec {
-        float a[3], b[3];   /* segment ends (dot: a == b == anchor)     */
-        float w;            /* width (dot: the square's size)           */
-        float ca[4], cb[4]; /* per-end colors (dot: ca only)            */
-        int   dot;          /* 1 = camera-facing square at a            */
-        int   tex;          /* beam-texture slot, -1 = untextured       */
-        float roll;         /* axial quads: rotation of the width
-                             * vector around the a->b axis, RADIANS
-                             * (em_gfx_beam_tex_roll — the muzzle-flash
-                             * star's engine rotation lerp). 0 keeps
-                             * the exact pre-roll camera-plane math.   */
-    }                            beams[EM_GFX_BEAM_MAX];
-    uint32_t                     beamCount;
-    /* World-space TEXTURED TRIANGLES in the same additive beam pass
-     * (em_gfx_beam_tris_tex — the flashlight cone mesh): raw world
-     * vertices, drawn additively with depth test on / write off after
-     * the beam sprites. */
-    struct EmGfxBeamTriRec {
-        float p[9];         /* 3 world positions                        */
-        float uv[6];        /* 3 uv pairs                               */
-        float c[4];         /* modulate color                           */
-        int   tex;          /* beam-texture slot (>= 0)                 */
-    }                            beamTris[EM_GFX_BEAM_TRI_MAX];
-    uint32_t                     beamTriCount;
-    float                        lastViewProj[16]; /* column-major P*V  */
-    bool                         hasViewProj;      /* a 3D draw ran     */
-    bool                         everViewProj;     /* any draw EVER ran:
-                                                    * em_gfx_last_viewproj
-                                                    * gate (lastViewProj
-                                                    * persists across
-                                                    * frames, hasViewProj
-                                                    * is per-frame)      */
-    id<MTLRenderPipelineState>   beamPipeline;     /* additive, depth-on */
-    /* Textured beam sprites (em_gfx_beam_tex / _dot_tex — em_gfx.h):
-     * the laser-dot sprite + the muzzle-flash sheets, drawn through the
-     * additive beam pass sampling these registered slots. */
-    id<MTLTexture>               beamTex[EM_GFX_BEAM_TEX_MAX];
-    id<MTLRenderPipelineState>   beamTexPipeline;  /* additive, textured */
-    /* Per-frame flashlight spot (em_gfx_spot_light — em_gfx.h). Four
+    /* Per-frame forward spot (em_gfx_spot_light — em_gfx.h). Four
      * float4 rows bound as fragment buffer 2 of every skinned draw:
      *   [0] = pos.xyz, w = enable (0 = off, the begin_frame reset)
      *   [1] = dir.xyz (normalized), w = range
@@ -314,50 +272,6 @@ static NSString *const kGlyphShaderSrc =
 "    float4 color = glyph_texel(in, tex, smp) * in.color;\n"
 "    if (color.a <= 0.0) discard_fragment();\n"
 "    return color;\n"
-"}\n";
-
-/* Beam shader — world-space position + color through the camera, compiled
- * at runtime like the others. Buffer 0 holds float4 world position +
- * float4 color per vertex; buffer 1 the column-major viewproj. Going
- * through viewproj (not pre-projected NDC) keeps real depth, so the
- * laser is occluded by geometry exactly like the GS LINE pass (ZTE=1,
- * ZMSK=1 — depth test on, write off, bound at draw time). */
-static NSString *const kBeamShaderSrc =
-@"#include <metal_stdlib>\n"
-"using namespace metal;\n"
-"struct VOut { float4 pos [[position]]; float4 color; };\n"
-"vertex VOut v_beam(uint vid [[vertex_id]],\n"
-"                   const device float4 *data [[buffer(0)]],\n"
-"                   constant float4x4 &viewproj [[buffer(1)]]) {\n"
-"    VOut o;\n"
-"    o.pos   = viewproj * float4(data[vid*2].xyz, 1.0);\n"
-"    o.color = data[vid*2 + 1];\n"
-"    return o;\n"
-"}\n"
-"fragment float4 f_beam(VOut in [[stage_in]]) { return in.color; }\n";
-
-/* Textured-beam shader — the beam shader with a UV channel sampling one
- * registered beam-texture slot (the FX sprite sheets): 3 float4s per
- * vertex (world pos, modulate color, uv.xy). The fragment is sample *
- * color, drawn additively (GS ALPHA Cv = Cs + Cd — the original flash/
- * dot sprite state), so the texture's own falloff shapes the glow. */
-static NSString *const kBeamTexShaderSrc =
-@"#include <metal_stdlib>\n"
-"using namespace metal;\n"
-"struct VOut { float4 pos [[position]]; float4 color; float2 uv; };\n"
-"vertex VOut v_beamtex(uint vid [[vertex_id]],\n"
-"                      const device float4 *data [[buffer(0)]],\n"
-"                      constant float4x4 &viewproj [[buffer(1)]]) {\n"
-"    VOut o;\n"
-"    o.pos   = viewproj * float4(data[vid*3].xyz, 1.0);\n"
-"    o.color = data[vid*3 + 1];\n"
-"    o.uv    = data[vid*3 + 2].xy;\n"
-"    return o;\n"
-"}\n"
-"fragment float4 f_beamtex(VOut in [[stage_in]],\n"
-"                          texture2d<float> tex [[texture(0)]],\n"
-"                          sampler smp [[sampler(0)]]) {\n"
-"    return tex.sample(smp, in.uv) * in.color;\n"
 "}\n";
 
 /* Background shader (em_gfx_background_draw): 2 float4s per vertex, the
@@ -564,7 +478,7 @@ EM_FOG_GS_MSL
 "    /* The spot add stays behind the enable branch so spot-off frames\n"
 "     * run the EXACT pre-spot arithmetic (byte-identical captures). */\n"
 "    if (mode & 1u) {\n"
-"        /* baked vertex color (GS modulate) + the flashlight spot. The\n"
+"        /* baked vertex color (GS modulate) + the forward spot. The\n"
 "         * level kernel adds 65536.0 (LOI 00237218, ADDI.y 00237220,\n"
 "         * ADDy 002373B0) and PACKED RGBAQ takes the low byte:\n"
 "         * floor(128*c), so 1.0 is GS 128 (identity) and colors up to\n"
@@ -796,8 +710,6 @@ void em_gfx_destroy(EmGfx *g)
     [g->skinPipeline release];
     [g->skinOpaquePipeline release];
     [g->glowPipeline release];
-    [g->beamPipeline release];
-    [g->beamTexPipeline release];
     [g->bgTexture release];
     [g->bgPipeline release];
     [g->shadowAlphaPipeline release];
@@ -819,8 +731,6 @@ void em_gfx_destroy(EmGfx *g)
     free(g->opaqueTri);
     em_object_unit_result_free(&g->objResult);
     free(g->bgFile);
-    for (int i = 0; i < EM_GFX_BEAM_TEX_MAX; i++)
-        [g->beamTex[i] release];
     [g->glyphPipeline release];
     [g->spriteAddPipeline release];
     [g->spriteSubPipeline release];
@@ -847,13 +757,10 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
 {
     if (!g) return;
     g->pool = [[NSAutoreleasePool alloc] init];
-    g->beamCount    = 0;      /* world-space beams are per-frame */
-    g->beamTriCount = 0;
-    g->hasViewProj = false;   /* set again by the frame's 3D draws */
     g->overlayW    = EM_GFX_OVERLAY_W;  /* canvas resets to the default */
     g->glyphNearest = false;            /* font quads sample bilinear   */
     g->overlayH    = EM_GFX_OVERLAY_H;
-    memset(g->spot, 0, sizeof(g->spot)); /* flashlight spot is per-frame */
+    memset(g->spot, 0, sizeof(g->spot)); /* the forward spot is per-frame */
     memset(g->rig,  0, sizeof(g->rig));  /* character rig is per-frame   */
     memset(g->face_rig, 0, sizeof(g->face_rig));
     memset(g->fog,  0, sizeof(g->fog));  /* distance fog is per-frame    */
@@ -1232,10 +1139,6 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
 {
     if (!g || !g->enc || !m || !viewproj || !palette || !bone_count || !rgba)
         return;
-    /* Remember the frame's camera for the beam flush (world-space pass). */
-    memcpy(g->lastViewProj, viewproj, sizeof(g->lastViewProj));
-    g->hasViewProj  = true;
-    g->everViewProj = true;
     /* Opaque (tint alpha >= 1, non-additive) draws are the decoded GS
      * class 0: blending off (PRIM ABE 0) and the per-slice TEST_1 alpha
      * test (mode bit 3). The translucent tint path keeps the alpha
@@ -1682,153 +1585,11 @@ void em_gfx_overlay_arc(EmGfx *g, float cx, float cy,
                         rgba, rgba, rgba, rgba);
 }
 
-/* Queue one world-space beam segment (em_gfx.h). Stored raw; vertices are
- * built at flush time because the camera-plane extrusion needs the
- * frame's camera. */
-void em_gfx_beam(EmGfx *g, const float a[3], const float b[3], float width,
-                 const float rgba_a[4], const float rgba_b[4])
-{
-    if (!g || !a || !b || !rgba_a || !rgba_b ||
-        g->beamCount >= EM_GFX_BEAM_MAX)
-        return;
-    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
-    memcpy(r->a,  a,      sizeof(r->a));
-    memcpy(r->b,  b,      sizeof(r->b));
-    memcpy(r->ca, rgba_a, sizeof(r->ca));
-    memcpy(r->cb, rgba_b, sizeof(r->cb));
-    r->w    = width;
-    r->dot  = 0;
-    r->tex  = -1;
-    r->roll = 0.0f;
-}
 
-/* Copy the last skinned draw's P*V (em_gfx.h — the camera-matrix
- * publish for em_weapon's screen-space acquisition cone). */
-int em_gfx_last_viewproj(EmGfx *g, float out16[16])
-{
-    if (!g || !out16 || !g->everViewProj) return 0;
-    memcpy(out16, g->lastViewProj, sizeof(g->lastViewProj));
-    return 1;
-}
-
-/* Queue one camera-facing square glow (em_gfx.h). */
-void em_gfx_beam_dot(EmGfx *g, const float p[3], float size,
-                     const float rgba[4])
-{
-    if (!g || !p || !rgba || g->beamCount >= EM_GFX_BEAM_MAX) return;
-    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
-    memcpy(r->a,  p,    sizeof(r->a));
-    memcpy(r->b,  p,    sizeof(r->b));
-    memcpy(r->ca, rgba, sizeof(r->ca));
-    memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w    = size;
-    r->dot  = 1;
-    r->tex  = -1;
-    r->roll = 0.0f;
-}
-
-/* Register one beam texture slot (em_gfx.h — the FX sprite sheets). */
-int em_gfx_beam_texture_set(EmGfx *g, int slot, const uint8_t *rgba,
-                            uint32_t w, uint32_t h)
-{
-    if (!g || !g->device || !rgba || !w || !h ||
-        slot < 0 || slot >= EM_GFX_BEAM_TEX_MAX)
-        return 0;
-    MTLTextureDescriptor *td = [MTLTextureDescriptor
-        texture2DDescriptorWithPixelFormat:MTLPixelFormatRGBA8Unorm
-                                     width:w
-                                    height:h
-                                 mipmapped:NO];
-    td.usage = MTLTextureUsageShaderRead;
-    id<MTLTexture> tex = [g->device newTextureWithDescriptor:td];
-    if (!tex) return 0;
-    [tex replaceRegion:MTLRegionMake2D(0, 0, w, h)
-           mipmapLevel:0
-             withBytes:rgba
-           bytesPerRow:(NSUInteger)w * 4];
-    [g->beamTex[slot] release];
-    g->beamTex[slot] = tex;        /* +1 from newTextureWithDescriptor */
-    return 1;
-}
-
-/* Queue one TEXTURED axial-billboard beam quad (em_gfx.h): u runs
- * a -> b, v across. No-op without a registered slot texture (the
- * caller keeps its untextured fallback). */
-void em_gfx_beam_tex(EmGfx *g, int slot, const float a[3], const float b[3],
-                     float width, const float rgba[4])
-{
-    if (!g || !a || !b || !rgba || slot < 0 ||
-        slot >= EM_GFX_BEAM_TEX_MAX || !g->beamTex[slot] ||
-        g->beamCount >= EM_GFX_BEAM_MAX)
-        return;
-    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
-    memcpy(r->a,  a,    sizeof(r->a));
-    memcpy(r->b,  b,    sizeof(r->b));
-    memcpy(r->ca, rgba, sizeof(r->ca));
-    memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w    = width;
-    r->dot  = 0;
-    r->tex  = slot;
-    r->roll = 0.0f;
-}
-
-/* em_gfx_beam_tex with an axis ROLL (em_gfx.h): the quad's width vector
- * is rotated `roll` radians around the a->b axis before the camera-
- * plane extrusion — the muzzle-flash star's engine rotation lerp
- * (func_001F5040 tick >= 4) made visible on the axial billboard. */
-void em_gfx_beam_tex_roll(EmGfx *g, int slot, const float a[3],
-                          const float b[3], float width, float roll,
-                          const float rgba[4])
-{
-    uint32_t before = g ? g->beamCount : 0;
-    em_gfx_beam_tex(g, slot, a, b, width, rgba);
-    if (g && g->beamCount == before + 1)
-        g->beams[before].roll = roll;
-}
-
-/* Queue one TEXTURED camera-facing square sprite (em_gfx.h). */
-void em_gfx_beam_dot_tex(EmGfx *g, int slot, const float p[3], float size,
-                         const float rgba[4])
-{
-    if (!g || !p || !rgba || slot < 0 ||
-        slot >= EM_GFX_BEAM_TEX_MAX || !g->beamTex[slot] ||
-        g->beamCount >= EM_GFX_BEAM_MAX)
-        return;
-    struct EmGfxBeamRec *r = &g->beams[g->beamCount++];
-    memcpy(r->a,  p,    sizeof(r->a));
-    memcpy(r->b,  p,    sizeof(r->b));
-    memcpy(r->ca, rgba, sizeof(r->ca));
-    memcpy(r->cb, rgba, sizeof(r->cb));
-    r->w    = size;
-    r->dot  = 1;
-    r->tex  = slot;
-    r->roll = 0.0f;
-}
-
-/* Queue one world-space TEXTURED TRIANGLE in the additive beam pass
- * (em_gfx.h — the flashlight cone mesh's drawer): three world vertices
- * with uvs, sampling beam slot `slot`, modulated by `rgba`. Same flush,
- * blend (additive) and depth state (test on / write off) as the beam
- * sprites; own EM_GFX_BEAM_TRI_MAX budget, overflow dropped. */
-void em_gfx_beam_tri_tex(EmGfx *g, int slot, const float p[9],
-                         const float uv[6], const float rgba[4])
-{
-    if (!g || !p || !uv || !rgba || slot < 0 ||
-        slot >= EM_GFX_BEAM_TEX_MAX || !g->beamTex[slot] ||
-        g->beamTriCount >= EM_GFX_BEAM_TRI_MAX)
-        return;
-    struct EmGfxBeamTriRec *t = &g->beamTris[g->beamTriCount++];
-    memcpy(t->p,  p,    sizeof(t->p));
-    memcpy(t->uv, uv,   sizeof(t->uv));
-    memcpy(t->c,  rgba, sizeof(t->c));
-    t->tex = slot;
-}
-
-/* Set this frame's flashlight spot (em_gfx.h "Flashlight spot light" —
- * the documented port deviation). Stored as the fragment-buffer rows the
- * skinned shader consumes; begin_frame resets the enable to 0. Call it
- * BEFORE the frame's skinned draws (em_weapon_render runs at the head of
- * the render chain build) — the rows bind per draw. */
+/* Set this frame's forward spot (em_gfx.h "Forward spot term" — a port
+ * stand-in). Stored as the fragment-buffer rows the skinned shader
+ * consumes; begin_frame resets the enable to 0. Call it BEFORE the
+ * frame's skinned draws — the rows bind per draw. */
 void em_gfx_spot_light(EmGfx *g, const float pos[3], const float dir[3],
                        const float rgb[3], float range,
                        float cos_inner, float cos_outer)
@@ -2079,260 +1840,6 @@ void em_gfx_char_face_rig(EmGfx *g, const EmGfxCharRig *rig)
     g->face_rig[27] = 1.0f;
 }
 
-static void beam_norm3(float v[3])
-{
-    float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
-    if (l > 1e-6f) { v[0] /= l; v[1] /= l; v[2] /= l; }
-    else           { v[0] = 1.0f; v[1] = 0.0f; v[2] = 0.0f; }
-}
-
-/* World-space quad corners of one beam record — a-side0 a-side1 b-side0
- * b-side1 (the arithmetic of the original untextured-only flush, kept
- * expression-for-expression so untextured frames stay byte-identical). */
-static void beam_corners(const struct EmGfxBeamRec *r, const float right[3],
-                         const float up[3], const float fwd[3],
-                         float c0[3], float c1[3], float c2[3], float c3[3])
-{
-    float h = r->w * 0.5f;
-    if (r->dot) {
-        for (int k = 0; k < 3; k++) {
-            c0[k] = r->a[k] - right[k] * h - up[k] * h;
-            c1[k] = r->a[k] + right[k] * h - up[k] * h;
-            c2[k] = r->a[k] - right[k] * h + up[k] * h;
-            c3[k] = r->a[k] + right[k] * h + up[k] * h;
-        }
-    } else {
-        float axis[3] = { r->b[0] - r->a[0], r->b[1] - r->a[1],
-                          r->b[2] - r->a[2] };
-        float side[3] = { axis[1] * fwd[2] - axis[2] * fwd[1],
-                          axis[2] * fwd[0] - axis[0] * fwd[2],
-                          axis[0] * fwd[1] - axis[1] * fwd[0] };
-        float sl = sqrtf(side[0] * side[0] + side[1] * side[1] +
-                         side[2] * side[2]);
-        if (sl > 1e-6f) {
-            side[0] *= h / sl; side[1] *= h / sl; side[2] *= h / sl;
-        } else {               /* segment along the view axis: use right */
-            side[0] = right[0] * h;
-            side[1] = right[1] * h;
-            side[2] = right[2] * h;
-        }
-        if (r->roll != 0.0f) {
-            /* Rodrigues rotation of the width vector around the unit
-             * a->b axis (em_gfx_beam_tex_roll — the muzzle-flash
-             * star's engine rotation lerp, func_001F5040 tick >= 4).
-             * roll == 0 keeps the exact pre-roll arithmetic above. */
-            float ax[3] = { axis[0], axis[1], axis[2] };
-            beam_norm3(ax);
-            float c = cosf(r->roll), s = sinf(r->roll);
-            float axs[3] = { ax[1] * side[2] - ax[2] * side[1],
-                             ax[2] * side[0] - ax[0] * side[2],
-                             ax[0] * side[1] - ax[1] * side[0] };
-            float ad = ax[0] * side[0] + ax[1] * side[1] +
-                       ax[2] * side[2];
-            for (int k = 0; k < 3; k++)
-                side[k] = side[k] * c + axs[k] * s +
-                          ax[k] * ad * (1.0f - c);
-        }
-        for (int k = 0; k < 3; k++) {
-            c0[k] = r->a[k] - side[k];
-            c1[k] = r->a[k] + side[k];
-            c2[k] = r->b[k] - side[k];
-            c3[k] = r->b[k] + side[k];
-        }
-    }
-}
-
-/* Flush the queued world-space beams: additive draws inside the open
- * render pass, AFTER the 3D scene (em_weapon queues during close-out) and
- * BEFORE the overlay pass — the untextured records in one draw (exactly
- * the pre-texture flush), then the textured sprites grouped by slot
- * (em_gfx_beam_tex / _dot_tex). Camera basis comes from the rows of the
- * frame's last viewproj (column-major m[col*4+row]): row r of P*V is the
- * view rotation's r-row scaled by a positive projection factor, so the
- * normalized xyz of rows 0/1/3 are camera right / up / forward in world
- * space (row 3 = the w row = view z, because w_clip = z_view). Each
- * segment becomes a quad extruded half a width to each side along
- * normalize(cross(axis, camera_fwd)) — the axial billboard; dots become
- * camera-plane squares on right/up. Depth state: TEST on, WRITE off
- * (depthGlow) — the GS laser draws keep ZTE=1 with ZMSK=1. */
-static void beam_flush(EmGfx *g)
-{
-    uint32_t count    = g->beamCount;
-    uint32_t triCount = g->beamTriCount;
-    g->beamCount    = 0;
-    g->beamTriCount = 0;
-    if ((!count && !triCount) || !g->enc) return;
-    if (!g->hasViewProj) return;   /* no camera this frame: drop */
-    if (!g->beamPipeline) {
-        g->beamPipeline = build_pipeline(g, kBeamShaderSrc, @"v_beam",
-                                         @"f_beam", EM_BLEND_ADD);
-        if (!g->beamPipeline) return;
-    }
-    ensure_depth_states(g);
-
-    const float *m = g->lastViewProj;
-    float right[3] = { m[0], m[4], m[8]  };
-    float up[3]    = { m[1], m[5], m[9]  };
-    float fwd[3]   = { m[3], m[7], m[11] };
-    beam_norm3(right);
-    beam_norm3(up);
-    beam_norm3(fwd);
-
-    /* Pass 1: the UNTEXTURED records — one draw, exactly the pre-texture
-     * flush (a frame with no textured records issues identical GPU work,
-     * keeping pre-texture captures byte-identical). 6 verts per
-     * primitive, float4 pos + float4 color each. */
-    float *verts = (float *)malloc((size_t)count * 6 * 8 * sizeof(float));
-    if (!verts) return;
-    uint32_t n = 0;
-    for (uint32_t i = 0; i < count; i++) {
-        const struct EmGfxBeamRec *r = &g->beams[i];
-        if (r->tex >= 0) continue;
-        float c0[3], c1[3], c2[3], c3[3];
-        beam_corners(r, right, up, fwd, c0, c1, c2, c3);
-        const float *quad[6][2] = {
-            { c0, r->ca }, { c1, r->ca }, { c2, r->cb },   /* tri 1 */
-            { c1, r->ca }, { c3, r->cb }, { c2, r->cb },   /* tri 2 */
-        };
-        for (int v = 0; v < 6; v++) {
-            float *o = verts + (size_t)(n + v) * 8;
-            o[0] = quad[v][0][0];
-            o[1] = quad[v][0][1];
-            o[2] = quad[v][0][2];
-            o[3] = 1.0f;
-            memcpy(o + 4, quad[v][1], 4 * sizeof(float));
-        }
-        n += 6;
-    }
-    if (n) {
-        /* Can exceed the 4 KB setVertexBytes ceiling (64 beams = 12 KB),
-         * so a per-flush buffer; the in-flight command buffer keeps it
-         * alive. */
-        id<MTLBuffer> vbuf =
-            [g->device newBufferWithBytes:verts
-                                   length:(NSUInteger)n * 8 * sizeof(float)
-                                  options:MTLResourceStorageModeShared];
-        if (vbuf) {
-            [g->enc setRenderPipelineState:g->beamPipeline];
-            [g->enc setDepthStencilState:g->depthGlow];
-            [g->enc setCullMode:MTLCullModeNone];
-            [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
-            [g->enc setVertexBytes:g->lastViewProj length:64 atIndex:1];
-            [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
-                       vertexStart:0
-                       vertexCount:n];
-            [vbuf release];
-        }
-    }
-    free(verts);
-
-    /* Pass 2: the TEXTURED sprites (em_gfx_beam_tex / _dot_tex), grouped
-     * by slot — same additive blend and depth state, one draw per slot
-     * sampling its registered sheet. 3 float4s per vertex (world pos,
-     * color, uv): u runs a -> b on axial quads, dots take the full
-     * sprite; v = 0 at the texture's TOP row (rows are uploaded
-     * top-down), which is +up in the camera plane. */
-    for (int slot = 0; slot < EM_GFX_BEAM_TEX_MAX; slot++) {
-        uint32_t nt = 0, ntri = 0;
-        for (uint32_t i = 0; i < count; i++)
-            if (g->beams[i].tex == slot) nt++;
-        for (uint32_t i = 0; i < triCount; i++)
-            if (g->beamTris[i].tex == slot) ntri++;
-        if ((!nt && !ntri) || !g->beamTex[slot]) continue;
-        if (!g->beamTexPipeline) {
-            g->beamTexPipeline = build_pipeline(g, kBeamTexShaderSrc,
-                                                @"v_beamtex", @"f_beamtex",
-                                                EM_BLEND_ADD);
-            if (!g->beamTexPipeline) return;
-        }
-        if (!g->clampSampler) {
-            MTLSamplerDescriptor *sd = [[MTLSamplerDescriptor alloc] init];
-            sd.minFilter    = MTLSamplerMinMagFilterLinear;
-            sd.magFilter    = MTLSamplerMinMagFilterLinear;
-            sd.sAddressMode = MTLSamplerAddressModeClampToEdge;
-            sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
-            g->clampSampler = [g->device newSamplerStateWithDescriptor:sd];
-            [sd release];
-            if (!g->clampSampler) return;
-        }
-        float *tv = (float *)malloc(((size_t)nt * 6 + (size_t)ntri * 3) *
-                                    12 * sizeof(float));
-        if (!tv) return;
-        uint32_t tn = 0;
-        for (uint32_t i = 0; i < count; i++) {
-            const struct EmGfxBeamRec *r = &g->beams[i];
-            if (r->tex != slot) continue;
-            float c0[3], c1[3], c2[3], c3[3];
-            beam_corners(r, right, up, fwd, c0, c1, c2, c3);
-            /* Per-corner UVs: axial quads run u 0->1 from the a end
-             * (c0/c1) to the b end (c2/c3), v 0->1 across; dots take
-             * the full sprite with v = 0 on the +up corners (c2/c3 —
-             * texel rows are uploaded top-down). */
-            static const float uv_axial[4][2] =
-                { { 0, 0 }, { 0, 1 }, { 1, 0 }, { 1, 1 } };
-            static const float uv_dot[4][2] =
-                { { 0, 1 }, { 1, 1 }, { 0, 0 }, { 1, 0 } };
-            const float (*uvs)[2] = r->dot ? uv_dot : uv_axial;
-            const struct { const float *p; const float *c; const float *uv; }
-            quad[6] = {
-                { c0, r->ca, uvs[0] }, { c1, r->ca, uvs[1] },   /* tri 1 */
-                { c2, r->cb, uvs[2] },
-                { c1, r->ca, uvs[1] }, { c3, r->cb, uvs[3] },   /* tri 2 */
-                { c2, r->cb, uvs[2] },
-            };
-            for (int v = 0; v < 6; v++) {
-                float *o = tv + (size_t)(tn + v) * 12;
-                o[0] = quad[v].p[0];
-                o[1] = quad[v].p[1];
-                o[2] = quad[v].p[2];
-                o[3] = 1.0f;
-                memcpy(o + 4, quad[v].c, 4 * sizeof(float));
-                o[8]  = quad[v].uv[0];
-                o[9]  = quad[v].uv[1];
-                o[10] = 0.0f;
-                o[11] = 1.0f;
-            }
-            tn += 6;
-        }
-        /* The queued world-space TRIANGLES of this slot (the flashlight
-         * cone mesh — em_gfx_beam_tris_tex): raw vertices, no camera
-         * extrusion, same additive draw. */
-        for (uint32_t i = 0; i < triCount; i++) {
-            const struct EmGfxBeamTriRec *t = &g->beamTris[i];
-            if (t->tex != slot) continue;
-            for (int v = 0; v < 3; v++) {
-                float *o = tv + (size_t)(tn + v) * 12;
-                o[0] = t->p[v * 3 + 0];
-                o[1] = t->p[v * 3 + 1];
-                o[2] = t->p[v * 3 + 2];
-                o[3] = 1.0f;
-                memcpy(o + 4, t->c, 4 * sizeof(float));
-                o[8]  = t->uv[v * 2 + 0];
-                o[9]  = t->uv[v * 2 + 1];
-                o[10] = 0.0f;
-                o[11] = 1.0f;
-            }
-            tn += 3;
-        }
-        id<MTLBuffer> vbuf =
-            [g->device newBufferWithBytes:tv
-                                   length:(NSUInteger)tn * 12 * sizeof(float)
-                                  options:MTLResourceStorageModeShared];
-        free(tv);
-        if (!vbuf) return;
-        [g->enc setRenderPipelineState:g->beamTexPipeline];
-        [g->enc setDepthStencilState:g->depthGlow];
-        [g->enc setCullMode:MTLCullModeNone];
-        [g->enc setVertexBuffer:vbuf offset:0 atIndex:0];
-        [g->enc setVertexBytes:g->lastViewProj length:64 atIndex:1];
-        [g->enc setFragmentTexture:g->beamTex[slot] atIndex:0];
-        [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
-        [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
-                   vertexStart:0
-                   vertexCount:tn];
-        [vbuf release];
-    }
-}
 
 /* Flush the queued overlay primitives (rects + arcs): one draw at the
  * END of the open render pass (post-3D, so the HUD composites over the
@@ -3313,6 +2820,8 @@ int em_gfx_object_unit(EmGfx *g, const EmGfxObjectUnit *unit)
 {
     if (!g || !g->enc) return object_fail(g, OBJ_WARN_FRAME, "outside a frame", NULL);
     if (!unit) return object_fail(g, OBJ_WARN_INPUT, "no unit", NULL);
+    if (unit->gs_class != 0u)
+        return object_fail(g, OBJ_WARN_INPUT, "a class-2 unit (it is drawn on the chain page)", NULL);
     if (em_object_unit_run(unit, &g->objResult))
         return object_fail(g, OBJ_WARN_UNIT, "the VU1 programs refused the unit", g->objResult.why);
     return object_draw(g, g->objResult.tri, g->objResult.count);
@@ -3371,14 +2880,17 @@ int em_gfx_gs_opaque(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
  * divided per pixel (STQ). Texels are the raw CLUT entries, read with the GS
  * bilinear rule (sample point U - 0.5 on the 1/16 grid, 4-bit weights) and
  * REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1: Cf = Ct * Cv >> 7, Af = At *
- * Av >> 7 (untextured: Cv, Av); fog (FGE): FOGCOL + ((C - FOGCOL) * F >> 8)
+ * Av >> 7 (untextured: Cv, Av); HIGHLIGHT (the class-2 object units of
+ * 001CABA0): Cf = (Ct * Cv >> 7) + Av, Af = At + Av, each clamped to 255
+ * (the object-unit shader's rule); fog (FGE): FOGCOL + ((C - FOGCOL) * F >> 8)
  * (em_fog_gs_blend, the measured rule: GS_EXACT.md 5.2);
  * the alpha test NEVER with AFAIL RGB_ONLY writes RGB only (the pipeline
  * masks alpha, the depth state writes no Z; depth GEQUAL); the blend
  * ((A - B) * C >> 7) + D with A, B, D each Cs, Cd or 0 and C As or FIX,
  * COLCLAMP 1, on the frame pixel (framebuffer fetch).
  * k[0] = (width, height, FOGCOL r | g << 8 | b << 16, FGE);
- * k[1] = (A, B, C, D selectors as ALPHA_1 packs them, FIX, 0, 0).
+ * k[1] = (A, B, C, D selectors as ALPHA_1 packs them, FIX, TFX (0 MODULATE, 2
+ * HIGHLIGHT), 0).
  * APPROXIMATION, as the object units': the per-pixel values come from
  * Metal's float interpolation, floored with a 0.001 epsilon; the GS DDA
  * stepping (and the GS line rule) is not modelled and no GS dump of a drawn
@@ -3427,6 +2939,8 @@ EM_FOG_GS_MSL
 "    uint4 cv = uint4(clamp(floor(in.rgba + 0.001), 0.0, 255.0));\n"
 "    uint3 c = min((t.rgb * cv.rgb) >> 7, uint3(255));\n"
 "    uint a = min((t.a * cv.a) >> 7, 255u);\n"
+"    /* TFX HIGHLIGHT (k[1].z == 2): Cf = Ct * Cv >> 7 + Av, Af = At + Av. */\n"
+"    if (k[1].z == 2u) { c = min(c + cv.a, uint3(255)); a = min(t.a + cv.a, 255u); }\n"
 "    return gs_out(gs_fog(c, in.stqf.w, k), a, dst, k);\n"
 "}\n"
 "fragment float4 f_gs_flat(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
@@ -3496,7 +3010,8 @@ static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex 
          * 3.0), and its measured line rule covers both (decomp
          * GS_CONFORMANCE.md 5.2 / 5.3; CHAIN_PAGE.md section 5). */
         if (p->count != 2u || tme || !iip) return "a line other than Gouraud untextured";
-    } else if (type == 4u || type == 5u) {
+    } else if (type == 3u || type == 4u || type == 5u) {
+        /* Type 3: the class-2 object units' clip pass (PRIM 0x07B). */
         if (p->count != 3u || !tme || !iip) return "a triangle other than Gouraud textured";
     } else if (type == 6u) {
         if (p->count != 2u || !tme) return "an untextured sprite";
@@ -3517,8 +3032,9 @@ static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex 
         const uint32_t psm = (uint32_t)(t0 >> 20) & 0x3Fu, tcc = (uint32_t)(t0 >> 34) & 1u;
         const uint32_t tfx = (uint32_t)(t0 >> 35) & 3u, cpsm = (uint32_t)(t0 >> 51) & 0xFu;
         const uint32_t csm = (uint32_t)(t0 >> 55) & 1u;
-        if ((psm != 0x13u && psm != 0x14u) || cpsm || csm || tcc != 1u || tfx != 0u)
-            return "a TEX0 other than a CT32 CLUT texture with TCC 1 MODULATE";
+        /* HIGHLIGHT (TFX 2): the class-2 object units' textures. */
+        if ((psm != 0x13u && psm != 0x14u) || cpsm || csm || tcc != 1u || (tfx != 0u && tfx != 2u))
+            return "a TEX0 other than a CT32 CLUT texture with TCC 1 MODULATE / HIGHLIGHT";
         if (p->tex1 != 0x60u) return "TEX1_1 other than 0x60";
         if (p->clamp != 0u) return "CLAMP_1 other than REPEAT";
     }
@@ -3630,7 +3146,7 @@ int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
         const uint32_t tme = (p->prim >> 4) & 1u;
         const uint32_t k[8] = { tme ? texs[i]->width : 1u, tme ? texs[i]->height : 1u, fogcol,
                                 (p->prim >> 5) & 1u, (uint32_t)p->alpha & 0xFFu, (uint32_t)(p->alpha >> 32) & 0xFFu,
-                                0u, 0u };
+                                tme ? (uint32_t)(p->tex0 >> 35) & 3u : 0u, 0u };
         [g->enc setRenderPipelineState:tme ? g->gsTexPipeline : g->gsFlatPipeline];
         if (tme) [g->enc setFragmentTexture:texs[i]->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
@@ -4180,7 +3696,6 @@ static void write_bmp(const char *path, const uint8_t *bgra,
 void em_gfx_end_frame(EmGfx *g)
 {
     if (!g) return;
-    beam_flush(g);      /* world-space beams: after 3D, under the overlay */
     overlay_sub_flush(g, true); /* letterbox subtracts scene beneath text */
     backdrop_flush(g);  /* UI background: bottom of the overlay sequence */
     overlay_flush(g);   /* queued HUD rects draw last, over the 3D scene */

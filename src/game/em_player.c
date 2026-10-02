@@ -11,7 +11,6 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
-#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
@@ -544,7 +543,6 @@ static int live_major1(void *context, EmPlayerLiveActor *a);
 static int live_port_state(void *context, EmPlayerLiveActor *a);
 static int live_idle(void *context, EmPlayerLiveActor *a);
 static int live_walk(void *context, EmPlayerLiveActor *a);
-static int live_stance(void *context, EmPlayerLiveActor *a);
 
 void player_states_bind(const EmPlayerStatesBinding *binding)
 {
@@ -575,13 +573,9 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
             live.b.stage.state[0] = live_idle;
             live.b.stage.state[1] = live_walk;
             /* The armed stances 001607D0 enters (+5 = 0x1D..0x22, census
-             * L28) run the port's stand-ins (em_weapon's aim, R2 and melee):
-             * their own workers are not bound. */
-            for (unsigned i = 0x1D; i <= 0x22; ++i) {
-                if (i <= 0x20 && em_aim_fire_diagnostic()) continue;
-                live.b.stage.state[i] = live_stance;
-                live.b.stage.state_context[i] = NULL;
-            }
+             * L28) run their originals as the binder bound them
+             * (em_player_weapon_states_a / _b through the aim / fire
+             * composition, AIM_FIRE.md). */
         } else {
             live.b.stage.state[0] = live.b.stage.state[1] = live_port_state;
         }
@@ -1014,22 +1008,6 @@ static int live_walk(void *context, EmPlayerLiveActor *a)
         return 0;
     }
     return live.loco[1](live.loco_context[1], a);
-}
-
-/* +5 = 0x1D..0x22, which 001607D0 enters on the stance buttons: the port's
- * stand-in (em_weapon's aim, R2 and melee) while it holds; once none holds,
- * the record returns to idle (+5 = +6 = +1F0 = 0) and 00161020 runs. */
-static int live_stance(void *context, EmPlayerLiveActor *a)
-{
-    (void)context;
-    if (player_standin_callbacks()) {
-        standin_hold(a);
-        return 0;
-    }
-    em_live_set_u8(a, 5, 0);
-    em_live_set_u8(a, 6, 0);
-    em_live_set_u8(a, 0x1F0, 0);
-    return live.loco[0](live.loco_context[0], a);
 }
 
 /* 0015BA50's +4 = 1 entry, with the AREA11 interaction host at 0015B130's
@@ -1604,225 +1582,10 @@ static int player_standin_callbacks(void)
         return 1;
     }
 
-    /* R2-HELD ARMED STANCE 0x1E (decoded 2026-06-11: the action machine
-     * func_001607D0 dispatches HELD R2 -> player mode 0x1E, action code
-     * 0x32 — the engine's SECOND aim stance, sharing the mode-1 aim
-     * camera through player states 0x2A/0x29; its laser is the
-     * DOT-only drawer func_001854E0 and it has no fire-counter recoil
-     * — both stay with em_weapon, noted there as pending). em_game
-     * runs its planted pose + steer + camera side: the held aim pose
-     * through its own anim mailbox.
-     *
-     * STANCE PRIORITY — CONFIRMED, and the port now matches (audit
-     * 2026-07-31; an earlier pass left a stale "recorded, not fixed"
-     * note here after the fix had already landed). Re-read in the
-     * recovered src/func_001607D0.c (NEARMISS — logic authoritative):
-     * R2 OUTRANKS R1 in three places.
-     *   - case 0x00 and cases 0x01..0x07 both test the R2 config mask
-     *     `D_00810E70 & *(u16 *)0x70003B7E` BEFORE the R1 mask
-     *     `... & *(u16 *)0x70003B7C`, and the R2 arm returns.
-     *   - case 0x31 (the R1 stance): `if (D_00810E70 & *(u16*)0x70003B7E)
-     *     { self[5] = 0x1E; self[0x1F0] = 0x32; self[0x318] = 1; }` —
-     *     it switches the frame R2 goes down.
-     *   - case 0x32 (the R2 stance) only falls back with
-     *     `if (!(D_00810E70 & 0x70003B7E)) { if (D_00810E70 &
-     *     0x70003B7C) { self[5] = 0x1D; self[0x1F0] = 0x31; } }` — R2
-     *     must be RELEASED first.
-     * The `want` gate below therefore does NOT defer to R1; the matching
-     * R1 suppression lives in em_weapon.c (`draw_held` requires
-     * `(held & EM_PAD_R2) == 0`), which is that file's business. */
-    {
-        const EmFrameInput *rin = em_frame_input();
-        /* AUDIT CORRECTION (round 3 follow-up): R2 OUTRANKS R1. The
-         * !em_weapon_is_aiming() term used to sit here, which gave R1
-         * priority — the exact inversion of func_001607D0, whose stance
-         * dispatcher tests the R2 mask BEFORE the R1 mask and whose case
-         * 0x31 (R1 stance) switches to 0x1E/0x32 the moment R2 is held.
-         * R1 is now suppressed while R2 is held, weapon-side, so this gate
-         * no longer has to defer to it. Melee still wins over both — the
-         * engine's melee states are a separate family this dispatcher is
-         * not reached from. */
-        int want = !em_aim_fire_diagnostic() &&
-                   (rin->held & EM_PAD_R2) && !em_weapon_is_melee();
-        if (want && !g.r2_aim)
-            em_game_anim_hold(0x112, 1.0f);
-        else if (!want && g.r2_aim && em_game_anim_active() == 0x112)
-            em_game_anim_cancel();
-        g.r2_aim = want;
-    }
-
-    /* PLANTED AIMING + MANUAL AIM STEER (func_0017ABA0 — the decoded
-     * constants block above; retires the old AIM_TURN_SPEED turn-in-
-     * place stand-in). The armed stance holds position (engine: the
-     * armed modes 0x1D..0x20 replace the locomotion modes outright —
-     * no aim-walk clips, zero footstep frames); the stick bytes (with a
-     * held D-pad already folded in by 001B5940/001B5E20) steer the aim
-     * BLENDS: pitch INVERTED-Y, yaw panning
-     * the +-60 deg pose ladder first and turning the body only past
-     * the blend limit.
-     *
-     * CONFIRMED (audit 2026-07-31) against src/func_0017ABA0.c (NEARMISS
-     * — logic authoritative) and its two helpers. Everything the block
-     * below implements reads out of that file literally: the two rate
-     * rows and their f20 body multipliers, the `pitch == 0.5f -> 1.0f`
-     * special case with `sin(pi * (0.5 +- 0.6*|pitch-0.5|))` either side
-     * (func_0011E2A8 = sinf; both arms collapse to the single
-     * `0.5 + 0.6*(pitch-0.5)` the port uses), the `step / 2.0f` on the
-     * pitch axis, the `pitch <= 0.3f || !(pitch < 0.7f)` 1.5x band that
-     * only applies in the 0x31/0x34 arm, the +0x27C overflow paying the
-     * excess into the body heading via func_001B1470 (wrap), and the
-     * manual-steer flag +0x302 = 1 that drops the target lock (the port
-     * spells that as "run the lock steer only when both bands are 0").
-     * The deflection bands are src/func_001B5DC0.c verbatim:
-     * `abs(raw-0x80) < 0x31 -> 0, < 0x59 -> 1, < 0x7B -> 2, else 3`
-     * = the AIM_BAND_1/2/3 49/89/123 the port uses.
-     * The pitch clamp is `lim = ((u32)(st2 - 0x31) < 2U) ? 1.0f : 0.75f`,
-     * i.e. 1.0 for stances 0x31/0x32 and 0.75 for 0x34/0x35; the port
-     * models only 0x31/0x32, so the constant AIM_PITCH_MAX_R1 (1.0f) is
-     * correct for every stance it can be in.
-     * NOT MODELLED (flag): the engine also scales the step when the actor
-     * byte +0x275 == 4 — `step *= 1.5f` on yaw, `step *= 1.8f` on pitch.
-     * The port has no +0x275 state to key that on, so it is omitted, not
-     * decided against.
-     * NOTE on sign convention: the engine's +0x27C RISES toward 1.0 on
-     * stick-right; the port's g.aim_yawb FALLS toward 0.0 (0.0 = the
-     * screen-right column, see aim_ladder_eval / aim_dir_get). The two
-     * are mirror-image encodings of the same blend, and both turn the
-     * body the SAME way (heading decreasing) once the blend saturates,
-     * so the resulting aim is identical. Left as-is deliberately: the
-     * port's 0 = right convention is threaded through the pose ladder
-     * and aim_dir_get, and the engine's own ladder mapping lives in
-     * anim_slot_index/D_00248B70, which is not recovered. */
-    {
-        int aim_now = em_weapon_is_aiming() || g.r2_aim;
-        if (aim_now && !g.aim_was) {
-            /* STANCE ENTRY (func_0016F600 family): the aim blends reset
-             * to center and the entry position is saved (D_70003040 —
-             * the R2 state-0x2A camera target base), and the camera
-             * arms its mode-1 entry phase. */
-            g.aim_pitch = 0.5f;
-            g.aim_yawb  = 0.5f;
-            memcpy(g.cam.aim_entry, g.pos, sizeof g.cam.aim_entry);
-            g.cam.aim_phase = 1;
-        } else if (!aim_now && g.aim_was) {
-            /* RELEASE (player states 0xC/0x29 -> camera mode 2): the
-             * port re-seeds the chase yaw from the actual eye->player
-             * heading (the engine's .L001935EC reset) and lets the
-             * mode-0 chase blend back. */
-            g.cam.aim_phase = 0;
-            g.cam.yaw = atan2f(g.pos[0] - g.cam.eye[0],
-                               g.pos[2] - g.cam.eye[2]);
-        }
-        g.aim_was = aim_now;
-    }
-    if (em_weapon_is_aiming() || g.r2_aim) {
-        player_pose_legacy_hold("aim node adjustments are not bound");
-        g.move_speed = 0.0f;
-        g.loco_tier  = 0;          /* armed modes replace locomotion */
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        const EmFrameInput *ain = em_frame_input();
-        int r1fam = !g.r2_aim || em_weapon_is_aiming(); /* stance 0x31 */
-
-        /* 0017ABA0 reads the pad bytes D_00810E64/65 directly. Their
-         * producer 001B5940 already maps a held D-pad onto them (001B5E20)
-         * before any consumer runs (em_frame step C), so no separate
-         * D-pad path exists here. */
-        int rawx = ain->lx, rawy = ain->ly;
-
-        /* func_001B5DC0 deflection bands + the per-stance rate rows.
-         * Both rows read literally out of src/func_0017ABA0.c
-         * (NEARMISS — logic authoritative): the 0x31/0x34 arm is
-         * {0, 0.0025f, 0.005f, 0.015f} with f20 = 1.0f, the else arm
-         * (the R2 family 0x32/0x35) is {0, 0.0016666666f, 0.005f,
-         * 0.01f} with f20 = 1.5f.
-         * CORRECTED (audit 2026-07-31): kRateR2[3] was 0.015f — a
-         * transcription of the R1 row's top band. The recovered C
-         * reads `rate[3] = 0.01f` in that arm, so the port panned the
-         * R2 aim 50% too fast at full stick deflection. */
-        static const float kRateR1[4] = { 0.0f, 0.0025f, 0.005f, 0.015f };
-        static const float kRateR2[4] = { 0.0f, 0.0016666666f, 0.005f,
-                                          0.01f };
-        const float *rate = r1fam ? kRateR1 : kRateR2;
-        float body_mul = r1fam ? 1.0f : 1.5f;   /* f20 */
-        int bx = abs(rawx - 0x80), by = abs(rawy - 0x80);
-        int bandx = bx < AIM_BAND_1 ? 0 : bx < AIM_BAND_2 ? 1
-                  : bx < AIM_BAND_3 ? 2 : 3;
-        int bandy = by < AIM_BAND_1 ? 0 : by < AIM_BAND_2 ? 1
-                  : by < AIM_BAND_3 ? 2 : 3;
-
-        /* YAW (+0x27C): rate scaled by 1/sin(pi*(0.5+0.6*(p-0.5))) —
-         * exactly 1.0 at pitch center (the engine special-cases the
-         * equality), faster pitched off level. Overflow past [0,1]
-         * turns the body by the excess (screen-right = yaw decreasing
-         * in the port basis, matching the engine's heading -=). */
-        if (bandx) {
-            float p = g.aim_pitch;
-            float s = (p == 0.5f) ? 1.0f
-                    : sinf(EM_PI * (0.5f + 0.6f * (p - 0.5f)));
-            float step = rate[bandx] / s;
-            if (rawx >= 0x80) {            /* stick RIGHT */
-                g.aim_yawb -= step;        /* toward the right poses */
-                if (g.aim_yawb < 0.0f) {
-                    g.yaw -= -g.aim_yawb * body_mul;
-                    g.aim_yawb = 0.0f;
-                }
-            } else {                       /* stick LEFT */
-                g.aim_yawb += step;
-                if (g.aim_yawb > 1.0f) {
-                    g.yaw += (g.aim_yawb - 1.0f) * body_mul;
-                    g.aim_yawb = 1.0f;
-                }
-            }
-            while (g.yaw >  EM_PI) g.yaw -= 2.0f * EM_PI;
-            while (g.yaw < -EM_PI) g.yaw += 2.0f * EM_PI;
-        }
-
-        /* PITCH (+0x278): INVERTED Y — stick DOWN (raw >= 0x80) raises
-         * the blend = aim UP; stick UP aims DOWN ("W = down"). The R1
-         * family speeds up 1.5x outside [0.3, 0.7]. */
-        if (bandy) {
-            float mult = (r1fam && (g.aim_pitch <= 0.3f ||
-                                    g.aim_pitch >= 0.7f)) ? 1.5f : 1.0f;
-            float step = rate[bandy] * mult * 0.5f;
-            if (rawy >= 0x80) {            /* stick DOWN -> aim UP */
-                g.aim_pitch += step;
-                if (g.aim_pitch > AIM_PITCH_MAX_R1)
-                    g.aim_pitch = AIM_PITCH_MAX_R1;
-            } else {                       /* stick UP -> aim DOWN */
-                g.aim_pitch -= step;
-                if (g.aim_pitch < 0.0f) g.aim_pitch = 0.0f;
-            }
-        }
-
-        /* LOCK STEER (func_0017AF70 — em_weapon.h "TARGET LOCK"):
-         * with the stick idle and a target in lock slot 0, em_weapon
-         * creeps the blends toward the lock at <= 0.02/frame. The
-         * stick-idle gate is the engine's manual-input lock drop (the
-         * 0x1D stance clears D_008106E0 whenever func_0017ABA0 flags
-         * manual steering, +0x302) — the player's hand always wins. */
-        if (!bandx && !bandy) {
-            float lp, ly;
-            if (em_weapon_lock_steer(g.pos, g.yaw, g.aim_pitch,
-                                     g.aim_yawb, &lp, &ly)) {
-                g.aim_pitch = lp;
-                g.aim_yawb  = ly;
-            }
-        }
-        return 1;
-    }
-
-    /* KNIFE / MELEE plant: the engine's melee modes 0x21/0x22 replace
-     * the locomotion modes outright (em_weapon.h "KNIFE / MELEE") —
-     * the player stands for the swing + recover. The heavy's in-swing
-     * yaw steer (func_00173DD0, D_002486F0 rates) is untranslated
-     * (flagged in em_weapon.h), so no turn-in-place here either. */
-    if (em_weapon_is_melee()) {
-        player_pose_legacy_hold("melee source channels are not exported");
-        g.move_speed = 0.0f;
-        g.loco_tier  = 0;          /* melee modes replace locomotion */
-        g.loco_upt   = 0.0f; g.loco_mode = 0; g.loco_entry_ticks = 0; g.loco_stop.phase = 0; g.loco_reentry.phase = 0;
-        return 1;
-    }
+    /* The armed stances (R1 0x1D, R2 0x1E, their 0x1F / 0x20 variants)
+     * and the melee states 0x21 / 0x22 are the originals' (AIM_FIRE.md):
+     * the port's stand-in that held, steered and planted the player here
+     * was retired on 2026-10-02 (AIM_FIRE.md section 10). */
 
     /* WP-2/H12: every stand-in above has released this frame. Re-seed the
      * frozen source at its row default (00182DF0 via 001C63E0); the hit,
@@ -2197,70 +1960,3 @@ int step_crossed(double prev, double cur, double trig)
     return trig > prev || trig <= cur;            /* wrapped the loop */
 }
 
-/* AIM POSE LADDER blend (the dispatch half of the func_0017ABA0 steer
- * — anim_slot_index/anim_matrix_dispatch sampling the D_00248B70 sub-0
- * ladder 0x112..0x11A by the blends +0x278/+0x27C, two-buffer blend
- * func_00179CA0). The port evaluates the bilinear 3x3 pose grid at the
- * shared playhead and lerps the palettes (the same matrix-lerp the
- * port's idle/walk crossfades use — a documented stand-in for the
- * engine's bone-channel blend). Returns 1 when it produced the
- * palette (all needed ladder clips present), 0 to fall back to the
- * plain base-clip evaluation. */
-int aim_ladder_eval(double t)
-{
-    float p  = g.aim_pitch, yb = g.aim_yawb;
-    int   up = p >= 0.5f;
-    int   rt = yb < 0.5f;                  /* screen-right column */
-    float wp = up ? (p - 0.5f) * 2.0f : (0.5f - p) * 2.0f;
-    float wy = rt ? (0.5f - yb) * 2.0f : (yb - 0.5f) * 2.0f;
-
-    unsigned id01 = rt ? 0x115 : 0x116;            /* level, yawed   */
-    unsigned id10 = up ? 0x113 : 0x114;            /* pitched, ahead */
-    unsigned id11 = up ? (rt ? 0x117 : 0x119)      /* corner          */
-                       : (rt ? 0x118 : 0x11A);
-    struct { unsigned id; float w; } s[4] = {
-        { 0x112, (1.0f - wp) * (1.0f - wy) },
-        { id01,  (1.0f - wp) * wy },
-        { id10,  wp * (1.0f - wy) },
-        { id11,  wp * wy },
-    };
-    uint32_t n = g.model.bone_count * 16;
-    int      first = 1;
-    for (int i = 0; i < 4; i++) {
-        if (s[i].w <= 0.0f) continue;
-        int ci = em_model_clip_index(&g.model, s[i].id);
-        if (ci < 0) return 0;              /* old EMDL: no ladder bake */
-        em_model_palette_at(&g.model, (uint32_t)ci, t, g.aim_palette);
-        if (first) {
-            for (uint32_t k = 0; k < n; k++)
-                g.player_palette[k] = g.aim_palette[k] * s[i].w;
-            first = 0;
-        } else {
-            for (uint32_t k = 0; k < n; k++)
-                g.player_palette[k] += g.aim_palette[k] * s[i].w;
-        }
-    }
-    return !first;
-}
-
-/* The analytic aim direction the camera (and the self-tests) consume —
- * the pose the ladder blend selects, expressed as a world ray (the
- * engine reads the equivalent from the posed hand matrix, gun+0xC0).
- * Pose pitches/yaws are the values MEASURED from the baked ladder
- * clips (constants block above). */
-void aim_dir_get(float out[3])
-{
-    float p  = g.aim_pitch, yb = g.aim_yawb;
-    float pit_deg = p >= 0.5f
-        ? AIM_POSE_CTR_DEG + (p - 0.5f) * 2.0f *
-              (AIM_POSE_UP_DEG - AIM_POSE_CTR_DEG)
-        : AIM_POSE_CTR_DEG - (0.5f - p) * 2.0f *
-              (AIM_POSE_DOWN_DEG + AIM_POSE_CTR_DEG);
-    /* yaw blend: 0 = screen right = yaw DECREASING in the port basis */
-    float yaw = g.yaw + (yb - 0.5f) * 2.0f *
-                (AIM_POSE_YAW_DEG * EM_PI / 180.0f);
-    float pit = pit_deg * EM_PI / 180.0f;
-    out[0] = sinf(yaw) * cosf(pit);
-    out[1] = sinf(pit);
-    out[2] = cosf(yaw) * cosf(pit);
-}

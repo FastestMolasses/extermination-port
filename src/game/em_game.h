@@ -181,24 +181,6 @@ int      em_game_anim_frame(void);
 void     em_game_anim_cancel(void);
 unsigned em_game_anim_active(void);
 
-/* MANUAL AIM STEER state (func_0017ABA0 [NEARMISS] — the player aim
- * blends +0x278/+0x27C; full decode, and one audit CORRECTION to the
- * R2 rate table, in em_game_internal.h's "MANUAL AIM STEER" block).
- * While the armed stance is held, the left stick (d-pad merged)
- * steers:
- *   em_game_aim_pitch — the PITCH blend (+0x278): 0.5 center, 1 = full
- *     up, 0 = full down; INVERTED Y (stick up aims DOWN — the original
- *     behavior). It selects/blends the 0x112..0x11A aim-pose ladder,
- *     so the fire/laser ray (the posed hand bone) follows it.
- *   em_game_aim_yaw_blend — the YAW blend (+0x27C): 0.5 center, the
- *     pose pans +-60 deg before overflow turns the body.
- *   em_game_aim_dir — the world-space aim ray the blends select (the
- *     native equivalent of the engine's gun+0xC0 hand-matrix read).
- * Outside the armed stance the blends rest at their last values; they
- * re-center to 0.5 at every stance entry. */
-float em_game_aim_pitch(void);
-float em_game_aim_yaw_blend(void);
-void  em_game_aim_dir(float out[3]);
 
 /* AREA-11 PROGRESSION.
  *

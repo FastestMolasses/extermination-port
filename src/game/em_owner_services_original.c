@@ -766,6 +766,51 @@ int em_owner_services_001CAA00(EmOwnerServices *s, EmOwnerServicesOwner *o)
     return 0;
 }
 
+/* 001CABA0(owner, model): see the header (the NEARMISS decomp C; its body
+ * is logically complete, the residual is register allocation). */
+int em_owner_services_001CABA0(EmOwnerServices *s, EmOwnerServicesOwner *o, const EmOwnerModel *model)
+{
+    if (!s) return -1;
+    if (latched(s)) return -1;
+    if (!o) return fault(s, 0x001CABA0u, EM_OWNER_FAULT_NULL_WORKER);
+    u32 radius = 0x41A00000u;                       /* 20.0 without a model */
+    if (model) radius = word_at(&model->radius);    /* model +0x20, raw bits */
+    int32_t flags = 0;
+    NEED(s, s->workers.w_001CA7B0, 0x001CA7B0u);
+    CALL(s, 0x001CA7B0u, s->workers.w_001CA7B0(s->workers.ctx, o->pos, radius, &flags));
+    if (flags < -1 || flags > 0x1F) return fault(s, 0x001CA7B0u, EM_OWNER_FAULT_BAD_RESULT);
+    if (flags < 0) return 0;                        /* culled: nothing is drawn */
+    const u32 chan = 3u;
+    NEED(s, s->world.channel, 0x00275670u);
+    if (chan >= s->world.channel_count) return fault(s, 0x001CABA0u, EM_OWNER_FAULT_BAD_INDEX);
+    EmOwnerServicesChannel *c = &s->world.channel[chan];
+    const uint8_t *node = c->cursor;                /* *(D_00275670 + 0x1C) */
+    NEED(s, s->workers.w_001D8C20, 0x001D8C20u);
+    CALL(s, 0x001D8C20u, s->workers.w_001D8C20(s->workers.ctx, 1));
+    if (em_owner_services_001C7420(s, o, EM_OWNER_SERVICES_COLOR_VU_ADDRESS, (int32_t)chan, NULL) < 0) return -1;
+    if (flags != 0 && (flags & 1)) {
+        NEED(s, s->workers.w_001D3D90, 0x001D3D90u);
+        CALL(s, 0x001D3D90u, s->workers.w_001D3D90(s->workers.ctx, model));
+    } else {
+        NEED(s, s->workers.w_001D3990, 0x001D3990u);
+        CALL(s, 0x001D3990u, s->workers.w_001D3990(s->workers.ctx, model));
+    }
+    /* The RET tag: byte +3 = 0x60, word +4 = 0, halfword +0 = 0, then the
+     * cursor advances 0x10 (each store after its own reload of the
+     * cursor word; the bytes +2 and +8..+0xF are left as they are). */
+    if (!c->cursor || !c->end || c->cursor > c->end || c->end - c->cursor < 0x10)
+        return fault(s, 0x001CABA0u, EM_OWNER_FAULT_BAD_INDEX);
+    uint8_t *t = c->cursor;
+    t[3] = 0x60;
+    t[4] = t[5] = t[6] = t[7] = 0;
+    t[0] = t[1] = 0;
+    c->cursor = t + 0x10;
+    CALL(s, 0x001D8C20u, s->workers.w_001D8C20(s->workers.ctx, 0));
+    NEED(s, s->workers.w_001CAAC0, 0x001CAAC0u);
+    CALL(s, 0x001CAAC0u, s->workers.w_001CAAC0(s->workers.ctx, o, node));
+    return 0;
+}
+
 /* ======================================================================
  * Rumble
  * ==================================================================== */

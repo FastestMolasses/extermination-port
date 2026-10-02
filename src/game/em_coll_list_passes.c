@@ -130,6 +130,58 @@ static int ready_8660(const P *p)
     return ready(p) && bound_8660(p);
 }
 
+/* ---- 001A9C40 ---------------------------------------------------------------- */
+
+/* 001A9D20's pair callee (outer class 1, inner class 2): unless the inner
+ * record's +0 has bit 1, the distance of the two +0xB0 points (0011E748
+ * over dx dx + dy dy + dz dz, the sum in the accumulator) against the inner
+ * record's radius by its +3 type (the jump table D_0026DB30: types 0 and 4
+ * 15.0, types 1, 5, 6 and 7 20.0, every other type none); inside a radius
+ * the inner record's +0x0A gets bit 0. */
+int em_coll_list_001A9C40(P *p, uint32_t self, uint32_t other)
+{
+    if (!p || !p->memory.bytes || !p->math || !p->math->tables) return p ? fail(p, 0x1A9C40) : -1;
+    uint8_t status;
+    TRY(rd_u8(p, other, &status, 0x1A9C4C));
+    if (status & 2) return 0;                                         /* 0x1A9C54 */
+    float sy, oy, sx, ox, sz, oz;
+    TRY(rd_f(p, self + 0xB4, &sy, 0x1A9C5C));
+    TRY(rd_f(p, other + 0xB4, &oy, 0x1A9C60));
+    TRY(rd_f(p, self + 0xB0, &sx, 0x1A9C64));
+    TRY(rd_f(p, other + 0xB0, &ox, 0x1A9C68));
+    TRY(rd_f(p, self + 0xB8, &sz, 0x1A9C6C));
+    TRY(rd_f(p, other + 0xB8, &oz, 0x1A9C70));
+    const float dy = em_ee_sub(sy, oy);                               /* 0x1A9C74 */
+    const float dz = em_ee_sub(sz, oz);                               /* 0x1A9C78 */
+    const float dx = em_ee_sub(sx, ox);                               /* 0x1A9C7C */
+    const float acc = em_ee_adda(em_ee_mul(dx, dx), em_ee_mul(dy, dy)); /* 0x1A9C80..0x1A9C88 */
+    float dist;
+    uint32_t fault = 0;
+    if (em_sdk_math_original_0011E748(p->math->tables, &p->math->world, &p->math->workers,
+                                      em_ee_madd(acc, dz, dz), &dist, &fault) < 0)   /* 0x1A9C8C, 0x1A9C90 */
+        return fail(p, fault ? fault : 0x1A9C8C);
+    uint8_t type;
+    TRY(rd_u8(p, other + 3, &type, 0x1A9C94));
+    float radius = 0.0f;                                              /* 0x1A9C98 */
+    switch (type) {                                                   /* 0x1A9C9C..0x1A9CBC */
+    case 0: case 4: radius = 15.0f; break;                            /* 0x1A9CC4 */
+    case 1: case 5: case 6: case 7: radius = 20.0f; break;            /* 0x1A9CD4 */
+    default: break;
+    }
+    if (em_ee_c_eq(0.0f, radius)) return 0;                           /* 0x1A9CE4 */
+    if (!em_ee_c_le(dist, radius)) return 0;                          /* 0x1A9CF4 */
+    uint8_t flags;
+    TRY(rd_u8(p, other + 0xA, &flags, 0x1A9D04));
+    TRY(wr_u8(p, other + 0xA, (uint8_t)(flags | 1), 0x1A9D0C));
+    return 0;
+}
+
+int em_coll_list_passes_001A9C40(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b)
+{
+    (void)context;
+    return em_coll_list_001A9C40(passes, a, b);
+}
+
 /* ---- 001A9D20 ---------------------------------------------------------------- */
 
 int em_coll_list_001A9D20(P *p)

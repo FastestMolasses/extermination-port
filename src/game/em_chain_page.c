@@ -12,7 +12,11 @@ typedef struct {
     uint32_t address;        /* source address of the transferred data   */
     uint32_t qwc;
     const uint8_t *bytes;
+    int unit;                /* a class-2 unit CALL (qwc 0): its index    */
 } Seg;
+
+#define UNIT_PRIMS 8192u     /* the units' primitives per page            */
+static EmGfxGsPrim s_unit_prims[UNIT_PRIMS];
 
 /* The walk's state: the transfers in order and a cursor over their words. */
 typedef struct {
@@ -40,6 +44,7 @@ typedef struct {
     EmGfxGsVertex queue[3];
     uint8_t queue_q[3];
     uint32_t nq;
+    uint32_t unit_used;      /* s_unit_prims filled by the DMA walk       */
     /* list mode: the GS environment registers (context 1) */
     int list;
     EmGfxGsEnv env;
@@ -104,6 +109,32 @@ static int dma(Walk *w, uint32_t start)
                 next = cur + 16u + 16u * qwc;
                 break;
             }
+            if (depth == 0 && p->unit) {
+                uint32_t used = 0, room = UNIT_PRIMS - w->unit_used;
+                const int u = p->counts.units < EM_CHAIN_PAGE_UNITS_MAX
+                                  ? p->unit(p->unit_ctx, addr, s_unit_prims + w->unit_used, room, &used)
+                                  : -1;
+                if (u < 0 || used > room) return fault(w, EM_CHAIN_PAGE_FAULT_VU, cur, addr);
+                if (u) {
+                    p->unit_call[p->counts.units] = addr;
+                    p->unit_first[p->counts.units] = w->unit_used;     /* rebased at the marker */
+                    p->unit_prims[p->counts.units] = used;
+                    w->unit_used += used;
+                    /* The CALL's own data, then the unit, then back. */
+                    if (w->nseg + 2u > SEG_MAX) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, SEG_MAX);
+                    if (qwc) {
+                        const uint8_t *b = p->read(p->read_ctx, data, 16u * qwc);
+                        if (!b) return fault(w, EM_CHAIN_PAGE_FAULT_READ, data, 16u * qwc);
+                        w->seg[w->nseg++] = (Seg){ data, qwc, b, 0 };
+                        p->counts.qwords += qwc;
+                    }
+                    w->seg[w->nseg++] = (Seg){ addr, 0, NULL, (int)p->counts.units + 1 };
+                    p->counts.units++;
+                    p->counts.transfers++;
+                    cur = cur + 16u + 16u * qwc;
+                    continue;
+                }
+            }
             if (depth >= 2) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
             stack[depth++] = cur + 16u + 16u * qwc;
             next = addr;
@@ -126,7 +157,7 @@ static int dma(Walk *w, uint32_t start)
             if (w->nseg >= SEG_MAX) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, SEG_MAX);
             const uint8_t *b = p->read(p->read_ctx, data, 16u * qwc);
             if (!b) return fault(w, EM_CHAIN_PAGE_FAULT_READ, data, 16u * qwc);
-            w->seg[w->nseg++] = (Seg){ data, qwc, b };
+            w->seg[w->nseg++] = (Seg){ data, qwc, b, 0 };
             p->counts.qwords += qwc;
         }
         if (id == 7u) return 0;
@@ -134,10 +165,17 @@ static int dma(Walk *w, uint32_t start)
     }
 }
 
-/* The next transferred word and its source address; 0 at the end. */
+/* The next transferred word and its source address; 0 at the end, 2 at a
+ * unit marker (*address its CALL target; the marker is consumed). */
 static int word(Walk *w, uint32_t *value, uint32_t *address)
 {
     while (w->si < w->nseg && w->wi >= 4u * w->seg[w->si].qwc) {
+        if (w->seg[w->si].unit && w->wi == 0u) {
+            w->wi = 1u;                       /* consumed */
+            *address = w->seg[w->si].address;
+            *value = 0;
+            return 2;
+        }
         w->si++;
         w->wi = 0;
     }
@@ -388,20 +426,67 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 
 /* ------------------------------------------------------------------ VIF */
 
-/* The three page programs' MPG uploads (source address of the code, micro
+/* The page programs' MPG uploads (source address of the code, micro
  * load address, instruction count). */
 #define LANE_CODE    0x002332B8u
 #define SPRITE_CODE0 0x00231798u
 #define SPRITE_CODE1 0x00231FA0u
 #define SNOW_CODE0   0x00233828u
 #define SNOW_CODE1   0x00234030u
+#define STREAK_CODE0 0x00230828u
+#define STREAK_CODE1 0x00231030u
+#define KIND2_CODE0  0x00232568u
+#define KIND2_CODE1  0x00232D70u
+
+/* A class-2 object unit at its CALL (see the header): its primitives (the
+ * caller's run of it), then the state it leaves. */
+static int unit(Walk *w, int index, uint32_t at)
+{
+    EmChainPage *p = w->p;
+    const uint32_t k = (uint32_t)index - 1u;
+    const uint32_t first = p->unit_first[k], n = p->unit_prims[k];
+    if (p->prim_count + n > p->prim_capacity) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, at, p->prim_capacity);
+    p->unit_first[k] = p->prim_count;
+    for (uint32_t i = 0; i < n; ++i) {
+        const EmGfxGsPrim *g = &s_unit_prims[first + i];
+        EmGfxGsPrim *o = &p->prims[p->prim_count];
+        *o = *g;
+        if (p->prim_q) memset(&p->prim_q[p->prim_count], 1, sizeof p->prim_q[p->prim_count]);
+        p->prim_count++;
+        p->counts.prims++;
+        p->counts.prim_type[g->prim & 7u]++;
+        w->prim = g->prim;
+        w->set |= g->set;
+        w->tex0 = g->tex0;
+        w->clamp = g->clamp;
+        w->tex1 = g->tex1;
+        w->alpha = g->alpha;
+        w->test = g->test;
+        w->colclamp = g->colclamp;
+    }
+    p->unit_tex0[k] = w->tex0;
+    p->unit_prim[k] = w->prim;
+    /* The GS vertex queue holds the unit's last vertices; the next producer
+     * sets its own PRIM (which resets the queue) before it draws. */
+    w->nq = 0;
+    w->cl = w->wl = 4u;
+    w->cycle_set = 1;
+    w->program = 0;
+    w->mpg_parts = 0;
+    return 0;
+}
 
 static int vif(Walk *w)
 {
     EmChainPage *p = w->p;
     static uint8_t direct[DIRECT_MAX * 16u];
     uint32_t v, at;
-    while (word(w, &v, &at)) {
+    int got;
+    while ((got = word(w, &v, &at)) != 0) {
+        if (got == 2) {
+            if (unit(w, w->seg[w->si].unit, at) < 0) return -1;
+            continue;
+        }
         const uint32_t cmd = (v >> 24) & 0x7Fu, num = (v >> 16) & 0xFFu, imm = v & 0xFFFFu;
         if (v & 0x80000000u) return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
         if (cmd >= 0x60u) {                                           /* UNPACK */
@@ -450,7 +535,9 @@ static int vif(Walk *w)
             }
             if (first == LANE_CODE && cnt == 138u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
-            } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0) && cnt == 256u && imm == 0u) {
+            } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0 || first == STREAK_CODE0 || first == KIND2_CODE0) &&
+                       cnt == 256u &&
+                       imm == 0u) {
                 w->program = 0; w->mpg_parts = 1; w->mpg_first = first;
             } else if (first == SPRITE_CODE1 && cnt == 79u && imm == 0x100u && w->mpg_parts == 1u &&
                        w->program == 0u && w->mpg_first == SPRITE_CODE0) {
@@ -458,6 +545,12 @@ static int vif(Walk *w)
             } else if (first == SNOW_CODE1 && cnt == 81u && imm == 0x100u && w->mpg_parts == 1u &&
                        w->program == 0u && w->mpg_first == SNOW_CODE0) {
                 w->program = EM_CHAIN_PAGE_SNOW; w->mpg_parts = 2;
+            } else if (first == STREAK_CODE1 && cnt == 126u && imm == 0x100u && w->mpg_parts == 1u &&
+                       w->program == 0u && w->mpg_first == STREAK_CODE0) {
+                w->program = EM_CHAIN_PAGE_STREAK; w->mpg_parts = 2;
+            } else if (first == KIND2_CODE1 && cnt == 66u && imm == 0x100u && w->mpg_parts == 1u &&
+                       w->program == 0u && w->mpg_first == KIND2_CODE0) {
+                w->program = EM_CHAIN_PAGE_KIND2; w->mpg_parts = 2;
             } else {
                 w->program = 0; w->mpg_parts = 0;
                 return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, first);
@@ -468,11 +561,23 @@ static int vif(Walk *w)
             if (imm != 0u || !w->program) return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, v);
             int rc;
             if (w->program == EM_CHAIN_PAGE_LANE) {
+                const uint32_t before = p->counts.prim_type[4];
                 p->counts.mscal_lane++;
                 rc = em_vu1_lane_program_mscal(&p->regs, p->dmem, kick, w);
+                p->counts.lane_strips += p->counts.prim_type[4] - before;
             } else if (w->program == EM_CHAIN_PAGE_SNOW) {
                 p->counts.mscal_snow++;
                 rc = em_vu1_snow_program_mscal(&p->regs, p->dmem, kick, w);
+            } else if (w->program == EM_CHAIN_PAGE_STREAK) {
+                const uint32_t before = p->counts.prims;
+                p->counts.mscal_streak++;
+                rc = em_vu1_streak_program_mscal(&p->regs, p->dmem, kick, w);
+                p->counts.streak_prims += p->counts.prims - before;
+            } else if (w->program == EM_CHAIN_PAGE_KIND2) {
+                const uint32_t before = p->counts.prims;
+                p->counts.mscal_kind2++;
+                rc = em_vu1_kind2_program_mscal(&p->regs, p->dmem, kick, w);
+                p->counts.kind2_prims += p->counts.prims - before;
             } else {
                 p->counts.mscal_sprite++;
                 rc = em_vu1_sprite_program_mscal(&p->regs, p->dmem, kick, w);
@@ -492,6 +597,7 @@ static int vif(Walk *w)
                 direct[4u * k + 2u] = (uint8_t)(x >> 16); direct[4u * k + 3u] = (uint8_t)(x >> 24);
             }
             uint32_t used;
+            const uint32_t strips_before = p->counts.prim_type[4];
             p->counts.direct++;
             if (gif(w, fetch_buffer, direct, cnt, at, &used) < 0) return -1;
             /* List mode: PATH2 goes on with the next GIF tag after an EOP
@@ -503,6 +609,7 @@ static int vif(Walk *w)
                 used += more;
             }
             if (used != cnt) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, used);
+            p->counts.direct_strips += p->counts.prim_type[4] - strips_before;
             break;
         }
         default:

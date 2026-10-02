@@ -64,6 +64,8 @@ extern "C" {
 #define EM_OWNER_DRAW_KERNEL        UINT32_C(0x0023C750) /* 001D37D0 CALL */
 #define EM_OWNER_DRAW_CLIP_KERNEL   UINT32_C(0x002354A0) /* 001D3AD0 CALL */
 #define EM_OWNER_DRAW_D_002514B0    UINT32_C(0x002514B0) /* the optional REF 2 */
+#define EM_OWNER_DRAW_SKIN_RECORD_3      UINT32_C(0x00816B40) /* 001D3900 */
+#define EM_OWNER_DRAW_SKIN_RECORD_3_CLIP UINT32_C(0x00816E40) /* 001D3CF0 */
 
 /* Fault codes (numerically the EM_SCENE_FAULT_* / EM_OWNER_FAULT_* codes). */
 enum {
@@ -186,6 +188,21 @@ int em_owner_draw_001CA940(EmOwnerDraw *s, int32_t flags, const EmOwnerModel *mo
 /* The pieces, for callers that reach them directly (chan is the register). */
 int em_owner_draw_001D38A0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
 int em_owner_draw_001D3BA0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04);
+
+/* 001D3900(chan, model): 001D1F80(chan, 2, 2) (the GS state REF of set 2,
+ * class 2, through `gs`), REF 8 qw to the skin record D_00816B40 + (context
+ * +0x9C) * 0x80, then 001D37D0(chan, model). 001D3CF0(chan, model):
+ * 001D3900(chan, model), 001D1F80(chan, 2, 2) again, REF 8 qw to
+ * D_00816E40 + (context +0x9C) * 0x80, then 001D3AD0(chan, model). The
+ * selector-3 thunks 001D3990 / 001D3D90 call them with chan 3 (decomp
+ * src/func_001D3900.c, func_001D3CF0.c, func_001D3990.c, func_001D3D90.c).
+ * `gs` must advance the channel's cursor past its REF. 0, or -1 on a fault
+ * (the room for this routine's own tags is checked before each part). */
+typedef int (*EmOwnerDrawGsState)(void *ctx, int32_t chan, int32_t a1, int32_t a2);
+int em_owner_draw_001D3900(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04,
+                           EmOwnerDrawGsState gs, void *ctx);
+int em_owner_draw_001D3CF0(EmOwnerDraw *s, int32_t chan, uint32_t model_address, uint32_t model_w04,
+                           EmOwnerDrawGsState gs, void *ctx);
 
 /* The DMA tag writer every submit of this chain uses, in the original's
  * store order: byte +3 = id, word +4 = address, halfword +0 = qwc (bytes +2

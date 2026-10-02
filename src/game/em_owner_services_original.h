@@ -210,6 +210,14 @@ typedef struct {
     int (*w_001B61C0)(void *ctx, uint8_t big, uint8_t small, int64_t duration, int32_t force);
     /* 001B6250(&D_00810E40): pad actuator stop. */
     int (*w_001B6250)(void *ctx);
+    /* Appended (the reference tests mirror the layout above).
+     * 001D3990(model) / 001D3D90(model): 001D3900 / 001D3CF0 with selector 3
+     * (001CABA0's object and clip passes on channel 3). */
+    int (*w_001D3990)(void *ctx, const EmOwnerModel *model);
+    int (*w_001D3D90)(void *ctx, const EmOwnerModel *model);
+    /* 001CAAC0(owner + 0xB0, node): the depth-sorted page CALL of the unit
+     * that starts at `node` (a host pointer into channel 3). */
+    int (*w_001CAAC0)(void *ctx, const EmOwnerServicesOwner *owner, const uint8_t *node);
 } EmOwnerServicesWorkers;
 
 typedef struct {
@@ -281,6 +289,14 @@ int em_owner_services_001CAA00(EmOwnerServices *s, EmOwnerServicesOwner *o);
 /* 001CA990(owner, position, f12 = radius bits). Returns 0. */
 int em_owner_services_001CA990(EmOwnerServices *s, EmOwnerServicesOwner *o,
                                const float position[3], uint32_t radius);
+/* 001CABA0(owner, model) (decomp func_001CABA0.c, the indicator draw
+ * 001CACB0 tail-calls it with the owner's +0x44): f = model +0x20 (20.0
+ * without a model); flags = 001CA7B0(owner +0xB0, f) (D_00275B44 + 0xB0:
+ * the walk's current owner); culled: nothing. Otherwise node = the
+ * channel-3 cursor, 001D8C20(1), 001C7420(owner, 0x3F5, 3), 001D3D90(model)
+ * when flags != 0 and flags & 1, else 001D3990(model); a RET tag on channel
+ * 3, 001D8C20(0) and 001CAAC0(owner + 0xB0, node). Returns 0. */
+int em_owner_services_001CABA0(EmOwnerServices *s, EmOwnerServicesOwner *o, const EmOwnerModel *model);
 /* 001C7420(owner, vuaddr, chan). Returns 0 and the channel cursor on entry
  * (the original return value) in *first, or -1. */
 int em_owner_services_001C7420(EmOwnerServices *s, const EmOwnerServicesOwner *o,

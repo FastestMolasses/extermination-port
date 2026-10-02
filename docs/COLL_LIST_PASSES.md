@@ -11,7 +11,7 @@ bound):
 | File | Contents |
 |---|---|
 | `src/game/em_coll_list_passes_walkers.h/.c` | 0019B7D0, 0019E280, 0019BA80, 001A3980, 0019E930, 0019F330, the camera-ground adapter |
-| `src/game/em_coll_list_passes.h/.c` | 001A9D20, 001A8DA0, 001A9F60, 001AA140, 001A7870, 001A8BE0, 001A8660, 001A9000, 001A97B0, 001A9B10, and 001AAD00's nine-hook sequence |
+| `src/game/em_coll_list_passes.h/.c` | 001A9D20, 001A8DA0, 001A9F60, 001AA140, 001A7870, 001A8BE0, 001A8660, 001A9000, 001A97B0, 001A9B10, and 001AAD00's nine-hook sequence; since 2026-10-02 also 001A9D20's pair callee 001A9C40 |
 | `tools/test_coll_list_passes_reference.py` | the original-instruction oracle for all of the above |
 
 No original code, data or disassembly is in these files. Tables the routines
@@ -39,6 +39,7 @@ the census rows), and since the one-owner step (2026-09-27, census 1.28)
 | 001A97B0 | BM | missing | verified-unbound | Class-0xD entries (status 1; type 3 with +0xD 0 and +0x56 != 0, type 5, or type 6 with +0xD 2) against the class-2 list (status 1, class byte not 0xA): inner types 0, 2..7, 9..11, 16..19, and 1 unless (+0xD 3 and (+5 == 9 or D_00810354 < 50.0)); handler by the outer type: 5 -> 001A9360, 3 -> 001A96F0, else 001A9480. |
 | 001A9B10 | BM | missing | verified-unbound | Class-2 type-0 entries whose +0x2D4 word >> 8 is 1..3 against the class-4 list: type 7 with a nonzero +0x38 float -> 001A99E0(outer, inner). |
 | 001A9D20 | BM | missing | verified-unbound | Class-1 x class-2 (counts in registers, re-read from the globals per outer entry): active inner types 0, 1, 4..7 -> 001A9C40(outer, inner). |
+| 001A9C40 | C, no NEARMISS marker (FUNCTIONS.csv: undecompiled); translated from the .s | missing | live (2026-10-02) | 001A9D20's pair callee: unless the inner record's +0 has bit 1, the distance of the two +0xB0 points (0011E748 over dx dx + dy dy + dz dz, the sum in the accumulator) against the inner record's radius by its +3 type (D_0026DB30: types 0 / 4 15.0, 1 / 5 / 6 / 7 20.0, any other none); inside it the inner +0x0A gets bit 0. First reached by the AIM capture aim_04 (an impact marker 0018ABA0, class 1, against Roger, class 2). Executed on its own by the oracle (section 3). |
 | 001A9F60 | BM | missing | verified-unbound | Unless 0x70003B8D or D_0028A9A0: class-2 entries with class byte 2, active, type 0 -> 001A9E00(player, entry). |
 | 001AA140 | BM | missing | verified-unbound | Class-2 unordered pairs (outer counter 0x70003B88, inner 0x70003B86 seeded from it), both passing class byte 2, type 0, +0x2D4 & 0xF == 0 and status != 2 -> 001AA000(a, b, a + 0x1F0, b + 0x1F0). |
 | 0019B7D0 | BM | (census: verified-unbound, but only hooked as a worker) | verified-unbound | Stages start = from, end = to, both w = 1.0, 0x700031D4 = 0; 0019E280; 4 on a hit (end restored), else 0x700031D0 = 0; 0x700031D8 = result. |
@@ -517,7 +518,8 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
      so `em_coll_list_passes_unported_behaviour` until it has one);
      `em_coll_list_passes_unported` for the pair workers 001A8840,
      001A8970, 001A8CE0, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480,
-     001A99E0, 001A9C40 and 001A9E00; `em_coll_list_passes_unported_001AA000`
+     001A99E0 and 001A9E00 (001A9C40 is bound to its translation
+     `em_coll_list_passes_001A9C40` since 2026-10-02); `em_coll_list_passes_unported_001AA000`
      and `em_coll_list_passes_unported_0021BD10` for those two. Keep each
      binding until its callee is translated. None of these callees ran on
      the census route, so the route never reaches the fault. A reached one
@@ -585,3 +587,29 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
     strict (the asserted margin) and 0019E930's -1 test;
   - not exercised: 0019E280's initial best span and its tie-break between
     equally narrow spans, and 0019F330's ring-edge test at dot == 1e-5.
+
+## 2026-10-02: 001A9C40 bound (chain step AIMLIVE's fix round)
+
+The AIM side run aim_world (AIM_FIRE.md section 10.5) was the first run to
+put a record on the class-1 list: the impact marker 0018ABA0. 001A9D20 then
+walked it against the class-2 list (Roger) and reached 001A9C40, which was
+`em_coll_list_passes_unported` (the scene faulted at 001A9D20). Now:
+
+- `em_coll_list_001A9C40` translates it from the instructions (the read
+  order: inner +0, then +0xB4, +0xB0, +0xB8 of both, the sum in the
+  accumulator, 0011E748, the inner +3 type through the jump table, the
+  zero-radius test, the c.le, the +0x0A read-modify-write), bound in
+  em_collision_world.
+- The passes' memory view reads the marker through its owner:
+  `em_collision_world_bind_records` (a second view after the owners' one,
+  bound by em_aim_fire_runtime to its own records: the pool header and
+  named fields).
+- tools/test_coll_list_passes_reference.py runs 001A9C40 on its own in
+  every world (`P9C40`, native case 11): every inner type 0..9 and 0x13 /
+  0x80 / 0xFF, the inner +0 status 0..3, the distances 15 and 20 exactly
+  ((9, 12, 0) and (0, 12, 16), sums the accumulator holds exactly) and one
+  ulp beyond, near and far, and the inner +0x0A's other bits kept: 5,460
+  staged runs compared byte for byte, and a separate pass asserts both
+  outcomes (inside / outside) on the original. Inside the passes it stays
+  a hooked boundary (the passes' worker log compares its calls).
+

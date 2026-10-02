@@ -10,6 +10,7 @@ route beats, docs/FIRST_LEVEL_ROUTE.md):
   001A4030  0x1000 n-gon prims
   0019FE50  the cell walker, both passes
   0019AD00  the move probe       0019AFE0  the sweep
+  0019B2C0  the actor-less probe (the knife's reach, 0018A1F0)
 
 The interpreter is the shared EE of test_player_slide_reference.py with its
 COP1 and VU0 macro replaced by tools/ee_float_model.py (docs/EE_FLOAT_MODEL.md
@@ -74,6 +75,7 @@ ROUTE = DECOMP / 'build/s87/route'
 FUNCTIONS = DECOMP / 'docs/FUNCTIONS.csv'
 
 MOVE, SWEEP, WALK = 0x19AD00, 0x19AFE0, 0x19FE50
+PROBE = 0x19B2C0
 ROUND, FACE, NGON = 0x1A4830, 0x1A4D10, 0x1A4030
 LOCK6440, LOCK7280, GRID, SQRT = 0x1A6440, 0x1A7280, 0x19CB60, 0x11E748
 WORKERS = (LOCK6440, LOCK7280, GRID)
@@ -552,6 +554,19 @@ int bridge_sweep(void *p, BridgeScratch *io, BridgeActor *actor, const uint32_t 
     return b->fault ? -2 : r;
 }
 
+/* 0019B2C0(a0, a1, flags): a0 is the record's +0xB0 (x, y, z bits in/out). */
+int bridge_probe(void *p, BridgeScratch *io, uint32_t *a0, const uint32_t *a1, uint32_t flags)
+{
+    Bridge *b = p;
+    b->fault = 0;
+    load(b, io);
+    float f[3] = { fb(a0[0]), fb(a0[1]), fb(a0[2]) }, t[3] = { fb(a1[0]), fb(a1[1]), fb(a1[2]) };
+    int r = em_coll_move_probe_0019B2C0(&b->world, &b->s, f, t, flags);
+    save(b, io);
+    for (int k = 0; k < 3; ++k) a0[k] = bf(f[k]);
+    return b->fault ? -2 : r;
+}
+
 int bridge_walk(void *p, BridgeScratch *io)
 {
     Bridge *b = p;
@@ -687,6 +702,7 @@ def build_native():
     n.bridge_move.argtypes = [V, C.POINTER(Scratch), C.POINTER(Actor), U32P, C.c_uint32]
     n.bridge_sweep.argtypes = [V, C.POINTER(Scratch), C.POINTER(Actor), U32P, U32P, C.c_uint32]
     n.bridge_walk.argtypes = [V, C.POINTER(Scratch)]
+    n.bridge_probe.argtypes = [V, C.POINTER(Scratch), U32P, U32P, C.c_uint32]
     n.bridge_prim.argtypes = [V, C.POINTER(Scratch), C.c_int, C.c_char_p]
     n.bridge_adapter.argtypes = [V, C.c_int, C.POINTER(Scratch), C.c_char_p, C.c_uint32, U32P, U32P, U32P,
                                  C.c_uint32, C.POINTER(Probe)]
@@ -967,7 +983,7 @@ def setup():
     GH.cp.OUT = OUT
     emcl, _, _ = GH.cp.export_emcl()
     assert NATIVE.bridge_global(str(emcl).encode(), ELF, len(ELF)) == 0, 'EMCL grid / SDK tables'
-    CODE_GRAPH = call_graph(ELF, (MOVE, SWEEP, WALK, ROUND, FACE, NGON, LOCK6440, LOCK7280, GRID, SQRT,
+    CODE_GRAPH = call_graph(ELF, (MOVE, SWEEP, WALK, PROBE, ROUND, FACE, NGON, LOCK6440, LOCK7280, GRID, SQRT,
                                   0x1028D0, 0x102760, 0x103230, 0x1028B8, 0x1028E8, 0x102738))
 
 
@@ -1629,6 +1645,48 @@ def move_case(w, who, owner, actor, s, e, flags, sweep, label):
     return run_move(r, label, at, eb, flags, sweep_from=sb if sweep else None, patch_actor=bytes(rec))[0]
 
 
+def probe_case(w, s, e, flags, label):
+    """0019B2C0(a0, a1, flags), the knife's reach probe (0018A1F0): a0 is a
+    synthetic record's +0xB0 (so the original may write only its +B0 / +B8),
+    a1 a vector in free RAM."""
+    global CURRENT
+    r = CURRENT = Runner(w)
+    sb, eb = vbits(s), vbits(e)
+    rec = bytearray(actor_bytes(1, 4, QUERY, 0, sb[0], sb[2], s[1]))
+    vec_at = QUERY + 0x800
+    setup_ram = [(QUERY, bytes(rec)), (vec_at, struct.pack('<4I', *eb, 0))]
+    act = Actor(1, 4, 0, QUERY, (C.c_uint32 * 3)(*sb))
+
+    def native(b, io):
+        return NATIVE.bridge_probe(b, C.byref(io), act.position, u32s(eb), flags)
+
+    return r.compare(label, native, PROBE, (QUERY + 0xB0, vec_at, flags), setup_ram=setup_ram, actor_at=QUERY,
+                     native_actor=act)[0]
+
+
+def probe_cases(rng):
+    """0019B2C0 over each world beat: segments near the owners' boxes and
+    short ones at the origin, every flag combination the walk reads (bit 0
+    is never tested by 0019B2C0; bit 31 moves a0's x / z)."""
+    import math
+    cases = []
+    for beat in WORLD_BEATS:
+        w = WORLDS[beat]
+        boxes = owner_boxes(w)
+        for k in range(60):
+            a, uid, box = rng.choice(boxes)
+            s, e = segment_near(box, rng)
+            flags = rng.choice((2, 4, 6, 7, 0x80000006, 0x80000002, 0x80000004, 0))
+            cases.append(('probe', beat, (s, e, flags, 'uid %d #%d' % (uid, k))))
+        for k in range(12):
+            t = rng.uniform(0, 2 * math.pi)
+            s = [rng.uniform(-0.5, 0.5), rng.uniform(-1, 1), rng.uniform(-0.5, 0.5)]
+            length = rng.choice((1e-3, 0.02, 0.3, 1.0))
+            e = [s[0] + math.cos(t) * length, s[1], s[2] + math.sin(t) * length]
+            cases.append(('probe', beat, (s, e, rng.choice((2, 6, 0x80000006)), 'origin #%d' % k)))
+    return cases
+
+
 def adapter_case(w, which, owner, s, e, mask, label):
     global CURRENT
     r = CURRENT = Runner(w)
@@ -1818,6 +1876,9 @@ def run_one(case):
         if kind == 'move':
             got = move_case(w, *args)
             return ('ok', 'sweep' if args[6] else 'move', got, tuple(CURRENT.last_calls))
+        if kind == 'probe':
+            got = probe_case(w, *args)
+            return ('ok', 'probe', got, tuple(CURRENT.last_calls))
         if kind == 'hull':
             got = hull_case(w, *args)
             return ('ok', 'hull ' + ('sweep' if args[5] else 'move'), got, tuple(CURRENT.last_calls))
@@ -2015,6 +2076,7 @@ def main():
     rng = random.Random(0x19AD00)
     prims, walks, moves, adapters = prim_cases(rng), walk_cases(rng), move_cases(rng), adapter_cases(rng)
     hulls = hull_cases(rng)
+    probes = probe_cases(random.Random(0x19B2C0))
     sel_prims = reference_mode.select(prims, 2400, 1, axes=(lambda c: (c[1], c[2][5].split('#')[0]),),
                                       keep=lambda i, c: c[2][5].startswith('exact ngon') or
                                       (c[2][2] == ROUND and not c[2][5].startswith('exact')))
@@ -2024,8 +2086,9 @@ def main():
     sel_adapters = reference_mode.select(adapters, 21, 4, axes=(lambda c: c[2][0],))
     sel_hulls = reference_mode.select(hulls, 80, 5, axes=(lambda c: (c[1], c[2][0], c[2][4]),
                                                          lambda c: c[2][6][0] if c[2][6] else 0))
+    sel_probes = reference_mode.select(probes, 60, 6, axes=(lambda c: (c[1], c[2][2]),))
     hull_masks = hull_mask_cases()        # every mode: the lock argument's z-only record test
-    cases = sel_prims + sel_walks + sel_moves + sel_adapters + sel_hulls + hull_masks
+    cases = sel_prims + sel_walks + sel_moves + sel_adapters + sel_hulls + sel_probes + hull_masks
     whole_route = reference_mode.FULL or os.environ.get('EM_TEST_ROUTE', '') not in ('', '0')
     SR.EE = FloatEE     # the route stages build their EE through this name
     routes = route_jobs(whole_route)
@@ -2044,6 +2107,7 @@ def main():
                           reference_mode.part(len(sel_moves), len(moves), 'move/sweep'),
                           reference_mode.part(len(sel_adapters), len(adapters), 'adapter'),
                           reference_mode.part(len(sel_hulls), len(hulls), 'hull-lock move/sweep'),
+                          reference_mode.part(len(sel_probes), len(probes), '0019B2C0 probe'),
                           '%d lock-argument move/sweep' % len(hull_masks),
                           '%d fail-stop checks' % checked)
     for f in failures[:20]:

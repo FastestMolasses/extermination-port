@@ -1,5 +1,6 @@
 #include "game/em_aim_fire_live.h"
 #include "game/em_aim_fire_control.h"
+#include "game/em_aim_fire_lamp.h"
 #include "game/em_aim_fire_machines.h"
 #include "game/em_aim_fire_marker.h"
 #include "game/em_aim_fire_pose.h"
@@ -86,6 +87,7 @@ static void signature(EmAimFireTargetCall *f)
     case 0x102918: case 0x1026A0: case 0x102718: case 0x1028B8: case 0x1028D0:
     case 0x1EFD90: f->na=3; f->nf=0; break;
     case 0x1F00A0: f->na=4; f->nf=0; break;
+    case 0x187780: f->na=3; f->nf=0; break;
     case 0x1EFD20: f->na=2; f->nf=0; break;
     case 0x1B1240: f->na=1; f->nf=2; break;
     case 0x1E8B90: f->na=f->nf=1; break;
@@ -276,6 +278,21 @@ static int dispatch(EmAimFireLive *h,EmAimFireTargetCall *f)
     }
     case 0x170A60: case 0x171320: case 0x171670: case 0x171B00: case 0x171E90: case 0x1723D0:
         return machine(h,f->function,a,em_ee_word_int(b));
+    case 0x187780: case 0x187690: {
+        /* The gun lamp (AIM_FIRE.md section 10): 00188ED0's 00187780 and
+         * its flare 00187690. Their cone 001D9530 is not composed: AREA11's
+         * D_008106C8 has 0x20000000, which skips it (a call faults). */
+        EmAimFireTarget lamp={0}; lamp.context=h; lamp.map=target_map; lamp.call=target_call; lamp.sp=sp;
+        int status=f->function==0x187780
+            ? em_aim_fire_lamp_00187780(&lamp,a,em_ee_word_int(b),em_ee_word_int(c))
+            : em_aim_fire_lamp_00187690(&lamp,a,b,c,em_ee_word_int((uint32_t)f->a[3]),f->a[4],f->f[0],f->f[1],f->f[2]);
+        if (status<0) {
+            if (!h->fault_function) h->fault_function=lamp.fault_function;
+            if (!h->fault_address) h->fault_address=lamp.fault_address;
+            return -1;
+        }
+        return 0;
+    }
     case 0x1860A0: case 0x1861C0: case 0x1869A0: case 0x186A60: case 0x1872C0: case 0x187CC0: {
         EmAimFireShots shots={h,em_aim_fire_live_map,shots_call};int32_t v0=0;
         TRY(em_aim_fire_shots_run(&shots,f->function,a,b,&v0));

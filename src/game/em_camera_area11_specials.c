@@ -7,12 +7,13 @@
  * these places (the doc, section 2, lists them with the addresses):
  *   - 00195130 area 8, room 3, default arm: the 0x70003A24 offset for the
  *     -20 limit is 0.5 * (t - limit) (00195584..00195598), not 0.5 * t;
- *   - 00193EB0 area 0x13: reaction 0xD is set when D_00810701 == 0
- *     (00194038), and the x >= 872 split sends z <= 900 to event 0xC with
- *     the 365 height limit and z > 900 to event 0xB (001940D8);
  *   - 00197490 codes 0x29 and 0xC return at once (0019756C, 0019754C):
  *     they do not clear +2/+3/+8; 00198440 gets (cam, player, 1);
  *   - 001936E0: 00193660 gets (cam, player) (00193918).
+ * 00193EB0's area 0x13 arm (reaction 0xD when D_00810701 == 0, 00194038;
+ * the x >= 872 split: z <= 900 to event 0xC with the 365 height limit,
+ * z > 900 to event 0xB, 001940D8) also differed; the decomp C was
+ * corrected to the instructions on 2026-10-02.
  * Every address in a comment is the original instruction translated there.
  * tools/test_camera_area11_specials_reference.py executes the original
  * instructions and compares every byte, word and worker call. */

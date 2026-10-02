@@ -165,11 +165,7 @@
  * real em_input event API, then the final position/yaw is printed and the
  * loop quits (see move_test_script). Combine with EM_CAPTURE to grab a
  * mid-walk frame (the move test suppresses the capture path's early quit).
- * EM_WEAPON_TEST=1 runs the scripted firing-loop self-test (draw, semi
- * fire, the empty-mag auto-reload, full-auto cadence, manual top-up,
- * holster — see weapon_test_script / em_weapon.h).
  */
-#include "game/em_aim_fire_diagnostic.h"
 #include "game/em_game.h"
 
 #include <dirent.h>
@@ -1100,32 +1096,6 @@ void em_game_legacy_enemy_tick(void)
     em_enemy_update(&g.coll, g.pos);
 }
 
-/* The player-side residue of the legacy block: the weapon update (WP-15).
- * It has no pool owner in the original. (The damage/vitals tick that also
- * ran here moved to the player stage in S11b, em_player_frame.c.) */
-void em_game_legacy_player_residue(void)
-{
-    if (em_aim_fire_diagnostic()) return;
-    /* WEAPON: the player-side armed-stance/fire state machine (engine:
-     * part of the player actor update, modes 0x1D..0x20) plus the
-     * gun-actor fire-event consumption (engine: pool tick, one-frame
-     * latency) — both in em_weapon_update; see em_weapon.h. During the
-     * door-transit INPUT LOCK the machine reads NEUTRAL input (actions
-     * ignored: no draw/fire/reload; a held stance settles to holstered),
-     * keeping its per-frame timers ticking. */
-    {
-        static const EmFrameInput kNeutral = { 0x80, 0x80, 0x80, 0x80,
-                                               0, 0, 0 };
-        /* the hit-reaction/death lock reads NEUTRAL like the transit
-         * lock (engine state 2 clears the trigger latch +0x274/+0x276
-         * every frame — func_0015BA50 tail) */
-        em_weapon_update(&g.coll, g.pos, g.yaw,
-                         (em_door_movement_locked() ||
-                          player_damage_locked()) ? &kNeutral
-                                                : em_frame_input());
-    }
-}
-
 /* The whole legacy block, in its old order: the `legacy_world` node. */
 void em_game_legacy_pool_gameplay(void)
 {
@@ -1148,7 +1118,6 @@ void em_game_legacy_pool_gameplay(void)
     (void)em_game_legacy_door_tick();
     em_game_legacy_examine_tick();
     em_game_legacy_enemy_tick();
-    em_game_legacy_player_residue();
 }
 
 /* 001AE6B0's 001AFD70(1) position: the S10a cutscene legacy block, kept
@@ -1726,8 +1695,6 @@ static void game_install_state(void)
     g.slider_test  = sl && sl[0] == '1';
     const char *lk = getenv("EM_LOCKED_TEST");
     g.locked_test  = lk && lk[0] == '1';
-    const char *wt = getenv("EM_WEAPON_TEST");
-    g.weapon_test  = wt && wt[0] == '1';
     const char *et = getenv("EM_ENEMY_TEST");
     if (et && et[0] >= '1' && et[0] <= '3')
         g.enemy_test = et[0] - '0';
@@ -1899,6 +1866,3 @@ int em_game_anim_frame(void)
 }
 
 /* Manual aim steer state (em_game.h) */
-float em_game_aim_pitch(void)     { return g.aim_pitch; }
-float em_game_aim_yaw_blend(void) { return g.aim_yawb; }
-void  em_game_aim_dir(float out[3]) { aim_dir_get(out); }

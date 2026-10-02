@@ -128,14 +128,3 @@ int em_player_draw_live_001CAA00(void)
     return em_owner_draw_live_001CAA00_attached(bank, v, rgb, EM_PLAYER_DRAW_LIVE_RECORD, regions, (unsigned)n);
 }
 
-int em_player_draw_live_node_world(unsigned node, float out16[16])
-{
-    const EmPlayerLiveActor *p = player_states_actor();
-    if (!out16 || !p || node >= p->bytes[0x0C] || node >= EM_OWNER_SERVICES_MAX_BONES ||
-        !em_scene_bindings_player_record_drawn())
-        return 0;
-    const uint8_t *n = player_pose_record_bytes(rd32(p->bytes + 0x110 + 4u * node) + 0x90u, 0x40);
-    if (!n) return 0;
-    memcpy(out16, n, 0x40);
-    return 1;
-}

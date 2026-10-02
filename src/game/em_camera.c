@@ -375,124 +375,6 @@ static int cam_yaw_blocked(const EmCamera *cam, float yaw)
  * cursor +0x74, fires per-scene cues via func_001B1E20 and calls
  * func_001D25F0(224.0f / tanf(pi*(v/1.45f)/180.0f)) from the sampled fov
  * v clamped to [0.5, 45]; em_cinematic_playback ports it, audit H4). */
-/* MODE 1 — the over-shoulder AIM camera, DECODED (func_00197D20
- * dispatcher + func_00197740 entry / func_00197870 steady — the "AIM
- * CAMERA MODE 1" constants block above; replaces the old +0x8C
- * target-height stand-in AND the R1 cam_yaw_seek). The entry phase
- * frames the player from the current camera heading; the steady phase
- * looks from 30 u behind the FACING toward a point 16 u along the AIM
- * DIRECTION — the view down the barrel toward the laser dot.
- * RE-VERIFIED: src/func_00197740.c (byte-matched) writes cam+0x20 =
- * player + rotY(spad3B50)*(0,19,6) and cam+0x10 = player +
- * rotY*(0,19,-30), then chases the ACTUAL target at 0.4;
- * src/func_00197870.c [NEARMISS] writes cam+0x20 = base + dir*16 with
- * +0x24 = base.y + 19 + dir.y*16, cam+0x10 = base + rotY*(0,0,-30) and
- * cam+0x14 = 19 + (-30*dir.y) + base.y, then chases at 0.6.
- * RE-CONFIRMED 2026-07 audit. src/func_00197740.c [BYTE-MATCHED] builds
- * the two offsets from the literals 0x41980000 (19.0) / 0x40C00000
- * (6.0) and 0x41980000 / 0xC1F00000 (-30.0), transformed by the
- * spad-3B50 rotation with func_001031E0(D_70003430, arg1+0xA0)
- * supplying the translation, then chases the actual target at 0.4f on
- * both axes. src/func_00197D20.c [NEARMISS] confirms the phase gate is
- * the player sub-state byte `arg1+0x1F1 == 1`, that the steady phase
- * needs action code 13 or 42, and that the 8-u min-distance push lives
- * in case 1 alone. src/func_00197870.c [NEARMISS] confirms the frozen
- * R2 base (`arg1+0x230 == 0x2A -> D_70003040`, staged once into
- * D_70003A10 and used by the target, the eye transform, the eye height
- * and the anti-close test), the unclamped -30*dir.y in the eye height
- * vs the -25 floor on f20 alone, and the [+2, +30] / [+11, +30] (bit
- * cam+0x5A & 0x10) clamp pair. */
-/* Steady-phase f20 (the pitch-derived anti-close offset, func_00197870's
- * `f20 = 22 + clamp(-30*dir.y, >= -25)` when that product < -22). The
- * engine consumes it AFTER the aim solver runs, so camera_solve reads it
- * back — see the anti-close block there. 0 outside the steady phase. */
-static float cam_aim_f20;
-
-static void camera_mode1_aim(EmCamera *cam)
-{
-    /* sub 1 -> 2 when the aim pose commits (engine: player +0x1F1 == 1
-     * gates the sub advance in func_00197D20) */
-    if (cam->aim_phase == 0) cam->aim_phase = 1;
-    if (cam->aim_phase == 1 && em_game_anim_active() == 0x112)
-        cam->aim_phase = 2;
-
-    if (cam->aim_phase == 1) {
-        /* func_00197740: TARGET = player + rotY(spad3B50)*(0,19,6),
-         * EYE = player + rotY*(0,19,-30). No solver-side anti-close in
-         * this phase (func_00197740 never computes one).
-         *
-         * AUDIT CORRECTION — the YAW SOURCE. src/func_00197740.c opens
-         * with `func_00102948(arg0 + 0x30, &D_70003B50)` and builds the
-         * rotation from that copy, and spad D_70003B50 is the ACTOR's
-         * euler block: src/func_00182F90.c and src/func_0015BCF0.c both
-         * stage it as `func_00102948(D_70003B50, actor + 0xC0)`, and
-         * +0xC4 (its Y word) is the player heading every other camera
-         * function reads as `other + 0xC4` (src/func_001921D0.c,
-         * src/func_00191000.c). So the entry pose frames the player from
-         * the PLAYER'S FACING, not the chase camera's heading — the same
-         * anchor the steady phase below already uses (g.yaw, via
-         * src/func_00197870.c's identical D_70003B50 rotation). The port
-         * read cam->yaw here, so raising the weapon swung the entry shot
-         * to wherever the chase camera happened to sit and then popped to
-         * the facing on the first steady frame. */
-        float ey = g.yaw;
-        cam_aim_f20 = 0.0f;
-        cam->tgt_des[0] = g.pos[0] + sinf(ey) * CAM_AIM_ENTRY_FWD;
-        cam->tgt_des[1] = g.pos[1] + CAM_AIM_TGT_UP;
-        cam->tgt_des[2] = g.pos[2] + cosf(ey) * CAM_AIM_ENTRY_FWD;
-        cam->eye_des[0] = g.pos[0] - sinf(ey) * CAM_AIM_EYE_BACK;
-        cam->eye_des[1] = g.pos[1] + CAM_AIM_TGT_UP;
-        cam->eye_des[2] = g.pos[2] - cosf(ey) * CAM_AIM_EYE_BACK;
-        return;
-    }
-
-    /* func_00197870 steady. The R2 stance (player state 0x2A) bases
-     * the shot on the position SAVED AT ENTRY (spad D_70003040); the
-     * R1 stance (0xD) tracks the live position.
-     *
-     * AUDIT CORRECTION: src/func_00197870.c stages that base ONCE into
-     * spad D_70003A10 and then anchors EVERYTHING on it — the target
-     * (`arg0+0x20 += 0x70003A10`), the eye (func_001031E0 seeds the
-     * eye transform's translation from D_70003A10), the eye height
-     * (`arg0+0x14 = 19 + (0x70003604 + 0x70003A14)`) and the anti-close
-     * test (`func_001028D0(D_70003630, arg0+0x10, D_70003A10)`). The
-     * port anchored only the target on it and used the LIVE player
-     * position for the eye, so the R2 stance's frozen shot drifted with
-     * the player instead of staying put. */
-    float dir[3];
-    aim_dir_get(dir);
-    const float *base = (g.r2_aim && !em_weapon_is_aiming())
-                      ? cam->aim_entry : g.pos;
-    cam->tgt_des[0] = base[0] + dir[0] * CAM_AIM_TGT_FWD;
-    cam->tgt_des[1] = base[1] + CAM_AIM_TGT_UP + dir[1] * CAM_AIM_TGT_FWD;
-    cam->tgt_des[2] = base[2] + dir[2] * CAM_AIM_TGT_FWD;
-
-    /* EYE: 30 u behind the player FACING (rotEuler(player rot) — it
-     * tracks the turn-in-place), height countering the aim pitch.
-     * NOTE (engine order): eye.y uses the UNCLAMPED -30*dir.y; only
-     * f20 sees the -25 floor. Both land under the +2 lower clamp
-     * below, so the port's shared `v` is observationally identical —
-     * kept as one variable for readability. */
-    float v = -CAM_AIM_EYE_BACK * dir[1];     /* -30*dir.y */
-    cam_aim_f20 = 0.0f;
-    if (v < -22.0f) {
-        if (v < -25.0f) v = -25.0f;
-        cam_aim_f20 = 22.0f + v;              /* in [-3, 0] */
-    }
-    cam->eye_des[0] = base[0] - sinf(g.yaw) * CAM_AIM_EYE_BACK;
-    cam->eye_des[2] = base[2] - cosf(g.yaw) * CAM_AIM_EYE_BACK;
-    float eyy = base[1] + CAM_AIM_TGT_UP + v;
-    if (eyy > base[1] + 30.0f) eyy = base[1] + 30.0f;
-    if (eyy < base[1] + 2.0f)  eyy = base[1] + 2.0f;   /* flag areas: +11 */
-    cam->eye_des[1] = eyy;
-    /* The < 7 u anti-close RAISE is NOT applied here: func_00197870
-     * runs it AFTER func_0018D7B0(cam, 2) — i.e. on the SOLVED eye,
-     * once the wall solver has pulled it in. See camera_solve. */
-    /* struct yaw (+0x44/+0x9C bookkeeping): the sight-line heading */
-    cam->yaw = atan2f(cam->tgt_des[0] - cam->eye_des[0],
-                      cam->tgt_des[2] - cam->eye_des[2]);
-}
-
 static void camera_mode_dispatch(EmCamera *cam)
 {
     /* The original gives the player NO free camera control. This is an
@@ -523,7 +405,6 @@ static void camera_mode_dispatch(EmCamera *cam)
      * [BYTE-MATCHED] holds the only pad read in the recovered graph and
      * src/func_001921D0.c the only idle timer.) */
     const EmFrameInput *in = em_frame_input();
-    int aim_on = em_weapon_is_aiming() || g.r2_aim;
 
     /* FIXED-CAMERA REGION. The room cameras themselves are scene DATA
      * the port authors (scene.txt `camregion`), transcribed from PCSX2
@@ -536,19 +417,7 @@ static void camera_mode_dispatch(EmCamera *cam)
      * takes control — releasing it falls back to the room spec the
      * SAME frame (the instant snap, applied below). */
     const EmCamRegion *rg = camregion_find();
-    g.cam_region_on = (rg != NULL) && !aim_on;
-
-    /* MODE 1 — aim camera. It runs inside fixed-camera regions too:
-     * src/func_0018BC20.c reaches func_00197D20 straight off the action
-     * byte, with no region test anywhere on that path (the room
-     * director is a SIBLING action, case 0 -> func_00195130). */
-    if (aim_on) {
-        camera_mode1_aim(cam);
-        g.cam_recenter = 0;
-        cam->timer    = 0;
-        cam->orbit_on = 0;
-        return;
-    }
+    g.cam_region_on = rg != NULL;
 
     if (rg) {
         g.cam_recenter = 0;          /* L1/R1-tap reorients are ignored */
@@ -672,8 +541,7 @@ static void camera_mode_dispatch(EmCamera *cam)
      * `d >= 0 -> !(self+7 & 2)`, with the arc side written as self+3 =
      * 0 and 1 respectively. */
     int idle_ok = g.gait == 0 && g.move_speed <= 0.0f &&
-                  !g.cam_recenter && !(in->held & EM_PAD_L1) &&
-                  !em_weapon_is_melee();
+                  !g.cam_recenter && !(in->held & EM_PAD_L1);
     if (!idle_ok) {
         cam->timer    = 0;
         cam->orbit_on = 0;
@@ -742,7 +610,7 @@ static void camera_mode_dispatch(EmCamera *cam)
      * below: at the pinned +X eye its primary probe is clear, so it is a
      * no-op horizontally (PCSX2: the dead-band-frozen settle). */
     if (g.opencam_on) {
-        int disarm = g.move_speed != 0.0f || cam->aim_phase ||
+        int disarm = g.move_speed != 0.0f ||
                      cam->orbit_on || g.cam_recenter || g.cam_region_on;
         if (disarm) {
             g.opencam_on = 0;        /* hand the camera back to the solver */
@@ -1411,371 +1279,6 @@ static int cam_solver_0018DD20(EmCamera *cam)
     return bits;
 }
 
-/* func_0018F870 — the AIM/scope wall solver, DECODED 2026-06-11 (s64)
- * from the full 0x16A4 .s read; retires the flagged CAM_WALL_MARGIN
- * stand-in. Style 2 = the aim camera (mode 1, mask 7 — movable hulls
- * IN); style 6 = the scope camera (same first stage, NO lateral
- * stages — not reachable natively, noted inline). The user-observed
- * "R1 keeps the pull-in" is engine truth — the differences from the
- * follow solver are:
- *
- *  1. PRIMARY PROBE runs from the player record's RAISED BODY ANCHOR
- *     at +0xB0 — not the desired target, which in aim rides the gun ray
- *     16 u ahead, and NOT the ground root at +0xA0 either — to
- *     the desired eye extended 1.5 u. A hit sets result bit 1 (the
- *     follow solver's plain pull-in returns 0) and publishes the
- *     class (cam+0x58). GLANCING = dot(horiz TARGET-ward sight dir,
- *     horiz normal) < 0.99 — a much tighter square-on gate than the
- *     follow solver's sin45.
- *  2. FIRST STAGE (every hit — NO head-clear waiver, NO wedge eject):
- *      - non-wall class: widen the carried Y bound to admit the hit
- *        (ceiling-class: y_lo down to hit.y, bit 8; floor-class: y_hi
- *        up to hit.y, bit 0x10), then eye = hit (ALL 3 AXES) + 0.5 *
- *        dir on x/z (dir = unit player->ext-eye) — the eye rides the
- *        blocking surface; the -1/+1 standoff is applied by the final
- *        Y policy below.
- *      - wall (or any other class): PULL-IN, eye x/z = hit + 0.5 *
- *        dir, HEIGHT KEPT — then eye.y clamps into the PREVIOUS
- *        frame's bounds (cam+0x50/+0x54)… UNLESS the hit came from
- *        the GRID walker (engine hub return 4): then the bounds are
- *        RE-DERIVED at (hit - 1*dir) via func_0018CE60 and the clamp
- *        uses the fresh pair.
- *  3. LATERAL STAGE:
- *      - blocked SQUARE-ON (not glancing): the CORNER SLIDE — a lane
- *        1 u off the wall through the eye, swept -3 .. +5.5 u along
- *        the wall face (along = wall-normal yaw - 90). A DIFFERENT
- *        wall in the lane (normal dot vs the first < 0.9) places the
- *        eye 5.5 u back from it along the wall [bits 2 / 4 by side;
- *        the second side only probes if the first found nothing] —
- *        the over-shoulder eye slides out of corner notches.
- *      - clear OR glancing: the 5.5-u SIDE stage, the follow solver's
- *        shape with the same constants (glancing sweep starts 3 u on
- *        the far side; rejects: ceiling-case cross dot < -0.08
- *        against the horiz PLAYER-ward dir, same-wall dot < -0.998;
- *        NO far-end-graze check and NO confirm re-probe — simpler
- *        than the follow solver), candidates at (hit -/+ side vec) +
- *        0.1 along the probe ray, both-sides -> midpoint corridor
- *        centering, right-side bit-8/bit-1 quirks kept verbatim.
- *  4. FINAL Y POLICY (blocked, non-wall class): ceiling-class ->
- *     eye.y = min(eye.y, hit.y - 1); floor-class -> eye.y =
- *     max(eye.y, hit.y + 1).
- *  5. CONFIRM RE-PROBE (any response bits 0x1F): the +0xB0 anchor ->
- *     eye; still blocked -> eye x/z = the NEW hit point (no pad).
- *  6. NEW BOUNDS for the NEXT frame (written, NOT applied): this one
- *     really does anchor on the GROUND ROOT (src/func_0018F870.c:
- *     `func_00102948(D_700038F0, other + 0xA0); *0x700038F4 += 11.0f`),
- *     from the eye pulled 1.0 toward player + 11 up, 200 down (0x7000)
- *     -> lower = floor + 2.0 (the follow solver's +17 becomes +2: the
- *     aim eye may ride 2 u over the floor — why aiming can look from
- *     ankle height); 200 up (0x8800) -> upper = ceiling - 1, else
- *     eye + 200; lower forced to upper - 3.
- *  (Engine per-area specials omitted, flagged: area 0x12 clamps eye.z
- *  to [169.5, 230.6] and swaps the no-ceiling upper bound for a
- *  player-up probe — with a stale-scratch quirk when THAT misses;
- *  no native area ids.)
- *
- * Returns the result-bit byte -> cam->hit. The mode-1 handler's own
- * eye-Y clamps ([player.y+2, +30]) and the dispatcher's 8-u min-
- * distance push (camera_solve tail) then run downstream, exactly like
- * the engine.
- *
- * RE-CONFIRMED 2026-07 audit against src/func_0018F870.c [NEARMISS
- * 94.15%]: the primary probe is `func_00102948(D_700038B0, other+0xB0)`
- * -> extended eye, `flags = 1` on any hit, the glancing gate is
- * `< 0.99f` against the horiz TARGET-ward dir, the non-wall first stage
- * ASSIGNS `flags = 8` / `flags = 0x10` and copies all three axes of the
- * hit, the grid-hit (`hit0 == 4`) arm re-derives the bounds through
- * func_0018CE60, the lateral-mode select is `anim == 6 -> none;
- * !glancing && hit -> corner slide; else -> side stage`, the confirm
- * re-probe is gated on `(flags & 0x1F) != 0` and parks on the raw hit
- * point, and the next-frame bounds anchor on `other + 0xA0` + 11.0f
- * with floor + 2.0f / ceiling - 1.0f. */
-static int cam_solver_0018F870(EmCamera *cam)
-{
-    const unsigned mask = EM_COLL_SET_CELLS | EM_COLL_SET_GRID |
-                          EM_COLL_SET_HULLS;          /* style-2 mask 7 */
-    float *eye = cam->eye_des;                /* cam+0x10, in place */
-    const float *tgt = cam->tgt_des;          /* cam+0x20 */
-    EmCollHit hit;
-    int   bits = 0, glancing = 0, blocked;
-    float ext_eye[3];                 /* spad 38A0 (extended eye)     */
-    float first_pt[3] = { 0, 0, 0 };  /* spad 38C0/3950 (1st hit)     */
-    float first_n[3]  = { 0, 0, 0 };  /* spad 38E0 (1st hit normal)   */
-    float pdir[3]     = { 0, 0, 0 };  /* spad 3960 (horiz player-ward
-                                         sight dir)                   */
-    float dir[3]      = { 0, 0, 0 };  /* spad 38A0' (unit player->eye)*/
-    uint16_t attr = 0;
-
-    /* 1. PRIMARY PROBE — the +0xB0 body anchor -> eye extended 1.5 u.
-     * PORT DIFFERENCE (flagged, not source-derived): src/func_0018F870.c
-     * casts this probe (and the step-5 confirm) from `other + 0xB0`, a
-     * RAISED anchor distinct from the ground root at +0xA0 — the same
-     * pair src/func_0018D330.c brackets when it probes from +0xB4 + 4
-     * DOWN to +0xA4 - 2, and the same split src/func_001916C0.c shows by
-     * writing `11 + arg1+0xA4` for the +0xA0 presets against a bare
-     * `arg1+0xB4` for the +0xB0 ones. Nothing in the recovered call
-     * graph pins the exact +0xB4 - +0xA4 offset, and the port models
-     * only one player position, so it substitutes the ground root here.
-     * Consequence: near a floor or slope this probe can catch geometry
-     * the engine's chest-height ray clears. Do NOT "fix" this by
-     * guessing the offset — recover the player record's +0xB0 writer
-     * first. */
-    {
-        float d[3] = { eye[0] - g.pos[0], eye[1] - g.pos[1],
-                       eye[2] - g.pos[2] };
-        cam_norm3(d);
-        ext_eye[0] = eye[0] + SOLV_EXT * d[0];
-        ext_eye[1] = eye[1] + SOLV_EXT * d[1];
-        ext_eye[2] = eye[2] + SOLV_EXT * d[2];
-    }
-    blocked = em_collision_camera_query(&g.coll, g.pos, ext_eye, mask,
-                                         &hit);
-    if (blocked) {
-        int from_grid = hit.kind == EM_COLL_SET_GRID; /* hub return 4 */
-        bits = 1;                     /* a plain aim block returns 1  */
-        attr = hit.surf_class;
-        cam->hit_attr = attr;                          /* cam+0x58 */
-        memcpy(first_pt, hit.point, sizeof first_pt);
-        memcpy(first_n, hit.normal, sizeof first_n);
-        {
-            float tdir[3] = { tgt[0] - eye[0], 0.0f, tgt[2] - eye[2] };
-            cam_norm3(tdir);
-            if (tdir[0] * first_n[0] + tdir[2] * first_n[2]
-                    < AIMS_GLANCE_COS)
-                glancing = 1;
-        }
-        pdir[0] = g.pos[0] - eye[0];
-        pdir[2] = g.pos[2] - eye[2];
-        cam_norm3(pdir);
-        dir[0] = ext_eye[0] - g.pos[0];
-        dir[1] = ext_eye[1] - g.pos[1];
-        dir[2] = ext_eye[2] - g.pos[2];
-        cam_norm3(dir);
-
-        /* 2. FIRST STAGE — no waiver, no wedge eject. */
-        if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN |
-                    EM_SURF_FLOOR | EM_SURF_SLOPE)) {     /* 0xD800 */
-            /* AUDIT CORRECTION: src/func_0018F870.c ASSIGNS here
-             * ("flags = 8;" / "flags = 0x10;"), clearing the primary-hit
-             * bit 1 exactly like the follow solver's ceiling duck. The
-             * port OR-ed, leaving 9 / 0x11 in cam->hit. */
-            if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
-                if (first_pt[1] < cam->y_lo) cam->y_lo = first_pt[1];
-                bits = 8;
-            } else {
-                if (first_pt[1] > cam->y_hi) cam->y_hi = first_pt[1];
-                bits = 0x10;
-            }
-            eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
-            eye[1] = first_pt[1];          /* full copy: ride the hit */
-            eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
-        } else {
-            /* wall/other: PULL-IN at constant height — "R1 keeps the
-             * pull-in" (the user's note) is engine truth. */
-            eye[0] = first_pt[0] + SOLV_PULL_IN * dir[0];
-            eye[2] = first_pt[2] + SOLV_PULL_IN * dir[2];
-            if (from_grid) {
-                float pb[3] = { first_pt[0] - dir[0],
-                                first_pt[1] - dir[1],
-                                first_pt[2] - dir[2] };
-                cam_bounds_settle_0018CE60(cam, pb, 2);
-            } else {
-                if (eye[1] <= cam->y_lo) eye[1] = cam->y_lo;
-                if (eye[1] >= cam->y_hi) eye[1] = cam->y_hi;
-            }
-        }
-        /* EM_CAMERA_TRACE=1 — first-stage branch (debug). */
-        {
-            static int trace = -1;
-            if (trace < 0)
-                trace = getenv("EM_CAMERA_TRACE") != NULL;
-            if (trace)
-                printf("camera: frame %d 0018F870 BLOCKED attr 0x%04x "
-                       "%s-> des eye %.2f %.2f %.2f (player %.2f %.2f "
-                       "%.2f)\n", g.frame_no, attr,
-                       glancing ? "[glancing] " : "",
-                       eye[0], eye[1], eye[2],
-                       g.pos[0], g.pos[1], g.pos[2]);
-        }
-    }
-
-    /* 3. LATERAL STAGE (style 6 scope would skip it entirely). */
-    if (blocked && !glancing) {
-        /* CORNER SLIDE — a lane 1 u off the wall, -3 .. +5.5 along it. */
-        float ayaw = cam_wrap_pi(atan2f(first_n[0], first_n[2])
-                                 - EM_PI * 0.5f);
-        float ua[3] = { sinf(ayaw), 0.0f, cosf(ayaw) }; /* unit along */
-        float av[3] = { SOLV_SIDE * ua[0], 0.0f, SOLV_SIDE * ua[2] };
-        float base[3] = { eye[0] + AIMS_CORNER_OFF * first_n[0],
-                          eye[1] + AIMS_CORNER_OFF * first_n[1],
-                          eye[2] + AIMS_CORNER_OFF * first_n[2] };
-        for (int side = 0; side < 2; side++) {
-            float sgn = side == 0 ? 1.0f : -1.0f;
-            float st[3] = { base[0] - sgn * AIMS_CORNER_BACK * ua[0],
-                            base[1],
-                            base[2] - sgn * AIMS_CORNER_BACK * ua[2] };
-            float en[3] = { base[0] + sgn * av[0],
-                            base[1],
-                            base[2] + sgn * av[2] };
-            if (em_collision_camera_query(&g.coll, st, en, mask,
-                                           &hit) &&
-                (hit.surf_class & EM_SURF_WALL) &&
-                cam_dot3(hit.normal, first_n) < AIMS_WALL_DOT) {
-                eye[0] = hit.point[0] - sgn * av[0];
-                eye[2] = hit.point[2] - sgn * av[2];
-                bits |= side == 0 ? 2 : 4;
-                break;     /* the second lane probes only if the first
-                              found nothing (engine: s2 & 2 gate) */
-            }
-        }
-    } else if (!blocked || glancing) {
-        /* SIDE STAGE — the follow solver's shape, aim variant: no
-         * far-end-graze check, no confirm re-probe. */
-        float syaw = cam_wrap_pi(atan2f(tgt[0] - eye[0],
-                                        tgt[2] - eye[2]) - EM_PI * 0.5f);
-        float su[3] = { sinf(syaw), 0.0f, cosf(syaw) };  /* unit side */
-        float sv[3] = { SOLV_SIDE * su[0], 0.0f, SOLV_SIDE * su[2] };
-        float lpt[3] = { 0, 0, 0 }, rpt[3] = { 0, 0, 0 };
-        float cand_a[3], cand_b[3];
-        int   raw_l = 0, raw_r = 0;   /* lane hit, not dot-rejected */
-        memcpy(cand_a, eye, sizeof cand_a);
-        memcpy(cand_b, eye, sizeof cand_b);
-        for (int side = 0; side < 2; side++) {
-            float sgn = side == 0 ? 1.0f : -1.0f;
-            float st[3], en[3], gate;
-            if (!blocked) {
-                st[0] = eye[0]; st[1] = eye[1]; st[2] = eye[2];
-            } else {
-                st[0] = eye[0] - sgn * AIMS_CORNER_BACK * su[0];
-                st[1] = eye[1];
-                st[2] = eye[2] - sgn * AIMS_CORNER_BACK * su[2];
-            }
-            en[0] = eye[0] + sgn * sv[0];
-            en[1] = eye[1];
-            en[2] = eye[2] + sgn * sv[2];
-            if (!em_collision_camera_query(&g.coll, st, en, mask,
-                                            &hit))
-                continue;
-            gate = 0.0f;
-            if (blocked) {            /* glancing-only validation */
-                if (bits & 8) {       /* 1st stage was ceiling-class */
-                    gate = cam_dot3(hit.normal, pdir);
-                    if (gate < SOLV_CROSS_DOT) continue;
-                } else {
-                    gate = cam_dot3(hit.normal, first_n);
-                    if (gate < SOLV_OPPOSE_DOT) continue;
-                }
-            }
-            if (side == 0) { raw_l = 1; memcpy(lpt, hit.point, 12); }
-            else           { raw_r = 1; memcpy(rpt, hit.point, 12); }
-            /* response window (non-glancing: gate in (-0.3, 0.9)) */
-            if (!glancing &&
-                (!(gate < SOLV_GATE_HI) || gate <= SOLV_GATE_LO))
-                continue;
-            {
-                float rd[3] = { en[0] - st[0], en[1] - st[1],
-                                en[2] - st[2] };
-                float c[3]  = { hit.point[0] - sgn * sv[0],
-                                hit.point[1],
-                                hit.point[2] - sgn * sv[2] };
-                float *cand = side == 0 ? cand_a : cand_b;
-                cam_norm3(rd);
-                if (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
-                    if (-hit.normal[1] < AIMS_WALL_DOT) {
-                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
-                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
-                        bits |= side == 0 ? 2 : 4;
-                    } else {
-                        /* flat underside: keep the candidate's own Y
-                         * (right side sets bit 8 only — never applied
-                         * below, engine quirk kept) */
-                        cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
-                        cand[1] = c[1];
-                        cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
-                        bits |= side == 0 ? 0xA : 0x8;
-                    }
-                } else if (hit.surf_class & EM_SURF_WALL) {
-                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
-                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
-                    bits |= side == 0 ? 2 : 4;
-                } else {
-                    /* other class (right side: bit 1 only, quirk) */
-                    cand[0] = c[0] + SOLV_SIDE_PAD * rd[0];
-                    cand[1] = c[1];
-                    cand[2] = c[2] + SOLV_SIDE_PAD * rd[2];
-                    bits |= side == 0 ? 3 : 1;
-                }
-            }
-        }
-        /* selection (engine: midpoint whenever the OTHER lane also hit
-         * something it did not dot-reject, even window-failed) */
-        if ((bits & 6) == 6 || ((bits & 2) && raw_r) ||
-            ((bits & 4) && raw_l)) {
-            eye[0] = 0.5f * (lpt[0] + rpt[0]);   /* corridor centering */
-            eye[2] = 0.5f * (lpt[2] + rpt[2]);
-        } else if (bits & 2) {
-            memcpy(eye, cand_a, 12);             /* full copy, incl. Y */
-        } else if (bits & 4) {
-            memcpy(eye, cand_b, 12);
-        }
-    }
-
-    /* 4. FINAL Y POLICY (blocked by a NON-wall class). */
-    if (blocked && !(attr & EM_SURF_WALL)) {
-        if (attr & (EM_SURF_CEIL | EM_SURF_STEEPDN)) {
-            float lim = first_pt[1] - 1.0f;      /* stay under it */
-            if (eye[1] > lim) eye[1] = lim;
-        } else {
-            float lim = first_pt[1] + 1.0f;      /* ride over it */
-            if (eye[1] < lim) eye[1] = lim;
-        }
-    }
-
-    /* 5. CONFIRM RE-PROBE — any response moved the eye: re-test the
-     * player->eye line; still blocked -> park ON the new hit (x/z,
-     * height kept, no pad). */
-    if ((bits & 0x1F) &&
-        em_collision_camera_query(&g.coll, g.pos, eye, mask,
-                                   &hit)) {
-        eye[0] = hit.point[0];
-        eye[2] = hit.point[2];
-    }
-
-    /* 6. NEW BOUNDS for the NEXT frame (written, not applied here). */
-    {
-        float anchor[3] = { g.pos[0], g.pos[1] + SOLV_PLAYER_UP,
-                            g.pos[2] };
-        float d[3] = { eye[0] - anchor[0], eye[1] - anchor[1],
-                       eye[2] - anchor[2] };
-        float pb[3], probe[3], lo, hi;
-        cam_norm3(d);
-        pb[0] = eye[0] - AIMS_BOUND_PULL * d[0];
-        pb[1] = eye[1] - AIMS_BOUND_PULL * d[1];
-        pb[2] = eye[2] - AIMS_BOUND_PULL * d[2];
-        probe[0] = pb[0];
-        probe[1] = pb[1] - SOLV_BOUND_RANGE;
-        probe[2] = pb[2];
-        if (em_collision_camera_query(&g.coll, pb, probe, mask,
-                                       &hit) &&
-            (hit.surf_class & (EM_SURF_FLOOR | EM_SURF_SLOPE |
-                               EM_SURF_WALL)))   /* 0x7000, verbatim */
-            lo = hit.point[1] + AIMS_FLOOR_PAD;
-        else
-            lo = cam->y_lo - SOLV_BOUND_RANGE;
-        probe[1] = pb[1] + SOLV_BOUND_RANGE;
-        if (em_collision_camera_query(&g.coll, pb, probe, mask,
-                                       &hit) &&
-            (hit.surf_class & (EM_SURF_CEIL | EM_SURF_STEEPDN)))
-            hi = hit.point[1] - SOLV_CEIL_PAD;
-        else
-            hi = eye[1] + SOLV_BOUND_RANGE;      /* area 0x12 variant
-                                                    omitted, flagged */
-        if (lo > hi) lo = hi - 3.0f;
-        cam->y_lo = lo;
-        cam->y_hi = hi;
-    }
-    return bits;
-}
 
 /* func_0018D910 — the style-5 DIRECTOR solver (decoded s64; the s61
  * table's "returns 0" undersold it): it never moves the eye — it is
@@ -1906,96 +1409,25 @@ void camera_solve(EmCamera *cam)
         return;
     }
     if (g.coll.poly_count) {
-        if (!cam->aim_phase) {
-            /* THE FOLLOW SOLVE — the decoded func_0018DD20, style 0
-             * (mask 6), result bits -> struct +0x07. It mutates
-             * cam->eye_des in place (engine: cam+0x10); the chase
-             * below consumes the mutated copy. */
-            cam->hit = (uint8_t)cam_solver_0018DD20(cam);
-            eye_des[0] = cam->eye_des[0];
-            eye_des[1] = cam->eye_des[1];
-            eye_des[2] = cam->eye_des[2];
-        } else {
-            /* AIM camera: the engine solves mode 1 with STYLE 2 ->
-             * func_0018F870 over mask 7 (movable hulls in) — DECODED
-             * s64 and translated verbatim (cam_solver_0018F870 above;
-             * the CAM_WALL_MARGIN stand-in is RETIRED). R1 KEEPS the
-             * constant-height pull-in; the follow solver's waiver/
-             * wedge/rise-over-floor responses structurally never run
-             * while aiming. */
-            cam->hit = (uint8_t)cam_solver_0018F870(cam);
-            /* STEADY-PHASE ANTI-CLOSE — AUDIT CORRECTION. In
-             * src/func_00197870.c this arm runs AFTER
-             * func_0018D7B0(arg0, 2), on the SOLVED desired eye:
-             *   func_001028D0(D_70003630, arg0+0x10, D_70003A10);
-             *   if (horiz|eye - base| < 7) {
-             *       if (arg0+0x54 <= 18 + base.y + f20) { re-place }
-             *       else if (arg0+0x14 < 18 + base.y + f20)
-             *                arg0+0x14 = 18 + base.y + f20;
-             *   }
-             * The port ran it inside camera_mode1_aim, BEFORE the
-             * solve — where the desired eye is still the full 30 u
-             * back, so the 7-u test never fired and the raise never
-             * happened. The y_hi <= floor arm (re-place the eye 5 u
-             * in front of the base, re-solve, hard-copy the actual)
-             * stays untranslated — flagged. */
-            if (cam->aim_phase != 1) {
-                const float *base = (g.r2_aim && !em_weapon_is_aiming())
-                                  ? cam->aim_entry : g.pos;
-                float dx = cam->eye_des[0] - base[0];
-                float dz = cam->eye_des[2] - base[2];
-                float floor_y = base[1] + 18.0f + cam_aim_f20;
-                if (sqrtf(dx * dx + dz * dz) < 7.0f &&
-                    cam->y_hi > floor_y && cam->eye_des[1] < floor_y)
-                    cam->eye_des[1] = floor_y;
-            }
-            eye_des[0] = cam->eye_des[0];
-            eye_des[1] = cam->eye_des[1];
-            eye_des[2] = cam->eye_des[2];
-        }
+        /* THE FOLLOW SOLVE — the decoded func_0018DD20, style 0
+         * (mask 6), result bits -> struct +0x07. It mutates
+         * cam->eye_des in place (engine: cam+0x10); the chase below
+         * consumes the mutated copy. (The aim camera's style-2 solve
+         * that followed here belonged to the port's aim stand-in,
+         * retired 2026-10-02: the aim camera is the original's.) */
+        cam->hit = (uint8_t)cam_solver_0018DD20(cam);
+        eye_des[0] = cam->eye_des[0];
+        eye_des[1] = cam->eye_des[1];
+        eye_des[2] = cam->eye_des[2];
     }
     cam->eye[0] = cam_chase_h(cam->eye[0], eye_des[0], CAM_EYE_CAP);
     cam->eye[2] = cam_chase_h(cam->eye[2], eye_des[2], CAM_EYE_CAP);
     cam->eye[1] = cam_chase_v(cam->eye[1], eye_des[1], CAM_EYE_CAP);
 
-    /* MODE-1 dispatcher tail (func_00197D20): with the eye BELOW
-     * player.y + 23 and horizontally inside 8 u, push it out to
-     * EXACTLY 8 along its own heading (the min-distance clamp).
-     * AUDIT CORRECTION: src/func_00197D20.c case 1 reads
-     *   if (D_008105D4 < 23.0f + *(float *)(arg1 + 0xA4)) { ... }
-     * (D_008105D4 = the ACTUAL eye Y, arg1+0xA4 = player Y) — the
-     * clamp guards the LOW eye that would otherwise slide inside the
-     * player, not a high one. The port tested `>` and so applied the
-     * shove in exactly the frames the engine leaves alone.
-     * AUDIT CORRECTION 2 (same file): this push lives in the sub-state
-     * dispatch's CASE 1 — the ENTRY phase (func_00197740) — only. The
-     * steady sub-states 2/4 route to func_00197870, which has no 8-u
-     * push at all; its own 7-u anti-close raise (applied above, after
-     * the solve) is the whole min-distance policy there. The port
-     * gated on `cam->aim_phase` (any phase) and so shoved the settled
-     * over-shoulder eye out to 8 u every frame the wall solver had
-     * legitimately pulled it closer. */
-    if (cam->aim_phase == 1 && cam->eye[1] < g.pos[1] + 23.0f) {
-        float dx = cam->eye[0] - g.pos[0];
-        float dz = cam->eye[2] - g.pos[2];
-        float d  = sqrtf(dx * dx + dz * dz);
-        if (d < CAM_AIM_MIN_DIST) {
-            float h = atan2f(dx, dz);
-            cam->eye[0] = g.pos[0] + sinf(h) * CAM_AIM_MIN_DIST;
-            cam->eye[2] = g.pos[2] + cosf(h) * CAM_AIM_MIN_DIST;
-        }
-    }
-
-    /* ACTUAL TARGET: hard copy (func_0018C0C0) — except the mode-1
-     * aim chases it (0.4 u/frame entry / 0.6 steady, func_00197740/
-     * func_00197870) and a live door-cinematic re-blend window
-     * (cam+0xA0) chases at <= 1.0 u/frame (func_001916C0's tail). */
-    if (cam->aim_phase) {
-        float cap = cam->aim_phase == 1 ? 0.4f : 0.6f;
-        cam->tgt[0] = cam_chase_h(cam->tgt[0], cam->tgt_des[0], cap);
-        cam->tgt[2] = cam_chase_h(cam->tgt[2], cam->tgt_des[2], cap);
-        cam->tgt[1] = cam_chase_v(cam->tgt[1], cam->tgt_des[1], cap);
-    } else if (cam->tgt_soft > 0) {
+    /* ACTUAL TARGET: hard copy (func_0018C0C0) — except a live
+     * door-cinematic re-blend window (cam+0xA0) chases at <= 1.0 u/frame
+     * (func_001916C0's tail). */
+    if (cam->tgt_soft > 0) {
         /* AUDIT CORRECTION (src/func_001916C0.c tail, the cam+0xA0
          * consumer): x/z chase at 1.0 u/frame, but the HEIGHT rate is
          * fabs(d)/4, i.e. a proportional close, not a 1.0 cap;
@@ -2374,8 +1806,10 @@ static void camera_door_cinematic(EmCamera *cam)
  * close-out with this frame's — one frame less camera latency, same
  * 60 Hz math. */
 /* AREA11's legacy stand-ins in camera action 0's place (em_camera.h). The
- * same blocks camera_update runs for the scenes without the live camera,
- * in the same order: the examine cue, then the port's aim placement. (The
+ * same block camera_update runs for the scenes without the live camera:
+ * the examine cue. (The port's aim placement that followed it was retired
+ * on 2026-10-02: the aim camera is the original's, CAMERA_LIVE.md section
+ * 7 and AIM_FIRE.md section 10. The
  * director's beats run on their original scripts since WP-8b; the fence
  * door's camera is its program's op0D sub 5 and 0x1AE040 state 4's re-seat
  * since census L18, so the door cinematic no longer stands in here.) */
@@ -2402,10 +1836,6 @@ int camera_area11_standins(EmCamera *cam)
             memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
             memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
         }
-    }
-    if (em_weapon_is_aiming() || g.r2_aim) {
-        camera_mode1_aim(cam);
-        return CAMERA_STANDIN_AIM;
     }
     return CAMERA_STANDIN_NONE;
 }

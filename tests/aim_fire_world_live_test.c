@@ -18,6 +18,21 @@ static int allocated,fail_call,calls,checks,parent_valid,parent_notifications;
 const EmCollSegment *em_collision_world_segment(void) { return &seg; }
 const EmActorClassLists *em_collision_world_lists(void) { return &lists; }
 const EmCollisionWorldOwners *em_collision_world_owners(void) { return &owner; }
+/* The move walkers' world and scratch (0019B2C0's). */
+const unsigned char em_coll_move_cell_record_tag;
+static EmCollMoveWorld move_world;
+static EmCollMoveScratch move;
+static int move_calls;
+const EmCollMoveWorld *em_collision_world_move(void) { return &move_world; }
+EmCollMoveScratch *em_collision_world_move_scratch(void) { return &move; }
+int em_coll_grid_hull_node_index(const EmCollProbeGrid *g,const void *record) { (void)g;(void)record;return -1; }
+int em_coll_move_probe_0019B2C0(const EmCollMoveWorld *w,EmCollMoveScratch *s,float a0[3],const float a1[3],uint32_t flags)
+{
+    ++move_calls;CHECK(w==&move_world&&s==&move);CHECK(a0[0]==1&&a1[2]==6);
+    s->point[0]=9;s->record=EM_COLL_MOVE_CELL_RECORD;s->cell_class=0x2001;
+    if(flags&0x80000000u)a0[0]=8;
+    return flags==7?-1:2;
+}
 int em_coll_segment_face_worker(void *c,const uint8_t *p,EmCollProbeState *s,int *h)
 { (void)c;(void)p;(void)s;(void)h;return -1; }
 int em_coll_segment_round_worker(void *c,const uint8_t *p,EmCollProbeState *s,int *h)
@@ -124,7 +139,12 @@ int main(void)
     c.function=0x19B6C0;CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);
     CHECK(word(em_aim_fire_world_live_map(&world,0x700031D0,4,0))==0x700030B0);
     CHECK(!em_aim_fire_world_live_map(&world,0x700031D0,4,1));
-    CHECK(!em_aim_fire_world_live_map(&world,0x700031B0,16,0)); /* unowned point.w */
+    /* point.w is 0x700031BC's one owner (word_31BC, see the header); the
+     * quadword loads of 0x700031B0 read the point plus that word */
+    world.word_31BC=0x12345678u;
+    {const uint32_t *q=em_aim_fire_world_live_map(&world,0x700031B0,16,0);CHECK(q);
+     CHECK(!memcmp(q,&probe.point[0],12));CHECK(q[3]==0x12345678u);}
+    CHECK(!em_aim_fire_world_live_map(&world,0x700031B0,16,1)); /* the quadword view is read-only */
     probe.record=EM_COLL_PROBE_RECORD_GRID;probe.node=0;
     CHECK(!em_aim_fire_world_live_map(&world,0x700031D0,4,0)); /* absent original grid metadata */
     probe.entity=actors+1;CHECK(word(em_aim_fire_world_live_map(&world,0x700031D4,4,0))==0x5400);
@@ -137,6 +157,22 @@ int main(void)
     CHECK(word(em_aim_fire_world_live_map(&world,0x28AF28,4,0))==0x5400);
     CHECK(word(em_aim_fire_world_live_map(&world,0x28AF2C,4,0))==0x5800);
     CHECK(!em_aim_fire_world_live_map(&world,0x28AF2C,4,1));
+    /* 0019B2C0 on the move scratch: its words become the scratchpad views
+     * until a segment probe runs; bit 31 writes a0 back. */
+    reset(&h);memset(&move,0,sizeof move);memcpy(point,a,12);memcpy(direction,b,12);
+    c=(EmAimFireTargetCall){.function=0x19B2C0,.a={0x6000,0x7000,0x80000006u}};
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(c.v0==2);CHECK(move_calls==1);
+    {float x;memcpy(&x,point,4);CHECK(x==8);}
+    CHECK(em_aim_fire_world_live_map(&world,0x700031B0,4,0)==&move.point[0]);
+    CHECK(word(em_aim_fire_world_live_map(&world,0x700031D0,4,0))==0x700030B0);
+    CHECK(em_aim_fire_world_live_map(&world,0x700030CA,2,0)==&move.cell_class);
+    memcpy(point,a,12);c=(EmAimFireTargetCall){.function=0x19A570,.a={0x6000,0x7000,7,32}};
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);
+    CHECK(em_aim_fire_world_live_map(&world,0x700031B0,4,0)==&probe.point[0]);
+    reset(&h);memcpy(point,a,12);memcpy(direction,b,12);
+    c=(EmAimFireTargetCall){.function=0x19B2C0,.a={0x6000,0x7000,7}};
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(h.fault_function==0x19B2C0);
+    CHECK(!world.move_last);
     reset(&h);c=(EmAimFireTargetCall){.function=0x183C40,.a={0x5555,0x6000},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(h.fault_address==0x5557);CHECK(calls==0);
     printf("aim/fire world live: %d binding checks PASS\n",checks);return 0;

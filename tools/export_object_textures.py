@@ -19,6 +19,8 @@ controls the CLUT cache) of every model block of
   * the item owners' library model: 00219550's 001B1020(self, +0x0D, -1, 0)
     binds id +0x0D = 0x72 of the same library for the six AREA11 items
     (docs/OWNER_DRAW.md section 10);
+  * the shot's library models: the muzzle node 001F5040's 0x07, 0x08,
+    0x0B, 0x0D, 0x0E, 0x0F and the shell casing's 0x19 (001F3E30);
   * Roger's model: 008237E0's 001BA1C0 -> 001CA6E0 binds D_0028A490[0x47]
     (extract/chunk15/f18_id94.bin +0x35000, tools/export_roger_banks.py),
     and his equipment node's 001C5C90 binds id 0x6B of the library;
@@ -109,6 +111,10 @@ EQUIPMENT_IDS = (0x2F, 0x30, 0x40, 0x6D, *range(0x31, 0x3E), 0x6A)
 ITEM_IDS = (0x72,)
 # Roger's equipment node 001C5C90 (001B1020's id 0x6B), in the same library.
 ROGER_EQUIPMENT_IDS = (0x6B,)
+# The muzzle node 001F5040 (0x07, 0x08, 0x0B, 0x0D, 0x0E, 0x0F: its +0x0D's
+# model and the clips 7 / 8 it switches to) and the shell casing's 001F3E30
+# (0x19: D_0025A350 row 3), in the same library (docs/AIM_FIRE.md sections 9.1 / 9.2).
+SHOT_IDS = (0x07, 0x08, 0x0B, 0x0D, 0x0E, 0x0F, 0x19)
 # Roger's model and face resource in extract/chunk15/f18_id94.bin
 # (tools/export_roger_banks.py MODEL_AT / FACE_AT).
 ROGER_MODEL_AT, ROGER_FACE_AT = 0x35000, 0x86000
@@ -162,7 +168,8 @@ def player_tex0(extract: Path, out: dict):
     block_tex0(p['model'], 0, p['blocks'], 'player 0x3b', out)
     library = (extract / 'chunk27/f01_id37.bin').read_bytes()
     count = struct.unpack_from('<I', library, 0)[0]
-    for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS), ('roger equipment', ROGER_EQUIPMENT_IDS)):
+    for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS), ('roger equipment', ROGER_EQUIPMENT_IDS),
+                      ('shot', SHOT_IDS)):
         for ident in ids:
             if ident >= count:
                 raise SystemExit(f'chunk27/f01_id37.bin: {kind} id {ident:#x} outside the table ({count})')

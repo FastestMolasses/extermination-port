@@ -721,10 +721,20 @@ CAPTURE_SHA256 = {
     # chain C8b FACE and the static-world step: 465 TEX0, the face resources 0x88 / 0x18 and the
     # static bank's 119 MODULATE textures; the capture exporter's output over the 15 route
     # captures, taken before it became disc-first
+    # chain step AIMLIVE (2026-10-02): + the shot library models 0x07, 0x08, 0x0B, 0x0D..0x0F
+    # and 0x19 (the muzzle node, the shell casing): 469 TEX0; the pin is the disc export's,
+    # each of its textures decoding identically from all 15 route captures' GS memory
+    # (export_object_textures.py --route-captures); before it: 02827237...
     'scene_snow/object_textures.emot':  # sha256
-        '02827237d386a0399dc4231bf4648c057308cdbd4b1fed34a30f87de4c21ca8f',
-    'scene_snow/page_textures.emot':  # sha256 (chain step AIMCAM: + the laser dot, CODE_PAGE_TEX0)
-        'b2f979d3141e9fc4797a2bca025ff51244ca5e469c7ea79919387b50f2c13270',
+        '9392501dd56b9ed3f6919a80b9ab62345451a7a788da98fa22b388d48637fcb1',
+    # chain step AIMCAM: + the laser dot, CODE_PAGE_TEX0; chain step AIMLIVE: + the impact
+    # effects' source TEX0 (SOURCE_PAGE_TEX0), identical in all 15 route captures
+    # (export_page_textures.py --route-captures); chain step AIMLIVE fix round: + the
+    # ring decals', the lamp flare's, the cable-hit sprite's and the cable strand's
+    # (CODE_PAGE_TEX0);
+    # before it: 3f229ed9...
+    'scene_snow/page_textures.emot':  # sha256
+        'b1367533d7654e34084996dcf9575a57ec61725639ef65d30772e598b89d70f7',
     'font.emfn':  # sha256
         '1ce3b7a2e1e2dccbb32ae4ee7fd161bed39d63385aa22ecce3a971166a2536b5',
     'status_models/menu_player.emdl':  # sha256
@@ -766,10 +776,28 @@ CAPTURE_PAGE_TEX0 = {0x4128555322090, 0x41805113222AE, 0x4290511322469, 0x455E59
 # Page TEX0 the original code builds as an immediate that no captured page
 # draws (the route never aims; the AIM captures' end snapshots are idle):
 # the laser dot 001854E0 / 00185760 pass to 001CD520 (the aim/fire target
-# oracle executes it). Its texels are checked against every compared
+# oracle executes it), the ring decals, the lamp flare, the cable-hit sprite and
+# the cable strand. Its texels are checked against every compared
 # capture's GS memory by direct_checks, and the page file without its entry
 # must still be the capture-derived file (CAPTURE_PAGE_FILE_SHA256).
-CODE_PAGE_TEX0 = {0x45BA5154222DC}
+CODE_PAGE_TEX0 = {0x45BA5154222DC,
+                  # 001F0460's three ring-decal tags (the shots' impact marks;
+                  # test-effect-original-reference executes it)
+                  0x40F8555322078, 0x418851532218C, 0x4108555322080,
+                  # 00187780's two flare words (stored by 00187690 at the +0x70
+                  # TEX0 row of D_002487E0; test-aim-fire-lamp-reference)
+                  0x45D05554221F6, 0x48D0599422050,
+                  # 001EAB50's sprite word (the cable hit's effect 0x80000045;
+                  # test-effect-kinds-reference)
+                  0x45B2599421E98,
+                  # 0021A500's strip word (the parted strand; tools/test_security_gun_rest_reference.py)
+                  0x45D8555422188}
+# Page TEX0 of a 001CFBE0 source block no captured page draws (chain step
+# AIMLIVE): 001EBA20's D_002560D0 (the impact effect 0x8000002C; its other
+# block D_00256160 and 001EACF0's D_00255620 carry TEX0 already in the
+# captured set). Like the dot: checked against the captures' GS memory, and
+# the page file without it must still be the capture-derived file.
+SOURCE_PAGE_TEX0 = {0x4556599421EC8}
 CAPTURE_PAGE_FILE_SHA256 = '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927'
 # The buffers the model reads for the world, the two page states and the
 # font (caller, source, DATA.DAT offset, size, extract span), pinned from
@@ -795,18 +823,19 @@ def check_page_set(elf):
     import export_disc_textures as X
     overlay = (DECOMP / 'extract/OVERLAY/AREA11.BIN').read_bytes()
     mine = set(X.page_tex0(elf, overlay))
-    assert mine == CAPTURE_PAGE_TEX0 | CODE_PAGE_TEX0, sorted(map(hex, mine ^ (CAPTURE_PAGE_TEX0 | CODE_PAGE_TEX0)))
+    extra = CODE_PAGE_TEX0 | SOURCE_PAGE_TEX0
+    assert mine == CAPTURE_PAGE_TEX0 | extra, sorted(map(hex, mine ^ (CAPTURE_PAGE_TEX0 | extra)))
     # the produced page file without the code-only entries is the
     # capture-derived file, byte for byte
     import export_object_textures as eot
     entries = emot_entries((OUT / 'assets/scene_snow/page_textures.emot').read_bytes())
-    captured = {t: v for t, v in entries.items() if t not in CODE_PAGE_TEX0}
+    captured = {t: v for t, v in entries.items() if t not in extra}
     assert hashlib.sha256(eot.emot(captured)).hexdigest() == CAPTURE_PAGE_FILE_SHA256, 'page file minus the dot'
     report = ROOT / 'assets/scene_snow/page_textures.json'
     if report.exists():
         data = json.loads(report.read_text())
         if 'captures' in data:
-            assert {int(t['tex0'], 16) for t in data['textures']} == mine - CODE_PAGE_TEX0
+            assert {int(t['tex0'], 16) for t in data['textures']} == mine - extra
     return len(mine)
 
 

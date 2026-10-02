@@ -9,6 +9,8 @@
  * argument register at the call; both callees read it).
  *
  *   001A9D20          class-1 x class-2 pairs -> 001A9C40 (inner type 0,1,4..7)
+ *   001A9C40(o, i)    the pair's distance against the inner record's radius
+ *                     by its type (15 / 20): the inner +0x0A bit 0
  *   001A8DA0          class-1 x class-0xD pairs -> 001A8CE0 (type 3, +0xD 0)
  *   001A9F60(player)  class-2 entries (+2 & 0x1F == 2, active, type 0) ->
  *                     001A9E00(player, entry); gated off by 0x70003B8D and
@@ -165,6 +167,10 @@ int em_coll_list_001A8660(EmCollListPasses *p, uint32_t player, uint32_t entry);
 int em_coll_list_001A9000(EmCollListPasses *p);
 int em_coll_list_001A97B0(EmCollListPasses *p);
 int em_coll_list_001A9B10(EmCollListPasses *p);
+/* 001A9D20's pair callee 001A9C40(outer, inner): the class-1 record's
+ * proximity to a class-2 record sets the inner record's +0x0A bit 0 (see
+ * the .c; tools/test_coll_list_passes_reference.py executes the original). */
+int em_coll_list_001A9C40(EmCollListPasses *p, uint32_t self, uint32_t other);
 
 /* 001AAD00's nine hooks in the original order: 001A9D20, 001A8DA0,
  * 001A9F60(player), 001AA140, 001A7870, 001A8BE0(player), 001A9000,
@@ -189,6 +195,9 @@ int em_coll_list_passes_unported_001AA000(void *context, EmCollListPasses *passe
 int em_coll_list_passes_unported_0021BD10(void *context, EmCollListPasses *passes, int *result);
 int em_coll_list_passes_unported_behaviour(void *context, EmCollListPasses *passes, uint32_t fn,
                                            uint32_t entry, uint32_t player, uint32_t player_b0);
+/* EmCollListWorkers.w_001A9C40 over em_coll_list_001A9C40; `context` is
+ * unused. */
+int em_coll_list_passes_001A9C40(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b);
 /* EmCollListWorkers.normalize over em_effect_original_00102760 (the
  * verified translation of the SDK routine); `context` is unused. */
 int em_coll_list_passes_normalize(void *context, float out[4], const float in[4]);

@@ -94,8 +94,10 @@ slide
     (check_slide).
 """
 import argparse
+import ast
 import collections
 import json
+import math
 from pathlib import Path
 import re
 import struct
@@ -851,6 +853,8 @@ AIM_BEATS = {'aim_r1_hold': ('aim_00_r1_hold', 0x1D), 'aim_r2_hold': ('aim_01_r2
 # camera builds from the player's own frame agrees.
 AIM_EXACT = 2e-3       # heights, the eye's distance, the camera block's target, +A0 / +B0
 AIM_TGT_LATERAL = 0.2  # D_008105E0's x / z while its per-axis chase runs (see below)
+AIM_BEARING = 2e-3     # a struck point's bearing beyond the start heading's difference, and its
+                       # elevation from the muzzle (radians; LEVEL_SMOKE.md "The AIM replays")
 
 
 def _aim_local(pos, yaw, v):
@@ -971,6 +975,282 @@ def check_aim_r1_hold(ticks, run, state):
 
 def check_aim_r2_hold(ticks, run, state):
     check_aim_hold(ticks, run, state, 'aim_r2_hold')
+
+
+# ------------------------------------ the AIM replays (aim_03 / 02 / 06 / 07 / 08 / 09)
+
+# em_level_smoke_test.c k_aim_replays: the phase and its capture beat.
+AIM_REPLAYS = {'aim_fire': 'aim_03_single_fire', 'aim_both': 'aim_02_r1_r2_both',
+               'aim_reload': 'aim_06_reload_partial', 'aim_reload_empty': 'aim_07_reload_empty',
+               'aim_light': 'aim_08_light_holster', 'aim_melee': 'aim_09_melee',
+               'aim_world': 'aim_04_world_hit', 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee')}
+# The capture's first input frame (the button replays' first press is at
+# frame 10; the stick replays' first stick input at frame 5).
+AIM_FIRST = {'aim_world': 5, 'aim_cable': 5}
+# The first compared tick after the run log's "aligned counter=N" tick.
+AIM_ALIGNED_TO_FIRST = 1
+# The records the fire path allocates, by behaviour; the effect nodes it
+# spawns are the impacts' (subtype +0x0D 0x1B: 001861C0's 0x8000002C, 0x23:
+# the marker's 0x80000060, and 7: 001F0460's ring decal 0x8000000E on a
+# struck wall) and the cable reaction's (0x00: its 0x80000045, 0021AAC0 and
+# 0021A500). Other effect nodes are the area's own.
+AIM_RECORDS = {0x0018ABA0: 'marker', 0x001F5040: 'muzzle', 0x001EA240: 'effect', 0x001F18C0: 'trail',
+               0x0021AAC0: 'cable_fx', 0x0021A500: 'cable_part'}
+AIM_FIRE_EFFECTS = (0x00, 0x07, 0x1B, 0x23)
+# The kinds whose +0x28 is not compared (no fire-path meaning: the effect
+# driver's, the trail's and the cable reaction nodes' own words).
+AIM_NO_H28 = ('effect', 'trail', 'cable_fx', 'cable_part')
+
+
+def aim_rows(what):
+    """The replay's capture rows, each with 'u', its frame in the replay:
+    one capture's own frames, or aim_10's and then aim_11's (aim_cable),
+    aim_11's frame f at aim_10's last frame plus the frame counters' gap
+    plus f (tools/test_level_smoke_aim.py pad_script, the same offsets)."""
+    beats = AIM_REPLAYS[what]
+    beats = (beats,) if isinstance(beats, str) else beats
+    out, offset, last_counter = [], 0, None
+    for beat in beats:
+        path = AIMFIRE / beat / 'trace.json'
+        assert path.exists(), f'AIM capture missing: {path} (decomp docs/CAPTURES_C10.md "AIM")'
+        trace = json.loads(path.read_text())
+        if last_counter is not None:
+            offset += trace['first_counter'] - last_counter
+        for row in trace['rows']:
+            out.append(dict(row, u=row['f'] + offset, beat=beat))
+        offset += trace['rows'][-1]['f']
+        last_counter = trace['last_counter']
+    return out
+
+
+def _aim_capture_records(row):
+    """(kind, +4, +0x0C, +0x0D, +0x28 or None, +0xB0 xyz) of the capture
+    row's fire-path records (its pool_delta / pool_deep)."""
+    out = []
+    for idx, hdr in (row.get('pool_delta') or {}).items():
+        b = bytes.fromhex(hdr)
+        cb = struct.unpack_from('<I', b, 0x10)[0]
+        kind = AIM_RECORDS.get(cb)
+        if not b[0] or not kind or (kind == 'effect' and b[0xD] not in AIM_FIRE_EFFECTS):
+            continue
+        deep = bytes.fromhex(row['pool_deep'][idx])                 # +0x18..+0x3F, +0xA0..+0xDF
+        h28 = None if kind in AIM_NO_H28 else struct.unpack_from('<H', deep, 0x10)[0]
+        out.append(((kind, b[4], b[0xC], b[0xD], h28), struct.unpack_from('<3f', deep, 0x38)))
+    return sorted(out, key=lambda x: (str(x[0]), x[1]))
+
+
+def _aim_port_records(tick):
+    out = []
+    for address, hdr, cb, h28, x, y, z in tick['fire'][6]:
+        b = bytes.fromhex(hdr)
+        kind = AIM_RECORDS[cb]
+        if kind == 'effect' and b[0xD] not in AIM_FIRE_EFFECTS:
+            continue
+        held = None if kind in AIM_NO_H28 or h28 < 0 else h28 & 0xFFFF
+        out.append(((kind, b[4], b[0xC], b[0xD], held), (f32(x), f32(y), f32(z))))
+    return sorted(out, key=lambda x: (str(x[0]), x[1]))
+
+
+def check_aim_replay(ticks, run, state, what):
+    """An AIM capture replayed from route 08's end (em_level_smoke_test.c
+    k_aim_replays; LEVEL_SMOKE.md "The AIM replays"), from the row after the
+    alignment (the capture's first input frame + 3: f13 for the button
+    replays, f8 for the stick replays aim_world / aim_cable) to its last
+    row, row for row (aim_cable: aim_10's rows, then aim_11's, the seven
+    idle frames between the recordings uncompared):
+    - exactly: the player's +5, +6, +7, +1F0, +1F1, the clip, its clock, the
+      action code +230 and +0x274..+0x27F (the sub-weapon, the fire
+      machine's bytes and the aim's pitch / yaw +0x278 / +0x27C); the fire
+      mode D_00810C61, the magazine D_00810C62, the reserve D_00810CB4, the
+      gun light D_00810D3C and the gun node's +0x2E event;
+    - the fire path's records, as a set per row: every impact marker
+      0018ABA0, muzzle node 001F5040, impact effect node (subtypes 0x1B,
+      0x23 and 7), knife trail node 001F18C0, and the cable reaction's nodes
+      (0021AAC0, 0021A500 and its effect node, subtype 0) with their +4,
+      +0x0C, +0x0D and +0x28 (the marker's countdown, the muzzle node's
+      frame) exactly, the trail's +0xB0 as stored;
+    - in the player's frame: each muzzle node's +0xB0 (the muzzle point)
+      within AIM_EXACT; the place a round struck (each marker's and impact
+      effect's +0xB0) by direction only: its bearing from the player within
+      the start heading's difference plus AIM_BEARING, and its elevation
+      from the muzzle within AIM_BEARING (the side run stands about 0.7
+      from the capture's start, its heading 0.015 off: the stick's
+      resolution; the range along a struck surface depends on where the
+      run stands, the direction does not);
+    - aim_cable: the security gun's and the cable's +0, +4, +5, +9 and the
+      cable's +0x36 (the hit) on every row (the gun_fan log; the cable's
+      record gone where the capture's is freed)."""
+    beat = AIM_REPLAYS[what]
+    rows = aim_rows(what)
+    first = AIM_FIRST.get(what, 10)
+    r0 = next(k for k in range(len(rows)) if rows[k]['u'] == first + 3)
+    start = state.get('cursor', 0)
+    # The aligned tick: the run log's "aligned counter=N" line (the tick the
+    # first input is applied on); the next tick shows it (the row first + 3).
+    m = re.search(rf'^level smoke: {what}: aligned counter=(\d+)$', run, re.M)
+    assert m, (what, 'no alignment line in the run log')
+    aligned = next(i for i in range(start, len(ticks)) if ticks[i]['counter'] == int(m.group(1)))
+    i0 = aligned + AIM_ALIGNED_TO_FIRST
+    if first == 10:
+        # the button replays: the stance's first tick, as found before the
+        # alignment line (the two agree)
+        by_state = next(i for i in range(start, len(ticks)) if ticks[i]['player'][0] == rows[r0]['p5']
+                        and ticks[i].get('fire'))
+        assert by_state == i0, (what, 'the alignment line and the first stance tick disagree', by_state, i0)
+    u0 = rows[r0]['u']
+    count = rows[-1]['u'] - u0 + 1
+    assert i0 + count <= len(ticks), (what, 'the tick log ends inside the capture window', len(ticks) - i0, count)
+    pre, pre_row = ticks[i0 - 1], rows[r0 - 1]
+    ppos, pyaw = [f32(v) for v in pre['pos_post']], f32(pre['yaw_post'])
+    dyaw = abs(pyaw - pre_row['yaw'])
+    dpos = max(abs(a - b) for a, b in zip(ppos, pre_row['pos']))
+    assert dpos < 1.0 and dyaw < 0.02, (what, 'start pose', ppos, pyaw, pre_row['pos'], pre_row['yaw'])
+    assert f32(pre['player'][4]) == pre_row['clock'] and pre['player'][3] == pre_row['clip'], \
+        (what, 'the idle frame before the first input', pre['player'][3:5], pre_row['clip'], pre_row['clock'])
+    worst = collections.defaultdict(float)
+    records = shots = elevations = compared = cable_rows = 0
+    for row in rows[r0:]:
+        t = ticks[i0 + row['u'] - u0]
+        compared += 1
+        where = f'{what} {row["beat"]} row f{row["f"]} (port tick {t["tick"]})'
+        pl = bytes.fromhex(row['pl'])
+        fire, g = t['fire'], row['g']
+        g = ast.literal_eval(g) if isinstance(g, str) else g
+        gun_row = row['gun']
+        gun_row = ast.literal_eval(gun_row) if isinstance(gun_row, str) else gun_row
+        got = (t['player'][0], t['aim'][0], t['aim'][1], t['player'][1], t['player'][2], t['player'][3],
+               round(f32(t['player'][4]), 5), t['aim'][2], fire[5])
+        want = (row['p5'], pl[6], pl[7], row['m1F0'], row['m1F1'], row['clip'], row['clock'],
+                struct.unpack_from('<I', pl, 0x230)[0], pl[0x274:0x280].hex())
+        assert got == want, (where, '+5 +6 +7 +1F0 +1F1 clip clock +230 +274..+27F', got, want)
+        got = (fire[0], fire[1], fire[2], fire[3], fire[4])
+        want = (g['fire_mode'], g['mag'], g['reserve'], g['light_d3c'], gun_row['ev2E'])
+        assert got == want, (where, 'fire mode, magazine, reserve, light, gun +2E', got, want)
+        cap, port = _aim_capture_records(row), _aim_port_records(t)
+        assert [c[0] for c in cap] == [p_[0] for p_ in port], (where, 'the fire path\'s records',
+                                                                [c[0] for c in cap], [p_[0] for p_ in port])
+        if what == 'aim_cable':
+            _aim_cable_rows(row, t, where)
+            cable_rows += 1
+        pos, yaw = [f32(v) for v in t['pos_post']], f32(t['yaw_post'])
+        # The height the rounds leave from: the muzzle node's (the gun's
+        # +0xB0, 00187CC0's copy) when one lives on this row.
+        muzzle = next((_aim_local(row['pos'], row['yaw'], c[1]) for c in cap if c[0][0] == 'muzzle'), None)
+        for (key, cb), (_k, pb) in zip(cap, port):
+            if key[0] == 'trail':
+                # The knife's trail node (001F18C0): 001EF9D0 leaves its
+                # +0xB0 as the allocation did; equal as stored.
+                assert tuple(cb) == tuple(pb), (where, 'the trail node\'s +0xB0', cb, pb)
+                records += 1
+                continue
+            if key[0] in ('cable_fx', 'cable_part'):
+                # The cable reaction's nodes: their +0xB0 is the cable's
+                # (0021AAC0: the cable's top) or zero (0021A500), the same in
+                # the world as the capture's.
+                d = max(abs(x - y) for x, y in zip(cb, pb))
+                worst[key[0]] = max(worst[key[0]], d)
+                assert d <= AIM_EXACT, (where, key[0], 'the cable reaction node\'s +0xB0', cb, pb)
+                records += 1
+                continue
+            if key[0] == 'effect' and key[3] == 0:
+                # The cable hit's effect 0x80000045 where the knife struck
+                # the strand on the pillar's north face: its height and the
+                # face's z equal in the world; where along the face (x)
+                # follows where the run stands.
+                d = max(abs(cb[1] - pb[1]), abs(cb[2] - pb[2]))
+                worst['cable hit'] = max(worst['cable hit'], d)
+                assert d <= AIM_EXACT, (where, 'the cable hit effect\'s height and face z', cb, pb)
+                records += 1
+                continue
+            a, b = _aim_local(row['pos'], row['yaw'], cb), _aim_local(pos, yaw, pb)
+            d = max(abs(x - y) for x, y in zip(a, b))
+            worst[key[0]] = max(worst[key[0]], d)
+            records += 1
+            if key[0] == 'muzzle':
+                assert d <= AIM_EXACT, (where, 'the muzzle node\'s +0xB0 in the player\'s frame', a, b)
+            else:
+                # The round leaves along the aim ray: its bearing from the
+                # player agrees within the start heading's difference; the
+                # range along a grazed surface depends on where the run
+                # stands, its height does not.
+                bearing = abs(math.atan2(a[0], a[2]) - math.atan2(b[0], b[2]))
+                assert bearing <= dyaw + AIM_BEARING, \
+                    (where, key[0], 'the bearing of the point the round struck, in the player\'s frame', a, b)
+                if muzzle is not None:
+                    # from the muzzle point (the same in both frames, above):
+                    # the ray's pitch, wherever along it the surface lies
+                    rise = abs(math.atan2(a[1] - muzzle[1], math.hypot(a[0] - muzzle[0], a[2] - muzzle[2])) -
+                               math.atan2(b[1] - muzzle[1], math.hypot(b[0] - muzzle[0], b[2] - muzzle[2])))
+                    assert rise <= AIM_BEARING, \
+                        (where, key[0], 'the elevation of the point the round struck from the muzzle', a, b)
+                    elevations += 1
+                shots += key[0] == 'marker' and key[1] == 1 and key[4] is not None
+    state['aim_from'] = min(state.get('aim_from', i0), i0)
+    if what == 'aim_cable':
+        state['cable_from'] = i0
+    state['cursor'] = i0 + count
+    w = ', '.join(f'{key} {v:.4f}' for key, v in sorted(worst.items()))
+    beats = beat if isinstance(beat, str) else ' + '.join(beat)
+    cable = f'; the gun and the cable on {cable_rows} rows' if cable_rows else ''
+    print(f'{what}: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]}: {compared} rows of {beats} '
+          f'from f{rows[r0]["f"]}: +5 +6 +7 +1F0 +1F1 clip clock +230 +274..+27F, fire '
+          f'mode, magazine, reserve, light and the gun\'s +2E on every row; {records} fire-path records (markers, '
+          f'muzzle nodes, impact effects, knife trails, cable reaction nodes) with +4 / +0C / +0D / +28 equal and '
+          f'their +0xB0 in the player\'s frame (the struck points by bearing, {elevations} of them by elevation '
+          f'from the muzzle; largest position differences: {w}; start pose {dpos:.3f} / {dyaw:.4f} from the '
+          f'capture\'s){cable})')
+
+
+def _aim_cable_rows(row, t, where):
+    """The security gun 00825940 and its cable 00827490 on an aim_cable row:
+    +0, +4, +5, +9 of both (the capture's 16-byte headers) and the cable's
+    +0x36 against the port's gun_fan rows; a freed capture record (all-zero
+    header) has no port row."""
+    port = {r[1]: r for r in t.get('gun_fan') or [] if r[1] in (GUN, GUN_CABLE)}
+    for key, cb in (('secgun', GUN), ('cable', GUN_CABLE)):
+        cap = row[key]
+        cap = ast.literal_eval(cap) if isinstance(cap, str) else cap
+        h = bytes.fromhex(cap['h'])
+        if not any(h):
+            assert cb not in port or port[cb][2] == 0, (where, key, 'freed in the capture, live in the port', port.get(cb))
+            continue
+        assert cb in port, (where, key, 'no port record')
+        r = port[cb]
+        got = (r[2], r[3], r[4], r[5]) + ((r[8],) if cb == GUN_CABLE else ())
+        want = (h[0], h[4], h[5], h[9]) + ((cap['hit36'],) if cb == GUN_CABLE else ())
+        assert got == want, (where, key, '+0 +4 +5 +9 (+0x36)', got, want)
+
+
+def check_aim_fire(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_fire')
+
+
+def check_aim_both(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_both')
+
+
+def check_aim_reload(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_reload')
+
+
+def check_aim_reload_empty(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_reload_empty')
+
+
+def check_aim_light(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_light')
+
+
+def check_aim_world(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_world')
+
+
+def check_aim_cable(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_cable')
+
+
+def check_aim_melee(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_melee')
 
 
 # ------------------------------------ fence door side 1 (the C7 DOOR1 capture)
@@ -2154,6 +2434,14 @@ PHASES = [
     ('fence_door_side1', check_fence_door_side1),
     ('aim_r1_hold', check_aim_r1_hold),
     ('aim_r2_hold', check_aim_r2_hold),
+    ('aim_fire', check_aim_fire),
+    ('aim_both', check_aim_both),
+    ('aim_reload', check_aim_reload),
+    ('aim_reload_empty', check_aim_reload_empty),
+    ('aim_light', check_aim_light),
+    ('aim_melee', check_aim_melee),
+    ('aim_world', check_aim_world),
+    ('aim_cable', check_aim_cable),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
@@ -2614,7 +2902,8 @@ def check_gun_fan(ticks, state):
       bone 3 +0x78 = -1.1344, the lamp at +0x220 dark at (0, 0, 0, 0.25);
       the cable in lifecycle 1, +0x34 = 1, not hit), and from the gun's first
       call on, on every tick of the run the port's gun and cable records (at
-      the same addresses) equal them field for field; before their first
+      the same addresses) equal them field for field (up to the aim_cable
+      replay, which compares them with its capture); before their first
       call, both still in lifecycle 0 at their records;
     - the fan pair's spin cycle: every snapshot's fan state (+0x04, +0x05,
       +0x28, +0x38, +0xC8 of both records, at the same addresses) is a state
@@ -2643,7 +2932,10 @@ def check_gun_fan(ticks, state):
             if r[1] == FAN:
                 fans.setdefault(beat, {})[a] = fan_state(r)
     seen_fan, started, gun_ticks, setup_ticks = set(), set(), 0, 0
-    for t in ticks:
+    # From the aim_cable replay's first tick on, the knife hits the cable:
+    # check_aim_cable compares the gun and the cable row for row there.
+    cable_from = state.get('cable_from', len(ticks))
+    for t in ticks[:cable_from]:
         rows = t.get('gun_fan')
         if rows is None:
             continue
@@ -2821,7 +3113,9 @@ def check_effects(ticks, state):
           f'nodes equal the port\'s at their aligned ticks: {"; ".join(done)})')
 
 
-SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold')
+SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
+        'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
+        'aim_cable')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door'}
@@ -2830,7 +3124,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('designed', ('status_pages',)),
          ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
          ('06', ('slide',)), ('07', ('truck_preview',)), ('08', ('truck_crossing',)), ('09', ('fence_door',)),
-         ('aim', ('aim_r1_hold', 'aim_r2_hold')),
+         ('aim', ('aim_r1_hold', 'aim_r2_hold', 'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty',
+                  'aim_light', 'aim_melee', 'aim_world', 'aim_cable')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
 
@@ -3265,6 +3560,7 @@ def check_sway(ticks, state, frames):
             return None, before, after, values
         return o, before, after, values
 
+    registered = 0
     for i in picked:
         o, before, after, values = run_original(i)
         first = status_entry_tick(ticks, i) if o is None and not values and before == after else None
@@ -3291,11 +3587,28 @@ def check_sway(ticks, state, frames):
         where = ('sway', 'port tick', ticks[i]['tick'])
         assert o is not None, (where, 'the original draws more than the port did', len(values))
         assert o.rng_calls == len(values), (where, 'draws', o.rng_calls, len(values))
+        # The point lights the frame registered after its 001D7C30 (the
+        # muzzle node's 001D80E0 -> 001D7FA0 while a round fires; AIM_FIRE.md
+        # section 3): the staged slots past the original's count. The
+        # ORIGINAL 001D7FA0 runs once per slot, in order, with the slot's
+        # own position, colour, type and factors; then the whole pool must
+        # equal the port's.
+        staged = struct.unpack_from('<i', after, 4)[0] - struct.unpack_from('<i', o.pool_bytes(), 4)[0]
+        assert 0 <= staged <= 32, (where, 'staged point lights', staged)
+        for n in range(staged):
+            k = struct.unpack_from('<i', o.pool_bytes(), 4)[0]
+            slot = after[0x1010 + 0x80 * k:0x1010 + 0x80 * (k + 1)]
+            mult, adder, kind = struct.unpack_from('<ffi', slot, 0)
+            o.write(0x500000, slot[0x10:0x20])
+            o.write(0x500010, slot[0x20:0x30])
+            o.run(0x1D7FA0, [0x500000, 0x500010, kind & 0xFFFFFFFF], [mult, adder])
+            registered += 1
         assert o.pool_bytes() == after, (where, 'the pool after 001D7C30',
                                          next(k for k in range(0x2010) if o.pool_bytes()[k] != after[k]))
         total += len(values)
     print(f'sway: PASS (the original 001D7C30 over the port\'s previous pool and its own draws writes the '
           f'port\'s pool on {len(picked)} sampled ticks ({len(snaps & set(picked))} of them snapshot ticks; '
+          f'{registered} point light(s) the frames registered after it, through the original 001D7FA0; '
           f'{frozen} sampled status-entry frame(s) without the world frame, where the port drew nothing and '
           f'left the pool, as the original\'s {sway_entry_gap()} entry frames in route 01, replaced by the next '
           f'drawing frame), {total} draws)')

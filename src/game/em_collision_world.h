@@ -147,6 +147,13 @@ typedef struct {
     int (*chain)(void *context, const EmActor *body, EmCollHullChain *out);
 } EmCollisionWorldOwners;
 void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners);
+/* The records of the other owners the close-out passes reach: the bytes of
+ * a record that owner keeps (the original layout; NULL for any other
+ * address), consulted after the owners above. The aim/fire composition
+ * binds its impact markers (0018ABA0, class 1), which 001A9D20 walks
+ * against the class-2 list. Kept across area builds; NULL unbinds. */
+void em_collision_world_bind_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
+                                     void *context);
 /* Existing canonical owner views; NULL callbacks remain unavailable. */
 const EmCollisionWorldOwners *em_collision_world_owners(void);
 const EmCollMoveWorld *em_collision_world_move(void);

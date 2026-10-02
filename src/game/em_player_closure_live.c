@@ -5,7 +5,7 @@
 #include "game/em_player_closure_live.h"
 #include "game/em_effects_live.h"
 #include "game/em_aim_fire_binding.h"
-#include "game/em_aim_fire_diagnostic.h"
+#include "game/em_aim_fire_runtime.h"
 #include "game/em_equipment_live.h"
 #include "game/em_weapon.h"
 
@@ -84,7 +84,7 @@ static struct {
     EmSdkMathContext *sdk;
     uint32_t d275B40;
     EmPoseActorView view;
-    EmPoseRegion aim_regions[9];
+    EmPoseRegion aim_regions[10];
 
     /* 0x700038A0..AC and 0x70003A20: the one storage (the fall lane's type). */
     EmPlayerLandScratch land;
@@ -1417,8 +1417,10 @@ static int wb_pre(void)
     L.wb_3B78 = L.pad_config[2];
     return 0;
 }
+static void wb_knife_publish(void);
 static int wb_post(void)
 {
+    wb_knife_publish();
     for (unsigned i = 0; i < 4; ++i) {
         uint8_t *p = em_scene_req_at(scene(), 0x008106E0u + i);
         if (!p) return -1;
@@ -2554,12 +2556,41 @@ static void bind_weapon_a(void)
 
 static int wb_request(void *c, EmPlayerLiveActor *a, int clip, int force, uint32_t blend)
 { (void)c; IN3A20(); int r = em_pose_host_request_bits(L.pose, a, clip, force, blend); OUT3A20(); return r; }
+/* The melee states' +0x18 link (0015C420's knife node): the bytes they
+ * touch are its pool header's +0x00 (the swing event) and +0x0A (the hit
+ * flag) and +0x36 (the damage halfword), whose one storage is the node's
+ * EmActor. The routine works on an image of the record's +0x00..+0x37
+ * (its header and +0x36) for the state call; wb_post writes those three
+ * fields back before anything else reads them (the knife node ticks after
+ * the player stage). */
+static struct {
+    uint8_t image[0x38];
+    EmActor *actor;
+} s_knife;
 static int wb_link18(void *c,uint32_t word,uint8_t **record)
 {
     (void)c;
     if (!record) return -1;
-    *record=em_aim_fire_binding_bytes(word,0x30,1);
-    return *record ? 0 : -1;
+    *record=NULL;
+    EmActor *a=em_equipment_live_node_actor(word);
+    if (!a || (s_knife.actor && s_knife.actor!=a)) return -1;
+    if (!s_knife.actor) {
+        memset(s_knife.image,0,sizeof s_knife.image);
+        memcpy(s_knife.image,&a->status,0x14);
+        s_knife.image[0x36]=(uint8_t)a->h36;s_knife.image[0x37]=(uint8_t)(a->h36>>8);
+        s_knife.actor=a;
+    }
+    *record=s_knife.image;
+    return 0;
+}
+static void wb_knife_publish(void)
+{
+    EmActor *a=s_knife.actor;
+    if (!a) return;
+    a->status=s_knife.image[0];
+    a->u0A[0]=s_knife.image[0xA];
+    a->h36=(uint16_t)(s_knife.image[0x36]|s_knife.image[0x37]<<8);
+    s_knife.actor=NULL;
 }
 
 static void bind_weapon_b(void)
@@ -2968,9 +2999,26 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     L.aim_regions[6]=(EmPoseRegion){0x70003B74,sizeof L.pad_config,(uint8_t *)L.pad_config,0};
     L.aim_regions[7]=(EmPoseRegion){0x810E64,1,&P.lx,0};
     L.aim_regions[8]=(EmPoseRegion){0x810E65,1,&P.ly,0};
-    EmAimFireBindingConfig aim={L.actor,L.pose,L.sdk,L.aim_regions,9,&L.d275B40,NULL,lw_actions};
+    unsigned naim=9;
+    /* D_002487E0..D_0024886F, the gun lamp's flare source block: .data that
+     * 00187690 writes before each 001CFBE0 copies it (AIM_FIRE.md section
+     * 10). Its one copy is the pose host's span of the locomotion tables
+     * (D_00248740..D_00248ACC, read only there); this view makes that
+     * block alone writable for the composition. */
+    for (unsigned i=0;L.pose && i<L.pose->region_count && i<EM_POSE_REGION_MAX;++i) {
+        const EmPoseRegion *r=&L.pose->region[i];
+        if (r->bytes && r->address<=0x2487E0u && 0x2487E0u+0x90u<=(uint64_t)r->address+r->size) {
+            L.aim_regions[naim++]=(EmPoseRegion){0x2487E0,0x90,r->bytes+(0x2487E0u-r->address),1};
+            break;
+        }
+    }
+    EmAimFireBindingConfig aim={L.actor,L.pose,L.sdk,L.aim_regions,naim,&L.d275B40,NULL,lw_actions};
     FAULT(em_aim_fire_binding_configure(&aim));
-    em_equipment_live_set_aim_fire(em_aim_fire_diagnostic() ? em_aim_fire_binding_run : NULL);
+    em_equipment_live_set_aim_fire(em_aim_fire_binding_run);
+    em_equipment_live_set_casing(em_aim_fire_runtime_001F4010);
+    em_equipment_live_set_lamp(em_aim_fire_binding_run_lamp);
+    em_equipment_live_set_world(em_aim_fire_runtime_world_call, em_aim_fire_runtime_world_read,
+                                em_aim_fire_runtime_world_bytes, em_aim_fire_runtime_world_temp);
     bind_running_jump();
     bind_use();
     bind_loco();

@@ -33,8 +33,19 @@ Blocks (original address, bytes, what reads them):
                       (001CFBE0's a2, 0x90 bytes each)
   0x00255620  0x90    D_00255620, 001EACF0's source block (the impact
                       effect 0x80000060; AIM_FIRE.md section 7)
-  0x002560D0  0x120   D_002560D0 and D_00256160, 001EBA20's two source
-                      blocks (the impact effect 0x8000002C)
+  0x002560D0  0x1B0   D_002560D0 and D_00256160, 001EBA20's two source
+                      blocks (the impact effect 0x8000002C), and D_002561F0,
+                      001EBBB0's (the effect 0x8000000E 001F0460's ring
+                      decal spawns)
+  0x00232540  0xD50   the kind-2 program's DMA packet (001CFBE0's table of
+                      kind 2: the cable's hit effect node 0021AAC0's
+                      draw) and its RET tag
+  0x00255590  0x90    D_00255590, 001EAB50's source block (the effect
+                      0x80000045 of the cable hit, 001EFE00; AIM_FIRE.md
+                      section 10.5)
+  0x0026EA80  0x64    D_0026EA80 (four line colours) and D_0026EAC0 (the nine
+                      colour indices), 001F4F90's (the muzzle node's eight
+                      lines; AIM_FIRE.md section 9.1)
   0x002535F0  0x110   D_002535F0 (001E23A0's entries) and D_00253670 (the
                       head sprite's source block)
   0x00251260  0x80    D_00251260: 001CFBE0's rows
@@ -50,9 +61,12 @@ Blocks (original address, bytes, what reads them):
   0x00233290  0x570   the lane program's DMA packet D_00233290 (001F0720's
                       CALL) and its RET tag
   0x00233800  0xDE0   the snow program's DMA packet D_00233800 (001CFFE0's
-                      CALL for the weather's tiles) and its RET tag; the
-                      three packets are read by the chain page consumer
-                      (em_chain_page_live, docs/CHAIN_PAGE.md)
+                      CALL for the weather's tiles) and its RET tag
+  0x00230800  0xF70   the streak program's DMA packet (001CFBE0's table of
+                      kinds 0 and 4: the impact effect 0x80000060's draw,
+                      AIM_FIRE.md) and its RET tag; the four packets are
+                      read by the chain page consumer (em_chain_page_live,
+                      docs/CHAIN_PAGE.md)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -82,7 +96,8 @@ ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x0026EB20, 0x90),
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
           (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
-          (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x120))
+          (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x1B0), (0x0026EA80, 0x64),
+          (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

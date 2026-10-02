@@ -49,7 +49,7 @@ make test-level-smoke                  # first_control, status, battery (about 1
 make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim
-make test-level-smoke-aim              # the aim camera's side runs aim_r1_hold / aim_r2_hold behind the aim/fire gate, side by side (about 3 min with their checks)
+make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable (8 min 57 s with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
@@ -256,7 +256,11 @@ fence_door_side1` requires both side phases.
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | fence_door (side) | 09 | door 001BC350 (001BBE40, the ELF program 0x24DE40 on the AREA11 script host, 001BC150), room move to entry 2 (0x1AE040 state 4) | yes, its own run (census L18) | — |
 | fence_door_side1 (side, from fence_door) | C7 DOOR1 (not a route beat) | the same door from behind the fence (clip 0x43, B7 = 1), room move to entry 1, 001B07C0(1)'s walk-out 5 / 1 / 0: the player's 0015B610 / 00183250 | yes, after fence_door in its run (2026-09-27) | — |
-| aim_r1_hold / aim_r2_hold (side, from 08) | AIM aim_00 / aim_01 (decomp CAPTURES_C10.md, not route beats) | R1 0016FCF0 / R2 001703E0 stances, camera actions 1 / 2 (00197D20 / 00198650), the release 00197490, then action 0 | yes, behind the aim/fire gate, each its own run (chain step AIMCAM's fix round, 2026-10-01) | — |
+| aim_r1_hold / aim_r2_hold (side, from 08) | AIM aim_00 / aim_01 (decomp CAPTURES_C10.md, not route beats) | R1 0016FCF0 / R2 001703E0 stances, camera actions 1 / 2 (00197D20 / 00198650), the release 00197490, then action 0 | yes, each its own run (chain step AIMCAM's fix round, 2026-10-01; no gate since 2026-10-02) | — |
+| aim_fire / aim_both / aim_reload / aim_reload_empty / aim_melee (side, from 08) | AIM aim_03 / aim_02 / aim_06 / aim_07 / aim_09 | the fire machines, the round 001861C0 and its marker 0018ABA0, the muzzle node 001F5040, the casing 001F4010, the reloads 0017B300 / 0016F600, melee 001735C0 / 00173E60 with the knife's 001AA840 / 0019B2C0 and its trail 001F18C0 | yes, each its own run (chain step AIMLIVE, 2026-10-02) | — |
+| aim_light (side, from 08) | AIM aim_08 | the gun lamp 00187780 / 00187690 (Square: the flare; the cone 001D9530 is skipped in AREA11) | yes, its own run (2026-10-02) | — |
+| aim_world (side, from 08) | AIM aim_04 | the walk and the stick aim, rounds into the ground, the pillar, past the fence and a miss: the impact 0x80000060 (001EACF0, the streak program 0x230800), the ring decal 001F0460 / 001EBBB0 and its lanes, 001A9C40 in the close-out | yes, its own run (2026-10-02) | — |
+| aim_cable (side, from 08) | AIM aim_10, then aim_11 | rounds at the security gun's cable, then the knife at its foot: 0018A180 (001B61C0), the reaction 001EFE00 / 001EFEB0 / 0021AAC0 (the kind-2 program 0x232540) / 0021A500 (its strand strips), 001EAB50, the gun's lifecycle 2, the cable freed | yes, its own run (2026-10-02) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
@@ -990,9 +994,9 @@ The captures are the decomp's `build/aimfire/capture/aim_00_r1_hold` and
 (the player idle at (371.50317, 184.84026, 361.34225), heading 2.38104),
 R1 (R2) pressed at f10 and released at f89; the stance at f13, +6 = 2 at
 f29, 0x63 at f92, the holster, idle at f116 (f124), the capture's end at
-f146 (f154). The side runs set the aim/fire gate (EM_AIM_FIRE_ORIGINAL=1,
-EM_AIM_FIRE_TEST=smoke; AIM_FIRE.md section 1): the stances, their camera
-and the gun run their original bodies only behind it.
+f146 (f154). The stances, their camera and the gun run their original
+bodies (the only path since 2026-10-02; until then the side runs set the
+aim/fire gate, AIM_FIRE.md section 1).
 
 The runner (`aim_hold_frame`) starts where truck_crossing ends. It walks to
 a point 6 behind the start along the heading, then straight in with the
@@ -1030,6 +1034,69 @@ eye climbing six ticks late after the release: there the prepass
 0018D330's ground test under the hip (+0x6D) misses, and the per-state
 height 00191390 waits for it. The place matters; the binding does not
 differ.
+
+### The AIM replays (aim_fire, aim_both, aim_reload, aim_reload_empty, aim_melee, aim_light, aim_world, aim_cable)
+
+Side phases from route 08's end, like aim_r1_hold (AIM_FIRE.md sections 9
+and 10). Each replays one AIM capture (decomp build/aimfire/capture,
+CAPTURES_C10.md "AIM"): aim_fire = aim_03_single_fire, aim_both =
+aim_02_r1_r2_both, aim_reload = aim_06_reload_partial, aim_reload_empty =
+aim_07_reload_empty, aim_melee = aim_09_melee, aim_light =
+aim_08_light_holster, aim_world = aim_04_world_hit, aim_cable =
+aim_10_cable_shots and then aim_11_cable_melee (recorded from aim_10's end;
+its frame f is the replay's frame 1448 + f: aim_10's last frame 1441 plus
+the seven idle frames between the recordings, by their frame counters).
+
+The runner (`aim_replay_frame`, table `k_aim_replays`) walks in as
+aim_hold_frame does and waits for the idle clip's +3C to reach the
+capture's value at its row first + 2, where `first` is the capture's first
+input frame (10 for the button replays: 12.0, 12.0, 8.0, 13.0, 13.0, 13.0
+at f12; 5 for the stick replays: 10.0 and 18.0 at f7). It then feeds the
+capture's own pad script frame for frame: the button replays from their
+tables (the trace.json input words), the stick replays aim_world /
+aim_cable with both stick bytes from the file `EM_AIM_PAD_SCRIPT`, which
+tools/test_level_smoke_aim.py writes from the captures' trace.json
+(`pad_script`). At the aligned tick the run log gets "level smoke: <phase>:
+aligned counter=N"; the checker takes the replay's first compared tick as
+the next one (for the button replays it also requires the first stance
+tick to be that tick).
+
+`check_aim_replay` (tools/test_level_smoke.py) compares every row from the
+row after the alignment (f13, or f8 for the stick replays) to the last:
+exactly the player's +5, +6, +7, +1F0, +1F1, clip, clock, the action code
++230 and +0x274..+0x27F, the fire mode D_00810C61, the magazine D_00810C62,
+the reserve D_00810CB4, the light D_00810D3C and the gun node's +0x2E event;
+per row the set of fire-path records (the impact markers 0018ABA0, the
+muzzle nodes 001F5040, the impact effects of subtypes 0x1B / 0x23 / 7, the
+knife's trail nodes 001F18C0, and the cable reaction's nodes 0021AAC0 /
+0021A500 with its effect of subtype 0; the capture's pool_delta against
+the tick log's `fire` list) with +4, +0x0C, +0x0D and +0x28 equal (+0x28
+not for the effects, the trail and the cable nodes); each muzzle node's
++0xB0 in the player's frame within 0.002. **The places the rounds struck
+(each marker's and impact effect's +0xB0) are compared by direction only:**
+their bearing from the player within the start heading's difference +
+0.002, and, while a muzzle node lives, their elevation seen from the muzzle
+point within 0.002. Where along the struck surface they lie is not
+compared: the run stands about 0.65 from the capture's start (and after
+aim_cable's walk about 1.0), so the range differs. The trail's +0xB0
+equal as stored; the cable nodes' +0xB0 equal in the world; the cable
+hit's effect by its height and the pillar face's z. aim_cable also
+compares, on every row, the security gun's and the cable's +0, +4, +5, +9
+and the cable's +0x36 with the capture's, and check_gun_fan's static gun /
+cable comparison stops at its first tick.
+
+Measured (2026-10-02): aim_fire 343 records (muzzle 0.0000), aim_both 0,
+aim_reload 343, aim_reload_empty 2940 (f13..f1231), aim_melee 40 (the
+trail on all of the capture's rows that hold it: f26..f29, f87..f90,
+f102..f108, f119..f129, f193..f206), aim_light 0 (304 rows, the lamp on
+and off, holstered and redrawn), aim_world 319 over 1397 rows (124 struck
+points also by elevation), aim_cable 1002 over 2020 rows (204 by
+elevation; the cable hit 0.0015, the cable nodes 0.0000). The captures'
+four kind-0x20 effect nodes at f18 (state 3) are in every AIM capture and
+are not the fire path. Whole-run checks added for the side runs: the chain
+page's lane strips (the shots' ring decals), DIRECT strips (the parted
+strand), streak and kind-2 pages, each re-walked with the original
+microcode on its first 12 pages (CHAIN_PAGE.md section 7).
 
 ### crevice_climbs
 

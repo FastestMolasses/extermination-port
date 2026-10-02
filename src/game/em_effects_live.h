@@ -111,6 +111,10 @@ int em_effects_live_001CCF70(const float pos[4], int32_t *key);
 int em_effects_live_001CFA60(uint8_t block[0x60], const float matrix[16], uint32_t f12, uint32_t f13);
 int em_effects_live_001CFB50(uint8_t block[0x60], int32_t index, const float matrix[16], const uint32_t f[5]);
 int em_effects_live_001CFBE0(int32_t key, int32_t kind, uint32_t source, const uint8_t block[0x60], int32_t copy);
+/* The same with the source's bytes given by their owner (a writable .data
+ * block: the gun lamp's flare D_002487E0, em_aim_fire_runtime). */
+int em_effects_live_001CFBE0_bytes(int32_t key, int32_t kind, uint32_t source, const uint8_t source_bytes[0x90],
+                                   const uint8_t block[0x60], int32_t copy);
 
 /* Original-address fields of currently allocated effect slots. Returned
  * pointers alias their actual actor / slot owner, never a reconstructed
@@ -137,6 +141,15 @@ size_t em_effects_live_node_regions(uint32_t node, EmEffectsLiveNodeRegion *regi
  * attach (detach clears it). Result: 1 alive, 0 freed, -1 fault. */
 typedef int (*EmEffectsLiveOtherTick)(void *, uint32_t address, uint32_t callback);
 int em_effects_live_set_other_tick(EmEffectsLiveOtherTick, void *context);
+/* The barrel's particle sweep 001F40C0: its 001F3620(entity, kind) and
+ * 001F3E30(a0, a1, a2, a3, t0) through an already translated owner (the
+ * shell casing's records, em_aim_fire_runtime). Install after the area
+ * attach (detach clears it); without it a live particle faults. */
+typedef int (*EmEffectsLiveParticleCall)(void *, uint32_t function, const uint32_t a[5]);
+int em_effects_live_set_particle_call(EmEffectsLiveParticleCall, void *context);
+/* The particle records D_007709C0 (0x80 x 0x90) and the words D_00275C40 /
+ * D_00275C44 as original-address regions (3). */
+size_t em_effects_live_particle_regions(EmEffectsLiveNodeRegion *out, size_t capacity);
 
 /* 001F0460(n, M), M 16 floats. */
 int em_effects_live_001F0460(int32_t n, const float m[16]);

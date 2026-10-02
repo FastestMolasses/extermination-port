@@ -77,6 +77,8 @@ static struct {
     EmSceneState *scene;
     EmEffectsLiveBind bind;
     EmEffectsLiveOtherTick other_tick;
+    EmEffectsLiveParticleCall particle_call;     /* 001F3620 / 001F3E30 */
+    void *particle_context;
     void *other_context;
     int attached;
     uint32_t fault;
@@ -239,9 +241,10 @@ int em_effects_live_load(void)
         }
     }
     free(file);
-    /* The chain page's three program packets (the page CALLs them). */
-    static const u32 programs[3][2] = { {0x00231770u, 0xDD0u}, {0x00233290u, 0x570u}, {0x00233800u, 0xDE0u} };
-    for (unsigned k = 0; ok && k < 3; ++k) {
+    /* The chain page's five program packets (the page CALLs them). */
+    static const u32 programs[5][2] = { {0x00231770u, 0xDD0u}, {0x00233290u, 0x570u}, {0x00233800u, 0xDE0u},
+                                        {0x00230800u, 0xF70u}, {0x00232540u, 0xD50u} };
+    for (unsigned k = 0; ok && k < 5; ++k) {
         int placed = 0;
         for (u32 i = 0; i < S.windows; ++i)
             placed |= S.window[i].address == programs[k][0] && S.window[i].size == programs[k][1];
@@ -474,8 +477,55 @@ int em_effects_live_set_other_tick(EmEffectsLiveOtherTick worker, void *context)
     if (!S.attached || S.fault) return -1;
     S.other_tick=worker;S.other_context=context;return 0;
 }
+int em_effects_live_set_particle_call(EmEffectsLiveParticleCall call, void *context)
+{
+    if (!S.attached || S.fault) return -1;
+    S.particle_call=call;S.particle_context=context;return 0;
+}
+size_t em_effects_live_particle_regions(EmEffectsLiveNodeRegion *out, size_t capacity)
+{
+    if (!S.attached || S.fault) return 0;
+    /* D_00275C44 is the barrel's copy while 001F0360 runs (it is synced
+     * from and back to 001F3FA0's around it), else 001F3FA0's. */
+    const EmEffectsLiveNodeRegion r[3] = {
+        {EM_EFFECT_MANAGER_ENTITY_BASE, sizeof S.particles.record, S.particles.record},
+        {0x00275C40u, 4, &S.kglobals.d275C40},
+        {0x00275C44u, 4, S.recording ? &S.mglobals.d275C44 : &S.kglobals.d275C44}};
+    for (size_t k = 0; k < 3 && k < capacity; ++k) out[k] = r[k];
+    return 3;
+}
 
 /* ------------------------------------------------------------ workers */
+
+/* 001F40C0's 001F3620(entity, kind) and 001F3E30(...): the particle
+ * owner's translations (em_area00_fx_debris) through the hook's
+ * composition (em_aim_fire_runtime), over the records' bytes; the entity's
+ * +0x80 / +0x82 halfwords cross as the record's own bytes. Without the
+ * hook a live entity is a fault, as before. */
+static int w_001F3620(void *ctx, uint32_t entity_address, int32_t kind, EmEffectManagerEntity *entity)
+{
+    (void)ctx;
+    if (!S.particle_call || !entity || entity_address < EM_EFFECT_MANAGER_ENTITY_BASE) return -1;
+    const uint32_t i = (entity_address - EM_EFFECT_MANAGER_ENTITY_BASE) / EM_EFFECT_KINDS_PARTICLE_BYTES;
+    if (i >= EM_EFFECT_MANAGER_ENTITIES ||
+        (entity_address - EM_EFFECT_MANAGER_ENTITY_BASE) % EM_EFFECT_KINDS_PARTICLE_BYTES)
+        return -1;
+    uint8_t *p = S.particles.record[i];
+    p[0x80] = (uint8_t)entity->live; p[0x81] = (uint8_t)((uint16_t)entity->live >> 8);
+    p[0x82] = (uint8_t)entity->kind; p[0x83] = (uint8_t)((uint16_t)entity->kind >> 8);
+    const uint32_t a[5] = {entity_address, (uint32_t)kind, 0, 0, 0};
+    const int rc = S.particle_call(S.particle_context, 0x001F3620u, a);
+    entity->live = (int16_t)(uint16_t)(p[0x80] | p[0x81] << 8);
+    entity->kind = (int16_t)(uint16_t)(p[0x82] | p[0x83] << 8);
+    return rc;
+}
+static int w_001F3E30(void *ctx, uint32_t a0, uint32_t a1, int32_t a2, int32_t a3, int32_t t0)
+{
+    (void)ctx;
+    if (!S.particle_call) return -1;
+    const uint32_t a[5] = {a0, a1, (uint32_t)a2, (uint32_t)a3, (uint32_t)t0};
+    return S.particle_call(S.particle_context, 0x001F3E30u, a);
+}
 
 static int w_rand(void *ctx, int32_t *value)
 {
@@ -625,10 +675,12 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
     (void)ctx;
     /* The source block: the exported handler sources (D_002565E0.. and
      * since chain step AIMCAM's fix round D_00255620 / D_002560D0 /
-     * D_00256160, export_effect_tables.py), 0x90 bytes. */
+     * D_00256160, since AIMLIVE's fix round D_002561F0 and D_00255590,
+     * export_effect_tables.py), 0x90 bytes. */
     const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
                                ? S.sources + (source - 0x002565E0u)
-                           : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u)
+                           : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u ||
+                              source == 0x002561F0u || source == 0x00255590u)
                                ? em_effects_live_window(source, 0x90)
                                : NULL;
     if (xf != EM_EFFECT_KINDS_XF || !bytes)
@@ -751,6 +803,19 @@ static int w_001CD520(void *ctx, int32_t a0, int32_t a1, u32 position, uint64_t 
         return -1;
     ++S.counters.sprites;
     return 0;
+}
+
+/* 001CD520 for the effect handlers (001EAB50's fading sprite at the node
+ * matrix's translation row): the same translation over `point`. */
+static int w_kinds_001CD520(void *ctx, int32_t a0, int32_t a1, const float point[4], uint64_t tex0,
+                            uint64_t colour, u32 f12, u32 f13, u32 f14)
+{
+    (void)ctx;
+    u32 at[4];
+    memcpy(at, point, sizeof at);
+    int32_t z = 0;
+    /* Not in counters.sprites: that counts the barrel's glow markers. */
+    return em_player_equipment_001CD520(&S.sprite, a0, a1, at, tex0, f12, f13, f14, colour, &z) < 0 ? -1 : 0;
 }
 
 static int w_0011E2A8(void *ctx, u32 x, u32 *result)
@@ -894,6 +959,7 @@ static void wire(EmPacketChain *pc)
     kw->w_00122BB8 = w_rand;
     kw->w_001CFB50 = w_001CFB50;
     kw->w_001CFBE0 = w_001CFBE0;
+    kw->w_001CD520 = w_kinds_001CD520;
     S.k = (EmEffectKinds){&S.ktables, &S.kglobals, &S.decals, &S.particles, kw, {0, 0}};
     S.xs.d275670 = CTX;
 
@@ -905,6 +971,8 @@ static void wire(EmPacketChain *pc)
     mw->w_001F5C20 = w_001F5C20;
     mw->w_001F5CA0 = w_001F5CA0;
     mw->w_00122BB8 = w_rand;
+    mw->w_001F3620 = w_001F3620;
+    mw->w_001F3E30 = w_001F3E30;
     mw->w_001CB5F0 = w_manager_001CB5F0;
     mw->w_001CB760 = em_packet_chain_w_001CB760;
     mw->w_001CB900 = em_packet_chain_w_001CB900;
@@ -988,6 +1056,7 @@ void em_effects_live_detach(void)
     S.scene = NULL;
     S.bind = NULL;
     S.other_tick = NULL;
+    S.particle_call = NULL;
     S.other_context = NULL;
 }
 
@@ -1217,6 +1286,18 @@ int em_effects_live_001CFBE0(int32_t key, int32_t kind, u32 source, const uint8_
     xf_read(&x, block);
     if (!x.m40_bytes) return fail(x.m40, "transform matrix has no render-context owner");
     const EmHeadSpriteOriginalSource st = {source, src};
+    return check(chain_001CFBE0(key, (u32)kind, &st, &x, copy), 0x001CFBE0u);
+}
+
+int em_effects_live_001CFBE0_bytes(int32_t key, int32_t kind, u32 source, const uint8_t source_bytes[0x90],
+                                   const uint8_t block[0x60], int32_t copy)
+{
+    READY();
+    if (!block || !source_bytes) return fail(0x001CFBE0u, "missing local transform block or source");
+    EmHeadSpriteOriginalXf x;
+    xf_read(&x, block);
+    if (!x.m40_bytes) return fail(x.m40, "transform matrix has no render-context owner");
+    const EmHeadSpriteOriginalSource st = {source, source_bytes};
     return check(chain_001CFBE0(key, (u32)kind, &st, &x, copy), 0x001CFBE0u);
 }
 

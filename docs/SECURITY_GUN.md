@@ -45,7 +45,8 @@ from the code, the placement records and every AREA11 capture):
   (aim and fire) with the sight probe 0x826F30 and the shot node 0x827400
   (`em_gun_rest_tick`, not bound in the first level: 5.1), the taken-bit
   set 001B1190 (bound), and the cable-hit effect nodes 0021AAC0 / 0021A500
-  and their spawn 001EFEB0 (bound only behind the aim/fire gate: 5.2). Oracle:
+  and their spawn 001EFEB0 (bound through the aim / fire composition, in
+  ordinary play since 2026-10-02: 5.2, AIM_FIRE.md section 10.5). Oracle:
   `tools/test_security_gun_rest_reference.py` (`make
   test-security-gun-rest-reference`).
   - Default: about 6 to 8.5 s wall, about 9 s user CPU. `EM_TEST_FULL=1`:
@@ -83,7 +84,7 @@ The jal instructions of 0x825940 encode 0x826F30 and 0x827400.
 | 001A2370 hull | worker | worker; `em_actor_cells_retransform_001A2370` is verified and live | reused |
 | 001B1190 taken-bit set | no verified implementation for the cable's `w_001B1190` | `em_gun_rest_001B1190` | oracle (30 cases) |
 | 001B11E0 taken-bit test | verified, static in `em_actor_roster.c` | reused, exported as `em_actor_roster_001B11E0` (L24) | test_actor_census_reference |
-| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`, and `em_area01_side_001EFE00`); spawn view unbound | behind the aim/fire gate `em_area01_side_001EFE00` through em_aim_fire_world_live (AIM_FIRE.md); `em_player_misc_001EFE00` stays the player's, unbound | see 2.5 |
+| 001EFE00 (cable FX 0x80000045) | verified (`em_player_misc_001EFE00`, and `em_area01_side_001EFE00`); spawn view unbound | `em_area01_side_001EFE00` through em_aim_fire_world_live (AIM_FIRE.md; in ordinary play since 2026-10-02, section 10.5); `em_player_misc_001EFE00` stays the player's, unbound | see 2.5 |
 | 0021AAC0 (the node 0x80000045 spawns) | untranslated | `em_gun_rest_0021AAC0` | oracle (65 runs incl. spawn to free) |
 | 001EFEB0 (0021AAC0's spawn) | untranslated | `em_gun_rest_001EFEB0` | oracle |
 | 0021A500 (the 0x8000003B strip node) | untranslated | `em_gun_rest_0021A500` | oracle (32 runs) |
@@ -570,10 +571,11 @@ record: +0x04, +0x05, +0x2E and +0xC8 are EmActor's (`u04[0]`, `u04[1]`,
 
 ## 6. Known gaps
 
-- **The cable's hit** faults at 001EFE00 in ordinary play (5.2); behind the
-  aim/fire gate its chain is composed but not run live. No bound code writes
-  the cable's +0x36 (in the original the knife probe 0019B2C0 of a melee
-  does), so the port does not reach it.
+- **The cable's hit** (closed 2026-10-02): the original melee states run
+  in ordinary play, the knife hits the cable and the reaction 001EFE00 /
+  001EFEB0 / 0021AAC0 / 0021A500 runs through the aim / fire composition;
+  the side run aim_cable compares the gun and the cable with the AIM
+  capture aim_11 row for row (AIM_FIRE.md section 10.5).
 - **The flag-0x30 manager 0x823CE0** (area11[11]) is still a no-code node
   ("manager: dormant"): `em_flag30_manager_tick` is verified but not bound.
   On the first visit it would only step lifecycle 0 → 1 and call 001B17A0

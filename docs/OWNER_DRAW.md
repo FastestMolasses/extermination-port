@@ -762,6 +762,18 @@ renderer's skinned path.
 |---|---|---|
 | the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the security gun's 0x7A lamp draws nothing (dark in the first level: its colour is (0, 0, 0, 0.25)) | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
 
+Since chain step AIMLIVE (2026-10-02) 001CABA0 is translated and runs for
+the muzzle node 001F5040 (AIM_FIRE.md section 9.1; behind the aim/fire gate
+until its fix round the same day, in ordinary play since, section 10): `em_owner_services_001CABA0` with the workers 001D3990 / 001D3D90
+(em_owner_draw_001D3900 / _001D3CF0, selector 3) and 001CAAC0, through
+`em_owner_draw_live_001CABA0` and the chain page's unit markers
+(CHAIN_PAGE.md section 6). Oracle: test-owner-draw-reference part E, every
+store of the original 001CACB0 -> 001CABA0 over the captured indicator
+children (one-, three- and four-bone models, plain and clip; 32 of 218
+draws quick); test-object-unit-reference part K (the class-2 units equal
+the original microcode's). The indicator children still draw as the table
+says: binding them to this path is a separate step.
+
 ## 12. Limits
 
 - **Rasterization is Metal's.** The kicked values are exact; coverage and

@@ -37,7 +37,7 @@
 
 enum {
     TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
-    MAX_REGIONS = 8,
+    MAX_REGIONS = 12,
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
 };
@@ -50,6 +50,8 @@ enum {
 typedef struct {
     uint32_t address, size;
     const uint8_t *bytes;
+    uint32_t library;   /* the region header's word +0x0C: 1 = a library model
+                           span no pose host reads (not in em_area11_roger_regions) */
 } Region;
 
 /* One owner record: the EmActor (canonical for its fields), the bytes it
@@ -173,10 +175,10 @@ static int load_resources(void)
     size_t at = 0x20u + 4u * words;
     for (unsigned i = 0; i < count; ++i) {
         if (at + 16 > n) { free(data); return report("EMRS region header past the file"); }
-        uint32_t address = rd32(data + at), bytes = rd32(data + at + 4);
+        uint32_t address = rd32(data + at), bytes = rd32(data + at + 4), library = rd32(data + at + 12);
         at += 16;
-        if (bytes == 0 || bytes > n - at) { free(data); return report("EMRS region past the file"); }
-        R.region[i] = (Region){address, bytes, data + at};
+        if (bytes == 0 || bytes > n - at || library > 1u) { free(data); return report("EMRS region past the file"); }
+        R.region[i] = (Region){address, bytes, data + at, library};
         at += bytes;
     }
     if (at != n) { free(data); return report("EMRS trailing bytes"); }
@@ -216,7 +218,8 @@ int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t siz
 {
     if (!map || load_resources() < 0) return -1;
     for (unsigned i = 0; i < R.regions; ++i)
-        if (map(ctx, R.region[i].address, R.region[i].size, R.region[i].bytes) < 0) return -1;
+        if (!R.region[i].library && map(ctx, R.region[i].address, R.region[i].size, R.region[i].bytes) < 0)
+            return -1;
     return 0;
 }
 

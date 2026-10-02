@@ -328,6 +328,23 @@ on 8 workers. The 06 route slice is the longest item.
 6. **Makefile.** `src/game/em_coll_move_original.c` is in `COMMON`; the
    target is `test-coll-move-reference`.
 
+### 4.1 0019B2C0, the actor-less probe (chain step AIMLIVE, 2026-10-02)
+
+0019B2C0(a0, a1, flags) is the knife's reach probe (0018A1F0 calls it with
+the player's +0xB0, the scratch 0x700038A0 and 6). It is 0019AD00's walk
+without an actor: start (a0.x, a1.y, a0.z), end a1 pushed 1% past it, the
+query class 0x7000324E = -1, for bit 1 0x70003254 = 0, no bit-0 lock (the
+original never tests bit 0), bit 31 adds the hit delta to a0's x and z, and
+the end pulled back as 0019AD00 does. `em_coll_move_probe_0019B2C0` runs
+the same `walk` with a `probe` flag over the world's one move scratch;
+em_aim_fire_world_live calls it for the knife (AIM_FIRE.md section 9.3;
+in ordinary play since 2026-10-02, section 10), and the composition's scratchpad views then show the move
+scratch (0x70003190..0x700031D8, D_700030B0's words) until a segment probe
+runs. test_coll_move_reference.py executes the original 0019B2C0 against
+it (`probe_case`: 60 cases quick, 216 full over the world beats, returns 0
+/ 2 / 4 seen; the return, every compared field, the whole scratchpad and
+a0's +B0 / +B8 equal).
+
 ## 5. Limits
 
 - 0019CB60, 001A6440 and 001A7280 are em_coll_grid_hull's translations

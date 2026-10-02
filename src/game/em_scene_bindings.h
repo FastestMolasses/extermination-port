@@ -189,15 +189,14 @@ void em_game_legacy_pool_cutscene(void);
 
 /* The pieces em_game_legacy_pool_gameplay is made of (S10b), which the
  * AREA11 node adapters (em_area11_bindings.c) call at their owners' nodes.
- * em_game_legacy_door_tick returns 1 when it consumed a goto scene switch;
- * em_game_legacy_player_residue is the weapon update (WP-15), which has no
- * pool owner in the original (the damage/vitals tick moved to the player
- * stage in S11b). */
+ * em_game_legacy_door_tick returns 1 when it consumed a goto scene switch.
+ * (The weapon update that followed them, em_game_legacy_player_residue,
+ * was the port's stance / fire stand-in: retired 2026-10-02, the original
+ * aim / fire path runs instead, AIM_FIRE.md section 10.) */
 void em_game_legacy_collision_clears(void);
 int em_game_legacy_door_tick(void);
 void em_game_legacy_examine_tick(void);
 void em_game_legacy_enemy_tick(void);
-void em_game_legacy_player_residue(void);
 
 #ifdef __cplusplus
 }

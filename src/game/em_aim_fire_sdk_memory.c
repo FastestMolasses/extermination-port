@@ -78,6 +78,24 @@ int em_aim_fire_sdk_memory_call(void *context,
         TRY(read_bytes(m,c,v,16));
         em_effect_original_001026A0(out,in,v);
         return write_bytes(m,a,out,16);
+    case 0x1026D0: {
+        /* 001026D0(dst, a, b), em_sdk_vu0_001026D0's order: the four rows
+         * of a first, then per row of b its load, the product row and its
+         * store before the next row is read (dst may be a or b). */
+        a&=~15u;b&=~15u;c&=~15u;
+        uint32_t rows[16];
+        TRY(read_bytes(m,b,rows,64));
+        for (unsigned i=0;i<4;++i) {
+            uint32_t one[16],o[16];
+            memset(one,0,sizeof one);
+            TRY(read_bytes(m,c+16*i,one,16));
+            /* Row i of the product is em_sdk_vu0_001026D0's row 0 of
+             * (rows, one row of b). */
+            if (em_sdk_vu0_001026D0(o,rows,one)!=EM_EE_FLOAT_OK) return -1;
+            TRY(write_bytes(m,a+16*i,o,16));
+        }
+        return 0;
+    }
     case 0x102760:
         a&=~15u;b&=~15u;
         TRY(read_bytes(m,b,in,16));em_effect_original_00102760(out,in);

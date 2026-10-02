@@ -23,6 +23,10 @@ delivers; the rows the effects step made live say so (census section 1.17).
 | 001EC3F0 subtype 0x05 handler (0x80000028) | NM | the .s | missing | live | 00 |
 | 001EC470 subtype 0x24 handler (0x80000065) | NM | the .s | missing | live | 06 |
 | 001EBF10 subtype 0x20 handler (0x80000049, L23) | NM | the .s (the NEARMISS C has two wrong constants) | missing | live | 08 |
+| 001EACF0 subtype 0x23 handler (0x80000060, the impact; chain step AIMCAM's fix round) | NM | the .s | missing | live (AIM side runs) | AIM aim_04 |
+| 001EBA20 subtype 0x1B handler (0x8000002C, the impact) | BM | C | missing | live (AIM side runs) | AIM aim_03 |
+| 001EBBB0 subtype 0x07 handler (0x8000000E, the ring decal; 2026-10-02) | NM | the .s | missing | live (AIM side runs) | AIM aim_04 |
+| 001EAB50 subtype 0x00 handler (0x80000045, the cable hit; 2026-10-02) | C (no NEARMISS marker; FUNCTIONS.csv: undecompiled) | the .s | missing | live (AIM side runs) | AIM aim_11 |
 | 001CFB50 the handlers' transform block (added by the Effects step, 2026-09-24) | BM | C | boundary | live | 00 |
 | 001D0540 its depth scale (added by the Effects step) | NM | the .s | boundary | live | 00 |
 | 001F54E0 effect colour | AW | the .s | unverified (em_effect_color.h) | **live** since the render + UI step (2026-09-25): the indicator children's one colour (section 4.5); the old header copy is deleted | S2 |
@@ -341,11 +345,18 @@ subsection names the call site, the stand-in the translation replaces, and the w
 
 Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
 `em_effect_kinds_handler(k, handler, node->matrix, depth, work)`.
-- An untranslated handler (001EAD70, 001EAF00, 001EAF80, 001EB600, 001EBBB0, 001EBD20, 001EC5F0, 001EC820,
+- An untranslated handler (001EAD70, 001EAF00, 001EAF80, 001EB600, 001EBD20, 001EC5F0, 001EC820,
   001EB980, ...) faults with code 6. Since chain step AIMCAM's fix round the impact handlers 001EACF0
   (subtype 0x23, id 0x80000060) and 001EBA20 (subtype 0x1B, id 0x8000002C) are translated
   (`em_effect_kinds_001EACF0` / `_001EBA20`, test-effect-kinds-reference; their sources D_00255620,
-  D_002560D0 / D_00256160 are in the effect-table export; AIM_FIRE.md section 7). None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
+  D_002560D0 / D_00256160 are in the effect-table export; AIM_FIRE.md section 7). Since chain step
+  AIMLIVE's fix round (2026-10-02) also 001EBBB0 (subtype 7, the effect 0x8000000E of 001F0460's ring
+  decal; source D_002561F0) and 001EAB50 (subtype 0, the cable hit's effect 0x80000045 from 001EFE00:
+  while work +0x54 < 0.5 a fading sprite 001CD520 at the node matrix's translation row with the colour
+  words 0x70003600..08 (`EmEffectKindsGlobals.spad3600`, a new worker `w_001CD520`), then 001CFBE0
+  kind 0 with D_00255590), both executed by test-effect-kinds-reference (every instruction; 001EAB50's
+  three float_to_int results scripted); the AIM side runs aim_world / aim_cable reach them (AIM_FIRE.md
+  section 10.5). None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
   001EC820 / 001EB980 (footstep variants) belong to other lanes.
 - **Workers:**
   - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over

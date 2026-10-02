@@ -112,10 +112,12 @@ packets. Every captured page holds one weather CALL (108 snow MSCALs; route
 | 001E0D70 (slot 0xFFB: its id 0xFFC000 is capped) | a CALL of the weather's channel-3 list (context +0x2520): per snow tile 001CFFE0's REF of the mode-2 preset, CALL D_00233800, the UNPACKs of the projection rows (15 to 0x6E), the descriptor (9 to 0x50) and the parameters with the tile matrix (5 to 0x59), MSCAL; then 001E55F0's RET. 108 tiles per list on the route (section 6.1) |
 | page CALLs into the packet arena | the object units 001CAAC0 depth-sorts, 001DDE10's four-sprite frame-copy pass (slot 0xFFF): see section 6 |
 
-## 3. The three VU1 programs (em_vu1_page_programs.h)
+## 3. The VU1 programs (em_vu1_page_programs.h)
 
-Micro addresses are instruction indices of the uploaded program. All three
-are entered by MSCAL 0.
+Micro addresses are instruction indices of the uploaded program. All five
+are entered by MSCAL 0. The lane, sprite and snow programs are the route's;
+the streak and kind-2 programs first draw in the AIM side runs (chain step
+AIMLIVE's fix round, 2026-10-02; AIM_FIRE.md section 10).
 
 **The lane program** (138 instructions). Rows 0..8 are the clip projection
 001CD370(2), K (0x70003AC0) and the fog row (packet 4 of 001F0720), rows 9..13
@@ -161,6 +163,35 @@ extra instructions (0x0F7's exit, 0x147, 0x14B). The translation is the
 sprite program's with a `snow` switch (`em_vu1_snow_program_mscal`); the
 reference test runs both against their own microcode.
 
+**The streak program** (table 0x230800: 001CFBE0 kinds 0 and 4; 256 + 126
+instructions; the impact effect 0x80000060's handler 001EACF0). Micro
+0x000..0x0C2 are the sprite program's; its particle record (0x0C3..0x0F3)
+adds a trailing point (the same position for the age row 87 w); the
+emission (0x0F9..0x17B) draws each particle as a textured quad of 13 rows
+(TEX0, then ST, RGBAQ, XYZF2 four times): the head and the tail through K,
+their 2D difference turned a quarter, scaled by the size and normalised.
+It uses the EFU: ERCPR (1 / the head's and the tail's w) and ERLENG (the
+normaliser), read back by MFP (after WAITP for the ERLENG).
+
+**The kind-2 program** (table 0x232540: 001CFBE0 kind 2; 256 + 66
+instructions; the cable's hit effect node 0021AAC0). Micro 0x000..0x0F8
+are the streak program's; the emission (0x0F9..0x13D) draws each particle
+as a line of four rows (VF00, the head's XYZ, the colour, the tail's XYZ)
+after the tag row 124: the head through rows 118..121 with P = ERCPR of its
+w, the tail through the same rows with Q = 1 / its w and through the clip
+rows 114..117, the colour / 256 times the tail's fog weight clamped to
+[0, row 122 x], the tail's w the fog weight or (clipped) 1 + row 122 y.
+
+**The EFU** (streak and kind 2). No capture holds an EFU result, so its
+arithmetic is the model the background renderer already uses for ERLENG
+(em_background_gs.h): ERLENG = 1 / sqrt(x^2 + y^2 + z^2) and ERCPR = 1 / x
+(VDIV's quotient), each evaluated exactly enough (double) and truncated to
+binary32 with denormals flushed; a zero operand is not established and
+faults. P is written 12 (ERCPR) or 24 (ERLENG) cycles after issue; WAITP
+and a following EFU op stall for it, MFP does not (each program leaves
+exactly the latency before its MFP). Bit-for-bit equality with the
+hardware is unproven (AIM_FIRE.md section 10.7 names the capture).
+
 **The execution model** is the reference test's VU1 machine
 (tools/chain_page_model.py VuOracle: the shadow test's machine with
 ee_float_model's VU0 lane rules), whose instructions are the ELF's own:
@@ -180,6 +211,10 @@ ee_float_model's VU0 lane rules), whose instructions are the ELF's own:
 | sprite | MAC test 0x06A / 0x071 (0x09E / 0x0A5 on the flags-0x10 path) | 0x066 / 0x06D (0x09A / 0x0A1) |
 | sprite | clip test 0x123 | CLIP 0x11F |
 | snow | the sprite program's reads, the same producers | (its extra ops read no Q and set no flag a later read sees first) |
+| streak | Q at 0x00F / 0x0D6, 0x0D7 / 0x0E4 / 0x12C..0x12E / 0x161 | DIV 0x008 / 0x0CF / 0x0DB / 0x125 / 0x15A |
+| streak | clip test 0x12F; P at 0x12D / 0x147 / 0x162 | CLIP 0x129; ERCPR 0x121 / ERLENG 0x139 / ERCPR 0x156 |
+| kind 2 | Q at 0x00F / 0x0D6, 0x0D7 / 0x0E4 / 0x125 | DIV 0x008 / 0x0CF / 0x0DB / 0x11E |
+| kind 2 | clip test 0x127; P at 0x126 | CLIP 0x122; ERCPR 0x11A |
 
   A DIV in the same pair as a Q read (0x0D6, 0x11E) starts after that read.
 - the arithmetic: DAZ operands, truncated results, FTZ, finite overflow to
@@ -338,9 +373,25 @@ gives the same values.
   whose address the render context records at 001CB760(0xFFF000)
   (`em_rcl_page`), and counts it; the smoke asserts it is the only CALL
   walked over (12,573 over the full route). It was not drawn before either.
-- **Never in the port's page:** the object units 001CAAC0 depth-sorts (not
-  bound). Reaching the page, their kernel's CALL would fault (an unknown
-  MPG).
+- **The object units 001CAAC0 depth-sorts (chain step AIMLIVE; behind the
+  aim/fire gate until its fix round, in ordinary play since 2026-10-02).** 001CABA0 (the muzzle node's +0x4C draw, AIM_FIRE.md
+  section 9.1) builds a class-2 object unit on channel 3 and 001CAAC0 /
+  001CB760 CALL it from the page at its depth. em_chain_page keeps each such
+  CALL as a unit marker (`EmChainPageUnit` callback, at most 32 a page:
+  `EM_CHAIN_PAGE_UNITS_MAX`); em_chain_page_live's callback runs
+  em_object_unit over the unit (class 2: the GS state 001D1F80(3, 2, 2)
+  writes at 0x815A20, TEST 0x53001, ZBUF with ZMSK 1, ALPHA
+  0x8000000068; the skin records 0x816B40 / +0x80, the clip records
+  0x816E40 / +0x80; PRIM 0x07C, the clip pass 0x07B), and its triangles
+  join the page's primitives at the marker, leaving the unit's end state
+  (TEX0, PRIM) for what follows. The page counts them (`units`, per unit
+  the primitives, strip triangles, TEX0 and PRIM; the tick log's `page`).
+  The Metal page shader draws them with the TFX HIGHLIGHT and textured
+  type-3 triangles. The page re-walk (tools/chain_page_model.py,
+  `units=`) takes a unit's end state from the port and compares the rest
+  of the page (`digest_without_units`); the units' triangles are proven by
+  test-object-unit-reference part K. Outside the gate no unit reaches the
+  page; an object unit of another class still refuses.
 
 ## 7. Binding (live)
 
@@ -365,7 +416,7 @@ gives the same values.
   9). It walks the page
   over the render context's storage (`em_rcl_bytes`: the arena, the chain
   table, the context, the GS blocks, the .data D_00250F30..) and the
-  effect-table export's ELF blocks (`em_effects_live_window`: the three
+  effect-table export's ELF blocks (`em_effects_live_window`: the five
   program packets, D_00253670, D_002565E0.., and the overlay source blocks
   001D04B0 was handed: the flame's D_00828340), then tells em_shadow_live how many decal
   triangles it drew (`em_shadow_live_page_drew`: they must be exactly the
@@ -378,8 +429,19 @@ gives the same values.
   tools/export_page_textures.py` (or `export_disc_textures.py`; since
   FLAMESNOW the set holds the weather descriptor D_00255170's TEX0; since
   chain step AIMCAM the laser dot's 0x20045BA5154222DC (001854E0 /
-  00185760's code immediate, drawn behind the aim/fire gate), 8 textures)
-  (STARTUP.md rows 50 and 52).
+  00185760's code immediate), 8 textures; since chain step AIMLIVE's fix
+  round (2026-10-02) the streak program's packet 0x00230800 + 0xF70 and the
+  kind-2 program's 0x00232540 + 0xD50 (em_effects_live refuses an export
+  without all five), and in the page textures the impact sources' TEX0
+  rows, the ring decals', the lamp flare's, the cable hit sprite's and the
+  cable strand's code words, 16 textures) (STARTUP.md rows 50 and 52).
+- **What the page counts for the smoke** (the tick log's `page`): besides
+  the MSCALs per program, the streak and kind-2 programs' primitives
+  (`streak_prims`, `kind2_prims`), the lanes' strip triangles
+  (`lane_strips`: an active ring-decal slot) and the DIRECT packets' strip
+  triangles (`direct_strips`: 0021A500's parted cable strand), so
+  check_chain_page can tell each strip triangle's source; the first 12
+  pages of each kind are sampled for the re-walk.
 - Fail-stop: a page fault, a refused primitive or a decal count mismatch
   latches `em_chain_page_live_fault` and faults the scene.
 
@@ -401,7 +463,12 @@ gives the same values.
     sprite and 20 (300) snow batches (counts 1..90, every flags value, the
     0x10 path, clipped particles); every conditional branch of the three
     programs both ways; the timing table of section 3 asserted on every run;
-  - faults: an exponent-255 word on a live lane (all three programs); nine
+  - since 2026-10-02 also 40 (600) streak and 40 (600) kind-2 batches from
+    a captured sprite MSCAL's memory with each packet's own uploads and the
+    kind's GIF tag row (D_00251260 entries 0 / 1 and 4 / 5): every branch
+    both ways, the timing table asserted, and an ERCPR of zero faulting on
+    both sides (no capture holds either program's page);
+  - faults: an exponent-255 word on a live lane (every program); nine
     malformed pages (END, an unknown MPG, an MSCAL before any program, ITOP,
     REGLIST, an A+D FRAME write, an unmapped REF, no room) and one clean fan;
   - the preset bank equal to every capture's bytes, and in full mode to the
@@ -452,9 +519,16 @@ gives the same values.
   (RAND_ORDER.md): their primitives are compared with the captures only
   through their packets' camera and fog rows (section 8), and with the
   original microcode over the port's own packets on the sampled pages.
-- The lane program's drawing path is proven by synthetic batches only: no
-  route slot is active, and 001F0460, the only lane-slot writer on the path,
-  faults before it (EFFECT_MANAGER.md 8.2).
+- The lane program's drawing path: no route slot is active; the AIM side
+  runs' shots activate slots through 001F0460 (the ring decals), whose
+  lanes then draw. The level smoke counts them (`lane_strips`), allows them
+  only from a side run's first tick and re-walks the first 12 such pages
+  with the original microcode; their positions follow where the run stands
+  and are not compared with a capture.
+- The streak and kind-2 programs are proven against their own microcode
+  (synthetic batches and the side runs' sampled pages), not against a
+  capture: no capture holds a page that runs them, and their EFU results
+  are a model (section 3).
 - The sprites' positions and colours follow the producers' draws, and the
   port's stream is never at a capture's position (RAND_ORDER.md), so the
   smoke compares the drawn primitives with the captures only for the glow

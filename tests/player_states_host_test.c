@@ -134,12 +134,6 @@ int em_door_walkout_active(float *yaw, float *speed) { (void)yaw; (void)speed; r
 int em_door_movement_locked(void) { return 0; }
 int em_examine_input_locked(void) { return 0; }
 int em_game_player_interact_busy(void) { return 0; }
-int em_weapon_is_aiming(void) { return 0; }
-int em_weapon_is_melee(void) { return 0; }
-int em_weapon_lock_steer(const float p[3], float y, float a, float b, float *c, float *d)
-{
-    (void)p; (void)y; (void)a; (void)b; (void)c; (void)d; return 0;
-}
 int em_game_anim_hold(unsigned id, float rate) { (void)id; (void)rate; return 0; }
 void em_game_anim_cancel(void) {}
 unsigned em_game_anim_active(void) { return 0; }

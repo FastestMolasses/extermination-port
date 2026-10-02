@@ -844,9 +844,6 @@ static const char *const GIB_FILES[GIB_FAMILY_N][GIB_FAM_FILES] = {
  * centre to connect (user-reported 2026-06-12). */
 #define CRATE_BOX_HXZ    7.0f     /* X/Z half-extent of the 14^3 box      */
 #define CRATE_BOX_TOP    14.0f    /* box top (above the floor origin)     */
-#define CRATE_AIM_Y      7.0f     /* reticle / auto-aim point = box centre */
-#define CRATE_HIT_R      8.0f     /* sphere radius (box hull is primary;
-                                   * kept for any non-box fallback path)  */
 /* DISGUISE JITTER — the CYCLE is DECODED (func_001551B0 state 4, the
  * `+0x0E & 1` block) and CONFIRMED 2026-07-31 line-for-line against the
  * recovered C; only the table VALUES stay unexported:
@@ -1051,9 +1048,6 @@ static const float CRATE_JIT_COL[4] = { 0.30f, 0.65f, 1.00f, 0.55f };
 #define BUG_SHAKE_PUSH   3.0f     /* PORT: knockback when shaken off       */
 #define BUG_FLINCH_TICKS 20       /* flinch window fallback without the
                                    * clip (with it: the clip's length)    */
-#define BUG_HIT_R        2.5f     /* PORT: bullet hit-sphere (the flat
-                                   * ~3.7 x 1.9 x 8.9 authored body)      */
-#define BUG_AIM_Y        1.0f     /* hit/aim center above the feet        */
 #define BUG_WALK_MIN     0.35f    /* anim rate floor while standing
                                    * (PORT, = ENEMY_ATTACK_MIN's role)    */
 
@@ -1283,8 +1277,6 @@ static const float TF_TINT_ROOM[3] = { 128.0f, 128.0f, 128.0f };
 #define ENEMY_PROBE_LEN  6.5f     /* corner radius, model byte 6/0x1E     */
 #define ENEMY_PROBE_LEN_SMALL 3.0f /* corner radius, byte 0x1C/0x50/0x1F  */
 #define ENEMY_PROBE_LIFT 1.0f     /* probe band half-height above/below   */
-#define ENEMY_HIT_R      3.0f     /* bullet hit-sphere radius             */
-#define ENEMY_AIM_Y      2.0f     /* aim/hit-sphere center above the feet */
 #define ENEMY_FLOOR_UP   8.0f     /* floor-query window (em_game values)  */
 #define ENEMY_FLOOR_DOWN 8.0f
 
@@ -4218,211 +4210,7 @@ void em_enemy_shake_off(void)
     }
 }
 
-/* THE VICTIM FILTER — CONFIRMED 2026-07-31 by decoding func_00183B80
- * (it ships as an asm-void `.word` leaf, so it had never actually been
- * read; the whole body is 47 instructions and decodes cleanly). It
- * returns, for actor `a`:
- *     class = byte[a+2] & ~0xE0;  if (class != 2)      -> 0
- *     model = byte[a+3];
- *       0x0D, 0x0E, 0x0F, 0x13                          -> 0
- *       0x06                                            -> byte[a+0x9F] == 0
- *       0x12                                            -> byte[a+0x0D] == 1
- *       anything else (0x18, 0x29, 0x1C/0x1E/0x1F/0x50) -> 1
- * That CONFIRMS the two readings this port depends on: 0x0D (the leech)
- * is rejected by name — J2 stays closed — and the placed crate 0x06 is a
- * victim exactly while +0x9F is 0. It also confirms two the port asserts
- * elsewhere: 0x0E (the tendril field) is rejected, matching the field's
- * exclusion from acquire/ray_test/alive, and the drum 0x18 falls to the
- * accepting default, so it is shootable.
- * ONE OPEN ITEM, left honest rather than guessed: 0x0F is in the REJECT
- * set. The port calls the bug "global models 0x0F/0x10", but those are
- * asset/creature-table slots (em_enemy.h "BUG KIND"), and nothing we have
- * recovered pins the bug actor's +0x03 TYPE byte — the crate's nest
- * records copy +0x03 straight out of disc data (func_001551B0 state 2),
- * so the two numbering spaces need not coincide. The bug therefore stays
- * a victim here (it is mailbox-shootable in every capture); if its type
- * byte is ever shown to be 0x0F this filter has to drop it. */
-static int enemy_victim(const Enemy *e)
-{
-    return e->kind == EM_ENEMY_KIND_CRATE ||
-           e->kind == EM_ENEMY_KIND_BUG;
-}
 
-/* CORRECTED 2026-07-31 — there is NO per-kind targeting-range gate.
- * This used to exclude the drum (the retired drum kind) beyond 50 units on
- * the reading that func_00156620's 50-unit test published it to "the
- * target list". It does not (docs/CRATES_DRUMS_ORIGINAL.md). func_001B1D20 feeds the
- * CONTACT pass (func_001A9000 -> func_001A8F40), the auto-aim walks a
- * different list entirely (func_00199220 over D_00275B8C), and outside
- * 50 u func_001B17A0 publishes the drum anyway whenever it is visible.
- * The engine's own range limit on acquisition is func_00199220's 260
- * units, which lives on the weapon side, not here — so this gate is now
- * unconditional and the drum is shootable at any range, as in-game.
- * Kept as a hook (and to leave every call site untouched) rather than
- * unpicked, since a later scene-visibility channel is the honest place
- * for the forced-publish override. */
-static int enemy_in_target_range(const Enemy *e, const float ref[3])
-{
-    (void)e;
-    (void)ref;
-    return 1;
-}
-
-/* Per-kind hit-sphere parameters (crawler values unchanged — tests 1/2
- * and the gib demo stay byte-identical). */
-static float kind_aim_y(const Enemy *e)
-{
-    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_AIM_Y
-         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_AIM_Y
-                                          : ENEMY_AIM_Y;
-}
-
-static float kind_hit_r(const Enemy *e)
-{
-    return e->kind == EM_ENEMY_KIND_CRATE ? CRATE_HIT_R
-         : e->kind == EM_ENEMY_KIND_BUG   ? BUG_HIT_R
-                                          : ENEMY_HIT_R;
-}
-
-int em_enemy_acquire(const float from[3], float yaw, float max_dist,
-                     float cone_cos, float aim_out[3])
-{
-    int   best    = -1;
-    float best_d  = max_dist;
-    float fx = sinf(yaw), fz = cosf(yaw);
-
-    for (int i = 0; i < s.n; i++) {
-        const Enemy *e = &s.e[i];
-        if (!e->active || !enemy_victim(e)) continue;  /* model filter */
-        if (!enemy_in_target_range(e, from)) continue; /* drum 50-u gate */
-        float dx = e->pos[0] - from[0];
-        float dz = e->pos[2] - from[2];
-        float d  = sqrtf(dx * dx + dz * dz);
-        if (d > best_d || d < 1e-4f) continue;
-        if ((dx * fx + dz * fz) / d < cone_cos) continue;
-        best   = i;
-        best_d = d;
-    }
-    if (best >= 0 && aim_out) {
-        aim_out[0] = s.e[best].pos[0];
-        aim_out[1] = s.e[best].pos[1] + kind_aim_y(&s.e[best]);
-        aim_out[2] = s.e[best].pos[2];
-    }
-    return best;
-}
-
-/* func_00199220 candidate gate (em_enemy.h): live slot, VICTIM by
- * model, HP left. The engine chain is status != 0 -> func_00183B80
- * targetable -> HP +0x34 != 0; the port's `active` covers the first
- * (death frees the slot immediately) and enemy_victim IS the 183B80
- * model switch (worms excluded — J2 s66: the auto-aim lock never
- * fills on a worm). CORRECTED 2026-07-31: the drum's extra 50-u gate is
- * gone — func_00156620's 50-u branch is a contact-pass visibility
- * override, not a targeting gate, and func_00199220's
- * own range limit is 260 u on the weapon side. */
-int em_enemy_targetable(int i)
-{
-    return i >= 0 && i < s.n && s.e[i].active &&
-           enemy_victim(&s.e[i]) && s.e[i].hp > 0 &&
-           enemy_in_target_range(&s.e[i], s.pp_seen ? s.pp_last : NULL);
-}
-
-/* func_00183C40 class-keyed aim point (em_enemy.h): the hit-sphere
- * center — pos + the per-kind aim height, the exact center
- * em_enemy_ray_test intersects against. */
-void em_enemy_aim_point(int i, float out[3])
-{
-    const Enemy *e = &s.e[i];
-    out[0] = e->pos[0];
-    out[1] = e->pos[1] + kind_aim_y(e);
-    out[2] = e->pos[2];
-}
-
-/* Ray (from->to) vs a CRATE's box collision hull, in the crate's local
- * frame: AABB X/Z in [-CRATE_BOX_HXZ, +CRATE_BOX_HXZ], Y in [0,
- * CRATE_BOX_TOP], rotated by the crate yaw about its floor origin. The
- * engine hits the whole box hull (movable-object hull, not a sphere), so
- * a shot lands anywhere on the 14^3 box — at its visual centre, not only
- * the low band a sphere covered. Slab test; returns 1 + the entry
- * parameter t in [0,1] on a hit. */
-static int crate_ray_box(const Enemy *e, const float from[3],
-                         const float to[3], float *t_out)
-{
-    const float cs = cosf(-e->yaw), sn = sinf(-e->yaw);
-    float px = from[0] - e->pos[0], pz = from[2] - e->pos[2];
-    float qx = to[0]   - e->pos[0], qz = to[2]   - e->pos[2];
-    float o[3] = { px * cs - pz * sn, from[1] - e->pos[1], px * sn + pz * cs };
-    float q[3] = { qx * cs - qz * sn, to[1]   - e->pos[1], qx * sn + qz * cs };
-    float d[3] = { q[0] - o[0], q[1] - o[1], q[2] - o[2] };
-    const float lo[3] = { -CRATE_BOX_HXZ, 0.0f,          -CRATE_BOX_HXZ };
-    const float hi[3] = {  CRATE_BOX_HXZ, CRATE_BOX_TOP,  CRATE_BOX_HXZ };
-    float tmin = 0.0f, tmax = 1.0f;
-    for (int a = 0; a < 3; a++) {
-        if (fabsf(d[a]) < 1e-9f) {
-            if (o[a] < lo[a] || o[a] > hi[a]) return 0;   /* parallel + outside */
-        } else {
-            float inv = 1.0f / d[a];
-            float t1 = (lo[a] - o[a]) * inv, t2 = (hi[a] - o[a]) * inv;
-            if (t1 > t2) { float tmp = t1; t1 = t2; t2 = tmp; }
-            if (t1 > tmin) tmin = t1;
-            if (t2 < tmax) tmax = t2;
-            if (tmin > tmax) return 0;
-        }
-    }
-    *t_out = tmin;
-    return 1;
-}
-
-int em_enemy_ray_test(const float from[3], const float to[3],
-                      float hit_out[3])
-{
-    int   best   = -1;
-    float best_t = 2.0f;
-    float d[3]   = { to[0] - from[0], to[1] - from[1], to[2] - from[2] };
-    float dd     = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
-    if (dd < 1e-9f) return -1;
-
-    for (int i = 0; i < s.n; i++) {
-        const Enemy *e = &s.e[i];
-        if (!e->active || !enemy_victim(e)) continue;  /* model filter:
-                                   * the bullet ray passes THROUGH a
-                                   * worm (func_00183AC0 rejects model
-                                   * 0x0D — J2 s66) and resolves the
-                                   * world behind it instead */
-        if (!enemy_in_target_range(e, from)) continue; /* drum 50-u gate */
-        float t;
-        if (e->kind == EM_ENEMY_KIND_CRATE) {
-            /* the engine's full box hull (s76) — a shot lands anywhere
-             * on the 14^3 box, no aim-low */
-            if (!crate_ray_box(e, from, to, &t))
-                continue;
-        } else {
-            float r    = kind_hit_r(e);
-            float c[3] = { e->pos[0], e->pos[1] + kind_aim_y(e), e->pos[2] };
-            float m[3] = { from[0] - c[0], from[1] - c[1], from[2] - c[2] };
-            float b    = m[0] * d[0] + m[1] * d[1] + m[2] * d[2];
-            float cc   = m[0] * m[0] + m[1] * m[1] + m[2] * m[2]
-                       - r * r;
-            float disc = b * b - dd * cc;
-            if (disc < 0.0f) continue;
-            t = (-b - sqrtf(disc)) / dd;     /* entry point */
-            if (cc <= 0.0f) t = 0.0f;        /* starts inside */
-        }
-        if (t < 0.0f || t > 1.0f || t >= best_t) continue;
-        best   = i;
-        best_t = t;
-    }
-    if (best >= 0 && hit_out) {
-        hit_out[0] = from[0] + d[0] * best_t;
-        hit_out[1] = from[1] + d[1] * best_t;
-        hit_out[2] = from[2] + d[2] * best_t;
-    }
-    return best;
-}
-
-/* ------------------------------------------------------------------ */
-/* Draw + introspection accessors                                       */
-/* ------------------------------------------------------------------ */
 
 /* Draw-slot count: the real instances plus the gib layer's virtual
  * slots plus the generator pads, clamped to EM_ENEMY_MAX — em_game.c

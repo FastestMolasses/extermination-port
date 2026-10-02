@@ -7,6 +7,8 @@
 
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
+#include "game/em_coll_segment_walkers.h"
+#include "game/em_collision_world.h"
 #include "game/em_ee_float.h"
 #include "game/em_effect_original.h"
 #include "game/em_effects_live.h"
@@ -49,6 +51,12 @@ static struct {
     EmSceneState *scene;
     EmEquipmentLiveSpawn spawn;
     EmEquipmentAimFireCall aim_fire;
+    EmEquipmentLampCall lamp;
+    EmEquipmentCasingCall casing;
+    EmEquipmentWorldCall world_call;
+    EmEquipmentWorldRead world_read;
+    EmEquipmentWorldBytes world_bytes;
+    EmEquipmentWorldTemp world_temp;
     int attached;
     uint32_t fault;
     Slot slot[EM_ACTOR_POOL_CAPACITY];
@@ -94,6 +102,16 @@ static int fail(u32 address, const char *what)
 uint32_t em_equipment_live_fault(void) { return S.fault; }
 void em_equipment_live_set_spawn(EmEquipmentLiveSpawn spawn) { S.spawn = spawn; }
 void em_equipment_live_set_aim_fire(EmEquipmentAimFireCall call) { S.aim_fire = call; }
+void em_equipment_live_set_lamp(EmEquipmentLampCall call) { S.lamp = call; }
+void em_equipment_live_set_casing(EmEquipmentCasingCall call) { S.casing = call; }
+void em_equipment_live_set_world(EmEquipmentWorldCall call, EmEquipmentWorldRead read, EmEquipmentWorldBytes bytes,
+                                 EmEquipmentWorldTemp temp)
+{
+    S.world_call = call;
+    S.world_read = read;
+    S.world_bytes = bytes;
+    S.world_temp = temp;
+}
 
 static u32 rd32(const uint8_t *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 
@@ -124,6 +142,17 @@ static void *field_span(uint32_t address,size_t size,uint32_t base,size_t count,
     return bytes && size && address>=base && size<=count &&
            (uint64_t)address+size<=(uint64_t)base+count ? (uint8_t *)bytes+(address-base) : NULL;
 }
+EmActor *em_equipment_live_node_actor(uint32_t address)
+{
+    if (!S.attached || !S.pool || S.fault || address < EM_ACTOR_POOL_BASE ||
+        (address - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE)
+        return NULL;
+    const unsigned index = (address - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE;
+    if (index >= EM_ACTOR_POOL_CAPACITY) return NULL;
+    EmActor *a = &S.pool->records[index];
+    return current_slot(&S.slot[index], a) ? a : NULL;
+}
+
 /* Header bytes belong to the pool; the equipment's remaining represented
  * fields belong directly to its typed node. No full-record image is exposed. */
 void *em_equipment_live_field(uint32_t address, size_t size, int write)
@@ -138,6 +167,10 @@ void *em_equipment_live_field(uint32_t address, size_t size, int write)
             uint32_t base=slot->word[k]+0x90u;
             if (size<=64 && address>=base && address-base<=64-size && slot->n.bone[k])
                 return (uint8_t *)slot->n.bone[k]->world+(address-base);
+            /* +0x00..+0x3F, the bind matrix 001C62C0 copied from the model
+             * (001EFF10 hands its row 3, the bone + 0x30, to 001EF9D0). */
+            if (!write && size<=64 && address>=base-0x90u && address-(base-0x90u)<=64-size && slot->n.bone[k])
+                return (uint8_t *)slot->n.bone[k]->bind+(address-(base-0x90u));
         }
     }
     if (address < EM_ACTOR_POOL_BASE) return NULL;
@@ -469,22 +502,185 @@ AIM_NODE(00187CC0)
 static int x_001B61C0(void *ctx, int32_t a, int32_t b, int32_t c, int32_t d)
 { (void)ctx; (void)a; (void)b; (void)c; (void)d; return -1; }
 static int x_001EFEB0(void *ctx, u32 id, const u32 *m) { (void)ctx; (void)id; (void)m; return -1; }
-static int x_001F4010(void *ctx, int32_t i, const u32 *at) { (void)ctx; (void)i; (void)at; return -1; }
-static int x_00187780(void *ctx, EmPEN *n, int32_t a1, int32_t a2) { (void)ctx; (void)n; (void)a1; (void)a2; return -1; }
-static int x_0019B2C0(void *ctx, const u32 a[4], const u32 b[4], int32_t m, int32_t *r)
-{ (void)ctx; (void)a; (void)b; (void)m; (void)r; return -1; }
-static int x_00189EC0(void *ctx, const void *e, int32_t *r) { (void)ctx; (void)e; (void)r; return -1; }
-static int x_face_record(void *ctx, const void *rec, uint16_t *h, u32 n[3])
-{ (void)ctx; (void)rec; (void)h; (void)n; return -1; }
-static int x_001F00A0(void *ctx, u32 id, const u32 *a, const u32 *b, int32_t a3)
-{ (void)ctx; (void)id; (void)a; (void)b; (void)a3; return -1; }
-static int x_0019A570(void *ctx, const u32 f[4], const u32 t[4], int32_t m, int32_t id, int32_t *r)
-{ (void)ctx; (void)f; (void)t; (void)m; (void)id; (void)r; return -1; }
-static int x_00189FE0(void *ctx, EmPEN *n, const u32 a[4], const u32 b[4])
-{ (void)ctx; (void)n; (void)a; (void)b; return -1; }
-static int x_001EFF10(void *ctx, u32 id, const EmOwnerBone *b, const u32 *a0, const u32 *a1, const u32 *a2,
+/* 001F4010(3, 0x700036A0): the shell casing's seed, through the installed
+ * owner (em_aim_fire_runtime: em_area02_misc's 001F4010 over the particle
+ * records); without one it faults, as before. */
+static int w_001F4010(void *ctx, int32_t i, const u32 *at)
+{
+    (void)ctx;
+    return S.casing ? S.casing(i, at) : -1;
+}
+/* 00187780(node, a1, a2): the gun lamp (AIM_FIRE.md section 10), the
+ * original's own body through the installed composition with D_00275B40 =
+ * the node's own +0x110 (00188ED0's caller, the walk's 001CB590, set it);
+ * the node's header is published before and imported after, as the other
+ * equipment calls. Without the hook it faults, as before. */
+static int x_00187780(void *ctx, EmPEN *n, int32_t a1, int32_t a2)
+{
+    (void)ctx;
+    Slot *s = slot_of(n);
+    if (!s || !S.lamp) return -1;
+    header_publish(s);
+    const uint32_t node = em_actor_pool_address(S.pool, actor_of(s));
+    const int status = S.lamp(node, a1, a2, node + 0x110u);
+    header_import(s);
+    return status;
+}
+/* The knife's (flavour 4) callees: each the original call through the
+ * installed composition (em_aim_fire_runtime), with the original's
+ * arguments (the addresses it passes: the player's +0xB0, the scratch
+ * 0x700038A0..0x700038DF, which the node's staged copy is written to first
+ * and read back from after) and D_00275B40 = the node's own +0x110. Without
+ * the hook each one faults, as before. */
+static Slot *knife_slot(const EmPEN *node) { return slot_of(node); }
+static int knife_call(EmPEN *node, uint32_t fn, const u32 *a, unsigned na, u32 f12, unsigned nf, u32 *v0)
+{
+    Slot *s = node ? knife_slot(node) : NULL;
+    if (!S.world_call || (node && !s)) return -1;
+    if (s) header_publish(s);
+    const int rc = S.world_call(fn, a, na, f12, nf, S.spad38A0, v0);
+    if (s) header_import(s);
+    return rc;
+}
+static int w_001AA840(void *ctx, EmPEN *node)
+{
+    (void)ctx;
+    return knife_call(node, 0x001AA840u, NULL, 0, 0, 0, NULL);
+}
+/* 0019B2C0(player + 0xB0, 0x700038A0, mask), then the hit the node reads:
+ * the quadword 0x700031B0 (the point and 0x700031BC, the word after it,
+ * through its owner: em_aim_fire_world_live), *0x700031D0 (the face
+ * record) and *0x700031D4 (the entity), as their original addresses. The
+ * call passes the original's addresses, so it faults unless the vectors
+ * the node handed over are the player's +0xB0 and the node's 0x700038A0
+ * (any other caller would be substituted silently otherwise). */
+static int w_0019B2C0(void *ctx, const u32 a[4], const u32 b[4], int32_t m, int32_t *r)
+{
+    (void)ctx;
+    u32 pos[4];
+    if (!a || !b || !S.world_read || S.world_read(0x008102B0u + 0xB0u, pos, 16) < 0 ||
+        memcmp(pos, a, 16) != 0 || memcmp(b, S.spad38A0, 16) != 0)
+        return -1;
+    const u32 args[3] = {0x008102B0u + 0xB0u, 0x700038A0u, (u32)m};
+    u32 v0 = 0;
+    if (knife_call(NULL, 0x0019B2C0u, args, 3, 0, 0, &v0) < 0) return -1;
+    *r = (int32_t)v0;
+    u32 point[4], record = 0, entity = 0;
+    if (S.world_read(0x700031B0u, point, 16) < 0 || S.world_read(0x700031D0u, &record, 4) < 0 ||
+        S.world_read(0x700031D4u, &entity, 4) < 0)
+        return -1;
+    memcpy(S.hit.point, point, 16);
+    S.hit.record = (const void *)(uintptr_t)record;
+    S.hit.entity = (const void *)(uintptr_t)entity;
+    return 0;
+}
+static int w_00189EC0(void *ctx, const void *e, int32_t *r)
+{
+    (void)ctx;
+    const u32 args[1] = {(u32)(uintptr_t)e};
+    u32 v0 = 0;
+    if (knife_call(NULL, 0x00189EC0u, args, 1, 0, 0, &v0) < 0) return -1;
+    *r = (int32_t)v0;
+    return 0;
+}
+/* The hit face record's +0x1A and +0x24..+0x2C: the grid node's record
+ * bytes the area load delivered. */
+static int w_face_record(void *ctx, const void *rec, uint16_t *h, u32 n[3])
+{
+    (void)ctx;
+    const u32 at = (u32)(uintptr_t)rec;
+    if (at == 0x700030B0u) {
+        /* D_700030B0, the cell record a cell prim hit names: its +0x1A and
+         * +0x24 are the scratchpad words the walker left. */
+        if (!S.world_read || S.world_read(at + 0x1Au, h, 2) < 0 || S.world_read(at + 0x24u, n, 12) < 0)
+            return -1;
+        return 0;
+    }
+    const uint8_t *b = S.world_bytes ? S.world_bytes(at, 0x30) : NULL;
+    if (!b) return -1;
+    *h = (uint16_t)(b[0x1A] | b[0x1B] << 8);
+    memcpy(n, b + 0x24, 12);
+    return 0;
+}
+static int w_001F00A0(void *ctx, u32 id, const u32 *a, const u32 *b, int32_t a3)
+{
+    (void)ctx;
+    if (a != S.spad38A0 + 0u || b != S.spad38A0 + 4u)
+        return -1;
+    const u32 args[4] = {id, 0x700038A0u, 0x700038B0u, (u32)a3};
+    return knife_call(NULL, 0x001F00A0u, args, 4, 0, 0, NULL);
+}
+static int w_0018A180(void *ctx, EmPEN *node)
+{
+    (void)ctx;
+    Slot *s = knife_slot(node);
+    if (!s) return -1;
+    const u32 args[1] = {em_actor_pool_address(S.pool, actor_of(s))};
+    return knife_call(node, 0x0018A180u, args, 1, 0, 0, NULL);
+}
+/* 0019A570(from, to, mask, id): the live segment walker, its one owner.
+ * With the composition installed it runs there (the vectors staged in its
+ * temporaries), so the scratchpad views it leaves are the segment
+ * walker's for the 00189FE0 that reads them next. */
+static int w_0019A570(void *ctx, const u32 f[4], const u32 t[4], int32_t m, int32_t id, int32_t *r)
+{
+    (void)ctx;
+    if (S.world_call) {
+        u32 at_f = 0, at_t = 0, v0 = 0;
+        if (!S.world_temp || S.world_temp(f, &at_f) < 0 || S.world_temp(t, &at_t) < 0) return -1;
+        const u32 args[4] = {at_f, at_t, (u32)m, (u32)id};
+        if (knife_call(NULL, 0x0019A570u, args, 4, 0, 0, &v0) < 0) return -1;
+        *r = (int32_t)v0;
+        return 0;
+    }
+    const EmCollSegment *seg = em_collision_world_segment();
+    if (!seg) return -1;
+    float from[3], to[3];
+    memcpy(from, f, 12);
+    memcpy(to, t, 12);
+    const int result = em_coll_segment_0019A570(seg, from, to, (unsigned)m, id);
+    if (result < 0) return -1;
+    *r = result;
+    return 0;
+}
+/* 00189FE0(node, a, b): the vectors the original hands by address (its
+ * stack locals or the scratch); they go to the composition's temporaries. */
+static int w_00189FE0(void *ctx, EmPEN *node, const u32 a[4], const u32 b[4])
+{
+    (void)ctx;
+    Slot *s = knife_slot(node);
+    if (!s || !S.world_temp) return -1;
+    u32 at_a = 0, at_b = 0;
+    if (S.world_temp(a, &at_a) < 0 || S.world_temp(b, &at_b) < 0) return -1;
+    const u32 args[3] = {em_actor_pool_address(S.pool, actor_of(s)), at_a, at_b};
+    return knife_call(node, 0x00189FE0u, args, 3, 0, 0, NULL);
+}
+/* 001EFF10(0x8000000D, bone 0, 0x700038A0, ..B0, ..C0, ..D0, 10.0): the
+ * trail effect; *effect is the record's header bytes (+0x04 its
+ * lifecycle), NULL for the original's 0. */
+static int w_001EFF10(void *ctx, u32 id, const EmOwnerBone *b, const u32 *a0, const u32 *a1, const u32 *a2,
                       const u32 *a3, u32 f12, uint8_t **e)
-{ (void)ctx; (void)id; (void)b; (void)a0; (void)a1; (void)a2; (void)a3; (void)f12; (void)e; return -1; }
+{
+    (void)ctx;
+    *e = NULL;
+    Slot *s = S.current;
+    if (!s || a0 != S.spad38A0 + 0u || a1 != S.spad38A0 + 4u ||
+        a2 != S.spad38A0 + 8u || a3 != S.spad38A0 + 12u)
+        return -1;
+    u32 bone = 0;
+    for (unsigned k = 0; k < s->held; ++k)
+        if (&s->bone[k] == b) bone = s->word[k];
+    if (!bone) return -1;
+    const u32 args[6] = {id, bone, 0x700038A0u, 0x700038B0u, 0x700038C0u, 0x700038D0u};
+    u32 v0 = 0;
+    if (knife_call(NULL, 0x001EFF10u, args, 6, f12, 1, &v0) < 0) return -1;
+    if (v0) {
+        if (v0 < EM_ACTOR_POOL_BASE || (v0 - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE) return -1;
+        EmActor *fx = &S.pool->records[(v0 - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
+        *e = &fx->status;
+    }
+    return 0;
+}
 
 static void wire(void)
 {
@@ -514,7 +710,7 @@ static void wire(void)
     w->w_00187CC0 = aim_00187CC0;
     w->w_001B61C0 = x_001B61C0;
     w->w_001EFEB0 = x_001EFEB0;
-    w->w_001F4010 = x_001F4010;
+    w->w_001F4010 = w_001F4010;
     w->w_00188C70 = x_node;
     w->w_0015C310 = w_0015C310;
     w->w_00189090 = x_node;
@@ -524,15 +720,15 @@ static void wire(void)
     w->w_001C9610 = w_001C9610;
     w->w_001B0070 = w_001B0070;
     w->w_00187780 = x_00187780;
-    w->w_001AA840 = x_node;
-    w->w_0019B2C0 = x_0019B2C0;
-    w->w_00189EC0 = x_00189EC0;
-    w->w_face_record = x_face_record;
-    w->w_001F00A0 = x_001F00A0;
-    w->w_0018A180 = x_node;
-    w->w_0019A570 = x_0019A570;
-    w->w_00189FE0 = x_00189FE0;
-    w->w_001EFF10 = x_001EFF10;
+    w->w_001AA840 = w_001AA840;
+    w->w_0019B2C0 = w_0019B2C0;
+    w->w_00189EC0 = w_00189EC0;
+    w->w_face_record = w_face_record;
+    w->w_001F00A0 = w_001F00A0;
+    w->w_0018A180 = w_0018A180;
+    w->w_0019A570 = w_0019A570;
+    w->w_00189FE0 = w_00189FE0;
+    w->w_001EFF10 = w_001EFF10;
     S.e = (EmPlayerEquipment){w, &S.world, &S.efault};
 }
 

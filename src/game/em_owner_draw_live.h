@@ -64,6 +64,35 @@ extern "C" {
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record);
 
+/* 001CACB0's 001CABA0(owner, model) (the indicator draw: the muzzle node
+ * 001F5040's +0x4C): em_owner_services_001CABA0 over the same views, on
+ * channel 3 (context +0x1C): 001CA7B0 at owner +0xB0 with the model's
+ * +0x20, 001D8C20(1), 001C7420 on channel 3, 001D3990 / 001D3D90
+ * (em_owner_draw_001D3900 / _001D3CF0 with the veil module's 001D1F80(3, 2,
+ * 2)), the RET tag, 001D8C20(0) and 001CAAC0 (em_anim_rest_001CAAC0 with
+ * the render context's 001CB760: the page D_007635C0 CALLs the unit at its
+ * depth). The unit is parsed at once (a class-2 object unit) and kept for
+ * this frame by its address: the chain page draws it where the page CALLs
+ * it (em_owner_draw_live_page_unit). 0, or -1 (reported). */
+int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
+                                const uint32_t rgb[4], uint32_t record);
+/* 001F3E30's mode-0 draw (the shell casing's, the barrel's particle sweep):
+ * 001CA7B0(position, f12), then 001C7900(m, token, 0x3F5, 0) (the colour
+ * and node CNTs on channel 0, its 001D88B0 lighting over the token's 16
+ * bytes, em_face_attach's worker as 001CB3C0's), then 001CA940(flags,
+ * model) with a library model (D_0028A56C's, from the Roger export). The
+ * unit has no GS state REF of its own: it inherits the channel's, which is
+ * class 0 (every channel-0 producer in the port sends set 1 class 0: the
+ * units' REFs and the static world's, which em_gfx_gs_opaque checks). It
+ * is parsed after 001CA940 and kept with the frame's units. 0, or -1. */
+int em_owner_draw_live_001CA7B0(const uint32_t position[4], uint32_t radius, int32_t *flags);
+int em_owner_draw_live_001C7900(const uint32_t m[16], uint32_t token, const uint8_t token_bytes[16],
+                                int32_t vuaddr, int32_t chan);
+int em_owner_draw_live_001CA940_library(int32_t flags, uint32_t model);
+
+/* This frame's class-2 unit 001CABA0 built at `address`, or NULL. */
+const EmObjectUnitPieces *em_owner_draw_live_page_unit(uint32_t address);
+
 /* An EE range 001CB3C0 reads by address (read-only). */
 typedef struct {
     uint32_t address, size;

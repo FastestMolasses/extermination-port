@@ -2,7 +2,8 @@
 """The chain page D_007635C0 consumer against the ORIGINAL (docs/CHAIN_PAGE.md).
 
 Checks src/game/em_vu1_page_programs.h (the lane program of D_00233290, the
-sprite program of table 0x231770 and the snow program of D_00233800,
+sprite program of table 0x231770, the snow program of D_00233800, the
+streak program of table 0x230800 and the kind-2 program of table 0x232540,
 translated from their VU1 microcode)
 and src/game/em_chain_page.c (the DMA / VIF1 / GIF / GS walk 001CB800's kick
 starts) against tools/chain_page_model.py, which walks the same pages and
@@ -41,10 +42,20 @@ C. Synthetic sprite and snow batches: random descriptors over the captured rows
    blend and life rows), tile matrices moved so particles clip; compared as
    in A. Both outcomes of every conditional branch of both programs are
    reached (asserted); the snow batches start from the captured snow
-   MSCALs' memory.
+   MSCALs' memory. The streak batches (no capture holds a page with the
+   streak program: no AIM or route beat's end snapshot has a live
+   0x80000060 effect) start from a captured sprite MSCAL's memory with the
+   streak packet's own uploads applied the way the page orders them (its
+   lookup and constant rows, then 001CFBE0's rows 80..93 and 110..124 over
+   them), the GIF tag row of kind 0 (D_00251260 entry 0 or 1), and the same
+   random descriptors and tile moves; the EFU (ERCPR / ERLENG) is the
+   model chain_page_model documents, the same on both sides. The kind-2
+   batches (the cable's hit effect node 0021AAC0; no capture holds one
+   either) start the same way from the kind-2 packet's uploads, with the
+   GIF tag row of kind 2 (D_00251260 entry 4 or 5).
 D. The timing premise of the translation: in every A..C run the oracle logs
-   which producer each Q, MAC-flag and clip-flag read sees; it must be the
-   one the header names (em_vu1_page_programs.h).
+   which producer each Q, MAC-flag, clip-flag and (streak, kind 2) P read sees; it
+   must be the one the header names (em_vu1_page_programs.h).
 E. Faults: an exponent-255 word on a live lane faults both programs (the
    oracle raises); malformed pages (END tag, unknown MPG, an MSCAL before
    any program, ITOP, REGLIST, an A+D FRAME write, an unmapped REF, too
@@ -92,6 +103,19 @@ PRODUCERS = {
 # The snow program's reads see the same producers (its extra instructions
 # read no Q and write no flag a test reads before a later producer).
 PRODUCERS[M.PROGRAM_SNOW] = dict(PRODUCERS[M.PROGRAM_SPRITE])
+# The streak program: the sprite program's draw (micro 0x000..0x0C2), its
+# own particle record and quad emission; P is the EFU's (ERCPR / ERLENG).
+PRODUCERS[M.PROGRAM_STREAK] = {
+    ('Q', 0x00F): 0x008, ('MAC', 0x06A): 0x066, ('MAC', 0x071): 0x06D, ('MAC', 0x09E): 0x09A,
+    ('MAC', 0x0A5): 0x0A1, ('Q', 0x0D6): 0x0CF, ('Q', 0x0D7): 0x0CF, ('Q', 0x0E4): 0x0DB,
+    ('Q', 0x12C): 0x125, ('Q', 0x12D): 0x125, ('Q', 0x12E): 0x125, ('Q', 0x161): 0x15A,
+    ('CF', 0x12F): 0x129, ('P', 0x12D): 0x121, ('P', 0x147): 0x139, ('P', 0x162): 0x156}
+# The kind-2 program: the streak program's micro 0x000..0x0F8 and its own
+# line emission (Q of the tail's w, P = ERCPR of the head's w).
+PRODUCERS[M.PROGRAM_KIND2] = {
+    ('Q', 0x00F): 0x008, ('MAC', 0x06A): 0x066, ('MAC', 0x071): 0x06D, ('MAC', 0x09E): 0x09A,
+    ('MAC', 0x0A5): 0x0A1, ('Q', 0x0D6): 0x0CF, ('Q', 0x0D7): 0x0CF, ('Q', 0x0E4): 0x0DB,
+    ('Q', 0x125): 0x11E, ('CF', 0x127): 0x122, ('P', 0x126): 0x11A}
 # Conditional branches (micro address) whose both outcomes must be reached.
 BRANCHES = {
     M.PROGRAM_LANE: (0x017, 0x048, 0x07C),
@@ -99,9 +123,15 @@ BRANCHES = {
                        0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0F7, 0x0F9, 0x126, 0x132, 0x145),
     M.PROGRAM_SNOW: (0x026, 0x02A, 0x03D, 0x045, 0x049, 0x059, 0x07E, 0x081, 0x084, 0x087,
                      0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0F7, 0x0F9, 0x126, 0x132, 0x147),
+    M.PROGRAM_STREAK: (0x026, 0x02A, 0x03D, 0x045, 0x049, 0x059, 0x07E, 0x081, 0x084, 0x087,
+                       0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0FD, 0x0FF, 0x142, 0x174),
+    M.PROGRAM_KIND2: (0x026, 0x02A, 0x03D, 0x045, 0x049, 0x059, 0x07E, 0x081, 0x084, 0x087,
+                      0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0FD, 0x0FF, 0x12B, 0x138),
 }
-PROGRAM_ID = {M.PROGRAM_LANE: 0, M.PROGRAM_SPRITE: 1, M.PROGRAM_SNOW: 2}
-PROGRAM_NAME = {M.PROGRAM_LANE: 'lane', M.PROGRAM_SPRITE: 'sprite', M.PROGRAM_SNOW: 'snow'}
+PROGRAM_ID = {M.PROGRAM_LANE: 0, M.PROGRAM_SPRITE: 1, M.PROGRAM_SNOW: 2, M.PROGRAM_STREAK: 3,
+              M.PROGRAM_KIND2: 4}
+PROGRAM_NAME = {M.PROGRAM_LANE: 'lane', M.PROGRAM_SPRITE: 'sprite', M.PROGRAM_SNOW: 'snow',
+                M.PROGRAM_STREAK: 'streak', M.PROGRAM_KIND2: 'kind2'}
 
 SHIM = r'''
 #include "game/em_chain_page.h"
@@ -123,7 +153,9 @@ static int kick_cb(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 int shim_mscal(int program, EmVu1PRegs *r, EmVu1PQword *dmem, Kicks *k)
 {
     k->n = 0;
-    return program == 2 ? em_vu1_snow_program_mscal(r, dmem, kick_cb, k)
+    return program == 4 ? em_vu1_kind2_program_mscal(r, dmem, kick_cb, k)
+         : program == 3 ? em_vu1_streak_program_mscal(r, dmem, kick_cb, k)
+         : program == 2 ? em_vu1_snow_program_mscal(r, dmem, kick_cb, k)
          : program == 1 ? em_vu1_sprite_program_mscal(r, dmem, kick_cb, k)
                         : em_vu1_lane_program_mscal(r, dmem, kick_cb, k);
 }
@@ -168,7 +200,8 @@ unsigned shim_sizes(void)
 
 class Regs(C.Structure):
     _fields_ = [('vf', C.c_uint32 * 4 * 32), ('vi', C.c_uint16 * 16), ('acc', C.c_uint32 * 4),
-                ('q', C.c_uint32), ('i', C.c_uint32), ('r', C.c_uint32), ('cf', C.c_uint32)]
+                ('q', C.c_uint32), ('i', C.c_uint32), ('r', C.c_uint32), ('cf', C.c_uint32),
+                ('p', C.c_uint32)]
 
 
 class Kicks(C.Structure):
@@ -199,7 +232,10 @@ class Counts(C.Structure):
     _fields_ = [('transfers', C.c_uint32), ('qwords', C.c_uint32), ('direct', C.c_uint32),
                 ('mscal_lane', C.c_uint32), ('mscal_sprite', C.c_uint32), ('kicks', C.c_uint32),
                 ('prims', C.c_uint32), ('prim_type', C.c_uint32 * 8), ('skipped', C.c_uint32),
-                ('stale_q', C.c_uint32), ('cycle_inherited', C.c_uint32), ('mscal_snow', C.c_uint32)]
+                ('stale_q', C.c_uint32), ('cycle_inherited', C.c_uint32), ('mscal_snow', C.c_uint32),
+                ('units', C.c_uint32), ('mscal_streak', C.c_uint32), ('streak_prims', C.c_uint32),
+                ('mscal_kind2', C.c_uint32), ('kind2_prims', C.c_uint32), ('lane_strips', C.c_uint32),
+                ('direct_strips', C.c_uint32)]
 
 
 DMEM = C.c_uint8 * 16384
@@ -243,7 +279,7 @@ class Oracle(M.VuOracle):
         self.seen = collections.Counter()
         self.branch = collections.Counter()
         self.cur = 0
-        self.q_src = self.mac_src = self.cf_src = -1
+        self.q_src = self.mac_src = self.cf_src = self.p_src = -1
 
     def later(self, delay, kind, value):
         self.seq += 1
@@ -259,6 +295,8 @@ class Oracle(M.VuOracle):
                 self.mac, self.mac_src = value, src
             elif kind == 'q':
                 self.q, self.q_src = value, src
+            elif kind == 'p':
+                self.p, self.p_src = value, src
             self.pending.remove(p)
 
     def upper(self, pc, up):
@@ -275,6 +313,8 @@ class Oracle(M.VuOracle):
             self.seen[('MAC', pc // 8, self.mac_src // 8)] += 1
         if op == 0x12:
             self.seen[('CF', pc // 8, self.cf_src // 8)] += 1
+        if op == 0x40 and lo & 0x7FF == 0x67C:
+            self.seen[('P', pc // 8, self.p_src // 8)] += 1
         nxt = super().lower(pc, lo)
         if op in (0x28, 0x29, 0x2C, 0x2D, 0x2E, 0x2F):
             self.branch[(pc // 8, nxt is not None)] += 1
@@ -290,7 +330,7 @@ def regs_of(vu):
         r.vi[i] = vu.vi[i] & 0xFFFF
     for c in range(4):
         r.acc[c] = vu.accw[c]
-    r.q, r.i, r.r, r.cf = vu.q, vu.iw, vu.r, vu.cf
+    r.q, r.i, r.r, r.cf, r.p = vu.q, vu.iw, vu.r, vu.cf, vu.p
     return r
 
 
@@ -304,7 +344,8 @@ def same_regs(vu, r, where):
     for c in range(4):
         if vu.accw[c] != r.acc[c]:
             fail(f'{where}: ACC lane {c} {vu.accw[c]:#x} native {r.acc[c]:#x}')
-    for name, a, b in (('Q', vu.q, r.q), ('I', vu.iw, r.i), ('R', vu.r, r.r), ('clip', vu.cf, r.cf)):
+    for name, a, b in (('Q', vu.q, r.q), ('I', vu.iw, r.i), ('R', vu.r, r.r), ('clip', vu.cf, r.cf),
+                       ('P', vu.p, r.p)):
         if a != b:
             fail(f'{where}: {name} {a:#x} native {b:#x}')
 
@@ -318,7 +359,7 @@ def compare_mscal(lib, vu, program, where, stats, run=None):
     compare everything afterwards."""
     r, dm, k = regs_of(vu), DMEM.from_buffer_copy(vu.mem), Kicks()
     vu.kicks, vu.events, vu.watch = [], [], set()
-    vu.pending, vu.cycle, vu.q_ready = [], 0, 0
+    vu.pending, vu.cycle, vu.q_ready, vu.p_ready = [], 0, 0, 0
     vu.ready = [[0] * 4 for _ in range(32)]
     oracle_error = None
     try:
@@ -403,6 +444,7 @@ class RandomStartPage(M.Page):
         vu.vi = [0] + [rng.getrandbits(16) for _ in range(15)]
         vu.accw = [finite(rng) for _ in range(4)]
         vu.q, vu.iw, vu.r, vu.cf = finite(rng), finite(rng), rng.getrandbits(23), rng.getrandbits(24)
+        vu.p = finite(rng)
 
 
 def finite(rng):
@@ -469,8 +511,9 @@ def part_a(lib, stats, elf, seeds):
         if rc or out[0]:
             fail(f'{beat}: the native page faulted ({out[0]} at {out[1]:#x})')
         compare_prims(pg.gs.prims, prims, q, out[2], beat)
-        if (counts.mscal_lane, counts.mscal_sprite, counts.mscal_snow) != \
-                (pg.mscals[M.PROGRAM_LANE], pg.mscals[M.PROGRAM_SPRITE], pg.mscals[M.PROGRAM_SNOW]):
+        if (counts.mscal_lane, counts.mscal_sprite, counts.mscal_snow, counts.mscal_streak) != \
+                (pg.mscals[M.PROGRAM_LANE], pg.mscals[M.PROGRAM_SPRITE], pg.mscals[M.PROGRAM_SNOW],
+                 pg.mscals[M.PROGRAM_STREAK]):
             fail(f'{beat}: MSCALs native {counts.mscal_lane}/{counts.mscal_sprite}/{counts.mscal_snow}, '
                  f'original {dict(pg.mscals)}')
         if weather:
@@ -514,7 +557,8 @@ def load_program(vu, elf, program):
     if program == M.PROGRAM_LANE:
         vu.code[0:138 * 8] = elf_code(elf, 0x2332B8, 138 * 8)
     else:
-        parts = M.SPRITE_MPG if program == M.PROGRAM_SPRITE else M.SNOW_MPG
+        parts = {M.PROGRAM_SPRITE: M.SPRITE_MPG, M.PROGRAM_SNOW: M.SNOW_MPG,
+                 M.PROGRAM_STREAK: M.STREAK_MPG, M.PROGRAM_KIND2: M.KIND2_MPG}[program]
         for code, count, micro in parts:
             vu.code[micro * 8:(micro + count) * 8] = elf_code(elf, code, count * 8)
 
@@ -626,14 +670,75 @@ def sprite_case(rng, seed_state, elf):
     return mem, count
 
 
+def packet_uploads(elf, packet):
+    """The UNPACK V1-32 / V4-32 rows a program packet uploads (decoded from
+    the ELF's packet: {row: [4 words]}, in packet order)."""
+    at = packet + 16
+    qwc = struct.unpack_from('<I', elf_code(elf, packet, 4))[0] & 0xFFFF
+    end, rows = packet + 16 + 16 * qwc, {}
+    while at < end:
+        code = struct.unpack('<I', elf_code(elf, at, 4))[0]
+        cmd, num, imm = code >> 24 & 0x7F, code >> 16 & 0xFF, code & 0xFFFF
+        at += 4
+        if cmd == 0x4A:                                          # MPG: 8-byte aligned code
+            at += (8 - at % 8) % 8 + 8 * (num or 256)
+            continue
+        if cmd in (0x60, 0x6C):
+            comps = 1 if cmd == 0x60 else 4
+            for k in range(num or 256):
+                words = struct.unpack(f'<{comps}I', elf_code(elf, at + 4 * comps * k, 4 * comps))
+                rows[(imm & 0x3FF) + k] = list(words) * 4 if comps == 1 else list(words)
+            at += 4 * comps * (num or 256)
+            continue
+        if cmd == 0x20:
+            at += 4
+    return rows
+
+
+def streak_seed(elf, sprite_state, program=M.PROGRAM_STREAK):
+    """A sprite MSCAL's memory as the streak (or kind-2) program would find
+    it: the program packet's uploads, then the rows 001CFBE0's packets 1, 2
+    and 4 send after the CALL (80..93 and 110..124) as the captured sprite
+    MSCAL had them."""
+    mem = bytearray(sprite_state[0])
+    rows = packet_uploads(elf, program)
+    if sorted(rows) != list(range(129 if program == M.PROGRAM_STREAK else 128)):
+        fail(f'the {PROGRAM_NAME[program]} packet uploads rows {min(rows)}..{max(rows)} ({len(rows)})')
+    keep = {r: row(mem, r) for r in list(range(80, 94)) + list(range(110, 125))}
+    for r, words in rows.items():
+        set_row(mem, r, words)
+    for r, words in keep.items():
+        set_row(mem, r, words)
+    return (bytes(mem),)
+
+
+def streak_case(rng, seed_state, elf):
+    mem, count = sprite_case(rng, seed_state, elf)
+    entry = rng.choice([0, 1])                                   # D_00251260: kind 0, mode 1 / 2..4
+    set_row(mem, 124, list(struct.unpack('<4I', elf_code(elf, 0x251260 + 16 * entry, 16))))
+    return mem, count
+
+
+def kind2_case(rng, seed_state, elf):
+    mem, count = sprite_case(rng, seed_state, elf)
+    entry = rng.choice([4, 5])                                   # D_00251260: kind 2, mode 1 / 2..4
+    set_row(mem, 124, list(struct.unpack('<4I', elf_code(elf, 0x251260 + 16 * entry, 16))))
+    return mem, count
+
+
 def run_synthetic(lib, elf, program, cases, stats, branches, seed, seeds):
-    seeds = seeds.get(program)
+    if program in (M.PROGRAM_STREAK, M.PROGRAM_KIND2):
+        seeds = [streak_seed(elf, s, program) for s in seeds.get(M.PROGRAM_SPRITE, [])]
+    else:
+        seeds = seeds.get(program)
     if not seeds:
         fail(f'no captured MSCAL of {program:#x}')
     rng = random.Random(seed)
     for n in range(cases):
         state = rng.choice(seeds)
-        mem, extra = (lane_case if program == M.PROGRAM_LANE else sprite_case)(rng, state, elf)
+        mem, extra = {M.PROGRAM_LANE: lane_case, M.PROGRAM_STREAK: streak_case,
+                      M.PROGRAM_KIND2: kind2_case}.get(program, sprite_case)(
+            rng, state, elf)
         vu = Oracle()
         load_program(vu, elf, program)
         vu.mem[:] = mem
@@ -642,6 +747,7 @@ def run_synthetic(lib, elf, program, cases, stats, branches, seed, seeds):
         vu.vi = [0] + [rng.getrandbits(16) for _ in range(15)]
         vu.accw = [finite(rng) for _ in range(4)]
         vu.q, vu.iw, vu.r, vu.cf = finite(rng), finite(rng), rng.getrandbits(23), rng.getrandbits(24)
+        vu.p = finite(rng)
         where = f'synthetic {program:#x} case {n}'
         if compare_mscal(lib, vu, program, where, stats):
             check_timing(vu, program, where)
@@ -653,8 +759,10 @@ def run_synthetic(lib, elf, program, cases, stats, branches, seed, seeds):
 # ---------------------------------------------------------------- E. faults
 def operand_faults(lib, elf, stats, seeds):
     for program, rows in ((M.PROGRAM_LANE, [(0x20 + 3, 0)]), (M.PROGRAM_SPRITE, [(89, 0), (86, 2)]),
-                          (M.PROGRAM_SNOW, [(89, 0), (86, 2)])):
-        state = seeds[program][0]
+                          (M.PROGRAM_SNOW, [(89, 0), (86, 2)]), (M.PROGRAM_STREAK, [(89, 0), (86, 2), (127, 2)]),
+                          (M.PROGRAM_KIND2, [(89, 0), (86, 2)])):
+        state = streak_seed(elf, seeds[M.PROGRAM_SPRITE][0], program) \
+            if program in (M.PROGRAM_STREAK, M.PROGRAM_KIND2) else seeds[program][0]
         for r, lane in rows:
             mem = bytearray(state[0])
             if program == M.PROGRAM_LANE:
@@ -669,6 +777,35 @@ def operand_faults(lib, elf, stats, seeds):
             vu.mem[:] = mem
             if compare_mscal(lib, vu, program, f'operand fault {program:#x} row {r}', stats):
                 fail(f'an exponent-255 word on a live lane of {program:#x} did not fault')
+    # The EFU's unestablished operands: K's w column (rows 118..121) zero
+    # makes every head's w zero (ERCPR of zero); both sides fault.
+    mem = bytearray(streak_seed(elf, seeds[M.PROGRAM_SPRITE][0])[0])
+    for r in range(118, 122):
+        w = row(mem, r)
+        w[3] = 0
+        set_row(mem, r, w)
+    vu = Oracle()
+    load_program(vu, elf, M.PROGRAM_STREAK)
+    vu.mem[:] = mem
+    before = stats['operand_faults']
+    if compare_mscal(lib, vu, M.PROGRAM_STREAK, 'EFU fault: ERCPR of zero', stats) or \
+            stats['operand_faults'] != before + 1:
+        fail('ERCPR of a zero w did not fault')
+    stats['efu_faults'] += 1
+    # The kind-2 program's ERCPR: the same rows (its head through 118..121).
+    mem = bytearray(streak_seed(elf, seeds[M.PROGRAM_SPRITE][0], M.PROGRAM_KIND2)[0])
+    for r in range(118, 122):
+        w = row(mem, r)
+        w[3] = 0
+        set_row(mem, r, w)
+    vu = Oracle()
+    load_program(vu, elf, M.PROGRAM_KIND2)
+    vu.mem[:] = mem
+    before = stats['operand_faults']
+    if compare_mscal(lib, vu, M.PROGRAM_KIND2, 'EFU fault: kind-2 ERCPR of zero', stats) or \
+            stats['operand_faults'] != before + 1:
+        fail('the kind-2 ERCPR of a zero w did not fault')
+    stats['efu_faults'] += 1
 
 
 def tag(tid, qwc, addr):
@@ -787,6 +924,8 @@ def main():
     run_synthetic(lib, elf, M.PROGRAM_SPRITE, n_syn, stats, branches, 0x5B21, seeds)
     n_snow = pick(300, 20)
     run_synthetic(lib, elf, M.PROGRAM_SNOW, n_snow, stats, branches, 0x5A0C, seeds)
+    run_synthetic(lib, elf, M.PROGRAM_STREAK, n_syn, stats, branches, 0x57EA, seeds)
+    run_synthetic(lib, elf, M.PROGRAM_KIND2, n_syn, stats, branches, 0x2540, seeds)
     for program, sites in BRANCHES.items():
         for site in sites:
             for taken in (True, False):
@@ -797,15 +936,18 @@ def main():
     page_faults(lib, stats)
     presets(lib, elf, stats)
     if stats['synthetic_lane'] < n_syn // 2 or stats['synthetic_sprite'] < n_syn // 2 or \
-            stats['synthetic_snow'] < n_snow // 2:
+            stats['synthetic_snow'] < n_snow // 2 or stats['synthetic_streak'] < n_syn // 2 or \
+            stats['synthetic_kind2'] < n_syn // 2:
         fail(f'too few synthetic cases ran: {stats}')
     banner(part(stats['independence_pages'], stats['pages'], 'pages re-walked from random VU1 state'),
            part(stats['snow_pages'], stats['pages'], 'pages with the weather kick walked'),
            f"{stats['pages']} captured pages ({stats['page_prims']} primitives, {stats['page_kicks']} XGKICKs, "
            f"{stats['page_directs']} DIRECT packets, {stats['page_skipped_calls']} non-port CALLs walked over)",
-           f"{stats['mscal_lane']} lane, {stats['mscal_sprite']} sprite and {stats['mscal_snow']} snow MSCALs "
-           f"compared ({stats['synthetic_lane']}, {stats['synthetic_sprite']} and {stats['synthetic_snow']} "
-           f"synthetic)",
+           f"{stats['mscal_lane']} lane, {stats['mscal_sprite']} sprite, {stats['mscal_snow']} snow, "
+           f"{stats['mscal_streak']} streak and {stats['mscal_kind2']} kind-2 MSCALs compared "
+           f"({stats['synthetic_lane']}, {stats['synthetic_sprite']}, {stats['synthetic_snow']}, "
+           f"{stats['synthetic_streak']} and {stats['synthetic_kind2']} synthetic; "
+           f"{stats['efu_faults']} EFU operand faults)",
            f"{stats['kicks']} XGKICKs, {stats['kicked_packet_bytes']:,} packet bytes",
            f"{stats['operand_faults']} operand faults, {stats['fault_cases']} page fault cases",
            f"the 001D0F20 blend-preset bank equal in {stats['preset_captures']} captures"

@@ -2,6 +2,8 @@
  * (census L25). See em_area11_boxes.h and docs/CRATES_DRUMS_ORIGINAL.md
  * "Binding". */
 #include "game/em_area11_boxes.h"
+#include "game/em_aim_fire_flash.h"
+#include "game/em_aim_fire_trail.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -660,6 +662,12 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
     /* The indicator children keep theirs in em_indicator_bind_live. */
     int indicator = em_indicator_bind_live_001AF800(actor);
     if (indicator != 0) return indicator < 0 ? -1 : 0;
+    /* The muzzle node (001F5040) keeps its in em_aim_fire_flash. */
+    int flash = em_aim_fire_flash_001AF800(actor);
+    if (flash != 0) return flash < 0 ? -1 : 0;
+    /* The knife's trail node (001F18C0) keeps its in em_aim_fire_trail. */
+    int trail = em_aim_fire_trail_001AF800(actor);
+    if (trail != 0) return trail < 0 ? -1 : 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;

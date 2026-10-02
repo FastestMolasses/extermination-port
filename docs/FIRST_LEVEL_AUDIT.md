@@ -1603,6 +1603,51 @@ The groups:
     with the proof there: the reticle 001DD170 and its vf23 input (no
     class-2 target), the projectiles 0018AF50 / 0018B3E0 (+275 stays 0),
     the handlers 001ECB00 / 001EB7F0 / 001EC820 (no AIM beat ran them).
+    **Status (2026-10-02, chain step AIMLIVE):** behind the gate the muzzle
+    node 001F5040 (record bytes and model-node workers in
+    em_aim_fire_flash; its 001CACB0 -> 001CABA0 draw as class-2 object
+    units on the chain page), the shell casing (001F4010 -> 001F2F90 /
+    001F3340, the barrel's 001F3620 / 001F3E30), the reloads and melee 0x21
+    / 0x22 with the knife (001AA840 / 001AA7A0, 0019B2C0 now
+    em_coll_move_probe_0019B2C0 and tested against the original,
+    00189EC0 / 00189FE0 / 0018A180, 001EFF10 and the trail node 001F18C0
+    in em_aim_fire_trail) run on their original bodies. Five gated side
+    runs replay AIM captures row for row: aim_fire (aim_03), aim_both
+    (aim_02), aim_reload (aim_06), aim_reload_empty (aim_07) and
+    aim_melee (aim_09), all PASS (`make test-level-smoke-aim`, the last
+    three with EM_TEST_FULL=1; AIM_FIRE.md section 9, LEVEL_SMOKE.md "The
+    AIM replays"). Finding: the knife's trail never draws in AREA11 (its
+    depth key is taken from the bone's +0x00 matrix, the identity;
+    AIM_FIRE.md section 9.3). **The gate stays, and em_weapon's firing
+    loop, gun tick, lamp gate and camera_mode1_aim stay in ordinary
+    play:** a round whose marker spawns 0x80000060 (aim_04, aim_10, the
+    r1 / r2 fixtures) reaches the kind-0 VU1 program 0x230800, which uses
+    the EFU (ERCPR / ERLENG, MFP / WAITP) with no measured model, and the
+    gun lamp (Square, aim_08: 00187780 / 00187690, 001D9530 -> 001D91A0,
+    001DA290) is untranslated. Left: those two, then aim_04 / aim_08 /
+    aim_10 / aim_11 replays and the switch of ordinary play.
+    **Status (2026-10-02, chain step AIMLIVE's fix round): closed for
+    AREA11.** The original aim / fire path is the only one: the gate is
+    gone, and em_weapon's stance, firing loop, gun tick, lamp gate, laser
+    and muzzle-flash drawers, the Metal beam pass and camera_mode1_aim are
+    retired (em_weapon keeps the four global bytes). Translated with
+    original-instruction oracles: the streak program 0x230800 (the EFU as
+    the background's ERLENG model), the gun lamp 00187780 / 00187690 /
+    001D9530 / 001D91A0 / 001DA290 / 001DA1E0 and the render-context
+    helpers 001D4E20 / 001D4EB0 / 001D4B80 / 001D4C30, the ring decal's
+    handler 001EBBB0, 001A9D20's pair callee 001A9C40, the cable hit's
+    handler 001EAB50 and the kind-2 VU1 program 0x232540; 001B61C0 goes to
+    its owner em_pad_actuator. Ten side runs replay the AIM captures row for
+    row, all PASS: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light,
+    aim_world (aim_04), aim_cable (aim_10 then aim_11) by default, aim_both,
+    aim_reload, aim_reload_empty with EM_TEST_FULL=1 (AIM_FIRE.md section
+    10, LEVEL_SMOKE.md "The AIM replays"). Left, recorded in AIM_FIRE.md
+    section 10.7: the EFU's results are a model no capture has checked
+    (a capture of a streak or kind-2 page would settle it; PCSX2 work for
+    the lead), the lamp's cone shells 001D9530 are not reached in AREA11
+    (D_008106C8 has 0x20000000), the original death states (L02) are not
+    translated, and a side run takes about a minute or more because the
+    port cannot restore state at route 08's end (the lead's decision).
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths.

@@ -195,70 +195,6 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define TURN_MV_FAR_W   0.10471976f  /* far  band: walk 6 deg/f        */
 #define TURN_MV_FAR_J   0.15707964f  /*           jog  9 deg/f         */
 #define TURN_MV_FAR_R   0.18325958f  /*           run  10.5 deg/f      */
-/* MANUAL AIM STEER — DECODED, re-verified against the recovered C
- * (func_0017ABA0 [NEARMISS] + func_001B5DC0 [byte-matched]; retires the
- * old AIM_TURN_SPEED port stand-in). While aiming, the left stick
- * drives the aim BLEND PAIR player +0x27C (yaw) / +0x278 (pitch),
- * both 0.5-centered in [0,1] (stance entry resets them to 0.5):
- *
- *   - per-frame rate = a 4-band table indexed by the axis deflection
- *     band |raw - 0x80| through func_001B5DC0's rings 49/89/123
- *     (func_001B5DC0 tests < 0x31 / < 0x59 / < 0x7B — byte-matched):
- *     R1-family stances 0x31/0x34: {0, 0.0025, 0.005, 0.015};
- *     EVERY OTHER stance (the R2 family 0x32/0x35):
- *                                  {0, 0.0016666666, 0.005, 0.01}.
- *     CORRECTED (audit): the R2 top band is 0.01, NOT 0.015 — the
- *     recovered func_0017ABA0 else-arm reads rate[3] = 0.01f.
- *     STALE POINTER FIXED 2026-07-31: this used to say "the live
- *     table in em_game.c (kRateR2[3]) still carries 0.015 ... one
- *     third too fast". All three parts were out of date — the table
- *     now lives in em_player.c, it has since been corrected to 0.01f,
- *     and 0.015 vs 0.01 is 50% too fast, not one third.
- *   - YAW: blend +- rate / sin(pi*(0.5 + 0.6*(pitch-0.5))) (faster
- *     when pitched off level; exactly 1.0 at center); overflow past
- *     [0,1] clamps the blend and TURNS THE BODY by the excess (rad) *
- *     1.0 (R1 family) / 1.5 (R2 family) — the pose pans up to its
- *     +-60 deg yaw ladder first, then the player turns;
- *   - PITCH: blend +- (rate * mult) / 2 per frame — INVERTED Y (the
- *     raw axis byte >= 0x80 = stick DOWN increments the blend = aim
- *     UP; stick UP aims DOWN — "W = down", the user-attested original
- *     behavior); mult = 1.5 when pitch <= 0.3 or pitch >= 0.7 for the
- *     R1 family (and x1.8 for sub-weapon 4, not in the port); clamp
- *     [0, 1.0] for stances 0x31/0x32, [0, 0.75] for 0x34/0x35
- *     (func_0017ABA0: lim = (stance - 0x31 < 2) ? 1.0 : 0.75).
- *     The yaw axis has its OWN sub-weapon-4 multiplier (x1.5, not
- *     x1.8) — also not in the port, no sub-weapon state exists.
- *
- * The blends select/blend the 9-step AIM POSE LADDER 0x112..0x11A
- * (FINDINGS "aim-ladder tables") — measured from the baked clips
- * themselves (hand-bone +X fire direction): 0x112 center (+1.3 deg),
- * 0x113 up +81.3, 0x114 down -78.7, 0x115/0x116 level yaw -+60 (model
- * -X = SCREEN RIGHT in the port's basis), 0x117/0x118 up/down right,
- * 0x119/0x11A up/down left. The fire/laser ray follows the posed hand
- * bone automatically (em_weapon's muzzle anchor).
- * AUDIT 2026-07-31 - HOLDS. Both rate tables, the 49/89/123 bands, the two sub-weapon-4
- * multipliers (x1.5 on yaw, x1.8 on pitch) and the (stance - 0x31 < 2) clamp split were re-read
- * in func_0017ABA0 and func_001B5DC0.
- * */
-#define AIM_BAND_1      49.0f       /* func_001B5DC0 |raw-0x80| rings */
-#define AIM_BAND_2      89.0f
-#define AIM_BAND_3      123.0f
-#define AIM_PITCH_MAX_R1 1.0f       /* +0x278 clamp, stances 0x31/0x32 */
-#define AIM_PITCH_MAX_R2 0.75f      /* +0x278 clamp, stances 0x34/0x35 —
-                                     * func_0017ABA0's `lim` else-arm.
-                                     * NOTE the clamp families are NOT the
-                                     * rate families: the rate table splits
-                                     * 0x31/0x34 vs the rest, the clamp
-                                     * splits (stance - 0x31 < 2) i.e.
-                                     * 0x31/0x32 vs the rest. The port
-                                     * models only the R1 stance, so this
-                                     * is carried unused until the 0x34/
-                                     * 0x35 sub-weapon stances land. */
-#define AIM_POSE_UP_DEG   81.3f     /* measured ladder pose pitches */
-#define AIM_POSE_DOWN_DEG 78.7f
-#define AIM_POSE_CTR_DEG  1.3f
-#define AIM_POSE_YAW_DEG  60.0f
-
 /* PLAYER WALL RADIUS — re-verified against func_001764E0 [NEARMISS]:
  * the engine's wall response is NOT a zero-width move segment. Both
  * passes rotate a local probe vector by yaw + D_00248950[i], but they
@@ -1182,46 +1118,6 @@ enum {
  * orbit's actual rate, not just its floor. */
 #define CAM_ORBIT_RATE  0.0034906587f     /* rad/frame (0x3B64C389) */
 
-/* AIM CAMERA MODE 1 — DECODED (2026-06-11, func_00197D20 dispatcher +
- * func_00197740 entry / func_00197870 steady; replaces the +0x8C
- * target-height stand-in):
- *   entry (sub 1, until the aim pose commits): TARGET = player +
- *     rotY(cam euler +0x30)*(0, 19, 6), EYE = player + rotY*(0,19,-30);
- *     actual target chases at 0.4/frame, eye at 4.0/frame;
- *   steady (sub 2): TARGET = base + aim_dir*16 + (0,19,0) (base =
- *     player pos; the R2 stance state 0x2A uses the position saved at
- *     aim entry, spad D_70003040), EYE = player + rotEuler(player
- *     rot)*(0,0,-30) — i.e. 30 u behind the FACING, tracking the
- *     turn-in-place — with EYE.y = player.y + 19 - 30*dir.y (the
- *     -30*dir.y term clamped to >= -25; 22 + that = f20 in [-3,0])
- *     clamped into [player.y + 2, player.y + 30] (flagged areas use
- *     +11 — port keeps +2); actual target chases at 0.6/frame, eye at
- *     4.0/frame; anti-close: horizontal eye<->player dist < 7 raises
- *     EYE.y to player.y + 18 + f20;
- *   dispatcher tail — CORRECTED (audit), the comparison was INVERTED:
- *     func_00197D20 [byte-matched] case 1 reads
- *       `if (D_008105D4 < 23.0f + *(float *)(arg1 + 0xA4))`
- *     (D_008105D4 = the ACTUAL eye Y, arg1+0xA4 = player Y), so the
- *     min-distance clamp runs while the eye is BELOW player.y + 23 —
- *     a LOW eye that would otherwise slide inside the player — not
- *     above it. Inside that gate, a horizontal eye<->player distance
- *     < 8 pushes the eye out to EXACTLY 8 along its own heading. It
- *     also lives ONLY in the ENTRY sub-state arm (case 1); the steady
- *     arm (case 2 -> func_00197870) returns without it. em_camera.c
- *     has since been fixed to test `<`;
- *   release (player states 0xC/0x29): the engine swaps to transition
- *     mode 2 (func_00198650, untranslated) — the port re-seeds the
- *     chase yaw from the actual eye->player heading and lets mode-0
- *     chase blend back (the engine's own .L001935EC reset shape).
- * AUDIT 2026-07-31 - HOLDS. func_00197D20 case 1 reads `D_008105D4 < 23.0f + player.y` and,
- * inside that gate, pushes the eye out to exactly 8.0; case 2 has no such arm.
- * */
-#define CAM_AIM_TGT_FWD   16.0f  /* target = base + dir*16 */
-#define CAM_AIM_TGT_UP    19.0f  /* + 19 up (0x41980000) */
-#define CAM_AIM_EYE_BACK  30.0f  /* eye 30 behind (0xC1F00000) */
-#define CAM_AIM_ENTRY_FWD 6.0f   /* entry target (0,19,6) */
-#define CAM_AIM_MIN_DIST  8.0f   /* dispatcher min horiz eye dist */
-
 /* DOOR CAMERA CUES — DECODED (2026-06-11, op 0x0D sub 5 func_001B7B30 +
  * func_0018CBD0, and the locked-look native func_001BBBF0).
  * RE-DERIVED + LIVE-VERIFIED 2026-06-11 (this session, two PCSX2
@@ -1458,11 +1354,6 @@ typedef struct {
                              Feeds the target height (11 + 0x8C) and
                              the eye base (11 + 0x5C + 0x8C); the aim
                              camera proper is MODE 1 */
-    uint8_t  aim_phase;   /* MODE-1 sub-machine (+0x01 in mode 1):
-                             0 = off, 1 = entry blend (func_00197740),
-                             2 = steady aim (func_00197870) */
-    float    aim_entry[3];/* spad D_70003040: player pos saved at aim
-                             entry (the R2 stance's target base) */
     /* IDLE AUTO-ORIENT orbit (director sub-state 2, func_00193D90) */
     uint8_t  orbit_on;    /* orbit running (cam+0x01 == 2) */
     float    orbit_tgt;   /* +0x48: saved player heading (goal yaw) */
@@ -1637,21 +1528,6 @@ typedef struct {
     int        cam_region_on;    /* this frame's dispatch ran the in-region
                                   * fixed placement (debug/test witness) */
 
-    /* MANUAL AIM STEER state (func_0017ABA0 — the player aim blends) */
-    float      aim_pitch;        /* +0x278: 0.5 center, 0 = full DOWN,
-                                  * 1 = full UP (stick-down raises it:
-                                  * the inverted-Y original behavior) */
-    float      aim_yawb;         /* +0x27C: 0.5 center, 1 = pose yaw
-                                  * SCREEN-LEFT limit, 0 = right (model
-                                  * -X = screen right; overflow turns
-                                  * the body) */
-    int        aim_was;          /* aiming last frame (entry detect) */
-    int        r2_aim;           /* R2-held armed stance 0x1E (code 0x32)
-                                  * — the engine's second aim stance
-                                  * (func_001607D0: held R2 -> mode
-                                  * 0x1E), run by em_game when em_weapon
-                                  * is not aiming */
-    float      aim_palette[1024 * 16];  /* ladder-blend scratch */
 
     /* DOOR CINEMATIC camera (op 0x0D sub 5 + func_001BBBF0) */
     int        doorcam;          /* 0 off, 1 = transit armed (walking),
@@ -1920,7 +1796,6 @@ typedef struct {
                                   * mid-open (back side of the test door) */
     float       dt_min_x;        /* min player x while the door not OPEN */
     float       dt_max_fade;     /* peak fade level seen (must reach 1.0) */
-    int         weapon_test;     /* EM_WEAPON_TEST=1 — firing-loop test */
     int         wt_fail;         /* weapon test: failed checkpoints */
     int         enemy_test;      /* EM_ENEMY_TEST: 1 = shoot-the-crawler
                                   * run, 2 = let-it-reach-the-player run,
@@ -2116,9 +1991,6 @@ int player_pose_0015C700(float health, uint32_t d8106C8,
                          int (*table16)(void *, uint32_t, int16_t *), void *context);
 int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *transition);
 
-/* Aim direction for the current frame (player lane, defined in em_game.c).
- * The camera's aim mode reads it to place the over-shoulder eye. */
-void aim_dir_get(float out[3]);
 
 /* Settle the camera inside the room bounds (camera lane, still defined in
  * em_game.c because em_game.c also calls it; belongs in em_camera.c once the

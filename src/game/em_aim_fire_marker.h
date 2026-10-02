@@ -23,7 +23,8 @@
  * store), as em_aim_fire_target; every callee goes through `call`. Fail-stop
  * as there. Verified by tools/test_aim_fire_marker_reference.py.
  *
- * Bound behind the aim/fire gate: em_aim_fire_live dispatches 0x0018ABA0,
+ * Bound (the only aim / fire path since 2026-10-02, AIM_FIRE.md section
+ * 10): em_aim_fire_live dispatches 0x0018ABA0,
  * and em_aim_fire_runtime allocates the record (001861C0's 001AFA90),
  * holds its +0x28 / +0xA0..+0xAF and binds it to the AREA11 pool walk by
  * its +0x10 (AIM_FIRE.md section 3). */

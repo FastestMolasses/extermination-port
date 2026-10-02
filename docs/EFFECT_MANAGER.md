@@ -156,7 +156,7 @@ For i = 0..0x7F with +0x80 == 0:
 1. 001F3620(e, +0x82).
 2. If still live: 001F3E30(0x700036A0, e+0x40, rec+0x50, rec+0x54+4·(i%2), rec+0x5C) with rec = D_0025A350 + (+0x82, re-read)·0x60.
 
-Then D_00275C44 −= 1. 001F3FA0 (lane L27, S0) clears the entities and zeroes the counter. 001F3620 reads it.
+Then D_00275C44 −= 1. 001F3FA0 (lane L27, S0) clears the entities and zeroes the counter. 001F3620 reads it. In the port the sweep's two callees go through em_effects_live's particle hook (`em_effects_live_set_particle_call`) to em_area00_fx_debris, their one bound owner; the hook is installed with the aim / fire composition (in ordinary play since 2026-10-02), where the shell casing seeds the records (AIM_FIRE.md section 9.2); without it a live entity faults.
 
 ### 001F4D40(pos, colour, f12, f13)
 
@@ -383,7 +383,7 @@ handlers em_effect_kinds does not translate split in two:
   | 001EAF80 (0x8000001D), 001EB020 (0x16) | 00187350's wading ripple (+23C set) and 00187EE0 on 0x5B; the climb grab 0017DEB0 with +23C set | +23C is set (1 / 2) only by 00175900 on surface 0x5B: the split listing's other stores to a +0x23C are 001647D0's clear and 001551B0's / 001D7BB0's words into their own records, and AREA11 has no 0x5B |
   | 001ED450 (0x80000023) | the blast reaction 0021EAD0 / 0021EF30 (+5 0x12..0x14) | entered only from the hit requests +F 7 / 0xA / 0xB; no live port code writes +F (only clears it) |
   | 001EBC30 (0x14), 001EBD20 (0x15), 001ED7A0 (0x07), 001EB600 (0x5F) | the crates' and drums' break and flight | reached only after a damage write to the owner's +0x36; no live port code writes it (CRATES_DRUMS_ORIGINAL.md) |
-  | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | 001F0460 (the footstep decal) faults before it (below) |
+  | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | on the route 001F0460 (the footstep decal) faults before it (below); the shots' ring decals (the impact marker's 001F0460, through the aim / fire composition) reach it in the AIM side runs, where it is translated (EFFECT_KINDS.md 4.1, 2026-10-02) |
   | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
 
 **001EFE00** (em_player_misc_001EFE00; `w_attach` / `mw_spawn` in

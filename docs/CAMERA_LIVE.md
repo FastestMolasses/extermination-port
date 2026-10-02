@@ -281,10 +281,9 @@ region since this step; nothing writes them in AREA11.
     0x823FE0, 001AEDE0).
 
   None is reached on the route (the census saw only actions 0 and 8). The
-  port's own aim (em_weapon's R2 / R1 stand-ins, ordinary play) never sets
-  the aim codes (+1F0 49..53), so its camera stays the stand-in of section
-  6; the original stances behind the aim/fire gate set camera actions 1 / 2
-  and run the aim camera (section 7).
+  original stances set camera actions 1 / 2 and run the aim camera
+  (section 7); since 2026-10-02 they are the only aim (the port's own aim
+  stand-ins and their camera stand-in are retired, AIM_FIRE.md section 10).
 - **0x70003A28 across frames.** 0022FCA0's orbit (the tether, codes 2/4/0xF)
   reads 0x70003A28 as the previous frame left it. In the original the player
   routines also write that word between camera frames, and the port's player
@@ -296,13 +295,13 @@ region since this step; nothing writes them in AREA11.
 ## 6. Stand-ins that still pre-empt camera action 0
 
 `camera_area11_standins` (em_camera.c) runs in 00195130's place while one
-of these owns the camera. The frame, the dispatch and the commit around it
+of these owns the camera. (The aim stand-in `camera_mode1_aim` was retired
+on 2026-10-02 with em_weapon's aim: the aim camera is section 7's.) The frame, the dispatch and the commit around it
 stay the original's:
 
 | Stand-in | Owner it stands for | Lane |
 |---|---|---|
 | `em_examine_camera` | an examine cue's op00 shot | (no AREA11 route beat) |
-| `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 (translated, section 7; the stand-in serves em_weapon's ordinary-play aim, which never sets camera action 1 / 2, until the aim/fire gate is removed) | L28 |
 
 The +4 == 3 timeline is the opening lane's scene-0x22 stand-in while the
 opening's track runs (started by the script's 0022EC30), and otherwise the
@@ -387,8 +386,9 @@ helpers) as original code too. 800 of 2,491 cases by default, all 160
 conditional-branch outcomes of the eleven routines both ways (asserted),
 137 callee-failure cuts, 30 host refusals; a boundary mutant at -25 is
 caught (the near-wall lift's clamp). Live: `make test-level-smoke-aim`
-(the level smoke's side runs `aim_r1_hold` / `aim_r2_hold` behind the
-aim/fire gate; LEVEL_SMOKE.md, AIM_FIRE.md section 5) plays the main line
+(the level smoke's side runs `aim_r1_hold` / `aim_r2_hold`, behind the
+aim/fire gate until 2026-10-02 and on the only aim path since; LEVEL_SMOKE.md,
+AIM_FIRE.md sections 5 and 10) plays the main line
 to route 08's end, walks in to the AIM captures' start and holds R1 (R2)
 for the captures' 79 ticks; every row from the stance to the capture's end
 (aim_00 f13..f146, aim_01 f13..f154) equals the capture in the player's

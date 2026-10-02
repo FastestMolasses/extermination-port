@@ -82,7 +82,7 @@
  *   spad 0x3B74  0x0080  SQUARE  HEAVY knife stab when unarmed (mode
  *                                0x22); sub-weapon action while armed
  *                                (attachment 0 = the 0x179 toggle) —
- *                                decoded s36, em_weapon.h "KNIFE / MELEE"
+ *                                decoded s36 (001735C0 / 00173E60)
  *   spad 0x3B76  0x0040  CROSS   USE / confirm (the use-scan gate
  *                                0x810E74 & spad3B76 — doors)
  *   spad 0x3B78  0x0020  CIRCLE  FIRE (the trigger — NOT Cross); the
@@ -94,8 +94,8 @@
  * RELOAD is NOT config-mapped: the weapon code tests the raw pad bit
  * 0x0200 = L3 directly (func_0017B300(.,2) top-up).
  *
- * The port consumes the canonical EM_PAD_* bits below (em_weapon fires on
- * EM_PAD_CIRCLE, doors use EM_PAD_CROSS, reload is EM_PAD_L3), so this
+ * The port consumes the canonical EM_PAD_* bits below (the original
+ * stances read the masks above; doors use EM_PAD_CROSS), so this
  * module never needs the swapped layout — it is recorded here as the
  * authoritative decode of the engine's default control scheme.
  *

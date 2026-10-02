@@ -130,6 +130,14 @@ int em_coll_move_sweep_0019AFE0(const EmCollMoveWorld *world, EmCollMoveScratch 
                                 EmCollMoveActor *actor, const float from[3], const float to[3],
                                 uint32_t flags);
 
+/* 0019B2C0(a0, a1, flags): the actor-less probe (the knife's reach,
+ * 0018A1F0): segment (a0.x, a1.y, a0.z) -> a1 as 0019AD00's walk, with
+ * query class -1 (0x7000324E) and, for bit 1, 0x70003254 = 0; flags bit 0
+ * does nothing (the original never tests it). Bit 31 adds the hit delta to
+ * a0's x and z. Returns the mode or -1 (nothing written). */
+int em_coll_move_probe_0019B2C0(const EmCollMoveWorld *world, EmCollMoveScratch *s, float a0[3],
+                                const float a1[3], uint32_t flags);
+
 /* The prim tests over the scratch segment, for the reference test: 1 hit,
  * 0 miss, -1 fault (no SDK math context, a failing 0011E748, a refused VU
  * form). `p` is the

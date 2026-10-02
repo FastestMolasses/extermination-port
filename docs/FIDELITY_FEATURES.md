@@ -282,7 +282,7 @@ found and deleted.
   mutations failing each owner's test); census 1.31 (three legacy door
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
-  live route (census 2.3: the examine/aim camera,
+  live route (census 2.3: the examine camera,
   the opening's camera timeline, and the
   panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
@@ -875,8 +875,9 @@ original's one-frame view lag is kept.
   for its eye / target sampling and event cursor (census L33; its timeline
   words are the original's, and the hand-off settle at first control
   equals the capture byte for byte in the level smoke's first_control
-  check). The aim camera and the
-  examine shot are stand-ins. The slide entry is 0.863 units off
+  check). The examine shot is a stand-in (the aim camera is the original's
+  since 2026-10-01 / 02: "Aiming, firing, the gun lamp and the knife on the
+  original code"). The slide entry is 0.863 units off
   (relaxation pending review).
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
@@ -1179,7 +1180,49 @@ fades change on the same ticks as in the recordings.
   messages are skipped. The smoke does not compare sounds or pixels. Paths
   off the route are not exercised: damage and death, pause/options/save,
   weapons and aiming, the truck-pit fall, and the west-yard and plateau
-  ladders (census section 6).
+  ladders (census section 6). (Aiming, firing, reloading, the gun lamp and
+  the knife are compared row for row with the AIM captures by separate side
+  runs: see "Aiming, firing, the gun lamp and the knife on the original
+  code".)
+
+**Aiming, firing, the gun lamp and the knife on the original code**
+
+R1 and R2 aim the rifle with the original stances and aim camera; the
+rifle fires, ejects shells, flashes, reloads and runs dry as the original;
+the rounds strike the ground and walls with the original impact marks and
+sparks; Square switches the gun lamp (in the first level only its flare
+draws, as in the original); the knife swings in the original combos, and
+knifing the security gun's power cable parts it and switches the gun off
+(the area's taken bit set), as in the original. Sounds are played by the
+same code but not compared.
+
+- How: the stances, fire machines, the gun node's aim / shot callees, the
+  lamp, the knife and the cable reaction run their translations through
+  the aim / fire composition (`AIM_FIRE.md` sections 2, 3, 9 and 10); the
+  port's own aiming and firing code is retired (2026-10-02). The impact
+  sparks and the cable's sparks are drawn by the original VU1 programs
+  translated to C (the streak and kind-2 programs, `CHAIN_PAGE.md`
+  section 3).
+- Evidence: the original-instruction oracles named in `AIM_FIRE.md`
+  section 2 (among them test-aim-fire-lamp-reference,
+  test-chain-page-reference's streak and kind-2 batches,
+  test-effect-kinds-reference, test-coll-list-passes-reference); the level
+  smoke's side runs (`make test-level-smoke-aim`, `LEVEL_SMOKE.md` "The AIM
+  replays"): ten PCSX2 AIM captures replayed from route 08's end with the
+  captures' own pad input, all PASS on 2026-10-02: on every row the
+  player's stance and fire-machine bytes, clip and clock, the aim's pitch
+  and yaw, the fire mode, magazine, reserve and light byte; the shots'
+  records (markers, muzzle nodes, impact effects, knife trails, the cable
+  reaction's nodes) with their header bytes; the gun's and the cable's
+  state on aim_10 + aim_11's 2,020 rows.
+- Status: **PARTIAL**. Proven: the state above, row for row, relative to
+  PCSX2 captures. Not proven: where a round strikes is compared by
+  direction only (the side runs stand about 0.65 from the capture's start,
+  so the range along a surface differs); the sparks' VU1 programs use the
+  EFU, whose results are a model (the background renderer's) that no
+  capture has checked; the lamp's cone shells are not reached in the first
+  level; pixels are not compared; the player's death while armed still uses
+  the legacy death sequence (the original death states are untranslated).
 
 **Skipping a first-level cutscene behaves as in the original**
 
@@ -1256,8 +1299,8 @@ units per second.
   tables. 0015BCF0 is live only in part. The three functions without a
   verified live translation include 001FC280's body. "No stand-in rows"
   does not mean no stand-in code runs. Census 2.3 still lists stand-in
-  behaviour on the route: the camera stand-ins that pre-empt the examine
-  and aim actions (L28), the
+  behaviour on the route: the camera stand-in that pre-empts the examine
+  action, the
   indicator children's +0x4C draw, the chain page's four-sprite pass, the opening's
   camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
@@ -1416,8 +1459,8 @@ equipment are drawn from the same skeleton the PS2 computes.
   evidence for the live path. Since chain C8b's OPENING step the opening's
   player draws its original unit too, its node matrices equal the opening
   capture's bit for bit (`check_opening_actors`). A port
-  stand-in's frames (for example the camera's examine/aim stand-ins, L28)
-  keep the legacy baked display. The player's face attachment slot waits on
+  stand-in's frames (for example the camera's examine stand-in) keep the
+  legacy baked display. The player's face attachment slot waits on
   the attachment draw 001CB3C0, which is still missing. The whole lighting
   rows are compared over the port's own point-light sway (the light-rig
   entry).
@@ -1598,13 +1641,14 @@ gun and its cable "husks"; that label was wrong.)
   test-collision-world-capture` (the gun's plate, uid 15).
 - Status: **VERIFIED** for the first visit (relative to PCSX2 captures):
   spawn, the dormant gun and its dark lamp's rand() draws, the idle cable,
-  the fans' cycle and all four draws. Not covered: the fans' phase at a
+  the fans' cycle and all four draws; since 2026-10-02 also the knife's hit
+  on the cable (the cable's and the gun's state row for row with the AIM
+  capture aim_11: see the aiming entry). Not covered: the fans' phase at a
   given moment (it follows the recording's timing; only the cycle is
   compared); the fans' exit and hit boxes (off the smoke's route; the hit's
   consumer chain is proven by an oracle; the exit bit now starts Roger's
-  departure, which still stops at an untranslated handshake); the cable's
-  shot reaction (nothing in the port can hit it yet, and its effect chain
-  stops at an untranslated packet builder); the gun's own return-visit
+  departure, which still stops at an untranslated handshake); the gun's
+  own return-visit
   behaviour (it stops the game if reached); the lamp's draw. The pixels are
   Metal's, not the GS's.
 
@@ -1779,8 +1823,8 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
   `background.embg` still read a PCSX2 capture, which end users will not
   have;
 - logic still on stand-ins on the route: the panel's, the terminal's and the
-  items' takeovers, the opening's camera timeline sampling, the examine and
-  aim camera shots (census 2.3);
+  items' takeovers, the opening's camera timeline sampling, the examine
+  camera shot (census 2.3);
 - platforms: Windows and Linux have no renderer yet.
 
 ---
@@ -1801,4 +1845,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-09-29.
+Last updated: 2026-10-02 (chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

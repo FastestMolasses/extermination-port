@@ -7,7 +7,8 @@ It executes the ORIGINAL instructions of the pinned boot ELF (the user's
 config/SCUS_971.12) for
 
   001EC1F0 001EC3F0 001EC470 001EBF10   the per-subtype draw handlers
-  001EACF0 001EBA20                     the impact handlers (subtypes 0x23 / 0x1B)
+  001EACF0 001EBA20 001EBBB0            the impact handlers (subtypes 0x23 / 0x1B / 7)
+  001EAB50                              the cable hit's handler (subtype 0)
   001CFB50 001D0540                     their transform block and depth scale
   001F54E0                              the effect colour
   001F5640 001F5CA0 001F6760 001F6D60   the room list selectors
@@ -24,7 +25,7 @@ the captured opening (../Extermination/build/startup-reference/opening_ee.bin).
 Workers (recorded as calls, scripted results; the native module gets the
 same script): 001D7FA0, 001D80B0, 001F4D40, 0011DF78, float_to_int
 001281C0, 0021B9A0, 00122BB8, the 001F54E0 indirect call, 001CFB50,
-001CFBE0. After every call: every byte the original changed must be a byte
+001CFBE0, 001CD520. After every call: every byte the original changed must be a byte
 the native module models (or stack), every modelled byte must equal the
 native value, and the worker call sequences (with argument bits and the
 bytes the pointer arguments point at) must be equal. The test also asserts
@@ -92,7 +93,7 @@ SCRATCH = 0x01E00000
 CALLBACK = 0x01FFF000          # oracle-only address for the 001F54E0 indirect call
 
 FUNCS = {  # address: size in bytes (FUNCTIONS.csv / the split listing)
-    0x1EC1F0: 0x7C, 0x1EC3F0: 0x7C, 0x1EC470: 0x180, 0x1EBF10: 0x2D4, 0x1EACF0: 0x7C, 0x1EBA20: 0x184,
+    0x1EC1F0: 0x7C, 0x1EC3F0: 0x7C, 0x1EC470: 0x180, 0x1EBF10: 0x2D4, 0x1EACF0: 0x7C, 0x1EBA20: 0x184, 0x1EBBB0: 0x7C, 0x1EAB50: 0x19C,
     0x1F54E0: 0x15C,
     0x1F5640: 0x2F8, 0x1F5940: 0x2DC, 0x1F5C20: 0x80, 0x1F5CA0: 0x2BC, 0x1F0310: 0x4C,
     0x1F03D0: 0x90, 0x1F3FA0: 0x64, 0x1F6640: 0xA4, 0x1F66F0: 0x64, 0x1F6760: 0xE8,
@@ -100,8 +101,10 @@ FUNCS = {  # address: size in bytes (FUNCTIONS.csv / the split listing)
     0x1CFB50: 0x8C, 0x1D0540: 0x11C}
 SPAD3660, SPAD3AC0 = 0x70003660, 0x70003AC0
 
-W_LIGHT, W_UNLIGHT, W_EMIT, W_SIN, W_FTOI, W_RANGE, W_RAND, W_XF, W_DRAW = (
-    0x1D7FA0, 0x1D80B0, 0x1F4D40, 0x11DF78, 0x1281C0, 0x21B9A0, 0x122BB8, 0x1CFB50, 0x1CFBE0)
+W_LIGHT, W_UNLIGHT, W_EMIT, W_SIN, W_FTOI, W_RANGE, W_RAND, W_XF, W_DRAW, W_SPRITE = (
+    0x1D7FA0, 0x1D80B0, 0x1F4D40, 0x11DF78, 0x1281C0, 0x21B9A0, 0x122BB8, 0x1CFB50, 0x1CFBE0, 0x1CD520)
+SPAD3600 = 0x70003600
+HALF_BITS = 0x3F000000
 
 
 def sx(v, bits=32):
@@ -160,7 +163,8 @@ class Tables(C.Structure):
 class Globals(C.Structure):
     _fields_ = [('d810700', u8), ('d810701', u8), ('d81075D', u8), ('d81075E', u8), ('d810761', u8),
                 ('d810778', u8), ('d81077B', u8), ('d810784', u8), ('d810785', u8), ('d81079E', u8),
-                ('spad3B68', i32), ('spad36A0', u32 * 16), ('d275C40', i32), ('d275C44', i32)]
+                ('spad3B68', i32), ('spad36A0', u32 * 16), ('d275C40', i32), ('d275C44', i32),
+                ('spad3600', u32 * 3)]
 
 
 Particles = u8 * (0x80 * 0x90)
@@ -175,12 +179,13 @@ RAND = C.CFUNCTYPE(C.c_int, C.c_void_p, IP)
 INDIRECT = C.CFUNCTYPE(C.c_int, C.c_void_p, u32, C.c_void_p)
 XFW = C.CFUNCTYPE(C.c_int, C.c_void_p, u32, u32, FP, u32, u32, u32, u32, u32)
 DRAW = C.CFUNCTYPE(C.c_int, C.c_void_p, i32, i32, u32, u32, i32)
+SPRITE = C.CFUNCTYPE(C.c_int, C.c_void_p, i32, i32, FP, C.c_uint64, C.c_uint64, u32, u32, u32)
 
 
 class Workers(C.Structure):
     _fields_ = [('ctx', C.c_void_p), ('light', LIGHT), ('unlight', UNLIGHT), ('emit', EMIT),
                 ('sin', SIN), ('ftoi', FTOI), ('range', RANGE), ('rand', RAND),
-                ('indirect', INDIRECT), ('xf', XFW), ('draw', DRAW)]
+                ('indirect', INDIRECT), ('xf', XFW), ('draw', DRAW), ('sprite', SPRITE)]
 
 
 class Fault(C.Structure):
@@ -210,7 +215,7 @@ def build_lib():
     P = C.POINTER
     K = P(Kinds)
     lib.em_effect_kinds_load_tables.argtypes = [C.c_char_p, C.c_size_t, P(Tables)]
-    for name in ('001EC1F0', '001EC3F0', '001EC470', '001EBF10', '001EACF0', '001EBA20'):
+    for name in ('001EC1F0', '001EC3F0', '001EC470', '001EBF10', '001EACF0', '001EBA20', '001EBBB0', '001EAB50'):
         getattr(lib, 'em_effect_kinds_' + name).argtypes = [K, FP, i32, P(Work)]
     lib.em_effect_kinds_handler.argtypes = [K, u32, FP, i32, P(Work)]
     lib.em_effect_kinds_001F54E0.argtypes = [K, C.c_void_p, FP, u32, FP]
@@ -254,18 +259,19 @@ class World:
         self.workers = Workers(None, LIGHT(self.n_light), UNLIGHT(self.n_unlight), EMIT(self.n_emit),
                                SIN(self.n_sin), FTOI(self.n_ftoi), RANGE(self.n_range),
                                RAND(self.n_rand), INDIRECT(self.n_indirect), XFW(self.n_xf),
-                               DRAW(self.n_draw))
+                               DRAW(self.n_draw), SPRITE(self.n_sprite))
         self.kinds = Kinds(C.pointer(self.tables), C.pointer(self.glob), C.pointer(self.decals),
                            C.pointer(self.particles), C.pointer(self.workers), Fault())
         ee.stubs = {W_LIGHT: self.o_light, W_UNLIGHT: self.o_unlight, W_EMIT: self.o_emit,
                     W_SIN: self.o_sin, W_FTOI: self.o_ftoi, W_RANGE: self.o_range, W_RAND: self.o_rand,
-                    CALLBACK: self.o_indirect, W_XF: self.o_xf, W_DRAW: self.o_draw}
+                    CALLBACK: self.o_indirect, W_XF: self.o_xf, W_DRAW: self.o_draw, W_SPRITE: self.o_sprite}
         self.allowed = set(range(LISTS, LISTS_END))
         self.allowed.update(range(RING, RING + 7 * 0xC00))
         self.allowed.update(range(RING_INDEX, RING_INDEX + 28))
         self.allowed.update(range(PARTICLES, PARTICLES + 0x80 * 0x90))
         self.allowed.update(range(0x275C40, 0x275C48))
         self.allowed.update(range(SPAD36A0, SPAD36A0 + 0x40))
+        self.allowed.update(range(SPAD3600, SPAD3600 + 12))
 
     def take(self, side, name):
         c = self.cursor[side].get(name, 0)
@@ -288,6 +294,8 @@ class World:
         for i in range(16):
             g.spad36A0[i] = e.load(SPAD36A0 + 4 * i)
         g.d275C40, g.d275C44 = sx(e.load(0x275C40)), sx(e.load(0x275C44))
+        for i in range(3):
+            g.spad3600[i] = e.load(SPAD3600 + 4 * i)
         for n in range(7):
             self.decals.index[n] = sx(e.load(RING_INDEX + 4 * n))
         C.memmove(C.addressof(self.decals.slot), bytes(e.ram[RING:RING + 7 * 0xC00]), 7 * 0xC00)
@@ -311,6 +319,7 @@ class World:
         assert bytes(self.particles) == bytes(e.ram[PARTICLES:PARTICLES + 0x4800]), (label, 'particles')
         assert (g.d275C40, g.d275C44) == (sx(e.load(0x275C40)), sx(e.load(0x275C44))), (label, '275C40/44')
         assert list(g.spad36A0) == [e.load(SPAD36A0 + 4 * i) for i in range(16)], (label, 'spad 36A0')
+        assert list(g.spad3600) == [e.load(SPAD3600 + 4 * i) for i in range(3)], (label, 'spad 3600')
         assert self.o_log == self.n_log, (label, 'calls', self.o_log[:6], self.n_log[:6])
         assert self.cursor['o'] == self.cursor['n'], (label, 'script use')
 
@@ -354,6 +363,12 @@ class World:
         src = mem_hex(ee, a2, 16)
         who = 'node' if self.node_matrix and a2 == self.node_matrix[1] else a2
         self.o_log.append(('1CFB50', ee.u32(4), ee.u32(5), who, src) + tuple(ee.f[12:17]))
+
+    def o_sprite(self, ee):
+        a2 = ee.u32(6)
+        who = 'point' if self.node_matrix and a2 == self.node_matrix[1] + 0x30 else a2
+        self.o_log.append(('1CD520', sx(ee.r[4]), sx(ee.r[5]), who, mem_hex(ee, a2, 4),
+                           ee.r[7] & (1 << 64) - 1, ee.r[8] & (1 << 64) - 1, ee.f[12], ee.f[13], ee.f[14]))
 
     def o_draw(self, ee):
         self.o_log.append(('1CFBE0', sx(ee.r[4]), sx(ee.r[5]), ee.u32(6), ee.u32(7), sx(ee.r[8])))
@@ -409,6 +424,13 @@ class World:
             who = SPAD36A0 if data == b''.join(self.glob.spad36A0[i].to_bytes(4, 'little')
                                                for i in range(16)).hex() else addr
         self.n_log.append(('1CFB50', dst, a1, who, data, f12, f13, f14, f15, f16))
+        return 0
+
+    def n_sprite(self, _ctx, a0, a1, point, tex0, colour, f12, f13, f14):
+        addr = C.cast(point, C.c_void_p).value
+        who = 'point' if self.node_matrix and addr == C.addressof(self.node_matrix[0]) + 0x30 else addr
+        data = b''.join(point[i].to_bytes(4, 'little') for i in range(4)).hex()
+        self.n_log.append(('1CD520', a0, a1, who, data, tex0, colour, f12, f13, f14))
         return 0
 
     def n_draw(self, _ctx, a0, a1, a2, a3, t0):
@@ -636,7 +658,7 @@ def handler_cases(lib, elf, ee, counts):
     rng = random.Random(0x1EBF10)
     n = 0
     M, Wk = SCRATCH + 0x100, SCRATCH + 0x200
-    for fn in (0x1EC1F0, 0x1EC3F0, 0x1EC470, 0x1EBF10, 0x1EACF0, 0x1EBA20):
+    for fn in (0x1EC1F0, 0x1EC3F0, 0x1EC470, 0x1EBF10, 0x1EACF0, 0x1EBA20, 0x1EBBB0, 0x1EAB50):
         for _ in range(pick(600, 40)):
             vals = [fbits(rng.uniform(-600, 600)) for _ in range(16)]
             if rng.random() < 0.2:
@@ -646,8 +668,15 @@ def handler_cases(lib, elf, ee, counts):
             work[1] = rng.choice([rng.getrandbits(32), 0, M32, 0x7FFFFFFF, 0x80000000, 0xFFFF0000, 0x0000FFFF])
             work[0x54 // 4] = rng.choice([fbits(rng.uniform(0, 2)), rng.getrandbits(32)])
             work[0x5C // 4] = rng.choice([fbits(rng.random()), rng.getrandbits(32)])
+            if fn == 0x1EAB50:
+                # the fade: work +0x54 below 0.5 (and at it, and just under it)
+                work[0x54 // 4] = rng.choice([fbits(rng.uniform(0, 0.5)), fbits(rng.uniform(0, 1)), HALF_BITS,
+                                              HALF_BITS - 1, 0, rng.getrandbits(32)])
             ee.write(Wk, struct.pack('<%dI' % len(work), *work))
-            handler_case(lib, elf, ee, fn, M, Wk, sx(rng.getrandbits(32)), ('handler', hex(fn), n))
+            w = None
+            if fn == 0x1EAB50:
+                w = World(lib, elf, ee, script={'ftoi': [sx(rng.getrandbits(32)) for _ in range(3)]})
+            handler_case(lib, elf, ee, fn, M, Wk, sx(rng.getrandbits(32)), ('handler', hex(fn), n), w)
             ee.restore()
             n += 1
     counts['handler_cases'] = n

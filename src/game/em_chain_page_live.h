@@ -61,10 +61,18 @@ typedef struct {
     uint32_t four_sprite;      /* its skipped 001DDE10 CALL target (0: none)  */
     EmChainPageCounts counts;  /* the last page's                             */
     uint32_t decal_triangles;  /* the last page's decal-TEX0 fan triangles    */
+    uint32_t flare_sprites;    /* the last page's gun-lamp flare sprites (00187690's TEX0s) */
     uint32_t digest;           /* FNV-1a of the last page's primitives        */
     uint32_t weather;          /* the weather list 001E0D70 CALLed (0: none)  */
     uint32_t overlay_reads;    /* reads of overlay source blocks (the flame) */
     uint32_t total_prims, total_stale_q, total_skipped;   /* cumulative      */
+    /* the last page's class-2 unit CALLs (001CABA0's) and the digest of its
+     * primitives without theirs (the re-walk walks over the units) */
+    uint32_t units, unit_call[EM_CHAIN_PAGE_UNITS_MAX], unit_prims[EM_CHAIN_PAGE_UNITS_MAX];
+    uint32_t unit_strips[EM_CHAIN_PAGE_UNITS_MAX];
+    uint64_t unit_tex0[EM_CHAIN_PAGE_UNITS_MAX];
+    uint32_t unit_prim[EM_CHAIN_PAGE_UNITS_MAX];
+    uint32_t digest_without_units;
 } EmChainPageLiveLog;
 void em_chain_page_live_log(EmChainPageLiveLog *out);
 

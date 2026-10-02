@@ -10,6 +10,8 @@
  *   001EBF10  subtype 0x20 handler (0x80000049 truck puffs)   NEARMISS: the .s
  *   001EACF0  subtype 0x23 handler (0x80000060 impact)       NEARMISS: the .s
  *   001EBA20  subtype 0x1B handler (0x8000002C impact)       byte-matched C
+ *   001EBBB0  subtype 0x07 handler (0x8000000E ring decal)   NEARMISS: the .s
+ *   001EAB50  subtype 0x00 handler (0x80000045 cable hit)    the .s (decomp C, unmarked)
  *   001CFB50  the handlers' transform block (their 001CFB50)  byte-matched C
  *   001D0540  its depth scale (projected z difference)       NEARMISS: the .s
  *   001F54E0  effect colour (pickup indicators)              asm-word: the .s
@@ -83,6 +85,8 @@ extern "C" {
 #define EM_EFFECT_KINDS_H_001EBF10 0x001EBF10u
 #define EM_EFFECT_KINDS_H_001EACF0 0x001EACF0u
 #define EM_EFFECT_KINDS_H_001EBA20 0x001EBA20u
+#define EM_EFFECT_KINDS_H_001EBBB0 0x001EBBB0u
+#define EM_EFFECT_KINDS_H_001EAB50 0x001EAB50u
 
 /* Fault codes 1..4 are numerically EM_EFFECT_FAULT_* 1..4. */
 enum {
@@ -115,6 +119,7 @@ typedef struct {
     int32_t spad3B68;          /* 0x70003B68 frame clock (001F5940 mode 1, read) */
     uint32_t spad36A0[16];     /* 0x700036A0..0x700036DF (001EBF10 source matrix, written) */
     int32_t d275C40, d275C44;  /* 001F3FA0 writes 0 */
+    uint32_t spad3600[3];      /* 0x70003600..0x7000360B (001EAB50's colour words, written) */
 } EmEffectKindsGlobals;
 
 /* D_007709C0: 0x80 particle records; 001F3FA0 clears each and sets the
@@ -156,6 +161,11 @@ typedef struct {
     /* 001CFBE0(id, kind, source, xf, copy). */
     int (*w_001CFBE0)(void *ctx, int32_t id, int32_t kind, uint32_t source, uint32_t xf,
                       int32_t copy);
+    /* 001CD520(a0, a1, a2, tex0, colour; f12, f13, f14) as 001EAB50 calls
+     * it: a2 = the handler's a0 + 0x30 (the node matrix's translation row:
+     * `point`, its 16 bytes), `colour` the 64-bit register it builds. */
+    int (*w_001CD520)(void *ctx, int32_t a0, int32_t a1, const float point[4], uint64_t tex0,
+                      uint64_t colour, uint32_t f12, uint32_t f13, uint32_t f14);
 } EmEffectKindsWorkers;
 
 typedef struct {
@@ -185,6 +195,18 @@ int em_effect_kinds_001EBF10(EmEffectKinds *k, const float matrix[16], int32_t d
 int em_effect_kinds_001EACF0(EmEffectKinds *k, const float matrix[16], int32_t depth,
                              EmEffectOriginalWork *work);
 int em_effect_kinds_001EBA20(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work);
+/* 001EBBB0 (subtype 7: the effect 0x8000000E that 001F0460's ring decal
+ * n = 0 spawns through 001EFD20): 001CFB50 as 001EACF0's, then
+ * 001CFBE0(a1, 1, D_002561F0, D_0081F8F0, 0). */
+int em_effect_kinds_001EBBB0(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work);
+/* 001EAB50 (subtype 0: the cable's effect 0x80000045 that 001EFE00
+ * spawns): while work +0x54 < 0.5 a fading sprite 001CD520(0, 2, a0 +
+ * 0x30, 0x20045B2599421E98, the colour from the words 0x70003600..08;
+ * size 1 + 4 x / 0.5, 2.0), then 001CFB50 as 001EACF0's and
+ * 001CFBE0(a1, 0, D_00255590, D_0081F8F0, 0). */
+int em_effect_kinds_001EAB50(EmEffectKinds *k, const float matrix[16], int32_t depth,
                              EmEffectOriginalWork *work);
 /* 1 when em_effect_kinds_handler translates `handler`, else 0. */
 int em_effect_kinds_translates(uint32_t handler);

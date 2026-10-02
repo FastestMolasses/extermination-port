@@ -88,6 +88,18 @@ static const uint8_t k_no_d24A740[1];
 /* The owners that publish records the passes and the hull locks read
  * (census L22: Roger 008237E0, class 0x0A, em_area11_roger). */
 static EmCollisionWorldOwners s_owners;
+/* The records another owner keeps that the passes reach (the aim/fire
+ * composition's impact markers 0018ABA0 on the class-1 list: 001A9D20). */
+static struct {
+    uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size);
+    void *context;
+} s_records;
+void em_collision_world_bind_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
+                                     void *context)
+{
+    s_records.bytes = bytes;
+    s_records.context = bytes ? context : NULL;
+}
 const EmCollisionWorldOwners *em_collision_world_owners(void) { return &s_owners; }
 
 /* The list arrays as original words: slot i of a list at base - 4(i + 1)
@@ -136,7 +148,9 @@ static uint8_t *owner_bytes(void *context, uint32_t address, uint32_t size)
             return &s_list_words[k][at];
         }
     }
-    return s_owners.record_bytes ? s_owners.record_bytes(s_owners.context, address, size) : NULL;
+    uint8_t *b = s_owners.record_bytes ? s_owners.record_bytes(s_owners.context, address, size) : NULL;
+    if (!b && s_records.bytes) b = s_records.bytes(s_records.context, address, size);
+    return b;
 }
 
 void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners)
@@ -169,9 +183,11 @@ static void bind_passes(void)
     k->w_001A96F0 = em_coll_list_passes_unported;
     k->w_001A9480 = em_coll_list_passes_unported;
     k->w_001A99E0 = em_coll_list_passes_unported;
-    k->w_001A9C40 = em_coll_list_passes_unported;
     k->w_001A9E00 = em_coll_list_passes_unported;
     k->w_001AA000 = em_coll_list_passes_unported_001AA000;
+    /* 001A9D20's pair callee, translated (first reached by the AIM capture
+     * aim_04's impact markers; COLL_LIST_PASSES.md). */
+    k->w_001A9C40 = em_coll_list_passes_001A9C40;
     k->w_0021BD10 = em_coll_list_passes_unported_0021BD10;
     /* The +0x34 behaviour of a class-0xD type-1 entry: AREA11's is the
      * overlay routine 0x00823580, which has no binding here. */

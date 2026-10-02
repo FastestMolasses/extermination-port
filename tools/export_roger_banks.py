@@ -34,9 +34,10 @@ addresses, from the user's own extracted disc:
     the live owners bind (header, blocks and skeleton records): 0x6B
     (Roger's 001C5C90), every id the player equipment's 0018A8D0 can bind
     (0x2F; 0x30, 0x40, 0x6D; 0x31..0x3D; 0x6A; em_equipment_live.c, census
-    L28) and the indicator children's 001C2360 models (0x73 the pickup
+    L28), the indicator children's 001C2360 models (0x73 the pickup
     light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
-    em_indicator_bind_live.c).
+    em_indicator_bind_live.c), the muzzle node 001F5040's (0x07..0x0F;
+    em_aim_fire_flash.c) and the shell casing's 0x19 (001F3E30).
 
 No PCSX2 capture is needed. When the developer's AREA11 captures are
 present (default: playable_ee.bin and route beats 00..14; --verify-ram FILE
@@ -48,7 +49,8 @@ Output (disc-derived: git-ignored assets/ only; nothing is embedded here):
     0x00 'EMRS', u32 version 2, u32 table address (0x28A490), u32 table words N (0xAF),
     u32 region count R, 3 x u32 0
     0x20 N table words
-    then R regions: u32 address, u32 size, u32 writable (0), u32 0, size bytes
+    then R regions: u32 address, u32 size, u32 writable (0), u32 library (1: a
+    shot model span no pose host maps, else 0), size bytes
   build/roger_banks/export.json: addresses, sizes and SHA-256s only.
 
 Runs natively on arm64 macOS (pure Python).
@@ -78,10 +80,21 @@ DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # 0x825940's inline spawn): 0x73, 0x74, 0x75, 0x7A, which extend the last span
 # (0x6A..0x7A: the models between are block models in file order too; one
 # region, so the record pose hosts that map these regions keep their count).
+# The muzzle node 001F5040 binds 0x0D / 0x0E / 0x0F / 0x0B by its +0x0D and
+# switches to 0x08 / 0x07 (001C6120(D_0028A56C, id) through 001CA5E0), and
+# the shell casing's 001F3E30 binds 0x19 (D_0025A350 row 3: table 0x37,
+# model 0x19; docs/AIM_FIRE.md sections 9.1 / 9.2): the spans 0x07..0x0F and 0x19
+# (the models between 0x07 and 0x0F are block models in file order too; the
+# library's bytes between 0x0F and 0x19 are rewritten at run time in the
+# captures and are not exported).
 # Each span is one region, from its first model's header to its last model's
 # skeleton end (the file bytes between are exported too and checked like the
 # rest).
-EQUIPMENT_SPANS = ((0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
+EQUIPMENT_SPANS = ((0x07, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A, 0x7A))
+# The shot's spans carry the region header's word +0x0C = 1: library model
+# spans no pose host reads (em_area11_roger_regions leaves them out, so the
+# record pose hosts that map the other regions keep their count).
+SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
 
 
 def u32(b, a): return struct.unpack_from('<I', b, a)[0]
@@ -140,6 +153,7 @@ def main(argv=None) -> int:
         (global_table, f37[:4 + 4 * count]),
         (table[DENNIS_FACE_INDEX], f16),
     ]
+    library_spans = set()
     for first, last in EQUIPMENT_SPANS:
         offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]
         if offsets != sorted(offsets):
@@ -150,6 +164,8 @@ def main(argv=None) -> int:
             if off + block_model_size(f37, off) > end:
                 raise SystemExit(f'the equipment model at +{off:#x} leaves its span')
         regions.append((global_table + start, f37[start:end]))
+        if (first, last) in SHOT_SPANS:
+            library_spans.add(global_table + start)
     ordered = sorted(regions)
     for (a, da), (b, _db) in zip(ordered, ordered[1:]):
         if a + len(da) > b:
@@ -171,7 +187,7 @@ def main(argv=None) -> int:
     out = bytearray(struct.pack('<4s7I', b'EMRS', VERSION, TABLE, TABLE_WORDS, len(regions), 0, 0, 0))
     out += struct.pack(f'<{TABLE_WORDS}I', *table)
     for address, data in regions:
-        out += struct.pack('<4I', address, len(data), 0, 0) + data
+        out += struct.pack('<4I', address, len(data), 0, int(address in library_spans)) + data
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(bytes(out))
     report = dict(output=str(args.out), bytes=len(out),

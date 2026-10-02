@@ -219,6 +219,35 @@ int em_owner_draw_001D3BA0(S *s, int32_t chan, u32 model, u32 w04)
     return 0;
 }
 
+/* 001D3900(chan, model) (decomp func_001D3900.c): 001D1F80(chan, 2, 2),
+ * then the REF 8 to D_00816B40 + (context +0x9C << 7), then 001D37D0. */
+int em_owner_draw_001D3900(S *s, int32_t chan, u32 model, u32 w04, EmOwnerDrawGsState gs, void *ctx)
+{
+    if (!s) return -1;
+    if (latched(s)) return -1;
+    if (!gs) return fault(s, 0x001D1F80u, EM_OWNER_DRAW_FAULT_NULL_WORKER);
+    if (gs(ctx, chan, 2, 2) < 0) return fault(s, 0x001D1F80u, EM_OWNER_DRAW_FAULT_NULL_WORKER);
+    int ref2 = s->world.ctx_0C ? (*s->world.ctx_0C & 1u) == 0 : 0;
+    if (prepare(s, chan, 0x10u + submit_bytes(ref2), 0x001D3900u) < 0) return -1;
+    skin_ref(s, chan, EM_OWNER_DRAW_SKIN_RECORD_3);
+    submit(s, chan, EM_OWNER_DRAW_KERNEL, model, w04);        /* 001D37D0 */
+    return 0;
+}
+
+/* 001D3CF0(chan, model) (decomp func_001D3CF0.c): 001D3900(chan, model),
+ * 001D1F80(chan, 2, 2), the REF 8 to D_00816E40 + (context +0x9C << 7),
+ * then 001D3AD0. */
+int em_owner_draw_001D3CF0(S *s, int32_t chan, u32 model, u32 w04, EmOwnerDrawGsState gs, void *ctx)
+{
+    if (em_owner_draw_001D3900(s, chan, model, w04, gs, ctx) < 0) return -1;
+    if (gs(ctx, chan, 2, 2) < 0) return fault(s, 0x001D1F80u, EM_OWNER_DRAW_FAULT_NULL_WORKER);
+    int ref2 = s->world.ctx_0C ? (*s->world.ctx_0C & 1u) == 0 : 0;
+    if (prepare(s, chan, 0x10u + submit_bytes(ref2), 0x001D3CF0u) < 0) return -1;
+    skin_ref(s, chan, EM_OWNER_DRAW_SKIN_RECORD_3_CLIP);
+    submit(s, chan, EM_OWNER_DRAW_CLIP_KERNEL, model, w04);   /* 001D3AD0 */
+    return 0;
+}
+
 int em_owner_draw_001CA940_at(S *s, int32_t flags, u32 model, u32 w04)
 {
     /* flags != 0 and bit 0 set: 001D3C30 -> 001D3BA0(0, model); otherwise

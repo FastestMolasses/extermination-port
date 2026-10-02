@@ -338,18 +338,19 @@ values to at least 507:
 ### Where the readable C differs from the instructions
 
 00195130, 00193EB0, 001936E0 and 00197490 are NEARMISS C. The translation
-follows the instructions (`build/asm`), and the oracle executes them. Four
+follows the instructions (`build/asm`), and the oracle executes them. Three
 places differ from the C:
 
 - **00195130, area 8, room 3, other codes.** For the −20 limit, 0x70003A24
   is 0.5 · (t − limit) [00195584..00195598], not 0.5 · t.
-- **00193EB0, area 0x13.** Room 0 sets +6 = 0xD [00194038]. The x ≥ 872
-  split sends z ≤ 900 to event 0xC with the 365 height, and z > 900 to
-  event 0xB [001940D8].
 - **00197490, codes 0x29 and 0xC.** They return at once [0019756C,
   0019754C] and do not clear +2, +3 or +8. 00198440 receives
   (cam, player, 1), not (1).
 - **001936E0.** 00193660 receives (cam, player) [00193918].
+
+00193EB0's area 0x13 arm also differed (the sub test and the x ≥ 872 z
+split were inverted); the decomp C was corrected to the instructions on
+2026-10-02, and section 1 above describes that logic.
 
 ## 2. The translation (`src/game/em_camera_area11_specials.c/.h`)
 

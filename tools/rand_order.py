@@ -76,16 +76,31 @@ PORT_FN = {
     'em_status_background_step': 0x20A7A0,       # the status pages' background pulse
     'gun_setup': 0x825940,                       # the security gun's lifecycle 0 (em_security_gun)
     'em_gun_tick': 0x825940,                     # the same when gun_setup is inlined
-    'em_aim_fire_target_001854E0': 0x1854E0,     # the laser dot (AIM_FIRE.md; behind the aim/fire gate)
+    'em_aim_fire_target_001854E0': 0x1854E0,     # the laser dot (AIM_FIRE.md)
     'em_aim_fire_target_00185760': 0x185760,     # the beam
     'em_area00_hud_001E2BA0': 0x1E2BA0,          # the beam's shaded line
+    'em_effect_original_001EF9D0': 0x1EF9D0,     # an effect's spawn (the impacts 001861C0 / 0018ABA0 spawn)
+    'em_area00_fx_001F5040': 0x1F5040,           # the muzzle node's jitter (chain step AIMLIVE)
+    'em_area00_fx_001F2F90': 0x1F2F90,           # a debris piece's seed (the shell casing, the impact debris)
+    'em_area00_fx_001F3620': 0x1F3620,           # a piece's tumble and bounce sound
+    'f3620_wobble': 0x1F3620,                    # its tumble (a static step of the same routine)
+    'em_aim_fire_marker_0018ABA0': 0x18ABA0,     # the impact marker's ricochet
+    'marker_ricochet': 0x18ABA0,                 # the same (its 001FBD50 step, a static of the routine)
+    'em_area00_world_0018A180': 0x18A180,        # the knife's strike reaction (the cable hit; its LCG draw)
+    'em_gun_rest_0021AAC0': 0x21AAC0,            # the cable's hit effect node (its rand() draws)
+    'em_gun_rest_0021A500': 0x21A500,            # the cable's strand node
+    'strip_offset': 0x21A500,                    # its strip offsets (a static step of the routine)
+    'em_aim_fire_lamp_00187780': 0x187780,       # the gun lamp's flare size (AIM_FIRE.md section 10)
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
             'w_00122BB8', 'random_word', 'gun_rand',
             'aim_fire_binding_call', 'em_aim_fire_live_call',   # the aim/fire binding's 00122BB8 and dispatch
             'target_call0', 'em_aim_fire_binding_frame',        # em_aim_fire_target's callee adapter
-            'beam_worker'}                                      # em_aim_fire_render_live's 001E2BA0 callee adapter
+            'beam_worker',                                      # em_aim_fire_render_live's 001E2BA0 callee adapter
+            'fx_call', 'fx_call0', 'fx_rand_unit', 'forward',   # em_area00_fx's callee adapter and the world bridge
+            'external_call', 'em_aim_fire_world_live_call',
+            'hit_call'}                                         # em_aim_fire_world_live's em_area00_world callee adapter
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
 NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40',
@@ -93,7 +108,10 @@ NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'g
          0x825940: 'security gun 00825940', 0x1D0720: 'face 001D0720', 0x1E2560: 'head sprite 001E2560',
          0x1E55F0: 'weather 001E55F0', 0x1F1180: 'aura 001F1180', 0x179B90: 'step 00179B90',
          0x1EA240: 'footstep 001EA240', 0x20A7A0: 'status background 0020A7A0', 0x1854E0: 'laser dot 001854E0',
-         0x185760: 'beam 00185760', 0x1E2BA0: 'beam line 001E2BA0'}
+         0x185760: 'beam 00185760', 0x1E2BA0: 'beam line 001E2BA0', 0x1EF9D0: 'effect spawn 001EF9D0',
+         0x1F5040: 'muzzle node 001F5040', 0x187780: 'gun lamp 00187780', 0x1F2F90: 'debris seed 001F2F90', 0x1F3620: 'debris piece 001F3620',
+         0x18ABA0: 'impact marker 0018ABA0', 0x18A180: 'knife strike 0018A180',
+         0x21AAC0: 'cable hit node 0021AAC0', 0x21A500: 'cable strand node 0021A500'}
 
 
 def name(fn):

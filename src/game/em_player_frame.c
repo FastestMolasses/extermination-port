@@ -153,17 +153,7 @@ static void actor_update(void)
          * em_model_palette_at would loop-blend back into frame 0). */
         double end = (double)(cs->frame_count - 1);
         double t   = g.sa_t < end ? g.sa_t : end;
-        /* AIM POSE LADDER: while the held clip is the ladder BASE
-         * (0x112 — the stance tops request the base code and the
-         * DISPATCH picks the ladder step, exactly the engine split)
-         * and the player is aiming, the bilinear pose-grid blend owns
-         * the palette; the recoil restart (sa_t rewind) runs through
-         * unchanged — every ladder step is the same 25 frames. */
-        if (!(g.sa_cur == 0x112 &&
-              (em_weapon_is_aiming() || g.r2_aim) &&
-              aim_ladder_eval(t)))
-            em_model_palette_at(&g.model, (uint32_t)g.sa_clip, t,
-                                g.player_palette);
+        em_model_palette_at(&g.model, (uint32_t)g.sa_clip, t, g.player_palette);
         palette_apply_placement(g.player_palette, g.model.bone_count,
                                 g.pos, g.yaw);
         g.sa_t += (double)g.sa_rate;
@@ -338,7 +328,6 @@ static void actor_update(void)
      * deliberately not modelled.) */
     {
         int active = g.move_speed > 0.0f || g.gait != 0 ||
-                     em_weapon_is_aiming() || em_weapon_is_melee() ||
                      em_door_movement_locked();
         float fstep = FRAME_DT / IDLE_BLEND_TIME;
         if (active || g.clip_fidget < 0) {

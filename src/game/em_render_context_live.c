@@ -1114,6 +1114,18 @@ float em_rcl_zoom(void)
     return f32(s_ctx_words[0x2468 / 4]);
 }
 
+unsigned em_rcl_views(uint32_t *address, uint32_t *size, uint8_t **bytes, int *writable, unsigned capacity)
+{
+    if (!R.loaded) return 0;
+    for (unsigned i = 0; i < R.view_count && i < capacity; ++i) {
+        address[i] = R.frh_views[i].address;
+        size[i] = R.frh_views[i].size;
+        bytes[i] = R.frh_views[i].bytes;
+        writable[i] = R.frh_views[i].writable;
+    }
+    return R.view_count;
+}
+
 const uint8_t *em_rcl_bytes(uint32_t address, uint32_t size)
 {
     return R.loaded ? own(address, size) : NULL;
