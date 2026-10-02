@@ -1566,6 +1566,29 @@ point or rows, and one equipment node's pose, in 10 and 14; an equipment
 unit in a reported tick; a live post-step without the player's unit) fails
 each of these assertions.
 
+### The room lights and the fade weights (`check_room_lights`, `check_fade_weights`; audit 1b item 4)
+
+Run whenever first control passes (every run that reaches it).
+
+- **check_room_lights.** The area entry's 001D19E0 -> 001D7BB0 resets the
+  render context's point-light pool and registers the room lists at run
+  time (001F68B0 / 001F6E40 -> 001F6640 -> 001D7FA0,
+  em_effects_live_room_lights; AREA11_POINT_LIGHT.md). At first control
+  (against the first-control capture `playable_ee.bin`) and at every aligned
+  route snapshot (beats 00..14), the port's pool from the tick log's
+  `lights` holds the capture's id counter (+0x210) and staged count
+  (+0x214), the same active slots (weight +0x2C > 0), and in each active
+  slot the capture's multiplier, adder, type, handle, position and colour
+  words. The angles and the flicker matrices follow the port's rand()
+  stream (check_sway below runs the original over them).
+- **check_fade_weights.** The New Game's 001AD1A0 runs 001D19D0 -> 001D9070
+  once over the global library's model 0x16 (the gun lamp's third cone
+  shell), which the port holds as the disc has it (the Roger export's
+  writable region). The run log's line `fade weights: ... fnv1a` gives the
+  FNV-1a of the model's bytes after the call; it must equal the
+  first-control capture's and every AREA11 route snapshot's at the same
+  address (in AREA11 nothing draws the cone: D_008106C8 has 0x20000000).
+
 ### The rand() order (`check_rand_order`, `check_sway`, `check_marker_colour`, `check_head_sprites`; docs/RAND_ORDER.md)
 
 Not phases: after the phases, over the run's `EM_RAND_TRACE`

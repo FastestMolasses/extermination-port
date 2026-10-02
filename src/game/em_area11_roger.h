@@ -108,6 +108,14 @@ int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t siz
  * lookup; the player equipment binder's model binds use it too): 0, or -1
  * for an id outside the exported table. */
 int em_area11_roger_001C6120(uint32_t bank, uint32_t id, uint32_t *handle);
+/* 001D19D0 -> 001D9070 (the New Game's 001AD1A0 case 1, src/func_001AD1A0.c):
+ * the fade weights of the global library's model 0x16 (the gun lamp's third
+ * cone shell, 001D9530), rewritten in place in this export's writable region
+ * (the disc's bytes, tools/export_roger_banks.py), so every later 001C6120
+ * reader sees the run's bytes. *address / *size / *digest (FNV-1a over the
+ * region after the call) name what it rewrote. 0, or -1 (reported; an
+ * export without the region faults). */
+int em_area11_roger_001D19D0(uint32_t *address, uint32_t *size, uint32_t *digest);
 /* Roger's record bytes (its original layout, the owner fields synced in)
  * when [address, address + size) lies in it, else NULL: the head sprite's
  * owner view (001E2560 reads Roger's +0x01, +0x02, +0x04, +0x0C, +0x110

@@ -94,8 +94,10 @@ static uint32_t point_light_random(void *context)
 
 static int point_light_tick(void)
 {
-    if (g.point_lights_loaded && em_rcl_point_lights())
-        return em_point_light_tick(em_rcl_point_lights(), g.point_lights_area_key,
+    /* 001D7C30 reads (D_00810700 << 8) + D_00810701 as it runs. */
+    const EmSceneState *scene = em_scene_state();
+    if (g.point_lights_loaded && em_rcl_point_lights() && scene)
+        return em_point_light_tick(em_rcl_point_lights(), (uint16_t)(scene->d810700 << 8 | scene->d810701),
                                    point_light_random, NULL);
     return 0;
 }
@@ -301,9 +303,10 @@ static EmGfxMesh *ui_backplate_ensure(EmGfx *gfx)
  * captures sample a FIXED spin phase: yaw = pi + 0.01 * (frames since
  * the screen appeared), deterministic in headless runs. */
 /* LIGHTING — per-actor rig composer (defined with the close-out flush
- * below; the menu turntable consumes it too). */
-static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
-                           int cam_fill, int fold_lamps);
+ * below; the menu turntable consumes it too). -1 in the first level, where
+ * it is not an original light (fail-stop; see its definition). */
+static int char_rig_build(EmGfxCharRig *out, const float anchor[3],
+                          int cam_fill, int fold_lamps);
 
 static void ui_scene_render(EmGfx *gfx)
 {
@@ -420,7 +423,8 @@ static void ui_scene_render(EmGfx *gfx)
      * the turntable never regresses to black-on-black. */
     if (g.rig_on) {
         EmGfxCharRig rig;
-        char_rig_build(&rig, NULL, 0, 1);
+        if (char_rig_build(&rig, NULL, 0, 1) < 0)
+            return; /* reported; the scene state latched the fault */
         em_gfx_char_rig(gfx, &rig);
     } else {
         static const float kFill[3] = { 0.62f, 0.62f, 0.62f };
@@ -505,10 +509,32 @@ static void ui_scene_render(EmGfx *gfx)
  * republished each frame. Audit 2026-07-31.) A
  * sub-state flip is a scene switch in the port (each exported scene
  * is one (area, sub) pair), so the active scene's rig IS the engine's
- * room selection; no player-position mapping exists or is invented. */
-static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
-                           int cam_fill, int fold_lamps)
+ * room selection; no player-position mapping exists or is invented.
+ *
+ * NOT IN THE FIRST LEVEL (audit 1b item 4, 2026-10-02). With the render
+ * context bound every first-level draw lights through the original: the
+ * owners' 001CAA00 units through the bound 001D89D0 (em_owner_draw_live,
+ * with 001D8270's gate and 001D8690's actor RGB inside it), the status
+ * hub's 001CB4F0 and the MAP's 001CB480 through the same 001D89D0 (mode 1
+ * reaching the one 001D8C30), the faces through 001D88B0. This composer
+ * omits the gate, the actor RGB and the glow, so reaching it there is a
+ * fault: the draw names no original light. The level smoke's route and
+ * side runs reach it 0 times. Scenes without the render context (outside
+ * the first level) keep it. */
+static int char_rig_build(EmGfxCharRig *out, const float anchor[3],
+                          int cam_fill, int fold_lamps)
 {
+    if (em_rcl_bound()) {
+        static int reported;
+        if (!reported)
+            fprintf(stderr, "render: an actor draw on the renderer's chain asked for char_rig_build with the "
+                            "render context bound; its owner's light (001C7420 -> 001D89D0) is not bound "
+                            "(audit 1b item 4)\n");
+        reported = 1;
+        em_scene_fault(em_scene_state(), 0x001D89D0u, EM_SCENE_FAULT_NULL_WORKER);
+        em_frame_request_quit();
+        return -1;
+    }
     memset(out, 0, sizeof *out);
     for (int s = 0; s < 2; s++) {
         for (int c = 0; c < 3; c++) {
@@ -576,6 +602,7 @@ static void char_rig_build(EmGfxCharRig *out, const float anchor[3],
         out->dir[0][c] = d0[c];
         out->col[0][c] = c0[c];
     }
+    return 0;
 }
 
 /* One recorded chain draw with its lighting (the flush loop's body; the
@@ -596,7 +623,8 @@ static void chain_draw(EmGfx *gfx, const ChainDraw *cd, int actor, const float *
         EmGfxCharRig rig;
         const float *node = cd->palette;
         const float anchor[3] = { node[12], node[13], node[14] };
-        char_rig_build(&rig, anchor, cd->palette == g.player_palette, 1);
+        if (char_rig_build(&rig, anchor, cd->palette == g.player_palette, 1) < 0)
+            return; /* reported; the scene state latched the fault */
         em_gfx_char_rig(gfx, &rig);
     } else {
         em_gfx_char_rig(gfx, NULL);

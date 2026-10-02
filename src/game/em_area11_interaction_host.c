@@ -731,12 +731,16 @@ static int pages_models_draw(void *context, EmGfx *gfx, const float clip[4])
     return ok;
 }
 
-/* 001CB480's light (the MAP nodes' kind-7 draw): 001D8C20(2) and 001D89D0
- * over the render context's canonical storage (em_owner_draw_live). */
+/* The status models' light (em_status_models.h EmStatusModelsLightFn):
+ * 001CB480's 001D8C20(2) and 001CB4F0's 001D8C20(1) with 001D89D0 over the
+ * render context's canonical storage (em_owner_draw_live), and 001CB4F0's
+ * 001D8C20(0) alone (owner NULL). */
 static int models_light(void *context, int32_t mode, const EmOwnerServicesOwner *owner,
                         const uint32_t rgb[4], float a[16], float b[16])
 {
     (void)context;
+    if (!owner)
+        return em_owner_draw_live_light_mode(mode);
     return em_owner_draw_live_light(mode, owner, rgb, a, b);
 }
 

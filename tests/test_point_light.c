@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 
 static uint32_t random_calls;
 static uint32_t midpoint(void *unused)
@@ -39,27 +38,14 @@ int main(void)
         assert(em_point_light_register(&pool,position,color,1,1,0) == i+1);
     assert(em_point_light_register(&pool,position,color,1,1,0) == -1);
 
-    char path[] = "/tmp/em-point-light-XXXXXX";
-    int descriptor = mkstemp(path);
-    assert(descriptor >= 0);
-    FILE *file = fdopen(descriptor,"wb");
-    const uint32_t header[4] = {0x504c4d45,1,0x0b00,1}, type = 1;
-    assert(fwrite(header,sizeof header,1,file) == 1);
-    assert(fwrite(&type,sizeof type,1,file) == 1);
-    assert(fwrite(position,sizeof position,1,file) == 1);
-    assert(fwrite(color,sizeof color,1,file) == 1);
-    assert(fclose(file) == 0);
-    uint16_t key = 0;
-    assert(em_point_light_load(&pool,&key,path));
-    assert(key == 0x0b00 && pool.pending_count == 1 && pool.next_handle == 1);
+    /* 001D7BB0's field writes after a full pool: the counters restart, so
+     * the area entry's next registration (001F6640 -> 001D7FA0, the room
+     * lists; em_effects_live_room_lights) takes handle 0 again. */
+    em_point_light_reset(&pool);
+    assert(pool.next_handle == 0 && pool.pending_count == 0);
+    assert(em_point_light_register(&pool,position,color,1,1,0) == 0);
+    assert(pool.pending_count == 1 && pool.next_handle == 1);
     assert(memcmp(pool.pending[0].position,position,sizeof position) == 0);
-    EmPointLightPool before = pool;
-    file = fopen(path,"ab");
-    assert(file && fputc(0,file) == 0 && fclose(file) == 0);
-    assert(!em_point_light_load(&pool,&key,path));
-    assert(memcmp(&pool,&before,sizeof pool) == 0);
-    assert(unlink(path) == 0);
-    assert(!em_point_light_load(&pool,&key,path));
-    puts("point lights: staging, random gates, zero distance, capacity and asset validation PASS");
+    puts("point lights: staging, random gates, zero distance, capacity and reset PASS");
     return 0;
 }

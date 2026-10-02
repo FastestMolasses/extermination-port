@@ -26,18 +26,20 @@ typedef struct {
 
 typedef uint32_t (*EmPointLightRandom)(void *context);
 
-/* Reset follows 001D7BB0's field writes; caller zero-initializes a new pool. */
+/* Reset follows 001D7BB0's field writes; caller zero-initializes a new pool.
+ * 001D7BB0's tail, the room lists 001F68B0 / 001F6E40, is
+ * em_effects_live_room_lights (it registers through em_point_light_register,
+ * 001D7FA0). */
 void em_point_light_reset(EmPointLightPool *pool);
 int32_t em_point_light_register(EmPointLightPool *pool, const float position[4],
                               const float color[4], int32_t type,
                               float multiplier, float adder);
-/* 001D7C30. Returns 0, or the nonzero em_ee_float.h status of an SDK matrix
- * routine (a fault: the caller fail-stops). */
+/* 001D7C30. `area_key` is (D_00810700 << 8) + D_00810701 as the tick reads
+ * them (key 0x0F00 keeps the identity matrices). Returns 0, or the nonzero
+ * em_ee_float.h status of an SDK matrix routine (a fault: the caller
+ * fail-stops). */
 int em_point_light_tick(EmPointLightPool *pool, uint16_t area_key,
                         EmPointLightRandom random, void *context);
-/* Generated EMLP contains original positions and unscaled color presets. */
-int em_point_light_load(EmPointLightPool *pool, uint16_t *area_key,
-                        const char *path);
 
 /* dir initially carries the weighted camera fill; color its unweighted RGB.
  * Original 001D8340 folds every active slot, then normalizes dir.xyz. */

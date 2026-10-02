@@ -1252,7 +1252,7 @@ test-status-scene-original:
 
 test-status-models:
 	@mkdir -p build/status_models
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
 	build/status_models/status_models_test assets/status_models ../Extermination/build/startup-reference/status-hub/eeMemory.bin
 
 .PHONY: test-item-device-reference
@@ -1377,12 +1377,21 @@ test-point-light: tests/test_point_light.c src/game/em_point_light.c src/game/em
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_point_light.c src/game/em_point_light.c src/game/em_owner_services_original.c -lm -o build/test_point_light
 	./build/test_point_light
 
+# The skinned path's lighting (em_lighting_matrices / em_lighting_vertex
+# over the bound 001D89D0's A and B, as em_status_models feeds the renderer)
+# against the original kernel slice, and 001D8270 / 001D8690's one
+# translation against the original instructions, over the first-control
+# capture (docs/ACTOR_LIGHTING.md "Verification"; about 5 s).
+.PHONY: test-actor-lighting-reference
+test-actor-lighting-reference:
+	python3 tools/test_actor_lighting_reference.py
+
 test-lighting-reference:
 	python3 tools/audit_opening_lighting.py
 
-test-lighting: tests/test_lighting.c src/game/em_lighting.c src/game/em_lighting.h
+test-lighting: tests/test_lighting.c src/game/em_lighting.c src/game/em_lighting.h src/game/em_actor_light_001D89D0.c
 	@mkdir -p build
-	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_lighting.c src/game/em_lighting.c -lm -o build/test_lighting
+	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/test_lighting.c src/game/em_lighting.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_owner_services_original.c -lm -o build/test_lighting
 	build/test_lighting
 
 .PHONY: test-indicator-child

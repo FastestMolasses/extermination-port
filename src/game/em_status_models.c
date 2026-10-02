@@ -629,7 +629,51 @@ static int palette_of(EmStatusModels *m, EmStatusSceneActor *a, Draw *d, uint32_
     return 0;
 }
 
-/* 001CB580 -> 001CB4F0(a, +0x44): lighting mode 1 over the node matrices. */
+/* The rig the renderer lights a queued draw with, from 001C7420's light
+ * matrices: A's three slot directions (its columns), B's three colour rows
+ * and B's ambient row less the 8388608 bias (em_gfx.h EmGfxCharRig: the
+ * formula 001C7420's colour matrix feeds the object kernel; the w lane is
+ * unused by the renderer). */
+static void rig_of(Draw *d, const float la[16], const float lb[16])
+{
+    memset(&d->rig, 0, sizeof d->rig);
+    for (int k = 0; k < 3; ++k)
+        for (int axis = 0; axis < 3; ++axis) {
+            d->rig.dir[k][axis] = la[4 * axis + k];
+            d->rig.col[k][axis] = lb[4 * k + axis];
+        }
+    for (int c = 0; c < 4; ++c)
+        d->rig.amb[c] = em_ee_float(em_ee_sub_bits(em_ee_bits(lb[12 + c]), F_BIAS));
+}
+
+/* 001D8C20(mode) + 001D89D0 over the record (the light binding: the one
+ * bound 001D89D0, em_owner_draw_live_light), its A and B into la / lb. */
+static int light_of(EmStatusModels *m, EmStatusSceneActor *a, int32_t mode, uint32_t fn, float la[16],
+                    float lb[16])
+{
+    if (!m->light)
+        return fault(m, fn, "no light binding (001D8C20 / 001D89D0)");
+    EmOwnerServicesOwner o;
+    if (owner_view(m, a, &o) < 0)
+        return -1;
+    o.cls = a->b02;
+    o.kind = a->b03;
+    o.pose_bone = a->b98;
+    o.collapsed_bone = a->h94;
+    uint32_t rgb[4];
+    memcpy(rgb, a->f80, sizeof rgb);
+    if (m->light(m->light_ctx, mode, &o, rgb, la, lb) < 0)
+        return fault(m, 0x001D89D0u, "the light binding faulted");
+    return 0;
+}
+
+/* 001CB580 -> 001CB4F0(a, +0x44) (src/func_001CB4F0.c): 001D2910(0) kept,
+ * 001D2830(0, 0), 001D8C20(1), 001C7420(a, 0x3F5, 0), 001D1F80(0, 1, 0),
+ * 001D38F0(+0x44), 001D8C20(0), 001D2830(0, kept). 001C7420's 001D89D0
+ * takes lighting mode 1 to 001D8C30 case 1 (the one bound translation,
+ * em_actor_light_001D8C30): no light directions or colours, the ambient
+ * row bias + (128 + actor +0x80..+0x88). The draw is queued with the node
+ * matrices as the palette; 001D2830(0, 0) sets no fog (em_status_models.h). */
 static int draw(EmStatusModels *m, EmStatusSceneActor *a)
 {
     int r = record_of(m, a);
@@ -640,24 +684,18 @@ static int draw(EmStatusModels *m, EmStatusSceneActor *a)
     Model *model = &m->model[m->record_model[r]];
     if (a->b0C + 1u != model->model.bone_count || m->draw_count >= EM_STATUS_SCENE_POOL_RECORDS)
         return fault(m, DRAW_001CB580, "the node count differs from the exported model");
+    float la[16], lb[16];
+    if (light_of(m, a, 1, DRAW_001CB580, la, lb) < 0)
+        return -1;
+    /* 001CB4F0's 001D8C20(0) after the draw. */
+    if (m->light(m->light_ctx, 0, NULL, NULL, NULL, NULL) < 0)
+        return fault(m, 0x001D8C20u, "the light binding's 001D8C20 faulted");
     Draw *d = &m->draw[m->draw_count];
     d->model = m->record_model[r];
     d->bones = model->model.bone_count;
     if (palette_of(m, a, d, DRAW_001CB580) < 0)
         return -1;
-    /* 001D8C30 case 1: light directions and colours zero; ambient lane k =
-     * 8388608 + (128 + actor +0x80 + 4k), w = 8388608 + 64 * max(+0x8C - 1,
-     * 0); the kernel reads the biased value's integer part. */
-    memset(&d->rig, 0, sizeof d->rig);
-    const uint32_t bias = 0x4B000000u, f128 = 0x43000000u, f64 = 0x42800000u, one = 0x3F800000u;
-    for (int k = 0; k < 3; ++k) {
-        uint32_t lane = em_ee_add_bits(bias, em_ee_add_bits(f128, em_ee_bits(a->f80[k])));
-        d->rig.amb[k] = em_ee_float(em_ee_sub_bits(lane, bias));
-    }
-    uint32_t t = em_ee_sub_bits(em_ee_bits(a->f80[3]), one);
-    if (em_ee_c_le_bits(t, 0))
-        t = 0;
-    d->rig.amb[3] = em_ee_float(em_ee_sub_bits(em_ee_add_bits(bias, em_ee_mul_bits(f64, t)), bias));
+    rig_of(d, la, lb);
     m->draw_count++;
     return 0;
 }
@@ -669,11 +707,8 @@ static int draw(EmStatusModels *m, EmStatusSceneActor *a)
  * 001D8C30 (1, 3..6): it composes the room rig for the record (the light
  * binding: em_owner_draw_live_light), with the glow add of +0x02 bit 0x40
  * (002101C0 sets it: B's ambient row += 64 x the +0x80 colour). The draw
- * is queued like 001CB580's: the palette is the node matrices, and the rig
- * the renderer lights the vertices with is A's three slot directions (its
- * columns), B's three colour rows and B's ambient row less the 8388608
- * bias (em_gfx.h EmGfxCharRig: the formula 001C7420's colour matrix feeds
- * the object kernel). 001D2830(0, 0) sets no fog (as for 001CB580). */
+ * is queued like 001CB580's (rig_of). 001D2830(0, 0) sets no fog (as for
+ * 001CB580). */
 static int draw_001CB480(EmStatusModels *m, EmStatusSceneActor *a)
 {
     int r = record_of(m, a);
@@ -686,31 +721,15 @@ static int draw_001CB480(EmStatusModels *m, EmStatusSceneActor *a)
         return fault(m, DRAW_001CB480, "the node count differs from the exported model");
     if (a->h94 != -1)
         return fault(m, DRAW_001CB480, "a collapsed bone (+0x94), which the palette does not model");
-    EmOwnerServicesOwner o;
-    if (owner_view(m, a, &o) < 0)
-        return -1;
-    o.cls = a->b02;
-    o.kind = a->b03;
-    o.pose_bone = a->b98;
-    o.collapsed_bone = a->h94;
-    uint32_t rgb[4];
-    memcpy(rgb, a->f80, sizeof rgb);
     float la[16], lb[16];
-    if (m->light(m->light_ctx, 2, &o, rgb, la, lb) < 0)
-        return fault(m, 0x001D89D0u, "the light binding faulted");
+    if (light_of(m, a, 2, DRAW_001CB480, la, lb) < 0)
+        return -1;
     Draw *d = &m->draw[m->draw_count];
     d->model = m->record_model[r];
     d->bones = model->model.bone_count;
     if (palette_of(m, a, d, DRAW_001CB480) < 0)
         return -1;
-    memset(&d->rig, 0, sizeof d->rig);
-    for (int k = 0; k < 3; ++k)
-        for (int axis = 0; axis < 3; ++axis) {
-            d->rig.dir[k][axis] = la[4 * axis + k];
-            d->rig.col[k][axis] = lb[4 * k + axis];
-        }
-    for (int c = 0; c < 3; ++c)
-        d->rig.amb[c] = em_ee_float(em_ee_sub_bits(em_ee_bits(lb[12 + c]), F_BIAS));
+    rig_of(d, la, lb);
     m->draw_count++;
     return 0;
 }

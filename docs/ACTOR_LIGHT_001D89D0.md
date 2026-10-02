@@ -21,7 +21,7 @@ original code, data or disassembly.
 
 | File | What |
 |---|---|
-| `src/game/em_actor_light_001D89D0.{h,c}` | 001D89D0 and everything it reaches: 001D8C30, 001D8130, 001D7B30, 001D2910(8) = 001D2710(8), 001D8340, 001D8270, 001D8690, and the SDK VU0 routines 001026A0, 00102738, 00102760, 00102798, 001028B8, 001028D0, 00102900, 00102948 / 00102958. It reuses em_owner_services' verified 001029C0, 00102A60, 00102B08 and 00102BB0. The binding adapter `em_actor_light_w_001D89D0` has the `EmOwnerServicesWorkers.w_001D89D0` signature. |
+| `src/game/em_actor_light_001D89D0.{h,c}` | 001D89D0 and everything it reaches: 001D8C30 (since the lighting step, 2026-10-02, by running its one translation em_frh_001D8C30 over this module's views: A at 0x70003400, B at 0x70003440, the colour after them, the context's +0x2380), 001D8130, 001D7B30, 001D2910(8) = 001D2710(8), 001D8340, 001D8270, 001D8690, and the SDK VU0 routines 001026A0, 00102738, 00102760, 00102798, 001028B8, 001028D0, 00102900, 00102948 / 00102958. It reuses em_owner_services' verified 001029C0, 00102A60, 00102B08 and 00102BB0. The binding adapter `em_actor_light_w_001D89D0` has the `EmOwnerServicesWorkers.w_001D89D0` signature. |
 | `tools/test_actor_light_001d89d0_reference.py` | The original-instruction oracle (section 5). |
 
 Arithmetic: every COP1 and VU0 macro instruction goes through em_ee_float.h
@@ -294,6 +294,13 @@ copied per draw; D_00810700/701 and D_00810610 are the render context's
 external views; `w_owner_rgb` returns the pool record's +0x80 words. The
 level smoke compares B and the lighting rows' rig lanes with the route
 snapshots (OWNER_DRAW.md section 9).
+
+Since the lighting step (2026-10-02, audit 1b item 4) the same binding
+(`em_owner_draw_live_light`) lights the two draws left on the renderer's
+skinned path: the status hub's models (001CB4F0: 001D8C20(1), 001D89D0 in
+mode 1 to 001D8C30, then 001D8C20(0), `em_owner_draw_live_light_mode`) and
+the MAP page's (001CB480, mode 2). em_status_models derives the renderer's
+rig from A and B (ACTOR_LIGHTING.md "Caller contract").
 
 ## 7. Makefile targets
 

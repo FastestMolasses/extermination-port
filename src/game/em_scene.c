@@ -58,9 +58,10 @@ void scene_manifest_load(void)
     g.n_camregion  = 0;     /* camera regions are per-scene data */
     g.rig_on       = 0;     /* LIGHTING: rig + lamps are per-scene data */
     g.n_lamp       = 0;
+    /* The point-light pool (render context +0x210..) is reset and given the
+     * room's lists by 001D19E0's 001D7BB0 at the area entry (em_scene_bindings
+     * um_001D19E0 -> em_effects_live_room_lights), not by the manifest. */
     g.point_lights_loaded = 0;
-    if (em_rcl_point_lights())   /* the render context's slots (+0x210..) */
-        em_point_light_reset(em_rcl_point_lights());
     g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
     g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
                              * without this reset a scene with no `opencam`
@@ -210,18 +211,11 @@ void scene_manifest_load(void)
                 g.rig_col[n_ldir][2] = gz;
                 n_ldir++;
             }
-        } else if (sscanf(line, "pointlights %255s", name) == 1) {
-            char path[560];
-            snprintf(path, sizeof path, "%s/%s", g.scene_dir, name);
-            if (!em_rcl_point_lights() ||
-                !em_point_light_load(em_rcl_point_lights(), &g.point_lights_area_key, path)) {
-                fprintf(stderr, "manifest: required original point lights failed: %s\n", path);
-                em_frame_request_quit();
-            } else {
-                g.point_lights_loaded = 1;
-                printf("manifest: original point lights %#x: %d registrations\n",
-                       g.point_lights_area_key, em_rcl_point_lights()->pending_count);
-            }
+        } else if (strncmp(line, "pointlights ", 12) == 0) {
+            /* Retired (audit 1b item 4): the room point-light lists run at
+             * the area entry (001D19E0's 001D7BB0 -> 001F68B0 / 001F6E40,
+             * em_effects_live_room_lights); an older export's line names a
+             * file nothing reads. */
         } else if (sscanf(line, "lamp %f %f %f %f %f %f %f",
                           &x, &y, &z, &gx, &gy, &gz, &gyaw) == 7) {
             /* LIGHTING — one placed lamp (the room's func_001F6760

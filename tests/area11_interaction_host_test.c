@@ -602,13 +602,13 @@ static void setup(int reset_inventory)
     assert(em_rcl_init(EM_RCL_EXPORT_PATH, em_frame_d810E80()) == 0);
     assert(em_rcl_poke(EM_RCL_CONTEXT + 0x2468, ram + EM_RCL_CONTEXT + 0x2468, 4) == 0);
     rcl_bind_fixture();
-    /* The area's point lights on the context's +0x220 pool, as the scene
-     * manifest's `pointlights` line loads them in the game (em_scene.c):
-     * the MAP page's model draw 001CB480 lights through 001D89D0. */
+    /* The area's point lights on the context's +0x210.. pool: the capture's
+     * own pool (in the game the area entry's 001D19E0 -> 001D7BB0 registers
+     * the room lists, em_effects_live_room_lights): the status models' draws
+     * (001CB4F0, 001CB480) light through 001D89D0. */
     if (!g.point_lights_loaded) {
         assert(em_rcl_point_lights() &&
-               em_point_light_load(em_rcl_point_lights(), &g.point_lights_area_key,
-                                   "assets/scene_snow/point_lights.emlp"));
+               em_rcl_poke(EM_RCL_CONTEXT + 0x210, ram + EM_RCL_CONTEXT + 0x210, 0x2010) == 0);
         g.point_lights_loaded = 1;
     }
     /* The live camera over the area's collision world, its bytes the
