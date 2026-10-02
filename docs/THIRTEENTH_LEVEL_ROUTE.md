@@ -48,6 +48,11 @@ resumable snapshot per beat. Nothing here is port behaviour.
 In-game text (messages, captions, prompts) is described, never quoted.
 Positions are world units; yaw is the player's +0xC4 (X = sin, Z = cos).
 
+Continued in `FOURTEENTH_LEVEL_ROUTE.md` (groups `a19d` / `a15`: from
+a19c_07's end through sub 0's west part and the stair tower to AREA15; its
+section 2 corrects this document's reading of 00193EB0's sub test, which
+came from the NEARMISS C).
+
 ## 1. Tool, outputs and conventions
 
 ```sh
@@ -390,7 +395,9 @@ Scratch snapshots under `../Extermination/build/thirteenthcap/probe/`
 
 ## 7. Open
 
-1. **AREA15.** Sub 1's doors [50] (902, 450, 941) and [51] (902, 500, 941)
+1. **AREA15** (played in FOURTEENTH_LEVEL_ROUTE.md: the tower is entered
+   by sub 0's ladder 694, sub 0 by the cage ladder after the lift's scene).
+   Sub 1's doors [50] (902, 450, 941) and [51] (902, 500, 941)
    (001BC350, area change to AREA15 entry 0 sub 0 / sub 1) open from the
    landings of the stair tower (x 897..990, z 942..985: flights of
    attribute 0x35 from y 370 to 500.5, landings at y 395.5, 421, 450,

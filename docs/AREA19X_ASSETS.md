@@ -276,9 +276,20 @@ baseline fails it). `build/area19x/sweep/sweep.py` (ignored), 4 workers,
   independent sweep of 43 single-operation mutants inside the checks left
   18 non-equivalent survivors; most important, each per-field term of the
   [43] rule (bone +0x64, scale, zero words, matrix length) and
-  creature_nodes' bit 0 has no control of its own. These are known gaps
-  (one control per field would close them); the claim above covers whole
-  checks, not each field.
+  creature_nodes' bit 0 had no control of its own. Those two now have
+  controls in the AREA19S1 lane's checker
+  (`tools/test_area19s1_assets_reference.py`, `area19x_controls`, 14
+  controls; this lane's checker is unchanged): on a19b_02 with this lane's
+  sub-0 state, tied to this lane's exports (`reload/sub0/world_models.json`
+  `explicit_models`, `reload/sub0/creature/creature.json`), one control per
+  term of `bone_rest_problems` (+0x64 low and high byte, scale x / y / z,
+  the first zero word and the last zero byte, the matrix's first and last
+  byte, a bone slot cleared) and the creature's +0x0D 0x80, 0x01 and 0xFF
+  (accepted). That lane's sweep kills all ten field and mask mutants of
+  `bone_rest_problems` / `creature_nodes` it ran (in private copies;
+  AREA19S1_ASSETS.md, mutation sweep). The review's other survivors stay
+  known gaps; the claim above covers whole checks, and these two rules
+  per field.
 
 ## Findings (for the lead)
 
