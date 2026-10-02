@@ -198,6 +198,9 @@ int em_rcl_001D1EF0(void);
  * active slots +0x220, the staged slots +0x1220), the one storage
  * 001D7BB0 / 001D7C30 / 001D7FA0 / 001D8340 address; NULL before the load. */
 EmPointLightPool *em_rcl_point_lights(void);
+/* 001D80B0(id) over the context's point-light slots (em_frh_001D80B0). 0,
+ * or -1 (reported). */
+int em_rcl_001D80B0(int32_t id);
 
 /* The chain page 001CB800 spliced at the last frame close (001D1EA0's
  * kick): its start tag, and the CALL target 001DDE10 appended to slot 0xFFF

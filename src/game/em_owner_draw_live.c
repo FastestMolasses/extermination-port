@@ -333,6 +333,14 @@ int em_owner_draw_live_light(int32_t mode, const EmOwnerServicesOwner *owner, co
     return 0;
 }
 
+/* 001D8C20(mode) alone (001CB4F0's mode reset after its draw). */
+int em_owner_draw_live_light_mode(int32_t mode)
+{
+    if (em_rcl_fault()) return report(em_rcl_fault(), "the render context has faulted");
+    if (w_001D8C20(NULL, mode) < 0) return report(0x001D8C20u, "the context +0x246C view is missing");
+    return 0;
+}
+
 int em_owner_draw_live_001CAA00(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                 const uint32_t rgb[4], uint32_t record)
 {

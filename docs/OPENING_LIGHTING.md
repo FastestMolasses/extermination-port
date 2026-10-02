@@ -105,17 +105,14 @@ ordering remains a fidelity dependency, so native flicker angles are not
 claimed to equal an arbitrary original captured frame.
 
 The owner-drawn AREA11 actors (the crates, drums, truck, fence door,
-terminal, panel, prop, items, canopy, the player and its equipment) light
+terminal, panel, prop, items, canopy, the player and its equipment, the fan
+pair, the security gun and its cable, Roger, the opening's actors) light
 through the translated 001D89D0 on the object-unit path
-([ACTOR_LIGHT_001D89D0.md](ACTOR_LIGHT_001D89D0.md), OWNER_DRAW.md). The
-actors still drawn through `em_gfx_draw_skinned` with the CPU rig
-(`char_rig_build`: Roger, the fan pair, the security gun and its cable, the opening's player)
-get identity actor RGB and an unconditional fold. `em_lighting_actor_rgb`
-reproduces the 001D8690 multiply and `em_lighting_fold_gate` reproduces
-001D8270; both are verified against the AREA11 actors in
-[ACTOR_LIGHTING.md](ACTOR_LIGHTING.md), and the `em_gfx.h` caller contract
-names them, but `char_rig_build` does not call them yet. Existing post-draw tint handling is retained; self-glow
-(actor+2 bit 0x40) before the color clamp is not claimed complete. The
+([ACTOR_LIGHT_001D89D0.md](ACTOR_LIGHT_001D89D0.md), OWNER_DRAW.md), with
+001D8270's gate and 001D8690's actor RGB inside it (one translation each).
+Since the lighting step (2026-10-02) the CPU rig `char_rig_build` faults
+when the render context is bound: no first-level draw takes it
+(ACTOR_LIGHTING.md "Caller contract"). The
 rig-less shader stand-in is deleted: a normal mesh drawn without a rig is
 rejected. Existing texture
 alpha/blend handling and fog remain separate from this RGB correction. Native

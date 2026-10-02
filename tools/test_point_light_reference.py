@@ -45,6 +45,45 @@ class Pool(C.Structure):
                 ('unused_218', C.c_uint32*2), ('active', Light*32), ('pending', Light*32)]
 
 
+LISTS_BASE, LISTS_BYTES, PRESETS = 0x25AD80, 0x25D800 - 0x25AD80, 0x26EB70
+
+
+class KindsTables(C.Structure):     # EmEffectKindsTables
+    _fields_ = [('lists', C.c_uint8*LISTS_BYTES), ('templates', (C.c_uint32*4)*4)]
+
+
+class KindsGlobals(C.Structure):    # EmEffectKindsGlobals
+    _fields_ = [('d810700', C.c_uint8), ('d810701', C.c_uint8), ('latch', C.c_uint8*8),
+                ('spad3B68', C.c_int32), ('spad36A0', C.c_uint32*16), ('d275C40', C.c_int32),
+                ('d275C44', C.c_int32), ('spad3600', C.c_uint32*3)]
+
+
+REGISTER_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_float),
+                          C.c_int32, C.c_uint32, C.c_uint32, C.POINTER(C.c_int32))
+RELEASE_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_int32)
+
+
+class KindsWorkers(C.Structure):    # EmEffectKindsWorkers (the two point-light workers, the rest NULL)
+    _fields_ = [('ctx', C.c_void_p), ('w_001D7FA0', REGISTER_FN), ('w_001D80B0', RELEASE_FN),
+                ('others', C.c_void_p*9)]
+
+
+class Kinds(C.Structure):           # EmEffectKinds
+    _fields_ = [('tables', C.POINTER(KindsTables)), ('globals', C.POINTER(KindsGlobals)),
+                ('decals', C.c_void_p), ('particles', C.c_void_p), ('workers', C.POINTER(KindsWorkers)),
+                ('fault_address', C.c_uint32), ('fault_code', C.c_int32)]
+
+
+class FrhView(C.Structure):         # EmFrhView
+    _fields_ = [('address', C.c_uint32), ('size', C.c_uint32), ('bytes', C.c_void_p), ('writable', C.c_int)]
+
+
+class Frh(C.Structure):             # EmFrh (no worker reached by 001D80B0 / 001D8060)
+    _fields_ = [('views', C.POINTER(FrhView)), ('view_count', C.c_uint32), ('workers', C.c_void_p*36),
+                ('fault_address', C.c_uint32), ('fault_code', C.c_int32), ('fault_data', C.c_uint32),
+                ('fn', C.c_uint32)]
+
+
 class Oracle:
     fpu_acc = 0      # EE FPU accumulator (bit pattern); a class default for
                      # subclasses that do not chain to __init__
@@ -238,7 +277,8 @@ def main():
     lib = out/'point_light.dylib'
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
                     '-shared','-fPIC','-Isrc','src/game/em_point_light.c',
-                    'src/game/em_owner_services_original.c','-o',str(lib)],cwd=ROOT,check=True)
+                    'src/game/em_owner_services_original.c','src/game/em_effect_kinds.c',
+                    'src/game/em_frame_render_heads.c','-o',str(lib)],cwd=ROOT,check=True)
     native = C.CDLL(str(lib)); random_fn = C.CFUNCTYPE(C.c_uint32,C.c_void_p)
     native.em_point_light_tick.argtypes = [C.POINTER(Pool),C.c_uint16,random_fn,C.c_void_p]
     native.em_point_light_tick.restype = C.c_int
@@ -311,16 +351,72 @@ def main():
         assert bytes(pool) == expected, ('tiny angle', case, next(i for i,(a,b) in enumerate(zip(bytes(pool),expected)) if a != b))
         assert all(math.isfinite(v) for light in pool.active for v in light.matrix), ('tiny angle NaN', case)
         cases += 1
-    # Room reset executes both original selectors and their actual lifecycle
-    # calls. Key0B00 selects the secondary list at0025D5A0, omitted previously.
-    reset = Oracle(elf); reset.load_pool(pool)
-    reset.save(0x810700,11,1); reset.save(0x810701,0,1)
-    reset.run(0x1d7bb0)
-    native.em_point_light_reset(C.byref(pool))
+    # The area entry's 001D7BB0 at run time (audit 1b item 4): the ORIGINAL
+    # 001D7BB0 (its field writes, then 001F68B0 and 001F6E40 over the ELF's
+    # lists, their 001F6640 -> 001D7FA0 and 001F66F0 -> 001D80B0 calls) against
+    # the port's chain as em_effects_live_room_lights wires it: the reset
+    # em_point_light_reset, then em_effect_kinds_001F68B0 / _001F6E40 over the
+    # ELF's lists window and presets with 001D7FA0 = em_point_light_register
+    # on the pool and 001D80B0 = em_frh_001D80B0 over the context. Every key
+    # either selector names (and 0x0B00 / 0x0F00), each latch byte 0 and
+    # 0xFF, twice in a row (the second entry finds the handles the first
+    # stored); the pool and the whole lists window must be equal.
+    native.em_point_light_reset.argtypes = [C.POINTER(Pool)]
+    for name in ('em_effect_kinds_001F68B0', 'em_effect_kinds_001F6E40'):
+        getattr(native, name).argtypes = [C.POINTER(Kinds)]
+    native.em_effect_kinds_load_tables.argtypes = [C.c_char_p, C.c_size_t, C.POINTER(KindsTables)]
+    native.em_frh_001D80B0.argtypes = [C.POINTER(Frh), C.c_int32]
+    latch_addresses = (0x81075D, 0x81075E, 0x810761, 0x810778, 0x81077B, 0x810784, 0x810785, 0x81079E)
+    keys = (0x0000, 0x0001, 0x0002, 0x0100, 0x0200, 0x0700, 0x0702, 0x0B00, 0x0E00, 0x0F00, 0x1000, 0x1100,
+            0x1200, 0x1300, 0x1301)
+    room_cases = room_registrations = 0
+    for key in keys:
+        for latch_value in (0x00, 0xFF):
+            tables = KindsTables()
+            assert native.em_effect_kinds_load_tables(elf, len(elf), C.byref(tables)) == 0
+            room = Oracle(elf); room.load_pool(pool)
+            native_pool = Pool.from_buffer_copy(bytes(pool))
+            room.save(0x810700, key >> 8, 1); room.save(0x810701, key & 0xFF, 1)
+            for address in latch_addresses: room.save(address, latch_value, 1)
+            context_word = (C.c_uint32*1)(CONTEXT)
+            views = (FrhView*2)(FrhView(0x275670, 4, C.addressof(context_word), 0),
+                                FrhView(CONTEXT + 0x210, C.sizeof(Pool), C.addressof(native_pool), 1))
+            frh = Frh(); frh.views = views; frh.view_count = 2
+            registered = []
+
+            @REGISTER_FN
+            def w_register(_ctx, position, template, color, kind, f12, f13, handle):
+                handle[0] = native.em_point_light_register(C.byref(native_pool), position, color, kind,
+                                                           number(f12), number(f13))
+                registered.append(template)
+                return 0
+
+            @RELEASE_FN
+            def w_release(_ctx, handle):
+                return native.em_frh_001D80B0(C.byref(frh), handle)
+
+            workers = KindsWorkers(); workers.w_001D7FA0 = w_register; workers.w_001D80B0 = w_release
+            globals_ = KindsGlobals(); globals_.d810700 = key >> 8; globals_.d810701 = key & 0xFF
+            for k in range(8): globals_.latch[k] = latch_value
+            kinds = Kinds(); kinds.tables = C.pointer(tables); kinds.globals = C.pointer(globals_)
+            kinds.workers = C.pointer(workers)
+            for entry in range(2):
+                room.run(0x1d7bb0)
+                native.em_point_light_reset(C.byref(native_pool))
+                assert native.em_effect_kinds_001F68B0(C.byref(kinds)) == 0, ('001F68B0', hex(key), kinds.fault_address)
+                assert native.em_effect_kinds_001F6E40(C.byref(kinds)) == 0, ('001F6E40', hex(key), kinds.fault_address)
+                assert frh.fault_code == 0, ('001D80B0', hex(key), hex(frh.fault_address))
+                where = ('room lists', hex(key), latch_value, entry)
+                assert bytes(native_pool) == room.pool_bytes(), where + ('pool',)
+                assert bytes(tables.lists) == room.read(LISTS_BASE, LISTS_BYTES), where + ('lists window',)
+                room_cases += 1
+            room_registrations += len(registered)
+    assert room_registrations > 0
+    pool = native_pool
+    # Registration inputs: the auxiliary list 0025D5A0's record position and
+    # preset 2 (any position and colour would do).
     position = (C.c_float*4)(*struct.unpack('<3f',elf[0x25d5ac-0x100000+0x300:0x25d5b8-0x100000+0x300]),1)
     color = (C.c_float*4).from_buffer_copy(elf[0x26eb90-0x100000+0x300:0x26eba0-0x100000+0x300])
-    native.em_point_light_register(C.byref(pool),position,color,1,1,0)
-    assert bytes(pool) == reset.pool_bytes(), 'room reset and auxiliary registration'
     # Registration capacity, preserved unrelated bytes and allocator wrap.
     registrations = 0
     pool.next_handle = 0xfffffff0
@@ -355,7 +451,7 @@ def main():
     assert matrix.read(0x500040,64) == bytes(captured.matrix), 'captured flicker matrix'
     report = {'status':'PASS','original_update_cases':cases,'original_random_calls':calls,
               'original_fold_cases':folds,'original_registration_cases':registrations,
-              'original_room_reset_and_auxiliary_registration':True,
+              'original_room_entry_cases':room_cases,'original_room_list_registrations':room_registrations,
               'captured_flicker_matrix_bytes_equal':64,'original_elf_sha256':hashlib.sha256(elf).hexdigest()}
     report['captured_player_point_color_bytes_equal'] = 12
     report['captured_player_color_distinguishes_ee_division_rounding'] = captured_colors[0] != captured_colors[1]

@@ -37,10 +37,27 @@ scaled by2k, then normalize the final direction. Here
 `k = .1*intensity/max(distance_squared,1)`. Face lighting continues to bypass
 this fold through its separate original rig.
 
-Native integration loads an exported `point_lights.emlp` resource and ticks
-the original pool at the `001D1C50` phase: after ordinary player update and
-before pooled actors, or before actor updates during the opening. The shared
-`em_random_next` supplies its RNG calls. The guessed steam light registration
+Native integration (since the lighting step, 2026-10-02, audit 1b item 4)
+runs the original chain at run time, where the original does: the area
+entry's 001D19E0 (0x1AE040 state 0; `um_001D19E0` in em_scene_bindings.c)
+calls 001D7BB0, whose field writes are `em_point_light_reset` over the
+render context's pool and whose tail, 001F68B0 then 001F6E40, is
+`em_effects_live_room_lights`: em_effect_kinds' 001F68B0 / 001F6E40 / 001F6850 /
+001F66F0 / 001F6640 and the selectors 001F6760 / 001F6D60 over the ELF's
+lists window D_0025AD80..D_0025D800 and the presets D_0026EB70 (the one
+copy, from `effect_tables.emet`; the records' +0x24 handles persist across
+area loads, starting from the ELF's 0), with 001D7FA0 =
+`em_point_light_register` and 001D80B0 = `em_rcl_001D80B0`
+(em_frh_001D80B0 over the context). 001F68B0's latch bytes come from the
+canonical progress bytes; a key whose case reads one that is not canonical
+faults. In AREA11 001F68B0 selects nothing and 001F6E40 releases the list
+record's handle (the ELF's 0: 001D80B0 finds no slot after the reset) and
+registers the one record above. The pool ticks at the `001D1C50` phase
+(001D7C30, keyed by D_00810700 / D_00810701 as it runs): after ordinary
+player update and before pooled actors, or before actor updates during the
+opening. The shared `em_random_next` supplies its RNG calls. The offline
+`tools/export_point_lights.py` / `point_lights.emlp` / `em_point_light_load`
+and the manifest's `pointlights` line (now ignored) are retired. The guessed steam light registration
 is removed. The separate particle owner is now recovered in
 [AREA11_EFFECT.md](AREA11_EFFECT.md); its old steam billboards and audio
 retriggers were fabricated. Nearby original sound/contact binding remains
@@ -51,9 +68,15 @@ unfinished.
 `tools/test_point_light_reference.py` executes the original EE instructions,
 including both SDK VU0 rotation helpers, directly from the owner's ELF. It
 compares 256 complete 32-slot updates, 780 RNG calls, 256 dynamic folds and 40
-registrations, including capacity and allocator wrap. The original room
-reset and both table selectors also execute, producing the same auxiliary
-registration. All active/staging slot bytes are compared.
+registrations, including capacity and allocator wrap. The area entry runs
+as the original 001D7BB0 (its reset, 001F68B0 and 001F6E40 over the ELF's
+lists) against the port's chain wired as em_effects_live_room_lights wires
+it, for every key either selector names plus 0x0B00 and 0x0F00, each latch
+byte 0 and 0xFF, twice in a row (60 entries, 120 registrations): the whole
+pool and the whole lists window are equal. All active/staging slot bytes are
+compared. Live, the level smoke's check_room_lights compares the pool's
+counters and active slots with the first-control capture and every aligned
+route snapshot.
 
 The saved original angles reconstruct all 64 bytes of the captured flicker
 matrix. Using the captured light and Dennis's actual bone 1 anchor reproduces
@@ -68,23 +91,12 @@ em_ee_float.h; the flicker matrix is em_owner_services' 001029C0 / 00102B08 /
 stay per-operation truncation (EE_FLOAT_MODEL.md section 5c).
 
 ```
-python3 tools/export_point_lights.py \
-  --reference-ee ../Extermination/build/startup-reference/opening_ee.bin
 make test-point-light test-point-light-reference
 ```
 
-The exporter only reads the owner's original executable; optional snapshot
-validation checks placement and color. Its generated assets, provenance JSON
-and reports remain ignored. ASan/UBSan tests cover staging/adoption, RNG gates,
-zero-distance normalization, capacity, and malformed/missing resources.
-
-A frozen native build loaded the original registration and captured opening
-frame 280 successfully, exiting with code 0. Its half-tick 269, camera sample
-134.5, script PC and all camera values equal the previous lighting capture.
-`build/point_light_reference/visual_validation.json` records the witness and
-binary/image hashes. Actor/runtime tests also pass through normal and skipped
-opening teardown. This smoke check verifies integration, not full GS raster
-or whole-game RNG equality.
+The lists come from `effect_tables.emet` (tools/export_effect_tables.py),
+which the effects already need. ASan/UBSan tests cover staging/adoption,
+RNG gates, zero-distance normalization, capacity and the reset.
 
 ## Remaining scope
 

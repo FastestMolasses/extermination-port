@@ -4,39 +4,9 @@
 #include "game/em_owner_services_original.h"
 
 #include <math.h>
-#include <stdio.h>
 #include <string.h>
 
 _Static_assert(sizeof(EmPointLight) == 0x80, "original light slot layout");
-
-int em_point_light_load(EmPointLightPool *pool, uint16_t *area_key,
-                        const char *path)
-{
-    struct Record { uint32_t type; float position[4], color[4]; } records[32];
-    uint32_t header[4];
-    FILE *file = fopen(path, "rb");
-    if (!file) return 0;
-    int valid = fread(header, sizeof header, 1, file) == 1 &&
-                memcmp(header, "EMLP", 4) == 0 && header[1] == 1 &&
-                header[2] <= 0xffff && header[3] > 0 && header[3] <= 32;
-    if (valid) valid = fread(records, sizeof records[0], header[3], file) == header[3]
-                       && fgetc(file) == EOF;
-    fclose(file);
-    if (!valid) return 0;
-    for (unsigned i = 0; i < header[3]; ++i) {
-        if (records[i].type != 1 || records[i].position[3] != 1.0f ||
-            records[i].color[3] <= 0.0f) return 0;
-        for (unsigned lane = 0; lane < 4; ++lane)
-            if (!isfinite(records[i].position[lane]) ||
-                !isfinite(records[i].color[lane])) return 0;
-    }
-    em_point_light_reset(pool);
-    for (unsigned i = 0; i < header[3]; ++i)
-        em_point_light_register(pool, records[i].position, records[i].color,
-                                1, 1.0f, 0.0f);
-    *area_key = (uint16_t)header[2];
-    return 1;
-}
 
 /* VU0 macro sums and products of the fold (truncated per operation). The
  * COP1 sites (traced from the original: 001D7C80, 001D7D8C/90, 001D7E1C/20

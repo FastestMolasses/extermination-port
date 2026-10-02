@@ -37,7 +37,13 @@ addresses, from the user's own extracted disc:
     L28), the indicator children's 001C2360 models (0x73 the pickup
     light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
     em_indicator_bind_live.c), the muzzle node 001F5040's (0x07..0x0F;
-    em_aim_fire_flash.c) and the shell casing's 0x19 (001F3E30).
+    em_aim_fire_flash.c) and the shell casing's 0x19 (001F3E30);
+  * the library's model 0x16 (the gun lamp's third cone shell, 001D9530) as
+    the disc holds it, a WRITABLE region: the New Game's 001AD1A0 calls
+    001D19D0 -> 001D9070, which rewrites its vertex weights in place
+    (em_area11_roger_001D19D0). In the captures it differs from the disc
+    only in those weight words, which the exporter checks; the level smoke
+    checks the run's rewritten bytes against the captures.
 
 No PCSX2 capture is needed. When the developer's AREA11 captures are
 present (default: playable_ee.bin and route beats 00..14; --verify-ram FILE
@@ -49,8 +55,9 @@ Output (disc-derived: git-ignored assets/ only; nothing is embedded here):
     0x00 'EMRS', u32 version 2, u32 table address (0x28A490), u32 table words N (0xAF),
     u32 region count R, 3 x u32 0
     0x20 N table words
-    then R regions: u32 address, u32 size, u32 writable (0), u32 library (1: a
-    shot model span no pose host maps, else 0), size bytes
+    then R regions: u32 address, u32 size, u32 writable (1: model 0x16, which
+    001D9070 rewrites; else 0), u32 library (1: a library model span no pose
+    host maps, else 0), size bytes
   build/roger_banks/export.json: addresses, sizes and SHA-256s only.
 
 Runs natively on arm64 macOS (pure Python).
@@ -84,9 +91,10 @@ DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # switches to 0x08 / 0x07 (001C6120(D_0028A56C, id) through 001CA5E0), and
 # the shell casing's 001F3E30 binds 0x19 (D_0025A350 row 3: table 0x37,
 # model 0x19; docs/AIM_FIRE.md sections 9.1 / 9.2): the spans 0x07..0x0F and 0x19
-# (the models between 0x07 and 0x0F are block models in file order too; the
-# library's bytes between 0x0F and 0x19 are rewritten at run time in the
-# captures and are not exported).
+# (the models between 0x07 and 0x0F are block models in file order too; of
+# the library's models between 0x0F and 0x19 only 0x16 differs from the disc
+# in the captures, in the weight words 001D9070 rewrites: it is exported as
+# the disc holds it, a writable region, FADE_MODEL below).
 # Each span is one region, from its first model's header to its last model's
 # skeleton end (the file bytes between are exported too and checked like the
 # rest).
@@ -95,6 +103,10 @@ EQUIPMENT_SPANS = ((0x07, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A
 # spans no pose host reads (em_area11_roger_regions leaves them out, so the
 # record pose hosts that map the other regions keep their count).
 SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
+# The library model 001D9070 rewrites (001C6120(D_0028A56C, 0x16), src/func_001D9070.c):
+# its block count, then per block 32 entries of 0x40 bytes from block + 0x10,
+# each entry's +0x20..+0x2F the weight words it stores (from +0x38).
+FADE_MODEL = 0x16
 
 
 def u32(b, a): return struct.unpack_from('<I', b, a)[0]
@@ -166,6 +178,15 @@ def main(argv=None) -> int:
         regions.append((global_table + start, f37[start:end]))
         if (first, last) in SHOT_SPANS:
             library_spans.add(global_table + start)
+    fade_off = struct.unpack_from('<i', f37, 4 + 4 * FADE_MODEL)[0] >> 2 << 2
+    fade_address = global_table + fade_off
+    fade = f37[fade_off:fade_off + block_model_size(f37, fade_off)]
+    regions.append((fade_address, fade))
+    fade_blocks = u32(fade, 0)
+    fade_weights = {0x40 + 0x820 * g + 0x10 + 0x40 * j + 0x20 + k
+                    for g in range(fade_blocks) for j in range(32) for k in range(16)}
+    if max(fade_weights) >= len(fade):
+        raise SystemExit('the model 0x16 weight entries leave the model')
     ordered = sorted(regions)
     for (a, da), (b, _db) in zip(ordered, ordered[1:]):
         if a + len(da) > b:
@@ -179,6 +200,13 @@ def main(argv=None) -> int:
             diff = next(i for i in range(TABLE_WORDS) if words[i] != table[i])
             raise SystemExit(f'{path}: D_0028A490[{diff:#x}] = {words[diff]:#x}, the disc model gives {table[diff]:#x}')
         for address, data in regions:
+            if address == fade_address:
+                # 001D9070 rewrote the weight words (the New Game ran it); every
+                # other byte is the disc's.
+                diff = [i for i in range(len(data)) if ram[address + i] != data[i] and i not in fade_weights]
+                if diff:
+                    raise SystemExit(f'{path}: model 0x16 differs from the disc outside its weights at +{diff[0]:#x}')
+                continue
             if ram[address:address + len(data)] != data:
                 diff = next(i for i in range(len(data)) if ram[address + i] != data[i])
                 raise SystemExit(f'{path}: RAM differs from the region at {address:#x} at +{diff:#x}')
@@ -187,7 +215,8 @@ def main(argv=None) -> int:
     out = bytearray(struct.pack('<4s7I', b'EMRS', VERSION, TABLE, TABLE_WORDS, len(regions), 0, 0, 0))
     out += struct.pack(f'<{TABLE_WORDS}I', *table)
     for address, data in regions:
-        out += struct.pack('<4I', address, len(data), 0, int(address in library_spans)) + data
+        writable = int(address == fade_address)
+        out += struct.pack('<4I', address, len(data), writable, int(address in library_spans or writable)) + data
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(bytes(out))
     report = dict(output=str(args.out), bytes=len(out),

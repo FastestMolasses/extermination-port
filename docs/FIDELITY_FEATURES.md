@@ -491,9 +491,27 @@ not follow a recording frame for frame.
   its equipment at the camera-exact 10 and 14); `check_sway` runs the
   original 001D7C30 over the port's pool and draws on 46 sampled ticks
   (`RAND_ORDER.md` 5).
+- The room's point lights are the original's at run time (the lighting
+  step, 2026-10-02, audit 1b item 4): the area entry's 001D7BB0 registers
+  the room lists through 001F68B0 / 001F6E40 / 001F6640 / 001D7FA0 from the
+  ELF's lists, where an offline export did before. Evidence: the original
+  001D7BB0 against the port's chain for every list key and latch value,
+  twice in a row (60 entries; `AREA11_POINT_LIGHT.md`); live, the pool's
+  counters and active slots equal the first-control capture and every
+  aligned route snapshot (`check_room_lights`).
+- One translation each: 001D8270 (the fold gate), 001D8690 (the actor RGB)
+  and 001D8C30 (the fixed lighting modes) have one translation, the one the
+  live draws run; the status hub's and the MAP page's models light through
+  the same bound 001D89D0 (mode 1, mode 2), and the renderer's own rig
+  composer faults if a first-level draw reaches it (`ACTOR_LIGHTING.md`;
+  `make test-actor-lighting-reference`: the renderer's lighting over the
+  bound A and B gives the original colour matrix and the kernel slice's
+  13,581 colour words).
 - Status: **PARTIAL**. The routine is proven, and the live fold is compared
-  over the port's own sway. The glow, other lighting modes and the +0xB0
-  light point are exercised on synthetic states only.
+  over the port's own sway. The glow, the 0x0F00 key and the +0xB0 light
+  point are exercised on synthetic states only; lighting mode 1 runs live
+  (the status hub's models, the muzzle node); the hub's drawn pixels are not
+  compared.
 
 **Effects drawn from the game's own packets**
 

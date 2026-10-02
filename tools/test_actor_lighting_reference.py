@@ -19,12 +19,13 @@ B. Original rig. 001D89D0(actor, 70003400, 70003440, actor+80) is executed
    the captured normal-matrix xyz lanes. The list built from this RAM state
    is identified by that equality; the other list is one frame older (its
    point-light flicker directions differ) and is reported, not asserted.
-C. Port contract. The rig is recomposed the way the port must feed it:
-   manifest lightamb/lightdir/lightcam, slot 0 zero unless actor+2 bit 0x20,
-   em_point_light_fold over the captured pool at the original light point
-   only when em_lighting_fold_gate (001D8270) passes, em_lighting_actor_rgb
-   (001D8690) with actor+0x80. Directions, all 64 colour-matrix bytes and
-   the normal-matrix xyz lanes must equal the executed original.
+C. The renderer's rig. The skinned path's rig (em_gfx.h EmGfxCharRig) is
+   what em_status_models derives from the bound 001D89D0's A and B (A's
+   columns, B's colour rows, B's ambient row less the 8388608 bias);
+   em_lighting_matrices over it must give back the executed colour matrix
+   byte for byte, and its normal-matrix xyz lanes must equal the captured
+   unit's. The fold gate (001D8270) and the actor RGB (001D8690) are those
+   of the one bound owner, em_actor_light_001D89D0.
 D. Vertices. For every record of every bound model, the original object
    kernel lighting slice (0023C878..0023C928) runs on the record normal with
    the captured (or executed) matrices; the exported EMDL must carry that
@@ -33,7 +34,8 @@ D. Vertices. For every record of every bound model, the original object
    the *.standin.bak files, when present, are measured against the same
    original colours to size the removed error.
 E. 001D8270 over every type byte and boundary radii, and 001D8690 over
-   random actor RGB, against em_lighting_fold_gate/em_lighting_actor_rgb.
+   random rig rows and actor RGB, against their one translation
+   (em_actor_light_001D8270 / em_actor_light_001D8690).
 F. R11. The level kernel's colour conversion (I = 65536.0 at 00237218,
    vf9.y = vf0.y + I at 00237220, colour + vf9.y at 002373B0 into the RGBAQ slot of
    the 0x4126 GIF tag) runs on every distinct AREA11 level record colour: the RGBAQ low
@@ -43,7 +45,7 @@ from pathlib import Path
 import argparse, ctypes as C, hashlib, json, math, random, struct, subprocess, sys, tempfile
 
 import test_point_light_reference as pl
-from test_point_light_reference import signed, bits, number, Pool
+from test_point_light_reference import signed, bits, number
 import vu1_vm as vu
 import audit_opening_lighting as aol
 
@@ -119,19 +121,57 @@ def u32(ram, a): return struct.unpack_from('<I', ram, a)[0]
 def floats(data, n=None): return struct.unpack(f'<{len(data)//4 if n is None else n}f', data[:4*(n or len(data)//4)])
 
 
+P32 = C.POINTER(C.c_uint32)
+
+
+class World(C.Structure):  # EmActorLightWorld
+    _fields_ = [('d00275688', P32), ('d00817BC0', P32), ('ctx_246C', C.POINTER(C.c_int32)),
+                ('ctx_000C', P32), ('ctx_0220', P32), ('ctx_2380', P32),
+                ('d00810700', C.POINTER(C.c_uint8)), ('d00251C50', P32), ('d00253170', P32),
+                ('d00810610', P32)]
+
+
+class LightOwner(C.Structure):  # EmActorLightOwner
+    _fields_ = [('cls', C.c_uint8), ('kind', C.c_uint8), ('pose_bone', C.c_uint8),
+                ('rgb', C.c_uint32 * 4), ('pos', C.c_uint32 * 4), ('model_radius', P32),
+                ('node_c0', C.POINTER(P32)), ('node_count', C.c_uint32)]
+
+
+class Light(C.Structure):  # EmActorLight
+    _fields_ = [('world', World), ('fault_address', C.c_uint32), ('fault_code', C.c_int32)]
+
+
 def native_library(out):
     library = out/'actor_lighting.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-I'+str(ROOT/'src'), str(ROOT/'src/game/em_lighting.c'),
-                    str(ROOT/'src/game/em_point_light.c'),
+                    str(ROOT/'src/game/em_actor_light_001D89D0.c'),
+                    str(ROOT/'src/game/em_frame_render_heads.c'),
                     str(ROOT/'src/game/em_owner_services_original.c'), '-o', str(library)], check=True)
     api = C.CDLL(str(library)); F = C.POINTER(C.c_float)
     api.em_lighting_matrices.argtypes = [C.POINTER(Matrices), F, F, F, F]
     api.em_lighting_vertex.argtypes = [C.POINTER(C.c_uint32), F, C.POINTER(Matrices)]
-    api.em_lighting_actor_rgb.argtypes = [F, F, F]
-    api.em_lighting_fold_gate.argtypes = [C.c_uint, C.c_float]
-    api.em_point_light_fold.argtypes = [F, F, C.POINTER(Pool), F]
+    api.em_actor_light_001D8270.argtypes = [C.POINTER(Light), C.POINTER(LightOwner), C.POINTER(C.c_int32)]
+    api.em_actor_light_001D8690.argtypes = [C.POINTER(Light), P32, P32, P32]
     return api
+
+
+def owner_gate(api, type_byte, radius_bits):
+    """em_actor_light_001D8270 (the one translation) for a type byte and a model radius word."""
+    light = Light(); owner = LightOwner(); result = C.c_int32(-7)
+    radius = C.c_uint32(radius_bits)
+    owner.kind = type_byte; owner.model_radius = C.pointer(radius)
+    assert api.em_actor_light_001D8270(C.byref(light), C.byref(owner), C.byref(result)) == 0
+    return result.value
+
+
+def owner_actor_rgb(api, rig_words, rgb_words):
+    """em_actor_light_001D8690 over a rig record (76 words): B as 64 bytes."""
+    light = Light(); rig = (C.c_uint32*76)(*rig_words)
+    light.world.d00817BC0 = C.cast(rig, P32)
+    a = (C.c_uint32*16)(); b = (C.c_uint32*16)(); rgb = (C.c_uint32*4)(*rgb_words)
+    assert api.em_actor_light_001D8690(C.byref(light), a, b, rgb) == 0
+    return bytes(b)
 
 
 def read_emdl(path):
@@ -142,19 +182,6 @@ def read_emdl(path):
     verts = [struct.unpack_from('<8f2I', d, o+40*i) for i in range(nv)]
     raw = [d[o+40*i:o+40*i+40] for i in range(nv)]
     return dict(flags=flags, verts=verts, raw=raw, bones=nb)
-
-
-def manifest_rig(path):
-    rig = {'dirs': []}
-    for line in path.read_text().splitlines():
-        f = line.split()
-        if not f or f[0].startswith('#'): continue
-        if f[0] == 'lightamb': rig['amb'] = [float(x) for x in f[1:4]]
-        elif f[0] == 'lightdir': rig['dirs'].append(([float(x) for x in f[1:4]], [float(x) for x in f[4:7]]))
-        elif f[0] == 'lightcam': rig['cam'] = ([float(x) for x in f[1:4]], [float(x) for x in f[4:7]], float(f[7]))
-    if 'amb' not in rig or 'cam' not in rig or len(rig['dirs']) != 2:
-        raise SystemExit(f'{path}: incomplete light rig')
-    return rig
 
 
 def model_records(ram, model):
@@ -246,7 +273,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--decomp-root', type=Path, default=ROOT.parent/'Extermination')
     parser.add_argument('--assets', type=Path, default=ROOT/'assets')
-    parser.add_argument('--manifest', type=Path, default=ROOT/'assets/scene_snow/scene.txt')
     parser.add_argument('--report', type=Path, default=ROOT/'build/actor_lighting_reference/report.json')
     args = parser.parse_args()
     decomp = args.decomp_root
@@ -259,23 +285,18 @@ def main():
         assert ram[begin:end] == elf[begin-0x100000+0x300:end-0x100000+0x300], ('code differs', hex(begin))
     out = args.report.parent; out.mkdir(parents=True, exist_ok=True)
     api = native_library(out)
-    rig = manifest_rig(args.manifest)
     table = u32(ram, MODEL_TABLE)
     entry_of = {}
     for entry in range(u32(ram, table)):
         rel = u32(ram, table+4+4*entry)
         if rel != 0xFFFFFFFF: entry_of[table+(rel & ~3)] = entry
-    context = u32(ram, CONTEXT)
-    pool = Pool()
-    C.memmove(C.addressof(pool.active), ram[context+0x220:context+0x1220], 4096)
 
     actors, seen, a = [], set(), u32(ram, ACTOR_HEAD)
     while a and a not in seen:
         seen.add(a); actors.append(a); a = u32(ram, a+0x1C)
     report = {'actors': [], 'unbound_mode0_actors': []}
     totals = dict(vertices=0, vertex_words_equal=0, captured_units=0, current_units=0,
-                  color_bytes_equal=0, normal_lane_bytes_equal=0, contract_color_bytes=0,
-                  contract_direction_bytes=0, contract_normal_lane_bytes=0)
+                  color_bytes_equal=0, normal_lane_bytes_equal=0, contract_color_bytes=0)
     standin = {'vertices': 0, 'max': 0, 'sum': 0}
     for actor in actors:
         if u32(ram, actor+0x4C) != DRAW_MODE0: continue
@@ -301,39 +322,15 @@ def main():
         nodes = [u32(ram, actor+0x110+4*k) for k in range(max(1, u32(ram, model+8)))]
         bones = [floats(ram[n+0x90:n+0xD0]) for n in nodes]
         point = actor+0xB0 if sub == 0xFF else u32(ram, actor+0x110+4*sub)+0xC0
-        # C. port contract.
-        gate = bool(api.em_lighting_fold_gate(type3, number(u32(ram, model+0x20))))
+        # C. the renderer's rig from the executed A and B (em_status_models
+        # rig_of; the one bound 001D89D0 produces A and B), the gate and the
+        # actor RGB of the one owner.
+        gate = bool(owner_gate(api, type3, u32(ram, model+0x20)))
         oracle_gate = Ram(elf, ram); oracle_gate.run(0x1D8270, [actor])
         assert gate == bool(oracle_gate.r[2]), ('fold gate', hex(actor))
-        port_dir = [0.0]*4; port_col = [0.0]*4
-        cam_dir, cam_col, cam_w = rig['cam']
-        if flags2 & 0x20:
-            raise SystemExit(f'{actor:#x}: camera-fill actor; its fill needs the capture camera')
-        if gate:
-            d4 = f32_array([0, 0, 0, 0], 4)   # slot 0 zeroed (flag clear) x weight
-            c4 = f32_array([0, 0, 0, cam_w], 4)
-            api.em_point_light_fold(d4, c4, C.byref(pool), f32_array(floats(ram[point:point+16]), 4))
-            port_dir, port_col = list(d4), list(c4)
-        port_directions = [*port_dir[:3], 0, *rig['dirs'][0][0], 0, *rig['dirs'][1][0], 0]
-        port_colors = f32_array([*port_col[:3], 0, *rig['dirs'][0][1], 0, *rig['dirs'][1][1], 0], 12)
-        port_ambient = f32_array([*rig['amb'], 0], 4)
-        assert api.em_lighting_actor_rgb(port_colors, port_ambient, f32_array(rgb[:3], 3))
-        port0 = build_matrices(api, bones[0], port_directions, list(port_colors), list(port_ambient))
-        # The rig em_render_frame.c char_rig_build composes today (fold for
-        # every actor, identity actor RGB), measured, not asserted.
-        d4 = f32_array([0, 0, 0, 0], 4); c4 = f32_array([0, 0, 0, cam_w], 4)
-        api.em_point_light_fold(d4, c4, C.byref(pool), f32_array(floats(ram[point:point+16]), 4))
-        wired_directions = [*list(d4)[:3], 0, *rig['dirs'][0][0], 0, *rig['dirs'][1][0], 0]
-        wired_colors = [*list(c4)[:3], 0, *rig['dirs'][0][1], 0, *rig['dirs'][1][1], 0]
-        wired_worst = 0
         orig0 = build_matrices(api, bones[0], directions, colors, [cm[12]-8388608, cm[13]-8388608, cm[14]-8388608, 0])
-        dir_equal = struct.pack('<12f', *port_directions) == struct.pack('<12f', *directions)
-        color_equal = bytes(port0.color) == original_color
         assert bytes(orig0.color) == original_color, ('bias round trip', hex(actor))
-        assert dir_equal and color_equal, ('port rig contract', hex(actor), port_directions, directions)
-        assert xyz_lanes_equal(port0.normal, bytes(orig0.normal)), ('port normal matrix', hex(actor))
-        totals['contract_normal_lane_bytes'] += 36
-        totals['contract_color_bytes'] += 64; totals['contract_direction_bytes'] += 48
+        totals['contract_color_bytes'] += 64
         # captured DMA units.
         units = captured_units(ram, model)
         # A unit is this actor's if its node 0 screen/normal set matches this actor.
@@ -355,7 +352,7 @@ def main():
         entry_report = {'actor': hex(actor), 'role': role, 'area_entry': hex(entry), 'asset': asset,
                         'type': hex(type3), 'flags': hex(flags2), 'light_reference': sub,
                         'model_radius': number(u32(ram, model+0x20)), 'fold_gate_001D8270': gate,
-                        'actor_rgb': list(rgb[:3]), 'port_rig_equals_executed_001D89D0': True,
+                        'actor_rgb': list(rgb[:3]),
                         'captured_units_of_model': len(drawn)}
         totals['captured_units'] += len(drawn)
         if current is not None:
@@ -395,19 +392,18 @@ def main():
             if not drawn:
                 undrawn += 1; continue
             assert (weld_uv(uv), attr) in by_uv, (asset, 'authored normal missing at record', hex(offset))
-            # The port must light each record with ITS node's world matrix.
-            port = build_matrices(api, bones[k], port_directions, list(port_colors), list(port_ambient))
+            # The renderer lights each record with ITS node's world matrix.
+            port = build_matrices(api, bones[k], directions, colors,
+                                  [cm[12]-8388608, cm[13]-8388608, cm[14]-8388608, 0])
             got = (C.c_uint32*4)()
             api.em_lighting_vertex(got, f32_array(normal, 3), C.byref(port))
             assert list(got)[:3] == expected[:3], (asset, hex(offset), list(got), expected)
             totals['vertices'] += 1; totals['vertex_words_equal'] += 3
-            wired = build_matrices(api, bones[k], wired_directions, wired_colors, [*rig['amb'], 0])
-            api.em_lighting_vertex(got, f32_array(normal, 3), C.byref(wired))
-            wired_worst = max(wired_worst, max(abs((got[c] & 255)-(expected[c] & 255)) for c in range(3)))
             if entry not in PER_NODE_PALETTE and struct.pack('<12f', *bones[k][:12]) != struct.pack('<12f', *bones[0][:12]):
                 # The shipped static mesh bakes rest poses under ONE palette;
                 # this node's captured basis differs from node 0's.
-                single = build_matrices(api, bones[0], port_directions, list(port_colors), list(port_ambient))
+                single = build_matrices(api, bones[0], directions, colors,
+                                        [cm[12]-8388608, cm[13]-8388608, cm[14]-8388608, 0])
                 api.em_lighting_vertex(got, f32_array(normal, 3), C.byref(single))
                 posed_records += 1
                 posed_worst = max(posed_worst, max(abs((got[c] & 255)-(expected[c] & 255)) for c in range(3)))
@@ -418,7 +414,6 @@ def main():
                     standin['vertices'] += 1; standin['sum'] += diff
                     standin['max'] = max(standin['max'], diff); worst_standin = max(worst_standin, diff)
         entry_report['records_verified'] = len(records)-undrawn
-        entry_report['current_char_rig_build_max_gs_difference'] = wired_worst
         entry_report['records_without_area'] = undrawn
         if posed_records:
             entry_report['single_palette_residual'] = {
@@ -427,7 +422,7 @@ def main():
         if old: entry_report['standin_max_gs_difference'] = worst_standin
         report['actors'].append(entry_report)
 
-    # E. 001D8270 and 001D8690 against the C helpers.
+    # E. 001D8270 and 001D8690 against their one translation (em_actor_light).
     gate_cases = 0
     for type_byte in range(256):
         for radius in (0.0, 5.98, 29.999998, 30.0, 30.000002, 56.86, -1.0, float('inf'), float('nan')):
@@ -435,26 +430,22 @@ def main():
             o.write(0x500000, bytes(0x48)); o.save(0x500003, type_byte, 1); o.save(0x500044, 0x500100)
             o.write(0x500120, struct.pack('<f', radius))
             o.run(0x1D8270, [0x500000])
-            assert bool(o.r[2]) == bool(api.em_lighting_fold_gate(type_byte, radius)), (type_byte, radius)
+            radius_bits = struct.unpack('<I', struct.pack('<f', radius))[0]
+            assert bool(o.r[2]) == bool(owner_gate(api, type_byte, radius_bits)), (type_byte, radius)
             gate_cases += 1
     rng = random.Random(0x1D8690); rgb_cases = 0
     for _ in range(300):
         work = [number(bits(rng.uniform(-200, 400))) for _ in range(16)]
-        actor_rgb = [number(bits(rng.choice([1.0, 4.0, rng.uniform(0, 8)]))) for _ in range(3)] + [1.0]
+        actor_rgb = [number(bits(rng.choice([1.0, 4.0, rng.uniform(0, 8)]))) for _ in range(3)] + \
+                    [rng.choice([1.0, 0.5, 2.0, rng.uniform(0, 3)])]
         o = Ram(elf, ram)
         o.write(0x500000, bytes(0x200)); o.write(0x5000F0, struct.pack('<16f', *work))
         o.write(0x500300, struct.pack('<4f', *actor_rgb))
         o.save(0x275688, 0x500000)
         o.run(0x1D8690, [0x500400, 0x500440, 0x500300])
-        expected = o.read(0x500440, 64)
-        colors = f32_array([*work[0:3], 0, *work[4:7], 0, *work[8:11], 0], 12)
-        ambient = f32_array([*work[12:15], 0], 4)
-        assert api.em_lighting_actor_rgb(colors, ambient, f32_array(actor_rgb[:3], 3))
-        m = build_matrices(api, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1], [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0],
-                           list(colors), list(ambient))
-        port = bytes(m.color)
-        for row in range(4):
-            assert port[row*16:row*16+12] == expected[row*16:row*16+12], ('001D8690 row', row)
+        rig_words = list(struct.unpack('<76I', o.read(0x500000, 0x130)))
+        rgb_words = list(struct.unpack('<4I', struct.pack('<4f', *actor_rgb)))
+        assert owner_actor_rgb(api, rig_words, rgb_words) == o.read(0x500440, 64), ('001D8690', work, actor_rgb)
         rgb_cases += 1
 
     # F. R11 level colour scale.

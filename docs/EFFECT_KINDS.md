@@ -37,19 +37,20 @@ delivers; the rows the effects step made live say so (census section 1.17).
 | 001F0310 effect-pool reset barrel | BM | C | missing | live | S0 |
 | 001F03D0 ring-decal lane reset | BM | C | missing | live | S0 |
 | 001F3FA0 particle pool reset | NM | the .s | missing | live | S0 |
-| 001F6760 primary point-light list selector | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
-| 001F6D60 auxiliary point-light list selector | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
-| 001F6640 point-light list registration | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
-| 001F66F0 point-light list release | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
-| 001F6850 primary list release | BM | C | missing | verified-unbound | S1 |
-| 001F68B0 primary list latch dispatch | BM | C | missing | verified-unbound | S1 |
-| 001F6E40 auxiliary list release + registration | BM | C | missing (critic: stand-in) | verified-unbound | S1 |
+| 001F6760 primary point-light list selector | BM | C | missing (critic: stand-in) | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F6D60 auxiliary point-light list selector | BM | C | missing (critic: stand-in) | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F6640 point-light list registration | BM | C | missing (critic: stand-in) | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F66F0 point-light list release | BM | C | missing (critic: stand-in) | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F6850 primary list release | BM | C | missing | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F68B0 primary list latch dispatch | BM | C | missing | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
+| 001F6E40 auxiliary list release + registration | BM | C | missing (critic: stand-in) | **live** since the lighting step (2026-10-02): the area entry's 001D7BB0 (section 4.4) | S1 |
 
 The SDK leaf 001029C0 (identity) is translated inline (it is reached by 001F03D0 and 001EBF10).
 
-Critic section 7.2 says the five point-light rows are a stand-in (the offline export `tools/export_point_lights.py`
-plus `em_point_light_load`), not missing effect code. That is right about the live port. This lane supplies
-the faithful translation that replaces the stand-in (section 4.4).
+Critic section 7.2 said the five point-light rows were a stand-in (the offline export
+`tools/export_point_lights.py` plus `em_point_light_load`), not missing effect code. Since the lighting step
+(2026-10-02, audit 1b item 4) the translations run live at the area entry and the offline export is retired
+(section 4.4).
 
 "L-shadow draw handlers": no shadow function is a row of L27 or L23. The shadow rows belong to L29/L29b.
 
@@ -399,31 +400,34 @@ and 001D0660 on the new-game load.
 
 No live stand-in exists. The port has no ring or particle state yet.
 
-### 4.4 Room point lights → `em_point_light` at the 001D7BB0 phase
+### 4.4 Room point lights → `em_point_light` at the 001D7BB0 phase (live)
 
-**What it replaces.** Today `em_point_light_reset` (the 001D7BB0 slot writes) is followed by adopting the
-offline export (`tools/export_point_lights.py` → `point_lights.emlp` → `em_point_light_load`). That offline
-registration is the stand-in.
+**Bound** in the lighting step (2026-10-02, audit 1b item 4; AREA11_POINT_LIGHT.md). The area entry's
+001D19E0 (`um_001D19E0`, em_scene_bindings.c) runs 001D7BB0:
+1. `em_point_light_reset(pool)` (its field writes, on the render context's +0x210.. pool);
+2. `em_effect_kinds_001F68B0(k)`;
+3. `em_effect_kinds_001F6E40(k)`,
 
-**The faithful chain.**
-1. `em_point_light_reset(pool)`.
-2. `em_effect_kinds_001F68B0(k)`.
-3. `em_effect_kinds_001F6E40(k)`.
+2 and 3 through `em_effects_live_room_lights`, over em_effects_live's one copy of the lists window and the
+presets (from `effect_tables.emet`, whose windows hold D_0025AD80..D_0025D800 and D_0026EB70). The offline
+export it replaces (`tools/export_point_lights.py` → `point_lights.emlp` → `em_point_light_load`) is deleted.
 
 **Workers.**
-- **w_001D7FA0.** Bind to `em_point_light_register(pool, pos, color, type, 1.0, 0.0)` and return its value in
-  `*handle`, −1 included. 001F6640 stores that value. This differs from em_effect_original's 001D7FA0 worker,
-  which discards it.
-- **w_001D80B0.** This is the release. 001D80B0 is census L32 and missing: it looks up the active slot whose
-  handle (+0xC) equals the argument (001D8060) and, if found, sets +0x2C = 0 and +0xC = −1. `em_point_light`
-  has no release yet. Until it gains a verified translation, the worker must fault.
+- **w_001D7FA0** = `em_point_light_register(pool, pos, color, type, f12, f13)` (001F6640 passes 1, 1.0,
+  0.0); its value, −1 included, goes to `*handle`, which 001F6640 stores. em_effect_original's 001D7FA0
+  worker discards it, as its callers do.
+- **w_001D80B0** = `em_rcl_001D80B0`: em_frh_001D80B0 (with its 001D8060 lookup) over the context. In AREA11
+  it is called once per entry, with the list's stored handle (the ELF's 0 at the New Game), which matches
+  no slot after the reset.
 
-  In AREA11 after the reset it is called once, with the list's stored handle. That is 0 in the captured
-  opening, and 0 matches no active slot, because the reset set every active handle to −1.
+**State.** The lists window persists across area loads (the handles live in the records); it is loaded
+once. The latch bytes D_0081075D..D_0081079E come from the scene state's canonical progress bytes; a key
+whose case reads one that is not canonical faults (AREA11's 0x0B00 reads none).
 
-**State.** `k->tables->lists` must persist across area loads, because the handles live in the list records.
-Load it once from the ELF (`em_effect_kinds_load_tables`). The latch bytes D_0081075D..D_0081079E come from the
-scene state.
+**Proof.** test_point_light_reference runs the ORIGINAL 001D7BB0 against this chain for every key the
+selectors name (plus 0x0B00 and 0x0F00), latch bytes 0 and 0xFF, twice in a row: the pool and the lists
+window are equal. The level smoke's check_room_lights compares the live pool with the first-control capture
+and the aligned route snapshots.
 
 ### 4.5 Effect colour → pickup and prop indicators (live)
 

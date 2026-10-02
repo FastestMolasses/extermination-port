@@ -6,8 +6,9 @@
  *             the slot composition, the colour multiply, the +0x40 glow add
  *             (NEARMISS C; the instructions were followed)
  *   001D8C30  modes 1, 3, 4, 5 and 6 (and every other mode it is given):
- *             clears / template copies and biased colour rows (NEARMISS C;
- *             the instructions and its seven-entry jump table were followed)
+ *             clears / template copies and biased colour rows; its one
+ *             translation is em_frh_001D8C30 (em_frame_render_heads.c), which
+ *             em_actor_light_001D8C30 runs over this module's views
  *   001D8130  room rig load into the rig record D_00817BC0 (matched C)
  *   001D7B30  room rig lookup in D_00251C50 by area key (matched C)
  *   001D2910(8) = 001D2710(8): context +0x0C bit 8 (the 0x0F00 key)
@@ -48,8 +49,8 @@
  * original callers pass the scratchpad, the owner and D_00817BC0, which do
  * not overlap.
  *
- * stdint only; depends on em_owner_services_original (rotations, owner type)
- * and em_ee_float.h. */
+ * stdint only; depends on em_owner_services_original (rotations, owner type),
+ * em_frame_render_heads (001D8C30) and em_ee_float.h. */
 #ifndef EM_ACTOR_LIGHT_001D89D0_H
 #define EM_ACTOR_LIGHT_001D89D0_H
 

@@ -91,6 +91,17 @@ const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size);
  * and the overlay source blocks 001D04B0 was handed since the attach. */
 const uint8_t *em_effects_live_window(uint32_t address, uint32_t size);
 
+/* 001D7BB0's tail at the area load (001D19E0): 001F68B0() and 001F6E40(),
+ * the room point-light lists over this module's lists window (the ELF's
+ * D_0025AD80..D_0025D800 from effect_tables.emet, the one copy, whose
+ * records' +0x24 handles persist across area loads) and D_0026EB70's
+ * presets, keyed by `scene`'s D_00810700 / D_00810701; 001F68B0's latch
+ * bytes come from the scene's canonical progress bytes. Workers: 001D7FA0 =
+ * em_point_light_register on the render context's pool, 001D80B0 =
+ * em_rcl_001D80B0. Needs only the load and the render context (no attach).
+ * 0, or -1 (reported, latched as em_effects_live_fault). */
+int em_effects_live_room_lights(EmSceneState *scene);
+
 /* 001D0660's 001F0310 (001AFCA0, the area build): 001F3FA0 and 001F03D0
  * for lanes 0, 1, 3, 4, 5, 6. */
 int em_effects_live_001F0310(void);

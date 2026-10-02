@@ -1097,6 +1097,16 @@ int em_rcl_001D1EF0(void)
     return 0;
 }
 
+/* 001D80B0(id) (byte-matched): the point-light release over this context's
+ * slots, through its 001D8060 lookup (em_frh_001D80B0, the one
+ * translation): the slot whose +0xC equals id gets +0x2C = 0, then +0xC =
+ * -1. The room point-light lists' 001F66F0 calls it (em_effects_live). */
+int em_rcl_001D80B0(int32_t id)
+{
+    READY(0);
+    return done(em_frh_001D80B0(&R.frh, id), 0x001D80B0u);
+}
+
 /* The point-light slots (001D7BB0 / 001D7C30 / 001D7FA0): the words
  * +0x210 / +0x214, the active slots +0x220 and the staged slots +0x1220 of
  * this context, as the pool's layout (em_point_light.h). */

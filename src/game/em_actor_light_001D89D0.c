@@ -9,6 +9,7 @@
 #include "game/em_actor_light_001D89D0.h"
 
 #include "game/em_ee_float.h"
+#include "game/em_frame_render_heads.h"
 #include "game/em_sdk_vu0.h"
 
 #include <stddef.h>
@@ -32,9 +33,7 @@ typedef uint32_t u32;
 #define F_SIXTY_FOUR 0x42800000u
 #define F_128 0x43000000u
 #define F_BIAS 0x4B000000u        /* 8388608.0 */
-#define F_BIAS_64 0x4B000040u     /* 8388672.0, stored as a word by mode 4 */
 #define F_TENTH 0x3DCCCCCDu       /* 0.1 */
-#define F_FIFTH 0x3E4CCCCDu       /* 0.2 */
 
 /* The VU constant register: (0, 0, 0, 1.0). */
 static const u32 VF0[4] = {0, 0, 0, F_ONE};
@@ -474,54 +473,6 @@ int em_actor_light_001D8690(EmActorLight *s, uint32_t a[16], uint32_t b[16], con
  * 001D8C30: the non-rig modes
  * ==================================================================== */
 
-static void biased_row_128(u32 out[3], const u32 in[4])
-{
-    for (int k = 0; k < 3; ++k) out[k] = em_ee_add_bits(F_BIAS, em_ee_mul_bits(F_128, in[k]));
-}
-
-static void mode_rows(const EmActorLightWorld *w, uint32_t mode, u32 a[16], u32 b[16], const u32 in[4])
-{
-    /* t = in.w - 1.0, clamped at +0 when t <= 0. */
-    u32 t = em_ee_sub_bits(in[3], F_ONE);
-    if (em_ee_c_le_bits(t, F_ZERO)) t = F_ZERO;
-    u32 tw = em_ee_add_bits(F_BIAS, em_ee_mul_bits(F_SIXTY_FOUR, t));
-    /* Modes 0..6 go through the seven-entry table (0 and 1 share the first
-     * case); every other value, as an unsigned compare, the first case. */
-    switch (mode < 7u ? mode : 0u) {
-    case 2:
-        memset(a, 0, 16 * sizeof(u32));
-        memset(b, 0, 12 * sizeof(u32));
-        for (int k = 0; k < 3; ++k) b[12 + k] = em_ee_add_bits(F_BIAS, in[k]);
-        b[15] = tw;
-        break;
-    case 3:
-        biased_row_128(b, in);
-        b[3] = tw;
-        break;
-    case 4:
-        memcpy(a, w->ctx_2380, 16 * sizeof(u32));
-        biased_row_128(b, in);
-        b[3] = F_BIAS_64;
-        break;
-    case 5:
-        memcpy(a, w->ctx_2380, 16 * sizeof(u32));
-        biased_row_128(b, in);
-        b[3] = em_ee_mul_bits(F_FIFTH, em_ee_mul_bits(F_128, in[3]));
-        break;
-    case 6:
-        memcpy(a, w->ctx_2380, 16 * sizeof(u32));
-        biased_row_128(b, in);
-        b[3] = em_ee_add_bits(F_BIAS, em_ee_mul_bits(F_128, in[3]));
-        break;
-    default: /* 0, 1 and >= 7 */
-        memset(a, 0, 16 * sizeof(u32));
-        memset(b, 0, 12 * sizeof(u32));
-        for (int k = 0; k < 3; ++k) b[12 + k] = em_ee_add_bits(F_BIAS, em_ee_add_bits(F_128, in[k]));
-        b[15] = tw;
-        break;
-    }
-}
-
 static int mode_ready(EmActorLight *s, uint32_t mode, const u32 *a, const u32 *b, const u32 *in)
 {
     uint32_t m = mode < 7u ? mode : 0u;
@@ -530,13 +481,42 @@ static int mode_ready(EmActorLight *s, uint32_t mode, const u32 *a, const u32 *b
     return 0;
 }
 
+/* 001D8C30 has one translation, em_frh_001D8C30 (em_frame_render_heads.c:
+ * the original's order of loads and stores, quadword copies included). Its
+ * operands here are this module's views, placed at the addresses the
+ * original callers pass (001C7420: A = SPR 0x70003400, B = SPR 0x70003440;
+ * 001D89D0 hands its arg3 through, placed here after B) and, for modes
+ * 4..6, the context word D_00275670 naming a context whose +0x2380 is
+ * world.ctx_2380. The views do not overlap (this module's aliasing rule). */
+#define C30_A 0x70003400u
+#define C30_B 0x70003440u
+#define C30_IN 0x70003480u
+#define C30_CTX 0x00400000u
+
 int em_actor_light_001D8C30(EmActorLight *s, int32_t mode, uint32_t a[16], uint32_t b[16],
                             const uint32_t in[4])
 {
     if (!s) return -1;
     if (latched(s)) return -1;
     if (mode_ready(s, (uint32_t)mode, a, b, in) != 0) return -1;
-    mode_rows(&s->world, (uint32_t)mode, a, b, in);
+    u32 in_words[4], ctx_word = C30_CTX;
+    memcpy(in_words, in, sizeof in_words);
+    EmFrhView views[5];
+    uint32_t n = 0;
+    views[n++] = (EmFrhView){C30_IN, 16, (uint8_t *)in_words, 0};
+    views[n++] = (EmFrhView){C30_B, 64, (uint8_t *)b, 1};
+    if (a) views[n++] = (EmFrhView){C30_A, 64, (uint8_t *)a, 1};
+    if (s->world.ctx_2380) {
+        views[n++] = (EmFrhView){EM_FRH_D_00275670, 4, (uint8_t *)&ctx_word, 0};
+        views[n++] = (EmFrhView){C30_CTX + EM_FRH_CTX_V, 64,
+                                 (uint8_t *)(uintptr_t)(const void *)s->world.ctx_2380, 0};
+    }
+    EmFrh h;
+    memset(&h, 0, sizeof h);
+    h.views = views;
+    h.view_count = n;
+    if (em_frh_001D8C30(&h, mode, C30_A, C30_B, C30_IN) < 0)
+        return fail(s, 0x001D8C30u, EM_OWNER_FAULT_NULL_WORKER);
     return 0;
 }
 

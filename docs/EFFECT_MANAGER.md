@@ -222,8 +222,9 @@ which the one canonical render context now produces each frame.
 
 001F6BB0 / 001F6EB0 take no call path on the route: they first run in S2,
 where the key is 0xB00, and 001F6AC0 never ran in the census. The S1
-point-light calls the census saw come from 001F68B0 and 001D7BB0, whose
-stand-in is the offline export (tools/export_point_lights.py).
+point-light calls the census saw come from 001F68B0 and 001D7BB0, which
+run live at the area entry since the lighting step (2026-10-02;
+EFFECT_KINDS.md section 4.4).
 
 ## 6. Verification
 

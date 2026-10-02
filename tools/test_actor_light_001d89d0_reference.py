@@ -114,6 +114,7 @@ def build_library():
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-I' + str(ROOT / 'src'), source,
                     str(ROOT / 'src/game/em_owner_services_original.c'),
+                    str(ROOT / 'src/game/em_frame_render_heads.c'),
                     str(ROOT / 'src/game/em_owner_draw_original.c'),
                     str(ROOT / 'src/game/em_load_veil_particles.c'), '-o', str(path)], check=True)
     lib = C.CDLL(str(path))

@@ -27,9 +27,11 @@
  *   001D2040              the GS state packet channel 0: 1 before each draw
  *                         (TEST 0x5000D, Z write), 0 after.
  *   001CB580              the draw: 001CB4F0 with lighting mode 1 (001D8C20(1)
- *                         -> 001D89D0 -> 001D8C30 case 1: no light directions,
- *                         no light colours, ambient row = 128 + actor +0x80..
- *                         +0x88 through the 8388608 bias), the fog set +0x100
+ *                         -> 001D89D0 -> 001D8C30 case 1 through the light
+ *                         binding below, the one bound 001D89D0 / 001D8C30:
+ *                         no light directions, no light colours, ambient row
+ *                         = 128 + actor +0x80..+0x88 through the 8388608
+ *                         bias; then 001D8C20(0)), the fog set +0x100
  *                         (001D2830(0, 0) while ctx+0xC bit 0 is set, as in the
  *                         status-hub capture: F clamps at 255, no fog), and the
  *                         node matrices +0x90 as the palette.
@@ -139,8 +141,10 @@ int em_status_models_load_map(EmStatusModels *models, const char *directory);
 typedef int (*EmStatusModelsNodeFn)(void *ctx, uint32_t fn, uint32_t record);
 void em_status_models_set_node(EmStatusModels *models, uint32_t fn, EmStatusModelsNodeFn node,
                                void *ctx);
-/* 001D8C20(mode) + 001D89D0(owner, A, B, rgb): a / b receive A and B. 0, or
- * negative. */
+/* 001D8C20(mode) + 001D89D0(owner, A, B, rgb): a / b receive A and B; with
+ * owner NULL, 001D8C20(mode) alone (001CB4F0's reset to mode 0). 0, or
+ * negative. Both draws (001CB580's mode 1 and 001CB480's mode 2) fault
+ * without it. */
 typedef int (*EmStatusModelsLightFn)(void *ctx, int32_t mode, const EmOwnerServicesOwner *owner,
                                      const uint32_t rgb[4], float a[16], float b[16]);
 void em_status_models_set_light(EmStatusModels *models, EmStatusModelsLightFn light, void *ctx);

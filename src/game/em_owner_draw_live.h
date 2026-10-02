@@ -113,7 +113,9 @@ int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServi
                                          const EmOwnerDrawLiveRegion *regions, unsigned region_count);
 
 /* The light of a draw method other than 001CAA00 (001CB480, the status MAP
- * page's models, docs/STATUS_PAGES.md section 7): 001D8C20(mode) (the
+ * page's models, docs/STATUS_PAGES.md section 7, and 001CB4F0, the status
+ * hub's models in lighting mode 1, whose 001D89D0 hands it to the one
+ * bound 001D8C30): 001D8C20(mode) (the
  * context's +0x246C, the one copy), then 001D89D0(owner, A, B, rgb) with
  * the same bindings as 001CAA00's (the room rig, the point lights, this
  * module's rig record D_00817BC0). `rgb` is the owner's +0x80..+0x8F words;
@@ -121,6 +123,9 @@ int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServi
  * -1 (reported). */
 int em_owner_draw_live_light(int32_t mode, const EmOwnerServicesOwner *owner, const uint32_t rgb[4],
                              float a[16], float b[16]);
+/* 001D8C20(mode) alone: the context's +0x246C (001CB4F0 sets mode 0 after
+ * its draw). 0, or -1 (reported). */
+int em_owner_draw_live_light_mode(int32_t mode);
 
 /* The last drawn frame's 001CAA00 calls, for the level smoke's capture
  * check (tools/test_level_smoke.py check_owner_units): per call the owner's

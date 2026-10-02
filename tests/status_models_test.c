@@ -21,6 +21,7 @@
 #include <string.h>
 
 #include "em_gfx.h"
+#include "game/em_actor_light_001D89D0.h"
 #include "game/em_status_models.h"
 
 static int failures;
@@ -60,6 +61,36 @@ void em_gfx_char_rig(EmGfx *g, const EmGfxCharRig *rig)
     }
 }
 void em_gfx_fog_off(EmGfx *g) { (void)g; fog_offs++; }
+
+/* ---- the light binding: 001D8C20 into a context +0x246C word, then the
+ * one bound 001D89D0 (em_actor_light), as em_owner_draw_live_light runs it.
+ * Lighting mode 1 never reads the rig views, so only the mode word is set. */
+static int32_t mode_word = 0x7FFF;
+static int mode1_lights, mode_resets, other_lights;
+static int fixture_rgb(void *ctx, const EmOwnerServicesOwner *o, uint32_t rgb[4])
+{
+    (void)o;
+    memcpy(rgb, ctx, 16);
+    return 0;
+}
+static int fixture_light(void *ctx, int32_t mode, const EmOwnerServicesOwner *owner, const uint32_t rgb[4],
+                         float a[16], float b[16])
+{
+    (void)ctx;
+    mode_word = mode; /* 001D8C20(mode) */
+    if (!owner) {
+        mode_resets += mode == 0;
+        return 0;
+    }
+    if (mode == 1) mode1_lights++; else other_lights++;
+    EmActorLight light;
+    memset(&light, 0, sizeof light);
+    light.world.ctx_246C = &mode_word;
+    uint32_t words[4];
+    memcpy(words, rgb, sizeof words);
+    EmActorLightBinding binding = {&light, words, fixture_rgb};
+    return em_actor_light_w_001D89D0(&binding, owner, a, b);
+}
 
 static uint8_t *ram;
 static uint32_t word(uint32_t a) { return (uint32_t)ram[a] | (uint32_t)ram[a + 1] << 8 |
@@ -118,6 +149,8 @@ int main(int argc, char **argv)
     }
     fclose(f);
     EmStatusModels *m = em_status_models_load(argv[1]);
+    if (m)
+        em_status_models_set_light(m, fixture_light, NULL);
     if (!m) {
         fprintf(stderr, "status models: SKIP (run tools/export_status_models.py)\n");
         return 77;
@@ -184,6 +217,10 @@ int main(int argc, char **argv)
     CHECK(em_status_models_render(m, gfx, 480.0f) == 1);
     CHECK(draws == 7 && rigs == 7 && fog_offs == 1 && mesh_count == 7);
     CHECK(last_bones == 2 && last_amb[0] == 129.0f && last_amb[3] == 0.0f);
+    /* Every queued 001CB580 draw ran 001D8C20(1), 001D89D0 (mode 1 -> the
+     * bound 001D8C30) and 001CB4F0's 001D8C20(0) after it. */
+    CHECK(mode1_lights >= 7 && mode_resets == mode1_lights && other_lights == 0 && mode_word == 0);
+    fprintf(stderr, "status models: %d mode-1 lights, each followed by 001D8C20(0)\n", mode1_lights);
     CHECK(em_status_models_queued(m) == 0);
 
     /* 0020E0C0 / the next open: 001AFEB0 then 001AFE60 empty the pool. */
