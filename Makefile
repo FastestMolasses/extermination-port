@@ -24,7 +24,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
-           src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c \
+           src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c src/game/em_camera_aim.c src/game/em_area22_port.c src/game/em_area00_low.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
            src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_security_gun.c src/game/em_security_gun_rest.c src/game/em_fan_original.c \
@@ -60,10 +60,10 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_control.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_pose.c \
            src/game/em_aim_fire_target.c src/game/em_aim_fire_shots.c src/game/em_aim_fire_reticle.c \
            src/game/em_aim_fire_tables.c src/game/em_aim_fire_leaves.c \
-           src/game/em_aim_fire_live.c src/game/em_aim_fire_binding.c \
+           src/game/em_aim_fire_live.c src/game/em_aim_fire_marker.c src/game/em_aim_fire_binding.c \
            src/game/em_aim_fire_render_live.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_runtime.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
-           src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_gs.c \
+           src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
            src/game/em_area01_side.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
@@ -450,6 +450,17 @@ test-level-smoke-side: $(BIN)
 	        --status-pages-trace build/level_smoke_side/status_pages.trace \
 	        --require-through $$side || exit 1; \
 	done
+	$(MAKE) test-level-smoke-aim
+
+# The aim camera's side runs (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold"):
+# the main line through truck_crossing, then R1 (R2) held and released at
+# the start of the AIM captures aim_00 / aim_01, checked row for row against
+# them; behind the aim/fire gate (AIM_FIRE.md section 1). Two runs side by
+# side, then their checks: about 3 min; part of test-level-smoke-side and
+# -full.
+.PHONY: test-level-smoke-aim
+test-level-smoke-aim: $(BIN)
+	python3 tools/test_level_smoke_aim.py
 
 .PHONY: test-message-service
 test-message-service:
@@ -1282,6 +1293,36 @@ test-panel-program:
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/panel_program_test.c src/game/em_panel_program.c src/game/em_script.c src/game/em_panel.c -lm -o build/panel_program_test
 	build/panel_program_test assets/scene_snow/panel/scripts.emsc
 
+.PHONY: test-camera-aim-reference
+# The aim camera (camera actions 1 / 2 / 5 and what they own, em_camera_aim.c)
+# against the original instructions over captured AREA11 RAM
+# (docs/CAMERA_LIVE.md section 7). EM_TEST_FULL=1 runs every case.
+test-camera-aim-reference:
+	python3 tools/test_camera_aim_reference.py
+
+.PHONY: test-aim-fire-marker-reference
+# The round's impact marker 0018ABA0 (em_aim_fire_marker.c, bound behind the
+# aim/fire gate; AIM_FIRE.md section 3) against the original instructions
+# over captured AREA11 RAM.
+test-aim-fire-marker-reference:
+	python3 tools/test_aim_fire_marker_reference.py
+
+.PHONY: test-area22-port-reference
+# em_area22_port.c against the original instructions over recorded AREA22
+# RAM. A later-level module, in the default set because the first level's
+# aim camera binds its 001028E8 / 00183010 / 0018C850 / 0018C920 (the one
+# owners; CAMERA_LIVE.md section 7). About 5 s.
+test-area22-port-reference:
+	python3 tools/test_area22_port_reference.py
+
+.PHONY: test-area00-low-reference
+# em_area00_low.c against the original instructions over recorded AREA00
+# RAM. A later-level module, in the default set because the first level's
+# aim beam binds its 00102870 (the one owner; AIM_FIRE.md section 7).
+# About 4 s.
+test-area00-low-reference:
+	python3 tools/test_area00_low_reference.py
+
 .PHONY: test-area11-interaction-host
 test-area11-interaction-host:
 	python3 tools/test_area11_interaction_host.py
@@ -1430,13 +1471,13 @@ test-aim-fire-render-reference:
 .PHONY: test-aim-fire-live
 test-aim-fire-live:
 	mkdir -p build/aim-fire
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_live_test.c src/game/em_aim_fire_live.c src/game/em_aim_fire_control.c src/game/em_aim_fire_pose.c src/game/em_aim_fire_target.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_shots.c -lm -o build/aim-fire/live-test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_live_test.c src/game/em_aim_fire_live.c src/game/em_aim_fire_marker.c src/game/em_aim_fire_control.c src/game/em_aim_fire_pose.c src/game/em_aim_fire_target.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_shots.c -lm -o build/aim-fire/live-test
 	./build/aim-fire/live-test
 
 .PHONY: test-aim-fire-world-live
 test-aim-fire-world-live:
 	mkdir -p build/aim-fire
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_gs.c -lm -o build/aim-fire/world-live-test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c -lm -o build/aim-fire/world-live-test
 	./build/aim-fire/world-live-test
 
 .PHONY: test-aim-fire-sdk-memory-reference

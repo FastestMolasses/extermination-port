@@ -613,7 +613,7 @@ Node._fields_ = [('status', U8), ('drawn', U8), ('flavour', U8), ('state', U8), 
                  ('bones_held', U8), ('bone_count', U8), ('variant', U8), ('self', P(Node)),
                  ('effect', P(U8)), ('h28', U16), ('h2E', U16), ('model', VP), ('method', U32),
                  ('vA0', U32 * 4), ('vB0', U32 * 4), ('vC0', U32 * 4), ('mD0', U32 * 16),
-                 ('bone', BoneP * 56), ('v1F0', U32 * 4), ('w210', U32), ('w214', U32)]
+                 ('bone', BoneP * 56), ('v1F0', U32 * 4), ('v200', U32 * 4), ('w210', U32), ('w214', U32)]
 NP = P(Node)
 
 
@@ -1002,7 +1002,7 @@ class EquipCase:
         n.model = rd(a + 0x44) or None
         n.method = rd(a + 0x4C)
         for name, off, count in (('vA0', 0xA0, 4), ('vB0', 0xB0, 4), ('vC0', 0xC0, 4), ('mD0', 0xD0, 16),
-                                 ('v1F0', 0x1F0, 4)):
+                                 ('v1F0', 0x1F0, 4), ('v200', 0x200, 4)):
             arr = getattr(n, name)
             for i in range(count):
                 arr[i] = rd(a + off + 4 * i)
@@ -1303,7 +1303,7 @@ class EquipCase:
         cover(a + 0x20, 4), cover(a + 0x28, 2), cover(a + 0x2E, 2)
         assert (n.model or 0) == rd(a + 0x44) and n.method == rd(a + 0x4C), (where, 'model/method')
         for name, off, count in (('vA0', 0xA0, 4), ('vB0', 0xB0, 4), ('vC0', 0xC0, 4), ('mD0', 0xD0, 16),
-                                 ('v1F0', 0x1F0, 4)):
+                                 ('v1F0', 0x1F0, 4), ('v200', 0x200, 4)):
             got = list(getattr(n, name))
             want = [rd(a + off + 4 * i) for i in range(count)]
             assert got == want, (where, name, [hex(x) for x in got], [hex(x) for x in want])

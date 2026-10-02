@@ -940,6 +940,12 @@ int em_rcl_001D2830(int32_t a0, int32_t a1)
     return done(em_frh_001D2830(&R.frh, a0, a1, &ignored), 0x001D2830u);
 }
 
+int em_rcl_001D2040(int32_t chan, int32_t a1)
+{
+    READY(1);
+    return done(em_load_veil_particles_001D2040(&R.veil, chan, a1), 0x001D2040u);
+}
+
 int em_rcl_001E0CC0(void)
 {
     READY(0);

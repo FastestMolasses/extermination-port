@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-static struct { unsigned tick, stance_seen, shot_seen; int key; } test;
+static struct { unsigned tick, stance_seen, shot_seen; int key, fire; } test;
 
 static void key(int code, int down)
 {
@@ -20,9 +20,12 @@ void em_aim_fire_test_begin(void)
 {
     memset(&test, 0, sizeof test);
     const char *mode = getenv("EM_AIM_FIRE_TEST");
-    test.key = mode && strcmp(mode, "r2") == 0 ? '3' : 'e';
-    fprintf(stderr, "aim/fire test: begin %s; settle, aim, fire, release\n",
-            test.key == '3' ? "R2" : "R1");
+    /* r1 / r2: aim, fire, release; r1hold / r2hold: aim and release only
+     * (the AIM captures aim_00 / aim_01: draw, hold, holster). */
+    test.key = mode && strncmp(mode, "r2", 2) == 0 ? '3' : 'e';
+    test.fire = !(mode && strstr(mode, "hold"));
+    fprintf(stderr, "aim/fire test: begin %s; settle, aim, %srelease\n",
+            test.key == '3' ? "R2" : "R1", test.fire ? "fire, " : "");
 }
 
 void em_aim_fire_test_before_frame(void)
@@ -30,8 +33,8 @@ void em_aim_fire_test_before_frame(void)
     /* Let the original run-stop finish before drawing the weapon. These
      * are test inputs, not substitutions for any game state or timer. */
     if (test.tick == 60) key(test.key, 1);
-    if (test.tick == 100) key('l', 1);
-    if (test.tick == 102) key('l', 0);
+    if (test.fire && test.tick == 100) key('l', 1);
+    if (test.fire && test.tick == 102) key('l', 0);
     if (test.tick == 150) key(test.key, 0);
 }
 
@@ -51,7 +54,7 @@ int em_aim_fire_test_after_frame(void)
     if (++test.tick < 240) return 0;
     key(test.key, 0);
     key('l', 0);
-    if (!test.stance_seen || !test.shot_seen || state != 0) {
+    if (!test.stance_seen || (test.fire && !test.shot_seen) || (!test.fire && test.shot_seen) || state != 0) {
         fprintf(stderr, "aim/fire test: FAIL stance=%u shot=%u final=%02x\n",
                 test.stance_seen, test.shot_seen, state);
         return -1;

@@ -231,7 +231,17 @@ gave until 2026-09-28 matched 1,040 of 4,096 pixels) with the frame's FOGCOL; th
 frame pixel (framebuffer fetch), RGB only. The GS sprite takes Z, F and RGBA
 from its second vertex and S / Q, T / Q at each corner, affine across the
 rectangle. Every other state is refused (-1, the scene faults): PRIM with AA1,
-FST, CTXT or FIX; an untextured sprite or triangle, a textured line; ABE 0;
+FST, CTXT or FIX; an untextured sprite or triangle, a textured line (a LINE
+list of two vertices, PRIM type 1, draws like a two-vertex line strip since
+chain step AIMCAM: the aim beam 001E2BA0's PRIM 0x69, AIM_FIRE.md section 7.
+Evidence: the GS assembles a list every two vertices and a strip from its
+last two (GS_EXACT.md 3.0), so either packet of two vertices is one segment;
+the measured line rule (decomp GS_CONFORMANCE.md 5.2: 136 lines, 1,931
+pixels, 0 mismatches) was measured on PRIM LINE packets, tools/
+gs_conformance_suite.py `line_frac_*`, `line_axis`, `line_diamond*`, and
+the line strips of `flat_select` / `gouraud_line` follow the same rule and
+vertex choice (5.3). This page rasterizes either with Metal's line, as
+every line it draws (section 9)); ABE 0;
 TEST other than 0x53001; COLCLAMP other than 1; TEX1 other than 0x60; CLAMP
 other than 0; a TEX0 not PSMT4 / PSMT8 through a CT32 CLUT with TCC 1 and
 MODULATE, or not registered; a state the page did not set; FGE without the
@@ -366,8 +376,10 @@ gives the same values.
   0x00233800 + 0xDE0, joined its blocks; each block is checked equal in every
   capture; em_effects_live refuses an export without the three) and `python3
   tools/export_page_textures.py` (or `export_disc_textures.py`; since
-  FLAMESNOW the set holds the weather descriptor D_00255170's TEX0, 7
-  textures) (STARTUP.md rows 50 and 52).
+  FLAMESNOW the set holds the weather descriptor D_00255170's TEX0; since
+  chain step AIMCAM the laser dot's 0x20045BA5154222DC (001854E0 /
+  00185760's code immediate, drawn behind the aim/fire gate), 8 textures)
+  (STARTUP.md rows 50 and 52).
 - Fail-stop: a page fault, a refused primitive or a decal count mismatch
   latches `em_chain_page_live_fault` and faults the scene.
 

@@ -1545,6 +1545,21 @@ static int tick_equipment(EmActor *actor, Node *node, const EmArea11World *world
     return 1;
 }
 
+/* 0018ABA0, the round's impact marker 001861C0 allocates behind the aim/fire
+ * gate (em_aim_fire_marker through em_aim_fire_runtime; AIM_FIRE.md section
+ * 7), in every walk mode (class 1). A marker that frees itself (state 2 / 3)
+ * returns through 001AFC10. */
+static int tick_aim_record(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)node;
+    (void)world;
+    if (em_aim_fire_runtime_tick(actor) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "impact marker: a translation faulted (em_aim_fire_runtime)");
+    return 1;
+}
+
 /* Free the node's own actor from inside its behaviour (001AFC10(self)); the
  * pool walk continues with the next node it saved. */
 static int free_self_001AFC10(EmActor *actor)
@@ -1776,6 +1791,7 @@ static const Binding k_bindings[] = {
      tick_effect_node, NULL},
     {0x0021A500u, "cable strip effect: em_gun_rest_0021A500 (em_effects_live)",
      tick_effect_node, NULL},
+    {0x0018ABA0u, "impact marker: em_aim_fire_marker 0018ABA0 (em_aim_fire_runtime)", tick_aim_record, NULL},
     {0x001C5680u, "indicator child: 001C5680 (em_indicator_child)", tick_indicator, NULL},
     {0x001C5760u, "indicator child: 001C5760 (em_indicator_child)", tick_indicator, NULL},
     {LEGACY_WORLD_CALLBACK, "legacy_world: S10a legacy block", tick_legacy_world, NULL},
@@ -1892,6 +1908,7 @@ int em_area11_bindings_effects_attach(void)
         em_equipment_live_attach(s_pool, s_scene) < 0 || em_indicator_bind_live_attach(s_pool) < 0)
         return -1;
     if (em_aim_fire_runtime_effects_attach() < 0) return -1;
+    em_aim_fire_runtime_set_bind(bind_spawned);
     em_equipment_live_set_spawn(equipment_spawn);
     em_area11_interaction_host_set_aura_draw(em_effects_live_aura_draw);
     static const EmArea11HostOwnerHooks k_owner = {owner_bind_001B0FD0, owner_bind_001B1020, owner_place,

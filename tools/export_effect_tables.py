@@ -31,6 +31,10 @@ Blocks (original address, bytes, what reads them):
   0x002565E0  0x480   the handlers' source blocks D_002565E0, D_00256670,
                       D_00256700, D_002568B0, D_00256940, D_002569D0
                       (001CFBE0's a2, 0x90 bytes each)
+  0x00255620  0x90    D_00255620, 001EACF0's source block (the impact
+                      effect 0x80000060; AIM_FIRE.md section 7)
+  0x002560D0  0x120   D_002560D0 and D_00256160, 001EBA20's two source
+                      blocks (the impact effect 0x8000002C)
   0x002535F0  0x110   D_002535F0 (001E23A0's entries) and D_00253670 (the
                       head sprite's source block)
   0x00251260  0x80    D_00251260: 001CFBE0's rows
@@ -78,7 +82,7 @@ ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x0026EB20, 0x90),
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
           (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
-          (0x00233800, 0xDE0))
+          (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x120))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

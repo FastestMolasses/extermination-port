@@ -32,13 +32,13 @@ def main():
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-shared','-fPIC','-Isrc','src/game/em_aim_fire_tables.c','-o',str(lib)],cwd=ROOT,check=True)
     subprocess.run([sys.executable,'tools/export_aim_fire_tables.py','--output',str(path)],cwd=ROOT,check=True)
     data=path.read_bytes();cases=[('valid',data,True),('truncated',data[:-1],False),('trailing',data+b'x',False),('signature',b'BAD!'+data[4:],False)]
-    for offset in (4,8,12,16,20,24,28,32,36,40+0x248B70-BASE):
+    for offset in (4,8,12,16,20,24,28,32,36,40,44,8+8*len(SPANS)+0x248B70-BASE):
         bad=bytearray(data);struct.pack_into('<I',bad,offset,0xFFFFFFFF);cases.append((f'field{offset}',bytes(bad),False))
     for name,contents,good in cases:
         path.write_bytes(contents)
         subprocess.run([sys.executable,__file__,'--child',str(lib),str(path),str(int(good))],check=True,cwd=ROOT)
     path.unlink();lib.unlink()
-    print(f'PASS aim/fire tables: {len(cases)} valid/damaged containers; all4 readonly windows')
+    print(f'PASS aim/fire tables: {len(cases)} valid/damaged containers; all {len(SPANS)} readonly windows')
 if __name__=='__main__':
     if len(sys.argv)>1: child(sys.argv[2],sys.argv[3],bool(int(sys.argv[4])))
     else: main()

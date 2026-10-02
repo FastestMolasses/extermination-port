@@ -254,7 +254,7 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         c->v0=(uint32_t)result;return 0;
     }
     if(c->function!=0x00183C40u && c->function!=0x001B41F0u &&
-       c->function!=0x001F4F40u && c->function!=0x001EFE00u)return -1;
+       c->function!=0x001F4F40u && c->function!=0x001EFE00u && c->function!=0x001F00A0u)return -1;
     Bridge b={0};b.world=w;b.live=h;
     TRY(refresh(&b));
     int status;int32_t result=0;
@@ -276,7 +276,12 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
     } else {
         EmArea00Fx s={0};s.core.world.views=b.fx;s.core.world.view_count=b.count;
         s.call=fx_call;s.ctx=&b;s.sp=c->sp;b.fx_state=&s;
-        status=em_area00_fx_001F4F40(&s,c->a[0],&c->v0);
+        /* 001F00A0(id, pos, rot, a3): the marker's (0018ABA0) effect spawn;
+         * em_area00_fx is its one bound owner (AIM_FIRE.md section 7). */
+        if(c->function==0x001F00A0u)
+            status=em_area00_fx_001F00A0(&s,c->a[0],c->a[1],c->a[2],c->a[3],&c->v0);
+        else
+            status=em_area00_fx_001F4F40(&s,c->a[0],&c->v0);
         if(status<0||s.core.fault.code)return fault(h,s.core.fault.address?s.core.fault.address:c->function,s.core.fault.detail);
     }
     return 0;

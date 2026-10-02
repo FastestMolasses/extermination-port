@@ -114,6 +114,8 @@ typedef struct EmPlayerEquipmentNode {
     uint32_t mD0[16];    /* +0xD0: 00188DF0's placement matrix */
     EmOwnerBone *bone[EM_PLAYER_EQUIPMENT_MAX_BONES]; /* +0x110: 001AF780 slots */
     uint32_t v1F0[4];    /* +0x1F0 */
+    uint32_t v200[4];    /* +0x200: the laser dot 001854E0 writes (its sub-record +0x10);
+                          * 00198440 aims the R2 camera at it */
     uint32_t w210;       /* +0x210 */
     uint32_t w214;       /* +0x214 */
 } EmPlayerEquipmentNode;

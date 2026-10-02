@@ -35,6 +35,8 @@ static struct {
     int (*call)(void *,EmAimFireLive *,EmAimFireTargetCall *);
     void *(*map)(void *,uint32_t,size_t,int);
     void *context;
+    int (*settle)(void *);
+    void *settle_context;
 } Extension;
 static void *span(uint32_t a,size_t n,uint32_t base,size_t count,void *p)
 {
@@ -72,7 +74,7 @@ static int load(uint32_t a,void *out,size_t n)
     const void *p=em_aim_fire_binding_bytes(a,n,0); if (!p) return -1;
     memcpy(out,p,n);return 0;
 }
-static int call(void *context,EmAimFireTargetCall *f)
+static int aim_fire_binding_call(void *context,EmAimFireTargetCall *f)
 {
     (void)context;
     int memory_status=em_aim_fire_sdk_memory_call(&B.live,em_aim_fire_live_map,f);
@@ -138,11 +140,13 @@ int em_aim_fire_binding_configure(const EmAimFireBindingConfig *config)
     memset(&B,0,sizeof B);B.config=*config;
     B.live.context=&B;B.live.player=config->player;B.live.player_address=0x8102B0;
     B.live.pose=config->pose;B.live.regions=config->regions;B.live.region_count=config->region_count;
-    B.live.map=map;B.live.call=call;B.configured=1;return 0;
+    B.live.map=map;B.live.call=aim_fire_binding_call;B.configured=1;return 0;
 }
 void em_aim_fire_binding_set_extension(int (*fn)(void *,EmAimFireLive *,EmAimFireTargetCall *),
                                        void *(*view)(void *,uint32_t,size_t,int),void *context)
 { Extension.call=fn;Extension.map=view;Extension.context=context; }
+void em_aim_fire_binding_set_settle(int (*settle)(void *),void *context)
+{ Extension.settle=settle;Extension.settle_context=context; }
 EmAimFireLive *em_aim_fire_binding_host(void) { return B.configured ? &B.live : NULL; }
 int em_aim_fire_binding_ready(void) { return B.configured; }
 int em_aim_fire_binding_frame(EmAimFireTargetCall *frame)
@@ -150,6 +154,10 @@ int em_aim_fire_binding_frame(EmAimFireTargetCall *frame)
     if (!B.configured || !frame) return -1;
     if (!B.live.depth) TRY(em_aim_fire_live_clear_fault(&B.live));
     int result=em_aim_fire_live_call(&B.live,frame);
+    if (!B.live.depth && Extension.settle && Extension.settle(Extension.settle_context)<0 && result>=0) {
+        if (!B.live.fault_function) B.live.fault_function=frame->function;
+        result=-1;
+    }
     if (result<0 && !B.live.depth)
         fprintf(stderr,"aim/fire: original %08X faulted at function %08X address %08X\n",
                 frame->function,B.live.fault_function,B.live.fault_address);

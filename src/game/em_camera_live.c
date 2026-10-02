@@ -11,6 +11,9 @@
 #include "game/em_camera_live.h"
 
 #include "game/em_camera.h"
+#include "game/em_aim_fire_sdk_memory.h"
+#include "game/em_area22_port.h"
+#include "game/em_camera_aim.h"
 #include "game/em_camera_area11_specials.h"
 #include "game/em_camera_commit_original.h"
 #include "game/em_camera_leftovers.h"
@@ -81,6 +84,23 @@ static struct {
      * inside 001B07C0 -> 001B0460). CAMERA_LIVE.md section 3. */
     uint32_t s3B50[4];
     uint16_t s3B80;                               /* 0x70003B80 */
+    /* ---- the aim camera's own storage (docs/CAMERA_LIVE.md section 7) ---- */
+    uint32_t s3040[4];        /* 0x70003040: the placement at the aim's start
+                               * (00197D20 / 00198650 state 0; only those, 00197870
+                               * and 00197490 address it) */
+    uint32_t s3610[4];        /* 0x70003610: 00198440's bone offset (written by its
+                               * 001026A0 / 00103230 before every read) */
+    uint8_t sight[4];         /* D_0081C040..43: 001DB800 clears them (no reader in
+                               * the boot ELF or the AREA11 overlay) */
+    /* What *0x700031D0 / *0x700031D4 name after the last segment query:
+     * the record (0 none, 0x700030B0 a cell prim, a grid node's original
+     * address) and the hit entity's original address; `*_known` is 0 when
+     * the port cannot give the original address (a read then faults). */
+    uint32_t hit_word, who_word;
+    uint8_t hit_known, who_known, who_type;
+    /* The player view as the entry loaded it (a camera store into it is
+     * published at the leave: docs/CAMERA_LIVE.md section 7). */
+    uint8_t player_loaded[EM_PLAYER_ACTOR_SIZE];
     /* ---- the module views and bindings ---- */
     EmCameraFollowGlobals fg;
     EmCameraFollowScratch fs;
@@ -280,7 +300,7 @@ static void follow_store(void)
 static void specials_load(void)
 {
     EmCamSpecialsScratch *s = &C.sps;
-    memset(s->s3040, 0, sizeof s->s3040);   /* 0x70003040: the aim entry (00197490 only; aim unbound) */
+    memcpy(s->s3040, C.s3040, sizeof s->s3040);   /* 0x70003040: the aim camera's (00197490 reads it) */
     memcpy(s->s31B0, C.hit.point, 16);
     memcpy(s->s3400, C.s3400, 64);
     memcpy(s->s3600, C.s3600, 16);
@@ -296,6 +316,7 @@ static void specials_load(void)
 static void specials_store(void)
 {
     const EmCamSpecialsScratch *s = &C.sps;
+    memcpy(C.s3040, s->s3040, sizeof C.s3040);
     memcpy(C.hit.point, s->s31B0, 16);
     memcpy(C.s3400, s->s3400, 64);
     memcpy(C.s3600, s->s3600, 16);
@@ -412,6 +433,21 @@ static void hit_from_state(const EmCollSegment *seg)
         C.hit.record_1A = h.record_node;
         memcpy(C.hit.normal, h.record_normal, 12);
     }
+    /* *0x700031D0: none, the cell prim record D_700030B0, or the grid node's
+     * original address (the binder's grid_node, from the area data the loader
+     * delivered); *0x700031D4: the entity's original address. */
+    const EmCollProbeState *q = seg->state;
+    C.hit_known = 1;
+    if (q->record == EM_COLL_PROBE_RECORD_NONE) C.hit_word = 0;
+    else if (q->record == EM_COLL_PROBE_RECORD_CELL) C.hit_word = 0x700030B0u;
+    else {
+        C.hit_word = q->node >= 0 && C.host.grid_node ? C.host.grid_node(C.host.context, (uint32_t)q->node) : 0;
+        C.hit_known = C.hit_word != 0;
+    }
+    const EmCollisionWorldOwners *o = em_collision_world_owners();
+    C.who_word = !q->entity ? 0 : o && o->address_of ? o->address_of(o->context, q->entity) : 0;
+    C.who_known = !q->entity || C.who_word != 0;
+    C.who_type = q->entity ? q->entity->model : 0;
 }
 
 static int segment(const void *from, const void *to, int mask, int *result)
@@ -824,6 +860,269 @@ static int sp_0019A910(void *ctx, const void *from, const void *to, int32_t mask
 }
 
 /* ======================================================================
+ * The aim camera (em_camera_aim: camera actions 1 / 2 / 5 and what they
+ * own; docs/CAMERA_LIVE.md section 7). It addresses memory by original
+ * address: the map below serves each range from its one owner, the call
+ * dispatch binds each callee to its translation.
+ * ====================================================================== */
+
+static void *span(uint32_t a, uint32_t n, uint32_t base, uint32_t size, void *p)
+{
+    return p && n && a >= base && (uint64_t)a + n <= (uint64_t)base + size ? (uint8_t *)p + (a - base) : NULL;
+}
+
+static uint8_t *aim_map(void *ctx, uint32_t a, uint32_t n, int write)
+{
+    (void)ctx;
+    EmSceneState *s = em_scene_state();
+    void *p;
+    if ((p = em_camera_live_bytes(a, n))) return p;                             /* the block, the pool */
+    if ((p = span(a, n, 0x008102B0u, EM_PLAYER_ACTOR_SIZE, C.player.bytes))) return p;   /* the player view */
+    /* the camera's scratchpad words */
+    if ((p = span(a, n, EM_CAMLEFT_SCRATCH_BASE, 4u * EM_CAMLEFT_SCRATCH_WORDS, C.scratch.w))) return p;
+    if ((p = span(a, n, 0x70003400u, sizeof C.s3400, C.s3400))) return p;
+    if ((p = span(a, n, 0x70003600u, sizeof C.s3600, C.s3600))) return p;
+    if ((p = span(a, n, 0x70003610u, sizeof C.s3610, C.s3610))) return p;
+    if ((p = span(a, n, 0x70003630u, sizeof C.s3630, C.s3630))) return p;
+    if ((p = span(a, n, 0x70003040u, sizeof C.s3040, C.s3040))) return p;
+    if ((p = span(a, n, 0x70003B50u, sizeof C.s3B50, C.s3B50))) return p;
+    if (s && (p = span(a, n, 0x70003B40u, 16, s->spad3B40))) return p;   /* 00183010 only */
+    if ((p = span(a, n, 0x700031B0u, sizeof C.hit.point, C.hit.point))) return p;
+    /* what the last segment query names (read only) */
+    if (!write) {
+        if (span(a, n, 0x700031D0u, 4, &C.hit_word)) return C.hit_known ? span(a, n, 0x700031D0u, 4, &C.hit_word) : NULL;
+        if (span(a, n, 0x700031D4u, 4, &C.who_word)) return C.who_known ? span(a, n, 0x700031D4u, 4, &C.who_word) : NULL;
+        if (C.hit_word && C.hit_known) {
+            if ((p = span(a, n, C.hit_word + 0x1Au, 2, &C.hit.record_1A))) return p;
+            if ((p = span(a, n, C.hit_word + 0x24u, 12, C.hit.normal))) return p;
+        }
+        if (C.who_word && (p = span(a, n, C.who_word + 3u, 1, &C.who_type))) return p;
+    }
+    if ((p = span(a, n, 0x0081C040u, sizeof C.sight, C.sight))) return p;
+    if (s) {
+        if ((p = span(a, n, 0x008106B0u, EM_SCENE_REQ_SIZE, s->req))) return p;
+        if ((p = span(a, n, 0x00810700u, 1, &s->d810700))) return p;
+        if ((p = span(a, n, 0x00810702u, 1, &s->d810702))) return p;
+        if ((p = span(a, n, 0x00810E70u, 2, &s->d810E70))) return p;
+        if ((p = em_scene_progress_at(s, a, n))) return p;
+    }
+    /* the gun node and its bone matrices, the ELF's R2 eye offset */
+    return C.host.memory ? C.host.memory(C.host.context, a, n, write) : NULL;
+}
+
+static void *aim_map_sized(void *ctx, uint32_t a, size_t n, int write)
+{
+    return n > UINT32_MAX ? NULL : aim_map(ctx, a, (uint32_t)n, write);
+}
+
+static uint8_t *a22_bytes(void *ctx, uint32_t a, uint32_t n) { return aim_map(ctx, a, n, 1); }
+static int a22_fabs(void *ctx, float x, float *out) { (void)ctx; *out = em_sdk_math_original_0011DF78(x); return 0; }
+static int a22_leaf(uint32_t fn, uint32_t a0, uint32_t a1, uint32_t a2)
+{
+    EmAimFireTargetCall f = {fn, 0, {a0, a1, a2, 0, 0, 0, 0}, {0}, 3, 0, 0, 0};
+    return em_aim_fire_sdk_memory_call(NULL, aim_map_sized, &f) == 0 ? 0 : -1;
+}
+static int a22_001028B8(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2) { (void)ctx; return a22_leaf(0x001028B8u, a0, a1, a2); }
+static int a22_00102948(void *ctx, uint32_t a0, uint32_t a1) { (void)ctx; return a22_leaf(0x00102948u, a0, a1, 0); }
+static const EmArea22PortHooks k_a22 = {
+    .ctx = NULL, .bytes = a22_bytes, .w_0011DF78 = a22_fabs,
+    .w_001028B8 = a22_001028B8, .w_00102948 = a22_00102948,
+};
+
+static int aim_unbound(uint32_t fn)
+{
+    /* Reached only outside what AREA11 sets up (docs/CAMERA_LIVE.md section
+     * 7: the area-0x10 lift 00182F90, the marker 0022E7F0 of D_00810CA5 == 6,
+     * the sight drawers of D_00810CA4 0 / 1 / 2 and D_00810CA7 8 / 9). */
+    fprintf(stderr, "em_camera_live: aim camera callee %08X has no binding (not reachable in AREA11)\n", fn);
+    return fail(fn);
+}
+
+static int aim_call(void *ctx, EmAimFireTargetCall *f)
+{
+    (void)ctx;
+    int st = em_aim_fire_sdk_memory_call(NULL, aim_map_sized, f);
+    if (st != 1) return st < 0 ? fail(f->function) : 0;
+    const uint32_t a0 = (uint32_t)f->a[0], a1 = (uint32_t)f->a[1], a2 = (uint32_t)f->a[2];
+    uint32_t out = 0;
+    int r = 0;
+    switch (f->function) {
+    case 0x00102C58u: {                                   /* the Euler rotation (dst, src, angles) */
+        /* as sp_00102C58: the three angle words at a2, the matrix at a1 */
+        const uint8_t *src = aim_map(NULL, a1 & ~15u, 64, 0), *ang = aim_map(NULL, a2, 12, 0);
+        if (!src || !ang) return fail(f->function);
+        uint32_t m[16], a[4] = {0, 0, 0, 0}, d[16];
+        memcpy(m, src, 64);
+        memcpy(a, ang, 12);
+        if (w_euler(NULL, d, m, a) < 0) return fail(f->function);
+        uint8_t *dst = aim_map(NULL, a0 & ~15u, 64, 1);
+        if (!dst) return fail(f->function);
+        memcpy(dst, d, 64);
+        return 0;
+    }
+    case 0x001028E8u: {
+        EmArea22PortFault fault = {0, 0};
+        return em_area22_port_001028E8(&k_a22, a0, a1, a2, &fault) < 0 ? fail(f->function) : 0;
+    }
+    case 0x0011DF78u:
+        f->f0 = em_ee_bits(em_sdk_math_original_0011DF78(em_ee_float(f->f[0])));
+        return 0;
+    case 0x0011E748u: if (w_sqrt(NULL, f->f[0], &out) < 0) return fail(f->function); f->f0 = out; return 0;
+    case 0x0011E620u: if (w_atan2(NULL, f->f[0], f->f[1], &out) < 0) return fail(f->function); f->f0 = out; return 0;
+    case 0x0011E2A8u: if (w_sine(NULL, f->f[0], &out) < 0) return fail(f->function); f->f0 = out; return 0;
+    case 0x0011DE90u: if (w_cosine(NULL, f->f[0], &out) < 0) return fail(f->function); f->f0 = out; return 0;
+    case 0x001B1470u: w_wrap(NULL, f->f[0], &out); f->f0 = out; return 0;
+    case 0x0018C4B0u: {
+        uint8_t *v = aim_map(NULL, a0, 12, 1);
+        uint32_t w[3];
+        if (!v) return fail(f->function);
+        memcpy(w, v, 12);
+        if (em_camera_follow_0018C4B0(w, f->f[0], f->f[1], &r) < 0) return fail(f->function);
+        memcpy(v, w, 12);
+        f->v0 = (uint64_t)(int64_t)r;
+        return 0;
+    }
+    case 0x0018C6A0u: {
+        const uint8_t *g = aim_map(NULL, a0, 12, 0);
+        uint8_t *v = aim_map(NULL, a1, 12, 1);
+        uint32_t s3[3], d3[3];
+        if (!g || !v) return fail(f->function);
+        memcpy(s3, g, 12);
+        memcpy(d3, v, 12);
+        if (em_camera_follow_0018C6A0(s3, d3, f->f[0], &r) < 0) return fail(f->function);
+        memcpy(v, d3, 12);
+        f->v0 = (uint64_t)(int64_t)r;
+        return 0;
+    }
+    case 0x0018C850u: case 0x0018C920u: {
+        EmArea22PortFault fault = {0, 0};
+        int32_t v0 = 0;
+        int rc = f->function == 0x0018C850u
+            ? em_area22_port_0018C850(&k_a22, a0, em_ee_float(f->f[0]), em_ee_float(f->f[1]), &v0, &fault)
+            : em_area22_port_0018C920(&k_a22, a0, a1, em_ee_float(f->f[0]), &v0, &fault);
+        if (rc < 0) return fail(f->function);
+        f->v0 = (uint64_t)(int64_t)v0;
+        return 0;
+    }
+    case 0x0018D7B0u:
+        if (a0 != CAM_BASE || solve_dispatch((int)(int32_t)a1, &r) < 0) return fail(f->function);
+        f->v0 = (uint64_t)(int64_t)r;
+        return 0;
+    case 0x00191210u:
+        return em_cam_specials_00191210(&C.sp) < 0 ? fail(f->function) : 0;
+    case 0x00197490u: {
+        if (a0 != CAM_BASE || a1 != 0x008102B0u) return fail(f->function);
+        specials_load();
+        int rc = em_cam_specials_call_00197490(&C.sp, C.cam.rec.bytes, &C.player, (int32_t)a2);
+        specials_store();
+        if (rc < 0) return fail(C.sp.fault_address ? C.sp.fault_address : f->function);
+        return 0;
+    }
+    case 0x0019A910u: {
+        const uint8_t *from = aim_map(NULL, a0, 12, 0), *to = aim_map(NULL, a1, 12, 0);
+        if (!from || !to || segment(from, to, (int)a2, &r) < 0) return fail(f->function);
+        f->v0 = (uint64_t)(int64_t)r;
+        return 0;
+    }
+    case 0x00183010u: {                                   /* the push out of a wall (00198240) */
+        EmArea22PortFault fault = {0, 0};
+        return em_area22_port_00183010(&k_a22, a0, a1, &fault) < 0 ? fail(f->function) : 0;
+    }
+    case 0x001D2610u: return em_rcl_001D2610(f->f[0]) < 0 ? fail(f->function) : 0;
+    case 0x001D2830u: return em_rcl_001D2830((int32_t)a0, (int32_t)a1) < 0 ? fail(f->function) : 0;
+    case 0x0021B9A0u: return em_rcl_0021B9A0((int32_t)a0, f->f[0], f->f[1]) < 0 ? fail(f->function) : 0;
+    case 0x001D2040u: return em_rcl_001D2040((int32_t)a0, (int32_t)a1) < 0 ? fail(f->function) : 0;
+    default:
+        return aim_unbound(f->function);
+    }
+}
+
+static int aim_run(uint32_t fn, int32_t a2)
+{
+    EmCamAim h;
+    memset(&h, 0, sizeof h);
+    h.map = aim_map;
+    h.call = aim_call;
+    h.sp = 0x7F001000u;     /* no callee reads the stack; the frames are not modelled */
+    int rc;
+    switch (fn) {
+    case 0x00197D20u: rc = em_cam_aim_00197D20(&h, CAM_BASE, 0x008102B0u); break;
+    case 0x00198650u: rc = em_cam_aim_00198650(&h, CAM_BASE, 0x008102B0u); break;
+    case 0x0018CA90u: rc = em_cam_aim_0018CA90(&h, CAM_BASE, 0x008102B0u); break;
+    case 0x00197870u: rc = em_cam_aim_00197870(&h, CAM_BASE, 0x008102B0u, a2); break;
+    case 0x00198440u: rc = em_cam_aim_00198440(&h, CAM_BASE, 0x008102B0u, a2); break;
+    case 0x001912B0u: rc = em_cam_aim_001912B0(&h, 0x008102B0u); break;
+    default: rc = -1; break;
+    }
+    if (rc < 0) {
+        if (h.fault == 2)
+            fprintf(stderr, "em_camera_live: aim camera %08X: no view of %08X\n", h.fault_function, h.fault_address);
+        return fail(h.fault == 3 && h.fault_address ? h.fault_address : h.fault_function ? h.fault_function : fn);
+    }
+    return 0;
+}
+
+static int lw_00197D20(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return aim_run(0x00197D20u, 0);
+}
+static int lw_00198650(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return aim_run(0x00198650u, 0);
+}
+static int lw_0018CA90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return aim_run(0x0018CA90u, 0);
+}
+
+/* 00197490's mode-1 tail 001B0300 (camera +5 != 0). The specials module
+ * requires the worker before it runs 00197490; AREA11's camera never has
+ * +5 != 0 (every route and AIM capture holds 0, and no AREA11 path stores
+ * it: CAMERA_LIVE.md section 7), so reaching it is a fail-stop. */
+static int sp_001B0300(void *ctx)
+{
+    (void)ctx;
+    fprintf(stderr, "em_camera_live: 001B0300 (camera mode 1) reached; not reachable in AREA11\n");
+    return fail(0x001B0300u);
+}
+
+/* 00197490's callees (the specials' workers): its scratch view is stored
+ * before and reloaded after. */
+static int sp_00197870(void *ctx, uint8_t *cam, EmPlayerLiveActor *player, int32_t a2)
+{
+    (void)ctx;
+    if (cam != C.cam.rec.bytes || player != &C.player) return -1;
+    SP_ENTER();
+    int rc = aim_run(0x00197870u, a2);
+    SP_LEAVE();
+    return rc;
+}
+static int sp_00198440(void *ctx, uint8_t *cam, EmPlayerLiveActor *player, int32_t a2)
+{
+    (void)ctx;
+    if (cam != C.cam.rec.bytes || player != &C.player) return -1;
+    SP_ENTER();
+    int rc = aim_run(0x00198440u, a2);
+    SP_LEAVE();
+    return rc;
+}
+static int sp_001912B0(void *ctx, EmPlayerLiveActor *player)
+{
+    (void)ctx;
+    if (player != &C.player) return -1;
+    SP_ENTER();
+    int rc = aim_run(0x001912B0u, 0);
+    SP_LEAVE();
+    return rc;
+}
+
+/* ======================================================================
  * The commit
  * ====================================================================== */
 
@@ -899,10 +1198,14 @@ static void bind_worlds(void)
     C.lw.w_001936E0 = lw_001936E0;
     C.lw.w_00193EB0 = lw_00193EB0;
     C.lw.w_001DD980 = lw_001DD980;
-    /* 001B0C60 (areas 0x12 / 0xE), the aim actions 1 / 2 (00197D20 /
-     * 00198650), actions 5 and 9..15 and mode 1's 001B0300 have no
-     * translation: NULL, so reaching them faults (never on the route:
-     * docs/CAMERA_LIVE.md section 5). */
+    /* The aim camera: actions 1 / 2 (00197D20 / 00198650) and 5 (0018CA90),
+     * em_camera_aim over the map / call binding above (CAMERA_LIVE.md
+     * section 7). 001B0C60 (areas 0x12 / 0xE), actions 9..15 and mode 1's
+     * 001B0300 have no translation: NULL, so reaching them faults (never on
+     * the route: docs/CAMERA_LIVE.md section 5). */
+    C.lw.w_00197D20 = lw_00197D20;
+    C.lw.w_00198650 = lw_00198650;
+    C.lw.w_0018CA90 = lw_0018CA90;
     C.lworld = (EmCamLeftWorld){ &C.cam.rec, &C.player, &C.lg, &C.scratch, &C.hit, &C.lw, 0 };
 
     memset(&C.sp, 0, sizeof C.sp);
@@ -933,10 +1236,14 @@ static void bind_worlds(void)
     k->w_001B1240 = sp_001B1240;
     k->w_00193660 = sp_00193660;
     k->w_0019A910 = sp_0019A910;
+    /* 00197490's aim workers: the aim camera's translations. */
+    k->w_00197870 = sp_00197870;
+    k->w_00198440 = sp_00198440;
+    k->w_001912B0 = sp_001912B0;
+    k->w_001B0300 = sp_001B0300;
     /* Other areas' arms (001944B0, 00194DB0, 00230230, 0x823FE0, 001AEDE0,
-     * 001B0C60) and the aim family (00197870, 00198440, 001912B0, 001B0300)
-     * stay NULL: the readiness check requires them only where they are
-     * reachable, so reaching one faults. */
+     * 001B0C60) stay NULL: the readiness check requires them only where they
+     * are reachable, so reaching one faults. */
 
     C.cw = (EmCameraCommitWorkers){ NULL, w_sqrt, w_atan2, w_heading, w_lookat };
     C.cworld = (EmCameraCommitWorld){ &C.cam.rec, &C.player, &C.pool[P_EYE], &C.pool[P_TGT], &C.pool[P_UP],
@@ -975,12 +1282,38 @@ static int enter(void)
     C.lworld.fault = 0;
     C.sp.fault_address = 0;
     player_refresh();
+    memcpy(C.player_loaded, C.player.bytes, sizeof C.player_loaded);
     view_load();
+    return 0;
+}
+
+/* A camera routine's store into the player view (the aim camera's: the
+ * copies of 0x70003040 into +A0 by 00197D20 / 00198650 / 00197490 and
+ * 00183010's push of +A0 / +B0). +A0..+A8 is the placement the port keeps
+ * canonical (the binder's `place`); +B0..+BC stays in the view, which is
+ * what the render context reads after the camera stage (D_00810360) until
+ * the next 0015BCF0 tail rewrites it. Any other store has no owner: a
+ * fault. CAMERA_LIVE.md section 7. */
+static int player_publish(void)
+{
+    const uint8_t *now = C.player.bytes, *was = C.player_loaded;
+    if (!memcmp(now, was, sizeof C.player_loaded)) return 0;
+    for (unsigned i = 0; i < sizeof C.player_loaded; ++i) {
+        if (now[i] == was[i] || (i >= 0xA0 && i < 0xAC) || (i >= 0xB0 && i < 0xC0)) continue;
+        fprintf(stderr, "em_camera_live: a camera store into player +%03X has no owner\n", i);
+        return fail(0x008102B0u + i);
+    }
+    if (memcmp(now + 0xA0, was + 0xA0, 12)) {
+        float pos[3];
+        memcpy(pos, now + 0xA0, 12);
+        if (!C.host.place || C.host.place(C.host.context, pos) < 0) return fail(0x008102B0u + 0xA0);
+    }
     return 0;
 }
 
 static int leave(int rc, uint32_t where)
 {
+    if (rc >= 0 && player_publish() < 0) rc = -1;
     view_store();
     view_publish();
     if (rc < 0) {

@@ -1966,6 +1966,32 @@ Result (recounted from the section 3 rows, 756 rows): live 708,
 verified-unbound 45, unverified 3, stand-in 0, missing 0, boundary 428;
 86,021 of the 88,729 non-boundary instructions live (96.9%), as in 1.48.
 
+### 1.50 Update (2026-10-01, chain step AIMCAM: the aim camera translated and bound, no status change)
+
+Camera actions 1 / 2 / 5 (00197D20, 00198650, 0018CA90) and the routines
+they own (00197740, 00197870, 00198050, 00198440, 00198240, 001912B0,
+001999C0, 001DB800) are translated (em_camera_aim, test-camera-aim-reference)
+and bound in the live camera (CAMERA_LIVE.md section 7), with the release
+00197490 (em_camera_area11_specials) and 0018C850 / 0018C920 / 00183010 /
+001028E8 (em_area22_port, now in the build: their one bound owner). None of
+them is a row of this census: the route never aims (the decomp's C10 AIM
+pass, decomp CAPTURES_C10.md "AIM"). The original stances reach them only
+behind the aim/fire gate, where R1 / R2 now draw, hold and holster with no
+fault (AIM_FIRE.md sections 1 and 7). Ordinary play is unchanged: its armed
+stances are em_weapon's and never set camera action 1 / 2 / 5.
+
+- **Status changes:** none. **Row notes changed:** none.
+- **Evidence.** test-camera-aim-reference; the level smoke's gated side
+  runs aim_r1_hold / aim_r2_hold against the AIM captures aim_00 / aim_01
+  (fix round; LEVEL_SMOKE.md); newgame-control 9.599849; the full level
+  smoke. The fix round's other additions (the impact marker 0018ABA0 bound
+  behind the gate, the handlers 001EACF0 / 001EBA20) are not rows of this
+  census either: no route beat fires a round.
+
+Result (recounted from the section 3 rows): live 708, verified-unbound 45,
+unverified 3, stand-in 0, missing 0, boundary 428; 86,021 of the 88,729
+non-boundary instructions live (96.9%), as in 1.49.
+
 ## 2. Totals
 
 ### 2.1 All 1184 executed functions
@@ -1980,7 +2006,7 @@ verified-unbound 45, unverified 3, stand-in 0, missing 0, boundary 428;
 | boundary | 428 | 23,035 | 150 (9,735) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 756 non-boundary functions, 708 (93.7%) are live and verified; by instructions 86,021 of 88,729 (96.9%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 45 functions (2,581 instructions, 2.9%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, section 1.49) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 756 non-boundary functions, 708 (93.7%) are live and verified; by instructions 86,021 of 88,729 (96.9%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 45 functions (2,581 instructions, 2.9%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 

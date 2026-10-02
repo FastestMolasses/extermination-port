@@ -1,4 +1,10 @@
-/* AREA22 boot functions and the AREA22 area init: standalone translations
+/* FIRST-LEVEL DEPENDENCY (chain step AIMCAM, 2026-10-01): 001028E8,
+ * 00183010, 0018C850 and 0018C920 below are the one bound owners of those
+ * originals on the first level's aim camera (em_camera_live's aim_call;
+ * CAMERA_LIVE.md section 7). A change here changes AREA11: re-run make
+ * test-area22-port-reference and make test-camera-aim-reference.
+ *
+ * AREA22 boot functions and the AREA22 area init: standalone translations
  * of the functions the AREA22 route census found new (decomp
  * build/s87/census/a22_delta.json, new_functions: 11 boot rows) that had no
  * port translation, plus the AREA22 overlay's area init at runtime 0x823580

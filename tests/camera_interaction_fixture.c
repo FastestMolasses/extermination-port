@@ -82,7 +82,9 @@ static int camera_euler(void *ctx, float out[3])
 static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
 static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
 static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
-                                             camera_no_standin, camera_no_timeline};
+                                             camera_no_standin, camera_no_timeline,
+                                             /* the aim camera's views: not reached here */
+                                             NULL, NULL, NULL};
 
 /* The captured camera block and vector pool into the live camera, the
  * capture's own seed Euler cam+30 through 0018CBD0 (distance: sub 3 the

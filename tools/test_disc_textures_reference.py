@@ -723,8 +723,8 @@ CAPTURE_SHA256 = {
     # captures, taken before it became disc-first
     'scene_snow/object_textures.emot':  # sha256
         '02827237d386a0399dc4231bf4648c057308cdbd4b1fed34a30f87de4c21ca8f',
-    'scene_snow/page_textures.emot':  # sha256 (chain C8b FLAMESNOW: + the weather descriptor's TEX0)
-        '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927',
+    'scene_snow/page_textures.emot':  # sha256 (chain step AIMCAM: + the laser dot, CODE_PAGE_TEX0)
+        'b2f979d3141e9fc4797a2bca025ff51244ca5e469c7ea79919387b50f2c13270',
     'font.emfn':  # sha256
         '1ce3b7a2e1e2dccbb32ae4ee7fd161bed39d63385aa22ecce3a971166a2536b5',
     'status_models/menu_player.emdl':  # sha256
@@ -763,6 +763,14 @@ CAPTURE_HUB_TOKENS = (0x20045EE59D421E40, 0x20045385554221C2, 0x20045305554221A6
 CAPTURE_PAGE_TEX0 = {0x4128555322090, 0x41805113222AE, 0x4290511322469, 0x455E599421ED8,
                      0x457E599421F00, 0x45B0599421EF0,
                      0x41605113222CD}   # D_00255170's (the snow), chain C8b FLAMESNOW
+# Page TEX0 the original code builds as an immediate that no captured page
+# draws (the route never aims; the AIM captures' end snapshots are idle):
+# the laser dot 001854E0 / 00185760 pass to 001CD520 (the aim/fire target
+# oracle executes it). Its texels are checked against every compared
+# capture's GS memory by direct_checks, and the page file without its entry
+# must still be the capture-derived file (CAPTURE_PAGE_FILE_SHA256).
+CODE_PAGE_TEX0 = {0x45BA5154222DC}
+CAPTURE_PAGE_FILE_SHA256 = '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927'
 # The buffers the model reads for the world, the two page states and the
 # font (caller, source, DATA.DAT offset, size, extract span), pinned from
 # the lane's first disc run; the extract spans are the user's extract file names.
@@ -787,12 +795,18 @@ def check_page_set(elf):
     import export_disc_textures as X
     overlay = (DECOMP / 'extract/OVERLAY/AREA11.BIN').read_bytes()
     mine = set(X.page_tex0(elf, overlay))
-    assert mine == CAPTURE_PAGE_TEX0, sorted(map(hex, mine ^ CAPTURE_PAGE_TEX0))
+    assert mine == CAPTURE_PAGE_TEX0 | CODE_PAGE_TEX0, sorted(map(hex, mine ^ (CAPTURE_PAGE_TEX0 | CODE_PAGE_TEX0)))
+    # the produced page file without the code-only entries is the
+    # capture-derived file, byte for byte
+    import export_object_textures as eot
+    entries = emot_entries((OUT / 'assets/scene_snow/page_textures.emot').read_bytes())
+    captured = {t: v for t, v in entries.items() if t not in CODE_PAGE_TEX0}
+    assert hashlib.sha256(eot.emot(captured)).hexdigest() == CAPTURE_PAGE_FILE_SHA256, 'page file minus the dot'
     report = ROOT / 'assets/scene_snow/page_textures.json'
     if report.exists():
         data = json.loads(report.read_text())
         if 'captures' in data:
-            assert {int(t['tex0'], 16) for t in data['textures']} == mine
+            assert {int(t['tex0'], 16) for t in data['textures']} == mine - CODE_PAGE_TEX0
     return len(mine)
 
 

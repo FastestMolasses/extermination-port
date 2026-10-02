@@ -623,7 +623,15 @@ static int chain_001CFBE0(int32_t id, u32 kind, const EmHeadSpriteOriginalSource
 static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, int32_t copy)
 {
     (void)ctx;
-    if (xf != EM_EFFECT_KINDS_XF || source < 0x002565E0u || source - 0x002565E0u > sizeof S.sources - 0x90u)
+    /* The source block: the exported handler sources (D_002565E0.. and
+     * since chain step AIMCAM's fix round D_00255620 / D_002560D0 /
+     * D_00256160, export_effect_tables.py), 0x90 bytes. */
+    const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
+                               ? S.sources + (source - 0x002565E0u)
+                           : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u)
+                               ? em_effects_live_window(source, 0x90)
+                               : NULL;
+    if (xf != EM_EFFECT_KINDS_XF || !bytes)
         return -1;
     EmHeadSpriteOriginalXf x;
     memset(&x, 0, sizeof x);
@@ -635,7 +643,7 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
     x.w4C = S.xf.word[0x4C / 4];
     x.w50 = S.xf.word[0x50 / 4];
     x.w54 = S.xf.word[0x54 / 4];
-    const EmHeadSpriteOriginalSource st = {source, S.sources + (source - 0x002565E0u)};
+    const EmHeadSpriteOriginalSource st = {source, bytes};
     return chain_001CFBE0(id, (u32)kind, &st, &x, copy);
 }
 

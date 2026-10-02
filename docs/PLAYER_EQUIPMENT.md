@@ -275,6 +275,10 @@ not reachable on the idle / walk states.
   read through `em_effects_live_elf`).
 - D_008106C6 / C7 / CC: the scene state's request block
   (`em_scene_req_at`); D_00810CA4 / CA6: its progress block.
+- The node's +0x1F0..+0x217 sub-record (`v1F0`, the laser dot `v200` since
+  chain step AIMCAM, `w210`, `w214`) is one view by original address
+  (`em_equipment_live_field`): 001854E0 writes +0x200, the aim camera's
+  00198440 reads it (CAMERA_LIVE.md section 7).
 - The player record image (`player_states_actor_mut`) and its bone world
   matrices (the record pose's node records, copied every tick); D_00275BCC
   and the bone-slot stack: em_area11_boxes' 001AF710 world.

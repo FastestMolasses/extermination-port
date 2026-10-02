@@ -33,6 +33,10 @@ level.
 | 001B0B50 | D_008106BE from D_008106C8 | em_player_closure_10_12_19 | 001B0460's worker |
 | 0015CBA0 | +1F0 → the action code +230 | em_camera_leftovers `em_camleft_0015CBA0` | the player stage after 0015BCF0's tail (em_player.c) |
 | 0019A910 / 0019B7D0 | the camera's segment / ground queries | em_coll_segment_walkers / em_coll_list_passes_walkers | over the collision world's one probe state |
+| **00197D20, 00198650, 0018CA90** | camera actions 1 (R1 aim), 2 (R2 aim), 5 (the over-the-shoulder seat) | **em_camera_aim** (new, section 7) | 0018BC20's dispatch (`lw_00197D20`, `lw_00198650`, `lw_0018CA90`) |
+| **00197740, 00197870, 00198050, 00198440, 00198240, 001912B0, 001999C0, 001DB800** | the aim camera's draw-ins, holds, wall test, area-0x10 lift, sight switch and sight bytes | **em_camera_aim** (new) | from the actions; 00197870 / 00198440 / 001912B0 also as 00197490's workers (`sp_*`) |
+| 00197490 | the aim release (CAM-16) | em_camera_area11_specials (`em_cam_specials_00197490`) | from 00197D20 / 00198650 (`aim_call`) |
+| 0018C850 / 0018C920 / 00183010 / 001028E8 | the aim camera's chases, the push out of a wall, the VU0 multiply | em_area22_port (bound here, its one owner) | `aim_call` |
 
 The frame machine's state 4 (the room move) calls 0018D7B0(cam, 1) and
 0018C0D0(cam, 1) through the live camera too (`w_0018D7B0`,
@@ -270,15 +274,17 @@ region since this step; nothing writes them in AREA11.
   event cursor +80..+82 and +89 are not the original's
   (OPENING_ORIGINAL.md section 3).
 - **Faults where an original has no translation**:
-  - camera actions 1/2 (aim: 00197D20, 00198650), 5, 9..15, and mode 1's
-    001B0300;
+  - camera actions 9..15, and mode 1's 001B0300 (also as 00197490's
+    worker, a fail-stop: section 7);
   - 001B0C60 in areas 0x12 / 0xE;
   - the specials' other-area arms (001944B0, 00194DB0, 00230230,
     0x823FE0, 001AEDE0).
 
   None is reached on the route (the census saw only actions 0 and 8). The
-  port's own aim (R2 / R1 stance) never sets the aim codes (+1F0 49..53), so
-  its camera stays the stand-in of section 6.
+  port's own aim (em_weapon's R2 / R1 stand-ins, ordinary play) never sets
+  the aim codes (+1F0 49..53), so its camera stays the stand-in of section
+  6; the original stances behind the aim/fire gate set camera actions 1 / 2
+  and run the aim camera (section 7).
 - **0x70003A28 across frames.** 0022FCA0's orbit (the tether, codes 2/4/0xF)
   reads 0x70003A28 as the previous frame left it. In the original the player
   routines also write that word between camera frames, and the port's player
@@ -296,7 +302,7 @@ stay the original's:
 | Stand-in | Owner it stands for | Lane |
 |---|---|---|
 | `em_examine_camera` | an examine cue's op00 shot | (no AREA11 route beat) |
-| `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 | L28 |
+| `camera_mode1_aim` + 0018D7B0(0) | the aim camera 00197D20 / 00197870 (translated, section 7; the stand-in serves em_weapon's ordinary-play aim, which never sets camera action 1 / 2, until the aim/fire gate is removed) | L28 |
 
 The +4 == 3 timeline is the opening lane's scene-0x22 stand-in while the
 opening's track runs (started by the script's 0022EC30), and otherwise the
@@ -311,7 +317,97 @@ without the live camera). Route 09's scripted camera and the follow camera
 from the re-place equal the capture row for row (LEVEL_SMOKE.md
 "fence_door").
 
-## 7. Retired in this step
+## 7. The aim camera (camera actions 1 / 2 / 5)
+
+Chain step AIMCAM (2026-10-01). `src/game/em_camera_aim.c` translates
+00197D20 (action 1: R1, player code +230 0xD / 0x2A), 00198650 (action 2:
+R2, 0xC / 0x29), 0018CA90 (action 5), the draw-ins 00197740 / 00198050,
+the holds 00197870 / 00198440, the gun-to-hip wall test 00198240 and its
+push 00183010, the area-0x10 lift 001912B0, the sight switch 001999C0 and
+001DB800 (D_0081C040..43 cleared). Read from the instructions; where the
+decomp's NEARMISS C differs, the translation follows the instructions:
+00197D20 state 3 calls 00197490(cam, player, 1) (the C passes one
+argument); 001999C0 calls 001D2830(1, 0) in its D_00810CA7 == 9 arm, and
+only its D_00810CA7 arms reach the D_00810CA5 == 6 call of 0022E7F0 (its
+D_00810CA4 arms return first).
+
+**The module addresses memory by original address** (the
+EmAimFireTarget host: `map`, `call`, `store`). Its binding in
+em_camera_live.c (`aim_map`, `aim_call`) serves:
+
+| Range | Owner |
+|---|---|
+| the camera block, the pool | this module's canonical bytes (section 3) |
+| D_008102B0 +0..+0x31F | the camera's player view; a store into +A0..+A8 (the copies of 0x70003040 by 00197D20 / 00198650 / 00197490, 00183010's push) goes to the binder's `place` (the port's placement g.pos) when the call leaves, +B0..+BC stays in the view (what the render context reads after the camera stage, D_00810360), any other store faults |
+| 0x700038A0..0x70003A3F, 0x70003400, 0x70003600, 0x70003630, 0x700031B0 | this module's scratch (section 3) |
+| 0x70003040 | **new, this module's**: the placement at the aim's start; only 00197D20 / 00198650 / 00197870 / 00197490 address it (the boot ELF), and the specials' view loads and stores it |
+| 0x70003610 | new, this module's: 00198440's bone offset (its 001026A0 / 00103230 store it before every read) |
+| D_0081C040..43 | new, this module's: 001DB800 clears them; nothing in the boot ELF or the AREA11 overlay reads them |
+| 0x70003B50 | the per-entry load of 0015BCF0's publication (section 3); 00183010 stores it |
+| 0x70003B40 | the scene state's spad3B40 (00183010 only; 001B07C0 rewrites it before its one reader) |
+| 0x700031D0 / 0x700031D4 and the records they name | the last segment query: none, the cell record 0x700030B0, or the grid node's original address (the binder's `grid_node`: D_0028A598 entry 0 + the grid header's +0x20 + 64 * node, from the area data the loader delivered; em_scene_bindings_grid_node_address); the record's +0x1A / +0x24..+0x2C and the entity's +3 from the hit; read only; unknown addresses fault |
+| D_008106C6, D_00810700 / 702, D_0081078B, D_00810CA4..CA7, D_00810E70 | the scene state |
+| the gun node (*(D_008102B0 + 0x20)) +0xA0..+0x10F, +0x110, +0x1F0..+0x217 (the laser dot +0x200 is new), its bone matrices | em_equipment_live (the binder's `memory`) |
+| D_002754E8..F3 (the R2 eye offset, .sdata) | assets/aim_fire_tables.emaf (EMAF v4, STARTUP.md row 59), read only |
+
+Callees: the SDK vector leaves through em_aim_fire_sdk_memory (and
+00102C58 through the commit's Euler leaf); 0018C4B0 / 0018C6A0 and the
+solve 0018D7B0 through em_camera_follow_original; 0018C850 / 0018C920 /
+00183010 / 001028E8 through em_area22_port (bound here: its only bound
+owner); 00191210 and the release 00197490 through em_camera_area11_specials
+(its view stored / loaded around the call; its own aim workers 00197870 /
+00198440 / 001912B0 call back into em_camera_aim); 0019A910 over the
+collision world; the math through em_sdk_math_original; 001D2610 /
+001D2830 / 0021B9A0 / 001D2040 on the render context (em_rcl_*).
+
+**Reached only outside what AREA11 sets up** (fail-stops, each reported
+when reached): 00182F90 (001912B0's area-0x10 lift; AREA11 is area 0xB);
+0022E7F0 (D_00810CA5 == 6); the sight drawers 001DB830, 001DBE20, 00199770,
+001DB9D0, 001DC610, 001DC890, 001DBF00, 001DC020, 001DC960, 001DBCB0,
+001DBD50 and D_00810248 (D_00810CA4 0 / 1 / 2, D_00810CA7 8 / 9); 001B0300
+(camera +5 == 1; the specials module requires its worker before it runs
+00197490, so it is bound to a fail-stop). Evidence: every route and AIM
+capture holds D_00810CA4..CA7 = FF 05 00 07 and camera +5 = 0; their
+writers are the New Game reset 001AF2C0 (FF 05 00 07) and the status
+screen's equipment selectors (00217090 / 002177B0 / 00218640 / 00218D90,
+which offer only the items the inventory flags D_0081070A.. name), and
+none of the AIM captures' census runs reached any of these callees (decomp
+CAPTURES_C10.md "AIM").
+
+**Verification.** `make test-camera-aim-reference`
+(tools/test_camera_aim_reference.py, ~10 s; `EM_TEST_FULL=1` ~30 s): the
+eleven routines execute from the captured AREA11 RAM (route snapshots
+00..14 and the twelve AIM end snapshots), the original on one image and
+em_camera_aim over a second through its host; every store in order, every
+callee entry (stack pointer, argument registers), the result and the whole
+RAM / scratchpad / stack compared. The SDK leaves, chases, math and
+00191210 run their original instructions on both sides; world cases run
+every callee (0018D7B0, 00197490, 0019A910, 00183010, the render-context
+helpers) as original code too. 800 of 2,491 cases by default, all 160
+conditional-branch outcomes of the eleven routines both ways (asserted),
+137 callee-failure cuts, 30 host refusals; a boundary mutant at -25 is
+caught (the near-wall lift's clamp). Live: `make test-level-smoke-aim`
+(the level smoke's side runs `aim_r1_hold` / `aim_r2_hold` behind the
+aim/fire gate; LEVEL_SMOKE.md, AIM_FIRE.md section 5) plays the main line
+to route 08's end, walks in to the AIM captures' start and holds R1 (R2)
+for the captures' 79 ticks; every row from the stance to the capture's end
+(aim_00 f13..f146, aim_01 f13..f154) equals the capture in the player's
++5 / +6 / +7 / +1F0 / +1F1 / clip / clock / +230 and D_008101E4..E7, and,
+in the player's frame, in the eye D_008105D0, the target D_008105E0, the
+block's eye +0x10 and target +0x20 and the player's +A0 / +B0 within
+0.002, apart from the two components that depend on where the run stands
+(the eye's start lateral offset, the target's per-axis chase in the
+release), which are checked for what the code does there; the render
+context's D_00275690 / D_00275694 at the last row equal the end snapshot.
+
+**Shared owners.** 001028E8, 00183010, 0018C850 and 0018C920 are bound
+from em_area22_port and 00102870 from em_area00_low: later-level modules,
+now the one owners of those originals on the first level (their headers
+say so). Their reference tests are in the default set (`make
+test-area22-port-reference`, `make test-area00-low-reference`); a change to
+either module is a change to AREA11's aim camera.
+
+## 8. Retired in this step
 
 - `src/game/em_camera_probe.{c,h}`, the prepass / AREA11-bounds duplicate,
   and its test `tools/test_camera_probe_reference.py`

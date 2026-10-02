@@ -147,7 +147,11 @@ its statuses are the ones that count.
     chain step AIM; AIM_FIRE.md section 1): the diagnostic gate that runs the
     original aim / fire workers in the newgame-control fixture instead of
     em_weapon's stand-ins. Not a launcher option: it exists until the
-    original path is live, and it stops at the aim camera today.
+    original path is live. Since chain step AIMCAM also `r1hold` / `r2hold`
+    (draw, hold and holster without firing; they pass); `r1` / `r2` stop at
+    the first round's muzzle node (AIM_FIRE.md section 7). Any other fixture
+    name (the level smoke's aim side runs use `smoke`) enables the gate
+    without the newgame-control fixture.
   - `EM_SKIP_STARTUP=1`: the older debug fixture (`em_game_install`): a
     staged fixture scene read at once with demo status values; not the New
     Game route, and it does not reach the AREA11 opening. Kept for the
@@ -158,4 +162,4 @@ its statuses are the ones that count.
   build target, not a player option.
 - **Windows and Linux support:** platform backends, not options.
 
-Last updated: 2026-10-01 (chain step AIM: the bug-fix candidate "0017B300 manual reload top-up" and the developer switch EM_AIM_FIRE_ORIGINAL recorded; earlier the same day the developer switch EM_NEW_GAME=1 and the older EM_SKIP_STARTUP=1 fixture; no option decided).
+Last updated: 2026-10-01 (chain step AIMCAM's fix round: the gate's fixture name `smoke` for the level smoke's aim side runs; no option found or decided. Before, chain step AIMCAM: the developer switch's hold modes r1hold / r2hold; no option found or decided. Earlier, chain step AIM: the bug-fix candidate "0017B300 manual reload top-up" and the developer switch EM_AIM_FIRE_ORIGINAL recorded; earlier the same day the developer switch EM_NEW_GAME=1 and the older EM_SKIP_STARTUP=1 fixture; no option decided).

@@ -67,6 +67,19 @@ typedef struct EmCameraLiveHost {
     /* 0022EEF0(cam, 1), the scripted timeline of +4 == 3, over the g.cam
      * view. 0, or -1 on a fault. */
     int (*timeline)(void *context);
+    /* ---- the aim camera (docs/CAMERA_LIVE.md section 7); NULL: unbound,
+     * the aim camera faults where it needs one ---- */
+    /* Views of bytes other modules own, by original address: the gun node
+     * (*(D_008102B0 + 0x20)) and its bone matrices (em_equipment_live), the
+     * ELF's R2 eye offset D_002754E8..F3 (em_aim_fire_tables). NULL when
+     * not mapped. */
+    uint8_t *(*memory)(void *context, uint32_t address, uint32_t size, int write);
+    /* The placement a camera routine stored into the player view (+A0..+A8):
+     * the port's canonical placement takes it. 0, or -1. */
+    int (*place)(void *context, const float pos[3]);
+    /* The original address of grid node `node` (what *0x700031D0 names
+     * after a grid hit), or 0 when unknown. */
+    uint32_t (*grid_node)(void *context, uint32_t node);
 } EmCameraLiveHost;
 
 /* Build the camera worlds for the area just loaded (after the collision

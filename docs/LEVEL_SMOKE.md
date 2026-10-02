@@ -48,7 +48,8 @@ capture, not a route beat), which the same targets require.
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
 make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace
+make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim
+make test-level-smoke-aim              # the aim camera's side runs aim_r1_hold / aim_r2_hold behind the aim/fire gate, side by side (about 3 min with their checks)
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
@@ -255,6 +256,7 @@ fence_door_side1` requires both side phases.
 | truck_crossing | 08 | truck 0x823FF0 | yes (census L23) | — |
 | fence_door (side) | 09 | door 001BC350 (001BBE40, the ELF program 0x24DE40 on the AREA11 script host, 001BC150), room move to entry 2 (0x1AE040 state 4) | yes, its own run (census L18) | — |
 | fence_door_side1 (side, from fence_door) | C7 DOOR1 (not a route beat) | the same door from behind the fence (clip 0x43, B7 = 1), room move to entry 1, 001B07C0(1)'s walk-out 5 / 1 / 0: the player's 0015B610 / 00183250 | yes, after fence_door in its run (2026-09-27) | — |
+| aim_r1_hold / aim_r2_hold (side, from 08) | AIM aim_00 / aim_01 (decomp CAPTURES_C10.md, not route beats) | R1 0016FCF0 / R2 001703E0 stances, camera actions 1 / 2 (00197D20 / 00198650), the release 00197490, then action 0 | yes, behind the aim/fire gate, each its own run (chain step AIMCAM's fix round, 2026-10-01) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
@@ -980,6 +982,54 @@ fields as `check_fence_door`:
 
 A mutation run (00183250's standing timer 49 instead of 50) fails at f422
 on the player's Z.
+
+### aim_r1_hold, aim_r2_hold (the AIM captures aim_00 / aim_01, from 08's end)
+
+The captures are the decomp's `build/aimfire/capture/aim_00_r1_hold` and
+`aim_01_r2_hold` (docs/CAPTURES_C10.md "AIM"): from route 08's end snapshot
+(the player idle at (371.50317, 184.84026, 361.34225), heading 2.38104),
+R1 (R2) pressed at f10 and released at f89; the stance at f13, +6 = 2 at
+f29, 0x63 at f92, the holster, idle at f116 (f124), the capture's end at
+f146 (f154). The side runs set the aim/fire gate (EM_AIM_FIRE_ORIGINAL=1,
+EM_AIM_FIRE_TEST=smoke; AIM_FIRE.md section 1): the stances, their camera
+and the gun run their original bodies only behind it.
+
+The runner (`aim_hold_frame`) starts where truck_crossing ends. It walks to
+a point 6 behind the start along the heading, then straight in with the
+stick on a far point of that line (0.6: 0.1 per tick) and releases it 1.8
+short (the walk-stop slides on): the run stands 0.65 from the capture's
+place with a heading 0.015 off (the stick's resolution). It settles, waits
+for the idle clip's +3C to count down to 13.0 (the capture's row f12, so
+the draw starts from the same idle frame), presses R1 (R2) and holds it 79
+ticks from the stance, then runs to the capture's last row. In process:
+the stance and its action code on the first held tick, +6 = 2 sixteen
+ticks later, 0x63 on the release tick, idle at the end, no fault.
+
+`check_aim_hold` compares every row from the stance on: the player's +5,
++6, +7, +1F0, +1F1, clip, clock and action code +230 and the camera bytes
+D_008101E4..E7 exactly; in the player's frame the eye D_008105D0, the
+target D_008105E0, the camera block's eye +0x10 and target +0x20 and the
+player's +A0 / +B0 (the tick log's `aim` field: +6, +7, +230 and the
+camera's view of +A0..+A8 / +B0..+B8) within 0.002, apart from two
+components that depend on where the run stands: the eye's lateral offset
+starts from the follow camera's rest (0.346 in the capture, 0 after the
+straight walk-in), may never exceed that start difference and agrees within
+0.002 from f69 on; D_008105E0's x / z chase each world axis by at most 1.0
+per tick in aim_00's release (f94..f99), so they depend on the heading: on
+those rows the port's world steps equal the capture's within 1e-4, and
+elsewhere the local difference stays within 0.2 and is within 0.002 on the
+settled hold and the last row. At the last row the render context's
+D_00275690 / D_00275694 and +0x245C..+0x2467 equal the capture's end
+snapshot; check_render_context skips its fixed-point check of those bytes
+from the stance on (001DDE10 eases them toward the aim mode's targets and
+back). Measured: both pass (aim_00: the target's x 0.125 / z 0.056 in the
+release, the start's lateral 0.346; everything else within 0.0013).
+
+A run that stood 3 units off the captures' place found the follow camera's
+eye climbing six ticks late after the release: there the prepass
+0018D330's ground test under the hip (+0x6D) misses, and the per-state
+height 00191390 waits for it. The place matters; the binding does not
+differ.
 
 ### crevice_climbs
 

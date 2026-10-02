@@ -122,6 +122,14 @@ const char *em_scene_bindings_pool_binding(uint32_t callback);
 /* The original record address of a pool record (0 outside the pool; test
  * instrumentation: the level smoke's player-ground check). */
 uint32_t em_scene_bindings_pool_address(const void *actor);
+/* The original address of the AREA's collision grid node `node` (the record
+ * *0x700031D0 names after a grid hit): D_0028A598 entry 0 (the loader's
+ * relocation slot) + the grid header's +0x20 node offset + 64 * node, from
+ * the area data the loader delivered. 0 when unavailable. */
+uint32_t em_scene_bindings_grid_node_address(uint32_t node);
+/* The grid node records' bytes (read only) as the loader delivered them:
+ * `size` bytes at `address` inside the node array, or NULL. */
+const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size);
 /* Frame captures keyed on the scene tick log (EM_AREA_CHANGE_LOG), for the
  * fb2 pixel harness (tools/test_fb2_pixels.py, docs/GS_EXACT.md section 10).
  * `tick` is the "tick" number of a log line; em_scene_bindings_log_tick_next

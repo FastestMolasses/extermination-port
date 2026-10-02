@@ -3,9 +3,12 @@
 #include <stdlib.h>
 #include <string.h>
 
-static const uint32_t bases[] = {EM_AIM_FIRE_TABLE_BASE, 0x2533D0, 0x253720, 0x266930};
-static const uint32_t sizes[] = {EM_AIM_FIRE_TABLE_SIZE, 0xC0, 0x20, 0x1B0};
-static uint8_t tables[EM_AIM_FIRE_TABLE_SIZE + 0xC0 + 0x20 + 0x1B0];
+/* The fifth span, D_002754E8..D_002754F3 (.sdata), is the R2 aim camera's
+ * eye offset (00198440 reads its three floats; em_camera_live serves them). */
+#define SPANS 5u
+static const uint32_t bases[] = {EM_AIM_FIRE_TABLE_BASE, 0x2533D0, 0x253720, 0x266930, 0x2754E8};
+static const uint32_t sizes[] = {EM_AIM_FIRE_TABLE_SIZE, 0xC0, 0x20, 0x1B0, 0xC};
+static uint8_t tables[EM_AIM_FIRE_TABLE_SIZE + 0xC0 + 0x20 + 0x1B0 + 0xC];
 static int loaded;
 static uint32_t word(const uint8_t *p)
 { return (uint32_t)p[0] | (uint32_t)p[1]<<8 | (uint32_t)p[2]<<16 | (uint32_t)p[3]<<24; }
@@ -16,11 +19,11 @@ int em_aim_fire_tables_load(void)
     const char *path=getenv("EM_AIM_FIRE_TABLES");
     if (!path || !*path) path=EM_AIM_FIRE_TABLE_PATH;
     FILE *f=fopen(path,"rb");
-    uint8_t header[40], pending[sizeof tables];
+    uint8_t header[8 + 8 * SPANS], pending[sizeof tables];
     if (!f) return -1;
     int valid=fread(header,1,sizeof header,f)==sizeof header &&
-        memcmp(header,"EMAF",4)==0 && word(header+4)==3;
-    for (unsigned i=0;i<4 && valid;++i)
+        memcmp(header,"EMAF",4)==0 && word(header+4)==4;
+    for (unsigned i=0;i<SPANS && valid;++i)
         valid=word(header+8+i*8)==bases[i] && word(header+12+i*8)==sizes[i];
     valid=valid && fread(pending,1,sizeof pending,f)==sizeof pending && fgetc(f)==EOF && !ferror(f);
     fclose(f);
@@ -42,7 +45,7 @@ const uint8_t *em_aim_fire_tables_bytes(uint32_t address, uint32_t size)
 {
     if (!loaded) return NULL;
     unsigned offset=0;
-    for (unsigned i=0;i<4;offset+=sizes[i++])
+    for (unsigned i=0;i<SPANS;offset+=sizes[i++])
         if (address>=bases[i] && size<=sizes[i] && address-bases[i]<=sizes[i]-size)
             return tables+offset+address-bases[i];
     return NULL;
@@ -51,7 +54,7 @@ const uint8_t *em_aim_fire_tables_bytes(uint32_t address, uint32_t size)
 int em_aim_fire_tables_contains(uint32_t address,uint32_t size)
 {
     if (!size) return 0;
-    for (unsigned i=0;i<4;++i)
+    for (unsigned i=0;i<SPANS;++i)
         if ((uint64_t)address+size>bases[i] && (uint64_t)address<(uint64_t)bases[i]+sizes[i]) return 1;
     return 0;
 }

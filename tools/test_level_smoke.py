@@ -109,6 +109,7 @@ DECOMP = ROOT.parent / 'Extermination'
 ROUTE = DECOMP / 'build/s87/route'
 STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
 C7_DOOR1 = DECOMP / 'build/s87/c7cap/door1/c7_door1_fence_door_side1'   # decomp docs/CAPTURES_C7.md section 4
+AIMFIRE = DECOMP / 'build/aimfire/capture'   # decomp docs/CAPTURES_C10.md "AIM"
 STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
 # The module-0x21 loads' slot-2 record and D_00275BD8 per frame: route 03's
 # (decomp docs/CAPTURES_C7.md section 6, h7) and route 01's load-wait probe
@@ -838,6 +839,138 @@ def check_fence_door(ticks, run, state):
           f'+0x00..+0x0F / +0x1F0..+0x1FF; the room move: {span} rows of B5..B9 and the fade block from the '
           f'B8 = 2 row, 001AD010 against the executed original, state 4 at tick {s4_tick} with its nine calls, '
           f'one weather and one title node before and after; {follow})')
+
+
+# ------------------------------------ the aim camera (the AIM captures aim_00 / aim_01)
+
+AIM_BEATS = {'aim_r1_hold': ('aim_00_r1_hold', 0x1D), 'aim_r2_hold': ('aim_01_r2_hold', 0x1E)}
+# Tolerances in the player's frame (x lateral, y up, z along the heading),
+# LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold": the side run stands within
+# about 0.8 of the capture's start with a heading 0.015 off (the stick's
+# resolution), so world coordinates differ while every quantity the aim
+# camera builds from the player's own frame agrees.
+AIM_EXACT = 2e-3       # heights, the eye's distance, the camera block's target, +A0 / +B0
+AIM_TGT_LATERAL = 0.2  # D_008105E0's x / z while its per-axis chase runs (see below)
+
+
+def _aim_local(pos, yaw, v):
+    import math
+    c, s_ = math.cos(yaw), math.sin(yaw)
+    dx, dz = v[0] - pos[0], v[2] - pos[2]
+    return (dx * c - dz * s_, v[1] - pos[1], dx * s_ + dz * c)
+
+
+def check_aim_hold(ticks, run, state, what):
+    """The AIM captures aim_00_r1_hold / aim_01_r2_hold (decomp
+    CAPTURES_C10.md "AIM"), from the stance row (f13) to the capture's end,
+    row for row: the player record's +5, +6, +7, +1F0, +1F1, the clip, its
+    clock and the action code +230, and the camera bytes D_008101E4..E7
+    exactly; in the player's frame, the eye D_008105D0, the target
+    D_008105E0, the camera block's eye +0x10 and target +0x20 (camera
+    actions 1 / 2 00197D20 / 00198650, the release 00197490, then action 0)
+    and the player's +A0 / +B0. Heights, the eye's distance and the block's
+    target agree within AIM_EXACT on every row. Two components depend on
+    where the run stands, and are checked for what the code does there:
+    the eye's lateral offset starts from the follow camera's rest (0.346 in
+    the capture, after its walk off the truck; the run walks in straight)
+    and may never exceed that start difference, and must agree within
+    AIM_EXACT once the hold has settled (f69..) and at the end; D_008105E0's
+    x / z chase each world axis by at most 1.0 per tick (the release rows
+    f94..f99), so its local x / z depend on the heading: on the capped rows
+    the port's world steps equal the capture's, and the local difference
+    stays within AIM_TGT_LATERAL and is within AIM_EXACT on the settled
+    hold and the last row."""
+    beat, stance = AIM_BEATS[what]
+    path = AIMFIRE / beat / 'trace.json'
+    assert path.exists(), f'AIM capture missing: {path} (decomp docs/CAPTURES_C10.md "AIM")'
+    rows = json.loads(path.read_text())['rows']
+    r0 = next(k for k in range(len(rows)) if rows[k]['p5'] == stance)
+    assert rows[r0]['f'] == 13, (what, 'capture stance row moved', rows[r0]['f'])
+    start = state.get('cursor', 0)
+    i0 = next(i for i in range(start, len(ticks)) if ticks[i]['player'][0] == stance)
+    count = len(rows) - r0
+    assert i0 + count <= len(ticks), (what, 'the tick log ends inside the capture window', len(ticks) - i0, count)
+    pre, pre_row = ticks[i0 - 1], rows[r0 - 1]
+    ppos = [f32(v) for v in pre['pos_post']]
+    pyaw = f32(pre['yaw_post'])
+    dpos = max(abs(a - b) for a, b in zip(ppos, pre_row['pos']))
+    assert dpos < 1.0 and abs(pyaw - pre_row['yaw']) < 0.02, (what, 'start pose', ppos, pyaw, pre_row['pos'],
+                                                               pre_row['yaw'])
+    assert f32(pre['player'][4]) == pre_row['clock'] and pre['player'][3] == pre_row['clip'], \
+        (what, 'the idle frame before the stance', pre['player'][3:5], pre_row['clip'], pre_row['clock'])
+    settled = next(k for k in range(count) if rows[r0 + k]['f'] == 69)
+    first_dx = None
+    worst = collections.defaultdict(float)
+    capped = 0
+    for k in range(count):
+        t, row = ticks[i0 + k], rows[r0 + k]
+        where = f'{what} row f{row["f"]} (port tick {t["tick"]})'
+        pl = bytes.fromhex(row['pl'])
+        got = (t['player'][0], t['aim'][0], t['aim'][1], t['player'][1], t['player'][2], t['player'][3],
+               round(f32(t['player'][4]), 5), t['aim'][2], t['cam4'])
+        want = (row['p5'], pl[6], pl[7], row['m1F0'], row['m1F1'], row['clip'], row['clock'],
+                struct.unpack_from('<I', pl, 0x230)[0], row['cam_mode'])
+        assert got == want, (where, '+5 +6 +7 +1F0 +1F1 clip clock +230 D_008101E4..E7', got, want)
+        pos, yaw = [f32(v) for v in t['pos_post']], f32(t['yaw_post'])
+        blk = bytes.fromhex(t['camblk'][0])
+        port = {'eye': [f32(v) for v in t['eye_post']], 'tgt': [f32(v) for v in t['tgt_post']],
+                'cam_eye': struct.unpack_from('<3f', blk, 0x10), 'cam_tgt': struct.unpack_from('<3f', blk, 0x20),
+                'A0': [f32(v) for v in t['aim'][3:6]], 'B0': [f32(v) for v in t['aim'][6:9]]}
+        orig = {'eye': row['eye'], 'tgt': row['tgt'], 'cam_eye': row['cam_eye'], 'cam_tgt': row['cam_tgt'],
+                'A0': struct.unpack_from('<3f', pl, 0xA0), 'B0': struct.unpack_from('<3f', pl, 0xB0)}
+        for key in port:
+            a = _aim_local(pos, yaw, port[key])
+            b = _aim_local(row['pos'], row['yaw'], orig[key])
+            d = [abs(x - y) for x, y in zip(a, b)]
+            for axis in range(3):
+                worst[(key, axis)] = max(worst[(key, axis)], d[axis])
+            if key in ('eye', 'cam_eye'):
+                if first_dx is None:
+                    first_dx = d[0]
+                tight = k >= settled
+                assert d[0] <= (AIM_EXACT if tight else first_dx + AIM_EXACT), (where, key, 'lateral', a, b)
+                assert d[1] <= AIM_EXACT and d[2] <= AIM_EXACT, (where, key, a, b)
+            elif key == 'tgt':
+                assert d[1] <= AIM_EXACT, (where, key, 'height', a, b)
+                lim = AIM_EXACT if (settled <= k < settled + 20 or k == count - 1) else AIM_TGT_LATERAL
+                assert d[0] <= lim and d[2] <= lim, (where, key, a, b)
+            else:
+                assert max(d) <= AIM_EXACT, (where, key, a, b)
+        if k:
+            prev_t, prev_row = ticks[i0 + k - 1], rows[r0 + k - 1]
+            cs = [x - y for x, y in zip(row['tgt'], prev_row['tgt'])]
+            if abs(abs(cs[0]) - 1.0) < 1e-5 and abs(abs(cs[2]) - 1.0) < 1e-5:
+                ps = [f32(x) - f32(y) for x, y in zip(t['tgt_post'], prev_t['tgt_post'])]
+                assert max(abs(x - y) for x, y in zip(ps, cs)) <= 1e-4, (where, 'the capped target step', ps, cs)
+                capped += 1
+    # The render context's eased pair D_00275690 / D_00275694 (001DDE10
+    # eases it toward the aim mode's targets, then back) and the
+    # +0x245C..+0x2467 tail that follows it, at the capture's last row,
+    # against the AIM capture's end snapshot (taken at that row).
+    end = rctx(ticks[i0 + count - 1])
+    mem = (AIMFIRE / beat / 'eeMemory.bin').read_bytes()
+    assert end is not None and end['eases'] == mem[0x275690:0x275698], \
+        (what, 'D_00275690 / D_00275694 at the last row', end and end['eases'].hex(), mem[0x275690:0x275698].hex())
+    c = RCTX_CONTEXT
+    assert end['depth'][0xC:] == mem[c + 0x245C:c + 0x2468], (what, 'render context +0x245C..+0x2467 at the last row')
+    state['aim_from'] = min(state.get('aim_from', i0), i0)
+    state['cursor'] = i0 + count
+    w = ', '.join(f'{key} {"xyz"[axis]} {v:.4f}' for (key, axis), v in sorted(worst.items()) if v >= 1e-4)
+    print(f'{what}: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal {beat} '
+          f'f{rows[r0]["f"]}..f{rows[r0 + count - 1]["f"]}: +5 +6 +7 +1F0 +1F1 clip clock +230 and '
+          f'D_008101E4..E7 on every row; in the player\'s frame the eye, the target, the camera block\'s eye '
+          f'and target and +A0 / +B0 within {AIM_EXACT} (start pose {dpos:.3f} / {abs(pyaw - pre_row["yaw"]):.4f} '
+          f'from the capture\'s; the eye\'s start lateral offset {first_dx:.4f}; {capped} capped target '
+          f'steps equal; largest differences: {w}; D_00275690 / D_00275694 and the context\'s +0x245C..+0x2467 '
+          f'equal the end snapshot)')
+
+
+def check_aim_r1_hold(ticks, run, state):
+    check_aim_hold(ticks, run, state, 'aim_r1_hold')
+
+
+def check_aim_r2_hold(ticks, run, state):
+    check_aim_hold(ticks, run, state, 'aim_r2_hold')
 
 
 # ------------------------------------ fence door side 1 (the C7 DOOR1 capture)
@@ -2019,6 +2152,8 @@ PHASES = [
     ('truck_crossing', check_truck_crossing),
     ('fence_door', check_fence_door),
     ('fence_door_side1', check_fence_door_side1),
+    ('aim_r1_hold', check_aim_r1_hold),
+    ('aim_r2_hold', check_aim_r2_hold),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
@@ -2204,9 +2339,14 @@ def check_render_context(ticks, state):
             assert r['flags0c'] == ref['flags0c'] and r['flags174'] == ref['flags174'], (where, 'flags',
                                                                                         r['flags0c'].hex())
             assert r['fog'] == ref['fog'], (where, 'fog block +0xA0..+0xFF', r['fog'].hex())
-            assert r['eases'] == ref['eases'], (where, 'D_00275690 / D_00275694', r['eases'].hex())
+            # From an aim side run's stance on, 001DDE10 eases D_00275690 /
+            # D_00275694 toward the aim mode's targets and back (its
+            # 0015D2F0 code), and +0x2460 follows D_00275690: check_aim_hold
+            # compares them with the AIM capture's end snapshot instead.
+            if i < state.get('aim_from', len(ticks)):
+                assert r['eases'] == ref['eases'], (where, 'D_00275690 / D_00275694', r['eases'].hex())
+                assert r['depth'][0xC:] == ref['tail'], (where, '+0x245C..+0x2467', r['depth'][0xC:].hex())
             assert r['bars'][0x10:] == ref['widths'], (where, 'widths +0x2500..+0x2513', r['bars'][0x10:].hex())
-            assert r['depth'][0xC:] == ref['tail'], (where, '+0x245C..+0x2467', r['depth'][0xC:].hex())
             if pr is not None and pstate == 1 and snap(ticks[i - 1])['variant']:
                 assert rctx_tags(r['list']) == rctx_tags(world_lists[other]) and r['cursor8'] == world_cursor, (
                     where, 'world frame step V list', r['list'].hex(), world_lists[other].hex())
@@ -2681,7 +2821,7 @@ def check_effects(ticks, state):
           f'nodes equal the port\'s at their aligned ticks: {"; ".join(done)})')
 
 
-SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1')
+SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door'}
@@ -2690,6 +2830,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('designed', ('status_pages',)),
          ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
          ('06', ('slide',)), ('07', ('truck_preview',)), ('08', ('truck_crossing',)), ('09', ('fence_door',)),
+         ('aim', ('aim_r1_hold', 'aim_r2_hold')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
 

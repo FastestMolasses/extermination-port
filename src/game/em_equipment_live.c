@@ -162,9 +162,10 @@ void *em_equipment_live_field(uint32_t address, size_t size, int write)
     /* These adjacent original vectors are adjacent in the typed owner too. */
     _Static_assert(offsetof(EmPEN,mD0)+sizeof s->n.mD0- offsetof(EmPEN,vA0)==0x70,"equipment vectors");
     if ((p=field_span(address,size,base+0xA0,0x70,(uint8_t *)&s->n+offsetof(EmPEN,vA0)))) return p;
-    FIELD(v1F0,0x1F0);
-    _Static_assert(offsetof(EmPEN,w214)-offsetof(EmPEN,w210)==4,"equipment words");
-    if ((p=field_span(address,size,base+0x210,8,(uint8_t *)&s->n+offsetof(EmPEN,w210)))) return p;
+    /* +0x1F0..+0x217: the sub-record 0018A6B0 / 001854E0 / 00185760 share
+     * (+0x1F0, the laser dot +0x200, +0x210, +0x214), adjacent in the owner. */
+    _Static_assert(offsetof(EmPEN,w214)+sizeof s->n.w214-offsetof(EmPEN,v1F0)==0x28,"equipment sub-record");
+    if ((p=field_span(address,size,base+0x1F0,0x28,(uint8_t *)&s->n+offsetof(EmPEN,v1F0)))) return p;
 #undef FIELD
     return NULL;
 }
@@ -175,7 +176,7 @@ size_t em_equipment_live_regions(uint32_t address,EmEquipmentLiveRegion *out,siz
     if (!S.attached || !S.pool || S.fault || index>=EM_ACTOR_POOL_CAPACITY ||
         !current_slot(&S.slot[index],&S.pool->records[index])) return 0;
     static const uint32_t spans[][3]={{0,0x14,1},{0x14,4,0},{0x28,2,1},{0x2E,2,1},
-        {0x44,4,0},{0x4C,4,1},{0xA0,0x70,1},{0x1F0,16,1},{0x210,8,1}};
+        {0x44,4,0},{0x4C,4,1},{0xA0,0x70,1},{0x1F0,0x28,1}};
     size_t count=0;
     for (unsigned k=0;k<sizeof spans/sizeof spans[0];++k) {
         uint32_t at=address+spans[k][0],size=spans[k][1];

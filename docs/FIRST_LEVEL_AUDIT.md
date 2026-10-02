@@ -1562,9 +1562,9 @@ The groups:
     cable's +0x36 (the knife probe 0019B2C0); nothing exercises the
     truck-pit fall.
 14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
-    melee states (P24..P28) run em_weapon's stand-ins; camera actions 1 / 2
-    (aim), 5 and 9..15 fault; the aim release 00197490 (CAM-16) is
-    untranslated. **Status (2026-10-01, chain step AIM):** the original
+    melee states (P24..P28) run em_weapon's stand-ins; camera actions 9..15
+    fault (actions 1 / 2 / 5 and the release 00197490 are translated and
+    bound since chain step AIMCAM, below). **Status (2026-10-01, chain step AIM):** the original
     aim / fire workers (the Codex branch, audited and merged; AIM_FIRE.md)
     are on main, instruction-tested, behind the diagnostic gate
     `EM_AIM_FIRE_ORIGINAL=1` with `EM_AIM_FIRE_TEST=r1|r2`; ordinary play
@@ -1576,6 +1576,33 @@ The groups:
     (TEX0 0x20045BA5154222DC), 00102870 inside the beam and the collision
     word 0x700031E8 (AIM_FIRE.md section 7). Melee 0x21 / 0x22 stay
     em_weapon's. Captures for the comparison: decomp CAPTURES_C10.md "AIM".
+    **Status (2026-10-01, chain step AIMCAM):** the aim camera is translated
+    and bound: camera actions 1 / 2 / 5 (00197D20, 00198650, 0018CA90) and
+    what they own, em_camera_aim, test-camera-aim-reference (the original
+    instructions over the captured AREA11 RAM, every store and callee
+    entry); the release 00197490 runs with its aim workers (CAMERA_LIVE.md
+    section 7). The list above is closed: the gun's +0x200, the scratch
+    views, the dot's texture, 00102870, the grid node's original address
+    and bytes, the beam's LINE list. Behind the gate R1 and R2 now draw,
+    hold and holster on their original bodies with no fault
+    (`EM_AIM_FIRE_TEST=r1hold` / `r2hold`). **Fix round (2026-10-01):**
+    the live aim camera equals the AIM captures aim_00 / aim_01 row for row
+    (the level smoke's side runs aim_r1_hold / aim_r2_hold, `make
+    test-level-smoke-aim`, LEVEL_SMOKE.md); the round's impact marker
+    0018ABA0 is bound (001861C0's 001AFA90, the marker's storage, the
+    settle bind and pool dispatch, 001B17A0 / 001EFD20 / 001F00A0), and the
+    impact handlers 001EACF0 / 001EBA20 are translated with their sources
+    exported. Left (the gate stays), in the order a live round meets them:
+    the muzzle node 001F5040 (a model node of the common bank), the shell
+    casing 001F4010 and its particle records (001F2F90 / 001F3340, the
+    barrel's 001F3620 / 001F3E30 with 001F02C0 / 001CA3B0 / 001CA4D0), the
+    VU1 program packet 0x230800 the 0x80000060 effect's kind-0 chain calls,
+    then a live reload, melee 0x21 / 0x22 (reachable: aim_09; 00173DD0,
+    0019B2C0, 001AA840 / 001AA7A0, the trail 0x8000000D) and a fire side
+    run against aim_03 (AIM_FIRE.md section 7). Not reachable in AREA11,
+    with the proof there: the reticle 001DD170 and its vf23 input (no
+    class-2 target), the projectiles 0018AF50 / 0018B3E0 (+275 stays 0),
+    the handlers 001ECB00 / 001EB7F0 / 001EC820 (no AIM beat ran them).
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths.

@@ -76,17 +76,24 @@ PORT_FN = {
     'em_status_background_step': 0x20A7A0,       # the status pages' background pulse
     'gun_setup': 0x825940,                       # the security gun's lifecycle 0 (em_security_gun)
     'em_gun_tick': 0x825940,                     # the same when gun_setup is inlined
+    'em_aim_fire_target_001854E0': 0x1854E0,     # the laser dot (AIM_FIRE.md; behind the aim/fire gate)
+    'em_aim_fire_target_00185760': 0x185760,     # the beam
+    'em_area00_hud_001E2BA0': 0x1E2BA0,          # the beam's shaded line
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
-            'w_00122BB8', 'random_word', 'gun_rand'}
+            'w_00122BB8', 'random_word', 'gun_rand',
+            'aim_fire_binding_call', 'em_aim_fire_live_call',   # the aim/fire binding's 00122BB8 and dispatch
+            'target_call0', 'em_aim_fire_binding_frame',        # em_aim_fire_target's callee adapter
+            'beam_worker'}                                      # em_aim_fire_render_live's 001E2BA0 callee adapter
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
 NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40',
          0x1FAE70: 'music 001FAE70', 0x1F1110: 'item 001F1110', 0x8235F0: 'effect owner 008235F0',
          0x825940: 'security gun 00825940', 0x1D0720: 'face 001D0720', 0x1E2560: 'head sprite 001E2560',
          0x1E55F0: 'weather 001E55F0', 0x1F1180: 'aura 001F1180', 0x179B90: 'step 00179B90',
-         0x1EA240: 'footstep 001EA240', 0x20A7A0: 'status background 0020A7A0'}
+         0x1EA240: 'footstep 001EA240', 0x20A7A0: 'status background 0020A7A0', 0x1854E0: 'laser dot 001854E0',
+         0x185760: 'beam 00185760', 0x1E2BA0: 'beam line 001E2BA0'}
 
 
 def name(fn):

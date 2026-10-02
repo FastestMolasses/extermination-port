@@ -156,6 +156,9 @@ int em_rcl_001C1DC0(void);              /* area render init (0x1AE040) */
 int em_rcl_001D25F0(uint32_t zoom);     /* zoom store (bits) */
 int em_rcl_001D2610(uint32_t x);        /* scope zoom (bits) */
 int em_rcl_001D2830(int32_t a0, int32_t a1);
+/* 001D2040(chan, a1): the GS state packet the channel's list gets (the aim
+ * camera's 001999C0 (1, 0) on the sight switch). */
+int em_rcl_001D2040(int32_t chan, int32_t a1);
 int em_rcl_001E0CC0(void);              /* 001D2DE0(0, 0), +0x1D8 = +0x1E8 = 0 */
 /* 001D2DE0(a0, a1): context word +0x2520 + 4 * a0 = a1 (001E55F0's
  * 001D2DE0(0, list): the weather's pending channel-3 list, which the frame

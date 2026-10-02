@@ -1,4 +1,9 @@
-/* em_area00_low.h - AREA00 (level 3) side track, lane A00LOW: translations
+/* FIRST-LEVEL DEPENDENCY (chain step AIMCAM, 2026-10-01): 00102870 below
+ * is the one bound owner of that original on the first level's aim path
+ * (the beam 001E2BA0's divide, em_aim_fire_runtime; AIM_FIRE.md section
+ * 7). A change here changes AREA11: re-run make test-area00-low-reference.
+ *
+ * em_area00_low.h - AREA00 (level 3) side track, lane A00LOW: translations
  * of the boot functions of census subsystems lowmem, unknown_07,
  * unknown_02, init_io, input_io, stream_archive, audio and movie that the
  * AREA00 route runs for the first time (the a00_delta census,

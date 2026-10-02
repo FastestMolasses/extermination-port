@@ -58,7 +58,9 @@ static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
 static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
 static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose_script_euler(out); }
 static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
-                                             camera_no_standin, camera_no_timeline};
+                                             camera_no_standin, camera_no_timeline,
+                                             /* the aim camera's views: not reached here */
+                                             NULL, NULL, NULL};
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static unsigned background_steps, background_frames;

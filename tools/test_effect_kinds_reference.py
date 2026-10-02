@@ -7,6 +7,7 @@ It executes the ORIGINAL instructions of the pinned boot ELF (the user's
 config/SCUS_971.12) for
 
   001EC1F0 001EC3F0 001EC470 001EBF10   the per-subtype draw handlers
+  001EACF0 001EBA20                     the impact handlers (subtypes 0x23 / 0x1B)
   001CFB50 001D0540                     their transform block and depth scale
   001F54E0                              the effect colour
   001F5640 001F5CA0 001F6760 001F6D60   the room list selectors
@@ -91,7 +92,8 @@ SCRATCH = 0x01E00000
 CALLBACK = 0x01FFF000          # oracle-only address for the 001F54E0 indirect call
 
 FUNCS = {  # address: size in bytes (FUNCTIONS.csv / the split listing)
-    0x1EC1F0: 0x7C, 0x1EC3F0: 0x7C, 0x1EC470: 0x180, 0x1EBF10: 0x2D4, 0x1F54E0: 0x15C,
+    0x1EC1F0: 0x7C, 0x1EC3F0: 0x7C, 0x1EC470: 0x180, 0x1EBF10: 0x2D4, 0x1EACF0: 0x7C, 0x1EBA20: 0x184,
+    0x1F54E0: 0x15C,
     0x1F5640: 0x2F8, 0x1F5940: 0x2DC, 0x1F5C20: 0x80, 0x1F5CA0: 0x2BC, 0x1F0310: 0x4C,
     0x1F03D0: 0x90, 0x1F3FA0: 0x64, 0x1F6640: 0xA4, 0x1F66F0: 0x64, 0x1F6760: 0xE8,
     0x1F6850: 0x60, 0x1F68B0: 0x208, 0x1F6D60: 0xD4, 0x1F6E40: 0x3C, 0x1029C0: 0x28,
@@ -208,7 +210,7 @@ def build_lib():
     P = C.POINTER
     K = P(Kinds)
     lib.em_effect_kinds_load_tables.argtypes = [C.c_char_p, C.c_size_t, P(Tables)]
-    for name in ('001EC1F0', '001EC3F0', '001EC470', '001EBF10'):
+    for name in ('001EC1F0', '001EC3F0', '001EC470', '001EBF10', '001EACF0', '001EBA20'):
         getattr(lib, 'em_effect_kinds_' + name).argtypes = [K, FP, i32, P(Work)]
     lib.em_effect_kinds_handler.argtypes = [K, u32, FP, i32, P(Work)]
     lib.em_effect_kinds_001F54E0.argtypes = [K, C.c_void_p, FP, u32, FP]
@@ -634,7 +636,7 @@ def handler_cases(lib, elf, ee, counts):
     rng = random.Random(0x1EBF10)
     n = 0
     M, Wk = SCRATCH + 0x100, SCRATCH + 0x200
-    for fn in (0x1EC1F0, 0x1EC3F0, 0x1EC470, 0x1EBF10):
+    for fn in (0x1EC1F0, 0x1EC3F0, 0x1EC470, 0x1EBF10, 0x1EACF0, 0x1EBA20):
         for _ in range(pick(600, 40)):
             vals = [fbits(rng.uniform(-600, 600)) for _ in range(16)]
             if rng.random() < 0.2:

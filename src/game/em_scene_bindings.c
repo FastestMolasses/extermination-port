@@ -106,6 +106,7 @@
 #include "game/em_area11_bindings.h"
 #include "game/em_effects_live.h"
 #include "game/em_snow_runtime.h"
+#include "game/em_aim_fire_tables.h"
 #include "game/em_equipment_live.h"
 #include "game/em_indicator_bind_live.h"
 #include "game/em_area11_boxes.h"
@@ -872,6 +873,25 @@ static void log_tick_end(int rc)
          * +0x20 (0015C310's gun node), original record addresses.
          * tools/test_level_smoke.py check_effects. */
         fprintf(f, ", \"links\": [%u, %u]", em_live_u32(a, 0x18), em_live_u32(a, 0x20));
+        /* The armed stance's sub-state bytes +6 / +7, the action code +230
+         * (0015CBA0) and the player's +A0..+A8
+         * and +B0..+B8 (float bits) as the camera's view of D_008102B0 holds
+         * them at the tick end (CAMERA_LIVE.md section 7; null without the
+         * live camera). tools/test_level_smoke.py check_aim_hold. */
+        {
+            const uint8_t *pl = em_camera_live_bound() ? em_camera_live_player_bytes() : NULL;
+            const uint8_t *pv = pl ? pl + 0xA0 : NULL;
+            fprintf(f, ", \"aim\": [%u, %u, %u", em_live_u8(a, 6), em_live_u8(a, 7), em_live_u32(a, 0x230));
+            if (pv) {
+                for (unsigned k = 0; k < 7; ++k) {
+                    if (k == 3) continue;
+                    uint32_t w;
+                    memcpy(&w, pv + 4 * k, 4);
+                    fprintf(f, ", %u", w);
+                }
+            }
+            fputc(']', f);
+        }
         /* The stream lanes as the previous frame's step H left them (the
          * task runs before step H), as the C7 stream capture's main-loop-top
          * rows sample them (decomp docs/CAPTURES_C7.md section 1): D_00810E90, the read
@@ -1540,8 +1560,66 @@ static int camera_timeline(void *ctx)
     if (owned) return 0;
     return em_area11_script_host_camera_0022EEF0() < 0 ? -1 : 0;
 }
+/* The aim camera's views (CAMERA_LIVE.md section 7): the gun node and its
+ * bone matrices (em_equipment_live), the ELF's R2 eye offset D_002754E8..F3
+ * (em_aim_fire_tables, read only). */
+static uint8_t *camera_memory(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    (void)ctx;
+    uint8_t *p = em_equipment_live_field(address, size, write);
+    if (p || write || !em_aim_fire_tables_contains(address, size)) return p;
+    const uint8_t *t = em_aim_fire_tables_bytes(address, size);
+    if (!t && em_aim_fire_tables_load() == 0) t = em_aim_fire_tables_bytes(address, size);
+    return (uint8_t *)t;
+}
+/* A camera store into the player's +A0..+A8 (the aim camera's copies of
+ * 0x70003040, 00183010's push): the port's canonical placement g.pos. */
+static int camera_place(void *ctx, const float pos[3])
+{
+    (void)ctx;
+    memcpy(g.pos, pos, sizeof g.pos);
+    return 0;
+}
+/* The original address of grid node `node`: the world-section directory
+ * D_0028A598 entry 0 (the loader's relocation slot 0x42, set by the area
+ * load's step 7) names the grid section header in the area data the drive
+ * delivered; its +0x20 word is the node array's offset (what 00199C50
+ * stages at 0x70003208) and a node is 64 bytes (decomp
+ * tools/export_collision.py). 0 when the loader has not delivered it. */
+uint32_t em_scene_bindings_grid_node_address(uint32_t node)
+{
+    EmModuleLoader *ml = em_module_loader_live();
+    EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+    if (!ld) return 0;
+    uint32_t header = ld->d28A490[(0x0028A598u - 0x0028A490u) / 4u];
+    const uint8_t *p = header ? em_module_loader_memory(ml, header + 0x20u, 4) : NULL;
+    if (!p) return 0;
+    uint32_t offset = (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
+    return header + offset + 64u * node;
+}
+/* The bytes of the grid node records (read only), as the area data the
+ * loader delivered holds them: `size` bytes at `address` inside the node
+ * array of the loaded grid (em_scene_bindings_grid_node_address(0) ..
+ * + 64 * count), or NULL. */
+const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size)
+{
+    const EmCollSegment *seg = em_collision_world_segment();
+    if (!seg || !seg->world || !seg->world->grid || !size) return NULL;
+    uint32_t base = em_scene_bindings_grid_node_address(0);
+    uint64_t end = (uint64_t)base + 64u * (uint64_t)seg->world->grid->count;
+    if (!base || address < base || (uint64_t)address + size > end) return NULL;
+    return em_module_loader_memory(em_module_loader_live(), address, size);
+}
+static uint32_t camera_grid_node(void *ctx, uint32_t node)
+{
+    (void)ctx;
+    const EmCollSegment *seg = em_collision_world_segment();
+    if (!seg || !seg->world || !seg->world->grid || node >= seg->world->grid->count) return 0;
+    return em_scene_bindings_grid_node_address(node);
+}
 static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
-                                         NULL, camera_standins, camera_timeline};
+                                         NULL, camera_standins, camera_timeline,
+                                         camera_memory, camera_place, camera_grid_node};
 
 /* ------------------------------------------ the render context (L32 / L30)
  *

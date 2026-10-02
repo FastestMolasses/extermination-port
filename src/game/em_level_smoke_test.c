@@ -99,6 +99,9 @@ static void fence_door_begin(void);
 static int fence_door_frame(void);
 static void fence_door_side1_begin(void);
 static int fence_door_side1_frame(void);
+static void aim_hold_begin(void);
+static int aim_r1_hold_frame(void);
+static int aim_r2_hold_frame(void);
 static int walk_path(const float (*path)[2], int count, float tol);
 static void cage_ladders_begin(void);
 static int cage_ladders_frame(void);
@@ -164,6 +167,14 @@ static const Phase k_phases[] = {
      "to entry 1; the arrival walk-out 001B07C0(1) 5/1/0 on the player's 0015B610 / 00183250",
      "the player's +4 = 5 handler 0015B610 and 00183250 (fence door side 1)", fence_door_side1_begin,
      fence_door_side1_frame, 0, 1, 1},
+    {"aim_r1_hold", "aim_00_r1_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "R1 stance 0016FCF0 (+5 0x1D, +1F0 0x31), camera action 1 00197D20 and its release 00197490",
+     "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r1_hold_frame, 0, 1,
+     0},
+    {"aim_r2_hold", "aim_01_r2_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "R2 stance 001703E0 (+5 0x1E, +1F0 0x32), camera action 2 00198650 and its release 00197490",
+     "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r2_hold_frame, 0, 1,
+     0},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
@@ -1954,6 +1965,123 @@ static int fence_door_frame(void)
     }
     }
 }
+
+/* ----------------------------------------------------- aim_r1/r2_hold
+ *
+ * The AIM captures aim_00_r1_hold / aim_01_r2_hold (decomp
+ * docs/CAPTURES_C10.md "AIM"; build/aimfire/capture/<beat>/trace.json)
+ * start from route 08's end snapshot: the player idle at (371.50317,
+ * 184.84026, 361.34225), heading 2.38104. The side run walks there from
+ * the truck crossing's end (navigation input, as fence_door's): to a point
+ * behind it, then straight in along the heading, so it stands within about
+ * 0.8 of it with a heading within 0.015 (the stick's resolution); it
+ * settles, and waits for the idle clip's +3C to count down to
+ * 13.0: the capture's row before the stance (f12; the stance row f13 has
+ * 12.0), so the pose the draw starts from is the same idle frame. Then it
+ * holds R1 (R2) for 79 ticks from the stance, as the capture (press f10,
+ * release f89; the stance f13, +6 = 0x63 at f92), and runs to the
+ * capture's last row (aim_00 f146, aim_01 f154). In process: the
+ * stance and its action code at the first held tick, +6 = 2 sixteen ticks
+ * later, 0x63 on the release tick, idle at the end, no fault.
+ * tools/test_level_smoke.py check_aim_hold compares every row from the
+ * stance on (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold"). Runs behind the
+ * aim/fire gate (EM_AIM_FIRE_ORIGINAL=1, AIM_FIRE.md section 1). */
+/* The rows after the stance: aim_00 ends at f146, aim_01 at f154 (its
+ * ramp-out is eight frames longer). */
+enum { AIM_HOLD_TICKS = 79, AIM_R1_TAIL = 133, AIM_R2_TAIL = 141, AIM_CLOCK_LIMIT = 400 };
+/* Test navigation (not game behaviour): the run-up, the walk-in's stick
+ * magnitude (0.3 does not walk; 0.6 walks 0.1 per tick) and where the stick
+ * is released (the walk-stop, +1F0 5, slides about 1.76 further). */
+#define AIM_RUNUP 6.0f
+#define AIM_WALK 0.6f
+#define AIM_STOP 1.80f
+
+static void aim_hold_begin(void)
+{
+    nav_reset();
+    if (em_scene_state()->d810700 != 0x0B || em_scene_state()->d810702 != 0)
+        fail("the aim side run starts in AREA11 room 0 (route 08's end)");
+}
+
+static int aim_hold_frame(uint16_t button, unsigned state, unsigned action, int tail)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    /* The start pose: a point AIM_RUNUP behind it along the heading, then a
+     * straight walk-in along the heading (the stick held on a far point of
+     * that line) released AIM_STOP short of it (the run-stop's slide), so
+     * the heading and the place end near the capture's. */
+    const float hx = sinf(2.38104f), hz = cosf(2.38104f);
+    switch (t.step) {
+    case 0: NAV_STEP(nav_goto(371.50317f - AIM_RUNUP * hx, 361.34225f - AIM_RUNUP * hz, 1.0f, 1.0f, 1));
+    case 1: NAV_STEP(nav_goto(371.50317f - AIM_RUNUP * hx, 361.34225f - AIM_RUNUP * hz, 0.1f, 0.3f, 1));
+    case 2: NAV_STEP(nav_settle(10));
+    case 3: {
+        float along = (g.pos[0] - 371.50317f) * hx + (g.pos[2] - 361.34225f) * hz;
+        if (along >= -AIM_STOP) {
+            pad_apply(0, 0, 0);
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > NAV_LIMIT) {
+            fail("the walk-in to the aim captures' start did not arrive");
+            return 0;
+        }
+        nav_stick_toward(371.50317f + 100.0f * hx, 361.34225f + 100.0f * hz, AIM_WALK);
+        return 0;
+    }
+    case 4: NAV_STEP(nav_settle(120));
+    case 5: {
+        /* The idle clip's +3C at the capture's row f12. */
+        pad_apply(0, 0, 0);
+        uint32_t clock = em_live_u32(a, 0x3C);
+        if (idle_clip() && in_control() && clock == 0x41500000u) {
+            pad_apply(button, 0, 0);
+            t.frames = 0;
+            ++t.step;
+        } else if (++t.nav_frames > AIM_CLOCK_LIMIT) {
+            fail("the idle clip's +3C did not reach 13.0 (the capture's row before the stance)");
+        }
+        return 0;
+    }
+    case 6:
+        ++t.frames;
+        if (t.frames == 1 && (em_live_u8(a, 5) != state || em_live_u8(a, 0x1F0) != action)) {
+            fail("the trigger did not enter the stance on the next tick (the capture's f13)");
+            return 0;
+        }
+        if (t.frames == 17 && em_live_u8(a, 6) != 2) {
+            fail("the stance did not reach +6 = 2 sixteen ticks after it started (the capture's f29)");
+            return 0;
+        }
+        if (t.frames < AIM_HOLD_TICKS) {
+            pad_apply(button, 0, 0);
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        ++t.step;
+        return 0;
+    default:
+        pad_apply(0, 0, 0);
+        ++t.frames;
+        if (t.frames == AIM_HOLD_TICKS + 1 && (em_live_u8(a, 5) != state || em_live_u8(a, 6) != 0x63)) {
+            fail("the release did not enter +6 = 0x63 on the next tick (the capture's f92)");
+            return 0;
+        }
+        if (t.frames <= tail)
+            return 0;
+        if (em_live_u8(a, 5) != 0) {
+            fail("the player is not back in idle at the capture's last row");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: %s: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", k_phases[t.current].name,
+                g.pos[0], g.pos[1], g.pos[2], g.yaw);
+        return 1;
+    }
+}
+
+static int aim_r1_hold_frame(void) { return aim_hold_frame(EM_PAD_R1, 0x1D, 0x31, AIM_R1_TAIL); }
+static int aim_r2_hold_frame(void) { return aim_hold_frame(EM_PAD_R2, 0x1E, 0x32, AIM_R2_TAIL); }
 
 /* ---------------------------------------------------- fence_door_side1
  *

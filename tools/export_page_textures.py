@@ -12,10 +12,12 @@ original's data and code, read from the user's ELF and AREA11 overlay:
     object for the snow tiles; the snow program sends it with every sprite);
   * the TEX0 row (+0x70) of the AREA11 flame's descriptor D_00828340
     (owner 008235F0, AREA11.BIN file offset 0x4E40; docs/AREA11_EFFECT.md);
-  * two values the original code builds as immediates: 001F8D30's decal
-    0x2004290511322469 (EM_SHADOW_DECAL_TEX0) and 001F4D40 / 001F4BF0's
-    glow marker (EM_STATUS_SCENE_TEX0_001F4BF0), both verified against the
-    executed original by their modules' reference tests.
+  * three values the original code builds as immediates: 001F8D30's decal
+    0x2004290511322469 (EM_SHADOW_DECAL_TEX0), 001F4D40 / 001F4BF0's
+    glow marker (EM_STATUS_SCENE_TEX0_001F4BF0) and the laser dot
+    0x20045BA5154222DC that 001854E0 / 00185760 pass to 001CD520 (the aim
+    sight, em_aim_fire_target.c), each verified against the executed
+    original by its module's reference test.
 None of them is uploaded by the draw: each is resident in GS local memory.
 This tool decodes each from the first level's GS local memory rebuilt from
 the user's own disc (tools/export_disc_textures_gs.py FirstLevel.world();
@@ -67,6 +69,7 @@ import export_object_textures as eot  # noqa: E402
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 DECAL_TEX0 = 0x2004290511322469       # 001F8D30's constant (em_shadow_decal_original.h)
 MARKER_TEX0 = 0x20045B0599421EF0      # 001F4D40 / 001F4BF0's (EM_STATUS_SCENE_TEX0_001F4BF0)
+DOT_TEX0 = 0x20045BA5154222DC         # 001854E0 / 00185760's laser dot (em_aim_fire_target.c sprite)
 SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)]
 WEATHER_DESCRIPTOR = 0x00255170       # D_00255170 (001E67C0 / 001CFFE0)
 FLAME_DESCRIPTOR, FLAME_FILE_OFFSET = 0x00828340, 0x4E40   # 008235F0's D_00828340 in AREA11.BIN
@@ -90,6 +93,7 @@ def tex0_set(elf: bytes, overlay: bytes) -> dict:
     out.setdefault(t, set()).add(f'001D04B0 flame descriptor {FLAME_DESCRIPTOR:#010x}')
     out.setdefault(DECAL_TEX0 & CLD_MASK, set()).add('001F8D30 decal')
     out.setdefault(MARKER_TEX0 & CLD_MASK, set()).add('001F4D40 / 001F4BF0 glow marker')
+    out.setdefault(DOT_TEX0 & CLD_MASK, set()).add('001854E0 / 00185760 laser dot')
     return out
 
 

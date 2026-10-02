@@ -342,7 +342,10 @@ subsection names the call site, the stand-in the translation replaces, and the w
 Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
 `em_effect_kinds_handler(k, handler, node->matrix, depth, work)`.
 - An untranslated handler (001EAD70, 001EAF00, 001EAF80, 001EB600, 001EBBB0, 001EBD20, 001EC5F0, 001EC820,
-  001EB980, ...) faults with code 6. None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
+  001EB980, ...) faults with code 6. Since chain step AIMCAM's fix round the impact handlers 001EACF0
+  (subtype 0x23, id 0x80000060) and 001EBA20 (subtype 0x1B, id 0x8000002C) are translated
+  (`em_effect_kinds_001EACF0` / `_001EBA20`, test-effect-kinds-reference; their sources D_00255620,
+  D_002560D0 / D_00256160 are in the effect-table export; AIM_FIRE.md section 7). None is live on the route snapshots, but 001EBD20 (crate) and 001EC5F0 /
   001EC820 / 001EB980 (footstep variants) belong to other lanes.
 - **Workers:**
   - **w_001CFB50.** Bind it to `em_effect_kinds_001CFB50` (section 2.1a), with an `EmEffectKindsXfState` over

@@ -8,6 +8,8 @@
  *   001EC3F0  subtype 0x05 handler (0x80000028 snow puff)     NEARMISS: the .s
  *   001EC470  subtype 0x24 handler (0x80000065 slide puff)    NEARMISS: the .s
  *   001EBF10  subtype 0x20 handler (0x80000049 truck puffs)   NEARMISS: the .s
+ *   001EACF0  subtype 0x23 handler (0x80000060 impact)       NEARMISS: the .s
+ *   001EBA20  subtype 0x1B handler (0x8000002C impact)       byte-matched C
  *   001CFB50  the handlers' transform block (their 001CFB50)  byte-matched C
  *   001D0540  its depth scale (projected z difference)       NEARMISS: the .s
  *   001F54E0  effect colour (pickup indicators)              asm-word: the .s
@@ -79,6 +81,8 @@ extern "C" {
 #define EM_EFFECT_KINDS_H_001EC3F0 0x001EC3F0u
 #define EM_EFFECT_KINDS_H_001EC470 0x001EC470u
 #define EM_EFFECT_KINDS_H_001EBF10 0x001EBF10u
+#define EM_EFFECT_KINDS_H_001EACF0 0x001EACF0u
+#define EM_EFFECT_KINDS_H_001EBA20 0x001EBA20u
 
 /* Fault codes 1..4 are numerically EM_EFFECT_FAULT_* 1..4. */
 enum {
@@ -175,6 +179,12 @@ int em_effect_kinds_001EC3F0(EmEffectKinds *k, const float matrix[16], int32_t d
 int em_effect_kinds_001EC470(EmEffectKinds *k, const float matrix[16], int32_t depth,
                              EmEffectOriginalWork *work);
 int em_effect_kinds_001EBF10(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work);
+/* The impact effects of the aim / fire path (AIM_FIRE.md section 7):
+ * 001EACF0 (subtype 0x23) and 001EBA20 (subtype 0x1B). */
+int em_effect_kinds_001EACF0(EmEffectKinds *k, const float matrix[16], int32_t depth,
+                             EmEffectOriginalWork *work);
+int em_effect_kinds_001EBA20(EmEffectKinds *k, const float matrix[16], int32_t depth,
                              EmEffectOriginalWork *work);
 /* 1 when em_effect_kinds_handler translates `handler`, else 0. */
 int em_effect_kinds_translates(uint32_t handler);

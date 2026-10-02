@@ -59,7 +59,7 @@ static EmAimFireTargetCall call(Run *r, uint32_t fn, unsigned na, unsigned nf,
     else if (r->h->call(r->h->context, &c) < 0) fault(r, 3, fn);
     return c;
 }
-static uint32_t c0(Run *r, uint32_t fn) { return (uint32_t)call(r,fn,0,0,0,0,0,0,0,0,0,0).v0; }
+static uint32_t target_call0(Run *r, uint32_t fn) { return (uint32_t)call(r,fn,0,0,0,0,0,0,0,0,0,0).v0; }
 static uint32_t c1(Run *r, uint32_t fn, uint32_t a)
 { return (uint32_t)call(r,fn,1,0,a,0,0,0,0,0,0,0).v0; }
 static void c2(Run *r, uint32_t fn, uint32_t a, uint32_t b)
@@ -135,7 +135,7 @@ int em_aim_fire_target_00185A10(EmAimFireTarget *h, uint32_t actor, uint32_t *re
     ENTER(0x185A10,0x80);
     uint32_t gun = word(r,actor+0x20), answer = 0;
     c2(r,0x102948,B,gun+0xA0);
-    uint32_t flags = c0(r,0x1B0070); CHECK();
+    uint32_t flags = target_call0(r,0x1B0070); CHECK();
     uint32_t radius = (flags&0x80) && !readn(r,0x8106C7,1) ? 0x425C0000 : 0x42DC0000;
     scale(r,D,gun+0xC0,radius); c3(r,0x1028B8,D,D,gun+0xA0); store(r,D+12,ONE); CHECK();
     if (segment(r,B,D,1,0x20)) {
@@ -261,20 +261,20 @@ int em_aim_fire_target_001854E0(EmAimFireTarget *h, uint32_t gun)
             store(r,gun+0x214,em_ee_c_lt_bits(d,0) ? ONE : em_ee_div_bits(em_ee_sub_bits(0x43700000,d),0x43700000));
         } else store(r,gun+0x214,0);
     } else store(r,gun+0x214,0);
-    uint32_t random = c0(r,0x122BB8); CHECK();
+    uint32_t random = target_call0(r,0x122BB8); CHECK();
     colour(r,((random>>15)&31)+0x40,0,0); sprite(r,0x40400000); CHECK(); return 0;
 }
 int em_aim_fire_target_00185760(EmAimFireTarget *h, uint32_t gun)
 {
     ENTER(0x185760,0x50);
-    (void)c0(r,0x122BB8); (void)c0(r,0x122BB8); CHECK();
+    (void)target_call0(r,0x122BB8); (void)target_call0(r,0x122BB8); CHECK();
     uint32_t local=r->sp+0x40;
     uint8_t saved[16], *p=memory(r,0x2487D0,16,0); CHECK(); memcpy(saved,p,16);
     p=memory(r,local,16,1); CHECK(); memcpy(p,saved,16);
     if (h->store) h->store(h->context,local,16);
     (void)sight(r,gun); CHECK();
     store(r,0x275B00,(word(r,0x275B00)+3)&31);
-    uint32_t random=(c0(r,0x122BB8)>>15)&31; CHECK();
+    uint32_t random=(target_call0(r,0x122BB8)>>15)&31; CHECK();
     if (word(r,LOCK)) { colour(r,random+0x70,random+0x40,random+0x20); sprite(r,0x40A00000); }
     else { colour(r,random+0x50,0,0); sprite(r,0x40400000); }
     c2(r,0x102948,C,gun+0x1F0); CHECK();

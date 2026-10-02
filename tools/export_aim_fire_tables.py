@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Export the player's weapon clip rows/sound/tint constants from the user's ELF.
+"""Export the player's weapon clip rows/sound/tint constants from the user's ELF
+(EMAF v4: also the R2 aim camera's eye offset D_002754E8..D_002754F3, read by 00198440).
 
 Native Python, no dependencies. Output is disc-derived and must stay ignored.
 For an isolated checkout with assets symlinked, use --output
@@ -12,7 +13,7 @@ import struct
 
 ROOT=Path(__file__).resolve().parents[1]
 BASE,SIZE=0x248680,0x680
-SPANS=((BASE,SIZE),(0x2533D0,0xC0),(0x253720,0x20),(0x266930,0x1B0))
+SPANS=((BASE,SIZE),(0x2533D0,0xC0),(0x253720,0x20),(0x266930,0x1B0),(0x2754E8,0xC))
 SHA='ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 
 def main():
@@ -30,7 +31,7 @@ def main():
             row=struct.unpack_from('<I',data,bank-BASE+4*i)[0]
             if not BASE<=row<=BASE+SIZE-18: raise SystemExit('Clip row leaves export span')
     args.output.parent.mkdir(parents=True,exist_ok=True)
-    header=struct.pack('<4sI',b'EMAF',3)+b''.join(struct.pack('<II',*span) for span in SPANS)
+    header=struct.pack('<4sI',b'EMAF',4)+b''.join(struct.pack('<II',*span) for span in SPANS)
     payload=b''.join(elf[a-0x100000+0x300:a-0x100000+0x300+n] for a,n in SPANS)
     args.output.write_bytes(header+payload)
     print(f'Exported {len(payload)} table bytes to {args.output}; keep this generated file ignored')

@@ -28,6 +28,8 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/game/em_camera_retarget.c',
            'src/game/em_camera_rotation.c', 'src/game/em_camera_live.c', 'src/game/em_camera_commit_original.c',
            'src/game/em_camera_follow_original.c', 'src/game/em_camera_area11_specials.c',
+           # The aim camera (docs/CAMERA_LIVE.md section 7) and its callees.
+           'src/game/em_camera_aim.c', 'src/game/em_aim_fire_sdk_memory.c', 'src/game/em_area22_port.c',
            'src/game/em_camera_leftovers.c', 'src/game/em_camera_leftovers_solver.c',
            'src/game/em_census_standins.c', 'src/game/em_render_verify_rest.c',
            'src/game/em_owner_services_original.c', 'src/game/em_message_draw_original.c',

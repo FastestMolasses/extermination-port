@@ -3489,7 +3489,12 @@ static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex 
     *tex = NULL;
     if (p->prim & 0x780u) return "PRIM AA1 / FST / CTXT / FIX";
     if (!abe) return "PRIM without ABE";
-    if (type == 2u) {
+    if (type == 1u || type == 2u) {
+        /* A LINE list of two vertices (the aim beam 001E2BA0's PRIM 0x69) is
+         * one segment, as a two-vertex line strip: the GS assembles a list
+         * every two vertices and a strip from its last two (GS_EXACT.md
+         * 3.0), and its measured line rule covers both (decomp
+         * GS_CONFORMANCE.md 5.2 / 5.3; CHAIN_PAGE.md section 5). */
         if (p->count != 2u || tme || !iip) return "a line other than Gouraud untextured";
     } else if (type == 4u || type == 5u) {
         if (p->count != 3u || !tme || !iip) return "a triangle other than Gouraud textured";
@@ -3629,7 +3634,8 @@ int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
         [g->enc setRenderPipelineState:tme ? g->gsTexPipeline : g->gsFlatPipeline];
         if (tme) [g->enc setFragmentTexture:texs[i]->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
-        [g->enc drawPrimitives:(p->prim & 7u) == 2u ? MTLPrimitiveTypeLine : MTLPrimitiveTypeTriangle
+        [g->enc drawPrimitives:((p->prim & 7u) == 1u || (p->prim & 7u) == 2u) ? MTLPrimitiveTypeLine
+                                                                              : MTLPrimitiveTypeTriangle
                    vertexStart:first[2u * i] vertexCount:first[2u * i + 1u]];
     }
     [vb release];

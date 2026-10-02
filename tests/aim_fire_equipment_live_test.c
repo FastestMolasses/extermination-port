@@ -87,13 +87,17 @@ int main(void)
     setup();
     CHECK(em_equipment_live_field(address,EM_ACTOR_RECORD_SIZE,0)==NULL);
     CHECK(em_equipment_live_field(address,0x30,1)==NULL);
-    const unsigned holes[]={0x18,0x20,0x24,0x2A,0x30,0x38,0x48,0x50,0x9C,0x200,0x218,0x2EF};
+    const unsigned holes[]={0x18,0x20,0x24,0x2A,0x30,0x38,0x48,0x50,0x9C,0x218,0x2EF};
     for(unsigned i=0;i<sizeof holes/sizeof holes[0];++i) {
         CHECK(em_equipment_live_field(address+holes[i],1,0)==NULL);
         CHECK(em_equipment_live_field(address+holes[i],1,1)==NULL);
     }
     CHECK(em_equipment_live_field(address+0xA0,0x70,1)==slot->n.vA0);
     CHECK(em_equipment_live_field(address+0x210,8,1)==&slot->n.w210);
+    /* +0x200: the laser dot 001854E0 writes and 00198440 reads */
+    CHECK(em_equipment_live_field(address+0x200,16,1)==slot->n.v200);
+    CHECK(em_equipment_live_field(address+0x1F0,0x28,1)==slot->n.v1F0);
+    CHECK(em_equipment_live_field(address+0x1F0,0x29,1)==NULL);
     CHECK(em_equipment_live_field(address+0xA0,0x71,1)==NULL);
     CHECK(em_equipment_live_field(address+0x210,9,1)==NULL);
     CHECK(word(em_equipment_live_field(address+0x14,4,0))==address);
@@ -108,14 +112,14 @@ int main(void)
     CHECK(em_equipment_live_field(address,SIZE_MAX,0)==NULL);
     CHECK(em_equipment_live_field(address,0,0)==NULL);
     EmEquipmentLiveRegion regions[12];
-    CHECK(em_equipment_live_regions(address,NULL,0)==10);
-    CHECK(em_equipment_live_regions(address,regions,12)==10);
-    for(unsigned i=0;i<10;++i) {
+    CHECK(em_equipment_live_regions(address,NULL,0)==9);
+    CHECK(em_equipment_live_regions(address,regions,12)==9);
+    for(unsigned i=0;i<9;++i) {
         CHECK(em_equipment_live_field(regions[i].address,regions[i].size,regions[i].writable)==regions[i].bytes);
         if(!regions[i].writable)CHECK(em_equipment_live_field(regions[i].address,regions[i].size,1)==NULL);
     }
     memset(regions,0xA5,sizeof regions);
-    CHECK(em_equipment_live_regions(address,regions,1)==10);
+    CHECK(em_equipment_live_regions(address,regions,1)==9);
     CHECK(regions[1].address==0xA5A5A5A5);
     actor->allocated=0;
     CHECK(em_equipment_live_field(address,1,0)==NULL);
