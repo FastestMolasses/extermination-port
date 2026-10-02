@@ -437,6 +437,10 @@ Scratch snapshots and tools under `../Extermination/build/nextcap/`
    (x 750..900, z 830..1000, roof y 240..315) with g[16] (00219870 model
    0x30, (858.5, 250.8, 835)) and [64] (001C4820, (937.3, 240, 835)) on
    top; [59] (0x826FF0, (991, 160.2, 924.4)) inside the region.
+   (Continued in `TWELFTH_LEVEL_ROUTE.md`: the region is reached over the
+   big building's south roof (a stair, attribute-0x32 ladders, one running
+   jump); groups `a13d` / `a19b` play door [20], the hatch [63] and AREA19
+   entry 10.)
 2. The two 0x141D20 actors were not fought; the 0x824BB0 nodes were not
    shot at; who hits the player for 5 is not identified.
 3. Where the two hits of 10 and 5 in a13c_03 (f1531, f1643) come from is
