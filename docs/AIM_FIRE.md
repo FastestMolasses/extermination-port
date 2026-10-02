@@ -22,7 +22,12 @@ callee 001A9C40 the impact markers reach in the close-out, and for the
 knife on the cable the pad actuator call 001B61C0, the cable hit's effect
 handler 001EAB50 and the kind-2 VU1 program 0x232540 its hit node 0021AAC0
 draws with; the side runs now replay aim_04 (the world hits) and aim_10 +
-aim_11 (the cable) row for row as well.
+aim_11 (the cable) row for row as well. Chain step AIMCAP (2026-10-02,
+section 11) compares every AIM capture beat, aim_05's burst fire through
+the status screen included, with whole records (the player record, the gun
+and knife nodes, the camera and the status block) row for row, and moves
+the player's node slots onto the one bone-slot stack, which ends a melee
+divergence (the knife's trail wrote into the player's node records).
 
 History: the work was done on the Codex branch `codex/aim-fire` (three
 commits on 7d7bdb5) and brought onto main by chain step AIM (2026-10-01)
@@ -563,17 +568,15 @@ with D_00275B40 = the knife's bones, and copies it back.
   serves the slots' bytes from the one slot stack's raw records (001F18C0
   uses each slot as an eleven-quadword point history with ten age words
   overlapping its +0xA0; 001AF890 clears a pushed slot, so the bytes after a
-  pop are the original's). 001EF9D0 reads the bone's +0x30: em_equipment_live
-  now serves a held bone's +0x00..+0x3F (the matrix 001C62C0 copied from the
-  model) read-only.
-- **Finding: the trail never draws in AREA11.** 001F15F0 takes its depth
-  key from 001CCF70(bone + 0x30), the bone record's +0x00 matrix row 3, not
-  its world matrix +0x90. In aim_09's end snapshot the knife's bone 0x7D9E20
-  holds the identity at +0x00 (its +0x90 row 3 is the hand at 370.5, 193.9,
-  359.6), so the key is that of the world origin; in the port's replay all
-  40 calls answer 0xFFFFFF and 001F15F0 writes no packet. A mid-swing GS
-  frame has not been captured to confirm it on screen (decomp
-  CURIOSITIES.md).
+  pop are the original's). 00189D30 hands 001EFF10 the knife bone's slot
+  + 0x90 (its world matrix), so 001EF9D0 reads the hand's place at the
+  slot's +0xC0 and the trail node seeds and draws its points through that
+  matrix (section 11.3).
+- The trail's packet: 001F15F0 takes its depth key from 001CCF70 of the
+  node's +0x1F0 + 0x30, the knife's world matrix row 3 (the hand). Its two
+  00102990 calls and the GIF packet (PRIM 0x4C, an untextured Gouraud
+  blended strip) go to the chain page, which draws it on the flat GS path
+  (section 11.3).
 
 ### 9.4 Verification
 
@@ -852,3 +855,159 @@ other sessions):
   0x20000000 (AREA01's 0x8D00 / 0x8D01) is where they first draw.
 - The original death states (0021E240 / 0021E830) are not translated;
   em_player_damage keeps the legacy death sequence (L02).
+
+## 11. Chain step AIMCAP (2026-10-02): every AIM beat against its recording, whole records
+
+### 11.1 The side runs
+
+Eleven side runs (`make test-level-smoke-aim`; LEVEL_SMOKE.md "The AIM
+replays" and "The AIM side runs' whole records") cover all twelve AIM
+beats: aim_r1_hold / aim_r2_hold (aim_00 / aim_01), aim_fire (aim_03),
+aim_both (aim_02), aim_world (aim_04), aim_burst (aim_05, new), aim_reload
+(aim_06), aim_reload_empty (aim_07), aim_light (aim_08), aim_melee (aim_09)
+and aim_cable (aim_10, then aim_11). aim_burst plays aim_05's own pad
+script: START opens the status hub, the stick and Cross open the SPR4 page
+00211970 and its SELECTOR part page 00217FA0, Down / Cross / Left / Cross
+pick the 3-round burst (D_00810C61 = 1), Triangle closes, and R1 fires one
+short press and two 60-frame holds (00170A60 states 0x14..0x17). Every
+press lands on the capture's frame: the status screen runs main-loop
+iterations that close out neither a world nor a status frame, so the
+phase's frame function now runs once per iteration (Phase.every_tick,
+em_level_smoke_test_tick_end at the game task's end); without it the
+runner fell two frames behind the pad script at START.
+
+Besides the fields of sections 9 and 10, each run now compares, on every
+row, the whole player record D_008102B0 +0x000..+0x31F, the gun node
+(+0x20) and the knife node (+0x18) at +0x00..+0x3F, +0xA0..+0xCF and
++0x1F0..+0x21F, the camera bytes D_008101E4..E7 and the status block
+D_00810130..+0x5F (the tick log's `aimrec`, EM_LOG_AIM_RECORDS=1), and in
+the button replays the camera's eye and targets in the player's frame.
+What cannot be equal bytes is compared for what the code does there
+(tools/test_level_smoke.py check_aim_records; LEVEL_SMOKE.md lists every
+rule): the place and heading words in the player's frame; the words the two
+runs' histories leave before the capture's start (the state countdown
++0x28 / +0x2A, +0x208, +0x248, the snap target +0x258 / +0x2F8, +0x260,
++0x264, +0x294, the velocity +0x2E0) change on exactly the capture's rows,
+to its value or by its step; the laser dot by its bearing only (its range
+follows where the run stands: 137.8 ahead in aim_03, 125.3 in the run);
+in the stick replays the walk's foot and contact words and the camera's
+eye and target (the follow camera meets the walls where the run walks)
+are not compared, and the gun's world vectors only on the aim-stance rows.
+
+### 11.2 Fixed: the knife's trail wrote into the player's node records
+
+The whole-record comparison found the player's hip (+0xB0, the pose
+host's bone 1) leaving aim_09 at f27, one frame after the first swing's
+hit window: the port's pose replayed the clip from its start, offset 1.0
+sideways, and from f165 the camera's eye stood 20 units low. Cause: the
+player's 21 node records live in em_player_record_pose's storage at
+0x7D5840.. (the record's +0x110 words) and were never popped from the one
+bone-slot stack 001AF710, so the first 21 pops of everything else returned
+the player's node addresses; the trail node 001F18C0 (spawned by the hit
+window's 001EFF10) popped three of them, and its point history, written
+through the aim/fire composition's address map (em_aim_fire_live_map
+resolves the player's pose regions before the trail's slots), went into the
+player's nodes 0..2.
+
+The fix is 0015C420's own (byte-matched): it pops +0x0C slots into
++0x110.. before its first child (0018A880(4, 0), the knife). The port's
+0015C420 path (em_area11_spawn_player_children_0015C420) now pops them from
+the one stack and faults unless each pop is the address the record's
+storage holds; it also writes 0015C420's +0x30 (&D_00275490), +0x58
+(D_0028A578[0], 0xD1B9C0 in every captured AREA11 image, as +0x40's
+D_0028A580[0] is 0xD689C0) and +0x5C (0x10101), which the record image
+lacked. Every later pop now returns the original's address: the knife's
+bone is 0x7D9E20, as in aim_09's snapshot (FIRST_LEVEL_AUDIT.md 1b item
+10, FACE_ATTACH.md section 5). aim_melee's hip now equals the capture's
+on every row (0.0000 in the player's frame), and so does the camera.
+
+### 11.3 Fixed: the knife's trail is drawn
+
+The census run of the AIM lane (decomp `build/s87/census/runs/AIM/
+aim_09_melee.json`) first hits 00102990 at aim_09 f26, with 001F15F0's
+first call. In the AIM beats only 001F15F0 calls 00102990 (001CEFD0 and
+00201F70 run in none), and only after 001CCF70 returned a key, so the
+original drew the trail from its first call. The port's 001CCF70 answered
+0xFFFFFF on all 40 calls of aim_melee.
+
+The offline check, from aim_09's own capture:
+- The camera is the same on all 267 rows of aim_09 (eye, target, cam_eye,
+  cam_tgt), so the end snapshot's clip matrix (render context 0x811CC0 +
+  0x2240, 001CD370(0)) is the one 001CCF70 used at f26.
+- Against that matrix the world origin is outside the clip volume: its clip
+  coordinates are x -388.7, y 303.7 against w 145.8. So the original's
+  point at f26 was not the origin, and the port's identity-matrix point
+  (the origin) was the divergence, not the clip matrix.
+- 00189D30 passes 001EFF10 `*(*(knife + 0x14) + 0x110) + 0x90` (decomp
+  src/func_00189D30.c): the knife bone's slot + 0x90, its world matrix. In
+  aim_09's snapshot `*(0x7AB440 + 0x110)` is 0x7D9E20, so the trail's
+  +0x1F0 is 0x7D9EB0 and its point is the slot's +0xC0, the hand (370.45,
+  193.95, 359.58 at the end), with clip coordinates x -1.5, y 11.5, z 53.05
+  against w 53.25: inside. The slot's +0x00 matrix is the identity in every
+  AIM snapshot; the knife's translation at f26 itself is not recorded, but
+  the hand's place is the point the code tests.
+- The port's live worker (em_equipment_live w_001EFF10) passed the slot
+  without + 0x90, and a read-only view of the slot's +0x00..+0x3F served
+  it. Fixed: it passes the slot + 0x90 and the view is removed.
+
+The packet path that follows was not reachable before, and it needed two
+bindings:
+- 00102990 (the colour words) is bound to em_area00_low's translation in
+  em_aim_fire_runtime, as 00102870 is.
+- The chain page refused untextured Gouraud triangles. 001F15F0's GIF tag
+  has PRIM 0x4C (a blended Gouraud triangle strip, untextured), and
+  em_gfx_metal now draws it on the flat path (Cf = Cv, Af = Av), as it
+  already drew untextured lines.
+
+Result (2026-10-02): all 40 trail calls of aim_melee get a key and write
+their packet, and aim_melee passes with every rule. No mid-swing GS frame
+of the original exists, so the trail's pixels are not compared (a frame
+capture at aim_09 f26..f40 would compare them). Decomp CURIOSITIES.md
+entry 28 ("never drawn") is wrong: the trail is drawn.
+
+### 11.4 The sound handle (open: the port's track choice is not deterministic)
+
+The melee states keep 001FBD50's return, the track the sound driver
+00119EA0 allocates for the swing, at +0x302 to stop it later. 00119EA0
+takes the lowest free track. In the port the value is not reproducible,
+and the original's values differ from the port's on most handle rows, not
+only on a few:
+
+- **Cause (a port defect).** em_sfx.c's TRACK HAND-OFF frees tracks on the
+  host audio thread: the 00118EC0 reaper runs in the device callback, which
+  stores FREE on wall-clock time, while the game thread's sfx_start (the
+  00119EA0 side) takes the lowest FREE track on the game's tick. The level
+  smoke runs EM_UNCAPPED, with game ticks faster than real time, so which
+  tracks are free when the swing starts depends on host timing and load.
+  The record's +0x302 is therefore game-visible state that follows the
+  host clock.
+- **Evidence.** Five runs of aim_melee on 2026-10-02 gave another track
+  than the capture's on 17, 222 and 66 rows (three runs of the AIMCAP
+  tree) and 66 and 17 rows (two runs after this round's trail fix). In
+  the 222-row run, the handle rows from f13 read 3, FF, 1, FF, 1, 5, 1, FF, 1
+  in aim_09_melee's `pl` and 3, FF, 0, FF, 0, 4, 0, FF, 0 in the port's
+  `aimrec`: one track lower on almost every handle row.
+- **What the side runs check.** check_aim_records requires a handle on the
+  same rows as the capture (0xFF in both, or a track in both) and counts
+  the rows with another track. The tolerance covers this known port
+  nondeterminism. It does not stand for a measured sound-state difference.
+- **What removes it.** FIRST_LEVEL_AUDIT.md 1b item 1, for the AUDIO step:
+  the 00119EA0 track state that the game thread sees must follow the sound
+  driver's per-field tick (001152D8 and its 00118EC0 reaper, on the game's
+  field count), not the device callback. Then +0x302 is deterministic and
+  can be compared with the capture byte for byte.
+
+### 11.5 The census
+
+The AIM lane's delta (114 functions no route beat runs) is now rows of
+FIRST_LEVEL_CENSUS.md section 3 (section 1.53), all 114 live: 113 measured
+over the eleven side runs with an instrumented build, and 00102990 live
+since the trail's fix (11.3; its 80 calls in aim_melee).
+
+### 11.6 What is left
+
+- The trail's pixels (11.3): no original frame of a swing to compare.
+- The sound handle's track (11.4): the port's track hand-off follows the
+  host audio clock; the AUDIO step (audit 1b item 1).
+- The EFU and the side runs' duration (section 10.7) stand.
+

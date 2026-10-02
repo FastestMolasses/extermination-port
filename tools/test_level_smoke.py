@@ -864,6 +864,315 @@ def _aim_local(pos, yaw, v):
     return (dx * c - dz * s_, v[1] - pos[1], dx * s_ + dz * c)
 
 
+# ------------------------------------ the AIM side runs' whole records
+
+# The player record D_008102B0 +0x000..+0x31F row for row against the AIM
+# captures' `pl` (the tick log's "aimrec", EM_LOG_AIM_RECORDS=1; LEVEL_SMOKE.md
+# "The AIM side runs' whole records"). Every 4-byte word is equal on every
+# compared row except these, each compared as stated:
+# - the place: the record image keeps +0xA0..+0xBF at the placement's words
+#   (the position is g.pos, pos_post; the hip +0xB0 is the camera's view of
+#   the pose host's bone 1, the tick log's aim[6:9], compared in the
+#   player's frame within AIM_EXACT);
+AIM_PL_PLACE = range(0xA0, 0xC0)
+# - the heading +0xC4 and the words built from it, in the player's frame:
+#   the heading's change from the first compared row (the side run stands
+#   0.0148 off the capture's heading, the stick's resolution), the record's
+#   matrix +0xD0..+0x10F (rows 0..2 as directions, row 3 the position) and
+#   the hand matrix +0x2A0..+0x2CF (rows 0..2) within AIM_EXACT, the aim
+#   point +0x2D0..+0x2DF as a point in the player's frame within
+#   AIM_EXACT, +0x218 equal or, while it holds a heading, equal relative to
+#   +0xC4;
+AIM_PL_HEADING = 0xC4
+AIM_PL_MATRIX = range(0xD0, 0x110)
+AIM_PL_HAND = range(0x2A0, 0x2D0)
+AIM_PL_AIM_POINT = range(0x2D0, 0x2E0)
+AIM_PL_GOAL = 0x218
+# - the start words: values the two runs' histories leave before the
+#   capture's start (the original walked off the truck, the side run walks
+#   in from route 08's end): the state countdown +0x28 (s16) and +0x2A,
+#   +0x208, +0x248, the snap target's y / z +0x258 / +0x2F8, +0x260,
+#   +0x264, +0x294 and the velocity x +0x2E0. In the button replays they
+#   change on exactly the capture's rows, each change to the capture's
+#   value or by the capture's step (+0x28 and +0x2A as signed halfwords);
+AIM_PL_START = (0x28, 0x208, 0x248, 0x258, 0x260, 0x264, 0x294, 0x2E0, 0x2F8)
+AIM_PL_START_UNITS = ((0x28, '<h'), (0x2A, '<h')) + tuple((w, '<f') for w in AIM_PL_START[1:])
+# - the stick replays (aim_world, aim_cable) walk where the capture walked
+#   from a place about 0.65 off and arrive about 1.0 off: the walk's foot
+#   and ground words (+0x09C, +0x104, +0x238, +0x250), the wall-contact bits
+#   +0x314 (001790B0 / 001791D0 / 001764E0) and the start words follow where
+#   the run walks; they and, outside the aim stances, the hand matrix and
+#   the aim point are not compared there.
+AIM_PL_WALK = (0x09C, 0x104, 0x238, 0x250, 0x314)
+# - the melee's sound handle +0x302 (001735C0 / 00173E60 keep 001FBD50's
+#   return there to stop the swing's sound): 0xFF in both, or a handle in
+#   both, the track not compared. The handle is the lowest free track of
+#   the sound driver 00119EA0, and in the port that is not deterministic:
+#   em_sfx.c frees tracks on the host audio thread's clock (the 00118EC0
+#   reaper in the device callback), not on the game's tick, so under
+#   EM_UNCAPPED the track follows host timing (17 / 222 / 66 / 66 / 17
+#   rows with another track in five aim_melee runs). This tolerance
+#   covers that known port nondeterminism (AIM_FIRE.md section 11.4,
+#   FIRST_LEVEL_AUDIT.md 1b item 1).
+AIM_PL_SOUND = 0x302
+AIM_STANCES = (0x1D, 0x1E)
+# The gun node (player +0x20) and the knife node (+0x18): every byte the
+# node models (em_equipment_live_field) equal, except the gun's world
+# vectors, compared in the player's frame within AIM_EXACT (+0xA0, +0xB0,
+# +0x1F0 points, +0xC0 the barrel's direction) and the laser's hit: its dot
+# +0x200 by its bearing from the player only (within the start heading's
+# difference + AIM_BEARING), and +0x214, the dot's range weight
+# (240 - d) / 240 (00185760), and +0x210, the hit flag, not compared: where
+# along the ray the dot lands (137.8 ahead in aim_03, 125.3 in the run)
+# follows where the run stands, as for the struck points. In the stick replays the gun's world vectors are compared on the
+# aim-stance rows only (the draw and the holster follow the walk's pose),
+# and the dot not at all: they aim at the fence, the pillar and the cable
+# from about 0.65..1.0 off the capture's place, where the ray meets other
+# wires and faces at other ranges, and the dot's direction from +0x1F0
+# changes with the range.
+AIM_GUN_POINTS = (0xA0, 0xB0, 0x1F0)
+AIM_GUN_DIRECTION = 0xC0
+AIM_GUN_LASER = (0x200, 0x210, 0x214)
+AIM_NODE_SPANS = ((0x00, 0x40), (0xA0, 0x30), (0x1F0, 0x30))
+
+
+def _aim_node_view(port_hex):
+    """The tick log's node bytes ("--" unmodelled) by node offset."""
+    out, j = {}, 0
+    for base, size in AIM_NODE_SPANS:
+        for k in range(size):
+            pb = port_hex[2 * j:2 * j + 2]
+            out[base + k] = None if pb == '--' else int(pb, 16)
+            j += 1
+    return out
+
+
+def _aim_gun_capture(gun):
+    b = bytearray(0x220)
+    b[0:0x40] = bytes.fromhex(gun['a'])
+    for at, key in ((0xA0, 'A0'), (0xB0, 'B0'), (0xC0, 'C0')):
+        struct.pack_into('<3f', b, at, *gun[key])
+    b[0x1F0:0x220] = bytes.fromhex(gun['s1F0'])
+    return bytes(b)
+
+
+def _aim_angle(a):
+    return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+def _aim_ui_loading(ui):
+    """The status block waits on a page module (STATUS_PAGES.md): the page
+    core's phase 3 sub-state 1 (0020CDC0 loads a page's module), or the
+    SPR4 page's state 3 sub-step 1 (00211970 loads a part page's module)."""
+    return ui[1] == 3 and (ui[2] == 1 or (ui[2] == 2 and ui[4] == 3 and ui[5] == 1))
+
+
+def check_aim_records(pairs, what, stick=False):
+    """The whole records of an AIM side run against its capture, row for
+    row (pairs: (capture row, port tick)): the player record, the gun and
+    knife nodes, the camera bytes D_008101E4..E7 and the status block
+    D_00810130..+0x5F (LEVEL_SMOKE.md "The AIM side runs' whole records").
+    The status block is equal on every row except across a page-module
+    load (aim_burst): the disc answers at host speed, so the port's load
+    ends first and its page runs, with the same pad script, frames the
+    original spent waiting. From a capture row that waits on a module
+    (_aim_ui_loading) the block is not compared until the two agree again;
+    when both leave the page phase (+0x01 != 3) without having agreed (the
+    last SPR4 reload, closed by Triangle before the capture's page ran), the
+    rows from there compare every byte but the SPR4 state +0x04 and hover
+    +0x11, which hold what the port's page wrote in those frames. Returns a
+    summary line."""
+    assert all(t.get('aimrec') for _r, t in pairs), \
+        (what, 'the tick log has no "aimrec" (run tools/test_level_smoke_aim.py: EM_LOG_AIM_RECORDS=1)')
+    worst = collections.defaultdict(float)
+    words = set(range(0, 0x320, 4)) - set(AIM_PL_PLACE) - set(AIM_PL_MATRIX) - set(AIM_PL_HAND) - \
+        set(AIM_PL_AIM_POINT) - {AIM_PL_HEADING, AIM_PL_GOAL} - set(AIM_PL_START)
+    if stick:
+        words -= set(AIM_PL_WALK)
+    r_first, t_first = pairs[0]
+    c_head0 = struct.unpack_from('<f', bytes.fromhex(r_first['pl']), AIM_PL_HEADING)[0]
+    p_head0 = struct.unpack_from('<f', bytes.fromhex(t_first['aimrec'][0]), AIM_PL_HEADING)[0]
+    dyaw = abs(_aim_angle(f32(t_first['yaw_post']) - r_first['yaw']))
+    prev = None
+    nodes = ui_rows = stance_rows = ui_skipped = ui_masked = start_steps = sound_rows = 0
+    ui_window = False
+    for row, t in pairs:
+        where = f'{what} {row.get("beat", "")} row f{row["f"]} (port tick {t["tick"]})'
+        cl, pl = bytes.fromhex(row['pl']), bytes.fromhex(t['aimrec'][0])
+        stance = row['p5'] in AIM_STANCES and t['player'][0] == row['p5']
+        stance_rows += stance
+        # +0x302: the melee's sound handle (001FBD50's return, the track the
+        # sound driver 00119EA0 allocates): a handle on the same rows, the
+        # track itself not compared: the port's track is host-timed
+        # (AIM_PL_SOUND)
+        hc, hp = cl[AIM_PL_SOUND], pl[AIM_PL_SOUND]
+        assert (hc == 0xFF) == (hp == 0xFF), (where, 'the sound handle +0x302', hc, hp)
+        sound_rows += hc != hp
+        cl_w = cl[:AIM_PL_SOUND] + bytes([hp]) + cl[AIM_PL_SOUND + 1:]
+        bad = sorted(w for w in words if cl_w[w:w + 4] != pl[w:w + 4])
+        assert not bad, (where, 'player record words', [(hex(w), cl[w:w + 4].hex(), pl[w:w + 4].hex()) for w in bad[:8]])
+        pos, yaw = [f32(v) for v in t['pos_post']], f32(t['yaw_post'])
+
+        def frame_cmp(key, a, b, limit=AIM_EXACT):
+            d = max(abs(x - y) for x, y in zip(a, b))
+            worst[key] = max(worst[key], d)
+            assert d <= limit, (where, key, a, b)
+        # the hip (+0xB0): the camera's view of the pose host's bone 1
+        frame_cmp('hip +B0', _aim_local(row['pos'], row['yaw'], struct.unpack_from('<3f', cl, 0xB0)),
+                  _aim_local(pos, yaw, [f32(v) for v in t['aim'][6:9]]))
+        # the heading: in the button replays its change from the first row;
+        # in the stick replays (the stick turns the player relative to the
+        # camera, which stands where the run stands) within the first row's
+        # difference + AIM_EXACT
+        c_h, p_h = struct.unpack_from('<f', cl, AIM_PL_HEADING)[0], struct.unpack_from('<f', pl, AIM_PL_HEADING)[0]
+        if stick:
+            d = abs(_aim_angle(c_h - p_h))
+            worst['heading +C4'] = max(worst['heading +C4'], d)
+            assert d <= abs(_aim_angle(c_head0 - p_head0)) + AIM_EXACT, (where, 'the heading +C4', c_h, p_h)
+        else:
+            d = abs(_aim_angle((c_h - c_head0) - (p_h - p_head0)))
+            worst['heading +C4'] = max(worst['heading +C4'], d)
+            assert d <= AIM_EXACT, (where, 'the heading +C4 changed differently', c_h, p_h, c_head0, p_head0)
+        g_c, g_p = cl[AIM_PL_GOAL:AIM_PL_GOAL + 4], pl[AIM_PL_GOAL:AIM_PL_GOAL + 4]
+        if g_c != g_p:
+            d = abs(_aim_angle((struct.unpack('<f', g_c)[0] - c_h) - (struct.unpack('<f', g_p)[0] - p_h)))
+            worst['+218'] = max(worst['+218'], d)
+            assert d <= AIM_EXACT, (where, '+0x218 neither equal nor equal relative to the heading', g_c.hex(), g_p.hex())
+        # the record's matrix: rows 0..2 directions, row 3 the position; the
+        # hand matrix rows 0..2; the aim point (zero in both, or a point)
+        for r in range(4):
+            a, b = struct.unpack_from('<3f', cl, 0xD0 + 16 * r), struct.unpack_from('<3f', pl, 0xD0 + 16 * r)
+            if r < 3:
+                frame_cmp('matrix +D0', _aim_local((0, 0, 0), row['yaw'], a), _aim_local((0, 0, 0), yaw, b))
+            else:
+                frame_cmp('matrix +100', _aim_local(row['pos'], row['yaw'], a), _aim_local(pos, yaw, b))
+            assert cl[0xDC + 16 * r:0xE0 + 16 * r] == pl[0xDC + 16 * r:0xE0 + 16 * r], (where, 'matrix +D0 w', r)
+        if not stick or stance:
+            for r in range(3):
+                a, b = struct.unpack_from('<3f', cl, 0x2A0 + 16 * r), struct.unpack_from('<3f', pl, 0x2A0 + 16 * r)
+                frame_cmp('hand +2A0', _aim_local((0, 0, 0), row['yaw'], a), _aim_local((0, 0, 0), yaw, b))
+                assert cl[0x2AC + 16 * r:0x2B0 + 16 * r] == pl[0x2AC + 16 * r:0x2B0 + 16 * r], (where, 'hand w', r)
+            a, b = struct.unpack_from('<3f', cl, 0x2D0), struct.unpack_from('<3f', pl, 0x2D0)
+            if any(a) or any(b):
+                frame_cmp('aim point +2D0', _aim_local(row['pos'], row['yaw'], a), _aim_local(pos, yaw, b))
+            assert cl[0x2DC:0x2E0] == pl[0x2DC:0x2E0], (where, 'aim point w')
+        # the start words: they change on the capture's rows only, each
+        # change either to the capture's value or by the capture's step (the
+        # halfwords +0x28 / +0x2A as signed counts)
+        if prev is not None and not stick:
+            pcl, ppl = prev
+            for w, fmt in AIM_PL_START_UNITS:
+                n = struct.calcsize(fmt)
+                ch_c, ch_p = pcl[w:w + n] != cl[w:w + n], ppl[w:w + n] != pl[w:w + n]
+                assert ch_c == ch_p, (where, 'start word', hex(w), 'changed in one run only',
+                                      pcl[w:w + n].hex(), cl[w:w + n].hex(), ppl[w:w + n].hex(), pl[w:w + n].hex())
+                if not ch_c or cl[w:w + n] == pl[w:w + n]:
+                    continue
+                step_c = struct.unpack_from(fmt, cl, w)[0] - struct.unpack_from(fmt, pcl, w)[0]
+                step_p = struct.unpack_from(fmt, pl, w)[0] - struct.unpack_from(fmt, ppl, w)[0]
+                assert step_c == step_p, (where, 'start word', hex(w), 'changed to a different value by a different step',
+                                          cl[w:w + n].hex(), pl[w:w + n].hex())
+                start_steps += 1
+        prev = (cl, pl)
+        # the camera bytes D_008101E4..E7 (+E7: the eye's collision bits,
+        # which follow where a stick replay walks)
+        assert t['cam4'][:6] == row['cam_mode'][:6] and (stick or t['cam4'] == row['cam_mode']), \
+            (where, 'D_008101E4..E7', t['cam4'], row['cam_mode'])
+        # the gun and the knife
+        gun = row['gun'] if isinstance(row['gun'], dict) else ast.literal_eval(row['gun'])
+        knife = row['knife'] if isinstance(row['knife'], dict) else ast.literal_eval(row['knife'])
+        gc, gp = _aim_gun_capture(gun), _aim_node_view(t['aimrec'][1])
+        kc, kp = bytes.fromhex(knife['a']), _aim_node_view(t['aimrec'][2])
+        world = set()
+        for base in AIM_GUN_POINTS + (AIM_GUN_DIRECTION,) + AIM_GUN_LASER:
+            world |= set(range(base, base + 16)) if base != 0x210 and base != 0x214 else set(range(base, base + 4))
+        bad = [o for o, v in gp.items() if v is not None and o not in world and v != gc[o]]
+        bad += [('knife', o) for o, v in kp.items() if o < 0x40 and v is not None and v != kc[o]]
+        assert not bad, (where, 'gun / knife node bytes', bad[:8])
+        if not stick or stance:
+            def gun_vec(base):
+                assert all(gp[base + k] is not None for k in range(12)), (where, 'gun vector unmodelled', hex(base))
+                return struct.unpack('<3f', bytes(gp[base + k] for k in range(12))), struct.unpack_from('<3f', gc, base)
+            for base in AIM_GUN_POINTS:
+                p_v, c_v = gun_vec(base)
+                if any(p_v) or any(c_v):
+                    frame_cmp(f'gun +{base:X}', _aim_local(row['pos'], row['yaw'], c_v), _aim_local(pos, yaw, p_v))
+            p_v, c_v = gun_vec(AIM_GUN_DIRECTION)
+            frame_cmp('gun +C0', _aim_local((0, 0, 0), row['yaw'], c_v), _aim_local((0, 0, 0), yaw, p_v))
+            p_o, c_o = gun_vec(0x1F0)
+            p_d, c_d = gun_vec(0x200)
+            if stick:
+                pass   # the dot lands where the ray meets the world near the run's own place
+            elif any(p_d) and any(c_d):
+                a, b = _aim_local(row['pos'], row['yaw'], c_d), _aim_local(pos, yaw, p_d)
+                bearing = abs(_aim_angle(math.atan2(a[0], a[2]) - math.atan2(b[0], b[2])))
+                worst['laser dot bearing'] = max(worst['laser dot bearing'], bearing)
+                assert bearing <= dyaw + AIM_BEARING, (where, 'the laser dot +0x200\'s bearing from the player', a, b)
+            else:
+                assert any(p_d) == any(c_d), (where, 'the laser dot +0x200 in one run only', c_d, p_d)
+        nodes += 1
+        # the status block
+        assert t['aimrec'][3] is not None, (where, 'no status block in the tick log')
+        uc, up = bytes.fromhex(row['ui_rec'])[:0x60], bytes.fromhex(t['aimrec'][3])
+        if _aim_ui_loading(uc):
+            ui_window = True
+        if ui_window and uc == up:
+            ui_window = False
+        if not ui_window:
+            assert uc == up, (where, 'the status block D_00810130..+0x5F', uc.hex(), up.hex())
+            ui_rows += 1
+        elif uc[1] != 3 and up[1] != 3:
+            mask = lambda b_: b_[:4] + b_[5:0x11] + b_[0x12:]
+            assert mask(uc) == mask(up), (where, 'the status block after a module load', uc.hex(), up.hex())
+            ui_masked += 1
+        else:
+            ui_skipped += 1
+    w = ', '.join(f'{k} {v:.4f}' for k, v in sorted(worst.items()) if v >= 1e-4)
+    return (f'whole records on {len(pairs)} rows: the player record\'s words, the gun and knife nodes '
+            f'({nodes} rows; world vectors {"on " + str(stance_rows) + " stance rows" if stick else "on every row"}), '
+            f'D_008101E4..E{"6" if stick else "7"} and the status block on {ui_rows} rows'
+            f'{f" ({ui_skipped} rows across the page-module loads skipped, {ui_masked} after the last without +0x04 / +0x11)" if ui_skipped else ""}'
+            f'{f"; the sound handle +0x302 on {sound_rows} rows another track (host-timed in the port)" if sound_rows else ""}'
+            f'; largest frame differences: '
+            f'{w or "none"}')
+
+
+def check_aim_camera(pairs, what):
+    """The camera of a button replay row for row (as check_aim_hold): in the
+    player's frame, the eye D_008105D0 and the camera block's eye +0x10
+    within AIM_EXACT in height and depth and, laterally, within the first
+    compared row's offset + AIM_EXACT (the follow camera's rest after the
+    walk-in, 0.346); the camera block's target +0x20 within AIM_EXACT;
+    D_008105E0 within AIM_EXACT in height and AIM_TGT_LATERAL in x / z (its
+    per-axis chase). The stick replays walk where the run stands, so their
+    eye and target are not compared (their camera bytes are). Returns a
+    summary line."""
+    worst = collections.defaultdict(float)
+    first_dx = {}
+    for row, t in pairs:
+        where = f'{what} row f{row["f"]} (port tick {t["tick"]})'
+        pos, yaw = [f32(v) for v in t['pos_post']], f32(t['yaw_post'])
+        blk = bytes.fromhex(t['camblk'][0])
+        port = {'eye': [f32(v) for v in t['eye_post']], 'tgt': [f32(v) for v in t['tgt_post']],
+                'cam_eye': struct.unpack_from('<3f', blk, 0x10), 'cam_tgt': struct.unpack_from('<3f', blk, 0x20)}
+        orig = {'eye': row['eye'], 'tgt': row['tgt'], 'cam_eye': row['cam_eye'], 'cam_tgt': row['cam_tgt']}
+        for key in port:
+            a, b = _aim_local(pos, yaw, port[key]), _aim_local(row['pos'], row['yaw'], orig[key])
+            d = [abs(x - y) for x, y in zip(a, b)]
+            for axis in range(3):
+                worst[(key, axis)] = max(worst[(key, axis)], d[axis])
+            if key in ('eye', 'cam_eye'):
+                first_dx.setdefault(key, d[0])
+                assert d[0] <= first_dx[key] + AIM_EXACT, (where, key, 'lateral', a, b)
+                assert d[1] <= AIM_EXACT and d[2] <= AIM_EXACT, (where, key, a, b)
+            elif key == 'tgt':
+                assert d[1] <= AIM_EXACT and d[0] <= AIM_TGT_LATERAL and d[2] <= AIM_TGT_LATERAL, (where, key, a, b)
+            else:
+                assert max(d) <= AIM_EXACT, (where, key, a, b)
+    w = ', '.join(f'{k} {"xyz"[a_]} {v:.4f}' for (k, a_), v in sorted(worst.items()) if v >= 1e-4)
+    return f'the camera in the player\'s frame on {len(pairs)} rows (largest: {w or "none"})'
+
+
 def check_aim_hold(ticks, run, state, what):
     """The AIM captures aim_00_r1_hold / aim_01_r2_hold (decomp
     CAPTURES_C10.md "AIM"), from the stance row (f13) to the capture's end,
@@ -957,6 +1266,7 @@ def check_aim_hold(ticks, run, state, what):
         (what, 'D_00275690 / D_00275694 at the last row', end and end['eases'].hex(), mem[0x275690:0x275698].hex())
     c = RCTX_CONTEXT
     assert end['depth'][0xC:] == mem[c + 0x245C:c + 0x2468], (what, 'render context +0x245C..+0x2467 at the last row')
+    whole = check_aim_records([(rows[r0 + k], ticks[i0 + k]) for k in range(count)], what)
     state['aim_from'] = min(state.get('aim_from', i0), i0)
     state['cursor'] = i0 + count
     w = ', '.join(f'{key} {"xyz"[axis]} {v:.4f}' for (key, axis), v in sorted(worst.items()) if v >= 1e-4)
@@ -966,7 +1276,7 @@ def check_aim_hold(ticks, run, state, what):
           f'and target and +A0 / +B0 within {AIM_EXACT} (start pose {dpos:.3f} / {abs(pyaw - pre_row["yaw"]):.4f} '
           f'from the capture\'s; the eye\'s start lateral offset {first_dx:.4f}; {capped} capped target '
           f'steps equal; largest differences: {w}; D_00275690 / D_00275694 and the context\'s +0x245C..+0x2467 '
-          f'equal the end snapshot)')
+          f'equal the end snapshot; {whole})')
 
 
 def check_aim_r1_hold(ticks, run, state):
@@ -983,7 +1293,8 @@ def check_aim_r2_hold(ticks, run, state):
 AIM_REPLAYS = {'aim_fire': 'aim_03_single_fire', 'aim_both': 'aim_02_r1_r2_both',
                'aim_reload': 'aim_06_reload_partial', 'aim_reload_empty': 'aim_07_reload_empty',
                'aim_light': 'aim_08_light_holster', 'aim_melee': 'aim_09_melee',
-               'aim_world': 'aim_04_world_hit', 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee')}
+               'aim_world': 'aim_04_world_hit', 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee'),
+               'aim_burst': 'aim_05_burst_fire'}
 # The capture's first input frame (the button replays' first press is at
 # frame 10; the stick replays' first stick input at frame 5).
 AIM_FIRST = {'aim_world': 5, 'aim_cable': 5}
@@ -1079,7 +1390,10 @@ def check_aim_replay(ticks, run, state, what):
       run stands, the direction does not);
     - aim_cable: the security gun's and the cable's +0, +4, +5, +9 and the
       cable's +0x36 (the hit) on every row (the gun_fan log; the cable's
-      record gone where the capture's is freed)."""
+      record gone where the capture's is freed);
+    - the whole records (check_aim_records: the player record, the gun and
+      knife nodes, D_008101E4..E7 and the status block) and, in the button
+      replays, the camera (check_aim_camera), row for row."""
     beat = AIM_REPLAYS[what]
     rows = aim_rows(what)
     first = AIM_FIRST.get(what, 10)
@@ -1091,9 +1405,10 @@ def check_aim_replay(ticks, run, state, what):
     assert m, (what, 'no alignment line in the run log')
     aligned = next(i for i in range(start, len(ticks)) if ticks[i]['counter'] == int(m.group(1)))
     i0 = aligned + AIM_ALIGNED_TO_FIRST
-    if first == 10:
+    if first == 10 and rows[r0]['p5']:
         # the button replays: the stance's first tick, as found before the
-        # alignment line (the two agree)
+        # alignment line (the two agree; aim_burst's first input opens the
+        # status screen: the player stays idle)
         by_state = next(i for i in range(start, len(ticks)) if ticks[i]['player'][0] == rows[r0]['p5']
                         and ticks[i].get('fire'))
         assert by_state == i0, (what, 'the alignment line and the first stance tick disagree', by_state, i0)
@@ -1185,6 +1500,10 @@ def check_aim_replay(ticks, run, state, what):
                         (where, key[0], 'the elevation of the point the round struck from the muzzle', a, b)
                     elevations += 1
                 shots += key[0] == 'marker' and key[1] == 1 and key[4] is not None
+    pairs = [(row, ticks[i0 + row['u'] - u0]) for row in rows[r0:]]
+    stick = what in AIM_FIRST
+    whole = check_aim_records(pairs, what, stick=stick)
+    camera = '' if stick else '; ' + check_aim_camera(pairs, what)
     state['aim_from'] = min(state.get('aim_from', i0), i0)
     if what == 'aim_cable':
         state['cable_from'] = i0
@@ -1198,7 +1517,7 @@ def check_aim_replay(ticks, run, state, what):
           f'muzzle nodes, impact effects, knife trails, cable reaction nodes) with +4 / +0C / +0D / +28 equal and '
           f'their +0xB0 in the player\'s frame (the struck points by bearing, {elevations} of them by elevation '
           f'from the muzzle; largest position differences: {w}; start pose {dpos:.3f} / {dyaw:.4f} from the '
-          f'capture\'s){cable})')
+          f'capture\'s){cable}; {whole}{camera})')
 
 
 def _aim_cable_rows(row, t, where):
@@ -1247,6 +1566,10 @@ def check_aim_world(ticks, run, state):
 
 def check_aim_cable(ticks, run, state):
     check_aim_replay(ticks, run, state, 'aim_cable')
+
+
+def check_aim_burst(ticks, run, state):
+    check_aim_replay(ticks, run, state, 'aim_burst')
 
 
 def check_aim_melee(ticks, run, state):
@@ -2442,6 +2765,7 @@ PHASES = [
     ('aim_melee', check_aim_melee),
     ('aim_world', check_aim_world),
     ('aim_cable', check_aim_cable),
+    ('aim_burst', check_aim_burst),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
@@ -3115,7 +3439,7 @@ def check_effects(ticks, state):
 
 SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
-        'aim_cable')
+        'aim_cable', 'aim_burst')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door'}
@@ -3125,7 +3449,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('02', ('elevator_refusal',)), ('03', ('panel',)), ('04', ('elevator',)), ('05', ('boxes',)),
          ('06', ('slide',)), ('07', ('truck_preview',)), ('08', ('truck_crossing',)), ('09', ('fence_door',)),
          ('aim', ('aim_r1_hold', 'aim_r2_hold', 'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty',
-                  'aim_light', 'aim_melee', 'aim_world', 'aim_cable')),
+                  'aim_light', 'aim_melee', 'aim_world', 'aim_cable', 'aim_burst')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
 

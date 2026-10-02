@@ -266,7 +266,10 @@ gave until 2026-09-28 matched 1,040 of 4,096 pixels) with the frame's FOGCOL; th
 frame pixel (framebuffer fetch), RGB only. The GS sprite takes Z, F and RGBA
 from its second vertex and S / Q, T / Q at each corner, affine across the
 rectangle. Every other state is refused (-1, the scene faults): PRIM with AA1,
-FST, CTXT or FIX; an untextured sprite or triangle, a textured line (a LINE
+FST, CTXT or FIX; an untextured sprite, a flat-shaded triangle (an
+untextured Gouraud triangle draws on the flat path, Cf = Cv, Af = Av, since
+the AIM fix round: the knife trail 001F15F0's strip, PRIM 0x4C, AIM_FIRE.md
+section 11.3), a textured line (a LINE
 list of two vertices, PRIM type 1, draws like a two-vertex line strip since
 chain step AIMCAM: the aim beam 001E2BA0's PRIM 0x69, AIM_FIRE.md section 7.
 Evidence: the GS assembles a list every two vertices and a strip from its

@@ -447,11 +447,14 @@ test-level-smoke-side: $(BIN)
 # truck_crossing (about 5,550 ticks: the port has no state restore at route
 # 08's end), then R1 (R2) held and released at the start of the AIM
 # captures aim_00 / aim_01, and the replays aim_fire, aim_melee, aim_light,
-# aim_world (aim_04, with the stick) and aim_cable (aim_10 then aim_11;
-# EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty), each checked
-# row for row against its capture. The runs side by side, then their
-# checks: 8 min 57 s for the default seven, measured 2026-10-02 with the
-# machine's load average near 50; part of test-level-smoke-side and -full.
+# aim_world (aim_04, with the stick), aim_cable (aim_10 then aim_11) and
+# aim_burst (aim_05: the status screen's SELECTOR picks the burst; EM_TEST_FULL=1
+# adds aim_both, aim_reload, aim_reload_empty), each checked row for row
+# against its capture, whole records included (the player record, the gun
+# and knife nodes, the camera and the status block: EM_LOG_AIM_RECORDS=1).
+# The runs side by side, then their checks: 8 min 57 s for the default
+# seven, measured 2026-10-02 with the machine's load average near 50; part
+# of test-level-smoke-side and -full.
 .PHONY: test-level-smoke-aim
 test-level-smoke-aim: $(BIN)
 	python3 tools/test_level_smoke_aim.py

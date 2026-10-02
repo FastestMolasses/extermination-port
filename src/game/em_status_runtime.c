@@ -621,6 +621,17 @@ uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *runtime)
     return runtime ? runtime->ui_clock : 0;
 }
 
+const uint8_t *em_status_runtime_ui_block(const EmStatusRuntime *runtime)
+{
+    static uint8_t view[sizeof runtime->ui];
+    if (!runtime)
+        return NULL;
+    memcpy(view, runtime->ui, sizeof view);
+    ui_load(view, &runtime->page);                /* the bytes the page views hold */
+    memcpy(view + 0x20, &runtime->ui_clock, 4);   /* UI+0x20 is ui_clock's */
+    return view;
+}
+
 /* The pages share one UI texture slot (EM_GFX_OVERLAY_TEX_UI): the page
  * that draws marks the others' uploads stale. */
 static void release_slot(EmStatusRuntime *runtime)

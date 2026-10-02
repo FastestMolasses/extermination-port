@@ -69,6 +69,12 @@ typedef struct {
      * C7 side-1 capture starts from beat 09's end): EM_LEVEL_SMOKE_UNTIL=<it>
      * runs the main line, that previous side beat, then it. */
     int from_side;
+    /* 1: the phase's frame function runs once per main-loop iteration,
+     * including the iterations that close out neither a world nor a
+     * status frame (the status screen's entry and exit iterations), so a
+     * replayed pad script stays on the capture's frames
+     * (em_level_smoke_test_tick_end). */
+    int every_tick;
 } Phase;
 
 static void first_control_begin(void);
@@ -123,115 +129,120 @@ static int roger_frame(void);
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
      "0x1AE040 state 1 with 001AE5E0; the AREA11 pool of 49 nodes (ORIGINAL_FRAME_ORDER.md 2, 4)",
-     "S12a", first_control_begin, first_control_frame, 0, 0, 0},
+     "S12a", first_control_begin, first_control_frame, 0, 0, 0, 0},
     {"panel_no_battery", "00_panel_no_battery (side, slot 04)", 0x00159210u,
      "panel 00159210 (r18) without item 0x1B: script 0x246F20, message 0x80000018, letterbox",
      "WP-4 (the panel's original owner and its scripts)", panel_no_battery_begin, panel_no_battery_frame, 0,
-     1, 0},
+     1, 0, 0},
     {"status", "01_battery (status exit); frame_trace2/status_04.json", 0,
      "001AE7E0 r==2 -> state 3 (0020E060, 0020CDC0) -> state 5 -> state 1 (ORIGINAL_FRAME_ORDER.md Q7)",
-     "S11b", status_begin, status_frame, 0, 0, 0},
+     "S11b", status_begin, status_frame, 0, 0, 0, 0},
     {"status_pages", "(designed: no route capture shows a status page open)", 0x0020CDC0u,
      "0020CDC0 phase 3: DATABASE 00214020, SPR4 00211970 with its part pages, the ITEM children "
      "00214570 / 00215870 / 002160B0, and the takes of 0x1E / 0x1F / 0x32 / 0x10",
-     "chain C8b FAILSTOPS (em_status_pages_live)", status_pages_begin, status_pages_frame, 0, 1, 0},
+     "chain C8b FAILSTOPS (em_status_pages_live)", status_pages_begin, status_pages_frame, 0, 1, 0, 0},
     {"battery", "01_battery", 0x00219550u,
      "pickup 00219550 g0.0 (item 0x1B): take script 0x266620, B0=1/B1=0x1B, status ITEM page",
      "WP-6 (pickup owner and Use arbiter) with WP-5 (status ITEM page)", battery_begin, battery_frame,
-     0, 0, 0},
+     0, 0, 0, 0},
     {"elevator_refusal", "02_elevator_refusal", 0x00827B10u,
      "terminal 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox",
-     "WP-4", refusal_begin, refusal_frame, 0, 0, 0},
+     "WP-4", refusal_begin, refusal_frame, 0, 0, 0, 0},
     {"panel", "03_panel_power", 0x00159210u,
      "panel 00159210 (r18): script 0x2477A0, 00157F60 B0=1/B1=0x82 (BATTERY page), discharge, "
      "script 0x247BE0, power bit 0x80",
-     "WP-4", panel_begin, panel_frame, 0, 0, 0},
+     "WP-4", panel_begin, panel_frame, 0, 0, 0, 0},
     {"elevator", "04_elevator_ride", 0x00827B10u,
      "terminal 0x827B10: powered script 0x82A750, clip 0x47, carry 0x828050 down to y 190", "WP-4",
-     elevator_begin, elevator_frame, 0, 0, 0},
+     elevator_begin, elevator_frame, 0, 0, 0, 0},
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
-     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0, 0},
+     "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0, 0, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
-     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0, 0},
+     "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0, 0, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
-     truck_preview_frame, 0, 0, 0},
+     truck_preview_frame, 0, 0, 0, 0},
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
-     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0, 0},
+     "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0, 0, 0},
     {"fence_door", "09_fence_door (side, from 08)", 0x001BC350u,
      "door 001BC350 (r0): scripts 0x24DE40 / 0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2",
      "the fence door's original owner and the ELF program on the AREA11 script host (census L18)",
-     fence_door_begin, fence_door_frame, 0, 1, 0},
+     fence_door_begin, fence_door_frame, 0, 1, 0, 0},
     {"fence_door_side1", "c7_door1_fence_door_side1 (side, from 09; decomp CAPTURES_C7.md section 4)", 0x001BC350u,
      "door 001BC350 (r0) from behind the fence: scripts 0x24DE40 / 0x24DC00, clip 0x43, room move B7=1/B8=2 "
      "to entry 1; the arrival walk-out 001B07C0(1) 5/1/0 on the player's 0015B610 / 00183250",
      "the player's +4 = 5 handler 0015B610 and 00183250 (fence door side 1)", fence_door_side1_begin,
-     fence_door_side1_frame, 0, 1, 1},
+     fence_door_side1_frame, 0, 1, 1, 0},
     {"aim_r1_hold", "aim_00_r1_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 stance 0016FCF0 (+5 0x1D, +1F0 0x31), camera action 1 00197D20 and its release 00197490",
      "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r1_hold_frame, 0, 1,
-     0},
+     0, 0},
     {"aim_r2_hold", "aim_01_r2_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R2 stance 001703E0 (+5 0x1E, +1F0 0x32), camera action 2 00198650 and its release 00197490",
      "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r2_hold_frame, 0, 1,
-     0},
+     0, 0},
     {"aim_fire", "aim_03_single_fire (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 / R2 single fire: 00170A60 states 0x0A / 0x0B, the round 001861C0, the muzzle node 001F5040 (00187CC0), the shell casing 001F4010, the impact marker 0018ABA0",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_reload", "aim_06_reload_partial (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "L3 reload 0017B300 mode 2 (+6 3, +1F0 0x33), L3 on a full magazine, the release mid-reload (0016F600)",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_reload_empty", "aim_07_reload_empty (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "60 single rounds: the automatic reload at an empty magazine, the empty reserve, dry presses",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_light", "aim_08_light_holster (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "Square: the gun light D_00810D3C / the lamp D_008106C7 (0017A970), Cross 0017AAD0, holster, R2 redraw",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_both", "aim_02_r1_r2_both (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 and R2 together: the stance switch 0x1D / 0x1E, both from idle",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_melee", "aim_09_melee (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "melee from idle: Circle 001735C0 (+5 0x21, +1F0 0x36) and its combo, Square 00173E60 (+5 0x22)",
-     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0},
+     "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_hold_begin, aim_replay_frame, 0, 1, 0, 0},
     {"aim_world", "aim_04_world_hit (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "the walk and the left-stick aim (0017ABA0), rounds into the ground, the pillar, past the fence and a miss: "
      "the impact marker 0018ABA0 and the impact effects 0x80000060 (001EACF0, the streak program 0x230800)",
      "the original aim / fire path (chain step AIMLIVE; AIM_FIRE.md)", aim_script_begin, aim_replay_frame, 0, 1,
-     0},
+     0, 0},
+    {"aim_burst", "aim_05_burst_fire (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
+     "START: the status screen's SPR4 page 00211970 and its SELECTOR part page 00217FA0 (3-round burst, "
+     "D_00810C61 = 1), then R1 burst fire: 00170A60 states 0x14..0x17",
+     "the original aim / fire path and the status pages (AIM_FIRE.md, STATUS_PAGES.md)", aim_script_begin,
+     aim_replay_frame, 0, 1, 0, 1},
     {"aim_cable", "aim_10_cable_shots, then aim_11_cable_melee (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 / R2 rounds aimed at the security gun's cable (onto the pillar), then the knife at the cable's foot: "
      "the cable reaction 001EFE00 / 001EFEB0 / 0021AAC0 / 0021A500, the gun's lifecycle 2, taken bit 0x50",
      "the original aim / fire path and the cable reaction (AIM_FIRE.md)", aim_script_begin, aim_replay_frame, 0,
-     1, 0},
+     1, 0, 0},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
-     cage_ladders_frame, 0, 0, 0},
+     cage_ladders_frame, 0, 0, 0, 0},
     {"cage_roof", "10_cage_roof_roger", 0x008253F0u,
      "director 0x8253F0 beat 0 script 0x8294C0 (260 <= Y <= 280, quad 0x82ABE0); Roger 0x8237E0 script "
      "0x828990 (voiced line 0x7F, VOICE.DAT cues 143..148); D_00810813 0 -> 1 -> 0x10 -> 0x11",
      "census L21 with WP-8b (the director on its original scripts, the voice lanes)", director_begin,
-     cage_roof_frame, 0, 0, 0},
+     cage_roof_frame, 0, 0, 0, 0},
     {"crevice_climbs", "11_crevice_prompt", 0,
      "tank ledge climb (state 2, +1F0 8), the pipes (fall 5 / 0xB), pipe-end ledge climb",
      "the ledge climb and fall on the live record (census L04, L02)", crevice_climbs_begin,
-     crevice_climbs_frame, 0, 0, 0},
+     crevice_climbs_frame, 0, 0, 0, 0},
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
      "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97, VOICE.DAT cue 150); D_00810813 -> 0x20",
-     "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0, 0},
+     "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0, 0, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
-     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0},
+     "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0, 0},
     {"east_tower_climb", "13_east_tower", 0, "high ledge climb (state 2, +1F0 8) onto the east tower top",
-     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0, 0},
+     "the ledge climb on the live record (census L04)", east_tower_climb_begin, east_tower_climb_frame, 0, 0, 0, 0},
     {"east_tower", "13_east_tower", 0x008253F0u,
      "director beat 2 script 0x829CC0 (Y >= 285, quad 0x82AC60; line 0x99, VOICE.DAT cue 149); D_00810813 -> 0xFF",
-     "census L21 with WP-8b", director_begin, east_tower_frame, 0, 0, 0},
+     "census L21 with WP-8b", director_begin, east_tower_frame, 0, 0, 0, 0},
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
-     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0, 0},
+     "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0, 0, 0},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -2134,7 +2145,12 @@ static int aim_r2_hold_frame(void) { return aim_hold_frame(EM_PAD_R2, 0x1E, 0x32
  * (LEVEL_SMOKE.md "The AIM replays"). The pad scripts are the captures'
  * (test input, not game data). The stick replays (aim_world, aim_cable)
  * start at the capture's first stick input, frame 5 (`first`), and are
- * compared from its row 8; the other replays' first input is frame 10. */
+ * compared from its row 8; the other replays' first input is frame 10.
+ * aim_burst (aim_05_burst_fire) takes its pad script from the same file
+ * (START, the stick and the menu buttons): its status screen runs
+ * iterations that close out neither a world nor a status frame, so the
+ * phase asks for every iteration (Phase.every_tick) and its script stays
+ * on the capture's frames. */
 typedef struct {
     int f;
     uint16_t buttons;
@@ -2209,6 +2225,7 @@ static const AimReplay k_aim_replays[] = {
     {"aim_both", k_aim_both_inputs, sizeof k_aim_both_inputs / sizeof k_aim_both_inputs[0], 0x41400000u, 0x1D, 0x31, 368, 10},
     {"aim_melee", k_aim_melee_inputs, sizeof k_aim_melee_inputs / sizeof k_aim_melee_inputs[0], 0x41500000u, 0x21, 0x36, 267, 10},
     {"aim_world", NULL, 0, 0x41200000u, 0x00, 0x00, 1404, 5},
+    {"aim_burst", NULL, 0, 0x41500000u, 0x00, 0x00, 471, 10},
     {"aim_cable", NULL, 0, 0x41900000u, 0x00, 0x00, 1448 + 585, 5},
 };
 
@@ -2959,10 +2976,15 @@ static void page_capture(void)
     }
 }
 
+/* The main-loop counter of the last after-frame call (the every-tick
+ * phases' guard). */
+static uint32_t s_after_frame_counter = UINT32_MAX;
+
 void em_level_smoke_test_after_frame(void)
 {
     if (!t.active || t.failed)
         return;
+    s_after_frame_counter = em_frame_counter();
     if (t.stop_pending) {
         t.stop_pending = 0;
         if (em_scene_faulted(em_scene_state()))
@@ -2985,6 +3007,14 @@ void em_level_smoke_test_after_frame(void)
     page_capture();
     if (k_phases[t.current].frame() == 1 && !t.failed)
         next_phase();
+}
+
+void em_level_smoke_test_tick_end(void)
+{
+    if (!t.active || t.failed || t.current > t.until || t.current >= PHASE_COUNT ||
+        !k_phases[t.current].every_tick || s_after_frame_counter == em_frame_counter())
+        return;
+    em_level_smoke_test_after_frame();
 }
 
 void em_level_smoke_test_scene_stopped(void)

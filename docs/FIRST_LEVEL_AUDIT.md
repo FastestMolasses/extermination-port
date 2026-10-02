@@ -1420,6 +1420,18 @@ The groups:
      SPU samples (the port's SFX play the exported registry), the handle's
      volume D_002819C0 (the sequencer's 00116DB8 is untranslated) and
      D_0027F778 (em_sfx_bank's 001179E0 reads a constant 0).
+   - **Finding (AIM fix round, 2026-10-02): the port's track choice is
+     host-timed.** em_sfx.c's TRACK HAND-OFF frees tracks in the device
+     callback (the 00118EC0 reaper stores FREE on wall-clock time), while
+     the game thread's sfx_start (00119EA0's side) takes the lowest FREE
+     track on the game's tick. So the track a sound gets, which the game
+     keeps (the melee's +0x302), follows host timing under EM_UNCAPPED:
+     five aim_melee runs (2026-10-02) differ from the capture on 17, 222,
+     66, 66 and 17 rows, mostly one track lower than the original's. Fix: the
+     00119EA0 track state the game thread sees must follow the sound
+     driver's per-field tick (001152D8, on the game's field count), not the
+     device callback; then +0x302 is deterministic and the AIM side runs
+     can compare it byte for byte (AIM_FIRE.md section 11.4).
    - Capture: nothing records SPU2 output today, and the smoke compares no
      sound.
    - What removes it: an audio capture of the route (the lead), the SPU2
@@ -1525,11 +1537,15 @@ The groups:
    Capture: a status page opened in PCSX2 with the load-wait probe of
    STATUS_LOAD_WAIT_PROBE.md), and the consumer applies the proven step
    rather than decoding the chain itself (MODULE_LOADER.md section 5).
-10. **State: the shared bone-slot stack 001AF710.** The player's 21 node
-    records are not popped from it (0015C420's pops), so every later slot
-    address is 21 slots below the original's and the first 21 pops alias
-    the player's node addresses (FACE_ATTACH.md section 5). No drawn or
-    compared value differs today.
+10. **State: the shared bone-slot stack 001AF710.** **Done in chain step
+    AIMCAP (2026-10-02, AIM_FIRE.md section 11.2):** 0015C420's pops of the
+    player's 21 node records now come off the one stack (with its +0x30 /
+    +0x58 / +0x5C words), each checked against the address the record's
+    storage holds, so every later slot address is the original's (the
+    knife's bone 0x7D9E20, as aim_09's snapshot holds). Before, the first 21
+    pops aliased the player's node addresses, and a value did differ: the
+    knife's trail wrote its point history into the player's nodes 0..2, and
+    from aim_09 f27 the player's pose and the camera left the capture's.
 11. **Logic: startup, input and frame glue that is still the port's own.**
     (Also, found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280
     loop-id read sign-extends with a signed left shift,
@@ -1648,6 +1664,34 @@ The groups:
     (D_008106C8 has 0x20000000), the original death states (L02) are not
     translated, and a side run takes about a minute or more because the
     port cannot restore state at route 08's end (the lead's decision).
+    **Status (2026-10-02, chain step AIMCAP):** every AIM beat is a side
+    run, aim_05 (the burst picked in the status screen's SELECTOR, then
+    burst fire) as aim_burst, and every side run compares whole records row
+    for row: the player record +0x000..+0x31F, the gun and knife nodes, the
+    camera bytes and, in the button replays, the camera, and the status
+    block (LEVEL_SMOKE.md "The AIM side runs' whole records"); all eleven
+    PASS. Fixed with original evidence: the player's node slots come off
+    the one stack (item 10), which ended a melee divergence (the knife's
+    trail wrote into the player's node records: the hip and the camera left
+    aim_09 from f27). The AIM delta's 114 functions are census rows (113
+    live, measured; FIRST_LEVEL_CENSUS.md 1.53). **AIM fix round
+    (2026-10-02):** the knife's trail is drawn, as the original drew it
+    (00102990 at aim_09 f26 in the census run). An offline check on aim_09's
+    own capture (one camera on all 267 rows, so the end snapshot's clip
+    matrix is f26's) puts the world origin outside the clip volume, so the
+    original's point was not the origin; 00189D30 passes 001EFF10 the knife
+    bone's slot + 0x90 (the world matrix, row 3 the hand), and the port's
+    worker had passed the slot itself. Fixed, with 00102990 bound and the
+    chain page drawing the trail's PRIM 0x4C strip; all 40 trail calls now
+    get a key, 00102990 is live (census 114 of 114). The knife's own
+    translation at f26 is not recorded, and no original frame of a swing
+    exists to compare the trail's pixels. Open (AIM_FIRE.md section 11.4):
+    the melee swing's sound handle +0x302 is not deterministic in the port
+    (its tracks are freed on the host audio thread's clock; 17 / 222 / 66 /
+    66 / 17 rows with another track in five runs), and the original's
+    track differs from the port's on most handle rows; the side runs require
+    a handle on the same rows only. This is item 1's finding. The AIM
+    captures hold no other sound state.
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths.

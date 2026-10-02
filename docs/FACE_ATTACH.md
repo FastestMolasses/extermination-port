@@ -313,15 +313,16 @@ random variants, because D_00250FB0 is zero in every capture.
   0x7A96E0) like Roger's own.
 - **Pixels.** Rasterization is Metal's (OWNER_DRAW.md section 12); no
   framebuffer capture of a face frame is compared.
-- **The bone-slot stack.** The port's player node records (0x7D5840..) are
-  em_player_record_pose's storage and are not popped from the shared
-  001AF710 stack (0015C420's 21 pops): every later pop, the face slots
-  included, returns an address 21 slots lower than the original's (route 08
-  snapshot: free count 1063 against 1042, cursor 0x7D47A4 against
-  0x7D47F8), and the first 21 pops alias the player's node addresses in the
-  boxes' arena. The face units do not carry the slot address (their REF
-  names the face resource), so the drawn bytes are unaffected; the stack's
-  state is not compared. Found by this step, not fixed here.
+- **The bone-slot stack.** Fixed in chain step AIMCAP (2026-10-02,
+  AIM_FIRE.md section 11.2): 0015C420's 21 pops of the player's node
+  records (em_player_record_pose's storage at 0x7D5840..) now come off the
+  shared 001AF710 stack, so every later pop, the face slots included,
+  returns the original's address. Before, every later pop returned an
+  address 21 slots lower than the original's (route 08 snapshot: free count
+  1063 against 1042, cursor 0x7D47A4 against 0x7D47F8) and the first 21
+  pops aliased the player's node addresses. The face units do not carry the
+  slot address (their REF names the face resource), so their drawn bytes
+  did not change.
 
 ## 6. Binding (done 2026-09-28)
 

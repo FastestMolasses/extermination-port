@@ -157,6 +157,9 @@ int em_status_runtime_bind_loader(EmStatusRuntime *, struct EmModuleLoader *load
 /* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset
  * clears it), for tests. */
 uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *);
+/* The UI block D_00810130 as one byte image (UI+0x20 from the clock), for
+ * the tick log; NULL without a runtime. Valid until the next call. */
+const uint8_t *em_status_runtime_ui_block(const EmStatusRuntime *);
 /* Queue the original normal status route (B0=0/C5=0), after the host's
  * actual gameplay input gates. Requires both real hub workers; it does
  * not substitute a panel request or silently accept unsupported artwork. */
