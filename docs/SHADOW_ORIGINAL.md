@@ -734,8 +734,11 @@ mesh `extract/chunk28/f00_id3b.bin` with today's `export_native.py`, the
 same anim and the same 57 clip ids (with or without `--attach --no-glow
 --gsdump`) gives a palette equal to the proxy's in all 3,909 frames and to
 player.emdl's in the same 3,073. So the difference lies in how the current
-player.emdl was produced for those eight clips, not in the proxy; what
-produced it is not established. It does not affect the shadow: the
+player.emdl was produced for those eight clips, not in the proxy: they are
+STARTUP.md step 8's rewrites and appends (0 the idle, 67 / 69 the door,
+71 the elevator lever, 64..66 the pickups, 348 the panel clip; steps 6..8
+reproduce the installed file whole, DISC_TEXTURES.md 9.5). It does not
+affect the shadow: the
 original skins the proxy with the actor's world-space node matrices
 (node+0x90 of the `+0x110` nodes, with actor `+0x80..+0x88` zeroed for the
 `001C7420` call), so the port must pass the player's live palette, never a

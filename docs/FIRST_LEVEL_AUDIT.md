@@ -1198,12 +1198,8 @@ user's disc alone"; DISC_TEXTURES.md sections 6 and 9, STARTUP.md):**
   came out byte-identical to the installed ones and `make
   test-level-smoke-full` passed on them (main route through roger, 18
   phases, and the side runs).
-- **Open:** `interaction.emis` (the use-owners' first-tick status, selector
-  and descriptor pointer) and `background.embg` (render channel 3's GS
-  draw state) still read a capture (DISC_TEXTURES.md 9.4); only `--iso` is
-  exercised; the installed `player.emdl` and `fx/light_cone.emdl` are not
-  reproduced whole by the current exporters (older bakes), though their
-  texels are the disc's.
+- **Open:** only `--iso` is exercised. (The two capture-bound assets and
+  the two older bakes were closed by chain step ASSETS, 2026-10-02.)
 
 **Status update (2026-09-28, chain C8b ROUTE: full route, census re-measured,
 the remaining gaps re-made; census 1.44):**
@@ -1398,6 +1394,37 @@ loader-chain sub-point):**
   new check_room_lights (the pool against the first-control capture and
   every aligned route snapshot) and check_fade_weights (model 0x16 against
   every capture, byte for byte).
+
+**Status update (2026-10-02, chain step ASSETS, audit 1b item 22):**
+- **No first-level asset reads a capture.** `interaction.emis` and
+  `background.embg` come from AREA11's first world frame, which the
+  original code builds from the disc (`tools/export_disc_state.py`,
+  DISC_TEXTURES.md 9.4): the boot's 001D0F20, the game task's install,
+  New Game (001AD230, 001AD360 step 4), the overlay and its init 008237C0,
+  0x1AE040 state 0, and 0x1AE040 state 1 through 001AE5E0's actor walk
+  (every owner's first tick), then the state-3 record 13's own free. The
+  two files' writers are unchanged (`export_interaction_scan.build`, the
+  decomp's `export_level.export_background`); their outputs are
+  byte-identical to the capture-derived files. Boundaries: the flame's
+  first tick (VU0 VMINI is outside the measured VU model) and one
+  from-memory VIF1 kick that completes at once.
+- **`player.emdl` reproduced whole; `fx/light_cone.emdl` re-baked.** Steps
+  6..8 with the clip list completed (`20,71,64,65,66`) and step 8's
+  model tools in order give the installed `player.emdl` and
+  `player_channels.empc` byte for byte; the reversal and climb / slide
+  tools only stage (their `--install` was never part of the installed
+  files). The light cone is the current `--cone` bake (flags 0); nothing
+  opens it since chain step AIMLIVE (DISC_TEXTURES.md 9.5).
+- **Evidence.** `make test-disc-assets-reference` part E (both files from
+  the disc frame equal the pins, the capture paths give the pins, every
+  owner's +0x00 / +0x30 and the selectors stored by its own tick, the
+  boundary and hardware lists pinned, three controls); full mode rebakes
+  `player.emdl`, `player_channels.empc` and the cone whole. A capture-free
+  sandbox (no `../Extermination/build`, the extract without its GS dump and
+  live dumps) ran `export_disc_textures.py` (every part), steps 6..8 and the
+  cone: every output was byte-identical to the installed file, and `make
+  test-level-smoke-full` passed on them (DISC_TEXTURES.md 9.6).
+- **Open:** only `--iso` is exercised (no test covers `--disc DIR`).
 
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
@@ -1725,10 +1752,11 @@ The groups:
 21. **Platforms.** macOS only: the Windows (D3D12) and Linux (Vulkan)
     backends are skeletons, the GS frame stage and the GPU pixel tests are
     Metal only, and the Linux build has no movie playback.
-22. **Two capture-bound assets.** `interaction.emis` and `background.embg`
-    still read a PCSX2 capture (DISC_TEXTURES.md 9.4); only `--iso` is
-    exercised; the installed `player.emdl` and `fx/light_cone.emdl` are
-    older bakes the current exporters do not reproduce whole.
+22. **Two capture-bound assets.** Done in chain step ASSETS (2026-10-02,
+    status update above): `interaction.emis` and `background.embg` come
+    from the first world frame executed from the disc (DISC_TEXTURES.md
+    9.4), `player.emdl` is reproduced whole and `fx/light_cone.emdl` is the
+    current bake (9.5). Left: only `--iso` is exercised.
 23. **Frame cost.** The VU1 kernels run on the CPU every frame: on the M1 the
     in-level main-thread time per tick is 7.6 ms on average with no tick
     over the 16.68 ms period (chain C8b FLAMESNOW); slower hosts are not

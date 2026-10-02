@@ -233,9 +233,11 @@ without the render context (outside the first level) keep it.
   The single-face `area_item_0d` (0.615) and `area_internal_terminal`
   (0.741) are constant instead:
   - Referenced and still drawn: `tendril.emdl` and
-    `enemy_crate_cardboard_n1.emdl` (em_enemy), `fx/light_cone.emdl`
-    (em_weapon); outside the first level, the drawbridge scene's doors,
-    props and `12_placed.emdl`.
+    `enemy_crate_cardboard_n1.emdl` (em_enemy); outside the first level,
+    the drawbridge scene's doors, props and `12_placed.emdl`.
+    `fx/light_cone.emdl` was one of these bakes; since 2026-10-02 it is the
+    current `--cone` bake (flags 0), and nothing opens it since chain step
+    AIMLIVE retired em_weapon's cone (DISC_TEXTURES.md 9.5).
   - In `scene_snow/props` but referenced by no manifest or source file:
     `area_battery_terminal`, `area_internal_terminal`, `area_item_11`,
     `area_item_battery` and `item_4d/4f/57/58/6c`. The AREA11 pickups

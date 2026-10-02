@@ -97,7 +97,11 @@ these semantics with bounded native storage.
 
 `tools/export_interaction_scan.py` reads the original deferred registry,
 AREA11 placement records, descriptors and SDK coefficient table, then
-validates associations against local original RAM. Native identity is the
+validates associations against an EE image of AREA11's first world frame:
+by default the one the original code builds from the user's disc
+(`tools/export_disc_state.py`, DISC_TEXTURES.md 9.4: the owners' status,
+selector and descriptor pointer are stored by their own first tick there),
+or with `--ee` a capture's RAM (the same bytes). Native identity is the
 original **source record address**. A captured actor allocation address is
 only evidence; it is not a permanent native identity.
 
