@@ -44,7 +44,9 @@ behaviour.
   earlier level ran: a13d 9 boot; a19b 23 boot and 7 AREA19 overlay.
   "At least": a19b_00's AREA13 frames were not measured for AREA13 code,
   and four AREA19 addresses were not measured in a19b_00's AREA19 frames
-  (section 5, measured gaps).
+  (section 5, measured gaps). Closed by THIRTEENTH_LEVEL_ROUTE.md section
+  5.1 (an overlay-swap re-run of a19b_00): nothing new there, so these
+  counts are exact.
 - **Web leads:** the public walkthroughs found (GameFAQs guides by
   MACisBack, VicViper_Mk2 and _PSXTREME_, the Neoseeker and SuperCheats
   pages, a YouTube 100% walkthrough playlist) could not be read from this
@@ -307,6 +309,9 @@ not the EXIT group's overlay swap), and its breakpoints are one-shot.
   or 22, new 30 or 31 (14,944 or 15,692 bytes). The fix is a re-run of
   a19b_00 with an overlay-swap session (boot + AREA13, swapped to AREA19
   at the overlay change, as the EXIT group does); not done in this lane.
+  Done in THIRTEENTH_LEVEL_ROUTE.md section 5.1: 0x826840 and 0x824BE0 did
+  not run in a19b_00 and its AREA13 frames ran no new AREA13 function, so
+  the counts below are exact (30 new, 14,944 bytes).
 - No hit is unattributed.
 
 **Totals.** a13d: 757 functions executed (745 boot, 12 of AREA13's 49); **9
@@ -416,6 +421,10 @@ Scratch snapshots and tools under `../Extermination/build/twelfthcap/`
   910..960). How the y-195 platform is reached was not found.
 
 ## 7. Open
+
+Items 1, 2 (the second stage) and 6 are played or closed in
+THIRTEENTH_LEVEL_ROUTE.md (the bar's swing onto the y-195 platform, the bar
+into [7]'s room, [7]'s Use, door [27]; its section 5.1).
 
 1. [7]'s Use (0x825930, C: +0xB bit 2 -> script 0x82BD90; counter 0x1E 3,
    4 (001E8B40(1), sound 0x8DF), 0xFF -> D_00810854 |= 4, door [27]). The
