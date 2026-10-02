@@ -32,7 +32,8 @@ snapshot per beat. Nothing here is port behaviour.
   entry 0.
 - **Not played: AREA15 sub 1's event** ([4] / [6] 0x823850: flag 0x23,
   counter 0x23, the forced return to AREA15 sub 0 that rewrites five areas'
-  subs). Leads in section 7.
+  subs). Leads in section 7. Played in the fifteenth level
+  (`FIFTEENTH_LEVEL_ROUTE.md`, groups a15b / a19e / a03, to AREA03).
 - **Health:** 72 at the start, 44 at the end (bites and grabs, section 4);
   the pickup g[3] (item 0x1E) under the lift was taken and used (+30).
   Infection 0 -> 70 (bug bites in the alcove and the cage). Rounds 60 -> 2
@@ -512,7 +513,8 @@ Scratch snapshots under `../Extermination/build/fourteenthcap/probe/`
 
 ## 7. Open
 
-1. **AREA15 sub 1's event.** [4] (0x823850, +0xD 0x54, at (804.5, 325, 938))
+1. **AREA15 sub 1's event** (played in `FIFTEENTH_LEVEL_ROUTE.md`, group
+   a15b). [4] (0x823850, +0xD 0x54, at (804.5, 325, 938))
    waits (D_008107FB 0) until the player's y >= 310 inside the area 0x827C80
    (an L: x 750..890 for z 906..995, x 750..793 for z 825..906, read from the
    overlay image); then script 0x827400 (flag 0x23 = 1), D_008107FB = 1 and a
