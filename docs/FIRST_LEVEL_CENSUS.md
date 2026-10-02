@@ -2055,6 +2055,27 @@ Result (recounted from the section 3 rows): live 708, verified-unbound 45,
 unverified 3, stand-in 0, missing 0, boundary 428; 86,021 of the 88,729
 non-boundary instructions live (96.9%), as in 1.51.
 
+### 1.53 Update (2026-10-02, chain step ASSETS: the two capture-bound assets from the disc, no status change)
+
+`interaction.emis` and `background.embg` are now exported from AREA11's
+first world frame, which `tools/export_disc_state.py` builds by executing
+the original boot render builder, New Game, the overlay init, 0x1AE040
+state 0 and the first frame through its actor walk over the disc memory
+(DISC_TEXTURES.md 9.4); `player.emdl` is reproduced whole by STARTUP.md
+steps 6..8 and `fx/light_cone.emdl` is re-baked (9.5). These are export
+steps: the executions are offline, nothing in the live app changed, and
+the exported bytes are identical to the capture-derived files the live
+rows were verified with.
+
+- **Status changes:** none. **Row notes changed:** none.
+- **Evidence.** test-disc-assets-reference part E; a capture-free sandbox
+  rebuild of the files with the full level smoke passing on them.
+
+Result (recounted from the section 3 rows: 707 live plus 0015BCF0's
+partial row, 45 verified-unbound, 3 unverified): live 708, verified-unbound
+45, unverified 3, stand-in 0, missing 0, boundary 428; 86,021 of the
+88,729 non-boundary instructions live (96.9%), as in 1.52.
+
 ## 2. Totals
 
 ### 2.1 All 1184 executed functions

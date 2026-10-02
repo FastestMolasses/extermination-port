@@ -32,13 +32,31 @@ C. The exporters, run without a capture (their --no-verify / optional
        player.emdl: the decomp's export_native.py --attach bake with
        --p2s over the rebuilt memory is byte-identical to the same bake
        with --gsdump extract/gsdump/frame1.gs (when that dump exists), and
-       every texture of the installed player.emdl equals it.
+       the whole player.emdl of STARTUP.md steps 6 + 8 (that bake, then the
+       stop, elevator, idle, panel, door and pickup clip tools) and step
+       7's player_channels.empc equal the pinned installed files byte for
+       byte; fx/light_cone.emdl, the decomp's export_props.py --cone --p2s,
+       equals its pin (the current bake, which replaced an older one).
+E. The first world frame (tools/export_disc_state.py, DISC_TEXTURES.md
+   9.4). The original boot, New Game, area load, 0x1AE040 state 0 and the
+   first frame through its actor walk, executed over the disc memory:
+   interaction.emis (export_interaction_scan.build) and background.embg
+   (the decomp's export_level.export_background) built from that EE image
+   equal the pinned capture-derived files, and the same two writers over
+   the captures (playable_ee.bin; roger-encounter) give those pins. The
+   boundaries are exactly the pinned two, the only hardware touched is one
+   from-memory VIF1 kick (00200890's player texture packet), every owner's
+   +0x00 and +0x30 (and the pickups' and the elevator's +0x08) are stored
+   by its own behaviour during the walk, and the walk's second tick frees
+   exactly record 13 (008257A0).
 D. Controls, each of which must be caught: the resource table without the
    title's module 1 (slot 6), 001FB3E0's bank end without its 0x40, the
    area load's cursor from the resident offset, the weather word of the
    wrong room entry masked differently (entry 0x30 bytes off), an EMHS word
-   outside ARC_WORDS_WRITTEN, and a one-byte change in an exporter's
-   output.
+   outside ARC_WORDS_WRITTEN, a one-byte change in an exporter's output,
+   and (E) the first frame's image taken before the frame (the owners'
+   fields unwritten, no channel-3 list) or before the state-3 node's own
+   tick (record 13 still holds a rank).
 
 The ELF, the disc image and the captures are the user's own local files;
 nothing original is embedded. Needs the disc image (default
@@ -137,7 +155,34 @@ PINNED_SHA256 = {
         '5bdc8a399fb2bf36c246aae64bfad645028b365ac8973ebf9f68dff9e35363fd',
     'fx/laser_dot.emtx':  # sha256
         '440ef73296405910edba324c747c4c4839155f66abd2b1e05e5b1475735d6ea6',
+    # The two run-time-state assets, as the capture paths wrote them
+    # (export_interaction_scan.py --ee playable_ee.bin; export_level.py
+    # --background --capture-ee roger-encounter): E rebuilds both from the
+    # disc's first frame.
+    'scene_snow/interaction.emis':  # sha256
+        '5656e8c75473fc729bbbb4e9c1a6279111c3fdde543a1bbee48c12aa182669e5',
+    'scene_snow/background.embg':  # sha256
+        'cc25cf791e9b7f7786ab25248cf520e3c84397f52fe1748ef1626b41cc564ca6',
 }
+# The installed player.emdl and player_channels.empc (STARTUP.md steps 6..8,
+# baked 2026-09-22) that the current exporters reproduce whole (C, full).
+PINNED_PLAYER_SHA256 = 'b20a406e7a4c2f0273ce012add3bdc7fc9d677b9bc0c15e4464506a91533d176'  # sha256
+PINNED_CHANNELS_SHA256 = 'd62a3d391ffd2087b97aefcef54a49f94d8817a5ec374d9ecc2e37634f91efc7'  # sha256
+# fx/light_cone.emdl as the current export_props.py --cone writes it (flags 0,
+# the authored normals). The older installed bake (flags 1, a uniform grey in
+# the normal slot) is replaced by it; nothing in the port reads the file.
+PINNED_CONE_SHA256 = '35faa43356d2bfae2ed40bb1aa0f606088a74786055dc4eca6f2e1ef51854b10'  # sha256
+
+# E: what tools/export_disc_state.py does not execute, exactly.
+FIRST_FRAME_BOUNDARIES = [
+    '008235F0 first tick (flame, place 7): VU0 VMINI not in the measured model',
+    'second walk: every behaviour but the state-3 nodes held',
+]
+RECORD13_CALLBACK = 0x8257A0
+# The owners whose selector +0x08 their first tick stores (00219550 /
+# 0015AC00 write 3, 00827B10 writes 1); the door, Roger and the panel keep
+# the spawn's.
+SELECTOR_WRITERS = {0x219550, 0x15AFA0, 0x827B10}
 # The capture-derived EMHS v2 and EMRS v1 differ from the disc versions by
 # construction: the EMHS in the arc words EMHS_CAPTURE_WORDS (a subset of
 # export_status_hub.py ARC_WORDS_WRITTEN; pinned below as the digest of the
@@ -283,8 +328,20 @@ def job(name):
         data = (out / 'resources.emrs').read_bytes()
         head = struct.unpack_from('<4s7I', data)
         assert head[:4] == (b'EMRS', 2, G.TABLE_ADDRESS, G.TABLE_WORDS), head
-        return name, {}, {'table': sha(data[0x20:0x20 + 4 * G.TABLE_WORDS]),
-                          'regions': sha(data[0x20 + 4 * G.TABLE_WORDS:])}
+        # The v1 file's regions are the ones without the library flag (word
+        # 3); chain step AIMLIVE added the shot-model library spans
+        # (0x07..0x0F, 0x19), flagged 1, which v1 never held.
+        at, v1, library = 0x20 + 4 * G.TABLE_WORDS, b'', 0
+        for _r in range(head[4]):
+            _a, size, _w, lib = struct.unpack_from('<4I', data, at)
+            if lib == 0:
+                v1 += data[at:at + 16 + size]
+            else:
+                assert lib == 1, ('region flag', lib)
+                library += 1
+            at += 16 + size
+        assert at == len(data) and library == 2, (at, len(data), library)
+        return name, {}, {'table': sha(data[0x20:0x20 + 4 * G.TABLE_WORDS]), 'regions': sha(v1)}
     elif name == 'models':
         run([PY, str(t / 'export_player_model.py'), '--out', str(scene / 'player_model.emom'), '--no-verify'])
         run([PY, str(t / 'export_world_models.py'), '--out', str(scene / 'world_models.emwm'), '--no-verify'])
@@ -299,15 +356,35 @@ def job(name):
              '--fx-outdir', str(out / 'fx')], cwd=DECOMP)
         files = {f'fx/{f}': out / 'fx' / f for f in ('flash_ball.emtx', 'flash_puff.emtx', 'flash_star.emtx',
                                                     'laser_dot.emtx')}
+        run([str(VENV if VENV.exists() else PY), str(DECOMP / 'tools/export_props.py'), '--cone', '--p2s', freeze,
+             '--out', str(out / 'fx/light_cone.emdl')], cwd=DECOMP)
+        cone = sha((out / 'fx/light_cone.emdl').read_bytes())
+        assert cone == PINNED_CONE_SHA256, ('fx/light_cone.emdl differs from its pin', cone)
+        return name, {k: sha(v.read_bytes()) for k, v in files.items()}, {'cone': cone}
     elif name == 'player':
         return name, {}, {'player': player_emdl(freeze)}
+    elif name == 'first_frame':
+        return first_frame_job()
+    elif name == 'first_frame_captures':
+        import export_interaction_scan as eis
+        blob, _meta = eis.build((REF / 'playable_ee.bin').read_bytes(), 'capture')
+        bg = background_of((REF / 'roger-encounter/eeMemory.bin').read_bytes(), out / 'roger-encounter')
+        return name, {}, {'interaction.emis': sha(blob), 'background.embg': sha(bg)}
     else:
         raise AssertionError(name)
     return name, {k: sha(v.read_bytes()) for k, v in files.items()}, {}
 
 
+# STARTUP.md step 6's clip list: export_native.py's usage list plus the five
+# clips the step-8 tools then rewrite in place (0x14, 0x47 the elevator
+# lever, 0x40..0x42 the pickups).
 PLAYER_CLIPS = ('349,2,3,69,67,75,272,273,283,51,274,275,276,277,278,279,280,281,282,1,267,268,269,270,271,'
-                '0,450,10,70,68,30,31,32,33,86,87,42,92,452,455,53,54,94,115,375,36,44,45,46')
+                '0,450,10,70,68,30,31,32,33,86,87,42,92,452,455,53,54,94,115,375,36,44,45,46,20,71,64,65,66')
+# STARTUP.md step 8's model tools, in order (the reversal and climb / slide
+# tools stage only; their clips are not in the installed files).
+PLAYER_STEP8 = (('export_player_stop_clips.py', False), ('export_elevator_clip.py', False),
+                ('export_interaction_idle.py', False), ('export_panel_clip.py', False),
+                ('export_door_player_clips.py', True), ('export_pickup_player_clips.py', True))
 
 
 def emdl_textures(data: bytes):
@@ -339,7 +416,81 @@ def player_emdl(freeze: str) -> dict:
     if installed.exists():
         assert emdl_textures(installed.read_bytes()) == emdl_textures(disc), 'player.emdl textures'
         result['installed_textures'] = 'identical'
+    # steps 7 and 8 over that bake: the whole files
+    model, channels = out / 'player.emdl', out / 'player_channels.empc'
+    model.write_bytes(disc)
+    run([PY, str(ROOT / 'tools/export_player_pose_channels.py'), '--output', str(channels)])
+    for tool, with_channels in PLAYER_STEP8:
+        run([PY, str(ROOT / 'tools' / tool), '--player', str(model)] +
+            (['--channels', str(channels)] if with_channels else []))
+    whole, chan = sha(model.read_bytes()), sha(channels.read_bytes())
+    assert whole == PINNED_PLAYER_SHA256, ('player.emdl: steps 6..8 differ from the pinned file', whole)
+    assert chan == PINNED_CHANNELS_SHA256, ('player_channels.empc differs from the pinned file', chan)
+    result['whole'] = 'player.emdl and player_channels.empc identical to the pins'
     return result
+
+
+# ======================================================================
+# E. The first world frame from the disc
+# ======================================================================
+
+def background_of(image: bytes, work: Path) -> bytes:
+    """The decomp's export_background over an EE image (written to work)."""
+    el = G.export_level()
+    work.mkdir(parents=True, exist_ok=True)
+    (work / 'ee.bin').write_bytes(image)
+    (work / 'scene.txt').write_text('')
+    import contextlib
+    import io
+    with contextlib.redirect_stdout(io.StringIO()):
+        el.export_background(work, G.ELF_PATH, work / 'ee.bin', None, 11, 0, G.Disc().image)
+    (work / 'ee.bin').unlink()
+    return (work / el.BG_ASSET).read_bytes()
+
+
+def refused(fn) -> bool:
+    try:
+        fn()
+    except (AssertionError, SystemExit):
+        return True
+    return False
+
+
+def first_frame_job():
+    import export_disc_state as D
+    import export_interaction_scan as eis
+    out = OUT / 'first_frame'
+    s = D.first_frame(G.Disc(), G.ELF_PATH.read_bytes(), watch_fields=True, snapshots=True)
+    blob, meta = eis.build(s.image(), 'disc first frame')
+    bg = background_of(s.image(), out / 'disc')
+    fields, selectors = 0, set()
+    for o in meta['owners']:
+        node, cb = o['reference_owner'], o['callback']
+        for f in (0x00, 0x08, 0x30):
+            writers = s.field_writers.get((node, f), [])
+            if f == 0x08 and not writers:
+                continue
+            assert writers and set(writers) == {cb}, ('owner field not stored by its own tick', hex(cb), hex(f),
+                                                      [hex(w) if w else None for w in writers])
+            fields += 1
+            if f == 0x08:
+                selectors.add(cb)
+    assert selectors == SELECTOR_WRITERS, sorted(map(hex, selectors))
+    assert s.boundaries == FIRST_FRAME_BOUNDARIES, s.boundaries
+    assert len(s.kicks) == 1 and s.kicks[0]['channel'] == 'VIF1' and s.kicks[0]['chcr'] & 1 and \
+        '0x200890' in s.kicks[0]['caller'], s.kicks
+    assert {a for _k, a in s.hardware} <= {0x10009000, 0x10009020, 0x10009030}, s.hardware
+    freed = [n for n in s.first_tick_nodes if n not in s.freed]
+    assert len(s.freed) == 1 and struct.unpack_from('<I', s.snapshots['before_second_tick'], s.freed[0] + 16)[0] \
+        == RECORD13_CALLBACK and len(freed) == len(s.first_tick_nodes) - 1
+    before, second = s.snapshots['before_first_frame'], s.snapshots['before_second_tick']
+    caught = [('owner fields before the first tick', refused(lambda: eis.build(before, 'control'))),
+              ('no channel-3 list before the first frame', refused(lambda: background_of(before, out / 'c1'))),
+              ('record 13 before its own tick',
+               refused(lambda: eis.build(second, 'control')) or
+               sha(eis.build(second, 'control')[0]) != PINNED_SHA256['scene_snow/interaction.emis'])]
+    return 'first_frame', {'scene_snow/interaction.emis': sha(blob), 'scene_snow/background.embg': sha(bg)}, \
+        {'fields': fields, 'controls': caught, 'steps': len(s.steps)}
 
 
 # ======================================================================
@@ -412,10 +563,10 @@ def main() -> int:
     G.first_level_freeze(OUT / 'first_level_gs.bin', G.FirstLevel(disc).world())
     words = check_table(disc)
     weather = check_weather(elf)
-    jobs = ['door', 'roger', 'effect_snow', 'panel', 'props']
+    jobs = ['first_frame', 'first_frame_captures', 'door', 'roger', 'effect_snow', 'panel', 'props']
     if FULL:
         jobs += ['hub', 'banks', 'models', 'fx', 'player']
-    cost = {'hub': 20, 'player': 4, 'models': 4, 'props': 3, 'panel': 3}
+    cost = {'hub': 20, 'player': 12, 'first_frame': 7, 'models': 4, 'props': 3, 'panel': 3}
     results = parallel_map(job, jobs, cost=lambda j: cost.get(j, 2))
     files = 0
     extra = {}
@@ -424,6 +575,11 @@ def main() -> int:
             assert PINNED_SHA256[key] == digest, ('differs from the capture-derived file', key)
             files += 1
         extra[name] = more
+    for key in ('interaction.emis', 'background.embg'):
+        assert extra['first_frame_captures'][key] == PINNED_SHA256['scene_snow/' + key], \
+            ('the capture path no longer gives the pinned file', key)
+    missed = [n for n, ok in extra['first_frame']['controls'] if not ok]
+    assert not missed, ('first-frame controls not caught', missed)
     if FULL:
         import export_status_hub as H
         emhs = bytearray(extra['hub']['emhs'])
@@ -434,10 +590,12 @@ def main() -> int:
         assert extra['banks'] == {'table': PINNED_EMRS_V1_TABLE_SHA256, 'regions': PINNED_EMRS_V1_REGIONS_SHA256}, \
             extra['banks']
         files += 3
-    n_controls = controls(disc, elf)
+    n_controls = controls(disc, elf) + len(extra['first_frame']['controls'])
     banner(f'{len(captures())} captures x {G.TABLE_WORDS} D_0028A490 words ({words} compared)',
            f'{weather} weather words', f'{len(jobs)} exporter groups, {files} files equal to the capture-derived',
            f'{n_controls} controls caught',
+           f'first frame: {extra["first_frame"]["steps"]} executed steps, '
+           f'{extra["first_frame"]["fields"]} owner fields stored by their own tick',
            'player.emdl ' + (str(extra['player']['player']) if FULL else 'in full mode'))
     print('PASS test_disc_assets_reference')
     return 0

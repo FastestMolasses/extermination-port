@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
-"""export_disc_textures.py - the first level's GS-resident textures and the
-UI font from the user's own disc, with no PCSX2 capture and no RAM dump.
+"""export_disc_textures.py - the first level's GS-resident textures, the
+UI font and the two run-time-state assets from the user's own disc, with no
+PCSX2 capture and no RAM dump.
 
 Release blocker "disc-sourced textures" (docs/FIDELITY_FEATURES.md). The
 capture exporters decode these textures from the GS local memory of a PCSX2
@@ -28,14 +29,23 @@ Outputs (disc-derived: git-ignored assets/ and build/ only), relative to
   scene_snow/panel/status_hub_atlas.emha    (tools/export_status_hub.py)
   scene_snow/panel/item_root.emir           (tools/export_item_root.py)
   scene_snow/panel/battery.emba             (tools/export_panel.py)
+  scene_snow/interaction.emis               (tools/export_interaction_scan.py)
+  scene_snow/background.embg + its scene.txt line
+                                            (the decomp's export_level.py
+                                             export_background)
+The last two read the EE state of the first world frame that the original
+code builds from the disc (tools/export_disc_state.py, DISC_TEXTURES.md
+9.4); their former source was a capture's EE RAM.
 and build/disc_textures/:
   first_level_gs.bin   the rebuilt GS memory of the level (no page open) in
                        the freeze layout gs_vram.read_localmem reads, for
                        the exporters that take a --gs / p2s path
+  first_frame_ee.bin   that first-frame EE image (32 MB, the layout of a
+                       capture's eeMemory.bin), for export_background
   report.json          every disc buffer used (caller, DATA.DAT offset, size,
                        extract files), the steps and the output hashes
 
-Usage (port root; macOS arm64, pure Python, ~10 s):
+Usage (port root; macOS arm64, pure Python, ~15 s; the first frame about 6 s):
   python3 tools/export_disc_textures.py [--iso FILE | --disc DIR] [--only NAME ...]
 """
 from __future__ import annotations
@@ -54,7 +64,8 @@ import export_disc_textures_gs as G  # noqa: E402
 DECOMP = G.DECOMP
 sys.path.insert(0, str(DECOMP / 'tools'))
 
-PARTS = ('objects', 'page', 'font', 'status_models', 'status_hub', 'item_root', 'battery')
+PARTS = ('objects', 'page', 'font', 'status_models', 'status_hub', 'item_root', 'battery',
+         'interaction', 'background')
 
 # The status pages whose GS state an asset was captured in
 # (docs/DISC_TEXTURES.md section 4): the ITEM root page module 0x1F and the
@@ -250,6 +261,44 @@ def part_battery(gs: G.GSImage, elf: bytes, extract: Path, assets: Path) -> list
     return [out]
 
 
+def part_interaction(state, assets: Path) -> list:
+    """interaction.emis of export_interaction_scan.py (the one owner) over
+    the disc first frame: each owner's first tick wrote its status,
+    selector and descriptor pointer there."""
+    import export_interaction_scan as eis
+    out = assets / 'scene_snow/interaction.emis'
+    blob, metadata = eis.build(state.image(), 'disc first frame (tools/export_disc_state.py)', DECOMP)
+    eis.write(out, blob, metadata)
+    return [out]
+
+
+def part_background(state, disc: G.Disc, scratch: Path, assets: Path) -> list:
+    """background.embg of the decomp's export_level.export_background (the
+    one owner, unchanged) over the disc first frame's EE image: its
+    001C1F50 armed flags 0x20 / 0x21 and stored the TEX0 and colour, and
+    its 001C1D00 -> 001E0CF0 -> 001E1E60 built render channel 3's list. The
+    exporter writes into scratch; the asset is copied and its manifest line
+    added to assets/scene_snow/scene.txt only when that file lacks it, so an
+    existing manifest keeps its order."""
+    el = G.export_level()
+    image = scratch / 'first_frame_ee.bin'
+    image.write_bytes(state.image())
+    work = scratch / 'background'
+    work.mkdir(parents=True, exist_ok=True)
+    (work / 'scene.txt').write_text('')
+    el.export_background(work, G.ELF_PATH, image, None, 11, 0, disc.image)
+    scene = assets / 'scene_snow'
+    scene.mkdir(parents=True, exist_ok=True)
+    out = scene / el.BG_ASSET
+    out.write_bytes((work / el.BG_ASSET).read_bytes())
+    line = (work / 'scene.txt').read_text().strip()
+    manifest = scene / 'scene.txt'
+    if not manifest.exists() or line not in manifest.read_text().splitlines():
+        key, value = line.split(' ', 1)
+        el.update_manifest(scene, key, value)
+    return [out]
+
+
 # ---------------------------------------------------------------------------
 
 def build(disc: G.Disc, extract: Path, assets: Path, scratch: Path, parts=PARTS,
@@ -284,6 +333,14 @@ def build(disc: G.Disc, extract: Path, assets: Path, scratch: Path, parts=PARTS,
     if 'battery' in parts:
         pages['battery'] = fl.page(world, BATTERY_MODULE)
         written += part_battery(pages['battery'], elf, extract, assets)
+    state = None
+    if 'interaction' in parts or 'background' in parts:
+        import export_disc_state as D
+        state = D.first_frame(disc, elf, extract)
+    if 'interaction' in parts:
+        written += part_interaction(state, assets)
+    if 'background' in parts:
+        written += part_background(state, disc, scratch, assets)
     report = {
         'elf_sha256': G.ELF_SHA256,
         'buffers': [dict(caller=c, source=l, data_dat_offset=hex(o), size=hex(s), extract=w)
@@ -293,6 +350,11 @@ def build(disc: G.Disc, extract: Path, assets: Path, scratch: Path, parts=PARTS,
         'page_states': {k: [dict(caller=c, source=l) for c, l, _ in v.steps[len(world.steps):]]
                         for k, v in pages.items()},
         'hub_states': [list(x) if isinstance(x, tuple) else x for x in hub_states],
+        'first_frame': None if state is None else dict(
+            executed=state.steps, boundaries=state.boundaries,
+            dma_kicks=[dict(k, chcr=hex(k['chcr']), tadr=hex(k['tadr'])) for k in state.kicks],
+            nodes_after_first_tick=len(state.first_tick_nodes),
+            freed_by_own_tick=[hex(n) for n in state.freed]),
         'freeze': str(freeze),
         'outputs': {str(p): hashlib.sha256(p.read_bytes()).hexdigest() for p in written},
     }

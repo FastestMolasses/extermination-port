@@ -1221,9 +1221,11 @@ test-status-scene-reference:
 # textures rebuilt from the disc's GS uploads against the original loaders
 # and the captures, and the other exporters run without a capture against
 # the capture-derived files (the resource table D_0028A490, the weather bits,
-# the door, Roger, the flame, the snow, the panel pages, the props; full
-# mode also the hub, the Roger banks, the models, the sprite sheets and
-# player.emdl). Both need the disc image.
+# the door, Roger, the flame, the snow, the panel pages, the props, and
+# interaction.emis / background.embg from the first world frame the original
+# code builds from the disc (tools/export_disc_state.py); full mode also the
+# hub, the Roger banks, the models, the sprite sheets, the light cone and
+# the whole player.emdl). Both need the disc image.
 .PHONY: test-disc-textures-reference test-disc-assets-reference
 test-disc-textures-reference:
 	python3 tools/test_disc_textures_reference.py

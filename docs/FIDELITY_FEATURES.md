@@ -334,23 +334,30 @@ and the tools extract the assets locally.
   original game and SDK routines by design; "no Sony SDK" means no SDK
   binaries are linked. The decomp repository still commits CodeWarrior asm
   function bodies (user decision 2026-09-23), so the "no original code" claim
-  holds for the port repository only. Two first-level assets still read a
-  PCSX2 capture (next entry); they must move to the disc before release.
+  holds for the port repository only. No first-level asset reads a PCSX2
+  capture (next entry).
 
 **Every first-level asset from your own disc, rebuilt with the original loaders' rules**
 
 The assets the first level reads are exported from the user's disc image,
 its extract and the boot ELF alone: no PCSX2 capture, GS dump or RAM dump is
-needed, except for two files that are still open (below). The textures come
+needed. The textures come
 from the first level's GS memory rebuilt from the disc with the original's
 own upload sequence (module 0x1B's library sheet, New Game's re-upload, the
 AREA11 load and the player's texture packet; page modules for the status
 pages), and the resource table D_0028A490 from the loaders' own relocation
-rules (boot, title, New Game, area load).
+rules (boot, title, New Game, area load). The two assets that hold values
+the game writes at run time (the use-owners' first-tick fields in
+`interaction.emis`, the level background's GS draw state in
+`background.embg`) come from AREA11's first world frame, which the original
+code itself builds from the disc: the boot's render builder, New Game, the
+area load, the frame machine's bring-up and the first frame through its
+actor walk, executed instruction by instruction over the disc memory.
 
-- How: `tools/export_disc_textures.py` (textures and the font) and the
-  disc-first exporters of STARTUP.md; `export_disc_textures_gs.py`
-  (`FirstLevel`, `ResourceTable`, `first_level_memory`). Captures remain
+- How: `tools/export_disc_textures.py` (textures, the font and the two
+  first-frame assets) and the disc-first exporters of STARTUP.md;
+  `export_disc_textures_gs.py` (`FirstLevel`, `ResourceTable`,
+  `first_level_memory`); `export_disc_state.py` (the first world frame). Captures remain
   optional developer cross-checks (`--capture`, `--verify-ram`).
 - Evidence: `make test-disc-textures-reference` (the original loaders
   00200830 / 00200890 / 00200970 / 001FF1E0 / 001FF830 / 001FFCD0 executed
@@ -360,16 +367,23 @@ rules (boot, title, New Game, area load).
   word; 33 more files byte-identical to the capture-derived ones, the
   Roger banks' table and regions equal, the hub's EMHS equal outside the
   arc words 00208AD0 rewrites; the player model's bake from the rebuilt
-  memory identical to the GS-dump bake). A copy of the tree with no capture visible re-ran 57 export steps,
-  113 of the 116 files the level smoke opens came out byte-identical (the
-  other three differ by construction: DISC_TEXTURES.md 9.3), and the full
-  level smoke passed on it. DISC_TEXTURES.md sections 6 and 9.
-- Status: **PARTIAL**. Still capture-bound: `interaction.emis` (the eleven
-  use-owners' first-tick status, selector and descriptor, STARTUP.md step
-  30) and `background.embg` (the level background's GS draw state, step 40;
-  its texels are the disc's). The installed `player.emdl` is not reproduced
-  whole (eight clips of an older bake differ; its textures are the disc's).
-  Only `--iso` is exercised, not `--disc DIR`.
+  memory identical to the GS-dump bake; since 2026-10-02 also
+  `interaction.emis` and `background.embg` from the disc's first frame equal
+  to the capture-derived files, every owner field stored by the owner's own
+  first tick, and the whole `player.emdl` / `player_channels.empc`
+  reproduced by steps 6..8). A copy of the tree with no capture visible
+  re-ran 57 export steps, 113 of the 116 files the level smoke opens came
+  out byte-identical (the other three differ by construction:
+  DISC_TEXTURES.md 9.3), and the full level smoke passed on it; on
+  2026-10-02 the same kind of copy rebuilt the first-frame assets, the
+  player model and the light cone byte-identical, and the smoke passed again
+  (9.6). DISC_TEXTURES.md sections 6 and 9.
+- Status: **VERIFIED** for the first level's assets (byte-identical to the
+  capture-derived files, smoke passed on a capture-free rebuild). Limits:
+  only `--iso` is exercised, not `--disc DIR`; the first-frame model holds
+  the flame's first tick (VU0 VMINI is outside the measured VU model) and
+  is the first world frame, not the first-control frame (the compared bytes
+  are equal; DISC_TEXTURES.md 9.4).
 
 ### Visuals
 
@@ -1818,10 +1832,6 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
   the GS-exact renderer is queued (the clean-room GS model of `GS_EXACT.md`
   is measured but not wired); the draws of the disclosure entry above are
   not yet the original's;
-- disc-sourced assets: every texture and all but two first-level assets
-  come from the disc alone since 2026-09-28; `interaction.emis` and
-  `background.embg` still read a PCSX2 capture, which end users will not
-  have;
 - logic still on stand-ins on the route: the panel's, the terminal's and the
   items' takeovers, the opening's camera timeline sampling, the examine
   camera shot (census 2.3);
