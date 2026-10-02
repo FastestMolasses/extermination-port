@@ -1430,6 +1430,28 @@ Measured (full route, 2026-09-28): the gun and cable equal on 13,018 ticks
 after the gun's setup (1 before it); the 30 captured fan states among the
 1,091 distinct states the port's fans ran; 6 aligned snapshots.
 
+### The AREA11 overlay owners (`check_overlay11`, chain step A11FIX; tools/level_smoke_overlay11.py)
+
+The tick log's `overlay11` rows (the flame 008235F0, the flag-0x30 manager
+00823CE0 and the opening controller 00823E80: +0x00, +0x04, +0x05, +0x2E,
++0x30, +0x34, the flame's +0x1F0 block and +0x210, and whether the record is
+on the published class-0xD list) and `sfx413` (the tracks whose requested id
+is 0x413) are compared with the route snapshots 00..14:
+
+- from its first call on, on every tick, the flame's record equals every
+  snapshot's (+0x04 1, +0x00 1, +0x30 its own +0x1F0, +0x34 0x823580, the
+  half extents 7 / 15 / 7) and its contact cooldown is 0 (no route touches
+  it); the flag-0x30 manager's equals every snapshot's (lifecycle 1,
+  waiting); after the opening the controller's equals every snapshot's
+  (+0x05 2, +0x2E 0xFFFF);
+- at the camera-exact aligned snapshots 10 and 14 the flame is on the
+  published class-0xD list exactly as the capture's list block holds it (on
+  at 10, off at 14), so the contact pass 001A8BE0 -> 001A8660 runs live; the
+  other aligned snapshots depend on the view cone and are only counted;
+- no track requests the flame's loop 0x413 before first control; when the
+  run reaches crevice_prompt, some tick requests it (the decomp's audio
+  capture holds it in every frame of route 11).
+
 ### The effects (`check_effects`, census L26 / L27 / L28 / L39)
 
 Not a phase: after the phases, when a phase check aligned a port tick with
@@ -1915,6 +1937,12 @@ frame holds. Since chain C8b OPENING (2026-09-28) the opening's two
 original: cut02 PASSes from native index 26 (the actors' spawn, AE+10;
 before it the walk lacks them) and st03 at native index 1321 (the records'
 last walk after the controller's done mask, the original's frame 3965).
+**Current windows (measured 2026-10-02, chain step A11FIX, identical at the
+step's base):** since the area load runs the loader's steps (chain step
+AREALOAD) the opening and first control come 64 ticks later in a
+newgame-control trace (first control at native index 1383, counter 2640), so
+the windows above are idle04 1394, walk04 1456, cut02 90 and st03 1384; all
+four and cut15 PASS there.
 `tools/frame_order_allow.json` has no entry since chain C8b ROUTE
 (2026-09-28): its last entry, the walking footstep node, was retired
 because the port spawns the node through the original chain and walk04

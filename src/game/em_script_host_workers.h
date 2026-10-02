@@ -190,10 +190,11 @@ int em_script_host_approach(void *ctx, uint32_t target, uint32_t current, uint32
  * format of em_script_image_load ("EMSC", u32 1, base, entry, length, then
  * the bytes):
  *   scripts.emsc         0x8292C0..0x82A3C0: the truck camera preview
- *                        0x8292C0 and director beats 0x8294C0 / 0x829A40 /
- *                        0x829CC0 / 0x829E80
- *   director_quads.emsc  0x82ABE0..0x82ACA0: the director's three 4-vertex
- *                        quads (XYZW floats) 0x82ABE0 / 0x82AC20 / 0x82AC60
+ *                        0x8292C0, director beats 0x8294C0 / 0x829A40 /
+ *                        0x829CC0 and the manager 0x8257A0's 0x829E80
+ *   director_quads.emsc  0x82ABE0..0x82ACE0: four 4-vertex quads (XYZW
+ *                        floats), the director's 0x82ABE0 / 0x82AC20 /
+ *                        0x82AC60 and the manager 0x8257A0's 0x82ACA0
  * The elevator's powered (0x82A750) and refusal (0x82A990) scripts are
  * elevator.emsc (tools/export_elevator.py) and Roger's are
  * roger/programs.emsc (tools/export_roger_resources.py); the loader opens
@@ -202,7 +203,8 @@ int em_script_host_approach(void *ctx, uint32_t target, uint32_t current, uint32
 #define EM_AREA11_SCRIPTS_BASE 0x008292C0u
 #define EM_AREA11_SCRIPTS_END  0x0082A3C0u
 #define EM_AREA11_QUADS_BASE   0x0082ABE0u
-#define EM_AREA11_QUADS_END    0x0082ACA0u
+#define EM_AREA11_QUADS_END    0x0082ACE0u
+#define EM_AREA11_QUAD_COUNT   4
 #define EM_AREA11_ELEVATOR_BASE 0x0082A750u
 #define EM_AREA11_ELEVATOR_END  0x0082AB10u
 #define EM_AREA11_ROGER_BASE   0x008283D0u
@@ -220,7 +222,7 @@ enum {
 typedef struct EmArea11Scripts {
     EmScriptImage image[EM_AREA11_IMAGE_COUNT];   /* bytes NULL when not loaded */
     /* quad[q][v] = vertex v of quad q (x, y, z, w), q = 0x82ABE0 + 0x40 * q. */
-    float quad[3][4][4];
+    float quad[EM_AREA11_QUAD_COUNT][4][4];
     int quads_loaded;
 } EmArea11Scripts;
 
@@ -242,6 +244,9 @@ const uint32_t *em_area11_scripts_entries(size_t *count);
 /* The director's quad pointers in the EmDirectorOriginalWorld.quad shape
  * (em_director_original.h). -1 when the quads are not loaded. */
 int em_area11_scripts_director_quads(const EmArea11Scripts *scripts, const float (*quad[3])[4]);
+/* The quad at `address` (0x82ABE0 + 0x40 * q), or -1 when the quads are
+ * not loaded or no quad starts there. */
+int em_area11_scripts_quad(const EmArea11Scripts *scripts, uint32_t address, const float (**quad)[4]);
 
 #ifdef __cplusplus
 }

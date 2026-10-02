@@ -2055,21 +2055,57 @@ Result (recounted from the section 3 rows): live 708, verified-unbound 45,
 unverified 3, stand-in 0, missing 0, boundary 428; 86,021 of the 88,729
 non-boundary instructions live (96.9%), as in 1.51.
 
+### 1.53 Update (2026-10-02, chain step A11FIX: the AREA11 overlay translations against the decomp's C)
+
+The decomp's AREA11 overlay is C (decomp 83580f9, docs/AREA11_OVERLAY.md).
+Every port translation of an overlay function was read line by line against
+it; the disagreements its cross-check found and two more were fixed
+(FIRST_LEVEL_AUDIT.md 1b "Status (2026-10-02, chain step A11FIX)"):
+0x823E80 is one whole-function translation (its non-original
+em_pickup_prop_retire call removed; states 2 / 3 free, other states
+return); 0x8257A0's state 1 is translated and bound; the flame 0x8235F0
+runs on its record with 001FC3C0 / 001FC520, 001B17A0, +0x30 / +0x34 and
+its contact behaviour 0x823580 (the class-0xD contact pass 001A8BE0 ->
+001A8660 now walks it); 0x827B10 reads its power bit at the original's
+three points; 0x823CE0 is bound; 0x823FF0's arm-tick 0x70003A20 store is
+modelled.
+
+- **Status changes:** 0x00823CE0, 0x001FC3C0 and 0x001A8660:
+  verified-unbound -> live. **Row notes changed:** 0x001A8BE0, 0x008235F0,
+  0x00823E80, 0x008257A0.
+- **Evidence.** The original-instruction oracles: test-area11-opening-
+  reference (new: 0x823E80 over every +0x04), test-manager-8257a0-reference
+  (state 1's calls and stores), test-area11-effect-reference (the +0x30 /
+  +0x34 stores; the contact's callee order), test-elevator-reference (the
+  power bit changed within a tick), test-truck-original (0x70003A20). The
+  level smoke's new check_overlay11 (tools/level_smoke_overlay11.py): the
+  flame's and the flag-0x30 manager's records equal all 15 route snapshots'
+  on every tick from their first call (13,018 ticks each in the main line
+  to Roger); the flame on the published class-0xD list exactly as the
+  camera-exact captures 10 (on) and 14 (off) hold it, so 001A8BE0 ->
+  001A8660 runs live; the loop 0x413 requested on no tick before first
+  control and on 3,120 after. The full level smoke; newgame-control
+  9.599849.
+
+Result (recounted from the section 3 rows with route_functions.json, 756
+rows): live 711, verified-unbound 42, unverified 3, stand-in 0, missing 0,
+boundary 428; 86,327 of the 88,729 non-boundary instructions live (97.3%).
+
 ## 2. Totals
 
 ### 2.1 All 1184 executed functions
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 708 | 86,021 | 653 (81,405) | 55 (4,616) |
-| verified-unbound | 45 | 2,581 | 22 (1,512) | 23 (1,069) |
+| live | 711 | 86,327 | 656 (81,711) | 55 (4,616) |
+| verified-unbound | 42 | 2,275 | 19 (1,206) | 23 (1,069) |
 | unverified | 3 | 127 | 3 (127) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
 | boundary | 428 | 23,035 | 150 (9,735) | 278 (13,300) |
 | **total** | **1184** | **111,764** | 828 | 356 |
 
-Of the 756 non-boundary functions, 708 (93.7%) are live and verified; by instructions 86,021 of 88,729 (96.9%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 45 functions (2,581 instructions, 2.9%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 756 non-boundary functions, 711 (94.0%) are live and verified; by instructions 86,327 of 88,729 (97.3%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 42 functions (2,275 instructions, 2.6%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, section 1.53) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -2079,23 +2115,23 @@ Of the 756 non-boundary functions, 708 (93.7%) are live and verified; by instruc
 |---|---|---|
 | S0_title | 79 / 10 / 0 / 0 / 0 / 383 | 79 / 10 / 0 / 0 / 0 / 383 |
 | S1_newgame_load | 170 / 22 / 1 / 0 / 0 / 86 | 103 / 18 / 1 / 0 / 0 / 18 |
-| S2_opening | 451 / 18 / 2 / 0 / 0 / 109 | 332 / 13 / 1 / 0 / 0 / 17 |
-| S3_first_control_idle | 355 / 14 / 1 / 0 / 0 / 101 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 421 / 15 / 1 / 0 / 0 / 81 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 466 / 16 / 3 / 0 / 0 / 138 | 30 / 1 / 1 / 0 / 0 / 5 |
-| 02_elevator_refusal | 436 / 15 / 1 / 0 / 0 / 83 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 501 / 18 / 2 / 0 / 0 / 109 | 20 / 1 / 0 / 0 / 0 / 1 |
-| 04_elevator_ride | 428 / 15 / 1 / 0 / 0 / 116 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 429 / 14 / 1 / 0 / 0 / 78 | 23 / 0 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 393 / 14 / 1 / 0 / 0 / 81 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 404 / 17 / 1 / 0 / 0 / 99 | 0 / 1 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 392 / 16 / 1 / 0 / 0 / 114 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 447 / 17 / 2 / 0 / 0 / 89 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 483 / 19 / 1 / 0 / 0 / 124 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 479 / 18 / 1 / 0 / 0 / 121 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 409 / 17 / 1 / 0 / 0 / 77 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 453 / 17 / 1 / 0 / 0 / 122 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 476 / 20 / 2 / 0 / 0 / 89 | 2 / 0 / 0 / 0 / 0 / 0 |
+| S2_opening | 453 / 16 / 2 / 0 / 0 / 109 | 334 / 11 / 1 / 0 / 0 / 17 |
+| S3_first_control_idle | 357 / 12 / 1 / 0 / 0 / 101 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 423 / 13 / 1 / 0 / 0 / 81 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 468 / 14 / 3 / 0 / 0 / 138 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 02_elevator_refusal | 438 / 13 / 1 / 0 / 0 / 83 | 15 / 0 / 0 / 0 / 0 / 2 |
+| 03_panel_power | 503 / 16 / 2 / 0 / 0 / 109 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 04_elevator_ride | 430 / 13 / 1 / 0 / 0 / 116 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 431 / 12 / 1 / 0 / 0 / 78 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 395 / 12 / 1 / 0 / 0 / 81 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 407 / 14 / 1 / 0 / 0 / 99 | 1 / 0 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 395 / 13 / 1 / 0 / 0 / 114 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 450 / 14 / 2 / 0 / 0 / 89 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 486 / 16 / 1 / 0 / 0 / 124 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 482 / 15 / 1 / 0 / 0 / 121 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 412 / 14 / 1 / 0 / 0 / 77 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 455 / 15 / 1 / 0 / 0 / 122 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 478 / 18 / 2 / 0 / 0 / 89 | 2 / 0 / 0 / 0 / 0 / 0 |
 
 ### 2.3 What the numbers say
 
@@ -2464,12 +2500,12 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.8 Actor list passes (0x1A8000..0x1AA1FF)
 
-9 functions, 738 instructions: live 8, verified-unbound 1 (recount 2026-09-26, shadow step).
+9 functions, 738 instructions: live 9 (recount 2026-10-02, section 1.53).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001A8660 | — | BM | verified-unbound | em_coll_list_passes — test_coll_list_passes_reference.py | reached from the live 001A8BE0 only for a class-0xD type-1 entry; no owner the port runs publishes one (the flame 008235F0; its +0x34 behaviour 0x00823580 and D_0024A740 are fail-stop) | 07_truck_preview |
-| 0x001A8BE0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop); em_enemy.c's legacy contact pass still runs for the port's own enemy owners (L25) | S2_opening |
+| 0x001A8660 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py; tools/level_smoke_overlay11.py (A11FIX) | reached from the live 001A8BE0 for the flame 008235F0 (class 0xD, type 1) since chain step A11FIX bound its 001B17A0 (the captures hold it on the published class-0xD list at 10 and 11; the port at the camera-exact snapshot 10); records: the flame's image and the player record (em_area11_bindings area_records), D_00275490 (collision_contact.emrg); its +0x34 behaviour 0x00823580 is bound (em_area11_effect_contact); on a contact 001EFE00(0x80000027) and the knock-back table D_0024A740 fault (the DAMAGE step; no route touches the flame) | 07_truck_preview |
+| 0x001A8BE0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; since chain step A11FIX it walks the flame 008235F0 on the class-0xD list (001A8660); em_enemy.c's legacy contact pass still runs for the port's own enemy owners (L25) | S2_opening |
 | 0x001A8DA0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
 | 0x001A9000 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop); em_enemy.c's legacy contact pass still runs for the port's own enemy owners (L25) | S2_opening |
 | 0x001A97B0 | — | BM | live | em_coll_list_passes — test_coll_list_passes_reference.py | 001AAD00's hook; the port's owners publish no class 1/2/0xD entry, so it walks empty lists (records are fail-stop) | S2_opening |
@@ -2869,7 +2905,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.19 Streams, sound and message service (0x1F9000..0x1FDFFF)
 
-39 functions, 3,096 instructions: live 34, verified-unbound 4, unverified 1 (recount 2026-09-29, section 1.46).
+39 functions, 3,096 instructions: live 35, verified-unbound 3, unverified 1 (recount 2026-10-02, section 1.53).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2897,7 +2933,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FBDB0 | — | AW | verified-unbound | em_sfx_bank — test_area11_sfx_reference.py |  | 09_fence_door |
 | 0x001FBF50 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | em_sfx.c em_sfx_play_at (no gain oracle, AM-19) | S2_opening |
 | 0x001FC280 | — | NM | unverified | em_scene_bindings_001FC280 (the lanes' worker inside 001FAE70, WP-8b; partial: the D_00282160 cache is not modelled and an ambient loop other than -1 faults); the lanes' oracle scripts it as a worker | no oracle: the lanes' oracle records the call, not its body | S1_newgame_load |
-| 0x001FC3C0 | — | BM | verified-unbound | em_sfx, em_sfx_bank — test_area11_sfx_reference.py, test_area11_sfx_runtime.py |  | S2_opening |
+| 0x001FC3C0 | — | BM | live | em_sfx, em_sfx_bank (em_sfx_loop_service), bound for the flame 008235F0 by em_area11_effect_runtime (A11FIX) — test_area11_sfx_reference.py, test_area11_sfx_runtime.py; tools/level_smoke_overlay11.py | the flame's loop 0x413 (radius 100) at 0x70003B68 / 0x70003B8A; never requested before first control (the opening capture's handle is -1), requested on the main line near the flame (the decomp's audio capture holds it in every frame of route 11) | S2_opening |
 | 0x001FC6E0 | — | BM | live | em_startup_load_gaps_sound em_slg_001FC6E0 inside 001FB100 at step H (chain step H7) — test_startup_load_gaps_reference | D_00281F30 is em_stream_live's ({0, -1} as 001FBC50 leaves it, and its binding clears it); its writer 001FC580 is unbound (faults when reached), so no cue is pending on the route | S0_title |
 | 0x001FC770 | — | BM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
 | 0x001FC7B0 | — | NM | live | em_message_glyph_original via em_message_live — test_message_glyph_reference.py |  | S2_opening |
@@ -2987,18 +3023,18 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.23 AREA11 overlay owners (0x8235F0..0x828050, runtime addresses)
 
-23 functions, 4,400 instructions: live 21, verified-unbound 2 (recount 2026-09-28, section 1.39).
+23 functions, 4,400 instructions: live 22, verified-unbound 1 (recount 2026-10-02, section 1.53).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x008235F0 | — | AU | live | em_area11_effect_runtime.c (node 008235F0; its DRAW is 001D04B0 on em_effects_live since section 1.43) — test_area11_effect_reference; test_level_smoke.py check_chain_page | contact damage 00823580 and the sound service 001FC3C0 not modelled (INV-17) | S2_opening |
+| 0x008235F0 | — | AU | live | em_area11_effect_runtime.c over the record (node 008235F0; its DRAW is 001D04B0 on em_effects_live since section 1.43; since A11FIX its loop sound 001FC3C0 / 001FC520, its publication 001B17A0, the +0x30 / +0x34 stores and the contact behaviour 0x00823580) — test_area11_effect_reference; test_level_smoke.py check_chain_page; level_smoke_overlay11 | the contact's damage (001EFE00(0x80000027) at the player, 001A8660's knock-back) faults: the DAMAGE step | S2_opening |
 | 0x008237C0 | — | CO | verified-unbound | em_startup_load_gaps em_slg_008237C0 — test_startup_load_gaps_reference | the roster spawn stands in for the overlay init | S1_newgame_load* |
 | 0x008237E0 | — | AU | live | em_roger_actor_original em_roger_actor_008237E0_init via em_area11_roger (lifecycle 0; census L22) — test_roger_actor_original_reference; test_level_smoke.py (roger: route 14 row for row) | its 001CA6F0 bank and the +0x30 / +0x58 words from assets/scene_snow/roger/resources.emrs (tools/export_roger_banks.py) | S2_opening |
 | 0x00823910 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x00823950 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) | the ordinary branch (0x8283D0, route 14) and, since WP-8b, the alternate 0x828990 (route 10, with the director) run | 10_cage_roof_roger |
 | 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
-| 0x00823CE0 | — | AU | verified-unbound | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; renamed from em_script_door_fan_husk in L24) — test_script_door_fan_reference (part 3) | dormant in the first visit (waits on D_00810788); the node is bound with no port code | S2_opening |
-| 0x00823E80 | — | AU | live | em_area11_opening.c em_area11_opening_state1 (state 1's script machine over em_area11_script_host: 001BA1C0, 001BA1A0 / 001BA1F0 of 0x828FC0, 001FABB0, the completion's +0x2E done mask, D_00810811, 001C4760, 001FAE70, 001AEE10; section 1.41) with its state 0 (001B0FD0, 001C6380) and state 1's tail (001B1B70, +0x4C 001CAA00) over its record in em_area11_bindings.c tick_opening — test_area11_opening (fixture); test_area_script_reference (its script); test_continue_reset_reference (0x823F74..80 slice); test_level_smoke.py check_rand_order and check_opening_actors (the script's records and their end), check_owner_units (the canopy's unit), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | partial oracle coverage (no oracle executes 00823E80's own instructions) | S2_opening |
+| 0x00823CE0 | — | AU | live | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; decomp C func_overlay_AREA11_00823CA0.c, byte-identical) via em_area11_bindings.c tick_flag30 (A11FIX) — test_script_door_fan_reference (part 3); tools/level_smoke_overlay11.py | lifecycle 1, waiting on D_00810788, with 001B17A0 every tick: its record equals every route snapshot's; the script path (0x828C70, a return visit) faults (no image holds it) | S2_opening |
+| 0x00823E80 | — | AU | live | em_area11_opening.c em_area11_opening_tick (the whole function; decomp C func_overlay_AREA11_00823E40.c, byte-identical; A11FIX) over its record in em_area11_bindings.c tick_opening: state 0 (001B0FD0, 001C6380), state 1's script machine over em_area11_script_host (001BA1C0, 001BA1A0 / 001BA1F0 of 0x828FC0, 001FABB0, the completion's +0x2E done mask, D_00810811, 001C4760, 001FAE70, 001AEE10) and tail (001B1B70, +0x4C 001CAA00), states 2 / 3 (001AFC10) — test_area11_opening_reference (the original instructions over every state; A11FIX), test_area11_opening (fixture); test_area_script_reference (its script); test_continue_reset_reference (0x823F74..80 slice); test_level_smoke.py check_rand_order and check_opening_actors (the script's records and their end), check_owner_units (the canopy's unit), level_smoke_overlay11 (its record after the opening equals every snapshot's), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | the port's em_pickup_prop_retire call in state 0 (not original) was removed by A11FIX | S2_opening |
 | 0x00823FF0 | — | AU | live | em_truck_original via em_area11_boxes em_area11_boxes_truck_tick (census L23) — test_truck_original_reference; test_level_smoke.py (truck_crossing: route 08 row for row from the arm) | its 001EFD20 spawns run em_effects_live (census L26; the eight live puffs equal route 08's); sounds 0x454 / 0x455 not in the exported registry (WP-14) | S2_opening |
 | 0x008251E0 | — | AU | live | em_truck_original em_truck_trigger_tick via em_area11_boxes (census L23) — test_truck_original_reference; test_level_smoke.py (truck_preview: route 07 row for row) |  | S2_opening |
 | 0x008253F0 | — | AU | live | em_director_original via em_area11_bindings tick_director_original (node #21, census L21 with WP-8b) — test_director_original_reference; test_level_smoke.py (cage_roof, crevice_prompt, east_tower: routes 10, 11, 13) | since the measured drive model (section 1.30) the voiced lines 0x97 / 0x99 tear down on the capture's rows; 0x7F 2 rows early, which check_voice_drive proves is the original's lane-0 music refill served first (the music's phase: navigation; LEVEL_SMOKE.md) | S2_opening |
@@ -3008,7 +3044,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00825640 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 10_cage_roof_roger |
 | 0x008256D0 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
 | 0x00825710 | — | AU | live | em_director_original (the beats' gates and bodies, node #21 since WP-8b) — test_director_original_reference; test_level_smoke.py (the director beats) | | 11_crevice_prompt |
-| 0x008257A0 | — | AU | live | em_manager_008257A0.c — test_manager_8257a0_reference |  | S2_opening* |
+| 0x008257A0 | — | AU | live | em_manager_008257A0.c, the whole function (decomp C func_overlay_AREA11_00825760.c, byte-identical; state 1 translated and bound by A11FIX: 001B1EA0 over the quad 0x82ACA0, the script 0x829E80 with its op09 callbacks 0x825900 / 0x825920, 001DFE40, D_00810814, 001B17A0) — test_manager_8257a0_reference | frees itself on the second world frame of the first visit (D_00810788 == 0); state 1 is return-visit content | S2_opening* |
 | 0x00825940 | — | AU | live | em_security_gun em_gun_tick (the security gun; lifecycles 0, 0x64, 2, 3) through em_area11_bindings.c tick_gun since section 1.39 — test_script_door_fan_reference (part 3), test_security_gun_rest_reference (em_gun_rest_tick, every lifecycle, 24 captures); test_level_smoke.py check_gun_fan (equal to all 15 route snapshots on every tick), check_owner_units (its 001CAA00 unit), check_rand_order (its 0x8259F0 draw at AE+1); test_collision_world_capture.py (its plate, uid 15) | lifecycles 4 and 1 (return visit, D_00810788 == 0xFF) fault by design; em_gun_rest_tick translates them, not bound | S2_opening |
 | 0x00827490 | — | AU | live | em_security_gun em_gun_cable_tick (the gun's cable) through em_area11_bindings.c tick_gun_cable since section 1.39 — test_script_door_fan_reference (part 3); test_level_smoke.py check_gun_fan, check_owner_units | its hit (a melee hit, decomp CAPTURES_C10.md aim_11; off the route) runs since 2026-10-02 in ordinary play: 001EFE00, 001EFEB0, 0021AAC0 (the kind-2 VU1 program) / 0021A500 and 001CE860 through the aim / fire composition, row for row against aim_11 (the side run aim_cable; AIM_FIRE.md section 10.5, section 1.52) | S2_opening |
 | 0x00827630 | — | AU | live | em_fan_original through em_area11_bindings.c tick_fan since section 1.39 — test_fan_original_reference, test_security_gun_rest_reference (its player hit through the original 0021C440); test_level_smoke.py check_gun_fan (every captured fan state on the port's cycle), check_owner_units (its units, over the port's +0xC8 through the original 001C6380) | its exit and hit boxes are off the smoke's route | S2_opening |

@@ -189,6 +189,10 @@ test-area11-opening: tests/area11_opening_test.c src/game/em_area11_opening.c sr
 	$(CC) $(CFLAGS) tests/area11_opening_test.c src/game/em_area11_opening.c src/game/em_script.c -o build/area11_opening_test
 	build/area11_opening_test
 
+.PHONY: test-area11-opening-reference
+test-area11-opening-reference:
+	python3 tools/test_area11_opening_reference.py
+
 .PHONY: test-cinematic-camera
 test-cinematic-camera: tests/cinematic_camera_test.c src/game/em_cinematic_camera.c src/game/em_cinematic_camera.h
 	@mkdir -p build

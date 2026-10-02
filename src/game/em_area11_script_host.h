@@ -6,7 +6,9 @@
  *
  * Bound owners: the truck trigger 008251E0 (0x8292C0, census L23), Roger
  * 008237E0 (census L22), the director 008253F0 (0x8294C0 / 0x829A40 /
- * 0x829CC0, census L21), the fence door 001BC350 (the ELF program
+ * 0x829CC0, census L21), the record-13 manager 008257A0 (0x829E80, its
+ * state 1: not reached in the first level; its op09 records name the
+ * overlay callbacks 0x825900 / 0x825920), the fence door 001BC350 (the ELF program
  * 0x24DE40, census L18) and the opening controller 00823E80 (0x828FC0 from
  * the opening's own image, with its op14 001BAC00 over the pool; chain C8b
  * OPENING).
@@ -87,9 +89,13 @@ EmScriptImage *em_area11_script_host_door_program(void);
 const uint8_t *em_area11_script_host_opening_bytes(uint32_t address, uint32_t size);
 
 /* The director 008253F0's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60 from
- * the visit's director_quads.emsc (loaded with the scripts). 0, or -1
+ * the visit's director_quads.emsc (loaded with the scripts; the export
+ * also holds the manager 008257A0's 0x82ACA0). 0, or -1
  * (reported). */
 int em_area11_script_host_director_quads(const float (*quad[3])[4]);
+/* Any quad of that export by its address (the director's three and the
+ * record-13 manager 008257A0's 0x82ACA0). 0, or -1 (reported). */
+int em_area11_script_host_quad(uint32_t address, const float (**quad)[4]);
 
 /* 0022EEF0(cam, 1), the camera stage's scripted timeline (0018B9C0 state 1
  * with the camera's +0x04 == 3), for the timeline a script's 001B8FC0 kind

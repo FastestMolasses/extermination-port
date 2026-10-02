@@ -96,7 +96,8 @@ class Truck(C.Structure):
                 ('position', C.c_float*3), ('rotation_x', C.c_float),
                 ('matrix', C.c_float*16), ('rest_matrix', C.c_float*16),
                 ('jitter_z', C.c_float), ('jitter_x', C.c_float), ('rest_y', C.c_float),
-                ('rest_rotation_x', C.c_float), ('shake', C.c_int32), ('velocity', C.c_float*3)]
+                ('rest_rotation_x', C.c_float), ('shake', C.c_int32), ('velocity', C.c_float*3),
+                ('s3A20', C.c_uint32), ('wrote_3A20', C.c_uint8)]
 
 
 class Trigger(C.Structure):
@@ -280,6 +281,11 @@ def truck_step(elf, overlay, native, truck, world, raw, placement=(0,)*16, bound
     if state0 == 1:
         exp['velocity'] = [o.load(0x700038A0+4*i) for i in range(3)]
         got['velocity'] = words(truck.velocity)
+    # The scratch word 0x70003A20: written only by the arm tick (state 4), and
+    # the native reports exactly that store.
+    wrote = any(before.get(0x70003A20+i) != o.mem.get(0x70003A20+i) for i in range(4))
+    exp['3A20'] = o.load(0x70003A20) if wrote else None
+    got['3A20'] = truck.s3A20 if truck.wrote_3A20 else None
     if freed:  # 1AFC10 is a worker: the original fields are the pool's to clear
         exp = {'freed': 1}; got = {'freed': truck.freed}
     assert (actual, got, result) == (expected, exp, 0 if freed else 1), dict(

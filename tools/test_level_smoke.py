@@ -3876,6 +3876,11 @@ def main():
         level_smoke_face.check_face(ticks, state)
         import level_smoke_opening      # the opening's actors on their records (chain C8b OPENING)
         level_smoke_opening.check_opening_actors(ticks, state)
+        import level_smoke_overlay11    # the AREA11 overlay owners re-bound by chain step A11FIX
+        held = level_smoke_overlay11.check_overlay11(ticks, state)
+        if 'crevice_prompt' in checked:
+            # The decomp's audio capture holds 0x413 in every frame of route 11.
+            assert held > 0, 'overlay11: the flame loop 0x413 was never requested on the main line'
         import level_smoke_static_world  # 001C1D00 and the static world's draw (em_static_world_live)
         level_smoke_static_world.check_static_world(
             ticks, state, level_smoke_static_world.VIEW_EXACT_MAIN_LINE if 'roger' in checked else ())

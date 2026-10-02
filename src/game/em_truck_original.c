@@ -48,7 +48,7 @@ static void sdk_sine(float angle, float *sine, float *cosine)
     *cosine = s;
 }
 
-/* VU0 vmulax/vmadday/vmaddaz/vmaddw over each source column. */
+/* VU0 multiply-accumulate of the four rotation columns over each source column. */
 static void transform(float dst[16], const float rotation[16], const float src[16])
 {
     float out[16];
@@ -288,6 +288,8 @@ static int wedged(EmTruckOriginal *o, EmTruckWorld *w, const EmTruckHooks *h)
         float offset = divide((float)(o->shake % 20 - 10), f32(0x42480000u));
         o->matrix[13] = add(o->position[1], offset);
         offset = divide(offset, f32(0x40000000u));
+        memcpy(&o->s3A20, &offset, 4);   /* 0x70003A20 holds the halved offset */
+        o->wrote_3A20 = 1;
         o->matrix[12] = add(o->position[0], offset);
         o->matrix[14] = sub(o->position[2], offset);
         if (h->hull(h->context, o->matrix) != 1) return -1;
@@ -323,6 +325,7 @@ int em_truck_original_tick(EmTruckOriginal *o, EmTruckWorld *w, const EmTruckHoo
         !h->hull || !h->hull_bounds || !h->publish || !h->draw || !h->rumble || !h->effect ||
         !h->sound || !h->free_owner) return -1;
     if (o->freed) return 0;
+    o->wrote_3A20 = 0;
     switch (o->state) {
     case 0: return initialize(o, w, h);
     case 1: return falling(o, w, h);

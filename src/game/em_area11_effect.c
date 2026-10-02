@@ -2,6 +2,8 @@
 #include "game/em_ee_float.h"
 #include "game/em_effect_color.h"
 
+#include <stddef.h>
+
 void em_area11_effect_tick(EmArea11Effect *effect,
                            EmArea11EffectRandom random,
                            EmArea11EffectCallback callback, void *context)
@@ -11,6 +13,10 @@ void em_area11_effect_tick(EmArea11Effect *effect,
     case 0:
         if (!random) return;
         callback(context, EM_AREA11_EFFECT_MATRIX, effect);
+        /* +0x30 = *(self + 0x14) + 0x1F0 (the half-extent block 001A8660
+         * reads as the flame's radius and height), +0x34 = 0x823580. */
+        effect->w30 = effect->record + 0x1F0u;
+        effect->w34 = EM_AREA11_EFFECT_CONTACT;
         effect->flags = 1;
         effect->half_extent[0] = 7.0f;
         effect->half_extent[1] = 15.0f;
@@ -51,11 +57,28 @@ void em_area11_effect_tick(EmArea11Effect *effect,
 }
 
 int em_area11_effect_contact(EmArea11Effect *effect, uint8_t target_flags,
-                             int blocked, uint8_t *target_reaction)
+                             const EmArea11EffectContactWorkers *workers,
+                             uint8_t *target_reaction, uint32_t *fault_address)
 {
-    if (!effect || !target_reaction || (target_flags & 2) || blocked)
+    if (fault_address) *fault_address = 0;
+    if (!effect || !target_reaction || !workers) {
+        if (fault_address) *fault_address = EM_AREA11_EFFECT_CONTACT;
+        return -1;
+    }
+    if (target_flags & 2)
         return 0;
-    *target_reaction = 12;
+    int32_t blocked = 0;
+    if (!workers->w_0021BB00 || workers->w_0021BB00(workers->ctx, &blocked) < 0) {
+        if (fault_address) *fault_address = 0x0021BB00u;
+        return -1;
+    }
+    if (blocked != 0)
+        return 0;
+    if (!workers->w_001EFE00 || workers->w_001EFE00(workers->ctx, EM_AREA11_EFFECT_CONTACT_EFFECT) < 0) {
+        if (fault_address) *fault_address = 0x001EFE00u;
+        return -1;
+    }
+    *target_reaction = 0xC;
     effect->contact_cooldown = 60;
-    return 1;
+    return 0;
 }

@@ -150,7 +150,7 @@ Start sites are the `jal 001BA1A0` in each owner with its resolved `a1`.
 | 0x8294C0 beat 0 | manager 008253F0 (0x8255A0) | 16, 07/8, 06/0 (0x3B), 00/0 ×5, 00/1, 02, 00/1, 02, 00/1, 02, 00/1, 02, 00/1, 02, 06/2 (0x3B), 18, 00/0, 07/5 (0x3B) |
 | 0x829A40 beat 1 | 008253F0 (0x825688) | 16, 07/8, 00/0, 00/5, 0C/0 (0x97), 00/5, 02, 18, 0D/2, 07/4 |
 | 0x829CC0 beat 2 | 008253F0 (0x825758) | 16, 07/8, 00/0, 0C/0 (0x99), 18, 0D/2, 07/4 |
-| 0x829E80 beat 3 | 008253F0 (0x825880) | 16, 07/3, 06/0 (0x3C), 01/3, 00/0, 01/9, 0A/0, 09 (0x825900), 0C/1 (0x9B), 02, 00/5, 09 (0x825920), 00/0, 00/5, 0A/0, 02, 18, 01/9, 00/0, 06/0, 07/4 |
+| 0x829E80 (the record-13 manager's; earlier called "director beat 3") | manager 008257A0 state 1 (decomp func_overlay_AREA11_00825760.c, A11FIX) | 16, 07/3, 06/0 (0x3C), 01/3, 00/0, 01/9, 0A/0, 09 (0x825900), 0C/1 (0x9B), 02, 00/5, 09 (0x825920), 00/0, 00/5, 0A/0, 02, 18, 01/9, 00/0, 06/0, 07/4 |
 | 0x8283D0 Roger encounter | Roger 00823910 (0x823A7C) | 16, 07/12, 06/0, 0C/1, 0A/1 (bank 0x96), 00/6, 01/10, 0B/4, 0D/0, 10/1, 10/5, 18, 0A/5, 01/10, 01/9, 00/0, 07/4 |
 | 0x828990 Roger alternate | 00823910 (0x823984) | 15 (line 0x7F), 06/3 |
 | 0x828810 Roger armed talk | 00823B70 (0x823BB4) | 07/3, 15 (line 0x13), 18, 01/10, 0A/0, 07/4 |
@@ -296,7 +296,7 @@ sampling offset does not explain it; the port may step the transition
 substate at a different point relative to the node pass. The landing,
 which waits on substate 2, runs on the same frame in both, and the drawn
 fade level (0x28A8D0) is not compared yet. Not
-exercised: director beat 3 0x829E80 and Roger's armed talk 0x828810 (both
+exercised: the manager 008257A0's 0x829E80 and Roger's armed talk 0x828810 (both
 skippable, ending in op18; no route beat reaches them) and the level
 exit's departure movie (a movie skip, not a 3B91 skip).
 
@@ -312,7 +312,7 @@ sides; it makes no timing claim about the original services.
   reject that model. Their item/UI callers need the guard-bit model (the lead
   decides). Once they switch, `em_area_script_sin_0011E2A8` can forward to
   them.
-- Not captured on the route (still lockstep-only): director beat 3 0x829E80
+- Not captured on the route (still lockstep-only): the manager 008257A0's 0x829E80
   and Roger 0x828810 / 0x828A10. The skip paths of the opening, beats 0..2
   and Roger's encounter are captured and compared live (section 4, "The
   skip path").

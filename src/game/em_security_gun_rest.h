@@ -19,11 +19,14 @@
  *   0021A500 the behaviour of the strip nodes 0021AAC0 spawns (NEARMISS;
  *            translated from the listing);
  *   001EFEB0 the spawn 0021AAC0 calls (byte-matched decomp C).
- * Addresses are original runtime addresses: the overlay listing names each
- * overlay function 0x40 lower (its vram is the MWo3 header address), so
- * 0x826F30 is listed as ..._00826EF0 plus its fall-through ..._00826F30,
- * and 0x827400 as ..._008273C0 plus ..._00827400. The jal instructions of
- * 0x825940 encode the runtime addresses 0x826F30 and 0x827400.
+ * Addresses are original runtime addresses: splat names each overlay
+ * function 0x40 lower (its vram is the MWo3 header address), so 0x826F30 is
+ * listed as ..._00826EF0 plus its fall-through ..._00826F30, and 0x827400
+ * as ..._008273C0 plus ..._00827400. The jal instructions of 0x825940
+ * encode the runtime addresses 0x826F30 and 0x827400. The decomp now holds
+ * byte-identical C for 0x825940, 0x826F30 and 0x827400
+ * (src/overlays/AREA11/func_overlay_AREA11_00825900.c, 00826EF0.c,
+ * 008273C0.c), which the translations agree with.
  *
  * em_gun_rest_tick runs one call of 0x825940. Lifecycles 1 and 4
  * are translated here; every other lifecycle delegates to

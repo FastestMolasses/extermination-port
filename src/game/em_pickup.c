@@ -28,8 +28,9 @@
  * hold and ramp down, sound 0x451 and a player hit box. Since census L24
  * the AREA11 fans run that owner (em_fan_original, em_area11_bindings.c
  * tick_fan) on their roster nodes and draw their original 001CAA00 units;
- * the fan's bind retires the static instance here (em_pickup_prop_retire),
- * which therefore draws only before the owner's first call. 00827630's
+ * the roster bind retires the static instance here (em_pickup_prop_retire,
+ * em_area11_bind_roster) when the record spawns, so it never draws beside
+ * its owner. 00827630's
  * state-0 init rot.z (+/-pi/4 by +0x2E) is
  * implemented by em_pickup_owner_init_pose, but it applies ONLY when the
  * manifest pickup line carries `owner 0x827630 <flags2>`; without that

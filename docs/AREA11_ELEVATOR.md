@@ -35,6 +35,15 @@ refusal seeds300, which bypasses that sound counter. Script completion clears
 phase/arm, immediately restoring eligibility. The legacy level exporter now
 stops assigning a fabricated300-frame delay to this interaction.
 
+The power bit, D_00810841[D_00810700] & (1 << +0x2E), is read where the
+original reads it: at the phase-0 script choice, at the phase-1 completion
+and after the publication and +0x4C for the +0x28 indicator ramp (the
+decomp's byte-identical func_overlay_AREA11_00827AD0.c). Since chain step
+A11FIX the core reads it through the `powered` hook at those three points,
+so a callee that changed it within a tick would be seen as the original
+sees it (`make test-elevator-reference` flips it after the script start, the
+script tick and the actor update).
+
 On completion, the owner checks the current area power bit. If set it toggles
 81083A, snaps its own Y to190/230, and updates the move-to/description height
 plus both camera-record heights. The indicator then copies its new node0

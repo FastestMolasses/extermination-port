@@ -10,8 +10,14 @@ The flame draws from its original packets on the chain page (step FLAMESNOW,
 em_effects_live, whose 001CCF70 / 001CFA60 / 001CFBE0 put the flame's
 sprite-program chain into page D_007635C0, and the page consumer runs the
 sprite program's translation (em_vu1_page_programs.h) on it. The invented
-sound retrigger stays removed. **Nearby sound and contact reactions remain
-unfinished.**
+sound retrigger stays removed. Since chain step A11FIX (2026-10-02) the
+whole owner runs on its pool record, against the decomp's byte-identical C
+(src/overlays/AREA11/func_overlay_AREA11_008235B0.c and
+overlay_AREA11_func_00823540.c): its loop sound 001FC3C0 / 001FC520, its
+publication 001B17A0, its +0x30 / +0x34 stores and the contact behaviour
+0x823580 that the collision world's contact pass calls. **The damage the
+contact deals (001EFE00(0x80000027) at the player, then 001A8660's
+knock-back) is the DAMAGE step's: it faults (below).**
 The original auxiliary point light is a separate room table; this actor does
 not register it. See [AREA11_POINT_LIGHT.md](AREA11_POINT_LIGHT.md).
 
@@ -53,11 +59,15 @@ It services the sound, updates flags1/2 around the contact cooldown, then
 calls001B17A0 for common actor spatial/category publication. States2/3 stop
 the sound and release the owner.
 
-The contact callback rejects target flag2 or the player's0021BB00 predicate.
-On acceptance it requests attached effect80000027, writes target+0F=12 and
-sets owner cooldown60. This callback is translated and tested, but native
-candidate selection, effect80000027 and player reaction semantics are not
-connected. The visual bounds are not used to invent damage.
+The contact callback 0x823580 rejects bit 1 of the player's +0x00 or a
+nonzero 0021BB00(D_008102B0) (0021BB00 is called only when the bit is
+clear). On acceptance it calls 001EFE00(0x80000027, player), then writes the
+player's +0x0F = 12 and the owner's cooldown +0x210 = 60
+(em_area11_effect_contact, its callees as workers in that order). The
+collision world's 001A8BE0 calls it through 001A8660 when the player's circle
+(the radius and height of D_00275490, the block 0015C420 stores at the
+player's +0x30) overlaps the flame's (+0x30 = the record's +0x1F0 block:
+radius 7, height 15). The visual bounds are not used to invent damage.
 
 The sprite program's emission is the snow program's without the near
 weight (CHAIN_PAGE.md section 3). Its mode-2 GS state is the preset bank's
@@ -72,22 +82,34 @@ fog): with AREA11's light-rig entry 30 (near −209, far 304) the context holds
 255 / 2048 / 151.1111145 / −0.4970760345, as the saved context does
 (EFFECT_MANAGER.md 8.2).
 
-## Sound boundary
+## Sound
 
 Original001FC3C0 retains a live handle, stops changed/dead sounds, and starts
 or updates positional sound on `(global_frame + active_list_ordinal)%10==0`.
-Owner008235F0 passes sound413, radius100 and volume4096. Its opening player
-distance exceeds100, and the captured handle is−1. The old radius300 made
-the port play sound during this otherwise silent opening view.
+Owner008235F0 passes sound413, radius100 and volume4096 (001FBD50 passes its
+own 4096, so the caller's f13 is not read). Its opening player distance
+exceeds100, and the captured handle is−1. The old radius300 made the port
+play sound during this otherwise silent opening view.
+
+Since A11FIX the owner's SOUND call is em_sfx_loop_service (the verified
+001FC3C0, em_sfx.h) over the record's +0xB0 and +0x20C, with the scratchpad
+frame counter 0x70003B68 and the walk ordinal 0x70003B8A of EmSceneState;
+STOP_SOUND is em_sfx_loop_release (001FC520). The decomp's audio capture
+(CAPTURES_AUDIO.md, the `flame` beat, route 11, 16.5 units from the flame)
+holds 0x413 in D_00281B78 / D_00281C38 in every frame, and the `cage_roof`
+beat first holds it at f885: the original keeps this loop alive near the
+flame. What reaches the speakers is the port's SPU2 voice model (FIRST_LEVEL_
+AUDIT.md 1b item 1).
 
 AREA11 bank0's script4/4 contains one note65 with velocity101 followed by
 velocity0, not two independent notes. The second event calls the original
 key-off path. Its VAG has loop-start block2 and loop-end1244, with ADSR
 words33023/24523. The existing native one-shot WAV mixer discards loop and
 envelope semantics. A new unconditional loop or guessed voice lifetime would
-therefore be another fabrication. The original sound-service callback stays
-explicitly unbound pending sequencer/ADSR and active-list scheduling recovery.
-The ordinal17 in this one capture is not installed as a universal constant.
+therefore be another fabrication. The sequencer and voice model the loop
+plays through are em_sfx's (SFX_SEQUENCER.md); no loop or voice lifetime is
+invented here. The ordinal comes from the live walk, not from the ordinal 17
+of one capture.
 
 ## Reproduction and validation
 
@@ -112,7 +134,32 @@ load; scene unload and re-entry release and reconstruct the effect state.
 
 - **Owner.** Node 008235F0 (area11[7]) runs tick_effect
   (em_area11_bindings.c) -> em_area11_effect_runtime_tick ->
-  em_area11_effect_tick; a failed DRAW faults the scene.
+  em_area11_effect_tick over the record: +0x00 / +0x04 are EmActor's
+  status / u04[0], the +0x1F0 block its scratch, +0x30 / +0x34 its w30 /
+  w34 (state 0 stores the record's own +0x1F0 and 0x823580). A failed
+  callee faults the scene at its address.
+- **Sound.** 001FC3C0(self, +0x20C, 0x413, 100, 4096) =
+  em_sfx_loop_service(+0x20C, 0x413, +0xB0, 100, 0x70003B68, 0x70003B8A);
+  001FC520 = em_sfx_loop_release.
+- **Publication.** 001B17A0 = em_area11_interaction_host_offer_001B17A0
+  (001B1630 on the camera, then 001B1B70 when visible: the record goes on
+  the class-0xD list, class 0xD, type +0x03 = 1).
+- **Contact.** The close-out 001AAD00's 001A8BE0 walks the class-0xD list;
+  for the flame (type 1) 001A8660 reads the player record (the live image,
+  em_area11_bindings.c area_records) and the flame's record (its
+  em_actor_pool_record_image), and the player's +0x30 block D_00275490
+  (assets/collision_contact.emrg, tools/export_collision_contact.py). On an
+  overlap it calls the +0x34 word through em_collision_world_bind_behaviour:
+  flame_behaviour runs em_area11_effect_runtime_contact. Its 0021BB00 is
+  em_player_0021BB00. **Its 001EFE00(0x80000027, player) has no binding at
+  the player (the player stage's own 001EFE00 is unbound too): reaching it
+  faults** (FIRST_LEVEL_AUDIT.md 1b item 13, the DAMAGE step); a contact the
+  callback rejects returns to 001A8660, whose knock-back (when the player's
+  +0x00 is 1) reads the table D_0024A740, which is not exported: it faults
+  at 0x1A87C0. No recorded route touches the
+  flame (the closest route beat is 16.5 units away; contact needs 10).
+- **Free.** States 2 / 3: 001FC520, then 001AFC10 (the pool's free); not
+  reached in the first level.
 - **DRAW.** em_effects_live_001D04B0(+0xD0 matrix, 1, D_00828340, the
   descriptor's 0x90 bytes, phase, seed) (em_effects_live.h). The descriptor
   bytes stay readable through em_effects_live_window until the next attach,
@@ -124,7 +171,10 @@ load; scene unload and re-entry release and reconstruct the effect state.
 
 - `make test-area11-effect-reference`: the original-instruction oracle passes
   280 controller state / call cases (the DRAW call's arguments (1,
-  D_00828340, phase, seed) included) and 768 contact cases; the overlay's
+  D_00828340, phase, seed) and the +0x30 / +0x34 stores included) and 768
+  contact cases (the callees in order: 0021BB00 only with bit 1 clear, then
+  001EFE00(0x80000027, player); the stores; a failing 001EFE00 faults before
+  them); the overlay's
   callback and descriptor bytes equal the opening capture's, and the opening
   VU1 dump's last effect holds that descriptor, the owner's matrix and the
   lookup.

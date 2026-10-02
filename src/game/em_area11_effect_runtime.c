@@ -1,6 +1,7 @@
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_effects_live.h"
 #include "game/em_random.h"
+#include "game/em_sfx.h"
 #include "em_math.h"
 
 #include <math.h>
@@ -19,11 +20,12 @@ typedef struct EffectConfig {
 } EffectConfig;
 
 static struct {
-    EmArea11Effect owner;
     EffectConfig config;
     float matrix[16];
     int loaded;
     int fault;
+    uint32_t fault_address;
+    const EmArea11EffectRuntimeCall *call;
 } effect;
 
 void em_area11_effect_runtime_clear(void)
@@ -31,9 +33,35 @@ void em_area11_effect_runtime_clear(void)
     memset(&effect, 0, sizeof effect);
 }
 
-const EmArea11Effect *em_area11_effect_runtime_state(void)
+/* The record's fields <-> the controller's view: +0x00, +0x04, +0x30,
+ * +0x34 and the +0x1F0 block (half extents +0x00..+0x0B, phase +0x14, seed
+ * +0x18, sound handle +0x1C, cooldown +0x20 of the block). */
+static void record_load(const EmActor *a, uint32_t record, EmArea11Effect *e)
 {
-    return effect.loaded ? &effect.owner : NULL;
+    memset(e, 0, sizeof *e);
+    e->state = a->u04[0];
+    e->flags = a->status;
+    memcpy(e->half_extent, a->scratch + 0x00, sizeof e->half_extent);
+    memcpy(&e->phase, a->scratch + 0x14, 4);
+    memcpy(&e->seed, a->scratch + 0x18, 4);
+    memcpy(&e->sound_handle, a->scratch + 0x1C, 4);
+    memcpy(&e->contact_cooldown, a->scratch + 0x20, 4);
+    e->record = record;
+    e->w30 = a->w30;
+    e->w34 = a->w34;
+}
+
+static void record_store(EmActor *a, const EmArea11Effect *e)
+{
+    a->u04[0] = e->state;
+    a->status = e->flags;
+    memcpy(a->scratch + 0x00, e->half_extent, sizeof e->half_extent);
+    memcpy(a->scratch + 0x14, &e->phase, 4);
+    memcpy(a->scratch + 0x18, &e->seed, 4);
+    memcpy(a->scratch + 0x1C, &e->sound_handle, 4);
+    memcpy(a->scratch + 0x20, &e->contact_cooldown, 4);
+    a->w30 = e->w30;
+    a->w34 = e->w34;
 }
 
 int em_area11_effect_runtime_load(const char *directory, const char *config)
@@ -88,10 +116,20 @@ static uint32_t bits(float f)
     return b;
 }
 
+static void call_fault(uint32_t address)
+{
+    if (!effect.fault) {
+        effect.fault = 1;
+        effect.fault_address = address;
+    }
+}
+
 static void effect_call(void *context, EmArea11EffectCall call,
                          EmArea11Effect *owner)
 {
     (void)context;
+    const EmArea11EffectRuntimeCall *c = effect.call;
+    if (effect.fault) return;   /* fail-stop: nothing after a failed callee */
     switch (call) {
     case EM_AREA11_EFFECT_MATRIX:
         /* The exporter verifies all three authored rotation fields are
@@ -106,37 +144,77 @@ static void effect_call(void *context, EmArea11EffectCall call,
         memcpy(descriptor, effect.config.descriptor, sizeof descriptor);
         if (em_effects_live_001D04B0(effect.matrix, 1, EM_AREA11_EFFECT_DESCRIPTOR, descriptor,
                                      bits(owner->phase), bits(owner->seed)) < 0)
-            effect.fault = 1;
+            call_fault(0x001D04B0u);
         break;
     }
     case EM_AREA11_EFFECT_SOUND:
-        /* Original001FC3C0 manages sound413 with radius100 and an active-
-         * list cadence. The old90-tick retrigger and radius300 were made
-         * up. Binding the real service awaits its SPU note-off/envelope
-         * and actor schedule, and is intentionally not replaced by a loop. */
+        /* 001FC3C0(self, +0x20C, 0x413, 100.0, 4096.0): the looped
+         * positional service at the record's +0xB0 on the (frame +
+         * ordinal) % 10 cadence (em_sfx.h; 001FBD50 passes its own 4096,
+         * so the caller's f13 is not read). */
+        owner->sound_handle = em_sfx_loop_service(&owner->sound_handle, EM_AREA11_EFFECT_SOUND_ID,
+                                                  c->actor->pos, 100.0f, c->frame, c->ordinal);
         break;
     case EM_AREA11_EFFECT_PUBLISH:
-        /* Original001B17A0 publishes this class13 actor's spatial category.
-         * Native category selection and attached effect80000027 are not
-         * yet recovered; do not invent damage from the visual bounds. */
+        /* 001B17A0(self): the record onto the collision world's class-0xD
+         * list when visible, where the contact pass 001A8660 reads +0x30 /
+         * +0x34 (docs/AREA11_EFFECT.md "Binding"). The record must hold the
+         * state the controller has reached before the call. */
+        record_store(c->actor, owner);
+        if (!c->publish || c->publish(c->ctx) < 0)
+            call_fault(0x001B17A0u);
         break;
     case EM_AREA11_EFFECT_STOP_SOUND:
-        owner->sound_handle = -1;
+        /* 001FC520(+0x20C). */
+        em_sfx_loop_release(&owner->sound_handle);
         break;
     case EM_AREA11_EFFECT_FREE:
-        effect.loaded = 0;
+        /* 001AFC10(self): the record is freed; nothing is written back. */
+        record_store(c->actor, owner);
+        if (!c->free_record || c->free_record(c->ctx) < 0)
+            call_fault(0x001AFC10u);
+        else
+            effect.call = NULL;
         break;
     }
 }
 
-int em_area11_effect_runtime_tick(void)
+int em_area11_effect_runtime_tick(const EmArea11EffectRuntimeCall *call, uint32_t *fault_address)
 {
-    if (!effect.loaded) return 0;
-    effect.fault = 0;
-    em_area11_effect_tick(&effect.owner, effect_random, effect_call, NULL);
-    if (effect.fault) {
-        fprintf(stderr, "AREA11 effect: 001D04B0 faulted (em_effects_live)\n");
+    if (fault_address) *fault_address = 0;
+    if (!call || !call->actor || !effect.loaded) {
+        if (fault_address) *fault_address = EM_AREA11_EFFECT_CALLBACK;
         return -1;
     }
+    EmArea11Effect owner;
+    record_load(call->actor, call->record, &owner);
+    effect.fault = 0;
+    effect.fault_address = 0;
+    effect.call = call;
+    em_area11_effect_tick(&owner, effect_random, effect_call, NULL);
+    const int freed = effect.call == NULL;
+    effect.call = NULL;
+    if (effect.fault) {
+        if (fault_address) *fault_address = effect.fault_address;
+        return -1;
+    }
+    if (!freed)
+        record_store(call->actor, &owner);
+    return 0;
+}
+
+int em_area11_effect_runtime_contact(EmActor *actor, uint8_t target_flags,
+                                     const EmArea11EffectContactWorkers *workers,
+                                     uint8_t *target_reaction, uint32_t *fault_address)
+{
+    if (!actor) {
+        if (fault_address) *fault_address = EM_AREA11_EFFECT_CONTACT;
+        return -1;
+    }
+    EmArea11Effect owner;
+    record_load(actor, 0, &owner);
+    if (em_area11_effect_contact(&owner, target_flags, workers, target_reaction, fault_address) < 0)
+        return -1;
+    memcpy(actor->scratch + 0x20, &owner.contact_cooldown, 4);   /* +0x210 */
     return 0;
 }

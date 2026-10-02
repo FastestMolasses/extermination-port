@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the AREA11 overlay's truck/director scripts and director quads.
+"""Export the AREA11 overlay's truck/director/manager scripts and their quads.
 
 Copies two ranges of the user's own AREA11 overlay (extract/OVERLAY/AREA11.BIN,
 MWo3, loaded whole at its header address 0x823500) into ignored EMSC files,
@@ -8,9 +8,10 @@ then the bytes; docs/SCRIPT_HOST_WORKERS.md):
 
   assets/scene_snow/area11_scripts/scripts.emsc         0x8292C0..0x82A3C0
       truck camera preview 0x8292C0, director beats 0x8294C0 / 0x829A40 /
-      0x829CC0 / 0x829E80
-  assets/scene_snow/area11_scripts/director_quads.emsc  0x82ABE0..0x82ACA0
-      the director's quads 0x82ABE0 / 0x82AC20 / 0x82AC60 (4 XYZW vertices each)
+      0x829CC0, the record-13 manager 0x8257A0's script 0x829E80
+  assets/scene_snow/area11_scripts/director_quads.emsc  0x82ABE0..0x82ACE0
+      the director's quads 0x82ABE0 / 0x82AC20 / 0x82AC60 and the manager
+      0x8257A0's area 0x82ACA0 (4 XYZW vertices each)
 
 Nothing is rewritten. With the captured first-control RAM present
 (../Extermination/build/startup-reference/playable_ee.bin), both ranges are
@@ -27,10 +28,10 @@ ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_BASE, OVERLAY_SIZE = 0x823500, 0x7800
 SCRIPTS = (0x8292C0, 0x82A3C0)
-QUADS = (0x82ABE0, 0x82ACA0)
+QUADS = (0x82ABE0, 0x82ACE0)
 ENTRIES = {0x8292C0: 'truck camera preview', 0x8294C0: 'director beat 0',
            0x829A40: 'director beat 1', 0x829CC0: 'director beat 2',
-           0x829E80: 'director beat 3'}
+           0x829E80: 'manager 0x8257A0'}
 OUT = ROOT / 'assets/scene_snow/area11_scripts'
 RAM = DECOMP / 'build/startup-reference/playable_ee.bin'
 
@@ -69,7 +70,7 @@ def export(overlay):
     if covered * 64 != len(scripts):
         raise ValueError('the script chains do not tile 0x8292C0..0x82A3C0')
     report = dict(scripts=dict(base=SCRIPTS[0], end=SCRIPTS[1], entries=records),
-                  quads=dict(base=QUADS[0], end=QUADS[1], count=3))
+                  quads=dict(base=QUADS[0], end=QUADS[1], count=4))
     return emsc(SCRIPTS[0], scripts), emsc(QUADS[0], quads), report
 
 
@@ -100,7 +101,7 @@ def main():
     receipt.parent.mkdir(parents=True, exist_ok=True)
     receipt.write_text(json.dumps(report, indent=2) + '\n')
     print(f'Exported {len(ENTRIES)} AREA11 overlay scripts ({(SCRIPTS[1] - SCRIPTS[0]) // 64} records)'
-          f' and 3 director quads' + (' (checked against the captured RAM)' if 'ram_check' in report else ''))
+          f' and 4 quads' + (' (checked against the captured RAM)' if 'ram_check' in report else ''))
 
 
 if __name__ == '__main__':

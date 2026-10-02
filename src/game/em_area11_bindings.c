@@ -82,6 +82,7 @@
 #include "game/em_pickup.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_random.h"
+#include "game/em_render_context_live.h"
 #include "game/em_frame.h"
 #include "game/em_hud.h"
 #include "game/em_manager_008257A0.h"
@@ -750,6 +751,106 @@ static int tick_gun_cable(EmActor *actor, Node *node, const EmArea11World *world
     return 1;
 }
 
+/* 0x823CE0, the flag-0x30 manager (area11[11]): em_flag30_manager_tick
+ * (em_security_gun.c; decomp C func_overlay_AREA11_00823CA0.c,
+ * byte-identical; oracle test_script_door_fan_reference part 3) on its
+ * record: +0x00 / +0x04 / +0x05 / +0x2E are EmActor's (status, u04[0],
+ * u04[1], flags2), +0x28 the node's. In the first visit D_00810788 is 0:
+ * state 0 sets +0x04 = 1 and +0x00 = 1, and state 1 waits with its
+ * 001B17A0 on every call (the captures hold +0x04 = 1, +0x00 = 1, +0x05 = 0).
+ * The script arm (D_00810788 set: a return visit) runs the script 0x828C70
+ * on the AREA11 script host, which holds no image of it (it faults there),
+ * and its render and stream callees on their bound translations. */
+static int flag30_001BA1A0(void *ctx, uint32_t entry)
+{
+    GunCall *c = ctx;
+    return em_area11_script_host_start(c->actor, entry);
+}
+
+static int flag30_001BA1F0(void *ctx, int32_t *result)
+{
+    GunCall *c = ctx;
+    return em_area11_script_host_tick(c->actor, result);
+}
+
+static int flag30_001D2830(void *ctx, int32_t a0, int32_t a1)
+{
+    (void)ctx;
+    return em_rcl_001D2830(a0, a1);
+}
+
+static int flag30_001C1DC0(void *ctx)
+{
+    (void)ctx;
+    return em_rcl_001C1DC0();
+}
+
+static int flag30_001FABB0(void *ctx)
+{
+    (void)ctx;
+    return em_scene_bindings_001FABB0();
+}
+
+static int flag30_001AEE10(void *ctx, int32_t a0, int32_t a1)
+{
+    (void)ctx;
+    em_frame_fade_start_colour(-1, (int16_t)a0, (uint8_t)a1);
+    return 0;
+}
+
+static int flag30_001C4760(void *ctx, int32_t a0, int32_t a1)
+{
+    (void)ctx;
+    return em_director_original_001C4760_scene(s_scene, a0, a1);
+}
+
+static int flag30_001FAE70(void *ctx, int32_t a0)
+{
+    (void)ctx;
+    return em_scene_bindings_001FAE70(a0);
+}
+
+static int tick_flag30(EmActor *actor, Node *node, const EmArea11World *world)
+{
+    (void)world;
+    GunCall c;
+    memset(&c, 0, sizeof c);
+    c.actor = actor;
+    c.node = node;
+    uint8_t *d810808 = em_scene_progress_at(s_scene, 0x00810808u, 1);
+    if (!em_scene_progress_at(s_scene, 0x00810788u, 1) || !d810808)
+        return fault(EM_FLAG30_MANAGER, EM_SCENE_FAULT_BAD_INDEX, "D_00810788 / D_00810808 are not canonical");
+    uint32_t c8 = em_scene_req_u32(s_scene, EM_SCENE_REQ_C8);
+    const EmGunWorld gw = {em_scene_progress_spawn_view(s_scene), &c8, d810808, NULL};
+    EmGunWorkers w;
+    memset(&w, 0, sizeof w);
+    w.ctx = &c;
+    w.w_001B17A0 = gun_001B17A0;
+    w.w_001AFC10 = gun_001AFC10;
+    w.w_001BA1A0 = flag30_001BA1A0;
+    w.w_001BA1F0 = flag30_001BA1F0;
+    w.w_001D2830 = flag30_001D2830;
+    w.w_001C1DC0 = flag30_001C1DC0;
+    w.w_001FABB0 = flag30_001FABB0;
+    w.w_001AEE10 = flag30_001AEE10;
+    w.w_001C4760 = flag30_001C4760;
+    w.w_001FAE70 = flag30_001FAE70;
+    EmFlag30Manager m = {actor->status, actor->u04[0], actor->u04[1], node->h28, actor->flags2, 0};
+    EmGunFault f = {0, 0};
+    const int rc = em_flag30_manager_tick(&m, &gw, &w, &f);
+    em_scene_req_set_u32(s_scene, EM_SCENE_REQ_C8, c8);
+    if (rc < 0)
+        return gun_fault(&f, "flag-0x30 manager 00823CE0");
+    if (c.freed)
+        return 1;
+    actor->status = m.b00;
+    actor->u04[0] = m.lifecycle;
+    actor->u04[1] = m.phase;
+    node->h28 = m.h28;
+    actor->flags2 = m.h2E;
+    return 1;
+}
+
 /* ------------------------------------------------ the fan pair (L24) */
 
 /* 0x827630, the fan pair (area11[1] and [2]), on its original owner:
@@ -758,7 +859,8 @@ static int tick_gun_cable(EmActor *actor, Node *node, const EmArea11World *world
  * +0x2E / +0xC8 are EmActor's (u04[0], u04[1], flags2, rot[2]), +0x28 and
  * +0x38 the node's. A world model owner (+0x0D 0x13 of *D_0028A59C) drawn
  * through the object-unit path; the legacy em_pickup prop instances the
- * manifest placed at its +0xB0 stop drawing once it is bound. Its globals:
+ * manifest placed at its +0xB0 stop drawing when the record is spawned
+ * (em_area11_bind_roster). Its globals:
  * D_00810788, D_00810758 and D_008107D8 are canonical progress bytes,
  * D_008106B8 the request byte B8; its player D_008102B0 is the live player
  * record (+0x00, +0x0F, +0x70..+0x7C, +0xA0..+0xA8, +0x224). The exit box
@@ -779,8 +881,6 @@ static int fan_001B0FD0(void *ctx, const EmFanOriginal *fan)
     int32_t r = 0;
     if (em_area11_boxes_owner_001B0FD0(c->actor, s_pool, &r) < 0)
         return -1;
-    if (r == 0)
-        em_pickup_prop_retire(c->actor->pos);
     return r;
 }
 
@@ -879,6 +979,34 @@ static int tick_fan(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
+int em_area11_bindings_overlay_log(const EmActor *actor, EmArea11OverlayLog *out)
+{
+    const Node *node = node_of(actor);
+    if (!node || !node->binding || !out)
+        return 0;
+    const uint32_t cb = actor->callback;
+    if (cb != EM_AREA11_EFFECT_CALLBACK && cb != EM_FLAG30_MANAGER && cb != EM_AREA11_OPENING_CALLBACK)
+        return 0;
+    memset(out, 0, sizeof *out);
+    out->address = address_of(actor);
+    out->callback = cb;
+    out->b00 = actor->status;
+    out->b04 = actor->u04[0];
+    out->b05 = actor->u04[1];
+    out->h2E = actor->flags2;
+    out->w30 = actor->w30;
+    out->w34 = actor->w34;
+    if (cb == EM_AREA11_EFFECT_CALLBACK) {
+        memcpy(out->block, actor->scratch, sizeof out->block);
+        memcpy(&out->w210, actor->scratch + 0x20, 4);
+    }
+    const EmActorClassLists *lists = em_collision_world_loaded() ? em_collision_world_lists() : NULL;
+    for (int j = 0; lists && em_actor_class_list_entry(lists, EM_ACTOR_LIST_CLASS_D, j); ++j)
+        if (em_actor_class_list_entry(lists, EM_ACTOR_LIST_CLASS_D, j) == actor)
+            out->on_class_d = 1;
+    return 1;
+}
+
 int em_area11_bindings_gun_fan_log(const EmActor *actor, EmArea11GunFanLog *out)
 {
     const Node *node = node_of(actor);
@@ -931,19 +1059,133 @@ static int tick_door(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 008235F0, the flame (area11[7]): em_area11_effect's controller; its
- * DRAW is 001D04B0 on em_effects_live (the packets go into the chain page,
- * docs/AREA11_EFFECT.md "Binding"). */
+/* 008235F0, the flame (area11[7]): em_area11_effect's controller over the
+ * record (em_area11_effect_runtime): its DRAW is 001D04B0 on em_effects_live
+ * (the packets go into the chain page), its 001FC3C0 / 001FC520 the looped
+ * positional service over 0x70003B68 / 0x70003B8A, its 001B17A0 the
+ * interaction host's services (the record onto the class-0xD list when
+ * visible) and its 001AFC10 the pool's free (docs/AREA11_EFFECT.md
+ * "Binding"). State 0 stores +0x30 = the record's +0x1F0 and +0x34 =
+ * 0x823580, which the contact pass 001A8660 calls (flame_behaviour). */
+typedef struct {
+    EmActor *actor;
+    int freed;
+} FlameCall;
+
+static int flame_publish(void *ctx)
+{
+    FlameCall *c = ctx;
+    EmOwnerServicesOwner view;
+    memset(&view, 0, sizeof view);
+    view.cls = c->actor->cls;
+    view.kind = c->actor->model;
+    view.model_id = c->actor->param;
+    view.flags2 = c->actor->flags2;
+    memcpy(view.pos, c->actor->pos, sizeof view.pos);
+    return em_area11_interaction_host_offer_001B17A0(c->actor, &view) < 0 ? -1 : 0;
+}
+
+static int flame_free(void *ctx)
+{
+    FlameCall *c = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->actor) < 0)
+        return -1;
+    c->freed = 1;
+    return 0;
+}
+
 static int tick_effect(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
     (void)world;
-    if (em_area11_effect_runtime_tick() < 0)
-        return em_scene_faulted(s_scene) ? -1
-                                         : fault(em_effects_live_fault() ? em_effects_live_fault() : actor->callback,
-                                                 EM_SCENE_FAULT_WORKER_FAILED,
-                                                 "flame owner: 001D04B0 faulted (em_effects_live)");
+    FlameCall c = {actor, 0};
+    const EmArea11EffectRuntimeCall call = {&c,       actor,        address_of(actor), s_scene->spad3B68,
+                                            (int16_t)s_scene->spad3B8A, flame_publish, flame_free};
+    uint32_t at = 0;
+    if (em_area11_effect_runtime_tick(&call, &at) < 0) {
+        if (em_scene_faulted(s_scene))
+            return -1;
+        if (at == 0x001D04B0u && em_effects_live_fault())
+            at = em_effects_live_fault();
+        return fault(at ? at : actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                     "flame owner 008235F0: a callee faulted (em_area11_effect_runtime)");
+    }
     return 1;
+}
+
+/* The close-out passes' view of the records the AREA11 binder holds
+ * (em_collision_world_bind_area_records): the player record D_008102B0
+ * (the live image, 0x320 bytes), which 001A8BE0 / 001A8660 read, and a
+ * flame record (class 0xD, 008235F0) in its original layout
+ * (em_actor_pool_record_image), which they walk on the class-0xD list. Any
+ * other address: NULL (the pass faults). */
+static uint8_t s_flame_image[EM_ACTOR_RECORD_SIZE];
+
+static uint8_t *area_records(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address >= EM_SCENE_D_008102B0 && size <= EM_PLAYER_ACTOR_SIZE &&
+        address - EM_SCENE_D_008102B0 <= EM_PLAYER_ACTOR_SIZE - size) {
+        EmPlayerLiveActor *pl = player_states_actor_mut();
+        return pl ? pl->bytes + (address - EM_SCENE_D_008102B0) : NULL;
+    }
+    if (!s_pool || address < EM_ACTOR_POOL_BASE)
+        return NULL;
+    const uint32_t i = (address - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE;
+    if (i >= EM_ACTOR_POOL_CAPACITY)
+        return NULL;
+    const uint32_t base = EM_ACTOR_POOL_BASE + i * EM_ACTOR_RECORD_SIZE;
+    EmActor *a = &s_pool->records[i];
+    if (!a->allocated || a->callback != EM_AREA11_EFFECT_CALLBACK || size > EM_ACTOR_RECORD_SIZE ||
+        address - base > EM_ACTOR_RECORD_SIZE - size)
+        return NULL;
+    em_actor_pool_record_image(s_pool, a, s_flame_image);
+    return s_flame_image + (address - base);
+}
+
+/* 001A8660's call of a class-0xD entry's +0x34 (em_collision_world_bind_
+ * behaviour): AREA11's one such word is the flame's 0x823580
+ * (em_area11_effect_contact over the flame's record and the player's +0x00
+ * / +0x0F). Its 0021BB00 is em_player_0021BB00; its 001EFE00(0x80000027,
+ * player), the damage effect, has no live binding at the player yet (the
+ * DAMAGE step, FIRST_LEVEL_AUDIT.md 1b item 13): reaching it faults. */
+static int flame_0021BB00(void *ctx, int32_t *result)
+{
+    const EmPlayerLiveActor *pl = ctx;
+    *result = em_player_0021BB00(pl);
+    return 0;
+}
+
+static int flame_001EFE00(void *ctx, uint32_t id)
+{
+    (void)ctx;
+    fprintf(stderr, "em_area11: 00823580: 001EFE00(%08X, the player) is not bound (the flame's damage: "
+                    "FIRST_LEVEL_AUDIT.md 1b item 13)\n", (unsigned)id);
+    return -1;
+}
+
+static int flame_behaviour(void *ctx, uint32_t fn, uint32_t entry, uint32_t player, uint32_t player_b0)
+{
+    (void)ctx;
+    (void)player_b0;
+    EmPlayerLiveActor *pl = player_states_actor_mut();
+    if (fn != EM_AREA11_EFFECT_CONTACT || player != EM_SCENE_D_008102B0 || !pl || !s_pool ||
+        entry < EM_ACTOR_POOL_BASE || (entry - EM_ACTOR_POOL_BASE) % EM_ACTOR_RECORD_SIZE != 0 ||
+        (entry - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE >= EM_ACTOR_POOL_CAPACITY) {
+        fprintf(stderr, "em_area11: 001A8660: a +0x34 behaviour %08X (entry %08X) with no binding\n", (unsigned)fn,
+                (unsigned)entry);
+        return -1;
+    }
+    EmActor *flame = &s_pool->records[(entry - EM_ACTOR_POOL_BASE) / EM_ACTOR_RECORD_SIZE];
+    if (!flame->allocated || flame->callback != EM_AREA11_EFFECT_CALLBACK)
+        return -1;
+    const EmArea11EffectContactWorkers w = {pl, flame_0021BB00, flame_001EFE00};
+    uint8_t reaction = pl->bytes[0x0F];
+    uint32_t at = 0;
+    if (em_area11_effect_runtime_contact(flame, pl->bytes[0x00], &w, &reaction, &at) < 0)
+        return -1;
+    pl->bytes[0x0F] = reaction;
+    return 0;
 }
 
 /* Roger 008237E0 (area11[8]) and the equipment node 001C5C90 (area11[9])
@@ -965,23 +1207,82 @@ static int tick_roger(EmActor *actor, Node *node, const EmArea11World *world)
     return 1;
 }
 
-/* 008257A0 (area11[13]): em_manager_008257A0 (S12a). The node's +0 and +4
- * are EmActor.status and u04[0]; D_00810794 and D_00810788 are canonical D2
- * progress bytes. States 2 and 3 free the node itself (001AFC10); the pool
- * walk continues with the next node it saved. State 1 (event 0x30 set) is
- * the untranslated script arm and faults. */
+/* 008257A0 (area11[13]): em_manager_008257A0, the whole function (decomp
+ * C func_overlay_AREA11_00825760.c). The node's +0 / +4 / +5 are
+ * EmActor.status and u04[0..1]; D_00810794, D_00810788 and D_00810814 are
+ * canonical D2 progress bytes. States 2 and 3 free the node itself
+ * (001AFC10); the pool walk continues with the next node it saved. State
+ * 1 (reached only with event 0x30 set, a return visit) runs 001B1EA0 over
+ * D_00810350 (g.pos, as the director's and Roger's triggers) and the area
+ * quad 0x82ACA0 (the scripts export's fourth quad), the script 0x829E80 on
+ * the AREA11 script host (its op09 callbacks 0x825900 / 0x825920 are the
+ * host's c_record), 001DFE40 on the render context and the interaction
+ * host's 001B17A0. */
 typedef struct {
     EmActor *self;
     int freed;
-} ManagerFree;
+} ManagerCall;
+
+static int director_atan2(void *ctx, float y, float x, float *result);
 
 static int manager_free_001AFC10(void *ctx)
 {
-    ManagerFree *f = ctx;
-    if (em_actor_pool_free_001AFC10(s_pool, s_scene, f->self) < 0)
+    ManagerCall *c = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->self) < 0)
         return -1;
-    f->freed = 1;
+    c->freed = 1;
     return 0;
+}
+
+static int manager_001B1EA0(void *ctx, int32_t *result)
+{
+    (void)ctx;
+    EmSdkMathContext *sdk = em_collision_world_sdk();
+    const float (*quad)[4] = NULL;
+    if (!sdk || em_area11_script_host_quad(EM_MANAGER_008257A0_AREA, &quad) < 0)
+        return -1;
+    float point[3] = {g.pos[0], g.pos[1], g.pos[2]};
+    return em_director_original_001B1EA0_bound(0, point, quad, 4, director_atan2, sdk, result) < 0 ? -1 : 0;
+}
+
+static int manager_001BA1A0(void *ctx, uint32_t entry)
+{
+    ManagerCall *c = ctx;
+    return em_area11_script_host_start(c->self, entry);
+}
+
+static int manager_001BA1F0(void *ctx, int32_t *result)
+{
+    ManagerCall *c = ctx;
+    return em_area11_script_host_tick(c->self, result);
+}
+
+static int manager_001DFE40(void *ctx)
+{
+    (void)ctx;
+    return em_rcl_001DFE40();
+}
+
+static int manager_00810814(void *ctx, uint8_t value)
+{
+    (void)ctx;
+    uint8_t *byte = em_scene_progress_at(s_scene, 0x00810814u, 1);
+    if (!byte) return -1;
+    *byte = value;
+    return 0;
+}
+
+static int manager_001B17A0(void *ctx)
+{
+    ManagerCall *c = ctx;
+    EmOwnerServicesOwner view;
+    memset(&view, 0, sizeof view);
+    view.cls = c->self->cls;
+    view.kind = c->self->model;
+    view.model_id = c->self->param;
+    view.flags2 = c->self->flags2;
+    memcpy(view.pos, c->self->pos, sizeof view.pos);
+    return em_area11_interaction_host_offer_001B17A0(c->self, &view) < 0 ? -1 : 0;
 }
 
 static int tick_manager_8257A0(EmActor *actor, Node *node, const EmArea11World *world)
@@ -992,42 +1293,47 @@ static int tick_manager_8257A0(EmActor *actor, Node *node, const EmArea11World *
     const uint8_t *e788 = em_scene_progress_at(s_scene, 0x00810788u, 1);
     if (!e794 || !e788)
         return fault(EM_MANAGER_008257A0, EM_SCENE_FAULT_BAD_INDEX, "event bytes not canonical");
-    EmManager8257A0 m = {actor->status, actor->u04[0], *e794, *e788};
-    ManagerFree f = {actor, 0};
-    EmManager8257A0Workers w = {&f, manager_free_001AFC10};
+    EmManager8257A0 m = {actor->status, actor->u04[0], *e794, *e788, actor->u04[1]};
+    ManagerCall c = {actor, 0};
+    const EmManager8257A0Workers w = {&c, manager_free_001AFC10, manager_001B1EA0, manager_001BA1A0,
+                                      manager_001BA1F0, manager_001DFE40, manager_00810814, manager_001B17A0};
     uint32_t at = 0;
     if (em_manager_008257A0_tick(&m, &w, &at) < 0) {
         if (em_scene_faulted(s_scene))
             return -1;
-        return fault(at, at == EM_MANAGER_008257A0 ? EM_SCENE_FAULT_NULL_WORKER : EM_SCENE_FAULT_WORKER_FAILED,
-                     at == EM_MANAGER_008257A0 ? "008257A0 state 1 (script arm) is not translated (WP-10)"
-                                               : "008257A0: 001AFC10 failed");
+        return fault(at ? at : EM_MANAGER_008257A0, EM_SCENE_FAULT_WORKER_FAILED,
+                     "008257A0: a callee faulted (em_manager_008257A0)");
     }
-    if (!f.freed) {
+    if (!c.freed) {
         actor->status = m.b00;
         actor->u04[0] = m.b04;
+        actor->u04[1] = m.b05;
     }
     return 1;
 }
 
 /* 00823E80, the opening controller (area11[10]; overlay AREA11, runtime
- * 0x823E80..0x823FE8), by its +0x04. State 0: 001B0FD0 (0x823ECC,
- * em_area11_boxes_owner_001B0FD0: the world bank's model 0x11, the
- * parachute canopy, and its slot; a refusal returns), 001C6380 (0x823EDC),
- * +0x04 = 1 and +0x00 = 1. State 1: the script machine
- * (em_area11_opening_state1: 001BA1C0(self, 0x39); +0x05 0 starts the
- * script 0x828FC0 on the AREA11 script host and stops the streams; +0x05 1
- * polls it and, when it ends, runs the completion: +0x2E = 0xFFFF,
- * D_00810811 = 0xFF, 001C4760(0, 1), 001FAE70(0), +0x05 = 2, 001AEE10(4,
- * 0)), then on every path 001B1B70(self) (0x823FAC: the record onto the
- * collision world's class lists, its cell uid 3) and its +0x4C (0x823FB8),
- * 001CAA00 over its record (em_area11_boxes_owner_draw): the canopy keeps
- * drawing after the script ends. States 2 / 3 free the record (0x823FCC):
- * not reached in the first level, a fault. The script's actors are pool
- * records (001BAC00 spawns them; tick_opening_actor), the player's its own
- * stage's (the script host's takeover). */
+ * 0x823E80..0x823FE8): em_area11_opening_tick, the whole function (decomp
+ * C func_overlay_AREA11_00823E40.c; oracle test_area11_opening_reference).
+ * State 0: 001B0FD0 (em_area11_boxes_owner_001B0FD0: the world bank's
+ * model 0x11, the parachute canopy, and its slot; a refusal returns),
+ * 001C6380, +0x04 = 1 and +0x00 = 1. State 1: the script machine
+ * (001BA1C0(self, 0x39); +0x05 0 starts the script 0x828FC0 on the AREA11
+ * script host and stops the streams; +0x05 1 polls it and, when it ends,
+ * runs the completion: +0x2E = 0xFFFF, D_00810811 = 0xFF, 001C4760(0, 1),
+ * 001FAE70(0), +0x05 = 2, 001AEE10(4, 0)), then on every path
+ * 001B1B70(self) (the record onto the collision world's class lists, its
+ * cell uid 3) and its +0x4C, 001CAA00 over its record
+ * (em_area11_boxes_owner_draw): the canopy keeps drawing after the script
+ * ends. States 2 / 3: 001AFC10 frees the record; any other state returns.
+ * The script's actors are pool records (001BAC00 spawns them;
+ * tick_opening_actor), the player's its own stage's (the script host's
+ * takeover). The legacy manifest instance of the canopy stops drawing when
+ * the record is bound (em_area11_bind_roster), not here: the original
+ * controller calls nothing of the kind. */
 typedef struct {
     EmActor *self;
+    int freed;
 } OpeningCall;
 
 static int opening_001BA1C0(void *ctx, uint32_t a1, int32_t *result)
@@ -1085,43 +1391,62 @@ static int opening_001AEE10(void *ctx, int16_t a0, uint8_t a1)
     return 0;
 }
 
+static int opening_001B0FD0(void *ctx, int32_t *result)
+{
+    OpeningCall *c = ctx;
+    return em_area11_boxes_owner_001B0FD0(c->self, s_pool, result);
+}
+
+static int opening_001C6380(void *ctx)
+{
+    OpeningCall *c = ctx;
+    return em_area11_boxes_owner_001C6380(c->self, NULL);
+}
+
+static int opening_001B1B70(void *ctx)
+{
+    OpeningCall *c = ctx;
+    return em_collision_world_publish_001B1B70(c->self);
+}
+
+static int opening_4C(void *ctx)
+{
+    OpeningCall *c = ctx;
+    return em_area11_boxes_owner_draw(c->self);
+}
+
+static int opening_001AFC10(void *ctx)
+{
+    OpeningCall *c = ctx;
+    if (em_actor_pool_free_001AFC10(s_pool, s_scene, c->self) < 0)
+        return -1;
+    c->freed = 1;
+    return 0;
+}
+
 static int tick_opening(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
     (void)world;
-    if (actor->u04[0] == 0) {
-        int32_t refused = 0;
-        if (em_area11_boxes_owner_001B0FD0(actor, s_pool, &refused) < 0)
-            return fault(0x001B0FD0u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 0: 001B0FD0 faulted");
-        if (!refused) {
-            if (em_area11_boxes_owner_001C6380(actor, NULL) < 0)
-                return fault(0x001C6380u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 0: 001C6380 faulted");
-            actor->u04[0] = 1;   /* +0x04 */
-            actor->status = 1;   /* +0x00 */
-            em_pickup_prop_retire(actor->pos);
-        }
-        return 1;
-    }
-    if (actor->u04[0] != 1)
-        return fault(actor->callback, EM_SCENE_FAULT_BAD_INDEX, "00823E80: the free of states 2 / 3 is not bound");
-    OpeningCall call = {actor};
+    OpeningCall call = {actor, 0};
     const EmArea11OpeningWorkers w = {&call,           opening_001BA1C0, opening_001BA1A0, opening_001BA1F0,
                                       opening_001FABB0, opening_00810811, opening_001C4760, opening_001FAE70,
-                                      opening_001AEE10};
-    EmArea11Opening op = {actor->u04[1], actor->flags2};
+                                      opening_001AEE10, opening_001B0FD0, opening_001C6380, opening_001B1B70,
+                                      opening_4C,       opening_001AFC10};
+    EmArea11Opening op = {actor->status, actor->u04[0], actor->u04[1], actor->flags2};
     const uint8_t before = op.b05;
     uint32_t at = 0;
-    if (em_area11_opening_state1(&op, &w, &at) < 0)
+    if (em_area11_opening_tick(&op, &w, &at) < 0)
         return em_scene_faulted(s_scene) ? -1
-                                         : fault(at, EM_SCENE_FAULT_WORKER_FAILED, "00823E80 state 1: a callee faulted");
+                                         : fault(at, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: a callee faulted");
+    if (call.freed)
+        return 1;
+    actor->status = op.b00;   /* +0x00 */
+    actor->u04[0] = op.b04;   /* +0x04 */
     actor->u04[1] = op.b05;   /* +0x05 */
     actor->flags2 = op.h2E;   /* +0x2E */
     if (before == 1 && op.b05 == 2)
         em_opening_runtime_complete();
-    if (em_collision_world_publish_001B1B70(actor) < 0)
-        return fault(0x001B1B70u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: 001B1B70 faulted");
-    if (em_area11_boxes_owner_draw(actor) < 0)
-        return fault(0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED, "00823E80: its +0x4C 001CAA00 faulted");
     return 1;
 }
 
@@ -1407,7 +1732,7 @@ static int terminal_copy_child(EmActor *terminal)
  * the camera, 001B1B70 onto the collision world's class lists), then the
  * +0x4C, 001CAA00 (em_area11_boxes_owner_draw) whatever 001B17A0 found;
  * states 2 / 3: 001AFC10. The legacy prop instance the manifest placed at
- * its +0xB0 stops drawing once its owner is bound. */
+ * its +0xB0 stops drawing when the record is spawned (em_area11_bind_roster). */
 typedef struct {
     EmActor *actor;
     int freed;
@@ -1418,7 +1743,6 @@ static int prop_model_bind(void *context, uint8_t *image, int32_t *result)
     PropCall *c = context;
     if (em_area11_boxes_owner_001B0FD0(c->actor, s_pool, result) < 0) return -1;
     image[4] = c->actor->u04[0];
-    if (*result == 0) em_pickup_prop_retire(c->actor->pos);
     return 0;
 }
 
@@ -1769,8 +2093,7 @@ static const Binding k_bindings[] = {
      NULL},
     {0x00823E80u, "opening controller: em_area11_opening over em_area11_script_host", tick_opening, NULL},
     {0x001BB0E0u, "opening actor: em_slg_001BB0E0 (em_area11_roger)", tick_opening_actor, NULL},
-    {0x00823CE0u, "manager: dormant", NULL,
-     "manager 00823CE0 (area11[11]): dormant (waits on D_00810788); no port code"},
+    {0x00823CE0u, "flag-0x30 manager: em_flag30_manager_tick (em_security_gun)", tick_flag30, NULL},
     {0x008253F0u, "director: em_director_original over em_area11_script_host",
      tick_director, NULL},
     {0x008257A0u, "record 13: em_manager_008257A0", tick_manager_8257A0, NULL},
@@ -1869,6 +2192,10 @@ void em_area11_bindings_attach(EmActorPool *pool, EmSceneState *scene)
     s_pool = pool;
     s_scene = scene;
     em_aim_fire_runtime_attach(pool);
+    /* The close-out passes' records and the class-0xD +0x34 behaviour (the
+     * flame's contact, 001A8BE0 / 001A8660). */
+    em_collision_world_bind_area_records(area_records, NULL);
+    em_collision_world_bind_behaviour(flame_behaviour, NULL);
     /* 001AF800: the records that hold bone slots (+0x09): the boxes' and
      * (census L22) Roger's and the equipment node's, which the boxes' worker
      * hands to em_area11_roger. */
@@ -1898,7 +2225,18 @@ int em_area11_bind_roster(void *ctx, EmActor *actor, const EmActorRosterSpawned 
                  (unsigned)spawned->index);
     else if (spawned->source == EM_ROSTER_SOURCE_PLACEMENT)
         snprintf(record, sizeof record, "area11[%u]", (unsigned)spawned->index);
-    return bind_node(actor, record[0] ? record : NULL);
+    if (bind_node(actor, record[0] ? record : NULL) < 0)
+        return -1;
+    /* Port glue, not an original call: the scene manifest's legacy `prop`
+     * instance at a placement record whose original owner is bound here
+     * (the canopy 00823E80, the fans 00827630, the prop 001C4820) stops
+     * drawing from the record's spawn on. In the original only the owner
+     * draws it, through its +0x4C, once its own state 0 has bound the
+     * model (em_pickup.c). */
+    const Node *node = node_of(actor);
+    if (spawned->source == EM_ROSTER_SOURCE_PLACEMENT && node && node->binding && node->binding->tick)
+        (void)em_pickup_prop_retire(actor->pos);
+    return 0;
 }
 
 static int equipment_spawn(int32_t arg1);

@@ -15,6 +15,7 @@ typedef struct {
     int message_started, message_complete, message_polls;
     int sound_tick, motion_tick, last_pose_tick, fail_camera;
     int clip_commit_tick, clip_end_tick, completed_tick;
+    int powered;   /* D_00810841[0x0B] bit 7 (the runtime's powered hook) */
     float carried_height;
 } Fixture;
 
@@ -101,6 +102,9 @@ static void hull(void *context)
     assert(f->last_pose_tick==f->tick);
 }
 
+static int power(void *context)
+{ return ((Fixture *)context)->powered; }
+
 static void setup(Fixture *f, EmModel *model, const char *path, int lower)
 {
     memset(f,0,sizeof *f); f->model=model;
@@ -109,7 +113,7 @@ static void setup(Fixture *f, EmModel *model, const char *path, int lower)
     EmInteractionRuntimeHooks shared={f,acquire,idle,release,publish,event,NULL};
     assert(em_interaction_runtime_init(&f->interaction,&f->frame,model,f->palette,&shared));
     EmElevatorRuntimeHooks hooks={f,align_player,face_player,camera_set,
-        camera_publish,camera_chase,message_start,message_done,sound,pose,indicator,actor,hull};
+        camera_publish,camera_chase,message_start,message_done,sound,pose,indicator,actor,hull,power};
     assert(em_elevator_runtime_load(&f->elevator,path,lower,&f->interaction,
         f->player+1,f->target+1,&hooks));
 }
@@ -123,7 +127,8 @@ static void step(Fixture *f, int powered)
         if(f->clip_end_tick<0 && em_interaction_runtime_animation_done(
             &f->interaction,&f->elevator)==1) f->clip_end_tick=f->tick;
     }
-    assert(em_elevator_runtime_tick(&f->elevator,powered,1)==0);
+    f->powered=powered;
+    assert(em_elevator_runtime_tick(&f->elevator,1)==0);
     if(f->entered && !f->elevator.owner.phase && f->completed_tick<0)
         f->completed_tick=f->tick;
     ++f->tick;
@@ -152,7 +157,8 @@ static void run(EmModel *model, const char *path, int powered, int lower)
             int palettes=f.palettes,actors=f.actors;
             for(int paused=0;paused<150;paused++) {
                 assert(em_interaction_runtime_player_tick(&f.interaction,0)==0);
-                assert(em_elevator_runtime_tick(&f.elevator,powered,0)==0);
+                f.powered=powered;
+                assert(em_elevator_runtime_tick(&f.elevator,0)==0);
             }
             assert(!memcmp(&before,&f.elevator.owner,sizeof before));
             assert(!memcmp(&motion,&f.elevator.motion,sizeof motion));
@@ -206,14 +212,16 @@ static void fail_camera(EmModel *model, const char *path)
     int failed=0;
     for(f.tick=0;f.tick<20;f.tick++) {
         assert(em_interaction_runtime_player_tick(&f.interaction,1)>=0);
-        if(em_elevator_runtime_tick(&f.elevator,1,1)<0) {failed=1;break;}
+        f.powered=1;
+        if(em_elevator_runtime_tick(&f.elevator,1)<0) {failed=1;break;}
     }
     assert(failed && f.elevator.failed && f.elevator.program.failed);
     assert(f.elevator.owner.phase==1 && f.elevator.owner.armed==4 && !f.elevator.owner.lower);
     assert(em_interaction_runtime_owner(&f.interaction)==&f.elevator);
     assert(em_interaction_runtime_camera_owned(&f.interaction));
     assert(!em_elevator_runtime_free(&f.elevator) && !f.released);
-    assert(em_elevator_runtime_tick(&f.elevator,1,1)==-1);
+    f.powered=1;
+    assert(em_elevator_runtime_tick(&f.elevator,1)==-1);
     /* Explicit whole-scene teardown, not a successful game release. */
     memset(&f.interaction,0,sizeof f.interaction);
     assert(em_elevator_runtime_free(&f.elevator));

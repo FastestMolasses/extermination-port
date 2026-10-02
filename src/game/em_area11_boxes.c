@@ -1,6 +1,7 @@
 /* em_area11_boxes.c - the AREA11 crates and drums on their original owners
  * (census L25). See em_area11_boxes.h and docs/CRATES_DRUMS_ORIGINAL.md
  * "Binding". */
+#include "game/em_player_closure_live.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_trail.h"
@@ -1139,6 +1140,10 @@ int em_area11_boxes_truck_tick(EmActor *actor, EmActorPool *pool, EmSceneState *
                 (unsigned)b->truck_state.state);
         return -1;
     }
+    /* The arm tick's 0x70003A20 (the halved shake offset) into the word's
+     * canonical copy, as 00827B10's tail store (em_area11_bindings.c). */
+    if (b->truck_state.wrote_3A20)
+        em_player_closure_live_store_3A20(b->truck_state.s3A20);
     if (!b->freed) truck_store(b);
     return b->freed ? 0 : 1;
 }

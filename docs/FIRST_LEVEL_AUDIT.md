@@ -1397,6 +1397,20 @@ The groups:
 - D: what may already be original but is not yet proven (evidence gaps);
 - E: what blocks a release without being game behaviour.
 
+**Status (2026-10-02, chain step A11FIX):** every port translation of an
+AREA11 overlay function (runtime 0x823540..0x828170) was read line by line
+against the decomp's new C (decomp docs/AREA11_OVERLAY.md). Fixed: the
+opening controller 0x823E80 is one whole-function translation with an
+original-instruction oracle (its non-original em_pickup_prop_retire call is
+gone; states 2 / 3 free, other states return); the record-13 manager
+0x8257A0's state 1 is translated and bound (script 0x829E80 with its op09
+callbacks 0x825900 / 0x825920, 001DFE40, the quad 0x82ACA0, D_00810814);
+the flame 0x8235F0 runs on its record with its loop sound, publication,
++0x30 / +0x34 and contact behaviour (items 1 and 13); the terminal
+0x827B10 reads its power bit at the original's three points; the flag-0x30
+manager 0x823CE0 is bound; the truck's arm-tick 0x70003A20 store is
+modelled. Every other translation agrees (the module docs' notes).
+
 **A. On the route, every run**
 
 1. **Sound: the audio output.** Everything the game's code asks of the
@@ -1411,7 +1425,9 @@ The groups:
      comparison (WP-14 AM-03 / 04 / 26 / 27).
    - Cues: the UI cues 0 / 1 / 2 / 5 / 0xB / 0xD (AM-07); the positional
      gain 001FBF50 has no oracle (AM-19); the looped positional voices
-     001FC3C0 are verified but not bound (the flame's 0x413); 001FBDB0 is
+     001FC3C0 / 001FC520 are bound for the flame's 0x413 since chain step
+     A11FIX (2026-10-02; the decomp's audio capture holds 0x413 in the
+     flame beat); 001FBDB0 is
      verified but not bound; 001FBC50's live part is em_sfx_stop_all, which
      no oracle checks; 001FC280's body is unverified (its D_00282160 cache is
      not modelled). The sound-bank loader chain 001FB370 / 001FB3E0 /
@@ -1549,9 +1565,13 @@ The groups:
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 
-13. **Feel / logic: damage and death.** The flame's contact damage 00823580
-    is not modelled (INV-17) and its class-0xD push 001B1DA0 / 001A8660 is
-    not bound; the stage's hit, infection and low-health paths reach
+13. **Feel / logic: damage and death.** The flame publishes onto the
+    class-0xD list and the contact pass 001A8BE0 / 001A8660 runs live since
+    chain step A11FIX, with its +0x34 behaviour 0x823580 bound
+    (AREA11_EFFECT.md "Binding"); what a contact then does faults: the
+    behaviour's 001EFE00(0x80000027, player) (no binding at the player) and
+    001A8660's knock-back table D_0024A740 (not exported). The route never
+    touches the flame. The stage's hit, infection and low-health paths reach
     fail-stop workers (0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0,
     the unbound +4 = 2 states); the gun cable's hit reaction (a melee hit:
     rounds aimed at the cable land on the pillar behind it, decomp
