@@ -428,3 +428,7 @@ the session's end); leads, not ground truth.
    revised in section 8c) is not recorded.
 4. The next steps from AREA04 entry 7 with this state (bit 2 of
    D_00810845 still 0, no item 0x29) are not derived.
+   (Continued in `ELEVENTH_LEVEL_ROUTE.md`: nothing new at AREA04 entry 7
+   but the lift back up; group `a13c` branches from a13b_01 and plays
+   AREA13's battery machine [44], its event (flag 0x1C), the cure item
+   0x22 and the boom to [7]; door [20]'s side is still not reached.)
