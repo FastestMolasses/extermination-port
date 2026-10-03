@@ -15,8 +15,11 @@ formerly capture-derived texture files byte for byte from the disc image and
 the extract, and the exporters that decoded from `opening_gs.bin` or a GS
 dump (props, pickup lights, fence door, Roger, `player.emdl`, the weapon
 sprite sheets) take their texels from the rebuilt GS memory by default
-(section 4). Section 9 extends this to the other assets: only
-`interaction.emis` and `background.embg` still read a capture.
+(section 4). Section 9 extends this to the other assets. Since the chain
+step "the two capture-bound assets" (2026-10-02, section 9.4) no
+first-level asset reads a capture: `interaction.emis` and `background.embg`
+come from the first world frame that the original code builds from the
+disc (`tools/export_disc_state.py`).
 
 Files:
 
@@ -26,6 +29,7 @@ Files:
 | `tools/export_disc_textures.py` | the one-command texture exporter (CLI); each part calls its tool's own writer |
 | `tools/test_disc_textures_reference.py` | the original-instruction oracle and the capture comparisons (`make test-disc-textures-reference`) |
 | `tools/test_disc_assets_reference.py` | section 9's checks (`make test-disc-assets-reference`) |
+| `tools/export_disc_state.py` | section 9.4: the EE state of AREA11's first world frame, executed from the disc |
 | `docs/DISC_TEXTURES.md` | this file |
 
 ## 1. What each texture is and where it comes from
@@ -189,10 +193,12 @@ pointer equal DATA.DAT at region offset 0x123000 + the entry offset.
 
 ```
 python3 tools/export_disc_textures.py [--iso FILE | --disc DIR] [--extract DIR] \
-    [--assets DIR] [--scratch DIR] [--only objects|page|font|status_models|status_hub|item_root|battery]
+    [--assets DIR] [--scratch DIR] [--only objects|page|font|status_models|status_hub|item_root|battery|
+                                   interaction|background]
 ```
 
-macOS arm64, pure Python, about 10 s. Defaults: `--iso
+macOS arm64, pure Python, about 15 s (the first frame of the last two
+parts about 6 s). Defaults: `--iso
 ../Extermination/Extermination-rebuilt.iso`, `--assets assets/`, `--scratch
 build/disc_textures/`. `--disc DIR` (a mounted disc or a copy of DATA/) goes
 to the decomp's `BackgroundDisc` unchanged; only `--iso` was exercised in
@@ -233,6 +239,13 @@ Each part calls its tool's own writer, so one owner builds each file
 - `battery`: `export_panel.battery_emba` (the token table D_00265C50,
   D_00265CD0 and its two constants, and the texts); texels from world +
   module 0x21.
+- `interaction`: `export_interaction_scan.build` / `write` over the first
+  world frame's EE image (section 9.4).
+- `background`: the decomp's `export_level.export_background`, unchanged,
+  over the same image written to `build/disc_textures/first_frame_ee.bin`
+  (its scratch output is copied; the `background background.embg` line is
+  added to `scene_snow/scene.txt` only when the manifest lacks it, so an
+  existing manifest keeps its order).
 
 Every decode must read only uploaded blocks (`reads_only_covered`: the
 decode is repeated with every other block filled with 0x00 and with 0xA5
@@ -433,15 +446,15 @@ body claims of section 2 (a decomp-side edit for the lead).
   The extract alone keeps neither the upload section tables nor the
   resident offsets. The section bytes are also checked against the
   extract. Only `--iso` is exercised: no test covers `--disc`.
-- `player.emdl`: the step-6 bake with `--p2s` over the rebuilt memory is
-  byte-identical to the bake with the GS dump, and the installed file's 80
-  textures equal it; the installed file itself is not reproduced whole,
-  because eight of its clips differ from any fresh bake (STARTUP.md
-  "Honest limits", an older clip-append history).
-- `fx/light_cone.emdl`: the `--cone` bake is identical with `--gsdump` and
-  with `--p2s`, but the installed file carries flags 1 where the current
-  exporter writes `NORMAL_FLAGS` 0 (an export older than the decomp's
-  normals change); its texels are the disc's either way.
+- `player.emdl` is reproduced whole since 2026-10-02 (section 9.5): its
+  "eight differing clips" were five clips missing from the documented step
+  6 clip list (0x14, 0x47, 0x40..0x42) and the in-place rewrites of the
+  step-8 tools, not an unknown history.
+- `fx/light_cone.emdl`: the installed file was an older bake (flags 1, a
+  uniform grey in the normal slot); it is replaced by the current `--cone
+  --p2s` bake (flags 0, the authored normals). Nothing in the port reads
+  it since the original aim/fire path replaced em_weapon's cone (chain
+  step AIMLIVE).
 - Only the states the route shows are modelled and checked against
   captures:
   - the world after a New Game (D_00810707 = 0, costume 0);
@@ -465,7 +478,8 @@ body claims of section 2 (a decomp-side edit for the lead).
   flame, the decal and the glow marker. A producer bound later that draws
   another TEX0 must add its original source here; `--route-captures`
   refuses a captured page TEX0 that is not in the set.
-- Two non-texture assets still need a capture (section 9.4).
+- The first world frame (section 9.4) holds the flame's first tick and
+  runs only the state-3 node's second tick; neither asset reads either.
 - The two NEARMISS corrections (section 2) and the extract naming shift
   are recorded here only. The decomp's NEARMISS.md and FINDINGS.md are
   tracked files this chain step did not edit.
@@ -581,23 +595,97 @@ assets `make test-level-smoke-full` passed: the main route through roger
 (18 live phases, `--require-through`) and the side runs 00, status_pages
 and 09 with side 1.
 
-### 9.4 Still capture-bound
+### 9.4 The first world frame, executed from the disc (2026-10-02)
 
-- **`interaction.emis` (step 30).** The eleven use-owners' records are the
-  playable capture's actor list. Executing the original state-0 spawners
-  (001AF8E0, 001B6990, 001C5C50; tools/test_actor_census_reference.py's
-  oracle) over the disc tables with New Game's zero progress bytes gives
-  the same nodes, ranks (after the self-freeing record 13), uid, class,
-  subtype, +0x2E item type, placement and angles; the three fields it does
-  not give are written by each owner's first tick: status 1, the selector
-  +8 (3 for the pickups, 1 for the elevator) and the descriptor pointer
-  +0x30. Deriving them needs the six owners' state 0 (00219550, 0015AFA0,
-  00159210, 001BC350, the overlay's 00827B10 and 008237E0) executed over
-  the spawned pool; not done here.
-- **`background.embg` (step 40).** The draw state (TEX0, CLAMP_1, TEX1_1,
-  TEST_1, ZBUF_1, RGBAQ) is read from render channel 3's captured list.
-  Its sources are code and ELF data (001C1F50's TEX0 immediate for key
-  0x0B00 through 001E2260, D_00250F30 through 001E2270, 001E1E60's
-  001D1F80(3, 0, 7) / 001D1FF0(3, 0) environment), so a disc path is
-  001E1E60 executed over a render context 001C1F50 built on the disc
-  memory; not done here. Its texels are already the disc's.
+Two assets held values the game writes at run time, and were read from a
+capture: `interaction.emis` (the eleven use-owners' status, selector +8
+and descriptor pointer +0x30, written by each owner's first tick) and
+`background.embg` (render channel 3's GS draw state: TEX0, CLAMP_1,
+TEX1_1, TEST_1, ZBUF_1, RGBAQ, built by 001E1E60 every world frame).
+`tools/export_disc_state.py` now builds that run-time state by executing
+the original instructions of the pinned ELF and the AREA11 overlay over
+`first_level_memory` (9.1), in the order a New Game reaches them:
+
+| Step | Original | What it leaves |
+|---|---|---|
+| 1 | the boot's render builder sub_EXTERMINATION 001D0F20 | the packet arena, the GS register blocks at D_00275674 (the env presets 001D1F80 / 001D1FF0 REF), the render flags |
+| 2 | 001AB740(0, 001ACEC0); scratchpad 0x70003B6C = the slot, as 001AB6A0 hands it | the game task in slot 0 |
+| 3 | 001AD230 (its 001AF2C0 New Game reset), 001AD360 step 4 | the progress block; D_00810700..702 = 0x0B, 0, 0; render flag 3 |
+| 4 | the overlay at 0x823500 (the extract's OVERLAY/AREA11.BIN, its MWo3 header checked) and its init 008237C0 | the per-level record block D_00275C1C |
+| 5 | 0x1AE040 state 0, whole (001AFCA0 .. 001D1EF0) | the pools, the spawned roster, the player, 001C1DC0 -> 001C1F50's flags 0x20 / 0x21, TEX0 and colour |
+| 6 | main-loop step B 001D1AE0(D_00810E80), then 0x1AE040 state 1 through 001AE5E0's actor walk 001AFD70(0) (stopped at the return address of that call, found in the ELF) | the player tick, 001D1C50, 001C1D00 -> 001E0CF0 -> 001E1E60's channel-3 list, every owner's first tick |
+| 7 | 001AFD70(0) with every behaviour held except those of the nodes step 6 left in state 3 | record 13 (008257A0, inert on New Game: D_00810788 = 0) frees itself, as its next tick does |
+
+Only the task-slot bytes the router (001ACEC0 -> 001AD250 -> 001AD4D0,
+not executed) leaves for each entry are written by the tool: +0xA = 4 for
+001AD360 step 4, +0xA = +0xB = 0 for the frame machine's state 0. The
+boundaries, asserted by the test:
+
+- the flame's behaviour 008235F0 (place 7) is held in step 6: its draw
+  reaches VU0 VMINI, which the measured VU model (tools/ee_float_model.py)
+  does not define. Neither asset reads the flame;
+- step 7 holds every other behaviour (its only purpose is the state-3
+  node's own free);
+- the DMA controller: the one kick (VIF1, from memory: 0015C1F0 ->
+  00200890's player texture packet through 00101F08) completes at once,
+  reads of CHCR return it with STR clear, and any other hardware access
+  faults. The kick writes no EE RAM.
+
+The interpreter is the shared EE core (test_render_verify_rest_reference's
+RvrEE) plus PCPYH. Step 6's walk ends with 50 nodes; step 7 frees one.
+
+Uses (one owner per file, each unchanged):
+
+- `interaction.emis`: `export_interaction_scan.build` over the EE image.
+  Every owner's +0x00 and +0x30 (and the pickups' and the elevator's +0x08)
+  are stored by its own behaviour during the walk (the test watches the
+  stores); the door, Roger and the panel keep the spawn's +0x08.
+- `background.embg`: the decomp's `export_level.export_background` over
+  the image (written to `build/disc_textures/first_frame_ee.bin`), with its
+  checks unchanged: the CALLed kernel, the MSCAL, TEX0 = ctx+0x1D0, RGBAQ
+  from ctx+0x1C0, the D_00253560 template and the grid constants.
+
+Both are byte-identical to the capture-derived files (pinned in
+`tools/test_disc_assets_reference.py` E, which also runs the two writers
+over the captures: `playable_ee.bin` and `roger-encounter`). The commands
+are `python3 tools/export_interaction_scan.py` (STARTUP.md step 30; `--ee
+FILE` is the capture path) and `python3 tools/export_disc_textures.py
+--only background` (step 40); the default `export_disc_textures.py` run
+writes both. About 6 s of Python for the frame.
+
+The model's limits: the state is the first world frame, not the
+first-control frame the playable capture holds; the eleven records are
+the same bytes, which is what the comparison proves. Other owners' first
+ticks run but are not compared, and the flame's is not run.
+
+### 9.5 `player.emdl` and `fx/light_cone.emdl` (2026-10-02)
+
+- **`player.emdl` is reproduced whole.** The installed file (and
+  `player_channels.empc`) is exactly: step 6 with the usage clip list of
+  export_native.py plus `20,71,64,65,66` (the clips the step-8 tools then
+  rewrite: 0x47 the elevator lever, 0x40..0x42 the pickups; 0x14 is
+  baked as is), step 7, then the step-8 model tools in this order: stop
+  clips (appends 4, 5), elevator (rewrites 0x47), idle (rewrites 0),
+  panel (appends 0x15C), door (rewrites 67, 69), pickup (rewrites
+  0x40..0x42). The reversal and climb / slide tools only stage their
+  output (`--install` is not part of the installed files; the EMPC clip
+  count tools/test_pose_bank_reference.py pins is the uninstalled one).
+  The "eight differing clips" of SHADOW_ORIGINAL.md were these rewrites.
+  The test's full mode rebakes both files and compares them whole.
+- **`fx/light_cone.emdl` is re-baked.** The installed file was an older
+  bake: flags 1 and a uniform grey in the normal slot (the retired
+  0.30 + 0.70 * N.L stand-in, ACTOR_LIGHTING.md). The current `--cone
+  --p2s` bake (flags 0, the authored normals) replaces it; its texels are
+  the disc's either way. Nothing in the port opens the file since the
+  original aim/fire path replaced em_weapon's cone (chain step AIMLIVE),
+  so the level smoke is unaffected; it passed on the new bake.
+
+### 9.6 The whole route on disc-only assets, again (2026-10-02)
+
+A sandbox like 9.3's (`../Extermination` with the config, the tools, the
+disc image and an extract without `gsdump/`, `live/` and
+`textures_colored/`; no `build/`) ran `export_disc_textures.py` (every
+part), steps 6, 7 and 8 and the `--cone` bake into an empty `assets/`.
+Every file was byte-identical to the installed one (24 files; `scene.txt`
+held only the background line, as no step 10 ran). With those files
+installed, `make test-level-smoke-full` passed.

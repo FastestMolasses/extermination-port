@@ -87,9 +87,14 @@ unit normal with w = 0. That is 4,064 records in total.
     captured in AREA11 with draw method 001CAA00. The placements are
     world-rotated (yaw-pi bridge leaves), so a baked normal would not
     stay node-local either.
-- **`em_lighting`**:
-  - `em_lighting_actor_rgb` implements the 001D8690 multiply.
-  - `em_lighting_fold_gate` implements 001D8270.
+- **`em_lighting`**: since the lighting step (2026-10-02, audit 1b item 4)
+  it holds only the renderer's kernel slice (`em_lighting_matrices`,
+  `em_lighting_vertex`). Its copies of 001D8270 and 001D8690
+  (`em_lighting_fold_gate`, `em_lighting_actor_rgb`) are deleted: each
+  original has one translation, in `em_actor_light_001D89D0`. The deleted
+  multiply truncated its products and its bias add, where the measured EE
+  rounds (EE_FLOAT_MODEL.md); this test's part E failed on it from that
+  model change until the step.
 - **Metal backend**:
   - The rig-less stand-in and the camera-fill spot exception on normal
     meshes are deleted.
@@ -101,8 +106,8 @@ unit normal with w = 0. That is 4,064 records in total.
 
 ## Verification
 
-`python3 tools/test_actor_lighting_reference.py` runs from the port
-directory. It writes its report to
+`make test-actor-lighting-reference` (`tools/test_actor_lighting_reference.py`,
+about 5 s) runs from the port directory. It writes its report to
 `build/actor_lighting_reference/report.json` and reads the pinned ELF, the
 playable capture and the generated assets.
 
@@ -113,16 +118,21 @@ playable capture and the generated assets.
   normal-matrix xyz lanes. Totals: 640 colour bytes and 468 normal-lane
   bytes. The second display list is one frame older, and its point-light
   flicker directions differ.
-- It recomposes the rig as the port must feed it (the contract below).
-  Directions, all 64 colour bytes and the normal lanes equal the executed
-  original for all 14 actors.
+- The renderer's rig (part C). The skinned path takes the bound 001D89D0's
+  A and B as `em_status_models` derives them (A's columns, B's colour rows,
+  B's ambient row less the 8388608 bias); `em_lighting_matrices` over that
+  rig gives back all 64 bytes of the executed colour matrix for all 14
+  actors, and 001D8270's gate of the one owner equals the original's.
 - It runs the original kernel slice on every drawn record of every bound
   actor: 4,527 record evaluations across the 14 actors. The exported EMDL
   carries each record's exact normal. `em_lighting_vertex`
-  with the recomposed rig produces identical RGB words: 13,581 words in
+  with that rig produces identical RGB words: 13,581 words in
   total.
-- It runs 001D8270 over 256 types with 9 radii (2,304 cases), and 001D8690
-  over 300 random cases.
+- Part E runs the original 001D8270 over 256 types with 9 radii (2,304
+  cases) and the original 001D8690 over 300 random rig records and actor
+  RGB (the w lane varied too), against their one translation
+  (`em_actor_light_001D8270` / `em_actor_light_001D8690`): every gate and
+  all 64 bytes of B equal.
 - Removed error: over 3,807 records, the old stand-in colours differ from
   the original by a mean of 29.2 and a maximum of 176.3 GS units. Item 0B
   has the maximum because its actor RGB is (4,4,4).
@@ -168,30 +178,30 @@ shade is bounded by 32 + |74*d1 + 38*d2|, about 108, which is below 128.
 
 ## Caller contract (`em_gfx.h`, owned by the render coordinator)
 
-This contract is proven equal to the original above but is not wired into
-`char_rig_build`. Since the owner-draw steps (2026-09-25/26) the bound
-AREA11 owners do not use it: the crates, drums, truck, fence door,
-terminal/elevator, panel, placed prop, items, the parachute canopy, the
-player and its equipment nodes, and since census L24 the fan pair, the
-security gun and its cable, light through the translated 001D89D0 on the
-object-unit path (OWNER_DRAW.md, ACTOR_LIGHT_001D89D0.md). The owners that
-OWNER_DRAW.md section 11 lists as not on that path yet (Roger, the player
-during the opening) draw port meshes; where such a
-draw takes a rig, and for the status-menu player, it is `em_render_frame.c`'s
-`char_rig_build`, which the points below describe:
+Every first-level draw lights through the bound 001D89D0
+(`em_actor_light_001D89D0`, with 001D8270's gate, 001D8690's actor RGB,
+the glow and 001D8C30's modes inside it):
 
-1. Slot 0 is zero unless actor+2 bit 0x20 is set.
-2. The fold runs only when `em_lighting_fold_gate(type, radius)` passes.
-   `char_rig_build` currently folds for every actor.
-3. The light point is the actor+0x98 node.
-4. The colour rows and ambient pass through `em_lighting_actor_rgb`. The
-   rig currently uses identity RGB.
-5. Each vertex is lit with its own node's matrix.
+- the owners' 001CAA00 units (crates, drums, truck, fence door,
+  terminal/elevator, panel, placed prop, items, the parachute canopy, the
+  player and its equipment nodes, the fan pair, the security gun and its
+  cable, Roger) on the object-unit path (OWNER_DRAW.md,
+  ACTOR_LIGHT_001D89D0.md);
+- the faces through 001CB3C0's 001D88B0 (FACE_ATTACH.md);
+- since the lighting step (2026-10-02, audit 1b item 4) the two draws left
+  on the renderer's skinned path, the status hub's models (001CB580 ->
+  001CB4F0: 001D8C20(1), 001C7420's 001D89D0, which hands mode 1 to the
+  one 001D8C30, then 001D8C20(0)) and the MAP page's (001CB480: mode 2,
+  the room rig) through `em_owner_draw_live_light`. Their rig is A's
+  columns, B's colour rows and B's ambient row less the bias (em_gfx.h
+  `EmGfxCharRig`; part C above proves the renderer gives back B).
 
-On the `char_rig_build` path, the report measures these maximum differences:
-item 0B 162, gun cable 17, door 14, truck 5 and parachute 2 GS units (the
-item, door, truck, parachute and gun cable now draw through 001D89D0
-instead).
+`em_render_frame.c`'s `char_rig_build` composes a rig without the gate,
+the actor RGB and the glow. With the render context bound (the first level)
+reaching it is a fault: no first-level draw names it (the level smoke's
+route and side runs reach it 0 times, measured with an instrumented build
+over the main route through roger and the status_pages side run). Scenes
+without the render context (outside the first level) keep it.
 
 ## Limits
 
@@ -206,8 +216,10 @@ instead).
 - **Rig-less scenes** (`assets/scene`, `scene_office0`; outside the first
   level) reject their actor draws; `export_level.py --lightrig` restores
   their rigs.
-- **Status-menu backplate, in every scene including AREA11.**
-  `em_render_frame.c` draws the black backplate (a flags-0 mesh) through
+- **Status-menu backplate, legacy screen only.** In scenes without the
+  AREA11 interaction host (outside the first level; AREA11's status screen
+  is the host's original route) `em_render_frame.c` draws the black
+  backplate (a flags-0 mesh) through
   `em_gfx_draw_skinned_tinted` before any `em_gfx_char_rig` call, and the
   rig is cleared at frame start. Every opening of the status menu
   therefore rejects it and prints the diagnostic for that mesh. Nothing
@@ -221,9 +233,11 @@ instead).
   The single-face `area_item_0d` (0.615) and `area_internal_terminal`
   (0.741) are constant instead:
   - Referenced and still drawn: `tendril.emdl` and
-    `enemy_crate_cardboard_n1.emdl` (em_enemy), `fx/light_cone.emdl`
-    (em_weapon); outside the first level, the drawbridge scene's doors,
-    props and `12_placed.emdl`.
+    `enemy_crate_cardboard_n1.emdl` (em_enemy); outside the first level,
+    the drawbridge scene's doors, props and `12_placed.emdl`.
+    `fx/light_cone.emdl` was one of these bakes; since 2026-10-02 it is the
+    current `--cone` bake (flags 0), and nothing opens it since chain step
+    AIMLIVE retired em_weapon's cone (DISC_TEXTURES.md 9.5).
   - In `scene_snow/props` but referenced by no manifest or source file:
     `area_battery_terminal`, `area_internal_terminal`, `area_item_11`,
     `area_item_battery` and `item_4d/4f/57/58/6c`. The AREA11 pickups
@@ -238,6 +252,6 @@ instead).
   lights them. The snow `05_movables` level mesh is not a stand-in: it
   bakes the real AREA11 rig statically (RoomLight). That still omits the
   per-draw point-light fold.
-- **Self-glow.** Actor+2 bit 0x40 is not representable through
-  `EmGfxCharRig`. The test rejects such actors; none of the AREA11 ones has
-  it.
+- **Self-glow.** Actor+2 bit 0x40 is applied by the bound 001D89D0 to B's
+  ambient row (the MAP nodes 002101C0 sets it on), so the skinned path's
+  rig carries it (part C). The object-unit path packs B as the original.

@@ -1198,12 +1198,8 @@ user's disc alone"; DISC_TEXTURES.md sections 6 and 9, STARTUP.md):**
   came out byte-identical to the installed ones and `make
   test-level-smoke-full` passed on them (main route through roger, 18
   phases, and the side runs).
-- **Open:** `interaction.emis` (the use-owners' first-tick status, selector
-  and descriptor pointer) and `background.embg` (render channel 3's GS
-  draw state) still read a capture (DISC_TEXTURES.md 9.4); only `--iso` is
-  exercised; the installed `player.emdl` and `fx/light_cone.emdl` are not
-  reproduced whole by the current exporters (older bakes), though their
-  texels are the disc's.
+- **Open:** only `--iso` is exercised. (The two capture-bound assets and
+  the two older bakes were closed by chain step ASSETS, 2026-10-02.)
 
 **Status update (2026-09-28, chain C8b ROUTE: full route, census re-measured,
 the remaining gaps re-made; census 1.44):**
@@ -1367,6 +1363,69 @@ loader-chain sub-point):**
   The pack (`tools/export_module_loader.py`) holds the page modules' sectors
   now: re-export it.
 
+**Status update (2026-10-02, the lighting step, audit 1b item 4; census
+1.53):**
+- **One light for every first-level draw.** The status hub's models
+  (001CB580 -> 001CB4F0) light through the bound 001D89D0 in mode 1, which
+  hands them to the one 001D8C30; 001CB4F0's 001D8C20(0) runs after the
+  draw. 001D8C30 has one translation (em_frh_001D8C30; em_actor_light_001D8C30
+  runs it over its views); the inline case-1 copy in em_status_models.c and
+  em_lighting.c's copies of 001D8270 / 001D8690 are deleted (the deleted
+  multiply truncated where the measured EE rounds).
+  em_render_frame.c's char_rig_build faults when the render context is
+  bound: an instrumented build counted 0 calls over the main route through
+  roger and the status_pages side run.
+- **The room point-light lists at run time.** The area entry's 001D19E0
+  runs 001D7BB0: the pool reset, then 001F68B0 / 001F6E40 over the ELF's
+  lists (em_effects_live_room_lights; 001D7FA0 = em_point_light_register,
+  001D80B0 = em_rcl_001D80B0). tools/export_point_lights.py,
+  point_lights.emlp, em_point_light_load and the manifest line are retired.
+  The tick reads D_00810700 / D_00810701 as it runs.
+- **The fade weights.** The New Game's 001AD1A0 runs 001D19D0 -> 001D9070
+  over the library model 0x16, held as the disc has it in the Roger
+  export's writable region (re-export it).
+- **Evidence.** test-point-light-reference (the ORIGINAL 001D7BB0 against
+  the chain, every list key and latch value, twice); the new make target
+  test-actor-lighting-reference (the renderer's rig from the bound A and B
+  gives back B; 001D8270 / 001D8690's one translation against the
+  originals; its part E failed before the step, on the deleted copy);
+  test-actor-light-001d89d0-reference (full sweep);
+  test-frame-render-heads-reference; test-status-models; the level smoke's
+  new check_room_lights (the pool against the first-control capture and
+  every aligned route snapshot) and check_fade_weights (model 0x16 against
+  every capture, byte for byte).
+
+**Status update (2026-10-02, chain step ASSETS, audit 1b item 22):**
+- **No first-level asset reads a capture.** `interaction.emis` and
+  `background.embg` come from AREA11's first world frame, which the
+  original code builds from the disc (`tools/export_disc_state.py`,
+  DISC_TEXTURES.md 9.4): the boot's 001D0F20, the game task's install,
+  New Game (001AD230, 001AD360 step 4), the overlay and its init 008237C0,
+  0x1AE040 state 0, and 0x1AE040 state 1 through 001AE5E0's actor walk
+  (every owner's first tick), then the state-3 record 13's own free. The
+  two files' writers are unchanged (`export_interaction_scan.build`, the
+  decomp's `export_level.export_background`); their outputs are
+  byte-identical to the capture-derived files. Boundaries: the flame's
+  first tick (VU0 VMINI is outside the measured VU model) and one
+  from-memory VIF1 kick that completes at once.
+- **`player.emdl` reproduced whole; `fx/light_cone.emdl` re-baked.** Steps
+  6..8 with the clip list completed (`20,71,64,65,66`) and step 8's
+  model tools in order give the installed `player.emdl` and
+  `player_channels.empc` byte for byte; the reversal and climb / slide
+  tools only stage (their `--install` was never part of the installed
+  files). The light cone is the current `--cone` bake (flags 0); nothing
+  opens it since chain step AIMLIVE (DISC_TEXTURES.md 9.5).
+- **Evidence.** `make test-disc-assets-reference` part E (both files from
+  the disc frame equal the pins, the capture paths give the pins, every
+  owner's +0x00 / +0x30 and the selectors stored by its own tick, the
+  boundary and hardware lists pinned, three controls); full mode rebakes
+  `player.emdl`, `player_channels.empc` and the cone whole. A capture-free
+  sandbox (no `../Extermination/build`, the extract without its GS dump and
+  live dumps) ran `export_disc_textures.py` (every part), steps 6..8 and the
+  cone: every output was byte-identical to the installed file, and `make
+  test-level-smoke-full` passed on them (DISC_TEXTURES.md 9.6).
+- **Open:** only `--iso` is exercised (no test covers `--disc DIR`).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1488,18 +1547,22 @@ modelled. Every other translation agrees (the module docs' notes).
      measured occupancy whose owner is not established (only its end is
      pinned by the captures); confirm the owner from the IRX's thread
      creation (IOP_STREAM.md "Stated models").
-4. **Look: the lighting stand-ins** (lanes L40 and L33).
-   - On the draws still on the renderer's skinned path (the status hub's
-     and the MAP page's models) the renderer's char_rig_build tint stands in
-     for the fold gate 001D8270 and 001D8690's actor RGB. Both originals run
-     live elsewhere: 001D8270 inline in the 001D8340 / 001D89D0
-     translations of every object-unit draw (census 1.44), 001D8690 inside
-     001CB3C0.
-   - Not bound: the UI lighting mode 001D8C30 and the fade weights 001D8060
-     / 001D80B0 / 001D9070.
-   - The room point-light lists are resolved offline by
-     tools/export_point_lights.py; the original resolves them at run time in
-     001F6640 / 001F66F0 / 001F6760 / 001F6D60 / 001F6E40 (verified-unbound).
+4. **Look: the lighting stand-ins** (lanes L40 and L33). Done in the
+   lighting step (status update above): every first-level draw lights
+   through the bound 001D89D0 (one translation each of 001D8270, 001D8690
+   and 001D8C30), the room point-light lists run at the area entry and the
+   New Game's fade weights 001D9070 are bound. What is left:
+   - the indicator children's colour is still em_effect_color.h's mode-1
+     conversion of 001D8C30 (it goes with their 001CABA0 binding, item 5);
+   - the hub's and the MAP's models are drawn by the renderer's skinned path
+     (its rig is the original's; the object kernel's normal normalisation,
+     001D3BA0's clip pass and the GS rasterisation are not reproduced, item
+     2); no capture shows the MAP page or compares the hub's pixels;
+   - 001D19E0's other callees (001D9720, 001DD940, 001E0C30, 001D9060,
+     001D71F0, the flag registrations) stay reported no-effect bindings
+     (RENDER_CONTEXT.md 8.4);
+   - in AREA11 nothing draws model 0x16 (the cone 001D9530 is skipped), so
+     its weights are checked as bytes, not pixels.
 5. **Look: draws not yet on their original units.**
    - The indicator children's +0x4C is 001CABA0 (001CACB0 / 001CAAC0
      verified-unbound); the port draws each child's model mesh additively at
@@ -1709,10 +1772,11 @@ modelled. Every other translation agrees (the module docs' notes).
 21. **Platforms.** macOS only: the Windows (D3D12) and Linux (Vulkan)
     backends are skeletons, the GS frame stage and the GPU pixel tests are
     Metal only, and the Linux build has no movie playback.
-22. **Two capture-bound assets.** `interaction.emis` and `background.embg`
-    still read a PCSX2 capture (DISC_TEXTURES.md 9.4); only `--iso` is
-    exercised; the installed `player.emdl` and `fx/light_cone.emdl` are
-    older bakes the current exporters do not reproduce whole.
+22. **Two capture-bound assets.** Done in chain step ASSETS (2026-10-02,
+    status update above): `interaction.emis` and `background.embg` come
+    from the first world frame executed from the disc (DISC_TEXTURES.md
+    9.4), `player.emdl` is reproduced whole and `fx/light_cone.emdl` is the
+    current bake (9.5). Left: only `--iso` is exercised.
 23. **Frame cost.** The VU1 kernels run on the CPU every frame: on the M1 the
     in-level main-thread time per tick is 7.6 ms on average with no tick
     over the 16.68 ms period (chain C8b FLAMESNOW); slower hosts are not

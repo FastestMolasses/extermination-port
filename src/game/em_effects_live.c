@@ -1022,6 +1022,73 @@ static void wire(EmPacketChain *pc)
     S.sprite = (EmPlayerEquipmentSprite){sw, &S.sworld, &S.sfault};
 }
 
+/* ------------------------------------------------------------ room lights */
+
+/* 001D7FA0(pos, preset, 1, 1.0, 0.0) as 001F6640 calls it: the register on
+ * the context's pool; its handle (-1 for a full pool) goes to the record. */
+static int w_room_001D7FA0(void *ctx, const float pos[4], uint32_t template_address, const float color[4],
+                           int32_t type, uint32_t f12, uint32_t f13, int32_t *handle)
+{
+    (void)ctx;
+    (void)template_address;
+    EmPointLightPool *pool = em_rcl_point_lights();
+    if (!pool) return -1;
+    *handle = em_point_light_register(pool, pos, color, type, bfloat(f12), bfloat(f13));
+    return 0;
+}
+
+/* 001D80B0(handle) over the context (em_rcl_001D80B0). */
+static int w_room_001D80B0(void *ctx, int32_t handle)
+{
+    (void)ctx;
+    return em_rcl_001D80B0(handle);
+}
+
+/* 001D7BB0's tail (src/func_001D7BB0.c): 001F68B0() then 001F6E40() (the
+ * room point-light lists, AREA11_POINT_LIGHT.md). See the header. */
+int em_effects_live_room_lights(EmSceneState *scene)
+{
+    if (!scene || em_effects_live_load() < 0 || !em_rcl_point_lights()) return -1;
+    /* 001F68B0's latch bytes, from their canonical storage; a key whose case
+     * reads one that is not canonical faults. */
+    static const struct { uint32_t address; uint16_t keys[2]; } latch[] = {
+        {0x0081075Du, {0x0000, 0x0000}}, {0x0081075Eu, {0x0001, 0x0100}}, {0x00810761u, {0x0200, 0x0200}},
+        {0x00810778u, {0x1301, 0x1301}}, {0x0081077Bu, {0x1301, 0x1301}}, {0x00810784u, {0x0002, 0x0E00}},
+        {0x00810785u, {0x1100, 0x1100}}, {0x0081079Eu, {0x1301, 0x1301}}};
+    EmEffectKindsGlobals globals;
+    memset(&globals, 0, sizeof globals);
+    globals.d810700 = scene->d810700;
+    globals.d810701 = scene->d810701;
+    const uint16_t key = (uint16_t)(scene->d810700 << 8 | scene->d810701);
+    uint8_t *bytes[8] = {&globals.d81075D, &globals.d81075E, &globals.d810761, &globals.d810778,
+                         &globals.d81077B, &globals.d810784, &globals.d810785, &globals.d81079E};
+    for (unsigned i = 0; i < 8; ++i) {
+        const uint8_t *b = em_scene_progress_at(scene, latch[i].address, 1);
+        if (b) {
+            *bytes[i] = *b;
+        } else if (latch[i].keys[0] == key || latch[i].keys[1] == key) {
+            fprintf(stderr, "effects: 001F68B0 reads D_%08X for key %04X, which is not canonical\n",
+                    (unsigned)latch[i].address, (unsigned)key);
+            S.fault = latch[i].address;
+            return -1;
+        }
+    }
+    EmEffectKindsWorkers workers;
+    memset(&workers, 0, sizeof workers);
+    workers.w_001D7FA0 = w_room_001D7FA0;
+    workers.w_001D80B0 = w_room_001D80B0;
+    /* The lists window is S.ktables (D_0025AD80..D_0025D800, the one copy:
+     * the records' +0x24 handles persist from area load to area load). */
+    EmEffectKinds k = {&S.ktables, &globals, NULL, NULL, &workers, {0, 0}};
+    if (em_effect_kinds_001F68B0(&k) < 0 || em_effect_kinds_001F6E40(&k) < 0) {
+        fprintf(stderr, "effects: the room point-light lists faulted at %08X (code %d)\n",
+                (unsigned)k.fault.address, (int)k.fault.code);
+        S.fault = k.fault.address ? k.fault.address : 0x001D7BB0u;
+        return -1;
+    }
+    return 0;
+}
+
 /* ------------------------------------------------------------ attach */
 
 int em_effects_live_attach(EmActorPool *pool, EmSceneState *scene, EmEffectsLiveBind bind)

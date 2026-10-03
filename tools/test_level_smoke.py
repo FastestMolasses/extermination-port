@@ -3528,6 +3528,70 @@ def sway_entry_gap():
     return _SWAY_ENTRY_GAP[0]
 
 
+def check_fade_weights(run):
+    """001D19D0 -> 001D9070 (audit 1b item 4): the New Game's 001AD1A0 runs
+    it once over the global library's model 0x16 (the gun lamp's third cone
+    shell), whose bytes the port holds as the disc has them
+    (tools/export_roger_banks.py); the run's bytes after the call (its FNV-1a
+    in the run log) must equal the first-control capture's and every AREA11
+    route snapshot's at that address."""
+    found = re.findall(r'^fade weights: 001D19D0 -> 001D9070 over library model 0x16 at ([0-9A-F]{8}) '
+                       r'\((\d+) bytes\): fnv1a ([0-9A-F]{8})$', run, re.M)
+    assert len(found) == 1, ('fade weights: 001D19D0 ran', len(found), 'times; the New Game runs it once')
+    address, size, digest = int(found[0][0], 16), int(found[0][1]), int(found[0][2], 16)
+    captures = [DECOMP / 'build/startup-reference/playable_ee.bin'] + sorted(
+        p for p in ROUTE.glob('*/eeMemory.bin') if p.parent.name[:2] < '15')
+    for path in captures:
+        ram = path.read_bytes()
+        h = 2166136261
+        for b in ram[address:address + size]:
+            h = ((h ^ b) * 16777619) & 0xFFFFFFFF
+        assert h == digest, ('fade weights: model 0x16 differs from the capture', path.parent.name, hex(h), hex(digest))
+    print(f'fade weights: PASS (001D9070 over the disc\'s library model 0x16 at {address:08X}, {size} bytes, '
+          f'equals the first-control capture and {len(captures) - 1} route snapshots byte for byte)')
+
+
+def check_room_lights(ticks, state):
+    """The room point-light lists (audit 1b item 4; docs/AREA11_POINT_LIGHT.md):
+    the area entry's 001D19E0 -> 001D7BB0 resets the render context's pool
+    and registers the room's lists through 001F68B0 / 001F6E40 -> 001F6640 ->
+    001D7FA0 at run time (em_effects_live_room_lights). At first control
+    (against the first-control capture) and at every aligned route snapshot,
+    the port's pool (the tick log's `lights`) holds the capture's id counter
+    (+0x210), staged count (+0x214), the same slots active (weight +0x2C >
+    0), and in each active slot the capture's multiplier, adder, type,
+    handle, position and colour words. The sway's angles and matrices follow
+    the port's own rand() stream (check_sway runs the original over them)."""
+    references = []
+    if 'first_control' in state:
+        references.append(('first control', state['first_control'],
+                           (DECOMP / 'build/startup-reference/playable_ee.bin').read_bytes()))
+    for beat, i in state.get('snapshots', []):
+        if beat[:2] < '15' and (ROUTE / beat / 'eeMemory.bin').exists():
+            references.append((beat, i, (ROUTE / beat / 'eeMemory.bin').read_bytes()))
+    assert references, 'room lights: no reference tick'
+    active_total = 0
+    for name, i, ram in references:
+        pool, _ = port_light_pool(ticks[i])
+        assert pool is not None, ('room lights: no point-light pool in the tick log', name)
+        ctx = struct.unpack_from('<I', ram, 0x275670)[0]
+        orig = ram[ctx + 0x210:ctx + 0x2220]
+        assert pool[0:8] == orig[0:8], ('room lights: id counter / staged count', name,
+                                        struct.unpack('<Ii', pool[0:8]), struct.unpack('<Ii', orig[0:8]))
+        for k in range(32):
+            at = 0x10 + 0x80 * k
+            on_port = struct.unpack_from('<f', pool, at + 0x2C)[0] > 0
+            on_orig = struct.unpack_from('<f', orig, at + 0x2C)[0] > 0
+            assert on_port == on_orig, ('room lights: slot active', name, k, on_port, on_orig)
+            if on_orig:
+                assert pool[at:at + 0x30] == orig[at:at + 0x30], \
+                    ('room lights: slot words (multiplier, adder, type, handle, position, colour)', name, k)
+                active_total += 1
+    print(f'room lights: PASS (the run-time lists 001D7BB0 -> 001F68B0 / 001F6E40 -> 001D7FA0: at '
+          f'{len(references)} reference tick(s) ({", ".join(n for n, _, _ in references)}) the pool\'s id '
+          f'counter, staged count, active slots and {active_total} active slot record(s) equal the captures\')')
+
+
 def check_sway(ticks, state, frames):
     """The point-light slots' sway (001D7C30, census: the lighting fold
     lane): on sampled ticks (the first, then every 250th, at most 40, and
@@ -3859,6 +3923,9 @@ def main():
     if state.get('snapshots'):
         check_effects(ticks, state)
         check_owner_units(ticks, state)
+    if 'first_control' in checked:
+        check_room_lights(ticks, state)
+        check_fade_weights(run)
     check_player_draw_gate(ticks)
     if args.rand_trace and 'first_control' in checked:
         check_rand_order(ticks, state, args.rand_trace)

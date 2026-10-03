@@ -520,17 +520,19 @@ void em_gfx_spot_light(EmGfx *gfx, const float pos[3], const float dir[3],
  *
  * CALLER CONTRACT (verified per vertex against executed 001D89D0 and the
  * captured AREA11 DMA units, tools/test_actor_lighting_reference.py,
- * docs/ACTOR_LIGHTING.md):
- *   - slot 0 is zero unless actor+2 bit 0x20 (camera fill);
- *   - the point-light fold runs only when em_lighting_fold_gate(actor
- *     type byte +3, model radius +0x20) passes (001D8270);
- *   - the fold/camera light point is the node selected by actor+0x98
- *     (node world +0xC0), or actor+0xB0 when it is 0xFF;
- *   - col rows and amb carry the actor RGB (actor+0x80..0x88) product,
- *     em_lighting_actor_rgb (001D8690); the self-glow of actor+2 bit
- *     0x40 is not representable here;
+ * docs/ACTOR_LIGHTING.md): the rig is the bound 001D89D0's output
+ * (em_actor_light_001D89D0, the one translation, with 001D8270's gate,
+ * 001D8690's actor RGB, the glow and 001D8C30's modes inside it), as
+ * em_status_models derives it:
+ *   - dir rows = A's three columns (the slot directions);
+ *   - col rows = B's three colour rows;
+ *   - amb = B's ambient row less the 8388608 bias (em_lighting_matrices
+ *     adds it back exactly);
  *   - every normal-carrying mesh vertex is lit with its own node's world
- *     matrix (the palette slot the vertex names). */
+ *     matrix (the palette slot the vertex names).
+ * In the first level only the status hub's (001CB4F0) and the MAP page's
+ * (001CB480) models take this path; em_render_frame.c's char_rig_build
+ * (no gate, no actor RGB, no glow) faults there. */
 typedef struct {
     float dir[3][4];   /* light directions, slots 0..2 (w unused) */
     float col[3][4];   /* light colors, 0..128 scale (w unused)   */

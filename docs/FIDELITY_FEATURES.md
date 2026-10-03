@@ -131,12 +131,14 @@ verified translation.
   live (the area load's sound-bank upload and step H's whole 001FB100):
   live 708 (86,021 of 88,729 instructions = 96.9%; 93.7% by function
   count), verified but unbound 45, unverified 3, boundary 428. Update 1.53
-  (chain step A11FIX, 2026-10-02, recounted from the rows): the flag-0x30
-  manager 0x823CE0, the flame's loop service 001FC3C0 and the contact pass
-  001A8660 bound live (the AREA11 overlay translations checked against the
-  decomp's byte-identical C): live 711 (86,327 of 88,729 instructions =
-  97.3%; 94.0% by function count), verified but unbound 42, unverified 3,
-  boundary 428.
+  (the lighting step, 2026-10-02, recounted from the rows): the lighting
+  stand-ins replaced by their originals: live 720 (86,702 = 97.7%),
+  verified but unbound 33. Update 1.55 (chain step A11FIX, 2026-10-02,
+  recounted from the rows): the flag-0x30 manager 0x823CE0, the flame's
+  loop service 001FC3C0 and the contact pass 001A8660 bound live (the
+  AREA11 overlay translations checked against the decomp's byte-identical
+  C): live 723 (87,008 of 88,729 instructions = 98.1%; 95.6% by function
+  count), verified but unbound 30, unverified 3, boundary 428.
 - Status: **PARTIAL**. First level only, and only the played route to
   Roger's encounter. Not covered: the level exit, unplayed branches
   (damage/death, pause/options/save, weapon and camera inputs, the truck-pit
@@ -340,23 +342,30 @@ and the tools extract the assets locally.
   original game and SDK routines by design; "no Sony SDK" means no SDK
   binaries are linked. The decomp repository still commits CodeWarrior asm
   function bodies (user decision 2026-09-23), so the "no original code" claim
-  holds for the port repository only. Two first-level assets still read a
-  PCSX2 capture (next entry); they must move to the disc before release.
+  holds for the port repository only. No first-level asset reads a PCSX2
+  capture (next entry).
 
 **Every first-level asset from your own disc, rebuilt with the original loaders' rules**
 
 The assets the first level reads are exported from the user's disc image,
 its extract and the boot ELF alone: no PCSX2 capture, GS dump or RAM dump is
-needed, except for two files that are still open (below). The textures come
+needed. The textures come
 from the first level's GS memory rebuilt from the disc with the original's
 own upload sequence (module 0x1B's library sheet, New Game's re-upload, the
 AREA11 load and the player's texture packet; page modules for the status
 pages), and the resource table D_0028A490 from the loaders' own relocation
-rules (boot, title, New Game, area load).
+rules (boot, title, New Game, area load). The two assets that hold values
+the game writes at run time (the use-owners' first-tick fields in
+`interaction.emis`, the level background's GS draw state in
+`background.embg`) come from AREA11's first world frame, which the original
+code itself builds from the disc: the boot's render builder, New Game, the
+area load, the frame machine's bring-up and the first frame through its
+actor walk, executed instruction by instruction over the disc memory.
 
-- How: `tools/export_disc_textures.py` (textures and the font) and the
-  disc-first exporters of STARTUP.md; `export_disc_textures_gs.py`
-  (`FirstLevel`, `ResourceTable`, `first_level_memory`). Captures remain
+- How: `tools/export_disc_textures.py` (textures, the font and the two
+  first-frame assets) and the disc-first exporters of STARTUP.md;
+  `export_disc_textures_gs.py` (`FirstLevel`, `ResourceTable`,
+  `first_level_memory`); `export_disc_state.py` (the first world frame). Captures remain
   optional developer cross-checks (`--capture`, `--verify-ram`).
 - Evidence: `make test-disc-textures-reference` (the original loaders
   00200830 / 00200890 / 00200970 / 001FF1E0 / 001FF830 / 001FFCD0 executed
@@ -366,16 +375,23 @@ rules (boot, title, New Game, area load).
   word; 33 more files byte-identical to the capture-derived ones, the
   Roger banks' table and regions equal, the hub's EMHS equal outside the
   arc words 00208AD0 rewrites; the player model's bake from the rebuilt
-  memory identical to the GS-dump bake). A copy of the tree with no capture visible re-ran 57 export steps,
-  113 of the 116 files the level smoke opens came out byte-identical (the
-  other three differ by construction: DISC_TEXTURES.md 9.3), and the full
-  level smoke passed on it. DISC_TEXTURES.md sections 6 and 9.
-- Status: **PARTIAL**. Still capture-bound: `interaction.emis` (the eleven
-  use-owners' first-tick status, selector and descriptor, STARTUP.md step
-  30) and `background.embg` (the level background's GS draw state, step 40;
-  its texels are the disc's). The installed `player.emdl` is not reproduced
-  whole (eight clips of an older bake differ; its textures are the disc's).
-  Only `--iso` is exercised, not `--disc DIR`.
+  memory identical to the GS-dump bake; since 2026-10-02 also
+  `interaction.emis` and `background.embg` from the disc's first frame equal
+  to the capture-derived files, every owner field stored by the owner's own
+  first tick, and the whole `player.emdl` / `player_channels.empc`
+  reproduced by steps 6..8). A copy of the tree with no capture visible
+  re-ran 57 export steps, 113 of the 116 files the level smoke opens came
+  out byte-identical (the other three differ by construction:
+  DISC_TEXTURES.md 9.3), and the full level smoke passed on it; on
+  2026-10-02 the same kind of copy rebuilt the first-frame assets, the
+  player model and the light cone byte-identical, and the smoke passed again
+  (9.6). DISC_TEXTURES.md sections 6 and 9.
+- Status: **VERIFIED** for the first level's assets (byte-identical to the
+  capture-derived files, smoke passed on a capture-free rebuild). Limits:
+  only `--iso` is exercised, not `--disc DIR`; the first-frame model holds
+  the flame's first tick (VU0 VMINI is outside the measured VU model) and
+  is the first world frame, not the first-control frame (the compared bytes
+  are equal; DISC_TEXTURES.md 9.4).
 
 ### Visuals
 
@@ -497,9 +513,27 @@ not follow a recording frame for frame.
   its equipment at the camera-exact 10 and 14); `check_sway` runs the
   original 001D7C30 over the port's pool and draws on 46 sampled ticks
   (`RAND_ORDER.md` 5).
+- The room's point lights are the original's at run time (the lighting
+  step, 2026-10-02, audit 1b item 4): the area entry's 001D7BB0 registers
+  the room lists through 001F68B0 / 001F6E40 / 001F6640 / 001D7FA0 from the
+  ELF's lists, where an offline export did before. Evidence: the original
+  001D7BB0 against the port's chain for every list key and latch value,
+  twice in a row (60 entries; `AREA11_POINT_LIGHT.md`); live, the pool's
+  counters and active slots equal the first-control capture and every
+  aligned route snapshot (`check_room_lights`).
+- One translation each: 001D8270 (the fold gate), 001D8690 (the actor RGB)
+  and 001D8C30 (the fixed lighting modes) have one translation, the one the
+  live draws run; the status hub's and the MAP page's models light through
+  the same bound 001D89D0 (mode 1, mode 2), and the renderer's own rig
+  composer faults if a first-level draw reaches it (`ACTOR_LIGHTING.md`;
+  `make test-actor-lighting-reference`: the renderer's lighting over the
+  bound A and B gives the original colour matrix and the kernel slice's
+  13,581 colour words).
 - Status: **PARTIAL**. The routine is proven, and the live fold is compared
-  over the port's own sway. The glow, other lighting modes and the +0xB0
-  light point are exercised on synthetic states only.
+  over the port's own sway. The glow, the 0x0F00 key and the +0xB0 light
+  point are exercised on synthetic states only; lighting mode 1 runs live
+  (the status hub's models, the muzzle node); the hub's drawn pixels are not
+  compared.
 
 **Effects drawn from the game's own packets**
 
@@ -1845,10 +1879,6 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
   the GS-exact renderer is queued (the clean-room GS model of `GS_EXACT.md`
   is measured but not wired); the draws of the disclosure entry above are
   not yet the original's;
-- disc-sourced assets: every texture and all but two first-level assets
-  come from the disc alone since 2026-09-28; `interaction.emis` and
-  `background.embg` still read a PCSX2 capture, which end users will not
-  have;
 - logic still on stand-ins on the route: the panel's, the terminal's and the
   items' takeovers, the opening's camera timeline sampling, the examine
   camera shot (census 2.3);

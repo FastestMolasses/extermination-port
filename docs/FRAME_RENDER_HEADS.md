@@ -85,12 +85,12 @@ the status since the binding step (2026-09-25, section 4).
 | 001D1EF0 tear-down frame | BM | missing | verified-unbound |
 | 001D19E0 render reset | BM | missing | verified-unbound |
 | 001D2830 registration dispatch | AW | missing | live (the frame head's, 001C1DC0's and the script host's calls) |
-| 001D9070 fade weights | NM | missing | verified-unbound |
-| 001D19D0 thunk | BM | missing | verified-unbound |
-| 001D8060 light-slot lookup | BM | missing | verified-unbound |
-| 001D80B0 light-slot release | BM | missing | verified-unbound |
-| 001D88B0 lighting dispatch | BM | unverified | verified-unbound |
-| 001D8C30 fixed-light fill | NM | unverified | verified-unbound |
+| 001D9070 fade weights | NM | missing | live since the lighting step (2026-10-02): the New Game's 001AD1A0 -> 001D19D0 over the library model 0x16 (em_area11_roger_001D19D0) |
+| 001D19D0 thunk | BM | missing | live (the same binding) |
+| 001D8060 light-slot lookup | BM | missing | live since the lighting step: inside 001D80B0 |
+| 001D80B0 light-slot release | BM | missing | live since the lighting step: the room lists' 001F66F0 (em_rcl_001D80B0) |
+| 001D88B0 lighting dispatch | BM | unverified | live (001CB3C0's face light, em_face_attach_w_001D88B0) |
+| 001D8C30 fixed-light fill | NM | unverified | live since the lighting step: the one translation, which em_actor_light_001D8C30 runs (001D89D0 in modes 1, 3..6: the status hub's 001CB4F0, the muzzle node's 001CABA0) |
 | 001D1AE0 frame buffer set-up | NM | boundary | live (added by the binding step) |
 
 ### 001D1AE0(index): the frame buffer set-up (main-loop step B)
@@ -393,9 +393,13 @@ em_snow_projection_matrices, `g.cam.zoom`, `em_camera_scope_zoom`, the
 interaction host's 0x43F02F4F and the camera's EmInteractionProjection record
 are removed). The worker map below is kept as the reference it was written
 as; where it says "stand-in" the table in RENDER_CONTEXT.md 8.2 gives the
-current state. Not bound: 001C1D00 (its 001D5370 needs the static-object
-bank export, its 001E0CF0 the background channel), 001D19E0, 001D19D0 /
-001D9070, 001D8060 / 001D80B0 and the lighting pair (lanes L33, L40).
+current state. 001C1D00 is bound since the static-world step (2026-09-28).
+001D19E0 is not bound as a whole: its skin_arena_init and, since the
+lighting step (2026-10-02, audit 1b item 4), its 001D7BB0 run at their
+position (um_001D19E0). Since the lighting step 001D19D0 / 001D9070 (the
+New Game's 001AD1A0, over the library model 0x16), 001D8060 / 001D80B0 (the
+room lists' release) and 001D8C30 (through em_actor_light_001D8C30) are
+bound; 001D88B0 is bound since the face step.
 001D1EF0 is bound since 2026-09-27 with main-loop step V 001D2300, which
 clears the flag 3 its 001D2830(3, 1) sets (RENDER_CONTEXT.md section 9);
 before the area bind it stays reported.
@@ -430,12 +434,12 @@ add it, as one owner, before binding.
 | em_frh_001C1D00 | `w_001C1D00` → `em_render_001C1D00` (`render_env_init`, an empty skeleton) | 001E2260 and 001E0CF0 are lane L31 (`em_background_gs`). 001D5370 is lane L30. |
 | em_frh_001D1EA0 | `w_001D1EA0` → `em_render_001D1EA0` / `frame_close_out` | The native renderer stays the GS/VU1 boundary. 001CB800 is the kick, where the renderer consumes the list. 001E0D70 and 001DDA00 are lane L30. |
 | em_frh_001D1EF0, em_frh_001D19E0 | `um_001D1EF0`, `um_001D19E0` | Unmirrored bindings today. |
-| em_frh_001D19D0 | `UM_001D19D0` in the 001AD1A0 binding (`em_scene_bindings.c`, near line 979) | |
+| em_frh_001D19D0 | bound since the lighting step: the 001AD1A0 binding calls `em_area11_roger_001D19D0` (the library's model 0x16 in the Roger export's writable region) | |
 | em_frh_001D2830 | `um_001D2830` (scene) and `veil_001D2830` (load veil) | 001D2730 and 001D2910 are boundary-classified in the census, but they are context-flag logic. 001E0C80 is lane L30. |
 | em_frh_001D2610, em_frh_001D25F0 | three live stand-ins, listed below | |
 | em_frh_001D2960, 001D2D20 | the native projection in `em_render_frame.c` / `em_math.h` | The renderer should read P, K, the alternate matrices, the guard band and the planes from the context. |
-| em_frh_001D88B0, 001D8C30 | `em_lighting.c`'s face lighting mode, and the derived case-1 colours in `em_status_models.c` and `em_effect_color.h` | Those compute the post-bias value, not the original's words. Workers: 001D8130, 001D8340 and 001D8690 are `em_lighting.c` (live translations). |
-| em_frh_001D8060, 001D80B0 | nothing | No port counterpart today. |
+| em_frh_001D88B0, 001D8C30 | bound: 001D88B0 through em_face_attach_w_001D88B0 (its 001D8130 / 001D8340 / 001D8690 em_actor_light's); 001D8C30 is the one translation of that routine, which em_actor_light_001D8C30 runs over its views (the lighting step, 2026-10-02: the inline case-1 copy in `em_status_models.c` is deleted; the indicator children's `em_effect_color.h` mode-1 conversion remains until their 001CABA0 binding, audit 1b item 5) | |
+| em_frh_001D8060, 001D80B0 | bound since the lighting step: `em_rcl_001D80B0`, the room lists' release worker (em_effects_live_room_lights) | |
 
 The three stand-ins that em_frh_001D2610 and em_frh_001D25F0 replace:
 

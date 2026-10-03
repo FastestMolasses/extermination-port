@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """Export initial AREA11 use-owner metadata and original SDK math coefficients.
 
-Disc-derived outputs stay in ignored assets/. Runtime captures validate
-source-to-owner associations, not a universal actor allocation address.
-The static source-record address is the stable native identity token.
+The owners' records come from the EE state of the first world frame of
+AREA11 (docs/DISC_TEXTURES.md section 9.4): by default the state the
+original code builds from the user's disc (tools/export_disc_state.py: the
+boot, New Game, the area load, 0x1AE040 state 0 and the first frame's actor
+walk, where each owner's first tick writes its status, selector +8 and
+descriptor pointer +0x30); with --ee FILE, a PCSX2 capture's EE RAM taken
+inside AREA11 (the former source, kept as the cross-check: both give the
+same bytes, make test-disc-assets-reference).
+
+Disc-derived outputs stay in ignored assets/. The static source-record
+address is the stable native identity token; the record's pool address is
+evidence only.
 """
 import argparse
 import hashlib
@@ -14,21 +23,18 @@ import sys
 
 ROOT=Path(__file__).resolve().parents[1]
 SHA='ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
+ROLES={0x159210:1,0x827b10:2,0x1bc350:3,0x8237e0:4}
 
 
-def main():
-    parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--decomp',type=Path,default=ROOT.parent/'Extermination')
-    parser.add_argument('--ee',type=Path)
-    parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow/interaction.emis')
-    args=parser.parse_args()
-    sys.path.insert(0,str(args.decomp/'tools'))
+def owners_of(ram, decomp=ROOT.parent/'Extermination'):
+    """The eleven use-owners of an AREA11 first-frame EE image `ram` (32 MB),
+    checked against the ELF / overlay tables they were spawned from."""
+    sys.path.insert(0,str(decomp/'tools'))
     from export_level import BootElf,AreaMem,defer_records,FN_PICKUPS
-    elf=BootElf(args.decomp/'config/SCUS_971.12')
+    elf=BootElf(decomp/'config/SCUS_971.12')
     assert hashlib.sha256(elf.data).hexdigest()==SHA
-    overlay_path=args.decomp/'extract/OVERLAY/AREA11.BIN'
+    overlay_path=decomp/'extract/OVERLAY/AREA11.BIN'
     overlay=overlay_path.read_bytes();mem=AreaMem(elf,overlay_path)
-    ram=(args.ee or args.decomp/'build/startup-reference/playable_ee.bin').read_bytes()
     assert len(ram)==0x2000000 and ram[0x810700:0x810702]==b'\x0b\0'
     assert ram[0x827b10:0x828050]==overlay[0x4610:0x4b50]
     def u32(a):return struct.unpack_from('<I',ram,a)[0]
@@ -37,9 +43,8 @@ def main():
     ptr=u32(0x275bc0);rank=0;owners=[]
     while ptr:
         callback=u32(ptr+16)
-        if callback in (*FN_PICKUPS,0x159210,0x827b10,0x1bc350,0x8237e0):
-            role=0 if callback in FN_PICKUPS else {
-                0x159210:1,0x827b10:2,0x1bc350:3,0x8237e0:4}[callback]
+        if callback in (*FN_PICKUPS,*ROLES):
+            role=0 if callback in FN_PICKUPS else ROLES[callback]
             if role==0:
                 source=next(r for r in source_pickups if r['puid']==ram[ptr+0x9a])
                 source_id=source['vaddr']
@@ -79,6 +84,12 @@ def main():
             owners.append(owner)
         ptr=u32(ptr+0x1c);rank+=1
     assert len(owners)==11 and [r['role'] for r in owners]==[0]*7+[3,4,1,2]
+    return elf,overlay,owners
+
+
+def encode(elf,owners):
+    """The EMIS v1 blob: header, the SDK coefficients D_0026C5D8 (19 floats)
+    and one 80-byte record per owner."""
     math=elf.read(0x26c5d8,76)
     records=bytearray()
     for r in owners:
@@ -87,15 +98,47 @@ def main():
             r['subtype'],r['selector'],0,0)
         records+=struct.pack('<12f',*r['descriptor'],*r['position'],*r['angles'])
     assert len(records)==80*len(owners)
-    blob=struct.pack('<4s4I',b'EMIS',1,0xb00,len(owners),80)+math+records
-    args.out.parent.mkdir(parents=True,exist_ok=True);args.out.write_bytes(blob)
+    return struct.pack('<4s4I',b'EMIS',1,0xb00,len(owners),80)+math+records
+
+
+def build(ram,source,decomp=ROOT.parent/'Extermination'):
+    """(blob, metadata) from a first-frame EE image; `source` names it."""
+    elf,overlay,owners=owners_of(ram,decomp)
+    blob=encode(elf,owners)
     metadata=dict(version=1,elf_sha256=SHA,overlay_sha256=hashlib.sha256(overlay).hexdigest(),
-        reference_sha256=hashlib.sha256(ram).hexdigest(),output_sha256=hashlib.sha256(blob).hexdigest(),
+        source=source,reference_sha256=hashlib.sha256(ram).hexdigest(),
+        output_sha256=hashlib.sha256(blob).hexdigest(),
         math_address=0x26c5d8,math_floats=19,record_stride=80,owners=owners,
         note='reference_owner is evidence only; source_id is the stable native owner token.')
-    out=ROOT/'build/interaction_scan_reference';out.mkdir(parents=True,exist_ok=True)
-    (out/'export.json').write_text(json.dumps(metadata,indent=2)+'\n')
-    print(f'Exported {len(owners)} AREA11 interaction owners + original SDK coefficients to {args.out}')
+    return blob,metadata
+
+
+def write(out,blob,metadata):
+    out.parent.mkdir(parents=True,exist_ok=True);out.write_bytes(blob)
+    report=ROOT/'build/interaction_scan_reference';report.mkdir(parents=True,exist_ok=True)
+    (report/'export.json').write_text(json.dumps(metadata,indent=2)+'\n')
+
+
+def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--decomp',type=Path,default=ROOT.parent/'Extermination')
+    parser.add_argument('--ee',type=Path,help='build from this capture EE RAM instead of the disc')
+    parser.add_argument('--iso',type=Path,help='the disc image (default ../Extermination/Extermination-rebuilt.iso)')
+    parser.add_argument('--disc',type=Path,help='a mounted disc or a copy of its DATA/ directory')
+    parser.add_argument('--out',type=Path,default=ROOT/'assets/scene_snow/interaction.emis')
+    args=parser.parse_args()
+    if args.ee:
+        ram=args.ee.read_bytes();source=f'capture {args.ee}'
+    else:
+        sys.path.insert(0,str(ROOT/'tools'))
+        import export_disc_state as D
+        import export_disc_textures_gs as G
+        state=D.first_frame(G.Disc(args.iso,args.disc),G.ELF_PATH.read_bytes())
+        ram=state.image();source='disc first frame (tools/export_disc_state.py)'
+    blob,metadata=build(ram,source,args.decomp)
+    write(args.out,blob,metadata)
+    print(f'Exported {len(metadata["owners"])} AREA11 interaction owners + original SDK coefficients '
+          f'to {args.out} (from the {source})')
 
 
 if __name__=='__main__':main()

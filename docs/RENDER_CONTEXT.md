@@ -614,10 +614,15 @@ by `em_rcl_page` (section 7 of that doc).
 
 | Original | Why not | What it needs |
 |---|---|---|
-| 001D19E0 (except skin_arena_init, 8.2) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows, 001D7BB0 is em_point_light's; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
+| 001D19E0 (except skin_arena_init, 8.2, and since the lighting step, 2026-10-02, its 001D7BB0: em_point_light_reset with the room lists 001F68B0 / 001F6E40, em_effects_live_room_lights) | its callees 001D9720, 001D9060, 001D71F0 are GS/skin boundary rows; 001DD940, 001E0C30, 001E0CC0 and the flag registrations are translated but not bound here | a decision on those boundary rows; then the whole of 001D19E0 through em_frh_001D19E0 |
 | 001D1EF0 before the area bind (the New Game bring-up 001ACEC0 case 0, 001AD360 steps 0, 1, 2, 5) | its 001D1C50 needs the views the area load hands over (the camera pool's D_00810610, the collision world's SDK sqrtf / tanf) | reported (UM_001D1EF0); from the area build on it is bound (section 9) |
 | 001D1C10 (step N) | the movie frame's own buffer set-up | the movie pump as the blocking call |
-| 001D88B0 / 001D8C30, 001D8060 / 001D80B0, 001D9070 | lighting (em_lighting's stand-ins) and the fade weights | lanes L40, L33 |
+
+Bound since the lighting step (2026-10-02, audit 1b item 4): 001D88B0
+(001CB3C0's face light, the face step), 001D8C30 (its one translation runs
+inside em_actor_light_001D8C30), 001D8060 / 001D80B0 (`em_rcl_001D80B0`, the
+room lists' release) and 001D19D0 / 001D9070 (the New Game's 001AD1A0, over
+the library model 0x16 in the Roger export: `em_area11_roger_001D19D0`).
 
 ### 8.5 Evidence
 

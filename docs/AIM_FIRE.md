@@ -493,8 +493,10 @@ allocation: +0x28, +0x44 / +0x4C (001CA5E0: kind 2, +0x4C = 001CACB0),
 +0xD0..+0x10F (00187CC0's matrix), the +0x110 slot words and +0x230..+0x23B.
 Its workers, each one translation: 001C6120 over the Roger export's library
 bank D_0028A56C (the export now carries the common bank's spans 0x07..0x0F
-and 0x19, flagged as library spans so the pose hosts' regions skip them:
-their bytes 0x0F..0x19 are rewritten at run time), 001C6150 / 001C62C0 /
+and 0x19, flagged as library spans so the pose hosts' regions skip them;
+of the library models 0x0E..0x19 only model 0x16's weight words differ from
+the disc at run time, rewritten by 001D19D0 -> 001D9070, FRAME_RENDER_HEADS.md),
+001C6150 / 001C62C0 /
 001C9610 (em_owner_services_original; 001C63D0 is em_area00_world's and
 tail-calls 001C9610 back here), 001AF780 / 001AF800 on the one slot stack,
 001D80E0 (em_effect_original -> 001D7FA0 on the render context's point

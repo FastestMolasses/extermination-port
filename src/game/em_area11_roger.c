@@ -17,6 +17,7 @@
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
 #include "game/em_director_original.h"
+#include "game/em_frame_render_heads.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
 #include "game/em_opening_face.h"
@@ -52,6 +53,8 @@ typedef struct {
     const uint8_t *bytes;
     uint32_t library;   /* the region header's word +0x0C: 1 = a library model
                            span no pose host reads (not in em_area11_roger_regions) */
+    uint8_t *writable;  /* the header's word +0x08 = 1: the region's bytes, which
+                           the run rewrites (model 0x16: 001D9070), else NULL */
 } Region;
 
 /* One owner record: the EmActor (canonical for its fields), the bytes it
@@ -175,10 +178,14 @@ static int load_resources(void)
     size_t at = 0x20u + 4u * words;
     for (unsigned i = 0; i < count; ++i) {
         if (at + 16 > n) { free(data); return report("EMRS region header past the file"); }
-        uint32_t address = rd32(data + at), bytes = rd32(data + at + 4), library = rd32(data + at + 12);
+        uint32_t address = rd32(data + at), bytes = rd32(data + at + 4), writable = rd32(data + at + 8),
+                 library = rd32(data + at + 12);
         at += 16;
-        if (bytes == 0 || bytes > n - at || library > 1u) { free(data); return report("EMRS region past the file"); }
-        R.region[i] = (Region){address, bytes, data + at, library};
+        if (bytes == 0 || bytes > n - at || library > 1u || writable > 1u || (writable && !library)) {
+            free(data);
+            return report("EMRS region past the file");
+        }
+        R.region[i] = (Region){address, bytes, data + at, library, writable ? data + at : NULL};
         at += bytes;
     }
     if (at != n) { free(data); return report("EMRS trailing bytes"); }
@@ -721,6 +728,43 @@ static int e_001C6120(void *ctx, uint32_t bank, uint32_t id, uint32_t *handle)
 {
     (void)ctx;
     return em_area11_roger_001C6120(bank, id, handle);
+}
+
+/* 001D19D0 -> 001D9070 (see the header): em_frh_001D19D0, the one
+ * translation, over the views D_0028A56C (the exported table word) and the
+ * export's writable regions (the library's model 0x16), with 001C6120 over
+ * the exported table head. */
+int em_area11_roger_001D19D0(uint32_t *address, uint32_t *size, uint32_t *digest)
+{
+    if (load_resources() < 0) return -1;
+    EmFrhView views[1 + MAX_REGIONS];
+    uint32_t n = 0;
+    views[n++] = (EmFrhView){0x0028A56Cu, 4, (uint8_t *)&R.table[(0x0028A56Cu - TABLE_ADDRESS) / 4u], 0};
+    const Region *fade = NULL;
+    for (unsigned i = 0; i < R.regions; ++i)
+        if (R.region[i].writable) {
+            views[n++] = (EmFrhView){R.region[i].address, R.region[i].size, R.region[i].writable, 1};
+            fade = &R.region[i];
+        }
+    if (!fade)
+        return report(EM_AREA11_ROGER_RESOURCES_PATH " lacks the library model 0x16 that 001D9070 rewrites "
+                      "(re-run tools/export_roger_banks.py)");
+    EmFrh h;
+    memset(&h, 0, sizeof h);
+    h.views = views;
+    h.view_count = n;
+    h.workers.w_001C6120 = e_001C6120;
+    if (em_frh_001D19D0(&h) < 0) {
+        fprintf(stderr, "roger: 001D19D0 -> 001D9070 faulted at %08X (code %d, data %08X)\n",
+                (unsigned)h.fault.address, (int)h.fault.code, (unsigned)h.fault.data);
+        return -1;
+    }
+    uint32_t hash = 2166136261u;
+    for (uint32_t i = 0; i < fade->size; ++i) hash = (hash ^ fade->writable[i]) * 16777619u;
+    if (address) *address = fade->address;
+    if (size) *size = fade->size;
+    if (digest) *digest = hash;
+    return 0;
 }
 
 /* 001CA6E0 = 001CA5E0(owner, handle, 0): +0x44, then 001CA5F0 kind 0:

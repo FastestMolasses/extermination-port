@@ -1704,8 +1704,8 @@ typedef struct {
         float inten;             /* intensity (slot +0x2C, x128) */
     }           lamp[LAMP_MAX];
     /* The point-light pool is the render context's +0x210..+0x221F
-     * (em_rcl_point_lights): the flags below say whether the area loaded it. */
-    uint16_t    point_lights_area_key;
+     * (em_rcl_point_lights): set when the area entry's 001D7BB0 (001D19E0)
+     * reset it and registered the room's lists. */
     int         point_lights_loaded;
 
     /* LIGHTING — the scene's DISTANCE FOG (scene.txt `fog` line,

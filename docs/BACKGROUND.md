@@ -150,19 +150,30 @@ translation.
 ## Port
 
 **Asset.**
-- Command (decomp root). `--iso` reads the user's disc image in place;
-  `--disc DIR` takes a mounted disc, or a directory holding
-  `DATA/INDEX.IDX` and `DATA/DATA.DAT`. `--capture-gs` is optional: the
-  disc texels must equal that freeze's texture.
+- Command (port root, since 2026-10-02; DISC_TEXTURES.md 9.4). `--iso`
+  reads the user's disc image in place; `--disc DIR` takes a mounted disc,
+  or a directory holding `DATA/INDEX.IDX` and `DATA/DATA.DAT`.
+  ```
+  python3 tools/export_disc_textures.py --only background [--iso <owned.iso>]
+  ```
+  It runs the decomp's `export_level.export_background`, unchanged, over
+  the EE image of AREA11's first world frame that the original code builds
+  from the disc (`tools/export_disc_state.py`: the boot's 001D0F20, New
+  Game, the area load, 0x1AE040 state 0 with its 001C1DC0 -> 001C1F50, and
+  the first frame's 001C1D00 -> 001E0CF0 -> 001E1E60). The former source,
+  a capture's EE RAM, still works and gives the same bytes (decomp root):
   ```
   python3 tools/export_level.py --background ../extermination-port/assets/scene_snow \
       --area 11 --sub 0 --iso Extermination-rebuilt.iso \
       --capture-ee build/startup-reference/roger-encounter/eeMemory.bin \
       --capture-gs build/startup-reference/roger-encounter/gs.bin
   ```
+  (`--capture-gs` is optional: the disc texels must equal that freeze's
+  texture.)
 - It writes `assets/scene_snow/background.embg` and the manifest line
-  `background background.embg`.
-- It checks that the capture is AREA11 with flags 0x20 and 0x21 armed. It
+  `background background.embg` (the port command adds the line only when
+  the manifest lacks it).
+- It checks that the EE image is AREA11 with flags 0x20 and 0x21 armed. It
   replays channel 3's list and takes the GS state at the MSCAL, then
   requires the following:
   - TEX0 = ctx+0x1D0;
@@ -177,10 +188,10 @@ translation.
     address, VIF codes other than NOP/FLUSH/DIRECT, GIF data other than A+D
     writes to TEXFLUSH/BITBLTBUF/TRXPOS/TRXREG/TRXDIR, and transfers that
     are not host-to-local PSMCT32.
-- The EE capture is still needed for the draw-state checks (TEX0, RGBAQ,
-  the channel-3 list). These values are ELF constants that 001C1F50,
-  001E2260 and 001E2270 store, and the capture is how they are checked; the
-  texels no longer come from it.
+- The draw state (TEX0, RGBAQ, the channel-3 list) comes from the executed
+  first frame: ELF constants that 001C1F50, 001E2260 and 001E2270 store,
+  the boot's GS register blocks the list REFs, and 001E1E60's own packets.
+  The texels come from the disc upload.
 - Layout (104-byte header, version 2, then RGBA8): see
   `src/gfx/metal/em_background_gs.h`. The header now stores TEST_1, ZBUF_1
   and a texel-source word (1 = disc replay).
@@ -303,12 +314,6 @@ translation.
 
 ## Open
 
-- The asset's draw-state checks (the exporter) still read an EE capture
-  taken inside AREA11: TEX0 at ctx+0x1D0, RGBAQ from ctx+0x1C0, and the
-  channel-3 list. These are ELF constants from 001C1F50,
-  001E2260/D_00250F30 and 001D1F80. A capture-free exporter would translate
-  001C1F50's per-area TEX0 table directly. The texels are disc-only. (Live,
-  the gate compares the asset with the list the port builds.)
 - The grid itself is still drawn by em_background_gs's model of the kernel
   0x0023C990 (the matrix recomputed from the frame head's view and zoom as
   001E1E60 builds D_00253570, not read from that storage), not by walking

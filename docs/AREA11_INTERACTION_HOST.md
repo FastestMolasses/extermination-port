@@ -160,8 +160,10 @@ request is consumed, HEALING's notice lasts 240 calls, START closes the
 screen: em_status_pages_live, STATUS_PAGES.md section 7), and the map's
 MAP page opens zoomed on map 8 (its 22 nodes; map 8's two bind D_0028A570
 + the bank's offsets with the draw 001CB480) before START closes it. The
-fixture loads the area's point lights (`assets/scene_snow/point_lights.emlp`,
-as the scene manifest does) for 001CB480's light. The
+fixture puts the capture's own point-light pool (render context +0x210..)
+on the context (in the game the area entry's 001D7BB0 registers the room
+lists, AREA11_POINT_LIGHT.md) for the light of 001CB480 and of the hub's
+001CB4F0. The
 discharge occupies61 status callbacks. These are fixture callback counts,
 not claimed unassisted original playthrough timings. Direct owner claims,
 the previous published list, ordinary camera evolution, GPU submission and

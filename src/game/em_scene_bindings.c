@@ -105,6 +105,7 @@
 #include "game/em_player_closure_live.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_effects_live.h"
+#include "game/em_point_light.h"
 #include "game/em_snow_runtime.h"
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_runtime.h"
@@ -247,7 +248,6 @@ enum {
     UM_001E0CC0,
     UM_001D2880,
     UM_00200830,
-    UM_001D19D0,
     UM_COUNT
 };
 
@@ -259,9 +259,10 @@ static const struct {
                                                "(em_game_legacy_manifest_spawn at 001AFCA0)"},
     [UM_001B6990_LEGACY_WORLD] = {0x001B6990u, "scene without an original roster: one legacy_world "
                                                "pool node runs the S10a legacy block"},
-    [UM_001D19E0] = {0x001D19E0u, "its first callee skin_arena_init (001D2E20) runs on the render context; "
-                                  "001D9720, 001DD940, 001E0C30, 001D9060, 001D71F0, 001D7BB0 and the flag "
-                                  "registrations after them have no port counterpart here (RENDER_CONTEXT.md 8.4)"},
+    [UM_001D19E0] = {0x001D19E0u, "its callees skin_arena_init (001D2E20) and 001D7BB0 (the point-light pool "
+                                  "and the room lists) run on the render context; 001D9720, 001DD940, "
+                                  "001E0C30, 001D9060, 001D71F0 and the flag registrations after them have no "
+                                  "port counterpart here (RENDER_CONTEXT.md 8.4)"},
     [UM_001C1DC0] = {0x001C1DC0u, "its 001D2830 registrations and 001C1E70..001C1F50 passes have no "
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
@@ -293,7 +294,6 @@ static const struct {
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the library packet D_0028A564 (slot 0x35, "
                                   "the boot's module 0x1B, which the port does not load; its texels "
                                   "are the port's disc export)"},
-    [UM_001D19D0] = {0x001D19D0u, "001AD1A0: render init (001D9070); no port counterpart"},
 };
 
 static uint64_t s_unmirrored_seen;     /* reached at least once */
@@ -326,13 +326,26 @@ static int w_001FC9B0(void *ctx)
     (void)ctx;
     return em_message_live_reset();
 }
-/* 001D19E0 (the render reset at the area load): skin_arena_init, the one
- * callee the object units need (the skin records' VIF codes and GIF tags,
- * docs/OWNER_DRAW.md "Binding"); the rest stays unmirrored. */
+/* 001D19E0 (the render reset at the area load, src/func_001D19E0.c):
+ * skin_arena_init, the callee the object units need (the skin records' VIF
+ * codes and GIF tags, docs/OWNER_DRAW.md "Binding"), and 001D7BB0 (the
+ * point-light pool's reset, em_point_light_reset over the context's
+ * +0x210.., then its 001F68B0 / 001F6E40: the room lists registered
+ * through 001D7FA0, em_effects_live_room_lights; docs/AREA11_POINT_LIGHT.md).
+ * The callees between them (001D9720 .. 001D71F0) and after stay
+ * unmirrored. */
 static int um_001D19E0(void *ctx)
 {
     (void)ctx;
-    if (em_rcl_loaded() && em_rcl_skin_arena_init() < 0) return -1;
+    if (em_rcl_loaded()) {
+        if (em_rcl_skin_arena_init() < 0) return -1;
+        EmPointLightPool *pool = em_rcl_point_lights();
+        if (!pool) return -1;
+        em_point_light_reset(pool);
+        if (em_effects_live_room_lights(&s_state) < 0)
+            return em_scene_fault(&s_state, 0x001D7BB0u, EM_SCENE_FAULT_WORKER_FAILED);
+        g.point_lights_loaded = 1;
+    }
     return unmirrored(UM_001D19E0);
 }
 static int um_00199C50(void *ctx) { (void)ctx; return unmirrored(UM_00199C50); }
@@ -2270,7 +2283,9 @@ static int w_001B07C0(void *ctx, int a0)
  *                     draw 0021B1B0 (em_rcl_0021B1B0) and phase step 0021B500
  *                     (em_load_veil_particles); step V's list draws the veil
  *                     (em_load_veil_live)
- *   00200830, 001D19D0 reported no-port-code */
+ *   00200830          reported no-port-code
+ *   001D19D0          em_area11_roger_001D19D0 (001D9070 over the library's
+ *                     model 0x16) */
 
 static int in_task_step(int s09, int s0A)
 {
@@ -2294,7 +2309,8 @@ static int area_read(void)
 
 /* 001AD1A0 (byte-matched, src/func_001AD1A0.c; mwcc 2.3.3): +9 == 0: +9++,
  * D_00275BD8 = 1, 001FF080(0, 3, &slot[9]); +9 == 1 and D_00275BD8 == 0:
- * 00200830(D_0028A564[0]), 001D19D0(), return 4; otherwise 0. */
+ * 00200830(D_0028A564[0]), 001D19D0() (bound: em_area11_roger_001D19D0),
+ * return 4; otherwise 0. */
 static int w_001AD1A0(void *ctx)
 {
     (void)ctx;
@@ -2317,7 +2333,13 @@ static int w_001AD1A0(void *ctx)
         bind_trace(0x001AD1A0u, 0x00200830u, 0, 0, 0, 0);
         unmirrored(UM_00200830);
         bind_trace(0x001AD1A0u, 0x001D19D0u, 0, 0, 0, 0);
-        unmirrored(UM_001D19D0);
+        /* 001D19D0 -> 001D9070: the library model 0x16's fade weights, in
+         * the global library's storage (the Roger export holds D_0028A56C). */
+        uint32_t address = 0, size = 0, digest = 0;
+        if (em_area11_roger_001D19D0(&address, &size, &digest) < 0)
+            return em_scene_fault(&s_state, 0x001D19D0u, EM_SCENE_FAULT_WORKER_FAILED);
+        printf("fade weights: 001D19D0 -> 001D9070 over library model 0x16 at %08X (%u bytes): fnv1a %08X\n",
+               (unsigned)address, (unsigned)size, (unsigned)digest);
         return 4;
     }
     return 0;
