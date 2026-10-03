@@ -436,9 +436,9 @@ behaviour (em_area11_bindings.c `tick_indicator`, em_indicator_child.c;
 docs/CENSUS_UNVERIFIED.md "001C5680 and 001C5760"):
 - `out` = `color` = the child's +0x80 (001C5680 copies +0xA0 there first);
 - `w_00122BB8` = `em_random_next`, the game RNG;
-- `w_indirect` = the +0x4C method 001CACB0: it queues the child mesh's draw
-  (`em_pickup_light_submit` / `em_props_indicator_submit`), which converts
-  +0x80 with 001D8C30 mode 1 (`em_effect_color_gs`).
+- `w_indirect` = the +0x4C method 001CACB0: 001CABA0 over the child's record
+  (`em_indicator_bind_live_draw`, OWNER_DRAW.md section 11), which lights
+  +0x80 through 001D89D0 in mode 1 (the one 001D8C30).
 
 The instance is a stack `EmEffectKinds` with only these two workers: 001F54E0
 reads no tables or globals.

@@ -274,7 +274,7 @@ static NSString *const kGlyphShaderSrc =
 "    return color;\n"
 "}\n";
 
-/* Background shader (em_gfx_background_draw): 2 float4s per vertex, the
+/* Background shader (em_gfx_background_prims): 2 float4s per vertex, the
  * NDC position of the kernel's GS 12.4 XY and the ST pair. Q is 1.0 (the
  * RGBAQ 001E1E60 sends), so ST interpolates affinely. The fragment is the
  * GS MODULATE with TCC 0: rgb = texel * RGBAQ / 128 (clamped like the GS
@@ -1135,7 +1135,7 @@ static id<MTLBuffer> vertex_lighting_buffer(EmGfx *g, EmGfxMesh *mesh,
 
 static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                          const float *palette, uint32_t bone_count,
-                         const float rgba[4], bool additive)
+                         const float rgba[4])
 {
     if (!g || !g->enc || !m || !viewproj || !palette || !bone_count || !rgba)
         return;
@@ -1143,8 +1143,8 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
      * class 0: blending off (PRIM ABE 0) and the per-slice TEST_1 alpha
      * test (mode bit 3). The translucent tint path keeps the alpha
      * pipeline and the legacy cutout (port path, not decoded). */
-    bool class0 = !additive && rgba[3] >= 1.0f;
-    if (!additive && !class0 && !g->skinPipeline) {
+    bool class0 = rgba[3] >= 1.0f;
+    if (!class0 && !g->skinPipeline) {
         g->skinPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin",
                                          EM_BLEND_ALPHA);
@@ -1156,7 +1156,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                                                EM_BLEND_OPAQUE);
         if (!g->skinOpaquePipeline) return;
     }
-    if ((additive || m->glow_count) && !g->glowPipeline) {
+    if (m->glow_count && !g->glowPipeline) {
         g->glowPipeline = build_pipeline(g, kSkinShaderSrc,
                                          @"v_skin", @"f_skin",
                                          EM_BLEND_ADD);
@@ -1172,12 +1172,11 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
         g->repeatSampler = [g->device newSamplerStateWithDescriptor:sd];
         [sd release];
     }
-    [g->enc setRenderPipelineState:(additive ? g->glowPipeline
-                                    : class0 ? g->skinOpaquePipeline
+    [g->enc setRenderPipelineState:(class0 ? g->skinOpaquePipeline
                                     : g->skinPipeline)];
     /* Threshold rule (see the comment above): a tint alpha below 1.0
      * selects the translucent state — depth test on, write off. */
-    bool translucent = additive || rgba[3] < 1.0f;
+    bool translucent = rgba[3] < 1.0f;
     [g->enc setDepthStencilState:(translucent ? g->depthGlow : g->depthOn)];
     /* Strip winding from the PS2 data is not normalised yet — draw
      * double-sided until the translated GS context supplies cull state. */
@@ -1189,8 +1188,7 @@ static void draw_skinned(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                    atIndex:1];
     [g->enc setVertexBytes:viewproj length:64 atIndex:2];
     [g->enc setVertexBuffer:m->scaleBuf offset:0 atIndex:3];
-    uint32_t mode = (m->flags & EM_GFX_MESH_VCOLOR) | (additive ? 2u : 0u)
-                  | (class0 ? 8u : 0u);
+    uint32_t mode = (m->flags & EM_GFX_MESH_VCOLOR) | (class0 ? 8u : 0u);
     id<MTLBuffer> vertex_colors = nil;
     bool opaque = m->opaque_count != 0;
     if (opaque && !(mode & 3u)) {
@@ -1263,14 +1261,7 @@ void em_gfx_draw_skinned_tinted(EmGfx *g, EmGfxMesh *m, const float *viewproj,
                                 const float *palette, uint32_t bone_count,
                                 const float rgba[4])
 {
-    draw_skinned(g,m,viewproj,palette,bone_count,rgba,false);
-}
-
-void em_gfx_draw_skinned_additive(EmGfx *g, EmGfxMesh *m, const float *viewproj,
-                                  const float *palette, uint32_t bone_count,
-                                  const float rgba[4])
-{
-    draw_skinned(g,m,viewproj,palette,bone_count,rgba,true);
+    draw_skinned(g,m,viewproj,palette,bone_count,rgba);
 }
 
 /* Select the virtual canvas for subsequent overlay queueing (em_gfx.h —
@@ -1736,13 +1727,44 @@ int em_gfx_background_load(EmGfx *g, const char *path)
     return 0;
 }
 
-void em_gfx_background_draw(EmGfx *g, const float view[16], float zoom_s)
+int em_gfx_background_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
 {
-    if (!g || !g->enc || !g->bgTexture || !view) return;
+    if (!g || !prims) return -1;
+    if (!g->bgTexture) {
+        fprintf(stderr, "background: the channel-3 list drew %u triangle(s) with no background asset loaded\n",
+                (unsigned)count);
+        return -1;
+    }
+    /* Every primitive must be one the asset's GS state describes: a
+     * triangle of the kicked strips (PRIM as the asset's, the list's TEX0,
+     * CLAMP_1, TEX1_1 and TEST_1 equal to the asset's, which
+     * em_background_gs_unsupported accepted), the RGBAQ colour the list
+     * sent and its Q 1.0 (the ST interpolate affinely). */
+    const EmBackgroundGsAsset *a = &g->bgAsset;
+    const uint32_t need = EM_GFX_GS_TEX0 | EM_GFX_GS_CLAMP | EM_GFX_GS_TEX1 | EM_GFX_GS_TEST;
+    for (uint32_t i = 0; i < count; ++i) {
+        const EmGfxGsPrim *p = &prims[i];
+        const char *why = NULL;
+        if (p->count != 3u || p->prim != a->prim) why = "not a triangle of the asset's PRIM";
+        else if ((p->set & need) != need) why = "a drawing register the list never wrote";
+        else if (p->tex0 != a->tex0 || p->clamp != a->clamp1 || p->tex1 != a->tex1 || p->test != a->test1)
+            why = "TEX0 / CLAMP_1 / TEX1_1 / TEST_1 other than the asset's";
+        for (uint32_t k = 0; !why && k < 3u; ++k) {
+            const EmGfxGsVertex *v = &p->v[k];
+            const uint32_t rgba = (uint32_t)v->rgba[0] | (uint32_t)v->rgba[1] << 8 | (uint32_t)v->rgba[2] << 16 |
+                                  (uint32_t)v->rgba[3] << 24;
+            if (rgba != a->rgbaq || v->q != 0x3F800000u) why = "an RGBAQ other than the asset's, or Q != 1.0";
+        }
+        if (why) {
+            fprintf(stderr, "background: primitive %u refused: %s\n", (unsigned)i, why);
+            return -1;
+        }
+    }
+    if (!count || !g->enc) return 0;
     if (!g->bgPipeline)
         g->bgPipeline = build_pipeline(g, kBackgroundShaderSrc,
             @"v_background", @"f_background", EM_BLEND_OPAQUE);
-    if (!g->bgPipeline) return;
+    if (!g->bgPipeline) return -1;
     if (!g->clampSampler) {
         /* CLAMP_1 WMS/WMT CLAMP, TEX1 MMAG/MMIN LINEAR (the unsupported
          * check refused every other state). */
@@ -1753,43 +1775,32 @@ void em_gfx_background_draw(EmGfx *g, const float view[16], float zoom_s)
         sd.tAddressMode = MTLSamplerAddressModeClampToEdge;
         g->clampSampler = [g->device newSamplerStateWithDescriptor:sd];
         [sd release];
-        if (!g->clampSampler) return;
+        if (!g->clampSampler) return -1;
     }
     ensure_depth_states(g);
-
-    /* 001E1E60: view copy -> D_00253570; kernel 0x0023C990: the grid. */
-    float original[16], m[16];
-    em_background_gs_original_view(view, original);
-    em_background_gs_matrix(original, m);
-    static EmBackgroundGsVertex grid[EM_BACKGROUND_GS_GRID]
-                                    [EM_BACKGROUND_GS_GRID];
-    em_background_gs_grid(&g->bgAsset, m, zoom_s, grid);
-
-    /* One kick per row pair: (r,c), (r+1,c) for c = 0..31. GS XY 12.4
-     * maps onto NDC by the GS pixel-footprint convention of the port's
-     * world projection (em_background_gs_ndc: GS X 2048 = NDC 0, 256 and
-     * 112 field pixels per NDC unit). */
-    enum { STRIP = EM_BACKGROUND_GS_GRID * 2,
-           STRIPS = EM_BACKGROUND_GS_GRID - 1 };
-    static float verts[STRIPS * STRIP * 8];
-    unsigned n = 0;
-    for (unsigned r = 0; r < STRIPS; ++r)
-        for (unsigned c = 0; c < EM_BACKGROUND_GS_GRID; ++c)
-            for (unsigned k = 0; k < 2; ++k) {
-                const EmBackgroundGsVertex *v = &grid[r + k][c];
-                float *o = verts + (n++) * 8;
-                em_background_gs_ndc(v->xy, o);
-                o[2] = 0.0f;
-                o[3] = 1.0f;
-                o[4] = v->st[0];
-                o[5] = v->st[1];
-                o[6] = 0.0f;
-                o[7] = 0.0f;
-            }
-    id<MTLBuffer> buffer = [g->device newBufferWithBytes:verts
-        length:sizeof verts options:MTLResourceStorageModeShared];
-    if (!buffer) return;
-    const uint32_t q = g->bgAsset.rgbaq;
+    /* GS XY 12.4 onto NDC by the GS pixel-footprint convention of the
+     * port's world projection (em_background_gs_ndc), ST the register words. */
+    const size_t bytes = (size_t)count * 3u * 8u * sizeof(float);
+    float *verts = malloc(bytes);
+    if (!verts) return -1;
+    for (uint32_t i = 0; i < count; ++i)
+        for (uint32_t k = 0; k < 3u; ++k) {
+            const EmGfxGsVertex *v = &prims[i].v[k];
+            float *o = verts + (3u * i + k) * 8u;
+            const uint16_t xy[2] = {v->x, v->y};
+            em_background_gs_ndc(xy, o);
+            o[2] = 0.0f;
+            o[3] = 1.0f;
+            memcpy(&o[4], &v->s, 4);
+            memcpy(&o[5], &v->t, 4);
+            o[6] = 0.0f;
+            o[7] = 0.0f;
+        }
+    id<MTLBuffer> buffer = [g->device newBufferWithBytes:verts length:bytes
+                                                 options:MTLResourceStorageModeShared];
+    free(verts);
+    if (!buffer) return -1;
+    const uint32_t q = a->rgbaq;
     const float rgbaq[4] = {
         (float)(q & 0xffu) / 128.0f, (float)(q >> 8 & 0xffu) / 128.0f,
         (float)(q >> 16 & 0xffu) / 128.0f, (float)(q >> 24 & 0xffu) / 128.0f,
@@ -1801,11 +1812,9 @@ void em_gfx_background_draw(EmGfx *g, const float view[16], float zoom_s)
     [g->enc setFragmentTexture:g->bgTexture atIndex:0];
     [g->enc setFragmentSamplerState:g->clampSampler atIndex:0];
     [g->enc setFragmentBytes:rgbaq length:sizeof rgbaq atIndex:0];
-    for (unsigned r = 0; r < STRIPS; ++r)
-        [g->enc drawPrimitives:MTLPrimitiveTypeTriangleStrip
-                   vertexStart:r * STRIP
-                   vertexCount:STRIP];
+    [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:(NSUInteger)count * 3u];
     [buffer release];
+    return 0;
 }
 
 /* Set the character light rig consumed by subsequent skinned draws

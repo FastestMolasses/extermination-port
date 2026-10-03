@@ -45,8 +45,9 @@ typedef struct {
     uint8_t queue_q[3];
     uint32_t nq;
     uint32_t unit_used;      /* s_unit_prims filled by the DMA walk       */
-    /* list mode: the GS environment registers (context 1) */
-    int list;
+    /* list mode: the GS environment registers (context 1); call mode (a
+     * list mode walk of a CALL target, ended by its top-level RET) */
+    int list, call;
     EmGfxGsEnv env;
 } Walk;
 
@@ -140,13 +141,16 @@ static int dma(Walk *w, uint32_t start)
             next = addr;
             break;
         case 6:                                                           /* RET  */
-            if (depth == 0) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
-            next = stack[--depth];
+            /* Call mode: the target's own RET (at the top level) returns to
+             * the caller's list: its data is transferred, then the walk
+             * stops. */
+            if (depth == 0 && !w->call) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
+            next = depth ? stack[--depth] : 0;
             break;
         case 7:                                                           /* END  */
             /* A frame list's end (list mode only; a page never holds one):
              * its data is transferred, then the chain stops. */
-            if (!w->list || depth != 0) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
+            if (!w->list || w->call || depth != 0) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
             next = 0;
             break;
         default:
@@ -160,7 +164,7 @@ static int dma(Walk *w, uint32_t start)
             w->seg[w->nseg++] = (Seg){ data, qwc, b, 0 };
             p->counts.qwords += qwc;
         }
-        if (id == 7u) return 0;
+        if (id == 7u || (id == 6u && w->call && next == 0u)) return 0;
         cur = next;
     }
 }
@@ -437,6 +441,7 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 #define STREAK_CODE1 0x00231030u
 #define KIND2_CODE0  0x00232568u
 #define KIND2_CODE1  0x00232D70u
+#define GRID_CODE    0x0023C9B8u
 
 /* A class-2 object unit at its CALL (see the header): its primitives (the
  * caller's run of it), then the state it leaves. */
@@ -535,6 +540,8 @@ static int vif(Walk *w)
             }
             if (first == LANE_CODE && cnt == 138u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
+            } else if (w->call && first == GRID_CODE && cnt == 79u && imm == 0u) {
+                w->program = EM_CHAIN_PAGE_GRID; w->mpg_parts = 1;
             } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0 || first == STREAK_CODE0 || first == KIND2_CODE0) &&
                        cnt == 256u &&
                        imm == 0u) {
@@ -573,6 +580,9 @@ static int vif(Walk *w)
                 p->counts.mscal_streak++;
                 rc = em_vu1_streak_program_mscal(&p->regs, p->dmem, kick, w);
                 p->counts.streak_prims += p->counts.prims - before;
+            } else if (w->program == EM_CHAIN_PAGE_GRID) {
+                p->counts.mscal_grid++;
+                rc = em_vu1_grid_program_mscal(&p->regs, p->dmem, kick, w);
             } else if (w->program == EM_CHAIN_PAGE_KIND2) {
                 const uint32_t before = p->counts.prims;
                 p->counts.mscal_kind2++;
@@ -619,7 +629,7 @@ static int vif(Walk *w)
     return 0;
 }
 
-static int run(EmChainPage *p, uint32_t start, int list)
+static int run(EmChainPage *p, uint32_t start, int list, int call)
 {
     if (!p) return -1;
     if (!p->read || !p->prims || (p->skip_count && !p->skip_calls) || p->skip_count > EM_CHAIN_PAGE_SKIP_MAX) {
@@ -635,12 +645,14 @@ static int run(EmChainPage *p, uint32_t start, int list)
     memset(w, 0, sizeof *w);
     w->p = p;
     w->list = list;
+    w->call = call;
     if (dma(w, start) < 0) return -1;
     return vif(w);
 }
 
-int em_chain_page_run(EmChainPage *p, uint32_t start) { return run(p, start, 0); }
-int em_chain_page_run_list(EmChainPage *p, uint32_t start) { return run(p, start, 1); }
+int em_chain_page_run(EmChainPage *p, uint32_t start) { return run(p, start, 0, 0); }
+int em_chain_page_run_list(EmChainPage *p, uint32_t start) { return run(p, start, 1, 0); }
+int em_chain_page_run_call(EmChainPage *p, uint32_t start) { return run(p, start, 1, 1); }
 
 const char *em_chain_page_fault_name(uint32_t fault)
 {

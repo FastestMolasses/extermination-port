@@ -93,6 +93,20 @@ int em_owner_draw_live_001CA940_library(int32_t flags, uint32_t model);
 /* This frame's class-2 unit 001CABA0 built at `address`, or NULL. */
 const EmObjectUnitPieces *em_owner_draw_live_page_unit(uint32_t address);
 
+/* The 001CABA0 calls of frame *frame (the last frame that made one), for
+ * the level smoke (tools/test_level_smoke.py check_indicator_units): per
+ * call the owner's record address, its +0x80 colour words, the channel-3
+ * bytes it appended (0: 001CA7B0 culled it; the RET tag included), the
+ * clip pass and FNV-1a digests of the unit's colour matrix B (its colour
+ * CNT's 16 words), its nodes' lighting rows (qwords 4..7 of each) and
+ * position rows (qwords 0..3). Returns the count. */
+#define EM_OWNER_DRAW_LIVE_PAGE_LOG 32u
+typedef struct {
+    uint32_t record, rgb[4], bytes, clip;
+    uint32_t colour, light, position;
+} EmOwnerDrawLivePageLog;
+int em_owner_draw_live_page_log(EmOwnerDrawLivePageLog *out, int capacity, uint32_t *frame);
+
 /* An EE range 001CB3C0 reads by address (read-only). */
 typedef struct {
     uint32_t address, size;

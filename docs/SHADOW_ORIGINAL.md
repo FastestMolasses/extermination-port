@@ -362,7 +362,10 @@ model's VU1 vertex list.
     `EM_TEST_FULL=1` 23 s.
 - **Capture metric** (`python3 tools/test_shadow_original_reference.py
   --capture BEAT`, not in the default run). It renders the beat's frame
-  headless (background, the static world from the beat's own channel-0
+  headless (the sky grid as the live path draws it: the beat's own
+  channel-3 list at context +0x1D8 replayed to its MSCAL, the ORIGINAL
+  grid program 0x0023C990 run over that upload and its kicked strips
+  handed to `em_gfx_background_prims`; the static world from the beat's own channel-0
   run with the area fog (STATIC_WORLD.md 7), then the
   chain through `em_gfx_shadow_*` with the native module's plan over the
   beat's RAM; box and receiver strips are the original objects' vertex
@@ -373,15 +376,20 @@ model's VU1 vertex list.
   excluded) with the beat's `original.png`. It fails on any worker fault
   and outside `capture_bounds`: IoU with the original's dark pixels >=
   0.80, shadowed/lit luminance ratio within 0.05 of the original's.
+  The headless target takes the screenshot's size (640x480): a probe
+  frame measures the never-shown window's backing scale, which follows
+  the display, and the window is made again at the size that gives it.
 
   With the clip kernels translated, no beat faults (all 15). In bounds
   (the harness since the static-world step; the legacy-mesh harness's
-  values before it in brackets):
+  values before it in brackets; measured again 2026-10-02 after the sky
+  grid moved onto the walk above (audit 1b item 5): IoU and shadow pixels
+  unchanged, the native ratio of 01 and 06 moved by 0.002 / 0.001):
 
   | Beat | shadow px | IoU | ratio native / original |
   |---|---|---|---|
-  | 01_battery | 843 [847] | 0.836 [0.841] | 0.602 / 0.600 [0.601 / 0.600] |
-  | 06_hill_slide | 985 [988] | 0.851 [0.853] | 0.592 / 0.602 [0.590 / 0.602] |
+  | 01_battery | 843 [847] | 0.836 [0.841] | 0.600 / 0.600 [0.601 / 0.600] |
+  | 06_hill_slide | 985 [988] | 0.851 [0.853] | 0.591 / 0.602 [0.590 / 0.602] |
   | 08_truck_crossing | 786 [785] | 0.828 [0.837] | 0.588 / 0.592 [0.585 / 0.590] |
   | 12_crevice_jump | 808 [805] | 0.854 [0.861] | 0.610 / 0.595 [0.605 / 0.593] |
 

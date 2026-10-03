@@ -71,6 +71,7 @@
 #include "game/em_area11_opening.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
+#include "game/em_area_title.h"
 #include "game/em_area11_script_host.h"
 #include "game/em_collision_world.h"
 #include "game/em_director_original.h"
@@ -273,9 +274,19 @@ static int tick_pickup(EmActor *actor, Node *node, const EmArea11World *world)
         /* 00219550 state 0: 0x700038A0 = (0, 1.0, 0, 0.25), then
          * +0x2EC = 001C5570(self, 0x700038A0, 0x73, 1). */
         static const float k_light[4] = {0.0f, 1.0f, 0.0f, 0.25f};
-        if (actor->callback == 0x00219550u &&
-            spawn_001C5570_child(actor, k_light, 0x73, 1, &node->child) < 0)
-            return -1;
+        if (actor->callback == 0x00219550u) {
+            if (spawn_001C5570_child(actor, k_light, 0x73, 1, &node->child) < 0)
+                return -1;
+            /* The take's completion tests the +0x2EC word: the child it
+             * stops is the one this spawn returned (none when 001AFA90
+             * refused it). */
+            EmInteractionSceneOwner *record =
+                em_interaction_scene_find(em_area11_interaction_host_scene(), actor->source_id);
+            EmPickupOwner *owner = record ? em_pickup_original_owner((uint16_t)record->uid) : NULL;
+            if (!owner)
+                return fault(actor->callback, EM_SCENE_FAULT_NULL_WORKER, "item owner without its binding");
+            owner->has_child = node->child != NULL;
+        }
         return 1;
     }
     int result = em_area11_interaction_host_pickup_tick(actor->source_id);
@@ -1917,29 +1928,26 @@ static int tick_weather(EmActor *actor, Node *node, const EmArea11World *world)
     return released ? free_self_001AFC10(actor) : 1;
 }
 
-/* 001C5930 area-title node: its lifecycle (evidence above); the card itself
- * is the legacy em_hud title (armed by the manifest `areatitle` at the area
- * read, and by 0x1AE040 state 4's 001C5C50 adapter). State 0's +0x28/+0x2A/
- * +0x1F0 stores and the 001C5860 sub-location line have no port storage. */
+/* 001C5930 area-title node: em_area_title over the node's record (the .s
+ * of 001C5930, em_sul_001C5930): the title line D_002671C0[D_00289B40[area]
+ * + sub] for 300 ticks, then the infection band line D_0026726C[001C5860()],
+ * both through 001CC170 / 001CC1E0, quiet while the scratchpad mode byte is
+ * 1..3; B8 ends it (state 3), and states 2 / 3 free it (001AFC10). */
+static int title_free(void *ctx, EmActor *node)
+{
+    (void)ctx;
+    return free_self_001AFC10(node) < 0 ? -1 : 0;
+}
+
 static int tick_area_title(EmActor *actor, Node *node, const EmArea11World *world)
 {
     (void)node;
     (void)world;
-    switch (actor->u04[0]) {
-    case 0:
-        actor->u04[0] = 1;
-        return 1;
-    case 1:
-        if (s_scene->req[EM_SCENE_REQ_B8] != 0)
-            actor->u04[0] = 3;
-        return 1;
-    case 2:
-    case 3:
-        em_hud_area_title_stop();
-        return free_self_001AFC10(actor);
-    default:
-        return 1;
-    }
+    if (em_area_title_001C5930(actor, s_scene, g.status.infection, title_free, NULL) < 0)
+        return em_scene_faulted(s_scene) ? -1
+                                         : fault(actor->callback, EM_SCENE_FAULT_WORKER_FAILED,
+                                                 "area title: 001C5930 faulted");
+    return 1;
 }
 
 /* Indicator children (001C5680 x8, 001C5760; ORIGINAL_FRAME_ORDER #39-#48):
@@ -1963,9 +1971,7 @@ static int indicator_init(void *ctx, uint32_t fn, int32_t *result)
 }
 
 /* 001C6380 over the child's +0xB0 / +0xC0 / +0x60 (the spawn copied the
- * owner's) and its bound slots (em_indicator_bind_live). The port's +0x4C
- * draw is still a stand-in: the child's model mesh, additive, at the
- * child's own node 0 (indicator_draw below; OWNER_DRAW.md section 11). */
+ * owner's) and its bound slots (em_indicator_bind_live). */
 static int indicator_place(void *ctx)
 {
     IndicatorCall *c = ctx;
@@ -1979,44 +1985,17 @@ static int indicator_rand(void *ctx, int32_t *v0)
     return 0;
 }
 
-/* The +0x4C method 001CACB0, called by 001F54E0 with the child's new +0x80.
- * 001CABA0 (its packet builder: channel 3, lighting mode 1, 001D3990 /
- * 001D3D90 and the 001CAAC0 depth sort into page D_007635C0) is not
- * translated: the stand-in draws the child's model mesh additively at the
- * child's own node 0 (its slot +0x90). */
+/* The +0x4C method 001CACB0, called by 001F54E0 with the child's new +0x80:
+ * 001CABA0(child, +0x44) over the child's record, slots and model
+ * (em_indicator_bind_live_draw: channel 3, lighting mode 1, the class-2
+ * unit the page CALLs at its depth; OWNER_DRAW.md section 11). Every
+ * owner's child draws this way, the security gun's lamp 0x7A included. */
 static int indicator_draw(void *ctx, uint32_t fn, void *obj)
 {
     IndicatorCall *c = ctx;
-    const EmActor *parent = c->node->parent;
-    if (fn != EM_INDICATOR_CHILD_DRAW_001CACB0 || obj != c->actor || !parent)
+    if (fn != EM_INDICATOR_CHILD_DRAW_001CACB0 || obj != c->actor)
         return -1;
-    const float *c80 = c->actor->f80;
-    float node[16];
-    if (parent->callback != 0x00825940u && em_indicator_bind_live_node(c->actor, 0, node) < 0)
-        return -1;
-    switch (parent->callback) {
-    case 0x00219550u:
-        return em_pickup_light_submit(parent->source_id, c80, node);
-    case 0x00159210u:
-        return em_props_indicator_submit(0, c80, node);
-    case 0x00827B10u:
-        return em_props_indicator_submit(1, c80, node);
-    case 0x00825940u: {
-        /* The security gun's lamp (model 0x7A, bank D_0028A56C) has no
-         * port mesh yet: its draw is the object-unit draw of
-         * docs/OWNER_DRAW.md (P1). Its colour is (0, 0, 0, 0.25) in the
-         * first level (the gun stays dormant: the lamp is dark), which
-         * 001D8C30 mode 1 turns into 1 / 128 of the texel: the RNG draw
-         * above is the part that shows. */
-        static int reported;
-        if (!reported++)
-            fprintf(stderr, "em_area11: 001C5680 lamp 0x7A of the security gun 0x825940: 001CACB0 not drawn "
-                            "(no model 0x7A mesh; OWNER_DRAW.md P1)\n");
-        return 0;
-    }
-    default:
-        return -1;
-    }
+    return em_indicator_bind_live_draw(c->actor);
 }
 
 static int indicator_color(void *ctx, float c80[4])
@@ -2108,7 +2087,7 @@ static const Binding k_bindings[] = {
      NULL},
     {0x001E55F0u, "weather: em_weather over the node's state (em_snow_runtime)",
      tick_weather, NULL},
-    {0x001C5930u, "area title: lifecycle; the legacy em_hud card draws at the close-out", tick_area_title, NULL},
+    {0x001C5930u, "area title: 001C5930 (em_area_title)", tick_area_title, NULL},
     {0x0018A6B0u, "player equipment: em_player_equipment (em_equipment_live)",
      tick_equipment, NULL},
     {0x001E2560u, "head-bone sprite: em_head_sprite_original (em_effects_live)",

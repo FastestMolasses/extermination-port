@@ -1,51 +1,25 @@
 /* em_background_gs.h — the original level BACKGROUND (the "sky" behind the
- * level), shared by the Metal backend (em_gfx_metal.m) and
- * tools/test_background_reference.py. docs/BACKGROUND.md has the evidence.
+ * level): its asset and the GS state the Metal backend reproduces, shared
+ * by em_gfx_metal.m and tools/test_background_reference.py.
+ * docs/BACKGROUND.md has the evidence.
  *
  * The original does not clear the colour buffer per frame (FIRST_LEVEL_AUDIT
- * R09): the frame-flush packet 001D2300 REFs is a Z-only sprite (TEST ATE 1,
- * ATST NEVER, AFAIL ZB_ONLY). What fills the frame behind the level is a
- * full-screen textured grid drawn FIRST in the world chain:
- *
- *   - 001C1F50 (area load) arms render flags 0x20/0x21 for AREA11 (key
- *     0x0B00, and several other areas), stores the area's TEX0 at render
- *     ctx +0x1D0 (001E2260) and the colour floats at ctx +0x1C0 (001E2270,
- *     D_00250F30).
- *   - 001C1D00 (every world frame) -> 001E0CF0 -> 001E1E60 builds channel
- *     3's list: env class 7 (TEST ZTST ALWAYS, ZBUF ZMSK 1), CLAMP_1, TEX0,
- *     TEXA, RGBAQ = int(128 * ctx+0x1C0..0x1CC), and the VU1 upload: the GIF
- *     tag D_00253560 at dmem 0/0x81/0x102 and the 8 qwords D_00253570 at
- *     dmem 0x200 (the matrix below, then D_002535B0..E0 with the zoom
- *     ctx+0x2468 at D_002535B8), then kernel 0x0023C990.
- *   - 001D2300 CALLs that list right after the Z clear, before the level.
- *
- * The matrix (001E1E60): 00102798 transposes the view copy ctx+0x2380, the
- * row at D_00253580 is doubled, and 001026D0 multiplies by the X/Y swap
- * matrix. The kernel 0x0023C990 then walks a 32x32 screen grid: for grid
- * point v = (x, y, zoom, 0) it forms d = x*row0 + y*row1 + zoom*row2,
- * scales it by ERLENG (1/|d.xyz|), writes ST = st_offset + d.xy*st_scale
- * and XYZ2 = the float bits of (x, y) + xy_bias (the 526336.0 add leaves
- * the GS 12.4 value in the low 16 bits), and kicks one 64-vertex triangle
- * strip per pair of grid rows (31 strips).
- *
- * Arithmetic: binary32 with the VU's truncation after every product and
- * sum (em_fog_gs_vu_trunc), in the instruction order of the originals.
- * ERLENG is modelled as 1/sqrt(x*x + y*y + z*z) evaluated in double and
- * truncated; the hardware EFU result is not verified bit for bit (see
- * docs/BACKGROUND.md).
- */
+ * R09): the frame-flush packet 001D2300 REFs is a Z-only sprite. What fills
+ * the frame behind the level is a full-screen textured grid drawn FIRST in
+ * the world chain: 001D2300 CALLs render channel 3's list (001E1E60's,
+ * rebuilt every world frame by 001C1D00 -> 001E0CF0) right after the Z
+ * clear. The game walks that list and runs its VU1 grid program
+ * (src/game/em_background_live.h, em_vu1_grid_program_mscal); the backend
+ * draws the triangles it hands over (em_gfx_background_prims) with the
+ * asset's texels: the asset carries the TEX0, CLAMP_1, TEX1_1, RGBAQ, PRIM,
+ * TEST_1 and ZBUF_1 the captured lists hold, and the texels the area's
+ * level-load GS upload places (replayed from the disc). */
 #ifndef EM_BACKGROUND_GS_H
 #define EM_BACKGROUND_GS_H
 
-#include "gfx/metal/em_fog_gs.h"
-
-#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
-
-/* Kernel 0x0023C990: vi12/vi13 = 0x20 columns/rows. */
-#define EM_BACKGROUND_GS_GRID 32u
 
 /* The asset written by the decomp's export_level.py --background from the
  * user's own ELF, disc and an AREA11 EE capture (ignored assets/, never
@@ -170,105 +144,6 @@ static inline const char *em_background_gs_unsupported(
     if (a->texel_source != EM_BACKGROUND_GS_TEXELS_FROM_DISC)
         return "texel source is not the disc upload replay";
     return NULL;
-}
-
-/* The port's native view (em_cs_view_to_native: column-major, rows =
- * original X, -Y, -Z) as the original view copy ctx+0x2380 (memory row j =
- * operator column j). Sign flips only, exact. The mapping itself (native =
- * the original view with rows 1 and 2 negated) is em_cs_view_to_native's,
- * checked by tools/test_census_standins_reference.py; the background test
- * does not re-prove it. */
-static inline void em_background_gs_original_view(const float native[16],
-                                                  float original[16])
-{
-    for (unsigned column = 0; column < 4; ++column)
-        for (unsigned row = 0; row < 4; ++row)
-            original[column * 4 + row] = (row == 1 || row == 2)
-                ? -native[column * 4 + row] : native[column * 4 + row];
-}
-
-/* 001E1E60's matrix, D_00253570 (VU1 dmem 0x200..0x203) from the view copy
- * ctx+0x2380. 00102798 transposes; the four D_00253580 floats (row 1) are
- * doubled; 001026D0(out, swap, out) computes, for every memory row b of
- * out, ACC = s0*b.x; ACC += s1*b.y; ACC += s2*b.z; row = ACC + s3*b.w,
- * where s0..s3 are the swap matrix rows (0,1,0,0), (1,0,0,0), (0,0,1,0),
- * (0,0,0,1). The literal products keep the signs of zero the VU0 macro
- * code produces. */
-static inline void em_background_gs_matrix(const float view[16],
-                                           float out[16])
-{
-    static const float swap[4][4] = {
-        { 0.0f, 1.0f, 0.0f, 0.0f }, { 1.0f, 0.0f, 0.0f, 0.0f },
-        { 0.0f, 0.0f, 1.0f, 0.0f }, { 0.0f, 0.0f, 0.0f, 1.0f },
-    };
-    float t[16];
-    for (unsigned row = 0; row < 4; ++row)
-        for (unsigned column = 0; column < 4; ++column)
-            t[row * 4 + column] = view[column * 4 + row];
-    for (unsigned lane = 0; lane < 4; ++lane)
-        t[4 + lane] = t[4 + lane] * 2.0f;
-    for (unsigned row = 0; row < 4; ++row) {
-        const float *b = t + row * 4;
-        for (unsigned lane = 0; lane < 4; ++lane) {
-            float acc = em_fog_gs_vu_trunc((double)swap[0][lane] * b[0]);
-            acc = em_fog_gs_vu_trunc((double)acc + em_fog_gs_vu_trunc(
-                (double)swap[1][lane] * b[1]));
-            acc = em_fog_gs_vu_trunc((double)acc + em_fog_gs_vu_trunc(
-                (double)swap[2][lane] * b[2]));
-            out[row * 4 + lane] = em_fog_gs_vu_trunc((double)acc +
-                em_fog_gs_vu_trunc((double)swap[3][lane] * b[3]));
-        }
-    }
-}
-
-/* One grid vertex as the kernel writes it: ST floats and the XYZ2 X/Y
- * 16-bit GS 12.4 fields (Z is 0). */
-typedef struct {
-    float st[2];
-    uint16_t xy[2];
-} EmBackgroundGsVertex;
-
-/* Kernel 0x0023C990 over the grid. m = em_background_gs_matrix output
- * (vf28..vf31 = its memory rows), zoom = ctx+0x2468 (vf10.z). out is
- * indexed [row][column]. The GS draws strip r (0..30) as the 64 vertices
- * (r,0), (r+1,0), (r,1), (r+1,1), ..., (r,31), (r+1,31). */
-static inline void em_background_gs_grid(const EmBackgroundGsAsset *a,
-    const float m[16], float zoom,
-    EmBackgroundGsVertex out[EM_BACKGROUND_GS_GRID][EM_BACKGROUND_GS_GRID])
-{
-    float y = a->origin[1];
-    for (unsigned row = 0; row < EM_BACKGROUND_GS_GRID; ++row) {
-        float x = a->origin[0];                 /* x reloaded from dmem 516 each row */
-        for (unsigned column = 0; column < EM_BACKGROUND_GS_GRID; ++column) {
-            float d[3];
-            for (unsigned lane = 0; lane < 3; ++lane) {
-                float acc = em_fog_gs_vu_trunc((double)m[lane] * x);
-                acc = em_fog_gs_vu_trunc((double)acc + em_fog_gs_vu_trunc(
-                    (double)m[4 + lane] * y));
-                d[lane] = em_fog_gs_vu_trunc((double)acc + em_fog_gs_vu_trunc(
-                    (double)m[8 + lane] * zoom));
-            }
-            const float p = em_fog_gs_vu_trunc(1.0 / sqrt(
-                (double)d[0] * d[0] + (double)d[1] * d[1] +
-                (double)d[2] * d[2]));
-            EmBackgroundGsVertex *v = &out[row][column];
-            for (unsigned lane = 0; lane < 2; ++lane) {
-                const float u = em_fog_gs_vu_trunc((double)d[lane] * p);
-                v->st[lane] = em_fog_gs_vu_trunc((double)a->st_offset[lane] +
-                    em_fog_gs_vu_trunc((double)u * a->st_scale[lane]));
-            }
-            const float position[2] = { x, y };
-            for (unsigned lane = 0; lane < 2; ++lane) {
-                const float biased = em_fog_gs_vu_trunc(
-                    (double)position[lane] + a->xy_bias);
-                uint32_t bits;
-                memcpy(&bits, &biased, sizeof bits);
-                v->xy[lane] = (uint16_t)(bits & 0xffffu);
-            }
-            x = em_fog_gs_vu_trunc((double)x + a->step[0]);
-        }
-        y = em_fog_gs_vu_trunc((double)y + a->step[1]);
-    }
 }
 
 /* GS window position -> native NDC. The frame is the 512 x 224 field with

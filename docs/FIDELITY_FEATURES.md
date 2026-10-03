@@ -431,10 +431,70 @@ them. No remade models, no guessed lighting shader.
   compared at the snapshots; the fans over the port's own spin angle through
   the original 001C6380). Since chain C8b's FACE step Roger and his
   equipment are on this path too (next entry), and since chain C8b's
-  OPENING step the opening's actors (the opening cinematic entry). The
-  indicator children are not. Object textures (465 TEX0) are decoded from
+  OPENING step the opening's actors (the opening cinematic entry). Since
+  the units step (2026-10-02) the indicator children are too (the entry
+  below). Object textures (465 TEX0) are decoded from
   the GS memory rebuilt from the user's disc (DISC_TEXTURES.md; equal to
   every route capture's decode). Metal only.
+
+**The indicator lights on their original draw**
+
+The green and red lights over the items, the power panel and the elevator
+terminal, and the security gun's lamp, are drawn by the game's own draw
+routine for them, lit by its own lighting mode, at the place in the frame's
+list the original puts them.
+
+- How: each indicator child's draw method 001CACB0 runs 001CABA0 over the
+  child's own record (em_indicator_bind_live_draw): the channel-3 unit with
+  lighting mode 1 (001D89D0 / 001D8C30 over the child's colour, which
+  001F54E0 pulses with rand()), the model's blocks through 001D3990 /
+  001D3D90 and the depth-sorted CALL 001CAAC0 inserts into the chain page;
+  the chain page draws the unit there as a class-2 object unit (additive,
+  no Z write). The security gun's lamp draws the same way; its colour is
+  dark in the first level, so it adds almost nothing, as on the PS2.
+- Evidence: `OWNER_DRAW.md` 11; test-owner-draw-reference part E (every
+  store of the original 001CACB0 -> 001CABA0 over the captured children);
+  test-object-unit-reference part K (the class-2 units through the original
+  microcode); the level smoke's check_indicator_units: one call per child
+  per tick, and at every aligned route snapshot the original 001CACB0 over
+  the snapshot with the port's colour words, point lights and view writes
+  the port's unit (colour, lighting rows; the position rows too in the
+  camera-exact beats 10 and 14), the gun's lamp among them.
+- Status: **VERIFIED** for AREA11 relative to the original code. The
+  colour pulse follows the port's rand() stream (the values cannot match a
+  recording); pixels are Metal's (no fb2 frame compares them).
+
+**The area title card**
+
+The area's title line appears after the fence door's room move, and at the
+area entry its 300-tick timer runs through the opening, silenced while the
+opening's scratchpad mode byte is 1..3; its text, position and timing come
+from the game's own data and code.
+
+- How: the area-title node 001C5930 runs its translation over its own
+  record (em_area_title): the title string D_002671C0[D_00289B40[area] +
+  sub] for 300 ticks, quiet while the scratchpad mode byte is 1..3 (the
+  opening), then the infection band line D_0026726C[001C5860()] when the
+  band is not 0; both through 001CC170 / 001CC1E0, the message service's
+  glyph runs. The tables, strings and style come from the user's own ELF
+  (`tools/export_area_title.py`).
+- Evidence: `STATUS_UI_LEFTOVERS.md` 2.6 (test-status-ui-leftovers-reference:
+  001C5930 against the original instructions); the level smoke's
+  check_area_title (the node's state, timers, string index and band equal
+  every aligned route snapshot's; at route 09's last row the room move's
+  fresh node holds the capture's 240 ticks left, at another pool record
+  than the original's; in every tick the title timer steps, a line is
+  drawn exactly when the mode byte 0x70003B8D at the tick's end is not
+  1..3); route 09's frame shows the card where `09_fence_door/original.png`
+  does (by eye).
+- Status: **VERIFIED** for AREA11's route relative to the original code:
+  the node's fields at the aligned snapshots 08..14 and route 09's fresh
+  node's fields. **UNVERIFIED**: the single title line at the area entry.
+  In the port the node's first state-1 call comes one tick before the
+  opening stores the mode byte 2, so that call draws one line; no capture
+  shows that frame and no frame-order window covers it, so it is the
+  port's order, inferred, not compared. Glyph pixels
+  are the port's font atlas (the text entry above).
 
 **Roger's face and the player's face in the cutscenes, morphed by the original face program**
 
@@ -717,14 +777,20 @@ Where no level geometry covers the screen you see the original sky layer,
 not the black earlier builds showed. Distance fog uses the original's
 coefficients and colour.
 
-- How: the background matrix (001E1E60) and the 32x32 grid of its VU1 kernel
-  are translated and drawn when the translated main-loop step V says so; the
-  texels are replayed from the user's own disc. Fog comes from the single
+- How: the translated 001E1E60 builds render channel 3's list every world
+  frame; when the translated main-loop step V CALLs it, the port walks the
+  list as its DMA sends it and runs its VU1 grid program 0x0023C990 by a
+  translation of the microcode (since the units step, 2026-10-02; before,
+  a native model of the grid checked against the kernel), and draws the 31
+  strips it kicks; the texels are replayed from the user's own disc. Fog comes from the single
   translation of 0021B920 and the area fog 001D8FD0 on the live render
   context.
-- Evidence: `BACKGROUND.md` Verification: the native matrix equals the
-  uploaded one bit for bit in 6 captures; 11,904 vertices equal the original
-  kernel (126,976 in full mode); disc texels equal the asset and three GS
+- Evidence: `BACKGROUND.md` Verification: the grid program's translation
+  kicks the original microcode's packets qword for qword over 6 captured
+  uploads (11,904 vertices; 126,976 with the full sweep); the level smoke's
+  check_background runs the original program over the port's own upload on
+  sampled ticks (equal triangles) and, in the camera-exact beats 10 and
+  14, over the capture's own list (equal triangles); disc texels equal the asset and three GS
   freezes. Sky at first control: 6,843 of 6,912 samples black before, 0
   after, mean (48.2, 48.2, 48.2) against the original's (48.0, 48.0, 48.0).
   `tools/test_area11_fog_reference.py` executes the original fog chain
@@ -732,11 +798,9 @@ coefficients and colour.
 - Status: **VERIFIED** for AREA11, relative to PCSX2. Caveats: the ERLENG
   model is the same on both sides of the test; the shader's per-vertex F is
   not executed against the original kernel; the fog blend itself is the
-  measured GS rule with the 8.7 weight (next entry); the +0x1D8 channel-3 list
-  is built by the translated 001E1E60 since the static-world step and the
-  draw's gate, TEX0 and RGBAQ are read from it, but the grid itself is
-  still the native model of its VU1 kernel (checked by the tests above);
-  pixels are Metal sampling, not compared with a GS framebuffer.
+  measured GS rule with the 8.7 weight (next entry); the EFU's ERLENG is a
+  model no capture has checked (the same on both sides of the test); pixels
+  are Metal sampling and rasterization, not compared with a GS framebuffer.
 
 **The GS fog blend, as PCSX2's software GS computes it**
 
@@ -852,7 +916,11 @@ long notices stay up.
   (2026-09-28) the glyph strips sample the port's font atlas nearest
   (`em_gfx_overlay_glyph_nearest`); before, bilinear (`MESSAGE_GLYPH.md`
   "The draw boundary").
-- Status: **PARTIAL**. The area-title card is not bound. Glyph pixels are
+- The area-title card (the opening line and, with infection, the band
+  line) is drawn by its own node 001C5930 through the same 001CC1E0 glyph
+  runs since the units step (2026-10-02; the entry "The area title card"
+  below).
+- Status: **PARTIAL**. Glyph pixels are
   drawn from the port's own atlas (the original's TEX0 / CLUT, TEST and
   ALPHA are not modelled) and are not compared (no fb2 frame shows text).
   The BATTERY page's module load runs the original loader's own steps
@@ -964,12 +1032,7 @@ Advertise the items above only.
 - Evidence: `OWNER_DRAW.md` 11, `CHAIN_PAGE.md` 6, `LOAD_VEIL_PARTICLES.md`
   5, `BACKGROUND.md`, `STATUS_PAGES.md` 7, census lane L38,
   `FIRST_LEVEL_AUDIT.md` 1b (2026-09-28).
-- Status: **PLANNED**. The indicator children (the pickups' and the
-  terminal's markers) draw their model mesh additively at the child's own
-  node instead of their original unit 001CABA0; the security gun's lamp
-  (dark in the first level) is not drawn. The area-title card is the port's
-  own card, not 001C5860 / 001C5930. The sky grid is a native model of its
-  VU1 kernel (checked against it), not the kernel's own output. The status
+- Status: **PLANNED**. The status
   hub's and the MAP page's models are drawn by the renderer's skinned path
   with the original's matrices. 001DDE10's four frame-copy sprites are not
   drawn. The area-load veil runs and is drawn from its own packets, but the
@@ -1387,8 +1450,7 @@ units per second.
   verified live translation include 001FC280's body. "No stand-in rows"
   does not mean no stand-in code runs. Census 2.3 still lists stand-in
   behaviour on the route: the camera stand-in that pre-empts the examine
-  action, the
-  indicator children's +0x4C draw, the chain page's four-sprite pass, the opening's
+  action, the chain page's four-sprite pass, the opening's
   camera timeline (census L33), and the interaction runtime's acquire and
   per-stage tick for the panel, terminal and item takeovers. Census section
   6 notes that oracle strength varies (the fade oracle compares against

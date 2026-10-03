@@ -431,60 +431,7 @@ void em_hud_continue(EmGfx *gfx, int cursor);
  * in-world "Found" line was a port stand-in and is deleted.) */
 void em_hud_radio_render(EmGfx *gfx);
 
-/* AREA-TITLE CARD — the opening "FORT STEWART - REAR ENTRANCE" placard
- * (INVESTIGATION_area11_director.md §4.4 / FINDINGS s81). In the ENGINE
- * the title rides the gameplay HUD frame (func_001AE5E0 -> func_001AFD70
- * -> func_001C5930), INDEPENDENT of the cinematic director.
- *
- * CORRECTED against func_001C5930 (NEARMISS, body-correct):
- *   - it is a 300-frame card, not ~2.5 s: state 0 sets
- *     `*(short *)(arg0 + 0x28) = 0x12C` and state 1 draws-then-
- *     decrements, stopping at zero. Five seconds at 60 Hz.
- *   - there is NO fade. The whole draw is one
- *     `func_001CC1E0(1, 0x800 - (w >> 1), 0x7A2, 0xA, 0x14, str, 0)`
- *     per frame, with no alpha term anywhere in the function. The
- *     port's fade-in/hold/fade-out envelope was invented and is gone.
- *   - the anchor decodes to canvas (256 - w/2, 36) on the 512-wide UI
- *     canvas — top-centred, but at y 36, not the port's old 96.
- *     CANVAS CORRECTED (later audit): that "512-wide UI canvas" is
- *     load-bearing and the port was ignoring it. The card's blitter is
- *     the one func_001FC7B0 (NEARMISS) shows —
- *     func_001CC1E0(1, x + 0x700, y + 0x790, 0xA, 0x14, str, 0) — the
- *     same one the radio/examine text uses, so em_hud_area_title_render
- *     now selects EM_GFX_STATUS_W/H like the radio path does instead of
- *     centring on the 640-wide gameplay overlay (which drew every glyph
- *     0.8x too narrow). y is unchanged: both canvases are 448 tall.
- *   - STRING SOURCE DOWNGRADED: the function does NOT read a 32-byte-
- *     stride table at 0x00273B80. It indexes the pointer array
- *     D_002671C0[] with `D_00289B40[D_00810700][0] + D_00810701`
- *     (per-area base + sub-area byte). The area-11 text the port
- *     carries is an OBSERVED capture, not a decoded table entry.
- *   - NOT MODELLED (read in the same function), and RE-READ: once the
- *     300 frames elapse a SECOND 300-frame line draws centred on canvas
- *     x 406, row 36, from D_0026726C[band].  It is NOT a sub-location
- *     name: `band` is func_001C5860() (BYTE-MATCHED), which buckets
- *     100 - infection (D_008104D8) into 0..5 at 80/50/30/10/0, the line
- *     is skipped while band == 0, and its timer restarts on a band
- *     change — an infection-status placard.
- *
- * em_hud_area_title(area) arms the card ONCE for the given area on scene
- * entry (em_game's scene-load hook). Only area 11 has a known string;
- * any other area is a silent no-op (the card never shows). em_hud_area_
- * title_render(gfx) counts the 300 frames and draws the centred title at
- * constant opacity for one show, then clears itself. It is NOT a
- * persistent HUD (one-shot) and does NOT touch the status screen or the
- * cinematic letterbox. Hidden while the status screen is open; missing
- * font queues nothing (no regression). Call _render once per frame from
- * the close-out (after em_hud_radio_render).
- *
- * em_hud_area_title_active() = the card is still showing (for tests). */
-void em_hud_area_title(int area);
-void em_hud_area_title_render(EmGfx *gfx);
-int  em_hud_area_title_active(void);
-/* The card's 001C5930 actor left (its state 1 saw D_008106B8 != 0, then
- * 001AFC10 freed it: 0x1C5AA8..0x1C5ABC, 0x1C5C24): the card stops drawing.
- * Called by the AREA11 area-title node adapter (S12b), never by a pool reset. */
-void em_hud_area_title_stop(void);
+/* The area-title card is the 001C5930 node itself (em_area_title.h). */
 
 /* RADIO/EXAMINE MESSAGE MACHINE — the engine's mode-2 message machine
  * (D_002821B0 = 2; FINDINGS.md "RADIO-MESSAGE MACHINE DECODED",

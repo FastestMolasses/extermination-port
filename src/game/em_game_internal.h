@@ -1870,7 +1870,6 @@ typedef struct {
      * on AREA-11 scene entry; em_hud owns the fade-in/hold/fade-out. This
      * field only records that the card was armed for the active scene so a
      * re-entry re-arms it (and non-AREA-11 scenes never arm). */
-    int         area_title_armed; /* the title card was armed this scene */
     /* Vertical fall velocity (engine actor +0x2EC). Integrated by the
      * gravity tick in player_move_collide; zeroed on landing. */
     float       fall_vel;

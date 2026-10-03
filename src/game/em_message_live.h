@@ -111,6 +111,16 @@ int em_message_live_help_draw(int32_t x, int32_t y, int32_t group, int32_t line)
 int em_message_live_record_draw(int32_t line, int32_t x, int32_t y);
 int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, int32_t y,
                           int32_t *result);
+/* 001CC170(text) and 001CC1E0(slot, x, y, unused, h, text, style) on the
+ * service's draw and glyph modules, for a caller outside step F that draws
+ * its own text (the area-title node 001C5930, em_area_title): `text`
+ * points at `avail` readable bytes holding its NUL; style NULL is the
+ * original's 0. 001CC1E0's glyph passes are drawn at this frame's step-F
+ * render, before step F's own (the task's packets precede step F's).
+ * 0 ok, -1 fault. */
+int em_message_live_cc170(const uint8_t *text, uint32_t avail, int32_t *width);
+int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h, const uint8_t *text,
+                          uint32_t avail, const EmMessageTextStyle *style);
 /* 001FC9B0. 0 ok, -1 when the data is missing. */
 int em_message_live_reset(void);
 /* The block itself (D_002821B0): callers that store its words directly

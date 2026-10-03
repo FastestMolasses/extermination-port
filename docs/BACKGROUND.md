@@ -173,6 +173,11 @@ translation.
 - It writes `assets/scene_snow/background.embg` and the manifest line
   `background background.embg` (the port command adds the line only when
   the manifest lacks it).
+- The grid packet 0x0023C990 the list CALLs (its VIF codes and the grid
+  program) is read from `assets/effect_tables.emet`
+  (`python3 tools/export_effect_tables.py`, from the user's ELF; since the
+  units step it carries the packet: an older export makes the walk fault at
+  the CALL).
 - It checks that the EE image is AREA11 with flags 0x20 and 0x21 armed. It
   replays channel 3's list and takes the GS state at the MSCAL, then
   requires the following:
@@ -196,20 +201,40 @@ translation.
   `src/gfx/metal/em_background_gs.h`. The header now stores TEST_1, ZBUF_1
   and a texel-source word (1 = disc replay).
 
-**Translation.**
-- `src/gfx/metal/em_background_gs.h` holds the whole translation:
-  - 001E1E60's matrix, including the literal swap multiply, which keeps
-    001026D0's signs of zero;
-  - kernel 0x0023C990's grid.
-- Every product and sum uses binary32 truncation, as the VU does.
-- The Metal backend (`em_gfx_background_load/_draw/_unload/_ready`) draws
-  the 31 strips as triangle strips with this state:
+**Translation (since the units step, 2026-10-02).**
+- The list is the original's: the translated 001E1E60 (em_static_world,
+  on the render context: STATIC_WORLD.md) builds it at context +0x1D8 every
+  world frame, the matrix D_00253570 included.
+- `src/game/em_background_live.c` walks it as its DMA sends it:
+  `em_chain_page_run_call` (em_chain_page's call mode: the list mode walk of
+  a CALL target up to its own top-level RET) over the render context's
+  storage and the effect-table export's copy of the grid packet 0x0023C990
+  (`tools/export_effect_tables.py`). The A+D packets set the GS state
+  (001D1F80(3, 0, 7), 001D1FF0, 001D6F60, 001D7080); the four 001D7100
+  CNTs upload the template and the matrix and constants; the CALL of the
+  packet uploads the grid program (its MPG of 79 instructions from ELF
+  0x0023C9B8, recognised by its source address); 001D71A0's MSCAL 0 runs
+  the program's translation, `em_vu1_grid_program_mscal`
+  (`src/game/em_vu1_page_programs.h`), on the walk's VU1 data memory.
+  Every XGKICK goes through the walker's GIF / GS model, which hands over
+  the 31 strips' triangles in GS order with the state in force.
+- Every product and sum uses the VU arithmetic of the page programs
+  (truncated binary32, em_ee_float.h); ERLENG is the EFU model the streak
+  program shares: 1/sqrt in double, truncated.
+- The walk faults when the list runs no grid MSCAL, or when a triangle is
+  drawn with Z writes on (ZBUF_1 ZMSK 0).
+- `src/gfx/metal/em_background_gs.h` keeps the asset's format, the
+  backend's state check and the GS-to-NDC mapping; its native model of the
+  matrix and of the grid is deleted.
+- The Metal backend (`em_gfx_background_load/_prims/_unload/_ready`) draws
+  the triangles it is handed with this state:
   - depth test and write off;
   - opaque;
   - linear clamp-to-edge sampling;
   - fragment = texel * RGBAQ/128 with alpha = RGBAQ A (TFX MODULATE, TCC 0).
-- The backend refuses an asset it does not reproduce and prints the field;
-  nothing is drawn. It checks:
+  It refuses a primitive whose PRIM, TEX0, CLAMP_1, TEX1_1 or TEST_1 differ
+  from the asset's, or whose RGBAQ is not the asset's with Q 1.0, and the
+  asset itself as before:
   - PRIM, TEX0 TFX/TCC and size, TEX1 and CLAMP_1;
   - TEST_1: ZTE/ZTST ALWAYS, a pixel-dropping alpha test, DATE;
   - ZBUF_1 ZMSK;
@@ -227,12 +252,6 @@ translation.
     The kernel's grid starts exactly on the field's left and top edges, so
     under upscaling that offset leaves a half-pixel strip uncovered: 192 of
     6,912 sky-box samples and 417 whole-frame samples were black.
-- **View input.** The draw takes the port's native view and negates rows 1
-  and 2 to get ctx+0x2380. The native view is em_cs_view_to_native of the
-  original look-at 00102CD0 (the commit 0018C0D0 builds it), which is
-  exactly the original with those rows negated
-  (`tools/test_census_standins_reference.py`).
-  The background test does not re-prove it.
 
 **Wiring (live since the render + UI step, 2026-09-25).**
 - `scene_manifest_load` and `scene_unload` (em_scene.c) call
@@ -242,8 +261,9 @@ translation.
   only names the asset's file.
 - Whether a world frame draws it is the live render context's (since the
   status UI step, 2026-09-26; em_render_frame.c `background_gate`): the
-  world branch of `frame_close_out` calls `em_gfx_background_draw(gfx, view,
-  zoom)` before the fog and every other draw when 001D2300 calls 001E0DF0
+  world branch of `frame_close_out` draws it (`em_background_live_draw`
+  since the units step) before the fog and every other draw when 001D2300
+  calls 001E0DF0
   (render flag 0x20 set in the context's +0x174 word, flag 4 (+0x0C bit 4)
   clear, `D_008106C4 == 0`, and no movie played in the frame:
   `em_frame_movie_active()`, the D_00821058 == 1 mirror; 001D1C10 would set
@@ -277,13 +297,16 @@ translation.
 - `python3 tools/test_background_reference.py`: about 1.2 s. It covers:
   - 6 captures and 12 Z-only clears;
   - the asset's TEST_1/ZBUF_1 equal to channel 3's state in every capture;
-  - the native matrix equal to the uploaded D_00253570 bit for bit in all
-    six;
-  - the original kernel executed over each captured upload, giving 11,904
-    vertices whose ST and XY equal the native grid bit for bit, with the
-    grid spanning X 1792..2303.9375 and Y 1936..2159.9375;
-  - a quick sweep of 2 synthetic views (EM_TEST_FULL=1: 64 views, 126,976
-    vertices, about 2 s);
+  - the uploaded matrix equal to D_00253570 in RAM in all six (the port's
+    001E1E60 builds it: test_static_world_draw_reference and the level
+    smoke's check_static_world);
+  - the original grid program executed over each captured upload, giving
+    11,904 vertices, with the grid spanning X 1792..2303.9375 and Y
+    1936..2159.9375; its translation `em_vu1_grid_program_mscal` over the
+    same upload kicks the same packets qword for qword (the GIF tag and
+    every ST and XYZ2 qword, all four words);
+  - a quick sweep of 2 synthetic matrices and zooms (EM_TEST_FULL=1: 64,
+    126,976 vertices);
   - the disc replay, run with the decomp exporter's own code (`--iso`,
     default `<decomp>/Extermination-rebuilt.iso`, or `--disc`): 2
     transfers, texels equal to the asset and to three GS freezes (opening,
@@ -291,10 +314,10 @@ translation.
   - the GS-footprint NDC mapping for every field-pixel edge;
   - refusal of FGE, ZTST GREATER, ATST GEQUAL, DATE, ZMSK 0 and
     capture-sourced texels.
-- The test has been mutation-checked:
-  - dropping the row doubling fails the matrix check;
-  - an ST offset fails at strip 0, vertex 0;
-  - a 1/16-pixel XY shift also fails at strip 0, vertex 0;
+- The test has been mutation-checked (the units step, 2026-10-02): the
+  translation's XY bias taken from the wrong lane fails at kick 0, qword 2;
+  its ST sum taken without the accumulator fails at kick 0, qword 1; and,
+  from the earlier native model's checks:
   - one flipped texel bit fails the disc-replay comparison;
   - an asset with ZTST GREATER is refused;
   - a +0.5 NDC offset fails the footprint check.
@@ -311,14 +334,21 @@ translation.
     sprites and cut-out edges over the new background.
 - Fog and level materials are unchanged. The draw runs before them, and
   neither the fog nor the material state is touched.
+- **Live (the level smoke's check_background).** Every world frame whose
+  step V CALLs the list draws its 1,922 triangles; on sampled ticks the
+  ORIGINAL grid program, executed over the dmem upload the port's walk
+  handed its translation, kicks exactly the triangles the port drew (the
+  vertex digest), and the upload's template and constants are the ELF's;
+  in the camera-exact snapshots 10 and 14 the original program over the
+  capture's own list kicks the port's triangles too.
+- **Pixels (the fb2 harness, `EM_TEST_FULL=1 make test-fb2-pixels`).** With
+  the walk in place of the native model the camera-exact snapshots 10 and 14
+  keep 30.89 % and 28.79 % of the field's pixels exact (mean channel error
+  1.39 and 1.78), the figures of GS_EXACT.md section 10: the triangles are
+  the model's, now from the original program's kicks.
 
 ## Open
 
-- The grid itself is still drawn by em_background_gs's model of the kernel
-  0x0023C990 (the matrix recomputed from the frame head's view and zoom as
-  001E1E60 builds D_00253570, not read from that storage), not by walking
-  the channel-3 list's packets as the static world's run is walked
-  (STATIC_WORLD.md section 6).
 - The disc replay models only what sector 15 contains: CNT/RET/END chains,
   VIF NOP/FLUSH/DIRECT, and A+D transfer registers with PSMCT32 IMAGE data.
   Anything else fails with a message. GS writes made after the area load
@@ -326,7 +356,11 @@ translation.
   show the TBP 0x3200 and CBP 0x34F8 blocks intact in AREA11.
 - ERLENG is modelled as 1/sqrt in double, truncated to binary32. The test
   applies the same model on both sides. The hardware EFU result is not
-  verified bit for bit, because no capture holds the kernel's output.
+  verified bit for bit, because no capture holds the kernel's output (a
+  capture of the GS packets the program kicks, or of its output buffers,
+  would settle it; PCSX2 work for the lead).
+- Rasterization is Metal's at the host resolution, not the GS DDA
+  (FIRST_LEVEL_AUDIT.md 1b item 2).
 - **The movie frame.** 001D2300 skips the draw in the frame where 00203350
   played (flag 4). The port's movie frames do not reach frame_close_out's
   world branch, and the gate reads the movie mirror for the frame that

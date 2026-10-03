@@ -718,5 +718,5 @@ surface it lies on at the same depth, as on the GS.
   solid, without the bright fringes, as the fb2 reference frame shows) and
   05_boxes' run against its fb2 frame. The shadow harness
   (`test_shadow_original_reference.py --capture`, now drawing the beat's
-  own run) gives level pixels around the shadow within 1 of the original
+  own run, and since audit 1b item 5 the beat's own sky grid) gives level pixels around the shadow within 1 of the original
   screenshot's means (01, 08, 12).

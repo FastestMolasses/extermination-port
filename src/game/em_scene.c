@@ -62,7 +62,6 @@ void scene_manifest_load(void)
      * room's lists by 001D19E0's 001D7BB0 at the area entry (em_scene_bindings
      * um_001D19E0 -> em_effects_live_room_lights), not by the manifest. */
     g.point_lights_loaded = 0;
-    g.area_title_armed = 0; /* AREA-title card re-arms per scene (`areatitle`) */
     g.opencam_on   = 0;     /* the opening-camera seat is per-scene data too:
                              * without this reset a scene with no `opencam`
                              * line inherits the previous scene's seat and
@@ -341,53 +340,10 @@ void scene_manifest_load(void)
             else
                 printf("manifest: grate line failed to load: %s", line);
         } else if (sscanf(line, "areatitle %d", &gk) == 1) {
-            /* AREA-TITLE CARD trigger. Form: `areatitle <area>`. Arms the
-             * one-shot opening placard ("FORT STEWART - REAR ENTRANCE" for
-             * area 11) ONCE on scene entry; em_hud owns the card itself.
-             * Independent of the cinematic director and the status HUD:
-             * src/func_001C5930.c (NEARMISS) reads neither D_008101E4 nor
-             * the message machine — it is its own HUD-overlay state
-             * machine on the normal gameplay frame.
-             *
-             * AUDITED 2026-07-31 against src/func_001C5930.c. Three parts
-             * of the old comment were WRONG and are corrected here:
-             *
-             *  - "fade-in/hold/fade-out" — there is NO fade. Case 0 arms a
-             *    300-frame counter (*(short *)(arg0+0x28) = 0x12C) and the
-             *    per-frame draw is the same call every frame,
-             *    func_001CC1E0(1, 0x800 - (w>>1), 0x7A2, 0xA, 0x14, str, 0)
-             *    — no alpha term anywhere in the function. It is a
-             *    constant-opacity 300-frame hold. em_hud.c was corrected to
-             *    match; do not re-add an envelope here without evidence.
-             *
-             *  - "the string table (0x00273B80)" — func_001C5930 does not
-             *    read a 32-byte-stride table at that address. Its case 0
-             *    computes, verbatim,
-             *      `*(short*)(arg0+0x2A) = D_00289B40[D_00810700][0];
-             *       *(short*)(arg0+0x2A) += D_00810701;`
-             *    and its case 1 draws `D_002671C0[*(short*)(arg0+0x2A)]`
-             *    — a POINTER array indexed by (per-area base + sub-area
-             *    byte). RE-CONFIRMED 2026-07-31. The port's area-11 line
-             *    is an OBSERVED capture, not a decoded table read, and the
-             *    port keys it on the area alone — the engine's sub-area
-             *    term (D_00810701) is NOT modelled.
-             *
-             *  - "first-gameplay-frame trigger" — more precisely, the arm
-             *    is func_001C5930's case 0 (the overlay state byte
-             *    arg0+4 == 0), which then advances to the case-1 display
-             *    machine. Arming at manifest parse binds the port's card to
-             *    scene-LOAD, which is the closest port analogue.
-             *
-             * Only area 11 has an observed string; any other area no-ops in
-             * em_hud_area_title. NOT MODELLED (present in func_001C5930):
-             * after the 300 frames the engine runs a SECOND 300-frame line,
-             * the sub-location name D_0026726C[func_001C5860()], drawn at
-             * x 0x896 - (w>>1) on the same row.
-             *
-             * NOTE: g.area_title_armed currently has no reader anywhere in
-             * the port — it is bookkeeping only, not a behaviour gate. */
-            g.area_title_armed = 1;
-            em_hud_area_title(gk);
+            /* The legacy area-title card's trigger: the card is the
+             * 001C5930 node itself (em_area_title, spawned by 001C5C50).
+             * The exporters still write the line; it is accepted and not
+             * read. */
         } else if (sscanf(line, "area11effect %255s", name) == 1) {
             /* The flame's placement and descriptor (a texture token of an
              * older manifest is not read: its TEX0 is a page texture). */
@@ -460,19 +416,13 @@ void scene_manifest_load(void)
                         "(STARTUP.md step 40)\n", bpath);
                 em_frame_request_quit();
             }
-        } else if (sscanf(line, "prop_indicator %63s %255s", gname, name) == 2) {
-            if (em_props_indicator_install(em_frame_gfx(), g.scene_dir,
-                                            gname, name) < 0)
-                fprintf(stderr, "manifest: prop indicator failed: %s", line);
-        } else if (sscanf(line, "pickup_light %i %255s", &gk, name) == 2) {
-            /* Child model 73 follows the already loaded owner's matrix.
-             * The line's four numbers are the captured child +0xA0 (kept
-             * for tools/test_census_unverified_reference.py); the live
-             * colour is the child's own +0xA0, which 00219550 passes at
-             * its 001C5570 spawn (em_area11_bindings.c). */
-            if (em_pickup_light_add(em_frame_gfx(), g.scene_dir, gk,
-                                    name) == -1)
-                fprintf(stderr, "manifest: pickup light failed: %s", line);
+        } else if (sscanf(line, "prop_indicator %63s %255s", gname, name) == 2 ||
+                   sscanf(line, "pickup_light %i %255s", &gk, name) == 2) {
+            /* The indicator children's meshes for the retired additive
+             * stand-in: the children draw through their own 001CACB0 ->
+             * 001CABA0 over the original models (em_indicator_bind_live,
+             * OWNER_DRAW.md section 11). The exporters still write these
+             * lines; they are accepted and not read. */
         } else if (sscanf(line, "examine %f %f %f %f %f %f",
                           &x, &y, &z, &yaw, &gx, &gy) == 6) {
             /* The trailing "terminal" marker names AREA11's internal

@@ -27,9 +27,11 @@
  *                         +0x0C and held words (the pool's free of a child
  *                         with +0x09 != 0; its own loop, not 001AF890)
  *
- * The child's +0x4C draw (001CACB0 -> 001CABA0 -> 001CA7B0 / 001CAA00) is
- * not this module's: the draw submits the owner's indicator mesh
- * (em_area11_bindings.c indicator_draw; OWNER_DRAW.md P1).
+ * and the child's +0x4C draw 001CACB0 -> 001CABA0(child, +0x44)
+ * (em_owner_draw_live_001CABA0: channel 3, lighting mode 1, the class-2
+ * unit the page D_007635C0 CALLs at its depth; OWNER_DRAW.md section 11),
+ * over the child's record bytes, its slots and the model's bank (the
+ * library models join this module's table-less bank at their addresses).
  *
  * Fail-stop: the first fault is latched (em_indicator_bind_live_fault());
  * every later entry returns -1. */
@@ -62,6 +64,9 @@ int em_indicator_bind_live_set_node(EmActor *child, unsigned k, const float matr
 /* Slot k's +0x90 of a bound child (the stand-in draws of the children's
  * +0x4C read their own node matrices). 0, or -1. */
 int em_indicator_bind_live_node(const EmActor *child, unsigned k, float matrix[16]);
+/* The child's +0x4C, 001CACB0 (001F54E0's indirect call, the child's +0x80
+ * colour words just stored): 001CABA0(child, +0x44). 0, or -1 (latched). */
+int em_indicator_bind_live_draw(EmActor *child);
 /* 001AF800 for an indicator child: 1 handled, 0 not a bound child, -1. */
 int em_indicator_bind_live_001AF800(EmActor *child);
 

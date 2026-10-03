@@ -63,7 +63,7 @@ PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW:
 
 # The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
 # capture holds an EFU result, so its arithmetic is a model, the one the
-# background's ERLENG already uses (em_background_gs.h, docs/BACKGROUND.md):
+# background's grid program uses (em_vu1_page_programs.h, docs/BACKGROUND.md):
 # ERLENG = 1 / sqrt(x*x + y*y + z*z) and ERCPR = 1 / x, each evaluated
 # exactly enough (double; the quotient as VDIV's) and truncated to binary32
 # with denormals flushed. The latencies are the VU manual's table, the one

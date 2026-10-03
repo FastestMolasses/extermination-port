@@ -832,6 +832,9 @@ def check_fence_door(ticks, run, state):
     follow = check_follow_after_release(ticks, i0, rows, f0, 'fence_door', 'exact')
     admit, free = check_stage_takeover(ticks, i0, count, 'fence_door')
     state['cursor'] = i0 + count
+    # the port tick of route 09's last row (its snapshot): check_area_title
+    # compares the room move's fresh title node there
+    state['fence_door_end'] = i0 + count - 1
     print(f'fence_door: PASS (the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 '
           f'at {free}; port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 09 '
           f'f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: the scan and 001BBE40 at f{rows[f0]["f"]} (the '
@@ -3759,6 +3762,321 @@ def check_owner_units(ticks, state):
               f'+0xC8)')
 
 
+def background_digest(dmem):
+    """The ORIGINAL grid program (packet 0x0023C990, decoded from the ELF and
+    executed by tools/test_background_reference.py run_kernel) over a dmem
+    upload: the GS triangles of its kicked strips, as em_background_live's
+    digest (every vertex's X, Y, S, T words), and their count."""
+    import test_background_reference as tbr
+    if not tbr.PROGRAM:
+        tbr.PROGRAM = tbr.kernel_program((DECOMP / 'config/SCUS_971.12').read_bytes())
+    strips = tbr.kicked_vertices(tbr.run_kernel(tbr.PROGRAM, dmem))
+    h, n = 2166136261, 0
+    for verts in strips:
+        for k in range(2, len(verts)):
+            for s_, t_, x, y, _z in verts[k - 2:k + 1]:
+                h = fnv_words(h, (x, y, s_, t_))
+            n += 1
+    return h, n
+
+
+def check_background(ticks, state):
+    """The level background drawn from its original list (em_background_live;
+    docs/BACKGROUND.md): every world frame whose step V CALLs render channel
+    3 walks the list at context +0x1D8 and draws the 1922 triangles of the
+    31 strips the grid program 0x0023C990 kicks;
+    - on sampled ticks (the first draw, then every 200th, and every aligned
+      snapshot tick) the ORIGINAL grid program, executed over the dmem
+      upload the port's walk handed its translation (the template
+      D_00253560 at 0x000 / 0x081 / 0x102, the matrix and constants at
+      0x200..0x207), kicks exactly the triangles the port drew (the vertex
+      digest), and the upload's template and constants are the ELF's
+      D_00253560 / D_002535B0.. (the zoom word aside);
+    - at the camera-exact snapshots (VIEW_EXACT) the ORIGINAL grid program
+      over the capture's own channel-3 list (its upload at the MSCAL) kicks
+      the port's triangles too."""
+    import test_background_reference as tbr
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    at = lambda va, n: elf[va - 0x100000 + 0x300:va - 0x100000 + 0x300 + n]
+    template, consts = at(0x253560, 16), at(0x2535B0, 0x40)
+    slots = (0x000, 0x081, 0x102) + tuple(range(0x200, 0x208))
+    drawn, sampled, exact = 0, [], []
+    snap_ticks = {i: beat for beat, i in state.get('snapshots', [])}
+    for i, t in enumerate(ticks):
+        bg = t.get('background')
+        if not bg or not bg[0]:
+            continue
+        _, draws, start, prims, digest, upload = bg
+        where = ('background', 'port tick', t['tick'])
+        assert prims == 1922, (where, 'triangles', prims)
+        drawn += 1
+        if drawn == 1 or drawn % 200 == 0 or i in snap_ticks:
+            words = [struct.pack('<4I', *upload[4 * k:4 * k + 4]) for k in range(11)]
+            dmem = dict(zip(slots, words))
+            assert all(dmem[a] == template for a in (0x000, 0x081, 0x102)), (where, 'the GIF tag template')
+            up = b''.join(dmem[0x204 + k] for k in range(4))
+            assert up[:8] + up[12:] == consts[:8] + consts[12:], (where, 'the grid constants')
+            h, n = background_digest(dmem)
+            assert (h, n) == (digest, prims), (where, 'the ORIGINAL grid program over the port\'s upload',
+                                               n, prims)
+            sampled.append(t['tick'])
+        if i in snap_ticks and snap_ticks[i] in VIEW_EXACT:
+            ram = (ROUTE / snap_ticks[i] / 'eeMemory.bin').read_bytes()
+            ctx = struct.unpack_from('<I', ram, 0x275670)[0]
+            calls, kicks = tbr.replay(ram, struct.unpack_from('<I', ram, ctx + 0x1D8)[0])
+            assert calls == [0x23C990] and len(kicks) == 1, (where, 'the capture\'s channel-3 list')
+            h, n = background_digest(kicks[0][2])
+            assert (h, n) == (digest, prims), (where, snap_ticks[i], 'the capture\'s own grid')
+            exact.append(snap_ticks[i][:2])
+    assert drawn >= 100, ('background: too few world frames drew it', drawn)
+    print(f'background: PASS ({drawn} world frames walked the channel-3 list and drew its 1922 grid triangles; '
+          f'the ORIGINAL grid program over the port\'s upload kicks the drawn triangles on {len(sampled)} sampled '
+          f'tick(s); camera-exact snapshots equal to the capture\'s own grid: '
+          f'{", ".join(exact) if exact else "none in this run"})')
+
+
+AREA_TITLE = 0x1C5930
+
+
+def captured_title_nodes(beat):
+    """The snapshot's area-title nodes 001C5930: [address, +0x04, +0x05,
+    +0x06, +0x28, +0x2A, +0x1F0, +0x1F4]."""
+    m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+    u32 = lambda a: struct.unpack_from('<I', m, a)[0]
+    out, a, seen = [], u32(0x275BC0), set()
+    while a and a not in seen:
+        seen.add(a)
+        if u32(a + 0x10) == AREA_TITLE:
+            out.append([a, m[a + 4], m[a + 5], m[a + 6], struct.unpack_from('<h', m, a + 0x28)[0],
+                        struct.unpack_from('<h', m, a + 0x2A)[0], struct.unpack_from('<i', m, a + 0x1F0)[0],
+                        struct.unpack_from('<h', m, a + 0x1F4)[0]])
+        a = u32(a + 0x1C)
+    return out
+
+
+def check_area_title(ticks, state):
+    """The area-title node 001C5930 on its original behaviour (em_area_title
+    over em_sul_001C5930; docs/STATUS_UI_LEFTOVERS.md 2.6):
+    - every logged tick holds at most one title node, and in every tick
+      whose title phase 0 stepped its timer its 001CC1E0 lines (the tick
+      log's cumulative count) grow by what the scratchpad mode byte
+      0x70003B8D (the tick log's spad selector at the tick's end) says: by
+      one when it is 0 (or any value but 1..3), by none when it is 1..3
+      (the opening's 2), which silences both lines. A tick whose byte
+      changes must follow the value at the tick's end too (in the port's
+      frame the store precedes the node's call; the original's order
+      inside that tick is not captured); such ticks are printed. The
+      node's first state-1 call at the area entry
+      is in a tick that ends with the byte still 0, so it draws one line;
+      the opening's store of 2 comes the tick after (no capture shows
+      either frame). Every tick after the timer ran out draws none
+      (band 0: no band line on the route);
+    - at every aligned route snapshot the node equals the snapshot's at
+      the same record: +0x04, +0x05, +0x06, the title timer +0x28, the
+      string index +0x2A (D_00289B40[0x0B] + D_00810701), the band +0x1F0
+      and its timer +0x1F4; and at the port tick the fence_door phase aligned
+      with route 09's last row (its snapshot), the room move's fresh node
+      with its 240 ticks left (its fields: 001AFA90 gives the port another
+      free record than the original's there)."""
+    def mode_byte(t):
+        return bytes.fromhex(t['post'])[tsr.OFFSET[SPAD] + 1]          # 0x70003B8D
+
+    def silenced(mode):
+        return 1 <= mode <= 3                                          # 001C5930's quiet test
+
+    prev, prev_lines, drawn, quiet, stepped, entry, changed = None, None, 0, 0, 0, [], []
+    for i, t in enumerate(ticks):
+        tn = t.get('title_nodes')
+        if tn is None:
+            prev, prev_lines = None, None
+            continue
+        nodes, lines = tn
+        assert len(nodes) <= 1, ('area title: more than one title node', t['tick'], nodes)
+        node = nodes[0] if nodes else None
+        if prev_lines is not None:
+            delta = lines - prev_lines
+            same = node and prev and node[0] == prev[0]
+            if same and prev[1] == 1 and prev[2] == 0 and node[4] == prev[4] - 1:
+                where = ('area title', 'port tick', t['tick'])
+                before, after = mode_byte(ticks[i - 1]), mode_byte(t)
+                want = 0 if silenced(after) else 1
+                assert delta == want, (where, 'lines', delta, 'with the mode byte', before, '->', after,
+                                       'timer', prev[4], '->', node[4])
+                if before != after:
+                    changed.append((t['tick'], before, after))
+                if prev[4] == 0x12C:
+                    entry.append((t['tick'], after, delta))
+                drawn += delta
+                quiet += delta == 0
+                stepped += 1
+            elif same and node[2] == 1 and node[6] == 0:
+                assert delta == 0, ('area title: a line after the title ran out (band 0)', t['tick'], delta)
+        prev, prev_lines = node, lines
+    compared = []
+    pairs = list(state.get('snapshots', []))
+    if 'fence_door_end' in state:
+        pairs.append(('09_fence_door', state['fence_door_end']))
+    moved = []
+    for beat, i in pairs:
+        tn = ticks[i].get('title_nodes')
+        assert tn is not None, ('area title: no title log at the snapshot tick', beat)
+        want = captured_title_nodes(beat)
+        if beat == '09_fence_door' and len(tn[0]) == len(want) == 1 and tn[0][0][0] != want[0][0]:
+            # the room move's fresh node: 001AFA90 hands the port another
+            # free record than the original's (the pool's free list is not
+            # the original's history there); its fields are compared
+            moved.append((tn[0][0][0], want[0][0]))
+            assert tn[0][0][1:] == want[0][1:], ('area title', beat, 'port tick', ticks[i]['tick'], tn[0], want)
+        else:
+            assert tn[0] == want, ('area title', beat, 'port tick', ticks[i]['tick'], tn[0], want)
+        compared.append(beat[:2])
+    assert stepped >= 100, ('area title: the title phase was too little exercised', stepped)
+    print(f'area title: PASS (the title phase stepped its timer on {stepped} tick(s): {drawn} drew the title '
+          f'line through 001CC1E0, {quiet} quiet, each as the mode byte 0x70003B8D at the tick\'s end says; '
+          f'first state-1 calls (tick, byte, lines): {entry}; ticks whose byte changed (tick, before, after): '
+          f'{changed}; '
+          f'no line after the timer ran out; '
+          f'the node equals the aligned snapshots\' at the same record in {len(compared)} beat(s)'
+          f'{": " + ", ".join(compared) if compared else ""}'
+          + ''.join(f'; route 09\'s fresh node at record {p:#x}, the original\'s at {o:#x} (another free record)'
+                    for p, o in moved) + ')')
+
+
+INDICATOR_DRAW = 0x1CACB0          # 001CA5F0 kind 2: 001CACB0 -> 001CABA0(owner, +0x44)
+
+
+def check_indicator_units(ticks, state):
+    """The indicator children's +0x4C 001CACB0 -> 001CABA0 (em_indicator_bind_live
+    _draw over em_owner_draw_live_001CABA0; docs/OWNER_DRAW.md section 11):
+    - on every tick, each bound child (the tick log's `children`) that
+      starts the tick in its draw state (+0x04 == 1, the tick before's log)
+      and stays in it made exactly one 001CABA0 call in the tick's frame
+      (`page_units`), and no other indicator child did (the other records
+      calling 001CABA0 are the AIM runs' muzzle nodes, counted);
+    - at the aligned route snapshots, for every child of the snapshot
+      (001C5680 / 001C5760 records whose +0x4C is 001CACB0, in their draw
+      state; their set equals the port's), the ORIGINAL 001CACB0 runs over the
+      snapshot's RAM with the port's +0x80 colour words (001F54E0 draws
+      rand(), which the port's stream does not hold at the capture's
+      position), the port's point-light pool and the view D_00810610 the
+      draws read (as check_owner_units): its channel-3 byte count and clip
+      pass equal the port's, and so do the colour matrix B (001D89D0 in
+      lighting mode 1) and every node's lighting rows; in the camera-exact
+      beats (VIEW_EXACT) the position rows (node x VP) too. A culled draw
+      (001CA7B0) must be culled on both sides."""
+    import test_owner_draw_reference as tod
+    if not tod.ELF:
+        tod.ELF = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    drawn, calls, bytes_seen, before, lamp = 0, 0, set(), set(), []
+    children, calls_other, before_all = set(), 0, set()
+    for t in ticks:
+        kids = t.get('children')
+        units = t.get('page_units')
+        if units is None or kids is None:
+            before, before_all = set(), set()
+            continue
+        where = ('indicator units', 'port tick', t['tick'])
+        if not any(row[0] in (0x1AE5E0, 0x1AE6B0) for row in t.get('trace', [])):
+            # no world frame (001AE5E0 / 001AE6B0) ran the pool walk: a
+            # status frame draws no child
+            assert not units, (where, 'a 001CABA0 call outside the pool walk')
+            continue
+        # a child draws in the ticks it starts in state 1; one its owner
+        # stopped (+0x04 = 3) after its call still drew in that tick
+        now = {c[0] for c in kids if c[2] == 1}
+        now_all = {c[0] for c in kids}
+        children |= now_all
+        got = [u[0] for u in units]
+        # the other records that call 001CABA0 are the muzzle nodes of the
+        # AIM runs (001F5040's 001CACB0; a record a freed child left can
+        # hold one), never an indicator child of this tick or the one before
+        ours = {a for a in got if a in now_all or a in before_all}
+        assert len(got) == len(set(got)) and ours <= before and before & now <= ours, \
+            (where, 'the 001CABA0 calls are not the draw-state children\'s', list(map(hex, got)),
+             list(map(hex, sorted(before))), list(map(hex, sorted(now))))
+        calls_other += len(got) - len(ours)
+        before, before_all = now, now_all
+        calls += len(units) - (len(got) - len(ours))
+        for u in units:
+            if u[0] in ours and u[2]:
+                drawn += 1
+                bytes_seen.add(u[2])
+    assert calls >= 100, ('indicator units: too few 001CABA0 calls', calls)
+    done = []
+    for beat, i in state.get('snapshots', []):
+        ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        spr = (ROUTE / beat / 'scratchpad.bin').read_bytes()
+        u32 = lambda a: struct.unpack_from('<I', ram, a)[0]
+        kids_here = {c[0] for t in (ticks[i - 1], ticks[i]) for c in (t.get('children') or [])}
+        port = {u[0]: u for u in ticks[i].get('page_units', []) if u[0] in kids_here}
+        pool, _ = port_light_pool(ticks[i])
+        assert pool is not None, ('indicator units: no point-light pool in the tick log', beat)
+        ctx = u32(0x275670)
+        base = bytearray(ram)
+        base[ctx + 0x210:ctx + 0x2220] = pool
+        base[0x810610:0x810650] = bytes.fromhex(ticks[i - 1]['view610'])
+        where = ('indicator units', beat, 'port tick', ticks[i]['tick'])
+        kids, a, seen = [], u32(0x275BC0), set()
+        while a and a not in seen:
+            seen.add(a)
+            if (u32(a + 0x10) in (0x1C5680, 0x1C5760) and u32(a + 0x4C) == INDICATOR_DRAW and u32(a + 0x44)
+                    and ram[a + 4] == 1):
+                kids.append(a)
+            a = u32(a + 0x1C)
+        assert sorted(kids) == sorted(port), (where, 'the children that drew', sorted(map(hex, kids)),
+                                              sorted(map(hex, port)))
+        compared = culled = 0
+        for a in kids:
+            u = port[a]
+            b = bytearray(base)
+            struct.pack_into('<4I', b, a + 0x80, *u[1])
+            o = tod.EE(tod.ELF, bytes(b), spr)
+            o.put32(ctx + 0x1C, tod.CAP_DL)
+            o.put(tod.CAP_DL, bytes((k * 29 + 7) & 0xFF for k in range(tod.CAP_DL_SIZE)))
+            for at, v in ((0x275B48, a), (0x275B44, a), (0x275B40, a + 0x110)):
+                o.put32(at, v)
+            o.calls[0x1CAAC0] = lambda r: None      # the page insertion (001CB760): its own oracle
+            o.run(INDICATOR_DRAW, (a,))
+            used = o.load(ctx + 0x1C) - tod.CAP_DL
+            assert used == u[2], (where, hex(a), 'channel-3 bytes', used, u[2])
+            if not used:
+                culled += 1
+                continue
+            unit = o.read(tod.CAP_DL, used)
+            nodes = ram[a + 0x0C]
+            words = struct.unpack_from(f'<{32 * nodes}I', unit, 0x80)
+            light = position = 2166136261
+            for k in range(nodes):
+                position = fnv_words(position, words[32 * k:32 * k + 16])
+                light = fnv_words(light, words[32 * k + 16:32 * k + 32])
+            q, tags = 0, []
+            while q < used - 16:                  # the unit's DMA tags (CNT data inline), then the RET
+                w0, addr = struct.unpack_from('<2I', unit, q)
+                tags.append((w0 >> 28) & 7)
+                if (w0 >> 28) & 7 == 5 and addr == 0x2354A0:
+                    tags.append('clip')
+                q += 16 + (16 * (w0 & 0xFFFF) if (w0 >> 28) & 7 == 1 else 0)
+            assert (struct.unpack_from('<I', unit, used - 16)[0] >> 28) & 7 == 6, (where, hex(a), 'no RET tag')
+            clip = int('clip' in tags)
+            colour = fnv_words(2166136261, struct.unpack_from('<16I', unit, 0x20))
+            assert u[3] == clip, (where, hex(a), 'clip pass', u[3], clip)
+            assert u[4] == colour, (where, hex(a), 'colour matrix B (001D89D0, mode 1)')
+            assert u[5] == light, (where, hex(a), 'lighting rows')
+            if beat in VIEW_EXACT:
+                assert u[6] == position, (where, hex(a), 'position rows (node x VP)')
+            if ram[a + 0x0D] == 0x7A:            # the security gun's lamp (dark: its +0xA0 is 0, 0, 0, 0.25)
+                lamp.append(beat[:2])
+            compared += 1
+        done.append(f'{beat[:2]} ({compared} unit(s) equal{", position rows too" if beat in VIEW_EXACT else ""}'
+                    f'{f", {culled} culled on both sides" if culled else ""})')
+    print(f'indicator units: PASS ({calls} 001CACB0 -> 001CABA0 calls over the run, one per draw-state child per '
+          f'tick, {drawn} drawn (unit sizes {sorted(bytes_seen)} bytes; {calls_other} call(s) of other records: '
+          f'the muzzle nodes); the ORIGINAL 001CACB0 over the aligned '
+          f'snapshots with the port\'s colour words, point lights and view: '
+          + ('; '.join(done) if done else 'no aligned snapshot in this run')
+          + (f'; the security gun\'s lamp 0x7A among them in {len(lamp)} beat(s)' if done else '') + ')')
+
+
 RAND_WINDOWS = {'01_battery': 'r01', '10_cage_roof_roger': 'r10'}   # the C7 rand() captures of route stretches
 
 
@@ -4247,6 +4565,10 @@ def main():
     if state.get('snapshots'):
         check_effects(ticks, state)
         check_owner_units(ticks, state)
+    if 'first_control' in checked:
+        check_indicator_units(ticks, state)
+        check_area_title(ticks, state)
+        check_background(ticks, state)
     if 'first_control' in checked:
         check_room_lights(ticks, state)
         check_fade_weights(run)

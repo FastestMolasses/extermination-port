@@ -21,10 +21,6 @@ void   em_gfx_destroy(EmGfx *gfx) { (void)gfx; }
 void   em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
 { (void)gfx; (void)r; (void)g; (void)b; (void)a; }
 void   em_gfx_end_frame(EmGfx *gfx) { (void)gfx; }
-void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
-                                  const float *viewproj, const float *palette,
-                                  uint32_t bones, const float rgba[4])
-{ (void)gfx; (void)mesh; (void)viewproj; (void)palette; (void)bones; (void)rgba; }
 int em_gfx_mesh_update_positions(EmGfx *gfx, EmGfxMesh *mesh,
                                 const float *positions, uint32_t count)
 { (void)gfx; (void)mesh; (void)positions; (void)count; return 0; } /* TODO */

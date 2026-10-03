@@ -578,3 +578,18 @@ load veil's frames (LOAD_VEIL_PARTICLES.md section 3.3):
   `make test-load-veil-gpu` walks the veil's lists and draws them; the level
   smoke's check_load_veil walks the live one (LEVEL_SMOKE.md "The load
   veil").
+
+## 12. Call mode: a channel list a frame list CALLs (the background, 2026-10-02)
+
+`em_chain_page_run_call` walks a channel list the frame list CALLs (render
+channel 3's at context +0x1D8, 001E1E60's) with list mode's machinery and
+registers, and ends at the list's own top-level RET (transferred), where
+the DMA would return to the caller; an END faults. Only call mode accepts
+the grid program: the MPG of 79 instructions from ELF 0x0023C9B8 (inside
+the packet 0x0023C990 the list CALLs) loads it, and MSCAL 0 runs
+`em_vu1_grid_program_mscal` (`counts.mscal_grid`). The level background
+(em_background_live, BACKGROUND.md "Port") is its user; the reader serves
+the packet from the effect-table export. Verification:
+test-background-reference (the program's translation against the original
+microcode) and the level smoke's check_background (the walk's triangles
+against the original program over the port's upload).

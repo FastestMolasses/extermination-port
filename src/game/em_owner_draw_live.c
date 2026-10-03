@@ -77,6 +77,8 @@ static struct {
     uint32_t page_count, page_frame;
     const EmOwnerServicesOwner *page_owner;
     uint32_t page_record;
+    EmOwnerDrawLivePageLog page_log[EM_OWNER_DRAW_LIVE_PAGE_LOG];
+    uint32_t page_log_count;
     /* 001F3E30's mode-0 draw: the library models it bound (Roger export),
      * the open unit's start (001C7900's) and the token's bytes. */
     EmWorldModels library;
@@ -639,7 +641,14 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
     if (L.page_frame != frame) {
         L.page_frame = frame;
         L.page_count = 0;
+        L.page_log_count = 0;
     }
+    if (L.page_log_count >= EM_OWNER_DRAW_LIVE_PAGE_LOG)
+        return report(0x001CABA0u, "more 001CABA0 calls in one frame than EM_OWNER_DRAW_LIVE_PAGE_LOG");
+    EmOwnerDrawLivePageLog *log = &L.page_log[L.page_log_count++];
+    memset(log, 0, sizeof *log);
+    log->record = record;
+    memcpy(log->rgb, rgb, sizeof log->rgb);
     if (L.page_count >= EM_OWNER_DRAW_LIVE_PAGE_UNITS)
         return report(0x001CABA0u, "more 001CABA0 units in one frame than EM_OWNER_DRAW_LIVE_PAGE_UNITS");
     L.bank = bank;
@@ -684,6 +693,7 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
     }
     if (ch3_store() < 0) return report(0x00811CDCu, "the channel-3 cursor could not be stored");
     const uint32_t used = ch3_address(L.channels[3].cursor) - start;
+    log->bytes = used;
     if (!used) return 0;                           /* 001CA7B0 culled it */
     /* [the class-2 unit][the RET tag]: the page CALLs the unit's start. */
     if (used < 0x10u || unit[used - 0x10u + 3u] != 0x60u)
@@ -697,6 +707,14 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
         return -1;
     }
     L.page_address[L.page_count++] = start;
+    log->clip = q->unit.clip;
+    const uint32_t basis = 2166136261u;
+    log->colour = fnv(basis, q->color, 16);
+    log->light = log->position = basis;
+    for (uint32_t k = 0; k < q->unit.node_count; ++k) {
+        log->position = fnv(log->position, q->nodes + 32u * k, 16);
+        log->light = fnv(log->light, q->nodes + 32u * k + 16u, 16);
+    }
     return 0;
 }
 
@@ -915,6 +933,14 @@ int em_owner_draw_live_log(EmOwnerDrawLiveLog *out, int capacity)
 {
     int n = 0;
     for (uint32_t i = 0; i < L.last_count && n < capacity; ++i) out[n++] = L.last[i];
+    return n;
+}
+
+int em_owner_draw_live_page_log(EmOwnerDrawLivePageLog *out, int capacity, uint32_t *frame)
+{
+    if (frame) *frame = L.page_frame;
+    int n = 0;
+    for (uint32_t i = 0; i < L.page_log_count && n < capacity; ++i) out[n++] = L.page_log[i];
     return n;
 }
 

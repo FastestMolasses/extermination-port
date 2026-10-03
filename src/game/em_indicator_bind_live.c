@@ -10,6 +10,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_area11_roger.h"
 #include "game/em_indicator_child.h"
+#include "game/em_owner_draw_live.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_render_verify_rest.h"
 #include "game/em_roger_actor_original.h"
@@ -27,8 +28,8 @@ typedef struct {
     u32 fn;
     u32 model_address;             /* +0x44 */
     u32 method;                    /* +0x4C */
-    EmOwnerModel model;
-    EmOwnerSkeletonRecord skeleton[BONES_MAX];
+    const EmWorldModels *bank;     /* the bank the model lies in */
+    const EmOwnerModel *model;     /* its entry's owner-services view */
     EmOwnerBone bone[BONES_MAX];   /* the typed views of its slots */
     u32 word[BONES_MAX];           /* their original slot addresses (+0x110..) */
     unsigned held;
@@ -40,6 +41,7 @@ static struct {
     int attached;
     u32 fault;
     u32 d0028A56C;                 /* D_0028A490[0x37] */
+    EmWorldModels library;         /* the D_0028A56C models the children bound */
     Child child[EM_ACTOR_POOL_CAPACITY];
     Child *current;
     EmRogerActor stack;            /* 001AF780 / 001AF800 on the one stack */
@@ -83,6 +85,7 @@ int em_indicator_bind_live_attach(EmActorPool *pool)
     S.fault = 0;
     S.current = NULL;
     S.d0028A56C = bank;
+    memset(&S.library, 0, sizeof S.library);
     memset(&S.stack, 0, sizeof S.stack);
     S.stack.world = *slots;
     memset(&S.services, 0, sizeof S.services);
@@ -104,33 +107,35 @@ static int w_001C6120(void *ctx, u32 bank, u32 code, u32 *handle)
                             : em_area11_boxes_world_001C6120(bank, code, handle);
 }
 
-/* The model view of a handle: the block model's +0x08 bones, +0x0C the
- * skeleton offset, +0x20 the radius, and its 0x50-byte skeleton records. */
+/* The model at a handle, in its bank: the world model bank's entry
+ * (*D_0028A59C), or the library model (D_0028A56C, the Roger export) added
+ * at its address to this module's table-less bank (header, block data,
+ * skeleton records: em_world_models_add checks them). The owner-services
+ * view (+0x08 bones, +0x20 radius, the skeleton records) is the entry's, so
+ * the bind, the placement and the draw (001CABA0's 001D3990 / 001D3D90,
+ * which find the model's blocks by its entry) read one view. */
 static int model_view(Child *c, u32 handle)
 {
-    memset(&c->model, 0, sizeof c->model);
+    c->bank = NULL;
+    c->model = NULL;
     if (c->fn == FN_22A0) {
-        const EmOwnerModel *m = em_area11_boxes_world_model(handle);
-        if (!m || m->bone_count > BONES_MAX || m->skeleton_records < m->bone_count) return -1;
-        c->model = *m;
-        for (u32 i = 0; i < m->bone_count; ++i) c->skeleton[i] = m->skeleton[i];
-        c->model.skeleton = c->skeleton;
+        const EmWorldModels *bank = em_area11_boxes_world_models();
+        const EmWorldModel *m = bank ? em_world_models_at(bank, handle) : NULL;
+        if (!m || m->model.bone_count > BONES_MAX || m->model.skeleton_records < m->model.bone_count) return -1;
+        c->bank = bank;
+        c->model = &m->model;
         return 0;
     }
-    const uint8_t *m = em_area11_roger_resource(handle, 0x40);
-    if (!m) return -1;
-    const u32 bones = rd32(m + 8), skeleton = rd32(m + 0xC);
-    if (bones > BONES_MAX) return -1;
-    const uint8_t *k = bones ? em_area11_roger_resource(handle + skeleton, 0x50u * bones) : NULL;
-    if (bones && !k) return -1;
-    c->model.bone_count = (uint8_t)bones;
-    memcpy(&c->model.radius, m + 0x20, 4);
-    for (u32 i = 0; i < bones; ++i) {
-        c->skeleton[i].parent = (int16_t)(uint16_t)(k[0x50 * i + 4] | k[0x50 * i + 5] << 8);
-        memcpy(c->skeleton[i].bind, k + 0x50 * i + 0x10, 64);
-    }
-    c->model.skeleton = c->skeleton;
-    c->model.skeleton_records = bones;
+    const uint8_t *h = em_area11_roger_resource(handle, 0x40);
+    if (!h) return -1;
+    const u32 bones = rd32(h + 8), skeleton = rd32(h + 0xC);
+    if (bones > BONES_MAX || skeleton > 0x01000000u) return -1;
+    const u32 size = skeleton + 0x50u * bones;
+    const uint8_t *all = em_area11_roger_resource(handle, size);
+    const EmWorldModel *entry = NULL;
+    if (!all || em_world_models_add(&S.library, handle, all, size, &entry) < 0) return -1;
+    c->bank = &S.library;
+    c->model = &entry->model;
     return 0;
 }
 
@@ -159,7 +164,7 @@ static int w_001C6150(void *ctx, u32 value, u32 *result)
     const Child *c = S.current;
     if (!c || value != c->model_address) return -1;
     uint8_t count = 0;
-    if (em_owner_services_001C6150(&S.services, &c->model, &count) < 0) return -1;
+    if (!c->model || em_owner_services_001C6150(&S.services, c->model, &count) < 0) return -1;
     *result = count;
     return 0;
 }
@@ -194,7 +199,7 @@ static void owner_view(Child *c, const EmActor *a, EmOwnerServicesOwner *o)
     o->bones_held = a->bones;
     o->bone_count = a->u0A[2];
     o->model_id = a->param;
-    o->model = c->model_address ? &c->model : NULL;
+    o->model = c->model_address ? c->model : NULL;
     memcpy(o->scale, a->f60, sizeof o->scale);
     memcpy(o->pos, a->pos, sizeof o->pos);
     memcpy(o->rot, a->rot, sizeof o->rot);
@@ -290,6 +295,35 @@ int em_indicator_bind_live_node(const EmActor *child, unsigned k, float matrix[1
         k >= child->bones || !c->word[k])
         return -1;
     memcpy(matrix, c->bone[k].world, sizeof c->bone[k].world);
+    return 0;
+}
+
+int em_indicator_bind_live_draw(EmActor *child)
+{
+    if (S.fault) return -1;
+    Child *c = child_of(child);
+    if (!c || !c->live || c->generation != child->generation || !c->model_address || !c->bank ||
+        c->method != EM_INDICATOR_CHILD_DRAW_001CACB0)
+        return fail(EM_INDICATOR_CHILD_DRAW_001CACB0, "001CACB0 on an indicator child that is not bound");
+    /* 001CACB0(child): 001CABA0(child, +0x44), with the walk's current
+     * owner (D_00275B44) the child itself: its record bytes as the
+     * owner-services view (the header bytes, +0x60 scale, +0x90, +0x94,
+     * +0x98, +0xB0, +0xC0; the model and the +0x110 slots are the bind's),
+     * and its +0x80 colour words, which 001F54E0 has just stored. */
+    EmOwnerServicesOwner o;
+    owner_view(c, child, &o);
+    o.drawn = child->drawn;
+    o.cls = child->cls;
+    o.kind = child->model;
+    o.lifecycle = child->u04[0];
+    o.flags2 = child->flags2;
+    o.attachment = child->w90;
+    o.collapsed_bone = child->h94;
+    o.pose_bone = child->b98;
+    u32 rgb[4];
+    memcpy(rgb, child->f80, sizeof rgb);
+    if (em_owner_draw_live_001CABA0(c->bank, &o, rgb, em_actor_pool_address(S.pool, child)) < 0)
+        return fail(0x001CABA0u, "001CABA0 faulted");
     return 0;
 }
 

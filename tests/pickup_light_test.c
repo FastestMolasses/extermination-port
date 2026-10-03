@@ -1,32 +1,30 @@
-/* The pickup light's colour (001F54E0 = em_effect_kinds_001F54E0, then the
- * 001D8C30 mode-1 GS conversion), its draw at the child's node 0, and the
- * battery inventory. The child's behaviour (init frame, stop) is
+/* The item light child's colour step (001F54E0 = em_effect_kinds_001F54E0)
+ * and the battery inventory. The child's behaviour (init frame, stop) is
  * em_indicator_child (tests/indicator_child_test.c and
- * tools/test_census_unverified_reference.py). Model/GPU boundaries are
- * small deterministic test doubles. */
+ * tools/test_census_unverified_reference.py); its +0x4C 001CACB0 ->
+ * 001CABA0 is em_indicator_bind_live_draw (tools/test_owner_draw_reference.py
+ * part E). Model/GPU boundaries are small deterministic test doubles. */
 #include <assert.h>
 #include "../src/game/em_pickup.c"
 #include "game/em_effect_kinds.h"
 
-static int draws, random_calls;
-static float drawn_palette[32], drawn_tint[4];
+static int random_calls;
 static uint32_t random_value;
 
 uint32_t em_random_next(void) { ++random_calls; return random_value; }
 
 /* 001F54E0 over a child whose +0x80 is `colour`, with the RNG value `r`;
- * delta = the +0x80..+0x88 it leaves, tint = the GS colour / 128. */
+ * delta = the +0x80..+0x88 it leaves. */
 static int w_rand(void *ctx, int32_t *v0) { *v0 = (int32_t)*(uint32_t *)ctx; return 0; }
 static int w_draw(void *ctx, uint32_t fn, void *obj) { (void)ctx; (void)obj; return fn == 0x001CACB0u ? 0 : -1; }
-static void colour_001F54E0(uint32_t r, const float colour[4], float delta[3], float tint[4])
+static void colour_001F54E0(uint32_t r, const float colour[4], float delta[3])
 {
     const EmEffectKindsWorkers w = {.ctx = &r, .w_00122BB8 = w_rand, .w_indirect = w_draw};
     EmEffectKinds k = {.workers = &w};
     float c80[4];
     memcpy(c80, colour, sizeof c80);
     assert(em_effect_kinds_001F54E0(&k, c80, c80, 0x001CACB0u, c80) == 0);
-    if (delta) memcpy(delta, c80, 3 * sizeof(float));
-    if (tint) em_effect_color_gs(c80, tint);
+    memcpy(delta, c80, 3 * sizeof(float));
 }
 
 /* 001C40B0 over em_pickup's canonical item block (the resolver the
@@ -71,21 +69,10 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t count,
 }
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh)
 { (void)gfx; (void)mesh; }
-void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
-                                  const float *viewproj, const float *palette,
-                                  uint32_t count, const float rgba[4])
-{
-    (void)gfx; (void)mesh; (void)viewproj;
-    assert(count==2);
-    ++draws;
-    memcpy(drawn_palette,palette,sizeof drawn_palette);
-    memcpy(drawn_tint,rgba,sizeof drawn_tint);
-}
 
 int main(void)
 {
     const float green[4]={0,1,0,.25f};
-    float tint[4];
     /* Original state4: reverse the saved SDK LCG 19..14 calls to recover
      * these six inputs. Every result is the original actor+84 float,
      * including four values ordinary host rounding computes differently. */
@@ -96,55 +83,11 @@ int main(void)
         4.2854766845703125f};
     for (unsigned i=0;i<6;++i) {
         float delta[3];
-        colour_001F54E0(random_fixture[i],green,delta,NULL);
+        colour_001F54E0(random_fixture[i],green,delta);
         assert(delta[0]==-127.0f && delta[1]==delta_fixture[i] && delta[2]==-127.0f);
     }
-    colour_001F54E0(0,green,NULL,tint);
-    assert(tint[0]==1.0f/128 && tint[1]==96.0f/128 && tint[2]==1.0f/128);
-    colour_001F54E0(0x40000000,green,NULL,tint);
-    assert(tint[1]==1.0f);
-    colour_001F54E0(0x7fffffff,green,NULL,tint);
-    assert(tint[1]==159.0f/128 && tint[3]==1.0f);
-    const float full[4]={1,1,1,1};
-    colour_001F54E0(0x7fffffff,full,NULL,tint);
-    assert(tint[0]==254.0f/128); /* largest 31-bit RNG input truncates below 1 */
-
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
-    const float pos[3]={211.6f,229.9f,227.2f};
-    const float viewproj[16]={0};
     em_pickup_reset();
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-1);
-    assert(em_pickup_add(gfx,"scene",0x1b,pos,-PICKUP_PI/2,
-                         0xb01,"props/item_72.emdl",0)==0);
-    s.p[0].source_id=0x2A;   /* the owner's EMIS record (the host binds it) */
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==0);
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-1);
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==0);          /* nothing submitted: no draw */
-    float c80[4];
-    colour_001F54E0(0x40000000,green,c80,NULL);
-    c80[3]=1.0f;
-    /* The child's node 0 +0x90 (its 001C6380 placement from the +0xB0 /
-     * +0xC0 its spawn copied from the owner), in the original row layout. */
-    float node[16]={0};
-    node[2]=1; node[5]=1; node[8]=-1; node[15]=1;
-    node[12]=pos[0]; node[13]=pos[1]; node[14]=pos[2];
-    assert(em_pickup_light_submit(0x2B,c80,node)==-1);   /* no light of that owner */
-    assert(em_pickup_light_submit(0x2A,c80,NULL)==-1);   /* no node */
-    assert(em_pickup_light_submit(0x2A,c80,node)==0);
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1 && drawn_tint[1]==1.0f);
-    /* Every bone of the model takes the child's node 0, unchanged. */
-    assert(memcmp(drawn_palette,node,sizeof node)==0);
-    assert(memcmp(drawn_palette,drawn_palette+16,16*sizeof(float))==0);
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1);          /* one draw per submitted 001F54E0 */
-    /* The owner's FREE (00219550 state 3's 001AFC10) and its taken bit. */
-    s.p[0].used=0;
-    taken_set(0xb01);
-    assert(em_pickup_light_submit(0x2A,c80,node)==-1);   /* owner gone: no stale draw */
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1);
     assert(random_calls==0);   /* the RNG is the child's 001F54E0 worker's, not em_pickup's */
     /* AREA11 UID0B01 is original item1B. 001C40B0 adds 12 internal
      * half-units, not merely an item count or ammunition. */
@@ -153,9 +96,6 @@ int main(void)
     assert(em_pickup_battery_charge()==12 && em_pickup_battery_capacity()==12);
     em_pickup_scene_clear(gfx);
     assert(em_pickup_battery_charge()==12); /* global inventory persists */
-    assert(em_pickup_light_add(gfx,"scene",0xb01,"light")==-2);
-    em_pickup_lights_draw(gfx,viewproj);
-    assert(draws==1);
     em_pickup_battery_set_charge(2);
     inventory_add(0x1c,1);
     assert(em_pickup_battery_charge()==36 && em_pickup_battery_capacity()==36);

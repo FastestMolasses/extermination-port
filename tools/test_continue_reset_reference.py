@@ -196,9 +196,6 @@ EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t count,
 { (void)gfx; (void)verts; (void)count; (void)indices; (void)index_count;
   (void)texs; (void)tex_count; (void)texels; (void)flags; UNREACHED(); }
 void em_gfx_mesh_destroy(EmGfx *gfx, EmGfxMesh *mesh) { (void)gfx; (void)mesh; UNREACHED(); }
-void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh, const float *viewproj,
-                                  const float *palette, uint32_t count, const float rgba[4])
-{ (void)gfx; (void)mesh; (void)viewproj; (void)palette; (void)count; (void)rgba; UNREACHED(); }
 /* The D2 progress region (taken bits, CA4..CA7) is owned by
  * em_scene_bindings.c in the game; the probe provides its own. */
 EmSceneState *em_scene_state(void) { static EmSceneState state; return &state; }

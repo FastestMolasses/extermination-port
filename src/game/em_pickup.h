@@ -62,22 +62,6 @@ int em_pickup_prop_retire(const float position[3]);
 int em_pickup_draw(int i, EmGfxMesh **mesh, const float **palette,
                    uint32_t *bone_count);
 
-/* 00219550's model73 child (001C5570, a 001C5680 node of its own in
- * AREA11: em_area11_bindings.c tick_indicator). The manifest names the
- * owner's UID and the mesh; the child's colour is its +0xA0, which 00219550
- * passes at the spawn. Returns -2 for a taken owner. */
-int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
-                        const char *model_file);
-/* The child's +0x4C draw (001CACB0), reached from its 001F54E0: `source_id`
- * is the owner's EMIS record, c80 the child's +0x80 after 001F54E0, `node`
- * the child's node 0 +0x90 (its slot, em_indicator_bind_live). Queues this
- * frame's draw (the model mesh, additive: the stand-in for the untranslated
- * 001CABA0, docs/OWNER_DRAW.md section 11); -1 when no light belongs to
- * that owner. */
-int em_pickup_light_submit(uint32_t source_id, const float c80[4], const float node[16]);
-/* Draws the lights submitted since the last call, then clears them. */
-void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16]);
-
 /* The item block D_00810C60.. is canonical D2 progress (em_scene_state.h).
  * em_pickup_items is D_00810C64 (0x50 entries readable directly; use
  * em_pickup_item_count for any type: 0x50/0x51 are em_weapon's reserve,

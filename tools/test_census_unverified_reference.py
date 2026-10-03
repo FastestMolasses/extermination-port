@@ -217,7 +217,6 @@ CHILD_HARNESS = r'''
 #include <string.h>
 #include "game/em_indicator_child.h"
 #include "game/em_effect_kinds.h"
-#include "game/em_effect_color.h"
 static char *h_ev; static float *h_seen; static int h_refuse;
 static void h_log(char c) { size_t n = strlen(h_ev); h_ev[n] = c; h_ev[n + 1] = 0; }
 static int w_init(void *c, uint32_t fn, int32_t *r) { (void)c; (void)fn; h_log('i'); *r = h_refuse; return 0; }
@@ -231,16 +230,6 @@ int h_step(uint32_t cb, uint8_t *status, uint8_t alt, const float a0[4], float c
     EmIndicatorChildRecord r = {status, alt, a0, c80};
     ev[0] = 0; h_ev = ev; h_seen = seen; h_refuse = refuse;
     return em_indicator_child_step(cb, &r, &w);
-}
-static int w_rand(void *ctx, int32_t *v0) { *v0 = (int32_t)*(uint32_t *)ctx; return 0; }
-static int w_draw(void *ctx, uint32_t fn, void *obj) { (void)ctx; (void)obj; return fn == 0x001CACB0u ? 0 : -1; }
-void h_effect_color(uint32_t r, const float c[4], float t[4])
-{
-    const EmEffectKindsWorkers w = {.ctx = &r, .w_00122BB8 = w_rand, .w_indirect = w_draw};
-    EmEffectKinds k = {.workers = &w};
-    float c80[4]; memcpy(c80, c, 16);
-    if (em_effect_kinds_001F54E0(&k, c80, c80, 0x001CACB0u, c80) < 0) { memset(t, 0xFF, 16); return; }
-    em_effect_color_gs(c80, t);
 }
 int h_tail(int16_t level, float a0[4], uint32_t *spad)
 { return em_indicator_00827B10_colour(level, a0, spad); }
@@ -352,7 +341,6 @@ def compile_all():
     L['pickup'].h_progress_set.argtypes = [C.c_uint32, C.c_uint8]
     L['pickup'].h_rand_script.argtypes = [C.POINTER(C.c_uint32), C.c_int]
     L['child'].h_step.argtypes = [C.c_uint32, C.POINTER(C.c_uint8), C.c_uint8, F4A, F4A, C.c_int, C.c_char_p, F4A]
-    L['child'].h_effect_color.argtypes = [C.c_uint32, F4A, F4A]
     L['child'].h_tail.argtypes = [C.c_int16, F4A, C.POINTER(C.c_uint32)]
     L['models'].h_configure.argtypes = [C.POINTER(C.c_uint32), C.POINTER(C.c_uint32), C.POINTER(C.c_int)]
     L['frame'].h_cf90.argtypes = [C.c_int, C.c_uint32, C.c_uint8, C.c_uint8,

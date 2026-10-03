@@ -104,6 +104,8 @@
 #include "game/em_actor_roster.h"
 #include "game/em_player_closure_live.h"
 #include "game/em_area11_bindings.h"
+#include "game/em_area_title.h"
+#include "game/em_background_live.h"
 #include "game/em_effects_live.h"
 #include "game/em_point_light.h"
 #include "game/em_snow_runtime.h"
@@ -1234,6 +1236,51 @@ static void log_tick_end(int rc)
                     units[i].record, units[i].bytes, units[i].clip, units[i].colour, units[i].light,
                     units[i].position, units[i].points, units[i].light_rig, units[i].point[0], units[i].point[1],
                     units[i].point[2], units[i].pose, units[i].face_bytes, units[i].face);
+    }
+    fputc(']', f);
+    /* The level background's channel-3 list walk (em_background_live):
+     * [drawn in this tick's frame, cumulative draws, the list's start, its
+     * triangles, the vertex digest, the dmem upload the grid program read
+     * (0x000, 0x081, 0x102, 0x200..0x207: 44 words)].
+     * tools/test_level_smoke.py check_background. */
+    {
+        EmBackgroundLiveLog bl;
+        em_background_live_log(&bl);
+        fprintf(f, ", \"background\": [%d, %u, %u, %u, %u, [", bl.draws && bl.frame == em_frame_counter(),
+                bl.draws, bl.start, bl.prims, bl.digest);
+        for (unsigned k = 0; k < 44u; ++k) fprintf(f, "%s%u", k ? ", " : "", bl.upload[k / 4u][k % 4u]);
+        fputs("]]", f);
+    }
+    /* The area-title nodes 001C5930 (em_area_title): per node [record,
+     * +0x04, +0x05, +0x06, +0x28, +0x2A, +0x1F0, +0x1F4], then the
+     * cumulative count of its 001CC1E0 lines. tools/test_level_smoke.py
+     * check_area_title. */
+    fputs(", \"title_nodes\": [[", f);
+    {
+        int walked = 0, n = 0;
+        for (const EmActor *a = s_pool_mode == POOL_ROSTER ? s_pool.head : NULL;
+             a && walked <= EM_ACTOR_POOL_CAPACITY; a = a->next, ++walked) {
+            EmAreaTitleRecord tr;
+            if (a->callback != 0x001C5930u || !em_area_title_record(a, &tr)) continue;
+            fprintf(f, "%s[%u, %u, %u, %u, %d, %d, %d, %d]", n++ ? ", " : "", em_actor_pool_address(&s_pool, a),
+                    tr.state, tr.title_phase, tr.band_phase, tr.title_timer, tr.title_index, (int)tr.band,
+                    tr.band_timer);
+        }
+    }
+    fprintf(f, "], %u]", em_area_title_lines());
+    /* The 001CABA0 calls (the indicator children's and the muzzle node's
+     * 001CACB0) of this tick's frame: per call [record, the +0x80 words,
+     * bytes, clip, the colour / lighting-row / position-row digests].
+     * tools/test_level_smoke.py check_indicator_units. */
+    fputs(", \"page_units\": [", f);
+    {
+        EmOwnerDrawLivePageLog pu[EM_OWNER_DRAW_LIVE_PAGE_LOG];
+        uint32_t pu_frame = 0;
+        const int np = em_owner_draw_live_page_log(pu, EM_OWNER_DRAW_LIVE_PAGE_LOG, &pu_frame);
+        for (int i = 0; pu_frame == em_frame_counter() && i < np; ++i)
+            fprintf(f, "%s[%u, [%u, %u, %u, %u], %u, %u, %u, %u, %u]", i ? ", " : "", pu[i].record, pu[i].rgb[0],
+                    pu[i].rgb[1], pu[i].rgb[2], pu[i].rgb[3], pu[i].bytes, pu[i].clip, pu[i].colour, pu[i].light,
+                    pu[i].position);
     }
     fputc(']', f);
     /* The attached 001CAA00 calls (001CB3C0's face units: Roger, the player
@@ -2543,20 +2590,14 @@ static int w_001C1DC0(void *ctx)
 }
 
 /* 001C5C50: the area-title node (byte-matched; em_actor_roster), from
- * 0x1AE040 states 0 and 4. The card the node shows is the legacy em_hud
- * title: state 0's is armed by the manifest `areatitle` line at the area
- * read; state 4 (the room move, S12b) has no area read, so the new node's
- * card (its case 0: 0x12C ticks of D_002671C0[D_00289B40[700][0] + 701])
- * is armed here. The legacy card is keyed on the area byte alone. */
+ * 0x1AE040 states 0 and 4; the node draws its own card (001C5930,
+ * em_area_title). */
 static int w_001C5C50(void *ctx)
 {
     (void)ctx;
     if (s_pool_mode != POOL_ROSTER)
         return unmirrored(UM_001C5C50_LEGACY_WORLD);
-    int rc = em_actor_roster_spawn_001C5C50(&s_pool, &s_state, em_area11_bind_roster, NULL, NULL);
-    if (rc >= 0 && s_entry_state == 4)
-        em_hud_area_title(s_state.d810700);
-    return rc;
+    return em_actor_roster_spawn_001C5C50(&s_pool, &s_state, em_area11_bind_roster, NULL, NULL);
 }
 
 /* ------------------------------------------- world-frame variants (S10a) */
