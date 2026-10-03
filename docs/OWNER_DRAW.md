@@ -14,8 +14,9 @@ the fan pair (00827630), the security gun (00825940) and its cable
 (00827490) do too, on their original owners (SECURITY_GUN.md,
 FAN_ORIGINAL.md). Since chain C8b's FACE step Roger (008237E0) and his
 equipment node (001C5C90) draw their original units too, Roger's with the
-+0x90 attachment's face unit (001CB3C0, FACE_ATTACH.md). The indicator
-children still draw through a stand-in (section 11).
++0x90 attachment's face unit (001CB3C0, FACE_ATTACH.md). Since the units
+step (2026-10-02) the indicator children draw their own 001CABA0 units
+(section 11).
 
 This document answers three questions for the AREA11 world owners: the crates
 (001551B0), drums (00156620), fan (00827630), truck (00823FF0), elevator
@@ -402,7 +403,7 @@ Per owner, in the owner walk's order (ORIGINAL_FRAME_ORDER.md):
 | the cull (-1: no unit) | 001CA7B0 | yes (section 5 A); live: the owners that drew in the camera-exact route beat equal the capture's (section 9) |
 | the kicked XYZF2, RGBAQ, ST/Q, TEX0 of every vertex, the ADC drop | em_vu1_object_kernel.h through em_object_unit_run | yes: every triangle of every captured unit equals the original microcode's (section 8) |
 | the flags & 1 clip pass (0x002354A0) | em_vu1_object_clip.h through em_object_unit_run | yes, same test (14 clip units) |
-| a face unit (0x0023C480) | em_vu1_face_morph.h through em_object_unit_run | yes, same test (60 face units); no live owner builds one yet (section 11) |
+| a face unit (0x0023C480) | em_vu1_face_morph.h through em_object_unit_run | yes, same test (60 face units); live since the face step (FACE_ATTACH.md) |
 | the fog-off REF 2 | the parser replaces dmem 1021 with the REF's row | parsed and fixture-tested; no AREA11 capture carries it |
 | GS class 0 (TEST, TEX1, CLAMP, COLCLAMP, ZBUF, no blending) | the Metal pixel path | the Metal output equals a model of the formulas of section 7.2 on 99.7 % of the interior pixels (section 8.1); the formulas are the GS's, not compared with a GS framebuffer (section 12) |
 | texture: the vertex's TEX0 | object_textures.emot, decoded from GS memory | the decoded texels are identical in all 15 captures (section 7.3) |
@@ -698,8 +699,8 @@ Each owner's legacy draw is retired: the elevator platform EMDL (the
 manifest's `elevator` line is no longer read), the panel EMDL (its `grate`
 line installs only cell 18), the item instances (em_pickup draws no bound
 owner) and the canopy and record-20 prop instances (`em_pickup_prop_retire`
-at the owner's +0xB0 when its bind succeeds). The indicator children are
-drawn by their stand-in at their own node 0 (section 11).
+at the owner's +0xB0 when its bind succeeds). The indicator children
+draw their own 001CABA0 units (section 11).
 
 **The equipment (em_equipment_live).** Each node's 001CA6E0 worker adds its
 model (the Roger export's bytes at the original library address) to a
@@ -756,23 +757,52 @@ without this module's unit: the status MAP page's 001CB480 (lighting mode 2;
 STATUS_PAGES.md section 7, "MAP"), whose models em_status_models draws on the
 renderer's skinned path.
 
-## 11. Owners not on this path yet
+## 11. The indicator children's draw 001CABA0
 
-| Owner | Draws today | Waits on |
-|---|---|---|
-| the indicator children 001C5680 / 001C5760 | their model mesh, additive (em_gfx_draw_skinned_additive), at the child's own node 0 (its slot +0x90: 001C6380's placement, the terminal's 0x827E6C copy); the security gun's 0x7A lamp draws nothing (dark in the first level: its colour is (0, 0, 0, 0.25)) | their +0x4C 001CACB0 -> 001CABA0: channel 3, 001D8C20(1) lighting mode 1, 001C7420 on channel 3, 001D3990 / 001D3D90 (001D3900 / 001D3CF0 with selector 3), the RET tag and 001CAAC0 -> 001CB760, which CALLs the unit from page D_007635C0 at its depth; the chain page consumer (CHAIN_PAGE.md) then needs the object-unit walk with the class-3 GS state (ALPHA 0x68 FIX 0x80, ZMSK, TEST 0x53001, no fog) |
+Since the units step (2026-10-02) no AREA11 owner draws off its original
+path. The indicator children 001C5680 / 001C5760 (the six items' 0x73
+lights, the panel's 0x74 / 0x75, the terminal's 0x10 and the security gun's
+0x7A lamp) draw through their +0x4C 001CACB0 -> 001CABA0(child, +0x44):
 
-Since chain step AIMLIVE (2026-10-02) 001CABA0 is translated and runs for
-the muzzle node 001F5040 (AIM_FIRE.md section 9.1; behind the aim/fire gate
-until its fix round the same day, in ordinary play since, section 10): `em_owner_services_001CABA0` with the workers 001D3990 / 001D3D90
-(em_owner_draw_001D3900 / _001D3CF0, selector 3) and 001CAAC0, through
-`em_owner_draw_live_001CABA0` and the chain page's unit markers
-(CHAIN_PAGE.md section 6). Oracle: test-owner-draw-reference part E, every
-store of the original 001CACB0 -> 001CABA0 over the captured indicator
-children (one-, three- and four-bone models, plain and clip; 32 of 218
-draws quick); test-object-unit-reference part K (the class-2 units equal
-the original microcode's). The indicator children still draw as the table
-says: binding them to this path is a separate step.
+- **Binding.** 001F54E0 (em_effect_kinds) calls the child's +0x4C with the
+  child's new +0x80 words; em_area11_bindings.c `indicator_draw` runs
+  `em_indicator_bind_live_draw`, which builds the owner-services view of
+  the child's record (its header bytes, +0x60, +0x90..+0x98, +0xB0, +0xC0
+  and the +0x110 slots the bind popped and 001C6380 placed) and calls
+  `em_owner_draw_live_001CABA0` over the model's bank: the world model bank
+  *D_0028A59C for the terminal's 0x10 (`em_area11_boxes_world_models`) or,
+  for the library models of D_0028A56C (the Roger export), the module's own
+  table-less bank, each model added at its address. The bind and the
+  placement read the same bank entry.
+- **The unit.** `em_owner_services_001CABA0` with the workers 001CA7B0 (the
+  cull at the child's +0xB0 with the model's radius), 001D8C20(1),
+  001C7420 on channel 3 (001D89D0 in lighting mode 1: the one 001D8C30 over
+  the child's +0x80), 001D3990 / 001D3D90 (em_owner_draw_001D3900 /
+  _001D3CF0 with selector 3, the veil module's 001D1F80(3, 2, 2): GS state
+  set 2 class 2), the RET tag, 001D8C20(0) and 001CAAC0 (the page D_007635C0
+  CALLs the unit at its depth through 001CB760). The chain page consumer
+  draws the CALLed unit as a class-2 object unit (CHAIN_PAGE.md section 6:
+  ALPHA 0x68 FIX 0x80, no Z write).
+- **The security gun's lamp** (model 0x7A, four nodes) draws the same way.
+  Its +0xA0 is (0, 0, 0, 0.25) in the first level (the gun stays dormant),
+  so its colour words stay near 0 and the additive unit adds almost nothing,
+  as the original's.
+- **Retired:** the additive mesh stand-in (em_props / em_pickup's light
+  meshes, `em_gfx_draw_skinned_additive`, the mode-1 conversion
+  `em_effect_color_gs`); the manifest's `prop_indicator` / `pickup_light`
+  lines are accepted and not read. The item owners' +0x2EC child test
+  (the take's 001C5570 stop) is the spawn's result.
+- **Evidence.** test-owner-draw-reference part E (every store of the
+  original 001CACB0 -> 001CABA0 over the captured children: one-, three-
+  and four-bone models, plain and clip); test-object-unit-reference part K
+  (the class-2 units through the original microcode); the level smoke's
+  check_indicator_units: every tick, one 001CABA0 call per child that
+  starts the tick in its draw state, and at every aligned route snapshot
+  the original 001CACB0 over the snapshot with the port's +0x80 words,
+  point-light pool and view gives the port's unit (bytes, clip, colour
+  matrix B, lighting rows; position rows too in the camera-exact beats 10
+  and 14), the gun's lamp among them; level_smoke_chain_page counts the
+  page's unit CALLs.
 
 ## 12. Limits
 

@@ -2653,6 +2653,64 @@ def static_world_prims(elf, ram):
     return arr, len(tris)
 
 
+def background_prims(elf, ram):
+    """The beat's sky grid as the live path draws it (em_background_live,
+    docs/BACKGROUND.md): the capture's own render channel-3 list at context
+    +0x1D8 replayed to its MSCAL (the GS state its A+D packets wrote and the
+    dmem upload), the ORIGINAL grid program of packet 0x0023C990 executed
+    over that upload (tools/test_background_reference.py run_kernel), and
+    its kicked PACKED ST / XYZ2 strips turned into triangles the way the GS
+    (and em_chain_page) does: PRE writes PRIM and empties the vertex queue,
+    every strip vertex after the second completes one triangle unless ADC;
+    each vertex takes the list's RGBAQ colour and Q. em_gfx_background_prims'
+    input."""
+    import test_background_reference as bgref
+    ctx = u32(ram, CONTEXT_PTR)
+    calls, kicks = bgref.replay(ram, u32(ram, ctx+0x1D8))
+    assert calls == [bgref.KERNEL_PACKET] and len(kicks) == 1 and kicks[0][0] == 0, \
+        ('the capture\'s channel-3 list', calls, len(kicks))
+    _, regs, dmem = kicks[0]
+    rgbaq = regs[0x01]
+    flags = {0x06: 0x01, 0x08: 0x02, 0x14: 0x04, 0x42: 0x08, 0x47: 0x10, 0x46: 0x20}
+    state = {'set': sum(bit for reg, bit in flags.items() if reg in regs), 'tex0': regs.get(0x06, 0),
+             'clamp': regs.get(0x08, 0), 'tex1': regs.get(0x14, 0), 'alpha': regs.get(0x42, 0),
+             'test': regs.get(0x47, 0), 'colclamp': regs.get(0x46, 0)}
+    tris, prim = [], regs.get(0, 0)
+    for buf in bgref.run_kernel(bgref.kernel_program(elf), dmem):
+        lo = buf[0][0] | buf[0][1] << 32
+        hi = buf[0][2] | buf[0][3] << 32
+        nloop, nreg = lo & 0x7FFF, (lo >> 60) or 16
+        assert (lo >> 58) & 3 == 0, 'grid kick is not PACKED'
+        if (lo >> 46) & 1:
+            prim = (lo >> 47) & 0x7FF
+        assert prim & 7 == 4, ('grid kick PRIM is not a triangle strip', prim)
+        queue, s_, t_, k = [], 0, 0, 1
+        for _ in range(nloop):
+            for r in range(nreg):
+                q = buf[k]; k += 1
+                reg = (hi >> (4*r)) & 15
+                if reg == 0x02:
+                    s_, t_ = q[0], q[1]
+                elif reg == 0x05:
+                    queue = (queue + [(q[0] & 0xFFFF, q[1] & 0xFFFF, q[2], s_, t_)])[-3:]
+                    if len(queue) == 3 and not (q[3] >> 15) & 1:
+                        tris.append((prim, list(queue)))
+                else:
+                    raise AssertionError(('grid kick register', reg))
+    arr = (GsPrim * max(1, len(tris)))()
+    for i, (pr, verts) in enumerate(tris):
+        p = arr[i]
+        p.prim, p.set, p.count = pr, state['set'], 3
+        p.tex0, p.clamp, p.tex1 = state['tex0'], state['clamp'], state['tex1']
+        p.alpha, p.test, p.colclamp = state['alpha'], state['test'], state['colclamp']
+        for j, (x, y, z, s_, t_) in enumerate(verts):
+            v = p.v[j]
+            v.x, v.y, v.z, v.s, v.t = x, y, z, s_, t_
+            v.rgba[:] = [(rgbaq >> (8*c)) & 0xFF for c in range(4)]
+            v.q = rgbaq >> 32
+    return arr, len(tris)
+
+
 class EmModel(C.Structure):
     _fields_ = [('bone_count', C.c_uint32), ('vert_count', C.c_uint32), ('index_count', C.c_uint32),
                 ('frame_count', C.c_uint32), ('fps', C.c_float), ('tex_count', C.c_uint32),
@@ -2744,7 +2802,29 @@ def capture_metric(elf, lib, gslib, beat, report):
         objects.append((addr, plan.receiver[i].cls, q))
     assert sum(len(q) for _, _, q in objects) == 128*len(recv), (beat, 'receiver batches outside the plan')
     out = ROOT/'build/captures/shadow'; out.mkdir(parents=True, exist_ok=True)
-    metal = Metal(ROOT/'build/shadow_original_reference', size=(320, 240))
+    # The frame is compared pixel for pixel with the original screenshot, so
+    # the headless target must have its size. The backing scale of the
+    # never-shown window follows the display (2 on a Retina screen, 1
+    # otherwise): a probe frame measures it and the window is made again
+    # at the size that gives the screenshot's pixels.
+    ow, oh, o_px = bgref.read_png(folder/'original.png')
+    size = (ow//2, oh//2)
+    for attempt in range(2):
+        metal = Metal(ROOT/'build/shadow_original_reference', size=size)
+        probe = out/'native_probe.bmp'
+        metal.lib.em_gfx_begin_frame(metal.gfx, 0.0, 0.0, 0.0, 1.0)
+        metal.lib.em_gfx_request_capture(metal.gfx, str(probe).encode())
+        metal.lib.em_gfx_end_frame(metal.gfx)
+        pw, ph, _ = bgref.read_bmp(probe)
+        probe.unlink()
+        if (pw, ph) == (ow, oh):
+            break
+        assert not attempt, ('the headless target is not the screenshot\'s size', size, pw, ph, ow, oh)
+        # points = pixels / scale; a scale that gives no whole point size
+        # (1.5 for 640x480) cannot be matched: the run says so
+        assert (ow*size[0]) % pw == 0 and (oh*size[1]) % ph == 0, (
+            'the display\'s backing scale gives no window of the screenshot\'s size', pw/size[0], ow, oh)
+        size = (ow*size[0]//pw, oh*size[1]//ph)
     lib_g, gfx = metal.lib, metal.gfx
     lib_g.em_model_load.argtypes = [C.POINTER(EmModel), C.c_char_p]
     lib_g.em_gfx_mesh_create.restype = C.c_void_p
@@ -2755,7 +2835,7 @@ def capture_metric(elf, lib, gslib, beat, report):
     lib_g.em_gfx_draw_skinned_tinted.argtypes = [C.c_void_p, C.c_void_p, C.POINTER(C.c_float),
                                                  C.POINTER(C.c_float), C.c_uint32, C.POINTER(C.c_float)]
     lib_g.em_gfx_background_load.argtypes = [C.c_void_p, C.c_char_p]
-    lib_g.em_gfx_background_draw.argtypes = [C.c_void_p, C.POINTER(C.c_float), C.c_float]
+    lib_g.em_gfx_background_prims.argtypes = [C.c_void_p, C.POINTER(GsPrim), C.c_uint32]
     lib_g.em_gfx_char_rig.argtypes = [C.c_void_p, C.c_void_p]
     lib_g.em_gfx_shadow_alpha_clear.argtypes = [C.c_void_p]
     lib_g.em_gfx_shadow_box.argtypes = [C.c_void_p, C.POINTER(Strips), C.POINTER(C.c_float),
@@ -2771,13 +2851,15 @@ def capture_metric(elf, lib, gslib, beat, report):
         t, tw, th, at, _ = struct.unpack_from('<Q4I', emot, 0x10+24*i)
         assert lib_g.em_gfx_object_texture(gfx, t, emot[at:at+4*tw*th], tw, th) == 0, hex(t)
     prims, nprims = static_world_prims(elf, ram)
+    sky, nsky = background_prims(elf, ram)
+    assert nsky == 1922, (beat, 'grid triangles', nsky)
     player = EmModel()
     assert lib_g.em_model_load(C.byref(player), str(ROOT/'assets/player.emdl').encode()) == 0
     pmesh = lib_g.em_gfx_mesh_create(gfx, player.verts, player.vert_count, player.indices, player.index_count,
                                      player.texs, player.tex_count, player.texels, player.flags)
     assert lib_g.em_gfx_background_load(gfx, str(ROOT/'assets/scene_snow/background.embg').encode()) == 0
-    view, zoom, vp = native_viewproj(ram)
-    vpa, viewa = f4a(vp), f4a(view)
+    _view, _zoom, vp = native_viewproj(ram)
+    vpa = f4a(vp)
     count = ram[PLAYER+0x0C]
     nodes = []
     for b in range(count):
@@ -2789,7 +2871,7 @@ def capture_metric(elf, lib, gslib, beat, report):
     paths, faults = {}, []
     for mode in ('noshadow', 'shadow', 'player'):
         lib_g.em_gfx_begin_frame(gfx, 0.0, 0.0, 0.0, 1.0)
-        lib_g.em_gfx_background_draw(gfx, viewa, zoom)
+        assert lib_g.em_gfx_background_prims(gfx, sky, nsky) == 0, (beat, 'em_gfx_background_prims refused the grid')
         lib_g.em_gfx_fog(gfx, -209.0, 304.0, fog_rgb)
         lib_g.em_gfx_char_rig(gfx, None)
         assert lib_g.em_gfx_gs_opaque(gfx, prims, nprims) == 0, (beat, 'em_gfx_gs_opaque refused the run')
@@ -2819,7 +2901,6 @@ def capture_metric(elf, lib, gslib, beat, report):
     w, h, a_px = bgref.read_bmp(paths['noshadow'])
     _, _, b_px = bgref.read_bmp(paths['shadow'])
     _, _, c_px = bgref.read_bmp(paths['player'])
-    ow, oh, o_px = bgref.read_png(folder/'original.png')
     assert (w, h) == (ow, oh), ('frame sizes', w, h, ow, oh)
     metric = region_metric(o_px, a_px, b_px, c_px, w, h)
     metric.update({'beat': beat, 'receiver_batches': len(recv), 'receivers': plan.receiver_count,
@@ -2835,7 +2916,7 @@ def capture_bounds(metric):
     the original's dark pixels >= CAPTURE_IOU_MIN and the shadowed/lit
     luminance ratios within CAPTURE_RATIO_TOL. Measured since the
     static-world step (the level is the beat's own run, the box and the
-    receivers are placed at their kicked words): 01_battery 0.836 / 0.602
+    receivers are placed at their kicked words): 01_battery 0.836 / 0.600
     vs 0.600, 08_truck_crossing 0.828 / 0.588 vs 0.592, 12_crevice_jump
     0.854 / 0.610 vs 0.595; with the legacy zone meshes they were 0.841,
     0.837 and 0.861 (docs/SHADOW_ORIGINAL.md explains the change). The

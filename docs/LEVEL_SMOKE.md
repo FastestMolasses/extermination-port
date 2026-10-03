@@ -1406,6 +1406,57 @@ in the carry each fail the check); the save slot of check_render_context
 over 11,599 ticks. Side beat 00 (no status screen in its run): 1,650 ticks;
 side beat 09: 5,563 ticks, 1 snapshot.
 
+### The indicator units (`check_indicator_units`, OWNER_DRAW.md section 11)
+
+Not a phase: after the phases, over every tick from first control on. The
+tick log's `page_units` lists the frame's 001CABA0 calls (em_owner_draw_live:
+the record, its +0x80 words, the channel-3 bytes, the clip pass and the
+digests of the unit's colour matrix B, lighting rows and position rows). It
+checks:
+- on every world-frame tick (001AE5E0 / 001AE6B0 in the tick's trace; a
+  status frame draws none), every bound child that starts the tick in its
+  draw state (+0x04 == 1 in the tick before's `children`) and keeps it made
+  exactly one call, and no other record did;
+- at every aligned route snapshot, for every child of the snapshot (+0x4C
+  001CACB0, +0x44 set, +0x04 == 1): the set equals the port's calls, and the
+  ORIGINAL 001CACB0 runs over the snapshot's RAM with the port's +0x80 words
+  (001F54E0's rand() pulse), the port's point-light pool and the view
+  D_00810610 the draws read: its channel-3 byte count (0: culled by
+  001CA7B0, on both sides) and clip pass equal the port's, so do the colour
+  matrix B and the lighting rows, and in the camera-exact beats 10 and 14
+  the position rows; the security gun's lamp 0x7A is counted.
+
+### The area title (`check_area_title`, STATUS_UI_LEFTOVERS.md 2.6)
+
+Not a phase. The tick log's `title_nodes` lists the 001C5930 nodes ([record,
++0x04, +0x05, +0x06, +0x28, +0x2A, +0x1F0, +0x1F4]) and the cumulative count
+of their 001CC1E0 lines. It checks: at most one node; in every tick whose
+title phase 0 stepped its timer the lines grow by exactly what the
+scratchpad mode byte 0x70003B8D at the tick's end says (the tick log's
+spad selector): by 1 when it is not 1..3, by 0 when it is (the opening's
+2); a tick whose byte changes follows its end value too, and those ticks
+and the node's first state-1 calls are printed (on the main route the
+first call ends with the byte 0 and draws one line, the opening stores 2
+the tick after); by none once the timer ran out (band 0); at every aligned
+snapshot the node equals the snapshot's at the same record; at the port tick
+the fence_door phase aligned with route 09's last row (its snapshot) the
+room move's fresh node holds the snapshot's fields (240 ticks left), at
+another record: 001AFA90 hands the port a different free record there
+(0x7AEF00 against the original's 0x7B0390; the pool's free list is not the
+original's history at that point).
+
+### The background (`check_background`, BACKGROUND.md)
+
+Not a phase. The tick log's `background` holds the frame's channel-3 walk
+(em_background_live): drawn, the list's start, its triangles, their vertex
+digest and the dmem upload the grid program read. It checks: every drawing
+frame draws 1,922 triangles; on sampled ticks (the first draw, every 200th,
+every aligned snapshot tick) the ORIGINAL grid program (decoded from the ELF
+and executed by tools/test_background_reference.py) over that upload kicks
+exactly the drawn triangles and the upload's template and constants are the
+ELF's; at the camera-exact snapshots 10 and 14 the original program over the
+capture's own channel-3 list kicks them too.
+
 ### The security gun, its cable and the fan pair (`check_gun_fan`, census L24)
 
 Not a phase: after check_indicator_children, over every tick of the run.

@@ -64,6 +64,7 @@
 
 #include "em_gfx.h"
 #include "game/em_actor_pool.h"
+#include "game/em_owner_draw_original.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_scene_state.h"
 
@@ -137,6 +138,9 @@ int em_area11_boxes_world_001C6120(uint32_t bank_word, uint32_t id, uint32_t *ha
 const EmOwnerModel *em_area11_boxes_world_model(uint32_t address);
 /* *D_0028A59C (the table address), or 0 when the bank is not loaded. */
 uint32_t em_area11_boxes_world_bank_word(void);
+/* The bank itself (the draw's view: 001CABA0's 001D3990 / 001D3D90 find a
+ * model's blocks by its entry in the bank), or NULL. */
+const EmWorldModels *em_area11_boxes_world_models(void);
 
 /* The other AREA11 world-model owners on their original records
  * (docs/OWNER_DRAW.md section 10): the terminal 00827B10, the panel

@@ -196,7 +196,9 @@ oracle executes the function and the translation matches; not wired live.
 - **Before -> after:** 001C5930 stand-in (em_hud.c legacy card; lifecycle
   only in em_area11_bindings.c `tick_area_title`) -> **verified-unbound**;
   001C5860 stand-in -> **verified-unbound**; 001B0BA0 (boot, before the
-  census window; no row) -> verified-unbound.
+  census window; no row) -> verified-unbound. **Since the units step
+  (2026-10-02) 001C5930 and 001C5860 are live** and 001B0BA0 runs at the
+  export's load (section 3, "Area title").
 - **What 001C5930 does** on the node (+0x04 state, +0x05 title phase, +0x06
   band phase, +0x28 title timer, +0x2A title string index, +0x1F0 band,
   +0x1F4 band timer):
@@ -313,25 +315,33 @@ are 002149F0's own draws after these three calls, not part of this lane.
 (`HUD_SFX_*` for 0020CD40/60/A0; `EM_ITEM_SOUND_*`, `EM_STATUS_PAGE_BACK_SOUND`)
 at their call sites with `em_sul_0020CD40/60/A0(w)`, `sound` bound as above.
 
-**Area title.** In `em_area11_bindings.c`, `tick_area_title` becomes
-`em_sul_001C5930(w, mem, raw node, 0x2F0)` on the 001C5930 node, which
-replaces the lifecycle-only switch and `em_hud_area_title_stop()`. The legacy
-card (`em_hud_area_title` armed from `em_scene.c` and `em_scene_bindings.c`,
-and `em_hud_area_title_render`) is then removed. That card uses an OBSERVED
-string, a fixed 36-pixel row, white, and no mode gate, and it has no band
-line.
-- `free_actor`: the existing `free_self_001AFC10` (em_actor_pool_free_001AFC10).
-- `text_width`: `em_message_draw_cc170` (001CC170, verified-unbound in
-  em_message_draw_original.c).
-- `text_proportional`: the 001CC1E0 text boundary the status hub adapter
-  already renders (`em_status_hub_ui.c` text commands, proportional 10x20).
-- `mem`: D_00810700/701 and D_008106B8 from the scene state
-  (`s_scene->req[EM_SCENE_REQ_B8]`); D_008104D8 (the infection float); the
-  0x5C-byte D_00289B40 table from `em_sul_001B0BA0` over the 46 bytes at
-  D_0024A850; the pointer tables D_002671C0 / D_0026726C and their strings,
-  plus the style record D_00265520 (ELF data: an exporter must write them,
-  since the port reads no ELF at run time); the scratchpad mode byte
-  0x70003B8D.
+**Area title (bound, the units step, 2026-10-02).** `em_area11_bindings.c`
+`tick_area_title` runs `em_area_title_001C5930` (src/game/em_area_title.c)
+on the 001C5930 node: `em_sul_001C5930` over the node's record bytes (+0x04
+..+0x06 the node's state bytes, +0x28..+0x2B the module's side storage of
+the record, +0x1F0..+0x1F7 its scratch), with:
+- `free_actor`: `free_self_001AFC10` (em_actor_pool_free_001AFC10); the
+  record is not touched after it.
+- `text_width`: 001CC170 on the message service's draw module
+  (`em_message_live_cc170`).
+- `text_proportional`: 001CC1E0 on the message service's glyph module
+  (`em_message_live_cc1e0`); its passes are drawn with the frame's message
+  glyphs, the task's before step F's. Style 0 is none; D_00265520 is the
+  exported record (+0 colour, +4 glyph, +5 flag).
+- `mem`: D_00810700 / 701 and the mode byte 0x70003B8D from the scene state,
+  D_008106B8 (the scene's B8 byte), D_008104D8 (g.status.infection),
+  D_00289B40 built at load by `em_sul_001B0BA0` over the exported
+  D_0024A850 counts, and the blocks of `assets/area_title.emat`
+  (`tools/export_area_title.py`: D_0024A850, D_002671C0..D_00267283 with
+  D_0026726C, the strings they name, D_00265520; every block equal to the
+  route captures' RAM).
+The legacy card (`em_hud_area_title*`, the manifest `areatitle` arming,
+which is now accepted and not read, and the state-4 re-arm in
+`em_scene_bindings.c`) is removed. Live proof: the level smoke's
+check_area_title (the node equals every aligned route snapshot's; route
+09's fresh node by its fields, at another pool record than the original's;
+a line in every non-quiet title tick); route 09's
+frame shows the card where `09_fence_door/original.png` does (by eye).
 
 **Pickup node (bound, the owners step).** The `em_area11_bindings.c` entry
 for 001C4820 (area11[20], tick_prop_001C4820) runs `em_sul_001C4820` over the

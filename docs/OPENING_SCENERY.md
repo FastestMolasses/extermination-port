@@ -101,8 +101,9 @@ The original effect packet selected by `001D3900(3,model)` has:
 | `TEST = 0x53001` | Depth GEQUAL; failed alpha test writes RGB only |
 | `PRIM` fog flag clear | No world fog on this effect |
 
-The native `em_gfx_draw_skinned_additive` keeps the mesh placement, ignores
-normals, uses this additive blend, and preserves destination depth/alpha.
+(Retired in the units step, 2026-10-02: the native additive mesh draw that
+stood in here is gone; the children draw their own 001CABA0 class-2 units,
+OWNER_DRAW.md section 11.)
 The effect consumes the shared original RNG once per active frame. Whole-game
 RNG call order still depends on other untranslated actors.
 

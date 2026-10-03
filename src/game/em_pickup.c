@@ -71,21 +71,10 @@ typedef struct {
     EmPickupOriginalHooks original_hooks;
 } Pickup;
 
-typedef struct {
-    int owner;
-    int model;
-    int visible;          /* submitted this frame (em_pickup_light_submit) */
-    float tint[4];
-    float node[16];       /* the child's node 0 +0x90 at the submit */
-    float palette[PICKUP_BONE_MAX * 16];
-} PickupLight;
-
 static struct {
     PickupModel models[PICKUP_MODEL_MAX];
     int         n_models;
     Pickup      p[EM_PICKUP_MAX];
-    PickupLight lights[EM_PICKUP_MAX];
-    int         n_lights;
     int         n;            /* slots in use (dead slots stay counted
                                * until the scene clears — draw returns
                                * 0 for them, like the enemy contract) */
@@ -439,67 +428,6 @@ void em_pickup_reset(void)
     item_store(0x00810C63u, 2);
 }
 
-int em_pickup_light_submit(uint32_t source_id, const float c80[4], const float node[16])
-{
-    /* The +0x4C draw (001CACB0) of an item owner's 001C5680 child, called
-     * from 001F54E0 inside the child's own behaviour (em_area11_bindings.c
-     * tick_indicator): this frame's colour and the child's node 0 matrix,
-     * drawn at the close-out. */
-    if (!c80 || !node) return -1;
-    for (int i=0;i<s.n_lights;++i) {
-        PickupLight *light=&s.lights[i];
-        Pickup *owner=&s.p[light->owner];
-        if (!owner->used || owner->source_id!=source_id) continue;
-        em_effect_color_gs(c80,light->tint);
-        memcpy(light->node,node,sizeof light->node);
-        light->visible=1;
-        return 0;
-    }
-    return -1;
-}
-
-int em_pickup_light_add(EmGfx *gfx, const char *scene_dir, int owner_uid,
-                        const char *model_file)
-{
-    if (!gfx || !scene_dir || !model_file || owner_uid<=0 ||
-        s.n_lights>=EM_PICKUP_MAX) return -1;
-    int owner=-1;
-    for (int i=0;i<s.n;++i)
-        if (s.p[i].uid==owner_uid) {
-            if (owner>=0 || s.p[i].prop) return -1;
-            owner=i;
-        }
-    if (owner<0) return taken_bit(owner_uid) ? -2 : -1;
-    for (int i=0;i<s.n_lights;++i)
-        if (s.lights[i].owner==owner) return -1;
-    int model=pickup_model_get(gfx,scene_dir,model_file);
-    if (model<0) return -1;
-    PickupLight *light=&s.lights[s.n_lights];
-    memset(light,0,sizeof *light);
-    light->owner=owner;
-    light->model=model;
-    return s.n_lights++;
-}
-
-void em_pickup_lights_draw(EmGfx *gfx, const float viewproj[16])
-{
-    for (int i=0;i<s.n_lights;++i) {
-        PickupLight *light=&s.lights[i];
-        Pickup *owner=&s.p[light->owner];
-        if (!light->visible || !owner->used) continue;
-        PickupModel *model=&s.models[light->model];
-        /* Original model73's vertices all name node 0: every EMDL bone
-         * takes the child's node 0 +0x90 (001C6380's placement from the
-         * +0xB0 / +0xC0 its spawn copied from the owner; the original row
-         * layout is the palette's column-major matrix). */
-        for (uint32_t bone=0;bone<model->model.bone_count;++bone)
-            memcpy(light->palette+bone*16,light->node,16*sizeof(float));
-        em_gfx_draw_skinned_additive(gfx,model->mesh,viewproj,light->palette,
-                                     model->model.bone_count,light->tint);
-        light->visible=0; /* one draw per submitted 001F54E0 */
-    }
-}
-
 int em_pickup_count(void) { return s.n; }
 
 int em_pickup_prop_retire(const float position[3])
@@ -654,8 +582,8 @@ static int original_event(void *context, EmPickupOwnerEvent event, uint32_t argu
         p->original_visible = 0;
         return 1;
     case EM_PICKUP_OWNER_STOP_CHILD:
-        for (int i=0; i<s.n_lights; ++i)
-            if (&s.p[s.lights[i].owner] == p) s.lights[i].visible = 0;
+        /* The child's +4 = 3 is written by the node binding (em_area11_bindings.c
+         * tick_pickup reads child_status); the child then frees itself. */
         return 1;
     case EM_PICKUP_OWNER_DRAW:
         /* The owner's +0x4C (001CAA00 over its record): the host's draw. */
@@ -692,8 +620,6 @@ int em_pickup_original_bind(const EmInteractionSceneOwner *record,
     p->original = (EmPickupOwner){.callback=record->callback, .item_type=(uint16_t)record->item_type,
         .uid=(uint8_t)record->uid, .status=record->initial_status, .class_flags=record->class_flags,
         .subtype=record->subtype, .lifecycle=1, .child_status=1};
-    for (int i=0; i<s.n_lights; ++i)
-        if (&s.p[s.lights[i].owner] == p) p->original.has_child = 1;
     p->source_id = record->source_id;
     p->publication_rank = record->publication_rank;
     p->interaction = interaction;

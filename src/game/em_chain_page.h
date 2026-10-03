@@ -11,8 +11,9 @@
  *          tags not transferred), until the link reaches base + 0x20 at
  *          the top level;
  *   VIF1   runs the transferred words: NOP, STCYCL, BASE, OFFSET, STMASK,
- *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the four page
- *          programs' uploads, recognised by their source address), UNPACK
+ *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the page programs'
+ *          uploads and, in call mode, the grid program's, recognised by
+ *          their source address), UNPACK
  *          V4-32 / V1-32 without mask, MSCAL 0 and DIRECT;
  *   VU1    MSCAL runs the loaded program's translation
  *          (em_vu1_page_programs.h: the lane program of D_00233290, the
@@ -90,6 +91,7 @@ extern "C" {
 #define EM_CHAIN_PAGE_SNOW      0x00233800u   /* D_00233800              */
 #define EM_CHAIN_PAGE_STREAK    0x00230800u   /* table 0x230800          */
 #define EM_CHAIN_PAGE_KIND2     0x00232540u   /* table 0x232540          */
+#define EM_CHAIN_PAGE_GRID      0x0023C990u   /* packet 0x23C990 (call mode) */
 
 enum {
     EM_CHAIN_PAGE_OK = 0,
@@ -137,6 +139,7 @@ typedef struct {
                                * 001F0460's, drawn by 001F0720's lanes)       */
     uint32_t direct_strips;   /* of the primitives, DIRECT packets' strip
                                * triangles (PRIM type 4)                     */
+    uint32_t mscal_grid;      /* MSCALs of the grid program (0x23C990)       */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its
@@ -188,6 +191,14 @@ int em_chain_page_run(EmChainPage *p, uint32_t start);
 /* List mode: walk the frame list at `start` up to its top-level END tag
  * (transferred) and fill p->prims (and p->prim_env). 0, or -1. */
 int em_chain_page_run_list(EmChainPage *p, uint32_t start);
+
+/* Call mode: the list mode walk of a channel list a frame list CALLs (the
+ * channel-3 background list at context +0x1D8, 001E1E60's), from `start`
+ * up to its own top-level RET (transferred), with the grid program 0x23C990
+ * (its MPG of 79 instructions from ELF 0x0023C9B8, em_vu1_grid_program_mscal)
+ * among the programs; the RET returns to the caller's list, so the walk
+ * stops there. An END faults. 0, or -1. */
+int em_chain_page_run_call(EmChainPage *p, uint32_t start);
 
 /* A short name of a fault code, for reports. */
 const char *em_chain_page_fault_name(uint32_t fault);

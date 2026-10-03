@@ -487,6 +487,29 @@ int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, i
     return 0;
 }
 
+int em_message_live_cc170(const uint8_t *text, uint32_t avail, int32_t *width)
+{
+    if (!ready()) { report(); return -1; }
+    if (!text || !width || em_message_draw_cc170(&s.draw, text, avail, width) < 0) {
+        fail("001CC170");
+        report();
+        return -1;
+    }
+    return 0;
+}
+
+int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h, const uint8_t *text,
+                          uint32_t avail, const EmMessageTextStyle *style)
+{
+    if (!ready()) { report(); return -1; }
+    if (!text || em_message_glyph_cc1e0(&s.glyph, slot, x, y, unused, h, text, avail, style) < 0 || s.fault) {
+        fail("001CC1E0");
+        report();
+        return -1;
+    }
+    return 0;
+}
+
 EmMessageBlock *em_message_live_block(void)
 {
     return s.installed ? &s.service.block : NULL;

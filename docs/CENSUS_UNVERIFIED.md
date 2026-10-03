@@ -194,10 +194,10 @@ node runs its own behaviour, `em_indicator_child_step`
   "Stand-ins" below).
 - +4 = 1: +0x80 = +0xA0, 001C5760 with +0xA != 0 runs 001C6380, then
   001F54E0 through `em_effect_kinds_001F54E0` (one 00122BB8 value, the
-  flickered +0x80), whose +0x4C call queues the draw of the owner's child
-  mesh: `em_pickup_light_submit` (00219550's 0x73), `em_props_indicator_submit`
-  slot 0 (00159210's 0x75) or slot 1 (00827B10's 0x10). The draw converts
-  +0x80 with 001D8C30 mode 1 (`em_effect_color_gs`).
+  flickered +0x80), whose +0x4C call is 001CACB0 -> 001CABA0 over the
+  child's record (`em_indicator_bind_live_draw`, since the units step,
+  2026-10-02: OWNER_DRAW.md section 11; before, the owner's child mesh drawn
+  additively by em_pickup / em_props).
 - any other +4: 001AFC10.
 
 The +0xA0 vector is the spawn's: 00219550 (0, 1, 0, 0.25), 00159210 (1, 0,
@@ -280,12 +280,10 @@ bit (the smoke through the elevator: 9 children over 3,458 ticks; a
 placement shifted by one unit fails at the first tick).
 
 **Still not original:**
-- **The draw:** the +0x4C 001CACB0 (-> 001CABA0) is not translated: the
-  stand-in draws the child's model mesh additively
-  (em_pickup_light_submit / em_props_indicator_submit) at the child's own
-  node 0 (its slot +0x90, since the owners step); the 0x7A child draws
-  nothing; 001CABA0's channel-3 unit, its depth sort into the chain page and
-  its 001CA7B0 cull wait on OWNER_DRAW.md section 11.
+- **The draw:** done since the units step (2026-10-02): the +0x4C 001CACB0
+  -> 001CABA0 builds the child's channel-3 unit, its 001CA7B0 cull and its
+  depth sort into the chain page, the 0x7A child included (OWNER_DRAW.md
+  section 11; the level smoke's check_indicator_units).
 
 **The terminal's copy (bound since the owners step, 2026-09-26):** 00827B10
 copies its own node 0 matrix into the child's first slot on every phase-1

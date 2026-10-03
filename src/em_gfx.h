@@ -176,15 +176,6 @@ void em_gfx_draw_skinned_tinted(EmGfx *gfx, EmGfxMesh *mesh,
                                 const float *viewproj, const float *palette,
                                 uint32_t bone_count, const float rgba[4]);
 
-/* Original effect draw class 2 (001CABA0): keep mesh geometry and palette,
- * ignore its normals, and modulate texture RGB by rgba. GS ALPHA 0x68 /
- * FIX 0x80 adds Cs + Cd, with depth test on and depth/alpha writes off.
- * This does not turn mesh vertices into camera-facing billboards. RGB may
- * exceed 1: original mode-1 color values range from 1/128 to 255/128. */
-void em_gfx_draw_skinned_additive(EmGfx *gfx, EmGfxMesh *mesh,
-                                  const float *viewproj, const float *palette,
-                                  uint32_t bone_count, const float rgba[4]);
-
 /* --- 2D overlay pass (HUD) ------------------------------------------- */
 
 /* Overlay coordinates live on a VIRTUAL CANVAS — origin top-left, y
@@ -594,44 +585,6 @@ void em_gfx_fog_coefficients(EmGfx *gfx, const float coef[2], const float rgb[3]
  * frames run the EXACT pre-fog shader arithmetic — byte-identical. */
 void em_gfx_fog_off(EmGfx *gfx);
 
-/* --- Level background (the textured "sky" grid behind the level) ------- */
-
-/* The original does not clear the colour buffer per frame (the frame
- * clear 001D2300 REFs is a Z-only sprite). Behind the level it draws a
- * full-screen textured grid first in the world chain: 001E1E60 (render
- * channel 3, CALLed by 001D2300 right after the Z clear) uploads the
- * camera matrix and grid constants, and the VU1 kernel 0x0023C990 turns
- * them into 31 triangle strips whose ST come from the view direction of
- * each grid point (src/gfx/metal/em_background_gs.h, docs/BACKGROUND.md).
- *
- * em_gfx_background_load reads the asset the decomp's
- * `export_level.py --background` writes (the scene manifest's
- * `background <file>` line) and returns 0, or a negative value when the
- * file is missing or invalid, or when its GS state is one the backend
- * does not reproduce (the reason is printed; nothing is drawn — there is
- * no stand-in). It replaces any previous background. unload drops it
- * (scene switch to an area without one). ready reports whether one is
- * loaded. */
-int  em_gfx_background_load(EmGfx *gfx, const char *path);
-void em_gfx_background_unload(EmGfx *gfx);
-int  em_gfx_background_ready(EmGfx *gfx);
-/* The loaded asset's GS state (its TEX0 and RGBAQ colour word) for the
- * caller's check against the render context (ctx+0x1D0 / ctx+0x1C0, which
- * 001C1F50's 001E2260 / 001E2270 store). 1, or 0 when none is loaded. */
-int  em_gfx_background_state(EmGfx *gfx, uint64_t *tex0, uint32_t *rgbaq);
-
-/* Draw the loaded background immediately (no-op when none is loaded).
- * Call it once per world frame BEFORE any other 3D draw — the original
- * draws it first and later draws cover it; it tests and writes no depth
- * (TEST ZTST ALWAYS, ZBUF ZMSK 1). `view` is the frame's native view
- * matrix (em_cs_view_to_native of the original 00102CD0 view, the one the
- * level draws use) and zoom_s the engine zoom (ctx+0x2468 —
- * em_mat4_perspective_gs's argument). The draw turns the view back into
- * the original ctx+0x2380 by negating rows 1 and 2; em_cs_view_to_native is
- * exactly that sign flip (tools/test_census_standins_reference.py).
- * The rest is checked by tools/test_background_reference.py. */
-void em_gfx_background_draw(EmGfx *gfx, const float view[16], float zoom_s);
-
 /* --- Player drop shadow: the GS side of 001DA6A0 ------------------------ */
 
 /* The draws the original chain 001DA6A0 builds (docs/SHADOW_ORIGINAL.md,
@@ -807,6 +760,45 @@ typedef struct {
  * depth mapping. Returns 0, or -1 when a primitive needs anything else (the
  * reason is printed once): there is no stand-in. */
 int em_gfx_gs_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count);
+
+/* --- Level background (the textured "sky" grid behind the level) ------- */
+
+/* The original does not clear the colour buffer per frame (the frame
+ * clear 001D2300 REFs is a Z-only sprite). Behind the level it draws a
+ * full-screen textured grid first in the world chain: 001E1E60 (render
+ * channel 3, CALLed by 001D2300 right after the Z clear) uploads the
+ * camera matrix and grid constants, and the VU1 grid program 0x0023C990
+ * turns them into 31 triangle strips whose ST come from the view direction
+ * of each grid point (docs/BACKGROUND.md). The game walks that list
+ * (em_background_live: em_chain_page's call mode and the program's
+ * translation, em_vu1_grid_program_mscal) and hands the triangles here.
+ *
+ * em_gfx_background_load reads the asset the decomp's
+ * `export_level.py --background` writes (the scene manifest's
+ * `background <file>` line: its texels, the disc's, and the GS state the
+ * list must draw with) and returns 0, or a negative value when the file is
+ * missing or invalid, or when its GS state is one the backend does not
+ * reproduce (src/gfx/metal/em_background_gs.h; the reason is printed). It
+ * replaces any previous background. unload drops it (scene switch to an
+ * area without one). ready reports whether one is loaded. */
+int  em_gfx_background_load(EmGfx *gfx, const char *path);
+void em_gfx_background_unload(EmGfx *gfx);
+int  em_gfx_background_ready(EmGfx *gfx);
+/* The loaded asset's GS state (its TEX0 and RGBAQ colour word) for the
+ * caller's check against the render context (ctx+0x1D0 / ctx+0x1C0, which
+ * 001C1F50's 001E2260 / 001E2270 store). 1, or 0 when none is loaded. */
+int  em_gfx_background_state(EmGfx *gfx, uint64_t *tex0, uint32_t *rgbaq);
+
+/* Draw the grid's triangles now, in order, with the loaded asset's texels
+ * and state. Called once per world frame BEFORE any other 3D draw (the
+ * original draws it first and later draws cover it); it tests and writes
+ * no depth (TEST ZTST ALWAYS, ZBUF ZMSK 1, which the asset carries and the
+ * walk checks). Each primitive must be a triangle with the asset's PRIM,
+ * TEX0, CLAMP_1, TEX1_1 and TEST_1, the asset's RGBAQ colour and Q 1.0;
+ * X / Y map through the GS pixel footprint (em_background_gs_ndc), S / T
+ * are the register words. Returns 0, or -1 (no asset, or a primitive the
+ * asset does not describe: the reason is printed, nothing is drawn). */
+int em_gfx_background_prims(EmGfx *gfx, const EmGfxGsPrim *prims, uint32_t count);
 
 /* --- Opaque class-0 GS triangles: the static world's run ------------------
  * em_static_world_draw (src/game/em_static_world_draw.h) walks the static

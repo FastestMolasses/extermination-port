@@ -46,6 +46,7 @@
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
 #include "game/em_camera_live.h"
+#include "game/em_background_live.h"
 #include "game/em_chain_page_live.h"
 #include "game/em_scene.h"
 #include "game/em_props.h"
@@ -730,8 +731,7 @@ void frame_close_out(void)
          * last frame (docs/RENDER_CONTEXT.md section 8). The native pass
          * converts that view and zoom (em_cs_view_to_native,
          * em_mat4_perspective_gs); without the context it keeps g.cam. */
-        const float *view = g.cam.view, *viewproj = g.viewproj;
-        float zoom = em_rcl_zoom();
+        const float *viewproj = g.viewproj;
         float head_view[16], head_viewproj[16];
         uint32_t head_words[16];
         float head_zoom;
@@ -740,20 +740,19 @@ void frame_close_out(void)
             em_cs_view_to_native(head_view, head_words);
             em_mat4_perspective_gs(proj, head_zoom);
             em_mat4_mul(head_viewproj, proj, head_view);
-            view = head_view;
             viewproj = head_viewproj;
-            zoom = head_zoom;
         }
         /* 001D2300: after the Z-only clear, the world frame CALLs render
-         * channel 3 (001E1E60's grid, kernel 0x0023C990) before the level
-         * (docs/BACKGROUND.md "Wiring"); background_gate reads the gate
-         * from the render context. The draw writes colour only, over the
-         * whole field. */
+         * channel 3 (001E1E60's list: its grid program 0x0023C990) before
+         * the level (docs/BACKGROUND.md "Wiring"); background_gate reads the
+         * gate from the render context, em_background_live walks the list
+         * and draws the triangles its grid program kicks. The draw writes
+         * colour only, over the whole field. */
         const int background = background_gate(gfx);
         if (background < 0)
             em_frame_request_quit(); /* reported: the gate faulted */
-        else if (background)
-            em_gfx_background_draw(gfx, view, zoom);
+        else if (background && em_background_live_draw(gfx) < 0)   /* reported; fail-stop */
+            em_scene_fault(em_scene_state(), em_background_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         /* LIGHTING — DISTANCE FOG for the world flush. Per-frame, per-
          * scene constant (the engine's per-area GS fog record), so set
          * once for the whole chain: it tints BOTH the LEVEL meshes and
@@ -809,15 +808,13 @@ void frame_close_out(void)
         em_gfx_char_rig(gfx, NULL);
         if (em_owner_draw_live_flush(gfx) < 0)   /* the post-step's units; reported; fail-stop */
             em_scene_fault(em_scene_state(), 0x001CAA00u, EM_SCENE_FAULT_WORKER_FAILED);
-        /* Original pickup children use unlit additive drawing after the
-         * opaque owner meshes, with the owner's current world matrix. */
-        em_pickup_lights_draw(gfx, viewproj);
-        em_props_indicators_draw(gfx, viewproj);
         /* Page D_007635C0 at 001D1EA0's splice (001CB800), as its DMA sends
          * it to the GS: the effects' lanes and sprites (the AREA11 flame's
          * 001D04B0 among them), the weather's channel-3 list 001E0D70 CALLs
          * (the snow program's tiles), the glint, the glow markers and the
-         * 0015BF90 decal (em_chain_page_live, docs/CHAIN_PAGE.md). */
+         * 0015BF90 decal and the class-2 units of 001CABA0 (the indicator
+         * children's and the muzzle node's, CALLed at their depth;
+         * em_chain_page_live, docs/CHAIN_PAGE.md). */
         if (em_chain_page_live_draw(gfx) < 0)   /* reported; fail-stop */
             em_scene_fault(em_scene_state(), em_chain_page_live_fault(), EM_SCENE_FAULT_WORKER_FAILED);
         em_gfx_char_rig(gfx, NULL);   /* LIGHTING — rig is per draw */
@@ -854,16 +851,8 @@ void frame_close_out(void)
                                  * global radio machine can't address
                                  * (GLOBAL lines drew inside em_hud
                                  * just above) */
-    em_hud_area_title_render(em_scene_state()->spad3B8D ? NULL : gfx);
-                                /* 001C5930 suppresses selectors1/2/3,
-                                 * but its 300-frame lifetime still ticks.
-                                 * AREA-11 opening title card ("FORT
-                                 * STEWART - REAR ENTRANCE") — one-shot,
-                                 * fade-in/hold/fade-out, armed on AREA-11
-                                 * scene entry (INVESTIGATION_area11_
-                                 * director §4.4). Independent of the
-                                 * cinematic director; no-op once finished
-                                 * or in non-AREA-11 scenes. */
+    /* The area-title card is drawn by its node 001C5930 (em_area_title:
+     * 001CC1E0 glyph runs drawn with the message glyphs). */
 
     /* GAME-OVER / CONTINUE screens — drawn BEFORE the fade rect so
      * the fade machine owns them exactly like the engine (the screen

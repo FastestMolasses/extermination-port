@@ -1509,8 +1509,8 @@ The groups:
    through the bound 001D89D0 (one translation each of 001D8270, 001D8690
    and 001D8C30), the room point-light lists run at the area entry and the
    New Game's fade weights 001D9070 are bound. What is left:
-   - the indicator children's colour is still em_effect_color.h's mode-1
-     conversion of 001D8C30 (it goes with their 001CABA0 binding, item 5);
+   - the indicator children's colour: done in the units step (item 5): they
+     light through the bound 001D89D0 in mode 1 (the one 001D8C30);
    - the hub's and the MAP's models are drawn by the renderer's skinned path
      (its rig is the original's; the object kernel's normal normalisation,
      001D3BA0's clip pass and the GS rasterisation are not reproduced, item
@@ -1529,6 +1529,27 @@ The groups:
    - The sky grid is em_background_gs's model of the VU1 kernel 0x0023C990
      (checked by test_background_reference), not the kernel run over the
      kicked +0x1D8 list.
+   **Status (2026-10-02, the units step): done.** The indicator children
+   draw their own 001CACB0 -> 001CABA0 class-2 units (the security gun's
+   dark 0x7A lamp included), their colour lit in mode 1 by the bound
+   001D89D0; the additive mesh stand-in is retired (OWNER_DRAW.md 11). The
+   001C5930 node draws its own card (em_sul_001C5930 through em_area_title,
+   001CC170 / 001CC1E0 the message service's, the ELF data from
+   tools/export_area_title.py); em_hud's card is retired
+   (STATUS_UI_LEFTOVERS.md 3). The background walks the channel-3 list at
+   +0x1D8 and runs the grid program 0x0023C990 by its translation
+   (em_background_live, em_vu1_grid_program_mscal); em_background_gs's
+   model is deleted (BACKGROUND.md "Port"). Proof: the level smoke's
+   check_indicator_units (the original 001CACB0 over every aligned
+   snapshot with the port's colour words, point lights and view equals the
+   port's unit), check_area_title (the node equals every aligned
+   snapshot's) and check_background (the original grid program over the
+   port's upload, and over the capture's own list in the camera-exact
+   beats, kicks the port's triangles); test-background-reference (the
+   translation against the original microcode qword for qword). What is
+   left: the EFU's ERLENG stays a model no capture has checked, the glyph
+   and grid pixels are Metal's (item 2), and the indicator colour pulse
+   follows the port's rand() stream (item 19).
 6. **Look: the opening's camera timeline** (census L33). Scene 0x22's
    timeline words are the original's since chain C8b OPENING; its eye /
    target sampling and the +0x80 event cursor are the opening lane's
@@ -1566,6 +1587,12 @@ The groups:
     address is 21 slots below the original's and the first 21 pops alias
     the player's node addresses (FACE_ATTACH.md section 5). No drawn or
     compared value differs today.
+    **Found in the units step (2026-10-02): the actor pool's free list.**
+    At route 09's room move 001AFA90 gives the fresh area-title node the
+    record 0x7AEF00, where the original's is 0x7B0390 (the level smoke's
+    check_area_title compares that node by its fields); the pool's free
+    list there is not the original's history (the cause is not traced).
+    Nothing drawn differs.
 11. **Logic: startup, input and frame glue that is still the port's own.**
     (Also, found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280
     loop-id read sign-extends with a signed left shift,
@@ -1748,7 +1775,7 @@ slot0 startup_task: logos → E900 → title → New Game → em_game_install_ne
      em_game_legacy_area_load (formerly game_load_task): player EMDL, scene_manifest_load(assets/scene_snow/scene.txt),
      collision, em_sfx_init → state 0 (001B07C0(0) from the spawn table)]
        manifest installs: legacy door (no goto), elevator mesh, truck, panel-as-static-prop (grate), 1 examine "terminal",
-       7 legacy pickups + 6 pickup_lights + 2 prop indicators, 2 type-0x13 "display props" (really fan pair 00827630),
+       7 legacy pickups (the 6 pickup_light and 2 prop_indicator lines are not read since the units step), 2 type-0x13 "display props" (really fan pair 00827630),
        4 crates, 2 drums, the security gun and its cable (then "husk pair"), weather/snow, point lights, AREA11 effect, light rig (no fog line)
     → game_task → ingame_frame_machine (:5219): case 0 (init, falls through the same tick) → case 1 selects:
        [since S8: em_scene_task_001ACEC0 → cores 001ACEC0/001AD250/0x1AE040; state 0 → em_game_legacy_state0, and since S9 the tick ends there (no world frame, as the original);

@@ -21,19 +21,17 @@ original bytes are embedded here):
 3. The asset's grid constants equal the ELF's D_002535B0..EF and the
    uploaded dmem 0x204..0x207; dmem 0x206.z (D_002535B8) equals the zoom
    ctx+0x2468.
-4. em_background_gs_matrix (src/gfx/metal/em_background_gs.h) applied to
-   the captured view copy ctx+0x2380 reproduces the uploaded dmem
-   0x200..0x203 (= D_00253570) bit for bit. The draw receives the port's
-   native view and negates rows 1 and 2 to get ctx+0x2380; that the native
-   view equals the original with those rows negated is the
-   em_cs_view_to_native convention checked by
-   tools/test_census_standins_reference.py, which this path depends on (it is
-   not re-proved here).
-5. The ORIGINAL VU1 kernel, decoded from the ELF's MPG packet and executed
-   over the captured upload, kicks 31 strips of 64 vertices; every ST and
-   XYZ2 field must equal the native grid. ERLENG is evaluated by the same
-   model in both (1/sqrt in double, truncated); see docs/BACKGROUND.md.
-   EM_TEST_FULL=1 adds a sweep of synthetic views and zooms.
+4. The uploaded dmem 0x200..0x203 equals D_00253570 in RAM (001E1E60's
+   matrix; the port builds it with em_static_world's 001E1E60, checked by
+   tools/test_static_world_draw_reference.py and the level smoke).
+5. The ORIGINAL VU1 grid program, decoded from the ELF's MPG packet and
+   executed over the captured upload, kicks 31 strips of 64 vertices; the
+   port's translation em_vu1_grid_program_mscal (em_vu1_page_programs.h),
+   run over the same upload, kicks the same packets qword for qword (the
+   GIF tag, every ST and XYZ2 qword, all four words). ERLENG is evaluated by
+   the same model in both (1/sqrt in double, truncated); see
+   docs/BACKGROUND.md. EM_TEST_FULL=1 adds a sweep of synthetic matrices
+   and zooms.
 6. The asset texels are the disc's: the area's level-load GS upload
    (INDEX.IDX sector area+4, 001FFCD0 -> 001FF590(0xAB, 1) -> 00200830 VIF1
    chain) is replayed from the user's disc (--iso, default the decomp's
@@ -326,27 +324,41 @@ def kicked_vertices(kicks):
 # --- native -------------------------------------------------------------------
 
 SHIM = r'''
+#include <string.h>
 #include "gfx/metal/em_background_gs.h"
+#include "game/em_vu1_page_programs.h"
 int parse(const unsigned char *b, unsigned long n, EmBackgroundGsAsset *a)
 { return em_background_gs_parse(b, n, a); }
 const char *unsupported(const unsigned char *b, unsigned long n)
 { EmBackgroundGsAsset a; if (em_background_gs_parse(b, n, &a)) return "parse";
   const char *w = em_background_gs_unsupported(&a); return w ? w : ""; }
 void ndc(const unsigned short *xy, float *o) { em_background_gs_ndc(xy, o); }
-void matrix(const float *v, float *o) { em_background_gs_matrix(v, o); }
-void grid(const unsigned char *b, unsigned long n, const float *m, float zoom,
-          float *st, unsigned short *xy)
+typedef struct { unsigned *out; unsigned cap, used, kicks; } Kicks;
+static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 {
-    EmBackgroundGsAsset a;
-    static EmBackgroundGsVertex g[EM_BACKGROUND_GS_GRID][EM_BACKGROUND_GS_GRID];
-    if (em_background_gs_parse(b, n, &a)) return;
-    em_background_gs_grid(&a, m, zoom, g);
-    for (unsigned r = 0; r < EM_BACKGROUND_GS_GRID; ++r)
-        for (unsigned c = 0; c < EM_BACKGROUND_GS_GRID; ++c) {
-            unsigned k = r * EM_BACKGROUND_GS_GRID + c;
-            st[2*k] = g[r][c].st[0]; st[2*k+1] = g[r][c].st[1];
-            xy[2*k] = g[r][c].xy[0]; xy[2*k+1] = g[r][c].xy[1];
-        }
+    Kicks *k = ctx;
+    const EmVu1PQword *tag = &dmem[at & 1023u];
+    unsigned nloop = tag->w[0] & 0x7FFFu, nreg = tag->w[1] >> 28;
+    if (!nreg) nreg = 16;
+    unsigned n = 1u + nloop * nreg;
+    if (k->used + 4u * n > k->cap) return 1;
+    for (unsigned q = 0; q < n; ++q) memcpy(k->out + k->used + 4u * q, dmem[(at + q) & 1023u].w, 16);
+    k->used += 4u * n;
+    k->kicks++;
+    return 0;
+}
+/* em_vu1_grid_program_mscal over a dmem image (1024 qwords); the kicked
+ * packets' words in order. Returns the kick count, or -1 - the fault. */
+int grid(const unsigned *dmem_in, unsigned *out, unsigned cap, unsigned *used)
+{
+    static EmVu1PQword dmem[1024];
+    static EmVu1PRegs regs;
+    memcpy(dmem, dmem_in, sizeof dmem);
+    em_vu1p_regs_reset(&regs);
+    Kicks k = {out, cap, 0, 0};
+    int rc = em_vu1_grid_program_mscal(&regs, dmem, kick, &k);
+    *used = k.used;
+    return rc ? -1 - rc : (int)k.kicks;
 }
 '''
 
@@ -360,26 +372,29 @@ class Native:
                         str(src), '-o', str(lib)], check=True)
         self.lib = C.CDLL(str(lib))
         self.lib.unsupported.restype = C.c_char_p
-        self.lib.grid.argtypes = [C.c_char_p, C.c_ulong, C.POINTER(C.c_float), C.c_float,
-                                  C.POINTER(C.c_float), C.POINTER(C.c_ushort)]
 
-    def matrix(self, view_bits):
-        v = (C.c_uint32 * 16)(*view_bits); o = (C.c_uint32 * 16)()
-        self.lib.matrix(v, o); return list(o)
+    def grid(self, dmem):
+        words = (C.c_uint32 * 4096)()
+        for a, q in dmem.items():
+            words[4 * a:4 * a + 4] = list(struct.unpack('<4I', q))
+        cap = 31 * 129 * 4 + 64
+        out, used = (C.c_uint32 * cap)(), C.c_uint32()
+        n = self.lib.grid(words, out, cap, C.byref(used))
+        check(n >= 0, f'the grid translation faulted ({-1 - n})')
+        flat, kicks, at = list(out[:used.value]), [], 0
+        for _ in range(n):
+            nloop, nreg = flat[at] & 0x7FFF, (flat[at + 1] >> 28) or 16
+            q = 1 + nloop * nreg
+            kicks.append([flat[at + 4 * k:at + 4 * k + 4] for k in range(q)])
+            at += 4 * q
+        return kicks
 
-    def grid(self, asset, m_bits, zoom):
-        m = (C.c_uint32 * 16)(*m_bits)
-        st = (C.c_float * (GRID * GRID * 2))(); xy = (C.c_ushort * (GRID * GRID * 2))()
-        self.lib.grid(asset, len(asset), C.cast(m, C.POINTER(C.c_float)),
-                      zoom, st, xy)
-        return ([bits(v) for v in st], list(xy))
 
-
-def compare_grid(native, asset, dmem, label):
-    """Original kernel vs native grid over one upload. Returns vertices."""
-    m_bits = [w for a in range(0x200, 0x204) for w in struct.unpack('<4I', dmem[a])]
-    zoom = flt(struct.unpack('<4I', dmem[0x204])[2])     # D_002535B8
-    strips = kicked_vertices(run_kernel(PROGRAM, dmem))
+def compare_grid(native, dmem, label):
+    """Original grid program vs its translation over one upload: the kicked
+    packets qword for qword. Returns the vertices."""
+    original = run_kernel(PROGRAM, dmem)
+    strips = kicked_vertices(original)
     check(len(strips) == GRID - 1 and all(len(s) == 2 * GRID for s in strips),
           f'{label}: kernel kicked {len(strips)} strips')
     xs = [v[2] for s in strips for v in s]; ys = [v[3] for s in strips for v in s]
@@ -387,15 +402,13 @@ def compare_grid(native, asset, dmem, label):
     # inside the kicked grid, whose far edges stop 1/16 pixel short
     check((min(xs), max(xs), min(ys), max(ys)) == (1792 * 16, 2304 * 16 - 1, 1936 * 16, 2160 * 16 - 1),
           f'{label}: grid spans X {min(xs)/16}..{max(xs)/16} Y {min(ys)/16}..{max(ys)/16}')
-    st, xy = native.grid(asset, m_bits, zoom)
-    for r, strip in enumerate(strips):
-        for n, (s, t, x, y, z) in enumerate(strip):
-            row, col = r + (n & 1), n >> 1
-            k = row * GRID + col
-            got = (st[2 * k], st[2 * k + 1], xy[2 * k], xy[2 * k + 1], 0)
-            check((s, t, x, y, z) == got,
-                  f'{label}: strip {r} vertex {n}: original {(hex(s), hex(t), x, y, z)} '
-                  f'native {(hex(got[0]), hex(got[1]), got[2], got[3])}')
+    port = native.grid(dmem)
+    check(len(port) == len(original), f'{label}: {len(port)} kicks, the original {len(original)}')
+    for r, (o, p_) in enumerate(zip(original, port)):
+        for k, (qo, qp) in enumerate(zip(o, p_)):
+            check(list(qo) == list(qp), f'{label}: kick {r} qword {k}: original '
+                  f'{[hex(w) for w in qo]} port {[hex(w) for w in qp]}')
+        check(len(o) == len(p_), f'{label}: kick {r} length')
     return len(strips) * 2 * GRID
 
 
@@ -403,7 +416,10 @@ PROGRAM = {}
 
 
 def sweep_case(args):
-    seed, asset, template_dmem = args
+    """A synthetic upload: a view's 001E1E60 matrix (transpose, row 1
+    doubled, the X/Y swap; host float32, both sides read the same words)
+    and zoom over the captured template and constants."""
+    seed, template_dmem = args
     rng = random.Random(seed)
     yaw, pitch, roll = (rng.uniform(-math.pi, math.pi), rng.uniform(-1.5, 1.5),
                         rng.uniform(-0.3, 0.3))
@@ -412,20 +428,22 @@ def sweep_case(args):
     rot = [[cy * cr + sy * sp * sr, -cy * sr + sy * sp * cr, sy * cp],
            [cp * sr, cp * cr, -sp],
            [-sy * cr + cy * sp * sr, sy * sr + cy * sp * cr, cy * cp]]
-    view = [0.0] * 16
+    t = [[0.0] * 4 for _ in range(4)]          # the transposed view
     for j in range(3):
         for i in range(3):
-            view[j * 4 + i] = rot[i][j]
-    view[12:16] = [rng.uniform(-400, 400) for _ in range(3)] + [1.0]
-    view = [flt(bits(v)) for v in view]
-    zoom = flt(bits(rng.uniform(300.0, 1100.0)))
-    m = SWEEP_NATIVE.matrix([bits(v) for v in view])
+            t[i][j] = rot[i][j]
+    for i in range(3):
+        t[i][3] = rng.uniform(-400, 400)
+    t[3][3] = 1.0
+    t[1] = [2.0 * v for v in t[1]]
+    m = [[r[1], r[0], r[2], r[3]] for r in t]    # times the X/Y swap
+    zoom = rng.uniform(300.0, 1100.0)
     dmem = dict(template_dmem)
     for r in range(4):
-        dmem[0x200 + r] = struct.pack('<4I', *m[r * 4:r * 4 + 4])
+        dmem[0x200 + r] = struct.pack('<4I', *(bits(v) for v in m[r]))
     q = list(struct.unpack('<4I', dmem[0x204])); q[2] = bits(zoom)
     dmem[0x204] = struct.pack('<4I', *q)
-    return compare_grid(SWEEP_NATIVE, asset, dmem, f'sweep {seed}')
+    return compare_grid(SWEEP_NATIVE, dmem, f'sweep {seed}')
 
 
 SWEEP_NATIVE = None
@@ -656,13 +674,10 @@ def main():
                   f'{name}: uploaded grid constants')
             check(up[8:12] == ram[ctx + 0x2468:ctx + 0x246C], f'{name}: zoom != ctx+0x2468')
             # 4. matrix
-            view_bits = list(struct.unpack_from('<16I', ram, ctx + 0x2380))
-            m = native.matrix(view_bits)
             uploaded = [w for a in range(0x200, 0x204) for w in struct.unpack('<4I', dmem[a])]
-            check(m == uploaded, f'{name}: native matrix != uploaded D_00253570')
             check(list(struct.unpack_from('<16I', ram, 0x253570)) == uploaded, f'{name}: D_00253570')
-            # 5. original kernel vs native
-            verts += compare_grid(native, asset, dmem, name)
+            # 5. original grid program vs its translation
+            verts += compare_grid(native, dmem, name)
             template_dmem = dmem
             frames += 1
 
@@ -676,7 +691,7 @@ def main():
 
         seeds = list(range(64)) if FULL else [1, 2]
         from reference_mode import parallel_map
-        swept = sum(parallel_map(sweep_case, [(s, asset, template_dmem) for s in seeds]))
+        swept = sum(parallel_map(sweep_case, [(s, template_dmem) for s in seeds]))
 
     # 6. texels: disc replay == asset == every GS freeze
     check(len(asset) == 104 + tw * th * 4, 'asset size')

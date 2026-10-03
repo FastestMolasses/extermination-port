@@ -1,6 +1,8 @@
 /* em_vu1_page_programs.h — the VU1 programs the chain page D_007635C0
  * CALLs, translated from their VU1 microcode into CPU-exact C
  * (docs/CHAIN_PAGE.md section 3): the lane, sprite and snow programs below,
+ * the level background's grid program (packet 0x0023C990, the channel-3
+ * list's; docs/BACKGROUND.md) at the end,
  * and the streak program (table 0x230800) and the kind-2 program (table
  * 0x232540) at the end of this header.
  *
@@ -682,8 +684,8 @@ static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
 /* ========================================================== streak ===== */
 
 /* The EFU of the streak program (CHAIN_PAGE.md section 3). No capture holds
- * an EFU result, so this is a model, the background's (em_background_gs.h,
- * docs/BACKGROUND.md): ERLENG = 1 / sqrt(x*x + y*y + z*z) and ERCPR = 1 / x,
+ * an EFU result, so this is a model, shared with the background's grid
+ * program (em_vu1_grid_program_mscal below, docs/BACKGROUND.md): ERLENG = 1 / sqrt(x*x + y*y + z*z) and ERCPR = 1 / x,
  * truncated to binary32 with denormals flushed; ERCPR's quotient is VDIV's.
  * A zero operand (ERCPR) or a zero length (ERLENG) is not established: the
  * MSCAL faults (EM_VU1P_FAULT_OPERAND), as the reference model raises. */
@@ -1096,6 +1098,91 @@ static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, E
             return EM_VU1P_FAULT_KICK;
     }                                                                  /* 0x13C -> 0x0F7 */
     return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;
+}
+
+/* ============================================================ grid ====== */
+
+/* The level background's grid program (docs/BACKGROUND.md): the DMA packet
+ * 0x0023C990 that 001E1E60 CALLs (FLUSHA, STCYCL 4,4, STMASK, STMOD 0 and
+ * one MPG of 79 instructions, ELF 0x0023C9B8, to micro 0), entered by
+ * 001D71A0's MSCAL 0. It reads dmem 0x200..0x203 (the matrix D_00253570,
+ * VF28..VF31), 0x204 (VF10: the origin x, y and the zoom in z), 0x205
+ * (VF11: the x and y steps), 0x206 (VF27: the ST offset, the XY bias in z)
+ * and 0x207 (VF26: the ST scale), and the GIF tag template 001E1E60 uploads
+ * to dmem 0, 0x81 and 0x102, which it never writes. For each of 32 rows
+ * (VI13) and 32 columns (VI12): d = VF28 x + VF29 y + VF30 zoom on all four
+ * lanes (an accumulator chain), P = the EFU's reciprocal length of d (the
+ * model above), u = d P on all four lanes, ST.xy = (VF0 + VF27) + u VF26
+ * (the sum through the accumulator), the vertex VF8.xy = (x, y) + bias with
+ * VF8.zw = VF0 + VF0 = (0, 2.0) from before the loop; ST.xy and VF8 are stored as the second row of the
+ * current buffer (VI7: qwords +2, +3 of the column) and the first row of
+ * the next one (VI8: +0, +1). x is reloaded from 0x204.x at every row
+ * and stepped by VF11.x after each column, y by VF11.y after each row.
+ * After every row but the first the current buffer is kicked; VI7 and VI8
+ * each step by 0x81 and wrap from 0x183 to 0 (three buffers). The
+ * pipeline stalls change no value read (the reference test's VU1 machine,
+ * tools/test_background_reference.py run_kernel, executes the original). */
+static inline int em_vu1_grid_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
+    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    for (unsigned k = 0; k < 4u; ++k) emvup_lq(c, 28u + k, 512u + k);   /* 0x000..0x003 */
+    emvup_lq(c, 27, 518);                                               /* 0x004 */
+    emvup_lq(c, 26, 519);                                               /* 0x005 */
+    r->vi[7] = 0;                                                       /* 0x006 */
+    r->vi[8] = 129;                                                     /* 0x007 */
+    emvup_lq(c, 10, 516);                                               /* 0x008 */
+    emvup_lq(c, 11, 517);                                               /* 0x009 */
+    r->vi[13] = 32;                                                     /* 0x00A */
+    for (unsigned k = 0; k < 4u; ++k) r->vf[8][k] = emvup_add(c, r->vf[0][k], r->vf[0][k]);   /* 0x00B */
+    do {
+        r->vf[10][0] = dmem[516u].w[0];                                 /* 0x00C */
+        r->vi[12] = 32;                                                 /* 0x00D */
+        r->vi[4] = (uint16_t)(r->vi[7] + 1u);                           /* 0x00E */
+        r->vi[5] = (uint16_t)(r->vi[8] + 1u);                           /* 0x00F */
+        do {
+            uint32_t d[4], u[4];
+            for (unsigned k = 0; k < 4u; ++k) {
+                r->acc[k] = emvup_mul(c, r->vf[28][k], r->vf[10][0]);              /* 0x010 */
+                r->acc[k] = emvup_madd(c, r->acc[k], r->vf[29][k], r->vf[10][1]);  /* 0x011 */
+                d[k] = emvup_madd(c, r->acc[k], r->vf[30][k], r->vf[10][2]);       /* 0x012 */
+            }
+            memcpy(r->vf[2], d, sizeof d);
+            r->p = emvup_erleng(c, r->vf[2]);                           /* 0x016 */
+            r->vf[1][0] = r->p;                                         /* 0x018 */
+            for (unsigned k = 0; k < 4u; ++k) u[k] = emvup_mul(c, r->vf[2][k], r->vf[1][0]);   /* 0x01C */
+            memcpy(r->vf[3], u, sizeof u);
+            for (unsigned k = 0; k < 2u; ++k) {
+                r->acc[k] = emvup_add(c, r->vf[0][k], r->vf[27][k]);              /* 0x020 */
+                r->vf[4][k] = emvup_madd(c, r->acc[k], r->vf[3][k], r->vf[26][k]); /* 0x021 */
+            }
+            for (unsigned k = 0; k < 2u; ++k)
+                r->vf[8][k] = emvup_add(c, r->vf[10][k], r->vf[27][2]);  /* 0x022 */
+            for (unsigned k = 0; k < 2u; ++k) {                         /* 0x026 / 0x027: x and y only */
+                dmem[(r->vi[4] + 2u) & 1023u].w[k] = r->vf[4][k];
+                dmem[(r->vi[5] + 0u) & 1023u].w[k] = r->vf[4][k];
+            }
+            emvup_sq(c, 8, r->vi[4] + 3u);                              /* 0x028 */
+            emvup_sq(c, 8, r->vi[5] + 1u);                              /* 0x029 */
+            r->vi[4] = (uint16_t)(r->vi[4] + 4u);                       /* 0x02D */
+            r->vi[5] = (uint16_t)(r->vi[5] + 4u);                       /* 0x02E */
+            r->vf[10][0] = emvup_add(c, r->vf[10][0], r->vf[11][0]);    /* 0x02F */
+            r->vi[12] = (uint16_t)(r->vi[12] - 1u);                     /* 0x030 */
+            if (c->bad) return EM_VU1P_FAULT_OPERAND;
+        } while (r->vi[12] != 0);                                       /* 0x032 */
+        r->vi[1] = 32;                                                  /* 0x034 */
+        if (r->vi[13] != r->vi[1] && kick(ctx, dmem, r->vi[7] & 1023u)) /* 0x036, 0x038 */
+            return EM_VU1P_FAULT_KICK;
+        r->vi[7] = (uint16_t)(r->vi[7] + 129u);                         /* 0x03A */
+        r->vi[1] = (uint16_t)(r->vi[7] - 387u);                         /* 0x03B */
+        if ((int16_t)r->vi[1] >= 0) r->vi[7] = 0;                       /* 0x03D, 0x03F */
+        r->vi[8] = (uint16_t)(r->vi[8] + 129u);                         /* 0x040 */
+        r->vi[1] = (uint16_t)(r->vi[8] - 387u);                         /* 0x041 */
+        if ((int16_t)r->vi[1] >= 0) r->vi[8] = 0;                       /* 0x043, 0x045 */
+        r->vf[10][1] = emvup_add(c, r->vf[10][1], r->vf[11][1]);        /* 0x046 */
+        r->vi[13] = (uint16_t)(r->vi[13] - 1u);                         /* 0x047 */
+    } while (r->vi[13] != 0);                                           /* 0x049 */
+    return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;                 /* 0x04B */
 }
 
 #endif

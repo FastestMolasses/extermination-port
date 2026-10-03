@@ -40,7 +40,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_sdk_math_original.c src/game/em_status_scene_original.c src/game/em_module_loader.c src/game/em_status_models.c \
            src/game/em_owner_services_original.c src/game/em_owner_draw_original.c src/game/em_object_unit.c src/game/em_owner_draw_live.c src/game/em_face_attach.c \
            src/game/em_indicator_child.c src/game/em_indicator_bind_live.c src/game/em_effect_kinds.c \
-           src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c \
+           src/game/em_packet_chain_original.c src/game/em_status_ui_leftovers.c src/game/em_area_title.c src/game/em_background_live.c \
            src/game/em_crate_original.c src/game/em_drum_original.c src/game/em_area11_boxes.c src/game/em_area11_roger.c \
            src/game/em_roger_actor_original.c \
            src/game/em_message_service.c src/game/em_message_draw_original.c src/game/em_message_glyph_original.c \
@@ -211,7 +211,7 @@ test-opening-media: tests/opening_media_test.c src/game/em_opening_media.c
 	build/opening_media_test
 
 .PHONY: test-pickup-lights
-test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h src/game/em_effect_kinds.c src/game/em_effect_color.h
+test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h src/game/em_effect_kinds.c
 	@mkdir -p build
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/pickup_light_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
@@ -1401,7 +1401,7 @@ test-indicator-child: tests/indicator_child_test.c src/game/em_indicator_child.c
 	build/indicator_child_test
 
 .PHONY: test-props-indicators
-test-props-indicators: tests/props_indicator_test.c src/game/em_props.c src/game/em_props.h src/game/em_effect_kinds.c src/game/em_effect_color.h
+test-props-indicators: tests/props_indicator_test.c src/game/em_props.c src/game/em_props.h src/game/em_effect_kinds.c
 	@mkdir -p build
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/props_indicator_test.c src/game/em_effect_kinds.c -o build/props_indicator_test
 	build/props_indicator_test

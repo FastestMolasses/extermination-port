@@ -777,6 +777,11 @@ uint32_t em_area11_boxes_world_bank_word(void)
     return load_bank() < 0 ? 0 : S.bank_word;
 }
 
+const EmWorldModels *em_area11_boxes_world_models(void)
+{
+    return load_bank() < 0 ? NULL : &S.bank;
+}
+
 /* ------------------------------------ the other world owners (generic) */
 
 /* The owner-services view of a world owner's record: its canonical bytes
