@@ -7,6 +7,7 @@
  * PCM in the asset but end presentation at the video track's endpoint.
  */
 #include "em_movie.h"
+#include "em_platform.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <CoreVideo/CoreVideo.h>
@@ -58,6 +59,8 @@ EmMovie *em_movie_open(const char *path)
         [movie->item addOutput:movie->output];
         movie->player = [[AVPlayer alloc] initWithPlayerItem:movie->item];
         movie->player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
+        /* Headless runs (tests, captures) play the movie silently. */
+        movie->player.muted = em_headless();
         /* Do not start until update has installed the video endpoint. */
     }
     return movie;
