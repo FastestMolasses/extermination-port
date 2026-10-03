@@ -119,6 +119,8 @@ static int east_tower_climb_frame(void);
 static int east_tower_frame(void);
 static void roger_begin(void);
 static int roger_frame(void);
+static void exit_begin(void);
+static int exit_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -232,6 +234,11 @@ static const Phase k_phases[] = {
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
      "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0, 0},
+    {"exit", "exit_00_departure, exit_01_movie_arrival (decomp CAPTURES_C10.md EXIT; route beat 15)", 0x008237E0u,
+     "fan r2 00827630's exit bit D_008107D8 |= 0x80; Roger 0x8237E0's departure script 0x828A10 (op0F: the "
+     "movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (001FFCD0: AREA01 sub 0), "
+     "the AREA01 arrival 0x1AE040 state 0 (spawn entry 4)",
+     "the level exit (audit 1b item 17; docs/FIRST_LEVEL_EXIT.md)", exit_begin, exit_frame, 0, 0, 0},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -245,6 +252,7 @@ static struct {
     int active, failed, until, current, passed;
     int last_live;    /* index of the last phase that passed (-1: none) */
     int stop_pending; /* the run passed; quit after one more frame (finish) */
+    uint32_t stop_counter; /* the main-loop counter of the frame that set stop_pending */
     /* status */
     int step, frames, close_frames, resumed;
     /* the hub's draws: D_002655A0 steps and UI+0x20 against the hub
@@ -338,6 +346,26 @@ static void finish(void)
      * tools/test_level_smoke.py needs that tick after the last live phase.
      * The extra frame takes no input (test driver, not game behaviour). */
     t.stop_pending = 1;
+    t.stop_counter = em_frame_counter();
+}
+
+/* The extra frame's end (finish): quit, or fail when it faulted. Run by the
+ * hook of a later frame than the one that set stop_pending. 1 when handled. */
+static int stop_frame(void)
+{
+    if (!t.stop_pending || em_frame_counter() == t.stop_counter)
+        return 0;
+    t.stop_pending = 0;
+    if (em_scene_faulted(em_scene_state())) {
+        fail("the scene coordinator faulted on the frame after the last phase");
+    } else {
+        /* The exit's last frame is the AREA01 arrival, which has no next
+         * tick to carry its post-frame values: the tick log's tail. */
+        if (t.last_live >= 0 && k_phases[t.last_live].frame == exit_frame)
+            em_scene_bindings_log_request_tail();
+        em_frame_request_quit();
+    }
+    return 1;
 }
 
 /* Advance to the next phase, or stop at the first NOT-LIVE one. A driven
@@ -2904,6 +2932,140 @@ static int roger_frame(void)
     }
 }
 
+/* ----------------------------------------------------------------- exit
+ *
+ * The exit capture (decomp CAPTURES_C10.md EXIT; docs/FIRST_LEVEL_EXIT.md)
+ * from route beat 14's end, where the roger phase ends. exit_00 idles until
+ * its pin, walks toward fan r2 00827630 (record [2], 0x7A7690), stops
+ * outside its hit band, waits for its slow window and walks into the exit
+ * box (Z < 156). The fan's cycle runs from the area load, so its phase at
+ * beat 14's end is the time since the load (host speed in the port): the
+ * phase waits, with a neutral pad, for the cycle point the capture has at
+ * its row 31 (fan r2 enters phase 2), and from there replays exit_00's pad
+ * (its `inputs`, frame-indexed: the original's state first shows an entry
+ * of frame f in its row f + 3, as in the AIM replays, so the port's
+ * after-frame of the tick aligned to capture frame c sets the entry of
+ * frame c - 2, which the next tick reads). From the crossing on
+ * nothing takes input: the departure script, its movie (the frontend's
+ * test skip holds START from 2 s, as for the intro movie; the game sees one
+ * frame either way), the area change, the AREA01 load and the arrival. The
+ * phase ends on the frame before the arrival's 0x1AE040 state-0 rebuild
+ * (slot 0 +9 = 1, +B = 0 in area 1); the finish's one more frame is that
+ * rebuild, the capture's first frame of control in AREA01 (exit_01 row
+ * 306), and the run quits before the first AREA01 world frame (AREA01
+ * gameplay is level 2). tools/test_level_smoke.py check_exit compares the
+ * rows. */
+enum { EXIT_FAN_R2 = 0x007A7690u, EXIT_ALIGN_ROW = 31, EXIT_CROSSING_ROW = 344, EXIT_FAN_WAIT = 400, EXIT_ARRIVAL_LIMIT = 3000 };
+typedef struct {
+    int f;
+    uint8_t lx, ly;
+} ExitInput;
+static const ExitInput k_exit_inputs[] = { /* exit_00_departure `inputs` (no buttons) */
+    {39, 146, 2}, {55, 145, 2}, {58, 144, 2}, {61, 143, 2}, {63, 142, 2}, {65, 141, 2}, {66, 140, 2},
+    {67, 139, 1}, {68, 138, 1}, {69, 137, 1}, {70, 135, 1}, {71, 133, 1}, {72, 132, 1}, {73, 131, 1},
+    {74, 130, 1}, {75, 129, 1}, {76, 127, 1}, {77, 124, 1}, {78, 121, 1}, {78, 127, 127}, {78, 140, 66},
+    {79, 141, 66}, {80, 144, 66}, {81, 146, 67}, {82, 147, 67}, {84, 146, 67}, {85, 143, 66}, {86, 135, 65},
+    {86, 127, 127}, {304, 193, 19}, {322, 192, 19}, {324, 192, 18}, {327, 191, 18}, {328, 191, 17},
+    {329, 190, 17}, {330, 189, 17}, {331, 189, 16}, {332, 188, 16}, {333, 187, 15}, {334, 186, 15},
+    {335, 184, 14}, {336, 183, 13}, {337, 181, 13}, {338, 179, 12}, {339, 176, 11}, {340, 174, 10},
+    {341, 171, 8}, {342, 168, 7}, {343, 164, 6}, {344, 127, 127}};
+enum { EXIT_INPUTS = (int)(sizeof k_exit_inputs / sizeof k_exit_inputs[0]) };
+
+static void exit_begin(void)
+{
+    nav_reset();
+    t.frames = 0;
+    pad_apply(0, 0, 0);
+}
+
+/* The capture's pad at frame `frame` (the last entry at or before it; the
+ * neutral pad before the first). */
+static void exit_apply(int frame)
+{
+    const ExitInput *in = NULL;
+    for (int i = 0; i < EXIT_INPUTS && k_exit_inputs[i].f <= frame; ++i) in = &k_exit_inputs[i];
+    if (!in) {
+        pad_apply(0, 0, 0);
+        return;
+    }
+    pad_apply(0, (in->lx - 128) / 128.0f, (in->ly - 128) / 128.0f);
+}
+
+static int exit_frame(void)
+{
+    uint8_t phase = 0xFF;
+    int16_t timer = 0;
+    switch (t.step) {
+    case 0:
+        /* Fan r2 leaves phase 2 first, so the next entry into it is a whole
+         * cycle point (the capture's row 31: phase 2, timer 0). */
+        pad_apply(0, 0, 0);
+        if (!em_scene_bindings_fan_cycle(EXIT_FAN_R2, &phase, &timer)) {
+            fail("fan r2 (0x7A7690) is not a live fan node");
+            return 0;
+        }
+        if (phase != 2) {
+            nav_reset();
+            ++t.step;
+            return 0;
+        }
+        if (++t.nav_frames > EXIT_FAN_WAIT) fail("fan r2 did not leave phase 2");
+        return 0;
+    case 1:
+        pad_apply(0, 0, 0);
+        if (!em_scene_bindings_fan_cycle(EXIT_FAN_R2, &phase, &timer)) {
+            fail("fan r2 (0x7A7690) is not a live fan node");
+            return 0;
+        }
+        if (phase == 2) {
+            fprintf(stderr, "level smoke: exit: aligned counter=%u (fan r2 phase 2, timer %d = exit_00 row %d)\n",
+                    em_frame_counter(), (int)timer, EXIT_ALIGN_ROW);
+            t.frames = EXIT_ALIGN_ROW;
+            nav_reset();
+            ++t.step;
+            exit_apply(t.frames - 2);
+            return 0;
+        }
+        if (++t.nav_frames > EXIT_FAN_WAIT) fail("fan r2 did not enter phase 2 within a cycle");
+        return 0;
+    case 2: {
+        /* This tick is capture frame t.frames. */
+        ++t.frames;
+        if (t.frames == EXIT_CROSSING_ROW) {
+            const uint8_t *story = em_scene_progress_at(em_scene_state(), 0x008107D8u, 1);
+            if (!story || *story != 0x81) {
+                fail("the crossing did not set D_008107D8 = 0x81 in exit_00's frame 344");
+                return 0;
+            }
+        }
+        exit_apply(t.frames - 2);
+        if (t.frames < k_exit_inputs[EXIT_INPUTS - 1].f + 2)
+            return 0;
+        nav_reset();
+        ++t.step;
+        return 0;
+    }
+    case 3: {
+        /* Automatic from here: the departure, the movie, the area change, the
+         * load. The frame before the arrival's rebuild: area 1, slot 0 at
+         * the frame machine (+9 = 1) with +B = 0. Watched from the task's
+         * end (em_level_smoke_test_task_end), which every frame reaches; the
+         * after-frame hook runs only in world frames. */
+        pad_apply(0, 0, 0);
+        const EmSceneState *s = em_scene_state();
+        if (s->d810700 == 1 && task_byte(EM_SCENE_TASK_09) == 1 && task_byte(EM_SCENE_TASK_0B) == 0) {
+            fprintf(stderr, "level smoke: exit: PASS area %02X %02X %02X; the next frame is the AREA01 "
+                    "arrival's rebuild (exit_01 row 306)\n", s->d810700, s->d810701, s->d810702);
+            return 1;
+        }
+        if (++t.nav_frames > EXIT_ARRIVAL_LIMIT) fail("the AREA01 arrival did not come");
+        return 0;
+    }
+    default:
+        return 0;
+    }
+}
+
 /* ------------------------------------------------------------- driver */
 
 void em_level_smoke_test_begin(void)
@@ -2964,11 +3126,7 @@ void em_level_smoke_test_after_frame(void)
     if (!t.active || t.failed)
         return;
     if (t.stop_pending) {
-        t.stop_pending = 0;
-        if (em_scene_faulted(em_scene_state()))
-            fail("the scene coordinator faulted on the frame after the last phase");
-        else
-            em_frame_request_quit();
+        stop_frame();
         return;
     }
     if (t.current > t.until || t.current >= PHASE_COUNT)
@@ -2984,6 +3142,23 @@ void em_level_smoke_test_after_frame(void)
         }
     page_capture();
     if (k_phases[t.current].frame() == 1 && !t.failed)
+        next_phase();
+}
+
+void em_level_smoke_test_task_end(void)
+{
+    if (!t.active || t.failed)
+        return;
+    if (stop_frame())
+        return;
+    if (t.stop_pending || t.current > t.until || t.current >= PHASE_COUNT ||
+        k_phases[t.current].frame != exit_frame || t.step != 3)
+        return;
+    if (em_scene_faulted(em_scene_state())) {
+        fail("the scene coordinator faulted");
+        return;
+    }
+    if (exit_frame() == 1 && !t.failed)
         next_phase();
 }
 

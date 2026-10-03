@@ -318,6 +318,19 @@ finish on its third call, the oracle's AREA11 case takes 14 dispatches of
 001FFCD0. Live, 001FB370 takes 8 calls (its own steps: IOP_STREAM.md "The
 sound-bank transfer"), so the area load takes 20 dispatches at host speed.
 
+**AREA01 sub 0** (INDEX.IDX sector 5; the level exit's load, chain C11 EXIT,
+FIRST_LEVEL_EXIT.md section 7): the top block has no bank and no A entry
+(+0x0C = +0x0E = 0), a resident region of 0x1A5000 bytes from DATA.DAT byte
+0x199F800, six pointer words (slots 0x41, 0x96..0x98, 0x71, 0x73) and two
+nested blocks; room 0's (D_00289BC0 + 0x100) holds one bank entry (0x75000
+bytes, the area's SShd container, through 001FB370), one A entry (0xD8800,
+the room's texture upload, sent from D_0028A740 in state 8) and a resident
+region from +0x14D800 (0x4BE000 bytes) with fifteen pointer words. The
+exporter's default areas are `0xb:0,0x1:0` (`--areas area[:room]`); the
+pack holds every sector of both loads. Live, the load takes 37 dispatches
+at host speed (the capture's 212 frames: its drive) and passes the
+capture's states in order (LEVEL_SMOKE.md "exit").
+
 **The live workers** (em_module_loader.c):
 - 001FB370: the binder's bank hook (`em_module_loader_set_bank_hook`) with
   the file as the drive delivered it, from its address to the region's
@@ -336,10 +349,12 @@ sound-bank transfer"), so the area load takes 20 dispatches at host speed.
 - The area's two DMA sends go to the area consumer
   (`em_module_loader_set_area_chain_hook`; em_scene_bindings
   `loader_area_chain`): it accepts exactly 001FF590(0xAB, 1)'s A entry at
-  D_0028A73C and 00200890's packet (one of the slot words 8..12) and
-  applies nothing: the port's renderer draws these texels from its disc
-  export, which DISC_TEXTURES test B proves equal to what these uploads
-  write in every route capture. Anything else (a B section) is refused.
+  D_0028A73C, 001FF590(0xAC, 1)'s at D_0028A740 (a nested block's: AREA01
+  room 0's, since chain C11 EXIT) and 00200890's packet (one of the slot
+  words 8..12) and applies nothing: the port's renderer draws AREA11's
+  texels from its disc export, which DISC_TEXTURES test B proves equal to
+  what these uploads write in every route capture, and nothing in the first
+  level draws AREA01's. Anything else (a B section) is refused.
 - An area-done hook (`em_module_loader_set_area_done_hook`) runs in the
   dispatch whose 001FFCD0 step reaches 0x63; the binder loads the port's own
   assets there.

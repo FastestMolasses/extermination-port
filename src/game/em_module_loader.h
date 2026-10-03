@@ -261,6 +261,9 @@ EmStatusSceneLoader *em_module_loader_state(EmModuleLoader *ml);
 /* The host bytes the drive delivered at original `address` (`size` bytes
  * inside one read's region), or NULL. */
 const uint8_t *em_module_loader_memory(const EmModuleLoader *ml, uint32_t address, uint32_t size);
+/* The bytes from original `address` to the end of the read region the drive
+ * delivered it in: the pointer and *size, or NULL. */
+const uint8_t *em_module_loader_memory_rest(const EmModuleLoader *ml, uint32_t address, uint32_t *size);
 
 #ifdef __cplusplus
 }

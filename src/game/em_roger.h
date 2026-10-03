@@ -24,7 +24,7 @@ typedef enum {
     EM_ROGER_FACE_UPDATE,         /*1BA580(actor,model_kind): activity slot1 */
     EM_ROGER_BUILD_POSE,          /*1C68C0 */
     EM_ROGER_DRAW,                /*virtual4C, after rendered-byte updates */
-    EM_ROGER_REMOVE_GROUP,        /*1B0C60(1,0,4) */
+    EM_ROGER_AREA_CHANGE,         /* 001B0C60(1, 0, 4): the area-change request */
     EM_ROGER_RELEASE_FACE,        /*1BA540: CA770 if extended face, D8BF0(0) */
     EM_ROGER_FREE                /*AFC10 */
 } EmRogerEvent;

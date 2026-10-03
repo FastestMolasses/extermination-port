@@ -550,6 +550,17 @@ void em_sfx_submit_001FB9F0(unsigned id, int32_t left, int32_t right)
     sfx_submit(&snd, left, right);
 }
 
+int em_sfx_submit_001FB9F0_track(unsigned id, int32_t left, int32_t right)
+{
+    SfxSound snd;
+    if (!sfx_accept(id, &snd, 1)) return -1;
+    if (snd.cue) {
+        sfx_cue_submit(snd.cue, left, right);
+        return -1;
+    }
+    return sfx_start(snd.entry, left, right);
+}
+
 void em_sfx_tables(int32_t requested[EM_SFX_TRACKS], int32_t snapshot[EM_SFX_TRACKS])
 {
     memcpy(requested, s.requested, sizeof s.requested);

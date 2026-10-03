@@ -2062,6 +2062,206 @@ def check_roger(ticks, run, state):
           f'and {count - (release - f0)} rows after it; {follow})')
 
 
+# ------------------------------------------- the level exit (route beat 15)
+
+EXIT_00 = DECOMP / 'build/c10/exit/exit_00_departure'       # decomp docs/CAPTURES_C10.md "EXIT"
+EXIT_01 = DECOMP / 'build/c10/exit/exit_01_movie_arrival'
+EXIT_ALIGN_ROW = 31        # exit_00: fan r2 enters phase 2 (the smoke's alignment)
+EXIT_FAN_R2 = 0x7A7690     # fan record [2] (00827630)
+EXIT_ARRIVAL_ROW = 306     # exit_01: the AREA01 arrival (0x1AE040 state 0), the first frame of control
+EXIT_AMBIENT = 0x44E       # 001FC280's id of AREA01 sub 0 entry 4 (spawn record +0x20 = 0x044E3FFF)
+POOL_BASE, POOL_STRIDE = 0x7A5640, 0x2F0
+
+
+def exit_rows(path):
+    return json.loads((path / 'trace.json').read_text())['rows']
+
+
+def exit_port(ticks, i):
+    """The port's tick i as the exit rows sample it (after the frame)."""
+    t = ticks[i]
+    b = bytes.fromhex(t['post'])
+    fan = [g for g in t['gun_fan'] if g[0] == EXIT_FAN_R2]
+    roger = t.get('roger')
+    nxt = ticks[i + 1] if i + 1 < len(ticks) else None
+    pl = t['player']
+    return {'pos': [round(f32(v), 5) for v in t['pos_post']], 'yaw': round(f32(t['yaw_post']), 5),
+            'spad': b[tsr.OFFSET[SPAD]:tsr.OFFSET[SPAD] + 8].hex(),
+            'req': b[tsr.OFFSET[0x8106B0]:tsr.OFFSET[0x8106B0] + 10].hex(),
+            'area': b[tsr.OFFSET[0x810700]:tsr.OFFSET[0x810700] + 2].hex(), 'slot0': tuple(b[0:4]),
+            'player': (pl[0], pl[1], pl[2], pl[3], pl[6]), 'clock': round(f32(pl[4]), 3),
+            'story': t['story'][0], 'fan': (fan[0][4], fan[0][6]) if fan else None,
+            'roger': (roger[1], roger[3]) if roger else None,
+            'equipment': t['equipment'][1] if t.get('equipment') else None,
+            'eye': [round(f32(v), 5) for v in t['eye_post']], 'tgt': [round(f32(v), 5) for v in t['tgt_post']],
+            'cam': t['cam4'][:2], 'screen': t['screen8'],
+            'msg': tuple(nxt['msg_pre']) if nxt else None, 'fade': nxt['fade8'] if nxt else None}
+
+
+def exit_orig(row):
+    m = bytes.fromhex(row['msg'])
+    freed = lambda h: h is None or int(h, 16) == 0
+    roger, attach = row['roger_r8'], row['attach_r9']
+    return {'pos': row['pos'], 'yaw': row['yaw'], 'spad': row['spad'], 'req': row['req'], 'area': row['area'],
+            'slot0': tuple(bytes.fromhex(row['slots'])[8:12]),
+            'player': (row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['b2F3']), 'clock': row['clock'],
+            'story': int(row['d2'][:2], 16), 'fan': (row['fan_r2']['phase'], row['fan_r2']['timer']),
+            'roger': None if freed(roger['h']) else (roger['h'], roger['s1F0']),
+            'equipment': None if freed(attach['h']) else attach['h'],
+            'eye': row['eye'], 'tgt': row['tgt'], 'cam': row['cam_mode'][:2], 'screen': row['screen'][:16],
+            'msg': struct.unpack('<3I', m[:12]), 'fade': row['fade'][:16]}
+
+
+def exit_loader(ticks, i):
+    """The slot-2 loader record +8..+B and D_00275BD8 after tick i's frame
+    (the next tick's start sample: the loader dispatches after the task)."""
+    lp = bytes.fromhex(ticks[i + 1]['loader_pre'])
+    return tuple(lp[1:5]), lp[25]
+
+
+def exit_segments(states):
+    out = []
+    for k, st in states:
+        if out and out[-1][0] == st:
+            out[-1][2] += 1
+        else:
+            out.append([st, k, 1])
+    return out
+
+
+def check_exit(ticks, run, state):
+    """Route beat 15 (decomp CAPTURES_C10.md "EXIT"): exit_00 from its row 31
+    (the smoke aligns on fan r2's entry into phase 2) and exit_01 up to the
+    AREA01 arrival, with exit_00's pad replayed (em_level_smoke_test.c
+    exit_frame):
+    - every row from exit_00 f31 through exit_01's last row before the load
+      (f10, counter 16207): the player (position, heading, +5, +1F0, +1F1,
+      clip, +0x2F3; the clock from the walk's clip on, before it the idle
+      clip's phase is the time since the area load), the spad bytes, the
+      request block B0..B9, the area bytes, slot 0's +8..+B, D_008107D8, fan
+      r2's phase and timer, Roger's +0x00..+0x0F and script block (freed:
+      none), the equipment node, the camera eye / target and byte, the
+      letterbox, the message block and the fade block: the crossing (f344:
+      D_008107D8 = 0x81, script 0x828A10), the departure walk, op0F and its
+      movie (selector 1, E001.PSS: the run log's movie line), 001B0C60(1, 0,
+      4), 001AD010 and 001ADF50's first tick;
+    - the load (001FF080(1, 0) to the arrival): the distinct states of slot
+      0 (+8..+B), the slot-2 loader (+8..+B) and D_00275BD8 equal the
+      capture's in order; a state the capture holds one frame holds one tick
+      (the code's own steps), the others are the drive's polls, 001FB370's
+      upload and the veil's post-load wait (host speed); the request, area,
+      spad, letterbox, camera and fade bytes equal the capture's state for
+      state; the whole chain and veil replay through the original
+      instructions (tools/test_area_load_reference.py replay_chain /
+      replay_veil);
+    - the arrival (exit_01 f304..f306, aligned on the state-0 rebuild): the
+      fields above (the player's clock excepted at f306, see below) and, from
+      the tick log's tail (the post-frame values of the run's last tick), the
+      fade block, the stream's read phase D_00282157, the ambient loop
+      D_00282160 = 0x44E (the capture's end snapshot) and the pool: every
+      record's +0x00..+0x17 equal to the capture's f306 (row 0's pool with
+      f306's changes) and, for each record f306 lists, +0x18..+0x3F and
+      +0xA0..+0xDF. Exempt at f306: the player's clock +0x3C, which the port's
+      pose attach (player_pose_attach, in 001AFCA0) sets in the rebuild where
+      the original's 0015C420 sets it at the first stage (the next frame)."""
+    rows0, rows1 = exit_rows(EXIT_00), exit_rows(EXIT_01)
+    m = re.search(r'^level smoke: exit: aligned counter=(\d+)', run, re.M)
+    assert m, 'no exit alignment line'
+    start = max(state.get('cursor', 0), 1)
+    i0 = next(i for i in range(start, len(ticks)) if ticks[i]['counter'] == int(m.group(1)))
+    assert rows0[EXIT_ALIGN_ROW]['fan_r2']['phase'] == 2 and rows0[EXIT_ALIGN_ROW - 1]['fan_r2']['phase'] != 2, \
+        'exit_00 f31 is no longer fan r2\'s entry into phase 2'
+    assert exit_port(ticks, i0)['fan'] == (2, 0) and exit_port(ticks, i0 - 1)['fan'][0] != 2, \
+        ('exit: the aligned tick is not fan r2\'s entry into phase 2', ticks[i0]['tick'])
+    base = rows0[EXIT_ALIGN_ROW]['counter']
+    load = next(k for k in range(len(rows1)) if rows1[k]['bd8'] == 1)
+    walk = next(k for k in range(EXIT_ALIGN_ROW, len(rows0)) if rows0[k]['clip'] != 0)
+    window = [rows0[k] for k in range(EXIT_ALIGN_ROW, len(rows0))] + [rows1[k] for k in range(load)]
+    crossing = next(r for r in window if int(r['d2'][:2], 16) & 0x80)
+    assert crossing['f'] == 344 and crossing['counter'] == rows0[344]['counter'], 'exit_00: the crossing moved'
+    for r in window:
+        i = i0 + r['counter'] - base
+        p, o = exit_port(ticks, i), exit_orig(r)
+        where = (f'exit row f{r["f"]} (counter {r["counter"]}, port tick {ticks[i]["tick"]})')
+        if r['counter'] < rows0[walk]['counter']:
+            p.pop('clock'), o.pop('clock')   # the idle clip's phase: the time since the area load
+        assert p == o, (where, {k: (p[k], o[k]) for k in p if p[k] != o[k]})
+    movies = re.findall(r'^startup: movie (\d+) \((\S+)\) for the game task', run, re.M)
+    assert movies[-1:] == [('1', 'E001.PSS')] and movies.count(('1', 'E001.PSS')) == 1, ('exit: the departure movie', movies)
+    # The load.
+    il = i0 + rows1[load]['counter'] - base
+    arrival = next(i for i in range(il, len(ticks)) if bytes.fromhex(ticks[i]['pre'])[3] == 0 and
+                   bytes.fromhex(ticks[i]['post'])[3] == 1 and bytes.fromhex(ticks[i]['pre'])[1] == 1)
+    assert arrival == len(ticks) - 1, ('exit: the run did not end on the AREA01 arrival', ticks[arrival]['tick'])
+    port_states = [(i, (exit_port(ticks, i)['slot0'],) + exit_loader(ticks, i)) for i in range(il, arrival - 1)]
+    orig_states = [(k, (exit_orig(rows1[k])['slot0'], tuple(bytes.fromhex(rows1[k]['slots'])[0x48:0x4C]),
+                        rows1[k]['bd8'])) for k in range(load, EXIT_ARRIVAL_ROW - 1)]
+    ps, os_ = exit_segments(port_states), exit_segments(orig_states)
+    assert [x[0] for x in ps] == [x[0] for x in os_], ('exit: the load\'s states', [x[0] for x in ps],
+                                                      [x[0] for x in os_])
+    waits = []
+    for (st, i, n), (_st, k, n0) in zip(ps, os_):
+        assert n <= n0 and (n0 > 1 or n == 1), ('exit: a load state lasts longer than the capture\'s', st, n, n0)
+        if n != n0:
+            waits.append(f'{st[1][:2]}/{st[0][1:3]} {n} vs {n0}')
+        for q in range(n):
+            p, o = exit_port(ticks, i + q), exit_orig(rows1[k + min(q, n0 - 1)])
+            for key in ('pos', 'yaw', 'spad', 'req', 'area', 'eye', 'tgt', 'cam', 'screen', 'msg', 'fade', 'story'):
+                assert p[key] == o[key], (f'exit load tick {ticks[i + q]["tick"]} against f{rows1[k]["f"]}', key,
+                                          p[key], o[key])
+    import test_area_load_reference as alr
+    elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
+    chain_ticks = ticks[i0:arrival]
+    n_chain, n_d010 = alr.replay_chain(elf, chain_ticks)
+    steps, draws = alr.replay_veil(elf, chain_ticks)
+    assert n_d010 == 1 and n_chain >= arrival - il - 1, ('exit: the chain replay', n_chain, n_d010)
+    # The arrival.
+    tail = state.get('tail')
+    assert tail is not None, 'exit: the tick log has no tail (the arrival\'s post-frame values)'
+    for k in range(EXIT_ARRIVAL_ROW - 2, EXIT_ARRIVAL_ROW + 1):
+        i = arrival - (EXIT_ARRIVAL_ROW - k)
+        p, o = exit_port(ticks, i), exit_orig(rows1[k])
+        if k == EXIT_ARRIVAL_ROW:
+            p['fade'], p['msg'] = tail['fade8'], tuple(tail['msg'])
+            p.pop('clock'), o.pop('clock')   # see the docstring
+            # The rows sample fan r2, Roger and his equipment at their AREA11
+            # record addresses, which AREA01's records hold from f306 on: the
+            # pool comparison below covers them.
+            for key in ('fan', 'roger', 'equipment'):
+                p.pop(key), o.pop(key)
+        assert p == o, (f'exit arrival f{k}', {key: (p[key], o[key]) for key in p if p[key] != o[key]})
+    assert tail['stream'] and tail['stream'][1] == rows1[EXIT_ARRIVAL_ROW]['cd157'], \
+        ('exit: D_00282157 after the arrival', tail['stream'], rows1[EXIT_ARRIVAL_ROW]['cd157'])
+    end = (EXIT_01 / 'eeMemory.bin').read_bytes()
+    assert struct.unpack_from('<i', end, 0x282160)[0] == EXIT_AMBIENT == tail['ambient'][0], \
+        ('exit: the ambient loop D_00282160', tail['ambient'])
+    pool = dict(rows1[0]['pool0'])
+    pool.update(rows1[EXIT_ARRIVAL_ROW]['pool_delta'])
+    want = {k: v for k, v in pool.items() if int(v[:2], 16)}
+    got = {f'{(int(a) - POOL_BASE) // POOL_STRIDE:02x}': v for a, v in tail['pool'].items()}
+    assert set(got) == set(want), ('exit: the pool\'s live records at the arrival', sorted(set(got) ^ set(want)))
+    for key in sorted(want):
+        assert got[key][0] == want[key], (f'exit: pool record {key} +0x00..+0x17', got[key][0], want[key])
+    deep = rows1[EXIT_ARRIVAL_ROW]['pool_deep']
+    for key, v in deep.items():
+        if key in got:
+            assert got[key][1] + got[key][2] == v, (f'exit: pool record {key} +0x18..+0x3F / +0xA0..+0xDF',
+                                                    got[key][1] + got[key][2], v)
+    state['cursor'] = len(ticks)
+    # The whole-run checks cover AREA11's ticks: everything before the
+    # arrival's state-0 rebuild (main()).
+    state['area11_end'] = arrival
+    print(f'exit: PASS (port ticks {ticks[i0]["tick"]}..{ticks[il - 1]["tick"]} equal exit_00 f{EXIT_ALIGN_ROW}..'
+          f'f{rows0[-1]["f"]} and exit_01 f0..f{rows1[load - 1]["f"]} row for row: the crossing at f344 '
+          f'(D_008107D8 = 0x81), Roger\'s departure 0x828A10 and its walk, op0F and the movie E001.PSS, '
+          f'001B0C60(1, 0, 4), 001AD010, 001ADF50; the AREA01 load passes the capture\'s {len(os_)} states in '
+          f'order (at host speed: {"; ".join(waits)}), its {n_chain} chain ticks and {n_d010} 001AD010 call '
+          f'identical to the executed original ({steps} veil steps replayed); the arrival at port tick '
+          f'{ticks[arrival]["tick"]} equals exit_01 f{EXIT_ARRIVAL_ROW}: the player at {rows1[EXIT_ARRIVAL_ROW]["pos"]} '
+          f'heading {rows1[EXIT_ARRIVAL_ROW]["yaw"]}, the camera, the fade-in, D_00282157 = 1, the ambient '
+          f'loop 0x44E and the {len(want)} pool records ({len(deep)} with their +0x18 / +0xA0 spans))')
+
+
 # ------------------------------- the director's beats (census L21, WP-8b)
 
 # route beat -> (the director's frame row, the row the search for it starts at)
@@ -2450,6 +2650,7 @@ PHASES = [
     ('east_tower_climb', check_east_tower_climb),
     ('east_tower', check_east_tower),
     ('roger', check_roger),
+    ('exit', check_exit),
 ]
 
 
@@ -2642,11 +2843,13 @@ def check_render_context(ticks, state):
             gameplay += 1
             if gameplay % 200 == 1:
                 samples.append(r)
-        if prev is not None and r['v'] != prev['v'] and bytes.fromhex(t['pre'])[3] == 4:
+        if prev is not None and r['v'] != prev['v'] and bytes.fromhex(t['pre'])[3] in (0, 4):
             # 0x1AE040 state 4 (the room move) re-seats the camera with
             # 0018D7B0 / 0018C0D0 (which builds D_00810610) and falls into
             # state 1 in the same tick: that tick's frame head projects the
-            # re-seated view, not the previous tick's.
+            # re-seated view, not the previous tick's. State 0 (the level
+            # exit's AREA01 arrival) re-seats it in 001B07C0's 001B0460 and
+            # projects it in its closing 001D1EF0.
             reseats += 1
         elif prev is not None and r['v'] != prev['v']:
             assert r['v'] == prev['cam610'], ('render context', 'port tick', t['tick'],
@@ -3127,7 +3330,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('aim', ('aim_r1_hold', 'aim_r2_hold', 'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty',
                   'aim_light', 'aim_melee', 'aim_world', 'aim_cable')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
-         ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)))
+         ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
+         ('15', ('exit',)))
 
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
@@ -3895,12 +4099,15 @@ def main():
     args = parser.parse_args()
     run = args.run_log.read_text()
     assert 'level smoke: FAIL' not in run, 'the run reported a failure'
-    ticks = [json.loads(line) for line in args.log.open()]
+    lines = [json.loads(line) for line in args.log.open()]
+    ticks = [line for line in lines if 'tick' in line]
+    tails = [line for line in lines if 'tail' in line]
     assert re.search(r'^level smoke: PASS ', run, re.M), 'the run has no final PASS line'
     # The stream drive's mode (the run's "stream drive:" line; em_settings'
     # EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
     # timing"): check_voice_drive and the opening's end follow it.
-    state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace}
+    state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace,
+             'tail': tails[-1] if tails else None}
     checked, not_live, driven, side_named = [], [], [], []
     for name, check in PHASES:
         if re.search(rf'^level smoke: {name}: PASS', run, re.M):
@@ -3916,6 +4123,9 @@ def main():
             side_named.append(name)
             if re.search(rf'^level smoke: {name}: side beat, not on the main line \(.*; NOT-LIVE:', run, re.M):
                 not_live.append(name)
+    # The whole-run checks below are AREA11's: a run through the exit phase
+    # ends on the AREA01 arrival's rebuild (check_exit), which they leave out.
+    ticks = ticks[:state.get('area11_end', len(ticks))]
     if 'first_control' in checked:
         check_render_context(ticks, state)
         check_indicator_children(ticks, state)

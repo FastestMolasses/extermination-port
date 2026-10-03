@@ -104,13 +104,12 @@ def bindings_from_captures(caps, containers):
     return bound, refused, report
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument('--out', type=Path, default=C.OUT / 'sfx')
-    args = ap.parse_args(argv)
-    args.out = args.out.resolve()
-    caps = C.captures()
-    X.Elf()                                   # pins the boot ELF
+def area_binding(caps):
+    """The (1, 0) binding export_sfx_registry.py's resolver takes, from the
+    captures `caps`, with the container, its parse and the capture report:
+    (binding, rel, data, parsed, bound, refused, report). Also used by
+    export_sfx_registry.py for the level exit's arrival scope (the first
+    level's own AREA01 captures)."""
     rel, data, parsed = area_container(caps)
     gdata = (C.DECOMP / X.GLOBAL_CONTAINER).read_bytes()
     gparsed = X.A.parse_container(gdata)
@@ -131,6 +130,17 @@ def main(argv=None):
     binding = {(C.AREA, C.SUB): dict(groups=groups, binding='AREA01 captures (D_00281D50/D_0027C6C0)',
                                      refused={(3, 0): 'group 3 bank 0 = handle 3, header without SShd '
                                                       'magic in AREA01'})}
+    return binding, rel, data, parsed, bound, refused, report
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument('--out', type=Path, default=C.OUT / 'sfx')
+    args = ap.parse_args(argv)
+    args.out = args.out.resolve()
+    caps = C.captures()
+    X.Elf()                                   # pins the boot ELF
+    binding, rel, data, parsed, bound, refused, report = area_binding(caps)
     ids = [i for i in list(range(0x3E8, 0x5DC)) + list(range(0x7D0, 0x9C4))]
     saved = X.area_bindings, X.scene_ids, X.census_report
     X.area_bindings = lambda _elf: binding

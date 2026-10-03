@@ -68,6 +68,13 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry);
  * aborted by the skip path. 0, or -1 on a fault (reported). */
 int em_area11_script_host_tick(EmActor *actor, int32_t *result);
 
+/* The ELF's walk clip table D_0024D8F0[0..8] (op01 kinds 3 / 5 / 8: the
+ * player's +0x1F2 for a scripted walk; Roger's departure 0x828A10), exported
+ * by tools/export_script_walk_clips.py (EMWC v1). */
+#define EM_SCRIPT_WALK_CLIPS_PATH  "assets/script_walk_clips.emwc"
+#define EM_SCRIPT_WALK_CLIPS_BASE  0x0024D8F0u
+#define EM_SCRIPT_WALK_CLIPS_COUNT 9u
+
 /* The ELF's ordinary-door program (census L18): 0x24DBC0..0x24DF80 of the
  * user's ELF, entry 0x24DE40, exported by tools/export_door_program.py. The
  * host resolves the fence door's starts there; 001BBE40's patch writes into

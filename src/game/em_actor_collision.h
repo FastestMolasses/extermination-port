@@ -68,6 +68,13 @@ typedef struct {
  * and 001A2370 use the word unmasked). Returns 0, or -1 on a malformed
  * image (the table is left empty). */
 int em_actor_cells_init(EmActorCellTable *table, const void *image, size_t size);
+/* The hull offset pass 1 reads for a directory word: its low 30 bits (the
+ * flag bits 31 / 30 masked, as 0019F730, 001A0B10 and 001A32C0 do). A word
+ * with bit 29 set (AREA01's uid 0, 0xA000009C; docs/AREA01_ASSETS.md
+ * finding 1) names tbl + 0x20000000 + offset, which the EE reads through its
+ * uncached main-RAM mirror 0x20000000..0x21FFFFFF: the same bytes as tbl +
+ * offset (the EE memory map, not a capture). */
+uint32_t em_actor_cells_hull_offset(uint32_t word);
 /* Load a raw directory file (the export of the user's disc data). */
 int em_actor_cells_load(EmActorCellTable *table, const char *path);
 void em_actor_cells_free(EmActorCellTable *table);

@@ -20,13 +20,17 @@ void em_frontend_service_state(int32_t out[4]);
  * leaves it out of the comparison. */
 const void *em_frontend_host_state(size_t *size);
 
-/* The game task's movie request (S12a): 001AD360 step 1 stores the movie
- * selector D_00275C78 = 0 and then D_00821058 = 1, which the main loop's
- * blocking movie driver 00203350 serves at step M (em_frame.c). The native
- * frontend owns the movie player, so the two stores land here. Only selector
- * 0 (E900.PSS, assets/startup/intro.mov) is exported; any other selector, or
- * a D_00821058 value other than 1, is refused (-1, fail-stop). */
+/* The game's movie requests: 001AD360 step 1 (S12a) stores the movie
+ * selector D_00275C78 = 0 and then D_00821058 = 1; op0F (001B7A30) of Roger's
+ * departure script 0x828A10 stores D_00275C78 = 1 (its record's +0x14) and
+ * D_00821058 = 1. The main loop's blocking movie driver 00203350 serves the
+ * request at step M (em_frame.c). The native frontend owns the movie player,
+ * so the stores land here. Selectors 0 (E900.PSS, assets/startup/intro.mov)
+ * and 1 (E001.PSS, assets/movies/e001.mov) are exported; any other selector,
+ * or a D_00821058 value other than 1, is refused (-1, fail-stop).
+ * em_frontend_movie_selector reads D_00275C78 back (-1 before any store). */
 int em_frontend_movie_select(uint8_t selector); /* D_00275C78 */
 int em_frontend_movie_request(uint8_t value);   /* D_00821058 */
+int em_frontend_movie_selector(void);
 
 #endif

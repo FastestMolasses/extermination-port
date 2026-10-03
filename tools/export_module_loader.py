@@ -6,16 +6,18 @@ steps (001FF080 -> 001FF0D0 -> 001FF830 / 001FF3F0, or the area streamer
 001FFCD0 / 001FF590 -> 00200780 / 00200730) and answers every read from this
 pack at host speed. For each requested module the pack holds the module's
 INDEX.IDX header sector and every DATA.DAT span that header makes the loader
-read (its chunk entries and its payload); for each requested area, the
-area's overlay file, its INDEX.IDX header sector (area + 4) and every
+read (its chunk entries and its payload); for each requested area and room,
+the area's overlay file, its INDEX.IDX header sector (area + 4) and every
 DATA.DAT span 001FFCD0 reads (the sound bank entry 0, the A entries, the
-resident region); all exactly as 00200780 rounds them to sectors. A read the
+resident region, and the same three of the room's nested block when the
+header has nested blocks); all exactly as 00200780 rounds them to sectors. A read the
 pack does not hold faults at run time (fail-stop); nothing is synthesised.
 Default: module 3 (the New Game's 001AD1A0), the status pages' modules the
 first level loads (PAGE_MODULES: 0x1F the ITEM root, 0x1E MAP, 0x2C SPR4,
 0x24 DATABASE, the ITEM children 0x20 / 0x21 BATTERY / 0x22 / 0x23 and the
-SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1) and area 0x0B
-(AREA11, the New Game's 001FF080(1, 0)).
+SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1), area 0x0B
+(AREA11, the New Game's 001FF080(1, 0)) and area 1 room 0 (AREA01 sub 0, the
+level exit's load).
 
 Inputs (the user's own, read in place, nothing modified):
   --iso      the user's disc image (default ../Extermination/Extermination-rebuilt.iso).
@@ -77,7 +79,10 @@ CURSORS = (0x275C70, 0x275C74, 0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
 # children (0x20, 0x21, 0x22, 0x23) and SPR4's part pages (0x2D..0x31).
 PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31)
 DEFAULT_MODULES = (3,) + PAGE_MODULES
-DEFAULT_AREAS = (0x0B,)
+# (area, room): AREA11 (the New Game's 001FF080(1, 0)) and AREA01 sub 0 (the
+# level exit's load: Roger's departure requests 001B0C60(1, 0, 4); route beat
+# 15, docs/FIRST_LEVEL_EXIT.md).
+DEFAULT_AREAS = ((0x0B, 0), (0x01, 0))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890
@@ -214,23 +219,43 @@ def boot_tables(disc, elf_path: Path):
             [word(D_00264890 + 4 * i) for i in range(5)])
 
 
-def area_reads(disc, index, data, area, files):
-    """[(what, lsn, sectors)] of a whole 001FF080(1, 0) load of `area`
-    (001FFCD0 with 001FF590; no nested block)."""
+def block_reads(data, block, tag):
+    """[(what, lsn, sectors)] 001FFCD0's open phase and resident read make
+    for one descriptor `block` (the 0x800-byte header, or a 0x70-byte nested
+    descriptor): 001FF590(tag, 0) reads entry 0, the sound bank, when +0x0C
+    is non-zero; 001FF590(tag, 1) the A entries +0x0C .. +0x0C + +0x0E - 1;
+    state 5 (or 9) the resident region +4 + +0x14, +8 - +0x14 bytes."""
+    base, total, resident = u32(block, 4), u32(block, 8), u32(block, 0x14)
+    first, count = struct.unpack_from('<HH', block, 0xC)
+    reads = []
+    if first:
+        reads.append((f'{tag}bank', *read_span(data, base + u32(block, 0x20), s32(u32(block, 0x24)))))
+    for i in range(first, first + count):
+        off, n = u32(block, 0x20 + 8 * i), u32(block, 0x24 + 8 * i)
+        reads.append((f'{tag}a{i}', *read_span(data, base + off, s32(n))))
+    reads.append((f'{tag}resident', *read_span(data, base + resident, s32(total - resident))))
+    return reads
+
+
+def area_reads(disc, index, data, area, files, room=0):
+    """[(what, lsn, sectors)] of a whole 001FF080(1, 0) load of `area` with
+    D_00810701 = `room` (001FFCD0 with 001FF590): the overlay file, the
+    header sector area + 4, the header's block and, when its +0x18 (the
+    nested count) is non-zero, the nested block D_00289BC0 + 0x100 + room *
+    0x70 (state 7 publishes it; states 8 and 9 read it)."""
     lsn, size = files[area]
     reads = [('overlay', lsn, (size + 0x7FF) >> 11)]      # 00200780(file, buf, 0, -1)
     reads.append(('header', *read_span(index, (area + 4) << 11, 0x800)))
     header = disc.sectors(reads[-1][1], reads[-1][2])
-    base, total, resident = u32(header, 4), u32(header, 8), u32(header, 0x14)
-    first, count = struct.unpack_from('<HH', header, 0xC)
-    if u32(header, 0x18):
-        raise SystemExit(f'area {area:#x}: a nested block is not exported')
-    if first:                                             # 001FF590(0xAB, 0): entry 0, the sound bank
-        reads.append(('bank', *read_span(data, base + u32(header, 0x20), s32(u32(header, 0x24)))))
-    for i in range(first, first + count):                 # 001FF590(0xAB, 1): the A entries
-        off, n = u32(header, 0x20 + 8 * i), u32(header, 0x24 + 8 * i)
-        reads.append((f'a{i}', *read_span(data, base + off, s32(n))))
-    reads.append(('resident', *read_span(data, base + resident, s32(total - resident))))
+    reads += block_reads(data, header, '')
+    nested = u32(header, 0x18)
+    if nested:
+        if not 0 <= room < nested:
+            raise SystemExit(f'area {area:#x}: room {room} outside its {nested} nested blocks')
+        at = 0x100 + room * 0x70
+        reads += block_reads(data, header[at:at + 0x70], f'room{room}.')
+    elif room:
+        raise SystemExit(f'area {area:#x} has no nested block: room {room} is not loadable')
     return header, reads
 
 
@@ -242,12 +267,13 @@ def main():
                     help='optional original RAM capture folder (eeMemory.bin): checks and cursor seeds')
     ap.add_argument('--modules', default=','.join(f'{m:#x}' for m in DEFAULT_MODULES),
                     help='comma-separated module ids (default 3 and PAGE_MODULES)')
-    ap.add_argument('--areas', default=','.join(f'{a:#x}' for a in DEFAULT_AREAS),
-                    help='comma-separated area ids for 001FF080(1, 0) (default 0xb)')
+    ap.add_argument('--areas', default=','.join(f'{a:#x}:{r}' for a, r in DEFAULT_AREAS),
+                    help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')
     args = ap.parse_args()
     modules = [int(m, 0) for m in args.modules.split(',') if m.strip()]
-    areas = [int(a, 0) for a in args.areas.split(',') if a.strip()]
+    areas = [(int(a.split(':')[0], 0), int(a.split(':')[1], 0) if ':' in a else 0)
+             for a in args.areas.split(',') if a.strip()]
     if not args.iso.is_file():
         raise SystemExit(f'{args.iso}: the user\'s disc image is required')
     disc = Disc(args.iso)
@@ -301,14 +327,14 @@ def main():
                 checks[f'{module:#x}_chunks'] = f'equal to the capture at {dest:#x} ({length:#x} bytes)'
             else:
                 checks[f'{module:#x}_chunks'] = 'not resident in the capture'
-    for area in areas:
+    for area, room in areas:
         if not 0 <= area < AREA_FILES:
             raise SystemExit(f'area {area:#x}: outside D_0028A3C0')
-        _header, reads = area_reads(disc, index, data, area, files)
+        _header, reads = area_reads(disc, index, data, area, files, room)
         for what, lsn, sectors in reads:
             if sectors:
                 ranges[(lsn, sectors)] = None
-            receipt.append(dict(area=area, read=what, lsn=lsn, sectors=sectors))
+            receipt.append(dict(area=area, room=room, read=what, lsn=lsn, sectors=sectors))
     order = sorted(ranges)
     blob = bytearray(struct.pack('<4sIII', b'EMML', 2, len(order), 0))
     blob += struct.pack('<4I', *index, *data)
@@ -325,7 +351,7 @@ def main():
     blob += table + payload
     args.out.parent.mkdir(parents=True, exist_ok=True)
     args.out.write_bytes(bytes(blob))
-    report = dict(modules=[f'{m:#x}' for m in modules], areas=[f'{a:#x}' for a in areas],
+    report = dict(modules=[f'{m:#x}' for m in modules], areas=[f'{a:#x}:{r}' for a, r in areas],
                   ranges=len(order), bytes=len(blob),
                   area_files={n: [hex(v) for v in f] for n, f in zip(names, files)},
                   d275304=hex(arena), d264890=[hex(v) for v in bases],

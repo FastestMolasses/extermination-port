@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42) and by chain C8b's flame-and-snow step on 2026-09-28 (section 1.43); liveness re-measured over the whole route again on 2026-09-28 at port HEAD 6594182 by chain C8b's route step (section 1.44); rechecked by chain step PAGELOADS on 2026-09-30 (section 1.47, no status change) and by the EM_NEW_GAME switch step on 2026-09-30 (section 1.48, no status change) and by chain step AIM on 2026-10-01 (section 1.49, no status change); recounted from the rows by the lighting step on 2026-10-02 (section 1.53); rechecked by chain step ASSETS on 2026-10-02 (section 1.54, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42) and by chain C8b's flame-and-snow step on 2026-09-28 (section 1.43); liveness re-measured over the whole route again on 2026-09-28 at port HEAD 6594182 by chain C8b's route step (section 1.44); rechecked by chain step PAGELOADS on 2026-09-30 (section 1.47, no status change) and by the EM_NEW_GAME switch step on 2026-09-30 (section 1.48, no status change) and by chain step AIM on 2026-10-01 (section 1.49, no status change); recounted from the rows by the lighting step on 2026-10-02 (section 1.53); rechecked by chain step ASSETS on 2026-10-02 (section 1.54, no status change); extended to route beat 15 (the level exit through the AREA01 arrival) and recounted by chain step EXIT on 2026-10-02 (section 1.56). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -2161,21 +2161,63 @@ rows, after the merge onto the lighting step 1.53 and ASSETS 1.54): live
 723, verified-unbound 30, unverified 3, stand-in 0, missing 0, boundary 428;
 87,008 of the 88,729 non-boundary instructions live (98.1%).
 
+### 1.56 Update (2026-10-02, chain step EXIT: route beat 15, the level exit and the AREA01 arrival)
+
+Route beat 15 joins the census. Its functions are the EXIT capture lane's
+census (decomp CAPTURES_C10.md "EXIT", passes EXIT and EXITB, decomp
+`build/c10/exit/census_delta.json`): 1,028 functions ran, 953 of them
+already rows here and 75 new. Chain step EXIT binds the beat live up to
+the AREA01 arrival (FIRST_LEVEL_EXIT.md section 7): the level smoke's
+`exit` phase compares it with the capture row for row (LEVEL_SMOKE.md
+"exit").
+
+- **New rows (11, in the first level):** the departure 00194D10, 0022FCA0,
+  00230000 (the camera's tether while the player walks under the fan),
+  0x823C40 and 0x823C80 (Roger's departure) and 001B7A30 (op0F); the change
+  001B0C00, 001B0C60 and 001FAD70: all **live**. 001195A8 (the EE sound
+  library's bank scan in the load's 001FB370) and 0x823A50 (AREA01's
+  overlay init, 001E7780's callee in the arrival's 001AFCA0) are
+  **boundaries** (section 4).
+- **Beyond the first level (64):** every other new function first runs in
+  the frames after the arrival's state-0 rebuild, AREA01's world frames.
+  They are level 2 and listed in section 3.26, not counted in section 2.
+- **Status change:** 001FC280 unverified -> live (its cache D_00282160
+  modelled and its loop started through 001FB9F0; the exit's D_00282160 =
+  0x44E equals the capture's end snapshot).
+- **One owner for 001B0C00:** em_scene_request_area_change_001B0C60 calls
+  em_script_host_001B0C00 (the oracle-checked translation) instead of its
+  own copy of it.
+- **The camera tether's three rows** were measured live in the exit's
+  departure on an instrumented build (not committed): 00230000 first runs
+  at the port tick aligned with the capture's counter 16086, and its first
+  two calls in area 0x0B are 0022FCA0 and 00194D10 (em_camleft_00230000).
+- **The 953 known rows** keep their statuses: the beat runs the same code
+  over the same owners as beats 10..14 until the arrival.
+
+Result (recounted from the section 3 rows with route_functions.json and
+census_delta.json, 765 rows): live 733, verified-unbound 30, unverified 2,
+stand-in 0, missing 0, boundary 430; 87,691 of the 89,332 non-boundary
+instructions live (98.2%).
+
 ## 2. Totals
 
-### 2.1 All 1184 executed functions
+### 2.1 All 1195 executed functions of the first level
+
+Since section 1.56 the census includes route beat 15 through the AREA01
+arrival (11 functions more); the 64 functions AREA01 runs after its arrival
+are level 2 (section 3.26) and not counted here.
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 723 | 87,008 | 657 (81,940) | 66 (5,068) |
+| live | 733 | 87,691 | 667 (82,623) | 66 (5,068) |
 | verified-unbound | 30 | 1,594 | 18 (977) | 12 (617) |
-| unverified | 3 | 127 | 3 (127) | 0 (0) |
+| unverified | 2 | 47 | 2 (47) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
-| boundary | 428 | 23,035 | 150 (9,735) | 278 (13,300) |
-| **total** | **1184** | **111,764** | 828 | 356 |
+| boundary | 430 | 23,090 | 152 (9,790) | 278 (13,300) |
+| **total** | **1195** | **112,422** | 839 | 356 |
 
-Of the 756 non-boundary functions, 723 (95.6%) are live and verified; by instructions 87,008 of 88,729 (98.1%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 30 functions (1,594 instructions, 1.8%) are verified translations the live app does not run. Only 3 functions (127 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 3 unverified (0015CF90, 001B1190 and, since WP-8b, 001FC280, section 1.15; 00187DC0 is live since chain C7, section 1.26). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53 and 1.55) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 765 non-boundary functions, 733 (95.8%) are live and verified; by instructions 87,691 of 89,332 (98.2%). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 30 functions (1,594 instructions, 1.8%) are verified translations the live app does not run. Only 2 functions (47 instructions) have no verified translation on the live path: no stand-in and no missing row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 2 unverified (0015CF90 and 001B1190; 00187DC0 is live since chain C7, section 1.26, and 001FC280 since chain step EXIT, section 1.56). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55 and 1.56) with each function's instruction count and labels from `route_functions.json`; the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -2184,33 +2226,38 @@ Of the 756 non-boundary functions, 723 (95.6%) are live and verified; by instruc
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
 | S0_title | 81 / 8 / 0 / 0 / 0 / 383 | 81 / 8 / 0 / 0 / 0 / 383 |
-| S1_newgame_load | 179 / 13 / 1 / 0 / 0 / 86 | 112 / 9 / 1 / 0 / 0 / 18 |
-| S2_opening | 454 / 15 / 2 / 0 / 0 / 109 | 335 / 10 / 1 / 0 / 0 / 17 |
+| S1_newgame_load | 180 / 13 / 0 / 0 / 0 / 86 | 113 / 9 / 0 / 0 / 0 / 18 |
+| S2_opening | 455 / 15 / 1 / 0 / 0 / 109 | 335 / 10 / 1 / 0 / 0 / 17 |
 | S3_first_control_idle | 358 / 11 / 1 / 0 / 0 / 101 | 12 / 0 / 0 / 0 / 0 / 0 |
 | 00_panel_no_battery | 424 / 12 / 1 / 0 / 0 / 81 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 469 / 13 / 3 / 0 / 0 / 138 | 30 / 1 / 1 / 0 / 0 / 5 |
+| 01_battery | 470 / 13 / 2 / 0 / 0 / 138 | 30 / 1 / 1 / 0 / 0 / 5 |
 | 02_elevator_refusal | 439 / 12 / 1 / 0 / 0 / 83 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 504 / 15 / 2 / 0 / 0 / 109 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 03_panel_power | 505 / 15 / 1 / 0 / 0 / 109 | 20 / 1 / 0 / 0 / 0 / 1 |
 | 04_elevator_ride | 431 / 12 / 1 / 0 / 0 / 116 | 2 / 0 / 0 / 0 / 0 / 2 |
 | 05_boxes | 432 / 11 / 1 / 0 / 0 / 78 | 23 / 0 / 0 / 0 / 0 / 0 |
 | 06_hill_slide | 396 / 11 / 1 / 0 / 0 / 81 | 12 / 0 / 0 / 0 / 0 / 0 |
 | 07_truck_preview | 408 / 13 / 1 / 0 / 0 / 99 | 1 / 0 / 0 / 0 / 0 / 0 |
 | 08_truck_crossing | 396 / 12 / 1 / 0 / 0 / 114 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 451 / 13 / 2 / 0 / 0 / 89 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 452 / 13 / 1 / 0 / 0 / 89 | 8 / 1 / 0 / 0 / 0 / 0 |
 | 10_cage_roof_roger | 487 / 15 / 1 / 0 / 0 / 124 | 28 / 0 / 0 / 0 / 0 / 0 |
 | 11_crevice_prompt | 483 / 14 / 1 / 0 / 0 / 121 | 2 / 0 / 0 / 0 / 0 / 0 |
 | 12_crevice_jump | 413 / 13 / 1 / 0 / 0 / 77 | 6 / 0 / 0 / 0 / 0 / 0 |
 | 13_east_tower | 456 / 14 / 1 / 0 / 0 / 122 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 479 / 17 / 2 / 0 / 0 / 89 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 480 / 17 / 1 / 0 / 0 / 89 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 15_level_exit (through the AREA01 arrival) | 525 / 22 / 1 / 0 / 0 / 416 | 9 / 0 / 0 / 0 / 0 / 2 |
+
+Beat 15's "ran" is the EXIT census's 953 known functions plus its 11 new
+first-level ones (census_delta.json); its 64 level-2 functions (section
+3.26) are left out.
 
 ### 2.3 What the numbers say
 
 State at the full-route recount of 2026-09-28 (section 1.44, which re-measured every row's liveness over the whole route at port HEAD 6594182; the earlier measurements are sections 1.22 and 1.33), with the row changes of section 1.46. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 723 of 756 non-boundary functions (98.1% by instructions; sections 1.53 and 1.55).** Every main-line route phase the
+- **Live and verified: 733 of 765 non-boundary functions (98.2% by instructions; sections 1.53, 1.55 and 1.56).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
-  three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
+  three beats with Roger's voiced conversation, the level exit through the AREA01 arrival (since section 1.56), (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
   exactly the drive's 6 rows early at host speed, the default, and on the capture's rows with the PS2 disc-drive
   timing switch; 0x7F 2 rows earlier still, the music refill's phase), the tank and pipe climbs, the crevice jump, the east-tower climb and Roger's encounter; the side beats
   00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18; with the door's
@@ -2243,8 +2290,7 @@ State at the full-route recount of 2026-09-28 (section 1.44, which re-measured e
   (L28); the indicator children's +0x4C draw 001CABA0 (the child's model mesh drawn additively at the child's own
   node, section 1.25; the security gun's 0x7A lamp draws nothing); on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
   walked over (the AREA11 flame and the snow draw on the page since section 1.43);
-  001FC280's body
-  (unverified since WP-8b: the D_00282160 cache is not modelled); the opening's scene-0x22 camera timeline (the
+  the opening's scene-0x22 camera timeline (the
   opening lane's stand-in for 0022EEF0 with its fade track, census L33: its +0x6C..+0x7B words are the
   original's since section 1.41, its eye / target sampling and the +0x80 event cursor are not); the panel's, the terminal's and the items' takeovers
   (the interaction runtime's acquire and per-stage tick over their scripts' animation core; their release
@@ -2255,7 +2301,7 @@ State at the full-route recount of 2026-09-28 (section 1.44, which re-measured e
   runtime leaves (3.14: 3), the vector math and owner services rows (3.10: 3) and the sound-side rows of 3.19
   (3: 001FBC50, 001FBDB0, 001FBF50); the effects' room point-light lists are live since section 1.53 and the
   AREA11 overlay's flag-0x30 manager 00823CE0 since section 1.55 (3.23 keeps one: the overlay init 008237C0).
-- **No verified translation:** 3 functions (127 instructions): 3 unverified rows (section 2.1); no stand-in and no
+- **No verified translation:** 2 functions (47 instructions): 2 unverified rows (section 2.1); no stand-in and no
   missing row is left (001CB3C0 is live since section 1.40).
 
 ## 3. Per-subsystem tables
@@ -2303,7 +2349,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.2 Actor pool, spawn placement and entity services (0x1AF000..0x1B0FFF)
 
-28 functions, 1,504 instructions: live 26, verified-unbound 2 (recount 2026-09-28, the face step, section 1.40).
+30 functions, 1,554 instructions: live 28, verified-unbound 2 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2331,6 +2377,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B0460 | — | BM | live | em_script_host_workers em_script_host_001B0460 via em_camera_live_001B0460 (spawn_w_001B0460) — test_script_host_workers_reference; test_level_smoke.py (first_control: the seat row f2639 exact) | live since census L13..L16 (1 call per area build); em_game.c em_game_legacy_camera_rearm only for scenes without an original roster | S1_newgame_load |
 | 0x001B07C0 | — | BM | live | em_spawn_table, em_scene_bindings — test_spawn_place_reference.py | reads D_00810707 from the canonical progress byte (HK) | S1_newgame_load |
 | 0x001B0B50 | — | BM | live | em_player_closure_10_12_19, em_script_host_workers — test_player_closure_10_12_19_reference.py, test_script_host_workers_reference.py; test_level_smoke.py (first_control seat row) | live since census L13..L16 as 001B0460's worker (1 call) | S1_newgame_load |
+| 0x001B0C00 | — | BM | live | em_script_host_workers em_script_host_001B0C00 (the one translation: the area-change request em_scene_request_area_change_001B0C60 calls it since chain C11 EXIT, the skip landing through em_area11_script_host) — test_script_host_workers_reference; test_level_smoke.py (exit: exit_01 f9 row for row) | first on the route in beat 15 (Roger's departure) | 15_level_exit |
+| 0x001B0C60 | — | BM | live | em_scene_bindings em_scene_request_area_change_001B0C60 (Roger's departure through em_area11_roger's EM_ROGER_AREA_CHANGE; the fan's direct exit through em_area11_bindings) — test_level_smoke.py (exit: exit_01 f9 row for row, 3B8D = 3 and B5..B8 = 01 00 04 01) | its callers' oracles hook it as a worker (test_roger_reference, test_fan_original_reference) | 15_level_exit |
 | 0x001B0DC0 | — | BM | live | em_owner_services_original — test_owner_services_reference.py | recount 2026-09-25: em_owner_services_001B0DC0 executed on the live path (6 calls over the five measured runs) | S2_opening* |
 | 0x001B0EA0 | — | NM | live | em_owner_services_original (the boxes' allocation over the exported bank, em_area11_boxes.c; the fence door's through em_area11_boxes_door_001B0EA0, census L18) — test_owner_services_reference.py; test_collision_world_capture.py (+0x09 / +0x0C / +0x44 bound); test_level_smoke.py fence_door |  | S2_opening* |
 | 0x001B0F60 | — | BM | live | em_startup_load_gaps em_slg_001B0F60 in the fence door's 001BBDA0 (em_area11_door; census L18) — test_startup_load_gaps_reference; test_level_smoke.py fence_door (the door header's +0x09 / +0x0C) |  | S2_opening* |
@@ -2491,7 +2539,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.6 Camera (0x18B000..0x199FFF)
 
-27 functions, 7,740 instructions: live 26, verified-unbound 1 (recount 2026-09-26, shadow step).
+28 functions, 7,777 instructions: live 27, verified-unbound 1 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2519,6 +2567,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00192010 | — | AW | live | em_camera_follow_original — test_camera_follow_original_reference; test_level_smoke.py camera rows (census 1.11) | live since census L13..L16 (377 calls) | 06_hill_slide |
 | 0x001921D0 | — | NM | live | em_camera_follow_original — test_camera_follow_original_reference; test_level_smoke.py camera rows (census 1.11) | live since census L13..L16 (5248 calls) | S3_first_control_idle |
 | 0x00193EB0 | — | NM | live | em_camera_area11_specials — test_camera_area11_specials_reference; test_level_smoke.py camera rows (census 1.11) | live since census L13..L16 (inside 00195130, 5248 calls) | S3_first_control_idle |
+| 0x00194D10 | — | NM | live | em_camera_leftovers em_camleft_00194D10 via em_camera_live (sp_00194D10: the tether's region quads D_0024A5F0, assets/camera_tables.emrg) — test_camera_leftovers_reference; test_level_smoke.py (exit: the camera eye / target row for row over exit_00 f31..f434) | measured live in the exit's departure: 00230000 first at the port tick aligned with the capture's counter 16086 (an instrumented build, not committed); its first two calls are 0022FCA0 and 00194D10 (em_camleft_00230000 in area 0x0B) | 15_level_exit |
 | 0x00195130 | — | NM | live | em_camera_area11_specials — test_camera_area11_specials_reference; test_level_smoke.py camera rows (census 1.11) | live since census L13..L16 (5248 calls; on the other 2692 calls of its slot in the smoke a named stand-in of CAMERA_LIVE.md section 6 held the camera); D_00810803 canonical | S3_first_control_idle |
 | 0x00199C50 | — | NM | verified-unbound | em_startup_load_gaps em_slg_00199C50 — test_startup_load_gaps_reference | the live um_00199C50 is a reported no-effect binding (state 0) | S1_newgame_load* |
 | 0x00199DB0 | — | NM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09 (the column node's centre); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
@@ -2630,7 +2679,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.11 Script host and script ops (0x1B6BF0..0x1BBD5F)
 
-29 functions, 3,487 instructions: live 28, verified-unbound 1 (recount 2026-09-28, the opening step, section 1.41).
+30 functions, 3,551 instructions: live 29, verified-unbound 1 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2641,6 +2690,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001B6F80 | — | BM | live | em_area_script op01 kind 9 (inline: the player's heading, then 00182F90) via em_area11_script_host — test_script_door_fan_reference (part 1: the handler runs as original code inside 001BA1F0 while the em_area_script lockstep passes); test_level_smoke.py (roger: the 01/9 placement and heading at route 14 f1756 and every row after, exact) | recount 2026-09-26 (section 1.22): Roger's 0x8283D0 runs it live; the opening's use (S2) is em_opening_runtime's own op01 | S2_opening |
 | 0x001B6FA0 | — | BM | live | em_area_script op15 via em_area11_script_host (Roger's 0x828990 conversation, route 10, since WP-8b; 2,357 calls on the full route) — test_script_door_fan_reference (part 1: the handler runs as original code inside 001BA1F0 while the em_area_script lockstep passes); test_level_smoke.py (cage_roof) | | 10_cage_roof_roger |
 | 0x001B7840 | — | BM | live | em_area_script op10 via em_area11_script_host (census L22) — test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
+| 0x001B7A30 | — | BM | live | em_area_script op0F over the AREA11 script host (since chain C11 EXIT: D_00282157 the stream lanes' read phase, D_00275C78 / D_00821058 the movie service, em_frontend's selector 1 = E001.PSS) — test_area_script_reference (roger 828A10); test_level_smoke.py (exit: the movie frame, exit_01 f6) | first in beat 15 (Roger's departure) | 15_level_exit |
 | 0x001B7B30 | — | BM | live | em_area_script op0D via em_area11_script_host (census L22), em_cinematic_playback — test_cinematic_playback_reference; test_script_door_fan_reference (part 1); test_level_smoke.py (roger: route 14 row for row) | em_camera.c retarget/chase hooks (cases 3/5; level smoke routes 02-04) | S2_opening |
 | 0x001B7D60 | — | BM | live | em_message_service em_message_op0c via em_message_live (the opening's op0C; the AREA11 host's panel/terminal lines; since WP-8b the director's and Roger's voiced lines 0x7F / 0x97 / 0x99) — test_message_service_reference, test_panel_message_reference; test_level_smoke.py (the director beats) | | S2_opening |
 | 0x001B7F90 | — | BM | live | em_pickup_motion em_pickup_turn via the interaction host — test_pickup_motion_reference.py (executes 001B7F90) |  | 01_battery |
@@ -2975,7 +3025,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.19 Streams, sound and message service (0x1F9000..0x1FDFFF)
 
-39 functions, 3,096 instructions: live 35, verified-unbound 3, unverified 1 (recount 2026-10-02, chain step A11FIX, section 1.55).
+40 functions, 3,157 instructions: live 37, verified-unbound 3 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2992,6 +3042,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FAB80 | — | BM | live | em_message_service via em_message_live (step F), its 001FAAC0 calls on the lanes (WP-8b) — test_message_service_reference.py; em_stream_lanes_original — test_stream_lanes_reference.py | | S0_title |
 | 0x001FABB0 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) (the status open, 001AD360 step 0, 001FD470 bit 1, the scripts, Roger, the opening, 001AC3B0) — test_stream_lanes_reference, test_iop_stream_reference (the status page scenario) | | S0_title |
 | 0x001FABF0 | — | NM | live | em_stream_lanes_original via em_stream_live (WP-8b) — test_stream_lanes_reference.py; test_level_smoke.py (the director beats) | | S1_newgame_load |
+| 0x001FAD70 | — | BM | live | em_stream_lanes_original em_stream_lanes_001FAD70 via em_stream_live (001B0C00's three stream fades) — test_stream_lanes_reference; test_level_smoke.py (exit) | | 15_level_exit |
 | 0x001FAE70 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) (the status close, the opening's and Roger's resume, the aborted cinematic; since section 1.32 the state-0 area entry and the state-4 room move) — test_stream_lanes_reference, test_iop_stream_reference (the opening and status scenarios), test_rand_order (the area-entry draw from state 1) | state 2 r == 1 and state 6 stay reported (UM_001FAE70; no smoke run reaches them) | S1_newgame_load |
 | 0x001FB100 | — | BM | live | em_startup_load_gaps_sound em_slg_001FB100 at step H (em_stream_live_step_h, chain step H7: the whole function: 001F9CF0, the D_0028215B / D_0081011C output-mode commit, the D_00281B70 → D_00281C30 copy over em_sfx's tables, 001FC6E0) — test_startup_load_gaps_reference; newgame-control and the level smoke run it every frame | D_0081011C is this binding's own byte (0 at the boot and in every capture; its writer, the options screen, is off the route), so the commit never fires on the route; D_0027F778 (00119870) is stored but em_sfx_bank's 001179E0 still reads a constant 0 (section 4, sound library) | S0_title |
 | 0x001FB370 | — | BM | live | em_startup_load_gaps_sound em_slg_001FB370 through em_sound_bank (em_stream_live) as the module loader's 001FF590 bank step (chain step H7) — test_startup_load_gaps_reference; test_sound_bank_reference (the ORIGINAL chain over the title capture call for call; the end state, SPU and IOP RAM equal route 00) | the New Game load: 8 calls on AREA11's bank | S1_newgame_load* |
@@ -3002,7 +3053,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FBD50 | — | BM | live | em_sfx.c / em_sfx_bank.c play path — test_area11_sfx_reference | as 001FB9F0 | S2_opening |
 | 0x001FBDB0 | — | AW | verified-unbound | em_sfx_bank — test_area11_sfx_reference.py |  | 09_fence_door |
 | 0x001FBF50 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | em_sfx.c em_sfx_play_at (no gain oracle, AM-19) | S2_opening |
-| 0x001FC280 | — | NM | unverified | em_scene_bindings_001FC280 (the lanes' worker inside 001FAE70, WP-8b; partial: the D_00282160 cache is not modelled and an ambient loop other than -1 faults); the lanes' oracle scripts it as a worker | no oracle: the lanes' oracle records the call, not its body | S1_newgame_load |
+| 0x001FC280 | — | NM | live | em_scene_bindings_001FC280 (the lanes' worker inside 001FAE70, WP-8b; since chain C11 EXIT the whole body: the cache D_00282160 (-1 from 001FBC50 on), the old loop's stop 0011A070 (em_sfx_stop_track), the new loop's 001FB9F0 (em_sfx_submit_001FB9F0_track over the SFX registry's area scope) with D_00282164..70, the two 00119828) — test_level_smoke.py (exit: D_00282160 = 0x44E at the AREA01 arrival equals the capture's end snapshot; every AREA11 area entry keeps -1) | the stop branch (a cached id other than -1) is not reached in the first level | S1_newgame_load |
 | 0x001FC3C0 | — | BM | live | em_sfx, em_sfx_bank (em_sfx_loop_service), bound for the flame 008235F0 by em_area11_effect_runtime (A11FIX) — test_area11_sfx_reference.py, test_area11_sfx_runtime.py; tools/level_smoke_overlay11.py | the flame's loop 0x413 (radius 100) at 0x70003B68 / 0x70003B8A; never requested before first control (the opening capture's handle is -1), requested on the main line near the flame (the decomp's audio capture holds it in every frame of route 11) | S2_opening |
 | 0x001FC6E0 | — | BM | live | em_startup_load_gaps_sound em_slg_001FC6E0 inside 001FB100 at step H (chain step H7) — test_startup_load_gaps_reference | D_00281F30 is em_stream_live's ({0, -1} as 001FBC50 leaves it, and its binding clears it); its writer 001FC580 is unbound (faults when reached), so no cue is pending on the route | S0_title |
 | 0x001FC770 | — | BM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
@@ -3059,9 +3110,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x002149F0 | — | NM | live | em_status_page_record em_spr_002149F0 through em_battery_page_live (the runtime's ITEM child page 5, over the UI block D_00810130, the request bytes, the inventory view and the live message block) — test_status_page_record_reference; test_level_smoke.py (the 239-frame notice, the panel's confirmation and discharge row for row) | status UI step 2026-09-26 (section 1.21): em_battery_ui.c's page, em_panel_battery_begin / _step and the battery_finished hook are retired | 01_battery |
 | 0x00219550 | — | NM | live | em_pickup_owner em_pickup_owner_tick via em_pickup.c and the AREA11 interaction host — test_pickup_owner_reference (executes 00219550 and compares the tick) | live since WP-6 (81414be) for the six AREA11 items; since section 1.25 its state 0 runs over its record (em_pickup_owner_00219550_state0, executed against the original by test_pickup_owner_reference: 001B1020 over D_0028A56C or 001B0FD0, the +0x2E rewrite, 001C6380, 001A2370) and its visible +0x4C is 001CAA00 over it (the legacy item mesh is retired) | S2_opening |
 
-### 3.22 Load veil, fog, stage workers, cinematic timeline (0x21B000..0x22FFFF)
+### 3.22 Load veil, fog, stage workers, cinematic timeline, the camera tether (0x21B000..0x2301FF)
 
-25 functions, 3,097 instructions: live 24, verified-unbound 1 (recount 2026-09-27, load veil step).
+27 functions, 3,448 instructions: live 26, verified-unbound 1 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3090,10 +3141,12 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0022EBE0 | — | CL | live | em_status_ui_leftovers em_sul_0022EBE0 (001DDE10's) through em_render_context_live — test_status_ui_leftovers_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S2_opening |
 | 0x0022EC30 | — | BM | live | em_cinematic_playback em_cinematic_playback_start via the script host's w_0022EC30 (op00 kind 6, bank 0x96 clip 0; census L22) — test_cinematic_playback_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x0022EEF0 | — | NM | live | em_cinematic_playback em_cinematic_playback_tick via em_area11_script_host_camera_0022EEF0 (em_camera top mode 3; census L22) — test_cinematic_playback_reference; test_level_smoke.py (roger: route 14 row for row) (camera eye / target while the camera byte is 3) | the live camera frame (census L13..L16) calls it at +4 == 3 (lw_0022EEF0); the opening track stays on em_opening_runtime.c (em_opening_runtime_camera_sample) | S2_opening |
+| 0x0022FCA0 | — | NM | live | em_camera_leftovers em_camleft_0022FCA0 via em_camera_live (sp_0022FCA0: the tether's orbit) — test_camera_leftovers_reference; test_level_smoke.py (exit: the camera row for row) | measured live in the exit's departure: 00230000 first at the port tick aligned with the capture's counter 16086 (an instrumented build, not committed); its first two calls are 0022FCA0 and 00194D10 (em_camleft_00230000 in area 0x0B) | 15_level_exit |
+| 0x00230000 | — | BM | live | em_camera_leftovers em_camleft_00230000 via em_camera_live — test_camera_leftovers_reference; test_level_smoke.py (exit: the camera row for row) | measured live in the exit's departure: 00230000 first at the port tick aligned with the capture's counter 16086 (an instrumented build, not committed); its first two calls are 0022FCA0 and 00194D10 (em_camleft_00230000 in area 0x0B) | 15_level_exit |
 
 ### 3.23 AREA11 overlay owners (0x8235F0..0x828050, runtime addresses)
 
-23 functions, 4,400 instructions: live 22, verified-unbound 1 (recount 2026-10-02, chain step A11FIX, section 1.55).
+25 functions, 4,440 instructions: live 24, verified-unbound 1 (recount 2026-10-02, chain step EXIT, section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3103,6 +3156,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00823910 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x00823950 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) | the ordinary branch (0x8283D0, route 14) and, since WP-8b, the alternate 0x828990 (route 10, with the director) run | 10_cage_roof_roger |
 | 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
+| 0x00823C40 | — | CO | live | em_roger em_roger_tick via em_area11_roger (progress bit 0x80: the departure 0x828A10) — test_roger_reference (progress 0x80); test_level_smoke.py (exit: Roger's record and script block row for row) | first in beat 15 | 15_level_exit |
+| 0x00823C80 | — | CO | live | em_roger em_roger_tick via em_area11_roger (the departure's end: 001B0C60(1, 0, 4) through EM_ROGER_AREA_CHANGE, lifecycle 3) — test_roger_reference (progress 0x80); test_level_smoke.py (exit: exit_01 f9) | | 15_level_exit |
 | 0x00823CE0 | — | AU | live | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; decomp C func_overlay_AREA11_00823CA0.c, byte-identical) via em_area11_bindings.c tick_flag30 (A11FIX) — test_script_door_fan_reference (part 3); tools/level_smoke_overlay11.py | lifecycle 1, waiting on D_00810788, with 001B17A0 every tick: its record equals every route snapshot's; the script path (0x828C70, a return visit) faults (no image holds it) | S2_opening |
 | 0x00823E80 | — | AU | live | em_area11_opening.c em_area11_opening_tick (the whole function; decomp C func_overlay_AREA11_00823E40.c, byte-identical; A11FIX) over its record in em_area11_bindings.c tick_opening: state 0 (001B0FD0, 001C6380), state 1's script machine over em_area11_script_host (001BA1C0, 001BA1A0 / 001BA1F0 of 0x828FC0, 001FABB0, the completion's +0x2E done mask, D_00810811, 001C4760, 001FAE70, 001AEE10) and tail (001B1B70, +0x4C 001CAA00), states 2 / 3 (001AFC10) — test_area11_opening_reference (the original instructions over every state; A11FIX), test_area11_opening (fixture); test_area_script_reference (its script); test_continue_reset_reference (0x823F74..80 slice); test_level_smoke.py check_rand_order and check_opening_actors (the script's records and their end), check_owner_units (the canopy's unit), level_smoke_overlay11 (its record after the opening equals every snapshot's), test_collision_world_capture.py (cell uid 3 on the published class-4 list) | the port's em_pickup_prop_retire call in state 0 (not original) was removed by A11FIX | S2_opening |
 | 0x00823FF0 | — | AU | live | em_truck_original via em_area11_boxes em_area11_boxes_truck_tick (census L23) — test_truck_original_reference; test_level_smoke.py (truck_crossing: route 08 row for row from the arm) | its 001EFD20 spawns run em_effects_live (census L26; the eight live puffs equal route 08's); sounds 0x454 / 0x455 not in the exported registry (WP-14) | S2_opening |
@@ -3193,16 +3248,87 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00128320 | — | BM | live | em_sdk_soft_float — test_sdk_soft_float_reference | below the soft-float worker 00127758, bound with them (soft-float step, 2026-09-24); recount 2026-09-25: em_sdk_soft_float_00128320 executed on the live path (10 calls over the five measured runs) | 03_panel_power |
 | 0x00128350 | — | AI | live | em_sdk_soft_float em_sdk_soft_float_00128350 — test_sdk_soft_float_reference | recount 2026-09-25: em_sdk_soft_float_w_00128350 executed on the live path (20 calls over the five measured runs) | 03_panel_power |
 
+### 3.26 Beyond the first level: AREA01 after its arrival (route beat 15, level 2)
+
+64 functions, 11,476 instructions, first run in the frames after the AREA01 arrival's state-0 rebuild (the EXIT census's exit_01 counters 16503..16533: the capture's 60 idle frames after control, where the census passes put the arrival at 16502): AREA01's world frames, its owners and its overlay. They are level 2 (FIRST_LEVEL_EXIT.md section 7: every AREA01 frame after the arrival faults at 0x1AE040) and are not counted in section 2. Source: decomp `build/c10/exit/census_delta.json` (`new_functions`, phase `area01_arrival`), decomp statuses at its generation (2026-10-01). Standalone translations of most of them exist (the AREA01 lanes: AREA01_OVERVIEW.md section 11); none is bound.
+
+| Address | Decomp | Region | Instructions | First |
+|---|---|---|---:|---|
+| 0x00128390 | CL | boot | 13 | exit_01 counter 16503 |
+| 0x001287F0 | CL | boot | 14 | exit_01 counter 16505 |
+| 0x001289C0 | BM | boot | 60 | exit_01 counter 16503 |
+| 0x00128AB0 | BM | boot | 51 | exit_01 counter 16503 |
+| 0x00128B80 | NM | boot | 33 | exit_01 counter 16505 |
+| 0x00128C10 | NM | boot | 731 | exit_01 counter 16503 |
+| 0x00129780 | BM | boot | 479 | exit_01 counter 16504 |
+| 0x00157CE0 | BM | boot | 148 | exit_01 counter 16504 |
+| 0x00158590 | NM | boot | 158 | exit_01 counter 16504 |
+| 0x00158D30 | NM | boot | 97 | exit_01 counter 16503 |
+| 0x00159B90 | NM | boot | 181 | exit_01 counter 16503 |
+| 0x0015A2C0 | NM | boot | 291 | exit_01 counter 16503 |
+| 0x0019B4C0 | NM | boot | 128 | exit_01 counter 16504 |
+| 0x0019CF50 | NM | boot | 248 | exit_01 counter 16504 |
+| 0x001A06A0 | NM | boot | 283 | exit_01 counter 16504 |
+| 0x001AA000 | AI | boot | 78 | exit_01 counter 16505 |
+| 0x001B0D80 | BM | boot | 15 | exit_01 counter 16534 |
+| 0x001B13F0 | BM | boot | 31 | exit_01 counter 16505 |
+| 0x001B2140 | NM | boot | 625 | exit_01 counter 16505 |
+| 0x001BB520 | BM | boot | 14 | exit_01 counter 16503 |
+| 0x001BB560 | BM | boot | 152 | exit_01 counter 16504 |
+| 0x001BB860 | NM | boot | 157 | exit_01 counter 16503 |
+| 0x001BF630 | AI | boot | 31 | exit_01 counter 16504 |
+| 0x001BFFD0 | NM | boot | 13 | exit_01 counter 16503 |
+| 0x001C0004 | — | boot | 181 | exit_01 counter 16503 |
+| 0x001C02E0 | NM | boot | 254 | exit_01 counter 16503 |
+| 0x001C2540 | AW | boot | 38 | exit_01 counter 16504 |
+| 0x001C25E0 | BM | boot | 42 | exit_01 counter 16505 |
+| 0x001C2770 | NM | boot | 544 | exit_01 counter 16505 |
+| 0x001C39F0 | BM | boot | 122 | exit_01 counter 16505 |
+| 0x001C3BE0 | BM | boot | 96 | exit_01 counter 16504 |
+| 0x001C3D60 | BM | boot | 17 | exit_01 counter 16505 |
+| 0x001C3DB0 | NM | boot | 191 | exit_01 counter 16504 |
+| 0x001C4FA0 | BM | boot | 43 | exit_01 counter 16503 |
+| 0x001C50B0 | BM | boot | 303 | exit_01 counter 16503 |
+| 0x001C69A0 | NM | boot | 254 | exit_01 counter 16505 |
+| 0x001CB360 | BM | boot | 21 | exit_01 counter 16504 |
+| 0x001CD070 | NM | boot | 68 | exit_01 counter 16503 |
+| 0x001CD180 | NM | boot | 76 | exit_01 counter 16509 |
+| 0x001CD2B0 | BM | boot | 48 | exit_01 counter 16509 |
+| 0x001D0C80 | BM | boot | 47 | exit_01 counter 16503 |
+| 0x001D0D40 | BM | boot | 8 | exit_01 counter 16503 |
+| 0x001D4FC0 | NM | boot | 106 | exit_01 counter 16503 |
+| 0x001D5A70 | AW | boot | 86 | exit_01 counter 16503 |
+| 0x001D5BD0 | BM | boot | 41 | exit_01 counter 16503 |
+| 0x001E3D90 | NM | boot | 540 | exit_01 counter 16503 |
+| 0x001E7CB0 | BM | boot | 25 | exit_01 counter 16504 |
+| 0x001E7D20 | NM | boot | 902 | exit_01 counter 16503 |
+| 0x001E9580 | BM | boot | 566 | exit_01 counter 16503 |
+| 0x001E9E60 | NM | boot | 233 | exit_01 counter 16504 |
+| 0x001F4A10 | NM | boot | 120 | exit_01 counter 16504 |
+| 0x001F4BF0 | AI | boot | 50 | exit_01 counter 16504 |
+| 0x001F4CC0 | BM | boot | 30 | exit_01 counter 16504 |
+| 0x00823580 | CO | AREA01 overlay | 147 | exit_01 counter 16503 |
+| 0x00825350 | CO | AREA01 overlay | 88 | exit_01 counter 16503 |
+| 0x008254B0 | CO | AREA01 overlay | 53 | exit_01 counter 16504 |
+| 0x00825740 | CO | AREA01 overlay | 113 | exit_01 counter 16503 |
+| 0x008261A0 | CO | AREA01 overlay | 24 | exit_01 counter 16503 |
+| 0x00826200 | CO | AREA01 overlay | 143 | exit_01 counter 16503 |
+| 0x00826440 | CO | AREA01 overlay | 221 | exit_01 counter 16503 |
+| 0x008267C0 | CO | AREA01 overlay | 99 | exit_01 counter 16503 |
+| 0x00826CF0 | CO | AREA01 overlay | 17 | exit_01 counter 16503 |
+| 0x00826D40 | CO | AREA01 overlay | 1386 | exit_01 counter 16503 |
+| 0x00828850 | CO | AREA01 overlay | 102 | exit_01 counter 16503 |
+
 ## 4. Platform boundaries
 
-428 functions (23,035 instructions) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+430 functions (23,090 instructions; 428 before beat 15, section 1.56) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
 | Kind | Functions | Instructions | Port substitute | Contract verified |
 |---|---:|---:|---|---|
 | SDK libmpeg / IPU movie decode | 102 | 6,893 | em_movie_mac.m (AVFoundation) over movies exported by tools/export_movie.py | no original comparison (movie export test only) |
-| EE sound library (SPU2 voices, sequencer, IOP sound RPC) | 59 | 3,207 | em_sfx.c + em_sfx_bank.c + em_audio_mac.c | 41: no (dry mixer; no SPU2 ADSR/reverb, AM-03/04); 9: partly: test_area11_sfx_reference; 5: partly: test_stream_lanes_reference; 3: partly: test_area11_sfx_reference, test_area11_sfx_runtime; 1: partly: test_area11_sfx_reference, test_area11_sfx_runtime, test_stream_lanes_reference |
+| EE sound library (SPU2 voices, sequencer, IOP sound RPC) | 60 | 3,249 | em_sfx.c + em_sfx_bank.c + em_audio_mac.c | 41: no (dry mixer; no SPU2 ADSR/reverb, AM-03/04); 9: partly: test_area11_sfx_reference; 5: partly: test_stream_lanes_reference; 3: partly: test_area11_sfx_reference, test_area11_sfx_runtime; 1: partly: test_area11_sfx_reference, test_area11_sfx_runtime, test_stream_lanes_reference |
 | EE kernel syscalls, interrupts, threads, SIF DMA glue | 57 | 1,085 | host OS; nothing to reproduce | n/a |
 | GS/VIF packet build / VU1 kick | 16 | 441 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | partly: level material and overlay-blend tests; fog, snow and status draws checked in their own tests |
 | unidentified title-only SDK glue (probable MPEG) | 29 | 984 | em_frontend.c title / movie path | no |
@@ -3223,7 +3349,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | 2D GS glyph/sprite draw | 1 | 113 | em_gfx 2D layer | draw commands compared by test_status_draw_reference / test_status_hub_ui_reference (001CC1E0 moved to section 3 in the recount) |
 | IOP movie service | 2 | 230 | em_frontend.c movie pump (skip mask from 002036E0) | no |
 | C runtime memset | 1 | 48 | host memset | trivially identical |
-| overlay module dispatch | 1 | 309 | none: AREA11 code is native | n/a |
+| overlay module dispatch | 2 | 322 | none: AREA11 code is native; AREA01's init 0x823A50 (beat 15's arrival) writes only what AREA01's own owners read | n/a |
 
 Addresses per kind:
 
@@ -3238,9 +3364,9 @@ Addresses per kind:
   00109B70, 00109C40, 00109C58, 00109C68, 00109C78, 00109CF8, 00109E68, 00109F90, 0010A140, 0010A1B0,
   0010A1C0, 0010A248, 0010A298, 0010A4D8, 0010A4F8, 0010A650, 0010A998, 0010AA80, 0010AB40, 0010ACA8,
   0010B0F8, 0010B160.
-- **EE sound library (SPU2 voices, sequencer, IOP sound RPC)** (59): 001152D8, 001157F0, 00115850, 00116598, 00116DB8, 00117088, 00117428, 001176E0, 00117918, 001179E0,
+- **EE sound library (SPU2 voices, sequencer, IOP sound RPC)** (60; 001195A8 added by beat 15, section 1.56): 001152D8, 001157F0, 00115850, 00116598, 00116DB8, 00117088, 00117428, 001176E0, 00117918, 001179E0,
   00117BA0, 00117C28, 00118078, 00118E60, 00118EC0, 001191F0, 001192D0, 001193A8, 00119400, 00119450,
-  001194B8, 00119528, 00119810, 00119828, 00119890, 00119978, 001199F0, 00119EA0, 0011A070, 0011A198,
+  001194B8, 00119528, 001195A8, 00119810, 00119828, 00119890, 00119978, 001199F0, 00119EA0, 0011A070, 0011A198,
   0011A218, 0011A270, 0011A2B0, 0011A470, 0011A4B8, 0011A4D0, 0011A4E8, 0011A5C8, 0011A608, 0011A658,
   0011A6A0, 0011A6E8, 0011A730, 0011A758, 0011A770, 0011A788, 0011A7F0, 0011A830, 0011A848, 0011A888,
   0011A8C8, 0011A918, 0011A938, 0011A9D8, 0011AE88, 0011B328, 0011B5E0, 0011B910, 0011B9E0.
@@ -3284,7 +3410,7 @@ Addresses per kind:
 - **2D GS glyph/sprite draw** (1): 001CBA50.
 - **IOP movie service** (2): 00203350, 002036E0.
 - **C runtime memset** (1): 00121A28.
-- **overlay module dispatch** (1): 001E7780.
+- **overlay module dispatch** (2): 001E7780; AREA01's init 0x823A50 (beat 15, section 1.56).
 
 Boundary notes:
 
@@ -3442,7 +3568,7 @@ A read-only review of the census and this classification. Every point below was 
 ### 7.1 Coverage
 
 - **Route beats.** The census replays every beat of FIRST_LEVEL_ROUTE.md section 3: the terminal without a battery (00), the battery pickup and ITEM pop-up (01), the no-power refusal with bars (02), the terminal with the battery and the BATTERY page (03), the elevator ride (04), the crates (05), the hill slide (06), the truck preview with bars (07), the crossing (08), the fence door (09, side), the cage roof (10), the crevice prompt and jump (11, 12), the east tower (13) and Roger's encounter (14). Every beat reports `completed=True`.
-- **Not covered: the level exit.** The route stops when Roger's encounter releases control. The project goal ends at "all of AREA11 → its exit", so the census is not yet the whole first level. A beat 15 (Roger's departure and the fan 00827630 area change) is needed before the count can be called complete.
+- **The level exit: covered since section 1.56.** Route beat 15 (the fan crossing, Roger's departure, the movie, the AREA01 load and arrival; the decomp's EXIT census) is in the count through the AREA01 arrival; AREA01's later frames are level 2 (section 3.26). The fan's direct exit to AREA01 sub 1 (a later return) has no capture.
 - **Not chained: first control to slot 04.** S3 runs 200 idle frames from the census's own opening (counter 3063..3263). The beats start from the user's slot 04 (counter 4083) and not from S3. The position is the same, but slot 03 (counter 3963) is labelled "movement still locked". Nothing in the census covers the frames between S3's end and slot 04, or the first input after the lock lifts. This interval is probably idle, but no census run shows it.
 - **Missing executed function: the main loop 0x1AAE40.** It holds the frame boundary 0x1AAF28 and runs every frame. Its entry ran before slot 01 and never runs again, so a one-shot entry breakpoint cannot see it. It is absent from `route_functions.json` and from every table here. Add it by hand; the port's counterpart is `em_frame` (steps A..W). The same blind spot would apply to any long-lived thread body. The only other game thread is created by 001F91C0 with entry 001FB0C0 (64 bytes). 001F91C0 did not run in the census, and 001FB0C0's only callee 00119870 never ran, so that thread is idle on this route.
 - **Unlisted code: the 0x1050E4..0x105148 gap.** The gap is not just padding. It holds two return instructions (at 0x1050F8 and 0x105118), so it contains at least two or three small routines that `FUNCTIONS.csv` does not list. Two functions that ran in S0 take the address 0x105130: 00104D78 and 00104E48. Add entries for the gap and re-arm them in the next census pass.

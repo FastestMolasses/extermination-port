@@ -540,7 +540,7 @@ The world in this test is synthetic bookkeeping, not original data.
   `EM_ROGER_STOP_STREAMS` → `em_scene_bindings_001FABB0`;
   `EM_ROGER_RESTORE_DEFAULT_BANK` → +0x40 = D_0028A5B8;
   `EM_ROGER_RESUME_MUSIC` → `em_scene_bindings_001FAE70(0)`;
-  `EM_ROGER_FADE_IN` → 001AEE10(4, 0); `EM_ROGER_REMOVE_GROUP` →
+  `EM_ROGER_FADE_IN` → 001AEE10(4, 0); `EM_ROGER_AREA_CHANGE` →
   `em_scene_request_area_change_001B0C60(1, 0, 4)`; the face, pose, draw,
   release and free events as above.
 - **The collision world.** Roger's record and the chain his +0x58 names are
@@ -577,7 +577,10 @@ and the whole encounter (AREA_SCRIPT.md, ROGER_CINEMATIC.md).
   talk 0x828810 (Use on Roger: em_roger_candidate, the claim, the script
   owner's 00183090), the free (001BA540, 001CA770, 001AF890 through
   001AF800) and the alternate 0x828990, which needs the director's
-  D_00810793 (census L21). The departure 0x828A10 is not in the first
-  visit: its op0F stream handshake is still a fail-stop NULL worker.
+  D_00810793 (census L21). The departure 0x828A10 is live since chain C11
+  EXIT (the level smoke's `exit` phase; FIRST_LEVEL_EXIT.md section 7): its
+  op0F handshake is bound, its end requests the area change 001B0C60(1, 0,
+  4) (`EM_ROGER_AREA_CHANGE`), and the equipment node frees itself in state
+  3 after Roger (001C5C90 reads its parent only in states 0 / 1).
 - The draws are the port's actor draw at the original node matrices (the
   face through the 001D88B0 face rig); no GS capture of Roger is compared.

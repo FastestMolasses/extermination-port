@@ -80,6 +80,12 @@ static int hull_valid(const uint8_t *bytes, uint32_t size, uint32_t offset)
     return 1;
 }
 
+uint32_t em_actor_cells_hull_offset(uint32_t word)
+{
+    const uint32_t off = word & 0x3FFFFFFFu;
+    return off & 0x20000000u ? off & 0x1FFFFFFFu : off;
+}
+
 void em_actor_cells_free(EmActorCellTable *table)
 {
     if (!table) return;
@@ -99,9 +105,13 @@ int em_actor_cells_init(EmActorCellTable *table, const void *image, size_t size)
         uint32_t word = rd_u32(src, 4 + 4 * uid);
         if (!word) continue;
         /* Pass 1 masks the flag bits, pass 2 and 001A2370 add the raw word:
-         * both views must name a whole hull. */
-        if (!hull_valid(src, (uint32_t)size, word & 0x3FFFFFFFu)) return -1;
-        if (!(word & 0x80000000u) && !hull_valid(src, (uint32_t)size, word)) return -1;
+         * both views must name a whole hull. A view with bit 29 (AREA01's
+         * uid 0: 0xA000009C) is read through the EE's uncached main-RAM
+         * mirror (em_actor_cells_hull_offset). */
+        if (!hull_valid(src, (uint32_t)size, em_actor_cells_hull_offset(word))) return -1;
+        if (!(word & 0xC0000000u) && !hull_valid(src, (uint32_t)size, em_actor_cells_hull_offset(word)))
+            return -1;
+        if ((word & 0xC0000000u) == 0x40000000u) return -1;   /* a raw view outside main RAM */
     }
     table->bytes = malloc(size);
     if (!table->bytes) return -1;
@@ -140,7 +150,7 @@ const uint8_t *em_actor_cells_hull(const EmActorCellTable *table, unsigned uid)
     if (!table || !table->bytes || uid >= (unsigned)table->count) return NULL;
     uint32_t word = cell_word(table, uid);
     if (!word || word & 0x80000000u) return NULL;
-    return table->bytes + word;
+    return table->bytes + em_actor_cells_hull_offset(word);
 }
 
 int em_actor_cells_bounds(const EmActorCellTable *table, unsigned uid, float out[6])
@@ -169,7 +179,7 @@ int em_actor_cells_retransform_001A2370(EmActorCellTable *table, uint16_t uid_ha
     if (!word) return 1;
     if (!((int)uid < table->count)) return 1;
     if (word & 0x80000000u) return -1;          /* a raw pass-2 offset outside the image */
-    uint8_t *hull = table->bytes + word;
+    uint8_t *hull = table->bytes + em_actor_cells_hull_offset(word);
     int16_t count = rd_s16(hull, 0x18);
     uint8_t *p = hull + 0x1C;
     if (!(rd_u16(p, 0) & 0x800)) return 1;
@@ -344,7 +354,7 @@ static int vertical_0019F730(const EmActorCollisionWorld *w, EmCollProbeState *s
         if (kind == 0x51 && s->query_class != 0) continue;
         if (kind == 0x52 && s->query_class != 2) continue;
         if (kind == 0x53 && s->query_class == -1) continue;
-        const uint8_t *hull = t->bytes + (word & 0x3FFFFFFFu);
+        const uint8_t *hull = t->bytes + em_actor_cells_hull_offset(word);
         if (!in_hull_box(hull, s, lo, hi)) continue;
         const uint8_t *p = hull + 0x1C;
         int hit = 0;

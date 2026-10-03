@@ -106,6 +106,15 @@ typedef enum {
  *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
  *                              keeps him out), set to 1 by the encounter
  *                              script 0x8283D0's op06 sub 0; no port mirror.
+ *   D_0081075E..D_0081075F
+ *                        EXIT  events 6 and 7 (D_00810758[6], [7]): the
+ *                              conditions 2 / 3 of AREA01 sub 0's deferred
+ *                              groups 0x828A00 / 0x829220 (001B6660 at the
+ *                              level exit's arrival, route beat 15) and
+ *                              001F68B0's room-light latch for keys 0x0001 /
+ *                              0x0100 read them; only 001AF2C0 writes them in
+ *                              the first level (0 in every route capture); no
+ *                              port mirror existed.
  *   D_00810771           L29   event 0x19 (D_00810758[0x19]): 0015C160 draws
  *                              no shadow while it is 1 (src/func_0015C160.c;
  *                              the post-step w_0015C160 reads it); no port
@@ -246,6 +255,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
+        {0x0081075Eu, 0x00810760u}, /* events 6, 7: AREA01's deferred-group conditions (EXIT) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
          * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes

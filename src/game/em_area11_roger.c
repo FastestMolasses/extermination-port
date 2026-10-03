@@ -1042,7 +1042,7 @@ static int h_event(void *ctx, EmRogerEvent type, unsigned argument)
         if (!argument) return 1;
         view_store();
         return roger_draw() < 0 ? 0 : 1;
-    case EM_ROGER_REMOVE_GROUP:        /* 001B0C60(1, 0, 4) */
+    case EM_ROGER_AREA_CHANGE:        /* 001B0C60(1, 0, 4) */
         return em_scene_request_area_change_001B0C60(1, 0, 4) < 0 ? 0 : 1;
     case EM_ROGER_RELEASE_FACE:        /* 001BA540 */
         view_store();
@@ -1226,14 +1226,18 @@ int em_area11_roger_equipment_tick(EmActor *actor, EmActorPool *pool, EmSceneSta
     Owner *o = &R.cur->equip;
     if (owner_for(o, actor) < 0) return -1;
     Owner *parent = &R.cur->body;
-    if (!parent->actor || parent->freed || em_actor_pool_address(pool, actor->prev) != parent->address)
-        return report("001C5C90: +0x18 is not Roger's record");
     sync_in(o);
     typed_load(o);
-    typed_load(parent);
+    /* Only the live states 0 and 1 read the parent at +0x18; states 2 and 3
+     * free the node at once (001C5F88), which is how it ends the frame after
+     * Roger's departure freed him (route beat 15, f446). */
+    const int live = o->typed.lifecycle <= 1;
+    if (live && (!parent->actor || parent->freed || em_actor_pool_address(pool, actor->prev) != parent->address))
+        return report("001C5C90: +0x18 is not Roger's record");
+    if (live) typed_load(parent);
     R.ra.world.d00275B40 = (const uint32_t *)(const void *)(o->rec.bytes + 0x110);
     R.ra.world.d00275B40_count = EM_ROGER_ACTOR_MAX_BONES;
-    int r = em_roger_actor_001C5C90(&R.ra, &o->typed, &parent->typed);
+    int r = em_roger_actor_001C5C90(&R.ra, &o->typed, live ? &parent->typed : NULL);
     if (r < 0) {
         R.faulted = 1;
         return actor_fault("001C5C90");

@@ -447,6 +447,9 @@ int main(void)
         em_frontend_install();
 
     em_frame_run();
+    /* The scene tick log's tail (test instrumentation; a no-op unless the
+     * level smoke's exit phase asked for it). */
+    em_scene_bindings_log_tail();
 
     em_frontend_shutdown();
     em_game_shutdown();         /* em_bgm_shutdown: the device no longer mixes */

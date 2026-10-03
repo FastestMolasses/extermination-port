@@ -1310,6 +1310,14 @@ quick survivors. A crash, and a hang past the timeout, count as killed.
    (src/game/em_actor_collision.c line 103: `hull_valid(..., word &
    0x3FFFFFFF)` fails because 0x2000009C exceeds the image). The loader needs
    a decision before AREA01 wiring. This lane edits nothing.
+   **Resolved (chain C11 EXIT, 2026-10-02):** `em_actor_cells_hull_offset`
+   reads a word with bit 29 through the mirror, as the EE does (tbl +
+   0x20000000 + offset is the same RAM as tbl + offset), in the loader's
+   check and in every reader that masked by hand (0019F730's vertical probe,
+   the move walker, the hull accessors; the segment and list walkers already
+   did); `em_actor_cells_load(area01_cells.bin)` now returns 0, and the level
+   exit's arrival loads AREA01's collision world with it
+   (FIRST_LEVEL_EXIT.md section 7).
 2. **The level is the static bank, not whole files.** The retired drawbridge
    export (unverified, FINDINGS s45) walked each file whole. Its f00 start
    (+0x1523D0) agrees with the bank, because object 1's units begin at f00

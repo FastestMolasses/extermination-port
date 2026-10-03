@@ -539,10 +539,9 @@ record: +0x04, +0x05, +0x2E and +0xC8 are EmActor's (`u04[0]`, `u04[1]`,
   001B0C60(1, 0, 4) has set B8 = 1 (and B8 gates the box): revisit only. At
   156 ≤ z < 166.5 with the fast spin, the player hit (+0x00 = 3, +0x0F = 6,
   +0x224 = 5.0, +0x70 = (0, 0, 1, 1)), which the player stage's 0021C440 and
-  0021E9C0 consume (live; 4.3). Neither box is on the level smoke's route,
-  which ends at Roger's encounter; walking into the exit box after Roger now
-  starts his departure 0x828A10, whose op0F handshake is still a fail-stop
-  (FIRST_LEVEL_AUDIT H3).
+  0021E9C0 consume (live; 4.3). The exit box is on the level smoke's route
+  since chain C11 EXIT (its `exit` phase: after Roger it starts his
+  departure 0x828A10; FIRST_LEVEL_EXIT.md section 7); the hit box is not.
 
 ### 5.4 Evidence (live)
 

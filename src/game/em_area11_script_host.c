@@ -20,6 +20,7 @@
 #include "game/em_camera_live.h"
 #include "game/em_collision_world.h"
 #include "game/em_frame.h"
+#include "game/em_frontend.h"
 #include "game/em_game_internal.h"
 #include "game/em_message_live.h"
 #include "game/em_opening_runtime.h"
@@ -28,6 +29,7 @@
 #include "game/em_script_door_fan.h"
 #include "game/em_script_host_workers.h"
 #include "game/em_sfx.h"
+#include "game/em_stream_live.h"
 
 enum { OWNERS = 6 };
 
@@ -76,6 +78,15 @@ static struct {
     EmCinematicPlayback playback;
     int track_tried, track_loaded, playing;
     uint32_t d275BFC;
+    /* op0F's bytes (001B7A30; Roger's departure 0x828A10): the views of the
+     * stream lanes' read phase D_00282157 and of the movie service's
+     * D_00275C78 / D_00821058 (movie_view_load / movie_view_store). */
+    int8_t d282157;
+    uint8_t d275C78, d821058;
+    /* The ELF's walk clip table D_0024D8F0 (op01 kinds 3 / 5 / 8;
+     * tools/export_script_walk_clips.py), read only. */
+    int16_t walk_clips[EM_SCRIPT_WALK_CLIPS_COUNT];
+    int walk_clips_loaded, walk_clips_tried;
 } H;
 
 static int report(const char *what)
@@ -755,6 +766,29 @@ static void workers_bind(void)
     H.workers.w_001BAC00 = w_001BAC00;
 }
 
+/* D_0024D8F0[0..8] (EMWC v1: 'EMWC', 1, the base, the count, then the
+ * halfwords; tools/export_script_walk_clips.py), or NULL (reported once;
+ * op01 kinds 3 / 5 / 8 then fault at 0x0024D8F0). */
+static const int16_t *walk_clips(void)
+{
+    if (H.walk_clips_loaded) return H.walk_clips;
+    if (H.walk_clips_tried) return NULL;
+    H.walk_clips_tried = 1;
+    unsigned char file[16 + 2 * EM_SCRIPT_WALK_CLIPS_COUNT + 1];
+    FILE *in = fopen(EM_SCRIPT_WALK_CLIPS_PATH, "rb");
+    size_t n = in ? fread(file, 1, sizeof file, in) : 0;
+    if (in) fclose(in);
+    if (n != sizeof file - 1 || memcmp(file, "EMWC", 4) != 0 || em_script_u32(file, 4) != 1 ||
+        em_script_u32(file, 8) != EM_SCRIPT_WALK_CLIPS_BASE || em_script_u32(file, 12) != EM_SCRIPT_WALK_CLIPS_COUNT) {
+        report("no valid " EM_SCRIPT_WALK_CLIPS_PATH " (tools/export_script_walk_clips.py)");
+        return NULL;
+    }
+    for (unsigned i = 0; i < EM_SCRIPT_WALK_CLIPS_COUNT; ++i)
+        H.walk_clips[i] = (int16_t)(file[16 + 2 * i] | file[17 + 2 * i] << 8);
+    H.walk_clips_loaded = 1;
+    return H.walk_clips;
+}
+
 static void world_bind(Owner *o)
 {
     EmSceneState *s = H.scene;
@@ -827,6 +861,34 @@ static void world_bind(Owner *o)
     /* Roger's +0x40 (op0B sub 4's bank word) lives in his owner's record. */
     w->s040 = o->actor->callback == 0x008237E0u ? em_area11_roger_bank_word(o->actor) : NULL;
     w->d28A9A0 = &em_frame_transition()->substate;
+    w->d282157 = &H.d282157;
+    w->d275C78 = &H.d275C78;
+    w->d821058 = &H.d821058;
+    w->d24D8F0 = walk_clips();
+    w->d24D8F0_count = w->d24D8F0 ? EM_SCRIPT_WALK_CLIPS_COUNT : 0;
+}
+
+/* op0F (001B7A30) reads D_00282157 (lb), stores D_00275C78 = its record's
+ * +0x14 and D_00821058 = 1, then waits for D_00821058 == 0: the stream
+ * lanes' read phase (em_stream_live) and the movie service's two bytes,
+ * which the main loop's movie driver 00203350 serves at step M and clears
+ * when the movie ends (em_frontend, em_frame). Loaded before every script
+ * tick; a store goes to the movie service after it, selector first. */
+static void movie_view_load(void)
+{
+    H.d282157 = (int8_t)em_stream_live_read_phase();
+    int selector = em_frontend_movie_selector();
+    H.d275C78 = selector < 0 ? 0 : (uint8_t)selector;
+    H.d821058 = em_frame_movie_active() ? 1 : 0;
+}
+
+static int movie_view_store(uint8_t d275C78, uint8_t d821058)
+{
+    if (H.d275C78 != d275C78 && em_frontend_movie_select(H.d275C78) < 0)
+        return report("D_00275C78: the movie service refused the selector");
+    if (H.d821058 != d821058 && em_frontend_movie_request(H.d821058) < 0)
+        return report("D_00821058: the movie service refused the request");
+    return 0;
 }
 
 static void block_load(Owner *o)
@@ -987,7 +1049,10 @@ int em_area11_script_host_tick(EmActor *actor, int32_t *result)
     world_bind(o);
     block_load(o);
     view_load();
+    movie_view_load();
+    const uint8_t d275C78 = H.d275C78, d821058 = H.d821058;
     int r = em_area_script_tick(&o->host);
+    if (r >= 0 && movie_view_store(d275C78, d821058) < 0) return -1;
     if (r < 0) {
         fprintf(stderr, "em_area11 script host: 001BA1F0 of %08X faulted at %08X (record %08X)\n",
                 (unsigned)actor->callback, (unsigned)o->host.fault_address, (unsigned)o->host.fault_pc);

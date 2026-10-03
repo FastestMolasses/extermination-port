@@ -4,7 +4,8 @@
 Every id the port registry carries (tools/gen_sfx_registry.py presets in the
 decomp repo, plus the AREA11 panel pair, then its FIRST_LEVEL_GROUPS census
 of every id the first level can request, docs/SFX_REGISTRY_FIRST_LEVEL.md)
-is resolved per scene area exactly as the original does it:
+and the level exit's AREA01 arrival ambient (ARRIVAL_IDS, scope (1, 0)) is
+resolved per scene area exactly as the original does it:
 
   001FB9F0   id -> sound record (global tables or area remap/record tables)
   00119EA0   record -> registered bank handle -> trigger script
@@ -36,6 +37,14 @@ GLOBAL_CONTAINER = 'extract/chunk00/f05_id05.bin'
 AREA11_CONTAINER = 'extract/chunk15/f00_id43.bin'
 # The AREA11 host submits these two ids (docs/AREA11_PANEL_SFX.md).
 AREA11_EXTRA_IDS = (0x3EE, 0x3EF)
+# The level exit's arrival (route beat 15, docs/FIRST_LEVEL_EXIT.md): AREA01
+# sub 0, whose spawn entry 4 names the ambient loop 0x44E that 001FC280
+# starts with 001FB9F0 at the arrival's 001FAE70(1). Its bank binding comes
+# from the first level's own AREA01 captures (the beat-15 arrival and the
+# EXIT lane's exit_01), through export_area01_sfx.area_binding.
+ARRIVAL_SCOPE = (1, 0)
+ARRIVAL_IDS = (0x44E,)
+ARRIVAL_CAPTURES = ('build/s87/route/15_level_exit', 'build/c10/exit/exit_01_movie_arrival')
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -155,6 +164,22 @@ def containers_by_type(name, data):
     return rows
 
 
+def arrival_binding():
+    """{ARRIVAL_SCOPE: binding} from the arrival captures (see ARRIVAL_IDS)."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import export_area01_common as C
+    import export_area01_sfx as S
+    caps = [C.Capture(DECOMP / p) for p in ARRIVAL_CAPTURES if (DECOMP / p / 'eeMemory.bin').exists()]
+    if not caps or any(c.area[:2] != ARRIVAL_SCOPE for c in caps):
+        raise SystemExit('export_sfx_registry: the AREA01 arrival captures (' + ', '.join(ARRIVAL_CAPTURES) +
+                         ') are missing or not in AREA01 sub 0')
+    binding = S.area_binding(caps)[0][ARRIVAL_SCOPE]
+    binding['binding'] = ('the level exit\'s AREA01 arrival captures (D_00281D50/D_0027C6C0): ' +
+                          ', '.join(c.name for c in caps))
+    return {ARRIVAL_SCOPE: binding}
+
+
 def area_bindings(elf):
     """(area, sub) -> {group: [Bank]} plus provenance."""
     global_rows = containers_by_type(GLOBAL_CONTAINER,
@@ -188,6 +213,7 @@ def area_bindings(elf):
     candidates = {name: {g: [A._Bank(name, data, A.parse_container(data), b.row)
                              for b in banks] for g, banks in rows.items()}
                   for name, (data, rows) in regions.items()}
+    bindings.update(arrival_binding())
     match = A.match_area_regions(area_records, candidates)[(2, 1)]
     office = regions[match['region']][1]
     bindings[(2, 1)] = dict(groups={1: global_rows[1], 2: office.get(2, []),
@@ -470,6 +496,8 @@ def scene_ids(census=True):
         if (area, sub) == (11, 0):
             ids += [i for i in AREA11_EXTRA_IDS if i not in ids]
         scenes[(area, sub)] = ids
+    scenes.setdefault(ARRIVAL_SCOPE, [])
+    scenes[ARRIVAL_SCOPE] += [i for i in ARRIVAL_IDS if i not in scenes[ARRIVAL_SCOPE]]
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])
@@ -500,7 +528,8 @@ def export(out_dir: Path):
     elf = Elf()
     bindings = area_bindings(elf)
     samples, entries = {}, []
-    for (area, sub), ids in sorted(scene_ids().items()):
+    # The arrival scope last: every earlier entry keeps its sample indices.
+    for (area, sub), ids in sorted(scene_ids().items(), key=lambda kv: (kv[0] == ARRIVAL_SCOPE, kv[0])):
         for sound_id in ids:
             entry = resolve(elf, bindings, sound_id, area, sub, samples)
             if entry['scope'] == [-1, -1]:

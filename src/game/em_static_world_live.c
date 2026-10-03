@@ -100,8 +100,10 @@ int em_static_world_live_draw(EmGfx *gfx)
     d->read = reader;
     d->read_ctx = NULL;
     d->kick = NULL;
-    /* the cycle the list leaves before channel 0 (em_static_world_live.h) */
-    d->cl = d->wl = ch3 ? 4u : 0u;
+    /* the cycle the list leaves before channel 0 (em_static_world_live.h):
+     * 4,4 after the channel-3 CALL, else the previous frame's last STCYCL
+     * (1,1; the walk's writes depend only on CL == WL) */
+    d->cl = d->wl = ch3 ? 4u : EM_STATIC_WORLD_FRAME_CYCLE;
     if (em_static_world_draw_run(d, start, end) < 0) {
         char what[96];
         snprintf(what, sizeof what, "walk fault: %s (detail %08X)", em_static_world_draw_fault_name(d->fault),

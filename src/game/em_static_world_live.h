@@ -16,8 +16,18 @@
  * The run's first UNPACK inherits the VIF cycle the list left: STCYCL 4,4
  * when step V CALLs the channel-3 list before channel 0 (001E0DF0 with
  * +0x1D8 non-zero: the list ends in the background kernel packet 0x0023C990,
- * whose STCYCL is 4,4). A frame without that CALL would inherit the previous
- * frame's cycle, which is not modelled: the walk faults if the run needs it.
+ * whose STCYCL is 4,4). A frame without that CALL (the frame a movie played:
+ * 001D1C10 sets render flag 4, which the port reads as em_frame_movie_active;
+ * in the first level only the departure movie's frame, route beat 15)
+ * inherits the cycle the previous frame's VIF1 stream left:
+ * EM_STATIC_WORLD_FRAME_CYCLE = 1,1. Evidence: VIF1_CYCLE (0x10003C40 of the
+ * EE hardware registers) is 0x0101 between frames in all 18 first-level save
+ * states (route 00..15 and the exit captures exit_00 / exit_01), and every
+ * STCYCL the first level's packets issue is 1,1 or 4,4 (the kernel packets,
+ * the skin records and blocks, the object units, the weather and owner
+ * services packets): CL == WL, under which an UNPACK writes contiguously,
+ * the only property the walk uses. Nothing measures the cycle inside the
+ * movie frame itself (no capture between its movie and step V).
  *
  * Fail-stop: a walk fault or a triangle the renderer does not implement
  * latches (em_static_world_live_fault); the caller faults the scene. */
@@ -27,6 +37,10 @@
 #include <stdint.h>
 
 #include "em_gfx.h"
+
+/* The VIF1 cycle (CL = WL) a frame without the channel-3 CALL inherits (see
+ * above). */
+#define EM_STATIC_WORLD_FRAME_CYCLE 1u
 
 #ifdef __cplusplus
 extern "C" {

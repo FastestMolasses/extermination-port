@@ -1426,6 +1426,48 @@ loader-chain sub-point):**
   test-level-smoke-full` passed on them (DISC_TEXTURES.md 9.6).
 - **Open:** only `--iso` is exercised (no test covers `--disc DIR`).
 
+**Status update (2026-10-02, chain step EXIT, audit 1b item 17):**
+- **The level exit is live, through the AREA01 arrival** (FIRST_LEVEL_EXIT.md
+  section 7). Fan r2's exit box (its player view now g.pos: the record
+  image's +0xA0..+0xA8 it read were never written, so the box could not
+  fire), Roger's departure 0x828A10 (op01 kind 3 with the ELF's walk clip
+  table D_0024D8F0; op0F's handshake with the stream gate and the movie
+  service: no longer a fail-stop), the departure movie E001.PSS
+  (selector 1; its skip is 002036E0's START), 001B0C60(1, 0, 4), 001AD010,
+  001ADF50, the AREA01 sub-0 load through the loader (its overlay, header,
+  resident region and room 0's nested block in the pack; the veil for the
+  load's length) and the arrival's 0x1AE040 state-0 rebuild (spawn entry 4,
+  AREA01's roster through the original spawner, the camera re-seat, the
+  ambient loop 0x44E and the music cue 13). The first level ends on that
+  frame, the capture's first frame of control in AREA01: every later AREA01
+  frame faults at 0x1AE040 (level 2, not ported).
+- **Blockers fixed on the way:** the AREA01 cell directory's bit 29 (the EE's
+  uncached RAM mirror; `em_actor_cells_hull_offset`), 001FC280's cache
+  D_00282160 (modelled; its loop through the SFX registry's new (1, 0)
+  scope), the equipment node's freeing after Roger, events 6 / 7 migrated
+  as canonical progress bytes, the movie frame's inherited VIF cycle
+  (1,1, measured in every save state), the render context's static bank
+  from the delivered area data. em_message_live's area handling and
+  em_coll_segment_walkers' 0019D770 path are not reached by the arrival
+  (no message, no collision walk before the first AREA01 world frame);
+  the decomp's extract_data.py label shift (decomp HANDOFF.md) needs no fix
+  here: the AREA01 exports the arrival reads (roster, collision, cell
+  directory, spawn table) are checked byte for byte against the AREA01
+  captures (AREA01_ASSETS.md), the arrival's pool equals the capture's,
+  and the loader pack is read by disc sector, not by label.
+- **Evidence.** The level smoke's `exit` phase (LEVEL_SMOKE.md): exit_00
+  f31..f434 and exit_01 f0..f10 row for row in every sampled field, the
+  load's 18 states in order with its chain and veil replayed through the
+  original instructions, and the arrival f304..f306 with the tail: the
+  fade-in, D_00282157, D_00282160 = 0x44E and all 78 pool records'
+  +0x00..+0x3F / +0xA0..+0xDF equal the capture's f306. `make
+  test-level-smoke-full` requires it (the main line's last phase).
+- **Open:** the player's clock +0x3C at the rebuild (the port's pose attach
+  runs in 001AFCA0, the original's 0015C420 in the first stage; the next
+  frame, which the first level does not reach, would make them equal); no
+  capture of the movie frame's VIF state, of the SPU2 output or of AREA01's
+  pixels; the fan's direct exit (sub 1) and its hit box stay off the route.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1488,8 +1530,9 @@ modelled. Every other translation agrees (the module docs' notes).
      A11FIX (2026-10-02; the decomp's audio capture holds 0x413 in the
      flame beat); 001FBDB0 is
      verified but not bound; 001FBC50's live part is em_sfx_stop_all, which
-     no oracle checks; 001FC280's body is unverified (its D_00282160 cache is
-     not modelled). The sound-bank loader chain 001FB370 / 001FB3E0 /
+     no oracle checks; 001FC280's body is live since chain step EXIT (its
+     D_00282160 cache modelled; the level exit's ambient loop 0x44E equals
+     the capture's end snapshot), its stop branch unreached. The sound-bank loader chain 001FB370 / 001FB3E0 /
      001FB910, 001FC6E0 and the rest of 001FB100 are live since chain step
      H7 (item 3); what they feed the SFX side is not consumed: the bank's
      SPU samples (the port's SFX play the exported registry), the handle's
@@ -1610,10 +1653,9 @@ modelled. Every other translation agrees (the module docs' notes).
     the player's node addresses (FACE_ATTACH.md section 5). No drawn or
     compared value differs today.
 11. **Logic: startup, input and frame glue that is still the port's own.**
-    (Also, found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280
-    loop-id read sign-extends with a signed left shift,
-    `(int32_t)(...) << 16 >> 16`, which is undefined behaviour in C;
-    sign-extend through int16_t instead.)
+    (Found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280 loop-id
+    read sign-extended with a signed left shift; it goes through int16_t
+    since chain step EXIT.)
     All verified-unbound; the captures prove only their observable results:
     the pad read 001B57E0 / 001B5F40 (em_frame's frame_input_read; 001B5940's
     block is live), the area build's re-arm 001AF690 / 001AFCA0
@@ -1621,10 +1663,10 @@ modelled. Every other translation agrees (the module docs' notes).
     roster spawn), the task installs 001AC070 / 001AB790, 001AB4E0, camera
     state 0's 00199C50 (a reported no-effect binding) and the render init
     rows 001D19D0 / 001D19E0.
-12. **Logic: the three unverified rows,** each needing an oracle that
-    executes it: 0015CF90 (the D_00810707 / B9 progress bytes), 001B1190
-    (the pickups' persistence event; the gun cable's copy is verified) and
-    001FC280.
+12. **Logic: the two unverified rows,** each needing an oracle that
+    executes it: 0015CF90 (the D_00810707 / B9 progress bytes) and 001B1190
+    (the pickups' persistence event; the gun cable's copy is verified).
+    001FC280 is live since chain step EXIT (FIRST_LEVEL_CENSUS.md 1.56).
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 
@@ -1739,10 +1781,12 @@ modelled. Every other translation agrees (the module docs' notes).
     jump-table cases the route did not take were never recorded; the fans'
     exit and hit boxes are off the smoke's route. Capture: a census pass
     over these branches.
-17. **Beyond Roger.** Roger's departure 0x828A10 (its op0F handshake is a
-    fail-stop), the level exit (beat 15) and the AREA01 arrival are in
-    neither the census nor the smoke. They are outside the current goal
-    ("up to Roger"); FIRST_LEVEL_EXIT.md holds the recording.
+17. **Beyond Roger.** **Status (2026-10-02, chain step EXIT): closed.**
+    Roger's departure 0x828A10, the level exit (beat 15) and the AREA01
+    arrival run live and the level smoke's `exit` phase compares them with
+    the EXIT capture row for row (status update above; FIRST_LEVEL_EXIT.md
+    section 7); the census has beat 15's rows (FIRST_LEVEL_CENSUS.md 1.56).
+    Left: the open points of the status update above.
 
 **D. Evidence gaps (the behaviour may already be original)**
 
@@ -1867,7 +1911,7 @@ All rows below were adversarially CONFIRMED. Where the verifier corrected a find
 | H18 (R02) | APPROXIMATION of invented lighting (corrected; medium-high) | `../Extermination/tools/export_props.py:404` `attr_color`, `export_level.py` `attr_to_color` | Actors use the default mode 0 of 001D89D0: per-vertex rig from 001D8130/001D8340 plus the point-light fold. No original path computes 0.30+0.70·max(N·L,0). | Re-export parachute, truck, door_m03, the security gun and its cable, crate, egg, item_13, item_0b and gibs with real normals and flags=0, and remove the stand-in branch (WP-13). |
 | H19 (AM-01) | INACCURATE pitch model (corrected from FABRICATED) | `src/game/em_sfx.c:195`; WAV rates from `audio_export.py:462` `tone_rate` | For A0 events, 00115850 stores bend 0x40 before 00117918. The table anchor is D_00241D70[0xD0]=4096. The legacy rates are ×1.531 (+118 steps), about 7.4 semitones sharp and 35% shorter. Cue 0x3EF (oracle): 10101.56 Hz, not 15480. | Re-export every registry id through the verified pitch path used by `export_startup_audio.py`/`export_area11_sfx.py`, storing an integer SPU pitch. Retire `tone_rate` (WP-14). |
 | H20 (INV-01) | FABRICATED | `src/game/em_pickup.c:58` (constant 1°/frame spin) | 00827630 is a timed spin cycle: 60-tick wait, ramp to 0.349 rad/f, hold, ramp down. Record 1 plays 0x451 unless D_00810788==1. Record 2 player box X(318,340) Y(280,320): hit (+0x224=5.0, byte0=3, +0x0F=6); at Z<156, 001B0C60(1,1,4) if D_00810758==0xFF, else D_008107D8 \|= 0x80 (Roger departure trigger). | Translate 00827630 with an overlay oracle (WP-11). Interim: stop the invented spin. |
-| H21 (INV-02) | MISSING | `src/game/em_game.c:5529` (level-exit arms "pending") | There are two AREA11 exits: fan 001B0C60(1,1,4), and Roger departure 0x828A10 → 001B0C60(1,0,4). The area-change request is D_008106B5..B8 → 001AD010 → sub-state 5 → frame case 0. | Implement the area-change consumer (ORCH-06) and targets for AREA01 sub 1 (not exported) and sub 0 (scene_drawbridge) at entry 4 (WP-11). **S12a: the consumer is live** (001AD010 → 001ADF50 native area read → state-0 rebuild → 001B07C0(0) from the exported D_0024D650; `em_scene_request_area_change_001B0C60` is the translated request, exercised by EM_AREA_CHANGE_TEST with AREA11 0x0B/0/0). Still missing: the fan/Roger requests (WP-11/WP-9) and the AREA01 targets (the area read faults for any area but 0x0B/0). |
+| H21 (INV-02) | FIXED for Roger's exit (chain C11 EXIT, 2026-10-02) | `src/game/em_game.c:5529` (level-exit arms "pending") | There are two AREA11 exits: fan 001B0C60(1,1,4), and Roger departure 0x828A10 → 001B0C60(1,0,4). The area-change request is D_008106B5..B8 → 001AD010 → sub-state 5 → frame case 0. | Implement the area-change consumer (ORCH-06) and targets for AREA01 sub 1 (not exported) and sub 0 (scene_drawbridge) at entry 4 (WP-11). **S12a: the consumer is live** (001AD010 → 001ADF50 native area read → state-0 rebuild → 001B07C0(0) from the exported D_0024D650; `em_scene_request_area_change_001B0C60` is the translated request, exercised by EM_AREA_CHANGE_TEST with AREA11 0x0B/0/0). **Chain C11 EXIT:** Roger's departure request 001B0C60(1, 0, 4) is live and the area read loads AREA01 sub 0 (its collision; the arrival rebuild reads its roster, cells and the global spawn table): the level smoke's `exit` phase reaches AREA01's first frame of control and compares it with the EXIT capture (FIRST_LEVEL_EXIT.md section 7). Left: the fan's direct exit to sub 1 (D_00810758[0] == 0xFF, a later return; sub 1 is not exported, its read faults) and every AREA01 frame after the arrival (level 2). |
 | H22 (AM-06) | RESOLVED for the streams (WP-8b, 2026-09-25): 001FABB0, 00119828, 001FAE70 and the lane fades run on the stream lanes (em_stream_live); 00119828 is the IOP command 0x16, the driver's effect-return volume (IOP_STREAM.md: not a stream channel gain), kept by the backend and inaudible without the SPU2 reverb the port does not model; the resumed cue 25 plays at the lanes' own volume (001FA330). Formerly PARTIAL (WP-5, 2026-09-23): the stop/resume schedule is the original's, the volume is not. At the open, 001FBC50 -> `em_sfx_stop_all` and 001FABB0 -> the port's stream-release stand-in, not a translation (`em_bgm_stop(0)`, `em_opening_media_stop()`, D_008106F4/F5 = 0; also at 001AD360 step 0; no 001FA570 ring reset, no per-lane 001FAAC0 key-off, no D_00282157 store: the stream lanes are not live, WP-8); 00119828(0/1, 0x3FFF, 0x3FFF) is the full scale the port's streams always play at. At the close, the state-5 001FAE70(1) is translated (001FC280's area loop: -1 for every AREA11 spawn record; cue (D_008106C8 >> 8) & 0x7F = 25 with D_00810D38 = 0; fade 270 + ((rand() >> 16) & 0x7F); cue 25 is `em_opening_media_resume_music`, any other cue faults; the infected override, D_008104E4 = g.pd_infected == 1, faults since cue 0x18 has no stream). Open: 001FBC50 and 001FC280 set stream channels 0/1 to 0x1999 (spawn record +0x20 low half in AREA11); those calls reach w_00119828, which reports them (UM_00119828) because the port's streams have no per-channel gain, so the resumed cue 25 plays at full scale. The state-0 and state-4 001FAE70 calls stay reported (STARTUP.md) | `src/game/em_scene_bindings.c` (w_001FABB0, w_00119828, w_001FAE70, s_00810D38) | anim_frame_top_b state 1, r==2: 001FBC50 stop-all SFX, 001FABB0 stop streams, 00119828 ×2. On exit, 001FAE70(1) restarts cue 25 with a 270+rand fade. | Comes free with WP-5. `em_status_frame` emits these. Update the stale note at `em_sfx.c:477`. |
 
 Confirmed problems in non-high findings that other rows depend on:

@@ -15,7 +15,7 @@ Same conventions as FIRST_LEVEL_ROUTE.md section 3 (trace frames `f`, main-loop 
 
 | # | Beat (folder) | Source | Frames | Counters | Original owners and scripts | Port owner |
 |---|---|---|---|---|---|---|
-| 15 | `15_level_exit` | 14 | 801 | 15761..16562 | fan r2 00827630 (record [2]): Z < 156 exit-or-bit, D_008107D8 \|= 0x80; Roger r8 departure (runtime 0x823C40 starts script 0x828A10; 0x823C80 calls 001B0C60(1, 0, 4)); script op 0F plays movie selector 1 (`MOVIE/E001.PSS`); 001AD010 → 001ADF50 → 001FF080(1, 0) → 001FFCD0 area load; AREA01 sub 0 spawn entry 4 | em_fan_original (verified-unbound), em_roger (live, L22), em_area_script, em_scene_task (001AD010/001ADF50 live), em_scene_request_area_change_001B0C60; AREA01 not exported |
+| 15 | `15_level_exit` | 14 | 801 | 15761..16562 | fan r2 00827630 (record [2]): Z < 156 exit-or-bit, D_008107D8 \|= 0x80; Roger r8 departure (runtime 0x823C40 starts script 0x828A10; 0x823C80 calls 001B0C60(1, 0, 4)); script op 0F plays movie selector 1 (`MOVIE/E001.PSS`); 001AD010 → 001ADF50 → 001FF080(1, 0) → 001FFCD0 area load; AREA01 sub 0 spawn entry 4 | live since chain C11 EXIT (section 7): em_fan_original, em_roger, em_area_script (op0F, op01 kind 3), em_frontend (E001.PSS), em_scene_request_area_change_001B0C60, the loader (AREA01 sub 0), the AREA01 arrival's state-0 rebuild (em_scene_bindings, em_area01_arrival); later AREA01 frames are level 2 |
 
 The main line becomes 01 → … → 13 → 14 → 15. The snapshot
 `../Extermination/build/s87/route/15_level_exit/state.p2s` (with `eeMemory.bin`, `gs.bin`,
@@ -119,21 +119,14 @@ the boundary sampling is the unperturbed reference).
   and 0x823C80 (splat `func_overlay_AREA11_00823C40`, 96 bytes) run for the first time in this
   beat (both AU). 001B0C60(1, 0, 4) returns to 0x823CA8, inside 0x823C80. Port: `em_roger.c`
   has the departure branch (ROGER_ORIGINAL.md), bound live through `em_area11_roger` (census L22;
-  FIRST_LEVEL_AUDIT H3 fixed), whose `EM_ROGER_REMOVE_GROUP` worker calls
-  `em_scene_request_area_change_001B0C60(1, 0, 4)`.
-  **Naming note for the port:** `em_roger.h` already comments its completion worker
-  `EM_ROGER_REMOVE_GROUP` as `1B0C60(1,0,4)`, and the capture confirms that call is the
-  area-change request 001B0C60(1, 0, 4) (3B8D = 3, B5..B8 = 01 00 04 01). What misleads is
-  the enum name and the ROGER_ORIGINAL.md sentence "completion removes the original actor
-  group": both should be renamed / reworded to the area-change request (the binding already
-  goes to the byte-matched `em_scene_request_area_change_001B0C60`).
+  FIRST_LEVEL_AUDIT H3 fixed), whose `EM_ROGER_AREA_CHANGE` worker calls
+  `em_scene_request_area_change_001B0C60(1, 0, 4)` (3B8D = 3, B5..B8 = 01 00 04 01, as the
+  capture shows; renamed from `EM_ROGER_REMOVE_GROUP` by chain C11 EXIT).
 - **Script 0x828A10** runs on the area-script interpreter; op 0F is 001B7A30 (BM, first
   executed in this beat). The movie itself is the main loop's movie arm (00203350, selector
-  D_00275C78 = 1). The port's movie path is the S12a New Game one (selector 0, E900); nothing
-  in the port selects selector 1 yet.
+  D_00275C78 = 1). Since chain C11 EXIT the port plays it (section 7).
 - **Area change consumer**: 001AD010 and 001ADF50 are live in the port (em_scene_task cores,
-  S12a) but the native area read only knows AREA11 (0x0B/0) and faults for area 1
-  (INV-02). The arrival spawn entry 4 of AREA01 sub 0 is (41.0, 0.0, −565.6), yaw
+  S12a); since chain C11 EXIT the native area read loads AREA01 sub 0 too (section 7). The arrival spawn entry 4 of AREA01 sub 0 is (41.0, 0.0, −565.6), yaw
   −1.43411, as placed by 001B07C0 in the capture.
 
 ### 5. Census: the functions beat 15 adds
@@ -287,3 +280,124 @@ session; no save-state slot is written (the snapshot slot is moved out of `sstat
 - Not covered: the fan's direct exit (sub 1, needs D_00810758[0] == 0xFF), a fan hit
   (the beat avoids the fast arm on purpose), and anything in AREA01 after the arrival idle.
 - The PCSX2 movie playback time is host time; the game sees one frame.
+
+### 7. Binding (chain C11 step EXIT, 2026-10-02: audit 1b item 17)
+
+The level exit runs live from the fan crossing to the AREA01 arrival, and the
+first level ends there. The EXIT capture lane re-recorded this beat with whole
+rows (decomp CAPTURES_C10.md "EXIT": `exit_00_departure`, `exit_01_movie_arrival`);
+the level smoke's `exit` phase plays it after `roger` and compares it row for
+row (LEVEL_SMOKE.md "exit"). Every piece below is the original's code; where
+the port needed a view or an export, it is named.
+
+**The departure.**
+- Fan r2 (00827630, record [2]) on its owner `em_fan_original`: its exit box
+  reads the player's position D_00810350 = D_008102B0 + 0xA0. The binding gave it
+  the record image's own +0xA0..+0xA8, which no port code writes (always zero), so
+  the box could never fire; it now reads g.pos, the one storage of that
+  position (as the director's and Roger's triggers do). The crossing sets
+  D_008107D8 = 0x81 in exit_00's frame 344, as the capture does.
+- Roger 008237E0 (`em_roger_tick` through `em_area11_roger`): progress bit 0x80
+  starts 0x828A10; its end emits the area-change request (the worker
+  `EM_ROGER_AREA_CHANGE` calls `em_scene_request_area_change_001B0C60(1, 0,
+  4)`) and lifecycle 3; the next tick frees him. His equipment node 001C5C90
+  reads its parent +0x18 only in its live states 0 / 1: in state 3 it frees
+  itself (001C5F88) after Roger is gone, as in the capture's f446 (the binding
+  used to refuse the freed parent).
+- The script 0x828A10 on the AREA11 script host: op01 kind 3 (the scripted walk)
+  stores D_0024D8F0[record +0x14] into the player's +0x1F2; that ELF table
+  (nine halfwords) comes from `tools/export_script_walk_clips.py`
+  (`assets/script_walk_clips.emwc`). op0F (001B7A30) reads D_00282157 (the
+  stream lanes' read phase) and stores D_00275C78 = 1 and D_00821058 = 1: the
+  host's views of the movie service (`em_frontend_movie_select` /
+  `em_frontend_movie_request`, read back before each tick through
+  `em_frontend_movie_selector` and `em_frame_movie_active`).
+
+**The departure movie.** 00203350 plays D_00821010[D_00275C78], which the
+boot's 002032C0 fills from the ELF's name table D_00264FB0: selector 0 is
+`\MOVIE\E900.PSS`, selector 1 `\MOVIE\E001.PSS` (the exit capture's
+D_00821010[1] is E001.PSS's disc extent). The frontend plays its remux
+`assets/movies/e001.mov` (`tools/export_movie.py --disc-path /MOVIE/E001.PSS`;
+2,305 pictures, 76.9 s of video). Its skip is 002036E0's: the pad's START
+(0x70003B90 is 2 on the movie frame) once the picture index reaches 11. The
+movie frame's world frame ran before the movie, so its static-world run is
+drawn without the channel-3 CALL (render flag 4): its first UNPACK inherits
+the VIF cycle the previous frame left, 1,1 (`EM_STATIC_WORLD_FRAME_CYCLE`;
+STATIC_WORLD.md 7.1; every first-level save state holds VIF1_CYCLE = 0x0101
+between frames).
+
+**The area change and the load.** 001B0C60(1, 0, 4), then 001AD010 (area bytes
+01 / 00 / 04) and 001ADF50's 001FF080(1, 0) on their existing bindings. The
+area streamer 001FFCD0 now finds AREA01's sectors in the loader pack
+(`tools/export_module_loader.py`, default areas `0xb:0,0x1:0`): the overlay
+file, INDEX.IDX sector 5, the top block's resident region (no bank, no A
+entry) and room 0's nested block (its sound bank through 001FB370 on the
+stream owner's IOP, its A entry, its resident region). The area consumer
+accepts the nested A entry (state 8, from D_0028A740) as it accepts AREA11's
+(applies nothing: nothing in the first level draws AREA01's texels). The
+load runs the capture's 18 distinct loader states in order; at host speed
+the drive's polls take one dispatch each, 001FB370's upload 22 against the
+capture's 26, and 0021B550's veil leaves 55 frames of post-load wait against
+the capture's 80 (the veil's level follows the load's length).
+
+**The arrival.** The area read loads `assets/area01` (its scene.txt names
+the collision only). 0x1AE040 state 0 rebuilds AREA01 sub 0:
+- 001AFCA0: the player wipe, the pool and class lists reset, the effect
+  pools 001F0310; the port's binds: AREA01's collision world (area01.emcl and
+  its cell directory, whose uid-0 word carries bit 29: the EE's uncached RAM
+  mirror, `em_actor_cells_hull_offset`; AREA01_ASSETS.md finding 1), the live
+  camera over it, the SFX registry scope (1, 0), and the render context's
+  static-object bank D_0028A5A0 from the bytes the load delivered
+  (`em_rcl_static_world_bank`; 001C1DC0's 001D52E0 reads its grid header).
+  001E7780 (the overlay dispatch: key 0x100 runs the AREA01 init 0x823A50)
+  stays the loader's boundary, as in AREA11: its globals D_00275C18..2C and
+  the record 0x82CD00 are read only by AREA01's own owners. The render
+  context keeps AREA11's views (the same globals in every area) and the
+  shadow keeps AREA11's binding: both are read only by world frames.
+- 001B07C0(0): spawn entry 4 of AREA01 sub 0 from the global spawn table
+  (41.0, 0.0, -565.6), heading -1.43411; 0015C1F0 binds the player's model
+  0x3B (D_0028A490 slots 0x3B..0x40 are equal in AREA11 and AREA01: the two
+  captures); 001B0460 re-seats the camera at (-4.3, 21.7, -572.5) toward
+  (39.7, 16.1, -557.5). The New Game's legacy weapon fixture does not run.
+- 001B6990: AREA01's roster (`assets/area01/roster.emro`: 54 placements, the
+  deferred groups 0x828A00 and 0x829220) through the original spawner; its
+  conditions 2 / 3 read events 6 and 7 (D_0081075E / F), migrated as
+  canonical progress bytes in this step. Every node is spawned by
+  `em_area01_arrival_bind`, which binds no behaviour.
+- 001C1DC0, 001AEE40(4) (the fade-in), 001FAE70(1): 001FC280 models its cache
+  D_00282160 and starts the ambient loop 0x44E (spawn record +0x20 =
+  0x044E3FFF) with 001FB9F0 in the (1, 0) scope (the merged SFX registry:
+  `tools/export_sfx_registry.py` adds that one id, bound from the arrival
+  captures); the area music cue 13. 001C5C50 spawns the title node; 001D1EF0.
+
+That frame is the capture's first frame of control in AREA01 (exit_01 f306).
+Every later AREA01 frame is level 2: 0x1AE040 in any state but 0 in AREA01
+faults at 0x001AE040 (`w_001AD4D0`), so no AREA01 behaviour runs.
+
+**Evidence.**
+- The level smoke's exit phase, row for row (LEVEL_SMOKE.md "exit"): exit_00
+  f31..f434 and exit_01 f0..f10 in every sampled field (the departure walk and
+  the crossing exact); the load's state sequence; the arrival f304..f306 with
+  the post-frame tail; the 78 pool records' +0x00..+0x17, +0x18..+0x3F and
+  +0xA0..+0xDF equal the capture's f306; D_00282160 = 0x44E equals the end
+  snapshot's.
+- The original-instruction oracles: the load chain and the veil over the
+  exit's ticks (test_area_load_reference's replay, run by check_exit),
+  test_roger_reference (progress 0x80, the departure branch),
+  test_area_script_reference (0x828A10 with op0F and its walk),
+  test_fan_original_reference (the exit box).
+
+**Left (limits).**
+- The player's clock +0x3C at the rebuild: the port's pose attach
+  (`player_pose_attach`, inside 001AFCA0) sets the player's pose where the
+  original's 0015C420 does it in the first stage (the next frame); the
+  arrival row f306 holds 0.0 against the port's 80.0 (the only field of the
+  arrival the smoke exempts). The same holds at the New Game's rebuild; the
+  first stage makes both equal again in AREA11.
+- No capture of the movie frame's VIF state, of the SPU2 output (the ambient
+  loop's and the music's sound) or of AREA01's pixels; the arrival frame is
+  under the fade-in's black.
+- The disc-drive timing switch has no recording of AREA01's reads: with it
+  the exit's load answers at host speed (MODULE_LOADER.md 1.7).
+- The fan's direct exit (sub 1, D_00810758[0] == 0xFF) and the fan's hit box
+  stay off the route (no capture).

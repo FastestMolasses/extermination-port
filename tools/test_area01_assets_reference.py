@@ -171,6 +171,10 @@ def check_loaders(lib):
     for name, ok in out.items():
         check(ok, f'port loader rejects {name}')
     cells = rc('em_actor_cells_load', big(), p('area01_cells.bin'))
+    # Since chain C11 EXIT the loader reads uid 0's bit-29 word through the
+    # EE's RAM mirror (em_actor_cells_hull_offset; finding 1): it accepts the
+    # directory the level exit's arrival loads.
+    check(cells == 0, 'port loader rejects area01_cells.bin')
     return out, cells
 
 
@@ -2404,7 +2408,7 @@ def main():
     lib = build_loaders()
     loaded, cells_rc = check_loaders(lib)
     print(f'  loaders: {sum(loaded.values())}/{len(loaded)} files accepted by the port loaders; '
-          f'em_actor_cells_load(area01_cells.bin) = {cells_rc} (uid 0 word has bit 29 set; docs/AREA01_ASSETS.md finding 1)')
+          f'em_actor_cells_load(area01_cells.bin) = {cells_rc} (uid 0 word has bit 29 set: the EE\'s RAM mirror; docs/AREA01_ASSETS.md finding 1)')
 
     lmap, info = C.build_load_map(arrival)
     K = SimpleNamespace(el=el, L=L, T=T, S=S, elf=C.read_elf(), arrival=arrival, lmap=lmap, info=info,
