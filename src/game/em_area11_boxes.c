@@ -33,6 +33,9 @@
 #include "game/em_roger_actor_original.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_sfx.h"
+#include "game/em_sfx_bank.h"
+#include "game/em_stream_live.h"
+#include "game/em_area00_low.h"
 #include "game/em_truck_original.h"
 
 enum {
@@ -72,6 +75,7 @@ typedef struct {
     EmActorPool *pool;
     EmSceneState *scene;
     int freed;
+    int husk;             /* 001551B0's damage break rebinds a library model (h_rebind) */
 } Box;
 
 static struct {
@@ -238,7 +242,7 @@ static int w_001CA6E0(void *ctx, EmOwnerServicesOwner *owner, uint32_t handle)
     if (!b || em_roger_actor_001CA6E0(&S.stack, &record, handle) < 0) return -1;
     const EmWorldModels *bank = &S.bank;
     const EmWorldModel *m = em_world_models_at(&S.bank, record.model);
-    if (!m && b->world) {
+    if (!m && (b->world || b->husk)) {
         bank = &S.library;
         m = library_model(record.model);
     }
@@ -518,7 +522,8 @@ static int h_draw(void *ctx)
     view_sync(b);
     uint32_t rgb[4];
     memcpy(rgb, b->actor->f80, sizeof rgb);   /* +0x80..+0x8F */
-    if (em_owner_draw_live_001CAA00(&S.bank, &b->view, rgb, em_actor_pool_address(b->pool, b->actor)) < 0)
+    if (em_owner_draw_live_001CAA00(b->bank ? b->bank : &S.bank, &b->view, rgb,
+                                    em_actor_pool_address(b->pool, b->actor)) < 0)
         return report("001CAA00 faulted");
     b->drawn = 1;
     return 0;
@@ -558,9 +563,66 @@ static int h_hull(void *ctx, const float world[16])
     return em_collision_world_retransform_001A2370(b->actor, world) < 0 ? -1 : 0;
 }
 
-/* Reached only after a damage write or on a nest-group path (header). */
+/* 001FC580(self, id), the owner's break cue (the damage break, the fall's
+ * landing break: BRANCH br_04 / br_06): em_area00_low's translation, the
+ * one owner of that original, over two regions: D_00281F30's records
+ * (em_stream_live's storage, which step H's 001FC6E0 plays from) and the
+ * frame it carves below `sp`. Its one callee, 001FBF50(self, sp + 0x38,
+ * sp + 0x3C, 0; 300.0, 4096.0), is the live positional gain every owner's
+ * cue goes through (em_sfx_compute_gains over the record's +0xB0, the
+ * float_to_int(4096 * gain) words em_sfx_request_word makes; FIRST_LEVEL_
+ * CENSUS.md row 0x001FBF50): it writes the two stack words and returns 1,
+ * or 0 out of range. Any other callee, record or argument faults. */
+enum { SOUND_SP = 0x01FFF000u, SOUND_FRAME = 0x40u };
+typedef struct {
+    Box *box;
+    uint8_t *stack;
+} SoundCall;
+
+static int h_sound_call(void *ctx, EmArea00LowCall *c)
+{
+    SoundCall *sc = ctx;
+    const uint32_t record = em_actor_pool_address(sc->box->pool, sc->box->actor);
+    const uint32_t lo = SOUND_SP - SOUND_FRAME;
+    if (c->fn != 0x001FBF50u || c->na != 4 || c->nf != 2 || (uint32_t)c->a[0] != record ||
+        (uint32_t)c->a[1] != c->sp + 0x38u || (uint32_t)c->a[2] != c->sp + 0x3Cu || c->a[3] != 0 ||
+        c->f[0] != 0x43960000u /* 300.0 */ || c->f[1] != 0x45800000u /* 4096.0 */ || c->sp != lo)
+        return report("001FC580 called something other than 001FBF50(self, sp + 0x38, sp + 0x3C, 0; 300, 4096)");
+    float gl, gr;
+    c->v0 = 0;
+    c->f0 = 0;
+    if (!em_sfx_compute_gains(sc->box->actor->pos, 300.0f, &gl, &gr))
+        return 0;
+    const int32_t l = em_sfx_request_word(gl), r = em_sfx_request_word(gr);
+    memcpy(sc->stack + 0x38, &l, 4);
+    memcpy(sc->stack + 0x3C, &r, 4);
+    c->v0 = 1;
+    return 0;
+}
+
 static int h_sound(void *c, uint16_t id)
-{ (void)c; (void)id; return unbound("001FC580 (the owner's sound)"); }
+{
+    Box *b = c;
+    int32_t (*cues)[4] = em_stream_live_d281F30();
+    if (!b || !cues) return report("001FC580 without D_00281F30 (the stream lanes are not booted)");
+    uint8_t stack[SOUND_FRAME];
+    memset(stack, 0, sizeof stack);
+    const EmArea00LowRegion regions[2] = {
+        {0x00281F30u, 4u * 4u * 10u, (uint8_t *)cues},
+        {SOUND_SP - SOUND_FRAME, SOUND_FRAME, stack},
+    };
+    SoundCall sc = {b, stack};
+    EmArea00Low low;
+    memset(&low, 0, sizeof low);
+    low.regions = regions;
+    low.region_count = 2;
+    low.call = h_sound_call;
+    low.ctx = &sc;
+    low.sp = SOUND_SP;
+    if (em_area00_low_001FC580(&low, em_actor_pool_address(b->pool, b->actor), (int32_t)id) < 0)
+        return report("001FC580 faulted (em_area00_low)");
+    return 0;
+}
 /* 001EFD90(id, pos, rot): em_effect_original's spawn over the live effect
  * binder (em_effects_live, census L26). */
 static int h_effect(void *c, uint32_t id, const float p[4], const float r[4])
@@ -572,8 +634,26 @@ static int h_taken(void *c, uint8_t puid)
 { (void)c; (void)puid; return unbound("001B11E0 (the nest group's taken bits)"); }
 static int h_spawn(void *c, const EmCrateChild *child)
 { (void)c; (void)child; return unbound("001AFA90 and the nest child copy"); }
+/* The husk rebind of a damage break (001551B0 at 001562xx; decomp
+ * src/func_001551B0.c): 001CA6E0(self, 001C6120(*D_0028A56C, model)) with
+ * model 0x22 (a box of model 6) or 0x29 (0x1E): +0x44 = the global
+ * library's model (the Roger export, em_area11_roger_001C6120 / _resource),
+ * +0x4C = 001CAA00; bone_init_default_1 follows in the owner. */
 static int h_rebind(void *c, uint16_t model)
-{ (void)c; (void)model; return unbound("the husk rebind 001C6120(D_0028A56C) / 001CA6E0"); }
+{
+    Box *b = c;
+    if (!S.library_word &&
+        em_area11_roger_table_word(0x0028A490u + 4u * 0x37u, &S.library_word) < 0)
+        return report("the husk rebind: D_0028A56C (the Roger export) is not loaded");
+    uint32_t handle = 0;
+    if (w_001C6120(NULL, S.library_word, model, &handle) < 0)
+        return report("the husk rebind: 001C6120(D_0028A56C) faulted");
+    view_sync(b);
+    b->husk = 1;
+    if (w_001CA6E0(NULL, &b->view, handle) < 0)
+        return report("the husk rebind: 001CA6E0 (the library model) faulted");
+    return 0;
+}
 static int h_set_taken(void *c, uint8_t puid)
 { (void)c; (void)puid; return unbound("001B1190 (model 0x50 taken bit)"); }
 static int h_segment(void *c, const float f[3], const float t[3], int32_t mask, int32_t ex)

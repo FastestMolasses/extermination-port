@@ -258,10 +258,11 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
                 if (fields[j].size>UINT32_MAX) return -1;
                 TRY(append(out,capacity,count,fields[j].address,(uint32_t)fields[j].size,fields[j].bytes,1));
             }
-            /* The knife's trail node: its +0x110 words and its slots. */
-            EmPoseRegion trail[4];
-            size_t trail_count=em_aim_fire_trail_regions(address,trail,4);
-            if (trail_count>4) return -1;
+            /* The knife's trail node and a debris node: their +0x110 words
+             * and their slots. */
+            EmPoseRegion trail[57];
+            size_t trail_count=em_aim_fire_trail_regions(address,trail,57);
+            if (trail_count>57) return -1;
             for (size_t j=0;j<trail_count;++j)
                 TRY(append(out,capacity,count,trail[j].address,trail[j].size,trail[j].bytes,trail[j].writable));
             /* The bone-burst node (0022BBC0): its +0x110 words and slots. */
@@ -642,10 +643,11 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
 {
     (void)context;
     if (callback==EM_EFFECT_001F77B0_CALLBACK) return death_decal_tick(node);
-    if (callback==EM_AIM_FIRE_TRAIL_CALLBACK) {
-        /* The knife's trail node 001F18C0 (em_area00_fx through the
-         * composition), with D_00275B40 = its +0x110 (the walk's 001CB590);
-         * 1 while its record stays allocated, 0 once it freed itself. */
+    if (callback==EM_AIM_FIRE_TRAIL_CALLBACK || callback==EM_AIM_FIRE_DEBRIS_CALLBACK) {
+        /* The knife's trail node 001F18C0 and a box's debris node 001F2BA0
+         * (em_area00_fx through the composition), with D_00275B40 = its
+         * +0x110 (the walk's 001CB590); 1 while its record stays allocated,
+         * 0 once it freed itself. */
         EmActor *a=pool_actor(node);
         if (!a) return -1;
         const uint32_t generation=a->generation;

@@ -37,7 +37,12 @@ addresses, from the user's own extracted disc:
     L28), the indicator children's 001C2360 models (0x73 the pickup
     light, 0x74 / 0x75 the panel's, 0x7A the security gun's lamp;
     em_indicator_bind_live.c), the muzzle node 001F5040's (0x07..0x0F;
-    em_aim_fire_flash.c) and the shell casing's 0x19 (001F3E30);
+    em_aim_fire_flash.c), the shell casing's 0x19 (001F3E30), and a box's
+    damage break (001551B0, BRANCH br_04 / br_06): its husk 0x22 (the
+    rebind 001CA6E0(self, 001C6120(D_0028A56C, 0x22)) of a model-6 box) and
+    its debris pieces 0x1C / 0x1E (effect 0x8000000A's node 001F2BA0,
+    subtype 0: D_0025A350 row 0, table 0x37, models 0x1C and 0x1E, drawn by
+    001F3E30);
   * the library's model 0x16 (the gun lamp's third cone shell, 001D9530) as
     the disc holds it, a WRITABLE region: the New Game's 001AD1A0 calls
     001D19D0 -> 001D9070, which rewrites its vertex weights in place
@@ -103,6 +108,11 @@ EQUIPMENT_SPANS = ((0x07, 0x0F), (0x19, 0x19), (0x2F, 0x3D), (0x40, 0x40), (0x6A
 # spans no pose host reads (em_area11_roger_regions leaves them out, so the
 # record pose hosts that map the other regions keep their count).
 SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
+# A model-6 box's damage break (001551B0; BRANCH br_04 / br_06): the husk 0x22
+# and the subtype-0 debris pieces 0x1C / 0x1E (D_0025A350 row 0's +0x54 /
+# +0x58). Library spans too: em_area11_boxes' library_model and 001F3E30
+# read them by address; no pose host maps them.
+BREAK_SPANS = ((0x1C, 0x1C), (0x1E, 0x1E), (0x22, 0x22))
 # The library model 001D9070 rewrites (001C6120(D_0028A56C, 0x16), src/func_001D9070.c):
 # its block count, then per block 32 entries of 0x40 bytes from block + 0x10,
 # each entry's +0x20..+0x2F the weight words it stores (from +0x38).
@@ -157,7 +167,7 @@ def main(argv=None) -> int:
         raise SystemExit("D_0028A490[0x88] is not the face resource of Roger's model file")
     global_table = table[GLOBAL_TABLE_INDEX]
     count = u32(f37, 0)
-    if not 0 < count < 0x400 or max(last for _first, last in EQUIPMENT_SPANS) >= count:
+    if not 0 < count < 0x400 or max(last for _first, last in EQUIPMENT_SPANS + BREAK_SPANS) >= count:
         raise SystemExit(f'chunk27/f01_id37.bin: table word 0 = {count}')
     regions = [
         (base12 + BANK_96_AT, f12[BANK_96_AT:]),
@@ -166,7 +176,7 @@ def main(argv=None) -> int:
         (table[DENNIS_FACE_INDEX], f16),
     ]
     library_spans = set()
-    for first, last in EQUIPMENT_SPANS:
+    for first, last in EQUIPMENT_SPANS + BREAK_SPANS:
         offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]
         if offsets != sorted(offsets):
             raise SystemExit(f'the equipment models {first:#x}..{last:#x} are not in file order')
@@ -176,7 +186,7 @@ def main(argv=None) -> int:
             if off + block_model_size(f37, off) > end:
                 raise SystemExit(f'the equipment model at +{off:#x} leaves its span')
         regions.append((global_table + start, f37[start:end]))
-        if (first, last) in SHOT_SPANS:
+        if (first, last) in SHOT_SPANS + BREAK_SPANS:
             library_spans.add(global_table + start)
     fade_off = struct.unpack_from('<i', f37, 4 + 4 * FADE_MODEL)[0] >> 2 << 2
     fade_address = global_table + fade_off

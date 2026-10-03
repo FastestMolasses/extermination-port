@@ -1,4 +1,5 @@
-/* em_aim_fire_trail.c - the knife's trail node's slots (see
+/* em_aim_fire_trail.c - the slots of the slot-holding effect nodes the
+ * composition runs: the knife's trail 001F18C0 and the debris 001F2BA0 (see
  * em_aim_fire_trail.h, docs/AIM_FIRE.md section 9.3).
  *
  * Nothing here computes: 001AF780 / 001AF800 are em_roger_actor's
@@ -13,14 +14,25 @@
 
 typedef uint32_t u32;
 
-#define SLOTS_MAX 3u                 /* 001F18C0 state 0: 001F1550(node, 3) */
+/* The nodes' +0x110 words: the trail's three (001F18C0 state 0:
+ * 001F1550(node, 3)); a debris node's one per piece (001F2E90: the row's
+ * +0x4C byte, D_0025A350), at most 56 here: more would reach +0x1F0, the
+ * effect node's em_effects_live fields (no first-level break spawns more;
+ * BRANCH br_04 / br_06). */
+#define SLOTS_MAX 56u
 
 typedef struct {
     uint32_t generation;
     int live;
     u32 word[SLOTS_MAX];             /* +0x110: the popped slot addresses */
-    unsigned held;
+    unsigned held, max;
 } Trail;
+
+/* The callbacks this module keeps the slots of, and each one's most. */
+static unsigned slots_max(uint32_t callback)
+{
+    return callback == EM_AIM_FIRE_TRAIL_CALLBACK ? 3u : callback == EM_AIM_FIRE_DEBRIS_CALLBACK ? SLOTS_MAX : 0u;
+}
 
 static struct {
     EmActorPool *pool;
@@ -84,15 +96,16 @@ int em_aim_fire_trail_set_current(EmActor *actor)
         return 0;
     }
     const int i = index_of(actor);
-    if (!S.attached || S.fault || i < 0 || !actor->allocated || actor->callback != EM_AIM_FIRE_TRAIL_CALLBACK)
-        return fail(EM_AIM_FIRE_TRAIL_CALLBACK, "no trail node to run");
+    if (!S.attached || S.fault || i < 0 || !actor->allocated || !slots_max(actor->callback))
+        return fail(actor ? actor->callback : 0, "no trail or debris node to run");
     Trail *t = &S.rec[i];
     if (!t->live || t->generation != actor->generation) {
         /* A new record: 001EF9D0 allocated it with +0x09 = 0 (no slots). */
-        if (actor->bones) return fail(EM_AIM_FIRE_TRAIL_CALLBACK, "a new trail node already holds slots");
+        if (actor->bones) return fail(actor->callback, "a new trail or debris node already holds slots");
         memset(t, 0, sizeof *t);
         t->generation = actor->generation;
         t->live = 1;
+        t->max = slots_max(actor->callback);
     }
     S.current = t;
     return 0;
@@ -169,7 +182,7 @@ int em_aim_fire_trail_call(EmAimFireTargetCall *c)
     if (em_roger_actor_001AF780(&S.stack, &word) < 0) return fail(0x001AF780u, "001AF780 faulted");
     c->v0 = word;
     if (!word) return 1;
-    if (t->held >= SLOTS_MAX || !slot_bytes(word)) return fail(0x001AF780u, "a slot past the node's three");
+    if (t->held >= t->max || !slot_bytes(word)) return fail(0x001AF780u, "a slot past the node's own count");
     t->word[t->held++] = word;
     return 1;
 }

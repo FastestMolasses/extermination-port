@@ -725,8 +725,12 @@ CAPTURE_SHA256 = {
     # and 0x19 (the muzzle node, the shell casing): 469 TEX0; the pin is the disc export's,
     # each of its textures decoding identically from all 15 route captures' GS memory
     # (export_object_textures.py --route-captures); before it: 02827237...
+    # chain step BRANCHES (2026-10-03): + a box's damage-break library models 0x1C, 0x1E
+    # (the debris) and 0x22 (the husk): 470 TEX0; the pin is the disc export's, each of its
+    # textures decoding identically from all 15 route captures' GS memory
+    # (export_object_textures.py --route-captures); before it: 9392501d...
     'scene_snow/object_textures.emot':  # sha256
-        '9392501dd56b9ed3f6919a80b9ab62345451a7a788da98fa22b388d48637fcb1',
+        'df2dc43d72e8fb6ea78aa509cd7976aca9dd2ed93115bedb48384e887cbd5206',
     # chain step AIMCAM: + the laser dot, CODE_PAGE_TEX0; chain step AIMLIVE: + the impact
     # effects' source TEX0 (SOURCE_PAGE_TEX0), identical in all 15 route captures
     # (export_page_textures.py --route-captures); chain step AIMLIVE fix round: + the

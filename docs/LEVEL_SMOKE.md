@@ -49,8 +49,9 @@ capture, not a route beat), which the same targets require.
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
 make test-level-smoke-full             # the whole route through the exit (the AREA01 arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim and test-level-smoke-damage
+make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage and test-level-smoke-branch
 make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_crevice_fall, dmg_pit_fall (EM_DAMAGE_SIDES=a,b runs only those)
+make test-level-smoke-branch           # the BRANCH side runs side by side: br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk (EM_BRANCH_SIDES=a,b runs only those; 7 min 5 s for the ten with their checks, measured 2026-10-03)
 make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
@@ -273,6 +274,16 @@ fence_door_side1` requires both side phases.
 | dmg_flame (side, from crevice_prompt) | DAMAGE dmg_00..dmg_04 (decomp CAPTURES_C10.md "DAMAGE", not route beats) | the flame's contact 001A8660 / 0x823580 (001EFE00: the burn node 0022BBC0), the hit 0021C440 / 0021D800 and the rumble 001B61C0, the heartbeat 0015D000, the death 0021D2E0 and its decal 001F77B0, the game over 001AD140 / 001AD4E0 (screen module 0x27, 001ABF90) / 001ADF00, the title after a death 001AC070 / 001AC480, the New Game to first control | yes, its own run (chain step DAMAGE, 2026-10-02) | — |
 | dmg_crevice_fall (side, from crevice_prompt) | DAMAGE dmg_06 | the walking jump short of the north block, the landing hit 0017C580 / 00163E90 | yes, its own run (chain step DAMAGE) | — |
 | dmg_pit_fall (side, from truck_preview) | DAMAGE dmg_07 | the truck's fall, the walk off its roof, the 0x5D floor's death 0021D250 / 0021D2E0, the game over | yes, its own run (chain step DAMAGE) | — |
+| br_panel_decline (side, from elevator_refusal) | BRANCH br_03 (decomp CAPTURES_C10.md "BRANCH", not a route beat) | the panel 00159210 with the battery: script 0x2477A0, the BATTERY page's two-unit prompt, No, Triangle: the cancel script 0x247DA0; the power stays off | yes, its own run (chain step BRANCHES, 2026-10-03) | — |
+| br_elevator_up (side, from elevator) | BRANCH br_02 | the terminal 0x827B10 on the lower floor: 0x82A750 and the carry 0x828050 back up, D_0081083A 1 -> 0 | yes, its own run (BRANCHES) | — |
+| br_crate_stack (side, from elevator) | BRANCH br_04 | the light melee on box r5 (001551B0's damage break: the husk rebind, 001FC580's cue, the debris 0x8000000A (001F2BA0) and 0x80000015 (001EA240 subtype 0x0D, 001EBD20)), the raised r3 woken, its fall and break | yes, its own run (BRANCHES) | — |
+| br_ledge_ammo (side, from boxes) | BRANCH br_00 | pickup 00219550 g0.3 (item 0x1E): the take, its ITEM page, the taken bit | yes, its own run (BRANCHES) | — |
+| br_map_item (side, from slide) | BRANCH br_01 | the map item 0015AFA0 g0.6 (item 0x08): the grab clip 0x40, the MAP take page, the taken bit | yes, its own run (BRANCHES) | — |
+| br_west_ledge (side, from fence_door) | BRANCH br_05 .. br_08 | the corridor box's ledge climb and step-off (the skid 0x80000033: 001EAD70), the west-yard ladder up, box r6 broken, pickup g0.5 (item 0x10), the ladder down (the grab from above, 0x16) | yes, its own run (BRANCHES) | — |
+| br_yard_ammo (side, from fence_door) | BRANCH br_10 | pickup g0.1 (item 0x1E) on the yard floor | yes, its own run (BRANCHES) | — |
+| br_cage_key (side, from truck_crossing) | BRANCH br_09 | ladder A, pickup g0.4 (item 0x32): the take and its page (00214020's) | yes, its own run (BRANCHES) | — |
+| br_plateau (side, from crevice_prompt) | BRANCH br_11 .. br_13 | the raised pipe's ledge climb and step-off, the plateau ladder up, pickup g0.2 (item 0x1F), the ladder down | yes, its own run (BRANCHES) | — |
+| br_roger_talk (side, from roger) | BRANCH br_14 | Roger 0x8237E0's third branch 0x823B70: the use scan marks him (+0x0B = 4), the talk script 0x828810 (line 0x13, VOICE.DAT cue 1) | yes, its own run (BRANCHES) | the voice read's drive time (host speed; the recording's with the PS2 disc-drive timing switch) |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
@@ -1211,6 +1222,61 @@ the sway check skips the game-over ticks (no world frame), and
 check_overlay11 leaves the flame's cooldown and +0x00 = 2 to this check from
 the first damage window on.
 
+### The BRANCH side runs (br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk)
+
+Side phases (chain step BRANCHES, audit 1b item 16): the decomp capture
+lane BRANCH recorded the AREA11 branches the main route skips (decomp
+CAPTURES_C10.md "BRANCH": fifteen beats br_00..br_14). Each side phase plays
+the lane's own closed-loop policies (route_capture.py `br_beat_*`) as a
+program of steps (em_level_smoke_test.c "branches": the walks, the gotos,
+the face taps, the takes with their status page and Triangle, the ladders
+up and down, the ledge climbs and run-offs, the light melee on a box, the
+terminal, the panel's No, Roger's talk), driven by the port's own state,
+from the end of the main-line phase (or side phase) the recording starts
+from; br_west_ledge plays br_05..br_08 and br_plateau br_11..br_13 in a row,
+as the recordings chain. Each beat starts after 35 neutral ticks (the
+capture's pin) and prints `beat <name> at tick N counter C`, the checker's
+slice. The policies' predicates are the capture tool's (`in_control`: the
+selector 0, +1F0 0, the status closed; `settle`: then the record's clip
++0x20C 0), and every pad the program sets reaches the overlay two ticks
+later: the recordings' pad took effect three frames after the row it was
+set on, the overlay's on the next frame (measured on the ladders' climb
+clip: four rows after the first 0x17 row in the recordings and route 10).
+
+The tick log adds `br` (the taken bits of area 11, the counts of items
+0x08, 0x10, 0x1B, 0x1E, 0x1F and 0x32, and the records of the items
+g0.1..g0.6 and the boxes r3..r6 and drums r14 / r15, an item owner's own
++0x00 / +0x02 / +0x04 / +0x05 / +0x0B laid over its record), and the runs
+set EM_LOG_AIM_RECORDS=1 for the player record and the status block.
+`tools/level_smoke_branch.py` compares each beat window by window, each
+aligned on its event and then row for row with the recording (its
+docstring lists every field): the takes (the scan; the take clip after the
+turn toward the item; the request, or route 01's camera-settle rule; the
+page row for row around its module load, which at host speed is shorter;
+the close, within the Triangle's one-row pad timing; the taken bit, the
+item counts and the item's record to control), the ladders (grab to
+hand-back; a recording whose pad lost the held stick for one row, br_11 at
+f1031, is aligned again on the dismount), the ledge climbs and the
+step-offs (the climb's Y as the lift, the landing to the row after the
+hand-back), the box breaks (the swing, then the four boxes over 200 rows),
+the ride up (as check_elevator), the panel's decline (as check_panel to
+the prompt, then the list and the cancel script) and Roger's talk (row for
+row; the voice read at host speed, and the teardown and everything after it
+exactly that many rows earlier, as check_director_beat). Navigation input
+is named where it is left out: the stance's +1F1 (the face taps), the turn
+clip's side, the MAP page's player marker (UI+0x40 / +0x48), the follow
+camera after a release.
+
+Whole-run checks over these runs: a BRANCH run's side phase bounds the
+main line's ladder count (`side_start`); after br_elevator_up's window the
+terminal is compared with routes 00..03 again (check_indicator_children);
+a box break's swing opens the knife's aim-run rules (`aim_from`); the box's
+rand() caller is mapped (rand_order.py: 001551B0).
+
+Measured 2026-10-03 (all ten PASS, `make test-level-smoke-branch`): the
+page loads take 9 or 10 rows at host speed against the recordings' 24..26;
+Roger's voice read 1 row against 7 (the teardown 6 rows earlier).
+
 ### crevice_climbs
 
 Route beat 11 up to director beat 1: the tank climb and the pipe-end climb
@@ -1697,8 +1763,8 @@ equipment nodes and the last barrel's lane-packet and glow-marker digests
 It checks:
 - over the whole run: every barrel frame (001F0360) emitted the 11 glow
   markers and drew the six ring lanes, and no counted effect gap (the
-  skid's two packet-only handlers 001EAD70 / 001EC270; EFFECT_MANAGER.md
-  8.2) was reached;
+  packet-only handler 001EC270; the skid's 001EAD70 runs its translation
+  since chain step BRANCHES; EFFECT_MANAGER.md 8.2) was reached;
 - at each aligned tick, against the snapshot's pool list (D_00275BC0): the
   equipment nodes' +0x00..+0x0F, +0x44 and +0x4C as a set, each drawn this
   tick at the player's node its mesh draws it at; the player's links to

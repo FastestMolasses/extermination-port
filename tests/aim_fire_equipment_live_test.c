@@ -111,15 +111,19 @@ int main(void)
     CHECK(em_equipment_live_field(slot->word[0]+0x90,65,1)==NULL);
     CHECK(em_equipment_live_field(address,SIZE_MAX,0)==NULL);
     CHECK(em_equipment_live_field(address,0,0)==NULL);
+    /* +0x36: the knife's damage halfword, read by 00189FE0 from the pool
+     * record's one copy (h36); the view is read-only */
+    CHECK(em_equipment_live_field(address+0x36,2,0)==&actor->h36);
+    CHECK(em_equipment_live_field(address+0x36,2,1)==NULL);
     EmEquipmentLiveRegion regions[12];
-    CHECK(em_equipment_live_regions(address,NULL,0)==9);
-    CHECK(em_equipment_live_regions(address,regions,12)==9);
-    for(unsigned i=0;i<9;++i) {
+    CHECK(em_equipment_live_regions(address,NULL,0)==10);
+    CHECK(em_equipment_live_regions(address,regions,12)==10);
+    for(unsigned i=0;i<10;++i) {
         CHECK(em_equipment_live_field(regions[i].address,regions[i].size,regions[i].writable)==regions[i].bytes);
         if(!regions[i].writable)CHECK(em_equipment_live_field(regions[i].address,regions[i].size,1)==NULL);
     }
     memset(regions,0xA5,sizeof regions);
-    CHECK(em_equipment_live_regions(address,regions,1)==9);
+    CHECK(em_equipment_live_regions(address,regions,1)==10);
     CHECK(regions[1].address==0xA5A5A5A5);
     actor->allocated=0;
     CHECK(em_equipment_live_field(address,1,0)==NULL);

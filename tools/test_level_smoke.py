@@ -104,6 +104,7 @@ import struct
 import sys
 
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
+import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
 import rand_order as R
 import test_scene_task_reference as tsr
 
@@ -2089,7 +2090,8 @@ def check_cage_ladders(ticks, run, state):
     assert [rows[k]['f'] for k in route_entries(rows, 0xB)] == [w[0] for w in LADDER_WINDOWS], \
         ('route 10 ladder entries moved', route_entries(rows, 0xB))
     start = max(state.get('cursor', 0), 1)
-    entries = state_entries(ticks, 0xB, start)
+    # A BRANCH side run's own ladders come after its side phase starts.
+    entries = state_entries(ticks, 0xB, start, state.get('side_start'))
     assert len(entries) == 2, ('the run entered the ladder other than twice', len(entries))
     notes = [fall_between(ticks, start, entries[0], rows, 'cage_ladders')]
     for e, (f0, f1) in zip(entries, LADDER_WINDOWS):
@@ -2944,6 +2946,11 @@ def check_status_pages(ticks, run, state):
           f'host-speed rows of route 03\'s module-0x21 load with its module byte)')
 
 
+def branch_phase(side):
+    """A BRANCH side phase: level_smoke_branch over this module's helpers."""
+    return side, lambda ticks, run, state: level_smoke_branch.check_side(sys.modules[__name__], ticks, run, state, side)
+
+
 PHASES = [
     ('first_control', check_first_control),
     ('panel_no_battery', check_panel_no_battery),
@@ -2951,15 +2958,22 @@ PHASES = [
     ('status_pages', check_status_pages),
     ('battery', check_battery),
     ('elevator_refusal', check_elevator_refusal),
+    branch_phase('br_panel_decline'),
     ('panel', check_panel),
     ('elevator', check_elevator),
+    branch_phase('br_elevator_up'),
+    branch_phase('br_crate_stack'),
     ('boxes', check_boxes),
+    branch_phase('br_ledge_ammo'),
     ('slide', check_slide),
+    branch_phase('br_map_item'),
     ('truck_preview', check_truck_preview),
     ('dmg_pit_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_pit_fall(ticks, run, state)),
     ('truck_crossing', check_truck_crossing),
     ('fence_door', check_fence_door),
     ('fence_door_side1', check_fence_door_side1),
+    branch_phase('br_west_ledge'),
+    branch_phase('br_yard_ammo'),
     ('aim_r1_hold', check_aim_r1_hold),
     ('aim_r2_hold', check_aim_r2_hold),
     ('aim_fire', check_aim_fire),
@@ -2971,16 +2985,19 @@ PHASES = [
     ('aim_world', check_aim_world),
     ('aim_cable', check_aim_cable),
     ('aim_burst', check_aim_burst),
+    branch_phase('br_cage_key'),
     ('cage_ladders', check_cage_ladders),
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
     ('crevice_prompt', check_crevice_prompt),
     ('dmg_flame', lambda ticks, run, state: level_smoke_damage.check_dmg_flame(ticks, run, state)),
     ('dmg_crevice_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_crevice_fall(ticks, run, state)),
+    branch_phase('br_plateau'),
     ('crevice_jump', check_crevice_jump),
     ('east_tower_climb', check_east_tower_climb),
     ('east_tower', check_east_tower),
     ('roger', check_roger),
+    branch_phase('br_roger_talk'),
     ('exit', check_exit),
 ]
 
@@ -3323,7 +3340,9 @@ def check_indicator_children(ticks, state):
     for bit; that node (and the terminal's +0x04, +0x09, +0x0C, +0x44, +0x4C
     at the same record address) equals routes 00..03' before the elevator
     phase's window and routes 04..14' after it (the carry's rows are
-    compared by the elevator phase). At the aligned snapshot ticks the set
+    compared by the elevator phase); after the BRANCH ride back up
+    (br_elevator_up, whose window its own check compares) routes 00..03'
+    again. At the aligned snapshot ticks the set
     of bound children equals the snapshot's, and the terminal's node equals
     that snapshot's. The slot addresses (+0x110) are not compared: the
     stack's history before the children is not yet the original's (other
@@ -3344,6 +3363,7 @@ def check_indicator_children(ticks, state):
     (upper,), (lower,) = upper, lower
     term_addr = next(iter(terms.values()))[0]
     ride = (state.get('ride_scan', len(ticks)), state.get('ride_end', len(ticks)))
+    up = (state.get('ride_up_scan', len(ticks)), state.get('ride_up_end', len(ticks)))
     seen, ticks_seen, terminal_copies, terminal_states = set(), 0, 0, [0, 0]
     for i, t in enumerate(ticks):
         kids = t.get('children')
@@ -3362,11 +3382,12 @@ def check_indicator_children(ticks, state):
                 assert tuple(world) == tuple(term[6]), (where, 'the child\'s slot is not the terminal\'s node 0 '
                                                         '(0x827E6C)', world, term[6])
                 got = (tuple(term[1:6]), tuple(term[6]), tuple(term[7]))
-                if i < ride[0] or i >= ride[1]:
-                    want = upper if i < ride[0] else lower
+                if (i < ride[0] or i >= ride[1]) and not up[0] <= i < up[1]:
+                    above = i < ride[0] or i >= up[1]
+                    want = upper if above else lower
                     assert got == want, (where, 'the terminal (+0x04, +0x09, +0x0C, +0x44, +0x4C, node 0, '
                                                 '+0xB0) differs from the routes\' '
-                                         + ('00..03' if i < ride[0] else '04..14'), got, want)
+                                         + ('00..03' if above else '04..14'), got, want)
                     terminal_states[i >= ride[1]] += 1
                 terminal_copies += 1
             else:
@@ -3653,10 +3674,12 @@ def check_effects(ticks, state):
 
 SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
-        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')
+        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall', 'br_ledge_ammo', 'br_map_item',
+        'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
+        'br_plateau', 'br_roger_talk')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
-FROM_SIDE = {'fence_door_side1': 'fence_door'}
+FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door'}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
          ('designed', ('status_pages',)),
@@ -3666,7 +3689,9 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
                   'aim_light', 'aim_melee', 'aim_world', 'aim_cable', 'aim_burst')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
-         ('15', ('exit',)), ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')))
+         ('15', ('exit',)), ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
+         ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
+                 'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')))
 
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
@@ -4763,6 +4788,11 @@ def main():
     # timing"): check_voice_drive and the opening's end follow it.
     state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace,
              'tail': tails[-1] if tails else None}
+    # A BRANCH side run (level_smoke_branch): the tick its side phase starts,
+    # which bounds the main line's searches.
+    side = re.search(r'^level smoke: br_\w+: beat \S+ at tick (\d+)', run, re.M)
+    if side:
+        state['side_start'] = next(i for i, t in enumerate(ticks) if t['tick'] >= int(side.group(1)))
     checked, not_live, driven, side_named = [], [], [], []
     for name, check in PHASES:
         if re.search(rf'^level smoke: {name}: PASS', run, re.M):

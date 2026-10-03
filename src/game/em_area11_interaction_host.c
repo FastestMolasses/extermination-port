@@ -1865,6 +1865,23 @@ int em_area11_interaction_host_pickup_tick(uint32_t source_id)
 }
 
 
+int em_area11_interaction_host_pickup_header(const EmActor *actor, uint8_t header[16])
+{
+    if (!world.loaded || !actor || !header) return 0;
+    for (size_t i = 0; i < world.pickup_count; ++i) {
+        const HostPickup *slot = &world.pickups[i];
+        const EmPickupOwner *owner = slot->record ? slot->record->native_owner : NULL;
+        if (slot->actor != actor || !owner) continue;
+        header[0x00] = owner->status;
+        header[0x02] = owner->class_flags;
+        header[0x04] = owner->lifecycle;
+        header[0x05] = owner->phase;
+        header[0x0B] = owner->armed;
+        return 1;
+    }
+    return 0;
+}
+
 /* ------------------------------------------------ status screens (0020E060/0020CDC0)
  *
  * Every status screen in AREA11 runs the original page layer of the

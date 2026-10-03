@@ -58,6 +58,11 @@ int em_stream_live_step_h(void);
 /* 001FBC50's tail: D_00281F30's ten records back to {0, -1} (the boot, and
  * every 001FBC50 the scene bindings run). */
 void em_stream_live_001FBC50_cues(void);
+/* D_00281F30, 001FC6E0's ten delayed cues {delay, cue, a2, a3} (0xA0
+ * bytes, the one storage step H's 001FB100 reads): their writer 001FC580
+ * (the boxes' and drums' break cue, em_area11_boxes) stores through this
+ * view. NULL before the boot. */
+int32_t (*em_stream_live_d281F30(void))[4];
 
 /* The original entry points (arguments are the original's; 0, or -1 on a
  * fault). */

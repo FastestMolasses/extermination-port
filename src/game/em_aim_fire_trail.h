@@ -1,7 +1,12 @@
 /* em_aim_fire_trail.h - the knife's trail node: the effect record
  * 001EFF10(0x8000000D, ...) spawns from the knife's 00189D30 (its +0x10 =
  * 001F18C0), its three bone slots and their bytes. Docs: docs/AIM_FIRE.md
- * section 9.3.
+ * section 9.3. The same for the debris node (+0x10 = 001F2BA0: the
+ * effect ids 0x8000000A..C a box's break spawns through 001EFD90, BRANCH
+ * br_04 / br_06), whose behaviour em_area00_fx_001F2BA0 (with 001F2E90,
+ * 001F2F90, 001F3620, 001F3340, 001F3E30 and em_area00_world's 001C6200)
+ * pops one slot per piece (the debris row's +0x4C, D_0025A350) and keeps
+ * each piece in its slot's bytes.
  *
  * This module adds no behaviour of its own. The behaviour 001F18C0 is
  * em_area00_fx_001F18C0 (with 001F1550 / 001F15F0), run through
@@ -36,6 +41,7 @@ extern "C" {
 #endif
 
 #define EM_AIM_FIRE_TRAIL_CALLBACK 0x001F18C0u
+#define EM_AIM_FIRE_DEBRIS_CALLBACK 0x001F2BA0u
 
 int em_aim_fire_trail_attach(EmActorPool *pool, EmSceneState *scene);
 uint32_t em_aim_fire_trail_fault(void);

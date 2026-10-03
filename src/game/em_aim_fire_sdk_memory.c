@@ -72,6 +72,22 @@ int em_aim_fire_sdk_memory_call(void *context,
             TRY(write_bytes(m,a+16*i,out,16));
         }
         return 0;
+    case 0x102C58: {
+        /* 00102C58(dst, src, angles): 00102A60 (z), then 00102BB0 (y) and
+         * 00102B08 (x) on dst (em_owner_services_euler_00102C58, the boxes'
+         * owner of it). Each turn's output row depends only on its own
+         * input row, so a whole-matrix pass equals the row passes when dst
+         * is src or apart from it; a partial overlap is refused. The debris
+         * node 001F2BA0 calls it in place on its +0xD0. */
+        a&=~15u;b&=~15u;c&=~15u;
+        if (a!=b && a<b+64 && b<a+64) return -1;
+        float angles[4];
+        for (unsigned i=0;i<4;++i) TRY(read_bytes(m,b+16*i,in+4*i,16));
+        TRY(read_bytes(m,c,angles,16));
+        if (em_owner_services_euler_00102C58(out,in,angles)!=0) return -1;
+        for (unsigned i=0;i<4;++i) TRY(write_bytes(m,a+16*i,out+4*i,16));
+        return 0;
+    }
     case 0x1026A0:
         a&=~15u;b&=~15u;c&=~15u;
         for (unsigned i=0;i<4;++i) TRY(read_bytes(m,b+16*i,in+4*i,16));

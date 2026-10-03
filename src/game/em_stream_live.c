@@ -49,7 +49,8 @@ static struct {
      * its writer, the options screen, is off the first-level route);
      * D_0027F778, the SDK's output-mode word 00119870 stores; D_00281F30,
      * 001FC6E0's ten delayed cues {delay, cue, a2, a3} (001FBC50 leaves
-     * {0, -1, 0, 0}; their writer 001FC580 is unbound in the port). */
+     * {0, -1, 0, 0}; their writer 001FC580 stores through
+     * em_stream_live_d281F30, the boxes' break cue). */
     uint8_t d81011C;
     int16_t d27F778;
     int32_t d281F30[EM_SLG_CUES][4];
@@ -215,6 +216,11 @@ int em_stream_live_boot(const char *path)
     S.booted = 1;
     atomic_store_explicit(&s_mixer, S.ctx.iop, memory_order_release);
     return 0;
+}
+
+int32_t (*em_stream_live_d281F30(void))[4]
+{
+    return S.booted ? S.d281F30 : NULL;
 }
 
 /* 001FBC50's tail over D_00281F30: each record's delay 0 and cue -1. */

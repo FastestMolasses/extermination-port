@@ -38,7 +38,7 @@
 
 enum {
     TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
-    MAX_REGIONS = 12,
+    MAX_REGIONS = 16,   /* 13 since the BRANCH step (the break spans 0x1C, 0x1E, 0x22) */
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
 };

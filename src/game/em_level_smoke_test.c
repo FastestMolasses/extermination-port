@@ -66,9 +66,11 @@ typedef struct {
      * skips it and names it NOT-LIVE / side; EM_LEVEL_SMOKE_UNTIL=<it>
      * runs the main line up to it and then only it. */
     int side;
-    /* 1: a side beat that starts from the previous side beat's end (the
-     * C7 side-1 capture starts from beat 09's end): EM_LEVEL_SMOKE_UNTIL=<it>
-     * runs the main line, that previous side beat, then it. */
+    /* n > 0: a side beat that starts from the end of the side beat n
+     * phases before it (the C7 side-1 capture starts from beat 09's end,
+     * n = 1; the BRANCH beats br_05 / br_10 from beat 09's too):
+     * EM_LEVEL_SMOKE_UNTIL=<it> runs the main line, that side beat, then
+     * it. */
     int from_side;
     /* 1: the phase's frame function runs once per main-loop iteration,
      * including the iterations that close out neither a world nor a
@@ -130,6 +132,8 @@ static void exit_begin(void);
 static int exit_frame(void);
 static void dmg_begin(void);
 static int dmg_frame(void);
+static void br_begin(void);
+static int br_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -153,6 +157,9 @@ static const Phase k_phases[] = {
     {"elevator_refusal", "02_elevator_refusal", 0x00827B10u,
      "terminal 0x827B10 (r19): refusal script 0x82A990, message 0x8000001A, letterbox",
      "WP-4", refusal_begin, refusal_frame, 0, 0, 0, 0},
+    {"br_panel_decline", "br_03_panel_decline (side, from 02; decomp CAPTURES_C10.md BRANCH)", 0x00159210u,
+     "panel 00159210 (r18) with the battery: script 0x2477A0, the BATTERY page's two-unit prompt, No, Triangle: the cancel script 0x247DA0; the power stays off",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"panel", "03_panel_power", 0x00159210u,
      "panel 00159210 (r18): script 0x2477A0, 00157F60 B0=1/B1=0x82 (BATTERY page), discharge, "
      "script 0x247BE0, power bit 0x80",
@@ -160,10 +167,22 @@ static const Phase k_phases[] = {
     {"elevator", "04_elevator_ride", 0x00827B10u,
      "terminal 0x827B10: powered script 0x82A750, clip 0x47, carry 0x828050 down to y 190", "WP-4",
      elevator_begin, elevator_frame, 0, 0, 0, 0},
+    {"br_elevator_up", "br_02_elevator_up (side, from 04; decomp CAPTURES_C10.md BRANCH)", 0x00827B10u,
+     "terminal 0x827B10 on the lower floor: the powered script 0x82A750 and the carry 0x828050 back up (D_0081083A 1 -> 0)",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
+    {"br_crate_stack", "br_04_crate_stack_break (side, from 04; decomp CAPTURES_C10.md BRANCH)", 0x001551B0u,
+     "the light melee 001735C0 on box r5 (001551B0): its damage break, the raised r3 woken (+0x0A), its fall and break",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"boxes", "05_boxes", 0x001551B0u, "ledge climb (state 2, +1F0 8) onto crates r4 and r3 (001551B0)",
      "the Use chain and the crates' original owners (census L25)", boxes_begin, boxes_frame, 0, 0, 0, 0},
+    {"br_ledge_ammo", "br_00_ledge_ammo (side, from 05; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
+     "pickup 00219550 g0.3 (item 0x1E, puid 6) on the 220 ledge: the take, the status page, the taken bit",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"slide", "06_hill_slide", 0, "slope slide 0016C6A0 (state 0x1C, +1F0 0x30)",
      "the slope slide on the live record (em_player_slide; census L03)", slide_begin, slide_frame, 0, 0, 0, 0},
+    {"br_map_item", "br_01_map_item (side, from 06; decomp CAPTURES_C10.md BRANCH)", 0x0015AFA0u,
+     "the map item 0015AFA0 g0.6 (item 0x08, puid 9): the grab clip 0x40, the status page, the taken bit",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
@@ -184,6 +203,12 @@ static const Phase k_phases[] = {
      "to entry 1; the arrival walk-out 001B07C0(1) 5/1/0 on the player's 0015B610 / 00183250",
      "the player's +4 = 5 handler 0015B610 and 00183250 (fence door side 1)", fence_door_side1_begin,
      fence_door_side1_frame, 0, 1, 1, 0},
+    {"br_west_ledge", "br_05_west_ladder_up .. br_08_west_ladder_down (side, from 09; decomp CAPTURES_C10.md BRANCH)", 0,
+     "the corridor box's ledge climb and step-off, the west-yard ladder up (0x15 / 0x17 / 0x18), box r6 broken by the light melee, pickup g0.5 (item 0x10, puid 8), the ladder down (the grab from above, 0x16)",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 2, 0},
+    {"br_yard_ammo", "br_10_yard_ammo (side, from 09; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
+     "pickup 00219550 g0.1 (item 0x1E, puid 4) on the yard floor: the take, the status page, the taken bit",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 3, 0},
     {"aim_r1_hold", "aim_00_r1_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 stance 0016FCF0 (+5 0x1D, +1F0 0x31), camera action 1 00197D20 and its release 00197490",
      "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r1_hold_frame, 0, 1,
@@ -225,6 +250,9 @@ static const Phase k_phases[] = {
      "the cable reaction 001EFE00 / 001EFEB0 / 0021AAC0 / 0021A500, the gun's lifecycle 2, taken bit 0x50",
      "the original aim / fire path and the cable reaction (AIM_FIRE.md)", aim_script_begin, aim_replay_frame, 0,
      1, 0, 0},
+    {"br_cage_key", "br_09_cage_key (side, from 08; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
+     "ladder A to the cage floor, pickup 00219550 g0.4 (item 0x32, puid 7): the take, the status page, the taken bit",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"cage_ladders", "10_cage_roof_roger", 0,
      "ladder column x 360: Use 0015D4C0 case 0x32, entry 00165B60 (state 0xB), climb 001662D0 (state 0xC)",
      "the ladder entry and climb on the live record (census L09, L10)", cage_ladders_begin,
@@ -249,6 +277,9 @@ static const Phase k_phases[] = {
     {"dmg_crevice_fall", "dmg_06_crevice_fall (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0,
      "a walking jump short of the north block: the landing hit 0017C580 / 00163E90 (+6 = 3), 0021C350",
      "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
+    {"br_plateau", "br_11_plateau_ladder_up .. br_13_plateau_ladder_down (side, from 11; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
+     "the raised pipe's ledge climb and step-off, the plateau ladder up (0x15 / 0x17 / 0x18), pickup g0.2 (item 0x1F, puid 5) on the 355 top, the ladder down (the grab from above, 0x16)",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
      "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0, 0},
@@ -260,6 +291,9 @@ static const Phase k_phases[] = {
     {"roger", "14_roger_encounter", 0x008237E0u,
      "running jump; Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 96), 0x8107D8=1",
      "Roger's original owner and scripts (census L22)", roger_begin, roger_frame, 0, 0, 0, 0},
+    {"br_roger_talk", "br_14_roger_talk (side, from 14; decomp CAPTURES_C10.md BRANCH)", 0x008237E0u,
+     "Roger 0x8237E0 after the encounter (D_008107D8 = 1): the use scan marks him (+0x0B = 4), his third branch starts the talk script 0x828810",
+     "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
     {"exit", "exit_00_departure, exit_01_movie_arrival (decomp CAPTURES_C10.md EXIT; route beat 15)", 0x008237E0u,
      "fan r2 00827630's exit bit D_008107D8 |= 0x80; Roger 0x8237E0's departure script 0x828A10 (op0F: the "
      "movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (001FFCD0: AREA01 sub 0), "
@@ -326,7 +360,7 @@ static uint8_t task_byte(unsigned offset)
  * it starts from (Phase.from_side). */
 static int side_played(int i)
 {
-    return i == t.until || (k_phases[t.until].from_side && i == t.until - 1);
+    return i == t.until || (k_phases[t.until].from_side && i == t.until - k_phases[t.until].from_side);
 }
 
 static void report_not_live(int from)
@@ -3077,6 +3111,728 @@ static int dmg_frame(void)
         return 0;
     default:
         fail("unknown damage step");
+        return 0;
+    }
+}
+
+/* ------------------------------------------------------------- branches
+ *
+ * The BRANCH side runs (audit 1b item 16; decomp CAPTURES_C10.md
+ * "BRANCH"; LEVEL_SMOKE.md "The BRANCH side runs"), each its own run from
+ * the main line: the capture lane's own closed-loop policies
+ * (route_capture.py br_beat_*), driven by the port's state, as programs of
+ * steps. A run that plays several recordings (br_west_ledge: br_05..br_08;
+ * br_plateau: br_11..br_13) plays them in the capture's order, each from the
+ * previous one's end, as the recordings do. Each beat starts after 35
+ * neutral ticks (the capture's pin: its source snapshot's counter + 30,
+ * then idle 5) and prints "beat <name> at tick N counter C", the checker's
+ * slice. tools/level_smoke_branch.py compares the run's tick log with the
+ * recordings, each window aligned on its event (the use scan, the ladder's
+ * grab, the box's hit). In process: the steps' predicates, no fault. Test
+ * input only: the policies are the capture tool's. */
+enum {
+    BS_END = 0, BS_BEAT, BS_IDLE, BS_WALK, BS_GOTO, BS_SETTLE, BS_FACE, BS_TAKE, BS_LADDER_UP,
+    BS_LADDER_DOWN, BS_CLIMB, BS_RUN_OFF, BS_MELEE, BS_TERMINAL, BS_PANEL_DECLINE, BS_ROGER_TALK
+};
+typedef struct {
+    int kind;
+    float a, b, c, d;
+    const float (*path)[2];
+    int n;
+    const char *what;
+} BrStep;
+#define BR_BEAT(name) {BS_BEAT, 0, 0, 0, 0, NULL, 0, name}
+#define BR_IDLE(k) {BS_IDLE, (k), 0, 0, 0, NULL, 0, NULL}
+#define BR_SETTLE(k) {BS_SETTLE, (k), 0, 0, 0, NULL, 0, NULL}
+#define BR_WALK(p, tol) {BS_WALK, (tol), 0, 0, 0, (p), (int)(sizeof(p) / sizeof((p)[0])), "walk"}
+#define BR_GOTO(x, z, tol, mag) {BS_GOTO, (x), (z), (tol), (mag), NULL, 0, "goto"}
+#define BR_FACE(yaw) {BS_FACE, (yaw), 0.12f, 0, 0, NULL, 0, "face"}
+#define BR_TAKE(x, z, puid) {BS_TAKE, (x), (z), (puid), 0, NULL, 0, "take"}
+#define BR_PI 3.14159265f
+/* route_capture.py: the ladders' foot and top stances and their faces. */
+#define BR_WEST_YAW (-1.27522f)    /* atan2(-0.956, 0.292) */
+#define BR_PLATEAU_YAW (-1.39586f) /* atan2(-0.985, 0.174) */
+#define BR_PIPE_YAW (-0.70404f)    /* atan2(-0.647, 0.762) */
+enum { BR_R3 = 0x7A7980u, BR_R5 = 0x7A7F60u, BR_R6 = 0x7A8250u };
+
+static const float k_br01_path[][2] = {{255.0f, 400.0f}, {238.0f, 422.0f}};
+static const float k_br04_path[][2] = {{222.0f, 270.0f}, {214.7f, 282.5f}};
+static const float k_br05_path[][2] = {{412.0f, 240.0f}, {398.0f, 215.0f}, {362.0f, 214.0f}};
+static const float k_br06_path[][2] = {{316.0f, 240.0f}, {316.0f, 300.0f}, {314.0f, 316.0f}};
+static const float k_br08_path[][2] = {{314.0f, 300.0f}, {316.0f, 240.0f}, {316.0f, 226.0f}};
+static const float k_br09_path[][2] = {{360.0f, 320.0f}, {360.0f, 296.0f}};
+static const float k_br09_floor[][2] = {{366.0f, 272.0f}};
+static const float k_br10_path[][2] = {{440.0f, 255.0f}, {458.0f, 235.0f}};
+static const float k_br11_path[][2] = {{480.0f, 300.0f}, {481.0f, 330.0f}, {484.0f, 352.0f}};
+static const float k_br11_foot[][2] = {{486.0f, 388.0f}, {481.0f, 399.0f}};
+static const float k_br12_path[][2] = {{459.5f, 393.0f}, {445.0f, 392.0f}, {432.0f, 394.5f}};
+static const float k_br13_path[][2] = {{432.0f, 394.5f}, {445.0f, 392.0f}, {459.5f, 393.0f}, {461.0f, 404.5f}};
+
+static const BrStep k_br_ledge_ammo[] = {
+    BR_BEAT("br_00_ledge_ammo"), BR_IDLE(35), BR_GOTO(216.5f, 308.0f, 0.8f, 0.5f), BR_SETTLE(10),
+    BR_TAKE(213.6f, 311.9f, 6), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_map_item[] = {
+    BR_BEAT("br_01_map_item"), BR_IDLE(35), BR_WALK(k_br01_path, 2.0f), BR_GOTO(235.5f, 424.5f, 0.8f, 0.5f),
+    BR_SETTLE(10), BR_TAKE(231.1f, 428.0f, 9), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_elevator_up[] = {
+    BR_BEAT("br_02_elevator_up"), BR_IDLE(35), BR_FACE(-1.3037f), BR_SETTLE(10),
+    {BS_TERMINAL, 0, 0, 0, 0, NULL, 0, "the terminal's ride back up"}, {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+/* use_panel's stance: the panel phase's press point (the port's walk stops
+ * shorter than route_capture's goal; em_level_smoke_test.c panel_frame). */
+static const BrStep k_br_panel_decline[] = {
+    BR_BEAT("br_03_panel_decline"), BR_IDLE(35), BR_GOTO(239.7f, 216.0f, 1.0f, 1.0f),
+    BR_GOTO(240.5f, 225.0f, 0.8f, 0.5f), BR_SETTLE(20), BR_FACE(0.0f), BR_SETTLE(10),
+    {BS_PANEL_DECLINE, 0, 0, 0, 0, NULL, 0, "the panel, No, Triangle"}, {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_crate_stack[] = {
+    BR_BEAT("br_04_crate_stack_break"), BR_IDLE(35), BR_WALK(k_br04_path, 1.0f),
+    BR_GOTO(214.7f, 284.0f, 0.6f, 0.5f), BR_SETTLE(10), {BS_MELEE, BR_R5, 0, 0, 0, NULL, 0, "box r5"},
+    BR_IDLE(180), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_west_ledge[] = {
+    BR_BEAT("br_05_west_ladder_up"), BR_IDLE(35), BR_WALK(k_br05_path, 2.0f), BR_SETTLE(5),
+    {BS_CLIMB, -BR_PI / 2, 0, 0, 0, NULL, 0, "the corridor box"},
+    {BS_RUN_OFF, 326.0f, 215.0f, 332.0f, 0, NULL, 0, "off the box's west side"}, BR_SETTLE(10),
+    BR_GOTO(326.5f, 216.5f, 0.6f, 0.5f), BR_SETTLE(5), {BS_LADDER_UP, BR_WEST_YAW, 0, 0, 0, NULL, 0, "up"},
+    BR_BEAT("br_06_ledge_crate_break"), BR_IDLE(35), BR_WALK(k_br06_path, 2.0f),
+    BR_GOTO(312.0f, 319.0f, 0.6f, 0.5f), BR_SETTLE(10), {BS_MELEE, BR_R6, 0, 0, 0, NULL, 0, "box r6"},
+    BR_BEAT("br_07_ledge_magazine"), BR_IDLE(35), BR_GOTO(312.0f, 321.0f, 0.8f, 0.5f), BR_SETTLE(10),
+    BR_TAKE(311.6f, 328.7f, 8),
+    BR_BEAT("br_08_west_ladder_down"), BR_IDLE(35), BR_WALK(k_br08_path, 2.0f),
+    BR_GOTO(316.0f, 218.5f, 0.6f, 0.5f), BR_SETTLE(5),
+    {BS_LADDER_DOWN, BR_WEST_YAW + BR_PI, 0, 0, 0, NULL, 0, "down"}, {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_cage_key[] = {
+    BR_BEAT("br_09_cage_key"), BR_IDLE(35), BR_WALK(k_br09_path, 1.0f), BR_SETTLE(5),
+    BR_GOTO(360.0f, 293.5f, 0.6f, 0.5f), BR_SETTLE(5), {BS_LADDER_UP, BR_PI, 0, 0, 0, NULL, 0, "ladder A"},
+    BR_WALK(k_br09_floor, 1.0f), BR_GOTO(375.0f, 266.8f, 0.8f, 0.5f), BR_SETTLE(10),
+    BR_TAKE(381.3f, 266.8f, 7), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_yard_ammo[] = {
+    BR_BEAT("br_10_yard_ammo"), BR_IDLE(35), BR_WALK(k_br10_path, 2.0f), BR_GOTO(462.0f, 231.0f, 0.8f, 0.5f),
+    BR_SETTLE(10), BR_TAKE(467.3f, 227.4f, 4), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_plateau[] = {
+    BR_BEAT("br_11_plateau_ladder_up"), BR_IDLE(35), BR_WALK(k_br11_path, 2.0f), BR_SETTLE(5),
+    {BS_CLIMB, BR_PIPE_YAW, 0, 0, 0, NULL, 0, "the raised pipe"},
+    {BS_RUN_OFF, 484.0f, 384.0f, 0, 275.0f, NULL, 0, "off the pipe's south side"}, BR_SETTLE(10),
+    BR_WALK(k_br11_foot, 2.0f), BR_GOTO(477.5f, 403.0f, 0.6f, 0.5f), BR_SETTLE(5),
+    {BS_LADDER_UP, BR_PLATEAU_YAW, 0, 0, 0, NULL, 0, "up"},
+    BR_BEAT("br_12_tower_ammo"), BR_IDLE(35), BR_WALK(k_br12_path, 1.5f), BR_GOTO(430.5f, 404.5f, 0.8f, 0.5f),
+    BR_SETTLE(10), BR_TAKE(431.9f, 411.8f, 5),
+    BR_BEAT("br_13_plateau_ladder_down"), BR_IDLE(35), BR_WALK(k_br13_path, 1.5f),
+    BR_GOTO(467.0f, 404.5f, 0.6f, 0.5f), BR_SETTLE(5),
+    {BS_LADDER_DOWN, BR_PLATEAU_YAW + BR_PI, 0, 0, 0, NULL, 0, "down"}, {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_br_roger_talk[] = {
+    BR_BEAT("br_14_roger_talk"), BR_IDLE(35), {BS_ROGER_TALK, 0, 0, 0, 0, NULL, 0, "Roger's talk"},
+    {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+
+static const struct {
+    const char *phase;
+    const BrStep *prog;
+} k_br_programs[] = {
+    {"br_ledge_ammo", k_br_ledge_ammo}, {"br_map_item", k_br_map_item}, {"br_elevator_up", k_br_elevator_up},
+    {"br_panel_decline", k_br_panel_decline}, {"br_crate_stack", k_br_crate_stack},
+    {"br_west_ledge", k_br_west_ledge}, {"br_cage_key", k_br_cage_key}, {"br_yard_ammo", k_br_yard_ammo},
+    {"br_plateau", k_br_plateau}, {"br_roger_talk", k_br_roger_talk},
+};
+
+static struct {
+    const BrStep *prog;
+    int pc, sub, ticks, tries, still;
+    float y0, tx, tz;
+    uint8_t key[0x28], down0;
+    /* The recordings' pad latency (below, br_frame): the pads the program
+     * set on the last two ticks, and the one the overlay holds. */
+    EmPadState queue[2], applied;
+    int queued;
+} B;
+
+static void br_begin(void)
+{
+    nav_reset();
+    memset(&B, 0, sizeof B);
+    for (size_t i = 0; i < sizeof k_br_programs / sizeof k_br_programs[0]; ++i)
+        if (strcmp(k_br_programs[i].phase, k_phases[t.current].name) == 0)
+            B.prog = k_br_programs[i].prog;
+    if (!B.prog)
+        fail("no BRANCH program for this phase");
+}
+
+/* The status block D_00810130 (0x60 bytes) or NULL. */
+static const uint8_t *br_ui(void)
+{
+    return em_status_runtime_ui_block(em_area11_interaction_host_status());
+}
+
+/* route_capture in_control: the selector 3B8D 0, +1F0 0 and the status
+ * state D_00810131 0 (the policies' predicate, as the recordings test it). */
+static int br_ctl(void)
+{
+    const uint8_t *ui = br_ui();
+    return em_scene_state()->spad3B8D == 0 && em_live_u8(player_states_actor(), 0x1F0) == 0 && (!ui || ui[1] == 0);
+}
+
+/* route_capture settle(frames): idle `frames`, then until in_control and
+ * the record's clip +0x20C is 0 (600 frames). 1 done, 0 continue, -1. */
+static int br_settle(int frames)
+{
+    pad_apply(0, 0, 0);
+    ++t.nav_frames;
+    if (t.nav_frames <= frames)
+        return 0;
+    if (br_ctl() && em_live_u16(player_states_actor(), 0x20C) == 0) {
+        nav_reset();
+        return 1;
+    }
+    if (t.nav_frames > frames + 600) {
+        fail("control did not return (settle)");
+        return -1;
+    }
+    return 0;
+}
+
+static int br_status_open(void)
+{
+    const uint8_t *ui = br_ui();
+    return ui && ui[1] == 3;
+}
+
+static float br_bearing(float x, float z)
+{
+    return atan2f(x - g.pos[0], z - g.pos[2]);
+}
+
+/* route_capture face(yaw, tol): stick taps toward the body yaw, at most 40
+ * frames (the caller settles 10 after it, as face() does). */
+static int br_face(float yaw, float tol)
+{
+    float diff = fmodf(yaw - g.yaw + BR_PI, 2 * BR_PI);
+    if (diff < 0)
+        diff += 2 * BR_PI;
+    diff -= BR_PI;
+    if (fabsf(diff) <= tol || ++t.nav_frames > 40) {
+        pad_apply(0, 0, 0);
+        nav_reset();
+        return 1;
+    }
+    nav_stick_toward(g.pos[0] + 100 * sinf(yaw), g.pos[2] + 100 * cosf(yaw), 0.6f);
+    return 0;
+}
+
+static int br_next(void)
+{
+    pad_apply(0, 0, 0);
+    const BrStep *st = &B.prog[B.pc];
+    if (st->kind == BS_BEAT)
+        fprintf(stderr, "level smoke: %s: beat %s at tick %u counter %u\n", k_phases[t.current].name, st->what,
+                (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+    else if (st->what)
+        fprintf(stderr, "level smoke: %s: done %s at tick %u counter %u (%.3f,%.4f,%.3f)\n",
+                k_phases[t.current].name, st->what, (unsigned)em_scene_bindings_log_tick_next(),
+                em_frame_counter(), g.pos[0], g.pos[1], g.pos[2]);
+    ++B.pc;
+    B.sub = B.ticks = B.tries = B.still = 0;
+    nav_reset();
+    t.saw[6] = 0;
+    return 0;
+}
+
+static int br_timeout(int limit, const char *what)
+{
+    if (++B.ticks > limit) {
+        char reason[160];
+        snprintf(reason, sizeof reason, "%s: no progress in %d ticks", what, limit);
+        fail(reason);
+        return -1;
+    }
+    return 0;
+}
+
+/* A two-tick press of `buttons` (r.press(name, 2)): 1 when done. */
+static int br_press(uint16_t buttons)
+{
+    if (B.ticks < 2) {
+        pad_apply(buttons, 0, 0);
+        ++B.ticks;
+        return 0;
+    }
+    pad_apply(0, 0, 0);
+    B.ticks = 0;
+    return 1;
+}
+
+/* The box at `address` hit or out of its rest (route_capture br_box_broken:
+ * +0x04 not 0 / 1 / 4, or the damage word +0x36 set). */
+static int br_box_broken(uint32_t address)
+{
+    uint8_t image[EM_ACTOR_RECORD_SIZE];
+    if (!em_scene_bindings_record_image(address, image))
+        return 0;
+    const uint8_t state = image[4];
+    return (state != 0 && state != 1 && state != 4) || image[0x36] || image[0x37];
+}
+
+static int br_take(const BrStep *st)
+{
+    const int puid = (int)st->c;
+    switch (B.sub) {
+    case 0: /* face the item */
+        if (br_face(br_bearing(st->a, st->b), 0.08f)) { B.sub = 1; B.ticks = 0; }
+        return 0;
+    case 1:
+        if (br_settle(10) > 0) { B.sub = 2; B.ticks = 0; }
+        return 0;
+    case 2:
+        if (br_press(EM_PAD_CROSS)) { B.sub = 3; B.ticks = 0; }
+        return 0;
+    case 3: /* the take starts when the use scan leaves control */
+        pad_apply(0, 0, 0);
+        if (!br_ctl()) {
+            fprintf(stderr, "level smoke: %s: take left control at tick %u counter %u\n", k_phases[t.current].name,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+            B.sub = 5;
+            B.ticks = 0;
+        } else if (++B.ticks > 40) {
+            if (++B.tries >= 4) { fail("Cross at the item started nothing"); return 0; }
+            B.sub = 4;
+            B.ticks = 0;
+        }
+        return 0;
+    case 4:
+        if (br_settle(10) > 0) { B.sub = 0; B.ticks = 0; }
+        return 0;
+    case 5:
+        if (em_pickup_taken(0x0B00 | puid) || br_status_open()) { B.sub = 6; B.ticks = 0; return 0; }
+        (void)br_timeout(900, "the take's taken bit or status");
+        return 0;
+    case 6:
+        if (br_status_open()) { B.sub = 7; B.ticks = 0; return 0; }
+        if (br_ctl()) { B.sub = 11; B.ticks = 0; return 0; }
+        (void)br_timeout(900, "the take's status or control");
+        return 0;
+    case 7: { /* br_status_exit: browse (05 01), or the page record still */
+        const uint8_t *ui = br_ui();
+        if (ui && ui[4] == 5 && ui[5] == 1) { B.sub = 8; B.ticks = 0; return 0; }
+        uint8_t key[0x28];
+        memset(key, 0, sizeof key);
+        if (ui) {
+            memcpy(key, ui, 8);
+            memcpy(key + 8, ui, 0x20);
+        }
+        B.still = memcmp(key, B.key, sizeof key) == 0 ? B.still + 1 : 0;
+        memcpy(B.key, key, sizeof key);
+        if (B.still >= 60) { B.sub = 8; B.ticks = 0; return 0; }
+        (void)br_timeout(1500, "the take's status page");
+        return 0;
+    }
+    case 8:
+        pad_apply(0, 0, 0);
+        if (++B.ticks >= 20) { B.sub = 9; B.ticks = 0; B.tries = 0; }
+        return 0;
+    case 9:
+        if (br_press(EM_PAD_TRIANGLE)) {
+            fprintf(stderr, "level smoke: %s: triangle at tick %u counter %u\n", k_phases[t.current].name,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+            B.sub = 10;
+            B.ticks = 0;
+        }
+        return 0;
+    case 10:
+        pad_apply(0, 0, 0);
+        if (!br_status_open()) { B.sub = 12; B.ticks = 0; return 0; }
+        if (++B.ticks > 40) {
+            if (++B.tries >= 8) { fail("the take's status did not close"); return 0; }
+            B.sub = 9;
+            B.ticks = 0;
+        }
+        return 0;
+    case 12:
+        pad_apply(0, 0, 0);
+        if (br_ctl()) { B.sub = 11; B.ticks = 0; return 0; }
+        (void)br_timeout(900, "control after the take");
+        return 0;
+    default: /* 11: settle 30, then the taken bit */
+        if (br_settle(30) <= 0) return 0;
+        if (!em_pickup_taken(0x0B00 | puid)) { fail("the item was not taken (no taken bit)"); return 0; }
+        return br_next();
+    }
+}
+
+static int br_mode_ladder(uint8_t m) { return m == 0x15 || m == 0x16 || m == 0x17 || m == 0x18; }
+
+/* route_capture br_ladder_up / br_ladder_down (with br_frame's pad
+ * latency the climb clip changes four rows after the first 0x17 row, as in
+ * br_05 / br_09 / br_11 and route 10). */
+static int br_ladder(const BrStep *st, int down)
+{
+    const uint8_t m = em_live_u8(player_states_actor(), 0x1F0);
+    switch (B.sub) {
+    case 0:
+        if (br_face(st->a, 0.08f)) { B.sub = 1; B.ticks = 0; }
+        return 0;
+    case 1:
+        if (br_settle(10) > 0) { B.sub = 2; B.ticks = 0; }
+        return 0;
+    case 2:
+        if (br_press(EM_PAD_CROSS)) { B.sub = 3; B.ticks = 0; }
+        return 0;
+    case 3:
+        pad_apply(0, 0, 0);
+        if (down ? br_mode_ladder(m) : (m == 0x15 || m == 0x16 || m == 0x17)) {
+            fprintf(stderr, "level smoke: %s: ladder grab 0x%X at tick %u counter %u\n", k_phases[t.current].name, m,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+            /* down: the stick from the grab's row on (route_capture sets it
+             * on that row). */
+            B.sub = down ? 8 : 5;
+            B.ticks = 0;
+            B.y0 = g.pos[1];
+            if (down) pad_apply(0, 0, 1.0f);
+        } else if (++B.ticks > 60) {
+            if (++B.tries >= 3) { fail(down ? "the ladder was not grabbed from the top" : "the ladder was not grabbed"); return 0; }
+            B.sub = 4;
+            B.ticks = 0;
+        }
+        return 0;
+    case 4:
+        if (br_settle(10) > 0) { B.sub = 0; B.ticks = 0; }
+        return 0;
+    case 5: /* up: until the climb (0x17), then the stick from its row on */
+        pad_apply(0, 0, 0);
+        if (m == 0x17) { B.sub = 8; B.ticks = 0; pad_apply(0, 0, -1.0f); return 0; }
+        (void)br_timeout(120, "the ladder's climb state 0x17");
+        return 0;
+    case 8:
+        if (down ? (!br_mode_ladder(m) && g.pos[1] < B.y0 - 20.0f) : !br_mode_ladder(m)) {
+            pad_apply(0, 0, 0);
+            fprintf(stderr, "level smoke: %s: ladder off at tick %u counter %u y %.4f\n", k_phases[t.current].name,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter(), g.pos[1]);
+            B.sub = 9;
+            B.ticks = 0;
+            return 0;
+        }
+        pad_apply(0, 0, down ? 1.0f : -1.0f);
+        (void)br_timeout(down ? 1500 : 1200, "the ladder's hand-back");
+        return 0;
+    default:
+        if (br_settle(30) > 0) return br_next();
+        return 0;
+    }
+}
+
+static int br_climb(const BrStep *st)
+{
+    const uint8_t m = em_live_u8(player_states_actor(), 0x1F0);
+    switch (B.sub) {
+    case 0:
+        if (br_face(st->a, 0.08f)) { B.sub = 1; B.ticks = 0; }
+        return 0;
+    case 1:
+        if (br_settle(10) > 0) { B.sub = 2; B.ticks = 0; }
+        return 0;
+    case 2:
+        if (br_press(EM_PAD_CROSS)) { B.sub = 3; B.ticks = 0; }
+        return 0;
+    case 3:
+        pad_apply(0, 0, 0);
+        if (m == 8) { B.sub = 5; B.ticks = 0; return 0; }
+        if (++B.ticks > 40) {
+            if (++B.tries >= 5) { fail("no ledge climb"); return 0; }
+            B.sub = 4;
+            B.ticks = 0;
+        }
+        return 0;
+    case 4:
+        if (br_settle(10) > 0) { B.sub = 0; B.ticks = 0; }
+        return 0;
+    case 5:
+        pad_apply(0, 0, 0);
+        if (br_ctl()) { B.sub = 6; B.ticks = 0; return 0; }
+        (void)br_timeout(400, "control after the ledge climb");
+        return 0;
+    default:
+        if (br_settle(10) > 0) return br_next();
+        return 0;
+    }
+}
+
+static int br_melee(const BrStep *st)
+{
+    const uint32_t box = (uint32_t)st->a;
+    const EmPlayerLiveActor *a = player_states_actor();
+    uint8_t image[EM_ACTOR_RECORD_SIZE];
+    float bx = 0, bz = 0;
+    if (em_scene_bindings_record_image(box, image)) {
+        memcpy(&bx, image + 0xB0, 4);
+        memcpy(&bz, image + 0xB8, 4);
+    }
+    switch (B.sub) {
+    case 0:
+        if (br_face(br_bearing(bx, bz), 0.06f)) { B.sub = 1; B.ticks = 0; }
+        return 0;
+    case 1:
+        if (br_settle(10) > 0) { B.sub = 2; B.ticks = 0; }
+        return 0;
+    case 2:
+        if (br_press(EM_PAD_CIRCLE)) { B.sub = 3; B.ticks = 0; }
+        return 0;
+    case 3:
+        pad_apply(0, 0, 0);
+        if (br_box_broken(box)) {
+            fprintf(stderr, "level smoke: %s: box %06X hit at tick %u counter %u\n", k_phases[t.current].name,
+                    (unsigned)box, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+            B.sub = 5;
+            B.ticks = 0;
+            return 0;
+        }
+        if (++B.ticks > 60) {
+            if (++B.tries >= 6) { fail("the box was not hit"); return 0; }
+            B.sub = 4;
+            B.ticks = 0;
+        }
+        return 0;
+    case 4:
+        pad_apply(0, 0, 0);
+        if (br_ctl() && em_live_u8(a, 5) == 0) { B.sub = 0; B.ticks = 0; return 0; }
+        (void)br_timeout(300, "control after a miss");
+        return 0;
+    case 5:
+        pad_apply(0, 0, 0);
+        if (br_ctl() && em_live_u8(a, 5) == 0) { B.sub = 6; B.ticks = 0; return 0; }
+        (void)br_timeout(400, "control after the hit");
+        return 0;
+    default:
+        pad_apply(0, 0, 0);
+        if (++B.ticks >= 120) return br_next();
+        return 0;
+    }
+}
+
+/* The recordings' pad reached the game three frames after the row it was
+ * set on, the overlay's on the next frame (the ladder climbs' stick, the
+ * presses' scans: LEVEL_SMOKE.md "The BRANCH side runs"): every pad the
+ * program sets (test input) reaches the overlay two ticks later, so the
+ * closed-loop policies see their inputs take effect as the capture tool
+ * did. */
+static int br_frame_inner(void);
+
+static int br_frame(void)
+{
+    const int r = br_frame_inner();
+    if (!t.pad_on || r != 0)
+        return r;
+    B.applied = B.queued >= 2 ? B.queue[0] : (EmPadState){0};
+    B.queue[0] = B.queue[1];
+    B.queue[1] = t.pad;
+    if (B.queued < 2) ++B.queued;
+    em_input_set_gamepad(&B.applied);
+    return r;
+}
+
+static int br_frame_inner(void)
+{
+    if (!B.prog)
+        return 0;
+    const BrStep *st = &B.prog[B.pc];
+    const EmPlayerLiveActor *a = player_states_actor();
+    switch (st->kind) {
+    case BS_END:
+        fprintf(stderr, "level smoke: %s: PASS player=(%.3f,%.5f,%.3f) yaw=%.5f\n", k_phases[t.current].name,
+                g.pos[0], g.pos[1], g.pos[2], g.yaw);
+        return 1;
+    case BS_BEAT:
+        return br_next();
+    case BS_IDLE:
+        pad_apply(0, 0, 0);
+        if (++B.ticks >= (int)st->a) return br_next();
+        return 0;
+    case BS_WALK: {
+        int r = walk_path(st->path, st->n, st->a);
+        if (r > 0) return br_next();
+        return 0;
+    }
+    case BS_GOTO: {
+        int r = nav_goto(st->a, st->b, st->c, st->d, 1);
+        if (r > 0) return br_next();
+        return 0;
+    }
+    case BS_SETTLE:
+        if (br_settle((int)st->a) > 0) return br_next();
+        return 0;
+    case BS_FACE:
+        if (br_face(st->a, st->b)) return br_next();
+        return 0;
+    case BS_TAKE:
+        return br_take(st);
+    case BS_LADDER_UP:
+        return br_ladder(st, 0);
+    case BS_LADDER_DOWN:
+        return br_ladder(st, 1);
+    case BS_CLIMB:
+        return br_climb(st);
+    case BS_RUN_OFF: {
+        /* br_05: until x <= c in control; br_11: until y < d in control
+         * (route_capture in_control: the selector 0, +1F0 0, no status). */
+        const int off = st->d != 0 ? g.pos[1] < st->d : g.pos[0] <= st->c;
+        if (off && br_ctl())
+            return br_next();
+        const uint8_t m = em_live_u8(a, 0x1F0);
+        if (m == 0 || m == 1) nav_stick_toward(st->a, st->b, 1.0f);
+        else pad_apply(0, 0, 0);
+        (void)br_timeout(200, st->what);
+        return 0;
+    }
+    case BS_MELEE:
+        return br_melee(st);
+    case BS_TERMINAL: {
+        const uint8_t *floor = em_scene_progress_at(em_scene_state(), 0x0081083Au, 1);
+        switch (B.sub) {
+        case 0:
+            B.down0 = floor ? *floor : 0;
+            B.sub = 1;
+            /* fall through */
+        case 1:
+            if (br_press(EM_PAD_CROSS)) { B.sub = 2; B.ticks = 0; }
+            return 0;
+        case 2:
+            pad_apply(0, 0, 0);
+            if (!br_ctl()) { B.sub = 4; B.ticks = 0; return 0; }
+            if (++B.ticks > 40) {
+                if (++B.tries >= 4) { fail("the terminal did not start"); return 0; }
+                B.sub = 3;
+                B.ticks = 0;
+            }
+            return 0;
+        case 3:
+            if (br_settle(10) > 0) { B.sub = 1; B.ticks = 0; }
+            return 0;
+        case 4:
+            pad_apply(0, 0, 0);
+            if (floor && *floor != B.down0) { B.sub = 5; B.ticks = 0; return 0; }
+            (void)br_timeout(1500, "D_0081083A's toggle");
+            return 0;
+        case 5:
+            pad_apply(0, 0, 0);
+            if (br_ctl()) { B.sub = 6; B.ticks = 0; return 0; }
+            (void)br_timeout(1500, "control after the ride up");
+            return 0;
+        default:
+            if (br_settle(30) <= 0) return 0;
+            if (!floor || *floor != 0) { fail("D_0081083A did not come back to 0"); return 0; }
+            return br_next();
+        }
+    }
+    case BS_PANEL_DECLINE:
+        switch (B.sub) {
+        case 0:
+            if (br_press(EM_PAD_CROSS)) { B.sub = 1; B.ticks = 0; }
+            return 0;
+        case 1:
+            pad_apply(0, 0, 0);
+            if (!br_ctl()) { B.sub = 2; B.ticks = 0; return 0; }
+            (void)br_timeout(60, "Cross at the panel");
+            return 0;
+        case 2: {
+            const uint8_t *ui = br_ui();
+            if (br_status_open() && ui[4] == 5 && ui[5] == 4) { B.sub = 3; B.ticks = 0; return 0; }
+            (void)br_timeout(900, "the BATTERY prompt");
+            return 0;
+        }
+        case 3:
+            pad_apply(0, 0, 0);
+            if (++B.ticks >= 30) { B.sub = 4; B.ticks = 0; }
+            return 0;
+        case 4:
+            if (br_press(EM_PAD_CROSS)) {
+                fprintf(stderr, "level smoke: %s: cross on No at tick %u counter %u\n", k_phases[t.current].name,
+                        (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+                B.sub = 5;
+                B.ticks = 0;
+            }
+            return 0;
+        case 5:
+            pad_apply(0, 0, 0);
+            if (++B.ticks >= 60) { B.sub = 6; B.ticks = 0; B.tries = 0; }
+            return 0;
+        case 6:
+            if (!br_status_open()) { B.sub = 8; B.ticks = 0; return 0; }
+            if (br_press(EM_PAD_TRIANGLE)) {
+                fprintf(stderr, "level smoke: %s: triangle at tick %u counter %u\n", k_phases[t.current].name,
+                        (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+                B.sub = 7;
+                B.ticks = 0;
+            }
+            return 0;
+        case 7:
+            pad_apply(0, 0, 0);
+            if (!br_status_open()) { B.sub = 8; B.ticks = 0; return 0; }
+            if (++B.ticks > 40) {
+                if (++B.tries >= 8) { fail("the status did not close"); return 0; }
+                B.sub = 6;
+                B.ticks = 0;
+            }
+            return 0;
+        case 8:
+            pad_apply(0, 0, 0);
+            if (br_ctl()) { B.sub = 9; B.ticks = 0; return 0; }
+            (void)br_timeout(1500, "control after the decline");
+            return 0;
+        default:
+            if (br_settle(30) <= 0) return 0;
+            if (power_bit()) { fail("the power came on"); return 0; }
+            return br_next();
+        }
+    case BS_ROGER_TALK: {
+        uint32_t record;
+        uint8_t head[16], block[16];
+        float rp[3] = {0, 0, 0};
+        if (!em_area11_roger_state(&record, head, rp, block)) { fail("no Roger node"); return 0; }
+        switch (B.sub) {
+        case 0:
+            if (br_ctl()) { B.sub = 1; B.ticks = 0; return 0; }
+            pad_apply(0, 0, 0);
+            (void)br_timeout(3000, "control before Roger's talk");
+            return 0;
+        case 1:
+            if (br_face(br_bearing(rp[0], rp[2]), 0.06f)) { B.sub = 2; B.ticks = 0; }
+            return 0;
+        case 2:
+            if (br_settle(10) > 0) { B.sub = 3; B.ticks = 0; }
+            return 0;
+        case 3:
+            if (br_press(EM_PAD_CROSS)) { B.sub = 4; B.ticks = 0; }
+            return 0;
+        case 4:
+            pad_apply(0, 0, 0);
+            if (!br_ctl()) {
+                fprintf(stderr, "level smoke: %s: talk left control at tick %u counter %u\n",
+                        k_phases[t.current].name, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+                B.sub = 7;
+                B.ticks = 0;
+                return 0;
+            }
+            if (++B.ticks > 40) {
+                if (++B.tries >= 4) { fail("Roger's talk did not start"); return 0; }
+                /* route_capture: a step 30% of the way toward Roger. */
+                B.tx = g.pos[0] + (rp[0] - g.pos[0]) * 0.3f;
+                B.tz = g.pos[2] + (rp[2] - g.pos[2]) * 0.3f;
+                B.sub = 5;
+                B.ticks = 0;
+            }
+            return 0;
+        case 5:
+            if (nav_goto(B.tx, B.tz, 0.5f, 0.4f, 1) > 0) { B.sub = 6; B.ticks = 0; }
+            return 0;
+        case 6:
+            if (br_settle(5) > 0) { B.sub = 1; B.ticks = 0; }
+            return 0;
+        case 7:
+            pad_apply(0, 0, 0);
+            if (br_ctl()) { B.sub = 8; B.ticks = 0; return 0; }
+            (void)br_timeout(6000, "control after Roger's talk");
+            return 0;
+        default:
+            if (br_settle(60) > 0) return br_next();
+            return 0;
+        }
+    }
+    default:
+        fail("unknown BRANCH step");
         return 0;
     }
 }

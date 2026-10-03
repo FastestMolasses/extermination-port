@@ -238,7 +238,8 @@ over idle04 at a gameplay window: PASS).
   0019AB20 is `em_actor_collision_owner_probe` (harmonized, ACTOR_COLLISION.md
   section 7). 001A2370 is `em_collision_world_retransform_001A2370`.
 - **Sound and random.** 00122BB8 is `em_random_next`. 001FBD50 is
-  `em_sfx_play_at`, as the items' take cue plays it.
+  `em_sfx_play_at`, as the items' take cue plays it; 001FC580 (the break
+  cue) is below.
 - **Draw (+0x4C = 001CAA00).** `em_owner_draw_live_001CAA00` (since
   2026-09-25): the original unit (001CA7B0's cull, 001C7420 with 001D89D0,
   001D1F80, 001CA940 over the bank's models 0xD and 0xE) at the owner's bone
@@ -251,20 +252,44 @@ over idle04 at a gameplay window: PASS).
 - **Tables.** D_002468B0, D_00246A00 and D_00246A10 come from
   `assets/scene_snow/box_tables.emrg` (`tools/export_box_tables.py`, span
   0x2468B0..0x246A20 of the user's ELF).
-- **Fail-stop workers.** These are reached only after a damage write to
-  +0x36, or on the nest-group paths (+0x0E bit 0 set, +0x56 >= 0; no AREA11
-  box has either). Each names its original:
-  - 001FC580 (the owner's sound)
-  - 001EFD90 / 001EFD20 / 001F0460 (effects; no live effect manager, census
-    L26)
+- **The damage break (chain step BRANCHES, 2026-10-03).** The light melee
+  001735C0 writes the knife node's +0x36 (3), and 00189FE0 copies it to the
+  box's +0x36 with 0x1000 (the knife node's +0x36 view: em_equipment_live).
+  The box then breaks (state 4 -> 2) with these workers, each on its one
+  translation:
+  - 001FC580(self, 0x19D), the break cue: em_area00_low_001FC580 over
+    D_00281F30's ten records (em_stream_live's storage, which step H's
+    001FC6E0 plays) and its frame; its 001FBF50(self, sp + 0x38, sp + 0x3C,
+    0; 300, 4096) is the live positional gain (em_sfx_compute_gains over
+    +0xB0, em_sfx_request_word);
+  - 001EFD90(0x8000000A) and (0x80000015) (em_effects_live): the debris
+    node 001F2BA0 (subtype 0: D_0025A350 row 0, sixteen pieces of models
+    0x1C / 0x1E, em_area00_fx_debris with em_area00_world's 001C6200
+    through the aim / fire composition; its slots are em_aim_fire_trail's)
+    and the subtype-0x0D handler 001EBD20 (EFFECT_MANAGER.md 8.2);
+  - the husk rebind 001CA6E0(self, 001C6120(*D_0028A56C, 0x22)): the
+    global library's model 0x22 (the Roger export, regions of
+    tools/export_roger_banks.py; its textures in object_textures.emot),
+    then bone_init_default_1 (001C62C0); the draw goes to the box's own
+    bank (`b->bank`);
+  - a raised box woken by the break (+0x0A) re-probes its corners and
+    falls (r3 in BRANCH br_04: state 1, 24 rows, then breaks without
+    damage and frees itself).
+  The level smoke's br_crate_stack and br_west_ledge compare the boxes r3..r6
+  row for row with the recordings br_04 / br_06 over 200 rows.
+- **Fail-stop workers.** These are reached only on the nest-group paths
+  (+0x0E bit 0 set, +0x56 >= 0; no AREA11 box has either), by a drum's
+  break or a model-0x1E box's husk (none in AREA11). Each names its
+  original:
+  - 001EFD20 / 001F0460 (the drums' break effects)
   - 001B11E0 / 001B1190 (taken bits)
   - 001AFA90's nest child
-  - the husk rebind 001C6120(D_0028A56C)
+  - the husk 0x29 (a model-0x1E box; the library model is not exported)
   - 0019A570 (the drum's break test)
   - 0019AD00 (the flight sweep of models 0xA / 0xC)
 
-  No live port code writes +0x36, so the boxes stay intact. The legacy
-  shot-break was retired with them (item 7 of the former status).
+  The legacy shot-break was retired with them (item 7 of the former
+  status).
 - **Legacy retired.** The AREA11 manifest's `enemy crate` and `enemy egg`
   lines no longer place em_enemy copies (em_scene.c). The em_enemy drum
   kind (EGG) is deleted: AREA11 was its only scene. The crate kind stays
