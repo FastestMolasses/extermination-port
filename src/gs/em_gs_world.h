@@ -85,15 +85,19 @@ void em_gs_world_write(EmGsWorld *w, unsigned reg, uint64_t value);
  * when envs is not NULL, the environment registers each one's list set
  * (EmGfxGsEnv.set): the state and environment first, then PRIM and the
  * vertex registers (RGBAQ with Q, ST, UV for FST 1, XYZF2 when the vertex
- * carries F, XYZ2 otherwise). A textured primitive's TEX0 must read only
- * resident memory or a buffer drawn earlier in the frame. */
+ * carries F, XYZ2 otherwise). A textured primitive's TEX0 must be known
+ * to the recorder (written in this frame by a write or by recorded GIF data,
+ * after the last em_gs_world_env_again) and read only resident memory or a
+ * buffer drawn earlier in the frame; otherwise the fault latches. */
 void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count);
 /* Body: the draw environment the kick REFs again at this point (001DA6A0
  * after the silhouette: the frame's FRAME_1, ZBUF_1, XYOFFSET_1 and
  * SCISSOR_1 again). */
 void em_gs_world_env_again(EmGsWorld *w);
 /* Body: GIF data the list sends at this point (a GS state block the list
- * REFs), run through em_gs_gif at the kick. */
+ * REFs), run through em_gs_gif at the kick. Its TEX0 / CLAMP / PRIM writes
+ * are decoded (the texture state), and its textured vertex kicks are
+ * checked as em_gs_world_prims checks a primitive. */
 void em_gs_world_gif(EmGsWorld *w, const void *gif, size_t bytes);
 /* Note a buffer the body draws into (FRAME_1), so a later texture read of
  * it is not a residency fault (the shadow's target). */
@@ -159,7 +163,7 @@ static inline int em_gs_vif_direct(const uint8_t *p, size_t bytes, size_t word, 
 
 
 /* The number of workers drawing a frame (row bands, EmGs.band_*): EM_GS_THREADS
- * or the host's processors less two, at most 8. Every count draws the same
+ * or the host's processors less three (at least one), at most 8. Every count draws the same
  * bytes (tools/test_gs_raster_reference.py part F). */
 uint32_t em_gs_world_workers(const EmGsWorld *w);
 

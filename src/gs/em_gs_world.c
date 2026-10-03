@@ -18,6 +18,7 @@
 #define BLOCKS (EM_GS_MEM_BYTES / 256u)
 #define HEAD_MAX 0x800u
 #define CHECKED_MAX 1024u
+#define MARKED_MAX 8u
 #define WORKERS_MAX 16u
 #define BAND_SHIFT 2u                 /* bands of 4 rows, interleaved over the workers */
 
@@ -94,6 +95,22 @@ struct EmGsWorld {
      * be done: a barrier. */
     uint8_t fdrawn[BLOCKS], fread[BLOCKS];
     int fdrawn_any, fread_any;
+    /* Buffers marked since the last barrier (or the frame's start): a mark
+     * of one of them again changes nothing (its blocks are in fdrawn and
+     * drawn, and fread holds none of them: a read of one barriers, which
+     * empties this list), so it is skipped. */
+    struct { uint32_t fbp, fbw, height; } marked[MARKED_MAX];
+    uint32_t marked_count;
+    /* The texture state a textured primitive reads, per context (0: _1,
+     * 1: _2), as the recorder knows it: TEX0 (and CLAMP) written in this
+     * frame by a recorded write or decoded from recorded GIF data. Unknown
+     * (the frame's start, the environment again, a TEX2 write) faults a
+     * textured primitive; an unknown CLAMP is taken as REPEAT (it reaches
+     * every texel of the texture: the widest read). */
+    uint64_t tex0[2], clamp[2];
+    uint8_t tex0_known[2], clamp_known[2];
+    uint32_t prim;                   /* PRIM as written last (for GIF data's vertex kicks) */
+    int prim_known;
     uint8_t drawn[BLOCKS];           /* blocks of buffers the model has drawn into */
     /* textures already checked (TEX0 texture + CLUT fields, CLAMP_1): the
      * blocks they read that lie in drawn buffers (pool[first .. first + n)) */
@@ -492,6 +509,10 @@ void em_gs_world_begin(EmGsWorld *w)
     memset(w->fdrawn, 0, sizeof w->fdrawn);
     memset(w->fread, 0, sizeof w->fread);
     w->fdrawn_any = w->fread_any = 0;
+    w->marked_count = 0;
+    memset(w->tex0_known, 0, sizeof w->tex0_known);
+    memset(w->clamp_known, 0, sizeof w->clamp_known);
+    w->prim_known = 0;
 }
 
 int em_gs_world_recording(const EmGsWorld *w) { return w && w->recording; }
@@ -519,6 +540,31 @@ static int is_vertex_reg(unsigned reg)
            reg == EM_GS_FOG;
 }
 
+/* The texture state a register write leaves (PRIM, TEX0, CLAMP; TEX2
+ * rewrites part of TEX0: unknown). */
+static void tex_state(EmGsWorld *w, unsigned reg, uint64_t value)
+{
+    switch (reg) {
+    case EM_GS_PRIM:
+        w->prim = (uint32_t)value & 0x7FFu;
+        w->prim_known = 1;
+        break;
+    case EM_GS_TEX0_1: case EM_GS_TEX0_2:
+        w->tex0[reg - EM_GS_TEX0_1] = value;
+        w->tex0_known[reg - EM_GS_TEX0_1] = 1;
+        break;
+    case EM_GS_CLAMP_1: case EM_GS_CLAMP_2:
+        w->clamp[reg - EM_GS_CLAMP_1] = value;
+        w->clamp_known[reg - EM_GS_CLAMP_1] = 1;
+        break;
+    case EM_GS_TEX2_1: case EM_GS_TEX2_2:
+        w->tex0_known[reg - EM_GS_TEX2_1] = 0;
+        break;
+    default:
+        break;
+    }
+}
+
 void em_gs_world_write(EmGsWorld *w, unsigned reg, uint64_t value)
 {
     if (!w || w->fault[0]) return;
@@ -537,6 +583,7 @@ void em_gs_world_write(EmGsWorld *w, unsigned reg, uint64_t value)
         fail(w, "a transfer register in a recorded frame", reg);
         return;
     }
+    tex_state(w, reg, value);
     if (!is_vertex_reg(reg)) {
         if (w->cached[reg] && w->cache[reg] == value) return;
         w->cached[reg] = 1;
@@ -561,12 +608,16 @@ static void barrier_op(EmGsWorld *w)
     memset(w->fdrawn, 0, sizeof w->fdrawn);
     memset(w->fread, 0, sizeof w->fread);
     w->fdrawn_any = w->fread_any = 0;
+    w->marked_count = 0;
 }
 
 void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
 {
     if (!w) return;
     const uint32_t fbp = (uint32_t)frame & 0x1FFu, fbw = (uint32_t)(frame >> 16) & 0x3Fu;
+    if (w->recording)
+        for (uint32_t i = 0; i < w->marked_count; ++i)
+            if (w->marked[i].fbp == fbp && w->marked[i].fbw == fbw && w->marked[i].height >= height) return;
     mark_buffer(w->drawn, fbp, fbw, height);
     if (!w->recording) return;
     if (w->fread_any) {
@@ -582,6 +633,12 @@ void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
     }
     mark_buffer(w->fdrawn, fbp, fbw, height);
     w->fdrawn_any = 1;
+    if (w->marked_count < MARKED_MAX) {
+        w->marked[w->marked_count].fbp = fbp;
+        w->marked[w->marked_count].fbw = fbw;
+        w->marked[w->marked_count].height = height;
+        w->marked_count++;
+    }
 }
 
 /* The texel indices a coordinate can reach on one axis under CLAMP_1's
@@ -699,6 +756,20 @@ static int texture_read(EmGsWorld *w, uint64_t tex0, uint64_t clamp)
     return 0;
 }
 
+/* A primitive kicked with PRIM `prim` (PRMODECONT 1: its TME and CTXT):
+ * when textured, its context's TEX0 must be known and read only resident
+ * or drawn memory. 0, or -1 (the fault latched). */
+static int textured_kick(EmGsWorld *w, uint32_t prim)
+{
+    if (!((prim >> 4) & 1u)) return 0;
+    const unsigned c = (prim >> 9) & 1u;
+    if (!w->tex0_known[c])
+        return fail(w, "a textured primitive whose TEX0 the recorder does not know", prim);
+    if (texture_read(w, w->tex0[c], w->clamp_known[c] ? w->clamp[c] : 0) < 0)
+        return fail(w, "a texture that reads GS memory no upload wrote", w->tex0[c]);
+    return 0;
+}
+
 void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count)
 {
     if (!w || w->fault[0]) return;
@@ -728,11 +799,7 @@ void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv 
         if (p->set & EM_GFX_GS_TEST) em_gs_world_write(w, EM_GS_TEST_1, p->test);
         if (p->set & EM_GFX_GS_COLCLAMP) em_gs_world_write(w, EM_GS_COLCLAMP, p->colclamp);
         const uint32_t prim = p->prim & 0x7FFu, fst = (prim >> 8) & 1u;
-        if (((prim >> 4) & 1u) && w->cached[EM_GS_TEX0_1] &&
-            texture_read(w, w->cache[EM_GS_TEX0_1], w->cached[EM_GS_CLAMP_1] ? w->cache[EM_GS_CLAMP_1] : 0) < 0) {
-            fail(w, "a texture that reads GS memory no upload wrote", w->cache[EM_GS_TEX0_1]);
-            return;
-        }
+        if (textured_kick(w, prim) < 0) return;
         em_gs_world_write(w, EM_GS_PRIM, prim);
         const uint32_t n = p->count > 3u ? 3u : p->count;
         for (uint32_t k = 0; k < n; ++k) {
@@ -760,6 +827,10 @@ void em_gs_world_env_again(EmGsWorld *w)
     }
     push(w, OP_ENV, 0, 0);
     memset(w->cached, 0, sizeof w->cached);    /* the environment rewrote state */
+    /* its packets are the kick's (not known while recording) */
+    memset(w->tex0_known, 0, sizeof w->tex0_known);
+    memset(w->clamp_known, 0, sizeof w->clamp_known);
+    w->prim_known = 0;
 }
 
 /* GIF tags of register data only (PACKED, no IMAGE; no A+D transfer
@@ -790,6 +861,47 @@ static int gif_registers_only(const uint8_t *p, size_t bytes)
     return off == bytes;
 }
 
+/* The texture state GIF register data leave (gif_registers_only's shape:
+ * PACKED tags), and their textured primitives' reads (the PRIM of a PRE tag,
+ * an A+D or PACKED PRIM; a kick is an XYZ2 / XYZF2 write, PACKED with ADC
+ * 0). 0, or -1 (the fault latched). */
+static int gif_learn(EmGsWorld *w, const uint8_t *p, size_t bytes)
+{
+    size_t off = 0;
+    while (off + 16u <= bytes) {
+        uint64_t lo, hi;
+        memcpy(&lo, p + off, 8);
+        memcpy(&hi, p + off + 8, 8);
+        off += 16u;
+        const unsigned nloop = (unsigned)(lo & 0x7FFFu);
+        unsigned nreg = (unsigned)(lo >> 60);
+        if (!nreg) nreg = 16u;
+        if ((lo >> 46) & 1u) tex_state(w, EM_GS_PRIM, lo >> 47);
+        for (unsigned l = 0; l < nloop; ++l)
+            for (unsigned r = 0; r < nreg; ++r, off += 16u) {
+                const unsigned desc = (unsigned)(hi >> (4u * r)) & 15u;
+                uint64_t v, v_hi;
+                memcpy(&v, p + off, 8);
+                memcpy(&v_hi, p + off + 8, 8);
+                unsigned reg = desc;
+                int kick = 0;
+                if (desc == 0xEu) {
+                    reg = (unsigned)(v_hi & 0xFFu);
+                    kick = reg == EM_GS_XYZ2 || reg == EM_GS_XYZF2;
+                } else if (desc == EM_GS_XYZ2 || desc == EM_GS_XYZF2) {
+                    kick = !((v_hi >> 47) & 1u);
+                }
+                tex_state(w, reg, v);
+                if (kick) {
+                    if (!w->prim_known)
+                        return fail(w, "a vertex kick in GIF data whose PRIM the recorder does not know", 0);
+                    if (textured_kick(w, w->prim) < 0) return -1;
+                }
+            }
+    }
+    return 0;
+}
+
 void em_gs_world_gif(EmGsWorld *w, const void *gif, size_t bytes)
 {
     if (!w || w->fault[0]) return;
@@ -805,6 +917,7 @@ void em_gs_world_gif(EmGsWorld *w, const void *gif, size_t bytes)
         fail(w, "GIF data that are not register packets (a transfer in a recorded frame)", bytes);
         return;
     }
+    if (gif_learn(w, gif, bytes) < 0) return;
     Job *j = &w->job[w->rec];
     if (j->gif_used + bytes > j->gif_cap) {
         size_t cap = j->gif_cap ? j->gif_cap : 0x10000u;

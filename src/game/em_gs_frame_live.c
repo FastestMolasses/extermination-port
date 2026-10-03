@@ -39,8 +39,9 @@ int em_gs_frame_live_kick(EmGfx *gfx)
     if (!em_gfx_gs_world_enabled(gfx)) return 0;
     static uint8_t env[HEAD_MAX], clear[HEAD_MAX];
     uint32_t env_bytes = 0, clear_bytes = 0;
-    if (em_rcl_kick_head(env, sizeof env, &env_bytes, clear, sizeof clear, &clear_bytes) < 0) {
-        fprintf(stderr, "gs frame: the kicked list's head is not the draw environment and clear REFs\n");
+    const char *why = NULL;
+    if (em_rcl_kick_head(env, sizeof env, &env_bytes, clear, sizeof clear, &clear_bytes, &why) < 0) {
+        fprintf(stderr, "gs frame: the kicked list's head is not 001D2300's: %s\n", why ? why : "?");
         return -1;
     }
     if (em_gfx_gs_world_kick(gfx, env, env_bytes, clear, clear_bytes) < 0) {

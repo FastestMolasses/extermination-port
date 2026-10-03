@@ -252,12 +252,15 @@ static void run(unsigned workers, Result *out)
     em_gs_world_destroy(w);
 }
 
-/* The refusals: a recorded transfer, an IMAGE packet and a texture outside
- * the uploads each latch the fault. */
+/* The refusals: a recorded transfer, an IMAGE packet, a texture outside
+ * the uploads, a textured primitive whose TEX0 the recorder does not know
+ * (written before the environment again), and a texture outside the uploads
+ * whose TEX0 only a state block wrote each latch the fault; the resident
+ * texture through a state block's TEX0 does not. */
 static void refusals(void)
 {
     setenv("EM_GS_THREADS", "2", 1);
-    for (int k = 0; k < 3; ++k) {
+    for (int k = 0; k < 6; ++k) {
         EmGsWorld *w = em_gs_world_create();
         CHECK(w && em_gs_world_memory_load(w, image_path) == 0);
         em_gs_world_begin(w);
@@ -268,6 +271,26 @@ static void refusals(void)
             const uint64_t tag = 1u | 0x8000u | (UINT64_C(2) << 58);   /* IMAGE, NLOOP 1 */
             memcpy(img, &tag, 8);
             em_gs_world_gif(w, img, sizeof img);
+        } else if (k >= 3) {
+            /* k 3: TEX0 written, then the environment again; k 4 / 5: TEX0
+             * (outside the uploads / resident) only in a state block */
+            if (k == 3) {
+                em_gs_world_write(w, EM_GS_TEX0_1, TEX_RESIDENT);
+                em_gs_world_env_again(w);
+            } else {
+                uint8_t blk[64];
+                const uint64_t pairs[2][2] = { { EM_GS_TEX0_1, k == 4 ? 0x3000ull | 1ull << 14 | 6ull << 26 | 6ull << 30
+                                                                      : TEX_RESIDENT },
+                                               { EM_GS_CLAMP_1, 0 } };
+                em_gs_world_gif(w, blk, ad_packet(blk, pairs, 2));
+            }
+            EmGfxGsPrim p = tri(0x03C, 0, vtx(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), vtx(9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
+                                vtx(0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 1));
+            p.set &= ~(unsigned)(EM_GFX_GS_TEX0 | EM_GFX_GS_CLAMP);
+            em_gs_world_prims(w, &p, NULL, 1);
+            CHECK((em_gs_world_fault(w) != NULL) == (k != 5));
+            em_gs_world_destroy(w);
+            continue;
         } else {
             EmGfxGsPrim p = tri(0x03C, 0x3000ull | 1ull << 14 | 6ull << 26 | 6ull << 30, vtx(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1),
                                 vtx(9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1), vtx(0, 9, 0, 0, 0, 0, 0, 0, 0, 0, 1));
@@ -300,6 +323,6 @@ int main(void)
     CHECK(lit > 1000 && target > 500 && listed > 1000);
     refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers: the same fields and memory over two world frames "
-           "with the target pass and a list frame; 3 refusals)\n");
+           "with the target pass and a list frame; 5 refusals, 1 state-block TEX0 accepted)\n");
     return 0;
 }

@@ -1117,26 +1117,70 @@ int em_rcl_kick(uint32_t *chain, uint32_t *kicks)
 }
 
 int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_t *clear, uint32_t clear_cap,
-                     uint32_t *clear_bytes)
+                     uint32_t *clear_bytes, const char **why)
 {
+    const char *unused;
+    if (!why) why = &unused;
+    *why = "no kicked list";
     if (!R.loaded || R.fault || !R.kicks || !env || !env_bytes || !clear || !clear_bytes) return -1;
     *env_bytes = *clear_bytes = 0;
+    /* 001D2300's shape: the list at D_0028F700 + (context +0x9C << 14)
+     * (001D2110 / 001D21E0), whose first REF is the slot's draw environment
+     * (001D23EC: GS block + 0x20 + 0x190 * slot, 0x19 qwords) and whose second
+     * is the clear (001D240C: GS block + 0x420, or 001D2430: + 0x3A0; 8
+     * qwords each). */
+    const uint8_t *pctx = em_rcl_bytes(EM_FRAME_KICK_D_00275670, 4), *pgs = em_rcl_bytes(EM_FRAME_KICK_D_00275674, 4);
+    if (!pctx || !pgs) {
+        *why = "D_00275670 / D_00275674 are not mapped";
+        return -1;
+    }
+    u32 ctx, gs, slot;
+    memcpy(&ctx, pctx, 4);
+    memcpy(&gs, pgs, 4);
+    const uint8_t *pslot = em_rcl_bytes(ctx + 0x9Cu, 4);
+    if (!pslot) {
+        *why = "the render context's +0x9C is not mapped";
+        return -1;
+    }
+    memcpy(&slot, pslot, 4);
+    if (R.kick_chain != EM_FRAME_KICK_D_0028F700 + (slot << 14)) {
+        *why = "the kicked list is not the context slot's list (001D21E0)";
+        return -1;
+    }
     u32 tag = R.kick_chain;
     for (int k = 0; k < 2; ++k, tag += 16u) {
         const uint8_t *t = em_rcl_bytes(tag, 16);
-        if (!t) return -1;
+        if (!t) {
+            *why = "the kicked list's tags are not mapped";
+            return -1;
+        }
         const u32 lo = (u32)t[0] | (u32)t[1] << 8 | (u32)t[2] << 16 | (u32)t[3] << 24;
         const u32 addr = ((u32)t[4] | (u32)t[5] << 8 | (u32)t[6] << 16 | (u32)t[7] << 24) & 0x7FFFFFF0u;
         const u32 qwc = lo & 0xFFFFu;
-        if (((lo >> 28) & 7u) != 3u || !qwc) return -1;                  /* REF */
+        if (((lo >> 28) & 7u) != 3u) {
+            *why = k ? "the list's second tag is not a REF (the clear)" : "the list's first tag is not a REF (the draw environment)";
+            return -1;
+        }
+        if (k == 0 && (addr != gs + 0x20u + 0x190u * slot || qwc != 0x19u)) {
+            *why = "the list's first REF is not the slot's draw environment (GS block + 0x20 + 0x190 * slot, 0x19 qwords)";
+            return -1;
+        }
+        if (k == 1 && ((addr != gs + 0x3A0u && addr != gs + 0x420u) || qwc != 8u)) {
+            *why = "the list's second REF is not the clear (GS block + 0x3A0 or + 0x420, 8 qwords)";
+            return -1;
+        }
         size_t used = 0;
         uint8_t *out = k ? clear : env;
         const uint32_t cap = k ? clear_cap : env_cap;
-        if (em_gs_vif_direct(t, 16, 2, out, cap, &used) < 0) return -1;   /* the tag's VIF codes */
         const uint8_t *data = em_rcl_bytes(addr, qwc * 16u);
-        if (!data || em_gs_vif_direct(data, qwc * 16u, 0, out, cap, &used) < 0) return -1;
+        if (em_gs_vif_direct(t, 16, 2, out, cap, &used) < 0 || !data ||   /* the tag's VIF codes */
+            em_gs_vif_direct(data, qwc * 16u, 0, out, cap, &used) < 0) {
+            *why = "a head REF's data are not VIF DIRECT GIF data";
+            return -1;
+        }
         *(k ? clear_bytes : env_bytes) = (uint32_t)used;
     }
+    *why = NULL;
     return 0;
 }
 

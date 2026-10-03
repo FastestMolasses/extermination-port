@@ -908,7 +908,9 @@ packet in a recorded frame faults.
 **The kick.** At step V, after 001D2300, `em_rcl_kick_head` reads the
 kicked list's first two tags, REFs of the slot's draw environment (GS block
 + 0x20 + 0x190 x slot, 0x19 qwords) and of the clear (+0x3A0, Z only; +0x420
-with render flag 3), and passes their GIF data (the VIF FLUSH / NOP codes
+with render flag 3), checks each REF's address and size against the slot
+(context +0x9C, whose list D_0028F700 + (slot << 14) is the one kicked) and
+fails with the named reason otherwise, and passes their GIF data (the VIF FLUSH / NOP codes
 dropped, DIRECT data kept). The model runs that head (FRAME_1 with the
 field's buffer, ZBUF_1, XYOFFSET_1 with 001D2300's half line, SCISSOR_1,
 PRMODECONT, COLCLAMP, DTHE, TEST, the Z clear), then the recorded body.
@@ -925,7 +927,9 @@ in lockstep bands; `make test-gs-world`: 1, 2, 3 and 8 workers draw the
 same fields and memory, under the thread sanitizer). Where a primitive
 reads a buffer drawn earlier in the frame, or a draw goes into a buffer read
 earlier in the frame (the shadow's target, between its passes), the
-recording inserts a barrier: every worker reaches it before any goes on;
+recording inserts a barrier (a buffer is marked as drawn once per stretch
+between barriers: marking it again changes nothing, so a list whose every
+primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark): every worker reaches it before any goes on;
 it must fall where the span has already ended (a worker with queued
 primitives there faults, so a barrier never moves a span boundary). The
 worker count is EM_GS_THREADS, else the host's processors less three, at
@@ -948,7 +952,13 @@ surfaces at that wait and stops the game (fail-stop).
 or a span fault faults the frame. Every textured primitive's TEX0 (the
 texels CLAMP_1 lets it reach, and its CLUT) must lie in blocks an upload
 wrote (the GS memory image) or in a buffer the model drew (the fields, the
-shadow target); anything else faults.
+shadow target); anything else faults. The recorder must know that TEX0 (of
+the primitive's context, PRIM CTXT): written in the frame by a recorded
+write or by a recorded state block's A+D / PACKED data (decoded, as are its
+CLAMP and PRIM; a state block's own textured vertex kicks are checked the
+same way). At the frame's start, after the environment again and after a
+TEX2 write it is unknown, and a textured primitive then faults; an unknown
+CLAMP is taken as REPEAT, the widest read.
 
 **GS memory: the uploads.** The model samples textures where the
 original's uploads put them (DISC_TEXTURES.md section 2):
@@ -987,6 +997,13 @@ game rectangle, nearest (as the load veil's frames have been shown since
 (message glyphs, the letterbox bars, the screen fade, the status overlay)
 is drawn by the GPU over the presented field, as before; it is not part of
 the GS frame (its draws are not GS packets in the port).
+
+**Backends.** Only the Metal backend presents the field
+(`em_gfx_gs_world_enable`); the d3d12 and Vulkan backends refuse it, so on
+them the game does not start in the Original profile (the default) unless
+EM_GPU_RENDERER=1 selects the GPU renderer. The Original profile currently
+needs the Metal backend (macOS); the field presentation on the other
+backends is not built.
 
 **Not part of the GS frame.** The status frames (the hub, the pages; their
 models use the GPU's skinned path) and the tear-down frames draw with the
@@ -1153,23 +1170,38 @@ percentage point (FLOORS_GPU keeps the Metal ones).
 
 The GS frame runs on worker threads while the main thread builds the next
 tick (section 9, "Pipelining"). Measured on this M1 Pro (8 performance and
-2 efficiency cores) while three other tracks' builds and test runs loaded
-it (load average 44 to 57): newgame-control (EM_FRAME_TIMING), the 1,350
-in-level ticks before first control: the main thread's CPU per tick 8.56
-ms on average (max 13.61; the game alone, as before: chain C8b measured 7.6
-on a quiet machine); the busiest worker's CPU per frame 8.76 ms on average
-(p95 11.16, max 14.24) with 7 workers; but the ticks' wall time 23.28 ms on
-average and 981 of 1,350 over the 16.68 ms period, because the loaded
-machine gave the workers too little of its cores. A second run at the
-final code (load average 45 to 48): the ticks' wall time 14.32 ms on
-average (median 13.93, p95 19.71, max 42.31), 279 of 1,350 over the
-period; main thread 8.35 ms, busiest worker 9.13 ms of CPU. Offline (the first
-control frame replayed, thread CPU time): one worker 30.1 ms; with 8 bands
-the busiest band 6.19 ms (the sum 42.6: each band takes every write and
-sets up the triangles its rows meet). The critical path with free cores is
-therefore the larger of the main thread's ~8.6 ms and the busiest worker's
-~6-9 ms, under the 16.68 ms period; it was not measured on an unloaded
-machine, and slower hosts are not measured.
+2 efficiency cores, 7 workers) on a quiet machine (load average 4.6 to 6.0),
+EM_FRAME_TIMING over newgame-control, two runs at the final code and one
+with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
+- **The load veil's 54 list frames** (the New Game's veil, section 9): 0.20
+  to 4.17 ms of wall time per tick (mean 1.95), main thread the same; the
+  busiest worker 3.4 ms of CPU per frame (max 4.0). The GPU renderer: 0.76
+  to 0.84 ms. Before the fix the recorder marked the veil's buffer once per
+  primitive (each mark 1,792 address computations, then a scan of all
+  16,384 blocks), which took 20.4 to 21.7 ms of main-thread CPU per veil
+  tick, every one over the period (the veil ran at about 41 Hz); the first
+  GSFRAME measurement below left the veil ticks out.
+- **The in-level ticks before first control** (1,395 after the first): wall
+  5.3 to 13.0 ms (mean 8.0 / 8.1, p99 11.8 / 12.1), none over the period;
+  the busiest worker 6.4 / 6.6 ms of CPU per frame (p95 7.8 / 8.8).
+- **Ticks over the period, both renderers:** the start-up step (110 to 123
+  ms), one host step of the title / menu path (17 to 33 ms of wall time at
+  under 6 ms of CPU), the step of the veil that runs the area load (75 ms;
+  GPU 87 ms; the loader at host speed) and the first two in-level ticks
+  (GS 25.3 / 25.9 and 17.4 / 18.8 ms; GPU 23.6 and 26.5 ms: the level's
+  first ticks' tasks, which vary from run to run on both renderers; the
+  first GS frame's worker time is 16.9 to 17.1 ms, its texture residency
+  checks about 2.6 ms of main-thread time). None of these comes from the
+  GS frame alone; every other tick is under the 16.68 ms period.
+- Slower hosts are not measured.
+
+The first GSFRAME measurement (under the other tracks' load, 44 to 57)
+gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
+ticks with the workers short of cores; the main thread's CPU per in-level
+tick was 8.4 to 8.6 ms (chain C8b measured 7.6 ms for the game on a quiet
+machine). Offline (the first-control frame replayed, thread CPU time):
+one worker 30.1 ms; with 8 bands the busiest band 6.19 ms (the sum 42.6:
+each band takes every write and sets up the triangles its rows meet).
 
 ## 11. Files
 

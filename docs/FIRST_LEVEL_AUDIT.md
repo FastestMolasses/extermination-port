@@ -1452,13 +1452,16 @@ half and item 23):**
   Cause not traced. What removes it: trace the parity through the New
   Game's loads and the status screens' page loads against the captures.
 - **Frame cost (item 23):** the GS frame runs on worker threads during the
-  next tick. On this M1 Pro under the other tracks' load (44 to 57): the
-  main thread's CPU per in-level tick 8.56 ms (the game), the busiest
-  worker's 8.76 ms, but the tick's wall time 23.28 ms on average with 981 of
-  1,350 ticks over 16.68 ms because the workers lacked cores (a second run
-  at load 45 to 48: 14.32 ms on average, 279 ticks over); offline the
-  busiest of 8 bands is 6.19 ms of CPU. "Every tick under the period" is
-  not shown: not measured on a quiet machine (GS_EXACT.md 10.2).
+  next tick. On this M1 Pro at load 4.6 to 6 (newgame-control,
+  EM_FRAME_TIMING, two runs): the load veil's 54 list frames 0.2 to 4.2 ms
+  per tick (the review found them at 20.4 to 21.7 ms each, every one over
+  the period, before the recorder marked a drawn buffer once per stretch
+  between barriers instead of once per primitive); the in-level ticks 5.3 to
+  13.0 ms (mean 8.0), none over the period after the first two. The only
+  ticks over the period are the start-up, one host step on the title path,
+  the veil step that runs the area load (75 ms; GPU 87 ms) and the level's
+  first two ticks (GS 25.3 / 18.8 ms; GPU 23.6 / 26.5 ms), all over on the
+  GPU renderer too (GS_EXACT.md 10.2).
 - **Not done:** the 2D overlay pass (glyphs, letterbox, fades) still draws
   with the GPU over the field; 001DDE10's frame-copy sprites (now drawable,
   the frame being GS memory) are still walked over; the status frames use
@@ -1904,10 +1907,14 @@ modelled. Every other translation agrees (the module docs' notes).
     in-level main-thread time per tick is 7.6 ms on average with no tick
     over the 16.68 ms period (chain C8b FLAMESNOW); slower hosts are not
     measured. Since chain step GSFRAME the GS model draws the world frame on
-    worker threads during the next tick: measured only under heavy load
-    (main thread about 8.4 ms of CPU, busiest worker about 9 ms; wall 14.32
-    to 23.28 ms on average, 279 to 981 of 1,350 ticks over the period at
-    load 45 to 57; GS_EXACT.md 10.2). Measure it on a quiet machine.
+    worker threads during the next tick. Measured at load 4.6 to 6
+    (GS_EXACT.md 10.2): the load veil's list frames 0.2 to 4.2 ms per tick,
+    the in-level ticks 5.3 to 13.0 ms (mean 8.0; busiest worker 6.4 ms of
+    CPU per frame); over the period only the start-up, one title-path host
+    step, the veil step running the area load (75 ms) and the level's first
+    two ticks (25.3 / 18.8 ms), each over with the GPU renderer as well
+    (87 ms; 23.6 / 26.5 ms). Left: those load and first-tick costs (not the
+    GS frame's), and slower hosts.
 
 ---
 

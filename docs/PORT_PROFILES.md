@@ -78,6 +78,10 @@ from **one codebase**:
    512x224 field in GS memory, and the platform layer presents it through
    the field-presentation hook (the placeholder only; the user's choice is
    open). The status frames and the 2D overlay pass still draw with the GPU.
+   Only the Metal backend (macOS) presents the field today: on the d3d12
+   and Vulkan backends the Original profile refuses to start, and
+   EM_GPU_RENDERER=1 (the GPU renderer) is needed there (GS_EXACT.md
+   section 9, "Backends").
 3. **Profile switch plumbing.** One settings struct with an Original value for
    every switch, chosen at launch. Started 2026-09-27: `src/em_settings.{h,c}`
    (`EmSettings`, `em_settings_original`, `em_settings()`), read from the
