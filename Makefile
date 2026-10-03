@@ -24,7 +24,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_face_slot.c \
            src/game/em_examine.c src/game/em_panel.c src/game/em_panel_program.c src/game/em_panel_runtime.c src/game/em_battery_ui.c src/game/em_battery_page_live.c src/game/em_status_page_record.c src/game/em_camera_retarget.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
-           src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c src/game/em_camera_aim.c src/game/em_area22_port.c src/game/em_area00_low.c \
+           src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c src/game/em_camera_aim.c src/game/em_area22_port.c src/game/em_area00_low.c src/game/em_area01_room.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
            src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
            src/game/em_security_gun.c src/game/em_security_gun_rest.c src/game/em_fan_original.c \
@@ -1321,6 +1321,16 @@ test-area22-port-reference:
 # section 6). About 4 s.
 test-area00-low-reference:
 	python3 tools/test_area00_low_reference.py
+
+.PHONY: test-area01-room-reference
+# em_area01_room.c's own translations (section A) against the original
+# instructions over recorded AREA01 RAM. A later-level module, in the
+# default set because the first level's camera binds its 00198D90 (camera
+# action 10, the one owner; CAMERA_LIVE.md section 6). Section B (the
+# AREA01 closure / world re-checks of other modules) stays outside the
+# first-level set (EM_AREA01_ROOM_EXISTING=0). About 4 s.
+test-area01-room-reference:
+	EM_AREA01_ROOM_EXISTING=0 python3 tools/test_area01_room_reference.py
 
 .PHONY: test-area11-interaction-host
 test-area11-interaction-host:

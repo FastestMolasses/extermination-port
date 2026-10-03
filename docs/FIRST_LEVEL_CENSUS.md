@@ -2236,12 +2236,14 @@ non-boundary instructions live (98.4%; the route's own 756 rows as in 1.55:
 - **Camera action 0.** The examine cue's stand-in (camera_area11_standins)
   is removed; it could not own the camera in AREA11 (CAMERA_LIVE.md
   section 6, which also gives the camera actions AREA11 reaches).
-- **Camera actions 9, 11 and 14** (the step's fix round) are bound:
-  em_area00_low's 00198CE0 / 00198F10 and em_camera_aim's 00198AF0 /
-  00198930 / 00191530 (test_area00_low_reference, test_camera_aim_reference;
-  the live dispatch against the original 0018BC20 in
-  test_camera_interaction_fixture). No route or AIM capture runs them, so
-  they are not census rows: no status change.
+- **Camera actions 9, 10, 11 and 14** (the step's fix rounds) are bound:
+  em_area00_low's 00198CE0 / 00198F10, em_area01_room's 00198D90 (with
+  the render context's 001D2830(3, 1) after it) and em_camera_aim's
+  00198AF0 / 00198930 / 00191530 (test_area00_low_reference,
+  test_area01_room_reference, test_camera_aim_reference; the live
+  dispatch and the hand-offs 9 -> 10 -> 11 -> 0 and 14 -> 0 against the
+  original 0018BC20 in test_camera_interaction_fixture). No route or AIM
+  capture runs them, so they are not census rows: no status change.
 - **Status changes:** 0021BAB0 verified-unbound -> live (em_sul_0021BAB0
   is the start clock of both timelines, bound in the script host's
   0022EC30; it runs in S2 and route 14). **Row notes changed:** 001B1E20,

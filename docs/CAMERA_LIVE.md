@@ -185,7 +185,9 @@ region since this step; nothing writes them in AREA11.
   retargets on the live camera over the captured scenes' own collision
   world. Every camera word the retarget writes and the actual eye / target
   now equal the captures byte for byte; the bounds tolerance of the legacy
-  path (6.1e-5) is gone.
+  path (6.1e-5) is gone. It also checks the bindings of camera actions 9,
+  10, 11 and 14 against the original 0018BC20, one dispatch per case and
+  the hand-offs frame by frame (section 6; mutants with `EM_TEST_FULL=1`).
 - **`make test-area11-interaction-host`**: the host fixture binds the live
   camera over the captured block (its panel scenes run the retarget and
   the commit on it).
@@ -297,7 +299,7 @@ region since this step; nothing writes them in AREA11.
   zoom already equalled the original's but whose +0x80 cursor and +0x89
   state were its own (the fade ran in em_opening_media).
 - **Faults where an original has no translation**:
-  - camera actions 10, 12, 13 and 15 (section 6: AREA11 cannot reach
+  - camera actions 12, 13 and 15 (section 6: AREA11 cannot reach
     them), and mode 1's 001B0300 (also as 00197490's worker, a fail-stop: section 7);
   - 001B0C60 in areas 0x12 / 0xE;
   - the specials' other-area arms (001944B0, 00194DB0, 00230230,
@@ -315,7 +317,7 @@ region since this step; nothing writes them in AREA11.
 - **Legacy scenes** (no original roster) keep `camera_update` and
   `camera_commit_view`, whose look-at is now the translated 00102CD0.
 
-## 6. Camera action 0 and the other actions AREA11 can set
+## 6. Camera action 0 and the other actions AREA11 can reach
 
 Nothing pre-empts camera action 0 (00195130) any more: the last stand-in,
 `camera_area11_standins` (em_camera.c) with the examine cue
@@ -335,54 +337,84 @@ the first level) still uses em_examine's cue.
 **The camera actions AREA11 reaches.** 0018BC20 dispatches the action +6
 in mode +5 = 0 or 1. In AREA11 the mode is always 0: its four room camera
 records (D_0024D650[0xB], sub 0 at 0x24C850) all carry +0x10 = 0 (mode 0,
-action 0) and +0x14 = 0 or 1, so 001B0460 / 001B0300 set mode 0 / action 0
-and never 0xD / 0xF. The other writers of +6 are camera routines: 0018B9C0
-state 0 (8, or 0 in area 0x12), 0018BC20 (5 -> 7; 6 -> 0; 0x11 -> 10 in
-mode 1 only), 00190F20 (7, areas 0x12 / 0xE only), 001914A0 (0), 00191000
-(3, the L1 orient), the aim camera (0, 1, 2), 001B82D0 (3 -> 0) and the
-event router 00193EB0: in area 0xB it sets 1 (player codes 0xD / 0x2A), 2
-(0xC / 0x29), 9 (0x10), 0xB (0x12) and 0xE (0x28); its 0xC / 0xD and its
-region events are for areas 0x16, 0x13 and 0xD. So:
+action 0) and +0x14 = 0 or 1, so 001B0460 / 001B0300 set mode 0 / action 0;
+001B0460's other stores of +6 need what AREA11 does not have (9 / 0xB in
+mode 1, 0xD for +0x14 = 5, 0xF for +0x14 = 4 in area 0x13). The set of
+actions AREA11 reaches is the closure over every writer of +6, the actions'
+own hand-offs included:
 
-- actions 0 to 8 are translated and bound (sections 1 and 7; 4 and 7 do
-  nothing, 6 only clears itself);
-- actions 10 (00198D90), 12 (001963A0), 13 (00196CE0) and 15 (00197390)
-  cannot be reached in AREA11 (mode 1, or another area's router arm or
-  room record): fail-stops;
-- actions 9 (00198CE0), 11 (00198F10) and 14 (00198AF0), which the router
-  sets for the player codes 0x10, 0x12 and 0x28 (0015CBA0: +1F0 state 44
-  except mode 2 sub 0, 46, and 56 / 57 except sub 2), are translated and
-  bound (fix round of chain step CAMERAS, 2026-10-02). Nothing proves
-  those states unreachable in AREA11: besides the ladder and hang mounts,
-  the crawl family and 0015C420's entries, the +4 = 2 reaction 00222AD0
-  (byte-matched C; PLAYER_MAJOR2.md) ends in state 44 whenever +302 is
-  not 9, so the three actions are bound rather than left as fail-stops. None of the 63 AREA11
+- the camera routines: 0018B9C0 state 0 (8, or 0 in area 0x12), 0018BC20
+  (5 -> 7; 6 -> 0; 0x11 -> 10 in mode 1 only), 00190F20 (7, areas 0x12 /
+  0xE only), 001914A0 (0), 00191000 (3, the L1 orient), 001936E0 (action
+  3: 0, 1, 2), the aim camera 00197D20 / 00198650 / 00197490 (0, 1, 2),
+  00196970 (7, called only by action 13's 00196CE0) and 001B82D0 (3 -> 0);
+- the event router 00193EB0 (run under action 0): in area 0xB it sets 1
+  (player codes 0xD / 0x2A), 2 (0xC / 0x29), 9 (0x10), 0xB (0x12) and 0xE
+  (0x28); its 0xC / 0xD and its region events are for areas 0x16, 0x13
+  and 0xD;
+- the actions themselves: 00198CE0 (9) sets 0xA when the player code is
+  0x11, 00198D90 (10) sets 0xB on 0x12, 00198F10 (11) sets 0 on any code
+  but 0x12, and 00198AF0 (14) sets 0 when it seats the camera (sub-state
+  3). So the camera runs 9 -> 10 -> 11 -> 0 as the player goes through the
+  codes 0x10 -> 0x11 -> 0x12 (0015CBA0: +1F0 states 44 / 45 / 46), and
+  14 -> 0.
+
+So:
+
+- actions 0 to 11 and 14 are translated and bound (sections 1 and 7; 4 and
+  7 do nothing, 6 only clears itself);
+- actions 12 (001963A0), 13 (00196CE0) and 15 (00197390) are reached by no
+  writer that runs in AREA11 (another area's router arm or room record,
+  or mode 1): fail-stops;
+- actions 9 (00198CE0), 10 (00198D90), 11 (00198F10) and 14 (00198AF0)
+  follow the player codes 0x10, 0x11, 0x12 and 0x28 (0015CBA0: +1F0
+  state 44 except mode 2 sub 0, 45, 46, and 56 / 57 except sub 2). They
+  are bound (fix rounds of chain step CAMERAS, 2026-10-02 / 03) because
+  nothing proves those states unreachable in AREA11: besides the ladder
+  and hang mounts, the crawl family and 0015C420's entries, the +4 = 2
+  reaction 00222AD0 (byte-matched C; PLAYER_MAJOR2.md) ends in state 44
+  whenever +302 is not 9, and 44 leads to 45 and 46. None of the 63 AREA11
   recordings (the route beats, the AIM, EXIT, DAMAGE, BRANCH and OPTIONS
   lanes) holds those states or a camera action other than 0, 1, 2 and 8,
   so no capture shows them live; the proof is instruction-level:
-  - 9 and 11 are em_area00_low's 00198CE0 / 00198F10 (the one owner of
-    each; `make test-area00-low-reference` runs the original instructions
-    over recorded AREA00 RAM, every sub-state, code, +D kind and area 8
-    sub-area 3's fixed eye). Their calls leave through em_camera_live's
-    `low_call` to the aim camera's callee binding (aim_call: the SDK
-    leaves, the chases 0018C4B0 / 0018C6A0, 001B1240 through the script
-    host's heading), 00191530 to em_camera_aim. They address the block,
-    the pool, the player view, 0x70003400 / 0x70003600 and D_00810700 /
-    701 as regions over the live storage;
+  - 9 and 11 are em_area00_low's 00198CE0 / 00198F10 and 10 is
+    em_area01_room's 00198D90 (the one owner of each; `make
+    test-area00-low-reference` and `make test-area01-room-reference` run
+    the original instructions over recorded AREA00 / AREA01 RAM, every
+    sub-state and code, 00198D90's +0x230 word compare and its +3.0 add
+    included). em_camera_live's `low_run` / `room_run` give them the block,
+    the pool, the player view, 0x70003400 / 0x70003600 (and D_00810700 /
+    701 for 00198F10) as regions over the live storage; their calls leave
+    through the aim camera's callee binding (aim_call: the SDK leaves, the
+    chases 0018C4B0 / 0018C6A0, 001B1240 through the script host's
+    heading), 00191530 to em_camera_aim. The player view is a copy for
+    them: none of the three stores to the player, and a store into the
+    copy or into the view through a callee is a fault. 0018BC20's
+    001D2830(3, 1) after action 10 is the render context's
+    `em_rcl_001D2830`, as the scene bindings bind it (flag 3, cleared by
+    main-loop step V 001D2300);
   - 14 (00198AF0) with its follow 00198930, and 00191530, are em_camera_aim's
     (`make test-camera-aim-reference`: the original instructions over the
     captured AREA11 RAM, every sub-state 0..4, the codes 0x28 / 0x12,
     +1F1 0 / 1 / 2 and the camera mode +5 0 / 1, every branch both ways).
     00198AF0 follows the instructions where its NEARMISS C differs: in
     sub-state 2 it sets +1 = 3 when the code is not 0x28 *or* +1F1 is 2
-    (the C reads an `and`); a mutant with the C's form is caught;
+    (the C reads an `and`);
   - the binding: `make test-camera-interaction-fixture` runs the live
     camera's dispatch 0018BC20 (`em_camera_live_dispatch`) for actions 9,
-    11 and 14 in every sub-state 0..3 with the codes that keep and end
+    10, 11 and 14 in every sub-state 0..3 with the codes that keep and end
     each (and +1F1 0 / 1 / 2 for 14) on two captured AREA11 scenes, and
     the original 0018BC20 over the same capture and inputs: the whole
-    camera block and D_008105D0..EF equal byte for byte (80 runs; a binder
-    that skips 14 or runs 9 for 11 is caught).
+    camera block and D_008105D0..EF equal byte for byte (96 runs). It
+    then runs the hand-offs frame after frame from the same start, the
+    player's code changing between frames: 9 -> 10 -> 11 -> 0 (codes 0x10,
+    0x10, 0x11, 0x11, 0x11, 0x12, 0x12, 0x12, 0x10) and 14 -> 0 (+1F1 0
+    and 1), the block, the pool and the render context's flags word
+    (context +0x0C) equal every frame (34 frames), the original's action
+    sequence asserted. With `EM_TEST_FULL=1` it rebuilds itself from
+    mutated copies of the binder and of em_camera_aim.c (action 10 or 14
+    unbound, action 9 running 11's routine, 001D2830's flag dropped,
+    00198AF0's sub-state 2 as the C reads it): all five are caught.
 
 ## 7. The aim camera (camera actions 1 / 2 / 5)
 

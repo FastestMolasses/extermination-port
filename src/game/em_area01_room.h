@@ -1,4 +1,10 @@
-/* em_area01_room.h - AREA01 (level 2) side track, lane A01ROOM: translations
+/* FIRST-LEVEL DEPENDENCY (chain step CAMERAS' second fix round, 2026-10-03):
+ * 00198D90 below is the first level's camera action 10 (em_camera_live.c's
+ * room_run; CAMERA_LIVE.md section 6), its one bound owner. A change here
+ * changes AREA11: re-run make test-area01-room-reference and make
+ * test-camera-interaction-fixture.
+ *
+ * em_area01_room.h - AREA01 (level 2) side track, lane A01ROOM: translations
  * of the boot functions that only the AREA01 room beats run for the first
  * time (a01_s4_east_room, a01_s5_duct, a01_s6_bridge_blocked; census field
  * room_beats_new_functions; docs/AREA01_ROOM.md). Prefix em_area01_room_.
