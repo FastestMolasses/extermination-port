@@ -136,6 +136,7 @@
 #include "game/em_frame.h"
 #include "game/em_frame_trace.h"
 #include "game/em_frontend.h"
+#include "game/em_pad_actuator.h"
 #include "game/em_game_internal.h"
 #include "game/em_hud.h"
 #include "game/em_level_smoke_test.h"
@@ -264,7 +265,6 @@ enum {
     UM_001F0360,
     UM_001AAD00,
     UM_001E0CC0,
-    UM_001D2880,
     UM_00200830,
     UM_COUNT
 };
@@ -308,7 +308,6 @@ static const struct {
                                   "nine list-pass hooks and class lists have no port counterpart"},
     [UM_001E0CC0] = {0x001E0CC0u, "status-close draw-mode reset in a scene without the render "
                                   "context (the first level runs em_rcl_001E0CC0)"},
-    [UM_001D2880] = {0x001D2880u, "game-over display-list reset; no port counterpart"},
     [UM_00200830] = {0x00200830u, "001AD1A0: VIF1 DMA of the library packet D_0028A564 (slot 0x35, "
                                   "the boot's module 0x1B, which the port does not load; its texels "
                                   "are the port's disc export)"},
@@ -440,7 +439,13 @@ static int w_001E0CC0(void *ctx)
         return em_rcl_001E0CC0() < 0 ? rcl_fault() : 0;
     return unmirrored(UM_001E0CC0);
 }
-static int um_001D2880(void *ctx) { (void)ctx; return unmirrored(UM_001D2880); }
+/* 001D2880 (001AD4E0 step 0 and 001ADF00): em_rcl_001D2880 on the render
+ * context (test-render-context-live-reference executes the original). */
+static int w_001D2880(void *ctx)
+{
+    (void)ctx;
+    return em_rcl_001D2880() < 0 ? rcl_fault() : 0;
+}
 static int w_001FA790(void *ctx, int a0, int a1) { (void)ctx; return em_stream_live_001FA790(a0, a1); }
 static int w_001FAB50(void *ctx) { (void)ctx; return em_stream_live_001FAB50(); }
 
@@ -515,6 +520,7 @@ static struct {
     uint32_t msg[3];
     uint32_t counter;   /* 0x70003B64 at the tick start (EM_RAND_TRACE's clock) */
     uint8_t loader[27]; /* the loader's record and bytes after the previous frame */
+    uint8_t pad[5];     /* D_00810E40 +0x16, +0x18, +0x19, +0x28/+0x29 after the previous frame */
 } s_tick;
 
 static FILE *log_file(void)
@@ -665,6 +671,19 @@ static void log_tick_begin(void)
         const EmTask *slot2 = em_task_slot(EM_MODULE_LOADER_TASK_SLOT);
         em_module_loader_snapshot(ml, slot2, snap);
         memcpy(s_tick.loader, snap, sizeof s_tick.loader);
+    }
+    /* The pad block's rumble bytes after the previous frame's step I
+     * (001B5B70 counts the duration down after the task), the route rows'
+     * post-frame sample of them (docs/DAMAGE.md section 8). */
+    {
+        const uint8_t *pad = em_pad_actuator_block();
+        if (pad) {
+            s_tick.pad[0] = pad[0x16];
+            s_tick.pad[1] = pad[0x18];
+            s_tick.pad[2] = pad[0x19];
+            s_tick.pad[3] = pad[0x28];
+            s_tick.pad[4] = pad[0x29];
+        }
     }
 }
 
@@ -918,6 +937,34 @@ static void log_tick_end(int rc)
          * +0x20 (0015C310's gun node), original record addresses.
          * tools/test_level_smoke.py check_effects. */
         fprintf(f, ", \"links\": [%u, %u]", em_live_u32(a, 0x18), em_live_u32(a, 0x20));
+        /* The damage fields (docs/DAMAGE.md section 8; tools/
+         * level_smoke_damage.py): the vitals +0x220 / +0x224 / +0x228 /
+         * +0x22C (float bits, their one storage g.status / g.pd_*), the
+         * record's +0x00, +0x0F, +0x20E (the port's g.pd_iframes), +0x235,
+         * +0x234, +0x06, +0x07, +0x210 (the heartbeat count), +0x0D; the pad
+         * block D_00810E40's +0x16, +0x18, +0x19 and +0x28 (the rumble);
+         * then the effect nodes 0022BBC0 / 001F77B0: [record, +0x10,
+         * +0x04, +0x0D]. */
+        {
+            uint32_t hp, pend, inf, pend_inf;
+            memcpy(&hp, &g.status.health, 4);
+            memcpy(&pend, &g.pd_pend_hp, 4);
+            memcpy(&inf, &g.status.infection, 4);
+            memcpy(&pend_inf, &g.pd_pend_inf, 4);
+            const uint8_t *pad = em_pad_actuator_block();
+            fprintf(f, ", \"dmg\": [%u, %u, %u, %u, %u, %u, %d, %u, %u, %u, %u, %u, %u, %u, %u, %u, %u, [", hp, pend,
+                    inf, pend_inf, em_live_u8(a, 0), em_live_u8(a, 0x0F), g.pd_iframes, em_live_u8(a, 0x235),
+                    em_live_u8(a, 0x234), em_live_u8(a, 6), em_live_u8(a, 7), em_live_u16(a, 0x210),
+                    em_live_u8(a, 0x0D), pad ? pad[0x16] : 0u, pad ? pad[0x18] : 0u, pad ? pad[0x19] : 0u,
+                    pad ? (unsigned)(pad[0x28] | pad[0x29] << 8) : 0u);
+            int n = 0;
+            for (const EmActor *e = s_pool.head; e; e = e->next)
+                if (e->callback == 0x0022BBC0u || e->callback == 0x001F77B0u)
+                    fprintf(f, "%s[%u, %u, %u, %u]", n++ ? ", " : "", em_actor_pool_address(&s_pool, e),
+                            (unsigned)e->callback, e->u04[0], e->param);
+            fprintf(f, "]], \"pad_pre\": [%u, %u, %u, %u]", s_tick.pad[0], s_tick.pad[1], s_tick.pad[2],
+                    (unsigned)(s_tick.pad[3] | s_tick.pad[4] << 8));
+        }
         /* The armed stance's sub-state bytes +6 / +7, the action code +230
          * (0015CBA0) and the player's +A0..+A8
          * and +B0..+B8 (float bits) as the camera's view of D_008102B0 holds
@@ -3378,20 +3425,23 @@ static int w_0018D7B0(void *ctx, uint32_t a0, int a1)
  * 001AD140 at D_0028A9A0 == 2 (+8 = 3, +9 = 2) -> 001AD250 runs the
  * byte-matched 001AD4E0 core -> +9 = 4 -> 001ADF00 -> 001AB790(001AC070).
  * The 001AD4E0 core owns the timing (the 0xF0 hold at +0x18, the CROSS
- * skip, the fades); its workers:
- *   001FF080(0, 0x27) -> screen module 0x27: the legacy em_hud_game_over
- *                        stand-in (g.go_state = GO_SCREEN). The port has no
- *                        asynchronous module load, so the module is
- *                        resident at once and the busy byte D_00275BD8 the
- *                        core raised is cleared here (the original loader
- *                        clears it when its read completes)
- *   001ABF90(packet)  -> em_render_001ABF90: the frame, with the stand-in
+ * skip, the fades); its workers (docs/DAMAGE.md section 5):
+ *   001FF080(0, 0x27) -> the loader's 001FF0D0 (module 0x27, the game-over
+ *                        screen, in the loader pack since the DAMAGE step);
+ *                        its 0x63 step clears D_00275BD8, which the core
+ *                        raised, and its chunk is the screen's upload
+ *   001ABF90(packet)  -> em_render_001ABF90: the screen module 0x27's four
+ *                        sprites (the screen tools/export_game_over.py
+ *                        composes from that upload)
  *   001AEE10, 001AEDE0 -> the translated fades (em_fade.c)
- *   001D2880, 001FA790(0, 0x1B), 001FAB50, the D_00810D38 store: unmirrored
- * 001ADF00's 001AEBA0(0xFF) is em_screen_fade_in (em_fade.c) and its
- * 001AB790(0x1AC070) replaces the game task with the interim 001AC070
- * (em_game_legacy_continue_task_001AC070: the legacy continue prompt,
- * which reinstalls this task on Continue). */
+ *   001D2880          -> its 001D25F0 / 001D2830 / 001D2610 on the render
+ *                        context (w_001D2880)
+ *   001FA790(0, 0x1B), 001FAB50 -> the stream lanes (em_stream_live)
+ * 001ADF00's 001AEBA0(0xFF) is em_screen_fade_in (em_fade.c), its
+ * D_00275BDC = 1 the scene state's, and its 001AB790(0x1AC070) installs the
+ * title flow 001AC070 again (em_frontend_install_001AC070), whose state 0
+ * reads D_00275BDC: from a death it opens the title menu (state 2) with the
+ * cursor on its second entry. */
 
 static int in_game_over(void)
 {
@@ -3415,19 +3465,21 @@ static int w_001FF080(void *ctx, int a0, int a1)
     }
     if (a0 != 0 || a1 != 0x27 || !in_game_over())
         return -1;
-    g.go_state = GO_SCREEN;
-    s_state.d275BD8 = 0;
+    /* 001AD4E0 step 1: the screen module through the loader task; the busy
+     * byte D_00275BD8 the core set stays until the task's 0x63 step. */
+    EmModuleLoader *ml = em_module_loader_live();
+    if (!ml || em_module_loader_request_001FF080(ml, 0, 0x27) != 0)
+        return em_scene_fault(&s_state, 0x001FF080u, EM_SCENE_FAULT_NULL_WORKER);
     return 0;
 }
 
 static int w_001ABF90(void *ctx, uint64_t a0, uint64_t a1, uint64_t a2, uint64_t a3)
 {
     (void)ctx;
-    (void)a0;
-    (void)a1;
-    (void)a2;
-    (void)a3;
-    return in_game_over() ? em_render_001ABF90() : -1;
+    const uint64_t packet[4] = {a0, a1, a2, a3};
+    if (!in_game_over() || em_render_001ABF90(packet) < 0)
+        return em_scene_fault(&s_state, 0x001ABF90u, EM_SCENE_FAULT_WORKER_FAILED);
+    return 0;
 }
 
 static int w_001AEE10(void *ctx, int16_t a0, uint8_t a1)
@@ -3456,7 +3508,7 @@ static int w_001AB790(void *ctx, uint32_t fn)
     (void)ctx;
     if (fn != EM_SCENE_FN_001AC070)
         return -1;
-    return em_task_replace_current(em_game_legacy_continue_task_001AC070) ? 0 : -1;
+    return em_frontend_install_001AC070() == 0 ? 0 : -1;
 }
 
 /* ------------------------------------------------------ frame machine */
@@ -3568,7 +3620,7 @@ static void bindings_init(void)
     w->w_0018D7B0 = w_0018D7B0;
 
     /* Game over (S11b): 001AD4E0 and 001ADF00. */
-    w->w_001D2880 = um_001D2880;
+    w->w_001D2880 = w_001D2880;
     w->w_001FF080 = w_001FF080;
     w->w_001AEE10 = w_001AEE10;
     w->w_001FA790 = w_001FA790;

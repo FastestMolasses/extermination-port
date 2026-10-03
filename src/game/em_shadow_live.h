@@ -77,6 +77,13 @@ int em_shadow_live_0015C160(const EmPlayerLiveActor *player, int route);
  * original address `record`) and its 21 node records (0xD0 bytes each, the
  * +0x110 words'), the same scene views and D_00817FF0. Its passes are drawn
  * by em_shadow_live_flush_walk. 0, or -1 (latched). */
+/* 001CE300(tag, corners, tex0, rgba) for an effect node's decal (the
+ * death's 001F77B0, docs/DAMAGE.md section 4): the kernel over this
+ * module's stage buffers and scratchpad block and the render context's
+ * packet chain. 0, or -1 (latched). em_shadow_live_effect_decals counts
+ * the calls since the process start. */
+int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint64_t tex0, uint32_t rgba);
+uint32_t em_shadow_live_effect_decals(void);
 int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_t size,
                                   const uint8_t *const nodes[], uint32_t node_count);
 

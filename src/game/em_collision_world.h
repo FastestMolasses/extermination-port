@@ -58,6 +58,13 @@ extern "C" {
  * Read by the first load only, like the soft-float data. */
 #define EM_COLLISION_WORLD_CONTACT_PATH "assets/collision_contact.emrg"
 #define EM_COLLISION_WORLD_D_00275490 0x00275490u
+/* The knock-back tables 001A8660 reads after a contact: D_0024A740 and
+ * D_0024A780 (= +0x40), indexed by the entry's +0x0D byte d (+4d), as far
+ * as d = 0xFF reaches (0x440 bytes), "EMRG" v1 from the same exporter.
+ * Read by the first load only. */
+#define EM_COLLISION_WORLD_KNOCKBACK_PATH "assets/collision_knockback.emrg"
+#define EM_COLLISION_WORLD_D_0024A740 0x0024A740u
+#define EM_COLLISION_WORLD_KNOCKBACK_SIZE 0x440u
 
 /* Build the world for an area: the directory at `cells_path`, the rank
  * section of the EMCL at `emcl_path` (which `emcl` is the loaded copy of; it

@@ -58,6 +58,7 @@
 #include "game/em_aim_fire_binding.h"
 #include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_trail.h"
+#include "game/em_bone_burst.h"
 #include "game/em_area11_bindings.h"
 
 #include <stdio.h>
@@ -1012,7 +1013,7 @@ int em_area11_bindings_overlay_log(const EmActor *actor, EmArea11OverlayLog *out
     out->b05 = actor->u04[1];
     out->h2E = actor->flags2;
     out->w30 = actor->w30;
-    out->w34 = actor->w34;
+    out->w34 = (actor->w34 & 0xFFFFu) | (uint32_t)actor->h36 << 16; /* +0x36 is its upper half */
     if (cb == EM_AREA11_EFFECT_CALLBACK) {
         memcpy(out->block, actor->scratch, sizeof out->block);
         memcpy(&out->w210, actor->scratch + 0x20, 4);
@@ -1138,12 +1139,72 @@ static int tick_effect(EmActor *actor, Node *node, const EmArea11World *world)
  * other address: NULL (the pass faults). */
 static uint8_t s_flame_image[EM_ACTOR_RECORD_SIZE];
 
+/* The player record as the close-out passes find it in the original: after
+ * 0015BCF0's tail (decomp src/func_0015BCF0.c: +0xA0 = +0xB0, then +0xB0 =
+ * the bone-1 node's +0xC0, *(D_00275B40 + 4) + 0xC0) the record holds the
+ * position at +0xA0..+0xAC and the hip at +0xB0..+0xBC. The port's record
+ * keeps the in-stage view (+0xB0 = the position, which the stage's start
+ * copies from +0xA0), so the close-out's view of these two quadwords is
+ * the one the camera stage builds (em_camera_live.c player_refresh): +0xA0
+ * the position g.pos, +0xB0 the pose host's published bone-1 position
+ * (player_pose_hip; the position while no pose is evaluated), each with
+ * w = 1.0 as the tail's quadword copies leave it. 001A8660 reads +0xA0
+ * (its distance and height tests) and no pass writes either quadword; a
+ * write, or a span crossing their bounds, gets no view (the pass faults). */
+static uint8_t s_player_closeout[0x20];
+
+static uint8_t *player_closeout(uint32_t offset, uint32_t size, int *handled)
+{
+    *handled = 0;
+    if (offset + size <= 0xA0u || offset >= 0xC0u)
+        return NULL;
+    *handled = 1;
+    if (offset < 0xA0u || offset + size > 0xC0u)
+        return NULL;
+    float quad[8], hip[3];
+    if (!player_pose_hip(hip))
+        memcpy(hip, g.pos, sizeof hip);
+    memcpy(quad, g.pos, 12);
+    quad[3] = 1.0f;
+    memcpy(quad + 4, hip, 12);
+    quad[7] = 1.0f;
+    memcpy(s_player_closeout, quad, sizeof s_player_closeout);
+    return s_player_closeout + (offset - 0xA0u);
+}
+
+/* The record's +0x220 health, +0x224 pending damage, +0x228 infection and
+ * +0x22C pending infection have one storage, the port's g.status.health,
+ * g.pd_pend_hp, g.status.infection and g.pd_pend_inf (em_player.c
+ * vitals_load / vitals_store: the stage's view of them is loaded before
+ * 0015BA50 and stored after 0015BCF0's tail). Between two stages, where
+ * the close-out runs, the passes reach those words: 001A8660's knock-back
+ * stores +0x224 (or +0x22C) for the next stage's 0021C440. A word access
+ * gets that float; any other access inside +0x220..+0x22F gets no view. */
+static uint8_t *player_vitals(uint32_t offset, uint32_t size, int *handled)
+{
+    *handled = 0;
+    if (offset + size <= 0x220u || offset >= 0x230u)
+        return NULL;
+    *handled = 1;
+    if (size != 4 || offset % 4u)
+        return NULL;
+    float *word[4] = {&g.status.health, &g.pd_pend_hp, &g.status.infection, &g.pd_pend_inf};
+    return (uint8_t *)word[(offset - 0x220u) / 4u];
+}
+
 static uint8_t *area_records(void *ctx, uint32_t address, uint32_t size)
 {
     (void)ctx;
     if (address >= EM_SCENE_D_008102B0 && size <= EM_PLAYER_ACTOR_SIZE &&
         address - EM_SCENE_D_008102B0 <= EM_PLAYER_ACTOR_SIZE - size) {
         EmPlayerLiveActor *pl = player_states_actor_mut();
+        int handled = 0;
+        uint8_t *view = player_closeout(address - EM_SCENE_D_008102B0, size, &handled);
+        if (handled)
+            return view;
+        view = player_vitals(address - EM_SCENE_D_008102B0, size, &handled);
+        if (handled)
+            return view;
         return pl ? pl->bytes + (address - EM_SCENE_D_008102B0) : NULL;
     }
     if (!s_pool || address < EM_ACTOR_POOL_BASE)
@@ -1173,12 +1234,32 @@ static int flame_0021BB00(void *ctx, int32_t *result)
     return 0;
 }
 
+/* 001EFE00(0x80000027, the player): em_area01_side_001EFE00 through the
+ * aim / fire composition, as the gun cable's 001EFE00(0x80000045, cable)
+ * runs (cable_001EFE00): its 001EF9D0 allocates on em_effects_live, and
+ * the node (record 0x27: 0022BBC0, subtype 9) binds through bind_spawned.
+ * 001EFE00 reads the player's +0xB0 / +0xC0 quadwords and its +0x14 word;
+ * the contact runs in the close-out, after 0015BCF0's tail, so the record
+ * holds the close-out's +0xA0 / +0xB0 (player_closeout) for the call. */
 static int flame_001EFE00(void *ctx, uint32_t id)
 {
     (void)ctx;
-    fprintf(stderr, "em_area11: 00823580: 001EFE00(%08X, the player) is not bound (the flame's damage: "
-                    "FIRST_LEVEL_AUDIT.md 1b item 13)\n", (unsigned)id);
-    return -1;
+    EmPlayerLiveActor *pl = player_states_actor_mut();
+    if (!pl)
+        return -1;
+    int handled = 0;
+    const uint8_t *view = player_closeout(0xA0u, 0x20u, &handled);
+    if (!view)
+        return -1;
+    uint8_t saved[0x20];
+    memcpy(saved, pl->bytes + 0xA0, sizeof saved);
+    memcpy(pl->bytes + 0xA0, view, sizeof saved);
+    EmAimFireTargetCall call = {.function = 0x001EFE00u, .na = 2};
+    call.a[0] = (uint64_t)(int64_t)(int32_t)id;
+    call.a[1] = EM_SCENE_D_008102B0;
+    const int rc = em_aim_fire_binding_frame(&call);
+    memcpy(pl->bytes + 0xA0, saved, sizeof saved);
+    return rc < 0 ? -1 : 0;
 }
 
 static int flame_behaviour(void *ctx, uint32_t fn, uint32_t entry, uint32_t player, uint32_t player_b0)
@@ -2104,6 +2185,9 @@ static const Binding k_bindings[] = {
      tick_effect_node, NULL},
     {0x001F18C0u, "knife trail: em_area00_fx 001F18C0 (em_aim_fire_trail, em_effects_live)",
      tick_effect_node, NULL},
+    {0x0022BBC0u, "bone burst: em_area01_ui 0022BBC0 (em_bone_burst, em_effects_live)", tick_effect_node, NULL},
+    {0x001F77B0u, "death decal: em_effect_001F77B0 (em_shadow_live's 001CE300, em_effects_live)", tick_effect_node,
+     NULL},
     {0x0018ABA0u, "impact marker: em_aim_fire_marker 0018ABA0 (em_aim_fire_runtime)", tick_aim_record, NULL},
     {0x001F5040u, "muzzle node: em_area00_fx 001F5040 (em_aim_fire_flash, em_aim_fire_runtime)", tick_aim_record,
      NULL},
@@ -2236,7 +2320,8 @@ int em_area11_bindings_effects_attach(void)
 {
     if (em_effects_live_attach(s_pool, s_scene, bind_spawned) < 0 ||
         em_equipment_live_attach(s_pool, s_scene) < 0 || em_indicator_bind_live_attach(s_pool) < 0 ||
-        em_aim_fire_flash_attach(s_pool, s_scene) < 0 || em_aim_fire_trail_attach(s_pool, s_scene) < 0)
+        em_aim_fire_flash_attach(s_pool, s_scene) < 0 || em_aim_fire_trail_attach(s_pool, s_scene) < 0 ||
+        em_bone_burst_attach(s_pool, s_scene) < 0)
         return -1;
     if (em_aim_fire_runtime_effects_attach() < 0) return -1;
     em_aim_fire_runtime_set_bind(bind_spawned);

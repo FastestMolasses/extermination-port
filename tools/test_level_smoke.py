@@ -103,6 +103,7 @@ import re
 import struct
 import sys
 
+import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import rand_order as R
 import test_scene_task_reference as tsr
 
@@ -2955,6 +2956,7 @@ PHASES = [
     ('boxes', check_boxes),
     ('slide', check_slide),
     ('truck_preview', check_truck_preview),
+    ('dmg_pit_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_pit_fall(ticks, run, state)),
     ('truck_crossing', check_truck_crossing),
     ('fence_door', check_fence_door),
     ('fence_door_side1', check_fence_door_side1),
@@ -2973,6 +2975,8 @@ PHASES = [
     ('cage_roof', check_cage_roof),
     ('crevice_climbs', check_crevice_climbs),
     ('crevice_prompt', check_crevice_prompt),
+    ('dmg_flame', lambda ticks, run, state: level_smoke_damage.check_dmg_flame(ticks, run, state)),
+    ('dmg_crevice_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_crevice_fall(ticks, run, state)),
     ('crevice_jump', check_crevice_jump),
     ('east_tower_climb', check_east_tower_climb),
     ('east_tower', check_east_tower),
@@ -3174,9 +3178,13 @@ def check_render_context(ticks, state):
             # 0x1AE040 state 4 (the room move) re-seats the camera with
             # 0018D7B0 / 0018C0D0 (which builds D_00810610) and falls into
             # state 1 in the same tick: that tick's frame head projects the
-            # re-seated view, not the previous tick's. State 0 (the level
-            # exit's AREA01 arrival) re-seats it in 001B07C0's 001B0460 and
-            # projects it in its closing 001D1EF0.
+            # re-seated view, not the previous tick's. State 0 (an area
+            # build) re-seats it the same way: the level exit's AREA01
+            # arrival re-seats it in 001B07C0's 001B0460 and projects it in
+            # its closing 001D1EF0; the run logs a state-0 tick with a bound
+            # render context there and for the New Game after a death (the
+            # DAMAGE side run dmg_flame: the context stays bound from the
+            # area the player died in; at the boot's build it binds there).
             reseats += 1
         elif prev is not None and r['v'] != prev['v']:
             assert r['v'] == prev['cam610'], ('render context', 'port tick', t['tick'],
@@ -3645,7 +3653,7 @@ def check_effects(ticks, state):
 
 SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
-        'aim_cable', 'aim_burst')
+        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door'}
@@ -3658,7 +3666,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
                   'aim_light', 'aim_melee', 'aim_world', 'aim_cable', 'aim_burst')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
-         ('15', ('exit',)))
+         ('15', ('exit',)), ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')))
 
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
@@ -4374,16 +4382,18 @@ def sway_entry_gap():
     return _SWAY_ENTRY_GAP[0]
 
 
-def check_fade_weights(run):
+def check_fade_weights(run, new_games=1):
     """001D19D0 -> 001D9070 (audit 1b item 4): the New Game's 001AD1A0 runs
     it once over the global library's model 0x16 (the gun lamp's third cone
     shell), whose bytes the port holds as the disc has them
     (tools/export_roger_banks.py); the run's bytes after the call (its FNV-1a
     in the run log) must equal the first-control capture's and every AREA11
-    route snapshot's at that address."""
+    route snapshot's at that address. The DAMAGE side run dmg_flame plays a
+    second New Game after the death: it runs once more, to the same bytes."""
     found = re.findall(r'^fade weights: 001D19D0 -> 001D9070 over library model 0x16 at ([0-9A-F]{8}) '
                        r'\((\d+) bytes\): fnv1a ([0-9A-F]{8})$', run, re.M)
-    assert len(found) == 1, ('fade weights: 001D19D0 ran', len(found), 'times; the New Game runs it once')
+    assert len(found) == new_games and len(set(found)) == 1, \
+        ('fade weights: 001D19D0 ran', len(found), 'times; each New Game runs it once', new_games, found)
     address, size, digest = int(found[0][0], 16), int(found[0][1]), int(found[0][2], 16)
     captures = [DECOMP / 'build/startup-reference/playable_ee.bin'] + sorted(
         p for p in ROUTE.glob('*/eeMemory.bin') if p.parent.name[:2] < '15')
@@ -4449,8 +4459,11 @@ def check_sway(ticks, state, frames):
     import test_point_light_reference as tpl
     elf = (DECOMP / 'config/SCUS_971.12').read_bytes()
     snaps = {i for _, i in state.get('snapshots', [])}
+    # The game over (001AD250 at +9 = 2 / 4: 001AD4E0 in place of the frame
+    # machine, docs/DAMAGE.md) runs no world frame, hence no 001D7C30.
+    game_over = lambda t: bytes.fromhex(t['post'])[0] == 3 and bytes.fromhex(t['post'])[1] in (2, 4)
     candidates = [i for i in range(1, len(ticks)) if ticks[i].get('lights') and ticks[i - 1].get('lights')
-                  and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1]
+                  and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1 and not game_over(ticks[i])]
     assert candidates, 'sway: no consecutive ticks with the point-light pool'
     picked = sorted(set(candidates[::250][:40]) | (snaps & set(candidates)))
     total, frozen = 0, 0
@@ -4765,9 +4778,12 @@ def main():
             side_named.append(name)
             if re.search(rf'^level smoke: {name}: side beat, not on the main line \(.*; NOT-LIVE:', run, re.M):
                 not_live.append(name)
-    # The whole-run checks below are AREA11's: a run through the exit phase
-    # ends on the AREA01 arrival's rebuild (check_exit), which they leave out.
-    ticks = ticks[:state.get('area11_end', len(ticks))]
+    # The whole-run checks below are AREA11's first game: a run through the
+    # exit phase ends on the AREA01 arrival's rebuild (check_exit), and
+    # dmg_flame plays a second New Game after the death (its own check
+    # compared it); they leave both out.
+    ends = [state.get('area11_end'), state.get('second_game')]
+    ticks = ticks[:min([e for e in ends if e is not None] or [len(ticks)])]
     if 'first_control' in checked:
         check_render_context(ticks, state)
         check_indicator_children(ticks, state)
@@ -4781,7 +4797,7 @@ def main():
         check_background(ticks, state)
     if 'first_control' in checked:
         check_room_lights(ticks, state)
-        check_fade_weights(run)
+        check_fade_weights(run, 2 if state.get('second_game') is not None else 1)
     check_player_draw_gate(ticks)
     if args.rand_trace and 'first_control' in checked:
         check_rand_order(ticks, state, args.rand_trace)

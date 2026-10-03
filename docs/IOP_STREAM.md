@@ -488,7 +488,8 @@ Wiring:
    4. `w_00119828` (the reported no-effect binding) → `em_stream_lanes_00119828` → 0x16. It stays inaudible
       without reverb, but the EVOL words are kept.
    5. The 001B0C00 fades (UM_001FAD70) → `em_stream_lanes_001FAD70(0/1/2, p, 1)` after 001AEDE0(p, 0).
-   6. The game over's 001FA790(0, 0x1B) / 001FAB50 (UM_001FA790 / UM_001FAB50) → the lanes.
+   6. The game over's 001FA790(0, 0x1B) / 001FAB50 (UM_001FA790 / UM_001FAB50) → the lanes (done:
+      em_stream_live; reached in the DAMAGE side runs since chain step DAMAGE, DAMAGE.md section 5).
    7. Step H: bind 001FB100 (`em_slg_001FB100`) so 001F9CF0 runs when `D_00821058 != 1`.
    8. Voiced lines additionally need `voice_push` (001FA5A0) bound (WP-9 / WP-10). The voice cues 143..151 are
       exported.

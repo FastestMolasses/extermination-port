@@ -49,7 +49,8 @@ capture, not a route beat), which the same targets require.
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
 make test-level-smoke-full             # the whole route through the exit (the AREA01 arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim
+make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim and test-level-smoke-damage
+make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_crevice_fall, dmg_pit_fall (EM_DAMAGE_SIDES=a,b runs only those)
 make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
@@ -269,6 +270,9 @@ fence_door_side1` requires both side phases.
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
 | crevice_climbs | 11 (f0..f706) | ledge climbs 0015DF10 onto the tank and the pipe end; the pipes walk's step-off | yes (census L04, L02) | — |
 | crevice_prompt | 11 (f706..) | director beat 1, script 0x829A40 (voiced line 0x97) | yes (census L21 with WP-8b) | — |
+| dmg_flame (side, from crevice_prompt) | DAMAGE dmg_00..dmg_04 (decomp CAPTURES_C10.md "DAMAGE", not route beats) | the flame's contact 001A8660 / 0x823580 (001EFE00: the burn node 0022BBC0), the hit 0021C440 / 0021D800 and the rumble 001B61C0, the heartbeat 0015D000, the death 0021D2E0 and its decal 001F77B0, the game over 001AD140 / 001AD4E0 (screen module 0x27, 001ABF90) / 001ADF00, the title after a death 001AC070 / 001AC480, the New Game to first control | yes, its own run (chain step DAMAGE, 2026-10-02) | — |
+| dmg_crevice_fall (side, from crevice_prompt) | DAMAGE dmg_06 | the walking jump short of the north block, the landing hit 0017C580 / 00163E90 | yes, its own run (chain step DAMAGE) | — |
+| dmg_pit_fall (side, from truck_preview) | DAMAGE dmg_07 | the truck's fall, the walk off its roof, the 0x5D floor's death 0021D250 / 0021D2E0, the game over | yes, its own run (chain step DAMAGE) | — |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
@@ -1169,6 +1173,43 @@ The page-module waits measured in aim_05 (the original's rows that wait on
 a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
 rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
 host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
+
+### The DAMAGE side runs (dmg_flame, dmg_crevice_fall, dmg_pit_fall)
+
+Side phases (DAMAGE.md section 8): dmg_flame and dmg_crevice_fall after
+crevice_prompt, dmg_pit_fall after truck_preview. Each plays the capture
+lane DAMAGE's own closed-loop policies (decomp route_capture.py
+`dmg_beat_*`) as a program of steps (em_level_smoke_test.c "damage":
+idle, hits to a health, retreat, the death to the game over, the title,
+Up, Cross, the New Game to first control, the walks, the walking jump, the
+truck's descent and the step off its roof), driven by the port's own state.
+Each beat starts after 35 neutral ticks, the capture's pin. In process: the
+steps' predicates and no fault; the run log prints the counters the checker
+aligns on ("done ... at tick N counter C", "press X at counter", "title
+menu takes input at counter", "first control again at tick T counter C").
+
+The tick log adds `dmg` (health, pending, infection, the pending infection's
+bits, +0x00, +0x0F, the protection, +0x235, +0x234, +4..+7, +0x210 of the
+flame, +0x0D, the pad block's +0x16 / +0x18 / +0x19 / +0x28, and the burn and
+decal nodes) and `pad_pre` (the pad block before the frame).
+`tools/level_smoke_damage.py` compares each window, aligned on its event,
+tick by tick with the recording (its docstring lists every field): the hits
+with the same flinch clip and low-health latch to the hand-back (the
+knock-back's per-tick step within 0.01, measured 0.0082; the other fields
+equal), the heartbeats, the death
+to the load request, the game over aligned on the end of screen module
+0x27's load (host speed: 10 ticks against the disc's 23), the title (equal
+counters to 001AC070's install; the menu takes input no later than
+recorded), the New Game (equal counters from Cross to the game task; first
+control the same tick count after it as the run's own boot New Game, at the
+recorded place, heading and health), the landing hit and the pit fall with
+their height paths. dmg_flame's second New Game is cut from the whole-run
+checks (`second_game`; its own check compared it): check_fade_weights
+expects 001D19D0 once per New Game, check_render_context accepts the area
+build's re-seat (state 0) that a context still bound from the death shows,
+the sway check skips the game-over ticks (no world frame), and
+check_overlay11 leaves the flame's cooldown and +0x00 = 2 to this check from
+the first damage window on.
 
 ### crevice_climbs
 

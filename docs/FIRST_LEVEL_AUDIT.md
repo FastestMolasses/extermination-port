@@ -1689,6 +1689,8 @@ modelled. Every other translation agrees (the module docs' notes).
     pops aliased the player's node addresses, and a value did differ: the
     knife's trail wrote its point history into the player's nodes 0..2, and
     from aim_09 f27 the player's pose and the camera left the capture's.
+    Chain step DAMAGE (2026-10-02) relies on it: the flame's burn node
+    0022BBC0 pops five slots from the same stack (DAMAGE.md section 3).
     **Found in the units step (2026-10-02): the actor pool's free list.**
     At route 09's room move 001AFA90 gives the fresh area-title node the
     record 0x7AEF00, where the original's is 0x7B0390 (the level smoke's
@@ -1713,22 +1715,26 @@ modelled. Every other translation agrees (the module docs' notes).
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 
-13. **Feel / logic: damage and death.** The flame publishes onto the
-    class-0xD list and the contact pass 001A8BE0 / 001A8660 runs live since
-    chain step A11FIX, with its +0x34 behaviour 0x823580 bound
-    (AREA11_EFFECT.md "Binding"); what a contact then does faults: the
-    behaviour's 001EFE00(0x80000027, player) (no binding at the player) and
-    001A8660's knock-back table D_0024A740 (not exported). The route never
-    touches the flame. The stage's hit, infection and low-health paths reach
-    fail-stop workers (0x80000023 / 001ED450, 001EFE00, the rumble 001B61C0,
-    the unbound +4 = 2 states); the gun cable's hit reaction (a melee hit:
-    rounds aimed at the cable land on the pillar behind it, decomp
-    CAPTURES_C10.md aim_10 / aim_11) stops at 001EFE00 in ordinary play;
-    behind the aim/fire gate its chain is composed (em_area01_side_001EFE00,
-    0021AAC0 / 0021A500 in em_security_gun_rest, 001CE860 in
-    em_area06_port_strip; AIM_FIRE.md), but no bound code writes the
-    cable's +0x36 (the knife probe 0019B2C0); nothing exercises the
-    truck-pit fall.
+13. **Feel / logic: damage and death.** **Status (2026-10-02, chain step
+    DAMAGE; DAMAGE.md):** live and checked against the capture lane DAMAGE.
+    The flame's contact 001A8660 / 0x823580 runs with the knock-back table
+    D_0024A740 (collision_knockback.emrg), the close-out view of the
+    player's +0xA0 / +0xB0 and the vitals on their one storage; 001EFE00
+    spawns the burn node 0x80000027 (0022BBC0 subtype 9 with its sound,
+    light and slots); the stage's hit, flinch, rumble and low-health
+    heartbeat run their translations; the death runs 0021D2E0 with the
+    decal 001F77B0 (translated, instruction-tested); the game over runs
+    001AD4E0 with screen module 0x27 through the loader and 001ABF90 drawing
+    its export; 001ADF00 installs 001AC070 again, whose menu after a death
+    starts on the second entry, and New Game plays to first control. The
+    side runs dmg_flame, dmg_crevice_fall and dmg_pit_fall replay the
+    recordings dmg_00..04, 06 and 07 window by window (LEVEL_SMOKE.md "The
+    DAMAGE side runs"). Left, each with its reason (DAMAGE.md section 7):
+    infection and the blast reaction 0x80000023 / 001ED450 are unreachable
+    in AREA11 (fail-stop kept); the heavy landing has no capture; the
+    title's load screen (dmg_05) is the OPTIONS step's; the fan's hit
+    (dmg_08) needs Roger's departure (the EXIT step); the gun cable's hit
+    chain is unchanged (AIM_FIRE.md).
 14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
     melee states (P24..P28) run em_weapon's stand-ins; camera actions 9..15
     fault (actions 1 / 2 / 5 and the release 00197490 are translated and
@@ -2011,7 +2017,7 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
 
 ### WP-1 Neutralize live fabrications that need no new infrastructure
 - **Scope. Each item is independently committable:**
-  - **H8:** Continue applies the 001AF2C0 reset (the same values as New Game) and clears the D_00810700 block progress flags. **DONE** (9d4a631). The 001AF2C0 inventory seeds (item counts 0/5/7/0x17 = 1, 0x10 = 2, magazine packs 2) are now applied by `em_pickup_reset` and checked against the executed original (cleanup-game lane, uncommitted at the time of writing).
+  - **H8:** Continue applies the 001AF2C0 reset (the same values as New Game) and clears the D_00810700 block progress flags. **DONE** (9d4a631). The 001AF2C0 inventory seeds (item counts 0/5/7/0x17 = 1, 0x10 = 2, magazine packs 2) are now applied by `em_pickup_reset` and checked against the executed original (cleanup-game lane, uncommitted at the time of writing). Since chain step DAMAGE (2026-10-02) there is no port Continue at all: em_game_legacy_continue_task_001AC070 is deleted, 001ADF00 installs the title flow 001AC070 again and its New Game is the original's (DAMAGE.md section 6).
   - **H10 partial:** delete `em_sfx_play(0x97/0x99)` in `em_director.c:175-182`. **DONE** (da41660).
   - **H16:** truck static (remove the AABB trigger and fall), leaving a TODO. **DONE** (da41660).
   - **H20:** stop the constant spin on type-0x13 props. **DONE** (da41660). The static pose now also applies 00827630's init rot.z (±π/4 by record +0x03) when the manifest line carries `owner 0x827630 <flags2>` (cleanup-game lane). PENDING: the local manifest lines do not carry the suffix yet, so the live fans are still yaw-only.

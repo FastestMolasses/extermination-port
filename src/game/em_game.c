@@ -25,10 +25,7 @@
  *                                        sections 2.2, 2.3 and 6 (S8).
  *                                        Legacy hooks in this file:
  *                                        em_game_legacy_state0 (state 0,
- *                                        001AFCA0 position) and the
- *                                        interim 001AC070 continue task
- *                                        (em_game_legacy_continue_task_
- *                                        001AC070, S11b).
+ *                                        001AFCA0 position).
  *   func_001AE5E0  GAMEPLAY FRAME        since S10a the cores
  *   func_001AE6B0  cutscene variant      em_sf_001AE5E0 / em_sf_001AE6B0
  *                                        call the stage workers in the
@@ -566,130 +563,12 @@ const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
 
 
 
-/* GAME-OVER / CONTINUE. Since S11b the game-over half runs as the
- * original chain in the scene coordinator: the player stage writes B9
- * (0015CF90, em_player_frame.c); at fade substate 2, 0x1AE040 state 1
- * calls 001AD140 (+9 = 2); 001AD250 then runs the byte-matched 001AD4E0
- * core (the 0xF0 hold at +0x18, the CROSS skip D_00810E74 & 0x40 once
- * D_0028A9A0 == 0, the fades) and 001ADF00, whose 001AB790(001AC070)
- * replaces the game task. The bindings (em_scene_bindings.c) bind that
- * chain's workers; the port's legacy pieces stand in only where the
- * original is not translated: the GAME OVER screen module 0x27
- * (001FF080(0, 0x27) sets g.go_state = GO_SCREEN, the em_hud_game_over
- * stand-in drawn at the 001ABF90 packet position) and the CONTINUE task
- * 001AC070 below.
- *
- * em_game_legacy_continue_task_001AC070 — the interim 001AC070 (the
- * decoded continue flow; FLAGGED legacy stand-in until 001AC070 and
- * 001AC480 are translated). RE-VERIFIED: src/func_001AC480.c case 2
- * carries the 0x4B0 = 1200 prompt timer (decremented only on input-free
- * frames, re-armed on any held frame), confirm mask 0x840, DOWN 0x4000 /
- * UP 0x1000 with the cursor clamped to 0..2, and sounds 0x5DD/0x5DE/
- * 0x5DF + move blip 5, and its sub-0 cursor INIT is
- * `GS[0xF] = (D_00275BDC == 0) ? 0 : 1` — D_00275BDC is set to 1 by
- * 001ADF00 (canonical d275BDC). src/func_001AC070.c (NEARMISS — 97.95%,
- * logic authoritative but NOT byte-matched) is the outer flow whose
- * state 4 does func_001AB790(func_001ACEC0). Its state-2 CONFIRM
- * dispatch reads that same GS[0xF]: 0 -> state 4 + D_00275BE0 = 0
- * (CONTINUE), 1 -> func_00225A00() + state 5 + D_00275BE0 = 1 (LOAD),
- * 2 -> state 6 + GS[0xC] = 0 (sub-screen). The masks check out against
- * the s37 BYTE-SWAPPED pad map (0x40 = CROSS, 0x800 = START, so 0x840 =
- * START|CROSS; 0x1000 = d-pad UP, 0x4000 = d-pad DOWN). One
- * knowingly-unmirrored detail: the engine reads the prompt counter BEFORE
- * decrementing and expires on the pre-decrement 0, i.e. 1201 frames to
- * the port's 1200. Presentation: em_hud_continue, drawn UNDER the fade in
- * frame_close_out. */
-static void continue_tick(void)
-{
-    const EmFrameInput *in = em_frame_input();
-    if (g.go_state < GO_PROMPT) return;
-    g.go_frames++;
-    switch (g.go_state) {
-    case GO_PROMPT:
-        /* func_001AC480 sub 2 — gated until the fade is idle. */
-        if (em_frame_fade_level() > 0.0f) break;
-        if (in->held == 0) {
-            /* no button held: the idle timeout walks (engine: the
-             * decrement runs only on input-free frames) */
-            if (g.go_timer > 0 && --g.go_timer == 0) {
-                em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
-                g.go_state  = GO_PROMPT_TIMEOUT;
-                g.go_frames = 0;
-            }
-            break;
-        }
-        /* any held button re-arms the timer (engine tail) */
-        g.go_timer = GO_PROMPT_FRAMES;
-        if (in->pressed & (EM_PAD_START | EM_PAD_CROSS)) {
-            /* confirm (engine mask 0x840) — per-option sound, then
-             * fade out; dispatch happens at hold-black */
-            em_sfx_play(g.go_cursor == 0 ? GO_SFX_CONFIRM0
-                        : g.go_cursor == 1 ? GO_SFX_CONFIRM1
-                                           : GO_SFX_CONFIRM2);
-            em_frame_fade_start(1, EM_FADE_SPEED_DOOR);
-            g.go_state  = GO_PROMPT_CONFIRM;
-            g.go_frames = 0;
-        } else if ((in->pressed & EM_PAD_DOWN) &&
-                   g.go_cursor < GO_CURSOR_MAX) {
-            g.go_cursor++;                          /* 0x4000 = DOWN  */
-            em_sfx_play(GO_SFX_MOVE);
-        } else if ((in->pressed & EM_PAD_UP) && g.go_cursor > 0) {
-            g.go_cursor--;                          /* 0x1000 = UP    */
-            em_sfx_play(GO_SFX_MOVE);
-        }
-        break;
-    case GO_PROMPT_CONFIRM:
-        if (em_frame_fade_level() < 1.0f) break;
-        if (g.go_cursor == 0) {
-            /* Option 0 — src/func_001AC070.c state 4 reinstalls
-             * func_001ACEC0 with D_00275BE0 = 0: the title's New Game
-             * route (001AD230 -> 001AF2C0 reset, 001AD360 AREA11
-             * 0x0B/0/0). Serviced by the frame machine (go_restart). */
-            g.go_restart = 1;
-        } else {
-            /* options 1 (load game) / 2 (sub-screen): the engine's
-             * targets (func_00225A00 memory-card flow / func_00200A40)
-             * have no native counterpart — no save system.
-             * CORRECTED (src/func_001AC070.c, NEARMISS): only option 2
-             * really is a return-to-prompt — state 6 polls
-             * func_00200A40() and goes back to state 2. Option 1 is
-             * state 5, which polls func_00225AC0(0): verdict 1 =
-             * CANCEL -> back to state 2 (the prompt), but verdict 2 =
-             * a SUCCESSFUL LOAD -> func_001AF150(), D_00275BE0 = 1 and
-             * state 4, i.e. it reinstalls the gameplay task exactly
-             * like CONTINUE. The port has no save system, so it takes
-             * option 1's CANCEL path only — a deliberate stand-in for
-             * the load path, NOT the engine's whole behaviour.
-             * FLAGGED untranslated sub-screens. */
-            g.go_state  = GO_PROMPT;
-            g.go_frames = 0;
-            g.go_timer  = GO_PROMPT_FRAMES;
-            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-        }
-        break;
-    case GO_PROMPT_TIMEOUT:
-        /* engine sub 4: held input mid-fade cancels back to the
-         * prompt; at hold-black the engine cycles to the TITLE/attract
-         * screens — the port has no title scene, so it re-enters the
-         * prompt (FLAGGED divergence, documented in the PD block). */
-        if (in->held != 0 && em_frame_fade_level() < 1.0f) {
-            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-            g.go_state  = GO_PROMPT;
-            g.go_frames = 0;
-            g.go_timer  = GO_PROMPT_FRAMES;
-            break;
-        }
-        if (em_frame_fade_level() >= 1.0f) {
-            g.go_state  = GO_PROMPT;
-            g.go_frames = 0;
-            g.go_timer  = GO_PROMPT_FRAMES;
-            em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-        }
-        break;
-    default:
-        break;
-    }
-}
+/* GAME OVER / CONTINUE. The game-over chain runs in the scene coordinator
+ * (em_scene_bindings.c "game over": 001AD140, 001AD4E0 with screen module
+ * 0x27, 001ADF00); 001ADF00's 001AB790(001AC070) installs the title flow
+ * again (em_frontend_install_001AC070; docs/DAMAGE.md section 6). Its menu
+ * opens with the cursor on the second entry; its state 4 (the first entry,
+ * New Game) is em_game_reinstall_new_001AC070 below. */
 
 /* ================================================================== */
 /* AREA-11 PROGRESSION — the power byte                                 */
@@ -1393,90 +1272,29 @@ void em_game_legacy_state0_fixtures(void)
     em_opening_runtime_scene_ready();
 }
 
-/* Continue restart (game-over option 0), run by the interim 001AC070 task
- * below when the prompt latched g.go_restart. Returns 1 when the restart
- * ran and the game task must be reinstalled, 0 when no restart is pending,
- * -1 when the restart area is unavailable (quit requested). */
-static int continue_restart(void)
+/* 001AC070 state 4 after a death: 001AB790(001ACEC0) replaces the title
+ * task with the game task, its record cleared (the record's +8 = 0: the
+ * New Game route 001AD1A0 / 001AD230 (001AF2C0) / 001AD360 / 001ADF50 and
+ * the state-0 rebuild run as at the boot's New Game; D_00275BE0 = 0). The
+ * game state the original keeps across it stays; the port's own stand-ins
+ * outside that route are cleared (the legacy bug-latch struggle's machine,
+ * its pending vitals). The music stops at 001AD360 step 0's 001FABB0. 0, or
+ * -1. */
+int em_game_reinstall_new_001AC070(void)
 {
-    /* GAME-OVER OPTION 0 RESTART. src/func_001AC070.c (NEARMISS,
-     * logic authoritative) state 2 confirm with cursor 0 goes to
-     * state 4 with D_00275BE0 = 0 and reinstalls func_001ACEC0 —
-     * the title's NEW GAME route. The from-death flag
-     * D_00275BDC (001AC070 state 0 / 001AC480 state 0) skips the
-     * load wait and sets the initial cursor to 1; it does not
-     * change the cursor-0 dispatch:
-     *   001ACEC0 state 1 -> 001AD230 -> 001AF2C0 (new-game reset)
-     *   001AD250 sub 0 -> 001AD360 step 4: area 0x0B/0/0
-     *   001AD250 sub 5 -> 001ADF50 area build, then gameplay.
-     * So the restart is AREA11 sub 0 entry 0 with the new-game
-     * state wherever the player died. The memset clears event
-     * byte D_00810791 (D_00810758[0x39]), which is what the
-     * opening controller 00823E80 tests (001BA1C0(.., 0x39) in
-     * its state 1) to skip its script; it does not read
-     * D_00810811. That the rebuilt area therefore replays the
-     * opening is inferred from those instructions, not measured:
-     * no original Continue has been captured. Since S12a the
-     * reinstalled task runs that whole route itself (001AD1A0,
-     * 001AD230 -> em_game_new_game_reset_001AF2C0, 001AD360 with
-     * the intro movie at step 1, the 001ADF50 area read, state 0),
-     * so only the port's own game-over and damage stand-ins are
-     * cleared here; the music stops at 001AD360 step 0's 001FABB0
-     * (w_001FABB0, since WP-5). Other port state (e.g. the legacy
-     * director's transient) survives a Continue, as before; its beat
-     * step D_00810813 is canonical progress, cleared by 001AF2C0. */
-    if (g.go_restart) {
-        g.go_restart  = 0;
-        g.go_state    = GO_OFF;
-        g.go_frames   = 0;
-        g.go_timer    = 0;
-        g.go_cursor   = 0;
-        g.pd_state    = 0;
-        g.pd_sub      = 0;
-        g.pd_phase    = 0;
-        g.pd_hold     = 0;
-        g.pd_iframes  = 0;
-        g.pd_pend_hp  = 0.0f;
-        g.pd_pend_inf = 0.0f;
-        g.pd_clip     = 0;
-        g.pd_infected = 0;
-        g.pd_low      = 0;
-        g.et_spawned = 0;     /* self-tests may re-spawn */
-        em_opening_runtime_request();
-        return 1;                     /* reinstall the game task */
-    }
-    return 0;
-}
-
-/* The interim 001AC070 (see continue_tick): the task 001ADF00 installs
- * through 001AB790(0x1AC070) (em_scene_bindings.c w_001AB790). Its first
- * tick enters the prompt the way the decoded flow does from death
- * (001AC480 sub 0: screen module 1, cursor = D_00275BDC ? 1 : 0, fade
- * in); every tick runs the prompt and draws the frame (the frozen world
- * under em_hud_continue's opaque base). Option 0's restart is serviced at
- * the start of the next tick: the port's stand-in resets (continue_restart)
- * and 001AC070 state 4: D_00275BE0 = 0, 001AB790(001ACEC0), which clears
- * the record (+8 = 0), so the task runs the New Game route from 001AD1A0
- * (S12a). */
-void em_game_legacy_continue_task_001AC070(void)
-{
-    if (g.go_restart) {
-        int restart = continue_restart();
-        if (restart > 0) {
-            em_scene_state()->d275BE0 = 0;
-            (void)em_task_replace_current(em_scene_task_001ACEC0);
-        }
-        return; /* no frame this tick (quit requested when < 0) */
-    }
-    if (g.go_state < GO_PROMPT) {
-        g.go_state  = GO_PROMPT;
-        g.go_frames = 0;
-        g.go_timer  = GO_PROMPT_FRAMES;                  /* task+0x16 */
-        g.go_cursor = em_scene_state()->d275BDC ? 1 : 0; /* 001AC480 sub 0 */
-        em_frame_fade_start(-1, EM_FADE_SPEED_DOOR);
-    }
-    continue_tick();
-    frame_close_out();
+    g.pd_state    = 0;
+    g.pd_sub      = 0;
+    g.pd_phase    = 0;
+    g.pd_hold     = 0;
+    g.pd_iframes  = 0;
+    g.pd_pend_hp  = 0.0f;
+    g.pd_pend_inf = 0.0f;
+    g.pd_clip     = 0;
+    g.pd_infected = 0;
+    g.pd_low      = 0;
+    em_opening_runtime_request();
+    em_scene_state()->d275BE0 = 0;
+    return em_task_replace_current(em_scene_task_001ACEC0) ? 0 : -1;
 }
 
 /* The port's own assets of an area (S12a; formerly the one-frame

@@ -961,6 +961,19 @@ int em_rcl_001D2830(int32_t a0, int32_t a1)
     return done(em_frh_001D2830(&R.frh, a0, a1, &ignored), 0x001D2830u);
 }
 
+/* 001D2880 (byte-matched decomp src/func_001D2880.c; 001AD4E0 step 0 and
+ * 001ADF00): 001D25F0(480.0), 001D2830(id, 0) for the ids 0, 2, 1, 0x24,
+ * 0x20, 0x21, 0x22 in that order, then 001D2610(0.0); the first fault
+ * stops it. */
+int em_rcl_001D2880(void)
+{
+    static const int32_t ids[7] = {0, 2, 1, 0x24, 0x20, 0x21, 0x22};
+    if (em_rcl_001D25F0(0x43F00000u) < 0) return -1;
+    for (unsigned i = 0; i < 7; ++i)
+        if (em_rcl_001D2830(ids[i], 0) < 0) return -1;
+    return em_rcl_001D2610(0);
+}
+
 /* 001DFE40 / 001DFE10 (byte-matched decomp src/func_001DFE40.c /
  * func_001DFE10.c): the context bytes +0x1F0..+0x1F3 (each through a fresh
  * load of D_00275670, the context address checked at the load), +0x1F0 = 2

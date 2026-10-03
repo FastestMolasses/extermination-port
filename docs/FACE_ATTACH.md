@@ -322,7 +322,8 @@ random variants, because D_00250FB0 is zero in every capture.
   1063 against 1042, cursor 0x7D47A4 against 0x7D47F8) and the first 21
   pops aliased the player's node addresses. The face units do not carry the
   slot address (their REF names the face resource), so their drawn bytes
-  did not change.
+  did not change. Chain step DAMAGE (2026-10-02) depends on it: the
+  flame's burn node pops five slots from the same stack (DAMAGE.md section 3).
 
 ## 6. Binding (done 2026-09-28)
 

@@ -365,8 +365,9 @@ store. The test checks:
   - retire `player_damage_tick`'s copies, as FIRST_CONTROL.md already notes.
 - **Terminal states.** 0021D2E0's countdown ends in 001AEDE0(4, 0), and the
   state then parks (+7 = 2) with +4 2. What follows is the scene's
-  game-over flow (decomp FINDINGS "GAME OVER", trigger open). The area load
-  then calls `player_states_reset()`.
+  game-over flow (0015CF90's B9 -> 001AD140 -> 001AD4E0 -> 001ADF00; live
+  since chain step DAMAGE, DAMAGE.md section 5). The area load then calls
+  `player_states_reset()`.
 
 ## 6. Limits
 

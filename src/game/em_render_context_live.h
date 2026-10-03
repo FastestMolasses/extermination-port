@@ -162,6 +162,9 @@ int em_rcl_001C1DC0(void);              /* area render init (0x1AE040) */
 int em_rcl_001D25F0(uint32_t zoom);     /* zoom store (bits) */
 int em_rcl_001D2610(uint32_t x);        /* scope zoom (bits) */
 int em_rcl_001D2830(int32_t a0, int32_t a1);
+/* 001D2880: 001D25F0(480.0), 001D2830(id, 0) for 0, 2, 1, 0x24, 0x20,
+ * 0x21, 0x22, then 001D2610(0.0) (the game over's step 0 and 001ADF00). */
+int em_rcl_001D2880(void);
 /* 001DFE40: the context's +0x1F0 = 2, +0x1F1..+0x1F3 = 0 (the record-13
  * manager 008257A0's script end and the op09 callback 0x825920);
  * 001DFE10: the same bytes = 0, then 001D2830(7, 1) (the op09 callback

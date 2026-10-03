@@ -60,6 +60,7 @@
 #include "game/em_opening_control_test.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_shadow_live.h"
+#include "game/em_status_runtime.h"
 
 /* See em_render_001D1EA0. */
 static int s_request_status_frame;
@@ -854,19 +855,6 @@ void frame_close_out(void)
     /* The area-title card is drawn by its node 001C5930 (em_area_title:
      * 001CC1E0 glyph runs drawn with the message glyphs). */
 
-    /* GAME-OVER / CONTINUE screens — drawn BEFORE the fade rect so
-     * the fade machine owns them exactly like the engine (the screen
-     * modules render under the GS fade; PD block doc). Their opaque
-     * black base hides the frozen dead world underneath. Queues
-     * nothing while the GO machine is off, so every other frame stays
-     * byte-identical. Presentation = the FLAGGED module stand-ins
-     * (em_hud.h): module 0x27 -> em_hud_game_over, module 1 ->
-     * em_hud_continue (cursor highlight). */
-    if (g.go_state == GO_SCREEN)
-        em_hud_game_over(gfx);
-    else if (g.go_state >= GO_PROMPT)
-        em_hud_continue(gfx, g.go_cursor);
-
     /* em_frame owns transition ticking/drawing after task dispatch. */
 
     if (!em_opening_control_test_active() && !em_level_smoke_test_active() && g.capture_path &&
@@ -964,14 +952,78 @@ int em_render_001D1EF0(void)
 }
 
 /* func_001ABF90 position of the byte-matched 001AD4E0 (game-over steps 3
- * and 4 push its GS packet every tick: the screen module 0x27 image). The
- * port has no module 0x27 art; it draws today's close-out, whose
- * em_hud_game_over stand-in (g.go_state == GO_SCREEN, set at the
- * 001FF080(0, 0x27) binding) covers the frozen world with an opaque base
- * under the transition fade, as the legacy game-over frame did. */
-int em_render_001ABF90(void)
+ * and 4 push its four TEX0 words every tick). 001AD4E0 replaces the frame
+ * machine there, so the frame holds no world: 001ABF90 draws the four
+ * 256 x 256 sprites of screen module 0x27, which 001AD4E0 step 1 loaded
+ * through the loader (em_status_runtime_game_over_chunks counts the chunk
+ * the loader delivered). The port draws the screen as tools/
+ * export_game_over.py composed it from that module's upload with these
+ * four words (assets/startup/game_over.emui, 512 x 448, the startup
+ * screens' canvas and format; docs/DAMAGE.md section 5), over the black
+ * clear, under the transition fade em_frame draws after the task. Any
+ * other packet, or the screen before its module arrived, faults. Then the
+ * frame's tail as frame_close_out ends it (the capture hook, the test
+ * hooks, the frame counter). */
+#define GAME_OVER_SCREEN_PATH "assets/startup/game_over.emui"
+enum { GAME_OVER_W = 512, GAME_OVER_H = 448 };
+static uint8_t *s_game_over_pixels;
+static int s_game_over_load; /* 0 not tried, 1 loaded, -1 failed */
+
+static int game_over_load(void)
 {
-    frame_close_out();
+    if (s_game_over_load) return s_game_over_load;
+    s_game_over_load = -1;
+    FILE *in = fopen(GAME_OVER_SCREEN_PATH, "rb");
+    if (!in) {
+        fprintf(stderr, "render: %s is missing (tools/export_game_over.py)\n", GAME_OVER_SCREEN_PATH);
+        return -1;
+    }
+    unsigned char header[36];
+    static const unsigned char sprite[16] = {0, 0, 0, 0, 0, 2, 192, 1, 0, 0, 0, 0, 0, 2, 192, 1};
+    const size_t bytes = (size_t)GAME_OVER_W * GAME_OVER_H * 4;
+    uint8_t *pixels = malloc(bytes);
+    int ok = pixels && fread(header, 1, sizeof header, in) == sizeof header && !memcmp(header, "EMUI", 4) &&
+             header[4] == 1 && !memcmp(header + 20, sprite, sizeof sprite) &&
+             (header[8] | header[9] << 8) == GAME_OVER_W && (header[12] | header[13] << 8) == GAME_OVER_H &&
+             fread(pixels, 1, bytes, in) == bytes && fgetc(in) == EOF;
+    fclose(in);
+    if (!ok) {
+        free(pixels);
+        fprintf(stderr, "render: %s is not a 512 x 448 EMUI screen\n", GAME_OVER_SCREEN_PATH);
+        return -1;
+    }
+    s_game_over_pixels = pixels;
+    s_game_over_load = 1;
+    return 1;
+}
+
+int em_render_001ABF90(const uint64_t packet[4])
+{
+    static const uint64_t k_tex0[4] = {0x2005C00621322A00ull, 0x2005C08621322A40ull, 0x2005C20621322C00ull,
+                                       0x2005C28621322C40ull};
+    EmGfx *gfx = em_frame_gfx();
+    if (!packet || memcmp(packet, k_tex0, sizeof k_tex0) != 0) {
+        fprintf(stderr, "render: 001ABF90 with a packet other than 001AD4E0's (no screen for it)\n");
+        return -1;
+    }
+    if (em_status_runtime_game_over_chunks() == 0) {
+        fprintf(stderr, "render: 001ABF90 before screen module 0x27 was loaded\n");
+        return -1;
+    }
+    if (game_over_load() != 1 || !gfx) return -1;
+    const float black[4] = {0, 0, 0, 1}, white[4] = {1, 1, 1, 1};
+    em_gfx_overlay_rect(gfx, 0, 0, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H, black);
+    if (!em_gfx_overlay_texture_set(gfx, EM_GFX_OVERLAY_TEX_UI, s_game_over_pixels, GAME_OVER_W, GAME_OVER_H)) {
+        fprintf(stderr, "render: could not upload the game-over screen\n");
+        return -1;
+    }
+    em_hud_decor_invalidate();   /* the UI slot now holds this screen */
+    em_gfx_overlay_canvas(gfx, GAME_OVER_W, GAME_OVER_H);
+    em_gfx_overlay_sprite(gfx, 0, 0, GAME_OVER_W, GAME_OVER_H, 0, 0, GAME_OVER_W, GAME_OVER_H, white);
+    em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
+    em_opening_control_test_after_frame();
+    em_level_smoke_test_after_frame();
+    g.frame_no++;
     return 0;
 }
 

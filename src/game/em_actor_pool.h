@@ -105,7 +105,11 @@ struct EmActor {
     uint32_t w30;     /* +0x30: 001AFA90 writes 0 */
     uint32_t w34;     /* +0x34: no pool function writes it (survives free/alloc);
                        * the flame 008235F0 stores its class-0xD contact
-                       * behaviour 0x823580 there (001A8660 calls it) */
+                       * behaviour 0x823580 there (001A8660 calls it). Its
+                       * upper half IS the halfword +0x36 (h36) in the
+                       * original: a word store to +0x34 also stores h36,
+                       * and em_actor_pool_record_image composes the word
+                       * from w34's low half and h36 */
     uint16_t h36;     /* +0x36: 001AFC10 writes 0 */
     uint16_t h52;     /* +0x52: 001AFA90 writes 0 */
     uint16_t kind;    /* +0x54: 001AFA90 writes 0 */

@@ -241,7 +241,7 @@ static void menu_tick(EmStartup *s, const EmStartupInput *in)
         emit(s, EM_STARTUP_EFFECT_LEVEL, 0, 0x5998);
         emit(s, EM_STARTUP_EFFECT_LEVEL, 1, 0x5998);
         s->timer = 1200;
-        s->cursor = 0;              /* cold-title context; death handled elsewhere */
+        s->cursor = in->d275BDC == 0 ? 0 : 1;   /* 001AC480 sub 0: D_00275BDC */
         s->sub = 1;
         s->aux = 0;
         request(s, EM_STARTUP_SCREEN_MODULE, 1);
@@ -318,11 +318,17 @@ static void title_tick(EmStartup *s, const EmStartupInput *in)
 {
     int result;
     switch (s->major) {
-    case 0:                         /* 001AC070 init, from-death flag is zero */
+    case 0:                         /* 001AC070 state 0 */
         fade(s, EM_STARTUP_FADE_FULL, 0);
         s->attract_cycle = 0;
-        s->cycle_mode = 1;
-        s->major = 1;
+        if (in->d275BDC == 0) {     /* the boot: state 1, +0xE = 1 */
+            s->cycle_mode = 1;
+            s->major = 1;
+        } else {                    /* after a death (001ADF00): state 2, +0xE = 3 */
+            s->cycle_mode = 3;
+            s->major = 2;
+            s->sub = s->aux = 0;
+        }
         break;
     case 1:
         movie_tick(s, in);
@@ -384,6 +390,21 @@ void em_startup_init(EmStartup *s, EmStartupNotify notify, void *user)
     memset(s, 0, sizeof *s);
     s->notify = notify;
     s->user = user;
+}
+
+void em_startup_reinstall_001AC070(EmStartup *s)
+{
+    if (!s) return;
+    s->flow = FLOW_TITLE;
+    s->major = s->sub = s->aux = 0;
+    s->cursor = 0;
+    s->timer = 0;
+    s->screen = EM_STARTUP_SCREEN_NONE;
+    s->pending_serial = 0;
+    s->pending_result = 0;
+    s->failed = 0;
+    s->handed_off = 0;
+    s->movie_skip_sent = 0;
 }
 
 int em_startup_complete(EmStartup *s, uint32_t serial, int result)

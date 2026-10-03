@@ -83,7 +83,7 @@ Callees (`host.callees`):
 | `sound_stop` | `em_sfx_stop_track(track, hard)` (em_sfx.c: T_STOP, or T_HALT for 0x8000) |
 | `w001D0C70` | the AREA11 interaction host's face tick (`em_area11_interaction_host_face_tick_001D0C70`: `em_face_slot_001D0C70`, 001D0720 on the slot at the player's +0x90; a fault while +0x90 is 0) |
 | `bone_init`, `clip_init` | 001C63E0 / 001C67E0 on the record pose (`em_pose_host_stage_bone_init` / `_clip_init`) |
-| `cue` (001B61C0) | fail-stop (untranslated; 0015D000 at health <= 35, 0021C440's 0x3C path) |
+| `cue` (001B61C0) | `em_pad_actuator_001B61C0` on the pad block D_00810E40 (since census L23; 0015D000's heartbeat at health <= 35 and 0021C440's hit rumble, compared with the DAMAGE recordings since chain step DAMAGE) |
 | `w001EFE00`, `w001F00A0`, `w001F0060` | fail-stop (the effect manager is not live, L26) |
 | `atan2`, `link20` | fail-stop (hit facing; the port keeps no +20 handle, census 7.2) |
 | `clip_lookup`, `request` | 0017B490 on the record (`em_player_closure_live_0017B490`, em_locomotion_display's translation) and 001749A0 on the record (the pose host) |
@@ -97,7 +97,10 @@ into `em_frame_request_quit`. Each is reached only by a hit, pending damage or
 infection, a low-health latch, the +4 = 4 takeover or the area-8 room-2 hit
 gate; every route capture (the playable image and beats 00..15) has health
 100, +F 0, +224 = +22C = 0, +234 0, D_0081083C 0, D_008106C8 & 4 clear and
-+1C 0, and the port has no AREA11 damage producer.
++1C 0. Since chain step DAMAGE (2026-10-02) the flame's contact posts hits
+in AREA11 (DAMAGE.md); the DAMAGE side runs (the flame's 20 hits, the low
+health, both deaths, the landing hit) reach none of the fail-stop workers
+above.
 
 **The vitals.** The record's +220, +224, +228, +22C, +234 and +20E are a
 per-stage view of the port's storage (g.status.health / infection,
@@ -137,8 +140,9 @@ keep those stages.
 **Hits outside AREA11.** In AREA11 the +4 = 2 reaction states are bound
 (em_player_closure_live.c). Outside it (no original collision world) a port
 enemy hit (em_enemy.c `s.player_hit`, mapped onto +224 / +22C) still reaches
-0021C440's +4 = 2 states unbound, so the stage fails and the app quits. No
-AREA11 owner posts a hit.
+0021C440's +4 = 2 states unbound, so the stage fails and the app quits. In
+AREA11 the flame's contact posts hits since chain step DAMAGE (DAMAGE.md
+section 2).
 
 ### 2.2 The contract
 

@@ -189,9 +189,11 @@ calls 001AB790(001ACEC0) and returns without the tail. 5 runs 00225AC0(0).
 6 waits for 00200A40. Every path except 4 ends with 001D2830(3, 1). Edge
 bytes +9/+0xA are cleared on every transition, as the original does.
 
-- Binding: replaces `em_game_legacy_continue_task_001AC070` (em_game.c,
-  installed through `w_001AB790` in em_scene_bindings.c) and the title
-  flow's 001AC070 states in em_startup.c / em_frontend.c. The record is the
+- Binding: replaces the title flow's 001AC070 states in em_startup.c /
+  em_frontend.c, which since chain step DAMAGE (2026-10-02) are also what
+  001ADF00's 001AB790(001AC070) installs after a death
+  (`em_frontend_install_001AC070`; the port's legacy Continue task is
+  deleted; DAMAGE.md section 6). The record is the
   task's `EmTask.user` (user[k - 8] = +k). Globals: D_00275BD4, D_00275BDC
   (the scene state's canonical from-death flag) and D_00275BE0.
 - Workers: 001AEDB0 → em_fade.c (live); 001AC480 → the title prompt
@@ -444,9 +446,9 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
    existing 001B5940 translation.
 5. Step H: `em_slg_001FB100`, with em_sfx's requested/snapshot arrays as
    D_00281B70/C30 (this retires `em_sfx_frame_snapshot`).
-6. The 001AC070 task: `em_slg_001AC070` replaces
-   `em_game_legacy_continue_task_001AC070` and em_startup's title-flow
-   states. Its prerequisites 001D1EF0 and 001D2830 are live since the
+6. The 001AC070 task: `em_slg_001AC070` replaces em_startup's
+   title-flow states (the one installed at the boot and, since chain step
+   DAMAGE, by 001ADF00 after a death). Its prerequisites 001D1EF0 and 001D2830 are live since the
    render context step / chain C7 step V (em_frame_render_heads), so it can
    bind to them.
 7. **Done (live, census):** the player closure's binder

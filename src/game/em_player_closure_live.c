@@ -579,10 +579,12 @@ static int w_effect_bits(void *c, uint32_t id, const uint32_t point[4], const ui
  * bound, so it faults (as the stage's w001EFE00 does, em_player_stage_live).
  * Its callers are the hit and death paths: 0021C120 (0x80000040), 0021C200
  * (0x80000048), 0021CD9C (0x80000044, surface mode +23B 0xA, which the AREA11
- * grid census does not hold) and major2's 0x80000051. No live port code
- * writes a hit request into +F (it is only cleared), and every one of those
- * ids' callbacks (0022BBC0, 001F8350, 0021AE90) has no AREA11 binding row,
- * so the node would fault in bind_node anyway (EFFECT_MANAGER.md 8.2). */
+ * grid census does not hold) and major2's 0x80000051. The DAMAGE side runs
+ * (the flame's hit request +F 0xC, the deaths, the landing hit; docs/
+ * DAMAGE.md) reach none of them. Of those ids' callbacks only 0022BBC0 has
+ * an AREA11 binding row (the flame's own 001EFE00(0x80000027), through the
+ * aim / fire composition); 001F8350 and 0021AE90 have none
+ * (EFFECT_MANAGER.md 8.2). */
 static int w_attach(void *c, EmPlayerLiveActor *a, uint32_t id, uint32_t *handle)
 {
     (void)c; (void)a; (void)id;

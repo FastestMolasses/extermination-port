@@ -151,12 +151,20 @@ verified translation.
   738 of 766 live (88,066 of 89,400 instructions = 98.5%), with the AIM
   beats live 852 of 880 (108,649 of 109,983 = 98.8%), verified but
   unbound 26, unverified 2, boundary 429; AREA01's frames after the
-  arrival are level 2 (census 3.26).
+  arrival are level 2 (census 3.26). Update 1.59 (chain step DAMAGE,
+  2026-10-02, recounted from the rows after the merge onto 1.56..1.58):
+  the functions the DAMAGE recordings ran join the count (45 more; five of
+  their 50 were AIM or beat-15 rows already), liveness measured over the
+  three DAMAGE side runs: live 884 of 922 (112,833 of 115,339 instructions
+  = 97.8%), verified but unbound 27, unverified 2, missing 9 (the title's
+  load screen, which no port path reaches yet), boundary 432; the route's
+  own 739 of 766 live (88,122 of 89,400 = 98.6%).
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
-  route 08's end. Not covered: unplayed branches
-  (damage/death, pause/options/save, the camera inputs, the truck-pit
-  fall, the west-yard and plateau ladders) and boot before the title.
+  route 08's end and (since chain step DAMAGE, census 1.59) the functions
+  the DAMAGE recordings ran. Not covered: unplayed branches
+  (pause/options/save, the camera inputs, the fan's hit, the west-yard and
+  plateau ladders) and boot before the title.
   Boundary functions are native replacements, not translations; the sound
   library's boundary (the SPU2 output) is the largest uncompared one.
   "Stand-in 0" counts census rows only; census 2.3 "What still stands in"
@@ -1317,12 +1325,13 @@ fades change on the same ticks as in the recordings.
   "pending lead review"). (4) Roger's idle-clip flags and the equipment's
   +0xB0 before f358 are exempt (navigation). (5) The status page's mode-4
   messages are skipped. The smoke does not compare sounds or pixels. Paths
-  off the route are not exercised: damage and death, pause/options/save,
-  weapons and aiming, the truck-pit fall, and the west-yard and plateau
-  ladders (census section 6). (Aiming, firing, reloading, the gun lamp and
-  the knife are compared row for row with the AIM captures by separate side
-  runs: see "Aiming, firing, the gun lamp and the knife on the original
-  code".)
+  off the route are not exercised: pause/options/save and the west-yard
+  and plateau ladders (census section 6). (Aiming, firing, reloading, the
+  gun lamp and the knife are compared row for row with the AIM captures by
+  separate side runs: see "Aiming, firing, the gun lamp and the knife on the
+  original code"; damage, death and the game over with the DAMAGE
+  recordings: see "Getting hurt, dying, the game-over screen and the title
+  after it, as in the original".)
 
 **Aiming, firing, the gun lamp and the knife on the original code**
 
@@ -1373,15 +1382,54 @@ held (see below).
   so the range along a surface differs); the sparks' VU1 programs use the
   EFU, whose results are a model (the background renderer's) that no
   capture has checked; the lamp's cone shells are not reached in the first
-  level; pixels are not compared; the player's death while armed still uses
-  the legacy death sequence (the original death states are untranslated);
-  the knife trail's pixels (no original frame of a swing); the swing's
+  level; pixels are not compared; no capture records a death while armed
+  (the DAMAGE recordings die unarmed); the knife trail's pixels (no original frame of a swing); the swing's
   sound handle: the port's track choice follows the host audio clock, not
   the game's tick, so it is not reproducible and differs from the
   original's on most rows (a port defect for the sound step, `AIM_FIRE.md`
   section 11.4); the status pages' module loads are shorter at host speed
   than the recording's (the user's host-speed disc policy); the AIM
   captures hold no other sound state.
+
+**Getting hurt, dying, the game-over screen and the title after it, as in the original**
+
+In the first level the fire on the pipe end burns you as in the original:
+each touch costs 5 health, knocks you back, flinches you with the
+original's clip, shakes the pad and leaves the burn effect on you; below 35
+health the pad's heartbeat starts, faster below 10. Walking off the
+plateau short of the jump hurts you on landing; falling into the truck pit
+kills you. A death plays the original's fall and blood decal, fades to the
+original GAME OVER screen (the disc's own art), and after its hold returns
+to the title menu with the cursor on its second entry; New Game there
+starts the level again with the original opening.
+
+- How: the flame's contact pass, its knock-back table and the burn node,
+  the player stage's hit, flinch, heartbeat, landing and death states, the
+  death decal, the game-over task with its screen module and the title
+  flow after a death all run their translations (`DAMAGE.md`); the port's
+  own game-over and Continue screens are deleted.
+- Evidence: `make test-level-smoke-damage` (`LEVEL_SMOKE.md` "The DAMAGE
+  side runs"): three side runs replay the decomp's DAMAGE recordings
+  dmg_00..04, 06 and 07 window by window, all PASS on 2026-10-02: 20 hits
+  on the recorded fields (the knock-back's per-tick step within 0.0082), 12
+  heartbeats, the death to the screen load in 320 ticks and the pit's fall
+  in 188 ticks as recorded, 74 game-over ticks after the load, the title's
+  install and the New Game's task on the recorded counters, first control
+  at the recorded place; the oracles test-effect-001F77B0-reference (the
+  decal, with the recording's live decal in lockstep),
+  test-title-menu-reference (the title after a death),
+  test-area01-ui-reference (the burn node), test-scene-task-reference (the
+  game-over task).
+- Status: **PARTIAL**. Proven: the state above relative to the PCSX2
+  recordings. Not proven or not covered: the game-over screen module loads
+  at host speed (10 ticks; the disc took 23: the PS2 disc-drive timing
+  switch does not model it yet, `LAUNCHER_OPTIONS.md`), so the screen
+  appears 13 ticks sooner and the title menu takes input sooner (67 ticks
+  against 104); the fan's hit and the heavy landing from the towers are not
+  replayed (the fan needs Roger's departure; no capture of the heavy
+  landing exists); the title's Load and Options entries are not bound;
+  infection cannot happen in the first level; pixels and sounds are not
+  compared.
 
 **Skipping a first-level cutscene behaves as in the original**
 

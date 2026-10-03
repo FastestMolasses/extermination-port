@@ -60,6 +60,8 @@ typedef struct {
     uint16_t pressed;
     int fade_state;              /* original 0=clear, 1=in, 2=black, 3=out */
     int movie_skip_ready;        /* original decoder field +8 >= 11; not seconds */
+    uint8_t d275BDC;             /* D_00275BDC: 001ADF00 sets it (a death); 001AC070
+                                  * state 0 and 001AC480 sub 0 read it */
 } EmStartupInput;
 
 typedef struct {
@@ -89,6 +91,11 @@ typedef struct {
 } EmStartup;
 
 void em_startup_init(EmStartup *startup, EmStartupNotify notify, void *user);
+/* 001AB790(001AC070) from the game task (001ADF00, the game over): the
+ * title flow again from 001AC070 state 0 with a cleared task record (the
+ * pending request, the cursor and the timer reset; the serial counter and
+ * the notify target kept). */
+void em_startup_reinstall_001AC070(EmStartup *startup);
 /* One ordinary engine iteration. Apply emitted fade changes immediately;
  * tick the host's fade AFTER this call, matching original task->fade order. */
 void em_startup_tick(EmStartup *startup, const EmStartupInput *input);

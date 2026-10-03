@@ -9,7 +9,10 @@ original's data and code, read from the user's ELF and AREA11 overlay:
   * the TEX0 row (+0x70) of each 001CFBE0 source block: D_00253670 (the
     head sprite's), D_002565E0 + 0x90 k, k = 0..7 (the effect handlers'),
     and the impact effects' D_002560D0 / D_00256160 (001EBA20) and
-    D_00255620 (001EACF0), D_002561F0 (001EBBB0) and D_00255590 (001EAB50);
+    D_00255620 (001EACF0), D_002561F0 (001EBBB0) and D_00255590 (001EAB50),
+    and the bone-burst node 0022BBC0's burst-0 pair 0x268480 / 0x268510
+    (the flame contact's effect 0x80000027, subtype 9: AREA11's one
+    timeline 0x267940 sets burst kind 0 only; docs/DAMAGE.md section 3);
   * the TEX0 row (+0x70) of the weather's descriptor D_00255170 (001CFFE0's
     object for the snow tiles; the snow program sends it with every sprite);
   * the TEX0 row (+0x70) of the AREA11 flame's descriptor D_00828340
@@ -94,7 +97,8 @@ SOURCE_BLOCKS = [0x00253670] + [0x002565E0 + 0x90 * k for k in range(8)] + [
     0x002560D0, 0x00256160,           # 001EBA20's (the impact effect 0x8000002C; AIM_FIRE.md)
     0x00255620,                       # 001EACF0's (the impact effect 0x80000060)
     0x002561F0,                       # 001EBBB0's (the effect 0x8000000E of 001F0460's ring decal)
-    0x00255590]                       # 001EAB50's (the cable hit's effect 0x80000045)
+    0x00255590,                       # 001EAB50's (the cable hit's effect 0x80000045)
+    0x00268480, 0x00268510]           # 0022BBC0's burst 0 (the flame contact's 0x80000027; DAMAGE.md)
 WEATHER_DESCRIPTOR = 0x00255170       # D_00255170 (001E67C0 / 001CFFE0)
 FLAME_DESCRIPTOR, FLAME_FILE_OFFSET = 0x00828340, 0x4E40   # 008235F0's D_00828340 in AREA11.BIN
 CLD_MASK = eot.CLD_MASK
@@ -164,6 +168,9 @@ def texels_of(world, texes: dict) -> dict:
 def write(out: Path, texes: dict, texels: dict, captures=()) -> bytes:
     data = eot.emot(texels)
     out.parent.mkdir(parents=True, exist_ok=True)
+    for path in (out, out.with_suffix('.json')):
+        if path.is_symlink():
+            path.unlink()   # a worktree's link to a shared tree: write a file of its own
     out.write_bytes(data)
     index = []
     for t in sorted(texels):

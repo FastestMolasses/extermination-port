@@ -48,7 +48,8 @@ static void record_load(const EmActor *a, uint32_t record, EmArea11Effect *e)
     memcpy(&e->contact_cooldown, a->scratch + 0x20, 4);
     e->record = record;
     e->w30 = a->w30;
-    e->w34 = a->w34;
+    /* +0x34's upper half is the halfword +0x36 (one storage; em_actor_pool.h). */
+    e->w34 = (a->w34 & 0xFFFFu) | (uint32_t)a->h36 << 16;
 }
 
 static void record_store(EmActor *a, const EmArea11Effect *e)
@@ -62,6 +63,7 @@ static void record_store(EmActor *a, const EmArea11Effect *e)
     memcpy(a->scratch + 0x20, &e->contact_cooldown, 4);
     a->w30 = e->w30;
     a->w34 = e->w34;
+    a->h36 = (uint16_t)(e->w34 >> 16); /* the word store's upper half (+0x36) */
 }
 
 int em_area11_effect_runtime_load(const char *directory, const char *config)

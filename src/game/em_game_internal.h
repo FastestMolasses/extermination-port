@@ -564,24 +564,16 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
  *                                 func_00200A40 sub-screen, back to
  *                                 the prompt when done.
  *
- * Since S11b the PORT runs the game-over half as that original chain in
- * the scene coordinator: B9 (0015CF90 at the player stage) -> 001AD140 at
- * fade substate 2 -> the byte-matched 001AD4E0 core (the 240 hold, the
- * CROSS skip, the fades) -> 001ADF00 -> 001AB790(001AC070), which
- * replaces the game task with the interim 001AC070 (the legacy continue
- * prompt, em_game_legacy_continue_task_001AC070: cursor init from
- * D_00275BDC, d-pad moves, START/CROSS confirms, 1200-frame idle timeout,
- * fade out, dispatch). FLAGGED stand-ins: the two screen modules'
- * art is unexported (em_hud_game_over / em_hud_continue draw the
- * skeleton presentation: black base + tall-font title / option
- * lines); option labels are port guesses (the module text is not
- * decoded); options 1/2 and the timeout have no native target (no
- * save system, no title screen) — all three return to the prompt,
- * documented at the dispatch; option 0 = the title menu's New Game
- * route (death reaches the 001AC070 prompt via func_001ADF00 with
- * D_00275BDC = 1): the 001AF2C0 reset (game_state_new_game +
- * em_pickup_reset) and a restart at AREA11 0x0B/0/0 (001AD360 step 4)
- * that re-arms the opening.
+ * The PORT runs that whole chain as the original's: B9 (0015CF90 at the
+ * player stage) -> 001AD140 at fade substate 2 -> the byte-matched
+ * 001AD4E0 core (the 240 hold, the CROSS skip, the fades, screen module
+ * 0x27 through the loader and its four sprites at 001ABF90) -> 001ADF00
+ * -> 001AB790(001AC070): the title flow again (em_frontend_install_
+ * 001AC070, em_startup.c), whose state 0 with D_00275BDC = 1 opens the
+ * menu with the cursor on its second entry; its first entry (New Game)
+ * is 001AC070 state 4 (em_game_reinstall_new_001AC070). The former
+ * stand-ins (em_hud_game_over, em_hud_continue and the interim 001AC070
+ * prompt) are retired (docs/DAMAGE.md sections 5 and 6).
  *
  * Since census L01 the damage processor 0021C440, the drains 0015D100
  * (both arms), the heartbeat 0015D000, the +20E countdown and the -200
@@ -652,49 +644,12 @@ static const float kRoomMax[2] = { 120.5f,    2.4f };
 #define PD_DEATH_CUE_FALL   80     /* frames-remaining sound cue (0x156) */
 #define PD_DEATH_CUE_THUD   16     /* frames-remaining ground thud cue */
 
-/* GAME-OVER / CONTINUE machine (the decoded chain in the block doc
- * above — engine values from func_001AD4E0 [byte-matched] and
- * func_001AC480 [NEARMISS]). ALL FIVE re-verified by audit: the 240 is
- * the u16 at task+0x18 written in func_001AD4E0 state 0; the 1200 is
- * task+0x16 written in func_001AC480 states 0/2/4; the cursor lives at
- * task+0xF, inits 1 when D_00275BDC != 0 and 0 otherwise, increments
- * only while < 2; the confirm sounds and the move blip 5 all go
- * through func_001FB9F0.
- * AUDIT 2026-07-31 - all five HOLD, re-read: 0xF0 into task+0x18 in func_001AD4E0 state 0;
- * 0x4B0 into task+0x16 in func_001AC480 states 0/2/4; the cursor at task+0xF seeded from
- * D_00275BDC and incremented only while < 2; and 5 / 0x5DD / 0x5DE / 0x5DF all issued through
- * func_001FB9F0.
- * */
-#define GO_PROMPT_FRAMES  1200     /* task+0x16 = 0x4B0: continue-prompt
-                                    * idle timeout (reset by any held
-                                    * button) */
-#define GO_CURSOR_MAX     2        /* prompt options 0..2 (func_001AC480
-                                    * clamps the d-pad walk to < 2 on
-                                    * increment) */
-#define GO_SFX_MOVE       5u       /* cursor move blip (func_001FB9F0) */
-#define GO_SFX_CONFIRM0   0x5DDu   /* option-0 confirm */
-#define GO_SFX_CONFIRM1   0x5DEu   /* option-1 confirm */
-#define GO_SFX_CONFIRM2   0x5DFu   /* option-2 confirm */
-
-/* go_state values: the death latch, the GAME OVER screen module
- * stand-in (set by the 001FF080(0, 0x27) binding; the 001AD4E0 core owns
- * its timing) and the interim 001AC070's continue prompt (continue_tick
- * in em_game.c). */
+/* go_state: the legacy bug-latch struggle's death latch (em_player_damage.c,
+ * outside the first level). The game over itself is the original chain
+ * (em_scene_bindings.c "game over"; docs/DAMAGE.md). */
 enum {
     GO_OFF = 0,
-    GO_ARMED,          /* death fade-out running (pd_phase 3)         */
-    GO_SCREEN,         /* GAME OVER screen module 0x27 stand-in shown */
-    GO_PROMPT,         /* CONTINUE prompt: fade-in + cursor + timer   */
-    GO_PROMPT_CONFIRM, /* confirmed: fading out; dispatch at black —
-                        * func_001AC480 [NEARMISS] state 2 fires
-                        * func_001AEDE0(4,0) + the per-option sound and
-                        * moves to state 3, which returns the verdict 1
-                        * only once D_0028A9A0[0] == 2 (hold-black)    */
-    GO_PROMPT_TIMEOUT  /* idle timeout: fading out; engine -> title —
-                        * func_001AC480 state 2 with no held button
-                        * counts task+0x16 to 0, fades out and moves to
-                        * state 4 (verdict 3; a held button there fades
-                        * back IN and returns to state 2)             */
+    GO_ARMED           /* the legacy struggle's death fade-out running */
 };
 
 /* Camera values — the AUTHENTIC engine numbers (FINDINGS.md "CAMERA
@@ -1580,28 +1535,7 @@ typedef struct {
     int        struggle_n;     /* bug-latch shake-off mash counter (CROSS) */
     int        pd_cue_fall;    /* death-clip T-80 sound fired */
     int        pd_cue_thud;    /* death-clip T-16 sound fired */
-    int        go_state;       /* GAME-OVER/CONTINUE machine (GO_*
-                                * enum at the PD block) */
-    int        go_frames;      /* frames in the current GO state */
-    int        go_timer;       /* continue-prompt idle timeout (engine
-                                * task+0x16 = 1200; reset by any held
-                                * button) */
-    int        go_cursor;      /* prompt cursor (engine task+0xF;
-                                * init D_00275BDC ? 1 : 0) */
-    int        go_restart;     /* option 0 confirmed: New Game-route
-                                * restart latch (001AF2C0 reset + AREA11),
-                                * serviced by the interim 001AC070 task.
-                                * Grounded by audit: func_001AC070
-                                * [NEARMISS] state 2 sends cursor 0 to
-                                * state 4 with D_00275BE0 = 0, and state
-                                * 4 runs func_001AB790(func_001ACEC0)
-                                * and returns WITHOUT the common tail —
-                                * the gameplay task is reinstalled
-                                * wholesale, which is what this latch
-                                * stands in for.
-                                * AUDIT 2026-07-31 - HOLDS. func_001AC070 state 4 calls
-                                * func_001AB790(func_001ACEC0) and returns before the common tail.
-                                * */
+    int        go_state;       /* the legacy struggle's death latch (GO_* above) */
 
     /* the camera block the recorded chain consumes (native K = P*V) */
     float      viewproj[16];
@@ -2041,7 +1975,7 @@ int em_render_point_light_tick(void); /* 001D7C30 (the render context's worker) 
 int em_render_001C1D00(void);   /* render-env init (skeleton no-op)    */
 int em_render_001D1EA0(int a0); /* the renderer's side of the kick (flush, overlays) */
 int em_render_001D1EF0(void);   /* the renderer's side of 001D1EF0's kick (the page) */
-int em_render_001ABF90(void);   /* 001AD4E0's game-over screen packet  */
+int em_render_001ABF90(const uint64_t packet[4]); /* 001AD4E0's game-over screen packet */
 /* 0015C160 bound (census L29): the player's draw leaves the chain and is
  * made after the shadow, in the frames whose post-step requested it. */
 void em_render_player_post_step(int bound);
