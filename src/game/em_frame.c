@@ -442,11 +442,21 @@ movie_phase:
     return !s_frame.quit;
 }
 
+static int (*s_timing_probe)(void *ctx, EmFrameGsCost *out);
+static void *s_timing_probe_ctx;
+
+void em_frame_set_timing_probe(int (*probe)(void *ctx, EmFrameGsCost *out), void *ctx)
+{
+    s_timing_probe = probe;
+    s_timing_probe_ctx = ctx;
+}
+
 /* EM_FRAME_TIMING=<file>: a diagnostic that writes one line per step of
  * em_frame_run ("step wall_ns cpu_ns": the step's wall time and the main
- * thread's CPU time, the pacing sleep excluded) and prints a summary
- * against the 16.683 ms NTSC period at exit. It changes nothing the game
- * computes. */
+ * thread's CPU time, the pacing sleep excluded; a step that ran the GS
+ * frame adds "gs wall_ns busiest_worker_cpu_ns workers") and prints a
+ * summary against the 16.683 ms NTSC period at exit. It changes nothing the
+ * game computes. */
 static int64_t timing_ns(clockid_t clock)
 {
     struct timespec t;
@@ -486,7 +496,18 @@ void em_frame_run(void)
         em_frame_step();
         if (tf) {
             const int64_t dw = timing_ns(CLOCK_MONOTONIC) - w0, dc = timing_ns(CLOCK_THREAD_CPUTIME_ID) - c0;
-            fprintf(tf, "%zu %lld %lld\n", n, (long long)dw, (long long)dc);
+            /* The Original profile's GS frame, when this step ran one: its
+             * wall time, its busiest worker's CPU time (the frame's critical
+             * path with free cores) and the workers (em_gfx_gs_world_cost). */
+            EmFrameGsCost gc;
+            static uint64_t gs_runs;
+            if (s_timing_probe && s_timing_probe(s_timing_probe_ctx, &gc) == 0 && gc.runs != gs_runs) {
+                gs_runs = gc.runs;
+                fprintf(tf, "%zu %lld %lld gs %lld %lld %u\n", n, (long long)dw, (long long)dc,
+                        (long long)gc.wall_ns, (long long)gc.cpu_max_ns, gc.workers);
+            } else {
+                fprintf(tf, "%zu %lld %lld\n", n, (long long)dw, (long long)dc);
+            }
             if (n == cap) {
                 const size_t grown = cap ? 2 * cap : 4096;
                 int64_t *nw = realloc(wall, grown * sizeof *wall);

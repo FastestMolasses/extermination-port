@@ -20,6 +20,7 @@ def main():
     binary, capture = output / 'fixture', output / 'pixels.bmp'
     subprocess.run(['cc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
         '-Isrc', 'tests/overlay_blend_test.c', 'src/gfx/metal/em_gfx_metal.m',
+        'src/gs/em_gs_world.c', 'src/gs/em_gs_raster.c', 'src/gs/em_gs_frame.c',
         'src/platform/mac/em_platform_mac.m', 'src/game/em_lighting.c',
         'src/game/em_packet_chain_original.c', 'src/game/em_status_ui_leftovers.c',
         'src/game/em_object_unit.c',

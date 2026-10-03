@@ -994,6 +994,42 @@ original's one-frame view lag is kept.
   original code"). The slide entry is 0.863 units off
   (relaxation pending review).
 
+**The Original profile's world frame is drawn by a model of the GS, at the GS's own 512x224**
+
+The world frame is not drawn by the GPU: the game's own GS packets for it
+(the sky grid, the level, the objects and faces, the drop shadow, the
+effects page, the load veil) go to a CPU model of the PS2's Graphics
+Synthesizer, which draws them into a 512x224 field in GS memory with the GS's
+own rasterization, texturing, fog, alpha test, blending and Z rules, from
+the textures the game's own uploads put in GS memory. The platform layer
+only shows that field.
+
+- How: `src/gs/em_gs_raster` is the clean-room GS model (GS_EXACT.md
+  sections 1..8: 906 designed conformance tests drawn by PCSX2's software
+  renderer, 703 bit-exact, the open items counted); `src/gs/em_gs_world`
+  records each world frame's register writes, the original state blocks
+  its lists REF (read from the boot builder's GS blocks), the kicked list's
+  draw environment and clear, and runs them at the kick on worker threads
+  (row bands that draw exactly what one model draws), while the game builds
+  the next frame. The area load's texture uploads reach GS memory through
+  the loader as the original sends them; the boot's library comes from the
+  disc export (GS_EXACT.md section 9). The field is shown nearest, spread
+  over the 4:3 picture (a placeholder: how the fields are presented is the
+  user's open decision).
+- Evidence: `make test-gs-raster-reference` (the model; part F the row
+  bands), `make test-gs-world` (1, 2, 3 and 8 workers draw the same
+  fields, thread sanitizer), `make test-gs-memory-reference` (the GS
+  memory after the area load equals the disc model of the uploads in all
+  5,504 blocks), `test_shadow_original_reference` (the shadow target packet
+  in order); the level smoke through Roger with the GS frame on; the fb2
+  pixel harness (next entry). Commit: chain step GSFRAME.
+- Status: **PARTIAL**. The 2D overlay pass (message glyphs, letterbox bars,
+  screen and transition fades) is still drawn by the GPU over the field; the
+  status screens draw with the GPU; 001DDE10's frame-copy sprites are not
+  drawn; the frame cost was measured only on a loaded machine (GS_EXACT.md
+  10.2). The model is PCSX2's software renderer's behaviour as measured, not
+  real hardware's.
+
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
 
 The project holds exact displayed fields, rendered by PCSX2's software GS
@@ -1005,24 +1041,26 @@ original" is a number.
   frames and de-swizzles the displayed buffer, draw buffer and Z from GS
   memory. `tools/test_fb2_pixels.py` (`make test-fb2-pixels`) drives the
   port headless to the tick the level smoke aligns with the field's game
-  state, captures that frame, samples it at the GS sample points (the
-  Metal frame at 1920x1440, nearest pixel, no filter) and reports the
-  exact-match fraction, mean and maximum channel error and a difference
-  image (GS_EXACT.md section 10).
+  state, captures that frame and compares the presented GS field (the
+  field under the overlay pass, read at the field's pixel centres) with
+  the original's, word for word: the exact-match fraction, mean and maximum
+  channel error and a difference image (GS_EXACT.md section 10.1).
 - Evidence: decomp `CAPTURES_C7.md` 5b (decode proof: block-seam ratio
   0.93..1.15, luma correlation 0.989..0.998; route03_end reproduced byte for
-  byte). At the two points where the port's camera is the original's bit
-  for bit (route snapshots 10 and 14): 35,430 and 33,022 of the 114,688
-  pixels exact (30.89 % and 28.79 %), mean channel error 1.39 and 1.78,
-  median per-pixel error 1. Five more points are compared with the camera
-  not exact (first control, 08, 11, 12, 13), 12 are listed as not aligned.
-- Status: **PARTIAL**. The port's frame is Metal's rasterization, not the
-  GS's (the GS model is measured but not bound, GS_EXACT.md section 9); the
-  remaining differences are the snow and the flame (the port's rand()
-  stream), the fans' phase, edges and a ±1 floor on every surface. The
-  software renderer is PCSX2's model of the GS, not hardware. The
-  field-to-buffer pairing rule is not established at 4 of 19 points (the
-  harness reads each point's pairing from its own registers).
+  byte). At route snapshot 14, where the port's camera and field phase are
+  the original's: 99,985 of the 114,688 pixels exact (87.18 %), mean channel
+  error 0.97, per-pixel error 0 at the median and 1 at the 90th percentile;
+  the rest is the fan blades' phase, the snow's rand() stream and the sky
+  grid's region (±1..3, not traced). At 13 (camera not exact): 55.92 %.
+  With the GPU renderer the same points gave 28.79 % and 35.35 %.
+- Status: **PARTIAL**. At 5 of the 7 compared points the port's frame loop
+  is in the other field phase (the field drawn half a line off: at
+  snapshot 10, camera exact, 15.96 %); the cause is not traced (GS_EXACT.md
+  10.1). The snow and the flame follow the port's rand() stream and the
+  fans' phase the recording's timing. The software renderer is PCSX2's
+  model of the GS, not hardware. The field-to-buffer pairing rule is not
+  established at 4 of 19 points (the harness reads each point's pairing
+  from its own registers).
 
 **Still drawn by legacy or stand-in code (disclosure)**
 
@@ -1035,7 +1073,8 @@ Advertise the items above only.
 - Status: **PLANNED**. The status
   hub's and the MAP page's models are drawn by the renderer's skinned path
   with the original's matrices. 001DDE10's four frame-copy sprites are not
-  drawn. The area-load veil runs and is drawn from its own packets, but the
+  drawn. The 2D overlay pass (message glyphs, letterbox, fades) is drawn by
+  the GPU over the GS field. The area-load veil runs and is drawn from its own packets, but the
   port's area read finishes inside one call, so the veil draws only one
   frame, at level 0 (black; the load-veil entry above). (Roger, his face
   and his shadow have been drawn by the original code since chain C8b's

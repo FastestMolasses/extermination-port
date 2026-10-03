@@ -731,6 +731,10 @@ void frame_close_out(void)
          * last frame (docs/RENDER_CONTEXT.md section 8). The native pass
          * converts that view and zoom (em_cs_view_to_native,
          * em_mat4_perspective_gs); without the context it keeps g.cam. */
+        /* The Original profile's GS frame records this world frame's GS
+         * draws for the kick (em_gs_frame_live, GS_EXACT.md section 9). */
+        if (em_gfx_gs_world_frame(gfx) < 0)
+            em_frame_request_quit(); /* reported: the GS frame faulted */
         const float *viewproj = g.viewproj;
         float head_view[16], head_viewproj[16];
         uint32_t head_words[16];

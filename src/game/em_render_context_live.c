@@ -13,6 +13,7 @@
 #include "game/em_census_standins.h"
 #include "game/em_effect_original.h"
 #include "game/em_frame_kick.h"
+#include "gs/em_gs_world.h"
 #include "game/em_frame_render_heads.h"
 #include "game/em_load_veil_particles.h"
 #include "game/em_skin_arena_init.h"
@@ -1112,6 +1113,30 @@ int em_rcl_kick(uint32_t *chain, uint32_t *kicks)
     if (!R.loaded || R.fault || !chain || !kicks) return -1;
     *chain = R.kick_chain;
     *kicks = R.kicks;
+    return 0;
+}
+
+int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_t *clear, uint32_t clear_cap,
+                     uint32_t *clear_bytes)
+{
+    if (!R.loaded || R.fault || !R.kicks || !env || !env_bytes || !clear || !clear_bytes) return -1;
+    *env_bytes = *clear_bytes = 0;
+    u32 tag = R.kick_chain;
+    for (int k = 0; k < 2; ++k, tag += 16u) {
+        const uint8_t *t = em_rcl_bytes(tag, 16);
+        if (!t) return -1;
+        const u32 lo = (u32)t[0] | (u32)t[1] << 8 | (u32)t[2] << 16 | (u32)t[3] << 24;
+        const u32 addr = ((u32)t[4] | (u32)t[5] << 8 | (u32)t[6] << 16 | (u32)t[7] << 24) & 0x7FFFFFF0u;
+        const u32 qwc = lo & 0xFFFFu;
+        if (((lo >> 28) & 7u) != 3u || !qwc) return -1;                  /* REF */
+        size_t used = 0;
+        uint8_t *out = k ? clear : env;
+        const uint32_t cap = k ? clear_cap : env_cap;
+        if (em_gs_vif_direct(t, 16, 2, out, cap, &used) < 0) return -1;   /* the tag's VIF codes */
+        const uint8_t *data = em_rcl_bytes(addr, qwc * 16u);
+        if (!data || em_gs_vif_direct(data, qwc * 16u, 0, out, cap, &used) < 0) return -1;
+        *(k ? clear_bytes : env_bytes) = (uint32_t)used;
+    }
     return 0;
 }
 

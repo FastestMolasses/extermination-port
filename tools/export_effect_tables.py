@@ -71,6 +71,10 @@ Blocks (original address, bytes, what reads them):
                       from render channel 3: VIF codes and the grid
                       program) and its RET tag, read by the background's
                       list walk (em_background_live, docs/BACKGROUND.md)
+  0x002531D0  0x40    D_002531D0: the four PACKED XYZF2 rows of the
+                      drop shadow's alpha-clear strip (001DA290 copies them
+                      into 001DA1E0's DIRECT packet), read by the Original
+                      profile's GS frame (src/gs/em_gs_world.h, em_gfx.h)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -101,7 +105,8 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
           (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
           (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x1B0), (0x0026EA80, 0x64),
-          (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50), (0x0023C990, 0x2B0))
+          (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50), (0x0023C990, 0x2B0),
+          (0x002531D0, 0x40))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

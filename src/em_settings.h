@@ -22,6 +22,13 @@
  *                          PS2's 24 frames instead of its 10 host-speed
  *                          dispatches.
  *                          Environment: EM_PS2_DISC_DRIVE_TIMING=0|1.
+ *   gpu_renderer           LAUNCHER_OPTIONS.md "Resolution". Original value
+ *                          0: the world frame is the 512x224 GS field the
+ *                          CPU GS model draws (src/gs/em_gs_world.h,
+ *                          GS_EXACT.md section 9), presented by the platform
+ *                          layer. 1: the GPU renderer at the host resolution
+ *                          (the Metal path the Enhanced profile builds on).
+ *                          Environment: EM_GPU_RENDERER=0|1.
  */
 #ifndef EM_SETTINGS_H
 #define EM_SETTINGS_H
@@ -34,6 +41,7 @@ extern "C" {
 
 typedef struct EmSettings {
     uint8_t ps2_disc_drive_timing;
+    uint8_t gpu_renderer;
 } EmSettings;
 
 /* The Original profile: every switch at its Original value. */

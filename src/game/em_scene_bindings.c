@@ -3572,10 +3572,12 @@ static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32
  *  - 00200890's player texture packet (state 7): one of the slot words
  *    D_0028A4B0..D_0028A4C0 that module 3's load relocated (GS blocks
  *    0x1B80..0x1BFF for slot 8).
- * The port's renderer draws these texels from its disc export, which
- * DISC_TEXTURES test B proves equal to what these uploads write in every
- * route capture; so the consumer accepts exactly these sends and applies
- * nothing. Any other send (a B section: AREA11 has none) is refused. */
+ * The consumer accepts exactly these sends. With the Original profile's GS
+ * frame they go to the CPU GS model's local memory (em_gfx_gs_upload: the
+ * chain's transfers, as the GS takes them; GS_EXACT.md section 9); the GPU
+ * renderer draws these texels from its disc export, which DISC_TEXTURES
+ * test B proves equal to what these uploads write in every route capture.
+ * Any other send (a B section: AREA11 has none) is refused. */
 static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, uint32_t size)
 {
     EmModuleLoader *ml = ctx;
@@ -3585,13 +3587,13 @@ static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, ui
         return -1;
     if (rec->user[1] == 4 && rec->user[2] == 2 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C]) {
         s_area_uploads[0]++;
-        return 0;
+        return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
     }
     if (rec->user[1] == 7)
         for (uint32_t k = 0; k < 5; ++k)
             if (chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0 + k]) {
                 s_area_uploads[1]++;
-                return 0;
+                return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
             }
     return -1;
 }

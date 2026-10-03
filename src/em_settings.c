@@ -7,10 +7,12 @@
 
 const EmSettings em_settings_original = {
     .ps2_disc_drive_timing = 0,   /* the disc answers at host speed */
+    .gpu_renderer = 0,            /* the world frame is the CPU GS model's field */
 };
 
 static EmSettings g_settings = {
     .ps2_disc_drive_timing = 0,
+    .gpu_renderer = 0,
 };
 
 const EmSettings *em_settings(void) { return &g_settings; }
@@ -38,7 +40,8 @@ static int env_switch(const char *name, uint8_t *out)
 int em_settings_from_env(void)
 {
     EmSettings s = em_settings_original;
-    if (env_switch("EM_PS2_DISC_DRIVE_TIMING", &s.ps2_disc_drive_timing))
+    if (env_switch("EM_PS2_DISC_DRIVE_TIMING", &s.ps2_disc_drive_timing) ||
+        env_switch("EM_GPU_RENDERER", &s.gpu_renderer))
         return -1;
     g_settings = s;
     return 0;

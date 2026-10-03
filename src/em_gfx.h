@@ -14,6 +14,7 @@
 
 #include "em_platform.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -965,6 +966,90 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
  * its texture. Returns 0, or -1 (bad input, GPU allocation failure). */
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height);
+
+/* --- The Original profile's GS frame (src/gs/em_gs_world.h; docs/GS_EXACT.md
+ * section 9) ---------------------------------------------------------------
+ * With the GS frame enabled (the Original profile; em_settings.h), a world
+ * frame is not drawn by the GPU: its GS draws (em_gfx_background_prims_env,
+ * em_gfx_gs_opaque, em_gfx_object_unit, em_gfx_shadow_*, em_gfx_gs_prims and
+ * the frame's FOGCOL) are recorded as the GS register writes they are and
+ * run, at the kick, through the CPU GS model in strict mode, which draws the
+ * 512x224 field into GS local memory exactly as the measured GS rules say.
+ * The backend only presents that field (em_gfx_field_presentation) and
+ * draws the 2D overlay pass over it. A list frame (em_gfx_gs_frame, the
+ * load veil) runs through the same model. Without the GS frame (the
+ * Enhanced profile, and the GPU fixtures) every call draws with the GPU as
+ * documented above.
+ *
+ * The state blocks a world draw's list REFs are original memory the game
+ * owns (the boot builder's GS blocks D_00275674 and the ELF's D_002531D0):
+ * the backend reads them by address through `read`, at the addresses the
+ * calls above name (D_00815360 for the class-0 set of em_gfx_gs_opaque and
+ * em_gfx_object_unit; for the shadow D_00815E10 (2,9), D_00814DC0 (the
+ * silhouette's set), D_00815C60 (2,6) and the CLAMP block D_008146C0;
+ * D_002531D0, the alpha-clear strip). */
+typedef const uint8_t *(*EmGfxGsRead)(void *ctx, uint32_t address, uint32_t size);
+/* Enable (on != 0) or disable the GS frame. Enabling creates the model.
+ * 0, or -1 (no memory, or a backend without it). */
+int em_gfx_gs_world_enable(EmGfx *gfx, int on, EmGfxGsRead read, void *read_ctx);
+int em_gfx_gs_world_enabled(EmGfx *gfx);
+/* Install the GS memory image of the boot's library upload (the EMGM file
+ * of tools/export_gs_memory.py: module 0x1B, which the port's boot does not
+ * load) once. 0, or -1 (reported). */
+int em_gfx_gs_memory_load(EmGfx *gfx, const char *path);
+/* An upload the game's loader sends to the GS (the area load's A sections
+ * at 001FFCD0 state 4, the player texture packet 00200890 at state 7): the
+ * VIF1 source chain as delivered (em_gs_world_upload_chain). With the GS
+ * frame enabled the model's local memory takes it; otherwise 0 (the GPU
+ * path draws its textures from the exports). 0, or -1 (reported). */
+int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes);
+/* The frame being built is a world frame (the frame close's world flush,
+ * 001D1EA0(1)): with the GS frame enabled its GS draws are recorded from
+ * here to the kick. 1 (recording), 0 (the GS frame is off: the GPU draws),
+ * -1 (a fault, reported: em_gfx_gs_world_fault). */
+int em_gfx_gs_world_frame(EmGfx *gfx);
+/* Step V's kick of a recorded world frame: the GIF data of its draw
+ * environment and clear (em_rcl_kick_head). Runs the frame through the
+ * model; end_frame presents the field. 0 (done, or no world frame was
+ * recorded), or -1 (a fault, reported). */
+int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear,
+                         size_t clear_bytes);
+/* The latched fault of the GS frame (a refused primitive, a span fault, a
+ * draw the GS frame cannot take), or NULL. */
+const char *em_gfx_gs_world_fault(EmGfx *gfx);
+/* The field the frame being ended presents (after the kick or a list
+ * frame): rgba = 512 x 224 x 4 bytes (R, G, B, A as GS memory holds them),
+ * *frame = its FRAME_1. 0, or -1 (this frame shows no GS field). */
+int em_gfx_gs_field_read(EmGfx *gfx, uint8_t *rgba, uint64_t *frame);
+/* The model's last frame (a diagnostic for the frame cost, EM_FRAME_TIMING):
+ * its wall time, the busiest worker's and all workers' CPU time, the pixels
+ * drawn, and the count of frames run so far. 0, or -1. */
+typedef struct {
+    double wall_ns, cpu_max_ns, cpu_sum_ns;
+    uint64_t pixels, runs;
+    uint32_t workers;
+} EmGfxGsCost;
+int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out);
+
+/* em_gfx_background_prims with the environment the channel-3 list set before
+ * each triangle (EmGfxGsEnv, em_chain_page's call mode: its ZBUF_1 ZMSK 1),
+ * which the GS frame records. Without the GS frame it is
+ * em_gfx_background_prims. */
+int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs,
+                                uint32_t count);
+
+/* How the platform layer shows a 512x224 field at 4:3. This is the user's
+ * open decision (docs/LAUNCHER_OPTIONS.md "Field presentation", REVIEW):
+ * the field bytes are the same under every choice. Only the placeholder is
+ * built: EM_GFX_FIELD_SPREAD shows the field's rows spread over the 4:3
+ * game rectangle's height, nearest-neighbour, the way the load veil's GS
+ * frames have been shown since 2026-09-27. The choices the user will
+ * compare (line-doubling at the field's interlaced height, plain line
+ * doubling, combining the field pair) are not built. */
+typedef enum {
+    EM_GFX_FIELD_SPREAD = 0
+} EmGfxFieldPresentation;
+void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode);
 
 
 /* End the frame: flush the overlay

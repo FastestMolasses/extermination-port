@@ -24,15 +24,20 @@ section 3.7) and compares:
      GIF packet, and em_gs_read_frame_rgba must equal the measured-map
      decode of that buffer;
   E. strict mode itself (section 6): synthetic packets that must be refused
-     in strict mode and draw in the default mode, and controls.
+     in strict mode and draw in the default mode, and controls;
+  F. the row bands of the Original profile's parallel GS frame (section 9,
+     src/gs/em_gs_world.c): every capture packet through 3 band EmGs of 4
+     rows (EM_TEST_FULL=1: also 8 of 4 and 3 of 8) chained in lockstep
+     (EmGs.tee) must leave exactly the memory and drawn-pixel total of one
+     EmGs.
 
 A refusal or a span fault in any capture packet fails.
 
 Every test must match bit for bit, except the tests listed in OPEN with
 their exact mismatch counts (colour words, Z words): an open item of
 docs/GS_EXACT.md section 8. A count that changes in either direction fails,
-so every improvement or regression has to be recorded. Default ~1.5 s
-(30 batches, 906 tests); EM_TEST_FULL=1 ~1.9 s.
+so every improvement or regression has to be recorded. Default ~2.5 s
+(30 batches, 906 tests); EM_TEST_FULL=1 ~3.6 s.
 """
 from __future__ import annotations
 
@@ -292,6 +297,31 @@ unsigned shim_replay(EmGs *g, const EmGfxGsPrim *p, const EmGfxGsEnv *e, unsigne
 { EmGsReplay r; em_gs_replay_init(&r); em_gs_replay_fogcol(g, &r, fogcol); return em_gs_replay_prims(g, &r, p, e, n); }
 void shim_read_rgba(EmGs *g, unsigned fbp, unsigned fbw, unsigned w, unsigned h, uint8_t *out)
 { em_gs_read_frame_rgba(g, fbp, fbw, w, h, out); }
+/* Part F: the packet through `bands` EmGs chained in lockstep (EmGs.tee),
+ * band k drawing the rows ((y >> shift) % bands) == k, over one memory. */
+size_t shim_gif_bands(uint8_t *mem, int strict, unsigned bands, unsigned shift, const uint8_t *d, size_t n,
+                      unsigned long long *pixels)
+{
+    EmGs *g = calloc(bands, sizeof *g);
+    for (unsigned k = 0; k < bands; ++k) {
+        em_gs_init(&g[k], mem);
+        g[k].strict = strict;
+        g[k].band_count = bands;
+        g[k].band_index = k;
+        g[k].band_shift = shift;
+        g[k].tee = k + 1 < bands ? &g[k + 1] : NULL;
+    }
+    size_t r = em_gs_gif(&g[0], d, n);
+    em_gs_flush(&g[0]);
+    *pixels = 0;
+    for (unsigned k = 0; k < bands; ++k) {
+        *pixels += g[k].drawn_pixels;
+        g[k].tee = NULL;
+        em_gs_release(&g[k]);
+    }
+    free(g);
+    return r;
+}
 unsigned shim_prim_size(void) { return sizeof(EmGfxGsPrim); }
 unsigned shim_env_size(void) { return sizeof(EmGfxGsEnv); }
 '''
@@ -325,6 +355,9 @@ def build() -> C.CDLL:
     n.shim_replay.restype = C.c_uint
     n.shim_replay.argtypes = [C.c_void_p, C.c_void_p, C.c_void_p, C.c_uint, C.c_ulonglong]
     n.shim_read_rgba.argtypes = [C.c_void_p] + [C.c_uint] * 4 + [C.c_void_p]
+    n.shim_gif_bands.restype = C.c_size_t
+    n.shim_gif_bands.argtypes = [C.c_void_p, C.c_int, C.c_uint, C.c_uint, C.c_char_p, C.c_size_t,
+                                 C.POINTER(C.c_ulonglong)]
     n.shim_prim_size.restype = C.c_uint
     n.shim_env_size.restype = C.c_uint
     return n
@@ -571,6 +604,40 @@ def run_batch(lib, cap: Path, name: str, maps):
     return res
 
 
+def check_bands(lib, sets) -> int:
+    """F: the row bands of the Original profile's parallel GS frame
+    (src/gs/em_gs_world.c, EmGs.band_*). Every capture packet runs through 3
+    and 8 band EmGs in lockstep over one memory (EmGs.tee: each write, IMAGE
+    transfer and flush reaches every band before the next) and must leave
+    exactly the memory one EmGs leaves, with the same drawn-pixel total
+    (quick: 3 bands of 4 rows; full: also 8 bands of 4 rows and 3 of 8)."""
+    configs = [(3, 2)] + ([(8, 2), (3, 3)] if FULL else [])
+    fails = packets = 0
+    for set_name, batches in sets:
+        cap = B16 / set_name
+        for name in batches:
+            path = cap / name / 'packet.bin'
+            if not path.exists():
+                continue
+            packet = path.read_bytes()
+            one = (C.c_uint8 * LOCALMEM)()
+            g = lib.shim_new(C.addressof(one), 1)
+            lib.shim_gif(g, packet, len(packet))
+            px1 = lib.shim_pixels(g)
+            lib.shim_free(g)
+            for bands, shift in configs:
+                mem = (C.c_uint8 * LOCALMEM)()
+                px = C.c_ulonglong(0)
+                lib.shim_gif_bands(C.addressof(mem), 1, bands, shift, packet, len(packet), C.byref(px))
+                if bytes(mem) != bytes(one) or px.value != px1:
+                    fails += 1
+                    print(f'  bands FAIL {set_name}/{name}: {bands} bands of {1 << shift} rows differ from one '
+                          f'EmGs (pixels {px.value} against {px1})')
+            packets += 1
+    print(f'  bands: {packets} packets, {len(configs)} band configurations, {fails} differ')
+    return fails
+
+
 def main() -> int:
     if not (CAP / 'layout/maps.npz').exists():
         print(f'SKIP: no conformance captures at {CAP} (decomp tools/gs_conformance.py capture + decode)')
@@ -614,6 +681,7 @@ def main() -> int:
                 fails += 1
     fails += check_replay(lib, maps)
     fails += check_strict(lib)
+    fails += check_bands(lib, sets)
     (OUT / 'last_run.json').write_text(json.dumps(summary, indent=1) + '\n')
     print(f'{exact}/{total} tests bit-exact; {fails} failures; {time.monotonic() - t0:.1f} s')
     return 1 if fails else 0

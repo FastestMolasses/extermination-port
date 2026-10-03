@@ -5,9 +5,10 @@ section 3.7 rewritten, points dithered, PACKED Q, binary32 divide, strict
 span faults). This is the Original profile's pixel
 path (PORT_PROFILES.md, "Colours: GS-exact"). The port already computes the
 exact primitives: the VU1 kernel translations, the chain page and the frame
-lists. It has drawn them with Metal, which differs from the GS at the pixel
-level. `src/gs/em_gs_raster.{h,c}` is a CPU model of the GS drawing path
-instead:
+lists. Metal draws them differently from the GS at the pixel level.
+`src/gs/em_gs_raster.{h,c}` is a CPU model of the GS drawing path instead;
+since chain step GSFRAME (2026-10-03) it draws the Original profile's world
+frames (section 9), and Metal is the Enhanced profile's GPU path:
 
 - **Input:** GS register writes (A+D form) or whole GIF packets (PACKED,
   REGLIST, IMAGE), exactly what the GIF hands the GS.
@@ -844,58 +845,156 @@ these counts.
 
 ## 9. Binding: how the Original profile renders through the model
 
-The model is not wired into the live path by this lane: the port's
-tracked files belong to the running chain (C8b). The binding steps are:
+Bound in chain step GSFRAME (2026-10-03, audit 1b item 2, second half).
+The Original profile's world frame is the field the model draws; the GPU
+renderer (Metal) is the Enhanced profile's path (`EmSettings.gpu_renderer`,
+`EM_GPU_RENDERER=1`; LAUNCHER_OPTIONS.md "Resolution").
 
-1. **One `EmGs` per frame context.** It holds a 4 MiB local memory that
-   persists across frames, as GS memory does. Uploads (area textures,
-   CLUTs, the frame's PATH3 / IMAGE packets) go through `em_gs_gif`, the
-   same bytes the original sends.
-2. **Primitives.**
-   - The chain page, the frame lists (load veil) and the object-unit /
-     level kernels already produce the exact GS primitives with their
-     state. `src/gs/em_gs_frame.{h,c}`: `em_gs_replay_prims` replays
-     `EmGfxGsPrim` + `EmGfxGsEnv` records into the model. It writes a
-     state register again only when its value changes. For the span that
-     equals the original stream, because a same-value write never ends a
-     span (3.7). It is **not** equal for CLUT loads: the original may
-     write the same TEX0 with CLD 1 after rewriting the CLUT memory, and
-     that reload changes the CLUT (4.6). Paths whose records do not carry
-     every original TEX0 write must send the original writes (or the
-     packet) instead; this is not checked yet.
-   - A kernel path that produces XGKICK packets instead can hand them to
-     `em_gs_gif` directly.
-   - `em_gs_replay_fogcol` sets the frame's FOGCOL.
-3. **Order.** Everything goes in the original's GS order
-   (ORIGINAL_FRAME_ORDER.md, CHAIN_PAGE.md). The frame's environment
-   packets (FRAME, ZBUF, XYOFFSET with the alternating half line, SCISSOR)
-   come from the original draw-environment writes, so each field is drawn
-   into its 512x224 PSMCT32 buffer (decomp CAPTURES_C7.md 5 / 5b: FRAME and
-   DISPFB2 name the buffers, ZBUF at 0x70, PSMZ24).
-   - The span decision (3.7) depends on the exact register write order, so
-     the replay must not reorder, merge or drop state writes.
-4. **Strict mode on.** Any refused primitive or span fault (section 6)
-   faults the scene (fail-stop).
-5. **Presentation.** `em_gs_read_frame_rgba` ends the span and copies the
-   displayed buffer (DISPFB2's FBP, 512x224) as RGBA8 rows.
-   - The platform layer shows it at 4:3 without smoothing and without CRT
-     simulation.
-   - How the 224-line field becomes 448 display lines (line doubling at
-     the field's own height, plain line doubling, or combining the field
-     pair) is a **pending user decision**: LAUNCHER_OPTIONS.md, "Field
-     presentation" (REVIEW). The model and the frame bytes are the same
-     under any choice.
-6. **Where the port already draws a GS buffer.** The load veil's frames
-   (`em_gfx_gs_frame`, list mode, LAUNCHER_OPTIONS.md) are the first
-   candidate. Their prims and envs are exactly what `em_gs_replay_prims`
-   takes. They are drawn with Metal today.
+**The pieces.**
+- `src/gs/em_gs_world.{h,c}` (platform-independent C, no GPU API): the
+  recording, the residency check, the workers and the field.
+- `src/gfx/metal/em_gfx_metal.m` (the `gsw_*` functions): with the GS frame
+  enabled, a world frame's GS draws go to the model instead of the GPU; the
+  backend presents the field and draws the 2D overlay pass over it.
+- `src/game/em_gs_frame_live.{h,c}`: enables the GS frame at start-up
+  (unless the GPU renderer is chosen), installs the GS memory image, and at
+  step V hands the kicked list's head to the model.
+- `src/game/em_render_context_live.c` `em_rcl_kick_head`: the head of the
+  list 001D2300 kicked.
+- `tools/export_gs_memory.py`: the GS memory image (below).
 
-**Memory and cost.**
-- **Heap.** The span queue is the model's only heap allocation. It grows
-  by doubling from 256 entries and is freed by `em_gs_release`.
-- **Timing** (single thread, arm64, `-O2`, from the test's per-batch
-  times). A batch of 39 tests with 624,640 values (p5_s) takes 29 ms. The
-  15 frame tests, including two 512x224 fields, take 4 ms.
+**What is drawn, in what order.** A world frame is the frame close's world
+flush (em_render_frame.c `frame_close_out`, 001D1EA0(1)), which declares it
+(`em_gfx_gs_world_frame`). From there to the kick the backend records, in
+the order the port issues them (the order its GPU path drew them, which the
+live modules keep as the original's list order: background, channel 0, the
+page):
+1. the background's channel-3 triangles with the environment its list set
+   (`em_gfx_background_prims_env`: the list's own ZBUF_1 ZMSK 1, TEST, TEX0
+   and RGBAQ);
+2. FOGCOL, from the render context's +0xB0 (`em_gfx_fog_coefficients`);
+3. the static world's run (`em_gfx_gs_opaque`) and every object unit
+   (`em_gfx_object_unit`: the object kernel, its clip pass and the face
+   program, the same CPU translations), each after the class-0 state block
+   their REF names, D_00815360 (001D1F80(0, 1, 0)), read from the boot
+   builder's GS blocks; the object triangles keep the kernel's template PRIM
+   (the clip pass's PRIM is one lower);
+4. the drop shadow's passes in 001DA6A0's order: state block (2,9)
+   D_00815E10 and 001DA1E0's DIRECT strip (its four rows D_002531D0 from
+   the effect tables export); the boxes (00237180's triangles, then
+   00239C90's, PRIM 0x044 / 0x043, the call's RGBAQ); the target packet
+   D_00817E20 (the 14 registers em_shadow_gs.h pins, checked in order
+   against the captured packet by test_shadow_original_reference); set
+   D_00814DC0, RGBAQ 0xFFFFFF80 and the silhouette triangles (PRIM 0x004);
+   the frame's draw environment again, set (2,6) D_00815C60, CLAMP block
+   D_008146C0 and the target's TEX0 0x5DC00A580; the receivers (0023C200,
+   PRIM 0x07C, then 0023E8A0's for class 2, PRIM 0x07B); CLAMP block 1 at
+   the end (001D1FF0(0, 1));
+5. the chain page's primitives with the state they carry.
+A GPU draw in a world frame (`em_gfx_draw_skinned`) is a fault: nothing
+in the first level's world frames takes that path (the level smoke through
+Roger passes with the GS frame on).
+
+Each primitive becomes its register writes (state, PRIM, then per vertex
+RGBAQ with Q, ST, UV for FST 1, XYZF2 or XYZ2). A state register is
+recorded only when it changes (a same-value write never ends a span,
+section 3.7, and reloads no different CLUT, 4.6); a state block or the
+environment again resets that cache. Strips are recorded triangle by
+triangle (PRIM before each), which draws the same triangles with the same
+span (3.7: the span ends on attribute or class changes, not on a
+same-value PRIM). No transfer is recorded: a transfer register or an IMAGE
+packet in a recorded frame faults.
+
+**The kick.** At step V, after 001D2300, `em_rcl_kick_head` reads the
+kicked list's first two tags, REFs of the slot's draw environment (GS block
++ 0x20 + 0x190 x slot, 0x19 qwords) and of the clear (+0x3A0, Z only; +0x420
+with render flag 3), and passes their GIF data (the VIF FLUSH / NOP codes
+dropped, DIRECT data kept). The model runs that head (FRAME_1 with the
+field's buffer, ZBUF_1, XYOFFSET_1 with 001D2300's half line, SCISSOR_1,
+PRMODECONT, COLCLAMP, DTHE, TEST, the Z clear), then the recorded body.
+The field is the buffer the head's FRAME_1 names, SCISSOR_1's 224 rows.
+
+**Workers and order.** The model runs on worker threads, each an EmGs with
+its own registers and span over the one local memory, each drawing the
+rows (y >> 2) % n == k of whatever buffer it draws (EmGs.band_*; triangles
+and sprites skip other rows, lines and points do not plot them). Every
+worker takes every write, so their registers, spans, CLUTs and counters
+stay equal; the bands partition the pixels, so they write exactly what one
+EmGs writes (tools/test_gs_raster_reference.py part F: every capture packet
+in lockstep bands; `make test-gs-world`: 1, 2, 3 and 8 workers draw the
+same fields and memory, under the thread sanitizer). Where a primitive
+reads a buffer drawn earlier in the frame, or a draw goes into a buffer read
+earlier in the frame (the shadow's target, between its passes), the
+recording inserts a barrier: every worker reaches it before any goes on;
+it must fall where the span has already ended (a worker with queued
+primitives there faults, so a barrier never moves a span boundary). The
+worker count is EM_GS_THREADS, else the host's processors less three, at
+most 8: a host property, the bytes are the same for any count.
+
+**Pipelining.** As the GS draws a kicked list while the EE builds the next
+one, the kick hands the frame to the workers and returns; the next kick
+(or the next frame that shows no field) waits for it. The backend ends the
+frame's GPU command buffer with the field's quad and the overlay pass but
+commits it only then, after putting the field into the frame's texture
+(three textures rotate, each reused only after the GPU finished with it).
+A frame is therefore shown one tick after its kick, which is when the
+PS2's display shows the buffer drawn from the list kicked one tick before
+(decomp CAPTURES_C7.md 5b: the list built in s0 -> s1 is drawn in s1 -> s2
+and displayed at s2); the game logic does not see the difference. A fault
+of the frame (a refused primitive, a span fault, a malformed packet)
+surfaces at that wait and stops the game (fail-stop).
+
+**Strict mode, residency.** The workers run strict (section 6): a refusal
+or a span fault faults the frame. Every textured primitive's TEX0 (the
+texels CLAMP_1 lets it reach, and its CLUT) must lie in blocks an upload
+wrote (the GS memory image) or in a buffer the model drew (the fields, the
+shadow target); anything else faults.
+
+**GS memory: the uploads.** The model samples textures where the
+original's uploads put them (DISC_TEXTURES.md section 2):
+- the area load's uploads reach it as the original sends them: the
+  loader's area consumer (em_scene_bindings.c `loader_area_chain`), which
+  accepts exactly 001FF590(0xAB, 1)'s A entry at 001FFCD0 state 4 and
+  00200890's player texture packet at state 7, hands the delivered buffer to
+  `em_gfx_gs_upload` -> `em_gs_world_upload_chain`: the VIF1 source chain
+  (CNT tags to a RET or END), its DIRECT GIF data (A+D writes of the
+  transfer registers and host-to-local PSMCT32 IMAGE data; anything else
+  faults, the rule of tools/export_disc_textures_gs.py) run through a model
+  of their own over the local memory, after the workers have drawn the
+  frame before; the blocks they write become resident;
+- the library module 0x1B, which the boot's 001FF1E0(0x1B) and the New
+  Game's 001AD1A0 00200830(D_0028A564) upload and the port does not run
+  (MODULE_LOADER.md section 5), comes from `assets/gs_library.emgm`
+  (EMGM v1, the runs of uploaded 256-byte blocks; `tools/export_gs_memory.py`:
+  FirstLevel.library() then library_slot() of the disc model, 1,920
+  blocks), installed at start-up.
+`make test-gs-memory-reference` (tools/test_gs_memory_reference.py): the
+image equals the disc model's library, and AREA11's two area-load buffers
+through the C model leave all 5,504 blocks the disc model's uploads write
+(library, area, player packet) byte-identical and exactly those resident;
+the C walk's refusals. Live, the first-control field drawn this way equals
+the one drawn from a whole-world image byte for byte. The status pages'
+uploads go to the status runtime's GS data, not to this memory: they draw
+with the GPU, and the original restores the regions they overwrite
+(00200970) before the next world frame.
+
+**Presentation.** The platform layer only shows the field:
+`em_gfx_field_presentation` (em_gfx.h) is the hook, and its one built mode
+is the placeholder EM_GFX_FIELD_SPREAD, the field's rows spread over the 4:3
+game rectangle, nearest (as the load veil's frames have been shown since
+2026-09-27). The user's choice between the presentations is open
+(LAUNCHER_OPTIONS.md, "Field presentation", REVIEW). The 2D overlay pass
+(message glyphs, the letterbox bars, the screen fade, the status overlay)
+is drawn by the GPU over the presented field, as before; it is not part of
+the GS frame (its draws are not GS packets in the port).
+
+**Not part of the GS frame.** The status frames (the hub, the pages; their
+models use the GPU's skinned path) and the tear-down frames draw with the
+GPU as before. 001DDE10's four frame-copy sprites are still walked over
+(CHAIN_PAGE.md section 6): the binding now makes them drawable (the frame as
+GS memory, the Z buffer), but drawing them is a step of its own.
+
+**Frame cost.** Section 10.2.
 
 ## 10. The fb2 reference frames and the pixel harness
 
@@ -905,9 +1004,9 @@ CAPTURES_C7.md 5b: the 16 route snapshots `00_panel_no_battery` ..
 `displayed.bin`, `draw.bin` and `z.bin` two frames after the recorded
 state. `tools/test_fb2_pixels.py` (`make test-fb2-pixels`, 2026-09-28)
 compares the port's Original-profile frame with `displayed.bin` per pixel.
-The port still has no full per-frame GS stream (section 9 is not applied),
-so what it compares today is the port's **Metal frame**, sampled to the
-field; once the model is bound it compares the model's field word for word.
+Since chain step GSFRAME (2026-10-03) that frame is the GS model's field
+(10.1); the description below of the Metal frame and its sampling is the
+GPU renderer's (`EM_GPU_RENDERER=1`), which the harness still measures.
 
 **Like with like** (the tool's docstring has the full statement):
 - **Which original field.** At a point the outputs come from loop top s2;
@@ -995,17 +1094,102 @@ displayed buffer as GS memory and the GS Z buffer, which only the model's
 binding (section 9) provides. The harness shows no region-wide difference at
 10 or 14 that the pass would explain, but it cannot isolate the pass.
 
+### 10.1 The GS field (chain step GSFRAME, 2026-10-03)
+
+With the GS frame (section 9) a capture also writes the field itself
+(`<capture>.gsfield`, 512 x 224 x 4 bytes) and the run log names its FRAME_1
+and XYOFFSET_1. The original's displayed buffer holds the whole list, its
+letterbox bars, transition fade and message glyphs included; the port
+draws those as the GPU's 2D overlay pass over the presented field. So the
+number compared is the **presented frame** read back at the centre of each
+field pixel (the placeholder presentation shows field pixel (x, y) there
+unchanged: with no overlay the two are equal word for word, as at first
+control), and the field alone is reported beside it. No sampling, no
+tolerance.
+
+**The frame loop's phase.** At 5 of the 7 points the port drew the field
+in the other buffer with the other half line: first control, 08, 10, 11
+and 12 (port FBP 0x38 / 0 with OFY 1936.5 / 1936.0 where the original's is
+the opposite; the field is drawn half a line off). At 13 and 14 it is the
+original's. The port's D_00810E80 has the other parity there; the cause is
+not traced (the loads taking another number of main-loop iterations at host
+speed is a candidate: the New Game's veil runs 55 ticks against the PS2's
+258). It is reported per point by the harness.
+
+Numbers, exact pixels of 114,688 (mean absolute channel error, per-pixel
+p50 / p90 / p99). "Before" is the GPU renderer at the same port HEAD
+(`EM_GPU_RENDERER=1`, Metal at 1920x1440 sampled at the original's OFY);
+"after" is the presented GS field; "field alone" leaves out the overlay
+pass. Claims are relative to PCSX2's software GS.
+
+| point | camera | phase | before (Metal) | after (GS field, presented) | field alone |
+|---|---|---|---|---|---|
+| 14_roger_encounter | exact | same | 33,022 (28.79 %; 1.78; 1/4/29) | **99,985 (87.18 %; 0.97; 0/1/28)** | 46 (0.04 %) |
+| 13_east_tower | not exact | same | 40,544 (35.35 %; 2.92; 1/8/19) | **64,137 (55.92 %; 2.60; 0/8/16)** | the same |
+| 10_cage_roof_roger | exact | other | 35,430 (30.89 %; 1.39; 1/3/23) | 18,303 (15.96 %; 3.33; 2/10/32) | 12,642 (11.02 %) |
+| 11_crevice_prompt | no row at s1 | other | 9,173 (8.00 %; 5.76) | 6,281 (5.48 %; 6.66) | the same |
+| 08_truck_crossing | not exact | other | 3,201 (2.79 %; 7.78) | 3,602 (3.14 %; 7.31) | the same |
+| 12_crevice_jump | not exact | other | 2,852 (2.49 %; 6.74) | 2,827 (2.46 %; 6.84) | the same |
+| first_control | not exact (eye) | other | 985 (0.86 %; 18.94) | 1,125 (0.98 %; 18.84) | the same |
+
+At 14 (camera exact, same phase) the field alone is +3 on 62 % of its
+pixels and darker at the top and bottom 32 lines: the original's buffer
+holds the transition fade and the letterbox bars, which the presented
+frame then applies too. What remains at 14 (14,703 pixels): the fan
+blades (7,727 pixels in their box: the fans' phase follows the
+recording's timing, FIRST_LEVEL_AUDIT.md 1b), the snow (the port's rand()
+stream, RAND_ORDER.md), a few edges, and the sky grid's region in the top
+left: 6,358 of its 11,200 pixels differ by 1..3 (some up to 41 where snow
+falls), mean +0.9, ending exactly at the hill's silhouette, so in the
+channel-3 background's triangles; not traced (the background's STQ on the
+vertex grid, open item 8.2, measured far smaller residues on designed
+primitives; a cause in the grid's ST at the GS's precision is not
+excluded). At 10 the half-line phase moves every edge and gradient by half
+a line. The other points differ in their camera, their phase or both.
+FLOORS in the tool are these "after" fractions rounded down to 0.1
+percentage point (FLOORS_GPU keeps the Metal ones).
+
+### 10.2 Frame cost
+
+The GS frame runs on worker threads while the main thread builds the next
+tick (section 9, "Pipelining"). Measured on this M1 Pro (8 performance and
+2 efficiency cores) while three other tracks' builds and test runs loaded
+it (load average 44 to 57): newgame-control (EM_FRAME_TIMING), the 1,350
+in-level ticks before first control: the main thread's CPU per tick 8.56
+ms on average (max 13.61; the game alone, as before: chain C8b measured 7.6
+on a quiet machine); the busiest worker's CPU per frame 8.76 ms on average
+(p95 11.16, max 14.24) with 7 workers; but the ticks' wall time 23.28 ms on
+average and 981 of 1,350 over the 16.68 ms period, because the loaded
+machine gave the workers too little of its cores. A second run at the
+final code (load average 45 to 48): the ticks' wall time 14.32 ms on
+average (median 13.93, p95 19.71, max 42.31), 279 of 1,350 over the
+period; main thread 8.35 ms, busiest worker 9.13 ms of CPU. Offline (the first
+control frame replayed, thread CPU time): one worker 30.1 ms; with 8 bands
+the busiest band 6.19 ms (the sum 42.6: each band takes every write and
+sets up the triangles its rows meet). The critical path with free cores is
+therefore the larger of the main thread's ~8.6 ms and the busiest worker's
+~6-9 ms, under the 16.68 ms period; it was not measured on an unloaded
+machine, and slower hosts are not measured.
+
 ## 11. Files
 
 - `src/gs/em_gs_raster.h`, `src/gs/em_gs_raster.c`: the model (no global
-  state; one `EmGs` per context).
-- `src/gs/em_gs_frame.h`, `src/gs/em_gs_frame.c`: the binding helpers
-  (section 9).
-- `tools/test_gs_raster_reference.py`: the verification (section 7).
+  state; one `EmGs` per context; row bands EmGs.band_*; the lockstep test
+  hook EmGs.tee).
+- `src/gs/em_gs_frame.h`, `src/gs/em_gs_frame.c`: the replay and read-back
+  helpers.
+- `src/gs/em_gs_world.h`, `src/gs/em_gs_world.c`: the Original profile's
+  world frame (section 9): recording, residency, uploads, workers, field.
+- `src/game/em_gs_frame_live.{h,c}`: its game side (start-up, the kick).
+- `tools/export_gs_memory.py`: the library image `assets/gs_library.emgm`.
+- `tools/test_gs_raster_reference.py` (`make test-gs-raster-reference`):
+  the verification (section 7, part F the row bands).
+- `tests/gs_world_test.c` (`make test-gs-world`): the workers draw what one
+  worker draws (thread sanitizer).
+- `tools/test_gs_memory_reference.py` (`make test-gs-memory-reference`):
+  the GS memory against the disc model of the uploads.
 - `tools/test_fb2_pixels.py` (`make test-fb2-pixels`): the fb2 pixel
   harness (section 10).
-- Decomp capture tools (new, this lane): `tools/gs_conformance_probe3.py`
+- Decomp capture tools (new, lane B16): `tools/gs_conformance_probe3.py`
   .. `probe8.py`. Their batches and rules are in decomp
   `docs/GS_CONFORMANCE.md` sections 8 and 9.
-
-The model files are not in the Makefile yet (section 9 is not applied); the harness is (`test-fb2-pixels`).

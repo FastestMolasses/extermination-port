@@ -85,3 +85,21 @@ int em_gfx_gs_surface_read(EmGfx *gfx, uint32_t fbp, uint32_t fbw, uint32_t heig
  * implemented on this backend yet. */
 void em_gfx_overlay_decor_flush(EmGfx *gfx) { (void)gfx; }
 void em_gfx_draw_scissor(EmGfx *gfx, const float rect[4]) { (void)gfx; (void)rect; }
+
+/* The Original profile's GS frame (em_gfx.h): not built on this backend
+ * yet. The CPU GS model (src/gs/em_gs_world.h) is platform-independent; this
+ * backend has to present its field. Until then the GS frame refuses. */
+int em_gfx_gs_world_enable(EmGfx *gfx, int on, EmGfxGsRead read, void *read_ctx)
+{ (void)gfx; (void)read; (void)read_ctx; return on ? -1 : 0; }
+int em_gfx_gs_world_enabled(EmGfx *gfx) { (void)gfx; return 0; }
+int em_gfx_gs_memory_load(EmGfx *gfx, const char *path) { (void)gfx; (void)path; return -1; }
+int em_gfx_gs_world_frame(EmGfx *gfx) { (void)gfx; return 0; }
+int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes) { (void)gfx; (void)chain; (void)bytes; return 0; }
+int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
+{ (void)gfx; (void)env; (void)env_bytes; (void)clear; (void)clear_bytes; return 0; }
+const char *em_gfx_gs_world_fault(EmGfx *gfx) { (void)gfx; return NULL; }
+int em_gfx_gs_field_read(EmGfx *gfx, uint8_t *rgba, uint64_t *frame) { (void)gfx; (void)rgba; (void)frame; return -1; }
+int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out) { (void)gfx; (void)out; return -1; }
+int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count)
+{ (void)gfx; (void)prims; (void)envs; (void)count; return -1; }
+void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode) { (void)gfx; (void)mode; }

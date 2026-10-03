@@ -90,7 +90,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_effects_live.c src/game/em_equipment_live.c src/game/em_player_draw_live.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c src/game/em_load_veil_live.c \
-           src/game/em_gs_blocks_original.c src/game/em_frame_kick.c
+           src/game/em_gs_blocks_original.c src/game/em_frame_kick.c src/game/em_gs_frame_live.c \
+           src/gs/em_gs_raster.c src/gs/em_gs_frame.c src/gs/em_gs_world.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -947,12 +948,33 @@ test-gs-fog-conformance:
 	python3 tools/test_gs_fog_conformance.py
 
 # The fb2 pixel harness (docs/GS_EXACT.md section 10): the port's
-# Original-profile frame at the fb2 route points against the decomp's
-# software-renderer fields, per pixel. Default: first control (about 17 s);
-# EM_TEST_FULL=1: every point the level smoke aligns (about 4.5 min).
+# Original-profile frame (the GS field) at the fb2 route points against the
+# decomp's software-renderer fields, word for word. Default: first control;
+# EM_TEST_FULL=1: every point the level smoke aligns.
 .PHONY: test-fb2-pixels
 test-fb2-pixels: $(BIN)
 	python3 tools/test_fb2_pixels.py
+
+# The CPU GS model against the GS conformance captures (docs/GS_EXACT.md
+# section 7; part F: its row bands draw what one model draws).
+.PHONY: test-gs-raster-reference
+test-gs-raster-reference:
+	python3 tools/test_gs_raster_reference.py
+
+# The Original profile's GS memory (GS_EXACT.md section 9): the library image
+# and the area load's uploads through the C model against the disc model.
+.PHONY: test-gs-memory-reference
+test-gs-memory-reference:
+	python3 tools/test_gs_memory_reference.py
+
+# The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
+# 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed
+# frames, under the thread sanitizer (a missing barrier is a reported race).
+.PHONY: test-gs-world
+test-gs-world:
+	mkdir -p build/gs_world_test && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=thread -Isrc \
+	    tests/gs_world_test.c src/gs/em_gs_world.c src/gs/em_gs_raster.c src/gs/em_gs_frame.c -lm \
+	    -o build/gs_world_test/gs_world_test && TSAN_OPTIONS=halt_on_error=1 ./build/gs_world_test/gs_world_test
 
 .PHONY: test-chain-page
 test-chain-page:

@@ -53,7 +53,8 @@ def main():
              'src/game/em_packet_chain_original.c','src/game/em_status_ui_leftovers.c',
              'src/game/em_object_unit.c',
              'src/platform/mac/em_platform_mac.m','src/platform/mac/em_gamepad_mac.m',
-             'src/gfx/metal/em_gfx_metal.m','-framework','Cocoa','-framework','Metal',
+             'src/gfx/metal/em_gfx_metal.m','src/gs/em_gs_world.c','src/gs/em_gs_raster.c',
+             'src/gs/em_gs_frame.c','-framework','Cocoa','-framework','Metal',
              '-framework','QuartzCore','-framework','GameController','-Wl,-dead_strip',
              '-o',str(binary)]
     subprocess.run(command,cwd=ROOT,check=True)

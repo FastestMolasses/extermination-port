@@ -369,8 +369,10 @@ gives the same values.
   001D6C90 sets, over the pixels its Z test passes. Its look is not
   reproduced: it needs the frame as GS memory (the displayed buffer read
   back through that texture state) and the GS Z buffer for the test, which
-  only the GS model's binding provides (GS_EXACT.md section 9); the port's
-  Metal frame has neither. The fb2 harness (tools/test_fb2_pixels.py) shows
+  only the GS model's binding provides (GS_EXACT.md section 9; bound for
+  the Original profile since chain step GSFRAME, 2026-10-03, so the pass is
+  now drawable there, but drawing it is a step of its own: the walk still
+  skips the CALL); the GPU renderer's frame has neither. The fb2 harness (tools/test_fb2_pixels.py) shows
   no region-wide difference at the camera-exact points 10 and 14 that this
   pass would explain, but it cannot isolate the pass either. The consumer walks over that one CALL,
   whose address the render context records at 001CB760(0xFFF000)

@@ -24,6 +24,17 @@ static inline i128 floordiv128(i128 a, i128 b)
     i128 q = a / b, r = a % b;
     return (r != 0 && ((r < 0) != (b < 0))) ? q - 1 : q;
 }
+/* The same quotients through 64-bit division when the dividend fits (the
+ * values are those of the 128-bit division; only the instruction differs). */
+static inline int fits64(i128 a) { return a >= -(i128)INT64_MAX && a <= (i128)INT64_MAX; }
+static inline i128 floordiv_fast(i128 a, int64_t b)
+{
+    return fits64(a) ? (i128)floordiv64((int64_t)a, b) : floordiv128(a, (i128)b);
+}
+static inline i128 truncdiv_fast(i128 a, int64_t b)       /* C division: toward zero */
+{
+    return fits64(a) ? (i128)((int64_t)a / b) : a / (i128)b;
+}
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static inline float f32_of(uint32_t w) { float f; memcpy(&f, &w, 4); return f; }
 
@@ -52,7 +63,8 @@ static int64_t stq_div(double S, double Q, int size_log2)
 {
     if (!(Q > 0.0) || !isfinite(Q) || !isfinite(S))
         return 0;
-    double r = floor((double)(float)((float)S / (float)Q) * ldexp(16.0, size_log2));
+    /* 16 * 2^size_log2 (TW / TH 0..10) exactly, as ldexp gives it */
+    double r = floor((double)(float)((float)S / (float)Q) * (double)(UINT64_C(16) << (size_log2 & 15)));
     /* coordinates beyond 2^40 (1/16 texels) are clamped (not measured) */
     if (!(r > -0x1p40)) return -(INT64_C(1) << 40);
     if (!(r < 0x1p40)) return INT64_C(1) << 40;
@@ -111,7 +123,7 @@ static inline uint32_t in_block4(uint32_t x, uint32_t y)
 }
 
 /* Block numbers add to the base (bp) and wrap at the 4 MiB (16384 blocks). */
-uint32_t em_gs_addr32(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, int z)
+static inline uint32_t addr32_(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, int z)
 {
     x &= 2047; y &= 2047;
     uint32_t page = (y >> 5) * bw + (x >> 6);
@@ -129,7 +141,7 @@ uint32_t em_gs_addr16(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, unsigned
     return blk * 128 + ((y >> 1) & 3) * 32 + col16[y & 1][x & 15];
 }
 
-uint32_t em_gs_addr8(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
+static inline uint32_t addr8_(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
 {
     x &= 2047; y &= 2047;
     uint32_t ppr = bw >> 1 ? bw >> 1 : 1;
@@ -138,7 +150,7 @@ uint32_t em_gs_addr8(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
     return blk * 256 + in_block8(x & 15, y & 15);
 }
 
-uint32_t em_gs_addr4(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
+static inline uint32_t addr4_(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
 {
     x &= 2047; y &= 2047;
     uint32_t ppr = bw >> 1 ? bw >> 1 : 1;
@@ -146,6 +158,12 @@ uint32_t em_gs_addr4(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
     uint32_t blk = (bp + page * 32 + blk16[(y >> 4) & 7][(x >> 5) & 3]) & 16383;
     return blk * 512 + in_block4(x & 31, y & 15);   /* nibble address */
 }
+
+/* The exported addressing functions are the inline ones above (the
+ * fragment pipeline calls those directly). */
+uint32_t em_gs_addr32(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, int z) { return addr32_(bp, bw, x, y, z); }
+uint32_t em_gs_addr8(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y) { return addr8_(bp, bw, x, y); }
+uint32_t em_gs_addr4(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y) { return addr4_(bp, bw, x, y); }
 
 static inline uint32_t rd32(const EmGs *gs, uint32_t word)
 {
@@ -489,6 +507,10 @@ static void span_write(EmGs *gs, unsigned reg, uint64_t v)
 void em_gs_write(EmGs *gs, unsigned reg, uint64_t v)
 {
     span_write(gs, reg, v);
+    if (reg != EM_GS_RGBAQ && reg != EM_GS_ST && reg != EM_GS_UV && reg != EM_GS_FOG && reg != EM_GS_XYZF2 &&
+        reg != EM_GS_XYZ2 && reg != EM_GS_XYZF3 && reg != EM_GS_XYZ3 &&
+        !(reg == EM_GS_PRIM && (v & 0x7FF) == gs->prim))
+        gs->setup_valid = 0;               /* draw_setup's inputs may change */
     switch (reg) {
     case EM_GS_PRIM:
         gs->prim = v & 0x7FF;
@@ -563,6 +585,7 @@ void em_gs_write(EmGs *gs, unsigned reg, uint64_t v)
         refuse(gs, EM_GS_REFUSE_REGISTER, "unknown GS register");
         break;
     }
+    if (gs->tee) em_gs_write(gs->tee, reg, v);
 }
 
 /* ------------------------------------------------------------------------
@@ -661,6 +684,7 @@ size_t em_gs_gif(EmGs *gs, const void *data, size_t bytes)
                 return off;
             }
             trx_data(gs, p + off, need);
+            for (EmGs *t = gs->tee; t; t = t->tee) trx_data(t, p + off, need);
             off += need;
         }
     }
@@ -695,33 +719,50 @@ typedef struct {
     int stq_grid;           /* the span's vertices share one Z: STQ on the grid (4.5) */
 } Draw;
 
-static uint32_t texel_rgba(const EmGs *gs, const Draw *d, int u, int v)
+/* Wrap (section 4.3), on the integer texel index of each axis. */
+static inline int wrap_u(const Draw *d, int u)
 {
-    /* wrap (section 4.3), on the integer texel index */
-    int W = 1 << d->tw, H = 1 << d->th;
     switch (d->wms) {
-    case 0: u &= W - 1; break;
-    case 1: u = clampi(u, 0, W - 1); break;
-    case 2: u = clampi(u, d->minu, d->maxu); break;
-    default: u = (u & d->minu) | d->maxu; break;
+    case 0: return u & ((1 << d->tw) - 1);
+    case 1: return clampi(u, 0, (1 << d->tw) - 1);
+    case 2: return clampi(u, d->minu, d->maxu);
+    default: return (u & d->minu) | d->maxu;
     }
+}
+static inline int wrap_v(const Draw *d, int v)
+{
     switch (d->wmt) {
-    case 0: v &= H - 1; break;
-    case 1: v = clampi(v, 0, H - 1); break;
-    case 2: v = clampi(v, d->minv, d->maxv); break;
-    default: v = (v & d->minv) | d->maxv; break;
+    case 0: return v & ((1 << d->th) - 1);
+    case 1: return clampi(v, 0, (1 << d->th) - 1);
+    case 2: return clampi(v, d->minv, d->maxv);
+    default: return (v & d->minv) | d->maxv;
     }
+}
+
+/* The texel at wrapped indices (u, v), as RGBA. */
+static uint32_t fetch_rgba(const EmGs *gs, const Draw *d, int u, int v)
+{
     uint32_t c, idx;
     switch (d->tpsm) {
-    case EM_GS_PSMCT32: return rd32(gs, em_gs_addr32(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v, 0));
+    case EM_GS_PSMCT32: return rd32(gs, addr32_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v, 0));
+    case EM_GS_PSMT8:
+        /* em_gs_read_pixel's T8 and T4 reads, inline */
+        idx = gs->mem[addr8_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v) & (EM_GS_MEM_BYTES - 1)];
+        goto clut;
+    case EM_GS_PSMT4: {
+        const uint32_t n = addr4_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v);
+        idx = (gs->mem[(n >> 1) & (EM_GS_MEM_BYTES - 1)] >> ((n & 1) * 4)) & 15;
+        goto clut;
+    }
     case EM_GS_PSMCT24:
         c = rd32(gs, em_gs_addr32(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v, 0)) & 0xFFFFFF;
         return c | ((d->aem && c == 0) ? 0 : d->ta0 << 24);
     case EM_GS_PSMCT16: case EM_GS_PSMCT16S:
         c = rd16(gs, em_gs_addr16(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v, d->tpsm));
         goto expand16;
-    case EM_GS_PSMT8: case EM_GS_PSMT8H: case EM_GS_PSMT4: case EM_GS_PSMT4HL: case EM_GS_PSMT4HH:
+    case EM_GS_PSMT8H: case EM_GS_PSMT4HL: case EM_GS_PSMT4HH:
         idx = em_gs_read_pixel(gs, d->tbp, d->tbw, d->tpsm, (uint32_t)u, (uint32_t)v);
+    clut:
         if (d->cpsm == EM_GS_PSMCT32 || d->cpsm == EM_GS_PSMCT24) {
             unsigned e = (d->tpsm == EM_GS_PSMT8 || d->tpsm == EM_GS_PSMT8H) ? idx : (d->csa & 15) * 16 + idx;
             c = gs->clut[e & 255] | (uint32_t)gs->clut[(e & 255) + 256] << 16;
@@ -740,6 +781,11 @@ expand16: {
     }
 }
 
+static uint32_t texel_rgba(const EmGs *gs, const Draw *d, int u, int v)
+{
+    return fetch_rgba(gs, d, wrap_u(d, u), wrap_v(d, v));
+}
+
 /* Bilinear / nearest from fixed-point texel coordinates in 1/16 texel
  * (U16 = floor(u * 16)); section 4.2. */
 static uint32_t sample(const EmGs *gs, const Draw *d, int64_t U16, int64_t V16, int bilinear)
@@ -748,8 +794,10 @@ static uint32_t sample(const EmGs *gs, const Draw *d, int64_t U16, int64_t V16, 
         return texel_rgba(gs, d, (int)(U16 >> 4), (int)(V16 >> 4));
     int64_t Ub = U16 - 8, Vb = V16 - 8;
     int iu = (int)(Ub >> 4), iv = (int)(Vb >> 4), fu = (int)(Ub & 15), fv = (int)(Vb & 15);
-    uint32_t t00 = texel_rgba(gs, d, iu, iv), t10 = texel_rgba(gs, d, iu + 1, iv);
-    uint32_t t01 = texel_rgba(gs, d, iu, iv + 1), t11 = texel_rgba(gs, d, iu + 1, iv + 1);
+    /* each axis wrapped once (the same indices texel_rgba wraps) */
+    const int u0 = wrap_u(d, iu), u1 = wrap_u(d, iu + 1), v0 = wrap_v(d, iv), v1 = wrap_v(d, iv + 1);
+    uint32_t t00 = fetch_rgba(gs, d, u0, v0), t10 = fetch_rgba(gs, d, u1, v0);
+    uint32_t t01 = fetch_rgba(gs, d, u0, v1), t11 = fetch_rgba(gs, d, u1, v1);
     uint32_t out = 0;
     for (int k = 0; k < 32; k += 8) {
         int a = (int)((t00 >> k) & 255), b = (int)((t10 >> k) & 255);
@@ -775,10 +823,18 @@ static int zmax_of(uint32_t zpsm)
     return zpsm == EM_GS_PSMZ32 ? 0 : zpsm == EM_GS_PSMZ24 ? 0xFFFFFF : 0xFFFF;
 }
 
+/* The row is this EmGs's band's (EmGs.band_count). */
+static inline int own_row(const EmGs *gs, int y)
+{
+    return gs->band_count <= 1 || (((uint32_t)y >> gs->band_shift) % gs->band_count) == gs->band_index;
+}
+
 static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
 {
     if (x < d->sx0 || x > d->sx1 || y < d->sy0 || y > d->sy1)
         return;
+    /* (rows of other bands never reach plot: triangles and sprites skip
+     * them per row, lines and points before the call) */
     if ((d->scanmsk == 2 && !(y & 1)) || (d->scanmsk == 3 && (y & 1)))
         return;
     /* The colour and fog weight arrive in 8.7 fixed point; the texture
@@ -1097,6 +1153,8 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
         }
     }
     for (int y = py0; y <= py1; y++) {
+        if (!own_row(gs, y))
+            continue;
         if (d->tme) {
             if (d->fst) {
                 /* V16 = floor(V0 + (V1 - V0) * (16y - Y0) / (Y1 - Y0)) */
@@ -1145,7 +1203,8 @@ static void draw_point(EmGs *gs, const Draw *d, const EmGsVertex *v)
             fr.V16 = stq_div(tt, q, (int)d->th);
         }
     }
-    plot(gs, d, x, y, &fr);
+    if (y >= 0 && own_row(gs, y))
+        plot(gs, d, x, y, &fr);
 }
 
 /* ------------------------------------------------------------------------
@@ -1209,7 +1268,9 @@ static void draw_line(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmGsV
             int cx = xmajor ? 16 * ab : 16 * cand, cy = xmajor ? 16 * cand : 16 * ab;
             if (in_diamond(px, py, cx, cy, xmajor)) {
                 line_attr(v0, v1, iip, (int64_t)(16 * ab - a0) * dir, (int64_t)da * dir, &fr);
-                plot(gs, d, xmajor ? ab : cand, xmajor ? cand : ab, &fr);
+                const int ly = xmajor ? cand : ab;
+                if (ly >= 0 && own_row(gs, ly))
+                    plot(gs, d, xmajor ? ab : cand, ly, &fr);
                 break;
             }
         }
@@ -1233,7 +1294,9 @@ static void draw_line(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmGsV
         if (in_diamond(px, py, cx, cy, xmajor))
             continue;
         line_attr(v0, v1, iip, (pa - a0) * dir, (int64_t)da * dir, &fr);
-        plot(gs, d, xmajor ? A : (int)B, xmajor ? (int)B : A, &fr);
+        const int ly = xmajor ? (int)B : A;
+        if (ly >= 0 && own_row(gs, ly))
+            plot(gs, d, xmajor ? A : (int)B, ly, &fr);
     }
 }
 
@@ -1266,16 +1329,16 @@ static Plane plane(int64_t a0, int64_t a1, int64_t a2, int X0, int Y0, int X1, i
 static inline int64_t rowstart128(const Plane *p, int64_t A, int X0, int Y0, int x, int y)
 {
     i128 num = (i128)p->nx * (16 * x - X0) + (i128)p->ny * (16 * y - Y0);
-    return (int64_t)(128 * p->a0 + floordiv128(num * 128, A));
+    return (int64_t)(128 * p->a0 + floordiv_fast(num * 128, A));
 }
 static inline int64_t step512(const Plane *p, int64_t A)
 {
-    i128 v = ((i128)p->nx * 16 * 512) / A;   /* C division truncates toward zero */
+    i128 v = truncdiv_fast((i128)p->nx * 16 * 512, A);   /* C division truncates toward zero */
     return (int64_t)v;
 }
 static inline int64_t lane128(const Plane *p, int64_t A, int d)
 {
-    i128 v = ((i128)p->nx * 16 * 128 * d) / A;
+    i128 v = truncdiv_fast((i128)p->nx * 16 * 128 * d, A);
     return (int64_t)v;
 }
 
@@ -1307,6 +1370,14 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
     int py0 = (int)floordiv64(ymin + 15, 16), py1 = (int)floordiv64(ymax, 16);
     if (py0 < d->sy0) py0 = d->sy0;
     if (py1 > d->sy1) py1 = d->sy1;
+    /* a triangle with no row in this EmGs's band draws nothing here */
+    if (gs->band_count > 1) {
+        int any = 0;
+        for (int y = py0; y <= py1 && !any; y = ((y >> gs->band_shift) + 1) << gs->band_shift)
+            any = own_row(gs, y);
+        if (!any)
+            return;
+    }
     /* planes */
     Plane pc[4], pf, pz, pu, pv;
     const EmGsVertex *flat = v2;
@@ -1340,10 +1411,23 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
             sv[i] = stq_trunc_st(sv[i], E); tv[i] = stq_trunc_st(tv[i], E); qv[i] = stq_trunc_q(qv[i], E);
         }
     }
+    /* the in-block lane offsets L(d) depend on the triangle only */
+    int64_t cl[4][7], fl[7];
+    for (int dd = 0; dd <= 3; dd++) {
+        /* L(-d) = -L(d): the quotient truncates toward zero */
+        for (int k = 0; k < 4; k++) {
+            cl[k][dd + 3] = lane128(&pc[k], A, dd);
+            cl[k][3 - dd] = -cl[k][dd + 3];
+        }
+        fl[dd + 3] = lane128(&pf, A, dd);
+        fl[3 - dd] = -fl[dd + 3];
+    }
     Frag fr;
     memset(&fr, 0, sizeof fr);
     fr.has_tex = d->tme;
     for (int y = py0; y <= py1; y++) {
+        if (!own_row(gs, y))
+            continue;
         int64_t py = 16 * (int64_t)y;
         int64_t lo = INT32_MIN, hi = INT32_MAX;
         int empty = 0;
@@ -1373,18 +1457,14 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
         /* the row's first drawn pixel (section 3.2) */
         int xd = (int)lo;
         int xr = xd & ~3, jd = xd - xr;
-        int64_t cacc[4], cst[4], cl[4][7], facc, fst, fl[7];
+        int64_t cacc[4], cst[4], facc, fst;
         for (int k = 0; k < 4; k++) {
             cacc[k] = rowstart128(&pc[k], A, X[0], Y[0], xd, y);
             cst[k] = cstep[k];
-            for (int dd = -3; dd <= 3; dd++)
-                cl[k][dd + 3] = lane128(&pc[k], A, dd);
         }
         facc = rowstart128(&pf, A, X[0], Y[0], xd, y);
         double zrow = (double)V[ztop]->z + ((double)xd - X[ztop] / 16.0) * zgx + ((double)y - Y[ztop] / 16.0) * zgy;
         fst = fstep;
-        for (int dd = -3; dd <= 3; dd++)
-            fl[dd + 3] = lane128(&pf, A, dd);
         for (int x = (int)lo; x <= (int)hi; x++) {
             int64_t kb = (x - xr) >> 2;
             int j = (x - xr) & 3;
@@ -1405,8 +1485,8 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
                 if (d->fst) {
                     i128 nu = (i128)pu.nx * (16 * x - X[0]) + (i128)pu.ny * (16 * y - Y[0]);
                     i128 nv = (i128)pv.nx * (16 * x - X[0]) + (i128)pv.ny * (16 * y - Y[0]);
-                    fr.U16 = (int64_t)((i128)pu.a0 + floordiv128(nu, A));
-                    fr.V16 = (int64_t)((i128)pv.a0 + floordiv128(nv, A));
+                    fr.U16 = (int64_t)((i128)pu.a0 + floordiv_fast(nu, A));
+                    fr.V16 = (int64_t)((i128)pv.a0 + floordiv_fast(nv, A));
                 } else {
                     /* barycentric weights at the pixel */
                     double px = 16.0 * x, pyy = 16.0 * y;
@@ -1519,6 +1599,7 @@ static void span_end(EmGs *gs, int measured)
 void em_gs_flush(EmGs *gs)
 {
     span_end(gs, 1);
+    if (gs->tee) em_gs_flush(gs->tee);
 }
 
 void em_gs_release(EmGs *gs)
@@ -1527,6 +1608,9 @@ void em_gs_release(EmGs *gs)
     free(gs->pend);
     gs->pend = NULL;
     gs->pend_cap = 0;
+    free(gs->setup_cache);
+    gs->setup_cache = NULL;
+    gs->setup_valid = 0;
 }
 
 static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex *a, const EmGsVertex *b,
@@ -1603,7 +1687,20 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
  * 11. The vertex queue (section 3.0) */
 static int setup_counted(EmGs *gs, Draw *d, unsigned kind)
 {
+    /* draw_setup reads only registers: with none written since the last
+     * accepted setup of this kind, it would give the same Draw */
+    if (gs->setup_valid && gs->setup_kind == kind) {
+        memcpy(d, gs->setup_cache, sizeof *d);
+        gs->drawn_prims++;
+        return 1;
+    }
     if (draw_setup(gs, d, kind)) {
+        if (!gs->setup_cache) gs->setup_cache = malloc(sizeof *d);
+        if (gs->setup_cache) {
+            memcpy(gs->setup_cache, d, sizeof *d);
+            gs->setup_valid = 1;
+            gs->setup_kind = kind;
+        }
         gs->drawn_prims++;
         return 1;
     }

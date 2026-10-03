@@ -32,6 +32,7 @@
 #include "game/em_render_context_live.h"
 #include "game/em_replay.h"
 #include "game/em_load_veil_live.h"
+#include "game/em_gs_frame_live.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -292,7 +293,10 @@ static int rcl_step_b(void *context, int32_t index) { (void)context; return em_r
 static int rcl_step_v(void *context)
 {
     if (em_rcl_001D2300() < 0) return -1;
-    return em_load_veil_live_draw((EmGfx *)context);
+    if (em_load_veil_live_draw((EmGfx *)context) < 0) return -1;
+    /* The kick: the Original profile's GS frame runs the kicked list's
+     * head and the world frame's recorded draws (em_gs_frame_live). */
+    return em_gs_frame_live_kick((EmGfx *)context);
 }
 static int rcl_step_w(void *context, int32_t field) { (void)context; return em_rcl_001D2580(field); }
 static int stream_step_h(void *context) { (void)context; return em_stream_live_step_h(); }
@@ -429,6 +433,21 @@ int main(void)
         em_window_destroy(win);
         return 1;
     }
+    /* The Original profile's GS frame (em_settings.h gpu_renderer 0): the
+     * CPU GS model draws the world frame; without its GS memory image the
+     * game cannot start (fail-stop). */
+    if (em_gs_frame_live_install(gfx) != 0) {
+        em_frame_set_sound_service(NULL);
+        em_frame_set_task_check(NULL, NULL);
+        em_scene_bindings_module_loader_shutdown();
+        em_message_presenters_live_shutdown();
+        em_message_live_shutdown();
+        em_stream_live_shutdown();
+        em_gfx_destroy(gfx);
+        em_window_destroy(win);
+        return 1;
+    }
+    em_frame_set_timing_probe(em_gs_frame_live_cost, gfx);
     em_frame_set_step_b(rcl_step_b, NULL);
     /* Main-loop steps V / W (001D2300, 001D2580) on the same context. */
     em_frame_set_step_vw(rcl_step_v, rcl_step_w, gfx);

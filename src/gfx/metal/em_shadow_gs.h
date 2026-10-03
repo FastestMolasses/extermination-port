@@ -111,6 +111,22 @@ typedef struct {
 #define EM_SHADOW_GS_SCISSOR_TARGET 0x7F0000007F0000ull /* 0..127 */
 #define EM_SHADOW_GS_TARGET_ORIGIN 1984.0f
 #define EM_SHADOW_GS_TARGET_SIZE 128u
+/* The rest of D_00817E20 (001D9720 builds it; tools/test_shadow_original_
+ * reference.py decodes its 14 A+D pairs from the captures and checks FRAME,
+ * XYOFFSET, SCISSOR, the RGBAQ, both XYZ2 and the PRIM, and each pass's
+ * state against em_shadow_gs_pass_state): the clear sprite PRIM 6 from
+ * (1984, 1984) to (2112, 2112) at Z 0, RGBAQ (128, 128, 128, 0) with Q 1.0,
+ * TEST_1 0x30000 before and after it; the environment's PRMODECONT 1,
+ * COLCLAMP 1 and DTHE 0 (001006D8 for a PSMCT32 buffer, the values the
+ * frame's own environment holds). */
+#define EM_SHADOW_GS_TARGET_CLEAR_TEST 0x30000ull
+#define EM_SHADOW_GS_TARGET_CLEAR_PRIM 0x006ull
+#define EM_SHADOW_GS_TARGET_CLEAR_RGBAQ 0x3F80000000808080ull
+#define EM_SHADOW_GS_TARGET_CLEAR_XYZ0 0x7C007C00ull
+#define EM_SHADOW_GS_TARGET_CLEAR_XYZ1 0x84008400ull
+#define EM_SHADOW_GS_PRMODECONT_TARGET 1ull
+#define EM_SHADOW_GS_COLCLAMP_TARGET 1ull
+#define EM_SHADOW_GS_DTHE_TARGET 0ull
 /* Receiver TEX0: TBP0 0x2580 (= FBP 0x12C x 32), TBW 2, PSMCT32, TW = TH
  * = 7, TCC 1, TFX MODULATE. */
 #define EM_SHADOW_GS_TEX0_RECEIVER 0x5DC00A580ull
@@ -139,7 +155,7 @@ static inline int em_shadow_gs_pass_state(int pass, EmShadowGsState *s)
         s->frame = EM_SHADOW_GS_FRAME_TARGET; s->zbuf = EM_SHADOW_GS_ZBUF_TARGET;
         s->xyoffset = EM_SHADOW_GS_XYOFFSET_TARGET;
         s->scissor = EM_SHADOW_GS_SCISSOR_TARGET;
-        s->test = 0x30000; s->rgbaq = 0x3F80000000808080ull;
+        s->test = EM_SHADOW_GS_TARGET_CLEAR_TEST; s->rgbaq = EM_SHADOW_GS_TARGET_CLEAR_RGBAQ;
         return 0;
     case EM_SHADOW_GS_PASS_SILHOUETTE:            /* D_008168C0 template */
         s->prim = 0x004; s->regs = 0x5FFF; s->nloop = 32;
