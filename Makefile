@@ -1292,8 +1292,9 @@ test-panel-program:
 
 .PHONY: test-camera-aim-reference
 # The aim camera (camera actions 1 / 2 / 5 and what they own, em_camera_aim.c)
-# against the original instructions over captured AREA11 RAM
-# (docs/CAMERA_LIVE.md section 7). EM_TEST_FULL=1 runs every case.
+# and camera action 14 (00198AF0 / 00198930) with 00191530 against the
+# original instructions over captured AREA11 RAM (docs/CAMERA_LIVE.md
+# sections 6 and 7). EM_TEST_FULL=1 runs every case.
 test-camera-aim-reference:
 	python3 tools/test_camera_aim_reference.py
 
@@ -1315,8 +1316,9 @@ test-area22-port-reference:
 .PHONY: test-area00-low-reference
 # em_area00_low.c against the original instructions over recorded AREA00
 # RAM. A later-level module, in the default set because the first level's
-# aim beam binds its 00102870 (the one owner; AIM_FIRE.md section 7).
-# About 4 s.
+# aim beam binds its 00102870 and the camera its 00198CE0 / 00198F10
+# (actions 9 / 11; the one owners; AIM_FIRE.md section 7, CAMERA_LIVE.md
+# section 6). About 4 s.
 test-area00-low-reference:
 	python3 tools/test_area00_low_reference.py
 

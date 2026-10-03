@@ -1474,8 +1474,10 @@ modelled. Every other translation agrees (the module docs' notes).
 opening's camera timeline is the original 0022EC30 / 0022EEF0 on the
 AREA11 script host, equal to the original's per-frame camera block over
 the whole opening; nothing pre-empts camera action 0 any more (the
-examine cue's stand-in is removed). The opening's early fade-in is the
-stream request's wait, not the timeline (item 6).
+examine cue's stand-in is removed), and every camera action AREA11's
+router can set is bound (actions 9, 11 and 14 since the step's fix round;
+10, 12, 13 and 15 are unreachable in AREA11). The opening's early fade-in
+is the stream request's wait, not the timeline (item 6).
 
 **A. On the route, every run**
 
@@ -1625,12 +1627,16 @@ stream request's wait, not the timeline (item 6).
    shots are their scripts' original camera ops. Camera actions: 0..8 are
    bound; 10, 12, 13 and 15 cannot be reached in AREA11 (its room records
    set mode 0 / action 0; the router's other arms are other areas'); 9, 11
-   and 14 need the player states 44 / 46 / 56 / 57, which no AREA11
-   recording holds and one of whose entries (0015D4C0's ground actions
-   0x37 / 0x38) AREA11's grid attributes exclude. They stay fail-stops.
-   What is left: a static proof that the other writers of those states
-   (001662D0 mount 5, 001647D0, 0016D130, 0016DE40, 0016EBA0, 0015C420
-   entry 2, 00160220) cannot run in AREA11.
+   and 14 (player states 44 / 46 / 56 / 57, which nothing proves
+   unreachable in AREA11: the +4 = 2 reaction 00222AD0 ends in state 44
+   unless +302 is 9) are bound since the step's fix
+   round: em_area00_low's 00198CE0 / 00198F10 (their one owner) and
+   em_camera_aim's 00198AF0 / 00198930 / 00191530, instruction-tested,
+   with the live dispatch equal to the original 0018BC20 on two captured
+   AREA11 scenes (make test-camera-interaction-fixture). No AREA11
+   recording reaches them, so none is proven in play by a capture
+   (Capture, if wanted: the player in 00222AD0's reaction in AREA11, or
+   on a ladder top / crawl entry, with the camera block sampled).
 
 **B. On the route, now and then, or in state the player does not see**
 
@@ -1692,9 +1698,10 @@ stream request's wait, not the timeline (item 6).
     cable's +0x36 (the knife probe 0019B2C0); nothing exercises the
     truck-pit fall.
 14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
-    melee states (P24..P28) run em_weapon's stand-ins; camera actions 9..15
-    fault (actions 1 / 2 / 5 and the release 00197490 are translated and
-    bound since chain step AIMCAM, below). **Status (2026-10-01, chain step AIM):** the original
+    melee states (P24..P28) run em_weapon's stand-ins; camera actions 10,
+    12, 13 and 15 fault, unreachable in AREA11 (actions 1 / 2 / 5 and the
+    release 00197490 are translated and bound since chain step AIMCAM,
+    below; 9, 11 and 14 since chain step CAMERAS' fix round). **Status (2026-10-01, chain step AIM):** the original
     aim / fire workers (the Codex branch, audited and merged; AIM_FIRE.md)
     are on main, instruction-tested, behind the diagnostic gate
     `EM_AIM_FIRE_ORIGINAL=1` with `EM_AIM_FIRE_TEST=r1|r2`; ordinary play
@@ -2375,9 +2382,9 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   2, 5 and 00197490) has been live since AIMCAM; the opening's timeline is
   the original 0022EC30 / 0022EEF0 (section 1b item 6) and nothing
   pre-empts action 0 (item 7: the examine cue's stand-in removed; the
-  director's and the door's went with WP-8b and census L18). Actions 9..15
-  stay fail-stops: 10, 12, 13 and 15 cannot be reached in AREA11, 9, 11
-  and 14 are not reached by any AREA11 recording (CAMERA_LIVE.md section 6).
+  director's and the door's went with WP-8b and census L18). Actions 9,
+  11 and 14 are bound since the step's fix round; 10, 12, 13 and 15 stay
+  fail-stops, unreachable in AREA11 (CAMERA_LIVE.md section 6).
 
 ### WP-17 Input and startup
 - **Scope:**

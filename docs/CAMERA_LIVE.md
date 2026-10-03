@@ -297,8 +297,8 @@ region since this step; nothing writes them in AREA11.
   zoom already equalled the original's but whose +0x80 cursor and +0x89
   state were its own (the fade ran in em_opening_media).
 - **Faults where an original has no translation**:
-  - camera actions 9..15 (section 6: which of them AREA11 can reach), and
-    mode 1's 001B0300 (also as 00197490's worker, a fail-stop: section 7);
+  - camera actions 10, 12, 13 and 15 (section 6: AREA11 cannot reach
+    them), and mode 1's 001B0300 (also as 00197490's worker, a fail-stop: section 7);
   - 001B0C60 in areas 0x12 / 0xE;
   - the specials' other-area arms (001944B0, 00194DB0, 00230230,
     0x823FE0, 001AEDE0).
@@ -315,7 +315,7 @@ region since this step; nothing writes them in AREA11.
 - **Legacy scenes** (no original roster) keep `camera_update` and
   `camera_commit_view`, whose look-at is now the translated 00102CD0.
 
-## 6. Camera action 0 and the actions AREA11 cannot reach
+## 6. Camera action 0 and the other actions AREA11 can set
 
 Nothing pre-empts camera action 0 (00195130) any more: the last stand-in,
 `camera_area11_standins` (em_camera.c) with the examine cue
@@ -349,19 +349,40 @@ region events are for areas 0x16, 0x13 and 0xD. So:
 - actions 10 (00198D90), 12 (001963A0), 13 (00196CE0) and 15 (00197390)
   cannot be reached in AREA11 (mode 1, or another area's router arm or
   room record): fail-stops;
-- actions 9 (00198CE0), 11 (00198F10) and 14 (00198AF0) need the player
-  code 0x10, 0x12 or 0x28 (0015CBA0: +1F0 state 44 except mode 2 sub 0,
-  46, and 56 / 57 except sub 2). None of the 63 AREA11 recordings (the
-  route beats, the AIM, EXIT, DAMAGE, BRANCH and OPTIONS lanes) ever holds
-  those states or a camera action other than 0, 1, 2 and 8. One way into
-  state 44, 0015D4C0's ground actions 0x37 / 0x38, is closed by the data:
-  the ground attribute +0x23B is the hit node's +0x1A low byte, and
-  AREA11's 3,099 grid nodes carry only 0, 3, 4, 5, 50, 60, 70, 80, 81, 90,
-  93 and 120 (cells carry 0). The other writers of those states (the ladder
-  machine 001662D0's mount 5, 001647D0, 0016D130, 0016DE40, 0016EBA0,
-  0015C420's entry 2, 00160220's area-0x15 arm) are not yet proven
-  unreachable in AREA11: the three actions stay fail-stops, reported when
-  reached.
+- actions 9 (00198CE0), 11 (00198F10) and 14 (00198AF0), which the router
+  sets for the player codes 0x10, 0x12 and 0x28 (0015CBA0: +1F0 state 44
+  except mode 2 sub 0, 46, and 56 / 57 except sub 2), are translated and
+  bound (fix round of chain step CAMERAS, 2026-10-02). Nothing proves
+  those states unreachable in AREA11: besides the ladder and hang mounts,
+  the crawl family and 0015C420's entries, the +4 = 2 reaction 00222AD0
+  (byte-matched C; PLAYER_MAJOR2.md) ends in state 44 whenever +302 is
+  not 9, so the three actions are bound rather than left as fail-stops. None of the 63 AREA11
+  recordings (the route beats, the AIM, EXIT, DAMAGE, BRANCH and OPTIONS
+  lanes) holds those states or a camera action other than 0, 1, 2 and 8,
+  so no capture shows them live; the proof is instruction-level:
+  - 9 and 11 are em_area00_low's 00198CE0 / 00198F10 (the one owner of
+    each; `make test-area00-low-reference` runs the original instructions
+    over recorded AREA00 RAM, every sub-state, code, +D kind and area 8
+    sub-area 3's fixed eye). Their calls leave through em_camera_live's
+    `low_call` to the aim camera's callee binding (aim_call: the SDK
+    leaves, the chases 0018C4B0 / 0018C6A0, 001B1240 through the script
+    host's heading), 00191530 to em_camera_aim. They address the block,
+    the pool, the player view, 0x70003400 / 0x70003600 and D_00810700 /
+    701 as regions over the live storage;
+  - 14 (00198AF0) with its follow 00198930, and 00191530, are em_camera_aim's
+    (`make test-camera-aim-reference`: the original instructions over the
+    captured AREA11 RAM, every sub-state 0..4, the codes 0x28 / 0x12,
+    +1F1 0 / 1 / 2 and the camera mode +5 0 / 1, every branch both ways).
+    00198AF0 follows the instructions where its NEARMISS C differs: in
+    sub-state 2 it sets +1 = 3 when the code is not 0x28 *or* +1F1 is 2
+    (the C reads an `and`); a mutant with the C's form is caught;
+  - the binding: `make test-camera-interaction-fixture` runs the live
+    camera's dispatch 0018BC20 (`em_camera_live_dispatch`) for actions 9,
+    11 and 14 in every sub-state 0..3 with the codes that keep and end
+    each (and +1F1 0 / 1 / 2 for 14) on two captured AREA11 scenes, and
+    the original 0018BC20 over the same capture and inputs: the whole
+    camera block and D_008105D0..EF equal byte for byte (80 runs; a binder
+    that skips 14 or runs 9 for 11 is caught).
 
 ## 7. The aim camera (camera actions 1 / 2 / 5)
 
@@ -422,16 +443,17 @@ CAPTURES_C10.md "AIM").
 
 **Verification.** `make test-camera-aim-reference`
 (tools/test_camera_aim_reference.py, ~10 s; `EM_TEST_FULL=1` ~30 s): the
-eleven routines execute from the captured AREA11 RAM (route snapshots
+eleven routines (and, since the CAMERAS fix round, action 14's 00198AF0 /
+00198930 and 00191530: section 6) execute from the captured AREA11 RAM (route snapshots
 00..14 and the twelve AIM end snapshots), the original on one image and
 em_camera_aim over a second through its host; every store in order, every
 callee entry (stack pointer, argument registers), the result and the whole
 RAM / scratchpad / stack compared. The SDK leaves, chases, math and
 00191210 run their original instructions on both sides; world cases run
 every callee (0018D7B0, 00197490, 0019A910, 00183010, the render-context
-helpers) as original code too. 800 of 2,491 cases by default, all 160
-conditional-branch outcomes of the eleven routines both ways (asserted),
-137 callee-failure cuts, 30 host refusals; a boundary mutant at -25 is
+helpers) as original code too. 800 of 4,294 cases by default, all 178
+conditional-branch outcomes of the fourteen routines both ways (asserted),
+164 callee-failure cuts, 39 host refusals; a boundary mutant at -25 is
 caught (the near-wall lift's clamp). Live: `make test-level-smoke-aim`
 (the level smoke's side runs `aim_r1_hold` / `aim_r2_hold`, behind the
 aim/fire gate until 2026-10-02 and on the only aim path since; LEVEL_SMOKE.md,

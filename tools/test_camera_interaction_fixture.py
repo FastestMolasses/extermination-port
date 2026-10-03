@@ -17,9 +17,20 @@ and the actual eye / target D_008105D0 / E0 (0018D7B0 style 1's copy).
 A captured-scene regression, not exhaustive: the solvers' own oracles are
 tools/test_camera_follow_original_reference.py and
 tools/test_camera_leftovers_reference.py.
+
+The action bindings (docs/CAMERA_LIVE.md section 6): on both captures, the
+live camera's action dispatch 0018BC20 (em_camera_live_dispatch) runs
+camera actions 9, 11 and 14 (em_area00_low's 00198CE0 / 00198F10 and
+em_camera_aim's 00198AF0 through the live binder) for every sub-state 0..3
+and the player codes that keep and end each action; the original 0018BC20
+runs over the same capture with the same inputs (AREA11's D_00810700 = 0xB,
+D_00810701 = 0, 0x70003B50 = the player's +C0..+CC as the live camera
+publishes it) with every callee its own original instructions. The whole
+camera block and D_008105D0..D_008105EF must be equal byte for byte.
 """
 import ctypes as C
 import json
+import struct
 from pathlib import Path
 import subprocess
 import sys
@@ -30,6 +41,8 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            'src/game/em_camera_follow_original.c', 'src/game/em_camera_area11_specials.c',
            # The aim camera (docs/CAMERA_LIVE.md section 7) and its callees.
            'src/game/em_camera_aim.c', 'src/game/em_aim_fire_sdk_memory.c', 'src/game/em_area22_port.c',
+           # Camera actions 9 / 11 (00198CE0 / 00198F10, their one owner; section 6).
+           'src/game/em_area00_low.c',
            'src/game/em_camera_leftovers.c', 'src/game/em_camera_leftovers_solver.c',
            'src/game/em_census_standins.c', 'src/game/em_render_verify_rest.c',
            'src/game/em_owner_services_original.c', 'src/game/em_message_draw_original.c',
@@ -69,6 +82,48 @@ def check(fn, capture, world, cells, what):
     return {'camera_words_exact': [hex(o) for o, _ in WRITTEN], 'eye_and_target_exact': True}
 
 
+# (action, the player codes that keep it / end it, +1F1 values)
+ACTIONS = ((9, (0x10, 0x11), (0,)), (11, (0x12, 0x10), (0,)), (14, (0x28, 0x12), (0, 1, 2)))
+
+
+def check_dispatch(native, capture, scratchpad, world, cells, what):
+    sys.path.insert(0, str(ROOT / 'tools'))
+    from test_player_fall_reference import FallEE
+    import test_player_slide_reference as S
+    elf = S.read_elf()
+    ram = capture.read_bytes()
+    spad = scratchpad.read_bytes() if scratchpad and scratchpad.is_file() else None
+    player = 0x8102B0
+    runs = 0
+    for action, codes, subs in ACTIONS:
+        for state in range(4):
+            for code in codes:
+                for sub in subs:
+                    out = (C.c_uint8 * (0xD0 + 0xD4))()
+                    ok = native.test_dispatch(str(capture).encode(), str(world).encode(), str(cells).encode(),
+                                              action, state, code, sub, out)
+                    assert ok == 1, (what, 'dispatch faulted', action, state, hex(code), sub)
+                    e = FallEE(elf, ram, spad)
+                    e.save(CAM + 1, state, 1)
+                    e.save(CAM + 5, 0, 1)
+                    e.save(CAM + 6, action, 1)
+                    e.save(player + 0x230, code)
+                    e.save(player + 0x1F1, sub, 1)
+                    e.save(player + 0xAC, 0x3F800000)
+                    e.save(player + 0xBC, 0x3F800000)
+                    e.save(0x810700, 0x0B, 1)
+                    e.save(0x810701, 0, 1)
+                    e.write(0x70003B50, e.read(player + 0xC0, 16))
+                    e.call(0x18BC20, (CAM, player))
+                    got = bytes(out)
+                    want = e.read(CAM, 0xD0) + e.read(POOL, 0x20)
+                    assert got[:0xD0] + got[0xD0:0xF0] == want, (
+                        what, 'action', action, state, hex(code), sub,
+                        [hex(i) for i in range(len(want)) if (got[:0xD0] + got[0xD0:0xF0])[i] != want[i]][:8])
+                    runs += 1
+    return runs
+
+
 def main():
     assert sys.platform == 'darwin', 'This captured-scene host harness uses the macOS linker'
     capture = ROOT.parent / 'Extermination/build/startup-reference/panel/animation_ee.bin'
@@ -80,7 +135,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     library = output / 'fixture.dylib'
     subprocess.run(['cc', '-dynamiclib', '-Wl,-undefined,dynamic_lookup', '-Wl,-dead_strip',
-                    '-Wl,-exported_symbol,_test_retarget', '-Wl,-exported_symbol,_test_refusal', '-O1', '-g',
+                    '-Wl,-exported_symbol,_test_retarget', '-Wl,-exported_symbol,_test_refusal',
+                    '-Wl,-exported_symbol,_test_dispatch', '-O1', '-g',
                     '-ffp-contract=off', '-Isrc', *SOURCES, '-lm', '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     for fn in (native.test_retarget, native.test_refusal):
@@ -92,6 +148,13 @@ def main():
     report = check(native.test_refusal, refusal, world, output / 'refusal_cells.bin', 'refusal')
     (output / 'refusal.json').write_text(json.dumps(report, indent=2) + '\n')
     print('captured original elevator refusal camera fixture PASS', json.dumps(report))
+    native.test_dispatch.argtypes = [C.c_char_p, C.c_char_p, C.c_char_p, C.c_int, C.c_int, C.c_int, C.c_int,
+                                     C.POINTER(C.c_uint8)]
+    runs = check_dispatch(native, capture, capture.parent / 'animation_scratchpad.bin', world,
+                          output / 'panel_cells.bin', 'panel')
+    runs += check_dispatch(native, refusal, None, world, output / 'refusal_cells.bin', 'refusal')
+    print('camera actions 9 / 11 / 14 through the live dispatch vs the original 0018BC20: PASS %d runs '
+          '(block and eye / target byte for byte)' % runs)
 
 
 if __name__ == '__main__':

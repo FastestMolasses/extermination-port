@@ -929,9 +929,13 @@ original's one-frame view lag is kept.
   (the examine shots are their scripts' original camera ops; the aim
   camera is the original's since 2026-10-01 / 02: "Aiming, firing, the gun
   lamp and the knife on the original code").
-- Status: **PARTIAL**. Camera actions 9, 11 and 14 stop the game if
-  reached (no AREA11 recording reaches them; CAMERA_LIVE.md section 6).
-  The slide entry is 0.863 units off (relaxation pending review).
+- Camera actions 9, 11 and 14 (the router's player codes 0x10 / 0x12 /
+  0x28) are the original's since the CAMERAS fix round (2026-10-02):
+  instruction oracles over recorded RAM and the live dispatch equal to the
+  original 0018BC20 on captured AREA11 scenes; no AREA11 recording reaches
+  them, so no capture shows them in play (CAMERA_LIVE.md section 6).
+- Status: **PARTIAL**. The slide entry is 0.863 units off (relaxation
+  pending review).
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
 

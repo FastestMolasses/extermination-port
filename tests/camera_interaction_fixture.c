@@ -127,3 +127,40 @@ int test_retarget(const char *ramfile,const char *world,const char *scratch,uint
 {return retarget(ramfile,world,scratch,out,0);}
 int test_refusal(const char *ramfile,const char *world,const char *scratch,uint8_t *out)
 {return retarget(ramfile,world,scratch,out,1);}
+
+/* The action dispatch 0018BC20 (em_camera_live_dispatch) on the captured
+ * camera, block and pool, with the case's camera mode +5 = 0, action +6,
+ * sub-state +1 and the player's code +230 / +1F1 (docs/CAMERA_LIVE.md
+ * section 6: actions 9 / 11 / 14). `out` as retarget's. 1, 0 on a fault. */
+int test_dispatch(const char *ramfile,const char *world,const char *scratch,int action,int state,int code,
+                  int sub,uint8_t *out)
+{
+    if (em_rcl_init(EM_RCL_EXPORT_PATH,s_d810E80)!=0) return 0;
+    unsigned char *ram=malloc(0x2000000);FILE *f=fopen(ramfile,"rb");
+    if (!ram) return 0;
+    if (!f) {free(ram);return 0;}
+    if (fread(ram,1,0x2000000,f)!=0x2000000) {fclose(f);free(ram);return 0;}
+    fclose(f);memset(&g,0,sizeof g);
+    if (em_collision_load(&g.coll,world)) {free(ram);return 0;}
+    if (!load_world(ram,world,scratch)) {
+        em_collision_world_unload();em_collision_free(&g.coll);free(ram);return 0;
+    }
+    const unsigned c=0x8101E0,p=0x8102B0;
+    memcpy(player.bytes,ram+p,sizeof player.bytes);
+    int32_t code32=code;memcpy(player.bytes+0x230,&code32,4);
+    player.bytes[0x1F1]=(uint8_t)sub;
+    for (int i=0;i<3;i++) g.pos[i]=word(ram,p+0xA0+i*4);
+    g.yaw=word(ram,p+0xC4);
+    int ok=em_camera_live_bind(&camera_host)==0;
+    if (ok) {
+        uint8_t *block=em_camera_live_bytes(0x008101E0u,0xD0);
+        memcpy(block,ram+c,0xD0);
+        memcpy(em_camera_live_bytes(0x008105D0u,0xD4),ram+0x8105D0,0xD4);
+        block[1]=(uint8_t)state;block[5]=0;block[6]=(uint8_t)action;
+        em_camera_live_view_publish();
+        ok=em_camera_live_dispatch()==0;
+        memcpy(out,em_camera_live_bytes(0x008101E0u,0xD0),0xD0);
+        memcpy(out+0xD0,em_camera_live_bytes(0x008105D0u,0xD4),0xD4);
+    }
+    em_collision_world_unload();em_collision_free(&g.coll);free(ram);return ok;
+}
