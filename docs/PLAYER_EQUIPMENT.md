@@ -282,10 +282,11 @@ idle / walk states.
 - The player record image (`player_states_actor_mut`) and its bone world
   matrices (the record pose's node records, copied every tick); D_00275BCC
   and the bone-slot stack: em_area11_boxes' 001AF710 world.
-- A held bone's +0x00..+0x3F (the matrix 001C62C0 copied from the model)
-  is served read-only by original address since chain step AIMLIVE:
-  001EFF10 hands the knife bone + 0x30 to 001EF9D0 and the trail node
-  transforms by its +0x00 (AIM_FIRE.md section 9.3).
+- 00189D30 hands 001EFF10 the knife bone's slot + 0x90, its world matrix
+  (`*(*(+0x14) + 0x110) + 0x90`, decomp src/func_00189D30.c): 001EF9D0
+  reads its row 3 and the trail node transforms by it (AIM_FIRE.md section
+  11.3). Until the AIM fix round the live worker passed the slot itself and
+  a read-only view of the slot's +0x00..+0x3F served it; that view is gone.
 
 ### 4.4 Stand-ins still in place
 

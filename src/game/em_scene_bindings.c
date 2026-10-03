@@ -585,6 +585,17 @@ static void log_hex(FILE *f, const uint8_t *b, size_t n)
     fputc('"', f);
 }
 
+/* EM_LOG_AIM_RECORDS=1: the tick log's "aimrec" key (test logging only). */
+static int aim_records_logged(void)
+{
+    static int on = -1;
+    if (on < 0) {
+        const char *v = getenv("EM_LOG_AIM_RECORDS");
+        on = v && v[0] == '1';
+    }
+    return on;
+}
+
 static void log_tick_begin(void)
 {
     if (!log_file())
@@ -947,6 +958,37 @@ static void log_tick_end(int rc)
                 first = 0;
             }
             fputs("]]", f);
+        }
+        /* The AIM replays' whole-record view (EM_LOG_AIM_RECORDS=1, set by
+         * tools/test_level_smoke_aim.py), as the AIM captures' rows sample
+         * them (decomp CAPTURES_C10.md "AIM"): the live player record
+         * +0x000..+0x31F (its image), the gun node (player +0x20) and the
+         * knife node (+0x18) at +0x00..+0x3F, +0xA0..+0xCF and
+         * +0x1F0..+0x21F with "--" for a byte the node does not model, the
+         * status block D_00810130..+0x5F (the rows' ui_rec) and the processed
+         * pad words D_00810E70 / D_00810E74 (the rows' held / pressed).
+         * tools/test_level_smoke.py check_aim_records. */
+        if (aim_records_logged()) {
+            fputs(", \"aimrec\": [", f);
+            log_hex(f, a->bytes, EM_PLAYER_ACTOR_SIZE);
+            for (unsigned link = 0x20; ; link = 0x18) {
+                const uint32_t node = em_live_u32(a, link);
+                static const uint32_t spans[][2] = {{0x00, 0x40}, {0xA0, 0x30}, {0x1F0, 0x30}};
+                fputs(", \"", f);
+                for (unsigned s = 0; s < 3; ++s)
+                    for (uint32_t k = 0; k < spans[s][1]; ++k) {
+                        const uint8_t *b = node ? em_equipment_live_field(node + spans[s][0] + k, 1, 0) : NULL;
+                        if (b) fprintf(f, "%02x", *b);
+                        else fputs("--", f);
+                    }
+                fputc('"', f);
+                if (link == 0x18) break;
+            }
+            const uint8_t *ui = em_status_runtime_ui_block(em_area11_interaction_host_status());
+            fputs(", ", f);
+            if (ui) log_hex(f, ui, 0x60);
+            else fputs("null", f);
+            fprintf(f, ", %u, %u]", (unsigned)s_state.d810E70, (unsigned)s_state.d810E74);
         }
         /* The stream lanes as the previous frame's step H left them (the
          * task runs before step H), as the C7 stream capture's main-loop-top
@@ -3432,6 +3474,7 @@ void em_scene_task_001ACEC0(void)
     log_tick_begin();
     int rc = em_sf_001ACEC0(&s_state, s_user, &s_workers);
     log_tick_end(rc);
+    em_level_smoke_test_tick_end(); /* test instrumentation; inert when inactive */
     /* Step D of the next main-loop iteration reads 3B90 and C4 (design 2.1). */
     em_frame_screen_fade_gate(s_state.spad3B90, s_state.req[EM_SCENE_REQ_C4]);
     if (t)

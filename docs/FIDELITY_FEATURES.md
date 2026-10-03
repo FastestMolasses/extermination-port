@@ -138,10 +138,16 @@ verified translation.
   loop service 001FC3C0 and the contact pass 001A8660 bound live (the
   AREA11 overlay translations checked against the decomp's byte-identical
   C): live 723 (87,008 of 88,729 instructions = 98.1%; 95.6% by function
-  count), verified but unbound 30, unverified 3, boundary 428.
+  count), verified but unbound 30, unverified 3, boundary 428. Update 1.56
+  (chain step AIMCAP, 2026-10-02, recounted from the rows after the merge):
+  the AIM capture lane's 114 further functions (aiming, firing, melee,
+  reloads; 20,583 instructions) are rows, all live, measured over the
+  eleven AIM side runs: with them live 837 of 870 (107,591 of 109,312
+  instructions = 98.4%), the route's own 756 unchanged.
 - Status: **PARTIAL**. First level only, and only the played route to
-  Roger's encounter. Not covered: the level exit, unplayed branches
-  (damage/death, pause/options/save, weapon and camera inputs, the truck-pit
+  Roger's encounter plus the AIM side beats from route 08's end. Not
+  covered: the level exit, unplayed branches
+  (damage/death, pause/options/save, the camera inputs, the truck-pit
   fall, the west-yard and plateau ladders) and boot before the title.
   Boundary functions are native replacements, not translations; the sound
   library's boundary (the SPU2 output) is the largest uncompared one.
@@ -1254,8 +1260,11 @@ the rounds strike the ground and walls with the original impact marks and
 sparks; Square switches the gun lamp (in the first level only its flare
 draws, as in the original); the knife swings in the original combos, and
 knifing the security gun's power cable parts it and switches the gun off
-(the area's taken bit set), as in the original. Sounds are played by the
-same code but not compared.
+(the area's taken bit set), as in the original. The status screen's
+SELECTOR switches the rifle to 3-round bursts as in the original. The
+knife's swing leaves the original's trail. Sounds are played by the same
+code; only the swing's sound handle is compared, and only whether one is
+held (see below).
 
 - How: the stances, fire machines, the gun node's aim / shot callees, the
   lamp, the knife and the cable reaction run their translations through
@@ -1269,13 +1278,23 @@ same code but not compared.
   test-chain-page-reference's streak and kind-2 batches,
   test-effect-kinds-reference, test-coll-list-passes-reference); the level
   smoke's side runs (`make test-level-smoke-aim`, `LEVEL_SMOKE.md` "The AIM
-  replays"): ten PCSX2 AIM captures replayed from route 08's end with the
-  captures' own pad input, all PASS on 2026-10-02: on every row the
-  player's stance and fire-machine bytes, clip and clock, the aim's pitch
-  and yaw, the fire mode, magazine, reserve and light byte; the shots'
-  records (markers, muzzle nodes, impact effects, knife trails, the cable
-  reaction's nodes) with their header bytes; the gun's and the cable's
-  state on aim_10 + aim_11's 2,020 rows.
+  replays"): all twelve PCSX2 AIM captures (eleven side runs, aim_05's
+  burst through the status screen included since chain step AIMCAP)
+  replayed from route 08's end with the captures' own pad input, all PASS
+  on 2026-10-02: on every row the player's stance and fire-machine bytes,
+  clip and clock, the aim's pitch and yaw, the fire mode, magazine,
+  reserve and light byte; the shots' records (markers, muzzle nodes,
+  impact effects, knife trails, the cable reaction's nodes) with their
+  header bytes; the gun's and the cable's state on aim_10 + aim_11's 2,020
+  rows; and, since chain step AIMCAP, the whole player record (+0x000..
+  +0x31F), the gun and knife nodes, the camera and the status block
+  (`LEVEL_SMOKE.md` "The AIM side runs' whole records"): the player's pose
+  in the melee equals the recording's on every row since the player's node
+  slots come off the original slot stack (`AIM_FIRE.md` section 11.2;
+  before, the knife's trail bent the player's pose from aim_09's frame 27);
+  the knife's trail is drawn from its first call, as the original's census
+  run shows (`AIM_FIRE.md` section 11.3: its point is the hand, the knife
+  bone's world matrix, as 00189D30 passes it).
 - Status: **PARTIAL**. Proven: the state above, row for row, relative to
   PCSX2 captures. Not proven: where a round strikes is compared by
   direction only (the side runs stand about 0.65 from the capture's start,
@@ -1283,7 +1302,14 @@ same code but not compared.
   EFU, whose results are a model (the background renderer's) that no
   capture has checked; the lamp's cone shells are not reached in the first
   level; pixels are not compared; the player's death while armed still uses
-  the legacy death sequence (the original death states are untranslated).
+  the legacy death sequence (the original death states are untranslated);
+  the knife trail's pixels (no original frame of a swing); the swing's
+  sound handle: the port's track choice follows the host audio clock, not
+  the game's tick, so it is not reproducible and differs from the
+  original's on most rows (a port defect for the sound step, `AIM_FIRE.md`
+  section 11.4); the status pages' module loads are shorter at host speed
+  than the recording's (the user's host-speed disc policy); the AIM
+  captures hold no other sound state.
 
 **Skipping a first-level cutscene behaves as in the original**
 

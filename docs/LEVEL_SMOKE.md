@@ -49,7 +49,7 @@ make test-level-smoke                  # first_control, status, battery (about 1
 make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim
-make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable (8 min 57 s with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty
+make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
@@ -260,6 +260,7 @@ fence_door_side1` requires both side phases.
 | aim_fire / aim_both / aim_reload / aim_reload_empty / aim_melee (side, from 08) | AIM aim_03 / aim_02 / aim_06 / aim_07 / aim_09 | the fire machines, the round 001861C0 and its marker 0018ABA0, the muzzle node 001F5040, the casing 001F4010, the reloads 0017B300 / 0016F600, melee 001735C0 / 00173E60 with the knife's 001AA840 / 0019B2C0 and its trail 001F18C0 | yes, each its own run (chain step AIMLIVE, 2026-10-02) | — |
 | aim_light (side, from 08) | AIM aim_08 | the gun lamp 00187780 / 00187690 (Square: the flare; the cone 001D9530 is skipped in AREA11) | yes, its own run (2026-10-02) | — |
 | aim_world (side, from 08) | AIM aim_04 | the walk and the stick aim, rounds into the ground, the pillar, past the fence and a miss: the impact 0x80000060 (001EACF0, the streak program 0x230800), the ring decal 001F0460 / 001EBBB0 and its lanes, 001A9C40 in the close-out | yes, its own run (2026-10-02) | — |
+| aim_burst (side, from 08) | AIM aim_05 | START: the status hub 00209DF0, the SPR4 page 00211970 and its SELECTOR part page 00217FA0 pick the 3-round burst (D_00810C61 = 1); R1: burst fire, 00170A60 states 0x14..0x17 | yes, its own run (chain step AIMCAP, 2026-10-02) | the page modules' drive time (host speed; the capture's loads are longer) |
 | aim_cable (side, from 08) | AIM aim_10, then aim_11 | rounds at the security gun's cable, then the knife at its foot: 0018A180 (001B61C0), the reaction 001EFE00 / 001EFEB0 / 0021AAC0 (the kind-2 program 0x232540) / 0021A500 (its strand strips), 001EAB50, the gun's lifecycle 2, the cable freed | yes, its own run (2026-10-02) | — |
 | cage_ladders | 10 (f0..f1090) | Use 00160220 -> 0015D4C0 case 0x32, ladder entry 00165B60 (state 0xB), climb 001662D0 (state 0xC); the walk's step-off fall 00162DB0 / landing 00163B40 | yes (census L09, L10) | — |
 | cage_roof | 10 (f1090..) | director 0x8253F0 beat 0 script 0x8294C0, Roger 0x8237E0 script 0x828990 (voiced line 0x7F) | yes (census L21 with WP-8b) | — |
@@ -1035,7 +1036,7 @@ eye climbing six ticks late after the release: there the prepass
 height 00191390 waits for it. The place matters; the binding does not
 differ.
 
-### The AIM replays (aim_fire, aim_both, aim_reload, aim_reload_empty, aim_melee, aim_light, aim_world, aim_cable)
+### The AIM replays (aim_fire, aim_both, aim_reload, aim_reload_empty, aim_melee, aim_light, aim_world, aim_cable, aim_burst)
 
 Side phases from route 08's end, like aim_r1_hold (AIM_FIRE.md sections 9
 and 10). Each replays one AIM capture (decomp build/aimfire/capture,
@@ -1045,7 +1046,12 @@ aim_07_reload_empty, aim_melee = aim_09_melee, aim_light =
 aim_08_light_holster, aim_world = aim_04_world_hit, aim_cable =
 aim_10_cable_shots and then aim_11_cable_melee (recorded from aim_10's end;
 its frame f is the replay's frame 1448 + f: aim_10's last frame 1441 plus
-the seven idle frames between the recordings, by their frame counters).
+the seven idle frames between the recordings, by their frame counters),
+aim_burst = aim_05_burst_fire (chain step AIMCAP: its pad script from the
+file, its first input frame 10, compared from f13; its status screen runs
+main-loop iterations that close out neither a world nor a status frame,
+so the phase's frame function runs on every iteration, Phase.every_tick:
+without it the script fell two frames behind at START).
 
 The runner (`aim_replay_frame`, table `k_aim_replays`) walks in as
 aim_hold_frame does and waits for the idle clip's +3C to reach the
@@ -1097,6 +1103,68 @@ are not the fire path. Whole-run checks added for the side runs: the chain
 page's lane strips (the shots' ring decals), DIRECT strips (the parted
 strand), streak and kind-2 pages, each re-walked with the original
 microcode on its first 12 pages (CHAIN_PAGE.md section 7).
+
+### The AIM side runs' whole records (chain step AIMCAP, 2026-10-02)
+
+Every AIM side run (the holds and the replays) also compares whole records
+row for row (tools/test_level_smoke.py `check_aim_records`), from the tick
+log's `aimrec` key (EM_LOG_AIM_RECORDS=1, which tools/test_level_smoke_aim.py
+sets): the live player record +0x000..+0x31F, the gun node (player +0x20)
+and the knife node (+0x18) at +0x00..+0x3F, +0xA0..+0xCF and
++0x1F0..+0x21F (the bytes the nodes model; em_equipment_live_field), the
+camera bytes D_008101E4..E7 and the status block D_00810130..+0x5F (the
+rows' `ui_rec`; em_status_runtime_ui_block). Rules:
+
+- The player record: every 4-byte word equal, except: the place (+0xA0..
+  +0xBF: the image keeps the placement's words; the hip +0xB0, the pose
+  host's bone 1 as the camera's view holds it, in the player's frame
+  within AIM_EXACT); the heading +0xC4 (its change from the first row; in
+  the stick replays within the first row's difference + AIM_EXACT), the
+  record's matrix +0xD0..+0x10F and the hand matrix +0x2A0..+0x2CF in the
+  player's frame within AIM_EXACT, the aim point +0x2D0 as a point there,
+  +0x218 equal or equal relative to the heading; the start words (+0x28 /
+  +0x2A, +0x208, +0x248, +0x258, +0x260, +0x264, +0x294, +0x2E0, +0x2F8:
+  what the two runs' histories leave before the capture's start) change on
+  the capture's rows, to its value or by its step (button replays); the
+  melee's sound handle +0x302 is 0xFF in both or a track in both, the
+  track not compared: the port's track choice is not deterministic (its
+  tracks are freed on the host audio thread's clock, not the game's tick;
+  a known port defect, AIM_FIRE.md section 11.4, audit 1b item 1).
+  The stick replays (aim_world, aim_cable) leave out the walk's foot and
+  contact words (+0x09C, +0x104, +0x238, +0x250, +0x314) and the start
+  words, and compare the hand matrix and the aim point on the aim-stance
+  rows only.
+- The gun and the knife: every modelled byte equal, except the gun's world
+  vectors (+0xA0, +0xB0, +0x1F0 points, +0xC0 the barrel's direction) in
+  the player's frame within AIM_EXACT (stick replays: stance rows only) and
+  the laser's hit: the dot +0x200 by its bearing from the player (button
+  replays), its range weight +0x214 and hit flag +0x210 not compared.
+- The camera bytes: D_008101E4..E7 equal (the stick replays leave out
+  +E7, the eye's collision bits). In the button replays the camera too
+  (`check_aim_camera`, check_aim_hold's rules): the eyes in height and
+  depth within AIM_EXACT and laterally within the first row's offset +
+  AIM_EXACT, the camera block's target within AIM_EXACT, D_008105E0's
+  height within AIM_EXACT and its x / z within AIM_TGT_LATERAL.
+- The status block: equal on every row, except across aim_burst's page
+  module loads (the disc answers at host speed, so the port's page runs,
+  with the same pad script, frames the original spent loading): from a
+  capture row that waits on a module (phase 3 sub-state 1, or the SPR4
+  page's state 3 sub-step 1) it is not compared until the two agree again,
+  and after the last load, which Triangle closes before the capture's page
+  ran, every byte but the SPR4 state +0x04 and hover +0x11 is compared.
+
+Measured (2026-10-02, the eleven runs): every rule holds on every row; the
+largest frame differences are 0.0006 (aim_world's hip and the record's
+matrix row 3, the walk); the sound handle is another track than the
+capture's on a number of rows that changes from run to run (aim_melee: 17,
+222, 66, 66 and 17 rows in five runs on 2026-10-02; AIM_FIRE.md section
+11.4);
+aim_burst compares the status block exactly on 124
+rows, skips 41 across the loads and compares 294 without +0x04 / +0x11.
+The page-module waits measured in aim_05 (the original's rows that wait on
+a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
+rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
+host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
 
 ### crevice_climbs
 

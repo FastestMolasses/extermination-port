@@ -650,6 +650,15 @@ constants, over the world and every module state (full run).
   for: the 64-bit register images, the v0 results, and s0 as 002160B0's
   third argument.
 
+- Against a recording (chain step AIMCAP, 2026-10-02): the AIM capture
+  aim_05_burst_fire opens the hub with START, SPR4 and its SELECTOR part
+  page and picks the 3-round burst; the level smoke's AIM side run
+  `aim_burst` replays its pad script and compares the status block
+  D_00810130..+0x5F row for row (LEVEL_SMOKE.md "The AIM side runs' whole
+  records"): equal on every row outside the page-module loads (which end
+  sooner at host speed: 11 / 10 / 11 rows against the recording's 28 / 18 /
+  23), the fire mode D_00810C61 = 1 on the recording's row.
+
 **Not verified:** pixels (no capture shows a page open;
 `EM_LEVEL_SMOKE_PAGES_CAPTURE=<dir>` writes one frame of each page for a
 look); the stack's register save slots (the replay compares the stack only

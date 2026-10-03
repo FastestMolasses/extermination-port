@@ -43,6 +43,10 @@
 #include "game/em_pose_host_workers.h"
 
 #define EM_PLAYER_POSE_BANK_ADDRESS UINT32_C(0x00D689C0)   /* the player's +40 */
+/* D_0028A578[0], 0015C420's +58: 0xD1B9C0 in every captured AREA11 image
+ * (the route snapshots 00..15 and the AIM captures), as D_0028A580[0] (+40)
+ * is 0xD689C0 there. */
+#define EM_PLAYER_POSE_D_0028A578 UINT32_C(0x00D1B9C0)
 #define EM_PLAYER_POSE_NODE_ADDRESS UINT32_C(0x007D5840)   /* the player's +110 word 0 */
 #define EM_PLAYER_POSE_RECORD_ADDRESS UINT32_C(0x008102B0) /* the player record (D_00275B44) */
 #define EM_PLAYER_POSE_NODES 21                            /* the player's +C */

@@ -64,6 +64,8 @@
 #include <string.h>
 
 #include "game/em_area11_boxes.h"
+#include "game/em_player_record_pose.h"
+#include "game/em_roger_actor_original.h"
 #include "game/em_area11_door.h"
 #include "game/em_area11_effect_runtime.h"
 #include "game/em_area11_opening.h"
@@ -2372,9 +2374,54 @@ static int equipment_spawn(int32_t arg1)
     return em_area11_spawn_player_equipment_0015C310(arg1);
 }
 
+/* 0015C420's node records (byte-matched; FIRST_LEVEL_AUDIT.md 1b item 10):
+ * with D_00275BCC >= +0x0C it pops +0x0C slots from the one bone-slot stack
+ * (001AF780 each) into +0x110 + 4i, before its first child (0018A880(4, 0)).
+ * The port keeps the player's node records in em_player_record_pose's
+ * storage, at the addresses em_player_record_pose_attach wrote to +0x110
+ * (0x7D5840 + 0xD0 * i, the first slots of 001AF710's fresh stack); the pops
+ * take those slots off the stack so every later pop (the knife, the
+ * equipment, the trail, Roger, the faces) returns the original's address
+ * and none aliases a player node. A pop that is not the record's word
+ * faults (fail-stop: the record's storage cannot follow it). */
+static int pop_player_node_slots(void)
+{
+    EmPlayerLiveActor *player = player_states_actor_mut();
+    const EmRogerActorWorld *slots = em_area11_boxes_slot_world();
+    if (!player || !slots || !slots->d00275BCC)
+        return fault(0x0015C420u, EM_SCENE_FAULT_WORKER_FAILED, "0015C420: no player record or slot stack");
+    const unsigned count = em_live_u8(player, 0x0C);
+    if (*slots->d00275BCC < (int)count)
+        return fault(0x0015C420u, EM_SCENE_FAULT_WORKER_FAILED,
+                     "0015C420: fewer free slots than node records (its early return, unreached in AREA11)");
+    EmRogerActor stack;
+    memset(&stack, 0, sizeof stack);
+    stack.world = *slots;
+    for (unsigned i = 0; i < count; ++i) {
+        uint32_t word = 0;
+        if (em_roger_actor_001AF780(&stack, &word) < 0 || word != em_live_u32(player, 0x110 + 4 * i))
+            return fault(0x001AF780u, EM_SCENE_FAULT_WORKER_FAILED,
+                         "0015C420: a popped slot is not the player's node record address");
+    }
+    return 0;
+}
+
 int em_area11_spawn_player_children_0015C420(void)
 {
     if (em_scene_faulted(s_scene))
+        return -1;
+    /* 0015C420's record words before its pops: +0x40 = D_0028A580[0] (the
+     * pose bank, em_player_record_pose_attach's EM_PLAYER_POSE_BANK_ADDRESS),
+     * +0x58 = D_0028A578[0] and +0x5C = 0x10101. The two table words are the
+     * area data's (the port's loader table does not hold them); every
+     * captured AREA11 image holds 0xD689C0 and 0xD1B9C0 there (the route
+     * snapshots 00..15, the AIM captures; em_player_record_pose.h). */
+    EmPlayerLiveActor *player = player_states_actor_mut();
+    if (!player)
+        return fault(0x0015C420u, EM_SCENE_FAULT_WORKER_FAILED, "0015C420: no player record");
+    em_live_set_u32(player, 0x58, EM_PLAYER_POSE_D_0028A578);
+    em_live_set_u32(player, 0x5C, 0x10101u);
+    if (pop_player_node_slots() < 0)
         return -1;
     /* 0015C420: keep the returned knife node at player +18. */
     if (spawn_equipment_link(4, 0, 0x18) < 0)
@@ -2382,6 +2429,8 @@ int em_area11_spawn_player_children_0015C420(void)
     /* 0015C310(player, 0). */
     if (em_area11_spawn_player_equipment_0015C310(0) < 0)
         return -1;
+    /* 0015C420: +0x30 = &D_00275490, after 0015C310. */
+    em_live_set_u32(player, 0x30, 0x00275490u);
     /* 0015C420: 001F0120(player, 0x3B); +0x24 = player +0x14 = 0x008102B0. */
     return em_area11_bindings_spawn_001F0120(EM_SCENE_D_008102B0, 0x3B);
 }

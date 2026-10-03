@@ -13,14 +13,20 @@ aim_light (aim_08_light_holster: the gun lamp on and off, holstered and
 redrawn), aim_world (aim_04_world_hit: the walk and the stick aim, the
 rounds into the ground, the pillar, past the fence and a miss) and
 aim_cable (aim_10_cable_shots, then aim_11_cable_melee: the rounds at the
-cable, the knife at its foot and the cable reaction), and with
-EM_TEST_FULL=1 also aim_both (aim_02), aim_reload (aim_06) and
-aim_reload_empty (aim_07) (check_aim_replay). The stick replays read their
-pad scripts from the files pad_script writes (EM_AIM_PAD_SCRIPT).
+cable, the knife at its foot and the cable reaction), aim_burst
+(aim_05_burst_fire: START, the SPR4 page and its SELECTOR part page pick the
+3-round burst, then burst fire), and with EM_TEST_FULL=1 also aim_both
+(aim_02), aim_reload (aim_06) and aim_reload_empty (aim_07)
+(check_aim_replay). The stick replays and aim_burst read their pad scripts
+from the files pad_script writes (EM_AIM_PAD_SCRIPT).
 tools/test_level_smoke.py checks each run as every level-smoke run (the
 main line's phases and the whole-run checks) and its side phase row for row
 against its capture; the struck points by direction only (bearing and
-elevation, LEVEL_SMOKE.md "The AIM replays").
+elevation, LEVEL_SMOKE.md "The AIM replays"). The runs set
+EM_LOG_AIM_RECORDS=1, so the tick log carries the whole records
+check_aim_records compares row for row: the player record, the gun and knife
+nodes, the camera bytes and the status block (LEVEL_SMOKE.md "The AIM side
+runs' whole records").
 
 The original aim / fire path is the only one in AREA11 (AIM_FIRE.md); the
 runs set no switch. Duration: each run plays about 5,550 ticks before its
@@ -28,8 +34,10 @@ capture's start, because a run can only reach route 08's end by playing the
 main line (the port has no state restore). The runs go side by side, then
 their checks side by side (EM_TEST_JOBS=2 each): measured 2026-10-02 on the
 10-core development machine, 8 min 57 s for the default seven with the
-machine's load average near 50 (other sessions' jobs). EM_AIM_SIDES=a,b
-runs only those.
+machine's load average near 50 (other sessions' jobs); the eleven of
+EM_TEST_FULL=1 with the whole records took about 25 min under a load
+average near 140 (2026-10-02, chain step AIMCAP). EM_AIM_SIDES=a,b runs
+only those.
 """
 import json
 import os
@@ -40,7 +48,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('EM_LEVEL_SMOKE_BIN', str(ROOT / 'build/extermination')))
 OUT = ROOT / 'build/level_smoke_aim'
-SIDES = ('aim_r1_hold', 'aim_r2_hold', 'aim_fire', 'aim_melee', 'aim_light', 'aim_world', 'aim_cable')
+SIDES = ('aim_r1_hold', 'aim_r2_hold', 'aim_fire', 'aim_melee', 'aim_light', 'aim_world', 'aim_cable', 'aim_burst')
 if os.environ.get('EM_TEST_FULL') == '1':
     SIDES += ('aim_both', 'aim_reload', 'aim_reload_empty')
 SIDES = tuple(os.environ['EM_AIM_SIDES'].split(',')) if os.environ.get('EM_AIM_SIDES') else SIDES
@@ -49,7 +57,8 @@ SIDES = tuple(os.environ['EM_AIM_SIDES'].split(',')) if os.environ.get('EM_AIM_S
 # The stick replays' pad scripts: the captures' inputs (trace.json
 # 'inputs'), aim_11's after aim_10's at its frame 1448 + f (the seven idle
 # frames between the two recordings: their frame counters).
-STICK_SCRIPTS = {'aim_world': ('aim_04_world_hit',), 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee')}
+STICK_SCRIPTS = {'aim_world': ('aim_04_world_hit',), 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee'),
+                 'aim_burst': ('aim_05_burst_fire',)}
 AIMFIRE = ROOT.parent / 'Extermination/build/aimfire/capture'
 
 
@@ -76,7 +85,8 @@ def main():
     runs = {}
     for side in SIDES:
         env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=side,
-                   EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'))
+                   EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'),
+                   EM_LOG_AIM_RECORDS='1')
         if side in STICK_SCRIPTS:
             env['EM_AIM_PAD_SCRIPT'] = str(pad_script(side))
         log = open(OUT / f'{side}.log', 'w')

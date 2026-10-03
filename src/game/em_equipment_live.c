@@ -167,10 +167,6 @@ void *em_equipment_live_field(uint32_t address, size_t size, int write)
             uint32_t base=slot->word[k]+0x90u;
             if (size<=64 && address>=base && address-base<=64-size && slot->n.bone[k])
                 return (uint8_t *)slot->n.bone[k]->world+(address-base);
-            /* +0x00..+0x3F, the bind matrix 001C62C0 copied from the model
-             * (001EFF10 hands its row 3, the bone + 0x30, to 001EF9D0). */
-            if (!write && size<=64 && address>=base-0x90u && address-(base-0x90u)<=64-size && slot->n.bone[k])
-                return (uint8_t *)slot->n.bone[k]->bind+(address-(base-0x90u));
         }
     }
     if (address < EM_ACTOR_POOL_BASE) return NULL;
@@ -655,9 +651,12 @@ static int w_00189FE0(void *ctx, EmPEN *node, const u32 a[4], const u32 b[4])
     const u32 args[3] = {em_actor_pool_address(S.pool, actor_of(s)), at_a, at_b};
     return knife_call(node, 0x00189FE0u, args, 3, 0, 0, NULL);
 }
-/* 001EFF10(0x8000000D, bone 0, 0x700038A0, ..B0, ..C0, ..D0, 10.0): the
- * trail effect; *effect is the record's header bytes (+0x04 its
- * lifecycle), NULL for the original's 0. */
+/* 001EFF10(0x8000000D, slot 0 + 0x90, 0x700038A0, ..B0, ..C0, ..D0, 10.0):
+ * the trail effect. 00189D30 passes *(*(+0x14) + 0x110) + 0x90, the knife
+ * bone's world matrix (decomp src/func_00189D30.c), so 001EF9D0's +0x30 and
+ * 001F15F0's 001CCF70(+0x1F0 + 0x30) read its row 3, the hand's place.
+ * *effect is the record's header bytes (+0x04 its lifecycle), NULL for the
+ * original's 0. */
 static int w_001EFF10(void *ctx, u32 id, const EmOwnerBone *b, const u32 *a0, const u32 *a1, const u32 *a2,
                       const u32 *a3, u32 f12, uint8_t **e)
 {
@@ -671,7 +670,7 @@ static int w_001EFF10(void *ctx, u32 id, const EmOwnerBone *b, const u32 *a0, co
     for (unsigned k = 0; k < s->held; ++k)
         if (&s->bone[k] == b) bone = s->word[k];
     if (!bone) return -1;
-    const u32 args[6] = {id, bone, 0x700038A0u, 0x700038B0u, 0x700038C0u, 0x700038D0u};
+    const u32 args[6] = {id, bone + 0x90u, 0x700038A0u, 0x700038B0u, 0x700038C0u, 0x700038D0u};
     u32 v0 = 0;
     if (knife_call(NULL, 0x001EFF10u, args, 6, f12, 1, &v0) < 0) return -1;
     if (v0) {

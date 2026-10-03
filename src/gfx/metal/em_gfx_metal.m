@@ -3011,8 +3011,10 @@ static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex 
          * GS_CONFORMANCE.md 5.2 / 5.3; CHAIN_PAGE.md section 5). */
         if (p->count != 2u || tme || !iip) return "a line other than Gouraud untextured";
     } else if (type == 3u || type == 4u || type == 5u) {
-        /* Type 3: the class-2 object units' clip pass (PRIM 0x07B). */
-        if (p->count != 3u || !tme || !iip) return "a triangle other than Gouraud textured";
+        /* Type 3: the class-2 object units' clip pass (PRIM 0x07B). An
+         * untextured Gouraud strip is the knife trail's (001F15F0's GIF tag
+         * PRIM 0x4C), drawn by the flat path (Cf = Cv, Af = Av). */
+        if (p->count != 3u || !iip) return "a triangle other than Gouraud";
     } else if (type == 6u) {
         if (p->count != 2u || !tme) return "an untextured sprite";
     } else {

@@ -351,6 +351,18 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         EmArea00Low low;memset(&low,0,sizeof low);low.regions=region;low.region_count=2;
         return em_area00_low_00102870(&low,(uint32_t)f->a[0],(uint32_t)f->a[1],f->f[0])<0 ? -1 : 0;
     }
+    case 0x102990: {
+        /* The knife trail's colour words (001F15F0's two 00102990 calls into
+         * its packet block): em_area00_low's translation, VFTOI0 of the
+         * quadword, over the two quadwords it addresses (low four bits
+         * ignored). */
+        uint32_t to=(uint32_t)f->a[0]&~15u,from=(uint32_t)f->a[1]&~15u;
+        uint8_t *src=em_aim_fire_live_map(live,from,16,0),*dst=em_aim_fire_live_map(live,to,16,1);
+        if (!src || !dst) return -1;
+        EmArea00LowRegion region[2]={{from,16,src},{to,16,dst}};
+        EmArea00Low low;memset(&low,0,sizeof low);low.regions=region;low.region_count=2;
+        return em_area00_low_00102990(&low,(uint32_t)f->a[0],(uint32_t)f->a[1])<0 ? -1 : 0;
+    }
     case 0x1EFEB0: case 0x1CE860:return em_aim_fire_cable_live_call(live,f);
     case 0x21AAC0: case 0x21A500: {
         int status=em_aim_fire_cable_live_tick(live,(uint32_t)f->a[0],f->function);
