@@ -84,7 +84,7 @@ static void signature(EmAimFireTargetCall *f)
     case 0x1281C0: f->na=0; f->nf=1; break;
     case 0x11E620: f->na=0; f->nf=2; break;
     case 0x102B08: case 0x102BB0: case 0x102900: case 0x103230: f->na=2; f->nf=1; break;
-    case 0x102918: case 0x1026A0: case 0x102718: case 0x1028B8: case 0x1028D0:
+    case 0x102918: case 0x1026A0: case 0x102718: case 0x1028B8: case 0x1028D0: case 0x102C58:
     case 0x1EFD90: f->na=3; f->nf=0; break;
     case 0x1F00A0: f->na=4; f->nf=0; break;
     case 0x187780: f->na=3; f->nf=0; break;

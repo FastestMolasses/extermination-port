@@ -1325,8 +1325,9 @@ fades change on the same ticks as in the recordings.
   "pending lead review"). (4) Roger's idle-clip flags and the equipment's
   +0xB0 before f358 are exempt (navigation). (5) The status page's mode-4
   messages are skipped. The smoke does not compare sounds or pixels. Paths
-  off the route are not exercised: pause/options/save and the west-yard
-  and plateau ladders (census section 6). (Aiming, firing, reloading, the
+  off the route not exercised: pause/options/save (census section 6); the
+  route's branches (the other ladders, the optional items, the boxes) have
+  their own entry below. (Aiming, firing, reloading, the
   gun lamp and the knife are compared row for row with the AIM captures by
   separate side runs: see "Aiming, firing, the gun lamp and the knife on the
   original code"; damage, death and the game over with the DAMAGE
@@ -1430,6 +1431,44 @@ starts the level again with the original opening.
   landing exists); the title's Load and Options entries are not bound;
   infection cannot happen in the first level; pixels and sounds are not
   compared.
+
+**Off the main route in the first level: the optional pickups, the other ladders, breaking boxes, the elevator back up, declining the panel and talking to Roger, as in the original**
+
+Away from the recorded route, AREA11's other branches play as in the
+original: the five optional items (item types 0x1E twice, 0x1F, 0x32 on
+the cage floor and 0x10 where box r6 stood) and the map item are taken with the
+original take, page and taken bit; the west-yard and plateau ladders climb
+up and down (the grab from above included); the knife breaks a box, which
+leaves its broken husk, sounds and throws its debris, and a box resting on
+it falls and breaks; the elevator carries you back up; answering No at the
+panel's prompt leaves the power off with the original cancel script; and
+talking to Roger after the meeting plays his line.
+
+- How: the item owners, the ladder and climb states, the boxes' damage
+  break (its cue 001FC580, the husk rebind, the debris node 001F2BA0 and
+  the effect handlers 001EBD20 / 001EAD70), the knife's strike 00189FE0,
+  the use dispatcher's target scan over the class-2 list (Roger) and the
+  talk script run their translations (`LEVEL_SMOKE.md` "The BRANCH side
+  runs"; `CRATES_DRUMS_ORIGINAL.md`; `EFFECT_MANAGER.md` 8.2;
+  `AIM_FIRE.md` section 12). Roger's line streams VOICE.DAT cue 1.
+- Evidence: `make test-level-smoke-branch`: ten side runs replay the
+  decomp's BRANCH recordings br_00..br_14 window by window, all PASS on
+  2026-10-03: the six takes (their pages row for row around the module
+  load), five ladders (one realigned on the dismount after a pad glitch of
+  the recording), two ledge climbs with their step-offs, the two box breaks
+  (the four boxes row for row over 200 and 147 rows, r3's fall included),
+  the ride up, the panel's decline and Roger's talk; the oracles named in
+  `FIRST_LEVEL_CENSUS.md` section 1.60.
+- Status: **PARTIAL**. Proven: the state above relative to the PCSX2
+  recordings. Not proven or not covered: the page module loads and Roger's
+  voice read run at host speed (9..10 ticks against 24..26; one row
+  against seven, so his line ends six ticks sooner; the PS2 disc-drive
+  timing switch puts the voice read on the drive model of the other voiced
+  lines (not run for this beat), while the take pages' modules
+  load at host speed in both modes, their reads' busy fields not being
+  recorded; the BRANCH runs are checked with the switch off); the drums do not break (what damages them
+  is not established); the fans' fast-arm exit and the security gun firing
+  are not reachable on this visit; sounds and pixels are not compared.
 
 **Skipping a first-level cutscene behaves as in the original**
 

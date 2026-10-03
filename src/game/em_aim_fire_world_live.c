@@ -424,7 +424,7 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
        c->function!=0x001AA840u && c->function!=0x00189EC0u && c->function!=0x001F18C0u &&
        c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u &&
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
-       c->function!=0x001CD070u)return -1;
+       c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",
@@ -461,6 +461,13 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
             status=em_area00_world_0018A180(&s,a);
         if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
         c->v0=(uint32_t)result;
+    } else if(c->function==0x001C6200u) {
+        /* The debris node's slot reset (001F2E90's 001C6200(node)):
+         * em_area00_world, its one translation; the slots' bytes are
+         * em_aim_fire_trail's views. */
+        EmArea00World s={b.hit,b.count,hit_call,&b,c->sp,0,0,0};b.hit_state=&s;
+        status=em_area00_world_001C6200(&s,a);
+        if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
     } else if(c->function==0x001CA3B0u || c->function==0x001CA4D0u) {
         /* The debris pieces' quaternion leaves (001F2F90 / 001F3620 of a
          * kind-7 piece): em_area00_world, their one translation. */
@@ -535,6 +542,9 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         else if(c->function==0x001F18C0u)
             /* The knife's trail node (em_aim_fire_trail holds its slots). */
             status=em_area00_fx_001F18C0(&s,c->a[0]);
+        else if(c->function==0x001F2BA0u)
+            /* A box's debris node (em_aim_fire_trail holds its slots). */
+            status=em_area00_fx_001F2BA0(&s,c->a[0]);
         else if(c->function==0x001EFF10u)
             /* The knife's effect spawn (00189D30's 001EFF10). */
             status=em_area00_fx_001EFF10(&s,c->a[0],c->a[1],c->a[2],c->a[3],c->a[4],c->a[5],c->f[0],&c->v0);

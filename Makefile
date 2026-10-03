@@ -65,7 +65,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_render_live.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_runtime.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
            src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
-           src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c \
+           src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
            src/game/em_area01_side.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
@@ -447,6 +447,21 @@ test-level-smoke-side: $(BIN)
 	done
 	$(MAKE) test-level-smoke-aim
 	$(MAKE) test-level-smoke-damage
+	$(MAKE) test-level-smoke-branch
+
+# The BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md "The BRANCH side
+# runs"): the AREA11 branches the main route skips, each from the main-line
+# phase its recording starts from: the optional pickups g0.1..g0.6 with
+# their pages, the west-yard and plateau ladders both ways, the boxes r5 / r6
+# broken by the light melee (r3's fall), the terminal's ride back up, the
+# panel's No and Roger's talk after the encounter; side by side, each
+# checked window by window against the decomp's BRANCH recordings (the
+# whole player record and the status block: EM_LOG_AIM_RECORDS=1); about
+# 9 min under a load average near 30 (2026-10-03); part of
+# test-level-smoke-side and -full.
+.PHONY: test-level-smoke-branch
+test-level-smoke-branch: $(BIN)
+	python3 tools/test_level_smoke_branch.py
 
 # The DAMAGE side runs (docs/DAMAGE.md section 8; LEVEL_SMOKE.md "The DAMAGE
 # side runs"): dmg_flame (from crevice_prompt: the flame's contacts, the

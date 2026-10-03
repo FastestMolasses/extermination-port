@@ -1013,3 +1013,27 @@ since the trail's fix (11.3; its 80 calls in aim_melee).
   host audio clock; the AUDIO step (audit 1b item 1).
 - The EFU and the side runs' duration (section 10.7) stand.
 
+
+## 12. Chain step BRANCHES (2026-10-03): the knife on the boxes
+
+The BRANCH recordings br_04 / br_06 (decomp CAPTURES_C10.md "BRANCH") break
+the AREA11 boxes r5 and r6 with the light melee; the side runs
+br_crate_stack and br_west_ledge (LEVEL_SMOKE.md "The BRANCH side runs")
+compare them row for row. What the knife's strike needed:
+
+- **00189FE0's read of the knife's +0x36.** The strike copies the knife
+  node's +0x36 (the damage 001735C0 wrote: 3) to the box's +0x36 with
+  0x1000. The node's one storage of that halfword is its pool record's h36
+  (em_player_closure_live wb_link18 publishes the melee's write there); the
+  composition now has it as a read view of every equipment node
+  (em_equipment_live_field, em_equipment_live_regions).
+- **The debris node 001F2BA0.** The break's 0x8000000A spawns a node whose
+  behaviour is em_area00_fx_001F2BA0 (with 001F2E90 / 001F2F90 / 001F3620 /
+  001F3340 / 001F3E30 and em_area00_world's 001C6200), run through the
+  composition like the trail (other_tick, em_aim_fire_world_live). Its slots
+  (one per piece: the debris row's +0x4C, sixteen for subtype 0) are
+  em_aim_fire_trail's, which now keeps the slots of both callbacks (at most
+  56 words: more would reach the node's +0x1F0). The SDK leaf 00102C58 (its
+  in-place euler on +0xD0) joined the composition's SDK leaves
+  (em_aim_fire_sdk_memory, em_owner_services_euler_00102C58; a partial
+  overlap is refused). The area binding row is 0x001F2BA0.

@@ -185,6 +185,11 @@ void *em_equipment_live_field(uint32_t address, size_t size, int write)
         if ((p=field_span(address,size,base+0x14,4,&s->self_word))) return p;
         if ((p=field_span(address,size,base+0x44,4,&s->model_address))) return p;
         if ((p=field_span(address,size,base+0x110,4*s->held,s->word))) return p;
+        /* +0x36: the knife's damage halfword, whose one storage is the
+         * pool record's h36 (the melee 001735C0 writes it through its +0x18
+         * link, em_player_closure_live wb_link18); 00189FE0 reads it when a
+         * swing hits a kind-4 record and copies it to that record's +0x36. */
+        if ((p=field_span(address,size,base+0x36,2,&a->h36))) return p;
     }
 #define FIELD(field,at) do { if ((p=field_span(address,size,base+(at),sizeof s->n.field,&s->n.field))) return p; } while (0)
     FIELD(h28,0x28); FIELD(h2E,0x2E); FIELD(method,0x4C);
@@ -204,7 +209,7 @@ size_t em_equipment_live_regions(uint32_t address,EmEquipmentLiveRegion *out,siz
     unsigned index=(address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE;
     if (!S.attached || !S.pool || S.fault || index>=EM_ACTOR_POOL_CAPACITY ||
         !current_slot(&S.slot[index],&S.pool->records[index])) return 0;
-    static const uint32_t spans[][3]={{0,0x14,1},{0x14,4,0},{0x28,2,1},{0x2E,2,1},
+    static const uint32_t spans[][3]={{0,0x14,1},{0x14,4,0},{0x28,2,1},{0x2E,2,1},{0x36,2,0},
         {0x44,4,0},{0x4C,4,1},{0xA0,0x70,1},{0x1F0,0x28,1}};
     size_t count=0;
     for (unsigned k=0;k<sizeof spans/sizeof spans[0];++k) {

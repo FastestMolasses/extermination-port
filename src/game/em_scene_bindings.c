@@ -1024,6 +1024,42 @@ static void log_tick_end(int rc)
             }
             fputs("]]", f);
         }
+        /* The BRANCH side runs (LEVEL_SMOKE.md "The BRANCH side runs";
+         * tools/level_smoke_branch.py), as the BRANCH captures' rows sample
+         * them (decomp CAPTURES_C10.md "BRANCH"): the taken bits of area 11
+         * (D_00810860 + 32 * 11, persistence uids 0..15), the item counts of
+         * types 0x08, 0x10, 0x1B, 0x1E, 0x1F and 0x32 (D_00810CB8 + type),
+         * then the records of the six optional items g0.1..g0.6 (pool
+         * records 1..6) and of the boxes r3..r6 and drums r14 / r15 at their
+         * route addresses: [address, +0x00..+0x3F, +0xB0..+0xCF] (hex); an
+         * item owner's +0x00 / +0x02 / +0x04 / +0x05 / +0x0B are its typed
+         * owner's (em_area11_interaction_host_pickup_header). */
+        {
+            static const uint32_t k_br_records[] = {
+                0x7A5930u, 0x7A5C20u, 0x7A5F10u, 0x7A6200u, 0x7A64F0u, 0x7A67E0u, /* g0.1..g0.6 */
+                0x7A7980u, 0x7A7C70u, 0x7A7F60u, 0x7A8250u, 0x7A99D0u, 0x7A9CC0u, /* r3..r6, r14, r15 */
+            };
+            static const uint8_t k_br_types[] = {0x08, 0x10, 0x1B, 0x1E, 0x1F, 0x32};
+            unsigned taken = 0;
+            for (unsigned p = 0; p < 16; ++p)
+                if (em_pickup_taken((int)(0x0B00u | p)) == 1) taken |= 1u << p;
+            fprintf(f, ", \"br\": [%u, [", taken);
+            for (unsigned k = 0; k < sizeof k_br_types; ++k)
+                fprintf(f, "%s%u", k ? ", " : "", (unsigned)em_pickup_item_count(k_br_types[k]));
+            fputs("], [", f);
+            static uint8_t image[EM_ACTOR_RECORD_SIZE];
+            for (unsigned k = 0; k < sizeof k_br_records / sizeof k_br_records[0]; ++k) {
+                const EmActor *r = &s_pool.records[(k_br_records[k] - 0x7A5640u) / 0x2F0u];
+                em_actor_pool_record_image(&s_pool, r, image);
+                (void)em_area11_interaction_host_pickup_header(r, image);   /* an item owner's own bytes */
+                fprintf(f, "%s[%u, ", k ? ", " : "", (unsigned)k_br_records[k]);
+                log_hex(f, image, 0x40);
+                fputs(", ", f);
+                log_hex(f, image + 0xB0, 0x20);
+                fputc(']', f);
+            }
+            fputs("]]", f);
+        }
         /* The AIM replays' whole-record view (EM_LOG_AIM_RECORDS=1, set by
          * tools/test_level_smoke_aim.py), as the AIM captures' rows sample
          * them (decomp CAPTURES_C10.md "AIM"): the live player record
@@ -3724,6 +3760,15 @@ int em_scene_bindings_fan_cycle(uint32_t address, uint8_t *phase, int16_t *timer
 uint32_t em_scene_bindings_pool_address(const void *actor)
 {
     return em_actor_pool_address(&s_pool, (const EmActor *)actor);
+}
+
+int em_scene_bindings_record_image(uint32_t address, uint8_t *out)
+{
+    if (address < 0x7A5640u || (address - 0x7A5640u) % 0x2F0u ||
+        (address - 0x7A5640u) / 0x2F0u >= EM_ACTOR_POOL_CAPACITY)
+        return 0;
+    em_actor_pool_record_image(&s_pool, &s_pool.records[(address - 0x7A5640u) / 0x2F0u], out);
+    return 1;
 }
 
 const char *em_scene_bindings_pool_binding(uint32_t callback)

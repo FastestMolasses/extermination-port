@@ -21,6 +21,8 @@ controls the CLUT cache) of every model block of
     (docs/OWNER_DRAW.md section 10);
   * the shot's library models: the muzzle node 001F5040's 0x07, 0x08,
     0x0B, 0x0D, 0x0E, 0x0F and the shell casing's 0x19 (001F3E30);
+  * a box's damage break (001551B0): its husk 0x22 and the debris pieces
+    0x1C / 0x1E (001F2BA0 / 001F3E30), the same library;
   * Roger's model: 008237E0's 001BA1C0 -> 001CA6E0 binds D_0028A490[0x47]
     (extract/chunk15/f18_id94.bin +0x35000, tools/export_roger_banks.py),
     and his equipment node's 001C5C90 binds id 0x6B of the library;
@@ -115,6 +117,11 @@ ROGER_EQUIPMENT_IDS = (0x6B,)
 # model and the clips 7 / 8 it switches to) and the shell casing's 001F3E30
 # (0x19: D_0025A350 row 3), in the same library (docs/AIM_FIRE.md sections 9.1 / 9.2).
 SHOT_IDS = (0x07, 0x08, 0x0B, 0x0D, 0x0E, 0x0F, 0x19)
+# A model-6 box's damage break (001551B0; BRANCH br_04 / br_06): the husk
+# 0x22 its 001CA6E0 rebinds and the debris pieces 0x1C / 0x1E (effect
+# 0x8000000A's 001F2BA0, D_0025A350 row 0, drawn by 001F3E30), in the same
+# library.
+BREAK_IDS = (0x1C, 0x1E, 0x22)
 # Roger's model and face resource in extract/chunk15/f18_id94.bin
 # (tools/export_roger_banks.py MODEL_AT / FACE_AT).
 ROGER_MODEL_AT, ROGER_FACE_AT = 0x35000, 0x86000
@@ -169,7 +176,7 @@ def player_tex0(extract: Path, out: dict):
     library = (extract / 'chunk27/f01_id37.bin').read_bytes()
     count = struct.unpack_from('<I', library, 0)[0]
     for kind, ids in (('equipment', EQUIPMENT_IDS), ('item', ITEM_IDS), ('roger equipment', ROGER_EQUIPMENT_IDS),
-                      ('shot', SHOT_IDS)):
+                      ('shot', SHOT_IDS), ('break', BREAK_IDS)):
         for ident in ids:
             if ident >= count:
                 raise SystemExit(f'chunk27/f01_id37.bin: {kind} id {ident:#x} outside the table ({count})')

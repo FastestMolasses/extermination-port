@@ -119,6 +119,13 @@ int em_area11_interaction_host_elevator_tick(void);
  * itself, -1 fault); a visible owner's +0x4C is the draw hook. */
 int em_area11_interaction_host_pickup_state0(uint32_t source_id, uint8_t model, uint8_t param);
 int em_area11_interaction_host_pickup_tick(uint32_t source_id);
+/* The header bytes an item owner (00219550 / 0015AFA0) keeps in its typed
+ * owner rather than in the pool record (+0x00 status, +0x02 class, +0x04
+ * lifecycle, +0x05 phase, +0x0B the Use arm 00184BA0 writes), laid over
+ * `header` (the record's +0x00..+0x0F) for the tick log: 1, or 0 when the
+ * record is not a live item owner's (test instrumentation: the level
+ * smoke's BRANCH side runs). */
+int em_area11_interaction_host_pickup_header(const EmActor *actor, uint8_t header[16]);
 /* 00827B10 state 0's placement (0x827B54..0x827C04), after the node's
  * 001B0FD0 bound the record's model and slots: the floor byte D_0081083A
  * selects 190/230 for the record's +0xB4 and the script-height words, then

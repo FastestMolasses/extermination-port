@@ -327,14 +327,14 @@ RENDER_CONTEXT.md section 8).
 | 001AFA90 / 001AFC10 | em_actor_pool (the node is bound to its pool behaviour by its +0x10 after 001EF9D0 wrote it: em_area11_bindings `bind_spawned`) |
 | 00122BB8 | em_random_next (the one game rand) |
 | 0021B9A0 | em_rcl_0021B9A0 on the render context |
-| D_00255434[subtype] | em_effect_kinds_handler (001EC1F0, 001EC3F0, 001EC470, 001EBF10); of the handlers it does not translate, the two packet-only ones (001EAD70, 001EC270) are the counted gap and every other faults (8.2) |
+| D_00255434[subtype] | em_effect_kinds_handler (001EC1F0, 001EC3F0, 001EC470, 001EBF10, ...); since chain step BRANCHES the skid's 001EAD70 (em_level8_port_001EAD70) and the box break's 001EBD20 (em_area02_misc_001EBD20) run their one translation over the views they address (8.2); of the handlers none translates, the packet-only one (001EC270) is the counted gap and every other faults (8.2) |
 | 001CFB50 / 001CFBE0 | em_effect_kinds_001CFB50 / em_head_sprite_original_001CFBE0 (the cursor re-read at every call) |
 | 001CCF70, 001CD370, 001CFA60 | em_effect_original, the context's +0x2240 |
 | 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 | em_packet_chain_original's adapters on the render context's chain (em_rcl_packet_chain) |
 | 001F5C20 / 001F5CA0 / 001F5940 | em_effect_kinds; its 001F4D40 is this module's, whose 001CD520 is em_player_equipment_001CD520 (the marker position travels as the binder's handle for the stack quadword 001F5C20 builds) |
 | 0011E2A8, 0011DF78, 001281C0 | em_sdk_math_original (the collision world's SDK context), em_effect_original_float_to_int |
 | 001D7FA0 | em_point_light_register, the result dropped (EFFECT_ORIGINAL.md "Full point-light pool"; no route record has a light) |
-| 001FBF50 / 001FB9F0, 001F6210's list workers, the selectors' point-light workers, 001F3620 / 001F3E30 | NULL: a fault if reached (no first-level effect record carries a sound; AREA11's key has no model-sprite list; keys 0 / 0x1301 read latch bytes the port does not keep canonical and fault before the call) |
+| 001FBF50 / 001FB9F0, 001F6210's list workers, the selectors' point-light workers, 001F3620 / 001F3E30 (except through the particle-call hook and the debris node 001F2BA0, em_aim_fire_runtime) | NULL: a fault if reached (no first-level effect record carries a sound; AREA11's key has no model-sprite list; keys 0 / 0x1301 read latch bytes the port does not keep canonical and fault before the call) |
 
 ### 8.2 Where each runs
 
@@ -353,23 +353,38 @@ RENDER_CONTEXT.md section 8).
 **Untranslated handlers.** 001EA240 calls D_00255434[subtype]; the
 handlers em_effect_kinds does not translate split in two:
 
+- **Translated over views (chain step BRANCHES, 2026-10-03).** Two
+  handlers run the one translation another lane made, bound in
+  em_effects_live.c over the original addresses they touch: the skid's
+  001EAD70 (0x80000033, subtype 1; decomp C byte-matched;
+  em_level8_port_001EAD70, test_level8_port_reference: 10 cases, every
+  reachable word): D_00275C34 = node + 0x1F0, the work block's +4 (the LCG
+  copy) and +0x54, its two 001CFB50 / 001CFBE0 pairs on this module's
+  workers with the source blocks D_002556B0 / D_00255740
+  (export_effect_tables.py); and the box break's second effect 0x80000015
+  (subtype 0x0D) 001EBD20 (em_area02_misc_001EBD20,
+  test_area02_misc_reference): D_00275C30 / 34 = the node / its work
+  block, the node's +0x38 and the work block's +0x244 / +0x24C, the scratch
+  matrix 0x70003400 it copies the node's +0xD0 to and lifts by 5.0, its
+  001CFB50 / 001CFBE0 with D_002563A0 / D_00256430. The level smoke's
+  BRANCH side runs reach both (br_05's step-off; br_04 / br_06's breaks).
 - **Packet-only: the counted gap** (`effects_gap` in em_effects_live.c:
   counted in the binder's counters, reported once per handler, returns 0;
-  the level smoke asserts the route counts none). Only the skid's two:
-  001EAD70 (0x80000033, subtype 1; decomp C byte-matched) and 001EC270
-  (0x80000012, subtype 0xB; its split listing). Each stores only the work
+  the level smoke asserts the route counts none). Only 001EC270
+  (0x80000012, subtype 0xB; its split listing) is left. It stores only the work
   block's +0x1F4 (D_00275C34 + 4, the LCG, twice), which 001EA240 rewrites
   from +0x1F0 before every handler call and reads nowhere else, and calls
   only 001CFB50 (it rewrites D_0081F8F0 +0x00..+0x57 in full; in the port
   that block's only reader is the 001CFBE0 each translated handler calls
-  right after its own 001CFB50) and 001CFBE0 (the packets). Skipping one
+  right after its own 001CFB50) and 001CFBE0 (the packets). Skipping it
   therefore loses only its packets; the node's ageing and free are exact.
-  The player reaches both off the route: the reversal skid (001612D0)
+  The player reaches it off the route: the reversal skid (001612D0)
   spawns 0x80000033 on surfaces 5 / 6 and 0x80000012 elsewhere (with +23C
   and +23D clear), and the slide (0016CD70) spawns 0x80000012 on every
   surface outside its list (5, 6, 7, 8, 0x5A..0x5C). A
   scratch run reversing the stick every 45 frames for 900 frames after
-  first control counted both and played on (no fault).
+  first control counted both (before 001EAD70's binding) and played on (no
+  fault).
 - **Everything else faults** (fail-stop at the handler's address, latched
   by the binder; the scene coordinator stops the game task). None of them
   is checked, and some do more than draw: 001EF510 (subtype 6) spawns
@@ -383,7 +398,7 @@ handlers em_effect_kinds does not translate split in two:
   | 001EAF00 (0x80000005), 001EB980 (0x68), 001EC5F0 (0x66), 001EC820 (0x67) | the footstep effect 00187EE0 on surfaces 6 / 7 / 8 / 0x5C; the slide 0016CD70 on 8 / 0x5C | the surfaces AREA11 can put in +23A are 0, 3, 4, 5, 0x5A, 0x5D (grid census) and 0, 3, 4, 0xB, 0xD (class-4 owners); surface 8 exists only as a static-cell kind, and AREA11's collision directory has no static cell (SFX_REGISTRY_FIRST_LEVEL.md, em_collision_world.c) |
   | 001EAF80 (0x8000001D), 001EB020 (0x16) | 00187350's wading ripple (+23C set) and 00187EE0 on 0x5B; the climb grab 0017DEB0 with +23C set | +23C is set (1 / 2) only by 00175900 on surface 0x5B: the split listing's other stores to a +0x23C are 001647D0's clear and 001551B0's / 001D7BB0's words into their own records, and AREA11 has no 0x5B |
   | 001ED450 (0x80000023) | the blast reaction 0021EAD0 / 0021EF30 (+5 0x12..0x14) | entered only from the hit requests +F 7 / 0xA / 0xB; AREA11's writers of +F are the flame's contact (0xC) and the fan (6, then 0x86), and the DAMAGE recordings hold no other value (DAMAGE.md section 7) |
-  | 001EBC30 (0x14), 001EBD20 (0x15), 001ED7A0 (0x07), 001EB600 (0x5F) | the crates' and drums' break and flight | reached only after a damage write to the owner's +0x36; no live port code writes it (CRATES_DRUMS_ORIGINAL.md) |
+  | 001EBC30 (0x14), 001ED7A0 (0x07), 001EB600 (0x5F) | the crates' (model 0x1C / 0x50 / 0x1F) and drums' break and flight | AREA11's boxes are model 6 (their break spawns 0x8000000A and 0x80000015: 001EBD20, bound above); the light melee does not damage a drum (decomp CAPTURES_C10.md "BRANCH": not established what does) |
   | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | on the route 001F0460 (the footstep decal) faults before it (below); the shots' ring decals (the impact marker's 001F0460, through the aim / fire composition) reach it in the AIM side runs, where it is translated (EFFECT_KINDS.md 4.1, 2026-10-02) |
   | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
 

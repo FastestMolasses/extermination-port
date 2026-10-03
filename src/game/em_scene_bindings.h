@@ -132,6 +132,11 @@ int em_scene_bindings_fan_cycle(uint32_t address, uint8_t *phase, int16_t *timer
 /* The original record address of a pool record (0 outside the pool; test
  * instrumentation: the level smoke's player-ground check). */
 uint32_t em_scene_bindings_pool_address(const void *actor);
+/* The original-layout image of the pool record at original address
+ * `address` (D_007A5640 + i * 0x2F0; em_actor_pool_record_image): 1, else 0
+ * (test instrumentation: the level smoke's BRANCH side runs read the boxes'
+ * state and the optional items' records). */
+int em_scene_bindings_record_image(uint32_t address, uint8_t *out);
 /* The original address of the AREA's collision grid node `node` (the record
  * *0x700031D0 names after a grid hit): D_0028A598 entry 0 (the loader's
  * relocation slot) + the grid header's +0x20 node offset + 64 * node, from

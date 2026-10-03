@@ -28,7 +28,10 @@ Which cues are exported (the first level's):
          selection, captured at D_00282178[0] in every AREA11 image), cue 0x18
          (001FAE70's override cue), cue 0x1B (the game over's 001FA790) and
          cue 13 (playing right after the AREA11 exit, captured)
-  voice: 143..151 (the director's and Roger's lines)
+  voice: 143..151 (the director's and Roger's lines) and 1 (line 0x13, Roger's
+         talk after the encounter, script 0x828810: its area-11 message
+         record's voice word, which 001FD580 pushes; the BRANCH capture
+         br_14_roger_talk plays it, decomp docs/CAPTURES_C10.md "BRANCH")
 A read of any other sector faults in the backend (fail-stop): nothing outside
 these cues is substituted.
 
@@ -65,6 +68,8 @@ MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                13: 'the next area\'s music at the AREA11 exit (captured D_00282178[0] = 13 in route 15_level_exit)'}
 VOICE_CUES = {c: 'director / Roger voiced lines (docs/STREAM_LANES.md item 6)'
               for c in range(143, 152)}
+VOICE_CUES[1] = ('line 0x13: Roger\'s talk after the encounter (script 0x828810, BRANCH br_14); '
+                 'its area-11 message record\'s voice word (docs/MESSAGE_SERVICE.md)')
 PATHS = ('/STREAM/MUSIC.DAT', '/STREAM/VOICE.DAT')
 HEADER = 0xA8
 

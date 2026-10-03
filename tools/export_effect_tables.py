@@ -74,6 +74,11 @@ Blocks (original address, bytes, what reads them):
                       AIM_FIRE.md) and its RET tag; the four packets are
                       read by the chain page consumer (em_chain_page_live,
                       docs/CHAIN_PAGE.md)
+  0x002563A0  0x120   the source blocks D_002563A0 / D_00256430 the box
+                      break's subtype-0x0D handler 001EBD20 hands 001CFBE0
+                      (by the node's +0x38; BRANCH br_04 / br_06)
+  0x002556B0  0x120   the source blocks D_002556B0 / D_00255740 the skid's
+                      subtype-1 handler 001EAD70 hands 001CFBE0 (BRANCH br_05)
   0x0023C990  0x2B0   the level background's grid packet (001E1E60's CALL
                       from render channel 3: VIF codes and the grid
                       program) and its RET tag, read by the background's
@@ -109,7 +114,7 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
           (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x1B0), (0x0026EA80, 0x64),
           (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50), (0x0023C990, 0x2B0),
-          (0x00267310, 0x1830))
+          (0x00267310, 0x1830), (0x002563A0, 0x120), (0x002556B0, 0x120))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

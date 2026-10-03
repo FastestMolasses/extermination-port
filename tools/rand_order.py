@@ -94,6 +94,7 @@ PORT_FN = {
     'em_area01_ui_0022BBC0': 0x22BBC0,           # the flame contact's burn node: its ring LCG seed (DAMAGE.md)
     'em_effect_001F77B0': 0x1F77B0,              # the death decal's particle draws (DAMAGE.md)
     'em_player_reaction_0021D800': 0x21D800,     # the flinch's clip pick (DAMAGE.md)
+    'em_crate_original_tick': 0x1551B0,          # a box's break: the husk's quarter turn, a raised box's kick (BRANCH br_04 / br_06)
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -105,7 +106,8 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             'external_call', 'em_aim_fire_world_live_call',
             'hit_call',                                         # em_aim_fire_world_live's em_area00_world callee adapter
             'ui_call', 'ui_call0', 'dd_rand',
-            'em_player_misc_random'}                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
+            'em_player_misc_random',
+            'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}
 NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'glow marker 001F4D40',
@@ -117,7 +119,8 @@ NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'g
          0x1F5040: 'muzzle node 001F5040', 0x187780: 'gun lamp 00187780', 0x1F2F90: 'debris seed 001F2F90', 0x1F3620: 'debris piece 001F3620',
          0x18ABA0: 'impact marker 0018ABA0', 0x18A180: 'knife strike 0018A180',
          0x21AAC0: 'cable hit node 0021AAC0', 0x21A500: 'cable strand node 0021A500',
-         0x22BBC0: 'burn node 0022BBC0', 0x1F77B0: 'death decal 001F77B0', 0x21D800: 'flinch 0021D800'}
+         0x22BBC0: 'burn node 0022BBC0', 0x1F77B0: 'death decal 001F77B0', 0x21D800: 'flinch 0021D800',
+         0x1551B0: 'box 001551B0'}
 
 
 def name(fn):

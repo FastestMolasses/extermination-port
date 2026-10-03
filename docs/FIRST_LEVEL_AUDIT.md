@@ -225,7 +225,8 @@ equipment and head sprite live):**
   2026-09-26: the chain page is drawn, docs/CHAIN_PAGE.md); the
   equipment's own 001CAA00 draw (done by the player step, 2026-09-26: the
   nodes draw their original units); the skid's two
-  untranslated handlers 001EAD70 / 001EC270 (reachable off the route,
+  untranslated handlers 001EAD70 / 001EC270 (001EAD70 runs its translation
+  since chain step BRANCHES, 2026-10-03; reachable off the route,
   checked to write nothing but their packets) are the binder's counted gap;
   every other untranslated handler and 001EFE00 fault (none is reachable in
   AREA11 in the port; EFFECT_MANAGER.md 8.2).
@@ -1708,10 +1709,16 @@ modelled. Every other translation agrees (the module docs' notes).
     roster spawn), the task installs 001AC070 / 001AB790, 001AB4E0, camera
     state 0's 00199C50 (a reported no-effect binding) and the render init
     rows 001D19D0 / 001D19E0.
-12. **Logic: the two unverified rows,** each needing an oracle that
-    executes it: 0015CF90 (the D_00810707 / B9 progress bytes) and 001B1190
-    (the pickups' persistence event; the gun cable's copy is verified).
-    001FC280 is live since chain step EXIT (FIRST_LEVEL_CENSUS.md 1.58).
+12. **Logic: the three unverified rows,** each needing an oracle that
+    executes it: 0015CF90 (the D_00810707 / B9 progress bytes), 001B1190
+    (the pickups' persistence event; the gun cable's copy is verified) and,
+    since chain step BRANCHES (FIRST_LEVEL_CENSUS.md 1.60), 001CB480, the
+    MAP page's kind-7 draw: the live draw is em_status_models'
+    draw_001CB480 (renderer level: the light through the verified
+    001D8C20(2) / 001D89D0, the node palette on the skinned path), while
+    em_area01_side_001CB480, the oracle-tested translation of its calls,
+    is not bound; one owner is left to do. 001FC280 is live since chain step
+    EXIT (FIRST_LEVEL_CENSUS.md 1.58).
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 
@@ -1853,11 +1860,26 @@ modelled. Every other translation agrees (the module docs' notes).
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths.
-16. **Content: the unplayed branches.** The west-yard and plateau ladders
-    (census 7.1) have no capture; the census records one hit per label, so
-    jump-table cases the route did not take were never recorded; the fans'
-    exit and hit boxes are off the smoke's route. Capture: a census pass
-    over these branches.
+16. **Content: the unplayed branches.** **Status (2026-10-03, chain step
+    BRANCHES): live and checked against the capture lane BRANCH** (decomp
+    CAPTURES_C10.md "BRANCH": br_00..br_14 with their census delta). Ten
+    level-smoke side runs (`make test-level-smoke-branch`; LEVEL_SMOKE.md
+    "The BRANCH side runs") replay the lane's closed-loop policies and
+    compare every recording window by window: the five optional pickups and
+    the map item with their pages, the west-yard and plateau ladders both
+    ways, the corridor box's and the raised pipe's ledge climbs and
+    step-offs, boxes r5 / r6 broken by the light melee (r3's fall), the
+    terminal's ride back up, the panel's No and Roger's talk. What they
+    needed (FIRST_LEVEL_CENSUS.md 1.60): the knife's +0x36 view for
+    00189FE0, the boxes' break cue 001FC580, husk rebind and debris node
+    001F2BA0 (with 001C6200 and 00102C58), the effect handlers 001EBD20 and
+    001EAD70 (the skid's counted gap closed), the use dispatcher's class-2
+    list (D_00275B8C) for Roger, VOICE.DAT cue 1, and the item owners'
+    header bytes in the tick log. Left: the drums (the light melee does not
+    damage them; what does is not established), the fans' fast-arm exit and
+    their direct area change (not reachable on this visit), the security
+    gun firing (dormant on this visit); Roger's voice read and the page
+    loads at host speed (the PS2 disc-drive timing switch reproduces them).
 17. **Beyond Roger.** **Status (2026-10-02, chain step EXIT): closed.**
     Roger's departure 0x828A10, the level exit (beat 15) and the AREA01
     arrival run live and the level smoke's `exit` phase compares them with

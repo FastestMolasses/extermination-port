@@ -9,6 +9,8 @@
 
 #include "game/em_area11_roger.h"
 #include "game/em_aim_fire_tables.h"
+#include "game/em_area02_misc.h"
+#include "game/em_level8_port.h"
 #include "game/em_collision_world.h"
 #include "game/em_effect_kinds.h"
 #include "game/em_effect_manager.h"
@@ -626,32 +628,171 @@ static int w_0021B9A0_bits(void *ctx, int32_t mode, u32 f12, u32 f13)
     return fog_program(mode, f12, f13);
 }
 
-/* The two untranslated handlers checked to be packet-only: the skid's
- * 001EAD70 (0x80000033, subtype 1; byte-matched decomp C) and 001EC270
- * (0x80000012, subtype 0xB; its split listing). Each stores only the work
+/* The untranslated handler checked to be packet-only: 001EC270
+ * (0x80000012, subtype 0xB; its split listing). It stores only the work
  * block's +0x1F4 (D_00275C34 + 4, twice: the LCG), which 001EA240 rewrites
  * from +0x1F0 before every handler call and reads nowhere else, and calls
  * only 001CFB50 (it rewrites D_0081F8F0 +0x00..+0x57 in full; in the port
  * its only reader is the 001CFBE0 each translated handler calls right after
- * it) and 001CFBE0 (the packets). Skipping one changes only the packets. */
+ * it) and 001CFBE0 (the packets). Skipping it changes only the packets. The
+ * skid's 001EAD70 (0x80000033, subtype 1), the other one, runs its
+ * translation since the BRANCH step (handler_001EAD70). */
 static int packet_only_handler(u32 handler)
 {
-    return handler == 0x001EAD70u || handler == 0x001EC270u;
+    return handler == 0x001EC270u;
 }
 
-/* D_00255434[subtype]: the handler, em_effect_kinds' translation. The two
- * packet-only handlers are the counted gap (effects_gap: their packets are
+/* D_00255434[subtype]: the handler, em_effect_kinds' translation. The
+ * packet-only handler is the counted gap (effects_gap: its packets are
  * missing, nothing else differs). Every other handler em_effect_kinds does
  * not translate faults: none is checked, and some do more than draw
  * (001EF510, subtype 6, spawns 001EFD90(0x80000036) from inside the
  * handler). The port reaches none of them in AREA11 (EFFECT_MANAGER.md
  * 8.2). */
+/* The subtype-0x0D handler 001EBD20 (the box break's second effect
+ * 0x80000015, 001551B0; BRANCH br_04 / br_06): em_area02_misc's
+ * translation, its one owner, run over the views it addresses and with its
+ * three callees bound here (handler_001EBD20_call):
+ *   0x00275C30 / 0x00275C34  the node and its work block (node + 0x1F0), as
+ *                            001EA240 sets them for the handler;
+ *   node +0x38, +0x244, +0x24C  the node's live flag and the work block's
+ *                            accumulator and fraction (read);
+ *   0x70003400..+0x3F       the scratch matrix it copies the node's +0xD0 to
+ *                            and moves up by 5.0 (+0x34);
+ *   a stack frame below `sp`.
+ * a0 is node + 0xD0 (001EA240's argument). */
+static int w_001CFB50(void *ctx, u32 dst, u32 a1, const float src[16], u32 f12, u32 f13, u32 f14,
+                      u32 f15, u32 f16);
+static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, int32_t copy);
+enum { HANDLER_SP = 0x01FFF000u, HANDLER_FRAME = 0x40u };
+typedef struct {
+    const EmEffectOriginalNode *node;
+    u32 node_address;
+    uint8_t *scratch;
+} HandlerCall;
+
+static int handler_001EBD20_call(void *ctx, EmArea02MiscCall *c)
+{
+    HandlerCall *h = ctx;
+    if (c->fn == 0x00102958u) {
+        /* copy_qw4(0x70003400, node + 0xD0): the node's matrix. */
+        if (c->na != 2 || (u32)c->a[0] != 0x70003400u || (u32)c->a[1] != h->node_address + 0xD0u) return -1;
+        memcpy(h->scratch, h->node->matrix, 0x40);
+        return 0;
+    }
+    if (c->fn == 0x001CFB50u) {
+        /* 001CFB50(D_0081F8F0, 0, 0x70003400; f12, f13, 1.0, 1e-6, 6.0). */
+        if (c->na != 3 || c->nf != 5 || (u32)c->a[2] != 0x70003400u) return -1;
+        float src[16];
+        memcpy(src, h->scratch, sizeof src);
+        return w_001CFB50(NULL, (u32)c->a[0], (u32)c->a[1], src, c->f[0], c->f[1], c->f[2], c->f[3], c->f[4]);
+    }
+    if (c->fn == 0x001CFBE0u) {
+        if (c->na != 5) return -1;
+        return w_001CFBE0(NULL, (int32_t)(u32)c->a[0], (int32_t)(u32)c->a[1], (u32)c->a[2], (u32)c->a[3],
+                          (int32_t)(u32)c->a[4]);
+    }
+    return -1;
+}
+
+static int handler_001EBD20(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001EBD20u, "001EBD20 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    u32 globals[2] = {at, at + 0x1F0u};          /* D_00275C30, D_00275C34 */
+    uint8_t scratch[0x40], stack[HANDLER_FRAME];
+    memset(scratch, 0, sizeof scratch);
+    memset(stack, 0, sizeof stack);
+    int32_t live38 = node->live38;
+    float accumulator = work->accumulator, fraction = work->fraction;
+    const EmArea02MiscRegion regions[] = {
+        {0x00275C30u, 8, (uint8_t *)globals},
+        {at + 0x38u, 4, (uint8_t *)&live38},
+        {at + 0x244u, 4, (uint8_t *)&accumulator},
+        {at + 0x24Cu, 4, (uint8_t *)&fraction},
+        {0x70003400u, 0x40, scratch},
+        {HANDLER_SP - HANDLER_FRAME, HANDLER_FRAME, stack},
+    };
+    HandlerCall hc = {node, at, scratch};
+    EmArea02Misc m;
+    memset(&m, 0, sizeof m);
+    m.regions = regions;
+    m.region_count = sizeof regions / sizeof regions[0];
+    m.call = handler_001EBD20_call;
+    m.ctx = &hc;
+    m.sp = HANDLER_SP;
+    if (em_area02_misc_001EBD20(&m, at + 0xD0u, (u32)depth) < 0 || m.fault)
+        return fail(m.fault_address ? m.fault_address : 0x001EBD20u, "001EBD20 faulted (em_area02_misc)");
+    return 0;
+}
+
+/* The subtype-1 handler 001EAD70 (the skid 0x80000033 a landing spawns:
+ * BRANCH br_05's step-off from the corridor box): em_level8_port's
+ * translation, its one owner (byte-matched decomp C; test_level8_port_
+ * reference), over the views it addresses: D_00275C34 (the work block,
+ * node + 0x1F0), the work block's +4 (the LCG copy 001EA240 wrote, which it
+ * steps twice) and +0x54 (the accumulator); its 001CFB50 / 001CFBE0 are this
+ * module's (the two pairs: kind 1 with D_002556B0, kind 0 with D_00255740,
+ * the exported blocks). a0 is node + 0xD0. */
+typedef struct {
+    const EmEffectOriginalNode *node;
+    EmEffectOriginalWork *work;
+    u32 node_address, d275C34;
+} SkidCall;
+
+static uint8_t *skid_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    SkidCall *c = ctx;
+    if (address == 0x00275C34u && size == 4) return (uint8_t *)&c->d275C34;
+    if (address == c->d275C34 + 4u && size == 4) return (uint8_t *)&c->work->seed_copy;
+    if (address == c->d275C34 + 0x54u && size == 4) return (uint8_t *)&c->work->accumulator;
+    return NULL;
+}
+
+static int skid_001CFB50(void *ctx, uint32_t a0, int32_t n1, int32_t n2, float f3, float f4, float f5, float f6,
+                         float f7)
+{
+    SkidCall *c = ctx;
+    if ((u32)n2 != c->node_address + 0xD0u) return -1;
+    u32 b[5];
+    const float f[5] = {f3, f4, f5, f6, f7};
+    memcpy(b, f, sizeof b);
+    return w_001CFB50(NULL, a0, (u32)n1, c->node->matrix, b[0], b[1], b[2], b[3], b[4]);
+}
+
+static int skid_001CFBE0(void *ctx, int32_t n0, int32_t n1, uint32_t a2, uint32_t a3, int32_t n4)
+{
+    (void)ctx;
+    return w_001CFBE0(NULL, n0, n1, a2, a3, n4);
+}
+
+static int handler_001EAD70(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(0x001EAD70u, "001EAD70 without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SkidCall c = {node, work, at, at + 0x1F0u};
+    EmLevel8PortHooks h;
+    memset(&h, 0, sizeof h);
+    h.ctx = &c;
+    h.bytes = skid_bytes;
+    h.w_001CFB50 = skid_001CFB50;
+    h.w_001CFBE0 = skid_001CFBE0;
+    EmLevel8PortFault fault = {0, 0};
+    if (em_level8_port_001EAD70(&h, (int32_t)(at + 0xD0u), depth, &fault) < 0)
+        return fail(fault.address ? fault.address : 0x001EAD70u, "001EAD70 faulted (em_level8_port)");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
     (void)ctx;
     if (em_effect_kinds_translates(handler))
         return em_effect_kinds_handler(&S.k, handler, node->matrix, depth, work);
+    if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
+    if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
     if (packet_only_handler(handler)) return effects_gap(handler, node->subtype);
     return fail(handler, "untranslated effect handler (not packet-only)");
 }
@@ -713,7 +854,8 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
     const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
                                ? S.sources + (source - 0x002565E0u)
                            : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u ||
-                              source == 0x002561F0u || source == 0x00255590u)
+                              source == 0x002561F0u || source == 0x00255590u || source == 0x002563A0u ||
+                              source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u)
                                ? em_effects_live_window(source, 0x90)
                                : NULL;
     if (xf != EM_EFFECT_KINDS_XF || !bytes)

@@ -311,9 +311,10 @@ EMST file (layout in the tool). It contains:
 The cues exported are:
 - Music: 29, 54 and 63 (the `D_0026EC60` rows of area 11); 25 (AREA11's 001FAE70 selection); 0x18 (the override
   cue); 0x1B (game over); and 13 (the music right after the AREA11 exit, captured in route 15).
-- Voice: 143..151.
+- Voice: 143..151; and 1 (since chain step BRANCHES, 2026-10-03: line 0x13, Roger's talk after the encounter,
+  its area-11 message record's voice word; the BRANCH recording br_14 plays it).
 
-The export is 7 extents, 24.3 MB. A read of any other sector faults. The capture checks prove the exported
+The export is 8 extents, 24.6 MB (7 extents, 24.3 MB before cue 1). A read of any other sector faults. The capture checks prove the exported
 sectors are what the original held: every lane-0 IOP buffer half and every stream SPU half in the 16 save states
 equals them.
 

@@ -2624,10 +2624,26 @@ static int rj_link_type(void *c, const void *owner, uint8_t *type)
     *type = a->model;   /* (+308)+3 */
     return 0;
 }
+/* D_00275B8C[index]: the published class-2 list (001B1B70 pushes the
+ * visible class-2 / 0x0A owners, 001AAD00 publishes them; the one storage
+ * is em_collision_world_lists, which D_00275B94 counts in running_jump_scene).
+ * 001AA4E0 reads an entry's +2 and +3 (the pool header) and, only when
+ * (+2 & 0x1F) == 2, its +0x34 halfword and then 001AA410 / 001AA2A0 on it.
+ * The AREA11 entries are class 0x0A (Roger after the encounter, BRANCH
+ * br_14; the BRANCH census ran neither 001AA410 nor 001AA2A0), so an entry
+ * of class 2 faults here: its +0x34 has no bound view. */
 static int rj_target(void *c, int index, EmPlayerRunningJumpTarget *out)
 {
-    (void)c; (void)index; (void)out;
-    return unbound("D_00275B8C (the class-2 list: no AREA11 owner publishes one)");
+    (void)c;
+    const EmActor *e = em_actor_class_list_entry(em_collision_world_lists(), EM_ACTOR_LIST_CLASS2, index);
+    if (!e || !out) return unbound("D_00275B8C entry (outside the published class-2 list)");
+    if ((e->cls & 0x1Fu) == 2u)
+        return unbound("a D_00275B8C entry of class 2 (its +0x34, 001AA410 / 001AA2A0: no AREA11 owner publishes one)");
+    out->object = e;
+    out->flags = e->cls;
+    out->type = e->model;
+    out->field34 = 0; /* not read: 001AA4E0 tests +2 first */
+    return 0;
 }
 static int rj_target_xz(void *c, const void *object, float *x, float *z)
 { (void)c; (void)object; (void)x; (void)z; return unbound("001AA4E0's target"); }

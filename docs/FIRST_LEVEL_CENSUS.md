@@ -2396,32 +2396,100 @@ The census covers 1,354 functions (1,309 + 45): live 884, verified-unbound
 (001ABF90 now live), verified-unbound 25, unverified 2; 88,122 of 89,400
 instructions (98.6%).
 
+### 1.60 Update (2026-10-03, chain step BRANCHES: the AREA11 branches off the main route; 36 rows added)
+
+The decomp's capture lane BRANCH (decomp CAPTURES_C10.md "BRANCH": fifteen
+recordings br_00..br_14, censused twice, passes BR and BRB) ran 813
+functions, 69 of them not in the s87 census (`census_delta.json`); 33 of
+those were rows already (the AIM delta's 31, 0022FCA0 from EXIT and
+001A58B0 from DAMAGE). The other 36 (5,756 instructions, all after first
+control) are added, each classified with the method of section 1.2:
+
+- **Liveness.** A private `-O1 -fno-inline -finstrument-functions` build of
+  the Makefile's link line with a function-entry recorder (scratch only,
+  deleted) ran the ten BRANCH side runs (each PASS in process); every
+  function entered was mapped to its symbol. Every live row below was
+  entered (its translation, or the static function that carries it:
+  em_player_running_jump's `aim` / `target_scan` in br_roger_talk only,
+  em_player_ladder_climb's `clip_pair` / `probe_00180530`, em_area01_ui's
+  `list_ids`, em_coll_move's `vmul4`, em_pickup_owner_take for 001C4720,
+  em_status_models' `draw_001CB480`).
+- **Rows added (36):** live 33 (0015FDF0, 0017FD40, 00180530, 00189EC0,
+  00189FE0, 00199FA0, 001A44B0, 001A4830, 001AA4E0, 001C4720, 001C6200,
+  001EAD70, 001EBD20, 001F2BA0, 001F2E90, 001FC580, 001FCF60, 001FCF90,
+  001FE660, 0020F950, 00210030, 002101C0, 00210A00, 00210C00, 00210F30,
+  00211400, 002131B0, 002134C0, 00213F30, 00214020, 002160B0, 001028E8,
+  0x00823BB0, the piece of 0x823B70's C); unverified 1 (001CB480, the MAP
+  page's kind-7 draw: the live draw is em_status_models' renderer-level
+  draw_001CB480, which nothing original checks; em_area01_side_001CB480,
+  the oracle-tested translation of its calls, is not bound, a second
+  translation to reduce to one owner: audit 1b item 12); boundary 2
+  (00207D90 and 00208040, the 2D GS draw layer: em_page_draw from their
+  arguments, which the status_pages run's replay compares at every call).
+- **What this step bound or translated to make them live** (each on the one
+  translation of its original): the knife node's +0x36 view (00189FE0's
+  read, em_equipment_live); the boxes' break cue 001FC580 (em_area00_low
+  over em_stream_live's D_00281F30), husk rebind (001C6120 / 001CA6E0 over
+  the library, model 0x22) and debris node 001F2BA0 (em_area00_fx through
+  the aim / fire composition, 001C6200 and the SDK leaf 00102C58 joining
+  it; em_aim_fire_trail keeps the slots); the effect handlers 001EBD20
+  (em_area02_misc) and 001EAD70 (em_level8_port, which closes the skid's
+  counted gap) in em_effects_live; the class-2 list D_00275B8C for
+  001AA4E0 (em_player_closure_live rj_target); VOICE.DAT cue 1 (Roger's
+  line 0x13) in the stream export; the library models 0x1C, 0x1E and 0x22
+  in the Roger export and their textures; the item owners' header bytes in
+  the tick log (em_area11_interaction_host_pickup_header).
+- **Status and note changes:** 0x001551B0 (the damage break live),
+  0x001FC6E0 (its writer bound), 0x00823B70 (its piece), 0x00160220 (its
+  aim solver).
+- **Evidence.** The BRANCH side runs (`make test-level-smoke-branch`,
+  LEVEL_SMOKE.md "The BRANCH side runs"): all ten PASS, every recording
+  window by window. The oracles named in the rows, all run in this step
+  (PASS): test_player_running_jump_reference, test_player_ladder_climb /
+  entry_reference, test_coll_probe / coll_move_reference,
+  test_pickup_owner_reference, test_census_standins_reference,
+  test_status_pages_reference, test_area01_ui_reference,
+  test_area00_world_reference, test_area00_fx_reference,
+  test_area00_low_reference, test_area02_misc_reference,
+  test_level8_port_reference (001EAD70: 10 cases, every reachable word),
+  test_roger_reference.
+
+Result (recounted from the section 3 rows, the BRANCH rows' instruction
+counts from the BRANCH delta, decomp build/c10/branch/census_delta.json):
+the census covers 1,390 functions (1,354 + 36): live 917, verified-unbound
+27, unverified 3, stand-in 0, missing 9, boundary 434; 118,430 of the
+120,964 non-boundary instructions live (97.9%; by function count 917 of
+956, 95.9%). The route through beat 15 is unchanged (739 of 766 live,
+98.6%).
+
 ## 2. Totals
 
-### 2.1 All 1,354 executed functions (the route's 1,195 through beat 15, the AIM beats' 114 and the DAMAGE recordings' 45)
+### 2.1 All 1,390 executed functions (the route's 1,195 through beat 15, the AIM beats' 114, the DAMAGE recordings' 45 and the BRANCH recordings' 36)
 
 Since section 1.58 the census includes route beat 15 through the AREA01
 arrival (11 functions more); the 62 functions AREA01 runs after its arrival
 and that no first-level beat runs are level 2 (section 3.26) and not counted
 here. Since section 1.59 it includes the 45 functions the DAMAGE recordings
 added (50 new to the route census, five of them AIM or beat-15 rows
-already; all from first control on).
+already; all from first control on). Since section 1.60 it includes the 36
+functions the BRANCH recordings added (69 new to the s87 census, 33 of them
+AIM, EXIT or DAMAGE rows already; all from first control on).
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 884 | 112,833 | 817 (107,709) | 67 (5,124) |
+| live | 917 | 118,430 | 850 (113,306) | 67 (5,124) |
 | verified-unbound | 27 | 1,364 | 16 (803) | 11 (561) |
-| unverified | 2 | 47 | 2 (47) | 0 (0) |
+| unverified | 3 | 75 | 3 (75) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 9 | 1,095 | 9 (1,095) | 0 (0) |
-| boundary | 432 | 23,178 | 154 (9,878) | 278 (13,300) |
-| **total** | **1354** | **138,517** | 998 | 356 |
+| boundary | 434 | 23,309 | 156 (10,009) | 278 (13,300) |
+| **total** | **1390** | **144,273** | 1034 | 356 |
 
-Of the 922 non-boundary functions, 884 (95.9%) are live and verified; by instructions 112,833 of 115,339 (97.8%). The route's own 766 (through beat 15): 739 live, 88,122 of 89,400 instructions (98.6%, sections 1.53, 1.55, 1.57, 1.58 and 1.59); the AIM beats' 114 (section 1.56) are all live; of the DAMAGE recordings' 42 non-boundary functions (section 1.59), 31 are live, 2 verified-unbound and 9 missing (the title's load screen, which the DAMAGE recording dmg_05 reached from the title after a death and which the port does not bind). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 27 functions (1,364 instructions, 1.2%) are verified translations the live app does not run. 11 functions (1,142 instructions) have no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 9 missing (the load screen, above), 2 unverified (0015CF90 and 001B1190; 00187DC0 is live since chain C7, section 1.26, and 001FC280 since chain step EXIT, section 1.58). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 956 non-boundary functions, 917 (95.9%) are live and verified; by instructions 118,430 of 120,964 (97.9%). The BRANCH recordings' 34 non-boundary functions (section 1.60): 33 live, 1 unverified (001CB480). The route's own 766 (through beat 15): 739 live, 88,122 of 89,400 instructions (98.6%, sections 1.53, 1.55, 1.57, 1.58 and 1.59); the AIM beats' 114 (section 1.56) are all live; of the DAMAGE recordings' 42 non-boundary functions (section 1.59), 31 are live, 2 verified-unbound and 9 missing (the title's load screen, which the DAMAGE recording dmg_05 reached from the title after a death and which the port does not bind). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 27 functions (1,364 instructions, 1.2%) are verified translations the live app does not run. 12 functions (1,170 instructions) have no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), 9 missing (the load screen, above), 3 unverified (0015CF90, 001B1190 and, since section 1.60, the MAP page's draw 001CB480; 00187DC0 is live since chain C7, section 1.26, and 001FC280 since chain step EXIT, section 1.58). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59; 2026-10-03, section 1.60) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json; the BRANCH rows' from the BRANCH delta, decomp build/c10/branch/census_delta.json; an overlay entry keyed by its runtime address and its overlay: the EXIT delta's AREA01 0x00823580 is not the AREA11 row's); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
-"Ran" counts every function the label executed; "first" counts the functions first seen in that label in route order (beat 00 is placed before 01; the AIM side beats, from route 08's end, follow beat 15: sections 1.56 and 1.58). The DAMAGE beats of section 1.59 are not route labels and are not in this table: their 45 functions not counted above are first seen in dmg_00 (16), dmg_02 (7), dmg_03 (1), dmg_05 (14), dmg_06 (2), dmg_07 (4) and dmg_08 (1) (decomp census_delta.json `per_beat`; 001EFE00 is counted in aim_11, 00194D10, 0022FCA0, 00230000 and 001195A8 in beat 15).
+"Ran" counts every function the label executed; "first" counts the functions first seen in that label in route order (beat 00 is placed before 01; the AIM side beats, from route 08's end, follow beat 15: sections 1.56 and 1.58). The DAMAGE beats of section 1.59 are not route labels and are not in this table: their 45 functions not counted above are first seen in dmg_00 (16), dmg_02 (7), dmg_03 (1), dmg_05 (14), dmg_06 (2), dmg_07 (4) and dmg_08 (1) (decomp census_delta.json `per_beat`; 001EFE00 is counted in aim_11, 00194D10, 0022FCA0, 00230000 and 001195A8 in beat 15). The BRANCH beats of section 1.60 are not route labels either: their 36 functions not counted above are first seen in br_00 (1), br_01 (11: the map item's take and its MAP page), br_02 (2), br_04 (7), br_05 (1), br_08 (6), br_09 (7) and br_14 (1) (decomp build/c10/branch/census_delta.json; the other 33 of its 69 new functions are AIM, EXIT or DAMAGE rows).
 
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
@@ -2466,7 +2534,7 @@ first-level ones (census_delta.json); its 63 level-2 functions (section
 
 State at the full-route recount of 2026-09-28 (section 1.44, which re-measured every row's liveness over the whole route at port HEAD 6594182; the earlier measurements are sections 1.22 and 1.33), with the row changes of section 1.46. What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 739 of 766 non-boundary route functions through beat 15 (98.6% by instructions; sections 1.53, 1.55, 1.57, 1.58 and 1.59); with the AIM beats' 114 (section 1.56) and the DAMAGE recordings' 42 (section 1.59, including the 9 missing rows of the title's load screen), 884 of 922 (97.8%).** Every main-line route phase the
+- **Live and verified: 739 of 766 non-boundary route functions through beat 15 (98.6% by instructions; sections 1.53, 1.55, 1.57, 1.58 and 1.59); with the AIM beats' 114 (section 1.56), the DAMAGE recordings' 42 (section 1.59, including the 9 missing rows of the title's load screen) and the BRANCH recordings' 34 (section 1.60), 917 of 956 (97.9%).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -2475,7 +2543,9 @@ State at the full-route recount of 2026-09-28 (section 1.44, which re-measured e
   00 (the panel without the battery) and 09 (the fence door and its room move, since section 1.18; with the door's
   side 1 and its arrival walk-out since section 1.31), each in its own run. Since section 1.59 the DAMAGE side runs
   (the flame's hits, the low health, both deaths, the game over, the title after a death and its New Game, the
-  landing hit) replay the DAMAGE recordings window by window. Since section 1.20 the player's drop shadow runs on its originals from first control on (the projected
+  landing hit) replay the DAMAGE recordings window by window; since section 1.60 the BRANCH side runs (the optional
+  pickups and the map item, the other ladders, the boxes broken by the knife, the ride up, the panel's No and
+  Roger's talk) replay the BRANCH recordings window by window. Since section 1.20 the player's drop shadow runs on its originals from first control on (the projected
   shadow 001DA6A0 and, on an actor, the 0015BF90 decal), checked against the original re-executed over the port's
   own inputs (check_shadow). Since section 1.21 the status pages run on their originals too: the BATTERY page
   002149F0 with its page draws, the mode-3 / mode-4 presenters at step F (the step-F gate is gone), the fog record's
@@ -2519,8 +2589,8 @@ State at the full-route recount of 2026-09-28 (section 1.44, which re-measured e
   effects' room point-light lists are live since section 1.53, the AREA11 overlay's flag-0x30 manager 00823CE0
   since section 1.55 (3.23 keeps one: the overlay init 008237C0), and the area-title node 001C5930 / 001C5860
   and the indicator draw 001CACB0 / 001CAAC0 since section 1.57 (3.14 keeps one anim runtime leaf).
-- **No verified translation:** 11 functions (1,142 instructions): 2 unverified rows (section 2.1; 001FC280 is live since
-  section 1.58) and 9 missing rows, the title's load screen (section 1.59: 001FCBD0, 001FE8D0, 001FE9A0, 001FECB0,
+- **No verified translation:** 12 functions (1,170 instructions): 3 unverified rows (section 2.1; 001FC280 is live since
+  section 1.58; 001CB480, the MAP page's draw, since section 1.60) and 9 missing rows, the title's load screen (section 1.59: 001FCBD0, 001FE8D0, 001FE9A0, 001FECB0,
   00225720, 00225A20, 00225CF0, 00225D20, 00226070; the OPTIONS step binds it); no stand-in row is left (001CB3C0 is
   live since section 1.40).
 
@@ -2530,10 +2600,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.1 Main-loop tasks, frame machine and fades (0x1AA200..0x1AEFFF)
 
-37 functions, 2,471 instructions: live 33, verified-unbound 4 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001AD140, 001AD4E0, 001ADF00 added, 001ABF90 to live; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 32 functions, recount 2026-09-28, the module loader step).
+38 functions, 2,557 instructions: live 34, verified-unbound 4 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001AA4E0 added; before it 37 functions, 2,471 instructions: live 33, verified-unbound 4, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001AD140, 001AD4E0, 001ADF00 added, 001ABF90 to live; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 32 functions, recount 2026-09-28, the module loader step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
+| 0x001AA4E0 | — | BM | live | em_player_running_jump target_scan (0015FDF0's) over the published class-2 list D_00275B8C (em_player_closure_live rj_target, BRANCHES) — test_player_running_jump_reference | AREA11's class-2 entries are class 0x0A (Roger after the encounter): none qualifies; an entry of class 2 faults (its +0x34, 001AA410 / 001AA2A0 unbound); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_02_elevator_up |
 | 0x001AA7A0 | — | BM | live | em_aim_fire_leaves em_aim_fire_001AA7A0 — test_aim_fire_leaves_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001AA840 | — | NM | live | em_area00_fx_spawn em_area00_fx_001AA840 (w_001AA840 in em_equipment_live) — test_area00_fx_reference | the knife's class-4 walk; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001AAD00 | — | NM | live | em_collision_world (em_coll_list_passes_001AAD00_hooks, em_actor_class_lists_swap_001AAD00) — test_actor_collision_reference.py, test_coll_list_passes_reference.py | w_001AAD00 in both variants (roster scenes): the nine hooks, then the list block; its interactive list is the Use scan's one store | S2_opening |
@@ -2637,7 +2708,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.4 Player states (0x15B000..0x173FFF)
 
-46 functions, 13,197 instructions: live 45, unverified 1 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 0015B770, 001639E0, 00163E90 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 34 functions, recount 2026-09-26, chain C7 takeover step).
+47 functions, 13,464 instructions: live 45, unverified 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 0015FDF0 added; before it 46 functions, 13,197 instructions: live 45, unverified 1, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 0015B770, 001639E0, 00163E90 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 34 functions, recount 2026-09-26, chain C7 takeover step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2660,7 +2731,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0015DEC0 | — | AW | live | em_player_climb — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) | bound since the Boxes step (em_player_closure_live; the Use chain's climb / surface probes) | 05_boxes |
 | 0x0015DF10 | — | NM | live | em_player_climb em_player_climb_live_ledge (00160220's ledge probes, em_player_closure_live) — test_player_climb_reference; test_level_smoke.py check_boxes (route 05 row for row) |  | 05_boxes |
 | 0x0015EC50 | — | NM | live | em_player_running_jump — test_player_running_jump_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (em_player_closure_live: 00160220's running-jump probe); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
-| 0x00160220 | — | BM | live | em_player_use_dispatch em_player_use_00160220 over the live record (em_player_closure_live, scan = the host's 00184BA0) — test_player_use_dispatch_reference; test_level_smoke.py (01..05) |  | S3_first_control_idle |
+| 0x0015FDF0 | — | NM | live | em_player_running_jump aim (em_player_running_jump_use_aim, 00160220's aim solver through em_player_closure_live use_aim) — test_player_running_jump_reference | a Use press nothing else took (br_roger_talk's first press); its 001AA4E0 over the class-2 list; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_02_elevator_up |
+| 0x00160220 | — | BM | live | em_player_use_dispatch em_player_use_00160220 over the live record (em_player_closure_live, scan = the host's 00184BA0) — test_player_use_dispatch_reference; test_level_smoke.py (01..05) | its aim solver 0015FDF0 / 001AA4E0 reads the class-2 list since chain step BRANCHES (section 1.60) | S3_first_control_idle |
 | 0x001607D0 | — | BM | live | em_player_weapon_states_a em_player_weapon_001607D0 (the idle / walk states' `actions`, census L12) — test_player_weapon_states_a_reference | the stances it enters (+5 = 0x1D..0x22) run their original workers in ordinary play since 2026-10-02 (the gate and em_weapon's stand-ins retired; AIM_FIRE.md section 10, section 1.52); D_00810C61 (its armed forwarding) is em_weapon's byte, read on every call | S3_first_control_idle |
 | 0x00161020 | — | NM | live | em_locomotion_display em_loco_00161020 over the record (0015B130 state[0], em_player_closure_live.c bind_loco; census L12) — test_locomotion_display_reference; test-first-control-reference (56 callbacks, the record against collision_run_poll.json); test_level_smoke.py | the port's stand-ins (examine / director lock: L21; the legacy door no longer runs in AREA11 since census L18; the stance / R2 / melee stand-ins retired 2026-10-02, section 1.52) pre-empt it while they hold the player; the legacy idle callback remains only in the scenes without an original world | S2_opening |
 | 0x001612D0 | — | NM | live | em_locomotion_display em_loco_001612D0 over the record (0015B130 state[1]; census L12) — test_locomotion_display_reference; test-first-control-reference (newgame-control travels 9.599849, the original's); test_level_smoke.py | as 00161020 (stand-ins pre-empt; legacy walk only without an original world) | 00_panel_no_battery |
@@ -2690,7 +2762,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.5 Player workers, pose and animation glue (0x174000..0x18AFFF)
 
-106 functions, 12,160 instructions: live 106 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 0017C370, 001755B0 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 84 functions, recount 2026-09-26, chain C7 takeover step).
+110 functions, 12,399 instructions: live 110 (recount 2026-10-03, chain step BRANCHES, section 1.60: 0017FD40, 00180530, 00189EC0, 00189FE0 added; before it 106 functions, 12,160 instructions: live 106, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 0017C370, 001755B0 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 84 functions, recount 2026-09-26, chain C7 takeover step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2756,9 +2828,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0017F5F0 | — | NM | live | em_player_slide — test_player_slide_reference (every field and worker call; world mode replays route 06); test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase | 06_hill_slide |
 | 0x0017FC80 | — | BM | live | em_player_ladder_climb (one owner; the ladder entry runs it through a bridge) — test_player_ladder_climb_reference, test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x0017FD00 | — | BM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (the climb's clip pair); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x0017FD40 | — | BM | live | em_player_ladder_climb clip_pair (0xE9 / 0xEB; em_player_ladder_climb_0017FD40) — test_player_ladder_climb_reference | the climb down's clip; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 | 0x00180300 | — | BM | live | em_player_ladder_entry (one owner since 2026-09-24; the closure states run it through `em_player_ladder_probe_00180300`) — test_player_ladder_entry_reference, test_player_closure_0e_18_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (the climb's attribute probe); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00180420 | — | BM | live | em_player_ladder_climb (one owner; the closure states run it through a bridge) — test_player_ladder_climb_reference, test_player_closure_0e_18_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00180460 | — | BM | live | em_player_ladder_climb — test_player_ladder_climb_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10; measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00180530 | — | BM | live | em_player_ladder_climb probe_00180530 (em_player_ladder_climb_00180530) — test_player_ladder_climb_reference | the grab from above; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 | 0x00181110 | — | AW | live | em_player_major2 — test_player_major2_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L10 (major2's 00181110 inside the climb); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x00182430 | — | AW | live | em_player_floor em_player_step_sounds, the one translation: the footstep dispatch 00187350 (em_player_footstep_tick), the legacy step clock em_player.c footstep_play and the record's standalone callers (the slide's skid steps; the ladder and closure states) through em_player_closure_live.c x_surface_sound — test_player_footstep_reference, test_player_random_reference; test_level_smoke.py (06_hill_slide row for row, census L03) | the walking step clock is still legacy (00187350 verified-unbound); em_player.c's own copy of the mapper (footstep_block) is retired | 00_panel_no_battery |
 | 0x00182870 | — | BM | live | em_player_reaction — test_player_reaction_reference | reached live since the Boxes step (the climb's 0017DEB0) and on the slide landing (0016C6A0 sub-state 0xA); test_level_smoke.py (06_hill_slide row for row, census L03) | 05_boxes |
@@ -2793,6 +2867,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00188DF0 | — | BM | live | em_player_equipment through em_equipment_live (variants 5 / 7: 001C9610) — test_player_equipment_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening |
 | 0x00188ED0 | — | BM | live | em_player_equipment through em_equipment_live — test_player_equipment_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | the lamp 00187780 runs its translation (em_aim_fire_lamp, test-aim-fire-lamp-reference) when reached (D_008106C7 is 0 on the route; the side run aim_light reaches it); em_weapon.c's flashlight gate and the gun's spot term are retired (section 1.52) | S2_opening |
 | 0x00189D30 | — | BM | live | em_player_equipment through em_equipment_live — test_player_equipment_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | S2_opening |
+| 0x00189EC0 | — | NM | live | em_area00_world em_area00_world_00189EC0 (w_00189EC0 in em_equipment_live, through the aim / fire composition) — test_area00_world_reference | the knife's entity test on a box (kind 4); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
+| 0x00189FE0 | — | BM | live | em_area00_world em_area00_world_00189FE0 (w_00189FE0 in em_equipment_live) — test_area00_world_reference | the knife's strike: the box's +0x36 from the knife node's +0x36 (its pool record's h36, a view since BRANCHES); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
 | 0x0018A180 | — | BM | live | em_area00_world em_area00_world_0018A180 (w_0018A180 in em_equipment_live) — test_area00_world_reference | the knife on the cable (aim_cable); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_11_cable_melee |
 | 0x0018A1F0 | — | BM | live | em_player_equipment through em_equipment_live — test_player_equipment_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | the knife's hit probes run on the composition in ordinary play since 2026-10-02 (0019B2C0 em_coll_move_original, 001AA840 / 001EFF10 em_area00_fx, 00189EC0 / 00189FE0 / 0018A180 em_area00_world, 001B61C0 em_pad_actuator; status bit 0 is never set on the route; AIM_FIRE.md sections 9.3 and 10.5, section 1.52) | S2_opening |
 | 0x0018A6B0 | — | BM | live | em_player_equipment em_player_equipment_tick through em_equipment_live on the pool nodes (em_area11_bindings) — test_player_equipment_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | its +0x4C 001CAA00 runs through em_owner_draw_live since section 1.23 (in the opening's reported frames the port's player mesh carries the models instead) | S2_opening |
@@ -2803,7 +2879,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.6 Camera (0x18B000..0x199FFF)
 
-41 functions, 10,877 instructions: live 40, verified-unbound 1 (recount 2026-10-02, chain step EXIT, section 1.58, after the merge onto chain step AIMCAP, section 1.56: the AIM delta's rows; before them 27 functions, recount 2026-09-26, shadow step).
+42 functions, 10,996 instructions: live 41, verified-unbound 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 00199FA0 added; before it 41 functions, 10,877 instructions: live 40, verified-unbound 1, recount 2026-10-02, chain step EXIT, section 1.58, after the merge onto chain step AIMCAP, section 1.56: the AIM delta's rows; before them 27 functions, recount 2026-09-26, shadow step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2848,10 +2924,11 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001999C0 | — | NM | live | em_camera_aim (sight_999C0) — test_camera_aim_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_01_r2_hold |
 | 0x00199C50 | — | NM | verified-unbound | em_startup_load_gaps em_slg_00199C50 — test_startup_load_gaps_reference | the live um_00199C50 is a reported no-effect binding (state 0) | S1_newgame_load* |
 | 0x00199DB0 | — | NM | live | em_player_ladder_entry — test_player_ladder_entry_reference; test_level_smoke.py check_cage_ladders (route 10 row for row) | live since census L09 (the column node's centre); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
+| 0x00199FA0 | — | NM | live | em_player_ladder_entry em_player_ladder_00199FA0 — test_player_ladder_entry_reference | the descent's ladder probe; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 
 ### 3.7 Collision walkers (0x19A000..0x1A7FFF)
 
-41 functions, 10,760 instructions: live 41 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001A58B0 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 38 functions, recount 2026-09-27, one-owner step).
+43 functions, 11,175 instructions: live 43 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001A44B0, 001A4830 added; before it 41 functions, 10,760 instructions: live 41, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001A58B0 added; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 38 functions, recount 2026-09-27, one-owner step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2888,7 +2965,9 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001A32C0 | — | NM | live | em_coll_probe_original — test_coll_probe_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | S2_opening |
 | 0x001A3980 | — | NM | live | em_coll_list_passes_walkers — test_coll_list_passes_reference.py | recount 2026-09-25: em_coll_list_passes_001A3980 executed on the live path (9 calls over the five measured runs) | 05_boxes |
 | 0x001A4030 | — | BM | live | em_coll_probe_original — test_coll_probe_reference.py, test_coll_move_reference.py, test_actor_collision_reference.py | 001A1390's n-gon test and 0019AB20's (one owner since the Boxes step: em_actor_collision.c calls it) | 01_battery |
+| 0x001A44B0 | — | AW | live | em_coll_probe_original em_coll_probe_001A44B0 — test_coll_probe_reference | the descent's probes; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 | 0x001A4650 | — | AW | live | em_coll_probe_original, em_actor_collision — test_actor_collision_reference.py, test_coll_probe_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | 00_panel_no_battery |
+| 0x001A4830 | — | AW | live | em_coll_move_original em_coll_move_prim_001A4830 — test_coll_move_reference | the descent's probes; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 | 0x001A4D10 | — | AW | live | em_coll_move_original — test_coll_move_reference.py, test_collision_faces_reference.py | recount 2026-09-25: em_coll_move_prim_001A4D10 executed on the live path (2352 calls over the five measured runs) | 04_elevator_ride |
 | 0x001A50A0 | — | NM | live | em_coll_segment_walkers, em_coll_probe_original — test_coll_probe_reference.py, test_coll_segment_walkers_reference.py | 001A1390's face prim test (the panel's cell 18); also 001A2AE0's pass-2 worker (gated FLOOR) | 02_elevator_refusal |
 | 0x001A5760 | — | AW | live | em_collision.c em_collision_column_box_face (via em_actor_collision) — test_actor_collision_reference.py | FLOOR engaged since the Boxes step (em_collision_world_bind_player; EE model) | 05_boxes |
@@ -2920,7 +2999,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
-| 0x001551B0 | — | NM | live | em_crate_original over its roster node (em_area11_boxes.c) — test_crate_original_reference, test_collision_world_capture.py (records equal route 04), test_level_smoke.py (05_boxes) | the damage and nest paths reach fail-stop workers (no live +0x36 writer); their 001EFD90 runs em_effects_live | S2_opening |
+| 0x001551B0 | — | NM | live | em_crate_original over its roster node (em_area11_boxes.c) — test_crate_original_reference, test_collision_world_capture.py (records equal route 04), test_level_smoke.py (05_boxes; BRANCH br_04 / br_06: the boxes r3..r6 row for row) | since chain step BRANCHES (section 1.60) the damage break is live (the knife's +0x36 through 00189FE0; the cue 001FC580, the husk rebind, the debris 0x8000000A / 0x80000015); the nest paths, a drum's break and a model-0x1E husk reach fail-stop workers | S2_opening |
 | 0x00156620 | — | NM | live | em_drum_original over its roster node (em_area11_boxes.c) — test_drum_original_reference, test_collision_world_capture.py (records equal route 04) | the break and flight paths reach fail-stop workers (no live +0x36 writer); their 001F0460 / 001EFD20 run em_effects_live | S2_opening |
 | 0x001575B0 | — | BM | live | em_panel_program.c (op-9 callback: cue 0x3EF) — test_level_smoke.py (route 03 panel windows); test_area11_sfx_reference (cue 0x3EF) | tiny script callback translated inline | 03_panel_power |
 | 0x00157860 | — | BM | live | em_panel.c via em_area11_interaction_host (node #26) — test_panel_reference; test_level_smoke.py (route 03) |  | S2_opening |
@@ -3014,7 +3093,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.13 Area services, child spawns, area title (0x1BC400..0x1C5FFF)
 
-21 functions, 1,659 instructions: live 21 (recount 2026-10-02, the units step, section 1.57).
+22 functions, 1,672 instructions: live 22 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001C4720 added; before it 21 functions, 1,659 instructions: live 21, recount 2026-10-02, the units step, section 1.57).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3028,6 +3107,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001C22A0 | — | BM | live | em_render_verify_rest em_rvr_001C22A0 through em_indicator_bind_live (the terminal's 001C5760 child over *D_0028A59C and the one bone-slot stack) — test_render_verify_rest_reference; test_level_smoke.py check_indicator_children (+0x09 / +0x0C / +0x44 / +0x4C equal the route snapshots', the 001C6380 placement bit for bit) | status UI step 2026-09-26 (section 1.21); the slot addresses are not the original's yet (the stack history before the children) | S2_opening* |
 | 0x001C2360 | — | BM | live | em_render_verify_rest em_rvr_001C2360 through em_indicator_bind_live (the 001C5680 children over D_0028A56C: models 0x73 / 0x74 / 0x75 / 0x7A in the Roger export) — test_render_verify_rest_reference; test_level_smoke.py check_indicator_children | status UI step 2026-09-26 (section 1.21); as 001C22A0 | S2_opening* |
 | 0x001C40B0 | — | NM | live | em_pickup_items_original em_pickup_items_001C40B0 via em_pickup.c — test_pickup_items_reference (executes 001C40B0); test_continue_reset_reference |  | S0_title |
+| 0x001C4720 | — | BM | live | em_pickup_owner em_pickup_owner_take (001B6EA0's D_00810CB8[type] += 1) — test_pickup_owner_reference (runs 001B6EA0 with 001C4720 as original code) | the map item's take (subtype 1); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
 | 0x001C4760 | — | BM | live | em_director_original_001C4760 through em_director_original_001C4760_scene (the canonical key bytes; the opening 00823E80's 001C4760(0, 1), and since WP-8b the original director's beat-0 001C4760(1, 1)) — test_continue_reset_reference.py (executes 001C4760, 90 cases, and the opening slice 0x823F6C..0x823F8C through its call), test_director_original_reference.py |  | S2_opening |
 | 0x001C47A0 | — | BM | live | em_pickup.c pickup_take (B0 = 1, B1 = type) — test_level_smoke.py (battery phase; route 01 f220..f459) | called from em_pickup.c original_take through the original 00219550 program (81414be) | 01_battery |
 | 0x001C4820 | — | BM | live | em_status_ui_leftovers em_sul_001C4820 at the area11[20] node (em_area11_bindings.c tick_prop_001C4820: 001B0FD0 / 001C6380 / +0x4C through em_area11_boxes_owner_*, 001B17A0 through the host's services) — test_status_ui_leftovers_reference; test_level_smoke.py check_owner_units (its 001CAA00 unit against the snapshots), test_collision_world_capture.py (its cell uid 17 on the published class-4 list) | the owners step 2026-09-26 (section 1.25); the manifest's legacy prop instance at its +0xB0 is retired | S2_opening |
@@ -3042,13 +3122,14 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.14 Animation runtime (0x1C6000..0x1CC16F)
 
-65 functions, 4,880 instructions: live 64, verified-unbound 1 (recount 2026-10-02, the units step, section 1.57, after the merge onto AIMCAP 1.56: 001CABA0 moved in from section 4; before it 64 functions, AIMCAP section 1.56).
+67 functions, 4,954 instructions: live 65, verified-unbound 1, unverified 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001C6200, 001CB480 (unverified) added; before it 65 functions, 4,880 instructions: live 64, verified-unbound 1, recount 2026-10-02, the units step, section 1.57, after the merge onto AIMCAP 1.56: 001CABA0 moved in from section 4; before it 64 functions, AIMCAP section 1.56).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
 | 0x001C6120 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose), em_owner_services_original — test_player_record_pose_reference, test_owner_services_reference.py, test_pose_host_workers_reference.py, test_shadow_original_reference.py |  | S0_title |
 | 0x001C6150 | — | BM | live | em_owner_services_original em_owner_services_001C6150 (001B0EA0: the boxes and the fence door, em_area11_boxes; the player's 0015C1F0 through em_player_draw_live and the equipment's 0018A8D0 through em_equipment_live since section 1.23) and em_roger_actor_original model_bone_count (001B10B0: Roger, via em_area11_roger) — test_owner_services_reference.py, test_roger_actor_original_reference.py (both execute 001C6150 unhooked); test_player_misc_workers_reference.py | recount 2026-09-26 (section 1.22): measured running on the live path. Since section 1.28 the status pages' (em_status_models) and the indicator children's (em_indicator_bind_live) w_001C6150 call em_owner_services_001C6150 too, as em_equipment_live's does since section 1.23. em_roger_actor_original's model_bone_count stays a second read of the byte over Roger's original resource bytes (no EmOwnerModel view of his body model exists yet; its oracle executes 001C6150 unhooked) | S1_newgame_load |
 | 0x001C61D0 | — | BM | live | em_pose_host_workers on the player record (em_player_record_pose: the host's clip frames; em_weapon's use retired 2026-10-02) — test_player_record_pose_reference; test_pose_host_workers_reference, test_player_fall_reference.py, test_player_reaction_reference.py, test_player_recovery_reference.py |  | 00_panel_no_battery |
+| 0x001C6200 | — | AI | live | em_area00_world em_area00_world_001C6200 (through the aim / fire composition) — test_area00_world_reference | the debris node's slot reset (001F2E90); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
 | 0x001C62C0 | bone_init_default_1 | AW | live | em_status_models, em_owner_services_original — test_owner_services_reference.py |  | S2_opening |
 | 0x001C6380 | — | BM | live | em_owner_services_original, em_status_models — test_owner_services_reference.py |  | S2_opening |
 | 0x001C63D0 | — | BM | live | em_area00_world em_area00_world_001C63D0 — test_area00_world_reference | the muzzle node; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_03_single_fire |
@@ -3096,6 +3177,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001CACB0 | — | BM | live | the indicator children's +0x4C through em_indicator_bind_live_draw (section 1.57; the muzzle node's in em_aim_fire_flash, off the route) — test_anim_runtime_rest_reference; test_owner_draw_reference.py part E; test_level_smoke.py check_indicator_units (the ORIGINAL 001CACB0 over the aligned snapshots with the port's colour words, point lights and view) |  | S2_opening |
 | 0x001CB2C0 | — | NM | live | em_anim_runtime_rest em_anim_rest_001CB2C0 inside em_face_attach's 001CB3C0 through em_owner_draw_live (section 1.40) — test_anim_runtime_rest_reference; test_face_attach_reference; test_level_smoke.py check_face |  | S2_opening |
 | 0x001CB3C0 | — | BM | live | em_face_attach em_face_attach_001CB3C0 through em_owner_draw_live's w_001CB3C0 (Roger's face every frame his +0x4C runs; the player's while a script holds its face slot; section 1.40) — test_face_attach_reference.py (the ORIGINAL 001CB3C0 over 21 captured owner-frames and 150 synthetic cases; every drawn captured face unit rebuilt byte for byte); test_level_smoke.py check_face (15,328 live face units; sampled calls re-executed by the ORIGINAL 001CAA00 + 001CB3C0 over the port's inputs, every written byte equal), check_owner_units (the face unit's length at every aligned snapshot) | during the opening the displayed Roger and player are the opening runtime's actors (design risk 2) | S2_opening |
+| 0x001CB480 | — | AI | unverified | em_status_models draw_001CB480 (the MAP page's kind-7 draw: its light 001D8C20(2) / 001D89D0 through em_owner_draw_live_light, the node palette on the renderer's skinned path); nothing original checks it | em_area01_side_001CB480, the oracle-tested translation of its calls (test_area01_side_reference), is not bound: one owner is left to do (audit 1b item 12); the level smoke counts the draws (the status_pages run: 390); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
 | 0x001CB4F0 | — | AI | live | em_status_models (the hub models' draw, through em_status_models_call) — test_area02_math_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x001CB580 | — | BM | live | em_status_models (the hub models' draw, through em_status_models_call) — test_status_scene_reference, test_area02_math_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x001CB590 | — | BM | live | em_scene_bindings, em_status_models — test_actor_pool_reference.py |  | S2_opening |
@@ -3246,7 +3328,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.17 Render context, background, weather and snow (0x1DB000..0x1EEFFF)
 
-37 functions, 4,437 instructions: live 33, verified-unbound 4 (recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 30 functions, recount 2026-09-28, the static-world step, section 1.42).
+39 functions, 4,591 instructions: live 35, verified-unbound 4 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001EAD70, 001EBD20 added; before it 37 functions, 4,437 instructions: live 33, verified-unbound 4, recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 30 functions, recount 2026-09-28, the static-world step, section 1.42).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3281,8 +3363,10 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001EA240 | — | BM | live | em_effect_original em_effect_original_001EA240 through em_effects_live on the pool nodes (em_area11_bindings, callback 0x1EA240) — test_effect_original_reference.py; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks): the effect nodes' state, subtype, step, limit, accumulator (and route 08's positions) | | 00_panel_no_battery |
 | 0x001EAB50 | — | BM | live | em_effect_kinds em_effect_kinds_001EAB50 — test_effect_kinds_reference | the cable hit's handler; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_11_cable_melee |
 | 0x001EACF0 | — | NM | live | em_effect_kinds em_effect_kinds_001EACF0 — test_effect_kinds_reference | the 0x80000060 impact (the streak program); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_04_world_hit |
+| 0x001EAD70 | — | BM | live | em_level8_port em_level8_port_001EAD70 through em_effects_live handler_001EAD70 (BRANCHES) — test_level8_port_reference (10 cases, every reachable word) | the skid 0x80000033 (subtype 1) of the corridor box's step-off; the counted gap closed; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_05_west_ladder_up |
 | 0x001EBA20 | — | BM | live | em_effect_kinds em_effect_kinds_001EBA20 — test_effect_kinds_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_03_single_fire |
 | 0x001EBBB0 | — | NM | live | em_effect_kinds em_effect_kinds_001EBBB0 — test_effect_kinds_reference | the ring decal; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_04_world_hit |
+| 0x001EBD20 | — | NM | live | em_area02_misc em_area02_misc_001EBD20 through em_effects_live handler_001EBD20 (BRANCHES) — test_area02_misc_reference | the box break's 0x80000015 (subtype 0x0D); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
 | 0x001EBF10 | — | NM | live | em_effect_kinds em_effect_kinds_001EBF10 through em_effects_live (the truck puffs) — test_effect_kinds_reference; test_level_smoke.py check_effects (the route snapshots 08, 10, 11, 13, 14 at their aligned ticks) | | 08_truck_crossing |
 | 0x001EC1F0 | — | NM | live | em_effect_kinds em_effect_kinds_001EC1F0 through em_effects_live — test_effect_kinds_reference | | 05_boxes |
 | 0x001EC3F0 | — | NM | live | em_effect_kinds em_effect_kinds_001EC3F0 through em_effects_live (the snow footsteps) — test_effect_kinds_reference | | 00_panel_no_battery |
@@ -3290,7 +3374,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.18 Effects (0x1EF000..0x1F8FFF)
 
-51 functions, 5,619 instructions: live 51 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001F0190, 001F0290, 001F77B0 added; 001EFE00 was an AIMCAP row; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; the lighting step, section 1.53: the room point-light lists 001F6640, 001F66F0, 001F6760, 001F6850, 001F68B0, 001F6D60 and 001F6E40 to live; before them 31 functions, recount 2026-09-26, shadow step).
+53 functions, 5,865 instructions: live 53 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001F2BA0, 001F2E90 added; before it 51 functions, 5,619 instructions: live 51, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001F0190, 001F0290, 001F77B0 added; 001EFE00 was an AIMCAP row; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; the lighting step, section 1.53: the room point-light lists 001F6640, 001F66F0, 001F6760, 001F6850, 001F68B0, 001F6D60 and 001F6E40 to live; before them 31 functions, recount 2026-09-26, shadow step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3317,6 +3401,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001F1550 | — | BM | live | em_area00_fx_trail em_area00_fx_001F1550 — test_area00_fx_reference | the trail's slot pops; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001F15F0 | — | NM | live | em_area00_fx_trail em_area00_fx_001F15F0 — test_area00_fx_reference | all 40 calls of aim_melee get a key and write their packet (PRIM 0x4C, drawn by the chain page's flat path), as the original drew from its first call (00102990 at aim_09 f26); fixed in the AIM fix round: the trail's +0x1F0 is the knife bone's slot + 0x90, as 00189D30 passes (AIM_FIRE.md section 11.3); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001F18C0 | — | BM | live | em_area00_fx_trail em_area00_fx_001F18C0 — test_area00_fx_reference | the knife's trail node; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
+| 0x001F2BA0 | — | NM | live | em_area00_fx_debris em_area00_fx_001F2BA0 (the debris node: em_aim_fire_runtime other_tick, its slots em_aim_fire_trail) — test_area00_fx_reference | a box break's 0x8000000A; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
+| 0x001F2E90 | — | BM | live | em_area00_fx_debris em_area00_fx_001F2E90 — test_area00_fx_reference | the debris node's seed (sixteen pieces, models 0x1C / 0x1E); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
 | 0x001F2F90 | — | BM | live | em_area00_fx_debris em_area00_fx_001F2F90 — test_area00_fx_reference | the shell casing; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_03_single_fire |
 | 0x001F3340 | — | NM | live | em_area00_fx_debris em_area00_fx_001F3340 — test_area00_fx_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_03_single_fire |
 | 0x001F3620 | — | NM | live | em_area00_fx_debris em_area00_fx_001F3620 — test_area00_fx_reference | the barrel's sweep (one owner); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_03_single_fire |
@@ -3348,7 +3434,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.19 Streams, sound and message service (0x1F9000..0x1FDFFF)
 
-41 functions, 3,309 instructions: live 37, verified-unbound 3, missing 1 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001FCBD0 added; before it recount 2026-10-02, chain step EXIT, section 1.58).
+44 functions, 3,489 instructions: live 40, verified-unbound 3, missing 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001FC580, 001FCF60, 001FCF90 added; before it 41 functions, 3,309 instructions: live 37, verified-unbound 3, missing 1, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001FCBD0 added; before it recount 2026-10-02, chain step EXIT, section 1.58).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3378,7 +3464,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FBF50 | — | BM | verified-unbound | em_player_misc_workers — test_player_misc_workers_reference | em_sfx.c em_sfx_play_at (no gain oracle, AM-19) | S2_opening |
 | 0x001FC280 | — | NM | live | em_scene_bindings_001FC280 (the lanes' worker inside 001FAE70, WP-8b; since chain C11 EXIT the whole body: the cache D_00282160 (-1 from 001FBC50 on), the old loop's stop 0011A070 (em_sfx_stop_track), the new loop's 001FB9F0 (em_sfx_submit_001FB9F0_track over the SFX registry's area scope) with D_00282164..70, the two 00119828) — test_level_smoke.py (exit: D_00282160 = 0x44E at the AREA01 arrival equals the capture's end snapshot; every AREA11 area entry keeps -1) | the stop branch (a cached id other than -1) is not reached in the first level | S1_newgame_load |
 | 0x001FC3C0 | — | BM | live | em_sfx, em_sfx_bank (em_sfx_loop_service), bound for the flame 008235F0 by em_area11_effect_runtime (A11FIX) — test_area11_sfx_reference.py, test_area11_sfx_runtime.py; tools/level_smoke_overlay11.py | the flame's loop 0x413 (radius 100) at 0x70003B68 / 0x70003B8A; never requested before first control (the opening capture's handle is -1), requested on the main line near the flame (the decomp's audio capture holds it in every frame of route 11) | S2_opening |
-| 0x001FC6E0 | — | BM | live | em_startup_load_gaps_sound em_slg_001FC6E0 inside 001FB100 at step H (chain step H7) — test_startup_load_gaps_reference | D_00281F30 is em_stream_live's ({0, -1} as 001FBC50 leaves it, and its binding clears it); its writer 001FC580 is unbound (faults when reached), so no cue is pending on the route | S0_title |
+| 0x001FC580 | — | BM | live | em_area00_low em_area00_low_001FC580 (em_area11_boxes h_sound, over D_00281F30: em_stream_live's) — test_area00_low_reference | the box break's cue; its 001FBF50 is em_sfx_compute_gains (row 0x001FBF50), step H's 001FC6E0 plays it; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_04_crate_stack_break |
+| 0x001FC6E0 | — | BM | live | em_startup_load_gaps_sound em_slg_001FC6E0 inside 001FB100 at step H (chain step H7) — test_startup_load_gaps_reference | D_00281F30 is em_stream_live's ({0, -1} as 001FBC50 leaves it, and its binding clears it); its writer 001FC580 is bound since chain step BRANCHES (section 1.60: a box's break cue, em_area00_low over this storage); no cue is pending on the main route | S0_title |
 | 0x001FC770 | — | BM | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
 | 0x001FC7B0 | — | NM | live | em_message_glyph_original via em_message_live — test_message_glyph_reference.py |  | S2_opening |
 | 0x001FC9B0 | — | CL | live | em_message_service em_message_reset via em_message_live (w_001FC9B0 and the service's own teardown) — test_message_service_reference |  | S1_newgame_load |
@@ -3386,6 +3473,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FCB90 | — | CL | live | em_census_standins em_cs_001FCB90 through em_message_presenters_live (step F's 001FCA10 mode 4, and 002149F0's 001FCF10) — test_census_standins_reference; test_level_smoke.py (status, battery, panel: the pages' mode-4 words are the live block's) | status UI step 2026-09-26 (section 1.21): the step-F gate stand-in and the page layer's own mode-4 copy are deleted | 01_battery |
 | 0x001FCBD0 | — | NM | missing | — | the title's load screen (dmg_05): em_frontend leaves EM_STARTUP_LOAD_GAME pending (the OPTIONS step) | dmg_05_load_screen |
 | 0x001FCF10 | — | BM | live | em_render_verify_rest em_rvr_001FCF10 through em_battery_page_live (002149F0 state 4) — test_render_verify_rest_reference; test_status_page_record_reference (composition); test_level_smoke.py (panel) | status UI step 2026-09-26 (section 1.21) | 03_panel_power |
+| 0x001FCF60 | — | BM | live | em_census_standins em_cs_001FCF60 (the record container's lines, through em_status_pages_live and the message presenters) — test_census_standins_reference | the key's page; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
+| 0x001FCF90 | — | NM | live | em_census_standins em_cs_001FCF90 — test_census_standins_reference | the key's page; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
 | 0x001FD470 | — | BM | live | em_stream_lanes_original via em_stream_live (WP-8b) as the message service's stream_stop (bit 0 w_001FBC50, bit 1 001FABB0) — test_stream_lanes_reference.py | | S2_opening |
 | 0x001FD4C0 | — | BM | live | em_message_service em_message_stream_request via em_message_live (the opening's 001B82D0 op12) — test_message_service_reference.py, test_area_script_reference.py, test-opening-runtime |  | S2_opening |
 | 0x001FD580 | — | BM | live | em_message_service via em_message_live (step F) — test_message_service_reference.py | | S2_opening |
@@ -3396,7 +3485,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.20 Message draw (0x1FE000..0x1FEFFF)
 
-10 functions, 463 instructions: live 7, missing 3 (recount 2026-10-02, chain step DAMAGE, section 1.59: 001FE8D0, 001FE9A0, 001FECB0 added; earlier recount 2026-09-28, the module loader step).
+11 functions, 483 instructions: live 8, missing 3 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001FE660 added; before it 10 functions, 463 instructions: live 7, missing 3, recount 2026-10-02, chain step DAMAGE, section 1.59: 001FE8D0, 001FE9A0, 001FECB0 added; earlier recount 2026-09-28, the module loader step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3406,6 +3495,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001FE4B0 | — | BM | live | em_message_draw_original em_message_bank_records via em_message_live — test_message_draw_reference.py (executes 001FE4B0) |  | S2_opening |
 | 0x001FE4D0 | — | BM | live | em_message_draw_original em_message_bank_record via em_message_live — test_message_draw_reference.py (executes 001FE4D0) |  | S2_opening |
 | 0x001FE530 | — | AW | live | em_message_draw_original via em_message_live — test_message_draw_reference.py |  | S2_opening |
+| 0x001FE660 | — | BM | live | em_census_standins em_cs_001FE660 — test_census_standins_reference | the key's page; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
 | 0x001FE8D0 | — | BM | missing | — | the title's load screen (dmg_05; the OPTIONS step) | dmg_05_load_screen |
 | 0x001FE9A0 | — | BM | missing | — | the title's load screen (dmg_05; the OPTIONS step) | dmg_05_load_screen |
 | 0x001FECB0 | — | NM | missing | — | the title's load screen (dmg_05; the OPTIONS step) | dmg_05_load_screen |
@@ -3413,7 +3503,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.21 Status UI: hub, ITEM/BATTERY pages, pickups (0x207000..0x21AFFF)
 
-42 functions, 10,532 instructions: live 42 (recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 19 functions, recount 2026-09-26, status UI step).
+54 functions, 14,303 instructions: live 54 (recount 2026-10-03, chain step BRANCHES, section 1.60: 0020F950, 00210030, 002101C0, 00210A00, 00210C00, 00210F30, 00211400, 002131B0, 002134C0, 00213F30, 00214020, 002160B0 added; before it 42 functions, 10,532 instructions: live 42, recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 19 functions, recount 2026-09-26, status UI step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3449,12 +3539,24 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0020E6F0 | — | BM | live | em_status_scene_original em_status_scene_player_0020E6F0 — test_status_scene_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x0020EC80 | — | BM | live | em_status_scene_original em_status_scene_publish_0020EC80 — test_status_scene_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x0020EE50 | — | BM | live | em_item_root.c — test_item_root_reference |  | 01_battery |
+| 0x0020F950 | — | NM | live | em_area01_ui_pages em_area01_ui_0020F950 through em_status_pages_live — test_area01_ui_reference; the status_pages run's replay (test_status_pages_live) | the MAP page of the map item's take; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x00210030 | — | NM | live | em_area01_ui_pages em_area01_ui_00210030 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | MAP; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x002101C0 | — | NM | live | em_area01_ui_pages em_area01_ui_002101C0 (the MAP nodes, em_status_pages_live node_002101C0) — test_area01_ui_reference; test_status_pages_live | MAP; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x00210A00 | — | AW | live | em_area01_ui_pages em_area01_ui_00210A00 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | MAP; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x00210C00 | — | BM | live | em_area01_ui_pages em_area01_ui_00210C00 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | MAP; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x00210F30 | — | NM | live | em_area01_ui_pages em_area01_ui_00210F30 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | MAP (the player's marker); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
+| 0x00211400 | — | NM | live | em_area01_ui_pages em_area01_ui_00211400 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | MAP (the item markers); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_01_map_item |
 | 0x00211970 | — | BM | live | em_status_pages_spr4 em_status_pages_00211970 — test_status_pages_reference, test_status_pages_live.py | the SPR4 page (aim_burst); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x002121A0 | — | BM | live | em_status_pages_spr4 em_status_pages_002121A0 — test_status_pages_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x002125B0 | — | BM | live | em_status_pages_spr4 em_status_pages_002125B0 — test_status_pages_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x00212B60 | — | BM | live | em_status_pages_spr4 em_status_pages_00212B60 — test_status_pages_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x00212F30 | — | BM | live | em_status_pages_spr4 em_status_pages_00212F30 — test_status_pages_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
+| 0x002131B0 | — | AW | live | em_area01_ui_pages em_area01_ui_002131B0 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | DATABASE (the key's take); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
+| 0x002134C0 | — | NM | live | em_area01_ui_pages em_area01_ui_002134C0 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | DATABASE; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
+| 0x00213F30 | — | BM | live | em_area01_ui_pages list_ids (em_area01_ui_00213F30) through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | DATABASE; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
+| 0x00214020 | — | NM | live | em_area01_ui_pages em_area01_ui_00214020 through em_status_pages_live — test_area01_ui_reference; test_status_pages_live | DATABASE; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_09_cage_key |
 | 0x002149F0 | — | NM | live | em_status_page_record em_spr_002149F0 through em_battery_page_live (the runtime's ITEM child page 5, over the UI block D_00810130, the request bytes, the inventory view and the live message block) — test_status_page_record_reference; test_level_smoke.py (the 239-frame notice, the panel's confirmation and discharge row for row) | status UI step 2026-09-26 (section 1.21): em_battery_ui.c's page, em_panel_battery_begin / _step and the battery_finished hook are retired | 01_battery |
+| 0x002160B0 | — | BM | live | em_status_pages_item em_status_pages_002160B0 through em_status_pages_live — test_status_pages_reference; test_status_pages_live | the HEALING page of the 0x1E / 0x1F takes; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_00_ledge_ammo |
 | 0x00217FA0 | — | NM | live | em_status_pages_parts em_status_pages_00217FA0 — test_status_pages_reference | the SELECTOR part page: burst picked (aim_burst); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x00219550 | — | NM | live | em_pickup_owner em_pickup_owner_tick via em_pickup.c and the AREA11 interaction host — test_pickup_owner_reference (executes 00219550 and compares the tick) | live since WP-6 (81414be) for the six AREA11 items; since section 1.25 its state 0 runs over its record (em_pickup_owner_00219550_state0, executed against the original by test_pickup_owner_reference: 001B1020 over D_0028A56C or 001B0FD0, the +0x2E rewrite, 001C6380, 001A2370) and its visible +0x4C is 001CAA00 over it (the legacy item mesh is retired) | S2_opening |
 | 0x0021A500 | — | NM | live | em_security_gun_rest em_gun_rest_0021A500 — test_security_gun_rest_reference | the cable reaction; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_11_cable_melee |
@@ -3518,7 +3620,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.23 AREA11 overlay owners (0x823580..0x828050, runtime addresses; 0x823580 added by chain step DAMAGE)
 
-26 functions, 4,468 instructions: live 25, verified-unbound 1 (recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 00823580 added; before it recount 2026-10-02, chain step EXIT, section 1.58).
+27 functions, 4,504 instructions: live 26, verified-unbound 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 0x00823BB0 added; before it 26 functions, 4,468 instructions: live 25, verified-unbound 1, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 00823580 added; before it recount 2026-10-02, chain step EXIT, section 1.58).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3528,7 +3630,8 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x008237E0 | — | AU | live | em_roger_actor_original em_roger_actor_008237E0_init via em_area11_roger (lifecycle 0; census L22) — test_roger_actor_original_reference; test_level_smoke.py (roger: route 14 row for row) | its 001CA6F0 bank and the +0x30 / +0x58 words from assets/scene_snow/roger/resources.emrs (tools/export_roger_banks.py) | S2_opening |
 | 0x00823910 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | S2_opening |
 | 0x00823950 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) | the ordinary branch (0x8283D0, route 14) and, since WP-8b, the alternate 0x828990 (route 10, with the director) run | 10_cage_roof_roger |
-| 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row) |  | 14_roger_encounter |
+| 0x00823B70 | — | AU | live | em_roger em_roger_tick via em_area11_roger (census L22) — test_roger_reference; test_level_smoke.py (roger: route 14 row for row; BRANCH br_14: the talk 0x828810, section 1.60) | its piece 0x00823BB0 is its own row (section 1.60) | 14_roger_encounter |
+| 0x00823BB0 | — | CO | live | em_roger em_roger_tick (0x823B70's C absorbs this piece: decomp src/overlays/AREA11/func_overlay_AREA11_00823B30.c) — test_roger_reference; the level smoke's br_roger_talk | the talk's arm path (+0x0B & 4 starts 0x828810); BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_14_roger_talk |
 | 0x00823C40 | — | CO | live | em_roger em_roger_tick via em_area11_roger (progress bit 0x80: the departure 0x828A10) — test_roger_reference (progress 0x80); test_level_smoke.py (exit: Roger's record and script block row for row) | first in beat 15 | 15_level_exit |
 | 0x00823C80 | — | CO | live | em_roger em_roger_tick via em_area11_roger (the departure's end: 001B0C60(1, 0, 4) through EM_ROGER_AREA_CHANGE, lifecycle 3) — test_roger_reference (progress 0x80); test_level_smoke.py (exit: exit_01 f9) | | 15_level_exit |
 | 0x00823CE0 | — | AU | live | em_security_gun em_flag30_manager_tick (the flag-0x30 manager; decomp C func_overlay_AREA11_00823CA0.c, byte-identical) via em_area11_bindings.c tick_flag30 (A11FIX) — test_script_door_fan_reference (part 3); tools/level_smoke_overlay11.py | lifecycle 1, waiting on D_00810788, with 001B17A0 every tick: its record equals every route snapshot's; the script path (0x828C70, a return visit) faults (no image holds it) | S2_opening |
@@ -3551,7 +3654,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.24 SDK VU0 math (0x1026A0..0x103237) and the VU1/DMA library functions that carry a translation
 
-32 functions, 661 instructions: live 31, verified-unbound 1 (recount 2026-10-02, the AIM fix round, section 1.56: 00102990 live; chain step AIMCAP, section 1.56: the AIM delta's rows; before it 29 functions, recount 2026-09-27, chain C7 step V).
+33 functions, 666 instructions: live 32, verified-unbound 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001028E8 added; before it 32 functions, 661 instructions: live 31, verified-unbound 1, recount 2026-10-02, the AIM fix round, section 1.56: 00102990 live; chain step AIMCAP, section 1.56: the AIM delta's rows; before it 29 functions, recount 2026-09-27, chain C7 step V).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -3573,6 +3676,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00102870 | — | AI | live | em_area00_low em_area00_low_00102870 (f_102870) — test_area00_low_reference, test_aim_fire_render_reference | the laser drawers' clip leaf; ran in every aim side run; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_00_r1_hold |
 | 0x001028B8 | — | AI | live | em_coll_probe_original sdk_add (the live grid walkers) — test_coll_probe_reference.py (runs 001028B8 as original code) | the em_camera_probe.c inline copy is checked only against test_camera_probe_reference's model of the leaf | S2_opening |
 | 0x001028D0 | — | AI | live | em_coll_probe_original sdk_sub, em_pickup_items_original vsub4 — test_coll_probe_reference.py, test_pickup_items_reference (run 001028D0 as original code) | the em_camera_retarget.c / em_camera.c inline copies are checked only against the retarget/probe/commit tests' models of the leaf | S1_newgame_load |
+| 0x001028E8 | — | AI | live | em_coll_move_original vmul4 (inline in 001A4830) — test_coll_move_reference (runs 001028E8 as original code) | the descent's probes; BRANCHES (section 1.60): ran in the BRANCH side runs (test-level-smoke-branch, window by window against the BRANCH recordings) | br_08_west_ladder_down |
 | 0x00102900 | — | AI | live | em_sdk_vu0 em_sdk_vu0_00102900, the one translation (section 1.28): em_shadow_actor_route through em_shadow_live (001F8D30's colour, census L29), em_actor_light_001D89D0 through em_owner_draw_live, em_camera_leftovers — test_sdk_vu0_reference (executes 00102900); test_shadow_actor_route_reference, test_actor_light_001d89d0_reference, test_camera_leftovers_reference | em_snow.c's tile colour is an inline scale on its own host model (test_snow_tiles_reference models the leaf rather than executing it; SDK_VU0.md) | S1_newgame_load |
 | 0x00102918 | — | AI | live | em_owner_services_original.c (live through em_status_models) — test_owner_services_reference |  | S1_newgame_load |
 | 0x00102948 | — | AI | live | em_sdk_vu0 em_sdk_vu0_00102948, the one translation (section 1.28; SDK_VU0.md lists the callers): em_frame_render_heads copy_qw (inside em_frh_001D30A0 and the row guard, through em_render_context_live), em_anim_runtime_rest, em_player_ladder_entry, the camera leftovers, the shadow route, the effects and the other host quadword copies — test_sdk_vu0_reference (executes 00102948); test_frame_render_heads_reference, test_anim_runtime_rest_reference (run it unhooked); test_effect_manager_reference | recount 2026-09-26 (section 1.22): copy_qw measured running on the live path. Copies through a module's own record or address accessors stay accessor loads and stores (SDK_VU0.md); em_camera.c's mentions are comments, and em_camera_retarget.c / em_camera_probe.c hold none | S0_title |
@@ -3696,7 +3800,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ## 4. Platform boundaries
 
-432 functions (23,178 instructions; 427 before beat 15, section 1.58; 00114848, 00114930 and 00114988 added by chain step DAMAGE, section 1.59) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+434 functions (23,309 instructions; 427 before beat 15, section 1.58; 00114848, 00114930 and 00114988 added by chain step DAMAGE, section 1.59; 00207D90 and 00208040 by chain step BRANCHES, section 1.60) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
@@ -3715,7 +3819,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | SDK libmc / SIF RPC | 16 | 903 | local directory for the card check (STARTUP.md); RPC not needed; 00114848, 00114930 and 00114988 (the title's load screen, DAMAGE dmg_05, section 1.59) are not reached by the port | no |
 | module loader and disc read | 12 | 1,039 | the loader's own steps (em_module_loader over em_status_scene_original, host-speed drive, the recorded drive under the switch) for module 0x21 (section 1.38), since section 1.46 the New Game's module 3 and area load (001FFCD0 / 001FF590 with 00200890 and 002009E0) and since section 1.47 every other page module (0x1E..0x24, 0x2C..0x31) | module 0x21: test_module_loader_reference and the level smoke's check_module_load; the page modules: test_module_loader_reference part I and the status_pages run's check_page_module_loads; the New Game's two loads: test_module_loader_reference part H (the original loader code, whole) and test_area_load_reference (the live loader states equal the New Game capture's); 001FFCD0 / 001FF590: test_status_scene_reference |
 | SDK libcdvd disc read | 9 | 346 | host file reads of locally exported assets | n/a |
-| 2D GS draw layer | 9 | 284 | em_gfx 2D layer (em_status_background_draw.c, em_status_draw.c) | 6: no; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference, test_status_page_record_reference; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference; 1: draw commands compared: test_status_draw_reference, test_status_hub_ui_reference |
+| 2D GS draw layer | 11 | 415 | em_gfx 2D layer (em_status_background_draw.c, em_status_draw.c; since chain step BRANCHES, section 1.60, em_page_draw for 00207D90 (SCISSOR_1) and 00208040 (the MAP marker's triangle)) | 6: no; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference, test_status_page_record_reference; 1: draw commands compared: test_status_background_reference, test_status_draw_reference, test_status_hub_ui_reference; 1: draw commands compared: test_status_draw_reference, test_status_hub_ui_reference; 2 (00207D90, 00208040): their arguments compared at every call by the status_pages run's replay (test_status_pages_live); the packet translations em_area01_ui_00207D90 / _00208040 (test_area01_ui_reference) are not bound |
 | GS/VIF packet build (sprites, flush) | 3 | 202 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
 | resource / display-object registry | 1 | 9 | locally exported assets (EMDL, roster, props) | no |
 | GS texture upload | 6 | 426 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) texture upload | not compared per call |
@@ -3776,7 +3880,7 @@ Addresses per kind:
 - **module loader and disc read** (12): 001FF080, 001FF0D0, 001FF3F0, 001FF590, 001FF830, 001FFCD0, 00200730, 00200780, 00200830, 00200890,
   00200970, 002009E0.
 - **SDK libcdvd disc read** (9): 00110AB8, 00110B38, 00110B80, 00111018, 001115D0, 00111818, 001118B8, 00111F18, 00112088.
-- **2D GS draw layer** (9): 00207070, 002070A0, 002070D0, 00207100, 00207150, 00207290, 00207D00, 00207E40, 00207F80.
+- **2D GS draw layer** (11; 00207D90 and 00208040 added by chain step BRANCHES, section 1.60): 00207070, 002070A0, 002070D0, 00207100, 00207150, 00207290, 00207D00, 00207D90, 00207E40, 00207F80, 00208040.
 - **GS/VIF packet build (sprites, flush)** (2; 001CB950 moved to section 3.14 by the shadow step, census L29; 001CABA0 to section 3.14 by the units step, section 1.57): 001CB5C0, 001CBC20.
 - **resource / display-object registry** (1; 001CF870 and 001CF970 moved to section 3.15 by the shadow step, census L29; 001CFAE0, 001CFFE0 and 001D04B0 by the flame-and-snow step, section 1.43): 001D0660.
 - **GS texture upload** (6): 001CC8A0, 001CCB00, 001CCB10, 001CCBD0, 001CCCC0, 001CCE80.

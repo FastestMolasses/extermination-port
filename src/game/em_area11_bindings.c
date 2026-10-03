@@ -2185,6 +2185,7 @@ static const Binding k_bindings[] = {
      tick_effect_node, NULL},
     {0x001F18C0u, "knife trail: em_area00_fx 001F18C0 (em_aim_fire_trail, em_effects_live)",
      tick_effect_node, NULL},
+    {0x001F2BA0u, "box debris: em_area00_fx 001F2BA0 (em_aim_fire_trail, em_effects_live)", tick_effect_node, NULL},
     {0x0022BBC0u, "bone burst: em_area01_ui 0022BBC0 (em_bone_burst, em_effects_live)", tick_effect_node, NULL},
     {0x001F77B0u, "death decal: em_effect_001F77B0 (em_shadow_live's 001CE300, em_effects_live)", tick_effect_node,
      NULL},
