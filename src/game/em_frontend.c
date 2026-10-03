@@ -6,6 +6,7 @@
 #include "game/em_startup.h"
 #include "game/em_startup_audio.h"
 #include "game/em_frame.h"
+#include "game/em_level_smoke_test.h"
 #include "game/em_game.h"
 #include "game/em_hud.h"
 #include "game/em_task.h"
@@ -32,6 +33,11 @@ static struct {
     int movie_selector; /* D_00275C78 as 001AD360 step 1 stored it; -1 = none */
     int installed;      /* em_frontend_install ran (the movie pump is registered) */
     int new_game_switch; /* EM_NEW_GAME=1: START held in the first game-task movie (cleared when it ends) */
+    int reinstalled;     /* the title flow again after a death (001ADF00's 001AB790(001AC070)) */
+    int interactive;     /* the last tick's view: the menu takes input */
+    int title_audio;     /* the title's sounds are loaded (the boot resources) */
+    int switch_boot;     /* EM_NEW_GAME=1 booted without the title */
+    unsigned cursor;
     uint32_t attract_serial;
     unsigned movie_frames;
     uint64_t movie_picture;
@@ -171,7 +177,7 @@ static int movie_pump(void *unused)
     /* Original stream +8 is a completed-picture index, not game ticks.
      * PTS-derived indices preserve the gate even if presentation drops frames. */
     uint16_t held = em_frame_input()->held;
-    if (f.test && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
+    if (f.test && !f.reinstalled && (strcmp(f.test, "skip") == 0 || new_game_test(f.test)) &&
         f.movie_pts >= 2.0)
         held |= EM_PAD_START;
     /* EM_NEW_GAME=1: START is held from the movie's first picture, so the
@@ -236,20 +242,37 @@ static void attract_abort(void)
     em_startup_complete(&f.flow, serial, 2);
 }
 
+/* The boot resources the title reads: the composed screens and the title
+ * sounds (the boot's 001AB7E0 bank / screen loads, native preloads). */
+static int boot_resources(void)
+{
+    int ready = 1;
+    const char *names[] = {"logo_0", "logo_1", "logo_2", "title_0", "title_1", "title_2"};
+    for (unsigned i = 0; i < 6 && ready; ++i)
+        ready = f.screens[i] != NULL || load_screen(i, names[i]);
+    if (ready && f.title_audio) return 1;
+    if (ready && f.switch_boot) {
+        /* EM_NEW_GAME=1 opened the audio device without the title's sounds,
+         * which open it themselves: the title after a death cannot play. */
+        fail("EM_NEW_GAME=1: the title after a death needs the boot's title sounds");
+        return 0;
+    }
+    if (ready && em_startup_audio_init("assets/startup_audio/startup_audio.txt") != 0) {
+        fail("could not load the original startup sound events");
+        ready = 0;
+    }
+    f.title_audio = ready;
+    return ready;
+}
+
 static void notify(void *unused, const EmStartupEvent *event)
 {
     (void)unused;
     int ready = 1;
     switch (event->kind) {
-    case EM_STARTUP_BOOT_RESOURCES: {
-        const char *names[] = {"logo_0", "logo_1", "logo_2", "title_0", "title_1", "title_2"};
-        for (unsigned i = 0; i < 6 && ready; ++i) ready = load_screen(i, names[i]);
-        if (ready && em_startup_audio_init("assets/startup_audio/startup_audio.txt") != 0) {
-            fail("could not load the original startup sound events");
-            ready = 0;
-        }
+    case EM_STARTUP_BOOT_RESOURCES:
+        ready = boot_resources();
         break;
-    }
     case EM_STARTUP_SCREEN_MODULE:
     case EM_STARTUP_RESOURCE_BANK:
     case EM_STARTUP_TITLE_RESOURCES:
@@ -302,6 +325,12 @@ static void notify(void *unused, const EmStartupEvent *event)
             fail("NEW_GAME handoff for a loaded game (load-game service not ported)");
             return;
         }
+        /* After a death the same handoff replaces this task with the game
+         * task again (001AB790(001ACEC0)); the cold boot installs it. */
+        if (f.reinstalled) {
+            if (em_game_reinstall_new_001AC070() != 0) fail("001AC070 state 4: the game task");
+            return;
+        }
         em_game_install_new();
         return;
     case EM_STARTUP_ATTRACT:
@@ -325,10 +354,12 @@ static void startup_task(void)
     if (em_startup_audio_tick() != 0) fail("startup audio event queue overflow");
     const EmFrameInput *pad = em_frame_input();
     EmStartupInput input = {pad->held, pad->pressed,
-                            em_frame_transition()->substate, 0};
+                            em_frame_transition()->substate, 0, em_scene_state()->d275BDC};
     attract_abort();
     int expected_cursor = -1;
-    if (f.test && em_startup_view(&f.flow, &input).interactive) {
+    /* The fixtures drive the boot's title only; after a death the player's
+     * pad (the level smoke's driver) drives it. */
+    if (f.test && !f.reinstalled && em_startup_view(&f.flow, &input).interactive) {
         /* End-to-end fixture: exercise the rendered menu through the same
          * state-machine input boundary as the frame's unpacked pad. */
         input.held = input.pressed = 0;
@@ -377,7 +408,12 @@ static void startup_task(void)
             capture(1u << (screen < 3 ? screen : screen + 1), names[screen]);
         }
     }
-    if (view.interactive && ++f.menu_ticks == 30 && f.test) {
+    f.interactive = view.interactive;
+    f.cursor = view.cursor;
+    /* The level smoke drives the title after a death with the pad (its
+     * after-frame hook, as at every world frame's close-out). */
+    if (f.reinstalled) em_level_smoke_test_after_frame();
+    if (view.interactive && !f.reinstalled && ++f.menu_ticks == 30 && f.test) {
         unsigned required = (1u << EM_STARTUP_SCREEN_LOGO_A) |
             (1u << EM_STARTUP_SCREEN_LOGO_B) | (1u << EM_STARTUP_SCREEN_LOGO_C) |
             (1u << EM_STARTUP_SCREEN_MOVIE) | (1u << EM_STARTUP_SCREEN_TITLE);
@@ -386,6 +422,29 @@ static void startup_task(void)
         if (!f.failed) printf("startup test: PASS (logos, movie, title navigation/clamps)\n");
         em_frame_request_quit();
     }
+}
+
+/* 001ADF00's 001AB790(001AC070): the title flow again, replacing the game
+ * task in slot 0 (em_task_replace_current, 001AB790's clear of the task
+ * record), from 001AC070 state 0, whose D_00275BDC (now 1) opens the menu
+ * with the cursor on its second entry. Under EM_NEW_GAME=1 the boot loaded
+ * no title screens: they and the title sounds load here. 0, or -1. */
+int em_frontend_install_001AC070(void)
+{
+    if (!f.installed) {
+        fprintf(stderr, "startup: 001AC070 without the native frontend (EM_SKIP_STARTUP)\n");
+        return -1;
+    }
+    if (!boot_resources()) return -1;
+    em_startup_reinstall_001AC070(&f.flow);
+    f.reinstalled = 1;
+    f.texture_screen = -1;
+    f.previous_screen = -1;
+    f.attract_serial = 0;
+    if (!em_task_replace_current(startup_task)) return -1;
+    printf("startup: 001AC070 again (D_00275BDC = %u), engine frame %u\n",
+           (unsigned)em_scene_state()->d275BDC, em_frame_counter());
+    return 0;
 }
 
 int em_frontend_movie_select(uint8_t selector)
@@ -444,6 +503,7 @@ void em_frontend_install_new_game(void)
     f.movie_selector = -1;
     f.installed = 1;
     f.new_game_switch = 1;
+    f.switch_boot = 1;
     /* The shared audio device opens at the boot, as the frontend's boot
      * resources open it (em_startup_audio_init); the title's own sounds are
      * not loaded, since nothing after New Game plays them. */
@@ -469,6 +529,12 @@ void em_frontend_shutdown(void)
 }
 
 int em_frontend_failed(void) { return f.failed; }
+
+int em_frontend_title_menu(unsigned *cursor)
+{
+    if (cursor) *cursor = f.cursor;
+    return f.installed && f.interactive && em_task_slot(0) && em_task_slot(0)->fn == startup_task;
+}
 
 const void *em_frontend_host_state(size_t *size)
 {

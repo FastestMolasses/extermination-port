@@ -77,6 +77,16 @@
 struct EmRogerActorWorld;
 const struct EmRogerActorWorld *em_area11_boxes_slot_world(void);
 
+/* 0015C420's slot loop (decomp src/func_0015C420.c): unless D_00275BCC is
+ * below `count` (the original then returns 1 and pops nothing: *popped =
+ * 0), `count` 001AF780 pops from the one stack, their words in `words`
+ * (*popped = count). The player's node records are em_player_record_pose's
+ * storage at the stack's first slots (0x7D5840 + 0xD0 i): a pop that does
+ * not return the word the record's +0x110 + 4 i holds faults (-1), since the
+ * port's node bytes would then not be the slots the stack handed out.
+ * 0, or -1. */
+int em_area11_boxes_pop_0015C420(const uint32_t *expected, unsigned count, unsigned *popped);
+
 /* One owner call of the node `actor` (callback 001551B0 or 00156620) in the
  * pool walk. 1, or -1 (a fault; a line on stderr names it). The owner may
  * free its own record (001AFC10) through `pool`. */

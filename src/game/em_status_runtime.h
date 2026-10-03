@@ -154,6 +154,11 @@ void em_status_runtime_bind_busy(EmStatusRuntime *, uint8_t *d275BD8);
  * Without a loader a page module faults. NULL unbinds. 1 bound. */
 struct EmModuleLoader;
 int em_status_runtime_bind_loader(EmStatusRuntime *, struct EmModuleLoader *loader);
+/* The game-over screen module (001AD4E0's 001FF080(0, 0x27)): the loader
+ * hook also accepts its one chunk; the count of chunks delivered since the
+ * process start (the game-over frame draws only after one arrived). */
+#define EM_STATUS_RUNTIME_GAME_OVER_MODULE 0x27u
+uint32_t em_status_runtime_game_over_chunks(void);
 /* The shared UI+0x20 clock (00208AD0 advances it; the 0020E060 memset
  * clears it), for tests. */
 uint32_t em_status_runtime_ui_clock(const EmStatusRuntime *);

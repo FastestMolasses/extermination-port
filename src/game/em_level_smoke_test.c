@@ -42,6 +42,7 @@
 #include "game/em_status_runtime.h"
 #include "game/em_stream_live.h"
 #include "game/em_task.h"
+#include "game/em_frontend.h"
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -119,6 +120,8 @@ static int east_tower_climb_frame(void);
 static int east_tower_frame(void);
 static void roger_begin(void);
 static int roger_frame(void);
+static void dmg_begin(void);
+static int dmg_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -157,6 +160,10 @@ static const Phase k_phases[] = {
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
      truck_preview_frame, 0, 0, 0},
+    {"dmg_pit_fall", "dmg_07_pit_fall (side, from 07; decomp CAPTURES_C10.md DAMAGE)", 0x00823FF0u,
+     "the truck's fall into the pit, the walk off its roof onto the attribute-0x5D floor: 0021D250 (+5 = 0x16), "
+     "0021D2E0, game over 001AD4E0 (module 0x27)",
+     "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0},
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
      "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0, 0},
@@ -221,6 +228,14 @@ static const Phase k_phases[] = {
     {"crevice_prompt", "11_crevice_prompt", 0x008253F0u,
      "director beat 1 script 0x829A40 (Y >= 275, quad 0x82AC20; line 0x97, VOICE.DAT cue 150); D_00810813 -> 0x20",
      "census L21 with WP-8b", director_begin, crevice_prompt_frame, 0, 0, 0},
+    {"dmg_flame", "dmg_00_flame_hit .. dmg_04_new_game (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0x008235F0u,
+     "the flame's contact 0x823580 (001A8BE0 / 001A8660, 001EFE00(0x80000027): 0022BBC0), 0021C440's hits and "
+     "flinch 0021D800, the low-health latch and heartbeat, death 0021E240 / 0021D2E0 (001F77B0), game over "
+     "001AD4E0 (module 0x27), 001AC070 from a death, New Game to first control",
+     "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0},
+    {"dmg_crevice_fall", "dmg_06_crevice_fall (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0,
+     "a walking jump short of the north block: the landing hit 0017C580 / 00163E90 (+6 = 3), 0021C350",
+     "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
      "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0},
@@ -2688,6 +2703,338 @@ static int crevice_climbs_frame(void)
  * with the capture. */
 static const float k_jump_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
 enum { JUMP_LIMIT = 200 };
+
+/* ------------------------------------------------------------- damage
+ *
+ * The DAMAGE side runs (docs/DAMAGE.md section 8; decomp CAPTURES_C10.md
+ * "DAMAGE"), each its own run from the main line: the capture lane's own
+ * closed-loop policies (route_capture.py dmg_beat_*), driven by the port's
+ * state, as programs of steps:
+ *   dmg_flame         (from crevice_prompt) dmg_00 .. dmg_04: one flame
+ *                     contact, the retreat, contacts to 35, the heartbeat
+ *                     idle, contacts to 10, contacts to 0, the death and the
+ *                     game over with no input, the title after a death,
+ *                     Up and Cross, the New Game to first control;
+ *   dmg_crevice_fall  (from crevice_prompt) dmg_06: the walking jump short
+ *                     of the north block, the landing hit;
+ *   dmg_pit_fall      (from truck_preview) dmg_07: the truck's fall, the
+ *                     walk off its roof onto the pit floor, the game over.
+ * Each beat starts after 35 neutral ticks (the capture's pin: its source
+ * snapshot's counter + 30, then idle 5). tools/level_smoke_damage.py
+ * compares the run's tick log with the recordings, each window aligned on
+ * its event (the hit, the latch, the death, the game-over task, the title,
+ * the confirm). In process: the steps' predicates, no fault. Test input
+ * only: the policies are the capture tool's. */
+enum {
+    DS_END = 0, DS_IDLE, DS_HITS_TO, DS_RETREAT, DS_DEATH_TO_GAME_OVER, DS_UNTIL_TITLE, DS_PRESS_UP,
+    DS_PRESS_CROSS_NEW_GAME, DS_UNTIL_FIRST_CONTROL, DS_WALK_PATH, DS_SETTLE, DS_FACE, DS_WALKING_JUMP,
+    DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK
+};
+typedef struct {
+    int kind;
+    float a, b, c, d;
+    const char *what;
+} DmgStep;
+#define DMG_IDLE(n) {DS_IDLE, (n), 0, 0, 0, "idle"}
+static const float k_dmg_flame_xz[2] = {452.3f, 277.6f};   /* the flame's +0xB0 x / z (r7) */
+static const float k_dmg_flame_rest[2] = {471.3f, 283.2f};  /* the 11_crevice_prompt release point */
+static const DmgStep k_dmg_flame[] = {
+    DMG_IDLE(35), {DS_HITS_TO, 95.0f, 0, 0, 0, "dmg_00: one flame contact"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_00: retreat"}, DMG_IDLE(30),
+    DMG_IDLE(35), {DS_HITS_TO, 35.0f, 0, 0, 0, "dmg_01: contacts to 35"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_01: retreat"}, DMG_IDLE(300),
+    DMG_IDLE(35), {DS_HITS_TO, 10.0f, 0, 0, 0, "dmg_02: contacts to 10"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_02: retreat"}, DMG_IDLE(150),
+    {DS_HITS_TO, 0.0f, 0, 0, 0, "dmg_02: contacts to 0"},
+    {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_02: death to the GAME OVER screen"},
+    {DS_UNTIL_TITLE, 0, 0, 0, 0, "dmg_03: the hold runs out; the title after a death"},
+    DMG_IDLE(30), DMG_IDLE(45), DMG_IDLE(5),
+    {DS_PRESS_UP, 0, 0, 0, 0, "dmg_04: Up to the first entry"}, DMG_IDLE(10),
+    {DS_PRESS_CROSS_NEW_GAME, 0, 0, 0, 0, "dmg_04: Cross (New Game)"},
+    {DS_UNTIL_FIRST_CONTROL, 0, 0, 0, 0, "dmg_04: the New Game to first control"}, DMG_IDLE(60),
+    {DS_END, 0, 0, 0, 0, NULL}};
+static const float k_dmg_crevice_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
+static const DmgStep k_dmg_crevice[] = {
+    DMG_IDLE(35), {DS_WALK_PATH, 0, 0, 0, 0, "dmg_06: to the plateau edge"},
+    {DS_SETTLE, 5, 0, 0, 0, "dmg_06: settle"}, {DS_FACE, 3.14159265f, 0, 0, 0, "dmg_06: face north"},
+    {DS_WALKING_JUMP, 477.0f, 150.0f, 252.0f, 0.45f, "dmg_06: the walking jump"},
+    {DS_UNTIL_LANDING_HAND_BACK, 0, 0, 0, 0, "dmg_06: the landing hit and the hand-back"}, DMG_IDLE(30),
+    {DS_END, 0, 0, 0, 0, NULL}};
+static const DmgStep k_dmg_pit[] = {
+    DMG_IDLE(35), {DS_GOTO, 352.0f, 392.0f, 1.5f, 1.0f, "dmg_07: onto the truck"},
+    {DS_UNTIL_TRUCK_DOWN, 0, 0, 0, 0, "dmg_07: the truck's fall"}, DMG_IDLE(30),
+    {DS_WALK_OFF_TRUCK, 352.0f, 440.0f, 0, 0, "dmg_07: off the roof"},
+    {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_07: death to the GAME OVER screen"},
+    {DS_END, 0, 0, 0, 0, NULL}};
+
+static struct {
+    const DmgStep *prog;
+    int pc, ticks, sub, hits;
+    float hp0;
+} D;
+
+static void dmg_begin(void)
+{
+    nav_reset();
+    memset(&D, 0, sizeof D);
+    const char *name = k_phases[t.current].name;
+    D.prog = strcmp(name, "dmg_flame") == 0 ? k_dmg_flame
+             : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice : k_dmg_pit;
+}
+
+/* route_capture dmg_controllable / the hit loop's walk gate. */
+static int dmg_walkable(const EmPlayerLiveActor *a)
+{
+    return em_live_u8(a, 4) == 1 && (em_live_u8(a, 5) == 0 || em_live_u8(a, 5) == 1);
+}
+
+/* dmg_gameover_screen: task 001ACEC0 at 3 / 2 / 3 with the fade idle. */
+static int dmg_game_over_screen(void)
+{
+    return task_byte(EM_SCENE_TASK_08) == 3 && task_byte(EM_SCENE_TASK_09) == 2 &&
+           task_byte(EM_SCENE_TASK_0A) == 3 && em_frame_transition()->substate == 0;
+}
+
+static int dmg_next(void)
+{
+    pad_apply(0, 0, 0);
+    if (D.prog[D.pc].what)
+        fprintf(stderr, "level smoke: %s: done %s at tick %u counter %u\n", k_phases[t.current].name,
+                D.prog[D.pc].what, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+    ++D.pc;
+    D.ticks = D.sub = 0;
+    nav_reset();
+    t.step = 0;
+    return 0;
+}
+
+static int dmg_timeout(int limit, const char *what)
+{
+    if (++D.ticks > limit) {
+        char reason[160];
+        snprintf(reason, sizeof reason, "%s: no progress in %d ticks", what, limit);
+        fail(reason);
+        return -1;
+    }
+    return 0;
+}
+
+static int dmg_frame(void)
+{
+    const EmPlayerLiveActor *a = player_states_actor();
+    const DmgStep *st = &D.prog[D.pc];
+    unsigned cursor = 0;
+    switch (st->kind) {
+    case DS_END:
+        fprintf(stderr, "level smoke: %s: PASS hits=%d health=%.1f player=(%.3f,%.5f,%.3f)\n",
+                k_phases[t.current].name, D.hits, g.status.health, g.pos[0], g.pos[1], g.pos[2]);
+        return 1;
+    case DS_IDLE:
+        pad_apply(0, 0, 0);
+        if (++D.ticks >= (int)st->a) return dmg_next();
+        return 0;
+    case DS_HITS_TO:
+        /* dmg_flame_hit, repeated while the health is above the target:
+         * walk at the flame while walkable, neutral otherwise, until the
+         * health drops; then neutral until +4 == 1 or the health is 0. */
+        if (D.sub == 0) {
+            if (g.status.health <= st->a) return dmg_next();
+            D.hp0 = g.status.health;
+            D.sub = 1;
+            D.ticks = 0;
+        }
+        if (D.sub == 1) {
+            if (g.status.health < D.hp0) {
+                ++D.hits;
+                pad_apply(0, 0, 0);
+                D.sub = 2;
+                D.ticks = 0;
+                return 0;
+            }
+            if (dmg_walkable(a)) nav_stick_toward(k_dmg_flame_xz[0], k_dmg_flame_xz[1], 1.0f);
+            else pad_apply(0, 0, 0);
+            return dmg_timeout(400, "no flame hit") < 0 ? 0 : 0;
+        }
+        pad_apply(0, 0, 0);
+        if (em_live_u8(a, 4) == 1 || g.status.health <= 0.0f) {
+            D.sub = 0;
+            return 0;
+        }
+        return dmg_timeout(300, "the hit reaction did not hand back") < 0 ? 0 : 0;
+    case DS_RETREAT:
+        /* dmg_retreat. */
+        if (D.sub == 0) {
+            pad_apply(0, 0, 0);
+            if (dmg_walkable(a)) { D.sub = 1; nav_reset(); }
+            else (void)dmg_timeout(300, "the retreat's wait for control");
+            return 0;
+        }
+        if (D.sub == 1) {
+            int r = nav_goto(k_dmg_flame_rest[0], k_dmg_flame_rest[1], 1.0f, 1.0f, 1);
+            if (r > 0) { D.sub = 2; D.ticks = 0; }
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        if (em_live_u8(a, 0) == 1 && g.pd_iframes <= 0 && in_control()) return dmg_next();
+        (void)dmg_timeout(300, "the retreat's protection wait");
+        return 0;
+    case DS_DEATH_TO_GAME_OVER:
+        pad_apply(0, 0, 0);
+        if (D.sub == 0) {
+            if (em_scene_state()->req[EM_SCENE_REQ_B9] == 1) { D.sub = 1; D.ticks = 0; }
+            else (void)dmg_timeout(300, "D_008106B9");
+            return 0;
+        }
+        if (D.sub == 1) {
+            if (dmg_game_over_screen()) { D.sub = 2; D.ticks = 0; }
+            else (void)dmg_timeout(1200, "the GAME OVER screen");
+            return 0;
+        }
+        if (++D.ticks >= 10) return dmg_next();
+        return 0;
+    case DS_UNTIL_TITLE:
+        pad_apply(0, 0, 0);
+        if (em_frontend_title_menu(&cursor)) {
+            fprintf(stderr, "level smoke: %s: the title menu takes input at counter %u, cursor %u\n",
+                    k_phases[t.current].name, em_frame_counter(), cursor);
+            if (cursor != 1) {
+                fail("the title after a death opened with the cursor off its second entry");
+                return 0;
+            }
+            return dmg_next();
+        }
+        (void)dmg_timeout(1200, "the title after a death");
+        return 0;
+    case DS_PRESS_UP:
+    case DS_PRESS_CROSS_NEW_GAME: {
+        /* dmg_press_until: a two-tick press, then up to 20 ticks for its
+         * effect, at most six times. */
+        const int menu = em_frontend_title_menu(&cursor);
+        const int done = st->kind == DS_PRESS_UP ? (menu && cursor == 0) : !menu;
+        if (done && D.sub >= 2) return dmg_next();
+        if (D.sub < 2) {
+            if (D.sub == 0)
+                fprintf(stderr, "level smoke: %s: press %s at counter %u\n", k_phases[t.current].name,
+                        st->kind == DS_PRESS_UP ? "UP" : "CROSS", em_frame_counter());
+            pad_apply(st->kind == DS_PRESS_UP ? EM_PAD_UP : EM_PAD_CROSS, 0, 0);
+            ++D.sub;
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        if (++D.ticks > 20) {
+            if (++D.hits > 6) { fail("a title press had no effect"); return 0; }
+            D.sub = 0;
+            D.ticks = 0;
+        }
+        return 0;
+    }
+    case DS_UNTIL_FIRST_CONTROL:
+        /* route_capture dmg_beat_new_game: the area 0x0B with the frame
+         * machine in state 1, then the opening (3B8D set), then control. */
+        pad_apply(0, 0, 0);
+        if (D.sub == 0) {
+            if (em_frontend_title_menu(NULL) == 0 && em_scene_state()->d810700 == 0x0B &&
+                task_byte(EM_SCENE_TASK_0B) == 1 && em_scene_state()->spad3B8D != 0)
+                D.sub = 1;
+            (void)dmg_timeout(12000, "the opening after the New Game");
+            return 0;
+        }
+        if (in_control() && em_scene_state()->d810700 == 0x0B && task_byte(EM_SCENE_TASK_08) == 3 &&
+            em_live_u8(a, 4) == 1) {
+            fprintf(stderr, "level smoke: %s: first control again at tick %u counter %u (%.3f,%.5f,%.3f) "
+                            "yaw=%.5f health=%.1f\n", k_phases[t.current].name,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter(), g.pos[0], g.pos[1], g.pos[2],
+                    g.yaw, g.status.health);
+            return dmg_next();
+        }
+        (void)dmg_timeout(12000, "first control after the New Game");
+        return 0;
+    case DS_WALK_PATH: {
+        int r = walk_path(k_dmg_crevice_path, 2, 1.0f);
+        if (r > 0) return dmg_next();
+        return 0;
+    }
+    case DS_SETTLE: {
+        int r = nav_settle((int)st->a);
+        if (r > 0) return dmg_next();
+        return 0;
+    }
+    case DS_FACE: {
+        int r = nav_face(st->a);
+        if (r > 0) return dmg_next();
+        return 0;
+    }
+    case DS_WALKING_JUMP: {
+        /* dmg_running_jump(start None, toward (a, b), z <= c, magnitude d,
+         * stall False): run toward the point until the edge test, Cross for
+         * two ticks with the stick held, keep the stick until +1F0 has been
+         * 0x0C and left it, then release. */
+        const uint8_t mode = em_live_u8(a, 0x1F0);
+        if (D.sub == 0) {
+            if (g.pos[2] <= st->c) { D.sub = 1; D.ticks = 0; }
+            else {
+                nav_stick_toward(st->a, st->b, st->d);
+                (void)dmg_timeout(400, "the edge");
+                return 0;
+            }
+        }
+        if (D.sub == 1 || D.sub == 2) {
+            const EmPadState keep = t.pad;
+            pad_apply(EM_PAD_CROSS, keep.lx, keep.ly);
+            ++D.sub;
+            return 0;
+        }
+        if (D.sub == 3) {
+            const EmPadState keep = t.pad;
+            pad_apply(0, keep.lx, keep.ly);
+            if (mode == 0x0C) D.sub = 4;
+            else if (++D.ticks > 10) { fail("the walking jump did not start (+1F0 0x0C)"); }
+            return 0;
+        }
+        const EmPadState keep = t.pad;
+        pad_apply(0, keep.lx, keep.ly);
+        if (mode != 0x0C) return dmg_next();
+        (void)dmg_timeout(300, "the walking jump's landing");
+        return 0;
+    }
+    case DS_UNTIL_LANDING_HAND_BACK:
+        pad_apply(0, 0, 0);
+        if (D.sub == 0) {
+            if (em_live_u8(a, 5) == 8) { D.sub = 1; D.ticks = 0; }
+            else (void)dmg_timeout(200, "the landing state +5 = 8");
+            return 0;
+        }
+        if (D.sub == 1) {
+            if (in_control() && em_live_u8(a, 4) == 1 && em_live_u8(a, 5) == 0) { D.sub = 2; D.ticks = 0; }
+            else (void)dmg_timeout(400, "control after the landing");
+            return 0;
+        }
+        if (g.pd_iframes <= 0) return dmg_next();
+        (void)dmg_timeout(200, "the landing's protection");
+        return 0;
+    case DS_GOTO: {
+        int r = nav_goto(st->a, st->b, st->c, st->d, 1);
+        if (r > 0) return dmg_next();
+        return 0;
+    }
+    case DS_UNTIL_TRUCK_DOWN: {
+        pad_apply(0, 0, 0);
+        const uint8_t *story = em_scene_progress_at(em_scene_state(), 0x00810792u, 1);
+        if (story && *story == 0xFF) return dmg_next();
+        (void)dmg_timeout(400, "the truck's fall (D_00810792 = 0xFF)");
+        return 0;
+    }
+    case DS_WALK_OFF_TRUCK:
+        if (em_live_u8(a, 5) == 5 || g.status.health <= 0.0f) return dmg_next();
+        if (dmg_walkable(a)) nav_stick_toward(st->a, st->b, 1.0f);
+        else pad_apply(0, 0, 0);
+        (void)dmg_timeout(300, "the walk off the truck");
+        return 0;
+    default:
+        fail("unknown damage step");
+        return 0;
+    }
+}
 
 static void crevice_jump_begin(void) { nav_reset(); }
 

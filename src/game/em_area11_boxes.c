@@ -5,6 +5,7 @@
 #include "game/em_area11_boxes.h"
 #include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_trail.h"
+#include "game/em_bone_burst.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -669,6 +670,9 @@ int em_area11_boxes_001AF800(void *ctx, EmActor *actor)
     /* The knife's trail node (001F18C0) keeps its in em_aim_fire_trail. */
     int trail = em_aim_fire_trail_001AF800(actor);
     if (trail != 0) return trail < 0 ? -1 : 0;
+    /* The bone-burst node (0022BBC0) keeps its in em_bone_burst. */
+    int burst = em_bone_burst_001AF800(actor);
+    if (burst != 0) return burst < 0 ? -1 : 0;
     for (unsigned i = 0; i < BOX_MAX; ++i) {
         Box *b = &S.box[i];
         if (b->actor != actor || b->generation != actor->generation || b->freed) continue;
@@ -917,6 +921,22 @@ EmOwnerBone *em_area11_boxes_owner_slot(const EmActor *actor, unsigned k, uint32
     if (!b || k >= b->view.bones_held || !b->view.bone[k]) return NULL;
     if (address) *address = word_of(b->view.bone[k]);
     return b->view.bone[k];
+}
+
+int em_area11_boxes_pop_0015C420(const uint32_t *expected, unsigned count, unsigned *popped)
+{
+    if (popped) *popped = 0;
+    if (!expected || !popped) return -1;
+    if (!S.stack.world.d00275BCC) em_area11_boxes_reset();
+    if ((int32_t)*S.stack.world.d00275BCC < (int32_t)count) return 0;   /* 0015C420 returns 1 */
+    for (unsigned i = 0; i < count; ++i) {
+        uint32_t word = 0;
+        if (em_roger_actor_001AF780(&S.stack, &word) < 0) return roger_fault("001AF780 (0015C420)");
+        if (word != expected[i])
+            return report("0015C420's 001AF780 popped a slot other than the player's node record");
+    }
+    *popped = count;
+    return 0;
 }
 
 const EmRogerActorWorld *em_area11_boxes_slot_world(void)

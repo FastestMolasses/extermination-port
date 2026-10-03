@@ -14,7 +14,7 @@
  * start of every tick (em_frame_scene_input), so the core's 001AE7E0 acts on
  * real input. Since S11b the frame machine acts on the classifier: r == 2
  * opens the status screen (states 3/5, world frozen), and B9 leads to game
- * over (001AD140 -> 001AD4E0 -> 001ADF00 -> the interim 001AC070 task);
+ * over (001AD140 -> 001AD4E0 -> 001ADF00 -> the title flow 001AC070);
  * the unported arms (r == 1, r == 3, +9 = 3) fault at their NULL workers.
  * Since S10a the state-1 world frame runs the translated variants
  * em_sf_001AE5E0 / em_sf_001AE6B0, chosen by canonical 3B8D, which since
@@ -167,13 +167,10 @@ int em_game_legacy_area_load(const char *dir);
 /* 001AD230's 001AF2C0 (New Game reset), as the port mirrors it. */
 void em_game_new_game_reset_001AF2C0(void);
 
-/* The interim 001AC070 (EmTaskFn; S11b): the task 001ADF00's
- * 001AB790(0x1AC070) installs. It runs the port's legacy continue prompt
- * (FLAGGED stand-in until 001AC070/001AC480 are translated) and, on option
- * 0, the port's Continue restart, after which it reinstalls
- * em_scene_task_001ACEC0 with a cleared record (001AC070 state 4:
- * D_00275BE0 = 0, 001AB790(001ACEC0)), so the New Game route runs again. */
-void em_game_legacy_continue_task_001AC070(void);
+/* 001AC070 state 4 after a death (em_frontend's New Game handoff from the
+ * title flow 001ADF00 reinstalled): 001AB790(001ACEC0) with a cleared
+ * record, D_00275BE0 = 0. 0, or -1. */
+int em_game_reinstall_new_001AC070(void);
 
 /* Head of a world-frame variant (cutscene != 0: 001AE6B0, else 001AE5E0):
  * test instrumentation only (its status/game-over frozen frame was retired

@@ -576,11 +576,29 @@ static uint32_t le32(const uint8_t *p)
  * pages bound the upload is applied here as that step; without them the
  * resident ITEM / BATTERY atlases already hold their texels (and the other
  * pages cannot open). Any other chain is refused (fail-stop). */
+/* The game-over screen module 0x27 (001AD4E0 step 1's 001FF080(0, 0x27);
+ * docs/DAMAGE.md section 5): one chunk, the screen's GS upload, with no B
+ * section, as a page module's. The port draws the screen from its export
+ * of that upload (assets/startup/game_over.emui, tools/export_game_over.py);
+ * the chunk step records that the load delivered it. */
+static uint32_t s_game_over_chunks;
+
+uint32_t em_status_runtime_game_over_chunks(void) { return s_game_over_chunks; }
+
 static int loader_chain(void *context, uint32_t chain, const uint8_t *bytes, uint32_t size)
 {
     EmStatusRuntime *runtime = context;
     const EmTask *record = em_module_loader_record(runtime->loader);
     const EmStatusSceneLoader *ld = em_module_loader_state(runtime->loader);
+    if (bytes && record && ld && record->user[0] == 0 && record->user[6] == EM_STATUS_RUNTIME_GAME_OVER_MODULE &&
+        chain == ld->d275C74) {
+        const uint8_t *h = ld->header;
+        if (le32(h) != record->user[6] || (h[0x0E] | h[0x0F] << 8) != 1 || le32(h + 0x10) != 0 ||
+            size < le32(h + 0x24))
+            return -1;
+        ++s_game_over_chunks;
+        return 0;
+    }
     if (!bytes || !record || !ld || record->user[0] != 0 || !page_module(record->user[6]) ||
         chain != ld->d275C74)
         return -1;

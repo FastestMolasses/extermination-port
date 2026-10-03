@@ -138,12 +138,37 @@ static int behaviour_call(void *context, EmCollListPasses *passes, uint32_t fn, 
     return s_behaviour.fn(s_behaviour.context, fn, entry, player, player_b0);
 }
 
-/* D_0024A740 is not exported: the view holds no byte, so 001A8660's
- * knock-back table read faults (0x1A87C0). It is reached only when the
- * player touches a class-0xD type-1 entry (the AREA11 flame, off the
- * recorded route) and its +0x34 behaviour returned: the knock-back and
- * the damage are the DAMAGE step's (FIRST_LEVEL_AUDIT.md 1b item 13). */
-static const uint8_t k_no_d24A740[1];
+/* D_0024A740 / D_0024A780 (EM_COLLISION_WORLD_KNOCKBACK_PATH): the two
+ * knock-back tables 001A8660 reads after a contact (0x1A87C0), ELF .data
+ * loaded once like the contact data. The export spans every entry byte d
+ * of both tables (0x24A740 + 0x40 + 4 * 0xFF + 4). */
+static struct {
+    uint8_t bytes[EM_COLLISION_WORLD_KNOCKBACK_SIZE];
+    int loaded;
+} s_knockback;
+
+static int load_emrg(const char *path, uint32_t base, uint8_t *out, uint32_t size)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) return -1;
+    uint32_t header[4];
+    const int ok = fread(header, sizeof header, 1, f) == 1 && memcmp(header, "EMRG", 4) == 0 &&
+                   header[1] == 1 && header[2] == base && header[3] == size && fread(out, size, 1, f) == 1 &&
+                   fgetc(f) == EOF;
+    fclose(f);
+    return ok ? 0 : -1;
+}
+
+static int load_knockback(void)
+{
+    if (s_knockback.loaded)
+        return 0;
+    if (load_emrg(EM_COLLISION_WORLD_KNOCKBACK_PATH, EM_COLLISION_WORLD_D_0024A740, s_knockback.bytes,
+                  sizeof s_knockback.bytes) != 0)
+        return -1;
+    s_knockback.loaded = 1;
+    return 0;
+}
 
 /* The owners that publish records the passes and the hull locks read
  * (census L22: Roger 008237E0, class 0x0A, em_area11_roger). */
@@ -228,8 +253,8 @@ void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners)
 static void bind_passes(void)
 {
     memset(&w.passes, 0, sizeof w.passes);
-    w.data.d24A740 = k_no_d24A740;
-    w.data.d24A740_size = 0;
+    w.data.d24A740 = s_knockback.bytes;
+    w.data.d24A740_size = s_knockback.loaded ? (uint32_t)sizeof s_knockback.bytes : 0;
     w.passes.memory.bytes = owner_bytes;
     w.passes.globals = &w.globals;
     w.passes.data = &w.data;
@@ -303,6 +328,12 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
     if (load_contact() != 0) {
         fprintf(stderr, "collision world: the contact data %s is missing or invalid "
                         "(tools/export_collision_contact.py)\n", EM_COLLISION_WORLD_CONTACT_PATH);
+        em_collision_world_unload();
+        return -1;
+    }
+    if (load_knockback() != 0) {
+        fprintf(stderr, "collision world: the knock-back tables %s are missing or invalid "
+                        "(tools/export_collision_contact.py)\n", EM_COLLISION_WORLD_KNOCKBACK_PATH);
         em_collision_world_unload();
         return -1;
     }
@@ -389,12 +420,11 @@ int em_collision_world_close_out_001AAD00(const EmSceneState *scene, int16_t d28
     g->d28A9A0 = d28A9A0;
     g->d810700 = scene->d810700;
     g->d810702 = scene->d810702;
-    /* D_0081070A is not canonical yet; 001A8660 reads it only for the
-     * knock-back table after a contact, which faults on the table (above),
-     * so the value selects nothing. */
-    g->d81070A = 0;
-    /* 0x700038A0..AC: written by 001A8660's knock-back only (it faults
-     * before, as above). */
+    /* D_0081070A, the canonical progress byte (em_scene_state.h): 001A8660
+     * picks its knock-back table by it (0x1A877C). */
+    g->d81070A = scene->progress.bytes[0x0081070Au - EM_SCENE_PROGRESS_BASE];
+    /* 0x700038A0..AC: written by 001A8660's knock-back only, all four
+     * lanes (001028D0, then +0xC = 1.0) before its one read. */
     memset(g->s38A0, 0, sizeof g->s38A0);
     w.passes.fault = 0;
     list_words_build();

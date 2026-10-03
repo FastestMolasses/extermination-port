@@ -331,6 +331,16 @@ by the renderer. The consumer reports the fan triangles it drew with the
 decal's TEX0 back to `em_shadow_live_page_drew`, which requires exactly this
 frame's fans' (the sum of n - 2) and then marks the decal flushed.
 
+**An effect's decal (since chain step DAMAGE, 2026-10-02).** The death
+decal 001F77B0 (DAMAGE.md section 4) calls 001CE300(1, its quad, TEX0
+0x2004108555322080, colour 0x80020220) per particle.
+`em_shadow_live_effect_001CE300` runs the same translation on the same
+stage, packet workers and scratch (0x70003600.. and the camera rows
+0x70003AC0), with the effect's own TEX0 and colour; its packets go on the
+page with the drop shadow's, but they are not counted in the drop shadow's
+fan check above (they carry another TEX0), and no capture compares their
+pixels.
+
 **The texture** is one of the chain page's
 (`assets/scene_snow/page_textures.emot`, `tools/export_page_textures.py`,
 STARTUP.md row 52, which replaced `export_shadow_decal_texture.py` and

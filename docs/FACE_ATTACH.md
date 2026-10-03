@@ -320,8 +320,11 @@ random variants, because D_00250FB0 is zero in every capture.
   snapshot: free count 1063 against 1042, cursor 0x7D47A4 against
   0x7D47F8), and the first 21 pops alias the player's node addresses in the
   boxes' arena. The face units do not carry the slot address (their REF
-  names the face resource), so the drawn bytes are unaffected; the stack's
-  state is not compared. Found by this step, not fixed here.
+  names the face resource), so the drawn bytes are unaffected. Found by
+  this step; **fixed by chain step DAMAGE (2026-10-02)**: 0015C420's 21
+  pops run at the player's spawn (em_area11_bindings.c, the record's +0x110
+  words; a mismatch faults), so every later pop returns the original's
+  address (the flame's burn node pops five; DAMAGE.md section 3).
 
 ## 6. Binding (done 2026-09-28)
 

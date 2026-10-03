@@ -382,7 +382,7 @@ handlers em_effect_kinds does not translate split in two:
   |---|---|---|
   | 001EAF00 (0x80000005), 001EB980 (0x68), 001EC5F0 (0x66), 001EC820 (0x67) | the footstep effect 00187EE0 on surfaces 6 / 7 / 8 / 0x5C; the slide 0016CD70 on 8 / 0x5C | the surfaces AREA11 can put in +23A are 0, 3, 4, 5, 0x5A, 0x5D (grid census) and 0, 3, 4, 0xB, 0xD (class-4 owners); surface 8 exists only as a static-cell kind, and AREA11's collision directory has no static cell (SFX_REGISTRY_FIRST_LEVEL.md, em_collision_world.c) |
   | 001EAF80 (0x8000001D), 001EB020 (0x16) | 00187350's wading ripple (+23C set) and 00187EE0 on 0x5B; the climb grab 0017DEB0 with +23C set | +23C is set (1 / 2) only by 00175900 on surface 0x5B: the split listing's other stores to a +0x23C are 001647D0's clear and 001551B0's / 001D7BB0's words into their own records, and AREA11 has no 0x5B |
-  | 001ED450 (0x80000023) | the blast reaction 0021EAD0 / 0021EF30 (+5 0x12..0x14) | entered only from the hit requests +F 7 / 0xA / 0xB; no live port code writes +F (only clears it) |
+  | 001ED450 (0x80000023) | the blast reaction 0021EAD0 / 0021EF30 (+5 0x12..0x14) | entered only from the hit requests +F 7 / 0xA / 0xB; AREA11's writers of +F are the flame's contact (0xC) and the fan (6, then 0x86), and the DAMAGE recordings hold no other value (DAMAGE.md section 7) |
   | 001EBC30 (0x14), 001EBD20 (0x15), 001ED7A0 (0x07), 001EB600 (0x5F) | the crates' and drums' break and flight | reached only after a damage write to the owner's +0x36; no live port code writes it (CRATES_DRUMS_ORIGINAL.md) |
   | 001EBBB0 (0x8000000E) | 001F0460's preset 0 | on the route 001F0460 (the footstep decal) faults before it (below); the shots' ring decals (the impact marker's 001F0460, through the aim / fire composition) reach it in the AIM side runs, where it is translated (EFFECT_KINDS.md 4.1, 2026-10-02) |
   | 001EF510 (0x09) and every other subtype | no first-level spawn site | — |
@@ -391,10 +391,12 @@ handlers em_effect_kinds does not translate split in two:
 em_player_closure_live.c) faults as the stage's w001EFE00 already did
 (em_player_stage_live): its 001EF9D0 node view (+0x24, +0xB0, +0xC0) is not
 bound. Its callers are the hit and death paths (0021C120 0x80000040, 0021C200
-0x80000048, 0021CD9C 0x80000044 on +23B 0xA, major2's 0x80000051), none
-reachable while no live code writes a hit request, and the callbacks of all
-those ids (0022BBC0, 001F8350, 0021AE90) have no AREA11 binding row, so the
-node would fault in `bind_node` anyway.
+0x80000048, 0021CD9C 0x80000044 on +23B 0xA, major2's 0x80000051); the
+DAMAGE side runs (the flame's hits, the death, the landing hit, the pit)
+reach none of them. Since chain step DAMAGE the flame's contact
+001EFE00(0x80000027) runs em_area01_side_001EFE00 through the aim / fire
+composition and its node 0022BBC0 has an AREA11 binding row (DAMAGE.md
+section 3); 001F8350 and 0021AE90 still have none.
 
 Not modelled on purpose (each faults when reached; none is reached on the
 route, route census `route_functions.json`): the footstep decal 001F0460

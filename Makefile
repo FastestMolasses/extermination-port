@@ -33,7 +33,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
-           src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c \
+           src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
            src/game/em_item_geometry.c src/game/em_status_hub.c src/game/em_status_draw.c src/game/em_status_hub_ui.c \
            src/game/em_status_runtime.c src/game/em_status_background.c src/game/em_status_background_draw.c \
@@ -60,7 +60,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_control.c src/game/em_aim_fire_machines.c src/game/em_aim_fire_pose.c \
            src/game/em_aim_fire_target.c src/game/em_aim_fire_shots.c src/game/em_aim_fire_reticle.c \
            src/game/em_aim_fire_tables.c src/game/em_aim_fire_leaves.c \
-           src/game/em_aim_fire_live.c src/game/em_aim_fire_marker.c src/game/em_aim_fire_flash.c src/game/em_aim_fire_trail.c src/game/em_aim_fire_binding.c \
+           src/game/em_aim_fire_live.c src/game/em_aim_fire_marker.c src/game/em_aim_fire_flash.c src/game/em_aim_fire_trail.c src/game/em_bone_burst.c src/game/em_effect_001F77B0.c src/game/em_aim_fire_binding.c \
            src/game/em_aim_fire_lamp.c \
            src/game/em_aim_fire_render_live.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_runtime.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
@@ -445,6 +445,18 @@ test-level-smoke-side: $(BIN)
 	        --require-through $$side || exit 1; \
 	done
 	$(MAKE) test-level-smoke-aim
+	$(MAKE) test-level-smoke-damage
+
+# The DAMAGE side runs (docs/DAMAGE.md section 8; LEVEL_SMOKE.md "The DAMAGE
+# side runs"): dmg_flame (from crevice_prompt: the flame's contacts, the
+# low-health heartbeat, the death, the game over, the title after a death
+# and the New Game to first control), dmg_crevice_fall (the landing hit)
+# and dmg_pit_fall (from truck_preview: the pit floor's death and the game
+# over), side by side, each checked window by window against the decomp's
+# DAMAGE recordings; part of test-level-smoke-side and -full.
+.PHONY: test-level-smoke-damage
+test-level-smoke-damage: $(BIN)
+	python3 tools/test_level_smoke_damage.py
 
 # The aim/fire side runs (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold" and "The
 # AIM replays"; AIM_FIRE.md section 10.4): the main line through
@@ -585,6 +597,10 @@ test-effect-original:
 .PHONY: test-effect-original-reference
 test-effect-original-reference:
 	python3 tools/test_effect_original_reference.py
+
+.PHONY: test-effect-001F77B0-reference
+test-effect-001F77B0-reference:
+	python3 tools/test_effect_001F77B0_reference.py
 
 .PHONY: test-head-sprite-original
 test-head-sprite-original:
@@ -1494,7 +1510,7 @@ test-aim-fire-live:
 .PHONY: test-aim-fire-world-live
 test-aim-fire-world-live:
 	mkdir -p build/aim-fire
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area02_misc.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c -lm -o build/aim-fire/world-live-test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/aim_fire_world_live_test.c src/game/em_aim_fire_world_live.c src/game/em_aim_fire_leaves.c src/game/em_area02_math.c src/game/em_area02_misc.c src/game/em_area00_world.c src/game/em_area01_side.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c -lm -o build/aim-fire/world-live-test
 	./build/aim-fire/world-live-test
 
 .PHONY: test-aim-fire-sdk-memory-reference

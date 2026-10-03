@@ -731,10 +731,12 @@ CAPTURE_SHA256 = {
     # effects' source TEX0 (SOURCE_PAGE_TEX0), identical in all 15 route captures
     # (export_page_textures.py --route-captures); chain step AIMLIVE fix round: + the
     # ring decals', the lamp flare's, the cable-hit sprite's and the cable strand's
-    # (CODE_PAGE_TEX0);
-    # before it: 3f229ed9...
+    # (CODE_PAGE_TEX0); chain step DAMAGE: + the bone burst's D_00268480 TEX0
+    # (SOURCE_PAGE_TEX0; it decodes identically from the DAMAGE lane's eight
+    # in-level end snapshots dmg_00..04, 06..08);
+    # before it: b1367533..., 3f229ed9...
     'scene_snow/page_textures.emot':  # sha256
-        'b1367533d7654e34084996dcf9575a57ec61725639ef65d30772e598b89d70f7',
+        'ea49260754ac521d82207e29b359013915f06d3e283ad31de75922d5051d3d7e',
     'font.emfn':  # sha256
         '1ce3b7a2e1e2dccbb32ae4ee7fd161bed39d63385aa22ecce3a971166a2536b5',
     'status_models/menu_player.emdl':  # sha256
@@ -796,8 +798,10 @@ CODE_PAGE_TEX0 = {0x45BA5154222DC,
 # AIMLIVE): 001EBA20's D_002560D0 (the impact effect 0x8000002C; its other
 # block D_00256160 and 001EACF0's D_00255620 carry TEX0 already in the
 # captured set). Like the dot: checked against the captures' GS memory, and
-# the page file without it must still be the capture-derived file.
-SOURCE_PAGE_TEX0 = {0x4556599421EC8}
+# the page file without it must still be the capture-derived file. Chain
+# step DAMAGE: 0022BBC0's burst-0 block D_00268480 (the flame contact's
+# effect 0x80000027; its pair D_00268510 carries a captured TEX0).
+SOURCE_PAGE_TEX0 = {0x4556599421EC8, 0x4298599321E80}
 CAPTURE_PAGE_FILE_SHA256 = '4e5416c0dbde25c7db55d5bc1154cfdbad6b681aeb4fe266380e151a227a4927'
 # The buffers the model reads for the world, the two page states and the
 # font (caller, source, DATA.DAT offset, size, extract span), pinned from

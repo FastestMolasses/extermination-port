@@ -5,6 +5,12 @@
 #include "game/em_aim_fire_cable_live.h"
 #include "game/em_aim_fire_flash.h"
 #include "game/em_aim_fire_trail.h"
+#include "game/em_bone_burst.h"
+#include "game/em_effect_001F77B0.h"
+#include "game/em_game_internal.h"
+#include "game/em_random.h"
+#include "game/em_sdk_math_original.h"
+#include "game/em_shadow_live.h"
 #include "game/em_aim_fire_leaves.h"
 #include "game/em_area11_roger.h"
 #include "game/em_aim_fire_render_live.h"
@@ -44,6 +50,7 @@ static uint32_t shot_flag;                 /* 0x700031E8 */
  * used (its transform takes the fourth row's factor from vf0.w;
  * PLAYER_EQUIPMENT.md section 5). AIM_FIRE.md section 7. */
 static uint32_t scratch_3600[16];          /* 0x70003600..0x7000363F */
+static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) */
 
 /* The records the composition allocates itself (001861C0's 001AFA90(1),
  * the impact marker): the bytes beyond the pool header the marker
@@ -69,7 +76,7 @@ static struct {
     EmArea00HudVu vu;
     int vf23_valid;
     uint32_t self_word[EM_ACTOR_POOL_CAPACITY]; /* original pointer encodings */
-    EmPoseRegion bss[10];
+    EmPoseRegion bss[14];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
 static void *span(uint32_t a,size_t n,uint32_t base,size_t size,void *p)
@@ -159,6 +166,7 @@ static void *external_map(void *context,uint32_t a,size_t n,int write)
     if (!n || n>UINT32_MAX || (uint64_t)a+n>UINT64_C(0x100000000)) return NULL;
     void *p=em_aim_fire_flash_field(a,n,write);
     if (!p) p=em_aim_fire_trail_field(a,n,write);
+    if (!p) p=em_bone_burst_field(a,n,write);
     if (!p) {
         EmEffectsLiveNodeRegion particles[3];
         size_t np=em_effects_live_particle_regions(particles,3);
@@ -256,6 +264,12 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
             if (trail_count>4) return -1;
             for (size_t j=0;j<trail_count;++j)
                 TRY(append(out,capacity,count,trail[j].address,trail[j].size,trail[j].bytes,trail[j].writable));
+            /* The bone-burst node (0022BBC0): its +0x110 words and slots. */
+            EmPoseRegion burst[6];
+            size_t burst_count=em_bone_burst_regions(address,burst,6);
+            if (burst_count>6) return -1;
+            for (size_t j=0;j<burst_count;++j)
+                TRY(append(out,capacity,count,burst[j].address,burst[j].size,burst[j].bytes,burst[j].writable));
             TRY(append(out,capacity,count,address+0x14,4,pool_field(address+0x14,4,0),0));
             continue;
         }
@@ -289,6 +303,9 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         const int trail=em_aim_fire_trail_call(f);
         if (trail<0) return -1;
         if (trail>0) return 0;
+        const int burst=em_bone_burst_call(f);
+        if (burst<0) return -1;
+        if (burst>0) return 0;
     }
     switch (f->function) {
     case 0x1CA7B0: {
@@ -550,16 +567,69 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
     R.bss[2]=(EmPoseRegion){0x700038C0,sizeof scratch_38C0,(uint8_t *)scratch_38C0,1};
     R.bss[3]=(EmPoseRegion){0x700031E8,sizeof shot_flag,(uint8_t *)&shot_flag,1};
     R.bss[4]=(EmPoseRegion){0x70003600,sizeof scratch_3600,(uint8_t *)scratch_3600,1};
-    R.world.regions=R.bss;R.world.region_count=5;
+    /* D_00275C3C: the count 001F0190 keeps of its 0021B9A0 calls, which
+     * 001F0290 tests (the bone burst's fog bracket; no other reader). */
+    R.bss[5]=(EmPoseRegion){0x275C3C,sizeof d275C3C,(uint8_t *)&d275C3C,1};
+    R.world.regions=R.bss;R.world.region_count=6;
     R.render.map=render_map;R.render.call=render_forward;
     R.render.vu=&R.vu;R.render.vf23_valid=&R.vf23_valid;
     em_aim_fire_binding_set_extension(external_call,external_map,NULL);
     em_aim_fire_binding_set_settle(settle,NULL);
     em_collision_world_bind_records(collision_records,NULL);
 }
+/* ---- 001F77B0, the effect 0x80000043's node (the death decal;
+ * em_effect_001F77B0, docs/DAMAGE.md section 4) ---- */
+static int dd_rand(void *c,int32_t *v) { (void)c;*v=(int32_t)em_random_next();return 0; }
+static int dd_sincos(uint32_t x,uint32_t *r,int cosine)
+{
+    EmSdkMathContext *sdk=em_collision_world_sdk();
+    float f=0.0f,in;memcpy(&in,&x,4);
+    if (!sdk) return -1;
+    const int rc=cosine ? em_sdk_math_original_w_0011DE90(sdk,in,&f) : em_sdk_math_original_w_0011E2A8(sdk,in,&f);
+    if (rc<0 || sdk->fault) return -1;
+    memcpy(r,&f,4);return 0;
+}
+static int dd_sin(void *c,uint32_t x,uint32_t *r) { (void)c;return dd_sincos(x,r,0); }
+static int dd_cos(void *c,uint32_t x,uint32_t *r) { (void)c;return dd_sincos(x,r,1); }
+static int dd_decal(void *c,int32_t tag,const uint32_t q[16],uint64_t tex0,uint32_t rgba)
+{ (void)c;return em_shadow_live_effect_001CE300(tag,q,tex0,rgba); }
+static int dd_free(void *c)
+{
+    EmActor *a=c;EmSceneState *scene=em_scene_state();
+    if (!a || !a->allocated || !scene) return -1;
+    return em_actor_pool_free_001AFC10(R.pool,scene,a)<0 ? -1 : 0;
+}
+/* D_00810360..68: the player record's +0xB0, which 0015BCF0's tail leaves
+ * as the bone-1 node's +0xC0 (the pose host's published hip; the record
+ * the port keeps holds the stage's +0xB0 instead). No published pose:
+ * the read faults. */
+static int dd_listener(void *c,uint32_t out[3])
+{
+    (void)c;float hip[3];
+    if (!player_pose_hip(hip)) return -1;
+    memcpy(out,hip,12);return 0;
+}
+static int death_decal_tick(uint32_t node)
+{
+    EmActor *a=pool_actor(node);
+    if (!a || !a->allocated) return -1;
+    const uint32_t generation=a->generation;
+    uint32_t *s3A20=em_aim_fire_binding_bytes(0x70003A20u,4,1),*s3A24=em_aim_fire_binding_bytes(0x70003A24u,4,1);
+    if (!s3A20 || !s3A24) return -1;
+    uint32_t b0[4],c0[4];memcpy(b0,a->pos,16);memcpy(c0,a->rot,16);
+    const EmEffect001F77B0Node n={&a->u04[0],a->param,b0,c0,a->scratch,s3A20,s3A24};
+    const EmEffect001F77B0Workers w={a,dd_rand,dd_sin,dd_cos,dd_decal,dd_free,dd_listener};
+    uint32_t fault=0;
+    if (em_effect_001F77B0(&n,&w,&fault)<0) {
+        fprintf(stderr,"001F77B0: node %08X faulted at %08X\n",(unsigned)node,(unsigned)fault);
+        return -1;
+    }
+    return a->allocated && a->generation==generation ? 1 : 0;
+}
 static int other_tick(void *context,uint32_t node,uint32_t callback)
 {
     (void)context;
+    if (callback==EM_EFFECT_001F77B0_CALLBACK) return death_decal_tick(node);
     if (callback==EM_AIM_FIRE_TRAIL_CALLBACK) {
         /* The knife's trail node 001F18C0 (em_area00_fx through the
          * composition), with D_00275B40 = its +0x110 (the walk's 001CB590);
@@ -573,6 +643,19 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
         if (rc<0) return -1;
         return a->allocated && a->generation==generation ? 1 : 0;
     }
+    if (callback==EM_BONE_BURST_CALLBACK) {
+        /* The bone-burst node 0022BBC0 (em_area01_ui through the
+         * composition), with D_00275B40 = its +0x110 (the walk's
+         * 001CB590); 1 while its record stays allocated, 0 once freed. */
+        EmActor *a=pool_actor(node);
+        if (!a) return -1;
+        const uint32_t generation=a->generation;
+        TRY(em_bone_burst_set_current(a));
+        const int rc=em_aim_fire_binding_run_bones(callback,node,node+0x110u);
+        em_bone_burst_set_current(NULL);
+        if (rc<0) return -1;
+        return a->allocated && a->generation==generation ? 1 : 0;
+    }
     if (callback!=0x21AAC0 && callback!=0x21A500) return -1;
     EmAimFireTargetCall frame={0};frame.function=callback;frame.a[0]=node;frame.na=1;
     TRY(em_aim_fire_binding_frame(&frame));return (int32_t)frame.v0;
@@ -582,17 +665,25 @@ static int other_tick(void *context,uint32_t node,uint32_t callback)
  * 001F3620 / 001F3E30, em_area00_fx) load, as views: D_0025A350's block
  * (the debris rows and gravity, 001D80E0's colour D_0025AD70), D_0026EA80 /
  * D_0026EAC0 (the lines' colours and indices; assets/effect_tables.emet),
+ * the bone-burst node 0022BBC0's timeline tables and source blocks
+ * 0x267310..0x268B3F (em_bone_burst; docs/DAMAGE.md),
  * D_0028A56C (the Roger export's table word) and D_00275BCC (the one slot
  * stack's free count). */
 static int add_windows(void)
 {
-    static const uint32_t windows[][2]={{0x25A350,0x34B0},{0x26EA80,0x64}};
-    unsigned n=5;
-    for (unsigned k=0;k<2;++k) {
+    static const uint32_t windows[][2]={{0x25A350,0x34B0},{0x26EA80,0x64},{0x267310,0x1830}};
+    unsigned n=6;
+    for (unsigned k=0;k<3;++k) {
         const uint8_t *p=em_effects_live_window(windows[k][0],windows[k][1]);
         if (!p) return -1;
         R.bss[n++]=(EmPoseRegion){windows[k][0],windows[k][1],(uint8_t *)(uintptr_t)p,0};
     }
+    /* D_00275C04: 001CD070's store of float_to_int(the clip w) (the bone
+     * burst's ring test), the word 001CCF70 stores too: em_effects_live's
+     * one copy. */
+    int32_t *d275C04=em_effects_live_d275C04();
+    if (!d275C04) return -1;
+    R.bss[n++]=(EmPoseRegion){0x275C04,4,(uint8_t *)d275C04,1};
     if (em_area11_roger_table_word(0x28A56Cu,&R.d28A56C)<0) return -1;
     R.bss[n++]=(EmPoseRegion){0x28A56C,4,(uint8_t *)&R.d28A56C,0};
     const EmRogerActorWorld *slots=em_area11_boxes_slot_world();

@@ -43,6 +43,13 @@ Blocks (original address, bytes, what reads them):
   0x00255590  0x90    D_00255590, 001EAB50's source block (the effect
                       0x80000045 of the cable hit, 001EFE00; AIM_FIRE.md
                       section 10.5)
+  0x00267310  0x1830  the bone-burst node 0022BBC0's data (the flame
+                      contact's effect 0x80000027; port docs/DAMAGE.md
+                      section 3): 0022B7A0's timeline tables
+                      0x267310..0x26802F and 0022BBC0's 001CFBE0 source
+                      blocks 0x268090..0x268B3F (its bursts 0x268480 +
+                      0x90 * k, the kind-5 rounds 0x268900 / 0x268990 and
+                      the ring layers)
   0x0026EA80  0x64    D_0026EA80 (four line colours) and D_0026EAC0 (the nine
                       colour indices), 001F4F90's (the muzzle node's eight
                       lines; AIM_FIRE.md section 9.1)
@@ -97,7 +104,7 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x002565E0, 0x480), (0x002535F0, 0x110), (0x00251260, 0x80), (0x0024A220, 0x290),
           (0x00248B98, 8), (0x00248C78, 8), (0x0025DAE0, 0x20), (0x00231770, 0xDD0), (0x00233290, 0x570),
           (0x00233800, 0xDE0), (0x00255620, 0x90), (0x002560D0, 0x1B0), (0x0026EA80, 0x64),
-          (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50))
+          (0x00230800, 0xF70), (0x00255590, 0x90), (0x00232540, 0xD50), (0x00267310, 0x1830))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:
@@ -148,6 +155,8 @@ def main(argv=None) -> int:
     captures = [] if args.no_verify else (args.verify_ram or default_captures())
     compared = sum(verify(blocks, p.read_bytes(), p) for p in captures)
     args.out.parent.mkdir(parents=True, exist_ok=True)
+    if args.out.is_symlink():
+        args.out.unlink()   # a worktree's link to a shared tree: write a file of its own
     args.out.write_bytes(serialize(blocks))
     print(f'wrote {args.out}: {len(blocks)} blocks, {sum(len(d) for _, d in blocks)} bytes; '
           f'{compared} bytes equal in {len(captures)} captures')

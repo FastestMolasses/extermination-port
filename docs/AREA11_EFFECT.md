@@ -15,9 +15,10 @@ whole owner runs on its pool record, against the decomp's byte-identical C
 (src/overlays/AREA11/func_overlay_AREA11_008235B0.c and
 overlay_AREA11_func_00823540.c): its loop sound 001FC3C0 / 001FC520, its
 publication 001B17A0, its +0x30 / +0x34 stores and the contact behaviour
-0x823580 that the collision world's contact pass calls. **The damage the
-contact deals (001EFE00(0x80000027) at the player, then 001A8660's
-knock-back) is the DAMAGE step's: it faults (below).**
+0x823580 that the collision world's contact pass calls. Since chain step
+DAMAGE (2026-10-02) the damage the contact deals runs too: 001EFE00(
+0x80000027) at the player (the burn node) and 001A8660's knock-back
+(below; DAMAGE.md sections 2 and 3).
 The original auxiliary point light is a separate room table; this actor does
 not register it. See [AREA11_POINT_LIGHT.md](AREA11_POINT_LIGHT.md).
 
@@ -151,13 +152,17 @@ load; scene unload and re-entry release and reconstruct the effect state.
   (assets/collision_contact.emrg, tools/export_collision_contact.py). On an
   overlap it calls the +0x34 word through em_collision_world_bind_behaviour:
   flame_behaviour runs em_area11_effect_runtime_contact. Its 0021BB00 is
-  em_player_0021BB00. **Its 001EFE00(0x80000027, player) has no binding at
-  the player (the player stage's own 001EFE00 is unbound too): reaching it
-  faults** (FIRST_LEVEL_AUDIT.md 1b item 13, the DAMAGE step); a contact the
-  callback rejects returns to 001A8660, whose knock-back (when the player's
-  +0x00 is 1) reads the table D_0024A740, which is not exported: it faults
-  at 0x1A87C0. No recorded route touches the
-  flame (the closest route beat is 16.5 units away; contact needs 10).
+  em_player_0021BB00. Its 001EFE00(0x80000027, player) is
+  em_area01_side_001EFE00 through the aim / fire composition, with the
+  player record's close-out view of +0xA0 / +0xB0 for the call
+  (em_area11_bindings.c flame_001EFE00; DAMAGE.md section 2); the node it
+  spawns is the burn node 0022BBC0 (DAMAGE.md section 3). 001A8660's
+  knock-back (when the player's +0x00 is 1) reads the table D_0024A740
+  (assets/collision_knockback.emrg, tools/export_collision_contact.py) and
+  stores the pending damage +0x224 on the player's one vitals storage. No
+  recorded main-line route beat touches the flame (the closest is 16.5
+  units away; contact needs 10); the DAMAGE side run dmg_flame does
+  (LEVEL_SMOKE.md "The DAMAGE side runs").
 - **Free.** States 2 / 3: 001FC520, then 001AFC10 (the pool's free); not
   reached in the first level.
 - **DRAW.** em_effects_live_001D04B0(+0xD0 matrix, 1, D_00828340, the

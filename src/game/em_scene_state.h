@@ -102,6 +102,13 @@ typedef enum {
  *                              by 001B07C0 into +0x234. Before HK the
  *                              port kept no copy (001B07C0 read the live
  *                              +0x234, g.pd_infected).
+ *   D_0081070A           DAMAGE  the byte 001A8660 reads to pick its
+ *                              knock-back table (0: D_0024A740, else
+ *                              D_0024A780; 0x1A877C). 001AF2C0's memset
+ *                              clears it; no first-level code writes it
+ *                              (0 in every DAMAGE capture's globals); no
+ *                              port mirror existed (em_enemy names it
+ *                              unbound).
  *   D_00810758           L22   event 0 (D_00810758[0]): Roger 008237E0's
  *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
  *                              keeps him out), set to 1 by the encounter
@@ -245,6 +252,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     } migrated[] = {
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
+        {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates

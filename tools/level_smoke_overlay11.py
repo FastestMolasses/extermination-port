@@ -7,7 +7,8 @@ docs/OPENING_ORIGINAL.md), against the route snapshots 00..14
   * the flame 008235F0: from its first call on, on every tick of the run,
     its record holds the captures' +0x04, +0x30 (its own +0x1F0), +0x34
     (0x823580) and half extents (7, 15, 7), and +0x00 = 1 (2 only while
-    its +0x210 contact cooldown runs, which no route reaches);
+    its +0x210 contact cooldown runs, which no route reaches; the DAMAGE
+    side run dmg_flame does, and level_smoke_damage.py compares it there);
   * the flag-0x30 manager 00823CE0: from its first call on, +0x00 / +0x04 /
     +0x05 / +0x2E equal every capture's (lifecycle 1, waiting);
   * the opening controller 00823E80: after the opening, +0x00 / +0x04 /
@@ -90,7 +91,14 @@ def check_overlay11(ticks, state):
                 assert a not in started, (where, 'back in state 0 after its first call')
                 continue
             started.add(a)
-            if row[0] == FLAME:
+            if row[0] == FLAME and state.get('damage_from') is not None and i >= state['damage_from']:
+                # The DAMAGE side run touches the flame: its cooldown (and
+                # +0x00 = 2 while it runs) is compared with the recording by
+                # level_smoke_damage.py; the rest of the record as below.
+                assert 0 <= r[9] <= 60 and row[1] in (1, 2), \
+                    (where, 'the flame\'s cooldown', row, r[9])
+                row = [row[0], 1] + row[2:]
+            elif row[0] == FLAME:
                 assert r[9] == 0 and row[1] == 1, (where, 'the flame in its contact cooldown (no route touches it)',
                                                    row, r[9])
             assert row == static[a], (where, 'differs from the snapshots\' record', row, static[a])

@@ -14,8 +14,12 @@ sub-state, cursor, idle timer, first-draw flag and exit verdict must agree.
 It also executes anim_frame_top_a's first (state 0) tick for every single
 held bit to confirm EM_STARTUP_ATTRACT_EXIT, the attract demo's button exit.
 
-Scope: the cold-title context (D_00275BDC = 0, cursor starts at 0). The
-from-death Continue prompt (D_00275BDC = 1) is not modelled by em_startup.
+Both title contexts: the cold title (D_00275BDC = 0, the cursor starts on
+the first entry) and the title after a death (D_00275BDC = 1, which
+001ADF00 sets: the cursor starts on the second entry; chain step DAMAGE,
+docs/DAMAGE.md section 6). 001AC070's state 0 itself is executed for both
+values too: its next state (+0x08) and attract mode (+0x0E) against
+em_startup's major state and cycle mode after its first tick.
 No original instruction bytes or data are embedded in or printed by it.
 """
 import ctypes as C
@@ -40,7 +44,8 @@ HARNESS = r'''
 static EmStartup s;
 static EmStartupEvent events[32];
 static unsigned count;
-static int module_ready, resources_ready;
+static int module_ready, resources_ready, from_death;
+void h_from_death(int value) { from_death = value; }
 static void notify(void *user, const EmStartupEvent *event)
 {
     (void)user;
@@ -56,6 +61,12 @@ void h_reset(void)
     s.major = 2;         /* 001AC070 state 2: 001AC480 */
     s.cycle_mode = 1;
 }
+void h_reset_state0(void)
+{
+    em_startup_init(&s, notify, 0);
+    s.flow = 1;          /* FLOW_TITLE */
+    s.major = 0;         /* 001AC070 state 0 */
+}
 unsigned h_tick(unsigned held, unsigned pressed, int fade, int module, int resources)
 {
     count = 0;
@@ -65,7 +76,7 @@ unsigned h_tick(unsigned held, unsigned pressed, int fade, int module, int resou
         ((s.pending_kind == EM_STARTUP_SCREEN_MODULE && module) ||
          (s.pending_kind == EM_STARTUP_TITLE_RESOURCES && resources)))
         em_startup_complete(&s, s.pending_serial, 1);
-    EmStartupInput input = { (unsigned short)held, (unsigned short)pressed, fade, 0 };
+    EmStartupInput input = { (unsigned short)held, (unsigned short)pressed, fade, 0, (uint8_t)from_death };
     em_startup_tick(&s, &input);
     return count;
 }
@@ -74,9 +85,10 @@ void h_event(unsigned i, int out[3])
     out[0] = events[i].kind; out[1] = events[i].id; out[2] = events[i].value;
 }
 unsigned h_attract_exit(void) { return EM_STARTUP_ATTRACT_EXIT; }
-void h_state(unsigned out[5])
+void h_state(unsigned out[6])
 {
     out[0] = s.major; out[1] = s.sub; out[2] = s.aux; out[3] = s.cursor; out[4] = s.timer;
+    out[5] = s.cycle_mode;
 }
 '''
 
@@ -86,11 +98,12 @@ SCREEN_MODULE, TITLE_RESOURCES = 1, 4
 
 
 class Title:
-    def __init__(self, elf, native):
+    def __init__(self, elf, native, from_death=0):
         self.native = native
         self.o = PadOracle(elf)
         self.o.save(0x70003B6C, SLOT)
-        self.o.save(FROM_DEATH, 0, 1)
+        self.o.save(FROM_DEATH, from_death, 1)
+        native.h_from_death(from_death)
         self.events = []
         self.resources = 0
         rec = self.events.append
@@ -138,9 +151,9 @@ class Title:
             elif kind != TITLE_RESOURCES:      # FB370 poll: no original call record
                 actual_events.append(('other', kind, ident, value))
         expected_events = list(self.events)
-        state = (C.c_uint * 5)()
+        state = (C.c_uint * 6)()
         self.native.h_state(state)
-        major, sub, aux, cursor, timer = state
+        major, sub, aux, cursor, timer, _mode = state
         context = dict(tick=self.ticks, held=hex(held), pressed=hex(pressed), fade=fade,
                        module=module, resources=resources)
         assert actual_events == expected_events, dict(context, actual=actual_events,
@@ -179,6 +192,39 @@ def attract_exit(elf, native):
     return 17
 
 
+def state0(elf, native):
+    """001AC070 state 0 for D_00275BDC 0 and 1: the next state (+0x08) and
+    the attract mode (+0x0E) against em_startup's first tick. The full-fade
+    call 001AEDB0 is recorded on the original side (em_startup's
+    EM_STARTUP_FADE_FULL); everything else state 0 calls runs original."""
+    FADE_FULL = 7
+    cases = 0
+    for from_death in (0, 1):
+        o = PadOracle(elf)
+        o.save(0x70003B6C, SLOT)
+        o.save(FROM_DEATH, from_death, 1)
+        fades = []
+        o.calls[0x1AEDB0] = lambda oracle: fades.append(oracle.r[4] & 0xFFFF)
+        o.run(0x1AC070)
+        expected = (o.load(SLOT + 8, 1), o.load(SLOT + 0xE, 1))
+        native.h_from_death(from_death)
+        native.h_reset_state0()
+        count = native.h_tick(0, 0, 0, 1, 1)
+        kinds = []
+        for i in range(count):
+            out = (C.c_int * 3)()
+            native.h_event(i, out)
+            kinds.append(out[0])
+        state = (C.c_uint * 6)()
+        native.h_state(state)
+        assert fades == [0] and kinds.count(FADE_FULL) == 1, (from_death, fades, kinds)
+        assert (state[0], state[5]) == expected, (from_death, tuple(state), expected)
+        assert expected == ((1, 1) if from_death == 0 else (2, 3)), expected
+        cases += 1
+    native.h_from_death(0)
+    return cases
+
+
 def main():
     elf = (ROOT.parent / 'Extermination/config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA
@@ -194,8 +240,10 @@ def main():
         native.h_tick.argtypes = [C.c_uint, C.c_uint, C.c_int, C.c_int, C.c_int]
         native.h_event.argtypes = [C.c_uint, C.POINTER(C.c_int)]
         native.h_state.argtypes = [C.POINTER(C.c_uint)]
+        native.h_from_death.argtypes = [C.c_int]
         native.h_attract_exit.restype = C.c_uint
         attract = attract_exit(elf, native)
+        state0_cases = state0(elf, native)
         rng = random.Random(0x1AC480)
         ticks = verdicts = 0
         outcomes = {1: 0, 3: 0}
@@ -203,9 +251,9 @@ def main():
         buttons = (0x0800, 0x0040, 0x4000, 0x1000, 0x2000, 0x8000, 0x0010, 0x0020,
                    0x0080, 0x0100, 0x0004, 0x0840, 0x5000, 0x4040, 0x1800)
 
-        def run(script):
+        def run(script, from_death=0):
             nonlocal ticks, verdicts
-            title = Title(elf, native)
+            title = Title(elf, native, from_death)
             for held, pressed, fade, module, resources in script:
                 verdict = title.tick(held, pressed, fade, module, resources)
                 ticks += 1
@@ -233,8 +281,22 @@ def main():
             script += [(word, word, 0, 1, 1), (0, 0, 0, 1, 1)]
         script += [(0, 0, 2, 1, 1)]
         assert run(script) == 1
-        # Random pad/fade sequences.
-        for _ in range(400):
+        # After a death (D_00275BDC = 1): the cursor starts on the second
+        # entry; Cross there, Up then Cross, the clamps, a timeout.
+        script = [(0, 0, 0, 1, 1)] * 3 + [(0x0040, 0x0040, 0, 1, 1), (0, 0, 2, 1, 1)]
+        assert run(script, 1) == 1
+        script = [(0, 0, 0, 1, 1)] * 3 + [(0x1000, 0x1000, 0, 1, 1), (0, 0, 0, 1, 1),
+                                          (0x0040, 0x0040, 0, 1, 1), (0, 0, 2, 1, 1)]
+        assert run(script, 1) == 1
+        script = [(0, 0, 0, 1, 1)] * 3
+        for word in (0x4000,) * 3 + (0x1000,) * 3 + (0x0800,):
+            script += [(word, word, 0, 1, 1), (0, 0, 0, 1, 1)]
+        script += [(0, 0, 2, 1, 1)]
+        assert run(script, 1) == 1
+        script = [(0, 0, 0, 1, 1)] * 1205 + [(0, 0, 3, 1, 1), (0, 0, 2, 1, 1)]
+        assert run(script, 1) == 3
+        # Random pad/fade sequences (one in four after a death).
+        for case in range(400):
             script = [(0, 0, 0, 1, 1)] * rng.randrange(2, 5)
             held = 0
             for _ in range(rng.randrange(20, 120)):
@@ -251,10 +313,10 @@ def main():
                 held = new
                 fade = rng.choices((0, 1, 2, 3), (0.75, 0.08, 0.09, 0.08))[0]
                 script.append((held, pressed, fade, 1, 1))
-            run(script)
+            run(script, int(case % 4 == 3))
     print(f'title menu reference: PASS ({ticks} original 001AC480 ticks, '
-          f'{outcomes[1]} confirms, {outcomes[3]} timeouts; attract exit gate '
-          f'{attract} anim_frame_top_a cases)')
+          f'{outcomes[1]} confirms, {outcomes[3]} timeouts, both D_00275BDC contexts; '
+          f'001AC070 state 0 {state0_cases} cases; attract exit gate {attract} anim_frame_top_a cases)')
 
 
 if __name__ == '__main__':

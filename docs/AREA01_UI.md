@@ -70,12 +70,15 @@ translation of any of the 17 exists):
   (the AREA11 host faults when a take selects those pages,
   FIRST_LEVEL_AUDIT.md H7 / H9). These translations are what that fault
   waits for; binding them is the lead's.
-- `src/game/em_player_closure_live.c` (and EFFECT_MANAGER.md) note that
-  0022BBC0 has no AREA11 binding row.
+- Since chain step DAMAGE (2026-10-02) 0022BBC0 has an AREA11 binding
+  row: the flame's contact spawns 0x80000027 (subtype 9) and its behaviour
+  is `em_area01_ui_0022BBC0` through the aim / fire composition, with its
+  slots on the one bone-slot stack (em_bone_burst.c; DAMAGE.md section 3).
 - `src/game/em_area01_render_gs.h` lists 0022BBC0 as a caller of 001CD070
   and 001CD2B0, which the render lane translated. Here they stay callees
-  through `call` (so the oracle runs them as original code); the lead can
-  bind them to `em_area01_render_001CD070` / `_001CD2B0`.
+  through `call` (so the oracle runs them as original code); in the live
+  app the composition binds 001CD070 to `em_area01_render_001CD070` (chain
+  step DAMAGE).
 
 ## 1. Modules and what each function does
 
@@ -504,8 +507,8 @@ case in `EXTRA_PINS`:
   bound"}`.
 - Binding: the page core's fault for pages 1 and 3 (AREA11 host) can call
   `em_area01_ui_0020F950` / `em_area01_ui_00214020`; the node callback is
-  `em_area01_ui_002101C0`; 0022BBC0 is a pool callback id without an
-  AREA11 row. Every callee listed in `UI_*` (em_area01_ui_internal.h) must
+  `em_area01_ui_002101C0`; 0022BBC0 is the burn node's callback (bound
+  since chain step DAMAGE, above). Every callee listed in `UI_*` (em_area01_ui_internal.h) must
   be bound or fail-stop.
 
 ## Known gaps from the close-out spot check (2026-09-26)

@@ -92,6 +92,11 @@ static struct {
     uint32_t stage[EM_SHADOW_DECAL_STAGE_WORDS];   /* D_008112C0..D_00811CBF */
     EmShadowDecal decal;
     EmShadowDecalWorkers dworkers, dbase;
+    /* Another owner's 001CE300 (an effect node's decal, 001F77B0): the
+     * same clipper buffers (stage) and scratchpad block, the packet chain's
+     * own adapters (no shadow sample is recorded). */
+    EmShadowDecal effect_decal;
+    uint32_t effect_decals;
     struct { uint8_t *bytes; int32_t count; } pk[PACKETS_MAX];
     uint32_t pk_count;
     uint32_t fan_n[2], fan_count;
@@ -474,6 +479,7 @@ int em_shadow_live_bind(void)
     em_shadow_decal_bind_packet_chain(&S.dbase, em_rcl_packet_chain());
     S.dworkers = (EmShadowDecalWorkers){ NULL, d_001CD370, d_001CB5F0, d_001CB900, d_fog };
     memset(&S.decal, 0, sizeof S.decal);
+    memset(&S.effect_decal, 0, sizeof S.effect_decal);
     S.decal.stage = S.stage;
     S.decal.workers = &S.dworkers;
     S.aworkers = (EmShadowActorRouteWorkers){ NULL, w_node_c4, w_segment, w_atan2, w_look_at, w_submit };
@@ -760,6 +766,30 @@ int em_shadow_live_page_drew(uint32_t decal_triangles)
     }
     return 0;
 }
+
+/* 001CE300 for an effect node (001F77B0, the 0x80000043 death decal): the
+ * kernel over the render context's packet chain, page D_007635C0 slot 0,
+ * the stage buffers D_008112C0 and the scratchpad block 0x70003600 this
+ * module keeps, the camera rows 0x70003AC0 of the render context. Its fans
+ * carry their own TEX0, so the page's decal count (em_shadow_live_page_
+ * drew, the 0015BF90 TEX0's triangles only) does not include them. */
+int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint64_t tex0, uint32_t rgba)
+{
+    if (S.fault) return -1;
+    if (!S.bound) return fail(0x001CE300u, "the shadow is not bound");
+    const uint8_t *camera = em_rcl_bytes(0x70003AC0u, 0x40);
+    if (!camera) return fail(0x001CE300u, "the camera rows 0x70003AC0 are not bound");
+    S.effect_decal.stage = S.stage;
+    S.effect_decal.workers = &S.dbase;
+    S.effect_decal.scratch = (EmShadowDecalScratch){ S.eglobals.spad3600, (const uint32_t *)camera };
+    if (em_shadow_decal_001CE300(&S.effect_decal, tag, corners, tex0, rgba) < 0)
+        return fail(S.effect_decal.fault.address ? S.effect_decal.fault.address : 0x001CE300u,
+                    "001CE300 (an effect's decal) faulted");
+    S.effect_decals++;
+    return 0;
+}
+
+uint32_t em_shadow_live_effect_decals(void) { return S.effect_decals; }
 
 /* ------------------------------------------------------------ the logs */
 

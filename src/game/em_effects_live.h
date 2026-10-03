@@ -6,7 +6,10 @@
  * translations share and wires each one's workers to the other translations
  * over the one canonical render context (em_render_context_live):
  *
- *   em_effect_original       001EF9D0 / 001EFD90 / 001EFD20 (the spawns),
+ *   em_effect_original       001EF9D0 / 001EFD90 / 001EFD20 (the spawns;
+ *                            001EF940's sound through em_sfx's 001FBF50
+ *                            gains and 001FB9F0 submit: record 0x27, the
+ *                            flame's contact, carries one),
  *                            001EA240 (the node driver), 001CCF70 (the depth
  *                            key), 001F0460 (the ring decals)
  *   em_effect_kinds          the handlers 001EC1F0 / 001EC3F0 / 001EC470 /
@@ -38,9 +41,8 @@
  * translate faults: some do more than draw (001EF510 spawns a child node),
  * and the port reaches none of them in AREA11 (EFFECT_MANAGER.md 8.2).
  * Not modelled on purpose (each is a fault when reached, and
- * none is reached on the route; route census, route_functions.json): the
- * effect sounds 001FBF50 / 001FB9F0 (no first-level
- * effect record carries one), 001F6210's model-sprite list (AREA11's key
+ * none is reached on the route; route census, route_functions.json):
+ * 001F6210's model-sprite list (AREA11's key
  * 0x0B00 has none), the selectors' point-light paths (keys 0 and 0x1301),
  * the particle sweep's live entities (001F3620 / 001F3E30; no writer ran).
  *
@@ -148,6 +150,9 @@ typedef struct {
  * required count (zero for an inactive/non-effect node), fills up to capacity.
  * Callers must reject insufficient capacity. Uninitialized +24 is omitted. */
 size_t em_effects_live_node_regions(uint32_t node, EmEffectsLiveNodeRegion *regions, size_t capacity);
+/* D_00275C04, the word 001CCF70 (and 001CD070) store float_to_int of the
+ * view w into: em_effect_original's one copy. NULL before the attach. */
+int32_t *em_effects_live_d275C04(void);
 /* Extend KIND_OTHER with an already translated callback. Install after area
  * attach (detach clears it). Result: 1 alive, 0 freed, -1 fault. */
 typedef int (*EmEffectsLiveOtherTick)(void *, uint32_t address, uint32_t callback);

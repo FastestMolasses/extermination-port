@@ -10,6 +10,13 @@ void em_frontend_install(void);
  * startup flow, then the title's New Game handoff (em_game_install_new). */
 void em_frontend_install_new_game(void);
 void em_frontend_shutdown(void);
+/* 001ADF00's 001AB790(001AC070) after a death: the title flow replaces the
+ * game task in slot 0, from 001AC070 state 0 (D_00275BDC set: the menu with
+ * the cursor on its second entry). 0, or -1. */
+int em_frontend_install_001AC070(void);
+/* 1 while the title flow holds slot 0 and its menu took input on the last
+ * tick (*cursor = its cursor); test driver use (the level smoke). */
+int em_frontend_title_menu(unsigned *cursor);
 int em_frontend_failed(void);
 /* What the game reads of the frontend after New Game (the movie service of
  * 001AD360 step 1): {installed, the stored selector D_00275C78 (-1 none),

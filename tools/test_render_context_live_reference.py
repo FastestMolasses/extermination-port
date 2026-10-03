@@ -21,7 +21,8 @@ views), then run the same sequence of original entries:
   model), the flip of D_00810E80, step W 001D2580(field), and a camera move
   (D_00810610 on both sides, so the frame head's one-frame view lag is
   exercised),
-  the zoom writers 001D25F0(480), 001D2610(0), 001D2610(1),
+  the zoom writers 001D25F0(480), 001D2610(0), 001D2610(1), 001D2880
+  whole (the game over's render reset: 001D25F0, seven 001D2830, 001D2610),
   001DD950(&D_008105E0, 2 + 1.02 d, d) (001DD980's store),
   a status frame (D_008106C4 = 1: 001D1C50, 001D2830(3, 1), 001D1EA0(0),
   then step V on its flag-3 / D_008106C4 path and step W),
@@ -130,7 +131,7 @@ def build_native():
     n.em_rcl_kick.argtypes = [C.POINTER(U32), C.POINTER(U32)]
     for name, args in (('em_rcl_001D1AE0', [C.c_int32]), ('em_rcl_001D1C50', []), ('em_rcl_001D1EA0', [C.c_int32]),
                        ('em_rcl_001D2300', []), ('em_rcl_001D2580', [C.c_int32]), ('em_rcl_001D1EF0', []),
-                       ('em_rcl_001D2830', [C.c_int32, C.c_int32]),
+                       ('em_rcl_001D2830', [C.c_int32, C.c_int32]), ('em_rcl_001D2880', []),
                        ('em_rcl_001C1DC0', []), ('em_rcl_001D25F0', [U32]), ('em_rcl_001D2610', [U32]),
                        ('em_rcl_0021B9A0', [C.c_int32, U32, U32]), ('em_rcl_001DD950', [U32, U32, U32])):
         getattr(n, name).argtypes = args
@@ -340,6 +341,16 @@ def run_beat(beat_and_first):
             ('001D2610(1)', 0x1D2610, F(1.0), lambda v: n.em_rcl_001D2610(v))):
         p.step(label, entry, lambda: call(value), floats=(value,))
         steps += 1
+    # 001D2880 whole (the game over's step 0 and 001ADF00; chain step
+    # DAMAGE): its 001D25F0 / 001D2830 x 7 / 001D2610 run original in place.
+    # Its seven flags and two it leaves (3, 0x23) are set first, so a wrong
+    # id or value shows; the two are cleared again after it.
+    for flag in (0, 1, 2, 3, 0x20, 0x21, 0x22, 0x23, 0x24):
+        p.step('pre-2880 001D2830(%#x, 1)' % flag, 0x1D2830, lambda: n.em_rcl_001D2830(flag, 1), ints=(flag, 1))
+    p.step('001D2880', 0x1D2880, lambda: n.em_rcl_001D2880())
+    for flag in (3, 0x23):
+        p.step('post-2880 001D2830(%#x, 0)' % flag, 0x1D2830, lambda: n.em_rcl_001D2830(flag, 0), ints=(flag, 0))
+    steps += 12
     d = 37.25
     f12, f13 = F(2.0 + 1.02 * d), F(d)
     p.step('001DD950', 0x1DD950, lambda: n.em_rcl_001DD950(0x8105E0, f12, f13), ints=(0x8105E0,),

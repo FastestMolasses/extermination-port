@@ -3,6 +3,8 @@
 #include "game/em_area00_fx.h"
 #include "game/em_area00_world.h"
 #include "game/em_area01_side.h"
+#include "game/em_area01_ui.h"
+#include "game/em_area01_render_gs.h"
 #include "game/em_area02_math.h"
 #include "game/em_area02_misc.h"
 #include <stdio.h>
@@ -167,6 +169,7 @@ typedef struct {
     EmArea01RenderView fx[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea02MiscRegion misc[EM_AIM_FIRE_WORLD_VIEWS];
     EmArea02Misc *misc_state;
+    EmArea01Ui *ui_state;
     EmArea02Math *math_state; EmArea00World *hit_state;
     EmArea01Side *side_state; EmArea00Fx *fx_state;
     uint32_t side_node;
@@ -282,6 +285,7 @@ static int refresh(Bridge *b)
     if(b->hit_state)b->hit_state->region_count=b->count;
     if(b->side_state)b->side_state->region_count=b->count;
     if(b->fx_state)b->fx_state->core.world.view_count=b->count;
+    if(b->ui_state)b->ui_state->core.world.view_count=b->count;
     return 0;
 }
 static int forward(Bridge *b,uint32_t fn,uint32_t sp,uint64_t *a,unsigned na,
@@ -341,6 +345,26 @@ static int fx_call(void *ctx,uint32_t fn,uint32_t sp,const EmArea00FxRegs *r,uin
 }
 static int misc_call(void *ctx,EmArea02MiscCall *c)
 { return forward(ctx,c->fn,c->sp,c->a,c->na,c->f,c->nf,&c->v0,&c->f0); }
+/* 001CD070's float_to_int (001281C0) through the composition. */
+static int gs_001281C0(void *ctx,uint32_t f12,int32_t *v0)
+{
+    uint64_t a[1]={0},r0=0;uint32_t f[1]={f12},rf0=0;
+    TRY(forward(ctx,0x001281C0u,0,a,0,f,1,&r0,&rf0));
+    *v0=(int32_t)(uint32_t)r0;
+    return 0;
+}
+static int ui_call(void *ctx,uint32_t fn,uint32_t sp,const uint64_t *a,unsigned na,
+                   const uint32_t *f,unsigned nf,uint64_t *v0,uint32_t *f0)
+{
+    uint64_t aa[8]={0};uint32_t ff[8]={0};uint64_t r0=0;uint32_t rf0=0;
+    if(na>8||nf>8)return -1;
+    if(na)memcpy(aa,a,na*sizeof *a);
+    if(nf)memcpy(ff,f,nf*sizeof *f);
+    TRY(forward(ctx,fn,sp,aa,na,ff,nf,&r0,&rf0));
+    if(v0)*v0=r0;
+    if(f0)*f0=rf0;
+    return 0;
+}
 static int fault(EmAimFireLive *h,uint32_t fn,uint32_t a)
 {
     if(!h->fault_function)h->fault_function=fn;
@@ -398,7 +422,9 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
        c->function!=0x001F2F90u && c->function!=0x001F3340u &&
        c->function!=0x001CA3B0u && c->function!=0x001CA4D0u && c->function!=0x001C63D0u &&
        c->function!=0x001AA840u && c->function!=0x00189EC0u && c->function!=0x001F18C0u &&
-       c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u)return -1;
+       c->function!=0x00189FE0u && c->function!=0x0018A180u && c->function!=0x001EFF10u &&
+       c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
+       c->function!=0x001CD070u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",
@@ -450,6 +476,42 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         EmArea02Misc s={b.misc,b.count,misc_call,&b,c->sp,NULL,0,0,0};b.misc_state=&s;
         status=em_area02_misc_001F4010(&s,(uint32_t)c->a[0],(uint32_t)c->a[1]);
         if(status<0||s.fault)return fault(h,s.fault_address?s.fault_address:c->function,s.fault_address);
+    } else if(c->function==0x0022BBC0u) {
+        /* The bone-burst node's behaviour (the flame contact's 0x80000027,
+         * subtype 9): em_area01_ui, its one translation (AREA01_UI.md);
+         * its +0x110 words and slots are em_bone_burst's. */
+        EmArea01Ui s;memset(&s,0,sizeof s);
+        s.core.world.views=b.fx;s.core.world.view_count=b.count;
+        s.call=ui_call;s.ctx=&b;s.sp=c->sp;b.ui_state=&s;
+        status=em_area01_ui_0022BBC0(&s,a);
+        if(status<0||s.core.fault.code) {
+            fprintf(stderr,"aim/fire world: 0022BBC0 fault code %d at %08X detail %08X\n",
+                (int)s.core.fault.code,(unsigned)s.core.fault.address,(unsigned)s.core.fault.detail);
+            return fault(h,s.core.fault.address?s.core.fault.address:c->function,s.core.fault.detail);
+        }
+    } else if(c->function==0x001CD070u) {
+        /* The bone burst's ring-slot screen test 001CD070(p, mask):
+         * em_area01_render_gs, its one translation (AREA01_RENDER.md);
+         * D_00275C04 is em_aim_fire_runtime's word. */
+        EmArea01RenderGs s;memset(&s,0,sizeof s);
+        s.core.world.views=b.fx;s.core.world.view_count=b.count;
+        s.workers.ctx=&b;s.workers.w_001281C0=gs_001281C0;
+        uint32_t v0=0;
+        status=em_area01_render_001CD070(&s,a,d,&v0);
+        if(status<0||s.core.fault.code) {
+            fprintf(stderr,"aim/fire world: 001CD070 fault code %d at %08X detail %08X\n",
+                (int)s.core.fault.code,(unsigned)s.core.fault.address,(unsigned)s.core.fault.detail);
+            return fault(h,s.core.fault.address?s.core.fault.address:c->function,s.core.fault.detail);
+        }
+        c->v0=v0;
+    } else if(c->function==0x001F0190u || c->function==0x001F0290u) {
+        /* The bone burst's fog bracket (0022BBC0 subtype 9 around each
+         * burst): em_area01_side, their one translation (AREA01_SIDE.md);
+         * D_00275C3C is em_aim_fire_runtime's word. */
+        EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0};b.side_state=&s;
+        status=c->function==0x001F0190u ? em_area01_side_001F0190(&s,c->f[0],c->f[1])
+                                        : em_area01_side_001F0290(&s);
+        if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
     } else if(c->function==0x001EFE00u) {
         EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0};b.side_state=&s;
         status=em_area01_side_001EFE00(&s,(int32_t)a,d,&result);

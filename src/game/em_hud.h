@@ -366,63 +366,6 @@ void em_hud_status_hide(void);
  * No effect without EM_HUD_FORCE=1. */
 void em_hud_forced_update(const EmFrameInput *in);
 
-/* GAME-OVER + CONTINUE PRESENTATION — the FLAGGED module stand-ins
- * for the two screens whose FLOW is decoded (s66/s70, em_game's PLAYER
- * DAMAGE & DEATH block doc); only the screens' ART is unexported:
- *
- *   em_hud_game_over  = screen module 0x27 — CONFIRMED in
- *     func_001AD4E0 (BYTE-MATCHED): state 1 calls
- *     func_001FF080(0, 0x27), state 0 seeds the u16 at slot+0x18 to
- *     0xF0 = 240 frames, and state 3 exits on
- *     `D_0028A9A0 == 0 && (counter == 0 || (D_00810E74 & 0x40))` —
- *     a 240-frame hold that one button edge cuts short. It draws an
- *     opaque black base + "GAME OVER" centered in the tall font (dark red —
- *     the engine's INFECTED text style, the only red tall style it
- *     ships). No prompt line: the engine screen carries none we know
- *     of (the hold is skippable by the 0x40 edge bit — calling that bit
- *     CROSS is the same flagged inference as the open bits above, and
- *     the skip is silent). The old blinking
- *     "PRESS START" invention is retired with the START-restart.
- *
- *   em_hud_continue   = screen module 1 — CONFIRMED: func_001AC480
- *     state 0 calls func_001FF080(0, 1), and func_001AC070 is the
- *     machine that drives it. Opaque black base +
- *     "CONTINUE?" header + the 3 prompt options. Option LABELS are
- *     port guesses (module text undecoded, FLAGGED): "CONTINUE" /
- *     "LOAD GAME" / "OPTIONS". `cursor` = the highlighted option
- *     (tall white; others tall gray).
- *
- *     The WALK and the DISPATCH are CONFIRMED (func_001AC480 and
- *     func_001AC070, both NEARMISS / body-correct):
- *       - func_001AC480 is the menu walk. Its case 2 moves the
- *         selector at ctx+0xF forward only under
- *         `if ((int)ctx[0xF] < 2)` and back only under
- *         `if (*pf != 0)` — so it is exactly 3 options, 0..2, and
- *         em_hud_continue clamps to that. Also read there, for
- *         whoever wires em_game's machine rather than this presenter:
- *         the confirm edge (mask 0x840) fires cue 0x5DD/0x5DE/0x5DF
- *         by slot and each move fires cue 5; the initial selector is
- *         0, or 1 when D_00275BDC is set; and ctx[0xB] is seeded to
- *         0x4B0 = 1200 frames (20 s at 60 Hz) and decrements only
- *         while no button is held, dropping the menu out on zero.
- *       - func_001AC070 case 2 dispatches the confirmed selector
- *         (re-read in the recovered C: on func_001AC480 returning 1 it
- *         reads the selector GS[0xF] and sets its own state GS[8]):
- *         0 -> state 4 = func_001AB790(func_001ACEC0), the gameplay
- *         task, with the "loaded a save" flag D_00275BE0 CLEAR;
- *         1 -> func_00225A00() (resets the 212-byte save/load context
- *         at D_00810040), D_00275BE0 = 1, state 5 = the
- *         func_00225AC0(0) card poll — its return 2 runs func_001AF150
- *         and lands on state 4, the SAME gameplay task, flag SET
- *         (return 1 = cancel, back to state 2, this menu);
- *         2 -> state 6 = func_00200A40(), the sub-screen, which
- *         returns to state 2 (this menu) when it reports nonzero.
- *
- * Missing font asset: the black base only. Both are queued by em_game
- * BEFORE the fade rect — the fade machine owns the screens exactly
- * like the engine. */
-void em_hud_game_over(EmGfx *gfx);
-void em_hud_continue(EmGfx *gfx, int cursor);
 
 /* The per-frame tick + draw hook of the RADIO/EXAMINE message machine
  * below; call once per frame from the close-out (after em_hud_render).

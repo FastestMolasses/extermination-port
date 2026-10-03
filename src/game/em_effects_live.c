@@ -26,6 +26,8 @@
 #include "game/em_render_context_live.h"
 #include "game/em_scene_workers.h"
 #include "game/em_sdk_math_original.h"
+#include "game/em_sfx.h"
+#include "game/em_sfx_bank.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -472,6 +474,10 @@ size_t em_effects_live_node_regions(uint32_t address, EmEffectsLiveNodeRegion *r
 #undef REGION
     return count;
 }
+int32_t *em_effects_live_d275C04(void)
+{
+    return S.attached && !S.fault ? &S.eglobals.d275C04 : NULL;
+}
 int em_effects_live_set_other_tick(EmEffectsLiveOtherTick worker, void *context)
 {
     if (!S.attached || S.fault) return -1;
@@ -571,6 +577,33 @@ static int w_001D7FA0(void *ctx, const float pos[4], const float color[4], int32
     EmPointLightPool *pool = em_rcl_point_lights();   /* the context's +0x210.. */
     if (!pool) return -1;
     (void)em_point_light_register(pool, pos, color, type, fa, fb);
+    return 0;
+}
+
+/* 001EF940's 001FBF50(scratch, &a, &b, 0, rec +0x28, rec +0x2C) and
+ * 001FB9F0(rec +0x24, 0x1000, a, b): the positional submit em_sfx_play_at
+ * runs for 001FBD50 (the verified 001FBF50 gain words over the listener
+ * em_sfx_listener mirrors), here split at the original's call boundary.
+ * em_sfx's solver is 001FBF50 with f13 = 4096.0 and flat2d = 0 (its every
+ * caller's), so another volume faults. The first-level record with a sound
+ * is 0x80000027 (0x14A, 300.0, 4096.0: the flame's contact, 001EFE00). */
+static int w_001FBF50(void *ctx, const float pos[4], float f12, float f13, int32_t *a, int32_t *b, int32_t *result)
+{
+    (void)ctx;
+    *a = *b = *result = 0;
+    if (fbits(f13) != 0x45800000u) return -1;
+    float gl, gr;
+    if (!em_sfx_compute_gains(pos, f12, &gl, &gr)) return 0;
+    *a = em_sfx_request_word(gl);
+    *b = em_sfx_request_word(gr);
+    *result = 1;
+    return 0;
+}
+static int w_001FB9F0(void *ctx, int32_t id, int32_t a1, int32_t a2, int32_t a3)
+{
+    (void)ctx;
+    if (id < 0 || a1 != 0x1000) return -1;
+    em_sfx_submit_001FB9F0((unsigned)id, a2, a3);
     return 0;
 }
 
@@ -940,8 +973,8 @@ static void wire(EmPacketChain *pc)
     ew->w_001AFA90 = w_001AFA90;
     ew->w_00122BB8 = w_rand;
     ew->w_001D7FA0 = w_001D7FA0;
-    /* 001FBF50 / 001FB9F0: no first-level effect record carries a sound
-     * (+0x24 == -1): NULL, a fault if reached. */
+    ew->w_001FBF50 = w_001FBF50;
+    ew->w_001FB9F0 = w_001FB9F0;
     ew->w_0021B9A0 = w_0021B9A0_float;
     ew->w_handler = w_handler;
     ew->w_001AFC10 = w_001AFC10;

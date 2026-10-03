@@ -726,8 +726,12 @@ counters.
 8. **Every page module** goes through the loader since chain step
    PAGELOADS (finding 8, section 3 I), as module 0x21 since C8b LOADER;
    the New Game module 3 (001AD1A0) and the area load since chain step H7.
-   Module 0x27 (game over) and the exit's bank modules 0x32..0x35 are not
-   exported (the first level never loads them).
+   Module 0x27 (the game-over screen, 001AD4E0's 001FF080(0, 0x27)) is in
+   the pack since chain step DAMAGE (tools/export_module_loader.py
+   SCREEN_MODULES; one chunk, the screen's GS upload, which
+   em_status_runtime's chain step counts and em_render_001ABF90 draws from
+   its export; DAMAGE.md section 5). The exit's bank modules 0x32..0x35
+   are not exported.
 9. **Tick log.** Every tick carries `loader_pre`: the first 27 bytes of
    `em_module_loader_snapshot` (slot +0, +8..+0x1F, D_00275BD8,
    D_00282157) after the previous frame's slot-2 dispatch (the task runs

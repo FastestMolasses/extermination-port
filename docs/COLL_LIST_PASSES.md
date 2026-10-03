@@ -32,7 +32,7 @@ the census rows), and since the one-owner step (2026-09-27, census 1.28)
 | 0019F330 | AW (.s) | stand-in (em_collision.c `column_node`) | **live** (2026-09-27: 0019BC40 pass 2's `cross` worker; `column_node` removed) | 0019BC40 pass 2's plane crossing: the line a -> b against the node plane (no front-face test), the ring edge test (<= 1e-5), q[0..2] the crossing, 0x70003680 = sqrt(nx^2 + nz^2) (0011E748), 0x70003684 = \|ny\| / that (or 0x7F7FC99E below 1e-4), q[3] = +-(pi/2 - atan(0x70003684)) by the sign of ny. |
 | 001A3980 | NM (.s) | stand-in (em_collision.c) | verified-unbound | The attribute cell walk of 0019BA80: pass 1 the static cells (the leading directory words with 0x80000000, stopping at the first without it; 0x40000000 skips a word, 0x20000000 skips it while the query class 0x7000324E is 0) whose D_0024D7C0 kind byte is **0x1E..0x59**, the hull at tbl + (word & 0x3FFFFFFF); pass 2 every published class-4 owner **with no kind gate** (unlike its sibling 001A32C0); a hull is tested when the segment's y range overlaps its AABB's and the segment start's x/z lies inside it; prim tests 001A4030 / 001A4650 / 001A44B0 (0x8000 prims only in pass 2; an unknown type nibble is neither tested nor stepped over); each hit clamps the segment's y, narrows the y range to [start, hit] and stores the kind in 0x700030CA's low byte. Returns 0 on a hit. |
 | 001A7870 | NM (.s) | stand-in (census: em_collision.c; in fact nothing runs, 001AAD00 is reported unmirrored) | verified-unbound | Class-2 capsule push-apart. Pass 1 writes +0x50 = 1 for an active entry whose +0x58 record is set, has a nonzero first word, -2 at +0xA and shares a bit of its +6 byte with the entry's +0x5E, else 0. Pass 2: for each marked outer entry and each marked entry after it, the capsules (the +0x58 offsets on the +0x110[slot] node, +0xC4 is the long axis) overlap on the long axis and within the radii in x/z; unless the inner entry's +0x52 bit 0 is set, the inner entry's +0xB0/+0xB8 are pushed out (only +0xB0 += overlap when 001000C0(00128350(len), 0.001) says len < 0.001). |
-| 001A8660 | BM | missing | verified-unbound | The player (a0) against one class-0xD type-1 entry: x/z circle test (0011E748) and the height test (half heights from the +0x30 records); on overlap the entry's +0x34 behaviour(entry, player, player + 0xB0); if the player's state byte is 1: 0021BD10 for +0xD = 0xB (player +0xF = 2), the knock-back speed from D_0024A740/D_0024A780 by D_0081070A into +0x22C (+0xD 3/4) or +0x224, state = 3, the direction normalize(player +0xA0 - entry +0xB0, w = 1) into +0x70; then 0x70003B86 = 0 (ends 001A8BE0's walk). |
+| 001A8660 | BM | missing | **live** (chain step A11FIX: the flame on the class-0xD list; chain step DAMAGE: its knock-back table and the contact's 001EFE00 bound, DAMAGE.md) | The player (a0) against one class-0xD type-1 entry: x/z circle test (0011E748) and the height test (half heights from the +0x30 records); on overlap the entry's +0x34 behaviour(entry, player, player + 0xB0); if the player's state byte is 1: 0021BD10 for +0xD = 0xB (player +0xF = 2), the knock-back speed from D_0024A740/D_0024A780 by D_0081070A into +0x22C (+0xD 3/4) or +0x224, state = 3, the direction normalize(player +0xA0 - entry +0xB0, w = 1) into +0x70; then 0x70003B86 = 0 (ends 001A8BE0's walk). |
 | 001A8BE0 | BM | stand-in (em_enemy.c legacy pair/contact pass) | verified-unbound | Unless D_0028A9A0 or 0x70003B8D is set: walks the class-0xD live list with the counter in 0x70003B86; active entries by type: 1 -> 001A8660, 3 -> 001A8840, 5 -> 001A8970. |
 | 001A8DA0 | BM | missing | verified-unbound | Class-1 x class-0xD: for each active outer entry, the inner walk (0x70003B86) calls 001A8CE0(outer, inner) for active type-3 entries with +0xD 0. |
 | 001A9000 | BM | stand-in (em_enemy.c legacy contact pass) | verified-unbound | Class-0xD type-5 entries (+0xD != 0xB, status 1) against the class-4 list (0x70003B88): types 0xA/0xC/0x18/0x2A -> 001A8F40; 6/0x1E -> 001A8E80; 0x1C/0x50/0x1F -> 001A8E80 unless D_00810700 == 0 and D_00810702 == 5. |
@@ -483,15 +483,16 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
    `em_collision_world_close_out_001AAD00`: the nine hooks over the live
    lists (cursor = base - 4 * live, count = live), then the list swap. The
    bindings, as listed below: `bytes` gives no range (the live pool keeps
-   native records; a pass that reads a record faults), `d24A740` is an empty
-   view (0x440 bytes are not exported: 001A8660's table read faults, and it is
-   reached only after the fail-stop behaviour), every untranslated callee is
+   native records; a pass that reads a record faults), `d24A740` is the
+   knock-back table D_0024A740 (0x440 bytes, `assets/collision_knockback.emrg`
+   from `tools/export_collision_contact.py`, loaded with the world; since
+   chain step DAMAGE), every untranslated callee is
    `em_coll_list_passes_unported*`, `normalize` is
    `em_coll_list_passes_normalize`, the math is the world's SDK context,
    0x70003B86 / 0x70003B88 are copied in from and back to the world's one
    `EmCollProbeState` (item 5), 3B8D and the area bytes come from
-   em_scene_state(), D_0028A9A0 is the fade substate, and D_0081070A (not
-   canonical yet, read only after the fail-stop behaviour) is 0. **Since
+   em_scene_state(), D_0028A9A0 is the fade substate, and D_0081070A is the
+   scene state's progress byte (canonical since chain step DAMAGE). **Since
    chain step A11FIX (2026-10-02) the flame 008235F0 publishes onto the
    class-0xD list** (its 001B17A0 is bound; the captures hold it there on
    beats 10 and 11, as above), so 001A8BE0 -> 001A8660 runs live: `bytes`
@@ -504,9 +505,11 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
    loaded with the world). The +0x34 behaviour is the binder's
    (`em_collision_world_bind_behaviour`): the flame's 0x823580,
    em_area11_effect_contact (AREA11_EFFECT.md "Binding"). On a contact it
-   reaches 001EFE00(0x80000027, player), which faults (the DAMAGE step), or,
-   when it rejects the contact and the player's +0x00 is 1, the knock-back,
-   whose D_0024A740 read faults. The route never overlaps the flame. The em_enemy.c legacy pair/contact passes
+   runs 001EFE00(0x80000027, player) (the burn node), or, when it rejects
+   the contact and the player's +0x00 is 1, the knock-back over D_0024A740,
+   whose +0x224 store reaches the player's one vitals storage (chain step
+   DAMAGE; DAMAGE.md section 2). The main-line route never overlaps the
+   flame; the side run dmg_flame does. The em_enemy.c legacy pair/contact passes
    still run for the port's own enemy owners (L25 retires them for the crates
    and drums). The original list for reference:
    It needs:
