@@ -1151,6 +1151,33 @@ static void log_tick_end(int rc)
         }
     }
     fputc(']', f);
+    /* The AREA11 overlay owners chain step A11FIX bound
+     * (em_area11_bindings_overlay_log): [address, +0x10, +0x00, +0x04,
+     * +0x05, +0x2E, +0x30, +0x34, [the flame's +0x1F0..+0x1F8 bits], its
+     * +0x210, on the published class-0xD list]; then the tracks whose
+     * requested id (D_00281B70) is the flame's loop 0x413.
+     * tools/level_smoke_overlay11.py. */
+    fputs(", \"overlay11\": [", f);
+    {
+        int n = 0;
+        for (const EmActor *a = s_pool.head; a; a = a->next) {
+            EmArea11OverlayLog r;
+            if (!em_area11_bindings_overlay_log(a, &r))
+                continue;
+            fprintf(f, "%s[%u, %u, %u, %u, %u, %u, %u, %u, [%u, %u, %u], %d, %d]", n++ ? ", " : "", r.address,
+                    r.callback, r.b00, r.b04, r.b05, r.h2E, r.w30, r.w34, r.block[0], r.block[1], r.block[2], r.w210,
+                    r.on_class_d);
+        }
+    }
+    fputc(']', f);
+    {
+        int32_t requested[48], snapshot[48];   /* em_sfx_tables' 48 tracks */
+        em_sfx_tables(requested, snapshot);
+        int n413 = 0;
+        for (int t = 0; t < 48; ++t)
+            n413 += requested[t] == 0x413;
+        fprintf(f, ", \"sfx413\": %d", n413);
+    }
     /* The owner draws 001CAA00 of the last drawn frame (em_owner_draw_live):
      * record address, unit bytes, clip, the colour / lighting-row /
      * position-row / point-light-slot / rig-lane digests, the owner's point

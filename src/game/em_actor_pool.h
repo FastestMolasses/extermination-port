@@ -103,6 +103,9 @@ struct EmActor {
                        * 001AFA90/001AFC10 (and 001AF800), so it survives free/alloc
                        * like the original halfword; only the 001AF8E0 memset clears it */
     uint32_t w30;     /* +0x30: 001AFA90 writes 0 */
+    uint32_t w34;     /* +0x34: no pool function writes it (survives free/alloc);
+                       * the flame 008235F0 stores its class-0xD contact
+                       * behaviour 0x823580 there (001A8660 calls it) */
     uint16_t h36;     /* +0x36: 001AFC10 writes 0 */
     uint16_t h52;     /* +0x52: 001AFA90 writes 0 */
     uint16_t kind;    /* +0x54: 001AFA90 writes 0 */

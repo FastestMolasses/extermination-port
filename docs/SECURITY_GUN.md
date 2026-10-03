@@ -576,10 +576,15 @@ record: +0x04, +0x05, +0x2E and +0xC8 are EmActor's (`u04[0]`, `u04[1]`,
   001EFEB0 / 0021AAC0 / 0021A500 runs through the aim / fire composition;
   the side run aim_cable compares the gun and the cable with the AIM
   capture aim_11 row for row (AIM_FIRE.md section 10.5).
-- **The flag-0x30 manager 0x823CE0** (area11[11]) is still a no-code node
-  ("manager: dormant"): `em_flag30_manager_tick` is verified but not bound.
-  On the first visit it would only step lifecycle 0 → 1 and call 001B17A0
-  every tick; its script path is return-visit content.
+- **The flag-0x30 manager 0x823CE0** (area11[11]) is bound since chain step
+  A11FIX (2026-10-02): `tick_flag30` (em_area11_bindings.c) runs
+  `em_flag30_manager_tick` on its record (+0x00 / +0x04 / +0x05 / +0x2E the
+  EmActor's, +0x28 the node's; D_008106C8 the request word C8, D_00810808 a
+  migrated progress byte). On the first visit it steps lifecycle 0 → 1 with
+  +0x00 = 1 and calls 001B17A0 every tick, as the captures hold (+0x04 = 1,
+  +0x00 = 1, +0x05 = 0 in the playable, 04 and 11 RAM). Its script path
+  (D_00810788 set, a return visit) starts 0x828C70, which no exported image
+  holds: it faults there.
 - **The gun's lamp** draws nothing (OWNER_DRAW.md section 11); it is dark
   on the first visit.
 - **The fan's boxes** (the exit bit and the player hit) are off the level

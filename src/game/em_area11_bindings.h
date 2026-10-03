@@ -129,6 +129,24 @@ typedef struct {
 /* 1 and *out for a bound gun, cable or fan node, else 0. */
 int em_area11_bindings_gun_fan_log(const EmActor *actor, EmArea11GunFanLog *out);
 
+/* Instrumentation for the level smoke (tools/level_smoke_overlay11.py): the
+ * record bytes of the AREA11 overlay owners chain step A11FIX bound or
+ * re-bound, the flame 008235F0, the flag-0x30 manager 00823CE0 and the
+ * opening controller 00823E80: +0x00, +0x04, +0x05, +0x2E, +0x30, +0x34,
+ * the flame's +0x1F0..+0x1F8 (bits) and +0x210, and whether the record is
+ * on the published class-0xD list (001B1B70 of the last close-out). */
+typedef struct {
+    uint32_t address, callback;
+    uint8_t b00, b04, b05;
+    uint16_t h2E;
+    uint32_t w30, w34;
+    uint32_t block[3];
+    int32_t w210;
+    int on_class_d;
+} EmArea11OverlayLog;
+/* 1 and *out for one of those three records, else 0. */
+int em_area11_bindings_overlay_log(const EmActor *actor, EmArea11OverlayLog *out);
+
 /* Instrumentation for the frame trace: the original tracer's record tag
  * ("area11[i]", "deferred[gG.J]", or NULL for runtime nodes) and the
  * binding name. */

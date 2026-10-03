@@ -1,6 +1,8 @@
-/* Active-state translation of AREA11 owner00827B10. Model creation and
- * child allocation belong to the scene; script commands stay in EmScript.
- * This controller is not yet bound to the legacy examine interaction. */
+/* Active-state translation of AREA11 owner 00827B10 (state 1; ground
+ * truth: the decomp's byte-identical func_overlay_AREA11_00827AD0.c) and
+ * its script callback 00828050 (NEARMISS decomp C, logic equal). Model
+ * creation and child allocation belong to the scene (em_area11_bindings.c
+ * tick_terminal); script commands stay in EmScript. */
 #ifndef EM_ELEVATOR_H
 #define EM_ELEVATOR_H
 
@@ -31,14 +33,20 @@ typedef struct {
      * 00828050 rebuilds only the matrix (0x82812C), so the cell keeps the
      * old floor's transform during the ride. */
     void (*retransform)(void *context);
+    /* The power flag, D_00810841[D_00810700] & (1 << +0x2E), read where
+     * 00827B10 reads it (decomp func_overlay_AREA11_00827AD0.c): the
+     * phase-0 script choice, the phase-1 completion and the +0x28 ramp
+     * after the +0x4C call; a callee between the reads may change it.
+     * Nonzero when set. Required by em_elevator_tick only. */
+    int (*powered)(void *context);
 } EmElevatorHooks;
 
 void em_elevator_init(EmElevator *owner, int lower);
 /* One original state1 callback, preserving start-vs-tick and completion
- * ordering. The power argument is the current area11 bit7, not battery
- * possession. Returns -1 when any required host binding is missing. */
-int em_elevator_tick(EmElevator *owner, int powered,
-                     const EmElevatorHooks *hooks);
+ * ordering. The power flag is hooks->powered (the current area11 bit 7,
+ * not battery possession), read at the original's three points. Returns
+ * -1 when any required host binding is missing. */
+int em_elevator_tick(EmElevator *owner, const EmElevatorHooks *hooks);
 
 typedef struct {
     uint8_t phase;

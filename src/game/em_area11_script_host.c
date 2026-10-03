@@ -503,6 +503,28 @@ static int w_001FABB0(void *ctx)
     return em_scene_bindings_001FABB0();
 }
 
+/* 001B99F0 (op09): the record's own callback. The AREA11 overlay's two
+ * (decomp func_overlay_AREA11_008258C0.c / 008258E0.c, byte-identical),
+ * which the record-13 manager 008257A0's script 0x829E80 names:
+ * 0x825900 calls 001DFE10 and 0x825920 001DFE40, each returning 1. Any
+ * other callback faults. */
+static int c_record(void *ctx, uint32_t callback, EmAreaScript *host, unsigned char *record, int32_t *result)
+{
+    (void)ctx;
+    (void)host;
+    (void)record;
+    if (callback == 0x00825900u) {
+        if (em_rcl_001DFE10() < 0) return report("0x825900: 001DFE10 faulted");
+    } else if (callback == 0x00825920u) {
+        if (em_rcl_001DFE40() < 0) return report("0x825920: 001DFE40 faulted");
+    } else {
+        fprintf(stderr, "em_area11 script host: op09 callback %08X has no binding\n", (unsigned)callback);
+        return -1;
+    }
+    *result = 1;
+    return 0;
+}
+
 /* 00182BF0, 001B1240, 001B1380, 001B12B0 (em_script_host_workers) and
  * 001B1470 (em_player_001B1470 through it), 001B0C00 and 001B6250. */
 static int shw_ready(void)
@@ -716,6 +738,7 @@ static void workers_bind(void)
     H.workers.w_001D2830 = w_001D2830;
     H.workers.w_001FBC50 = w_001FBC50;
     H.workers.w_001FABB0 = w_001FABB0;
+    H.workers.c_record = c_record;
     H.workers.w_00182BF0 = w_00182BF0;
     H.workers.w_001B1240 = w_001B1240;
     H.workers.w_001B12B0 = w_001B12B0;
@@ -985,6 +1008,12 @@ int em_area11_script_host_tick(EmActor *actor, int32_t *result)
         return -1;
     *result = r;
     return 0;
+}
+
+int em_area11_script_host_quad(uint32_t address, const float (**quad)[4])
+{
+    if (images_ready() < 0) return -1;
+    return em_area11_scripts_quad(&H.images, address, quad) < 0 ? report("no exported quad at that address") : 0;
 }
 
 int em_area11_script_host_director_quads(const float (*quad[3])[4])

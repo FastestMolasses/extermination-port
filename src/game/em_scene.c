@@ -395,8 +395,8 @@ void scene_manifest_load(void)
                 fprintf(stderr, "manifest: required AREA11 effect failed to load\n");
                 em_frame_request_quit();
             } else {
-                printf("manifest: original AREA11 flame (008235F0, 001D04B0 on the chain page); "
-                       "audio/contact binding pending\n");
+                printf("manifest: original AREA11 flame (008235F0 on its record: 001D04B0 on the chain page, "
+                       "001FC3C0, 001B17A0 and its contact behaviour 00823580 bound)\n");
             }
         } else if ((gn = sscanf(line, "pickup %i %f %f %f %f %i "
                                 "%255s %63s",

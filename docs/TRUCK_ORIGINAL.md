@@ -143,6 +143,14 @@ Record and state. The truck's pool record keeps +0x04, +0xB0, +0xC0 and the
 +0x2EC); the fall counter +0x28, +0xD0 and the velocity scratch 0x700038A0
 live in its slot. The trigger keeps +0x04 and +0x0B in its record.
 
+The scratch word 0x70003A20. The state-4 arm tick stores (count % 20 - 10) /
+50 there, then that halved (the decomp's func_overlay_AREA11_00823FB0.c).
+Since chain step A11FIX the module reports the final value
+(`EmTruckOriginal.s3A20` / `wrote_3A20`, compared with the executed original
+by `make test-truck-original`) and the binder stores it into the word's
+canonical copy (`em_player_closure_live_store_3A20`), as the terminal's tail
+store is.
+
 `EmTruckWorld` over canonical storage:
 
 | Pointer | Storage |

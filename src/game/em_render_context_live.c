@@ -940,6 +940,34 @@ int em_rcl_001D2830(int32_t a0, int32_t a1)
     return done(em_frh_001D2830(&R.frh, a0, a1, &ignored), 0x001D2830u);
 }
 
+/* 001DFE40 / 001DFE10 (byte-matched decomp src/func_001DFE40.c /
+ * func_001DFE10.c): the context bytes +0x1F0..+0x1F3 (each through a fresh
+ * load of D_00275670, the context address checked at the load), +0x1F0 = 2
+ * or 0 and +0x1F3 = +0x1F2 = +0x1F1 = 0; 001DFE10 then calls
+ * 001D2830(7, 1). */
+static int context_1F0(uint8_t mode)
+{
+    READY(0);
+    uint8_t *p = own(EM_RCL_CONTEXT + 0x1F0u, 4);
+    if (!p) return fail(EM_RCL_CONTEXT + 0x1F0u, "the context's +0x1F0 is not owned");
+    p[0] = mode;
+    p[3] = 0;
+    p[2] = 0;
+    p[1] = 0;
+    return 0;
+}
+
+int em_rcl_001DFE40(void)
+{
+    return context_1F0(2);
+}
+
+int em_rcl_001DFE10(void)
+{
+    if (context_1F0(0) < 0) return -1;
+    return em_rcl_001D2830(7, 1);
+}
+
 int em_rcl_001D2040(int32_t chan, int32_t a1)
 {
     READY(1);

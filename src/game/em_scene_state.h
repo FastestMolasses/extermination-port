@@ -146,6 +146,13 @@ typedef enum {
  *                              0x823AB0; bit 0x80 starts his departure),
  *                              also written by 001B82D0 sub 6; no port
  *                              mirror.
+ *   D_00810808           A11FIX counter 0x30 (D_008107D8[0x30]): the flag-0x30
+ *                              manager 00823CE0 stores 0xFF at its script's
+ *                              end (a return visit; em_flag30_manager_tick);
+ *                              no port mirror, no first-level writer.
+ *   D_00810814           A11FIX counter 0x3C (D_008107D8[0x3C]): the record-13
+ *                              manager 008257A0 stores 1 at its script's
+ *                              end (a return visit); no port mirror.
  *   D_00810813           HK    counter 0x3B (D_008107D8[0x3B]), the
  *                              director's beat step: 008253F0's beat
  *                              completions store 0x10/0x20/0xFF (live
@@ -252,7 +259,8 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
         {0x008107D8u, 0x008107D9u}, /* counter 0: Roger's story progress (L22) */
         {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
-        {0x00810813u, 0x00810814u}, /* counter 0x3B, the director step (HK) */
+        {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */
+        {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */

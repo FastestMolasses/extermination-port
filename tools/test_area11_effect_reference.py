@@ -30,7 +30,16 @@ class Effect(C.Structure):
     _fields_ = [('state',C.c_uint8),('flags',C.c_uint8),
                 ('phase',C.c_float),('seed',C.c_float),
                 ('sound_handle',C.c_int32),('contact_cooldown',C.c_int32),
-                ('half_extent',C.c_float*3)]
+                ('half_extent',C.c_float*3),
+                ('record',C.c_uint32),('w30',C.c_uint32),('w34',C.c_uint32)]
+
+
+BB00 = C.CFUNCTYPE(C.c_int,C.c_void_p,C.POINTER(C.c_int32))
+EFE00 = C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_uint32)
+
+
+class ContactWorkers(C.Structure):
+    _fields_ = [('ctx',C.c_void_p),('w_0021BB00',BB00),('w_001EFE00',EFE00)]
 
 
 def main():
@@ -49,7 +58,8 @@ def main():
     random_fn = C.CFUNCTYPE(C.c_uint32,C.c_void_p)
     callback_fn = C.CFUNCTYPE(None,C.c_void_p,C.c_int,C.POINTER(Effect))
     api.em_area11_effect_tick.argtypes = [C.POINTER(Effect),random_fn,callback_fn,C.c_void_p]
-    api.em_area11_effect_contact.argtypes = [C.POINTER(Effect),C.c_uint8,C.c_int,C.POINTER(C.c_uint8)]
+    api.em_area11_effect_contact.argtypes = [C.POINTER(Effect),C.c_uint8,C.POINTER(ContactWorkers),
+                                             C.POINTER(C.c_uint8),C.POINTER(C.c_uint32)]
     rng = random.Random(0x8235f0); controller_cases = contact_cases = 0
     actor, owner, target = 0x500000,0x501000,0x502000
     # Runtime loader preserves the MWo3 header at823500; canonical overlay
@@ -60,7 +70,7 @@ def main():
         for _ in range(40):
             item = Effect(state,rng.randrange(256),rng.uniform(-2,4),rng.random(),
                           rng.randrange(-1,48),rng.choice([0,1,60,-1]),
-                          (C.c_float*3)(1,2,3))
+                          (C.c_float*3)(1,2,3),owner,rng.randrange(1<<32),rng.randrange(1<<32))
             random_value = rng.randrange(0x80000000)
             original = ee.Oracle(elf,[random_value]); original.write(0x823500,overlay)
             original.save(actor+0x14,owner)
@@ -68,6 +78,7 @@ def main():
                 original.save(actor,item.flags,1); original.save(actor+4,item.state,1)
                 original.write(actor+0x1f0,bytes(item.half_extent))
                 original.write(actor+0x204,struct.pack('<2f2i',item.phase,item.seed,item.sound_handle,item.contact_cooldown))
+                original.save(actor+0x30,item.w30); original.save(actor+0x34,item.w34)
             load_effect(); expected_calls=[]; actual_calls=[]
             for address in [0x1029c0,0x102c58,0x102918]:
                 original.calls[address] = lambda vm,address=address: expected_calls.append(('matrix',address))
@@ -96,6 +107,8 @@ def main():
             assert item.state==original.load(actor+4,1) and item.flags==original.load(actor,1)
             assert bytes(item.half_extent)==original.read(actor+0x1f0,12)
             assert struct.pack('<2f2i',item.phase,item.seed,item.sound_handle,item.contact_cooldown)==original.read(actor+0x204,16)
+            # State 0's +0x30 = *(+0x14) + 0x1F0 and +0x34 = 0x823580; no other state writes them.
+            assert (item.w30,item.w34)==(original.load(actor+0x30),original.load(actor+0x34)),('contact words',state)
             controller_cases += 1
     for flags in range(256):
         for blocked in [0,1,2]:
@@ -103,16 +116,34 @@ def main():
             original = ee.Oracle(elf); original.write(0x823500,overlay)
             original.save(actor+0x210,-1); original.save(target,flags,1); original.save(target+15,33,1)
             events=[]
-            original.calls[0x21bb00] = lambda vm: vm.r.__setitem__(2,blocked)
-            original.calls[0x1efe00] = lambda vm: events.append((vm.r[4],vm.r[5]))
+            def bb00(vm):
+                events.append(('0021BB00',vm.r[4])); vm.r[2]=blocked
+            original.calls[0x21bb00] = bb00
+            original.calls[0x1efe00] = lambda vm: events.append(('001EFE00',vm.r[4],vm.r[5]))
             original.run(0x823580,[actor,target])
-            reaction=C.c_uint8(33)
-            accepted=api.em_area11_effect_contact(C.byref(item),flags,blocked,C.byref(reaction))
-            assert bool(accepted)==bool(events)
-            if accepted: assert events==[(0x80000027,target)]
+            native=[]
+            @BB00
+            def w_bb00(_,result):
+                native.append(('0021BB00',0x8102B0)); result[0]=blocked; return 0
+            @EFE00
+            def w_efe00(_,fx):
+                native.append(('001EFE00',fx,target)); return 0
+            workers=ContactWorkers(None,w_bb00,w_efe00)
+            reaction=C.c_uint8(33); at=C.c_uint32(0)
+            assert api.em_area11_effect_contact(C.byref(item),flags,C.byref(workers),C.byref(reaction),C.byref(at))==0
+            assert native==events,('contact calls',flags,blocked,native,events)
             assert reaction.value==original.load(target+15,1)
             assert item.contact_cooldown==ee.signed(original.load(actor+0x210))
             contact_cases+=1
+    # Fail-stop: a failing 001EFE00 (the DAMAGE step's worker) faults before either store.
+    @BB00
+    def clear(_,result): result[0]=0; return 0
+    @EFE00
+    def refuse(_,fx): return -1
+    item=Effect(); item.contact_cooldown=5; reaction=C.c_uint8(33); at=C.c_uint32(0)
+    assert api.em_area11_effect_contact(C.byref(item),0,C.byref(ContactWorkers(None,clear,refuse)),
+                                        C.byref(reaction),C.byref(at))==-1
+    assert at.value==0x1EFE00 and reaction.value==33 and item.contact_cooldown==5
     start=lambda address: address-0x100000+0x300
     assert elf[start(0x231798):start(0x231f10)]==elf[start(0x233828):start(0x233fa0)]
     assert captured[0x500:0x590]==ram[0x828340:0x8283d0]
@@ -125,7 +156,7 @@ def main():
             'original_elf_sha256':hashlib.sha256(elf).hexdigest(),
             'original_overlay_sha256':hashlib.sha256(overlay).hexdigest(),
             'limitations':['The draw (001D04B0) is proven on the chain page (test_chain_page_reference).',
-                           'Contact candidate selection and effect80000027 require separate integration.',
+                           'The contact pass 001A8660 calls this behaviour live; its 001EFE00(0x80000027) at the player is a fail-stop worker (AREA11_EFFECT.md).',
                            'Global RNG order, actor schedule and audio SPU envelopes are separate fidelity dependencies.']}
     (output/'report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(json.dumps(report))

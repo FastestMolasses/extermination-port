@@ -35,7 +35,10 @@ def number(value):
     return struct.unpack('<f', struct.pack('<I', value & 0xffffffff))[0]
 
 
-def oracle(overlay, case, motion=None):
+def oracle(overlay, case, motion=None, flip=None):
+    """flip: the external call ('start', 'tick' or 'actor') after which the
+    power byte D_0081084C (D_00810841[0x0B]) toggles, as a callee that
+    changes it within the tick would: the owner must re-read it."""
     phase, armed, lower, timer, level, powered, done = case
     memory = {}; registers = [0]*32; floats = [0]*32; events = []
     def save(address, value, size=4):
@@ -126,6 +129,8 @@ def oracle(overlay, case, motion=None):
             elif pc == 0x1a2370: events.append(('hull',))
             elif pc == 0x102958: events.append(('copy',))
             elif pc == VIRTUAL: events.append(('actor',))
+            if flip is not None and events and events[-1][0] == flip and pc != 0x1b17a0:
+                save(0x81084c, load(0x81084c, 1) ^ 128, 1)
             pc = registers[31] & 0xffffffff
             continue
         assert 0x827b10 <= pc < (0x828050 if motion is None else 0x8281e0), hex(pc)
@@ -164,10 +169,11 @@ TICK = C.CFUNCTYPE(C.c_int, C.c_void_p)
 SOUND = C.CFUNCTYPE(None, C.c_void_p, C.c_uint, C.c_float)
 POSE = C.CFUNCTYPE(None, C.c_void_p, C.c_float)
 EVENT = C.CFUNCTYPE(None, C.c_void_p)
+POWERED = C.CFUNCTYPE(C.c_int, C.c_void_p)
 class Hooks(C.Structure):
     _fields_ = [('context', C.c_void_p), ('start', START), ('tick', TICK),
                 ('sound', SOUND), ('pose', POSE), ('copy', EVENT), ('actor', EVENT),
-                ('hull', EVENT)]
+                ('hull', EVENT), ('powered', POWERED)]
 
 
 def main():
@@ -181,29 +187,40 @@ def main():
         'src/game/em_elevator.c', '-o', str(library)], cwd=ROOT, check=True)
     native = C.CDLL(str(library))
     native.em_elevator_init.argtypes = [C.POINTER(Elevator), C.c_int]
-    native.em_elevator_tick.argtypes = [C.POINTER(Elevator), C.c_int, C.POINTER(Hooks)]
+    native.em_elevator_tick.argtypes = [C.POINTER(Elevator), C.POINTER(Hooks)]
     native.em_elevator_motion_tick.argtypes = [C.POINTER(Motion), C.c_int,
         C.POINTER(C.c_float), C.POINTER(C.c_float), C.POINTER(C.c_float), C.POINTER(Hooks)]
     count = 0
+    # flip: the power flag changes inside the tick (after that call); the
+    # original reads it three times (the phase-0 script choice, the phase-1
+    # completion, the +0x28 ramp after +0x4C) and so must the native.
     for case in itertools.product((0,1,2),(0,4,5),(0,1),(-3,0,119,120,300),
-                                  (-3,0,1,120,127,128,160),(0,1),(0,1)):
-        phase, armed, lower, timer, level, powered, done = case
+                                  (-3,0,1,120,127,128,160),(0,1),(0,1),(None,'start','tick','actor')):
+        phase, armed, lower, timer, level, powered, done, flip = case
+        if flip is not None and (timer, level) not in ((0, 0), (119, 120), (300, 128)):
+            continue   # the flips need only the counter boundaries
         owner = Elevator(); native.em_elevator_init(C.byref(owner), lower)
         owner.phase, owner.armed, owner.timer, owner.level = phase, armed, timer, level
         events = []
-        def tick(_): events.append(('tick',)); return done
-        hooks = Hooks(None, START(lambda _, address: events.append(('start', address))),
+        power = [powered]
+        def toggle(name):
+            if flip == name: power[0] ^= 1
+        def start(_, address): events.append(('start', address)); toggle('start')
+        def tick(_): events.append(('tick',)); toggle('tick'); return done
+        def actor(_): events.append(('actor',)); toggle('actor')
+        hooks = Hooks(None, START(start),
             TICK(tick), SOUND(lambda _, cue, radius: events.append(('sound', cue, bits(radius)))),
             POSE(lambda _, height: events.append(('pose', bits(height)))),
-            EVENT(lambda _: events.append(('copy',))), EVENT(lambda _: events.append(('actor',))),
-            EVENT(lambda _: events.append(('hull',))))
-        assert native.em_elevator_tick(C.byref(owner), powered, C.byref(hooks)) == 0
+            EVENT(lambda _: events.append(('copy',))), EVENT(actor),
+            EVENT(lambda _: events.append(('hull',))), POWERED(lambda _: power[0]))
+        assert native.em_elevator_tick(C.byref(owner), C.byref(hooks)) == 0
         actual = ((owner.phase,owner.armed,owner.lower,owner.timer,owner.level,
                    bits(owner.height), *(bits(v) for v in owner.heights)), events)
-        expected = oracle(overlay, case)
+        expected = oracle(overlay, case[:7], flip=flip)
         assert actual == expected, dict(case=case, actual=actual, expected=expected)
         count += 1
-    print(f'Original00827B10 active owner: {count} state/call-order cases PASS')
+    print(f'Original00827B10 active owner: {count} state/call-order cases PASS (power changes '
+          f'within the tick included)')
     motion_count = 0
     for phase, lower, ticks, rate, position in itertools.product(
             (0,1,2), (0,1), (-1,0,149,150,0x7fffffff),
@@ -213,7 +230,8 @@ def main():
         events = []
         hooks = Hooks(None, START(), TICK(),
             SOUND(lambda _, cue, radius: events.append(('sound', cue, bits(radius)))),
-            POSE(lambda _, height: events.append(('pose', bits(height)))), EVENT(), EVENT(), EVENT())
+            POSE(lambda _, height: events.append(('pose', bits(height)))), EVENT(), EVENT(), EVENT(),
+            POWERED())
         result = native.em_elevator_motion_tick(C.byref(state), lower,
             *(C.byref(value) for value in y), C.byref(hooks))
         actual = ((state.phase, state.ticks, bits(state.rate), *(bits(v.value) for v in y)), events, result)
@@ -235,7 +253,7 @@ def main():
     state = Motion(0, 0, 0.0)
     y = [C.c_float(230.0), C.c_float(230.0), C.c_float(245.0)]
     hooks = Hooks(None, START(), TICK(), SOUND(lambda *_: None), POSE(lambda *_: None), EVENT(), EVENT(),
-                  EVENT())
+                  EVENT(), POWERED())
     carried, oracle_y = [], (0, 0.0, 230.0, 230.0, 245.0)
     oracle_phase = 0
     for call in range(151):

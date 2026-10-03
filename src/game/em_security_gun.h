@@ -17,12 +17,15 @@
  * flag-0x30 manager here after what its code does.
  *
  * Hand translations of the AREA11 overlay (id 9) functions at these runtime
- * addresses (the splat listing names each 0x40 lower, because its vram base
- * is the MWo3 header address; overlay file offset = runtime - 0x823500):
- *   0x00825940  security gun      (listing func_overlay_AREA11_00825900)
- *   0x00827490  gun cable         (listing func_overlay_AREA11_00827450)
- *   0x00823CE0  flag-0x30 manager (listing func_overlay_AREA11_00823CA0)
- * No decomp C exists for any of them; they were read from the listing.
+ * addresses (splat names each 0x40 lower, because its vram base is the MWo3
+ * header address; overlay file offset = runtime - 0x823500):
+ *   0x00825940  security gun      (decomp func_overlay_AREA11_00825900.c)
+ *   0x00827490  gun cable         (decomp func_overlay_AREA11_00827450.c)
+ *   0x00823CE0  flag-0x30 manager (decomp func_overlay_AREA11_00823CA0.c)
+ * They were first read from the listing; the decomp now holds byte-identical
+ * C for all three (src/overlays/AREA11/, docs/AREA11_OVERLAY.md there),
+ * which is their ground truth: the translations were re-read against it
+ * line by line (chain step A11FIX) and agree.
  *
  * Scope of the gun translation. 0x825940 dispatches on +0x04. This module
  * translates lifecycle 0 (setup, including its 0x7A lamp child), 0x64
@@ -34,7 +37,8 @@
  * AREA11 RAM image has the flag 0 and the gun in 0x64). Reaching them faults
  * (EM_GUN_FAULT_UNTRANSLATED at the lifecycle's entry) instead of running a
  * substitute. em_security_gun_rest.c holds a verified translation of them
- * that the first level does not bind (docs/SECURITY_GUN.md).
+ * (the decomp's C agrees) that the first level does not bind
+ * (docs/SECURITY_GUN.md).
  *
  * Every record byte a function reads or writes is a field named by its
  * original offset. Every original callee is a worker named by its original

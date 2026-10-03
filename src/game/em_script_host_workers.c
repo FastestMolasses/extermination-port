@@ -399,7 +399,7 @@ static const uint32_t kEntries[] = {
     0x008294C0u,   /* director beat 0 (008253F0, 0x8255A0) */
     0x00829A40u,   /* director beat 1 (0x825688) */
     0x00829CC0u,   /* director beat 2 (0x825758) */
-    0x00829E80u,   /* director beat 3 (0x825880) */
+    0x00829E80u,   /* manager 008257A0, its state 1 (not the director's) */
     0x0082A750u,   /* elevator powered (00827B10, 0x827CF0) */
     0x0082A990u,   /* elevator refusal (0x827D10) */
     0x008283D0u,   /* Roger encounter (00823910, 0x823A7C) */
@@ -488,7 +488,7 @@ int em_area11_scripts_load(EmArea11Scripts *out, const char *scripts_path,
         em_area11_scripts_free(&s);
         return -1;
     }
-    for (int q = 0; q < 3; ++q)
+    for (int q = 0; q < EM_AREA11_QUAD_COUNT; ++q)
         for (int v = 0; v < 4; ++v)
             for (int c = 0; c < 4; ++c)
                 s.quad[q][v][c] = em_script_f32(quads.bytes, (unsigned)(q * 0x40 + v * 0x10 + c * 4));
@@ -513,5 +513,14 @@ int em_area11_scripts_director_quads(const EmArea11Scripts *s, const float (*qua
 {
     if (!s || !quad || !s->quads_loaded) return -1;
     for (int q = 0; q < 3; ++q) quad[q] = (const float (*)[4])s->quad[q];
+    return 0;
+}
+
+int em_area11_scripts_quad(const EmArea11Scripts *s, uint32_t address, const float (**quad)[4])
+{
+    if (!s || !quad || !s->quads_loaded || address < EM_AREA11_QUADS_BASE || address >= EM_AREA11_QUADS_END ||
+        (address - EM_AREA11_QUADS_BASE) % 0x40u != 0)
+        return -1;
+    *quad = (const float (*)[4])s->quad[(address - EM_AREA11_QUADS_BASE) / 0x40u];
     return 0;
 }

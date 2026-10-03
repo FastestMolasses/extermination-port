@@ -42,6 +42,12 @@ typedef struct {
     /* Scratch D_700038A0..A8 as the last falling tick left it: the per-tick
      * velocity added to +0xB0 and (z only) to the carried player. */
     float velocity[3];
+    /* Scratch 0x70003A20 (raw bits) as the arm tick leaves it (state 4,
+     * the first shake: (count % 20 - 10) / 50.0, then that halved); the
+     * caller stores it into the word's canonical copy when wrote_3A20 is
+     * set (it is cleared at the start of every tick). */
+    uint32_t s3A20;
+    uint8_t wrote_3A20;
 } EmTruckOriginal;
 
 /* Camera trigger owner fields. */

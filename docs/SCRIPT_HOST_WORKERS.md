@@ -82,8 +82,8 @@ base, entry, length, then the bytes.
 
 | File (`assets/scene_snow/area11_scripts/`) | Range | Contents |
 |---|---|---|
-| `scripts.emsc` | 0x8292C0..0x82A3C0 (68 records) | truck camera preview 0x8292C0 (8 records), director beat 0 0x8294C0 (22), beat 1 0x829A40 (10), beat 2 0x829CC0 (7), beat 3 0x829E80 (21). The five chains tile the range. |
-| `director_quads.emsc` | 0x82ABE0..0x82ACA0 | the director's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60, four XYZW vertices each |
+| `scripts.emsc` | 0x8292C0..0x82A3C0 (68 records) | truck camera preview 0x8292C0 (8 records), director beat 0 0x8294C0 (22), beat 1 0x829A40 (10), beat 2 0x829CC0 (7), the record-13 manager 008257A0's 0x829E80 (21; earlier labelled "director beat 3": the decomp's C shows the manager starts it). The five chains tile the range. |
+| `director_quads.emsc` | 0x82ABE0..0x82ACE0 | the director's three quads 0x82ABE0 / 0x82AC20 / 0x82AC60 and the manager 008257A0's area 0x82ACA0 (since A11FIX), four XYZW vertices each |
 
 The elevator's powered (0x82A750) and refusal (0x82A990) scripts are in
 `elevator.emsc` (`tools/export_elevator.py`). Roger's four scripts are in
@@ -183,7 +183,7 @@ At AREA11 entry, call `em_area11_scripts_load(&s, EM_AREA11_SCRIPTS_PATH,
 EM_AREA11_QUADS_PATH, EM_AREA11_ELEVATOR_PATH, EM_AREA11_ROGER_PATH)`. For
 each owner, call `em_area_script_init(host, em_area11_scripts_image(&s,
 entry), ...)`: the trigger 008251E0 uses 0x8292C0, the director 008253F0 uses
-0x8294C0 / 0x829A40 / 0x829CC0 / 0x829E80, the elevator 00827B10 uses
+0x8294C0 / 0x829A40 / 0x829CC0, the manager 008257A0 0x829E80, the elevator 00827B10 uses
 0x82A750 / 0x82A990, and Roger uses his four entries. Pass
 `em_area11_scripts_director_quads(&s, world.quad)` to `em_director_original`.
 The images are mutated in place (section 2), so reload them for every visit.
@@ -231,8 +231,9 @@ leaves write their outputs.
   `tools/test_area_script_reference.py` without editing it. It answers that
   test's `w_001B1240/w_001B12B0/w_001B1380` workers with this module instead
   of scratch original executions.
-  - Lockstep: 6 scenarios (Roger 0x828990, 0x828810, 0x828A10, and director
-    beat 3 0x829E80 with skips at 4 and 12) against the original handlers.
+  - Lockstep: 6 scenarios (Roger 0x828990, 0x828810, 0x828A10, and the
+    manager 008257A0's 0x829E80 with skips at 4 and 12) against the original
+    handlers.
     That is 706 calls in quick mode.
   - Route capture of beat 10 (Roger 0x828990's op15 turn, concurrent with
     director 0x8294C0): 2,419 frames and 0 differences, with 342 calls

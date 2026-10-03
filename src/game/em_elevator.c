@@ -17,14 +17,14 @@ void em_elevator_init(EmElevator *owner, int lower)
     set_height(owner);
 }
 
-int em_elevator_tick(EmElevator *owner, int powered,
-                     const EmElevatorHooks *hooks)
+int em_elevator_tick(EmElevator *owner, const EmElevatorHooks *hooks)
 {
     if (!owner || !hooks || !hooks->start_script || !hooks->tick_script ||
         !hooks->sound || !hooks->rebuild_pose || !hooks->copy_indicator_pose ||
-        !hooks->update_actor || !hooks->retransform) return -1;
+        !hooks->update_actor || !hooks->retransform || !hooks->powered) return -1;
     if (owner->phase == 0) {
         if (owner->armed & 4) {
+            const int powered = hooks->powered(hooks->context);   /* first read */
             hooks->start_script(hooks->context, powered ?
                 EM_ELEVATOR_POWERED_SCRIPT : EM_ELEVATOR_REFUSAL_SCRIPT);
             owner->phase = 1;
@@ -39,7 +39,7 @@ int em_elevator_tick(EmElevator *owner, int powered,
         if (result < 0) return -1;
         if (result > 0) {
             owner->phase = owner->armed = 0;
-            if (powered) {
+            if (hooks->powered(hooks->context)) {                  /* second read */
                 owner->lower = !owner->lower;
                 set_height(owner);
                 hooks->rebuild_pose(hooks->context, owner->height);   /* 0x827E48: 001C6380 */
@@ -49,7 +49,7 @@ int em_elevator_tick(EmElevator *owner, int powered,
         hooks->copy_indicator_pose(hooks->context);
     }
     hooks->update_actor(hooks->context);
-    if (powered) {
+    if (hooks->powered(hooks->context)) {                          /* third read */
         if (owner->indicator_level < 128) {
             owner->indicator_level += 8;
             if (owner->indicator_level > 128) owner->indicator_level = 128;

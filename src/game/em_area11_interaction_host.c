@@ -1013,6 +1013,14 @@ static void elevator_update_actor(void *context)
         world.offer_failed = 1;
 }
 
+/* 00827B10's power flag D_00810841[D_00810700] & (1 << +0x2E), read at
+ * each of its three reads (em_elevator_tick). */
+static int elevator_powered(void *context)
+{
+    (void)context;
+    return powered();
+}
+
 /* 0x827E54: 001A2370(self, +0xD0) after the ride's completion rebuilt the
  * matrix at the new floor (elevator_rebuild). */
 static void elevator_retransform(void *context)
@@ -1342,7 +1350,7 @@ int em_area11_interaction_host_load(const char *directory,
         goto failed;
     EmElevatorRuntimeHooks elevator = {NULL, align_player, face_player, camera_set,
         camera_publish, camera_chase, message_start, message_done, elevator_sound,
-        elevator_rebuild, elevator_copy_child, elevator_update_actor, elevator_retransform};
+        elevator_rebuild, elevator_copy_child, elevator_update_actor, elevator_retransform, elevator_powered};
     snprintf(path, sizeof path, "%s/elevator.emsc", directory);
     /* 00827B10 state 0 reads D_0081083A for its 190/230 floor. */
     const uint8_t *floor = elevator_floor();
@@ -1721,7 +1729,7 @@ int em_area11_interaction_host_elevator_tick(void)
     view_load();
     script_load(&world.elevator.program.script);
     world.offer_failed = 0;
-    int result = em_elevator_runtime_tick(&world.elevator, powered(), 1);
+    int result = em_elevator_runtime_tick(&world.elevator, 1);
     script_store(&world.elevator.program.script);
     view_store();
     *floor = world.elevator.owner.lower;

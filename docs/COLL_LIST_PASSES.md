@@ -491,12 +491,22 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
    0x70003B86 / 0x70003B88 are copied in from and back to the world's one
    `EmCollProbeState` (item 5), 3B8D and the area bytes come from
    em_scene_state(), D_0028A9A0 is the fade substate, and D_0081070A (not
-   canonical yet, read only after the fail-stop behaviour) is 0. The owners
-   the port runs publish class 4 and 7 only (the panel, the terminal, the
-   items), so the class-1, class-2 and class-0xD lists stay empty and the
-   passes walk nothing; the first owner that publishes one of those classes
-   (Roger, L22; the flame 008235F0) will reach the fail-stop memory until the
-   original-layout records exist. The em_enemy.c legacy pair/contact passes
+   canonical yet, read only after the fail-stop behaviour) is 0. **Since
+   chain step A11FIX (2026-10-02) the flame 008235F0 publishes onto the
+   class-0xD list** (its 001B17A0 is bound; the captures hold it there on
+   beats 10 and 11, as above), so 001A8BE0 -> 001A8660 runs live: `bytes`
+   then also gives the AREA11 binder's records
+   (`em_collision_world_bind_area_records`: the flame's record in its
+   original layout, em_actor_pool_record_image, and the player record
+   D_008102B0, the live image) and the 8 bytes of D_00275490, the player's
+   radius and height that 0015C420 stores at its +0x30 (ELF .data,
+   `assets/collision_contact.emrg` from `tools/export_collision_contact.py`,
+   loaded with the world). The +0x34 behaviour is the binder's
+   (`em_collision_world_bind_behaviour`): the flame's 0x823580,
+   em_area11_effect_contact (AREA11_EFFECT.md "Binding"). On a contact it
+   reaches 001EFE00(0x80000027, player), which faults (the DAMAGE step), or,
+   when it rejects the contact and the player's +0x00 is 1, the knock-back,
+   whose D_0024A740 read faults. The route never overlaps the flame. The em_enemy.c legacy pair/contact passes
    still run for the port's own enemy owners (L25 retires them for the crates
    and drums). The original list for reference:
    It needs:

@@ -13,6 +13,7 @@ typedef struct {
     int camera_sets, camera_publishes, chases, messages, message_polls;
     int cue_frame, move_sound_frame, move_done_frame, poses;
     float player[3], camera_target[3], yaw;
+    int powered;   /* D_00810841[0x0B] bit 7, read through owner_hooks.powered */
 } Fixture;
 
 static void start(void *context, uint32_t entry)
@@ -45,6 +46,7 @@ static void pose(void *context, float height)
     assert(height == f->owner.height); ++f->poses;
 }
 static void noop(void *context) { (void)context; }
+static int power(void *context) { return ((Fixture *)context)->powered; }
 static int failed_tick(void *context) { (void)context; return -1; }
 static EmScriptCommandResult frame(void *context, EmScript *script,
                                    const unsigned char *record)
@@ -114,12 +116,13 @@ static void run(const char *path, int powered, int lower)
     f.cue_frame = f.move_sound_frame = f.move_done_frame = -1;
     em_elevator_init(&f.owner, lower);
     f.owner.armed = 4;
-    f.owner_hooks = (EmElevatorHooks){&f,start,tick,sound,pose,noop,noop,noop};
+    f.powered = powered;
+    f.owner_hooks = (EmElevatorHooks){&f,start,tick,sound,pose,noop,noop,noop,power};
     EmElevatorProgramHooks hooks = {&f,frame,align,face,camera_set,camera_publish,
         chase,animation,animation_done,message,message_done,move};
     assert(em_elevator_program_load(&f.program, path, &f.owner, &hooks) == 0);
     for (f.frame = 0; f.frame < 200 && !f.completed; ++f.frame) {
-        assert(em_elevator_tick(&f.owner, powered, &f.owner_hooks) == 0);
+        assert(em_elevator_tick(&f.owner, &f.owner_hooks) == 0);
         if (!f.completed) assert(f.owner.lower == lower);
         if (f.frame == 0) assert(f.started == 1 && !f.animations && !f.messages);
     }
@@ -148,7 +151,8 @@ static void run(const char *path, int powered, int lower)
     f.owner.phase = 1; f.owner.armed = 4;
     int previous_lower = f.owner.lower;
     f.owner_hooks.tick_script = failed_tick;
-    assert(em_elevator_tick(&f.owner, 1, &f.owner_hooks) == -1);
+    f.powered = 1;
+    assert(em_elevator_tick(&f.owner, &f.owner_hooks) == -1);
     assert(f.owner.phase == 1 && f.owner.armed == 4 && f.owner.lower == previous_lower);
 }
 

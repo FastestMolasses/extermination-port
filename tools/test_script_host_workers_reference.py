@@ -332,7 +332,7 @@ class Image(C.Structure):
     _fields_ = [('bytes', P(C.c_ubyte)), ('base', U32), ('entry', U32), ('length', U32)]
 
 
-Scripts._fields_ = [('image', Image * 3), ('quad', C.c_float * 48), ('quads_loaded', C.c_int)]
+Scripts._fields_ = [('image', Image * 3), ('quad', C.c_float * 64), ('quads_loaded', C.c_int)]
 
 
 def build_native():
@@ -1147,6 +1147,8 @@ def export_part(lib, parallel_results=None):
             in_place[i] = in_place.get(i, 0) + len(diff)
         for q in range(3):
             assert quad_words[q] == struct.unpack_from('<16I', ram, 0x82ABE0 + 0x40 * q), (name, 'quad', q)
+        # The manager 0x8257A0's area 0x82ACA0, the export's fourth quad.
+        assert quads[20 + 0xC0:20 + 0x100] == ram[0x82ACA0:0x82ACE0], (name, 'quad 0x82ACA0')
         checked.append(name)
     route_diffs = in_place
     # The loader's refusals.

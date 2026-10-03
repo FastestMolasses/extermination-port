@@ -106,10 +106,16 @@ static int tick_script(void *context)
     return em_elevator_program_tick(&r->program);
 }
 
+static int powered(void *context)
+{
+    EmElevatorRuntime *r = context;
+    return r->hooks.powered(r->hooks.context);
+}
+
 static EmElevatorHooks owner_hooks(EmElevatorRuntime *runtime)
 {
     return (EmElevatorHooks){runtime, start_script, tick_script, sound,
-                             rebuild_pose, copy_indicator_pose, update_actor, retransform};
+                             rebuild_pose, copy_indicator_pose, update_actor, retransform, powered};
 }
 
 static EmScriptCommandResult move(void *context, EmScript *script)
@@ -133,7 +139,8 @@ int em_elevator_runtime_load(EmElevatorRuntime *runtime, const char *path,
         !hooks->align_player || !hooks->face_player || !hooks->camera_set ||
         !hooks->camera_publish || !hooks->camera_chase || !hooks->message_start ||
         !hooks->message_done || !hooks->sound || !hooks->rebuild_pose ||
-        !hooks->copy_indicator_pose || !hooks->update_actor || !hooks->retransform) return 0;
+        !hooks->copy_indicator_pose || !hooks->update_actor || !hooks->retransform ||
+        !hooks->powered) return 0;
     memset(runtime, 0, sizeof *runtime);
     runtime->interaction = interaction;
     runtime->player_ground_y = player_ground_y;
@@ -160,13 +167,12 @@ int em_elevator_runtime_arm(EmElevatorRuntime *runtime)
     return 1;
 }
 
-int em_elevator_runtime_tick(EmElevatorRuntime *runtime, int powered,
-                            int ordinary_tasks_enabled)
+int em_elevator_runtime_tick(EmElevatorRuntime *runtime, int ordinary_tasks_enabled)
 {
     if (!runtime || runtime->failed || !runtime->program.image.bytes) return -1;
     if (!ordinary_tasks_enabled) return 0;
     EmElevatorHooks hooks = owner_hooks(runtime);
-    int result = em_elevator_tick(&runtime->owner, powered, &hooks);
+    int result = em_elevator_tick(&runtime->owner, &hooks);
     if (result < 0 || runtime->failed) {
         runtime->failed = 1;
         return -1;

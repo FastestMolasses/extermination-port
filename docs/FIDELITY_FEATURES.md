@@ -103,11 +103,11 @@ original machine code on the same inputs and requiring the same results.
   (`EE_FLOAT_MODEL.md` 5a). VU1 microcode and GS rasterization are
   reimplemented natively and are checked by other means (see Visuals).
 
-**First-level census: 96.9% of the original game-logic instructions on the route run live as verified translations**
+**First-level census: 97.3% of the original game-logic instructions on the route run live as verified translations**
 
 Every original function the PS2 game runs on the first level, from New Game
 to meeting Roger, was recorded, and the port was checked for each one.
-Measured by instructions, 96.9% of that game logic runs in the port as a
+Measured by instructions, 97.3% of that game logic runs in the port as a
 verified translation.
 
 - How: the decomp's `tools/route_census.py` set a one-shot breakpoint on
@@ -130,7 +130,15 @@ verified translation.
   from the rows): 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 bound
   live (the area load's sound-bank upload and step H's whole 001FB100):
   live 708 (86,021 of 88,729 instructions = 96.9%; 93.7% by function
-  count), verified but unbound 45, unverified 3, boundary 428.
+  count), verified but unbound 45, unverified 3, boundary 428. Update 1.53
+  (the lighting step, 2026-10-02, recounted from the rows): the lighting
+  stand-ins replaced by their originals: live 720 (86,702 = 97.7%),
+  verified but unbound 33. Update 1.55 (chain step A11FIX, 2026-10-02,
+  recounted from the rows): the flag-0x30 manager 0x823CE0, the flame's
+  loop service 001FC3C0 and the contact pass 001A8660 bound live (the
+  AREA11 overlay translations checked against the decomp's byte-identical
+  C): live 723 (87,008 of 88,729 instructions = 98.1%; 95.6% by function
+  count), verified but unbound 30, unverified 3, boundary 428.
 - Status: **PARTIAL**. First level only, and only the played route to
   Roger's encounter. Not covered: the level exit, unplayed branches
   (damage/death, pause/options/save, weapon and camera inputs, the truck-pit
@@ -988,6 +996,27 @@ of the game's own stream code; nothing is scripted by hand.
   H7 (its output-mode commit never fires on the route). The last full sweep
   predates commit 7dea4ce. Audio output is not compared.
 
+**The AREA11 flame's looped sound runs on the game's own looped-voice service**
+
+Near the flame in the first level the fire's sound loop (0x413) starts,
+pans and stops as the game's own service decides it, from the flame's own
+owner code.
+
+- How: the flame owner 008235F0 (decomp C byte-identical) runs on its pool
+  record and calls the translated looped positional service 001FC3C0 /
+  001FC520 (em_sfx_loop_service) with the original's arguments (sound
+  0x413, radius 100), the scratchpad frame counter and the walk ordinal
+  (`AREA11_EFFECT.md` "Sound", chain step A11FIX).
+- Evidence: test-area11-sfx-reference (001FC3C0 against the original
+  instructions); test-area11-effect-reference (the owner's calls); the level
+  smoke's check_overlay11: no track requests 0x413 before first control
+  (the opening capture's handle is -1) and tracks do on the main line near
+  the flame (3,120 ticks to Roger), where the decomp's audio capture
+  (`CAPTURES_AUDIO.md`, the `flame` beat) holds 0x413 in every frame.
+- Status: **PARTIAL**. The request is compared only as present or absent
+  against the capture's beats, not frame for frame; what reaches the
+  speakers is the port's SPU2 voice model (`FIRST_LEVEL_AUDIT.md` 1b item 1).
+
 **Music plays from your disc's exact stream data, buffered by a translation of the PS2 sound driver**
 
 The soundtrack and voice lines come from the stream files on your own disc
@@ -1283,7 +1312,7 @@ press ("0015BA50 D_00248C98 worker fault").
   line. `make test-player-stage-workers-reference` checks the 0015BA50
   prologue with the -1 index against the executed original.
 - Status: **VERIFIED** for the opening, director beats 0..2 and Roger's
-  encounter. Not covered: director beat 3 and Roger's armed talk (both
+  encounter. Not covered: the record-13 manager 008257A0's script 0x829E80 and Roger's armed talk (both
   skippable, neither reached on the route) and the level exit's departure
   movie, which is a movie skip. The opening and Roger's encounter place the
   player and are compared to the bit; for director beats 1 and 2 the

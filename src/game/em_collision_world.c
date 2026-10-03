@@ -80,9 +80,69 @@ static int load_soft_float(void)
     return 0;
 }
 
+/* D_00275490 (EM_COLLISION_WORLD_CONTACT_PATH): ELF .data, loaded once
+ * like the soft-float data and kept across area builds. */
+static struct {
+    uint8_t bytes[8];
+    int loaded;
+} s_contact;
+
+static int load_contact(void)
+{
+    if (s_contact.loaded)
+        return 0;
+    FILE *f = fopen(EM_COLLISION_WORLD_CONTACT_PATH, "rb");
+    if (!f) return -1;
+    uint32_t header[4];
+    uint8_t bytes[sizeof s_contact.bytes];
+    const int ok = fread(header, sizeof header, 1, f) == 1 && memcmp(header, "EMRG", 4) == 0 &&
+                   header[1] == 1 && header[2] == EM_COLLISION_WORLD_D_00275490 &&
+                   header[3] == sizeof bytes && fread(bytes, sizeof bytes, 1, f) == 1 && fgetc(f) == EOF;
+    fclose(f);
+    if (!ok) return -1;
+    memcpy(s_contact.bytes, bytes, sizeof bytes);
+    s_contact.loaded = 1;
+    return 0;
+}
+
+/* The AREA11 binder's records and the +0x34 behaviour (kept across loads). */
+static struct {
+    uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size);
+    void *context;
+} s_area_records;
+static struct {
+    EmCollisionWorldBehaviour fn;
+    void *context;
+} s_behaviour;
+
+void em_collision_world_bind_area_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
+                                          void *context)
+{
+    s_area_records.bytes = bytes;
+    s_area_records.context = bytes ? context : NULL;
+}
+
+void em_collision_world_bind_behaviour(EmCollisionWorldBehaviour behaviour, void *context)
+{
+    s_behaviour.fn = behaviour;
+    s_behaviour.context = behaviour ? context : NULL;
+}
+
+/* 001A8660's call of the entry's +0x34 word (0x1A8734). */
+static int behaviour_call(void *context, EmCollListPasses *passes, uint32_t fn, uint32_t entry, uint32_t player,
+                          uint32_t player_b0)
+{
+    (void)context;
+    (void)passes;
+    if (!s_behaviour.fn) return -1;
+    return s_behaviour.fn(s_behaviour.context, fn, entry, player, player_b0);
+}
+
 /* D_0024A740 is not exported: the view holds no byte, so 001A8660's
- * knock-back table read faults (0x1A87C0). It is reached only after the
- * entry's +0x34 behaviour, which is itself a fail-stop binding below. */
+ * knock-back table read faults (0x1A87C0). It is reached only when the
+ * player touches a class-0xD type-1 entry (the AREA11 flame, off the
+ * recorded route) and its +0x34 behaviour returned: the knock-back and
+ * the damage are the DAMAGE step's (FIRST_LEVEL_AUDIT.md 1b item 13). */
 static const uint8_t k_no_d24A740[1];
 
 /* The owners that publish records the passes and the hull locks read
@@ -148,8 +208,12 @@ static uint8_t *owner_bytes(void *context, uint32_t address, uint32_t size)
             return &s_list_words[k][at];
         }
     }
+    if (s_contact.loaded && address >= EM_COLLISION_WORLD_D_00275490 &&
+        size <= sizeof s_contact.bytes && address - EM_COLLISION_WORLD_D_00275490 <= sizeof s_contact.bytes - size)
+        return s_contact.bytes + (address - EM_COLLISION_WORLD_D_00275490);
     uint8_t *b = s_owners.record_bytes ? s_owners.record_bytes(s_owners.context, address, size) : NULL;
     if (!b && s_records.bytes) b = s_records.bytes(s_records.context, address, size);
+    if (!b && s_area_records.bytes) b = s_area_records.bytes(s_area_records.context, address, size);
     return b;
 }
 
@@ -189,9 +253,10 @@ static void bind_passes(void)
      * aim_04's impact markers; COLL_LIST_PASSES.md). */
     k->w_001A9C40 = em_coll_list_passes_001A9C40;
     k->w_0021BD10 = em_coll_list_passes_unported_0021BD10;
-    /* The +0x34 behaviour of a class-0xD type-1 entry: AREA11's is the
-     * overlay routine 0x00823580, which has no binding here. */
-    k->behaviour = em_coll_list_passes_unported_behaviour;
+    /* The +0x34 behaviour of a class-0xD type-1 entry: the binder's
+     * (em_collision_world_bind_behaviour; AREA11's is the flame's
+     * 0x00823580). Unbound, it faults at 0x1A8734. */
+    k->behaviour = behaviour_call;
     k->normalize = em_coll_list_passes_normalize;
 }
 
@@ -232,6 +297,12 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
     if (load_soft_float() != 0) {
         fprintf(stderr, "collision world: the SDK soft-float data %s is missing or invalid "
                         "(tools/export_sdk_math_tables.py)\n", EM_COLLISION_WORLD_SOFT_FLOAT_PATH);
+        em_collision_world_unload();
+        return -1;
+    }
+    if (load_contact() != 0) {
+        fprintf(stderr, "collision world: the contact data %s is missing or invalid "
+                        "(tools/export_collision_contact.py)\n", EM_COLLISION_WORLD_CONTACT_PATH);
         em_collision_world_unload();
         return -1;
     }
@@ -318,11 +389,12 @@ int em_collision_world_close_out_001AAD00(const EmSceneState *scene, int16_t d28
     g->d28A9A0 = d28A9A0;
     g->d810700 = scene->d810700;
     g->d810702 = scene->d810702;
-    /* D_0081070A is not canonical yet; 001A8660 reads it only after the
-     * +0x34 behaviour, which faults (above), so the value is never read. */
+    /* D_0081070A is not canonical yet; 001A8660 reads it only for the
+     * knock-back table after a contact, which faults on the table (above),
+     * so the value selects nothing. */
     g->d81070A = 0;
-    /* 0x700038A0..AC: written by 001A8660's knock-back only (never reached
-     * here, as above). */
+    /* 0x700038A0..AC: written by 001A8660's knock-back only (it faults
+     * before, as above). */
     memset(g->s38A0, 0, sizeof g->s38A0);
     w.passes.fault = 0;
     list_words_build();

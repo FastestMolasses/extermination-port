@@ -7,9 +7,13 @@ document describes: each draws its original 001CAA00 unit over its own
 record (docs/OWNER_DRAW.md section 10). The EMDLs of the indicator children
 (model 0x73, 0x75, 0x10) are still drawn, by the children's +0x4C stand-in,
 now at each child's own node matrix. Since census L24 the fan pair draws
-its original unit too (its owner 00827630 is bound; the EMDL instance is
-retired when it binds). The sections below are the evidence
-for those exports and placements.
+its original unit too (its owner 00827630 is bound). The legacy EMDL
+instances the scene manifest still places at these records (the canopy, the
+fans, the record-20 prop) are retired when the roster spawns the record
+(em_area11_bind_roster, since chain step A11FIX): in the original only the
+owner draws them, from its own state 0 on, and no owner calls anything to
+hide a second copy. The sections below are the evidence for those exports
+and placements.
 
 These changes use the original SCUS-97112 overlay, boot ELF, model library,
 and a cold-boot PCSX2 reference. The old port and older forced-state scene

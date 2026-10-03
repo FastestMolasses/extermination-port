@@ -20,6 +20,9 @@ typedef struct {
     void (*copy_indicator_pose)(void *);
     void (*update_actor)(void *);
     void (*retransform)(void *); /* 001A2370(self, +0xD0) at the ride's completion */
+    /* D_00810841[D_00810700] & (1 << +0x2E), read at each of the owner's
+     * three reads (em_elevator.h). */
+    int (*powered)(void *);
 } EmElevatorRuntimeHooks;
 
 typedef struct {
@@ -42,9 +45,9 @@ int em_elevator_runtime_load(EmElevatorRuntime *, const char *program_path,
  * selector3 and armed bit4 together. A competing owner cannot be displaced. */
 int em_elevator_runtime_arm(EmElevatorRuntime *);
 /* Call once at the ordinary pooled-actor stage. Status frames freeze owner,
- * script and motion together. Power is the live area bit7, never possession. */
-int em_elevator_runtime_tick(EmElevatorRuntime *, int powered,
-    int ordinary_tasks_enabled);
+ * script and motion together. Power is the live area bit7 (hooks.powered),
+ * never possession. */
+int em_elevator_runtime_tick(EmElevatorRuntime *, int ordinary_tasks_enabled);
 /* Return0 while the shared player still refers to this adapter. Normal
  * completion releases on the following ordinary player callback. */
 int em_elevator_runtime_free(EmElevatorRuntime *);

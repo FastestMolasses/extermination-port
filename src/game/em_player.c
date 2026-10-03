@@ -11,6 +11,7 @@
  * private state — the same single state block the engine keeps in its
  * gameplay globals, now viewed from one more file. */
 
+#include "game/em_collision_world.h"
 #include "game/em_area11_boxes.h"
 #include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
@@ -527,11 +528,14 @@ void player_states_spawn_values(void)
 {
     /* 0015C420 (byte-matched): 001CA6F0(player, 1) first (+98 = 1: node 1 is
      * the shadow's anchor node, 001DA6A0 for kind 0x28); +280 = (0,
-     * 0xC15CCCCD = -13.8, 0, 1.0); for the AREA11 spawn kind +4 = 1, +5 = 0,
-     * +6 = 0 (and +1F0 = 0, +204 = 1.0, +31B = -1, +31A = 0). */
+     * 0xC15CCCCD = -13.8, 0, 1.0); +30 = &D_00275490 (the radius and height
+     * the contact pass 001A8660 reads; em_collision_world serves the ELF
+     * data); for the AREA11 spawn kind +4 = 1, +5 = 0, +6 = 0 (and +1F0 = 0,
+     * +204 = 1.0, +31B = -1, +31A = 0). */
     em_live_set_u8(&live.a, 0x98, 1);
     em_live_set_f32(&live.a, 0x284, -13.8f);
     em_live_set_f32(&live.a, 0x28C, 1.0f);
+    em_live_set_u32(&live.a, 0x30, EM_COLLISION_WORLD_D_00275490);
     em_live_set_u8(&live.a, 4, 1);
     em_live_set_f32(&live.a, 0x204, 1.0f);
     em_live_set_u8(&live.a, 0x31B, 0xFF);

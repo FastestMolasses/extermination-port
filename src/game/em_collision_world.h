@@ -52,6 +52,12 @@ extern "C" {
 #define EM_COLLISION_WORLD_SDK_PATH "assets/sdk_math_tables.emsm"
 /* The soft-float data export (tools/export_sdk_math_tables.py; STARTUP.md). */
 #define EM_COLLISION_WORLD_SOFT_FLOAT_PATH "assets/sdk_soft_float.emsf"
+/* The ELF data the contact pass 001A8660 reads through the player's +0x30:
+ * D_00275490 (the player's radius and height, the block 0015C420 stores at
+ * +0x30), "EMRG" v1 from tools/export_collision_contact.py (STARTUP.md).
+ * Read by the first load only, like the soft-float data. */
+#define EM_COLLISION_WORLD_CONTACT_PATH "assets/collision_contact.emrg"
+#define EM_COLLISION_WORLD_D_00275490 0x00275490u
 
 /* Build the world for an area: the directory at `cells_path`, the rank
  * section of the EMCL at `emcl_path` (which `emcl` is the loaded copy of; it
@@ -154,6 +160,19 @@ void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners);
  * against the class-2 list. Kept across area builds; NULL unbinds. */
 void em_collision_world_bind_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
                                      void *context);
+/* The AREA11 binder's records, consulted after the two suppliers above:
+ * the flame 008235F0's record (class 0xD) and the player record D_008102B0
+ * that 001A8BE0 / 001A8660 read (em_area11_bindings.c). Kept across area
+ * builds; NULL unbinds. */
+void em_collision_world_bind_area_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
+                                          void *context);
+/* The +0x34 behaviour 001A8660 calls for a class-0xD type-1 entry
+ * (fn = the entry's +0x34 word): the binder dispatches it (AREA11: the
+ * flame's 0x823580). Unbound, or for a word the binder does not know, the
+ * call faults at 0x1A8734. Kept across area builds; NULL unbinds. */
+typedef int (*EmCollisionWorldBehaviour)(void *context, uint32_t fn, uint32_t entry, uint32_t player,
+                                         uint32_t player_b0);
+void em_collision_world_bind_behaviour(EmCollisionWorldBehaviour behaviour, void *context);
 /* Existing canonical owner views; NULL callbacks remain unavailable. */
 const EmCollisionWorldOwners *em_collision_world_owners(void);
 const EmCollMoveWorld *em_collision_world_move(void);

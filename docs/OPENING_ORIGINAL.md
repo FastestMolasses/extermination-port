@@ -9,8 +9,8 @@ Section 4 is the live proof.
 
 | File | Role |
 |---|---|
-| `src/game/em_area11_opening.{h,c}` | 00823E80's state 1 (its script machine), translated from the original instructions |
-| `src/game/em_area11_bindings.c` | `tick_opening` (the controller's states 0 / 1 and its tail), `tick_opening_actor` (callback 001BB0E0), `em_area11_bindings_001BAC00` (op14's spawn over the pool) |
+| `src/game/em_area11_opening.{h,c}` | 00823E80, the whole function (`em_area11_opening_tick`; ground truth the decomp's byte-identical func_overlay_AREA11_00823E40.c; oracle `make test-area11-opening-reference`) |
+| `src/game/em_area11_bindings.c` | `tick_opening` (the controller's workers on its record), `tick_opening_actor` (callback 001BB0E0), `em_area11_bindings_001BAC00` (op14's spawn over the pool) |
 | `src/game/em_area_script.{h,c}` | op14 admitted: 001BA1F0 dispatches it to the `w_001BAC00` worker |
 | `src/game/em_area11_script_host.{h,c}` | the opening's image (0x828F30..0x8292C0), `w_001BAC00`, 0022EC30 on the opening's track, the camera's w lanes |
 | `src/game/em_area11_roger.{h,c}` | the second pair of records: the opening body and its class-8 node (`em_area11_roger_opening_tick`) |
@@ -31,6 +31,12 @@ Section 4 is the live proof.
   - **Any other value:** nothing.
 - **Every state-1 call** ends with 001B1B70(self) and its +0x4C (the canopy's
   001CAA00).
+- **States 2 / 3:** 001AFC10(self). **Any other state:** returns.
+
+State 0 does nothing else: it calls no item or prop service (chain step
+A11FIX, 2026-10-02, removed the port's em_pickup_prop_retire there; the
+legacy manifest instance of the canopy is retired when the roster spawns the
+record, em_area11_bind_roster, see OPENING_SCENERY.md).
 
 **The script 0x828FC0** runs these records in order (op / sub):
 
@@ -90,8 +96,13 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
 
 ## 2. Binding (done 2026-09-28)
 
-- **The controller.** `tick_opening` runs `em_area11_opening_state1` with
-  these workers:
+- **The controller.** `tick_opening` runs `em_area11_opening_tick` (the
+  whole function; its +0x00 / +0x04 / +0x05 / +0x2E are the EmActor's
+  `status`, `u04[0]`, `u04[1]` and `flags2`) with these workers:
+  - 001B0FD0 / 001C6380 / the +0x4C 001CAA00: em_area11_boxes' owner
+    services on the record; 001B1B70: the collision world's class lists;
+    001AFC10: the pool's free (states 2 / 3, not reached in the first
+    level);
   - 001BA1C0: the canonical D2 flag byte;
   - 001BA1A0 / 001BA1F0: `em_area11_script_host_start` / `_tick` on the
     controller's record;
@@ -101,9 +112,12 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
     D_00810CC3[0]);
   - 001AEE10: the transition fade.
 
-  Its +0x05 and +0x2E are the EmActor's `u04[1]` and `flags2`. The
-  completion also ends the opening lane's busy state
-  (`em_opening_runtime_complete`).
+  The completion also ends the opening lane's busy state
+  (`em_opening_runtime_complete`). `make test-area11-opening-reference`
+  executes the original 0x823E80 over every +0x04 value, +0x05 0..3, the
+  three callee results and the record bytes, and compares the calls (with
+  their arguments), +0x00 / +0x04 / +0x05 / +0x2E and D_00810811 (quick: 160
+  of 2,144 cases; EM_TEST_FULL=1 all).
 - **The script.**
   - The host loads the opening's image `assets/scene_snow/opening.emsc`
     (tools/export_area11_opening.py; base 0x828F30, entry 0x828FC0, 0x390
