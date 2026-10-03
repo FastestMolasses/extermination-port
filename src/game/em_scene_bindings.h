@@ -79,6 +79,12 @@ int em_scene_bindings_001FAE70(int a0);
 int em_scene_bindings_001FABB0(void);
 int em_scene_bindings_001FBC50(void);
 int em_scene_bindings_001FC280(void);
+/* The scene tick log's tail line (EM_AREA_CHANGE_LOG): the post-frame
+ * values of the run's last tick, which has no next tick to carry them.
+ * request: by the level smoke's exit phase; write: by main after the main
+ * loop ends (a no-op without a request or a log). Test instrumentation. */
+void em_scene_bindings_log_request_tail(void);
+void em_scene_bindings_log_tail(void);
 int em_scene_bindings_001FAD70(int32_t lane, int32_t fade, int32_t release);
 /* 1 when the player record's node records are the displayed pose this frame
  * (the record pose source holds the display; every stage poses the record,
@@ -119,6 +125,10 @@ int em_scene_bindings_pool_count(uint32_t callback);
  * node with this original callback, or NULL (no roster pool, or no such
  * node). Test instrumentation (the S13 level smoke's NOT-LIVE lines). */
 const char *em_scene_bindings_pool_binding(uint32_t callback);
+/* The cycle of the live fan node at original record `address` (00827630:
+ * its +0x05 phase and +0x28 timer, em_area11_bindings_gun_fan_log): 1, else
+ * 0 (test instrumentation: the level smoke's exit phase waits on fan r2). */
+int em_scene_bindings_fan_cycle(uint32_t address, uint8_t *phase, int16_t *timer);
 /* The original record address of a pool record (0 outside the pool; test
  * instrumentation: the level smoke's player-ground check). */
 uint32_t em_scene_bindings_pool_address(const void *actor);

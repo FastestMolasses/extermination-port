@@ -390,7 +390,7 @@ int em_coll_move_walk_0019FE50(const EmCollMoveWorld *w, EmCollMoveScratch *s)
         if (!w->cells->static_kind || (unsigned)i >= w->cells->static_kind_count) return -1;
         s->kind = w->cells->static_kind[i];                  /* 0x0019FF78: D_0024D7C0 byte */
         if (kind_skips(s->kind, s->query_class)) continue;
-        const uint8_t *hull = t->bytes + (word & 0x3FFFFFFFu);
+        const uint8_t *hull = t->bytes + em_actor_cells_hull_offset(word);
         if (!hull_admits(hull, &b, s->start[1])) continue;
         const uint8_t *p = hull + 0x1C;
         int hit = 0;

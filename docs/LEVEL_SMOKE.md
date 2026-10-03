@@ -33,10 +33,11 @@ run on the original owner (census L21, DIRECTOR_ORIGINAL.md section 6) with
 their voiced lines on the stream lanes (STREAM_LANES.md "Live binding").
 
 **Route coverage.** The checker ends with one `level smoke: route beats:`
-line naming every route beat 00..14 and the state of each of its phases
+line naming every route beat 00..15 and the state of each of its phases
 (live, NOT-LIVE driven, NOT-LIVE, or not reached; a side beat the run did
-not play reads "not played in this run"). As of 2026-09-26: beats
-01..14 live on the main line (18 phases), the side beats 00 and 09 each in
+not play reads "not played in this run"). As of 2026-10-02: beats
+01..15 live on the main line (19 phases; beat 15, the level exit, since
+chain C11 EXIT), the side beats 00 and 09 each in
 its own run, and `make test-level-smoke-full` requires all of them
 (`--require-through`, "Running it"). Since 2026-09-27 the side-9 run goes on
 to the fence door's side 1 (`fence_door_side1`, the decomp's C7 DOOR1
@@ -46,7 +47,7 @@ capture, not a route beat), which the same targets require.
 
 ```sh
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
-make test-level-smoke-full             # the whole route through roger, --require-through last (about 120 s), then the side runs below (about 70 s)
+make test-level-smoke-full             # the whole route through the exit (the AREA01 arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim
 make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
@@ -81,7 +82,9 @@ way and checks both against their captures. The side run
   cannot come nearer to 10 s by moving its end phase. Most of the run is
   the New Game path to first control (1,393 of its 1,919 logged ticks),
   which every run plays.
-- The full main-line run plays 13,039 ticks in about 108 s. Its checker takes
+- The full main-line run plays 13,039 ticks to Roger in about 108 s; the exit
+  phase adds about 700 ticks (and the departure movie's 2 s to its test skip),
+  about 130 s in all under load (measured 2026-10-02). Its checker takes
   about 10 s more.
 - A run that ends at `fence_door_side1` takes about 56 s.
 
@@ -270,6 +273,7 @@ fence_door_side1` requires both side phases.
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
+| exit | 15 (EXIT capture: exit_00 f31.., exit_01 ..f306) | fan r2 00827630's exit box, Roger's departure 0x828A10 (op01 kind 3, op0F: the movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (AREA01 sub 0), the AREA01 arrival 0x1AE040 state 0 | yes (chain C11 EXIT, 2026-10-02) | — |
 
 ## What the live phases check
 
@@ -1290,6 +1294,74 @@ script ran, D_008107D8 holds bit 0 and the player stands at the script's
   for row (`check_follow_after_release`, census L13..L16).
 
 Measured: every compared field equal on every row.
+
+### exit
+
+Route beat 15, re-recorded with whole rows by the EXIT capture lane (decomp
+CAPTURES_C10.md "EXIT": `build/c10/exit/exit_00_departure`,
+`exit_01_movie_arrival`; FIRST_LEVEL_EXIT.md section 7): the fan crossing,
+Roger's departure, the movie, the area change, the AREA01 load and the
+arrival, the last phase of the main line (chain C11 EXIT, 2026-10-02).
+
+**Runner** (em_level_smoke_test.c `exit_frame`). From roger's end (route
+beat 14's last row, where exit_00 starts), a neutral pad until fan r2
+(0x7A7690) leaves phase 2 and enters it again: that tick is exit_00's row
+31 (the fan's cycle runs from the area load, whose length is the drive's).
+From there it replays exit_00's 50 pad entries (stick only): the
+original's state first shows an entry of frame f in its row f + 3, so the
+after-frame hook of the tick aligned to row c sets the entry of row c - 2.
+At row 344 D_008107D8 must be 0x81 (the crossing). From there no input: the
+departure, the movie (the frontend's test hold of START from 2 s, as for
+the intro movie: the game sees one frame either way), the area change and
+the load. The frames without a world frame (the load, its veil, the
+rebuild) are watched from the slot-0 task's end
+(`em_level_smoke_test_task_end`); the phase ends on the frame before the
+AREA01 rebuild (area 1, slot 0 +9 = 1, +B = 0), and the finish's one more
+frame is the rebuild, exit_01's row 306, the first frame of control in
+AREA01. The run quits there: every later AREA01 frame faults (level 2).
+That last tick has no next tick to carry its post-frame values, so the
+smoke asks the scene tick log for a **tail** line (`{"tail": 1, ...}`:
+the fade block, the message block, the stream lanes, the ambient loop and
+the pool's records), written after the main loop ends.
+
+**Against the capture** (`check_exit`):
+- exit_00 f31..f434 and exit_01 f0..f10 (counter 16207: the frame before
+  the load), every row, aligned by the main-loop counter: the player's
+  position, heading, +5, +1F0, +1F1, clip, +0x2F3 and clock (the clock
+  from the walk's clip on, f42: before it the idle clip's phase is the time
+  since the area load), the spad bytes, B0..B9, the area bytes, slot 0's
+  +8..+B, D_008107D8, fan r2's phase and timer, Roger's +0x00..+0x0F and
+  script block (freed: none), his equipment node, the camera eye / target
+  and byte, the letterbox, the message block and the fade block; the run
+  log's one movie line is selector 1, E001.PSS;
+- the load: the distinct states of slot 0, the slot-2 loader (+8..+B) and
+  D_00275BD8 equal the capture's 18 in order; a state the capture holds
+  one frame holds one tick; the others (the drive's polls, 001FB370's
+  upload, the veil's post-load wait) are not longer than the capture's;
+  every tick's B0..B9, area bytes, spad, letterbox, camera, message and
+  fade equal the capture's row of the same state; and the chain and the
+  veil over the exit's ticks replay through the original instructions
+  (tools/test_area_load_reference.py replay_chain / replay_veil: 94 chain
+  ticks and 001AD010);
+- the arrival, f304..f306 aligned on the rebuild: the fields above (Roger,
+  the equipment and fan r2 are left to the pool at f306, whose addresses
+  AREA01's records reuse; the player's clock is exempt at f306: the port's
+  pose attach runs in the rebuild where the original's 0015C420 runs in the
+  first stage) and from the tail: the fade block (the fade-in), the message
+  block, D_00282157 = 1 (the music's read), D_00282160 = 0x44E (the end
+  snapshot's) and the pool: every live record's +0x00..+0x17 equal to the
+  capture's f306 (row 0's pool with f306's changes: 78 records) and their
+  +0x18..+0x3F / +0xA0..+0xDF.
+
+Measured (2026-10-02): every compared field equal on every row; the load
+at host speed takes 94 ticks against the capture's 295 frames (the drive's
+polls, 001FB370's 22 dispatches against 26, the veil's 55 frames against
+80).
+
+The whole-run checks (render context, effects, shadow, rand order, ...)
+cover AREA11's ticks: the checker leaves out the arrival's rebuild tick.
+The render context's view check accepts the rebuild's re-seat (001B0460
+in state 0, projected by its 001D1EF0), as it accepts state 4's.
 
 ### The step-offs (`check_fall`)
 

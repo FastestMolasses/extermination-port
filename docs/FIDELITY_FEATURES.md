@@ -23,7 +23,8 @@ executed in the project's own interpreters over those recordings. Where an
 entry says "equal to the original", it means equal to the original
 instructions on PCSX2-recorded inputs, or equal to a PCSX2 recording. Unless
 an entry says otherwise, the scope is the **first level** (New Game, the
-AREA11 opening, and the level up to Roger's encounter).
+AREA11 opening, and the level through Roger's encounter and its exit into
+AREA01's first frame).
 
 ### Status tags
 
@@ -143,10 +144,17 @@ verified translation.
   the AIM capture lane's 114 further functions (aiming, firing, melee,
   reloads; 20,583 instructions) are rows, all live, measured over the
   eleven AIM side runs: with them live 837 of 870 (107,591 of 109,312
-  instructions = 98.4%), the route's own 756 unchanged.
-- Status: **PARTIAL**. First level only, and only the played route to
-  Roger's encounter plus the AIM side beats from route 08's end. Not
-  covered: the level exit, unplayed branches
+  instructions = 98.4%), the route's own 756 unchanged. Update 1.58
+  (chain step EXIT, 2026-10-02, recounted from the rows after the merge
+  onto 1.56..1.57): route beat 15, the level exit through the AREA01
+  arrival, joins the count (11 functions, 001FC280 live): the route's own
+  738 of 766 live (88,066 of 89,400 instructions = 98.5%), with the AIM
+  beats live 852 of 880 (108,649 of 109,983 = 98.8%), verified but
+  unbound 26, unverified 2, boundary 429; AREA01's frames after the
+  arrival are level 2 (census 3.26).
+- Status: **PARTIAL**. First level only, and only the played route
+  through the level exit's AREA01 arrival plus the AIM side beats from
+  route 08's end. Not covered: unplayed branches
   (damage/death, pause/options/save, the camera inputs, the truck-pit
   fall, the west-yard and plateau ladders) and boot before the title.
   Boundary functions are native replacements, not translations; the sound
@@ -1275,7 +1283,8 @@ fades change on the same ticks as in the recordings.
   counts that as a failure.
 - Evidence: `LEVEL_SMOKE.md` "Phases", "What the live phases check", "What
   the full route does not yet compare". `make test-level-smoke-full` runs
-  with `--require-through`: route beats 01..14 on the main line (18 phases),
+  with `--require-through`: route beats 01..15 on the main line (19 phases
+  since chain C11 EXIT),
   plus side beat 00 (the panel without the battery) and side beat 09 (the
   fence door), each in its own run. In the census 1.22 recount (2026-09-26)
   all 18 main-line phases passed and their capture checks passed again on
@@ -1294,7 +1303,7 @@ fades change on the same ticks as in the recordings.
   one field slower fails it there and fails the opening's exact end.
 - Status: **VERIFIED**. The reference is the PCSX2 recordings, not a real
   PS2. Only the first level (AREA11) is covered, and only route beats
-  00..14. The level exit (beat 15) is a separate PLANNED entry. The smoke's
+  00..15. The level exit (beat 15) has its own entry below. The smoke's
   own walking between the scripted and climbing windows is navigation and
   is not compared. Relaxations the smoke reports (`LEVEL_SMOKE.md` "What the
   full route does not yet compare" and "Known divergences"): (1) the status
@@ -1801,38 +1810,48 @@ gun and its cable "husks"; that label was wrong.)
   behaviour (it stops the game if reached); the lamp's draw. The pixels are
   Metal's, not the GS's.
 
-**The level exit into level 2 (route beat 15)**
+**The level exit: Roger's departure, the exit movie and the arrival in AREA01 (route beat 15)**
 
-When this lands, leaving AREA11 will play Roger's departure, the fan
-crossing, the exit movie and the move into the next area on the original
-schedule, with loading at your machine's speed.
+Leaving AREA11 plays as in the original: you wait for the fan's slow phase
+and walk under it, Roger's departure walks you back and plays the exit
+movie, the screen goes black while the next area loads (at your machine's
+speed), and you arrive in the underground tunnel (AREA01) at the original's
+spot, facing the original's way, with its camera, its fade-in, its music
+and its ambient hum starting. The first level ends there: AREA01 itself is
+level 2, which the port does not run yet, so the game stops on that first
+AREA01 frame.
 
-- How: beat 15 is recorded in PCSX2 and documented frame by frame: the
-  player waits for the fan's slow phase and crosses it, the fan sets its
-  exit bit, Roger's departure script walks the player and plays the movie,
-  and the script's area request leads into the AREA01 arrival. The fan is
-  bound since census L24 (its exit bit is set as in the original); the port
-  still needs Roger's departure bound (its op0F handshake stops the game
-  today), plus the AREA01 area data, before it can run this.
-- Evidence: `FIRST_LEVEL_EXIT.md`: route table row 15 and the
-  frame-by-frame table, with the fan crossing and the start of Roger's
-  departure script at f344, the movie inside f442, the area request
-  001B0C60(1, 0, 4) from Roger's script at f445 (001AD010 at f446, 001FF080
-  at f447), the loader done at f658, a post-load wait with the veil
-  f660..f739, and control in AREA01 at f741. Census section 6: "the level
-  exit ... is not in the census". The census row 0x00827630 is live since
-  L24, and `FIRST_LEVEL_EXIT.md` lists Roger's departure as not bound live
-  (audit H3).
-- Status: **PLANNED**. Not live: the first level cannot yet be finished in
-  the port. The fan does not issue the area request on this route. Roger's
-  departure script does (the fan's own exit applies only on a later
-  return). Under the user policy, the 296 frames under black between the
-  area request and AREA01 control are not all load time. The loader runs
-  roughly f447..f658, and an 80-frame post-load wait with the veil follows
-  (f660..f739). Which of these frames are load waiting (host speed) and
-  which are choreography has not been decided. The movie itself took 79 to
-  254 s of PCSX2 host time inside one game frame, so its original on-screen
-  length has not been measured.
+- How: the fan's exit box, Roger's departure script (its walk and its movie
+  handshake), the movie (E001.PSS, the original's selector 1 and its START
+  skip), the area-change request, the area load through the original
+  loader's own steps (AREA01's files exported from your disc into the
+  loader pack) and the arrival's area rebuild (the spawn placement, the
+  camera re-seat, the roster spawn of every AREA01 owner record, the
+  ambient loop and the music cue) all run their translated originals
+  (`FIRST_LEVEL_EXIT.md` section 7).
+- Evidence: the level smoke's `exit` phase (`LEVEL_SMOKE.md` "exit")
+  against the decomp's EXIT capture: 415 rows of the departure (exit_00
+  f31..f434 and exit_01 f0..f10) equal row for row in the player's
+  position, heading, state, clip and clock, the camera, the letterbox, the
+  messages, the fades, the fan's cycle and Roger's record and script; the
+  load passes the capture's 18 loader states in order, with its chain and
+  load veil replayed through the original instructions; the arrival frame
+  equals the capture's f306 in the player's placement, the camera, the
+  fade-in, the music's read, the ambient loop id 0x44E and all 78 records of
+  the actor pool (headers, +0x18..+0x3F and +0xA0..+0xDF). `make
+  test-level-smoke-full` requires the phase. Original-instruction oracles:
+  `test_roger_reference` (the departure branch), `test_area_script_reference`
+  (the script 0x828A10), `test_fan_original_reference` (the exit box).
+- Status: **VERIFIED** (relative to PCSX2 captures) from the fan crossing
+  to the first AREA01 frame. Not compared: the movie's pictures and sound,
+  the SPU2 output (no audio capture), AREA01's pixels (the arrival frame is
+  under the fade-in's black), and the player's animation clock in the
+  arrival frame itself (the port prepares the player's pose one step
+  earlier in that frame; no later frame runs). At host speed the black
+  stretch between the area request and AREA01 is shorter (the original's
+  disc reads and its longer load veil); the PS2 disc-drive timing switch has
+  no recording of these reads. The fan's direct exit on a later return and
+  its hit box are not on the route.
 
 **Random events (light flicker, sprite variations, puffs) in the original order**
 
@@ -1888,10 +1907,11 @@ can meet the same standard. It is not playable in the port yet.
   in 837d548 and 7 more in f799141.
 - Status: **PLANNED**. Nothing is bound: the Makefile is unchanged and
   nothing of level 2 runs in the game. The mutation sweeps did not converge
-  and were closed on named survivors. Known binding blockers:
-  `em_actor_cells` rejects AREA01's cell directory, and
-  `em_coll_segment_walkers` returns -1 on 0019D770's no-span path (decomp
-  HANDOFF). The HANDOFF's "33 of 41" disagrees with the bdd40fb commit and
+  and were closed on named survivors. The level exit's arrival (above)
+  rebuilds AREA01 sub 0 live; nothing runs after that frame. Known binding
+  blockers: `em_coll_segment_walkers` returns -1 on 0019D770's no-span path
+  (decomp HANDOFF); `em_actor_cells` accepts AREA01's cell directory since
+  chain C11 EXIT (bit 29: the EE's uncached RAM mirror). The HANDOFF's "33 of 41" disagrees with the bdd40fb commit and
   `PROGRESS.md`, which both say 32.
 
 ---

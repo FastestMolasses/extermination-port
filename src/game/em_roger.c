@@ -90,7 +90,7 @@ int em_roger_tick(EmRoger *r, EmRogerStory *story, const EmRogerHooks *h)
             int done=h->script_tick(h->context);
             if (done<0 || done>1) return -1;
             if (done) {
-                if (!emit(h,EM_ROGER_REMOVE_GROUP,1)) return -1;
+                if (!emit(h,EM_ROGER_AREA_CHANGE,1)) return -1;
                 r->lifecycle=3;
             }
         }

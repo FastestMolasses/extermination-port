@@ -147,9 +147,13 @@ Not modelled: whatever 001B0C60, 001B17A0 and the draw callback do beyond being 
 per-area bank's entry 0x13; a bound fan retires the em_pickup prop instance at its +0xB0, so the static pose
 below no longer draws), `em_sfx_play_at` (cue 0x451), `em_area11_boxes_owner_001C6380` after the module's +0xC8
 store, the interaction host's 001B17A0, `em_scene_request_area_change_001B0C60`, `em_area11_boxes_owner_draw`
-(001CAA00) and `em_actor_pool_free_001AFC10`; the player view is the live player record. Evidence: the level
+(001CAA00) and `em_actor_pool_free_001AFC10`; the player view is the live player record, its position
++0xA0..+0xA8 (D_00810350) g.pos, the position's one storage (chain C11 EXIT: the binding read the record
+image's own +0xA0 words, which no port code writes, so the boxes could never fire). Evidence: the level
 smoke's check_gun_fan (every route snapshot's fan state lies on the port's cycle) and check_owner_units (the
-original 001CAA00, over the port's +0xC8 where the phase differs). The notes below are the original plan.
+original 001CAA00, over the port's +0xC8 where the phase differs); since chain C11 EXIT its `exit` phase:
+fan r2's cycle row for row against exit_00 and its exit box setting D_008107D8 = 0x81 in the capture's frame
+344 (FIRST_LEVEL_EXIT.md section 7). The notes below are the original plan.
 
 - **Spawn.** Call `em_fan_original_spawn(&fan, flags2, placement_rot_z)` from the roster record: flags2 = record
   byte +3, rot.z = record +0x20.

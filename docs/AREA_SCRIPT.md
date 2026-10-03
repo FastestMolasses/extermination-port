@@ -324,7 +324,8 @@ sides; it makes no timing claim about the original services.
   in tools/test_cutscene_skip.py, but has no census row: the route presses
   no skip. Roger's 00823910 / 00823B70 are live
   in em_roger through em_area11_roger (L22); his departure 00823C40 (script
-  0x828A10) is translated in the same tick and bound, but not on the route.
+  0x828A10) is live since chain C11 EXIT (the level smoke's `exit` phase,
+  FIRST_LEVEL_EXIT.md section 7).
   001DFE10 / 001DFE40 (the manager callbacks 0x825900 / 0x825920) have no
   translation and no census row; the manager 008257A0's scripted state 1 is
   untranslated and faults if reached (no AREA11 capture reaches it).
@@ -446,9 +447,13 @@ route 09 (the door record 0x7A70B0, the patched words from the beat's end
 snapshot) with no difference, and its synthetic 'owner clip' script covers
 op0B subs 6 and 0 against the executed 001B8020.
 
-Still NULL (fail-stop): op01 kinds 3 / 5's D_0024D8F0, op0D sub 1 (001B0460),
-op0F's stream handshake bytes (Roger's departure 0x828A10, not in the first
-visit).
+Still NULL (fail-stop): op0D sub 1 (001B0460). Bound since chain C11 EXIT
+(Roger's departure 0x828A10, route beat 15): op01 kinds 3 / 5 / 8's
+D_0024D8F0 (the ELF's nine halfwords, `tools/export_script_walk_clips.py`,
+`assets/script_walk_clips.emwc`) and op0F's bytes: D_00282157 is the stream
+lanes' read phase, D_00275C78 / D_00821058 the movie service's
+(`em_frontend_movie_select` / `_request`, read back before every tick;
+FIRST_LEVEL_EXIT.md section 7).
 
 The player takeover (the stage's own since chain C7): after a tick whose
 op07 opened the scripted frame (3B8D != 0), the owner claims the interaction

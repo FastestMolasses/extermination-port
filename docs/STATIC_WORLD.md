@@ -610,7 +610,26 @@ The kernel packets (read from the ELF by the draw test) set STCYCL 4,4,
 BASE 0x190 and OFFSET 0x109 (level) / 0x101 (clip), which returns the VIF
 double buffer to BASE; every MSCAL / MSCNT flips it. The run's first UNPACK
 inherits the cycle the list left: the channel-3 list ends with the
-background kernel packet 0x0023C990's STCYCL 4,4.
+background kernel packet 0x0023C990's STCYCL 4,4. In a frame without that
+CALL (render flag 4: the frame a movie played, in the first level only
+the departure movie's frame of route beat 15) the run inherits the cycle
+the previous frame's VIF1 stream left: 1,1 (`EM_STATIC_WORLD_FRAME_CYCLE`,
+em_static_world_live.h). Evidence: VIF1_CYCLE (0x10003C40 of the EE
+hardware registers) is 0x0101 between frames in all 18 first-level save
+states (route 00..15, exit_00, exit_01), and every STCYCL the first level's
+packets issue is 1,1 or 4,4, so the cycle is always CL == WL, under which
+an UNPACK writes contiguously (the only property the walk uses). Nothing
+measures it inside the movie frame (no capture between the movie and step
+V); chain C11 EXIT.
+
+**Another area's bank.** The level exit's AREA01 arrival reads AREA01's
+static-object bank: its 001C1DC0 -> 001C1E70 -> 001D52E0 copies the grid
+header from *D_0028A5A0 (resource 0x44: the base of AREA01 room 0's nested
+resident region). The bindings hand the render context that bank as the
+area load delivered it (`em_rcl_static_world_bank` over
+`em_module_loader_memory_rest`); the next `em_rcl_static_world_load`
+returns to AREA11's export. No AREA01 world frame runs, so its grid pass
+(001C1D00) never walks it.
 
 ### 7.2 The level kernel (em_vu1_level_kernel.h)
 

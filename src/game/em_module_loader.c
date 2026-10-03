@@ -870,6 +870,20 @@ EmStatusSceneLoader *em_module_loader_state(EmModuleLoader *ml)
     return ml ? &ml->ld : NULL;
 }
 
+const uint8_t *em_module_loader_memory_rest(const EmModuleLoader *ml, uint32_t address, uint32_t *size)
+{
+    if (!ml || !size)
+        return NULL;
+    for (int i = 0; i < MAX_REGIONS; ++i) {
+        const Region *r = &ml->regions[i];
+        if (r->bytes && address >= r->address && address < (uint64_t)r->address + r->size) {
+            *size = (uint32_t)(r->address + r->size - address);
+            return r->bytes + (address - r->address);
+        }
+    }
+    return NULL;
+}
+
 const uint8_t *em_module_loader_memory(const EmModuleLoader *ml, uint32_t address, uint32_t size)
 {
     if (!ml)

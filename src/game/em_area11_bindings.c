@@ -876,12 +876,13 @@ static int tick_flag30(EmActor *actor, Node *node, const EmArea11World *world)
  * (em_area11_bind_roster). Its globals:
  * D_00810788, D_00810758 and D_008107D8 are canonical progress bytes,
  * D_008106B8 the request byte B8; its player D_008102B0 is the live player
- * record (+0x00, +0x0F, +0x70..+0x7C, +0xA0..+0xA8, +0x224). The exit box
+ * record (+0x00, +0x0F, +0x70..+0x7C, +0x224) with its position
+ * +0xA0..+0xA8 = g.pos. The exit box
  * (the player at z < 156 inside its x/y box, record [2] only, fast arm or
  * slow) sets D_008107D8 |= 0x80 (Roger's departure; 001B0C60(1, 1, 4) when
  * D_00810758 == 0xFF); the hit box (156 <= z < 166.5, fast arm) writes the
- * player hit the player stage's 0021C440 consumes. Neither box is on the
- * level smoke's route (it ends at Roger's encounter). */
+ * player hit the player stage's 0021C440 consumes. The exit box is on the
+ * level smoke's route (its exit phase: exit_00 f344); the hit box is not. */
 typedef struct {
     EmActor *actor;
     int freed;
@@ -961,7 +962,10 @@ static int tick_fan(EmActor *actor, Node *node, const EmArea11World *world)
         player.b00 = pl->bytes[0x00];
         player.b0F = pl->bytes[0x0F];
         memcpy(player.f70, pl->bytes + 0x70, sizeof player.f70);
-        memcpy(player.pos, pl->bytes + 0xA0, sizeof player.pos);
+        /* +0xA0..+0xA8 (D_00810350): the player's position, whose one
+         * storage is g.pos (as for the director's and Roger's triggers);
+         * the record image's own words there are never written. */
+        memcpy(player.pos, g.pos, sizeof player.pos);
         memcpy(&player.f224, pl->bytes + 0x224, sizeof player.f224);
     }
     EmFanOriginal fan = {actor->u04[0], actor->u04[1], node->h28, actor->flags2, node->f38, actor->rot[2], 0};

@@ -28,8 +28,9 @@ static struct {
     int texture_screen, previous_screen, failed;
     EmMovie *movie;
     uint32_t movie_serial;
-    int movie_skip, new_game_movie;
-    int movie_selector; /* D_00275C78 as 001AD360 step 1 stored it; -1 = none */
+    int movie_skip, new_game_movie; /* new_game_movie: a game-task movie (D_00821058 = 1) */
+    int movie_selector; /* D_00275C78 as the game stored it (001AD360 step 1, op0F); -1 = none */
+    int playing_selector; /* the selector of the movie open (f.movie) */
     int installed;      /* em_frontend_install ran (the movie pump is registered) */
     int new_game_switch; /* EM_NEW_GAME=1: START held in the first game-task movie (cleared when it ends) */
     uint32_t attract_serial;
@@ -121,13 +122,34 @@ static void draw_texture(unsigned w, unsigned h)
     em_gfx_overlay_canvas(gfx, EM_GFX_OVERLAY_W, EM_GFX_OVERLAY_H);
 }
 
-static void begin_movie(uint32_t serial, int new_game)
+/* The game's movie table: 00203350 -> 002034C0 opens D_00821010[D_00275C78]
+ * ({lsn, size}, which the boot's 002032C0 fills by looking up each name of
+ * the ELF's D_00264FB0 table on the disc). Selector 0 is \MOVIE\E900.PSS
+ * (the intro, the title's attract movie and the New Game's 001AD360 step 1),
+ * selector 1 \MOVIE\E001.PSS (the departure movie of Roger's script
+ * 0x828A10, op0F; the exit capture's D_00821010[1] is E001.PSS's extent,
+ * docs/FIRST_LEVEL_EXIT.md). The port plays the remux of each file
+ * (tools/export_movie.py); the other seven selectors are not on the first
+ * level's path and are not exported (a request for one fails). */
+static const char *const k_movie_paths[] = {
+    "assets/startup/intro.mov",   /* 0: \MOVIE\E900.PSS */
+    "assets/movies/e001.mov",     /* 1: \MOVIE\E001.PSS */
+};
+
+static void begin_movie(uint32_t serial, int new_game, unsigned selector)
 {
     em_startup_audio_stop();
     em_sfx_stop_all();
-    f.movie = em_movie_open("assets/startup/intro.mov");
+    if (selector >= sizeof k_movie_paths / sizeof k_movie_paths[0]) {
+        fail("movie selector without an exported movie");
+        return;
+    }
+    f.movie = em_movie_open(k_movie_paths[selector]);
     if (!f.movie) {
-        fail("could not allocate the intro movie player");
+        char error[160];
+        snprintf(error, sizeof error, "could not open %s (tools/export_movie.py, docs/STARTUP.md)",
+                 k_movie_paths[selector]);
+        fail(error);
         return;
     }
     f.movie_serial = serial;
@@ -139,7 +161,9 @@ static void begin_movie(uint32_t serial, int new_game)
     f.have_movie_frame = 0;
     f.texture_screen = -1;
     em_frame_set_movie_active(1);
-    printf("startup: movie 0 (E900.PSS)%s\n", new_game ? " for NEW GAME" : "");
+    f.playing_selector = (int)selector;
+    printf("startup: movie %u (%s)%s\n", selector, selector ? "E001.PSS" : "E900.PSS",
+           new_game ? " for the game task" : "");
 }
 
 static int movie_pump(void *unused)
@@ -166,7 +190,7 @@ static int movie_pump(void *unused)
     }
     if (f.have_movie_frame) {
         draw_texture(f.movie_width, f.movie_height);
-        if (f.movie_pts >= 2.0) capture(8, "intro");
+        if (f.movie_pts >= 2.0 && f.playing_selector == 0) capture(8, "intro");
     }
     /* Original stream +8 is a completed-picture index, not game ticks.
      * PTS-derived indices preserve the gate even if presentation drops frames. */
@@ -183,7 +207,10 @@ static int movie_pump(void *unused)
         /* 002036E0 skips on held & (spad 0x70003B90 ? 0x800 : 0x8F0). The
          * game task 001ACEC0 writes 0x70003B90 = 2 on every tick before
          * 001AD360 requests this movie, so only START skips; the 0x8F0 arm
-         * is unreachable from the game task and is refused. */
+         * is unreachable from the game task and is refused. The departure
+         * movie (selector 1, op0F of 0x828A10) is requested from the same
+         * task's world frame: 0x70003B90 is 2 there too (the exit capture's
+         * movie frame, decomp build/c10/exit/exit_01_movie_arrival row 6). */
         if (em_scene_state()->spad3B90 == 0) fail("game-task movie with spad 3B90 == 0");
         if (skip_ready && (held & EM_PAD_START)) f.movie_skip = 1;
     } else {
@@ -204,9 +231,10 @@ static int movie_pump(void *unused)
      * pad alone, as on the title route. */
     if (f.new_game_movie)
         f.new_game_switch = 0;
-    /* A game-task movie (001AD360 step 1) simply returns: the blocking call
-     * 00203350 ends and the main loop resumes; the task chain goes on to
-     * 001AD360 step 2 (S12a). 001AD250's 001AEDB0 after step 5 and the
+    /* A game-task movie (001AD360 step 1, or op0F's) simply returns: the
+     * blocking call 00203350 ends (D_00821058 = 0) and the main loop
+     * resumes; the task chain goes on to 001AD360 step 2 (S12a), or op0F's
+     * phase 3 sees D_00821058 = 0 on the next world frame. 001AD250's 001AEDB0 after step 5 and the
      * 001ADF50 load follow in the chain (em_scene_bindings.c); the loading
      * veil's particles (0021B1B0/0021B500) are not drawn, so the screen
      * stays black there (WP-17 residue). */
@@ -262,7 +290,7 @@ static void notify(void *unused, const EmStartupEvent *event)
         if (!ready) fail("native save directory data/save is unavailable");
         break;
     case EM_STARTUP_MOVIE:
-        begin_movie(event->serial, 0);
+        begin_movie(event->serial, 0, 0);
         return;
     case EM_STARTUP_MOVIE_SKIP:
         f.movie_skip = 1;
@@ -394,6 +422,8 @@ int em_frontend_movie_select(uint8_t selector)
     return 0;
 }
 
+int em_frontend_movie_selector(void) { return f.movie_selector; }
+
 int em_frontend_movie_request(uint8_t value)
 {
     if (!f.installed) {
@@ -402,14 +432,15 @@ int em_frontend_movie_request(uint8_t value)
         em_frame_request_quit();
         return -1;
     }
-    if (value != 1 || f.movie_selector != 0 || f.movie) {
+    if (value != 1 || f.movie_selector < 0 ||
+        (size_t)f.movie_selector >= sizeof k_movie_paths / sizeof k_movie_paths[0] || f.movie) {
         char error[128];
         snprintf(error, sizeof error, "movie request D_00821058=%u with selector %d is not exported",
                  (unsigned)value, f.movie_selector);
         fail(error);
         return -1;
     }
-    begin_movie(0, 1);
+    begin_movie(0, 1, (unsigned)f.movie_selector);
     return f.failed ? -1 : 0;
 }
 

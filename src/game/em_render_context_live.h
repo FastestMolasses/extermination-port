@@ -116,6 +116,12 @@ int em_rcl_bound(void);
  * reported). */
 int em_rcl_static_world_load(const char *path);
 int em_rcl_static_world_loaded(void);
+/* The static-object bank of an area whose bank is not the export's: `size`
+ * bytes at the original `address` (D_0028A5A0's), as the area load
+ * delivered them (the level exit's AREA01 arrival: its 001C1DC0's 001D52E0
+ * reads the bank's grid header). Copied; replaces the export's bank until
+ * the next em_rcl_static_world_load. 0, or -1. */
+int em_rcl_static_world_bank(uint32_t address, const uint8_t *bytes, uint32_t size);
 /* 001C1D00(state_address) in both world variants: the background channel
  * (001E0CF0 -> 001E1E60: the channel-3 list, its start at +0x1D8) and the
  * static world's grid pass (001D5370: the channel-0 run), composed by

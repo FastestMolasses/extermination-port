@@ -56,6 +56,10 @@
 /* Area 0x0B / sub 0 / entry 0, committed by func_001AD360 step 4 on every
  * new-game route (title New Game and game-over option 0). */
 #define AREA11_SCENE_DIR "assets/scene_snow"
+/* Area 1 / sub 0: the level exit's arrival (Roger's departure requests
+ * 001B0C60(1, 0, 4); route beat 15, docs/FIRST_LEVEL_EXIT.md). The port's
+ * own AREA01 exports (docs/AREA01_ASSETS.md); its gameplay is level 2. */
+#define AREA01_SCENE_DIR "assets/area01"
 #define SCENE_MAX      16
 
 /* DEFAULT player spawn — the office room (chunk06.n1 level): the live

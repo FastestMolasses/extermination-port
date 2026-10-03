@@ -320,8 +320,9 @@ lanes' entry points:
   `D_008106F5`) and `D_008106F4` / `D_008106F5` / `D_00810D38` are stored back after it; a worker that re-enters the
   lanes (001FC280's 00119828 pair inside 001FAE70, 001FBC50's inside 001FD470) runs inside the same view.
 - **Workers:** 00122BB8 = `em_random_next` (the one game LCG); 001FC280 = `em_scene_bindings_001FC280` (the spawn
-  record's ambient loop, then its two 00119828 calls back into the lanes; a loop id other than -1 faults, the
-  `D_00282160` cache is not modelled); 001FBC50 = `em_scene_bindings_001FBC50` (em_sfx_stop_all, then its two
+  record's ambient loop: since chain C11 EXIT its cache `D_00282160`, the old loop's stop and the new loop's
+  001FB9F0 in the SFX registry's area scope (the level exit's AREA01 arrival starts 0x44E); then its two 00119828
+  calls back into the lanes); 001FBC50 = `em_scene_bindings_001FBC50` (em_sfx_stop_all, then its two
   00119828 calls); 001157F0, 0011A2B0 and the disc workers = the IOP backend.
 - **Callers** (every former stand-in replaced in the same change): the frame machine (`em_scene_bindings.c`:
   001FABB0 at the status open and 001AD360 step 0, 00119828, 001FAE70(1) at the status close, the game over's

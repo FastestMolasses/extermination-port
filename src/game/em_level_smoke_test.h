@@ -29,6 +29,11 @@ void em_level_smoke_test_tick_end(void);
  * after-frame hook again, so this ends the run with a FAIL line (and a
  * nonzero exit) instead of waiting for the next phase. */
 void em_level_smoke_test_scene_stopped(void);
+/* At the end of every slot-0 game-task tick that did not fault (after the
+ * scene tick log's line; em_scene_task_001ACEC0). Only the exit phase's
+ * frames without a world frame (the area load, its veil, the AREA01
+ * arrival's state-0 rebuild) use it: the after-frame hook never runs there. */
+void em_level_smoke_test_task_end(void);
 int em_level_smoke_test_active(void);
 int em_level_smoke_test_failed(void);
 

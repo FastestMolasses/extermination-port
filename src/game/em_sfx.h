@@ -307,6 +307,10 @@ void em_sfx_play(unsigned id);
 /* func_001FB9F0(id, 0x1000, left, right): the submit with explicit request
  * words (001FC6E0's delayed cues). Game thread only. */
 void em_sfx_submit_001FB9F0(unsigned id, int32_t left, int32_t right);
+/* The same, returning 001FB9F0's value: the allocated track (the handle a
+ * caller keeps to stop a loop with 0011A070 / em_sfx_stop_track), or -1
+ * when nothing was allocated (silent id, a cue-bank sound, no free track). */
+int em_sfx_submit_001FB9F0_track(unsigned id, int32_t left, int32_t right);
 /* D_00281B70 (the id each looped service started on a track) and
  * D_00281C30 (001FB100's per-frame copy of it), 48 words each: the view
  * the step-H 001FB100 translation copies with (em_stream_live). Game

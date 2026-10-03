@@ -86,6 +86,7 @@ static uint32_t s_d8101D0_words[0x10 / 4];
 /* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
 static uint8_t *s_bank;
 static uint32_t s_bank_address, s_bank_size;
+static int s_bank_delivered; /* s_bank came from em_rcl_static_world_bank, not the export */
 /* 001DFA40's 16 x 16 table (its stack frame at sp + 0xD0): lanes 0..2 of
  * each entry are written every call, lane 3 never (docs/LOAD_VEIL_PARTICLES.md
  * section 5). */
@@ -839,7 +840,12 @@ int em_rcl_001C1DC0(void)
 int em_rcl_static_world_load(const char *path)
 {
     if (!R.loaded || R.fault) return -1;
-    if (s_bank) return 0;
+    if (s_bank && !s_bank_delivered) return 0;
+    if (s_bank) {
+        free(s_bank);
+        s_bank = NULL;
+        s_bank_delivered = 0;
+    }
     FILE *f = fopen(path ? path : EM_RCL_STATIC_WORLD_PATH, "rb");
     if (!f) {
         fprintf(stderr, "render context: %s is missing (run tools/export_static_world.py)\n",
@@ -865,6 +871,21 @@ int em_rcl_static_world_load(const char *path)
     s_bank = bank;
     s_bank_address = bank_address;
     s_bank_size = bank_size;
+    build_views();
+    return R.fault ? -1 : 0;
+}
+
+int em_rcl_static_world_bank(uint32_t address, const uint8_t *bytes, uint32_t size)
+{
+    if (!R.loaded || R.fault || !bytes || !size || size > 0x1000000u || address + size < address) return -1;
+    uint8_t *bank = malloc(size);
+    if (!bank) return -1;
+    memcpy(bank, bytes, size);
+    free(s_bank);
+    s_bank = bank;
+    s_bank_address = address;
+    s_bank_size = size;
+    s_bank_delivered = 1;
     build_views();
     return R.fault ? -1 : 0;
 }
