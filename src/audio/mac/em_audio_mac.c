@@ -16,11 +16,17 @@
  *   - On any malformed render request the buffers are zero-filled so the
  *     speaker never receives garbage.
  *
+ * Headless runs (em_headless(): tests, captures, traces) keep the device and
+ * its real pull cadence, so timing is unchanged, but the render proc zeroes
+ * what the callback wrote: nothing reaches the speakers. EM_HEADLESS=0 makes
+ * a test audible again.
+ *
  * Teardown: AudioOutputUnitStop + AudioUnitUninitialize synchronize with the
  * I/O thread, so after em_audio_destroy returns the callback can no longer be
  * in flight (the contract em_audio.h documents).
  */
 #include "em_audio.h"
+#include "em_platform.h"
 
 #include <AudioToolbox/AudioToolbox.h>
 #include <stdlib.h>
@@ -30,6 +36,7 @@ struct EmAudio {
     AudioUnit       unit;
     EmAudioCallback cb;
     void           *user;
+    int             silent; /* em_headless() at create: mute the output */
 };
 
 static OSStatus em_audio_render(void *inRefCon,
@@ -54,6 +61,9 @@ static OSStatus em_audio_render(void *inRefCon,
             inNumberFrames * 2 * sizeof(float)) {
         a->cb(a->user, (float *)ioData->mBuffers[0].mData,
               (int)inNumberFrames);
+        if (a->silent)
+            memset(ioData->mBuffers[0].mData, 0,
+                   inNumberFrames * 2 * sizeof(float));
         return noErr;
     }
 
@@ -74,6 +84,7 @@ EmAudio *em_audio_create(int sample_rate, EmAudioCallback cb, void *user)
         return NULL;
     a->cb   = cb;
     a->user = user;
+    a->silent = em_headless();
 
     AudioComponentDescription desc = {
         .componentType         = kAudioUnitType_Output,
