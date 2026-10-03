@@ -769,20 +769,24 @@ static void log_tick_end(int rc)
         fprintf(f, ", \"eye_post\": [%u, %u, %u], \"tgt_post\": [%u, %u, %u]", eye[0], eye[1], eye[2],
                 tgt[0], tgt[1], tgt[2]);
         /* Census L13: the live camera's canonical bytes at the tick end: the
-         * camera block D_008101E0 (0xD0 bytes), the forward D_00810600 and
-         * D_00810690..D_008106A3 (null without the live camera). */
+         * camera block D_008101E0 (0xD0 bytes), the forward D_00810600,
+         * D_00810690..D_008106A3 and the eye / target / up quads
+         * D_008105D0..D_008105FF (null without the live camera). */
         {
             const uint8_t *blk = em_camera_live_bound() ? em_camera_live_bytes(0x008101E0u, 0xD0) : NULL;
             const uint8_t *fwd = em_camera_live_bound() ? em_camera_live_bytes(0x00810600u, 16) : NULL;
             const uint8_t *d690 = em_camera_live_bound() ? em_camera_live_bytes(0x00810690u, 20) : NULL;
+            const uint8_t *d5d0 = em_camera_live_bound() ? em_camera_live_bytes(0x008105D0u, 48) : NULL;
             fputs(", \"camblk\": ", f);
-            if (blk && fwd && d690) {
+            if (blk && fwd && d690 && d5d0) {
                 fputc('[', f);
                 log_hex(f, blk, 0xD0);
                 fputs(", ", f);
                 log_hex(f, fwd, 16);
                 fputs(", ", f);
                 log_hex(f, d690, 20);
+                fputs(", ", f);
+                log_hex(f, d5d0, 48);
                 fputc(']', f);
             } else {
                 fputs("null", f);
@@ -1697,20 +1701,16 @@ static int w_001AD010(void *ctx)
  * drawbridge fixtures of EM_SKIP_STARTUP). */
 /* The live camera's inputs from the rest of the port (em_camera_live.h,
  * census L13..L16): the live player record, the closure's pad assignment
- * block, the AREA11 boxes' 0x700031F0 word, camera action 0's legacy
- * stand-ins over the g.cam view and the +4 == 3 timeline (the opening's
- * track while the opening owns the camera, else the AREA11 script host). */
+ * block, the AREA11 boxes' 0x700031F0 word and the +4 == 3 timeline
+ * 0022EEF0 (the AREA11 script host's, for the opening's scene 0x22 and
+ * Roger's scene 1). */
 static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return player_states_actor(); }
 static const uint16_t *camera_pad_config(void *ctx) { (void)ctx; return em_player_closure_live_pad_config(); }
 static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
 static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose_script_euler(out); }
-static int camera_standins(void *ctx) { (void)ctx; return camera_area11_standins(&g.cam); }
 static int camera_timeline(void *ctx)
 {
     (void)ctx;
-    int owned = em_opening_runtime_camera_sample();
-    if (owned < 0) return -1;
-    if (owned) return 0;
     return em_area11_script_host_camera_0022EEF0() < 0 ? -1 : 0;
 }
 /* The aim camera's views (CAMERA_LIVE.md section 7): the gun node and its
@@ -1771,7 +1771,7 @@ static uint32_t camera_grid_node(void *ctx, uint32_t node)
     return em_scene_bindings_grid_node_address(node);
 }
 static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
-                                         NULL, camera_standins, camera_timeline,
+                                         NULL, camera_timeline,
                                          camera_memory, camera_place, camera_grid_node};
 
 /* ------------------------------------------ the render context (L32 / L30)

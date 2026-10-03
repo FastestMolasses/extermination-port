@@ -13,7 +13,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
-           src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
+           src/game/em_opening_face.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_weather_packets.c src/game/em_snow_runtime.c \
@@ -207,12 +207,6 @@ test-opening-face-reference:
 
 test-script-reference:
 	python3 tools/test_script_reference.py
-
-.PHONY: test-opening-media
-test-opening-media: tests/opening_media_test.c src/game/em_opening_media.c
-	@mkdir -p build
-	$(CC) $(CFLAGS) tests/opening_media_test.c src/game/em_opening_media.c -lm -o build/opening_media_test
-	build/opening_media_test
 
 .PHONY: test-pickup-lights
 test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h src/game/em_effect_kinds.c src/game/em_effect_color.h

@@ -28,6 +28,7 @@
 #include "game/em_script_door_fan.h"
 #include "game/em_script_host_workers.h"
 #include "game/em_sfx.h"
+#include "game/em_status_ui_leftovers.h"
 
 enum { OWNERS = 6 };
 
@@ -65,16 +66,20 @@ static struct {
     /* The script host workers' world (00182BF0, 001B1240 / 001B1380 /
      * 001B12B0 / 001B1470 through the collision world's SDK context). */
     EmScriptHostWorkers shw;
-    /* The scripted camera timeline (0022EC30 / 0022EEF0 for scene 1, Roger's
-     * encounter; census L22): the bank 0x96 camera track of
-     * roger/encounter_camera.emcc, the tangent coefficients of
-     * roger/camera_projection.emcp, and the playback whose cursor is the
-     * camera's +0x74 (g.cam.cine_time, loaded before and stored after
-     * every call). D_00275BFC (the cut counter) has no other port reader. */
+    /* The scripted camera timeline (0022EC30 / 0022EEF0, em_cinematic_playback;
+     * census L22 and L33): the track +0x70 names (bank 0x96's clip 0, Roger's
+     * encounter, roger/encounter_camera.emcc; or bank 0x98's clip 0, the
+     * opening's, with its D_0026AE00 table, both em_opening_runtime's), the
+     * tangent coefficients of roger/camera_projection.emcp, and the playback.
+     * Its cursor is the camera's +0x74 (g.cam.cine_time) and its event
+     * cursors and states the camera block's +0x7C..+0x8A (the live camera's
+     * bytes), loaded before and stored after every call; D_00275C98 (the
+     * start clock) is the playback's. D_00275BFC (the cut counter) has no
+     * other port reader. */
     EmCinematicCamera track;
     EmCinematicProjection projection;
     EmCinematicPlayback playback;
-    int track_tried, track_loaded, playing;
+    int track_tried, track_loaded, projection_tried, projection_loaded, playing;
     uint32_t d275BFC;
 } H;
 
@@ -365,48 +370,101 @@ static int w_001C6120(void *ctx, uint32_t table, int32_t index, uint32_t *result
     return 0;
 }
 
-/* 0022EC30(camera): the timeline start for scene 1 (em_cinematic_playback),
- * over the track at the camera's +0x70 (checked to be bank 0x96's clip 0,
- * which roger/encounter_camera.emcc holds). */
+/* Roger's encounter track (bank 0x96's clip 0, roger/encounter_camera.emcc)
+ * and the tangent coefficients 0011E398 reads (roger/camera_projection.emcp;
+ * tools/export_roger_cinematic.py). */
 static int track_ready(void)
 {
     if (H.track_loaded) return 0;
     if (H.track_tried) return -1;
     H.track_tried = 1;
-    if (em_cinematic_camera_load(&H.track, "assets/scene_snow/roger/encounter_camera.emcc") != 0 ||
-        !em_cinematic_projection_load(&H.projection, "assets/scene_snow/roger/camera_projection.emcp"))
-        return report("no valid roger/encounter_camera.emcc / camera_projection.emcp "
-                      "(tools/export_roger_cinematic.py)");
+    if (em_cinematic_camera_load(&H.track, "assets/scene_snow/roger/encounter_camera.emcc") != 0)
+        return report("no valid roger/encounter_camera.emcc (tools/export_roger_cinematic.py)");
     H.track_loaded = 1;
     return 0;
 }
 
+static int projection_ready(void)
+{
+    if (H.projection_loaded) return 0;
+    if (H.projection_tried) return -1;
+    H.projection_tried = 1;
+    if (!em_cinematic_projection_load(&H.projection, "assets/scene_snow/roger/camera_projection.emcp"))
+        return report("no valid roger/camera_projection.emcp (tools/export_roger_cinematic.py)");
+    H.projection_loaded = 1;
+    return 0;
+}
+
+/* The camera block's +0x7C..+0x8A (the event cursors and their states) are
+ * the live camera's bytes; without the live camera they stay in the
+ * playback. */
+enum { CAM_EVENTS = 0x0081025Cu, CAM_EVENTS_SIZE = 0x0F };
+
+static void events_load(void)
+{
+    const uint8_t *b = em_camera_live_bytes(CAM_EVENTS, CAM_EVENTS_SIZE);
+    if (!b) return;
+    for (unsigned i = 0; i < 3; ++i) memcpy(&H.playback.cursor[i], b + 4 * i, 4);
+    memcpy(H.playback.state, b + 0x0C, 3);
+}
+
+static void events_store(void)
+{
+    uint8_t *b = em_camera_live_bytes(CAM_EVENTS, CAM_EVENTS_SIZE);
+    if (!b) return;
+    for (unsigned i = 0; i < 3; ++i) memcpy(b + 4 * i, &H.playback.cursor[i], 4);
+    memcpy(b + 0x0C, H.playback.state, 3);
+}
+
+/* The track at `bank`'s clip 0: its original address. */
+static int bank_clip0(uint32_t bank_index, uint32_t *address)
+{
+    uint32_t bank;
+    if (em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * bank_index, &bank) < 0 ||
+        w_001C6120(NULL, bank, 0, address) < 0)
+        return -1;
+    return 0;
+}
+
+/* 0022EC30(camera): the timeline start (em_cinematic_playback_start) over
+ * the track +0x70 names, which 001B8FC0 kind 6 stored with +0x6E / +0x74 /
+ * +0x78: bank 0x98's clip 0 (the opening's, scene 0x22) or bank 0x96's
+ * clip 0 (Roger's encounter, scene 1); any other track has no export. The
+ * start clock is 0021BAB0's (em_sul_0021BAB0: the render context's +0xB0
+ * doubleword). */
 static int w_0022EC30(void *ctx, uint32_t camera)
 {
     (void)ctx;
-    uint32_t bank, expected;
     if (camera != EM_AREA_SCRIPT_D_008101E0) return -1;
-    /* The opening's track, bank 0x98's clip 0 (001B8FC0 kind 6 in
-     * 0x828FC0, scene 0x22): its timeline is the opening lane's stand-in
-     * (em_opening_runtime, census L33) over the camera's +0x74. */
-    if (em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * 0x98u, &bank) < 0 ||
-        w_001C6120(NULL, bank, 0, &expected) < 0)
-        return -1;
-    int opening = em_opening_runtime_camera_start(g.cam.cine_track, expected, g.cam.cine_head);
-    if (opening < 0) return report("0022EC30: the opening's camera track was refused (em_opening_runtime)");
-    if (opening) {
-        H.playing = 0;
-        return 0;
+    uint32_t opening, roger;
+    if (bank_clip0(0x98, &opening) < 0 || bank_clip0(0x96, &roger) < 0) return -1;
+    const EmCinematicCamera *track = NULL;
+    const EmCinematicEvents *events = NULL;
+    if (g.cam.cine_track == opening) {
+        track = em_opening_runtime_track();
+        events = em_opening_runtime_events();
+        if (!track || !events)
+            return report("0022EC30: the opening's camera track or D_0026AE00 table is not loaded "
+                          "(em_opening_runtime)");
+    } else if (g.cam.cine_track == roger) {
+        if (track_ready() < 0) return -1;
+        track = &H.track;
+    } else {
+        return report("0022EC30: the camera track is neither bank 0x96's nor bank 0x98's clip 0 (no export)");
     }
-    if (track_ready() < 0 ||
-        em_area11_roger_table_word(EM_AREA_SCRIPT_D_0028A490 + 4u * 0x96u, &bank) < 0 ||
-        w_001C6120(NULL, bank, 0, &expected) < 0)
-        return -1;
-    if (g.cam.cine_track != expected || g.cam.cine_head != H.track.duration)
-        return report("0022EC30: the camera track is not bank 0x96's clip 0 (the exported encounter track)");
-    if (!em_cinematic_playback_start(&H.playback, &H.track, g.cam.cine_scene))
-        return report("0022EC30: a timeline scene other than 1 has no worker");
+    if (g.cam.cine_head != track->duration)
+        return report("0022EC30: the track head is not the exported track's duration");
+    if (projection_ready() < 0) return -1;
+    /* 0021BAB0 (em_status_ui_leftovers) over the render context. */
+    uint64_t start_clock;
+    const uint8_t *context = em_rcl_bytes(EM_RCL_CONTEXT, EM_RCL_CONTEXT_SIZE);
+    if (!context || em_sul_0021BAB0(context, EM_RCL_CONTEXT_SIZE, &start_clock) < 0)
+        return report("0022EC30: 0021BAB0 has no render context");
+    if (!em_cinematic_playback_start(&H.playback, track, events, g.cam.cine_scene, start_clock))
+        return report("0022EC30: a timeline scene em_cinematic_playback does not admit (only 0x22 and the "
+                      "scenes without a table or a cue) or its table outside the export");
     H.playback.time = g.cam.cine_time;
+    events_store();
     H.playing = 1;
     return 0;
 }
@@ -1025,10 +1083,17 @@ int em_area11_script_host_director_quads(const float (*quad[3])[4])
 
 /* ------------------------------------------------ the camera timeline */
 
-/* em_cinematic_playback's events at the camera stage: the publication
- * 001DD980 of the sampled eye / target (the interaction host's projection
- * publish over g.cam), and at the timeline's end its three restores
- * 001B0250, 0021B9A0(0, 0, 0) and 001D2830(2, 0). */
+/* em_cinematic_playback's events at the camera stage (the calls 0022EEF0
+ * makes), each to its one binding: the publication 001DD980 of the sampled
+ * eye / target (the interaction host's projection publish over g.cam); the
+ * scene cue 001B1E20 (em_pad_actuator); the +0x80 fades 001AEDE0 / 001AEE10
+ * (em_transition_fade_out / _in through em_frame, as this host's own
+ * workers; the camera stage holds no script view, so they are called
+ * without one); 0021B9A0 and 001D2830 on the render context; and at the
+ * timeline's end its three restores 001B0250, 0021B9A0(0, 0, 0) and
+ * 001D2830(2, 0). 0021BA80 / 0021BA70 (the +0x7C track's grey and clock
+ * restore) have no binding: only scenes without a +0x7C table are admitted
+ * (em_cinematic_playback.h), so they fault if reached. */
 static int camera_emit(void *context, EmCinematicPlaybackEvent event, const EmCinematicPlayback *pb)
 {
     (void)context;
@@ -1043,6 +1108,24 @@ static int camera_emit(void *context, EmCinematicPlaybackEvent event, const EmCi
         return em_rcl_0021B9A0(0, 0, 0) < 0 ? 0 : 1;
     case EM_CINEMATIC_CAMERA_FLAG_OFF:
         return em_rcl_001D2830(2, 0) < 0 ? 0 : 1;
+    case EM_CINEMATIC_CAMERA_FLAG_ON:
+        return em_rcl_001D2830(2, 1) < 0 ? 0 : 1;
+    case EM_CINEMATIC_CAMERA_RUMBLE:
+        return em_pad_actuator_001B1E20(pb->arg[0], pb->arg[1]) < 0 ? 0 : 1;
+    case EM_CINEMATIC_CAMERA_FADE_OUT:
+        em_frame_fade_start_colour(1, (int16_t)pb->arg[0], (uint8_t)pb->arg[1]);
+        return 1;
+    case EM_CINEMATIC_CAMERA_FADE_IN:
+        em_frame_fade_start_colour(-1, (int16_t)pb->arg[0], (uint8_t)pb->arg[1]);
+        return 1;
+    case EM_CINEMATIC_CAMERA_EFFECT:
+        return em_rcl_0021B9A0(5, 0, em_ee_bits(pb->value)) < 0 ? 0 : 1;
+    case EM_CINEMATIC_CAMERA_EFFECT_GREY:
+        report("0022EEF0: 0021BA80 (the +0x7C track) has no binding");
+        return 0;
+    case EM_CINEMATIC_CAMERA_EFFECT_CLOCK:
+        report("0022EEF0: 0021BA70 (the +0x7C track) has no binding");
+        return 0;
     }
     return 0;
 }
@@ -1050,14 +1133,21 @@ static int camera_emit(void *context, EmCinematicPlaybackEvent event, const EmCi
 int em_area11_script_host_camera_0022EEF0(void)
 {
     if (!H.playing) return report("0022EEF0: the camera's top mode 3 without a started timeline");
+    if (H.playback.scene != g.cam.cine_scene)
+        return report("0022EEF0: the camera's +0x6E is not the started timeline's scene");
     H.playback.time = g.cam.cine_time;
+    events_load();
     int rc = em_cinematic_playback_tick(&H.playback, &H.projection, camera_emit, NULL);
     g.cam.cine_time = H.playback.time;
+    events_store();
     if (rc < 0) return report("0022EEF0 faulted");
     /* D_008105F0 and the projection zoom: the sampled ones, or the
      * restored (0, -1, 0, 1) and 480 at the end; the zoom through
-     * 001D25F0 on the render context. */
+     * 001D25F0 on the render context. The up vector's w lane is the live
+     * camera's byte (the g.cam view carries three lanes). */
     memcpy(g.cam.up, H.playback.up, sizeof g.cam.up);
+    uint8_t *up_w = em_camera_live_bytes(0x008105FCu, 4);
+    if (up_w) memcpy(up_w, &H.playback.up[3], 4);
     if (em_rcl_001D25F0(em_ee_bits(H.playback.zoom)) < 0) return report("0022EEF0: 001D25F0 faulted");
     if (rc == 1) {
         *em_scene_req_at(H.scene, 0x008106F3u) = H.playback.auxiliary;   /* the cut byte */

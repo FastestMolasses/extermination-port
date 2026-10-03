@@ -36,13 +36,35 @@ Over the run:
      (001CB3C0 over its +0x90) in every frame whose walk ran; neither record
      draws after that, and the last is before first control (the
      controller's completion sets the done mask its 001BB0E0 reads).
+
+check_opening_timeline(ticks, state), the scene-0x22 camera timeline
+(0022EC30 / 0022EEF0 on the AREA11 script host, chain step CAMERAS; audit 1b
+item 6; docs/CAMERA_LIVE.md section 5):
+  E. at the opening capture's tick (above) the whole camera block
+     D_008101E0 (0xD0 bytes: the cursor +0x74, the event cursors +0x7C /
+     +0x80 / +0x84 and their states +0x88..+0x8A included), the eye /
+     target / up quads D_008105D0..D_008105FF and the render context's zoom
+     +0x2468 (001D25F0's) equal the capture's;
+  F. over the whole timeline (every port tick whose camera is on top mode
+     3, from the first sample to the tear-down), the camera block equals the
+     original's sample of the same cursor in the decomp's per-frame samples
+     of the New Game (newgame_samples.jsonl, from the timeline's start) and
+     of the opening (cinematic_samples.jsonl, from the capture above to the
+     tear-down), wherever a sample of that cursor exists; and the 0x28A9A0
+     transition record after each tick equals the frame's: the +0x80
+     table D_0026AE00's fade-out 001AEDE0(16, 0) at the cursor 634 starts on
+     the same tick as the original's.
 """
 from pathlib import Path
+import collections
+import json
 import struct
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 CAPTURE = DECOMP / 'build/startup-reference/opening_ee.bin'
+SAMPLES = (DECOMP / 'build/startup-reference/newgame_samples.jsonl',
+           DECOMP / 'build/startup-reference/cinematic_samples.jsonl')
 POOL_HEAD = 0x275BC0          # D_00275BC0, the active list's head (+0x1C next)
 PLAYER = 0x8102B0
 CAMERA = 0x8101E0
@@ -160,3 +182,71 @@ def check_opening_actors(ticks, state):
           f'unit and the class-8 node with it on all {drawn[1] - drawn[0] + 1} ticks from port tick '
           f'{ticks[drawn[0]]["tick"]} to {ticks[drawn[1]]["tick"]}, before first control, and neither drew '
           f'after)')
+
+
+def check_opening_timeline(ticks, state):
+    ram = CAPTURE.read_bytes()
+    cam = ram[CAMERA:CAMERA + 0xD0]
+    blocks = [camera_block(t) for t in ticks]
+    aligned = [i for i, b in enumerate(blocks) if b and b[4] == 3 and b[TIMELINE[0]:TIMELINE[1]] ==
+               cam[TIMELINE[0]:TIMELINE[1]]]
+    assert len(aligned) == 1, ('opening timeline: the capture\'s cursor is not held by exactly one port tick',
+                               [ticks[i]['tick'] for i in aligned])
+    a = aligned[0]
+    # E. the capture's camera at its tick.
+    b = blocks[a]
+    d = [hex(o) for o in range(0xD0) if b[o] != cam[o]]
+    assert not d, ('opening timeline: the camera block differs from the opening capture', ticks[a]['tick'], d)
+    c = ticks[a]['camblk']
+    assert len(c) > 3 and bytes.fromhex(c[3]) == ram[0x8105D0:0x810600], \
+        ('opening timeline: D_008105D0..FF (eye, target, up) differ from the opening capture', ticks[a]['tick'])
+    world = u32(ram, 0x275670)
+    rctx = ticks[a].get('rctx')
+    assert rctx and bytes.fromhex(rctx[3]) == ram[world + 0x2468:world + 0x246C], \
+        ('opening timeline: the render context zoom +0x2468 differs from the opening capture', rctx and rctx[3])
+    # F. the whole timeline against the per-frame samples.
+    by_cursor, last = collections.defaultdict(list), {}
+    for path in SAMPLES:
+        for line in path.read_text().splitlines():
+            r = json.loads(line)
+            blk = bytes.fromhex(r['camera'])
+            last[r['frame']] = (blk, r['fade'][:16])
+            if blk[4] == 3:
+                by_cursor[blk[0x74:0x78]].append(blk)
+    frame_end = {blk: fade for blk, fade in last.values() if blk[4] == 3}
+    first = a
+    while first > 0 and blocks[first - 1] and blocks[first - 1][4] == 3:
+        first -= 1
+    end = a
+    while end + 1 < len(blocks) and blocks[end + 1] and blocks[end + 1][4] == 3:
+        end += 1
+    fc = state.get('first_control')
+    assert fc is None or end < fc, ('opening timeline: top mode 3 at first control', ticks[end]['tick'])
+    equal = uncaptured = fades = 0
+    fade_out = None
+    for i in range(first, end + 1):
+        b = blocks[i]
+        cands = by_cursor.get(b[0x74:0x78])
+        if not cands:
+            uncaptured += 1
+            continue
+        assert b in cands, ('opening timeline: the camera block differs from the original\'s samples of its '
+                            'cursor', ticks[i]['tick'], struct.unpack_from('<f', b, 0x74)[0],
+                            [hex(o) for o in range(0xD0) if b[o] != cands[-1][o]])
+        equal += 1
+        if b in frame_end and i + 1 < len(ticks):
+            fade = ticks[i + 1].get('fade8')
+            assert fade == frame_end[b], ('opening timeline: the transition record after the tick differs from '
+                                          'the frame\'s', ticks[i]['tick'], fade, frame_end[b])
+            fades += 1
+            if fade_out is None and fade.startswith('03'):
+                fade_out = struct.unpack_from('<f', b, 0x74)[0]
+    span = end - first + 1
+    assert uncaptured <= 8 and equal + uncaptured == span, ('opening timeline: coverage', span, equal, uncaptured)
+    assert fade_out == 634.5, ('opening timeline: the +0x80 fade-out is not on the original\'s tick', fade_out)
+    print(f'opening timeline: PASS (at port tick {ticks[a]["tick"]} the camera block, D_008105D0..FF and the zoom '
+          f'equal the opening capture; the {span} top-mode-3 ticks from port tick {ticks[first]["tick"]} to '
+          f'{ticks[end]["tick"]}: {equal} equal the original\'s sample of their cursor byte for byte (the event '
+          f'cursors +0x7C..+0x8A included), {uncaptured} cursor(s) not sampled; the transition record equals '
+          f'the frame\'s after {fades} of them, the +0x80 fade-out 001AEDE0(16, 0) from cursor {fade_out:g} as in '
+          f'the original)')

@@ -12,10 +12,11 @@ Section 4 is the live proof.
 | `src/game/em_area11_opening.{h,c}` | 00823E80, the whole function (`em_area11_opening_tick`; ground truth the decomp's byte-identical func_overlay_AREA11_00823E40.c; oracle `make test-area11-opening-reference`) |
 | `src/game/em_area11_bindings.c` | `tick_opening` (the controller's workers on its record), `tick_opening_actor` (callback 001BB0E0), `em_area11_bindings_001BAC00` (op14's spawn over the pool) |
 | `src/game/em_area_script.{h,c}` | op14 admitted: 001BA1F0 dispatches it to the `w_001BAC00` worker |
-| `src/game/em_area11_script_host.{h,c}` | the opening's image (0x828F30..0x8292C0), `w_001BAC00`, 0022EC30 on the opening's track, the camera's w lanes |
+| `src/game/em_area11_script_host.{h,c}` | the opening's image (0x828F30..0x8292C0), `w_001BAC00`, 0022EC30 / 0022EEF0 on the opening's track (scene 0x22) as on Roger's, the camera's w lanes |
+| `src/game/em_cinematic_playback.{h,c}` | 0022EC30 / 0022EEF0 / 001B7B30 sub 0, the scripted timeline (CAMERA_LIVE.md section 5; oracle `make test-cinematic-playback-reference`) |
 | `src/game/em_area11_roger.{h,c}` | the second pair of records: the opening body and its class-8 node (`em_area11_roger_opening_tick`) |
-| `src/game/em_opening_runtime.{h,c}` | the opening's lane: the New Game request, the busy state, the scene-0x22 camera timeline stand-in (census L33) |
-| `tools/level_smoke_opening.py` | the level smoke's check against the opening capture (section 4) |
+| `src/game/em_opening_runtime.{h,c}` | the opening's lane: the New Game request, the busy state, the scene-0x22 timeline's track and its D_0026AE00 table |
+| `tools/level_smoke_opening.py` | the level smoke's checks against the opening capture and the per-frame samples (section 4) |
 
 ## 1. What the originals do
 
@@ -131,12 +132,21 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
 - **The camera.**
   - 001B8FC0 kind 6 writes the camera's +0x6E / +0x70 / +0x74 / +0x78 (the
     canonical words).
-  - The host's 0022EC30 resolves bank 0x98's clip 0. For that track, the
-    opening lane starts its timeline (em_opening_runtime_camera_start,
-    which checks the head against the exported track's duration).
-  - The camera stage's +4 == 3 timeline samples it at the camera's +0x74
-    and advances it by 0.5 (the stand-in for 0022EEF0's scene 0x22, census
-    L33, with the fade track and the rumble at 1.0).
+  - The host's 0022EC30 resolves bank 0x98's clip 0 and starts the
+    original timeline on it (em_cinematic_playback_start for scene 0x22:
+    the +0x80 table D_0026AE00, the start clock D_00275C98), over the track
+    and the table em_opening_runtime loaded with New Game's scene
+    (opening_camera.emcc, opening.emfx), its head checked against the
+    exported track's duration.
+  - The camera stage's +4 == 3 frame is the original 0022EEF0 on the host
+    (em_area11_script_host_camera_0022EEF0, since chain step CAMERAS,
+    2026-10-02; CAMERA_LIVE.md section 5): the cue 001B1E20(6, 0) at the
+    cursor 1.0 through em_pad_actuator, the +0x80 records (the -1 record at
+    0, the fade-out 001AEDE0(16, 0) at 634), the sample, the 001DD980
+    publication, the up vector and the 001D25F0 zoom, the 0.5 advance and
+    at the end the original's restores. Until then it was the opening
+    lane's stand-in (em_opening_runtime_camera_sample with
+    em_opening_media's fade track, census L33).
   - The host's four-lane views now carry the w lanes of the camera's +0x10 /
     +0x20 and of D_008105D0 / E0 in the live camera's own bytes
     (em_camera_live_bytes). 001B8FC0's quad copies write all four words.
@@ -187,16 +197,19 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
 
 ## 3. What stays a stand-in
 
-- **The scene-0x22 camera timeline** (census L33). The opening lane samples
-  the exported bank-0x98 camera track and runs the fade track. Its eye /
-  target sampling, the camera's +0x80 event cursor and +0x89 are not the
-  original 0022EEF0's: at the opening capture's cursor, the camera block
-  differs from the capture at +0x14 / +0x15, +0x24, +0x80..+0x82 and +0x89.
-  The timeline words +0x6C..+0x7B are the original's.
 - **The drive's timing** (the user's policy). At host speed the stream
   request's read completes at once, so the script's op14 spawns the actors
   21 frames before the original's AE+31 (11 with the PS2 disc-drive timing
   switch). The opening ends that much earlier (RAND_ORDER.md section 3).
+  This is also the side-by-side video tool's "early" fade-in and first
+  subtitle (decomp VIDEO_COMPARE.md: 20 ticks at host speed, 12 with the
+  switch): relative to the timeline's cursor the fade and the camera are
+  the original's on every captured frame (section 4, the timeline), so
+  the lead is before the timeline starts, in the stream request's wait
+  (07/12's handshake), not in 0022EEF0 or the fade path. What is left with
+  the switch on (11 or 12 frames) is the opening music's extra seek from
+  the intro movie's disc position, which the drive model does not model
+  (LAUNCHER_OPTIONS.md, the drive switch).
 - **D_008106B3** still takes the port's stand-in gate
   (`em_opening_runtime_busy` in em_player_frame.c), as before (FIRST_CONTROL.md).
 
@@ -222,6 +235,20 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
   - over the run, the body draws with its face unit (and the node with it)
     on all 1,293 ticks from its spawn to the done mask, before first
     control, and neither draws after.
+- **The camera timeline against the original's per-frame samples**
+  (check_opening_timeline, `tools/level_smoke_opening.py`, chain step
+  CAMERAS). Every tick on top mode 3 from the timeline's first frame to
+  its tear-down (1,293 ticks) holds the original's camera block of the
+  same cursor byte for byte (newgame_samples.jsonl from the start,
+  cinematic_samples.jsonl from cursor 135 to the end; 1,289 compared, 4
+  cursors not sampled), the event cursors +0x7C..+0x8A included, and the
+  transition record after each compared tick is the frame's: the +0x80
+  fade-out 001AEDE0(16, 0) fires in the frame that samples the cursor 634,
+  as in the original. At
+  the opening capture's cursor the whole block, D_008105D0..FF (eye,
+  target, up) and the render context's zoom +0x2468 equal opening_ee.bin.
+  Before this step the +0x80 cursor and +0x89 state differed on all but
+  25 of those ticks.
 - **The rand() order** (check_rand_order, RAND_ORDER.md section 3).
   - Every call equals the original's in caller and state from the area
     entry to the actors' spawn (227 calls at host speed):

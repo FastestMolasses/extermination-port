@@ -86,8 +86,8 @@ manifest `scene_snow/scene.txt`, `player.emdl`, `player_channels.empc`).
 | 21 | `python3 tools/export_snow.py` (the weather bits from 001B0250's room record D_0024D650[11][0] + 0x1C; optional check: `--reference-ee <an AREA11 EE capture>`) | `snow.emsn`, `scene.txt` | L | the weather node 001C1EA0 (em_snow_runtime; since chain C8b FLAMESNOW its texture is a page texture, step 52, and no `.emtx` is written or read) |
 | 22 | `python3 tools/export_streams.py [--iso /path/to/owned.iso]` (IOP_STREAM.md "Stream exporter") | `streams/streams.emst`, `streams.json` | R (since WP-8b: the boot stops without it, fail-stop) | em_stream_live: the stream lanes' clip rows and the IOP backend's disc sectors (music cues 13, 25, 29, 54, 63, 0x18, 0x1B; voice cues 143..151). (The former step 22, `export_area11_flow.py`, fed the legacy director stand-in, deleted with it in WP-8b.) |
 | 23 | `python3 tools/export_area11_opening.py` | `opening.emsc` | R | the opening controller 00823E80's script 0x828FC0 and op14's placement list on the AREA11 script host (OPENING_ORIGINAL.md) |
-| 24 | `python3 tools/export_opening_camera.py --source ../Extermination/extract/chunk15/f12_id44.bin --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc` | `opening_camera.emcc` | R | the opening camera |
-| 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R (`opening.emfx`); X (the two WAVs: the streams play from step 22 since WP-8b) | em_opening_media's fade track |
+| 24 | `python3 tools/export_opening_camera.py --source ../Extermination/extract/chunk15/f12_id44.bin --bank-offset 0xD0800 --out assets/scene_snow/opening_camera.emcc` | `opening_camera.emcc` | R | the opening's camera track (bank 0x98's clip 0): em_opening_runtime loads it for the original timeline 0022EEF0 (CAMERA_LIVE.md section 5) |
+| 25 | `python3 tools/export_opening_media.py --decomp-root ../Extermination --iso /path/to/owned.iso --out assets/scene_snow` | `opening.wav`, `opening.emfx`, `opening_resume.wav` | R (`opening.emfx`); X (the two WAVs: the streams play from step 22 since WP-8b) | `opening.emfx` holds the words of D_0026AE00, the table 0022EC30 binds to the opening timeline's +0x80 cursor (em_opening_runtime; the former em_opening_media fade track is gone) |
 | 26 | (retired in chain C8b OPENING: the decomp's `export_opening_actors.py`) | `opening/player.emdl`, `roger.emdl`, `equipment_6b.emdl` | X | nothing reads them: the opening's actors are records drawing their original units (OPENING_ORIGINAL.md) |
 | 27 | (retired in chain C8b OPENING: the decomp's `export_opening_faces.py`) | `opening/*_face.emdl/.emfm` | X | nothing reads them: the faces are 001CB3C0's face units |
 | 28 | `python3 tools/export_area11_roster.py` | `roster.emro` | R | 001B6990 (the state-0 roster spawn) |
@@ -229,7 +229,7 @@ Tests are asset-free unless explicitly described as reference comparisons:
 ```sh
 make test-input test-task test-fade test-startup test-movie-export test-startup-audio
 make test-collision test-script test-area11-opening
-make test-cinematic-camera test-opening-media
+make test-cinematic-camera test-cinematic-playback-reference
 python3 tools/test_random_reference.py
 python3 tools/test_continue_reset_reference.py
 python3 tools/test_collision_reference.py --help

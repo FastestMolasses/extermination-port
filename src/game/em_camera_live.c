@@ -607,9 +607,9 @@ static int lw_commit(void *ctx, EmCameraFollowRecord *cam, int mode)
 }
 
 /* 0022EEF0(cam, 1): the scripted timeline of +4 == 3, the binder's (the
- * opening's track through em_opening_runtime while it owns the camera, the
- * opening's timeline stand-in of census L33; every other timeline through
- * the AREA11 script host, census L22). Both write the g.cam view. */
+ * AREA11 script host's em_cinematic_playback, census L22 / L33: the
+ * opening's scene 0x22 and Roger's scene 1). It writes the g.cam view and
+ * the block's +0x7C..+0x8A. */
 static int lw_0022EEF0(void *ctx, EmCameraFollowRecord *cam, int a1)
 {
     (void)ctx;
@@ -640,17 +640,12 @@ static int lw_001DD980(void *ctx, uint32_t *eye, uint32_t *target)
     return publish_001DD980(e, t);
 }
 
-/* Camera action 0 (00195130). While a legacy stand-in owns the camera
- * (em_camera.c camera_area11_standins: the examine cue) it runs in
- * 00195130's place; otherwise the translation. */
+/* Camera action 0 (00195130): the translation (em_camera_area11_specials),
+ * with nothing in its place (CAMERA_LIVE.md section 6). */
 static int lw_00195130(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
 {
     (void)ctx;
     if (cam != &C.cam.rec) return -1;
-    view_store();
-    int owned = C.host.standins(C.host.context);
-    view_load();
-    if (owned == CAMERA_STANDIN_OWNS) return 0;
     specials_load();
     int rc = em_cam_specials_action_00195130(&C.sp, cam->bytes, e);
     specials_store();
@@ -1253,8 +1248,7 @@ static void bind_worlds(void)
 int em_camera_live_bind(const EmCameraLiveHost *host)
 {
     C.bound = 0;
-    if (!host || !host->player || !host->hip || !host->euler || !host->carry31F0 || !host->standins ||
-        !host->timeline)
+    if (!host || !host->player || !host->hip || !host->euler || !host->carry31F0 || !host->timeline)
         return -1;
     C.host = *host;
     if (!em_collision_world_loaded() || !em_collision_world_sdk() || !em_collision_world_segment())

@@ -1027,27 +1027,20 @@ int em_camera_0018B9C0(void)
     return 0;
 }
 
-/* func_0018B9C0 position of the cutscene variant (001AE6B0). Wraps the
- * calls cutscene_frame made there, in the same order: while the opening
- * script owns the camera, em_opening_runtime_camera_sample() runs it (design 4.4
- * #19: the opening controller's camera sits at the 0018B9C0 stage);
- * otherwise the chase camera; then the positional-audio listeners. */
+/* func_0018B9C0 position of the cutscene variant (001AE6B0): the same
+ * camera frame as the world variant's (em_camera_0018B9C0). The opening's
+ * timeline is its +4 == 3 frame, 0022EEF0 on the AREA11 script host
+ * (em_camera_live.c lw_0022EEF0; without the live camera, camera_update's
+ * top mode 3), then the positional-audio listeners. */
 int em_camera_0018B9C0_opening(void)
 {
     if (em_camera_live_bound()) {
-        /* The same translated frame: the opening's track is its +4 == 3
-         * timeline (em_camera_live.c lw_0022EEF0). */
         int rc = em_camera_live_frame();
         camera_listener();
         return rc < 0 ? -1 : 0;
     }
     camera_cooldown_0018B9C0();
-    if (em_opening_runtime_camera_sample() == 0)
-        camera_update();
-    else if (g.cam.top_mode == 3)
-        camera_commit_cinematic(&g.cam);
-    else
-        camera_commit(&g.cam);
+    camera_update();
     camera_listener();
     return 0;
 }

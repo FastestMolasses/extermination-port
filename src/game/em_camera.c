@@ -1805,40 +1805,6 @@ static void camera_door_cinematic(EmCamera *cam)
  * the PREVIOUS frame's matrices, while the native chain is flushed at
  * close-out with this frame's — one frame less camera latency, same
  * 60 Hz math. */
-/* AREA11's legacy stand-ins in camera action 0's place (em_camera.h). The
- * same block camera_update runs for the scenes without the live camera:
- * the examine cue. (The port's aim placement that followed it was retired
- * on 2026-10-02: the aim camera is the original's, CAMERA_LIVE.md section
- * 7 and AIM_FIRE.md section 10. The
- * director's beats run on their original scripts since WP-8b; the fence
- * door's camera is its program's op0D sub 5 and 0x1AE040 state 4's re-seat
- * since census L18, so the door cinematic no longer stands in here.) */
-int camera_area11_standins(EmCamera *cam)
-{
-    {
-        float exe[3], ext[3];
-        if (em_examine_camera(exe, ext)) {
-            memcpy(cam->eye_des, exe, sizeof exe);
-            memcpy(cam->tgt_des, ext, sizeof ext);
-            memcpy(cam->eye, exe, sizeof exe);
-            memcpy(cam->tgt, ext, sizeof ext);
-            cam->tgt_soft = 0;
-            g.examcam = 1;
-            return CAMERA_STANDIN_OWNS;
-        }
-        if (g.examcam) {
-            g.examcam = 0;
-            cam->tgt_soft = 0;
-            cam->tgt_des[0] = g.pos[0];
-            cam->tgt_des[1] = g.pos[1] + CAM_TGT_HEIGHT;
-            cam->tgt_des[2] = g.pos[2];
-            camera_desired_eye(cam);
-            memcpy(cam->eye, cam->eye_des, sizeof cam->eye);
-            memcpy(cam->tgt, cam->tgt_des, sizeof cam->tgt);
-        }
-    }
-    return CAMERA_STANDIN_NONE;
-}
 
 void camera_update(void)
 {

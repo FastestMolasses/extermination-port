@@ -61,9 +61,6 @@ typedef struct EmCameraLiveHost {
     const uint16_t *(*pad_config)(void *context);
     /* The scratchpad word 0x700031F0 (its low byte is read). */
     const int32_t *carry31F0;
-    /* Camera action 0's legacy pre-emption (em_camera.h
-     * camera_area11_standins over the g.cam view): CAMERA_STANDIN_*. */
-    int (*standins)(void *context);
     /* 0022EEF0(cam, 1), the scripted timeline of +4 == 3, over the g.cam
      * view. 0, or -1 on a fault. */
     int (*timeline)(void *context);

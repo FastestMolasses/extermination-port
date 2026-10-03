@@ -48,13 +48,4 @@ float cam_dot3(const float a[3], const float b[3]);
 float cam_wrap_pi(float a)               /* func_001B1470 */;
 void cam_norm3(float v[3])               /* func_00102760 */;
 
-/* AREA11's legacy camera stand-ins that still pre-empt camera action 0
- * (00195130) of the live camera (em_camera_live.c): the examine cue
- * (em_examine.c). (The port's aim camera stand-in that also stood here was
- * retired 2026-10-02: the aim camera is the original's, CAMERA_LIVE.md
- * section 7.) It writes the g.cam view. Returns CAMERA_STANDIN_NONE when none owns the
- * camera this frame. */
-enum { CAMERA_STANDIN_NONE = 0, CAMERA_STANDIN_OWNS = 1 };
-int camera_area11_standins(EmCamera *cam);
-
 #endif /* EM_CAMERA_H */

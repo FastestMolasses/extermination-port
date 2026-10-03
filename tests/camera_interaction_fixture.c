@@ -79,10 +79,9 @@ static int camera_euler(void *ctx, float out[3])
     for (int i = 0; i < 3; i++) out[i] = em_live_f32(&player, 0xC0 + 4u * (unsigned)i);
     return 1;
 }
-static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
 static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
 static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
-                                             camera_no_standin, camera_no_timeline,
+                                             camera_no_timeline,
                                              /* the aim camera's views: not reached here */
                                              NULL, NULL, NULL};
 

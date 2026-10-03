@@ -10,34 +10,32 @@
  *   - the New Game request and the opening's busy state (the controller's
  *     +0x05 from its start to its completion), which the port's own glue
  *     reads (the player-busy and menu-lock gates, the first-control tests);
- *   - the camera timeline of scene 0x22 (the opening's bank-0x98 camera
- *     track with its fade track): 001B8FC0 kind 6's 0022EC30 on that track
- *     starts it, and the camera stage samples it at the camera's +0x74
- *     cursor (g.cam.cine_time). This is the stand-in for the opening's
- *     0022EEF0 timeline, census L33. */
+ *   - the data of the scene-0x22 camera timeline, loaded when New Game's
+ *     scene is ready: bank 0x98's clip 0 (opening_camera.emcc,
+ *     tools/export_opening_camera.py) and the event table D_0026AE00 that
+ *     0022EC30 binds to the camera's +0x80 (opening.emfx,
+ *     tools/export_opening_media.py). The timeline itself is the original
+ *     0022EC30 / 0022EEF0 (em_cinematic_playback) on the AREA11 script
+ *     host, like Roger's encounter (docs/OPENING_ORIGINAL.md). */
 #ifndef EM_OPENING_RUNTIME_H
 #define EM_OPENING_RUNTIME_H
 
 #include <stdint.h>
 
+#include "game/em_cinematic_playback.h"
+
 /* New Game: the opening will run (the controller starts it). */
 void em_opening_runtime_request(void);
 /* Called after New Game's scene and ordinary player resources load: the
- * camera track and the fade track. */
+ * camera track and the event table. */
 void em_opening_runtime_scene_ready(void);
 /* The controller 00823E80's state 1 ran its completion (+0x05 = 2): the
  * opening is no longer busy. */
 void em_opening_runtime_complete(void);
-/* 0022EC30 for the opening's track: `track` the camera's +0x70 (bank
- * 0x98's clip 0) and `head` its +0x78. 1 when the track is the opening's
- * (the timeline starts at the camera's +0x74), 0 when it is not, -1 when
- * the opening's track is not loaded or its head differs. */
-int em_opening_runtime_camera_start(uint32_t track, uint32_t expected, float head);
-/* The opening's camera track at the camera stage: while its timeline runs
- * it samples the track at the camera's +0x74 into the g.cam view (the eye,
- * target, up and zoom) and returns 1; 0 when it does not own the camera,
- * -1 when the opening failed. The camera frame commits (em_camera_live.c). */
-int em_opening_runtime_camera_sample(void);
+/* The scene-0x22 timeline's data (bank 0x98's clip 0, the window of
+ * D_0026AE00), or NULL before em_opening_runtime_scene_ready loaded them. */
+const EmCinematicCamera *em_opening_runtime_track(void);
+const EmCinematicEvents *em_opening_runtime_events(void);
 int em_opening_runtime_busy(void);
 int em_opening_runtime_failed(void);
 void em_opening_runtime_shutdown(void);

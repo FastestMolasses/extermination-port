@@ -1470,6 +1470,13 @@ the flame 0x8235F0 runs on its record with its loop sound, publication,
 manager 0x823CE0 is bound; the truck's arm-tick 0x70003A20 store is
 modelled. Every other translation agrees (the module docs' notes).
 
+**Status (2026-10-02, chain step CAMERAS):** items 6 and 7 are done. The
+opening's camera timeline is the original 0022EC30 / 0022EEF0 on the
+AREA11 script host, equal to the original's per-frame camera block over
+the whole opening; nothing pre-empts camera action 0 any more (the
+examine cue's stand-in is removed). The opening's early fade-in is the
+stream request's wait, not the timeline (item 6).
+
 **A. On the route, every run**
 
 1. **Sound: the audio output.** Everything the game's code asks of the
@@ -1584,22 +1591,46 @@ modelled. Every other translation agrees (the module docs' notes).
    - The sky grid is em_background_gs's model of the VU1 kernel 0x0023C990
      (checked by test_background_reference), not the kernel run over the
      kicked +0x1D8 list.
-6. **Look: the opening's camera timeline** (census L33). Scene 0x22's
-   timeline words are the original's since chain C8b OPENING; its eye /
-   target sampling and the +0x80 event cursor are the opening lane's
-   stand-in for 0022EEF0 (em_opening_runtime_camera_sample). The hand-off
-   at first control equals the capture byte for byte (the level smoke's
-   first_control), so the stand-in shows only inside the opening.
-   **New finding (2026-10-01, the side-by-side video tool,
-   decomp docs/VIDEO_COMPARE.md):** replaying the same inputs in PCSX2 and
-   the port, the port's opening fades in and shows its first subtitle
-   early: at opening tick 24 against the original's 36 with the PS2
-   disc-drive timing switch on (12 ticks), and 20 ticks early at host
-   speed. The rest of the opening and the walk after it line up tick for
-   tick. Find the cause in the opening's fade / timeline path (0022EEF0,
-   the fade, the first message) and fix it with original evidence.
-7. **Feel: the examine and aim camera shots** pre-empt camera action 0 with
-   stand-ins (lane L28; census 2.3).
+6. **Look: the opening's camera timeline** (census L33). **Done in chain
+   step CAMERAS (2026-10-02, CAMERA_LIVE.md section 5):** the opening's
+   timeline is the original 0022EC30 / 0022EEF0 (em_cinematic_playback on
+   the AREA11 script host, as Roger's): the +0x80 table D_0026AE00 (the -1
+   record, the fade-out 001AEDE0(16, 0) at 634), the cue 001B1E20(6, 0) at
+   1.0 through em_pad_actuator, the 001DD980 publication, the up vector,
+   the zoom and the end's restores; em_opening_runtime_camera_sample and
+   em_opening_media (its fade track) are gone. Proof: the oracle executes
+   0022EC30 for every scene id and 0022EEF0 over both timelines and every
+   track record; the level smoke's check_opening_timeline finds every
+   compared tick of the timeline (1,289 of 1,293) equal to the original's
+   per-frame camera block of the same cursor, the transition record
+   included, and the hand-off's 64 sampled frames are now all exact. The
+   video tool's finding (2026-10-01, decomp VIDEO_COMPARE.md: the port's
+   opening fades in and shows its first subtitle 20 ticks early at host
+   speed, 12 with the PS2 disc-drive timing switch) is not in this path:
+   relative to the timeline's cursor the fade and the camera equal the
+   original on every captured frame, so the lead lies before the timeline
+   starts, in the stream request's wait (OPENING_ORIGINAL.md section 3:
+   21 frames at host speed by the user's policy, 11 with the switch).
+   What is left: the 11 or 12 frames the switch does not cover, the
+   opening music's extra seek from the intro movie's disc position, which
+   the drive model does not model (LAUNCHER_OPTIONS.md, the drive switch;
+   LEVEL_SMOKE.md "The stream drive's two modes").
+7. **Feel: the examine and aim camera shots.** **Done in chain step CAMERAS
+   (2026-10-02, CAMERA_LIVE.md section 6):** nothing pre-empts camera
+   action 0 any more. The aim stand-in had gone with AIMLIVE; the examine
+   cue (`camera_area11_standins` / `em_examine_camera`) could not own the
+   camera in AREA11 (only the legacy_world node of a scene without a
+   roster starts em_examine sequences, and AREA11's examine line has no
+   camera vector) and is removed from the live camera; AREA11's examine
+   shots are their scripts' original camera ops. Camera actions: 0..8 are
+   bound; 10, 12, 13 and 15 cannot be reached in AREA11 (its room records
+   set mode 0 / action 0; the router's other arms are other areas'); 9, 11
+   and 14 need the player states 44 / 46 / 56 / 57, which no AREA11
+   recording holds and one of whose entries (0015D4C0's ground actions
+   0x37 / 0x38) AREA11's grid attributes exclude. They stay fail-stops.
+   What is left: a static proof that the other writers of those states
+   (001662D0 mount 5, 001647D0, 0016D130, 0016DE40, 0016EBA0, 0015C420
+   entry 2, 00160220) cannot run in AREA11.
 
 **B. On the route, now and then, or in state the player does not see**
 
@@ -2340,6 +2371,13 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   stand-ins (L21 / L18); scenes after the level exit keep the legacy
   camera. The playable_ee.bin fixture was not needed: the per-frame
   samples and the route traces cover the gameplay frames.
+  **Update (2026-10-02, chain step CAMERAS):** the aim camera (actions 1,
+  2, 5 and 00197490) has been live since AIMCAM; the opening's timeline is
+  the original 0022EC30 / 0022EEF0 (section 1b item 6) and nothing
+  pre-empts action 0 (item 7: the examine cue's stand-in removed; the
+  director's and the door's went with WP-8b and census L18). Actions 9..15
+  stay fail-stops: 10, 12, 13 and 15 cannot be reached in AREA11, 9, 11
+  and 14 are not reached by any AREA11 recording (CAMERA_LIVE.md section 6).
 
 ### WP-17 Input and startup
 - **Scope:**

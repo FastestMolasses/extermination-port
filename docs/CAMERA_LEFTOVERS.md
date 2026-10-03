@@ -465,8 +465,8 @@ Bound since census L13..L16 by `src/game/em_camera_live.c`
   | inside | 001B1EA0 | `em_director_original_001B1EA0_bound` over the exported quads |
   | solve_dispatch | 0018D7B0 | `em_camera_follow_0018D7B0` |
   | commit | 0018C0D0 | `em_camera_commit_0018C0D0` |
-  | w_0022EEF0 | 0022EEF0 | the binder's timeline: the opening's track (em_opening_runtime) while the opening owns the camera, else `em_area11_script_host_camera_0022EEF0` |
-  | w_00195130 | 00195130 | `em_cam_specials_action_00195130`, pre-empted by the legacy stand-ins of CAMERA_LIVE.md section 6 |
+  | w_0022EEF0 | 0022EEF0 | the binder's timeline: `em_area11_script_host_camera_0022EEF0` (both the opening's and Roger's, CAMERA_LIVE.md section 5) |
+  | w_00195130 | 00195130 | `em_cam_specials_action_00195130` (nothing pre-empts it since chain step CAMERAS, CAMERA_LIVE.md section 6) |
   | w_001936E0, w_00193EB0 | | `em_cam_specials_action_001936E0`, `em_cam_specials_call_00193EB0` |
   | w_001DD980 | 001DD980 | `em_interaction_projection_001DD980`, then the render context's `em_rcl_001DD950` |
   | w_001B0C60, w_00197D20, w_00198650, w_00198AF0, w_0018CA90, w_00198CE0, w_00198D90, w_00198F10, w_001963A0, w_00196CE0, w_00197390, w_001D2830, w_001B0300 | | NULL: no translation; reaching them faults (never on the route) |

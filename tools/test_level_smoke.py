@@ -197,15 +197,13 @@ def check_first_control_camera(ticks, first_control):
       the area load);
     - the hand-off (postcinema_samples.jsonl, save state 03 on): aligned on
       the tick where the mode-8 settle 001914A0 clears the action +6 (frame
-      4027; the port's first-control tick), the 24 frames before it byte for
-      byte (the opening's timeline words +0x6C..+0x7B included since chain
-      C8b OPENING), and every earlier sampled frame from the hand-off (3964)
-      equal except the eye and target heights (+0x14, +0x24) and the
-      forward +0xB0 that the settle is still chasing: the opening lane's
-      camera stand-in (em_opening_runtime.c, census L33) releases the camera
-      one settle frame earlier, and the eye-height difference must never
-      grow. A frame's last sample may predate its camera stage: it must
-      equal the port's block at the end of that frame or of the one before."""
+      4027; the port's first-control tick), every sampled frame from the
+      hand-off (3964) to it byte for byte (the timeline words +0x6C..+0x8A
+      included: the opening's 0022EEF0 is the original's since chain step
+      CAMERAS, and the settle that follows it equals the original's on
+      every sampled frame). A frame's last sample may predate its camera
+      stage: it must equal the port's block at the end of that frame or of
+      the one before."""
     load = camera_samples(NEWGAME_SAMPLES)
     seated = [i for i, t in enumerate(ticks) if camera_block(t) and any(camera_block(t))]
     assert seated, 'no live camera block in the tick log'
@@ -222,9 +220,7 @@ def check_first_control_camera(ticks, first_control):
     t_end = next(i for i in range(state0 + 1, len(ticks)) if camera_block(ticks[i]) and camera_block(ticks[i])[6] == 0)
     assert t_end == first_control, ('the settle ends away from first control', ticks[t_end]['tick'],
                                     ticks[first_control]['tick'])
-    exempt = frozenset()
-    chase = frozenset(range(0x14, 0x18)) | frozenset(range(0x24, 0x28)) | frozenset(range(0xB0, 0xBC))
-    exact, settling, prev = 0, 0, None
+    exact = 0
     for f in frames:
         if f > f_end:
             break
@@ -233,21 +229,12 @@ def check_first_control_camera(ticks, first_control):
         # equal the port's block at the end of that frame or of the one
         # before.
         cands = [camera_block(ticks[t_end - (f_end - f) - back]) for back in (0, 1)]
-        if f > f_end - 24:
-            ds = [camera_diff(c, post[f], exempt) for c in cands]
-            assert not all(ds), ('hand-off camera frame', f, [hex(o) for o in ds[0]])
-            exact += 1
-        else:
-            ds = [camera_diff(c, post[f], exempt | chase) for c in cands]
-            assert not all(ds), ('hand-off camera frame (settling)', f, [hex(o) for o in ds[0]])
-            dys = [abs(struct.unpack_from('<f', c, 0x14)[0] - struct.unpack_from('<f', post[f], 0x14)[0])
-                   for c in cands]
-            dy = min(dys)
-            assert prev is None or dy <= prev, ('the settle does not converge', f, dy, prev)
-            prev, settling = dy, settling + 1
-    return (f'camera: the 001B0460 seat and the state-0 frame equal frames 2639 / 2640; the hand-off settle '
-            f'equals frames {f_end - 23}..{f_end} byte for byte and converges over the {settling} frames before '
-            f'(eye height {prev:.5f} off at the last)')
+        ds = [camera_diff(c, post[f]) for c in cands]
+        assert not all(ds), ('hand-off camera frame', f, [hex(o) for o in ds[0]])
+        exact += 1
+    return (f'camera: the 001B0460 seat and the state-0 frame equal frames 2639 / 2640; the hand-off from the '
+            f'opening\'s timeline to the settle\'s end equals all {exact} sampled frames {frames[0]}..{f_end} '
+            f'byte for byte')
 
 
 def check_follow_after_release(ticks, i0, rows, f0, what, mode='exact'):
@@ -4267,6 +4254,7 @@ def main():
         level_smoke_face.check_face(ticks, state)
         import level_smoke_opening      # the opening's actors on their records (chain C8b OPENING)
         level_smoke_opening.check_opening_actors(ticks, state)
+        level_smoke_opening.check_opening_timeline(ticks, state)
         import level_smoke_overlay11    # the AREA11 overlay owners re-bound by chain step A11FIX
         held = level_smoke_overlay11.check_overlay11(ticks, state)
         if 'crevice_prompt' in checked:
