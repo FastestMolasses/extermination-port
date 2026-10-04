@@ -360,7 +360,12 @@ and the tools extract the assets locally.
   only as an external measuring instrument.
 - Status: **PARTIAL**. **macOS only for now**: the Windows and Linux
   backends are skeletons, and the Linux build has no movie playback. Do not
-  advertise Windows or Linux yet. The port contains C translations of
+  advertise Windows or Linux yet. An iPhone build for the user's own device,
+  played with a game controller (docs/IOS.md, 2026-10-04), runs the same
+  game code on UIKit/Metal/RemoteIO: `newgame-control` reproduces the macOS
+  displacement 9.599849 on an iPhone Air. Its movies are an HEVC re-encode
+  made at build time (iOS has no MPEG-2 decoder; PSNR 46.8 dB against the
+  macOS decode, timestamps and sound unchanged). The port contains C translations of
   original game and SDK routines by design; "no Sony SDK" means no SDK
   binaries are linked. The decomp repository still commits CodeWarrior asm
   function bodies (user decision 2026-09-23), so the "no original code" claim

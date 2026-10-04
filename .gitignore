@@ -32,3 +32,9 @@ scratch_noassets/
 # Runtime-input symlinks in isolated worktrees.
 /assets
 /data
+
+# iOS (docs/IOS.md): Xcode's per-user state when the project is opened in
+# the IDE. The build products (build/ios/, and the app bundles in Xcode's
+# DerivedData outside the repository) contain the user's disc data.
+xcuserdata/
+*.xcodeproj/project.xcworkspace/

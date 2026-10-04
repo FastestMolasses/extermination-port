@@ -1,4 +1,11 @@
-/* em_gfx_metal.m — macOS graphics backend on Metal.
+/* em_gfx_metal.m — macOS and iOS graphics backend on Metal.
+ *
+ * iOS (TARGET_OS_IPHONE, docs/IOS.md) differs only where the window does:
+ * the native handle is the CAMetalLayer itself, whose settings are applied
+ * on the main thread (UIKit's layer; the frame loop runs on the game
+ * thread), and the drawable size comes from em_window_drawable_size (the
+ * UIKit layer sizes the drawable). Every resource already uses Shared or
+ * Private storage, which both platforms support.
  *
  * Clean-room, no third-party libraries; only Apple system frameworks
  * (Metal, QuartzCore). Manual reference counting (no ARC). Per-frame
@@ -10,9 +17,12 @@
  * needs shaders they will be compiled at runtime from source via
  * -newLibraryWithSource:options:error: (no offline .metallib step).
  */
+#include <TargetConditionals.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
+#if !TARGET_OS_IPHONE
 #import <AppKit/AppKit.h>
+#endif
 #include "em_gfx.h"
 #include "em_platform.h"
 #include "em_math.h"
@@ -29,7 +39,11 @@
 #define EM_GFX_GS_SURFACE_MAX 8u
 
 struct EmGfx {
+#if TARGET_OS_IPHONE
+    EmWindow                    *win;      /* the drawable size (UIKit layer) */
+#else
     NSView                      *view;     /* layer-backed, layer is CAMetalLayer */
+#endif
     CAMetalLayer                *layer;
     id<MTLDevice>                device;
     id<MTLCommandQueue>          queue;
@@ -676,6 +690,29 @@ static void ensure_depth_texture(EmGfx *g, NSUInteger w, NSUInteger h)
 
 EmGfx *em_gfx_create(EmWindow *win)
 {
+#if TARGET_OS_IPHONE
+    CAMetalLayer *layer = (CAMetalLayer *)em_window_native_handle(win);
+    if (![layer isKindOfClass:[CAMetalLayer class]]) return NULL;
+    id<MTLDevice> dev = MTLCreateSystemDefaultDevice();
+    if (!dev) return NULL;
+
+    EmGfx *g = (EmGfx *)calloc(1, sizeof(EmGfx));
+    g->win    = win;
+    g->layer  = [layer retain];
+    g->device = [dev retain];
+    g->queue  = [[dev newCommandQueue] retain];
+
+    /* The macOS settings below, applied on the main thread, which owns
+     * UIKit's layer (this runs on the game thread). */
+    void (^configure)(void) = ^{
+        layer.device          = dev;
+        layer.pixelFormat     = MTLPixelFormatBGRA8Unorm;
+        layer.opaque          = YES;
+        layer.framebufferOnly = NO;
+    };
+    if ([NSThread isMainThread]) configure();
+    else dispatch_sync(dispatch_get_main_queue(), configure);
+#else
     NSView *view = (NSView *)em_window_native_handle(win);
     if (!view) return NULL;
     CAMetalLayer *layer = (CAMetalLayer *)view.layer;
@@ -698,6 +735,7 @@ EmGfx *em_gfx_create(EmWindow *win)
     layer.opaque          = YES;
     /* NO so the drawable can be blit-read by the capture path. */
     layer.framebufferOnly = NO;
+#endif
     g->headless = em_headless();
     g->shadowCurrent = -1;
     return g;
@@ -749,7 +787,9 @@ void em_gfx_destroy(EmGfx *g)
     [g->queue release];
     [g->device release];
     [g->layer release];
+#if !TARGET_OS_IPHONE
     [g->view release];
+#endif
     free(g);
 }
 
@@ -769,10 +809,19 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     g->shadowRecvOpen = false;
 
     /* keep the swapchain sized to the backing store */
+#if TARGET_OS_IPHONE
+    /* The UIKit layer sizes the drawable on the main thread and publishes
+     * the size; before its first layout a headless target gets 960x720. */
+    int iw = 0, ih = 0;
+    em_window_drawable_size(g->win, &iw, &ih);
+    if (iw <= 0 || ih <= 0) { iw = 960; ih = 720; }
+    NSUInteger pw = (NSUInteger)iw, ph = (NSUInteger)ih;
+#else
     NSSize sz = g->view.bounds.size;
     CGFloat scale = g->view.window.backingScaleFactor;
     if (scale <= 0) scale = 1.0;
     NSUInteger pw = (NSUInteger)(sz.width * scale), ph = (NSUInteger)(sz.height * scale);
+#endif
     if (g->headless) {
         if (!g->offscreen || g->offscreen.width != pw || g->offscreen.height != ph) {
             [g->offscreen release];
@@ -785,7 +834,9 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
         }
         g->target = g->offscreen;
     } else {
+#if !TARGET_OS_IPHONE
         g->layer.drawableSize = CGSizeMake(sz.width * scale, sz.height * scale);
+#endif
         g->drawable = [[g->layer nextDrawable] retain];
         g->target = g->drawable ? g->drawable.texture : nil;
     }

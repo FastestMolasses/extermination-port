@@ -1,4 +1,4 @@
-/* macOS movie playback through Apple's AVFoundation/CoreVideo frameworks.
+/* macOS (and iOS) movie playback through Apple's AVFoundation/CoreVideo frameworks.
  * No third-party decoder. The player's audio clock schedules video output;
  * MPEG B-picture reordering, PCM playback, and device timing remain native.
  *
@@ -109,6 +109,12 @@ int em_movie_update(EmMovie *movie, EmMovieFrame *frame)
             movie->finished = 1;
             return 0;
         }
+#if TARGET_OS_IPHONE
+        /* iOS pauses a player when the app leaves the foreground, while the
+         * game thread is parked (docs/IOS.md); resume where it stopped. */
+        if (movie->player.rate == 0.0f)
+            [movie->player play];
+#endif
         CMTime when = [movie->output itemTimeForHostTime:CACurrentMediaTime()];
         if (![movie->output hasNewPixelBufferForItemTime:when])
             return 0;

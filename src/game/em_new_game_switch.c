@@ -15,8 +15,11 @@
 #include <string.h>
 
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
 #include <mach/mach.h>
-#include <mach/mach_vm.h>
+#if !TARGET_OS_IPHONE
+#include <mach/mach_vm.h>   /* macOS only; the iOS build has no "regions" block */
+#endif
 #include <mach-o/getsect.h>
 #include <mach-o/ldsyms.h>
 #endif
@@ -120,7 +123,7 @@ static int put_regions(FILE *out)
     enum { MAX_REGIONS = 8192 };
     static uint64_t ranges[2 * MAX_REGIONS];
     size_t n = 0;
-#if defined(__APPLE__)
+#if defined(__APPLE__) && !TARGET_OS_IPHONE
     mach_vm_address_t address = 0;
     for (;;) {
         mach_vm_size_t size = 0;

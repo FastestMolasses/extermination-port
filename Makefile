@@ -139,6 +139,43 @@ $(BIN): $(SRC) $(wildcard src/*.h src/game/*.h)
 run: $(BIN)
 	$(BIN)
 
+# ---------------------------------------------------------------- iOS
+# Cross-built on macOS with the iOS SDK (docs/IOS.md): the same game code,
+# the UIKit layer (src/platform/ios), the RemoteIO audio backend
+# (src/audio/ios) and the Apple code macOS already uses (GameController pad,
+# AVFoundation movies, Metal renderer), compiled into a static library.
+# tools/ios/build.sh links, bundles and signs it with
+# tools/ios/Extermination.xcodeproj. main.c's main() is the engine bring-up;
+# UIKit owns main() on iOS and runs it as em_port_main() on the game thread.
+#   make ios-lib IOS_SDK=iphoneos | iphonesimulator
+IOS_SDK    := iphoneos
+IOS_MIN    := 17.0
+IOS_DIR    := build/ios/$(IOS_SDK)
+IOS_TRIPLE := arm64-apple-ios$(IOS_MIN)$(if $(filter iphonesimulator,$(IOS_SDK)),-simulator,)
+IOS_CC     := xcrun --sdk $(IOS_SDK) clang -target $(IOS_TRIPLE)
+IOS_SRC    := $(COMMON) \
+              src/platform/ios/em_platform_ios.m \
+              src/platform/mac/em_gamepad_mac.m src/platform/mac/em_movie_mac.m \
+              src/gfx/metal/em_gfx_metal.m \
+              src/audio/ios/em_audio_ios.m
+IOS_OBJ    := $(IOS_SRC:%=$(IOS_DIR)/obj/%.o)
+IOS_LIB    := $(IOS_DIR)/libextermination.a
+
+.PHONY: ios-lib
+ios-lib: $(IOS_LIB)
+
+$(IOS_LIB): $(IOS_OBJ)
+	@rm -f $@
+	xcrun --sdk $(IOS_SDK) libtool -static -o $@ $(IOS_OBJ)
+
+$(IOS_DIR)/obj/src/main.c.o: IOS_DEFS := -Dmain=em_port_main
+
+$(IOS_DIR)/obj/%.o: %
+	@mkdir -p $(@D)
+	$(IOS_CC) $(CFLAGS) $(IOS_DEFS) -MMD -MP -c $< -o $@
+
+-include $(wildcard $(IOS_OBJ:.o=.d))
+
 # Unit test for the OS-free input model: links only em_input.c + the test,
 # no platform/gfx/audio objects, so it runs headless on any host.
 test-input: tests/input_test.c src/em_input.c
