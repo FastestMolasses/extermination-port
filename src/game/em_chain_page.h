@@ -14,14 +14,19 @@
  *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the page programs'
  *          uploads and, in call mode, the grid program's, recognised by
  *          their source address), UNPACK
- *          V4-32 / V1-32 without mask (TOPS-relative for dynamic programs),
- *          MSCAL 0, dynamic MSCNT and DIRECT;
+ *          V4-32 / V1-32 without mask (TOPS-relative for the dynamic,
+ *          floor-field and ripple programs),
+ *          MSCAL 0, dynamic, floor-field and ripple MSCNT and DIRECT;
  *   VU1    MSCAL runs the loaded program's translation
  *          (em_vu1_page_programs.h: the lane program of D_00233290, the
  *          sprite program of table 0x231770, the snow program of
  *          D_00233800 and the streak program of table 0x230800) on a
  *          1024-qword data memory; AREA01's 00237450 / 00237720 use the
- *          shared level and box-clip kernels with three-vertex bounds;
+ *          shared level and box-clip kernels with three-vertex bounds, and
+ *          AREA01's floor-field packet D_002345E0 (MPG of 153 instructions
+ *          from ELF 0x00234610) em_vu1_floor_program_mscal and its
+ *          ripple-surface packet D_00234B00 (145 from ELF 0x00234B30)
+ *          em_vu1_ripple_program_mscal;
  *   GIF    DIRECT (PATH2) and each XGKICK (PATH1): PACKED tags with PRE,
  *          the registers RGBAQ, ST, XYZF2, XYZ2, TEX0_1, NOP and A+D writes
  *          of PRIM, TEX0_1, CLAMP_1, TEX1_1, ALPHA_1, COLCLAMP, TEST_1 and
@@ -97,6 +102,8 @@ extern "C" {
 #define EM_CHAIN_PAGE_GRID      0x0023C990u   /* packet 0x23C990 (call mode) */
 #define EM_CHAIN_PAGE_DYNAMIC   0x00237450u   /* AREA01 three-vertex program */
 #define EM_CHAIN_PAGE_DYNAMIC_CLIP 0x00237720u /* its partial-clip program */
+#define EM_CHAIN_PAGE_FLOOR     0x002345E0u   /* AREA01 floor fields (001E9E60) */
+#define EM_CHAIN_PAGE_RIPPLE    0x00234B00u   /* AREA01 ripple surface (001E7D20) */
 
 enum {
     EM_CHAIN_PAGE_OK = 0,
@@ -146,6 +153,8 @@ typedef struct {
                                * triangles (PRIM type 4)                     */
     uint32_t mscal_grid;      /* MSCALs of the grid program (0x23C990)       */
     uint32_t mscal_dynamic, mscal_dynamic_clip; /* AREA01 dynamic batches */
+    uint32_t mscal_floor;     /* floor-field batches (D_002345E0; MSCAL + MSCNT) */
+    uint32_t mscal_ripple;    /* ripple-surface batches (D_00234B00; MSCAL + MSCNT) */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its

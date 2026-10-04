@@ -219,7 +219,7 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 class Ctx(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
                 ('sp', U32), ('grab_bits', P(U8)), ('fault', I32), ('fault_function', U32),
-                ('fault_address', U32)]
+                ('fault_address', U32), ('view', C.c_void_p), ('view_ctx', C.c_void_p)]
 
 
 GRAB = 0x81083C     # the canonical byte behind the module's grab_bits view (its line is always compared)

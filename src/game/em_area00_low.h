@@ -80,7 +80,10 @@
  *
  * EE arithmetic goes through em_ee_float.h (docs/EE_FLOAT_MODEL.md).
  *
- * Fail-stop: an address outside every region, a NULL worker, a negative
+ * Optional `view`: an access no region holds is asked of the binder's view
+ * (per access, with its read / store intent); NULL leaves it unmapped.
+ *
+ * Fail-stop: an address outside every region (and the view), a NULL worker, a negative
  * worker result, a NULL output pointer, or the divide-by-zero trap of
  * 00119080 latches the fault (the first one is kept); the call returns -1,
  * and while `fault` is not NONE every call returns -1 before doing any work,
@@ -129,6 +132,11 @@ typedef struct {
 
 typedef int (*EmArea00LowWorker)(void *ctx, EmArea00LowCall *call);
 
+/* Optional memory beyond the regions: `size` bytes at `address` for a read
+ * (write 0) or a store (write 1), or NULL (unmapped). Asked per access,
+ * only when no region holds the span (the AREA01 binder's checked views). */
+typedef uint8_t *(*EmArea00LowView)(void *ctx, uint32_t address, uint32_t size, int write);
+
 typedef struct {
     const EmArea00LowRegion *regions;
     unsigned region_count;
@@ -141,6 +149,8 @@ typedef struct {
     uint32_t fault_function; /* the entry that faulted */
     uint32_t fault_address;  /* UNMAPPED: the address; NULL worker / WORKER:
                                 the callee; TRAP: the dividing routine */
+    EmArea00LowView view;    /* optional: after the regions (NULL: none) */
+    void *view_ctx;
 } EmArea00Low;
 
 void em_area00_low_clear_fault(EmArea00Low *s);

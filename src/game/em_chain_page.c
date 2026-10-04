@@ -33,6 +33,7 @@ typedef struct {
     uint32_t program;        /* the uploaded program (0: none)            */
     uint32_t mpg_parts;      /* sprite / snow program: MPG parts uploaded */
     uint32_t mpg_first;      /* the first part's source address           */
+    uint32_t floor_ran;      /* the floor / ripple program ran since its MPG (MSCNT) */
     /* GS */
     uint32_t prim;
     uint32_t set;
@@ -513,6 +514,8 @@ static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
 #define GRID_CODE    0x0023C9B8u
 #define DYNAMIC_CODE 0x00237480u
 #define DYNAMIC_CLIP_CODE 0x00237750u
+#define FLOOR_CODE   0x00234610u   /* D_002345E0's MPG (001E9E60's floor fields) */
+#define RIPPLE_CODE  0x00234B30u   /* D_00234B00's MPG (001E7D20's ripple surface) */
 
 /* A class-2 object unit at its CALL (see the header): its primitives (the
  * caller's run of it), then the state it leaves. */
@@ -570,7 +573,8 @@ static int vif(Walk *w)
             const uint32_t vn = (cmd >> 2) & 3u, vl = cmd & 3u, cnt = num ? num : 256u;
             if ((cmd & 0x10u) || vl != 0u || (vn != 0u && vn != 3u) || (imm & 0x4000u) ||
                 ((imm & 0x8000u) && w->program != EM_CHAIN_PAGE_DYNAMIC &&
-                 w->program != EM_CHAIN_PAGE_DYNAMIC_CLIP) ||
+                 w->program != EM_CHAIN_PAGE_DYNAMIC_CLIP && w->program != EM_CHAIN_PAGE_FLOOR &&
+                 w->program != EM_CHAIN_PAGE_RIPPLE) ||
                 (w->cycle_set && (w->wl == 0u || w->wl > w->cl)))
                 return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
             /* Before the page's first STCYCL the cycle is the frame's (the
@@ -624,6 +628,10 @@ static int vif(Walk *w)
                        first == DYNAMIC_CLIP_CODE + 0x808u * w->mpg_parts &&
                        imm == 0x100u * w->mpg_parts && cnt == (w->mpg_parts == 4u ? 159u : 256u)) {
                 if (++w->mpg_parts == 5u) w->program = EM_CHAIN_PAGE_DYNAMIC_CLIP;
+            } else if (first == FLOOR_CODE && cnt == 153u && imm == 0u) {
+                w->program = EM_CHAIN_PAGE_FLOOR; w->mpg_parts = 1; w->floor_ran = 0;
+            } else if (first == RIPPLE_CODE && cnt == 145u && imm == 0u) {
+                w->program = EM_CHAIN_PAGE_RIPPLE; w->mpg_parts = 1; w->floor_ran = 0;
             } else if (first == LANE_CODE && cnt == 138u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
             } else if (w->call && first == GRID_CODE && cnt == 79u && imm == 0u) {
@@ -652,7 +660,12 @@ static int vif(Walk *w)
         }
         case 0x14: case 0x17: {                                        /* MSCAL / MSCNT */
             const int dynamic = w->program == EM_CHAIN_PAGE_DYNAMIC || w->program == EM_CHAIN_PAGE_DYNAMIC_CLIP;
-            if ((cmd == 0x14u && imm != 0u) || !w->program || (cmd == 0x17u && !dynamic))
+            /* The floor / ripple program's MSCNT resumes after its end
+             * bit, whose branch returns to micro 0: only after a batch of
+             * its own. */
+            const int floor_cnt = (w->program == EM_CHAIN_PAGE_FLOOR || w->program == EM_CHAIN_PAGE_RIPPLE) &&
+                                  w->floor_ran;
+            if ((cmd == 0x14u && imm != 0u) || !w->program || (cmd == 0x17u && !dynamic && !floor_cnt))
                 return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, v);
             const uint32_t top = w->tops;
             w->dbf ^= 1u;
@@ -663,7 +676,15 @@ static int vif(Walk *w)
             }
             em_vu1_level_kernel_forget(&w->dynamic);
             int rc;
-            if (w->program == EM_CHAIN_PAGE_LANE) {
+            if (w->program == EM_CHAIN_PAGE_FLOOR) {
+                p->counts.mscal_floor++;
+                w->floor_ran = 1;
+                rc = em_vu1_floor_program_mscal(&p->regs, p->dmem, kick, w, top);
+            } else if (w->program == EM_CHAIN_PAGE_RIPPLE) {
+                p->counts.mscal_ripple++;
+                w->floor_ran = 1;
+                rc = em_vu1_ripple_program_mscal(&p->regs, p->dmem, kick, w, top);
+            } else if (w->program == EM_CHAIN_PAGE_LANE) {
                 const uint32_t before = p->counts.prim_type[4];
                 p->counts.mscal_lane++;
                 rc = em_vu1_lane_program_mscal(&p->regs, p->dmem, kick, w);

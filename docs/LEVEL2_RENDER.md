@@ -6,6 +6,7 @@ Contents:
 
 - [AREA01 world texture delivery](#area01-world-texture-delivery)
 - [AREA01 dynamic VU programs](#area01-dynamic-vu-programs)
+- [Floor-field and ripple programs](#floor-field-and-ripple-programs)
 - [AREA01 dynamic packet binding](#area01-dynamic-packet-binding)
 - [AREA01 world model bank selection](#area01-world-model-bank-selection)
 - [AREA01 generic model and animation workers](#area01-generic-model-and-animation-workers)
@@ -22,7 +23,7 @@ Contents:
 2026-10-04. Object units, the static world and the chain page share one
 area-selected TEX0 catalog owner, `em_world_textures_live.c`. AREA11/0
 retains its existing object/page exports (487 distinct keys). AREA01/0
-uses a merged 409-key export. Three common keys have different pixels in
+uses a merged 460-key export. Six common keys have different pixels in
 the two areas, so retaining the old registry is observably incorrect.
 
 ### Original delivery and source data
@@ -63,6 +64,28 @@ deliveries both run, as in the original startup/area route.
   and were filtered). Found by the binding probe's first presented
   frame: the pickup unit at 0x00C90800 (library 0x58 + 0x40) referenced
   TEX0 0x0004821555422274.
+- The resource-table models AREA01's owners bind (step FRAMES): every
+  allocated pool record's +0x44 equal to a nonzero D_0028A490[id]. In
+  every AREA01 capture: 00128C10's 0x0F, 001BFFD0's 0x20, 001C02E0's
+  0x22 (a face resource, 4 blocks of 0x163 quadwords, its TEX0s at qword
+  11 i) and the NPC 00825350's 0x47. Ids 0x08..0x34 are the boot's
+  resident sector-3 files: chunk03/fNN_idXX.bin lie in file order from
+  0x10E99C0 (D_0028A490[0x08..0x34] in every capture), and the exporter
+  requires the entry to hold the file's bytes in the capture; 0x47 lies in
+  the area load map (chunk05.n0/f14_id88.bin). Found by the probe: the
+  unit at 0x012C2200 (resource 0x22 + 0x40) referenced TEX0
+  0x2004661599421F48.
+- The face 001BA8E0 binds: the NPC 00825350 calls 001BA8E0(self,
+  self[0xD]) in its state 0 (func_overlay_AREA01_00825310.c); +0x0D is
+  0x47 in every capture, which selects D_0028A490[0x88]
+  (func_001BA8E0.c; 0x1955140 in the load map, a 0x32-block face). Other
+  types are refused. Found by the probe: unit 0x01955180.
+- The TCC 0 (RGB) MODULATE words of 001E9E60 (the floor fields:
+  0x20048CC155422242, and 0x20048E4155422256 when the field record's byte
+  +0x5C is 1) and of 001E7D20 outside area 0x13 (the ripple surface:
+  0x20048BA199422040), drawn by the programs of section "Floor-field and
+  ripple programs". Their texels decode like the others; the page pixel
+  path ignores their alpha (TCC 0: Af = Av).
 - Existing shared player, face, equipment and effect source collectors.
   AREA11 Roger references and the AREA11 flame descriptor are excluded;
   the existing dormant equipment model's invalid zero references are not
@@ -70,17 +93,10 @@ deliveries both run, as in the original startup/area route.
 
 The loader's disc data supplies every exported pixel. Residency poisoning
 proves every texture/CLUT read was written by the replayed uploads.
-All 409 decoded images match all sixteen recorded AREA01 GS freezes,
+All 460 decoded images match all sixteen recorded AREA01 GS freezes,
 including arrival, a01_02 and the side routes. Captured pixels are only
-comparison inputs. The EMOT is 5,274,216 bytes of raw RGBA/GS-alpha
+comparison inputs. The EMOT is 5,644,080 bytes of raw RGBA/GS-alpha
 pixels plus its table and header. No alpha rescaling occurs.
-
-Not yet covered (the next presented-frame fault under the binding probe):
-the character banks outside the library and the area load map, e.g.
-00128C10's model at 0x011351C0, 001BFFD0's at 0x012BC1C0 and 001C02E0's
-at 0x012C21C0 (its 0x40 bytes equal `chunk03/f26_id22.bin`); the unit at
-0x012C2200 references TEX0 0x2004661599421F48. The exporter needs those
-banks' original load addresses before it can collect them.
 
 The exporter writes `assets/area01_world_textures.emot` and its JSON
 report (default `--out`); both are ignored, and no original data belongs
@@ -121,10 +137,10 @@ bind once per frame: a bind means the original resources were delivered.
 
 `python3 tools/test_world_textures_reference.py` passes in default mode
 (first and arrival GS freezes) and with `EM_TEST_FULL=1` (all sixteen).
-Its native bridge verifies all 487 AREA11 and 409 AREA01 keys, dimensions
+Its native bridge verifies all 487 AREA11 and 460 AREA01 keys, dimensions
 and pixel hashes, then AREA11 -> AREA01 -> AREA11 transitions, same-area
 reload, another device and the unchanged cache path. It exercises the
-three reused keys with changed pixels and verifies removed keys disappear.
+six reused keys with changed pixels and verifies removed keys disappear.
 Eleven rejection cases cover unsupported deliveries, absent/malformed
 catalogs, conflicting CLD aliases and an interrupted GPU upload.
 
@@ -136,6 +152,74 @@ claim an AREA01 gameplay screenshot or rasterization comparison. Other
 areas, subareas and player texture modes require their own verified
 delivery catalogs. The AREA01 gameplay gate remains controlled by the
 remaining owner bindings.
+
+## Floor-field and ripple programs
+
+2026-10-04 (step FRAMES). Two static ELF packets the AREA01 page CALLs
+through 001CB760; each is one CNT (FLUSHE, STCYCL 4,4, STMASK 0, STMOD 0,
+BASE 0x20, OFFSET 0x190, one MPG to micro 0) and a RET:
+
+| Packet | Caller | MPG | Batches |
+| --- | --- | --- | --- |
+| D_002345E0 (0x510 bytes with its RET) | 001E9E60, for each of 0015A2C0's 8 floor fields | 153 instructions from ELF 0x00234610 | 6 x 24 qwords (3 rows of 8 points) |
+| D_00234B00 (0x4D0) | 001E7D20, the ripple surface (state 1, when 001E7CB0 is non-zero) | 145 instructions from ELF 0x00234B30 | 30 x 96 qwords (3 rows of 32 points) |
+
+The page is built in reverse, so the DMA order is: the CALL of the
+packet, the GS state REF (D_00275674 + 0x720, a DIRECT of 7 A+D writes),
+001CB950's TEX0 DIRECT, the 9-quadword constant block (UNPACK to
+0x3F8..0x3FF: the GIF tag, NLOOP 16 / 64, PRIM 0x7C, REGS ST, RGBAQ,
+XYZF2; the colour, light, fog, clip and texture rows), the camera rows 0x70003AC0 (UNPACK to
+0..3), then the batches: UNPACK with FLG (to TOPS), the first ended by
+MSCAL 0 and the others by MSCNT.
+
+The microcode (read with the decomp's `tools/disasm_vu.py`; not
+reproduced here): the batch entry reads TOP, loads the constant rows and
+for each column j emits the vertices TOP + j and TOP + row + j (a strip),
+calling a subroutine per vertex; it then copies the GIF tag to TOP +
+3·row and kicks it (end bit). MSCNT resumes after the end bit's delay
+slot, whose branch returns to micro 0, so every batch runs the same code.
+Per vertex: d = point - light row (VF16), P = ERLENG(d), n = d·P; the
+colour is the colour row × n.y × VF21.z and its alpha (1 - n.y)·VF21.x +
+VF21.y times the point's w, all clamped to 0..255 (FTOI0); the texture
+pair is (n.x, n.z)·VF20.z (the floor program adds VF0, the ripple program
+VF20.x / VF20.y, then the floor program scales it by a depth term
+(VF21.w - y) / n.y + VF16.y - y), plus the height differences to the
+next point in the row and in the next row times VF20.w, with 1 as its
+third lane; the position goes through the camera rows, then the clip rows
+VF17 / VF18 (CLIP; FCAND 0x3FFFF over this and the two previous
+vertices), Q = 1 / w, XYZ = position·Q, ST = pair·Q, the fog (VF19) clamped
+and, for a clipped triangle, raised by VF19.y (which sets the ADC bit, so
+the GS does not draw it). VF02.w (ST's w lane) is never written.
+
+Native: `em_vu1_floor_program_mscal` / `em_vu1_ripple_program_mscal`
+(em_vu1_page_programs.h, one body with a `wide` switch), and em_chain_page
+recognises the two MPGs (fault on any other), allows FLG UNPACKs and MSCNT
+only after a batch of the same program (counts `mscal_floor` /
+`mscal_ripple`). The packets come from `assets/effect_tables.emet`
+(windows 0x002345E0 and 0x00234B00). Both TEX0 words are TCC 0 MODULATE;
+the Metal page path implements Af = Av for TCC 0 (MODULATE only;
+HIGHLIGHT with TCC 0 is refused).
+
+Verification: `make test-level2-floor-vu-reference` (`tools/test_level2_floor_vu_reference.py`)
+executes the original microcode on the chain-page model's VU1 machine
+(tools/chain_page_model.py VuOracle, which gained the vector MULA the
+programs use and the MSCNT / FLG walk) and compares: every floor and
+ripple run of each AREA01 capture's page, re-linked as REF transfers into
+a page of their own, through the model and the native page (every kicked
+GIF byte, every GS primitive, the batch counts); synthetic batches
+(perturbed points, camera, colour, fog and light rows, random starting
+registers; MSCAL then MSCNT) comparing all data memory and every register
+(VF, VI, ACC, Q, I, P, the clip history); and five fail-stops (MSCNT
+before a batch of either program, FLG without the program, a truncated
+MPG, the packet unmapped). Quick: 3 captures, 40 synthetic items per
+program (5 s). Full (`EM_TEST_FULL=1`, receipt
+`build/level2/frames/floor-vu-full.log`): 17 captures, 136 floor fields,
+18 ripple surfaces, 1,356 kicks, 15,960 primitives, 5,338 synthetic
+batches (662 both-faulted operand cases). The ERLENG result is the shared
+EFU model of the streak and grid programs (no capture holds an EFU
+result). `make test-chain-page-gpu` checks the TCC 0 pixels against the
+GS pixel model. Limits: no AREA01 frame has been compared with a capture
+pixel by pixel.
 
 ## AREA01 dynamic VU programs
 

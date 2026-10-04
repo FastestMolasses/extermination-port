@@ -2949,7 +2949,9 @@ int em_gfx_gs_opaque(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
  * divided per pixel (STQ). Texels are the raw CLUT entries, read with the GS
  * bilinear rule (sample point U - 0.5 on the 1/16 grid, 4-bit weights) and
  * REPEAT (CLAMP_1 0). TFX MODULATE with TCC 1: Cf = Ct * Cv >> 7, Af = At *
- * Av >> 7 (untextured: Cv, Av); HIGHLIGHT (the class-2 object units of
+ * Av >> 7 (untextured: Cv, Av); MODULATE with TCC 0 (an RGB texture: AREA01's
+ * floor fields, 001E9E60): the same Cf, Af = Av (the GS's texture function
+ * table); HIGHLIGHT (the class-2 object units of
  * 001CABA0): Cf = (Ct * Cv >> 7) + Av, Af = At + Av, each clamped to 255
  * (the object-unit shader's rule); fog (FGE): FOGCOL + ((C - FOGCOL) * F >> 8)
  * (em_fog_gs_blend, the measured rule: GS_EXACT.md 5.2);
@@ -2959,7 +2961,7 @@ int em_gfx_gs_opaque(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
  * COLCLAMP 1, on the frame pixel (framebuffer fetch).
  * k[0] = (width, height, FOGCOL r | g << 8 | b << 16, FGE);
  * k[1] = (A, B, C, D selectors as ALPHA_1 packs them, FIX, TFX (0 MODULATE, 2
- * HIGHLIGHT), 0).
+ * HIGHLIGHT), 1 when TCC is 0).
  * APPROXIMATION, as the object units': the per-pixel values come from
  * Metal's float interpolation, floored with a 0.001 epsilon; the GS DDA
  * stepping (and the GS line rule) is not modelled and no GS dump of a drawn
@@ -3010,6 +3012,8 @@ EM_FOG_GS_MSL
 "    uint a = min((t.a * cv.a) >> 7, 255u);\n"
 "    /* TFX HIGHLIGHT (k[1].z == 2): Cf = Ct * Cv >> 7 + Av, Af = At + Av. */\n"
 "    if (k[1].z == 2u) { c = min(c + cv.a, uint3(255)); a = min(t.a + cv.a, 255u); }\n"
+"    /* TCC 0 (RGB texture; MODULATE only): Af = Av. */\n"
+"    if (k[1].w != 0u) a = cv.a;\n"
 "    return gs_out(gs_fog(c, in.stqf.w, k), a, dst, k);\n"
 "}\n"
 "fragment float4 f_gs_flat(GVOut in [[stage_in]], float4 dst [[color(0)]],\n"
@@ -3103,9 +3107,11 @@ static const char *gs_refusal(const EmGfxGsPrim *p, const struct EmGfxObjectTex 
         const uint32_t psm = (uint32_t)(t0 >> 20) & 0x3Fu, tcc = (uint32_t)(t0 >> 34) & 1u;
         const uint32_t tfx = (uint32_t)(t0 >> 35) & 3u, cpsm = (uint32_t)(t0 >> 51) & 0xFu;
         const uint32_t csm = (uint32_t)(t0 >> 55) & 1u;
-        /* HIGHLIGHT (TFX 2): the class-2 object units' textures. */
-        if ((psm != 0x13u && psm != 0x14u) || cpsm || csm || tcc != 1u || (tfx != 0u && tfx != 2u))
-            return "a TEX0 other than a CT32 CLUT texture with TCC 1 MODULATE / HIGHLIGHT";
+        /* HIGHLIGHT (TFX 2): the class-2 object units' textures; TCC 0
+         * only with MODULATE (the floor fields' RGB textures). */
+        if ((psm != 0x13u && psm != 0x14u) || cpsm || csm || (tcc != 1u && tfx != 0u) ||
+            (tfx != 0u && tfx != 2u))
+            return "a TEX0 other than a CT32 CLUT texture with TCC 1 MODULATE / HIGHLIGHT or TCC 0 MODULATE";
         if (p->tex1 != 0x60u) return "TEX1_1 other than 0x60";
         if (p->clamp != 0u) return "CLAMP_1 other than REPEAT";
     }
@@ -3217,7 +3223,8 @@ int em_gfx_gs_prims(EmGfx *g, const EmGfxGsPrim *prims, uint32_t count)
         const uint32_t tme = (p->prim >> 4) & 1u;
         const uint32_t k[8] = { tme ? texs[i]->width : 1u, tme ? texs[i]->height : 1u, fogcol,
                                 (p->prim >> 5) & 1u, (uint32_t)p->alpha & 0xFFu, (uint32_t)(p->alpha >> 32) & 0xFFu,
-                                tme ? (uint32_t)(p->tex0 >> 35) & 3u : 0u, 0u };
+                                tme ? (uint32_t)(p->tex0 >> 35) & 3u : 0u,
+                                tme && !((p->tex0 >> 34) & 1u) ? 1u : 0u };
         [g->enc setRenderPipelineState:tme ? g->gsTexPipeline : g->gsFlatPipeline];
         if (tme) [g->enc setFragmentTexture:texs[i]->tex atIndex:0];
         [g->enc setFragmentBytes:k length:sizeof k atIndex:0];

@@ -87,6 +87,17 @@ Blocks (original address, bytes, what reads them):
   0x00237720  0x2570  its partial-clip program and RET (chain page)
   0x0024FD50  0x9F4   001C02E0's 91 seven-float sampler rows (001D0D60)
   0x00275638  0x14    its interaction descriptor and proximity limit
+  0x002345E0  0x510   the floor-field program's DMA packet D_002345E0
+                      (001E9E60's CALL through 001CB760: FLUSHE, STCYCL,
+                      STMASK, STMOD, BASE, OFFSET and one MPG of 153
+                      instructions from ELF 0x00234610) and its RET tag,
+                      read by the chain page (em_chain_page.c)
+  0x00242F20  0x400   D_00242F20, 00128C10's clip id per byte kind +0x0D
+                      (the leading halfword of each 4-byte entry; AREA01's
+                      class-2 owners, em_area01_exita / em_area01_sys)
+  0x00234B00  0x4D0   the ripple-surface program's DMA packet D_00234B00
+                      (001E7D20's CALL: the same set-up and one MPG of 145
+                      instructions from ELF 0x00234B30) and its RET tag
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -135,7 +146,15 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x0024A852, 2), (0x0024D824, 4),
           # AREA01 placements 46..53 use floor-field config rows 0, 1,
           # and 5. Preserve only those original 20-byte records.
-          (0x00248120, 0x28), (0x00248184, 0x14))
+          (0x00248120, 0x28), (0x00248184, 0x14),
+          # 001E9E60's floor-field program packet D_002345E0 (CALLed by
+          # 001CB760 for the 8 floor fields of 0015A2C0) and its RET tag.
+          (0x002345E0, 0x510),
+          # 001E7D20's ripple-surface program packet D_00234B00 and RET.
+          (0x00234B00, 0x4D0),
+          # 00128C10's per-kind clip ids D_00242F20 (a halfword every 4
+          # bytes, indexed by the byte kind +0x0D: every reachable entry).
+          (0x00242F20, 0x400))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

@@ -101,9 +101,17 @@ int em_shadow_live_actor_001DA6A0(uint32_t record, const uint8_t *bytes, uint32_
  * 0. 0, or -1 (latched). */
 int em_shadow_live_flush_walk(EmGfx *gfx, const float viewproj[16]);
 int em_shadow_live_flush(EmGfx *gfx, const float viewproj[16]);
+/* 001F9100(owner, point, normal, f12) from another owner (AREA01's class-2
+ * owners through 001B5360, em_area00_low): em_shadow_actor_route's
+ * translation over this module's scratchpad block and stage buffers and
+ * the render context's packet chain; the quad's fans (the decal TEX0) are
+ * counted for this frame's page. 0, or -1 (latched). */
+int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12);
 /* The chain page drew `decal_triangles` fan triangles with the decal's
  * TEX0 this frame (em_chain_page_live): they must be exactly this frame's
- * 0015BF90 fans' (sum of n - 2), else the fault latches. 0, or -1. */
+ * 0015BF90 fans' plus the other owners' 001F9100 fans (sum of n - 2), else
+ * the fault latches. 0, or -1. */
 int em_shadow_live_page_drew(uint32_t decal_triangles);
 
 /* The level smoke's view of the last 0015C160 shadow call (the tick log's

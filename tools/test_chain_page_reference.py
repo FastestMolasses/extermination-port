@@ -236,7 +236,8 @@ class Counts(C.Structure):
                 ('units', C.c_uint32), ('mscal_streak', C.c_uint32), ('streak_prims', C.c_uint32),
                 ('mscal_kind2', C.c_uint32), ('kind2_prims', C.c_uint32), ('lane_strips', C.c_uint32),
                 ('direct_strips', C.c_uint32), ('mscal_grid', C.c_uint32),
-                ('mscal_dynamic', C.c_uint32), ('mscal_dynamic_clip', C.c_uint32)]
+                ('mscal_dynamic', C.c_uint32), ('mscal_dynamic_clip', C.c_uint32),
+                ('mscal_floor', C.c_uint32), ('mscal_ripple', C.c_uint32)]
 
 
 DMEM = C.c_uint8 * 16384

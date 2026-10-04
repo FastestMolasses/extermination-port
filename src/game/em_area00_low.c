@@ -38,8 +38,9 @@ void em_area00_low_clear_fault(EmArea00Low *s)
     s->fault_address = 0;
 }
 
-/* The byte span [address, address + size) inside one region, or a fault. */
-static uint8_t *span(Run *r, uint32_t address, uint32_t size)
+/* The byte span [address, address + size) inside one region, else the
+ * optional view (for a store when `write`), or a fault. */
+static uint8_t *span(Run *r, uint32_t address, uint32_t size, int write)
 {
     const EmArea00Low *s = r->s;
     unsigned i;
@@ -48,13 +49,18 @@ static uint8_t *span(Run *r, uint32_t address, uint32_t size)
         if (g->bytes && address >= g->base && size <= g->size && address - g->base <= g->size - size)
             return g->bytes + (address - g->base);
     }
+    if (s->view) {
+        uint8_t *p = s->view(s->view_ctx, address, size, write);
+        if (p)
+            return p;
+    }
     fault(r, EM_AREA00_LOW_FAULT_UNMAPPED, address);
     return NULL;
 }
 
 static uint32_t rd(Run *r, uint32_t a, unsigned n)
 {
-    const uint8_t *p = span(r, a, n);
+    const uint8_t *p = span(r, a, n, 0);
     uint32_t v = 0;
     unsigned i;
     for (i = 0; i < n; i++)
@@ -76,7 +82,7 @@ void EM_AREA00_LOW_STORE_TRACE(uint32_t address, unsigned size);
 
 static void wr(Run *r, uint32_t a, uint32_t v, unsigned n)
 {
-    uint8_t *p = span(r, a, n);
+    uint8_t *p = span(r, a, n, 1);
     unsigned i;
     TRACE_STORE(a, n);
     for (i = 0; i < n; i++)

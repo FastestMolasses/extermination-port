@@ -31,23 +31,63 @@ newgame-control passes (displacement 9.599849).
 
 **With `EM_LEVEL2_BINDING_PROBE=1`** (honoured only with
 `EM_STARTUP_TEST=newgame-level`; diagnostic, not a playable option) the
-committed live composition binds at the rebuild, and the first world frame
-(frame 1) now runs its whole simulation: the pool walk over
-every placed and spawned owner, the player stage, the camera and the
-`001AAD00` close-out all complete with every adapter transaction healthy.
-The frame then stops in its presentation, `001D1EA0`:
-`gfx: object unit: a TEX0 without a registered texture`
-(`em_owner_draw_live ... (012C2200)`), then
-`chain page: unmapped address fault at 002345E0`, smoke
-`FAIL phase=a01_arrival frame=1`. Command:
-`EM_LEVEL2_BINDING_PROBE=1 EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level
-EM_LEVEL_SMOKE_UNTIL=a01_arrival build/extermination` (about 2 minutes;
-receipt `build/level2/tail-probe/run.log`, binary SHA-256 in
-LEVEL2_RUNTIME.md's probe table). Frames reached: the rebuild (frame 0)
-and the simulation of frame 1; no AREA01 world frame has completed, so no
+committed live composition binds at the rebuild and the AREA01 world
+frames now run with the player idle and no fault: simulation (pool walk
+over every placed and spawned owner, player stage, camera, `001AAD00`
+close-out) and presentation (`001D1EA0`: the chain page with its object
+units, the floor fields and the ripple surface, all drawn). Measured:
+**600 world frames after the rebuild** (counter 15007..15607, the probe
+maximum), smoke `a01_arrival: PASS world_ticks=600`. Command:
+`EM_LEVEL2_BINDING_PROBE=1 EM_A01_ARRIVAL_TICKS=600 EM_UNCAPPED=1
+EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=a01_arrival
+build/extermination` (about 2 minutes; without `EM_A01_ARRIVAL_TICKS` the
+phase runs its 60 recorded frames). Receipt
+`build/level2/frames/probe600.log`, binary SHA-256 in LEVEL2_RUNTIME.md's
+probe table. This proves only that every reached original has a bound
+owner: no frame has been compared with route 15 (frames past f801 are
+not recorded at all), the guard still closes the default path, and no
 census row is AREA01-live.
 
-Bound for this (2026-10-04, each to its existing owner):
+Bound in step FRAMES (2026-10-04, each to its existing owner unless
+stated):
+- Character-bank textures: `tools/export_area01_world_textures.py` now
+  collects the resource-table models AREA01 owners bind at +0x44
+  (D_0028A490[id]: sector-3 files `chunk03/fNN_idXX.bin`, resident from
+  0x10E99C0 in file order, checked byte-equal in every capture; others in
+  the area load map): 00128C10's 0x0F, 001BFFD0's 0x20, 001C02E0's face
+  resource 0x22 and the NPC 00825350's 0x47; the face 001BA8E0 binds for
+  the NPC's type 0x47 (D_0028A490[0x88], func_001BA8E0.c); and the TCC 0
+  words of 001E9E60 (floor fields) and 001E7D20 (ripple surface). 460
+  keys, disc residency and all sixteen AREA01 GS freezes exact
+  (LEVEL2_RENDER.md "AREA01 world texture delivery").
+- The floor-field program D_002345E0 (001E9E60, 0015A2C0's 8 fields) and
+  the ripple program D_00234B00 (001E7D20): new VU1 translations
+  `em_vu1_floor_program_mscal` / `em_vu1_ripple_program_mscal`
+  (em_vu1_page_programs.h) and the chain page's walk of their packets
+  (MPG recognition, TOPS-relative batches, MSCNT after a batch of their
+  own). Oracle: `make test-level2-floor-vu-reference` runs the original
+  microcode (LEVEL2_RENDER.md "Floor-field and ripple programs"). The
+  packets and 00128C10's clip-id table D_00242F20 are new
+  `assets/effect_tables.emet` windows (re-export).
+- The page pixel path draws TCC 0 MODULATE (Af = Av), the floor and
+  ripple textures' form (Metal; `make test-chain-page-gpu` has 3 new pixel
+  cases and a TCC 0 HIGHLIGHT refusal).
+- `0012D580` (00128C10's state 8 sub-machine): `em_area00_low_0012D580`
+  (oracle `make test-area00-low-reference`), which gained an optional
+  per-access `view` after its regions; the AREA01 binder passes the live
+  composition's checked byte views and re-enters the runtime for callees.
+- `001F9100` from 001B5360 (that owner's ground decal):
+  `em_shadow_actor_route_001F9100` through the new
+  `em_shadow_live_owner_001F9100` (the same decal kernel; its fan
+  triangles are added to the page's decal count).
+- `001C9D50` (00128C10's pose blend): `em_anim_rest_001C9D50` over the
+  composition's scratch 0x700034C0.. and 0x70003760.
+- `001B12B0`: the first level's approach step `em_script_host_approach`.
+These four adapters are exercised only by the probe; their owners are
+the oracle-tested translations named, but no AREA01 oracle test covers
+the adapters themselves (as for 001B1B30).
+
+Bound in the previous step (each to its existing owner):
 - `00102798` (SDK 4x4 transpose, 00128C10's matrix) in the shared SDK
   memory adapter `em_aim_fire_sdk_memory.c` over
   `em_camera_commit_00102798`; the four row loads precede the four
@@ -75,31 +115,26 @@ Bound for this (2026-10-04, each to its existing owner):
   view now serves the immutable file bytes outside the cell directory
   between transactions (read-only; cells, mirror and scratch still
   refused; `make test-area01-collision-view-reference` checks it).
-- The AREA01 texture catalog now includes the global library models that
-  AREA01 owners bind (LEVEL2_RENDER.md "AREA01 world texture delivery":
-  409 keys, every one equal in all sixteen AREA01 GS freezes).
+- The AREA01 texture catalog gained the global library models that
+  AREA01 owners bind (409 keys then; 460 since step FRAMES).
 
 **What is missing, in dependency order** (sizes are estimates):
-1. Finish the first world frame's presentation `001D1EA0`:
-   a. Textures of the character banks outside the library and the area
-      load map (00128C10's model 0x011351C0, 001BFFD0's 0x012BC1C0,
-      001C02E0's 0x012C21C0 = `chunk03/f26_id22.bin`); the exporter
-      needs those banks' original load addresses. Small-medium.
-   b. The floor fields' (0015A2C0, 8 placements) 001E9E60 page CALLs the
-      static packet D_002345E0: an MPG of a 153-instruction VU1 program
-      (ELF 0x234610) the chain page does not know. It needs a VU1
-      translation with an original-microcode oracle (`tools/vu1_vm.py`,
-      as for the other page programs) and the chain page's walk of that
-      packet. Medium-large.
-   Then re-run the probe for the next presentation or frame-2 fault.
+1. Originals the idle run does not reach stay unbound and fault when
+   reached (e.g. 001F9180, 001B5360's decal for byte +3 = 4 or 8); the
+   probe's run is idle only.
 2. Open the guard and compare 60 neutral frames against route 15 rows
    741-801 (player, camera, pool, progress, message, fade); the harness
-   exists (section "AREA01 recorded route harness"). Medium.
-3. World drawn: dynamic pass 001D5BD0 is bound in RCL; the dynamic VU
-   programs 0x237450 / 0x237720 are translated; nothing is presented
-   yet, no screenshot or pixel comparison; the smoke serializer omits the
-   dynamic table; owner render hooks and the AREA01 player shadow are
-   unproven. Large (verification-heavy).
+   exists (section "AREA01 recorded route harness"). Under the probe
+   (`EM_LEVEL2_BINDING_PROBE=1 EM_LEVEL_SMOKE_UNTIL=a01_arrival make
+   test-level-smoke`) its first difference is f742, the first world frame:
+   the camera eye (-4.3, 25.7, -572.5) against the original's (-4.3,
+   21.7, -572.5), the target, and the camera flag word 0 against 0x800
+   (receipt `build/level2/frames/probe-compare.log`). Medium.
+3. World drawn: under the probe the frames' pages (dynamic programs
+   0x237450 / 0x237720, the floor and ripple programs, object units) are
+   drawn, but no screenshot or pixel comparison exists; the smoke
+   serializer omits the dynamic table; owner render hooks and the AREA01
+   player shadow are unproven. Large (verification-heavy).
 4. Movement and collision: the player stage and collision view are adapted;
    the 001A8840 / 001A9E00 close-out is proven; 001AA000 later (side s6);
    the segment walker's no-span refusal for camera queries is unresolved

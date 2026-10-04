@@ -99,6 +99,18 @@ static struct {
      * own adapters (no shadow sample is recorded). */
     EmShadowDecal effect_decal;
     uint32_t effect_decals;
+    /* Another owner's 001F9100 (AREA01's class-2 owners through 001B5360):
+     * the same route and decal kernels, scratchpad block and stage
+     * buffers; its packets are recorded apart and its fans' triangles
+     * (the decal TEX0's) counted for this frame's page. */
+    EmShadowActorRoute oroute;
+    EmShadowActorRouteWorkers oworkers;
+    EmShadowDecal odecal;
+    EmShadowDecalWorkers odworkers;
+    uint32_t os38A0[4];
+    struct { uint8_t *bytes; int32_t count; } opk[PACKETS_MAX];
+    uint32_t opk_count;
+    uint32_t owner_frame, owner_triangles;
     struct { uint8_t *bytes; int32_t count; } pk[PACKETS_MAX];
     uint32_t pk_count;
     uint32_t fan_n[2], fan_count;
@@ -778,6 +790,9 @@ int em_shadow_live_page_drew(uint32_t decal_triangles)
     u32 want = 0;
     if (S.bound && S.frame == em_frame_counter() && S.route == EM_SHADOW_ROUTE_0015BF90)
         for (u32 i = 0; i < S.fan_count; ++i) want += S.fan_n[i] - 2u;
+    const u32 owners = S.owner_frame == em_frame_counter() ? S.owner_triangles : 0u;
+    want += owners;
+    S.owner_triangles = 0;
     if (decal_triangles != want)
         return fail(0x001CE300u, "the chain page did not draw exactly the decal's triangles");
     if (want) {
@@ -811,6 +826,65 @@ int em_shadow_live_effect_001CE300(int32_t tag, const uint32_t corners[16], uint
 }
 
 uint32_t em_shadow_live_effect_decals(void) { return S.effect_decals; }
+
+/* --------------------------------- another owner's 001F9100 decal */
+
+static int od_001CB5F0(void *ctx, uint32_t table, int32_t id, int32_t count, uint8_t **bytes)
+{
+    (void)ctx;
+    const int r = S.dbase.w_001CB5F0(S.dbase.ctx, table, id, count, bytes);
+    if (r < 0) return r;
+    if (S.opk_count >= PACKETS_MAX || !bytes || !*bytes || count <= 0) return -1;
+    S.opk[S.opk_count].bytes = *bytes;
+    S.opk[S.opk_count].count = count;
+    S.opk_count++;
+    return r;
+}
+
+static int ow_submit(void *ctx, int32_t tag, const uint32_t corners[16], uint64_t tex0, uint32_t rgba)
+{
+    return em_shadow_decal_w_001CE300(ctx, tag, corners, tex0, rgba);
+}
+
+int em_shadow_live_owner_001F9100(const uint32_t owner[4], const uint32_t point[4], const uint32_t normal[4],
+                                  uint32_t f12)
+{
+    if (S.fault) return -1;
+    if (!S.bound) return fail(0x001F9100u, "the shadow is not bound");
+    const uint8_t *camera = em_rcl_bytes(0x70003AC0u, 0x40);
+    if (!camera) return fail(0x001F9100u, "the camera rows 0x70003AC0 are not bound");
+    const uint32_t now = em_frame_counter();
+    if (S.owner_frame != now) {
+        S.owner_frame = now;
+        S.owner_triangles = 0;
+    }
+    S.odworkers = (EmShadowDecalWorkers){ NULL, d_001CD370, od_001CB5F0, d_001CB900, d_fog };
+    S.odecal.stage = S.stage;
+    S.odecal.workers = &S.odworkers;
+    S.odecal.scratch = (EmShadowDecalScratch){ S.eglobals.spad3600, (const uint32_t *)camera };
+    S.oworkers = (EmShadowActorRouteWorkers){ &S.odecal, NULL, NULL, w_atan2, w_look_at, ow_submit };
+    S.oroute.tables = &S.route_tables;
+    S.oroute.workers = &S.oworkers;
+    S.oroute.scratch = (EmShadowActorRouteScratch){ S.os38A0, NULL, NULL, S.eglobals.spad3600, NULL,
+                                                    (const uint32_t *)camera };
+    S.opk_count = 0;
+    if (em_shadow_actor_route_001F9100(&S.oroute, owner, point, normal, f12) < 0) {
+        if (S.odecal.fault.code) return fail(S.odecal.fault.address, "001CE300 (an owner's decal) faulted");
+        return fail(S.oroute.fault.address ? S.oroute.fault.address : 0x001F9100u, "001F9100 faulted");
+    }
+    if (!S.opk_count) return 0;                  /* a clockwise quad: nothing submitted */
+    const uint8_t *tex = S.opk[S.opk_count - 1].bytes;
+    if (S.opk[S.opk_count - 1].count != 3 || rd32(tex + 12) != 0x50000002u || rd32(tex + 40) != 0x06u ||
+        ((uint64_t)rd32(tex + 32) | (uint64_t)rd32(tex + 36) << 32) != EM_SHADOW_DECAL_TEX0)
+        return fail(0x001CB950u, "an owner's decal TEX0 packet is not 001F8D30's TEX0_1 write");
+    for (u32 i = 0; i + 1 < S.opk_count; ++i) {
+        uint32_t n;
+        if (i >= 2 || check_fan(S.opk[i].bytes, S.opk[i].count, &n) < 0)
+            return fail(0x001CE300u, "an owner's decal fan the renderer does not implement");
+        S.owner_triangles += n - 2u;
+    }
+    return 0;
+}
 
 /* ------------------------------------------------------------ the logs */
 

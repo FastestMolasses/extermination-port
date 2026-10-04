@@ -50,16 +50,22 @@ PROGRAM_SPRITE = 0x231770         # table 0x231770: 001CFBE0 kinds 1 and 5
 PROGRAM_SNOW = 0x233800           # D_00233800: 001CFFE0 (kind 1, variant 3), the weather
 PROGRAM_STREAK = 0x230800         # table 0x230800: 001CFBE0 kinds 0 and 4 (the impact effect 0x80000060)
 PROGRAM_KIND2 = 0x232540          # table 0x232540: 001CFBE0 kind 2 (the cable's hit effect node 0021AAC0)
+PROGRAM_FLOOR = 0x2345E0          # D_002345E0: 001E9E60's floor fields (AREA01 0015A2C0)
+PROGRAM_RIPPLE = 0x234B00         # D_00234B00: 001E7D20's ripple surface (AREA01)
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
 SNOW_MPG = ((0x233828, 256, 0), (0x234030, 81, 0x100))
 STREAK_MPG = ((0x230828, 256, 0), (0x231030, 126, 0x100))
 KIND2_MPG = ((0x232568, 256, 0), (0x232D70, 66, 0x100))
-PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2)
+FLOOR_MPG = (0x234610, 153, 0)
+RIPPLE_MPG = (0x234B30, 145, 0)
+PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2, PROGRAM_FLOOR,
+            PROGRAM_RIPPLE)
+BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE)   # TOPS-relative batches, MSCAL then MSCNT
 # Each packet's bytes: its CNT tag and data, then its RET tag.
 PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW: 0xDE0, PROGRAM_STREAK: 0xF70,
-                       PROGRAM_KIND2: 0xD50}
+                       PROGRAM_KIND2: 0xD50, PROGRAM_FLOOR: 0x510, PROGRAM_RIPPLE: 0x4D0}
 
 # The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
 # capture holds an EFU result, so its arithmetic is a model, the one the
@@ -216,6 +222,9 @@ class VuOracle(sh.VU1):
                 to_acc = True
             elif 0x03C <= code <= 0x03F:                     # ADDAbc
                 res = {c: vadd(x[c], y[code & 3]) for c in m}
+                to_acc = True
+            elif code == 0x2BE:                              # MULA (the floor program)
+                res = {c: vmul(x[c], y[c]) for c in m}
                 to_acc = True
             elif code == 0x27E:                              # SUBAi
                 res = {c: vsub(x[c], self.iw) for c in m}
@@ -546,6 +555,7 @@ class Page:
         self.skip_calls = set(skip_calls)
         self.skipped = []
         self.mscal_counts = {}     # program -> MSCALs run
+        self.floor_ran = False     # the floor / ripple program ran since its MPG (MSCNT)
 
     def u(self, a):
         return u32(self.read(a, 4), 0)
@@ -621,8 +631,11 @@ class Page:
                 fail(f'VIF code {v:#010x} at {at:#x}: interrupt bit')
             if cmd >= 0x60:
                 vn, vl, cnt = cmd >> 2 & 3, cmd & 3, num or 256
-                if cmd & 0x10 or vl != 0 or vn not in (0, 3) or imm & 0xC000:
-                    fail(f'VIF UNPACK {v:#010x} at {at:#x} (only V4-32 / V1-32 without mask, FLG, USN occur)')
+                # FLG (TOPS-relative) occurs only in the floor / ripple batches.
+                if cmd & 0x10 or vl != 0 or vn not in (0, 3) or imm & 0x4000 or \
+                        (imm & 0x8000 and self.program not in BATCHED):
+                    fail(f'VIF UNPACK {v:#010x} at {at:#x} (only V4-32 / V1-32 without mask, USN, '
+                         'and FLG only for the floor / ripple programs)')
                 if not self.cycle_set:
                     # The cycle is the frame's (the lane program packet's
                     # STCYCL sits in its DMA tag, which is not transferred):
@@ -634,7 +647,7 @@ class Page:
                 comps = vn + 1
                 if i + comps * cnt > n:
                     fail('VIF UNPACK runs past the stream')
-                dst = imm & 0x3FF
+                dst = (imm & 0x3FF) + (self.tops if imm & 0x8000 else 0)
                 for k in range(cnt):
                     d = ((dst + (k // self.wl) * self.cl + k % self.wl) if self.cycle_set else dst + k) & 1023
                     q = list(struct.unpack_from('<4I', self.vu.mem, 16 * d))
@@ -652,7 +665,11 @@ class Page:
                 self.vu.code[imm * 8:imm * 8 + 8 * cnt] = code
                 first = words[i][0]
                 self.mpg.append((first, imm, cnt))
-                if (first, cnt, imm) == LANE_MPG:
+                if (first, cnt, imm) == FLOOR_MPG:
+                    self.program, self.parts, self.floor_ran = PROGRAM_FLOOR, 1, False
+                elif (first, cnt, imm) == RIPPLE_MPG:
+                    self.program, self.parts, self.floor_ran = PROGRAM_RIPPLE, 1, False
+                elif (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
                 elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0]):
                     self.program, self.parts, self.first = None, 1, first
@@ -702,6 +719,9 @@ class Page:
             if cmd == 0x14:                                 # MSCAL
                 self.mscal(imm, at)
                 continue
+            if cmd == 0x17:                                 # MSCNT (the floor / ripple program)
+                self.mscal(0, at, cont=True)
+                continue
             if cmd in (0x00, 0x10, 0x11, 0x13):
                 continue
             fail(f'VIF code {v:#010x} at {at:#x} (not in the page)')
@@ -713,9 +733,11 @@ class Page:
                 return p
         return None
 
-    def mscal(self, imm, at):
+    def mscal(self, imm, at, cont=False):
         if self.program is None or imm != 0:
             fail(f'MSCAL {imm:#x} at {at:#x}: no page program loaded, or not entry 0')
+        if cont and not (self.program in BATCHED and self.floor_ran):
+            fail(f'MSCNT at {at:#x}: not after a floor / ripple batch')
         self.mscal_counts[self.program] = self.mscal_counts.get(self.program, 0) + 1
         top = self.tops
         self.dbf ^= 1
@@ -724,7 +746,9 @@ class Page:
         vu.kicks, vu.events, vu.top, vu.watch = [], [], top, set()
         vu.pending, vu.cycle, vu.q_ready, vu.p_ready = [], 0, 0, 0
         vu.ready = [[0] * 4 for _ in range(32)]
-        vu.run(imm * 8)
+        vu.run(vu.resume if cont else imm * 8)
+        if self.program in BATCHED:
+            self.floor_ran = True
         for e in vu.events:
             if e[0] == 'kick':
                 raw = e[3]

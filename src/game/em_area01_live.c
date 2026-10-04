@@ -13,6 +13,9 @@
 #include "game/em_area01_matrix_service.h"
 #include "game/em_area01_flame_services.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area00_low.h"
+#include "game/em_anim_runtime_rest.h"
+#include "game/em_shadow_live.h"
 #include "game/em_area11_bindings.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_interaction_host.h"
@@ -314,6 +317,74 @@ static int worker_result(EmArea01Live *l,int rc,uint32_t address)
     return rc;
 }
 static int worker(void *ctx,EmArea01Call *c);
+static int nested(void *ctx,EmArea01Call *c);
+/* em_area00_low's translations (oracle: make test-area00-low-reference)
+ * over the live composition's checked byte views; their callees re-enter
+ * the runtime with the stack pointer the module passes. */
+static uint8_t *low_view(void *ctx,uint32_t a,uint32_t n,int write)
+{ return em_area01_live_bytes(ctx,a,n,write); }
+static int low_call(void *ctx,EmArea00LowCall *in)
+{
+    EmArea01Call c={.function=in->fn,.sp=in->sp,.na=in->na,.nf=in->nf};
+    memcpy(c.a,in->a,sizeof c.a);memcpy(c.f,in->f,sizeof c.f);
+    int rc=nested(ctx,&c);in->v0=c.v0;in->f0=c.f0;return rc;
+}
+/* 0012D580(a0, a1, a2): 00128C10's sub-state machine at a0 +7 (reached
+ * through em_area01_exita's 00128C10 state 8). */
+static int low_0012D580(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<3)return worker_result(l,-1,c->function);
+    EmArea00Low low;memset(&low,0,sizeof low);
+    low.call=low_call;low.ctx=l;low.sp=c->sp;low.view=low_view;low.view_ctx=l;
+    int rc=em_area00_low_0012D580(&low,(uint32_t)c->a[0],(uint32_t)c->a[1],c->a[2]);
+    return worker_result(l,rc,rc<0 ? (low.fault_address ? low.fault_address : c->function) : 0);
+}
+/* 001F9100(owner, point, normal, f12) from 001B5360 (em_area00_low): the
+ * first level's decal route (em_shadow_actor_route through em_shadow_live)
+ * over the three quadwords the original loads (low four address bits
+ * ignored). */
+static int owner_001F9100(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<3 || c->nf<1)return worker_result(l,-1,c->function);
+    uint32_t q[3][4];
+    for(unsigned i=0;i<3;++i) {
+        const uint8_t *p=bytes(l,(uint32_t)c->a[i]&~15u,16,0);
+        if(!p)return worker_result(l,-1,(uint32_t)c->a[i]);
+        memcpy(q[i],p,16);
+    }
+    if(em_area01_live_suspend(l)<0)return -1;
+    int rc=em_shadow_live_owner_001F9100(q[0],q[1],q[2],c->f[0]);
+    if(em_area01_live_resume(l)<0)return -1;
+    return worker_result(l,rc,rc<0 ? em_shadow_live_fault() : 0);
+}
+/* 001C9D50(out, a, b, f12) from 00128C10's pose blend (em_area01_math_actor):
+ * em_anim_runtime_rest's translation, over the composition's scratch views
+ * 0x700034C0..0x700034EF and 0x70003760..0x7000378B; the output words the
+ * routine leaves keep their bytes. */
+static int rest_001C9D50(EmArea01Live *l,EmArea01Call *c)
+{
+    if(c->na<3 || c->nf<1)return worker_result(l,-1,c->function);
+    const uint32_t o=(uint32_t)c->a[0],x=(uint32_t)c->a[1],y=(uint32_t)c->a[2];
+    if(overlaps(o,64,x,64) || overlaps(o,64,y,64))return worker_result(l,-1,c->function);
+    uint32_t out[16],a[16],b[16];
+    const uint8_t *pa=bytes(l,x,64,0),*pb=bytes(l,y,64,0);
+    if(!pa || !pb)return worker_result(l,-1,pa ? y : x);
+    memcpy(a,pa,64);memcpy(b,pb,64);
+    uint8_t *po=bytes(l,o,64,1);
+    uint8_t *s34C0=bytes(l,0x700034C0u,48,1),*s3760=bytes(l,0x70003760u,44,1);
+    if(!po || !s34C0 || !s3760)return worker_result(l,-1,!po ? o : !s34C0 ? 0x700034C0u : 0x70003760u);
+    memcpy(out,po,64);
+    EmAnimRest r;memset(&r,0,sizeof r);
+    r.world.spad34C0=(uint32_t *)(void *)s34C0;
+    r.world.spad34D0=(uint32_t *)(void *)(s34C0+16);
+    r.world.spad34E0=(uint32_t *)(void *)(s34C0+32);
+    r.world.spad3760=(uint32_t *)(void *)s3760;
+    r.workers.sqrt_ctx=em_collision_world_sdk();
+    r.workers.w_0011E748=em_anim_rest_sqrt_0011E748;
+    int rc=em_anim_rest_001C9D50(&r,out,a,b,c->f[0]);
+    if(rc==0)memcpy(po,out,64);
+    return worker_result(l,rc,rc<0 ? (r.fault.address ? r.fault.address : c->function) : 0);
+}
 /* 001B1630(x, y, z): the first level's camera cone/range owner over the
  * published camera view (D_008105D0 eye, D_00810600 forward). */
 static int visible_001B1630(const float p[3])
@@ -439,6 +510,9 @@ static int worker(void *ctx,EmArea01Call *c)
         int rc=em_area01_script_worker_call(&host,c,&fault);
         return worker_result(l,rc,fault);
     }
+    if(c->function==0x0012D580u)return low_0012D580(l,c);
+    if(c->function==0x001F9100u)return owner_001F9100(l,c);
+    if(c->function==0x001C9D50u)return rest_001C9D50(l,c);
     if(em_area01_door_handles(c->function))return em_area01_door_call(&l->door,c);
     if(em_area01_pickup_handles(c->function))return em_area01_pickup_call(&l->pickups,c);
     if(c->function==0x001EFD90u || c->function==0x001EFD20u || c->function==0x001EF9D0u) {
@@ -638,6 +712,14 @@ static int worker(void *ctx,EmArea01Call *c)
         c->v0=result;return rc<0 ? -1 : 0;
     }
     case 0x00122BB8u:c->v0=em_random_next();return 0;
+    case 0x001B12B0u: {
+        /* The first level's approach step (em_script_host_workers). */
+        uint32_t out=0;
+        if(c->nf<3)return worker_result(l,-1,c->function);
+        int rc=em_script_host_approach(NULL,c->f[0],c->f[1],c->f[2],&out);
+        if(rc==0)c->f0=out;
+        return worker_result(l,rc,c->function);
+    }
     case 0x001281C0u:
         if(c->nf<1)return -1;
         c->v0=(uint64_t)(int64_t)em_stream_lanes_001281C0(c->f[0]);return 0;

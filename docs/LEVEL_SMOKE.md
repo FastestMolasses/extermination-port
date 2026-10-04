@@ -11,9 +11,14 @@ Default/full first-level runs and `--require-through last` still end at
 the side beats `a01_s0`..`a01_s7` (opt-in, all NOT reached until the guard
 opens); `make test-area01-smoke-harness` checks the harness itself against
 the recorded inputs, not a native run. With `EM_LEVEL2_BINDING_PROBE=1` the
-arrival run instead binds the committed AREA01 composition and faults at
-the first unbound worker (00102798 on 2026-10-04). See
-[LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the recorded failures and work left.
+arrival run instead binds the committed AREA01 composition; since step
+FRAMES (2026-10-04) its world frames run idle without a fault (600 measured
+with `EM_A01_ARRIVAL_TICKS=600`, a probe-only length 60..600; frames past
+f801 are not recorded), and `tools/level_smoke_area01.py` then fails at the
+first comparison: route 15 f742 (port tick 13751) differs in the camera
+(eye y 25.7 against 21.7, the target, and the camera flag word 0 against
+0x800). See [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the recorded
+failures and work left.
 
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the

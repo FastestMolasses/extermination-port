@@ -73,6 +73,10 @@ The lane-EXITA design (AREA01_EXITA.md section 2, itself lane SYS's), unchanged 
 noted.
 
 - **Memory.** Regions keyed by original address: RAM, the scratchpad and a stack region.
+  Since the AREA01 step FRAMES (2026-10-04) an optional `view` callback is
+  asked per access (with its read / store intent) when no region holds it;
+  NULL keeps the regions-only behaviour. The AREA01 binder of 0012D580
+  (em_area01_live.c) passes its checked byte views through it.
   001FC580's two stack words (`sp - 0x40 + 0x38` / `+ 0x3C`) are the only stack items: their
   addresses go to 001FBF50, which fills them, and 001FC580 reads them back. Every other local is
   a C local. 00102870 and 00102990 move whole quadwords and, like the EE, ignore the low four

@@ -16,6 +16,9 @@ Metal window and reads the frame back:
   colour, Z and F from its second vertex;
 - the glint's line (untextured, Gouraud, fog, ALPHA 0x44): the one pixel
   the line lights in the frame's centre column;
+- TCC 0 MODULATE fans (AREA01's floor fields and ripple surface, 001E9E60
+  / 001E7D20: an RGB texture, Af = Av by the GS texture function), the
+  decal's texels under its TEX0 with TCC cleared;
 and the pixel at the frame centre must equal gs_pixel(): the texture
 sampled bilinearly with the GS 4-bit weights at U - 0.5 (REPEAT), TFX
 MODULATE with TCC 1, fog FOGCOL + ((C - FOGCOL) * F >> 8) (the rule measured
@@ -23,7 +26,7 @@ in PCSX2's software GS, docs/GS_EXACT.md 5.2; this model used the
 non-original (C * F + FOGCOL * (255 - F)) >> 8 until 2026-09-28), then
 ((A - B) * C >> 7) + D with COLCLAMP. The textures are decoded from the
 route captures' GS memory (tools/export_object_textures.py decode()).
-Refusals: a HIGHLIGHT TEX0, a fogged primitive without the frame's fog, an
+Refusals: a HIGHLIGHT TEX0 (with TCC 1 or 0), a fogged primitive without the frame's fog, an
 unregistered TEX0, a TEST_1 other than 0x53001, FST set, a state the page
 did not set: each returns -1 and draws nothing.
 Skipped (reported) without a Metal device. About 2 s.
@@ -50,6 +53,7 @@ BEAT = '04_elevator_ride'
 DECAL = 0x2004290511322469
 SPRITE = 0x20041805113222AE      # the sprite program's handler texture (D_002565E0's row)
 MARKER = 0x20045B0599421EF0      # 001F4D40's glow-marker texture
+DECAL_RGB = DECAL & ~(1 << 34)   # the decal's texels under TCC 0
 FOGCOL = (48, 48, 48)
 SET_ALL = 0x3F
 
@@ -67,8 +71,9 @@ def texels_of(tex0):
     return eot.decode(lm, tex0), 1 << f['tw'], 1 << f['th']
 
 
-def gs_pixel(tex, u, v, rgba, f, cd, alpha):
-    """The GS pixel of one sample of the page's state."""
+def gs_pixel(tex, u, v, rgba, f, cd, alpha, tcc=1):
+    """The GS pixel of one sample of the page's state (MODULATE; TCC 0:
+    Af = Av)."""
     if tex is not None:
         texels, w, h = tex
         uu, vv = math.floor(u * w * 16) - 8, math.floor(v * h * 16) - 8
@@ -79,7 +84,7 @@ def gs_pixel(tex, u, v, rgba, f, cd, alpha):
         tt = [(t(x0, y0, c) * (16 - fu) * (16 - fv) + t(x1, y0, c) * fu * (16 - fv) +
                t(x0, y1, c) * (16 - fu) * fv + t(x1, y1, c) * fu * fv) >> 8 for c in range(4)]
         cs = [min((tt[c] * rgba[c]) >> 7, 255) for c in range(3)]
-        a = min((tt[3] * rgba[3]) >> 7, 255)
+        a = min((tt[3] * rgba[3]) >> 7, 255) if tcc else rgba[3]
     else:
         cs, a = list(rgba[:3]), rgba[3]
     if f is not None:
@@ -132,9 +137,11 @@ def main():
     for t in (DECAL, SPRITE, MARKER):
         texes[t] = texels_of(t)
         assert lib.em_gfx_gs_texture(gfx, t, texes[t][0], texes[t][1], texes[t][2]) == 0
+    texes[DECAL_RGB] = texes[DECAL]
+    assert lib.em_gfx_gs_texture(gfx, DECAL_RGB, *texes[DECAL]) == 0
     fog_rgb = (C.c_float * 3)(*[float(c) for c in FOGCOL])
     tmp = Path(tempfile.mkdtemp(prefix='chain_page_gpu_', dir=OUT))
-    counts = {'fan': 0, 'sprite': 0, 'line': 0, 'refused': 0}
+    counts = {'fan': 0, 'rgb': 0, 'sprite': 0, 'line': 0, 'refused': 0}
 
     def draw(cd, prims, fog=True):
         lib.em_gfx_begin_frame(gfx, cd[0] / 255.0, cd[1] / 255.0, cd[2] / 255.0, 1.0)
@@ -163,6 +170,20 @@ def main():
         want = gs_pixel(texes[DECAL], u, v, rgba, f, cd, 0x44)
         assert px(w // 2, h // 2) == want, ('fan', cd, rgba, f, (u, v), px(w // 2, h // 2), want)
         counts['fan'] += 1
+    # TCC 0 MODULATE strips (the floor fields' PRIM 0x7C: Gouraud, textured,
+    # fogged, ALPHA 0x44): Af is the vertex alpha, not At * Av >> 7
+    for cd, rgba, f, (u, v) in (((91, 106, 106), (100, 90, 80, 0x40), 200, (0.5, 0.5)),
+                                ((200, 40, 90), (128, 128, 128, 0x80), 255, (0.31, 0.62)),
+                                ((30, 30, 30), (60, 70, 80, 0x10), 90, (0.02, 0.97))):
+        vs = [vertex(x, y, u, v, 1.0, rgba, f) for x, y in corners]
+        tris = [prim(0x7C, DECAL_RGB, 0x44, [vs[0], vs[1], vs[2]]),
+                prim(0x7C, DECAL_RGB, 0x44, [vs[0], vs[2], vs[3]])]
+        rc, (px, w, h) = draw(cd, tris)
+        assert rc == 0, 'the TCC 0 strip was refused'
+        want = gs_pixel(texes[DECAL], u, v, rgba, f, cd, 0x44, tcc=0)
+        assert px(w // 2, h // 2) == want, ('tcc0', cd, rgba, f, (u, v), px(w // 2, h // 2), want)
+        assert want != gs_pixel(texes[DECAL], u, v, rgba, f, cd, 0x44), 'the case does not tell TCC apart'
+        counts['rgb'] += 1
     # sprites: additive (0x8000000068) and 0x44, with and without fog (FGE)
     for p, tex0, alpha, cd, rgba, f, (u, v) in (
             (0x56, SPRITE, (0x80 << 32) | 0x68, (20, 30, 40), (100, 90, 80, 0x80), None, (0.5, 0.5)),
@@ -192,6 +213,7 @@ def main():
     base = [vertex(x, y, 0.5, 0.5, 1.0, (5, 5, 5, 0xA2), 124) for x, y in corners]
     refusals = (
         ([prim(0x7D, DECAL | (2 << 35), 0x44, base[:3])], True, 'a HIGHLIGHT TEX0'),
+        ([prim(0x7D, DECAL_RGB | (2 << 35), 0x44, base[:3])], True, 'a TCC 0 HIGHLIGHT TEX0'),
         ([prim(0x7D, DECAL, 0x44, base[:3])], False, 'fog without the frame fog'),
         ([prim(0x7D, 0x2004290511333333, 0x44, base[:3])], True, 'an unregistered TEX0'),
         ([prim(0x7D, DECAL, 0x44, base[:3], test=0x5000D)], True, 'TEST_1 0x5000D'),
@@ -206,7 +228,8 @@ def main():
     for q in tmp.iterdir():
         q.unlink()
     tmp.rmdir()
-    print(f"chain page gpu: PASS ({counts['fan']} fan, {counts['sprite']} sprite and {counts['line']} line "
+    print(f"chain page gpu: PASS ({counts['fan']} fan, {counts['rgb']} TCC 0 strip, {counts['sprite']} sprite "
+          f"and {counts['line']} line "
           f"pixels equal the GS pixel model; {counts['refused']} refusals draw nothing)")
     return 0
 

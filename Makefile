@@ -1620,7 +1620,7 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-area01-door-live-reference test-level2-dynamic-vu-reference test-world-textures-reference
+.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-area01-door-live-reference test-level2-dynamic-vu-reference test-world-textures-reference test-level2-floor-vu-reference
 test-area01-actor-view-reference:
 	python3 tools/test_area01_actor_view_reference.py
 test-area01-memory-view-reference:
@@ -1637,6 +1637,8 @@ test-area01-door-live-reference:
 	python3 tools/test_area01_door_live_reference.py
 test-level2-dynamic-vu-reference:
 	python3 tools/test_level2_dynamic_vu_reference.py
+test-level2-floor-vu-reference:
+	python3 tools/test_level2_floor_vu_reference.py
 test-world-textures-reference:
 	python3 tools/test_world_textures_reference.py
 

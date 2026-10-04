@@ -256,7 +256,10 @@ through the object units' GS-to-NDC mapping, Z through their depth mapping
 (depth GEQUAL, no Z write: AFAIL RGB_ONLY), colour and F screen-linear
 (Gouraud), S, T, Q screen-linear with the per-pixel divide (STQ); the texture
 through its CT32 CLUT, bilinear with the GS 4-bit weights at U - 0.5 and
-REPEAT, TFX MODULATE with TCC 1; fog FOGCOL + ((C - FOGCOL) * F7 >> 15)
+REPEAT, TFX MODULATE with TCC 1 (and, since step FRAMES, MODULATE with TCC
+0: Af = Av, the RGB textures of AREA01's floor fields and ripple surface,
+LEVEL2_RENDER.md "Floor-field and ripple programs"; `make
+test-chain-page-gpu` checks it); fog FOGCOL + ((C - FOGCOL) * F7 >> 15)
 with the 8.7 weight F7 = floor(128 * F + 0.01) of the screen-linear F
 (floor shift; em_fog_gs_blend7 / em_fog_gs_weight7, the rule measured in
 PCSX2's software GS, GS_EXACT.md 3.2 / 5.2 and
@@ -282,7 +285,7 @@ vertex choice (5.3). This page rasterizes either with Metal's line, as
 every line it draws (section 9)); ABE 0;
 TEST other than 0x53001; COLCLAMP other than 1; TEX1 other than 0x60; CLAMP
 other than 0; a TEX0 not PSMT4 / PSMT8 through a CT32 CLUT with TCC 1 and
-MODULATE, or not registered; a state the page did not set; FGE without the
+MODULATE / HIGHLIGHT or TCC 0 and MODULATE, or not registered; a state the page did not set; FGE without the
 frame's fog.
 
 **The Q of a PACKED RGBAQ** (since the fb2 step, 2026-09-28). The GS's

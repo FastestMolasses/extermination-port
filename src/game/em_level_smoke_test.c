@@ -4259,7 +4259,18 @@ static int exit_frame(void)
  * witness is taken at the rebuild for check_exit; this mid-frame tail's
  * fade/message/stream fields are replaced by the next tick's start sample
  * in that checker, because the remaining main-loop steps have not run. */
-enum { A01_ARRIVAL_WORLD_TICKS = 60 };
+enum { A01_ARRIVAL_WORLD_TICKS = 60, A01_ARRIVAL_PROBE_TICKS_MAX = 600 };
+
+/* EM_A01_ARRIVAL_TICKS=N (60..600) lengthens the idle run, honoured only
+ * under the binding probe (EM_LEVEL2_BINDING_PROBE=1): a fault-free run
+ * past f801, which route 15 does not record, so it proves no behaviour. */
+static int a01_arrival_ticks(void)
+{
+    const char *probe = getenv("EM_LEVEL2_BINDING_PROBE"), *n = getenv("EM_A01_ARRIVAL_TICKS");
+    if (!probe || strcmp(probe, "1") != 0 || !n) return A01_ARRIVAL_WORLD_TICKS;
+    const long v = strtol(n, NULL, 10);
+    return v >= A01_ARRIVAL_WORLD_TICKS && v <= A01_ARRIVAL_PROBE_TICKS_MAX ? (int)v : A01_ARRIVAL_WORLD_TICKS;
+}
 
 static void a01_arrival_begin(void)
 {
@@ -4282,10 +4293,10 @@ static int a01_arrival_frame(void)
         em_scene_bindings_log_request_tail();
         em_scene_bindings_log_tail();
     }
-    if (t.frames++ < A01_ARRIVAL_WORLD_TICKS)
+    if (t.frames++ < a01_arrival_ticks())
         return 0;
     fprintf(stderr, "level smoke: a01_arrival: PASS world_ticks=%d counter=%u (capture check required)\n",
-            A01_ARRIVAL_WORLD_TICKS, em_frame_counter());
+            a01_arrival_ticks(), em_frame_counter());
     return 1;
 }
 
