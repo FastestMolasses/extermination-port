@@ -150,7 +150,7 @@ class Mem(C.Structure):
     _fields_ = [('ram', C.c_void_p), ('ram_size', C.c_uint32), ('spad', C.c_void_p), ('call', CALL),
                 ('ctx', C.c_void_p), ('fault_address', C.c_uint32), ('fault_code', C.c_int32),
                 ('stores', C.c_uint32), ('trace', C.POINTER(C.c_uint32)), ('trace_cap', C.c_uint32),
-                ('trace_len', C.c_uint32)]
+                ('trace_len', C.c_uint32), ('view', C.c_void_p)]
 
 
 TRACE_CAP = 1 << 18

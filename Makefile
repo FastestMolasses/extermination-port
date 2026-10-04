@@ -503,6 +503,15 @@ test-message-service-reference:
 test-message-area-reference:
 	python3 tools/test_message_area_reference.py
 
+.PHONY: test-area01-light-owner-reference test-area01-math-views
+test-area01-light-owner-reference:
+	python3 tools/test_area01_light_owner_reference.py
+
+test-area01-math-views:
+	mkdir -p build/level2
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/area01_math_views_test.c src/game/em_area01_math_core.c src/game/em_area01_math_owner.c -lm -o build/level2/area01_math_views_test
+	./build/level2/area01_math_views_test
+
 .PHONY: test-fan-original
 test-fan-original:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/fan_original_test.c src/game/em_fan_original.c -lm -o build/fan_original_test && ./build/fan_original_test

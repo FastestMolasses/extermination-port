@@ -86,6 +86,13 @@ is still unbound. See LEVEL2_MESSAGES.md: **4 state-preserving selections,
 ticks**, plus missing-bank and persistent-fault checks. The fixture's
 synthetic draw/glyph state is distinguished from its recorded inputs.
 
+The math storage contract now accepts direct views of canonical owners,
+with no full-RAM arena or fallback for missing spans. Its sanitizer alias,
+bounds and fail-stop checks pass; the complete math and light original-code
+oracles pass again in quick and full modes. LEVEL2_MATH_VIEWS.md separates
+the new adapter checks from the existing linear-memory oracle evidence.
+The future actor binder still has to supply those views.
+
 ## Verification
 
 - Initial `make all`: passed, zero compiler warnings.
@@ -141,6 +148,14 @@ Message-resource checkpoint:
   describes the arrival-only state; no launcher option was added.
 - New `tests/message_area_bridge.c`, `tools/test_message_area_reference.py`
   and LEVEL2_MESSAGES.md.
+
+Math-view checkpoint:
+
+- `em_area01_math_core.c/.h`: optional direct memory resolver, preserving
+  the existing linear oracle mode and fault/store-trace contracts.
+- `tools/test_area01_math_reference.py`: appended ctypes view field.
+- `Makefile`: native math-view contract and light-owner oracle targets.
+- New `tests/area01_math_views_test.c` and LEVEL2_MATH_VIEWS.md.
 
 ## Known gaps
 
