@@ -17,23 +17,11 @@ static int publish(const EmPickupOwnerHooks *hooks)
     return 1;
 }
 
-int em_pickup_owner_tick(EmPickupOwner *p, float item_y, float player_y,
+static int pickup_step(EmPickupOwner *p, float item_y, float player_y,
                          uint8_t player_action, uint8_t no_grab,
-                         uint8_t scripted_frame, const EmPickupOwnerHooks *h)
+                         uint8_t scripted_frame, const EmPickupOwnerHooks *h, int class4)
 {
-    if (!p || !h || !h->script_start || !h->script_tick || !h->event ||
-        !isfinite(item_y) || !isfinite(player_y) ||
-        (p->callback != 0x15AFA0 && p->callback != 0x219550)) return -1;
-    if (p->freed) return 0;
-    if (!p->lifecycle) return -1; /* Original model initialization required. */
-    int class4 = p->callback == 0x219550;
-    if ((!class4 && p->lifecycle != 1) || (class4 && p->lifecycle > 2)) {
-        if (!class4 && event(h, EM_PICKUP_OWNER_PERSIST, p->uid) != 1) return -1;
-        if (event(h, EM_PICKUP_OWNER_FREE, 0) != 1) return -1;
-        p->freed = 1;
-        return 0;
-    }
-    if (p->lifecycle == 1) {
+    if (!class4 || p->lifecycle == 1) {
         if (!p->phase && (p->armed & 4)) {
             if (class4) p->class_flags = 0x87;
             p->phase = 1;
@@ -69,6 +57,34 @@ int em_pickup_owner_tick(EmPickupOwner *p, float item_y, float player_y,
     if (!class4 && !scripted_frame && event(h, EM_PICKUP_OWNER_AURA, 0) != 1)
         return -1;
     return publish(h);
+}
+
+int em_pickup_owner_tick(EmPickupOwner *p, float item_y, float player_y,
+                         uint8_t player_action, uint8_t no_grab,
+                         uint8_t scripted_frame, const EmPickupOwnerHooks *h)
+{
+    if (!p || !h || !h->script_start || !h->script_tick || !h->event ||
+        !isfinite(item_y) || !isfinite(player_y) ||
+        (p->callback != 0x15AFA0 && p->callback != 0x219550)) return -1;
+    if (p->freed) return 0;
+    if (!p->lifecycle) return -1; /* Original model initialization required. */
+    int class4 = p->callback == 0x219550;
+    if ((!class4 && p->lifecycle != 1) || (class4 && p->lifecycle > 2)) {
+        if (!class4 && event(h, EM_PICKUP_OWNER_PERSIST, p->uid) != 1) return -1;
+        if (event(h, EM_PICKUP_OWNER_FREE, 0) != 1) return -1;
+        p->freed = 1;
+        return 0;
+    }
+    return pickup_step(p,item_y,player_y,player_action,no_grab,scripted_frame,h,class4);
+}
+
+int em_pickup_owner_0015AE20(EmPickupOwner *p, float item_y, float player_y,
+                             uint8_t player_action, uint8_t no_grab,
+                             uint8_t scripted_frame, const EmPickupOwnerHooks *h)
+{
+    if (!p || !h || !h->script_start || !h->script_tick || !h->event ||
+        !isfinite(item_y) || !isfinite(player_y)) return -1;
+    return pickup_step(p,item_y,player_y,player_action,no_grab,scripted_frame,h,0);
 }
 
 int em_pickup_owner_0015AC00(EmPickupState0 *r, const EmPickupState0Hooks *h)

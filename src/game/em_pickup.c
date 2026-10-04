@@ -112,6 +112,11 @@ static uint8_t *items_resolve(void *ctx, uint32_t address, uint32_t size)
     return item_at(address, size);
 }
 
+int em_pickup_inventory_001C40B0(int32_t type,int32_t amount)
+{
+    return em_pickup_items_001C40B0(items_resolve,NULL,type,amount);
+}
+
 void em_pickup_set_weapon_ammo(uint8_t *c62, int16_t *cb4)
 {
     ammo.c62 = c62;

@@ -74,6 +74,8 @@ uint8_t        em_pickup_mag_packs(void);      /* D_00810C63 */
  * D_00810CB4, which em_weapon holds (w.mag, w.reserve). The game binds them
  * once; an unbound case-0x10 take faults. */
 void em_pickup_set_weapon_ammo(uint8_t *c62, int16_t *cb4);
+/* Existing inventory worker over the same item and ammunition owners. */
+int em_pickup_inventory_001C40B0(int32_t type,int32_t amount);
 
 /* Original battery charge D_00810CB2 and capacity D_00810CB7 (001C40B0
  * cases 0x1B..0x1D), in HALF-units. UI display units are these values >> 1.

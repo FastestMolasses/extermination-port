@@ -44,13 +44,19 @@ int em_pickup_owner_tick(EmPickupOwner *owner, float item_y, float player_y,
                          uint8_t player_action, uint8_t no_grab,
                          uint8_t scripted_frame, const EmPickupOwnerHooks *hooks);
 
+/* Direct map-owner step; shares the same translated body as tick, without
+ * the outer 0015AFA0 lifecycle dispatch. */
+int em_pickup_owner_0015AE20(EmPickupOwner *,float item_y,float player_y,
+                             uint8_t player_action,uint8_t no_grab,
+                             uint8_t scripted_frame,const EmPickupOwnerHooks *);
+
 /* The item owners' state 0 over the record bytes it reads or writes
- * (0015AFA0's 0015AC00, byte-matched decomp src/func_0015AC00.c; 00219550's
+ * (0015AFA0's 0015AC00, NEARMISS decomp src/func_0015AC00.c, the .s followed; 00219550's
  * state 0, NEARMISS src/func_00219550.c, the .s followed). The model binds,
  * 001C6380, the aura's 001F1110 and 001A2370 are workers on the record the
  * caller owns; +0x04 is the bind workers' (001B0FD0 / 001B1020 add 1). The
- * +0x30 store (0015AC00: &D_00275488; 00219550: the word at D_00275878 or
- * D_00275880 by D_00810700) is not modelled: no port code reads it. */
+ * +0x30 store (0015AC00: &D_00275488; 00219550: &D_00275878 or
+ * &D_00275880 by D_00810700) is applied by the canonical record adapter before the aura/cell worker. */
 typedef struct {
     uint8_t status;      /* +0x00: 1 once bound */
     uint8_t subtype;     /* +0x03 */
