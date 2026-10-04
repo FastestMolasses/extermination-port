@@ -10,7 +10,8 @@ writers. This test greps src/ and checks, for the bytes S11a made canonical
 S11b (scratchpad 0x70003B92, lead decision D5), the housekeeping step HK
 (lead decision D2: D_00810707, D_00810792, D_00810793, D_00810813, D_00810CC3,
 D_00810CB6 in the EmProgress region and D_008106F1 in the request block) and
-census L01 (D_0081083C, the player's grab-slot bits, in the EmProgress region):
+census L01 (D_0081083C, the player's grab-slot bits), and AREA01's mechanism
+and door bytes (D_00810766, D_00810842, D_00810845), in the EmProgress region:
 
   1. the retired port copies are gone from src/ and tests/: `frame_selector`
      (g.frame_selector, S11a), `cine_step` (g.cine_step = D_00810813, HK) and
@@ -237,6 +238,26 @@ REACHERS = {
                                      "verification run only until WP-8b",
         "game/em_scene_bindings.c": "the tick log's story sample (test instrumentation, never written)",
     },
+    0x00810766: {
+        "game/em_area01_math_owner.c": "001C02E0 state 0 stores 0xFF only when D_00810845 bit 5 is set; "
+                                       "the math view resolves to canonical scene progress",
+    },
+    0x00810842: {
+        "game/em_area02_math.c": "001582E0 state 1 ORs bit 1 after the original nonzero +0x36 test; "
+                                 "the translated module accesses original addresses through its byte view",
+    },
+    0x00810845: {
+        "game/em_area01_math_owner.c": "001C02E0 state 0 reads bit 5 before selecting the mechanism or "
+                                       "bypass branch; the math view resolves to canonical scene progress",
+        "game/em_area01_revisit.c": "825950 state 0, subtype 0x4B, reads bit 5 to choose despawn or model "
+                                    "setup; the translated revisit module uses its original-address view",
+        "game/em_area04_port.c": "AREA04 823B40 sets bit 3 once; 823B90 reads bit 5 in state 0 and "
+                                 "state 1/substate 0; unbound original-address views, no flag storage",
+        "game/em_area06_port.c": "00207350 password page, state 1 with a matching slot-0 string, ORs "
+                                 "bit 5 through its unbound original-address view",
+        "game/em_area06_port_overlay.c": "AREA06 8242C0 state 1 and 824560 states 0/4 read bit 5 "
+                                         "through their unbound original-address views",
+    },
 }
 REACH_CALL = {0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\(")}
 
@@ -341,7 +362,7 @@ ALLOWED = [
      "removed_by": "permanent (a constant)"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810842|810845",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

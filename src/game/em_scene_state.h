@@ -122,6 +122,9 @@ typedef enum {
  *                              0x0100 read them; only 001AF2C0 writes them in
  *                              the first level (0 in every route capture); no
  *                              port mirror existed.
+ *   D_00810766           A01   event 0x0E: 001C02E0 stores 0xFF when
+ *                              D_00810845 bit 5 bypasses its mechanism.
+ *                              No port mirror; cleared by 001AF2C0.
  *   D_00810771           L29   event 0x19 (D_00810758[0x19]): 0015C160 draws
  *                              no shadow while it is 1 (src/func_0015C160.c;
  *                              the post-step w_0015C160 reads it); no port
@@ -202,11 +205,18 @@ typedef enum {
  *                              capture); the player stage's worker view
  *                              loads it before every stage
  *                              (em_player_stage_live.c).
+ *   D_00810842, D_00810845
+ *                        A01   D_00810841[1] door-lock flags and [4] bit 5
+ *                              read by 001C02E0. No port mirrors; both
+ *                              cleared by 001AF2C0's progress memset.
+ *                              001BC350 reads the current area's byte;
+ *                              001582E0 writes [1] bit 1. Later-area
+ *                              writers of [4] remain unbound.
  *   D_0081084C           WP-4  D_00810841[0x0B], AREA11's power byte:
  *                              001580C0 sets bit (1 << panel +0x2E) = 0x80,
  *                              00159210 state 0 and 00827B10 test it;
  *                              migrated from g.terminal_powered. Other
- *                              areas' D_00810841 bytes stay reserved.
+ *                              unmigrated D_00810841 bytes stay reserved.
  *   D_00810860..D_00810B3F
  *                        S10b  per-area taken bits, u32[8] per area
  *                              (001B11E0 test, 001B1190 set, 001B64F0 clear);
@@ -264,6 +274,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
         {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
         {0x0081075Eu, 0x00810760u}, /* events 6, 7: AREA01's deferred-group conditions (EXIT) */
+        {0x00810766u, 0x00810767u}, /* event 0x0E: 001C02E0's bypass (A01) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
          * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes
@@ -281,6 +292,8 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
+        {0x00810842u, 0x00810843u}, /* D_00810841[1], AREA01 door-lock flags (A01) */
+        {0x00810845u, 0x00810846u}, /* D_00810841[4], 001C02E0's mechanism gate (A01) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810C60u, 0x00810C61u}, /* equipment status C60 (WP-6) */

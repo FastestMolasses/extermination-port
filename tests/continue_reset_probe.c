@@ -5,6 +5,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_scene_state.h"
 #include "game/em_director_original.h"
+#include <assert.h>
 
 EmGameState g;
 
@@ -20,6 +21,9 @@ typedef struct {
     uint32_t key_item_zero;   /* D_00810CC3                     */
     uint32_t director_step;   /* D_00810813                     */
     uint32_t terminal_powered;/* D_0081084C bit 7               */
+    uint32_t mechanism_done;  /* D_00810766                     */
+    uint32_t area01_locks;    /* D_00810842                     */
+    uint32_t mechanism_gate;  /* D_00810845                     */
 } ContinueResetProbe;
 
 void continue_reset_probe(ContinueResetProbe *out)
@@ -43,6 +47,18 @@ void continue_reset_probe(ContinueResetProbe *out)
     *step = 0x20;
     uint8_t *event39 = em_scene_progress_at(&scene, 0x00810791u, 1); /* D2 since census L22 */
     *event39 = 0xFF;
+    uint8_t *done = em_scene_progress_at(&scene, 0x00810766u, 1);
+    uint8_t *locks = em_scene_progress_at(&scene, 0x00810842u, 1);
+    uint8_t *gate = em_scene_progress_at(&scene, 0x00810845u, 1);
+    assert(done && locks && gate);
+    *done = 0xFF; *locks = 0xA5; *gate = 0x28;
+    /* Neighboring reserved bytes cannot be read through a wider request. */
+    assert(!em_scene_progress_at(&scene, 0x00810765u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810766u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810841u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810842u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810844u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810845u, 2));
 
     game_state_new_game(&g);
     em_scene_progress_reset_001AF2C0(&scene);
@@ -58,6 +74,9 @@ void continue_reset_probe(ContinueResetProbe *out)
     out->key_item_zero = *key0;
     out->director_step = *step;
     out->terminal_powered = (uint32_t)(*power >> 7);
+    out->mechanism_done = *done;
+    out->area01_locks = *locks;
+    out->mechanism_gate = *gate;
 }
 
 /* em_director_original_001C4760_scene (the live 001C4760 binding) over a

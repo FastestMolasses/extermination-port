@@ -271,3 +271,33 @@ Binary SHA-256:
 Receipts: `build/level2/canonical-callbacks/index-build.json`,
 `index-build.log`, and `index-contract.log`. Full module oracle evidence
 is listed in the callback document; AREA01 route completion remains unproven.
+
+## Native state dependency checkpoint
+
+The existing actor-pool walk accepts an optional `001CB590` selection hook,
+after publishing its current actor and before clearing drawn or invoking the
+behavior. The old walk entry delegates to the same body with no hook.
+AREA01's pending composition uses it to publish the existing current-bone
+selector; this commit adds no second pool or bone storage. Original-code
+full proof passes **246 cases, 328 walks, 5,014 visits, 80 freed-next cases,
+1,136 reserve allocations and 89 refused allocations**. It compares the
+original `001CB590 -> 001CB5B0` result after every operation. Sanitizer tests
+cover selection order in all three modes and failure before the behavior.
+Receipts: `build/level2/pool-select-{unit,quick,full}.log`.
+
+Three exact bytes become canonical in the existing scene progress region:
+`00810766` (`001C02E0` bypass store), `00810842` (AREA01 door flags), and
+`00810845` (`001C02E0` mechanism gate). Their initialization is the existing
+`001AF2C0` reset; no per-arrival reset or copied capture is introduced.
+The reset oracle now compares **14 gameplay/progress fields and 73 inventory
+fields**, including dirty values for these bytes. Six neighboring reserved
+spans are refused. The no-shadow audit names their actual readers/writers.
+
+Shared files: `em_actor_pool.c/.h`, `em_scene_state.h`, the terminal-power
+comment/log wording in `em_game.c`, actor-pool unit/oracle tests,
+`continue_reset_probe.c`, its oracle, and `test_scene_no_shadow.py`.
+No normal AREA01 frame gate changes. The isolated staged-source
+`make -B all` passed with **zero warnings in 39.860 s**; actor-pool,
+reset and no-shadow targets passed in that export. Receipts are in
+`build/level2/native-state/`; binary SHA-256
+`52664816ec7e71c4a8d777a7ca05ce2dd65ac60f5a06ecd17ad227810581489f`.

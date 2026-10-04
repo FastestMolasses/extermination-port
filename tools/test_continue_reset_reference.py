@@ -47,7 +47,7 @@ class Probe(C.Structure):
     _fields_ = [(name, C.c_uint32) for name in (
         'health_bits', 'infection_bits', 'mag', 'reserve', 'battery',
         'battery_max', 'opening_complete', 'event_39', 'key_item_zero',
-        'director_step', 'terminal_powered')]
+        'director_step', 'terminal_powered', 'mechanism_done', 'area01_locks', 'mechanism_gate')]
 
 
 class CaptureOriginal(Original):
@@ -148,6 +148,7 @@ def run_original(elf, ram):
         0x810CB7: (12, 1), 0x810811: (0xFF, 1), 0x810791: (0xFF, 1),
         0x810CC3: (1, 1), 0x810813: (0x20, 1),
         0x81084C: (o.load(0x81084C, 1) | 0x80, 1),
+        0x810766: (0xFF, 1), 0x810842: (0xA5, 1), 0x810845: (0x28, 1),
     }
     dirty.update(PICKUP_DIRTY)
     for address, (value, size) in dirty.items():
@@ -292,6 +293,9 @@ def main():
         ('key item 0 D_00810CC3', o.load(0x810CC3, 1), probe.key_item_zero),
         ('director step D_00810813', o.load(0x810813, 1), probe.director_step),
         ('terminal power D_0081084C&0x80', o.load(0x81084C, 1) >> 7, probe.terminal_powered),
+        ('mechanism done D_00810766', o.load(0x810766, 1), probe.mechanism_done),
+        ('AREA01 locks D_00810842', o.load(0x810842, 1), probe.area01_locks),
+        ('mechanism gate D_00810845', o.load(0x810845, 1), probe.mechanism_gate),
     ]
     failed = 0
     for name, original, native in fields:
