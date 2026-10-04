@@ -359,11 +359,7 @@ static int w_001C62C0(void *ctx, EmStatusSceneActor *a)
 static int w_001CA5F0(void *ctx, EmStatusSceneActor *a, int32_t kind)
 {
     (void)ctx;
-    static const uint32_t method[13] = {0x001CAA00u, 0x001CAF60u, 0x001CACB0u, 0x001CAE30u,
-                                        0x001CAA00u, 0x001CB360u, 0x001CAF70u, 0x001CB480u,
-                                        0x001CB060u, 0x001CB130u, 0x001CB1F0u, 0x001CB580u,
-                                        0x001CB2B0u};
-    a->w4C = (uint32_t)kind < 13u ? method[kind] : 0x001CAA00u;
+    a->w4C = em_owner_services_method_001CA5F0((uint32_t)kind);
     return 0;
 }
 

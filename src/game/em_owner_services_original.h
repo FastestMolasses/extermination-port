@@ -229,6 +229,13 @@ typedef struct {
 /* ---- model binding and bones. Results are the original return values;
  * -1 means a fault was latched (or one was already latched). ---- */
 
+/* Shared 001CA5F0 method selection and 001CA5E0 model/method stores.
+ * The status models and address-based area adapters use this sole generic
+ * dispatch; the existing kind-0 specializations retain their callers. */
+uint32_t em_owner_services_method_001CA5F0(uint32_t kind);
+int em_owner_services_model_001CA5E0(uint32_t *model, uint32_t *method,
+                                     uint32_t handle, uint32_t kind);
+
 /* 001B0FD0(owner): 1 when 001B0EA0 refused (+0x04 = 3), else 0 (+0x04 += 1). */
 int em_owner_services_001B0FD0(EmOwnerServices *s, EmOwnerServicesOwner *o);
 /* 001B0EA0(owner): 1 over the bone cap (+0x04 = 3), else 0. */

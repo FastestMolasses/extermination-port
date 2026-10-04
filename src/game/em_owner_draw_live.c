@@ -1,11 +1,13 @@
 /* em_owner_draw_live.c - see em_owner_draw_live.h and docs/OWNER_DRAW.md. */
 #include "game/em_owner_draw_live.h"
+#include "game/em_world_textures_live.h"
 
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "game/em_actor_light_001D89D0.h"
+#include "game/em_area01_math_owner.h"
 #include "game/em_anim_runtime_rest.h"
 #include "game/em_face_attach.h"
 #include "game/em_frame.h"
@@ -55,7 +57,6 @@ static struct {
     uint32_t drawn;
     uint32_t post_first, post_frame;
     const EmWorldModels *bank;
-    int textures_loaded, textures_tried;
     /* 001CB3C0 (the +0x90 attachment): the anim rest whose region table
      * serves its EE-address reads (the call's regions), and the face
      * attachment over this module's views. */
@@ -198,9 +199,8 @@ static int face_2910(void *ctx, int32_t a0, uint32_t *result)
  * the call's regions as the EE bytes it reads by address (the record's
  * +0x80..+0x97, the attachment slot, the face resource), D_00250FB0 from
  * the render context's .data and the owner's node array as D_00275B40. */
-static int w_001CB3C0(void *ctx, EmOwnerServicesOwner *owner)
+static int face_bind(EmOwnerServicesOwner *owner)
 {
-    (void)ctx;
     const uint32_t *offset = words(D_00250FB0, 12);
     if (!offset) return report(D_00250FB0, "D_00250FB0 is not in the render context's .data");
     if (!L.regions || L.region_count > EM_POSE_REGION_MAX)
@@ -227,6 +227,15 @@ static int w_001CB3C0(void *ctx, EmOwnerServicesOwner *owner)
     f->world.d00275B40_count = owner->bone_count;
     f->workers.w_001D1F80 = face_1F80;
     f->workers.w_001D2910 = face_2910;
+    return 0;
+}
+
+static int w_001CB3C0(void *ctx, EmOwnerServicesOwner *owner)
+{
+    (void)ctx;
+    if (face_bind(owner) < 0) return -1;
+    EmFaceAttach *f = &L.face;
+    EmAnimRest *r = &L.rest;
     if (em_face_attach_001CB3C0(f, L.record) < 0) {
         fprintf(stderr, "em_owner_draw_live: 001CB3C0 faulted: %08X/%d (anim rest %08X/%d, light %08X/%d)\n",
                 (unsigned)f->fault.address, (int)f->fault.code, (unsigned)r->fault.address, (int)r->fault.code,
@@ -304,6 +313,72 @@ static const uint8_t *resolve(void *ctx, uint32_t address, uint32_t bytes)
             return g->bytes + (address - g->address);
     }
     return em_rcl_bytes(address, bytes);
+}
+
+static uint8_t *morph_bytes(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    (void)ctx;
+    return write ? NULL : (uint8_t *)(uintptr_t)resolve(NULL, address, size);
+}
+
+static int morph_worker(void *ctx, uint32_t function, const uint32_t *a, unsigned na,
+                          const uint32_t *f, unsigned nf, uint32_t *v0, uint32_t *f0)
+{
+    EmOwnerServicesOwner *owner = ctx;
+    (void)f; (void)nf; (void)f0; *v0 = 0;
+    switch (function) {
+    case 0x001C7420u:
+        return na == 3 && a[0] == L.record
+                   ? em_owner_services_001C7420(&L.services, owner, a[1], a[2], NULL) : -1;
+    case 0x001CB2C0u:
+        return na == 3 ? em_anim_rest_001CB2C0(&L.rest, a[0], a[1], a[2]) : -1;
+    case 0x001D1F80u:
+        return na == 3 ? w_001D1F80(NULL, a[0], a[1], a[2]) : -1;
+    case 0x001D3F50u:
+        return na == 1 ? em_face_attach_001D3F50(&L.face, a[0]) : -1;
+    default: return -1;
+    }
+}
+
+int em_owner_draw_live_001CB360(EmOwnerServicesOwner *owner, const uint32_t rgb[4], uint32_t record,
+                                const EmOwnerDrawLiveRegion *regions, unsigned region_count)
+{
+    if (!owner || !rgb || !regions || !region_count || region_count > EM_OWNER_DRAW_LIVE_REGIONS)
+        return report(0x001CB360u, "missing morph-model views");
+    if (em_rcl_fault() || bind_views(NULL) < 0 || channel_open() < 0) return -1;
+    const uint32_t frame = em_frame_counter();
+    if (L.unit_frame != frame) {
+        L.unit_frame = frame; L.unit_count = L.log_count = L.sample_count = L.drawn = 0;
+    }
+    if (L.unit_count >= EM_OWNER_DRAW_LIVE_UNITS) return report(0x001CB360u, "unit storage is full");
+    EmActorLightBinding binding = {0};
+    binding.light = &L.light; binding.w_owner_rgb = w_owner_rgb;
+    L.owner_rgb = rgb; L.record = record; L.regions = regions; L.region_count = region_count;
+    memset(&L.light.fault, 0, sizeof L.light.fault);
+    memset(&L.draw.fault, 0, sizeof L.draw.fault);
+    memset(&L.services, 0, sizeof L.services);
+    L.services.world.d00275B40 = owner->bone;
+    L.services.world.d00275B40_count = owner->bone_count;
+    L.services.world.scratch = &L.spr;
+    L.services.world.channel = &L.channel; L.services.world.channel_count = 1;
+    L.services.workers.ctx = &binding;
+    L.services.workers.w_001D89D0 = em_actor_light_w_001D89D0;
+    const uint8_t *start = L.channel.cursor;
+    EmA01Math math = {0}; math.ctx = owner; math.view = morph_bytes; math.call = morph_worker;
+    int rc = face_bind(owner);
+    if (!rc) rc = em_area01_math_001CB360(&math, record);
+    if (!rc) rc = channel_store();
+    if (!rc) {
+        const char *why = NULL;
+        EmObjectUnitPieces *unit = &L.units[L.unit_count];
+        uint32_t size = (uint32_t)(L.channel.cursor - start);
+        rc = em_object_unit_parse_one(start, size, resolve, NULL, unit, &why);
+        if (!rc && (unit->bytes != size || unit->unit.program != EM_GFX_OBJECT_FACE)) rc = -1;
+        if (!rc) ++L.unit_count;
+        else fprintf(stderr, "em_owner_draw_live: 001CB360 unit refused: %s\n", why ? why : "unit shape");
+    }
+    L.owner_rgb = NULL; L.regions = NULL; L.region_count = 0;
+    return rc < 0 ? report(0x001CB360u, "morph-model draw faulted") : 0;
 }
 
 static uint32_t fnv(uint32_t h, const uint32_t *w, uint32_t n)
@@ -609,6 +684,77 @@ static int w_001D3D90(void *ctx, const EmOwnerModel *model)
     return em_owner_draw_001D3CF0(&L.draw, 3, m->address, m->w04, ch3_1F80, NULL);
 }
 
+int em_owner_draw_live_001D3990_at(uint32_t model, uint32_t w04)
+{
+    if (em_rcl_fault() || ch3_open()<0) return -1;
+    /* This submit needs no actor, animation, rig, or parsed model bank. */
+    EmOwnerDraw draw={0};
+    draw.world.ctx_0C=words(CTX+0x0Cu,4);
+    draw.world.ctx_9C=words(CTX+0x9Cu,4);
+    draw.world.d00275674=words(D_00275674,4);
+    draw.world.ctx_50=words_mut(CTX+0x50u,16);
+    draw.world.ctx_50_count=4;
+    draw.world.channel=L.channels; draw.world.channel_count=4;
+    if (em_owner_draw_001D3900(&draw,3,model,w04,ch3_1F80,NULL)<0)
+        return report(draw.fault.address,"001D3990 raw-model submit faulted");
+    return ch3_store();
+}
+
+/* Parse into the next slot, but publish its address only after the caller's
+ * original work succeeds. This cache owns no original packet bytes. */
+static int page_parse(uint32_t start, uint32_t end, EmObjectUnitResolve resolver, void *ctx, int light)
+{
+    if (!resolver || end<start || end-start<16)
+        return report(start,"raw-model page unit has missing inputs");
+    uint32_t size=end-start;
+    const uint8_t *unit=em_rcl_bytes(start,size);
+    uint16_t qwc=1; uint32_t target=1;
+    if (unit) { memcpy(&qwc,unit+size-16,2);memcpy(&target,unit+size-12,4); }
+    if (!unit || unit[size-13]!=0x60u || qwc || target)
+        return report(start,"raw-model unit does not end in RET");
+    uint32_t frame=em_frame_counter();
+    if (L.page_frame!=frame) { L.page_frame=frame; L.page_count=0; L.page_log_count=0; }
+    if (L.page_count>=EM_OWNER_DRAW_LIVE_PAGE_UNITS)
+        return report(start,"raw-model page unit cache is full");
+    const char *why=NULL;
+    EmObjectUnitPieces *q=&L.page_units[L.page_count];
+    int rc=light ? em_object_unit_parse_light(unit,size-16,resolver,ctx,q,&why)
+                 : em_object_unit_parse(unit,size-16,resolver,ctx,q,&why);
+    if (rc<0 || q->unit.gs_class!=2u) {
+        fprintf(stderr,"em_owner_draw_live: raw-model unit at %08X refused: %s\n",(unsigned)start,
+                why ? why : "not a class-2 unit");
+        return -1;
+    }
+    return 0;
+}
+
+int em_owner_draw_live_page_register(uint32_t start, uint32_t end,
+                                      EmObjectUnitResolve resolver, void *ctx)
+{
+    if (em_rcl_fault() || page_parse(start,end,resolver,ctx,0)<0) return -1;
+    L.page_address[L.page_count++]=start;
+    return 0;
+}
+
+int em_owner_draw_live_001CAAC0_packet(const uint32_t position[4], uint32_t start,
+                                      EmObjectUnitResolve resolver, void *ctx)
+{
+    const uint32_t *cursor=words(CTX+0x1Cu,4), *vp=words(SPR_3AC0,64);
+    EmPacketChain *pc=em_rcl_packet_chain();
+    if (!position || !cursor || !vp || !pc)
+        return report(0x001CAAC0u,"raw-model page insertion has missing inputs");
+    if (page_parse(start,*cursor,resolver,ctx,1)<0) return -1;
+    EmOwnerServicesScratch scratch={0}; memcpy(scratch.s3AC0,vp,64);
+    EmAnimRest rest={0};
+    rest.world.region[0]=(EmPoseRegion){0x7F000000u,16,(uint8_t *)(const void *)position,0};
+    rest.world.region_count=1; rest.world.scratch=&scratch;
+    rest.workers.ctx=pc; rest.workers.w_001CB760=em_packet_chain_w_001CB760;
+    if (em_anim_rest_001CAAC0(&rest,0x7F000000u,start,NULL)<0)
+        return report(rest.fault.address,"raw-model depth insertion faulted");
+    L.page_address[L.page_count++]=start;
+    return 0;
+}
+
 /* 001CAAC0(owner + 0xB0, node): em_anim_rest_001CAAC0 over the owner's
  * +0xB0 quadword and the scratchpad view-projection, its 001CB760 the
  * render context's packet chain (the page D_007635C0). */
@@ -734,12 +880,14 @@ int em_owner_draw_live_001CA7B0(const uint32_t position[4], uint32_t radius, int
 int em_owner_draw_live_001C7900(const uint32_t m[16], uint32_t token, const uint8_t token_bytes[16], int32_t vuaddr,
                                 int32_t chan)
 {
-    if (!m || !token_bytes || chan != 0) return report(0x001C7900u, "001C7900 off channel 0, or NULL");
+    if (!m || !token_bytes || (chan != 0 && chan != 3))
+        return report(0x001C7900u, "001C7900 outside channels 0/3, or NULL");
     if (em_rcl_fault()) return report(em_rcl_fault(), "the render context has faulted");
     if (bind_views(NULL) < 0) return -1;
-    if (channel_open() < 0) return report(0x00811CD0u, "the channel-0 cursor is outside the packet arena");
+    if ((chan == 3 ? ch3_open() : channel_open()) < 0)
+        return report(CTX + 0x10u + 4u * (uint32_t)chan, "the upload cursor is outside the packet arena");
     const uint32_t frame = em_frame_counter();
-    if (L.unit_frame != frame) {
+    if (chan == 0 && L.unit_frame != frame) {
         L.unit_frame = frame;
         L.unit_count = 0;
         L.log_count = 0;
@@ -748,13 +896,13 @@ int em_owner_draw_live_001C7900(const uint32_t m[16], uint32_t token, const uint
     }
     /* em_anim_rest_001C7900 with em_face_attach's 001D88B0 (as 001CB3C0's
      * 001C7900): the token's 16 bytes are its only EE read. */
-    L.token_region = (EmOwnerDrawLiveRegion){token, 16, token_bytes};
+    if (chan == 0) L.token_region = (EmOwnerDrawLiveRegion){token, 16, token_bytes};
     EmAnimRest *r = &L.rest;
     memset(r, 0, sizeof *r);
     r->world.region[0] = (EmPoseRegion){token, 16, (uint8_t *)(uintptr_t)token_bytes, 0};
     r->world.region_count = 1;
-    r->world.channel = &L.channel;
-    r->world.channel_count = 1;
+    r->world.channel = chan == 3 ? L.channels : &L.channel;
+    r->world.channel_count = chan == 3 ? 4 : 1;
     r->world.scratch = &L.spr;
     r->workers.ctx = &L.face;
     r->workers.w_001D88B0 = em_face_attach_w_001D88B0;
@@ -766,17 +914,20 @@ int em_owner_draw_live_001C7900(const uint32_t m[16], uint32_t token, const uint
     f->world.context_address = CTX;
     memset(&L.light.fault, 0, sizeof L.light.fault);
     uint8_t *first = NULL;
-    const uint32_t start = channel_address();
+    const uint32_t start = chan == 3 ? ch3_address(L.channels[3].cursor) : channel_address();
     if (em_anim_rest_001C7900(r, m, token, vuaddr, chan, &first) < 0 || f->fault.code) {
         fprintf(stderr, "em_owner_draw_live: 001C7900 faulted: %08X/%d (light %08X/%d, face %08X/%d)\n",
                 (unsigned)r->fault.address, (int)r->fault.code, (unsigned)L.light.fault.address,
                 (int)L.light.fault.code, (unsigned)f->fault.address, (int)f->fault.code);
         return -1;
     }
-    if (channel_store() < 0) return report(0x00811CD0u, "the channel-0 cursor could not be stored");
-    L.open = 1;
-    L.open_start = start;
-    L.open_frame = frame;
+    if ((chan == 3 ? ch3_store() : channel_store()) < 0)
+        return report(CTX + 0x10u + 4u * (uint32_t)chan, "the upload cursor could not be stored");
+    if (chan == 0) {
+        L.open = 1;
+        L.open_start = start;
+        L.open_frame = frame;
+    }
     return 0;
 }
 
@@ -830,37 +981,7 @@ const EmObjectUnitPieces *em_owner_draw_live_page_unit(uint32_t address)
 
 static int load_textures(EmGfx *gfx)
 {
-    if (L.textures_loaded) return 0;
-    if (L.textures_tried) return -1;
-    L.textures_tried = 1;
-    FILE *f = fopen(EM_OWNER_DRAW_LIVE_TEXTURES, "rb");
-    if (!f) return report(0, "no " EM_OWNER_DRAW_LIVE_TEXTURES " (run tools/export_object_textures.py)");
-    fseek(f, 0, SEEK_END);
-    const long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *data = size > 0x10 ? malloc((size_t)size) : NULL;
-    const int ok = data && fread(data, 1, (size_t)size, f) == (size_t)size;
-    fclose(f);
-    uint32_t head[4];
-    if (ok) memcpy(head, data, sizeof head);
-    int bad = !ok || memcmp(data, "EMOT", 4) != 0 || head[1] != 1u ||
-              (uint64_t)0x10 + (uint64_t)24 * head[2] > (uint64_t)size;
-    for (uint32_t i = 0; !bad && i < head[2]; ++i) {
-        const uint8_t *e = data + 0x10 + 24u * i;
-        uint64_t tex0;
-        uint32_t w, h, at;
-        memcpy(&tex0, e, 8);
-        memcpy(&w, e + 8, 4);
-        memcpy(&h, e + 12, 4);
-        memcpy(&at, e + 16, 4);
-        if (w > 1024u || h > 1024u || (uint64_t)at + 4ull * w * h > (uint64_t)size ||
-            em_gfx_object_texture(gfx, tex0, data + at, w, h) < 0)
-            bad = 1;
-    }
-    free(data);
-    if (bad) return report(0, EM_OWNER_DRAW_LIVE_TEXTURES " is not a valid object texture export");
-    L.textures_loaded = 1;
-    return 0;
+    return em_world_textures_live_ensure(gfx);
 }
 
 int em_owner_draw_live_textures(EmGfx *gfx)
@@ -948,6 +1069,20 @@ int em_owner_draw_live_samples(const EmOwnerDrawLiveSample **out)
 {
     if (out) *out = L.last_sample;
     return (int)L.last_sample_count;
+}
+
+uint8_t *em_owner_draw_live_memory(uint32_t address, uint32_t size)
+{
+    if (!size) return NULL;
+    _Static_assert(offsetof(EmOwnerServicesScratch, s3440) == 0x40, "scratch B offset");
+    _Static_assert(offsetof(EmOwnerServicesScratch, s3480) == 0x80, "scratch C offset");
+    if (address >= 0x70003400u && address - 0x70003400u < 0xC0u &&
+        size <= 0xC0u - (address - 0x70003400u))
+        return (uint8_t *)(void *)L.spr.s3400 + address - 0x70003400u;
+    if (address >= 0x00817BC0u && address - 0x00817BC0u < sizeof L.rig &&
+        size <= sizeof L.rig - (address - 0x00817BC0u))
+        return (uint8_t *)(void *)L.rig + address - 0x00817BC0u;
+    return NULL;
 }
 
 void em_owner_draw_live_reset(void)

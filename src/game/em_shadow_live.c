@@ -61,6 +61,8 @@ static struct {
     u32 fault;
     /* Assets. */
     EmShadowReceivers receivers;
+    unsigned receiver_area, receiver_subarea;
+    int receiver_selected;
     EmModel proxy, proxy_29;               /* D_0028A490[0x28] (the player), [0x29] (Roger) */
     uint8_t *elf;                               /* the D_0025DAE0 window, placed */
     EmShadowActorRouteTables route_tables;
@@ -147,7 +149,7 @@ static int load(void)
     if (S.loaded) return 0;
     if (S.load_tried) return -1;
     S.load_tried = 1;
-    if (em_shadow_receivers_load(&S.receivers, EM_SHADOW_LIVE_RECEIVERS_PATH) < 0) {
+    if (!S.receiver_selected && em_shadow_live_select_area(11, 0) < 0) {
         fprintf(stderr, "shadow: %s is missing or invalid (run ../Extermination/tools/"
                         "export_shadow_receivers.py)\n", EM_SHADOW_LIVE_RECEIVERS_PATH);
         return fail(0x001D5C80u, "no static-object receivers");
@@ -170,6 +172,23 @@ static int load(void)
         return fail(0x001F9100u, "no decal colour / facing tables");
     }
     S.loaded = 1;
+    return 0;
+}
+
+int em_shadow_live_select_area(unsigned area, unsigned subarea)
+{
+    const char *path = NULL;
+    if (area == 11 && subarea == 0) path = EM_SHADOW_LIVE_RECEIVERS_PATH;
+    if (area == 1 && subarea == 0) path = EM_SHADOW_LIVE_AREA01_RECEIVERS_PATH;
+    if (!path || S.fault) return -1;
+    for (u32 k = 0; k < S.pass_count; ++k)
+        if (S.pass[k].cmd_count && S.pass_frame == em_frame_counter()) return -1;
+    EmShadowReceivers next = {0};
+    if (em_shadow_receivers_load(&next, path) < 0) return -1;
+    em_shadow_receivers_free(&S.receivers);
+    S.receivers = next;
+    S.receiver_area = area; S.receiver_subarea = subarea; S.receiver_selected = 1;
+    S.pass_count = 0; S.cur = NULL;
     return 0;
 }
 
@@ -245,6 +264,8 @@ static int load_scene(void)
     const EmSceneState *st = em_scene_state();
     sc->area_700 = st->d810700;
     sc->sub_701 = st->d810701;
+    if (!S.receiver_selected || sc->area_700 != S.receiver_area || sc->sub_701 != S.receiver_subarea)
+        return fail(0x0028A5A0u, "the selected shadow receivers do not match the active area");
     em_shadow_receivers_scene(&S.receivers, sc);
     return 0;
 }

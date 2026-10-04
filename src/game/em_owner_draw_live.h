@@ -86,9 +86,27 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
  * units' REFs and the static world's, which em_gfx_gs_opaque checks). It
  * is parsed after 001CA940 and kept with the frame's units. 0, or -1. */
 int em_owner_draw_live_001CA7B0(const uint32_t position[4], uint32_t radius, int32_t *flags);
+/* Also supports channel 3 for 001F4A10's upload. That path writes the same
+ * canonical RCL cursor/packets and draw lighting scratch; it leaves the
+ * channel-0 open-unit bookkeeping alone. Its caller appends the model,
+ * RET and page CALL through their existing owners. */
 int em_owner_draw_live_001C7900(const uint32_t m[16], uint32_t token, const uint8_t token_bytes[16],
                                 int32_t vuaddr, int32_t chan);
 int em_owner_draw_live_001CA940_library(int32_t flags, uint32_t model);
+/* Raw-model channel-3 worker used by 001F5F60. The caller reads the model's
+ * +04 word from its canonical resource before its native boundary. */
+int em_owner_draw_live_001D3990_at(uint32_t model, uint32_t model_w04);
+/* Register a complete channel-3 object unit ending in RET after its caller
+ * has inserted the original page CALL. Parses borrowed canonical bytes into
+ * the existing frame cache; writes no packet, cursor or chain state. REF
+ * resource bytes must remain valid through frame flush. */
+int em_owner_draw_live_page_register(uint32_t start, uint32_t end,
+                                      EmObjectUnitResolve resolver, void *ctx);
+/* 001CAAC0 for a complete 001F5F60 class-2 unit ending in RET.
+ * Uses the existing depth/page owner and keeps the parsed unit in the same
+ * frame cache as 001CABA0. Resolver bytes must outlive the frame flush. */
+int em_owner_draw_live_001CAAC0_packet(const uint32_t position[4], uint32_t start,
+                                      EmObjectUnitResolve resolver, void *ctx);
 
 /* This frame's class-2 unit 001CABA0 built at `address`, or NULL. */
 const EmObjectUnitPieces *em_owner_draw_live_page_unit(uint32_t address);
@@ -125,6 +143,12 @@ typedef struct {
 int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServicesOwner *owner,
                                          const uint32_t rgb[4], uint32_t record,
                                          const EmOwnerDrawLiveRegion *regions, unsigned region_count);
+/* Generic morph-model method. The existing AREA01 math owner supplies
+ * 001CB360's sequence; its workers reuse this owner's light, packet and
+ * face-submit translations. Regions include record, slots and +44 resource.
+ * Resource bytes must remain valid through this frame's flush. */
+int em_owner_draw_live_001CB360(EmOwnerServicesOwner *owner, const uint32_t rgb[4], uint32_t record,
+                                const EmOwnerDrawLiveRegion *regions, unsigned region_count);
 
 /* The light of a draw method other than 001CAA00 (001CB480, the status MAP
  * page's models, docs/STATUS_PAGES.md section 7, and 001CB4F0, the status
@@ -206,19 +230,27 @@ int em_owner_draw_live_flush_walk(EmGfx *gfx);
 
 /* Draw this frame's remaining units in build order, then forget every kept
  * unit and keep the frame's calls as the last drawn frame's log. The first
- * draw of a session registers the object textures
- * (EM_OWNER_DRAW_LIVE_TEXTURES, tools/export_object_textures.py).
+ * draw registers the delivered world's texture catalog
+ * (em_world_textures_live; shared with the chain page).
  * 0, or -1 (reported: a missing export, an em_gfx_object_unit refusal). */
 int em_owner_draw_live_flush(EmGfx *gfx);
 
-/* Register the object textures (EM_OWNER_DRAW_LIVE_TEXTURES) with `gfx`
- * once per session, as the first draw does: the static world's triangles
+/* Register the delivered world's shared texture catalog with `gfx`
+ * once per delivery/device, as the first draw does: the static world's triangles
  * (em_static_world_live, drawn before the owner units) sample the same
  * registry. 0, or -1 (reported). */
 int em_owner_draw_live_textures(EmGfx *gfx);
 
 /* Units kept for the current frame (the level smoke's count). */
 uint32_t em_owner_draw_live_count(void);
+
+/* Existing canonical storage, never a new allocation: scratch A/B/C at
+ * 70003400..700034BF and the light rig at 00817BC0. Returns NULL outside
+ * one span. An area binder may explicitly transfer the last writer's A/B
+ * values here, then alias both pose and RCL views to these same bytes.
+ * This accessor does not initialize, copy, reset or choose the last writer.
+ * 70003AC0 remains RCL-owned and is deliberately not returned. */
+uint8_t *em_owner_draw_live_memory(uint32_t address, uint32_t size);
 
 /* Test hook: the kept unit i's parsed pieces, or NULL. */
 const EmObjectUnitPieces *em_owner_draw_live_unit(uint32_t i);

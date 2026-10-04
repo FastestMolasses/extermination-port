@@ -440,6 +440,24 @@ int em_owner_services_001C62C0(EmOwnerServices *s, EmOwnerServicesOwner *o)
     return 0;
 }
 
+uint32_t em_owner_services_method_001CA5F0(uint32_t kind)
+{
+    static const uint32_t method[13] = {0x001CAA00u, 0x001CAF60u, 0x001CACB0u, 0x001CAE30u,
+                                        0x001CAA00u, 0x001CB360u, 0x001CAF70u, 0x001CB480u,
+                                        0x001CB060u, 0x001CB130u, 0x001CB1F0u, 0x001CB580u,
+                                        0x001CB2B0u};
+    return kind < 13u ? method[kind] : 0x001CAA00u;
+}
+
+int em_owner_services_model_001CA5E0(uint32_t *model, uint32_t *method,
+                                     uint32_t handle, uint32_t kind)
+{
+    if (!model || !method) return -1;
+    *model = handle;
+    *method = em_owner_services_method_001CA5F0(kind);
+    return 0;
+}
+
 int em_owner_services_001B0FD0(EmOwnerServices *s, EmOwnerServicesOwner *o)
 {
     int r = em_owner_services_001B0EA0(s, o);

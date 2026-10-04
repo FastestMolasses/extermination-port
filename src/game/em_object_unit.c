@@ -245,24 +245,24 @@ static int parse_face(Walk *w, EmObjectUnitPieces *out, uint32_t *qwc, const uin
 }
 
 static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
-                      EmObjectUnitPieces *out, const char **why, int inherit);
+                      EmObjectUnitPieces *out, const char **why, int inherit, int light);
 
 int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
                              EmObjectUnitPieces *out, const char **why)
 {
-    return parse_unit(unit, size, resolve, ctx, out, why, 0);
+    return parse_unit(unit, size, resolve, ctx, out, why, 0, 0);
 }
 
 int em_object_unit_parse_inherit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
                                  EmObjectUnitPieces *out, const char **why)
 {
-    if (parse_unit(unit, size, resolve, ctx, out, why, 1)) return -1;
+    if (parse_unit(unit, size, resolve, ctx, out, why, 1, 0)) return -1;
     if (out->bytes != size) return refuse(why, "bytes after the unit's last pass");
     return 0;
 }
 
 static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
-                      EmObjectUnitPieces *out, const char **why, int inherit)
+                      EmObjectUnitPieces *out, const char **why, int inherit, int light)
 {
     if (!unit || !resolve || !out) return refuse(why, "NULL argument");
     memset(out, 0, sizeof *out);
@@ -271,7 +271,9 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
     /* 001C7420 / 001C7900: the colour CNT (NOP, FLUSH, STCYCL 1,1, UNPACK 4
      * to 0x3F5). */
     if (next_tag(&w, &t, why)) return -1;
-    if (t.id != TAG_CNT || t.qwc != 5u || !codes_are(t.payload, 0, 0x11000000u, 0x01000101u, 0x6C0403F5u))
+    if (t.id != TAG_CNT || t.qwc != 5u ||
+        !(light ? codes_are(t.payload, 0x11000000u, 0x01000101u, 0, 0x6C0403F5u)
+                : codes_are(t.payload, 0, 0x11000000u, 0x01000101u, 0x6C0403F5u)))
         return refuse(why, "the unit does not start with 001C7420's colour CNT");
     for (unsigned k = 0; k < 16u; ++k) out->color[k] = rd32(t.payload + 16u + 4u * k);
     /* The node CNTs: STCYCL 1,1 + UNPACK n to dmem 0, 248, ... in order. */
@@ -280,7 +282,8 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
         if (next_tag(&w, &t, why)) return -1;
         const uint32_t chunk = t.qwc ? t.qwc - 1u : 0u;
         if (!chunk || chunk % 8u || chunk > 0xF8u ||
-            !codes_are(t.payload, 0, 0, 0x01000101u, 0x6C000000u | chunk << 16 | qwords))
+            !(light ? codes_are(t.payload, 0, 0x01000101u, 0, 0x6C000000u | chunk << 16 | qwords)
+                    : codes_are(t.payload, 0, 0, 0x01000101u, 0x6C000000u | chunk << 16 | qwords)))
             return refuse(why, "a node CNT is not STCYCL 1,1 + UNPACK of whole nodes in order");
         if ((qwords + chunk) / 8u > EM_OBJECT_UNIT_MAX_NODES)
             return refuse(why, "more nodes than fit below the kernel's batch buffers");
@@ -293,7 +296,7 @@ static int parse_unit(const uint8_t *unit, uint32_t size, EmObjectUnitResolve re
     if (face) {
         if (next_tag(&w, &t, why)) return -1;
         for (unsigned k = 0; k < 8u; ++k) out->weights[k] = rd32(t.payload + 16u + 4u * k);
-        if (qwords != 8u) return refuse(why, "a face unit with other than one node");
+        if (qwords > 0x20u) return refuse(why, "face nodes overlap the program's batch buffers");
     }
     /* 001D1F80(0, 1, 0): the GS state REF 9 (absent in an inheriting unit:
      * its skin record REF 8 follows the node CNTs). */
@@ -383,6 +386,16 @@ int em_object_unit_parse(const uint8_t *unit, uint32_t size, EmObjectUnitResolve
 {
     if (em_object_unit_parse_one(unit, size, resolve, ctx, out, why)) return -1;
     if (out->bytes != size) return refuse(why, "bytes after the unit's last pass");
+    return 0;
+}
+
+int em_object_unit_parse_light(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                               EmObjectUnitPieces *out, const char **why)
+{
+    if (parse_unit(unit, size, resolve, ctx, out, why, 0, 1)) return -1;
+    if (out->bytes != size || out->unit.node_count != 1 || out->unit.gs_class != 2 || out->unit.clip ||
+        out->unit.program != EM_GFX_OBJECT_KERNEL)
+        return refuse(why, "not a complete 001F5F60 light unit");
     return 0;
 }
 
@@ -636,9 +649,9 @@ int em_object_unit_run(const EmGfxObjectUnit *u, EmObjectUnitResult *r)
         (u->clip && !u->clip_constants) || (face && !u->weights))
         return fail(r, "a unit piece is missing", 0);
     if (u->node_count > EM_OBJECT_UNIT_MAX_NODES) return fail(r, "more nodes than the kernel's layout holds", 0);
-    /* The face program's batch buffers start at dmem 0x20: one node only;
+    /* The face program's batch buffers start at dmem 0x20: four nodes fit;
      * it has no clip pass (001D3E40 appends none). */
-    if (face && (u->node_count != 1u || u->clip)) return fail(r, "a face unit with other than one node, or clip", 0);
+    if (face && (u->node_count > 4u || u->clip)) return fail(r, "face nodes overlap the batch buffers, or clip", 0);
     if (u->gs_class != 0u && (face || u->gs_class != 2u)) return fail(r, "a GS class other than 0 or 2", 0);
     r->prim = face ? EM_OBJECT_UNIT_TEMPLATE_PRIM : template_prim(u);
     EmVu1ObjQword *dmem = malloc(EM_VU1_OBJ_DMEM_QWORDS * sizeof *dmem);

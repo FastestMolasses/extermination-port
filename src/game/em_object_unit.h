@@ -87,6 +87,10 @@ int em_object_unit_parse_inherit(const uint8_t *unit, uint32_t size, EmObjectUni
  * exactly at `size`). 0, or -1 with *why set to a static reason. */
 int em_object_unit_parse(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
                          EmObjectUnitPieces *out, const char **why);
+/* 001F5F60's exact colour/node VIF ordering, followed by the shared class-2
+ * object submit. One node, no clip pass. Other parser entries stay strict. */
+int em_object_unit_parse_light(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,
+                               EmObjectUnitPieces *out, const char **why);
 /* The same for the first unit of a sequence (001CAA00 appends 001CB3C0's
  * face unit after the owner's own): out->bytes is where it ended. */
 int em_object_unit_parse_one(const uint8_t *unit, uint32_t size, EmObjectUnitResolve resolve, void *ctx,

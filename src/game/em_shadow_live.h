@@ -53,6 +53,7 @@ extern "C" {
 #endif
 
 #define EM_SHADOW_LIVE_RECEIVERS_PATH "assets/scene_snow/shadow_receivers.emsr"
+#define EM_SHADOW_LIVE_AREA01_RECEIVERS_PATH "assets/area01_shadow_receivers.emsr"
 #define EM_SHADOW_LIVE_PROXY_PATH "assets/player_shadow.emdl"      /* D_0028A490[0x28] */
 #define EM_SHADOW_LIVE_PROXY_29_PATH "assets/roger_shadow.emdl"    /* D_0028A490[0x29] */
 #define EM_SHADOW_LIVE_KIND_ROGER 0x29       /* Roger's +0x96 (001BA8E0 for model 0x47) */
@@ -63,6 +64,11 @@ extern "C" {
  * Called at the AREA11 area load. 0, or -1 (the reason printed, the
  * address latched). */
 int em_shadow_live_bind(void);
+/* Completed area delivery selects the existing receiver owner explicitly.
+ * AREA11/0 and AREA01/0 are supported. Refuses a swap with unflushed passes;
+ * invalid area/file leaves the prior receivers intact. Shared proxy models
+ * and the persistent original D_00817FF0 are unchanged. */
+int em_shadow_live_select_area(unsigned area, unsigned subarea);
 int em_shadow_live_bound(void);
 /* The latched fault: the original address, or 0. */
 uint32_t em_shadow_live_fault(void);
