@@ -30,6 +30,7 @@
 
 #include "em_input.h"
 #include "em_gamepad.h"
+#include "em_platform.h"
 
 /* The engine's stick rings are expressed on the DualShock's 0..255 raw scale
  * centred at 0x80 (em_input.h). GameController hands us -1..+1 floats, which
@@ -48,6 +49,12 @@ static int   s_rumble_frames;
 
 void em_gamepad_poll(void)
 {
+    /* Headless runs (tests, captures, traces) never read a physical pad: a
+     * controller left connected to the Mac would replace the fixtures'
+     * scripted input (em_input_set_gamepad replaces the keyboard map). */
+    static int headless = -1;
+    if (headless < 0) headless = em_headless();
+    if (headless) return;
     GCController *c = GCController.current;
     if (!c || !c.extendedGamepad) {
         if (s_present) {
