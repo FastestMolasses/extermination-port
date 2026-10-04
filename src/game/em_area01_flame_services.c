@@ -128,7 +128,9 @@ int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,u
         s.workers.w_0021B9A0=fog_worker;s.workers.w_001F4BF0=glow_worker;
         rc=em_area01_render_001F4CC0(&s,(uint32_t)c->a[0],(uint32_t)c->a[1]);
     } else if(c->function==0x001F4A10u) {
-        if(c->na!=2 || c->nf || c->sp<0x90u)return fail(fault,c->function);
+        /* 00158D30 passes a third lane (0x700038C0); 001F4A10 writes $a2
+         * at 0x001F4A70 before any read, so it is not an input. */
+        if(c->na<2 || c->na>3 || c->nf || c->sp<0x90u)return fail(fault,c->function);
         frame.sp=c->sp-0x90u;s.workers.ctx=&frame;
         s.workers.w_00122BB8=random_worker;s.workers.w_001C7900=vector_worker;
         s.workers.w_001C6120=lookup_worker;s.workers.w_001D3990=resource_worker;s.workers.w_001CB760=page_worker;

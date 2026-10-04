@@ -32,6 +32,7 @@
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
 #include "game/em_script_host_workers.h"
+#include "game/em_script_door_fan.h"
 #include "game/em_player_recovery.h"
 #include "game/em_stream_lanes_original.h"
 #include "game/em_stream_live.h"
@@ -123,6 +124,30 @@ uint8_t *em_area01_live_matrix_3000(EmArea01Live *l,uint32_t a,uint32_t n)
            contains(a,n,0x70003000u,sizeof l->scratch_3000)
         ? (uint8_t *)l->scratch_3000+a-0x70003000u : NULL;
 }
+int em_area01_live_head_record(EmArea01Live *l,uint32_t address,uint8_t record[0x2F0])
+{
+    if(!l || !l->bound || l->fault || l->active || !record || address<EM_ACTOR_POOL_BASE)return -1;
+    uint32_t at=address-EM_ACTOR_POOL_BASE;
+    if(at%EM_ACTOR_RECORD_SIZE || at/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY)return -1;
+    const EmActor *p=&l->host.pool->records[at/EM_ACTOR_RECORD_SIZE];
+    if(!p->allocated) {
+        /* The talk owner 00825740 frees itself on the first visit while
+         * its head still ticks. 001AFC10 cleared +0x00..+0x0F and the
+         * +0x1F0 words, so the head reads b01 = b02 = 0 and +0x220 = 0
+         * (it ends, 001E2560 lifecycle 3) without reaching the +0x110
+         * slots: the pool's own image of the freed record is exact for
+         * every byte it reads; its slot count reads 0. */
+        em_actor_pool_record_image(l->host.pool,p,record);
+        return 0;
+    }
+    EmActor *a=actor(l,address);
+    if(!a || !l->host.private_model || !l->host.private_model(l->host.ctx,a))return -1;
+    return em_area01_actor_view_snapshot(&l->actors,address,EM_ACTOR_RECORD_SIZE,record);
+}
+const uint8_t *em_area01_live_head_bytes(EmArea01Live *l,uint32_t address,uint32_t size)
+{
+    return l && l->bound && !l->fault && !l->active ? em_area01_model_slot_bytes(&l->model,address,size) : NULL;
+}
 uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
 {
     if(!l || !l->bound || l->fault || !n || (uint64_t)a+n>UINT64_C(0x100000000))return NULL;
@@ -135,6 +160,9 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
         return contains(a,n,LOCAL_BASE,sizeof l->locals) ? l->locals+a-LOCAL_BASE : NULL;
     if(overlaps(a,n,0x70003000u,sizeof l->scratch_3000))
         return em_area01_live_matrix_3000(l,a,n);
+    if(overlaps(a,n,0x700034C0u,sizeof l->scratch_34C0))
+        return l->active && contains(a,n,0x700034C0u,sizeof l->scratch_34C0)
+            ? (uint8_t *)l->scratch_34C0+a-0x700034C0u : NULL;
     if(overlaps(a,n,0x700036E0u,sizeof l->scratch_36E0))
         return l->active && contains(a,n,0x700036E0u,sizeof l->scratch_36E0)
             ? (uint8_t *)l->scratch_36E0+a-0x700036E0u : NULL;
@@ -284,6 +312,29 @@ static int worker_result(EmArea01Live *l,int rc,uint32_t address)
         l->runtime.fault=1;l->runtime.fault_address=address;
     }
     return rc;
+}
+static int worker(void *ctx,EmArea01Call *c);
+/* 001B1630(x, y, z): the first level's camera cone/range owner over the
+ * published camera view (D_008105D0 eye, D_00810600 forward). */
+static int visible_001B1630(const float p[3])
+{
+    em_camera_live_view_publish();
+    int r=em_area11_interaction_host_visible_001B1630(p);
+    em_camera_live_adopt_view();
+    return r;
+}
+typedef struct { EmArea01Live *l; uint32_t node; } Visibility;
+static int sdf_001B1630(void *ctx,float x,float y,float z,int32_t *result)
+{
+    (void)ctx;
+    const float p[3]={x,y,z};
+    *result=visible_001B1630(p);return 0;
+}
+static int sdf_001B1B70(void *ctx)
+{
+    Visibility *v=ctx;
+    EmArea01Call c={.function=0x001B1B70u,.a={v->node},.na=1};
+    return worker(v->l,&c);
 }
 static int worker(void *ctx,EmArea01Call *c)
 {
@@ -436,6 +487,29 @@ static int worker(void *ctx,EmArea01Call *c)
         h.world.sdk_world=&sdk->world;h.world.sdk_workers=&sdk->workers;
         int rc=em_script_host_001B1240(&h,xyz,c->f[0],c->f[1],&c->f0);
         return worker_result(l,rc,h.fault_address);
+    }
+    case 0x001B1630u: {
+        if(c->nf<3)return -1;
+        float p[3];memcpy(p,c->f,sizeof p);
+        c->v0=(uint64_t)(int64_t)visible_001B1630(p);return 0;
+    }
+    case 0x001B1B30u: {
+        /* em_sdf_001B1B30 (the first level's door owner) stores 001B1630's
+         * byte straight into the actor's +0x01 before 001B1B70 runs; the
+         * result is that byte read back. */
+        if(c->na<1 || c->nf<3)return -1;
+        Visibility v={l,(uint32_t)c->a[0]};
+        uint8_t *visible=bytes(l,v.node+1u,1,1);
+        if(!visible)return -1;
+        EmSdfWorkers w;memset(&w,0,sizeof w);
+        w.ctx=&v;w.w_001B1630=sdf_001B1630;w.w_001B1B70=sdf_001B1B70;
+        EmSdfFault fault={0,0};
+        float p[3];memcpy(p,c->f,sizeof p);
+        if(em_sdf_001B1B30(visible,p[0],p[1],p[2],&w,&fault)<0)
+            return worker_result(l,-1,fault.address ? fault.address : c->function);
+        const uint8_t *after=bytes(l,v.node+1u,1,0);
+        if(!after)return -1;
+        c->v0=*after;return 0;
     }
     case 0x001B1B70u: {
         if(c->na!=1 || em_area01_actor_view_touch(&l->actors,(uint32_t)c->a[0])<0 ||

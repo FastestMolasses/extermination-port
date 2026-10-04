@@ -21,7 +21,7 @@ def build():
     Q.OUT=OUT
     Q.BRIDGE+=(ROOT/'tests/area01_collision_view_bridge.inc').read_text()
     Q.SOURCES+=['src/game/em_area01_collision_view.c','src/game/em_startup_load_gaps.c',
-                'src/game/em_coll_move_original.c','src/game/em_aim_fire_sdk_memory.c',
+                'src/game/em_coll_move_original.c','src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c',
                 'src/game/em_owner_services_original.c','src/game/em_point_light.c','src/game/em_area01_sys.c']
     n=Q.build_native()
     n.cv_setup.argtypes=[C.c_void_p,C.POINTER(Q.BState),C.c_uint32,C.c_uint32,C.c_uint32,C.c_uint32]
@@ -206,6 +206,18 @@ def main():
             setup(case);assert n.cv_begin()==0;mutate();assert n.cv_commit()<0 and n.cv_fault()==2;contracts+=1
         for address,size in ((0x700031CC,8),(0x7000324B,4),(w.table-1,8),(0x700031F8,0)):
             setup(case);assert n.cv_begin()==0;assert not n.cv_bytes(address,size,1) and not n.cv_bytes(address,size,0);contracts+=1
+        # Between transactions (the native close-out's 001A7870 reads a listed
+        # owner's +0x58 hull record in the file): the immutable file bytes
+        # outside the cell directory stay readable, never writable; the
+        # mutable directory, its mirror and every scratch field are refused.
+        setup(case);assert n.cv_begin()==0 and n.cv_commit()==0
+        at=file if file+16<=w.table else w.table+w.size
+        assert at+16<=file+file_size
+        ptr=n.cv_bytes(at,16,0);assert ptr and C.string_at(ptr,16)==ee.read(at,16)
+        assert not n.cv_bytes(at,16,1)
+        for address,size in ((w.table,16),(w.table+0x20000000,16),(w.table-4,8),(0x700031B0,16),(0x70003600,16)):
+            assert not n.cv_bytes(address,size,0) and not n.cv_bytes(address,size,1)
+        contracts+=7
         setup(case);n.cv_move_seed();assert n.cv_begin()==0 and n.cv_commit()==0
         st=Q.BState();n.cv_state(C.byref(st));assert Q.native_state(st)==Q.native_state(case.native(w));contracts+=1
         # Original reset proves all six list bases, including class 7 AC30.

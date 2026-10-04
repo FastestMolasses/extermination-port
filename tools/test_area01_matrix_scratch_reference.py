@@ -19,7 +19,7 @@ def build():
     OUT.mkdir(parents=True,exist_ok=True);target=OUT/'bridge.dylib'
     sources=['tests/area01_matrix_scratch_bridge.c','src/game/em_area01_live.c',
         'src/game/em_area01_sys.c','src/game/em_area01_math_core.c','src/game/em_area01_math_actor.c',
-        'src/game/em_aim_fire_sdk_memory.c','src/game/em_owner_services_original.c',
+        'src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c','src/game/em_owner_services_original.c',
         'src/game/em_effect_original.c','src/game/em_coll_probe_original.c']
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
         '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_ms_*',*sources,'-o',str(target)],

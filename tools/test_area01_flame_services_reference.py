@@ -24,7 +24,7 @@ def build():
              'src/game/em_aim_fire_render_live.c','src/game/em_aim_fire_reticle.c',
              'src/game/em_player_equipment_sprite.c','src/game/em_area00_hud.c','src/game/em_status_scene_original.c','src/game/em_area01_flame_services.c',
              'src/game/em_area01_render_gs.c','src/game/em_area01_render_hud.c','src/game/em_weather_packets.c',
-             'src/game/em_area01_sys.c','src/game/em_aim_fire_sdk_memory.c','src/game/em_sdk_math_original.c',
+             'src/game/em_area01_sys.c','src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c',
              'src/game/em_coll_probe_original.c','src/game/em_owner_services_original.c',
              'src/game/em_stream_lanes_original.c','src/game/em_effect_original.c',
              'src/game/em_effect_manager.c',

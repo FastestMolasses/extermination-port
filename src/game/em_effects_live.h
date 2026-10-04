@@ -163,6 +163,14 @@ int32_t *em_effects_live_d275C04(void);
  * attach (detach clears it). Result: 1 alive, 0 freed, -1 fault. */
 typedef int (*EmEffectsLiveOtherTick)(void *, uint32_t address, uint32_t callback);
 int em_effects_live_set_other_tick(EmEffectsLiveOtherTick, void *context);
+/* A head sprite owner other than the player and the AREA11 Roger (the
+ * AREA01 talk owners 00825350 / 00825740 spawn 001F0120 heads): `record`
+ * fills the owner's canonical record image (0x2F0 bytes), `bytes` returns
+ * its +0x110 slot records for the 001026A0 bone-matrix read. Install after
+ * the area attach (detach clears it); 0 / non-NULL, or -1 / NULL. */
+typedef int (*EmEffectsLiveHeadRecord)(void *, uint32_t address, uint8_t record[0x2F0]);
+typedef const uint8_t *(*EmEffectsLiveHeadBytes)(void *, uint32_t address, uint32_t size);
+int em_effects_live_set_head_owner(EmEffectsLiveHeadRecord record, EmEffectsLiveHeadBytes bytes, void *context);
 /* The barrel's particle sweep 001F40C0: its 001F3620(entity, kind) and
  * 001F3E30(a0, a1, a2, a3, t0) through an already translated owner (the
  * shell casing's records, em_aim_fire_runtime). Install after the area

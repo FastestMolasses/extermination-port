@@ -3,6 +3,7 @@
 #include "game/em_effect_original.h"
 #include "game/em_coll_probe_original.h"
 #include "game/em_sdk_vu0.h"
+#include "game/em_camera_commit_original.h"
 #include <string.h>
 
 typedef struct {
@@ -36,6 +37,17 @@ int em_aim_fire_sdk_memory_call(void *context,
         a&=~15u;b&=~15u;
         for (unsigned i=0;i<count;++i) TRY(read_bytes(m,b+16*i,in+4*i,16));
         for (unsigned i=0;i<count;++i) TRY(write_bytes(m,a+16*i,in+4*i,16));
+        return 0;
+    }
+    case 0x102798: {
+        /* 00102798(dst, src): the four row loads of src precede the four
+         * row stores of the transpose (dst may be src); the word
+         * interleave is em_camera_commit_00102798 (decomp func_00102798). */
+        uint32_t rows[16],t[16];
+        a&=~15u;b&=~15u;
+        for (unsigned i=0;i<4;++i) TRY(read_bytes(m,b+16*i,rows+4*i,16));
+        em_camera_commit_00102798(t,rows);
+        for (unsigned i=0;i<4;++i) TRY(write_bytes(m,a+16*i,t+4*i,16));
         return 0;
     }
     case 0x1031E0:

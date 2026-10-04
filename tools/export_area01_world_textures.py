@@ -20,6 +20,35 @@ import export_page_textures as P
 import export_world_models as W
 
 
+POOL, RECORD, CAPACITY = 0x7A5640, 0x2F0, 0x100   # D_007A5640, 001AF8E0
+
+
+def library_tex0(capture, out):
+    """The global library models (chunk27/f01_id37.bin at D_0028A56C) that
+    AREA01's own owners bind: every allocated pool record's +0x44 that is
+    the start of a library entry. The pickups 0015AFA0 (0x4D, 0x58), the
+    companions 001C5680 and the overlay owner 00826CF0 use models the
+    first level's id lists do not name (00826CF0's 0x6B is labelled Roger's
+    there and is filtered below)."""
+    library = (A.EXTRACT/'chunk27/f01_id37.bin').read_bytes()
+    base = A.u32(capture.ram,0x28A56C)
+    if capture.ram[base:base+0x40] != library[:0x40]:
+        raise SystemExit(f'{capture.name}: D_0028A56C does not hold the library')
+    count = A.u32(library,0)
+    starts = {A.s32(library,4+4*i)>>2<<2: i for i in range(count)}
+    for k in range(CAPACITY):
+        r = POOL+RECORD*k
+        if not A.u32(capture.ram,r+0x14):   # +0x14 self: 0 when free
+            continue
+        m = A.u32(capture.ram,r+0x44)
+        ident = starts.get(m-base) if base <= m < base+len(library) else None
+        if ident is None:
+            continue
+        off = m-base
+        blocks = W.model_record(library,off,ident)[0]
+        O.block_tex0(library,off,blocks,f'AREA01 library model {ident:#x} (owner {A.u32(capture.ram,r+0x10):08X})',out)
+
+
 def collect(image, capture, elf):
     out = {}
     table = A.u32(capture.ram, 0x28A59C)
@@ -41,6 +70,7 @@ def collect(image, capture, elf):
         for v in range(3):
             key = struct.unpack_from('<Q',data,0x50+64*v)[0]&O.CLD_MASK
             out.setdefault(key,set()).add(f'AREA01 dynamic record {i}')
+    library_tex0(capture,out)
     shared = {}
     O.player_tex0(A.EXTRACT,shared)
     for key,labels in shared.items():

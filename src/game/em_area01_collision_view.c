@@ -125,9 +125,23 @@ int em_area01_collision_view_begin(EmArea01CollisionView *v)
     }
     v->active=1;return 0;
 }
+/* The delivered area file outside the cell directory is immutable (the
+ * view never hands it out for writing), so its bytes stay readable while
+ * the native close-out owns the collision state between transactions:
+ * 001A7870 reads a listed owner's +0x58 hull record in that file. */
+static uint8_t *file_bytes(EmArea01CollisionView *v,uint32_t a,uint32_t n)
+{
+    if(!n||(uint64_t)a+n>UINT64_C(0x100000000)||!v->host.file.bytes)return NULL;
+    if(v->host.generation(v->host.ctx)!=v->generation)return NULL;
+    const EmActorCellTable *t=cells(v);
+    uint32_t alias=a>=0x20000000u&&a<0x22000000u ? a-0x20000000u : a;
+    if(!t||((uint64_t)alias+n>v->host.file.d28A5A8&&(uint64_t)v->host.file.d28A5A8+t->size>alias))return NULL;
+    return span(a,n,v->host.file.address,v->host.file.size,(void *)v->host.file.bytes);
+}
 uint8_t *em_area01_collision_view_bytes(EmArea01CollisionView *v,uint32_t a,uint32_t n,int write)
 {
-    if(!v||v->fault||!v->active)return NULL;
+    if(!v||v->fault)return NULL;
+    if(!v->active)return write ? NULL : file_bytes(v,a,n);
     if(!n||(uint64_t)a+n>UINT64_C(0x100000000)){fail(v,a,1);return NULL;}
     if(v->host.generation(v->host.ctx)!=v->generation){fail(v,a,2);return NULL;}
     EmCollProbeState *s=v->host.segment->state;EmCollSegmentFaceScratch *f=v->host.segment->face;

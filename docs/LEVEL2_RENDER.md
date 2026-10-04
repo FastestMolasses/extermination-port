@@ -22,7 +22,7 @@ Contents:
 2026-10-04. Object units, the static world and the chain page share one
 area-selected TEX0 catalog owner, `em_world_textures_live.c`. AREA11/0
 retains its existing object/page exports (487 distinct keys). AREA01/0
-uses a merged 393-key export. Three common keys have different pixels in
+uses a merged 409-key export. Three common keys have different pixels in
 the two areas, so retaining the old registry is observably incorrect.
 
 ### Original delivery and source data
@@ -54,6 +54,15 @@ deliveries both run, as in the original startup/area route.
 - The twelve 0x860-byte dynamic records named by D_0028A5A4; their original
   dynamic programs read three vertices per record. This includes the
   previously absent material 0x0006E305954234F8.
+- The global library models (`chunk27/f01_id37.bin`, at D_0028A56C) that
+  AREA01's own owners bind: every allocated pool record's +0x44 in the
+  recorded AREA01 capture that starts a library entry. This adds the
+  pickups' 0x4D and 0x58 (0015AFA0), the overlay owner 00826CF0's 0x6B
+  and the companions' 0x73 / 0x76 / 0x7A (001C5680): 16 materials the
+  first level's id lists do not name (0x6B's are labelled Roger's there
+  and were filtered). Found by the binding probe's first presented
+  frame: the pickup unit at 0x00C90800 (library 0x58 + 0x40) referenced
+  TEX0 0x0004821555422274.
 - Existing shared player, face, equipment and effect source collectors.
   AREA11 Roger references and the AREA11 flame descriptor are excluded;
   the existing dormant equipment model's invalid zero references are not
@@ -61,10 +70,17 @@ deliveries both run, as in the original startup/area route.
 
 The loader's disc data supplies every exported pixel. Residency poisoning
 proves every texture/CLUT read was written by the replayed uploads.
-All 393 decoded images match all sixteen recorded AREA01 GS freezes,
+All 409 decoded images match all sixteen recorded AREA01 GS freezes,
 including arrival, a01_02 and the side routes. Captured pixels are only
-comparison inputs. The 5,221,608-byte EMOT contains 5,212,160 bytes of raw
-RGBA/GS-alpha pixels, plus its table and header. No alpha rescaling occurs.
+comparison inputs. The EMOT is 5,274,216 bytes of raw RGBA/GS-alpha
+pixels plus its table and header. No alpha rescaling occurs.
+
+Not yet covered (the next presented-frame fault under the binding probe):
+the character banks outside the library and the area load map, e.g.
+00128C10's model at 0x011351C0, 001BFFD0's at 0x012BC1C0 and 001C02E0's
+at 0x012C21C0 (its 0x40 bytes equal `chunk03/f26_id22.bin`); the unit at
+0x012C2200 references TEX0 0x2004661599421F48. The exporter needs those
+banks' original load addresses before it can collect them.
 
 The exporter writes `assets/area01_world_textures.emot` and its JSON
 report (default `--out`); both are ignored, and no original data belongs
@@ -105,7 +121,7 @@ bind once per frame: a bind means the original resources were delivered.
 
 `python3 tools/test_world_textures_reference.py` passes in default mode
 (first and arrival GS freezes) and with `EM_TEST_FULL=1` (all sixteen).
-Its native bridge verifies all 487 AREA11 and 393 AREA01 keys, dimensions
+Its native bridge verifies all 487 AREA11 and 409 AREA01 keys, dimensions
 and pixel hashes, then AREA11 -> AREA01 -> AREA11 transitions, same-area
 reload, another device and the unchanged cache path. It exercises the
 three reused keys with changed pixels and verifies removed keys disappear.

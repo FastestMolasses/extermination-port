@@ -31,32 +31,75 @@ newgame-control passes (displacement 9.599849).
 
 **With `EM_LEVEL2_BINDING_PROBE=1`** (honoured only with
 `EM_STARTUP_TEST=newgame-level`; diagnostic, not a playable option) the
-committed live composition binds at the rebuild and the first world frame
-runs into the pool walk, then faults at the first unbound worker:
-`em_area01: unbound worker 00102798 from live composition`,
-`owner 00128C10 node 007A8540 failed at 00102798`,
-`FAULT at 00102798 (code 2)`, smoke `FAIL phase=a01_arrival frame=1`
-(all adapter transactions healthy; only the runtime latched the fault).
-`00102798` is the SDK 4x4 transpose; `em_camera_commit_00102798` already
-translates it, but `em_area01_runtime` does not dispatch it yet. Command:
+committed live composition binds at the rebuild, and the first world frame
+(frame 1) now runs its whole simulation: the pool walk over
+every placed and spawned owner, the player stage, the camera and the
+`001AAD00` close-out all complete with every adapter transaction healthy.
+The frame then stops in its presentation, `001D1EA0`:
+`gfx: object unit: a TEX0 without a registered texture`
+(`em_owner_draw_live ... (012C2200)`), then
+`chain page: unmapped address fault at 002345E0`, smoke
+`FAIL phase=a01_arrival frame=1`. Command:
 `EM_LEVEL2_BINDING_PROBE=1 EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level
-EM_LEVEL_SMOKE_UNTIL=a01_arrival build/extermination` (about 2 minutes).
-No AREA01 world frame has completed; no census row is AREA01-live.
+EM_LEVEL_SMOKE_UNTIL=a01_arrival build/extermination` (about 2 minutes;
+receipt `build/level2/tail-probe/run.log`, binary SHA-256 in
+LEVEL2_RUNTIME.md's probe table). Frames reached: the rebuild (frame 0)
+and the simulation of frame 1; no AREA01 world frame has completed, so no
+census row is AREA01-live.
+
+Bound for this (2026-10-04, each to its existing owner):
+- `00102798` (SDK 4x4 transpose, 00128C10's matrix) in the shared SDK
+  memory adapter `em_aim_fire_sdk_memory.c` over
+  `em_camera_commit_00102798`; the four row loads precede the four
+  stores. Original-instruction proof: `make
+  test-aim-fire-sdk-memory-reference` now runs the original 00102798
+  (16 entries, 598 overlap cases, in-place and misaligned).
+- `0x700034C0..FF`, 001C3DB0's product matrix (00129780's turn), as the
+  live composition's write-first scratch (`EmArea01Live.scratch_34C0`);
+  001C3DB0's first 001026D0 writes it before the second reads it.
+- `001B1B30` / `001B1630` (the shaft door 00823580's visibility publish):
+  the first level's door owner `em_sdf_001B1B30` storing straight into
+  the actor's +0x01 before `001B1B70`, over the camera cone owner
+  `em_area11_interaction_host_visible_001B1630`.
+- `001F4A10` from 00158D30 / exitb: the third argument lane is not an
+  input (the original writes `$a2` at 0x001F4A70 before any read).
+- Head sprites of AREA01 owners (`001E2560` with an 00825350 / 00825740
+  owner): `em_effects_live_set_head_owner` gives the effect owner the
+  AREA01 record image and slot arena. The talk owner 00825740 frees
+  itself on the first visit while its head still ticks; the head reads
+  the freed record's +0x01 / +0x02 / +0x220, all cleared by 001AFC10, and
+  ends (lifecycle 3), so the pool's image of the freed record is exact
+  for every byte it reads.
+- `001A7870` in the close-out reads a listed owner's +0x58 hull record in
+  the delivered area file while the collision view is committed: the
+  view now serves the immutable file bytes outside the cell directory
+  between transactions (read-only; cells, mirror and scratch still
+  refused; `make test-area01-collision-view-reference` checks it).
+- The AREA01 texture catalog now includes the global library models that
+  AREA01 owners bind (LEVEL2_RENDER.md "AREA01 world texture delivery":
+  409 keys, every one equal in all sixteen AREA01 GS freezes).
 
 **What is missing, in dependency order** (sizes are estimates):
-1. Finish the first world frame: the pool walk over the 54 placements, the
-   player stage, camera and the 001AAD00 close-out. One probe run per
-   missing binding: next the 00102798 dispatch (bind the existing
-   translation), then roughly 10-30 more, starting with the 00128C10
-   class-2 family. Medium.
+1. Finish the first world frame's presentation `001D1EA0`:
+   a. Textures of the character banks outside the library and the area
+      load map (00128C10's model 0x011351C0, 001BFFD0's 0x012BC1C0,
+      001C02E0's 0x012C21C0 = `chunk03/f26_id22.bin`); the exporter
+      needs those banks' original load addresses. Small-medium.
+   b. The floor fields' (0015A2C0, 8 placements) 001E9E60 page CALLs the
+      static packet D_002345E0: an MPG of a 153-instruction VU1 program
+      (ELF 0x234610) the chain page does not know. It needs a VU1
+      translation with an original-microcode oracle (`tools/vu1_vm.py`,
+      as for the other page programs) and the chain page's walk of that
+      packet. Medium-large.
+   Then re-run the probe for the next presentation or frame-2 fault.
 2. Open the guard and compare 60 neutral frames against route 15 rows
    741-801 (player, camera, pool, progress, message, fade); the harness
    exists (section "AREA01 recorded route harness"). Medium.
-3. World drawn: dynamic pass 001D5BD0 is bound in RCL; the texture catalog
-   and dynamic VU programs 0x237450 / 0x237720 are translated; nothing is
-   presented yet, no screenshot or pixel comparison; the smoke serializer
-   omits the dynamic table; owner render hooks and the AREA01 player shadow
-   are unproven. Large (verification-heavy).
+3. World drawn: dynamic pass 001D5BD0 is bound in RCL; the dynamic VU
+   programs 0x237450 / 0x237720 are translated; nothing is presented
+   yet, no screenshot or pixel comparison; the smoke serializer omits the
+   dynamic table; owner render hooks and the AREA01 player shadow are
+   unproven. Large (verification-heavy).
 4. Movement and collision: the player stage and collision view are adapted;
    the 001A8840 / 001A9E00 close-out is proven; 001AA000 later (side s6);
    the segment walker's no-span refusal for camera queries is unresolved

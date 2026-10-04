@@ -42,7 +42,7 @@ def build():
              'src/game/em_area00_fx_exit.c','src/game/em_area00_world.c',
              'src/game/em_owner_draw_live.c','src/game/em_object_unit.c',
              'src/game/em_point_light.c','src/game/em_packet_chain_original.c',
-             'src/game/em_aim_fire_sdk_memory.c','src/game/em_effect_original.c',
+             'src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c','src/game/em_effect_original.c',
              'src/game/em_coll_probe_original.c',*SOURCES]
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
                     '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_al_*',

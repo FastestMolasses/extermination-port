@@ -3029,6 +3029,14 @@ static int area01_pass_pair(void *ctx, uint32_t function, uint32_t a0, uint32_t 
         return -1;
     return rc;
 }
+static int area01_head_record(void *ctx, uint32_t address, uint8_t record[0x2F0])
+{
+    return em_area01_live_head_record(ctx, address, record);
+}
+static const uint8_t *area01_head_bytes(void *ctx, uint32_t address, uint32_t size)
+{
+    return em_area01_live_head_bytes(ctx, address, size);
+}
 static int area01_bind_live(void)
 {
     if (s_area01_live.bound)
@@ -3046,6 +3054,8 @@ static int area01_bind_live(void)
     h.private_model = area01_private_model;
     if (em_area01_live_bind(&s_area01_live, &h) < 0)
         return em_scene_fault(&s_state, s_area01_live.fault_address, EM_SCENE_FAULT_NULL_WORKER);
+    if (em_effects_live_set_head_owner(area01_head_record, area01_head_bytes, &s_area01_live) < 0)
+        return em_scene_fault(&s_state, 0x001F0120u, EM_SCENE_FAULT_NULL_WORKER);
     em_area11_boxes_bind_registry(area01_registry_bytes, h.loader);
     const EmCollisionWorldAreaPasses passes = {&s_area01_live, area01_pass_bytes, area01_pass_pair};
     if (em_collision_world_bind_area_passes(&passes) < 0)

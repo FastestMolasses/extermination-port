@@ -81,6 +81,10 @@ static struct {
     EmSceneState *scene;
     EmEffectsLiveBind bind;
     EmEffectsLiveOtherTick other_tick;
+    EmEffectsLiveHeadRecord head_record;
+    EmEffectsLiveHeadBytes head_bytes;
+    void *head_context;
+    uint8_t head_image[EM_ACTOR_RECORD_SIZE];
     EmEffectsLiveParticleCall particle_call;     /* 001F3620 / 001F3E30 */
     void *particle_context;
     void *other_context;
@@ -505,6 +509,11 @@ int em_effects_live_set_other_tick(EmEffectsLiveOtherTick worker, void *context)
 {
     if (!S.attached || S.fault) return -1;
     S.other_tick=worker;S.other_context=context;return 0;
+}
+int em_effects_live_set_head_owner(EmEffectsLiveHeadRecord record, EmEffectsLiveHeadBytes bytes, void *context)
+{
+    if (!S.attached || S.fault || !record || !bytes) return -1;
+    S.head_record=record;S.head_bytes=bytes;S.head_context=context;return 0;
 }
 int em_effects_live_set_particle_call(EmEffectsLiveParticleCall call, void *context)
 {
@@ -1054,7 +1063,8 @@ static const uint8_t *owner_bytes(u32 owner, u32 address, u32 size)
         }
         return NULL;
     }
-    return em_area11_roger_slot_bytes(address, size);
+    const uint8_t *p = em_area11_roger_slot_bytes(address, size);
+    return p || !S.head_bytes ? p : S.head_bytes(S.head_context, address, size);
 }
 
 static int w_head_001026A0(void *ctx, float out[4], u32 matrix, const float v[4])
@@ -1319,6 +1329,9 @@ void em_effects_live_detach(void)
     S.scene = NULL;
     S.bind = NULL;
     S.other_tick = NULL;
+    S.head_record = NULL;
+    S.head_bytes = NULL;
+    S.head_context = NULL;
     S.particle_call = NULL;
     S.other_context = NULL;
 }
@@ -1585,6 +1598,8 @@ static int head_owner(u32 address, EmHeadSpriteOriginalOwner *o)
         o->slot_count = PLAYER_NODES;
     } else {
         r = em_area11_roger_record_bytes(address, EM_ACTOR_RECORD_SIZE);
+        if (!r && S.head_record && S.head_record(S.head_context, address, S.head_image) == 0)
+            r = S.head_image;
         o->slot_count = r ? r[0x0C] : 0;
     }
     if (!r) return -1;

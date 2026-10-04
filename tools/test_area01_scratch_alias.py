@@ -15,7 +15,7 @@ def main():
            '-Wl,-dead_strip' if sys.platform=='darwin' else '-Wl,--gc-sections','-Isrc']
     sources=['tests/area01_scratch_alias_test.c','src/game/em_aim_fire_runtime.c',
              'src/game/em_camera_leftovers.c','src/game/em_pose_host_workers.c',
-             'src/game/em_aim_fire_sdk_memory.c','src/game/em_owner_services_original.c',
+             'src/game/em_aim_fire_sdk_memory.c','src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c','src/game/em_owner_services_original.c',
              'src/game/em_effect_original.c','src/game/em_point_light.c',
              'src/game/em_coll_probe_original.c','src/game/em_actor_collision.c',
              'src/game/em_actor_pool.c','src/game/em_collision.c']

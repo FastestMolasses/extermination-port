@@ -24,7 +24,7 @@ import test_aim_fire_target_reference as T
 BASE=0x680000
 SIZE=0x200
 MAP=C.CFUNCTYPE(C.c_void_p,C.c_void_p,C.c_uint32,C.c_size_t,C.c_int)
-ENTRIES=(0x102948,0x102958,0x1031E0,0x1029C0,0x102918,0x102B08,0x102BB0)
+ENTRIES=(0x102948,0x102958,0x1031E0,0x1029C0,0x102918,0x102B08,0x102BB0,0x102798)
 VECTORS=(0x1026A0,0x102760,0x102718,0x102738,0x1028D0,0x1028B8,0x103230,0x102900)
 OUT=ROOT/'build/aim-fire/sdk-memory'
 
@@ -36,6 +36,20 @@ class Oracle(S.EE):
         super().__init__(elf)
         self.events=[]
         self.missing=None
+    def mmi(self,word,pc):
+        # 00102798's word interleaves (the slide core has no PEXTLW/PEXTUW):
+        # rd = rs.w(k+1) rt.w(k+1) rs.wk rt.wk, high to low, k 0 or 2.
+        rs,rt,rd=word>>21&31,word>>16&31,word>>11&31
+        fn,sub=word&63,word>>6&31
+        if fn in (0x08,0x28) and sub==0x12:
+            full=lambda n:(self.r[n]&(1<<64)-1)|(self.rh[n]<<64)
+            a,b=full(rs),full(rt)
+            w=lambda v,i:v>>(32*i)&0xFFFFFFFF
+            k=0 if fn==0x08 else 2
+            v=w(b,k)|w(a,k)<<32|w(b,k+1)<<64|w(a,k+1)<<96
+            if rd:self.r[rd]=v&(1<<64)-1;self.rh[rd]=v>>64
+            return
+        super().mmi(word,pc)
     def check(self,a,n):
         if self.missing is not None and a<self.missing+16 and a+n>self.missing:
             raise Missing()
@@ -59,6 +73,7 @@ def build(source=None,path=None):
         'src/game/em_owner_services_original.c','src/game/em_effect_original.c',
         'src/game/em_point_light.c','src/game/em_coll_probe_original.c',
         'src/game/em_actor_collision.c','src/game/em_actor_pool.c','src/game/em_collision.c',
+        'src/game/em_camera_commit_original.c','src/game/em_sdk_math_original.c',
         '-lm','-o',str(path)],cwd=ROOT,check=True,capture_output=True)
     lib=C.CDLL(str(path))
     lib.em_aim_fire_sdk_memory_call.argtypes=[C.c_void_p,MAP,C.POINTER(T.Call)]
@@ -130,7 +145,7 @@ def main():
         for seed in range(4):
             for offset in offsets:
                 events+=run(lib,e,fn,offset,seed);count+=1
-        if fn in (0x102948,0x102958,0x102B08,0x102BB0)+VECTORS:
+        if fn in (0x102948,0x102958,0x102B08,0x102BB0,0x102798)+VECTORS:
             for offset in (3,15):
                 events+=run(lib,e,fn,64,2,source_offset=offset);count+=1
         if fn in (0x1026A0,0x102718,0x1028D0,0x1028B8):

@@ -55,6 +55,11 @@ typedef struct {
      * supplies 36A0; no earlier native owner supplies 36E0..375F.
      * 00102958 writes each complete matrix before its first reader. */
     uint32_t scratch_36E0[32];
+    /* 001C3DB0's product matrix 34C0..34FF: its first 001026D0 writes all
+     * four rows before the second reads them back (exitb f_1C3DB0). The
+     * draw owner stops at 34BF; the player closure's 001C9D50 words are
+     * its own write-first storage on the player stage. */
+    uint32_t scratch_34C0[16];
     /* 001CD2B0 writes its integer screen-distance result before the flame
      * caller reads it. This word has no earlier live storage owner. */
     uint32_t d275C00;
@@ -77,6 +82,11 @@ uint8_t *em_area01_live_bytes(EmArea01Live *, uint32_t, uint32_t, int);
 /* Exact active canonical matrix span, also available to native adapters.
  * Returns an alias of scratch_3000; never publishes a copied matrix. */
 uint8_t *em_area01_live_matrix_3000(EmArea01Live *, uint32_t, uint32_t);
+/* Head sprite owner views for em_effects_live (outside a transaction):
+ * an AREA01 private-model owner's canonical record image, and its slot
+ * arena records. 0 / non-NULL, or -1 / NULL. */
+int em_area01_live_head_record(EmArea01Live *, uint32_t address, uint8_t record[0x2F0]);
+const uint8_t *em_area01_live_head_bytes(EmArea01Live *, uint32_t address, uint32_t size);
 /* Outermost call only. Nested translated calls use runtime_call directly. */
 int em_area01_live_call(EmArea01Live *, EmArea01Call *);
 /* A scene service that already owns the active transaction may dispatch
