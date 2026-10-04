@@ -2,7 +2,7 @@
  * (OVERLAY/AREA01.BIN, id 2) functions the AREA01 route ran that the first
  * level never ran (decomp census build/s87/census/a01_delta.json,
  * region overlay:AREA01), plus placement [38]'s 0x825740 talk owner.
- * Docs: docs/AREA01_OVERLAY.md and docs/LEVEL2_TALK_OWNER.md.
+ * Docs: docs/AREA01_OVERLAY.md and docs/LEVEL2_RUNTIME.md ("AREA01 placement [38]: talk owner 0x825740").
  *
  * Addresses are engine (runtime) addresses. The overlay is linked 0x40 below
  * where it runs, so the decomp's splat/link names are 0x40 lower (for

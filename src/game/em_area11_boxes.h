@@ -29,7 +29,7 @@
  *
  * AREA01 nest initialization optionally borrows the original registry and
  * reads canonical taken bits through the existing actor-roster owner (see
- * the binding below and LEVEL2_CRATE_REGISTRY.md). Its 001AFA90 child copy
+ * the binding below and LEVEL2_RUNTIME.md ("AREA01 crate registry binding")). Its 001AFA90 child copy
  * remains an explicit fail-stop. The default AREA11 placements do not reach
  * a nest group. See CRATES_DRUMS_ORIGINAL.md for other damage-path coverage.
  * D_002468B0 / D_00246A00 / D_00246A10 come from

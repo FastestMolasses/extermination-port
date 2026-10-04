@@ -1,7 +1,7 @@
 /* AREA01 overlay state and its load-time initializer. The module loader
  * owns the delivered overlay data and BSS; this provider borrows those
  * canonical bytes and owns only D_00275C18..2F. No captured state is loaded.
- * See docs/LEVEL2_AREA_STATE.md for lifecycle and integration order. */
+ * See docs/LEVEL2_RUNTIME.md ("AREA01 canonical overlay state and initialization") for lifecycle and integration order. */
 #ifndef EM_AREA01_STATE_H
 #define EM_AREA01_STATE_H
 

@@ -9,7 +9,7 @@
  *   00237720  AREA01 dynamic clip kernel: the box program's 1183
  *             instructions with only three immediate changes (three
  *             input vertices, matching first-triangle bound, work origin
- *             1069). See docs/LEVEL2_DYNAMIC_VU.md.
+ *             1069). See docs/LEVEL2_RENDER.md ("AREA01 dynamic VU programs").
  *
  * Addresses in the comments are MICRO addresses (instruction index, 8 bytes
  * each) of the program the kernel packet uploads; docs/SHADOW_ORIGINAL.md

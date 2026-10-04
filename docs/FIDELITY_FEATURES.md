@@ -1998,13 +1998,13 @@ can meet the same standard. It is not playable in the port yet.
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick
-  mode (3,330 full) against the original instructions; LEVEL2_MESSAGES.md
+  mode (3,330 full) against the original instructions; LEVEL2_SERVICES.md ("AREA01 message-bank binding")
   states the exact scope. This does not make AREA01 dialogue or its route
   playable. The opt-in arrival smoke currently fails on its first world tick.
   The route-plus-arrival census has 179 entries (SECOND_LEVEL_CENSUS.md).
   The older mutation sweeps did not converge and were closed on named
   survivors. The actor-cell bit-29 mirror was already accepted by chain C11
-  EXIT. The segment walker's no-span fail-stop remains: LEVEL2_COLLISION.md
+  EXIT. The segment walker's no-span fail-stop remains: LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit")
   bounds the recorded camera queries and explains the original caller-state
   dependency; no success value has been substituted.
 

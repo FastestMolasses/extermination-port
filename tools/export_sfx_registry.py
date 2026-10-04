@@ -50,7 +50,7 @@ ARRIVAL_CAPTURES = ('build/s87/route/15_level_exit', 'build/c10/exit/exit_01_mov
 # These are table coverage, not a claim that every id occurs on the route.
 AREA01_IDS = tuple(range(0x3E8, 0x5DC)) + tuple(range(0x7D0, 0x9C4))
 # 001C2770's failed-grab cue: a global record reached by an AREA01-censused
-# caller but absent from the older first-level list (LEVEL2_SFX.md).
+# caller but absent from the older first-level list (LEVEL2_AUDIO.md ("AREA01 SFX resources")).
 AREA01_SHARED_IDS = (0x1AC,)
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3

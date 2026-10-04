@@ -1,6 +1,6 @@
 /* World TEX0 bindings shared by object units and the chain page.
  * Catalogs contain pixels reconstructed from original disc uploads;
- * docs/LEVEL2_TEXTURES.md records their delivery and verification. */
+ * docs/LEVEL2_RENDER.md ("AREA01 world texture delivery") records their delivery and verification. */
 #ifndef EM_WORLD_TEXTURES_LIVE_H
 #define EM_WORLD_TEXTURES_LIVE_H
 

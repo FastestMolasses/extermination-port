@@ -1,7 +1,7 @@
 /* em_area01_math_owner.c - AREA01 lane "math": translations of 001BB860,
  * 001BB560, 001C02E0, 001BF630, 001BFFD0, 001CB360, 001B9CF0, 001BBAE0 and
  * 001BBBF0, 001D0C80 and 001D0D40 (em_area01_math_owner.h,
- * docs/AREA01_MATH.md, docs/LEVEL2_BONE_INIT.md).
+ * docs/AREA01_MATH.md, docs/LEVEL2_RUNTIME.md ("AREA01 bone-slot initialization helpers")).
  *
  * Read from the decomp's C (byte-matched: 001BB560, 001BBAE0, 001B9CF0,
  * 001CB360; NEARMISS: 001BB860, 001BBBF0, 001BFFD0, 001C02E0; asm-only:

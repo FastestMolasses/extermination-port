@@ -3,7 +3,7 @@
  * snapshots. Commit before every native worker, begin after it. Never nest
  * the projected view inside the player's own stage or retain a pointer across
  * commit. Inside a stage, use the explicitly read-only borrow instead.
- * See docs/LEVEL2_PLAYER_VIEW.md. */
+ * See docs/LEVEL2_RUNTIME.md ("AREA01 external player record segments"). */
 #ifndef EM_AREA01_PLAYER_VIEW_H
 #define EM_AREA01_PLAYER_VIEW_H
 #include "game/em_player_floor.h"

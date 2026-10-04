@@ -1,7 +1,7 @@
 /* Canonical original-layout views for AREA01 pool owners. EmActor owns
  * represented fields; this adapter owns only its otherwise unrepresented
  * bytes. Shared model fields are projected from their existing service.
- * See docs/LEVEL2_ACTOR_VIEW.md for required worker/lifetime boundaries. */
+ * See docs/LEVEL2_RUNTIME.md ("AREA01 canonical actor view") for required worker/lifetime boundaries. */
 #ifndef EM_AREA01_ACTOR_VIEW_H
 #define EM_AREA01_ACTOR_VIEW_H
 

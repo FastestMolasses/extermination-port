@@ -1,26 +1,81 @@
 # AREA01 first-visit binding
 
-Worktree: `../extermination-port-level2`, branch `level2`, based on main
-`3d482f6` (2026-10-03). Main and the first-level worktrees are untouched.
-`assets/` and `data/` are real directories with links to the main checkout's
-entries. Before any export into a linked directory, replace that directory
-link with a private copy; a writer opening a file through a directory link
-would otherwise change main's assets. No emulator was launched.
+The hub for connecting AREA01 (the second level, first visit) to the
+running game. Goal: the player arrives from the first level's exit and
+runs around AREA01 with every live behaviour proven against the PCSX2
+recordings (SECOND_LEVEL_ROUTE.md; recordings in the decomp's
+`build/s87/route_a01/`, the EXIT capture `exit_01`). Topic documents:
+[LEVEL2_RUNTIME.md](LEVEL2_RUNTIME.md) (composition, views, lifecycle),
+[LEVEL2_COLLISION.md](LEVEL2_COLLISION.md),
+[LEVEL2_RENDER.md](LEVEL2_RENDER.md) (textures, packets, models, lights),
+[LEVEL2_SERVICES.md](LEVEL2_SERVICES.md) (scripts, messages, doors,
+pickups, Use, effects) and [LEVEL2_AUDIO.md](LEVEL2_AUDIO.md); the census
+is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
+the branch `level2` (Codex, then Claude) and merged into main on
+2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State
+## State (2026-10-04, main after the level-2 merge)
 
-Phase 1: arrival failure reproduced and census mapped. The five missing
-arrival workers now have standalone original-instruction verification.
-Broad regression verification is in progress. Phases 2–4 are not complete:
-no AREA01 world frame plays yet.
-The frame-machine guard remains; missing workers have not been defaulted.
+**How far the game gets.** New Game plays the whole first level to the
+AREA01 arrival: `EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`
+passes all 19 first-level phases (first_control .. exit, `exit` = area 01
+00 04, exit_01 row 306) and aligns the AREA01 rebuild at native counter
+**15007** (route 15 row 741). The rebuild (frame 0) completes; the first
+AREA01 world frame stops at the deliberate guard
+`em_scene: 0x1AE040 state 1 in AREA01 ...` then
+`FAULT at 001AE040 (code 1)`, and the smoke reports
+`FAIL phase=a01_arrival frame=0`. That failure is expected: missing
+workers fault, nothing is defaulted. The default smoke
+(`make test-level-smoke`, first_control / status / battery) passes, and
+newgame-control passes (displacement 9.599849).
 
-The headless `a01_arrival` probe reaches the state-0 rebuild at native
-counter **15007** (route 15 row 741, also EXIT `exit_01` row 306). Its first
-world frame reports `0x1AE040 state 1 in AREA01`, then
-`FAULT at 001AE040 (code 1)`; the smoke fails at `a01_arrival frame=0`.
-Receipt: `build/level2/arrival/run.log`, `ticks.jsonl.gz` and `rand.trace`.
-Reproduce: `EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`.
+**With `EM_LEVEL2_BINDING_PROBE=1`** (honoured only with
+`EM_STARTUP_TEST=newgame-level`; diagnostic, not a playable option) the
+committed live composition binds at the rebuild and the first world frame
+runs into the pool walk, then faults at the first unbound worker:
+`em_area01: unbound worker 00102798 from live composition`,
+`owner 00128C10 node 007A8540 failed at 00102798`,
+`FAULT at 00102798 (code 2)`, smoke `FAIL phase=a01_arrival frame=1`
+(all adapter transactions healthy; only the runtime latched the fault).
+`00102798` is the SDK 4x4 transpose; `em_camera_commit_00102798` already
+translates it, but `em_area01_runtime` does not dispatch it yet. Command:
+`EM_LEVEL2_BINDING_PROBE=1 EM_UNCAPPED=1 EM_STARTUP_TEST=newgame-level
+EM_LEVEL_SMOKE_UNTIL=a01_arrival build/extermination` (about 2 minutes).
+No AREA01 world frame has completed; no census row is AREA01-live.
+
+**What is missing, in dependency order** (sizes are estimates):
+1. Finish the first world frame: the pool walk over the 54 placements, the
+   player stage, camera and the 001AAD00 close-out. One probe run per
+   missing binding: next the 00102798 dispatch (bind the existing
+   translation), then roughly 10-30 more, starting with the 00128C10
+   class-2 family. Medium.
+2. Open the guard and compare 60 neutral frames against route 15 rows
+   741-801 (player, camera, pool, progress, message, fade); the harness
+   exists (section "AREA01 recorded route harness"). Medium.
+3. World drawn: dynamic pass 001D5BD0 is bound in RCL; the texture catalog
+   and dynamic VU programs 0x237450 / 0x237720 are translated; nothing is
+   presented yet, no screenshot or pixel comparison; the smoke serializer
+   omits the dynamic table; owner render hooks and the AREA01 player shadow
+   are unproven. Large (verification-heavy).
+4. Movement and collision: the player stage and collision view are adapted;
+   the 001A8840 / 001A9E00 close-out is proven; 001AA000 later (side s6);
+   the segment walker's no-span refusal for camera queries is unresolved
+   (LEVEL2_COLLISION.md); route a01_00 is 780 frames of grab, hang,
+   pull-up and fall. Medium-large.
+5. Camera: control-room and duct workers are forwarded through the camera
+   host callback; the scene tables are not area-aware yet. Medium.
+6. Doors, NPC scripts, messages and pickups: beats a01_01..a01_07 and the
+   8 side routes; adapters exist, unverified live. Large in total.
+
+**Local exports AREA01 needs** (ignored, from the user's disc/ELF; see
+STARTUP.md): `assets/area01_world_textures.emot`
+(`tools/export_area01_world_textures.py`),
+`assets/area01_shadow_receivers.emsr` (`tools/export_area01_shadow_receivers.py`),
+`assets/area01_boot_scripts/` (`tools/export_area01_boot_scripts.py --out
+assets/area01_boot_scripts`), and re-exports of
+`assets/effect_tables.emet`, `assets/scene_snow/roger/resources.emrs` and
+the SFX registry. The area load binds the texture catalog and shadow
+receivers, so the AREA01 rebuild faults without them.
 
 The opt-in phase asks for 60 neutral world frames after the rebuild. Its
 checker compares the existing tick-log fields with route 15 rows 741–801;
@@ -43,9 +98,9 @@ is recorded separately; it does not prove an AREA01 adapter is bound.
 The five initially omitted arrival routines were `001C4FA0`, `001C50B0`,
 `001D0C80`, `001D0D40`, AREA01 `00825740`.
 
-[LEVEL2_DEPENDENCIES.md](LEVEL2_DEPENDENCIES.md) records original callers,
+[SECOND_LEVEL_CENSUS.md ("AREA01 arrival binding dependencies")](SECOND_LEVEL_CENSUS.md#area01-arrival-binding-dependencies) records original callers,
 existing owners and the canonical-state mapping work still required.
-[LEVEL2_COLLISION.md](LEVEL2_COLLISION.md) records why the segment walker's
+[LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit")](LEVEL2_COLLISION.md#area01-collision-prerequisite-audit) records why the segment walker's
 no-span refusal must not be replaced by a made-up return value. Actor-cell
 bit 29 is already accepted by the baseline.
 
@@ -68,11 +123,11 @@ without changing that guard:
   Quick **40 / 21 helper cases**, caller **57 cases / 363 boundaries**;
   full **48,851 helper cases**, caller **1,606 / 7,656**. The entire math
   suite passes; two pre-existing unrelated branch outcomes remain
-  uncovered. See LEVEL2_BONE_INIT.md.
+  uncovered. See LEVEL2_RUNTIME.md ("AREA01 bone-slot initialization helpers").
 - AREA01 roster record 38's `00825740` runs setup before its first-visit
   teardown gate. Its standalone owner has **184 quick / 1,131 full
   cases**; full overlay suite **14,034 cases / 21,199 executions**, all
-  15 entries. See LEVEL2_TALK_OWNER.md.
+  15 entries. See LEVEL2_RUNTIME.md ("AREA01 placement [38]: talk owner 0x825740").
 
 These are translation results, not AREA01 route or live-worker evidence.
 
@@ -81,7 +136,7 @@ rebuild. It selects the delivered area's EMMD view for `001FD790` and
 `001FD950`, preserving the request block, draw/glyph state, styles, streams
 and presenters. `001FC9B0` keeps its original reset sites. The original
 service caller is `001FCA10 -> 001FDB80 -> 001FD790`; AREA01 dialogue itself
-is still unbound. See LEVEL2_MESSAGES.md: **4 state-preserving selections,
+is still unbound. See LEVEL2_SERVICES.md ("AREA01 message-bank binding"): **4 state-preserving selections,
 11,956 capture-equal bank bytes, 54 quick / 3,330 full original service
 ticks**, plus missing-bank and persistent-fault checks. The fixture's
 synthetic draw/glyph state is distinguished from its recorded inputs.
@@ -89,7 +144,7 @@ synthetic draw/glyph state is distinguished from its recorded inputs.
 The math storage contract now accepts direct views of canonical owners,
 with no full-RAM arena or fallback for missing spans. Its sanitizer alias,
 bounds and fail-stop checks pass; the complete math and light original-code
-oracles pass again in quick and full modes. LEVEL2_MATH_VIEWS.md separates
+oracles pass again in quick and full modes. LEVEL2_RUNTIME.md ("AREA01 math workers over canonical memory views") separates
 the new adapter checks from the existing linear-memory oracle evidence.
 The future actor binder still has to supply those views.
 
@@ -98,7 +153,7 @@ rebuild, while retaining the world-frame guard:
 
 - After pool/model-owner reset, select `D_0028A59C` from the loader's slot
   0x43 through the existing world-model owner. The EMWM table must match
-  the delivered address. LEVEL2_MODEL_BANK.md proves **1,664 lookups,
+  the delivered address. LEVEL2_RENDER.md ("AREA01 world model bank selection") proves **1,664 lookups,
   832 owner initializations and 1,362 bone records** in full mode. Direct
   AREA01-to-AREA11 without module-3 reload relocates that bank in both the
   original and native loader; the fixed-address export correctly refuses
@@ -109,12 +164,12 @@ rebuild, while retaining the world-frame guard:
   packet workers and existing depth/page owners. Full standalone
   composition: **16 snapshots, 276 entries, 2,278 tracked original calls**.
   First-level RCL regression: **15 beats / 1,335 entries**. See
-  LEVEL2_RENDER_PACKETS.md for the remaining VU/pixel limits.
+  LEVEL2_RENDER.md ("AREA01 dynamic packet binding") for the remaining VU/pixel limits.
 - After `001F0310`, run AREA01's `001E7780 -> 00823A50` initialization
   before the spawn calls. Six globals are owned by `EmArea01State`; data
   and BSS alias the loader. Full initializer oracle: **416 cases,
   570,775,296 state bytes**, plus the original BSS-clear proof. See
-  LEVEL2_AREA_STATE.md. Rebuilds do not clear the whole overlay again.
+  LEVEL2_RUNTIME.md ("AREA01 canonical overlay state and initialization"). Rebuilds do not clear the whole overlay again.
 
 The loader-to-model test exposed an existing `region_for` bug: a shorter
 same-base read retained the old allocation extent, so a later overlapping
@@ -138,8 +193,8 @@ dialogue is claimed by these resource checks.
 - Resource-checkpoint first-level main smoke: **19 live phases through exit**,
   capture checker passed with the matching indexed binary. Measured-drive
   smoke also passed through Roger. The panel/no-battery, status pages,
-  fence-side-1, all **11 aim** and all **3 damage** side runs passed. The
-  branch runs remain pending. Recursive make initially tried to rebuild
+  fence-side-1, all **11 aim**, all **3 damage** and all **10 branch** side
+  runs passed. Recursive make initially tried to rebuild
   from concurrent unstaged work; that link failure was isolated from the
   completed gameplay runs. Receipts: `build/level2/resources/main-check.log`,
   `ps2-drive-smoke.log`, `side-smoke.log`, and `remaining-smoke.log`.
@@ -181,8 +236,8 @@ Phase 1:
 - `tools/test_coll_segment_walkers_reference.py`: AREA01 route bounds and
   original-selector evidence, without changing the game walker.
 
-New phase-1 files: this document, SECOND_LEVEL_CENSUS, LEVEL2_DEPENDENCIES,
-LEVEL2_COLLISION and `tools/level_smoke_area01.py`.
+New phase-1 files: this document, SECOND_LEVEL_CENSUS, SECOND_LEVEL_CENSUS.md ("AREA01 arrival binding dependencies"),
+LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit") and `tools/level_smoke_area01.py`.
 
 Phase-2 missing-worker checkpoint:
 
@@ -191,8 +246,8 @@ Phase-2 missing-worker checkpoint:
 - `em_area01_overlay.c/.h` and its existing oracle: roster record 38's
   missing owner; no live hook table added.
 - New `em_area01_light_owner.c/.h`, its oracle and the three evidence
-  documents LEVEL2_LIGHT_OWNER, LEVEL2_BONE_INIT and LEVEL2_TALK_OWNER.
-- SECOND_LEVEL_CENSUS and LEVEL2_DEPENDENCIES record availability; neither
+  documents LEVEL2_RUNTIME.md ("AREA01 flicker-light owner"), LEVEL2_RUNTIME.md ("AREA01 bone-slot initialization helpers") and LEVEL2_RUNTIME.md ("AREA01 placement [38]: talk owner 0x825740").
+- SECOND_LEVEL_CENSUS and SECOND_LEVEL_CENSUS.md ("AREA01 arrival binding dependencies") record availability; neither
   first-level census nor first-level audit was edited.
 
 Message-resource checkpoint:
@@ -204,7 +259,7 @@ Message-resource checkpoint:
 - `Makefile`: `test-message-area-reference` target. FIDELITY_FEATURES
   describes the arrival-only state; no launcher option was added.
 - New `tests/message_area_bridge.c`, `tools/test_message_area_reference.py`
-  and LEVEL2_MESSAGES.md.
+  and LEVEL2_SERVICES.md ("AREA01 message-bank binding").
 
 Math-view checkpoint:
 
@@ -212,7 +267,7 @@ Math-view checkpoint:
   the existing linear oracle mode and fault/store-trace contracts.
 - `tools/test_area01_math_reference.py`: appended ctypes view field.
 - `Makefile`: native math-view contract and light-owner oracle targets.
-- New `tests/area01_math_views_test.c` and LEVEL2_MATH_VIEWS.md.
+- New `tests/area01_math_views_test.c` and LEVEL2_RUNTIME.md ("AREA01 math workers over canonical memory views").
 
 Area-resource checkpoint:
 
@@ -233,8 +288,8 @@ Area-resource checkpoint:
 - `Makefile`: compile existing AREA01 VIF and the new state provider;
   add state, bank and composed-render oracle targets.
 - New AREA01 state source/header, three reference suites, two test bridges,
-  and LEVEL2_AREA_STATE, LEVEL2_MODEL_BANK, LEVEL2_RENDER_PACKETS.
-- LEVEL2_COLLISION records the completed full sweep; no collision game
+  and LEVEL2_RUNTIME.md ("AREA01 canonical overlay state and initialization"), LEVEL2_RENDER.md ("AREA01 world model bank selection"), LEVEL2_RENDER.md ("AREA01 dynamic packet binding").
+- LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit") records the completed full sweep; no collision game
   code changed.
 
 ## Known gaps
@@ -242,12 +297,369 @@ Area-resource checkpoint:
 All main beats `a01_00..a01_07` and side beats remain unplayed by the native
 port. AREA00 arrival is the intended stopping boundary. The message bank
 now switches during rebuild; model/render resources and overlay init are
-connected there. Live AREA01 dialogue, rendering presentation, canonical actor records,
-scripts, interactions, doors and pickups still need their AREA01 adapters.
+connected there. Adapters for canonical actor records, scripts,
+interactions, doors, pickups, effects and audio are committed but run only
+under the probe; live AREA01 dialogue, presentation and every route beat
+remain unverified (see "State").
 The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any
 source correction there must be reported in permitted docs, not applied.
-No decomp corrections have been committed by this branch.
+Decomp documentation commit `f5a27bc` records the proven `00219550`
+child-spawn argument order at `002196A8`; only FINDINGS and NEARMISS were
+changed after an empty-index check and staged leak scan. No decomp source
+was changed.
+
+## Integration checkpoint (committed 2026-10-04)
+
+The resource binary has now passed all first-level smoke components: main
+**19 phases**, **3** panel/status/fence runs, **11** aim, **3** damage,
+**10** branch, plus measured-drive smoke. The interrupted aggregate make
+command is not presented as a successful aggregate invocation; it will be
+run again after the next live integration checkpoint.
+
+The composition, actor/player/collision/door/model adapters and native
+texture/dynamic-VU integration are committed but stay behind the probe;
+see LEVEL2_RUNTIME.md, LEVEL2_RENDER.md and LEVEL2_SERVICES.md.
+The diagnostic-only AREA01 binding probe does not change the live census
+status or remove the ordinary frame guard.
+
+## Integration topics and commits
+
+The integration was committed on 2026-10-04 as one commit per topic below,
+each building with zero warnings, then merged into main. The group texts
+were written before the files listed under "Additional integration edits"
+existed; those went into: shared services, director modes and script-host
+store callbacks -> scripts `3741895`; lights, the channel-3 matrix
+service, props and the equipment proof -> models `aabcb60`; RCL workers
+and scratch views -> dynamic packets `597453e`; the crate registry ->
+views `1026855`; flames, glow and weather packets -> effects `6c9a5ba`;
+the SFX loop and bank callbacks -> audio `f57fad3`; camera leftovers and
+commit resolvers -> camera `a2352ad`; progress bytes 00810767 / 0081080F,
+`condition_canonical` and the matrix-scratch proof -> composition
+`04798af`. The commit is authoritative for exact files. A listed
+implementation or oracle is not a live census promotion; no AREA01 main
+or side route has passed the native checker.
+
+### Composition, dispatch and lifecycle
+
+Commit: `9806573` (dispatcher), `04798af` (live composition and scene attachment).
+
+The diagnostic AREA01 composition resolves original addresses into existing
+actor, player, scene, loader and service owners. Worker calls publish and
+refresh the active views, preserve original stack boundaries, and fail on
+unhandled entries. Scene integration attaches it at the original rebuild and
+roster lifetime points, routes camera/Use/native-owner callbacks, and retains
+the ordinary frame guard. Companion allocation rebinding remains part of the
+guarded probe work. The scene logger supplies read-only owner observations
+and actual post-frame loader tails. The build adds the corresponding sources
+and scoped verification targets.
+
+Existing files: `Makefile`, `src/game/em_scene_bindings.c`.
+
+New files: `src/game/em_area01_live.c`, `src/game/em_area01_live.h`, `src/game/em_area01_runtime.c`, `src/game/em_area01_runtime.h`, `src/game/em_area01_runtime_dispatch.inc`, `src/game/em_area01_runtime_overlay.inc`, `src/game/em_area01_scene_view.c`, `src/game/em_area01_scene_view.h`, `tests/area01_runtime_bridge.c`, `tools/test_area01_runtime_reference.py`.
+
+Evidence and limits: [LEVEL2_RUNTIME.md ("AREA01 composition and live binding probe")](LEVEL2_RUNTIME.md#area01-composition-and-live-binding-probe).
+
+### Actor/player views and existing model-slot ownership
+
+Commit: `1026855`.
+
+Actor records combine native fields, retained original-only bytes and
+existing shared model fields under generation-checked begin/commit/refresh
+transactions. Player records publish position, vitals, action state and
+validated owner links through the existing player owner. Box services expose
+001B0EA0 and their existing metadata/bone-slot storage, including typed/raw
+slot synchronization. These adapters introduce no second pool, pose stack or
+model allocator.
+
+Existing files: `src/game/em_area11_boxes.c`, `src/game/em_area11_boxes.h`, `src/game/em_player.c`, `src/game/em_player.h`.
+
+New files: `src/game/em_area01_actor_view.c`, `src/game/em_area01_actor_view.h`, `src/game/em_area01_player_view.c`, `src/game/em_area01_player_view.h`, `tests/area01_actor_view_bridge.c`, `tests/area01_player_view_bridge.c`, `tools/test_area01_actor_view_reference.py`, `tools/test_area01_player_view_reference.py`.
+
+Evidence and limits: [LEVEL2_RUNTIME.md ("AREA01 canonical actor view")](LEVEL2_RUNTIME.md#area01-canonical-actor-view), [LEVEL2_RUNTIME.md ("AREA01 external player record segments")](LEVEL2_RUNTIME.md#area01-external-player-record-segments).
+
+### Authoritative borrowed-memory contracts
+
+Commit: `3f7ea5b` (the 0011E520 view; the other contracts were committed before the merge `6a4ecfe`).
+
+SYS, EXITA, EXITB, ROOM, SIDE, overlay and shared render/UI/FX accessors accept an
+optional authoritative resolver with exact read/write intent. Refused spans
+fault rather than falling back to an array; the existing array-backed oracle
+mode remains available. The Python ctypes layouts and reusable view fixture
+are updated to match the appended contract. The status-page initializer uses
+designated fields for the extended render-world structure. The aim-world
+caller retains its array mode with an explicit null resolver, and the existing
+AREA02 miscellaneous SDK owner exposes call-local canonical access for
+0x11E520 without changing its region-backed ABI.
+
+Existing files: `src/game/em_aim_fire_world_live.c`, `src/game/em_area00_fx_internal.h`, `src/game/em_area01_exita.c`, `src/game/em_area01_exita.h`, `src/game/em_area01_exitb.c`, `src/game/em_area01_exitb.h`, `src/game/em_area01_overlay.h`, `src/game/em_area01_overlay_internal.h`, `src/game/em_area01_render_mem.h`, `src/game/em_area01_room.c`, `src/game/em_area01_room.h`, `src/game/em_area01_side.c`, `src/game/em_area01_side.h`, `src/game/em_area01_sys.c`, `src/game/em_area01_sys.h`, `src/game/em_area01_ui_internal.h`, `src/game/em_area02_misc.c`, `src/game/em_area02_misc.h`, `src/game/em_status_pages_live.c`, `tools/test_area01_exita_reference.py`, `tools/test_area01_exitb_reference.py`, `tools/test_area01_overlay_reference.py`, `tools/test_area01_render_reference.py`, `tools/test_area01_room_reference.py`, `tools/test_area01_side_reference.py`, `tools/test_area01_sys_reference.py`.
+
+New files: `tests/area01_memory_view_bridge.c`, `tools/area01_reference_view.py`, `tools/test_area01_memory_view_reference.py`.
+
+Evidence and limits: [LEVEL2_RUNTIME.md ("AREA01 canonical memory callbacks")](LEVEL2_RUNTIME.md#area01-canonical-memory-callbacks).
+
+### Collision records, scratch and original table correction
+
+Commit: `c3ae737`; the class-7 base correction is its own commit `e2e0d23`.
+
+The collision view exposes existing world/probe/results and exact scratch
+spans to original callers. The actor-cell API adds bounded primitive lookup
+and a ground-query entry that preserves the shared probe state; original
+record/node/span/result writes are retained. Probe/face scratch keeps the W
+lanes needed by full-quadword consumers. The class-7 table base is corrected
+to the original 0x28AC30. The segment walker's no-span refusal is unchanged.
+
+Existing files: `src/game/em_actor_collision.c`, `src/game/em_actor_collision.h`, `src/game/em_coll_probe_original.h`, `src/game/em_coll_segment_walkers.h`, `src/game/em_collision_world.c`.
+
+New files: `src/game/em_area01_collision_view.c`, `src/game/em_area01_collision_view.h`, `tests/area01_collision_view_bridge.inc`, `tools/test_area01_collision_view_reference.py`.
+
+Evidence and limits: [LEVEL2_COLLISION.md ("AREA01 borrowed collision boundary")](LEVEL2_COLLISION.md#area01-borrowed-collision-boundary), [LEVEL2_AUDIO.md ("AREA01 positional audio and shared scratch")](LEVEL2_AUDIO.md#area01-positional-audio-and-shared-scratch).
+
+### Camera and cross-owner scratch lifetime
+
+Commit: `a2352ad`.
+
+The existing camera forwards AREA01 control-room/duct workers through an
+optional host callback with publication and reload around nested calls.
+Camera, aim and RCL can borrow canonical scratch; detach preserves the last
+writer's bytes. Camera segment callbacks publish/reload around collision.
+The AREA00 readiness predicate now follows its actual subarea/story guard,
+so the authorized sub-0 arrival is not rejected by an unreachable worker.
+New narrow XYZ services reuse the existing camera-follow originals; their
+alias/bounds contracts and native scratch handoff are tested.
+
+Existing files: `src/game/em_aim_fire_runtime.c`, `src/game/em_aim_fire_runtime.h`, `src/game/em_camera_area11_specials.c`, `src/game/em_camera_live.c`, `src/game/em_camera_live.h`, `tools/test_camera_area11_specials_reference.py`.
+
+New files: `src/game/em_area01_camera_services.c`, `src/game/em_area01_camera_services.h`, `tests/area01_camera_services_bridge.c`, `tests/area01_scratch_alias_test.c`, `tools/test_area01_camera_services_reference.py`, `tools/test_area01_scratch_alias.py`, `tools/test_area01_scratch_views.py`.
+
+Evidence and limits: [LEVEL2_RUNTIME.md ("AREA01 camera worker binding")](LEVEL2_RUNTIME.md#area01-camera-worker-binding), [LEVEL2_AUDIO.md ("AREA01 positional audio and shared scratch")](LEVEL2_AUDIO.md#area01-positional-audio-and-shared-scratch).
+
+### Dynamic packet presentation and shared VU kernels
+
+Commit: `597453e`.
+
+AREA01 0x237450/0x237720 select parameterized versions of the existing
+level/box-clip kernels. Chain-page processing admits their VIF continuation,
+TOPS-relative buffers, emitted GIF packets and supported GS state in the
+existing primitive order; unknown program/state remains a fault. RCL's
+scratch view can borrow the canonical matrix owner. The effect exporter adds
+the two microprogram windows and six immutable interaction descriptors;
+exports remain local and ignored. Existing chain-page proof is updated for
+the appended counter fields.
+
+Existing files: `src/game/em_chain_page.c`, `src/game/em_chain_page.h`, `src/game/em_chain_page_live.c`, `src/game/em_chain_page_live.h`, `src/game/em_render_context_live.c`, `src/game/em_render_context_live.h`, `src/game/em_vu1_level_kernel.h`, `src/game/em_vu1_shadow_clip.h`, `tools/export_effect_tables.py`, `tools/test_chain_page_reference.py`.
+
+New files: `tools/test_level2_dynamic_vu_reference.py`.
+
+Evidence and limits: [LEVEL2_RENDER.md ("AREA01 dynamic VU programs")](LEVEL2_RENDER.md#area01-dynamic-vu-programs), [LEVEL2_RENDER.md ("AREA01 dynamic packet binding")](LEVEL2_RENDER.md#area01-dynamic-packet-binding), [LEVEL2_SERVICES.md ("AREA01 canonical Use and shared status services")](LEVEL2_SERVICES.md#area01-canonical-use-and-shared-status-services).
+
+### Area texture selection and invalidation
+
+Commit: `3b0bef9`.
+
+A single world catalog selects textures for the delivered area and resource
+epoch. Object and chain-page consumers use that same catalog. The graphics
+contract adds world-TEX0 registry invalidation, implemented by Metal; the
+other existing backend stubs explicitly refuse it. The AREA01 exporter
+collects the required world/owner/shared texture sources and validates the
+local output. This changes resource selection, not framebuffer presentation
+or UI/background texture ownership.
+
+Existing files: `src/em_gfx.h`, `src/gfx/d3d12/em_gfx_d3d12.c`, `src/gfx/metal/em_gfx_metal.m`, `src/gfx/vulkan/em_gfx_vk.c`.
+
+New files: `src/game/em_world_textures_live.c`, `src/game/em_world_textures_live.h`, `tests/world_textures_bridge.c`, `tools/export_area01_world_textures.py`, `tools/test_world_textures_reference.py`.
+
+Evidence and limits: [LEVEL2_RENDER.md ("AREA01 world texture delivery")](LEVEL2_RENDER.md#area01-world-texture-delivery).
+
+### Generic model, draw, morph and shadow services
+
+Commit: `aabcb60`.
+
+Canonical AREA01 actors use the existing Box/model-slot owner and borrowed
+loader banks. Generic draw/shadow hooks reuse owner_draw_live and shadow_live;
+face setup and morph draws retain one owner. Shared draw-method selection is
+factored from the status-model implementation into owner services. Face units
+accept up to the original four nodes before the batch buffers. Shadow receiver
+selection follows the active area. Owner-draw texture loading delegates to the
+single catalog named above; its generic hooks preserve model/source lifetimes.
+The newly added placed-prop adapter forwards 0x1C4820 through its existing
+status-leftovers owner and refreshes model metadata at worker boundaries;
+its original-caller adapter proof passes 1,536 cases and 32 exact worker
+boundaries (LEVEL2_RENDER.md ("AREA01 placed-prop adapter")). Its guarded native integration remains pending.
+
+Existing files: `src/game/em_object_unit.c`, `src/game/em_owner_draw_live.c`, `src/game/em_owner_draw_live.h`, `src/game/em_owner_services_original.c`, `src/game/em_owner_services_original.h`, `src/game/em_shadow_live.c`, `src/game/em_shadow_live.h`, `src/game/em_status_models.c`.
+
+New files: `src/game/em_area01_model_draw.c`, `src/game/em_area01_model_draw.h`, `src/game/em_area01_model_live.c`, `src/game/em_area01_model_live.h`, `src/game/em_area01_prop_live.c`, `src/game/em_area01_prop_live.h`, `tests/area01_model_bridge.c`, `tests/area01_model_draw_bridge.c`, `tests/area01_shadow_bridge.c`, `tools/export_area01_shadow_receivers.py`, `tools/test_area01_model_draw_reference.py`, `tools/test_area01_model_live_reference.py`, `tools/test_area01_shadow_live_reference.py`.
+
+Evidence and limits: [LEVEL2_RENDER.md ("AREA01 generic model and animation workers")](LEVEL2_RENDER.md#area01-generic-model-and-animation-workers), [LEVEL2_RENDER.md ("AREA01 generic model drawing and shadows")](LEVEL2_RENDER.md#area01-generic-model-drawing-and-shadows).
+
+### Global library resource delivery
+
+Commit: `56b40c6`.
+
+Roger's existing global-resource owner exposes bounded library-word and
+resource-tail access for generic AREA01 model lookup. The existing exporter
+adds the two previously absent pickup models (IDs 0x4D and 0x58), preserves
+all prior regions and the FADE16 disc-source policy, and checks all AREA01
+snapshots. It refuses symlinked output paths. No global model table or model
+bytes are embedded in C.
+
+Existing files: `src/game/em_area11_roger.c`, `src/game/em_area11_roger.h`, `tools/export_roger_banks.py`.
+
+Evidence and limits: [LEVEL2_RENDER.md ("Shared library models for AREA01 pickups")](LEVEL2_RENDER.md#shared-library-models-for-area01-pickups).
+
+### Placed doors and shared mutable programs
+
+Commit: `f36312a`.
+
+Multiple AREA01 door records borrow canonical actor/resource views and
+call the one existing door state machine, program and transit implementation.
+Shared boot leaves are exposed from that implementation, and kickoff store/
+worker ordering is retained. Overlay shaft callers and boot doors forward
+model, animation, script and draw work through the runtime; no fence-only
+singleton or per-door pose/resource owner is introduced.
+
+Existing files: `src/game/em_door_original.c`, `src/game/em_door_original.h`, `src/game/em_door_program.c`, `src/game/em_door_program.h`, `src/game/em_door_transit.c`, `src/game/em_door_transit.h`.
+
+New files: `src/game/em_area01_door_live.c`, `src/game/em_area01_door_live.h`, `tests/area01_door_bridge.c`, `tools/test_area01_door_live_reference.py`.
+
+Evidence and limits: [LEVEL2_SERVICES.md ("AREA01 placed doors")](LEVEL2_SERVICES.md#area01-placed-doors).
+
+### Shared interpreter, AREA01 script resources and camera timeline
+
+Commit: `3741895`.
+
+The sole area interpreter gains the reached original subcommands and an
+explicit external-handler boundary. The existing script host accepts area
+images/resources, canonical owner-bank get/set, overlay-qualified callbacks
+and camera workers. It preserves owner/script/player state across nested
+worker calls, and its timeline globals outlive resource rebinds. New AREA01
+adapters borrow delivered mutable scripts and sparse boot windows, reuse
+existing helper originals, map player banks 0x96..0x98, and route scenes 2/35
+through the sole camera sampler. The shared cinematic core accepts an already
+sampled frame without duplicating playback behavior. Exported boot programs
+and timeline tables are local ignored assets, not capture bootstrap state.
+
+Existing files: `src/game/em_area11_script_host.c`, `src/game/em_area11_script_host.h`, `src/game/em_area_script.c`, `src/game/em_area_script.h`, `src/game/em_cinematic_playback.c`, `src/game/em_cinematic_playback.h`, `tools/test_area_script_reference.py`.
+
+New files: `src/game/em_area01_script_live.c`, `src/game/em_area01_script_live.h`, `src/game/em_area01_script_workers.c`, `src/game/em_area01_script_workers.h`, `src/game/em_area01_timeline.c`, `src/game/em_area01_timeline.h`, `tests/area01_script_binding_test.c`, `tools/export_area01_boot_scripts.py`, `tools/test_area01_script_host_reference.py`, `tools/test_area01_script_workers_reference.py`, `tools/test_area01_timeline_reference.py`.
+
+Evidence and limits: [LEVEL2_SERVICES.md ("AREA01 live script binding")](LEVEL2_SERVICES.md#area01-live-script-binding).
+
+### Pickups and canonical inventory
+
+Commit: `4b0a7e9`.
+
+The generic adapter drives 0x15AFA0/0x219550, their script callbacks and aura
+through canonical actor fields and existing pickup/take/item owners. Shared
+pickup_owner exposes the same 0x15AE20 step for callbacks without duplicating
+its behavior. The inventory owner exposes its original 0x1C40B0 entry. Long
+and short scripts are supplied by the script adapter; no AREA11 placement
+roster or seven-slot side cache is used.
+
+Existing files: `src/game/em_pickup.c`, `src/game/em_pickup.h`, `src/game/em_pickup_owner.c`, `src/game/em_pickup_owner.h`.
+
+New files: `src/game/em_area01_pickup_live.c`, `src/game/em_area01_pickup_live.h`, `tests/area01_pickup_bridge.c`, `tools/test_area01_pickup_aura_reference.py`, `tools/test_area01_pickup_live_reference.py`.
+
+Evidence and limits: [LEVEL2_SERVICES.md ("AREA01 canonical pickup owners")](LEVEL2_SERVICES.md#area01-canonical-pickup-owners).
+
+### Use scan, shared status and owner claims
+
+Commit: `86bc4aa`.
+
+The existing interaction host factors common status/frame/token setup out
+of AREA11 placement loading and accepts a player-bank mapper. Canonical Use
+scan borrows the published owner list, existing predicates and shared score,
+arms the actual winner, then claims it through that same runtime. Pickup
+candidate scratch writes can target authoritative spans while the old API
+remains a wrapper. The existing shared-host tests retain their original
+scenarios and add shared-only status and claim checks.
+
+Existing files: `src/game/em_area11_interaction_host.c`, `src/game/em_area11_interaction_host.h`, `src/game/em_interaction_scan.c`, `src/game/em_interaction_scan.h`, `tests/area11_interaction_host_test.c`.
+
+New files: `src/game/em_area01_interaction_live.c`, `src/game/em_area01_interaction_live.h`, `tests/area01_interaction_bridge.c`, `tools/test_area01_interaction_live_reference.py`.
+
+Evidence and limits: [LEVEL2_SERVICES.md ("AREA01 canonical Use and shared status services")](LEVEL2_SERVICES.md#area01-canonical-use-and-shared-status-services).
+
+### Effects, indicator children and shared leaf reuse
+
+Commit: `6c9a5ba`.
+
+Canonical effect services reuse the existing spawn/kill/driver owner and
+publish original actor writes at worker boundaries. Indicator children use
+the canonical actor/model views and existing effect-kind originals. AREA11
+bindings expose their existing 0x1C5570 child spawn; security_gun exposes its
+existing 0x1BA1C0 flag predicate so the runtime does not duplicate either.
+Effects expose bounded readonly resource windows and their owned scratch
+needed by the composite view.
+
+Existing files: `src/game/em_area11_bindings.c`, `src/game/em_area11_bindings.h`, `src/game/em_effects_live.c`, `src/game/em_effects_live.h`, `src/game/em_security_gun.c`, `src/game/em_security_gun.h`.
+
+New files: `src/game/em_area01_effects_services.c`, `src/game/em_area01_effects_services.h`, `src/game/em_area01_indicator_live.c`, `src/game/em_area01_indicator_live.h`, `tests/area01_effects_services_test.c`, `tests/area01_indicator_bridge.c`, `tools/test_area01_effects_services_reference.py`, `tools/test_area01_indicator_live_reference.py`.
+
+Evidence and limits: [LEVEL2_SERVICES.md ("AREA01 effects service boundary")](LEVEL2_SERVICES.md#area01-effects-service-boundary), [LEVEL2_SERVICES.md ("AREA01 canonical indicator children")](LEVEL2_SERVICES.md#area01-canonical-indicator-children), [LEVEL2_RUNTIME.md ("AREA01 composition and live binding probe")](LEVEL2_RUNTIME.md#area01-composition-and-live-binding-probe).
+
+### Positional audio services
+
+Commit: `f57fad3`.
+
+Narrow adapters reuse original gain/pan/player-misc workers and publish
+canonical scratch before existing SFX submission. The stream owner exposes
+its current mono option as a bounded readonly view; no stereo default or
+second voice table is supplied. Audio fixtures distinguish the explicit
+submit boundary from original arithmetic and alias proof.
+
+Existing files: `src/game/em_stream_live.c`, `src/game/em_stream_live.h`.
+
+New files: `src/game/em_area01_audio_services.c`, `src/game/em_area01_audio_services.h`, `tests/area01_audio_services_bridge.c`, `tools/test_area01_audio_services_reference.py`.
+
+Evidence and limits: [LEVEL2_AUDIO.md ("AREA01 positional audio and shared scratch")](LEVEL2_AUDIO.md#area01-positional-audio-and-shared-scratch).
+
+### Main and side route harness
+
+Commit: `87c06a4`.
+
+The native phase table and independent checker now cover all eight main
+and eight side input routes. Side prerequisites follow the recorded source
+capture and exact counter gap; input order, including repeated-frame commands,
+is preserved. The final main route ends only at actual AREA00 pre-rebuild
+arrival. The runner adds --side and the actual-C --verify-harness test. Unknown
+native RNG callers fail; available original endpoint RNG states are reported
+as diagnostics, never substituted for an unavailable per-call AREA01 oracle.
+These harness tests do not establish a native route pass.
+
+Existing files: `src/game/em_level_smoke_test.c`, `tools/level_smoke_area01.py`, `tools/test_level_smoke.py`.
+
+New files: `tools/test_level_smoke_area01.py`.
+
+Evidence and limits: [section "AREA01 recorded route harness"](#area01-recorded-route-harness).
+
+### Gun auxiliary workers in development
+
+Commit: `17df6fc`.
+
+The new canonical adapter composes the existing AREA01 revisit beam owner
+and SDK inverse-sine owner, and supplies the original child-spawn boundary.
+Persistent bytes remain borrowed and worker failures propagate. This source
+was added during the inventory pass; its independent proof and any later
+worker additions must be recorded before certification.
+
+New files: `src/game/em_area01_gun_aux.c`, `src/game/em_area01_gun_aux.h`.
+
+Evidence and limits: [LEVEL2_RUNTIME.md ("AREA01 composition and live binding probe")](LEVEL2_RUNTIME.md#area01-composition-and-live-binding-probe).
+
+### Documentation and private exports
+
+Integration documents: this hub, `docs/SECOND_LEVEL_CENSUS.md` and the topic documents `docs/LEVEL2_RUNTIME.md`, `docs/LEVEL2_COLLISION.md`, `docs/LEVEL2_RENDER.md`, `docs/LEVEL2_SERVICES.md` and `docs/LEVEL2_AUDIO.md` (consolidated 2026-10-04 from 46 per-step documents; git history keeps the originals).
+
+The export receipts and generated data stay under ignored `build/` and
+`assets/` entries: AREA01 boot scripts, texture and shadow catalogs, effect
+windows, the expanded Roger library and the SFX registry are local exports
+(the exporters are listed in STARTUP.md's asset table). The library receipt
+checks every old region for preservation. See the topic documents for
+paths, counts and retained limitations.
+
+This section makes no aggregate test or gameplay claim.
 
 ## Canonical callback dependency checkpoint
 
@@ -261,7 +673,7 @@ Shared edits: the named AREA01 contexts/helpers and their ctypes oracle
 layouts; AREA00 FX helpers; the two SIDE initializers in aim/fire; designated
 render-world initializers in status pages and render context; the new
 `test-area01-memory-view-reference` Makefile target. Exact files and full
-oracle counts are documented in `LEVEL2_MEMORY_VIEWS.md`. Composite live
+oracle counts are documented in LEVEL2_RUNTIME.md ("AREA01 canonical memory callbacks"). Composite live
 binding and scratch lifetime work remain in progress outside this checkpoint.
 
 The isolated staged-source build passed `make -B all` with **zero warnings**
@@ -317,20 +729,76 @@ Full original-code verification passes **16,016 dispatches across 16
 captures, 404 sequencer cases and 839 key-ons**. Quick verifies **1,001
 native lookups**, 64 original dispatches, six sequencer cases and four
 loader boundaries. AREA11 original and sanitizer audio regressions pass.
-`LEVEL2_SFX.md` gives exact scopes, conditional-call evidence and remaining
+LEVEL2_AUDIO.md ("AREA01 SFX resources") gives exact scopes, conditional-call evidence and remaining
 modulation/bank refusals. Main's **15 SFX files / 4,668,860 bytes** retain
-identical hashes; only the level2 worktree's private registry was replaced.
+identical hashes; only the registry changed.
 
 Shared edits: `tools/export_sfx_registry.py`, the EMSR entry cap in
 `em_sfx_bank.c`, four area-parameter/lookup helpers in
 `test_area11_sfx_reference.py`, and the `test-area01-sfx-registry` Makefile
-target. New files are `test_area01_sfx_registry.py` and `LEVEL2_SFX.md`.
+target. New files are `test_area01_sfx_registry.py` and LEVEL2_AUDIO.md ("AREA01 SFX resources").
 The exact staged-source `make -B all` passed with **zero warnings in
 39.923 s**, and its AREA01 registry test passed. Receipts:
 `build/level2/sfx-checkpoint/index-{build.json,build.log,tests.log}`.
 Binary SHA-256:
 `987f34a7fd5c2f4b1050f3903c8b64179e6a3ddc91942607c3534ad2c49a9535`.
 Normal AREA01 world frames remain gated and route verification is pending.
+
+## Additional integration edits after the initial file inventory
+
+These changes remain part of the guarded composition unless a dependency
+checkpoint above explicitly commits them. Standalone proof is distinct from
+a completed AREA01 world frame.
+
+- Shared predicates, counters and lists: `em_area01_shared_services.c/.h`
+  borrows canonical player/progress storage and calls existing owners for
+  `00182BF0`, `001B11E0`, `001B1EA0`, `001C4760` and `001B1B70`.
+  `em_script_host_workers.c/.h` adds exact store callbacks for the existing
+  predicate; `em_director_original.c/.h` extends its existing polygon owner
+  to the original XY/YZ modes. Proof files: `area01_shared_services_bridge.c`,
+  `test_area01_shared_services_reference.py`, `director_original_test.c`,
+  `test_director_original_reference.py`, `test_script_host_workers_reference.py`.
+  `DIRECTOR_ORIGINAL.md` and LEVEL2_RUNTIME.md ("AREA01 shared worker binding") document them.
+- Placed props, equipment and guarded gun helpers reuse their existing
+  owners. Additional proof files are `test_area01_prop_live_reference.py`,
+  `test_area01_equipment_live_reference.py`, `area01_gun_aux_bridge.c` and
+  `test_area01_gun_aux_reference.py`; see LEVEL2_RENDER.md ("AREA01 placed-prop adapter"),
+  LEVEL2_SERVICES.md ("AREA01 equipment child") and LEVEL2_SERVICES.md ("AREA01 gun auxiliary workers").
+- Light helpers and their native point-light/packet services are composed by
+  `em_area01_light_live.c/.h`. Existing `em_object_unit.c/.h` gains a
+  separately selected parser for the original light packet, preserving the
+  default parser's refusal rules. `area01_light_live_bridge.c` and
+  `test_area01_light_live_reference.py` compare original workers, packets and
+  VU output; LEVEL2_RENDER.md ("AREA01 light worker binding") records all counts. LEVEL2_RUNTIME.md ("AREA01 flicker-light owner")
+  corrects the arrival fixture description: the light record is already freed.
+- `em_sfx.c/.h` exposes its existing loop service; `em_sfx_bank.c/.h` adds
+  exact handle-store callbacks and propagates negative gain-provider results.
+  It keeps the same requested/snapshot/track owners and original cadence.
+  The existing SFX oracle and AREA01 audio adapter prove the shared behavior;
+  details are in LEVEL2_AUDIO.md ("AREA01 positional audio and shared scratch").
+- The camera's existing `700038A0..38FF` accesses can borrow the player/aim
+  owners. `em_camera_leftovers.c/.h`, `em_camera_leftovers_internal.h`,
+  `em_camera_leftovers_solver.c`, and `em_camera_commit_original.c/.h` carry
+  the optional resolver through native camera workers. The existing camera
+  unit/oracle layouts are updated in `camera_leftovers_test.c`,
+  `test_camera_leftovers_reference.py` and `test_camera_live_reference.py`.
+  The scene installs aliases before player/camera execution and detaches
+  before unload; `em_area01_live.c` refuses cross-owner or missing spans.
+- `condition_canonical` in `em_scene_bindings.c` corrects condition 4/5's
+  counter base to the original `008107D8`, preserving the signed index for
+  condition 4. `test_actor_census_reference.py` checks the actual preflight
+  helper for all 256 high bytes and compares the existing roster owner with
+  original execution. No deferred-condition result is substituted.
+- `001C69A0` is consolidated in `em_area01_math_actor.c/.h`: the complete
+  AREA01 model call and `em_status_models.c/.h` share its root and post-nlerp
+  matrix stages. The status view supplies its existing preblended channels;
+  AREA01 borrows canonical raw slots and scratch, including the new
+  `EmArea01ModelSource.scratch3480` field. Original proofs pass for 750 model
+  cases, 54 caught actor calls, 255 C69A0 field variants, 30 typed/raw slot
+  cases, and 145 status cases; existing status capture remains 27/27 matrices
+  bit-exact under ASan/UBSan. The isolated census link adds the shared
+  dependencies. See LEVEL2_RENDER.md ("C69A0 live pose binding and shared status stages") for exact files, contracts and limits.
+  This does not claim native route completion or promote the census row.
 
 ## Shared C69A0 pose checkpoint
 
@@ -385,6 +853,37 @@ targets both passed. Receipts:
 Binary SHA-256:
 `e44d2b58d0e54bb1451d1c33f8bbdc06f6cb0195c1eaa7af531039f8570f8ab6`.
 
+## Connected probe 12 follow-up (not a phase completion)
+
+Probe 12 still completed zero AREA01 world frames. It passed the first flame
+setup and stopped in existing crate callback `001551B0`, uid `1900`, at the
+unbound static-kind input to `0019F730`. The scene now binds the immutable
+placement `+8` bytes through `em_collision_world_bind_static_kinds`; the
+original walker, cells and actor lists are unchanged. The focused original
+proof passes 928 ground calls across 16 captures and 22 refusal/cleanup
+contracts. It also demonstrates that the absent view reproduces the failure.
+
+Channel-3 `001C7900` now reuses the existing draw owner's matrix/lighting
+service. `001F4A10` registers its completed packet with the existing page cache
+after its original depth-list insertion, so the page renderer can consume it.
+The full proof passes 306 direct calls, 34 original caller cases, 68 exact
+worker boundaries and 34 VU1 units containing 40 triangles. The adapter and
+page parser retain 15 refusal contracts. See LEVEL2_RENDER.md ("AREA01 channel-3 matrix upload").
+
+The flame adapter reuses existing projection, transform, GS, packet and
+collision workers. Its full proof passes 1,376 service calls, 262 state-0
+flame bodies, 144 GS/HUD bodies and nine fault prefixes; the AREA11 snow
+regression passes 5,184 tiles and 3,151,872 packet bytes. The effects manifest
+loader now rejects an oversized window list rather than silently ignoring
+entries after 32. See LEVEL2_SERVICES.md ("AREA01 flame and shared render services").
+
+Additional shared edits for these bindings are `em_collision_world.c/.h`,
+`em_owner_draw_live.c/.h`, `em_weather_packets.c/.h`, `em_effects_live.c`,
+`export_effect_tables.py`, `em_scene_bindings.c` and the Makefile. AREA01's
+new live adapter dispatches these existing owners and supplies only their
+explicitly reached scratch spans. These are integration prerequisites; the
+normal AREA01 guard remains until a verified playable route exists.
+
 
 ## Static placement-kind checkpoint
 
@@ -398,7 +897,7 @@ The original-code proof passes **928 ground queries across 16 captures**,
 including the actual crate-initializer arguments, and **22 refusal/cleanup
 contracts**. It reproduces the missing-view failure before binding. The
 isolated staged quick target passes **144 queries**. See
-`LEVEL2_STATIC_KINDS.md` for the tested paths and limits.
+LEVEL2_COLLISION.md ("AREA01 static collision kinds") for the tested paths and limits.
 
 Shared files in this checkpoint are `em_collision_world.c/.h` and the
 Makefile's new test target; new files are the bridge, reference test and
@@ -409,3 +908,135 @@ The exact staged-source `make -B all` passes with **zero warnings in
 Binary SHA-256:
 `3654b196bde61e22bc12434e9fbb6f27e469b79fcb936d5b5a83ca329b66069b`.
 This is a storage prerequisite, not an AREA01 world-frame or route pass.
+
+## AREA01 recorded route harness
+
+The opt-in route names a01_00 through a01_07 and all eight side beats in
+`em_level_smoke_test.c`, `level_smoke_area01.py` and the shared smoke checker.
+The normal first-level endpoint remains `exit`. Pad files contain input only;
+no captured player, owner, camera or world state is installed in the native
+run. Prepare or run with `tools/test_level_smoke_area01.py --until a01_06`
+(add `--prepare` for input export only). The existing diagnostic `--probe`
+keeps all missing worker failures visible.
+
+All eight main captures are contiguous, contain no teleports, and retain their
+source capture/counter gaps. The exporter writes 3,596 commands and provenance
+in `pads/manifest.json`, including source hashes, counters and endpoint. With
+`--include-side-pads`, it also exports the eight side captures and their source
+relationships: 4,447 commands total. `--side a01_s0` through `--side a01_s7`
+automatically export these files and run the requested branch from ordinary
+New Game. The manifest includes the native source and complete AREA01 phase
+path. The `--side` and `--until` arguments are mutually exclusive.
+
+The recording can contain several commands at the same frame, for example
+a01_00 f34. There are 79 such repeated-frame entries on the main line. Their
+recorded order is preserved. The C reader now admits equal frame numbers while
+still rejecting backwards order; the existing last-command-at-or-before-frame
+selection applies the last command. The original input alignment assumption
+is unchanged: submit two rows after the recorded command, to reach the task at
+the recording's three-row command latency.
+
+Every main row through a01_06 and every side row checks the existing fields without exemptions:
+player state/pose/clock/ground, position and yaw, camera, request/area/task state,
+message, screen, fade, power, health, progress, and all 11 captured owner record
+addresses. This comprises 11,237 main rows before the final exit beat and
+8,328 side rows. Each alignment must follow the already checked source endpoint
+by exactly its recorded counter gap; all native ticks in that gap must remain
+consecutive. Capture metadata must match the declared native source, and its
+source must end with the same neutral input released by the driver.
+
+### Side branches
+
+| Run | Native source phase | Counter gap | Rows |
+|---|---|---:|---:|
+| `a01_s0` first NPC talk | `a01_arrival` | 1 | 1,435 |
+| `a01_s1` sentry document | `a01_01` | 1 | 397 |
+| `a01_s2` control-room items | `a01_s0` | 6 | 680 |
+| `a01_s3` fire contact | `a01_arrival` | 1 | 262 |
+| `a01_s4` east room | `a01_arrival` | 1 | 1,225 |
+| `a01_s5` duct | `a01_s0` | 1 | 3,118 |
+| `a01_s6` blocked bridge | `a01_arrival` | 1 | 229 |
+| `a01_s7` third NPC talk | `a01_05` | 2 | 982 |
+
+For example, `python3 tools/test_level_smoke_area01.py --side a01_s5 --probe`
+plays the first-level main route, AREA01 arrival idle, s0, then s5. It skips
+s2 and the AREA01 main beats. The C phase table uses the existing `side` and
+`from_side` dispatch, and the shared checker requires every prerequisite to
+pass. Selecting a main endpoint skips every side. The default first-level
+`exit` endpoint and its phase order are unchanged. The side captures include
+33 repeated-frame commands; their order is preserved exactly. A missing
+worker, observation, source phase or unmapped native RNG caller fails.
+
+### RNG evidence and limits
+
+The complete native `EM_RAND_TRACE`, including AREA01 and side frames, goes
+through the existing symbolicator; unknown callers still fail. The first-level
+C7 deterministic caller comparisons are retained. AREA01 itself has no
+per-call RNG capture, so the harness makes no per-call AREA01 equality claim.
+It verifies continuity of the native SDK LCG from cold-boot state 1 to each
+checked capture endpoint, without seeding or changing game state.
+
+Each original endpoint RAM records `D_0024295C` and its state word at +0x58
+(address 0x2426C8); the snapshot counter must equal the trace endpoint. The
+checker reports native/original endpoint equality as a diagnostic. A mismatch
+is explicitly labeled DIFFERENT, not parity: the first-level evidence in
+RAND_ORDER.md already establishes value-dependent divergence between original
+runs during the opening. No per-frame state is inferred from the endpoint.
+The a01_07 saved RAM is after level-3 gameplay, so it is explicitly unavailable
+for the row-529 stopping boundary. No extra scene-log field is required.
+
+### Exit boundary
+
+The user-authorized endpoint is a01_07 row 529, counter 28329: AREA00 is loaded,
+area/sub/entry are zero, slot 0 bytes +8..+B are `(3,1,0,0)`, and the next task
+would execute its state-0 rebuild. Row 530 is that first completed level-3
+rebuild and is outside this harness endpoint. The driver stops on the actual
+area/task condition, not on elapsed row count; the recorded row is an upper
+bounded test timeout, not a way to bypass an AREA01 failure.
+
+The checker compares a01_07 rows 0..233 consecutively. Its loader starts at row
+234 and has 19 distinct states through row 529. It uses the same loader state
+segmentation as the existing first-level exit: exact state order, each
+single-tick state retained, and only repeated host-wait states allowed fewer
+ticks than the capture. It compares the full route fields on every emitted
+native loading tick, reports each shortened hold count, and runs the existing
+original-instruction `replay_chain` and `replay_veil` checks. Gameplay ticks are
+never removed by this alignment.
+
+The final arrival ends the current frame without requesting the usual extra
+tick, which would enter level 3. The normal post-frame tail supplies its actual
+message, fade and 27-byte loader snapshot. The logger retains AREA01 owner
+observations while the probe's canonical binding is alive during the next
+area's load. All tails remain available to the checker: the first-level exit
+selects its AREA01 rebuild pool witness by counter, and the final boundary
+selects its own post-frame tail. No synthetic gameplay tick is introduced.
+
+### Validation status
+
+`python3 tools/test_level_smoke_area01.py --verify-harness --out build/level2/side-harness`
+compiles the actual C side selector, input reader and frame driver with only
+their game-facing services mocked. It passes all **16 C branch paths**, all
+**4,447 recorded commands**, and **20,101 native driver frames** under ASan/UBSan.
+It rejects three malformed pad files: a truncated final command, backward frame
+order and an out-of-range stick. The truncated EOF case exposed and fixed the
+reader accepting a partial command after a valid prefix.
+
+The same test exercises the strict checker over **19,565 capture-shaped rows**
+(all main beats before the final loader and all side beats), and rejects **120**
+owner/camera/progress/clock/health/missing-owner/source-counter corruptions.
+It finishes in about six seconds on native arm64 macOS. Python compilation,
+C syntax with warnings as errors, and scoped whitespace checks pass. These
+are harness-contract tests, not native gameplay parity. The earlier exit
+checker-contract exercise also covered all 530 rows through its endpoint.
+
+Full native route verification remains pending the live binding work; a
+prepared input file or in-process PASS marker is not a verified route until
+the independent checker passes. No side or main gameplay pass is claimed here.
+The ordinary frame guard and opt-in diagnostic probe remain in place.
+
+Shared edits for this harness: `em_level_smoke_test.c` (phase dispatch and
+strict pad reader), `tools/test_level_smoke.py` (phase requirements and complete
+RNG audit entry), `tools/level_smoke_area01.py` (capture comparisons and source
+checks), plus the new runner `tools/test_level_smoke_area01.py`. The earlier
+narrow scene logger additions supply loader tails and AREA01 owner observations;
+this side-run extension needed no additional scene observations.

@@ -93,7 +93,7 @@ Every address in this document is a runtime address.
 - Any mode other than 0, 1 or 2 returns 0. Modes 1 and 2 (the X/Y and Y/Z
   sums) use the same loop on their selected axes; mode 2 reverses the
   cross-product operands. AREA01 requires these branches; see
-  `LEVEL2_SHARED_SERVICES.md` for the added proof.
+  LEVEL2_RUNTIME.md ("AREA01 shared worker binding") for the added proof.
 
 **`0011E620`:**
 - It calls the kernel first.

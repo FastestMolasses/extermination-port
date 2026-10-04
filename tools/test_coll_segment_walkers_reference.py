@@ -1320,7 +1320,7 @@ def area01_span_domain(elf):
     This does not claim to replay mid-frame camera calls. It checks every
     recorded boundary row, and runs the original span selector on the widest
     recorded query plus a deliberately out-of-domain segment. See
-    docs/LEVEL2_COLLISION.md for the implication and its limits.
+    docs/LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit") for the implication and its limits.
     """
     import json
     route = cp.DECOMP / 'build/s87/route_a01'

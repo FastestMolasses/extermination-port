@@ -1,6 +1,6 @@
 /* AREA01's 001C4FA0 predicate and 001C50B0 flicker-light owner.
  * Original-layout memory and workers use the existing EmA01Math contract.
- * This standalone owner is unbound. See docs/LEVEL2_LIGHT_OWNER.md.
+ * This standalone owner is unbound. See docs/LEVEL2_RUNTIME.md ("AREA01 flicker-light owner").
  *
  * Worker addresses: 001028B8 / 001028D0 / 00102900 (vector operations),
  * 00122BB8 (random), 001AFC10 (free), 001C5050 (point-light request),

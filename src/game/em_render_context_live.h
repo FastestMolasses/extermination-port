@@ -128,7 +128,7 @@ int em_rcl_static_world_bank(uint32_t address, const uint8_t *bytes, uint32_t si
  * both must stay alive until the next bind. The original 001D5370 arm then
  * runs em_area01_render_001D5BD0 and inserts its packets into the one page.
  * This binds packet construction only; the VU programs 0x237450 / 0x237720
- * still require presentation support (docs/LEVEL2_RENDER_PACKETS.md).
+ * still require presentation support (docs/LEVEL2_RENDER.md ("AREA01 dynamic packet binding")).
  * 0, or -1 for missing/invalid views or an existing render fault. */
 int em_rcl_dynamic_world_bind(const uint8_t *table_word, const uint8_t *bytes, uint32_t size);
 /* 001C1D00(state_address) in both world variants: the background channel
