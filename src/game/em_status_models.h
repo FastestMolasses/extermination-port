@@ -20,10 +20,10 @@
  *   001C62C0, 001C6380, 001029C0, 00102B08/BB0/A60   em_owner_services_original.
  *   001026D0             em_sdk_vu0.h's translation.
  *   001026A0              the VU0 row transform (same forms as 001C9610).
- *   001C69A0              the animated bone pose: per bone quat_to_mat3 of the
- *                         evaluated channels, rows scaled by the channel scale,
- *                         then 001C9610's rest x animation x parent chain over
- *                         the object matrix scaled by +0x60.
+ *   001C69A0              a typed view of the evaluated channels through the
+ *                         shared em_area01_math_actor root and post-nlerp
+ *                         matrix stages. The channel evaluator already owns
+ *                         the blended quaternion; no raw keys are invented.
  *   001D2040              the GS state packet channel 0: 1 before each draw
  *                         (TEST 0x5000D, Z write), 0 after.
  *   001CB580              the draw: 001CB4F0 with lighting mode 1 (001D8C20(1)
@@ -97,11 +97,14 @@ int em_status_models_node_world(const EmStatusModels *models, unsigned record, u
                                 float out[16]);
 const EmStatusSceneFault *em_status_models_fault(const EmStatusModels *models);
 
-/* The 001C69A0 composition over explicit bone channel fields, for the
+/* A typed view through the shared 001C69A0 stages, for the
  * capture check: object = the 0x70003400 matrix before its +0x60 scaling.
  * node i: translation (+0x00), scale (+0x18), rotation (the quat_nlerp result
  * of +0x30/+0x40/+0x50), parent (+0x64), rest angles (+0x70), rest
- * translation (+0x7C), rest scale (+0x88). world[i] receives +0x90. 0 or -1. */
+ * translation (+0x7C), rest scale (+0x88). world[i] receives +0x90. The
+ * compatibility helper starts parent matrices at zero, as before; the live
+ * status worker uses its actual slot matrices and writes its scratch.
+ * 0 or -1. */
 typedef struct {
     float translation[3], scale[3], rotation[4];
     int16_t parent;

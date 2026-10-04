@@ -66,7 +66,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
            src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
            src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
-           src/game/em_area01_side.c src/game/em_area02_math.c \
+           src/game/em_area01_side.c src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
@@ -1316,7 +1316,8 @@ test-status-scene-original:
 
 test-status-models:
 	@mkdir -p build/status_models
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c \
+	    src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_pose_host_workers.c src/game/em_player_stage_workers.c src/game/em_player_floor.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c -lm -o build/status_models/status_models_test
 	build/status_models/status_models_test assets/status_models ../Extermination/build/startup-reference/status-hub/eeMemory.bin
 
 .PHONY: test-item-device-reference
@@ -1580,3 +1581,7 @@ test-area01-memory-view-reference:
 .PHONY: test-area01-sfx-registry
 test-area01-sfx-registry:
 	python3 tools/test_area01_sfx_registry.py
+
+.PHONY: test-status-pose69-reference
+test-status-pose69-reference:
+	python3 tools/test_status_pose69_reference.py

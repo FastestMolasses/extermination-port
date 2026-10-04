@@ -331,3 +331,29 @@ The exact staged-source `make -B all` passed with **zero warnings in
 Binary SHA-256:
 `987f34a7fd5c2f4b1050f3903c8b64179e6a3ddc91942607c3534ad2c49a9535`.
 Normal AREA01 world frames remain gated and route verification is pending.
+
+## Shared C69A0 pose checkpoint
+
+The status renderer now uses the root and post-blend matrix stages of the
+existing complete `em_area01_math_001C69A0` translation. Its former separate
+calculation and duplicate root scaling are removed. The status channel
+evaluator supplies its already blended quaternion; the adapter invents no
+keys or blend fraction. Live status preserves the original root, animation,
+rest, quaternion and product scratch writes and previous slot matrices.
+The public helper retains its existing immutable-input/output contract.
+
+Original-code checks pass **145 direct status cases, 4 compatibility cases
+and 3 refusal contracts**; the complete math sweep passes, including
+**756 C69A0 cases, 32,940 boundary calls and all 4 branch outcomes** over
+12 beats. The existing status sanitizer fixture retains **27/27 bit-exact
+matrices and 63 lighting/reset pairs**. The existing census fixture retains
+**4,451 equal comparisons** and its documented previous divergences.
+
+Shared edits are `em_area01_math_actor.c/.h`, `em_status_models.c/.h`, the
+census fixture's isolated link, and the main/status-test Makefile links.
+New files are the direct status-pose bridge and reference test. Their
+source contains no captured data. The AREA01 model adapter and live
+composition remain separate integration work; normal AREA01 gameplay is
+still guarded. No census row is promoted by this checkpoint.
+
+The exact staged-source `make -B all` passed with **zero warnings in 38.793 s**; all three focused status/census targets passed. Receipts: `build/level2/pose69-checkpoint/index-{build.json,build.log,tests.log}`. Binary SHA-256: `e64a260d3f8ae534afc11e4cf42658cb0a3daa1dbdedb9a722369d20fb0a09b8`.

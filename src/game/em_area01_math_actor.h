@@ -52,6 +52,13 @@ int em_area01_math_001C39F0(EmA01Math *m, uint32_t node, uint32_t state, uint32_
 int em_area01_math_001C3BE0(EmA01Math *m, uint32_t node, uint32_t state);
 int em_area01_math_001C3D60(EmA01Math *m, uint32_t node, uint32_t state);
 int em_area01_math_001C69A0(EmA01Math *m, uint32_t model);
+/* The same C69A0 matrix stages, for typed hosts whose channel evaluator
+ * already owns the blended quaternion. root scales/stores 70003400;
+ * bone consumes that root and the quaternion already at 70003600, then
+ * performs the original post-nlerp work and stores bone +90. These are
+ * stages of the one translation above, not additional original entries. */
+int em_area01_math_001C69A0_root(EmA01Math *m, uint32_t model);
+int em_area01_math_001C69A0_bone(EmA01Math *m, uint32_t model, uint32_t bone);
 
 #ifdef __cplusplus
 }
