@@ -57,6 +57,13 @@ enum {
 typedef int (*EmA01MathCall)(void *ctx, uint32_t target, const uint32_t *a, unsigned na,
                              const uint32_t *f, unsigned nf, uint32_t *v0, uint32_t *f0);
 
+/* Optional live address view. The address is canonical (RAM mirrors have
+ * been removed; scratchpad addresses retain 0x70000000). Return the whole
+ * requested span in its existing owner, or NULL. `write` is 0 for reads,
+ * 1 for stores; read-only resources must refuse stores. No copy or default
+ * memory is supplied after a refused mapping. */
+typedef uint8_t *(*EmA01MathView)(void *ctx, uint32_t address, uint32_t size, int write);
+
 typedef struct {
     uint8_t *ram;          /* EE RAM image (EE address 0) */
     uint32_t ram_size;     /* bytes (0x2000000 for the whole 32 MiB) */
@@ -73,6 +80,7 @@ typedef struct {
     uint32_t *trace;
     uint32_t trace_cap;
     uint32_t trace_len;
+    EmA01MathView view;     /* NULL: linear oracle storage; otherwise canonical live views */
 } EmA01Math;
 
 void em_area01_math_clear_fault(EmA01Math *m);

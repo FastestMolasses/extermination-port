@@ -122,6 +122,15 @@ int em_rcl_static_world_loaded(void);
  * reads the bank's grid header). Copied; replaces the export's bank until
  * the next em_rcl_static_world_load. 0, or -1. */
 int em_rcl_static_world_bank(uint32_t address, const uint8_t *bytes, uint32_t size);
+/* Borrow the canonical loader's D_0028A5A4 word and its loaded dynamic
+ * table bytes. Call AFTER em_rcl_bind at every area build: that bind drops
+ * the previous area's windows. Neither input is copied or written here;
+ * both must stay alive until the next bind. The original 001D5370 arm then
+ * runs em_area01_render_001D5BD0 and inserts its packets into the one page.
+ * This binds packet construction only; the VU programs 0x237450 / 0x237720
+ * still require presentation support (docs/LEVEL2_RENDER_PACKETS.md).
+ * 0, or -1 for missing/invalid views or an existing render fault. */
+int em_rcl_dynamic_world_bind(const uint8_t *table_word, const uint8_t *bytes, uint32_t size);
 /* 001C1D00(state_address) in both world variants: the background channel
  * (001E0CF0 -> 001E1E60: the channel-3 list, its start at +0x1D8) and the
  * static world's grid pass (001D5370: the channel-0 run), composed by

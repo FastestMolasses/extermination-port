@@ -185,6 +185,7 @@ int shim_poke(EmActor *a, unsigned offset, uint8_t value)
 
 Behavior = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_void_p)
 Trace = C.CFUNCTYPE(None, C.c_void_p, C.c_uint32, C.c_uint32, C.c_uint32, C.c_void_p)
+Select = C.CFUNCTYPE(C.c_int,C.c_void_p,C.c_uint32,C.c_void_p)
 
 
 class Globals(C.Structure):
@@ -213,6 +214,7 @@ def load_native():
             ('em_actor_pool_alloc_001AFA90', vp, [vp, vp, C.c_uint8]),
             ('em_actor_pool_free_001AFC10', C.c_int, [vp, vp, vp]),
             ('em_actor_pool_walk_001AFD70', C.c_int, [vp, vp, C.c_int, vp, Trace, vp]),
+            ('em_actor_pool_walk_bound_001AFD70',C.c_int,[vp,vp,C.c_int,vp,Select,vp,Trace,vp]),
             ('em_actor_pool_address', u32, [vp, vp]),
             ('em_actor_pool_globals', None, [vp, C.POINTER(Globals)]),
             ('em_actor_pool_record_image', None, [vp, vp, C.c_char_p])]:
@@ -227,6 +229,8 @@ class Native:
         self.behaviours = {}; self.log = []
         self.behavior = Behavior(self.dispatch)
         self.trace = Trace(self.on_trace)
+        self.select=Select(self.on_select)
+        self.current_bones=0
         self.error = None
 
     def close(self):
@@ -251,12 +255,21 @@ class Native:
         assert caller == WALK
         self.log.append((callee, address))
 
+    def on_select(self,_ctx,address,_actor):
+        try:
+            assert self.globals()[-1]==address
+            self.current_bones=address+0x110
+            return 0
+        except Exception as error:
+            self.error=error
+            return -1
+
     def reset(self): self.lib.em_actor_pool_reset_001AF8E0(self.pool)
     def alloc(self, cls): return self.addr(self.lib.em_actor_pool_alloc_001AFA90(self.pool, self.scene, cls))
     def free(self, node):
         assert self.lib.em_actor_pool_free_001AFC10(self.pool, self.scene, self.ptr(node)) == 0
     def walk(self, mode):
-        result = self.lib.em_actor_pool_walk_001AFD70(self.pool, self.scene, mode, None, self.trace, None)
+        result = self.lib.em_actor_pool_walk_bound_001AFD70(self.pool,self.scene,mode,None,self.select,None,self.trace,None)
         if self.error: raise self.error
         return result, self.lib.shim_fault_code(self.scene), self.lib.shim_fault_address(self.scene)
     def next_of(self, node):
@@ -326,6 +339,7 @@ def compare(original, native, where):
     assert original.globals() == native.globals(), (where, original.globals(), native.globals())
     assert original.spad() == native.spad(), (where, original.spad(), native.spad())
     assert original.log == native.log, (where, original.log[:12], native.log[:12])
+    assert original.load(0x275B40)==native.current_bones,(where,'current bone array',original.load(0x275B40),native.current_bones)
 
 
 CLASSES = [0, 1, 1, 2, 3, 8, 9, 0x0B, 0x0C, 0x0C, 0x1F]

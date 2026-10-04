@@ -66,7 +66,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
            src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
            src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
-           src/game/em_area01_side.c src/game/em_area02_math.c \
+           src/game/em_area01_side.c src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
@@ -77,12 +77,12 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
-           src/game/em_area01_arrival.c \
+           src/game/em_area01_arrival.c src/game/em_area01_state.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
-           src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
+           src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c src/game/em_area01_render_vif.c \
            src/game/em_replay.c \
            src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
            src/game/em_static_world_live.c \
@@ -535,6 +535,29 @@ test-message-service:
 .PHONY: test-message-service-reference
 test-message-service-reference:
 	python3 tools/test_message_service_reference.py
+
+.PHONY: test-message-area-reference
+test-message-area-reference:
+	python3 tools/test_message_area_reference.py
+
+.PHONY: test-area01-light-owner-reference test-area01-math-views
+test-area01-light-owner-reference:
+	python3 tools/test_area01_light_owner_reference.py
+
+test-area01-math-views:
+	mkdir -p build/level2
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/area01_math_views_test.c src/game/em_area01_math_core.c src/game/em_area01_math_owner.c -lm -o build/level2/area01_math_views_test
+	./build/level2/area01_math_views_test
+
+.PHONY: test-area01-state-reference test-level2-render-packets-reference test-world-model-bank-reference
+test-area01-state-reference:
+	python3 tools/test_area01_state_reference.py
+
+test-level2-render-packets-reference:
+	python3 tools/test_level2_render_packets_reference.py
+
+test-world-model-bank-reference:
+	python3 tools/test_world_model_bank_reference.py
 
 .PHONY: test-fan-original
 test-fan-original:
@@ -1330,7 +1353,8 @@ test-status-scene-original:
 
 test-status-models:
 	@mkdir -p build/status_models
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c -lm -o build/status_models/status_models_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/status_models_test.c src/game/em_status_models.c src/game/em_status_scene_original.c src/game/em_owner_services_original.c src/game/em_actor_light_001D89D0.c src/game/em_frame_render_heads.c src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c src/em_model.c src/game/em_random.c \
+	    src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_pose_host_workers.c src/game/em_player_stage_workers.c src/game/em_player_floor.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_stream_lanes_original.c -lm -o build/status_models/status_models_test
 	build/status_models/status_models_test assets/status_models ../Extermination/build/startup-reference/status-hub/eeMemory.bin
 
 .PHONY: test-item-device-reference
@@ -1586,3 +1610,19 @@ test-aim-fire-effects-live:
 .PHONY: test-aim-fire-equipment-live
 test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
+
+.PHONY: test-area01-memory-view-reference
+test-area01-memory-view-reference:
+	python3 tools/test_area01_memory_view_reference.py
+
+.PHONY: test-area01-sfx-registry
+test-area01-sfx-registry:
+	python3 tools/test_area01_sfx_registry.py
+
+.PHONY: test-status-pose69-reference
+test-status-pose69-reference:
+	python3 tools/test_status_pose69_reference.py
+
+.PHONY: test-area01-static-ground
+test-area01-static-ground:
+	python3 tools/test_area01_static_ground_reference.py

@@ -1,6 +1,7 @@
 /* em_area01_math_owner.c - AREA01 lane "math": translations of 001BB860,
  * 001BB560, 001C02E0, 001BF630, 001BFFD0, 001CB360, 001B9CF0, 001BBAE0 and
- * 001BBBF0 (em_area01_math_owner.h, docs/AREA01_MATH.md).
+ * 001BBBF0, 001D0C80 and 001D0D40 (em_area01_math_owner.h,
+ * docs/AREA01_MATH.md, docs/LEVEL2_BONE_INIT.md).
  *
  * Read from the decomp's C (byte-matched: 001BB560, 001BBAE0, 001B9CF0,
  * 001CB360; NEARMISS: 001BB860, 001BBBF0, 001BFFD0, 001C02E0; asm-only:
@@ -23,6 +24,7 @@
 #define F_0011E2A8 0x0011E2A8u
 #define F_0011E748 0x0011E748u
 #define F_00182F90 0x00182F90u
+#define F_001AF780 0x001AF780u
 #define F_001AF890 0x001AF890u
 #define F_001AFA90 0x001AFA90u
 #define F_001AFC10 0x001AFC10u
@@ -43,12 +45,13 @@
 #define F_001BF6B0 0x001BF6B0u
 #define F_001BFF90 0x001BFF90u
 #define F_001BFFD0 0x001BFFD0u
+#define F_001C6150 0x001C6150u
 #define F_001C6380 0x001C6380u
 #define F_001C68C0 0x001C68C0u
 #define F_001C7420 0x001C7420u
 #define F_001CB2C0 0x001CB2C0u
-#define F_001D0C80 0x001D0C80u
-#define F_001D0D40 0x001D0D40u
+#define F_001CA5E0 0x001CA5E0u
+#define F_001CB5B0 0x001CB5B0u
 #define F_001D0D60 0x001D0D60u
 #define F_001D1F80 0x001D1F80u
 #define F_001D3F50 0x001D3F50u
@@ -282,6 +285,48 @@ int em_area01_math_001BF630(M *m, uint32_t player, uint32_t node, uint32_t tail,
     return put(m, v0, em_ee_c_le_bits(d, limit) ? 1u : 0u);
 }
 
+/* ---- 001D0C80 / 001D0D40 ---------------------------------------------------
+ * Original byte-matched helpers called by 001C02E0's setup. The slot
+ * allocator remains a worker so every owner uses the same stack. The
+ * count is read again after each allocation, including before the bone
+ * setup call; worker writes can change it. */
+int em_area01_math_001D0C80(M *m, uint32_t node, uint32_t model, uint32_t *v0)
+{
+    uint32_t count, i = 0;
+    call3(m, F_001CA5E0, node, model, 5);
+    count = call1(m, F_001C6150, em_a01m_lw(m, node + 0x44u));
+    em_a01m_sb(m, node + 0xCu, count);
+    if (em_a01m_lh(m, 0x00275BCCu) < (int32_t)em_a01m_lbu(m, node + 0xCu) + 1) {
+        em_a01m_sb(m, node + 4u, 3);
+        return put(m, v0, 1);
+    }
+    while (i < (count = em_a01m_lbu(m, node + 0xCu))) {
+        uint32_t slot = 0;
+        em_a01m_call_i(m, F_001AF780, 0, 0, 0, 0, 0, &slot);
+        em_a01m_sw(m, node + 0x110u + 4u * i, slot);
+        ++i;
+    }
+    em_a01m_sb(m, node + 9u, count);
+    call1(m, F_001CB5B0, em_a01m_lbu(m, node + 0xCu));
+    {
+        uint32_t slot = 0;
+        em_a01m_call_i(m, F_001AF780, 0, 0, 0, 0, 0, &slot);
+        em_a01m_sw(m, node + 0x90u, slot);
+    }
+    return put(m, v0, 0);
+}
+
+int em_area01_math_001D0D40(M *m, uint32_t node, uint32_t table, uint32_t frames,
+                          uint32_t loop)
+{
+    uint32_t record = em_a01m_lw(m, node + 0x90u);
+    em_a01m_sw(m, record, table);
+    em_a01m_sw(m, record + 4u, em_ee_cvt_s_w_bits(frames));
+    em_a01m_sw(m, record + 8u, 0);
+    em_a01m_sb(m, record + 0xCu, loop);
+    return done(m);
+}
+
 /* ---- 001C02E0 -------------------------------------------------------------
  * `tail` = node + 0x1F0. State +4:
  * 0: with bit 0x20 of D_00810845: D_00810766 = 0xFF, behaviour (+0x10) =
@@ -330,11 +375,8 @@ int em_area01_math_001C02E0(M *m, uint32_t node)
         em_a01m_sw(m, c + 0x10u, F_001BFFD0);
         em_a01m_sw(m, c + 0x20u, node);
         em_a01m_sw(m, node + 0x24u, c);
-        call2(m, F_001D0C80, node, em_a01m_lw(m, 0x0028A518u));
-        {
-            const uint32_t a[4] = {node, 0x0024FD50u, 0x5B, 1};
-            em_a01m_call(m, F_001D0D40, a, 4, NULL, 0, NULL, NULL);
-        }
+        em_area01_math_001D0C80(m, node, em_a01m_lw(m, 0x0028A518u), NULL);
+        em_area01_math_001D0D40(m, node, 0x0024FD50u, 0x5B, 1);
         em_a01m_sh(m, tail + 2u, 0);
         em_a01m_sh(m, tail, 0);
         call1(m, BONE_INIT_DEFAULT_1, node);

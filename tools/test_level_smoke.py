@@ -98,6 +98,7 @@ import ast
 import collections
 import json
 import math
+import os
 from pathlib import Path
 import re
 import struct
@@ -105,6 +106,7 @@ import sys
 
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
+import level_smoke_area01  # the opt-in AREA01 arrival idle (route 15 f741..f801)
 import rand_order as R
 import test_scene_task_reference as tsr
 
@@ -2521,7 +2523,9 @@ def check_exit(ticks, run, state):
     il = i0 + rows1[load]['counter'] - base
     arrival = next(i for i in range(il, len(ticks)) if bytes.fromhex(ticks[i]['pre'])[3] == 0 and
                    bytes.fromhex(ticks[i]['post'])[3] == 1 and bytes.fromhex(ticks[i]['pre'])[1] == 1)
-    assert arrival == len(ticks) - 1, ('exit: the run did not end on the AREA01 arrival', ticks[arrival]['tick'])
+    continued = re.search(r'^level smoke: a01_arrival: PASS', run, re.M) is not None
+    assert arrival == len(ticks) - 1 or continued, \
+        ('exit: the run did not end on the AREA01 arrival or continue into its opt-in check', ticks[arrival]['tick'])
     port_states = [(i, (exit_port(ticks, i)['slot0'],) + exit_loader(ticks, i)) for i in range(il, arrival - 1)]
     orig_states = [(k, (exit_orig(rows1[k])['slot0'], tuple(bytes.fromhex(rows1[k]['slots'])[0x48:0x4C]),
                         rows1[k]['bd8'])) for k in range(load, EXIT_ARRIVAL_ROW - 1)]
@@ -2547,6 +2551,13 @@ def check_exit(ticks, run, state):
     # The arrival.
     tail = state.get('tail')
     assert tail is not None, 'exit: the tick log has no tail (the arrival\'s post-frame values)'
+    if continued:
+        # a01_arrival takes the pool witness just after the rebuild. The
+        # main-loop steps after slot 0 are represented by the next tick.
+        assert tail['counter'] == ticks[arrival]['counter'], \
+            ('exit: continued run has no rebuild pool witness', tail['counter'], ticks[arrival]['counter'])
+        following = ticks[arrival + 1]
+        tail = dict(tail, fade8=following['fade8'], msg=following['msg_pre'], stream=following['stream'])
     for k in range(EXIT_ARRIVAL_ROW - 2, EXIT_ARRIVAL_ROW + 1):
         i = arrival - (EXIT_ARRIVAL_ROW - k)
         p, o = exit_port(ticks, i), exit_orig(rows1[k])
@@ -2576,7 +2587,8 @@ def check_exit(ticks, run, state):
         if key in got:
             assert got[key][1] + got[key][2] == v, (f'exit: pool record {key} +0x18..+0x3F / +0xA0..+0xDF',
                                                     got[key][1] + got[key][2], v)
-    state['cursor'] = len(ticks)
+    state['cursor'] = arrival + 1
+    state['area01_arrival'] = arrival
     # The whole-run checks cover AREA11's ticks: everything before the
     # arrival's state-0 rebuild (main()).
     state['area11_end'] = arrival
@@ -2999,6 +3011,8 @@ PHASES = [
     ('roger', check_roger),
     branch_phase('br_roger_talk'),
     ('exit', check_exit),
+    ('a01_arrival', lambda ticks, run, state:
+     level_smoke_area01.check_arrival(sys.modules[__name__], ticks, run, state)),
 ]
 
 
@@ -3689,7 +3703,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
                   'aim_light', 'aim_melee', 'aim_world', 'aim_cable', 'aim_burst')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
-         ('15', ('exit',)), ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
+         ('15', ('exit',)), ('15 AREA01 idle (opt-in)', ('a01_arrival',)),
+         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')))
 
@@ -4333,7 +4348,7 @@ def check_rand_order(ticks, state, trace):
       the capture holds (01's battery take, 10's director beat): each
       frame's deterministic callers equal the capture's frame (the values
       differ: the port's stream reaches the window from its own route)."""
-    frames = R.port(trace, ROOT / 'build/extermination')
+    frames = R.port(trace, Path(os.environ.get('EM_LEVEL_SMOKE_BIN', ROOT / 'build/extermination')))
     state['rand'] = frames
     orig, marks = R.original('newgame')
     rep, line = R.check_opening(frames, orig, marks, (state['drive'], R.lane0_request_port(ticks)))
@@ -4774,7 +4789,7 @@ def main():
                         help='EM_STATUS_PAGES_TRACE of the same run: check_status_pages replays it')
     parser.add_argument('--require-through', metavar='PHASE',
                         help='fail unless every phase the run was asked to play (the main line up to PHASE, '
-                             'then PHASE itself when it is a side phase; "last" for the whole main line) '
+                             'then PHASE itself when it is a side phase; "last" for the first-level exit) '
                              'was checked live against its capture')
     args = parser.parse_args()
     run = args.run_log.read_text()
@@ -4881,7 +4896,7 @@ def main():
         print(f'level smoke: {loader.group(0)}')
     if args.require_through:
         names = [p[0] for p in PHASES]
-        until = main_line[-1] if args.require_through == 'last' else args.require_through
+        until = 'exit' if args.require_through == 'last' else args.require_through
         assert until in names, ('--require-through: unknown phase', until, names)
         required = [p for p in names[:names.index(until)] if p not in SIDE] + \
             ([FROM_SIDE[until]] if until in FROM_SIDE else []) + [until]

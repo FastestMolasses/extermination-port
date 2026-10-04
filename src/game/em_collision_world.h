@@ -126,6 +126,11 @@ int em_collision_world_0019B7D0(const float from[3], const float to[3], EmCollSe
  * (player_states_missing). */
 int em_collision_world_bind_player(EmPlayerStatesBinding *b, const void *self, uint8_t cls);
 
+/* Bind immutable D_0024D7C0 placement records (0x28 bytes each) to the
+ * existing static-cell kind view. Cleared by world unload; requires a
+ * loaded world and 1..256 records. Does not change cells or actors. */
+int em_collision_world_bind_static_kinds(const uint8_t *placements, uint32_t count);
+
 /* The world's other original walkers, for the binders of the player states
  * and owners (NULL while the world is not loaded):
  *   em_collision_world_move       0019AD00 / 0019AFE0's world (the cells, the

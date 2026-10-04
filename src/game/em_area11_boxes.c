@@ -140,28 +140,66 @@ static Box *box_of_view(EmOwnerServicesOwner *view)
 
 /* ------------------------------------------------------------ the exports */
 
+/* Load before replacing anything: both a wrong area token and a malformed
+ * export leave all current bank views intact. The temporary parser's
+ * skeleton pointers are rebased when its result joins the stable S.bank. */
+static int install_bank(const char *path, uint32_t resource_word)
+{
+    FILE *f = fopen(path, "rb");
+    if (!f) {
+        fprintf(stderr, "em_area11 boxes: cannot open world model bank %s\n", path);
+        return -1;
+    }
+    int seek_ok = fseek(f, 0, SEEK_END) == 0;
+    long size = ftell(f);
+    seek_ok = fseek(f, 0, SEEK_SET) == 0 && seek_ok;
+    uint8_t *file = seek_ok && size > 0 ? malloc((size_t)size) : NULL;
+    int ok = file && fread(file, 1, (size_t)size, f) == (size_t)size;
+    fclose(f);
+    EmWorldModels parsed;
+    if (!ok || em_world_models_parse(&parsed, file, (size_t)size) != 0) {
+        free(file);
+        fprintf(stderr, "em_area11 boxes: invalid world model bank %s\n", path);
+        return -1;
+    }
+    if (resource_word && parsed.table_address != resource_word) {
+        fprintf(stderr, "em_area11 boxes: world model bank %s names %08X, loader D_0028A59C is %08X\n",
+                path, (unsigned)parsed.table_address, (unsigned)resource_word);
+        free(file);
+        return -1;
+    }
+    free(S.bank_file);
+    S.bank_file = file;
+    S.bank = parsed;
+    for (uint32_t i = 0; i < parsed.model_count; ++i) {
+        ptrdiff_t record = parsed.models[i].model.skeleton - parsed.records;
+        S.bank.models[i].model.skeleton = &S.bank.records[record];
+    }
+    S.bank_tried = 1;
+    S.bank_word = S.bank.table_address;
+    return 0;
+}
+
+int em_area11_boxes_bind_world_bank(const char *path, uint32_t resource_word)
+{
+    if (!path || !*path || !resource_word)
+        return report("world model bank bind needs an export and loader D_0028A59C");
+    for (unsigned i = 0; i < BOX_MAX; ++i) {
+        const Box *b = &S.box[i];
+        if (b->actor && !b->freed && b->actor->generation == b->generation && b->view.model)
+            return report("world model bank bind while an owner still holds a model; reset the area first");
+    }
+    return install_bank(path, resource_word);
+}
+
 static int load_bank(void)
 {
     if (S.bank.model_count) return 0;
     if (S.bank_tried) return -1;
     S.bank_tried = 1;
-    FILE *f = fopen(EM_AREA11_WORLD_MODELS_PATH, "rb");
-    if (!f)
-        return report("no " EM_AREA11_WORLD_MODELS_PATH " (export it with tools/export_world_models.py)");
-    fseek(f, 0, SEEK_END);
-    long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    S.bank_file = size > 0 ? malloc((size_t)size) : NULL;
-    int ok = S.bank_file && fread(S.bank_file, 1, (size_t)size, f) == (size_t)size;
-    fclose(f);
-    if (!ok || em_world_models_parse(&S.bank, S.bank_file, (size_t)size) != 0) {
-        free(S.bank_file);
-        S.bank_file = NULL;
-        memset(&S.bank, 0, sizeof S.bank);
-        return report(EM_AREA11_WORLD_MODELS_PATH " is not a valid model bank export");
-    }
-    S.bank_word = S.bank.table_address;
-    return 0;
+    /* Preserve the first-level caller contract until its area-reset caller
+     * explicitly supplies the canonical resource-table word. */
+    return install_bank(EM_AREA11_WORLD_MODELS_PATH, 0);
 }
 
 static float f32_at(const uint8_t *p)
@@ -989,6 +1027,16 @@ int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t 
     const EmWorldModel *m = b->bank ? em_world_models_of(b->bank, b->view.model) : NULL;
     *model = m ? m->address : 0;   /* +0x44 */
     *method = b->method;           /* +0x4C */
+    return 1;
+}
+
+int em_area11_boxes_owner_fields(const EmActor *actor, uint32_t *anim, uint32_t *model,
+                                  uint32_t *method)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b || !anim || !model || !method) return 0;
+    if (!em_area11_boxes_owner_state(actor, model, method)) return 0;
+    *anim = b->view.anim;
     return 1;
 }
 

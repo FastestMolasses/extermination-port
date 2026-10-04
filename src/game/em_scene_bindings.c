@@ -162,12 +162,14 @@
 #include "game/em_module_loader.h"
 #include "game/em_static_world_live.h"
 #include "game/em_area01_arrival.h"
+#include "game/em_area01_state.h"
 #include "game/em_script_host_workers.h"
 #include "em_settings.h"
 
 /* ------------------------------------------------------------ storage */
 
 static EmSceneState s_state;
+static EmArea01State s_area01_state;
 static EmSceneWorkers s_workers;
 static int s_ready;
 
@@ -1998,9 +2000,21 @@ static int rcl_bind(void)
     static const EmRclWorkers workers = {NULL, rcl_point_light, rcl_sqrt, rcl_tan, rcl_weather};
     /* The static-object bank and 001E1E60's upload block (the area's
      * static world, docs/STATIC_WORLD.md): fail-stop without the export. */
-    if (em_rcl_static_world_load(NULL) < 0)
+    const int area01 = strcmp(g.scene_dir, AREA01_SCENE_DIR) == 0;
+    if (!area01 && em_rcl_static_world_load(NULL) < 0)
         return -1;
-    return em_rcl_bind(views, sizeof views / sizeof views[0], &workers);
+    if (em_rcl_bind(views, sizeof views / sizeof views[0], &workers) < 0)
+        return -1;
+    if (area01) {
+        /* AREA01's dynamic pass reads the resource delivered at slot 0x45.
+         * Rebind after em_rcl_bind invalidates the previous area's views. */
+        const uint8_t *word = (const uint8_t *)&ld->d28A490[0x45];
+        uint32_t size = 0;
+        const uint8_t *bytes = em_module_loader_memory_rest(ml, ld->d28A490[0x45], &size);
+        if (em_rcl_dynamic_world_bind(word, bytes, size) < 0)
+            return -1;
+    }
+    return 0;
 }
 
 /* The first level's frames run the render context's translations. */
@@ -2066,6 +2080,11 @@ static int player_wipe_001AF5C0(void)
     return em_slg_001AF5C0(&w, &st);
 }
 
+static uint8_t *area01_state_memory(void *ctx, uint32_t address, uint32_t size)
+{
+    return em_module_loader_memory_mutable(ctx, address, size);
+}
+
 /* 0x1AE040 state 0, first callee. 001AFCA0 is 001AF5C0 (player wipe),
  * 001AF690, 001AF710, 001AF8E0 (pool reset), 001D0660, then spad 31F4 = 0
  * (design 2.3). The port's native re-arm stands in for the player wipe;
@@ -2123,6 +2142,13 @@ static int w_001AFCA0(void *ctx)
     } else {
         em_collision_world_unload();
     }
+    /* 001FD790 indexes D_00264DD0 by D_00810700; 001FD950 reads the bank
+     * the area load delivered at D_0028A594. Rebind their data without
+     * resetting D_002821B0 or the existing stream/presenter workers. */
+    if (world_scene() && !em_message_live_select_area(
+            arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
+                            : "assets/message/message_data.emmd", s_state.d810700))
+        return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
     /* 001AF5C0 wipes the player record (em_slg_001AF5C0 over the record
      * image: the memset, then +0x14 = the record, +0x02 = 0, the scale
      * +0x60..+0x6C and the colour words +0x80..+0x8C = 1.0, +0x70 / +0x74 =
@@ -2145,11 +2171,9 @@ static int w_001AFCA0(void *ctx)
     k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
     /* Census L32 / L30: the render context's views and workers (before the
      * camera, whose 001DD980 publications store into it). */
-    /* The arrival keeps the render context AREA11 bound: its views are the
-     * same globals in every area, and its static world (AREA11's bank) is
-     * read only by a world frame's 001C1D00, which no AREA01 frame runs
-     * (w_001AD4D0). */
-    if (roster_scene() && rcl_bind() < 0)
+    /* Each area binds its own delivered resource views. The AREA01 world
+     * guard remains until its actors and presentation are connected. */
+    if (world_scene() && rcl_bind() < 0)
         return em_scene_fault(&s_state, 0x001D1C50u, EM_SCENE_FAULT_NULL_WORKER);
     if (world_scene() && em_camera_live_bind(&k_camera_host) < 0)
         return em_scene_fault(&s_state, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
@@ -2163,6 +2187,15 @@ static int w_001AFCA0(void *ctx)
     em_collision_world_lists_reset_001AF8E0(); /* 001AF8E0's class-list half */
     em_area11_bindings_reset();
     em_area01_arrival_reset();
+    if (world_scene()) {
+        EmModuleLoader *ml = em_module_loader_live();
+        EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+        if (!ld || em_area11_boxes_bind_world_bank(
+                arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
+                                : EM_AREA11_WORLD_MODELS_PATH,
+                ld->d28A490[0x43]) < 0)
+            return em_scene_fault(&s_state, 0x0028A59Cu, EM_SCENE_FAULT_NULL_WORKER);
+    }
     /* 001D0660: 001F0310, the effect pools (census L26 / L27), with the
      * effect and equipment binders over the new pool (the first level: its
      * effects draw on the render context); its 001E7780 (the overlay module
@@ -2172,12 +2205,17 @@ static int w_001AFCA0(void *ctx)
             return em_scene_fault(&s_state, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0310u,
                                   EM_SCENE_FAULT_NULL_WORKER);
     }
-    /* 001E7780 (the overlay's area dispatch; key 0x100 for the arrival:
-     * D_00275C18..2C zeroed, then the AREA01 init 0x823A50 stores C2C = 1,
-     * C28 = 0x20, C20 = 0x82CD00, C1C = 0x836D80 and the closing loop clears
-     * +0x54 / +0x58 of the overlay BSS record 0x82CD00) is the loader's
-     * boundary in both areas: its globals and that record are read only by
-     * the areas' own owners (AREA01's 001E7D20, placement [35]: level 2). */
+    /* 001D0660 calls 001E7780 after 001F0310, before the frame machine's
+     * spawn calls. The six AREA01 globals and loader-owned data/BSS are
+     * canonical views; rebuilding does not clear the whole overlay again. */
+    if (arrival_scene()) {
+        if (em_area01_state_bind(&s_area01_state, area01_state_memory, em_module_loader_live()) < 0 ||
+            em_area01_state_001E7780(&s_area01_state, s_state.d810700, s_state.d810701) < 0)
+            return em_scene_fault(&s_state, s_area01_state.fault ? s_area01_state.fault : 0x001E7780u,
+                                  EM_SCENE_FAULT_WORKER_FAILED);
+    } else {
+        em_area01_state_detach(&s_area01_state);
+    }
     if (roster_scene()) {
         /* Census L29: 0015C160's shadow over the render context, the
          * collision world and the player record (em_shadow_live); the
@@ -4021,6 +4059,7 @@ int em_scene_bindings_module_loader_boot(const char *pack_path)
 
 void em_scene_bindings_module_loader_shutdown(void)
 {
+    em_area01_state_detach(&s_area01_state);
     if (!s_loader)
         return;
     em_module_loader_bind_live(NULL);

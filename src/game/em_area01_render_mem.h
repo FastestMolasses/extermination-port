@@ -59,9 +59,15 @@ typedef struct {
     uint8_t *bytes;
 } EmArea01RenderView;
 
+/* Authoritative when non-NULL: no array fallback on refusal. The provider
+ * sees the original address unchanged and write=0 (load) or 1 (store). */
+typedef uint8_t *(*EmArea01RenderMemory)(void *ctx, uint32_t address, uint32_t size, int write);
+
 typedef struct {
     const EmArea01RenderView *views; /* searched in order */
     uint32_t view_count;
+    EmArea01RenderMemory view;
+    void *view_ctx;
 } EmArea01RenderWorld;
 
 /* The part every module state starts with. */
@@ -85,8 +91,15 @@ static inline int em_a01r_fault(EmArea01RenderCore *c, uint32_t address, int32_t
     return -1;
 }
 
-static inline uint8_t *em_a01r_mem(EmArea01RenderCore *c, uint32_t a, uint32_t n)
+static inline uint8_t *em_a01r_mem(EmArea01RenderCore *c, uint32_t a, uint32_t n, int write)
 {
+    if (c->world.view) {
+        uint8_t *p = n && (uint64_t)a + n <= UINT64_C(0x100000000)
+                         ? c->world.view(c->world.view_ctx, a, n, write) : NULL;
+        if (p) return p;
+        em_a01r_fault(c, c->function, EM_A01R_FAULT_BAD_ADDRESS, a);
+        return NULL;
+    }
     for (uint32_t i = 0; c->world.views && i < c->world.view_count; ++i) {
         const EmArea01RenderView *v = &c->world.views[i];
         if (v->bytes && a >= v->address && (uint64_t)a + n <= (uint64_t)v->address + v->size)
@@ -111,7 +124,7 @@ static inline void em_a01r_put32(uint8_t *p, uint32_t v)
 
 static inline int em_a01r_ld8(EmArea01RenderCore *c, uint32_t a, uint32_t *v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 1);
+    uint8_t *p = em_a01r_mem(c, a, 1, 0);
     if (!p) return -1;
     *v = p[0];
     return 0;
@@ -119,7 +132,7 @@ static inline int em_a01r_ld8(EmArea01RenderCore *c, uint32_t a, uint32_t *v)
 
 static inline int em_a01r_ld32(EmArea01RenderCore *c, uint32_t a, uint32_t *v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 4);
+    uint8_t *p = em_a01r_mem(c, a, 4, 0);
     if (!p) return -1;
     *v = em_a01r_get32(p);
     return 0;
@@ -127,7 +140,7 @@ static inline int em_a01r_ld32(EmArea01RenderCore *c, uint32_t a, uint32_t *v)
 
 static inline int em_a01r_st8(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 1);
+    uint8_t *p = em_a01r_mem(c, a, 1, 1);
     if (!p) return -1;
     p[0] = (uint8_t)v;
     return 0;
@@ -135,7 +148,7 @@ static inline int em_a01r_st8(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 
 static inline int em_a01r_st16(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 2);
+    uint8_t *p = em_a01r_mem(c, a, 2, 1);
     if (!p) return -1;
     p[0] = (uint8_t)v;
     p[1] = (uint8_t)(v >> 8);
@@ -144,7 +157,7 @@ static inline int em_a01r_st16(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 
 static inline int em_a01r_st32(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 4);
+    uint8_t *p = em_a01r_mem(c, a, 4, 1);
     if (!p) return -1;
     em_a01r_put32(p, v);
     return 0;
@@ -152,7 +165,7 @@ static inline int em_a01r_st32(EmArea01RenderCore *c, uint32_t a, uint32_t v)
 
 static inline int em_a01r_st64(EmArea01RenderCore *c, uint32_t a, uint64_t v)
 {
-    uint8_t *p = em_a01r_mem(c, a, 8);
+    uint8_t *p = em_a01r_mem(c, a, 8, 1);
     if (!p) return -1;
     em_a01r_put32(p, (uint32_t)v);
     em_a01r_put32(p + 4, (uint32_t)(v >> 32));
@@ -162,7 +175,7 @@ static inline int em_a01r_st64(EmArea01RenderCore *c, uint32_t a, uint64_t v)
 /* Quadword load / store: the low four address bits are ignored. */
 static inline int em_a01r_ldq(EmArea01RenderCore *c, uint32_t a, uint32_t out[4])
 {
-    uint8_t *p = em_a01r_mem(c, a & ~15u, 16);
+    uint8_t *p = em_a01r_mem(c, a & ~15u, 16, 0);
     if (!p) return -1;
     for (int i = 0; i < 4; ++i) out[i] = em_a01r_get32(p + 4 * i);
     return 0;
@@ -170,7 +183,7 @@ static inline int em_a01r_ldq(EmArea01RenderCore *c, uint32_t a, uint32_t out[4]
 
 static inline int em_a01r_stq(EmArea01RenderCore *c, uint32_t a, const uint32_t in[4])
 {
-    uint8_t *p = em_a01r_mem(c, a & ~15u, 16);
+    uint8_t *p = em_a01r_mem(c, a & ~15u, 16, 1);
     if (!p) return -1;
     for (int i = 0; i < 4; ++i) em_a01r_put32(p + 4 * i, in[i]);
     return 0;

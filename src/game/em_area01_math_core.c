@@ -18,10 +18,27 @@ void em_area01_math_clear_fault(EmA01Math *m)
     m->fault_address = 0;
 }
 
-static uint8_t *where_rw(EmA01Math *m, uint32_t a, uint32_t size)
+static uint8_t *where_rw(EmA01Math *m, uint32_t a, uint32_t size, int write)
 {
+    if (!m) return NULL;
     if (m->fault_code != EM_A01M_FAULT_NONE) return NULL;
-    if (a >= EM_A01M_SPAD_BASE && a - EM_A01M_SPAD_BASE <= EM_A01M_SPAD_SIZE - size) {
+    const int scratch = size <= EM_A01M_SPAD_SIZE && a >= EM_A01M_SPAD_BASE &&
+                        a - EM_A01M_SPAD_BASE <= EM_A01M_SPAD_SIZE - size;
+    if (m->view) {
+        uint32_t canonical = a;
+        if (a >= EM_A01M_ACCEL && a < EM_A01M_ACCEL + 0x10000000u)
+            canonical -= EM_A01M_ACCEL;
+        else if (a >= EM_A01M_UNCACHED && a < EM_A01M_UNCACHED + 0x10000000u)
+            canonical -= EM_A01M_UNCACHED;
+        else if (a >= EM_A01M_UNCACHED && !scratch) {
+            fault(m, a, EM_A01M_FAULT_ADDRESS);
+            return NULL;
+        }
+        uint8_t *p = m->view(m->ctx, canonical, size, write);
+        if (!p) fault(m, a, EM_A01M_FAULT_ADDRESS);
+        return p;
+    }
+    if (scratch) {
         if (!m->spad) { fault(m, a, EM_A01M_FAULT_NULL); return NULL; }
         return m->spad + (a - EM_A01M_SPAD_BASE);
     }
@@ -37,7 +54,7 @@ static uint8_t *where_rw(EmA01Math *m, uint32_t a, uint32_t size)
     return NULL;
 }
 
-const uint8_t *em_a01m_where(EmA01Math *m, uint32_t a, uint32_t size) { return where_rw(m, a, size); }
+const uint8_t *em_a01m_where(EmA01Math *m, uint32_t a, uint32_t size) { return where_rw(m, a, size, 0); }
 
 static uint32_t load(EmA01Math *m, uint32_t a, uint32_t size)
 {
@@ -50,7 +67,7 @@ static uint32_t load(EmA01Math *m, uint32_t a, uint32_t size)
 
 static void store(EmA01Math *m, uint32_t a, uint32_t v, uint32_t size)
 {
-    uint8_t *p = where_rw(m, a, size);
+    uint8_t *p = where_rw(m, a, size, 1);
     if (!p) return;
     for (uint32_t i = 0; i < size; i++) p[i] = (uint8_t)(v >> (8 * i));
     m->stores++;

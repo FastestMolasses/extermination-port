@@ -238,7 +238,8 @@ def check_hang(elf):
 # ---- 001F0460 --------------------------------------------------------------
 
 def decal_lib():
-    lib = compile_lib('effect.dylib', ['src/game/em_effect_original.c', 'src/game/em_point_light.c'])
+    lib = compile_lib('effect.dylib', ['src/game/em_effect_original.c', 'src/game/em_point_light.c',
+                                     'src/game/em_owner_services_original.c'])
     P, FP = C.POINTER, EFF.FP
     lib.em_effect_original_load_tables.argtypes = [C.c_char_p, C.c_size_t, P(EFF.Tables)]
     lib.em_effect_original_001F0460.argtypes = [P(EFF.Effect), C.c_int32, FP]

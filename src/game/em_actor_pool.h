@@ -83,6 +83,9 @@ typedef int (*EmActorBoneRelease)(void *ctx, EmActor *actor);
  * the actor's `callback`; `actor_address` is the original record address. */
 typedef void (*EmActorTraceFn)(void *ctx, uint32_t caller, uint32_t callee,
                                uint32_t actor_address, const EmActor *actor);
+/* Bind the remaining 001CB590 services after pool->current is published,
+ * before drawn is cleared and the behaviour runs. */
+typedef int (*EmActorSelectFn)(void *ctx,uint32_t actor_address,const EmActor *actor);
 
 struct EmActor {
     /* +0x00..+0x0F: 001AFC10 clears these four words. */
@@ -187,6 +190,9 @@ int em_actor_pool_free_001AFC10(EmActorPool *pool, EmSceneState *scene, EmActor 
  * latched (also when `scene` already holds one; then nothing runs). */
 int em_actor_pool_walk_001AFD70(EmActorPool *pool, EmSceneState *scene, int mode, void *world,
                                 EmActorTraceFn trace, void *trace_ctx);
+int em_actor_pool_walk_bound_001AFD70(EmActorPool *pool,EmSceneState *scene,int mode,void *world,
+                                    EmActorSelectFn select,void *select_ctx,
+                                    EmActorTraceFn trace,void *trace_ctx);
 
 /* Original record address of `actor` (0 for NULL or a pointer outside the pool). */
 uint32_t em_actor_pool_address(const EmActorPool *pool, const EmActor *actor);

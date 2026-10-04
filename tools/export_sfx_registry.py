@@ -4,7 +4,7 @@
 Every id the port registry carries (tools/gen_sfx_registry.py presets in the
 decomp repo, plus the AREA11 panel pair, then its FIRST_LEVEL_GROUPS census
 of every id the first level can request, docs/SFX_REGISTRY_FIRST_LEVEL.md)
-and the level exit's AREA01 arrival ambient (ARRIVAL_IDS, scope (1, 0)) is
+and AREA01 sub-0's complete area-paged sound tables (scope (1, 0)) are
 resolved per scene area exactly as the original does it:
 
   001FB9F0   id -> sound record (global tables or area remap/record tables)
@@ -45,6 +45,13 @@ AREA11_EXTRA_IDS = (0x3EE, 0x3EF)
 ARRIVAL_SCOPE = (1, 0)
 ARRIVAL_IDS = (0x44E,)
 ARRIVAL_CAPTURES = ('build/s87/route/15_level_exit', 'build/c10/exit/exit_01_movie_arrival')
+# The same finite tables already exported by export_area01_sfx.py. Keep
+# ARRIVAL_IDS first: extending coverage must not renumber existing samples.
+# These are table coverage, not a claim that every id occurs on the route.
+AREA01_IDS = tuple(range(0x3E8, 0x5DC)) + tuple(range(0x7D0, 0x9C4))
+# 001C2770's failed-grab cue: a global record reached by an AREA01-censused
+# caller but absent from the older first-level list (LEVEL2_SFX.md).
+AREA01_SHARED_IDS = (0x1AC,)
 
 STATE_AUDIBLE, STATE_ABSENT, STATE_UNSUPPORTED = 1, 2, 3
 REASONS = {
@@ -498,6 +505,8 @@ def scene_ids(census=True):
         scenes[(area, sub)] = ids
     scenes.setdefault(ARRIVAL_SCOPE, [])
     scenes[ARRIVAL_SCOPE] += [i for i in ARRIVAL_IDS if i not in scenes[ARRIVAL_SCOPE]]
+    scenes[ARRIVAL_SCOPE] += [i for i in AREA01_IDS if i not in scenes[ARRIVAL_SCOPE]]
+    scenes[ARRIVAL_SCOPE] += [i for i in AREA01_SHARED_IDS if i not in scenes[ARRIVAL_SCOPE]]
     if census:
         scope, ids = census_ids()
         scenes.setdefault(scope, [])

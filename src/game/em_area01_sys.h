@@ -111,6 +111,13 @@ typedef struct {
 
 typedef int (*EmArea01SysWorker)(void *ctx, EmArea01SysCall *call);
 
+/* Optional canonical byte view. With this set, regions are ignored, including
+ * when the callback refuses an access. The original address is unchanged;
+ * write is 0 for a load and 1 for a store. The returned span must remain valid
+ * until that access completes. Refusal latches UNMAPPED at that address.
+ * ctx is shared with call. No storage or address-mirror policy is added. */
+typedef uint8_t *(*EmArea01SysView)(void *ctx, uint32_t address, uint32_t size, int write);
+
 typedef struct {
     const EmArea01SysRegion *regions;
     unsigned region_count;
@@ -123,6 +130,7 @@ typedef struct {
                                 the callee; NULL output: left as it was (0
                                 after em_area01_sys_clear_fault); UNDEFINED:
                                 the routine that would read the unset value */
+    EmArea01SysView view; /* optional; NULL retains the region-array path */
 } EmArea01Sys;
 
 void em_area01_sys_clear_fault(EmArea01Sys *s);

@@ -401,6 +401,33 @@ static void test_trace_and_current(void)
     CHECK(image[0x63] == 0x3F && image[0x62] == 0x80 && image[0x94] == 0xFF && image[0x95] == 0xFF);
 }
 
+static int selected_count,select_failure;
+static int select_owner(void *ctx,uint32_t address,const EmActor *a)
+{
+    CHECK(ctx==&selected_count && a==pool->current);
+    CHECK(address==em_actor_pool_address(pool,a) && a->drawn==7);
+    ++selected_count;
+    return select_failure ? -1 : 0;
+}
+static void test_bound_selection(void)
+{
+    for(int mode=0;mode<3;++mode) {
+        fresh();selected_count=0;select_failure=0;
+        EmActor *a=spawn(1,0x100,b_none),*b=spawn(3,0x200,b_none);
+        a->drawn=b->drawn=7;
+        CHECK(em_actor_pool_walk_bound_001AFD70(pool,&scene,mode,NULL,select_owner,
+                                               &selected_count,NULL,NULL)==0);
+        CHECK(selected_count==(mode==0 ? 2 : 1) && visit_count==selected_count);
+        for(int i=0;i<visit_count;++i)CHECK(drawn_at_visit[i]==0);
+    }
+    fresh();selected_count=0;select_failure=1;
+    EmActor *a=spawn(3,0x100,b_none);a->drawn=7;
+    CHECK(em_actor_pool_walk_bound_001AFD70(pool,&scene,0,NULL,select_owner,
+                                           &selected_count,NULL,NULL)==-1);
+    CHECK(selected_count==1 && visit_count==0 && a->drawn==7);
+    CHECK(scene.fault.address==EM_ACTOR_FN_001CB590 && scene.fault.code==EM_SCENE_FAULT_WORKER_FAILED);
+}
+
 int main(void)
 {
     pool = calloc(1, sizeof *pool);
@@ -411,6 +438,7 @@ int main(void)
     test_walk_modes();
     test_walk_mutation();
     test_trace_and_current();
+    test_bound_selection();
     free(pool);
     printf("actor_pool_test: PASS\n");
     return 0;

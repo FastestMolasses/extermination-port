@@ -113,6 +113,9 @@ typedef struct {
     uint32_t fault_function; /* the entry that faulted */
     uint32_t fault_address;  /* UNMAPPED: the address; NULL worker / WORKER:
                                 the callee; NULL output: 0 */
+    /* Optional authoritative canonical view. A refusal never falls back
+     * to regions. write is zero for loads and one for stores. */
+    uint8_t *(*view)(void *,uint32_t address,uint32_t size,int write);
 } EmArea01Side;
 
 void em_area01_side_clear_fault(EmArea01Side *s);

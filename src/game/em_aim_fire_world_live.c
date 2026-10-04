@@ -515,12 +515,12 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
         /* The bone burst's fog bracket (0022BBC0 subtype 9 around each
          * burst): em_area01_side, their one translation (AREA01_SIDE.md);
          * D_00275C3C is em_aim_fire_runtime's word. */
-        EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0};b.side_state=&s;
+        EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0,NULL};b.side_state=&s;
         status=c->function==0x001F0190u ? em_area01_side_001F0190(&s,c->f[0],c->f[1])
                                         : em_area01_side_001F0290(&s);
         if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
     } else if(c->function==0x001EFE00u) {
-        EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0};b.side_state=&s;
+        EmArea01Side s={b.side,b.count,side_call,&b,c->sp,0,0,0,NULL};b.side_state=&s;
         status=em_area01_side_001EFE00(&s,(int32_t)a,d,&result);
         if(status<0||s.fault)return fault(h,s.fault_function?s.fault_function:c->function,s.fault_address);
         c->v0=(uint32_t)result;

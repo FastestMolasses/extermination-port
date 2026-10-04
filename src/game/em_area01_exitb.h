@@ -104,6 +104,13 @@ typedef struct {
 
 typedef int (*EmArea01ExitbWorker)(void *ctx, EmArea01ExitbCall *call);
 
+/* Optional canonical byte view. With this set, regions are ignored, including
+ * when the callback refuses an access. The original address is unchanged;
+ * write is 0 for a load and 1 for a store. The returned span must remain valid
+ * until that access completes. Refusal latches UNMAPPED at that address.
+ * ctx is shared with call. No storage or address-mirror policy is added. */
+typedef uint8_t *(*EmArea01ExitbView)(void *ctx, uint32_t address, uint32_t size, int write);
+
 typedef struct {
     const EmArea01ExitbRegion *regions;
     unsigned region_count;
@@ -114,6 +121,7 @@ typedef struct {
     uint32_t fault_function; /* the entry that faulted */
     uint32_t fault_address;  /* UNMAPPED: the address; NULL worker / WORKER:
                                 the callee; NULL regions: 0 */
+    EmArea01ExitbView view; /* optional; NULL retains the region-array path */
 } EmArea01Exitb;
 
 void em_area01_exitb_clear_fault(EmArea01Exitb *s);

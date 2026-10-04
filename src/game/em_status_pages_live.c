@@ -303,7 +303,7 @@ static void build_views(EmStatusPagesLive *l, const EmStatusPagesFrame *f)
     for (uint32_t i = 0; i < l->view_count; ++i)
         l->regions[i] = (EmSulRegion){l->views[i].address, l->views[i].size, l->views[i].bytes};
     l->mem = (EmSulMemory){l->regions, l->view_count};
-    l->s.core.world = (EmArea01RenderWorld){l->views, l->view_count};
+    l->s.core.world = (EmArea01RenderWorld){.views=l->views, .view_count=l->view_count};
 }
 
 static uint8_t *at_byte(EmStatusPagesLive *l, uint32_t address, uint32_t size)

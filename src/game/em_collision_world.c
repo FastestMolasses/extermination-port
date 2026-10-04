@@ -27,6 +27,7 @@ static struct {
     EmActorCellTable cells;          /* *0x70003250, 0x7000324C */
     EmActorClassLists lists;         /* D_00275B54..D_00275BB8 */
     EmActorCollisionWorld acw;
+    uint8_t static_kind[256];       /* immutable placement +8 projection */
     EmCollProbeGrid grid;
     EmCollProbeWorld probe;
     EmCollProbeState state;          /* the one scratchpad */
@@ -340,8 +341,8 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
     w.math.tables = &w.tables;
     w.math.world.d26C5D0 = &w.d26C5D0;
     em_sdk_soft_float_bind(&w.math.workers, &s_soft.context);
-    /* AREA11's directory has no static cell (word 0 has no bit 31), so no
-     * D_0024D7C0 kind view is needed; reaching one faults. */
+    /* The scene binds D_0024D7C0 placement kinds after loading its roster.
+     * AREA11 has no static prefix; an unbound static query still faults. */
     w.acw = (EmActorCollisionWorld){ &w.cells, &w.lists, emcl, NULL, 0, &w.grid };
     w.probe = (EmCollProbeWorld){ &w.acw, &w.grid };
     /* The hull locks 001A6440 / 001A6AD0 / 001A7280 (mask bit 0,
@@ -359,6 +360,20 @@ int em_collision_world_load(const EmCollision *emcl, const char *emcl_path, cons
 int em_collision_world_loaded(void)
 {
     return w.loaded;
+}
+
+int em_collision_world_bind_static_kinds(const uint8_t *placements, uint32_t count)
+{
+    if (!w.loaded || !placements || !count || count > sizeof w.static_kind)
+        return -1;
+    /* 0019F730 indexes D_0024D7C0[area][sub] by the cell uid, then reads
+     * record +8. The roster owns immutable original-layout records; this
+     * is the packed read view required by the existing collision walker. */
+    for (uint32_t i = 0; i < count; ++i)
+        w.static_kind[i] = placements[(size_t)i * 0x28u + 8u];
+    w.acw.static_kind = w.static_kind;
+    w.acw.static_kind_count = count;
+    return 0;
 }
 
 void em_collision_world_lists_reset_001AF8E0(void)

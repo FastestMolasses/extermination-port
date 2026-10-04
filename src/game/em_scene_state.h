@@ -113,6 +113,15 @@ typedef enum {
  *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
  *                              keeps him out), set to 1 by the encounter
  *                              script 0x8283D0's op06 sub 0; no port mirror.
+ *   D_00810759..D_0081075A
+ *                        A01   event 1: 825590 stores 0xFF when the first-visit
+ *                              NPC script ends; event 2: 825350 / 825740 read
+ *                              it during setup. Original 001AF2C0 clears both;
+ *                              no live persistent port mirror existed.
+ *   D_0081075D           A01   event 5: placement 40 has type 7, so 001C4FA0
+ *                              reads this byte during 001C50B0 setup. The
+ *                              effects room-light reader uses a per-call view.
+ *                              Cleared by 001AF2C0; not seeded on area load.
  *   D_0081075E..D_0081075F
  *                        EXIT  events 6 and 7 (D_00810758[6], [7]): the
  *                              conditions 2 / 3 of AREA01 sub 0's deferred
@@ -122,6 +131,13 @@ typedef enum {
  *                              0x0100 read them; only 001AF2C0 writes them in
  *                              the first level (0 in every route capture); no
  *                              port mirror existed.
+ *   D_00810760           A01   event 8: both placed bridge halves read it
+ *                              during setup; 826200 reads it each idle tick,
+ *                              and 826440 queries it through 001BA1C0(8).
+ *                              Cleared by 001AF2C0; no port mirror existed.
+ *   D_00810766           A01   event 0x0E: 001C02E0 stores 0xFF when
+ *                              D_00810845 bit 5 bypasses its mechanism.
+ *                              No port mirror; cleared by 001AF2C0.
  *   D_00810771           L29   event 0x19 (D_00810758[0x19]): 0015C160 draws
  *                              no shadow while it is 1 (src/func_0015C160.c;
  *                              the post-step w_0015C160 reads it); no port
@@ -162,6 +178,14 @@ typedef enum {
  *                              0x823AB0; bit 0x80 starts his departure),
  *                              also written by 001B82D0 sub 6; no port
  *                              mirror.
+ *   D_008107D9           A01   counter 1: the placed exit door / NPC story
+ *                              gate. 823580 stores 0x80 on the first locked
+ *                              interaction; 825590 stores 0x81 when its script
+ *                              ends. Cleared by 001AF2C0; no port mirror.
+ *   D_008107E0           A01   counter 8: 826200 reads it while idle with
+ *                              event 8 != 0xFF; 826440 writes 1 / 0xFF and
+ *                              reads 2 / 0xE0 in its conditional sequence.
+ *                              Cleared by 001AF2C0; no port mirror existed.
  *   D_00810808           A11FIX counter 0x30 (D_008107D8[0x30]): the flag-0x30
  *                              manager 00823CE0 stores 0xFF at its script's
  *                              end (a return visit; em_flag30_manager_tick);
@@ -202,11 +226,18 @@ typedef enum {
  *                              capture); the player stage's worker view
  *                              loads it before every stage
  *                              (em_player_stage_live.c).
+ *   D_00810842, D_00810845
+ *                        A01   D_00810841[1] door-lock flags and [4] bit 5
+ *                              read by 001C02E0. No port mirrors; both
+ *                              cleared by 001AF2C0's progress memset.
+ *                              001BC350 reads the current area's byte;
+ *                              001582E0 writes [1] bit 1. Later-area
+ *                              writers of [4] remain unbound.
  *   D_0081084C           WP-4  D_00810841[0x0B], AREA11's power byte:
  *                              001580C0 sets bit (1 << panel +0x2E) = 0x80,
  *                              00159210 state 0 and 00827B10 test it;
  *                              migrated from g.terminal_powered. Other
- *                              areas' D_00810841 bytes stay reserved.
+ *                              unmigrated D_00810841 bytes stay reserved.
  *   D_00810860..D_00810B3F
  *                        S10b  per-area taken bits, u32[8] per area
  *                              (001B11E0 test, 001B1190 set, 001B64F0 clear);
@@ -262,8 +293,9 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
-        {0x00810758u, 0x00810759u}, /* event 0: Roger's 001BA1C0, 0x8283D0's 06/0 (L22) */
-        {0x0081075Eu, 0x00810760u}, /* events 6, 7: AREA01's deferred-group conditions (EXIT) */
+        {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
+        {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
+        {0x00810766u, 0x00810767u}, /* event 0x0E: 001C02E0's bypass (A01) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
          * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes
@@ -275,12 +307,15 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081078Bu, 0x0081078Du}, /* event 0x33: 00191210's gate (L13); 0x34 (MAP) */
         {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
-        {0x008107D8u, 0x008107D9u}, /* counter 0: Roger's story progress (L22) */
+        {0x008107D8u, 0x008107DAu}, /* counter 0 Roger (L22), 1 AREA01 door/NPC (A01) */
+        {0x008107E0u, 0x008107E1u}, /* counter 8: AREA01 bridge idle read (A01) */
         {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
         {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */
         {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
+        {0x00810842u, 0x00810843u}, /* D_00810841[1], AREA01 door-lock flags (A01) */
+        {0x00810845u, 0x00810846u}, /* D_00810841[4], 001C02E0's mechanism gate (A01) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */
         {0x00810C60u, 0x00810C61u}, /* equipment status C60 (WP-6) */

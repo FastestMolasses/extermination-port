@@ -1,15 +1,16 @@
 /* AREA01 overlay owners: standalone translations of the 14 AREA01 overlay
  * (OVERLAY/AREA01.BIN, id 2) functions the AREA01 route ran that the first
  * level never ran (decomp census build/s87/census/a01_delta.json,
- * region overlay:AREA01). Docs: docs/AREA01_OVERLAY.md.
+ * region overlay:AREA01), plus placement [38]'s 0x825740 talk owner.
+ * Docs: docs/AREA01_OVERLAY.md and docs/LEVEL2_TALK_OWNER.md.
  *
  * Addresses are engine (runtime) addresses. The overlay is linked 0x40 below
  * where it runs, so the decomp's splat/link names are 0x40 lower (for
  * example 0x825350 is func_overlay_AREA01_00825310).
  *
  * Ground truth: the decomp's byte-identical C under
- * src/overlays/AREA01/ for twelve of them; 0x823580 and 0x826D40 are still
- * assembly in the decomp and were translated from the original code. Every
+ * src/overlays/AREA01/; the earlier translations of 0x823580 and 0x826D40
+ * predated their C recovery and followed the original code directly. Every
  * function is compared with the ORIGINAL overlay code, run over the recorded
  * AREA01 RAM images, by tools/test_area01_overlay_reference.py: callee calls
  * and arguments, memory at every call entry, the memory accesses between
@@ -64,6 +65,7 @@ extern "C" {
 #define EM_AREA01_OVL_8254B0       0x008254B0u /* called by 0x825350 */
 #define EM_AREA01_OVL_825590       0x00825590u /* called by 0x825350 */
 #define EM_AREA01_OVL_825670       0x00825670u /* called by 0x825350 */
+#define EM_AREA01_OVL_TALK         0x00825740u /* placement [38] owner */
 #define EM_AREA01_OVL_8261A0       0x008261A0u /* placements [41]/[42] owner */
 #define EM_AREA01_OVL_826200       0x00826200u /* called by 0x8261A0 (+0xD == 2) */
 #define EM_AREA01_OVL_826440       0x00826440u /* called by 0x8261A0 (+0xD == 3) */
@@ -151,12 +153,17 @@ typedef struct {
 
     /* ---- the actor's own callback: the function at actor +0x4C, called with the actor */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
+    /* Optional canonical view. When present it is authoritative, including
+     * a NULL refusal; bytes is used only when view is NULL. write is 0 for
+     * each original load and 1 for each store, even an unchanged store. */
+    uint8_t *(*view)(void *ctx, uint32_t address, uint32_t size, int write);
 } EmArea01OvlHooks;
 
 /* Placement / group owners: one call of the original behaviour. Return 0,
  * or -1 on a fault. */
 int em_area01_ovl_00823580(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);
 int em_area01_ovl_00825350(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);
+int em_area01_ovl_00825740(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);
 int em_area01_ovl_008261A0(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);
 int em_area01_ovl_008267C0(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);
 int em_area01_ovl_00826CF0(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault);

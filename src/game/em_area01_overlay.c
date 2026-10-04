@@ -1,9 +1,9 @@
 /* AREA01 overlay owners (see em_area01_overlay.h, docs/AREA01_OVERLAY.md).
  *
  * Each function below is a translation of the original AREA01 overlay code
- * at the named runtime address. Twelve follow the decomp's byte-identical C
+ * at the named runtime address. Most follow the decomp's byte-identical C
  * (src/overlays/AREA01/func_overlay_AREA01_<runtime - 0x40>.c); 0x823580
- * follows the original code (still assembly in the decomp). Calls, their
+ * was translated from the original code before its C recovery. Calls, their
  * arguments and the memory accesses between each two calls follow the
  * original: the test compares memory at every call entry and after the last
  * store, and the memory accesses between calls one for one, in order, by
@@ -36,6 +36,8 @@
 #define A01_SCRIPT_829FA0 0x00829FA0u /* NPC, story byte 0x80 */
 #define A01_SCRIPT_82A660 0x0082A660u /* NPC, story byte 0x81 */
 #define A01_DATA_82A7A0 0x0082A7A0u   /* NPC record +0x30 */
+#define A01_SCRIPT_82A7B0 0x0082A7B0u /* placement [38] conversation */
+#define A01_DATA_82A8F0 0x0082A8F0u   /* placement [38] record +0x30 */
 #define A01_SCRIPT_82B0D0 0x0082B0D0u
 #define A01_SCRIPT_82B4D0 0x0082B4D0u
 #define A01_SCRIPT_82B590 0x0082B590u
@@ -421,6 +423,73 @@ int em_area01_ovl_00825350(const EmArea01OvlHooks *h, uint32_t self, EmArea01Ovl
     A01Ovl o;
     if (a01_begin(&o, h, fault)) return -1;
     a01_npc(&o, self);
+    return a01_end(&o);
+}
+
+/* 0x825740 — placement [38]'s talk owner (decomp 00825700, byte-matched).
+ * The setup runs before the story gates decide whether to retain the node.
+ * Its active state starts script 0x82A7B0 on Use, then restores clip 1 when
+ * the script ends. States 2 and 3 both tear down and free the node. */
+static void a01_talk_owner(A01Ovl *o, uint32_t self)
+{
+    int32_t r = 0;
+    switch (a01_u8(o, self + 4)) {
+    case 0:
+        (void)a01_c_001B10B0(o, self, (int32_t)a01_u8(o, self + 0xD), 0x4A, &r);
+        (void)a01_c_001BA8E0(o, self, (int32_t)a01_u8(o, self + 0xD));
+        (void)a01_c_001C63E0(o, self, 1);
+        a01_w8(o, self, 1);
+        a01_w16(o, self + 0x28, 0);
+        a01_w32(o, self + 0x30, A01_DATA_82A8F0);
+        a01_w32(o, self + 0x234, a01_u32(o, self + 0xC4));
+        a01_w32(o, self + 0x58, a01_u32(o, D_0028A5C4));
+        if (a01_u8(o, D_0081075A) == 0) {
+            a01_w8(o, self + 4, 3);
+            break;
+        }
+        (void)a01_c_001BA1C0(o, self, 6, &r);
+        a01_w8(o, self + 4, r != 0 ? 3 : 1);
+        break;
+    case 1:
+        switch (a01_u8(o, self + 5)) {
+        case 0:
+            if (a01_u8(o, self + 0xB) & 4) {
+                a01_w8(o, self + 5, 1);
+                (void)a01_c_001BA1A0(o, self + 0x1F0, A01_SCRIPT_82A7B0);
+            }
+            break;
+        case 1:
+            (void)a01_c_001BA1F0(o, self, &r);
+            if (r != 0) {
+                a01_w8(o, self + 5, 0);
+                a01_w8(o, self + 0xB, 0);
+                (void)a01_c_001C67E0(o, self, 1, fb(F_30), 0.0f);
+            }
+            break;
+        default:
+            break;
+        }
+        (void)a01_c_001BA580(o, self, (int32_t)a01_u8(o, self + 0xD));
+        (void)a01_c_001C64F0(o, self, fb(F_ONE), &r);
+        (void)a01_c_001C68C0(o, self);
+        (void)a01_c_001B17A0(o, self, &r);
+        a01_callback(o, self);
+        break;
+    case 2:
+    case 3:
+        (void)a01_c_001BA540(o, self);
+        (void)a01_c_001AFC10(o, self);
+        break;
+    default:
+        break;
+    }
+}
+
+int em_area01_ovl_00825740(const EmArea01OvlHooks *h, uint32_t self, EmArea01OvlFault *fault)
+{
+    A01Ovl o;
+    if (a01_begin(&o, h, fault)) return -1;
+    a01_talk_owner(&o, self);
     return a01_end(&o);
 }
 
