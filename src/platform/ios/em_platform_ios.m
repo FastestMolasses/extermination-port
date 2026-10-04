@@ -130,10 +130,12 @@ static int automated_run(void)
 
 /* ---- the view controller: landscape, no status bar, the controller note */
 @interface EmViewController : UIViewController
+- (void)setRefreshPaused:(BOOL)paused;
 @end
 
 @implementation EmViewController {
-    UILabel *_note;   /* owned by the view hierarchy */
+    UILabel       *_note;     /* owned by the view hierarchy */
+    CADisplayLink *_refresh;  /* asks for the panel's top refresh rate */
 }
 
 - (void)loadView
@@ -165,6 +167,16 @@ static int automated_run(void)
     _note = note;
     [note release];
 
+    /* Presentation, not timing: the game's 59.94 Hz tick is its own clock
+     * (em_frame_run) and this link's callback does nothing. iOS keeps a
+     * presented frame queued for a refresh or two before it is on screen,
+     * so at 60 Hz all three drawables are often in use and the renderer
+     * waits up to a whole refresh for the next one; on a ProMotion panel
+     * asking for 120 Hz halves that wait (docs/IOS.md "Frame time"). */
+    _refresh = [CADisplayLink displayLinkWithTarget:self selector:@selector(refresh:)];
+    _refresh.preferredFrameRateRange = CAFrameRateRangeMake(80.0f, 120.0f, 120.0f);
+    [_refresh addToRunLoop:[NSRunLoop mainRunLoop] forMode:NSRunLoopCommonModes];
+
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
     [nc addObserver:self selector:@selector(controllerDidConnect:)
                name:GCControllerDidConnectNotification object:nil];
@@ -175,8 +187,19 @@ static int automated_run(void)
 
 - (void)dealloc
 {
+    [_refresh invalidate];
     [[NSNotificationCenter defaultCenter] removeObserver:self];
     [super dealloc];
+}
+
+- (void)refresh:(CADisplayLink *)link
+{
+    (void)link;
+}
+
+- (void)setRefreshPaused:(BOOL)paused
+{
+    _refresh.paused = paused;
 }
 
 static void log_controller(const char *what, GCController *c)
@@ -274,9 +297,13 @@ static void start_game_thread(CAMetalLayer *layer)
 static void set_active(int active)
 {
     pthread_mutex_lock(&s_lock);
+    const int changed = s_active != active;
     s_active = active;
     pthread_cond_broadcast(&s_cond);
     pthread_mutex_unlock(&s_lock);
+    if (changed)
+        fprintf(stderr, "ios: app %s\n", active ? "active: the game runs"
+                                                 : "inactive: the game parks at its next frame");
 }
 
 /* Wait (bounded) until the game thread is parked in em_window_poll. */
@@ -384,6 +411,7 @@ static void launch_setup(void)
 {
     (void)scene;
     [UIApplication sharedApplication].idleTimerDisabled = YES;
+    [s_controller setRefreshPaused:NO];
     em_audio_ios_set_suspended(0);
     set_active(1);
 }
@@ -393,6 +421,7 @@ static void launch_setup(void)
     (void)scene;
     set_active(0);
     em_audio_ios_set_suspended(1);
+    [s_controller setRefreshPaused:YES];
     [UIApplication sharedApplication].idleTimerDisabled = NO;
 }
 
