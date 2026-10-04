@@ -132,6 +132,8 @@ static void exit_begin(void);
 static int exit_frame(void);
 static void a01_arrival_begin(void);
 static int a01_arrival_frame(void);
+static void a01_route_begin(void);
+static int a01_route_frame(void);
 static void dmg_begin(void);
 static int dmg_frame(void);
 static void br_begin(void);
@@ -305,6 +307,55 @@ static const Phase k_phases[] = {
      "AREA01 sub 0 entry 4: the arrival rebuild followed by the original idle player, camera and owners",
      "AREA01 live binding; opt-in, every missing worker still fail-stops", a01_arrival_begin, a01_arrival_frame,
      0, 0, 0, 1},
+    {"a01_s0", "a01_s0_npc_first_talk (side, from 15_level_exit)", 0,
+     "NPC first talk from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_s2", "a01_s2_control_room_items (side, from a01_s0_npc_first_talk)", 0,
+     "control-room items after the first NPC talk", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 1, 1},
+    {"a01_s5", "a01_s5_duct (side, from a01_s0_npc_first_talk)", 0,
+     "control-room duct and healing pickup after the first NPC talk", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 2, 1},
+    {"a01_s3", "a01_s3_fire_contact (side, from 15_level_exit)", 0,
+     "fire contact from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_s4", "a01_s4_east_room (side, from 15_level_exit)", 0,
+     "east room and save terminal from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_s6", "a01_s6_bridge_blocked (side, from 15_level_exit)", 0,
+     "blocked north bridge from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_00", "a01_00_train_room", 0,
+     "AREA01 first-visit recorded pad route", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_01", "a01_01_tunnel", 0,
+     "AREA01 first-visit recorded pad route", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_s1", "a01_s1_sentry_doc (side, from a01_01_tunnel)", 0,
+     "sentry document after the recorded tunnel route", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_02", "a01_02_shaft_landing", 0,
+     "AREA01 first-visit recorded pad route", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_03", "a01_03_shaft_locked", 0,
+     "shaft door locked script", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_04", "a01_04_return_north", 0,
+     "return through the train room to control-room entry 1", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_05", "a01_05_npc_bridge_talk", 0,
+     "NPC bridge talk script", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_s7", "a01_s7_npc_third_talk (side, from a01_05_npc_bridge_talk)", 0,
+     "NPC third talk after the recorded bridge talk", "AREA01 side route and strict capture comparison",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a01_06", "a01_06_return_south", 0,
+     "return through the tunnel to the shaft landing", "AREA01 route binding and tick comparison",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a01_07", "a01_07_level_exit f0..f529 (AREA00 arrival before rebuild)", 0,
+     "shaft door exit and original area load through AREA00 arrival state 0",
+     "AREA01 gameplay ticks and loader events; stop before level 3 rebuild",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -405,6 +456,14 @@ static void finish(void)
     if (t.pad_on)
         em_input_set_gamepad(NULL);
     t.pad_on = 0;
+    /* The authorized level-2 endpoint is AREA00 arrival state 0, before
+     * any level-3 rebuild. Finish this frame and use its explicit tail;
+     * the usual extra frame would execute the out-of-scope rebuild. */
+    if(t.last_live>=0 && !strcmp(k_phases[t.last_live].name,"a01_07")) {
+        em_scene_bindings_log_request_tail();
+        em_frame_request_quit();
+        return;
+    }
     /* Quit after one more frame, not now. The route captures sample after
      * the original frame, and the original's 0x28A9A0 fade ticks after the
      * slot-0 task, so the port's post-frame fade is the next tick's start
@@ -4228,6 +4287,75 @@ static int a01_arrival_frame(void)
     fprintf(stderr, "level smoke: a01_arrival: PASS world_ticks=%d counter=%u (capture check required)\n",
             A01_ARRIVAL_WORLD_TICKS, em_frame_counter());
     return 1;
+}
+
+/* AREA01 pad scripts are test input exported into ignored build files.
+ * No captured state is loaded. Inputs take effect three recorded rows
+ * after the command; the native pad reaches the next task tick, so the
+ * driver submits each recorded command two rows later (the BRANCH rule). */
+enum { A01_PAD_MAX = 2048 };
+static AimStick s_a01_pad[A01_PAD_MAX];
+static unsigned s_a01_pad_count;
+static int s_a01_last_frame;
+
+static void a01_route_begin(void)
+{
+    pad_apply(0,0,0);
+    const char *dir=getenv("EM_LEVEL2_PAD_DIR");
+    char path[1024];
+    int n=dir ? snprintf(path,sizeof path,"%s/%s.pad",dir,k_phases[t.current].name) : -1;
+    FILE *f=n>0 && (size_t)n<sizeof path ? fopen(path,"r") : NULL;
+    if(!f) { fail("AREA01 route pad script missing (tools/test_level_smoke_area01.py --prepare)");return; }
+    unsigned version, gap;
+    s_a01_pad_count=0;
+    if(fscanf(f,"EMA1 %u %d %u",&version,&s_a01_last_frame,&gap)!=3 ||
+       version!=1 || s_a01_last_frame<1 || s_a01_last_frame>20000 || !gap || gap>120) {
+        fclose(f);fail("invalid AREA01 pad-script header");return;
+    }
+    int frame, fields;unsigned buttons,lx,ly;
+    while((fields=fscanf(f,"%d %x %u %u",&frame,&buttons,&lx,&ly))==4) {
+        if(s_a01_pad_count==A01_PAD_MAX || frame<0 || frame>s_a01_last_frame ||
+           buttons>65535 || lx>255 || ly>255 ||
+           (s_a01_pad_count && frame<s_a01_pad[s_a01_pad_count-1].f)) {
+            fclose(f);fail("invalid AREA01 pad-script entry");return;
+        }
+        s_a01_pad[s_a01_pad_count++]=(AimStick){frame,(uint16_t)buttons,(uint8_t)lx,(uint8_t)ly};
+    }
+    int valid=fields==EOF && feof(f) && s_a01_pad_count;
+    fclose(f);
+    if(!valid) { fail("truncated or malformed AREA01 pad script");return; }
+    t.frames=-(int)gap;
+}
+static int a01_route_frame(void)
+{
+    ++t.frames;
+    if(t.frames<0)return 0;
+    if(!t.frames)
+        fprintf(stderr,"level smoke: %s: aligned counter=%u (recorded row 0)\n",
+                k_phases[t.current].name,em_frame_counter());
+    if(!strcmp(k_phases[t.current].name,"a01_07")) {
+        const EmSceneState *s=em_scene_state();
+        if(s->d810700==0 && s->d810701==0 && s->d810702==0 &&
+           task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
+           task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
+            pad_apply(0,0,0);
+            fprintf(stderr,"level smoke: a01_07: boundary counter=%u (capture row 529; AREA00 arrival state 0, before rebuild)\n",em_frame_counter());
+            fprintf(stderr,"level smoke: a01_07: PASS frames=%d (gameplay and loader capture check required; level 3 not run)\n",t.frames);
+            return 1;
+        }
+        if(t.frames>s_a01_last_frame+120) {
+            fail("AREA00 arrival state 0 did not follow the AREA01 exit");return 0;
+        }
+    } else if(t.frames>=s_a01_last_frame) {
+        pad_apply(0,0,0);
+        fprintf(stderr,"level smoke: %s: PASS frames=%d (capture check required)\n",
+                k_phases[t.current].name,s_a01_last_frame);
+        return 1;
+    }
+    const AimStick *input=NULL;
+    for(unsigned i=0;i<s_a01_pad_count && s_a01_pad[i].f<=t.frames-2;++i)input=&s_a01_pad[i];
+    if(input)pad_apply(input->buttons,(input->lx-128)/128.0f,(input->ly-128)/128.0f);
+    return 0;
 }
 
 /* ------------------------------------------------------------- driver */

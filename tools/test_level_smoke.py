@@ -2550,6 +2550,10 @@ def check_exit(ticks, run, state):
     assert n_d010 == 1 and n_chain >= arrival - il - 1, ('exit: the chain replay', n_chain, n_d010)
     # The arrival.
     tail = state.get('tail')
+    if continued:
+        witnesses=[t for t in state.get('tails',[]) if t['counter']==ticks[arrival]['counter']]
+        assert len(witnesses)==1,'exit: continued run needs one AREA01 rebuild pool witness'
+        tail=witnesses[0]
     assert tail is not None, 'exit: the tick log has no tail (the arrival\'s post-frame values)'
     if continued:
         # a01_arrival takes the pool witness just after the rebuild. The
@@ -3013,6 +3017,9 @@ PHASES = [
     ('exit', check_exit),
     ('a01_arrival', lambda ticks, run, state:
      level_smoke_area01.check_arrival(sys.modules[__name__], ticks, run, state)),
+    *[(phase, lambda ticks, run, state, phase=phase:
+       level_smoke_area01.check_route(sys.modules[__name__], ticks, run, state, phase))
+      for phase in level_smoke_area01.ROUTE_PHASES],
 ]
 
 
@@ -3690,10 +3697,11 @@ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'a
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
         'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall', 'br_ledge_ammo', 'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
-        'br_plateau', 'br_roger_talk')
+        'br_plateau', 'br_roger_talk', *level_smoke_area01.SIDE_BEATS)
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
-FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door'}
+FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
+             **level_smoke_area01.FROM_SIDE}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
          ('designed', ('status_pages',)),
@@ -3704,6 +3712,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
          ('15', ('exit',)), ('15 AREA01 idle (opt-in)', ('a01_arrival',)),
+         ('AREA01 main route (opt-in)', tuple(level_smoke_area01.MAIN_BEATS)),
+         ('AREA01 side routes (opt-in)', tuple(level_smoke_area01.SIDE_BEATS)),
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')))
@@ -4802,7 +4812,7 @@ def main():
     # EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md "PS2 disc-drive
     # timing"): check_voice_drive and the opening's end follow it.
     state = {'drive': R.drive_mode(run), 'status_pages_trace': args.status_pages_trace,
-             'tail': tails[-1] if tails else None}
+             'tail': tails[-1] if tails else None, 'tails': tails}
     # A BRANCH side run (level_smoke_branch): the tick its side phase starts,
     # which bounds the main line's searches.
     side = re.search(r'^level smoke: br_\w+: beat \S+ at tick (\d+)', run, re.M)
@@ -4828,6 +4838,8 @@ def main():
     # dmg_flame plays a second New Game after the death (its own check
     # compared it); they leave both out.
     ends = [state.get('area11_end'), state.get('second_game')]
+    if state.get('area01_ends'):
+        assert args.rand_trace, 'AREA01 verification requires --rand-trace for the complete caller audit'
     ticks = ticks[:min([e for e in ends if e is not None] or [len(ticks)])]
     if 'first_control' in checked:
         check_render_context(ticks, state)
@@ -4846,6 +4858,7 @@ def main():
     check_player_draw_gate(ticks)
     if args.rand_trace and 'first_control' in checked:
         check_rand_order(ticks, state, args.rand_trace)
+        level_smoke_area01.check_rng_checkpoints(state, state['rand'])
         check_sway(ticks, state, state['rand'])
         check_marker_colour(ticks, state, state['rand'])
         check_head_sprites(ticks, state, state['rand'])
