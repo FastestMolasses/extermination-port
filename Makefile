@@ -1576,3 +1576,7 @@ test-aim-fire-equipment-live:
 .PHONY: test-area01-memory-view-reference
 test-area01-memory-view-reference:
 	python3 tools/test_area01_memory_view_reference.py
+
+.PHONY: test-area01-sfx-registry
+test-area01-sfx-registry:
+	python3 tools/test_area01_sfx_registry.py

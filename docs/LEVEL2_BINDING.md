@@ -301,3 +301,33 @@ No normal AREA01 frame gate changes. The isolated staged-source
 reset and no-shadow targets passed in that export. Receipts are in
 `build/level2/native-state/`; binary SHA-256
 `52664816ec7e71c4a8d777a7ca05ce2dd65ac60f5a06ecd17ad227810581489f`.
+
+## AREA01 sound-resource checkpoint
+
+The existing shared SFX exporter now includes all 1,000 AREA01 area-paged
+IDs and global failed-grab cue `01AC`. The private native registry contains
+**1,278 entries and 188 samples**; all previous **278 entries and 143
+samples** retain identical serialized values and PCM. The finite table
+coverage includes explicit absent and unsupported entries; it is not a
+claim that every ID is requested on the first visit. The existing EMSR
+loader's entry cap increases to **2,048**, with larger/malformed inputs
+still refused. No audio algorithm changes in this checkpoint.
+
+Full original-code verification passes **16,016 dispatches across 16
+captures, 404 sequencer cases and 839 key-ons**. Quick verifies **1,001
+native lookups**, 64 original dispatches, six sequencer cases and four
+loader boundaries. AREA11 original and sanitizer audio regressions pass.
+`LEVEL2_SFX.md` gives exact scopes, conditional-call evidence and remaining
+modulation/bank refusals. Main's **15 SFX files / 4,668,860 bytes** retain
+identical hashes; only the level2 worktree's private registry was replaced.
+
+Shared edits: `tools/export_sfx_registry.py`, the EMSR entry cap in
+`em_sfx_bank.c`, four area-parameter/lookup helpers in
+`test_area11_sfx_reference.py`, and the `test-area01-sfx-registry` Makefile
+target. New files are `test_area01_sfx_registry.py` and `LEVEL2_SFX.md`.
+The exact staged-source `make -B all` passed with **zero warnings in
+39.923 s**, and its AREA01 registry test passed. Receipts:
+`build/level2/sfx-checkpoint/index-{build.json,build.log,tests.log}`.
+Binary SHA-256:
+`987f34a7fd5c2f4b1050f3903c8b64179e6a3ddc91942607c3534ad2c49a9535`.
+Normal AREA01 world frames remain gated and route verification is pending.

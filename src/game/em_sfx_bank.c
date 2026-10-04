@@ -109,7 +109,7 @@ int em_sfx_cue_frame(const EmSfxCue *cue, uint64_t output_frame,
 /* ---- EMSR v2 registry ------------------------------------------------- */
 
 enum {
-    EMSR_MAX_SAMPLES = 1024, EMSR_MAX_ENTRIES = 1024,
+    EMSR_MAX_SAMPLES = 1024, EMSR_MAX_ENTRIES = 2048,
     EMSR_MAX_FRAMES = 1u << 22, EMSR_MAX_REASON = 10
 };
 /* Six authored bytes (<= 255 each) >> 27: the largest 001179E0 scalar. */
