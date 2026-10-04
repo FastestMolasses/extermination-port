@@ -239,6 +239,11 @@ int shim_start(Shim *s, unsigned id, int area, int sub, int l, int r)
     if (!e) e = em_sfx_registry_find(&s->reg, id, -1, -1);
     return e ? em_sfx_driver_start(&s->drv, e, l, r) : -2;
 }
+int shim_entry_state(Shim *s, unsigned id, int area, int sub)
+{
+    const EmSfxEntry *e = em_sfx_registry_find(&s->reg, id, area, sub);
+    return e ? e->state : -1;
+}
 void shim_request(Shim *s, int t, int l, int r) { em_sfx_driver_request(&s->drv, t, l, r); }
 void shim_stop(Shim *s, int t, int hard) { em_sfx_driver_stop(&s->drv, t, hard, sink, s); }
 void shim_tick(Shim *s) { em_sfx_driver_tick(&s->drv, sink, s); }
@@ -324,6 +329,7 @@ def native_driver():
     lib.shim_new.argtypes=[C.c_char_p,C.c_uint64,C.c_uint32,C.c_uint32,C.c_uint64,C.c_int]
     for name in ('shim_free','shim_tick','shim_clear'):getattr(lib,name).argtypes=[P]
     lib.shim_start.argtypes=[P,C.c_uint,C.c_int,C.c_int,C.c_int,C.c_int]
+    lib.shim_entry_state.argtypes=[P,C.c_uint,C.c_int,C.c_int]
     lib.shim_request.argtypes=[P,C.c_int,C.c_int,C.c_int]
     lib.shim_stop.argtypes=[P,C.c_int,C.c_int]
     lib.shim_count.argtypes=[P];lib.shim_count.restype=C.c_uint
@@ -355,10 +361,11 @@ def tick_frames(tick,rate=48000):
 
 class Registry:
     """The bank binding, sample addresses and a controlled driver start state."""
-    def __init__(self,elf,ram,report,path):
+    def __init__(self,elf,ram,report,path,area=(11,0),bindings=None):
         import export_sfx_registry as X
         self.elf,self.ram,self.report,self.path=elf,ram,report,path
-        bindings=X.area_bindings(X.Elf())[(11,0)]['groups']
+        self.area=area
+        if bindings is None:bindings=X.area_bindings(X.Elf())[area]['groups']
         self.banks=[]
         for group,banks in bindings.items():
             for index,bank in enumerate(banks):
@@ -416,7 +423,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
             if action[0]=='start':
                 _,sid,left,right=action
                 o.run(0x1FB9F0,(sid,0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))
-                track=signed(o.r[2]);native=lib.shim_start(s,sid,11,0,left,right)
+                track=signed(o.r[2]);native=lib.shim_start(s,sid,*registry.area,left,right)
                 assert track==native,('start',hex(sid),tick,track,native)
                 started.append(track)
                 stats['starts']+=track>=0;stats['refused']+=track<0
@@ -476,7 +483,7 @@ def _registry_case(job):
         o.run(0x1FB9F0,(entry['id'],0x1000,left&0xFFFFFFFFFFFFFFFF,right&0xFFFFFFFFFFFFFFFF))
         assert signed(o.r[2])==-1,hex(entry['id'])
         shim=lib.shim_new(str(registry.path).encode(),STREAM_VOICES,0,0,0,1)
-        assert lib.shim_start(shim,entry['id'],11,0,left,right)==-1
+        assert lib.shim_start(shim,entry['id'],*registry.area,left,right)==-1
         lib.shim_free(shim)
         return 0
     assert entry['state']==X.STATE_AUDIBLE,hex(entry['id'])

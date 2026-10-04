@@ -1,0 +1,298 @@
+# AREA01 first-visit census and binding inventory
+
+Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
+
+## 1. Scope and counting
+
+The retained local census is evidence of original execution, not native execution. The sources are:
+
+- `../Extermination/build/s87/census/a01_delta.json`, `new_functions`: 174 entries, 116,132 bytes / 29,033 instructions. The sixteen beats run 982 entries (968 boot and 14 AREA01 overlay); 808 were already in the old first-level baseline. The new set is 89 main-line, 57 side-only (including the 20 room-only entries), and 28 exit/change/AREA00-only.
+- `docs/FIRST_LEVEL_CENSUS.md` §3.26: 62 post-arrival entries, 11,154 instructions. Its source is `../Extermination/build/c10/exit/census_delta.json`, phase `area01_arrival`, after excluding 001C69A0 and 001CD070, which subsequent first-level captures classified separately. Both excluded entries remain in the a01 delta and therefore in this ledger.
+- The union below is **179 census entries, 118,188 bytes / 29,547 instructions**: 174 + 62 − 57 overlaps. It has 164 boot entries and 15 AREA01 overlay entries. Five entries appear only in §3.26. The 28 exit-only entries are retained to preserve the source set; many execute after AREA00 arrival and are beyond this task's allowed stop.
+
+`SECOND_LEVEL_ROUTE.md` §6 describes the first twelve beats (154 new entries); §9.7 adds twenty room entries and gives the current 174. The old baseline is the s87 startup/AREA11 census, not the current first-level port: new in this delta does not mean still missing in the port. The a01 exit consumer is f233 and placement rebuild is f530. Thirteen candidate overlay hits while AREA00 was resident were excluded by the original census. No unattributed hits remain.
+
+Keys are `(region, runtime address)`. In particular AREA01 00823580 is the shaft door, not the AREA11 flame at the same address. Overlay splat names are runtime − 0x40. The ledger preserves the source's boot split: 001C0004 is the interior of 001BFFD0 and is handled by the same native owner, not a new function to implement. Its 181 instructions plus the 13 at 001BFFD0 sum to the complete 194-instruction body. Thus these are census-entry totals, not a claim of 179 independent C bodies.
+
+## 2. Status rules and phase-1 baseline
+
+`live` means bound and exercised on AREA01's first-visit path; `verified-unbound` means an original-instruction-checked native translation exists but AREA01 integration has not been proved; `unverified` means an available implementation lacks that verification; `stand-in` means a substitute is selected for the path; `missing` means no native translation was found; `boundary` means a named platform service replaces the original mechanism. Historical oracle evidence is distinguished from checks rerun here. A first-level live owner is reuse evidence, not an AREA01 promotion.
+
+At this baseline `em_scene_bindings.c::w_001AD4D0` faults at 0x001AE040 whenever AREA01's frame state is nonzero. `em_area01_arrival_bind` records spawned nodes and installs no ticks. Therefore no post-arrival row is counted live, including shared code already exercised in AREA11. Opening that gate alone cannot promote any row.
+
+| AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 0 | 0 |
+| verified-unbound | 172 | 28,902 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 5 | 514 |
+| boundary | 2 | 131 |
+
+The shared column in §4 records first-level evidence only: `L` = 44 boot rows classified live in the current first-level ledger; `U` = its unverified MAP draw 001CB480; `V` = its verified-unbound 00225A00; `B` = the two 2D boundaries; `—` = no corresponding current first-level row. AREA01 00823580 never inherits the AREA11 row. This cross-reference is a classification check, not a rerun of all first-level evidence.
+
+## 3. Verification and owner rules
+
+Every file named in §4 is relative to `src/game/`. A translation named `em_area01_*` is the existing implementation to bind, not permission to add another implementation. Shared installed owners take precedence where explicitly named. 001AF7C0, 001C4720 and 001C69A0 have pre-existing standalone AREA01 copies as well as a first-level owner; use the shared owner or consolidate with oracle evidence, never add a third. 00225A00 also exists as a worker in startup/status modules; the generic ROOM implementation is available, but its AREA01 save-terminal adapter is not bound.
+
+The evidence key maps to `tools/test_area01_<name>_reference.py` and the matching `docs/AREA01_<LANE>.md`. These Python oracles execute locally retained original code and captured RAM. They compare individual translations with external calls recorded/replayed or scripted as documented by each harness. They do not run a connected native world, prove all caller inputs, or compare rendered pixels. The lane docs' full sweeps and mutation claims were not rerun in this phase.
+
+| Key | Harness name | Current quick-run evidence |
+|---|---|---|
+| O | overlay | PASS: 2,008 cases; all 14 entries; 636 fail-stop/hook-contract native runs on 26 cases |
+| M | math | PASS: 3/12 beats; 42 actor-route, 29 actor-perturbation, 18 owner-route, 262 owner-perturbation, 609 script-op, 53 player, 26 001C25E0, 186 scripted 001C2770, 6,033/75,297 table cases. Nine reused helper entries rely on the separate historical oracles in AREA01_MATH §4; this run checks the lane's 20 complete translated bodies, including the 001C0004 piece. |
+| R | render | PASS: 257 capture cases over 16 beats; 60 VIF unit, 123 GS unit, plus the boundary/alias/fault sets printed in the log |
+| E | render_existing | PASS after dependency repair: 60 fall cases / 246 entry-checked calls / 28 of 30 branch outcomes; 360 hang, 102 decal, 170 glow cases |
+| S | sys | PASS: 227/2,065 cases; 11 side-effect and 7 single-load variants; 14 further variants; 27,498 worker calls; 113 existing-owner cases |
+| D | side | PASS: 270/775 cases, 90/1,110 effect cases, 535 calls, 116 changed fields, 10 branches both ways, 2,115 existing-translation checks |
+| U | ui | PASS: 266 cases (one zero-divisor refusal on both sides), 4,228 calls and entry comparisons |
+| X | exita | PASS: 184/656 cases, 40 side-effect cases / 1,100 scripted writes, 286 store-site variants, 6,223 calls, 63 callee policies, 7 API checks |
+| Y | exitb | PASS: 147/467 cases, 52/2,499 variants, 5,196 calls, 41 changed fields, 108/108 branches both ways |
+| Q | room | PASS: 180/1,202 cases, 60/1,166 effect cases, 636 calls, 526 changed fields, 19 branches both ways; 600 + 600 closure cases, 60 world/aim cases, 24 health, 16 arc, 8 healing-page cases. 001823E0's separate room check is full-only and was not rerun. |
+
+All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_JOBS=2`. The first E run failed before decal comparison because its private link omitted `em_owner_services_original.c`; adding the same dependency as the existing effect oracle made the rerun pass. Receipts: `build/level2/oracles/area01_*.log`, `area01_render_existing_rerun.log`, and `area01_quick_summary.json` (the JSON retains the initial E failure; the rerun log supersedes that result). No emulator was launched. No full mode was run.
+
+## 4. Current exact inventory
+
+The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals in §2 are preserved as the baseline.
+
+`M`, `S`, `X` are the original delta's main, side-only and exit/change/AREA00-only groups. `A` is arrival-only. First-hit cells use the census replay, not the recording's frame number: `00` means `a01_00_train_room`, `s4` means `a01_s4_east_room`, etc.; `E c…` is the later EXIT census's `exit_01` counter. Both are retained when present. A row can first appear in the a01 exit group yet have an earlier post-arrival EXIT hit.
+
+| Runtime | Region | Instructions | Group; first hit | AREA01 status | Existing owner / symbol | Evidence | Shared |
+|---|---|---:|---|---|---|---|---|
+| 0x00113478 | boot | 45 | X; 07 f3468 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00113478` | X | — |
+| 0x001195A8 | boot | 42 | X; 07 f282 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_001195A8` | X | — |
+| 0x00128390 | boot | 13 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128390` | X | — |
+| 0x00128600 | boot | 16 | X; 07 f4487 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128600` | X | — |
+| 0x00128640 | boot | 105 | X; 07 f4486 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128640` | X | — |
+| 0x001287F0 | boot | 14 | M; 00 f1; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001287F0` | S | — |
+| 0x001289C0 | boot | 60 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_001289C0` | X | — |
+| 0x00128AB0 | boot | 51 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128AB0` | X | — |
+| 0x00128B80 | boot | 33 | M; 00 f1; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00128B80` | S | — |
+| 0x00128C10 | boot | 731 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00128C10` | S | — |
+| 0x00129780 | boot | 479 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00129780` | X | — |
+| 0x0012A5D0 | boot | 508 | X; 07 f531 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012A5D0` | X | — |
+| 0x0012ADC0 | boot | 127 | X; 07 f4488 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012ADC0` | X | — |
+| 0x0012AFC0 | boot | 273 | X; 07 f4487 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012AFC0` | X | — |
+| 0x00156F30 | boot | 268 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_00156F30` | Y | — |
+| 0x001576E0 | boot | 96 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001576E0` | Y | — |
+| 0x00157CE0 | boot | 148 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00157CE0` | S | — |
+| 0x001581A0 | boot | 79 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001581A0` | Y | — |
+| 0x00158590 | boot | 158 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00158590` | S | — |
+| 0x00158810 | boot | 237 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_00158810` | Y | — |
+| 0x00158BD0 | boot | 85 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_00158BD0` | Y | — |
+| 0x00158D30 | boot | 97 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00158D30` | S | — |
+| 0x00159B90 | boot | 181 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00159B90` | S | — |
+| 0x0015A2C0 | boot | 291 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0015A2C0` | S | — |
+| 0x0015AB00 | boot | 61 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_0015AB00` | Y | — |
+| 0x0015B030 | boot | 62 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_0015B030` | Y | — |
+| 0x0015B610 | boot | 88 | M; 04 f1810 | verified-unbound | `em_area01_render_frame.c` / `em_area01_render_0015B610` | R | — |
+| 0x0015B770 | boot | 182 | S; s3 f210 | verified-unbound | `em_player_floor.c` / `em_player_stage_0015B770` | D | L |
+| 0x0015FDF0 | boot | 267 | S; s6 f158 | verified-unbound | `em_player_running_jump.c` / `em_player_running_jump_aim` | Q | L |
+| 0x00163D50 | boot | 79 | M; 04 f1255 | verified-unbound | `em_player_fall.c` | E | — |
+| 0x00164220 | boot | 97 | M; 00 f520 | verified-unbound | `em_player_fall.c` | E | — |
+| 0x001647D0 | boot | 1251 | M; 00 f358 | verified-unbound | `em_player_hang.c` | E | — |
+| 0x0016D130 | boot | 833 | S; s5 f136 | verified-unbound | `em_player_closure_0e_18.c` | Q | — |
+| 0x0016DE40 | boot | 855 | S; s5 f282 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
+| 0x0016EBA0 | boot | 235 | S; s5 f3021 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
+| 0x001755B0 | boot | 33 | M; 00 f492 | verified-unbound | `em_player_record_helpers.c` | M | L |
+| 0x001776E0 | boot | 293 | M; 00 f304 | verified-unbound | `em_player_record_helpers.c` | M | — |
+| 0x00177CF0 | boot | 148 | M; 00 f304 | verified-unbound | `em_player_record_helpers.c` | M | — |
+| 0x00179010 | boot | 38 | S; s5 f282 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
+| 0x001790B0 | boot | 39 | S; s5 f376 | verified-unbound | `em_player_closure_0e_18.c` | Q | — |
+| 0x00179150 | boot | 32 | S; s5 f376 | verified-unbound | `em_player_closure_0e_18.c` | Q | — |
+| 0x00179910 | boot | 160 | S; s5 f376 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
+| 0x0017C370 | boot | 52 | S; s3 f209 | verified-unbound | `em_player_stage_workers.c` | D | L |
+| 0x0017E250 | boot | 174 | M; 00 f360 | verified-unbound | `em_player_misc_workers.c` | M | — |
+| 0x0017E510 | boot | 115 | M; 00 f360 | verified-unbound | `em_player_misc_workers.c` | M | — |
+| 0x0017F240 | boot | 56 | M; 00 f358 | verified-unbound | `em_player_hang.c` | M | — |
+| 0x0017F320 | boot | 177 | M; 00 f336 | verified-unbound | `em_player_record_helpers.c` | M | — |
+| 0x00182250 | boot | 100 | M; 00 f358 | verified-unbound | `em_player_misc_workers.c` | M | — |
+| 0x001823E0 | boot | 17 | S; s5 f346 | verified-unbound | `em_player_major2.c` | Q | — |
+| 0x00183250 | boot | 104 | M; 04 f1810 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00183250` | M | — |
+| 0x00187DE0 | boot | 45 | M; 02 f39 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00187DE0` | M | — |
+| 0x00187EC0 | boot | 8 | M; 00 f137 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00187EC0` | M | — |
+| 0x00188550 | boot | 7 | M; 00 f357 | verified-unbound | `em_player_record_helpers.c` | M | — |
+| 0x00188610 | boot | 7 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00188610` | Q | — |
+| 0x00191120 | boot | 59 | M; 00 f357 | verified-unbound | `em_camera_follow_original.c` / `em_camera_follow_00191120` | S | — |
+| 0x00198D90 | boot | 93 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00198D90` | Q | — |
+| 0x0019B4C0 | boot | 128 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0019B4C0` | S | — |
+| 0x0019CF50 | boot | 248 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0019CF50` | S | — |
+| 0x001A06A0 | boot | 283 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A06A0` | S | — |
+| 0x001A8840 | boot | 76 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A8840` | S | — |
+| 0x001A9E00 | boot | 88 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A9E00` | S | — |
+| 0x001AA000 | boot | 78 | M; 00 f57; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001AA000` | S | — |
+| 0x001AA4E0 | boot | 86 | S; s6 f158 | verified-unbound | `em_player_running_jump.c` / `em_player_running_jump_target` | Q | L |
+| 0x001AF7C0 | boot | 13 | S; s2 f280 | verified-unbound | `em_status_models.c` / `w_001AF7C0 (also standalone SIDE)` | D | L |
+| 0x001AFF10 | boot | 30 | S; s2 f279 | verified-unbound | `em_status_scene_original.c` | D | L |
+| 0x001B0000 | boot | 27 | S; s2 f280 | verified-unbound | `em_status_scene_original.c` | D | L |
+| 0x001B0300 | boot | 86 | M; 04 f1810 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B0300` | S | — |
+| 0x001B0C00 | boot | 22 | M; 07 f169 | verified-unbound | `em_script_host_workers.c` / `em_script_host_001B0C00` | S | L |
+| 0x001B0D80 | boot | 15 | M; 00 f35; E c16534 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B0D80` | S | — |
+| 0x001B13F0 | boot | 31 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001B13F0` | M | — |
+| 0x001B2140 | boot | 625 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001B2140` | M | — |
+| 0x001B6D70 | boot | 52 | M; 03 f142 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B6D70` | S | — |
+| 0x001B76D0 | boot | 9 | M; 03 f431 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B76D0` | S | — |
+| 0x001B9CF0 | boot | 191 | M; 03 f301 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001B9CF0` | M | — |
+| 0x001BB400 | boot | 71 | S; s4 f250 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB400` | Q | — |
+| 0x001BB520 | boot | 14 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001BB520` | Y | — |
+| 0x001BB560 | boot | 152 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB560` | M | — |
+| 0x001BB7C0 | boot | 10 | S; s4 f246 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7C0` | Q | — |
+| 0x001BB7F0 | boot | 27 | S; s4 f334 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7F0` | Q | — |
+| 0x001BB860 | boot | 157 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB860` | M | — |
+| 0x001BBAE0 | boot | 68 | M; 03 f143 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBAE0` | M | — |
+| 0x001BBBF0 | boot | 75 | M; 03 f75 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBBF0` | M | — |
+| 0x001BF630 | boot | 31 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BF630` | M | — |
+| 0x001BFFD0 | boot | 13 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BFFD0` | M | — |
+| 0x001C0004 | boot | 181 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BFFD0 (interior piece)` | M | — |
+| 0x001C02E0 | boot | 254 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001C02E0` | M | — |
+| 0x001C2430 | boot | 37 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C2430` | Y | — |
+| 0x001C2540 | boot | 38 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C2540` | Y | — |
+| 0x001C25E0 | boot | 42 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C25E0` | M | — |
+| 0x001C2770 | boot | 544 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C2770` | M | — |
+| 0x001C39F0 | boot | 122 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C39F0` | M | — |
+| 0x001C3BE0 | boot | 96 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C3BE0` | M | — |
+| 0x001C3D60 | boot | 17 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C3D60` | M | — |
+| 0x001C3DB0 | boot | 191 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C3DB0` | Y | — |
+| 0x001C4720 | boot | 13 | S; s2 f246 | verified-unbound | `em_pickup_owner.c` / `em_pickup_owner_take (also standalone SIDE)` | D | L |
+| 0x001C4FA0 | boot | 43 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C4FA0` | L2 | — |
+| 0x001C50B0 | boot | 303 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C50B0` | L2 | — |
+| 0x001C6160 | boot | 11 | X; 07 f755 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C6160` | Y | — |
+| 0x001C69A0 | boot | 254 | M; 00 f1 | verified-unbound | `em_status_models.c` / `em_status_models_pose_001C69A0 (also standalone MATH)` | M | L |
+| 0x001CB360 | boot | 21 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001CB360` | M | — |
+| 0x001CB480 | boot | 28 | S; s2 f280 | verified-unbound | `em_area01_side.c` / `em_area01_side_001CB480` | D | U |
+| 0x001CD070 | boot | 68 | M; 00 f1 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD070` | R | L |
+| 0x001CD180 | boot | 76 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD180` | R | — |
+| 0x001CD2B0 | boot | 48 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD2B0` | R | — |
+| 0x001D0400 | boot | 43 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001D0400` | Y | — |
+| 0x001D0C80 | boot | 47 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0C80` | K | — |
+| 0x001D0D40 | boot | 8 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0D40` | K | — |
+| 0x001D0D60 | boot | 111 | S; s5 f904 | verified-unbound | `em_area01_room.c` / `em_area01_room_001D0D60` | Q | — |
+| 0x001D4FC0 | boot | 106 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D4FC0` | R | — |
+| 0x001D5170 | boot | 92 | M; 00 f53 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5170` | R | — |
+| 0x001D5A70 | boot | 86 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5A70` | R | — |
+| 0x001D5BD0 | boot | 41 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5BD0` | R | — |
+| 0x001D8100 | boot | 9 | S; s3 f208 | verified-unbound | `em_effect_original.c` | D | L |
+| 0x001E3D20 | boot | 27 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001E3D20` | D | — |
+| 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S | — |
+| 0x001E7CB0 | boot | 25 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7CB0` | S | — |
+| 0x001E7D20 | boot | 902 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7D20` | S | — |
+| 0x001E8B90 | boot | 187 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001E8B90` | R | — |
+| 0x001E8E80 | boot | 253 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E8E80` | Y | — |
+| 0x001E9280 | boot | 189 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9280` | Y | — |
+| 0x001E9580 | boot | 566 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9580` | Y | — |
+| 0x001E9E60 | boot | 233 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001E9E60` | R | — |
+| 0x001EAF00 | boot | 31 | M; 00 f138 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF00` | R | — |
+| 0x001EAF80 | boot | 39 | M; 02 f44 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF80` | R | — |
+| 0x001EB020 | boot | 140 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EB020` | R | — |
+| 0x001EC270 | boot | 96 | M; 02 f599 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EC270` | R | — |
+| 0x001EFE00 | boot | 43 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001EFE00` | D | L |
+| 0x001F0190 | boot | 64 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0190` | D | L |
+| 0x001F0290 | boot | 12 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0290` | D | L |
+| 0x001F0460 | boot | 176 | M; 00 f178 | verified-unbound | `em_effect_original.c` | E | L |
+| 0x001F4A10 | boot | 120 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001F4A10` | R | — |
+| 0x001F4BF0 | boot | 50 | M; 00 f1; E c16504 | verified-unbound | `em_status_scene_original.c` | E | — |
+| 0x001F4CC0 | boot | 30 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001F4CC0` | R | — |
+| 0x001FAD70 | boot | 61 | M; 07 f169 | verified-unbound | `em_stream_lanes_original.c` / `em_stream_lanes_001FAD70` | S | L |
+| 0x001FCF60 | boot | 11 | S; s1 f330 | verified-unbound | `em_census_standins.c` | D | L |
+| 0x001FCF90 | boot | 82 | S; s1 f330 | verified-unbound | `em_census_standins.c` | D | L |
+| 0x001FE660 | boot | 20 | S; s1 f330 | verified-unbound | `em_census_standins.c` | D | L |
+| 0x00207D90 | boot | 43 | S; s2 f280 | boundary | `em_page_draw.c` native draw contract; standalone `em_area01_ui_pages.c` | U | B |
+| 0x00208040 | boot | 88 | S; s2 f280 | boundary | `em_page_draw.c` native draw contract; standalone `em_area01_ui_pages.c` | U | B |
+| 0x002082B0 | boot | 295 | S; s5 f1633 | verified-unbound | `em_item_geometry.c` / `em_item_geometry_arc` | Q | L |
+| 0x00208AD0 | boot | 490 | S; s5 f1633 | verified-unbound | `em_status_draw.c` / `em_status_health_draw` | Q | L |
+| 0x0020F950 | boot | 438 | S; s2 f279 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_0020F950` | U | L |
+| 0x00210030 | boot | 98 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00210030` | U | L |
+| 0x002101C0 | boot | 527 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_002101C0` | U | L |
+| 0x00210A00 | boot | 127 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00210A00` | U | L |
+| 0x00210C00 | boot | 203 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00210C00` | U | L |
+| 0x00210F30 | boot | 195 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00210F30` | U | L |
+| 0x00211400 | boot | 244 | S; s2 f280 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00211400` | U | L |
+| 0x002131B0 | boot | 194 | S; s1 f330 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_002131B0` | U | L |
+| 0x002134C0 | boot | 333 | S; s1 f330 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_002134C0` | U | L |
+| 0x00213F30 | boot | 60 | S; s1 f329 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00213F30` | U | L |
+| 0x00214020 | boot | 338 | S; s1 f329 | verified-unbound | `em_area01_ui_pages.c` / `em_area01_ui_00214020` | U | L |
+| 0x002160B0 | boot | 1014 | S; s5 f1632 | verified-unbound | `em_status_pages_item.c` / `em_status_pages_002160B0` | Q | L |
+| 0x0021BC40 | boot | 50 | S; s3 f209 | verified-unbound | `em_player_stage_workers.c` | D | L |
+| 0x0021C350 | boot | 37 | S; s3 f209 | verified-unbound | `em_player_stage_workers.c` | D | L |
+| 0x0021D1A0 | boot | 43 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
+| 0x0021D600 | boot | 14 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
+| 0x0021D800 | boot | 236 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
+| 0x00225A00 | boot | 5 | S; s4 f679 | verified-unbound | `em_area01_room.c` / `em_area01_room_00225A00` | Q | V |
+| 0x0022B700 | boot | 40 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022B700` | U | L |
+| 0x0022B7A0 | boot | 243 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022B7A0` | U | L |
+| 0x0022BB70 | boot | 17 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022BB70` | U | L |
+| 0x0022BBC0 | boot | 1509 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022BBC0` | U | L |
+| 0x0022DCD0 | boot | 599 | X; 07 f531 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0022DCD0` | X | — |
+| 0x00823580 | AREA01 | 147 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00823580` | O | — |
+| 0x00825130 | AREA01 | 65 | M; 05 f139 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825130` | O | — |
+| 0x00825240 | AREA01 | 65 | M; 05 f2491 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825240` | O | — |
+| 0x00825350 | AREA01 | 88 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825350` | O | — |
+| 0x008254B0 | AREA01 | 53 | M; 00 f1; E c16504 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008254B0` | O | — |
+| 0x00825590 | AREA01 | 55 | M; 03 f296 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825590` | O | — |
+| 0x00825670 | AREA01 | 52 | M; 05 f3932 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825670` | O | — |
+| 0x00825740 | AREA01 | 113 | A; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825740` | T | — |
+| 0x008261A0 | AREA01 | 24 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008261A0` | O | — |
+| 0x00826200 | AREA01 | 143 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826200` | O | — |
+| 0x00826440 | AREA01 | 221 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826440` | O | — |
+| 0x008267C0 | AREA01 | 99 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008267C0` | O | — |
+| 0x00826CF0 | AREA01 | 17 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826CF0` | O | — |
+| 0x00826D40 | AREA01 | 1386 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826D40` | O | — |
+| 0x00828850 | AREA01 | 102 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00828850` | O | — |
+
+## 5. The five baseline missing entries and caller evidence
+
+The five arrival-only entries total 514 instructions. At phase 1, searching native definitions, declarations and callers found no implementations; references to helpers in a worker table do not count as translations. The original C and the relevant native caller were inspected for these edges:
+
+| Missing entry | Original caller / role | Binding implication |
+|---|---|---|
+| 001C4FA0 (43 instructions) | 001C50B0 calls the type-dependent progress predicate. | Implement once with the original progress-byte tests. |
+| 001C50B0 (303) | AREA01 placement [40] installs this light owner; the EXIT census sees it at counter 16503, though the later a01 beats never hit it. It calls 001C4FA0 and shared light/effect helpers. | Preserve its initialization/teardown; disappearance before the route snapshot does not make it optional. |
+| 001D0C80 (47) | 001C02E0 state 0 calls the bone/segment setup; original C allocates through 001AF780 after the slot-limit test. Native `em_area01_math_owner.c` still calls it through F_001D0C80. | Bind the one canonical slot stack and preserve the original failure path. |
+| 001D0D40 (8) | 001C02E0 state 0 follows setup with this animation-record binder. Native F_001D0D40 is a call-out only. | Translate the original helper, then bind its storage view; a worker declaration is insufficient. |
+| AREA01 00825740 (113) | Placement [38] talk owner, original `func_overlay_AREA01_00825700.c` (runtime +0x40); its script is 0x82A7B0. EXIT sees it at counter 16503, but no a01 beat sees it. | Add it to the AREA01 owner set with an oracle; the existing overlay harness covers only the other fourteen. |
+
+Original-source locations are `../Extermination/src/func_001C4FA0.c`, `func_001C50B0.c`, `func_001D0C80.c`, `func_001D0D40.c`, and `src/overlays/AREA01/func_overlay_AREA01_00825700.c`; the bone caller is `src/func_001C02E0.c`. The first four helper/owner sources are byte-matched C; the caller 001C02E0 is NEARMISS, so its native MATH oracle is the instruction-level evidence, not the decomp's label.
+
+Other original caller relationships checked against the existing translated owner/oracle interfaces: 001BFFD0 spans 001C0004; 001D5370 reaches the RENDER lane through 001D5BD0; 00128C10/0012A5D0 reach actor math; 001BB860 reaches slider-door workers 001BB520/001BB560/001BB7C0/001BB7F0; the overlay NPC dispatches 008254B0/00825590/00825670 by its story byte. These hooks still need a real AREA01 memory and worker adapter.
+
+## 6. Coverage limits and promotion checklist
+
+- The 808 old-baseline entries are inherited infrastructure, not duplicated in §4; this ledger is the requested a01 delta plus §3.26, not a complete proof that every shared caller or switch case is ready. For an all-entry list use `a01_delta.json.functions`.
+- Census presence means an entry ran at least once. It gives neither call counts nor full dispatcher-case coverage. Most a01 census replays completed the same route with different frame timings from their captures; SECOND_LEVEL_ROUTE §6 and §9.7 list the exact differences.
+- The initial AREA01 scene gate prevents a connected run. Common player/camera code, asset availability, the AREA01 messages and the native platform draw contract each need route evidence before promoting their rows. The standalone GS/VIF translations are retained as verified game-visible packet logic; they are not all reclassified as platform boundaries.
+- The AREA00 portion of a01_07 extends beyond this task's arrival stop. Keep its historical rows in the inventory without treating them as a requirement to continue AREA00 gameplay.
+- Each promotion must name the original caller, canonical native owner, live adapter and compared AREA01 beat/window, then recompute status totals. Record shared-file changes in LEVEL2_BINDING.md. Do not edit the first-level census or claim that a standalone PASS proves AREA01 play.
+
+Phase 1 established this inventory without implementing the five missing entries. The private reference-harness dependency repair and later shared-file edits are recorded in LEVEL2_BINDING.md by the integrating phase.
+
+
+## 7. Phase-2 prerequisite checkpoint
+
+All five phase-1 missing entries now have standalone original-instruction
+verification. This changes availability, not connected AREA01 execution.
+The exact inventory in §4 is current; §2 preserves the original baseline.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 0 | 0 |
+| verified-unbound | 177 | 29,416 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
+
+| Evidence key | New owner and original caller | Verification |
+|---|---|---|
+| K | 001D0C80 / 001D0D40 in the existing MATH module, called directly by 001C02E0 state 0 | LEVEL2_BONE_INIT.md: quick 40 setup cases / 1,443 worker boundaries / all 4 branch outcomes, 21 record-bind cases; changed caller 57 cases / 363 boundaries / all 24 outcomes. Complete math quick suite passes in 8.1 s. Full: 14,135 setup cases / 760,551 boundaries; 34,716 bind cases; caller 1,606 cases / 7,656 boundaries; complete math full suite passes in 458.7 s. |
+| L2 | 001C4FA0 / 001C50B0 in em_area01_light_owner, placement [40] and its predicate | LEVEL2_LIGHT_OWNER.md: quick 161 cases / 216 boundaries; full 2,309 cases / 2,536 boundaries, plus six fail-stop contracts. Original input is the EXIT arrival's retained light node. |
+| T | AREA01 00825740 in the existing OVERLAY module, placement [38] | LEVEL2_TALK_OWNER.md: owner quick 184 cases, full 1,131; whole overlay full 14,034 cases / 21,199 executions, all 15 entries. These new owner cases are designed calls on captured memory, not a captured continuing conversation. |
+
+K was run by the census/bone lane. L2 and T are the implementing lanes'
+reported original-instruction results, with their details and local
+receipts recorded in the linked documents. These promotions do not mean
+that native AREA01 calls any of the workers with the right live state.
+The frame, owner, script, collision, camera, message, renderer and canonical
+memory bindings still require route evidence. The census instruction
+counts retain the source-entry extents; a complete native/oracle body can
+also cover trailing instructions not included in an old entry's size.

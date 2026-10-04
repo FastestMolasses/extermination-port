@@ -7,8 +7,10 @@
 #include "em_math.h"
 #include "em_model.h"
 #include "game/em_ee_float.h"
+#include "game/em_area01_math_actor.h"
 #include "game/em_owner_services_original.h"
 #include "game/em_player_pose.h"
+#include "game/em_pose_host_workers.h"
 #include "game/em_random.h"
 #include "game/em_sdk_vu0.h"
 
@@ -55,6 +57,7 @@ typedef struct {
 struct EmStatusModels {
     EmStatusScenePool pool;
     EmStatusSceneScratch spr;         /* 0020EC80's scratchpad */
+    uint32_t pose_rest[16], pose_quat[4], pose_products[11]; /* 3480, 3600, 3760 */
     EmOwnerServicesScratch owner_spr; /* 001C9610's staging */
     EmOwnerServices services;
     EmStatusSceneWorkers workers;
@@ -507,57 +510,105 @@ static int w_001026A0(void *ctx, uint32_t out, uint32_t mat, uint32_t v)
     return 0;
 }
 
-int em_status_models_pose_001C69A0(const float object[16], const float scale[4],
-                                   const EmStatusModelsNode *nodes, unsigned count,
-                                   float (*world)[16])
+/* The status channel evaluator already owns the blended quaternion. This
+ * temporary address view passes its fields to C69A0's shared matrix stages;
+ * there are no fabricated raw keys or another pose calculation here. Slot
+ * handles are the status owner's existing layout, used only by this view. */
+typedef struct {
+    const float *scale;
+    const EmStatusModelsNode *nodes;
+    unsigned count;
+    float (*world)[16];
+    uint32_t table[EM_OWNER_SERVICES_MAX_BONES];
+    uint32_t *root,*anim,*rest,*quat,*products;
+} StatusPose69;
+
+static uint8_t *pose69_bytes(void *ctx,uint32_t address,uint32_t size,int write)
 {
-    if (!object || !scale || !nodes || !world || count > EM_OWNER_SERVICES_MAX_BONES)
-        return -1;
-    /* 0x70003400 rows 0..2, xyz x +0x60 lanes x, y, z (MULBC xyz /x, /y, /z). */
-    uint32_t root[16], s[4];
-    memcpy(root, object, sizeof root);
-    memcpy(s, scale, sizeof s);
-    for (int row = 0; row < 3; ++row)
-        if (em_vu_vec_bits(EM_VU_MULBC, 14, row, root + 4 * row, s, 0, NULL, root + 4 * row))
-            return -1;
-    EmOwnerBone bone[EM_OWNER_SERVICES_MAX_BONES];
-    EmOwnerBone *list[EM_OWNER_SERVICES_MAX_BONES];
-    for (unsigned i = 0; i < count; ++i) {
-        const EmStatusModelsNode *n = &nodes[i];
-        /* quat_to_mat3(0x70003440, the blended quaternion, +0x00), then row
-         * k xyz x +0x18 + 4k (MULBC xyz /x). */
-        EmPoseChannels c;
-        memcpy(c.translation, n->translation, sizeof c.translation);
-        memcpy(c.rotation, n->rotation, sizeof c.rotation);
-        c.scale[0] = c.scale[1] = c.scale[2] = 1.0f; /* exact: EE x 1.0 */
-        float anim[16];
-        em_pose_channels_matrix(anim, &c);
-        uint32_t rows[16];
-        memcpy(rows, anim, sizeof rows);
-        for (int row = 0; row < 3; ++row) {
-            uint32_t v5[4] = {em_ee_bits(n->scale[row]), 0, 0, 0};
-            if (em_vu_vec_bits(EM_VU_MULBC, 14, 0, rows + 4 * row, v5, 0, NULL, rows + 4 * row))
-                return -1;
-        }
-        memset(&bone[i], 0, sizeof bone[i]);
-        memcpy(bone[i].bind, rows, sizeof rows); /* 001C9610 multiplies rest x this */
-        bone[i].parent = n->parent;
-        memcpy(bone[i].rot, n->rest_rot, sizeof bone[i].rot);
-        memcpy(bone[i].trans, n->rest_trans, sizeof bone[i].trans);
-        memcpy(bone[i].scale, n->rest_scale, sizeof bone[i].scale);
-        list[i] = &bone[i];
+    StatusPose69 *p=ctx;
+    if (!size) return NULL;
+    if (!write && address>=0x0028B080u && address-0x0028B080u<=16u &&
+        size<=16u-(address-0x0028B080u))
+        return (uint8_t *)(void *)p->scale+(address-0x0028B080u);
+    if (!write && address>=0x0028B130u && address-0x0028B130u<=p->count*4u &&
+        size<=p->count*4u-(address-0x0028B130u))
+        return (uint8_t *)(void *)p->table+(address-0x0028B130u);
+    const struct { uint32_t at,size; uint32_t *bytes; } scratch[]={
+        {0x70003400u,64,p->root},{0x70003440u,64,p->anim},
+        {0x70003480u,64,p->rest},{0x70003600u,16,p->quat},{0x70003760u,44,p->products}
+    };
+    for (unsigned i=0;i<sizeof scratch/sizeof scratch[0];++i)
+        if (address>=scratch[i].at && address-scratch[i].at<=scratch[i].size &&
+            size<=scratch[i].size-(address-scratch[i].at))
+            return (uint8_t *)(void *)scratch[i].bytes+(address-scratch[i].at);
+    if (address<SLOT_BASE || (address-SLOT_BASE)/SLOT_SIZE>=p->count) return NULL;
+    unsigned i=(address-SLOT_BASE)/SLOT_SIZE,offset=(address-SLOT_BASE)%SLOT_SIZE;
+    const EmStatusModelsNode *n=&p->nodes[i];
+    const struct { unsigned at,size; const void *bytes; int writable; } fields[]={
+        {0,12,n->translation,0},{0x18,12,n->scale,0},{0x64,2,&n->parent,0},
+        {0x70,12,n->rest_rot,0},{0x7C,12,n->rest_trans,0},{0x88,6,n->rest_scale,0},
+        {0x90,64,p->world[i],1}
+    };
+    for (unsigned k=0;k<sizeof fields/sizeof fields[0];++k)
+        if ((!write || fields[k].writable) && offset>=fields[k].at &&
+            offset-fields[k].at<=fields[k].size && size<=fields[k].size-(offset-fields[k].at))
+            return (uint8_t *)(void *)fields[k].bytes+(offset-fields[k].at);
+    return NULL;
+}
+static int pose69_worker(void *ctx,uint32_t fn,const uint32_t *a,unsigned na,
+                          const uint32_t *f,unsigned nf,uint32_t *v0,uint32_t *f0)
+{
+    StatusPose69 *p=ctx;(void)f;(void)v0;(void)f0;
+    if (nf) return -1;
+    if (fn==0x001CA1C0u && na==3) {
+        uint8_t *out=pose69_bytes(p,a[0],64,1);
+        const uint8_t *quat=pose69_bytes(p,a[1],16,0),*translation=pose69_bytes(p,a[2],12,0);
+        uint32_t matrix[16],q[4],t[3];
+        if (!out || !quat || !translation) return -1;
+        memcpy(q,quat,16);memcpy(t,translation,12);
+        em_pose_host_001CA1C0(matrix,q,t,p->products);memcpy(out,matrix,64);return 0;
     }
-    EmOwnerServicesScratch spr;
-    EmOwnerServices services;
-    memset(&services, 0, sizeof services);
-    services.world.scratch = &spr;
-    float rootf[16];
-    memcpy(rootf, root, sizeof rootf);
-    if (em_owner_services_001C9610(&services, list, (int32_t)count, rootf) < 0)
-        return -1;
-    for (unsigned i = 0; i < count; ++i)
-        memcpy(world[i], bone[i].world, sizeof world[i]);
+    if (fn==0x001029C0u && na==1) {
+        uint8_t *out=pose69_bytes(p,a[0],64,1);float matrix[16];
+        if (!out || em_owner_services_identity_001029C0(matrix)<0) return -1;
+        memcpy(out,matrix,64);return 0;
+    }
+    if (fn==0x00102C58u && na==3) {
+        uint8_t *out=pose69_bytes(p,a[0],64,1);
+        const uint8_t *in=pose69_bytes(p,a[1],64,0),*angles=pose69_bytes(p,a[2],12,0);
+        float matrix[16],rotation[3];
+        if (!out || !in || !angles) return -1;
+        memcpy(matrix,in,64);memcpy(rotation,angles,12);
+        if (em_owner_services_euler_00102C58(matrix,matrix,rotation)<0) return -1;
+        memcpy(out,matrix,64);return 0;
+    }
+    return -1;
+}
+static int pose69_stages(StatusPose69 *p)
+{
+    if (!p->scale || !p->nodes || !p->world || !p->root || !p->anim || !p->rest ||
+        !p->quat || !p->products || p->count>EM_OWNER_SERVICES_MAX_BONES) return -1;
+    for (unsigned i=0;i<p->count;++i) p->table[i]=SLOT_BASE+SLOT_SIZE*i;
+    EmA01Math math={0};math.ctx=p;math.view=pose69_bytes;math.call=pose69_worker;
+    if (em_area01_math_001C69A0_root(&math,0x0028B020u)<0) return -1;
+    for (unsigned i=0;i<p->count;++i) {
+        memcpy(p->quat,p->nodes[i].rotation,16);
+        if (em_area01_math_001C69A0_bone(&math,0x0028B020u,p->table[i])<0) return -1;
+    }
     return 0;
+}
+
+int em_status_models_pose_001C69A0(const float object[16],const float scale[4],
+                                   const EmStatusModelsNode *nodes,unsigned count,float (*world)[16])
+{
+    if (!object || !scale || !nodes || !world || count>EM_OWNER_SERVICES_MAX_BONES) return -1;
+    uint32_t root[16],anim[16]={0},rest[16]={0},quat[4]={0},products[11]={0};
+    float palette[EM_OWNER_SERVICES_MAX_BONES][16]={{0}};
+    memcpy(root,object,64);
+    StatusPose69 p={.scale=scale,.nodes=nodes,.count=count,.world=palette,
+        .root=root,.anim=anim,.rest=rest,.quat=quat,.products=products};
+    if (pose69_stages(&p)<0) return -1;
+    memcpy(world,palette,count*sizeof *world);return 0;
 }
 
 static int w_001C69A0(void *ctx, EmStatusSceneActor *a)
@@ -583,16 +634,13 @@ static int w_001C69A0(void *ctx, EmStatusSceneActor *a)
         memcpy(n->rest_rot, bone->rot, sizeof n->rest_rot);
         memcpy(n->rest_trans, bone->trans, sizeof n->rest_trans);
         memcpy(n->rest_scale, bone->scale, sizeof n->rest_scale);
+        memcpy(world[i],bone->world,sizeof world[i]);
     }
-    if (em_status_models_pose_001C69A0(m->spr.s3400, a->f60, nodes, a->b0C, world) < 0)
+    StatusPose69 view={.scale=a->f60,.nodes=nodes,.count=a->b0C,.world=world,
+        .root=(uint32_t *)(void *)m->spr.s3400,.anim=(uint32_t *)(void *)m->spr.s3440,
+        .rest=m->pose_rest,.quat=m->pose_quat,.products=m->pose_products};
+    if (pose69_stages(&view)<0)
         return fault(m, 0x001C69A0u, "the bone pose faulted");
-    /* 001C69A0 stores the scaled rows back to 0x70003400. */
-    uint32_t root[16], s[4];
-    memcpy(root, m->spr.s3400, sizeof root);
-    memcpy(s, a->f60, sizeof s);
-    for (int row = 0; row < 3; ++row)
-        (void)em_vu_vec_bits(EM_VU_MULBC, 14, row, root + 4 * row, s, 0, NULL, root + 4 * row);
-    memcpy(m->spr.s3400, root, sizeof root);
     for (unsigned i = 0; i < a->b0C; ++i)
         memcpy(slot_of(m, a->w110[i])->world, world[i], sizeof world[i]);
     return 0;

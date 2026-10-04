@@ -71,6 +71,16 @@
 #define EM_AREA11_BOX_TABLES_PATH "assets/scene_snow/box_tables.emrg"
 #define EM_AREA11_WORLD_MODELS_PATH "assets/scene_snow/world_models.emwm"
 
+/* Select *D_0028A59C at an area rebuild, after all old owner views have
+ * been released and em_area11_boxes_reset has cleared this adapter.
+ * resource_word is the canonical loader's D_0028A490[0x43], not an address
+ * inferred from the filename. The EMWM header must name that exact table.
+ * A current-generation owned model prevents rebinding (even to the same
+ * file); all borrowed world_model/world_models views expire on success.
+ * Failure preserves the previous bank. The global library D_0028A56C and
+ * Roger resources are unaffected. Return 0, or -1 with a diagnostic. */
+int em_area11_boxes_bind_world_bank(const char *path, uint32_t resource_word);
+
 /* The 001AF710 bone-slot stack and its 0xD0-byte slot arena as
  * em_roger_actor_original views (D_00275BCC, D_00275BD0, D_007D4640[],
  * D_007D5840..): the one storage the boxes and Roger's owner pop from and
@@ -174,6 +184,12 @@ int em_area11_boxes_owner_draw(EmActor *actor);
 /* A bound world owner's +0x44 (the model's original address) and +0x4C,
  * for the tick log: 1, or 0 when `actor` is not a bound world owner. */
 int em_area11_boxes_owner_state(const EmActor *actor, uint32_t *model, uint32_t *method);
+/* Nonallocating record projection for byte-addressed owner callers: +0x40,
+ * +0x44 and +0x4C of this generation's already bound world/library owner.
+ * The returned words are observations of the canonical view, not writable
+ * record storage. Returns 1 bound, 0 absent or invalid output pointers. */
+int em_area11_boxes_owner_fields(const EmActor *actor, uint32_t *anim, uint32_t *model,
+                                  uint32_t *method);
 /* Node k's +0x90 world matrix (slot k of a bound world owner). 0, or -1. */
 int em_area11_boxes_owner_node(const EmActor *actor, unsigned k, float out[16]);
 

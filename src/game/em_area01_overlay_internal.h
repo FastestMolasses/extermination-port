@@ -26,11 +26,13 @@ static inline int a01_latch(A01Ovl *o, uint32_t address, int32_t code)
 
 static inline int a01_failed(const A01Ovl *o) { return o->fault->code != EM_AREA01_OVL_FAULT_NONE; }
 
-static inline uint8_t *a01_at(A01Ovl *o, uint32_t address, uint32_t size)
+static inline uint8_t *a01_at(A01Ovl *o, uint32_t address, uint32_t size, int write)
 {
     uint8_t *p = NULL;
     if (!a01_failed(o)) {
-        p = o->h->bytes ? o->h->bytes(o->h->ctx, address, size) : NULL;
+        if (size && (uint64_t)address + size <= UINT64_C(0x100000000))
+            p = o->h->view ? o->h->view(o->h->ctx, address, size, write) :
+                o->h->bytes ? o->h->bytes(o->h->ctx, address, size) : NULL;
         if (!p) a01_latch(o, address, EM_AREA01_OVL_FAULT_BAD_ADDRESS);
     }
     if (!p) {
@@ -40,19 +42,19 @@ static inline uint8_t *a01_at(A01Ovl *o, uint32_t address, uint32_t size)
     return p;
 }
 
-static inline uint32_t a01_u8(A01Ovl *o, uint32_t a) { return *a01_at(o, a, 1); }
-static inline int32_t a01_s8(A01Ovl *o, uint32_t a) { return (int8_t)*a01_at(o, a, 1); }
+static inline uint32_t a01_u8(A01Ovl *o, uint32_t a) { return *a01_at(o, a, 1, 0); }
+static inline int32_t a01_s8(A01Ovl *o, uint32_t a) { return (int8_t)*a01_at(o, a, 1, 0); }
 static inline uint32_t a01_u16(A01Ovl *o, uint32_t a)
 {
     uint16_t v;
-    memcpy(&v, a01_at(o, a, 2), 2);
+    memcpy(&v, a01_at(o, a, 2, 0), 2);
     return v;
 }
 static inline int32_t a01_s16(A01Ovl *o, uint32_t a) { return (int16_t)a01_u16(o, a); }
 static inline uint32_t a01_u32(A01Ovl *o, uint32_t a)
 {
     uint32_t v;
-    memcpy(&v, a01_at(o, a, 4), 4);
+    memcpy(&v, a01_at(o, a, 4, 0), 4);
     return v;
 }
 static inline int32_t a01_s32(A01Ovl *o, uint32_t a) { return (int32_t)a01_u32(o, a); }
@@ -61,14 +63,14 @@ static inline float a01_f32(A01Ovl *o, uint32_t a) { return em_ee_float(a01_u32(
 static inline void a01_w8(A01Ovl *o, uint32_t a, uint32_t v)
 {
     uint8_t b = (uint8_t)v;
-    memcpy(a01_at(o, a, 1), &b, 1);
+    memcpy(a01_at(o, a, 1, 1), &b, 1);
 }
 static inline void a01_w16(A01Ovl *o, uint32_t a, uint32_t v)
 {
     uint16_t h = (uint16_t)v;
-    memcpy(a01_at(o, a, 2), &h, 2);
+    memcpy(a01_at(o, a, 2, 1), &h, 2);
 }
-static inline void a01_w32(A01Ovl *o, uint32_t a, uint32_t v) { memcpy(a01_at(o, a, 4), &v, 4); }
+static inline void a01_w32(A01Ovl *o, uint32_t a, uint32_t v) { memcpy(a01_at(o, a, 4, 1), &v, 4); }
 static inline void a01_wf(A01Ovl *o, uint32_t a, float v) { a01_w32(o, a, em_ee_bits(v)); }
 
 /* One wrapper per hook. Arguments are evaluated by the caller before the

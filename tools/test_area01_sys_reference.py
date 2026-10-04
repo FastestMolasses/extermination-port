@@ -137,6 +137,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
+import area01_reference_view as AV  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
@@ -471,7 +472,7 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 
 class Sys(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
-                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32)]
+                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32), ('view', C.c_void_p)]
 
 
 NATIVE = None
@@ -1106,6 +1107,9 @@ def run_case(case):
     ram, spad = prepared(case)
     nat = NativeRun(ram, spad, Script(case['script']), set(case.get('indirect', ())), case.get('forced', ()),
                     case.get('stack', ()))
+    if AV.ENABLED:
+        nat.canonical_view = AV.CanonicalView(nat.regions)
+        nat.canonical_view.install(nat.sys)
     native_lines()                           # a previous case's leftovers
     where = (case['name'],)
     if case.get('fault'):
@@ -4383,6 +4387,8 @@ UNREACHABLE = {
 def main():
     global NATIVE, ELF, FUNC_RANGES, ELF_IMAGE
     t0 = time.time()
+    if AV.ENABLED:
+        print('canonical callback mode: all original-instruction comparisons; region arrays disabled', flush=True)
     FUNC_RANGES = tuple((fn, fn + size) for fn, size in sorted(FUNCS.items()))
     ELF = read_elf()
     base = FallEE(ELF)

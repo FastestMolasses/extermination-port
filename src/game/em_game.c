@@ -578,9 +578,9 @@ const float kLocoTierSpeed[4] = { 0.0f, 0.1f, 0.3f, 0.8f };
  * the canonical D2 progress byte (em_scene_state.h; D_0081084C for
  * AREA11, migrated in WP-4). The original writer is 001580C0 (the panel
  * program's record callback, bound in the AREA11 interaction host); the
- * readers are 00159210 state 0, 00827B10 and its indicator. Only
- * AREA11's byte is canonical: any other area reads as unpowered and is
- * reported once (no scene outside AREA11 has a powered owner). */
+ * readers are 00159210 state 0, 00827B10 and its indicator. Rows 1, 4
+ * and 11 (D_00810842/845/84C) are canonical; an unmigrated row reads
+ * as unpowered and is reported once. */
 int em_game_terminal_powered(void)
 {
     EmSceneState *scene = em_scene_state();
@@ -589,7 +589,7 @@ int em_game_terminal_powered(void)
         static int reported;
         if (!reported++)
             fprintf(stderr, "em_game: D_00810841[%02X] is not a canonical progress byte "
-                    "(only AREA11's D_0081084C is); read as unpowered\n", scene->d810700);
+                    "(migrated rows are 1, 4 and 11); read as unpowered\n", scene->d810700);
         return 0;
     }
     return (*power & 0x80) != 0;

@@ -235,8 +235,9 @@ int em_actor_pool_free_001AFC10(EmActorPool *pool, EmSceneState *scene, EmActor 
     return 0;
 }
 
-int em_actor_pool_walk_001AFD70(EmActorPool *pool, EmSceneState *scene, int mode, void *world,
-                                EmActorTraceFn trace, void *trace_ctx)
+int em_actor_pool_walk_bound_001AFD70(EmActorPool *pool, EmSceneState *scene, int mode, void *world,
+                                     EmActorSelectFn select,void *select_ctx,
+                                     EmActorTraceFn trace, void *trace_ctx)
 {
     if (em_scene_faulted(scene))
         return -1;
@@ -259,6 +260,8 @@ int em_actor_pool_walk_001AFD70(EmActorPool *pool, EmSceneState *scene, int mode
         uint32_t address = em_actor_pool_address(pool, cur);
         if (trace)
             trace(trace_ctx, EM_ACTOR_FN_001AFD70, EM_ACTOR_FN_001CB590, address, cur);
+        if(select && select(select_ctx,address,cur)<0)
+            return em_scene_fault(scene,EM_ACTOR_FN_001CB590,EM_SCENE_FAULT_WORKER_FAILED);
         cur->drawn = 0;
         if (!cur->behavior)
             return em_scene_fault(scene, cur->callback, EM_SCENE_FAULT_NULL_WORKER);
@@ -277,4 +280,10 @@ int em_actor_pool_walk_001AFD70(EmActorPool *pool, EmSceneState *scene, int mode
         cur = next;
     }
     return 0;
+}
+
+int em_actor_pool_walk_001AFD70(EmActorPool *pool,EmSceneState *scene,int mode,void *world,
+                              EmActorTraceFn trace,void *trace_ctx)
+{
+    return em_actor_pool_walk_bound_001AFD70(pool,scene,mode,world,NULL,NULL,trace,trace_ctx);
 }

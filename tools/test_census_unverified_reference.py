@@ -303,7 +303,9 @@ def compile_all():
     units = {
         'pickup': (PICKUP_HARNESS, []),
         'child': (CHILD_HARNESS, [str(SRC / 'game/em_indicator_child.c'), str(SRC / 'game/em_effect_kinds.c')]),
-        'models': (MODELS_HARNESS, [str(SRC / 'game/em_owner_services_original.c')]),
+        'models': (MODELS_HARNESS, [str(SRC / ('game/' + name)) for name in
+                   ('em_owner_services_original.c', 'em_area01_math_core.c',
+                    'em_area01_math_actor.c', 'em_pose_host_workers.c')]),
         'frame': (frame_harness(), []),
         'host': (HOST_HARNESS, [str(SRC / 'game/em_pickup_owner.c')]),
     }

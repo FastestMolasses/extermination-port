@@ -278,30 +278,56 @@ static uint8_t *region_for(EmModuleLoader *ml, uint32_t buf, uint32_t size)
         return size <= sizeof ml->ld.header ? ml->ld.header : NULL;
     if (overlaps(buf, size, EM_STATUS_SCENE_D_00289BC0, sizeof ml->ld.header))
         return NULL;
-    Region *slot = NULL;
+    /* A disc read replaces only its destination interval. In particular,
+     * a shorter area bank at the previous area's base must not retain the
+     * old region's extent: a later nested-bank read would then discard its
+     * still-resident prefix. Keep untouched prefixes/suffixes as separate
+     * regions and give this read its exact extent (also the DMA boundary).
+     * Prepare everything before replacing the old mapping. */
+    Region next[MAX_REGIONS] = {{0}};
+    unsigned count = 0;
+    uint64_t end = (uint64_t)buf + size;
+    if (end > (uint64_t)UINT32_MAX + 1u)
+        return NULL;
     for (int i = 0; i < MAX_REGIONS; ++i) {
-        Region *r = &ml->regions[i];
-        if (r->bytes && r->address == buf) {
-            slot = r;
-        } else if (r->bytes && overlaps(buf, size, r->address, r->size)) {
-            free(r->bytes); /* a newer read replaced these bytes */
-            memset(r, 0, sizeof *r);
+        const Region *r = &ml->regions[i];
+        if (!r->bytes) continue;
+        if (!overlaps(buf, size, r->address, r->size)) {
+            if (count == MAX_REGIONS) goto failed;
+            next[count++] = *r;
+            continue;
+        }
+        uint64_t old_end = (uint64_t)r->address + r->size;
+        uint32_t starts[2] = {r->address, (uint32_t)end};
+        uint32_t lengths[2] = {buf > r->address ? buf - r->address : 0,
+                              old_end > end ? (uint32_t)(old_end - end) : 0};
+        for (unsigned part = 0; part < 2; ++part) {
+            if (!lengths[part]) continue;
+            if (count == MAX_REGIONS) goto failed;
+            uint8_t *bytes = malloc(lengths[part]);
+            if (!bytes) goto failed;
+            memcpy(bytes, r->bytes + (starts[part] - r->address), lengths[part]);
+            next[count++] = (Region){starts[part], lengths[part], bytes};
         }
     }
-    for (int i = 0; !slot && i < MAX_REGIONS; ++i)
-        if (!ml->regions[i].bytes)
-            slot = &ml->regions[i];
-    if (!slot)
-        return NULL;
-    if (!slot->bytes || slot->size < size) {
-        uint8_t *bytes = realloc(slot->bytes, size ? size : 1);
-        if (!bytes)
-            return NULL;
-        slot->bytes = bytes;
-        slot->size = size;
+    if (count == MAX_REGIONS) goto failed;
+    uint8_t *dst = malloc(size ? size : 1);
+    if (!dst) goto failed;
+    next[count++] = (Region){buf, size, dst};
+    for (int i = 0; i < MAX_REGIONS; ++i) {
+        Region *r = &ml->regions[i];
+        if (r->bytes && overlaps(buf, size, r->address, r->size)) free(r->bytes);
     }
-    slot->address = buf;
-    return slot->bytes;
+    memcpy(ml->regions, next, sizeof next);
+    return dst;
+failed:
+    for (unsigned i = 0; i < count; ++i) {
+        int borrowed = 0;
+        for (int j = 0; j < MAX_REGIONS; ++j)
+            if (next[i].bytes == ml->regions[j].bytes) borrowed = 1;
+        if (!borrowed) free(next[i].bytes);
+    }
+    return NULL;
 }
 
 static int drive_ready(void *ctx, int32_t mode, int32_t *reply)
@@ -510,7 +536,10 @@ static int w_overlay(void *ctx, uint32_t p, uint32_t off)
     const uint32_t n = u32_at(r->bytes + (p + 0x14u - r->address));
     if (n == 0)
         return 0;
-    uint8_t *bss = region_for(ml, p + off, n);
+    /* This is a store into the current memory, not another disc delivery.
+     * Preserve a containing allocation (and its untouched guard bytes). */
+    uint8_t *bss = (uint8_t *)em_module_loader_memory(ml, p + off, n);
+    if (!bss) bss = region_for(ml, p + off, n);
     if (!bss)
         return fail(&ml->io_fault, p + off, EM_STATUS_SCENE_FAULT_BAD_INDEX);
     memset(bss, 0, n);
@@ -898,4 +927,9 @@ const uint8_t *em_module_loader_memory(const EmModuleLoader *ml, uint32_t addres
             return r->bytes + (address - r->address);
     }
     return NULL;
+}
+
+uint8_t *em_module_loader_memory_mutable(EmModuleLoader *ml, uint32_t address, uint32_t size)
+{
+    return (uint8_t *)em_module_loader_memory(ml, address, size);
 }

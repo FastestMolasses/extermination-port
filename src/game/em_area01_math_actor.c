@@ -770,7 +770,7 @@ static void scale_row(M *m, uint32_t row, uint32_t s)
     sq(m, row, v);
 }
 
-int em_area01_math_001C69A0(M *m, uint32_t model)
+int em_area01_math_001C69A0_root(M *m, uint32_t model)
 {
     uint32_t r[4][4], sc[4];
     for (uint32_t i = 0; i < 4; i++) lq(m, SPR(0x3400) + 16u * i, r[i]);
@@ -779,32 +779,42 @@ int em_area01_math_001C69A0(M *m, uint32_t model)
     vu(m, EM_VU_MULBC, 14, 1, r[1], sc, NULL, r[1]);
     vu(m, EM_VU_MULBC, 14, 2, r[2], sc, NULL, r[2]);
     for (uint32_t i = 0; i < 4; i++) sq(m, SPR(0x3400) + 16u * i, r[i]);
+    return done(m);
+}
 
+int em_area01_math_001C69A0_bone(M *m, uint32_t model, uint32_t bone)
+{
+    int32_t parent;
+    call3(m, QUAT_TO_MAT3, SPR(0x3440), SPR(0x3600), bone);
+    scale_row(m, SPR(0x3440), em_a01m_lw(m, bone + 0x18u));
+    scale_row(m, SPR(0x3450), em_a01m_lw(m, bone + 0x1Cu));
+    scale_row(m, SPR(0x3460), em_a01m_lw(m, bone + 0x20u));
+    em_a01m_call_i(m, F_001029C0, 1, SPR(0x3480), 0, 0, 0, NULL);
+    call3(m, F_00102C58, SPR(0x3480), SPR(0x3480), bone + 0x70u);
+    em_a01m_sw(m, SPR(0x34B0), em_a01m_lw(m, bone + 0x7Cu));
+    em_a01m_sw(m, SPR(0x34B4), em_a01m_lw(m, bone + 0x80u));
+    em_a01m_sw(m, SPR(0x34B8), em_a01m_lw(m, bone + 0x84u));
+    for (uint32_t k = 0; k < 3; k++) {
+        uint32_t w = em_ee_cvt_s_w_bits((uint32_t)em_a01m_lh(m, bone + 0x88u + 2u * k));
+        scale_row(m, SPR(0x3480) + 16u * k, em_ee_mul_bits(K_1_4096, w));
+    }
+    mat_rows(m, SPR(0x3440), SPR(0x3480), SPR(0x3480));
+    parent = em_a01m_lh(m, bone + 0x64u);
+    if (parent != -1)
+        mat_rows(m, em_a01m_lw(m, model + 0x110u + 4u * (uint32_t)parent) + 0x90u, SPR(0x3480), bone + 0x90u);
+    else
+        mat_rows(m, SPR(0x3400), SPR(0x3480), bone + 0x90u);
+    return done(m);
+}
+
+int em_area01_math_001C69A0(M *m, uint32_t model)
+{
+    if (em_area01_math_001C69A0_root(m, model) < 0) return -1;
     for (uint32_t i = 0; (int32_t)i < (int32_t)em_a01m_lbu(m, model + 0x0Cu); i++) {
         uint32_t bone = em_a01m_lw(m, model + 0x110u + 4u * i);
-        int32_t parent;
         em_a01m_call_if(m, QUAT_NLERP, 3, SPR(0x3600), bone + 0x30u, bone + 0x40u, 0,
                         em_a01m_lw(m, bone + 0x50u), NULL, NULL);
-        call3(m, QUAT_TO_MAT3, SPR(0x3440), SPR(0x3600), bone);
-        scale_row(m, SPR(0x3440), em_a01m_lw(m, bone + 0x18u));
-        scale_row(m, SPR(0x3450), em_a01m_lw(m, bone + 0x1Cu));
-        scale_row(m, SPR(0x3460), em_a01m_lw(m, bone + 0x20u));
-        em_a01m_call_i(m, F_001029C0, 1, SPR(0x3480), 0, 0, 0, NULL);
-        call3(m, F_00102C58, SPR(0x3480), SPR(0x3480), bone + 0x70u);
-        em_a01m_sw(m, SPR(0x34B0), em_a01m_lw(m, bone + 0x7Cu));
-        em_a01m_sw(m, SPR(0x34B4), em_a01m_lw(m, bone + 0x80u));
-        em_a01m_sw(m, SPR(0x34B8), em_a01m_lw(m, bone + 0x84u));
-        for (uint32_t k = 0; k < 3; k++) {
-            uint32_t w = em_ee_cvt_s_w_bits((uint32_t)em_a01m_lh(m, bone + 0x88u + 2u * k));
-            scale_row(m, SPR(0x3480) + 16u * k, em_ee_mul_bits(K_1_4096, w));
-        }
-        mat_rows(m, SPR(0x3440), SPR(0x3480), SPR(0x3480));
-        parent = em_a01m_lh(m, bone + 0x64u);
-        if (parent != -1)
-            mat_rows(m, em_a01m_lw(m, model + 0x110u + 4u * (uint32_t)parent) + 0x90u, SPR(0x3480), bone + 0x90u);
-        else
-            mat_rows(m, SPR(0x3400), SPR(0x3480), bone + 0x90u);
-        if (em_a01m_faulted(m)) return -1;
+        if (em_area01_math_001C69A0_bone(m, model, bone) < 0) return -1;
     }
     return done(m);
 }

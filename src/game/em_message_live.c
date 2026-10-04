@@ -72,7 +72,7 @@ static void report(void)
 
 /* ------------------------------------------------------------ workers */
 
-/* 001FD950's draw half: the area bank is AREA11's (the only one exported). */
+/* 001FD950's draw half: D_0028A594 is the current area's loaded bank. */
 static int w_draw_line(void *ctx, int global, uint32_t index)
 {
     (void)ctx;
@@ -213,7 +213,7 @@ static void unload(void)
     s.loaded = 0;
 }
 
-static int load(const char *path)
+static int load(const char *path, int initialize)
 {
     FILE *f = path ? fopen(path, "rb") : NULL;
     if (!f) return 0;
@@ -229,7 +229,7 @@ static int load(const char *path)
     if (memcmp(b, "EMMD", 4) || rd32(b + 4) != 1) return 0;
     uint32_t area = rd32(b + 8), gcount = rd32(b + 12), acount = rd32(b + 16), rows = rd32(b + 20);
     uint32_t gbank = rd32(b + 28), abank = rd32(b + 32);
-    if (area == 0 || area > AREA_TABLES || !gcount || !acount || gcount > 4096 ||
+    if (area >= AREA_TABLES || !gcount || !acount || gcount > 4096 ||
         acount > 4096 || rows > 4096 || !gbank || !abank)
         return 0;
     uint64_t need = 140u + 8u * (uint64_t)gcount + 8u * (uint64_t)acount + 16u * (uint64_t)rows +
@@ -270,6 +270,10 @@ static int load(const char *path)
                              s.colors[0], rd32(b + 24)};
     s.draw_data = (EmMessageDrawData){{p, gbank}, {p + gbank, abank}, s.colors, 16,
                                       &s.line_config, &s.fallback, &s.style};
+    /* An area load replaces D_0028A594 and selects D_00264DD0[area+1].
+     * It does not run 001FC9B0 or reinstall the frame service. The existing
+     * service and draw objects already point at these same data views. */
+    if (!initialize) return 1;
     EmMessageWorkers workers = {NULL,          w_draw_line,     w_face_talk,    w_voice_push,
                                 w_stop_lane,   w_stream_stop,   w_stream_play,  w_mode3_present,
                                 w_help_draw,   w_record_setup,  w_record_draw};
@@ -373,7 +377,7 @@ int em_message_live_install(const char *path)
 {
     em_message_live_shutdown();
     s.installed = 1;
-    s.loaded = load(path);
+    s.loaded = load(path, 1);
     if (!s.loaded) {
         unload();
         fprintf(stderr, "message service: %s missing or malformed; the first message request or "
@@ -383,6 +387,21 @@ int em_message_live_install(const char *path)
     static const EmFrameMessageService service = {frame_tick, frame_render, NULL};
     em_frame_set_message_service(&service);
     return s.loaded;
+}
+
+int em_message_live_select_area(const char *path, uint32_t area)
+{
+    if (!ready() || !s.installed) return 0;
+    if (area >= AREA_TABLES || area != em_scene_state()->d810700)
+        return fail("message bank selection does not match D_00810700");
+    if (s.area == area) return 1;
+    unload();
+    s.loaded = load(path, 0);
+    if (!s.loaded || s.area != area) {
+        unload();
+        return fail("selected area message data missing or malformed");
+    }
+    return 1;
 }
 
 void em_message_live_shutdown(void)
