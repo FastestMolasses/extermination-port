@@ -78,6 +78,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
+           src/game/em_area01_actor_view.c src/game/em_area01_player_view.c \
  src/game/em_area01_runtime.c \
            src/game/em_area01_collision_view.c src/game/em_area01_room.c src/game/em_area01_camera_services.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
@@ -1581,9 +1582,13 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-memory-view-reference test-area01-runtime-reference test-level2-dynamic-vu-reference test-world-textures-reference
+.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-runtime-reference test-level2-dynamic-vu-reference test-world-textures-reference
+test-area01-actor-view-reference:
+	python3 tools/test_area01_actor_view_reference.py
 test-area01-memory-view-reference:
 	python3 tools/test_area01_memory_view_reference.py
+test-area01-player-view-reference:
+	python3 tools/test_area01_player_view_reference.py
 test-area01-runtime-reference:
 	python3 tools/test_area01_runtime_reference.py
 test-level2-dynamic-vu-reference:
@@ -1620,6 +1625,10 @@ test-area01-rcl-workers:
 .PHONY: test-area01-static-ground
 test-area01-static-ground:
 	python3 tools/test_area01_static_ground_reference.py
+
+.PHONY: test-area01-crate-registry
+test-area01-crate-registry:
+	python3 tools/test_area01_crate_registry_reference.py
 
 .PHONY: test-area01-closeout
 test-area01-closeout:

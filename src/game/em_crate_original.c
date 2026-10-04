@@ -130,6 +130,7 @@ static float f32le(const uint8_t *p) { uint32_t v = (uint32_t)p[0] | (uint32_t)p
 static const uint8_t *group(const EmCrateOriginal *c, const EmCrateInput *in)
 {
     const EmCrateRegistry *r = in->registry;
+    if (r && r->resolve) return r->resolve(r->ctx, in->area, c->link);
     if (!r || !r->first_group || !r->groups || in->area >= r->area_count ||
         !r->groups[in->area]) return NULL;
     int32_t base = r->first_group[in->area];

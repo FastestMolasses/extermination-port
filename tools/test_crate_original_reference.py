@@ -213,7 +213,8 @@ class Entry(C.Structure):
 
 class Registry(C.Structure):
     _fields_ = [('first_group', C.POINTER(C.c_int16)),
-                ('groups', C.POINTER(C.POINTER(C.POINTER(C.c_uint8)))), ('area_count', C.c_size_t)]
+                ('groups', C.POINTER(C.POINTER(C.POINTER(C.c_uint8)))), ('area_count', C.c_size_t),
+                ('resolve',C.c_void_p),('ctx',C.c_void_p)]
 
 
 RATTLE = (C.c_float*3)*4

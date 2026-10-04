@@ -27,15 +27,13 @@
  *                 and the object-unit renderer draws it at the frame's end
  *                 (docs/OWNER_DRAW.md "Binding")
  *
- * The workers reached only after a damage write (+0x36; no live code
- * writes it: CRATES_DRUMS_ORIGINAL.md "Status" item 7) and the nest-group
- * paths (+0x0E bit 0, +0x56 >= 0, which no AREA11 box has) are fail-stop
- * workers that name their original: 001FC580, 001EFD90 / 001EFD20 /
- * 001F0460, 001B11E0 / 001B1190, 001AFA90's child copy, the 001C6120 husk
- * rebind (the broken crate's debris model) over D_0028A56C, 0019A570 and
- * 0019AD00. The D_002468B0 /
- * D_00246A00 / D_00246A10 tables come from assets/scene_snow/box_tables.emrg
- * (tools/export_box_tables.py).
+ * AREA01 nest initialization optionally borrows the original registry and
+ * reads canonical taken bits through the existing actor-roster owner (see
+ * the binding below and LEVEL2_CRATE_REGISTRY.md). Its 001AFA90 child copy
+ * remains an explicit fail-stop. The default AREA11 placements do not reach
+ * a nest group. See CRATES_DRUMS_ORIGINAL.md for other damage-path coverage.
+ * D_002468B0 / D_00246A00 / D_00246A10 come from
+ * assets/scene_snow/box_tables.emrg (tools/export_box_tables.py).
  *
  * The truck 00823FF0 (area11[16], census L23) is the same kind of world
  * model owner and shares these services, the bone-slot stack and the draw
@@ -80,6 +78,17 @@
  * Failure preserves the previous bank. The global library D_0028A56C and
  * Roger resources are unaffected. Return 0, or -1 with a diagnostic. */
 int em_area11_boxes_bind_world_bank(const char *path, uint32_t resource_word);
+
+/* Optional original-address registry borrowed at each reached crate group
+ * access: D_0024A850[area], D_0024D820[area], then the selected overlay group.
+ * Bind after boxes_reset, before the first crate tick. reset/detach clears
+ * the callback; no resource pointer is retained across calls. The provider
+ * must be callable during native owner execution and remain stable for one
+ * tick. All requests use write=0. NULL detaches. The default AREA11 path
+ * remains unbound; its placements never reach a nest group. */
+typedef uint8_t *(*EmArea11BoxesRegistryView)(void *,uint32_t,uint32_t,int);
+void em_area11_boxes_bind_registry(EmArea11BoxesRegistryView,void *context);
+uint32_t em_area11_boxes_registry_fault(void);
 
 /* The 001AF710 bone-slot stack and its 0xD0-byte slot arena as
  * em_roger_actor_original views (D_00275BCC, D_00275BD0, D_007D4640[],
@@ -173,10 +182,19 @@ const EmWorldModels *em_area11_boxes_world_models(void);
  * +0x0C; *ret = the original result (0 bound, 1 refused). The slots go back
  * through em_area11_boxes_001AF800 when the pool frees the record. Each
  * returns 0, or -1 (reported on stderr). */
+int em_area11_boxes_owner_001B0EA0(EmActor *actor, EmActorPool *pool, int32_t *ret);
 int em_area11_boxes_owner_001B0FD0(EmActor *actor, EmActorPool *pool, int32_t *ret);
+/* Synchronize the existing typed slot views with their original-layout
+ * arena records around a byte-addressed pose worker. from_bytes: import
+ * its writes; otherwise publish the typed views. No allocation. */
+int em_area11_boxes_owner_sync_slots(EmActor *actor, int from_bytes);
 int em_area11_boxes_owner_001B1020(EmActor *actor, EmActorPool *pool, uint32_t a1, int32_t a2, int32_t a3,
                                    int32_t *ret);
 int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16]);
+/* Already bound canonical service view, without allocating. AREA01's raw
+ * record bridge uses this to retain fields a model bind does not write.
+ * The pointer expires when this generation is freed or the area resets. */
+EmOwnerServicesOwner *em_area11_boxes_owner_view(EmActor *actor);
 /* Existing canonical +0xD0 matrix, without running pose or allocating a view.
  * NULL unless this generation is already a bound world owner. */
 float *em_area11_boxes_owner_world(EmActor *actor);

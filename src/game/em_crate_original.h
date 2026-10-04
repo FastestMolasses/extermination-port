@@ -65,6 +65,11 @@ typedef struct {
     const int16_t *first_group;
     const uint8_t *const *const *groups;
     size_t area_count;
+    /* Optional authoritative borrowed view, resolved only at the original
+     * group access. The returned records include a checked -1 sentinel and
+     * remain valid through this tick. No array fallback on refusal. */
+    const uint8_t *(*resolve)(void *ctx, uint8_t area, int16_t link);
+    void *ctx;
 } EmCrateRegistry;
 
 typedef struct {

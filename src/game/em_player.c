@@ -13,6 +13,7 @@
 
 #include "game/em_collision_world.h"
 #include "game/em_area11_boxes.h"
+#include "game/em_area01_player_view.h"
 #include "game/em_camera_leftovers.h"
 #include "game/em_player.h"
 #include "game/em_ee_float.h"
@@ -25,6 +26,8 @@
 #include "game/em_scene_bindings.h"
 
 #include "game/em_game_internal.h"
+
+static uint32_t s_external_generation;
 
 static uint8_t footstep_floor_attr(void);
 static float player_turn_rate(int gait, float upt, float adelta);
@@ -520,6 +523,7 @@ void player_states_stage_rebuild(void)
 
 void player_states_reset(void)
 {
+    ++s_external_generation;
     memset(&live.a, 0, sizeof live.a);
     player_states_spawn_values();
 }
@@ -957,6 +961,44 @@ static void vitals_store(void)
     /* The status pages show "/60" while the infected latch holds (em_hud.h
      * C14: the display maximum follows +234, which 0021C270 sets). */
     if (g.pd_infected) g.status.health_max = PD_INFECTED_MAX;
+}
+
+/* The external AREA01 segment sees the post-0015BCF0 record layout.
+ * Capture the owners themselves, not the stale in-stage mirror. */
+static int external_link(EmActorPool *pool, const void *pointer, uint32_t *address, uint32_t *generation)
+{
+    *address=0; *generation=0;
+    if (!pointer) return 0;
+    const EmActor *a=pointer;
+    uint32_t at=em_actor_pool_address(pool,a);
+    if (!at || !a->allocated || a->self!=a) return -1;
+    *address=at; *generation=a->generation; return 0;
+}
+static int external_snapshot(void *ctx, EmArea01PlayerValues *out)
+{
+    float hip[3];
+    memset(out,0,sizeof *out);
+    memcpy(out->position,g.pos,12);
+    out->hip_valid=player_pose_hip(hip)!=0;
+    if (!out->hip_valid) memcpy(hip,g.pos,12);
+    memcpy(out->hip,hip,12); memcpy(&out->heading,&g.yaw,4);
+    memcpy(&out->vitals[0],&g.status.health,4); memcpy(&out->vitals[1],&g.pd_pend_hp,4);
+    memcpy(&out->vitals[2],&g.status.infection,4); memcpy(&out->vitals[3],&g.pd_pend_inf,4);
+    out->iframes=(uint16_t)g.pd_iframes; out->infected=(uint8_t)g.pd_infected; out->low=g.pd_low&1;
+    out->generation=s_external_generation;
+    return external_link(ctx,live.a.link_owner,&out->link_owner,&out->owner_generation)<0 ||
+           external_link(ctx,live.a.link_prev,&out->link_prev,&out->prev_generation)<0 ? -1 : 0;
+}
+static void external_publish(void *ctx, EmPlayerLiveActor *actor)
+{
+    (void)ctx;
+    memcpy(g.pos,actor->bytes+0xA0,12); memcpy(&g.yaw,actor->bytes+0xC4,4);
+    /* Same owner publication and infected HUD limit as the player stage. */
+    vitals_store();
+}
+void player_states_external_view_init(EmArea01PlayerView *view, EmActorPool *pool)
+{
+    em_area01_player_view_init(view,&live.a,external_snapshot,external_publish,pool);
 }
 
 static int port_family(void)

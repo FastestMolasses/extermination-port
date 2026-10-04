@@ -14,6 +14,7 @@
 
 #include "game/em_game_internal.h"
 #include "game/em_player_floor.h"
+#include "game/em_actor_pool.h"
 
 void player_move(void);
 void player_turn_toward(float desired, float rate);
@@ -271,6 +272,11 @@ EmPlayerStageScene *player_states_scene(void);
 const EmPlayerLiveActor *player_states_actor(void);
 /* The same, writable (area load / scripted placement by the coordinator). */
 EmPlayerLiveActor *player_states_actor_mut(void);
+/* AREA01 external owners run between player stages. Their byte provider
+ * temporarily borrows this same record in post-stage layout. Bind after
+ * the real player/pool rebuild; commit before every native worker. */
+struct EmArea01PlayerView;
+void player_states_external_view_init(struct EmArea01PlayerView *view, EmActorPool *pool);
 /* Services over a live actor for the state adapters (their floor / fall /
  * probes workers): 00175900(p, search) (*result = +A), 001796C0 and
  * 001764E0 with the bound workers. 0, or -1 on a fault or while gated off.

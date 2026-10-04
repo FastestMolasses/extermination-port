@@ -13,6 +13,7 @@
 #include <string.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_actor_roster.h"
 #include "game/em_area11_interaction_host.h"
 #include "game/em_area11_roger.h"
 #include "game/em_area11_script_host.h"
@@ -118,7 +119,55 @@ static struct {
     int draw_order[BOX_MAX];
     int draw_count;
     unsigned reported;
+    EmCrateRegistry registry;
+    EmArea11BoxesRegistryView registry_view;
+    void *registry_context;
+    uint32_t registry_fault;
 } S;
+
+static const uint8_t *registry_memory(uint32_t address,uint32_t size)
+{
+    const uint8_t *p=!S.registry_fault && S.registry_view && size &&
+        (uint64_t)address+size<=UINT64_C(0x100000000)
+        ? S.registry_view(S.registry_context,address,size,0) : NULL;
+    if(!p && !S.registry_fault) {
+        S.registry_fault=address;
+        fprintf(stderr,"em_area11 boxes: missing crate registry view %08X\n",address);
+    }
+    return p;
+}
+static uint32_t registry_word(const uint8_t *p)
+{ return (uint32_t)p[0]|(uint32_t)p[1]<<8|(uint32_t)p[2]<<16|(uint32_t)p[3]<<24; }
+static const uint8_t *registry_group(void *ctx,uint8_t area,int16_t link)
+{
+    (void)ctx;
+    const uint8_t *p=registry_memory(0x0024A850u+2u*area,2);
+    if(!p)return NULL;
+    int32_t first=(int16_t)(uint16_t)(p[0]|p[1]<<8);
+    if(!first)first=1;
+    p=registry_memory(0x0024D820u+4u*area,4);
+    if(!p)return NULL;
+    uint32_t table=registry_word(p);
+    int64_t selected=(int64_t)table+4*((int64_t)first+link);
+    if(selected<0 || selected>UINT32_MAX-3u)return NULL;
+    p=registry_memory((uint32_t)selected,4);
+    if(!p)return NULL;
+    uint32_t group=registry_word(p);
+    /* Only metadata is walked here. The body still performs every taken
+     * query and child operation; it reads the original canonical records. */
+    for(uint64_t length=2;;length+=0x2Cu) {
+        if((uint64_t)group+length>UINT64_C(0x100000000) || length>UINT32_MAX)return NULL;
+        p=registry_memory(group+(uint32_t)length-2u,2);
+        if(!p)return NULL;
+        if(p[0]==0xFF && p[1]==0xFF)return registry_memory(group,(uint32_t)length);
+    }
+}
+void em_area11_boxes_bind_registry(EmArea11BoxesRegistryView view,void *context)
+{
+    S.registry_view=view;S.registry_context=view?context:NULL;S.registry_fault=0;
+    S.registry=(EmCrateRegistry){.resolve=view?registry_group:NULL};
+}
+uint32_t em_area11_boxes_registry_fault(void){return S.registry_fault;}
 
 static int report(const char *what)
 {
@@ -669,7 +718,11 @@ static int h_effect(void *c, uint32_t id, const float p[4], const float r[4])
     return em_effects_live_001EFD90(id, p, r) < 0 ? report("001EFD90 faulted (em_effects_live)") : 0;
 }
 static int h_taken(void *c, uint8_t puid)
-{ (void)c; (void)puid; return unbound("001B11E0 (the nest group's taken bits)"); }
+{
+    Box *b=c;
+    return b && b->scene ? em_actor_roster_001B11E0(b->scene,
+        (EmActorRosterProgress *)em_scene_progress_spawn_view(b->scene),puid) : -1;
+}
 static int h_spawn(void *c, const EmCrateChild *child)
 { (void)c; (void)child; return unbound("001AFA90 and the nest child copy"); }
 /* The husk rebind of a damage break (001551B0 at 001562xx; decomp
@@ -729,6 +782,7 @@ int32_t *em_area11_boxes_carry31F0(void) { return &S.carry31F0; }
 
 void em_area11_boxes_reset(void)
 {
+    em_area11_boxes_bind_registry(NULL,NULL);
     memset(S.box, 0, sizeof S.box);
     memset(&S.library, 0, sizeof S.library);
     S.library_word = 0;
@@ -960,6 +1014,40 @@ static int owner_bound(Box *b, int32_t r, const char *where)
     return 0;
 }
 
+int em_area11_boxes_owner_001B0EA0(EmActor *actor, EmActorPool *pool, int32_t *ret)
+{
+    if (!actor || !pool || !ret || load_bank() < 0) return -1;
+    Box *b = owner_box_bind(actor, pool);
+    if (!b) return report("more world-model owners than box slots");
+    owner_view_sync(b);
+    int32_t r = em_owner_services_001B0EA0(&S.services, &b->view);
+    if (owner_bound(b, r, "001B0EA0") < 0) return -1;
+    *ret = r;
+    return 0;
+}
+
+int em_area11_boxes_owner_sync_slots(EmActor *actor, int from_bytes)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    if (!b) return 0;
+    if (b->view.bones_held > EM_OWNER_SERVICES_MAX_BONES) return -1;
+    for (unsigned k = 0; k < b->view.bones_held; ++k) {
+        EmOwnerBone *bone = b->view.bone[k];
+        if (!bone || bone < S.slots || bone >= S.slots + BONE_SLOTS) return -1;
+        uint8_t *raw = S.records + (bone - S.slots) * EM_SLG_BONE_SLOT_SIZE;
+#define TRANSFER(field, offset, size) do { \
+    if (from_bytes) memcpy(bone->field, raw + offset, size); \
+    else memcpy(raw + offset, bone->field, size); \
+} while (0)
+        TRANSFER(bind, 0, 64); TRANSFER(rot, 0x70, 12); TRANSFER(trans, 0x7C, 12);
+        TRANSFER(scale, 0x88, 6); TRANSFER(world, 0x90, 64);
+#undef TRANSFER
+        if (from_bytes) memcpy(&bone->parent, raw + 0x64, 2);
+        else memcpy(raw + 0x64, &bone->parent, 2);
+    }
+    return 0;
+}
+
 int em_area11_boxes_owner_001B0FD0(EmActor *actor, EmActorPool *pool, int32_t *ret)
 {
     if (!actor || !pool || !ret) return -1;
@@ -998,6 +1086,12 @@ int em_area11_boxes_owner_001C6380(EmActor *actor, float world[16])
     if (em_owner_services_001C6380(&S.services, &b->view) < 0 || services_fault("001C6380") < 0) return -1;
     if (world) memcpy(world, b->view.world, sizeof b->view.world);
     return 0;
+}
+
+EmOwnerServicesOwner *em_area11_boxes_owner_view(EmActor *actor)
+{
+    Box *b = actor ? owner_box(actor) : NULL;
+    return b ? &b->view : NULL;
 }
 
 float *em_area11_boxes_owner_world(EmActor *actor)
@@ -1081,7 +1175,8 @@ int em_area11_boxes_tick(EmActor *actor, EmActorPool *pool, EmSceneState *scene)
         for (EmActor *n = pool->head; n && count < EM_ACTOR_POOL_CAPACITY; n = n->next)
             list[count++] = (EmCrateListEntry){n->model, n->h52, &n->u0A[0]};
         const EmCrateInput in = {scene->d810700, scene->d810701, actor->next != NULL, list, count,
-                                 NULL, (const float (*)[4][3])S.rattle, RATTLE_ROWS};
+                                 S.registry.resolve ? &S.registry : NULL,
+                                 (const float (*)[4][3])S.rattle, RATTLE_ROWS};
         const EmCrateOriginalHooks hooks = {
             b, h_allocate, h_bone_init, h_publish, h_place, h_probe, h_random, h_sound, h_sound3d,
             h_effect, h_taken, h_spawn, h_rebind, h_bone_matrix, h_draw, h_set_taken, h_free};
