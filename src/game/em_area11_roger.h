@@ -93,6 +93,15 @@ int em_area11_roger_clip_init(const EmActor *actor, int16_t clip, float blend, f
 /* D_0028A490[index] (the resource table words), for the script host's
  * r_0028A490 reader: 0, or -1 outside the exported table. */
 int em_area11_roger_table_word(uint32_t address, uint32_t *value);
+/* The retained bootstrap global-model library word and its existing
+ * resource spans. These exclude the AREA11-specific animation/face banks;
+ * later areas borrow the same global library, without copying its table. */
+const uint32_t *em_area11_roger_library_word(void);
+const uint8_t *em_area11_roger_library_rest(uint32_t address, uint32_t *size);
+/* The retained bootstrap door-animation bank at D_0028A574. Its immutable
+ * bytes are exported separately from AREA11's replaceable animation banks. */
+const uint32_t *em_area11_roger_door_bank_word(void);
+const uint8_t *em_area11_roger_door_bank_rest(uint32_t address, uint32_t *size);
 /* The exported bank region bytes at an EE address (the camera track header
  * the script host's r_track_head reads, 001C6120 over bank 0x96), or NULL. */
 const uint8_t *em_area11_roger_resource(uint32_t address, uint32_t size);

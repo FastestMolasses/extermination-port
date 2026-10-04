@@ -38,7 +38,7 @@
 
 enum {
     TABLE_WORDS = EM_AREA11_ROGER_TABLE_WORDS,   /* the words 001AB430 clears (EMRS v2) */
-    MAX_REGIONS = 16,   /* 13 since the BRANCH step (the break spans 0x1C, 0x1E, 0x22) */
+    MAX_REGIONS = 16,   /* includes AREA01 pickup models and retained door bank */
     ROGER_NODES = 21,
     RECORD = EM_ACTOR_RECORD_SIZE
 };
@@ -218,6 +218,48 @@ int em_area11_roger_table_word(uint32_t address, uint32_t *value)
         return report("a D_0028A490 word outside the exported table");
     *value = R.table[(address - TABLE_ADDRESS) / 4u];
     return 0;
+}
+
+const uint32_t *em_area11_roger_library_word(void)
+{
+    return load_resources()<0 ? NULL : &R.table[0x37];
+}
+
+const uint32_t *em_area11_roger_door_bank_word(void)
+{
+    return load_resources()<0 ? NULL : &R.table[0x39];
+}
+
+const uint8_t *em_area11_roger_door_bank_rest(uint32_t address,uint32_t *size)
+{
+    if (!size || load_resources()<0) return NULL;
+    *size=0;
+    const Region *r=region_at(R.table[0x39],1);
+    if (!r || r->address!=R.table[0x39] || address<r->address ||
+        address-r->address>=r->size) return NULL;
+    *size=r->size-(address-r->address);
+    return r->bytes+address-r->address;
+}
+
+const uint8_t *em_area11_roger_library_rest(uint32_t address,uint32_t *size)
+{
+    if (!size || load_resources()<0) return NULL;
+    *size=0;
+    const Region *r=region_at(address,1);
+    if (!r) return NULL;
+    uint32_t bank=R.table[0x37];
+    const Region *table=region_at(bank,4);
+    if (!table) return NULL;
+    int library=r==table;
+    uint32_t count=rd32(table->bytes+bank-table->address);
+    for (uint32_t i=0;!library && i<count;++i) {
+        uint32_t model;
+        if (em_area11_roger_001C6120(bank,i,&model)<0) return NULL;
+        library=model>=r->address && model-r->address<r->size;
+    }
+    if (!library) return NULL;
+    *size=r->size-(address-r->address);
+    return r->bytes+address-r->address;
 }
 
 int em_area11_roger_regions(int (*map)(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes),

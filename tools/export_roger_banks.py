@@ -42,7 +42,8 @@ addresses, from the user's own extracted disc:
     rebind 001CA6E0(self, 001C6120(D_0028A56C, 0x22)) of a model-6 box) and
     its debris pieces 0x1C / 0x1E (effect 0x8000000A's node 001F2BA0,
     subtype 0: D_0025A350 row 0, table 0x37, models 0x1C and 0x1E, drawn by
-    001F3E30);
+    001F3E30); AREA01's pickup models 0x4D and 0x58 (0015AC00's library
+    branch; 0x6C and 0x72 already lie in the equipment span);
   * the library's model 0x16 (the gun lamp's third cone shell, 001D9530) as
     the disc holds it, a WRITABLE region: the New Game's 001AD1A0 calls
     001D19D0 -> 001D9070, which rewrites its vertex weights in place
@@ -54,6 +55,9 @@ No PCSX2 capture is needed. When the developer's AREA11 captures are
 present (default: playable_ee.bin and route beats 00..14; --verify-ram FILE
 to name others, --no-verify to skip) the table and every region are
 checked byte for byte against RAM at their addresses in each.
+--verify-area01 additionally checks retained library regions in all AREA01
+captures, and checks pickup descriptors/live handles against their originals.
+AREA01's area-specific table rows and Roger banks are not compared to AREA11.
 
 Output (disc-derived: git-ignored assets/ only; nothing is embedded here):
   assets/scene_snow/roger/resources.emrs, little-endian:
@@ -61,7 +65,7 @@ Output (disc-derived: git-ignored assets/ only; nothing is embedded here):
     u32 region count R, 3 x u32 0
     0x20 N table words
     then R regions: u32 address, u32 size, u32 writable (1: model 0x16, which
-    001D9070 rewrites; else 0), u32 library (1: a library model span no pose
+    001D9070 rewrites; else 0), u32 library (1: a retained resource span no pose
     host maps, else 0), size bytes
   build/roger_banks/export.json: addresses, sizes and SHA-256s only.
 
@@ -85,6 +89,7 @@ TABLE, TABLE_WORDS = 0x0028A490, 0xAF      # 001AB430's cleared range
 VERSION = 2                                # version 1 carried 0xC0 words taken from a capture
 BANK_4A_AT, BANK_96_AT, MODEL_AT, FACE_AT = 0x10E000, 0x41000, 0x35000, 0x86000
 GLOBAL_TABLE_INDEX = 0x37
+DOOR_BANK_INDEX = 0x39  # retained bootstrap bank read by 001B0F60
 DENNIS_FACE_INDEX = 0x18   # 001B81D0's face row for the player's model 0x3B
 # Roger's equipment 001C5C90 (0x6B) and the ids 0018A8D0 maps (flavour, variant)
 # to: 0x2F; 0x30 / 0x40 / 0x6D; 0x32, 0x33, 0x34, 0x35, 0x36, 0x31, 0x37, 0x38 and
@@ -113,6 +118,11 @@ SHOT_SPANS = ((0x07, 0x0F), (0x19, 0x19))
 # +0x58). Library spans too: em_area11_boxes' library_model and 001F3E30
 # read them by address; no pose host maps them.
 BREAK_SPANS = ((0x1C, 0x1C), (0x1E, 0x1E), (0x22, 0x22))
+# AREA01 group 0x828A00: 0015AC00 uses +0x0D unless (+3 & 15)==1;
+# 00219550 does so except class0/item0x28. Its library ids are 4D/58/6C/72.
+# The latter two are already exported above. These model-only spans do not
+# belong in a player's pose host's animation-bank region list.
+AREA01_PICKUP_SPANS = ((0x4D, 0x4D), (0x58, 0x58))
 # The library model 001D9070 rewrites (001C6120(D_0028A56C, 0x16), src/func_001D9070.c):
 # its block count, then per block 32 entries of 0x40 bytes from block + 0x10,
 # each entry's +0x20..+0x2F the weight words it stores (from +0x38).
@@ -133,7 +143,7 @@ def block_model_size(data: bytes, off: int) -> int:
     """Bytes of the block model at `off`: header, blocks, skeleton records."""
     blocks, qwc, bones, skel = struct.unpack_from('<4I', data, off)
     if blocks < 1 or qwc != blocks * 0x82 or bones > 0xFF or skel != 0x40 + 16 * qwc:
-        raise SystemExit(f'the equipment model at +{off:#x} is not a block model')
+        raise SystemExit(f'the library model at +{off:#x} is not a block model')
     return skel + 0x50 * bones
 
 
@@ -145,7 +155,11 @@ def main(argv=None) -> int:
     ap.add_argument('--disc', type=Path, help='a mounted disc or a copy of its DATA/ directory')
     ap.add_argument('--verify-ram', type=Path, action='append', default=None)
     ap.add_argument('--no-verify', action='store_true')
+    ap.add_argument('--verify-area01', action='store_true',
+                    help='verify retained library bytes and pickup handles in every AREA01 capture')
     args = ap.parse_args(argv)
+    for component in (args.out,*args.out.parents):
+        if component.is_symlink():raise SystemExit(f'refusing symlink output component: {component}')
     sys.path.insert(0, str(ROOT / 'tools'))
     import export_disc_textures_gs as G
     captures = [] if args.no_verify else (args.verify_ram if args.verify_ram is not None else default_captures())
@@ -157,6 +171,7 @@ def main(argv=None) -> int:
     f18 = (args.extract / 'chunk15/f18_id94.bin').read_bytes()
     f37 = (args.extract / 'chunk27/f01_id37.bin').read_bytes()
     f16 = (args.extract / 'chunk03/f16_id18.bin').read_bytes()
+    door_bank = (args.extract / 'chunk27/f02_id39.bin').read_bytes()
     base12 = table[0x4A] - BANK_4A_AT
     if table[0x96] != base12 + BANK_96_AT:
         raise SystemExit('D_0028A490[0x96] is not bank 0x96 of the file that holds bank 0x4A')
@@ -167,16 +182,21 @@ def main(argv=None) -> int:
         raise SystemExit("D_0028A490[0x88] is not the face resource of Roger's model file")
     global_table = table[GLOBAL_TABLE_INDEX]
     count = u32(f37, 0)
-    if not 0 < count < 0x400 or max(last for _first, last in EQUIPMENT_SPANS + BREAK_SPANS) >= count:
+    spans=EQUIPMENT_SPANS + BREAK_SPANS + AREA01_PICKUP_SPANS
+    if not 0 < count < 0x400 or max(last for _first, last in spans) >= count:
         raise SystemExit(f'chunk27/f01_id37.bin: table word 0 = {count}')
     regions = [
         (base12 + BANK_96_AT, f12[BANK_96_AT:]),
         (base18, f18),
         (global_table, f37[:4 + 4 * count]),
         (table[DENNIS_FACE_INDEX], f16),
+        (table[DOOR_BANK_INDEX], door_bank),
     ]
-    library_spans = set()
-    for first, last in EQUIPMENT_SPANS + BREAK_SPANS:
+    # The door bank is borrowed explicitly. Do not add it to AREA11 pose
+    # hosts that automatically map the non-library resource regions.
+    library_spans = {table[DOOR_BANK_INDEX]}
+    global_regions = {global_table, table[DOOR_BANK_INDEX]}
+    for first, last in spans:
         offsets = [struct.unpack_from('<i', f37, 4 + 4 * kind)[0] >> 2 << 2 for kind in range(first, last + 1)]
         if offsets != sorted(offsets):
             raise SystemExit(f'the equipment models {first:#x}..{last:#x} are not in file order')
@@ -186,12 +206,14 @@ def main(argv=None) -> int:
             if off + block_model_size(f37, off) > end:
                 raise SystemExit(f'the equipment model at +{off:#x} leaves its span')
         regions.append((global_table + start, f37[start:end]))
-        if (first, last) in SHOT_SPANS + BREAK_SPANS:
+        global_regions.add(global_table+start)
+        if (first, last) in SHOT_SPANS + BREAK_SPANS + AREA01_PICKUP_SPANS:
             library_spans.add(global_table + start)
     fade_off = struct.unpack_from('<i', f37, 4 + 4 * FADE_MODEL)[0] >> 2 << 2
     fade_address = global_table + fade_off
     fade = f37[fade_off:fade_off + block_model_size(f37, fade_off)]
     regions.append((fade_address, fade))
+    global_regions.add(fade_address)
     fade_blocks = u32(fade, 0)
     fade_weights = {0x40 + 0x820 * g + 0x10 + 0x40 * j + 0x20 + k
                     for g in range(fade_blocks) for j in range(32) for k in range(16)}
@@ -222,6 +244,44 @@ def main(argv=None) -> int:
                 raise SystemExit(f'{path}: RAM differs from the region at {address:#x} at +{diff:#x}')
         checked.append(str(path.relative_to(DECOMP) if path.is_relative_to(DECOMP) else path))
 
+    area01_checked=[]
+    pickup_models=[]
+    if args.verify_area01:
+        import export_area01_common as A
+        import export_area11_roster as R
+        read=A.static_reader(A.read_elf(),A.read_overlay())
+        groups,_,placements=R.walk_roster(read,1,0)
+        records=[(u32(r,0x24),r[2],r[3],r[4]) for r in placements]
+        records += [(u32(r,0x28),r[6],r[7],r[8]) for _,rows in groups for r in rows]
+        def library_pickup(fn,kind,item):
+            return ((kind&15)!=1 if fn==0x15AFA0 else not(kind==0 and item==0x28)) \
+                if fn in (0x15AFA0,0x219550) else False
+        required={model for fn,kind,item,model in records if library_pickup(fn,kind,item)}
+        assert required=={0x4D,0x58,0x6C,0x72},('AREA01 pickup dependency census changed',required)
+        handles={i:global_table+(u32(f37,4+4*i)&~3) for i in required}
+        for i,address in sorted(handles.items()):
+            size=block_model_size(f37,address-global_table)
+            assert any(a<=address and address+size<=a+len(data) for a,data in regions),hex(i)
+            pickup_models.append(dict(id=hex(i),address=hex(address),size=size))
+        for cap in A.captures():
+            ram=cap.ram
+            assert u32(ram,TABLE+4*GLOBAL_TABLE_INDEX)==global_table,(cap.name,'retained library word')
+            assert u32(ram,TABLE+4*DOOR_BANK_INDEX)==table[DOOR_BANK_INDEX],(cap.name,'retained door bank word')
+            for address,data in regions:
+                if address not in global_regions:continue
+                if address==fade_address:
+                    assert all(ram[address+i]==v or i in fade_weights for i,v in enumerate(data)), \
+                        (cap.name,'fade model differs outside rewritten weights')
+                else:assert ram[address:address+len(data)]==data,(cap.name,hex(address),'retained library bytes')
+            live=0
+            for slot in range(256):
+                a=0x7A5640+0x2F0*slot
+                if not ram[a] or not library_pickup(u32(ram,a+0x10),ram[a+3],struct.unpack_from('<H',ram,a+0x2E)[0]):continue
+                model=ram[a+0xD]
+                assert model in handles and u32(ram,a+0x44)==handles[model],(cap.name,slot,'pickup model handle')
+                live+=1
+            area01_checked.append(dict(capture=cap.name,live_pickup_handles=live))
+
     out = bytearray(struct.pack('<4s7I', b'EMRS', VERSION, TABLE, TABLE_WORDS, len(regions), 0, 0, 0))
     out += struct.pack(f'<{TABLE_WORDS}I', *table)
     for address, data in regions:
@@ -233,12 +293,12 @@ def main(argv=None) -> int:
                   sha256=hashlib.sha256(bytes(out)).hexdigest(),
                   regions=[dict(address=f'{a:08X}', size=len(d), sha256=hashlib.sha256(d).hexdigest())
                            for a, d in regions],
-                  captures=checked)
+                  captures=checked,area01_captures=area01_checked,area01_pickup_models=pickup_models)
     receipt = ROOT / 'build/roger_banks'
     receipt.mkdir(parents=True, exist_ok=True)
     (receipt / 'export.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'roger banks: {len(regions)} regions, table {TABLE_WORDS} words, {len(out)} bytes -> '
-          f'{args.out} (table from the disc; checked against {len(checked)} captures)')
+          f'{args.out} (table from the disc; {len(checked)} AREA11 and {len(area01_checked)} AREA01 captures)')
     return 0
 
 
