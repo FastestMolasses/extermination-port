@@ -379,9 +379,23 @@ class Hit(C.Structure):
     _fields_ = [('point', U32 * 4), ('record_1A', C.c_uint16), ('normal', U32 * 3)]
 
 
+class ScratchAliases(C.Structure):
+    _fields_ = [('a0', VP), ('b0', VP), ('c0', VP)]
+
+
 class World(C.Structure):
     _fields_ = [('cam', VP), ('player', VP), ('globals', VP), ('scratch', VP), ('hit', VP),
-                ('workers', VP), ('fault', U32)]
+                ('workers', VP), ('fault', U32), ('scratch_aliases', VP)]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if os.environ.get('EM_CAMERA_SCRATCH_ALIASES') == '1' and self.scratch:
+            # The original-address backing stays identical; the module now
+            # reaches its first six vectors through the borrowed span path.
+            # Disjoint live owners and poisoned inactive bytes are exercised
+            # separately by test_area01_scratch_alias.py.
+            self.aliases_keepalive = ScratchAliases(self.scratch, self.scratch+16, self.scratch+32)
+            self.scratch_aliases = C.addressof(self.aliases_keepalive)
 
 
 def build_native():

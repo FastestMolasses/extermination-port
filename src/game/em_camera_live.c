@@ -118,6 +118,57 @@ static struct {
     EmCameraLiveHost host;
 } C;
 
+static uint32_t *shared3400, *shared3600, *shared3610, *shared3630;
+static EmCamLeftScratchAliases shared38;
+static const EmCamLeftScratchAliases *scratch38_aliases(void)
+{ return shared38.a0 ? &shared38 : NULL; }
+#define S3400 (shared3400 ? shared3400 : C.s3400)
+#define S3600 (shared3600 ? shared3600 : C.s3600)
+#define S3610 (shared3610 ? shared3610 : C.s3610)
+#define S3630 (shared3630 ? shared3630 : C.s3630)
+
+int em_camera_live_scratch_bind(uint32_t *m, uint32_t *a, uint32_t *b, uint32_t *d)
+{
+    if (!m && !a && !b && !d) {
+        /* Restore the legacy backing with the bytes its workers wrote last. */
+        if (shared3400) memcpy(C.s3400, shared3400, sizeof C.s3400);
+        if (shared3600) memcpy(C.s3600, shared3600, sizeof C.s3600);
+        if (shared3610) memcpy(C.s3610, shared3610, sizeof C.s3610);
+        if (shared3630) memcpy(C.s3630, shared3630, sizeof C.s3630);
+    } else if (!m || !a || !b || !d) return -1;
+    shared3400=m; shared3600=a; shared3610=b; shared3630=d;
+    return 0;
+}
+
+uint8_t *em_camera_live_scratch_bytes(uint32_t address, uint32_t size)
+{
+    if (address >= EM_CAMLEFT_SCRATCH_BASE && address < 0x70003A40u)
+        return em_camleft_scratch_view(&C.scratch,scratch38_aliases(),address,size);
+    const uint32_t base[]={0x70003400,0x70003600,0x70003610,0x70003630};
+    const uint32_t count[]={64,16,16,16};
+    uint32_t *const data[]={S3400,S3600,S3610,S3630};
+    for (unsigned i=0;i<4;++i)
+        if(size && address>=base[i] && size<=count[i] && address-base[i]<=count[i]-size)
+            return (uint8_t *)data[i]+(address-base[i]);
+    return NULL;
+}
+
+int em_camera_live_scratch_38_bind(uint32_t *a0, uint32_t *b0, uint32_t *c0)
+{
+    if (!a0 && !b0 && !c0) {
+        if (shared38.a0) {
+            memcpy(em_camleft_spad(&C.scratch,0x700038A0),shared38.a0,16);
+            memcpy(em_camleft_spad(&C.scratch,0x700038B0),shared38.b0,16);
+            memcpy(em_camleft_spad(&C.scratch,0x700038C0),shared38.c0,64);
+        }
+    } else if (!a0 || !b0 || !c0 || ((uintptr_t)a0 | (uintptr_t)b0 | (uintptr_t)c0) % 4u ||
+               (shared38.a0 && (shared38.a0!=a0 || shared38.b0!=b0 || shared38.c0!=c0))) return -1;
+    shared38=(EmCamLeftScratchAliases){a0,b0,c0};
+    C.lworld.scratch_aliases=scratch38_aliases();
+    C.cworld.scratch_aliases=scratch38_aliases();
+    return 0;
+}
+
 static int fail(uint32_t address)
 {
     if (!C.fault) C.fault = address ? address : 0x0018B9C0u;
@@ -280,21 +331,22 @@ static void player_refresh(void)
  * The scratch views (one storage, loaded and stored at module boundaries)
  * ====================================================================== */
 
-static uint32_t *spad(uint32_t address) { return em_camleft_spad(&C.scratch, address); }
+static uint32_t *spad(uint32_t address)
+{ return em_camleft_spad_view(&C.scratch,scratch38_aliases(),address); }
 
 static void follow_load(void)
 {
-    em_camleft_scratch_to_follow(&C.scratch, &C.fs);
+    em_camleft_scratch_to_follow_view(&C.scratch, &C.fs, scratch38_aliases());
     memcpy(C.fs.s3B50, C.s3B50, 16);
-    memcpy(C.fs.s3400, C.s3400, 64);
-    memcpy(C.fs.s3600, C.s3600, 16);
+    memcpy(C.fs.s3400, S3400, 64);
+    memcpy(C.fs.s3600, S3600, 16);
 }
 
 static void follow_store(void)
 {
-    em_camleft_scratch_from_follow(&C.scratch, &C.fs);
-    memcpy(C.s3400, C.fs.s3400, 64);
-    memcpy(C.s3600, C.fs.s3600, 16);
+    em_camleft_scratch_from_follow_view(&C.scratch, &C.fs, scratch38_aliases());
+    memcpy(S3400, C.fs.s3400, 64);
+    memcpy(S3600, C.fs.s3600, 16);
 }
 
 static void specials_load(void)
@@ -302,9 +354,9 @@ static void specials_load(void)
     EmCamSpecialsScratch *s = &C.sps;
     memcpy(s->s3040, C.s3040, sizeof s->s3040);   /* 0x70003040: the aim camera's (00197490 reads it) */
     memcpy(s->s31B0, C.hit.point, 16);
-    memcpy(s->s3400, C.s3400, 64);
-    memcpy(s->s3600, C.s3600, 16);
-    memcpy(s->s3630, C.s3630, 16);
+    memcpy(s->s3400, S3400, 64);
+    memcpy(s->s3600, S3600, 16);
+    memcpy(s->s3630, S3630, 16);
     memcpy(s->s38A0, spad(0x700038A0), 16);
     s->s3A20 = *spad(0x70003A20);
     s->s3A24 = *spad(0x70003A24);
@@ -318,9 +370,9 @@ static void specials_store(void)
     const EmCamSpecialsScratch *s = &C.sps;
     memcpy(C.s3040, s->s3040, sizeof C.s3040);
     memcpy(C.hit.point, s->s31B0, 16);
-    memcpy(C.s3400, s->s3400, 64);
-    memcpy(C.s3600, s->s3600, 16);
-    memcpy(C.s3630, s->s3630, 16);
+    memcpy(S3400, s->s3400, 64);
+    memcpy(S3600, s->s3600, 16);
+    memcpy(S3630, s->s3630, 16);
     memcpy(spad(0x700038A0), s->s38A0, 16);
     *spad(0x70003A20) = s->s3A20;
     *spad(0x70003A24) = s->s3A24;
@@ -473,7 +525,13 @@ static int fw_segment(void *ctx, const uint32_t from[4], const uint32_t to[4], i
 {
     (void)ctx;
     int r;
-    if (segment(from, to, mask, &r) < 0) return -1;
+    /* Collision shares 3600/3610/3620/3630 with the typed camera view in
+     * AREA01. Publish/reload at this nested worker, or follow_store would
+     * later overwrite the collision caller's actual last writes. */
+    if (shared3600) follow_store();
+    int rc = segment(from, to, mask, &r);
+    if (shared3600) follow_load();
+    if (rc < 0) return -1;
     hit->result = r;
     hit->record_1A = C.hit.record_1A;
     hit->point_y = C.hit.point[1];
@@ -851,7 +909,10 @@ static int sp_0019A910(void *ctx, const void *from, const void *to, int32_t mask
 {
     (void)ctx;
     int r;
-    if (segment(from, to, mask, &r) < 0) return -1;
+    if (shared3600) specials_store();
+    int rc = segment(from, to, mask, &r);
+    if (shared3600) specials_load();
+    if (rc < 0) return -1;
     memcpy(C.sps.s31B0, C.hit.point, 16);
     if (result) *result = r;
     return 0;
@@ -877,11 +938,12 @@ static uint8_t *aim_map(void *ctx, uint32_t a, uint32_t n, int write)
     if ((p = em_camera_live_bytes(a, n))) return p;                             /* the block, the pool */
     if ((p = span(a, n, 0x008102B0u, EM_PLAYER_ACTOR_SIZE, C.player.bytes))) return p;   /* the player view */
     /* the camera's scratchpad words */
-    if ((p = span(a, n, EM_CAMLEFT_SCRATCH_BASE, 4u * EM_CAMLEFT_SCRATCH_WORDS, C.scratch.w))) return p;
-    if ((p = span(a, n, 0x70003400u, sizeof C.s3400, C.s3400))) return p;
-    if ((p = span(a, n, 0x70003600u, sizeof C.s3600, C.s3600))) return p;
-    if ((p = span(a, n, 0x70003610u, sizeof C.s3610, C.s3610))) return p;
-    if ((p = span(a, n, 0x70003630u, sizeof C.s3630, C.s3630))) return p;
+    if ((uint64_t)a+n > EM_CAMLEFT_SCRATCH_BASE && a < 0x70003A40u)
+        return em_camleft_scratch_view(&C.scratch,scratch38_aliases(),a,n);
+    if ((p = span(a, n, 0x70003400u, 64, S3400))) return p;
+    if ((p = span(a, n, 0x70003600u, 16, S3600))) return p;
+    if ((p = span(a, n, 0x70003610u, 16, S3610))) return p;
+    if ((p = span(a, n, 0x70003630u, 16, S3630))) return p;
     if ((p = span(a, n, 0x70003040u, sizeof C.s3040, C.s3040))) return p;
     if ((p = span(a, n, 0x70003B50u, sizeof C.s3B50, C.s3B50))) return p;
     if (s && (p = span(a, n, 0x70003B40u, 16, s->spad3B40))) return p;   /* 00183010 only */
@@ -1079,15 +1141,40 @@ static int lw_0018CA90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *
     return aim_run(0x0018CA90u, 0);
 }
 
-/* 00197490's mode-1 tail 001B0300 (camera +5 != 0). The specials module
- * requires the worker before it runs 00197490; AREA11's camera never has
- * +5 != 0 (every route and AIM capture holds 0, and no AREA11 path stores
- * it: CAMERA_LIVE.md section 7), so reaching it is a fail-stop. */
+/* AREA01's control-room mode and duct action. The native camera already
+ * owns these bytes; publish its g.cam view before the composite runtime
+ * adopts that view, then reload the actual last stores on return. */
+static int area_worker(uint32_t function, uint32_t a0, uint32_t a1)
+{
+    if (!C.host.area_worker) return fail(function);
+    view_store();
+    int rc = C.host.area_worker(C.host.context, function, a0, a1);
+    /* A failed composite commit may leave actual preceding camera writes
+     * only in this canonical record. Reloading stale g.cam would undo them. */
+    if (rc < 0) return fail(function);
+    view_load();
+    return 0;
+}
+static int lw_001B0300(void *ctx)
+{ (void)ctx; return area_worker(0x001B0300u, 0, 0); }
+static int lw_00198D90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *player)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || player != &C.player) return fail(0x00198D90u);
+    return area_worker(0x00198D90u, CAM_BASE, 0x008102B0u);
+}
+static int lw_001D2830(void *ctx, int32_t a0, int32_t a1)
+{ (void)ctx; return area_worker(0x001D2830u, (uint32_t)a0, (uint32_t)a1); }
+
+/* 00197490 owns a typed scratch view, unlike the leftovers dispatcher. */
 static int sp_001B0300(void *ctx)
 {
     (void)ctx;
-    fprintf(stderr, "em_camera_live: 001B0300 (camera mode 1) reached; not reachable in AREA11\n");
-    return fail(0x001B0300u);
+    if (!C.host.area_worker) return fail(0x001B0300u);
+    SP_ENTER();
+    int rc = lw_001B0300(NULL);
+    SP_LEAVE();
+    return rc;
 }
 
 /* 00197490's callees (the specials' workers): its scratch view is stored
@@ -1198,13 +1285,18 @@ static void bind_worlds(void)
     C.lw.w_001DD980 = lw_001DD980;
     /* The aim camera: actions 1 / 2 (00197D20 / 00198650) and 5 (0018CA90),
      * em_camera_aim over the map / call binding above (CAMERA_LIVE.md
-     * section 7). 001B0C60 (areas 0x12 / 0xE), actions 9..15 and mode 1's
-     * 001B0300 have no translation: NULL, so reaching them faults (never on
-     * the route: docs/CAMERA_LIVE.md section 5). */
+     * section 7). AREA01 additionally forwards mode1's 001B0300 and
+     * action10's 00198D90/001D2830 through its canonical host. Other area
+     * events and camera actions remain unbound and fail if reached. */
     C.lw.w_00197D20 = lw_00197D20;
     C.lw.w_00198650 = lw_00198650;
     C.lw.w_0018CA90 = lw_0018CA90;
-    C.lworld = (EmCamLeftWorld){ &C.cam.rec, &C.player, &C.lg, &C.scratch, &C.hit, &C.lw, 0 };
+    if (C.host.area_worker) {
+        C.lw.w_001B0300 = lw_001B0300;
+        C.lw.w_00198D90 = lw_00198D90;
+        C.lw.w_001D2830 = lw_001D2830;
+    }
+    C.lworld = (EmCamLeftWorld){ &C.cam.rec, &C.player, &C.lg, &C.scratch, &C.hit, &C.lw, 0, scratch38_aliases() };
 
     memset(&C.sp, 0, sizeof C.sp);
     C.sp.world = (EmCamSpecialsWorld){ C.cam.rec.bytes, &C.pool[P_EYE], &C.pool[P_TGT], &C.pool[P_69C],
@@ -1247,7 +1339,7 @@ static void bind_worlds(void)
     C.cworld = (EmCameraCommitWorld){ &C.cam.rec, &C.player, &C.pool[P_EYE], &C.pool[P_TGT], &C.pool[P_UP],
                                       &C.pool[P_FWD], &C.pool[P_VIEW], &C.pool[P_VIEWT], &C.pool[P_690],
                                       &C.pool[P_694], &C.pool[P_698], &C.pool[P_69C], &C.pool[P_6A0],
-                                      &C.scratch, &C.cw, 0 };
+                                      &C.scratch, &C.cw, 0, scratch38_aliases() };
 }
 
 int em_camera_live_bind(const EmCameraLiveHost *host)
@@ -1417,7 +1509,7 @@ static int rw_001B0080(void *ctx, uint32_t camera, float a1)
     memcpy(tgt, &C.pool[P_TGT], 16);
     memcpy(p350, s_room->d810350, 16);
     memcpy(s3B50, &s->spad3B40[4], 16);
-    EmSdfSeatWorld world = { &s->d810700, &s->d810702, p350, s3B50, eye, tgt, C.s3400, C.s3600 };
+    EmSdfSeatWorld world = { &s->d810700, &s->d810702, p350, s3B50, eye, tgt, S3400, S3600 };
     EmSdfWorkers workers;
     memset(&workers, 0, sizeof workers);
     workers.w_001B1470 = sdf_wrap;
@@ -1510,8 +1602,8 @@ int em_camera_live_001B0460(int a0, const EmCameraLiveRoom *room)
     w->d810370 = room->d810370;
     w->d8105D0 = (float *)(void *)&C.pool[P_EYE];
     w->d8105E0 = (float *)(void *)&C.pool[P_TGT];
-    w->spad3400 = (float *)(void *)C.s3400;
-    w->spad3600 = (float *)(void *)C.s3600;
+    w->spad3400 = (float *)(void *)S3400;
+    w->spad3600 = (float *)(void *)S3600;
     EmScriptHostWorkersCallees *k = &h.callees;
     k->w_001B0250 = rw_001B0250;
     k->w_001B0B50 = rw_001B0B50;

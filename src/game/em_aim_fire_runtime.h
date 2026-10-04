@@ -1,6 +1,18 @@
 #ifndef EM_AIM_FIRE_RUNTIME_H
 #define EM_AIM_FIRE_RUNTIME_H
 #include "game/em_actor_pool.h"
+#include "game/em_aim_fire_world_live.h"
+/* Borrow the existing collision serialization/last-writer owner. */
+EmAimFireWorldLive *em_aim_fire_runtime_world_state(void);
+/* Alias the sight/beam scratch 70003600..363F to the shared native owner.
+ * Bind after attach; no bytes initialized/copied. NULL restores legacy
+ * backing while preserving the last shared bytes. */
+int em_aim_fire_runtime_scratch_3600_bind(uint32_t *words16);
+/* Current 64 bytes, including before attach, for an explicit handoff. */
+const uint32_t *em_aim_fire_runtime_scratch_3600(void);
+/* Existing C0..FF scratch owner; no allocation, clearing or value copy.
+ * Camera and AREA01 SDK callers may borrow this exact 64-byte span. */
+uint32_t *em_aim_fire_runtime_scratch_38C0(void);
 /* Install the quarantined diagnostic composition over existing live owners. */
 void em_aim_fire_runtime_attach(EmActorPool *pool);
 /* Called after the effect owner's area attach; detach clears its callback. */
@@ -19,6 +31,13 @@ int em_aim_fire_runtime_h28(const EmActor *actor, uint16_t *value);
 /* 00188630's 001F4010(index, 0x700036A0) (the shell casing's seed) with the
  * equipment's copy of 0x700036A0..0x700036DF; 0, or -1. */
 int em_aim_fire_runtime_001F4010(int32_t index, const uint32_t *at);
+/* 001CD520 with a call-local external-byte provider. Reuses the canonical
+ * RCL packet chain and this runtime's VU/fog-validity owner. The caller's
+ * active transaction owns point/scratch views; no suspend or shadow storage.
+ * map is authoritative for external spans; only this sprite entry is allowed.
+ * Requires runtime attach. Writes and first faults remain even on failure. */
+int em_aim_fire_runtime_sprite_borrow(EmAimFireTargetCall *, void *context,
+    void *(*map)(void *, uint32_t, size_t, int), uint32_t *fault_address);
 /* The knife's callees for em_equipment_live_set_world (behind the gate). */
 int em_aim_fire_runtime_world_call(uint32_t fn, const uint32_t *a, unsigned na, uint32_t f12, unsigned nf,
                                    uint32_t *spad, uint32_t *v0);

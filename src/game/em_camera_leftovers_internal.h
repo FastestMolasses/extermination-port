@@ -206,7 +206,8 @@ static inline int cl_fault(EmCamLeftWorld *w, uint32_t address)
 /* The world's base pointers every entry point needs. */
 static inline int cl_world_ok(const EmCamLeftWorld *w)
 {
-    return w && w->cam && w->globals && w->globals->follow && w->scratch && w->hit && w->workers;
+    return w && w->cam && w->globals && w->globals->follow && w->scratch && w->hit && w->workers &&
+           em_camleft_scratch_view(w->scratch,w->scratch_aliases,0x700038A0u,16);
 }
 
 #endif /* EM_CAMERA_LEFTOVERS_INTERNAL_H */

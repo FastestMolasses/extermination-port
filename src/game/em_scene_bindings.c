@@ -1920,7 +1920,7 @@ static uint32_t camera_grid_node(void *ctx, uint32_t node)
 }
 static EmCameraLiveHost k_camera_host = {NULL, camera_player, camera_hip, camera_euler, camera_pad_config,
                                          NULL, camera_standins, camera_timeline,
-                                         camera_memory, camera_place, camera_grid_node};
+                                         camera_memory, camera_place, camera_grid_node, NULL};
 
 /* ------------------------------------------ the render context (L32 / L30)
  *

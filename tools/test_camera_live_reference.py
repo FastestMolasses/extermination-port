@@ -29,6 +29,7 @@ sweep. Nothing from the ELF or the captures is printed or copied beyond
 compared values.
 """
 import ctypes as C
+import os
 import random
 import struct
 import subprocess
@@ -110,8 +111,18 @@ int shim_commit(uint8_t *cam, uint32_t *pool, uint32_t *scratch, uint32_t a4, in
     em_live_set_u32(&player, 0xA4, a4);
     memcpy(s.w, scratch, sizeof s.w);
     EmCameraCommitWorld w = { &rec, &player, pool, pool + 4, pool + 8, pool + 12, pool + 16, pool + 32,
-                              pool + 48, pool + 49, pool + 50, pool + 51, pool + 52, &s, &WK, 0 };
+                              pool + 48, pool + 49, pool + 50, pool + 51, pool + 52, &s, &WK, 0, NULL };
+#ifdef TEST_SCRATCH_ALIASES
+    uint32_t a0[4],b0[4],c0[16];
+    memcpy(a0,s.w,16);memcpy(b0,s.w+4,16);memcpy(c0,s.w+8,64);
+    memset(s.w,0xCD,0x60);
+    const EmCamLeftScratchAliases aliases={a0,b0,c0};w.scratch_aliases=&aliases;
+#endif
     int rc = em_camera_commit_0018C0D0(&w, mode);
+#ifdef TEST_SCRATCH_ALIASES
+    for(unsigned i=0;i<24;++i)if(s.w[i]!=0xCDCDCDCDu)return -2;
+    memcpy(s.w,a0,16);memcpy(s.w+4,b0,16);memcpy(s.w+8,c0,64);
+#endif
     memcpy(cam, rec.bytes, sizeof rec.bytes);
     memcpy(scratch, s.w, sizeof s.w);
     *fault = w.fault;
@@ -141,7 +152,8 @@ def build_native(elf):
     lib = OUT / f'camera_live.{ext}'
     shim = OUT / 'shim.c'
     shim.write_text(SHIM)
-    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-fPIC',
+    aliases = ['-DTEST_SCRATCH_ALIASES'] if os.environ.get('EM_CAMERA_SCRATCH_ALIASES') == '1' else []
+    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off', '-fPIC', *aliases,
                     '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc', str(shim), *SOURCES,
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))

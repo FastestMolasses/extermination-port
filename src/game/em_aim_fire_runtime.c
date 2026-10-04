@@ -50,6 +50,7 @@ static uint32_t shot_flag;                 /* 0x700031E8 */
  * used (its transform takes the fourth row's factor from vf0.w;
  * PLAYER_EQUIPMENT.md section 5). AIM_FIRE.md section 7. */
 static uint32_t scratch_3600[16];          /* 0x70003600..0x7000363F */
+static uint32_t *shared_3600;
 static uint32_t d275C3C;                   /* D_00275C3C (001F0190 / 001F0290) */
 
 /* The records the composition allocates itself (001861C0's 001AFA90(1),
@@ -79,6 +80,19 @@ static struct {
     EmPoseRegion bss[14];
     uint32_t d28A56C;                    /* D_0028A490[0x37], read-only */
 } R;
+
+int em_aim_fire_runtime_scratch_3600_bind(uint32_t *words16)
+{
+    if (!words16 && shared_3600) memcpy(scratch_3600,shared_3600,sizeof scratch_3600);
+    shared_3600=words16;
+    R.bss[4]=(EmPoseRegion){0x70003600,sizeof scratch_3600,
+                           (uint8_t *)(shared_3600 ? shared_3600 : scratch_3600),1};
+    return 0;
+}
+const uint32_t *em_aim_fire_runtime_scratch_3600(void)
+{ return shared_3600 ? shared_3600 : scratch_3600; }
+uint32_t *em_aim_fire_runtime_scratch_38C0(void) { return scratch_38C0; }
+EmAimFireWorldLive *em_aim_fire_runtime_world_state(void) { return &R.world; }
 static void *span(uint32_t a,size_t n,uint32_t base,size_t size,void *p)
 {
     return p && a>=base && n<=size && (uint64_t)a+n<=(uint64_t)base+size
@@ -579,7 +593,8 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
     R.bss[1]=(EmPoseRegion){0x821400,sizeof cable_points,(uint8_t *)cable_points,1};
     R.bss[2]=(EmPoseRegion){0x700038C0,sizeof scratch_38C0,(uint8_t *)scratch_38C0,1};
     R.bss[3]=(EmPoseRegion){0x700031E8,sizeof shot_flag,(uint8_t *)&shot_flag,1};
-    R.bss[4]=(EmPoseRegion){0x70003600,sizeof scratch_3600,(uint8_t *)scratch_3600,1};
+    R.bss[4]=(EmPoseRegion){0x70003600,sizeof scratch_3600,
+                           (uint8_t *)(shared_3600 ? shared_3600 : scratch_3600),1};
     /* D_00275C3C: the count 001F0190 keeps of its 0021B9A0 calls, which
      * 001F0290 tests (the bone burst's fog bracket; no other reader). */
     R.bss[5]=(EmPoseRegion){0x275C3C,sizeof d275C3C,(uint8_t *)&d275C3C,1};
@@ -749,6 +764,26 @@ static int spad_move(uint32_t *spad,int to_scratch)
         else memcpy(spad+4*k,p,16);
     }
     return 0;
+}
+int em_aim_fire_runtime_sprite_borrow(EmAimFireTargetCall *c,void *context,
+    void *(*map)(void *,uint32_t,size_t,int),uint32_t *fault_address)
+{
+    if(!c || c->function!=0x001CD520u || c->na!=5 || c->nf!=3 || !map ||
+       !R.render.vu || !R.render.vf23_valid || R.render.fault_function) {
+        if(fault_address)*fault_address=R.render.fault_address ? R.render.fault_address : 0x001CD520u;
+        return -1;
+    }
+    EmAimFireRenderLive view=R.render;
+    view.context=context;view.map=map;view.call=NULL;
+    /* Same ambient-register invalidation as the existing native sprite root. */
+    R.vf23_valid=0;
+    int rc=em_aim_fire_render_live_call(&view,c);
+    if(rc<0) {
+        R.render.fault_function=view.fault_function;
+        R.render.fault_address=view.fault_address;
+        if(fault_address)*fault_address=view.fault_address ? view.fault_address : view.fault_function;
+    }
+    return rc;
 }
 int em_aim_fire_runtime_world_call(uint32_t fn,const uint32_t *a,unsigned na,uint32_t f12,unsigned nf,
                                    uint32_t *spad,uint32_t *v0)

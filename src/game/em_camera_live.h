@@ -26,7 +26,8 @@
  * stores them back afterwards; the field map is in em_camera_live.c
  * (docs/CAMERA_LIVE.md section 3).
  *
- * Scope: the scene with the original AREA11 roster (the first level). A
+ * Scope: the original AREA11 roster and the optional AREA01 canonical
+ * worker host described below. A
  * scene without an original collision world keeps em_camera.c's legacy
  * camera (outside the first level). The commit 0018C0D0 serves every
  * scene. */
@@ -80,6 +81,11 @@ typedef struct EmCameraLiveHost {
     /* The original address of grid node `node` (what *0x700031D0 names
      * after a grid hit), or 0 when unknown. */
     uint32_t (*grid_node)(void *context, uint32_t node);
+    /* Optional AREA01 originals: 001B0300(), 00198D90(camera, player),
+     * 001D2830(3,1). The camera publishes its current view before this
+     * boundary and reloads it afterward. Host uses the existing canonical
+     * runtime/owners and returns 0 or -1; no fallback on refusal. */
+    int (*area_worker)(void *context, uint32_t function, uint32_t a0, uint32_t a1);
 } EmCameraLiveHost;
 
 /* Build the camera worlds for the area just loaded (after the collision
@@ -138,6 +144,19 @@ void em_camera_live_adopt_view(void);
 /* The canonical words, by original address (0x008101E0..0x008102AF and
  * 0x008105D0..0x008106A3), or NULL for any other address. */
 uint8_t *em_camera_live_bytes(uint32_t address, uint32_t size);
+/* Canonical scratch views used by camera's native workers. Bind aliases at
+ * the state-0 boundary, before player/camera execution. No bytes are copied
+ * or initialized. Passing all NULL restores the existing AREA11 backing.
+ * The caller keeps storage alive until detach; mixed NULL is refused. */
+int em_camera_live_scratch_bind(uint32_t *matrix3400, uint32_t *vector3600,
+                                uint32_t *vector3610, uint32_t *vector3630);
+/* Current original scratch bytes, for preservation at an explicit handoff. */
+uint8_t *em_camera_live_scratch_bytes(uint32_t address, uint32_t size);
+/* Borrow existing player A0/B0 quadwords and aim/fire C0..FF (16 words).
+ * No initialization/copy at bind. All NULL detaches and preserves those
+ * last-written bytes in the legacy camera backing; mixed NULL or rebinding
+ * to another owner without detach refuses. Detach before player unload. */
+int em_camera_live_scratch_38_bind(uint32_t *a0, uint32_t *b0, uint32_t *c0);
 /* The camera's view of the player record D_008102B0 (0x320 bytes, with the
  * +A0 / +B0 / +C4 substitutions of section 5), as its last entry loaded it;
  * the render context reads D_00810360 / D_008104E0 through it. */

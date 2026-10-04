@@ -127,7 +127,7 @@ static void randomize(Fixture *f)
                                          &f->area, &f->d701, &f->d702 };
     f->globals = (EmCamLeftGlobals){ &f->follow, f->d5F0, &f->d6EF, &f->d6B8, &f->dE74, &f->d28A9A0,
                                      &f->s3B80, &f->s3B8D, &f->s31F0, f->table, 0x40 };
-    f->world = (EmCamLeftWorld){ &f->cam, &f->player, &f->globals, &f->scratch, &f->hit, &WORKERS, 0 };
+    f->world = (EmCamLeftWorld){ &f->cam, &f->player, &f->globals, &f->scratch, &f->hit, &WORKERS, 0, NULL };
 }
 
 enum { ENTRIES = 19 };

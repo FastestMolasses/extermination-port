@@ -139,7 +139,10 @@ static uint32_t missing_00195130_area(const EmCamSpecials *s, uint8_t area)
     const EmCamSpecialsWorkers *k = &s->w;
     switch (area) {
     case 0:
-        NEED(k->w_00194DB0, 0x00194DB0u);
+        /* AREA01 exits into AREA00/sub0. The original calls this only
+         * in sub2 with story byte3; other area0 states need no binding. */
+        if (*s->world.d810701 == 2 && *s->world.d810803 == 3)
+            NEED(k->w_00194DB0, 0x00194DB0u);
         break;
     case 6:
         NEED(k->w_001944B0, 0x001944B0u);

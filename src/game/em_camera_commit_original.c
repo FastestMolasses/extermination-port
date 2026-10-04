@@ -38,7 +38,8 @@ int em_camera_commit_0018C0D0(EmCameraCommitWorld *w, int mode)
     if (!w) return -1;
     const EmCameraCommitWorkers *k = w->workers;
     if (!w->cam || !w->player || !w->eye || !w->target || !w->up || !w->fwd || !w->view ||
-        !w->view_t || !w->d690 || !w->d694 || !w->d698 || !w->d69C || !w->d6A0 || !w->scratch || !k)
+        !w->view_t || !w->d690 || !w->d694 || !w->d698 || !w->d69C || !w->d6A0 || !w->scratch || !k ||
+        !em_camleft_scratch_view(w->scratch,w->scratch_aliases,0x700038A0u,16))
         return cc_fault(w, 0x0018C0D0);
     if (!k->sqrt) return cc_fault(w, 0x0011E748);
     if (!k->lookat) return cc_fault(w, 0x00102CD0);
@@ -46,9 +47,9 @@ int em_camera_commit_0018C0D0(EmCameraCommitWorld *w, int mode)
     if (!k->heading) return cc_fault(w, 0x001B1240);
 
     EmCameraFollowRecord *c = w->cam;
-    uint32_t *a0 = em_camleft_spad(w->scratch, 0x700038A0);          /* 0x700038A0..AC */
-    uint32_t *b0 = em_camleft_spad(w->scratch, 0x700038B0);          /* 0x700038B0..BC */
-    uint32_t *c0 = em_camleft_spad(w->scratch, 0x700038C0);          /* 0x700038C0..CC */
+    uint32_t *a0 = em_camleft_spad_view(w->scratch, w->scratch_aliases, 0x700038A0);          /* 0x700038A0..AC */
+    uint32_t *b0 = em_camleft_spad_view(w->scratch, w->scratch_aliases, 0x700038B0);          /* 0x700038B0..BC */
+    uint32_t *c0 = em_camleft_spad_view(w->scratch, w->scratch_aliases, 0x700038C0);          /* 0x700038C0..CC */
 
     w->target[3] = CL_ONE;                                            /* 0018C0E8: D_008105EC */
     w->eye[3] = CL_ONE;                                               /* 0018C0F0: D_008105DC */

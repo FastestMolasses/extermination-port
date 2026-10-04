@@ -85,6 +85,36 @@ static inline uint32_t *em_camleft_spad(EmCamLeftScratch *s, uint32_t address)
     return &s->w[(address - EM_CAMLEFT_SCRATCH_BASE) / 4u];
 }
 
+/* Optional borrowers for the shared 38A0..38FF window. A0 and B0 belong
+ * to the player closure; C0..FF belongs to aim/fire. No values live here.
+ * A supplied view must contain all three pointers for its whole lifetime. */
+typedef struct EmCamLeftScratchAliases {
+    uint32_t *a0, *b0, *c0;
+} EmCamLeftScratchAliases;
+static inline uint8_t *em_camleft_scratch_view(EmCamLeftScratch *s,
+        const EmCamLeftScratchAliases *aliases, uint32_t address, uint32_t size)
+{
+    if (!s || !size || address < EM_CAMLEFT_SCRATCH_BASE ||
+        (uint64_t)address + size > (uint64_t)EM_CAMLEFT_SCRATCH_BASE + sizeof s->w) return NULL;
+    if (aliases && (!aliases->a0 || !aliases->b0 || !aliases->c0 ||
+        ((uintptr_t)aliases->a0 | (uintptr_t)aliases->b0 | (uintptr_t)aliases->c0) % 4u)) return NULL;
+    if (aliases && address < 0x70003900u) {
+        uint32_t base = address < 0x700038B0u ? 0x700038A0u :
+                        address < 0x700038C0u ? 0x700038B0u : 0x700038C0u;
+        uint32_t count = base == 0x700038C0u ? 64u : 16u;
+        uint32_t *p = base == 0x700038A0u ? aliases->a0 :
+                      base == 0x700038B0u ? aliases->b0 : aliases->c0;
+        return p && size <= count && address-base <= count-size ?
+               (uint8_t *)p + address-base : NULL;
+    }
+    return (uint8_t *)s->w + address-EM_CAMLEFT_SCRATCH_BASE;
+}
+static inline uint32_t *em_camleft_spad_view(EmCamLeftScratch *s,
+        const EmCamLeftScratchAliases *aliases, uint32_t address)
+{
+    return (uint32_t *)(void *)em_camleft_scratch_view(s, aliases, address, 4);
+}
+
 /* ---- What the segment query 0019A910 leaves ------------------------------
  * The scratchpad words its callers read afterwards: the point 0x700031B0
  * (all four words: 00102948 copies the quad) and, through the record
@@ -180,6 +210,7 @@ typedef struct EmCamLeftWorld {
     EmCamLeftHit *hit;                 /* 0x700031B0 / *0x700031D0 */
     const EmCamLeftWorkers *workers;
     uint32_t fault;                    /* 0, or the first missing / failing callee */
+    const EmCamLeftScratchAliases *scratch_aliases;
 } EmCamLeftWorld;
 
 /* ---- Entry points ---------------------------------------------------------
@@ -217,6 +248,10 @@ int em_camleft_0015CBA0(EmPlayerLiveActor *p);
  * (0x700038A0..0x700038CC, 0x70003910..0x7000391C, 0x70003A20..0x70003A2C). */
 void em_camleft_scratch_from_follow(EmCamLeftScratch *s, const EmCameraFollowScratch *f);
 void em_camleft_scratch_to_follow(const EmCamLeftScratch *s, EmCameraFollowScratch *f);
+void em_camleft_scratch_from_follow_view(EmCamLeftScratch *s, const EmCameraFollowScratch *f,
+                                         const EmCamLeftScratchAliases *aliases);
+void em_camleft_scratch_to_follow_view(EmCamLeftScratch *s, EmCameraFollowScratch *f,
+                                       const EmCamLeftScratchAliases *aliases);
 
 #ifdef __cplusplus
 }

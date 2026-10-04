@@ -762,6 +762,30 @@ def world_refusal(native):
     return count
 
 
+def area00_missing_gate(native,elf):
+    """AREA01 exit's area0/sub0 must not require sub2's camera worker."""
+    class NoEffects:
+        fail_at=None
+        def next(self,field):return False,dict(v0=0,f0=0,writes=[])
+    oracle=UnitOracle(elf)
+    for room in (0,1,2):
+        for story in (0,3):
+            case=make_case(3);window=bytearray(case['window'])
+            window[0x1E0+1]=1;window[0x700]=0;window[0x701]=room;window[0x803]=story
+            struct.pack_into('<I',window,PLAYER-WINDOW+0x230,0)
+            case=dict(case,entry=WALK,window=bytes(window))
+            want=oracle.run(case,NoEffects())
+            needed=room==2 and story==3
+            assert ('w_00194DB0' in {x[0] for x in want['log']})==needed
+            run=NativeRun(native,case,NoEffects(),missing='w_00194DB0')
+            before=run.mirror.state();rc,got=run.run()
+            if needed:
+                assert rc==-1 and got['fault']==0x194DB0 and not got['log'] and got['state']==before
+            else:
+                assert rc==0 and got['log']==want['log'] and got['state']==want['state']
+    return 6
+
+
 def main():
     global ELF, NATIVE
     started = time.time()
@@ -785,8 +809,10 @@ def main():
     assert not missing, ('branch outcomes never exercised', missing)
     assert set(entries) == set(MAIN), ('entry points never run', entries)
     world_refusals = world_refusal(NATIVE)
+    area00_gates = area00_missing_gate(NATIVE,ELF)
     reference_mode.banner(reference_mode.part(len(seeds), total, 'cases'),
-                          '%d jal targets (all hooked or translated)' % callees)
+                          '%d jal targets (all hooked or translated)' % callees,
+                          '%d original AREA00 missing-worker gate cases' % area00_gates)
     print('camera specials vs original instructions: PASS %d cases (%s), %d worker calls identical '
           '(args + whole compared state at each call), every one of %d conditional branches both '
           'ways, %d fault-stop cuts, %d missing-worker refusals, %d missing-world refusals (%.1fs)' % (

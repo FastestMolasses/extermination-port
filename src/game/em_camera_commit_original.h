@@ -76,6 +76,7 @@ typedef struct EmCameraCommitWorld {
     EmCamLeftScratch *scratch;          /* 0x700038A0..: 38A0, 38B0, 38C0 */
     const EmCameraCommitWorkers *workers;
     uint32_t fault;                     /* 0, or the first missing / failing callee */
+    const EmCamLeftScratchAliases *scratch_aliases;
 } EmCameraCommitWorld;
 
 /* 0018C0D0(cam, mode). 0, or -1 on a fault. */

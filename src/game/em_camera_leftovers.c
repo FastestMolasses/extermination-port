@@ -109,9 +109,9 @@ int em_camleft_001916C0(EmCamLeftWorld *w, EmPlayerLiveActor *e, int mode)
     int have_y = 1;
     switch (group) {
     case G_A: {
-        uint32_t *a20 = em_camleft_spad(s, 0x70003A20);
+        uint32_t *a20 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A20);
         if (mode == 2) {
-            uint32_t *b0 = em_camleft_spad(s, 0x700038B0);
+            uint32_t *b0 = em_camleft_spad_view(s, w->scratch_aliases, 0x700038B0);
             if (cl_v_sub(b0, c->bytes + 0x20, c->bytes + 0x10) < 0)    /* 00191764 */
                 return cl_fault(w, 0x001028D0);
             uint32_t sq = cl_madd(cl_mul(b0[0], b0[0]), b0[2], b0[2]); /* 00191770: mula, madd */
@@ -255,14 +255,14 @@ int em_camleft_00191000(EmCamLeftWorld *w, const EmPlayerLiveActor *e, int *resu
 static int boom_pull(EmCamLeftWorld *w, unsigned step_at)
 {
     EmCameraFollowRecord *c = w->cam;
-    uint32_t *a0 = em_camleft_spad(w->scratch, 0x700038A0);
+    uint32_t *a0 = em_camleft_spad_view(w->scratch, w->scratch_aliases, 0x700038A0);
     if (cl_v_sub(a0, c->bytes + 0x20, c->bytes + 0x10) < 0) return cl_fault(w, 0x001028D0);
     a0[1] = 0;                                                         /* 0022FD08 */
     a0[3] = 0;
     if (cl_v_normalize(a0, a0) < 0) return cl_fault(w, 0x00102760);
-    uint32_t step = *em_camleft_spad(w->scratch, step_at);
+    uint32_t step = *em_camleft_spad_view(w->scratch, w->scratch_aliases, step_at);
     cl_cset(c, 0x10, cl_add(cl_cw(c, 0x10), cl_mul(a0[0], step)));     /* 0022FD30 */
-    step = *em_camleft_spad(w->scratch, step_at);
+    step = *em_camleft_spad_view(w->scratch, w->scratch_aliases, step_at);
     cl_cset(c, 0x18, cl_add(cl_cw(c, 0x18), cl_mul(a0[2], step)));     /* 0022FD50 */
     return 0;
 }
@@ -278,8 +278,8 @@ int em_camleft_0022FCA0(EmCamLeftWorld *w)
     CL_NEED(w, 0x0011DE90, k->cosine);
     EmCameraFollowRecord *c = w->cam;
     EmCamLeftScratch *s = w->scratch;
-    uint32_t *a20 = em_camleft_spad(s, 0x70003A20), *a24 = em_camleft_spad(s, 0x70003A24);
-    uint32_t *a28 = em_camleft_spad(s, 0x70003A28), *a2c = em_camleft_spad(s, 0x70003A2C);
+    uint32_t *a20 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A20), *a24 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A24);
+    uint32_t *a28 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A28), *a2c = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A2C);
     uint32_t slack = cl_sub(*g->d690, cl_fabs(cl_cw(c, 0x0C)));        /* 0022FCC4 */
     *a20 = slack;
     if (!cl_le(slack, CL_ZERO)) {                                      /* 0022FCD8 */
@@ -308,15 +308,15 @@ int em_camleft_0022FCA0(EmCamLeftWorld *w)
     else *a28 = cl_sub(*a28, turn);                                    /* 0022FF60 */
     uint32_t v;
     CL_CALL(w, 0x0011E2A8, k->sine, k->context, *a28, &v);
-    *em_camleft_spad(s, 0x700038A0) = v;                               /* 0022FF70 */
-    *em_camleft_spad(s, 0x700038A4) = 0;
+    *em_camleft_spad_view(s, w->scratch_aliases, 0x700038A0) = v;                               /* 0022FF70 */
+    *em_camleft_spad_view(s, w->scratch_aliases, 0x700038A4) = 0;
     CL_CALL(w, 0x0011DE90, k->cosine, k->context, *a28, &v);
-    *em_camleft_spad(s, 0x700038A8) = v;                               /* 0022FF88 */
-    *em_camleft_spad(s, 0x700038AC) = 0;
+    *em_camleft_spad_view(s, w->scratch_aliases, 0x700038A8) = v;                               /* 0022FF88 */
+    *em_camleft_spad_view(s, w->scratch_aliases, 0x700038AC) = 0;
     cl_cset(c, 0x10, cl_add(cl_cw(c, 0x10),
-                            cl_mul(*em_camleft_spad(s, 0x700038A0), *a24))); /* 0022FFB0 */
+                            cl_mul(*em_camleft_spad_view(s, w->scratch_aliases, 0x700038A0), *a24))); /* 0022FFB0 */
     cl_cset(c, 0x18, cl_add(cl_cw(c, 0x18),
-                            cl_mul(*em_camleft_spad(s, 0x700038A8), *a24))); /* 0022FFD4 */
+                            cl_mul(*em_camleft_spad_view(s, w->scratch_aliases, 0x700038A8), *a24))); /* 0022FFD4 */
     return 0;
 }
 
@@ -486,7 +486,7 @@ int em_camleft_00191580(EmCamLeftWorld *w, EmPlayerLiveActor *e)
     EmCameraFollowRecord *c = w->cam;
     EmCamLeftScratch *s = w->scratch;
     if (em_camleft_001916C0(w, e, 0) < 0) return -1;                  /* 00191598 */
-    uint32_t *a20 = em_camleft_spad(s, 0x70003A20), *a24 = em_camleft_spad(s, 0x70003A24);
+    uint32_t *a20 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A20), *a24 = em_camleft_spad_view(s, w->scratch_aliases, 0x70003A24);
     *a20 = cl_sub(*w->globals->follow->d69C, cl_fabs(cl_cw(c, 0x0C))); /* 001915C4 */
     uint32_t lo = cl_eq(CL_M46_8, cl_cw(c, 0x64)) ? CL_M20 : CL_M10;  /* 001915D0 */
     uint32_t t = *a20, y;
@@ -829,21 +829,27 @@ int em_camleft_0015CBA0(EmPlayerLiveActor *p)
 /* ======================================================================
  * Binding helpers
  * ====================================================================== */
-void em_camleft_scratch_from_follow(EmCamLeftScratch *s, const EmCameraFollowScratch *f)
+void em_camleft_scratch_from_follow_view(EmCamLeftScratch *s, const EmCameraFollowScratch *f,
+                                         const EmCamLeftScratchAliases *aliases)
 {
-    memcpy(em_camleft_spad(s, 0x700038A0), f->s38A0, 16);
-    memcpy(em_camleft_spad(s, 0x700038B0), f->s38B0, 16);
-    memcpy(em_camleft_spad(s, 0x700038C0), f->s38C0, 16);
-    memcpy(em_camleft_spad(s, 0x70003910), f->s3910, 16);
-    memcpy(em_camleft_spad(s, 0x70003A20), f->s3A20, 16);
+    memcpy(em_camleft_spad_view(s, aliases, 0x700038A0), f->s38A0, 16);
+    memcpy(em_camleft_spad_view(s, aliases, 0x700038B0), f->s38B0, 16);
+    memcpy(em_camleft_spad_view(s, aliases, 0x700038C0), f->s38C0, 16);
+    memcpy(em_camleft_spad_view(s, aliases, 0x70003910), f->s3910, 16);
+    memcpy(em_camleft_spad_view(s, aliases, 0x70003A20), f->s3A20, 16);
 }
 
-void em_camleft_scratch_to_follow(const EmCamLeftScratch *s, EmCameraFollowScratch *f)
+void em_camleft_scratch_to_follow_view(EmCamLeftScratch *s, EmCameraFollowScratch *f,
+                                       const EmCamLeftScratchAliases *aliases)
 {
-    EmCamLeftScratch *m = (EmCamLeftScratch *)(uintptr_t)s;
-    memcpy(f->s38A0, em_camleft_spad(m, 0x700038A0), 16);
-    memcpy(f->s38B0, em_camleft_spad(m, 0x700038B0), 16);
-    memcpy(f->s38C0, em_camleft_spad(m, 0x700038C0), 16);
-    memcpy(f->s3910, em_camleft_spad(m, 0x70003910), 16);
-    memcpy(f->s3A20, em_camleft_spad(m, 0x70003A20), 16);
+    memcpy(f->s38A0, em_camleft_spad_view(s, aliases, 0x700038A0), 16);
+    memcpy(f->s38B0, em_camleft_spad_view(s, aliases, 0x700038B0), 16);
+    memcpy(f->s38C0, em_camleft_spad_view(s, aliases, 0x700038C0), 16);
+    memcpy(f->s3910, em_camleft_spad_view(s, aliases, 0x70003910), 16);
+    memcpy(f->s3A20, em_camleft_spad_view(s, aliases, 0x70003A20), 16);
 }
+
+void em_camleft_scratch_from_follow(EmCamLeftScratch *s, const EmCameraFollowScratch *f)
+{ em_camleft_scratch_from_follow_view(s, f, NULL); }
+void em_camleft_scratch_to_follow(const EmCamLeftScratch *s, EmCameraFollowScratch *f)
+{ em_camleft_scratch_to_follow_view((EmCamLeftScratch *)(uintptr_t)s, f, NULL); }

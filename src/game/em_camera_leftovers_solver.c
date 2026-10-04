@@ -17,7 +17,7 @@
 #include <stddef.h>
 #include <string.h>
 
-#define S(a) em_camleft_spad(w->scratch, UINT32_C(0x70000000) | (a))
+#define S(a) em_camleft_spad_view(w->scratch, w->scratch_aliases, UINT32_C(0x70000000) | (a))
 
 /* One 0019A910 call: *result its v0; the hit words update w->hit. */
 static int segment(EmCamLeftWorld *w, const void *from, const void *to, int mask, int *result)
