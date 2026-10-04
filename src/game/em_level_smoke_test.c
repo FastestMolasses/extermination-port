@@ -130,6 +130,8 @@ static void roger_begin(void);
 static int roger_frame(void);
 static void exit_begin(void);
 static int exit_frame(void);
+static void a01_arrival_begin(void);
+static int a01_arrival_frame(void);
 static void dmg_begin(void);
 static int dmg_frame(void);
 static void br_begin(void);
@@ -299,6 +301,10 @@ static const Phase k_phases[] = {
      "movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (001FFCD0: AREA01 sub 0), "
      "the AREA01 arrival 0x1AE040 state 0 (spawn entry 4)",
      "the level exit (audit 1b item 17; docs/FIRST_LEVEL_EXIT.md)", exit_begin, exit_frame, 0, 0, 0, 0},
+    {"a01_arrival", "15_level_exit f741..f801 (AREA01 arrival and 60 neutral world ticks)", 0x001AE040u,
+     "AREA01 sub 0 entry 4: the arrival rebuild followed by the original idle player, camera and owners",
+     "AREA01 live binding; opt-in, every missing worker still fail-stops", a01_arrival_begin, a01_arrival_frame,
+     0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -4186,6 +4192,44 @@ static int exit_frame(void)
     }
 }
 
+/* ---------------------------------------------------------- a01_arrival
+ *
+ * Opt-in continuation from exit, with neutral pad only. Route beat 15
+ * f741 is the rebuild and f742..801 are its next 60 world frames. No
+ * snapshot is imported into the game and no fault is bypassed. The pool
+ * witness is taken at the rebuild for check_exit; this mid-frame tail's
+ * fade/message/stream fields are replaced by the next tick's start sample
+ * in that checker, because the remaining main-loop steps have not run. */
+enum { A01_ARRIVAL_WORLD_TICKS = 60 };
+
+static void a01_arrival_begin(void)
+{
+    t.frames = 0;
+    pad_apply(0, 0, 0);
+}
+
+static int a01_arrival_frame(void)
+{
+    const EmSceneState *s = em_scene_state();
+    pad_apply(0, 0, 0);
+    if (s->d810700 != 1 || s->d810701 != 0 || s->d810702 != 4 ||
+        task_byte(EM_SCENE_TASK_09) != 1 || task_byte(EM_SCENE_TASK_0B) != 1 || s->spad3B8D != 0) {
+        fail("AREA01 arrival idle left area 01/00 entry 4 or its gameplay state");
+        return 0;
+    }
+    if (!t.frames) {
+        fprintf(stderr, "level smoke: a01_arrival: aligned counter=%u (route 15 row 741; rebuild)\n",
+                em_frame_counter());
+        em_scene_bindings_log_request_tail();
+        em_scene_bindings_log_tail();
+    }
+    if (t.frames++ < A01_ARRIVAL_WORLD_TICKS)
+        return 0;
+    fprintf(stderr, "level smoke: a01_arrival: PASS world_ticks=%d counter=%u (capture check required)\n",
+            A01_ARRIVAL_WORLD_TICKS, em_frame_counter());
+    return 1;
+}
+
 /* ------------------------------------------------------------- driver */
 
 void em_level_smoke_test_begin(void)
@@ -4195,7 +4239,12 @@ void em_level_smoke_test_begin(void)
     t.active = value && strcmp(value, "newgame-level") == 0;
     if (!t.active)
         return;
-    t.until = PHASE_COUNT - 1;
+    /* Later-level phases are opt-in. The established first-level run
+     * (including EM_TEST_FULL's empty endpoint) still ends at exit. */
+    t.until = 0;
+    for (int i = 0; i < PHASE_COUNT; ++i)
+        if (strcmp(k_phases[i].name, "exit") == 0)
+            t.until = i;
     const char *until = getenv("EM_LEVEL_SMOKE_UNTIL");
     if (until && until[0]) {
         t.until = -1;

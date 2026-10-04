@@ -1314,6 +1314,115 @@ def run_item(item):
             'bounds': run_boundaries}[kind](arg)
 
 
+def area01_span_domain(elf):
+    """Bound the no-span path for recorded AREA01 camera query shapes.
+
+    This does not claim to replay mid-frame camera calls. It checks every
+    recorded boundary row, and runs the original span selector on the widest
+    recorded query plus a deliberately out-of-domain segment. See
+    docs/LEVEL2_COLLISION.md for the implication and its limits.
+    """
+    import json
+    route = cp.DECOMP / 'build/s87/route_a01'
+    captures = sorted(p for p in route.glob('a01_*') if (p / 'trace.json').exists())
+    if not captures:
+        return 'SKIP (AREA01 captures missing)'
+    first = route / 'a01_00_train_room'
+    ram = bytearray((first / 'eeMemory.bin').read_bytes())
+    spad = bytearray((first / 'scratchpad.bin').read_bytes())
+    check_code(elf, ram, 'AREA01 span domain')
+    n, nodes, verts = u32(spad, 0x320C), u32(spad, 0x3208), u32(spad, 0x31FC)
+    assert 2 <= n < 0x8000
+    tables = []
+    for i in range(12):
+        at = u32(spad, 0x3210 + 4 * i)
+        values = struct.unpack_from(f'<{n}h', ram, at)
+        assert all(0 <= v < n if i < 6 else 0 <= v <= n for v in values), (i, n)
+        tables.append(values)
+    coords = []
+    for i in range(6):
+        values = [struct.unpack_from('<f', ram, verts + 12 * s16(ram, nodes + 64 * node + 2 * i)
+                                     + 4 * (i // 2))[0] for node in tables[i]]
+        assert all(math.isfinite(v) for v in values)
+        assert all(a <= b for a, b in zip(values, values[1:]))
+        coords.append(values)
+    # No chosen span requires each even span to have length N: its live
+    # upper rank is N-1. Each odd span also has length N: live lower rank 0.
+    # The original rank search then requires max >= even[-1] and
+    # min <= odd[1]. Thus |end.z-start.z| must be at least this bound.
+    bound = coords[4][-1] - coords[5][1]
+    assert bound > 0
+    rows = queries = snapshots = 0
+    widest = (0.0, None, None)
+    for capture in captures:
+        snapshot = (capture / 'eeMemory.bin').read_bytes()
+        if snapshot[0x810700:0x810702] == bytes((1, 0)):
+            spr = (capture / 'scratchpad.bin').read_bytes()
+            assert u32(spr, 0x320C) == n, capture.name
+            # Verify the proof's entire grid data is unchanged, including
+            # the vertex coordinates, rather than trusting the area id.
+            for i in range(12):
+                at = u32(spr, 0x3210 + 4 * i)
+                assert struct.unpack_from(f'<{n}h', snapshot, at) == tables[i], capture.name
+            np, vp = u32(spr, 0x3208), u32(spr, 0x31FC)
+            for i in range(6):
+                got = [struct.unpack_from('<f', snapshot, vp + 12 * s16(snapshot, np + 64 * node + 2 * i)
+                                           + 4 * (i // 2))[0] for node in tables[i]]
+                assert got == coords[i], (capture.name, i)
+            snapshots += 1
+        for row in json.loads((capture / 'trace.json').read_text())['rows']:
+            if not row['area4'].startswith('0100'):
+                continue
+            rows += 1
+            eye, target = row['eye'], row['tgt']
+            candidates = ((row['cam_tgt'], row['cam_eye']), (eye, target),
+                          (eye, dy(eye, 200.0)), (eye, dy(eye, -200.0)))
+            for a, b in candidates:
+                assert all(math.isfinite(v) for v in (*a, *b))
+                width = abs(b[2] - a[2])
+                # Trace numbers have decimal rounding. The generous margin
+                # is a proof tolerance, never a gameplay clamp.
+                assert width + 0.01 < bound, (capture.name, row['f'], width, bound)
+                if width > widest[0]:
+                    widest = (width, tuple(a), tuple(b))
+                queries += 1
+    assert rows and snapshots and widest[1]
+
+    class SpanStop(Exception):
+        pass
+
+    ee = LockEE(elf, ram, spad)
+    selected = []
+
+    def stop(e):
+        selected.append(tuple(e.r[i] & 0xFFFFFFFF for i in (17, 18, 20)))
+        raise SpanStop
+
+    # End of the six-span choice, before any table access using its result.
+    ee.hooks[0x0019D978] = stop
+    poison = (0x12345678, 0x23456789, 0x3456789A)
+    wide_lo = tuple(min(coords[2 * i]) - 1 for i in range(3))
+    wide_hi = tuple(max(coords[2 * i + 1]) + 1 for i in range(3))
+    for a, b, chosen in ((widest[1], widest[2], True), (wide_lo, wide_hi, False)):
+        ee.spad[:] = spad
+        ee.r[29] = 0x7F080000
+        for i, value in zip((17, 18, 20), poison):
+            ee.r[i] = value
+        for j in range(3):
+            ee.save(0x70003190 + 4 * j, bits(a[j]))
+            ee.save(0x700031A0 + 4 * j, bits(b[j]))
+        try:
+            ee.call(GRID_CAM)
+        except SpanStop:
+            pass
+        else:
+            raise AssertionError('original camera walker never reached its span-choice boundary')
+        assert (selected[-1] != poison) == chosen, (chosen, selected[-1])
+    return (f'{rows} boundary rows, {queries} query shapes, {snapshots} matching grids; '
+            f'max Z span {widest[0]:.6f} < required {bound:.6f}; '
+            'original selector: recorded widest chooses, whole-grid witness preserves caller registers')
+
+
 def main():
     import time
     t0 = time.time()
@@ -1325,6 +1434,7 @@ def main():
     cp.OUT = OUT
     emcl, verified, installed = cp.export_emcl()
     G['elf'] = read_elf()
+    span_domain = area01_span_domain(G['elf'])
     G['native'] = build_native()
     G['emcl'] = emcl
     row_items, total_rows = [], 0
@@ -1415,6 +1525,7 @@ def main():
     print(f'       walkers {dict(sorted(units["walkers"].items()))}')
     print(f'synthetic: {synth}')
     print(f'gate boundaries: {bounds}')
+    print(f'AREA01 no-span domain: {span_domain}')
     print(f'PASS ({elapsed:.1f}s)')
     return 0
 

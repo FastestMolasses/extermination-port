@@ -1,5 +1,14 @@
 # Level smoke: the first level, live, phase by phase
 
+AREA01 binding work adds an opt-in `a01_arrival` continuation:
+`EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`. It asks for the
+arrival rebuild and 60 neutral world ticks, compared with route 15
+f741–801 by `tools/level_smoke_area01.py`. It currently fails on the first
+world frame at `001AE040` because AREA01's owners are unbound. This is an
+explicit failing probe, not a live phase claim. Default/full first-level
+runs and `--require-through last` still end at `exit`. See
+[LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the recorded failure and work left.
+
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the
 boxes: the Use chain's ledge climbs onto the crates' original owners),
