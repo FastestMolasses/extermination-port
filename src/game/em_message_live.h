@@ -79,6 +79,11 @@ typedef struct {
  * the data is missing or malformed: the service is still installed, idles
  * while the block is idle and faults on the first request or reset. */
 int em_message_live_install(const char *path);
+/* Select the loaded area's EMMD bank and record table. Preserves the
+ * request block, style, drawing state, host, streams and presenters; the
+ * original's 001FC9B0 remains the only message reset. `area` must equal
+ * D_00810700. 1 ok, 0 with a latched fault on missing/mismatched data. */
+int em_message_live_select_area(const char *path, uint32_t area);
 void em_message_live_shutdown(void);
 
 void em_message_live_set_host(const EmMessageLiveHost *host);       /* NULL clears */

@@ -499,6 +499,10 @@ test-message-service:
 test-message-service-reference:
 	python3 tools/test_message_service_reference.py
 
+.PHONY: test-message-area-reference
+test-message-area-reference:
+	python3 tools/test_message_area_reference.py
+
 .PHONY: test-fan-original
 test-fan-original:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/fan_original_test.c src/game/em_fan_original.c -lm -o build/fan_original_test && ./build/fan_original_test

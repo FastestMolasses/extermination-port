@@ -2123,6 +2123,13 @@ static int w_001AFCA0(void *ctx)
     } else {
         em_collision_world_unload();
     }
+    /* 001FD790 indexes D_00264DD0 by D_00810700; 001FD950 reads the bank
+     * the area load delivered at D_0028A594. Rebind their data without
+     * resetting D_002821B0 or the existing stream/presenter workers. */
+    if (world_scene() && !em_message_live_select_area(
+            arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
+                            : "assets/message/message_data.emmd", s_state.d810700))
+        return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
     /* 001AF5C0 wipes the player record (em_slg_001AF5C0 over the record
      * image: the memset, then +0x14 = the record, +0x02 = 0, the scale
      * +0x60..+0x6C and the colour words +0x80..+0x8C = 1.0, +0x70 / +0x74 =

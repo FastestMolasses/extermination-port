@@ -1981,8 +1981,9 @@ can meet the same standard. It is not playable in the port yet.
   overlay in the decomp. Phase 2 translates each new function on its own
   and checks it with an original-instruction oracle over the recorded
   AREA01 RAM, comparing memory at every callee entry. The AREA01 assets are
-  exported locally and checked byte for byte against the captures. Phase 3,
-  binding it into the game, starts only after the first level is done.
+  exported locally and checked byte for byte against the captures. Binding
+  work now proceeds separately on branch `level2` (LEVEL2_BINDING.md), as
+  authorized for the second level while the first-level work continues.
 - Evidence: port commits e21bd95 (wave 1: 90 translations, split into
   overlay 14, math 30, render 21 and sys 25, plus asset exports) and efe9f83
   (wave 2: 65 side-path and exit translations, split into UI 17, side 20,
@@ -1992,14 +1993,20 @@ can meet the same standard. It is not playable in the port yet.
   41 functions are byte-identical C and 3 are NEARMISS. The lanes found
   wrong decomp NEARMISS bodies, which were then corrected: 7 in 07c4e32, 2
   in 837d548 and 7 more in f799141.
-- Status: **PLANNED**. Nothing is bound: the Makefile is unchanged and
-  nothing of level 2 runs in the game. The mutation sweeps did not converge
-  and were closed on named survivors. The level exit's arrival (above)
-  rebuilds AREA01 sub 0 live; nothing runs after that frame. Known binding
-  blockers: `em_coll_segment_walkers` returns -1 on 0019D770's no-span path
-  (decomp HANDOFF); `em_actor_cells` accepts AREA01's cell directory since
-  chain C11 EXIT (bit 29: the EE's uncached RAM mirror). The HANDOFF's "33 of 41" disagrees with the bdd40fb commit and
-  `PROGRESS.md`, which both say 32.
+- Status: **PARTIAL**, arrival only. The level exit rebuilds AREA01 sub 0;
+  its later world frames still fail-stop at 001AE040. The level2 branch
+  selects AREA01's message bank during that rebuild without resetting its
+  service or clearing its stream/presenter bindings. `test-message-area-reference`
+  checks 11,956 bank bytes against the capture and 54 service ticks in quick
+  mode (3,330 full) against the original instructions; LEVEL2_MESSAGES.md
+  states the exact scope. This does not make AREA01 dialogue or its route
+  playable. The opt-in arrival smoke currently fails on its first world tick.
+  The route-plus-arrival census has 179 entries (SECOND_LEVEL_CENSUS.md).
+  The older mutation sweeps did not converge and were closed on named
+  survivors. The actor-cell bit-29 mirror was already accepted by chain C11
+  EXIT. The segment walker's no-span fail-stop remains: LEVEL2_COLLISION.md
+  bounds the recorded camera queries and explains the original caller-state
+  dependency; no success value has been substituted.
 
 ---
 

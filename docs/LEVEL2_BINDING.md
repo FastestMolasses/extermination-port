@@ -76,6 +76,16 @@ without changing that guard:
 
 These are translation results, not AREA01 route or live-worker evidence.
 
+The message resource adapter now runs during `001AFCA0`'s native area
+rebuild. It selects the delivered area's EMMD view for `001FD790` and
+`001FD950`, preserving the request block, draw/glyph state, styles, streams
+and presenters. `001FC9B0` keeps its original reset sites. The original
+service caller is `001FCA10 -> 001FDB80 -> 001FD790`; AREA01 dialogue itself
+is still unbound. See LEVEL2_MESSAGES.md: **4 state-preserving selections,
+11,956 capture-equal bank bytes, 54 quick / 3,330 full original service
+ticks**, plus missing-bank and persistent-fault checks. The fixture's
+synthetic draw/glyph state is distinguished from its recorded inputs.
+
 ## Verification
 
 - Initial `make all`: passed, zero compiler warnings.
@@ -91,6 +101,8 @@ These are translation results, not AREA01 route or live-worker evidence.
   results in `build/level2/verification/results.json`. Sandboxed native
   GPU tests cannot create Metal devices; these require a headless run with
   normal host access. That infrastructure failure is not a game pass.
+- Missing-worker staged-index build: `make -B all`, zero warnings,
+  receipt `build/level2/prerequisites-index-build.json`.
 
 ## Shared-file edits
 
@@ -119,11 +131,23 @@ Phase-2 missing-worker checkpoint:
 - SECOND_LEVEL_CENSUS and LEVEL2_DEPENDENCIES record availability; neither
   first-level census nor first-level audit was edited.
 
+Message-resource checkpoint:
+
+- `em_message_live.c/.h`: area selection preserves dynamic service state;
+  the EMMD area index is checked against the actual 23-element array.
+- `em_scene_bindings.c`: select the AREA01 or AREA11 message resource in
+  the area rebuild, before owners can request a message.
+- `Makefile`: `test-message-area-reference` target. FIDELITY_FEATURES
+  describes the arrival-only state; no launcher option was added.
+- New `tests/message_area_bridge.c`, `tools/test_message_area_reference.py`
+  and LEVEL2_MESSAGES.md.
+
 ## Known gaps
 
 All main beats `a01_00..a01_07` and side beats remain unplayed by the native
-port. AREA00 arrival is the intended stopping boundary. The message bank,
-static and dynamic rendering, overlay init, canonical actor records,
+port. AREA00 arrival is the intended stopping boundary. The message bank
+now switches during rebuild; live AREA01 dialogue, static and dynamic
+rendering, overlay init, canonical actor records,
 scripts, interactions, doors and pickups still need their AREA01 adapters.
 The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any
