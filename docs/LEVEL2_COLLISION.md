@@ -73,6 +73,12 @@ does not change gameplay code. If the AREA01 captures are absent it reports
 that portion as skipped explicitly. The regular first-level comparisons stay
 unchanged. Quick/full results are recorded by the parent binding task.
 
+The quick run passed in 13.8 s. The full run passed in 1,373.7 s: all
+12,439 first-level rows (seven queries each), 15 captured re-runs, 3,000
+cases for each of three unit families and 600 synthetic worlds. It checked
+25,598 original hull-lock calls and 12,497 hit views, plus the AREA01 domain
+and original selector witnesses described above.
+
 ## Remaining collision binding work
 
 AREA01 owners first reach 0019B4C0 -> 001A06A0 / 0019CF50. Their standalone

@@ -98,6 +98,7 @@ import ast
 import collections
 import json
 import math
+import os
 from pathlib import Path
 import re
 import struct
@@ -4347,7 +4348,7 @@ def check_rand_order(ticks, state, trace):
       the capture holds (01's battery take, 10's director beat): each
       frame's deterministic callers equal the capture's frame (the values
       differ: the port's stream reaches the window from its own route)."""
-    frames = R.port(trace, ROOT / 'build/extermination')
+    frames = R.port(trace, Path(os.environ.get('EM_LEVEL_SMOKE_BIN', ROOT / 'build/extermination')))
     state['rand'] = frames
     orig, marks = R.original('newgame')
     rep, line = R.check_opening(frames, orig, marks, (state['drive'], R.lane0_request_port(ticks)))

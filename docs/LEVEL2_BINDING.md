@@ -19,7 +19,7 @@ The headless `a01_arrival` probe reaches the state-0 rebuild at native
 counter **15007** (route 15 row 741, also EXIT `exit_01` row 306). Its first
 world frame reports `0x1AE040 state 1 in AREA01`, then
 `FAULT at 001AE040 (code 1)`; the smoke fails at `a01_arrival frame=0`.
-Receipt: `build/level2/arrival/run.log`, `ticks.jsonl` and `rand.trace`.
+Receipt: `build/level2/arrival/run.log`, `ticks.jsonl.gz` and `rand.trace`.
 Reproduce: `EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`.
 
 The opt-in phase asks for 60 neutral world frames after the rebuild. Its
@@ -93,23 +93,80 @@ oracles pass again in quick and full modes. LEVEL2_MATH_VIEWS.md separates
 the new adapter checks from the existing linear-memory oracle evidence.
 The future actor binder still has to supply those views.
 
+The resource checkpoint connects three adapters during the live state-0
+rebuild, while retaining the world-frame guard:
+
+- After pool/model-owner reset, select `D_0028A59C` from the loader's slot
+  0x43 through the existing world-model owner. The EMWM table must match
+  the delivered address. LEVEL2_MODEL_BANK.md proves **1,664 lookups,
+  832 owner initializations and 1,362 bone records** in full mode. Direct
+  AREA01-to-AREA11 without module-3 reload relocates that bank in both the
+  original and native loader; the fixed-address export correctly refuses
+  it. That additional transition is not claimed supported.
+- Bind RCL for both world areas. AREA01 keeps its delivered static bank
+  and borrows dynamic table slot 0x45; it does not reload AREA11's static
+  export. The existing `001D5370` dispatch reaches the prepared dynamic
+  packet workers and existing depth/page owners. Full standalone
+  composition: **16 snapshots, 276 entries, 2,278 tracked original calls**.
+  First-level RCL regression: **15 beats / 1,335 entries**. See
+  LEVEL2_RENDER_PACKETS.md for the remaining VU/pixel limits.
+- After `001F0310`, run AREA01's `001E7780 -> 00823A50` initialization
+  before the spawn calls. Six globals are owned by `EmArea01State`; data
+  and BSS alias the loader. Full initializer oracle: **416 cases,
+  570,775,296 state bytes**, plus the original BSS-clear proof. See
+  LEVEL2_AREA_STATE.md. Rebuilds do not clear the whole overlay again.
+
+The loader-to-model test exposed an existing `region_for` bug: a shorter
+same-base read retained the old allocation extent, so a later overlapping
+read could discard still-resident AREA01 top resources. The replacement
+preserves untouched prefixes/suffixes and gives each read its exact
+extent. Full loader regression passes **5,544 read cases and 45 additional
+whole modules**, plus its existing page, GS and sanitizer checks.
+
+The live resource probe still reaches the rebuild at counter **15007** and
+then the intentional `001AE040` world-frame fault. The new first-control
+probe passes **1,301 locked ticks, zero motion, 30 move ticks, 9.599849**.
+Receipts: `build/level2/resource-arrival/` and
+`build/level2/resource-newgame-control.log`. No AREA01 actor frame or
+dialogue is claimed by these resource checks.
+
 ## Verification
 
 - Initial `make all`: passed, zero compiler warnings.
 - `EM_STARTUP_TEST=newgame-control`: passed; 1,301 locked ticks, zero locked
   motion, 30 move ticks, displacement **9.599849**, census 49.
-- First-level main smoke: **19 live phases through exit**, capture checker
-  passed. The complete side-run suite is still in progress.
+- Resource-checkpoint first-level main smoke: **19 live phases through exit**,
+  capture checker passed with the matching indexed binary. Measured-drive
+  smoke also passed through Roger. The panel/no-battery, status pages,
+  fence-side-1, all **11 aim** and all **3 damage** side runs passed. The
+  branch runs remain pending. Recursive make initially tried to rebuild
+  from concurrent unstaged work; that link failure was isolated from the
+  completed gameplay runs. Receipts: `build/level2/resources/main-check.log`,
+  `ps2-drive-smoke.log`, `side-smoke.log`, and `remaining-smoke.log`.
 - Ten AREA01 quick oracle suites passed. Exact counts and receipts are in
   SECOND_LEVEL_CENSUS. The existing-render suite initially failed to link
   the point-light module's shared matrix workers; adding its existing
   `em_owner_services_original.c` dependency fixed the harness.
-- The 277 baseline `make test-*` targets are running, with per-target
-  results in `build/level2/verification/results.json`. Sandboxed native
+- The 277 baseline `make test-*` targets have per-target results in
+  `build/level2/verification/results.json`. Sandboxed native
   GPU tests cannot create Metal devices; these require a headless run with
   normal host access. That infrastructure failure is not a game pass.
+- The initial 277-target sweep completed: 255 passed and 22 failed in
+  the sandbox. Fifteen failed targets then passed with normal headless
+  host access, including all GPU pixel checks, cutscene skip, first
+  control and message capture. **270/277 distinct baseline targets have
+  passed**; the seven smoke targets are being completed separately.
+  The full main/panel/status/fence/11-aim components passed before a
+  concurrent source addition exposed a missing application link entry at
+  the next rebuild. The source list is repaired; this interrupted full
+  invocation is not counted as a full-suite pass.
 - Missing-worker staged-index build: `make -B all`, zero warnings,
   receipt `build/level2/prerequisites-index-build.json`.
+
+The resource staged-index build passed `make -B all` with **zero warnings**
+(`build/level2/resources/index-build.json`). Completed large trace receipts
+are preserved as gzip files; `build/level2/compressed-receipts.json` lists
+the paths. The resource checkpoint retains the AREA01 world-frame guard.
 
 ## Shared-file edits
 
@@ -157,12 +214,35 @@ Math-view checkpoint:
 - `Makefile`: native math-view contract and light-owner oracle targets.
 - New `tests/area01_math_views_test.c` and LEVEL2_MATH_VIEWS.md.
 
+Area-resource checkpoint:
+
+- `em_scene_bindings.c`: bind AREA01 render resources; select the world
+  model bank after owner reset; initialize and detach canonical AREA01
+  overlay state at the original lifecycle points.
+- `em_area11_boxes.c/.h`: transactional world-bank selection and
+  nonallocating owner metadata projection, preserving the shared stack.
+- `em_module_loader.c/.h`: bounded mutable view and interval-preserving
+  read allocations; no replacement loader state machine.
+- `em_render_context_live.c/.h`: dynamic table views and dispatch through
+  existing packet/depth/page translations.
+- `tools/test_render_context_live_reference.py`: existing dependency
+  sources required by the composed packet adapter.
+- `tools/test_level_smoke.py`: random-call symbolication now honors
+  `EM_LEVEL_SMOKE_BIN`, like the other smoke scripts, so an isolated binary
+  is checked against its own symbols.
+- `Makefile`: compile existing AREA01 VIF and the new state provider;
+  add state, bank and composed-render oracle targets.
+- New AREA01 state source/header, three reference suites, two test bridges,
+  and LEVEL2_AREA_STATE, LEVEL2_MODEL_BANK, LEVEL2_RENDER_PACKETS.
+- LEVEL2_COLLISION records the completed full sweep; no collision game
+  code changed.
+
 ## Known gaps
 
 All main beats `a01_00..a01_07` and side beats remain unplayed by the native
 port. AREA00 arrival is the intended stopping boundary. The message bank
-now switches during rebuild; live AREA01 dialogue, static and dynamic
-rendering, overlay init, canonical actor records,
+now switches during rebuild; model/render resources and overlay init are
+connected there. Live AREA01 dialogue, rendering presentation, canonical actor records,
 scripts, interactions, doors and pickups still need their AREA01 adapters.
 The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any

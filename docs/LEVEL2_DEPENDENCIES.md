@@ -42,8 +42,9 @@ the callback and spawn record for the exit comparison; it binds no behavior.
    Actually run the AREA01 overlay init (runtime 00823A50, decomp
    `func_overlay_AREA01_00823A10.c`) through the shared 001E7780 dispatch:
    its effect-grid globals and BSS storage are read by owner 001E7D20.
-   Those stores are currently treated as a loader boundary. Use the
-   exported overlay-data region, not capture data at runtime.
+   The resource checkpoint now performs those stores over the loader's
+   canonical overlay data/BSS and six owned globals (LEVEL2_AREA_STATE.md).
+   The grid owner's frame adapter still needs those views.
 3. **Shared player and collision.** `w_001AFCA0` already binds the shared
    player stage and camera over AREA01 collision. The first 0015BCF0 after
    arrival spawns the 0015C420 player children and runs stage rebuild.
@@ -53,14 +54,14 @@ the callback and spawn record for the exit comparison; it binds no behavior.
    first-level work. Check every census address against current owners.
    0019B4C0/001A06A0/0019CF50 need the sys dispatcher (see
    `LEVEL2_COLLISION.md`).
-4. **Render world and shadow.** State 0 currently calls `rcl_bind` and
-   `em_shadow_live_bind` only for AREA11; AREA01 inherits the old render
-   bindings for arrival only. Generalize the binding to the delivered area
-   bank. Calling `rcl_bind` unchanged is unsafe: its
-   `em_rcl_static_world_load(NULL)` reads the AREA11 default export and can
-   replace the delivered bank. Bind the AREA01 static-world VIF routines
+4. **Render world and shadow.** State 0 now calls `rcl_bind` for both world
+   areas, retaining AREA01's delivered static bank and borrowing dynamic
+   slot 0x45. The AREA11 default export is loaded only for AREA11. The
+   dynamic packet adapter composes the AREA01 VIF routines
    (`em_area01_render_vif.c`: 001D4FC0, 001D5170, 001D5A70, 001D5BD0),
-   owner render hooks and player shadow to the same render context.
+   with the existing depth/page owners (LEVEL2_RENDER_PACKETS.md).
+   Dynamic VU presentation, owner render hooks and the AREA01 player
+   shadow still need connected-frame evidence.
 5. **Every pool callback, including hidden owners.** `spawn_area01` must
    use a real callback binder. Pool scheduling reaches offscreen/dormant
    owners too. Shared callback translations already live in

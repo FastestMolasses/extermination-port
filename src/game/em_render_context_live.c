@@ -10,6 +10,8 @@
 #include "game/em_chain_page.h"
 
 #include "game/em_actor_light_001D89D0.h"
+#include "game/em_anim_runtime_rest.h"
+#include "game/em_area01_render_vif.h"
 #include "game/em_census_standins.h"
 #include "game/em_effect_original.h"
 #include "game/em_frame_kick.h"
@@ -87,6 +89,9 @@ static uint32_t s_d8101D0_words[0x10 / 4];
 static uint8_t *s_bank;
 static uint32_t s_bank_address, s_bank_size;
 static int s_bank_delivered; /* s_bank came from em_rcl_static_world_bank, not the export */
+/* Borrowed from the area's module loader, never a second writable copy. */
+static const uint8_t *s_dynamic_word, *s_dynamic_bytes;
+static u32 s_dynamic_address, s_dynamic_size;
 /* 001DFA40's 16 x 16 table (its stack frame at sp + 0xD0): lanes 0..2 of
  * each entry are written every call, lane 3 never (docs/LOAD_VEIL_PARTICLES.md
  * section 5). */
@@ -238,6 +243,10 @@ static void build_views(void)
     add_view(D_817240, 0x80, (uint8_t *)s_d817240_words, 1);
     add_view(SPAD_3400, 0x80, (uint8_t *)s_spad3400_words, 1);
     add_view(D_8101D0, 0x10, (uint8_t *)s_d8101D0_words, 1);
+    if (s_dynamic_word) {
+        add_view(EM_A01R_D_0028A5A4, 4, (uint8_t *)(uintptr_t)s_dynamic_word, 0);
+        add_view(s_dynamic_address, s_dynamic_size, (uint8_t *)(uintptr_t)s_dynamic_bytes, 0);
+    }
     if (s_bank) add_view(s_bank_address, s_bank_size, s_bank, 0);
     for (unsigned x = 0; x < X_COUNT; ++x)
         if (R.ext[x]) add_view(k_external[x].address, k_external[x].size, R.ext[x], 0);
@@ -523,6 +532,81 @@ static int g_001E2280(void *ctx, uint64_t tag)
     EmRvrRenderContext rc = {CTXB, 0x2540u};
     return em_rvr_001E2280(&rc, tag, &s_rvr_fault);
 }
+/* 001D5370's dynamic table pass. The existing AREA01 packet builders and
+ * static-world workers share these exact views/cursors. 001CAAC0 owns the
+ * projection/depth insertion; its position is the builder's stack value,
+ * with a temporary address view, not an actor record. */
+typedef struct { u32 fn, a0, a1, a2; } DynamicCall;
+
+static int dynamic_static_body(EmStaticWorld *s, void *arg)
+{
+    const DynamicCall *a = arg;
+    switch (a->fn) {
+    case 0x00121870u: return em_static_world_00121870(s, a->a0, a->a1, a->a2);
+    case 0x001D2090u: return em_static_world_001D2090(s, (int32_t)a->a0, a->a1);
+    case 0x001D4750u: return em_static_world_001D4750(s, (int32_t)a->a0);
+    default: return -1;
+    }
+}
+static int dynamic_copy(void *ctx, u32 dst, u32 src, int32_t n, u32 unread)
+{
+    (void)unread;
+    DynamicCall a = {0x00121870u, dst, src, (u32)n};
+    return em_swc_with_static_world(ctx, dynamic_static_body, &a);
+}
+static int dynamic_ref(void *ctx, int32_t chan, u32 src)
+{
+    DynamicCall a = {0x001D2090u, (u32)chan, src, 0};
+    return em_swc_with_static_world(ctx, dynamic_static_body, &a);
+}
+static int dynamic_const(void *ctx, int32_t chan)
+{
+    DynamicCall a = {0x001D4750u, (u32)chan, 0, 0};
+    return em_swc_with_static_world(ctx, dynamic_static_body, &a);
+}
+static int dynamic_state(void *ctx, int32_t chan, int32_t a1, int32_t a2, u32 unread)
+{
+    (void)ctx;
+    (void)unread;
+    return em_rcl_001D1F80(chan, a1, a2);
+}
+static int dynamic_depth(void *ctx, const u32 position[4], u32 packet, int32_t unused2, u32 unused3)
+{
+    (void)ctx;
+    (void)unused2;
+    (void)unused3;
+    const uint8_t *vp = own(0x70003AC0u, 0x40);
+    if (!vp) return fail(0x001CAAC0u, "dynamic depth projection has no canonical matrix");
+    EmOwnerServicesScratch scratch = {0};
+    memcpy(scratch.s3AC0, vp, 0x40); /* the worker reads, never writes, this matrix */
+    EmAnimRest rest = {0};
+    rest.world.region[0] = (EmPoseRegion){0x7F000000u, 16, (uint8_t *)(uintptr_t)position, 0};
+    rest.world.region_count = 1;
+    rest.world.scratch = &scratch;
+    rest.workers.ctx = &R.pc;
+    rest.workers.w_001CB760 = em_packet_chain_w_001CB760;
+    int32_t key;
+    if (em_anim_rest_001CAAC0(&rest, 0x7F000000u, packet, &key) < 0)
+        return fail(rest.fault.address, "dynamic depth insertion faulted");
+    return 0;
+}
+static int dynamic_pass(void *ctx)
+{
+    EmSwc *c = ctx;
+    if (!s_dynamic_word || !s_dynamic_bytes)
+        return fail(0x0028A5A4u, "the area's dynamic table is not bound");
+    EmArea01RenderView views[VIEWS_MAX];
+    for (unsigned i = 0; i < R.view_count; ++i)
+        views[i] = (EmArea01RenderView){R.swc_views[i].address, R.swc_views[i].size, R.swc_views[i].bytes};
+    EmArea01RenderVif v = {0};
+    v.core.world = (EmArea01RenderWorld){views, R.view_count};
+    v.workers = (EmArea01RenderVifWorkers){c, dynamic_copy, dynamic_ref, dynamic_const,
+                                           dynamic_state, dynamic_depth};
+    if (em_area01_render_001D5BD0(&v) < 0)
+        return fail(v.core.fault.address, "dynamic packet builder faulted");
+    return 0;
+}
+
 /* 001C1E70's 001D52E0: the grid header from the bank into +0x140..+0x167
  * (em_swc_001D52E0 over this module's views; the bank must be loaded). */
 static int swc_setup(EmSwc *c)
@@ -531,9 +615,10 @@ static int swc_setup(EmSwc *c)
     c->views = R.swc_views;
     c->view_count = R.view_count;
     c->read_only = R.swc_read_only;
-    /* c->host: every host worker NULL. 001D5BD0 (keys other than 0x0B00),
-     * the flag-0x23 sound branch and 001E1AD0's 001E1760 / 001E17E0 (flag
-     * 0x22) are not reached on the first level; reaching one faults. */
+    c->host.ctx = c;
+    c->host.w_001D5BD0 = dynamic_pass;
+    /* The flag-0x23 sound branch and 001E1AD0's 001E1760 / 001E17E0
+     * (flag 0x22) remain unbound; reaching one faults. */
     return s_bank ? 0 : -1;
 }
 static int swc_done(EmSwc *c, int rc, u32 entry)
@@ -749,6 +834,11 @@ int em_rcl_bind(const EmRclExternal *views, unsigned count, const EmRclWorkers *
     }
     R.host = *workers;
     R.light.world.d00810700 = R.ext[X_810700];
+    /* Loader windows expire at each area bind. The caller installs this
+     * area's dynamic table after the bind, if its original render pass
+     * uses one. No stale AREA01 pointer survives the next area. */
+    s_dynamic_word = s_dynamic_bytes = NULL;
+    s_dynamic_address = s_dynamic_size = 0;
     /* 001AF690 zeroes D_008101D0..DF at 0x1AE040 state 0; the binder binds
      * at that step (w_001AFCA0), so 001C1D00 starts from state 0 at every
      * area build. */
@@ -891,6 +981,20 @@ int em_rcl_static_world_bank(uint32_t address, const uint8_t *bytes, uint32_t si
 }
 
 int em_rcl_static_world_loaded(void) { return s_bank != NULL; }
+
+int em_rcl_dynamic_world_bind(const uint8_t *table_word, const uint8_t *bytes, uint32_t size)
+{
+    READY(1);
+    if (!table_word || !bytes || size < 0x10u) return -1;
+    const u32 address = rd32(table_word);
+    if (!address || (uint64_t)address + size > UINT64_C(0x100000000)) return -1;
+    s_dynamic_word = table_word;
+    s_dynamic_bytes = bytes;
+    s_dynamic_address = address;
+    s_dynamic_size = size;
+    build_views();
+    return R.fault ? -1 : 0;
+}
 
 static EmRclStaticSample s_sample;
 static int s_sample_valid;
@@ -1250,6 +1354,8 @@ uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)
     if (p >= s_d26E510 && p < s_d26E510 + sizeof s_d26E510) return NULL;
     if (p >= s_d26E850 && p < s_d26E850 + sizeof s_d26E850) return NULL;
     if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return NULL;
+    if ((s_dynamic_word && p >= s_dynamic_word && p < s_dynamic_word + 4) ||
+        (s_dynamic_bytes && p >= s_dynamic_bytes && p < s_dynamic_bytes + s_dynamic_size)) return NULL;
     return p;
 }
 
@@ -1285,6 +1391,8 @@ int em_rcl_poke(uint32_t address, const uint8_t *bytes, uint32_t size)
     for (unsigned x = 0; x < X_COUNT; ++x)
         if (R.ext[x] && p >= R.ext[x] && p < R.ext[x] + k_external[x].size) return -1;
     if (s_bank && p >= s_bank && p < s_bank + s_bank_size) return -1;
+    if ((s_dynamic_word && p >= s_dynamic_word && p < s_dynamic_word + 4) ||
+        (s_dynamic_bytes && p >= s_dynamic_bytes && p < s_dynamic_bytes + s_dynamic_size)) return -1;
     memcpy(p, bytes, size);
     return 0;
 }

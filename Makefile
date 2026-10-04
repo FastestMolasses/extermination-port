@@ -77,12 +77,12 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
-           src/game/em_area01_arrival.c \
+           src/game/em_area01_arrival.c src/game/em_area01_state.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
            src/game/em_truck_original.c src/game/em_pad_actuator.c \
-           src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c \
+           src/game/em_frame_render_heads.c src/game/em_render_context.c src/game/em_render_context_live.c src/game/em_area01_render_vif.c \
            src/game/em_replay.c \
            src/game/em_static_world.c src/game/em_static_world_compose.c src/game/em_static_world_draw.c \
            src/game/em_static_world_live.c \
@@ -511,6 +511,16 @@ test-area01-math-views:
 	mkdir -p build/level2
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/area01_math_views_test.c src/game/em_area01_math_core.c src/game/em_area01_math_owner.c -lm -o build/level2/area01_math_views_test
 	./build/level2/area01_math_views_test
+
+.PHONY: test-area01-state-reference test-level2-render-packets-reference test-world-model-bank-reference
+test-area01-state-reference:
+	python3 tools/test_area01_state_reference.py
+
+test-level2-render-packets-reference:
+	python3 tools/test_level2_render_packets_reference.py
+
+test-world-model-bank-reference:
+	python3 tools/test_world_model_bank_reference.py
 
 .PHONY: test-fan-original
 test-fan-original:
