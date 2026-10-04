@@ -1,6 +1,6 @@
 # AREA01 first-visit census and binding inventory
 
-Baseline phase 1, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
+Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
 ## 1. Scope and counting
 
@@ -14,7 +14,7 @@ The retained local census is evidence of original execution, not native executio
 
 Keys are `(region, runtime address)`. In particular AREA01 00823580 is the shaft door, not the AREA11 flame at the same address. Overlay splat names are runtime − 0x40. The ledger preserves the source's boot split: 001C0004 is the interior of 001BFFD0 and is handled by the same native owner, not a new function to implement. Its 181 instructions plus the 13 at 001BFFD0 sum to the complete 194-instruction body. Thus these are census-entry totals, not a claim of 179 independent C bodies.
 
-## 2. Status rules and baseline
+## 2. Status rules and phase-1 baseline
 
 `live` means bound and exercised on AREA01's first-visit path; `verified-unbound` means an original-instruction-checked native translation exists but AREA01 integration has not been proved; `unverified` means an available implementation lacks that verification; `stand-in` means a substitute is selected for the path; `missing` means no native translation was found; `boundary` means a named platform service replaces the original mechanism. Historical oracle evidence is distinguished from checks rerun here. A first-level live owner is reuse evidence, not an AREA01 promotion.
 
@@ -52,7 +52,9 @@ The evidence key maps to `tools/test_area01_<name>_reference.py` and the matchin
 
 All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_JOBS=2`. The first E run failed before decal comparison because its private link omitted `em_owner_services_original.c`; adding the same dependency as the existing effect oracle made the rerun pass. Receipts: `build/level2/oracles/area01_*.log`, `area01_render_existing_rerun.log`, and `area01_quick_summary.json` (the JSON retains the initial E failure; the rerun log supersedes that result). No emulator was launched. No full mode was run.
 
-## 4. Exact inventory
+## 4. Current exact inventory
+
+The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals in §2 are preserved as the baseline.
 
 `M`, `S`, `X` are the original delta's main, side-only and exit/change/AREA00-only groups. `A` is arrival-only. First-hit cells use the census replay, not the recording's frame number: `00` means `a01_00_train_room`, `s4` means `a01_s4_east_room`, etc.; `E c…` is the later EXIT census's `exit_01` counter. Both are retained when present. A row can first appear in the a01 exit group yet have an earlier post-arrival EXIT hit.
 
@@ -153,8 +155,8 @@ All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_
 | 0x001C3D60 | boot | 17 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C3D60` | M | — |
 | 0x001C3DB0 | boot | 191 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C3DB0` | Y | — |
 | 0x001C4720 | boot | 13 | S; s2 f246 | verified-unbound | `em_pickup_owner.c` / `em_pickup_owner_take (also standalone SIDE)` | D | L |
-| 0x001C4FA0 | boot | 43 | A; E c16503 | missing | missing; see §5 | — | — |
-| 0x001C50B0 | boot | 303 | A; E c16503 | missing | missing; see §5 | — | — |
+| 0x001C4FA0 | boot | 43 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C4FA0` | L2 | — |
+| 0x001C50B0 | boot | 303 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C50B0` | L2 | — |
 | 0x001C6160 | boot | 11 | X; 07 f755 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C6160` | Y | — |
 | 0x001C69A0 | boot | 254 | M; 00 f1 | verified-unbound | `em_status_models.c` / `em_status_models_pose_001C69A0 (also standalone MATH)` | M | L |
 | 0x001CB360 | boot | 21 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001CB360` | M | — |
@@ -163,8 +165,8 @@ All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_
 | 0x001CD180 | boot | 76 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD180` | R | — |
 | 0x001CD2B0 | boot | 48 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD2B0` | R | — |
 | 0x001D0400 | boot | 43 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001D0400` | Y | — |
-| 0x001D0C80 | boot | 47 | A; E c16503 | missing | missing; see §5 | — | — |
-| 0x001D0D40 | boot | 8 | A; E c16503 | missing | missing; see §5 | — | — |
+| 0x001D0C80 | boot | 47 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0C80` | K | — |
+| 0x001D0D40 | boot | 8 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0D40` | K | — |
 | 0x001D0D60 | boot | 111 | S; s5 f904 | verified-unbound | `em_area01_room.c` / `em_area01_room_001D0D60` | Q | — |
 | 0x001D4FC0 | boot | 106 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D4FC0` | R | — |
 | 0x001D5170 | boot | 92 | M; 00 f53 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5170` | R | — |
@@ -229,7 +231,7 @@ All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_
 | 0x008254B0 | AREA01 | 53 | M; 00 f1; E c16504 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008254B0` | O | — |
 | 0x00825590 | AREA01 | 55 | M; 03 f296 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825590` | O | — |
 | 0x00825670 | AREA01 | 52 | M; 05 f3932 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825670` | O | — |
-| 0x00825740 | AREA01 | 113 | A; E c16503 | missing | missing; see §5 | — | — |
+| 0x00825740 | AREA01 | 113 | A; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825740` | T | — |
 | 0x008261A0 | AREA01 | 24 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008261A0` | O | — |
 | 0x00826200 | AREA01 | 143 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826200` | O | — |
 | 0x00826440 | AREA01 | 221 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826440` | O | — |
@@ -238,9 +240,9 @@ All ten quick harnesses were run headlessly on native arm64 macOS with `EM_TEST_
 | 0x00826D40 | AREA01 | 1386 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826D40` | O | — |
 | 0x00828850 | AREA01 | 102 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00828850` | O | — |
 
-## 5. Missing entries and caller evidence
+## 5. The five baseline missing entries and caller evidence
 
-The five arrival-only entries total 514 instructions. Searching native definitions, declarations and callers found no implementations; references to helpers in a worker table do not count as translations. The original C and the relevant native caller were inspected for these edges:
+The five arrival-only entries total 514 instructions. At phase 1, searching native definitions, declarations and callers found no implementations; references to helpers in a worker table do not count as translations. The original C and the relevant native caller were inspected for these edges:
 
 | Missing entry | Original caller / role | Binding implication |
 |---|---|---|
@@ -262,4 +264,35 @@ Other original caller relationships checked against the existing translated owne
 - The AREA00 portion of a01_07 extends beyond this task's arrival stop. Keep its historical rows in the inventory without treating them as a requirement to continue AREA00 gameplay.
 - Each promotion must name the original caller, canonical native owner, live adapter and compared AREA01 beat/window, then recompute status totals. Record shared-file changes in LEVEL2_BINDING.md. Do not edit the first-level census or claim that a standalone PASS proves AREA01 play.
 
-No implementation, asset, first-level status document, or shared-file edit is made by this census document. The private reference-harness dependency repair is recorded in LEVEL2_BINDING.md by the integrating phase.
+Phase 1 established this inventory without implementing the five missing entries. The private reference-harness dependency repair and later shared-file edits are recorded in LEVEL2_BINDING.md by the integrating phase.
+
+
+## 7. Phase-2 prerequisite checkpoint
+
+All five phase-1 missing entries now have standalone original-instruction
+verification. This changes availability, not connected AREA01 execution.
+The exact inventory in §4 is current; §2 preserves the original baseline.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 0 | 0 |
+| verified-unbound | 177 | 29,416 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
+
+| Evidence key | New owner and original caller | Verification |
+|---|---|---|
+| K | 001D0C80 / 001D0D40 in the existing MATH module, called directly by 001C02E0 state 0 | LEVEL2_BONE_INIT.md: quick 40 setup cases / 1,443 worker boundaries / all 4 branch outcomes, 21 record-bind cases; changed caller 57 cases / 363 boundaries / all 24 outcomes. Complete math quick suite passes in 8.1 s. Full: 14,135 setup cases / 760,551 boundaries; 34,716 bind cases; caller 1,606 cases / 7,656 boundaries; complete math full suite passes in 458.7 s. |
+| L2 | 001C4FA0 / 001C50B0 in em_area01_light_owner, placement [40] and its predicate | LEVEL2_LIGHT_OWNER.md: quick 161 cases / 216 boundaries; full 2,309 cases / 2,536 boundaries, plus six fail-stop contracts. Original input is the EXIT arrival's retained light node. |
+| T | AREA01 00825740 in the existing OVERLAY module, placement [38] | LEVEL2_TALK_OWNER.md: owner quick 184 cases, full 1,131; whole overlay full 14,034 cases / 21,199 executions, all 15 entries. These new owner cases are designed calls on captured memory, not a captured continuing conversation. |
+
+K was run by the census/bone lane. L2 and T are the implementing lanes'
+reported original-instruction results, with their details and local
+receipts recorded in the linked documents. These promotions do not mean
+that native AREA01 calls any of the workers with the right live state.
+The frame, owner, script, collision, camera, message, renderer and canonical
+memory bindings still require route evidence. The census instruction
+counts retain the source-entry extents; a complete native/oracle body can
+also cover trailing instructions not included in an old entry's size.

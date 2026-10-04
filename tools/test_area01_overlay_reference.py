@@ -5,6 +5,8 @@ docs/AREA01_OVERLAY.md. The 14 AREA01 overlay functions of the AREA01 census
 delta (decomp build/s87/census/a01_delta.json, region overlay:AREA01):
 0x823580, 0x825130, 0x825240, 0x825350, 0x8254B0, 0x825590, 0x825670,
 0x8261A0, 0x826200, 0x826440, 0x8267C0, 0x826CF0, 0x826D40, 0x828850.
+Also 0x825740, placement [38]'s talk owner: designed cases over a captured
+NPC record, because that owner is absent from the first-visit captures.
 
 Oracle: the shared EE interpreter with the measured float model (FallEE,
 tools/test_player_fall_reference.py) runs the original overlay code resident
@@ -139,6 +141,7 @@ FUNCS = {
     0x8254B0: ('em_area01_ovl_008254B0', 212, 'owner'),
     0x825590: ('em_area01_ovl_00825590', 220, 'owner'),
     0x825670: ('em_area01_ovl_00825670', 208, 'owner'),
+    0x825740: ('em_area01_ovl_00825740', 464, 'owner'),
     0x8261A0: ('em_area01_ovl_008261A0', 96, 'owner'),
     0x826200: ('em_area01_ovl_00826200', 572, 'owner'),
     0x826440: ('em_area01_ovl_00826440', 884, 'owner'),
@@ -1456,6 +1459,31 @@ def targeted_cases(add):
                 for done in (0, 1):
                     add('talk %06X %d %d %d' % (entry, step, use, done), beat, entry, [npc],
                         [(npc + 5, b8(step)), (npc + 0xB, b8(use | 0x10))], queues={0x1BA1F0: [done]})
+    # Placement [38] does not exist in the first-visit pool. Use a recorded
+    # NPC record as the memory fixture, explicitly selecting this entry.
+    for flag in (0, 1, 0x80, 0xFF):
+        for gate in (0, 1, 2, 0x80000000, 0xFFFFFFFF):
+            add('talk-owner setup %02X %08X' % (flag, gate), beat, 0x825740, [npc],
+                [(npc + 4, b8(0)), (0x81075A, b8(flag))], queues={0x1BA1C0: [gate]})
+    for state in (2, 3, 4, 0xFF):
+        add('talk-owner state %02X' % state, beat, 0x825740, [npc], [(npc + 4, b8(state))])
+    for step in (0, 1, 2, 0xFF):
+        for use in (0, 4, 0xFB, 0xFF):
+            for done in (0, 1, 2, 0x80000000, 0xFFFFFFFF):
+                add('talk-owner active %02X %02X %08X' % (step, use, done), beat, 0x825740, [npc],
+                    [(npc + 4, b8(1)), (npc + 5, b8(step)), (npc + 0xB, b8(use))],
+                    queues={0x1BA1F0: [done]})
+    add('talk-owner re-reads setup +0xD', beat, 0x825740, [npc],
+        [(npc + 4, b8(0)), (0x81075A, b8(1))],
+        queues={0x1B10B0: [Scribble(0, [(npc + 0xD, b8(0xA5))])], 0x1BA1C0: [0]})
+    add('talk-owner re-reads active +0xD', beat, 0x825740, [npc],
+        [(npc + 4, b8(1)), (npc + 5, b8(1))],
+        queues={0x1BA1F0: [Scribble(1, [(npc + 0xD, b8(0xB6))])]})
+    add('talk-owner setup reloads', beat, 0x825740, [npc],
+        [(npc + 4, b8(0)), (0x81075A, b8(0))],
+        queues={0x1C63E0: [Scribble(0, [(npc + 0xC4, w32(0x7F800001)),
+                                       (0x28A5C4, w32(0x12345678)), (0x81075A, b8(1))])],
+                0x1BA1C0: [0]})
     # 0x826200: set-up picks, the sound script, the quad tail
     for e, f, g in ((0, 0, 0), (1, 0, 0), (0, 1, 0), (1, 1, 1), (0, 0, 1)):
         add('826200 s0 %d%d%d' % (e, f, g), beat, 0x826200, [bridge],
@@ -2254,6 +2282,14 @@ def targeted_cases(add):
             return range(256)
         return sorted({0x7F, 0x80, 0xFF} | {h ^ (1 << b) for h in handled for b in range(8)} | set(handled))
     byte_sites = [
+        ('talk-owner +0x04', 0x825740, [npc], npc + 4,
+         [(npc + 5, b8(2)), (0x81075A, b8(1))], [], {0x1BA1C0: [0]}, (0, 1, 2, 3)),
+        ('talk-owner +0x05', 0x825740, [npc], npc + 5,
+         [(npc + 4, b8(1)), (npc + 0xB, b8(4))], [], {0x1BA1F0: [1]}, (0, 1)),
+        ('talk-owner Use', 0x825740, [npc], npc + 0xB,
+         [(npc + 4, b8(1)), (npc + 5, b8(0))], [], {}, (0, 4)),
+        ('talk-owner 75A', 0x825740, [npc], 0x81075A,
+         [(npc + 4, b8(0))], [], {0x1BA1C0: [0]}, (0,)),
         ('door +0x04', 0x823580, [door], door + 4, [(door + 5, b8(7))], [], {}, (0, 1, 2, 3)),
         ('door +0x05', 0x823580, [door], door + 5, [(door + 4, b8(1)), (0x8107D9, b8(0))], [],
          {a: [1] for a in (0x1BBE40, 0x1BC0E0, 0x1BC290, 0x1BA1F0)}, range(7)),

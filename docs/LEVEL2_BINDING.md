@@ -9,8 +9,10 @@ would otherwise change main's assets. No emulator was launched.
 
 ## State
 
-Phase 1: arrival failure reproduced and census mapped. Verification is in
-progress. Phases 2–4 are not complete: no AREA01 world frame plays yet.
+Phase 1: arrival failure reproduced and census mapped. The five missing
+arrival workers now have standalone original-instruction verification.
+Broad regression verification is in progress. Phases 2–4 are not complete:
+no AREA01 world frame plays yet.
 The frame-machine guard remains; missing workers have not been defaulted.
 
 The headless `a01_arrival` probe reaches the state-0 rebuild at native
@@ -35,10 +37,11 @@ See [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md): the current 174-row
 Overlay identity matters: AREA01 `00823580` is not AREA11 `00823580`.
 
 At the mapping checkpoint: 0 AREA01-live, 172 verified-unbound, 5 missing,
-2 boundary. First-level shared-live evidence is recorded separately; it
-does not prove an AREA01 adapter is bound. Five arrival-only routines were
-omitted by the standalone lanes: `001C4FA0`, `001C50B0`, `001D0C80`,
-`001D0D40`, AREA01 `00825740`.
+2 boundary. After the prerequisite translations: **0 live, 177
+verified-unbound, 0 missing, 2 boundary**. First-level shared-live evidence
+is recorded separately; it does not prove an AREA01 adapter is bound.
+The five initially omitted arrival routines were `001C4FA0`, `001C50B0`,
+`001D0C80`, `001D0D40`, AREA01 `00825740`.
 
 [LEVEL2_DEPENDENCIES.md](LEVEL2_DEPENDENCIES.md) records original callers,
 existing owners and the canonical-state mapping work still required.
@@ -54,13 +57,32 @@ chain after arrival is `001ACEC0 -> 001AD250 -> 001AD4D0 -> 001AE040`, then
 the classifier and `001AE5E0` / `001AE6B0`. The guard prevents reaching
 unbound actors, rendering and interaction services.
 
+The first phase-2 prerequisite checkpoint supplies the missing translations
+without changing that guard:
+
+- `001C50B0`, placed by AREA01 roster record 40, calls its predicate
+  `001C4FA0`; new `em_area01_light_owner` uses the existing math address
+  contract and canonical workers. Quick **161 cases / 216 worker
+  boundaries**; full **2,309 / 2,536**, plus six fail-stop contracts.
+- `001C02E0` state 0 now calls its same-module `001D0C80` and `001D0D40`.
+  Quick **40 / 21 helper cases**, caller **57 cases / 363 boundaries**;
+  full **48,851 helper cases**, caller **1,606 / 7,656**. The entire math
+  suite passes; two pre-existing unrelated branch outcomes remain
+  uncovered. See LEVEL2_BONE_INIT.md.
+- AREA01 roster record 38's `00825740` runs setup before its first-visit
+  teardown gate. Its standalone owner has **184 quick / 1,131 full
+  cases**; full overlay suite **14,034 cases / 21,199 executions**, all
+  15 entries. See LEVEL2_TALK_OWNER.md.
+
+These are translation results, not AREA01 route or live-worker evidence.
+
 ## Verification
 
 - Initial `make all`: passed, zero compiler warnings.
 - `EM_STARTUP_TEST=newgame-control`: passed; 1,301 locked ticks, zero locked
   motion, 30 move ticks, displacement **9.599849**, census 49.
-- First-level main smoke: **19 live phases through exit** in process;
-  capture checker and full side runs are still in progress.
+- First-level main smoke: **19 live phases through exit**, capture checker
+  passed. The complete side-run suite is still in progress.
 - Ten AREA01 quick oracle suites passed. Exact counts and receipts are in
   SECOND_LEVEL_CENSUS. The existing-render suite initially failed to link
   the point-light module's shared matrix workers; adding its existing
@@ -85,6 +107,17 @@ Phase 1:
 
 New phase-1 files: this document, SECOND_LEVEL_CENSUS, LEVEL2_DEPENDENCIES,
 LEVEL2_COLLISION and `tools/level_smoke_area01.py`.
+
+Phase-2 missing-worker checkpoint:
+
+- `em_area01_math_owner.c/.h` and its existing oracle: two missing helpers
+  and direct calls from their existing owner; no live host added.
+- `em_area01_overlay.c/.h` and its existing oracle: roster record 38's
+  missing owner; no live hook table added.
+- New `em_area01_light_owner.c/.h`, its oracle and the three evidence
+  documents LEVEL2_LIGHT_OWNER, LEVEL2_BONE_INIT and LEVEL2_TALK_OWNER.
+- SECOND_LEVEL_CENSUS and LEVEL2_DEPENDENCIES record availability; neither
+  first-level census nor first-level audit was edited.
 
 ## Known gaps
 

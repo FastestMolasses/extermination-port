@@ -90,6 +90,7 @@ the callback and spawn record for the exit comparison; it binds no behavior.
 | 001CD180, 001CD2B0, 001F4A10, 001F4CC0 | `em_area01_render_gs.c` |
 | 001E9E60 | `em_area01_render_hud.c` |
 | 001F4BF0 | existing `em_status_scene_original.c` owner |
+| 001C4FA0, 001C50B0 | new standalone `em_area01_light_owner.c`; original-instruction verified, unbound; reuse `em_area00_world_001C5050` and the canonical point-light pool |
 | 001AA000 | existing live `em_coll_list_passes.c`, not a new sys copy |
 
 `FIRST_LEVEL_CENSUS.md` 3.26 adds 62 post-arrival functions, including
@@ -102,10 +103,12 @@ prepared translations:
 | AREA01 00825740 | `src/overlays/AREA01/func_overlay_AREA01_00825700.c`, 464 bytes, 113 census instructions. Another talk owner. Its first-visit setup calls 001B10B0, 001BA8E0, 001C63E0, writes descriptor/yaw/bank, then sets lifecycle 3 because 75A is zero. Next tick calls 001BA540 then frees. Same shared NPC workers as 00825350; its later talk arm uses script 82A7B0. No port implementation found. |
 | 001D0C80 | `src/func_001D0C80.c`, 47 census instructions. Mode-5 model setup via 001CA5E0, bone-count 001C6150, canonical bone-slot cap/allocation 001AF780, bone-array publication, extra control record at +90. Requires the real shared bone allocator; do not assume infinite capacity. No port implementation found. |
 | 001D0D40 | `src/func_001D0D40.c`, 8 census instructions. Initializes the control record pointed to by actor +90 with descriptor, float count, zero time and mode. Reuse EE integer-to-float behavior. No port implementation found. |
-| 001C4FA0 / 001C50B0 | Their matching C files, 43 / 303 census instructions. Type/story predicate and flicker-light owner. Setup can immediately enter teardown; full owner uses 001F5490 / 001F5F60 already in `em_area00_fx_exit.c`, plus 001C5050, light release and random/vector workers. No port implementation found. |
+| 001C4FA0 / 001C50B0 | Initially absent; now translated and original-instruction verified in `em_area01_light_owner.c`, still unbound. Their matching C files have 43 / 303 census instructions. Setup can immediately enter teardown; the owner uses 001F5490 / 001F5F60 already in `em_area00_fx_exit.c`, existing `em_area00_world_001C5050`, light release and random/vector workers. See `LEVEL2_LIGHT_OWNER.md`. |
 
-These are source translations to add once, not permissions to omit owners
-that are subsequently freed. Original overlay addresses must also carry the
+The five source translations now exist (LEVEL2_BONE_INIT.md,
+LEVEL2_TALK_OWNER.md and LEVEL2_LIGHT_OWNER.md); the table records why they
+were needed. Their adapters remain unbound. Owners that are subsequently
+freed still require their setup behavior. Original overlay addresses must also carry the
 area identity; multiple overlays use 00823580.
 
 ## Scripts, doors, pickups and messages

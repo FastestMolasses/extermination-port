@@ -8,7 +8,7 @@ Modules under test (built privately into build/area01/math/):
                                     001C39F0 001C3BE0 001C3D60 001C69A0
   src/game/em_area01_math_owner.c   001BB860 001BB560 001C02E0 001BF630
                                     001BFFD0 001CB360 001B9CF0 001BBAE0
-                                    001BBBF0
+                                    001BBBF0 001D0C80 001D0D40
   src/game/em_area01_math_player.c  00183250 00187DE0 00187EC0
 
 The oracle. The user's pinned ELF and the AREA01 route captures
@@ -123,7 +123,7 @@ SPECS = {
     0x1C69A0: Spec('em_area01_math_001C69A0', 0x3F8, 1),
     0x1BB860: Spec('em_area01_math_001BB860', 0x274, 1, inline=(0x1BB560,)),
     0x1BB560: Spec('em_area01_math_001BB560', 0x260, 3, v0=True),
-    0x1C02E0: Spec('em_area01_math_001C02E0', 0x3F8, 1, inline=(0x1BF630,)),
+    0x1C02E0: Spec('em_area01_math_001C02E0', 0x3F8, 1, inline=(0x1BF630, 0x1D0C80, 0x1D0D40)),
     0x1BF630: Spec('em_area01_math_001BF630', 0x7C, 3, v0=True),
     0x1BFFD0: Spec('em_area01_math_001BFFD0', 0x308, 1),
     0x1CB360: Spec('em_area01_math_001CB360', 0x54, 1),
@@ -133,6 +133,8 @@ SPECS = {
     0x183250: Spec('em_area01_math_00183250', 0x1A0, 1),
     0x187DE0: Spec('em_area01_math_00187DE0', 0xB4, 1),
     0x187EC0: Spec('em_area01_math_00187EC0', 0x20, 2),
+    0x1D0C80: Spec('em_area01_math_001D0C80', 0xBC, 2, v0=True),
+    0x1D0D40: Spec('em_area01_math_001D0D40', 0x20, 4),
 }
 
 
@@ -2368,6 +2370,67 @@ RANGE_1B2140 = ([(a, 0, 8, 8) for a in (0x17, 0x18, 0x2B, 0x2D, 0x4B, 0x8B, 0xFF
                 + [(2, sb, 0, 0) for sb in (4, 5, 9, 0x11, 0x21, 0x41, 0x81, 0xFF)])
 
 
+def unit_bone_init(elf, beats):
+    """The arrival-only 001D0C80 / 001D0D40 helpers. Run their original
+    instructions over AREA01 records, with allocation callees scripted at
+    the boundary. This checks signed capacity, byte widths, the count
+    re-read after an allocator writes, and exact integer-to-EE-float words.
+    Caller state-0 cases also execute both helpers inline in 001C02E0."""
+    n = 0
+    for beat in beats:
+        ram, spad = beat_image(beat)
+        img = Images(ram, spad)
+        regs = regs_of(A01Base(elf, b'\0', b'\0'))
+        node = next(p for p in pool(ram) if u32(ram, p + 0x10) == 0x1C02E0)
+        model = u32(ram, node + 0x44)
+        counter, slots = 0x70003900, 0x01E00000
+
+        def allocator(change=None):
+            def run(ee):
+                i = ee.load(counter, 4)
+                ee.save(counter, i + 1, 4)
+                if i == 0 and change is not None:
+                    ee.save(node + 0xC, change, 1)
+                ee.r[2] = slots + i * 0x40
+            return run
+
+        counts = range(256) if RM.FULL else (0, 1, 2, 21, 127, 128, 255)
+        cases = [(c, limit, None) for c in counts
+                 for limit in (-32768, -1, c, c + 1, 32767)]
+        cases += [(3, 4, 0), (1, 4, 3)]
+        # The returned count is narrowed before testing capacity.
+        cases += [(0x100, 1, None), (0x1FF, 256, None), (0xFFFFFFFF, 255, None)]
+        for count, limit, change in cases:
+            edits = [(0x275BCC, limit, 2), (0x275BCE, 0xA55A, 2),
+                     (counter, 0, 4), (node + 4, 0xA1B2C3D4, 4),
+                     (node + 8, 0xA1B2C3D4, 4), (node + 0xC, 0xA1B2C3D4, 4)]
+            script = {0x1CA5E0: answer(writes=[(node + 0x44, model, 4)]),
+                      0x1C6150: returns(count), 0x1AF780: allocator(change),
+                      0x1CB5B0: returns(0)}
+            compare(elf, 0x1D0C80, img, regs,
+                    f'bone:{beat}:count={count:#x}:limit={limit}:change={change}',
+                    [node, model], edits, script)
+            n += 1
+
+        frames = (0, 1, 91, 0xFFFFFFFF, 0x01000001, 0x7FFFFFFF, 0x80000000)
+        if RM.FULL:
+            rng = random.Random(0xD0D40)
+            frames += tuple(rng.getrandbits(32) for _ in range(256))
+        # Pointer alias: the first store may overwrite node+0x90 itself,
+        # but every subsequent store still uses the original record pointer.
+        records = (node + 0x1F0, node + 0x90, 0x70003800)
+        for record in records:
+            for frame in frames:
+                for loop in ((0, 1, 0x100, 0xFFFFFF80) if RM.FULL else (0xFFFFFF80,)):
+                    edits = [(node + 0x90, record, 4),
+                             (record + 0xC, 0xA1B2C3D4, 4)]
+                    compare(elf, 0x1D0D40, img, regs,
+                            f'bone-bind:{beat}:record={record:#x}:frames={frame:#x}:loop={loop:#x}',
+                            [node, 0x0024FD50, frame, loop], edits)
+                    n += 1
+    return n
+
+
 def unit_1C25E0(elf, beats):
     """001C25E0 over the 00128C10 / 0012A5D0 nodes of each beat, with the
     vector a1 pointing at scratchpad words set to varied values."""
@@ -2755,6 +2818,8 @@ def run_job(job):
         counts = {'scripted 001C2770': scripted_1C2770(ELF, [arg], RM.pick(10**6, 90))}
     elif kind == '25e0':
         counts = {'001C25E0 unit': unit_1C25E0(ELF, [arg])}
+    elif kind == 'bone':
+        counts = {'bone init/bind unit': unit_bone_init(ELF, [arg])}
     elif kind == 'sweep':
         n, total = sweep_1B2140(ELF, 'a01_00_train_room', part=arg)
         counts = {'001B2140 table': n, '001B2140 table total': total}
@@ -2921,9 +2986,11 @@ def main():
         jobs.append(('owner2', beats[0]))
     jobs += [('player', (b, part)) for b in (beats if RM.FULL else beats[:1]) for part in (0, 1)]
     jobs += [('25e0', b) for b in beats]
+    jobs += [('bone', b) for b in (beats if RM.FULL else beats[:1]) if b != 'a01_07_level_exit']
     jobs += [('probe', b) for b in beats[:2 if RM.FULL else 1]]
     jobs += [('sweep', i) for i in range(SWEEP_PARTS)]
-    cost = {'actor': 6, 'owner': 3, 'owner2': 3, 'probe': 4, 'sweep': 2, 'script': 1, 'player': 2, '25e0': 1}
+    cost = {'actor': 6, 'owner': 3, 'owner2': 3, 'probe': 4, 'sweep': 2, 'script': 1, 'player': 2, '25e0': 1,
+            'bone': 1}
     results = RM.parallel_map(run_job, jobs, cost=lambda j: cost[j[0]])
     totals, stats, skipped = {}, {}, []
     for counts, st, sk in results:

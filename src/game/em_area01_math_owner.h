@@ -25,8 +25,14 @@
  *             (latched in st[4]) and polls D_002821B4 == 2
  *   001BBBF0  script op: two points around the node into SPR 0x700038A0,
  *             each copied by 00102948 to D_008105E0 / D_008105D0; returns 1
+ *   001D0C80  allocate a node's bone slots and animation record through
+ *             the shared slot-stack workers; fail with node state 3 if
+ *             the signed free-slot count is too small
+ *   001D0D40  bind the node's animation record: table, signed frame count,
+ *             time zero and the low-byte loop flag
  * Names are addresses; roles are stated only where the original code shows
- * them. 001BB860 calls the native 001BB560, 001C02E0 the native 001BF630.
+ * them. 001BB860 calls the native 001BB560; 001C02E0 calls the native
+ * 001BF630, 001D0C80 and 001D0D40.
  *
  * Each returns 0, or -1 when a fault is latched (em_area01_math_core.h).
  * Integer results go to *v0. */
@@ -50,6 +56,9 @@ int em_area01_math_001CB360(EmA01Math *m, uint32_t node);
 int em_area01_math_001B9CF0(EmA01Math *m, uint32_t node, uint32_t a1, uint32_t op, uint32_t *v0);
 int em_area01_math_001BBAE0(EmA01Math *m, uint32_t node, uint32_t st, uint32_t *v0);
 int em_area01_math_001BBBF0(EmA01Math *m, uint32_t node, uint32_t *v0);
+int em_area01_math_001D0C80(EmA01Math *m, uint32_t node, uint32_t model, uint32_t *v0);
+int em_area01_math_001D0D40(EmA01Math *m, uint32_t node, uint32_t table, uint32_t frames,
+                          uint32_t loop);
 
 #ifdef __cplusplus
 }
