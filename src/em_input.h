@@ -180,6 +180,19 @@ void em_input_handle_event(const EmEvent *ev);
  * rings are all decoded but unusable without one). */
 void em_input_set_gamepad(const EmPadState *gp);
 
+/* A modern controller's stick reports a ROUND range (a full diagonal is
+ * about 0.707 on each axis), while the DualShock 2 the game was written for
+ * reports a SQUARE one (a full diagonal is near full on both axes). The
+ * engine grades sqrt(dx^2 + dy^2) of the raw bytes against 48 / 88 / 122
+ * (001B5CC0), so a round full diagonal lands in the jog ring instead of the
+ * run ring. This maps a round-gate stick (x, y in [-1,1], +y down) to the
+ * square range the original reads: a radial deadzone (rescaled so full
+ * deflection still reaches 1), then each direction stretched so that its
+ * full deflection reaches the edge of the square. Cardinal directions are
+ * unchanged. Platform gamepad backends call it; the keyboard map does not. */
+void em_input_stick_from_round_gate(float x, float y, float deadzone,
+                                    float *ox, float *oy);
+
 /* Test fixtures only (em_opening_control_test.c's cutscene skip): buttons
  * ORed into every snapshot, over the keyboard or a gamepad overlay alike,
  * so a fixture can press START while the level smoke drives the pad.

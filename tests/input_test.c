@@ -4,6 +4,7 @@
  * `make test-input` (links only em_input.c — no platform/gfx/audio).
  */
 #include <assert.h>
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -255,6 +256,30 @@ int main(void)
     press('w');
     assert(pad().ly == -EM_INPUT_DEFLECT_FULL);   /* both flags cleared */
     release('w');
+
+    /* Round-gate controller sticks map onto the DualShock's square range:
+     * a full diagonal must reach the RUN ring (001B5CC0: r > 122) like a
+     * full cardinal push, and the radial deadzone still zeroes a resting
+     * stick. */
+    {
+        float ox, oy;
+        uint8_t raw[8];
+        EmPadState gp = {0};
+        em_input_stick_from_round_gate(0.7071f, -0.7071f, 0.12f, &ox, &oy);
+        assert(ox > 0.99f && oy < -0.99f);
+        gp.lx = ox; gp.ly = oy;
+        em_pad_raw(&gp, raw);
+        {
+            int dx = raw[6] - 0x80, dy = raw[7] - 0x80;
+            assert(dx * dx + dy * dy > 122 * 122);
+        }
+        em_input_stick_from_round_gate(1.0f, 0.0f, 0.12f, &ox, &oy);
+        assert(ox == 1.0f && oy == 0.0f);
+        em_input_stick_from_round_gate(0.1f, 0.05f, 0.12f, &ox, &oy);
+        assert(ox == 0.0f && oy == 0.0f);
+        em_input_stick_from_round_gate(0.0f, 0.5f, 0.12f, &ox, &oy);
+        assert(ox == 0.0f && fabsf(oy - (0.5f - 0.12f) / 0.88f) < 1e-6f);
+    }
 
     /* Button-name helper covers the canonical order. */
     assert(strcmp(em_pad_button_name(0),  "SELECT")   == 0);

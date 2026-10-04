@@ -38,22 +38,13 @@
  * Deadzone is OURS, not the engine's: a real stick rests slightly off centre
  * and the engine's own deadzone (if any) lives in code we have not decoded.
  * Kept below the gait-1 WALK ring (raw 48/127 = 0.378) so it cannot swallow
- * the slowest movement tier the engine supports. */
+ * the slowest movement tier the engine supports. It is radial and rescaled
+ * so full deflection still reaches 1 (em_input_stick_from_round_gate). */
 #define GP_DEADZONE   0.12f
 
 static int   s_present;
 static float s_rumble_big, s_rumble_small;
 static int   s_rumble_frames;
-
-static float dz(float v)
-{
-    const float a = v < 0.0f ? -v : v;
-    if (a < GP_DEADZONE) return 0.0f;
-    /* Rescale so the usable range still reaches 1.0 — otherwise every ring
-     * threshold shifts inward by the deadzone and the gait bands narrow. */
-    const float s = (a - GP_DEADZONE) / (1.0f - GP_DEADZONE);
-    return v < 0.0f ? -s : s;
-}
 
 void em_gamepad_poll(void)
 {
@@ -98,11 +89,16 @@ void em_gamepad_poll(void)
     }
 
     /* Sticks. GameController's Y is +up; the port's ly is +DOWN (em_input.h:
-     * "-1 = left/up, +1 = right/down"), so Y is negated. */
-    p.lx =  dz(g.leftThumbstick.xAxis.value);
-    p.ly = -dz(g.leftThumbstick.yAxis.value);
-    p.rx =  dz(g.rightThumbstick.xAxis.value);
-    p.ry = -dz(g.rightThumbstick.yAxis.value);
+     * "-1 = left/up, +1 = right/down"), so Y is negated. The controller's
+     * round gate is mapped onto the DualShock's square range
+     * (em_input_stick_from_round_gate), so a full diagonal runs as on the
+     * PS2 instead of falling into the jog ring. */
+    em_input_stick_from_round_gate(g.leftThumbstick.xAxis.value,
+                                   -g.leftThumbstick.yAxis.value,
+                                   GP_DEADZONE, &p.lx, &p.ly);
+    em_input_stick_from_round_gate(g.rightThumbstick.xAxis.value,
+                                   -g.rightThumbstick.yAxis.value,
+                                   GP_DEADZONE, &p.rx, &p.ry);
 
     s_present = 1;
     em_input_set_gamepad(&p);

@@ -6,6 +6,8 @@
  */
 #include "em_input.h"
 
+#include <math.h>
+
 #include <string.h>
 
 typedef struct {
@@ -146,6 +148,19 @@ void em_input_pad(EmPadState *out)
         }
     }
     if (s_filter) s_filter(out, s_filter_user);
+}
+
+void em_input_stick_from_round_gate(float x, float y, float deadzone,
+                                    float *ox, float *oy)
+{
+    const float r = sqrtf(x * x + y * y);
+    if (r <= deadzone || r == 0.0f) { *ox = 0.0f; *oy = 0.0f; return; }
+    float m = (r - deadzone) / (1.0f - deadzone);      /* radial deadzone */
+    if (m > 1.0f) m = 1.0f;
+    const float ux = x / r, uy = y / r;                /* direction */
+    const float big = fabsf(ux) > fabsf(uy) ? fabsf(ux) : fabsf(uy);
+    *ox = ux / big * m;                                /* onto the square */
+    *oy = uy / big * m;
 }
 
 uint16_t em_pad_swap(uint16_t mask)
