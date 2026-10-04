@@ -295,8 +295,9 @@ WORKERS = [
     ('w_001B0C00', 0x1B0C00, 'i', ''), ('w_001B6250', 0x1B6250, 'a', ''),
     ('w_001FBD50', 0x1FBD50, 'aiif', ''),
     ('w_001BAC00', 0x1BAC00, 'aaa', 'io'),
+    ('w_0011DE90', 0x11DE90, 'f', 'fo'),
 ]
-PASSTHROUGH = {0x11E2A8, 0x1B1240, 0x1B12B0, 0x1B1380, 0x1B1470, 0x182F90, 0x1B7D60}
+PASSTHROUGH = {0x11E2A8, 0x11DE90, 0x1B1240, 0x1B12B0, 0x1B1380, 0x1B1470, 0x182F90, 0x1B7D60}
 KIND_CTYPE = {'i': C.c_int, 'h': C.c_int16, 'b': C.c_uint8, 'a': C.c_uint32, 'f': C.c_float,
               'v': PF}
 OUT_CTYPE = {'io': PI32, 'fo': PF, 'uo': P32}
@@ -320,7 +321,7 @@ WORKER_TYPES = {name: worker_type(name, args, result) for name, _, args, result 
 
 
 class Workers(C.Structure):
-    _fields_ = [('ctx', C.c_void_p)]+[(name, WORKER_TYPES[name]) for name, *_ in WORKERS]
+    _fields_ = [('ctx', C.c_void_p)]+[(name, WORKER_TYPES[name]) for name, *_ in WORKERS]+[('handler', C.c_void_p)]
 
 
 Host._fields_ = [('script', Script), ('st_0E', C.c_int16), ('st_10', C.c_float*4),
@@ -1139,7 +1140,7 @@ def build():
                'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c',
                # binding candidates checked against the original math results
                'src/game/em_item_sdk_math.c', 'src/game/em_interaction_scan.c',
-               'src/game/em_item_trail.c', 'src/game/em_fan_original.c']
+               'src/game/em_item_trail.c', 'src/game/em_fan_original.c', 'src/game/em_pickup_motion.c']
     subprocess.run(['cc', '-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
                     '-shared', '-fPIC', '-Isrc', *sources, '-o', str(lib)], cwd=ROOT, check=True)
     probe = BUILD/'layout.c'; probe.write_text(LAYOUT_PROBE)

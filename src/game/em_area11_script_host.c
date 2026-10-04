@@ -31,18 +31,22 @@
 #include "game/em_sfx.h"
 #include "game/em_stream_live.h"
 
-enum { OWNERS = 6 };
+enum { OWNERS = EM_ACTOR_POOL_CAPACITY };
 
 typedef struct {
     EmActor *actor;          /* the script owner's pool record */
     uint32_t generation;
     EmAreaScript host;       /* typed view of the record's +0x1F0 block */
     EmAreaScriptWorld world;
+    uint32_t bank, bank_original;
+    int bank_valid;
 } Owner;
 
 static struct {
     EmActorPool *pool;
     EmSceneState *scene;
+    EmAreaScriptHostArea area;
+    Owner *active;
     EmArea11Scripts images;
     int images_loaded, images_tried;
     /* The ELF's ordinary-door program 0x24DBC0..0x24DF80 (entry 0x24DE40;
@@ -77,7 +81,6 @@ static struct {
     EmCinematicProjection projection;
     EmCinematicPlayback playback;
     int track_tried, track_loaded, playing;
-    uint32_t d275BFC;
     /* op0F's bytes (001B7A30; Roger's departure 0x828A10): the views of the
      * stream lanes' read phase D_00282157 and of the movie service's
      * D_00275C78 / D_00821058 (movie_view_load / movie_view_store). */
@@ -88,6 +91,14 @@ static struct {
     int16_t walk_clips[EM_SCRIPT_WALK_CLIPS_COUNT];
     int walk_clips_loaded, walk_clips_tried;
 } H;
+/* These original globals outlive an area's script resources. In particular
+ * AREA11's cut counter remains set on the AREA01 arrival; a host rebind is
+ * not an original store to those bytes. Initial C storage models boot BSS. */
+static struct {
+    uint32_t d275BFC;
+    uint64_t d275C98;
+    float d8234C0[8];
+} timeline_globals;
 
 static int report(const char *what)
 {
@@ -168,6 +179,30 @@ static int view_store(void)
     if (H.pC0[1] != g.yaw && !player_pose_face(H.pC0[1]))
         return report("001B9C10: the pose host refused the heading");
     return 0;
+}
+
+static void block_load(Owner *o);
+static void block_store(Owner *o);
+static void world_bind(Owner *o);
+
+static int bank_store(Owner *o)
+{
+    if (!H.area.overlay_id || !o || !o->bank_valid || o->bank == o->bank_original) return 0;
+    if (H.area.owner_bank(H.area.ctx, o->actor, &o->bank, 1) < 0) return -1;
+    o->bank_original = o->bank;
+    return 0;
+}
+static int area_before(void)
+{
+    if (view_store() < 0 || bank_store(H.active) < 0) return -1;
+    if (H.active) block_store(H.active);
+    return 0;
+}
+static int area_after(int rc)
+{
+    if (H.active) { world_bind(H.active); block_load(H.active); }
+    view_load();
+    return rc;
 }
 
 /* ------------------------------------------------------------ workers */
@@ -319,6 +354,12 @@ static int w_001B7D60(void *ctx, uint8_t *handshake, const unsigned char *record
 static int r_0028A490(void *ctx, uint32_t address, uint32_t *value)
 {
     (void)ctx;
+    if (H.area.overlay_id) {
+        const uint8_t *p = H.area.resource(H.area.ctx, address, 4);
+        if (!p) return report("area bank word is not delivered");
+        memcpy(value, p, 4);
+        return 0;
+    }
     return em_area11_roger_table_word(address, value);
 }
 
@@ -358,7 +399,8 @@ static int w_001D06D0(void *ctx, uint32_t actor, uint8_t a1)
 static int r_track_head(void *ctx, uint32_t track, float *value)
 {
     (void)ctx;
-    const uint8_t *b = em_area11_roger_resource(track, 4);
+    const uint8_t *b = H.area.overlay_id ? H.area.resource(H.area.ctx, track, 4) :
+        em_area11_roger_resource(track, 4);
     if (!b) return report("the camera track header is not in the export");
     memcpy(value, b, 4);
     return 0;
@@ -368,7 +410,9 @@ static int r_track_head(void *ctx, uint32_t track, float *value)
 static int w_001C6120(void *ctx, uint32_t table, int32_t index, uint32_t *result)
 {
     (void)ctx;
-    const uint8_t *entry = em_area11_roger_resource(table + 4u + 4u * ((uint32_t)index & 0x7FFFu), 4);
+    uint32_t address = table + 4u + 4u * ((uint32_t)index & 0x7FFFu);
+    const uint8_t *entry = H.area.overlay_id ? H.area.resource(H.area.ctx, address, 4) :
+        em_area11_roger_resource(address, 4);
     if (!entry) return report("001C6120: a bank directory entry outside the export");
     uint32_t word;
     memcpy(&word, entry, 4);
@@ -395,6 +439,10 @@ static int track_ready(void)
 static int w_0022EC30(void *ctx, uint32_t camera)
 {
     (void)ctx;
+    if (H.area.overlay_id) {
+        if (!H.area.camera || area_before() < 0) return -1;
+        return area_after(H.area.camera(H.area.ctx, 0x0022EC30u, camera));
+    }
     uint32_t bank, expected;
     if (camera != EM_AREA_SCRIPT_D_008101E0) return -1;
     /* The opening's track, bank 0x98's clip 0 (001B8FC0 kind 6 in
@@ -435,6 +483,10 @@ static Owner *owner_at(uint32_t actor)
 static int w_001C67E0(void *ctx, uint32_t actor, int16_t clip, float a, float b)
 {
     (void)ctx;
+    if (H.area.overlay_id) {
+        if (!H.area.clip || area_before() < 0) return -1;
+        return area_after(H.area.clip(H.area.ctx, actor, clip, a, b));
+    }
     Owner *o = owner_at(actor);
     if (!o || (o->actor->callback != 0x008237E0u && o->actor->callback != EM_AREA11_DOOR_CALLBACK))
         return report("001C67E0 on an owner other than Roger or the fence door");
@@ -453,6 +505,10 @@ static int w_001C67E0(void *ctx, uint32_t actor, int16_t clip, float a, float b)
 static int w_001BAC00(void *ctx, uint32_t actor, uint32_t script, uint32_t record, int32_t *result)
 {
     (void)ctx;
+    if (H.area.overlay_id) {
+        if (!H.area.record || area_before() < 0) return -1;
+        return area_after(H.area.record(H.area.ctx, 0x001BAC00u, actor, script, record, result));
+    }
     Owner *o = owner_at(actor);
     const unsigned char *rec = H.opening.bytes ? em_script_image_read(&H.opening, record, EM_SCRIPT_RECORD_SIZE)
                                                 : NULL;
@@ -524,6 +580,14 @@ static int c_record(void *ctx, uint32_t callback, EmAreaScript *host, unsigned c
     (void)ctx;
     (void)host;
     (void)record;
+    if (H.area.overlay_id) {
+        if (!H.active || host != &H.active->host || !H.area.record || area_before() < 0) return -1;
+        uint32_t actor = em_actor_pool_address(H.pool, H.active->actor);
+        uintptr_t offset = (uintptr_t)record - (uintptr_t)host->image->bytes;
+        if (offset >= host->image->length) return -1;
+        return area_after(H.area.record(H.area.ctx, callback, actor, actor + 0x1F0u,
+                                        host->image->base + (uint32_t)offset, result));
+    }
     if (callback == 0x00825900u) {
         if (em_rcl_001DFE10() < 0) return report("0x825900: 001DFE10 faulted");
     } else if (callback == 0x00825920u) {
@@ -673,6 +737,15 @@ static int w_0011E2A8(void *ctx, float a0, float *result)
 }
 
 /* 00182F90(D_008102B0, target): the pose host's position-mirror service. */
+static int w_0011DE90(void *ctx, float a0, float *result)
+{
+    (void)ctx;
+    EmSdkMathContext *sdk = em_collision_world_sdk();
+    if (!sdk || !result) return -1;
+    *result = em_sdk_math_original_float_0011DE90(sdk, a0);
+    return sdk->fault ? -1 : 0;
+}
+
 static int w_00182F90(void *ctx, uint32_t actor, const float target[4])
 {
     (void)ctx;
@@ -727,6 +800,7 @@ static void workers_bind(void)
     H.workers.w_001AEE10 = w_001AEE10;
     H.workers.w_001DD980 = w_001DD980;
     H.workers.w_0011E2A8 = w_0011E2A8;
+    H.workers.w_0011DE90 = w_0011DE90;
     H.workers.w_00182F90 = w_00182F90;
     /* Census L22: the workers Roger's scripts reach (0x8283D0, 0x828990,
      * 0x828810; docs/AREA_SCRIPT.md section 3). */
@@ -859,7 +933,11 @@ static void world_bind(Owner *o)
     w->s0B0 = o->actor->pos;
     w->s0C0 = o->actor->rot;
     /* Roger's +0x40 (op0B sub 4's bank word) lives in his owner's record. */
-    w->s040 = o->actor->callback == 0x008237E0u ? em_area11_roger_bank_word(o->actor) : NULL;
+    if (H.area.overlay_id) {
+        o->bank_valid = H.area.owner_bank(H.area.ctx, o->actor, &o->bank, 0) == 0;
+        o->bank_original = o->bank;
+        w->s040 = o->bank_valid ? &o->bank : NULL;
+    } else w->s040 = o->actor->callback == 0x008237E0u ? em_area11_roger_bank_word(o->actor) : NULL;
     w->d28A9A0 = &em_frame_transition()->substate;
     w->d282157 = &H.d282157;
     w->d275C78 = &H.d275C78;
@@ -979,6 +1057,7 @@ const uint8_t *em_area11_script_host_opening_bytes(uint32_t address, uint32_t si
 
 EmScriptImage *em_area11_script_host_door_program(void)
 {
+    if (H.area.overlay_id) return H.area.image(H.area.ctx, 0x0024DE40u);
     if (H.door_program.bytes) return &H.door_program;
     if (H.door_program_tried) return NULL;
     H.door_program_tried = 1;
@@ -1000,7 +1079,7 @@ EmScriptImage *em_area11_script_host_door_program(void)
 static int slots_canonical(EmScriptImage *image, uint32_t entry)
 {
     uint32_t pc = entry;
-    for (unsigned n = 0; n < 64; ++n) {
+    for (unsigned n = 0; n < 256; ++n) {
         unsigned char *rec = em_script_image_read(image, pc, EM_SCRIPT_RECORD_SIZE);
         if (!rec) return report("a script record outside its image");
         uint32_t flags = em_script_u32(rec, 0), op = flags & 0xFFFu, sub = em_script_u32(rec, 8);
@@ -1016,14 +1095,16 @@ static int slots_canonical(EmScriptImage *image, uint32_t entry)
         if (flags & 0x80000000u) return 0;
         pc = (flags & 0x40000000u) ? em_script_u32(rec, 4) : pc + EM_SCRIPT_RECORD_SIZE;
     }
-    return report("a script without a stop record within 64 records");
+    return report("a script without a stop record within 256 records");
 }
 
 int em_area11_script_host_start(EmActor *actor, uint32_t entry)
 {
     if (!actor || !H.pool || !H.scene) return report("001BA1A0 before the AREA11 build");
     EmScriptImage *image;
-    if (entry >= EM_AREA11_DOOR_PROGRAM_BASE && entry < EM_AREA11_DOOR_PROGRAM_END) {
+    if (H.area.overlay_id) {
+        image = H.area.image(H.area.ctx, entry);
+    } else if (entry >= EM_AREA11_DOOR_PROGRAM_BASE && entry < EM_AREA11_DOOR_PROGRAM_END) {
         image = em_area11_script_host_door_program();
     } else if (entry >= EM_AREA11_OPENING_IMAGE_BASE && entry < EM_AREA11_OPENING_IMAGE_END) {
         image = opening_image();
@@ -1044,21 +1125,35 @@ int em_area11_script_host_start(EmActor *actor, uint32_t entry)
 
 int em_area11_script_host_tick(EmActor *actor, int32_t *result)
 {
-    Owner *o = actor ? owner_for(actor, 0) : NULL;
+    Owner *o = actor ? owner_for(actor, H.area.overlay_id != 0) : NULL;
+    if (o && H.area.overlay_id && !o->host.image) {
+        int32_t active;
+        uint32_t pc;
+        memcpy(&active, actor->scratch, 4);
+        memcpy(&pc, actor->scratch + 8, 4);
+        if (active <= 0) { if (!result) return -1; *result = 1; return 0; }
+        EmScriptImage *im = H.area.image(H.area.ctx, pc);
+        if (!im) return report("active area script outside delivered images");
+        world_bind(o);
+        em_area_script_init(&o->host, im, &o->world, &H.workers);
+    }
     if (!o || !result) return report("001BA1F0 on an owner that started no script");
     world_bind(o);
     block_load(o);
     view_load();
     movie_view_load();
     const uint8_t d275C78 = H.d275C78, d821058 = H.d821058;
+    Owner *previous = H.active;
+    H.active = o;
     int r = em_area_script_tick(&o->host);
+    H.active = previous;
     if (r >= 0 && movie_view_store(d275C78, d821058) < 0) return -1;
     if (r < 0) {
         fprintf(stderr, "em_area11 script host: 001BA1F0 of %08X faulted at %08X (record %08X)\n",
                 (unsigned)actor->callback, (unsigned)o->host.fault_address, (unsigned)o->host.fault_pc);
         return -1;
     }
-    if (view_store() < 0) return -1;
+    if (view_store() < 0 || bank_store(o) < 0) return -1;
     block_store(o);
     /* The scripted frame is open: this owner holds the shared player token
      * (staged: 0015B130's prelude admits the player at its next stage). The
@@ -1114,9 +1209,16 @@ static int camera_emit(void *context, EmCinematicPlaybackEvent event, const EmCi
 
 int em_area11_script_host_camera_0022EEF0(void)
 {
+    if (H.area.overlay_id)
+        return H.area.camera ? H.area.camera(H.area.ctx, 0x0022EEF0u, EM_AREA_SCRIPT_D_008101E0) : -1;
     if (!H.playing) return report("0022EEF0: the camera's top mode 3 without a started timeline");
     H.playback.time = g.cam.cine_time;
-    int rc = em_cinematic_playback_tick(&H.playback, &H.projection, camera_emit, NULL);
+    H.playback.cut_counter = timeline_globals.d275BFC;
+    EmCinematicCameraFrame sample;
+    int active = em_cinematic_camera_sample(H.playback.track,H.playback.time,&sample);
+    if(active<0)return report("0022EEF0: the camera sampler faulted");
+    memcpy(timeline_globals.d8234C0,&sample,sizeof timeline_globals.d8234C0);
+    int rc = em_cinematic_playback_sampled_tick(&H.playback,&H.projection,camera_emit,NULL,&sample,active,NULL);
     g.cam.cine_time = H.playback.time;
     if (rc < 0) return report("0022EEF0 faulted");
     /* D_008105F0 and the projection zoom: the sampled ones, or the
@@ -1126,7 +1228,30 @@ int em_area11_script_host_camera_0022EEF0(void)
     if (em_rcl_001D25F0(em_ee_bits(H.playback.zoom)) < 0) return report("0022EEF0: 001D25F0 faulted");
     if (rc == 1) {
         *em_scene_req_at(H.scene, 0x008106F3u) = H.playback.auxiliary;   /* the cut byte */
-        H.d275BFC = H.playback.cut_counter;
+        timeline_globals.d275BFC = H.playback.cut_counter;
     }
+    return 0;
+}
+
+uint8_t *em_area11_script_host_timeline_bytes(uint32_t a,uint32_t n)
+{
+    if(!n)return NULL;
+#define TIMELINE(base,field) if(a>=(base) && a-(base)<=sizeof timeline_globals.field && n<=sizeof timeline_globals.field-(a-(base))) \
+    return (uint8_t *)&timeline_globals.field+a-(base)
+    TIMELINE(0x00275BFCu,d275BFC);
+    TIMELINE(0x00275C98u,d275C98);
+    TIMELINE(0x008234C0u,d8234C0);
+#undef TIMELINE
+    return NULL;
+}
+
+int em_area11_script_host_area(const EmAreaScriptHostArea *area)
+{
+    if (!area || !area->overlay_id || !area->image || !area->resource || !area->owner_bank ||
+        !H.pool || !H.scene) return -1;
+    for (unsigned i = 0; i < OWNERS; ++i)
+        if (H.owner[i].actor) return report("area binding changed while script owners exist");
+    H.area = *area;
+    H.workers.handler = c_record;
     return 0;
 }

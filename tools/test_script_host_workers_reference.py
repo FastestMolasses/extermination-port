@@ -288,7 +288,7 @@ class World(C.Structure):
                     (name, P(ctype)) for name, _, ctype in CAMERA_FIELDS] + [
                     # 001B0460's word reader when `elf` is NULL (the live
                     # binding); this oracle always passes the ELF, so NULL.
-                    ('read_word', VP), ('read_ctx', VP)]
+                    ('read_word', VP), ('read_ctx', VP), ('predicate_store', VP), ('predicate_ctx', VP)]
 
 
 class Callees(C.Structure):

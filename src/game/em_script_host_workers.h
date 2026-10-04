@@ -108,6 +108,11 @@ typedef struct EmScriptHostWorkersWorld {
      * window, em_spawn_table.h). 0, or -1 outside the window (a fault). */
     int (*read_word)(void *ctx, uint32_t address, uint32_t *out);
     void *read_ctx;
+    /* Optional canonical store boundary for 00182BF0 only. Reads borrow
+     * player/flag pointers above. Every reached store, including unchanged
+     * values, calls this instead of writing those pointers directly. */
+    int (*predicate_store)(void *ctx,uint32_t address,const void *data,uint32_t size);
+    void *predicate_ctx;
 } EmScriptHostWorkersWorld;
 
 /* Original callees that are not translated here. Each returns 0, or a

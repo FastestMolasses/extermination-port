@@ -1,5 +1,5 @@
-/* Original event-free camera scene1 (Roger), 001B8FC0/sub6 and0022EEF0.
- * Other scene IDs require their actual timeline workers before admission. */
+/* Original camera playback core, 001B8FC0/sub6 and0022EEF0. The scene-1
+ * wrapper is event-free. AREA01 owns its separate verified event binding. */
 #ifndef EM_CINEMATIC_PLAYBACK_H
 #define EM_CINEMATIC_PLAYBACK_H
 
@@ -34,6 +34,12 @@ int em_cinematic_playback_start(EmCinematicPlayback *, const EmCinematicCamera *
  * repeats the original restore services until the script releases ownership. */
 int em_cinematic_playback_tick(EmCinematicPlayback *, const EmCinematicProjection *,
                                EmCinematicPlaybackEmit, void *);
+/* Shared post-sample core of 0022EEF0. AREA01 publishes the sampler's
+ * canonical result and advances its event tracks before entering this core.
+ * rotation, when supplied, receives the original scratch matrix on active
+ * frames; the ordinary scene-1 caller uses the same body with NULL. */
+int em_cinematic_playback_sampled_tick(EmCinematicPlayback *, const EmCinematicProjection *,
+    EmCinematicPlaybackEmit, void *, const EmCinematicCameraFrame *, int active, float rotation[16]);
 /* Original001B7B30/sub0, called at the script stage. 0 waiting,1 done,-1
  * failed service. Completion restores presentation again without changing
  * the camera cursor or relinquishing camera_top3. */

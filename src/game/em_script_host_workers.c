@@ -53,6 +53,14 @@ static int atan2_0011E620(EmScriptHostWorkers *h, uint32_t y, uint32_t x, uint32
 
 /* ---- 00182BF0: op16 frame predicate --------------------------------------- */
 
+static int predicate_store(EmScriptHostWorkers *h,uint32_t address,void *dst,uint32_t value,uint32_t size)
+{
+    if(h->world.predicate_store) {
+        if(h->world.predicate_store(h->world.predicate_ctx,address,&value,size)<0)return fail(h,address);
+    } else memcpy(dst,&value,size);
+    return 0;
+}
+
 int em_script_host_00182BF0(EmScriptHostWorkers *h, uint32_t actor, int32_t *result)
 {
     if (!h) return -1;
@@ -67,14 +75,14 @@ int em_script_host_00182BF0(EmScriptHostWorkers *h, uint32_t actor, int32_t *res
 
     if (*w->d8106BC != 0) {                                        /* 00182C04 */
         if (*w->d81083C != 0) { *result = 1; return 0; }           /* 00182C14 */
-        *w->d8106BC = 0;                                           /* 00182C24 */
+        if(predicate_store(h,0x008106BCu,w->d8106BC,0,1)<0)return -1; /* 00182C24 */
     }
     if (em_ee_c_le_bits(em_live_u32(a, 0x220), F_ZERO)) {          /* 00182C40 / 00182C48 */
         *result = 1; return 0;
     }
     if (em_live_u8(a, 0xF) == 0x63) { *result = 1; return 0; }     /* 00182C58 */
     if (*w->d81083C != 0) {                                        /* 00182C74 */
-        *w->d8106BC = 1;                                           /* 00182C88 */
+        if(predicate_store(h,0x008106BCu,w->d8106BC,1,1)<0)return -1; /* 00182C88 */
         *result = 1; return 0;
     }
     if (*w->d8106F1 != 0) { *result = 1; return 0; }               /* 00182C94 */
@@ -85,9 +93,9 @@ int em_script_host_00182BF0(EmScriptHostWorkers *h, uint32_t actor, int32_t *res
     }
     if (!em_ee_c_eq_bits(em_live_u32(a, 0x22C), F_ZERO) ||        /* 00182CF0 / 00182CF8 */
         !em_ee_c_eq_bits(em_live_u32(a, 0x224), F_ZERO)) {         /* 00182D04 / 00182D0C */
-        em_live_set_u32(a, 0x22C, 0);                              /* 00182D14 */
-        em_live_set_u32(a, 0x224, 0);                              /* 00182D1C */
-        em_live_set_u8(a, 0x0, 1);                                 /* 00182D20 */
+        if(predicate_store(h,actor+0x22C,a->bytes+0x22C,0,4)<0)return -1; /* 00182D14 */
+        if(predicate_store(h,actor+0x224,a->bytes+0x224,0,4)<0)return -1; /* 00182D1C */
+        if(predicate_store(h,actor,a->bytes,1,1)<0)return -1;        /* 00182D20 */
     }
     *result = 0;                                                   /* 00182D10 / 00182D24 */
     return 0;

@@ -62,6 +62,25 @@ extern "C" {
  * mutated in place, so each visit loads fresh ones: SCRIPT_HOST_WORKERS.md
  * section 2). */
 void em_area11_script_host_reset(EmActorPool *pool, EmSceneState *scene);
+/* Optional area resources, borrowed until reset. Native actor/player/camera
+ * views must be current on entry; the callbacks may run translated workers
+ * through their canonical transaction boundary. The shared host publishes
+ * its vector and script-block views before each callback and reloads after.
+ * image() returns a stable descriptor over the delivered mutable bytes.
+ * No fallback to AREA11 resources occurs while this binding is installed. */
+typedef struct {
+    void *ctx;
+    uint32_t overlay_id;
+    EmScriptImage *(*image)(void *, uint32_t entry);
+    const uint8_t *(*resource)(void *, uint32_t address, uint32_t size);
+    int (*owner_bank)(void *, EmActor *, uint32_t *value, int write);
+    int (*clip)(void *, uint32_t actor, int16_t clip, float blend, float frame);
+    int (*record)(void *, uint32_t function, uint32_t actor, uint32_t block,
+                  uint32_t record, int32_t *result);
+    int (*camera)(void *, uint32_t function, uint32_t camera);
+} EmAreaScriptHostArea;
+int em_area11_script_host_area(const EmAreaScriptHostArea *);
+
 /* 001BA1A0(actor + 0x1F0, entry). 0, or -1 (reported; the caller faults). */
 int em_area11_script_host_start(EmActor *actor, uint32_t entry);
 /* 001BA1F0(actor): *result = 0 running, 1 finished (or not active), 3
@@ -111,6 +130,9 @@ int em_area11_script_host_quad(uint32_t address, const float (**quad)[4]);
  * vector and the zoom; at the end the three restores. 0, or -1 (reported;
  * also when no timeline was started). */
 int em_area11_script_host_camera_0022EEF0(void);
+/* Original timeline globals, owned by this shared host and preserved across
+ * area resource resets. AREA01 borrows these bytes, with no second copy. */
+uint8_t *em_area11_script_host_timeline_bytes(uint32_t address, uint32_t size);
 
 #ifdef __cplusplus
 }

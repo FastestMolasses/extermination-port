@@ -251,8 +251,11 @@ int main(int argc, char **argv)
     assert(em_director_original_001B1EA0(0, in, q0, 4, &tables, &v) == 0 && v == 1);
     assert(em_director_original_001B1EA0(0, in, q0, 2, &tables, &v) == 0 && v == 0);
     assert(em_director_original_001B1EA0(3, in, q0, 4, &tables, &v) == 0 && v == 0);
-    assert(em_director_original_001B1EA0(1, in, q0, 4, &tables, &v) < 0);
-    assert(em_director_original_001B1EA0(2, in, q0, 4, &tables, &v) < 0);
+    const float origin[3]={0,0,0};
+    const float xy[4][4]={{-1,-1,0,1},{-1,1,0,1},{1,1,0,1},{1,-1,0,1}};
+    const float yz[4][4]={{0,-1,-1,1},{0,-1,1,1},{0,1,1,1},{0,1,-1,1}};
+    assert(em_director_original_001B1EA0(1, origin, xy, 4, &tables, &v) == 0 && v == 1);
+    assert(em_director_original_001B1EA0(2, origin, yz, 4, &tables, &v) == 0 && v == 1);
     assert(em_director_original_001B1EA0(0, nan_point, q0, 4, &tables, &v) < 0);
     float a = 1.0f;
     assert(em_director_original_0011E620(&tables, 0.0f, -0.0f, &a) == 0 && a == 0.0f && !signbit(a));

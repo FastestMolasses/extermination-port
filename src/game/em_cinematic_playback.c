@@ -99,24 +99,33 @@ int em_cinematic_playback_tick(EmCinematicPlayback *playback,
     EmCinematicCameraFrame sample;
     int active = em_cinematic_camera_sample(playback->track, playback->time, &sample);
     if (active < 0) return -1;
+    return em_cinematic_playback_sampled_tick(playback, projection, emit, context, &sample, active, NULL);
+}
+
+int em_cinematic_playback_sampled_tick(EmCinematicPlayback *playback,
+    const EmCinematicProjection *projection, EmCinematicPlaybackEmit emit, void *context,
+    const EmCinematicCameraFrame *sample, int active, float rotation[16])
+{
+    if (!playback || !playback->track || !projection || !emit || !sample || active < 0) return -1;
     if (!active) {
         playback->time = playback->track->duration;
         return restore(playback, emit, context) ? 0 : -1;
     }
-    playback->auxiliary = (uint8_t)sample.cut;
-    if (sample.cut) playback->cut_counter = 32;
-    memcpy(playback->eye, sample.eye, sizeof sample.eye);
-    memcpy(playback->target, sample.target, sizeof sample.target);
+    playback->auxiliary = (uint8_t)sample->cut;
+    if (sample->cut) playback->cut_counter = 32;
+    memcpy(playback->eye, sample->eye, sizeof sample->eye);
+    memcpy(playback->target, sample->target, sizeof sample->target);
     if (emit(context, EM_CINEMATIC_CAMERA_PUBLISH, playback) != 1) return -1;
-    float angle = divide(multiply(0x1.921fb6p+1f, sample.roll_degrees), 180);
+    float angle = divide(multiply(0x1.921fb6p+1f, sample->roll_degrees), 180);
     float angles[3] = {angle, 0, 0}, matrix[16], unused[4];
     if (!em_camera_rotation_offset(angles, 0, matrix, unused)) return -1;
+    if (rotation) memcpy(rotation, matrix, sizeof matrix);
     for (unsigned row = 0; row < 4; ++row) {
         float value = vu_add(vu_multiply(matrix[row], 0), vu_multiply(matrix[4+row], -1));
         value = vu_add(value, vu_multiply(matrix[8+row], 0));
         playback->up[row] = vu_add(value, matrix[12+row]);
     }
-    playback->zoom = em_cinematic_projection_zoom(projection, sample.fov_degrees);
+    playback->zoom = em_cinematic_projection_zoom(projection, sample->fov_degrees);
     if (!isfinite(playback->zoom)) return -1;
     playback->time = add(playback->time, .5f);
     return 1;

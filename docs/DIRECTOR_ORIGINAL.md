@@ -91,7 +91,9 @@ Every address in this document is a runtime address.
 - The result is `total < 0 ? total < −pi : !(total <= pi)`, with
   pi = 0x40490FDB.
 - Any mode other than 0, 1 or 2 returns 0. Modes 1 and 2 (the X/Y and Y/Z
-  sums) are not translated and return −1.
+  sums) use the same loop on their selected axes; mode 2 reverses the
+  cross-product operands. AREA01 requires these branches; see
+  `LEVEL2_SHARED_SERVICES.md` for the added proof.
 
 **`0011E620`:**
 - It calls the kernel first.
@@ -260,7 +262,7 @@ cc -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp
 
 ## 5. Limits
 
-- `001B1EA0` modes 1 and 2 are not translated. They fault, and the director
+- `001B1EA0` modes 1 and 2 are now translated for AREA01; the director
   never uses them.
 - The atan path covers finite arguments only. The player position is
   refused if non-finite; the original would compute on it.

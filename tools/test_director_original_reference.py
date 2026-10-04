@@ -312,10 +312,8 @@ def geometry_case(case):
     result = C.c_int32()
     rc = NATIVE.shim_1B1EA0(mode, (C.c_float * 3)(*point), poly, count, C.byref(TABLES), C.byref(result))
     label = ('geometry', hex(address), point, count, mode)
-    if mode in (1, 2) and count >= 3:
-        assert rc < 0, (label, 'modes 1/2 are not translated; native must refuse')
-        return 'refused'
-    if count >= 3 and mode == 0 and not all(math.isfinite(v) for v in (point[0], point[2])):
+    axes = (1,2) if mode == 2 else (0,1) if mode == 1 else (0,2)
+    if count >= 3 and mode in (0,1,2) and not all(math.isfinite(point[i]) for i in axes):
         assert rc < 0, (label, 'non-finite input must be refused')
         return 'refused'
     assert rc == 0, (label, 'native refused')
@@ -560,7 +558,7 @@ def main():
               rm.part(len(kept), len(geometry), 'polygon cases'), f'{route["frames"]} route frames')
     print(f'SDK atan2f 0011E620/0011C4C8/0011DBB8: PASS ({len(atans)} cases, bit-identical)')
     print(f'director 0x8253F0 ticks: PASS {tally}; {len(faults)} fail-stop paths')
-    print(f'001B1EA0 mode 0: PASS ({len(kept)} cases: {results.count(1)} inside, {results.count(0)} outside, '
+    print(f'001B1EA0 modes 0/1/2: PASS ({len(kept)} cases: {results.count(1)} inside, {results.count(0)} outside, '
           f'{results.count("refused")} refused)')
     print(f'route replay: PASS ({route["frames"]} frames, {route["gate_tests"]} gate tests, {route["polls"]} polls; '
           f'starts {route["starts"]}; completions {route["completions"]}; D_00810CC4 0 -> 1 across beat 10)')

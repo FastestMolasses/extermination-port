@@ -153,7 +153,7 @@ int em_director_original_001C4760(const EmDirectorOriginalWorld *world, int32_t 
  * legacy director stand-in's beat-0 001C4760(1, 1) (em_director.c). */
 int em_director_original_001C4760_scene(EmSceneState *scene, int32_t a0, int32_t a1);
 
-/* 001B1EA0(mode, point, polygon, count) for mode 0 (the X/Z winding sum),
+/* 001B1EA0(mode, point, polygon, count), the three plane winding sums,
  * read from the instructions (all-.word in the decomp):
  *   count < 3 (signed): 0.
  *   mode 0: for each vertex i (next = i + 1, or 0 after the last),
@@ -163,7 +163,8 @@ int em_director_original_001C4760_scene(EmSceneState *scene, int32_t a0, int32_t
  *     total += 0011E620(cross, dot);
  *   then total < 0 ? total < -pi : !(total <= pi)   (pi = 0x40490FDB).
  *   Any mode other than 0, 1, 2 (with count >= 3): 0.
- *   Modes 1 and 2 (the X/Y and Y/Z sums) are not translated: -1.
+ *   Mode 1 uses X/Y with the same operations. Mode 2 uses Y/Z and
+ *   cross = mula(b.y,a.z) then msub(b.z,a.y); dot is unchanged.
  * Arithmetic: EE add/sub with the single guard bit, truncating mul, nearest
  * div (em_pose_math.h). Non-finite inputs or intermediates are outside the
  * translated domain: -1. */

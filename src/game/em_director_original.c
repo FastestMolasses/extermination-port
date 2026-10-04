@@ -205,29 +205,31 @@ int em_director_original_001B1EA0_bound(int32_t mode, const float *point, const 
         *result = 0;
         return 0;
     }
-    if (mode == 1 || mode == 2)
-        return -1;                        /* the X/Y and Y/Z sums: not translated */
-    if (mode != 0) {
+    if (mode < 0 || mode > 2) {
         /* 0x1B1F00: any other mode branches to the tail with total = 0. */
         *result = 0;
         return 0;
     }
-    if (!point || !polygon || !atan2 || !isfinite(point[0]) || !isfinite(point[2]))
+    /* 001B1F18/1B1F98/1B2010 are the same winding loop on XZ,
+     * XY and YZ. The YZ branch reverses the cross-product operands. */
+    const unsigned x = mode == 2 ? 1u : 0u, z = mode == 1 ? 1u : 2u;
+    if (!point || !polygon || !atan2 || !isfinite(point[x]) || !isfinite(point[z]))
         return -1;
     float total = 0.0f;
     for (int32_t i = 0; i < count; ++i) {
         /* 0x1B1F18: next = i == count - 1 ? 0 : i + 1. */
         int32_t next = i == count - 1 ? 0 : i + 1;
         const float *cur = polygon[i], *nxt = polygon[next];
-        if (!isfinite(cur[0]) || !isfinite(cur[2]) || !isfinite(nxt[0]) || !isfinite(nxt[2]))
+        if (!isfinite(cur[x]) || !isfinite(cur[z]) || !isfinite(nxt[x]) || !isfinite(nxt[z]))
             return -1;
-        float bx = pose_sub(nxt[0], point[0]);   /* next.x - p.x */
-        float ax = pose_sub(cur[0], point[0]);   /* cur.x - p.x */
-        float bz = pose_sub(nxt[2], point[2]);   /* next.z - p.z */
-        float az = pose_sub(cur[2], point[2]);   /* cur.z - p.z */
+        float bx = pose_sub(nxt[x], point[x]);
+        float ax = pose_sub(cur[x], point[x]);
+        float bz = pose_sub(nxt[z], point[z]);
+        float az = pose_sub(cur[z], point[z]);
         /* cross = ACC(bz * ax) - bx * az, through the FPU accumulator
          * (MULA.S, MSUB.S). */
-        float cross = em_ee_msub(em_ee_mula(bz, ax), bx, az);
+        float cross = mode == 2 ? em_ee_msub(em_ee_mula(bx, az), bz, ax)
+                                : em_ee_msub(em_ee_mula(bz, ax), bx, az);
         /* dot = ACC(bx * ax) + bz * az (MULA.S, MADD.S; issued in the
          * call's delay slot). */
         float dot = em_ee_madd(em_ee_mula(bx, ax), bz, az);
@@ -254,7 +256,7 @@ static int tables_atan2(void *ctx, float y, float x, float *result)
 int em_director_original_001B1EA0(int32_t mode, const float *point, const float (*polygon)[4],
                                   int32_t count, const EmDirectorAtanTables *tables, int32_t *result)
 {
-    if (mode == 0 && count >= 3 && !tables)
+    if (mode >= 0 && mode <= 2 && count >= 3 && !tables)
         return -1;
     return em_director_original_001B1EA0_bound(mode, point, polygon, count, tables_atan2,
                                                (void *)(uintptr_t)tables, result);

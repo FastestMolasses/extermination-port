@@ -7,6 +7,7 @@
 #include "game/em_interaction_cinematic.h"
 #include "game/em_interaction_frame.h"
 #include "game/em_pose_math.h"
+#include "game/em_pickup_motion.h"
 #include "game/em_sdk_vu0.h"
 
 /* Handler results use 001BA1F0's numbering (EmScriptCommandResult):
@@ -395,6 +396,15 @@ static EmScriptCommandResult op00(Op *o)
     const EmAreaScriptWorld *w = o->w;
     int32_t kind = s32(o->rec, 8);
     NEED(w->d8105D0, 0x008105D0u); NEED(w->d8105E0, 0x008105E0u);
+    if (kind == 8 && o->k->handler) {
+        NEED(w->s0B0, 0x001B8FC0u);
+        if (phase(o) == 0) put32(o->rec, 0x10, 0);
+        int done = em_pickup_camera_settle(o->st, w->s0B0, w->d8105E0);
+        if (done < 0) return fault(o, 0x001B8FC0u);
+        WORKER(w_001DD980, 0x001DD980u);
+        CALL(0x001DD980u, o->k->w_001DD980(o->ctx, w->d8105D0, w->d8105E0));
+        return done ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
+    }
     switch (phase(o)) {
     case 0:
         switch (kind) {
@@ -542,7 +552,7 @@ static EmScriptCommandResult op01(Op *o)
             }
         }
         return EM_SCRIPT_WAIT;
-    case 3: case 5: {
+    case 3: case 5: case 8: {
         NEED(w->p0A0, 0x00810350u); NEED(w->p0C0, 0x00810370u);
         NEED(w->p1F2, 0x008104A2u); NEED(w->p25C, 0x0081050Cu);
         NEED(w->p1F8, 0x008104A8u); NEED(w->d24D8F0, 0x0024D8F0u);
@@ -558,7 +568,7 @@ static EmScriptCommandResult op01(Op *o)
             *w->p1F8 = 4.0f;
             return EM_SCRIPT_WAIT;
         }
-        if (p == 1) {
+        if (p == 1 && kind != 8) {
             float t, u;
             WORKER(w_001B1240, 0x001B1240u);
             CALL(0x001B1240u, o->k->w_001B1240(o->ctx, w->p0A0, f32(o->rec, 0x30),
@@ -570,7 +580,7 @@ static EmScriptCommandResult op01(Op *o)
             set_phase(o, (uint8_t)(phase(o) + 1));
             p = 2;
         }
-        if (p != 2) return EM_SCRIPT_WAIT;
+        if (p != (kind == 8 ? 1 : 2)) return EM_SCRIPT_WAIT;
         if (!(f32(o->rec, 0x10) < f32(o->rec, 0x0C))) {
             *w->p1F2 = w->d24D8F0[0];
             *w->p25C = 0;
@@ -578,6 +588,18 @@ static EmScriptCommandResult op01(Op *o)
             return EM_SCRIPT_ADVANCE;
         }
         putf(o->rec, 0x10, pose_add(f32(o->rec, 0x10), 1.0f));
+        if (kind == 8) {
+            float value;
+            WORKER(w_0011E2A8, 0x0011E2A8u);
+            CALL(0x0011E2A8u, o->k->w_0011E2A8(o->ctx, w->p0C0[1], &value));
+            putf(o->rec, 0x20, pose_add(f32(o->rec, 0x20), pose_mul(0.4f, value)));
+            WORKER(w_0011DE90, 0x0011DE90u);
+            CALL(0x0011DE90u, o->k->w_0011DE90(o->ctx, w->p0C0[1], &value));
+            putf(o->rec, 0x28, pose_add(f32(o->rec, 0x28), pose_mul(0.4f, value)));
+            WORKER(w_00182F90, 0x00182F90u);
+            CALL(0x00182F90u, o->k->w_00182F90(o->ctx, EM_AREA_SCRIPT_D_008102B0, rv(o->rec, 0x20)));
+            return EM_SCRIPT_WAIT;
+        }
         float r = pose_div(f32(o->rec, 0x10), f32(o->rec, 0x0C));
         NEED(w->spad3600, 0x70003600u);
         vsub(o->h->st_10, rv(o->rec, 0x30), rv(o->rec, 0x20));
@@ -604,7 +626,7 @@ static EmScriptCommandResult op01(Op *o)
         quad(w->s0C0, rv(o->rec, 0x30));
         return EM_SCRIPT_ADVANCE;
     default:
-        /* Kind 8 (orbit, 0011DE90) is not admitted. */
+        /* Out-of-range kinds have no admitted host contract. */
         return fault(o, 0x001B94F0u);
     }
 }
@@ -771,9 +793,12 @@ static EmScriptCommandResult op0A(Op *o)
         *w->p1F8 = f32(o->rec, 0x0C);
         *w->p1F4 = f32(o->rec, 0x10);
         break;
-    case 8:
-        /* 001798D0 (player re-init) is not admitted. */
-        return fault(o, 0x001798D0u);
+    case 8: {
+        int32_t unused;
+        WORKER(handler, 0x001798D0u);
+        CALL(0x001798D0u, o->k->handler(o->ctx, 0x001798D0u, o->h, o->rec, &unused));
+        return EM_SCRIPT_ADVANCE;
+    }
     default:
         break;
     }
@@ -791,6 +816,8 @@ static EmScriptCommandResult op0B(Op *o)
     const EmAreaScriptWorld *w = o->w;
     uint32_t bank;
     switch (u32(o->rec, 8)) {
+    case 1:
+        return (o->h->st_0E & 0x1000) ? EM_SCRIPT_ADVANCE : EM_SCRIPT_WAIT;
     case 6:
         WORKER(w_001FBD50, 0x001FBD50u);
         CALL(0x001FBD50u, o->k->w_001FBD50(o->ctx, w->self, s32(o->rec, 0x18), 0, 300.0f));
@@ -1283,6 +1310,15 @@ int em_area_script_w_0011E2A8(void *ctx, float a0, float *result)
     return em_area_script_sin_0011E2A8(a0, result);
 }
 
+static EmScriptCommandResult external_handler(Op *o, uint32_t function)
+{
+    int32_t result;
+    WORKER(handler, function);
+    CALL(function, o->k->handler(o->ctx, function, o->h, o->rec, &result));
+    if (o->w->spad3B91) o->st->skip_request = *o->w->spad3B91;
+    return result >= 0 && result <= 3 ? (EmScriptCommandResult)result : fault(o, function);
+}
+
 static EmScriptCommandResult execute(void *context, EmScript *script, unsigned char *record)
 {
     EmAreaScript *h = context;
@@ -1306,11 +1342,17 @@ static EmScriptCommandResult execute(void *context, EmScript *script, unsigned c
     case 0x15: return op15(&o);
     case 0x16: return op16(&o);
     case 0x18: return op18(&o);
-    default:
+    case 0x0E: if (o.k->handler) return external_handler(&o, 0x001B7F90u); break;
+    case 0x05: if (o.k->handler) return external_handler(&o, 0x001B9CF0u); break;
+    case 0x12: if (o.k->handler) return external_handler(&o, 0x001B76D0u); break;
+    case 0x13: if (o.k->handler) return external_handler(&o, 0x001B7670u); break;
+    case 0x17: if (o.k->handler) return external_handler(&o, 0x001B6D70u); break;
+    case 0x1A: if (o.k->handler) return external_handler(&o, 0x001B6AE0u); break;
+    default: break;
+    }
         /* Opcodes 03, 05, 08, 0E, 11..13, 17, 19, 1A: not used by the
          * AREA11 scripts this host admits (docs/AREA_SCRIPT.md). */
-        return fault(&o, 0x0024D880u + 4u * (u32(record, 0) & 0xFFF));
-    }
+    return fault(&o, 0x0024D880u + 4u * (u32(record, 0) & 0xFFF));
 }
 
 static unsigned char *resolve(void *context, uint32_t address)
