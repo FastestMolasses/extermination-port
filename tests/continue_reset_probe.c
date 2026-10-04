@@ -24,6 +24,12 @@ typedef struct {
     uint32_t mechanism_done;  /* D_00810766                     */
     uint32_t area01_locks;    /* D_00810842                     */
     uint32_t mechanism_gate;  /* D_00810845                     */
+    uint32_t npc_done;        /* D_00810759                     */
+    uint32_t npc_gate;        /* D_0081075A                     */
+    uint32_t light_gate;      /* D_0081075D                     */
+    uint32_t bridge_gate;     /* D_00810760                     */
+    uint32_t area01_story;    /* D_008107D9                     */
+    uint32_t bridge_counter;  /* D_008107E0                     */
 } ContinueResetProbe;
 
 void continue_reset_probe(ContinueResetProbe *out)
@@ -52,6 +58,29 @@ void continue_reset_probe(ContinueResetProbe *out)
     uint8_t *gate = em_scene_progress_at(&scene, 0x00810845u, 1);
     assert(done && locks && gate);
     *done = 0xFF; *locks = 0xA5; *gate = 0x28;
+    static const uint32_t area01_addresses[] = {
+        0x00810759u, 0x0081075Au, 0x0081075Du, 0x00810760u, 0x008107D9u, 0x008107E0u
+    };
+    static const uint8_t area01_dirty[] = {0xFF, 1, 0xFF, 0xFF, 0x81, 0xE0};
+    uint8_t *area01[6];
+    for (unsigned i = 0; i < 6; ++i) {
+        area01[i] = em_scene_progress_at(&scene, area01_addresses[i], 1);
+        assert(area01[i]);
+        *area01[i] = area01_dirty[i];
+    }
+    /* Adjacent migrated bytes share one span; reserved gaps still refuse. */
+    assert(em_scene_progress_at(&scene, 0x00810758u, 3));
+    assert(em_scene_progress_at(&scene, 0x0081075Du, 4));
+    assert(em_scene_progress_at(&scene, 0x008107D8u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810757u, 2));
+    assert(!em_scene_progress_at(&scene, 0x0081075Au, 2));
+    assert(!em_scene_progress_at(&scene, 0x0081075Cu, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810760u, 2));
+    assert(!em_scene_progress_at(&scene, 0x008107D7u, 2));
+    assert(!em_scene_progress_at(&scene, 0x008107D9u, 2));
+    assert(!em_scene_progress_at(&scene, 0x008107DFu, 2));
+    assert(!em_scene_progress_at(&scene, 0x008107E0u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810758u, 6));
     /* Neighboring reserved bytes cannot be read through a wider request. */
     assert(!em_scene_progress_at(&scene, 0x00810765u, 2));
     assert(!em_scene_progress_at(&scene, 0x00810766u, 2));
@@ -77,6 +106,12 @@ void continue_reset_probe(ContinueResetProbe *out)
     out->mechanism_done = *done;
     out->area01_locks = *locks;
     out->mechanism_gate = *gate;
+    out->npc_done = *area01[0];
+    out->npc_gate = *area01[1];
+    out->light_gate = *area01[2];
+    out->bridge_gate = *area01[3];
+    out->area01_story = *area01[4];
+    out->bridge_counter = *area01[5];
 }
 
 /* em_director_original_001C4760_scene (the live 001C4760 binding) over a

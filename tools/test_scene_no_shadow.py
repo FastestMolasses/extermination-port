@@ -11,7 +11,9 @@ S11b (scratchpad 0x70003B92, lead decision D5), the housekeeping step HK
 (lead decision D2: D_00810707, D_00810792, D_00810793, D_00810813, D_00810CC3,
 D_00810CB6 in the EmProgress region and D_008106F1 in the request block) and
 census L01 (D_0081083C, the player's grab-slot bits), and AREA01's mechanism
-and door bytes (D_00810766, D_00810842, D_00810845), in the EmProgress region:
+and door bytes (D_00810766, D_00810842, D_00810845), plus the six reached
+AREA01 NPC/light/bridge/story bytes (759, 75A, 75D, 760, 7D9, 7E0), in the
+EmProgress region:
 
   1. the retired port copies are gone from src/ and tests/: `frame_selector`
      (g.frame_selector, S11a), `cine_step` (g.cine_step = D_00810813, HK) and
@@ -238,6 +240,36 @@ REACHERS = {
                                      "verification run only until WP-8b",
         "game/em_scene_bindings.c": "the tick log's story sample (test instrumentation, never written)",
     },
+    0x00810759: {
+        "game/em_area01_overlay.c": "825590 stores 0xFF when the first-visit NPC script ends; "
+                                     "the original-address byte view reaches canonical scene progress",
+    },
+    0x0081075A: {
+        "game/em_area01_overlay.c": "825350 and 825740 read event 2 during placed NPC/talk setup; "
+                                     "the original-address byte view reaches canonical scene progress",
+        "game/em_area00_overlay.c": "AREA00 823540 reads event 2 in setup through its unbound "
+                                     "original-address view; no persistent flag storage",
+    },
+    0x0081075D: {
+        "game/em_area01_light_owner.c": "001C4FA0 type 7 reads event 5 for placed AREA01 light owner 40; "
+                                         "the math view resolves to canonical scene progress",
+        "game/em_area00_overlay.c": "AREA00 823540 and 8258E0 read event 5 through their unbound "
+                                     "original-address view; no persistent flag storage",
+        "game/em_effects_live.c": "001F68B0 room-light gates: the per-call globals view is refreshed "
+                                   "from canonical scene progress before the original translation",
+    },
+    0x00810760: {
+        "game/em_area01_overlay.c": "826200/826440 read event 8 during bridge setup; 826200 also reads "
+                                     "it while idle, through the canonical original-address view",
+    },
+    0x008107D9: {
+        "game/em_area01_overlay.c": "823580 door and 825350 NPC read counter 1; 823580 stores 0x80 "
+                                     "and 825590 stores 0x81 through the canonical byte view",
+    },
+    0x008107E0: {
+        "game/em_area01_overlay.c": "826200 reads counter 8 while idle; 826440's conditional sequence "
+                                     "reads it and stores 1/0xFF through the canonical byte view",
+    },
     0x00810766: {
         "game/em_area01_math_owner.c": "001C02E0 state 0 stores 0xFF only when D_00810845 bit 5 is set; "
                                        "the math view resolves to canonical scene progress",
@@ -263,6 +295,16 @@ REACH_CALL = {0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\
 
 # Declarations whose comment or name names a canonical byte outside em_scene_state.h.
 ALLOWED = [
+    {"file": "game/em_effect_kinds.h", "name": "d81075D",
+     "reason": "001F68B0 read-only room-light input in the standalone translation; the persistent "
+               "effect-kind view does not run this selector. Its AREA01 live adapter remains a "
+               "separate binding step and must refresh reached bytes from canonical progress",
+     "removed_by": "permanent (a per-call input)"},
+    {"file": "game/em_effect_manager.h", "name": "d81075D",
+     "reason": "001F6BB0 key-0 input in the standalone original translation; the live manager "
+               "explicitly refuses keys 0 and 0x1301 before reading these unbound fields, and "
+               "AREA01 key 0x0100 never reads this member",
+     "removed_by": "bind 001F6BB0 key 0 by refreshing this read-only view from canonical progress"},
     {"file": "game/em_frame_trace.h", "name": "selector",
      "reason": "trace record of the canonical 3B8D value sampled at the 0x1AE040 entry "
                "(instrumentation, never read back)",
@@ -362,7 +404,7 @@ ALLOWED = [
      "removed_by": "permanent (a constant)"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810842|810845",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810842|810845|810759|81075A|81075D|810760|8107D9|8107E0",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

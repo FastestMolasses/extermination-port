@@ -357,3 +357,30 @@ composition remain separate integration work; normal AREA01 gameplay is
 still guarded. No census row is promoted by this checkpoint.
 
 The exact staged-source `make -B all` passed with **zero warnings in 38.793 s**; all three focused status/census targets passed. Receipts: `build/level2/pose69-checkpoint/index-{build.json,build.log,tests.log}`. Binary SHA-256: `e64a260d3f8ae534afc11e4cf42658cb0a3daa1dbdedb9a722369d20fb0a09b8`.
+
+
+## AREA01 first-visit progress checkpoint
+
+Six additional reached bytes now use the scene's canonical progress storage:
+`00810759`, `0081075A`, `0081075D`, `00810760`, `008107D9` and `008107E0`.
+Their readers are the first-visit NPC setup/completion, placed light setup,
+bridge halves and exit-door/story checks. The existing `001AF2C0` reset
+initializes these bytes; loading AREA01 adds no new seed or copied state.
+The header records each original reader and writer. Live adapters remain
+separate integration work, with normal AREA01 world frames still guarded.
+
+The original reset check passes **20 game/progress fields and 73 inventory
+fields**; the existing key-add check passes **90 executed cases**. The
+canonical-view checker passes over **676 indexed files**, with **6 original
+writer fields, 18 tracked progress/request bytes, 9 view loads and 25 listed
+exceptions**. Its access-contract checks cover three accepted merged spans
+and fifteen rejected reserved/invalid spans.
+
+Shared edits are `em_scene_state.h`, `continue_reset_probe.c`,
+`test_continue_reset_reference.py` and `test_scene_no_shadow.py`. No captured
+state or original byte table is included. The exact staged-source
+`make -B all` passed with **zero warnings in 40.735 s**; reset and canonical-view
+targets both passed. Receipts:
+`build/level2/progress6-checkpoint/index-{build.json,build.log,tests.log}`.
+Binary SHA-256:
+`e44d2b58d0e54bb1451d1c33f8bbdc06f6cb0195c1eaa7af531039f8570f8ab6`.
