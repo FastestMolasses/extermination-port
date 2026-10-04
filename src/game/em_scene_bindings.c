@@ -3017,6 +3017,19 @@ static uint8_t *area01_extra_bytes(void *ctx, uint32_t address, uint32_t size, i
         if (address >= r->address && size <= r->size && address - r->address <= r->size - size)
             return (!write || r->writable) ? r->bytes + address - r->address : NULL;
     }
+    /* The scene-entry tables 001B0300 (camera mode 1's re-seat) walks, read
+     * only (the game never writes them): D_0024D650 -> [D_00810700] ->
+     * [D_00810701] -> + D_00810702 * 0x30 in the spawn table window the
+     * placement 001B07C0 reads (its one copy, s_spawn_table, loaded by the
+     * first area's placement), and the mode-1 eye row D_0024A8D0 + (word
+     * +0x10 >> 8) * 12 in the camera's own table (em_camera_live). */
+    if (!write) {
+        const uint8_t *p = s_spawn_table_loaded ? em_spawn_table_read(&s_spawn_table, address, size) : NULL;
+        if (!p)
+            p = em_camera_live_eye_rows(address, size);
+        if (p)
+            return (uint8_t *)(void *)p;
+    }
     return NULL;
 }
 static int area01_missing_worker(void *ctx, EmArea01Call *call)

@@ -151,6 +151,11 @@ void em_camera_live_store_block(const uint8_t block[0xD0], uint32_t d81060C);
 /* The canonical words, by original address (0x008101E0..0x008102AF and
  * 0x008105D0..0x008106A3), or NULL for any other address. */
 uint8_t *em_camera_live_bytes(uint32_t address, uint32_t size);
+/* Read-only bytes of the room camera eye rows D_0024A8D0..D_0024AA4F
+ * (assets/camera_eye_rows.emrg, tools/export_camera_tables.py; loaded at
+ * the first read), for 001B0460 and 001B0300's mode-1 seat. NULL outside
+ * that span or without the export (the reader then faults). */
+const uint8_t *em_camera_live_eye_rows(uint32_t address, uint32_t size);
 /* Canonical scratch views used by camera's native workers. Bind aliases at
  * the state-0 boundary, before player/camera execution. No bytes are copied
  * or initialized. Passing all NULL restores the existing AREA11 backing.

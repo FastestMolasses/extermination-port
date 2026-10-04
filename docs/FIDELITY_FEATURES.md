@@ -2024,6 +2024,14 @@ whose close-up draw is not translated yet.
   build, never committed) all 781 rows match, through the fall, the
   landing and the walk to the tunnel mouth. Not compared: AREA01's pixels
   and sound.
+- Camera (step CAMERA, 2026-10-04): the AREA01 phases also compare the
+  camera block itself: on every row its eye, target and the forward
+  vector, and at a recording's last row the whole camera block byte for
+  byte with the recording's saved RAM. The arrival passes it (all 61 rows
+  and the whole camera at f801); a01_00 rows f0..f404 are exact with it.
+  The control room's camera (mode 1, seated from the original scene-entry
+  and eye tables) is bound but not reached yet: the control-room door's
+  Use stops the run first (`LEVEL2_BINDING.md`, step CAMERA).
 - Status: **PARTIAL**, arrival idle and train room f0..f404 (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`

@@ -14,7 +14,69 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State (2026-10-04, step MOVE: the player runs around the train room)
+## State (2026-10-04, step CAMERA: the AREA01 camera)
+
+**The camera follows the player as recorded wherever the run reaches.**
+AREA01's camera is the first level's live camera (`em_camera_live`: the
+follow, leftovers, specials and commit translations) over AREA01's
+collision world; no AREA01-specific camera code exists or is needed for
+the first visit's mode 0. The level smoke now compares the camera block
+itself, not only the eye / target and flag word: on every AREA01 row the
+block's eye +0x10, target +0x20 and the forward D_00810600, and at each
+recording's last row the whole block D_008101E0..+0xCF, D_00810600..0F
+and D_00810690..D_008106A3 byte for byte with the recording's saved RAM
+(`level_smoke_area01.camera_vectors` / `check_camera_end`; LEVEL_SMOKE.md
+"a01_arrival", "a01_00"). Release build: a01_arrival passes with them (all
+61 rows and the whole camera at f801); a01_00 rows f0..f404 are exact,
+then kind 6 stops the run as before. A private diagnostic build that
+skipped only the kind-6 draw (deleted, never committed) passed a01_00 (781
+rows, whole camera at f780) and, with a01_01's first pad command submitted
+two rows later, all 306 a01_01 rows with the whole camera at its end
+(LEVEL_SMOKE.md "a01_00" gives the reading of that recording); a01_02 then
+matched f0..f38 and stopped at f39 in the floor service (00187DE0, the
+surface-0x5B first contact, is not bound). So a01_00..a01_02's camera
+(mode 0, its +7 = 0x40 rows in the tunnel, the commit) needs nothing
+beyond what runs; what blocks the comparison is not camera code.
+
+Bound in step CAMERA:
+- **The scene-entry tables, area-aware.** Camera mode 1 (the control
+  room, D_00810700..702 = 1 / 0 / 1 after the room move) is seated by
+  001B0460 (at 001B07C0's placement) and re-seated by 001B0300 (mode 1's
+  path when cam+1 is 0): both walk D_0024D650[area][room] + entry * 0x30
+  and, for a record whose +0x10 has bit 7, read the eye row D_0024A8D0 +
+  (word +0x10 >> 8) * 12. The AREA01 live composition could read neither
+  (a diagnostic probe of its byte view returned nothing for D_0024D650),
+  and the eye rows were in no export (AREA11 has no mode-1 record, so the
+  first level never read them). Now the composition's host view
+  (`em_scene_bindings.c` area01_extra_bytes) serves, read-only, the spawn
+  table window the placement already uses (its one copy, s_spawn_table)
+  and the eye rows from the camera's own table export; 001B0460's reader
+  (`em_camera_live.c` room_read) takes the eye rows from the same export.
+  `tools/export_camera_tables.py` writes `assets/camera_eye_rows.emrg`
+  (D_0024A8D0 up to the first spawn entry array 0x24AA50: 32 rows),
+  checking that every mode-1 spawn record indexes a row inside it (AREA01
+  room 0 entries 1 and 8: rows 2 and 6). The probe then read area 1's
+  record (1, 0, 1): +0x10 = 0x280, distance -31.2, eye (110, 25, -571),
+  the control-room camera block the a01_s0 recording holds (+5 = 1, +0xC =
+  -31.2, eye (110, 25, -571)). Test: `make test-area01-scratch-alias` runs
+  the export through the accessor and 001B0460's reader against the
+  pinned ELF word for word, with the delegation to the spawn reader and
+  five refusals.
+- **The control-room and duct workers.** Already bound (step a2352ad):
+  mode 1's 001B0300 (`em_area01_sys_001B0300`), action 10's 00198D90
+  (`em_area01_room_00198D90`) and 001D2830 (`em_rcl_001D2830`) through the
+  camera host callback, the duct's 0018C4B0 / 0018C6A0 through
+  `em_area01_camera_services`. None is reached yet: a01_s0 (the release
+  build) stops at f134 on the control-room door's Use (a D_00275B8C entry
+  of class 2, "player closure: 00161020 faulted at 0x00160220"), before
+  the room move at f296, and a01_s5 (the duct) starts from a01_s0's end.
+  Their census rows stay verified-unbound.
+
+Receipts (ignored): `build/level2/camera/` (smoke-default.log,
+smoke-arrival.log, a01_00.log and its run, newgame-control.log, and
+diag-checks.log with the diagnostic build's checks and probe).
+
+## State before step CAMERA (step MOVE: the player runs around the train room)
 
 **How far the player gets (step MOVE).** The opt-in phase **a01_00**
 (route beat a01_00_train_room, 780 frames: walk round the crates and
@@ -252,8 +314,13 @@ Bound in the previous step (each to its existing owner):
    em_vu1_page_programs.h, the chain page's recognition and an oracle
    test with tools/chain_page_model.py VuOracle), then a01_01 / a01_02.
    Medium.
-5. Camera: control-room and duct workers are forwarded through the camera
-   host callback; the scene tables are not area-aware yet. Medium.
+5. Camera (step CAMERA): the scene-entry tables are area-aware and the
+   control-room / duct workers bound; mode 1 and the duct are reached only
+   through the control-room door (item 6: a01_s0 stops at f134 on its
+   class-2 Use entry). For a01_01 / a01_02: the recording's first a01_01
+   pad command reached the original two frames late (a reading of the
+   recording, LEVEL_SMOKE.md "a01_00"; the harness timing is unchanged),
+   and a01_02 f39 needs 00187DE0. Small.
 6. Doors, NPC scripts, messages and pickups: beats a01_01..a01_07 and the
    8 side routes; adapters exist, unverified live. Large in total.
 

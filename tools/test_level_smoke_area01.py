@@ -137,7 +137,18 @@ def verify_checker():
     def bits(value):
         return struct.unpack('<I',struct.pack('<f',value))[0]
 
-    def native_row(row):
+    def camblk(row, ram=None):
+        """The tick log's camera bytes: the recording's decoded block fields
+        on every row, the saved RAM's bytes on a recording's last row."""
+        if ram is not None:
+            return [ram[a:a+n].hex() for a,n in (a01.CAMERA_BLOCK,a01.CAMERA_FORWARD,a01.CAMERA_690)]
+        block=bytearray(0xD0)
+        block[4:8]=bytes.fromhex(row['cam_mode'])
+        block[0x10:0x1C]=struct.pack('<3f',*row['cam_eye'])
+        block[0x20:0x2C]=struct.pack('<3f',*row['cam_tgt'])
+        return [block.hex(),struct.pack('<3fI',*row['fwd'],0).hex(),bytes(20).hex()]
+
+    def native_row(row, ram=None):
         post=bytearray(smoke.tsr.SNAP)
         post[:5]=bytes.fromhex(row['slots'])[8:13]
         for address,value in ((0x8106B0,row['req']),(0x810700,row['area4'][:6]),(smoke.SPAD,row['spad'])):
@@ -151,7 +162,7 @@ def verify_checker():
                             int(row['ground'],16),row['b2F3']],
                     pos_post=list(map(bits,row['pos'])),yaw_post=bits(row['yaw']),
                     eye_post=list(map(bits,row['eye'])),tgt_post=list(map(bits,row['tgt'])),
-                    cam4=row['cam_mode'],screen8=row['screen'][:16],power=row['power'],
+                    cam4=row['cam_mode'],screen8=row['screen'][:16],power=row['power'],camblk=camblk(row,ram),
                     a01=dict(hp=bits(row['hp']),progress=[row['d2'],row['story758'],row['taken'],row['docs']],owners=owners))
 
     total,rejected=0,0
@@ -162,7 +173,9 @@ def verify_checker():
         rows=capture['rows']
         gap=a01.source_gap(phase,capture)
         ticks=[dict(counter=rows[0]['counter']-gap+k+1) for k in range(gap-1)]
-        ticks.extend(native_row(row) for row in rows)
+        path=a01.capture_path(phase)
+        ram=path.with_name('eeMemory.bin').read_bytes()
+        ticks.extend(native_row(row,ram if row is rows[-1] else None) for row in rows)
         ticks.append({})
         start=gap-1
         for i,row in enumerate(rows):
@@ -173,13 +186,15 @@ def verify_checker():
             a01.check_route(smoke,ticks,run,state,phase)
         assert state['cursor']==len(ticks)-1 and state['area01_ends'][phase]==rows[-1]['counter']
         total+=len(rows)
-        for field in ('owner','camera','progress','clock','health','missing_owner'):
+        for field in ('owner','camera','camera_block','progress','clock','health','missing_owner'):
             pair=copy.deepcopy(ticks[start:start+2])
             tick=pair[0]
             if field=='owner':
                 owner=next(iter(tick['a01']['owners'].values()))
                 owner[4]^=4
             elif field=='camera':tick['cam4']='ff'+tick['cam4'][2:]
+            elif field=='camera_block':
+                block=bytearray.fromhex(tick['camblk'][0]);block[0x27]^=0x40;tick['camblk'][0]=block.hex()
             elif field=='progress':tick['a01']['progress'][0]='ff'+tick['a01']['progress'][0][2:]
             elif field=='clock':tick['player'][4]=bits(rows[0]['clock']+1)
             elif field=='health':tick['a01']['hp']=bits(rows[0]['hp']+1)
@@ -187,6 +202,16 @@ def verify_checker():
             try:a01.compare_route_row(smoke,pair,0,rows[0],phase)
             except AssertionError:rejected+=1
             else:raise AssertionError((phase,'checker accepted corrupt '+field))
+        # The last row's whole camera block against the saved RAM: a byte
+        # no per-row field covers (+0x40) must fail the phase.
+        end=copy.deepcopy(ticks)
+        block=bytearray.fromhex(end[start+len(rows)-1]['camblk'][0]);block[0x40]^=1
+        end[start+len(rows)-1]['camblk'][0]=block.hex()
+        try:
+            with contextlib.redirect_stdout(io.StringIO()):
+                a01.check_route(smoke,end,run,dict(cursor=0,area01_ends={SOURCES[phase]:rows[0]['counter']-gap}),phase)
+        except AssertionError:rejected+=1
+        else:raise AssertionError((phase,'checker accepted a corrupt last camera block'))
         for delta in (1,-1):
             bad=dict(cursor=0,area01_ends={SOURCES[phase]:rows[0]['counter']-gap+delta})
             try:a01.route_start(ticks,run,bad,phase,capture)

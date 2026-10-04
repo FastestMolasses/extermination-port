@@ -1498,7 +1498,8 @@ no exemption except the rebuild's clock (the same one-frame pose attach
 difference `exit` documents): spad, screen, message, power, player
 position and heading, camera eye and target, the camera flag word
 D_008101E4..E7 (+6 = 8 from f742: 0018B9C0's one-shot seat after
-001AF690's reset), the request, area and task bytes, slot 0's +8..+C,
+001AF690's reset), the camera block's eye +0x10 and target +0x20 and the
+forward D_00810600 (since step CAMERA), the request, area and task bytes, slot 0's +8..+C,
 the player's +5 / +1F0 / +1F1 / clip / +2F3, ground and clock, the next
 tick's fade, and the story bytes D_008107D8 / D_00810758 / D_00810792.
 Route 15 records no AREA01 owner, so the owners' records are not compared
@@ -1506,8 +1507,15 @@ here; the AREA01 rand() draws go through `check_rand_order`'s caller
 audit (no AREA01 per-call capture exists). The exit's pool witness at the
 rebuild is taken by this run too. `EM_A01_ARRIVAL_TICKS=N` (60..600)
 lengthens the idle as a diagnostic; frames past f801 are not recorded.
+At f801, route 15's last row, the whole camera is compared byte for byte
+with the recording's saved RAM (`check_camera_end`: eeMemory.bin, whose
+snapshot names the same main-loop counter and the RAM's SHA-256): the
+camera block D_008101E0..+0xCF, the forward D_00810600..0F and
+D_00810690..D_008106A3.
 
-Measured (2026-10-04): every compared field equal on all 61 rows.
+Measured (2026-10-04): every compared field equal on all 61 rows; since
+step CAMERA also the block's eye / target / forward on every row and the
+whole camera block at f801.
 
 ### a01_00
 
@@ -1518,12 +1526,18 @@ later, the BRANCH rule; the source gap from route 15's last counter is 1,
 so row 0 is port counter 15068). `level_smoke_area01.check_route` compares
 each of the 781 rows with `compare_route_row`: spad, screen, message,
 power, the player's position, heading, +5 / +1F0 / +1F1 / clip / +2F3,
-ground and clock, camera eye, target and flag word, the request, area and
-task bytes, slot 0's +8..+C, the next tick's fade, health, the progress
+ground and clock, camera eye, target and flag word, the camera block's
+eye +0x10 / target +0x20 and the forward D_00810600 (since step CAMERA),
+the request, area and task bytes, slot 0's +8..+C, the next tick's fade, health, the progress
 windows D_008107D8..+0x3F, D_00810758..+7, the taken bits and the
 documents (the tick log composes them byte by byte from their owners), and
 all 11 recorded owner records (head, position, +0x1F0 block, +0x2DC timer,
-callback). No exemption.
+callback). No exemption. Every route phase (check_route, all but a01_07)
+ends with `check_camera_end` at its last row: the whole camera block,
+forward and D_00810690.. against the beat's saved RAM, byte for byte.
+`--verify-harness` checks that these camera checks accept the recordings
+(the per-row fields against each beat's last-row RAM in all 15 beats) and
+reject a corrupt block eye/target and a corrupt last-row block byte.
 
 Measured (step MOVE, 2026-10-04): rows f0..f404 equal in every field
 (the tool prints "a01_00: NOT PASSED; 405 of 781 recorded rows exact
@@ -1532,6 +1546,25 @@ D_0023D930. A private diagnostic build that skipped only the kind-6
 draw request (deleted, never committed) matched all 781 rows and the
 checker passed a01_00 together with the first level's phases and
 a01_arrival. Receipts (ignored): `build/level2/move/receipts/`.
+
+Step CAMERA (2026-10-04), with the camera block checks above: the release
+build again stops at f405 with rows f0..f404 equal (now including the
+block eye / target / forward). The same kind-6-skipping diagnostic build
+(deleted, never committed) passed a01_arrival and a01_00 through the
+extended checker, the whole camera block at a01_00's last row included.
+It then ran a01_01: rows f0..f2 equal, f3 differs (the player's clip turns
+1 two rows before the recording's), because the recording's first pad
+command, set right after its source state was loaded, reached the
+original's player two frames later than every mid-beat command does. With
+only that first command submitted two rows later, all 306 a01_01 rows and
+its last-row camera block matched; with the whole a01_01 script delayed,
+rows f0..f24 matched. a01_02's rows f0..f38 matched; at f39 the run stops
+in the floor service 00175900 (player closure 001612D0's fault), the
+frame on which the census first records 00187DE0, the surface-0x5B first
+contact that em_player_first_contact does not bind yet.
+The harness's command timing is unchanged (the delay is a reading of the
+recording, not a measured property of the original). Receipts (ignored):
+`build/level2/camera/`.
 
 ### The step-offs (`check_fall`)
 

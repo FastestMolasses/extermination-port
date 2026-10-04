@@ -61,6 +61,17 @@
 #define TABLES_BASE UINT32_C(0x0024A4B0)
 #define TABLES_END  UINT32_C(0x0024A6F0)
 #define TABLES_WORDS ((TABLES_END - TABLES_BASE) / 4u)
+/* The room camera seat's eye rows D_0024A8D0 (32 XYZ rows up to the first
+ * spawn entry array 0x24AA50; tools/export_camera_tables.py checks every
+ * mode-1 spawn record indexes one): 001B0460 and 001B0300 read row
+ * (record word +0x10 >> 8) when the record's +0x10 bit 7 selects camera
+ * mode 1. No first-level record does (AREA11 has none); AREA01 room 0
+ * entries 1 and 8 (the control room, rows 2 and 6) do. Loaded at the
+ * first read; a read without the export faults. */
+#define EYE_ROWS_PATH "assets/camera_eye_rows.emrg"
+#define EYE_BASE  UINT32_C(0x0024A8D0)
+#define EYE_END   UINT32_C(0x0024AA50)
+#define EYE_WORDS ((EYE_END - EYE_BASE) / 4u)
 
 static struct {
     int bound;
@@ -73,6 +84,8 @@ static struct {
     EmCamLeftHit hit;                             /* 0x700031B0.. and *0x700031D0 */
     uint32_t tables[TABLES_WORDS];
     int tables_loaded;
+    uint32_t eye_rows[EYE_WORDS];
+    int eye_rows_loaded;
     /* ---- inputs loaded at each entry (not camera storage) ---- */
     /* The camera's view of D_008102B0 (the live record with the placement
      * the port keeps in g.pos / the pose host; section 3 of the doc). */
@@ -1230,10 +1243,11 @@ static int commit(int mode)
  * Binding
  * ====================================================================== */
 
-static int tables_load(void)
+/* One EMRG span (tools/export_camera_tables.py): "EMRG", version 1, base,
+ * size, then the ELF's bytes base .. base + size. */
+static int span_load(const char *path, uint32_t want_base, uint32_t *words, uint32_t want_size)
 {
-    if (C.tables_loaded) return 0;
-    FILE *f = fopen(CAMERA_TABLES_PATH, "rb");
+    FILE *f = fopen(path, "rb");
     if (!f) return -1;
     uint8_t head[16];
     int ok = fread(head, 1, sizeof head, f) == sizeof head && memcmp(head, "EMRG", 4) == 0;
@@ -1241,12 +1255,32 @@ static int tables_load(void)
     memcpy(&version, head + 4, 4);
     memcpy(&base, head + 8, 4);
     memcpy(&size, head + 12, 4);
-    ok = ok && version == 1 && base == TABLES_BASE && size == 4u * TABLES_WORDS &&
-         fread(C.tables, 1, size, f) == size;
+    ok = ok && version == 1 && base == want_base && size == want_size &&
+         fread(words, 1, size, f) == size && fgetc(f) == EOF;
     fclose(f);
-    if (!ok) return -1;
+    return ok ? 0 : -1;
+}
+
+static int tables_load(void)
+{
+    if (C.tables_loaded) return 0;
+    if (span_load(CAMERA_TABLES_PATH, TABLES_BASE, C.tables, 4u * TABLES_WORDS) < 0) return -1;
     C.tables_loaded = 1;
     return 0;
+}
+
+const uint8_t *em_camera_live_eye_rows(uint32_t address, uint32_t size)
+{
+    if (size == 0 || address < EYE_BASE || address > EYE_END || size > EYE_END - address) return NULL;
+    if (!C.eye_rows_loaded) {
+        if (span_load(EYE_ROWS_PATH, EYE_BASE, C.eye_rows, 4u * EYE_WORDS) < 0) {
+            fprintf(stderr, "em_camera_live: %s missing or malformed (run tools/export_camera_tables.py)\n",
+                    EYE_ROWS_PATH);
+            return NULL;
+        }
+        C.eye_rows_loaded = 1;
+    }
+    return (const uint8_t *)C.eye_rows + (address - EYE_BASE);
 }
 
 static void bind_worlds(void)
@@ -1458,9 +1492,18 @@ int em_camera_live_scripted_retarget(void)
 
 static const EmCameraLiveRoom *s_room;
 
+/* 001B0460's reads: the record walk D_0024D650 (the room's reader, the
+ * spawn table window) and, for a mode-1 record, its eye row D_0024A8D0
+ * (the camera's own ELF table). */
 static int room_read(void *ctx, uint32_t address, uint32_t *out)
 {
     (void)ctx;
+    if (address >= EYE_BASE && address < EYE_END) {
+        const uint8_t *p = em_camera_live_eye_rows(address, 4);
+        if (!p) return -1;
+        memcpy(out, p, 4);
+        return 0;
+    }
     return s_room->read_word(s_room->context, address, out);
 }
 

@@ -2,7 +2,7 @@
 
 Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
-**Current (2026-10-04, step MOVE):** **48 live (10,913 instructions), 129 verified-unbound (18,503), 0 missing, 2 boundary (131)** (§9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
+**Current (2026-10-04, step CAMERA; unchanged since step MOVE):** **48 live (10,913 instructions), 129 verified-unbound (18,503), 0 missing, 2 boundary (131)** (§10 says why step CAMERA promotes no row; §9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
 
 ## 1. Scope and counting
 
@@ -372,6 +372,31 @@ names them; the fall and landing rows (f491..f520) are beyond f404.
 | missing | 0 | 0 |
 | boundary | 2 | 131 |
 
+## 10. Step CAMERA: the camera's AREA01 rows (2026-10-04)
+
+No status changes. The camera rows of the ledger and their evidence:
+- `0x001B0300` (mode 1's re-seat) and `0x00198D90` (action 10, the duct):
+  bound (the camera host callback into `em_area01_sys_001B0300` /
+  `em_area01_room_00198D90`; LEVEL2_RUNTIME.md "AREA01 camera worker
+  binding"), and since this step their data is served: 001B0300's
+  scene-entry walk D_0024D650 and eye rows D_0024A8D0 through the live
+  composition's view (the spawn table window and the camera's new
+  `assets/camera_eye_rows.emrg`; `make test-area01-scratch-alias` checks
+  the eye rows against the ELF). Not reached by any native run: the
+  census's first frames are a01_s0 f297 / a01_04 f1810 and a01_s5 f282,
+  behind the control-room door, and the release build's a01_s0 stops at
+  f134 on that door's Use (a class-2 D_00275B8C entry). **verified-unbound**.
+- `0x00191120` (the follow camera's routine first recorded at a01_00
+  f357): runs inside the follow camera translation, which no per-call
+  funnel names (same-module call), so no native first-call measurement
+  exists; the camera rows it affects are exact through a01_00 f404 in the
+  release build. **verified-unbound** (unchanged).
+
+The camera block comparison the level smoke gained in this step (per row
+the block's eye / target and the forward, at each recording's last row the
+whole block against its saved RAM; LEVEL_SMOKE.md "a01_arrival") is
+evidence for the rows already live, not a promotion.
+
 ## AREA01 arrival binding dependencies
 
 Read-only mapping, 2026-10-03. The map follows the original callers and names
@@ -448,9 +473,11 @@ the callback and spawn record for the exit comparison; it binds no behavior.
 6. **Camera.** Keep `em_camera_live` / follow / leftovers / specials. The
    AREA01 state-0 placement already binds and uses them. First-visit area 1
    has no special arm in 00195130's area switch. Camera mode 1's 001B0300
-   presently faults in the host, despite its existing translation in
-   `em_area01_sys.c`; bind it if reached. The cinematic host and scene-entry
-   tables must become area-aware before script camera modes are enabled.
+   is bound through the camera host callback to `em_area01_sys.c`, and
+   its scene-entry tables (D_0024D650, the eye rows D_0024A8D0) are served
+   to the live composition since step CAMERA (§10). The script camera
+   timeline runs through the AREA01 timeline adapter (scenes 2 / 35,
+   LEVEL2_SERVICES.md "AREA01 live script binding").
 
 ### Pool modules required before the first world frame
 

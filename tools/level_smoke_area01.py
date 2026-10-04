@@ -54,13 +54,15 @@ def check_arrival(smoke, ticks, run, state):
             slot0=tuple(b[:5]),
             player=(pl[0], pl[1], pl[2], pl[3], pl[6]), ground=hex(pl[5]),
             clock=round(smoke.f32(pl[4]), 3), fade=following['fade8'],
-            story=(tick['story'][0], tick['story'][1], tick['story792']))
+            story=(tick['story'][0], tick['story'][1], tick['story792']),
+            **camera_vectors(tick, f'AREA01 arrival route 15 f{row["f"]}'))
         want.update(
             cam=row['cam_mode'], req=row['req'], area=row['area4'][:6],
             slot0=tuple(bytes.fromhex(row['slots'])[8:13]),
             player=(row['p5'], row['m1F0'], row['m1F1'], row['clip'], row['b2F3']),
             ground=row['ground'], clock=row['clock'], fade=row['fade'][:16],
-            story=(int(row['d2'][:2], 16), int(row['flags758'][:2], 16), row['story792']))
+            story=(int(row['d2'][:2], 16), int(row['flags758'][:2], 16), row['story792']),
+            cam_eye=row['cam_eye'], cam_tgt=row['cam_tgt'], fwd=row['fwd'])
         if not offset:
             # Existing exit check documents the one rebuild-only difference:
             # native pose attach initializes +0x3C one frame before 0015C420.
@@ -68,10 +70,14 @@ def check_arrival(smoke, ticks, run, state):
             got.pop('clock'), want.pop('clock')
         differences = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
         assert not differences, (f'AREA01 arrival route 15 f{row["f"]}, port tick {tick["tick"]}', differences)
+    assert rows[ARRIVAL_ROW + WORLD_TICKS]['counter'] == capture['last_counter'], 'route 15 ends after f801'
+    check_camera_end(ticks[arrival + WORLD_TICKS], 'a01_arrival')
     state['cursor'] = arrival + WORLD_TICKS + 1
     state.setdefault('area01_ends', {})['a01_arrival'] = ticks[state['cursor'] - 1]['counter']
     print('a01_arrival: PASS (route 15 f741..f801: rebuild plus 60 neutral world ticks; '
-          'player, ground, camera, selector, request, task, story bytes, message, bars and fade; '
+          'player, ground, camera (flag word, eye, target, block eye / target, forward), selector, '
+          'request, task, story bytes, message, bars and fade; the whole camera block, forward and '
+          'D_00810690.. at f801 byte for byte with route 15\'s saved RAM; '
           'rebuild clock alone excepted as in exit; AREA01 route owners not yet certified)')
 
 
@@ -95,6 +101,38 @@ SOURCES = dict(zip(MAIN_BEATS, ('a01_arrival', *tuple(MAIN_BEATS)[:-1]))) | {
     'a01_s3': 'a01_arrival', 'a01_s4': 'a01_arrival', 'a01_s5': 'a01_s0',
     'a01_s6': 'a01_arrival', 'a01_s7': 'a01_05'}
 AREA00_ARRIVAL_ROW = 529
+CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690 = (0x8101E0, 0xD0), (0x810600, 16), (0x810690, 20)
+
+
+def camera_vectors(tick, where):
+    """The camera block's eye +0x10 and target +0x20 and the forward
+    D_00810600 at the tick end (the tick log's camblk), rounded as the
+    recordings round them (cam_eye, cam_tgt, fwd)."""
+    blk = tick.get('camblk')
+    assert blk, (where, 'no live camera block in the tick log')
+    block, forward = bytes.fromhex(blk[0]), bytes.fromhex(blk[1])
+    vec = lambda b, o: [round(v, 5) for v in struct.unpack_from('<3f', b, o)]
+    return dict(cam_eye=vec(block, 0x10), cam_tgt=vec(block, 0x20), fwd=vec(forward, 0))
+
+
+def check_camera_end(tick, phase):
+    """The whole camera at a recording's last row against that recording's
+    saved RAM (eeMemory.bin, the state after the last row; its snapshot
+    names the same main-loop counter and the RAM's SHA-256): the camera
+    block D_008101E0..+0xCF, the forward D_00810600..0F and
+    D_00810690..D_008106A3, byte for byte."""
+    path = capture_path(phase)
+    capture = json.loads(path.read_text())
+    snapshot = json.loads(path.with_name('snapshot.json').read_text())
+    assert snapshot['main_loop_counter'] == capture['last_counter'], (phase, 'camera snapshot counter differs')
+    ram = path.with_name('eeMemory.bin').read_bytes()
+    assert hashlib.sha256(ram).hexdigest() == snapshot['ee_sha256'], (phase, 'saved RAM differs from its snapshot')
+    blk = tick.get('camblk')
+    assert blk, (phase, 'no live camera block at the last row')
+    for (address, size), port in zip((CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690), blk):
+        port, orig = bytes.fromhex(port), ram[address:address + size]
+        diff = [hex(address + o) for o in range(size) if port[o] != orig[o]]
+        assert not diff, (phase, f'tick {tick.get("tick")}', 'camera bytes differ from the saved RAM', diff)
 
 
 def phase_path(until):
@@ -206,10 +244,12 @@ def check_route(smoke, ticks, run, state, phase):
         i = start + offset
         assert ticks[i]['counter'] == counter + offset, (phase, offset, 'skipped main-loop tick')
         compare_route_row(smoke,ticks,i,row,phase)
+    check_camera_end(ticks[start + len(rows) - 1], phase)
     state['cursor'] = start + len(rows)
     state['area01_ends'][phase] = ticks[state['cursor'] - 1]['counter']
     print(f'{phase}: PASS ({len(rows)} consecutive captured rows: player, collision, camera, '
-          'requests, task state, message, letterbox, fade, 11 owners, health and progress)')
+          'requests, task state, message, letterbox, fade, 11 owners, health and progress; '
+          'the whole camera block at the last row byte for byte with the saved RAM)')
 
 
 def check_rng_checkpoints(state, frames):
@@ -269,11 +309,13 @@ def compare_route_row(smoke,ticks,i,row,phase):
     got.update(cam=tick['cam4'], req=b[smoke.tsr.OFFSET[0x8106B0]:smoke.tsr.OFFSET[0x8106B0]+10].hex(),
                area=b[smoke.tsr.OFFSET[0x810700]:smoke.tsr.OFFSET[0x810700]+3].hex(),
                slot0=tuple(b[:5]), player=tuple(player[k] for k in (0,1,2,3,6)),
-               ground=hex(player[5]), clock=round(smoke.f32(player[4]),3), fade=after['fade8'])
+               ground=hex(player[5]), clock=round(smoke.f32(player[4]),3), fade=after['fade8'],
+               **camera_vectors(tick, (phase, f'row {row["f"]}')))
     want.update(cam=row['cam_mode'], req=row['req'], area=row['area4'][:6],
                 slot0=tuple(bytes.fromhex(row['slots'])[8:13]),
                 player=(row['p5'],row['m1F0'],row['m1F1'],row['clip'],row['b2F3']),
-                ground=row['ground'],clock=row['clock'],fade=row['fade'][:16])
+                ground=row['ground'],clock=row['clock'],fade=row['fade'][:16],
+                cam_eye=row['cam_eye'],cam_tgt=row['cam_tgt'],fwd=row['fwd'])
     observed = tick.get('a01')
     assert observed, (phase, row['f'], 'missing AREA01 owner observations')
     got['hp'],want['hp'] = round(smoke.f32(observed['hp']), 5),row['hp']

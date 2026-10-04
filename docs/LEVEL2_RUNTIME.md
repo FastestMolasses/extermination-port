@@ -1367,6 +1367,16 @@ exclude these existing NULL callbacks from AREA01 (area byte 1):
 | `001AEDE0` in camera specials | camera state 4, entered by the area-`0x0D` arm |
 | `001B0C60` in camera | areas `0x0D/0x13` in the event router; `0x0E/0x12` in the transition trigger |
 
+**Scene-entry tables (step CAMERA).** 001B0300 walks D_0024D650[area]
+[room] + entry * 0x30 and, for a mode-1 record, reads the eye row
+D_0024A8D0 + (word +0x10 >> 8) * 12. The composition's host view
+(`em_scene_bindings.c` area01_extra_bytes) serves both read-only: the
+spawn table window the placement 001B07C0 reads (its one copy) and the
+camera's `assets/camera_eye_rows.emrg` (`em_camera_live_eye_rows`, also
+001B0460's source for those rows). Before, the view had neither and
+001B0300 would have faulted at its first load (LEVEL2_BINDING.md, step
+CAMERA).
+
 The AREA00 readiness check previously required `00194DB0` for every area-0
 state. It now uses the original sub-2/story-3 guard. AREA01's exit goes to
 AREA00 sub 0, where that worker is not called. The worker itself remains

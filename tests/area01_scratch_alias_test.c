@@ -64,9 +64,42 @@ static int sdk_cases(void)
     return ferror(stdin) ? 1 : 0;
 }
 
+/* The room camera seat's eye rows D_0024A8D0 (001B0460 / 001B0300 mode 1):
+ * stdin carries the ELF's 0x180 bytes; the actual export through the
+ * camera's accessor and 001B0460's reader must give them word for word,
+ * and only them (other addresses go to the room's spawn-table reader). */
+static unsigned room_reads;
+static int room_word(void *ctx,uint32_t a,uint32_t *out)
+{ (void)ctx;assert(a<EYE_BASE || a>=EYE_END);room_reads++;*out=a;return 0; }
+static int eye_cases(void)
+{
+    uint8_t want[EYE_END-EYE_BASE];
+    if(fread(want,1,sizeof want,stdin)!=sizeof want || fgetc(stdin)!=EOF)return 1;
+    const EmCameraLiveRoom room={NULL,room_word,NULL,NULL,NULL,NULL};
+    s_room=&room;
+    for(uint32_t a=0;a<sizeof want;a+=4) {
+        const uint8_t *p=em_camera_live_eye_rows(EYE_BASE+a,4);uint32_t w;
+        assert(p && !memcmp(p,want+a,4));
+        assert(room_read(NULL,EYE_BASE+a,&w)==0 && !memcmp(&w,want+a,4));
+    }
+    for(uint32_t r=0;r<sizeof want/12;++r)
+        assert(!memcmp(em_camera_live_eye_rows(EYE_BASE+12*r,12),want+12*r,12));
+    assert(room_reads==0);
+    uint32_t w;assert(room_read(NULL,0x0024D654u,&w)==0 && w==0x0024D654u && room_reads==1);
+    assert(room_read(NULL,EYE_BASE-4,&w)==0 && room_reads==2);
+    assert(!em_camera_live_eye_rows(EYE_BASE-4,4) && !em_camera_live_eye_rows(EYE_BASE-4,8));
+    assert(!em_camera_live_eye_rows(EYE_END-8,12) && !em_camera_live_eye_rows(EYE_END,4));
+    assert(!em_camera_live_eye_rows(EYE_BASE,0));
+    s_room=NULL;
+    printf("PASS eye rows: %zu words through the accessor and 001B0460's reader, 2 delegated reads, 5 refusals\n",
+           sizeof want/4);
+    return 0;
+}
+
 int main(int argc,char **argv)
 {
     if(argc==2 && !strcmp(argv[1],"--sdk"))return sdk_cases();
+    if(argc==2 && !strcmp(argv[1],"--eye"))return eye_cases();
     uint32_t matrix[16];EmCollSegmentFaceScratch face;
     _Static_assert(offsetof(EmCollSegmentFaceScratch,box_max)==16,"quad layout");
     _Static_assert(offsetof(EmCollSegmentFaceScratch,delta)==32,"quad layout");

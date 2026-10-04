@@ -46,4 +46,11 @@ def main():
         assert rc==0 and result[i*104+8:(i+1)*104]==expected,(i,hex(fn),'scratch')
         assert actual_f0==f0,(i,hex(fn),'f0')
     print(f'PASS scratch38 SDK ({MODE}): {len(cases)} original instruction calls, full 96 bytes and dot return')
+    # The room camera seat's eye rows D_0024A8D0..D_0024AA4F (001B0460 and
+    # 001B0300, camera mode 1): the pinned ELF's bytes against the export
+    # through the native accessor and 001B0460's reader.
+    assert (ROOT/'assets/camera_eye_rows.emrg').exists(), 'run tools/export_camera_tables.py'
+    elf=read_elf();base=0x24A8D0-0x100000+0x300
+    subprocess.run([str(exe),'--eye'],input=bytes(elf[base:base+0x180]),cwd=ROOT,
+                   env=dict(os.environ,UBSAN_OPTIONS='halt_on_error=1'),check=True)
 if __name__=='__main__':main()

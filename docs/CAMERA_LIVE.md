@@ -136,7 +136,15 @@ at the area build; a fixture supplies its own):
 test) read 001B1EA0 quads at D_0024A4B0 and D_0024A5F0 + 0x40·i:
 `tools/export_camera_tables.py` writes the span 0x24A4B0..0x24A6F0 from the
 user's ELF into `assets/camera_tables.emrg` (STARTUP.md step 48; required:
-the camera does not bind without it).
+the camera does not bind without it). The same tool writes
+`assets/camera_eye_rows.emrg`: the room seat's eye rows D_0024A8D0 up to
+the first spawn entry array 0x24AA50 (32 XYZ rows), which 001B0460 and
+001B0300 read as row (record word +0x10 >> 8) when the spawn record's
++0x10 bit 7 selects camera mode 1. No AREA11 record does; AREA01's
+control room does (LEVEL2_BINDING.md, step CAMERA). The camera loads
+them at the first read (`em_camera_live_eye_rows`; 001B0460's reader
+takes them from there, every other record word from the spawn table);
+a read without the export faults.
 
 **0x70003B40..0x70003B5C is not camera storage.** The camera only reads
 it; no camera routine stores it. The port holds two sources, each the
