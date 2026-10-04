@@ -992,6 +992,12 @@ static int loop_cadence(int32_t frame, int16_t ordinal)
     return (int32_t)((uint32_t)frame + (uint32_t)(int32_t)ordinal) % 10 == 0;
 }
 
+static int32_t loop_store(const EmSfxLoopOps *ops,int32_t *handle,int32_t value)
+{
+    if(ops->store && ops->store(ops->context,handle,value)<0)return -1;
+    *handle=value;return 0;
+}
+
 int32_t em_sfx_service_step(const EmSfxLoopOps *ops, int32_t requested[EM_SFX_TRACKS],
                          const int32_t snapshot[EM_SFX_TRACKS], int32_t *handle,
                          unsigned id, int32_t frame, int16_t ordinal)
@@ -1000,35 +1006,39 @@ int32_t em_sfx_service_step(const EmSfxLoopOps *ops, int32_t requested[EM_SFX_TR
     if (live != -1) {
         /* The original indexes D_00281C30 unchecked; a track index is all
          * 001FB9F0 ever stores here. Anything else is refused. */
-        if (live < 0 || live >= EM_SFX_TRACKS) return *handle = -1;
+        if (live < 0 || live >= EM_SFX_TRACKS) { (void)loop_store(ops,handle,-1);return -1; }
         const int32_t current = snapshot[live];
-        if (current == -1) return *handle = -1;
+        if (current == -1) { (void)loop_store(ops,handle,-1);return -1; }
         if ((int32_t)id != current) {
             ops->stop(ops->context, live);
             requested[live] = -1;
-            return *handle = -1;
+            { (void)loop_store(ops,handle,-1);return -1; }
         }
         if (!loop_cadence(frame, ordinal)) return live;
         /* 001FBDB0 */
         int32_t result = -1, left, right;
         if (ops->status(ops->context, live) == 2) {
-            if (ops->gains(ops->context, &left, &right)) {
+            int gains=ops->gains(ops->context,&left,&right);
+            if(gains<0)return -1;
+            if (gains) {
                 ops->request(ops->context, live, left, right);
                 result = live;
             } else {
                 ops->stop(ops->context, live);
             }
         }
-        *handle = result;
+        if(loop_store(ops,handle,result)<0)return -1;
         if (result == -1) requested[live] = -1;
         return result;
     }
     if (!loop_cadence(frame, ordinal)) return -1;
     /* 001FBD50 */
     int32_t left, right, result = -1;
-    if (ops->gains(ops->context, &left, &right))
+    int gains=ops->gains(ops->context,&left,&right);
+    if(gains<0)return -1;
+    if (gains)
         result = ops->start(ops->context, id, left, right);
-    *handle = result;
+    if(loop_store(ops,handle,result)<0)return -1;
     if (result != -1 && result >= 0 && result < EM_SFX_TRACKS)
         requested[result] = (int32_t)id;
     return result;
@@ -1040,5 +1050,5 @@ void em_sfx_service_release(const EmSfxLoopOps *ops,
     if (*handle == -1) return;
     ops->stop(ops->context, *handle);
     if (*handle >= 0 && *handle < EM_SFX_TRACKS) requested[*handle] = -1;
-    *handle = -1;
+    (void)loop_store(ops,handle,-1);
 }

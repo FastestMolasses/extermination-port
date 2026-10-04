@@ -299,7 +299,7 @@ int shim_loop(Shim *s, int32_t *requested, const int32_t *snapshot, int32_t *han
               int32_t frame, int ordinal, int status, int in_range, int32_t left, int32_t right,
               int start, int release, int32_t *log)
 {
-    const EmSfxLoopOps ops = {s, op_status, op_gains, op_request, op_stop, op_start};
+    const EmSfxLoopOps ops = {s, op_status, op_gains, op_request, op_stop, op_start, NULL};
     s->status = status; s->in_range = in_range; s->left = left; s->right = right; s->start = start;
     s->logged = 0;
     if (release) em_sfx_service_release(&ops, requested, handle);

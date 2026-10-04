@@ -258,10 +258,14 @@ typedef struct {
     void (*request)(void *context, int track, int32_t left, int32_t right);
     void (*stop)(void *context, int track);
     int (*start)(void *context, unsigned id, int32_t left, int32_t right);
+    /* Optional authoritative store for the original handle word. Called
+     * at every original store, including unchanged values; <0 refuses. */
+    int (*store)(void *context,int32_t *handle,int32_t value);
 } EmSfxLoopOps;
 /* One 001FC3C0 call: (frame + ordinal) % 10 is the original cadence over
  * the scratchpad frame counter 0x70003B68 and the owner ordinal
- * 0x70003B8A. Returns the new handle. */
+ * 0x70003B8A. Returns the new handle. gains may return -1 for a
+ * provider fault; that path performs no following voice/table/handle store. */
 int32_t em_sfx_service_step(const EmSfxLoopOps *ops, int32_t requested[EM_SFX_TRACKS],
                          const int32_t snapshot[EM_SFX_TRACKS], int32_t *handle,
                          unsigned id, int32_t frame, int16_t ordinal);

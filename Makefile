@@ -79,7 +79,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
            src/game/em_area01_actor_view.c src/game/em_area01_player_view.c \
-           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_effects_services.c src/game/em_area01_timeline.c \
+           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_effects_services.c src/game/em_area01_timeline.c src/game/em_area01_audio_services.c \
            src/game/em_area01_model_draw.c src/game/em_area01_door_live.c \
            src/game/em_area01_collision_view.c src/game/em_area01_interaction_live.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_indicator_live.c src/game/em_area01_prop_live.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
@@ -1611,13 +1611,15 @@ test-area01-shadow-live-reference:
 test-area01-scratch-views:
 	python3 tools/test_area01_scratch_views.py
 
-.PHONY: test-area01-pickup-live-reference test-area01-pickup-aura-reference test-area01-effects-services-reference test-area01-script-host-reference test-area01-script-workers-reference test-area01-timeline-reference
+.PHONY: test-area01-pickup-live-reference test-area01-pickup-aura-reference test-area01-effects-services-reference test-area01-audio-services-reference test-area01-script-host-reference test-area01-script-workers-reference test-area01-timeline-reference
 test-area01-pickup-live-reference:
 	python3 tools/test_area01_pickup_live_reference.py
 test-area01-pickup-aura-reference:
 	python3 tools/test_area01_pickup_aura_reference.py
 test-area01-effects-services-reference:
 	python3 tools/test_area01_effects_services_reference.py
+test-area01-audio-services-reference:
+	python3 tools/test_area01_audio_services_reference.py
 test-area01-script-host-reference:
 	python3 tools/test_area01_script_host_reference.py
 test-area01-script-workers-reference:

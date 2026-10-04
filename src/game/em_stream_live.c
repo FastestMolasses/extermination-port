@@ -420,6 +420,9 @@ uint8_t em_stream_live_read_phase(void)
     return S.booted ? (uint8_t)S.lanes.state.read_phase : 0;
 }
 
+const uint8_t *em_stream_live_output_mode(void)
+{ return S.booted && !S.fault ? &S.lanes.state.mono : NULL; }
+
 int em_stream_live_log(uint32_t out[9])
 {
     if (!S.booted) return 0;

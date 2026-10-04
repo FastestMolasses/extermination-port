@@ -668,7 +668,7 @@ int32_t em_sfx_loop_service(int32_t *handle, unsigned id, const float pos[3],
     if (!handle || !pos) return -1;
     SfxLoopSource source = {pos, radius};
     const EmSfxLoopOps ops = {&source, loop_status, loop_gains, loop_request,
-                              loop_stop, loop_start};
+                              loop_stop, loop_start, NULL};
     return em_sfx_service_step(&ops, s.requested, s.snapshot, handle, id,
                                frame, ordinal);
 }
@@ -677,8 +677,32 @@ void em_sfx_loop_release(int32_t *handle)
 {
     if (!handle) return;
     const EmSfxLoopOps ops = {NULL, loop_status, loop_gains, loop_request,
-                              loop_stop, loop_start};
+                              loop_stop, loop_start, NULL};
     em_sfx_service_release(&ops, s.requested, handle);
+}
+
+typedef struct { void *ctx;EmSfxLoopGain gains;EmSfxLoopStore store;int updating,fault; } BoundLoop;
+static int bound_status(void *ctx,int track)
+{ BoundLoop *b=ctx;b->updating=1;return loop_status(NULL,track); }
+static int bound_gains(void *ctx,int32_t *left,int32_t *right)
+{
+    BoundLoop *b=ctx;int rc=b->gains?b->gains(b->ctx,b->updating,left,right):-1;
+    if(rc<0)b->fault=1;return rc;
+}
+static int bound_store(void *ctx,int32_t *handle,int32_t value)
+{
+    BoundLoop *b=ctx;(void)handle;
+    if(!b->store || b->store(b->ctx,value)<0){b->fault=1;return -1;}return 0;
+}
+int em_sfx_loop_service_bound(int32_t handle,unsigned id,int32_t frame,int16_t ordinal,
+                              int release,EmSfxLoopGain gains,EmSfxLoopStore store,void *ctx)
+{
+    if(!store || (!release && !gains) || handle < -1 || handle>=EM_SFX_TRACKS)return -1;
+    BoundLoop b={.ctx=ctx,.gains=gains,.store=store};
+    const EmSfxLoopOps ops={&b,bound_status,bound_gains,loop_request,loop_stop,loop_start,bound_store};
+    if(release)em_sfx_service_release(&ops,s.requested,&handle);
+    else (void)em_sfx_service_step(&ops,s.requested,s.snapshot,&handle,id,frame,ordinal);
+    return b.fault?-1:0;
 }
 
 int em_sfx_stop_track(int track, int hard)

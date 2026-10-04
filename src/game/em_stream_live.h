@@ -93,6 +93,9 @@ const EmIopStream *em_stream_live_iop(void);
 int8_t em_stream_live_active(int lane);
 /* D_00282157 (lb): 001FA0D0's read phase; 0 before the boot. */
 uint8_t em_stream_live_read_phase(void);
+/* Canonical committed D_0028215B, read-only. NULL before boot or on a fault;
+ * callers must not replace an unavailable mode with an assumed stereo bit. */
+const uint8_t *em_stream_live_output_mode(void);
 /* D_00282178 + 4 * lane: the lane's cue; 0 before the boot. */
 int32_t em_stream_live_cue(int lane);
 /* The tick log's "stream" row (tools/test_level_smoke.py

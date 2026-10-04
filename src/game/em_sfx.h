@@ -372,6 +372,15 @@ int32_t em_sfx_loop_service(int32_t *handle, unsigned id, const float pos[3],
                             float radius, int32_t frame, int16_t ordinal);
 /* func_001FC520: stop a live service handle (0011A070) and clear it. */
 void em_sfx_loop_release(int32_t *handle);
+/* Same loop/voice/table owner with canonical gain and handle-store providers.
+ * gains receives 0 for start (001FBD50's fixed4096 scale), 1 for update
+ * (001FBDB0's caller f13). Providers return negative on fault. Game thread.
+ * Return 0 success, -1 provider fault. release selects 001FC520. */
+typedef int (*EmSfxLoopGain)(void *,int updating,int32_t *,int32_t *);
+typedef int (*EmSfxLoopStore)(void *,int32_t value);
+int em_sfx_loop_service_bound(int32_t handle,unsigned id,int32_t frame,int16_t ordinal,
+                              int release,EmSfxLoopGain gains,EmSfxLoopStore store,void *ctx);
+
 /* 0011A070(track | (hard ? 0x8000 : 0)) for a caller that holds a track
  * handle (the player stage's +31B loop-sound stop, 0015BCF0): a soft stop
  * hands T_STOP to the audio thread as em_sfx_loop_release does, a hard
