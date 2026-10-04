@@ -70,7 +70,7 @@ static struct {
     EmEffectKindsTables ktables;
     EmHeadSpriteOriginalTables htables;
     uint8_t sources[0x480];                   /* D_002565E0..D_00256A60 */
-    struct { uint32_t address, size; } window[32];   /* the exported blocks */
+    struct { uint32_t address, size; } window[64];   /* the exported blocks */
     uint32_t windows;
     /* 001CFBE0 source blocks an overlay owner hands 001D04B0 (the AREA11
      * flame's D_00828340): their 0x90 bytes, readable by the page. */
@@ -202,6 +202,12 @@ static int effects_gap(uint32_t address, uint32_t detail)
 }
 
 uint32_t em_effects_live_fault(void) { return S.fault; }
+uint8_t *em_effects_live_scratch_3660(uint32_t address,uint32_t size)
+{
+    if (!size || address<0x70003660u || address-0x70003660u>=sizeof S.xs.spad3660 ||
+        size>sizeof S.xs.spad3660-(address-0x70003660u)) return NULL;
+    return (uint8_t *)S.xs.spad3660+address-0x70003660u;
+}
 int em_effects_live_attached(void) { return S.attached; }
 
 static u32 crc32_bytes(u32 crc, const uint8_t *p, u32 n);
@@ -231,7 +237,8 @@ int em_effects_live_load(void)
     uint8_t *elf = ok ? calloc(1, ELF_SIZE) : NULL;
     ok = elf && memcmp(file, "EMET", 4) == 0 && rd32(file + 4) == 1;
     const u32 count = ok ? rd32(file + 8) : 0;
-    ok = ok && count > 0 && 0x10u + 0x10u * count <= (u32)size;
+    ok = ok && count > 0 && count <= sizeof S.window / sizeof S.window[0] &&
+         0x10u + 0x10u * count <= (u32)size;
     for (u32 i = 0; ok && i < count; ++i) {
         const uint8_t *e = file + 0x10 + 0x10 * i;
         const u32 address = rd32(e), bytes = rd32(e + 4), at = rd32(e + 8);
@@ -364,6 +371,20 @@ static Slot *slot_of_node(const EmEffectOriginalNode *n)
 static EmActor *actor_of(const Slot *s)
 {
     return S.pool ? &S.pool->records[s - S.slot] : NULL;
+}
+
+int em_effects_live_node_identity(const EmActor *a, uint32_t *address)
+{
+    if (!S.attached || S.fault || !S.pool || !a) return 0;
+    /* Integer bounds also reject an unrelated native object without C's
+     * undefined ordered pointer comparison across distinct allocations. */
+    uintptr_t p = (uintptr_t)a, lo = (uintptr_t)S.pool->records;
+    if (p < lo || p-lo >= sizeof S.pool->records || (p-lo) % sizeof *a) return 0;
+    size_t i = (p-lo) / sizeof *a;
+    if (!a->allocated || a->self != a || S.slot[i].generation != a->generation ||
+        S.slot[i].kind == KIND_NONE) return 0;
+    if (address) *address = EM_ACTOR_POOL_BASE + (uint32_t)i * EM_ACTOR_RECORD_SIZE;
+    return 1;
 }
 
 /* The pool's own fields of a node, from the translation's bytes. */
@@ -1382,14 +1403,18 @@ int em_effects_live_001EFD90(uint32_t id, const float pos[4], const float rot[4]
     return em_effects_live_001EFD90_result(id, pos, rot, NULL);
 }
 
-int em_effects_live_001EFD20(uint32_t id, const float pos[4])
+int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *out)
 {
     READY();
     if (view_refresh() < 0) return -1;
     globals_refresh();
     EmEffectOriginalNode *n = NULL;
-    return finish(em_effect_original_001EFD20(&S.e, id, pos, &n), 0x001EFD20u);
+    int status = em_effect_original_001EFD20(&S.e, id, pos, &n);
+    return spawn_result(status, 0x001EFD20u, n, out);
 }
+
+int em_effects_live_001EFD20(uint32_t id, const float pos[4])
+{ return em_effects_live_001EFD20_result(id, pos, NULL); }
 
 int em_effects_live_001F0460(int32_t n, const float m[16])
 {

@@ -49,7 +49,7 @@ static int32_t sra32(uint32_t value, unsigned shift)
 }
 
 /* 001BA1C0(actor, index): D_00810758[index] == 0xFF (byte-matched leaf). */
-static int gun_flag_done(const EmGunWorld *world, unsigned index, EmGunFault *fault,
+int em_gun_flag_done_001BA1C0(const EmGunWorld *world, unsigned index, EmGunFault *fault,
                           int *done)
 {
     NEED(world && world->d810758, 0x00810758u + index);
@@ -110,7 +110,7 @@ static int gun_setup(EmGun *h, const EmGunWorld *world, const EmGunWorkers *w,
     if (r != 0)
         return r < 0 ? -1 : 1; /* 0x8259B4: 001B0FD0 non-zero returns */
     int done;
-    if (gun_flag_done(world, EM_GUN_FLAG_30, fault, &done) < 0) /* 0x8259C0 */
+    if (em_gun_flag_done_001BA1C0(world, EM_GUN_FLAG_30, fault, &done) < 0) /* 0x8259C0 */
         return -1;
     h->lifecycle = done ? 4 : 0x64; /* 0x8259C8..0x8259E0 */
     h->b00 = 1;                      /* 0x8259EC */
@@ -255,13 +255,13 @@ int em_gun_tick(EmGun *h, const EmGunWorld *world,
     case 0:
         return gun_setup(h, world, w, fault);
     case 0x64: /* 0x825B34: dormant; the flag moves it to lifecycle 4. */
-        if (gun_flag_done(world, EM_GUN_FLAG_30, fault, &done) < 0)
+        if (em_gun_flag_done_001BA1C0(world, EM_GUN_FLAG_30, fault, &done) < 0)
             return -1;
         if (done)
             h->lifecycle = 4;
         return gun_tail(w, fault, EM_GUN);
     case 2: /* 0x826D60 */
-        if (gun_flag_done(world, EM_GUN_FLAG_30, fault, &done) < 0)
+        if (em_gun_flag_done_001BA1C0(world, EM_GUN_FLAG_30, fault, &done) < 0)
             return -1;
         if (done && gun_swing(h, world, w, fault) < 0)
             return -1;
@@ -368,7 +368,7 @@ int em_flag30_manager_tick(EmFlag30Manager *m, const EmGunWorld *world, const Em
     case 3: /* 0x823CF8 / 0x823D04 -> 0x823E68: 001AFC10(actor) */
         return gun_free(w, fault, &m->freed);
     case 0: /* 0x823D2C: 001BA1C0(actor, 0x30) */
-        if (gun_flag_done(world, EM_GUN_FLAG_30, fault, &done) < 0)
+        if (em_gun_flag_done_001BA1C0(world, EM_GUN_FLAG_30, fault, &done) < 0)
             return -1;
         if (done) {
             m->lifecycle = 3;

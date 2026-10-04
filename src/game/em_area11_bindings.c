@@ -228,6 +228,16 @@ static int spawn_001C5570_child(EmActor *owner, const float a1[4], uint8_t a2, i
     }
 }
 
+int em_area11_bindings_spawn_001C5570(EmActor *owner,const float color[4],uint8_t kind,int mode,
+                                     uint32_t *result)
+{
+    if(!owner || !color || !result)return -1;
+    EmActor *child=NULL;
+    int rc=spawn_001C5570_child(owner,color,kind,mode,&child);
+    if(rc>=0)*result=em_actor_pool_address(s_pool,child);
+    return rc;
+}
+
 /* 0018A880(a0, a1). */
 static int spawn_equipment_link(uint8_t a0, uint8_t a1, unsigned player_link)
 {

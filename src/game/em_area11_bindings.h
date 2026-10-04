@@ -87,6 +87,9 @@ int em_area11_spawn_player_equipment_0015C310(int32_t arg1);
  * head-bone sprite node linked to `owner_address` (+0x24 = owner +0x14).
  * 0 (also when the alloc is refused, as the original returns 0), or -1. */
 int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key);
+/* Shared indicator spawn; returns the original allocation address or zero. */
+int em_area11_bindings_spawn_001C5570(EmActor *,const float color[4],uint8_t kind,int mode,
+                                     uint32_t *result);
 
 /* 001BAC00(owner, script, record) (script op14; the opening 0x828FC0):
  * em_sdf_001BAC00 over `owner`'s record and the list its record's +0x14

@@ -206,6 +206,9 @@ int em_gun_cable_tick(EmGunCable *cable, const EmGunWorkers *w, EmGunFault *faul
 /* One call of 0x823CE0. Returns 1 while allocated, 0 after the free, -1. */
 int em_flag30_manager_tick(EmFlag30Manager *manager, const EmGunWorld *world, const EmGunWorkers *w,
                            EmGunFault *fault);
+/* Shared original story-flag leaf. The caller validates the indexed byte
+ * belongs to its canonical progress storage before passing this view. */
+int em_gun_flag_done_001BA1C0(const EmGunWorld *,unsigned index,EmGunFault *,int *done);
 
 #ifdef __cplusplus
 }

@@ -84,6 +84,8 @@ void em_effects_live_detach(void);
 int em_effects_live_attached(void);
 /* The latched fault: the original function or data address, or 0. */
 uint32_t em_effects_live_fault(void);
+/* Existing 001D0540 vector shared with 00183EF0; no copy or reset. */
+uint8_t *em_effects_live_scratch_3660(uint32_t address,uint32_t size);
 /* Bytes of the exported ELF windows [address, address + size) (zero outside
  * them), for the equipment binder's tables. NULL before the load. */
 const uint8_t *em_effects_live_elf(uint32_t address, uint32_t size);
@@ -117,6 +119,7 @@ int em_effects_live_001EFD20(uint32_t id, const float pos[4]);
  * available to callers that discard it. */
 int em_effects_live_001EF9D0(uint32_t id, const float pos[4], uint32_t f12, uint32_t *node);
 int em_effects_live_001EFD90_result(uint32_t id, const float pos[4], const float rot[4], uint32_t *node);
+int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *node);
 /* Typed entry points for callers holding their original local transform
  * block. The first 0x58 bytes are original fields; its final 8 bytes are
  * untouched. CFBE0 resolves m40 and the source through actual owner views. */
@@ -150,6 +153,9 @@ typedef struct {
  * required count (zero for an inactive/non-effect node), fills up to capacity.
  * Callers must reject insufficient capacity. Uninitialized +24 is omitted. */
 size_t em_effects_live_node_regions(uint32_t node, EmEffectsLiveNodeRegion *regions, size_t capacity);
+/* 1 only for this owner's currently allocated native actor/generation;
+ * writes its original pool address. 0 for a non-effect/stale/foreign actor. */
+int em_effects_live_node_identity(const EmActor *actor, uint32_t *address);
 /* D_00275C04, the word 001CCF70 (and 001CD070) store float_to_int of the
  * view w into: em_effect_original's one copy. NULL before the attach. */
 int32_t *em_effects_live_d275C04(void);

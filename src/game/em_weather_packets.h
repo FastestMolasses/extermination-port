@@ -69,6 +69,13 @@ typedef struct {
 void em_weather_packets_001CFAE0(EmWeatherDrawState *dst, int32_t a1, const uint8_t src[64],
                                  uint32_t f12, uint32_t f13, uint32_t f14, uint32_t f15,
                                  uint32_t d275670);
+/* Original-address variant for shared callers. The authoritative provider
+ * sees each original load/store in order, including same-value stores.
+ * No destination bytes are read; a refused access retains earlier stores. */
+typedef uint8_t *(*EmWeatherDrawView)(void *, uint32_t, uint32_t, int);
+int em_weather_packets_001CFAE0_view(void *ctx, EmWeatherDrawView view,
+                                    uint32_t dst, int32_t index, uint32_t src,
+                                    const uint32_t f[4], uint32_t *fault);
 
 /* 001CFFE0(slot, variant, obj, src): `obj` is the 0x90 bytes of the
  * descriptor (D_00255170 as 001E67C0 left it). 0, or -1. */

@@ -79,13 +79,13 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
            src/game/em_area01_actor_view.c src/game/em_area01_player_view.c \
-           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_timeline.c \
+           src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_effects_services.c src/game/em_area01_timeline.c \
            src/game/em_area01_model_draw.c src/game/em_area01_door_live.c \
-           src/game/em_area01_collision_view.c src/game/em_area01_interaction_live.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_prop_live.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
+           src/game/em_area01_collision_view.c src/game/em_area01_interaction_live.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_indicator_live.c src/game/em_area01_prop_live.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
            src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
            src/game/em_area01_sys.c src/game/em_area01_exita.c src/game/em_area01_exitb.c \
-           src/game/em_world_textures_live.c src/game/em_area01_rcl_workers.c src/game/em_area01_matrix_service.c \
+           src/game/em_world_textures_live.c src/game/em_area01_rcl_workers.c src/game/em_area01_flame_services.c src/game/em_area01_render_hud.c src/game/em_area01_matrix_service.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
@@ -1611,11 +1611,13 @@ test-area01-shadow-live-reference:
 test-area01-scratch-views:
 	python3 tools/test_area01_scratch_views.py
 
-.PHONY: test-area01-pickup-live-reference test-area01-pickup-aura-reference test-area01-script-host-reference test-area01-script-workers-reference test-area01-timeline-reference
+.PHONY: test-area01-pickup-live-reference test-area01-pickup-aura-reference test-area01-effects-services-reference test-area01-script-host-reference test-area01-script-workers-reference test-area01-timeline-reference
 test-area01-pickup-live-reference:
 	python3 tools/test_area01_pickup_live_reference.py
 test-area01-pickup-aura-reference:
 	python3 tools/test_area01_pickup_aura_reference.py
+test-area01-effects-services-reference:
+	python3 tools/test_area01_effects_services_reference.py
 test-area01-script-host-reference:
 	python3 tools/test_area01_script_host_reference.py
 test-area01-script-workers-reference:
@@ -1634,6 +1636,10 @@ test-area01-scratch-alias:
 .PHONY: test-area01-camera-services-reference
 test-area01-camera-services-reference:
 	python3 tools/test_area01_camera_services_reference.py
+
+.PHONY: test-area01-indicator-live-reference
+test-area01-indicator-live-reference:
+	python3 tools/test_area01_indicator_live_reference.py
 
 .PHONY: test-area01-prop-live-reference
 test-area01-prop-live-reference:
@@ -1659,9 +1665,11 @@ test-area01-sfx-registry:
 test-status-pose69-reference:
 	python3 tools/test_status_pose69_reference.py
 
-.PHONY: test-area01-rcl-workers
+.PHONY: test-area01-rcl-workers test-area01-flame-services-reference
 test-area01-rcl-workers:
 	python3 tools/test_area01_rcl_workers_reference.py
+test-area01-flame-services-reference:
+	python3 tools/test_area01_flame_services_reference.py
 
 .PHONY: test-area01-matrix-service
 test-area01-matrix-service:
@@ -1674,6 +1682,10 @@ test-area01-static-ground:
 .PHONY: test-area01-crate-registry
 test-area01-crate-registry:
 	python3 tools/test_area01_crate_registry_reference.py
+
+.PHONY: test-area01-glow-services-reference
+test-area01-glow-services-reference:
+	python3 tools/test_area01_glow_services_reference.py
 
 .PHONY: test-area01-closeout
 test-area01-closeout:

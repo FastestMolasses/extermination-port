@@ -23,17 +23,54 @@ static int fail(uint32_t *fault, uint32_t address)
     return -1;
 }
 
-void em_weather_packets_001CFAE0(EmWeatherDrawState *dst, int32_t a1, const uint8_t src[64],
-                                 uint32_t f12, uint32_t f13, uint32_t f14, uint32_t f15,
-                                 uint32_t d275670)
+int em_weather_packets_001CFAE0_view(void *ctx, EmWeatherDrawView view,
+                                    uint32_t dst, int32_t index, uint32_t src,
+                                    const uint32_t f[4], uint32_t *fault)
 {
-    dst->w44 = f12;
-    dst->w4C = f13;
-    dst->w48 = f14;
-    dst->w50 = f15;
-    dst->w54 = 0;
-    dst->m40 = d275670 + ((uint32_t)a1 << 6) + 0x2240u;   /* 001CD370(a1) */
-    memcpy(dst->q, src, 64);
+    if (!view || !f) return fail(fault, 0x001CFAE0u);
+    /* The source and destination in every bound caller are quadword aligned.
+     * Refuse incompatible host layouts instead of silently changing them. */
+    if ((dst & 15u) || (src & 15u) || (uint64_t)dst+0x58 > UINT64_C(0x100000000) ||
+        (uint64_t)src+64 > UINT64_C(0x100000000)) return fail(fault, dst);
+    const uint32_t offsets[5]={0x44,0x4C,0x48,0x50,0x54};
+    const uint32_t values[5]={f[0],f[1],f[2],f[3],0};
+    for (unsigned i=0;i<5;++i) {
+        uint8_t *p=view(ctx,dst+offsets[i],4,1);
+        if (!p) return fail(fault,dst+offsets[i]);
+        wr32(p,values[i]);
+    }
+    const uint8_t *context=view(ctx,0x00275670u,4,0);
+    if (!context) return fail(fault,0x00275670u);
+    uint32_t address=rd32(context)+((uint32_t)index<<6)+0x2240u;
+    uint8_t *p=view(ctx,dst+0x40u,4,1);
+    if (!p) return fail(fault,dst+0x40u);
+    wr32(p,address);
+    for (unsigned i=0;i<4;++i) {
+        uint8_t row[16];
+        const uint8_t *q=view(ctx,src+16*i,16,0);
+        if (!q) return fail(fault,src+16*i);
+        memcpy(row,q,16);
+        p=view(ctx,dst+16*i,16,1);
+        if (!p) return fail(fault,dst+16*i);
+        memcpy(p,row,16);
+    }
+    return 0;
+}
+
+typedef struct { EmWeatherDrawState *dst; const uint8_t *src; uint8_t context[4]; } DrawLocal;
+static uint8_t *draw_local(void *ctx,uint32_t a,uint32_t n,int write)
+{
+    DrawLocal *v=ctx;
+    if(a>=0x1000u && (uint64_t)a+n<=0x1058u)return (uint8_t *)v->dst+a-0x1000u;
+    if(!write && a>=0x2000u && (uint64_t)a+n<=0x2040u)return (uint8_t *)(uintptr_t)(v->src+a-0x2000u);
+    return !write && a==0x00275670u && n==4?v->context:NULL;
+}
+void em_weather_packets_001CFAE0(EmWeatherDrawState *dst,int32_t a1,const uint8_t src[64],
+                                 uint32_t f12,uint32_t f13,uint32_t f14,uint32_t f15,uint32_t d275670)
+{
+    DrawLocal v={.dst=dst,.src=src};wr32(v.context,d275670);
+    const uint32_t f[4]={f12,f13,f14,f15};
+    (void)em_weather_packets_001CFAE0_view(&v,draw_local,0x1000u,a1,0x2000u,f,NULL);
 }
 
 /* 001CFFE0's two jump tables: kind 1, and kinds 2 / 3 / 4, by variant: the
