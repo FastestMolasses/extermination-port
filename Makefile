@@ -66,7 +66,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_aim_fire_sdk_memory.c src/game/em_aim_fire_cable_live.c src/game/em_area06_port_strip.c \
            src/game/em_area00_hud.c src/game/em_area00_world.c src/game/em_area00_fx_exit.c src/game/em_area00_fx_spawn.c src/game/em_area00_fx_gs.c \
            src/game/em_area00_fx_debris.c src/game/em_area00_fx_trail.c src/game/em_area02_misc.c src/game/em_level8_port_fx.c \
-           src/game/em_area01_side.c src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area02_math.c \
+           src/game/em_area01_side.c src/game/em_area02_math.c \
            src/game/em_player_running_jump.c src/game/em_player_use_dispatch.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
@@ -78,6 +78,11 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_scene_classify.c src/game/em_frame_trace.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
+ src/game/em_area01_runtime.c \
+ src/game/em_area01_room.c \
+           src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
+           src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
+           src/game/em_area01_sys.c src/game/em_area01_exita.c src/game/em_area01_exitb.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
@@ -1575,9 +1580,11 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-memory-view-reference
+.PHONY: test-area01-memory-view-reference test-area01-runtime-reference
 test-area01-memory-view-reference:
 	python3 tools/test_area01_memory_view_reference.py
+test-area01-runtime-reference:
+	python3 tools/test_area01_runtime_reference.py
 
 .PHONY: test-area01-sfx-registry
 test-area01-sfx-registry:
