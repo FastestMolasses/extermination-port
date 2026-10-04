@@ -34,7 +34,9 @@ int em_door_transit_prepare(EmDoorTransitPlan *, const float origin[3], float ya
 typedef struct {
     void *context;
     /* Patch DC14/DC54/DC8C/DC58 for an ordinary door, or DCD4/DD14
-     * for a locked door. Other record bytes must survive unchanged. */
+     * for a locked door. Other record bytes must survive unchanged.
+     * At this boundary only selection/material fields are ready; the
+     * original computes player_yaw and position after this patch. */
     int (*patch)(void *, const EmDoorTransitPlan *);
     int (*face_player)(void *, float yaw);
     int (*align_player)(void *, const float position[4]);

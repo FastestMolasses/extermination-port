@@ -80,7 +80,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
            src/game/em_area01_actor_view.c src/game/em_area01_player_view.c \
            src/game/em_area01_model_live.c src/game/em_area01_runtime.c \
-           src/game/em_area01_model_draw.c \
+           src/game/em_area01_model_draw.c src/game/em_area01_door_live.c \
            src/game/em_area01_collision_view.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_prop_live.c src/game/em_area01_light_live.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
            src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
@@ -1583,7 +1583,7 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-level2-dynamic-vu-reference test-world-textures-reference
+.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-area01-door-live-reference test-level2-dynamic-vu-reference test-world-textures-reference
 test-area01-actor-view-reference:
 	python3 tools/test_area01_actor_view_reference.py
 test-area01-memory-view-reference:
@@ -1596,6 +1596,8 @@ test-area01-model-draw-reference:
 	python3 tools/test_area01_model_draw_reference.py
 test-area01-runtime-reference:
 	python3 tools/test_area01_runtime_reference.py
+test-area01-door-live-reference:
+	python3 tools/test_area01_door_live_reference.py
 test-level2-dynamic-vu-reference:
 	python3 tools/test_level2_dynamic_vu_reference.py
 test-world-textures-reference:

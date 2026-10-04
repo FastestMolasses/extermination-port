@@ -11,8 +11,9 @@
 /* The ordinary door's stores: 0x24DC14 = the player clip, 0x24DC54 = the
  * door clip, 0x24DC58 = the sound word 001BBD60 writes (plan->sound) and
  * 0x24DC8C = the wait's float bits. Every other byte of the image survives.
- * 1, or 0 for an image other than 0x24DBC0..0x24DF80, a locked plan or a
- * plan whose words are not the ordinary program's. */
+ * The locked arm writes only 0x24DCD4 / 0x24DD14 (player / door clip).
+ * 1, or 0 for an image other than 0x24DBC0..0x24DF80 or an inconsistent
+ * plan. Both arms preserve all other bytes. */
 int em_door_program_patch(EmScriptImage *image, const EmDoorTransitPlan *plan);
 
 #endif

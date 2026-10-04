@@ -7,12 +7,59 @@ static int advance(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
         hooks->advance_animation(hooks->context, &door->animation_flags) == 1;
 }
 
-static int script_tick(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
+int em_door_original_001BC0E0(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
 {
+    if (!door || !hooks) return -1;
     /*001BC0E0 treats the flag as a signed byte but tests only zero.*/
     if (door->animation_active && !advance(door, hooks)) return -1;
     if (!hooks->script_tick) return -1;
-    return hooks->script_tick(hooks->context);
+    int result = hooks->script_tick(hooks->context);
+    return result < 0 ? -1 : result != 0;
+}
+
+int em_door_original_001BBDA0(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
+{
+    if (!door || !hooks || !hooks->initialize) return -1;
+    const uint8_t lifecycle = door->lifecycle;
+    int result = hooks->initialize(hooks->context);
+    if (result < 0) return -1;
+    if (result) {
+        door->lifecycle = (uint8_t)(lifecycle + 1u);
+        door->door_id = (uint8_t)door->side;
+        door->side = 0;
+        float scale = door->link_flags & 0x40 ? 1.5f :
+                      door->link_flags & 0x80 ? 2.0f : 1.0f;
+        for (unsigned axis = 0; axis < 3; ++axis) door->initialized_scale[axis] = scale;
+    } else door->lifecycle = 3;
+    return result != 0;
+}
+
+int em_door_original_001BC240(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
+{
+    if (!door || !hooks || !advance(door, hooks) || !hooks->transition ||
+        hooks->transition(hooks->context) != 1) return -1;
+    return 1;
+}
+
+int em_door_original_001BC290(EmDoorOriginal *door, uint8_t pending, const EmDoorOriginalHooks *hooks)
+{
+    if (!door || !hooks || !advance(door, hooks)) return -1;
+    if (pending) return 0;
+    if (!hooks->reset_animation || hooks->reset_animation(hooks->context) != 1) return -1;
+    door->armed = 0;
+    return 1;
+}
+
+int em_door_original_001BC300(EmDoorOriginal *door, const EmDoorOriginalHooks *hooks)
+{
+    if (!door || !hooks || !hooks->place || hooks->place(hooks->context) != 1) return -1;
+    float point[3] = {door->origin[0], em_ee_add(10.0f, door->origin[1]), door->origin[2]};
+    if (!hooks->publish) return -1;
+    int result = hooks->publish(hooks->context, point);
+    if (result < 0 || result > 255) return -1;
+    door->visible = (uint8_t)result;
+    if (!hooks->draw || hooks->draw(hooks->context) != 1) return -1;
+    return 1;
 }
 
 int em_door_original_arm(EmDoorOriginal *door)
@@ -29,20 +76,8 @@ int em_door_original_tick(EmDoorOriginal *door, int unlocked,
     int result;
     switch (door->lifecycle) {
     case 0:
-        if (!hooks->initialize) return -1;
-        result = hooks->initialize(hooks->context);
+        result = em_door_original_001BBDA0(door, hooks);
         if (result < 0) return -1;
-        if (result) {
-            door->lifecycle = 1;
-            door->door_id = (uint8_t)door->side;
-            door->side = 0;
-            float scale = door->link_flags & 0x40 ? 1.5f :
-                          door->link_flags & 0x80 ? 2.0f : 1.0f;
-            for (unsigned axis = 0; axis < 3; ++axis)
-                door->initialized_scale[axis] = scale;
-        } else {
-            door->lifecycle = 3;
-        }
         /*BC350 publishes this byte even when B0EA0 rejected allocation.*/
         door->status = 1;
         return 1;
@@ -57,7 +92,7 @@ int em_door_original_tick(EmDoorOriginal *door, int unlocked,
             }
             break;
         case 1:
-            result = script_tick(door, hooks);
+            result = em_door_original_001BC0E0(door, hooks);
             if (result < 0) return -1;
             if (result) {
                 if (!hooks->script_start ||
@@ -67,7 +102,7 @@ int em_door_original_tick(EmDoorOriginal *door, int unlocked,
             }
             break;
         case 2:
-            result = script_tick(door, hooks);
+            result = em_door_original_001BC0E0(door, hooks);
             if (result < 0) return -1;
             if (result) {
                 door->armed = 0;
@@ -75,37 +110,23 @@ int em_door_original_tick(EmDoorOriginal *door, int unlocked,
             }
             break;
         case 3:
-            result = script_tick(door, hooks);
+            result = em_door_original_001BC0E0(door, hooks);
             if (result < 0) return -1;
             if (result) ++door->phase;
             break;
         case 4:
-            if (!advance(door, hooks) || !hooks->transition ||
-                hooks->transition(hooks->context) != 1)
-                return -1;
+            if (em_door_original_001BC240(door, hooks) < 0) return -1;
             ++door->phase;
             break;
         case 5:
-            if (!advance(door, hooks)) return -1;
-            if (!transition_pending) {
-                if (!hooks->reset_animation ||
-                    hooks->reset_animation(hooks->context) != 1)
-                    return -1;
-                door->armed = 0;
-                door->phase = 0;
-            }
+            result = em_door_original_001BC290(door, transition_pending, hooks);
+            if (result < 0) return -1;
+            if (result) door->phase = 0;
             break;
         }
         /*001BC300 always runs after a lifecycle1 phase, including an
          * unknown phase. Its position comes from actor+B0, not A0.*/
-        if (!hooks->place || hooks->place(hooks->context) != 1) return -1;
-        float point[3] = {door->origin[0], em_ee_add(10.0f, door->origin[1]), door->origin[2]}; /* add.s */
-        if (!hooks->publish) return -1;
-        result = hooks->publish(hooks->context, point);
-        if (result < 0 || result > 255) return -1;
-        door->visible = (uint8_t)result;
-        if (!hooks->draw || hooks->draw(hooks->context) != 1) return -1;
-        return 1;
+        return em_door_original_001BC300(door, hooks);
     case 2:
     case 3:
         if (!hooks->free || hooks->free(hooks->context) != 1) return -1;
