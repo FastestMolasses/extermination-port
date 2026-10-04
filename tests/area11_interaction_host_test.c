@@ -564,6 +564,9 @@ static void bind_release(EmPlayerStageScene *stage, EmPlayerStageGlobals *global
     player_pose_set_release_worker(em_player_stage_00182DF0, &release_context);
 }
 
+static int shared_only_fixture, shared_bank_calls;
+static int shared_fixture_banks(void *ctx)
+{ assert(ctx==&shared_bank_calls);++shared_bank_calls;return 0; }
 static void setup(int reset_inventory)
 {
     memset(&g, 0, sizeof g);
@@ -684,12 +687,17 @@ static void setup(int reset_inventory)
     }
     em_task_init();
     em_scene_state()->d275BD8 = 0;
-    assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
+    if(shared_only_fixture) {
+        assert(em_area11_interaction_host_load_shared("assets/scene_snow",&placed.math,
+                                                      shared_fixture_banks,&shared_bank_calls));
+        assert(em_area11_interaction_host_math()==&em_area11_interaction_host_scene()->math);
+        assert(!em_area11_interaction_host_scene()->count && !sfx_selected);
+    } else assert(em_area11_interaction_host_load("assets/scene_snow", NULL, NULL));
     em_message_live_set_host(em_area11_interaction_host_message_host());
-    bind_records();
-    pickups_state0();
-    assert(sfx_selected);
-    em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
+    if(!shared_only_fixture) {
+        bind_records();pickups_state0();assert(sfx_selected);
+        em_area11_interaction_host_set_panel_address(PANEL_ADDRESS);
+    }
     player_pose_set_stage_hook(em_area11_interaction_host_player, NULL);
 }
 
@@ -1412,6 +1420,16 @@ static void status_hub_route(void)
 
 int main(void)
 {
+    shared_only_fixture=1;
+    status_hub_route();
+    setup(1);
+    static const int generic_owner=1;
+    assert(em_area11_interaction_host_claim_scan(&generic_owner)==1);
+    assert(shared_bank_calls==1 && em_scene_state()->spad3B8D==3);
+    assert(em_interaction_runtime_owns(em_area11_interaction_host_shared(),&generic_owner));
+    teardown();assert(!em_area11_interaction_host_math());
+    shared_only_fixture=0;
+    puts("Shared-only host: common status hub/ITEM/MAP, canonical math, generic claim and bank callback PASS");
     status_hub_route();
     no_battery();
     first_battery();

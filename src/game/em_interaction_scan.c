@@ -174,11 +174,11 @@ static int query(EmInteractionRaycast raycast,void *context,
     return raycast(context,from,to,6,hit);
 }
 
-int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,
+int em_interaction_pickup_candidate_views(const EmInteractionPickup *pickup,
                                     const EmInteractionPlayer *player,
                                     const EmInteractionMath *math,
                                     EmInteractionRaycast raycast,void *context,
-                                    float *score)
+                                    float *score,const EmInteractionPickupScratch *scratch)
 {
     if (!pickup || !player || !math || !isfinite(player->yaw)) return -1;
     unsigned kind=pickup->class_flags&0x1f;
@@ -195,6 +195,13 @@ int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,
         }
         normalize(view);normalize(toward);
         float alignment=dot(view,toward),squared=dot(raw,raw);
+        if (scratch) {
+            if (!scratch->view3640 || !scratch->toward3650 || !scratch->raw3660 || !scratch->dots3690) return -1;
+            memcpy(scratch->view3640,view,12);scratch->view3640[3]=0;
+            memcpy(scratch->toward3650,toward,12);scratch->toward3650[3]=0;
+            memcpy(scratch->raw3660,raw,12);scratch->raw3660[3]=1;
+            scratch->dots3690[0]=alignment;scratch->dots3690[1]=squared;
+        }
         if (!(squared<=144)) return 0;
         if (squared<4) return 2;
         if (alignment<0 || (alignment<.4f && !(squared<=9))) return 0;
@@ -225,6 +232,12 @@ int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,
             (hit.kind!=2 || hit.owner!=pickup->identity)) return 0;
     }
     return 1;
+}
+
+int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,const EmInteractionPlayer *player,
+    const EmInteractionMath *math,EmInteractionRaycast raycast,void *context,float *score)
+{
+    return em_interaction_pickup_candidate_views(pickup,player,math,raycast,context,score,NULL);
 }
 
 int em_interaction_visible(const float position[3],const float camera_anchor[3],

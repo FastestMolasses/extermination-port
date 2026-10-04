@@ -67,16 +67,17 @@ static struct {
      * a failed 001B17A0 publication inside a void owner hook. */
     uint32_t panel_address;
     float scan_score;
+    /* 00183EF0's exact scratch spans. 3660 belongs to effects_live. */
+    float scan_vectors[8], scan_dots[2];
     int status_route, offer_failed;
     /* WP-6: the bound item owners, the one being ticked (its hooks' owner)
      * and the 001B17A0 services their publication runs through. */
     HostPickup pickups[HOST_PICKUPS];
     size_t pickup_count;
     HostPickup *pickup_current;
-    EmOwnerServices services;
     /* Census L07: the panel's and the terminal's pool records (bound by
      * their nodes), and the record 001B17A0's 001B1B70 is publishing. */
-    EmActor *panel_actor, *elevator_actor, *publishing;
+    EmActor *panel_actor, *elevator_actor;
     /* The terminal record's +0xD0, as its last 001C6380 (the place hook)
      * built it: 001A2370's argument at 0x827C04 and 0x827E54. */
     float elevator_d0[16];
@@ -92,11 +93,29 @@ static struct {
     /* The token of the script owner (em_area11_script_host) the shared
      * takeover serves, or NULL: its stages run 00183090 on the record. */
     const void *script_owner;
+    int (*map_banks)(void *ctx);
+    void *map_banks_ctx;
+    int shared_only;
 } world;
+
+uint8_t *em_area11_interaction_host_scan_memory(uint32_t address,uint32_t size)
+{
+    struct { uint32_t address,size;void *bytes; } spans[]={
+        {0x70003640u,sizeof world.scan_vectors,world.scan_vectors},
+        {0x70003690u,sizeof world.scan_dots,world.scan_dots},
+        {0x70003B98u,sizeof world.scan_score,&world.scan_score}};
+    for (unsigned i=0;i<sizeof spans/sizeof spans[0];++i)
+        if (size && address>=spans[i].address && address-spans[i].address<spans[i].size &&
+            size<=spans[i].size-(address-spans[i].address))
+            return (uint8_t *)spans[i].bytes+address-spans[i].address;
+    return NULL;
+}
 
 static int camera_publish(void *context);
 static void view_load(void);
 static void view_store(void);
+static int services_visible(void *context, uint32_t x, uint32_t y, uint32_t z, uint8_t *visible);
+static int services_publish(void *context, EmOwnerServicesOwner *owner);
 
 static int fail(const char *operation)
 {
@@ -283,7 +302,8 @@ static int sound(void *context, uint32_t cue)
 /* 001580C0 for the type-24 panel: D_00810841[D_00810700] |= 1 << panel
  * +0x2E (7, checked at the node's state 0), then 001FB9F0(0x3EE) (the
  * program's following sound call). The byte is canonical D2 progress
- * (em_scene_state.h); only AREA11's D_0081084C is migrated. */
+ * (em_scene_state.h): this AREA11 panel uses D_0081084C; AREA01's door
+ * row D_00810842 and the mechanism gate at D_00810845 are also canonical. */
 static int power(void *context, uint8_t mask)
 {
     (void)context;
@@ -836,6 +856,28 @@ int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event)
     return accepted ? 1 : -1;
 }
 
+static int shared_banks(void)
+{
+    if (world.shared_only)
+        return world.map_banks ? world.map_banks(world.map_banks_ctx) : -1;
+    return em_area11_roger_regions(map_special,NULL);
+}
+
+/* The canonical Use adapter already armed the winning record. Publish the
+ * same claim through the existing frame/token owner, and let the ordinary
+ * player stage run the takeover for its shared-host script. */
+int em_area11_interaction_host_claim_scan(const void *owner)
+{
+    if (!world.loaded || world.failed || !owner) return -1;
+    view_load();
+    int claimed=em_interaction_runtime_claim(&world.shared,owner);
+    view_store();
+    if (!claimed || !em_interaction_runtime_stage_owner(&world.shared,owner))
+        return fail("00184BA0 shared scan claim");
+    world.script_owner=owner;
+    return shared_banks()<0 ? fail("the canonical player script banks") : 1;
+}
+
 /* A script owner outside the host whose op07 opened the scripted frame:
  * the shared runtime's player takeover serves it (the stand-in for
  * 0015B130's 00182B30 admission, as for the panel and the elevator). */
@@ -848,7 +890,7 @@ int em_area11_interaction_host_claim_script(const void *owner)
     view_store();
     if (!claimed) return fail("scripted owner claim (the shared player is busy)");
     world.script_owner = owner;
-    if (em_area11_roger_regions(map_special, NULL) < 0) return fail("the special bank's regions (Roger's export)");
+    if (shared_banks() < 0) return fail("the player script bank regions");
     return 1;
 }
 
@@ -969,11 +1011,17 @@ static void elevator_copy_child(void *context)
  * -1 fault. */
 static int publish_view(EmActor *actor, EmOwnerServicesOwner *view)
 {
-    if (!actor) return -1;
-    world.services.world.d00810CA5 = em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
-    world.publishing = actor;
-    int drawn = em_owner_services_001B17A0(&world.services, view);
-    world.publishing = NULL;
+    if (!actor || !view || !em_collision_world_loaded()) return -1;
+    /* This worker belongs to the shared world, including AREA01. Its
+     * only services are the current camera and the collision class lists;
+     * neither depends on an AREA11 panel, terminal or pickup export. */
+    EmOwnerServices services;
+    memset(&services, 0, sizeof services);
+    services.world.d00810CA5 = em_scene_progress_at(em_scene_state(), 0x00810CA5u, 1);
+    services.workers.ctx = actor;
+    services.workers.w_001B1630 = services_visible;
+    services.workers.w_001B1B70 = services_publish;
+    int drawn = em_owner_services_001B17A0(&services, view);
     if (drawn < 0) return -1;
     actor->drawn = view->drawn; /* +0x01 */
     return drawn != 0;
@@ -981,7 +1029,6 @@ static int publish_view(EmActor *actor, EmOwnerServicesOwner *view)
 
 int em_area11_interaction_host_offer_001B17A0(EmActor *actor, EmOwnerServicesOwner *view)
 {
-    if (!world.loaded || !view) return -1;
     return publish_view(actor, view);
 }
 
@@ -1199,8 +1246,7 @@ static int services_visible(void *context, uint32_t x, uint32_t y, uint32_t z, u
  * read the owner's current class there. */
 static int services_publish(void *context, EmOwnerServicesOwner *owner)
 {
-    (void)context;
-    EmActor *actor = world.publishing;
+    EmActor *actor = context;
     if (!actor || !owner) return -1;
     actor->cls = owner->cls;
     return em_collision_world_publish_001B1B70(actor) < 0 ? -1 : 0;
@@ -1286,8 +1332,6 @@ static int pickup_ray(void *context, const float from[4], const float to[4], uns
 static int bind_pickups(const char *directory)
 {
     const EmPickupOriginalHooks hooks = {NULL, pickup_turn, pickup_camera, pickup_status, pickup_event};
-    world.services.workers.w_001B1630 = services_visible;
-    world.services.workers.w_001B1B70 = services_publish;
     for (size_t i = 0; i < world.scene.count; ++i) {
         EmInteractionSceneOwner *record = &world.scene.owners[i];
         if (record->role != EM_INTERACTION_PICKUP) continue;
@@ -1306,6 +1350,76 @@ static int bind_pickups(const char *directory)
         world.pickups[world.pickup_count++] = (HostPickup){.record = record};
     }
     return 1;
+}
+
+static int load_status(const char *directory,const EmItemMath *math,
+                         const EmStatusRuntimeHooks *status_hooks)
+{
+    char path[1024];
+    char item_path[1024];
+    snprintf(path, sizeof path, "%s/panel/battery.emba", directory);
+    snprintf(item_path, sizeof item_path, "%s/panel/item_root.emir", directory);
+    world.status = em_status_runtime_load(path, item_path, math, status_hooks);
+    if (!world.status) return 0;
+    /* D_00275BD8 is the scene state's byte (the page's busy field is its
+     * per-call view), and module 0x21's load runs the live screen-module
+     * loader's own steps (docs/MODULE_LOADER.md Binding). */
+    em_status_runtime_bind_busy(world.status, &em_scene_state()->d275BD8);
+    if (!em_status_runtime_bind_loader(world.status, em_module_loader_live())) return 0;
+    /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF. */
+    if (!em_status_background_load_sdk("assets/sdk_math_tables.emsm")) return 0;
+    /* The hub's 3D models (tools/export_status_models.py). */
+    world.models = em_status_models_load("assets/status_models");
+    if (!world.models) return 0;
+    /* The MAP page's model bank D_0028A570 (tools/export_status_map.py):
+     * without it a node that binds a map model faults (reported). */
+    (void)em_status_models_load_map(world.models, "assets/status_map");
+    em_status_models_set_light(world.models, models_light, NULL);
+    /* The original hub's 00209DF0 records (tools/export_status_hub.py). */
+    snprintf(path, sizeof path, "%s/panel/status_hub.emhs", directory);
+    snprintf(item_path, sizeof item_path, "%s/panel/status_hub_atlas.emha", directory);
+    if (!em_status_runtime_bind_hub(world.status, em_status_hub_ui_load(path, item_path, math)))
+        return 0;
+    /* The status pages MAP / SPR4 / DATABASE and the ITEM children
+     * (tools/export_status_pages.py): without the data they stay unbound
+     * and fault when the player opens one, as before. */
+    {
+        static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
+                                                     page_find_device, page_player_0015C700,
+                                                     pages_models_draw};
+        EmStatusPagesLive *pages =
+            em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
+        if (!pages)
+            fprintf(stderr, "AREA11 interaction: assets/status_pages/status_pages.emsp is missing "
+                    "(python3 tools/export_status_pages.py): the status pages MAP, SPR4, "
+                    "DATABASE, EQUIPMENT, EVENT and HEALING stay unbound\n");
+        else if (!em_status_runtime_bind_pages(world.status, pages))
+            return 0;
+    }
+    return 1;
+}
+
+int em_area11_interaction_host_load_shared(const char *directory,
+    const EmInteractionMath *math,int (*map_banks)(void *ctx),void *ctx)
+{
+    if (!directory || !math || !map_banks || world.loaded || !g.coll.blob ||
+        g.model.bone_count!=22 || !em_frame_gfx() || !em_message_live_block()) return 0;
+    memset(&world,0,sizeof world);
+    world.shared_only=1;world.map_banks=map_banks;world.map_banks_ctx=ctx;
+    world.scene.math=*math;
+    if (!em_item_sdk_math_bind(&world.item_sdk,&world.scene.math,&world.item_math)) goto failed;
+    world.frame.zoom=em_rcl_zoom();world.frame.up[1]=-1;world.frame.up[3]=1;
+    EmInteractionRuntimeHooks shared={NULL,acquire,idle,release,publish,frame_event,retarget};
+    if (!em_interaction_runtime_init(&world.shared,&world.frame,&g.model,world.local_palette,&shared) ||
+        !em_interaction_runtime_set_pose_worker(&world.shared,pose) ||
+        !em_interaction_runtime_set_cinematic_player_worker(&world.shared,cinematic_player)) goto failed;
+    EmStatusRuntimeHooks hooks=native_status_hooks();
+    if (!load_status(directory,&world.item_math,&hooks)) goto failed;
+    world.loaded=1;
+    return 1;
+failed:
+    em_area11_interaction_host_clear();
+    return 0;
 }
 
 int em_area11_interaction_host_load(const char *directory,
@@ -1358,46 +1472,7 @@ int em_area11_interaction_host_load(const char *directory,
                                             &g.pos[1], &g.cam.tgt[1], &elevator)) goto failed;
     /* The panel and terminal lines run on the live message service. */
     if (!em_message_live_block()) goto failed;
-    char item_path[1024];
-    snprintf(path, sizeof path, "%s/panel/battery.emba", directory);
-    snprintf(item_path, sizeof item_path, "%s/panel/item_root.emir", directory);
-    world.status = em_status_runtime_load(path, item_path, math, status_hooks);
-    if (!world.status) goto failed;
-    /* D_00275BD8 is the scene state's byte (the page's busy field is its
-     * per-call view), and module 0x21's load runs the live screen-module
-     * loader's own steps (docs/MODULE_LOADER.md Binding). */
-    em_status_runtime_bind_busy(world.status, &em_scene_state()->d275BD8);
-    if (!em_status_runtime_bind_loader(world.status, em_module_loader_live())) goto failed;
-    /* 0020A7A0's sine 0011E2A8 reads the SDK tables of the user's ELF. */
-    if (!em_status_background_load_sdk("assets/sdk_math_tables.emsm")) goto failed;
-    /* The hub's 3D models (tools/export_status_models.py). */
-    world.models = em_status_models_load("assets/status_models");
-    if (!world.models) goto failed;
-    /* The MAP page's model bank D_0028A570 (tools/export_status_map.py):
-     * without it a node that binds a map model faults (reported). */
-    (void)em_status_models_load_map(world.models, "assets/status_map");
-    em_status_models_set_light(world.models, models_light, NULL);
-    /* The original hub's 00209DF0 records (tools/export_status_hub.py). */
-    snprintf(path, sizeof path, "%s/panel/status_hub.emhs", directory);
-    snprintf(item_path, sizeof item_path, "%s/panel/status_hub_atlas.emha", directory);
-    if (!em_status_runtime_bind_hub(world.status, em_status_hub_ui_load(path, item_path, math)))
-        goto failed;
-    /* The status pages MAP / SPR4 / DATABASE and the ITEM children
-     * (tools/export_status_pages.py): without the data they stay unbound
-     * and fault when the player opens one, as before. */
-    {
-        static const EmStatusPagesHost pages_host = {NULL, page_sound, page_present,
-                                                     page_find_device, page_player_0015C700,
-                                                     pages_models_draw};
-        EmStatusPagesLive *pages =
-            em_status_pages_live_load("assets/status_pages/status_pages.emsp", &pages_host);
-        if (!pages)
-            fprintf(stderr, "AREA11 interaction: assets/status_pages/status_pages.emsp is missing "
-                    "(python3 tools/export_status_pages.py): the status pages MAP, SPR4, "
-                    "DATABASE, EQUIPMENT, EVENT and HEALING stay unbound\n");
-        else if (!em_status_runtime_bind_pages(world.status, pages))
-            goto failed;
-    }
+    if (!load_status(directory,math,status_hooks)) goto failed;
     world.panel_class = world.panel_record->class_flags;
     world.elevator_class = world.elevator_record->class_flags;
     world.elevator_status = world.elevator_record->initial_status;
@@ -1431,6 +1506,7 @@ void em_area11_interaction_host_clear(void)
 }
 
 EmInteractionScene *em_area11_interaction_host_scene(void) { return world.loaded ? &world.scene : NULL; }
+const EmInteractionMath *em_area11_interaction_host_math(void) { return world.loaded ? &world.scene.math : NULL; }
 EmInteractionRuntime *em_area11_interaction_host_shared(void) { return world.loaded ? &world.shared : NULL; }
 EmPanelRuntime *em_area11_interaction_host_panel(void) { return world.loaded ? &world.panel : NULL; }
 EmElevatorRuntime *em_area11_interaction_host_elevator(void) { return world.loaded ? &world.elevator : NULL; }

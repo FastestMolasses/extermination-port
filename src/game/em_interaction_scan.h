@@ -103,6 +103,16 @@ int em_interaction_pickup_candidate(const EmInteractionPickup *pickup,
                                     EmInteractionRaycast raycast,void *context,
                                     float *score);
 
+/* Optional original scratch destinations for the action-2D branch. The
+ * ray callback publishes the initial +3640 ray origin; this core then
+ * writes the SDK vector results and scalar dot/length words. */
+typedef struct {
+    float *view3640,*toward3650,*raw3660,*dots3690;
+} EmInteractionPickupScratch;
+int em_interaction_pickup_candidate_views(const EmInteractionPickup *,const EmInteractionPlayer *,
+    const EmInteractionMath *,EmInteractionRaycast,void *context,float *score,
+    const EmInteractionPickupScratch *scratch);
+
 /* Original001B1630 camera cone/range publication gate. Invoke during
  * owner update, before the camera update, using008105D0 and00810600.
  * This is independent of the later player's per-object eligibility. */

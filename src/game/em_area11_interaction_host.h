@@ -30,6 +30,18 @@
  * legacy substitute behavior. */
 int em_area11_interaction_host_load(const char *directory,
     const EmItemMath *item_math, const EmStatusRuntimeHooks *status_hooks);
+/* Shared frame, player-token and status owners for a canonical area adapter.
+ * Loads only common status assets beneath directory; no AREA11 placements,
+ * panel/elevator owner, pickup roster or SFX-area selection is installed.
+ * map_banks registers loader-delivered banks with the existing player pose
+ * host (0 success, -1 failure), before a staged owner claims the player. */
+int em_area11_interaction_host_load_shared(const char *directory,
+    const EmInteractionMath *math,int (*map_banks)(void *ctx),void *ctx);
+/* A canonical scan armed its winner while selector is still zero. */
+int em_area11_interaction_host_claim_scan(const void *owner);
+/* Canonical 3640..365F, 3690..3697 and scan score 3B98..3B9B; no reset. */
+uint8_t *em_area11_interaction_host_scan_memory(uint32_t address,uint32_t size);
+const EmInteractionMath *em_area11_interaction_host_math(void);
 void em_area11_interaction_host_clear(void); /* whole-world teardown only */
 
 /* The map pickup aura's draw block (001F1180's 0x1F136C..0x1F1470) over the

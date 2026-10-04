@@ -81,7 +81,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area01_actor_view.c src/game/em_area01_player_view.c \
            src/game/em_area01_model_live.c src/game/em_area01_runtime.c src/game/em_area01_script_live.c src/game/em_area01_script_workers.c src/game/em_area01_revisit.c src/game/em_area01_pickup_live.c src/game/em_area01_timeline.c \
            src/game/em_area01_model_draw.c src/game/em_area01_door_live.c \
-           src/game/em_area01_collision_view.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_prop_live.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
+           src/game/em_area01_collision_view.c src/game/em_area01_interaction_live.c src/game/em_area01_room.c src/game/em_area01_camera_services.c src/game/em_area01_prop_live.c src/game/em_area01_shared_services.c src/game/em_area01_light_live.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
            src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
            src/game/em_area01_sys.c src/game/em_area01_exita.c src/game/em_area01_exitb.c \
@@ -1622,6 +1622,10 @@ test-area01-script-workers-reference:
 	python3 tools/test_area01_script_workers_reference.py
 test-area01-timeline-reference:
 	python3 tools/test_area01_timeline_reference.py
+
+.PHONY: test-area01-interaction-live-reference
+test-area01-interaction-live-reference:
+	python3 tools/test_area01_interaction_live_reference.py
 
 .PHONY: test-area01-scratch-alias
 test-area01-scratch-alias:
