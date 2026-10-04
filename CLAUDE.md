@@ -137,8 +137,10 @@ src/
                       crate, drum, door, shadow, ...) bound as pool nodes
     em_game.c + em_player_frame.c + em_render_frame.c   legacy glue being
                       replaced step by step by the coordinator
-  platform/{mac,win,linux}/   native windowing per OS
-  gfx/{metal,d3d12,vulkan}/   native renderer per API
+  platform/{mac,win,linux,ios}/   native windowing per OS (iOS: UIKit,
+                      controller only; docs/IOS.md)
+  gfx/{metal,d3d12,vulkan}/   native renderer per API (Metal: macOS + iOS)
+  audio/{mac,ios,win,linux}/  native audio output per OS
 ```
 Layering: game code talks only to the `em_*` contracts; the platform layer never
 touches a GPU API. Each native stage names the original address it stands in for.
@@ -229,5 +231,7 @@ message and the relevant doc.
 - macOS / Linux: `make` then `make run`. No external tools beyond the platform
   compiler and system frameworks.
 - Windows: MSVC/clang-cl project (added when the D3D12 backend lands).
+- iOS (iPhone, game controller only): `tools/ios/build.sh run` (docs/IOS.md).
+  The app bundle contains the user's disc data: never share or commit it.
 - Assets: see `docs/STARTUP.md` and each subsystem doc for the exporters (they
   read the user's own disc/ELF and write ignored assets).
