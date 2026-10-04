@@ -154,6 +154,12 @@ void em_area02_misc_clear_fault(EmArea02Misc *s);
  * arguments are raw bits. */
 int em_area02_misc_0011C128(EmArea02Misc *s, uint32_t f12, uint32_t *out);
 int em_area02_misc_0011E520(EmArea02Misc *s, uint32_t f12, uint32_t *out);
+/* Same owner with call-local canonical memory resolution. The callback
+ * replaces regions for this invocation only; ctx is s->ctx. No memory
+ * fallback occurs after a rejected read/store. Existing struct ABI stays
+ * unchanged for region-backed callers. */
+typedef uint8_t *(*EmArea02MiscView)(void *ctx,uint32_t address,uint32_t size,int write);
+int em_area02_misc_view_0011E520(EmArea02Misc *s,EmArea02MiscView view,uint32_t f12,uint32_t *out);
 int em_area02_misc_0015C750(EmArea02Misc *s, uint32_t a0);
 int em_area02_misc_0015C7C0(EmArea02Misc *s, uint32_t a0);
 int em_area02_misc_001A8970(EmArea02Misc *s, uint32_t a0, uint32_t a1);

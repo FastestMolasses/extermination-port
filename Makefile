@@ -1574,6 +1574,7 @@ test-aim-fire-effects-live:
 test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
+# AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
 .PHONY: test-area01-memory-view-reference
 test-area01-memory-view-reference:
 	python3 tools/test_area01_memory_view_reference.py

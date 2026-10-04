@@ -18,6 +18,7 @@
 
 typedef struct {
     EmArea02Misc *s;
+    EmArea02MiscView view;
     jmp_buf out;
 } Run;
 
@@ -40,9 +41,14 @@ void em_area02_misc_clear_fault(EmArea02Misc *s)
 }
 
 /* The byte span [address, address + size) inside one region, or a fault. */
-static uint8_t *span(Run *r, uint32_t address, uint32_t size)
+static uint8_t *span(Run *r, uint32_t address, uint32_t size,int write)
 {
     const EmArea02Misc *s = r->s;
+    if(r->view) {
+        uint8_t *p=r->view(s->ctx,address,size,write);
+        if(p)return p;
+        fault(r,EM_AREA02_MISC_FAULT_UNMAPPED,address);
+    }
     unsigned i;
     for (i = 0; i < s->region_count; i++) {
         const EmArea02MiscRegion *g = &s->regions[i];
@@ -55,7 +61,7 @@ static uint8_t *span(Run *r, uint32_t address, uint32_t size)
 
 static uint64_t rd(Run *r, uint32_t a, unsigned n)
 {
-    const uint8_t *p = span(r, a, n);
+    const uint8_t *p = span(r, a, n,0);
     uint64_t v = 0;
     unsigned i;
     for (i = 0; i < n; i++)
@@ -77,7 +83,7 @@ void EM_AREA02_MISC_STORE_TRACE(uint32_t address, unsigned size);
 
 static void wr(Run *r, uint32_t a, uint64_t v, unsigned n)
 {
-    uint8_t *p = span(r, a, n);
+    uint8_t *p = span(r, a, n,1);
     unsigned i;
     TRACE_STORE(a, n);
     for (i = 0; i < n; i++)
@@ -1297,7 +1303,7 @@ static void f_1F9660(Run *r, uint32_t sp_in, uint32_t a0, uint64_t a1)
         return -1;                                                                                           \
     if (s->fault != EM_AREA02_MISC_FAULT_NONE)                                                               \
         return -1;                                                                                           \
-    r->s = s;                                                                                                \
+    r->s = s; r->view = NULL;                                                                                \
     if (setjmp(r->out)) {                                                                                    \
         s->fault_function = (fn);                                                                            \
         return -1;                                                                                           \
@@ -1324,6 +1330,16 @@ int em_area02_misc_0011E520(EmArea02Misc *s, uint32_t f12, uint32_t *out)
     ENTER(0x0011E520u)
     NEED_OUT(0x0011E520u)
     *out = f_11E520(r, s->sp, f12);
+    return 0;
+}
+
+int em_area02_misc_view_0011E520(EmArea02Misc *s,EmArea02MiscView view,uint32_t f12,uint32_t *out)
+{
+    ENTER(0x0011E520u)
+    NEED_OUT(0x0011E520u)
+    if(!view) { s->fault=EM_AREA02_MISC_FAULT_NULL;s->fault_function=0x0011E520u;return -1; }
+    r->view=view;
+    *out=f_11E520(r,s->sp,f12);
     return 0;
 }
 
