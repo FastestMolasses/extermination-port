@@ -1,4 +1,4 @@
-/* em_vu1_shadow_clip.h — the two guard-band clip kernels of the player drop
+/* em_vu1_shadow_clip.h — the guard-band clip kernels of the player drop
  * shadow chain (001DA6A0), translated from their VU1 microcode:
  *
  *   00239C90  box clip kernel     (001DA310 runs it after every 00237180
@@ -6,6 +6,10 @@
  *             MPG blocks at micro 0x000..0x49F)
  *   0023E8A0  receiver clip kernel (001D5C80's re-pass of a class-2 level
  *             object after 0023C200; 1235 instructions, micro 0x000..0x4D3)
+ *   00237720  AREA01 dynamic clip kernel: the box program's 1183
+ *             instructions with only three immediate changes (three
+ *             input vertices, matching first-triangle bound, work origin
+ *             1069). See docs/LEVEL2_DYNAMIC_VU.md.
  *
  * Addresses in the comments are MICRO addresses (instruction index, 8 bytes
  * each) of the program the kernel packet uploads; docs/SHADOW_ORIGINAL.md
@@ -103,7 +107,8 @@
 
 enum {
     EM_VU1_CLIP_RECEIVER = 0,   /* 0023E8A0 */
-    EM_VU1_CLIP_BOX = 1         /* 00239C90 */
+    EM_VU1_CLIP_BOX = 1,        /* 00239C90 */
+    EM_VU1_CLIP_DYNAMIC = 2     /* 00237720: three vertices, work origin 1069 */
 };
 
 enum {
@@ -190,6 +195,7 @@ typedef struct {
     uint32_t vi[16];        /* 16-bit values */
     uint32_t cf;            /* clip flag history, 24 bits */
     uint32_t top;
+    uint32_t vertices, work_origin; /* program-specific loop and output extent */
     EmVu1ClipResult *out;
 } EmVu1Clip;
 
@@ -404,7 +410,7 @@ static inline int emvu_xgkick(EmVu1Clip *u, uint32_t a)
     }
     EmVu1ClipKick *k = &o->kick[o->kicks++];
     k->addr = a & 1023u;
-    k->vertex = 32u - u->vi[11];
+    k->vertex = u->vertices - u->vi[11];
     k->first = o->qwords;
     k->count = count;
     for (uint32_t j = 0; j < count; ++j) o->qw[o->qwords++] = u->m[(a + j) & 1023u];
@@ -730,9 +736,9 @@ static inline int emvu_entry(EmVu1Clip *u, int box)
     emvu_isw(u, 11, 250u, 0);
     emvu_isw(u, 14, 250u, 1);
     emvu_isw(u, 10, 250u, 2);
-    o->entry[o->entries++] = (uint8_t)(32u - u->vi[11]);
+    o->entry[o->entries++] = (uint8_t)(u->vertices - u->vi[11]);
     u->vi[1] = u->top;                                   /* R 0x070 / B 0x06E */
-    u->vi[4] = (1185u - u->vi[1]) & 0xFFFFu;
+    u->vi[4] = (u->work_origin - u->vi[1]) & 0xFFFFu;
     u->vi[1] = 1019u;
     if (emvu_xgkick(u, 1019u)) return -1;                /* R 0x07A / B 0x078 */
     emvu_lq(u, 1, 1018u); emvu_sq(u, 1, u->vi[4] + 0u);
@@ -801,7 +807,7 @@ static inline int emvu_entry(EmVu1Clip *u, int box)
         emvu_set(u, 9, 0, emvu_fmac((double)u->acc[0] - (double)prod));
     }
     emvu_set(u, 9, 0, emvu_fmac((double)emvu_rd(u->vf[9][0]) * (double)emvu_rd(u->vf[5][3])));
-    if (emvu_sign(u, 9, 0)) { emvu_restore(u); return 0; }   /* fsand 0x2 */
+    if (emvu_sign(u, 9, 0)) { emvu_restore(u); return 0; }   /* negative winding product */
     /* the four screen planes */
     if (emvu_s_plane(u, 0, 4088.0f, 1) || emvu_s_plane(u, 0, 4.0f, 0) ||
         emvu_s_plane(u, 1, 4088.0f, 1) || emvu_s_plane(u, 1, 4.0f, 0)) {
@@ -847,27 +853,31 @@ static inline int emvu_entry(EmVu1Clip *u, int box)
  * its MSCAL/MSCNT: dmem 0..7 matrices, 1017..1023 template rows, 250 and
  * the working area at 1185 - top are written as the original writes them).
  * `out` receives every XGKICK in order. Returns 0, or -1 with out->fault. */
-static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t top,
-                                         EmVu1ClipResult *out)
+static inline int emvu_clip_run(int kernel, EmVu1Qword *dmem, uint32_t top,
+                                EmVu1ClipResult *out, uint32_t (*registers)[4])
 {
     if (!out) return -1;
     out->fault = EM_VU1_CLIP_OK;
     out->entries = out->kicks = out->qwords = 0;
-    if (!dmem || (kernel != EM_VU1_CLIP_RECEIVER && kernel != EM_VU1_CLIP_BOX)) {
+    if (!dmem || (kernel != EM_VU1_CLIP_RECEIVER && kernel != EM_VU1_CLIP_BOX &&
+                   kernel != EM_VU1_CLIP_DYNAMIC)) {
         out->fault = EM_VU1_CLIP_FAULT_ARGS;
         return -1;
     }
-    const int box = kernel == EM_VU1_CLIP_BOX;
+    const int box = kernel != EM_VU1_CLIP_RECEIVER;
     const uint32_t flags = box ? 0x8000u : 0xA000u;
     EmVu1Clip u;
     memset(&u, 0, sizeof u);
+    if (registers) memcpy(u.vf, registers, sizeof u.vf);
     u.m = dmem;
     u.out = out;
     u.top = top & 0xFFFFu;
+    u.vertices = kernel == EM_VU1_CLIP_DYNAMIC ? 3u : 32u;
+    u.work_origin = kernel == EM_VU1_CLIP_DYNAMIC ? 1069u : 1185u;
     emvu_fix0(&u);
     /* 0x000..0x00E (B ..0x012) */
     u.vi[14] = u.top;
-    u.vi[11] = 32u;
+    u.vi[11] = u.vertices;
     emvu_lq(&u, 15, 1021u);
     u.cf = 0u;                                           /* clip flags = 0 */
     u.vi[15] = flags;
@@ -896,7 +906,7 @@ static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t 
         emvu_ilw_w(&u, 10, u.vi[14] + 3u);
         emvu_clipw(&u, 3);
         if (!(u.vi[15] & u.vi[10]) && (u.cf & 0x3FFFFu) && !emvu_rejected(u.cf) &&
-            !((int16_t)(uint16_t)(u.vi[11] - 30u) > 0)) {
+            !((int16_t)(uint16_t)(u.vi[11] - (u.vertices - 2u)) > 0)) {
             if (emvu_entry(&u, box)) return -1;
             u.vi[15] = flags;                            /* R L026 / B L02A */
         }
@@ -907,7 +917,23 @@ static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t 
         if (u.vi[11] == 0u) break;
     }
     u.vi[1] = 1019u;
-    return emvu_xgkick(&u, 1019u) ? -1 : 0;              /* R 0x031 / B 0x035 */
+    const int rc = emvu_xgkick(&u, 1019u) ? -1 : 0;      /* R 0x031 / B 0x035 */
+    if (registers) memcpy(registers, u.vf, sizeof u.vf);
+    return rc;
+}
+
+/* Existing callers retain the original reset contract. The chain page's
+ * dynamic variant also carries VF values across its neighboring producers. */
+static inline int em_vu1_shadow_clip_run(int kernel, EmVu1Qword *dmem, uint32_t top,
+                                         EmVu1ClipResult *out)
+{
+    return emvu_clip_run(kernel, dmem, top, out, NULL);
+}
+
+static inline int em_vu1_dynamic_clip_run(EmVu1Qword *dmem, uint32_t top,
+                                          EmVu1ClipResult *out, uint32_t registers[32][4])
+{
+    return emvu_clip_run(EM_VU1_CLIP_DYNAMIC, dmem, top, out, registers);
 }
 
 #endif /* EM_VU1_SHADOW_CLIP_H */

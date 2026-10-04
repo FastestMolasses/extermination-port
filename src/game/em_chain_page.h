@@ -14,16 +14,19 @@
  *          STMOD 0, FLUSH / FLUSHE / FLUSHA, MPG (only the page programs'
  *          uploads and, in call mode, the grid program's, recognised by
  *          their source address), UNPACK
- *          V4-32 / V1-32 without mask, MSCAL 0 and DIRECT;
+ *          V4-32 / V1-32 without mask (TOPS-relative for dynamic programs),
+ *          MSCAL 0, dynamic MSCNT and DIRECT;
  *   VU1    MSCAL runs the loaded program's translation
  *          (em_vu1_page_programs.h: the lane program of D_00233290, the
  *          sprite program of table 0x231770, the snow program of
  *          D_00233800 and the streak program of table 0x230800) on a
- *          1024-qword data memory;
+ *          1024-qword data memory; AREA01's 00237450 / 00237720 use the
+ *          shared level and box-clip kernels with three-vertex bounds;
  *   GIF    DIRECT (PATH2) and each XGKICK (PATH1): PACKED tags with PRE,
  *          the registers RGBAQ, ST, XYZF2, XYZ2, TEX0_1, NOP and A+D writes
  *          of PRIM, TEX0_1, CLAMP_1, TEX1_1, ALPHA_1, COLCLAMP, TEST_1 and
- *          TEXFLUSH;
+ *          TEXFLUSH; the dynamic class-1 ZBUF requires masked depth writes,
+ *          as does the existing class-2 object-unit presentation contract;
  *   GS     the vertex queue of each PRIM type under ADC, and the drawing
  *          state; every drawn primitive goes to the caller's EmGfxGsPrim
  *          array in GS order.
@@ -92,6 +95,8 @@ extern "C" {
 #define EM_CHAIN_PAGE_STREAK    0x00230800u   /* table 0x230800          */
 #define EM_CHAIN_PAGE_KIND2     0x00232540u   /* table 0x232540          */
 #define EM_CHAIN_PAGE_GRID      0x0023C990u   /* packet 0x23C990 (call mode) */
+#define EM_CHAIN_PAGE_DYNAMIC   0x00237450u   /* AREA01 three-vertex program */
+#define EM_CHAIN_PAGE_DYNAMIC_CLIP 0x00237720u /* its partial-clip program */
 
 enum {
     EM_CHAIN_PAGE_OK = 0,
@@ -140,6 +145,7 @@ typedef struct {
     uint32_t direct_strips;   /* of the primitives, DIRECT packets' strip
                                * triangles (PRIM type 4)                     */
     uint32_t mscal_grid;      /* MSCALs of the grid program (0x23C990)       */
+    uint32_t mscal_dynamic, mscal_dynamic_clip; /* AREA01 dynamic batches */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its

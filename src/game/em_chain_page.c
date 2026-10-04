@@ -1,6 +1,8 @@
 /* em_chain_page.c - the chain page's DMA / VIF1 / VU1 / GIF / GS path
  * (em_chain_page.h, docs/CHAIN_PAGE.md). */
 #include "game/em_chain_page.h"
+#include "game/em_vu1_level_kernel.h"
+#include "game/em_vu1_shadow_clip.h"
 
 #include <string.h>
 
@@ -26,7 +28,8 @@ typedef struct {
     uint32_t si, wi;         /* the next word: segment si, word wi         */
     /* VIF1 */
     uint32_t cl, wl, cycle_set;
-    uint32_t base, offset;
+    uint32_t base, offset, tops, dbf;
+    EmVu1LvlState dynamic;   /* carried registers of 00237450 */
     uint32_t program;        /* the uploaded program (0: none)            */
     uint32_t mpg_parts;      /* sprite / snow program: MPG parts uploaded */
     uint32_t mpg_first;      /* the first part's source address           */
@@ -365,6 +368,12 @@ static int address_data(Walk *w, const uint8_t *q, uint32_t at)
     case 0x42: w->alpha = data; w->set |= EM_GFX_GS_ALPHA; return 0;   /* ALPHA_1 */
     case 0x46: w->colclamp = data; w->set |= EM_GFX_GS_COLCLAMP; return 0;
     case 0x47: w->test = data; w->set |= EM_GFX_GS_TEST; return 0;     /* TEST_1 */
+    case 0x4E:                                                    /* dynamic class-1 ZBUF_1 */
+        /* As for class-2 object units, the page backend uses the frame's
+         * depth buffer and supports masked depth writes only. */
+        if (((data >> 32) & 1u) != 1u) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, reg);
+        w->env.zbuf = data; w->env.set |= EM_GFX_GS_ENV_ZBUF;
+        return 0;
     default: return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, reg);
     }
 }
@@ -425,7 +434,67 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
     (void)dmem;
     uint32_t used;
     w->p->counts.kicks++;
-    return gif(w, fetch_dmem, &at, EM_VU1P_DMEM_QWORDS, at, &used);
+    const int rc = gif(w, fetch_dmem, &at, EM_VU1P_DMEM_QWORDS, at, &used);
+#ifdef EM_CHAIN_PAGE_TEST_HOOK
+    if (!rc) {
+        extern void em_chain_page_test_kick(uint32_t, uint32_t, const void *, uint32_t);
+        EmVu1PQword packet[1024];
+        for (uint32_t i = 0; i < used; ++i) packet[i] = w->p->dmem[(at + i) & 1023u];
+        em_chain_page_test_kick(w->program, at, packet, used);
+    }
+#endif
+    return rc;
+}
+
+/* The dynamic programs share the level and box-clip translations. Their
+ * packet bytes go through this page's existing GIF/GS consumer, preserving
+ * the state and primitive order across other page producers. */
+static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
+{
+    EmChainPage *p = w->p;
+    if (w->program == EM_CHAIN_PAGE_DYNAMIC) {
+        EmVu1ObjQword mem[1024];
+        EmVu1LvlBatch result;
+        memcpy(mem, p->dmem, sizeof mem);
+        if (!w->dynamic.known) {
+            EmVu1LvlState *s = &w->dynamic;
+            s->known = s->known_rgbaq = s->known_w = 1u;
+            memcpy(s->e_prev, p->regs.vf[15], 8); memcpy(s->s_prev, p->regs.vf[16], 8);
+            s->w_prev = p->regs.vf[9][3];
+            memcpy(s->rgbaq.w, p->regs.vf[14], 16); memcpy(s->st.w, p->regs.vf[2], 16);
+            memcpy(s->tex0.w, p->regs.vf[27], 16); memcpy(s->xyzf.w, p->regs.vf[7], 16);
+        }
+        const int rc = em_vu1_dynamic_kernel_batch(&w->dynamic, mem, top, &result);
+        memcpy(p->dmem, mem, sizeof mem);
+        if (rc < 0) return fault(w, EM_CHAIN_PAGE_FAULT_VU, at,
+                                (result.fault << 8) | result.fault_vertex);
+        memcpy(p->regs.vf[15], w->dynamic.e_prev, 8); memcpy(p->regs.vf[16], w->dynamic.s_prev, 8);
+        p->regs.vf[9][3] = w->dynamic.w_prev;
+        memcpy(p->regs.vf[14], w->dynamic.rgbaq.w, 16); memcpy(p->regs.vf[2], w->dynamic.st.w, 16);
+        memcpy(p->regs.vf[27], w->dynamic.tex0.w, 16); memcpy(p->regs.vf[7], w->dynamic.xyzf.w, 16);
+        p->counts.mscal_dynamic++;
+        return kick(w, p->dmem, result.kick);
+    }
+    EmVu1Qword mem[1024];
+    EmVu1ClipResult result;
+    memcpy(mem, p->dmem, sizeof mem);
+    const int rc = em_vu1_dynamic_clip_run(mem, top, &result, p->regs.vf);
+    memcpy(p->dmem, mem, sizeof mem);
+    em_vu1_level_kernel_forget(&w->dynamic);
+    if (rc < 0) return fault(w, EM_CHAIN_PAGE_FAULT_VU, at, result.fault);
+    p->counts.mscal_dynamic_clip++;
+    for (uint32_t k = 0; k < result.kicks; ++k) {
+        const EmVu1ClipKick *q = &result.kick[k];
+        uint32_t used;
+        p->counts.kicks++;
+        if (gif(w, fetch_buffer, &result.qw[q->first], q->count, q->addr, &used) < 0) return -1;
+        if (used != q->count) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, used);
+#ifdef EM_CHAIN_PAGE_TEST_HOOK
+        extern void em_chain_page_test_kick(uint32_t, uint32_t, const void *, uint32_t);
+        em_chain_page_test_kick(w->program, q->addr, &result.qw[q->first], q->count);
+#endif
+    }
+    return 0;
 }
 
 /* ------------------------------------------------------------------ VIF */
@@ -442,6 +511,8 @@ static int kick(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 #define KIND2_CODE0  0x00232568u
 #define KIND2_CODE1  0x00232D70u
 #define GRID_CODE    0x0023C9B8u
+#define DYNAMIC_CODE 0x00237480u
+#define DYNAMIC_CLIP_CODE 0x00237750u
 
 /* A class-2 object unit at its CALL (see the header): its primitives (the
  * caller's run of it), then the state it leaves. */
@@ -478,6 +549,7 @@ static int unit(Walk *w, int index, uint32_t at)
     w->cycle_set = 1;
     w->program = 0;
     w->mpg_parts = 0;
+    em_vu1_level_kernel_forget(&w->dynamic);
     return 0;
 }
 
@@ -496,7 +568,9 @@ static int vif(Walk *w)
         if (v & 0x80000000u) return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
         if (cmd >= 0x60u) {                                           /* UNPACK */
             const uint32_t vn = (cmd >> 2) & 3u, vl = cmd & 3u, cnt = num ? num : 256u;
-            if ((cmd & 0x10u) || vl != 0u || (vn != 0u && vn != 3u) || (imm & 0xC000u) ||
+            if ((cmd & 0x10u) || vl != 0u || (vn != 0u && vn != 3u) || (imm & 0x4000u) ||
+                ((imm & 0x8000u) && w->program != EM_CHAIN_PAGE_DYNAMIC &&
+                 w->program != EM_CHAIN_PAGE_DYNAMIC_CLIP) ||
                 (w->cycle_set && (w->wl == 0u || w->wl > w->cl)))
                 return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
             /* Before the page's first STCYCL the cycle is the frame's (the
@@ -504,7 +578,8 @@ static int vif(Walk *w)
              * transferred): CL == WL, the only setting under which that
              * program finds its constant rows 0..13 in one block. */
             if (!w->cycle_set) p->counts.cycle_inherited++;
-            const uint32_t comps = vn + 1u, dst = imm & 0x3FFu;
+            const uint32_t comps = vn + 1u;
+            const uint32_t dst = (imm & 0x3FFu) + ((imm & 0x8000u) ? w->tops : 0u);
             for (uint32_t k = 0; k < cnt; ++k) {
                 uint32_t lane[4];
                 for (uint32_t c = 0; c < comps; ++c) {
@@ -521,7 +596,9 @@ static int vif(Walk *w)
         case 0x01:                                                     /* STCYCL */
             w->cl = imm & 0xFFu; w->wl = (imm >> 8) & 0xFFu; w->cycle_set = 1;
             break;
-        case 0x02: w->offset = imm & 0x3FFu; break;                    /* OFFSET */
+        case 0x02:                                                    /* OFFSET */
+            w->offset = imm & 0x3FFu; w->dbf = 0; w->tops = w->base;
+            break;
         case 0x03: w->base = imm & 0x3FFu; break;                      /* BASE */
         case 0x05:                                                     /* STMOD */
             if (imm & 3u) return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
@@ -538,7 +615,16 @@ static int vif(Walk *w)
                 if (!word(w, &x, &a2)) return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
                 if (k == 0) first = a2;
             }
-            if (first == LANE_CODE && cnt == 138u && imm == 0u) {
+            if (first == DYNAMIC_CODE && cnt == 79u && imm == 0u) {
+                w->program = EM_CHAIN_PAGE_DYNAMIC; w->mpg_parts = 1;
+            } else if (first == DYNAMIC_CLIP_CODE && cnt == 256u && imm == 0u) {
+                w->program = 0; w->mpg_parts = 1; w->mpg_first = first;
+            } else if (w->mpg_first == DYNAMIC_CLIP_CODE && w->program == 0u &&
+                       w->mpg_parts >= 1u && w->mpg_parts < 5u &&
+                       first == DYNAMIC_CLIP_CODE + 0x808u * w->mpg_parts &&
+                       imm == 0x100u * w->mpg_parts && cnt == (w->mpg_parts == 4u ? 159u : 256u)) {
+                if (++w->mpg_parts == 5u) w->program = EM_CHAIN_PAGE_DYNAMIC_CLIP;
+            } else if (first == LANE_CODE && cnt == 138u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
             } else if (w->call && first == GRID_CODE && cnt == 79u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_GRID; w->mpg_parts = 1;
@@ -564,8 +650,18 @@ static int vif(Walk *w)
             }
             break;
         }
-        case 0x14: {                                                   /* MSCAL */
-            if (imm != 0u || !w->program) return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, v);
+        case 0x14: case 0x17: {                                        /* MSCAL / MSCNT */
+            const int dynamic = w->program == EM_CHAIN_PAGE_DYNAMIC || w->program == EM_CHAIN_PAGE_DYNAMIC_CLIP;
+            if ((cmd == 0x14u && imm != 0u) || !w->program || (cmd == 0x17u && !dynamic))
+                return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, v);
+            const uint32_t top = w->tops;
+            w->dbf ^= 1u;
+            w->tops = w->base + (w->dbf ? w->offset : 0u);
+            if (dynamic) {
+                if (dynamic_run(w, top, at) < 0) return -1;
+                break;
+            }
+            em_vu1_level_kernel_forget(&w->dynamic);
             int rc;
             if (w->program == EM_CHAIN_PAGE_LANE) {
                 const uint32_t before = p->counts.prim_type[4];

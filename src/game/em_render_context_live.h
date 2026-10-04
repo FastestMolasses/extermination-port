@@ -275,6 +275,12 @@ struct EmPacketChain *em_rcl_packet_chain(void);
  * owner draw 001CAA00 appends its unit at the context's channel cursor
  * (em_owner_draw_live). */
 uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size);
+/* Area-reset handoff of scratch 70003400..7000347F. Non-NULL borrows
+ * exactly 0x80 bytes already initialized by the known last original writer;
+ * no bytes are copied or reset. NULL explicitly returns to this owner's
+ * default storage, preserving the current borrowed values. The borrowed
+ * bytes must outlive every RCL call until the next handoff. */
+int em_rcl_scratch_3400_bind(uint8_t *bytes);
 /* skin_arena_init (001D2E20; em_skin_arena_init.h): the 14 skin records
  * templates from D_002514D0, as 001D19E0 runs it first at every area load.
  * The frame machine's 001D19E0 binding calls it (the rest of 001D19E0 is

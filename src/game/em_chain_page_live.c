@@ -3,10 +3,10 @@
 #include "game/em_chain_page_live.h"
 #include "game/em_object_unit.h"
 #include "game/em_owner_draw_live.h"
+#include "game/em_world_textures_live.h"
 
 #include <stddef.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 #include "game/em_effects_live.h"
@@ -23,18 +23,12 @@ static struct {
     EmGfxGsPrim prims[EM_CHAIN_PAGE_LIVE_PRIMS];
     EmChainPageQ q[EM_CHAIN_PAGE_LIVE_PRIMS];
     uint32_t skip[1];
-    EmGfx *textures_for;
     uint32_t fault;
     EmChainPageLiveLog log;
     struct { uint32_t address, size; } reads[READS_MAX];
     uint32_t nreads;
     uint32_t overlay_reads;
 } S;
-
-static uint32_t rd32(const uint8_t *p)
-{
-    return (uint32_t)p[0] | (uint32_t)p[1] << 8 | (uint32_t)p[2] << 16 | (uint32_t)p[3] << 24;
-}
 
 static int fail(uint32_t address, const char *what)
 {
@@ -73,38 +67,7 @@ static const uint8_t *reader(void *ctx, uint32_t address, uint32_t size)
 
 int em_chain_page_live_textures(EmGfx *gfx)
 {
-    if (!gfx) return -1;
-    if (S.textures_for == gfx) return 0;
-    FILE *f = fopen(EM_CHAIN_PAGE_LIVE_TEXTURES, "rb");
-    if (!f) {
-        fprintf(stderr, "chain page: %s is missing (run tools/export_page_textures.py)\n",
-                EM_CHAIN_PAGE_LIVE_TEXTURES);
-        return -1;
-    }
-    fseek(f, 0, SEEK_END);
-    const long size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    uint8_t *file = size > 0x10 ? malloc((size_t)size) : NULL;
-    int ok = file && fread(file, 1, (size_t)size, f) == (size_t)size;
-    fclose(f);
-    ok = ok && memcmp(file, "EMOT", 4) == 0 && rd32(file + 4) == 1;
-    const uint32_t count = ok ? rd32(file + 8) : 0;
-    ok = ok && count > 0 && 0x10u + 24u * (uint64_t)count <= (uint64_t)size;
-    for (uint32_t i = 0; ok && i < count; ++i) {
-        const uint8_t *e = file + 0x10 + 24 * i;
-        const uint64_t tex0 = (uint64_t)rd32(e) | (uint64_t)rd32(e + 4) << 32;
-        const uint32_t w = rd32(e + 8), h = rd32(e + 12), at = rd32(e + 16);
-        ok = w && h && w <= 1024u && h <= 1024u && at <= (uint64_t)size &&
-             (uint64_t)w * h * 4u <= (uint64_t)size - at &&
-             em_gfx_gs_texture(gfx, tex0, file + at, w, h) == 0;
-    }
-    free(file);
-    if (!ok) {
-        fprintf(stderr, "chain page: %s is not a page-texture export\n", EM_CHAIN_PAGE_LIVE_TEXTURES);
-        return -1;
-    }
-    S.textures_for = gfx;
-    return 0;
+    return em_world_textures_live_ensure(gfx);
 }
 
 /* FNV-1a over the primitives as the consumer handed them (before the Q

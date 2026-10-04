@@ -84,6 +84,7 @@ static uint8_t s_d26E880[16];
 static uint32_t s_d253560_words[D_253560_SIZE / 4];
 static uint32_t s_d817240_words[0x80 / 4];
 static uint32_t s_spad3400_words[0x80 / 4];
+static uint8_t *s_spad3400_borrowed;
 static uint32_t s_d8101D0_words[0x10 / 4];
 /* The static-object bank *D_0028A5A0 (static_world.emsw block 0), read only. */
 static uint8_t *s_bank;
@@ -241,7 +242,7 @@ static void build_views(void)
      * and, once loaded, the bank (read only). */
     add_view(D_253560, D_253560_SIZE, (uint8_t *)s_d253560_words, 1);
     add_view(D_817240, 0x80, (uint8_t *)s_d817240_words, 1);
-    add_view(SPAD_3400, 0x80, (uint8_t *)s_spad3400_words, 1);
+    add_view(SPAD_3400, 0x80, s_spad3400_borrowed ? s_spad3400_borrowed : (uint8_t *)s_spad3400_words, 1);
     add_view(D_8101D0, 0x10, (uint8_t *)s_d8101D0_words, 1);
     if (s_dynamic_word) {
         add_view(EM_A01R_D_0028A5A4, 4, (uint8_t *)(uintptr_t)s_dynamic_word, 0);
@@ -1342,6 +1343,16 @@ int em_rcl_frame_matrices(uint32_t p[16], uint32_t clip[16], uint32_t k[16])
 EmPacketChain *em_rcl_packet_chain(void)
 {
     return R.loaded && !R.fault ? &R.pc : NULL;
+}
+
+int em_rcl_scratch_3400_bind(uint8_t *bytes)
+{
+    if (bytes && ((uintptr_t)bytes & 3u)) return -1;
+    if (!bytes && s_spad3400_borrowed)
+        memcpy(s_spad3400_words, s_spad3400_borrowed, sizeof s_spad3400_words);
+    s_spad3400_borrowed = bytes;
+    if (R.loaded) build_views();
+    return 0;
 }
 
 uint8_t *em_rcl_bytes_mut(uint32_t address, uint32_t size)

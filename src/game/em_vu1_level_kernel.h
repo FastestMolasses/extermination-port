@@ -262,7 +262,7 @@ EMVUL_ALWAYS_INLINE void emvul_ahead(const int host, const uint32_t m[4][4], con
  * the fault arose and dmem may be partly written: fail-stop, the caller
  * drops the run. */
 EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQword *dmem, uint32_t top,
-                                    EmVu1LvlBatch *out)
+                                    EmVu1LvlBatch *out, uint32_t vertices, uint32_t kick_offset)
 {
     if (!s || !dmem || !out) {
         if (out) { memset(out, 0, sizeof *out); out->fault = EM_VU1_LVL_FAULT_ARGS; }
@@ -271,7 +271,7 @@ EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQw
     memset(out, 0, sizeof *out);
     top &= 1023u;
     out->top = top;
-    out->kick = (top + EM_VU1_LVL_KICK) & 1023u;
+    out->kick = (top + kick_offset) & 1023u;
     uint32_t bad = 0u;
     /* 0x006..0x00C, 0x010..0x013: the rows (dmem 4..6 and 1013..1016 are
      * loaded into registers the program never reads) */
@@ -301,14 +301,14 @@ EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQw
     const uint32_t known_es = s->known, known_w = s->known_w;
     const uint32_t known_rgbaq_at_start = s->known_rgbaq;
     uint32_t w_next_known = 0u;
-    for (uint32_t i = 0; i < EM_VU1_LVL_VERTICES; ++i) {
+    for (uint32_t i = 0; i < vertices; ++i) {
         const uint32_t v = top + 4u * i;
         /* 0x02B..0x02E: vertex i-1's outputs (RGBAQ, ST, TEX0, XYZF2) */
-        emvuo_st(dmem, v + 0x83u, o_rgbaq);
-        emvuo_st(dmem, v + 0x82u, o_st);
-        emvuo_st(dmem, v + 0x81u, o_tex0);
-        emvuo_st(dmem, v + 0x84u, o_xyzf);
-        const int last = i + 1u == EM_VU1_LVL_VERTICES;
+        emvuo_st(dmem, v + kick_offset - 1u, o_rgbaq);
+        emvuo_st(dmem, v + kick_offset - 2u, o_st);
+        emvuo_st(dmem, v + kick_offset - 3u, o_tex0);
+        emvuo_st(dmem, v + kick_offset, o_xyzf);
+        const int last = i + 1u == vertices;
         /* 0x02B..0x02F: vertex i+1's c (dead in the last iteration) */
         EmVu1LvlAhead next;
         memset(&next, 0, sizeof next);
@@ -346,7 +346,7 @@ EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQw
         fog = em_vu_max_bits(fog, 0u);
         /* 0x038: the look-ahead position of vertex i+2 */
         pos = emvuo_ld(dmem, v + 11u);
-        if (i + 2u == EM_VU1_LVL_VERTICES) w_next_known = known_rgbaq_at_start;
+        if (i + 2u == vertices) w_next_known = known_rgbaq_at_start;
         /* 0x039, 0x03A: S joins the ADC. With carried registers another
          * program left, S is unknown: harmless when the vertex has ADC
          * already, fail-stop otherwise. */
@@ -397,12 +397,12 @@ EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQw
         word = word_next;
     }
     /* 0x043..0x046: vertex 31's qwords; 0x047..0x049: the template */
-    const uint32_t v = top + 0x80u;
-    emvuo_st(dmem, v + 0x83u, o_rgbaq);
-    emvuo_st(dmem, v + 0x82u, o_st);
-    emvuo_st(dmem, v + 0x81u, o_tex0);
-    emvuo_st(dmem, v + 0x84u, o_xyzf);
-    emvuo_st(dmem, top + EM_VU1_LVL_KICK, emvuo_ld(dmem, 1020u));
+    const uint32_t v = top + 4u * vertices;
+    emvuo_st(dmem, v + kick_offset - 1u, o_rgbaq);
+    emvuo_st(dmem, v + kick_offset - 2u, o_st);
+    emvuo_st(dmem, v + kick_offset - 3u, o_tex0);
+    emvuo_st(dmem, v + kick_offset, o_xyzf);
+    emvuo_st(dmem, top + kick_offset, emvuo_ld(dmem, 1020u));
     s->rgbaq = o_rgbaq; s->st = o_st; s->tex0 = o_tex0; s->xyzf = o_xyzf;
     s->e_prev[0] = e_prev[0]; s->e_prev[1] = e_prev[1];
     s->s_prev[0] = s_prev[0]; s->s_prev[1] = s_prev[1];
@@ -418,7 +418,7 @@ EMVUL_ALWAYS_INLINE int emvul_batch(const int host, EmVu1LvlState *s, EmVu1ObjQw
 static inline int em_vu1_level_kernel_batch(EmVu1LvlState *s, EmVu1ObjQword *dmem, uint32_t top,
                                             EmVu1LvlBatch *out)
 {
-    return emvul_batch(0, s, dmem, top, out);
+    return emvul_batch(0, s, dmem, top, out, EM_VU1_LVL_VERTICES, EM_VU1_LVL_KICK);
 }
 
 /* The host-arithmetic instance; only em_vu1_level_kernel_batch_host calls
@@ -426,7 +426,7 @@ static inline int em_vu1_level_kernel_batch(EmVu1LvlState *s, EmVu1ObjQword *dme
  * inside it). */
 EMVUL_NOINLINE int emvul_batch_host_core(EmVu1LvlState *s, EmVu1ObjQword *dmem, uint32_t top, EmVu1LvlBatch *out)
 {
-    return emvul_batch(1, s, dmem, top, out);
+    return emvul_batch(1, s, dmem, top, out, EM_VU1_LVL_VERTICES, EM_VU1_LVL_KICK);
 }
 
 /* The same batch on the host FPU (em_vu_host_lanes.h), for the live walk:
@@ -454,6 +454,16 @@ EMVUL_NOINLINE int em_vu1_level_kernel_batch_host(EmVu1LvlState *s, EmVu1ObjQwor
     em_vu_host_leave(&env);
     if (rc < 0) rc = em_vu1_level_kernel_batch(s, dmem, top, out);
     return rc;
+}
+
+/* AREA01's 00237450 is the same 79-instruction program with three
+ * vertices and output/kick offset 0x10. The instruction oracle asserts
+ * exactly those eleven encoded-immediate differences; arithmetic and
+ * carried-register behavior stay in the one translation above. */
+static inline int em_vu1_dynamic_kernel_batch(EmVu1LvlState *s, EmVu1ObjQword *dmem,
+                                              uint32_t top, EmVu1LvlBatch *out)
+{
+    return emvul_batch(0, s, dmem, top, out, 3u, 0x10u);
 }
 
 /* TOP of the k-th MSCAL / MSCNT since the kernel packet's OFFSET code (its

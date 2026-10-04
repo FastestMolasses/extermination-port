@@ -41,8 +41,8 @@ extern "C" {
 #define EM_CHAIN_PAGE_LIVE_TEXTURES "assets/scene_snow/page_textures.emot"
 #define EM_CHAIN_PAGE_LIVE_PRIMS 8192u
 
-/* Register the page textures (tools/export_page_textures.py) with `gfx`
- * (once per gfx). 0, or -1 (missing or malformed: reported). */
+/* Register the delivered world's shared texture catalog with `gfx`
+ * (em_world_textures_live). 0, or -1 (missing or malformed: reported). */
 int em_chain_page_live_textures(EmGfx *gfx);
 
 /* Walk and draw the page the last kick spliced (em_rcl_page). 0 (drawn, or

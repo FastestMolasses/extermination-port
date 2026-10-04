@@ -83,7 +83,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
            src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
            src/game/em_area01_sys.c src/game/em_area01_exita.c src/game/em_area01_exitb.c \
-           src/game/em_world_textures_live.c \
+           src/game/em_world_textures_live.c src/game/em_area01_rcl_workers.c \
            src/game/em_spawn_table.c src/game/em_load_veil.c src/game/em_manager_008257A0.c \
            src/game/em_director_original.c \
            src/game/em_area_script.c src/game/em_cinematic_playback.c src/game/em_area11_script_host.c \
@@ -1581,17 +1581,21 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-memory-view-reference test-area01-runtime-reference test-world-textures-reference
+.PHONY: test-area01-memory-view-reference test-area01-runtime-reference test-level2-dynamic-vu-reference test-world-textures-reference
 test-area01-memory-view-reference:
 	python3 tools/test_area01_memory_view_reference.py
 test-area01-runtime-reference:
 	python3 tools/test_area01_runtime_reference.py
+test-level2-dynamic-vu-reference:
+	python3 tools/test_level2_dynamic_vu_reference.py
 test-world-textures-reference:
 	python3 tools/test_world_textures_reference.py
 
-.PHONY: test-area01-collision-view-reference
+.PHONY: test-area01-collision-view-reference test-area01-scratch-views
 test-area01-collision-view-reference:
 	python3 tools/test_area01_collision_view_reference.py
+test-area01-scratch-views:
+	python3 tools/test_area01_scratch_views.py
 
 .PHONY: test-area01-scratch-alias
 test-area01-scratch-alias:
@@ -1608,6 +1612,10 @@ test-area01-sfx-registry:
 .PHONY: test-status-pose69-reference
 test-status-pose69-reference:
 	python3 tools/test_status_pose69_reference.py
+
+.PHONY: test-area01-rcl-workers
+test-area01-rcl-workers:
+	python3 tools/test_area01_rcl_workers_reference.py
 
 .PHONY: test-area01-static-ground
 test-area01-static-ground:
