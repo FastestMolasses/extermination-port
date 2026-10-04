@@ -599,7 +599,7 @@ static int dynamic_pass(void *ctx)
     for (unsigned i = 0; i < R.view_count; ++i)
         views[i] = (EmArea01RenderView){R.swc_views[i].address, R.swc_views[i].size, R.swc_views[i].bytes};
     EmArea01RenderVif v = {0};
-    v.core.world = (EmArea01RenderWorld){views, R.view_count};
+    v.core.world = (EmArea01RenderWorld){.views = views, .view_count = R.view_count};
     v.workers = (EmArea01RenderVifWorkers){c, dynamic_copy, dynamic_ref, dynamic_const,
                                            dynamic_state, dynamic_depth};
     if (em_area01_render_001D5BD0(&v) < 0)

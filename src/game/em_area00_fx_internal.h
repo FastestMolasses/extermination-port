@@ -19,17 +19,17 @@ typedef EmArea00Fx S;
 
 static inline int fx_latched(const S *s) { return em_a01r_latched(&s->core); }
 
-static inline uint8_t *fx_mem(S *s, u32 a, u32 n) { return fx_latched(s) ? NULL : em_a01r_mem(&s->core, a, n); }
+static inline uint8_t *fx_mem(S *s, u32 a, u32 n, int write) { return fx_latched(s) ? NULL : em_a01r_mem(&s->core, a, n, write); }
 
 static inline u32 fx_lbu(S *s, u32 a)
 {
-    uint8_t *p = fx_mem(s, a, 1);
+    uint8_t *p = fx_mem(s, a, 1, 0);
     return p ? p[0] : 0u;
 }
 
 static inline u32 fx_lhu(S *s, u32 a)
 {
-    uint8_t *p = fx_mem(s, a, 2);
+    uint8_t *p = fx_mem(s, a, 2, 0);
     return p ? (u32)p[0] | (u32)p[1] << 8 : 0u;
 }
 
@@ -37,19 +37,19 @@ static inline int32_t fx_lh(S *s, u32 a) { return (int32_t)(int16_t)fx_lhu(s, a)
 
 static inline u32 fx_lw(S *s, u32 a)
 {
-    uint8_t *p = fx_mem(s, a, 4);
+    uint8_t *p = fx_mem(s, a, 4, 0);
     return p ? em_a01r_get32(p) : 0u;
 }
 
 static inline void fx_sb(S *s, u32 a, u32 v)
 {
-    uint8_t *p = fx_mem(s, a, 1);
+    uint8_t *p = fx_mem(s, a, 1, 1);
     if (p) p[0] = (uint8_t)v;
 }
 
 static inline void fx_sh(S *s, u32 a, u32 v)
 {
-    uint8_t *p = fx_mem(s, a, 2);
+    uint8_t *p = fx_mem(s, a, 2, 1);
     if (p) {
         p[0] = (uint8_t)v;
         p[1] = (uint8_t)(v >> 8);
@@ -58,13 +58,13 @@ static inline void fx_sh(S *s, u32 a, u32 v)
 
 static inline void fx_sw(S *s, u32 a, u32 v)
 {
-    uint8_t *p = fx_mem(s, a, 4);
+    uint8_t *p = fx_mem(s, a, 4, 1);
     if (p) em_a01r_put32(p, v);
 }
 
 static inline void fx_sd(S *s, u32 a, u64 v)
 {
-    uint8_t *p = fx_mem(s, a, 8);
+    uint8_t *p = fx_mem(s, a, 8, 1);
     if (p) {
         em_a01r_put32(p, (u32)v);
         em_a01r_put32(p + 4, (u32)(v >> 32));
@@ -74,13 +74,13 @@ static inline void fx_sd(S *s, u32 a, u64 v)
 /* A quadword load / store: the low four address bits are ignored. */
 static inline void fx_ldq(S *s, u32 a, u32 q[4])
 {
-    uint8_t *p = fx_mem(s, a & ~15u, 16);
+    uint8_t *p = fx_mem(s, a & ~15u, 16, 0);
     for (int i = 0; i < 4; ++i) q[i] = p ? em_a01r_get32(p + 4 * i) : 0u;
 }
 
 static inline void fx_stq(S *s, u32 a, const u32 q[4])
 {
-    uint8_t *p = fx_mem(s, a & ~15u, 16);
+    uint8_t *p = fx_mem(s, a & ~15u, 16, 1);
     if (p)
         for (int i = 0; i < 4; ++i) em_a01r_put32(p + 4 * i, q[i]);
 }

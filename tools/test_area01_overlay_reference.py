@@ -106,6 +106,7 @@ runs the full random sweep and every value of every byte the functions
 dispatch on.
 """
 import ctypes as C
+import os
 import random
 import struct
 import subprocess
@@ -232,6 +233,8 @@ def float_arg_bits(value):
 CT = {U: C.c_uint32, I: C.c_int32, F: C.c_float}
 ARG_CT = {U: C.c_uint32, I: C.c_int32, F: FloatArg}
 BYTES_FN = C.CFUNCTYPE(C.c_void_p, C.c_void_p, C.c_uint32, C.c_uint32)
+VIEW_FN = C.CFUNCTYPE(C.c_void_p, C.c_void_p, C.c_uint32, C.c_uint32, C.c_int)
+CANONICAL_VIEW = os.environ.get("EM_AREA01_CANONICAL_VIEW") == "1"
 CALLBACK_FN = C.CFUNCTYPE(C.c_int, C.c_void_p, C.c_uint32, C.c_uint32)
 
 
@@ -245,7 +248,7 @@ def hook_proto(args, result):
 class Hooks(C.Structure):
     _fields_ = ([('ctx', C.c_void_p), ('bytes', BYTES_FN)]
                 + [(name, hook_proto(args, result)) for name, _, args, result in HOOKS]
-                + [('w_callback', CALLBACK_FN)])
+                + [('w_callback', CALLBACK_FN), ('view', VIEW_FN)])
 
 
 class Fault(C.Structure):
@@ -668,6 +671,12 @@ class Replay:
         self.pending = (pointer, size, C.string_at(pointer, size), entry)
         return pointer
 
+    def view(self, ctx, address, size, write):
+        pointer = self.bytes(ctx, address, size)
+        if pointer is not None:
+            self.access[-1][-1].append('store' if write else 'load')
+        return pointer
+
     def settle(self):
         """The module uses the bytes of a `bytes` request (a01_at) before
         it makes its next request or call, so by then a store through the
@@ -697,6 +706,8 @@ class Replay:
             return True
         want = [(a, n, changed) for a, n, changed, _ in self.oracle_access[k] if a not in TABLE_BYTES]
         kinds = [kind for a, n, changed, kind in self.oracle_access[k] if a not in TABLE_BYTES]
+        if CANONICAL_VIEW:
+            want = [(a, n, changed, kind) for a, n, changed, kind in self.oracle_access[k] if a not in TABLE_BYTES]
         got = [tuple(e) for e in self.access[k]]
         if want == got:
             return True
@@ -812,6 +823,9 @@ class Replay:
         'w_callback') left NULL (hook_contract_site)."""
         self.keep = [BYTES_FN(self.bytes)]
         fields = {'ctx': CTX, 'bytes': self.keep[0]}
+        if CANONICAL_VIEW and null != 'bytes':
+            fields['view'] = VIEW_FN(self.view)
+            self.keep.append(fields['view'])
         for name, _, args, result in HOOKS:
             fields[name] = self.hook(name, args, result)
             self.keep.append(fields[name])

@@ -248,3 +248,26 @@ The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any
 source correction there must be reported in permitted docs, not applied.
 No decomp corrections have been committed by this branch.
+
+## Canonical callback dependency checkpoint
+
+SYS, EXITA, EXITB, ROOM, SIDE, overlay and shared render/UI/FX accessors now
+accept authoritative byte providers with the original read/write direction.
+A refused provider never falls back to an array. The scene view exposes only
+already canonical named fields and migrated progress ranges. No normal
+AREA01 frame gate is opened by this dependency checkpoint.
+
+Shared edits: the named AREA01 contexts/helpers and their ctypes oracle
+layouts; AREA00 FX helpers; the two SIDE initializers in aim/fire; designated
+render-world initializers in status pages and render context; the new
+`test-area01-memory-view-reference` Makefile target. Exact files and full
+oracle counts are documented in `LEVEL2_MEMORY_VIEWS.md`. Composite live
+binding and scratch lifetime work remain in progress outside this checkpoint.
+
+The isolated staged-source build passed `make -B all` with **zero warnings**
+in **40.352 s**. The same export passed **89 canonical boundary checks**.
+Binary SHA-256:
+`28fb6c803248043709ee3bf4e653dcac0dd1988b067ad8fe938ddf1d4399222e`.
+Receipts: `build/level2/canonical-callbacks/index-build.json`,
+`index-build.log`, and `index-contract.log`. Full module oracle evidence
+is listed in the callback document; AREA01 route completion remains unproven.

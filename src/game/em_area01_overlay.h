@@ -153,6 +153,10 @@ typedef struct {
 
     /* ---- the actor's own callback: the function at actor +0x4C, called with the actor */
     int (*w_callback)(void *ctx, uint32_t function, uint32_t actor);
+    /* Optional canonical view. When present it is authoritative, including
+     * a NULL refusal; bytes is used only when view is NULL. write is 0 for
+     * each original load and 1 for each store, even an unchanged store. */
+    uint8_t *(*view)(void *ctx, uint32_t address, uint32_t size, int write);
 } EmArea01OvlHooks;
 
 /* Placement / group owners: one call of the original behaviour. Return 0,

@@ -106,6 +106,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
+import area01_reference_view as AV  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 import test_shadow_actor_route_reference as SAR  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, s32, RETURN, STACK_TOP  # noqa: E402
@@ -353,7 +354,7 @@ class View(C.Structure):
 
 
 class World(C.Structure):
-    _fields_ = [('views', P(View)), ('view_count', U32)]
+    _fields_ = [('views', P(View)), ('view_count', U32), ('view', VP), ('view_ctx', VP)]
 
 
 class Fault(C.Structure):
@@ -1004,6 +1005,9 @@ def run_both(where, ram, spad, steps, script=None, mirror=False, check=None):
     if check is not None and not unmeasured_o:
         assert check(ee), (where, 'the case did not reach the state it is built for')
     native = Native(module, spad, script=script, oracle=None if unmeasured_o else ee, mirror=mirror)
+    if AV.ENABLED:
+        native.canonical_view = AV.CanonicalView(native.views, base='address')
+        native.canonical_view.install_render(native.state.core.world)
     for address, args, fargs in steps:
         rc, value = native.call(address, *(list(args) + list(fargs)))
         assert native.mismatch is None, (where, 'entry check') + native.mismatch
@@ -2608,6 +2612,8 @@ def first(item):
 
 
 def main():
+    if AV.ENABLED:
+        print('canonical callback mode: all original-instruction comparisons; view arrays disabled', flush=True)
     global ELF, NATIVE, TRACKER, POOL
     ELF = read_elf()
     NATIVE = build_native()

@@ -76,6 +76,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 os.environ.setdefault('EM_TEST_JOBS', '2')
 import reference_mode as RM  # noqa: E402
+import area01_reference_view as AV  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
@@ -341,7 +342,7 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 
 class Exitb(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
-                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32)]
+                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32), ('view', C.c_void_p)]
 
 
 TRACE_C = r"""/* Store trace for the native module (test build only): the 64-byte
@@ -776,6 +777,9 @@ def run_case(case):
         fx = Fixed(prestore_plan(dict(case, prestore=False)))
     ram, spad = prepared(case)
     nat = NativeRun(ram, spad, Script(case['script']), set(case.get('indirect', ())))
+    if AV.ENABLED:
+        nat.canonical_view = AV.CanonicalView(nat.regions)
+        nat.canonical_view.install(nat.sys)
     native_lines()
     where = (case['name'],)
     try:
@@ -1542,6 +1546,8 @@ def api_checks():
 def main():
     global NATIVE, ELF, BRANCH_PCS
     t0 = time.time()
+    if AV.ENABLED:
+        print('canonical callback mode: all original-instruction comparisons; region arrays disabled', flush=True)
     ELF = read_elf()
     NATIVE = build_native()
     mem = ExEE(ELF).mem

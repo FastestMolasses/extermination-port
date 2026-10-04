@@ -259,7 +259,7 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 
 class Side(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
-                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32)]
+                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32),('view',C.c_void_p)]
 
 
 NATIVE = None
@@ -397,6 +397,10 @@ class NativeRun:
         self.stubs = 0
         self.worker = WORKER(self._call)
         self.side = Side(self.regions, 3, self.worker, None, SP, 0, 0, 0)
+        from area01_reference_view import ENABLED, CanonicalView
+        if ENABLED:
+            self.canonical_view=CanonicalView(self.regions)
+            self.canonical_view.install(self.side)
 
     def dirty(self):
         out = set(native_lines())

@@ -15,14 +15,14 @@
 
 static inline int ui_latched(const EmArea01Ui *s) { return em_a01r_latched(&s->core); }
 
-static inline uint8_t *ui_mem(EmArea01Ui *s, uint32_t a, uint32_t n)
+static inline uint8_t *ui_mem(EmArea01Ui *s, uint32_t a, uint32_t n, int write)
 {
-    return ui_latched(s) ? NULL : em_a01r_mem(&s->core, a, n);
+    return ui_latched(s) ? NULL : em_a01r_mem(&s->core, a, n, write);
 }
 
 static inline uint32_t ui_lbu(EmArea01Ui *s, uint32_t a)
 {
-    uint8_t *p = ui_mem(s, a, 1);
+    uint8_t *p = ui_mem(s, a, 1, 0);
     return p ? p[0] : 0u;
 }
 
@@ -30,7 +30,7 @@ static inline int32_t ui_lb(EmArea01Ui *s, uint32_t a) { return (int32_t)(int8_t
 
 static inline uint32_t ui_lhu(EmArea01Ui *s, uint32_t a)
 {
-    uint8_t *p = ui_mem(s, a, 2);
+    uint8_t *p = ui_mem(s, a, 2, 0);
     return p ? (uint32_t)p[0] | (uint32_t)p[1] << 8 : 0u;
 }
 
@@ -38,19 +38,19 @@ static inline int32_t ui_lh(EmArea01Ui *s, uint32_t a) { return (int32_t)(int16_
 
 static inline uint32_t ui_lw(EmArea01Ui *s, uint32_t a)
 {
-    uint8_t *p = ui_mem(s, a, 4);
+    uint8_t *p = ui_mem(s, a, 4, 0);
     return p ? em_a01r_get32(p) : 0u;
 }
 
 static inline void ui_sb(EmArea01Ui *s, uint32_t a, uint32_t v)
 {
-    uint8_t *p = ui_mem(s, a, 1);
+    uint8_t *p = ui_mem(s, a, 1, 1);
     if (p) p[0] = (uint8_t)v;
 }
 
 static inline void ui_sh(EmArea01Ui *s, uint32_t a, uint32_t v)
 {
-    uint8_t *p = ui_mem(s, a, 2);
+    uint8_t *p = ui_mem(s, a, 2, 1);
     if (p) {
         p[0] = (uint8_t)v;
         p[1] = (uint8_t)(v >> 8);
@@ -59,13 +59,13 @@ static inline void ui_sh(EmArea01Ui *s, uint32_t a, uint32_t v)
 
 static inline void ui_sw(EmArea01Ui *s, uint32_t a, uint32_t v)
 {
-    uint8_t *p = ui_mem(s, a, 4);
+    uint8_t *p = ui_mem(s, a, 4, 1);
     if (p) em_a01r_put32(p, v);
 }
 
 static inline void ui_sd(EmArea01Ui *s, uint32_t a, uint64_t v)
 {
-    uint8_t *p = ui_mem(s, a, 8);
+    uint8_t *p = ui_mem(s, a, 8, 1);
     if (p) {
         em_a01r_put32(p, (uint32_t)v);
         em_a01r_put32(p + 4, (uint32_t)(v >> 32));
@@ -75,13 +75,13 @@ static inline void ui_sd(EmArea01Ui *s, uint32_t a, uint64_t v)
 /* A quadword load / store: the low four address bits are ignored. */
 static inline void ui_ldq(EmArea01Ui *s, uint32_t a, uint32_t q[4])
 {
-    uint8_t *p = ui_mem(s, a & ~15u, 16);
+    uint8_t *p = ui_mem(s, a & ~15u, 16, 0);
     for (int i = 0; i < 4; ++i) q[i] = p ? em_a01r_get32(p + 4 * i) : 0u;
 }
 
 static inline void ui_stq(EmArea01Ui *s, uint32_t a, const uint32_t q[4])
 {
-    uint8_t *p = ui_mem(s, a & ~15u, 16);
+    uint8_t *p = ui_mem(s, a & ~15u, 16, 1);
     if (p)
         for (int i = 0; i < 4; ++i) em_a01r_put32(p + 4 * i, q[i]);
 }

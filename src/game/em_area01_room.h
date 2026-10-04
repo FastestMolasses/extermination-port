@@ -109,6 +109,7 @@ typedef struct {
 } EmArea01RoomCall;
 
 typedef int (*EmArea01RoomWorker)(void *ctx, EmArea01RoomCall *call);
+typedef uint8_t *(*EmArea01RoomView)(void *ctx, uint32_t address, uint32_t size, int write);
 
 typedef struct {
     const EmArea01RoomRegion *regions;
@@ -120,6 +121,9 @@ typedef struct {
     uint32_t fault_function; /* the entry that faulted */
     uint32_t fault_address;  /* UNMAPPED: the address; NULL worker / WORKER:
                                 the callee; NULL output: 0 */
+    /* Optional canonical byte provider. When present it is authoritative:
+     * a refused span faults and never falls back to the region array. */
+    EmArea01RoomView view;
 } EmArea01Room;
 
 void em_area01_room_clear_fault(EmArea01Room *s);

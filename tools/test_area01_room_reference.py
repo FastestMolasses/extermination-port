@@ -83,6 +83,7 @@ import random
 import struct
 import subprocess
 import sys
+import area01_reference_view as AV
 import time
 from pathlib import Path
 
@@ -306,7 +307,8 @@ WORKER = C.CFUNCTYPE(C.c_int, C.c_void_p, P(Call))
 
 class Room(C.Structure):
     _fields_ = [('regions', P(Region)), ('region_count', C.c_uint), ('call', WORKER), ('ctx', C.c_void_p),
-                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32)]
+                ('sp', U32), ('fault', I32), ('fault_function', U32), ('fault_address', U32),
+                ('view', C.c_void_p)]
 
 
 NATIVE = None
@@ -443,6 +445,9 @@ class NativeRun:
         self.calls = 0
         self.worker = WORKER(self._call)
         self.room = Room(self.regions, 2, self.worker, None, SP, 0, 0, 0)
+        if AV.ENABLED:
+            self.view = AV.CanonicalView(self.regions)
+            self.view.install(self.room)
 
     def dirty(self):
         out = set(native_lines())
