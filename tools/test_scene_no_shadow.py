@@ -162,6 +162,8 @@ REACHERS = {
                                           "closure binder (Boxes step)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (em_player_stage_anim_advance, census L22): "
                                   "the stage globals pointer the stage workers run with",
+        "game/em_area01_live.c": "AREA01 generic model owner's 001C64F0: binds the same stage-globals "
+                                 "pointer to canonical progress for em_player_stage_anim_advance; no value copy",
         "game/em_status_pages_item.c": "002160B0's read (HEALING page, phase B15, not bound yet): the byte "
                                        "caps health at 60 when 1; the module reads original memory through its "
                                        "EE view, which the binding maps onto the canonical byte",
@@ -183,6 +185,9 @@ REACHERS = {
                                           "progress byte before every reaction state (Boxes step)",
         "game/em_area11_script_host.c": "00182BF0's reads (0x182C10 / 0x182C74; em_script_host_workers, the "
                                         "Roger scripts' op16, census L22): a pointer at the canonical byte",
+        "game/em_area01_shared_services.c": "00182BF0's reads at 0x182C10 / 0x182C74, reached by AREA01 "
+                                            "826440 after its original story/position/script gates: borrows "
+                                            "canonical bytes for the existing script-host predicate",
     },
     0x00810813: {
         "game/em_level_smoke_test.c": "the director phases wait for the beats' step byte "
@@ -207,10 +212,18 @@ REACHERS = {
                                      "(EmDirectorOriginalWorld.d810CC3, census L21, live since WP-8b) "
                                      "and 00823E80's completion 001C4760(0, 1) (0x823F84; chain C8b "
                                      "OPENING, em_area11_opening's worker)",
+        "game/em_area01_pickup_live.c": "001B6EA0 key take, reached by original 00219550 pickup completion: "
+                                       "loads the selected canonical key byte, invokes em_pickup_owner_take, "
+                                       "and stores that result through the canonical write view",
+        "game/em_area01_shared_services.c": "001C4760(2, 1), reached at 825590 substate 2 after its script "
+                                            "finishes: invokes the existing director counter owner over "
+                                            "canonical scene progress",
     },
     0x00810CB6: {
         "game/em_player.c": "0015BA50's busy test: the stage scene's pointer (live_scene_load)",
         "game/em_area11_roger.c": "001C64F0 on Roger's record (census L22): the stage scene's pointer",
+        "game/em_area01_live.c": "AREA01 generic model owner's 001C64F0: binds the canonical stage-scene "
+                                 "busy-byte pointer used by the existing animation advance owner",
         "game/em_aim_fire_live.c": "001723D0's remote byte (fire machine 5, behind the aim/fire diagnostic gate): "
                                      "the machine scene's pointer, mapped by em_aim_fire_binding through "
                                      "em_scene_progress_at onto the canonical byte (AIM_FIRE.md section 3)",
@@ -224,6 +237,11 @@ REACHERS = {
         "game/em_area11_roger.c": "001C64F0 on Roger's record (census L22): the stage scene's pointer",
         "game/em_area11_script_host.c": "00182BF0's read (0x182C90; em_script_host_workers, census L22): a "
                                         "pointer at the canonical byte",
+        "game/em_area01_live.c": "AREA01 generic model owner's 001C64F0: binds the canonical stage-scene "
+                                 "request-byte pointer used by the existing animation advance owner",
+        "game/em_area01_shared_services.c": "00182BF0's read at 0x182C90, reached by AREA01 826440 after "
+                                            "its original gates: borrows the canonical request byte for "
+                                            "the existing script-host predicate",
     },
     0x00810792: {
         "game/em_area11_boxes.c": "00823FF0 / 008251E0 (census L23): EmTruckWorld.story, the pointer "
@@ -270,9 +288,17 @@ REACHERS = {
         "game/em_area01_overlay.c": "826200 reads counter 8 while idle; 826440's conditional sequence "
                                      "reads it and stores 1/0xFF through the canonical byte view",
     },
+    0x0081080F: {
+        "game/em_area01_sys.c": "00128B80 reads the reaction gate for each placed class-2 actor "
+                                "through the canonical scene byte view; no separate flag storage",
+    },
     0x00810766: {
         "game/em_area01_math_owner.c": "001C02E0 state 0 stores 0xFF only when D_00810845 bit 5 is set; "
                                        "the math view resolves to canonical scene progress",
+    },
+    0x00810767: {
+        "game/em_area01_overlay.c": "8267C0 state 1 calls the existing 001BA1C0(self, 0xF); "
+                                     "the shared live worker validates and reads canonical progress",
     },
     0x00810842: {
         "game/em_area02_math.c": "001582E0 state 1 ORs bit 1 after the original nonzero +0x36 test; "
@@ -291,14 +317,17 @@ REACHERS = {
                                          "through their unbound original-address views",
     },
 }
-REACH_CALL = {0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\(")}
+REACH_CALL = {
+    0x00810CC3: re.compile(r"\bem_director_original_001C4760_scene\s*\("),
+    0x00810767: re.compile(r"\ba01_c_001BA1C0\(&o,\s*self,\s*0xF,\s*&r\)"),
+}
 
 # Declarations whose comment or name names a canonical byte outside em_scene_state.h.
 ALLOWED = [
     {"file": "game/em_effect_kinds.h", "name": "d81075D",
-     "reason": "001F68B0 read-only room-light input in the standalone translation; the persistent "
-               "effect-kind view does not run this selector. Its AREA01 live adapter remains a "
-               "separate binding step and must refresh reached bytes from canonical progress",
+     "reason": "001F68B0 read-only room-light input: em_effects_live_room_lights creates a local "
+               "globals view and refreshes each reached latch from canonical progress before the call; "
+               "the persistent effect-kind view does not run this selector",
      "removed_by": "permanent (a per-call input)"},
     {"file": "game/em_effect_manager.h", "name": "d81075D",
      "reason": "001F6BB0 key-0 input in the standalone original translation; the live manager "
@@ -404,7 +433,7 @@ ALLOWED = [
      "removed_by": "permanent (a constant)"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810842|810845|810759|81075A|81075D|810760|8107D9|8107E0",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810842|810845|810759|81075A|81075D|810760|8107D9|8107E0|81080F",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

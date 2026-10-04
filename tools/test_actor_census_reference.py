@@ -213,7 +213,17 @@ class Globals(C.Structure):
 
 def load_native():
     out = ROOT/'build/actor_census_reference'; out.mkdir(parents=True, exist_ok=True)
-    (out/'shim.c').write_text(SHIM)
+    # Compile the live preflight itself; do not mirror its address arithmetic.
+    source = (ROOT/'src/game/em_scene_bindings.c').read_text()
+    start = source.index('static int condition_canonical(')
+    end = source.index('\n}', start) + 2
+    guard = source[start:end]
+    (out/'shim.c').write_text(SHIM + '\n' + guard + r'''
+int shim_condition_canonical(const uint8_t *record, uint32_t *at)
+{ return condition_canonical(record, at); }
+int shim_progress_canonical(uint32_t at)
+{ return em_scene_progress_canonical(at, 1); }
+''')
     library = out/('roster.dylib' if sys.platform == 'darwin' else 'roster.so')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
                     '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
@@ -229,6 +239,8 @@ def load_native():
             ('shim_log_entry', None, [vp, vp, u32, C.POINTER(u32)]),
             ('shim_registry', C.c_size_t, [C.POINTER(u32), C.POINTER(u32), C.POINTER(u32), C.c_size_t]),
             ('shim_registry_name', C.c_char_p, [u32]),
+            ('shim_condition_canonical', C.c_int, [C.c_char_p, C.POINTER(u32)]),
+            ('shim_progress_canonical', C.c_int, [u32]),
             ('em_actor_roster_parse', C.c_int, [vp, C.c_char_p, C.c_size_t]),
             ('em_actor_roster_load', C.c_int, [vp, C.c_char_p]),
             ('em_actor_roster_free', None, [vp]),
@@ -605,6 +617,27 @@ def fail_stop(elf, overlay, lib, roster_bytes, stats):
         n.close()
 
 
+def canonical_conditions(lib):
+    """All selectors/high bytes: original 001B6660 secondary table is 8107D8,
+    distinct from its primary 810758 table; condition 4 sign-extends the id.
+    This tests live preflight bounds, not execution of those conditions."""
+    checks = 0
+    for cond in range(8):
+        for hi in range(256):
+            reads = []
+            if cond in (2, 3, 5, 6): reads.append(0x810758 + hi)
+            if cond == 4: reads.append(0x8107D8 + (hi if hi < 128 else hi - 256))
+            if cond == 5: reads.append(0x8107D8 + hi)
+            if cond == 6: reads.append(0x810778)
+            bad = next((a for a in reads if not lib.shim_progress_canonical(a)), None)
+            record = struct.pack('<hH', cond, hi << 8 | 1) + bytes(40)
+            at = u32(0xDEADBEEF)
+            got = lib.shim_condition_canonical(record, C.byref(at))
+            assert (got, at.value) == (int(bad is None), 0xDEADBEEF if bad is None else bad), (cond, hi, got, hex(at.value), bad)
+            checks += 1
+    return checks
+
+
 def main():
     elf = (DECOMP/'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA256
@@ -614,6 +647,7 @@ def main():
                  synthetic_class_0b_skips=0, synthetic_prime_runs=0, synthetic_prime_zero_key=0, synthetic_progress_changed=0,
                  synthetic_class2=0, synthetic_recycled=0, synthetic_recycled_flags2=0, census_captures=0, fail_stop_checks=0)
     lib = load_native()
+    stats['canonical_condition_checks'] = canonical_conditions(lib)
     roster_bytes = build_area11_roster(elf, overlay)
     out = ROOT/'build/actor_census_reference'
     (out/'roster.emro').write_bytes(roster_bytes)

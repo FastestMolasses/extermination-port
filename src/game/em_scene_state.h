@@ -138,6 +138,10 @@ typedef enum {
  *   D_00810766           A01   event 0x0E: 001C02E0 stores 0xFF when
  *                              D_00810845 bit 5 bypasses its mechanism.
  *                              No port mirror; cleared by 001AF2C0.
+ *   D_00810767           A01   event 0x0F: placed owner 45 (8267C0) reads
+ *                              it through 001BA1C0(self, 15) in state 1.
+ *                              No port mirror; cleared by 001AF2C0. The
+ *                              existing script event owner retains writes.
  *   D_00810771           L29   event 0x19 (D_00810758[0x19]): 0015C160 draws
  *                              no shadow while it is 1 (src/func_0015C160.c;
  *                              the post-step w_0015C160 reads it); no port
@@ -190,6 +194,11 @@ typedef enum {
  *                              manager 00823CE0 stores 0xFF at its script's
  *                              end (a return visit; em_flag30_manager_tick);
  *                              no port mirror, no first-level writer.
+ *   D_0081080F           A01   counter 0x37: 00128B80's reaction gate, read
+ *                              by all six placed class-2 state-1 actors.
+ *                              Original 001AF2C0 clears it; no persistent
+ *                              native flag owner existed. The original
+ *                              later-area writers are not arrival inputs.
  *   D_00810814           A11FIX counter 0x3C (D_008107D8[0x3C]): the record-13
  *                              manager 008257A0 stores 1 at its script's
  *                              end (a return visit); no port mirror.
@@ -295,7 +304,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
         {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
         {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
-        {0x00810766u, 0x00810767u}, /* event 0x0E: 001C02E0's bypass (A01) */
+        {0x00810766u, 0x00810768u}, /* events 0x0E mechanism bypass / 0x0F placed 8267C0 gate (A01) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
         /* events 0x27, 0x2A, 0x2C, 0x31, 0x34: 00211400's MAP marker gates
          * (chain C8b MAP; 0 in every route capture, only 001AF2C0 writes
@@ -311,6 +320,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x008107E0u, 0x008107E1u}, /* counter 8: AREA01 bridge idle read (A01) */
         {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
         {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */
+        {0x0081080Fu, 0x00810810u}, /* counter 0x37: placed class-2 00128B80's reaction gate (A01) */
         {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */

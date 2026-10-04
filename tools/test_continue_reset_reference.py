@@ -48,7 +48,8 @@ class Probe(C.Structure):
         'health_bits', 'infection_bits', 'mag', 'reserve', 'battery',
         'battery_max', 'opening_complete', 'event_39', 'key_item_zero',
         'director_step', 'terminal_powered', 'mechanism_done', 'area01_locks', 'mechanism_gate',
-        'npc_done', 'npc_gate', 'light_gate', 'bridge_gate', 'area01_story', 'bridge_counter')]
+        'npc_done', 'npc_gate', 'light_gate', 'bridge_gate', 'area01_story', 'bridge_counter',
+        'reaction_gate', 'event15')]
 
 
 class CaptureOriginal(Original):
@@ -152,6 +153,8 @@ def run_original(elf, ram):
         0x810759: (0xFF, 1), 0x81075A: (1, 1), 0x81075D: (0xFF, 1),
         0x810760: (0xFF, 1), 0x8107D9: (0x81, 1), 0x8107E0: (0xE0, 1),
         0x810766: (0xFF, 1), 0x810842: (0xA5, 1), 0x810845: (0x28, 1),
+        0x81080F: (0xFF, 1),
+        0x810767: (0xFF, 1),
     }
     dirty.update(PICKUP_DIRTY)
     for address, (value, size) in dirty.items():
@@ -305,6 +308,8 @@ def main():
         ('bridge gate D_00810760', o.load(0x810760, 1), probe.bridge_gate),
         ('AREA01 story D_008107D9', o.load(0x8107D9, 1), probe.area01_story),
         ('bridge counter D_008107E0', o.load(0x8107E0, 1), probe.bridge_counter),
+        ('class-2 reaction gate D_0081080F', o.load(0x81080F, 1), probe.reaction_gate),
+        ('placed owner event 15 D_00810767', o.load(0x810767, 1), probe.event15),
     ]
     failed = 0
     for name, original, native in fields:

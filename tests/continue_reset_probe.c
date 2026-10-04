@@ -30,6 +30,8 @@ typedef struct {
     uint32_t bridge_gate;     /* D_00810760                     */
     uint32_t area01_story;    /* D_008107D9                     */
     uint32_t bridge_counter;  /* D_008107E0                     */
+    uint32_t reaction_gate;   /* D_0081080F                     */
+    uint32_t event15;         /* D_00810767                     */
 } ContinueResetProbe;
 
 void continue_reset_probe(ContinueResetProbe *out)
@@ -83,11 +85,20 @@ void continue_reset_probe(ContinueResetProbe *out)
     assert(!em_scene_progress_at(&scene, 0x00810758u, 6));
     /* Neighboring reserved bytes cannot be read through a wider request. */
     assert(!em_scene_progress_at(&scene, 0x00810765u, 2));
-    assert(!em_scene_progress_at(&scene, 0x00810766u, 2));
+    assert(em_scene_progress_at(&scene, 0x00810766u, 2));
+    assert(!em_scene_progress_at(&scene, 0x00810767u, 2));
     assert(!em_scene_progress_at(&scene, 0x00810841u, 2));
     assert(!em_scene_progress_at(&scene, 0x00810842u, 2));
     assert(!em_scene_progress_at(&scene, 0x00810844u, 2));
     assert(!em_scene_progress_at(&scene, 0x00810845u, 2));
+    uint8_t *reaction = em_scene_progress_at(&scene, 0x0081080Fu, 1);
+    assert(reaction);
+    *reaction = 0xFF;
+    assert(!em_scene_progress_at(&scene, 0x0081080Eu, 2));
+    assert(!em_scene_progress_at(&scene, 0x0081080Fu, 2));
+    uint8_t *event15 = em_scene_progress_at(&scene, 0x00810767u, 1);
+    assert(event15);
+    *event15 = 0xFF;
 
     game_state_new_game(&g);
     em_scene_progress_reset_001AF2C0(&scene);
@@ -112,6 +123,8 @@ void continue_reset_probe(ContinueResetProbe *out)
     out->bridge_gate = *area01[3];
     out->area01_story = *area01[4];
     out->bridge_counter = *area01[5];
+    out->reaction_gate = *reaction;
+    out->event15 = *event15;
 }
 
 /* em_director_original_001C4760_scene (the live 001C4760 binding) over a
