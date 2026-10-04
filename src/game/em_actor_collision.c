@@ -63,6 +63,13 @@ static uint32_t prim_size(const uint8_t *p)
     }
 }
 
+const uint8_t *em_actor_cells_prim(const EmActorCellTable *t,uint32_t at)
+{
+    if(!t||!t->bytes||at>t->size||t->size-at<4)return NULL;
+    uint32_t n=prim_size(t->bytes+at);
+    return n&&n<=t->size-at?t->bytes+at:NULL;
+}
+
 /* ---- The cell directory -------------------------------------------------- */
 
 static int hull_valid(const uint8_t *bytes, uint32_t size, uint32_t offset)
@@ -340,6 +347,7 @@ static int in_hull_box(const uint8_t *hull, const EmCollProbeState *s, float lo,
 static int vertical_0019F730(const EmActorCollisionWorld *w, EmCollProbeState *s)
 {
     const EmActorCellTable *t = w->table;
+    s->record = EM_COLL_PROBE_RECORD_CELL; s->node = -1; /* 0019F76C */
     float lo, hi;
     if (em_ee_c_le(s->start[1], s->end[1])) { lo = s->start[1]; hi = s->end[1]; }
     else { lo = s->end[1]; hi = s->start[1]; }
@@ -350,6 +358,7 @@ static int vertical_0019F730(const EmActorCollisionWorld *w, EmCollProbeState *s
         if (word & 0x40000000u) continue;
         if (!w->static_kind || (unsigned)i >= w->static_kind_count) return -1;
         int16_t kind = w->static_kind[i];                    /* 0x70003B88 */
+        s->span_hi = kind;
         if (kind >= 0x5A) continue;
         if (kind == 0x51 && s->query_class != 0) continue;
         if (kind == 0x52 && s->query_class != 2) continue;
@@ -407,10 +416,10 @@ static int vertical_0019F730(const EmActorCollisionWorld *w, EmCollProbeState *s
 
 /* 0019AB20 ------------------------------------------------------------------ */
 
-int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
+static int ground_0019AB20(const EmActorCollisionWorld *world,
                                        const EmActorCollisionQuery *query,
                                        const float position[3], const float probe[3],
-                                       uint32_t mask, EmActorCollisionHit *hit)
+                                       uint32_t mask, EmActorCollisionHit *hit, EmCollProbeState *shared)
 {
     if (!world || !query || !position || !probe || !hit) return -1;
     if ((mask & 2) && (!world->table || !world->table->bytes || !world->lists)) return -1;
@@ -420,14 +429,16 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
         return -1;
     if ((mask & 0x80000000u) && !query->feet_y) return -1;
     EmCollProbeState s;
-    memset(&s, 0, sizeof s);
-    s.node = -1;
+    if (shared) s = *shared;
+    else { memset(&s, 0, sizeof s); s.node = -1; }
     memcpy(s.start, position, 3 * sizeof(float));
     memcpy(s.end, position, 3 * sizeof(float));
     s.start[1] = ee_sub(s.start[1], probe[1]);
     const float nudge = em_ee_c_lt(probe[1], 0.0f) ? em_ee_float(0x3A83126Fu)   /* +0.001 */
                                                    : em_ee_float(0xBA83126Fu);  /* -0.001 */
     s.start[1] = ee_add(s.start[1], nudge);
+    s.start[3] = s.end[3] = 0.0f; /* 0019ABF0 / 0019ABF8 */
+    s.entity = NULL;            /* 0019AC00 */
     s.query_class = query->cls & 0x1F;
     int kind = 0, record = EM_ACTOR_RECORD_NONE, poly = -1;
     if (mask & 2) {
@@ -461,6 +472,7 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
         for (int k = 0; k < 3; ++k) {
             hit->point[k] = s.point[k];
             hit->delta[k] = ee_sub(s.point[k], end[k]);
+            s.end[k] = end[k]; s.delta[k] = hit->delta[k];
         }
         if (mask & 0x80000000u) *query->feet_y = ee_add(*query->feet_y, hit->delta[1]);
         hit->record = record;
@@ -477,10 +489,21 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
         }
     } else {
         hit->record = EM_ACTOR_RECORD_NONE;
+        s.record = EM_COLL_PROBE_RECORD_NONE; s.node = -1;
     }
-    hit->kind = kind;
+    hit->kind = kind; s.kind = kind;
+    if (shared) *shared = s;
     return kind;
 }
+
+int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
+    const EmActorCollisionQuery *query, const float position[3], const float probe[3],
+    uint32_t mask, EmActorCollisionHit *hit)
+{ return ground_0019AB20(world,query,position,probe,mask,hit,NULL); }
+int em_actor_collision_ground_state_0019AB20(const EmActorCollisionWorld *world,
+    const EmActorCollisionQuery *query, const float position[3], const float probe[3],
+    uint32_t mask, EmActorCollisionHit *hit, EmCollProbeState *state)
+{ return state ? ground_0019AB20(world,query,position,probe,mask,hit,state) : -1; }
 
 /* 0019BC40 pass 1 ------------------------------------------------------------ */
 

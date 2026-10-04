@@ -106,11 +106,20 @@ static int load_contact(void)
     return 0;
 }
 
+const uint8_t *em_collision_world_contact_bytes(uint32_t address, uint32_t size)
+{
+    return s_contact.loaded && size && address >= EM_COLLISION_WORLD_D_00275490 &&
+           size <= sizeof s_contact.bytes &&
+           address - EM_COLLISION_WORLD_D_00275490 <= sizeof s_contact.bytes - size
+        ? s_contact.bytes + address - EM_COLLISION_WORLD_D_00275490 : NULL;
+}
+
 /* The AREA11 binder's records and the +0x34 behaviour (kept across loads). */
 static struct {
     uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size);
     void *context;
 } s_area_records;
+static EmCollisionWorldAreaPasses s_area_passes;
 static struct {
     EmCollisionWorldBehaviour fn;
     void *context;
@@ -121,6 +130,40 @@ void em_collision_world_bind_area_records(uint8_t *(*bytes)(void *context, uint3
 {
     s_area_records.bytes = bytes;
     s_area_records.context = bytes ? context : NULL;
+}
+
+int em_collision_world_bind_area_passes(const EmCollisionWorldAreaPasses *binding)
+{
+    if (!binding) {
+        memset(&s_area_passes, 0, sizeof s_area_passes);
+        return 0;
+    }
+    if (!w.loaded || !binding->bytes || !binding->pair) return -1;
+    s_area_passes = *binding;
+    return 0;
+}
+
+static int area_pair(EmCollListPasses *passes, uint32_t function, uint32_t a0, uint32_t a1)
+{
+    if (!s_area_passes.pair) return -1;
+    /* 001A8BE0 owns its loop counter until the pair's original scratch
+     * accesses. In particular, 001A8840 can clear 3B86 to end that loop. */
+    w.state.span_lo = passes->globals->s3B86;
+    w.state.span_hi = passes->globals->s3B88;
+    int rc = s_area_passes.pair(s_area_passes.context, function, a0, a1);
+    passes->globals->s3B86 = w.state.span_lo;
+    passes->globals->s3B88 = w.state.span_hi;
+    return rc;
+}
+static int area_001A8840(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
+{
+    (void)context;
+    return area_pair(passes, 0x001A8840u, a0, a1);
+}
+static int area_001A9E00(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
+{
+    (void)context;
+    return area_pair(passes, 0x001A9E00u, a0, a1);
 }
 
 void em_collision_world_bind_behaviour(EmCollisionWorldBehaviour behaviour, void *context)
@@ -237,6 +280,8 @@ static uint8_t *owner_bytes(void *context, uint32_t address, uint32_t size)
     if (s_contact.loaded && address >= EM_COLLISION_WORLD_D_00275490 &&
         size <= sizeof s_contact.bytes && address - EM_COLLISION_WORLD_D_00275490 <= sizeof s_contact.bytes - size)
         return s_contact.bytes + (address - EM_COLLISION_WORLD_D_00275490);
+    if (s_area_passes.bytes)
+        return s_area_passes.bytes(s_area_passes.context, address, size);
     uint8_t *b = s_owners.record_bytes ? s_owners.record_bytes(s_owners.context, address, size) : NULL;
     if (!b && s_records.bytes) b = s_records.bytes(s_records.context, address, size);
     if (!b && s_area_records.bytes) b = s_area_records.bytes(s_area_records.context, address, size);
@@ -261,10 +306,10 @@ static void bind_passes(void)
     w.passes.data = &w.data;
     w.passes.math = &w.math;
     EmCollListWorkers *k = &w.passes.workers;
-    /* None of these callees has a translation; none ran on the census route
-     * (docs/COLL_LIST_PASSES.md section 2). Reaching one faults with its
-     * call site's address. */
-    k->w_001A8840 = em_coll_list_passes_unported;
+    /* AREA01 supplies its existing SYS owners for the two pair calls
+     * below. Without that binding they retain the first-level fail-stop.
+     * The other callers remain unavailable (COLL_LIST_PASSES.md). */
+    k->w_001A8840 = area_001A8840;
     k->w_001A8970 = em_coll_list_passes_unported;
     k->w_001A8CE0 = em_coll_list_passes_unported;
     k->w_001A8E80 = em_coll_list_passes_unported;
@@ -273,7 +318,7 @@ static void bind_passes(void)
     k->w_001A96F0 = em_coll_list_passes_unported;
     k->w_001A9480 = em_coll_list_passes_unported;
     k->w_001A99E0 = em_coll_list_passes_unported;
-    k->w_001A9E00 = em_coll_list_passes_unported;
+    k->w_001A9E00 = area_001A9E00;
     k->w_001AA000 = em_coll_list_passes_unported_001AA000;
     /* 001A9D20's pair callee, translated (first reached by the AIM capture
      * aim_04's impact markers; COLL_LIST_PASSES.md). */
@@ -288,6 +333,7 @@ static void bind_passes(void)
 
 void em_collision_world_unload(void)
 {
+    memset(&s_area_passes, 0, sizeof s_area_passes);
     em_actor_cells_free(&w.cells);
     em_coll_probe_grid_free(&w.grid);
     memset(&w, 0, sizeof w);

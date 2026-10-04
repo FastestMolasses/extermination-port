@@ -178,6 +178,22 @@ void em_collision_world_bind_records(uint8_t *(*bytes)(void *context, uint32_t a
  * builds; NULL unbinds. */
 void em_collision_world_bind_area_records(uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size),
                                           void *context);
+/* An area's canonical transaction for the close-out passes. The caller
+ * keeps its record views active for the whole close-out. Its bytes callback
+ * has priority over the older owner projections for non-list addresses;
+ * NULL from it is authoritative. pair dispatches only 001A8840/001A9E00
+ * into their existing owners. The original halfword counters are published
+ * to the world's shared probe state around each nested pair call.
+ * NULL unbinds; unload clears this per-world binding. Incomplete bindings
+ * are rejected without replacing the current one. */
+typedef struct {
+    void *context;
+    uint8_t *(*bytes)(void *context, uint32_t address, uint32_t size);
+    int (*pair)(void *context, uint32_t function, uint32_t a0, uint32_t a1);
+} EmCollisionWorldAreaPasses;
+int em_collision_world_bind_area_passes(const EmCollisionWorldAreaPasses *binding);
+/* The existing immutable radius/height export, shared by raw pair owners. */
+const uint8_t *em_collision_world_contact_bytes(uint32_t address, uint32_t size);
 /* The +0x34 behaviour 001A8660 calls for a class-0xD type-1 entry
  * (fn = the entry's +0x34 word): the binder dispatches it (AREA11: the
  * flame's 0x823580). Unbound, or for a word the binder does not know, the

@@ -73,10 +73,12 @@ extern "C" {
  * lane, x/y/z only) and the two words the hull locks 001A6440 / 001A6AD0
  * store in the cell record D_700030B0. */
 typedef struct {
-    float box_min[3];   /* 0x70003600..0x70003608 */
-    float box_max[3];   /* 0x70003610..0x70003618 */
-    float delta[3];     /* 0x70003620..0x70003628: end - start */
-    float rel[3];       /* 0x70003630..0x70003638: box origin - start */
+    /* Shared full quadwords. Collision writes xyz only; W belongs to the
+     * preceding SDK/pose/camera/audio writer and must remain untouched. */
+    float box_min[4];   /* 0x70003600..0x7000360C */
+    float box_max[4];   /* 0x70003610..0x7000361C */
+    float delta[4];     /* 0x70003620..0x7000362C: end - start */
+    float rel[4];       /* 0x70003630..0x7000363C: box origin - start */
     float cross[2];     /* 0x70003684, 0x70003688: the two in-plane coordinates */
     uint32_t hull_word_1c;   /* 0x700030CC: D_700030B0 +0x1C (the locks) */
     uint32_t hull_word_20;   /* 0x700030D0: D_700030B0 +0x20 (the locks) */

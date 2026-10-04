@@ -80,6 +80,8 @@ int em_actor_cells_load(EmActorCellTable *table, const char *path);
 void em_actor_cells_free(EmActorCellTable *table);
 /* The hull of `uid` (tbl + offset word), or NULL for uid >= count / word 0. */
 const uint8_t *em_actor_cells_hull(const EmActorCellTable *table, unsigned uid);
+/* Bounds-check one prim against the current mutable directory. */
+const uint8_t *em_actor_cells_prim(const EmActorCellTable *table, uint32_t offset);
 /* The hull AABB header: min xyz, max xyz. Returns 1, or 0 for no hull. */
 int em_actor_cells_bounds(const EmActorCellTable *table, unsigned uid, float out[6]);
 
@@ -190,6 +192,13 @@ int em_actor_collision_ground_0019AB20(const EmActorCollisionWorld *world,
                                        const EmActorCollisionQuery *query,
                                        const float position[3], const float probe[3],
                                        uint32_t mask, EmActorCollisionHit *hit);
+
+/* Same original, preserving every shared scratch field it does not write.
+ * Existing hit-only callers continue through the entry above. */
+struct EmCollProbeState;
+int em_actor_collision_ground_state_0019AB20(const EmActorCollisionWorld *world,
+    const EmActorCollisionQuery *query, const float position[3], const float probe[3],
+    uint32_t mask, EmActorCollisionHit *hit, struct EmCollProbeState *state);
 
 /* 0019BC40(pos): the column table with every published class-4 owner cell
  * (all prim types). `math` is required, with both workers: 001A58B0 and the

@@ -79,7 +79,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_actor_pool.c src/game/em_actor_roster.c src/game/em_area11_bindings.c \
            src/game/em_area01_arrival.c src/game/em_area01_state.c \
  src/game/em_area01_runtime.c \
- src/game/em_area01_room.c \
+           src/game/em_area01_collision_view.c src/game/em_area01_room.c \
            src/game/em_area01_math_core.c src/game/em_area01_math_actor.c src/game/em_area01_math_owner.c \
            src/game/em_area01_light_owner.c src/game/em_area01_overlay.c src/game/em_area01_overlay_826d40.c \
            src/game/em_area01_sys.c src/game/em_area01_exita.c src/game/em_area01_exitb.c \
@@ -1586,6 +1586,10 @@ test-area01-memory-view-reference:
 test-area01-runtime-reference:
 	python3 tools/test_area01_runtime_reference.py
 
+.PHONY: test-area01-collision-view-reference
+test-area01-collision-view-reference:
+	python3 tools/test_area01_collision_view_reference.py
+
 .PHONY: test-area01-sfx-registry
 test-area01-sfx-registry:
 	python3 tools/test_area01_sfx_registry.py
@@ -1597,3 +1601,7 @@ test-status-pose69-reference:
 .PHONY: test-area01-static-ground
 test-area01-static-ground:
 	python3 tools/test_area01_static_ground_reference.py
+
+.PHONY: test-area01-closeout
+test-area01-closeout:
+	python3 tools/test_area01_closeout_reference.py

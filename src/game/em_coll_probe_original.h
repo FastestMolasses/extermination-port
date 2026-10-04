@@ -108,7 +108,7 @@ enum {
     EM_COLL_PROBE_RECORD_GRID = 2   /* 0x700031D0 = grid node `node` */
 };
 
-typedef struct {
+typedef struct EmCollProbeState {
     float start[4];          /* 0x70003190..0x7000319C */
     float end[4];            /* 0x700031A0..0x700031AC */
     float point[3];          /* 0x700031B0 */
