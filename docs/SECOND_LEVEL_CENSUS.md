@@ -2,7 +2,7 @@
 
 Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
-**Current (2026-10-04, step GUARD):** **41 live (9,183 instructions), 136 verified-unbound (20,233), 0 missing, 2 boundary (131)** (§8; §2's table is the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
+**Current (2026-10-04, step MOVE):** **48 live (10,913 instructions), 129 verified-unbound (18,503), 0 missing, 2 boundary (131)** (§9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
 
 ## 1. Scope and counting
 
@@ -93,7 +93,7 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x0015FDF0 | boot | 267 | S; s6 f158 | verified-unbound | `em_player_running_jump.c` / `em_player_running_jump_aim` | Q | L |
 | 0x00163D50 | boot | 79 | M; 04 f1255 | verified-unbound | `em_player_fall.c` | E | — |
 | 0x00164220 | boot | 97 | M; 00 f520 | verified-unbound | `em_player_fall.c` | E | — |
-| 0x001647D0 | boot | 1251 | M; 00 f358 | verified-unbound | `em_player_hang.c` | E | — |
+| 0x001647D0 | boot | 1251 | M; 00 f358 | live | `em_player_hang.c` | E; A0 | — |
 | 0x0016D130 | boot | 833 | S; s5 f136 | verified-unbound | `em_player_closure_0e_18.c` | Q | — |
 | 0x0016DE40 | boot | 855 | S; s5 f282 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
 | 0x0016EBA0 | boot | 235 | S; s5 f3021 | verified-unbound | `em_player_closure_10_12_19.c` | Q | — |
@@ -109,11 +109,11 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x0017E510 | boot | 115 | M; 00 f360 | verified-unbound | `em_player_misc_workers.c` | M | — |
 | 0x0017F240 | boot | 56 | M; 00 f358 | verified-unbound | `em_player_hang.c` | M | — |
 | 0x0017F320 | boot | 177 | M; 00 f336 | verified-unbound | `em_player_record_helpers.c` | M | — |
-| 0x00182250 | boot | 100 | M; 00 f358 | verified-unbound | `em_player_misc_workers.c` | M | — |
+| 0x00182250 | boot | 100 | M; 00 f358 | live | `em_player_misc_workers.c` | M; A0 | — |
 | 0x001823E0 | boot | 17 | S; s5 f346 | verified-unbound | `em_player_major2.c` | Q | — |
 | 0x00183250 | boot | 104 | M; 04 f1810 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00183250` | M | — |
 | 0x00187DE0 | boot | 45 | M; 02 f39 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00187DE0` | M | — |
-| 0x00187EC0 | boot | 8 | M; 00 f137 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00187EC0` | M | — |
+| 0x00187EC0 | boot | 8 | M; 00 f137 | live | `em_area01_math_player.c` / `em_area01_math_00187EC0` | M; A0 | — |
 | 0x00188550 | boot | 7 | M; 00 f357 | verified-unbound | `em_player_record_helpers.c` | M | — |
 | 0x00188610 | boot | 7 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00188610` | Q | — |
 | 0x00191120 | boot | 59 | M; 00 f357 | verified-unbound | `em_camera_follow_original.c` / `em_camera_follow_00191120` | S | — |
@@ -121,8 +121,8 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x0019B4C0 | boot | 128 | M; 00 f1; E c16504 | live | `em_area01_sys.c` / `em_area01_sys_0019B4C0` | S; G | — |
 | 0x0019CF50 | boot | 248 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0019CF50` | S | — |
 | 0x001A06A0 | boot | 283 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A06A0` | S | — |
-| 0x001A8840 | boot | 76 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A8840` | S | — |
-| 0x001A9E00 | boot | 88 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A9E00` | S | — |
+| 0x001A8840 | boot | 76 | M; 00 f6 | live | `em_area01_sys.c` / `em_area01_sys_001A8840` | S; A0 | — |
+| 0x001A9E00 | boot | 88 | M; 00 f6 | live | `em_area01_sys.c` / `em_area01_sys_001A9E00` | S; A0 | — |
 | 0x001AA000 | boot | 78 | M; 00 f57; E c16505 | live | `em_area01_sys.c` / `em_area01_sys_001AA000` | S; G | — |
 | 0x001AA4E0 | boot | 86 | S; s6 f158 | verified-unbound | `em_player_running_jump.c` / `em_player_running_jump_target` | Q | L |
 | 0x001AF7C0 | boot | 13 | S; s2 f280 | verified-unbound | `em_status_models.c` / `w_001AF7C0 (also standalone SIDE)` | D | L |
@@ -184,14 +184,14 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001E9280 | boot | 189 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9280` | Y | — |
 | 0x001E9580 | boot | 566 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001E9580` | Y; G | — |
 | 0x001E9E60 | boot | 233 | M; 00 f1; E c16504 | live | `em_area01_render_hud.c` / `em_area01_render_001E9E60` | R; G | — |
-| 0x001EAF00 | boot | 31 | M; 00 f138 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF00` | R | — |
+| 0x001EAF00 | boot | 31 | M; 00 f138 | live | `em_area01_render_hud.c` / `em_area01_render_001EAF00` | R; A0 | — |
 | 0x001EAF80 | boot | 39 | M; 02 f44 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF80` | R | — |
 | 0x001EB020 | boot | 140 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EB020` | R | — |
 | 0x001EC270 | boot | 96 | M; 02 f599 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EC270` | R | — |
 | 0x001EFE00 | boot | 43 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001EFE00` | D | L |
 | 0x001F0190 | boot | 64 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0190` | D | L |
 | 0x001F0290 | boot | 12 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0290` | D | L |
-| 0x001F0460 | boot | 176 | M; 00 f178 | verified-unbound | `em_effect_original.c` | E | L |
+| 0x001F0460 | boot | 176 | M; 00 f178 | live | `em_effect_original.c` | E; A0 | L |
 | 0x001F4A10 | boot | 120 | M; 00 f1; E c16504 | live | `em_area01_render_gs.c` / `em_area01_render_001F4A10` | R; G | — |
 | 0x001F4BF0 | boot | 50 | M; 00 f1; E c16504 | live | `em_status_scene_original.c` | E; G | — |
 | 0x001F4CC0 | boot | 30 | M; 00 f1; E c16504 | live | `em_area01_render_gs.c` / `em_area01_render_001F4CC0` | R; G | — |
@@ -330,6 +330,43 @@ until a comparison names them.
 |---|---:|---:|
 | live | 41 | 9,183 |
 | verified-unbound | 136 | 20,233 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
+
+## 9. Step MOVE: route a01_00 rows f0..f404 (2026-10-04)
+
+Evidence key **A0**: the row is bound on the default AREA01 first-visit
+path, first runs natively on the frame the census records for route
+a01_00, and the level smoke's a01_00 phase (opt-in:
+`python3 tools/test_level_smoke_area01.py --until a01_00`) compares that
+frame and every one before it with the recording row for row (player
+state, pose, clock, ground, position and heading; camera eye, target and
+flag word; selector, request, area and task bytes; health; the progress
+windows D_008107D8..+0x3F and D_00810758..+7; message, screen, bars,
+power, fade; all 11 recorded owner records): **f0..f404 exact**, then the
+run stops at a render fault (LEVEL2_BINDING.md, step MOVE). First native
+calls, measured with a private diagnostic build (deleted, never
+committed) that logged the first call of each original through
+`em_area01_runtime_call`: 001A8840 and 001A9E00 at f6, 00187EC0 at f137
+(001A8840's floor-field contact), as the census. The others were first
+reached on their census frames in this step's runs: 001EAF00 at f138
+(the contact's first splash) and 001F0460 at f178 (the first wet-feet
+decal) by the runs that faulted there before they were bound, and
+001647D0 / 00182250 at f358 (the hang's sub-state 0 and its alignment)
+by a private probe build's per-step player log.
+
+Not promoted although the matched window runs them: the grab and hang
+helpers named on route frames f304..f360 (001776E0, 00177CF0, 0017F320,
+0017F240, 00188550, 0017E250, 0017E510), the camera's 00191120 and the
+Use scan 00184BA0's caller rows, because no native first-call measurement
+names them; the fall and landing rows (f491..f520) are beyond f404.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 48 | 10,913 |
+| verified-unbound | 129 | 18,503 |
 | unverified | 0 | 0 |
 | stand-in | 0 | 0 |
 | missing | 0 | 0 |

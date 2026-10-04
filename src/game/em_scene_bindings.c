@@ -802,15 +802,23 @@ static void log_area01(FILE *f)
     uint32_t hp;
     memcpy(&hp, &g.status.health, 4);
     fprintf(f, "}, \"hp\": %u, \"progress\": [", hp);
+    /* Each byte from its one port owner: the canonical progress region,
+     * or the named mirror g.opening_complete (D_00810811, not migrated).
+     * A byte with neither has no port storage: live code reaches the
+     * region only through em_scene_progress_at (which refuses it) or a
+     * named mirror, so it keeps 001AF2C0's reset value 0 (the region's
+     * memset). */
     static const uint32_t windows[][2] = {{0x8107D8, 64}, {0x810758, 8}, {0x810860, 64}, {0x810D00, 32}};
     for (unsigned i = 0; i < 4; ++i) {
-        const uint8_t *p = em_scene_progress_at(&s_state, windows[i][0], windows[i][1]);
+        uint8_t bytes[64];
+        for (uint32_t k = 0; k < windows[i][1]; ++k) {
+            const uint32_t at = windows[i][0] + k;
+            const uint8_t *p = em_scene_progress_at(&s_state, at, 1);
+            bytes[k] = p ? *p : at == 0x00810811u ? g.opening_complete : 0;
+        }
         if (i)
             fputs(", ", f);
-        if (p)
-            log_hex(f, p, windows[i][1]);
-        else
-            fputs("null", f);
+        log_hex(f, bytes, windows[i][1]);
     }
     fputs("]}", f);
 }
@@ -3103,12 +3111,13 @@ static int area01_behavior(EmActor *a, void *world)
         fprintf(stderr, "em_area01: owner %08X node %08X failed at %08X\n", c.function, (uint32_t)c.a[0],
                 l->fault_address);
         fprintf(stderr, "em_area01: diagnostics actor=%d/%08X/%d player=%d/%08X/%d collision=%d/%08X/%d "
-                        "model=%d/%08X pickup=%d/%08X door=%d/%08X runtime=%d/%08X\n",
+                        "model=%d/%08X pickup=%d/%08X door=%d/%08X interaction=%d/%08X runtime=%d/%08X\n",
                 l->actors.fault, l->actors.fault_address, l->actors.active,
                 l->player.fault, l->player.fault_address, l->player.active,
                 l->collision.fault, l->collision.fault_address, l->collision.active,
                 l->model.fault, l->model.fault_address, l->pickups.fault, l->pickups.fault_address,
-                l->door.fault, l->door.fault_address, l->runtime.fault, l->runtime.fault_address);
+                l->door.fault, l->door.fault_address, l->interaction.fault, l->interaction.fault_address,
+                l->runtime.fault, l->runtime.fault_address);
         return em_scene_fault(&s_state, l->fault_address, EM_SCENE_FAULT_WORKER_FAILED);
     }
     return 1;

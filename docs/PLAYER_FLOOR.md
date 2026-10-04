@@ -89,9 +89,11 @@ after 0015BCF0's animate step, in AREA11):
 - The frame counter is 0x70003B68 and the area D_00810700, from the scene
   state.
 - Workers: 00179B90 / 00122BB8 the shared LCG, 001FBD50(p, id, 0, 300.0) at
-  the record, 001EFD90 the live effect binder (em_effects_live, census L26). The wet-feet
-  decal 001F0460 and the wading 001E8B90 have no live binding and fault if
-  reached (no floor on the route sets the wet timer or the water depth).
+  the record, 001EFD90 the live effect binder (em_effects_live, census L26), and
+  since step MOVE (LEVEL2_BINDING.md) the wet-feet decal 001F0460 (the
+  matrix in SPR 0x700036A0, row 3 w the recordings' 0; reached in AREA01
+  after the floor fields). The wading 001E8B90 has no live binding and
+  faults if reached (no floor on the route so far sets the water depth).
 
 Evidence: over the first-control fixture with the run-stop interruption
 (`make test-first-control-reference`) the record's +25E and +212 equal the

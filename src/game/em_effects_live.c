@@ -9,6 +9,7 @@
 
 #include "game/em_area11_roger.h"
 #include "game/em_aim_fire_tables.h"
+#include "game/em_area01_render_hud.h"
 #include "game/em_area02_misc.h"
 #include "game/em_level8_port.h"
 #include "game/em_collision_world.h"
@@ -815,6 +816,73 @@ static int handler_001EAD70(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* The splash handlers 001EAF00 / 001EAF80 / 001EB020 (D_00255434
+ * entries, reached in AREA01 when the player wades a floor field:
+ * 001A8840's contact event 6): em_area01_render_hud's translations, their
+ * one owner (test_area01_render_reference.py runs the original
+ * instructions), over the views they address: D_00275C34 (the work block,
+ * node + 0x1F0), the work block's +4 (the LCG copy 001EA240 wrote; the
+ * random rounds step it), +0x54 (the accumulator) and +0x5C (the
+ * fraction); their 001CFB50 / 001CFBE0 are this module's. a0 is node +
+ * 0xD0 (the node's matrix), a1 the depth. */
+typedef struct {
+    const EmEffectOriginalNode *node;
+    EmEffectOriginalWork *work;
+    u32 node_address, d275C34;
+} SplashCall;
+
+static uint8_t *splash_bytes(void *ctx, uint32_t address, uint32_t size, int write)
+{
+    SplashCall *c = ctx;
+    if (size != 4) return NULL;
+    if (address == 0x00275C34u) return write ? NULL : (uint8_t *)&c->d275C34;
+    if (address == c->d275C34 + 4u) return (uint8_t *)&c->work->seed_copy;
+    if (address == c->d275C34 + 0x54u) return write ? NULL : (uint8_t *)&c->work->accumulator;
+    if (address == c->d275C34 + 0x5Cu) return write ? NULL : (uint8_t *)&c->work->fraction;
+    return NULL;
+}
+
+static int splash_001CFB50(void *ctx, uint32_t dst, int32_t a1, uint32_t src, uint32_t f12, uint32_t f13,
+                           uint32_t f14, uint32_t f15, uint32_t f16)
+{
+    SplashCall *c = ctx;
+    if (src != c->node_address + 0xD0u) return -1;
+    return w_001CFB50(NULL, dst, (u32)a1, c->node->matrix, f12, f13, f14, f15, f16);
+}
+
+static int splash_001CFBE0(void *ctx, uint32_t a0, int32_t kind, uint32_t table, uint32_t xf, int32_t t0)
+{
+    (void)ctx;
+    return w_001CFBE0(NULL, (int32_t)a0, kind, table, xf, t0);
+}
+
+static int splash_handler(u32 handler)
+{
+    return handler == 0x001EAF00u || handler == 0x001EAF80u || handler == 0x001EB020u;
+}
+
+static int handler_splash(u32 handler, EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *s = slot_of_node(node);
+    if (!s || !work || work != &node->work) return fail(handler, "splash handler without its node");
+    const u32 at = em_actor_pool_address(S.pool, actor_of(s));
+    SplashCall c = {node, work, at, at + 0x1F0u};
+    EmArea01RenderHud h;
+    memset(&h, 0, sizeof h);
+    h.core.world.view = splash_bytes;
+    h.core.world.view_ctx = &c;
+    h.workers.ctx = &c;
+    h.workers.w_001CFB50 = splash_001CFB50;
+    h.workers.w_001CFBE0 = splash_001CFBE0;
+    const u32 a0 = at + 0xD0u, a1 = (u32)depth;
+    int rc = handler == 0x001EAF00u ? em_area01_render_001EAF00(&h, a0, a1)
+           : handler == 0x001EAF80u ? em_area01_render_001EAF80(&h, a0, a1)
+                                    : em_area01_render_001EB020(&h, a0, a1);
+    if (rc < 0 || h.core.fault.code)
+        return fail(h.core.fault.address ? h.core.fault.address : handler, "splash handler faulted (em_area01_render_hud)");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -823,6 +891,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
         return em_effect_kinds_handler(&S.k, handler, node->matrix, depth, work);
     if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
+    if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     if (packet_only_handler(handler)) return effects_gap(handler, node->subtype);
     return fail(handler, "untranslated effect handler (not packet-only)");
 }
@@ -880,12 +949,14 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
     /* The source block: the exported handler sources (D_002565E0.. and
      * since chain step AIMCAM's fix round D_00255620 / D_002560D0 /
      * D_00256160, since AIMLIVE's fix round D_002561F0 and D_00255590,
-     * export_effect_tables.py), 0x90 bytes. */
+     * the skid's D_002556B0 / D_00255740 and the AREA01 splash handlers'
+     * D_002557D0 + 0x90 n (n = 0..5), export_effect_tables.py), 0x90 bytes. */
     const uint8_t *bytes = source >= 0x002565E0u && source - 0x002565E0u <= sizeof S.sources - 0x90u
                                ? S.sources + (source - 0x002565E0u)
                            : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u ||
                               source == 0x002561F0u || source == 0x00255590u || source == 0x002563A0u ||
-                              source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u)
+                              source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u ||
+                              (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
                                ? em_effects_live_window(source, 0x90)
                                : NULL;
     if (xf != EM_EFFECT_KINDS_XF || !bytes)

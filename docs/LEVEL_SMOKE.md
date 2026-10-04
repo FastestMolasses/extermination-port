@@ -7,9 +7,12 @@ compared with route 15 f741–801 by `tools/level_smoke_area01.py`
 frames is gone; an AREA01 original without an owner still faults where it
 is reached. `make test-level-smoke-full` and `--require-through last` end
 at `a01_arrival`. The harness also names the AREA01 main beats
-`a01_00`..`a01_07` and the side beats `a01_s0`..`a01_s7` (opt-in, not yet
-compared); `make test-area01-smoke-harness` checks the harness itself
-against the recorded inputs, not a native run. See
+`a01_00`..`a01_07` and the side beats `a01_s0`..`a01_s7` (opt-in). The
+first of them, `a01_00` (the train room), runs live and is compared row
+for row ("a01_00" below); it stops at f405 on kind 6's untranslated VU1
+program, so it is not yet part of `make test-level-smoke-full`.
+`make test-area01-smoke-harness` checks the harness itself against the
+recorded inputs, not a native run. See
 [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the AREA01 state and the work
 left.
 
@@ -304,6 +307,7 @@ fence_door_side1` requires both side phases.
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 | exit | 15 (EXIT capture: exit_00 f31.., exit_01 ..f306) | fan r2 00827630's exit box, Roger's departure 0x828A10 (op01 kind 3, op0F: the movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (AREA01 sub 0), the AREA01 arrival 0x1AE040 state 0 | yes (chain C11 EXIT, 2026-10-02) | — |
 | a01_arrival | 15 (route 15 f741..f801) | the AREA01 rebuild, then 0x1AE040 state 1 / 001AE5E0 over AREA01's 54 placements and spawned owners (LEVEL2_BINDING.md), the camera's one-shot seat 0018B9C0 state 0 (mode 8), the close-out's 001AA140 / 001AA000 | yes (step GUARD, 2026-10-04) | the AREA01 owners' records (not in route 15) |
+| a01_00 (opt-in, from a01_arrival) | a01_00_train_room (780 frames) | the recorded pad: the walk round the crates and through the floor fields (001A8840's contact 00187EC0, the splash 001EAF00, the wet-feet decal 001F0460), the Use scan 00184BA0 and ledge grab (f304), the hang 001647D0 with 00182250's alignment on the crate cell (f357), the pull-up (f360..), the fall and landing (f491..f520), the walk to the tunnel mouth | partly (step MOVE, 2026-10-04): f0..f404 exact, then the run stops at kind 6's VU1 program D_0023D930 (001E3D90's near-fire layer) | rows f405..f780 (all 781 rows match when only the kind-6 draw is skipped, in a private diagnostic build) |
 
 ## What the live phases check
 
@@ -1504,6 +1508,30 @@ rebuild is taken by this run too. `EM_A01_ARRIVAL_TICKS=N` (60..600)
 lengthens the idle as a diagnostic; frames past f801 are not recorded.
 
 Measured (2026-10-04): every compared field equal on all 61 rows.
+
+### a01_00
+
+`python3 tools/test_level_smoke_area01.py --until a01_00` (about 2
+minutes): New Game, the whole first level, a01_arrival, then route beat
+a01_00_train_room from its recorded pad (each command submitted two rows
+later, the BRANCH rule; the source gap from route 15's last counter is 1,
+so row 0 is port counter 15068). `level_smoke_area01.check_route` compares
+each of the 781 rows with `compare_route_row`: spad, screen, message,
+power, the player's position, heading, +5 / +1F0 / +1F1 / clip / +2F3,
+ground and clock, camera eye, target and flag word, the request, area and
+task bytes, slot 0's +8..+C, the next tick's fade, health, the progress
+windows D_008107D8..+0x3F, D_00810758..+7, the taken bits and the
+documents (the tick log composes them byte by byte from their owners), and
+all 11 recorded owner records (head, position, +0x1F0 block, +0x2DC timer,
+callback). No exemption.
+
+Measured (step MOVE, 2026-10-04): rows f0..f404 equal in every field
+(the tool prints "a01_00: NOT PASSED; 405 of 781 recorded rows exact
+before the stop"); the run then stops at the chain page's refusal of
+D_0023D930. A private diagnostic build that skipped only the kind-6
+draw request (deleted, never committed) matched all 781 rows and the
+checker passed a01_00 together with the first level's phases and
+a01_arrival. Receipts (ignored): `build/level2/move/receipts/`.
 
 ### The step-offs (`check_fall`)
 

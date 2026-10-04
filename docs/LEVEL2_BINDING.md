@@ -14,7 +14,90 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State (2026-10-04, step GUARD: the AREA01 guard is open)
+## State (2026-10-04, step MOVE: the player runs around the train room)
+
+**How far the player gets (step MOVE).** The opt-in phase **a01_00**
+(route beat a01_00_train_room, 780 frames: walk round the crates and
+through the floor fields, Use against the crate stack, grab, hang,
+pull-up, walk off its south side, fall, land, walk to the tunnel mouth)
+runs on from a01_arrival with the recorded pad (`python3
+tools/test_level_smoke_area01.py --until a01_00`, about 2 minutes) and its
+rows are compared one by one with the recording by the same strict
+checker as every AREA01 route phase (`level_smoke_area01.compare_route_row`:
+player, camera, requests, task, health, progress windows, message, bars,
+fade and all 11 recorded owner records). **Rows f0..f404 are exact**: the
+walk, the floor-field wading with its splashes and wet-feet decals, the Use
+scan, the ledge grab (f304), the hang (f357) and the first 44 frames of the
+pull-up. At port counter 15473 (row f405) the run stops at a fail-stop in
+the presentation: the fire owner 001E3D90's third layer asks 001CFBE0 for
+kind 6 once its projected size D_00275C00 exceeds 0x100 (the camera is
+close to the fires on the crate stack), and kind 6's VU1 program, the DMA
+packet D_0023D930 (MPGs of 256 and 130 instructions; it shares 270 of its
+386 instruction slots with the sprite program D_00231770 and differs in
+the emission, micro 0x10D..0x180), is neither exported nor translated, so
+the chain page refuses the page ("unmapped address fault at 0023D930").
+That program is the one thing missing for the whole beat: a private
+diagnostic build (deleted, never committed) that skipped only the kind-6
+requests ran all 780 frames and **all 781 rows matched**, the fall (f491),
+landing (f519) and the walk to the tunnel mouth included, and the level
+smoke checker passed a01_00 with every first-level phase and a01_arrival.
+When the run stops, the tool now prints how many recorded rows were exact
+before the stop ("a01_00: NOT PASSED; 405 of 781 ...", never a PASS).
+
+Bound or fixed in step MOVE (each to its existing owner):
+- `00187EC0` (001A8840's floor-field contact event (6, owner +0x56) /
+  (7, 0)): `em_area01_math_00187EC0` (byte-matched C; `python3
+  tools/test_area01_math_reference.py`) in the runtime dispatch; it writes the
+  player record's +0x0B, the surface byte +0x23A and +0x31E through the
+  player view. `em_area01_math_player.c` joins the main build.
+- The splash handlers `001EAF00` / `001EAF80` / `001EB020` (D_00255434
+  entries 001EA240 calls for the wading splash): em_area01_render_hud's
+  translations (`python3 tools/test_area01_render_reference.py`) through
+  `em_effects_live.c` handler_splash over the node's work block; their
+  001CFBE0 sources D_002557D0 + 0x90 n (n = 0..5) are a new
+  `assets/effect_tables.emet` window (`tools/export_effect_tables.py`;
+  equal to the ELF in all 35 route, route_a01 and startup captures).
+  001EAF00 runs from f138; 001EAF80 / 001EB020 are bound with it (the same
+  adapter) and are first reached on route a01_02.
+- The wet-feet decal of `00187EE0` (surface 0 with the wet timer +0x212
+  set, after the feet left a surface-6 floor field): `x_decal` builds the
+  matrix in SPR 0x700036A0 (L.foot_36A0) with 001029C0 / 00102BB0 /
+  00102B08 (em_owner_services) and calls 001F0460(1, M)
+  (em_effects_live_001F0460). Row 3's fourth word is the stack word
+  00187EE0's three-word 001031E0 copy never writes; it is **0 in every
+  wet-feet decal the recordings hold** (45 distinct 001F0460 lane-1 slots
+  across the route and route_a01 captures), and the port stores that 0.
+  The wading ripple 001E8B90 of 00187350 (water depth +0x23C) stays
+  unbound: no floor on the route so far sets +0x23C.
+- `D_0028A9A0` in the live composition's byte view: the transition
+  substate (001AEE70's, held by `em_frame_transition()`), read-only; the
+  Use scan 00184BA0 reads it as its fade gate (it faulted on the first Use
+  press in AREA01).
+- The closure's hit-record reader (`em_player_closure_live.c` last_hit):
+  *(0x700031D0) + 0x1A / + 0x24.. read the cell class 0x700030CA and the
+  cell normal 0x700030D4.. when the walkers left the cell record
+  D_700030B0 there, as the original's loads do, not a grid node's words.
+  00182250's hang alignment hits the crate stack's class-4 cell (owner
+  0x7AB150, uid 0x1B) at f358; with the stale grid normal the port turned
+  the player 0.1077 rad and moved it 0.16 off the ledge. Oracle check
+  (scratch, over the a01_00 capture): the original 0019AD00 with that
+  query returns 2, record D_700030B0, point (15.82121, 27.5, -710.90039),
+  cell normal (0, 0, 1); the native walkers return the same.
+- The a01 tick log's progress windows (D_008107D8..+0x3F, D_00810758..+7,
+  D_00810860..+0x3F, D_00810D00..+0x1F) are composed byte by byte from
+  their owners: the canonical progress region, g.opening_complete for
+  D_00810811 (a named mirror), and 0 for a byte with no port storage
+  (001AF2C0's reset; live code reaches the region only through
+  em_scene_progress_at or a named mirror). Before, a window with any
+  non-canonical byte logged null and the route checker could never pass.
+
+The segment walker's no-span arm (0019D770, camera queries): not reached
+in any a01_00 frame (the diagnostic run went through all 780 frames
+without that fault). Its original start / end / column registers are
+unassigned on that arm (LEVEL2_COLLISION.md), so there is no original
+value to substitute; the native fail-stop stays.
+
+## State before step MOVE (step GUARD: the AREA01 guard is open)
 
 **How far the game gets.** New Game plays the whole first level into
 AREA01 and the player arrives there in every run (not only under a test
@@ -162,11 +245,13 @@ Bound in the previous step (each to its existing owner):
    drawn, but no screenshot or pixel comparison exists; the smoke
    serializer omits the dynamic table; owner render hooks and the AREA01
    player shadow are unproven. Large (verification-heavy).
-4. Movement and collision: the player stage and collision view are adapted;
-   the 001A8840 / 001A9E00 close-out is proven; 001AA000 later (side s6);
-   the segment walker's no-span refusal for camera queries is unresolved
-   (LEVEL2_COLLISION.md); route a01_00 is 780 frames of grab, hang,
-   pull-up and fall. Medium-large.
+4. Movement and collision (step MOVE): route a01_00 is exact through
+   f404 and, with only kind 6's draw skipped, through all 780 frames. The
+   next item is kind 6's VU1 program D_0023D930 (export the packet, add
+   its MSCAL translation beside the sprite program in
+   em_vu1_page_programs.h, the chain page's recognition and an oracle
+   test with tools/chain_page_model.py VuOracle), then a01_01 / a01_02.
+   Medium.
 5. Camera: control-room and duct workers are forwarded through the camera
    host callback; the scene tables are not area-aware yet. Medium.
 6. Doors, NPC scripts, messages and pickups: beats a01_01..a01_07 and the

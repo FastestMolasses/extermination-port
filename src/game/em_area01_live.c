@@ -180,6 +180,14 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(em_area01_collision_view_owns(&l->collision,a,n))
         return em_area01_collision_view_bytes(&l->collision,a,n,write);
     if((p=em_area01_scene_view(l->host.scene,a,n)))return p;
+    if(overlaps(a,n,0x0028A9A0u,2)) {
+        /* D_0028A9A0 (D_0028A8E0 + 0xC0): 001AEE70's transition substate,
+         * held by its one owner em_frame_transition(); read-only here
+         * (00184BA0's Use-scan gate). */
+        const EmTransitionFade *fade=em_frame_transition();
+        return !write && fade && contains(a,n,0x0028A9A0u,2)
+            ? (uint8_t *)(void *)&fade->substate+a-0x0028A9A0u : NULL;
+    }
     if((p=em_camera_live_bytes(a,n)))return l->active ? p : NULL;
     if(overlaps(a,n,0x700038A0u,0x60u))
         return l->active ? em_camera_live_scratch_bytes(a,n) : NULL;

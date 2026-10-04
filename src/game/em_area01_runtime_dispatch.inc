@@ -27,6 +27,12 @@
         if (c->na < 2) return fail(r, c->function);
         rc = em_area01_math_001C3D60(&r->math, (uint32_t)c->a[0], (uint32_t)c->a[1]);
         break;
+    case 0x00187EC0u:
+        /* 001A8840's contact event (6, owner +0x56) / (7, 0): player record
+         * +0x0B = 1, +0x23A = a0, +0x31E = a1 (byte-matched C). */
+        if (c->na < 2) return fail(r, c->function);
+        rc = em_area01_math_00187EC0(&r->math, (uint32_t)c->a[0], (uint32_t)c->a[1]);
+        break;
     case 0x001BB860u:
         if (c->na < 1) return fail(r, c->function);
         rc = em_area01_math_001BB860(&r->math, (uint32_t)c->a[0]);

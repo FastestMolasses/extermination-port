@@ -196,6 +196,42 @@ def verify_checker():
           'field/source corruptions (no native gameplay parity claim)')
 
 
+def run_path(out):
+    return out / 'run.log'
+
+
+def prefix_report(out, run_log, phase):
+    """After a failed run: how many of the phase's recorded rows the native
+    ticks matched exactly (every field compare_route_row checks) before the
+    first difference or the end of the log. A diagnostic, never a PASS."""
+    import level_smoke_area01 as a01
+    import test_level_smoke as smoke
+    if phase not in MAIN_BEATS or phase == 'a01_07' or not (out / 'ticks.jsonl').exists():
+        return
+    run = run_log.read_text(errors='replace')
+    match = re.search(rf'^level smoke: {phase}: aligned counter=(\d+)', run, re.M)
+    if not match:
+        return
+    ticks = [t for t in (json.loads(line) for line in (out / 'ticks.jsonl').open()) if 'tick' in t]
+    counter = int(match.group(1))
+    start = next((i for i, t in enumerate(ticks) if t['counter'] == counter), None)
+    if start is None:
+        return
+    rows = a01.route_capture(phase)['rows']
+    exact, first = 0, None
+    for k, row in enumerate(rows):
+        if start + k + 1 >= len(ticks) or ticks[start + k]['counter'] != counter + k:
+            break
+        try:
+            a01.compare_route_row(smoke, ticks, start + k, row, phase)
+        except AssertionError as e:
+            first = e.args[0]
+            break
+        exact += 1
+    print(f'{phase}: NOT PASSED; {exact} of {len(rows)} recorded rows exact before the stop'
+          + (f'; first difference {first}' if first else ' (the run stopped)'), flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--prepare', action='store_true')
@@ -240,6 +276,7 @@ def main():
         if line.startswith(('level smoke:', 'em_area01:', 'em_scene: FAULT')):
             print(line, flush=True)
     if result.returncode:
+        prefix_report(out, run_path(out), until)
         return result.returncode
     with (out / 'check.log').open('w') as log:
         check = subprocess.run([sys.executable, str(ROOT / 'tools/test_level_smoke.py'),

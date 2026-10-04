@@ -1,6 +1,7 @@
 #include "game/em_area01_runtime.h"
 #include "game/em_area01_math_actor.h"
 #include "game/em_area01_math_owner.h"
+#include "game/em_area01_math_player.h"
 #include "game/em_area01_light_owner.h"
 #include "game/em_ee_float.h"
 #include <string.h>

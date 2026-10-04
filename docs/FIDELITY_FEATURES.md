@@ -1975,13 +1975,18 @@ numbers at the same places in each frame as the original.
   The smoke therefore checks each random value as the original code over
   the same draws.
 
-**Level 2 (AREA01): the arrival; the rest translated and checked, not playable yet**
+**Level 2 (AREA01): the arrival and the first part of the train room; the rest translated and checked, not playable yet**
 
 The second level's route has been recorded, and the code it newly needs is
 being translated and checked against the original ahead of time, so level 2
 can meet the same standard. Arriving in AREA01 and standing still for the
 first second plays as in the original, the camera settling behind the
-player; moving around AREA01 is not compared yet.
+player. Walking round the train room's crates, wading through its floor
+fields, grabbing the crate stack's ledge, hanging and starting the pull-up
+also play as in the original, frame for frame (the splash effects and wet
+footprints run the original code; their pixels are not compared); the game
+then stops (fail-stop) when the camera nears the fires,
+whose close-up draw is not translated yet.
 
 - How: phase 1 recorded the original AREA01 route in PCSX2, ran a census
   delta of the new functions, wrote an area overview and matched the
@@ -2009,7 +2014,17 @@ player; moving around AREA01 is not compared yet.
   and story bytes, the message, the bars and the fade, equal on every row.
   Not compared: the AREA01 owners' records (route 15 does not record them),
   AREA01's pixels and sound, and any frame after f801.
-- Status: **PARTIAL**, arrival idle only (above). The arrival's rebuild
+- Train room (step MOVE, 2026-10-04): the opt-in phase `a01_00`
+  (`LEVEL_SMOKE.md` "a01_00") replays route beat a01_00's recorded pad and
+  compares every row with the recording: rows f0..f404 equal in every
+  field (player, camera, requests, task, health, progress, message, bars,
+  fade, all 11 recorded owner records). The run then stops: 001E3D90's
+  near-fire layer asks for 001CFBE0's kind 6, whose VU1 program D_0023D930
+  is not translated. With only that draw skipped (a private diagnostic
+  build, never committed) all 781 rows match, through the fall, the
+  landing and the walk to the tunnel mouth. Not compared: AREA01's pixels
+  and sound.
+- Status: **PARTIAL**, arrival idle and train room f0..f404 (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick

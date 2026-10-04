@@ -886,9 +886,19 @@ static int last_hit(EmPlayerProbeHit *hit)
     const EmCollMoveScratch *s = em_collision_world_move_scratch();
     if (!s || !s->record) return -1;
     hit->kind = s->mode;
-    hit->node = s->record_node;
+    /* *(0x700031D0) + 0x1A / + 0x24: when the walkers left the cell record
+     * D_700030B0 there (a cell prim hit, 0x0019FE94), those words are
+     * 0x700030CA (the cell class) and 0x700030D4.. (the cell normal), not a
+     * grid node's (00182250's hang alignment on a crate cell, AREA01 route
+     * a01_00 f358: yaw pi from the cell normal (0, 0, 1)). */
+    if (s->record == EM_COLL_MOVE_CELL_RECORD) {
+        hit->node = s->cell_class;
+        memcpy(hit->normal, s->cell_normal, sizeof hit->normal);
+    } else {
+        hit->node = s->record_node;
+        memcpy(hit->normal, s->record_normal, sizeof hit->normal);
+    }
     memcpy(hit->point, s->point, sizeof hit->point);
-    memcpy(hit->normal, s->record_normal, sizeof hit->normal);
     hit->owner = s->entity;
     hit->entity = s->entity != NULL;
     return 0;
@@ -1021,15 +1031,32 @@ static int x_surface_sound(void *c, EmPlayerLiveActor *a, int gait)
 /* 00187EE0(p, p + B0, p + D0): em_player_floor.c's translation over the
  * record's fields, the foot being +B0. Its 001EFD90 spawns run the effect
  * binder with the record's whole +0xC0 quadword (the context is the
- * record). The 001F0460 decal (surface 0 with the wet-feet timer +212 set)
- * faults: 00187EE0 copies the whole stack quadword whose fourth word its
- * 001031E0 (a three-word copy) never writes into the matrix's row 3, so
- * the matrix is not determined by the original's inputs; no first-level
- * route reaches it (route census). */
+ * record). The wet-feet decal (surface 0 with the wet-feet timer +212 set:
+ * the feet left a surface-6 or 0x5B floor within 120 ticks, reached in
+ * AREA01 from its floor fields) builds its matrix in SPR 0x700036A0
+ * (L.foot_36A0, the region's one port owner): 001029C0, 00102BB0 by the
+ * yaw +0xC4, 00102B08 by minus the slope +0x9C (em_owner_services'
+ * translations), then 00102948 copies the stack quadword at sp+0x20 into
+ * row 3: the foot with y - 1.5, and a fourth word that 001031E0 (a
+ * three-word copy) never writes. That word is 0 in every wet-feet decal
+ * the recordings hold (45 distinct lane-1 slots of 001F0460 across the
+ * route and route_a01 captures: slot +0x3C, the copied row-3 w, is 0 in
+ * all); the port stores that measured 0. Then 001F0460(1, M) through the
+ * effects binder (em_effect_original's translation). */
 static int x_decal(void *c, const float position[3], float yaw, float pitch)
 {
-    (void)c; (void)position; (void)yaw; (void)pitch;
-    return unbound("001F0460 (the wet-feet decal of 00187EE0: its row 3 w is an unwritten stack word)");
+    (void)c;
+    float m[16];
+    if (em_owner_services_identity_001029C0(m) != EM_EE_FLOAT_OK ||
+        em_owner_services_rotate_y_00102BB0(m, m, fbits(yaw)) != EM_EE_FLOAT_OK ||
+        em_owner_services_rotate_x_00102B08(m, m, fbits(pitch)) != EM_EE_FLOAT_OK)
+        return unbound("00187EE0's decal matrix (an SDK rotation refused its operand)");
+    m[12] = position[0];
+    m[13] = position[1];
+    m[14] = position[2];
+    m[15] = 0.0f;
+    memcpy(L.foot_36A0, m, sizeof m);
+    return em_effects_live_001F0460(1, m);
 }
 static int x_step_effect(void *c, uint32_t id, const float position[3], const float rotation[3])
 {
@@ -2829,9 +2856,10 @@ static void bind_loco(void)
 /* ---- 00187350: the footstep dispatch on the record (census L12) ----------------
  * em_player_floor's translation over the record's fields. Its workers are
  * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
- * 300) at the record, 001EFD90 the effect binder (em_effects_live); the wet-feet decal
- * 001F0460 and the wading 001E8B90 have no live binding (fail-stop; no
- * AREA11 floor sets the wet timer or the water depth on the route). */
+ * 300) at the record, 001EFD90 the effect binder (em_effects_live), the
+ * wet-feet decal 001F0460 (x_decal); the wading 001E8B90 has no live
+ * binding (fail-stop; no floor on the route so far sets the water depth
+ * +0x23C). */
 static int fs_random(void *c, uint32_t *value) { (void)c; return em_player_misc_random(NULL, value); }
 static int fs_wade(void *c, const float position[3], float level)
 {

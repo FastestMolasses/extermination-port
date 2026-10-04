@@ -101,6 +101,10 @@ Blocks (original address, bytes, what reads them):
   0x00275668  0x8     D_00275668, the radius / height pair 001289C0 stores
                       at a class-2 owner's +0x30 (its only reference); the
                       close-out's 001AA140 -> 001AA000 reads both words
+  0x002557D0  0x360   the source blocks the splash handlers 001EAF00
+                      (D_002557D0), 001EAF80 (D_00255860, D_002558F0) and
+                      001EB020 (D_00255980, D_00255A10, D_00255AA0) hand
+                      001CFBE0 (AREA01 floor fields)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -160,7 +164,11 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x00242F20, 0x400),
           # D_00275668: 001289C0's +0x30 radius / height pair, read by
           # 001AA000 (001AA140's class-2 pairs in the close-out).
-          (0x00275668, 8))
+          (0x00275668, 8),
+          # The splash handlers' 001CFBE0 source blocks: D_002557D0
+          # (001EAF00), D_00255860 / D_002558F0 (001EAF80) and D_00255980 /
+          # D_00255A10 / D_00255AA0 (001EB020), six 0x90-byte blocks.
+          (0x002557D0, 0x360))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:
