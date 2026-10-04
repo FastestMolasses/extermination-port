@@ -74,7 +74,10 @@ With a **free personal team**:
   until you trust the developer, on the phone: **Settings > General > VPN &
   Device Management > (Developer App) Apple Development: <your Apple ID> >
   Trust "Apple Development: <your Apple ID>" > Trust**. The phone needs an
-  internet connection for this check.
+  internet connection for this check. Deleting the app when it is the only
+  one signed by your certificate also removes this trust: after the next
+  install, trust again. `build.sh install` and `run` update the app in place
+  (Documents is kept) and keep the trust.
 - Free teams are limited to 3 installed apps signed this way per device and
   10 new App IDs per 7 days.
 
