@@ -41,6 +41,8 @@ void   em_gfx_overlay_rect_add(EmGfx *gfx, float x, float y, float w,
  * contract's "cannot draw exactly" (the caller faults). */
 int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit)
 { (void)gfx; (void)unit; return -1; }
+int em_gfx_world_textures_reset(EmGfx *gfx)
+{ (void)gfx; return -1; }
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height)
 { (void)gfx; (void)tex0; (void)rgba; (void)width; (void)height; return -1; }

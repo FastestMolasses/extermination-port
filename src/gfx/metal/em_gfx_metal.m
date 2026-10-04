@@ -2689,6 +2689,15 @@ static int object_fail(EmGfx *g, uint32_t why, const char *what, const char *det
     return -1;
 }
 
+int em_gfx_world_textures_reset(EmGfx *g)
+{
+    if (!g) return -1;
+    for (uint32_t i = 0; i < g->objTexCount; ++i) [g->objTex[i].tex release];
+    memset(g->objTex, 0, sizeof g->objTex);
+    g->objTexCount = 0;
+    return 0;
+}
+
 static const struct EmGfxObjectTex *object_texture(const EmGfx *g, uint64_t tex0)
 {
     const uint64_t key = tex0 & ~(UINT64_C(7) << 61);

@@ -966,6 +966,12 @@ int em_gfx_object_unit(EmGfx *gfx, const EmGfxObjectUnit *unit);
 int em_gfx_object_texture(EmGfx *gfx, uint64_t tex0, const uint8_t *rgba,
                           uint32_t width, uint32_t height);
 
+/* Drop the shared object-unit / chain-page TEX0 registry at area resource
+ * delivery. Other texture owners (UI, backdrop and GS surfaces) are
+ * independent. Call before registering the delivered world's catalog,
+ * outside a world draw. Returns 0, or -1 if the backend cannot do this. */
+int em_gfx_world_textures_reset(EmGfx *gfx);
+
 
 /* End the frame: flush the overlay
  * (backdrop fill + backdrop quads, then untextured rects/arcs, then
