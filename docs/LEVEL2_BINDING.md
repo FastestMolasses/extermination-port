@@ -384,3 +384,28 @@ targets both passed. Receipts:
 `build/level2/progress6-checkpoint/index-{build.json,build.log,tests.log}`.
 Binary SHA-256:
 `e44d2b58d0e54bb1451d1c33f8bbdc06f6cb0195c1eaa7af531039f8570f8ab6`.
+
+
+## Static placement-kind checkpoint
+
+The existing collision world can now bind the immutable roster kind byte
+needed by original `0019F730`. It keeps a packed read projection of each
+placement's `+8` byte and clears it on unload. The existing collision walker,
+actor lists and cell data remain the owners of collision behavior. The
+AREA01 scene hookup remains part of the continuing guarded integration.
+
+The original-code proof passes **928 ground queries across 16 captures**,
+including the actual crate-initializer arguments, and **22 refusal/cleanup
+contracts**. It reproduces the missing-view failure before binding. The
+isolated staged quick target passes **144 queries**. See
+`LEVEL2_STATIC_KINDS.md` for the tested paths and limits.
+
+Shared files in this checkpoint are `em_collision_world.c/.h` and the
+Makefile's new test target; new files are the bridge, reference test and
+proof note. The separate class-7 list-address correction is not included.
+The exact staged-source `make -B all` passes with **zero warnings in
+48.484 s**. Receipts:
+`build/level2/static-kinds-checkpoint/index-{build.json,build.log,tests.log}`.
+Binary SHA-256:
+`3654b196bde61e22bc12434e9fbb6f27e469b79fcb936d5b5a83ca329b66069b`.
+This is a storage prerequisite, not an AREA01 world-frame or route pass.

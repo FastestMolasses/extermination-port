@@ -1585,3 +1585,7 @@ test-area01-sfx-registry:
 .PHONY: test-status-pose69-reference
 test-status-pose69-reference:
 	python3 tools/test_status_pose69_reference.py
+
+.PHONY: test-area01-static-ground
+test-area01-static-ground:
+	python3 tools/test_area01_static_ground_reference.py
