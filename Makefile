@@ -409,7 +409,8 @@ test-collision-world-capture: $(BIN)
 # the New Game path every run plays to first control (1,393 of the run's
 # 1,919 logged ticks).
 # test-level-smoke-full (or EM_TEST_FULL=1) plays the whole live route
-# through roger with --require-through last (about 120 s), then the side
+# through the level exit and the AREA01 arrival idle (a01_arrival, route 15
+# f741..f801) with --require-through last (about 150 s), then the side
 # runs 00 and 09 with side 1 (about 70 s more). Every run's checker requires
 # each phase the run was asked to play to be checked live against its
 # capture (--require-through: a NOT-LIVE, driven or unreached phase fails

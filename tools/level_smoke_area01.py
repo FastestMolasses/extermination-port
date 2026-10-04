@@ -1,4 +1,5 @@
-"""Opt-in AREA01 arrival and recorded route, using original code timing.
+"""The AREA01 arrival (the whole route's last phase) and the opt-in recorded
+AREA01 route, using original code timing.
 
 The rebuild is row 741; rows 742..801 are 60 neutral world frames. This
 checks only fields present in that capture and the scene tick log. The main

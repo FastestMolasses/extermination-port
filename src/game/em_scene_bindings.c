@@ -175,7 +175,6 @@ static EmSceneState s_state;
 static EmArea01State s_area01_state;
 static EmArea01Live s_area01_live;
 static int arrival_scene(void);
-static int area01_binding_probe(void);
 static uint32_t *s_area01_pose_scratch[3];
 static int s_area01_scratch_bound;
 static uint64_t s_area_resource_epoch;
@@ -762,7 +761,7 @@ static void capture_check(uint32_t tick)
  * capture bytes are installed. Unknown canonical spans are explicit nulls. */
 static void log_area01(FILE *f)
 {
-    if (s_state.d810700 != 1 && !(area01_binding_probe() && s_area01_live.bound))
+    if (s_state.d810700 != 1 && !s_area01_live.bound)
         return;
     static const uint32_t nodes[] = {0x7B0390, 0x7B0680, 0x7ABD10, 0x7AC000, 0x7AC5E0, 0x7A5930,
                                      0x7A70B0, 0x7A7690, 0x7A7C70, 0x7B1240, 0x7B1530};
@@ -1936,7 +1935,7 @@ static int camera_timeline(void *ctx)
 static int camera_area_worker(void *ctx, uint32_t function, uint32_t a0, uint32_t a1)
 {
     (void)ctx;
-    if (!arrival_scene() || !area01_binding_probe() || !s_area01_live.bound)
+    if (!arrival_scene() || !s_area01_live.bound)
         return -1;
     EmArea01Call call = {.function = function, .a = {a0, a1}, .na = function == 0x001B0300u ? 0u : 2u};
     return em_area01_live_call(&s_area01_live, &call);
@@ -2160,6 +2159,28 @@ static int player_wipe_001AF5C0(void)
     return em_slg_001AF5C0(&w, &st);
 }
 
+/* 001AF690 (after 001AF5C0 in 001AFCA0): em_slg_001AF690 over a staging
+ * image of D_00810130..D_008102AF and D_0081060C, then its camera half
+ * (D_008101E0..+0xCF and D_0081060C) to the camera's canonical storage.
+ * The camera state byte +0 = 0 makes the next 0018B9C0 run its one-shot
+ * seat (state 0: +6 = 8 outside area 0x12 sub 0), as the original's first
+ * world frame after a rebuild does (route 15 f742, the AREA01 arrival:
+ * D_008101E6 = 8). The other two blocks have owners that start them at
+ * the same zeros here: D_008101D0..DF the render context (its bind, below)
+ * and D_00810130..1CF the status runtime (created zeroed when the area's
+ * interaction host loads; em_area11_interaction_host_clear freed it). */
+static void block_reset_001AF690(void)
+{
+    uint8_t image[0x180];
+    uint32_t d81060C = 0;
+    EmSlgState0 st;
+    memset(&st, 0, sizeof st);
+    st.status = image; /* every byte is written by 001AF690 */
+    st.d81060C = &d81060C;
+    em_slg_001AF690(&st);
+    em_camera_live_store_block(image + 0xB0, d81060C);
+}
+
 static uint8_t *area01_state_memory(void *ctx, uint32_t address, uint32_t size)
 {
     return em_module_loader_memory_mutable(ctx, address, size);
@@ -2269,6 +2290,7 @@ static int w_001AFCA0(void *ctx)
     if (player_wipe_001AF5C0() < 0)
         return em_scene_fault(&s_state, 0x001AF5C0u, EM_SCENE_FAULT_WORKER_FAILED);
     player_states_spawn_values();
+    block_reset_001AF690();
     if (em_player_stage_live_bind() < 0)
         return em_scene_fault(&s_state, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
     /* Census L13..L16: the live camera over the area's collision world
@@ -2277,11 +2299,10 @@ static int w_001AFCA0(void *ctx)
     k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
     /* Census L32 / L30: the render context's views and workers (before the
      * camera, whose 001DD980 publications store into it). */
-    /* Each area binds its own delivered resource views. The AREA01 world
-     * guard remains until its actors and presentation are connected. */
+    /* Each area binds its own delivered resource views. */
     if (world_scene() && rcl_bind() < 0)
         return em_scene_fault(&s_state, 0x001D1C50u, EM_SCENE_FAULT_NULL_WORKER);
-    k_camera_host.area_worker = arrival_scene() && area01_binding_probe() ? camera_area_worker : NULL;
+    k_camera_host.area_worker = arrival_scene() ? camera_area_worker : NULL;
     if (world_scene() && em_camera_live_bind(&k_camera_host) < 0)
         return em_scene_fault(&s_state, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
     if (!world_scene()) {
@@ -2338,7 +2359,7 @@ static int w_001AFCA0(void *ctx)
     }
     /* No shadow is drawn by state 0; the selected receiver set is ready
      * for the next world frame. */
-    if (arrival_scene() && area01_binding_probe()) {
+    if (arrival_scene()) {
         EmPoseHost *pose = player_pose_record_host();
         const EmCollSegment *segment = em_collision_world_segment();
         uint8_t *matrices = em_owner_draw_live_memory(0x70003400u, 0x80u);
@@ -2911,15 +2932,6 @@ static int condition_canonical(const uint8_t *rec, uint32_t *at)
     return 1;
 }
 
-/* Development-only binding probe. Normal play retains the AREA01 guard
- * until all route workers and comparisons pass. This cannot enable a
- * different startup mode or silently accept a missing worker. */
-static int area01_binding_probe(void)
-{
-    const char *probe = getenv("EM_LEVEL2_BINDING_PROBE");
-    const char *startup = getenv("EM_STARTUP_TEST");
-    return probe && strcmp(probe, "1") == 0 && startup && strcmp(startup, "newgame-level") == 0;
-}
 static int area01_behavior(EmActor *, void *);
 static int area01_private_model(void *ctx, const EmActor *a)
 {
@@ -3018,12 +3030,12 @@ static uint8_t *area01_pass_bytes(void *ctx, uint32_t address, uint32_t size)
 {
     return em_area01_live_bytes(ctx, address, size, 0);
 }
-static int area01_pass_pair(void *ctx, uint32_t function, uint32_t a0, uint32_t a1)
+static int area01_pass_pair(void *ctx, uint32_t function, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t a3)
 {
     EmArea01Live *l = ctx;
     if (em_area01_collision_view_begin(&l->collision) < 0)
         return -1;
-    EmArea01Call c = {.function = function, .a = {a0, a1}, .na = 2};
+    EmArea01Call c = {.function = function, .a = {a0, a1, a2, a3}, .na = function == 0x001AA000u ? 4u : 2u};
     int rc = em_area01_live_call_active(l, &c);
     if (em_area01_collision_view_commit(&l->collision) < 0)
         return -1;
@@ -3105,8 +3117,6 @@ static int area01_bind_roster(void *ctx, EmActor *a, const EmActorRosterSpawned 
 {
     if (em_area01_arrival_bind(ctx, a, spawned) < 0)
         return -1;
-    if (!area01_binding_probe())
-        return 0;
     switch (a->callback) {
     /* These boot owners already use the selected model bank. AREA11
      * overlay addresses, the fence singleton and pickups are excluded. */
@@ -3115,8 +3125,8 @@ static int area01_bind_roster(void *ctx, EmActor *a, const EmActorRosterSpawned 
     default:
         if (area01_rebind(NULL, a, a->callback) == 0)
             return 0;
-        /* Diagnostic binding only: runtime's unknown-worker arm fails at
-         * this callback when the original pool walk reaches it. */
+        /* No owner for this callback: the runtime's unknown-worker arm
+         * faults at it when the original pool walk reaches it. */
         a->behavior = area01_behavior;
         a->release = NULL;
         a->owner = NULL;
@@ -3157,14 +3167,12 @@ static int spawn_area01(void)
                                             area01_bind_roster, NULL, NULL);
     if (rc < 0)
         return rc;
-    if (area01_binding_probe()) {
-        if (em_collision_world_bind_static_kinds(s_roster01.placements, s_roster01.placement_count) < 0)
-            return em_scene_fault(&s_state, 0x0019F730u, EM_SCENE_FAULT_NULL_WORKER);
-        if (area01_shared_interactions() < 0)
-            return em_scene_fault(&s_state, 0x00184BA0u, EM_SCENE_FAULT_NULL_WORKER);
-        if (area01_bind_live() < 0)
-            return -1;
-    }
+    if (em_collision_world_bind_static_kinds(s_roster01.placements, s_roster01.placement_count) < 0)
+        return em_scene_fault(&s_state, 0x0019F730u, EM_SCENE_FAULT_NULL_WORKER);
+    if (area01_shared_interactions() < 0)
+        return em_scene_fault(&s_state, 0x00184BA0u, EM_SCENE_FAULT_NULL_WORKER);
+    if (area01_bind_live() < 0)
+        return -1;
     return rc;
 }
 
@@ -3558,7 +3566,7 @@ static int w_001AAD00(void *ctx)
     if (s_pool_mode != POOL_ROSTER)
         return unmirrored(UM_001AAD00);
     uint32_t fault = 0;
-    const int area01 = arrival_scene() && area01_binding_probe();
+    const int area01 = arrival_scene();
     if (area01 && (em_area01_live_resume(&s_area01_live) < 0 ||
                    em_area01_collision_view_commit(&s_area01_live.collision) < 0))
         return em_scene_fault(&s_state, 0x001AAD00u, EM_SCENE_FAULT_WORKER_FAILED);
@@ -4026,17 +4034,11 @@ static int w_001AD4D0(void *ctx)
     /* One 0x1AE040 run per tick. State 0 returns after its eleven calls
      * (0x1AE0DC b .L001AE5CC), so a rebuild tick draws no world frame.
      * Since S11b the machine acts on its classifier (design 2.3, 5). */
-    /* The level exit ends the first level at the AREA01 arrival: its state-0
-     * rebuild runs (the capture's first frame of control in AREA01, route
-     * beat 15); every later AREA01 frame (its world frames 001AE5E0 /
-     * 001AE6B0 over AREA01's owners, the status screen, a room move) is
-     * level 2, whose workers the port does not bind: fail-stop. */
-    if (arrival_scene() && *frame_state != 0 && !area01_binding_probe()) {
-        if (!s_fault_reported)
-            fprintf(stderr, "em_scene: 0x1AE040 state %u in AREA01: the AREA01 frames after its arrival "
-                            "are level 2 (not ported)\n", (unsigned)*frame_state);
-        return em_scene_fault(&s_state, 0x001AE040u, EM_SCENE_FAULT_NULL_WORKER);
-    }
+    /* AREA01 (the level exit's arrival) runs the same machine over its
+     * bound owners (LEVEL2_BINDING.md): its world frames are compared with
+     * route 15 f742..f801 (the level smoke's a01_arrival). An AREA01
+     * original without an owner faults where it is reached (the runtime's
+     * unknown-worker arm, the collision passes' unported pairs). */
     s_entry_state = *frame_state;
     int rc = frame_machine();
     s_entry_state = -1;

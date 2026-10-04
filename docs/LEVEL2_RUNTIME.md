@@ -22,10 +22,12 @@ Contents:
 
 ## AREA01 composition and live binding probe
 
-Status (2026-10-04): verified dispatcher; the live adapters are committed
-and run only under the probe (LEVEL2_BINDING.md "State"). This is
-not route completion. Normal play still fails at the AREA01 world-frame
-guard. No AREA01 world frame has passed the recording comparisons.
+Status (2026-10-04, step GUARD): verified dispatcher; the live adapters
+run on the default path (the AREA01 world-frame guard and the probe are
+gone), and the arrival idle's 60 world frames pass the route 15 f742..f801
+comparison (LEVEL2_BINDING.md "State"). This is not route completion: the
+AREA01 beats a01_00 onward are not compared yet. The probe history below is
+kept as the record of how the composition was brought up.
 
 ### One dispatcher for existing translations
 
@@ -80,12 +82,10 @@ pose/aim/camera 3600 and 38B0 views must retain the last original writer.
 Do not claim live canonical-memory equivalence from the standalone module
 oracles alone. Unmapped spans continue to fail.
 
-`EM_LEVEL2_BINDING_PROBE=1` is effective only with
-`EM_STARTUP_TEST=newgame-level`. It enables the development callback
-composition in the existing arrival smoke. Missing callbacks/workers still
-fail at their original address. It is diagnostic instrumentation, not a
-playable option; it does not relax the default frame guard or count a
-partial frame as an AREA01 smoke pass. The first connected probe reached
+Until step GUARD, `EM_LEVEL2_BINDING_PROBE=1` (with
+`EM_STARTUP_TEST=newgame-level`; removed since) enabled the development callback
+composition in the existing arrival smoke. Missing callbacks/workers
+failed at their original address, as they still do. The first connected probe reached
 `00219550` on node `007A5640`, the first AREA01 pickup, and failed there at
 arrival frame 0 (rebuild counter 15007). It completed no AREA01 world frame.
 Receipt: `build/level2/connected-probe/run.log`; tested binary SHA-256
@@ -804,8 +804,8 @@ Exact scene integration for the parent binding change:
    do not retain raw pointers while the loader can replace allocations.
    Detach before closing the loader or discarding this scene binding. A
    same-overlay scene rebuild may rebind without resetting its memory.
-5. Keep the AREA01 world-frame guard until every reached owner and worker
-   is bound. This initialization does not claim a playable arrival.
+5. (Done in step GUARD: the AREA01 world-frame guard is gone; every
+   reached original that has no owner faults where it is reached.)
 
 No `em_scene_bindings.c` or `Makefile` edits are part of this module. Add
 `src/game/em_area01_state.c` to the native build and a reference target

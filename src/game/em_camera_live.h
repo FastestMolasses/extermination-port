@@ -141,6 +141,13 @@ void em_camera_live_view_publish(void);
  * 001DD950 copies D_008105E0). Nothing while unbound. */
 void em_camera_live_adopt_view(void);
 
+/* Store the camera block D_008101E0..+0xCF (`block`, 0xD0 bytes) and the
+ * pool word D_0081060C (the w lane of D_00810600) as an original routine
+ * left them, then the g.cam view of those bytes: 001AF690's camera half
+ * (em_slg_001AF690 over the binder's staging image, em_scene_bindings.c
+ * w_001AFCA0). Bound or not: the storage is this module's. */
+void em_camera_live_store_block(const uint8_t block[0xD0], uint32_t d81060C);
+
 /* The canonical words, by original address (0x008101E0..0x008102AF and
  * 0x008105D0..0x008106A3), or NULL for any other address. */
 uint8_t *em_camera_live_bytes(uint32_t address, uint32_t size);

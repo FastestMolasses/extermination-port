@@ -14,39 +14,70 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State (2026-10-04, main after the level-2 merge)
+## State (2026-10-04, step GUARD: the AREA01 guard is open)
 
-**How far the game gets.** New Game plays the whole first level to the
-AREA01 arrival: `EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`
-passes all 19 first-level phases (first_control .. exit, `exit` = area 01
-00 04, exit_01 row 306) and aligns the AREA01 rebuild at native counter
-**15007** (route 15 row 741). The rebuild (frame 0) completes; the first
-AREA01 world frame stops at the deliberate guard
-`em_scene: 0x1AE040 state 1 in AREA01 ...` then
-`FAULT at 001AE040 (code 1)`, and the smoke reports
-`FAIL phase=a01_arrival frame=0`. That failure is expected: missing
-workers fault, nothing is defaulted. The default smoke
-(`make test-level-smoke`, first_control / status / battery) passes, and
-newgame-control passes (displacement 9.599849).
+**How far the game gets.** New Game plays the whole first level into
+AREA01 and the player arrives there in every run (not only under a test
+switch): the 0x1AE040 guard that stopped every AREA01 frame after the
+arrival's rebuild is gone, and AREA01's live composition binds at its
+rebuild in every run. `make test-level-smoke-full` now ends with the phase
+**a01_arrival**: the rebuild (route 15 row 741, native counter 15007) and
+**60 neutral world frames compared row for row with route 15 f742..f801**
+(player state, pose, clock, ground, position and heading; camera eye,
+target and flag word D_008101E4..E7; selector, request, area and task
+bytes; story and progress bytes; message, screen, bars, power and fade;
+`tools/level_smoke_area01.py check_arrival`). All 20 main-route phases pass
+(first_control .. exit, a01_arrival), and the AREA01 frames' rand() draws go
+through the RNG audit with every native caller named (`tools/rand_order.py`;
+AREA01 has no per-call capture, so no per-call equality is claimed). An
+AREA01 original without an owner still faults where it is reached: the
+runtime's unknown-worker arm, the collision passes' unported pairs, a
+missing byte view. `EM_LEVEL2_BINDING_PROBE` no longer exists;
+`EM_A01_ARRIVAL_TICKS=N` (60..600) still lengthens the idle as a
+diagnostic (frames past f801 are not recorded, so they prove nothing).
+Receipts (ignored): `build/level2/guard/smoke-full.log` (`make
+test-level-smoke-full`: the main route through a01_arrival and every side
+run, rc 0), `smoke-default.log`, `newgame-control.log` (9.599849).
 
-**With `EM_LEVEL2_BINDING_PROBE=1`** (honoured only with
-`EM_STARTUP_TEST=newgame-level`; diagnostic, not a playable option) the
-committed live composition binds at the rebuild and the AREA01 world
-frames now run with the player idle and no fault: simulation (pool walk
-over every placed and spawned owner, player stage, camera, `001AAD00`
-close-out) and presentation (`001D1EA0`: the chain page with its object
-units, the floor fields and the ripple surface, all drawn). Measured:
-**600 world frames after the rebuild** (counter 15007..15607, the probe
-maximum), smoke `a01_arrival: PASS world_ticks=600`. Command:
-`EM_LEVEL2_BINDING_PROBE=1 EM_A01_ARRIVAL_TICKS=600 EM_UNCAPPED=1
-EM_STARTUP_TEST=newgame-level EM_LEVEL_SMOKE_UNTIL=a01_arrival
-build/extermination` (about 2 minutes; without `EM_A01_ARRIVAL_TICKS` the
-phase runs its 60 recorded frames). Receipt
-`build/level2/frames/probe600.log`, binary SHA-256 in LEVEL2_RUNTIME.md's
-probe table. This proves only that every reached original has a bound
-owner: no frame has been compared with route 15 (frames past f801 are
-not recorded at all), the guard still closes the default path, and no
-census row is AREA01-live.
+Bound in step GUARD (2026-10-04):
+- `001AF690` at its 001AFCA0 position (after 001AF5C0) in `w_001AFCA0`:
+  the existing `em_slg_001AF690` over a staging image of
+  D_00810130..D_008102AF and D_0081060C, its camera half (the camera block
+  D_008101E0..+0xCF and D_0081060C) stored into the camera's canonical
+  storage by the new `em_camera_live_store_block`. The port had never
+  cleared the camera block at a rebuild, so the AREA01 world's first camera
+  frame ran 0018B9C0's state 1 (the follow camera, flag word 0) where the
+  original runs its one-shot state 0 (+6 = 8 outside area 0x12 sub 0,
+  then 0018C0C0 / 0018D7B0(1) / 0018C0D0(1)): route 15 f742 has
+  D_008101E6 = 8 and the eye / target of the rebuild. The other two
+  blocks start at the same zeros through their owners: D_008101D0 the
+  render context's bind, D_00810130 the status runtime (created zeroed when
+  the area's interaction host loads). The first level's rebuilds take the
+  same reset; its whole route still passes.
+- `001AA000` (001AA140's class-2 pairs in the close-out, call site
+  0x1AA23C, reached on the third AREA01 world frame as in the original's
+  census, c16505): the existing oracle-tested `em_area01_sys_001AA000`
+  (`make test-area01-sys-reference`) through the collision world's AREA01
+  pair binding (`EmCollisionWorldAreaPasses.pair` now carries a2 / a3 =
+  a + 0x1F0 / b + 0x1F0); the halfword 0x70003B86 it may clear is published
+  back to 001AA140's loop. It reads the radius / height pair D_00275668
+  that 001289C0 stores at its owners' +0x30 (that routine is its only
+  reference): a new immutable `assets/effect_tables.emet` window
+  (`tools/export_effect_tables.py`, equal to the ELF in all 17 default
+  captures and all 16 route_a01 captures).
+- The AREA01 rand() forwarders and callers in `tools/rand_order.py`
+  (00122BB8 adapters of the composition, and the callers 001E8E80,
+  001E9580, 001F4BF0, 001F4A10, 001E7D20, 001E3D90, 0015A2C0 and AREA01
+  00826D40).
+
+Measured on the default path (a private diagnostic build that logs every
+call through `em_area01_runtime_call` and the composition's worker; never
+committed): 41 AREA01 census rows run in the 61 compared ticks
+(SECOND_LEVEL_CENSUS.md, now live), each first reached on the same frame as
+in the original's EXIT census where both record it. Same-module calls inside
+a translation do not pass that funnel, so 23 further rows the original runs
+in the window (e.g. 001C4FA0 inside 001C50B0, 001D0C80 / 001D0D40 inside
+001C02E0, the dynamic pass 001D5BD0) are not counted.
 
 Bound in step FRAMES (2026-10-04, each to its existing owner unless
 stated):
@@ -83,7 +114,7 @@ stated):
 - `001C9D50` (00128C10's pose blend): `em_anim_rest_001C9D50` over the
   composition's scratch 0x700034C0.. and 0x70003760.
 - `001B12B0`: the first level's approach step `em_script_host_approach`.
-These four adapters are exercised only by the probe; their owners are
+These four adapters run in the arrival idle (step GUARD: the default path); their owners are
 the oracle-tested translations named, but no AREA01 oracle test covers
 the adapters themselves (as for 001B1B30).
 
@@ -121,16 +152,12 @@ Bound in the previous step (each to its existing owner):
 **What is missing, in dependency order** (sizes are estimates):
 1. Originals the idle run does not reach stay unbound and fault when
    reached (e.g. 001F9180, 001B5360's decal for byte +3 = 4 or 8); the
-   probe's run is idle only.
-2. Open the guard and compare 60 neutral frames against route 15 rows
-   741-801 (player, camera, pool, progress, message, fade); the harness
-   exists (section "AREA01 recorded route harness"). Under the probe
-   (`EM_LEVEL2_BINDING_PROBE=1 EM_LEVEL_SMOKE_UNTIL=a01_arrival make
-   test-level-smoke`) its first difference is f742, the first world frame:
-   the camera eye (-4.3, 25.7, -572.5) against the original's (-4.3,
-   21.7, -572.5), the target, and the camera flag word 0 against 0x800
-   (receipt `build/level2/frames/probe-compare.log`). Medium.
-3. World drawn: under the probe the frames' pages (dynamic programs
+   arrival's run is idle only.
+2. Owner bytes in the arrival idle: route 15 records no AREA01 owner, so
+   the 60 compared frames check the player, camera and progress, not the
+   owners' records (the a01_00.. captures record 11 owners; their beats are
+   item 4 onward). Small.
+3. World drawn: the frames' pages (dynamic programs
    0x237450 / 0x237720, the floor and ripple programs, object units) are
    drawn, but no screenshot or pixel comparison exists; the smoke
    serializer omits the dynamic table; owner render hooks and the AREA01
@@ -155,12 +182,12 @@ assets/area01_boot_scripts`), and re-exports of
 the SFX registry. The area load binds the texture catalog and shadow
 receivers, so the AREA01 rebuild faults without them.
 
-The opt-in phase asks for 60 neutral world frames after the rebuild. Its
-checker compares the existing tick-log fields with route 15 rows 741–801;
-it does not claim to compare owner bytes absent from that recording. The
-default full first-level route still ends at `exit`. Longer runs keep the
-arrival pool witness and the exit check; they do not turn an unverified
-phase into a pass.
+The a01_arrival phase is the full route's last phase (`make
+test-level-smoke-full`; `EM_LEVEL_SMOKE_UNTIL=a01_arrival make
+test-level-smoke` alone, about 2 minutes). Its checker compares the
+existing tick-log fields with route 15 rows 741–801; it does not claim to
+compare owner bytes absent from that recording. The AREA01 route beats
+after it (a01_00 .. a01_07, the side beats) stay opt-in.
 
 ## Census and dependencies
 
@@ -377,8 +404,9 @@ port. AREA00 arrival is the intended stopping boundary. The message bank
 now switches during rebuild; model/render resources and overlay init are
 connected there. Adapters for canonical actor records, scripts,
 interactions, doors, pickups, effects and audio are committed but run only
-under the probe; live AREA01 dialogue, presentation and every route beat
-remain unverified (see "State").
+on the default path since step GUARD; only the arrival idle is compared
+(route 15 f741..f801), live AREA01 dialogue, presentation and every route
+beat remain unverified (see "State").
 The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any
 source correction there must be reported in permitted docs, not applied.
@@ -994,8 +1022,8 @@ The opt-in route names a01_00 through a01_07 and all eight side beats in
 The normal first-level endpoint remains `exit`. Pad files contain input only;
 no captured player, owner, camera or world state is installed in the native
 run. Prepare or run with `tools/test_level_smoke_area01.py --until a01_06`
-(add `--prepare` for input export only). The existing diagnostic `--probe`
-keeps all missing worker failures visible.
+(add `--prepare` for input export only). Every missing worker fails
+visibly (the former diagnostic `--probe` is gone with the guard).
 
 All eight main captures are contiguous, contain no teleports, and retain their
 source capture/counter gaps. The exporter writes 3,596 commands and provenance
@@ -1036,7 +1064,7 @@ source must end with the same neutral input released by the driver.
 | `a01_s6` blocked bridge | `a01_arrival` | 1 | 229 |
 | `a01_s7` third NPC talk | `a01_05` | 2 | 982 |
 
-For example, `python3 tools/test_level_smoke_area01.py --side a01_s5 --probe`
+For example, `python3 tools/test_level_smoke_area01.py --side a01_s5`
 plays the first-level main route, AREA01 arrival idle, s0, then s5. It skips
 s2 and the AREA01 main beats. The C phase table uses the existing `side` and
 `from_side` dispatch, and the shared checker requires every prerequisite to
@@ -1084,7 +1112,7 @@ never removed by this alignment.
 The final arrival ends the current frame without requesting the usual extra
 tick, which would enter level 3. The normal post-frame tail supplies its actual
 message, fade and 27-byte loader snapshot. The logger retains AREA01 owner
-observations while the probe's canonical binding is alive during the next
+observations while AREA01's canonical binding is alive during the next
 area's load. All tails remain available to the checker: the first-level exit
 selects its AREA01 rebuild pool witness by counter, and the final boundary
 selects its own post-frame tail. No synthetic gameplay tick is introduced.
@@ -1110,7 +1138,7 @@ checker-contract exercise also covered all 530 rows through its endpoint.
 Full native route verification remains pending the live binding work; a
 prepared input file or in-process PASS marker is not a verified route until
 the independent checker passes. No side or main gameplay pass is claimed here.
-The ordinary frame guard and opt-in diagnostic probe remain in place.
+Since step GUARD the frame guard and the diagnostic probe are gone; the route beats after a01_arrival stay opt-in.
 
 Shared edits for this harness: `em_level_smoke_test.c` (phase dispatch and
 strict pad reader), `tools/test_level_smoke.py` (phase requirements and complete

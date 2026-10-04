@@ -98,6 +98,9 @@ Blocks (original address, bytes, what reads them):
   0x00234B00  0x4D0   the ripple-surface program's DMA packet D_00234B00
                       (001E7D20's CALL: the same set-up and one MPG of 145
                       instructions from ELF 0x00234B30) and its RET tag
+  0x00275668  0x8     D_00275668, the radius / height pair 001289C0 stores
+                      at a class-2 owner's +0x30 (its only reference); the
+                      close-out's 001AA140 -> 001AA000 reads both words
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -154,7 +157,10 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x00234B00, 0x4D0),
           # 00128C10's per-kind clip ids D_00242F20 (a halfword every 4
           # bytes, indexed by the byte kind +0x0D: every reachable entry).
-          (0x00242F20, 0x400))
+          (0x00242F20, 0x400),
+          # D_00275668: 001289C0's +0x30 radius / height pair, read by
+          # 001AA000 (001AA140's class-2 pairs in the close-out).
+          (0x00275668, 8))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

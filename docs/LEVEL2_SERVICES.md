@@ -233,7 +233,8 @@ The original-instruction service comparison uses
   so this test does not claim a pixel or glyph-packet comparison.
 
 Both runs pass. This is service/bank integration evidence, not the main
-AREA01 route smoke: the frame-machine guard is still present.
+AREA01 route smoke (the frame-machine guard was removed later, in step GUARD;
+LEVEL2_BINDING.md "State").
 
 Shared edits: `em_message_live.c/.h` (preserving resource switch),
 `em_scene_bindings.c` (area-aware resource selection), `Makefile` (quick

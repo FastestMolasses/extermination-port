@@ -143,14 +143,15 @@ int em_collision_world_bind_area_passes(const EmCollisionWorldAreaPasses *bindin
     return 0;
 }
 
-static int area_pair(EmCollListPasses *passes, uint32_t function, uint32_t a0, uint32_t a1)
+static int area_pair(EmCollListPasses *passes, uint32_t function, uint32_t a0, uint32_t a1, uint32_t a2,
+                     uint32_t a3)
 {
     if (!s_area_passes.pair) return -1;
     /* 001A8BE0 owns its loop counter until the pair's original scratch
      * accesses. In particular, 001A8840 can clear 3B86 to end that loop. */
     w.state.span_lo = passes->globals->s3B86;
     w.state.span_hi = passes->globals->s3B88;
-    int rc = s_area_passes.pair(s_area_passes.context, function, a0, a1);
+    int rc = s_area_passes.pair(s_area_passes.context, function, a0, a1, a2, a3);
     passes->globals->s3B86 = w.state.span_lo;
     passes->globals->s3B88 = w.state.span_hi;
     return rc;
@@ -158,12 +159,19 @@ static int area_pair(EmCollListPasses *passes, uint32_t function, uint32_t a0, u
 static int area_001A8840(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
 {
     (void)context;
-    return area_pair(passes, 0x001A8840u, a0, a1);
+    return area_pair(passes, 0x001A8840u, a0, a1, 0, 0);
 }
 static int area_001A9E00(void *context, EmCollListPasses *passes, uint32_t a0, uint32_t a1)
 {
     (void)context;
-    return area_pair(passes, 0x001A9E00u, a0, a1);
+    return area_pair(passes, 0x001A9E00u, a0, a1, 0, 0);
+}
+/* 001AA140's pair call (0x1AA23C): 001AA000(a, b, a + 0x1F0, b + 0x1F0). */
+static int area_001AA000(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b, uint32_t a1f0,
+                         uint32_t b1f0)
+{
+    (void)context;
+    return area_pair(passes, 0x001AA000u, a, b, a1f0, b1f0);
 }
 
 void em_collision_world_bind_behaviour(EmCollisionWorldBehaviour behaviour, void *context)
@@ -306,8 +314,9 @@ static void bind_passes(void)
     w.passes.data = &w.data;
     w.passes.math = &w.math;
     EmCollListWorkers *k = &w.passes.workers;
-    /* AREA01 supplies its existing SYS owners for the two pair calls
-     * below. Without that binding they retain the first-level fail-stop.
+    /* AREA01 supplies its existing SYS owners for the three pair calls
+     * below (001A8840, 001A9E00 and 001AA000). Without that binding they
+     * retain the first-level fail-stop.
      * The other callers remain unavailable (COLL_LIST_PASSES.md). */
     k->w_001A8840 = area_001A8840;
     k->w_001A8970 = em_coll_list_passes_unported;
@@ -319,7 +328,7 @@ static void bind_passes(void)
     k->w_001A9480 = em_coll_list_passes_unported;
     k->w_001A99E0 = em_coll_list_passes_unported;
     k->w_001A9E00 = area_001A9E00;
-    k->w_001AA000 = em_coll_list_passes_unported_001AA000;
+    k->w_001AA000 = area_001AA000;
     /* 001A9D20's pair callee, translated (first reached by the AIM capture
      * aim_04's impact markers; COLL_LIST_PASSES.md). */
     k->w_001A9C40 = em_coll_list_passes_001A9C40;

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Recorded AREA01 pad replay through the ordinary New Game route.
 
-Use --prepare to export only input scripts. The optional diagnostic probe
-retains all original worker failures and never changes a recorded outcome.
+Use --prepare to export only input scripts. AREA01 runs its bound owners
+in every run; an original without an owner faults where it is reached.
 No snapshot, player placement or captured game state is imported.
 """
 import argparse
@@ -203,7 +203,6 @@ def main():
                         help='test the actual C branch/input driver against all 16 captures, then exit')
     parser.add_argument('--include-side-pads',action='store_true',
                         help='also export all eight side input files/provenance (automatic with --side)')
-    parser.add_argument('--probe', action='store_true', help='enable incomplete live bindings; failures remain failures')
     endpoint = parser.add_mutually_exclusive_group()
     endpoint.add_argument('--until', choices=('a01_arrival', *MAIN_BEATS),
                           help='main route endpoint (default: a01_arrival)')
@@ -227,10 +226,10 @@ def main():
     env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level',
                EM_LEVEL_SMOKE_UNTIL=until, EM_LEVEL2_PAD_DIR=str(out / 'pads'),
                EM_AREA_CHANGE_LOG=str(out / 'ticks.jsonl'), EM_RAND_TRACE=str(out / 'rand.trace'),
-               EM_LEVEL_SMOKE_BIN=str(binary), EM_LEVEL2_BINDING_PROBE='1' if args.probe else '0')
+               EM_LEVEL_SMOKE_BIN=str(binary))
     started = time.monotonic()
     receipt = dict(binary=str(binary), binary_sha256=hashlib.sha256(binary.read_bytes()).hexdigest(),
-                   until=until, side=args.side, area01_path=phase_path(until), diagnostic_probe=args.probe, pad_changes=count,
+                   until=until, side=args.side, area01_path=phase_path(until), pad_changes=count,
                    pad_manifest=str(out/'pads/manifest.json'),side_input_files=side_count)
     with (out / 'run.log').open('w') as log:
         result = subprocess.run([str(binary)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT,

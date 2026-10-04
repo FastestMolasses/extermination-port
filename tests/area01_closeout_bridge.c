@@ -62,7 +62,7 @@ static int sys_worker(void *ctx,EmArea01SysCall *c)
     }
     c->f0=em_ee_bits(out);return rc<0 || fault ? -1 : 0;
 }
-static int pair(void *ctx,uint32_t fn,uint32_t a,uint32_t b)
+static int pair(void *ctx,uint32_t fn,uint32_t a,uint32_t b,uint32_t a2,uint32_t a3)
 {
     (void)ctx;
     if (pair_count>=512) return -1;
@@ -72,6 +72,7 @@ static int pair(void *ctx,uint32_t fn,uint32_t a,uint32_t b)
     int rc=-1;
     if (fn==0x001A8840u) rc=em_area01_sys_001A8840(&pair_sys,a,b);
     if (fn==0x001A9E00u) rc=em_area01_sys_001A9E00(&pair_sys,a,b);
+    if (fn==0x001AA000u) rc=em_area01_sys_001AA000(&pair_sys,a,b,a2,a3);
     if (em_area01_collision_view_commit(&collision_view)<0) return -1;
     return rc;
 }

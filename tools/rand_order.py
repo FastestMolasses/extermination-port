@@ -95,6 +95,20 @@ PORT_FN = {
     'em_effect_001F77B0': 0x1F77B0,              # the death decal's particle draws (DAMAGE.md)
     'em_player_reaction_0021D800': 0x21D800,     # the flinch's clip pick (DAMAGE.md)
     'em_crate_original_tick': 0x1551B0,          # a box's break: the husk's quarter turn, a raised box's kick (BRANCH br_04 / br_06)
+    # AREA01 owners (the arrival's world frames; no per-call AREA01 capture,
+    # LEVEL2_BINDING.md "RNG evidence and limits")
+    'em_area01_exitb_001E8E80': 0x1E8E80,        # a lattice set-up's dome heights
+    'f_1E8E80': 0x1E8E80,
+    'em_area01_exitb_001E9580': 0x1E9580,        # the other lattice set-up
+    'f_1E9580': 0x1E9580,
+    'em_status_scene_glow_001F4BF0': 0x1F4BF0,   # the flame services' glow
+    'em_area01_render_001F4A10': 0x1F4A10,
+    'em_area01_sys_001E7D20': 0x1E7D20,          # the ripple surface
+    'f_1E7D20': 0x1E7D20,
+    'em_area01_sys_001E3D90': 0x1E3D90,
+    'em_area01_sys_0015A2C0': 0x15A2C0,          # the floor fields
+    'em_area01_ovl_00826D40': 0x826D40,          # AREA01 overlay 00826D40
+    'a01_ovl_826d40': 0x826D40,
 }
 # Frames that only forward a draw (the worker adapters over em_random_next).
 WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random_range', 'countdown',
@@ -107,6 +121,16 @@ WRAPPERS = {'em_random_next', 'w_rand', 'indicator_rand', 'face_random', 'random
             'hit_call',                                         # em_aim_fire_world_live's em_area00_world callee adapter
             'ui_call', 'ui_call0', 'dd_rand',
             'em_player_misc_random',
+            # The AREA01 composition's 00122BB8 path: em_area01_live's worker
+            # (em_random_next), the runtime's call and the pickup binding's
+            # aura adapter (em_area01_pickup_live) forward 001F1110's draw.
+            'worker', 'em_area01_runtime_call', 'aura_random',
+            # ... and its other adapters' 00122BB8 forwards: the indicator's
+            # (invoke, random_value), the flame services' random_worker, the
+            # runtime's call adapters (sys_call, exitb_call), the overlay's
+            # ovl_00122BB8, and dome, the per-cell height rule both lattice
+            # set-ups 001E8E80 / 001E9580 share (the caller is the frame above).
+            'invoke', 'random_value', 'random_worker', 'sys_call', 'exitb_call', 'ovl_00122BB8', 'dome',
             'h_random'}                                         # em_area11_boxes' 00122BB8 worker                            # the player workers' 00122BB8                   # em_area01_ui's callee adapter, 001F77B0's rand worker
 
 DETERMINISTIC = {0x1D7C30, 0x1F54E0, 0x1F4D40, 0x1FAE70, 0x1F1110, 0x8235F0, 0x825940}

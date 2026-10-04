@@ -1909,9 +1909,9 @@ and walk under it, Roger's departure walks you back and plays the exit
 movie, the screen goes black while the next area loads (at your machine's
 speed), and you arrive in the underground tunnel (AREA01) at the original's
 spot, facing the original's way, with its camera, its fade-in, its music
-and its ambient hum starting. The first level ends there: AREA01 itself is
-level 2, which the port does not run yet, so the game stops on that first
-AREA01 frame.
+and its ambient hum starting. The first level ends there; AREA01 itself
+is level 2, whose first second of standing still is reproduced (the entry
+"Level 2 (AREA01)" below).
 
 - How: the fan's exit box, Roger's departure script (its walk and its movie
   handshake), the movie (E001.PSS, the original's selector 1 and its START
@@ -1939,7 +1939,7 @@ AREA01 frame.
   the SPU2 output (no audio capture), AREA01's pixels (the arrival frame is
   under the fade-in's black), and the player's animation clock in the
   arrival frame itself (the port prepares the player's pose one step
-  earlier in that frame; no later frame runs). At host speed the black
+  earlier in that frame). At host speed the black
   stretch between the area request and AREA01 is shorter (the original's
   disc reads and its longer load veil); the PS2 disc-drive timing switch has
   no recording of these reads. The fan's direct exit on a later return and
@@ -1975,20 +1975,21 @@ numbers at the same places in each frame as the original.
   The smoke therefore checks each random value as the original code over
   the same draws.
 
-**Level 2 (AREA01) groundwork: translated and checked, not playable yet**
+**Level 2 (AREA01): the arrival; the rest translated and checked, not playable yet**
 
 The second level's route has been recorded, and the code it newly needs is
 being translated and checked against the original ahead of time, so level 2
-can meet the same standard. It is not playable in the port yet.
+can meet the same standard. Arriving in AREA01 and standing still for the
+first second plays as in the original, the camera settling behind the
+player; moving around AREA01 is not compared yet.
 
 - How: phase 1 recorded the original AREA01 route in PCSX2, ran a census
   delta of the new functions, wrote an area overview and matched the
   overlay in the decomp. Phase 2 translates each new function on its own
   and checks it with an original-instruction oracle over the recorded
   AREA01 RAM, comparing memory at every callee entry. The AREA01 assets are
-  exported locally and checked byte for byte against the captures. Binding
-  work now proceeds separately on branch `level2` (LEVEL2_BINDING.md), as
-  authorized for the second level while the first-level work continues.
+  exported locally and checked byte for byte against the captures. The binding
+  work (LEVEL2_BINDING.md), done on the branch `level2`, is merged into main.
 - Evidence: port commits e21bd95 (wave 1: 90 translations, split into
   overlay 14, math 30, render 21 and sys 25, plus asset exports) and efe9f83
   (wave 2: 65 side-path and exit translations, split into UI 17, side 20,
@@ -1998,14 +1999,23 @@ can meet the same standard. It is not playable in the port yet.
   41 functions are byte-identical C and 3 are NEARMISS. The lanes found
   wrong decomp NEARMISS bodies, which were then corrected: 7 in 07c4e32, 2
   in 837d548 and 7 more in f799141.
-- Status: **PARTIAL**, arrival only. The level exit rebuilds AREA01 sub 0;
-  its later world frames still fail-stop at 001AE040. The level2 branch
+- Arrival idle (step GUARD, 2026-10-04): AREA01's world frames run on its
+  bound owners in every run (any original without an owner still stops the
+  game where it is reached), and the level smoke's `a01_arrival`
+  (`LEVEL_SMOKE.md` "a01_arrival", required by `make
+  test-level-smoke-full`) compares the rebuild and 60 world frames with
+  route 15 f741..f801: the player, the camera (its one-shot seat after the
+  original's camera-block reset 001AF690, then the settle), the progress
+  and story bytes, the message, the bars and the fade, equal on every row.
+  Not compared: the AREA01 owners' records (route 15 does not record them),
+  AREA01's pixels and sound, and any frame after f801.
+- Status: **PARTIAL**, arrival idle only (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick
   mode (3,330 full) against the original instructions; LEVEL2_SERVICES.md ("AREA01 message-bank binding")
   states the exact scope. This does not make AREA01 dialogue or its route
-  playable. The opt-in arrival smoke currently fails on its first world tick.
+  playable.
   The route-plus-arrival census has 179 entries (SECOND_LEVEL_CENSUS.md).
   The older mutation sweeps did not converge and were closed on named
   survivors. The actor-cell bit-29 mirror was already accepted by chain C11

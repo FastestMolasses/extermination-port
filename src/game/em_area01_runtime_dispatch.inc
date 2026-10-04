@@ -117,6 +117,11 @@
         if (c->na < 2) return fail(r, c->function);
         rc = em_area01_sys_001A9E00(&r->sys, (uint32_t)c->a[0], (uint32_t)c->a[1]);
         break;
+    case 0x001AA000u:
+        if (c->na < 4) return fail(r, c->function);
+        rc = em_area01_sys_001AA000(&r->sys, (uint32_t)c->a[0], (uint32_t)c->a[1], (uint32_t)c->a[2],
+                                    (uint32_t)c->a[3]);
+        break;
     case 0x001B0300u:
         rc = em_area01_sys_001B0300(&r->sys);
         break;

@@ -1440,8 +1440,10 @@ loader-chain sub-point):**
   load's length) and the arrival's 0x1AE040 state-0 rebuild (spawn entry 4,
   AREA01's roster through the original spawner, the camera re-seat, the
   ambient loop 0x44E and the music cue 13). The first level ends on that
-  frame, the capture's first frame of control in AREA01: every later AREA01
-  frame faults at 0x1AE040 (level 2, not ported).
+  frame, the capture's first frame of control in AREA01; since step GUARD
+  (2026-10-04) the AREA01 frames after it run on AREA01's bound owners and
+  the level smoke's a01_arrival compares 60 of them with route 15
+  (LEVEL2_BINDING.md).
 - **Blockers fixed on the way:** the AREA01 cell directory's bit 29 (the EE's
   uncached RAM mirror; `em_actor_cells_hull_offset`), 001FC280's cache
   D_00282160 (modelled; its loop through the SFX registry's new (1, 0)

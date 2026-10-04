@@ -106,7 +106,7 @@ import sys
 
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
-import level_smoke_area01  # the opt-in AREA01 arrival idle (route 15 f741..f801)
+import level_smoke_area01  # the AREA01 arrival idle (route 15 f741..f801) and the opt-in AREA01 routes
 import rand_order as R
 import test_scene_task_reference as tsr
 
@@ -2525,7 +2525,7 @@ def check_exit(ticks, run, state):
                    bytes.fromhex(ticks[i]['post'])[3] == 1 and bytes.fromhex(ticks[i]['pre'])[1] == 1)
     continued = re.search(r'^level smoke: a01_arrival: PASS', run, re.M) is not None
     assert arrival == len(ticks) - 1 or continued, \
-        ('exit: the run did not end on the AREA01 arrival or continue into its opt-in check', ticks[arrival]['tick'])
+        ('exit: the run did not end on the AREA01 arrival or continue into its a01_arrival check', ticks[arrival]['tick'])
     port_states = [(i, (exit_port(ticks, i)['slot0'],) + exit_loader(ticks, i)) for i in range(il, arrival - 1)]
     orig_states = [(k, (exit_orig(rows1[k])['slot0'], tuple(bytes.fromhex(rows1[k]['slots'])[0x48:0x4C]),
                         rows1[k]['bd8'])) for k in range(load, EXIT_ARRIVAL_ROW - 1)]
@@ -3711,7 +3711,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
                   'aim_light', 'aim_melee', 'aim_world', 'aim_cable', 'aim_burst')),
          ('10', ('cage_ladders', 'cage_roof')), ('11', ('crevice_climbs', 'crevice_prompt')),
          ('12', ('crevice_jump',)), ('13', ('east_tower_climb', 'east_tower')), ('14', ('roger',)),
-         ('15', ('exit',)), ('15 AREA01 idle (opt-in)', ('a01_arrival',)),
+         ('15', ('exit',)), ('15 AREA01 idle', ('a01_arrival',)),
          ('AREA01 main route (opt-in)', tuple(level_smoke_area01.MAIN_BEATS)),
          ('AREA01 side routes (opt-in)', tuple(level_smoke_area01.SIDE_BEATS)),
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
@@ -4909,7 +4909,7 @@ def main():
         print(f'level smoke: {loader.group(0)}')
     if args.require_through:
         names = [p[0] for p in PHASES]
-        until = 'exit' if args.require_through == 'last' else args.require_through
+        until = 'a01_arrival' if args.require_through == 'last' else args.require_through
         assert until in names, ('--require-through: unknown phase', until, names)
         required = [p for p in names[:names.index(until)] if p not in SIDE] + \
             ([FROM_SIDE[until]] if until in FROM_SIDE else []) + [until]

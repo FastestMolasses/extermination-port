@@ -1,24 +1,17 @@
 # Level smoke: the first level, live, phase by phase
 
-AREA01 binding work adds an opt-in `a01_arrival` continuation:
-`EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke`. It asks for the
-arrival rebuild and 60 neutral world ticks, compared with route 15
-f741–801 by `tools/level_smoke_area01.py`. It currently fails on the first
-world frame at `001AE040` (the deliberate guard: AREA01's world frames are
-not ported). This is an explicit failing probe, not a live phase claim.
-Default/full first-level runs and `--require-through last` still end at
-`exit`. The harness also names the AREA01 main beats `a01_00`..`a01_07` and
-the side beats `a01_s0`..`a01_s7` (opt-in, all NOT reached until the guard
-opens); `make test-area01-smoke-harness` checks the harness itself against
-the recorded inputs, not a native run. With `EM_LEVEL2_BINDING_PROBE=1` the
-arrival run instead binds the committed AREA01 composition; since step
-FRAMES (2026-10-04) its world frames run idle without a fault (600 measured
-with `EM_A01_ARRIVAL_TICKS=600`, a probe-only length 60..600; frames past
-f801 are not recorded), and `tools/level_smoke_area01.py` then fails at the
-first comparison: route 15 f742 (port tick 13751) differs in the camera
-(eye y 25.7 against 21.7, the target, and the camera flag word 0 against
-0x800). See [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the recorded
-failures and work left.
+The route ends in AREA01 since step GUARD (2026-10-04): its last phase,
+`a01_arrival`, is the arrival's rebuild and 60 neutral world ticks,
+compared with route 15 f741–801 by `tools/level_smoke_area01.py`
+("a01_arrival" below). The 0x1AE040 guard that stopped AREA01's world
+frames is gone; an AREA01 original without an owner still faults where it
+is reached. `make test-level-smoke-full` and `--require-through last` end
+at `a01_arrival`. The harness also names the AREA01 main beats
+`a01_00`..`a01_07` and the side beats `a01_s0`..`a01_s7` (opt-in, not yet
+compared); `make test-area01-smoke-harness` checks the harness itself
+against the recorded inputs, not a native run. See
+[LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the AREA01 state and the work
+left.
 
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the
@@ -67,7 +60,7 @@ capture, not a route beat), which the same targets require.
 
 ```sh
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
-make test-level-smoke-full             # the whole route through the exit (the AREA01 arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
+make test-level-smoke-full             # the whole route through the exit and the AREA01 arrival idle (a01_arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage and test-level-smoke-branch
 make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_crevice_fall, dmg_pit_fall (EM_DAMAGE_SIDES=a,b runs only those)
@@ -76,6 +69,7 @@ make test-level-smoke-aim              # the aim/fire side runs side by side: ai
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
 EM_LEVEL_SMOKE_UNTIL=elevator_refusal make test-level-smoke   # any later main-line phase, e.g. panel, boxes, roger
+EM_LEVEL_SMOKE_UNTIL=a01_arrival make test-level-smoke        # the main line through the AREA01 arrival idle alone (about 2 min)
 EM_LEVEL_SMOKE_UNTIL=panel_no_battery make test-level-smoke   # side beat 00 alone
 EM_LEVEL_SMOKE_UNTIL=fence_door make test-level-smoke         # side beat 09 without side 1
 make test-level-smoke-ps2-drive        # the main route through roger with the PS2 disc-drive timing switch on (about 110 s)
@@ -309,6 +303,7 @@ fence_door_side1` requires both side phases.
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 | exit | 15 (EXIT capture: exit_00 f31.., exit_01 ..f306) | fan r2 00827630's exit box, Roger's departure 0x828A10 (op01 kind 3, op0F: the movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (AREA01 sub 0), the AREA01 arrival 0x1AE040 state 0 | yes (chain C11 EXIT, 2026-10-02) | — |
+| a01_arrival | 15 (route 15 f741..f801) | the AREA01 rebuild, then 0x1AE040 state 1 / 001AE5E0 over AREA01's 54 placements and spawned owners (LEVEL2_BINDING.md), the camera's one-shot seat 0018B9C0 state 0 (mode 8), the close-out's 001AA140 / 001AA000 | yes (step GUARD, 2026-10-04) | the AREA01 owners' records (not in route 15) |
 
 ## What the live phases check
 
@@ -1489,6 +1484,26 @@ The whole-run checks (render context, effects, shadow, rand order, ...)
 cover AREA11's ticks: the checker leaves out the arrival's rebuild tick.
 The render context's view check accepts the rebuild's re-seat (001B0460
 in state 0, projected by its 001D1EF0), as it accepts state 4's.
+
+### a01_arrival
+
+`tools/level_smoke_area01.py check_arrival`: the run continues from
+`exit` with a neutral pad; the rebuild (port counter 15007) is route 15
+row 741 and the next 60 ticks are f742..f801, compared row for row with
+no exemption except the rebuild's clock (the same one-frame pose attach
+difference `exit` documents): spad, screen, message, power, player
+position and heading, camera eye and target, the camera flag word
+D_008101E4..E7 (+6 = 8 from f742: 0018B9C0's one-shot seat after
+001AF690's reset), the request, area and task bytes, slot 0's +8..+C,
+the player's +5 / +1F0 / +1F1 / clip / +2F3, ground and clock, the next
+tick's fade, and the story bytes D_008107D8 / D_00810758 / D_00810792.
+Route 15 records no AREA01 owner, so the owners' records are not compared
+here; the AREA01 rand() draws go through `check_rand_order`'s caller
+audit (no AREA01 per-call capture exists). The exit's pool witness at the
+rebuild is taken by this run too. `EM_A01_ARRIVAL_TICKS=N` (60..600)
+lengthens the idle as a diagnostic; frames past f801 are not recorded.
+
+Measured (2026-10-04): every compared field equal on all 61 rows.
 
 ### The step-offs (`check_fall`)
 

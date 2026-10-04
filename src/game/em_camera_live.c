@@ -181,6 +181,13 @@ static void view_store(void);
 static void view_publish(void);
 void em_camera_live_view_publish(void) { view_store(); view_publish(); }
 void em_camera_live_adopt_view(void) { if (C.bound) view_load(); }
+void em_camera_live_store_block(const uint8_t block[0xD0], uint32_t d81060C)
+{
+    view_load(); /* the g.cam writers' bytes first, so the store replaces them */
+    memcpy(C.cam.rec.bytes, block, EM_CAMERA_FOLLOW_RECORD_SIZE);
+    C.pool[P_FWD + 3] = d81060C;
+    view_store();
+}
 int em_camera_live_bound(void) { return C.bound; }
 const uint8_t *em_camera_live_player_bytes(void) { return C.player.bytes; }
 

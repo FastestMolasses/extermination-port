@@ -2,7 +2,7 @@
 
 Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
-**Current (2026-10-04, after the level-2 integration merged into main):** **0 live, 177 verified-unbound, 0 missing, 2 boundary** (the five initially missing routines are translated; §2's table is the phase-1 baseline). The committed live composition runs only under `EM_LEVEL2_BINDING_PROBE=1`. There, since step FRAMES, the world frames run idle with no fault, simulation and presentation (600 frames measured; 0015A2C0's 001E9E60 and 001E7D20 now have their page programs D_002345E0 / D_00234B00 translated and walked, oracle `make test-level2-floor-vu-reference`; LEVEL2_BINDING.md "State"). But the default path keeps the 0x1AE040 guard and the route 15 comparison fails at f742 (the camera, LEVEL_SMOKE.md); so no row is promoted. The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
+**Current (2026-10-04, step GUARD):** **41 live (9,183 instructions), 136 verified-unbound (20,233), 0 missing, 2 boundary (131)** (§8; §2's table is the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
 
 ## 1. Scope and counting
 
@@ -67,12 +67,12 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x00128390 | boot | 13 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128390` | X | — |
 | 0x00128600 | boot | 16 | X; 07 f4487 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128600` | X | — |
 | 0x00128640 | boot | 105 | X; 07 f4486 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128640` | X | — |
-| 0x001287F0 | boot | 14 | M; 00 f1; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001287F0` | S | — |
+| 0x001287F0 | boot | 14 | M; 00 f1; E c16505 | live | `em_area01_sys.c` / `em_area01_sys_001287F0` | S; G | — |
 | 0x001289C0 | boot | 60 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_001289C0` | X | — |
-| 0x00128AB0 | boot | 51 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00128AB0` | X | — |
+| 0x00128AB0 | boot | 51 | X; 07 f531; E c16503 | live | `em_area01_exita.c` / `em_area01_exita_00128AB0` | X; G | — |
 | 0x00128B80 | boot | 33 | M; 00 f1; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00128B80` | S | — |
-| 0x00128C10 | boot | 731 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00128C10` | S | — |
-| 0x00129780 | boot | 479 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_00129780` | X | — |
+| 0x00128C10 | boot | 731 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_00128C10` | S; G | — |
+| 0x00129780 | boot | 479 | X; 07 f532; E c16504 | live | `em_area01_exita.c` / `em_area01_exita_00129780` | X; G | — |
 | 0x0012A5D0 | boot | 508 | X; 07 f531 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012A5D0` | X | — |
 | 0x0012ADC0 | boot | 127 | X; 07 f4488 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012ADC0` | X | — |
 | 0x0012AFC0 | boot | 273 | X; 07 f4487 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0012AFC0` | X | — |
@@ -83,9 +83,9 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x00158590 | boot | 158 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00158590` | S | — |
 | 0x00158810 | boot | 237 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_00158810` | Y | — |
 | 0x00158BD0 | boot | 85 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_00158BD0` | Y | — |
-| 0x00158D30 | boot | 97 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00158D30` | S | — |
-| 0x00159B90 | boot | 181 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_00159B90` | S | — |
-| 0x0015A2C0 | boot | 291 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0015A2C0` | S | — |
+| 0x00158D30 | boot | 97 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_00158D30` | S; G | — |
+| 0x00159B90 | boot | 181 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_00159B90` | S; G | — |
+| 0x0015A2C0 | boot | 291 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_0015A2C0` | S; G | — |
 | 0x0015AB00 | boot | 61 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_0015AB00` | Y | — |
 | 0x0015B030 | boot | 62 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_0015B030` | Y | — |
 | 0x0015B610 | boot | 88 | M; 04 f1810 | verified-unbound | `em_area01_render_frame.c` / `em_area01_render_0015B610` | R | — |
@@ -118,12 +118,12 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x00188610 | boot | 7 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00188610` | Q | — |
 | 0x00191120 | boot | 59 | M; 00 f357 | verified-unbound | `em_camera_follow_original.c` / `em_camera_follow_00191120` | S | — |
 | 0x00198D90 | boot | 93 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00198D90` | Q | — |
-| 0x0019B4C0 | boot | 128 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0019B4C0` | S | — |
+| 0x0019B4C0 | boot | 128 | M; 00 f1; E c16504 | live | `em_area01_sys.c` / `em_area01_sys_0019B4C0` | S; G | — |
 | 0x0019CF50 | boot | 248 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_0019CF50` | S | — |
 | 0x001A06A0 | boot | 283 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A06A0` | S | — |
 | 0x001A8840 | boot | 76 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A8840` | S | — |
 | 0x001A9E00 | boot | 88 | M; 00 f6 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001A9E00` | S | — |
-| 0x001AA000 | boot | 78 | M; 00 f57; E c16505 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001AA000` | S | — |
+| 0x001AA000 | boot | 78 | M; 00 f57; E c16505 | live | `em_area01_sys.c` / `em_area01_sys_001AA000` | S; G | — |
 | 0x001AA4E0 | boot | 86 | S; s6 f158 | verified-unbound | `em_player_running_jump.c` / `em_player_running_jump_target` | Q | L |
 | 0x001AF7C0 | boot | 13 | S; s2 f280 | verified-unbound | `em_status_models.c` / `w_001AF7C0 (also standalone SIDE)` | D | L |
 | 0x001AFF10 | boot | 30 | S; s2 f279 | verified-unbound | `em_status_scene_original.c` | D | L |
@@ -131,41 +131,41 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001B0300 | boot | 86 | M; 04 f1810 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B0300` | S | — |
 | 0x001B0C00 | boot | 22 | M; 07 f169 | verified-unbound | `em_script_host_workers.c` / `em_script_host_001B0C00` | S | L |
 | 0x001B0D80 | boot | 15 | M; 00 f35; E c16534 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B0D80` | S | — |
-| 0x001B13F0 | boot | 31 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001B13F0` | M | — |
-| 0x001B2140 | boot | 625 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001B2140` | M | — |
+| 0x001B13F0 | boot | 31 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001B13F0` | M; G | — |
+| 0x001B2140 | boot | 625 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001B2140` | M; G | — |
 | 0x001B6D70 | boot | 52 | M; 03 f142 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B6D70` | S | — |
 | 0x001B76D0 | boot | 9 | M; 03 f431 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B76D0` | S | — |
 | 0x001B9CF0 | boot | 191 | M; 03 f301 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001B9CF0` | M | — |
 | 0x001BB400 | boot | 71 | S; s4 f250 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB400` | Q | — |
-| 0x001BB520 | boot | 14 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001BB520` | Y | — |
+| 0x001BB520 | boot | 14 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001BB520` | Y; G | — |
 | 0x001BB560 | boot | 152 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB560` | M | — |
 | 0x001BB7C0 | boot | 10 | S; s4 f246 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7C0` | Q | — |
 | 0x001BB7F0 | boot | 27 | S; s4 f334 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7F0` | Q | — |
-| 0x001BB860 | boot | 157 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB860` | M | — |
+| 0x001BB860 | boot | 157 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001BB860` | M; G | — |
 | 0x001BBAE0 | boot | 68 | M; 03 f143 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBAE0` | M | — |
 | 0x001BBBF0 | boot | 75 | M; 03 f75 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBBF0` | M | — |
 | 0x001BF630 | boot | 31 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BF630` | M | — |
-| 0x001BFFD0 | boot | 13 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BFFD0` | M | — |
+| 0x001BFFD0 | boot | 13 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001BFFD0` | M; G | — |
 | 0x001C0004 | boot | 181 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BFFD0 (interior piece)` | M | — |
-| 0x001C02E0 | boot | 254 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001C02E0` | M | — |
+| 0x001C02E0 | boot | 254 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001C02E0` | M; G | — |
 | 0x001C2430 | boot | 37 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C2430` | Y | — |
-| 0x001C2540 | boot | 38 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C2540` | Y | — |
-| 0x001C25E0 | boot | 42 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C25E0` | M | — |
-| 0x001C2770 | boot | 544 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C2770` | M | — |
+| 0x001C2540 | boot | 38 | X; 07 f532; E c16504 | live | `em_area01_exitb.c` / `em_area01_exitb_001C2540` | Y; G | — |
+| 0x001C25E0 | boot | 42 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001C25E0` | M; G | — |
+| 0x001C2770 | boot | 544 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001C2770` | M; G | — |
 | 0x001C39F0 | boot | 122 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C39F0` | M | — |
-| 0x001C3BE0 | boot | 96 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C3BE0` | M | — |
-| 0x001C3D60 | boot | 17 | M; 00 f1; E c16505 | verified-unbound | `em_area01_math_actor.c` / `em_area01_math_001C3D60` | M | — |
-| 0x001C3DB0 | boot | 191 | X; 07 f532; E c16504 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C3DB0` | Y | — |
+| 0x001C3BE0 | boot | 96 | M; 00 f1; E c16504 | live | `em_area01_math_actor.c` / `em_area01_math_001C3BE0` | M; G | — |
+| 0x001C3D60 | boot | 17 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001C3D60` | M; G | — |
+| 0x001C3DB0 | boot | 191 | X; 07 f532; E c16504 | live | `em_area01_exitb.c` / `em_area01_exitb_001C3DB0` | Y; G | — |
 | 0x001C4720 | boot | 13 | S; s2 f246 | verified-unbound | `em_pickup_owner.c` / `em_pickup_owner_take (also standalone SIDE)` | D | L |
 | 0x001C4FA0 | boot | 43 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C4FA0` | L2 | — |
-| 0x001C50B0 | boot | 303 | A; E c16503 | verified-unbound | `em_area01_light_owner.c` / `em_area01_light_001C50B0` | L2 | — |
+| 0x001C50B0 | boot | 303 | A; E c16503 | live | `em_area01_light_owner.c` / `em_area01_light_001C50B0` | L2; G | — |
 | 0x001C6160 | boot | 11 | X; 07 f755 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001C6160` | Y | — |
-| 0x001C69A0 | boot | 254 | M; 00 f1 | verified-unbound | `em_area01_math_actor.c` / complete entry and shared stages; status typed view and AREA01 model adapter (LEVEL2_RENDER.md ("C69A0 live pose binding and shared status stages")) | M | L |
-| 0x001CB360 | boot | 21 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001CB360` | M | — |
+| 0x001C69A0 | boot | 254 | M; 00 f1 | live | `em_area01_math_actor.c` / complete entry and shared stages; status typed view and AREA01 model adapter (LEVEL2_RENDER.md ("C69A0 live pose binding and shared status stages")) | M; G | L |
+| 0x001CB360 | boot | 21 | M; 00 f1; E c16504 | live | `em_area01_math_owner.c` / `em_area01_math_001CB360` | M; G | — |
 | 0x001CB480 | boot | 28 | S; s2 f280 | verified-unbound | `em_area01_side.c` / `em_area01_side_001CB480` | D | U |
-| 0x001CD070 | boot | 68 | M; 00 f1 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD070` | R | L |
+| 0x001CD070 | boot | 68 | M; 00 f1 | live | `em_area01_render_gs.c` / `em_area01_render_001CD070` | R; G | L |
 | 0x001CD180 | boot | 76 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD180` | R | — |
-| 0x001CD2B0 | boot | 48 | M; 00 f1; E c16509 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001CD2B0` | R | — |
+| 0x001CD2B0 | boot | 48 | M; 00 f1; E c16509 | live | `em_area01_render_gs.c` / `em_area01_render_001CD2B0` | R; G | — |
 | 0x001D0400 | boot | 43 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001D0400` | Y | — |
 | 0x001D0C80 | boot | 47 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0C80` | K | — |
 | 0x001D0D40 | boot | 8 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0D40` | K | — |
@@ -176,14 +176,14 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001D5BD0 | boot | 41 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5BD0` | R | — |
 | 0x001D8100 | boot | 9 | S; s3 f208 | verified-unbound | `em_effect_original.c` | D | L |
 | 0x001E3D20 | boot | 27 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001E3D20` | D | — |
-| 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S | — |
+| 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S; G | — |
 | 0x001E7CB0 | boot | 25 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7CB0` | S | — |
-| 0x001E7D20 | boot | 902 | M; 00 f1; E c16503 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7D20` | S | — |
+| 0x001E7D20 | boot | 902 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E7D20` | S; G | — |
 | 0x001E8B90 | boot | 187 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001E8B90` | R | — |
 | 0x001E8E80 | boot | 253 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E8E80` | Y | — |
 | 0x001E9280 | boot | 189 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9280` | Y | — |
-| 0x001E9580 | boot | 566 | X; 07 f531; E c16503 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9580` | Y | — |
-| 0x001E9E60 | boot | 233 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001E9E60` | R | — |
+| 0x001E9580 | boot | 566 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001E9580` | Y; G | — |
+| 0x001E9E60 | boot | 233 | M; 00 f1; E c16504 | live | `em_area01_render_hud.c` / `em_area01_render_001E9E60` | R; G | — |
 | 0x001EAF00 | boot | 31 | M; 00 f138 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF00` | R | — |
 | 0x001EAF80 | boot | 39 | M; 02 f44 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF80` | R | — |
 | 0x001EB020 | boot | 140 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EB020` | R | — |
@@ -192,9 +192,9 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001F0190 | boot | 64 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0190` | D | L |
 | 0x001F0290 | boot | 12 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0290` | D | L |
 | 0x001F0460 | boot | 176 | M; 00 f178 | verified-unbound | `em_effect_original.c` | E | L |
-| 0x001F4A10 | boot | 120 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001F4A10` | R | — |
-| 0x001F4BF0 | boot | 50 | M; 00 f1; E c16504 | verified-unbound | `em_status_scene_original.c` | E | — |
-| 0x001F4CC0 | boot | 30 | M; 00 f1; E c16504 | verified-unbound | `em_area01_render_gs.c` / `em_area01_render_001F4CC0` | R | — |
+| 0x001F4A10 | boot | 120 | M; 00 f1; E c16504 | live | `em_area01_render_gs.c` / `em_area01_render_001F4A10` | R; G | — |
+| 0x001F4BF0 | boot | 50 | M; 00 f1; E c16504 | live | `em_status_scene_original.c` | E; G | — |
+| 0x001F4CC0 | boot | 30 | M; 00 f1; E c16504 | live | `em_area01_render_gs.c` / `em_area01_render_001F4CC0` | R; G | — |
 | 0x001FAD70 | boot | 61 | M; 07 f169 | verified-unbound | `em_stream_lanes_original.c` / `em_stream_lanes_001FAD70` | S | L |
 | 0x001FCF60 | boot | 11 | S; s1 f330 | verified-unbound | `em_census_standins.c` | D | L |
 | 0x001FCF90 | boot | 82 | S; s1 f330 | verified-unbound | `em_census_standins.c` | D | L |
@@ -226,21 +226,21 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x0022BB70 | boot | 17 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022BB70` | U | L |
 | 0x0022BBC0 | boot | 1509 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022BBC0` | U | L |
 | 0x0022DCD0 | boot | 599 | X; 07 f531 | verified-unbound | `em_area01_exita.c` / `em_area01_exita_0022DCD0` | X | — |
-| 0x00823580 | AREA01 | 147 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00823580` | O | — |
+| 0x00823580 | AREA01 | 147 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00823580` | O; G | — |
 | 0x00825130 | AREA01 | 65 | M; 05 f139 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825130` | O | — |
 | 0x00825240 | AREA01 | 65 | M; 05 f2491 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825240` | O | — |
-| 0x00825350 | AREA01 | 88 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825350` | O | — |
+| 0x00825350 | AREA01 | 88 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00825350` | O; G | — |
 | 0x008254B0 | AREA01 | 53 | M; 00 f1; E c16504 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008254B0` | O | — |
 | 0x00825590 | AREA01 | 55 | M; 03 f296 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825590` | O | — |
 | 0x00825670 | AREA01 | 52 | M; 05 f3932 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825670` | O | — |
-| 0x00825740 | AREA01 | 113 | A; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00825740` | T | — |
-| 0x008261A0 | AREA01 | 24 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008261A0` | O | — |
+| 0x00825740 | AREA01 | 113 | A; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00825740` | T; G | — |
+| 0x008261A0 | AREA01 | 24 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_008261A0` | O; G | — |
 | 0x00826200 | AREA01 | 143 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826200` | O | — |
 | 0x00826440 | AREA01 | 221 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826440` | O | — |
-| 0x008267C0 | AREA01 | 99 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_008267C0` | O | — |
-| 0x00826CF0 | AREA01 | 17 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826CF0` | O | — |
-| 0x00826D40 | AREA01 | 1386 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00826D40` | O | — |
-| 0x00828850 | AREA01 | 102 | M; 00 f1; E c16503 | verified-unbound | `em_area01_overlay.c` / `em_area01_ovl_00828850` | O | — |
+| 0x008267C0 | AREA01 | 99 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_008267C0` | O; G | — |
+| 0x00826CF0 | AREA01 | 17 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00826CF0` | O; G | — |
+| 0x00826D40 | AREA01 | 1386 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00826D40` | O; G | — |
+| 0x00828850 | AREA01 | 102 | M; 00 f1; E c16503 | live | `em_area01_overlay.c` / `em_area01_ovl_00828850` | O; G | — |
 
 ## 5. The five baseline missing entries and caller evidence
 
@@ -273,9 +273,9 @@ Phase 1 established this inventory without implementing the five missing entries
 
 All five phase-1 missing entries now have standalone original-instruction
 verification. This changes availability, not connected AREA01 execution.
-The exact inventory in §4 is current; §2 preserves the original baseline.
+§2 preserves the original baseline; §8 has the current totals.
 
-| Current AREA01 status | Entries | Instructions |
+| AREA01 status at this checkpoint | Entries | Instructions |
 |---|---:|---:|
 | live | 0 | 0 |
 | verified-unbound | 177 | 29,416 |
@@ -298,6 +298,42 @@ The frame, owner, script, collision, camera, message, renderer and canonical
 memory bindings still require route evidence. The census instruction
 counts retain the source-entry extents; a complete native/oracle body can
 also cover trailing instructions not included in an old entry's size.
+
+## 8. Step GUARD: the arrival idle (2026-10-04)
+
+Evidence key **G**: the row is bound on the default AREA01 first-visit path
+and runs in the a01_arrival window, port counters 15007..15067 (the rebuild
+and 60 world frames), which `make test-level-smoke-full` compares with
+route 15 f741..f801 (player, camera, selector, request, task, story and
+progress bytes, message, bars, power and fade; LEVEL_SMOKE.md). "Runs" was
+measured with a private diagnostic build (deleted, never committed) that
+logs every call through `em_area01_runtime_call` and the live composition's
+worker: 126 distinct originals, 41 of them census rows. Every one of the 41
+that the EXIT census also records is first reached on the same frame
+(port counter = EXIT census counter − 1495; e.g. 001AA000 at c16505 =
+port 15010), except 001287F0, whose first logged call (15011, through
+0012D580) is a frame after the census's: its earlier call is the
+same-module one inside 00128C10, which that funnel does not see. Original
+callers and live adapters: "AREA01 arrival binding dependencies" below and
+LEVEL2_BINDING.md (step GUARD bound 001AA000 and 001AF690).
+
+Limits: route 15 records no AREA01 owner record, so the window compares
+the player, camera and progress the owners drive, not the owners' bytes;
+the a01_00.. captures (11 owner records) are the next comparisons. The
+funnel is a lower bound: 23 further rows the original runs in this window
+are called inside a translation (e.g. 001C4FA0 inside 001C50B0, 001D0C80 /
+001D0D40 inside 001C02E0, 00128390 / 001289C0 inside 00128AB0) or by the
+render context (001D4FC0, 001D5A70, 001D5BD0) and stay verified-unbound
+until a comparison names them.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 41 | 9,183 |
+| verified-unbound | 136 | 20,233 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
 
 ## AREA01 arrival binding dependencies
 

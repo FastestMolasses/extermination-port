@@ -305,7 +305,8 @@ static const Phase k_phases[] = {
      "the level exit (audit 1b item 17; docs/FIRST_LEVEL_EXIT.md)", exit_begin, exit_frame, 0, 0, 0, 0},
     {"a01_arrival", "15_level_exit f741..f801 (AREA01 arrival and 60 neutral world ticks)", 0x001AE040u,
      "AREA01 sub 0 entry 4: the arrival rebuild followed by the original idle player, camera and owners",
-     "AREA01 live binding; opt-in, every missing worker still fail-stops", a01_arrival_begin, a01_arrival_frame,
+     "AREA01 live binding (LEVEL2_BINDING.md); the route's last phase, every missing worker still fail-stops",
+     a01_arrival_begin, a01_arrival_frame,
      0, 0, 0, 1},
     {"a01_s0", "a01_s0_npc_first_talk (side, from 15_level_exit)", 0,
      "NPC first talk from the completed AREA01 arrival idle", "AREA01 side route and strict capture comparison",
@@ -4261,13 +4262,13 @@ static int exit_frame(void)
  * in that checker, because the remaining main-loop steps have not run. */
 enum { A01_ARRIVAL_WORLD_TICKS = 60, A01_ARRIVAL_PROBE_TICKS_MAX = 600 };
 
-/* EM_A01_ARRIVAL_TICKS=N (60..600) lengthens the idle run, honoured only
- * under the binding probe (EM_LEVEL2_BINDING_PROBE=1): a fault-free run
- * past f801, which route 15 does not record, so it proves no behaviour. */
+/* EM_A01_ARRIVAL_TICKS=N (60..600) lengthens the idle run (diagnostic): a
+ * fault-free run past f801, which route 15 does not record, so the extra
+ * ticks prove no behaviour. */
 static int a01_arrival_ticks(void)
 {
-    const char *probe = getenv("EM_LEVEL2_BINDING_PROBE"), *n = getenv("EM_A01_ARRIVAL_TICKS");
-    if (!probe || strcmp(probe, "1") != 0 || !n) return A01_ARRIVAL_WORLD_TICKS;
+    const char *n = getenv("EM_A01_ARRIVAL_TICKS");
+    if (!n) return A01_ARRIVAL_WORLD_TICKS;
     const long v = strtol(n, NULL, 10);
     return v >= A01_ARRIVAL_WORLD_TICKS && v <= A01_ARRIVAL_PROBE_TICKS_MAX ? (int)v : A01_ARRIVAL_WORLD_TICKS;
 }
@@ -4378,11 +4379,12 @@ void em_level_smoke_test_begin(void)
     t.active = value && strcmp(value, "newgame-level") == 0;
     if (!t.active)
         return;
-    /* Later-level phases are opt-in. The established first-level run
-     * (including EM_TEST_FULL's empty endpoint) still ends at exit. */
+    /* The whole route (EM_TEST_FULL's empty endpoint) ends with the AREA01
+     * arrival idle, a01_arrival; the AREA01 route beats after it are
+     * opt-in. */
     t.until = 0;
     for (int i = 0; i < PHASE_COUNT; ++i)
-        if (strcmp(k_phases[i].name, "exit") == 0)
+        if (strcmp(k_phases[i].name, "a01_arrival") == 0)
             t.until = i;
     const char *until = getenv("EM_LEVEL_SMOKE_UNTIL");
     if (until && until[0]) {
