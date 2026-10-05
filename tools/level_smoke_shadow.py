@@ -301,15 +301,15 @@ def check_actor(ticks, state):
 
 # ------------------------------------------------------------------ C
 
-def sample_route2(item):
+def sample_route2(item, base='04_elevator_ride'):
     """C for one sample."""
     tick, sample = item
     import test_shadow_decal_reference as SD
     import test_shadow_actor_route_reference as SAR
     if SD.ELF is None:
         SD.ELF = SAR.read_elf()
-    ram = bytearray((ROUTE / '04_elevator_ride' / 'eeMemory.bin').read_bytes())
-    spad = bytearray((ROUTE / '04_elevator_ride' / 'scratchpad.bin').read_bytes())
+    ram = bytearray((ROUTE / base / 'eeMemory.bin').read_bytes())
+    spad = bytearray((ROUTE / base / 'scratchpad.bin').read_bytes())
     player = bytes.fromhex(sample['player'])
     nodes = bytes.fromhex(sample['nodes'])
     where = ('shadow decal sample', tick)
@@ -418,6 +418,73 @@ def check_snapshots(ticks, state):
 def sample_item(item):
     kind, x = item
     return sample_route1(x) if kind == '1' else sample_route2(x)
+
+
+# ------------------------------------------------------------------ AREA01
+
+AREA01_BASE = '15_level_exit'   # route 15's last row f801: the AREA01 arrival's idle
+
+
+def sample_item_area01(item):
+    kind, x = item
+    if kind == '1':
+        return sample_route1(x, AREA01_BASE)
+    if kind == '2':
+        return sample_route2(x, AREA01_BASE)
+    tick, sample = x
+    return sample_route1((tick, sample, None), AREA01_BASE, sample['record'])
+
+
+def check_shadow_area01(ticks):
+    """The AREA01 ticks from the level exit's rebuild (the sampling restarts
+    when the AREA01 composition binds there: em_scene_bindings.c): A over them (0015C160's route for
+    the gate bytes, every drawn 001DA6A0 and every decal with fans flushed);
+    B and C on their samples (quick: the first, the last and two between;
+    EM_TEST_FULL=1: all) over route 15's AREA01 capture (its static bank:
+    the receivers), and the owner walk's actor shadows (001BA580 ->
+    001DA6A0) likewise: every drawn call flushed, the sampled ones' plans
+    the ORIGINAL 001CB590 + 001DA6A0 build over that capture."""
+    counts, drawn, decals = check_run(ticks, {})
+    samples = [(t['tick'], t['shadow'][2], t.get('rctx'),
+                {r[3] for r in (t.get('rctx'), ticks[i - 1].get('rctx') if i else None) if r is not None})
+               for i, t in enumerate(ticks) if t.get('shadow') and t['shadow'][2]]
+    route1 = [(tick, s, r, z) for tick, s, r, z in samples if s['route'] == 1]
+    route2 = [(tick, s) for tick, s, _, _ in samples if s['route'] == 2]
+    for t in samples:
+        assert tuple(t[1]['area'][:1]) == (1,), ('shadow AREA01: a sample outside AREA01', t[0], t[1]['area'])
+    rows = [t for t in ticks if t.get('shadow_actor') and t['shadow_actor'][0]]
+    acalls = adrawn = 0
+    actor, seen = [], set()
+    for t in rows:
+        fresh, record, c_drawn, kind, receivers, cls2, flushed, total, drawn_total, sample = t['shadow_actor']
+        if total in seen:
+            continue
+        seen.add(total)
+        assert c_drawn in (0, 1) and flushed == c_drawn, (('shadow AREA01 actor', t['tick']),
+                                                          'a drawn actor shadow was not flushed', t['shadow_actor'][:9])
+        acalls += 1
+        adrawn += c_drawn
+        if sample:
+            actor.append((t['tick'], dict(sample)))
+
+    def pick(xs):
+        return xs if RM.FULL else [xs[k] for k in sorted({0, len(xs) // 3, 2 * len(xs) // 3, len(xs) - 1})] if xs \
+            else []
+    p1, p2, pa = pick(route1), pick(route2), pick(actor)
+    assert p1 or not counts[1], 'shadow AREA01: 001DA6A0 ran but no call was sampled'
+    shadow_original()
+    results = RM.parallel_map(sample_item_area01, [('1', x) for x in p1] + [('2', x) for x in p2] +
+                              [('a', x) for x in pa])
+    r1, r2, ra = results[:len(p1)], results[len(p1):len(p1) + len(p2)], results[len(p1) + len(p2):]
+    print(f'shadow AREA01: PASS (0015C160 over {len(ticks)} AREA01 ticks: {counts[1]} 001DA6A0 calls ({drawn} '
+          f'drawn and flushed), {counts[2]} 0015BF90 calls ({decals} decals drawn), {counts[0]} without a '
+          f'shadow; over route 15\'s AREA01 capture the ORIGINAL 001DA6A0 builds the port\'s plan in '
+          f'{RM.part(len(p1), len(route1), "sampled calls")} ({sum(x[1] for x in r1)} drawn, '
+          f'{sum(x[2] for x in r1)} receivers), the ORIGINAL 0015BF90 + 001CE300 write the port\'s packets in '
+          f'{RM.part(len(p2), len(route2), "sampled decal calls")} ({sum(x[1] for x in r2)} fans); the owner '
+          f'walk\'s actor shadows: {acalls} calls ({adrawn} drawn and flushed), the ORIGINAL 001CB590 + '
+          f'001DA6A0 build the port\'s plan in {RM.part(len(pa), len(actor), "sampled calls")} '
+          f'({sum(x[1] for x in ra)} drawn, {sum(x[2] for x in ra)} receivers))')
 
 
 def check_shadow(ticks, state):

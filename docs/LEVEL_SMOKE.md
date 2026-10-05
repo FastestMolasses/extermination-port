@@ -9,8 +9,10 @@ is reached. `make test-level-smoke-full` and `--require-through last` end
 at `a01_arrival`. The harness also names the AREA01 main beats
 `a01_00`..`a01_07` and the side beats `a01_s0`..`a01_s7` (opt-in). The
 first of them, `a01_00` (the train room), runs live and is compared row
-for row ("a01_00" below); it stops at f405 on kind 6's untranslated VU1
-program, so it is not yet part of `make test-level-smoke-full`.
+for row ("a01_00" below); since step DRAWN (2026-10-04) all 781 rows
+pass. It is opt-in (about 5 minutes with its checks), not part of `make
+test-level-smoke-full`. Runs that reach AREA01 also check its drawn world
+after the phases ("The AREA01 world" below).
 `make test-area01-smoke-harness` checks the harness itself against the
 recorded inputs, not a native run. See
 [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the AREA01 state and the work
@@ -307,7 +309,7 @@ fence_door_side1` requires both side phases.
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 | exit | 15 (EXIT capture: exit_00 f31.., exit_01 ..f306) | fan r2 00827630's exit box, Roger's departure 0x828A10 (op01 kind 3, op0F: the movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (AREA01 sub 0), the AREA01 arrival 0x1AE040 state 0 | yes (chain C11 EXIT, 2026-10-02) | — |
 | a01_arrival | 15 (route 15 f741..f801) | the AREA01 rebuild, then 0x1AE040 state 1 / 001AE5E0 over AREA01's 54 placements and spawned owners (LEVEL2_BINDING.md), the camera's one-shot seat 0018B9C0 state 0 (mode 8), the close-out's 001AA140 / 001AA000 | yes (step GUARD, 2026-10-04) | the AREA01 owners' records (not in route 15) |
-| a01_00 (opt-in, from a01_arrival) | a01_00_train_room (780 frames) | the recorded pad: the walk round the crates and through the floor fields (001A8840's contact 00187EC0, the splash 001EAF00, the wet-feet decal 001F0460), the Use scan 00184BA0 and ledge grab (f304), the hang 001647D0 with 00182250's alignment on the crate cell (f357), the pull-up (f360..), the fall and landing (f491..f520), the walk to the tunnel mouth | partly (step MOVE, 2026-10-04): f0..f404 exact, then the run stops at kind 6's VU1 program D_0023D930 (001E3D90's near-fire layer) | rows f405..f780 (all 781 rows match when only the kind-6 draw is skipped, in a private diagnostic build) |
+| a01_00 (opt-in, from a01_arrival) | a01_00_train_room (780 frames) | the recorded pad: the walk round the crates and through the floor fields (001A8840's contact 00187EC0, the splash 001EAF00, the wet-feet decal 001F0460), the Use scan 00184BA0 and ledge grab (f304), the hang 001647D0 with 00182250's alignment on the crate cell (f357), the pull-up (f360..), the fall and landing (f491..f520), the walk to the tunnel mouth | yes (step DRAWN, 2026-10-04: all 781 rows, the kind-6 near-fire program D_0023D930 drawn from f405) | — |
 
 ## What the live phases check
 
@@ -1519,8 +1521,8 @@ whole camera block at f801.
 
 ### a01_00
 
-`python3 tools/test_level_smoke_area01.py --until a01_00` (about 2
-minutes): New Game, the whole first level, a01_arrival, then route beat
+`python3 tools/test_level_smoke_area01.py --until a01_00` (about 5
+minutes with the checks): New Game, the whole first level, a01_arrival, then route beat
 a01_00_train_room from its recorded pad (each command submitted two rows
 later, the BRANCH rule; the source gap from route 15's last counter is 1,
 so row 0 is port counter 15068). `level_smoke_area01.check_route` compares
@@ -1539,7 +1541,14 @@ forward and D_00810690.. against the beat's saved RAM, byte for byte.
 (the per-row fields against each beat's last-row RAM in all 15 beats) and
 reject a corrupt block eye/target and a corrupt last-row block byte.
 
-Measured (step MOVE, 2026-10-04): rows f0..f404 equal in every field
+Measured (step DRAWN, 2026-10-04): **a01_00 PASS, all 781 rows**, the
+whole camera block at f780 included: the near-fire layer's kind-6 program
+(LEVEL2_RENDER.md "Kind-6 near-fire program") draws from f405, the pull-up,
+the walk off the crates, the fall (f491), the landing (f519) and the walk
+to the tunnel mouth follow the recording. Receipts (ignored):
+`build/level2/kind6/a01_00d.log`.
+
+Measured before (step MOVE, 2026-10-04): rows f0..f404 equal in every field
 (the tool prints "a01_00: NOT PASSED; 405 of 781 recorded rows exact
 before the stop"); the run then stops at the chain page's refusal of
 D_0023D930. A private diagnostic build that skipped only the kind-6
@@ -1679,6 +1688,36 @@ world lists, 412 status frames (all 412 on the UI view). Side beat 00: 128,
 124 and 1 (284 field ticks, 127 world lists, no status screen). Side beat 09
 (its run): 2,370 gameplay ticks, 2,713 frame heads, one state-4 re-seat,
 4,197 field ticks, 2,363 world lists, 412 status frames.
+
+### The AREA01 world (`check_area01`, `check_shadow_area01`; step DRAWN)
+
+The whole-run checks below cover the first game's AREA11 ticks. A run that
+reaches AREA01 (a01_arrival and the AREA01 route phases) also checks, over
+the ticks after the exit's rebuild:
+- `level_smoke_static_world.check_area01`: every AREA01 001C1D00 call drawn
+  in its tick; the sampled calls (one in 400; quick: the first; full: all)
+  re-executed by the ORIGINAL 001C1D00 with its dynamic table pass
+  001D5BD0 over route 15's AREA01 capture with the port's inputs: the
+  capture's dynamic table must be the port's (address, extent, FNV-1a),
+  every byte the original writes must be in the port's logged output and
+  equal to it, then the channel-0 triangles through the original
+  microcode. The AREA01 sample carries the dynamic table's identity, the
+  chain table and D_00250F30.. before the call and the call's whole
+  output (EmRclStaticSample.dyn; LEVEL2_RENDER.md "AREA01 world in the
+  level smoke and its pixels").
+- `level_smoke_shadow.check_shadow_area01`: the shadow samples restart
+  when the AREA01 composition binds at the rebuild; 0015C160's routes and flushes over the AREA01 ticks, and the
+  sampled player shadows, decals and owner-walk actor shadows replayed with
+  the original over route 15's AREA01 capture.
+Measured on the a01_00 run (quick / full): static world 842 calls, 1 / 2
+samples equal; shadows 822 player calls, 4 / 9 sampled plans and 4 / 9
+actor plans equal. The a01_arrival run (`EM_LEVEL_SMOKE_UNTIL=a01_arrival
+make test-level-smoke`): 61 static-world calls, 61 player shadows, one
+sampled plan equal. A run that ends at a01_arrival has no static-world
+sample in AREA01 (one in 400 calls) and says so.
+
+The AREA01 pixels are compared by the fb2 harness (`make
+test-fb2-pixels-area01`; "Frame captures" above and GS_EXACT.md section 10).
 
 ### The static world (`check_static_world`; tools/level_smoke_static_world.py)
 

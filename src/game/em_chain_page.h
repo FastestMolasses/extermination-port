@@ -104,6 +104,7 @@ extern "C" {
 #define EM_CHAIN_PAGE_DYNAMIC_CLIP 0x00237720u /* its partial-clip program */
 #define EM_CHAIN_PAGE_FLOOR     0x002345E0u   /* AREA01 floor fields (001E9E60) */
 #define EM_CHAIN_PAGE_RIPPLE    0x00234B00u   /* AREA01 ripple surface (001E7D20) */
+#define EM_CHAIN_PAGE_KIND6     0x0023D930u   /* D_0023D930: 001CFBE0 kind 6 (AREA01 near fire) */
 
 enum {
     EM_CHAIN_PAGE_OK = 0,
@@ -155,6 +156,8 @@ typedef struct {
     uint32_t mscal_dynamic, mscal_dynamic_clip; /* AREA01 dynamic batches */
     uint32_t mscal_floor;     /* floor-field batches (D_002345E0; MSCAL + MSCNT) */
     uint32_t mscal_ripple;    /* ripple-surface batches (D_00234B00; MSCAL + MSCNT) */
+    uint32_t mscal_kind6;     /* MSCALs of the kind-6 program (D_0023D930)   */
+    uint32_t kind6_prims;     /* of the primitives, the kind-6 program's     */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its

@@ -52,6 +52,7 @@ PROGRAM_STREAK = 0x230800         # table 0x230800: 001CFBE0 kinds 0 and 4 (the 
 PROGRAM_KIND2 = 0x232540          # table 0x232540: 001CFBE0 kind 2 (the cable's hit effect node 0021AAC0)
 PROGRAM_FLOOR = 0x2345E0          # D_002345E0: 001E9E60's floor fields (AREA01 0015A2C0)
 PROGRAM_RIPPLE = 0x234B00         # D_00234B00: 001E7D20's ripple surface (AREA01)
+PROGRAM_KIND6 = 0x23D930          # D_0023D930: 001CFBE0 kind 6 (001E3D90's near-fire layer, AREA01)
 # Their MPG uploads: (source address of the code, instructions, micro address).
 LANE_MPG = (0x2332B8, 138, 0)
 SPRITE_MPG = ((0x231798, 256, 0), (0x231FA0, 79, 0x100))
@@ -60,12 +61,14 @@ STREAK_MPG = ((0x230828, 256, 0), (0x231030, 126, 0x100))
 KIND2_MPG = ((0x232568, 256, 0), (0x232D70, 66, 0x100))
 FLOOR_MPG = (0x234610, 153, 0)
 RIPPLE_MPG = (0x234B30, 145, 0)
+KIND6_MPG = ((0x23D958, 256, 0), (0x23E160, 130, 0x100))
 PROGRAMS = (PROGRAM_LANE, PROGRAM_SPRITE, PROGRAM_SNOW, PROGRAM_STREAK, PROGRAM_KIND2, PROGRAM_FLOOR,
-            PROGRAM_RIPPLE)
+            PROGRAM_RIPPLE, PROGRAM_KIND6)
 BATCHED = (PROGRAM_FLOOR, PROGRAM_RIPPLE)   # TOPS-relative batches, MSCAL then MSCNT
 # Each packet's bytes: its CNT tag and data, then its RET tag.
 PROGRAM_PACKET_SIZE = {PROGRAM_LANE: 0x570, PROGRAM_SPRITE: 0xDD0, PROGRAM_SNOW: 0xDE0, PROGRAM_STREAK: 0xF70,
-                       PROGRAM_KIND2: 0xD50, PROGRAM_FLOOR: 0x510, PROGRAM_RIPPLE: 0x4D0}
+                       PROGRAM_KIND2: 0xD50, PROGRAM_FLOOR: 0x510, PROGRAM_RIPPLE: 0x4D0,
+                       PROGRAM_KIND6: 0xF70}
 
 # The EFU (the streak program's ERCPR / ERLENG, read back by MFP). No
 # capture holds an EFU result, so its arithmetic is a model, the one the
@@ -671,7 +674,7 @@ class Page:
                     self.program, self.parts, self.floor_ran = PROGRAM_RIPPLE, 1, False
                 elif (first, cnt, imm) == LANE_MPG:
                     self.program, self.parts = PROGRAM_LANE, 1
-                elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0]):
+                elif (first, cnt, imm) in (SPRITE_MPG[0], SNOW_MPG[0], STREAK_MPG[0], KIND2_MPG[0], KIND6_MPG[0]):
                     self.program, self.parts, self.first = None, 1, first
                 elif (first, cnt, imm) == SPRITE_MPG[1] and self.parts == 1 and self.program is None \
                         and self.first == SPRITE_MPG[0][0]:
@@ -685,6 +688,9 @@ class Page:
                 elif (first, cnt, imm) == KIND2_MPG[1] and self.parts == 1 and self.program is None \
                         and self.first == KIND2_MPG[0][0]:
                     self.program, self.parts = PROGRAM_KIND2, 2
+                elif (first, cnt, imm) == KIND6_MPG[1] and self.parts == 1 and self.program is None \
+                        and self.first == KIND6_MPG[0][0]:
+                    self.program, self.parts = PROGRAM_KIND6, 2
                 else:
                     fail(f'MPG of {cnt} instructions from {first:#x} to micro {imm:#x} (not a page program)')
                 i += 2 * cnt

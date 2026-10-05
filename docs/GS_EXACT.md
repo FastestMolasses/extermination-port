@@ -942,17 +942,23 @@ field; once the model is bound it compares the model's field word for word.
 
 **Which points are compared.** The quick run (about 17 s) compares
 `first_control` from a smoke run to first control; `EM_TEST_FULL=1` (about
-4.5 min) adds two route runs through Roger (pass 1 aligns, pass 2 captures
-and is re-aligned on its own log; the aligned ticks and their post-task
-state must be identical, so a non-deterministic run fails) and compares
-every snapshot the smoke aligns: 08, 10, 11, 12, 13 and 14. The camera is
-exact at 10 and 14 (the smoke's VIEW_EXACT); elsewhere it follows the
-navigation (08, 12, 13), the opening's earlier end at host speed
-(first_control: the eye still rising, census L33), or has no recorded row at
-s1 (11). Not compared, with the reason the tool prints: 00 and 09 (side
-beats, no snapshot alignment), 01..07 (the smoke aligns their next beats on
-scans and windows, not on the snapshots), 15 (AREA01), route03_end and
-route07_end (repeats). Nothing of the snow or the flame can match: their
+6 min) adds two route runs through the AREA01 arrival (pass 1 aligns, pass
+2 captures and is re-aligned on its own log; the aligned ticks and their
+post-task state must be identical, so a non-deterministic run fails) and
+compares every snapshot the smoke aligns: 08, 10, 11, 12, 13, 14 and, since
+step DRAWN (2026-10-04), 15 (the AREA01 arrival: route 15's last row f801
+is the end of the smoke's a01_arrival phase; the capture session then ran
+neutral frames, as the port's idle does, lengthened by two ticks with
+`EM_A01_ARRIVAL_TICKS`). `--point 15_level_exit` (`make
+test-fb2-pixels-area01`, about 2.5 min) compares that point alone. Where
+route 15's trace has no row at s1 (11 and 15) the camera / player / task
+comparison uses the capture session's own row (`capture.json`). The camera
+is exact at 10, 14 (the smoke's VIEW_EXACT) and 15; elsewhere it follows
+the navigation (08, 11, 12, 13) or the opening's earlier end at host speed
+(first_control: the eye still rising, census L33). Not compared, with the
+reason the tool prints: 00 and 09 (side beats, no snapshot alignment),
+01..07 (the smoke aligns their next beats on scans and windows, not on the
+snapshots), route03_end and route07_end (repeats). Nothing of the snow or the flame can match: their
 sprites follow the port's rand() stream (RAND_ORDER.md).
 
 **Numbers** (exact pixels of 114,688; mean absolute channel error; maximum
@@ -970,6 +976,11 @@ Q). Claims are relative to PCSX2's software GS.
 | 08_truck_crossing | not exact | 3,087 (2.69 %); 7.78; 103 | 3,201 (2.79 %); 7.78; 103 |
 | 12_crevice_jump | not exact | 2,754 (2.40 %); 6.76; 124 | 2,852 (2.49 %); 6.74; 124 |
 | first_control | not exact (eye) | 1,032 (0.90 %); 18.90; 227 | 985 (0.86 %); 18.94; 227 |
+
+15_level_exit (AREA01's arrival, step DRAWN 2026-10-04, port with the
+same renderer): camera exact; 54,378 (47.41 %); 0.67; 240; per-pixel
+maximum error p50 / p90 / p99 1 / 1 / 11. Its difference image is the same
+±1 floor over every surface (no snow or flame in this frame).
 
 At 10 and 14 the per-pixel maximum error is 1 at the median, 3 / 4 at the
 90th percentile and 23 / 29 at the 99th (after). The difference images show

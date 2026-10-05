@@ -993,6 +993,30 @@ static void log_tick_end(int rc)
                     log_hex(f, ch3, sm->ch3_end - sm->ch3_start);
                     fputs(", ", f);
                     log_hex(f, d253560, 0x90);
+                    /* AREA01: the dynamic table's identity and the call's
+                     * output as it returned (EmRclStaticSample.dyn). */
+                    if (sm->dyn) {
+                        fprintf(f, ", %u, %u, %u, %u, ", sm->dyn, sm->dyn_word, sm->dyn_size, sm->dyn_digest);
+                        log_hex(f, sm->chain, sizeof sm->chain);
+                        fputs(", ", f);
+                        log_hex(f, sm->chain_post, sizeof sm->chain_post);
+                        fputs(", ", f);
+                        log_hex(f, sm->ctx_post, sizeof sm->ctx_post);
+                        fputs(", ", f);
+                        log_hex(f, sm->spad3400_post, sizeof sm->spad3400_post);
+                        fputs(", ", f);
+                        log_hex(f, sm->d817240_post, sizeof sm->d817240_post);
+                        fputs(", ", f);
+                        log_hex(f, sm->d250F30, sizeof sm->d250F30);
+                        fputs(", ", f);
+                        log_hex(f, sm->d250F30_post, sizeof sm->d250F30_post);
+                        uint32_t at = 0;
+                        for (unsigned k = 0; k < 4; ++k) {
+                            fprintf(f, ", %u, ", sm->span_start[k]);
+                            log_hex(f, sm->spans + at, sm->span_size[k]);
+                            at += sm->span_size[k];
+                        }
+                    }
                     fputc(']', f);
                 }
             }
@@ -1568,10 +1592,21 @@ static void log_tick_end(int rc)
     /* Census L29: 0015C160 this tick (fresh, D_008102B1, D_00810771, +0x214's
      * record, the route: -1 reported), the last shadow call
      * (em_shadow_live_log) and, on sampled calls (the first, then every
-     * 100th 001DA6A0 and every 20th 0015BF90 call, at most 40 of each), its
-     * inputs and outputs for the original re-execution
-     * (tools/level_smoke_shadow.py). */
+     * 100th 001DA6A0 and every 20th 0015BF90 call, at most 40 of each, per
+     * world: the counts restart when D_00810700 changes and when the AREA01
+     * live composition binds at its rebuild, so the AREA01 world has samples
+     * of its own from its first frame), its inputs and outputs for the
+     * original re-execution (tools/level_smoke_shadow.py). */
     fputs(", \"shadow\": ", f);
+    static uint32_t calls_route[2], samples_route[2];
+    static uint32_t acalls, asamples, alast;
+    static int sample_world = -1;
+    const int world = (int)s_state.d810700 | (s_area01_live.bound ? 0x100 : 0);
+    if (sample_world != world) {
+        sample_world = world;
+        calls_route[0] = calls_route[1] = samples_route[0] = samples_route[1] = 0;
+        acalls = asamples = 0;
+    }
     if (em_shadow_live_bound()) {
         EmShadowLiveLog l;
         em_shadow_live_log(&l);
@@ -1580,7 +1615,6 @@ static void log_tick_end(int rc)
                 s_post_step.frame == now, s_post_step.b1, s_post_step.d771, s_post_step.w214, s_post_step.route,
                 l.frame == now, l.route, l.drawn, l.kind, l.receivers, l.receivers_cls2, l.decal_fans,
                 l.decal_vertices, l.flushed, l.decal_flushed, l.calls, l.drawn_total, l.decal_total);
-        static uint32_t calls_route[2], samples_route[2];
         const EmShadowLiveSample *sm = em_shadow_live_sample();
         int emit = 0;
         if (sm && l.frame == now && sm->frame == now) {
@@ -1636,7 +1670,7 @@ static void log_tick_end(int rc)
      * actor call): [fresh (its frame is this tick's), record, the result,
      * kind, receivers, class-2 receivers, flushed, cumulative calls and
      * draws, sample]; on sampled calls (the first, then every 100th, at most
-     * 40) the call's inputs for the original re-execution
+     * 40, per area as above) the call's inputs for the original re-execution
      * (tools/level_smoke_shadow.py check_actor). */
     fputs(", \"shadow_actor\": ", f);
     if (em_shadow_live_bound()) {
@@ -1645,7 +1679,6 @@ static void log_tick_end(int rc)
         const uint32_t now = em_frame_counter();
         fprintf(f, "[%d, %u, %d, %d, %u, %u, %u, %u, %u, ", a.frame == now, a.record, a.drawn, a.kind,
                 a.receivers, a.receivers_cls2, a.flushed, a.calls, a.drawn_total);
-        static uint32_t acalls, asamples, alast;
         const EmShadowLiveSample *sm = em_shadow_live_actor_sample();
         int emit = 0;
         if (sm && a.frame == now && sm->frame == now && a.calls != alast) {

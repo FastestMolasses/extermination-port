@@ -1017,7 +1017,48 @@ int em_rcl_001C1D00(uint32_t state_address)
     memcpy(sm->d253560, s_d253560_words, sizeof sm->d253560);
     memcpy(sm->d817240, s_d817240_words, sizeof sm->d817240);
     memcpy(sm->skin, own(SKIN_816440, sizeof sm->skin), sizeof sm->skin);
+    u32 cursor[4];
+    sm->dyn = 0;
+    if (s_dynamic_bytes) {
+        /* the bytes 001D5BD0 reads: the count word, then count records of
+         * 0x860 bytes from +0x10 (the window may extend past them) */
+        const u32 count = s_dynamic_size >= 4u ? rd32(s_dynamic_bytes) : 0u;
+        const uint64_t want = 0x10u + (uint64_t)count * 0x860u;
+        const u32 extent = want < s_dynamic_size ? (u32)want : s_dynamic_size;
+        u32 h = 2166136261u;
+        for (u32 i = 0; i < extent; ++i) h = (h ^ s_dynamic_bytes[i]) * 16777619u;
+        sm->dyn_word = s_dynamic_address;
+        sm->dyn_size = extent;
+        sm->dyn_digest = h;
+        memcpy(sm->chain, own(0x007635C0u, sizeof sm->chain), sizeof sm->chain);
+        memcpy(sm->d250F30, s_d250F30_words, sizeof sm->d250F30);
+        for (unsigned k = 0; k < 4; ++k) cursor[k] = s_ctx_words[0x10 / 4 + k];
+    }
     if (swc_done(&c, em_swc_001C1D00(&c, state_address), 0x001C1D00u) < 0) return -1;
+    if (s_dynamic_bytes) {
+        memcpy(sm->chain_post, own(0x007635C0u, sizeof sm->chain_post), sizeof sm->chain_post);
+        memcpy(sm->ctx_post, CTXB, sizeof sm->ctx_post);
+        memcpy(sm->spad3400_post, own(SPAD_3400, 0x80), sizeof sm->spad3400_post);
+        memcpy(sm->d817240_post, s_d817240_words, sizeof sm->d817240_post);
+        memcpy(sm->d250F30_post, s_d250F30_words, sizeof sm->d250F30_post);
+        u32 used = 0;
+        sm->dyn = 1;
+        for (unsigned k = 0; k < 4; ++k) {
+            /* The chain blocks of the +0x18 cursor are built 0x100 past it
+             * (001CB5F0 / 001CB760 write the block at cursor + 0x100). */
+            const u32 off = k == 2 ? 0x100u : 0u;
+            const u32 after = s_ctx_words[0x10 / 4 + k] + off;
+            cursor[k] += off;
+            const uint8_t *b = after > cursor[k] ? own(cursor[k], after - cursor[k]) : NULL;
+            sm->span_start[k] = cursor[k];
+            sm->span_size[k] = 0;
+            if (after == cursor[k]) continue;
+            if (!b || after - cursor[k] > sizeof sm->spans - used) { sm->dyn = 2; continue; }
+            sm->span_size[k] = after - cursor[k];
+            memcpy(sm->spans + used, b, sm->span_size[k]);
+            used += sm->span_size[k];
+        }
+    }
     R.static_start = start;
     R.static_end = s_ctx_words[0x10 / 4];
     R.static_ready = 1;

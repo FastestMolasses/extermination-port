@@ -63,14 +63,21 @@ Modes (CLAUDE.md "Tests"):
   port's camera is not the original's there (its opening ends earlier at
   host speed and the camera is still rising: census L33), so this point
   measures that difference as well as the pixel path.
-- full (EM_TEST_FULL=1, about 4.5 min): the quick run, then the whole main
-  route through roger twice (pass 1 aligns, pass 2 captures the aligned
-  ticks and is re-aligned on its own log, so a run that is not
-  deterministic fails), then every fb2 point: compared where the smoke
-  aligns a tick, listed with the reason where it does not. first_control
-  always comes from the quick run: the route run opens the status screen
-  right after first control, so its next frame is not the recorded
-  neutral-pad continuation.
+- full (EM_TEST_FULL=1, about 6 min): the quick run, then the whole main
+  route through the AREA01 arrival (a01_arrival) twice (pass 1 aligns,
+  pass 2 captures the aligned ticks and is re-aligned on its own log, so a
+  run that is not deterministic fails), then every fb2 point: compared
+  where the smoke aligns a tick, listed with the reason where it does not.
+  first_control always comes from the quick run: the route run opens the
+  status screen right after first control, so its next frame is not the
+  recorded neutral-pad continuation.
+- `--point 15_level_exit` (about 2.5 min): only the AREA01 point, from one
+  run to the AREA01 arrival. Its recorded snapshot is route 15's last row
+  f801 (counter 16562), the end of the smoke's a01_arrival phase, and the
+  capture session after it ran neutral-pad frames, as the port's run does
+  after the phase; its row s1 (16564, two frames on) is not in route 15's
+  trace, so the camera / player / task comparison uses the capture's own
+  row (capture.json, recorded in the same session as the field).
 
 Assertions: a compared point's captured tick is the aligned tick; the
 camera-exact points (10 and 14, test_level_smoke.VIEW_EXACT) must still be
@@ -121,6 +128,8 @@ FLOORS = {
     '12_crevice_jump': 0.024,
     '13_east_tower': 0.353,
     '14_roger_encounter': 0.287,
+    # AREA01's arrival (2026-10-04, step DRAWN: camera exact, 47.41 %).
+    '15_level_exit': 0.474,
 }
 # Why the level smoke aligns no port tick with a point (full mode lists
 # these instead of a number).
@@ -134,7 +143,6 @@ NOT_ALIGNED = {
     '06_hill_slide': 'the smoke aligns route 07 on the trigger, not on snapshot 06',
     '07_truck_preview': 'the smoke aligns route 08 on the truck, not on snapshot 07',
     '09_fence_door': 'side beat 09 runs on its own and registers no snapshot',
-    '15_level_exit': 'AREA01 (the smoke ends at Roger)',
     'route03_end': 'a repeat of 03 (no snapshot alignment)',
     'route07_end': 'a repeat of 07 (no snapshot alignment)',
 }
@@ -158,8 +166,12 @@ def fb2_point(name):
     raw = np.frombuffer((d / 'displayed.bin').read_bytes(), dtype=np.uint8)
     assert raw.size == GS_W * GS_H * 4, (name, 'displayed.bin size', raw.size)
     rec = meta.get('recorded_snapshot') or {}
+    # The capture session's own rows (counter -> row), recorded with the field.
+    cap = d / 'capture.json'
+    rows = {r['counter']: r for r in json.loads(cap.read_text()).get('rows', [])} if cap.exists() else {}
     return {'name': name, 'rgb': raw.reshape(GS_H, GS_W, 4)[:, :, :3].copy(), 'ofy': ofy.pop(),
-            's1': int(s1['counter']), 'rec': rec.get('counter'), 'field_at_s1': s1.get('csr_field')}
+            's1': int(s1['counter']), 'rec': rec.get('counter'), 'field_at_s1': s1.get('csr_field'),
+            'rows': rows}
 
 
 _ROWS = {}
@@ -241,6 +253,9 @@ def diff_image(per):
 
 # ------------------------------------------------------------------ the port
 
+ticks_tails = {}
+
+
 def run_port(tag, until, env_extra):
     d = OUT / tag
     d.mkdir(parents=True, exist_ok=True)
@@ -256,7 +271,11 @@ def run_port(tag, until, env_extra):
     run = (d / 'run.log').read_text()
     assert rc == 0 and re.search(r'^level smoke: PASS ', run, re.M), (tag, 'the port run failed', rc,
                                                                       run[-2000:])
-    ticks = [json.loads(line) for line in (d / 'ticks.jsonl').open()]
+    # As tools/test_level_smoke.py main: the scene ticks, and the tails
+    # (each run's post-frame witnesses) for the alignment's state.
+    lines = [json.loads(line) for line in (d / 'ticks.jsonl').open()]
+    ticks = [line for line in lines if 'tick' in line]
+    ticks_tails[id(ticks)] = [line for line in lines if 'tail' in line]
     return d, run, ticks, time.monotonic() - t0
 
 
@@ -264,7 +283,9 @@ def alignment(ticks, run, full):
     """{point: port tick index whose post is the point's snapshot row}, from
     the level smoke's own phase checks (their prints are swallowed; their
     assertions still run)."""
-    state = {'drive': T.R.drive_mode(run), 'status_pages_trace': None}
+    tails = ticks_tails.get(id(ticks), [])
+    state = {'drive': T.R.drive_mode(run), 'status_pages_trace': None,
+             'tail': tails[-1] if tails else None, 'tails': tails}
     with contextlib.redirect_stdout(io.StringIO()):
         if full:
             for name, check in T.PHASES:
@@ -273,7 +294,12 @@ def alignment(ticks, run, full):
         else:
             T.check_first_control(ticks, run, state)
     base = {beat: i for beat, i in state.get('snapshots', [])}
-    base['first_control'] = state['first_control']
+    base['first_control'] = state.get('first_control')
+    # The AREA01 point: the tick whose post is route 15's last row f801,
+    # the end of the a01_arrival phase (level_smoke_area01.check_arrival).
+    end = state.get('area01_ends', {}).get('a01_arrival')
+    if end is not None:
+        base['15_level_exit'] = max(i for i, t in enumerate(ticks) if t.get('counter') == end)
     return base
 
 
@@ -307,6 +333,8 @@ def compare(point, tick_index, ticks, capture):
     name = point['name']
     t = ticks[tick_index]
     row = route_row(point['s1'])
+    if row is None and point['s1'] in point['rows']:
+        row = ('capture.json', point['rows'][point['s1']])
     exact, diff = placement(ticks, tick_index, row[1]) if row else (None, 'no recorded row at s1')
     port_rgb = read_bmp(capture)
     field, geometry = sample_field(port_rgb, point['ofy'])
@@ -317,7 +345,8 @@ def compare(point, tick_index, ticks, capture):
     write_png(d / 'original_512x224.png', point['rgb'])
     write_png(d / 'diff_512x224.png', diff_image(per))
     result = dict(m, point=name, port_tick=t['tick'], s1=point['s1'], ofy=point['ofy'],
-                  row=f'{row[0]} f{row[1]["f"]}' if row else None, camera_exact=exact,
+                  row=(f'{row[0]} f{row[1]["f"]}' if 'f' in row[1] else f'{row[0]} counter {point["s1"]}')
+                  if row else None, camera_exact=exact,
                   differs=diff if not exact else None, target=list(geometry[:2]),
                   game_rect=[round(v, 3) for v in geometry[2:]])
     (d / 'result.json').write_text(json.dumps(result, indent=1))
@@ -350,19 +379,55 @@ def quick_point(points):
     return compare(points['first_control'], want, ticks, cap), secs
 
 
+def area01_point(points):
+    """15_level_exit from one run to the AREA01 arrival (a01_arrival + 2)."""
+    p = points['15_level_exit']
+    # The capture session ran neutral-pad frames after f801, as the port's
+    # idle does: the idle is lengthened by s1 - rec ticks (EM_A01_ARRIVAL_TICKS;
+    # the a01_arrival check still compares f742..f801) so that it ends on row
+    # s1's tick, and the hook (which runs inside the phase's last tick, before
+    # that tick is logged) captures that tick (+1). The assertion below checks
+    # the captured tick is the aligned one.
+    cap = OUT / 'a01' / '15_level_exit.bmp'
+    d, run, ticks, secs = run_port('a01', 'a01_arrival', {
+        'EM_A01_ARRIVAL_TICKS': str(60 + p['s1'] - p['rec']), 'EM_LEVEL_SMOKE_FB_CAPTURE': f'a01_arrival+1:{cap}'})
+    base = alignment(ticks, run, True)
+    want = target_tick(p, base)
+    m = re.search(r'^fb capture: tick (\d+) -> ', run, re.M)
+    assert m and cap.exists(), 'the port wrote no capture'
+    assert int(m.group(1)) == ticks[want]['tick'], ('15_level_exit: the captured tick is not the aligned tick',
+                                                     int(m.group(1)), ticks[want]['tick'])
+    return compare(p, want, ticks, cap), secs
+
+
 def main():
     assert BIN.exists(), 'build/extermination is missing (make all)'
     if not FB2.exists():
         print(f'fb2 pixels: SKIP: {FB2} is missing (the decomp\'s C7 capture, CAPTURES_C7.md 5b)')
         return
     OUT.mkdir(parents=True, exist_ok=True)
+    if sys.argv[1:] == ['--point', '15_level_exit']:
+        r, secs = area01_point({'15_level_exit': fb2_point('15_level_exit')})
+        print('fb2 pixels: ' + line(r))
+        for f in list((OUT / 'a01').glob('ticks.jsonl')) + list((OUT / 'a01').glob('*.bmp')):
+            f.unlink()
+        floor = FLOORS[r['point']]
+        assert r['exact_fraction'] >= floor, (r['point'], 'exact-match fraction below its floor',
+                                              r['exact_fraction'], floor)
+        print(f'fb2 pixels: PASS (one port run to the AREA01 arrival ({secs:.0f} s); images in '
+              f'{OUT.relative_to(ROOT)}/15_level_exit/)')
+        return
+    assert not sys.argv[1:], 'usage: test_fb2_pixels.py [--point 15_level_exit]'
     points = {name: fb2_point(name) for name in (POINTS if RM.FULL else ('first_control',))}
     results, listed = [], []
     first, s0 = quick_point(points)
     results.append(first)
     runs = f'one port run to first control ({s0:.0f} s)'
     if RM.FULL:
-        d1, run1, ticks1, s1 = run_port('pass1', 'roger', {})
+        # The AREA01 idle runs on to 15_level_exit's row s1 (area01_point).
+        a01 = points['15_level_exit']
+        idle = {'EM_A01_ARRIVAL_TICKS': str(60 + a01['s1'] - a01['rec'])}
+        d1, run1, ticks1, s1 = run_port('pass1', 'a01_arrival', idle)
         base1 = alignment(ticks1, run1, True)
         wanted = {}
         for name, p in points.items():
@@ -374,7 +439,7 @@ def main():
             else:
                 wanted[name] = i
         spec = ';'.join(f'{ticks1[i]["tick"]}:{OUT / "pass2" / (name + ".bmp")}' for name, i in wanted.items())
-        d2, run2, ticks2, s2 = run_port('pass2', 'roger', {'EM_FB_CAPTURE_TICKS': spec})
+        d2, run2, ticks2, s2 = run_port('pass2', 'a01_arrival', dict(idle, EM_FB_CAPTURE_TICKS=spec))
         base2 = alignment(ticks2, run2, True)
         for name, i in wanted.items():
             j = target_tick(points[name], base2)
@@ -382,7 +447,7 @@ def main():
                                                                        'pass 2 aligns another tick', i, j)
             assert ticks2[j]['post'] == ticks1[i]['post'], (name, 'pass 2 state differs at the aligned tick')
             results.append(compare(points[name], j, ticks2, OUT / 'pass2' / (name + '.bmp')))
-        runs += f', two port runs through roger ({s1:.0f} s, {s2:.0f} s)'
+        runs += f', two port runs through the AREA01 arrival ({s1:.0f} s, {s2:.0f} s)'
     for r in results:
         print('fb2 pixels: ' + line(r))
     for name, why in listed:
