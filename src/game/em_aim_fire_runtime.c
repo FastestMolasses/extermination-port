@@ -120,7 +120,11 @@ static void *pool_field(uint32_t address,size_t size,int write)
         R.self_word[index]=em_actor_pool_address(R.pool,a->self);return p;
     }
 #define FIELD(field,offset) do { if ((p=span(address,size,base+(offset),sizeof a->field,&a->field))) return p; } while (0)
-    FIELD(flags2,0x2E); FIELD(w30,0x30); FIELD(h36,0x36);
+    FIELD(flags2,0x2E); FIELD(w30,0x30);
+    /* 00185A10/00185E30 read the class-2 target's +34 halfword. The
+     * original word overlaps +36, whose canonical owner is h36. */
+    if ((p=span(address,size,base+0x34,2,&a->w34))) return p;
+    FIELD(h36,0x36);
     FIELD(h52,0x52); FIELD(kind,0x54); FIELD(link,0x56); FIELD(w58,0x58); FIELD(w5C,0x5C);
     FIELD(f60,0x60); FIELD(f80,0x80); FIELD(w90,0x90); FIELD(h94,0x94); FIELD(h96,0x96);
     FIELD(b98,0x98); FIELD(b99,0x99); FIELD(table_index,0x9A);
@@ -296,7 +300,7 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         }
         /* Only original fields with actual native owners are enumerated.
          * The effect owner separately omits +24 until its observed write. */
-        static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x36,2},
+        static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x34,2},{0x36,2},
             {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16}};
         for (unsigned j=0;j<sizeof spans/sizeof spans[0];++j) {
             uint32_t at=address+spans[j][0],n=spans[j][1];

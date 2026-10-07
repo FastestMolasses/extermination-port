@@ -542,6 +542,9 @@ void player_states_spawn_values(void)
     em_live_set_u32(&live.a, 0x30, EM_COLLISION_WORLD_D_00275490);
     em_live_set_u8(&live.a, 4, 1);
     em_live_set_f32(&live.a, 0x204, 1.0f);
+    /* 0015C6A4: publish the rebuilt player as alive/contactable. The
+     * preceding 001AF5C0 wipe leaves this byte zero. */
+    em_live_set_u8(&live.a, 0, 1);
     em_live_set_u8(&live.a, 0x31B, 0xFF);
     live.busy_known = 0;
     live.initialised = 1;
@@ -1138,6 +1141,20 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
     return em_player_stage_0015B130(context, a);
 }
 
+/* 0015BCF0 retains the previous feet at +A0 while its state callbacks
+ * work on +B0. The port's placement owner includes any preceding carry;
+ * loading only +B0 left the Use predicate reading the old zero +A0. */
+static void stage_position_begin(void)
+{
+    memcpy(live.a.bytes + 0xA0, g.pos, 12);
+    em_live_set_u32(&live.a, 0xAC, 0x3F800000u);
+    memcpy(live.a.bytes + 0xB0, live.a.bytes + 0xA0, 16);
+}
+static void stage_position_publish(void)
+{
+    memcpy(live.a.bytes + 0xA0, live.a.bytes + 0xB0, 16);
+}
+
 int player_states_stage(void)
 {
     if (!live.initialised) player_states_reset();
@@ -1158,13 +1175,13 @@ int player_states_stage(void)
      * not loaded over +1F0 and its neighbours (the admission's +1F0 = 0x41
      * stays, route 07 f165..f526). */
     const int port_owned = !loco_live() && port_family() && !player_pose_owned();
+    stage_position_begin();
     vitals_load();
     if (port_owned) {
         live_from_port();
     } else {
         /* A translated state owns the player: only the placement the port's
          * owners may have moved (a carry) comes from the port. */
-        for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
         em_live_set_f32(&live.a, 0xC4, g.yaw);
     }
     live.busy_known = live_scene_load();
@@ -1264,6 +1281,7 @@ int player_states_stage(void)
         live_fault("00187350 worker fault");
         return 0;
     }
+    stage_position_publish();
     if (em_live_u8(&live.a, 4) != 1) port_park();
     vitals_store();
     return live.consumed;

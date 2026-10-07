@@ -277,6 +277,33 @@ static const uint8_t *resource_rest(void *ctx,uint32_t a,uint32_t *n)
     return p ? p : em_area11_roger_door_bank_rest(a,n);
 }
 static uint32_t random_value(void *ctx) { (void)ctx;return em_random_next(); }
+static int hull_record(void *ctx,const EmActor *body,uint8_t out[EM_ACTOR_RECORD_SIZE])
+{
+    EmArea01Live *l=ctx;
+    uint32_t at=em_actor_pool_address(l->host.pool,body);
+    if(!at || actor(l,at)!=body)return -1;
+    memset(out,0,EM_ACTOR_RECORD_SIZE);
+    for(unsigned i=0;i<3;++i) {
+        unsigned offset=i==0 ? 9u : i==1 ? 0x58u : 0x110u;
+        unsigned size=i==0 ? 1u : i==1 ? 4u : 4u*out[9];
+        if(out[9]>EM_OWNER_SERVICES_MAX_BONES)return -1;
+        if(!size)continue;
+        if(l->actors.active) {
+            const uint8_t *p=em_area01_actor_view_bytes(&l->actors,at+offset,size,0);
+            if(!p)return -1;
+            memcpy(out+offset,p,size);
+        } else if(em_area01_actor_view_snapshot(&l->actors,at+offset,size,out+offset)<0)return -1;
+    }
+    return 0;
+}
+static const uint8_t *hull_slot(void *ctx,uint32_t address,uint32_t size)
+{ return em_area01_model_slot_bytes(&((EmArea01Live *)ctx)->model,address,size); }
+int em_area01_live_hull_chain(void *ctx,const EmActor *body,EmCollHullChain *out)
+{
+    EmArea01Live *l=ctx;
+    if(!l || !l->bound || l->fault)return -1;
+    return em_area01_hull_chain(&l->hulls,body,out);
+}
 static int model_external(void *ctx,uint32_t fn,uint32_t node,uint32_t arg)
 {
     EmArea01Live *l=ctx;
@@ -890,6 +917,7 @@ int em_area01_live_bind(EmArea01Live *l,const EmArea01LiveHost *h)
     const EmArea01RuntimeHost script={l,bytes,script_worker};
     if(em_area01_script_bind(&l->scripts,&script,h->loader,NULL,NULL)<0)return fail(l,0x001BA1A0u);
     em_area01_script_bank(&l->scripts,l,script_bank);
+    l->hulls.host=(EmArea01HullHost){l,hull_record,resource_rest,hull_slot};
     l->bound=1;return 0;
 }
 int em_area01_live_call_active(EmArea01Live *l,EmArea01Call *c)

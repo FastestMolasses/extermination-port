@@ -3109,6 +3109,8 @@ static int area01_bind_live(void)
     const EmCollisionWorldAreaPasses passes = {&s_area01_live, area01_pass_bytes, area01_pass_pair};
     if (em_collision_world_bind_area_passes(&passes) < 0)
         return em_scene_fault(&s_state, 0x001AAD00u, EM_SCENE_FAULT_NULL_WORKER);
+    if (em_collision_world_bind_area_hulls(em_area01_live_hull_chain, &s_area01_live) < 0)
+        return em_scene_fault(&s_state, 0x001A6440u, EM_SCENE_FAULT_NULL_WORKER);
     return 0;
 }
 static int area01_select(void *ctx, uint32_t address, const EmActor *a)

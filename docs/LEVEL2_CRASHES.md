@@ -133,3 +133,50 @@ Its exploration still stops at the independent flame close-out
 Receipts: `build/level2-crashes/index-water-{build,startup,smoke,references,render}.log`
 and `index-water-exploration/summary.json`. Independent adapter review
 found no concrete defect; continuous water play remains unverified.
+
+## Canonical player and target fields
+
+AREA01 exposed three shared-player omissions. Use predicates read retained
+feet at player `+A0`, but the live stage had only refreshed `+B0`. The stage
+now follows `0015BCF0`: retain the placement (including preceding carry) at
+`+A0`, initialize `+B0`, and publish final feet after footsteps. Original
+instruction comparison covers 224 cases over all 16 AREA01 captures,
+including carried placement, locked states and callback order.
+
+The rebuilt player also lacked the status-1 publication in `0015C420`.
+Without it, the original flame callback requested a reaction but its parent
+skipped damage. The exact spawn store is restored; 384 original instruction
+cases cover six spawn kinds and four initial status bytes in every capture.
+
+The Use chain's `001AA4E0` can now inspect class-2 targets through canonical
+pool fields and the existing `001AA410` / `001AA2A0` translations, using the
+original square-root owner. Its 8,654 cases pass, and the running-jump
+reference retains 7,706 cases / 26,423 calls / 1,090 fault cuts. Aim target
+`00185A10` can read the same canonical `+34` low halfword, while `+36`
+keeps its independent owner: 256 original cases / 7,936 ordered events
+and five crossing-span refusals pass. These changes add no actor shadows.
+
+Shared Makefile edit: build `em_player_target_live.c` and the existing
+`em_level14_port_boot.c`; add `test-player-target-live-reference`.
+
+The player/target changes also require an AREA01 hull provider. The old
+provider belongs to AREA11 Roger and refuses AREA01 records, both in aim/
+melee and the newly reached Use-distance scan. The new per-world provider
+borrows each canonical actor's delivered `+58` chain and current model-slot
+bone matrices. It preserves the existing hull walkers and filters, clears
+on unload, survives shared-owner rebinding, and never falls back after a
+refusal. The original oracle passes 116 queries / 57 hits over 16 captures,
+with four refusal cases and eight provider-lifetime contracts. Existing
+hull and close-out regressions pass 1,238 cases and 40 runs respectively.
+The shared scene file adds only its AREA01 registration, and the Makefile
+builds `em_area01_hull_live.c`.
+
+The complete isolated player/target/hull stage passes a zero-warning
+`make -B all`, startup displacement `9.599849`, default smoke and the
+AREA01 status probe (open, close, resumed input; no fault). The initially
+separate player stage exposed the hull dependency at `001764E0`; the
+complete stage includes its provider. Touched references pass, including
+the repaired ASan/UBSan stage-host harness, which explicitly proves an
+absent water owner faults. Receipts: `index-player-{build,startup,smoke,host,hull}.log`,
+`index-player-references{,-tail}.log` and
+`index-player-hull-exploration/summary.json` under `build/level2-crashes/`.

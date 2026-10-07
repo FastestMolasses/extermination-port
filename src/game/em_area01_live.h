@@ -9,6 +9,7 @@
 #include "game/em_area01_model_draw.h"
 #include "game/em_area01_door_live.h"
 #include "game/em_area01_collision_view.h"
+#include "game/em_area01_hull_live.h"
 #include "game/em_area01_script_live.h"
 #include "game/em_area01_pickup_live.h"
 #include "game/em_area01_interaction_live.h"
@@ -42,6 +43,7 @@ typedef struct {
     EmArea01ModelDraw draw;
     EmArea01Door door;
     EmArea01CollisionView collision;
+    EmArea01HullView hulls;
     EmArea01Script scripts;
     EmArea01Pickup pickups;
     EmArea01Interaction interaction;
@@ -78,6 +80,7 @@ int em_area01_live_bind(EmArea01Live *, const EmArea01LiveHost *);
 void em_area01_live_detach(EmArea01Live *);
 int em_area01_live_resume(EmArea01Live *);
 int em_area01_live_suspend(EmArea01Live *);
+int em_area01_live_hull_chain(void *,const EmActor *,EmCollHullChain *);
 uint8_t *em_area01_live_bytes(EmArea01Live *, uint32_t, uint32_t, int);
 /* Exact active canonical matrix span, also available to native adapters.
  * Returns an alias of scratch_3000; never publishes a copied matrix. */

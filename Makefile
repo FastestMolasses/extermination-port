@@ -10,6 +10,7 @@ UNAME := $(shell uname)
 BIN     := build/extermination
 CFLAGS  := -O2 -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
+           src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_area01_hull_live.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
@@ -1753,3 +1754,7 @@ test-area01-exploration-harness:
 .PHONY: test-area01-water-reference
 test-area01-water-reference:
 	python3 tools/test_area01_water_reference.py
+
+.PHONY: test-player-target-live-reference
+test-player-target-live-reference:
+	python3 tools/test_player_target_live_reference.py
