@@ -1742,3 +1742,10 @@ test-area01-glow-services-reference:
 .PHONY: test-area01-closeout
 test-area01-closeout:
 	python3 tools/test_area01_closeout_reference.py
+
+.PHONY: test-area01-exploration test-area01-exploration-harness
+AREA01_EXPLORE_ARGS ?= --case water
+test-area01-exploration: $(BIN)
+	python3 tools/test_area01_exploration.py $(AREA01_EXPLORE_ARGS)
+test-area01-exploration-harness:
+	python3 tools/test_area01_exploration_harness.py

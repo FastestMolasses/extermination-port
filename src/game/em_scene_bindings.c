@@ -1013,6 +1013,10 @@ static void log_tick_end(int rc)
          * +0x20 (0015C310's gun node), original record addresses.
          * tools/test_level_smoke.py check_effects. */
         fprintf(f, ", \"links\": [%u, %u]", em_live_u32(a, 0x18), em_live_u32(a, 0x20));
+        /* Read-only exploration observations of the floor service's fields. */
+        fprintf(f, ", \"water\": [%u, %u, %u, %u], \"surface_y\": %u",
+                em_live_u8(a, 0x23A), em_live_u8(a, 0x23C),
+                em_live_u8(a, 0x23D), em_live_u8(a, 0x23E), em_live_u32(a, 0x250));
         /* The damage fields (docs/DAMAGE.md section 8; tools/
          * level_smoke_damage.py): the vitals +0x220 / +0x224 / +0x228 /
          * +0x22C (float bits, their one storage g.status / g.pd_*), the
