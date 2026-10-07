@@ -420,6 +420,13 @@ typedef struct {
     /* Scratchpad 0x70003B40..0x70003B5C: 001B07C0 copies the placed player's
      * +0xB0..+0xCC here (S12a). Read later by the door cut 0018CBD0 (3B50). */
     float spad3B40[8];
+
+    /* D_00810040..00810113: terminal confirmation/save task block. The
+     * existing 00225A00 owner resets all 0xD4 bytes before request 6 opens
+     * BATTERY. Lifetime is the scene coordinator's, across room loads;
+     * the separate status-page task starts at 00810130. Accepted-save
+     * 00225AC0 is still unbound; this storage does not provide card I/O. */
+    uint8_t d810040[0xD4];
 } EmSceneState;
 
 /* ---------------------------------------------------------------- accessors */

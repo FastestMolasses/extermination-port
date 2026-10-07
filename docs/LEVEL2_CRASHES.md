@@ -307,3 +307,37 @@ fields exact under PS2 drive timing; whole-camera parity retains the
 protected limitation above. Receipts: `index-rooms-{build,startup,smoke,
 references,references-tail}.log` and `index-rooms-exploration/summary.json`
 under `build/level2-crashes/`.
+
+## Terminal confirmation and decline
+
+The next status boundary is now bound. Request 6 borrows the actual live
+type-38 terminal fields, runs existing `00225A00` through the original
+memset boundary on scene-owned `00810040..00810113`, and enters the existing
+BATTERY confirmation via the original `0020CDC0` cold branch. Its default
+No selection and return use the existing page owner. Accepting still reaches
+unbound phase 6 / `00225AC0`; no card I/O or load-game state is provided.
+
+The canonical reset compares 48 original cases over 16 captures. ASan/UBSan
+checks exact aliases, bounds, lifetime, 256 actor types, signed costs and
+free/reuse. The status-page full reference passes 3,576 cases plus nine
+refusal branches; BATTERY covers 438 directed and 147 composed frames,
+including terminal decline. Existing status-runtime checks pass. The native
+PS2-timed replay matches all 1,225 captured rows, opens the prompt and
+returns through entry 9 without a fault. Whole-checker results are recorded
+separately from this row comparison.
+
+Shared edit: `em_scene_bindings.c` adds only the terminal owner-read/reset
+forwarders and their header include; there is no Makefile change. The
+exploration fixture also retains a short, input-only vent entry/crawl probe
+and recognizes the primary “no translation” fault before its later generic
+coordinator message.
+
+The untouched full smoke checker passes 21 live phases through the terminal
+route, including all 1,225 rows and the whole ending camera. Native RNG
+continuity passes; unavailable original per-call AREA01 RNG and differing
+endpoint seeds retain the existing diagnostic-only status. Receipt:
+`after-terminal-decline-ps2/a01_s4/check.log`. The exact staged tree also
+passes a zero-warning rebuild, startup displacement `9.599849`, default
+smoke, all touched references, and a fresh complete 1,225-row terminal
+replay. Receipts: `index-terminal-{build,startup,smoke,references}.log` and
+`index-terminal-exploration/summary.json` under `build/level2-crashes/`.

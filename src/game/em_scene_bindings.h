@@ -42,6 +42,12 @@ extern "C" {
  * writes the original bytes it owns through this pointer; none keeps a copy. */
 EmSceneState *em_scene_state(void);
 
+/* Request-6 status boundary: borrow live type-38 terminal fields and run
+ * the existing 00225A00 reset on scene-owned 00810040..00810113. No card I/O. */
+int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
+                                          int32_t *value);
+int em_scene_bindings_terminal_reset(void);
+
 /* The slot-0 game task (EmTaskFn): one tick of the original 001ACEC0. */
 void em_scene_task_001ACEC0(void);
 

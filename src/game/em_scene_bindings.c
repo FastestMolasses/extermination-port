@@ -93,6 +93,7 @@
  * room move" below).
  */
 #include "game/em_scene_bindings.h"
+#include "game/em_area01_terminal_status.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -2954,6 +2955,16 @@ static int area01_behavior(EmActor *, void *);
 const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address,uint32_t size)
 {
     return arrival_scene() ? em_area01_live_target_model_bytes(&s_area01_live,address,size) : NULL;
+}
+int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
+                                          int32_t *value)
+{
+    return arrival_scene() && s_area01_live.bound ?
+        em_area01_terminal_owner_read(&s_area01_live.actors, owner, offset, size, value) : -1;
+}
+int em_scene_bindings_terminal_reset(void)
+{
+    return arrival_scene() && s_area01_live.bound ? em_area01_terminal_reset(&s_state) : -1;
 }
 static int area01_private_model(void *ctx, const EmActor *a)
 {

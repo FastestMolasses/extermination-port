@@ -23,7 +23,7 @@ from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, phase_path, prepare_pads
 
 ROOT = Path(__file__).resolve().parents[1]
 PHASE = 'a01_s3'  # An existing side slot whose source is AREA01 arrival.
-FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|does not hold|failed at frame|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
+FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|no translation|does not hold|failed at frame|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
 
 
 def move(x, z, tolerance=2, magnitude=1, limit=900):
@@ -71,6 +71,12 @@ CASES = {
                        description='west ladder and walkway, then approach water from the west ledge'),
     'ladder': dict(script=WEST_LADDER, claims=['ladders', 'west-ledge'],
                    description='walk west of the train, approach the ladder and press Use/up'),
+    'vent': dict(phase='a01_s5', script=[move(90, -540, 1.2), move(120, -535, 1.2),
+                move(130, -530, 1.2), hold(30), move(133, -529.5, .35, .4), hold(40),
+                face(1.5707963), hold(30), mark('vent-use'), hold(2, 0x4000),
+                hold(330), mark('vent-entry-end'), hold(180, 0, 128, 0), hold(40),
+                mark('vent-crawl-end')], claims=['vent-crawl'],
+                description='closed-loop duct approach, Use and crawl from control-room return'),
     'status': dict(script=[hold(30), hold(2, 0x8), hold(100), mark('status-open-input'),
                            hold(2, 0x8), hold(100), mark('status-close-input')],
                    claims=['status'], description='open and close the status hub in AREA01'),

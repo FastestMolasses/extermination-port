@@ -29,8 +29,9 @@ typedef enum {
     EM_STATUS_PAGE_END_PROJECTION, /*0021BAE0(0) inside0020E080 */
     EM_STATUS_PAGE_CLOSE_SOUND,    /*001FB9F0(D,1000,1000,1000) */
     EM_STATUS_PAGE_BACK_SOUND,     /*0020CD60 */
-    EM_STATUS_PAGE_PAGE_TICK       /* phase 3 sub-state 2, argument t[0x10]: 1 0020F950 MAP,
+    EM_STATUS_PAGE_PAGE_TICK,      /* phase 3 sub-state 2, argument t[0x10]: 1 0020F950 MAP,
                                     * 2 00211970 SPR4, 3 00214020 DATABASE */
+    EM_STATUS_PAGE_SAVE_RESET      /*00225A00: reset canonical D_00810040[0xD4] */
 } EmStatusPageEvent;
 
 /* All side effects return1 only after accepted work. Actual asynchronous
@@ -41,9 +42,11 @@ typedef int (*EmStatusPageWorker)(void *context, EmStatusPage *state, EmStatusPa
 
 /* 0 waiting, 1 actual exit completed, -1 unsupported route or worker failure.
  * Cold entry follows 0020CDC0 case 0's request map (docs/STATUS_PAGES.md
- * section 1) for every request except 6 (00225A00) and, without a request,
- * a nonzero D_008106C5 (the passcode pages): those fault before any side
- * effect. Phase 3 loads the module of pages 0..3, ticks them and returns to
+ * section 1) for every request, including 6 (terminal BATTERY confirmation).
+ * With no request a nonzero D_008106C5 (the passcode pages) faults before any side
+ * effect. Accepting the terminal confirmation reaches unsupported phase 6
+ * (00225AC0), which faults; declining follows the existing page exit. Phase 3
+ * loads the module of pages 0..3, ticks them and returns to
  * the hub on any other page id; the passcode pages 4 / 5 and page 8 (phase
  * 2) fault. None of the faulting branches is reachable in AREA11. */
 int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorker worker,
