@@ -42,6 +42,9 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
  * bound (the scan is `scan`: the interaction host's 00184BA0 with its
  * claim). NULL until em_player_closure_live_bind succeeded. */
 const EmPlayerUseWorkers *em_player_closure_live_use(void);
+void em_player_closure_live_set_water(int (*water)(void *context, uint32_t function,
+                                      EmPlayerLiveActor *actor, uint32_t level), void *context);
+int em_player_closure_live_water_contact(EmPlayerLiveActor *actor);
 void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActor *actor,
                                                  int *result),
                                      void *context);

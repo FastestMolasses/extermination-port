@@ -141,6 +141,8 @@ static struct {
     EmPlayerUseWorkers use;
     int (*scan)(void *context, EmPlayerLiveActor *actor, int *result);
     void *scan_context;
+    int (*water)(void *context, uint32_t function, EmPlayerLiveActor *actor, uint32_t level);
+    void *water_context;
     uint16_t pad_config[8];   /* 0x70003B74..0x70003B82 (001AF470, config 0) */
     EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
     /* The idle / walk states' scene words (refreshed before each call):
@@ -2078,6 +2080,20 @@ void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActo
     L.scan_context = context;
 }
 
+void em_player_closure_live_set_water(int (*water)(void *, uint32_t, EmPlayerLiveActor *, uint32_t),
+                                      void *context)
+{
+    L.water = water;
+    L.water_context = context;
+}
+
+int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)
+{
+    if (!L.bound || !L.water || actor != L.actor)
+        return unbound("00187DE0 (water first contact)");
+    return L.water(L.water_context, 0x00187DE0u, actor, 0);
+}
+
 /* ---- The bind ----------------------------------------------------------------- */
 
 static void bind_fall(void)
@@ -2857,14 +2873,18 @@ static void bind_loco(void)
  * em_player_floor's translation over the record's fields. Its workers are
  * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
  * 300) at the record, 001EFD90 the effect binder (em_effects_live), the
- * wet-feet decal 001F0460 (x_decal); the wading 001E8B90 has no live
- * binding (fail-stop; no floor on the route so far sets the water depth
- * +0x23C). */
+ * wet-feet decal 001F0460 (x_decal); wading 001E8B90 borrows the current
+ * player and the area's canonical water grid through the live host. */
 static int fs_random(void *c, uint32_t *value) { (void)c; return em_player_misc_random(NULL, value); }
 static int fs_wade(void *c, const float position[3], float level)
 {
-    (void)c; (void)position; (void)level;
-    return unbound("001E8B90 (the wading ripple of 00187350)");
+    EmPlayerLiveActor *actor = c;
+    uint32_t bits;
+    (void)position; /* The typed footstep position is this actor's +B0. */
+    if (!L.water || actor != L.actor)
+        return unbound("001E8B90 (the wading ripple of 00187350)");
+    memcpy(&bits, &level, sizeof bits);
+    return L.water(L.water_context, 0x001E8B90u, actor, bits);
 }
 
 int em_player_closure_live_footstep(EmPlayerLiveActor *a)

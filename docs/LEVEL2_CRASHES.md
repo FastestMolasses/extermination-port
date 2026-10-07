@@ -16,9 +16,10 @@ the later portions of their routes.
 
 | Trigger | Original | Status |
 |---|---|---|
-| First contact with the tunnel's surface `5B` | `00175900 → 00187DE0` | Baseline missing live contact binding; existing math translation found. |
-| Moving while player water depth `+23C` is nonzero | `00187350 → 001E8B90` | Baseline explicit missing-worker fault; existing render translation found. |
-| Ordinary skids and landings | `001EA240 → 001EC270` | Baseline silently omitted packets; existing render translation and source windows found. |
+| First contact with the tunnel's surface `5B` | `00175900 → 00187DE0` | Bound to the existing math owner; captured-RAM original comparison passes. Continuous entry still blocked earlier by protected drawing. |
+| Moving while player water depth `+23C` is nonzero | `00187350 → 001E8B90` | Bound to the existing render owner over the area's canonical grid; original comparison passes. Continuous entry not yet observed. |
+| Ordinary skids and landings | `001EA240 → 001EC270` | Existing silent omission removed; live work fields and both packet chains match original instructions. |
+| Shooting water, and an ordinary impact-marker variant | `001EB7F0`, `001ECB00` | Water handler translated; ordinary handler reuses its existing HUD owner. Live packet comparisons pass; full play requires the separate aim-hull fix. |
 | Use scan near class-2 owners, including the control-room approach | `00160220 → 001AA4E0` | Baseline target projection refuses class 2 before the original eligibility predicate. |
 | Approaching fire closely, including the crate pull-up | `001E3D90 → 001CFBE0(kind 6)` | Still faulting; protected rendering files are required. |
 
@@ -78,3 +79,57 @@ collision world still routes AREA01 flame callback `001E3D20` through its
 AREA11-only handler. The worker already exists in `em_area01_side.c`.
 The fixture correctly returns a nonzero result and reports water as
 unobserved. Receipt: `build/level2-crashes/index-fixture-exploration/summary.json`.
+
+## Water and effect binding
+
+The known water failure has two layers. The floor service calls
+`00187DE0` on first contact, before footsteps can reach `001E8B90`.
+The new floor bridge publishes its just-computed depth to the actual player
+record, calls the existing `em_area01_math_00187DE0`, then refreshes the
+typed floor view. Water workers borrow the in-stage record read-only; they
+do not project post-stage position or animation state over it.
+
+The ripple adapter calls the sole `em_area01_render_001E8B90`, using the
+loader-owned grid initialized by `001E7780` and the original conversion
+owner `001281C0`. There is no new persistent grid, injected capture state,
+or new boundary clamp. Contact uses the original splash effect `80000016`
+and sound `CA`/`DB`; wading's `8000001D` handler was already live.
+
+`001EC270` now uses the same work-block/packet bridge as the splash
+handlers. Its two descriptors were already exported. The old counted-gap
+path is removed: every missing effect handler faults. Static follow-up
+found water bullet effect `80000026 → 001EB7F0` and ordinary impact effect
+`80000019 → 001ECB00`. The first is a short translation of the original
+two random rounds; the second calls the existing `em_area00_hud` owner,
+including sprite colour, three packet submissions and work-step easing.
+
+Run `python3 tools/export_area01_water_effects.py` to add the two descriptor
+windows needed by those impact handlers to the existing local EMET export.
+The separate exporter preserves the protected base tool, verifies the
+pinned boot ELF and compares every new descriptor byte against all 16
+AREA01 captures. It replaces this worktree's asset symlink before writing.
+No exported bytes are committed.
+
+`test_area01_water_reference.py` compares whole RAM/scratch and ordered
+contact boundaries against original instructions. Quick mode checks 8
+contact chains, 48 ripple calls and 6 complete native effect packet chains;
+full mode checks 30, 180 and 24 respectively. It exercises both depth sounds
+and refuses a missing grid. The existing floor, footstep, player-view,
+runtime, flame-service, effect API and render references also pass. These
+are worker/composition proofs, not a claim that a continuous route has
+reached the water. Receipts are `water-reference*.log`, `water-export.log`,
+`references-water-existing.log` and `render-reference.log` under
+`build/level2-crashes/`.
+
+Shared water edits: `em_scene_bindings.c` registers/clears one water
+callback and constructs its original argument lanes. The Makefile adds
+`test-area01-water-reference`; gameplay bindings reuse already-built owners.
+
+The isolated staged water tree passed `make -B all` with zero warnings,
+New Game control (30 ticks, displacement `9.599849`), default smoke and
+all listed reference suites, including 956 render cases / 4,744 entries.
+Its exploration still stops at the independent flame close-out
+`001A8734` before water; this is recorded as a failure, not a water pass.
+Receipts: `build/level2-crashes/index-water-{build,startup,smoke,references,render}.log`
+and `index-water-exploration/summary.json`. Independent adapter review
+found no concrete defect; continuous water play remains unverified.

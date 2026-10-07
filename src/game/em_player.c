@@ -637,7 +637,7 @@ static int live_scene_load(void)
  * player_states_stage below (after the port-view helpers it uses). */
 
 /* Worker trampolines: each binding worker keeps its own context. */
-typedef struct { EmPlayerFloorActor *floor; } LiveFloorContext;
+typedef struct { EmPlayerFloorActor *floor; EmPlayerLiveActor *actor; } LiveFloorContext;
 
 static int live_ground(void *context, const float position[3], const float probe[3],
                        unsigned mask, EmPlayerProbeHit *hit)
@@ -672,8 +672,8 @@ static int live_surface39(void *context, int handler)
  * 00187EA0, test_player_floor_reference) with the live sound calls:
  * 001FBD50(p, id, 0, radius) at the floor view's +B0 (the record's position
  * while the service runs) and 001FB9F0(id, 0x1000, 0x1000, 0x1000). Any
- * other argument is not what these bindings play: -1. 00187DE0 (0x5B) is
- * not translated; no AREA11 grid node carries 0x5B. */
+ * other argument is not what these bindings play: -1. Water's 00187DE0
+ * borrows the AREA01 composition after publishing this stage's depth. */
 static int live_contact_001FBD50(void *context, int16_t id, int32_t a2, float radius)
 {
     const LiveFloorContext *c = context;
@@ -690,6 +690,13 @@ static int live_contact_001FB9F0(void *context, int32_t a0, int32_t a1, int32_t 
 }
 static int live_first_contact(void *context, uint8_t surface)
 {
+    LiveFloorContext *c = context;
+    if (surface == 0x5B) {
+        em_player_floor_actor_to_live(c->floor, c->actor);
+        int rc = em_player_closure_live_water_contact(c->actor);
+        em_player_floor_actor_from_live(c->actor, c->floor);
+        return rc;
+    }
     const EmPlayerContactWorkers w = { context, live_contact_001FBD50, live_contact_001FB9F0 };
     return em_player_first_contact(&w, surface);
 }
@@ -728,7 +735,7 @@ int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int sea
     if (!floor_engaged()) return -1;
     EmPlayerFloorActor f;
     em_player_floor_actor_from_live(actor, &f);
-    LiveFloorContext floor_context = { &f };
+    LiveFloorContext floor_context = { &f, actor };
     const EmPlayerFloorWorkers workers = {
         &floor_context, live_ground, live_head, live_object, live_link, live_surface39,
         live_first_contact, live_atan2, live_tangent, live_atan, live_sqrt

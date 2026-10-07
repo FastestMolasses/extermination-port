@@ -1749,3 +1749,7 @@ test-area01-exploration: $(BIN)
 	python3 tools/test_area01_exploration.py $(AREA01_EXPLORE_ARGS)
 test-area01-exploration-harness:
 	python3 tools/test_area01_exploration_harness.py
+
+.PHONY: test-area01-water-reference
+test-area01-water-reference:
+	python3 tools/test_area01_water_reference.py

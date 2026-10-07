@@ -83,6 +83,11 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     uint64_t u64 = 0;
     switch (c->function) {
 #include "game/em_area01_runtime_dispatch.inc"
+    case 0x00187DE0u:
+        if (c->na != 1 || c->nf || c->sp < 0x20u) return fail(r, c->function);
+        r->sp = c->sp - 0x20u;
+        rc = em_area01_math_00187DE0(&r->math, (uint32_t)c->a[0]);
+        break;
     case 0x00198D90u:
         if (c->na < 2) return fail(r, c->function);
         rc = em_area01_room_00198D90(&r->room, c->a[0], c->a[1]);

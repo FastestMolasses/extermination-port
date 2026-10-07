@@ -1,5 +1,5 @@
 /* AREA01 render lane, module hud: 001E8B90, 001E9E60 and the effect
- * handlers 001EAF00, 001EAF80, 001EB020, 001EC270. See
+ * handlers 001EAF00, 001EAF80, 001EB020, 001EB7F0, 001EC270. See
  * em_area01_render_hud.h and docs/AREA01_RENDER.md. */
 #include "game/em_area01_render_hud.h"
 
@@ -14,6 +14,7 @@ typedef uint64_t u64;
 #define F_32 0x42000000u     /* 32.0 */
 #define F_60 0x42700000u     /* 60.0 */
 #define F_5 0x40A00000u      /* 5.0 */
+#define F_3 0x40400000u      /* 3.0 */
 #define F_9 0x41100000u      /* 9.0 */
 #define F_1EM6 0x358637BDu   /* 1e-6 */
 #define F_1EM4 0x38D1B717u   /* 1e-4 */
@@ -288,4 +289,15 @@ int em_area01_render_001EC270(S *s, u32 a0, u32 a1)
     TRY(emit(s, a1, 1, 0x00256790u));
     TRY(random_round(s, a0, F_5));
     return emit(s, a1, 0, 0x00256820u);
+}
+
+/* Water bullet impact: two independently advanced random fractions and
+ * the original pair of sprite sources. Original func_001EB7F0.c. */
+int em_area01_render_001EB7F0(S *s, u32 a0, u32 a1)
+{
+    TRY(need(s, 0x001EB7F0u, W_CFB50 | W_CFBE0));
+    TRY(random_round(s, a0, F_3));
+    TRY(emit(s, a1, 1, 0x00255E90u));
+    TRY(random_round(s, a0, F_3));
+    return emit(s, a1, 1, 0x00255F20u);
 }

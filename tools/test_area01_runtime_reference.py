@@ -37,7 +37,7 @@ def build():
     OUT.mkdir(parents=True, exist_ok=True)
     lib = OUT / 'runtime.dylib'
     sources = ['tests/area01_runtime_bridge.c'] + [f'src/game/em_area01_{s}.c' for s in
-        ('runtime', 'math_core', 'math_actor', 'math_owner', 'light_owner', 'overlay',
+        ('runtime', 'math_core', 'math_actor', 'math_owner', 'math_player', 'light_owner', 'overlay',
          'overlay_826d40', 'sys', 'exita', 'exitb', 'room', 'side')]
     sources.append('src/game/em_stream_lanes_original.c')
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',

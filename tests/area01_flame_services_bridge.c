@@ -94,3 +94,44 @@ int fs_sdk(const EmArea01RuntimeHost *h,EmArea01Call *c)
 }
 int fs_fog(int mode,uint32_t scale,uint32_t bias)
 { return em_packet_chain_0021B9A0(&pc,mode,scale,bias); }
+
+/* Captured node fields enter the production effect adapters and their actual
+ * transform/packet owners. No renderer output is supplied by the fixture. */
+int fs_splash(uint8_t *ram,uint8_t *spr,uint32_t address,uint32_t handler,int32_t depth)
+{
+    if(address<EM_ACTOR_POOL_BASE || (address-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE ||
+       (address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY ||
+       (!splash_handler(handler) && handler!=0x001ECB00u))return -1;
+    fs_seed(ram,spr);
+    memcpy(S.xs.spad3AC0,spr+0x3AC0,sizeof S.xs.spad3AC0);
+    memcpy(S.sources,ram+0x2565E0,sizeof S.sources);
+    S.elf=calloc(1,ELF_SIZE);
+    if(!S.elf)return -1;
+    S.windows=2;S.window[0].address=0x255E90;S.window[0].size=0x120;
+    memcpy(S.elf+ELF_AT(0x255E90),ram+0x255E90,0x120);
+    S.window[1].address=0x256EE0;S.window[1].size=0x120;
+    memcpy(S.elf+ELF_AT(0x256EE0),ram+0x256EE0,0x120);
+    memcpy(S.spad3600_sprite,spr+0x3600,sizeof S.spad3600_sprite);
+    S.sworkers=(EmPlayerEquipmentSpriteWorkers){&pc,w_sprite_001CD370,w_sprite_001CB5F0,
+        em_packet_chain_w_001CB6B0,em_packet_chain_w_001CB900};
+    S.sworld=(EmPlayerEquipmentSpriteWorld){(uint32_t *)(void *)(context_bytes+0xA0),
+        (uint32_t *)(void *)matrices,(uint32_t *)(void *)(matrices+0x80),S.spad3600_sprite};
+    S.sprite=(EmPlayerEquipmentSprite){&S.sworkers,&S.sworld,&S.sfault};
+    Slot *s=&S.slot[(address-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE];
+    memcpy(s->e.matrix,ram+address+0xD0,64);
+    memcpy(&s->e.work.seed_copy,ram+address+0x1F4,4);
+    memcpy(&s->e.work.step,ram+address+0x1F8,4);
+    memcpy(&s->e.work.accumulator,ram+address+0x244,4);
+    memcpy(&s->e.work.fraction,ram+address+0x24C,4);
+    int rc=handler==0x001ECB00u ? handler_001ECB00(&s->e,depth,&s->e.work)
+                              : handler_splash(handler,&s->e,depth,&s->e.work);
+    memcpy(ram+address+0x1F4,&s->e.work.seed_copy,4);
+    memcpy(ram+address+0x1F8,&s->e.work.step,4);
+    memcpy(ram+EM_EFFECT_KINDS_XF,&S.xf,0x58);
+    memcpy(spr+0x3660,S.xs.spad3660,sizeof S.xs.spad3660);
+    memcpy(spr+0x3670,S.xs.spad3670,sizeof S.xs.spad3670);
+    memcpy(spr+0x3600,S.spad3600_sprite,sizeof S.spad3600_sprite);
+    fs_publish(ram);
+    free(S.elf);S.elf=NULL;S.windows=0;
+    return rc<0 || S.fault || S.k.fault.code || S.hfault.code ? -1 : 0;
+}

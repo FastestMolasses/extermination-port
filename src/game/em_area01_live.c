@@ -907,13 +907,19 @@ int em_area01_live_call(EmArea01Live *l,EmArea01Call *c)
     if(rc<0)return fail(l,l->runtime.fault_address);
     return 0;
 }
+int em_area01_live_player_call(EmArea01Live *l,EmPlayerLiveActor *p,EmArea01Call *c)
+{
+    if(!l || !l->bound || l->active || l->player_stage || p!=l->player.actor || !c)return -1;
+    l->player_stage=1;
+    int rc=em_area01_live_call(l,c);
+    l->player_stage=0;
+    return rc;
+}
 int em_area01_live_scan(EmArea01Live *l,EmPlayerLiveActor *p,int *result)
 {
-    if(!l || !l->bound || l->active || l->player_stage || p!=l->player.actor || !result)return -1;
-    l->player_stage=1;
+    if(!result)return -1;
     EmArea01Call c={.function=0x00184BA0u,.a={EM_AREA01_PLAYER_BASE},.na=1};
-    int rc=em_area01_live_call(l,&c);
-    l->player_stage=0;
+    int rc=em_area01_live_player_call(l,p,&c);
     if(rc>=0)*result=(int32_t)c.v0;
     return rc;
 }

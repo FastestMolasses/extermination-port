@@ -2241,6 +2241,7 @@ static int w_001AFCA0(void *ctx)
      * (em_area11_interaction_host.h: whole-world teardown). */
     player_use_set_hook(NULL, NULL);
     em_player_closure_live_set_scan(NULL, NULL);
+    em_player_closure_live_set_water(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
     player_pose_set_takeover_end_hook(NULL, NULL);
     em_message_live_set_host(NULL);
@@ -2955,6 +2956,16 @@ static int area01_scan(void *ctx, EmPlayerLiveActor *player, int *result)
     (void)ctx;
     return em_area01_live_scan(&s_area01_live, player, result);
 }
+static int area01_water(void *ctx, uint32_t function, EmPlayerLiveActor *player, uint32_t level)
+{
+    (void)ctx;
+    if (function != 0x00187DE0u && function != 0x001E8B90u) return -1;
+    EmArea01Call c = {.function = function, .na = 1, .a = {EM_AREA01_PLAYER_BASE}};
+    if (function == 0x001E8B90u) {
+        c.a[0] += 0xB0u; c.nf = 1; c.f[0] = level;
+    }
+    return em_area01_live_player_call(&s_area01_live, player, &c);
+}
 static int area01_map_player_bank(void *ctx, uint32_t address, uint32_t size, const uint8_t *bytes)
 {
     (void)ctx;
@@ -2983,6 +2994,7 @@ static int area01_shared_interactions(void)
     player_pose_set_takeover_end_hook(em_area11_interaction_host_staged_released, NULL);
     player_use_set_hook(em_area11_interaction_host_use, NULL);
     em_player_closure_live_set_scan(area01_scan, NULL);
+    em_player_closure_live_set_water(area01_water, NULL);
     em_message_live_set_host(em_area11_interaction_host_message_host());
     return 0;
 }
