@@ -13,6 +13,16 @@ static EmCollisionWorldOwners owner;
 static EmActor actors[3];
 static uint8_t victim[0x320],node[0x320],point[16],direction[16];
 static EmPoseRegion regions[4];
+static uint8_t target_slots[12],target_matrix[0xD0];
+static unsigned target_queries;
+static int target_regions(void *ctx,uint32_t node,EmPoseRegion *out,unsigned capacity,unsigned *count)
+{
+    (void)ctx;assert(node==0x5000);++target_queries;
+    if(capacity<2)return -1;
+    out[0]=(EmPoseRegion){node+0x110,sizeof target_slots,target_slots,0};
+    out[1]=(EmPoseRegion){0xA000,sizeof target_matrix,target_matrix,0};
+    *count=2;return 0;
+}
 static int allocated,fail_call,calls,checks,parent_valid,parent_notifications;
 #define CHECK(x) do { assert(x); ++checks; } while(0)
 const EmCollSegment *em_collision_world_segment(void) { return &seg; }
@@ -108,6 +118,17 @@ int main(void)
     put(victim+0xB0,0x3F800000);put(victim+0xB4,0x40000000);put(victim+0xB8,0x40400000);
     c=(EmAimFireTargetCall){.function=0x183C40,.a={0x5000,0x6000},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(!memcmp(point,victim+0xB0,12));
+    /* Region-only 00183C40 borrows the current target's model storage.
+     * No complete target record covers +110; missing views keep the fault. */
+    reset(&h);victim[2]=2;regions[0].size=0x110;target_queries=0;
+    put(target_slots+8,0xA000);put(target_matrix+0xC0,0x3F800000);
+    put(target_matrix+0xC4,0x40000000);put(target_matrix+0xC8,0x40400000);
+    world.target_regions=target_regions;
+    c=(EmAimFireTargetCall){.function=0x183C40,.a={0x5000,0x6000},.sp=0x7F001400};
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);
+    CHECK(!memcmp(point,target_matrix+0xC0,12));CHECK(target_queries==1);
+    world.target_regions=NULL;
+    CHECK(em_aim_fire_world_live_call(&world,&h,&c)<0);CHECK(h.fault_address==0x5118);
     reset(&h);victim[3]=19;put(point,0xABCDEF01);put(point+4,0x23456789);put(point+8,0x87654321);
     c=(EmAimFireTargetCall){.function=0x1B41F0,.a={0x5000,0x6000,0x7000,1,0x1000,5},.sp=0x7F001400};
     CHECK(em_aim_fire_world_live_call(&world,&h,&c)==0);CHECK(c.v0==1);CHECK(victim[0]==3);

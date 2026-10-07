@@ -81,6 +81,7 @@ void em_area01_live_detach(EmArea01Live *);
 int em_area01_live_resume(EmArea01Live *);
 int em_area01_live_suspend(EmArea01Live *);
 int em_area01_live_hull_chain(void *,const EmActor *,EmCollHullChain *);
+const uint8_t *em_area01_live_target_model_bytes(EmArea01Live *,uint32_t address,uint32_t size);
 uint8_t *em_area01_live_bytes(EmArea01Live *, uint32_t, uint32_t, int);
 /* Exact active canonical matrix span, also available to native adapters.
  * Returns an alias of scratch_3000; never publishes a copied matrix. */

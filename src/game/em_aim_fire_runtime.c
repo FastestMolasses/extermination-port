@@ -25,6 +25,7 @@
 #include "game/em_owner_services_original.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_scene_bindings.h"
+#include "game/em_startup_load_gaps.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -196,6 +197,7 @@ static void *external_map(void *context,uint32_t a,size_t n,int write)
     if (!p) p=em_effects_live_node_field(a,n,write);
     if (!p) p=em_aim_fire_world_live_map(&R.world,a,n,write);
     if (!p) p=pool_field(a,n,write);
+    if (!p && !write) p=(void *)em_scene_bindings_target_model_bytes(a,(uint32_t)n);
     if (!p && !write) p=(void *)em_effects_live_window(a,(uint32_t)n);
     if (!p && !write) p=(void *)em_scene_bindings_grid_node_bytes(a,(uint32_t)n);
     /* D_008105D0, the camera's eye (00187780's view attenuation reads it):
@@ -308,6 +310,26 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
             TRY(append(out,capacity,count,at,n,p,spans[j][0]!=0x14));
         }
     }
+    return 0;
+}
+/* AREA01's canonical private slot words or shared model projection, and
+ * the one existing bone arena. Only the current target is projected: shared
+ * providers may reuse their serialization buffer on the next actor query. */
+static int target_regions(void *context,uint32_t node,EmPoseRegion *out,
+                          unsigned capacity,unsigned *count)
+{
+    (void)context;
+    if(!R.pool || !count || node<EM_ACTOR_POOL_BASE)return 0;
+    uint32_t delta=node-EM_ACTOR_POOL_BASE;
+    if(delta%EM_ACTOR_RECORD_SIZE || delta/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY)return 0;
+    const EmActor *a=&R.pool->records[delta/EM_ACTOR_RECORD_SIZE];
+    if(!a->allocated || a->self!=a || !a->bones || a->bones>56u)return 0;
+    const uint8_t *words=em_scene_bindings_target_model_bytes(node+0x110u,4u*a->bones);
+    if(!words)return 0;
+    TRY(append(out,capacity,count,node+0x110u,4u*a->bones,(void *)words,0));
+    uint32_t size=EM_SLG_BONE_SLOTS*EM_SLG_BONE_SLOT_SIZE;
+    const uint8_t *slots=em_scene_bindings_target_model_bytes(EM_SLG_BONE_RECORDS,size);
+    TRY(append(out,capacity,count,EM_SLG_BONE_RECORDS,size,(void *)slots,0));
     return 0;
 }
 static int written(void *context,uint32_t address,size_t size)
@@ -590,6 +612,7 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
 {
     memset(&R,0,sizeof R);R.pool=pool;
     R.world.enumerate=enumerate;
+    R.world.target_regions=target_regions;
     R.world.grid_address=grid_address;
     R.world.grid_bytes=grid_bytes;
     R.world.written=written;

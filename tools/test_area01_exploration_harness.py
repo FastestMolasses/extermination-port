@@ -27,7 +27,7 @@ static void fail(const char *why){++failed;fprintf(stderr,"FAIL %s\n",why);}
 static unsigned em_frame_counter(void){return counter;}
 static const void *scene_ptr(void){return &scene;}
 #define em_scene_state() ((const typeof(scene) *)scene_ptr())
-static void pad_apply(uint16_t buttons,float x,float y){(void)x;(void)y;++pads;if(buttons)++held;}
+static void pad_apply(uint16_t buttons,float x,float y){(void)x;(void)y;++pads;if(buttons)++held;printf("PAD %u %04x\n",counter,buttons);}
 static float nav_stick_toward(float x,float z,float m){
     (void)m;float d=hypotf(x-g.pos[0],z-g.pos[2]);g.pos[0]=x;g.pos[2]=z;return d;
 }
@@ -59,6 +59,12 @@ def main():
     result = subprocess.run([str(binary), str(script)], capture_output=True, text=True)
     assert result.returncode == 0 and 'held=3' in result.stdout, result
     assert 'MARK finished' in result.stderr and 'COMPLETE' in result.stderr
+    script.write_text('EMAX 1\nhold 3 800 128 128\nhold 2 2800 128 128\nhold 4 800 128 128\n')
+    result = subprocess.run([str(binary), str(script)], capture_output=True, text=True)
+    actual = [(int(fields[1]), int(fields[2], 16)) for line in result.stdout.splitlines()
+              if (fields := line.split())[0] == 'PAD']
+    assert result.returncode == 0 and actual[:9] == list(enumerate([0x800]*3+[0x2800]*2+[0x800]*4, 1)), result
+    assert 'held=9' in result.stdout
     invalid = ['EMAX 2\nhold 1 0 128 128\n', 'EMAX 1\n',
                'EMAX 1\nmove nan 0 1 1 10\n', 'EMAX 1\nmove 1 0 1 0 10\n',
                'EMAX 1\nhold 3 10000 128 128\n', 'EMAX 1\nhold 0 0 128 128\n',
@@ -93,7 +99,7 @@ def main():
     r = explore.analyze(log, ticks, case, None, True)
     assert r['status'] == 'TIMEOUT'
     print(f'AREA01 exploration harness: PASS input boundary (ASan/UBSan), {len(invalid)} malformed scripts, '
-          'bounded navigation failure, phase isolation, and five reporting contracts; no gameplay parity claim')
+          'continuous R1/trigger holds, bounded navigation failure, phase isolation, and five reporting contracts; no gameplay parity claim')
 
 
 if __name__ == '__main__':

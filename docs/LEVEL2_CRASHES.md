@@ -207,3 +207,34 @@ the exploration harness. Fresh `a01_s3` exploration reaches the damage
 reaction without a fault and matches all 262 captured rows. Receipts:
 `index-fire-{build,startup,smoke,references,harness}.log` and
 `index-fire-exploration/summary.json` under `build/level2-crashes/`.
+
+## Aim target model ownership
+
+After hull and health-field binding, aiming reaches `00183C40`, which reads
+the target's bone-slot words at `+110` and their current matrices. Those
+words already belong to the AREA01 actor/model views. A read-only provider
+now borrows that storage for the current target, with the existing shared
+slot arena, and exposes the exact regions to the existing aim world owner.
+No target record is synthesized; absent, unheld or incompatible regions
+still fault. The shared scene file adds only the forwarding accessor.
+
+The original oracle compares 832 cases over 16 captures and eight model
+identities, with 2,784 ordered stores/calls and 22 provider refusals. It
+executes the actual target-region composition and compares whole RAM.
+All 20 original model branches, active/inactive views and private/shared
+projections are covered. Existing actor-view references pass; the aim-world
+harness passes 100 ASan/UBSan checks, including missing-provider refusal.
+
+The custom input driver now keeps adjacent hold steps continuous. Its
+previous extra neutral frame released R1 immediately before Circle, so
+completed aim input did not actually fire. A sanitizer-backed harness
+checks the exact nine-frame R1 / R1+Circle / R1 sequence. This corrects
+test input only; the game's original trigger mapping is unchanged.
+
+The isolated staged aim tree passes a zero-warning build, startup at
+`9.599849`, default smoke and all touched references. Its corrected native
+probe completes aiming and two trigger presses with both aim and firing
+observed, without a fault. This proves the actual probe, not every impact
+surface or enemy-damage branch. Receipts:
+`index-aim-{build,startup,smoke,references,harness}.log` and
+`index-aim-exploration/summary.json` under `build/level2-crashes/`.

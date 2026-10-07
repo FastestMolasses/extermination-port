@@ -172,7 +172,7 @@ typedef struct {
     EmArea01Ui *ui_state;
     EmArea02Math *math_state; EmArea00World *hit_state;
     EmArea01Side *side_state; EmArea00Fx *fx_state;
-    uint32_t side_node;
+    uint32_t side_node, target_node;
     EmPoseRegion parent_view;
     uint32_t point[4];
     /* The published class-4 list (D_00275B7C / D_00275B84, base D_0028AE30)
@@ -271,6 +271,13 @@ static int refresh(Bridge *b)
             const uint8_t *bytes=node && w->grid_bytes ? w->grid_bytes(w->context,node,64) : NULL;
             if(bytes)APPEND_OPTIONAL(append(b,node,64,(void *)(uintptr_t)bytes,0));
         }
+    }
+    if(b->target_node && w->target_regions) {
+        unsigned count=0;
+        TRY(w->target_regions(w->context,b->target_node,b->views+b->count,
+                             EM_AIM_FIRE_WORLD_VIEWS-b->count,&count));
+        if(count>EM_AIM_FIRE_WORLD_VIEWS-b->count)return -1;
+        b->count+=count;
     }
     for(unsigned i=0;i<b->count;++i) {
         const EmPoseRegion *r=&b->views[i];
@@ -426,6 +433,7 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
        c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
+    if(c->function==0x00183C40u)b.target_node=a;
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",
             (unsigned)c->function,b.count);

@@ -2946,6 +2946,10 @@ static int condition_canonical(const uint8_t *rec, uint32_t *at)
 }
 
 static int area01_behavior(EmActor *, void *);
+const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address,uint32_t size)
+{
+    return arrival_scene() ? em_area01_live_target_model_bytes(&s_area01_live,address,size) : NULL;
+}
 static int area01_private_model(void *ctx, const EmActor *a)
 {
     (void)ctx;

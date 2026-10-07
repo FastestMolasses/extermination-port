@@ -223,3 +223,26 @@ int em_area01_actor_view_snapshot(EmArea01ActorView *v, uint32_t address, uint32
     memcpy(out, image+offset, size);
     return 0;
 }
+
+const uint8_t *em_area01_actor_view_slot_words(EmArea01ActorView *v,uint32_t address,uint32_t size)
+{
+    if(!v || v->fault || !v->pool || !size || address<EM_ACTOR_POOL_BASE)return NULL;
+    unsigned delta=address-EM_ACTOR_POOL_BASE,index=delta/EM_ACTOR_RECORD_SIZE;
+    unsigned offset=delta%EM_ACTOR_RECORD_SIZE;
+    if(index>=EM_ACTOR_POOL_CAPACITY || offset<0x110u)return NULL;
+    EmActor *a=&v->pool->records[index];
+    if(!a->allocated || a->self!=a || a->bones>56u || offset-0x110u>4u*a->bones ||
+       size>4u*a->bones-(offset-0x110u))return NULL;
+    if(v->active)return em_area01_actor_view_bytes(v,address,size,0);
+    EmArea01ActorSpan spans[EM_AREA01_ACTOR_SHARED_MAX];
+    uint8_t mask[EM_ACTOR_RECORD_SIZE];
+    int n=projections(v,a,spans,mask,1);
+    if(n<0)return NULL;
+    for(int i=0;i<n;++i) {
+        const EmArea01ActorSpan *s=&spans[i];
+        if(offset>=s->offset && offset+size<=s->offset+s->size)
+            return s->writable==2 ? NULL : s->bytes+offset-s->offset;
+    }
+    for(unsigned i=offset;i<offset+size;++i)if(mask[i])return NULL;
+    return v->record[index].image+offset;
+}

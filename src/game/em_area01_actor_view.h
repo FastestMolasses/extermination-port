@@ -78,6 +78,11 @@ int em_area01_actor_view_touch(EmArea01ActorView *v, uint32_t node);
  * read-only observation (serialization buffers in provider ctx are fine). */
 int em_area01_actor_view_snapshot(EmArea01ActorView *v, uint32_t address, uint32_t size, void *out);
 
+/* Read-only held bone-slot words (+110), for an external target query.
+ * Borrows existing private storage or its shared owner's projection; no
+ * record snapshot is retained. Valid until the next owner/project call. */
+const uint8_t *em_area01_actor_view_slot_words(EmArea01ActorView *v, uint32_t address, uint32_t size);
+
 /* Span must stay inside one live allocated record. Returned pointers are
  * valid only in the current segment. `write` permits early rejection of
  * pool-link/read-only-model stores. The canonical overlay and math views

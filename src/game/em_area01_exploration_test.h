@@ -97,6 +97,10 @@ static int a01_explore_frame(void)
                     a01_explore.index, s->kind, em_frame_counter(), g.pos[0], g.pos[1], g.pos[2]);
             ++a01_explore.index;
             a01_explore.frames = 0;
+            /* Adjacent holds are one continuous pad timeline. Inserting a
+             * neutral frame here drops R1 before an R1+Circle trigger. */
+            if (s->kind == 'h' && a01_explore.index < a01_explore.count &&
+                a01_explore.steps[a01_explore.index].kind == 'h') continue;
             pad_apply(0, 0, 0);
             if (s->kind == 'k') continue;
             return 0;

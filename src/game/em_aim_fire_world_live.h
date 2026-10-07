@@ -19,6 +19,10 @@ typedef struct {
     unsigned region_count;
     int (*enumerate)(void *, EmPoseRegion *, unsigned capacity, unsigned *count);
     void *(*map)(void *, uint32_t address, size_t size, int write);
+    /* Borrow the current 00183C40 target's canonical model storage.
+     * Called after general enumeration and again after every callee; the
+     * bytes are observations, never an independent actor/model record. */
+    int (*target_regions)(void *, uint32_t node, EmPoseRegion *, unsigned capacity, unsigned *count);
     /* EFE00 certifies its completed node+24 store before its next callee.
      * Acquiring a writable view alone must not initialize owner metadata. */
     int (*written)(void *, uint32_t address, size_t size);

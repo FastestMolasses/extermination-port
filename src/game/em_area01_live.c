@@ -305,6 +305,14 @@ int em_area01_live_hull_chain(void *ctx,const EmActor *body,EmCollHullChain *out
     if(!l || !l->bound || l->fault)return -1;
     return em_area01_hull_chain(&l->hulls,body,out);
 }
+const uint8_t *em_area01_live_target_model_bytes(EmArea01Live *l,uint32_t address,uint32_t size)
+{
+    if(!l || !l->bound || l->fault)return NULL;
+    if(address>=EM_ACTOR_POOL_BASE && address-EM_ACTOR_POOL_BASE<
+       EM_ACTOR_POOL_CAPACITY*EM_ACTOR_RECORD_SIZE)
+        return em_area01_actor_view_slot_words(&l->actors,address,size);
+    return em_area01_model_slot_bytes(&l->model,address,size);
+}
 static int model_external(void *ctx,uint32_t fn,uint32_t node,uint32_t arg)
 {
     EmArea01Live *l=ctx;
