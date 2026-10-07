@@ -37,6 +37,7 @@
 #include "game/em_script_host_workers.h"
 #include "game/em_script_door_fan.h"
 #include "game/em_player_recovery.h"
+#include "game/em_player_stage_workers.h"
 #include "game/em_stream_lanes_original.h"
 #include "game/em_stream_live.h"
 #include "game/em_frame.h"
@@ -587,6 +588,10 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     EmSdkMathContext *sdk=em_collision_world_sdk();float out;
     switch(c->function) {
+    case 0x0021BB00u:
+        if(c->na!=1 || c->nf || c->a[0]!=EM_AREA01_PLAYER_BASE || !l->player.active)return -1;
+        c->v0=(uint64_t)(int64_t)em_player_0021BB00(l->player.actor);
+        return 0;
     case 0x001B1240u: {
         if(c->na!=1 || c->nf!=2 || !sdk)return -1;
         const uint8_t *origin=bytes(l,(uint32_t)c->a[0],12,0);

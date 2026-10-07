@@ -97,6 +97,10 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
         rc = em_area01_room_001D0D60(&r->room, (uint32_t)c->a[0], c->f[0], &i32);
         if (rc == 0) c->v0 = (uint64_t)(int64_t)i32;
         break;
+    case 0x001E3D20u:
+        if(c->na<2)return fail(r,c->function);
+        rc=em_area01_side_001E3D20(&r->side,(uint32_t)c->a[0],(uint32_t)c->a[1]);
+        break;
     case 0x001EFE00u:
         if(c->na<2)return fail(r,c->function);
         rc=em_area01_side_001EFE00(&r->side,(int32_t)c->a[0],(uint32_t)c->a[1],&i32);

@@ -47,7 +47,7 @@ def mark(name):
 # navigation targets, never values written into the player.
 EAST_BYPASS = [move(x, z) for x, z in (
     (33, -571), (26, -594), (20, -617), (30, -650), (33, -672),
-    (33, -704), (33, -743), (30, -759), (5, -770), (-7, -790), (-14, -820))]
+    (33, -704), (1, -699), (1, -730), (18, -733), (18, -765), (-7, -790), (-14, -820))]
 TUNNEL = [move(x, z) for x, z in (
     (-26, -848), (-14, -856), (-14, -885), (14, -905), (15, -970), (5, -986))]
 WATER = EAST_BYPASS + [mark('tunnel-mouth')] + TUNNEL + [
@@ -81,6 +81,17 @@ CASES = {
     'melee': dict(script=[hold(30), hold(2, 0x2000), hold(90),
                           hold(2, 0x8000), hold(120), mark('melee-input-end')],
                   claims=['melee'], description='unarmed light and heavy knife inputs'),
+    'control-door': dict(script=[move(54.5, -563.4, .35, .4), hold(40),
+                                 face(1.59978), hold(30), mark('control-door-use'),
+                                 hold(2, 0x4000), hold(240), mark('control-door-end')],
+                         claims=['control-room'],
+                         description='closed-loop approach to the captured control-door Use stance'),
+    'east-door': dict(script=[move(46.5, -578), move(65.4, -599.7), move(96.2, -606.8),
+                              move(122.5, -609.88, .35, .4), hold(40),
+                              face(1.54245), hold(30), mark('east-door-use'),
+                              hold(2, 0x4000), hold(240), mark('east-door-end')],
+                      claims=['east-room'],
+                      description='closed-loop approach to the captured east-door Use stance'),
 }
 
 RECORDED_CLAIMS = {
@@ -216,6 +227,38 @@ def analyze(run, ticks, case, returncode, timed_out=False):
                 original_parity='NOT-CHECKED: run the existing AREA01 smoke checker for recorded input')
 
 
+def recorded_prefix(run, path, phase):
+    """Reuse the untouched strict checker; a matching prefix is not a PASS."""
+    import level_smoke_area01 as a01
+    import test_level_smoke as smoke
+    match = re.search(rf'^level smoke: {phase}: aligned counter=(\d+)', run, re.M)
+    if not match or not path.exists() or phase == 'a01_07':
+        return dict(status='NOT-CHECKED', reason='phase not entered, log missing, or area-exit special case')
+    counter = int(match.group(1))
+    rows = a01.route_capture(phase)['rows']
+    previous, exact, first_difference = None, 0, None
+    opener = gzip.open if path.suffix == '.gz' else open
+    with opener(path, 'rt') as stream:
+        for line in stream:
+            tick = json.loads(line)
+            if 'tick' not in tick or tick.get('counter', 0) < counter:
+                continue
+            if previous is not None:
+                try:
+                    assert previous['counter'] == counter + exact, 'noncontiguous phase ticks'
+                    a01.compare_route_row(smoke, [previous, tick], 0, rows[exact], phase)
+                except AssertionError as error:
+                    first_difference = str(error)
+                    break
+                exact += 1
+                if exact == len(rows):
+                    break
+            previous = tick
+    return dict(status='PREFIX-DIAGNOSTIC', exact_rows=exact, captured_rows=len(rows),
+                first_difference=first_difference,
+                limit='Existing row fields only; this does not check the whole camera tail, RNG, or prior phases.')
+
+
 def run_case(name, case, out, binary, timeout, keep_ticks=False):
     out.mkdir(parents=True, exist_ok=True)
     pads = out / 'pads'
@@ -242,6 +285,9 @@ def run_case(name, case, out, binary, timeout, keep_ticks=False):
         except subprocess.TimeoutExpired:
             timed_out = True  # subprocess.run kills and waits for the child.
     report = analyze((out / 'run.log').read_text(errors='replace'), out / 'ticks.jsonl', case, returncode, timed_out)
+    if 'script' not in case:
+        report['recorded_prefix'] = recorded_prefix((out / 'run.log').read_text(errors='replace'),
+                                                    out / 'ticks.jsonl', phase)
     ticks = out / 'ticks.jsonl'
     if ticks.exists() and not keep_ticks:
         compressed = ticks.with_suffix('.jsonl.gz')
@@ -255,6 +301,8 @@ def run_case(name, case, out, binary, timeout, keep_ticks=False):
                   log=str(out / 'run.log'), path=list(phase_path(phase)),
                   ticks=str(ticks),
                   pad_manifest=str(pads / 'manifest.json'))
+    if 'script' in case:
+        report.update(input_script=str(script), input_sha256=hashlib.sha256(script.read_bytes()).hexdigest())
     (out / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'{name}: {report["status"]}; first fault: {report["first_fault"] or "none logged"}', flush=True)
     print(f'  coverage: {json.dumps(report["coverage"], sort_keys=True)}', flush=True)

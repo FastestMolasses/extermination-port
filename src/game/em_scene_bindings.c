@@ -3082,6 +3082,22 @@ static int area01_head_record(void *ctx, uint32_t address, uint8_t record[0x2F0]
 {
     return em_area01_live_head_record(ctx, address, record);
 }
+/* 001A8660 calls the flame's +0x34 contact owner during close-out. The
+ * actor/player views are already active; collision belongs to the native
+ * passes between nested calls, just as it does for area01_pass_pair. */
+static int area01_contact(void *ctx, uint32_t function, uint32_t entry, uint32_t player,
+                          uint32_t player_b0)
+{
+    EmArea01Live *l = ctx;
+    if (function != 0x001E3D20u || player != EM_AREA01_PLAYER_BASE || player_b0 != player + 0xB0u ||
+        em_area01_collision_view_begin(&l->collision) < 0)
+        return -1;
+    EmArea01Call c = {.function = function, .a = {entry, player}, .na = 2};
+    int rc = em_area01_live_call_active(l, &c);
+    if (em_area01_collision_view_commit(&l->collision) < 0)
+        return -1;
+    return rc;
+}
 static const uint8_t *area01_head_bytes(void *ctx, uint32_t address, uint32_t size)
 {
     return em_area01_live_head_bytes(ctx, address, size);
@@ -3109,6 +3125,7 @@ static int area01_bind_live(void)
     const EmCollisionWorldAreaPasses passes = {&s_area01_live, area01_pass_bytes, area01_pass_pair};
     if (em_collision_world_bind_area_passes(&passes) < 0)
         return em_scene_fault(&s_state, 0x001AAD00u, EM_SCENE_FAULT_NULL_WORKER);
+    em_collision_world_bind_behaviour(area01_contact, &s_area01_live);
     if (em_collision_world_bind_area_hulls(em_area01_live_hull_chain, &s_area01_live) < 0)
         return em_scene_fault(&s_state, 0x001A6440u, EM_SCENE_FAULT_NULL_WORKER);
     return 0;

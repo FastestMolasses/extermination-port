@@ -1758,3 +1758,7 @@ test-area01-water-reference:
 .PHONY: test-player-target-live-reference
 test-player-target-live-reference:
 	python3 tools/test_player_target_live_reference.py
+
+.PHONY: test-area01-fire-contact-reference
+test-area01-fire-contact-reference:
+	python3 tools/test_area01_fire_contact_reference.py

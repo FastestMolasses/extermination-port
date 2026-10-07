@@ -180,3 +180,30 @@ the repaired ASan/UBSan stage-host harness, which explicitly proves an
 absent water owner faults. Receipts: `index-player-{build,startup,smoke,host,hull}.log`,
 `index-player-references{,-tail}.log` and
 `index-player-hull-exploration/summary.json` under `build/level2-crashes/`.
+
+## Fire contact composition
+
+The AREA01 close-out now calls its existing `001E3D20` contact worker and
+`0021BB00` player gate, preserving canonical collision/player views across
+nested effects. With the original spawn-status publication, the recorded
+`a01_s3` path applies the expected five HP damage and reaction action `3E`.
+The untouched full checker passes all 21 live phases through this route,
+262 captured rows and the whole camera endpoint. The existing AREA01 RNG
+check proves caller/LCG continuity; it does not possess an original per-call
+trace, and reports its differing endpoint seeds without installing one.
+Receipt: `after-fire-status/strict-check-correct-binary.log`.
+
+The new original-reference suite passes 93 contact cases, 247 ordered
+boundaries, 32 effect spawns and three refusals over 16 captures. Existing
+effect-chain and AREA01 effect-service suites pass. Temporary diagnostic
+traces are removed. The shared scene change is one AREA01 contact callback
+registration; the Makefile adds its reference target. The opt-in fixture
+now reports the unchanged row checker's exact prefix and observed targets,
+including the east room's recorded entry 8.
+
+The isolated staged fire tree passes `make -B all` with zero warnings,
+startup displacement `9.599849`, default smoke, its reference suites and
+the exploration harness. Fresh `a01_s3` exploration reaches the damage
+reaction without a fault and matches all 262 captured rows. Receipts:
+`index-fire-{build,startup,smoke,references,harness}.log` and
+`index-fire-exploration/summary.json` under `build/level2-crashes/`.
