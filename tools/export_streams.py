@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export the stream sectors the first level reads, from the user's own disc.
+"""Export AREA11 and AREA01 stream sectors from the user's own disc.
 
 The port's IOP stream backend (src/game/em_iop_stream.c, docs/IOP_STREAM.md)
 reads music and voice sectors by disc sector number, exactly as the lanes
@@ -35,6 +35,12 @@ Which cues are exported (the first level's):
 A read of any other sector faults in the backend (fail-stop): nothing outside
 these cues is substituted.
 
+AREA01 adds every cue its D_0026EC60 rows name, the spawn selections 13/22
+and script 0x826BA0's cue 20, and each voice in its original message-record
+table D_00264DD0[2]. The message table extent is derived from the original
+pointer tables exactly as export_message_data.py does. No captured runtime
+values or replacement audio are exported.
+
 EMST layout (little endian):
   0x00  'EMST', u32 version 1
   0x08  u32 music_lsn, u32 voice_lsn, u32 music_sectors, u32 voice_sectors
@@ -60,12 +66,14 @@ MUSIC_ROWS, VOICE_ROWS = 68, 179
 MUSIC_TABLE, VOICE_TABLE = 0x25DD30, 0x25E170
 SEARCH_NAMES = (0x26EBB0, 0x26EBD0)
 STREAM_TABLE = 0x26EC60
-AREA = 11
+AREAS = (11, 1)
 # Cues named by original code paths (see the module docstring).
 MUSIC_EXTRA = {25: '001FAE70 AREA11 selection (captured D_00282178[0] = 25)',
                0x18: '001FAE70 override cue (D_008104E4 == 1)',
                0x1B: 'game over 001FA790(0, 0x1B)',
-               13: 'the next area\'s music at the AREA11 exit (captured D_00282178[0] = 13 in route 15_level_exit)'}
+               13: 'AREA01 sub-0 spawn selection (also captured at the AREA11 exit)',
+               22: 'AREA01 sub-1 spawn selection (spawn music word 0x9600)',
+               20: 'AREA01 overlay 00826BA0, script 0082BAD0 completion: 001FB0B0(20)'}
 VOICE_CUES = {c: 'director / Roger voiced lines (docs/STREAM_LANES.md item 6)'
               for c in range(143, 152)}
 VOICE_CUES[1] = ('line 0x13: Roger\'s talk after the encounter (script 0x828810, BRANCH br_14); '
@@ -136,13 +144,30 @@ def cue_list(elf: Elf):
         area, _zero, trigger, cue = struct.unpack('<4i', elf.read(STREAM_TABLE + 16 * index, 16))
         if area == -1:
             break
-        if area == AREA:
-            music.setdefault(cue, f'D_0026EC60 row {index}: area {AREA}, trigger {trigger:#x}')
+        if area in AREAS:
+            music.setdefault(cue, f'D_0026EC60 row {index}: area {area}, trigger {trigger:#x}')
     else:
         raise ValueError('D_0026EC60 has no terminator')
     for cue, why in MUSIC_EXTRA.items():
         music.setdefault(cue, why)
-    return dict(sorted(music.items())), dict(VOICE_CUES)
+    voice = dict(VOICE_CUES)
+    pointers = struct.unpack('<24I', elf.read(0x264DD0, 24 * 4))
+    starts = {p for p in pointers if p}
+    starts.update(struct.unpack('<2I', elf.read(0x275848, 8)))
+    starts.update(struct.unpack('<23I', elf.read(0x264E40, 23 * 4)))
+    begin = pointers[2]
+    end = min(p for p in starts if p > begin)
+    if not begin or (end - begin) % 8:
+        raise ValueError('AREA01 message table is not whole eight-byte records')
+    for offset in range(0, end - begin, 8):
+        cue = struct.unpack_from('<h', elf.read(begin + offset, 8), 2)[0]
+        if cue == -1:
+            continue
+        if not 0 < cue < VOICE_ROWS:
+            raise ValueError(f'AREA01 message record {offset // 8}: invalid voice cue {cue}')
+        voice.setdefault(cue, f'AREA01 message record {offset // 8} at {begin + offset:#x}: '
+                             '001FD580/001FD6A0 voice halfword +2')
+    return dict(sorted(music.items())), dict(sorted(voice.items()))
 
 
 def extents_for(rows, cues, file_index, file_sectors):

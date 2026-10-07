@@ -144,6 +144,8 @@ static struct {
     void *scan_context;
     int (*water)(void *context, uint32_t function, EmPlayerLiveActor *actor, uint32_t level);
     void *water_context;
+    int (*crawl_clip)(void *context, EmPlayerLiveActor *actor, int *result);
+    void *crawl_clip_context;
     uint16_t pad_config[8];   /* 0x70003B74..0x70003B82 (001AF470, config 0) */
     EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
     /* The idle / walk states' scene words (refreshed before each call):
@@ -990,7 +992,13 @@ STUB_ACTOR_R(x_00178080, "00178080 (ladder hit reaction)")
 STUB_ACTOR_R(x_00188570, "00188570 (row clip)")
 STUB_ACTOR_R(x_00188590, "00188590 (row clip)")
 STUB_ACTOR_R(x_001885B0, "001885B0 (row clip)")
-STUB_ACTOR_R(x_00188610, "00188610 (row clip)")
+static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
+{
+    (void)c;
+    if (!L.bound || !L.crawl_clip || a != L.actor || !clip)
+        return unbound("00188610 (crawl row clip)");
+    return L.crawl_clip(L.crawl_clip_context, a, clip);
+}
 STUB_ACTOR(x_0021C200, "0021C200 (reaction)")
 STUB_ACTOR(x_00182AF0, "00182AF0 (sound base + 0x100)")
 STUB_ACTOR(x_0015C1F0, "0015C1F0 (player model kind select: 001CA6E0 / 00200890 are not bound)")
@@ -2086,6 +2094,13 @@ void em_player_closure_live_set_water(int (*water)(void *, uint32_t, EmPlayerLiv
 {
     L.water = water;
     L.water_context = context;
+}
+
+void em_player_closure_live_set_crawl_clip(int (*clip)(void *, EmPlayerLiveActor *, int *),
+                                           void *context)
+{
+    L.crawl_clip = clip;
+    L.crawl_clip_context = context;
 }
 
 int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)

@@ -457,6 +457,12 @@ int em_collision_world_publish_001B1B70(const EmActor *actor)
     return em_actor_class_publish_001B1B70(&w.lists, actor);
 }
 
+int em_collision_world_push80_001B1DE0(const EmActor *actor)
+{
+    if (!w.loaded) return -1;
+    return em_actor_class_push80_001B1DE0(&w.lists, actor);
+}
+
 int em_collision_world_push4_001B1D20(const EmActor *actor)
 {
     if (!w.loaded) return -1;

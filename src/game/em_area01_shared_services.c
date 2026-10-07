@@ -2,6 +2,7 @@
 #include "game/em_actor_roster.h"
 #include "game/em_collision_world.h"
 #include "game/em_director_original.h"
+#include "game/em_panel.h"
 #include "game/em_script_host_workers.h"
 #include <string.h>
 
@@ -33,6 +34,10 @@ int em_area01_shared_services_call(const EmArea01RuntimeHost *h,EmSdkMathContext
     int32_t result=0;int rc;
     switch(c->function) {
     case 0x00182BF0u:return predicate(h,c);
+    case 0x00157F60u:
+        if(!h || !h->bytes || c->na!=3 || c->nf)return -1;
+        if(em_panel_request_00157F60(h->ctx,h->bytes,(uint32_t)c->a[0])<0)return -1;
+        result=1;break;
     case 0x001B11E0u:
         if(!scene || c->na!=1 || c->nf)return -1;
         result=em_actor_roster_001B11E0(scene,(EmActorRosterProgress *)em_scene_progress_spawn_view(scene),(int32_t)c->a[0]);
@@ -61,13 +66,15 @@ int em_area01_shared_services_call(const EmArea01RuntimeHost *h,EmSdkMathContext
 }
 int em_area01_shared_services_publish(EmActorPool *pool,EmArea01Call *c)
 {
-    if(!pool || !c || c->function!=0x001B1B70u || c->na!=1 || c->nf)return -1;
+    if(!pool || !c || (c->function!=0x001B1B70u && c->function!=0x001B1DE0u) || c->na!=1 || c->nf)return -1;
     uint32_t node=(uint32_t)c->a[0];
     if(node<EM_ACTOR_POOL_BASE || (node-EM_ACTOR_POOL_BASE)%EM_ACTOR_RECORD_SIZE)return -1;
     uint32_t i=(node-EM_ACTOR_POOL_BASE)/EM_ACTOR_RECORD_SIZE;
     if(i>=EM_ACTOR_POOL_CAPACITY)return -1;
     EmActor *a=&pool->records[i];
     if(!a->allocated || a->self!=a)return -1;
-    int rc=em_collision_world_publish_001B1B70(a);
+    int rc=c->function==0x001B1DE0u
+        ? em_collision_world_push80_001B1DE0(a)
+        : em_collision_world_publish_001B1B70(a);
     if(rc<0)return -1;c->v0=(uint64_t)(int64_t)rc;return 0;
 }

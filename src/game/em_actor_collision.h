@@ -127,6 +127,8 @@ void em_actor_class_lists_reset(EmActorClassLists *lists);
 int em_actor_class_publish_001B1B70(EmActorClassLists *lists, const EmActor *actor);
 /* 001B1D20(actor): the class-4 push alone (the drum's contact worker). */
 int em_actor_class_push4_001B1D20(EmActorClassLists *lists, const EmActor *actor);
+/* 001B1DE0(actor): the interactive-list push alone (no class test). */
+int em_actor_class_push80_001B1DE0(EmActorClassLists *lists, const EmActor *actor);
 /* 001AAD00's list block (after its nine hooks, which are not this module's). */
 void em_actor_class_lists_swap_001AAD00(EmActorClassLists *lists);
 /* Published entry j of a list (the pointer the original stored), or NULL. */

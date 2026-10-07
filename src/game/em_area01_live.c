@@ -1,6 +1,7 @@
 #include "game/em_area01_live.h"
 #include "game/em_area01_scene_view.h"
 #include "game/em_area01_script_workers.h"
+#include "game/em_area01_transition_services.h"
 #include "game/em_area01_timeline.h"
 #include "game/em_area01_audio_services.h"
 #include "game/em_area01_camera_services.h"
@@ -31,6 +32,7 @@
 #include "game/em_security_gun_rest.h"
 #include "game/em_security_gun.h"
 #include "game/em_player.h"
+#include "game/em_game_internal.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
@@ -454,6 +456,11 @@ static int sdf_001B1B70(void *ctx)
 static int worker(void *ctx,EmArea01Call *c)
 {
     EmArea01Live *l=ctx;
+    if(em_area01_transition_handles(c->function)) {
+        const EmArea01RuntimeHost host={l,bytes,nested};uint32_t fault=0;
+        int rc=em_area01_transition_call(&host,c,&fault);
+        return worker_result(l,rc,fault);
+    }
     if(em_area01_rcl_workers_handles(c->function)) {
         uint32_t fault=0;
         int rc=em_area01_rcl_workers_call(c,&fault);
@@ -499,7 +506,7 @@ static int worker(void *ctx,EmArea01Call *c)
         return worker_result(l,rc,em_effects_live_fault());
     }
     if(c->function==0x00182BF0u || c->function==0x001B11E0u ||
-       c->function==0x001B1EA0u || c->function==0x001C4760u) {
+       c->function==0x001B1EA0u || c->function==0x001C4760u || c->function==0x00157F60u) {
         const EmArea01RuntimeHost host={l,bytes,nested};
         return em_area01_shared_services_call(&host,em_collision_world_sdk(),l->host.scene,c);
     }
@@ -600,6 +607,16 @@ static int worker(void *ctx,EmArea01Call *c)
         if(c->na!=1 || c->nf || c->a[0]!=EM_AREA01_PLAYER_BASE || !l->player.active)return -1;
         c->v0=(uint64_t)(int64_t)em_player_0021BB00(l->player.actor);
         return 0;
+    case 0x00182F90u: {
+        if(c->na!=2 || c->nf || c->a[0]!=0x008102B0u)return -1;
+        const uint8_t *point=bytes(l,(uint32_t)c->a[1],12,0);
+        if(!point)return -1;
+        float position[3];memcpy(position,point,sizeof position);
+        if(em_area01_live_suspend(l)<0)return -1;
+        int rc=player_pose_align(position) ? 0 : -1;
+        if(em_area01_live_resume(l)<0)return -1;
+        return rc;
+    }
     case 0x001B1240u: {
         if(c->na!=1 || c->nf!=2 || !sdk)return -1;
         const uint8_t *origin=bytes(l,(uint32_t)c->a[0],12,0);
@@ -633,7 +650,7 @@ static int worker(void *ctx,EmArea01Call *c)
         if(!after)return -1;
         c->v0=*after;return 0;
     }
-    case 0x001B1B70u: {
+    case 0x001B1B70u: case 0x001B1DE0u: {
         if(c->na!=1 || em_area01_actor_view_touch(&l->actors,(uint32_t)c->a[0])<0 ||
            em_area01_live_suspend(l)<0)return -1;
         int rc=em_area01_shared_services_publish(l->host.pool,c);
@@ -654,7 +671,9 @@ static int worker(void *ctx,EmArea01Call *c)
     }
     case 0x001AEDE0u: case 0x001AEE10u: case 0x001B1E20u:
     case 0x001B0250u: case 0x0021B9A0u: case 0x001D2830u:
-    case 0x001DD980u: case 0x001D25F0u: case 0x001FB9F0u: {
+    case 0x001DD980u: case 0x001D25F0u: case 0x001FB9F0u:
+    case 0x001FAD70u: case 0x001FA790u: case 0x001FABB0u:
+    case 0x001FAE70u: case 0x001FBC50u: {
         /* The byte views have the last original writes. Publish before
          * existing native frame, camera, render and sound services run. */
         if((c->function==0x001AEDE0u || c->function==0x001AEE10u ||
@@ -664,6 +683,9 @@ static int worker(void *ctx,EmArea01Call *c)
         if(c->function==0x001D25F0u && c->nf<1)return -1;
         if(c->function==0x001DD980u && (c->a[0]!=0x008105D0u || c->a[1]!=0x008105E0u))return -1;
         if(c->function==0x001FB9F0u && (c->na<4 || c->a[1]!=0x1000u))return -1;
+        if(c->function==0x001FAD70u && c->na<3)return -1;
+        if(c->function==0x001FA790u && c->na<2)return -1;
+        if(c->function==0x001FAE70u && c->na<1)return -1;
         if(em_area01_live_suspend(l)<0)return -1;
         int rc=0;
         switch(c->function) {
@@ -679,6 +701,11 @@ static int worker(void *ctx,EmArea01Call *c)
         case 0x001FB9F0u:
             c->v0=(uint64_t)(int64_t)em_sfx_submit_001FB9F0_track((unsigned)c->a[0],
                                                                (int32_t)c->a[2],(int32_t)c->a[3]);break;
+        case 0x001FAD70u:rc=em_scene_bindings_001FAD70((int32_t)c->a[0],(int32_t)c->a[1],(int32_t)c->a[2]);break;
+        case 0x001FA790u:rc=em_scene_bindings_001FA790(NULL,(int32_t)c->a[0],(int32_t)c->a[1]) ? 0 : -1;break;
+        case 0x001FABB0u:rc=em_scene_bindings_001FABB0();break;
+        case 0x001FAE70u:rc=em_scene_bindings_001FAE70((int32_t)c->a[0]);break;
+        case 0x001FBC50u:rc=em_scene_bindings_001FBC50();break;
         }
         if(em_area01_live_resume(l)<0)return -1;
         return rc;

@@ -109,6 +109,12 @@ typedef enum {
  *                              (0 in every DAMAGE capture's globals); no
  *                              port mirror existed (em_enemy names it
  *                              unbound).
+ *   D_00810710..D_0081072F
+ *                        A01   terminal owner 00159B90 copies the player's
+ *                              position/rotation quadwords here through
+ *                              00102948 before its message sound. Existing
+ *                              001AF2C0 clears them; no new mirror or reset.
+ *                              Save serialization/load-game remain unbound.
  *   D_00810758           L22   event 0 (D_00810758[0]): Roger 008237E0's
  *                              001BA1C0(Roger, 0) in its lifecycle 0 (0xFF
  *                              keeps him out), set to 1 by the encounter
@@ -302,6 +308,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
+        {0x00810710u, 0x00810730u}, /* 00159B90's two terminal position/rotation quadwords (A01) */
         {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
         {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
         {0x00810766u, 0x00810768u}, /* events 0x0E mechanism bypass / 0x0F placed 8267C0 gate (A01) */

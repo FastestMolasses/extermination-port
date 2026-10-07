@@ -83,6 +83,11 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     uint64_t u64 = 0;
     switch (c->function) {
 #include "game/em_area01_runtime_dispatch.inc"
+    case 0x00188610u:
+        if (c->na != 1 || c->nf) return fail(r, c->function);
+        rc = em_area01_room_00188610(&r->room, (uint32_t)c->a[0], &i32);
+        if (rc == 0) c->v0 = (uint64_t)(int64_t)i32;
+        break;
     case 0x00187DE0u:
         if (c->na != 1 || c->nf || c->sp < 0x20u) return fail(r, c->function);
         r->sp = c->sp - 0x20u;
@@ -91,6 +96,16 @@ static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
     case 0x00198D90u:
         if (c->na < 2) return fail(r, c->function);
         rc = em_area01_room_00198D90(&r->room, c->a[0], c->a[1]);
+        break;
+    case 0x001BB400u: case 0x001BB7C0u: case 0x001BB7F0u:
+        if (c->na < 1) return fail(r, c->function);
+        if (c->function == 0x001BB400u)
+            rc = em_area01_room_001BB400(&r->room, (uint32_t)c->a[0], &i32);
+        else if (c->function == 0x001BB7C0u)
+            rc = em_area01_room_001BB7C0(&r->room, (uint32_t)c->a[0], &i32);
+        else
+            rc = em_area01_room_001BB7F0(&r->room, (uint32_t)c->a[0], &i32);
+        if (rc == 0) c->v0 = (uint64_t)(int64_t)i32;
         break;
     case 0x001D0D60u:
         if (c->na < 1 || c->nf < 1) return fail(r, c->function);

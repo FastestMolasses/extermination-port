@@ -2242,6 +2242,7 @@ static int w_001AFCA0(void *ctx)
     player_use_set_hook(NULL, NULL);
     em_player_closure_live_set_scan(NULL, NULL);
     em_player_closure_live_set_water(NULL, NULL);
+    em_player_closure_live_set_crawl_clip(NULL, NULL);
     player_pose_set_stage_hook(NULL, NULL);
     player_pose_set_takeover_end_hook(NULL, NULL);
     em_message_live_set_host(NULL);
@@ -2493,8 +2494,9 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *                     (player_pose_takeover_restated)
  * arg0 is 0 in state 0 and 1 in state 4 (S12b, "the room move" below); any
  * other pairing is refused (fault), as is D_00275BE0 == 1 (the load-game
- * pose D_00810710..728 has no canonical storage; its only writer, 0x1AE040
- * state 2, is unported). After the state-0 placement the port's
+ * pose D_00810710..72F now has canonical storage for terminal 00159B90's
+ * copies, but the load-game reader in 0x1AE040 state 2 remains unported).
+ * After the state-0 placement the port's
  * placement-dependent fixtures run (em_game_legacy_state0_fixtures).
  * A scene without an original roster keeps its manifest spawn (001AFCA0). */
 
@@ -2508,6 +2510,9 @@ static void spawn_commit(const EmSpawnIo *io)
     for (unsigned i = 0; rec && i < 4u; ++i) {
         em_live_set_f32(rec, 0x60 + 4 * i, io->player.f060[i]);   /* 001B07C0's scale words */
         em_live_set_f32(rec, 0x80 + 4 * i, io->player.f080[i]);   /* ... and colour words */
+        /* 001B07C0 also publishes all four rotation lanes. Camera-frame
+         * scratch 70003B50 takes +CC from this canonical player record. */
+        em_live_set_f32(rec, 0xC0 + 4 * i, io->player.f0C0[i]);
     }
     if (rec && io->player.b004 != 0) {
         /* The walk-out branch is 001B07C0's only +4/+5/+6 store (the image
@@ -2960,6 +2965,15 @@ static int area01_scan(void *ctx, EmPlayerLiveActor *player, int *result)
     (void)ctx;
     return em_area01_live_scan(&s_area01_live, player, result);
 }
+static int area01_crawl_clip(void *ctx, EmPlayerLiveActor *player, int *result)
+{
+    (void)ctx;
+    if (!result) return -1;
+    EmArea01Call c = {.function = 0x00188610u, .na = 1, .a = {EM_AREA01_PLAYER_BASE}};
+    int rc = em_area01_live_player_call(&s_area01_live, player, &c);
+    if (rc >= 0) *result = (int32_t)c.v0;
+    return rc;
+}
 static int area01_water(void *ctx, uint32_t function, EmPlayerLiveActor *player, uint32_t level)
 {
     (void)ctx;
@@ -2999,6 +3013,7 @@ static int area01_shared_interactions(void)
     player_use_set_hook(em_area11_interaction_host_use, NULL);
     em_player_closure_live_set_scan(area01_scan, NULL);
     em_player_closure_live_set_water(area01_water, NULL);
+    em_player_closure_live_set_crawl_clip(area01_crawl_clip, NULL);
     em_message_live_set_host(em_area11_interaction_host_message_host());
     return 0;
 }

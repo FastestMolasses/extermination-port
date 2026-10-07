@@ -92,6 +92,9 @@ def main():
     assert r['coverage']['shallow-water'] == r['coverage']['fire'] == 'INPUT-COMPLETED-UNVERIFIED'
     r = explore.analyze(log+'em_scene: FAULT first\nlater faulted\n', ticks, case, 1)
     assert r['status'] == 'FAULT' and r['first_fault'] == 'em_scene: FAULT first'
+    primary = 'AREA11 interaction: 0020E060: D_008106D0 is not the bound panel failed at frame737'
+    r = explore.analyze(log+primary+'\nlevel smoke: FAIL phase=a01_s4\n', ticks, case, 1)
+    assert r['status'] == 'FAULT' and r['first_fault'] == primary
     r = explore.analyze('level smoke: PASS\n', ticks, case, 0)
     assert r['status'] == 'INCOMPLETE' and not r['observations']['ticks']
     r = explore.analyze(log.replace('100', '101'), ticks, case, 0)
@@ -99,7 +102,7 @@ def main():
     r = explore.analyze(log, ticks, case, None, True)
     assert r['status'] == 'TIMEOUT'
     print(f'AREA01 exploration harness: PASS input boundary (ASan/UBSan), {len(invalid)} malformed scripts, '
-          'continuous R1/trigger holds, bounded navigation failure, phase isolation, and five reporting contracts; no gameplay parity claim')
+          'continuous R1/trigger holds, bounded navigation failure, phase isolation, and six reporting contracts; no gameplay parity claim')
 
 
 if __name__ == '__main__':

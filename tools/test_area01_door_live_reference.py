@@ -33,7 +33,7 @@ def build():
         ('em_area01_door_live','em_door_original','em_door_transit','em_door_program',
          'em_script_door_fan','em_startup_load_gaps')]
     sources += [f'src/game/em_area01_{name}.c' for name in
-        ('runtime','math_core','math_actor','math_owner','light_owner','overlay','overlay_826d40',
+        ('runtime','math_core','math_actor','math_owner','math_player','light_owner','overlay','overlay_826d40',
          'sys','exita','exitb','room','side')]
     subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
                     '-shared','-fPIC','-Isrc',*sources,'-lm','-o',str(lib)],cwd=A.ROOT,check=True)

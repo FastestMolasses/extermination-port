@@ -92,7 +92,10 @@ void use_start(unsigned clip, float frame) {
     g.loco_upt = .3f; g.loco_mode = g.loco_tier = 2;
 }
 int use_reset(unsigned *out) {
-    if (!player_pose_use_accepted()) return 0;
+    /* The live Use owner now performs 001798D0 before the host callback.
+     * Apply its recorded 00174A50(row 0, blend 0) boundary first. */
+    if (!record_select(0, 0, 0, 0)) return 0;
+    if (!player_pose_use_accepted_port()) return 0;
     out[0] = g.loco_mode; out[1] = g.loco_tier;
     memcpy(out + 2, &g.loco_upt, 4);
     player_pose_source(out + 3, (float *)(out + 4), NULL, (int *)(out + 5));
@@ -423,6 +426,7 @@ def main():
 
     report['scope'] = 'original state instructions and bounded VU arithmetic; cache matrix shifts are host adaptation'
     output = ROOT / 'build/player_pose_channels/host_reference.json'
+    output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(report, indent=2) + '\n')
     print('player pose host original reference PASS:', json.dumps(report))
 

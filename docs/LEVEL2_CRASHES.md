@@ -238,3 +238,72 @@ observed, without a fault. This proves the actual probe, not every impact
 surface or enemy-damage branch. Receipts:
 `index-aim-{build,startup,smoke,references,harness}.log` and
 `index-aim-exploration/summary.json` under `build/level2-crashes/`.
+
+## Room interactions and resource boundaries
+
+Control-room and east-door paths now compose existing placement, fade,
+sound, room-script and flag-80-list owners (`00182F90`, `001B0C00`,
+`001BBD60`, `001BB400 / 001BB7C0 / 001BB7F0`, `001B1DE0`). The terminal's
+alignment uses existing `001B6F00`. Original transition proof passes 304
+calls / 400 ordered boundaries across 16 captures and four refusals.
+The list publication retains the existing allocator/order/refusal rules.
+
+AREA01 music and message voices are added to the local stream-sector
+export. Its 23,725 sectors compare byte-for-byte with the user disc; all
+12,008 prior sectors remain identical, and the source tables match all
+16 captures. Stream forwarding reuses the current lane owners and drive
+policy. Re-export with `python3 tools/export_streams.py` in an isolated
+asset directory. This worktree's `assets/streams` is a real directory.
+
+The successful spawn now publishes all four original rotation words,
+not only the yaw. Actual native publication compares with `001B07C0` in
+320 cases over 16 captures. The later camera seed still loses its fourth
+lane: original `0018CBD0` writes all four words, but protected
+`em_camera.c`'s seed API and `em_camera_live.c`'s publication copy only XYZ.
+Four original comparisons prove the stale `camera+3C` word. Repair requires
+those protected owners; no compensating camera write is added here.
+
+With PS2 drive timing selected, the control-room conversation matches all
+1,435 recorded rows; its whole-camera tail still exposes that protected
+fourth-lane defect. Default host-speed audio finishes the line six frames
+earlier. Both native runs complete without a fault. Control-room pickups
+also complete with captured positions, item fields and progress; request/
+message timing differs while uncaptured module reads answer at host speed.
+These are scoped observations, not full-checker parity passes.
+
+The terminal's two pose quadwords `00810710..0081072F` now use the existing
+canonical progress owner and its original reset. A 192-case original
+`00159B90` prefix proof includes 288 actual SDK copies and 16 missing-window
+refusals; ASan/UBSan checks aliasing, bounds, lifetime and reset. This does
+not enable save serialization or load-game state.
+
+The original `00157F60` request callback now shares one scalar owner with
+the existing AREA11 panel wrapper and posts its fields through canonical
+views. Full reference coverage is 1,548 cases plus 33 access-failure cuts;
+existing panel tests pass. The native east-room route reaches entry 8 and
+677 exact captured rows, posting request `6/80` and the terminal owner.
+The next status boundary `0020E060` still accepts only the AREA11 panel;
+request-6 status composition remains separate work. No decline, return or
+accepted save is claimed from this intermediate receipt.
+
+A closed-loop input probe reaches the actual duct trigger before calling
+Use. It exposed `00188610`; the row selector now reuses the existing ROOM
+owner and an original four-byte table added to the local boot-script
+export. The leaf passes 273 existing original cases plus 160 real-runtime
+cases over all 16 captures. Regenerate with
+`python3 tools/export_area01_boot_scripts.py`; this worktree's
+`assets/area01_boot_scripts` is a real directory. The subsequent crawl
+path still requires independent proof.
+
+Shared edits for this group: the Makefile builds
+`em_area01_transition_services.c` and adds its reference target;
+`em_scene_bindings.c` publishes spawn rotation, adds/clears/registers the
+row-selector callback, and corrects its comment about terminal pose storage.
+
+The exact staged room tree passes its zero-warning rebuild, startup at
+`9.599849`, default smoke, all touched reference suites and the exploration
+harness. Its control-room replay completes with all 1,435 recorded row
+fields exact under PS2 drive timing; whole-camera parity retains the
+protected limitation above. Receipts: `index-rooms-{build,startup,smoke,
+references,references-tail}.log` and `index-rooms-exploration/summary.json`
+under `build/level2-crashes/`.

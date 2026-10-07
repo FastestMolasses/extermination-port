@@ -23,7 +23,7 @@ from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, phase_path, prepare_pads
 
 ROOT = Path(__file__).resolve().parents[1]
 PHASE = 'a01_s3'  # An existing side slot whose source is AREA01 arrival.
-FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|does not hold|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
+FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|does not hold|failed at frame|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
 
 
 def move(x, z, tolerance=2, magnitude=1, limit=900):

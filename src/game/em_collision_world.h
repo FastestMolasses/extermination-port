@@ -92,6 +92,8 @@ int em_collision_world_publish_001B1B70(const EmActor *actor);
 /* 001B1D20(actor): the class-4 push alone (the drums' contact worker inside
  * 50 units of the player). 1, or -1. */
 int em_collision_world_push4_001B1D20(const EmActor *actor);
+/* Direct interactive-list publication from slider/terminal owners. */
+int em_collision_world_push80_001B1DE0(const EmActor *actor);
 /* 001A2370(actor, matrix): re-transform the actor's extended cell (uid
  * +0x0E >> 8) by `matrix` and rebuild its AABB. 1, or -1 (not loaded). */
 int em_collision_world_retransform_001A2370(const EmActor *actor, const float matrix[16]);

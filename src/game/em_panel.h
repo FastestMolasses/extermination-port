@@ -55,6 +55,12 @@ int em_panel_candidate(const EmPanel *panel, const float owner[3],
  * Returns B1; the UI owner keeps the panel association itself. */
 uint8_t em_panel_battery_request(EmPanel *panel);
 
+/* Original00157F60 over a borrowed record/request view. Shares the scalar
+ * owner above, including modes38/37/2C. Returns0 on success, -1 at the
+ * first missing view, preserving only earlier stores. No UI is simulated. */
+typedef uint8_t *(*EmPanelMemory)(void *, uint32_t, uint32_t, int);
+int em_panel_request_00157F60(void *ctx, EmPanelMemory memory, uint32_t actor);
+
 /* The BATTERY page itself (002149F0, states 4/5/6 for this owner) is the
  * one translation em_status_page_record, bound live by
  * em_battery_page_live (docs/STATUS_PAGE_RECORD.md). */

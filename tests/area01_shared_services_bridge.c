@@ -13,6 +13,10 @@ static int32_t math_mode=-1;
 static uint8_t geometry[0x100];
 static uint64_t result;
 static uint32_t deny_address,stores[16],store_count;
+static uint32_t accesses[32][3],access_count,deny_access;
+uint32_t *ss_accesses(void){return &accesses[0][0];}
+unsigned ss_access_count(void){return access_count;}
+void ss_deny_access(unsigned n){deny_access=n;}
 uint32_t *ss_stores(void){return stores;}
 unsigned ss_store_count(void){return store_count;}
 uint8_t *ss_bytes(uint32_t a,uint32_t n)
@@ -24,10 +28,18 @@ uint8_t *ss_bytes(uint32_t a,uint32_t n)
     return em_area01_scene_view(&scene,a,n);
 }
 static uint8_t *memory(void *ctx,uint32_t a,uint32_t n,int write)
-{(void)ctx;if(write && store_count<16)stores[store_count++]=a;return write && a==deny_address?NULL:ss_bytes(a,n);}
+{
+    (void)ctx;
+    if(access_count<32){accesses[access_count][0]=a;accesses[access_count][1]=n;accesses[access_count][2]=(uint32_t)write;}
+    ++access_count;
+    if(write && store_count<16)stores[store_count++]=a;
+    return (deny_access && access_count==deny_access) || (write && a==deny_address)?NULL:ss_bytes(a,n);
+}
 /* World getter boundary only: the actual class-list owner runs here. */
 int em_collision_world_publish_001B1B70(const EmActor *a)
 {return em_actor_class_publish_001B1B70(&lists,a);}
+int em_collision_world_push80_001B1DE0(const EmActor *a)
+{return em_actor_class_push80_001B1DE0(&lists,a);}
 int ss_init(const uint8_t *elf,uint32_t n)
 {
     memset(&scene,0,sizeof scene);memset(&player,0,sizeof player);memset(&sdk,0,sizeof sdk);
@@ -38,18 +50,20 @@ uint64_t ss_result(void){return result;}
 void ss_deny(uint32_t a){deny_address=a;}
 int ss_call(uint32_t fn,uint32_t a,uint32_t b,uint32_t d,uint32_t e)
 {
-    sdk.fault=0;store_count=0;EmArea01RuntimeHost h={.bytes=memory};
-    EmArea01Call c={.function=fn,.a={a,b,d,e},.na=fn==0x1B1EA0?4u:fn==0x1C4760?2u:1u};
+    sdk.fault=0;store_count=0;access_count=0;EmArea01RuntimeHost h={.bytes=memory};
+    EmArea01Call c={.function=fn,.a={a,b,d,e},.na=fn==0x1B1EA0?4u:fn==0x157F60?3u:fn==0x1C4760?2u:1u};
     int rc=em_area01_shared_services_call(&h,&sdk,&scene,&c);result=c.v0;return rc;
 }
 void ss_lists_reset(void){memset(&pool,0,sizeof pool);em_actor_class_lists_reset(&lists);}
-int ss_publish(uint32_t index,uint32_t cls)
+int ss_publish_function(uint32_t function,uint32_t index,uint32_t cls)
 {
     if(index>=EM_ACTOR_POOL_CAPACITY)return -1;
     EmActor *a=&pool.records[index];a->cls=(uint8_t)cls;a->allocated=1;a->self=a;
-    EmArea01Call c={.function=0x1B1B70,.a={EM_ACTOR_POOL_BASE+index*EM_ACTOR_RECORD_SIZE},.na=1};
+    EmArea01Call c={.function=function,.a={EM_ACTOR_POOL_BASE+index*EM_ACTOR_RECORD_SIZE},.na=1};
     int rc=em_area01_shared_services_publish(&pool,&c);result=c.v0;return rc;
 }
+int ss_publish(uint32_t index,uint32_t cls)
+{return ss_publish_function(0x1B1B70,index,cls);}
 unsigned ss_list_count(unsigned i){return i<EM_ACTOR_LIST_COUNT?(unsigned)lists.list[i].live:0;}
 uint32_t ss_list_entry(unsigned i,unsigned j)
 {

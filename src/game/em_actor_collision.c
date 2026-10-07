@@ -272,11 +272,18 @@ int em_actor_class_push4_001B1D20(EmActorClassLists *lists, const EmActor *actor
     return 1;
 }
 
+int em_actor_class_push80_001B1DE0(EmActorClassLists *lists, const EmActor *actor)
+{
+    if (!lists || !actor) return -1;
+    list_push(&lists->list[EM_ACTOR_LIST_FLAG80], kListCap[EM_ACTOR_LIST_FLAG80], actor);
+    return 1;
+}
+
 int em_actor_class_publish_001B1B70(EmActorClassLists *lists, const EmActor *actor)
 {
     if (!lists || !actor) return -1;
     if (actor->cls & 0x80)
-        list_push(&lists->list[EM_ACTOR_LIST_FLAG80], kListCap[EM_ACTOR_LIST_FLAG80], actor);
+        em_actor_class_push80_001B1DE0(lists, actor);
     int which;
     switch (actor->cls & ~0xE0) {
     case 1: which = EM_ACTOR_LIST_CLASS1; break;
