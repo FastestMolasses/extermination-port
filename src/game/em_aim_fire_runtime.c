@@ -26,6 +26,9 @@
 #include "game/em_owner_draw_live.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_startup_load_gaps.h"
+#include "game/em_stream_live.h"
+#include "game/em_sfx.h"
+#include "game/em_sfx_bank.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -334,6 +337,40 @@ static int target_regions(void *context,uint32_t node,EmPoseRegion *out,
 }
 static int written(void *context,uint32_t address,size_t size)
 { (void)context;return em_effects_live_node_written(address,size); }
+typedef struct {
+    EmAimFireLive *live;
+    uint32_t actor,sp;
+    uint8_t *stack;
+} TargetSound;
+static int target_sound_call(void *ctx,EmArea00LowCall *c)
+{
+    TargetSound *s=ctx;
+    if(c->fn!=0x001FBF50u || c->na!=4 || c->nf!=2 || c->a[0]!=s->actor ||
+       c->sp!=s->sp-0x40u || c->a[1]!=c->sp+0x38u || c->a[2]!=c->sp+0x3Cu ||
+       c->a[3] || c->f[0]!=0x43960000u || c->f[1]!=0x45800000u)return -1;
+    const void *p=em_aim_fire_live_map(s->live,s->actor+0xB0u,12,0);
+    if(!p)return -1;
+    float position[3],left,right;memcpy(position,p,sizeof position);
+    c->v0=0;c->f0=0;
+    if(!em_sfx_compute_gains(position,300.0f,&left,&right))return 0;
+    int32_t l=em_sfx_request_word(left),r=em_sfx_request_word(right);
+    memcpy(s->stack+0x38,&l,4);memcpy(s->stack+0x3C,&r,4);c->v0=1;
+    return 0;
+}
+/* A bug hit queues its ricochet through the same original owner as a box
+ * break. Its delayed cue table remains owned by the stream lanes. */
+static int target_sound(EmAimFireLive *live,EmAimFireTargetCall *c)
+{
+    int32_t (*cues)[4]=em_stream_live_d281F30();
+    if(!cues || c->na!=2 || c->nf || c->sp<0x40u)return -1;
+    uint8_t stack[0x40]={0};
+    EmArea00LowRegion regions[]={{0x281F30,0xA0,(uint8_t *)cues},
+                               {c->sp-0x40u,sizeof stack,stack}};
+    TargetSound call={live,(uint32_t)c->a[0],c->sp,stack};
+    EmArea00Low owner={.regions=regions,.region_count=2,.call=target_sound_call,
+                       .ctx=&call,.sp=c->sp};
+    return em_area00_low_001FC580(&owner,(uint32_t)c->a[0],(int32_t)c->a[1]);
+}
 static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *f)
 {
     (void)context;
@@ -349,6 +386,7 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         if (burst>0) return 0;
     }
     switch (f->function) {
+    case 0x1FC580:return target_sound(live,f);
     case 0x1CA7B0: {
         /* 001F3E30's cull of its matrix row 3 (em_owner_draw_live's). */
         const void *p=em_aim_fire_live_map(live,(uint32_t)f->a[0]&~15u,16,0);

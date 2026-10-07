@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Export existing effect windows plus AREA01 bullet-impact sources.
 
-Original 001EB7F0 and 001ECB00 each read two 0x90-byte descriptors. The protected
+Original 001EB7F0 and 001ECB00 each read two 0x90-byte descriptors.
+001ED7A0 rewrites +20..3F of three further descriptors before each draw. The protected
 base exporter stays unchanged. Only ignored local assets are produced; a
 worktree symlink is replaced, never followed for writing.
 """
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from export_effect_tables import BLOCKS, DECOMP, ELF_SHA256, ROOT, elf_block, serialize, verify
 
-EXTRA = ((0x00255E90, 0x120), (0x00256EE0, 0x120))
+EXTRA = ((0x00255E90, 0x120), (0x00256EE0, 0x120), (0x00257360, 0x1B0))
 
 
 def main():
@@ -29,7 +30,13 @@ def main():
     # Several base windows contain writable effect tables after startup.
     # Their initialization still comes from the pinned ELF; compare only
     # this extension's immutable source descriptors to every AREA01 beat.
-    extra = [(a, elf_block(source, a, n)) for a, n in EXTRA]
+    extra = [(a, elf_block(source, a, n)) for a, n in EXTRA[:2]]
+    # The original ED7A0/EEBA0 owners overwrite each row's +20..3F.
+    # Initialization comes from the ELF; compare all immutable descriptor
+    # bytes here and verify the actual stores in the packet oracle.
+    for row in (0x257360, 0x2573F0, 0x257480):
+        extra += [(row, elf_block(source,row,0x20)),
+                  (row+0x40, elf_block(source,row+0x40,0x50))]
     compared = sum(verify(extra, capture.read_bytes(), capture) for capture in captures)
     args.out.parent.mkdir(parents=True, exist_ok=True)
     if args.out.is_symlink():

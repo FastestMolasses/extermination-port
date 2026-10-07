@@ -19,11 +19,11 @@ import subprocess
 import sys
 import time
 
-from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, phase_path, prepare_pads)
+from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, phase_path, prepare_pads, route_capture)
 
 ROOT = Path(__file__).resolve().parents[1]
 PHASE = 'a01_s3'  # An existing side slot whose source is AREA01 arrival.
-FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|no translation|does not hold|failed at frame|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
+FAULT = re.compile(r'\bfault(?:ed)?\b|unbound worker|not translated|no translation|does not hold|failed at (?:frame|[0-9a-f]{8})|level smoke: FAIL|AREA01 explore: BLOCKED', re.I)
 
 
 def move(x, z, tolerance=2, magnitude=1, limit=900):
@@ -74,9 +74,9 @@ CASES = {
     'vent': dict(phase='a01_s5', script=[move(90, -540, 1.2), move(120, -535, 1.2),
                 move(130, -530, 1.2), hold(30), move(133, -529.5, .35, .4), hold(40),
                 face(1.5707963), hold(30), mark('vent-use'), hold(2, 0x4000),
-                hold(330), mark('vent-entry-end'), hold(180, 0, 128, 0), hold(40),
-                mark('vent-crawl-end')], claims=['vent-crawl'],
-                description='closed-loop duct approach, Use and crawl from control-room return'),
+                hold(330), mark('vent-entry-end')], recorded_tail=('a01_s5', 376),
+                claims=['vent-crawl', 'duct-pickup'],
+                description='closed-loop duct entry, then retained crawl/pickup/exit inputs'),
     'status': dict(script=[hold(30), hold(2, 0x8), hold(100), mark('status-open-input'),
                            hold(2, 0x8), hold(100), mark('status-close-input')],
                    claims=['status'], description='open and close the status hub in AREA01'),
@@ -265,6 +265,25 @@ def recorded_prefix(run, path, phase):
                 limit='Existing row fields only; this does not check the whole camera tail, RNG, or prior phases.')
 
 
+def case_script(case):
+    """Resolve pad-only capture tails at runtime; no captured state is embedded."""
+    script = list(case['script'])
+    if 'recorded_tail' not in case:
+        return script
+    phase, start = case['recorded_tail']
+    capture = route_capture(phase)
+    commands = [row for row in capture['inputs'] if row['f'] >= start]
+    assert commands and commands[0]['f'] == start, (phase, 'missing tail start', start)
+    script.append(mark('vent-tail-start'))
+    for i, command in enumerate(commands):
+        end = commands[i+1]['f'] if i+1 < len(commands) else capture['frames']
+        assert end >= command['f'], (phase, 'unordered tail inputs')
+        if end > command['f']:
+            script.append(hold(end-command['f'], command['buttons'], command['lx'], command['ly']))
+    script.append(mark('vent-recorded-tail-end'))
+    return script
+
+
 def run_case(name, case, out, binary, timeout, keep_ticks=False):
     out.mkdir(parents=True, exist_ok=True)
     pads = out / 'pads'
@@ -278,7 +297,7 @@ def run_case(name, case, out, binary, timeout, keep_ticks=False):
     env.pop('EM_TEST_FULL', None)
     if 'script' in case:
         script = out / 'exploration.input'
-        script.write_text('EMAX 1\n' + '\n'.join(case['script']) + '\n')
+        script.write_text('EMAX 1\n' + '\n'.join(case_script(case)) + '\n')
         env.update(EM_AREA01_EXPLORE_SCRIPT=str(script), EM_AREA01_EXPLORE_PHASE=phase)
     print(f'{name}: running {" -> ".join(phase_path(phase))}', flush=True)
     binary_hash = hashlib.sha256(binary.read_bytes()).hexdigest()
@@ -309,6 +328,9 @@ def run_case(name, case, out, binary, timeout, keep_ticks=False):
                   pad_manifest=str(pads / 'manifest.json'))
     if 'script' in case:
         report.update(input_script=str(script), input_sha256=hashlib.sha256(script.read_bytes()).hexdigest())
+    if 'recorded_tail' in case:
+        report['recorded_input_tail'] = dict(phase=case['recorded_tail'][0], first_frame=case['recorded_tail'][1],
+                                            scope='Pad inputs only, following authored navigation; no capture parity claim')
     (out / 'receipt.json').write_text(json.dumps(report, indent=2) + '\n')
     print(f'{name}: {report["status"]}; first fault: {report["first_fault"] or "none logged"}', flush=True)
     print(f'  coverage: {json.dumps(report["coverage"], sort_keys=True)}', flush=True)
@@ -345,6 +367,7 @@ def main():
             lines = args.script.read_text().splitlines()
             if not lines or lines[0] != 'EMAX 1': parser.error('--script needs EMAX 1 header')
             case['script'] = lines[1:]
+            case.pop('recorded_tail', None)
         results.append(run_case(name, case, out / name, binary, args.timeout, args.keep_ticks))
     summary = dict(results=results, not_covered=UNREACHED,
                    unrun=[name for name in CASES if name not in names],

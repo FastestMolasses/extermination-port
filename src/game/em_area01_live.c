@@ -158,6 +158,9 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
 {
     if(!l || !l->bound || l->fault || !n || (uint64_t)a+n>UINT64_C(0x100000000))return NULL;
     uint8_t *p;
+    if(overlaps(a,n,0x70003B64u,4))
+        return !write && contains(a,n,0x70003B64u,4)
+            ? (uint8_t *)(void *)em_frame_counter_storage()+((size_t)a-0x70003B64u) : NULL;
     if(overlaps(a,n,EM_ACTOR_POOL_BASE,EM_ACTOR_RECORD_SIZE*EM_ACTOR_POOL_CAPACITY))
         return em_area01_actor_view_bytes(&l->actors,a,n,write);
     if(overlaps(a,n,EM_AREA01_PLAYER_BASE,EM_PLAYER_ACTOR_SIZE))

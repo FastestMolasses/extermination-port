@@ -1766,3 +1766,12 @@ test-area01-fire-contact-reference:
 .PHONY: test-area01-transition-services-reference
 test-area01-transition-services-reference:
 	python3 tools/test_area01_transition_services_reference.py
+
+.PHONY: test-area01-terminal-status-reference test-area01-frame-counter-view test-area01-target-hit-reference
+test-area01-terminal-status-reference:
+	python3 tools/test_area01_terminal_status_reference.py
+test-area01-frame-counter-view:
+	python3 tools/test_area01_frame_counter_view.py
+test-area01-target-hit-reference:
+	python3 tools/test_area01_target_hit_reference.py
+	python3 tools/test_area01_target_hit_live_reference.py

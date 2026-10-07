@@ -896,6 +896,31 @@ static int handler_001ECB00(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
+/* Class-2 model-0 hits select global effect 07. Its existing HUD owner
+ * rewrites only +20..3F of these three delivered descriptors; CFBE0 must
+ * read those same canonical bytes after each original store sequence. */
+static int handler_001ED7A0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001ED7A0u,"target impact without its node");
+    uint8_t *sources=(uint8_t *)em_effects_live_window(0x00257360u,0x1B0u);
+    if(!sources)return fail(0x00257360u,"target impact descriptors not delivered");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea00HudRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x1F8u,4,(uint8_t *)&work->step},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {0x00257360u,0x1B0u,sources},
+    };
+    ImpactCall call={node,at};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
+    if(em_area00_hud_001ED7A0(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001ED7A0u,"target impact HUD handler fault");
+    return 0;
+}
+
 static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t depth,
                      EmEffectOriginalWork *work)
 {
@@ -905,6 +930,7 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
     if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
     if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
+    if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
     return fail(handler, "untranslated effect handler");
 }
@@ -971,6 +997,7 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                               source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u ||
                               source == 0x00255E90u || source == 0x00255F20u ||
                               source == 0x00256EE0u || source == 0x00256F70u ||
+                              source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
                                ? em_effects_live_window(source, 0x90)
                                : NULL;

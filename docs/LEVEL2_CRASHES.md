@@ -12,16 +12,17 @@ Completing that path requires the protected `em_chain_page.c` and
 not bypass the draw or remove its fault. Runs stopped there cannot prove
 the later portions of their routes.
 
-## Reachable faults and evidence
+## Current scope
 
-| Trigger | Original | Status |
-|---|---|---|
-| First contact with the tunnel's surface `5B` | `00175900 → 00187DE0` | Bound to the existing math owner; captured-RAM original comparison passes. Continuous entry still blocked earlier by protected drawing. |
-| Moving while player water depth `+23C` is nonzero | `00187350 → 001E8B90` | Bound to the existing render owner over the area's canonical grid; original comparison passes. Continuous entry not yet observed. |
-| Ordinary skids and landings | `001EA240 → 001EC270` | Existing silent omission removed; live work fields and both packet chains match original instructions. |
-| Shooting water, and an ordinary impact-marker variant | `001EB7F0`, `001ECB00` | Water handler translated; ordinary handler reuses its existing HUD owner. Live packet comparisons pass; full play requires the separate aim-hull fix. |
-| Use scan near class-2 owners, including the control-room approach | `00160220 → 001AA4E0` | Baseline target projection refuses class 2 before the original eligibility predicate. |
-| Approaching fire closely, including the crate pull-up | `001E3D90 → 001CFBE0(kind 6)` | Still faulting; protected rendering files are required. |
+Native input runs now cover status open/close, both knife attacks, aiming and
+two shots, fire damage, control/east room transitions, the first NPC talk,
+terminal decline and return, and duct entry/crawl/pickup/exit. Their different
+proof limits are recorded below. Water workers and impact effects have
+original-reference proof, but both continuous water approaches hit the
+protected flame renderer first. This branch is **not unrestricted crash-free
+AREA01**. The final static inventory and exploration table below give every
+remaining known boundary. Earlier verification sections retain intermediate
+failures to explain the subsequent repairs; they are not current-status claims.
 
 ## Verification receipts
 
@@ -106,8 +107,8 @@ including sprite colour, three packet submissions and work-step easing.
 Run `python3 tools/export_area01_water_effects.py` to add the two descriptor
 windows needed by those impact handlers to the existing local EMET export.
 The separate exporter preserves the protected base tool, verifies the
-pinned boot ELF and compares every new descriptor byte against all 16
-AREA01 captures. It replaces this worktree's asset symlink before writing.
+pinned boot ELF and compares immutable descriptor bytes against all 16
+AREA01 captures; later target-hit descriptors have original mutable fields. It replaces this worktree's asset symlink before writing.
 No exported bytes are committed.
 
 `test_area01_water_reference.py` compares whole RAM/scratch and ordered
@@ -341,3 +342,245 @@ passes a zero-warning rebuild, startup displacement `9.599849`, default
 smoke, all touched references, and a fresh complete 1,225-row terminal
 replay. Receipts: `index-terminal-{build,startup,smoke,references}.log` and
 `index-terminal-exploration/summary.json` under `build/level2-crashes/`.
+
+## Static first-visit inventory
+
+“Observed” means a native input run reached the path; “recorded” names an original capture; “conditional” means a concrete source branch has not been demonstrated by continuous first-visit play. A bound worker with an original-instruction test is not automatically a completed route. Unknown workers and invalid canonical views still fault.
+
+| Trigger / evidence | Original path | Current status and precise remaining scope |
+|---|---|---|
+| Close flame draw; recorded `a01_00` row 405 | `001E3D90 → 001CFBE0(kind 6) → D_0023D930` | **Protected blocker.** Implement the original third-layer program and control flow in `em_chain_page.c` / `em_vu1_page_programs.h`, deliver its original packet/table window, and compare original VU execution and emitted primitives. Keep the current refusal; skipping this layer is not a fix. |
+| Water first contact, ripple and ordinary skid; recorded `a01_02` | `00187DE0`, `001E8B90`, `001EC270` | Bound and original-reference tested. Continuous water entry remains unproved where an earlier draw blocks its approach. |
+| Ground fire contact; observed and recorded `a01_s3` | `001A8660 → 001E3D20 → 0021BB00 / 001EFE00(27)` | **Fixed and recorded-route verified.** AREA01 uses the existing contact owner. Restored the missing successful-player-spawn status store at `0015C6A4`; without it, status 0 suppressed the parent's damage arm. Final run matches all 262 rows, HP 95, reaction action `3E`, and the whole ending camera. |
+| Aim or knife attacks in the arrival room; observed | `0018D7B0` / `0019A570 → 001A6440` | **Hull source fixed.** Per-world AREA01 provider resolves canonical `+58` chains and shared slot matrices; it replaces Roger-only ownership without changing lock predicates. Both knife inputs complete. Aim advanced to the separate target `+34` read below. |
+| Use with class-2 candidates; recorded control-room approach | `00160220 → 001AA4E0 → 001AA410 / 001AA2A0` | Target fields and existing radius/sight owners are bound. Player stage now retains feet at `+A0` for the original scan; original-reference tests pass. Control-room route reached its talk script. |
+| Aim target acquisition and firing; observed | `00185A10 / 00185E30 → 00183C40` | **Fixed bindings.** Canonical target +34, held model-slot words and matrices are available to direct and region-only owners. The corrected native probe observes aim and two shots (magazine 30→28), with no fault. It does not establish a bug hit or all shot surfaces. |
+| Enter control-room door or east slider; recorded placements 15/17 | `00182F90`, `001B0C00`, `001BBD60`, `001BB400 / 001BB7C0 / 001BB7F0`, `001B1DE0` | **Fixed and observed.** Native transitions enter control room and east entry 8; terminal return reaches entry 9. The control-room route matches all 1,435 row fields under PS2 timing, with the protected camera-W endpoint defect described above. |
+| East-room terminal confirmation and No; recorded `a01_s4` | `00157CE0 → 001B6F00 / 00159B90 / 00157F60 → 0020E060 / 0020CDC0 / 00225A00` | **Fixed and full-checker verified.** Canonical pose/request/terminal/reset storage, existing BATTERY No path and return match all 1,225 rows plus the ending camera. Accepted-save phase 6 / `00225AC0` and load-game state remain unsupported and fault; no memory-card write is performed. |
+| Control-room first talk; recorded `a01_s0` | Script sound selectors → `001FA790 / 001FAE70 / 001FABB0 / 001FBC50` | **Bound and observed.** Local export supplies music/voice sectors. All 1,435 row fields match with optional PS2 timing. Host-speed audio ends six frames earlier, as expected from the selected drive policy; the later camera-W mismatch remains separate. |
+| Enter/crawl/leave duct and its pickup; input-only probe | `0016D130 / 0016DE40 / 0016EBA0`, row leaf `00188610`, nearby `001C02E0` | **Observed complete after two bindings.** Reuse ROOM row selection and borrow frame counter `70003B64`; 3,381 phase ticks complete, the original taken-block transition matches and exit state 26 (decimal) is observed. Recorded `a01_s5` replay still misses the trigger because of early movement divergence; the authored approach is explicitly separate. Conditional bit-31 collision metadata (`0019AD00 / 0019AFE0`), `001782A0`, direct camera `001B0460` and crawl allocation `001AFA90` remain unproved branches. |
+| Shoot ordinary surfaces/water; conditional | Marker global `19 → 001ECB00`, surface `5B` global `26 → 001EB7F0` | Both handlers now bind and pass original packet comparisons. This does not certify every shot/surface combination or the full aim pipeline. |
+| Break nest crate placement 7; conditional first-visit action | Crate state 2 → group `00829360`, `001AFA90`, child `0012A5D0` | Still blocked at the existing nest-spawn refusal. Allocate/copy/rebind the four original child records and prove their first ticks; child state 9 reaches `0012D850` and further enemy callees. Allocation alone is insufficient. |
+| Other model-6 crates; conditional destruction | Effects `0A`, `15`, husk model `22` | Existing debris/powder/husk owners bind; these five link-negative crates avoid nest spawning. No claim that every crate has been destroyed in a continuous run. |
+| Other damage/infection/death reactions; conditional | Shared player `001EFE00`; effects `40 / 48 / 44 / 51` | Player attach remains a fail-stop on these unproved branches. Existing misc/effects services can supply canonical attachment. `48 → 001F8350` lacks an identified owner; `44 → 0021AE90` has an area06 owner but is unbound. Conditional `0015C1F0`, `001FAFD0`, `0021C200` need live composition. Flame's recorded hit does not exercise every reaction type. |
+| Ladder top, ledge, hang/sidestep and clip-dependent movement; conditional | `001782A0 / 00178390 / 00178080`, `00188570 / 00188590 / 001885B0`, `0017F1C0 / 0017E6E0 / 00178440 / 001784E0 / 0017F130` | Shared closure stubs remain. Known owners include level14 `001782A0`, area06 `001885B0`; AREA01 room `00188610` is now bound for the reached duct path. Other addresses require original translation/owner search and actual caller proof. |
+| Object activation/bypass branches; conditional | `001C02E0 → 001BF6B0 / 001B6660`; `001BFFD0 → 001BFF90` | Existing level8/roster owners need runtime/callback composition if the branches are reached. The duct reached a separate missing `70003B64` read in C02E0, now fixed. These other branches still need their own callback/lifetime proof. |
+| Extreme collision query; conditional and outside recorded bound | `0019D770` no-span branch | Preserve refusal: the original uses caller-register state that the port does not model. Existing bound requires z separation at least `1087.16015625` with N=854; recorded 79,192 camera queries max `53.51905`. This bounds recordings, not arbitrary future queries. |
+
+The nest group contains four class-2/model-0 bugs, IDs `70..73`, param 4, callback `0012A5D0`, with parent-relative positions `(-1,1,-1)`, `(-1,1,0)`, `(-1,1,1)`, `(1,1,1)` and Y rotations `0`, `pi/2`, `pi`, `-pi/2`. They are not pickups. Existing `0012A5D0` dispatch selects substate 9; required follow-up includes `0012D850`, its enemy worker dependencies, original pool/list order, taken masks and allocation failure. The existing crate-registry test covers INIT/taken lookup and explicitly does not spawn children. Conditional actor probe `001C2770` state 6 calls `001C2690`, for which no port owner was found.
+
+Guards narrow this inventory. First-visit event 6 is zero: the security gun stays in dormant state `64`; active gun effects/sounds and revisit controllers `00823CD0 / 00825950` are not established first-visit triggers. The cable can still be damaged, and upper-catwalk bugs can potentially be shot. The first-visit bridge flags remain clear; the north-gap and upper-catwalk doors are not reached by the kept ground routes. Water actor link-1/2 helper gaps `0015A200 / 0015A750` are excluded by the placed link-0 roster. Camera NULL hooks for other area/subarea guards are excluded from AREA01; no protected camera change is justified by those guards. The direct shared `001B0460` stub is a separate conditional issue.
+
+## Effect inventory
+
+IDs and original addresses in these inventories are hexadecimal. These are **43 distinct global effect records** (the earlier 38 plus five transitive target-hit selections) from the audited AREA01/shared player, shot, crate and secondary-effect callers. High-bit script message IDs are excluded. All records have radius 300 and volume 4096. `B` means an existing live owner; `F` means an unbound handler/callback; `C` means an unproved conditional trigger; `X` means the direct source branch is excluded by the first-visit guard. A live owner is not proof of every listed trigger. The subtype handler applies only to callback `001EA240`.
+
+|ID|callback|subtype / handler|light|sound|binding / direct trigger|
+|---|---|---|---|---|---|
+|03|001EA240|0 / 001EAB50|1|-1|B: shot/marker or active gun|
+|05|001EA240|2 / 001EAF00|0|-1|B: floor surface6 splash|
+|06|001EA240|3 / 001ECFB0|0|-1|F/X: active gun; handler area00_hud exists|
+|07|001EA240|4 / 001ED7A0|0|-1|B/C: placed class-2/model-0 bug hit through shared 001B41F0, independently of dormant gun; existing HUD owner now bound and packet-tested|
+|0A|001F2BA0|0 / —|0|-1|B: model6 crate debris|
+|0D|001F18C0|0 / —|0|-1|B: knife trail|
+|0E|001EA240|7 / 001EBBB0|0|-1|B: 001F0460 ring decal preset0 secondary|
+|10|001E2560|0 / —|0|-1|B: 001F0120 head sprite secondary|
+|11|001EA240|A / 001EC1F0|0|-1|B: ordinary steps/climb|
+|12|001EA240|B / 001EC270|0|-1|B: ordinary skid/landing; original packet proof|
+|15|001EA240|D / 001EBD20|0|-1|B: model6 crate powder|
+|16|001EA240|E / 001EB020|0|-1|B: floor contact/climb splash|
+|19|001EA240|F / 001ECB00|1|-1|B/C: impact marker; existing HUD owner now bound|
+|1B|001EA240|11 / 001ECEF0|0|-1|F/C: player surface response1B; area02_misc owner exists|
+|1D|001EA240|9 / 001EAF80|0|-1|B: surface5B step/wade|
+|23|001EA240|15 / 001ED450|0|-1|F/C: player reaction23; no owner found|
+|24|001EA240|16 / 001EDAF0|0|-1|F/C: shared target-hit models1/6/7; existing area02_misc owner, not the placed class2/model0 bugs|
+|25|001EA240|17 / 001EDE40|0|-1|F/C: shared target-hit models2/9; existing level14 owner, not a proven initial-roster hit|
+|26|001EA240|18 / 001EB7F0|0|-1|B/C: water5B bullet impact; translated and packet-tested|
+|27|0022BBC0|9 / —|2|14A|B: fire contact; bone burst|
+|28|001EA240|5 / 001EC3F0|0|-1|B: surface5/climb effect|
+|2C|001EA240|1B / 001EBA20|0|-1|B: surface5A bullet impact|
+|33|001EA240|1 / 001EAD70|0|-1|B: water/skid landing|
+|34|001EA240|1C / 001EE190|0|-1|F/C: shared target-hit model3; no owner found, no initial-roster hit proven|
+|35|001EA240|1D / 001EE4E0|0|-1|F/C: shared target-hit models10/11; no owner found, no initial-roster hit proven|
+|36|001F2BA0|A / —|0|-1|B/C: secondary debris from unbound EF510 handler|
+|39|001E3630|2 / —|4|-1|B: equipment sprite|
+|3B|0021A500|0 / —|1|-1|B: cable45 secondary strip|
+|40|0022BBC0|2 / —|0|-1|B/C: reaction attach40 blocked earlier at player001EFE00|
+|43|001F77B0|2 / —|0|-1|B: death decal|
+|44|0021AE90|0 / —|1|14B|F/C: surface mode0A attach44; area06_port callback exists|
+|45|0021AAC0|0 / —|1|-1|B/C: damage cable; secondary3B|
+|48|001F8350|0 / —|0|-1|F/C: reaction attach48; callback no owner found|
+|51|0022BBC0|3 / —|0|-1|B/C: infected/death attach51 blocked earlier001EFE00|
+|60|001EA240|23 / 001EACF0|1|-1|B: impact marker|
+|61|001E7310|0 / —|0|-1|F/C: player stage special61; area00_low callback exists|
+|62|001E7440|0 / —|0|-1|F/C: player stage special62; no owner found|
+|63|001E7570|0 / —|0|-1|F/C: player stage special63; no owner found|
+|65|001EA240|24 / 001EC470|0|-1|B: surface5A steps/skid|
+|66|001EA240|25 / 001EC5F0|0|-1|F/C: surface8/5C steps/skid; area02_misc handler exists|
+|67|001EA240|26 / 001EC820|0|-1|F/C: surface5C steps/shots; no EC820 owner found|
+|68|001EA240|27 / 001EB980|0|-1|F/C: surface7 steps; area00_hud handler exists|
+|76|001EA240|29 / 001EF1C0|0|-1|F/C: shared target-hit flags nonzero; no owner found; direct placed bug hull flags are zero|
+
+
+
+The local effect table pointer is zero; these callers select global records. Effects `61/62/63` require their special player modes, and `44` requires surface mode `0A`; water surface `5B` alone does not trigger them. The static-grid inventory compares all 854 polygon attributes and plane coefficients against all 16 captures: attributes `07/5C` are absent, attribute `08` is one upper-catwalk floor at y=60, x=121..140, z=-456.95..-440, and attribute `5B` is one water polygon at y=-27.923, x=-30..32, z=-1021.5..-980. Actor/cell attributes are separate; this bounds the static ground-grid claims without establishing every possible contact. Receipt: `build/level2-crashes/surface-inventory.json`. Other crate-model effects `0B/14/31/32` belong to models `1C/50/1E/1F`, not the six placed model-6 crates. Effect `36` is secondary to an unbound `001EF510` branch. Newly enabled enemy branches require a further transitive effect audit.
+
+
+## Sound inventory
+
+The original caller audit covers 867 AREA01-tagged functions and 85 sites: 75 constant sites, **57 distinct constant IDs**, eight computed sites and two forwarding sites. Every constant resolves in the registry; resolution does not imply audible support. Registry state 1 is audible, 2 original absence, 3 unsupported.
+
+|IDs|scope|state|
+|---|---|---|
+|1, 6, A, B, C, D, E, F, 1F, CA, DB, FE, FF, 119, 122, 12B, 12C, 137, 138, 139, 13A, 13B, 13C, 13D, 13F, 140, 141, 142, 143, 146, 147, 151, 152, 153, 159, 187, 194, 19C, 19D, 19E, 19F, 1A0, 1A1, 1AC|(-1, -1)|1 |
+|3E8, 411, 412, 413, 423, 425, 426, 427, 444, 8A9|(1, 0)|1 |
+|424, 428|(1, 0)|3 modulation|
+|42F|(1, 0)|2 |
+
+Additional/computed paths retain limits:
+
+- The shared `001B41F0` adds global `15A/15B` (unarmored ricochet), `15D` (armored hit) and `1B1` (common-tail flag `1000`), all registry state 1. The 57-ID number above remains the AREA01-tagged caller subtotal, not the transitive union. The placed model-0 bug direct-hull branch selects `15A/15B`; other sound branches remain conditional.
+- Fire effect `27` uses global `14A`; conditional `44` uses `14B`, both audible. Impact ricochets `188..18B` are audible.
+- Footsteps `00182430` derive IDs from floor/tier tables. Recorded coverage exists; all future floor/tier combinations were not enumerated.
+- `001B6D70` selects stream/scene sound workers by its script operand. Door `001B8020`, effect `001EF940`, room `001FC280`, queue `001FC6E0`, and forwarding `001FBD50 / 001FC3C0` add data-dependent IDs. AREA01 ambient `44E` is audible.
+- Effect `26/2C/67` randomization writes **global effect record 0 +24**, not the selected record, to `18E..191 / 18C..18D / 192..193`. These IDs lack a scoped registry entry, but the selected effect records still have sound -1; they are not immediate missing sounds for each water shot.
+- Flame variants use `411/412/413`; cable uses `426/427`; terminal/mechanic use `3E8/444`, all audible. Bridge `8A9` is audible but its activation is not established on this visit. Generator `42F` is an original absence. Dormant gun activation is needed before unsupported modulation `424/428` matters.
+- There are 36 unsupported AREA01 IDs: modulation `40F,414,424,428,4A2,4A6,4AA,4AE,4B2,4B6,4CE,4D2,4D6,4DA,4DE,559,55E,59A,59E,5A2,5A6,5AA,5D6`, and unbound bank `9B7..9C3`. Only `424/428` are direct audited constants; others require computed-script reachability.
+
+The existing sound acceptor returns zero for unsupported/unscoped/unmapped IDs, with one-time diagnostics. That remains a fidelity gap, not a gameplay fail-stop. Muted headless execution is not audible-content proof. The stream-sector export is separate from this SFX registry and does not repair unsupported modulation.
+
+
+## Duct counter, traversal and pickup evidence
+
+The extended probe stopped at owner `001C02E0`, node `007A93F0`, while
+reading scratch `70003B64` near position `(166.5,1.5,-480.0923)`. That word
+already belongs to the frame loop. The live AREA01 view now borrows its
+const storage for contained reads only; writes and crossing spans refuse.
+The rerunnable counter test checks 265 values, 2,650 alias reads and 4,240
+refusals, then compares 146 original C02E0 cases / 696 ordered boundaries.
+
+The next input-only run traverses to z=-416.5 and exits at
+`(133.21881,0.01,-529.5)`, observing states 24/25/26 and exit action 46 / clip
+339 over 3,381 phase ticks, with no fault (state/action/clip numbers in this paragraph are decimal). Its entire 64-byte taken block
+matches the original duct pickup change: only byte 32 changes from `0x00` to
+`0x10`. This proves the pickup mutation and traversal, not whole-route timing
+or camera parity. Receipts: `vent-full-after-counter/receipt.json` and
+`vent-full-after-counter/pickup-inspection.json` under `build/level2-crashes/`.
+
+The permanent `--case vent` reproduces the same input sequence: an authored
+navigation approach followed by the locally loaded a01_s5 pad tail from
+frame 376. It embeds no captured gameplay bytes and writes only pad input.
+The unchanged recorded replay still diverges at its third row and misses
+the trigger; that separate unresolved motor/input-alignment result remains
+in `interaction-vent-ps2/diagnosis.json`.
+
+## Census promotion scope
+
+Baseline census: 48 live / 10,913 instructions, 129 verified-unbound /
+18,503, zero missing, and two boundary / 131. Verified-unbound describes
+available evidence; it does not mean 129 absent translations. The protected
+census file is unchanged. Proposed folds are bounded by these receipts:
+
+| Rows / owners | Promotion evidence and limit |
+|---|---|
+| `001E3D20` and its reached contact helpers | Original 93-case contact proof plus recorded `a01_s3` full checker; HP 95 and reaction 3E. Successful-spawn status is a subpath of `0015C420`, not every initializer. |
+| `001AA410 / 001AA2A0`, hull locks, target `00183C40` | Original target/hull/model proofs plus native Use, melee and aiming. Do not promote all enemy/damage workers from this. |
+| Door/room/stream workers listed above | Actual control/east transitions and 1,435-row conversation; qualify the protected camera-W endpoint mismatch. |
+| `001B6F00 / 00159B90 / 00157F60`, terminal status cold entry and `00225A00` | Full 1,225-row terminal No route and original owner tests. Exclude accepted `00225AC0`, save serialization and load-game paths. |
+| `00188610` and reached duct owners `0016D130 / 0016DE40 / 0016EBA0`, counter read in `001C02E0` | Original ROOM/counter tests and continuous entry/crawl/pickup/exit probe. Mark native reached with worker proof; no full recorded-route parity claim. |
+| Water `00187DE0 / 001E8B90`, skid `001EC270`, impacts `001EB7F0 / 001ECB00`, target hit `001B41F0 / 001ED7A0` | Keep worker/oracle evidence distinct. Continuous water entry and an actual native bug-hit receipt are absent; do not promote these solely from standalone tests. |
+
+## Shared target-hit boundary
+
+Original rifle `001861C0` calls `001B41F0(target,hit,direction,flags,0,5)` for an eligible direct class-2 hit; its locked-target fallback can call the same owner. The six placed class-2/model-0 bugs are held at `007A8250 / 007A8540 / 007A8830 / 007A8B20 / 007A8E10 / 007A9100`, callback `00128C10`, HP 15, chain `011349C0`, in all **15 pre-exit captures**. `a01_07_level_exit` has reused the pool for the next scene; it must not be counted as these six live identities. `007A8E10` is one of these bugs. Each of the five original quad faces has header bytes `00 01 00`; actor+5D is 1, so original `001A6440` produces `face[1] & actor[5D] & FE = 0`. These direct hits select effect 07 and sound 15A/15B independently of the dormant gun. A live bug-hit input has not been observed.
+
+The shared owner reads victim header/model and player+C4, writes victim status/h36, and copies direction to victim+70 through SDK `00102948`. The existing pool_field(f60) already owns that SDK destination; adding a shadow actor image or another region for it is unnecessary. Its first missing production view was `70003680`, reproduced by the sparse actual world composition after two calls. `em_aim_fire_world_live` now borrows collision ratio at 3680 and cross lanes at 3684/3688 with write permission for `001B41F0` and its `00189FE0` caller only, refreshing the same pointers after each worker. Other world calls retain their existing view-capacity behavior. The `001FC580` callback now invokes its sole `em_area00_low` owner over stream-owned `D_00281F30`, with the existing positional-gain solver and request-word conversion over canonical actor+B0. No alternate cue queue or sound algorithm is introduced.
+
+Effect 07 uses the existing `em_area00_hud_001ED7A0` through the production dispatch. The supplemental exporter adds descriptor window `00257360+1B0`; each original descriptor's mutable +20..3F and its CFBE0 read share the delivered canonical bytes. Immutable parts match all 16 captures; initialization comes from the pinned ELF. Three kind-1 packet chains use existing transform/packet owners, without a protected chain-page edit.
+
+`python3 tools/test_area01_target_hit_reference.py`: PASS 90 original bug-hit selections, 720 ordered boundaries, 60 production effect packet chains and 2 refusals over 15 pre-exit captures. `python3 tools/test_area01_target_hit_live_reference.py`: PASS 90 actual world calls, 720 ordered boundaries and 120 original delayed-cue policy cases, with 2 missing-owner refusals. An additional 90 cases compare the actual existing native gain solver and resulting delayed-cue words against full original `001FC580 / 001FBF50`; all produced cue words match. Full RAM/scratch equality covers the target/world boundary and the explicit cue-policy boundary; the already-existing gain solver is separately identified rather than claiming original FBF50 scratch parity. Proof receipts are `build/level2-crashes/target-hit-reference/report.json` and `live-report.json`. No live census promotion is justified for 07 or B41F0 until an actual bug-hit receipt exists. Effect 76 has no port owner; no new armored-hit behavior was introduced.
+
+## Exploration coverage at handoff
+
+| Probe / retained route | Observed result and limits |
+|---|---|
+| `status`, `melee`, `aim-fire` | Status opens/closes, both knife inputs complete, and two shots are observed without faults. Custom input has no original route-parity claim. |
+| `a01_s0` | Control room and first talk complete; 1,435 row fields exact with PS2 drive timing. Whole-camera W defect remains in protected files. |
+| `a01_s2` | Control-room pickups complete; captured position/item/progress fields match. Request/message timing differs under unrecorded module-read timing, so no full parity pass. |
+| `a01_s3` | Fire damage full checker passes 262 rows and whole camera. |
+| `a01_s4` | Terminal No and east-room return full checker passes 1,225 rows and whole camera. |
+| `vent` | Continuous duct traversal, pickup mutation and exit observed; see separate evidence above. Raw `a01_s5` misses its trigger and is not a pass. |
+| `a01_s6` | Raised-bridge boundary full checker passes 229 rows and ending camera. The north room itself is not entered. |
+| `a01_00` | 405 exact prefix rows, hang and pull-up observed, then protected kind-6 fault at `0023D930`. |
+| `water`, `water-west`, ladder prefix | East detour stops at `0023D930(10)` near `(0.106752,0.036,-716.356995)` on the final build; west stops at `0023D954(0023D958)` near `(-31.941597,0,-646.616211)`. Water and ladder contact remain unobserved. Ladder is an inferred identical-prefix blocker, not a separate completed run. |
+| `a01_01..07`, `a01_s1`, `a01_s7` | Downstream of the failed recorded a01_00 prerequisite. Not separately rerun past that fault; no later coverage claimed. |
+| North interior, upper catwalk, every destructible object/surface, enemy-attack reactions | No exhaustive first-visit coverage. Static branches and known remaining owners are listed above. |
+
+`build/level2-crashes/exploration-coverage-matrix.json` maps frozen runs to
+receipts and explicitly separates direct runs from inferred prerequisite
+blockers. The final staged receipts below supersede earlier outcomes for
+those same probes. No emulator was launched, no save slot or memory card
+was written, and no decompilation build was run during this work.
+
+## Complete shared-file edit list
+
+`em_scene_bindings.c`: read-only floor tick observations; water and row-clip
+callback registration/clear/adapters; AREA01 contact and hull provider
+registration; target model forwarding; four-lane spawn rotation publication;
+terminal owner-read/reset forwarders and include; corrected storage comment.
+
+Makefile: build new `em_player_target_live.c`, `em_area01_hull_live.c`,
+`em_area01_transition_services.c` and existing `em_level14_port_boot.c`;
+add opt-in exploration/harness, water, target, fire, transition, terminal,
+frame-counter and target-hit reference targets. Protected renderer/camera/
+checker/exporter/docs files are unchanged. Main and the other worktrees
+remain untouched; no push or main rebase is performed.
+
+## Final staged verification
+
+The final staged source rebuild has zero warnings. New Game control passes
+with 30-tick displacement `9.599849`; default smoke passes. The original
+target-hit/cue/packet, water, frame-counter, runtime, player-view, effect
+service and SFX-registry suites pass, as do the shared aim-world and
+frame-input sanitizer checks, no-shadow audit and exploration harness.
+The separate exporter verifies 48 delivered windows and 14,592 new equal
+immutable bytes over all 16 captures.
+
+Fresh final-binary probes observe two shots (324 ticks, magazine 30→28)
+and complete duct entry/crawl/pickup/exit (3,381 ticks). The final duct
+pickup proof again compares the full 64-byte original before/after blocks.
+The repeated water approach is still **FAULT**, at `0023D930(00000010)`,
+with water depth zero after 452 observed phase ticks; the protected drawing
+blocker is reproduced on this final binary. No fault is hidden or treated
+as a passing water run.
+
+Receipts under `build/level2-crashes/`: `index-final-{build,startup,smoke,
+references,effects,export}.log`; `index-final-aim/aim-fire/receipt.json`;
+`index-final-vent/vent/{receipt,pickup-inspection}.json`; and
+`index-final-water/water/receipt.json`. The temporary pre-correction
+capacity-test failure is preserved separately as
+`index-final-references-before-capacity-fix.log`; the corrected final
+reference run passes.
+
+`EM_HEADLESS=1 make test-level-smoke-full` finishes with exit 0: the
+20-phase main route through AREA01 arrival, three menu/door side runs,
+11 aim/fire runs, three damage/death/restart runs, and ten optional-branch
+runs all pass (28 full capture comparisons). This target does not include
+the opt-in AREA01 routes beyond arrival; their separate outcomes above
+remain in force. Receipt: `index-final-smoke-full.log`.
+
+A final source review parenthesized the counter's integer address offset
+(using size_t) before pointer addition. Both the actual worktree and exact
+staged snapshot were rebuilt with zero warnings; both are byte-identical
+to the binary that passed the complete suite, SHA256
+`dc25a4cf616cb86e233a73e74b634071121445c60a417fc7154b633e596779d0`.
+Counter, runtime and player-view references pass again. Receipts:
+`final-worktree-build.log`, `index-final-build-final.log`,
+`index-final-pointer-reference.log`, and `final-verification.json`.
+
+Completed regression traces are retained as gzip archives with verified
+round-trip hashes; each `index-final/port/build/level_smoke*` group has
+`gzip-archive-manifest.json`. Logs, pads, receipts and the frozen executable
+remain available. Temporary staged source trees and unreferenced compiled
+fixtures are removed after verification; the committed source and test
+commands reproduce them. No disc-derived material is staged.

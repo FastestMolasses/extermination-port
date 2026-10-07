@@ -78,6 +78,22 @@ def main():
     result = subprocess.run([str(binary), str(script)], capture_output=True, text=True)
     assert result.returncode == 1 and 'BLOCKED' in result.stderr, result
 
+    # Captured tails are loaded only when selected, preserve input edges,
+    # include the last hold, and never mutate the authored prefix.
+    capture_reader = explore.route_capture
+    try:
+        explore.route_capture = lambda phase: dict(frames=15, inputs=[
+            dict(f=0, buttons=0, lx=127, ly=127),
+            dict(f=6, buttons=0x4000, lx=127, ly=127),
+            dict(f=8, buttons=0, lx=127, ly=0)])
+        prefix = dict(script=['mark authored'], recorded_tail=('a01_s5', 6))
+        assert explore.case_script(prefix) == ['mark authored', 'mark vent-tail-start',
+            'hold 2 4000 127 127', 'hold 7 0 127 0', 'mark vent-recorded-tail-end']
+        assert prefix['script'] == ['mark authored']
+        assert explore.case_script(dict(script=['mark override'])) == ['mark override']
+    finally:
+        explore.route_capture = capture_reader
+
     ticks = out/'ticks.jsonl'
     bits = lambda x: struct.unpack('<I', struct.pack('<f', x))[0]
     post = bytearray(99);post[96:99] = bytes((1, 0, 4))
@@ -98,6 +114,9 @@ def main():
     primary = 'player closure: reached 00188610 which has no translation on the live path'
     r = explore.analyze(log+primary+'\nem_scene: FAULT later\n', ticks, case, 1)
     assert r['status'] == 'FAULT' and r['first_fault'] == primary
+    primary = 'em_area01: owner 001C02E0 node 007A93F0 failed at 70003B64'
+    r = explore.analyze(log+primary+'\nlevel smoke: FAIL phase=a01_s5\n', ticks, case, 1)
+    assert r['status'] == 'FAULT' and r['first_fault'] == primary
     r = explore.analyze('level smoke: PASS\n', ticks, case, 0)
     assert r['status'] == 'INCOMPLETE' and not r['observations']['ticks']
     r = explore.analyze(log.replace('100', '101'), ticks, case, 0)
@@ -105,7 +124,7 @@ def main():
     r = explore.analyze(log, ticks, case, None, True)
     assert r['status'] == 'TIMEOUT'
     print(f'AREA01 exploration harness: PASS input boundary (ASan/UBSan), {len(invalid)} malformed scripts, '
-          'continuous R1/trigger holds, bounded navigation failure, phase isolation, and seven reporting contracts; no gameplay parity claim')
+          'continuous R1/trigger holds, runtime pad-tail loading, bounded navigation failure, phase isolation, and eight reporting contracts; no gameplay parity claim')
 
 
 if __name__ == '__main__':

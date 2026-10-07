@@ -94,6 +94,8 @@ EmGfx    *em_frame_gfx(void);
 
 /* Lifetime frame counter — the scratchpad 0x70003B64 main-loop counter. */
 uint32_t em_frame_counter(void);
+/* Read-only byte views borrow the same word; only the frame loop writes it. */
+const uint32_t *em_frame_counter_storage(void);
 
 /* Frame parity (step W's `frame_idx ^= 1`, halfword 0x00810E80) — selects
  * the engine's double-buffered per-frame resources. */

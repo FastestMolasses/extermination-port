@@ -173,6 +173,7 @@ typedef struct {
     EmArea02Math *math_state; EmArea00World *hit_state;
     EmArea01Side *side_state; EmArea00Fx *fx_state;
     uint32_t side_node, target_node;
+    int hit_jitter;
     EmPoseRegion parent_view;
     uint32_t point[4];
     /* The published class-4 list (D_00275B7C / D_00275B84, base D_0028AE30)
@@ -270,6 +271,14 @@ static int refresh(Bridge *b)
             const uint32_t node=(uint32_t)word[0]|(uint32_t)word[1]<<8|(uint32_t)word[2]<<16|(uint32_t)word[3]<<24;
             const uint8_t *bytes=node && w->grid_bytes ? w->grid_bytes(w->context,node,64) : NULL;
             if(bytes)APPEND_OPTIONAL(append(b,node,64,(void *)(uintptr_t)bytes,0));
+        }
+        /* 001B41F0's spray rewrites the collision ratio and cross lanes
+         * before reading them. The region-only hit owner borrows those
+         * same fields that the direct SDK/segment map already exposes. */
+        static const uint32_t jitter[][2]={{0x70003680u,4},{0x70003684u,8}};
+        for(unsigned i=0;b->hit_jitter && i<sizeof jitter/sizeof jitter[0];++i) {
+            void *p=collision_map(w,jitter[i][0],jitter[i][1],1);
+            if(p)TRY(append(b,jitter[i][0],jitter[i][1],p,1));
         }
     }
     if(b->target_node && w->target_regions) {
@@ -433,6 +442,7 @@ int em_aim_fire_world_live_call(void *context,EmAimFireLive *h,EmAimFireTargetCa
        c->function!=0x0022BBC0u && c->function!=0x001F0190u && c->function!=0x001F0290u &&
        c->function!=0x001CD070u && c->function!=0x001F2BA0u && c->function!=0x001C6200u)return -1;
     Bridge b;memset(&b,0,sizeof b);b.world=w;b.live=h;
+    b.hit_jitter=c->function==0x001B41F0u || c->function==0x00189FE0u;
     if(c->function==0x00183C40u)b.target_node=a;
     if(refresh(&b)<0) {
         fprintf(stderr,"aim/fire world: %08X refresh failed (%u views)\n",
