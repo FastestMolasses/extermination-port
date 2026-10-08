@@ -30,7 +30,12 @@ failures to explain the subsequent repairs; they are not current-status claims.
 
 Local output belongs under ignored `build/level2-crashes/` and the individual
 reference suites' usual ignored directories. No captured bytes or exported
-assets belong in this commit.
+assets belong in this commit. At the merge (2026-10-07) the branch
+worktree was removed; every receipt up to 20 MB (all the logs, summaries
+and JSON reports cited here) was first copied to main's
+`build/level2-crashes/`. The larger tick logs and gzip trace archives and
+the frozen executables were not kept: rerun the cited command to
+regenerate one.
 
 Baseline `make -B all` passed with zero warnings. Baseline headless
 `EM_STARTUP_TEST=newgame-control` passed: 1,301 locked ticks, zero locked
@@ -640,7 +645,7 @@ Binary: main at the merge plus its follow-up commits (`make -B all`, zero
 warnings); every run below is headless. Receipts (ignored):
 `build/crashmerge/` (`a01_00`, `a01_02`, `s3`, `s4`: the recorded-route
 smoke runs; `explore/g1..g5`: the exploration fixture, every case;
-`probe/`: the first-call measurement SECOND_LEVEL_CENSUS.md §12 uses).
+`probe/`: the first-call measurement SECOND_LEVEL_CENSUS.md §12 uses; the tick logs and RNG traces were deleted after the checks, the run and check logs and receipts are kept).
 
 Recorded routes through the unchanged checker
 (`tools/test_level_smoke_area01.py`): `--until a01_00` **PASS** (21 live
