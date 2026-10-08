@@ -17,6 +17,10 @@ int em_frontend_install_001AC070(void);
 /* 1 while the title flow holds slot 0 and its menu took input on the last
  * tick (*cursor = its cursor); test driver use (the level smoke). */
 int em_frontend_title_menu(unsigned *cursor);
+/* The title flow's 001AC070 state (+8: em_startup's major) and, in state 2,
+ * 001AC480's sub-state (+9); 0 / 0 when the flow does not hold slot 0.
+ * Test driver use (the level smoke's dmg_load). */
+void em_frontend_title_state(unsigned *state, unsigned *sub);
 int em_frontend_failed(void);
 /* What the game reads of the frontend after New Game (the movie service of
  * 001AD360 step 1): {installed, the stored selector D_00275C78 (-1 none),

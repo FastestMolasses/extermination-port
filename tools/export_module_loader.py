@@ -16,7 +16,8 @@ Default: module 3 (the New Game's 001AD1A0), the status pages' modules the
 first level loads (PAGE_MODULES: 0x1F the ITEM root, 0x1E MAP, 0x2C SPR4,
 0x24 DATABASE, the ITEM children 0x20 / 0x21 BATTERY / 0x22 / 0x23 and the
 SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1), the game-over
-screen module 0x27 (001AD4E0's 001FF080(0, 0x27); docs/DAMAGE.md), area 0x0B
+screen module 0x27 (001AD4E0's 001FF080(0, 0x27); docs/DAMAGE.md), the
+options screen's modules 0x2B and 0x2A (docs/OPTIONS.md), area 0x0B
 (AREA11, the New Game's 001FF080(1, 0)), area 1 room 0 (AREA01 sub 0, the
 level exit's load) and area 0 room 0 (AREA00 sub 0, the second level's exit).
 
@@ -80,8 +81,10 @@ CURSORS = (0x275C70, 0x275C74, 0x28A5A0, 0x28A738, 0x28A73C, 0x28A744, 0x28A748)
 # children (0x20, 0x21, 0x22, 0x23) and SPR4's part pages (0x2D..0x31).
 PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31)
 # 001AD4E0 step 1's 001FF080(0, 0x27): the game-over screen (the player's
-# death; port docs/DAMAGE.md section 5).
-SCREEN_MODULES = (0x27,)
+# death; port docs/DAMAGE.md section 5); the options screen's row screens
+# 0x2B (0022A590's 001FF080(0, 0x2B)) and its memory-card screen 0x2A
+# (00225AC0's 001FF080(0, 0x2A); port docs/OPTIONS.md).
+SCREEN_MODULES = (0x27, 0x2A, 0x2B)
 DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES
 # (area, room): AREA11 (the New Game's 001FF080(1, 0)), AREA01 sub 0 (the
 # level exit's load: Roger's departure requests 001B0C60(1, 0, 4); route beat

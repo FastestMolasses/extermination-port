@@ -5,7 +5,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-enum { LOCALMEM = 4u << 20, BLOCKS = LOCALMEM / 256, MAX_WINDOWS = 8, MAX_STEPS = 32, MAX_RELOCS = 16 };
+enum { LOCALMEM = 4u << 20, BLOCKS = LOCALMEM / 256, MAX_WINDOWS = 32, MAX_STEPS = 32, MAX_RELOCS = 16 };
 
 /* The GS local memory layout of PSMCT32 / PSMT8 / PSMT4 (page, block and
  * column order; GS hardware facts, as tools/extract_textures.py lists them). */

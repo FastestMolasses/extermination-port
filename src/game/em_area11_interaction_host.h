@@ -182,6 +182,9 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input);
 int em_area11_interaction_host_status_render(EmGfx *gfx);
 void em_area11_interaction_host_status_clear_route(void);
 int em_area11_interaction_host_status_route(void);
+/* The options screen's binding (em_options_live; docs/OPTIONS.md), NULL
+ * when it is not bound (no status pages' data) or the host is not loaded. */
+struct EmOptionsLive *em_area11_interaction_host_options(void);
 /* The live message service's host hook (em_message_live.h, WP-8): the
  * slot-0 face talk 001D06E0. */
 const EmMessageLiveHost *em_area11_interaction_host_message_host(void);

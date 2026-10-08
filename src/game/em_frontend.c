@@ -2,7 +2,12 @@
  * this file adapts disc exports, native movie playback, and native storage.
  * It deliberately keeps startup assets out of the gameplay fixture loader.
  */
+#include "game/em_memcard.h"
 #include "game/em_frontend.h"
+#include "game/em_area01_terminal_status.h"
+#include "game/em_area11_interaction_host.h"
+#include "game/em_options_live.h"
+#include "game/em_stream_live.h"
 #include "game/em_startup.h"
 #include "game/em_startup_audio.h"
 #include "game/em_frame.h"
@@ -49,6 +54,8 @@ static struct {
     unsigned menu_wait;  /* EM_STARTUP_MENU_WAIT (fixtures only) */
     unsigned seen_screens;
     unsigned captured;
+    uint32_t load_serial;  /* the title's load screen (001AC070 state 5) */
+    int load_drawn;        /* this tick's 00225AC0 call left a draw stream */
     const char *capture_dir;
     const char *test;
     char error[512];
@@ -249,12 +256,12 @@ static int movie_pump(void *unused)
 
 static int native_storage_ready(void)
 {
-    /* Native storage replaces the removable PS2 memory-card device.
-     * No fabricated PS2 card record is written into the game state. */
-    if (mkdir("data", 0700) && errno != EEXIST) return 0;
-    if (mkdir("data/save", 0700) && errno != EEXIST) return 0;
-    struct stat st;
-    return stat("data/save", &st) == 0 && S_ISDIR(st.st_mode);
+    /* The boot's card check (001AB9D0 state 3's 0022A460, not translated):
+     * the host memory cards data/memcard/slot1 and slot2 (em_memcard, the
+     * platform boundary of the card I/O) are made and both ports asked, as
+     * the original's check leaves the card server. No fabricated PS2 card
+     * record is written into the game state. */
+    return em_memcard_boot_check();
 }
 
 /* anim_frame_top_a states 0/1/3/4 return 2 while D_00810E70 & 0x9F0
@@ -293,6 +300,73 @@ static int boot_resources(void)
     return ready;
 }
 
+/* The title's load screen (docs/OPTIONS.md section 4.3): 001AC070 state
+ * 2's load verdict runs 00225A00 (the card record D_00810040 cleared) and
+ * sets D_00275BE0 = 1; state 5 then calls 00225AC0(0) every tick through
+ * the options binding the AREA11 interaction host keeps (em_options_live,
+ * the card screen's module 0x2A in the status pages' GS memory, the card
+ * I/O em_memcard): 1 (the screen's exit) goes back to the menu, 2 (a game
+ * loaded) is reached only through 00227300, which faults (beyond the first
+ * level's recordings). The boot's title has no AREA11 binding yet: the
+ * load entry there faults (no recording; the first level reaches the load
+ * screen from the title after a death, decomp CAPTURES_C10.md dmg_05). */
+static void load_begin(uint32_t serial)
+{
+    f.load_serial = 0;
+    if (!em_area11_interaction_host_options()) {
+        fail("the load screen 00225AC0 has no options binding (the boot's title: no AREA11 world)");
+        return;
+    }
+    if (em_area01_terminal_reset(em_scene_state()) != 0) {
+        fail("00225A00 (the card record's clear)");
+        return;
+    }
+    em_scene_state()->d275BE0 = 1;
+    f.load_serial = serial;
+}
+
+static void load_frame(void)
+{
+    EmOptionsLive *options = em_area11_interaction_host_options();
+    EmSceneState *scene = em_scene_state();
+    EmTask *task = em_task_current();      /* 001AC070 in slot 0 */
+    if (!f.load_serial || !options || !task || task != em_task_slot(0)) {
+        fail("001AC070 state 5 without its load screen");
+        return;
+    }
+    EmOptionsFrame frame = {
+        .settings = scene->d810118,
+        .task_address = 0x0028A750u,        /* slot 0: 001AC070's record */
+        .task = task->user,
+        .mc = scene->d810040,
+        .progress = scene->progress.bytes,
+        .message = em_message_live_block(),
+        .busy = &scene->d275BD8,
+        .masks = scene->spad3B74,
+        .offset = &scene->spad3B94,
+        .read_phase = em_stream_live_read_phase(),
+        .fade = em_frame_transition()->substate,
+        .held = scene->d810E70,
+        .pressed = scene->d810E74,
+        .repeat = em_frame_pad_block()->repeat,
+        .pad_mode = em_frame_d810E6A(),
+        .pad_phase = scene->d810E50,
+        .spad3B90 = scene->spad3B90,
+        .spad3B93 = scene->spad3B93,
+    };
+    uint32_t r = 0;
+    if (em_options_live_00225AC0(options, &frame, 0, &r) < 0) {
+        fail("00225AC0 (the title's load screen) faulted");
+        return;
+    }
+    f.load_drawn = 1;
+    if (r != 0) {
+        const uint32_t serial = f.load_serial;
+        f.load_serial = 0;
+        em_startup_complete(&f.flow, serial, (int)r);
+    }
+}
+
 static void notify(void *unused, const EmStartupEvent *event)
 {
     (void)unused;
@@ -310,7 +384,7 @@ static void notify(void *unused, const EmStartupEvent *event)
         break;
     case EM_STARTUP_CARD_CHECK:
         ready = native_storage_ready();
-        if (!ready) fail("native save directory data/save is unavailable");
+        if (!ready) fail("the host memory cards data/memcard/slot1, slot2 are unavailable");
         break;
     case EM_STARTUP_MOVIE:
         begin_movie(event->serial, 0, 0);
@@ -369,6 +443,11 @@ static void notify(void *unused, const EmStartupEvent *event)
         attract_abort();
         return;
     case EM_STARTUP_LOAD_GAME:
+        load_begin(event->serial);
+        return;
+    case EM_STARTUP_LOAD_GAME_FRAME:
+        load_frame();
+        return;
     case EM_STARTUP_OPTIONS:
         fprintf(stderr, "startup: service %d awaits native translation\n", event->kind);
         /* Preserve pending state rather than manufacturing an outcome. */
@@ -380,6 +459,25 @@ static void notify(void *unused, const EmStartupEvent *event)
 static void startup_task(void)
 {
     if (em_startup_audio_tick() != 0) fail("startup audio event queue overflow");
+    if (f.reinstalled && em_level_smoke_test_active()) {
+        /* The level smoke's title rows (tools/level_smoke_damage.py): the
+         * state after the previous frame (its fade step and the loader task
+         * in slot 2 ran): 001AC070's state +8, 001AC480's sub-state +9 (the
+         * menu's), the fade D_0028A9A0, the busy byte D_00275BD8 and the card
+         * record D_00810040 +0, +1, +0x14, +0x15, +0x16. */
+        const EmSceneState *scene = em_scene_state();
+        printf("startup: title row counter %u state %u sub %u fade %d busy %u card %u %u %u %u %u\n",
+               em_frame_counter(), f.flow.major, f.flow.major == 2 ? f.flow.sub : 0,
+               (int)em_frame_transition()->substate, (unsigned)scene->d275BD8, scene->d810040[0],
+               scene->d810040[1], scene->d810040[0x14], scene->d810040[0x15], scene->d810040[0x16]);
+    }
+    /* 001AC070 (and the boot's flow before it) clears the scratchpad byte
+     * 0x70003B90 on entry every tick; the game task 001ACEC0 writes 2. */
+    em_scene_state()->spad3B90 = 0;
+    /* D_00810E74 / E70 / E50 as this frame's step C left them (the title's
+     * load screen reads them), as at the start of every game-task tick. */
+    em_frame_scene_input(em_scene_state());
+    f.load_drawn = 0;
     const EmFrameInput *pad = em_frame_input();
     EmStartupInput input = {pad->held, pad->pressed,
                             em_frame_transition()->substate, 0, em_scene_state()->d275BDC};
@@ -435,6 +533,14 @@ static void startup_task(void)
             const char *names[] = {"warning", "sony", "deep_space", "title_0", "title_1", "title_2"};
             capture(1u << (screen < 3 ? screen : screen + 1), names[screen]);
         }
+    }
+    /* The load screen's draw stream of this tick's 00225AC0 call. */
+    if (f.load_drawn) {
+        if (em_options_live_render(em_area11_interaction_host_options(), gfx) != 1)
+            fail("the load screen's draw stream");
+        const uint8_t *card = em_scene_state()->d810040;
+        if (card[0] == 1 && card[0x15] == 1 && em_frame_transition()->substate == 0)
+            capture(1u << 10, "load_screen");   /* the slot choice, idle */
     }
     f.interactive = view.interactive;
     f.cursor = view.cursor;
@@ -524,9 +630,10 @@ void em_frontend_install(void)
  * (the movie player for 001AD360 step 1), no startup task, and the title's
  * New Game handoff at once: 001AC070 state 4 with D_00275BE0 = 0, the same
  * em_game_install_new the EM_STARTUP_NEW_GAME event calls. The startup
- * flow's screens, sound sequencer and card check never run; what the
- * game state at the opening's first frame owes them is checked by
- * tools/test_new_game_switch.py. */
+ * flow's screens and sound sequencer never run; the boot's card check
+ * does (the card server's state it leaves, em_memcard_boot_check, is game
+ * state the options' load row reads). What the game state at the opening's
+ * first frame owes the title is checked by tools/test_new_game_switch.py. */
 void em_frontend_install_new_game(void)
 {
     memset(&f, 0, sizeof f);
@@ -540,6 +647,10 @@ void em_frontend_install_new_game(void)
      * not loaded, since nothing after New Game plays them. */
     if (em_bgm_device_ensure(48000) != 0) {
         fail("could not open the audio device");
+        return;
+    }
+    if (!native_storage_ready()) {
+        fail("the host memory cards data/memcard/slot1, slot2 are unavailable");
         return;
     }
     em_frame_set_movie_pump(movie_pump, NULL);
@@ -565,6 +676,13 @@ int em_frontend_title_menu(unsigned *cursor)
 {
     if (cursor) *cursor = f.cursor;
     return f.installed && f.interactive && em_task_slot(0) && em_task_slot(0)->fn == startup_task;
+}
+
+void em_frontend_title_state(unsigned *state, unsigned *sub)
+{
+    const int held = f.installed && em_task_slot(0) && em_task_slot(0)->fn == startup_task;
+    if (state) *state = held ? f.flow.major : 0;
+    if (sub) *sub = held && f.flow.major == 2 ? f.flow.sub : 0;
 }
 
 const void *em_frontend_host_state(size_t *size)

@@ -683,7 +683,10 @@ A legacy *module* is deleted only when no roster-less scene or `EM_*_TEST` uses 
   SELECT (0x100) from the E74 word the classifier reads and logs one "unported: 0022A650 (SELECT)" line;
   E50 is written as 4 (analog DualShock) per S11a. Faulting would end the session on a single button
   press; withholding adds no invented behaviour (the button is inert and says so). Remove the mask in
-  the step that ports 0022A650.
+  the step that ports 0022A650. **Closed (chain step OPTIONS, 2026-10-08):** 0022A650 is bound
+  (docs/OPTIONS.md); `em_sf_001AE040_q1` and the SELECT mask are deleted, the frame machine runs
+  em_sf_001AE040 with the original classifier 001AE7E0 (r == 1 for SELECT or E50 != 4), and
+  tests/scene_classify_test.c's test_q1 is retired with it.
 - **Q2.** Where the player's final palette is produced: 0015BCF0, or player+0x4C = 001CAA00 via 0015C160 after the walk. **Settled (the player step, 2026-09-26):** 001CAA00 draws from the node records' +0x90 matrices (001C7420 reads them for every node); the port draws the record's nodes as 0015BCF0's animate step left them, and the player's unit equals the original's in the camera-exact snapshots 10 and 14 (check_owner_units). OWNER_DRAW.md section 10.
 - **Q3.** Record 13: which call frees it, and when. Settle with a breakpoint on 001AFC10 with a0=0x7A96E0 from state 0 until the opening spawns.
 - **Q4.** The spawners of 001E55F0, 001E2560 and 001EA240 (the table near 0x24CCC8). Settle with a breakpoint on 001AFA90 returning those nodes during state 0 and the first frames.
@@ -719,7 +722,8 @@ test-actor-pool, test-frame-trace, test-actor-census.
   original-offset accessors over `user` (no second copy).
 - Extra workers beyond section 3.2: stores `s_00821058`, `s_00275C78` (001AD360 step 1), `s_00810D38`
   (001ADF00); readers `r_00275B44`, `r_008102B9` (variant arguments).
-- Q1 entry point: `em_sf_001AE040_q1` (bindings choose it and log `EM_SCENE_Q1_UNPORTED_MESSAGE` once).
+- Q1 entry point (deleted by chain step OPTIONS, 2026-10-08: SELECT opens the options screen):
+  `em_sf_001AE040_q1` (bindings chose it and logged `EM_SCENE_Q1_UNPORTED_MESSAGE` once).
 - States 3/5 delegate to `em_status_frame` through a published/refreshed view.
 - Task cores: 001ADF00 and 001AFCF0 take `(s, w)`; the rest `(s, user, w)`. 001AD360/001ADF50 return the
   original 0/4; others 0 or -1 on fault. Bind `w_001AD140`, `w_001AD010`, `w_001AFCF0` to the S3 cores.

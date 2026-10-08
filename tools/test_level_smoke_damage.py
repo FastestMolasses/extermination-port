@@ -7,6 +7,9 @@ Each run plays the main line to the side phase's source, then the phase
 dmg_flame (from crevice_prompt: the flame's contacts to 35, to 10 and to 0,
 the death, the game over with no input, the title after the death, Up and
 Cross, the New Game to first control; the recordings dmg_00..dmg_04),
+dmg_load (from crevice_prompt: dmg_flame's way to the title after the death,
+then Cross on LOAD GAME, the memory-card screen to its slot choice, Triangle
+back to the title menu; the recordings dmg_00..dmg_03 and dmg_05),
 dmg_crevice_fall (from crevice_prompt: the walking jump short of the north
 block, the landing hit; dmg_06) and dmg_pit_fall (from truck_preview: the
 truck's fall, the walk off its roof onto the pit floor, the game over;
@@ -28,7 +31,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('EM_LEVEL_SMOKE_BIN', str(ROOT / 'build/extermination')))
 OUT = ROOT / 'build/level_smoke_damage'
-SIDES = ('dmg_flame', 'dmg_crevice_fall', 'dmg_pit_fall')
+SIDES = ('dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_pit_fall')
 SIDES = tuple(os.environ['EM_DAMAGE_SIDES'].split(',')) if os.environ.get('EM_DAMAGE_SIDES') else SIDES
 CAPTURES = ROOT.parent / 'Extermination/build/c10/damage'
 

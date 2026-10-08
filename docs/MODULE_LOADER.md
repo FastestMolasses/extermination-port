@@ -678,8 +678,9 @@ counters.
    cursor seeds `AREA11_SEEDS` (section 1.8), the boot's tables from the
    ELF (D_0028A3C0 with the area files looked up in the ISO's directory,
    D_00275304[0], D_00264890), and the sectors of module 3, of the page
-   modules (`PAGE_MODULES`: 0x1E..0x24 and 0x2C..0x31), of the game-over
-   screen module 0x27 (`SCREEN_MODULES`; DAMAGE.md section 5), of area 0x0B
+   modules (`PAGE_MODULES`: 0x1E..0x24 and 0x2C..0x31), of the screen
+   modules 0x27 (the game over; DAMAGE.md section 5), 0x2A and 0x2B (the
+   options' card and row screens; OPTIONS.md) (`SCREEN_MODULES`), of area 0x0B
    (the overlay file, the header, the bank, the A entry and the resident
    region), of area 1 room 0 (AREA01 sub 0, the level exit's load) and of
    area 0 room 0 (AREA00 sub 0, the second level's exit load, since
@@ -752,8 +753,13 @@ counters.
    the pack since chain step DAMAGE (tools/export_module_loader.py
    SCREEN_MODULES; one chunk, the screen's GS upload, which
    em_status_runtime's chain step counts and em_render_001ABF90 draws from
-   its export; DAMAGE.md section 5). The exit's bank modules 0x32..0x35
-   are not exported.
+   its export; DAMAGE.md section 5). The options screen's screen modules
+   0x2B (its row screens: 0022A590's 001FF080(0, 0x2B)) and 0x2A (the
+   memory-card screen: 00225AC0's 001FF080(0, 0x2A)) are in the pack since
+   chain step OPTIONS (SCREEN_MODULES; their GS blocks applied to the status
+   pages' GS memory at the chunk step through em_status_runtime_module_load;
+   OPTIONS.md section 4.2). The exit's bank modules 0x32..0x35 are not
+   exported.
 9. **Tick log.** Every tick carries `loader_pre`: the first 27 bytes of
    `em_module_loader_snapshot` (slot +0, +8..+0x1F, D_00275BD8,
    D_00282157) after the previous frame's slot-2 dispatch (the task runs

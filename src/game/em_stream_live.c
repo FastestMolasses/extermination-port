@@ -14,6 +14,7 @@
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_sfx.h"
+#include "game/em_sfx_bank.h"
 #include "game/em_sound_bank.h"
 #include "game/em_startup_load_gaps.h"
 #include "game/em_stream_lanes_original.h"
@@ -44,15 +45,10 @@ static struct {
      * D_00264890). */
     EmSoundBank bank;
     int bank_bound;
-    /* 001FB100's own storage (step H): D_0081011C, the requested output
-     * mode (the options' sound mode; 0 at the boot and in every capture,
-     * its writer, the options screen, is off the first-level route);
-     * D_0027F778, the SDK's output-mode word 00119870 stores; D_00281F30,
+    /* 001FB100's own storage (step H): D_00281F30,
      * 001FC6E0's ten delayed cues {delay, cue, a2, a3} (001FBC50 leaves
      * {0, -1, 0, 0}; their writer 001FC580 stores through
      * em_stream_live_d281F30, the boxes' break cue). */
-    uint8_t d81011C;
-    int16_t d27F778;
     int32_t d281F30[EM_SLG_CUES][4];
     int depth;               /* nested entries (a worker re-entering) skip the sync */
     int device;              /* em_bgm's device ensured for the first stream */
@@ -214,6 +210,7 @@ int em_stream_live_boot(const char *path)
         return fail("001F9820's stream voices differ from the SFX driver's reserved voices");
     em_stream_live_001FBC50_cues();
     S.booted = 1;
+    em_sfx_bind_output_mode(em_stream_live_output_mode); /* 001FBF50's D_0028215B */
     atomic_store_explicit(&s_mixer, S.ctx.iop, memory_order_release);
     return 0;
 }
@@ -268,7 +265,7 @@ static int h_001F9CF0(void *ctx, int32_t mode)
 static int h_00119870(void *ctx, int32_t a0)
 {
     (void)ctx;
-    S.d27F778 = (int16_t)a0; /* 00119870: D_0027F778 = a0 (sh) */
+    em_sfx_output_mode_00119870((int16_t)a0); /* 00119870: D_0027F778 = a0 (sh); em_sfx_bank's */
     return 0;
 }
 
@@ -288,8 +285,8 @@ static int h_001FB9F0(void *ctx, int32_t cue, int32_t a1, int32_t a2, int32_t a3
 
 /* Step H, 001FB100 (byte-matched; em_slg_001FB100) over its views: the
  * lanes' D_0028215B (mono), D_00281FD4 (lane 0's voice) and D_002820F4,
- * em_sfx's D_00281B70 / D_00281C30, and this module's D_0081011C and
- * D_00281F30. em_frame calls it only while D_00821058 != 1 (the port's
+ * em_sfx's D_00281B70 / D_00281C30, the settings' D_0081011C and this
+ * module's D_00281F30. em_frame calls it only while D_00821058 != 1 (the port's
  * movie flag is 1 or 0), so the translation's own gate sees 0. */
 static int step_h_001FB100(void)
 {
@@ -297,7 +294,10 @@ static int step_h_001FB100(void)
     memset(&f, 0, sizeof f);
     f.d821058 = 0;
     f.d28215B = S.lanes.state.mono;
-    f.d81011C = S.d81011C;
+    /* D_0081011C, the requested output mode: the settings' sound byte
+     * (EmSceneState.d810118[4]; 001AB430 stores 0, the options screen's
+     * sound row toggles it). 001FB100 only reads it. */
+    f.d81011C = em_scene_state()->d810118[4];
     f.d281FD4 = S.lanes.state.lane[0].voice;
     f.d2820F4 = S.lanes.state.voice_right;
     int32_t requested[48], snapshot[48];

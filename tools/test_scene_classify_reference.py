@@ -25,9 +25,10 @@ and by a third witness, the byte-matched decomp C
 (Extermination/src/func_001AE7E0.c) compiled natively, which must agree with
 the oracle on every case.
 
-Lead decision Q1 is tested separately: em_scene_classify_q1 must equal the
-original executed with E74 & ~0x100, report SELECT exactly when E74 & 0x100,
-and leave the canonical state unchanged.
+SELECT alone returns 1 (0x1AE040 state 2, the options screen 0022A650): the
+lead decision Q1 that withheld it until 0022A650 was ported, and its
+em_scene_classify_q1 checks, were retired by chain step OPTIONS
+(2026-10-08; docs/OPTIONS.md section 2).
 """
 import ctypes as C
 import hashlib
@@ -64,8 +65,7 @@ static void fill(EmSceneState *s, uint32_t seed)
 }
 
 int scene_classify_shim(const uint8_t *req, const uint8_t *spad, uint16_t e74, uint16_t e70,
-                        uint8_t e50, int16_t fade, uint32_t seed, int q1, int *unchanged,
-                        int *withheld)
+                        uint8_t e50, int16_t fade, uint32_t seed, int *unchanged)
 {
     EmSceneState s, before;
     fill(&s, seed);
@@ -74,7 +74,7 @@ int scene_classify_shim(const uint8_t *req, const uint8_t *spad, uint16_t e74, u
     s.spad3B90 = spad[4]; s.spad3B91 = spad[5]; s.spad3B92 = spad[6]; s.spad3B93 = spad[7];
     s.d810E74 = e74; s.d810E70 = e70; s.d810E50 = e50;
     memcpy(&before, &s, sizeof s);
-    int result = q1 ? em_scene_classify_q1(&s, fade, withheld) : em_sf_001AE7E0(&s, fade);
+    int result = em_sf_001AE7E0(&s, fade);
     *unchanged = memcmp(&before, &s, sizeof s) == 0;
     return result;
 }
@@ -196,19 +196,18 @@ def main():
                     str(DECOMP/'src/func_001AE7E0.c'), '-o', str(decomp_lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(native_lib))
     native.scene_classify_shim.argtypes = [C.c_char_p, C.c_char_p, C.c_uint16, C.c_uint16,
-                                           C.c_uint8, C.c_int16, C.c_uint32, C.c_int,
-                                           C.POINTER(C.c_int), C.POINTER(C.c_int)]
+                                           C.c_uint8, C.c_int16, C.c_uint32, C.POINTER(C.c_int)]
     decomp = C.CDLL(str(decomp_lib))
     decomp.decomp_classify.argtypes = [C.c_char_p, C.c_uint8, C.c_uint16, C.c_uint8, C.c_int16]
 
     lhu_checks = validate_lhu(elf)
 
-    def run_native(req, spad, e74, bg, case, q1):
-        unchanged, withheld = C.c_int(-1), C.c_int(-1)
+    def run_native(req, spad, e74, bg, case):
+        unchanged = C.c_int(-1)
         result = native.scene_classify_shim(req, spad, e74, bg['e70'], case['e50'], case['fade'],
-                                            bg['seed'], q1, C.byref(unchanged), C.byref(withheld))
+                                            bg['seed'], C.byref(unchanged))
         assert unchanged.value == 1, ('native classifier modified EmSceneState', case)
-        return result, withheld.value
+        return result
 
     product = [dict(zip(('B8', 'B9', 'CE', 'C5', 'B0', 'fade', 'sel', 'e74', 'e50', 'B3'), values))
                for values in itertools.product(
@@ -239,37 +238,26 @@ def main():
     backgrounds = [('zero', zero_background()), ('noise', noise_background(rng))]
     counts = {}
     results = {0: 0, 1: 0, 2: 0, 3: 0}
-    q1_checks = q1_changed = 0
     for label, bg in backgrounds:
         cases = 0
         for case in product + boundary:
             expected, req, spad = original(elf, bg, case)
-            got, _ = run_native(req, spad, case['e74'], bg, case, 0)
+            got = run_native(req, spad, case['e74'], bg, case)
             assert got == expected, (label, case, got, expected)
             witness = decomp.decomp_classify(req, case['sel'], case['e74'], case['e50'], case['fade'])
             assert witness == expected, ('decomp C disagrees with the oracle', label, case, witness, expected)
-            # Q1: equal to the ORIGINAL executed on E74 without SELECT.
-            masked = case['e74'] & ~0x100 & 0xFFFF
-            q1_expected = expected if masked == case['e74'] else \
-                original(elf, bg, dict(case, e74=masked))[0]
-            q1_got, withheld = run_native(req, spad, case['e74'], bg, case, 1)
-            assert q1_got == q1_expected, ('Q1', label, case, q1_got, q1_expected)
-            assert withheld == int(bool(case['e74'] & 0x100)), ('Q1 withheld flag', case, withheld)
-            q1_changed += q1_got != expected
-            q1_checks += 1
             if label == 'zero':
                 results[expected] += 1
             cases += 1
         counts[label] = cases
 
-    # Q1 withholds only SELECT: the original returns 1 for SELECT alone
-    # (0x1AE040 state 2 -> 0022A650); under Q1 the same input returns 0.
+    # SELECT alone and E50 != 4 open the options screen (0x1AE040 state 2 ->
+    # 0022A650) on both sides.
     solo = dict(base, e74=0x100)
     assert original(elf, zero_background(), solo)[0] == 1
-    assert run_native(bytes(REQ_SIZE), bytes(8), 0x100, zero_background(), solo, 1)[0] == 0
-    # E50 != 4 is not masked by Q1.
+    assert run_native(bytes(REQ_SIZE), bytes(8), 0x100, zero_background(), solo) == 1
     e50_case = dict(base, e50=7)
-    assert run_native(bytes(REQ_SIZE), bytes(8), 0, zero_background(), e50_case, 1)[0] == 1
+    assert run_native(bytes(REQ_SIZE), bytes(8), 0, zero_background(), e50_case) == 1
 
     report = {
         'status': 'PASS',
@@ -283,8 +271,6 @@ def main():
         'native_state_unchanged': True,
         'decomp_c_witness_agrees': True,
         'oracle_lhu_extension_checks': lhu_checks,
-        'q1_checks': q1_checks,
-        'q1_cases_differing_from_original': q1_changed,
         'original_elf_sha256': ELF_SHA256,
     }
     (out/'result.json').write_text(json.dumps(report, indent=2) + '\n')

@@ -1219,10 +1219,11 @@ a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
 rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
 host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
 
-### The DAMAGE side runs (dmg_flame, dmg_crevice_fall, dmg_pit_fall)
+### The DAMAGE side runs (dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall)
 
-Side phases (DAMAGE.md section 8): dmg_flame and dmg_crevice_fall after
-crevice_prompt, dmg_pit_fall after truck_preview. Each plays the capture
+Side phases (DAMAGE.md section 8): dmg_flame, dmg_load and dmg_crevice_fall
+after crevice_prompt, dmg_pit_fall after truck_preview (dmg_load: "The
+OPTIONS side runs" below). Each plays the capture
 lane DAMAGE's own closed-loop policies (decomp route_capture.py
 `dmg_beat_*`) as a program of steps (em_level_smoke_test.c "damage":
 idle, hits to a health, retreat, the death to the game over, the title,
@@ -1315,6 +1316,48 @@ rand() caller is mapped (rand_order.py: 001551B0).
 Measured 2026-10-03 (all ten PASS, `make test-level-smoke-branch`): the
 page loads take 9 or 10 rows at host speed against the recordings' 24..26;
 Roger's voice read 1 row against 7 (the teardown 6 rows earlier).
+
+### The OPTIONS side runs (opt_00..opt_08) and dmg_load
+
+Side phases (chain step OPTIONS, audit 1b item 15; OPTIONS.md section 6):
+the decomp capture lane OPTIONS recorded nine beats from route beat 08's end
+(decomp CAPTURES_C10.md "OPTIONS"): SELECT's options screen browsed and
+closed four ways (opt_00), the vibration (01) and sound (02) rows, the
+screen position (03), the brightness picture (04), the button config (05),
+the default prompt (06), the load row to the memory-card screen's slot
+choice (07) and the quit prompt, No (08). Each is its own side phase from
+truck_crossing's end (`every_tick`; em_level_smoke_test.c "options": a
+program of taps, idles and fade waits with the capture tool's predicates),
+printing `beat <name> at tick N` and, per tap, `press` and `took effect`.
+The program's pads reach the game two ticks after they are set, as the
+capture tool's did (the recordings' pad took effect three frames after the
+row it was set on); a fade wait is evaluated on the next tick's start, as
+the tool read the row after the frame.
+
+The tick log adds `opt` (the settings D_00810118 +0..+0xF, the task
+record's +8..+0x1F, D_008106C4, the screen offset, the masks, the pad mode
+D_00810E6A, the pad phase D_00810E50, the repeat word, the card record
+D_00810040 +0..+0x5B, the committed output mode D_0028215B, the busy byte
+and the pad block's +0x16) and `opt_pre` (D_0028215B at the tick's start). `tools/level_smoke_options.py`
+compares each beat state by state from the open (its docstring lists every
+field): the sequence of distinct states equal to the recording's, value
+for value, and each state for the recording's number of rows, except a
+screen module's load (0x2B in 0022A590, 0x2A in 00225AC0's sub-state 3:
+host speed, never longer) and the last state. `make
+test-level-smoke-options` runs the nine side by side (EM_OPTIONS_SIDES=a,b
+runs only those; EM_TEST_JOBS, default 4) and checks each with
+tools/test_level_smoke.py.
+
+dmg_load (a DAMAGE side phase, `make test-level-smoke-damage`) plays
+dmg_flame's program to the title after the death, then dmg_05: Cross on
+LOAD GAME until the menu confirms, the load screen with the fade idle, 60
+ticks, Triangle (30-tick waits) until state 5 is left, the menu again, 30
+ticks. In level-smoke runs the frontend prints a `startup: title row` line
+at the start of every title tick after a death (001AC070's state, 001AC480's
+sub-state, the fade, the busy byte and the card record's +0, +1, +0x14,
++0x15, +0x16 as the previous frame left them); level_smoke_damage.py
+check_dmg_load compares them with the recording from the Cross's fade-out
+to the menu (OPTIONS.md section 6).
 
 ### crevice_climbs
 

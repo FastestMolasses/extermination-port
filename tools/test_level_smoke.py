@@ -106,6 +106,7 @@ import sys
 
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
+import level_smoke_options  # the OPTIONS side run (audit 1b item 15; docs/OPTIONS.md)
 import level_smoke_area01  # the AREA01 arrival idle (route 15 f741..f801) and the opt-in AREA01 routes
 import rand_order as R
 import test_scene_task_reference as tsr
@@ -3047,6 +3048,9 @@ PHASES = [
     ('truck_preview', check_truck_preview),
     ('dmg_pit_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_pit_fall(ticks, run, state)),
     ('truck_crossing', check_truck_crossing),
+    *[(phase, lambda ticks, run, state, phase=phase:
+       level_smoke_options.check_side(sys.modules[__name__], ticks, run, state, phase))
+      for phase in level_smoke_options.PHASES],
     ('fence_door', check_fence_door),
     ('fence_door_side1', check_fence_door_side1),
     branch_phase('br_west_ledge'),
@@ -3068,6 +3072,7 @@ PHASES = [
     ('crevice_climbs', check_crevice_climbs),
     ('crevice_prompt', check_crevice_prompt),
     ('dmg_flame', lambda ticks, run, state: level_smoke_damage.check_dmg_flame(ticks, run, state)),
+    ('dmg_load', lambda ticks, run, state: level_smoke_damage.check_dmg_load(ticks, run, state)),
     ('dmg_crevice_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_crevice_fall(ticks, run, state)),
     branch_phase('br_plateau'),
     ('crevice_jump', check_crevice_jump),
@@ -3756,9 +3761,10 @@ def check_effects(ticks, state):
 
 SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
-        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall', 'br_ledge_ammo', 'br_map_item',
+        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'br_ledge_ammo',
+        'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
-        'br_plateau', 'br_roger_talk', *level_smoke_area01.SIDE_BEATS)
+        'br_plateau', 'br_roger_talk', *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS)
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
@@ -3775,9 +3781,10 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('15', ('exit',)), ('15 AREA01 idle', ('a01_arrival',)),
          ('AREA01 main route (opt-in)', tuple(level_smoke_area01.MAIN_BEATS)),
          ('AREA01 side routes (opt-in)', tuple(level_smoke_area01.SIDE_BEATS)),
-         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_crevice_fall')),
+         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
-                 'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')))
+                 'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
+         ('opt', tuple(level_smoke_options.PHASES)))
 
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
@@ -4559,6 +4566,13 @@ def check_room_lights(ticks, state):
           f'counter, staged count, active slots and {active_total} active slot record(s) equal the captures\')')
 
 
+def options_tick(t):
+    """A tick that runs no world frame for the options screen (docs/OPTIONS.md):
+    0x1AE040 in state 2 at its start or its end (the open's tick, every
+    options frame and the close's tick)."""
+    return bytes.fromhex(t['pre'])[3] == 2 or bytes.fromhex(t['post'])[3] == 2
+
+
 def check_sway(ticks, state, frames):
     """The point-light slots' sway (001D7C30, census: the lighting fold
     lane): on sampled ticks (the first, then every 250th, at most 40, and
@@ -4574,7 +4588,8 @@ def check_sway(ticks, state, frames):
     # machine, docs/DAMAGE.md) runs no world frame, hence no 001D7C30.
     game_over = lambda t: bytes.fromhex(t['post'])[0] == 3 and bytes.fromhex(t['post'])[1] in (2, 4)
     candidates = [i for i in range(1, len(ticks)) if ticks[i].get('lights') and ticks[i - 1].get('lights')
-                  and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1 and not game_over(ticks[i])]
+                  and ticks[i]['counter'] == ticks[i - 1]['counter'] + 1 and not game_over(ticks[i])
+                  and not options_tick(ticks[i])]
     assert candidates, 'sway: no consecutive ticks with the point-light pool'
     picked = sorted(set(candidates[::250][:40]) | (snaps & set(candidates)))
     total, frozen = 0, 0
@@ -4920,7 +4935,7 @@ def main():
              'tail': tails[-1] if tails else None, 'tails': tails}
     # A BRANCH side run (level_smoke_branch): the tick its side phase starts,
     # which bounds the main line's searches.
-    side = re.search(r'^level smoke: br_\w+: beat \S+ at tick (\d+)', run, re.M)
+    side = re.search(r'^level smoke: (?:br_\w+|opt_\d\d): beat \S+ at tick (\d+)', run, re.M)
     if side:
         state['side_start'] = next(i for i, t in enumerate(ticks) if t['tick'] >= int(side.group(1)))
     checked, not_live, driven, side_named = [], [], [], []

@@ -25,13 +25,3 @@ int em_sf_001AE7E0(const EmSceneState *s, int16_t d0028A9A0)
         return 2;
     return 0;
 }
-
-/* Lead decision Q1 (design section 9): not original behaviour, see header. */
-int em_scene_classify_q1(const EmSceneState *s, int16_t d0028A9A0, int *select_withheld)
-{
-    EmSceneState view = *s;
-    view.d810E74 = em_scene_q1_classifier_e74(s->d810E74);
-    if (select_withheld)
-        *select_withheld = (s->d810E74 & EM_SCENE_Q1_SELECT) != 0;
-    return em_sf_001AE7E0(&view, d0028A9A0);
-}

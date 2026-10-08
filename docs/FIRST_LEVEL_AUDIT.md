@@ -1950,7 +1950,8 @@ is the stream request's wait, not the timeline (item 6).
     DAMAGE side runs"). Left, each with its reason (DAMAGE.md section 7):
     infection and the blast reaction 0x80000023 / 001ED450 are unreachable
     in AREA11 (fail-stop kept); the heavy landing has no capture; the
-    title's load screen (dmg_05) is the OPTIONS step's; the fan's hit
+    title's load screen (dmg_05) is live since chain step OPTIONS (item 15;
+    the side run dmg_load); the fan's hit
     (dmg_08) needs Roger's departure (the EXIT step); the gun cable's hit
     chain is unchanged (AIM_FIRE.md).
 14. **Feel: weapons and the aiming camera** (lane L28): the aim, R1, R2 and
@@ -2071,7 +2072,31 @@ is the stream request's wait, not the timeline (item 6).
     captures hold no other sound state.
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
-    exercises the options or save paths.
+    exercises the options or save paths. **Status (2026-10-08, chain step
+    OPTIONS; OPTIONS.md): live and checked against the capture lanes
+    OPTIONS and DAMAGE.** SELECT opens the options screen (the lead decision
+    Q1's SELECT mask is deleted): 0022A650 and its rows and row screens
+    (vibration, sound with its mono arm in the mixer, screen position,
+    brightness, button config, default, load, quit), the help text
+    001FCBD0 / 001FCE30 and the memory-card screen 00225AC0 with its slot
+    choice are translated (em_options_original; test-options-reference:
+    the original instructions over the recordings' RAM, 491 of 492 branch
+    outcomes, the other unreachable) and bound (em_options_live) over one
+    storage: the settings D_00810118, the masks 0x70003B74..83 and the
+    screen offset are canonical, the earlier copies deleted. The title's
+    LOAD GAME after a death runs the same screen (001AC070 state 2's
+    00225A00 and state 5). The memory card is the platform boundary
+    em_memcard: port 0 / 1 are data/memcard/slot1 / slot2 in the original's
+    layout (the macOS app's directory, the iOS app's Documents). Nine side
+    runs opt_00..opt_08 and dmg_load replay the recordings state by state
+    (LEVEL_SMOKE.md "The OPTIONS side runs"). **Save paths:** the first level
+    has none (decomp CAPTURES_C10.md "Save paths": no save terminal in
+    AREA11, 001AD740 unreachable); 00225AC0(1) stays unreached. Left: a
+    chosen slot (002267A0) and a load (00227300) fault (no recording); quit
+    Yes (001AD140) is bound but not recorded; the title's OPTIONS entry and
+    LOAD GAME on the boot's title stay pending; the screen offset is stored
+    but not presented (001AB4E0 not bound; LAUNCHER_OPTIONS.md, a user
+    decision); screen modules 0x2A / 0x2B load at host speed.
 16. **Content: the unplayed branches.** **Status (2026-10-03, chain step
     BRANCHES): live and checked against the capture lane BRANCH** (decomp
     CAPTURES_C10.md "BRANCH": br_00..br_14 with their census delta). Ten

@@ -138,6 +138,8 @@ static void dmg_begin(void);
 static int dmg_frame(void);
 static void br_begin(void);
 static int br_frame(void);
+static void opt_begin(void);
+static int opt_frame(void);
 
 static const Phase k_phases[] = {
     {"first_control", "01_battery (row f0 = slot 04)", 0,
@@ -198,6 +200,33 @@ static const Phase k_phases[] = {
     {"truck_crossing", "08_truck_crossing", 0x00823FF0u,
      "truck 0x823FF0 (r16): stand-on arm, shake, fall, D_00810792=0xFF",
      "the truck's original owner (census L23)", truck_crossing_begin, truck_crossing_frame, 0, 0, 0, 0},
+    {"opt_00", "opt_00_browse_close (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "SELECT; every row browsed down (the wrap) and up; closed by Cross on the exit row, Circle, Triangle and SELECT (0022A650 states 0, 1, 12; 0022AEA0)",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_01", "opt_01_vibration (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "the vibration row: 00201720 (Right flips +1; switching it on rumbles 001B61C0), kept with Cross, twice",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_02", "opt_02_sound (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "the sound row: 00201720 (Right flips +4; 001FB100 commits D_0028215B), kept with Cross, twice",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_03", "opt_03_screen_position (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "screen position: state 10 (0022A590, module 0x2B), 00201F70 moves 0x70003B94 / 96; kept twice, cancelled with Circle",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_04", "opt_04_brightness (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "brightness: state 10, 00202BA0's still screen, left with Cross, Circle and Triangle (states 11, 12)",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_05", "opt_05_button_config (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "button config: state 10, 00202D10, types B, C and A each kept with Cross (001AF470's masks)",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_06", "opt_06_default (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "vibration off; the default prompt 00201C50: No, then Yes (the defaults)",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_07", "opt_07_load_cancel (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "the load row: 001AF6F0, 00225AC0(0) (module 0x2A, the card poll 001FECB0 / 001FE9A0 over em_memcard) to the slot choice 00226070, left with Triangle",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
+    {"opt_08", "opt_08_quit_cancel (side, from 08; decomp CAPTURES_C10.md OPTIONS)", 0x0022A650u,
+     "the quit prompt 0022B420: Right to Yes and back, Cross on No, Circle, Triangle (state 12)",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", opt_begin, opt_frame, 0, 1, 0, 1},
     {"fence_door", "09_fence_door (side, from 08)", 0x001BC350u,
      "door 001BC350 (r0): scripts 0x24DE40 / 0x24DC00, clip 0x45, room move B7=2/B8=2 to entry 2",
      "the fence door's original owner and the ELF program on the AREA11 script host (census L18)",
@@ -278,6 +307,11 @@ static const Phase k_phases[] = {
      "flinch 0021D800, the low-health latch and heartbeat, death 0021E240 / 0021D2E0 (001F77B0), game over "
      "001AD4E0 (module 0x27), 001AC070 from a death, New Game to first control",
      "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
+    {"dmg_load", "dmg_00_flame_hit .. dmg_03, dmg_05_load_screen (side, from 11; decomp CAPTURES_C10.md DAMAGE)",
+     0x00225AC0u,
+     "the title after a death: Cross on LOAD GAME (001AC070 state 2's 00225A00, D_00275BE0 = 1), state 5's "
+     "memory-card screen 00225AC0(0) (module 0x2A, the slot choice 00226070), Triangle back to the title menu",
+     "the OPTIONS step (audit 1b item 15; docs/OPTIONS.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
     {"dmg_crevice_fall", "dmg_06_crevice_fall (side, from 11; decomp CAPTURES_C10.md DAMAGE)", 0,
      "a walking jump short of the north block: the landing hit 0017C580 / 00163E90 (+6 = 3), 0021C350",
      "the DAMAGE step (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
@@ -2873,7 +2907,8 @@ enum { JUMP_LIMIT = 200 };
 enum {
     DS_END = 0, DS_IDLE, DS_HITS_TO, DS_RETREAT, DS_DEATH_TO_GAME_OVER, DS_UNTIL_TITLE, DS_PRESS_UP,
     DS_PRESS_CROSS_NEW_GAME, DS_UNTIL_FIRST_CONTROL, DS_WALK_PATH, DS_SETTLE, DS_FACE, DS_WALKING_JUMP,
-    DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK
+    DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK, DS_PRESS_CROSS_LOAD,
+    DS_UNTIL_LOAD_SCREEN, DS_PRESS_TRIANGLE_LEAVE, DS_UNTIL_TITLE_PROMPT
 };
 typedef struct {
     int kind;
@@ -2898,6 +2933,27 @@ static const DmgStep k_dmg_flame[] = {
     {DS_PRESS_CROSS_NEW_GAME, 0, 0, 0, 0, "dmg_04: Cross (New Game)"},
     {DS_UNTIL_FIRST_CONTROL, 0, 0, 0, 0, "dmg_04: the New Game to first control"}, DMG_IDLE(60),
     {DS_END, 0, 0, 0, 0, NULL}};
+/* dmg_load: dmg_flame to the title after a death, then dmg_05
+ * (route_capture dmg_beat_load_screen): Cross until the menu confirms
+ * (001AC480 sub 3) or leaves it, until state 5 with the fade idle, 60
+ * neutral ticks, Triangle (30-tick waits) until state 5 is left, until the
+ * title menu takes input again, 30 ticks. */
+static const DmgStep k_dmg_load[] = {
+    DMG_IDLE(35), {DS_HITS_TO, 95.0f, 0, 0, 0, "dmg_00: one flame contact"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_00: retreat"}, DMG_IDLE(30),
+    DMG_IDLE(35), {DS_HITS_TO, 35.0f, 0, 0, 0, "dmg_01: contacts to 35"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_01: retreat"}, DMG_IDLE(300),
+    DMG_IDLE(35), {DS_HITS_TO, 10.0f, 0, 0, 0, "dmg_02: contacts to 10"},
+    {DS_RETREAT, 0, 0, 0, 0, "dmg_02: retreat"}, DMG_IDLE(150),
+    {DS_HITS_TO, 0.0f, 0, 0, 0, "dmg_02: contacts to 0"},
+    {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_02: death to the GAME OVER screen"},
+    {DS_UNTIL_TITLE, 0, 0, 0, 0, "dmg_03: the hold runs out; the title after a death"},
+    DMG_IDLE(30), DMG_IDLE(45), DMG_IDLE(5),
+    {DS_PRESS_CROSS_LOAD, 0, 0, 0, 0, "dmg_05: Cross (LOAD GAME)"},
+    {DS_UNTIL_LOAD_SCREEN, 0, 0, 0, 0, "dmg_05: the load screen with the fade idle"}, DMG_IDLE(60),
+    {DS_PRESS_TRIANGLE_LEAVE, 0, 0, 0, 0, "dmg_05: Triangle (the screen's exit)"},
+    {DS_UNTIL_TITLE_PROMPT, 0, 0, 0, 0, "dmg_05: the title menu again"}, DMG_IDLE(30),
+    {DS_END, 0, 0, 0, 0, NULL}};
 static const float k_dmg_crevice_path[2][2] = {{485.0f, 275.0f}, {477.0f, 262.0f}};
 static const DmgStep k_dmg_crevice[] = {
     DMG_IDLE(35), {DS_WALK_PATH, 0, 0, 0, 0, "dmg_06: to the plateau edge"},
@@ -2914,7 +2970,7 @@ static const DmgStep k_dmg_pit[] = {
 
 static struct {
     const DmgStep *prog;
-    int pc, ticks, sub, hits;
+    int pc, ticks, sub, hits, tries;
     float hp0;
 } D;
 
@@ -2924,6 +2980,7 @@ static void dmg_begin(void)
     memset(&D, 0, sizeof D);
     const char *name = k_phases[t.current].name;
     D.prog = strcmp(name, "dmg_flame") == 0 ? k_dmg_flame
+             : strcmp(name, "dmg_load") == 0 ? k_dmg_load
              : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice : k_dmg_pit;
 }
 
@@ -2947,7 +3004,7 @@ static int dmg_next(void)
         fprintf(stderr, "level smoke: %s: done %s at tick %u counter %u\n", k_phases[t.current].name,
                 D.prog[D.pc].what, (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
     ++D.pc;
-    D.ticks = D.sub = 0;
+    D.ticks = D.sub = D.tries = 0;
     nav_reset();
     t.step = 0;
     return 0;
@@ -3073,6 +3130,49 @@ static int dmg_frame(void)
         }
         return 0;
     }
+    case DS_PRESS_CROSS_LOAD:
+    case DS_PRESS_TRIANGLE_LEAVE: {
+        /* dmg_press_until: a two-tick press, then up to `wait` ticks for its
+         * effect (20; Triangle 30), at most six times. Cross: the menu's
+         * confirm (sub 3) or the menu left; Triangle: state 5 left. */
+        unsigned major = 0, sub = 0;
+        em_frontend_title_state(&major, &sub);
+        const int cross = st->kind == DS_PRESS_CROSS_LOAD;
+        const int done = cross ? (major != 2 || sub == 3) : major != 5;
+        if (done && D.sub >= 2) return dmg_next();
+        if (D.sub < 2) {
+            if (D.sub == 0)
+                fprintf(stderr, "level smoke: %s: press %s at counter %u\n", k_phases[t.current].name,
+                        cross ? "CROSS (load)" : "TRIANGLE", em_frame_counter());
+            pad_apply(cross ? EM_PAD_CROSS : EM_PAD_TRIANGLE, 0, 0);
+            ++D.sub;
+            return 0;
+        }
+        pad_apply(0, 0, 0);
+        if (++D.ticks > (cross ? 20 : 30)) {
+            if (++D.tries >= 6) { fail("a title press had no effect"); return 0; }
+            D.sub = 0;
+            D.ticks = 0;
+        }
+        return 0;
+    }
+    case DS_UNTIL_LOAD_SCREEN: {
+        unsigned major = 0, sub = 0;
+        pad_apply(0, 0, 0);
+        em_frontend_title_state(&major, &sub);
+        if (major == 5 && em_frame_transition()->substate == 0) return dmg_next();
+        (void)dmg_timeout(600, "the load screen");
+        return 0;
+    }
+    case DS_UNTIL_TITLE_PROMPT:
+        pad_apply(0, 0, 0);
+        if (em_frontend_title_menu(&cursor)) {
+            fprintf(stderr, "level smoke: %s: the title menu takes input again at counter %u, cursor %u\n",
+                    k_phases[t.current].name, em_frame_counter(), cursor);
+            return dmg_next();
+        }
+        (void)dmg_timeout(900, "the title menu after the load screen");
+        return 0;
     case DS_UNTIL_FIRST_CONTROL:
         /* route_capture dmg_beat_new_game: the area 0x0B with the frame
          * machine in state 1, then the opening (3B8D set), then control. */
@@ -3308,6 +3408,499 @@ static struct {
     EmPadState queue[2], applied;
     int queued;
 } B;
+
+/* ------------------------------------------------------------ options
+ *
+ * The OPTIONS side run (docs/OPTIONS.md section 6; decomp CAPTURES_C10.md
+ * "OPTIONS"): from the end of truck_crossing (the recordings' source
+ * snapshot 08_truck_crossing), the nine beats opt_00..opt_08 in a row, each
+ * after 35 neutral ticks (the capture's pin: its source snapshot's counter
+ * + 30, then idle 5), as programs of the capture lane's own closed-loop
+ * policies (route_capture.py opt_beat_*): every press is a two-tick tap
+ * repeated (at most six times) until its effect shows in the bytes the
+ * recordings sample. Every beat ends in control with the settings, the
+ * offset and the masks back at their start values, so the next starts from
+ * the recordings' start state. Each beat prints "beat <name> at tick N
+ * counter C", each press that took effect "press <button> at tick N";
+ * tools/level_smoke_options.py compares the tick log with the recordings
+ * beat by beat, aligned on those events. The run's options screen frames
+ * close out neither a world nor a status frame: the phase runs every
+ * iteration (Phase.every_tick). Test input only: the policies are the
+ * capture tool's. */
+enum {
+    OS_END = 0, OS_BEAT, OS_IDLE, OS_SETTLE, OS_OPEN, OS_CURSOR, OS_UP_TO, OS_CLOSE, OS_PRESS, OS_UNTIL,
+    OS_TYPE_TO
+};
+enum {
+    OP_MENU = 1,       /* the options screen in state `arg` (-1: any) */
+    OP_NOT_MENU,       /* the options screen closed */
+    OP_SETTING,        /* the settings byte `arg` changed since the press */
+    OP_SETTING_IS,     /* the settings byte `arg >> 8` is `arg & 0xFF` */
+    OP_OFFSET,         /* the screen offset changed since the press */
+    OP_ENTER,          /* the options screen in state 10 or `arg` */
+    OP_MC_STATE_GE,    /* the card screen's state D_00810040 >= arg */
+    OP_QUIT_IS,        /* the quit prompt's choice +0x13 == arg, its sub-state 1 */
+    OP_IN_CONTROL,     /* route_capture in_control */
+    OP_MC_FADE,        /* the card screen in state 1 and the fade idle */
+    OP_MENU_FADE       /* the options screen in state `arg` and the fade idle */
+};
+typedef struct {
+    int kind;
+    uint16_t button;
+    int pred, arg, wait;
+    const char *what;
+} OptStep;
+#define OPT_BEAT(name) {OS_BEAT, 0, 0, 0, 0, name}
+#define OPT_IDLE(n) {OS_IDLE, 0, 0, (n), 0, NULL}
+#define OPT_OPEN {OS_OPEN, EM_PAD_SELECT, OP_MENU, 1, 40, "open"}
+#define OPT_CURSOR(i) {OS_CURSOR, 0, 0, (i), 0, "cursor"}
+#define OPT_CLOSE(b, name) {OS_CLOSE, (b), OP_NOT_MENU, 0, 60, name}
+#define OPT_PRESS(b, p, a, w, name) {OS_PRESS, (b), (p), (a), (w), name}
+#define OPT_UNTIL(p, a, limit) {OS_UNTIL, 0, (p), (a), (limit), NULL}
+/* opt_toggle(row): Cross enters 00201720 (state 5), Right flips the byte,
+ * Cross keeps it. */
+#define OPT_TOGGLE(row, byte)                                                                       \
+    OPT_CURSOR(row), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 5, 30, "enter"), OPT_IDLE(10),               \
+    OPT_PRESS(EM_PAD_RIGHT, OP_SETTING, (byte), 30, "right"), OPT_IDLE(20),                        \
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 30, "keep"), OPT_IDLE(20)
+/* opt_enter_module(row, state): Cross, state 10 (module 0x2B), the row's
+ * screen. */
+#define OPT_ENTER(row, state)                                                                       \
+    OPT_CURSOR(row), OPT_PRESS(EM_PAD_CROSS, OP_ENTER, (state), 20, "enter"),                      \
+    OPT_UNTIL(OP_MENU, (state), 600), OPT_IDLE(20)
+#define OPT_MOVE(b) OPT_PRESS((b), OP_OFFSET, 0, 30, "move"), OPT_IDLE(6)
+#define OPT_END {OS_END, 0, 0, 0, 0, NULL}
+static const OptStep k_opt_program[] = {
+    /* opt_00_browse_close */
+    OPT_BEAT("opt_00_browse_close"), OPT_IDLE(35), OPT_OPEN,
+    OPT_CURSOR(1), OPT_CURSOR(2), OPT_CURSOR(3), OPT_CURSOR(4), OPT_CURSOR(5), OPT_CURSOR(6), OPT_CURSOR(7),
+    OPT_CURSOR(8), OPT_CURSOR(0),
+    {OS_UP_TO, 0, 0, 8, 0, "up"}, {OS_UP_TO, 0, 0, 7, 0, "up"}, {OS_UP_TO, 0, 0, 6, 0, "up"},
+    {OS_UP_TO, 0, 0, 5, 0, "up"}, {OS_UP_TO, 0, 0, 4, 0, "up"}, {OS_UP_TO, 0, 0, 3, 0, "up"},
+    {OS_UP_TO, 0, 0, 2, 0, "up"}, {OS_UP_TO, 0, 0, 1, 0, "up"}, {OS_UP_TO, 0, 0, 0, 0, "up"},
+    OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    OPT_OPEN, OPT_CLOSE(EM_PAD_CIRCLE, "close CIRCLE"),
+    OPT_OPEN, OPT_CLOSE(EM_PAD_TRIANGLE, "close TRIANGLE"),
+    OPT_OPEN, OPT_CLOSE(EM_PAD_SELECT, "close SELECT"),
+    /* opt_01_vibration */
+    OPT_BEAT("opt_01_vibration"), OPT_IDLE(35), OPT_OPEN, OPT_TOGGLE(1, 1), OPT_TOGGLE(1, 1), OPT_CURSOR(0),
+    OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_02_sound */
+    OPT_BEAT("opt_02_sound"), OPT_IDLE(35), OPT_OPEN, OPT_TOGGLE(2, 4), OPT_TOGGLE(2, 4), OPT_CURSOR(0),
+    OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_03_screen_position */
+    OPT_BEAT("opt_03_screen_position"), OPT_IDLE(35), OPT_OPEN,
+    OPT_ENTER(3, 7), OPT_MOVE(EM_PAD_UP), OPT_MOVE(EM_PAD_UP), OPT_MOVE(EM_PAD_UP), OPT_MOVE(EM_PAD_LEFT),
+    OPT_MOVE(EM_PAD_LEFT), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "keep"), OPT_IDLE(20),
+    OPT_ENTER(3, 7), OPT_MOVE(EM_PAD_DOWN), OPT_MOVE(EM_PAD_DOWN), OPT_MOVE(EM_PAD_DOWN),
+    OPT_MOVE(EM_PAD_RIGHT), OPT_MOVE(EM_PAD_RIGHT), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "keep"),
+    OPT_IDLE(20),
+    OPT_ENTER(3, 7), OPT_MOVE(EM_PAD_UP), OPT_MOVE(EM_PAD_UP), OPT_PRESS(EM_PAD_CIRCLE, OP_MENU, 1, 60, "back"),
+    OPT_IDLE(20), OPT_CURSOR(0), OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_04_brightness */
+    OPT_BEAT("opt_04_brightness"), OPT_IDLE(35), OPT_OPEN,
+    OPT_ENTER(4, 8), OPT_IDLE(30), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "back CROSS"), OPT_IDLE(20),
+    OPT_ENTER(4, 8), OPT_IDLE(30), OPT_PRESS(EM_PAD_CIRCLE, OP_MENU, 1, 60, "back CIRCLE"), OPT_IDLE(20),
+    OPT_ENTER(4, 8), OPT_IDLE(30), OPT_PRESS(EM_PAD_TRIANGLE, OP_NOT_MENU, 0, 60, "close TRIANGLE"),
+    OPT_UNTIL(OP_IN_CONTROL, 0, 600), {OS_SETTLE, 0, 0, 20, 0, NULL},
+    /* opt_05_button_config */
+    OPT_BEAT("opt_05_button_config"), OPT_IDLE(35), OPT_OPEN,
+    OPT_ENTER(5, 9), {OS_TYPE_TO, 0, 0, 1, 0, "type"}, OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "keep"), OPT_IDLE(20),
+    OPT_ENTER(5, 9), {OS_TYPE_TO, 0, 0, 2, 0, "type"}, OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "keep"), OPT_IDLE(20),
+    OPT_ENTER(5, 9), {OS_TYPE_TO, 0, 0, 0, 0, "type"}, OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "keep"), OPT_IDLE(20),
+    OPT_CURSOR(0), OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_06_default */
+    OPT_BEAT("opt_06_default"), OPT_IDLE(35), OPT_OPEN, OPT_TOGGLE(1, 1), OPT_CURSOR(7),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 6, 30, "enter"), OPT_IDLE(20), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 30, "no"),
+    OPT_IDLE(20), OPT_PRESS(EM_PAD_CROSS, OP_MENU, 6, 30, "enter"), OPT_IDLE(10),
+    OPT_PRESS(EM_PAD_RIGHT, OP_SETTING_IS, 0x301, 30, "right"), OPT_IDLE(20),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 30, "yes"), OPT_IDLE(20), OPT_CURSOR(0),
+    OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_07_load_cancel */
+    OPT_BEAT("opt_07_load_cancel"), OPT_IDLE(35), OPT_OPEN, OPT_CURSOR(6),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 3, 30, "enter"), OPT_UNTIL(OP_MC_FADE, 0, 900),
+    {OS_IDLE, 0, 0, 60, 0, "slot choice"}, OPT_PRESS(EM_PAD_TRIANGLE, OP_MC_STATE_GE, 2, 40, "back"),
+    OPT_UNTIL(OP_MENU_FADE, 1, 900), {OS_IDLE, 0, 0, 30, 0, "list again"}, OPT_CURSOR(0),
+    OPT_CLOSE(EM_PAD_CROSS, "close CROSS"),
+    /* opt_08_quit_cancel */
+    OPT_BEAT("opt_08_quit_cancel"), OPT_IDLE(35), OPT_OPEN, OPT_CURSOR(8),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 4, 30, "enter"), OPT_IDLE(30),
+    OPT_PRESS(EM_PAD_RIGHT, OP_QUIT_IS, 1, 40, "right"), OPT_IDLE(20),
+    OPT_PRESS(EM_PAD_RIGHT, OP_QUIT_IS, 0, 40, "right"), OPT_IDLE(20),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 1, 60, "no"), OPT_IDLE(20),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 4, 30, "enter"), OPT_IDLE(30),
+    OPT_PRESS(EM_PAD_CIRCLE, OP_MENU, 1, 60, "back CIRCLE"), OPT_IDLE(20),
+    OPT_PRESS(EM_PAD_CROSS, OP_MENU, 4, 30, "enter"), OPT_IDLE(30),
+    OPT_PRESS(EM_PAD_TRIANGLE, OP_NOT_MENU, 0, 60, "close TRIANGLE"),
+    OPT_UNTIL(OP_IN_CONTROL, 0, 600), {OS_SETTLE, 0, 0, 20, 0, NULL},
+    OPT_END};
+
+/* The interpreter models the capture tool's frames: every hook call decides
+ * the pad of the next frame (an "emit"); checks and step changes take no
+ * frame, as route_capture's predicate checks between its steps do. Each
+ * step is a small machine over O.part (its pieces: a settle, a tap, an
+ * idle). */
+enum { EMIT = 0, NEXT = 1 };
+
+static struct {
+    int pc, started, prev, credit;
+    int part, ticks, tap, wait, tries, target;
+    uint16_t button;
+    uint8_t before[0x10];
+    int16_t offset[2];
+    EmPadState queue[2], applied;
+    int queued;
+} O;
+
+/* Each side phase opt_NN plays its beat's segment of the program: from its
+ * OPT_BEAT entry to the next one (or the end). */
+static void opt_begin(void)
+{
+    nav_reset();
+    memset(&O, 0, sizeof O);
+    const char *name = k_phases[t.current].name;
+    O.pc = -1;
+    for (int i = 0; k_opt_program[i].kind != OS_END || i == 0; ++i)
+        if (k_opt_program[i].kind == OS_BEAT && strncmp(k_opt_program[i].what, name, strlen(name)) == 0 &&
+            k_opt_program[i].what[strlen(name)] == '_') {
+            O.pc = i;
+            break;
+        }
+    if (O.pc < 0)
+        fail("no OPTIONS program for this phase");
+}
+
+/* A byte of the slot-0 task record (the hooks run inside or after the
+ * task dispatch). */
+static uint8_t opt_task_byte(unsigned offset)
+{
+    EmTask *task = (EmTask *)em_task_slot(0);
+    const uint8_t *b = task ? em_scene_task_byte(task->user, offset) : NULL;
+    return b ? *b : 0xFF;
+}
+
+static unsigned opt_cursor(void)
+{
+    return (unsigned)(opt_task_byte(0x1C) | opt_task_byte(0x1D) << 8);
+}
+
+/* The options screen runs: the gameplay task 001ACEC0 in frame state 2. */
+static int opt_menu(int state)
+{
+    const EmTask *task = em_task_slot(0);
+    return task && task->fn == em_scene_task_001ACEC0 && opt_task_byte(0x0B) == 2 &&
+           (state < 0 || opt_task_byte(0x0C) == (uint8_t)state);
+}
+
+/* route_capture in_control: the selector 3B8D 0, +1F0 0 and the status
+ * state D_00810131 0. */
+static int opt_in_control(void)
+{
+    const uint8_t *ui = em_status_runtime_ui_block(em_area11_interaction_host_status());
+    return !opt_menu(-1) && em_scene_state()->spad3B8D == 0 &&
+           em_live_u8(player_states_actor(), 0x1F0) == 0 && (!ui || ui[1] == 0);
+}
+
+static int opt_settled(void)
+{
+    return opt_in_control() && em_live_u16(player_states_actor(), 0x20C) == 0;
+}
+
+enum { OP_CURSOR_IS = 100, OP_TYPE_CHANGED };
+
+static int opt_pred(int pred, int arg)
+{
+    const EmSceneState *sc = em_scene_state();
+    switch (pred) {
+    case OP_MENU: return opt_menu(arg);
+    case OP_NOT_MENU: return !opt_menu(-1);
+    case OP_SETTING: return sc->d810118[arg] != O.before[arg];
+    case OP_SETTING_IS: return sc->d810118[arg >> 8] == (uint8_t)arg;
+    case OP_OFFSET: return sc->spad3B94 != O.offset[0] || sc->spad3B96 != O.offset[1];
+    case OP_ENTER: return opt_menu(10) || opt_menu(arg);
+    case OP_MC_STATE_GE: return sc->d810040[0] >= arg;
+    case OP_QUIT_IS: return opt_task_byte(0x13) == (uint8_t)arg && opt_task_byte(0x0D) == 1;
+    case OP_IN_CONTROL: return opt_in_control();
+    case OP_MC_FADE: return sc->d810040[0] == 1 && em_frame_transition()->substate == 0;
+    case OP_MENU_FADE: return opt_menu(arg) && em_frame_transition()->substate == 0;
+    case OP_CURSOR_IS: return (int)opt_cursor() == arg && opt_menu(1);
+    case OP_TYPE_CHANGED: return sc->d810118[0] != O.before[0];
+    default: return 0;
+    }
+}
+
+static const char *opt_button_name(uint16_t b)
+{
+    return b == EM_PAD_SELECT ? "SELECT" : b == EM_PAD_CROSS ? "CROSS" : b == EM_PAD_CIRCLE ? "CIRCLE"
+           : b == EM_PAD_TRIANGLE ? "TRIANGLE" : b == EM_PAD_UP ? "UP" : b == EM_PAD_DOWN ? "DOWN"
+           : b == EM_PAD_LEFT ? "LEFT" : b == EM_PAD_RIGHT ? "RIGHT" : "?";
+}
+
+static int opt_emit(uint16_t buttons)
+{
+    pad_apply(buttons, 0, 0);
+    return EMIT;
+}
+
+static void opt_part(int part)
+{
+    O.part = part;
+    O.ticks = O.tap = O.wait = O.tries = 0;
+}
+
+static int opt_next(void)
+{
+    const OptStep *st = &k_opt_program[O.pc];
+    if (st->kind == OS_BEAT)
+        fprintf(stderr, "level smoke: %s: beat %s at tick %u counter %u\n", k_phases[t.current].name, st->what,
+                (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+    ++O.pc;
+    opt_part(0);
+    O.prev = 0;
+    nav_reset();
+    return NEXT;
+}
+
+/* route_capture idle(n): n frames of the neutral pad. NEXT when done. */
+static int opt_idle(int n)
+{
+    if (O.credit) { /* a frame the step before already idled (OS_UNTIL) */
+        O.credit = 0;
+        ++O.ticks;
+    }
+    if (O.ticks < n) {
+        ++O.ticks;
+        return opt_emit(0);
+    }
+    return NEXT;
+}
+
+/* route_capture settle(n): idle(n), then until in control with the clip
+ * +0x20C at 0 (600 frames). NEXT when done, -1 failed. */
+static int opt_settle(int n)
+{
+    if (O.ticks < n) {
+        ++O.ticks;
+        return opt_emit(0);
+    }
+    if (opt_settled()) return NEXT;
+    if (++O.wait > 600) { fail("control did not return (settle)"); return -1; }
+    return opt_emit(0);
+}
+
+/* route_capture opt_press(button, pred, wait): tap (two frames), then up
+ * to `wait` frames for the predicate (checked before each), once more
+ * after them; at most six taps. NEXT when it took effect, -1 failed. */
+static int opt_press(uint16_t button, int pred, int arg, int wait, const char *what)
+{
+    if (O.tap == 0 && O.tries == 0 && O.wait == 0) {
+        const EmSceneState *sc = em_scene_state();
+        memcpy(O.before, sc->d810118, sizeof O.before);
+        O.offset[0] = sc->spad3B94;
+        O.offset[1] = sc->spad3B96;
+    }
+    if (O.tap < 2) {
+        if (O.tap == 0)
+            fprintf(stderr, "level smoke: %s: press %s (%s) at tick %u counter %u\n", k_phases[t.current].name,
+                    opt_button_name(button), what ? what : "-", (unsigned)em_scene_bindings_log_tick_next(),
+                    em_frame_counter());
+        ++O.tap;
+        return opt_emit(button);
+    }
+    if (opt_pred(pred, arg)) {
+        fprintf(stderr, "level smoke: %s: took effect %s at tick %u counter %u\n", k_phases[t.current].name,
+                opt_button_name(button), (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+        return NEXT;
+    }
+    if (O.wait < wait) {
+        ++O.wait;
+        return opt_emit(0);
+    }
+    if (++O.tries >= 6) {
+        char reason[128];
+        snprintf(reason, sizeof reason, "%s: no effect after six presses of %s", what ? what : "a press",
+                 opt_button_name(button));
+        fail(reason);
+        return -1;
+    }
+    O.tap = 0;
+    O.wait = 0;
+    return opt_press(button, pred, arg, wait, what);
+}
+
+/* One step's hook work: EMIT (the next frame's pad is set), NEXT (the step
+ * is done; the caller runs the next one in the same call) or -1. */
+static int opt_step(void)
+{
+    const OptStep *st = &k_opt_program[O.pc];
+    const EmSceneState *sc = em_scene_state();
+    int r;
+    switch (st->kind) {
+    case OS_END:
+    done:
+        fprintf(stderr, "level smoke: %s: PASS settings=%02X %02X %02X %02X %02X offset=(%d,%d) "
+                "masks=%04X %04X %04X player=(%.3f,%.5f,%.3f)\n", k_phases[t.current].name, sc->d810118[0],
+                sc->d810118[1], sc->d810118[3], sc->d810118[4], sc->d810118[8], sc->spad3B94, sc->spad3B96,
+                sc->spad3B74[0], sc->spad3B74[1], sc->spad3B74[2], g.pos[0], g.pos[1], g.pos[2]);
+        pad_apply(0, 0, 0);
+        return 2;
+    case OS_BEAT:
+        if (O.started) /* the next beat's segment: this phase's ends here */
+            goto done;
+        O.started = 1;
+        return opt_next();
+    case OS_IDLE:
+        r = opt_idle(st->arg);
+        if (r == NEXT && st->what)
+            fprintf(stderr, "level smoke: %s: %s at tick %u counter %u\n", k_phases[t.current].name, st->what,
+                    (unsigned)em_scene_bindings_log_tick_next(), em_frame_counter());
+        return r == NEXT ? opt_next() : r;
+    case OS_SETTLE:
+        r = opt_settle(st->arg);
+        return r == NEXT ? opt_next() : r;
+    case OS_UNTIL:
+        if (st->pred == OP_MC_FADE || st->pred == OP_MENU_FADE) {
+            /* The tool tests the fade of the frame's row, after the frame's
+             * transition tick; the hook runs at the task's end, before it.
+             * So the test of frame k is made at the hook of frame k + 1:
+             * the screen state the hook saw then and the fade at this
+             * tick's start. Frame k + 1 already had the neutral pad the
+             * policy's next idle wants: it counts as its first frame. */
+            const int screen = st->pred == OP_MC_FADE ? em_scene_state()->d810040[0] == 1 : opt_menu(st->arg);
+            const int ok = O.prev && em_scene_bindings_fade_at_tick_start() == 0;
+            O.prev = screen;
+            if (ok) {
+                O.credit = 1;
+                return opt_next();
+            }
+            if (++O.ticks > st->wait) {
+                fail("the options screen did not reach the state the policy waits for");
+                return -1;
+            }
+            return opt_emit(0);
+        }
+        if (opt_pred(st->pred, st->arg)) return opt_next();
+        if (++O.ticks > st->wait) {
+            fail("the options screen did not reach the state the policy waits for");
+            return -1;
+        }
+        return opt_emit(0);
+    case OS_PRESS:
+        r = opt_press(st->button, st->pred, st->arg, st->wait, st->what);
+        return r == NEXT ? opt_next() : r;
+    case OS_OPEN:
+        /* opt_open: settle 10, SELECT until the browse state (40), idle 10. */
+        if (O.part == 0) {
+            r = opt_settle(10);
+            if (r != NEXT) return r;
+            opt_part(1);
+        }
+        if (O.part == 1) {
+            r = opt_press(EM_PAD_SELECT, OP_MENU, 1, 40, "open");
+            if (r != NEXT) return r;
+            opt_part(2);
+        }
+        r = opt_idle(10);
+        return r == NEXT ? opt_next() : r;
+    case OS_CLOSE:
+        /* opt_close: the button until the screen closes (60), until in
+         * control (600), settle 20. */
+        if (O.part == 0) {
+            r = opt_press(st->button, OP_NOT_MENU, 0, st->wait, st->what);
+            if (r != NEXT) return r;
+            opt_part(1);
+        }
+        if (O.part == 1) {
+            if (!opt_in_control()) {
+                if (++O.ticks > 600) { fail("control did not return after the close"); return -1; }
+                return opt_emit(0);
+            }
+            opt_part(2);
+        }
+        r = opt_settle(20);
+        return r == NEXT ? opt_next() : r;
+    case OS_UP_TO:
+        /* opt_beat_browse_close's Up run: Up until the cursor is arg, idle 8. */
+        if (O.part == 0) {
+            r = opt_press(EM_PAD_UP, OP_CURSOR_IS, st->arg, 30, "up");
+            if (r != NEXT) return r;
+            opt_part(1);
+        }
+        r = opt_idle(8);
+        return r == NEXT ? opt_next() : r;
+    case OS_CURSOR:
+        /* opt_cursor_to: Down (or Up when shorter) to the next row until the
+         * cursor shows it in the browse state, idle 8; until the row. */
+        for (;;) {
+            if (O.part == 0) {
+                const int cursor = (int)opt_cursor();
+                if (cursor == st->arg) return opt_next();
+                const int down = ((st->arg - cursor) % 9 + 9) % 9 <= ((cursor - st->arg) % 9 + 9) % 9;
+                O.button = down ? EM_PAD_DOWN : EM_PAD_UP;
+                O.target = (cursor + (down ? 1 : -1) + 9) % 9;
+                opt_part(1);
+            }
+            if (O.part == 1) {
+                r = opt_press(O.button, OP_CURSOR_IS, O.target, 30, "cursor");
+                if (r != NEXT) return r;
+                opt_part(2);
+            }
+            r = opt_idle(8);
+            if (r != NEXT) return r;
+            opt_part(0);
+        }
+    case OS_TYPE_TO:
+        /* opt_button_type: Right / Left until the type is arg, idle 10. */
+        for (;;) {
+            if (O.part == 0) {
+                const int type = sc->d810118[0];
+                if (type == st->arg) return opt_next();
+                O.button = st->arg > type ? EM_PAD_RIGHT : EM_PAD_LEFT;
+                opt_part(1);
+            }
+            if (O.part == 1) {
+                r = opt_press(O.button, OP_TYPE_CHANGED, 0, 30, "type");
+                if (r != NEXT) return r;
+                opt_part(2);
+            }
+            r = opt_idle(10);
+            if (r != NEXT) return r;
+            opt_part(0);
+        }
+    default:
+        fail("unknown options step");
+        return -1;
+    }
+}
+
+/* The hook: run steps until one sets the next frame's pad. 1 the phase
+ * passed, 0 continue. The recordings' pad reached the game three frames
+ * after the row it was set on (SELECT at f39, frame state 2 at f42: decomp
+ * CAPTURES_C10.md "OPTIONS"), the overlay's on the next frame: as the
+ * BRANCH side runs do (br_frame), every pad the program sets (test input)
+ * reaches the overlay two ticks later, so the closed-loop policies see
+ * their taps take effect when the capture tool did and the states last the
+ * recordings' rows. */
+static int opt_frame(void)
+{
+    int r = NEXT;
+    for (int guard = 0; r == NEXT && guard < 64; ++guard)
+        r = opt_step();
+    if (r == NEXT) {
+        fail("the options program made no frame");
+        return 0;
+    }
+    if (r == 2)
+        return 1;
+    if (r < 0 || !t.pad_on)
+        return 0;
+    O.applied = O.queued >= 2 ? O.queue[0] : (EmPadState){0};
+    O.queue[0] = O.queue[1];
+    O.queue[1] = t.pad;
+    if (O.queued < 2) ++O.queued;
+    em_input_set_gamepad(&O.applied);
+    return 0;
+}
 
 static void br_begin(void)
 {

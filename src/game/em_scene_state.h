@@ -313,8 +313,11 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
     } migrated[] = {
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
         {0x00810706u, 0x00810708u}, /* 0015CF90's +0x235 (GLUE) and infected-latch (HK) copies */
+        {0x00810708u, 0x0081070Au}, /* the settings' type and vibration copies (001AF1C0 / 001AF2C0, OPTIONS) */
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
+        {0x0081070Cu, 0x0081070Du}, /* the settings' sound copy (001AF1C0 / 001AF2C0, OPTIONS) */
         {0x00810710u, 0x00810730u}, /* 00159B90's two terminal position/rotation quadwords (A01) */
+        {0x00810754u, 0x00810758u}, /* the settings' screen offset copies (001AF1C0 / 001AF2C0, OPTIONS) */
         {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
         {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
         {0x00810766u, 0x00810768u}, /* events 0x0E mechanism bypass / 0x0F placed 8267C0 gate (A01) */
@@ -427,12 +430,30 @@ typedef struct {
      * +0xB0..+0xCC here (S12a). Read later by the door cut 0018CBD0 (3B50). */
     float spad3B40[8];
 
-    /* D_00810040..00810113: terminal confirmation/save task block. The
-     * existing 00225A00 owner resets all 0xD4 bytes before request 6 opens
-     * BATTERY. Lifetime is the scene coordinator's, across room loads;
-     * the separate status-page task starts at 00810130. Accepted-save
-     * 00225AC0 is still unbound; this storage does not provide card I/O. */
+    /* D_00810040..00810113: the memory-card screen's record (00225AC0; its
+     * card I/O is em_memcard's). The 00225A00 owner resets all 0xD4 bytes
+     * before request 6 opens BATTERY, the options screen's load row through
+     * 001AF6F0. Lifetime is the scene coordinator's, across room loads; the
+     * separate status-page task starts at 00810130. */
     uint8_t d810040[0xD4];
+
+    /* D_00810118..D_00810127: the settings (docs/OPTIONS.md): +0 the button
+     * type, +1 vibration, +3 the default prompt's choice, +4 the sound
+     * mode, +8 / +0xA the screen offset kept at the last confirm. 001AB430
+     * sets them at the boot (em_scene_settings_001AB430); the options
+     * screen writes them; 001AF1C0 / 001AF2C0 copy them into the progress
+     * block (0x810708, 709, 70C, 754, 756) and 001AF150 back. Readers: the
+     * rumble 001B61C0 (+1), the sound commit 001FB100 (+4). */
+    uint8_t d810118[0x10];
+
+    /* 0x70003B74..0x70003B83: the eight button masks (001AF470 by the
+     * type); every reader of the pad assignment reads them here. */
+    uint16_t spad3B74[8];
+
+    /* 0x70003B94 / 0x70003B96: the screen offset (001AB370 zeroes them;
+     * the options' screen position moves them; the main loop's 001AB4E0
+     * passes them to the display environments). */
+    int16_t spad3B94, spad3B96;
 } EmSceneState;
 
 /* ---------------------------------------------------------------- accessors */
@@ -525,14 +546,34 @@ static inline uint8_t *em_scene_progress_spawn_view(EmSceneState *s)
  * game_state_new_game). The named area bytes and D_00810750 are outside this
  * reset: the port has no w_001AD230 yet (S12a), and the legacy load writes the
  * 001AD360 area bytes after it. */
+/* 001AF2C0's stores into the canonical progress bytes: the 0x640-byte
+ * memset, the five settings copies (D_00810708 = +0, 709 = +1, 70C = +4,
+ * 754 = +8, 756 = +0xA of D_00810118) and CA4..CA7. Its 001AF470(D_00810708)
+ * call follows (em_scene_settings_001AF470), then the rest of 001AF2C0. */
 static inline void em_scene_progress_reset_001AF2C0(EmSceneState *s)
 {
     for (size_t i = 0; i < EM_SCENE_PROGRESS_SIZE; ++i)
         s->progress.bytes[i] = 0;
+    s->progress.bytes[0x00810708u - EM_SCENE_PROGRESS_BASE] = s->d810118[0];
+    s->progress.bytes[0x00810709u - EM_SCENE_PROGRESS_BASE] = s->d810118[1];
+    s->progress.bytes[0x0081070Cu - EM_SCENE_PROGRESS_BASE] = s->d810118[4];
+    for (unsigned i = 0; i < 4; ++i)
+        s->progress.bytes[0x00810754u - EM_SCENE_PROGRESS_BASE + i] = s->d810118[8 + i];
     s->progress.bytes[0x00810CA4u - EM_SCENE_PROGRESS_BASE] = 0xFF;
     s->progress.bytes[0x00810CA5u - EM_SCENE_PROGRESS_BASE] = 5;
     s->progress.bytes[0x00810CA6u - EM_SCENE_PROGRESS_BASE] = 0;
     s->progress.bytes[0x00810CA7u - EM_SCENE_PROGRESS_BASE] = 7;
+}
+
+/* 001AB430's settings stores at the boot: the 0xC-byte memset of
+ * D_00810118, then +0 = 0, +1 = 1 (vibration on), +4 = 0 (stereo). */
+static inline void em_scene_settings_001AB430(EmSceneState *s)
+{
+    for (unsigned i = 0; i < 0xC; ++i)
+        s->d810118[i] = 0;
+    s->d810118[0] = 0;
+    s->d810118[1] = 1;
+    s->d810118[4] = 0;
 }
 
 /* ----------------------------------------------------------- task bytes */

@@ -376,6 +376,14 @@ static float sfx_wrap_pi(float a)
  * `pos` with attenuation `radius`, against the em_sfx_listener state.
  * Returns 0 = out of range (func_001FBF50 returns 0, which func_001FBD50
  * reports as play_sound -1). */
+/* D_0028215B, the committed output mode 001FBF50 tests: the stream lanes'
+ * byte (em_stream_live binds its reader at the boot, 001F9820). Fixtures
+ * that run em_sfx without the stream lanes have no reader: they see the
+ * byte 001FB210 commits at the boot from the boot settings (0, stereo). */
+static const uint8_t *(*s_output_mode)(void);
+
+void em_sfx_bind_output_mode(const uint8_t *(*reader)(void)) { s_output_mode = reader; }
+
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r)
 {
@@ -401,6 +409,15 @@ int em_sfx_compute_gains(const float pos[3], float radius,
     float d  = sqrtf(dx * dx + dy * dy + dz * dz);
     if (d >= radius) return 0;          /* engine: not submitted */
     float vol = sinf((SFX_PI * 0.5f) * (radius - d) / radius);
+
+    /* 001FBF50's mono arm (D_0028215B == 1): both channels get the volume,
+     * no pan. */
+    const uint8_t *mode = s_output_mode ? s_output_mode() : NULL;
+    if (s_output_mode && !mode) return 0; /* the lanes faulted: nothing is submitted */
+    if (mode && *mode == 1) {
+        *gain_l = *gain_r = vol;
+        return 1;
+    }
 
     /* PAN: camera listener (eye D_008105D0, yaw cam+0x9C), XZ plane.
      * The engine's dot(RotY(yaw)*(0,0,1), normalize_xz(src-eye)) ==

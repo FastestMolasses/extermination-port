@@ -453,8 +453,12 @@ in docs/FIRST_LEVEL_AUDIT.md and docs/FIRST_LEVEL_CENSUS.md.
 
 The title audio sequencer preserves the original events, waits, pitches and
 sample data, but its current dry mixer does not reproduce SPU2 ADSR, Gaussian
-interpolation, reverb or hardware voice allocation. Native storage currently
-maps the successful card-check path to a local directory; full save/load and
-space handling remain incomplete. Load Game, Option and attract services remain
-pending rather than manufacturing an outcome. Windows/Linux movie backends and
+interpolation, reverb or hardware voice allocation. The memory cards are the
+host directories data/memcard/slot1 and slot2 (em_memcard, docs/OPTIONS.md
+section 5): the boot's card check creates them, and the card screen's GetInfo /
+Sync answer from them; saving and loading a game (the card's files) are not
+on the first level's path and fault. Load Game after a death runs the original
+memory-card screen (docs/OPTIONS.md section 4.3; on the boot's title it fails:
+no AREA11 binding exists yet); the Option and attract services remain pending
+rather than manufacturing an outcome. Windows/Linux movie backends and
 other existing gameplay approximations also remain unfinished.

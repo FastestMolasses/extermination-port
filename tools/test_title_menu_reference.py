@@ -95,6 +95,7 @@ void h_state(unsigned out[6])
 # em_startup.h event kinds used by the title prompt.
 FADE_IN, FADE_OUT, EFFECT_LEVEL, CUE = 8, 9, 12, 13
 SCREEN_MODULE, TITLE_RESOURCES = 1, 4
+LOAD_GAME = 15
 
 
 class Title:
@@ -151,6 +152,12 @@ class Title:
             elif kind != TITLE_RESOURCES:      # FB370 poll: no original call record
                 actual_events.append(('other', kind, ident, value))
         expected_events = list(self.events)
+        if verdict == 1 and expected_state[1] == 1:
+            # The load verdict: 001AC070 state 2 (not 001AC480) clears the
+            # card record (00225A00) and sets D_00275BE0 in the same tick,
+            # em_startup's LOAD_GAME request, last of the tick's events.
+            assert actual_events[-1:] == [('other', LOAD_GAME, 0, 0)], dict(tick=self.ticks, actual=actual_events)
+            actual_events.pop()
         state = (C.c_uint * 6)()
         self.native.h_state(state)
         major, sub, aux, cursor, timer, _mode = state

@@ -7,6 +7,7 @@
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
 #include "game/em_pickup_program.h"
+#include "game/em_startup_load_gaps.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -411,6 +412,9 @@ void em_pickup_reset(void)
      * taken bits and CA4..CA7 among them), with 001AF2C0's stores to them. */
     EmSceneState *scene = em_scene_state();
     em_scene_progress_reset_001AF2C0(scene);
+    /* 001AF2C0's 001AF470(D_00810708): the button masks of the settings'
+     * type (the one translation, em_slg_001AF470). */
+    em_slg_001AF470(scene->spad3B74, scene->progress.bytes[0x00810708u - EM_SCENE_PROGRESS_BASE]);
     item_store(0x00810C60u, 0);          /* C60 */
     item_store(0x00810C7Bu, 1);          /* C7B = count[0x17] */
     item_store(0x00810CB7u, 0);          /* CB7 */

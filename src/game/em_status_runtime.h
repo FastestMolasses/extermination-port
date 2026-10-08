@@ -205,4 +205,11 @@ int em_status_runtime_render(EmStatusRuntime *, EmGfx *);
 const EmStatusFrame *em_status_runtime_frame(const EmStatusRuntime *);
 const EmStatusPage *em_status_runtime_page(const EmStatusRuntime *);
 
+/* The options screen (docs/OPTIONS.md): 001FF080(0, 0x2B / 0x2A) through
+ * the loader (1 accepted), 00200970(1) (1 ok) and the status pages' binding
+ * (its GS memory; NULL when not bound). */
+int em_status_runtime_module_load(EmStatusRuntime *runtime, unsigned module);
+int em_status_runtime_restore(EmStatusRuntime *runtime);
+EmStatusPagesLive *em_status_runtime_pages(EmStatusRuntime *runtime);
+
 #endif

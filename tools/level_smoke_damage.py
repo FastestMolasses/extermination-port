@@ -277,16 +277,19 @@ def control_ticks(ticks, start):
     raise AssertionError('damage: no first control in the tick log')
 
 
-def check_dmg_flame(ticks, run, state):
+def flame_to_title(ticks, run, state, phase):
+    """dmg_00..dmg_03 of a run that plays the flame's death (dmg_flame,
+    dmg_load): the hits, the heartbeat, the death, the game over and the
+    title after the death. A summary of what was checked."""
     beats = ('dmg_00_flame_hit', 'dmg_01_flame_low_health', 'dmg_02_flame_death')
     c = [crow(r) for b in beats for r in capture(b)['rows']]
-    start = phase_start(run, 'dmg_flame', ticks)
+    start = phase_start(run, phase, ticks)
     state['damage_from'] = start
     p = prows(ticks, start)
-    nh, worst = check_hits(c, p, 'dmg_flame')
-    nb = check_heartbeat(c, p, 'dmg_flame')
-    dc, dp, req = check_death(c, p, 'dmg_flame')
-    load_c, load_p, n = check_game_over(c, p, dc, dp, req, 'dmg_flame')
+    nh, worst = check_hits(c, p, phase)
+    nb = check_heartbeat(c, p, phase)
+    dc, dp, req = check_death(c, p, phase)
+    load_c, load_p, n = check_game_over(c, p, dc, dp, req, phase)
     # dmg_03 (its own rows, from the dmg_02 end snapshot): the hold's end
     # (+A 3 -> 4) to the install of 001AC070.
     c3 = [crow(r) for r in capture('dmg_03_gameover_timeout')['rows']]
@@ -296,11 +299,19 @@ def check_dmg_flame(ticks, run, state):
     hold_end_p = next(r['counter'] for r in p if r['slot'] == (3, 2, 4))
     install_p = int(re.search(r'^startup: 001AC070 again \(D_00275BDC = 1\), engine frame (\d+)', run, re.M).group(1))
     assert install_p - hold_end_p == install_c - hold_end_c, \
-        ('dmg_flame: the hold end to 001AC070', install_p - hold_end_p, install_c - hold_end_c)
-    prompt_p = int(re.search(r'^level smoke: dmg_flame: the title menu takes input at counter (\d+), cursor 1$',
+        (f'{phase}: the hold end to 001AC070', install_p - hold_end_p, install_c - hold_end_c)
+    prompt_p = int(re.search(rf'^level smoke: {phase}: the title menu takes input at counter (\d+), cursor 1$',
                              run, re.M).group(1))
     assert 0 < prompt_p - install_p <= prompt_c - install_c, \
-        ('dmg_flame: 001AC070 to the menu', prompt_p - install_p, prompt_c - install_c)
+        (f'{phase}: 001AC070 to the menu', prompt_p - install_p, prompt_c - install_c)
+    return (f'{nh} hits as recorded (knock-back within {worst:.4f}), {nb} heartbeats, the death and its decal to '
+            f'the load request ({req} ticks), screen module 0x27 loaded in {load_p} ticks (the disc {load_c}), {n} '
+            f'game-over ticks after it, 001AC070 {install_p - hold_end_p} after the hold, the menu after '
+            f'{prompt_p - install_p} (the disc {prompt_c - install_c})')
+
+
+def check_dmg_flame(ticks, run, state):
+    summary = flame_to_title(ticks, run, state, 'dmg_flame')
     # dmg_04: the confirm to the game task. The recording's rows hold the
     # frame 001AC480 entered its sub 3 (the confirm) and the frame 001AC070
     # state 4's 001AB790 replaced the task; its pad reaches the game three
@@ -334,12 +345,95 @@ def check_dmg_flame(ticks, run, state):
     if boot is not None:
         assert again == boot, ('dmg_flame: the New Game after a death took', again, 'ticks; the boot New Game',
                                boot)
-    print(f'level smoke: dmg_flame: {nh} hits as recorded (knock-back within {worst:.4f}), {nb} heartbeats, '
-          f'the death and its decal to the load request ({req} ticks), screen module 0x27 loaded in {load_p} '
-          f'ticks (the disc {load_c}), {n} game-over ticks after it, 001AC070 {install_p - hold_end_p} after the '
-          f'hold, the menu after {prompt_p - install_p} (the disc {prompt_c - install_c}), the game task '
-          f'{back_p - confirm_p} after the confirm, first control {again} ticks later'
-          + (f' (the boot New Game: {boot})' if boot is not None else ''))
+    print(f'level smoke: dmg_flame: {summary}, the game task {back_p - confirm_p} after the confirm, first control '
+          f'{again} ticks later' + (f' (the boot New Game: {boot})' if boot is not None else ''))
+
+
+TITLE_ROW = re.compile(r'^startup: title row counter (\d+) state (\d+) sub (\d+) fade (-?\d+) busy (\d+) '
+                       r'card (\d+) (\d+) (\d+) (\d+) (\d+)$', re.M)
+
+
+def title_state(s8, s9, fade, busy):
+    """001AC070's state, 001AC480's sub-state in state 2 (else 0), the fade
+    D_0028A9A0 and, in state 5, the busy byte D_00275BD8. In state 2 the
+    busy byte is left out: the title's screen module 1 is the frontend's
+    native stand-in (resident at host speed, no loader task; the recording's
+    busy rows 1 there), checked by its timing only."""
+    return (s8, s9 if s8 == 2 else 0, fade, busy if s8 == 5 else None)
+
+
+def check_dmg_load(ticks, run, state):
+    """dmg_load: dmg_00..dmg_03 as dmg_flame, then dmg_05 (the title's load
+    screen, docs/OPTIONS.md section 6). The title rows (the frontend's
+    "startup: title row" lines, each the state after the frame before its
+    counter) against the recording's from the Cross's fade-out on: the
+    sequence of distinct states equal, each lasting the recording's rows
+    except the load of screen module 0x2A (state 5, busy; host speed), the
+    title's screen module 1 (state 2 sub 1; host speed) and the last state
+    (the idle before the Triangle included: the policy's taps reach the
+    title flow when the capture tool's did); the
+    press to the fade-out as recorded for both presses; the card record:
+    load mode (+0x14 = 2), the slot choice (+0x15 = 1) reached and the
+    result 1 (the exit)."""
+    summary = flame_to_title(ticks, run, state, 'dmg_load')
+    rec = capture('dmg_05_load_screen')['rows']
+    cap = []
+    for r in rec:
+        b = bytes.fromhex(r['slots'][:0x40])
+        cap.append((r['counter'], title_state(b[8], b[9], int(r['fade'][:2], 16), r['bd8']),
+                    int(r['pressed'], 16)))
+    port = [(int(m.group(1)) - 1, title_state(*(int(m.group(k)) for k in (2, 3, 4, 5))),
+             tuple(int(m.group(k)) for k in range(6, 11))) for m in TITLE_ROW.finditer(run)]
+    cross = int(re.search(r'^level smoke: dmg_load: press CROSS \(load\) at counter (\d+)$', run, re.M).group(1))
+    tri = int(re.search(r'^level smoke: dmg_load: press TRIANGLE at counter (\d+)$', run, re.M).group(1))
+    prompt = int(re.search(r'^level smoke: dmg_load: the title menu takes input again at counter (\d+)', run,
+                           re.M).group(1))
+    # The presses: the recording's from the row its pad reached the game
+    # (pressed set) to the fade-out (D_0028A9A0 3); the run's pad reaches
+    # the game on the tick after the press line.
+    def fade_out(rows, after):
+        return next(c for c, s, *_ in rows if c >= after and s[2] == 3)
+    arrivals = [c for c, _, pr in cap if pr]
+    cross_c = arrivals[0]
+    tri_c = next(c for c in arrivals if c > fade_out(cap, cross_c) + 40)
+    lat = [(fade_out(port, cross + 1) - (cross + 1), fade_out(cap, cross_c) - cross_c),
+           (fade_out(port, tri + 1) - (tri + 1), fade_out(cap, tri_c) - tri_c)]
+    assert all(a == b for a, b in lat), ('dmg_load: a press to its fade-out (Cross, Triangle)', lat)
+    a_c, a_p = fade_out(cap, cross_c), fade_out(port, cross + 1)
+    cs = [s for c, s, *_ in cap if c >= a_c]
+    ps = [s for c, s, *_ in port if a_p <= c <= prompt]
+    def runs(states):
+        out = []
+        for x in states:
+            if out and out[-1][0] == x:
+                out[-1][1] += 1
+            else:
+                out.append([x, 1])
+        return out
+    cr, pr = runs(cs), runs(ps)
+    # The recording runs on 30 frames past the prompt; the run's rows stop
+    # at the prompt's first row.
+    end = next(i for i, (x, _) in enumerate(cr) if i and x == (2, 2, 0, None))
+    cr = cr[:end + 1]
+    assert [x for x, _ in pr] == [x for x, _ in cr], ('dmg_load: the title states differ', [x for x, _ in pr],
+                                                       [x for x, _ in cr])
+    idle = next(i for i, (x, _) in enumerate(cr) if x == (5, 0, 0, 0))
+    host = 0
+    for i, ((x, n), (_, m)) in enumerate(zip(pr[:-1], cr[:-1])):
+        if (x[0] == 5 and x[3] == 1) or (x[0] == 2 and x[1] == 1):
+            assert n <= m, ('dmg_load: a screen module load lasted longer than the recording\'s', x, n, m)
+            host += 1
+        else:
+            assert n == m, ('dmg_load: a title state lasted', n, 'rows, the recording\'s', m, x)
+    # The card record over the screen: load mode, the slot choice, the exit.
+    cards = [card for c, s, card in port if a_p <= c <= prompt and s[0] == 5]
+    assert any(cd[2] == 2 for cd in cards), 'dmg_load: 00225AC0 never stored the load mode (+0x14 = 2)'
+    assert any(cd[0] == 1 and cd[3] == 1 for cd in cards), 'dmg_load: the slot choice (+0x15 = 1) never ran'
+    assert cards[-1][0] == 3 and cards[-1][4] == 1, ('dmg_load: the screen did not end with the exit', cards[-1])
+    print(f'level smoke: dmg_load: {summary}; the load screen: {len(cr)} title states from the Cross\'s fade-out to '
+          f'the menu equal the recording\'s, each for its rows ({host} screen-module load(s) at host speed; '
+          f'the idle before the Triangle {pr[idle][1]} rows), both presses to '
+          f'their fade-outs as recorded ({lat[0][1]}, {lat[1][1]} frames)')
 
 
 def check_dmg_crevice_fall(ticks, run, state):

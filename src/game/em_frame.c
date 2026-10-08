@@ -221,6 +221,10 @@ static void frame_screen_fade_draw(void)
 const EmFrameInput *em_frame_input(void){ return &s_frame.input; }
 const EmPadUnpack *em_frame_pad_block(void) { return &s_frame.pad_block; }
 
+/* D_00810E6A, the pad block's +0x2A halfword: 001B5F40's read-time mode id
+ * (7: the DualShock's analog mode). Read only (the options screen). */
+uint16_t em_frame_d810E6A(void) { return (uint16_t)(s_frame.pad_2A[0] | s_frame.pad_2A[1] << 8); }
+
 /* See em_frame.h: the original-layout words need no remapping; the native
  * EM_PAD view (s_frame.input) is the swapped one. */
 void em_frame_scene_input(EmSceneState *scene)

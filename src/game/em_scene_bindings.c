@@ -4,8 +4,9 @@
  * What is live after S12a:
  *   - the slot-0 task is em_scene_task_001ACEC0, which runs the S3 cores
  *     001ACEC0 -> 001AD250 and, through the w_001AD4D0 binding (the original
- *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040 with
- *     the lead's Q1 entry point (em_sf_001AE040_q1);
+ *     001AD4D0 is a tail jump to 0x1AE040), the S2 frame core 0x1AE040
+ *     (em_sf_001AE040; the lead's Q1 SELECT withholding was removed in chain
+ *     step OPTIONS, which binds 0022A650);
  *   - S9: the state-0 tick returns. 0x1AE040 state 0 ends with
  *     an unconditional branch at 0x1AE0DC to the epilogue 0x1AE5CC, never falling into state 1,
  *     so the tick that rebuilds the area runs no world variant; the first
@@ -38,10 +39,11 @@
  *     states 3 and 5 run with the world frozen (see "status screen"
  *     below). B9, written by the player stage (0015CF90), leads at fade
  *     substate 2 to 001AD140 -> 001AD4E0 -> 001ADF00, which replaces this
- *     task with the interim 001AC070 (see "game over" below). The
- *     unported arms (r == 1: 0022A650/001FB9F0, reachable only through
- *     SELECT, withheld under Q1, or E50 != 4, never written; r == 3 /
- *     state 6: 001FF030/001FEFE0, reachable only through CE, never written;
+ *     task with the interim 001AC070 (see "game over" below). r == 1
+ *     (SELECT, or E50 != 4) opens the options screen 0022A650 (state 2,
+ *     chain step OPTIONS: see "the options screen" below). The unported
+ *     arms (r == 3 / state 6: 001FF030/001FEFE0, reachable only through
+ *     CE, never written;
  *     +9 = 3: 001AD740, reachable only through 3B93, never written in
  *     AREA11) fault at their NULL workers;
  *   - S12a: New Game (and Continue) register this task with a cleared
@@ -144,6 +146,8 @@
 #include "game/em_load_veil.h"
 #include "game/em_opening_control_test.h"
 #include "game/em_stream_live.h"
+#include "game/em_options_live.h"
+#include "game/em_task.h"
 #include "game/em_opening_runtime.h"
 #include "game/em_pickup.h"
 #include "game/em_pickup_original.h"
@@ -224,7 +228,6 @@ static EmLoadVeil s_veil;
 /* The slot-0 record's user bytes for the tick in progress. */
 static uint8_t *s_user;
 static int s_fault_reported;
-static int s_q1_reported;
 
 /* Original data addresses the variants pass as actor handles. */
 enum {
@@ -295,9 +298,9 @@ static const struct {
                                   "port counterpart; only the AREA11 roster pool gets the 001C1EA0 "
                                   "weather node (001C1EA0 over D_008106C8, em_area11_bindings.c)"},
     [UM_00199C50] = {0x00199C50u, "no port counterpart"},
-    [UM_001FAE70] = {0x001FAE70u, "area music cue from state 2 (0022A650 == 1) or state 6; not "
-                                  "mirrored there. The state-0 area entry, the state-4 room move "
-                                  "and the state-5 status close are bound (w_001FAE70)"},
+    [UM_001FAE70] = {0x001FAE70u, "area music cue from state 6; not mirrored there. The state-0 "
+                                  "area entry, the state-4 room move, the state-5 status close and "
+                                  "the state-2 options close are bound (w_001FAE70)"},
     [UM_001C5C50_LEGACY_WORLD] = {0x001C5C50u, "scene without an original roster: no area-title "
                                                "node (legacy em_hud area title)"},
     [UM_001D1EF0] = {0x001D1EF0u, "before the area's render-context bind (the New Game bring-up "
@@ -531,6 +534,7 @@ static struct {
     uint32_t counter;   /* 0x70003B64 at the tick start (EM_RAND_TRACE's clock) */
     uint8_t loader[27]; /* the loader's record and bytes after the previous frame */
     uint8_t pad[5];     /* D_00810E40 +0x16, +0x18, +0x19, +0x28/+0x29 after the previous frame */
+    int b15B;           /* D_0028215B after the previous frame's step H (-1: the lanes not booted) */
 } s_tick;
 
 static FILE *log_file(void)
@@ -695,6 +699,12 @@ static void log_tick_begin(void)
             s_tick.pad[4] = pad[0x29];
         }
     }
+    /* D_0028215B after the previous frame's step H (001FB100 commits the
+     * settings' sound byte after the task), the rows' post-frame sample. */
+    {
+        const uint8_t *mode = em_stream_live_output_mode();
+        s_tick.b15B = mode ? *mode : -1;
+    }
 }
 
 /* check_static_world samples every STATIC_SAMPLE_EVERY-th 001C1D00 call. */
@@ -711,6 +721,12 @@ static struct {
 static int s_capture_count, s_capture_env;
 
 uint32_t em_scene_bindings_log_tick_next(void) { return s_log_tick; }
+
+/* D_0028A9A0 at the start of this tick's task: the previous frame's
+ * post-frame fade (the transition ticks after the task), which the route
+ * rows sample. Test instrumentation (the level smoke's policies). */
+static int16_t s_fade_at_start;
+int16_t em_scene_bindings_fade_at_tick_start(void) { return s_fade_at_start; }
 
 void em_scene_bindings_capture_tick(uint32_t tick, const char *path)
 {
@@ -1133,6 +1149,34 @@ static void log_tick_end(int rc)
                 first = 0;
             }
             fputs("]]", f);
+        }
+        /* The OPTIONS side run (docs/OPTIONS.md section 6; tools/
+         * level_smoke_options.py), as the OPTIONS captures' rows sample them
+         * (decomp CAPTURES_C10.md "OPTIONS"): the settings D_00810118..27,
+         * the slot-0 task record +0x08..+0x1F (its +0xB frame state, +0xC /
+         * +0xD the options' state and sub-state, +0x12, +0x13, the cursor
+         * +0x1C, the timer +0x1E), D_008106C4, the screen offset
+         * 0x70003B94 / 96, the masks 0x70003B74..83, the pad mode
+         * D_00810E6A, the pad phase D_00810E50, the repeat word D_00810E78,
+         * the card record D_00810040..0x81009B, the committed output mode
+         * D_0028215B, D_00275BD8 and the pad block's +0x16 (the rumble). */
+        {
+            const EmTask *t0 = em_task_slot(0);
+            const uint8_t *mode = em_stream_live_output_mode();
+            const uint8_t *pad = em_pad_actuator_block();
+            fputs(", \"opt\": [", f);
+            log_hex(f, s_state.d810118, sizeof s_state.d810118);
+            fputs(", ", f);
+            static const uint8_t zero[EM_TASK_USER_BYTES];
+            log_hex(f, t0 ? t0->user : zero, EM_TASK_USER_BYTES);
+            fprintf(f, ", %u, %d, %d, ", (unsigned)s_state.req[EM_SCENE_REQ_C4], s_state.spad3B94,
+                    s_state.spad3B96);
+            log_hex(f, (const uint8_t *)s_state.spad3B74, sizeof s_state.spad3B74);
+            fprintf(f, ", %u, %u, %u, ", (unsigned)em_frame_d810E6A(), (unsigned)s_state.d810E50,
+                    (unsigned)em_frame_pad_block()->repeat);
+            log_hex(f, s_state.d810040, 0x5C);
+            fprintf(f, ", %d, %u, %u], \"opt_pre\": [%d]", mode ? (int)*mode : -1, (unsigned)s_state.d275BD8,
+                    pad ? (unsigned)pad[0x16] : 0u, s_tick.b15B);
         }
         /* The BRANCH side runs (LEVEL_SMOKE.md "The BRANCH side runs";
          * tools/level_smoke_branch.py), as the BRANCH captures' rows sample
@@ -1917,13 +1961,13 @@ static void log_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a1
 /* ------------------------------------------------------------ trace */
 
 /* The classifier result recorded for this tick (design 10.1: once per
- * classifier run): 001AE7E0 over the canonical state, through the same Q1
- * entry the core uses, so it is the result the core acts on. Since S11a the
+ * classifier run): 001AE7E0 over the canonical state, the result the core
+ * acts on. Since S11a the
  * canonical input words are written every tick (em_frame_scene_input), so
  * no pad-block substitution is needed. */
 static int32_t traced_classifier(void)
 {
-    return em_scene_classify_q1(&s_state, em_frame_transition()->substate, NULL);
+    return em_sf_001AE7E0(&s_state, em_frame_transition()->substate);
 }
 
 static void bindings_trace(void *ctx, uint32_t caller, uint32_t callee, uint32_t a0,
@@ -3945,14 +3989,15 @@ int em_scene_bindings_001FC280(void)
  * at the state-0 area entry (0x1AE0CC, a0 = 1: the area music's read, and
  * the first rand() after New Game, from the unseeded state 1), the state-4
  * room move (a0 = 0: one rand(), then cue 25 continues) and the state-5
- * status close (a0 = 1). The rand() order is checked against the C7
- * capture (tools/rand_order.py, docs/RAND_ORDER.md). State 2's r == 1 and
- * state 6 stay reported (UM_001FAE70): no level smoke run reaches them. */
+ * status close (a0 = 1) and the options' close (state 2's r == 1, a0 = 0;
+ * chain step OPTIONS). The rand() order is checked against the C7 capture
+ * (tools/rand_order.py, docs/RAND_ORDER.md). State 6 stays reported
+ * (UM_001FAE70): no level smoke run reaches it. */
 static int w_001FAE70(void *ctx, int a0)
 {
     (void)ctx;
     const int bound = (s_entry_state == 0 && a0 == 1) || (s_entry_state == 4 && a0 == 0) ||
-                      (s_entry_state == 5 && a0 == 1);
+                      (s_entry_state == 5 && a0 == 1) || (s_entry_state == 2 && a0 == 0);
     if (!bound)
         return unmirrored(UM_001FAE70);
     return em_stream_live_001FAE70(a0);
@@ -4146,6 +4191,102 @@ static int w_001AEBA0(void *ctx, int16_t a0)
     return 0;
 }
 
+/* ------------------------------------------------------ the options screen
+ *
+ * 0x1AE040 state 2 (chain step OPTIONS, docs/OPTIONS.md): SELECT (or the
+ * pad byte E50 != 4) opens it at state 1's r == 1 arm (D_008106C4 = 2,
+ * 001FBC50, the cue 0xC). Every frame 0022A650 runs the translated screen
+ * (em_options_original) through its live binding (em_options_live, the
+ * interaction host's), over the canonical bytes: the settings D_00810118,
+ * this task's record (the slot address 0x0028A750 + 0x20 * slot), the card
+ * record D_00810040, the message block, the busy byte, the button masks
+ * and the screen offset; its draw stream is drawn in the same tick (the
+ * world is frozen; no 001D1EA0 runs), as the game-over screen's. r == 1
+ * closes: 001AF1C0 (the settings into the progress block, 001AF470), the
+ * cue 0xD and 001FAE70(0). r == 2 (a game loaded) is reached only through
+ * 00227300, which faults first (not translated); r == 3 (quit, Yes) runs
+ * 001AD140 as the death does. */
+static int options_frame(EmOptionsFrame *f)
+{
+    if (!s_user) return -1;
+    int slot = -1;
+    for (int i = 0; i < EM_TASK_SLOTS; ++i)
+        if (em_task_slot(i) == em_task_current()) slot = i;
+    if (slot < 0) return -1;
+    memset(f, 0, sizeof *f);
+    f->settings = s_state.d810118;
+    f->task_address = 0x0028A750u + 0x20u * (uint32_t)slot;
+    f->task = s_user;
+    f->mc = s_state.d810040;
+    f->progress = s_state.progress.bytes;
+    f->message = em_message_live_block();
+    f->busy = &s_state.d275BD8;
+    f->masks = s_state.spad3B74;
+    f->offset = &s_state.spad3B94;
+    f->read_phase = r_00282157(NULL);
+    f->fade = r_0028A9A0(NULL);
+    f->held = s_state.d810E70;
+    f->pressed = s_state.d810E74;
+    f->repeat = em_frame_pad_block()->repeat;
+    f->pad_mode = em_frame_d810E6A();
+    f->pad_phase = s_state.d810E50;
+    f->spad3B90 = s_state.spad3B90;
+    f->spad3B93 = s_state.spad3B93;
+    return f->message ? 0 : -1;
+}
+
+static int w_0022A650(void *ctx)
+{
+    (void)ctx;
+    EmOptionsLive *options = em_area11_interaction_host_options();
+    EmOptionsFrame f;
+    uint32_t r = 0;
+    if (s_entry_state != 2 || !options || options_frame(&f) < 0)
+        return em_scene_fault(&s_state, 0x0022A650u, EM_SCENE_FAULT_NULL_WORKER);
+    if (em_options_live_0022A650(options, &f, &r) < 0)
+        return em_scene_fault(&s_state, 0x0022A650u, EM_SCENE_FAULT_WORKER_FAILED);
+    EmGfx *gfx = em_frame_gfx();
+    if (gfx && em_options_live_render(options, gfx) != 1)
+        return em_scene_fault(&s_state, 0x0022A650u, EM_SCENE_FAULT_WORKER_FAILED);
+    return (int)r;
+}
+
+static int w_001AF1C0(void *ctx)
+{
+    (void)ctx;
+    EmOptionsLive *options = em_area11_interaction_host_options();
+    EmOptionsFrame f;
+    if (s_entry_state != 2 || !options || options_frame(&f) < 0)
+        return em_scene_fault(&s_state, 0x001AF1C0u, EM_SCENE_FAULT_NULL_WORKER);
+    if (em_options_live_001AF1C0(options, &f) < 0)
+        return em_scene_fault(&s_state, 0x001AF1C0u, EM_SCENE_FAULT_WORKER_FAILED);
+    em_options_live_deactivate(options);
+    return 0;
+}
+
+static int w_001AF150(void *ctx)
+{
+    (void)ctx;
+    EmOptionsLive *options = em_area11_interaction_host_options();
+    EmOptionsFrame f;
+    if (s_entry_state != 2 || !options || options_frame(&f) < 0)
+        return em_scene_fault(&s_state, 0x001AF150u, EM_SCENE_FAULT_NULL_WORKER);
+    return em_options_live_001AF150(options, &f) < 0
+               ? em_scene_fault(&s_state, 0x001AF150u, EM_SCENE_FAULT_WORKER_FAILED) : 0;
+}
+
+/* 001FB9F0(cue, 0x1000, 0x1000, 0x1000) of states 1 / 2 (the options' open
+ * cue 0xC and close cue 0xD): em_sfx_submit_001FB9F0 over the area's
+ * registry scope (an id without an exported sound faults). */
+static int w_001FB9F0(void *ctx, int a0, int a1, int a2, int a3)
+{
+    (void)ctx;
+    if ((s_entry_state != 1 && s_entry_state != 4 && s_entry_state != 2) || a1 != 0x1000)
+        return -1;
+    em_sfx_submit_001FB9F0((unsigned)a0, a2, a3);
+    return 0;
+}
+
 static int w_001AB790(void *ctx, uint32_t fn)
 {
     (void)ctx;
@@ -4158,13 +4299,7 @@ static int w_001AB790(void *ctx, uint32_t fn)
 
 static int frame_machine(void)
 {
-    int select_withheld = 0;
-    int rc = em_sf_001AE040_q1(&s_state, s_user, &s_workers, &select_withheld);
-    if (select_withheld && !s_q1_reported) {
-        s_q1_reported = 1;
-        fprintf(stderr, "em_scene: %s\n", EM_SCENE_Q1_UNPORTED_MESSAGE);
-    }
-    return rc;
+    return em_sf_001AE040(&s_state, s_user, &s_workers);
 }
 
 /* 001AD4D0: the jump into 0x1AE040. */
@@ -4267,6 +4402,14 @@ static void bindings_init(void)
     w->s_00810D38 = s_00810D38;
     w->w_001AEBA0 = w_001AEBA0;
     w->w_001AB790 = w_001AB790;
+
+    /* The options screen (0x1AE040 state 2, chain step OPTIONS). 001D2610,
+     * the r == 2 arm's, stays unbound: a load is reached only through
+     * 00227300, which faults first. */
+    w->w_0022A650 = w_0022A650;
+    w->w_001AF1C0 = w_001AF1C0;
+    w->w_001AF150 = w_001AF150;
+    w->w_001FB9F0 = w_001FB9F0;
 
     /* The load arms (S12a): 001ACEC0 +8 = 0/1, 001AD360, 001ADF50. */
     w->w_001AD1A0 = w_001AD1A0;
@@ -4481,6 +4624,7 @@ void em_scene_task_001ACEC0(void)
     EmFrameTrace *t = em_frame_trace_env();
     if (t)
         em_frame_trace_tick_begin(t, em_frame_counter());
+    s_fade_at_start = em_frame_transition()->substate;
     log_tick_begin();
     int rc = em_sf_001ACEC0(&s_state, s_user, &s_workers);
     log_tick_end(rc);

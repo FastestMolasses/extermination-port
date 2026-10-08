@@ -40,8 +40,9 @@ Products:
      on both sides, to prove the core re-reads what the original re-reads.
      Asserts: +B==0 calls no variant; +B==4 runs the classifier right after
      001C5C50 in the same tick.
-     Lead decision Q1 (em_sf_001AE040_q1): equal to the original with SELECT
-     withheld from the E74 the classifier reads only.
+     (The lead decision Q1, em_sf_001AE040_q1, which withheld SELECT until
+     0022A650 was ported, and its cases were retired by chain step OPTIONS,
+     2026-10-08: SELECT opens the options screen as in the original.)
   B. 0x1AE5E0 / 0x1AE6B0 executed directly: 3B92{0,1,0x80} x 3B91{0,1,2}
      x D_0028A9A0{0,1,2,-1,-32768} x E74{0,0x40,0x100,0x800,0x900,0xFFFF}
      x counters{0, INT_MAX, -1} x 3B84{0,0xFFFF} x meddle.
@@ -250,16 +251,12 @@ class FrameOracle(ClassifierOracle):
                 return entry
         raise AssertionError(('pc outside the executed originals', hex(pc)))
 
-    def run_original(self, entry, q1=False):
+    def run_original(self, entry):
         self.r[31] = RETURN
         pc = entry
-        restore = None
         for _ in range(20000):
             if pc == RETURN:
                 return
-            if restore and pc == restore[0]:
-                self.save(E74, restore[1], 2)
-                restore = None
             fn = self.function_of(pc)
             word = self.load(pc)
             op, rs, rt = word >> 26, word >> 21 & 31, word >> 16 & 31
@@ -271,10 +268,6 @@ class FrameOracle(ClassifierOracle):
                 executed = target in RANGES and not (self.stub_variants and target in (0x1AE5E0, 0x1AE6B0))
                 if executed:
                     self.events.append((fn, target, (0, 0, 0, 0), self.snap()))
-                    if target == 0x1AE7E0 and q1:
-                        value = self.load(E74, 2)
-                        self.save(E74, value & ~0x100 & 0xFFFF, 2)
-                        restore = (pc + 8, value)
                     pc = target
                 else:
                     self.stub(fn, target)
@@ -477,13 +470,11 @@ void shim_config(int r22A650, int r20CDC0, int meddle_mode, int real, uint32_t n
     W.trace = TRACE_ON ? trace : NULL;
 }
 
-int shim_run(int which, int *withheld)
+int shim_run(int which)
 {
     NTR = NWR = 0;
-    *withheld = -1;
     switch (which) {
     case 0: return em_sf_001AE040(&S, U, &W);
-    case 1: return em_sf_001AE040_q1(&S, U, &W, withheld);
     case 2: return em_sf_001AE5E0(&S, &W);
     case 3: return em_sf_001AE6B0(&S, &W);
     case 4: return em_sf_001AE040(&S, NULL, &W);
@@ -515,7 +506,7 @@ class Native:
     def __init__(self, library):
         L = self.lib = C.CDLL(str(library))
         L.shim_config.argtypes = [C.c_int, C.c_int, C.c_int, C.c_int, C.c_uint32, C.c_uint32, C.c_int]
-        L.shim_run.argtypes = [C.c_int, C.POINTER(C.c_int)]
+        L.shim_run.argtypes = [C.c_int]
         for name in ('shim_state', 'shim_user', 'shim_ext', 'shim_trace', 'shim_work'):
             getattr(L, name).restype = C.c_void_p
         layout = (C.c_uint32 * 64)()
@@ -570,8 +561,7 @@ class Native:
     def run(self, which, results, meddle, real=1, null_addr=0, fail_addr=0, trace_on=1):
         self.lib.shim_config(results.get(0x22A650, 0), results.get(0x20CDC0, 0), meddle, real,
                              null_addr, fail_addr, trace_on)
-        withheld = C.c_int(-1)
-        ret = self.lib.shim_run(which, C.byref(withheld))
+        ret = self.lib.shim_run(which)
         count = self.lib.shim_ntrace()
         assert count <= 160
         raw = C.string_at(self.lib.shim_trace(), self.trsize * count)
@@ -586,7 +576,7 @@ class Native:
         nwork = self.lib.shim_nwork()
         rawwork = C.string_at(self.lib.shim_work(), self.wrsize * nwork)
         work = [struct.unpack_from('<6I', rawwork, i*self.wrsize) for i in range(nwork)]
-        return ret, withheld.value, events, work
+        return ret, events, work
 
 
 # ------------------------------------------------------------ comparison
@@ -675,14 +665,14 @@ def frame_machine(index, values):
     return m, {0x22A650: r22, 0x20CDC0: r20}, meddle
 
 
-def run_frame_case(elf, native, index, values, q1=False):
+def run_frame_case(elf, native, index, values):
     m, results, meddle = frame_machine(index, values)
-    context = (index, values, 'meddle', meddle, 'q1', q1)
+    context = (index, values, 'meddle', meddle)
     o = FrameOracle(elf, results, meddle)
     o.load_machine(m)
-    o.run_original(0x1AE040, q1=q1)
+    o.run_original(0x1AE040)
     native.load(m)
-    ret, withheld, events, work = native.run(1 if q1 else 0, results, meddle)
+    ret, events, work = native.run(0, results, meddle)
     assert ret == 0 and native.fault() == (0, 0), ('native returned', context, ret, native.fault())
     compare(o.events, events, context)
     check_work(events, work, context)
@@ -694,9 +684,6 @@ def run_frame_case(elf, native, index, values, q1=False):
     if b == 4:
         k = callees.index(0x1C5C50)
         assert callees[k + 1] == 0x1AE7E0, ('state 4 did not fall through', context)
-    if q1:
-        classified = 0x1AE7E0 in callees
-        assert withheld == int(classified and bool(m['d810E74'] & 0x100)), ('Q1 flag', context, withheld)
     classifier_ran = 0x1AE7E0 in callees
     variant = next((c for c in callees if c in (0x1AE5E0, 0x1AE6B0)), None)
     return {'classifier_ran': classifier_ran, 'variant': variant, 'meddle': meddle,
@@ -721,7 +708,7 @@ def run_variant_case(elf, native, index, values):
     o.load_machine(m)
     o.run_original(entry)
     native.load(m)
-    ret, _, events, work = native.run(2 if entry == 0x1AE5E0 else 3, {}, meddle)
+    ret, events, work = native.run(2 if entry == 0x1AE5E0 else 3, {}, meddle)
     assert ret == 0 and native.fault() == (0, 0), ('native returned', context, ret)
     compare(o.events, events, context)
     check_work(events, work, context)
@@ -742,7 +729,7 @@ def _init(library):
 
 
 def _frame_chunk(chunk):
-    stats = {'cases': 0, 'q1_cases': 0, 'classifier_ran': 0, 'variant_5E0': 0, 'variant_6B0': 0,
+    stats = {'cases': 0, 'classifier_ran': 0, 'variant_5E0': 0, 'variant_6B0': 0,
              'meddle': [0]*6, 'max_calls': 0}
     for index, values in chunk:
         info = run_frame_case(_ELF, _NATIVE, index, values)
@@ -752,9 +739,6 @@ def _frame_chunk(chunk):
         stats['variant_6B0'] += info['variant'] == 0x1AE6B0
         stats['meddle'][info['meddle']] += 1
         stats['max_calls'] = max(stats['max_calls'], info['calls'])
-        if values[0] in (1, 4) and values[-1] in ('select', 'idle', 'start'):
-            run_frame_case(_ELF, _NATIVE, index, values, q1=True)
-            stats['q1_cases'] += 1
     return stats
 
 
@@ -824,7 +808,7 @@ def fail_stop(elf, native):
             if callee == 0x1AE7E0:
                 continue
             native.load(m)
-            ret, _, events, _ = native.run(0, results, MEDDLE_NONE, null_addr=callee)
+            ret, events, _ = native.run(0, results, MEDDLE_NONE, null_addr=callee)
             first = next(i for i, e in enumerate(full) if e[1] == callee)
             assert ret == -1 and native.fault() == (callee, 1), ('NULL worker', values, hex(callee), ret, native.fault())
             compare(full[:first], events, ('NULL prefix', values, hex(callee)))
@@ -833,19 +817,19 @@ def fail_stop(elf, native):
             assert tuple(got[n] for n in SNAP) == full[first][3], ('state at NULL fault', values, hex(callee))
             # latched: a second tick does nothing
             before = native.machine()
-            ret2, _, events2, work2 = native.run(0, results, MEDDLE_NONE, null_addr=callee)
+            ret2, events2, work2 = native.run(0, results, MEDDLE_NONE, null_addr=callee)
             assert ret2 == -1 and not events2 and not work2 and native.machine() == before
             checks += 2
             # a worker returning -1 faults after its (traced) call; nothing follows
             native.load(m)
-            ret, _, events, work = native.run(0, results, MEDDLE_NONE, fail_addr=callee)
+            ret, events, work = native.run(0, results, MEDDLE_NONE, fail_addr=callee)
             assert ret == -1 and native.fault() == (callee, 2), ('failing worker', values, hex(callee), native.fault())
             assert [e[1] for e in events] == [e[1] for e in full[:first + 1]], ('fail prefix', values, hex(callee))
             checks += 1
         # NULL readers: fault at the reader's address iff the path reads it.
         for reader in READERS:
             native.load(m)
-            ret, _, events, _ = native.run(0, results, MEDDLE_NONE, null_addr=reader)
+            ret, events, _ = native.run(0, results, MEDDLE_NONE, null_addr=reader)
             full_native = native_full = None
             if ret == -1:
                 assert native.fault() == (reader, 1), ('NULL reader', values, hex(reader), native.fault())
@@ -858,15 +842,15 @@ def fail_stop(elf, native):
     # user == NULL and workers == NULL
     m, results, _ = frame_machine(0, paths[1])
     native.load(m)
-    ret, _, events, _ = native.run(4, results, MEDDLE_NONE)
+    ret, events, _ = native.run(4, results, MEDDLE_NONE)
     assert ret == -1 and native.fault() == (0x1AE040, 4) and not events
     native.load(m)
-    ret, _, events, _ = native.run(5, results, MEDDLE_NONE)
+    ret, events, _ = native.run(5, results, MEDDLE_NONE)
     assert ret == -1 and native.fault()[1] == 1 and not events
     # A NULL trace hook changes nothing.
     m, results, _ = frame_machine(3, paths[3])
     native.load(m)
-    ret, _, events, _ = native.run(0, results, MEDDLE_NONE, trace_on=0)
+    ret, events, _ = native.run(0, results, MEDDLE_NONE, trace_on=0)
     silent = native.machine()
     native.load(m)
     native.run(0, results, MEDDLE_NONE)
@@ -901,7 +885,7 @@ def measured_traces(native):
             assert frame['selector_3B8D'] == entry['sel_3B8D']
             page = int(any(t == 'func_001E0CC0' for _, t in original))
             native.load(m)
-            ret, _, got, _ = native.run(0, {0x20CDC0: page}, MEDDLE_NONE)
+            ret, got, _ = native.run(0, {0x20CDC0: page}, MEDDLE_NONE)
             assert ret == 0
             mine = [(names[c], f'func_{t:08X}') for c, t, _, _ in got]
             assert mine == original, ('measured order', path.name, frame['counter'], mine, original)
@@ -1011,7 +995,7 @@ def main():
     assert frame_stats['cases'] == len(frame_items)
     assert variant_stats['cases'] == len(variant_items)
     assert all(frame_stats['meddle']), frame_stats['meddle']
-    assert frame_stats['variant_5E0'] and frame_stats['variant_6B0'] and frame_stats['q1_cases']
+    assert frame_stats['variant_5E0'] and frame_stats['variant_6B0']
     assert variant_stats['promoted_3B91'] and variant_stats['b84_incremented']
     report['frame_cases_0x1AE040'] = frame_stats
     report['variant_cases'] = variant_stats

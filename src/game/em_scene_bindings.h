@@ -162,6 +162,9 @@ const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address, uint32_t s
  * Also read from EM_FB_CAPTURE_TICKS="<tick>:<path>[;<tick>:<path>...]".
  * Test instrumentation: it changes nothing the game computes. */
 uint32_t em_scene_bindings_log_tick_next(void);
+/* D_0028A9A0 at the start of this tick's task (the previous frame's post-frame
+ * fade); test instrumentation. */
+int16_t em_scene_bindings_fade_at_tick_start(void);
 void em_scene_bindings_capture_tick(uint32_t tick, const char *path);
 
 /* ---- Legacy port code the bindings call (implemented in em_game.c) ----

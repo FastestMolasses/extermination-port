@@ -168,13 +168,19 @@ verified translation.
   the New Game's 001AB790, and 0015CF90 / 001B1190 with oracles executing
   them: live 925 of 956 (118,723 of 120,964 instructions = 98.1%),
   verified but unbound 21, unverified 1 (001CB480); the route's own
-  through beat 15 747 of 766 live (88,415 of 89,400 = 98.9%).
+  through beat 15 747 of 766 live (88,415 of 89,400 = 98.9%). Update 1.65
+  (chain step OPTIONS, 2026-10-08, recounted from the rows, liveness
+  measured over its ten side runs): the options screen, its row screens and
+  the memory-card screen (the OPTIONS recordings' 14 further functions, and
+  the title's load screen's 11 DAMAGE rows to live): live 948 of 968
+  (122,905 of 123,918 instructions = 99.2%), verified but unbound 19,
+  unverified 1, missing 0; the route's own unchanged.
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
-  the DAMAGE recordings ran. Not covered: unplayed branches
-  (pause/options/save, the camera inputs, the fan's hit, the west-yard and
-  plateau ladders) and boot before the title.
+  the DAMAGE, BRANCH and OPTIONS recordings ran. Not covered: unplayed
+  branches the capture lanes did not record (the camera inputs, the fan's
+  hit, a chosen memory-card slot) and boot before the title.
   Boundary functions are native replacements, not translations; the sound
   library's boundary (the SPU2 output) is the largest uncompared one.
   "Stand-in 0" counts census rows only; census 2.3 "What still stands in"
@@ -1501,8 +1507,44 @@ starts the level again with the original opening.
   appears 13 ticks sooner and the title menu takes input sooner (67 ticks
   against 104); the fan's hit and the heavy landing from the towers are not
   replayed (the fan needs Roger's departure; no capture of the heavy
-  landing exists); the title's Load and Options entries are not bound;
+  landing exists); the title's Options entry is not bound (its Load entry
+  is since chain step OPTIONS: the next entry);
   infection cannot happen in the first level; pixels and sounds are not
+  compared.
+
+**The options screen, the memory-card load screen and the title's LOAD GAME, as in the original**
+
+SELECT in the first level opens the original options screen: its list,
+the vibration and sound (stereo / mono) toggles, the screen position, the
+brightness picture, the button configuration with its three types, the
+default prompt, the load row's memory-card screen up to its slot choice and
+the quit prompt, with the original cues, fades and screen modules. The
+title menu's LOAD GAME after a death opens the same memory-card screen. The
+settings, the button masks and the screen offset are the game's own bytes,
+read where the original reads them (the rumble, the sound mix, the
+controls). The memory cards are two host folders in the original's data
+layout.
+
+- How: the screens are translated from the original instructions
+  (em_options_original, `OPTIONS.md`) and run over the port's one storage at
+  the original addresses (em_options_live); the card I/O is the platform
+  boundary em_memcard (GetInfo and Sync over data/memcard/slot1 / slot2).
+- Evidence: `make test-options-reference`: the original routines executed
+  over the OPTIONS and DAMAGE recordings' RAM, RAM, scratchpad and
+  arguments equal at every callee entry (EM_TEST_FULL=1: 3,337 cases, 491
+  of 492 branch outcomes, the other unreachable);
+  `make test-level-smoke-options` and dmg_load (`make
+  test-level-smoke-damage`): the nine OPTIONS recordings and dmg_05
+  replayed, every state from the open equal to the recording's and lasting
+  its rows (`LEVEL_SMOKE.md` "The OPTIONS side runs"), both PASS on
+  2026-10-08; `make test-area11-sfx-reference` pass M (the mono arms).
+- Status: **PARTIAL**. Proven: the state above relative to the PCSX2
+  recordings. Not proven or not covered: the screen modules 0x2A / 0x2B
+  load at host speed (about 10 ticks against the recordings' 23 rows); the
+  screen position is stored but the picture does not move (a presentation
+  decision, `LAUNCHER_OPTIONS.md`); choosing a memory-card slot, loading,
+  saving (the first level has no save point) and quitting with Yes are not
+  recorded and stop the game or are untested; pixels and sounds are not
   compared.
 
 **Off the main route in the first level: the optional pickups, the other ladders, breaking boxes, the elevator back up, declining the panel and talking to Roger, as in the original**
@@ -2275,4 +2317,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-08 (the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-08 (chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

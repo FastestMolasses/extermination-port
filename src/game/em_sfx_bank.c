@@ -1,3 +1,4 @@
+#include <stdatomic.h>
 #include "game/em_sfx_bank.h"
 
 #include <stdio.h>
@@ -289,15 +290,24 @@ const EmSfxEntry *em_sfx_registry_find(const EmSfxRegistry *registry,
     return NULL;
 }
 
-/* One 001179E0 channel: (short)((scalar * pan_byte * request) >> 19), then
- * (word & 0xFFFF) >> 1. The shift is an arithmetic (floor) 64-bit shift. */
-static uint16_t volume_word(uint32_t scalar, unsigned pan_byte, int32_t request)
+/* One 001179E0 channel before its output-mode step: (short)((scalar *
+ * pan_byte * request) >> 19). The shift is an arithmetic (floor) 64-bit
+ * shift. */
+static int16_t volume_short(uint32_t scalar, unsigned pan_byte, int32_t request)
 {
     const int64_t product = (int64_t)scalar * (int64_t)pan_byte * request;
     const int64_t shifted = product >= 0 ? product / 524288
                                          : -((-product + 524287) / 524288);
-    return (uint16_t)(((uint64_t)shifted & 0xFFFFu) >> 1);
+    return (int16_t)(uint16_t)((uint64_t)shifted & 0xFFFFu);
 }
+
+/* D_0027F778, the SDK's output mode (00119870 stores it at 001FB100's
+ * commit of the settings' sound byte; 1 = mono). One storage, read by the
+ * mixer thread. */
+static _Atomic int16_t s_d27F778;
+
+void em_sfx_output_mode_00119870(int16_t mode) { atomic_store(&s_d27F778, mode); }
+int16_t em_sfx_output_mode(void) { return atomic_load(&s_d27F778); }
 
 void em_sfx_volume_words(uint32_t scalar, uint16_t pan, int32_t request_left,
                          int32_t request_right, uint16_t words[2])
@@ -308,8 +318,18 @@ void em_sfx_volume_words(uint32_t scalar, uint16_t pan, int32_t request_left,
     if (request_left < -0x1000 || request_left > 0x1000 ||
         request_right < -0x1000 || request_right > 0x1000)
         request_left = request_right = 0x1000;
-    words[0] = volume_word(scalar, pan >> 8, request_left);
-    words[1] = volume_word(scalar, pan & 0xFFu, request_right);
+    int16_t w = volume_short(scalar, pan >> 8, request_left);
+    int16_t h = volume_short(scalar, pan & 0xFFu, request_right);
+    /* 001179E0's mono arm (D_0027F778 == 1): both channels take the larger
+     * magnitude (short negations, as the original's). */
+    if (atomic_load(&s_d27F778) == 1) {
+        if (w < 0) w = (int16_t)-w;
+        if (h < 0) h = (int16_t)-h;
+        if (h < w) h = w;
+        else w = h;
+    }
+    words[0] = (uint16_t)(((uint16_t)w & 0xFFFFu) >> 1);
+    words[1] = (uint16_t)(((uint16_t)h & 0xFFFFu) >> 1);
 }
 
 float em_sfx_volume_gain(uint16_t word)

@@ -20,7 +20,7 @@ original's; no instruction of the original is reproduced here.
 | Game over | 001AD140, 001AD4E0 (screen module 0x27), 001ABF90, 001D2880, 001ADF00 | live (section 5) | test-scene-task-reference, test-render-context-live-reference (001D2880); dmg_flame, dmg_pit_fall |
 | Continue | 001ADF00's 001AB790(001AC070); 001AC070 state 0 and 001AC480 after a death; New Game (state 4) | live (section 6) | test-title-menu-reference (both D_00275BDC contexts); dmg_flame |
 | Infection, 0x80000023 / 001ED450, heavy landing, kill plane | | unreachable in AREA11: fail-stop kept (section 7) | the recordings |
-| The title's load screen (dmg_05) | 00225A00 .. 00226070 | not bound: em_frontend leaves EM_STARTUP_LOAD_GAME pending | the OPTIONS step |
+| The title's load screen (dmg_05) | 00225A00 .. 00226070 | live since chain step OPTIONS (OPTIONS.md section 4.3) | test-options-reference, test-title-menu-reference; dmg_load |
 | The fan's hit (dmg_08) | 0x827630's fast arm, 0021E9C0 | not played: the fan needs Roger's departure | the EXIT step |
 
 ## 2. The flame's contact
@@ -165,11 +165,11 @@ D_00275BDC values and 001AC480 in both contexts against em_startup.
   tower tops; the capture lane could not produce it (no running jump at
   the edges). **The kill plane** (y < -200, 0015D460): state 1 only, and
   the 0x5D floor kills first.
-- **The load screen** (dmg_05, 00225A00 / 00225AC0 / 00225720 / 00225A20 /
-  00225CF0 / 00225D20 / 00226070, 001FCBD0, 001FE8D0 / 001FE9A0 /
-  001FECB0, 00114848 / 00114930 / 00114988): the title's Load entry. The
-  port's frontend leaves EM_STARTUP_LOAD_GAME pending (no outcome is
-  invented); it belongs to the OPTIONS step.
+- **The load screen's slot choice** (dmg_05 stops before it): the title's
+  LOAD GAME runs the memory-card screen since chain step OPTIONS
+  (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot (002267A0)
+  and a load (00227300) fault, and LOAD GAME on the boot's title (no AREA11
+  world) fails the run.
 - **The fan's hit** (dmg_08: 0x827630's fast arm, 0021E9C0, the camera's
   00194D10 / 0022FCA0 / 00230000): the fans spin fast only after Roger's
   departure, which the EXIT step binds.
@@ -177,7 +177,7 @@ D_00275BDC values and 001AC480 in both contexts against em_startup.
 ## 8. The side runs
 
 `make test-level-smoke-damage` (part of `make test-level-smoke-side`) plays
-three side runs (src/game/em_level_smoke_test.c "damage"; the capture
+four side runs (src/game/em_level_smoke_test.c "damage"; the capture
 lane's own closed-loop policies) and checks each with
 `tools/test_level_smoke.py` and, window by window, with
 `tools/level_smoke_damage.py` against the recordings (every window aligned
@@ -194,6 +194,13 @@ on its event, then compared tick by tick):
 - **dmg_crevice_fall** (from crevice_prompt; dmg_06): the walking jump
   short of the north block, the landing hit and 172 ticks after it as
   recorded.
+- **dmg_load** (from crevice_prompt; dmg_00..dmg_03, then dmg_05; added by
+  chain step OPTIONS): dmg_flame's checks up to the title after the death,
+  then Cross on LOAD GAME, the load screen to its slot choice and Triangle
+  back to the menu: the 13 title states from the Cross's fade-out to the
+  menu equal the recording's, each for its rows except module 0x2A's load
+  (9 rows, the disc 23) and the title's module 1 (host speed); both presses
+  reach their fade-outs as recorded (OPTIONS.md section 6).
 - **dmg_pit_fall** (from truck_preview; dmg_07): the 0x5D floor death and
   the fall to the load request (188 ticks, exact, with the height path),
   the game over as above.

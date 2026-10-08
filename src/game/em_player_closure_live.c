@@ -52,6 +52,7 @@
 #include "game/em_sdk_soft_float.h"
 #include "game/em_sfx.h"
 #include "game/em_startup_load_gaps.h"
+#include "game/em_stream_live.h"
 #include "game/em_pad_actuator.h"
 
 #define FAULT(expr) do { if ((expr) < 0) return -1; } while (0)
@@ -146,11 +147,10 @@ static struct {
     void *water_context;
     int (*crawl_clip)(void *context, EmPlayerLiveActor *actor, int *result);
     void *crawl_clip_context;
-    uint16_t pad_config[8];   /* 0x70003B74..0x70003B82 (001AF470, config 0) */
     EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
     /* The idle / walk states' scene words (refreshed before each call):
      * D_0028A9A0 (the transition substate), D_00810E74 (pressed) and the
-     * caller's $s1 (0015B130 leaves 1). 0x70003B76 is pad_config[1]. */
+     * caller's $s1 (0015B130 leaves 1). 0x70003B76 is PAD_CONFIG[1]. */
     int16_t loco_28A9A0;
     uint16_t loco_810E74;
     uint8_t loco_s1;
@@ -172,6 +172,9 @@ static struct {
     Slot major5_00183250;
 } L;
 
+/* 0x70003B74..0x70003B83, the button masks (the scene's one storage). */
+#define PAD_CONFIG (em_scene_state()->spad3B74)
+
 /* The running module's by-value copy of 0x70003A20, or NULL. */
 static void *s_mod3A20;
 static int s_weapon_scene; /* 0 outside weapon views, 1 lane A, 2 lane B */
@@ -189,7 +192,7 @@ static int unbound(const char *callee)
     return -1;
 }
 
-const uint16_t *em_player_closure_live_pad_config(void) { return L.pad_config; }
+const uint16_t *em_player_closure_live_pad_config(void) { return PAD_CONFIG; }
 
 unsigned em_player_closure_live_faults(void) { return L.faults; }
 
@@ -1243,7 +1246,7 @@ static int hang_scene(void *c, EmPlayerHangScene *s)
     s->area = scene()->d810700;
     s->scripted = scene()->spad3B8D;
     s->pad = scene()->d810E74;
-    s->use_mask = L.pad_config[1];
+    s->use_mask = PAD_CONFIG[1];
     return 0;
 }
 
@@ -1303,9 +1306,9 @@ static int reaction_refresh(void *c, EmPlayerReactionScene *s)
     FAULT(node_c0(7, s->node7));
     s->pad_held = scene()->d810E70;
     s->pad_pressed = scene()->d810E74;
-    s->spad3B76 = L.pad_config[1];
-    s->spad3B7C = L.pad_config[4];
-    s->spad3B7E = L.pad_config[5];
+    s->spad3B76 = PAD_CONFIG[1];
+    s->spad3B7C = PAD_CONFIG[4];
+    s->spad3B7E = PAD_CONFIG[5];
     s->scripted = scene()->spad3B8D;
     FAULT(progress_byte(0x0081083Cu, &s->d81083C));
     s->d8106F1 = em_scene_req_at(scene(), 0x008106F1u);
@@ -1334,7 +1337,7 @@ static int closure_scene(void *c, EmPlayerClosureScene *s)
 {
     (void)c;
     s->pad = scene()->d810E74;
-    s->use_mask = L.pad_config[1];
+    s->use_mask = PAD_CONFIG[1];
     s->area = scene()->d810700;
     s->fade = (int16_t)em_frame_transition()->substate;   /* D_0028A9A0 */
     s->d275B14 = L.d275B14;
@@ -1353,9 +1356,9 @@ static int c10_pre(void)
     refresh_pad();
     s->pad_held = st->d810E70;
     s->pad_pressed = st->d810E74;
-    s->use_mask = L.pad_config[1];
-    s->mask_3B7C = L.pad_config[4];
-    s->mask_3B7E = L.pad_config[5];
+    s->use_mask = PAD_CONFIG[1];
+    s->mask_3B7C = PAD_CONFIG[4];
+    s->mask_3B7E = PAD_CONFIG[5];
     s->fade = (int16_t)em_frame_transition()->substate;
     s->area = st->d810700;
     s->sub_area = st->d810701;
@@ -1403,7 +1406,7 @@ static int lc_pre(void)
     s->area_sub = scene()->d810701;
     FAULT(req_byte(0x008106F2u, &s->d8106F2));
     s->pad = scene()->d810E74;
-    s->use_mask = L.pad_config[1];
+    s->use_mask = PAD_CONFIG[1];
     return 0;
 }
 static int lc_post(void)
@@ -1421,11 +1424,11 @@ static int wa_pre(void)
 {
     s_weapon_scene = 1;
     EmPlayerWeaponScene *s = &L.wa_scene;
-    s->spad3B74 = L.pad_config[0];
-    s->spad3B76 = L.pad_config[1];
-    s->spad3B78 = L.pad_config[2];
-    s->spad3B7C = L.pad_config[4];
-    s->spad3B7E = L.pad_config[5];
+    s->spad3B74 = PAD_CONFIG[0];
+    s->spad3B76 = PAD_CONFIG[1];
+    s->spad3B78 = PAD_CONFIG[2];
+    s->spad3B7C = PAD_CONFIG[4];
+    s->spad3B7E = PAD_CONFIG[5];
     s->d810E70 = scene()->d810E70;
     s->d810E74 = scene()->d810E74;
     s->d810C61 = *em_weapon_fire_mode_byte();
@@ -1457,7 +1460,7 @@ static int wb_pre(void)
     wb_d8106E0 = (uint32_t)e0[0] | (uint32_t)e0[1] << 8 | (uint32_t)e0[2] << 16 | (uint32_t)e0[3] << 24;
     FAULT(progress_byte(0x00810CA4u, &wb_d810CA4));
     L.wb_pad = scene()->d810E74;
-    L.wb_3B78 = L.pad_config[2];
+    L.wb_3B78 = PAD_CONFIG[2];
     return 0;
 }
 static void wb_knife_publish(void);
@@ -2012,7 +2015,11 @@ static int misc_scene_refresh(void)
     s->d810700 = scene()->d810700;
     s->d810701 = scene()->d810701;
     FAULT(progress_byte(0x00810C60u, &s->d810C60));
-    s->d28215B = 0;   /* D_0028215B: the mono option; the port's options keep stereo (0) */
+    {   /* D_0028215B: the committed output mode (the stream lanes' byte) */
+        const uint8_t *mode = em_stream_live_output_mode();
+        if (!mode) return unbound("D_0028215B (the stream lanes are not booted)");
+        s->d28215B = *mode;
+    }
     for (int i = 0; i < 3; ++i) {
         s->d810360[i] = em_live_f32(L.actor, 0xB0 + 4u * (unsigned)i);
         s->d8105D0[i] = g.cam.eye[i];
@@ -2889,7 +2896,7 @@ static void bind_loco(void)
     w->translate = w_translate; w->use_scan = lw_use_scan; w->use_accepted = lw_use_accepted;
     w->handoff = w_handoff; w->reentry = w_reentry; w->foot_stop = lw_foot_stop;
     w->sound = lw_sound; w->effect = lw_effect; w->wrap = w_wrap_bits; w->mode = loco_mode;
-    L.loco.scene = (EmLocoScene){ &L.loco_28A9A0, &L.loco_810E74, &L.pad_config[1], &L.loco_s1 };
+    L.loco.scene = (EmLocoScene){ &L.loco_28A9A0, &L.loco_810E74, &PAD_CONFIG[1], &L.loco_s1 };
     EmAnimRest *r = &L.rest;
     memset(r, 0, sizeof *r);
     r->world.spad34C0 = L.s34C0;
@@ -3006,7 +3013,7 @@ static int refresh_all(void)
     FAULT(misc_scene_refresh());
     FAULT(le_pre());
     L.use_scene.d810E74 = scene()->d810E74;
-    L.use_scene.spad3B76 = L.pad_config[1];
+    L.use_scene.spad3B76 = PAD_CONFIG[1];
     L.use_scene.area = scene()->d810700;
     return 0;
 }
@@ -3061,7 +3068,10 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     L.sdk = em_collision_world_sdk();
     L.d275B40 = PLAYER_NODE_ARRAY;
     L.view = (EmPoseActorView){ pose, L.actor, &L.d275B40 };
-    em_slg_001AF470(L.pad_config, 0);
+    /* The button masks 0x70003B74..0x70003B83 are the scene's one storage
+     * (EmSceneState.spad3B74), written by 001AF470 at the New Game reset
+     * (001AF2C0) and by the options screen; binding the closure leaves
+     * them as they are. */
 
     /* 0x70003A20: one word (the pose routines' pointer too). */
     L.land.s3A20 = stage_host->globals->spad3A20;
@@ -3098,7 +3108,7 @@ int em_player_closure_live_bind(EmPlayerStatesBinding *b, EmPlayerStageHost *sta
     L.aim_regions[3]=(EmPoseRegion){0x700038B0,16,(uint8_t *)L.foot_38B0,1};
     L.aim_regions[4]=(EmPoseRegion){0x70003A20,4,(uint8_t *)&L.land.s3A20,1};
     L.aim_regions[5]=(EmPoseRegion){0x70003A24,12,(uint8_t *)L.foot_3A24,1};
-    L.aim_regions[6]=(EmPoseRegion){0x70003B74,sizeof L.pad_config,(uint8_t *)L.pad_config,0};
+    L.aim_regions[6]=(EmPoseRegion){0x70003B74,sizeof PAD_CONFIG,(uint8_t *)PAD_CONFIG,0};
     L.aim_regions[7]=(EmPoseRegion){0x810E64,1,&P.lx,0};
     L.aim_regions[8]=(EmPoseRegion){0x810E65,1,&P.ly,0};
     unsigned naim=9;

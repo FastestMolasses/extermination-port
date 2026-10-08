@@ -33,6 +33,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
            src/game/em_status_page.c src/game/em_item_root.c src/game/em_menu_hover.c src/game/em_item_ui.c \
            src/game/em_gs_texture.c src/game/em_page_draw.c src/game/em_status_pages_live.c \
+           src/game/em_options_original.c src/game/em_options_live.c src/game/em_memcard.c \
            src/game/em_status_pages_helpers.c src/game/em_status_pages_item.c src/game/em_status_pages_spr4.c \
            src/game/em_status_pages_parts.c src/game/em_area01_ui_pages.c src/game/em_area01_ui_effect.c src/game/em_area01_render_gs.c \
            src/game/em_item_trail.c src/game/em_item_sdk_math.c src/game/em_item_device.c \
@@ -263,7 +264,8 @@ test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_p
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/pickup_light_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
 
-PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_items_original.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c
+# em_startup_load_gaps.c: em_pickup_reset runs 001AF2C0's 001AF470 (em_slg_001AF470).
+PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_items_original.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_startup_load_gaps.c
 .PHONY: test-pickup-owner-reference test-pickup-original
 test-pickup-owner-reference:
 	python3 tools/test_pickup_owner_reference.py
@@ -491,6 +493,7 @@ test-level-smoke-side: $(BIN)
 	$(MAKE) test-level-smoke-aim
 	$(MAKE) test-level-smoke-damage
 	$(MAKE) test-level-smoke-branch
+	$(MAKE) test-level-smoke-options
 
 # The BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md "The BRANCH side
 # runs"): the AREA11 branches the main route skips, each from the main-line
@@ -506,10 +509,22 @@ test-level-smoke-side: $(BIN)
 test-level-smoke-branch: $(BIN)
 	python3 tools/test_level_smoke_branch.py
 
+# The OPTIONS side runs (docs/OPTIONS.md section 6; LEVEL_SMOKE.md "The
+# OPTIONS side runs"): from truck_crossing, the nine beats of the capture
+# lane OPTIONS (opt_00..opt_08: SELECT's options screen, its rows and row
+# screens, the load row's card screen to its slot choice, the quit prompt),
+# each compared with its recording state by state; part of
+# test-level-smoke-side and -full.
+.PHONY: test-level-smoke-options
+test-level-smoke-options: $(BIN)
+	python3 tools/test_level_smoke_options.py
+
 # The DAMAGE side runs (docs/DAMAGE.md section 8; LEVEL_SMOKE.md "The DAMAGE
 # side runs"): dmg_flame (from crevice_prompt: the flame's contacts, the
 # low-health heartbeat, the death, the game over, the title after a death
-# and the New Game to first control), dmg_crevice_fall (the landing hit)
+# and the New Game to first control), dmg_load (the same way to the title,
+# then its LOAD GAME: the memory-card screen to its slot choice and back;
+# docs/OPTIONS.md section 6), dmg_crevice_fall (the landing hit)
 # and dmg_pit_fall (from truck_preview: the pit floor's death and the game
 # over), side by side, each checked window by window against the decomp's
 # DAMAGE recordings; part of test-level-smoke-side and -full.
@@ -1273,6 +1288,14 @@ test-status-frame-reference:
 .PHONY: test-status-page-reference test-item-root-reference test-item-ui-reference
 test-status-page-reference:
 	python3 tools/test_status_page_reference.py
+
+# The options screen and its memory-card screen (docs/OPTIONS.md section 3):
+# the translations em_options_original against the original instructions
+# over the OPTIONS / DAMAGE recordings' RAM, every branch outcome reached
+# (about 6 s; EM_TEST_FULL=1 the exhaustive sweep, about 5 min).
+.PHONY: test-options-reference
+test-options-reference:
+	python3 tools/test_options_reference.py
 
 # The status pages (docs/STATUS_PAGES.md) and the one 0020D930 owner
 # (em_menu_hover) against the original instructions; the MAP page's model

@@ -348,6 +348,7 @@ def native_driver():
     lib.shim_envelope.argtypes=[C.c_uint,C.c_uint,C.c_uint,C.POINTER(C.c_int32)]
     lib.em_sfx_volume_words.argtypes=[C.c_uint32,C.c_uint16,C.c_int32,C.c_int32,C.POINTER(C.c_uint16)]
     lib.em_sfx_request_word.argtypes=[C.c_float];lib.em_sfx_request_word.restype=C.c_int32
+    lib.em_sfx_output_mode_00119870.argtypes=[C.c_int16]
     def words(scalar,pan,left,right):
         pair=(C.c_uint16*2)()
         lib.em_sfx_volume_words(scalar,pan,left,right,pair)
@@ -396,7 +397,7 @@ class Registry:
         return o
 
 
-def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
+def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None,mono=False):
     """Run original 001FB9F0/0011A218/0011A070 + 001152D8 and the native
     driver side by side, tick by tick. scenario = {tick: [('start', id, l, r)
     | ('request', track, l, r) | ('stop', track, hard)]}. The D_002817C0
@@ -405,6 +406,10 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
     every voice field the driver keeps and the allocation cursor/serial
     must agree after every tick."""
     o=registry.oracle()
+    # mono: the output mode D_0027F778 = 1 (00119870(1), the options' sound
+    # row committed by 001FB100) on both sides: 001179E0's mono arm.
+    if mono:o.save(0x27F778,1,2)
+    lib.em_sfx_output_mode_00119870(1 if mono else 0)
     cursor=o.load(0x27F740+0x30);serial=o.load(0x27F740+0x34);effect=o.load(0x27F740,8)
     assert o.load(0x27F740+8,8)==effect and o.load(0x27F740+0x10,8)==o.load(0x27F740+0x18,8)==0
     assert o.load(0x27F740+0x20,8)==0 and o.load(0x27F740+0x28,8)==0
@@ -464,6 +469,7 @@ def lockstep(lib,registry,scenario,feedback='model',observe=None,settle=None):
     else:raise AssertionError(('scenario did not settle',dict(list(scenario.items())[:3])))
     stats['ticks']=tick+1;stats['no_voice']=lib.shim_no_voice(s)
     lib.shim_free(s)
+    lib.em_sfx_output_mode_00119870(0)
     return stats
 
 
@@ -546,6 +552,15 @@ def _model_case(entry):
     return lockstep(_SFX['lib'],_SFX['registry'],scenario)
 
 
+def _mono_case(entry):
+    """Pass M: pass B's start (0x800 / -0x400) with the mono output mode
+    D_0027F778 = 1 on both sides (the options' sound row; 001179E0 gives
+    both channels the larger magnitude)."""
+    scenario={0:[('start',entry['id'],0x800,-0x400)]}
+    if endless(entry):scenario[120]=[('stop',('start',0),0)]
+    return lockstep(_SFX['lib'],_SFX['registry'],scenario,mono=True)
+
+
 def _scenario_case(scenario):
     """Pass C: one concurrent scenario with model feedback."""
     return lockstep(_SFX['lib'],_SFX['registry'],scenario)
@@ -553,7 +568,7 @@ def _scenario_case(scenario):
 
 def _sfx_job(tagged):
     kind,job=tagged
-    return {'A':_registry_case,'B':_model_case,'C':_scenario_case}[kind](job)
+    return {'A':_registry_case,'B':_model_case,'C':_scenario_case,'M':_mono_case}[kind](job)
 
 
 def _sfx_cost(tagged):
@@ -770,7 +785,9 @@ def registry_oracle(elf,ram):
     # Passes A, B and C in that order. A full run executes them serially; a
     # quick run spreads the independent lockstep runs over forked workers,
     # longest first, and receives the results in the same order.
-    tagged=[('A',job) for job in jobs]+[('B',e) for e in audible_entries]+[('C',x) for x in scenarios.values()]
+    mono_entries=audible_entries if FULL else audible_entries[:4]
+    tagged=[('A',job) for job in jobs]+[('B',e) for e in audible_entries]+[('C',x) for x in scenarios.values()]+\
+        [('M',e) for e in mono_entries]
     if FULL:
         results=[_sfx_job(job) for job in tagged]
     else:
@@ -781,7 +798,9 @@ def registry_oracle(elf,ram):
     for stats in results[len(jobs):len(jobs)+len(audible_entries)]:
         model['entries']+=1
         for key in ('ticks','commands','key_on','key_off','pitch','volume'):model[key]+=stats[key]
-    concurrent=dict(zip(scenarios,results[len(jobs)+len(audible_entries):]))
+    concurrent=dict(zip(scenarios,results[len(jobs)+len(audible_entries):len(jobs)+len(audible_entries)+len(scenarios)]))
+    mono=results[len(jobs)+len(audible_entries)+len(scenarios):]
+    assert len(mono)==len(mono_entries) and sum(m['volume'] for m in mono)>0,'mono pass ran no volume command'
     # 48 tracks start (the 49th 0x14D and the 0x413 are refused -1), all 44
     # non-stream voices key on and the remaining key-ons find no voice.
     exhaustion=concurrent['exhaustion']
@@ -903,6 +922,7 @@ def registry_oracle(elf,ram):
         silent_checked=silent_checked,absent=sum(e['state']==X.STATE_ABSENT for e in area11_silent),
         voices_checked=voices_checked,spu_samples_checked=spu_checked,loop_samples=loops_checked,
         requests=REQUESTS,model_feedback=model,concurrent=concurrent,allocations=allocations,
+        mono=dict(entries=len(mono),volume=sum(m['volume'] for m in mono)),
         loop_service_cases=loop_cases,envx=envx_checked,registry_sha256=report['registry_sha256'],
         office_scope='2.1 entries exported from a coverage-matched region; no capture, not executed')
 
@@ -990,6 +1010,8 @@ def main():
     (out/'original_report.json').write_text(json.dumps(report,indent=2)+'\n')
     print(f"PASS {dispatch_cases} original panel dispatch/voice/end-track cases; {pitch_cases} pitch cases; {len(adpcm)} live SPU sample bytes; {iop['register_writes']} original IOP/libsd register writes")
     model=registry['model_feedback'];concurrent=registry['concurrent']
+    print(f"PASS mono output (D_0027F778 = 1, 001179E0's mono arm): {registry['mono']['entries']} entries in "
+          f"lockstep with the original, {registry['mono']['volume']} volume commands equal")
     print(f"PASS first-level census: {registry['census_ids']} ids resolved in 11.0 or global "
           f"({registry['census_added']} added by the census; {registry['absent']} ABSENT and "
           f"{registry['unsupported']} UNSUPPORTED entries = the original 001FB9F0 over both captures "

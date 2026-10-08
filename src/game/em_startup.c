@@ -291,6 +291,15 @@ static void menu_tick(EmStartup *s, const EmStartupInput *in)
         if (in->fade_state == 2) {
             s->major = 4 + s->cursor;
             s->sub = s->aux = 0;
+            if (s->major == 5) {
+                /* 001AC070 state 2, the verdict 1 with the selector 1: the
+                 * load screen's record is cleared (00225A00) and
+                 * D_00275BE0 = 1 in this tick; state 5 calls 00225AC0(0)
+                 * from the next. */
+                s->sub = 1;
+                s->screen = EM_STARTUP_SCREEN_EXTERNAL;
+                request(s, EM_STARTUP_LOAD_GAME, 0);
+            }
         }
         break;
     case 4:
@@ -358,12 +367,10 @@ static void title_tick(EmStartup *s, const EmStartupInput *in)
         s->screen = EM_STARTUP_SCREEN_EXTERNAL;
         emit(s, EM_STARTUP_NEW_GAME, s->aux == 2, 0);
         break;
-    case 5:
-        if (s->sub == 0) {
-            s->sub = 1;
-            s->screen = EM_STARTUP_SCREEN_EXTERNAL;
-            request(s, EM_STARTUP_LOAD_GAME, 0);
-        } else if ((result = poll(s)) != 0) {
+    case 5:                         /* 001AC070 state 5: 00225AC0(0) */
+        if (s->pending_serial && s->pending_kind == EM_STARTUP_LOAD_GAME && s->pending_result == 0)
+            emit(s, EM_STARTUP_LOAD_GAME_FRAME, 0, 0);
+        if ((result = poll(s)) != 0) {
             s->major = result == 2 ? 4 : 2;
             s->aux = result == 2 ? 2 : 0;
             s->sub = 0;

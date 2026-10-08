@@ -16,7 +16,6 @@ enum { RECORDS = 16, RECORD_SIZE = 4 };
 
 static struct {
     uint8_t block[EM_PAD_ACTUATOR_BLOCK_SIZE];  /* D_00810E40 */
-    uint8_t option;                             /* D_00810119 */
     uint8_t records[RECORDS * RECORD_SIZE];     /* D_0024D6F0 */
     int tables_tried, tables_loaded, initialised;
     EmOwnerServices services;
@@ -78,8 +77,9 @@ static int w_001B61C0(void *ctx, uint8_t big, uint8_t small, int64_t duration, i
     pad.active = b[0x16];
     memcpy(pad.act, b + 0x18, sizeof pad.act);
     memcpy(&pad.duration, b + 0x28, 2);
-    const EmSceneState *scene = em_scene_state();
-    const EmPlayerRumble r = {&pad, &P.option, &scene->d275BE0, NULL, actuator_rumble};
+    EmSceneState *scene = em_scene_state();
+    /* D_00810119, the vibration setting: the scene's settings block. */
+    const EmPlayerRumble r = {&pad, &scene->d810118[1], &scene->d275BE0, NULL, actuator_rumble};
     int rc = em_player_rumble_001B61C0(&r, big, small, (int)duration, force);
     b[0x16] = pad.active;
     memcpy(b + 0x18, pad.act, sizeof pad.act);
@@ -131,7 +131,7 @@ void em_pad_actuator_reset(void)
     P.block[0x11] = 1;   /* actuators aligned */
     P.block[0x12] = 1;   /* ready (001B5F40 phase 2) */
     P.block[0x14] = 7;   /* mode id: DualShock */
-    P.option = 1;        /* 001AB430 */
+    em_scene_settings_001AB430(em_scene_state()); /* 001AB430: vibration on, type A, stereo */
     bind();
     P.initialised = 1;
 }

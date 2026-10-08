@@ -126,6 +126,13 @@ int em_message_live_fe070(const EmMessageBank *bank, int32_t index, int32_t x, i
 int em_message_live_cc170(const uint8_t *text, uint32_t avail, int32_t *width);
 int em_message_live_cc1e0(int32_t slot, int32_t x, int32_t y, int32_t unused, int32_t h, const uint8_t *text,
                           uint32_t avail, const EmMessageTextStyle *style);
+/* 001FC770(x, y, text, cfg) on the service's draw module, for a caller
+ * outside step F that draws its own line with its own config (the options
+ * screen's 001FCBD0 / 001FCE30 with D_00264CB0): `text` points at `avail`
+ * readable bytes holding its NUL. Its glyph run is drawn at this frame's
+ * step-F render. 0 ok, -1 fault. */
+int em_message_live_fc770(int32_t x, int32_t y, const uint8_t *text, uint32_t avail,
+                          const EmMessageDrawConfig *cfg);
 /* 001FC9B0. 0 ok, -1 when the data is missing. */
 int em_message_live_reset(void);
 /* The block itself (D_002821B0): callers that store its words directly

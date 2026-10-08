@@ -49,15 +49,6 @@ extern "C" {
  * value does nothing, as the original's range guard). */
 int em_sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w);
 
-/* The same tick with lead decision Q1 (design section 9; NOT original
- * behaviour): the classifier reads E74 with SELECT withheld
- * (em_scene_classify_q1). `select_withheld` (optional) receives 1 when the
- * classifier ran and SELECT was set in the canonical E74 (the caller logs
- * EM_SCENE_Q1_UNPORTED_MESSAGE), else 0. Everything else, including
- * 001AE6B0's E74 & 0x900 test, sees the canonical E74. */
-int em_sf_001AE040_q1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w,
-                      int *select_withheld);
-
 /* 001AE5E0: the gameplay world frame (0x1AE040 state 1, spad 3B8D == 0). */
 int em_sf_001AE5E0(EmSceneState *s, const EmSceneWorkers *w);
 

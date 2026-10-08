@@ -144,7 +144,7 @@ xcode-assets)
         mkdir -p "$(dirname "$dest/assets/$rel")"
         rsync -a "$cache" "$dest/assets/$rel"
     done
-    mkdir -p "$dest/data/save"
+    mkdir -p "$dest/data/memcard"
     if [ -d "$ROOT/data" ]; then
         rsync -a -L --exclude '.DS_Store' "$ROOT/data/" "$dest/data/"
     fi

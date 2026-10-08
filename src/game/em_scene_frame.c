@@ -322,8 +322,7 @@ static int sf_status(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, in
 /* ------------------------------------------------------ 0x1AE040 */
 
 /* State 1 (also the tail of state 4, which falls through). */
-static int sf_state1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, int q1,
-                     int *select_withheld)
+static int sf_state1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w)
 {
     int16_t fade;
     if (sf_fade(s, w, &fade) < 0)
@@ -331,7 +330,7 @@ static int sf_state1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, in
     /* 0x1AE154: jal 001AE7E0 (traced; the classifier is not a worker). */
     if (em_scene_worker_enter(s, w, SF_001AE040, SF_001AE7E0, 1, 0, 0, 0, 0) < 0)
         return -1;
-    int r = q1 ? em_scene_classify_q1(s, fade, select_withheld) : em_sf_001AE7E0(s, fade);
+    int r = em_sf_001AE7E0(s, fade);
     if (r == 1) {
         /* 0x1AE15C..0x1AE1C8 (001FBC50 at 0x1AE170, C4 in its delay slot). */
         REQ(C4) = 2;
@@ -375,11 +374,8 @@ static int sf_state1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, in
     return 0;
 }
 
-static int sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, int q1,
-                       int *select_withheld)
+int em_sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w)
 {
-    if (select_withheld)
-        *select_withheld = 0;
     if (!s || em_scene_faulted(s))
         return -1;
     if (!user)
@@ -416,9 +412,9 @@ static int sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, 
         SF_CALL(SF_001AE040, 0x1AEE10u, w_001AEE10, 4, 0, 0, 0, 4, 0);
         SF_CALL(SF_001AE040, 0x1FAE70u, w_001FAE70, 0, 0, 0, 0, 0);
         SF_CALL0(SF_001AE040, 0x1C5C50u, w_001C5C50);
-        return sf_state1(s, user, w, q1, select_withheld);
+        return sf_state1(s, user, w);
     case 1:
-        return sf_state1(s, user, w, q1, select_withheld);
+        return sf_state1(s, user, w);
     case 2: {
         /* 0x1AE324..0x1AE410: acts on 0022A650 == 1, 2, 3 only. */
         int r;
@@ -480,13 +476,3 @@ static int sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w, 
     }
 }
 
-int em_sf_001AE040(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w)
-{
-    return sf_001AE040(s, user, w, 0, NULL);
-}
-
-int em_sf_001AE040_q1(EmSceneState *s, uint8_t *user, const EmSceneWorkers *w,
-                      int *select_withheld)
-{
-    return sf_001AE040(s, user, w, 1, select_withheld);
-}

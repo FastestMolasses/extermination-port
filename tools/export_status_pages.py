@@ -9,7 +9,8 @@ from the user's own ELF and disc, into ignored assets/status_pages/:
       upload sequence of docs/DISC_TEXTURES.md section 2, replayed from the
       disc by tools/export_disc_textures_gs.py), with the set of 256-byte
       blocks an upload wrote;
-    - for every status page module (001FF830(module): 001FF3F0's A sections,
+    - for every status page module and the options' screen modules 0x2A /
+      0x2B (001FF830(module): 001FF3F0's A sections,
       then state 7's B sections) and for 0020CDC0's 00200970(1) restore
       (library slot 0x35, then the player texture packet 00200890), the GS
       blocks that step writes and their bytes. The port applies them in the
@@ -46,15 +47,25 @@ DATA_WINDOWS = [
     (0x00265600, 0x00266700),   # MAP rows, page frame and row tables, D_002659C0, part pages
     (0x0026A980, 0x0026AA00),   # 00210F30's marker corners D_0026A990 / 9A0 / 9B0
     (0x00275860, 0x00275880),   # 002134C0's text style word D_00275870
+    # the options screen and its card screen (docs/OPTIONS.md)
+    (0x00264CB0, 0x00264CC8),   # 001FC770's config D_00264CB0 for 001FCBD0 / 001FCE30
+    (0x00264D30, 0x00264DB0),   # 001FCBD0's 128-byte line template D_00264D30
+    (0x00264EE0, 0x00264FA4),   # 00202D10's icon rows and their pointers D_00264F98
+    (0x002672C0, 0x00267308),   # the row colours D_002672C0 and the actions D_002672E0
+    (0x0026C658, 0x0026C760),   # the ctype table 001FCBD0 reads (D_0026C659)
+    (0x0026EC50, 0x0026EC60),   # 001FCBD0's token set D_0026EC50
+    (0x00273320, 0x00273330),   # 00201F70's labels D_00273320 / 28
+    (0x00275828, 0x00275830),   # D_00275828's boot value (the binder's storage starts from it)
 ]
 # The boot bank module 0 (001FF1E0(0) loads its resident region at 0xB00000
 # and sets D_0028A490[slot] = 0xB00000 + the slot's entry offset,
 # docs/DISC_TEXTURES.md section 2): the DATABASE helper 001FCF30 reads the
 # record container *D_0028A49C (slot 3) by address.
-BOOT_MODULE, BOOT_BASE, RECORD_SLOT = 0, 0x00B00000, 3
+BOOT_MODULE, BOOT_BASE, RECORD_SLOT, HELP_SLOT = 0, 0x00B00000, 3, 2
 # The page modules the first level can load (0020CDC0 phase 3 and the ITEM
 # root / SPR4 child loads), docs/STATUS_PAGES.md section 1.
-MODULES = [0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31]
+MODULES = [0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F, 0x30, 0x31,
+           0x2A, 0x2B]   # the card screen's (00225AC0) and the options' row screens' (0022A590)
 RESTORE = 0xFF          # the 00200970(1) step's id in the file
 D_0028A490 = 0x0028A490 # the resource-slot word table 001FF830 state 7 fills
 ELF_BASE, ELF_OFFSET = 0x00100000, 0x300
@@ -109,6 +120,12 @@ def build(disc: G.Disc, extract: Path, assets: Path) -> dict:
     container = BOOT_BASE + offsets[RECORD_SLOT]
     windows.append((0x0028A49C, struct.pack('<I', container)))
     windows.append((container, disc.read(boot.offset + region, size)))
+    # the help container *D_0028A498 (slot 2), whose groups 7 and 8 the
+    # options screen and its card screen draw (001FCBD0 / 001FCE30)
+    label, region, size = G.module_slot(disc, boot, HELP_SLOT, table)
+    help_container = BOOT_BASE + offsets[HELP_SLOT]
+    windows.append((0x0028A498, struct.pack('<I', help_container)))
+    windows.append((help_container, disc.read(boot.offset + region, size)))
     body = bytearray()
     body += struct.pack('<I', len(windows))
     for start, data in windows:

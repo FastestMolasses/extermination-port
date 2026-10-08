@@ -25,9 +25,14 @@ typedef enum {
     EM_STARTUP_EFFECT_LEVEL,     /* 00119828: distinct command0x16, core id0/1 */
     EM_STARTUP_CUE,              /* id = original cue; gain 0x1000 per channel */
     EM_STARTUP_NEW_GAME,         /* handoff id0=fresh (later movie0), id1=loaded */
-    EM_STARTUP_LOAD_GAME,        /* completion 1=cancel, 2=loaded */
+    EM_STARTUP_LOAD_GAME,        /* 001AC070 state 2's load verdict (00225A00,
+                                  * D_00275BE0 = 1); completion 1=cancel, 2=loaded */
     EM_STARTUP_OPTIONS,          /* complete when original option screen closes */
-    EM_STARTUP_ATTRACT           /* id = cycle 0..2; complete on original exit */
+    EM_STARTUP_ATTRACT,          /* id = cycle 0..2; complete on original exit */
+    EM_STARTUP_LOAD_GAME_FRAME   /* 001AC070 state 5: one call of 00225AC0(0); the
+                                  * host completes the pending LOAD_GAME serial
+                                  * with a nonzero result inside notify, and the
+                                  * state changes in the same tick */
 } EmStartupEventKind;
 
 /* anim_frame_top_a (attract demo) returns 2 while the held word has any

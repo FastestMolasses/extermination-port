@@ -25,28 +25,6 @@ extern "C" {
  *   else 0. */
 int em_sf_001AE7E0(const EmSceneState *s, int16_t d0028A9A0);
 
-/* ---- Lead decision Q1 (design section 9), NOT part of 001AE7E0 ----
- *
- * Until 0022A650 is ported, SELECT (0x100) is withheld from the E74 word the
- * classifier reads, so the r == 1 arm (0x1AE040 state 2 -> 0022A650) is not
- * entered by a SELECT press. The canonical D_00810E74 is NOT modified: other
- * original readers (e.g. 001AE6B0's E74 & 0x900 test) still see SELECT.
- * This does not mask E50 != 4, which still returns 1 (S11a writes E50 = 4).
- * Remove these helpers in the step that ports 0022A650. */
-#define EM_SCENE_Q1_SELECT 0x0100u
-#define EM_SCENE_Q1_UNPORTED_MESSAGE "unported: 0022A650 (SELECT)"
-
-/* The E74 value the classifier sees under Q1. */
-static inline uint16_t em_scene_q1_classifier_e74(uint16_t d810E74)
-{
-    return (uint16_t)(d810E74 & (uint16_t)~EM_SCENE_Q1_SELECT);
-}
-
-/* em_sf_001AE7E0 over a copy of `s` whose E74 has SELECT withheld. When
- * `select_withheld` is non-NULL it receives 1 if SELECT was set in the
- * canonical E74 (the caller logs EM_SCENE_Q1_UNPORTED_MESSAGE), else 0. */
-int em_scene_classify_q1(const EmSceneState *s, int16_t d0028A9A0, int *select_withheld);
-
 #ifdef __cplusplus
 }
 #endif

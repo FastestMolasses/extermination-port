@@ -84,10 +84,12 @@ static int module_ready(EmStatusRuntime *runtime)
 }
 
 /* The page modules the status pages load (0020CDC0 phase 3, the ITEM root
- * and the SPR4 part pages). */
+ * and the SPR4 part pages), and the options screen's: 0x2B (its row
+ * screens, 0022A590) and 0x2A (the memory-card screen, 00225AC0); each is
+ * one chunk, the screen's GS upload, with no B section (docs/OPTIONS.md). */
 static int page_module(unsigned module)
 {
-    return (module >= 0x1E && module <= 0x24) || (module >= 0x2C && module <= 0x31);
+    return (module >= 0x1E && module <= 0x24) || (module >= 0x2A && module <= 0x31);
 }
 
 static int begin_module(EmStatusRuntime *runtime, unsigned module)
@@ -622,6 +624,34 @@ int em_status_runtime_bind_loader(EmStatusRuntime *runtime, EmModuleLoader *load
     if (loader)
         em_module_loader_set_chain_hook(loader, loader_chain, runtime);
     return 1;
+}
+
+/* 001FF080(0, module) for the options screen (0x2B, 0x2A): the loader's own
+ * steps, as a page module's; the busy byte D_00275BD8 the caller set clears
+ * at the loader's 0x63 step. 1 accepted. */
+int em_status_runtime_module_load(EmStatusRuntime *runtime, unsigned module)
+{
+    if (!runtime || runtime->failed || (module != 0x2A && module != 0x2B))
+        return 0;
+    return begin_module(runtime, module);
+}
+
+/* 00200970(1) for the options screen: the status pages' GS memory gets the
+ * restore step (library slot 0x35 and the player texture packet), and the
+ * host's PLAYER_TEXTURE event (the native player textures' residency). */
+int em_status_runtime_restore(EmStatusRuntime *runtime)
+{
+    if (!runtime || runtime->failed)
+        return 0;
+    if (runtime->pages &&
+        !em_gs_texture_apply(em_status_pages_live_gs(runtime->pages), EM_GS_TEXTURE_RESTORE))
+        return 0;
+    return runtime->hooks.page_event(runtime->hooks.context, EM_STATUS_PAGE_PLAYER_TEXTURE, 0) == 1;
+}
+
+EmStatusPagesLive *em_status_runtime_pages(EmStatusRuntime *runtime)
+{
+    return runtime ? runtime->pages : NULL;
 }
 
 int em_status_runtime_bind_hub(EmStatusRuntime *runtime, EmStatusHubUI *ui)

@@ -11,9 +11,9 @@
  *                            Bytes +0x24..+0x27 are the analog bytes, whose
  *                            storage is em_frame's EmPadUnpack (em_input.h);
  *                            they are never read or written here.
- *   D_00810119               the vibration option byte (001AB430 stores 1 at
- *                            boot; only the options screen, outside the
- *                            first level, changes it)
+ *   D_00810119               the vibration setting: EmSceneState.d810118[1]
+ *                            (001AB430 stores 1 at the boot, the reset
+ *                            below; the options screen changes it)
  *   D_0024D6F0               the rumble records (from the user's boot ELF,
  *                            assets/pad_rumble.emrg, tools/export_pad_tables.py)
  *

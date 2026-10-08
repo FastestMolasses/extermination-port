@@ -71,6 +71,8 @@ const EmFrameInput *em_frame_input(void);
  * (including the repeat word 0x00810E78), analog 0x00810E64..67 and the
  * 001B5CC0 gait byte 0x00810E57. */
 const EmPadUnpack *em_frame_pad_block(void);
+/* D_00810E6A (the pad block's +0x2A halfword, the read-time mode id). */
+uint16_t em_frame_d810E6A(void);
 
 /* The one translation of step C's result into the scene coordinator's
  * canonical input bytes (design 3.2, S11a), in the ORIGINAL layout:
@@ -82,9 +84,10 @@ const EmPadUnpack *em_frame_pad_block(void);
  *   pad block step C ran 001B57E0 over (em_frame_set_pad_block). The native
  *   pad is always that connected, initialised analog DualShock, so it stays
  *   4, and 001B57E0's read-failure clear is not reached.
- * The slot-0 scene task calls it at the start of every tick, after this
- * frame's step C and before any original code reads the words; no other
- * module writes them. */
+ * The slot-0 task calls it at the start of every tick (the scene task, and
+ * the title flow em_frontend, whose load screen 00225AC0 reads them), after
+ * this frame's step C and before any original code reads the words; no
+ * other module writes them. */
 void em_frame_scene_input(EmSceneState *scene);
 
 /* Loop environment accessors for game code (the engine reaches its

@@ -1,6 +1,6 @@
 /* WP-3 S1 unit test: EmSceneState accessors and fault latch, the worker call
  * protocol (NULL worker = fault, fail-stop, trace hook), the 001AE7E0
- * translation's decision order, and the lead-decision Q1 input helper.
+ * translation's decision order.
  * The exhaustive original comparison is tools/test_scene_classify_reference.py;
  * the classifier cases here restate the byte-matched order of
  * Extermination/src/func_001AE7E0.c.
@@ -173,37 +173,12 @@ static void test_classifier_order(void)
     s = idle(); s.d810E70 = 0xFFFF; CHECK(classify(s, 0) == 0);
 }
 
-static void test_q1(void)
-{
-    CHECK(em_scene_q1_classifier_e74(0x0100) == 0x0000);
-    CHECK(em_scene_q1_classifier_e74(0x0900) == 0x0800);
-    CHECK(em_scene_q1_classifier_e74(0xFFFF) == 0xFEFF);
-    CHECK(em_scene_q1_classifier_e74(0x0850) == 0x0850);
-    CHECK(strcmp(EM_SCENE_Q1_UNPORTED_MESSAGE, "unported: 0022A650 (SELECT)") == 0);
-
-    EmSceneState s = idle();
-    int withheld = -1;
-    s.d810E74 = 0x100;
-    EmSceneState before = s;
-    CHECK(em_scene_classify_q1(&s, 0, &withheld) == 0 && withheld == 1);
-    CHECK(memcmp(&before, &s, sizeof s) == 0 && s.d810E74 == 0x100); /* canonical kept */
-    s.d810E74 = 0x900;
-    CHECK(em_scene_classify_q1(&s, 0, &withheld) == 2 && withheld == 1);
-    CHECK(em_sf_001AE7E0(&s, 0) == 1); /* the faithful classifier is unchanged */
-    s.d810E74 = 0x800;
-    CHECK(em_scene_classify_q1(&s, 0, &withheld) == 2 && withheld == 0);
-    CHECK(em_scene_classify_q1(&s, 0, NULL) == 2);
-    s = idle(); s.d810E50 = 0; /* E50 != 4 is not withheld */
-    CHECK(em_scene_classify_q1(&s, 0, &withheld) == 1 && withheld == 0);
-}
-
 int main(void)
 {
     test_layout_and_accessors();
     test_faults_and_workers();
     test_classifier_order();
-    test_q1();
     printf("scene_classify_test: PASS (state accessors, fault latch, worker protocol, "
-           "001AE7E0 order, Q1 helper)\n");
+           "001AE7E0 order)\n");
     return 0;
 }

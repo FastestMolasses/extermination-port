@@ -102,9 +102,14 @@ void em_sfx_registry_free(EmSfxRegistry *registry);
 const EmSfxEntry *em_sfx_registry_find(const EmSfxRegistry *registry,
                                        unsigned id, int area, int sub);
 
-/* 0011A218 + 001179E0 (D_0027F778 mono flag 0): the two SPU volume words
- * for one voice. Requests outside [-0x1000, 0x1000] leave the track at the
- * 00119EA0 defaults 0x1000/0x1000, as 0011A218 refuses the pair. */
+/* 0011A218 + 001179E0: the two SPU volume words for one voice (with the
+ * output mode D_0027F778 below: mono gives both the larger magnitude).
+ * Requests outside [-0x1000, 0x1000] leave the track at the 00119EA0
+ * defaults 0x1000/0x1000, as 0011A218 refuses the pair. */
+/* D_0027F778, the SDK's output-mode word: 00119870(mode) stores it (one
+ * storage; 0 at the boot = stereo, 1 = mono). */
+void em_sfx_output_mode_00119870(int16_t mode);
+int16_t em_sfx_output_mode(void);
 void em_sfx_volume_words(uint32_t scalar, uint16_t pan, int32_t request_left,
                          int32_t request_right, uint16_t words[2]);
 /* Fixed-mode SPU2 volume word as a gain: 15-bit two's complement,

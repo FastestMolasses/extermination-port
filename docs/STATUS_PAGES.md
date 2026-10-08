@@ -560,7 +560,10 @@ applies its GS blocks at the loader's chunk step, each upload proven equal
 to the module's step in the GS data below (MODULE_LOADER.md finding 8 and
 section 3 I; the level smoke's `status_pages` run compares every load's
 loader rows); `EM_STATUS_PAGE_PLAYER_TEXTURE` (00200970(1)) applies the
-restore.
+restore. Since chain step OPTIONS the options screen's modules 0x2B and 0x2A
+load the same way into the same GS memory (`em_status_runtime_module_load`,
+`em_status_runtime_restore`; the EMSP export carries the options' windows
+and the help container; OPTIONS.md section 4).
 
 **`em_status_pages_live.c`** runs the translations over views of the port's
 storage (the list is its header's; every other address faults) and

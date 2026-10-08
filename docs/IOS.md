@@ -158,7 +158,8 @@ cannot disturb the scripted test fixtures).
   (`em_window_poll`): no game ticks and no GPU work in the background, which
   iOS forbids. Audio stops with it and resumes on return; a movie that was
   playing resumes where it stopped.
-- **Files.** The game reads `assets/...` and writes `data/save` relative to
+- **Files.** The game reads `assets/...` and writes `data/memcard` (the
+  host memory cards, docs/OPTIONS.md) relative to
   the working directory, and the bundle is read-only, so the working
   directory is the app's **Documents** folder: `assets` there is a symlink
   to the bundle's `assets/` (made again at every launch) and `data/` is a real

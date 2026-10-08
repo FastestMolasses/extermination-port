@@ -32,6 +32,8 @@
 #include "game/em_status_background.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_status_models.h"
+#include "game/em_options_live.h"
+#include "game/em_pad_actuator.h"
 
 /* One AREA11 item owner (00219550 x6, 0015AFA0) the host binds (WP-6). */
 enum { HOST_PICKUPS = 7 };
@@ -52,6 +54,9 @@ static struct {
     EmPanelRuntime panel;
     EmElevatorRuntime elevator;
     EmStatusRuntime *status;
+    /* The options screen 0022A650 and its card screen (em_options_live,
+     * over the status pages' GS memory; docs/OPTIONS.md). */
+    EmOptionsLive *options;
     /* The hub's static actor pool D_0028B020 and its models (WP-5). */
     EmStatusModels *models;
     EmItemSdkMath item_sdk;
@@ -1310,6 +1315,50 @@ static int bind_pickups(const char *directory)
     return 1;
 }
 
+/* The options screen's workers (em_options_live.h). */
+static int options_module_load(void *context, uint32_t module)
+{
+    (void)context;
+    return em_status_runtime_module_load(world.status, module);
+}
+
+static int options_restore(void *context)
+{
+    (void)context;
+    return em_status_runtime_restore(world.status);
+}
+
+static int options_fade(void *context, int out, int32_t a0, int32_t a1)
+{
+    (void)context;
+    em_frame_fade_start_colour(out ? 1 : -1, (int16_t)a0, (uint8_t)a1);
+    return 1;
+}
+
+static int options_stop_sounds(void *context)
+{
+    (void)context;
+    return em_scene_bindings_001FBC50() == 0;
+}
+
+static int options_stop_streams(void *context)
+{
+    (void)context;
+    return em_scene_bindings_001FABB0() == 0;
+}
+
+static int options_draw_context(void *context, int32_t a0, int32_t a1)
+{
+    (void)context;
+    return em_rcl_001D2830(a0, a1) >= 0;
+}
+
+static int options_rumble(void *context, int32_t big, int32_t small, int32_t duration, int32_t force)
+{
+    (void)context;
+    return em_pad_actuator_001B61C0((uint8_t)big, (uint8_t)small, duration, force) == 0;
+}
+
 static int load_status(const char *directory,const EmItemMath *math,
                          const EmStatusRuntimeHooks *status_hooks)
 {
@@ -1353,6 +1402,21 @@ static int load_status(const char *directory,const EmItemMath *math,
                     "DATABASE, EQUIPMENT, EVENT and HEALING stay unbound\n");
         else if (!em_status_runtime_bind_pages(world.status, pages))
             return 0;
+    }
+    /* The options screen (SELECT; docs/OPTIONS.md) draws over the status
+     * pages' GS memory, the screen modules 0x2B / 0x2A applied as they load.
+     * Without the status pages' data it stays unbound and faults when the
+     * player opens it. */
+    if (em_status_runtime_pages(world.status)) {
+        static const EmOptionsHost options_host = {NULL, page_sound, options_module_load,
+                                                   options_restore, options_fade, options_stop_sounds,
+                                                   options_stop_streams, options_draw_context,
+                                                   options_rumble};
+        world.options = em_options_live_create(
+            em_status_pages_live_gs(em_status_runtime_pages(world.status)), &options_host);
+        if (!world.options)
+            fprintf(stderr, "AREA11 interaction: the options screen stays unbound (the status pages' "
+                    "data lacks its windows: python3 tools/export_status_pages.py)\n");
     }
     return 1;
 }
@@ -1451,6 +1515,7 @@ void em_area11_interaction_host_clear(void)
     em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
     em_pickup_original_unbind_all();
+    em_options_live_free(world.options);
     em_status_runtime_free(world.status);
     em_status_models_free(world.models, em_frame_gfx());
     em_panel_runtime_free(&world.panel);
@@ -1977,6 +2042,11 @@ int em_area11_interaction_host_status_page(const EmStatusInput *input)
 int em_area11_interaction_host_status_route(void)
 {
     return world.loaded && !world.failed && world.status_route;
+}
+
+EmOptionsLive *em_area11_interaction_host_options(void)
+{
+    return world.loaded && !world.failed ? world.options : NULL;
 }
 
 int em_area11_interaction_host_status_render(EmGfx *gfx)

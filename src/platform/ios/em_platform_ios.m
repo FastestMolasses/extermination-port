@@ -22,7 +22,7 @@
  *     not submit GPU work, and the PS2 game had no background either. The
  *     scene's didEnterBackground waits until the thread is parked.
  *
- * FILES. The game opens assets/... and writes data/save relative to the
+ * FILES. The game opens assets/... and writes data/memcard relative to the
  * working directory. The bundle is read-only, so the working directory is
  * the app's Documents directory: "assets" there is a symlink to the bundle's
  * assets/ (re-made at every launch, since an install moves the bundle), and

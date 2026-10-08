@@ -94,9 +94,10 @@
  *     negative volume) — the engine's pseudo-surround rear cue. The
  *     port mixer carries signed float gains, so the inversion survives
  *     verbatim. The engine quantizes to ints 0..4096 (float_to_int);
- *     the port keeps floats (sub-1/4096 difference only). The engine
- *     MONO option (D_0028215B == 1 -> both channels = vol) has no port
- *     setting yet and is not modeled.
+ *     the port keeps floats (sub-1/4096 difference only). The engine's
+ *     mono output (D_0028215B == 1, the options' sound row committed by
+ *     001FB100) gives both channels vol (001FBF50's mono arm; the reader
+ *     em_sfx_bind_output_mode binds).
  *
  *   em_sfx_play(id) (no position) submits requests 0x1000/0x1000 —
  *   exactly the engine's non-positional submit func_001FB9F0(id, 0x1000,
@@ -347,6 +348,9 @@ int em_sfx_play_at_track(unsigned id, const float pos[3], float radius);
  * be NEGATIVE = the engine's behind-the-camera phase inversion) and
  * returns 1, or returns 0 when the source is out of range (engine
  * play_sound -1). Uses the em_sfx_listener state. */
+/* The reader of D_0028215B (the committed output mode) 001FBF50's mono arm
+ * tests; em_stream_live binds em_stream_live_output_mode at its boot. */
+void em_sfx_bind_output_mode(const uint8_t *(*reader)(void));
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r);
 
