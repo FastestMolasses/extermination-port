@@ -19,7 +19,7 @@ import subprocess
 import sys
 import time
 
-from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, ROUTE_PHASES, SOURCES,
+from level_smoke_area01 import (MAIN_BEATS, SIDE_BEATS, ROUTE_PHASES, SOURCES, command_rows,
                                phase_path, prepare_pads, route_capture)
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -100,7 +100,7 @@ int main(int argc,char **argv){
                 (line.split() for line in result.stdout.splitlines())]
         frames,gap=entry['endpoint_row'],entry['gap']
         assert len(actual)==frames+gap, (phase,'driver endpoint',len(actual),frames,gap)
-        commands=route_capture(phase)['inputs']
+        commands=command_rows(route_capture(phase))
         chosen,index=(0,0.,0.),0
         for c,b,x,y in actual:
             f=c-gap

@@ -181,6 +181,39 @@ def source_gap(phase, capture):
     return gap
 
 
+# Each recorded beat starts from its source's loaded save state, and the
+# recorder sets the beat's first pad command right after that load. A
+# mid-beat command shows in the player three recorded rows after it (the
+# driver submits each command two rows later, as the BRANCH rule); the
+# first one took longer in some beats (a01_01: the walk starts at row 5,
+# not 3; with only that command two rows later all 306 a01_01 rows and the
+# ending camera match, LEVEL_SMOKE.md "a01_00"). That is a reading of the
+# recorder, not a property of the game, so it is read from each recording:
+# the first row whose player state (+5, +1F0, clip) leaves row 0's idle,
+# minus the three rows a command needs. Beats from the arrival (row 6) give
+# 3: the arrival's own input lock decides that row natively whatever the
+# command's row is (a01_00 matches with 0, 2 and 3).
+def first_command_extra_rows(capture):
+    rows, first = capture['rows'], capture['inputs'][0]
+    assert first['f'] == 0 and (first['buttons'], first['lx'], first['ly']) != (0, 127, 127), \
+        ('first recorded command is not a frame-0 input', first)
+    idle = (rows[0]['p5'], rows[0]['m1F0'], rows[0]['clip'])
+    assert idle == (0, 0, 0), ('beat does not start idle', idle)
+    response = next(r['f'] for r in rows if (r['p5'], r['m1F0'], r['clip']) != idle)
+    extra = max(0, response - 3)
+    assert extra <= 4 and capture['inputs'][1]['f'] > extra, ('first command latency', response, extra)
+    return extra
+
+
+def command_rows(capture):
+    """The recorded commands with the frame each takes in the exported
+    test input (the beat's frame-0 command first_command_extra_rows later)."""
+    extra = first_command_extra_rows(capture)
+    rows = [dict(row, f=extra) if row['f'] == 0 else dict(row) for row in capture['inputs']]
+    assert all(a['f'] <= b['f'] for a, b in zip(rows, rows[1:])), 'first command overtakes the next'
+    return rows
+
+
 def prepare_pads(out, include_sides=False):
     """Export test input only, to an ignored build directory."""
     out.mkdir(parents=True, exist_ok=True)
@@ -194,7 +227,7 @@ def prepare_pads(out, include_sides=False):
         frames = AREA00_ARRIVAL_ROW if phase == 'a01_07' else capture['frames']
         lines = [f"EMA1 1 {frames} {gap}"]
         last = -1
-        for row in capture['inputs']:
+        for row in command_rows(capture):
             # The recorder can issue several commands before another frame
             # advances (e.g. a01_00 f34). Preserve their order; the driver's
             # existing last-command-at-or-before-frame rule selects the last.
@@ -211,6 +244,7 @@ def prepare_pads(out, include_sides=False):
             first_counter=capture['first_counter'], last_counter=capture['last_counter'],
             capture_frames=capture['frames'], endpoint_row=frames, pad_changes=len(capture['inputs']),
             native_phase=True, native_source=SOURCES[phase], native_path=phase_path(phase), command_delay_rows=2,
+            first_command_extra_rows=first_command_extra_rows(capture),
             same_frame_commands='preserved in recorded order; last command applies',
             endpoint='AREA00 arrival state 0 before rebuild' if phase=='a01_07' else 'capture end'))
     (out/'manifest.json').write_text(json.dumps(manifest,indent=2)+'\n')

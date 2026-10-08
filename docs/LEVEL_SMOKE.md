@@ -10,7 +10,9 @@ at `a01_arrival`. The harness also names the AREA01 main beats
 `a01_00`..`a01_07` and the side beats `a01_s0`..`a01_s7` (opt-in). The
 first of them, `a01_00` (the train room), runs live and is compared row
 for row ("a01_00" below); since step DRAWN (2026-10-04) all 781 rows
-pass. It is opt-in (about 5 minutes with its checks), not part of `make
+pass, and since the level-2 check (2026-10-08) a01_01, a01_02, a01_s0,
+a01_s3, a01_s4 and a01_s6 pass too ("a01_01..a01_07 and the side beats"
+below). It is opt-in (about 5 minutes with its checks), not part of `make
 test-level-smoke-full`. Runs that reach AREA01 also check its drawn world
 after the phases ("The AREA01 world" below).
 `make test-area01-smoke-harness` checks the harness itself against the
@@ -1571,9 +1573,62 @@ rows f0..f24 matched. a01_02's rows f0..f38 matched; at f39 the run stops
 in the floor service 00175900 (player closure 001612D0's fault), the
 frame on which the census first records 00187DE0, the surface-0x5B first
 contact that em_player_first_contact does not bind yet.
-The harness's command timing is unchanged (the delay is a reading of the
-recording, not a measured property of the original). Receipts (ignored):
+Since the level-2 check (2026-10-08) the exported pad applies that reading
+per beat ("a01_01..a01_07 and the side beats" below). Receipts (ignored):
 `build/level2/camera/`.
+
+### a01_01..a01_07 and the side beats (level-2 check, 2026-10-08)
+
+**The first command's latency is read from each recording.** Every beat
+was recorded from its source's loaded save state, the recorder setting the
+beat's frame-0 pad command right after the load. A mid-beat command shows
+in the player three rows after it (the driver's two-row submission plus
+the tick); the first one sometimes took longer. `level_smoke_area01.
+first_command_extra_rows` reads it from the recording itself: the first
+row whose player state (+5, +1F0, clip) leaves row 0's idle, minus three
+(a01_01 row 5: 2; a01_02..a01_07, a01_s1, a01_s2, a01_s7 row 3: 0; the
+arrival beats a01_00, a01_s0, a01_s3, a01_s4, a01_s6 row 6: 3, where the
+arrival's own input lock decides that row natively whatever the command's
+row is; a01_s5 row 7: 4). The exported pad file places the frame-0
+command that many rows later (`command_rows`; the manifest records it).
+This is a reading of the recorder, not a property of the game; every
+later row is compared strictly. `--verify-harness` checks the driver
+against the shifted commands.
+
+Measured (receipts in ignored `build/l2check/smoke2`, `smoke3`, `smoke4`;
+`EM_PS2_DISC_DRIVE_TIMING=1` where stated):
+- **a01_00 PASS (781 rows), a01_01 PASS (306 rows), a01_02 PASS (591
+  rows)**, each with its ending camera block: the tunnel, the water at
+  the shaft (00187DE0's first contact, its ripple and splash), the lower
+  tunnel and the shaft-landing stairs (AREA01's one surface-0x35
+  polygon).
+- **a01_03: rows f0..f956 of 991 exact** with the drive-timing switch (the
+  locked shaft door's Use, its door program and message, the conversation
+  script 0x8298E0); at f957 the voice line ends one frame before the
+  recording's (seven frames at host speed). The later rows of that beat
+  and the next beats inherit the shift: a diagnostic that tolerates only
+  the message words (private, not committed; not a checker) finds a01_04's
+  camera and walk drifting from row 0, a01_05's 3,835 conversation rows
+  exact up to its own voice-line end, and a01_06's player path equal with
+  its overlay owner 0x826CF0's record differing.
+- a01_07: the replay plays the door's opening and the area change; the
+  load of AREA00 (level 3) then stops at its completion, where the port's
+  own AREA00 assets (world texture catalog, shadow receivers) do not exist
+  yet (`em_scene: 001FF080(1, 0): area 00 room 0 is not exported`). The
+  module pack holds AREA00 sub 0's files since this check, so the stop is
+  no longer a missing disc read.
+- **a01_s0 PASS (1,435 rows and the whole ending camera block)** with the
+  drive-timing switch, since the camera seed copies its fourth lane (the
+  player's +0xCC through 0x70003B5C, 0018CBD0's quadword copy).
+- a01_s3 PASS (262 rows), a01_s4 PASS (1,225 rows, drive timing), a01_s6
+  PASS (229 rows).
+- a01_s1 rows f0..f313 (the DATA BASE pickup's page request is consumed
+  earlier: its page module answers at host speed even with the switch,
+  which has no recorded time for AREA01's page reads); a01_s2 rows
+  f0..f257 of the control-room pickups (the same); a01_s5 rows f0..f1622
+  of the duct (the crawl, then the pickup's page request, the same); each
+  after a01_s0's full pass.
+- a01_s7 inherits a01_03's voice-line row and stops there.
 
 ### The step-offs (`check_fall`)
 
