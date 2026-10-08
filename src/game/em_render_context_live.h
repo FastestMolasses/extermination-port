@@ -237,6 +237,17 @@ int em_rcl_001D2580(int32_t a0);
 int em_rcl_001D2300_calls_001E0DF0(int *calls);
 /* The list the last step V kicked and the number of kicks. 0, or -1. */
 int em_rcl_kick(uint32_t *chain, uint32_t *kicks);
+/* The head of the list the last step V kicked, as the GS receives it: the
+ * GIF data (VIF DIRECT; the FLUSH / NOP codes of the tags and the packets
+ * dropped) of its first two tags, 001D2300's REFs of the slot's draw
+ * environment (GS block + 0x20 + 0x190 * slot, 0x19 qwords) and of the clear
+ * (+0x3A0 Z only, or +0x420 with render flag 3). The CPU GS model runs these
+ * before the frame's draws (em_gs_world_kick). Each REF's address and
+ * size are checked against the slot (context +0x9C, the list D_0028F700 +
+ * (slot << 14)). 0, or -1 (no kick, or a head of another shape: *why, when
+ * not NULL, names it). */
+int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_t *clear, uint32_t clear_cap,
+                     uint32_t *clear_bytes, const char **why);
 /* 001D1EF0: the tear-down frame (001D1C50, 001D2830(3, 1), 001D1EA0(0)) on
  * this context (em_frh_001D1EF0). Needs the bind. 0, or -1. */
 int em_rcl_001D1EF0(void);

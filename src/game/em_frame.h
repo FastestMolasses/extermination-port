@@ -169,6 +169,16 @@ void em_frame_set_task_check(int (*check)(void *context), void *context);
  * main iteration, not while the blocking movie holds the iteration; `index`
  * is the signed halfword D_00810E80. -1 is a fault (the frame quits). NULL
  * uninstalls it. */
+/* EM_FRAME_TIMING's GS-frame columns: a probe of the last GS frame's cost
+ * (em_gs_frame_live_cost): wall and busiest-worker CPU time, the workers,
+ * and the frames run so far. NULL: none. */
+typedef struct EmFrameGsCost {
+    double wall_ns, cpu_max_ns;
+    uint64_t runs;
+    unsigned workers;
+} EmFrameGsCost;
+void em_frame_set_timing_probe(int (*probe)(void *ctx, EmFrameGsCost *out), void *ctx);
+
 void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *context);
 /* The bytes of D_00810E80 (a halfword, 0 or 1; step W flips it), for the
  * render context's view. */

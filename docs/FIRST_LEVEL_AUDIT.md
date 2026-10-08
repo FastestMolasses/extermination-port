@@ -1471,6 +1471,56 @@ loader-chain sub-point):**
   capture of the movie frame's VIF state, of the SPU2 output or of AREA01's
   pixels; the fan's direct exit (sub 1) and its hit box stay off the route.
 
+**Status update (2026-10-03, chain step GSFRAME, audit 1b item 2 second
+half and item 23):**
+- **The Original profile draws the exact GS frame.** Every world frame's
+  GS packets (the background's channel-3 list, the static world's run and
+  the object units in the class-0 set D_00815360, the drop shadow's passes
+  with their state blocks and target packet, the chain page; the load
+  veil's list frames) go to the CPU GS model (src/gs/em_gs_world, strict
+  mode) instead of Metal; at step V the kicked list's draw environment and
+  clear (em_rcl_kick_head) run first, and the 512x224 field FRAME_1 names is
+  presented by the platform layer through the field-presentation hook (the
+  placeholder only; the choice stays the user's). The area load's uploads
+  reach GS memory through the loader's area consumer as the original sends
+  them; the boot library from tools/export_gs_memory.py. Metal is the
+  Enhanced profile's GPU renderer (EmSettings.gpu_renderer,
+  EM_GPU_RENDERER=1). GS_EXACT.md section 9.
+- **Numbers (fb2 harness, relative to PCSX2's software GS):** at 14 (camera
+  and field phase the original's) 28.79 % -> 87.18 % of the field exact
+  (mean channel error 1.78 -> 0.97); at 13 35.35 % -> 55.92 %; at 10 (camera
+  exact, the other field phase) 30.89 % -> 15.96 %. GS_EXACT.md 10.1 names
+  the causes per point.
+- **New finding: the field phase.** At first control, 08, 10, 11 and 12 the
+  port's D_00810E80 has the other parity than the original's at the same
+  route row, so it draws the other buffer half a line off (13 and 14 match).
+  Cause not traced. What removes it: trace the parity through the New
+  Game's loads and the status screens' page loads against the captures.
+- **Frame cost (item 23):** the GS frame runs on worker threads during the
+  next tick. On this M1 Pro at load 4.6 to 6 (newgame-control,
+  EM_FRAME_TIMING, two runs): the load veil's 54 list frames 0.2 to 4.2 ms
+  per tick (the review found them at 20.4 to 21.7 ms each, every one over
+  the period, before the recorder marked a drawn buffer once per stretch
+  between barriers instead of once per primitive); the in-level ticks 5.3 to
+  13.0 ms (mean 8.0), none over the period after the first two. The only
+  ticks over the period are the start-up, one host step on the title path,
+  the veil step that runs the area load (75 ms; GPU 87 ms) and the level's
+  first two ticks (GS 25.3 / 18.8 ms; GPU 23.6 / 26.5 ms), all over on the
+  GPU renderer too (GS_EXACT.md 10.2).
+- **Not done:** the 2D overlay pass (glyphs, letterbox, fades) still draws
+  with the GPU over the field; 001DDE10's frame-copy sprites (now drawable,
+  the frame being GS memory) are still walked over; the status frames use
+  the GPU. Only AREA11's area upload is exercised (the level exit's AREA01
+  arrival sends its own through the same consumer).
+- **Evidence.** make test-gs-raster-reference (part F: the row bands equal
+  one model over every capture packet), test-gs-world (1, 2, 3, 8 workers,
+  thread sanitizer; a barrier removed is a reported race),
+  test-gs-memory-reference (all 5,504 uploaded blocks equal the disc
+  model), test_shadow_original_reference (the target packet D_00817E20 in
+  order), test-fb2-pixels (floors on the presented field);
+  test-level-smoke-full through Roger with the GS frame; newgame-control
+  9.599849 (locked_ticks 1301).
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1599,6 +1649,11 @@ is the stream request's wait, not the timeline (item 6).
      shaders, then the GS model bound for the Original profile (section 9),
      which also draws 001DDE10's pass; the harness then compares the
      model's field word for word.
+   **Status (2026-10-03, chain step GSFRAME): the GS model is bound.** The
+   world frame is the model's field (status update above; GS_EXACT.md 9,
+   10.1). Left: the overlay pass on the GPU, 001DDE10's pass, the field
+   phase at 5 of 7 points, the sky grid region's ±1..3 at 14 (not traced),
+   and the rand() / fan-phase items listed above.
 3. **Look / feel: the area load and its veil (H7).** Done in chain step H7
    (status update above): the New Game's module 3 and AREA11 load through
    the loader's own steps (001FFCD0 with the sound-bank upload 001FB370 on
@@ -1973,7 +2028,15 @@ is the stream request's wait, not the timeline (item 6).
 23. **Frame cost.** The VU1 kernels run on the CPU every frame: on the M1 the
     in-level main-thread time per tick is 7.6 ms on average with no tick
     over the 16.68 ms period (chain C8b FLAMESNOW); slower hosts are not
-    measured.
+    measured. Since chain step GSFRAME the GS model draws the world frame on
+    worker threads during the next tick. Measured at load 4.6 to 6
+    (GS_EXACT.md 10.2): the load veil's list frames 0.2 to 4.2 ms per tick,
+    the in-level ticks 5.3 to 13.0 ms (mean 8.0; busiest worker 6.4 ms of
+    CPU per frame); over the period only the start-up, one title-path host
+    step, the veil step running the area load (75 ms) and the level's first
+    two ticks (25.3 / 18.8 ms), each over with the GPU renderer as well
+    (87 ms; 23.6 / 26.5 ms). Left: those load and first-tick costs (not the
+    GS frame's), and slower hosts.
 
 ---
 

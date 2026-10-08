@@ -17,10 +17,22 @@ What is compared, and how (like with like):
   to the two buffers"). It was drawn with the XYOFFSET of s1 (OFY 1936.0
   or 1936.5 with the field). The harness reads both from meta.json and
   refuses a point whose displayed FBP is not s1's FRAME.
-- **The port's frame.** The port draws its Original-profile frame with
-  Metal into the headless render target (the 960x720 window times the
-  backing scale, 1920x1440 on this Mac), 4:3 game rect, one frame per
-  scene tick after the task. The tick whose post-task state is route row
+- **The port's frame.** The port's Original profile draws the world frame
+  with the CPU GS model (src/gs/em_gs_world.h, GS_EXACT.md section 9): a
+  512x224 PSMCT32 field in GS memory, which a capture writes beside the
+  host image as `<capture>.gsfield` (512 x 224 x 4 bytes, R, G, B, A). The
+  original's displayed buffer holds the whole list, its letterbox bars,
+  transition fade and message glyphs included, which the port draws as the
+  GPU's 2D overlay pass over the presented field; so the number compared
+  is the presented frame at the centre of each field pixel (the
+  placeholder presentation shows field pixel (x, y) there unchanged), and
+  the field alone is reported beside it. The harness reports whether the
+  field's FRAME_1 and XYOFFSET_1 are the original's displayed buffer and
+  OFY at s1 (the frame loop's phase). With the GPU renderer
+  (EM_GPU_RENDERER=1, the Enhanced profile's path) there is no field: the
+  port draws with Metal into the headless render target (the 960x720
+  window times the backing scale, 1920x1440 on this Mac), 4:3 game rect,
+  and the harness samples it as below. The tick whose post-task state is route row
   s1 is found from the level smoke's own alignment
   (tools/test_level_smoke.py): a snapshot NN aligned at port tick i
   (post(i) = the recorded row `rec` of snapshot NN) gives tick
@@ -32,7 +44,7 @@ What is compared, and how (like with like):
   game state (the drawn owners' own states are the level smoke's
   check_owner_units; the snow and the flame follow the port's rand()
   stream and differ at every point).
-- **Sampling to 512x224.** The GS samples pixel (x, y) of a field at the
+- **Sampling to 512x224 (GPU renderer only).** The GS samples pixel (x, y) of a field at the
   window point (x, y) = vertex - XYOFFSET (GS_EXACT.md 3.1). The port's
   projection (em_mat4_perspective_gs) maps the 4:3 viewport's width to
   the field's 512 pixels (x = 256 * (1 + ndc_x)) and its height to 224
@@ -81,11 +93,16 @@ Modes (CLAUDE.md "Tests"):
 
 Assertions: a compared point's captured tick is the aligned tick; the
 camera-exact points (10 and 14, test_level_smoke.VIEW_EXACT) must still be
-camera exact; and each compared point's exact-match fraction must not fall
-below the floor recorded in FLOORS (GS_EXACT.md section 10 has the numbers
-per point). The floors are the measured values of 2026-09-28 rounded down
-to 0.1 percentage point, so a renderer change that loses matching pixels
-fails; one that gains them should raise the floor in the same commit.
+camera exact; and each
+compared point's exact-match fraction must not fall below the floor
+recorded in FLOORS (the GS field) or FLOORS_GPU (EM_GPU_RENDERER=1; the
+Metal floors of 2026-09-28). GS_EXACT.md section 10 has the numbers per
+point. The floors are measured values rounded down to 0.1 percentage
+point, so a renderer change that loses matching pixels fails; one that
+gains them should raise the floor in the same commit. The GS field's
+buffer and OFY against the original's (field_phase) are only reported, not
+asserted: they differ at 5 of the 7 compared points (GS_EXACT.md 10.1, an
+open finding), and a phase difference already shows in the pixel numbers.
 """
 import contextlib
 import io
@@ -118,9 +135,21 @@ POINTS = ('00_panel_no_battery', '01_battery', '02_elevator_refusal', '03_panel_
           '15_level_exit', 'first_control', 'route03_end', 'route07_end')
 FIRST_CONTROL_COUNTER = 4085   # route 01 f0 = user slot 04 (the smoke's first_control tick)
 GS_W, GS_H, GS_OFY = 512, 224, 1936.0
-# Exact-match floors (fraction of the 114,688 pixels), 2026-09-28; see the
-# module docstring and GS_EXACT.md section 10.
+GPU = os.environ.get('EM_GPU_RENDERER') == '1'
+# Exact-match floors (fraction of the 114,688 pixels) of the presented GS
+# field, 2026-10-03 (chain step GSFRAME); see the module docstring and
+# GS_EXACT.md section 10.
 FLOORS = {
+    'first_control': 0.009,
+    '08_truck_crossing': 0.031,
+    '10_cage_roof_roger': 0.159,
+    '11_crevice_prompt': 0.054,
+    '12_crevice_jump': 0.024,
+    '13_east_tower': 0.559,
+    '14_roger_encounter': 0.871,
+}
+# The same with the GPU renderer (EM_GPU_RENDERER=1), measured 2026-09-28.
+FLOORS_GPU = {
     'first_control': 0.008,
     '08_truck_crossing': 0.027,
     '10_cage_roof_roger': 0.308,
@@ -169,7 +198,7 @@ def fb2_point(name):
     # The capture session's own rows (counter -> row), recorded with the field.
     cap = d / 'capture.json'
     rows = {r['counter']: r for r in json.loads(cap.read_text()).get('rows', [])} if cap.exists() else {}
-    return {'name': name, 'rgb': raw.reshape(GS_H, GS_W, 4)[:, :, :3].copy(), 'ofy': ofy.pop(),
+    return {'name': name, 'rgb': raw.reshape(GS_H, GS_W, 4)[:, :, :3].copy(), 'ofy': ofy.pop(), 'fbp': shown,
             's1': int(s1['counter']), 'rec': rec.get('counter'), 'field_at_s1': s1.get('csr_field'),
             'rows': rows}
 
@@ -221,6 +250,17 @@ def sample_field(port, ofy):
     xs = np.floor(vx + np.arange(GS_W) * vw / GS_W).astype(np.int64)
     ys = np.floor(vy + (np.arange(GS_H) + (ofy - GS_OFY)) * vh / GS_H).astype(np.int64)
     assert xs.min() >= 0 and xs.max() < w and ys.min() >= 0 and ys.max() < h, 'sample outside the target'
+    return port[ys][:, xs], (w, h, vx, vy, vw, vh)
+
+
+def shown_field(port):
+    """The presented host frame at the centre of each field pixel of the 4:3
+    game rect (EM_GFX_FIELD_SPREAD shows field pixel (x, y) over the rect's
+    columns [x * vw / 512, (x + 1) * vw / 512) and rows likewise)."""
+    h, w, _ = port.shape
+    vx, vy, vw, vh = game_rect(w, h)
+    xs = np.floor(vx + (np.arange(GS_W) + 0.5) * vw / GS_W).astype(np.int64)
+    ys = np.floor(vy + (np.arange(GS_H) + 0.5) * vh / GS_H).astype(np.int64)
     return port[ys][:, xs], (w, h, vx, vy, vw, vh)
 
 
@@ -329,22 +369,66 @@ def target_tick(point, base):
     return snap + (point['s1'] - rec)
 
 
-def compare(point, tick_index, ticks, capture):
+def gs_field(capture, run):
+    """The GS field a capture wrote (<capture>.gsfield) as (224, 512, 3) RGB,
+    with the FRAME_1 and XYOFFSET_1 the run log reports for it; None when
+    the run drew no field (the GPU renderer)."""
+    path = Path(str(capture) + '.gsfield')
+    if not path.exists():
+        return None
+    raw = np.frombuffer(path.read_bytes(), dtype=np.uint8)
+    assert raw.size == GS_W * GS_H * 4, (path, 'the GS field is not 512x224', raw.size)
+    m = re.search(rf'^capture: wrote {re.escape(str(path))} \(512x224 GS field, FRAME_1 ([0-9a-f]{{16}}), '
+                  rf'XYOFFSET_1 ([0-9a-f]{{16}})\)', run, re.M)
+    assert m, (path, 'the run log names no FRAME_1 / XYOFFSET_1 for the field')
+    return raw.reshape(GS_H, GS_W, 4)[:, :, :3].copy(), int(m.group(1), 16), int(m.group(2), 16)
+
+
+def compare(point, tick_index, ticks, capture, run):
     name = point['name']
     t = ticks[tick_index]
     row = route_row(point['s1'])
     if row is None and point['s1'] in point['rows']:
         row = ('capture.json', point['rows'][point['s1']])
     exact, diff = placement(ticks, tick_index, row[1]) if row else (None, 'no recorded row at s1')
-    port_rgb = read_bmp(capture)
-    field, geometry = sample_field(port_rgb, point['ofy'])
+    gs = gs_field(capture, run)
+    assert (gs is None) == GPU, (name, 'the GS field is missing' if gs is None else
+                                 'a GS field was written with EM_GPU_RENDERER=1')
+    phase = None
+    if gs is not None:
+        field, frame, xyoffset = gs
+        port_ofy = ((xyoffset >> 32) & 0xFFFF) / 16.0
+        # the field's buffer and half line against the original's at s1 (the
+        # frame loop's phase, RENDER_CONTEXT.md 9.3): reported, and the
+        # comparison stands either way (a phase difference is itself a
+        # difference of the port's frame)
+        phase = {'port_fbp': hex(frame & 0x1FF), 'original_fbp': hex(point['fbp']), 'port_ofy': port_ofy,
+                 'original_ofy': point['ofy'], 'same': frame & 0x1FF == point['fbp'] and port_ofy == point['ofy']}
+        # what is shown: the presented frame (the field under the GPU's 2D
+        # overlay pass: the letterbox bars, the transition fade, the message
+        # glyphs) read back at the field's pixel centres, where the
+        # placeholder presentation shows field pixel (x, y) unchanged
+        presented, geometry = shown_field(read_bmp(capture))
+        bare = field
+        field = presented
+    else:
+        port_rgb = read_bmp(capture)
+        field, geometry = sample_field(port_rgb, point['ofy'])
+        bare = None
     m, per = metrics(field, point['rgb'])
     d = OUT / name
     d.mkdir(parents=True, exist_ok=True)
     write_png(d / 'port_512x224.png', field)
     write_png(d / 'original_512x224.png', point['rgb'])
     write_png(d / 'diff_512x224.png', diff_image(per))
+    bare_metrics = None
+    if bare is not None:
+        bare_metrics, bper = metrics(bare, point['rgb'])
+        write_png(d / 'port_gs_field_512x224.png', bare)
+        write_png(d / 'diff_gs_field_512x224.png', diff_image(bper))
     result = dict(m, point=name, port_tick=t['tick'], s1=point['s1'], ofy=point['ofy'],
+                  port_frame='GS field' if gs is not None else 'Metal (GPU renderer)', field_phase=phase,
+                  gs_field_alone=bare_metrics,
                   row=(f'{row[0]} f{row[1]["f"]}' if 'f' in row[1] else f'{row[0]} counter {point["s1"]}')
                   if row else None, camera_exact=exact,
                   differs=diff if not exact else None, target=list(geometry[:2]),
@@ -357,6 +441,13 @@ def line(r):
     cam = ('camera exact' if r['camera_exact'] else
            f'camera NOT exact ({", ".join(sorted(r["differs"]))} differ)' if r['camera_exact'] is False else
            r['differs'])
+    ph = r.get('field_phase')
+    if ph and not ph['same']:
+        cam += f'; the port field is FBP {ph["port_fbp"]} OFY {ph["port_ofy"]} (the original\'s {ph["original_fbp"]}, {ph["original_ofy"]})'
+    g = r.get('gs_field_alone')
+    if g:
+        cam += (f'; the GS field alone (no overlay pass): exact {g["exact"]:,} '
+                f'({100 * g["exact_fraction"]:.2f}%), mean channel error {g["mean_abs_channel_error"]:.2f}')
     return (f'{r["point"]}: port tick {r["port_tick"]} = row {r["row"]} (s1 {r["s1"]}, OFY {r["ofy"]}), {cam}: '
             f'exact {r["exact"]:,} of {r["pixels"]:,} ({100 * r["exact_fraction"]:.2f}%), mean channel error '
             f'{r["mean_abs_channel_error"]:.2f}, max {r["max_channel_error"]}, per-pixel max error p50/p90/p99 '
@@ -376,7 +467,7 @@ def quick_point(points):
     assert m and cap.exists(), 'the port wrote no capture'
     assert int(m.group(1)) == ticks[want]['tick'], ('first_control: the captured tick is not the aligned '
                                                     'tick', int(m.group(1)), ticks[want]['tick'])
-    return compare(points['first_control'], want, ticks, cap), secs
+    return compare(points['first_control'], want, ticks, cap, run), secs
 
 
 def area01_point(points):
@@ -397,7 +488,7 @@ def area01_point(points):
     assert m and cap.exists(), 'the port wrote no capture'
     assert int(m.group(1)) == ticks[want]['tick'], ('15_level_exit: the captured tick is not the aligned tick',
                                                      int(m.group(1)), ticks[want]['tick'])
-    return compare(p, want, ticks, cap), secs
+    return compare(p, want, ticks, cap, run), secs
 
 
 def main():
@@ -409,9 +500,10 @@ def main():
     if sys.argv[1:] == ['--point', '15_level_exit']:
         r, secs = area01_point({'15_level_exit': fb2_point('15_level_exit')})
         print('fb2 pixels: ' + line(r))
-        for f in list((OUT / 'a01').glob('ticks.jsonl')) + list((OUT / 'a01').glob('*.bmp')):
+        for f in (list((OUT / 'a01').glob('ticks.jsonl')) + list((OUT / 'a01').glob('*.bmp')) +
+                  list((OUT / 'a01').glob('*.bmp.gsfield'))):
             f.unlink()
-        floor = FLOORS[r['point']]
+        floor = (FLOORS_GPU if GPU else FLOORS)[r['point']]
         assert r['exact_fraction'] >= floor, (r['point'], 'exact-match fraction below its floor',
                                               r['exact_fraction'], floor)
         print(f'fb2 pixels: PASS (one port run to the AREA01 arrival ({secs:.0f} s); images in '
@@ -446,7 +538,7 @@ def main():
             assert j == i and ticks2[j]['tick'] == ticks1[i]['tick'], (name, 'the port run is not deterministic: '
                                                                        'pass 2 aligns another tick', i, j)
             assert ticks2[j]['post'] == ticks1[i]['post'], (name, 'pass 2 state differs at the aligned tick')
-            results.append(compare(points[name], j, ticks2, OUT / 'pass2' / (name + '.bmp')))
+            results.append(compare(points[name], j, ticks2, OUT / 'pass2' / (name + '.bmp'), run2))
         runs += f', two port runs through the AREA01 arrival ({s1:.0f} s, {s2:.0f} s)'
     for r in results:
         print('fb2 pixels: ' + line(r))
@@ -457,19 +549,22 @@ def main():
     # The runs' tick logs (up to 300 MB each) and the host-size captures are
     # scratch; the per-point PNGs, result.json and run.log stay.
     for run_dir in ('quick', 'pass1', 'pass2'):
-        for f in list((OUT / run_dir).glob('ticks.jsonl')) + list((OUT / run_dir).glob('*.bmp')):
+        for f in (list((OUT / run_dir).glob('ticks.jsonl')) + list((OUT / run_dir).glob('*.bmp')) +
+                  list((OUT / run_dir).glob('*.bmp.gsfield'))):
             f.unlink()
     for r in results:
         if r['point'] in T.VIEW_EXACT:
             assert r['camera_exact'], (r['point'], 'a camera-exact point is no longer camera exact', r['differs'])
-        floor = FLOORS.get(r['point'])
+        floor = (FLOORS_GPU if GPU else FLOORS).get(r['point'])
         if floor is not None:
             assert r['exact_fraction'] >= floor, (r['point'], 'exact-match fraction below its floor',
                                                   r['exact_fraction'], floor)
     RM.banner(f'{len(results)} of {len(POINTS)} fb2 points compared')
-    print(f'fb2 pixels: PASS ({runs}; '
-          f'port frame: Metal {results[0]["target"][0]}x{results[0]["target"][1]}, 4:3 rect '
-          f'{results[0]["game_rect"]}, point-sampled at the GS sample points; images and summary.json in '
+    frame = ('the presented GS field (under the overlay pass) at the field pixel centres, and the field alone'
+             if not GPU else
+             f'Metal {results[0]["target"][0]}x{results[0]["target"][1]}, 4:3 rect {results[0]["game_rect"]}, '
+             'point-sampled at the GS sample points')
+    print(f'fb2 pixels: PASS ({runs}; port frame: {frame}; images and summary.json in '
           f'{OUT.relative_to(ROOT)}/)')
 
 

@@ -4524,13 +4524,13 @@ static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32
  *    with rooms), each sent from D_0028A740: AREA01 sub 0's one A entry
  *    (chunk05.n0 +0x75000, 0xD8800 bytes; the level exit's load, route
  *    beat 15) is that room's texture upload (AREA01_ASSETS.md).
- * The port's renderer draws AREA11's texels from its disc export, which
- * DISC_TEXTURES test B proves equal to what these uploads write in every
- * route capture; AREA01's are drawn by nothing in the first level (the
- * arrival's last frame is the state-0 rebuild, under black; AREA01's world
- * is level 2). So the consumer accepts exactly these sends and applies
- * nothing. Any other send (a B section: AREA11 and AREA01 sub 0 have none)
- * is refused. */
+ * The consumer accepts exactly these sends. With the Original profile's GS
+ * frame they go to the CPU GS model's local memory (em_gfx_gs_upload: the
+ * chain's transfers, as the GS takes them; GS_EXACT.md section 9); the GPU
+ * renderer draws these texels from its disc export (AREA11: DISC_TEXTURES
+ * test B proves it equal to what these uploads write in every route
+ * capture; AREA01: em_world_textures_live's catalog). Any other send (a B
+ * section: AREA11 and AREA01 sub 0 have none) is refused. */
 static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, uint32_t size)
 {
     EmModuleLoader *ml = ctx;
@@ -4540,17 +4540,17 @@ static int loader_area_chain(void *ctx, uint32_t chain, const uint8_t *bytes, ui
         return -1;
     if (rec->user[1] == 4 && rec->user[2] == 2 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A73C]) {
         s_area_uploads[0]++;
-        return 0;
+        return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
     }
     if (rec->user[1] == 8 && rec->user[2] == 1 && chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A740]) {
         s_area_uploads[0]++;
-        return 0;
+        return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
     }
     if (rec->user[1] == 7)
         for (uint32_t k = 0; k < 5; ++k)
             if (chain == ld->d28A490[EM_STATUS_SCENE_SLOT_D_0028A4B0 + k]) {
                 s_area_uploads[1]++;
-                return 0;
+                return em_gfx_gs_upload(em_frame_gfx(), bytes, size) < 0 ? -1 : 0;
             }
     return -1;
 }

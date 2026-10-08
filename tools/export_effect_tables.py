@@ -110,6 +110,10 @@ Blocks (original address, bytes, what reads them):
                       130 instructions from ELF 0x0023D958 / 0x0023E160,
                       the lookup and 17 constant rows) and its RET tag,
                       read by the chain page (em_chain_page.c)
+  0x002531D0  0x40    D_002531D0: the four PACKED XYZF2 rows of the
+                      drop shadow's alpha-clear strip (001DA290 copies them
+                      into 001DA1E0's DIRECT packet), read by the Original
+                      profile's GS frame (src/gs/em_gs_world.h, em_gfx.h)
 
 --verify-ram (default: the opening capture, the playable capture and every
 AREA11 route capture 00..14) checks that each block equals captured RAM.
@@ -176,7 +180,10 @@ BLOCKS = ((0x00257C90, 0x2460), (0x00255430, 0x158), (0x0025A350, 0x34B0), (0x00
           (0x002557D0, 0x360),
           # 001CFBE0 kind 6's program packet D_0023D930 (001E3D90's
           # near-fire layer) and its RET tag.
-          (0x0023D930, 0xF70))
+          (0x0023D930, 0xF70),
+          # D_002531D0: the drop shadow's alpha-clear strip, read by the
+          # Original profile's GS frame.
+          (0x002531D0, 0x40))
 
 
 def elf_block(elf: bytes, address: int, size: int) -> bytes:

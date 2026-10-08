@@ -114,6 +114,24 @@ typedef struct EmGs {
     uint32_t chain_attr, chain_class, chain_z, chain_uniform, chain_stq;
     uint32_t span_faults;              /* chains whose grid decision is unsettled */
     uint64_t pend_lo[3], pend_hi[3];   /* frame, Z, texture bytes the span uses */
+    /* Row bands (em_gs_world's parallel drawing): with band_count > 1 this
+     * EmGs writes only the window rows y with ((y >> band_shift) %
+     * band_count) == band_index. Everything else (registers, the span, the
+     * CLUT, the counters of drawn and refused primitives) is the same in
+     * every band, so N EmGs over one local memory, each fed the same writes
+     * with its own band, draw exactly what one EmGs draws. 0 or 1: all rows. */
+    uint32_t band_count, band_index, band_shift;
+    /* Test hook (tools/test_gs_raster_reference.py part F): every register
+     * write, IMAGE transfer and flush this EmGs takes is passed on to `tee`
+     * after it, so a chain of band EmGs takes one stream in lockstep. NULL:
+     * none. */
+    struct EmGs *tee;
+    /* The last accepted primitive setup and its kind, kept until a register
+     * write other than PRIM's vertex registers (RGBAQ, ST, UV, FOG, XYZ):
+     * the next primitive of that kind takes the same setup (heap, freed by
+     * em_gs_release). */
+    void *setup_cache;
+    uint32_t setup_valid, setup_kind;
 } EmGs;
 
 /* mem must hold EM_GS_MEM_BYTES; it is not cleared. The registers start at

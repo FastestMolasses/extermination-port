@@ -1194,6 +1194,13 @@ def state_blocks(ram, stats):
         target[0x40] == [0x7F0000007F0000] and target[0x01] == [0x3F80000000808080] and \
         target[0x05] == [0x7C007C00, 0x84008400] and target[0x00] == [6], target
     assert (0x2012C & 0x1FF) * 8192 == 0x258000 and (0x2012C >> 16 & 0x3F) * 64 == 128
+    # the whole packet in order: the values em_shadow_gs.h pins and the
+    # Original profile's GS frame sends (em_gfx_metal.m gsw_silhouette)
+    order = [(hi & 0xFF, lo) for lo, hi in (struct.unpack_from('<QQ', ram, 0x817E20 + 16 * (2 + i))
+                                             for i in range(14))]
+    assert order == [(0x4C, 0x2012C), (0x4E, 0x102000010), (0x18, 0x7C0000007C00), (0x40, 0x7F0000007F0000),
+                     (0x1A, 1), (0x46, 1), (0x45, 0), (0x47, 0x30000), (0x47, 0x30000), (0x00, 6),
+                     (0x01, 0x3F80000000808080), (0x05, 0x7C007C00), (0x05, 0x84008400), (0x47, 0x30000)], order
     alpha_only = ad(STATE_2_9, 7)
     assert alpha_only[0x47] == [0x51001] and alpha_only[0x42] == [0x80000000A9] and \
         alpha_only[0x4E] == [0x101000070], alpha_only
@@ -2372,6 +2379,7 @@ class Metal:
         os.environ['EM_HEADLESS'] = '1'
         lib_path = out/'gfx.dylib'
         sources = [ROOT/'src/gfx/metal/em_gfx_metal.m', ROOT/'src/game/em_lighting.c',
+                   ROOT/'src/gs/em_gs_world.c', ROOT/'src/gs/em_gs_raster.c', ROOT/'src/gs/em_gs_frame.c',
                    ROOT/'src/platform/mac/em_platform_mac.m', ROOT/'src/em_model.c',
                    ROOT/'src/game/em_packet_chain_original.c', ROOT/'src/game/em_status_ui_leftovers.c',
                    ROOT/'src/game/em_object_unit.c']

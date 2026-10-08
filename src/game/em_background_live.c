@@ -62,7 +62,7 @@ int em_background_live_draw(EmGfx *gfx)
     for (uint32_t i = 0; i < p->prim_count; ++i)
         if (!(S.env[i].set & EM_GFX_GS_ENV_ZBUF) || !((S.env[i].zbuf >> 32) & 1u))
             return fail(start, "a grid triangle drawn with Z writes on (ZBUF_1 ZMSK 0)");
-    if (em_gfx_background_prims(gfx, S.prims, p->prim_count) < 0)
+    if (em_gfx_background_prims_env(gfx, S.prims, S.env, p->prim_count) < 0)
         return fail(start, "the renderer refused the grid triangles");
     EmBackgroundLiveLog *l = &S.log;
     l->frame = em_frame_counter();

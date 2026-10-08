@@ -68,17 +68,27 @@ from **one codebase**:
    game state in the Original profile. Diff the two pixel by pixel. This turns
    "looks like the original" into a number. **Built 2026-09-28**
    (`tools/test_fb2_pixels.py`, `make test-fb2-pixels`; GS_EXACT.md section
-   10 has the method and the numbers per point). Today it samples the
-   port's Metal frame (host resolution, 4:3) at the GS sample points; once
-   item 2 exists it compares the GS model's field word for word.
+   10 has the method and the numbers per point). Since item 2 it compares
+   the GS model's field word for word (with the GPU renderer it samples the
+   Metal frame at the GS sample points).
 2. **GS-exact Original rendering.** Render each field at 512x224 as the GS does, apply the GS blend, fog,
    alpha-test and dither rules exactly, and scale to 4:3 without filtering.
+   **Built 2026-10-03** for the world frame (chain step GSFRAME; GS_EXACT.md
+   section 9): the CPU GS model draws every world frame's GS packets into a
+   512x224 field in GS memory, and the platform layer presents it through
+   the field-presentation hook (the placeholder only; the user's choice is
+   open). The status frames and the 2D overlay pass still draw with the GPU.
+   Only the Metal backend (macOS) presents the field today: on the d3d12
+   and Vulkan backends the Original profile refuses to start, and
+   EM_GPU_RENDERER=1 (the GPU renderer) is needed there (GS_EXACT.md
+   section 9, "Backends").
 3. **Profile switch plumbing.** One settings struct with an Original value for
    every switch, chosen at launch. Started 2026-09-27: `src/em_settings.{h,c}`
    (`EmSettings`, `em_settings_original`, `em_settings()`), read from the
-   environment by `em_settings_from_env` until the launcher sets it. Its one
-   switch so far is the PS2 disc-drive timing (`LAUNCHER_OPTIONS.md`, BUILT).
-   Rendering switches go next.
+   environment by `em_settings_from_env` until the launcher sets it. Its
+   switches so far are the PS2 disc-drive timing and, since 2026-10-03, the
+   renderer (`gpu_renderer`: 0, the Original GS frame; 1, the GPU renderer
+   the Enhanced resolution builds on; `LAUNCHER_OPTIONS.md`, BUILT).
 4. **Enhancement items**, one switch each, in the order the user picks.
 
 ## Options and pending decisions
