@@ -411,7 +411,11 @@ the a01_00 run the two sampled calls (001C1D00 calls 13201 and 13601, in
 a01_00 f9 and f409) reach 001D5BD0, 001D5A70 (12 records each) and
 001D4FC0 (12 drawn records in the first): those three rows are **live**.
 001D5170 (the partial-clip packet) is not reached by a sampled call:
-**verified-unbound** (unchanged).
+**verified-unbound** (unchanged). Fresh receipt at the merge (2026-10-07,
+`EM_TEST_FULL=1 python3 tools/test_level_smoke_area01.py --until a01_00`,
+`build/integrate_draw/a01_00_full.log`): a01_00 PASS, static world
+AREA01 2 of 2 sampled calls equal, shadows 9 of 9 sampled plans and 9 of
+9 actor plans equal.
 
 Also in this step, without a census row (VU1 microcode is not an EE
 function): 001CFBE0 kind 6's program D_0023D930 is translated and drawn

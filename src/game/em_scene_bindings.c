@@ -1801,9 +1801,11 @@ static void log_tick_end(int rc)
                 fprintf(f, "%s[%u, %u, %u, %u, %u, %u]", k ? ", " : "", pl.unit_call[k], pl.unit_prims[k],
                         pl.unit_strips[k], (unsigned)pl.unit_tex0[k], (unsigned)(pl.unit_tex0[k] >> 32),
                         pl.unit_prim[k]);
-            fprintf(f, "], %u, %u, %u, %u, %u, %u, %u, %u]", pl.digest_without_units, c->mscal_streak,
+            /* ... and the kind-6 program's MSCALs and primitives (D_0023D930,
+             * 001CFBE0 kind 6: AREA01's near-fire layer). */
+            fprintf(f, "], %u, %u, %u, %u, %u, %u, %u, %u, %u, %u]", pl.digest_without_units, c->mscal_streak,
                     c->streak_prims, pl.flare_sprites, c->lane_strips, c->mscal_kind2, c->kind2_prims,
-                    c->direct_strips);
+                    c->direct_strips, c->mscal_kind6, c->kind6_prims);
         } else {
             fputs("null", f);
         }

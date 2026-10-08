@@ -470,8 +470,9 @@ gives the same values.
   chain page's unmapped-address refusal).
 - **What the page counts for the smoke** (the tick log's `page`): besides
   the MSCALs per program, the streak and kind-2 programs' primitives
-  (`streak_prims`, `kind2_prims`; the kind-6 program's `mscal_kind6` /
-  `kind6_prims` are counted in EmChainPageCounts but not logged), the lanes' strip triangles
+  (`streak_prims`, `kind2_prims`; since the DRAW merge, 2026-10-07, also
+  the kind-6 program's `mscal_kind6` / `kind6_prims`, last in the record,
+  which `check_kind6_area01` reads over the AREA01 ticks), the lanes' strip triangles
   (`lane_strips`: an active ring-decal slot) and the DIRECT packets' strip
   triangles (`direct_strips`: 0021A500's parted cable strand), so
   check_chain_page can tell each strip triangle's source; the first 12

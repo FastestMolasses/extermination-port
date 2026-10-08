@@ -4887,6 +4887,7 @@ def main():
             # dynamic table, and the player's and the owners' shadows.
             level_smoke_static_world.check_area01(all_ticks[state['area11_end']:])
             level_smoke_shadow.check_shadow_area01(all_ticks[state['area11_end']:])
+            level_smoke_chain_page.check_kind6_area01(all_ticks[state['area11_end']:], 'a01_00' in checked)
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

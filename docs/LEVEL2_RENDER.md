@@ -277,7 +277,10 @@ packet bytes. `make test-chain-page-reference` passes quick and full with
 the batch-size parameter (the sprite, snow, streak and kind-2 programs
 unchanged).
 
-Live: the a01_00 phase now runs all 780 frames (LEVEL_SMOKE.md "a01_00").
+Live: the a01_00 phase now runs all 780 frames (LEVEL_SMOKE.md "a01_00"),
+and the smoke's `check_kind6_area01` requires a page that ran the program
+(measured at the merge, 2026-10-07: 374 pages, 99,000 primitives, the
+first at a01_00 f405).
 
 ## AREA01 world in the level smoke and its pixels
 

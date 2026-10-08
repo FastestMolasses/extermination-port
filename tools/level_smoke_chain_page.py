@@ -229,7 +229,8 @@ def check_chain_page(ticks, state):
         p = t['page']
         (_now, _pages, start, four, _tr, _qw, direct, ml, ms, kicks, prims, by_type, skip, stale_q,
          _cyc, decal, dig, markers, sample, snow_mscals, weather, overlay_reads, units, _dig_units,
-         streak_mscals, streak_prims, flare_sprites, lane_strips, kind2_mscals, kind2_prims, direct_strips) = p
+         streak_mscals, streak_prims, flare_sprites, lane_strips, kind2_mscals, kind2_prims, direct_strips,
+         _kind6_mscals, _kind6_prims) = p
         where = ('chain page', 'tick', t['tick'])
         assert skip == (1 if four else 0), (where, 'CALLs walked over', skip, four)
         assert ml in (0, 6), (where, 'lane MSCALs', ml)
@@ -350,3 +351,31 @@ def check_chain_page(ticks, state):
           f'{len(samples)} sampled pages re-walked with the original microcode equal the port\'s primitives '
           f'({watched_checked} reads of the presets, program packets and flame descriptor equal the route '
           f'captures\'); aligned: {", ".join(exact) if exact else "none camera-exact"})')
+
+
+def check_kind6_area01(ticks, near_fire):
+    """The AREA01 ticks after the level exit's rebuild: the kind-6 program
+    (D_0023D930, 001CFBE0 kind 6, which 001E3D90's near-fire layer asks for)
+    draws its primitives only on pages that ran its MSCAL, and, when the run
+    played a01_00 (whose recording passes the fire from f405), at least one
+    page ran it. The program itself is compared with the original microcode
+    by tools/test_level2_kind6_vu_reference.py."""
+    pages = prims = 0
+    first = None
+    for t in ticks:
+        p = t.get('page')
+        if not p or p[0] != 1:
+            continue
+        kind6_mscals, kind6_prims = p[31], p[32]
+        assert kind6_prims == 0 or kind6_mscals, \
+            ('kind-6 AREA01', 'tick', t['tick'], 'kind-6 primitives without its MSCAL', kind6_prims)
+        if kind6_mscals:
+            pages += 1
+            prims += kind6_prims
+            if first is None:
+                first = t['tick']
+    if near_fire:
+        assert pages, 'kind-6 AREA01: a01_00 played and no page ran the near-fire program'
+    print(f'kind-6 AREA01: PASS ({pages} page(s) ran the near-fire program D_0023D930 '
+          f'({prims} primitives){f", the first at port tick {first}" if first is not None else ""}'
+          f'{"" if near_fire else "; a01_00 not played in this run"})')

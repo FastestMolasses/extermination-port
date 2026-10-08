@@ -1709,9 +1709,19 @@ the ticks after the exit's rebuild:
   when the AREA01 composition binds at the rebuild; 0015C160's routes and flushes over the AREA01 ticks, and the
   sampled player shadows, decals and owner-walk actor shadows replayed with
   the original over route 15's AREA01 capture.
+- `level_smoke_chain_page.check_kind6_area01`: the tick log's page record
+  carries the kind-6 program's MSCALs and primitives (D_0023D930, 001CFBE0
+  kind 6, asked for by 001E3D90's near-fire layer); its primitives appear
+  only on pages that ran its MSCAL, and a run that played a01_00 must have
+  at least one such page (the program itself is compared with the original
+  microcode by `make test-level2-kind6-vu-reference`).
 Measured on the a01_00 run (quick / full): static world 842 calls, 1 / 2
 samples equal; shadows 822 player calls, 4 / 9 sampled plans and 4 / 9
-actor plans equal. The a01_arrival run (`EM_LEVEL_SMOKE_UNTIL=a01_arrival
+actor plans equal; kind 6 (integration, 2026-10-07): 374 pages, 99,000
+primitives, the first at a01_00 row f405 (the row where the release build
+stopped before step DRAWN). Receipts (ignored):
+`build/integrate_draw/a01_00_full.log` (EM_TEST_FULL=1, 2026-10-07) and
+`build/integrate_draw/a01_00_quick.log` (with the kind-6 check). The a01_arrival run (`EM_LEVEL_SMOKE_UNTIL=a01_arrival
 make test-level-smoke`): 61 static-world calls, 61 player shadows, one
 sampled plan equal. A run that ends at a01_arrival has no static-world
 sample in AREA01 (one in 400 calls) and says so.
