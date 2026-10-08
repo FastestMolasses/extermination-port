@@ -119,10 +119,62 @@ int em_panel_candidate(const EmPanel *panel, const float owner[3],
     return 1;
 }
 
+/* The one scalar owner for all 00157F60 model branches. AREA11's typed
+ * panel wrapper and AREA01's borrowed record adapter consume these values. */
+typedef struct {
+    uint8_t request, parameter, status, charged, armed;
+} PanelRequest;
+static PanelRequest panel_request(uint8_t model, uint8_t cost)
+{
+    PanelRequest value = {1, (uint8_t)(0x80u + cost), 1, 0, 0};
+    if (model == 0x38) { value.request = 6; value.parameter = 0x80; }
+    else if (model == 0x37) { value.request = 5; value.parameter = 0x10; }
+    else if (model == 0x2C) value.parameter = 0x40;
+    return value;
+}
 uint8_t em_panel_battery_request(EmPanel *panel)
 {
-    panel->charged=0;
-    panel->armed=0;
-    panel->status=1;
-    return (uint8_t)(0x80+panel->cost);
+    PanelRequest value = panel_request(0x24, (uint8_t)panel->cost);
+    panel->charged=value.charged;
+    panel->armed=value.armed;
+    panel->status=value.status;
+    return value.parameter;
+}
+
+/* Preserve 00157F60's access order through the borrowed canonical views.
+ * This only posts the original request; it never supplies a page or choice. */
+int em_panel_request_00157F60(void *ctx, EmPanelMemory memory, uint32_t actor)
+{
+    if (!memory) return -1;
+    uint8_t *p = memory(ctx, actor + 3u, 1, 0);
+    if (!p) return -1;
+    uint8_t model = *p, cost = 0;
+    if (model != 0x38 && model != 0x37 && model != 0x2C) {
+        p = memory(ctx, actor + 0x34u, 1, 0);
+        if (!p) return -1;
+        cost = *p;
+    }
+    PanelRequest value = panel_request(model, cost);
+    p = memory(ctx, 0x008106B1u, 1, 1);
+    if (!p) return -1;
+    *p = value.parameter;
+    p = memory(ctx, 0x008106B0u, 1, 1);
+    if (!p) return -1;
+    *p = value.request;
+    p = memory(ctx, actor + 0x14u, 4, 0);
+    if (!p) return -1;
+    uint32_t self; memcpy(&self, p, 4);
+    p = memory(ctx, 0x008106D0u, 4, 1);
+    if (!p) return -1;
+    memcpy(p, &self, 4);
+    p = memory(ctx, actor + 0xAu, 1, 1);
+    if (!p) return -1;
+    *p = value.charged;
+    p = memory(ctx, actor + 0xBu, 1, 1);
+    if (!p) return -1;
+    *p = value.armed;
+    p = memory(ctx, actor, 1, 1);
+    if (!p) return -1;
+    *p = value.status;
+    return 0;
 }

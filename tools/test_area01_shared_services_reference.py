@@ -15,7 +15,7 @@ OUT=ROOT/'build/level2/shared-services'
 def main():
     OUT.mkdir(parents=True,exist_ok=True)
     sources=['tests/area01_shared_services_bridge.c','src/game/em_area01_shared_services.c',
-             'src/game/em_area01_scene_view.c','src/game/em_director_original.c','src/game/em_actor_roster.c',
+             'src/game/em_area01_scene_view.c','src/game/em_panel.c','src/game/em_director_original.c','src/game/em_actor_roster.c',
              'src/game/em_player_misc_workers.c','src/game/em_player_stage_workers.c','src/game/em_random.c',
              'src/game/em_script_host_workers.c','src/game/em_script.c','src/game/em_sdk_math_original.c',
              'src/game/em_owner_services_original.c','src/game/em_effect_original.c',
@@ -91,15 +91,68 @@ def main():
         ee.save(0x26C5D0,0xFFFFFFFF);call(0x1B1EA0,(mode,0x680000,0x680020,4));count+=1
     # Publish real pool nodes through the existing list owner, with original
     # counters/address words and saturation. No synthetic result boundary.
-    n.ss_lists_reset()
-    for k,(ptr,counter) in LIST_LIVE.items():ee.save(ptr,LIST_BASE[k]);ee.save(counter,0,2)
-    for i in range(pick(512,160)):
-        node=0x7A5640+(i%128)*0x2F0;cls=(1,2,4,7,13,0x8A,0xA4,3)[i%8]
-        ee.save(node+2,cls,1);ee.save(node+0x14,node)
-        ee.call(0x1B1B70,(node,));assert n.ss_publish(i%128,cls)==0
-        for k,(ptr,counter) in LIST_LIVE.items():
-            live=ee.load(counter,2);assert n.ss_list_count(k)==live,(i,k,live,n.ss_list_count(k))
-            for j in range(live):assert n.ss_list_entry(k,j)==ee.load(LIST_BASE[k]-4*(j+1)),(i,k,j)
-        count+=1
+    for function in (0x1B1B70,0x1B1DE0):
+        n.ss_lists_reset()
+        for k,(ptr,counter) in LIST_LIVE.items():ee.save(ptr,LIST_BASE[k]);ee.save(counter,0,2)
+        for i in range(pick(512,160)):
+            node=0x7A5640+(i%128)*0x2F0;cls=(1,2,4,7,13,0x8A,0xA4,3)[i%8]
+            ee.save(node+2,cls,1);ee.save(node+0x14,node)
+            ee.call(function,(node,));assert n.ss_publish_function(function,i%128,cls)==0
+            for k,(ptr,counter) in LIST_LIVE.items():
+                live=ee.load(counter,2);assert n.ss_list_count(k)==live,(i,k,live,n.ss_list_count(k))
+                for j in range(live):assert n.ss_list_entry(k,j)==ee.load(LIST_BASE[k]-4*(j+1)),(i,k,j)
+            count+=1
+    # 00157F60: all model bytes, wrapping cost byte, owner/request aliasing,
+    # exact ordered accesses and every missing-view prefix. The same scalar
+    # owner also serves the existing AREA11 typed power panel wrapper.
+    n.ss_accesses.restype=C.POINTER(C.c_uint32)
+    regions=((0x680000,0x100),(0x8106B0,0x48))
+    class Cut(Exception):pass
+    class TerminalEE(MiscEE):
+        def access(self,a,size,write):
+            if hasattr(self,'events') and any(base<=a<base+length for base,length in regions):
+                self.events.append((a,size,write))
+                if len(self.events)==self.cut:raise Cut()
+        def load(self,a,nbytes=4):
+            self.access(a,nbytes,0);return super().load(a,nbytes)
+        def save(self,a,v,nbytes=4):
+            self.access(a,nbytes,1);return super().save(a,v,nbytes)
+    te=TerminalEE(elf)
+    def terminal_case(actor,mode,cost,cut=0):
+        te.events=[];te.cut=0
+        for base,length in regions:
+            data=rng.randbytes(length);C.memmove(n.ss_bytes(base,length),data,length);te.write(base,data)
+        for address,data in ((actor+3,bytes([mode])),(actor+0x34,bytes([cost])),
+                             (actor+0x14,struct.pack('<I',rng.getrandbits(32)))):
+            C.memmove(n.ss_bytes(address,len(data)),data,len(data));te.write(address,data)
+        te.events=[];te.cut=cut
+        try:
+            te.call(0x157F60,(actor,));expected=0
+        except Cut:expected=-1
+        n.ss_deny_access(cut)
+        rc=n.ss_call(0x157F60,actor,0xDEADBEEF,0xABCD0123,0)
+        n.ss_deny_access(0)
+        accesses=[tuple(n.ss_accesses()[3*i:3*i+3]) for i in range(n.ss_access_count())]
+        assert rc==expected,(mode,cost,cut,rc,expected)
+        assert accesses==te.events,(mode,cost,cut,accesses,te.events)
+        for base,length in regions:
+            assert native(base,length)==te.read(base,length),(mode,cost,cut,hex(base))
+        if not cut:assert n.ss_result()==te.r[2]==1
+        return len(accesses)
+    terminal_cases=0
+    costs=(0,1,0x7F,0x80,0xFE,0xFF) if MODE=='full' else (0,0xFF)
+    for mode in range(256):
+        for cost in costs:
+            terminal_case(0x680000,mode,cost);terminal_cases+=1
+    for actor in (0x8106B0,0x8106BC,0x8106C0):
+        for mode in (0x24,0x2C,0x37,0x38):
+            terminal_case(actor,mode,0x80);terminal_cases+=1
+    cuts=0
+    for mode in (0x24,0x2C,0x37,0x38):
+        length=terminal_case(0x680000,mode,0x80)
+        for cut in range(1,length+1):
+            terminal_case(0x680000,mode,0x80,cut);cuts+=1
+    print(f'PASS {MODE}: terminal request00157F60 {terminal_cases} original cases and {cuts} exact missing-access prefixes')
+    count+=terminal_cases+cuts
     print(f'PASS {MODE}: {count} original shared-service cases, canonical scene/player/list mutations and SDK polygon calls')
 if __name__=='__main__':main()

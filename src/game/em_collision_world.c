@@ -47,6 +47,8 @@ static struct {
     EmActorCollisionPlayerColumn column_player;
     /* 0019AD00 / 0019AFE0 (em_coll_move_original) and the hull locks. */
     EmCollHullWorld hulls;
+    int (*area_chain)(void *,const EmActor *,EmCollHullChain *);
+    void *area_chain_context;
     EmCollMoveWorld move;
     EmCollMoveScratch move_scratch;
     EmCollMovePlayer move_player;
@@ -300,8 +302,17 @@ void em_collision_world_bind_owners(const EmCollisionWorldOwners *owners)
 {
     if (owners) s_owners = *owners;
     else memset(&s_owners, 0, sizeof s_owners);
-    w.hulls.context = s_owners.context;
-    w.hulls.chain = s_owners.chain;
+    w.hulls.context = w.area_chain ? w.area_chain_context : s_owners.context;
+    w.hulls.chain = w.area_chain ? w.area_chain : s_owners.chain;
+}
+
+int em_collision_world_bind_area_hulls(int (*chain)(void *,const EmActor *,EmCollHullChain *),void *ctx)
+{
+    if(!w.loaded)return -1;
+    w.area_chain=chain;w.area_chain_context=chain ? ctx : NULL;
+    w.hulls.chain=chain ? chain : s_owners.chain;
+    w.hulls.context=chain ? ctx : s_owners.context;
+    return 0;
 }
 
 static void bind_passes(void)
@@ -444,6 +455,12 @@ const EmActorClassLists *em_collision_world_lists(void)
 int em_collision_world_publish_001B1B70(const EmActor *actor)
 {
     return em_actor_class_publish_001B1B70(&w.lists, actor);
+}
+
+int em_collision_world_push80_001B1DE0(const EmActor *actor)
+{
+    if (!w.loaded) return -1;
+    return em_actor_class_push80_001B1DE0(&w.lists, actor);
 }
 
 int em_collision_world_push4_001B1D20(const EmActor *actor)

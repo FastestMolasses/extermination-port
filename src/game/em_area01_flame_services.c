@@ -78,12 +78,20 @@ static void *sprite_memory(void *ctx,uint32_t address,size_t size,int write)
     return size<=UINT32_MAX?h->bytes(h->ctx,address,(uint32_t)size,write):NULL;
 }
 int em_area01_flame_services_handles(uint32_t fn)
-{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001CD520u; }
+{ return fn==0x001CD070u || fn==0x001CD2B0u || fn==0x001CFAE0u || fn==0x001F4A10u || fn==0x001E8B90u || fn==0x001E9E60u || fn==0x001F4CC0u || fn==0x001F4BF0u || fn==0x001CD520u; }
 int em_area01_flame_services_call(const EmArea01RuntimeHost *h,EmArea01Call *c,uint32_t *fault)
 {
     if(!c)return fail(fault,0x001E3D90u);
     if(!em_area01_flame_services_handles(c->function))return 1;
     if(!h || !h->bytes)return fail(fault,c->function);
+    if(c->function==0x001E8B90u) {
+        if(c->na!=1 || c->nf!=1)return fail(fault,c->function);
+        EmArea01RenderHud s={0};s.core.world.view=h->bytes;s.core.world.view_ctx=h->ctx;
+        s.workers.w_001281C0=convert;
+        int rc=em_area01_render_001E8B90(&s,(uint32_t)c->a[0],c->f[0]);
+        if(rc<0)return fail(fault,s.core.fault.detail?s.core.fault.detail:s.core.fault.address);
+        return 0;
+    }
     if(c->function==0x001CFAE0u) {
         if(c->na!=3 || c->nf!=4)return fail(fault,c->function);
         return em_weather_packets_001CFAE0_view(h->ctx,h->bytes,(uint32_t)c->a[0],

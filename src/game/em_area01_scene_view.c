@@ -11,6 +11,7 @@ uint8_t *em_area01_scene_view(EmSceneState *s, uint32_t a, uint32_t n)
     if (a >= (base) && n <= (count) && a-(base) <= (count)-n) \
         return (uint8_t *)&s->member + (a-(base)); \
 } while (0)
+    FIELD(0x00810040u,d810040,0xD4u);
     FIELD(EM_SCENE_REQ_BASE,req,EM_SCENE_REQ_SIZE);
     FIELD(0x00810700u,d810700,3u);
     FIELD(0x00810730u,d810730,0x20u);

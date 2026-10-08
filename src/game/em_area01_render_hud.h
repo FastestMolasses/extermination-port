@@ -93,6 +93,7 @@ int em_area01_render_001EAF00(EmArea01RenderHud *s, uint32_t a0, uint32_t a1);
 int em_area01_render_001EAF80(EmArea01RenderHud *s, uint32_t a0, uint32_t a1);
 int em_area01_render_001EB020(EmArea01RenderHud *s, uint32_t a0, uint32_t a1);
 int em_area01_render_001EC270(EmArea01RenderHud *s, uint32_t a0, uint32_t a1);
+int em_area01_render_001EB7F0(EmArea01RenderHud *s, uint32_t a0, uint32_t a1);
 
 #ifdef __cplusplus
 }

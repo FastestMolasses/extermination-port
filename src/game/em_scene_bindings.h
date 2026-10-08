@@ -42,6 +42,12 @@ extern "C" {
  * writes the original bytes it owns through this pointer; none keeps a copy. */
 EmSceneState *em_scene_state(void);
 
+/* Request-6 status boundary: borrow live type-38 terminal fields and run
+ * the existing 00225A00 reset on scene-owned 00810040..00810113. No card I/O. */
+int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size,
+                                          int32_t *value);
+int em_scene_bindings_terminal_reset(void);
+
 /* The slot-0 game task (EmTaskFn): one tick of the original 001ACEC0. */
 void em_scene_task_001ACEC0(void);
 
@@ -145,6 +151,8 @@ uint32_t em_scene_bindings_grid_node_address(uint32_t node);
 /* The grid node records' bytes (read only) as the loader delivered them:
  * `size` bytes at `address` inside the node array, or NULL. */
 const uint8_t *em_scene_bindings_grid_node_bytes(uint32_t address, uint32_t size);
+/* AREA01 target anchors: read-only held slot words and the shared slot arena. */
+const uint8_t *em_scene_bindings_target_model_bytes(uint32_t address, uint32_t size);
 /* Frame captures keyed on the scene tick log (EM_AREA_CHANGE_LOG), for the
  * fb2 pixel harness (tools/test_fb2_pixels.py, docs/GS_EXACT.md section 10).
  * `tick` is the "tick" number of a log line; em_scene_bindings_log_tick_next

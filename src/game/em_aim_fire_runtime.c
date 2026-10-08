@@ -25,6 +25,10 @@
 #include "game/em_owner_services_original.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_scene_bindings.h"
+#include "game/em_startup_load_gaps.h"
+#include "game/em_stream_live.h"
+#include "game/em_sfx.h"
+#include "game/em_sfx_bank.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -120,7 +124,11 @@ static void *pool_field(uint32_t address,size_t size,int write)
         R.self_word[index]=em_actor_pool_address(R.pool,a->self);return p;
     }
 #define FIELD(field,offset) do { if ((p=span(address,size,base+(offset),sizeof a->field,&a->field))) return p; } while (0)
-    FIELD(flags2,0x2E); FIELD(w30,0x30); FIELD(h36,0x36);
+    FIELD(flags2,0x2E); FIELD(w30,0x30);
+    /* 00185A10/00185E30 read the class-2 target's +34 halfword. The
+     * original word overlaps +36, whose canonical owner is h36. */
+    if ((p=span(address,size,base+0x34,2,&a->w34))) return p;
+    FIELD(h36,0x36);
     FIELD(h52,0x52); FIELD(kind,0x54); FIELD(link,0x56); FIELD(w58,0x58); FIELD(w5C,0x5C);
     FIELD(f60,0x60); FIELD(f80,0x80); FIELD(w90,0x90); FIELD(h94,0x94); FIELD(h96,0x96);
     FIELD(b98,0x98); FIELD(b99,0x99); FIELD(table_index,0x9A);
@@ -192,6 +200,7 @@ static void *external_map(void *context,uint32_t a,size_t n,int write)
     if (!p) p=em_effects_live_node_field(a,n,write);
     if (!p) p=em_aim_fire_world_live_map(&R.world,a,n,write);
     if (!p) p=pool_field(a,n,write);
+    if (!p && !write) p=(void *)em_scene_bindings_target_model_bytes(a,(uint32_t)n);
     if (!p && !write) p=(void *)em_effects_live_window(a,(uint32_t)n);
     if (!p && !write) p=(void *)em_scene_bindings_grid_node_bytes(a,(uint32_t)n);
     /* D_008105D0, the camera's eye (00187780's view attenuation reads it):
@@ -296,7 +305,7 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
         }
         /* Only original fields with actual native owners are enumerated.
          * The effect owner separately omits +24 until its observed write. */
-        static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x36,2},
+        static const uint32_t spans[][2]={{0,0x14},{0x14,4},{0x2E,2},{0x34,2},{0x36,2},
             {0xB0,16},{0xC0,16},{0xD0,64},{0x28,2},{0xA0,16}};
         for (unsigned j=0;j<sizeof spans/sizeof spans[0];++j) {
             uint32_t at=address+spans[j][0],n=spans[j][1];
@@ -306,8 +315,62 @@ static int enumerate(void *context,EmPoseRegion *out,unsigned capacity,unsigned 
     }
     return 0;
 }
+/* AREA01's canonical private slot words or shared model projection, and
+ * the one existing bone arena. Only the current target is projected: shared
+ * providers may reuse their serialization buffer on the next actor query. */
+static int target_regions(void *context,uint32_t node,EmPoseRegion *out,
+                          unsigned capacity,unsigned *count)
+{
+    (void)context;
+    if(!R.pool || !count || node<EM_ACTOR_POOL_BASE)return 0;
+    uint32_t delta=node-EM_ACTOR_POOL_BASE;
+    if(delta%EM_ACTOR_RECORD_SIZE || delta/EM_ACTOR_RECORD_SIZE>=EM_ACTOR_POOL_CAPACITY)return 0;
+    const EmActor *a=&R.pool->records[delta/EM_ACTOR_RECORD_SIZE];
+    if(!a->allocated || a->self!=a || !a->bones || a->bones>56u)return 0;
+    const uint8_t *words=em_scene_bindings_target_model_bytes(node+0x110u,4u*a->bones);
+    if(!words)return 0;
+    TRY(append(out,capacity,count,node+0x110u,4u*a->bones,(void *)words,0));
+    uint32_t size=EM_SLG_BONE_SLOTS*EM_SLG_BONE_SLOT_SIZE;
+    const uint8_t *slots=em_scene_bindings_target_model_bytes(EM_SLG_BONE_RECORDS,size);
+    TRY(append(out,capacity,count,EM_SLG_BONE_RECORDS,size,(void *)slots,0));
+    return 0;
+}
 static int written(void *context,uint32_t address,size_t size)
 { (void)context;return em_effects_live_node_written(address,size); }
+typedef struct {
+    EmAimFireLive *live;
+    uint32_t actor,sp;
+    uint8_t *stack;
+} TargetSound;
+static int target_sound_call(void *ctx,EmArea00LowCall *c)
+{
+    TargetSound *s=ctx;
+    if(c->fn!=0x001FBF50u || c->na!=4 || c->nf!=2 || c->a[0]!=s->actor ||
+       c->sp!=s->sp-0x40u || c->a[1]!=c->sp+0x38u || c->a[2]!=c->sp+0x3Cu ||
+       c->a[3] || c->f[0]!=0x43960000u || c->f[1]!=0x45800000u)return -1;
+    const void *p=em_aim_fire_live_map(s->live,s->actor+0xB0u,12,0);
+    if(!p)return -1;
+    float position[3],left,right;memcpy(position,p,sizeof position);
+    c->v0=0;c->f0=0;
+    if(!em_sfx_compute_gains(position,300.0f,&left,&right))return 0;
+    int32_t l=em_sfx_request_word(left),r=em_sfx_request_word(right);
+    memcpy(s->stack+0x38,&l,4);memcpy(s->stack+0x3C,&r,4);c->v0=1;
+    return 0;
+}
+/* A bug hit queues its ricochet through the same original owner as a box
+ * break. Its delayed cue table remains owned by the stream lanes. */
+static int target_sound(EmAimFireLive *live,EmAimFireTargetCall *c)
+{
+    int32_t (*cues)[4]=em_stream_live_d281F30();
+    if(!cues || c->na!=2 || c->nf || c->sp<0x40u)return -1;
+    uint8_t stack[0x40]={0};
+    EmArea00LowRegion regions[]={{0x281F30,0xA0,(uint8_t *)cues},
+                               {c->sp-0x40u,sizeof stack,stack}};
+    TargetSound call={live,(uint32_t)c->a[0],c->sp,stack};
+    EmArea00Low owner={.regions=regions,.region_count=2,.call=target_sound_call,
+                       .ctx=&call,.sp=c->sp};
+    return em_area00_low_001FC580(&owner,(uint32_t)c->a[0],(int32_t)c->a[1]);
+}
 static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *f)
 {
     (void)context;
@@ -323,6 +386,7 @@ static int external_call(void *context,EmAimFireLive *live,EmAimFireTargetCall *
         if (burst>0) return 0;
     }
     switch (f->function) {
+    case 0x1FC580:return target_sound(live,f);
     case 0x1CA7B0: {
         /* 001F3E30's cull of its matrix row 3 (em_owner_draw_live's). */
         const void *p=em_aim_fire_live_map(live,(uint32_t)f->a[0]&~15u,16,0);
@@ -586,6 +650,7 @@ void em_aim_fire_runtime_attach(EmActorPool *pool)
 {
     memset(&R,0,sizeof R);R.pool=pool;
     R.world.enumerate=enumerate;
+    R.world.target_regions=target_regions;
     R.world.grid_address=grid_address;
     R.world.grid_bytes=grid_bytes;
     R.world.written=written;

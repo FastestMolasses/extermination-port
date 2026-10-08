@@ -4305,6 +4305,8 @@ static int a01_arrival_frame(void)
  * No captured state is loaded. Inputs take effect three recorded rows
  * after the command; the native pad reaches the next task tick, so the
  * driver submits each recorded command two rows later (the BRANCH rule). */
+#include "game/em_area01_exploration_test.h"
+
 enum { A01_PAD_MAX = 2048 };
 static AimStick s_a01_pad[A01_PAD_MAX];
 static unsigned s_a01_pad_count;
@@ -4313,6 +4315,9 @@ static int s_a01_last_frame;
 static void a01_route_begin(void)
 {
     pad_apply(0,0,0);
+#ifdef EM_AREA01_EXPLORATION_TEST_H
+    if (a01_explore_begin()) return;
+#endif
     const char *dir=getenv("EM_LEVEL2_PAD_DIR");
     char path[1024];
     int n=dir ? snprintf(path,sizeof path,"%s/%s.pad",dir,k_phases[t.current].name) : -1;
@@ -4340,6 +4345,9 @@ static void a01_route_begin(void)
 }
 static int a01_route_frame(void)
 {
+#ifdef EM_AREA01_EXPLORATION_TEST_H
+    if (a01_explore.active) return a01_explore_frame();
+#endif
     ++t.frames;
     if(t.frames<0)return 0;
     if(!t.frames)

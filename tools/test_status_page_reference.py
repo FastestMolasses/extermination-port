@@ -47,7 +47,7 @@ class Original(Base):
                    0x200970: (6, (1,)), 0x20EE50: (7, (UI,)),
                    0x15C7B0: (9, (0x8102B0,)), 0x21BAE0: (10, (0,)),
                    0x20CD60: (12, ()), 0x20F950: (13, (UI,)),
-                   0x211970: (13, (UI,)), 0x214020: (13, (UI,))}
+                   0x211970: (13, (UI,)), 0x214020: (13, (UI,)), 0x225A00: (14, ())}
         pages = {0x20F950: 1, 0x211970: 2, 0x214020: 3}
         for _ in range(1800):
             if pc == RETURN:
@@ -136,14 +136,14 @@ def main():
     for step, busy, current, primary, secondary, saved in itertools.product(
             range(4), (0, 1), (1, 2), (0, 2), range(6), (-1, 0x32, 0x35)):
         cases.append((5, step, 0, busy, 1, 0xFF, 0, 0, current, primary, secondary, saved, 0x82))
-    # 0020CDC0 case 0's request map: every request but 6 (00225A00) over
+    # 0020CDC0 case 0's request map: every request, including reset 00225A00, over
     # every B1 (full) or its range boundaries (default); t[0x15] starts at
     # a sentinel so a branch that leaves it is seen.
     full = os.environ.get('EM_TEST_FULL') == '1'
     kinds = range(256) if full else (0, 4, 5, 6, 7, 9, 0xA, 0xE, 0xF, 0x10, 0x16, 0x17, 0x1A,
                                      0x1B, 0x1D, 0x1E, 0x22, 0x23, 0x3F, 0x40, 0x7F, 0x80,
                                      0xC0, 0xFF)
-    for request, kind in itertools.product((1, 2, 3, 4, 5, 7, 0xFF), kinds):
+    for request, kind in itertools.product((1, 2, 3, 4, 5, 6, 7, 0xFF), kinds):
         cases.append((0, 0, 0, 0, request, 0, 0, 0, 0, 0, 0, 0, kind, 0x77))
     # Phase 3: the module of each page id, and the page ticks and hub returns.
     for screen, transition, busy in itertools.product((0, 1, 2, 3, 6, 8, 9, 0x63), (0, 1), (0, 1)):
@@ -168,10 +168,10 @@ def main():
         checks += 1
     # The branches that reach untranslated pages fault before any side
     # effect (none is reachable in AREA11, docs/STATUS_PAGES.md section 1):
-    # request 6 (00225A00), a nonzero D_008106C5 without a request (the
+    # accepted-save phase 6, a nonzero D_008106C5 without a request (the
     # passcode pages 002072C0), and phase 3 on page ids 4, 5 and 8.
     faults = 0
-    for phase, step, request, status, screen in ((0, 0, 6, 0, 0), (0, 0, 0, 2, 0), (0, 0, 0, 0xFF, 0),
+    for phase, step, request, status, screen in ((6, 0, 6, 0, 0), (0, 0, 0, 2, 0), (0, 0, 0, 0xFF, 0),
                                                  (0, 0, 0, 1, 0), (3, 1, 0, 0, 4), (3, 1, 0, 0, 5),
                                                  (3, 2, 0, 0, 4), (3, 2, 0, 0, 5), (3, 2, 0, 0, 8)):
         state = State(1, phase, step, 0, 1, 0, request, 0x82, status, 0, 0, 0, -1,

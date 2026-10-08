@@ -542,6 +542,9 @@ void player_states_spawn_values(void)
     em_live_set_u32(&live.a, 0x30, EM_COLLISION_WORLD_D_00275490);
     em_live_set_u8(&live.a, 4, 1);
     em_live_set_f32(&live.a, 0x204, 1.0f);
+    /* 0015C6A4: publish the rebuilt player as alive/contactable. The
+     * preceding 001AF5C0 wipe leaves this byte zero. */
+    em_live_set_u8(&live.a, 0, 1);
     em_live_set_u8(&live.a, 0x31B, 0xFF);
     live.busy_known = 0;
     live.initialised = 1;
@@ -637,7 +640,7 @@ static int live_scene_load(void)
  * player_states_stage below (after the port-view helpers it uses). */
 
 /* Worker trampolines: each binding worker keeps its own context. */
-typedef struct { EmPlayerFloorActor *floor; } LiveFloorContext;
+typedef struct { EmPlayerFloorActor *floor; EmPlayerLiveActor *actor; } LiveFloorContext;
 
 static int live_ground(void *context, const float position[3], const float probe[3],
                        unsigned mask, EmPlayerProbeHit *hit)
@@ -672,8 +675,8 @@ static int live_surface39(void *context, int handler)
  * 00187EA0, test_player_floor_reference) with the live sound calls:
  * 001FBD50(p, id, 0, radius) at the floor view's +B0 (the record's position
  * while the service runs) and 001FB9F0(id, 0x1000, 0x1000, 0x1000). Any
- * other argument is not what these bindings play: -1. 00187DE0 (0x5B) is
- * not translated; no AREA11 grid node carries 0x5B. */
+ * other argument is not what these bindings play: -1. Water's 00187DE0
+ * borrows the AREA01 composition after publishing this stage's depth. */
 static int live_contact_001FBD50(void *context, int16_t id, int32_t a2, float radius)
 {
     const LiveFloorContext *c = context;
@@ -690,6 +693,13 @@ static int live_contact_001FB9F0(void *context, int32_t a0, int32_t a1, int32_t 
 }
 static int live_first_contact(void *context, uint8_t surface)
 {
+    LiveFloorContext *c = context;
+    if (surface == 0x5B) {
+        em_player_floor_actor_to_live(c->floor, c->actor);
+        int rc = em_player_closure_live_water_contact(c->actor);
+        em_player_floor_actor_from_live(c->actor, c->floor);
+        return rc;
+    }
     const EmPlayerContactWorkers w = { context, live_contact_001FBD50, live_contact_001FB9F0 };
     return em_player_first_contact(&w, surface);
 }
@@ -728,7 +738,7 @@ int player_states_floor_service(void *context, EmPlayerLiveActor *actor, int sea
     if (!floor_engaged()) return -1;
     EmPlayerFloorActor f;
     em_player_floor_actor_from_live(actor, &f);
-    LiveFloorContext floor_context = { &f };
+    LiveFloorContext floor_context = { &f, actor };
     const EmPlayerFloorWorkers workers = {
         &floor_context, live_ground, live_head, live_object, live_link, live_surface39,
         live_first_contact, live_atan2, live_tangent, live_atan, live_sqrt
@@ -1131,6 +1141,20 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
     return em_player_stage_0015B130(context, a);
 }
 
+/* 0015BCF0 retains the previous feet at +A0 while its state callbacks
+ * work on +B0. The port's placement owner includes any preceding carry;
+ * loading only +B0 left the Use predicate reading the old zero +A0. */
+static void stage_position_begin(void)
+{
+    memcpy(live.a.bytes + 0xA0, g.pos, 12);
+    em_live_set_u32(&live.a, 0xAC, 0x3F800000u);
+    memcpy(live.a.bytes + 0xB0, live.a.bytes + 0xA0, 16);
+}
+static void stage_position_publish(void)
+{
+    memcpy(live.a.bytes + 0xA0, live.a.bytes + 0xB0, 16);
+}
+
 int player_states_stage(void)
 {
     if (!live.initialised) player_states_reset();
@@ -1151,13 +1175,13 @@ int player_states_stage(void)
      * not loaded over +1F0 and its neighbours (the admission's +1F0 = 0x41
      * stays, route 07 f165..f526). */
     const int port_owned = !loco_live() && port_family() && !player_pose_owned();
+    stage_position_begin();
     vitals_load();
     if (port_owned) {
         live_from_port();
     } else {
         /* A translated state owns the player: only the placement the port's
          * owners may have moved (a carry) comes from the port. */
-        for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
         em_live_set_f32(&live.a, 0xC4, g.yaw);
     }
     live.busy_known = live_scene_load();
@@ -1257,6 +1281,7 @@ int player_states_stage(void)
         live_fault("00187350 worker fault");
         return 0;
     }
+    stage_position_publish();
     if (em_live_u8(&live.a, 4) != 1) port_park();
     vitals_store();
     return live.consumed;

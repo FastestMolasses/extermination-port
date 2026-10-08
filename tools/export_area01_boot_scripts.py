@@ -40,9 +40,12 @@ def main():
                            records=sum(map(len,chains.values())),chains=chains,
                            capture_mutated_words={k:v for k,v in changes.items() if v}))
     (args.out/'manifest.json').write_text(json.dumps(report,indent=2)+'\n')
-    # Two scene-2 event tracks and the existing SDK tangent coefficients.
+    # Two scene-2 event tracks, SDK tangent coefficients, and the crawl
+    # row selector's two halfwords (00188610 reads D_002754D8).
     # Sparse tables are read-only; timeline cursors live in the camera owner.
-    tables=((0x26AAE0,0x20),(0x26AC80,0x20),(0x26C598,13*4))
+    tables=((0x26AAE0,0x20),(0x26AC80,0x20),(0x26C598,13*4),(0x2754D8,4))
+    for capture in caps:
+        assert capture.ram[0x2754D8:0x2754DC] == read(0x2754D8,4)
     table_blob=struct.pack('<4s3I',b'EMSP',1,len(tables),0)
     table_blob+=b''.join(struct.pack('<2I',a,n) for a,n in tables)
     table_blob+=b''.join(read(a,n) for a,n in tables)

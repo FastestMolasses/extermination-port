@@ -10,6 +10,7 @@
 #include "game/em_area11_roger.h"
 #include "game/em_aim_fire_tables.h"
 #include "game/em_area01_render_hud.h"
+#include "game/em_area00_hud.h"
 #include "game/em_area02_misc.h"
 #include "game/em_level8_port.h"
 #include "game/em_collision_world.h"
@@ -31,6 +32,7 @@
 #include "game/em_sdk_math_original.h"
 #include "game/em_sfx.h"
 #include "game/em_sfx_bank.h"
+#include "game/em_stream_lanes_original.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -189,21 +191,6 @@ static int check(int rc, u32 entry)
            : S.m.fault.code ? S.m.fault.address : S.hfault.code ? S.hfault.address
            : S.sfault.code ? S.sfault.address : entry;
     return fail(at, "fault");
-}
-
-/* The counted gap of the two packet-only handlers (w_handler): `address`
- * is reported the first time only. */
-static int effects_gap(uint32_t address, uint32_t detail)
-{
-    static uint32_t seen[2];
-    static int nseen;
-    ++S.counters.gaps;
-    for (int i = 0; i < nseen; ++i)
-        if (seen[i] == address) return 0;
-    if (nseen < 2) seen[nseen++] = address;
-    fprintf(stderr, "effects: handler %08X (subtype %02X) is not translated; counted gap, its packets "
-            "are missing\n", (unsigned)address, (unsigned)detail);
-    return 0;
 }
 
 uint32_t em_effects_live_fault(void) { return S.fault; }
@@ -659,27 +646,8 @@ static int w_0021B9A0_bits(void *ctx, int32_t mode, u32 f12, u32 f13)
     return fog_program(mode, f12, f13);
 }
 
-/* The untranslated handler checked to be packet-only: 001EC270
- * (0x80000012, subtype 0xB; its split listing). It stores only the work
- * block's +0x1F4 (D_00275C34 + 4, twice: the LCG), which 001EA240 rewrites
- * from +0x1F0 before every handler call and reads nowhere else, and calls
- * only 001CFB50 (it rewrites D_0081F8F0 +0x00..+0x57 in full; in the port
- * its only reader is the 001CFBE0 each translated handler calls right after
- * it) and 001CFBE0 (the packets). Skipping it changes only the packets. The
- * skid's 001EAD70 (0x80000033, subtype 1), the other one, runs its
- * translation since the BRANCH step (handler_001EAD70). */
-static int packet_only_handler(u32 handler)
-{
-    return handler == 0x001EC270u;
-}
-
-/* D_00255434[subtype]: the handler, em_effect_kinds' translation. The
- * packet-only handler is the counted gap (effects_gap: its packets are
- * missing, nothing else differs). Every other handler em_effect_kinds does
- * not translate faults: none is checked, and some do more than draw
- * (001EF510, subtype 6, spawns 001EFD90(0x80000036) from inside the
- * handler). The port reaches none of them in AREA11 (EFFECT_MANAGER.md
- * 8.2). */
+/* D_00255434[subtype]: each bound handler has one translated owner.
+ * Every missing handler faults, including handlers that only emit packets. */
 /* The subtype-0x0D handler 001EBD20 (the box break's second effect
  * 0x80000015, 001551B0; BRANCH br_04 / br_06): em_area02_misc's
  * translation, its one owner, run over the views it addresses and with its
@@ -695,6 +663,8 @@ static int packet_only_handler(u32 handler)
 static int w_001CFB50(void *ctx, u32 dst, u32 a1, const float src[16], u32 f12, u32 f13, u32 f14,
                       u32 f15, u32 f16);
 static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, int32_t copy);
+static int w_kinds_001CD520(void *ctx, int32_t a0, int32_t a1, const float point[4], uint64_t tex0,
+                            uint64_t colour, u32 f12, u32 f13, u32 f14);
 enum { HANDLER_SP = 0x01FFF000u, HANDLER_FRAME = 0x40u };
 typedef struct {
     const EmEffectOriginalNode *node;
@@ -816,7 +786,7 @@ static int handler_001EAD70(EmEffectOriginalNode *node, int32_t depth, EmEffectO
     return 0;
 }
 
-/* The splash handlers 001EAF00 / 001EAF80 / 001EB020 (D_00255434
+/* The splash handlers 001EAF00 / 001EAF80 / 001EB020 / 001EB7F0 / 001EC270 (D_00255434
  * entries, reached in AREA01 when the player wades a floor field:
  * 001A8840's contact event 6): em_area01_render_hud's translations, their
  * one owner (test_area01_render_reference.py runs the original
@@ -858,7 +828,8 @@ static int splash_001CFBE0(void *ctx, uint32_t a0, int32_t kind, uint32_t table,
 
 static int splash_handler(u32 handler)
 {
-    return handler == 0x001EAF00u || handler == 0x001EAF80u || handler == 0x001EB020u;
+    return handler == 0x001EAF00u || handler == 0x001EAF80u || handler == 0x001EB020u ||
+           handler == 0x001EB7F0u || handler == 0x001EC270u;
 }
 
 static int handler_splash(u32 handler, EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
@@ -877,9 +848,76 @@ static int handler_splash(u32 handler, EmEffectOriginalNode *node, int32_t depth
     const u32 a0 = at + 0xD0u, a1 = (u32)depth;
     int rc = handler == 0x001EAF00u ? em_area01_render_001EAF00(&h, a0, a1)
            : handler == 0x001EAF80u ? em_area01_render_001EAF80(&h, a0, a1)
-                                    : em_area01_render_001EB020(&h, a0, a1);
+           : handler == 0x001EB020u ? em_area01_render_001EB020(&h, a0, a1)
+           : handler == 0x001EB7F0u ? em_area01_render_001EB7F0(&h, a0, a1)
+                                    : em_area01_render_001EC270(&h, a0, a1);
     if (rc < 0 || h.core.fault.code)
         return fail(h.core.fault.address ? h.core.fault.address : handler, "splash handler faulted (em_area01_render_hud)");
+    return 0;
+}
+
+typedef struct { EmEffectOriginalNode *node; u32 address; } ImpactCall;
+static int impact_worker(void *ctx, EmArea00HudCall *c)
+{
+    ImpactCall *v=ctx;
+    if(c->fn==0x001281C0u && !c->na && c->nf==1) {
+        c->v0=(uint64_t)(int64_t)em_stream_lanes_001281C0(c->f[0]);return 0;
+    }
+    if(c->fn==0x001CFB50u && c->na==3 && c->nf==5 && c->a[2]==v->address+0xD0u)
+        return w_001CFB50(NULL,(u32)c->a[0],(u32)c->a[1],v->node->matrix,
+                         c->f[0],c->f[1],c->f[2],c->f[3],c->f[4]);
+    if(c->fn==0x001CFBE0u && c->na==5 && !c->nf)
+        return w_001CFBE0(NULL,(int32_t)c->a[0],(int32_t)c->a[1],(u32)c->a[2],
+                         (u32)c->a[3],(int32_t)c->a[4]);
+    if(c->fn==0x001CD520u && c->na==5 && c->nf==3 && c->a[2]==v->address+0x100u)
+        return w_kinds_001CD520(NULL,(int32_t)c->a[0],(int32_t)c->a[1],v->node->matrix+12,
+                                c->a[3],c->a[4],c->f[0],c->f[1],c->f[2]);
+    return -1;
+}
+/* Ordinary bullet markers also select subtype F. Reuse its existing HUD
+ * owner, with the same work fields and sprite scratch as the effect pass. */
+static int handler_001ECB00(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001ECB00u,"impact without its node");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea00HudRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x1F8u,4,(uint8_t *)&work->step},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {0x70003600u,sizeof S.spad3600_sprite,(uint8_t *)S.spad3600_sprite},
+    };
+    ImpactCall call={node,at};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
+    if(em_area00_hud_001ECB00(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001ECB00u,"impact HUD handler fault");
+    return 0;
+}
+
+/* Class-2 model-0 hits select global effect 07. Its existing HUD owner
+ * rewrites only +20..3F of these three delivered descriptors; CFBE0 must
+ * read those same canonical bytes after each original store sequence. */
+static int handler_001ED7A0(EmEffectOriginalNode *node, int32_t depth, EmEffectOriginalWork *work)
+{
+    Slot *slot=slot_of_node(node);
+    if(!slot || !work || work!=&node->work)return fail(0x001ED7A0u,"target impact without its node");
+    uint8_t *sources=(uint8_t *)em_effects_live_window(0x00257360u,0x1B0u);
+    if(!sources)return fail(0x00257360u,"target impact descriptors not delivered");
+    u32 at=em_actor_pool_address(S.pool,actor_of(slot)), pointer=at+0x1F0u;
+    EmArea00HudRegion regions[]={
+        {0x00275C34u,4,(uint8_t *)&pointer},
+        {at+0x1F4u,4,(uint8_t *)&work->seed_copy},
+        {at+0x1F8u,4,(uint8_t *)&work->step},
+        {at+0x244u,4,(uint8_t *)&work->accumulator},
+        {0x00257360u,0x1B0u,sources},
+    };
+    ImpactCall call={node,at};
+    EmArea00Hud owner={.regions=regions,.region_count=sizeof regions/sizeof *regions,
+                       .call=impact_worker,.ctx=&call,.sp=HANDLER_SP};
+    if(em_area00_hud_001ED7A0(&owner,at+0xD0u,(u32)depth)<0)
+        return fail(owner.fault_address?owner.fault_address:0x001ED7A0u,"target impact HUD handler fault");
     return 0;
 }
 
@@ -891,9 +929,10 @@ static int w_handler(void *ctx, u32 handler, EmEffectOriginalNode *node, int32_t
         return em_effect_kinds_handler(&S.k, handler, node->matrix, depth, work);
     if (handler == 0x001EBD20u) return handler_001EBD20(node, depth, work);
     if (handler == 0x001EAD70u) return handler_001EAD70(node, depth, work);
+    if (handler == 0x001ECB00u) return handler_001ECB00(node, depth, work);
+    if (handler == 0x001ED7A0u) return handler_001ED7A0(node, depth, work);
     if (splash_handler(handler)) return handler_splash(handler, node, depth, work);
-    if (packet_only_handler(handler)) return effects_gap(handler, node->subtype);
-    return fail(handler, "untranslated effect handler (not packet-only)");
+    return fail(handler, "untranslated effect handler");
 }
 
 static int free_actor(EmActor *a)
@@ -956,6 +995,9 @@ static int w_001CFBE0(void *ctx, int32_t id, int32_t kind, u32 source, u32 xf, i
                            : (source == 0x00255620u || source == 0x002560D0u || source == 0x00256160u ||
                               source == 0x002561F0u || source == 0x00255590u || source == 0x002563A0u ||
                               source == 0x00256430u || source == 0x002556B0u || source == 0x00255740u ||
+                              source == 0x00255E90u || source == 0x00255F20u ||
+                              source == 0x00256EE0u || source == 0x00256F70u ||
+                              source == 0x00257360u || source == 0x002573F0u || source == 0x00257480u ||
                               (source >= 0x002557D0u && source <= 0x00255AA0u && (source - 0x002557D0u) % 0x90u == 0))
                                ? em_effects_live_window(source, 0x90)
                                : NULL;

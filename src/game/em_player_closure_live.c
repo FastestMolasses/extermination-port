@@ -41,6 +41,7 @@
 #include "game/em_player_recovery.h"
 #include "game/em_player_running_jump.h"
 #include "game/em_player_slide.h"
+#include "game/em_player_target_live.h"
 #include "game/em_player_weapon_states_a.h"
 #include "game/em_player_weapon_states_b.h"
 #include "game/em_random.h"
@@ -141,6 +142,10 @@ static struct {
     EmPlayerUseWorkers use;
     int (*scan)(void *context, EmPlayerLiveActor *actor, int *result);
     void *scan_context;
+    int (*water)(void *context, uint32_t function, EmPlayerLiveActor *actor, uint32_t level);
+    void *water_context;
+    int (*crawl_clip)(void *context, EmPlayerLiveActor *actor, int *result);
+    void *crawl_clip_context;
     uint16_t pad_config[8];   /* 0x70003B74..0x70003B82 (001AF470, config 0) */
     EmLocoHost loco;          /* 00161020 / 001612D0 and 0017B490's host */
     /* The idle / walk states' scene words (refreshed before each call):
@@ -987,7 +992,13 @@ STUB_ACTOR_R(x_00178080, "00178080 (ladder hit reaction)")
 STUB_ACTOR_R(x_00188570, "00188570 (row clip)")
 STUB_ACTOR_R(x_00188590, "00188590 (row clip)")
 STUB_ACTOR_R(x_001885B0, "001885B0 (row clip)")
-STUB_ACTOR_R(x_00188610, "00188610 (row clip)")
+static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
+{
+    (void)c;
+    if (!L.bound || !L.crawl_clip || a != L.actor || !clip)
+        return unbound("00188610 (crawl row clip)");
+    return L.crawl_clip(L.crawl_clip_context, a, clip);
+}
 STUB_ACTOR(x_0021C200, "0021C200 (reaction)")
 STUB_ACTOR(x_00182AF0, "00182AF0 (sound base + 0x100)")
 STUB_ACTOR(x_0015C1F0, "0015C1F0 (player model kind select: 001CA6E0 / 00200890 are not bound)")
@@ -2078,6 +2089,27 @@ void em_player_closure_live_set_scan(int (*scan)(void *context, EmPlayerLiveActo
     L.scan_context = context;
 }
 
+void em_player_closure_live_set_water(int (*water)(void *, uint32_t, EmPlayerLiveActor *, uint32_t),
+                                      void *context)
+{
+    L.water = water;
+    L.water_context = context;
+}
+
+void em_player_closure_live_set_crawl_clip(int (*clip)(void *, EmPlayerLiveActor *, int *),
+                                           void *context)
+{
+    L.crawl_clip = clip;
+    L.crawl_clip_context = context;
+}
+
+int em_player_closure_live_water_contact(EmPlayerLiveActor *actor)
+{
+    if (!L.bound || !L.water || actor != L.actor)
+        return unbound("00187DE0 (water first contact)");
+    return L.water(L.water_context, 0x00187DE0u, actor, 0);
+}
+
 /* ---- The bind ----------------------------------------------------------------- */
 
 static void bind_fall(void)
@@ -2656,28 +2688,28 @@ static int rj_link_type(void *c, const void *owner, uint8_t *type)
  * is em_collision_world_lists, which D_00275B94 counts in running_jump_scene).
  * 001AA4E0 reads an entry's +2 and +3 (the pool header) and, only when
  * (+2 & 0x1F) == 2, its +0x34 halfword and then 001AA410 / 001AA2A0 on it.
- * The AREA11 entries are class 0x0A (Roger after the encounter, BRANCH
- * br_14; the BRANCH census ran neither 001AA410 nor 001AA2A0), so an entry
- * of class 2 faults here: its +0x34 has no bound view. */
+ * The canonical +0x34 low half belongs to EmActor.w34. The radius and
+ * distance/height predicates below reuse their existing original owners. */
 static int rj_target(void *c, int index, EmPlayerRunningJumpTarget *out)
 {
     (void)c;
     const EmActor *e = em_actor_class_list_entry(em_collision_world_lists(), EM_ACTOR_LIST_CLASS2, index);
     if (!e || !out) return unbound("D_00275B8C entry (outside the published class-2 list)");
-    if ((e->cls & 0x1Fu) == 2u)
-        return unbound("a D_00275B8C entry of class 2 (its +0x34, 001AA410 / 001AA2A0: no AREA11 owner publishes one)");
-    out->object = e;
-    out->flags = e->cls;
-    out->type = e->model;
-    out->field34 = 0; /* not read: 001AA4E0 tests +2 first */
-    return 0;
+    return em_player_target_live_entry(e, out);
 }
 static int rj_target_xz(void *c, const void *object, float *x, float *z)
-{ (void)c; (void)object; (void)x; (void)z; return unbound("001AA4E0's target"); }
+{ (void)c; return em_player_target_live_xz(object, x, z); }
 static int rj_target_radius(void *c, const void *object, float *radius)
-{ (void)c; (void)object; (void)radius; return unbound("001AA410"); }
+{
+    (void)c;
+    return em_player_target_live_radius(em_scene_bindings_pool_address(object), object, radius);
+}
 static int rj_target_sight(void *c, EmPlayerLiveActor *a, const void *object, float radius, int *r)
-{ (void)c; (void)a; (void)object; (void)radius; if (r) *r = 0; return unbound("001AA2A0"); }
+{
+    (void)c;
+    return em_player_target_live_sight(L.sdk, a, em_scene_bindings_pool_address(object),
+                                       object, radius, &L.rj_scratch.s3A20, r);
+}
 static int rj_column(void *c, EmPlayerLiveActor *a, const float at[4], int arg, float height, int *r)
 { (void)c; return w_column_hit(a, at, arg, height, r, NULL); }
 /* 0017DEB0(p): the climb module's one translation over the record. */
@@ -2857,14 +2889,18 @@ static void bind_loco(void)
  * em_player_floor's translation over the record's fields. Its workers are
  * the closure's: 00179B90 and 00122BB8 the shared LCG, 001FBD50(p, id, 0,
  * 300) at the record, 001EFD90 the effect binder (em_effects_live), the
- * wet-feet decal 001F0460 (x_decal); the wading 001E8B90 has no live
- * binding (fail-stop; no floor on the route so far sets the water depth
- * +0x23C). */
+ * wet-feet decal 001F0460 (x_decal); wading 001E8B90 borrows the current
+ * player and the area's canonical water grid through the live host. */
 static int fs_random(void *c, uint32_t *value) { (void)c; return em_player_misc_random(NULL, value); }
 static int fs_wade(void *c, const float position[3], float level)
 {
-    (void)c; (void)position; (void)level;
-    return unbound("001E8B90 (the wading ripple of 00187350)");
+    EmPlayerLiveActor *actor = c;
+    uint32_t bits;
+    (void)position; /* The typed footstep position is this actor's +B0. */
+    if (!L.water || actor != L.actor)
+        return unbound("001E8B90 (the wading ripple of 00187350)");
+    memcpy(&bits, &level, sizeof bits);
+    return L.water(L.water_context, 0x001E8B90u, actor, bits);
 }
 
 int em_player_closure_live_footstep(EmPlayerLiveActor *a)

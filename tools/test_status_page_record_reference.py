@@ -557,6 +557,8 @@ def directed_sequences(frames_long):
                  idle(1) + press(0x8000) + press(0x40)))
     seqs.append(('request6-short', dict(state=0, b0=6, b1=0x82, charge=2, cost=2),
                  idle(frames_long // 2) + press(0x800)))
+    seqs.append(('request6-decline', dict(state=0, b0=6, b1=0x80, charge=12, cost=2),
+                 idle(1) + press(0x40) + idle(2)))
     seqs.append(('request6-cancel', dict(state=0, b0=6, b1=0x82, charge=12, cost=2),
                  idle(1) + press(0x830)))
     # recharge (0x40 kind) to the capacity, and the full-charge result
@@ -805,6 +807,11 @@ def composition_runs(lib, elf, frames_long):
     panel, root, hub = REFERENCE / 'panel', REFERENCE / 'panel/root', REFERENCE / 'status-hub'
     beat = lambda name: ROUTE / name  # noqa: E731
     return [
+        # Request-6 default No through the actual draw/cue/message owners.
+        # Synthetic terminal request over captured BATTERY assets; no card worker.
+        ('terminal default No', panel, [(0x8106B0, 6, 1), (0x8106B1, 0x80, 1),
+             (PAGE + 5, 0, 1), (PANEL + 3, 0x38, 1), (PANEL + 0x34, 2, 2),
+             (0x810CB2, 12, 2)], [0, 0, 0x40]),
         # the captured confirmation: cursor, Yes, the discharge to the end
         ('panel yes+discharge', panel, [], [0, 0x8000, 0x2000, 0x8000, 0x40] + [0] * frames_long),
         # No -> the list, then the list's accept: the panel (original 00185420)

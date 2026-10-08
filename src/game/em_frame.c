@@ -224,6 +224,7 @@ void em_frame_scene_input(EmSceneState *scene)
 EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
 uint32_t  em_frame_counter(void)        { return s_frame.counter; }
+const uint32_t *em_frame_counter_storage(void) { return &s_frame.counter; }
 uint32_t  em_frame_parity(void)         { return s_frame.parity; }
 
 /* The host's frame pacing (frame_pace_ntsc): the pacing flags and the

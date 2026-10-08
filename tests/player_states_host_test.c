@@ -33,6 +33,7 @@
 #include <string.h>
 
 #include "game/em_actor_collision.h"
+#include "game/em_area01_player_view.h"
 #include "game/em_coll_probe_original.h"
 #include "game/em_effect_color.h"
 #include "game/em_ee_float.h"
@@ -70,6 +71,14 @@ int player_pose_source(unsigned *clip, float *remaining, unsigned *flags, int *t
     if (transition) *transition = 0;
     return 1;
 }
+/* External AREA01 transactions are not part of this stage-only fixture. */
+int player_pose_hip(float out[3]) { (void)out; assert(!"external hip snapshot"); return 0; }
+void em_area01_player_view_init(EmArea01PlayerView *v, EmPlayerLiveActor *actor,
+    EmArea01PlayerSnapshot snapshot, EmArea01PlayerPublish publish, void *ctx)
+{
+    (void)v; (void)actor; (void)snapshot; (void)publish; (void)ctx;
+    assert(!"external AREA01 player view");
+}
 void player_pose_unsupported_hold(const char *reason) { (void)reason; }
 void player_pose_legacy_hold(const char *owner) { (void)owner; }
 /* The stage's two camera-side stores (census L13..L16): 0015BCF0's
@@ -81,6 +90,11 @@ int em_camleft_0015CBA0(EmPlayerLiveActor *p) { (void)p; return 0; }
 /* 0015BCF0's 00187350 on the record runs only when the closure binder bound
  * 00161020 / 001612D0 (census L12); this fixture binds the legacy callbacks. */
 int em_player_closure_live_footstep(EmPlayerLiveActor *p) { (void)p; assert(!"footstep"); return -1; }
+/* This fixture has no water-effect owner. A reached contact must fail-stop;
+ * the dedicated case below proves this is never a silent fallback. */
+static unsigned water_contacts;
+int em_player_closure_live_water_contact(EmPlayerLiveActor *p)
+{ (void)p; ++water_contacts; return -1; }
 /* No scripted takeover in this fixture (em_player.c reads it at every stage). */
 int player_pose_owned(void) { return 0; }
 int player_pose_legacy_release(void) { return 1; }
@@ -786,6 +800,14 @@ int main(void)
     unsigned faults = player_states_faults();
     tick();
     assert(player_states_faults() == faults + 1 && quit_requests == 1);
+
+    /* The water first-contact bridge propagates an absent effect owner. */
+    assert(water_contacts == 0);
+    reset();
+    head_hit.node = 0x405B;
+    faults = player_states_faults();
+    tick();
+    assert(water_contacts == 1 && player_states_faults() == faults + 1 && quit_requests == 1);
 
     /* 7. A +5 without a callback (unreachable once engaged; defended). */
     reset();

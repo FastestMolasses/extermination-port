@@ -414,6 +414,8 @@ static int status_page_event(void *context, EmStatusPageEvent event, unsigned ar
     (void)context;
     (void)argument;
     switch (event) {
+    case EM_STATUS_PAGE_SAVE_RESET:
+        return em_scene_bindings_terminal_reset() == 0;
     case EM_STATUS_PAGE_BLACK_HOLD:
         em_frame_fade_clear(0);
         return 1;
@@ -660,6 +662,8 @@ static int page_owner_read(void *context, uint32_t owner, uint32_t offset, uint3
                            int32_t *value)
 {
     (void)context;
+    if (em_scene_state()->req[EM_SCENE_REQ_B0] == 6)
+        return em_scene_bindings_terminal_owner_read(owner, offset, size, value);
     if (!world.panel_address || owner != world.panel_address || !world.panel_record) return -1;
     if (offset == 3 && size == 1) { *value = world.panel_record->subtype; return 0; }
     if (offset == 0x34 && size == 2) { *value = (int16_t)world.panel.owner.cost; return 0; }
@@ -1977,10 +1981,17 @@ int em_area11_interaction_host_status_open(void)
                        (uint32_t)d0[3] << 24;
     EmPanel *owner = NULL;
     if (scene->req[EM_SCENE_REQ_B0] != 0 && (scene->req[EM_SCENE_REQ_B1] & 0x80)) {
-        /* The BATTERY route talks to the panel D_008106D0 names. */
-        if (!world.panel_address || address != world.panel_address)
-            return fail("0020E060: D_008106D0 is not the bound panel");
-        owner = &world.panel.owner;
+        /* Request 6 borrows a live AREA01 terminal; the BATTERY page's
+         * typed owner reads resolve D0 directly. It has no EmPanel owner. */
+        if (scene->req[EM_SCENE_REQ_B0] == 6) {
+            int32_t type;
+            if (em_scene_bindings_terminal_owner_read(address, 3, 1, &type) < 0)
+                return fail("0020E060: D_008106D0 is not a live terminal");
+        } else {
+            if (!world.panel_address || address != world.panel_address)
+                return fail("0020E060: D_008106D0 is not the bound panel");
+            owner = &world.panel.owner;
+        }
     }
     if (em_status_runtime_page_open(world.status, owner) != 1) return fail("0020E060");
     world.status_route = 1;

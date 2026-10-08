@@ -63,12 +63,10 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         return -1;
     switch (state->phase) {
     case 0:
-        /* 0020CDC0 case 0. Two branches reach untranslated pages and fault
-         * before any side effect: request 6 (00225A00 / 00225AC0, posted
-         * only by 00157F60 for an owner of type 0x38) and, with no request,
-         * a nonzero D_008106C5 (the passcode pages 002072C0). Neither is
-         * reachable in AREA11 (docs/STATUS_PAGES.md section 1). */
-        if (state->request == 6 || (!state->request && state->status_request))
+        /* The no-request passcode route remains untranslated. Request 6
+         * enters the existing BATTERY confirmation; only its accepted-save
+         * follow-up (phase 6 / 00225AC0) remains unsupported. */
+        if (!state->request && state->status_request)
             return -1;
         if (!emit(worker, context, state, EM_STATUS_PAGE_BLACK_HOLD, 0) ||
             !emit(worker, context, state, EM_STATUS_PAGE_OPEN_SOUND, 0))
@@ -76,6 +74,16 @@ int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorke
         state->step = state->transition_step = state->item.state = state->item.step = 0;
         if (!emit(worker, context, state, EM_STATUS_PAGE_CONFIGURE, 0))
             return -1;
+        if (state->request == 6) {
+            if (!emit(worker, context, state, EM_STATUS_PAGE_SAVE_RESET, 0))
+                return -1;
+            state->item.screen = 0;
+            state->phase = 3;
+            state->step = 2;
+            state->item.state = 2;
+            state->item.selected = 3;
+            break; /* original branch precedes both saved-status/module stores */
+        }
         state->phase = 1;
         state->saved_status = state->current_status;
         state->saved_module = inventory_module(state);
