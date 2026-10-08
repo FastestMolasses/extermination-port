@@ -1592,11 +1592,34 @@ arrival's own input lock decides that row natively whatever the command's
 row is; a01_s5 row 7: 4). The exported pad file places the frame-0
 command that many rows later (`command_rows`; the manifest records it).
 This is a reading of the recorder, not a property of the game; every
-later row is compared strictly. `--verify-harness` checks the driver
-against the shifted commands.
+later row is compared strictly. Because the delay comes from the
+recording, the latency of the first command's response is not checked
+independently from a01_01 onward: a native bug in that one response's
+timing (up to the bound of four extra rows) would not show as a
+mismatch. `--verify-harness` checks the driver against the shifted
+commands.
 
-Measured (receipts in ignored `build/l2check/smoke2`, `smoke3`, `smoke4`;
-`EM_PS2_DISC_DRIVE_TIMING=1` where stated):
+**Which commands finish green (exit 0).** A PASS below means the whole
+command exited 0, its post-checks included (the RNG symbolication
+`check_rand_order`, the drawn world). Since the fix round of 2026-10-08
+(`tools/rand_order.py` names `em_player_footstep_tick`, 00187350's wading
+ripple draw, first reached at a01_02 f39):
+- exit 0: `--until a01_00`, `--until a01_01` and `--until a01_02` (23 live
+  phases, at host speed); `--side a01_s3` and `--side a01_s6` at host
+  speed; `--side a01_s0` and `--side a01_s4` with
+  `EM_PS2_DISC_DRIVE_TIMING=1`.
+- exit 1, at the row compare: `--until a01_03` and every later endpoint
+  (`a01_04`..`a01_07`, with or without the switch) stop at a01_03 row 957,
+  the voice line's end (`msg` (2,2,64) native against the recording's
+  (2,1,64)); `--side a01_s1`, `a01_s2`, `a01_s5` and `a01_s7` stop at the
+  rows listed below.
+Before that fix every run past a01_02's f39 failed in `check_rand_order`
+after its rows had matched (the review of the level-2 check), so the
+earlier "a01_02 PASS" meant the rows only.
+
+Measured (receipts in ignored `build/l2check/smoke2`, `smoke3`, `smoke4`,
+and the fix round's `build/l2fix/`; `EM_PS2_DISC_DRIVE_TIMING=1` where
+stated):
 - **a01_00 PASS (781 rows), a01_01 PASS (306 rows), a01_02 PASS (591
   rows)**, each with its ending camera block: the tunnel, the water at
   the shaft (00187DE0's first contact, its ripple and splash), the lower

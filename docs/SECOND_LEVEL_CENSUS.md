@@ -509,7 +509,9 @@ ignored `build/l2check/census/`), equal to the census frame, inside a
 compared window of the same binary's run (`build/l2check/smoke4/main06`):
 
 Key **M2**: a01_02 (`--until a01_06` with the switch): **PASS, 591 rows**
-and the ending camera block; row 0 = port counter 16445. Key **M3**: a01_03,
+and the ending camera block; row 0 = port counter 16445 (the rows; that
+run exits 1 at a01_03 row 957, and `--until a01_02` exits 0 with all its
+checks since the fix round's RNG table entry, LEVEL_SMOKE.md). Key **M3**: a01_03,
 the same run: rows **f0..f956 exact** of 991 (row f957: the voice line
 ends a frame early); row 0 = 17036.
 

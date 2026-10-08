@@ -2076,7 +2076,12 @@ shooting and knifing anywhere also run without a fault.
   and a01_s6 (the raised bridge, 229 rows); a01_03 (the locked shaft door) matches rows
   f0..f956 of 991, then the voice line ends one frame early (seven at host
   speed); a01_s1 / a01_s2 / a01_s5 match up to their pickup's page request
-  (AREA01's page loads answer at host speed). Five reachable faults were
+  (AREA01's page loads answer at host speed). The first command's
+  latency of a01_01 onward is taken from each recording, so it is not
+  checked independently; every later row is compared strictly. With
+  00187350's ripple draw named in the RNG table (fix round, 2026-10-08),
+  `--until a01_02` exits 0 with all its checks; `--until a01_03` and later
+  stop at the row-957 voice line (LEVEL_SMOKE.md). Five reachable faults were
   fixed with original-instruction oracles (shots near a floor field, the
   0x35 stairs, the locked door's message request, the hang's side probes
   and sound, AREA00's disc sectors for the exit). Accepting the save

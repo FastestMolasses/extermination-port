@@ -95,6 +95,7 @@ PORT_FN = {
     'em_effect_001F77B0': 0x1F77B0,              # the death decal's particle draws (DAMAGE.md)
     'em_player_reaction_0021D800': 0x21D800,     # the flinch's clip pick (DAMAGE.md)
     'em_crate_original_tick': 0x1551B0,          # a box's break: the husk's quarter turn, a raised box's kick (BRANCH br_04 / br_06)
+    'em_player_footstep_tick': 0x187350,         # the wading ripple's 00122BB8 draw (PLAYER_FLOOR.md P14/P15; AREA01 water, a01_02 f39)
     # AREA01 owners (the arrival's world frames; no per-call AREA01 capture,
     # LEVEL2_BINDING.md "RNG evidence and limits")
     'em_area01_exitb_001E8E80': 0x1E8E80,        # a lattice set-up's dome heights
@@ -144,7 +145,7 @@ NAMES = {0x1D7C30: 'sway 001D7C30', 0x1F54E0: 'indicator 001F54E0', 0x1F4D40: 'g
          0x18ABA0: 'impact marker 0018ABA0', 0x18A180: 'knife strike 0018A180',
          0x21AAC0: 'cable hit node 0021AAC0', 0x21A500: 'cable strand node 0021A500',
          0x22BBC0: 'burn node 0022BBC0', 0x1F77B0: 'death decal 001F77B0', 0x21D800: 'flinch 0021D800',
-         0x1551B0: 'box 001551B0'}
+         0x1551B0: 'box 001551B0', 0x187350: 'wading ripple 00187350'}
 
 
 def name(fn):
