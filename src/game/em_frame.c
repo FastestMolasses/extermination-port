@@ -409,7 +409,14 @@ int em_frame_step(void)
      * Native presentation is incremental, so preserve that suspension
      * across calls: input/media/presentation run but tasks, fades and
      * the main iteration counter do not advance during playback. */
-    if (s_frame.movie_active) s_frame.movie_suspended = true;
+    if (s_frame.movie_active) {
+        s_frame.movie_suspended = true;
+        /* The world list built before the movie is never kicked: after
+         * 00203350 returns, 001D1C10 (step N) restarts the list with
+         * 001D1AE0 before 001D2300 kicks it as the movie frame (render
+         * flag 4). The GS frame drops the recorded world draws. */
+        em_gfx_gs_world_drop(s_frame.gfx);
+    }
 movie_phase:
     if (s_frame.movie_suspended) {
         if (s_frame.movie_active && s_frame.movie_pump)

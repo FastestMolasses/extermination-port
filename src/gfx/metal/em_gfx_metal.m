@@ -3963,6 +3963,11 @@ int em_gfx_gs_world_frame(EmGfx *g)
     return 1;
 }
 
+void em_gfx_gs_world_drop(EmGfx *g)
+{
+    if (g) g->gswFrame = false;   /* em_gs_world_begin drops the body */
+}
+
 int em_gfx_gs_world_kick(EmGfx *g, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
 {
     if (!g || !g->gswFrame) return 0;

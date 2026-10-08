@@ -96,6 +96,7 @@ int em_gfx_gs_world_enabled(EmGfx *gfx) { (void)gfx; return 0; }
 int em_gfx_gs_memory_load(EmGfx *gfx, const char *path) { (void)gfx; (void)path; return -1; }
 int em_gfx_gs_world_frame(EmGfx *gfx) { (void)gfx; return 0; }
 int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes) { (void)gfx; (void)chain; (void)bytes; return 0; }
+void em_gfx_gs_world_drop(EmGfx *gfx) { (void)gfx; }
 int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
 { (void)gfx; (void)env; (void)env_bytes; (void)clear; (void)clear_bytes; return 0; }
 const char *em_gfx_gs_world_fault(EmGfx *gfx) { (void)gfx; return NULL; }

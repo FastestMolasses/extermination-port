@@ -1014,6 +1014,12 @@ int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes);
  * here to the kick. 1 (recording), 0 (the GS frame is off: the GPU draws),
  * -1 (a fault, reported: em_gfx_gs_world_fault). */
 int em_gfx_gs_world_frame(EmGfx *gfx);
+/* The recorded world frame is never kicked: the blocking movie 00203350
+ * took the main iteration (001AAE40 with D_00821058 == 1), and after it
+ * returns 001D1C10 runs 001D1AE0, which restarts the frame's list before
+ * step V's 001D2300 kicks it, with render flag 4 (the movie frame) set.
+ * The world draws recorded before the movie are dropped; nothing faults. */
+void em_gfx_gs_world_drop(EmGfx *gfx);
 /* Step V's kick of a recorded world frame: the GIF data of its draw
  * environment and clear (em_rcl_kick_head). Runs the frame through the
  * model; end_frame presents the field. 0 (done, or no world frame was

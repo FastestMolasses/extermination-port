@@ -24,6 +24,7 @@ void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
     (void)gfx;
     clear_rgba[0] = r; clear_rgba[1] = g; clear_rgba[2] = b; clear_rgba[3] = a;
 }
+void em_gfx_gs_world_drop(EmGfx *gfx) { (void)gfx; }
 void em_gfx_end_frame(EmGfx *gfx) { (void)gfx; }
 void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h) { (void)gfx; (void)w; (void)h; }
 static void rect(EmGfx *gfx, float x, float y, float w, float h, const float rgb[3])

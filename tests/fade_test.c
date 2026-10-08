@@ -33,6 +33,7 @@ void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
     (void)gfx; (void)r; (void)g; (void)b; (void)a;
     frame_draws = 0;
 }
+void em_gfx_gs_world_drop(EmGfx *gfx) { (void)gfx; }
 void em_gfx_end_frame(EmGfx *gfx) { (void)gfx; ++presents; }
 void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h)
 {
