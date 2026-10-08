@@ -143,13 +143,13 @@ int main(int argc,char **argv)
     assert(sp_001B0300(NULL)==0);specials_store();
     assert(S3600[0]==0x43210000);
     expected_fn=0x00198D90;expected_a0=CAM_BASE;expected_a1=0x008102B0;
-    assert(lw_00198D90(NULL,&C.cam.rec,&C.player)==0);
-    assert(lw_00198D90(NULL,NULL,&C.player)<0 && callback_calls==3);
+    assert(area_00198D90(NULL,&C.cam.rec,&C.player)==0);
+    assert(area_00198D90(NULL,NULL,&C.player)<0 && callback_calls==3);
     C.fault=0;expected_fn=0x001D2830;expected_a0=3;expected_a1=1;
-    assert(lw_001D2830(NULL,3,1)==0 && callback_calls==4);
+    assert(area_001D2830(NULL,3,1)==0 && callback_calls==4);
     callback_result=-1;C.cam.rec.bytes[1]=3;C.cam.rec.bytes[5]=0;
     C.pool[P_EYE]=0x3F800000;S3600[0]=0x11111111;
-    assert(lw_001D2830(NULL,3,1)<0 && C.fault==0x001D2830 && callback_calls==5);
+    assert(area_001D2830(NULL,3,1)<0 && C.fault==0x001D2830 && callback_calls==5);
     /* Callback wrote canonical bytes, then refused before publishing. The
      * failure must preserve those writes rather than reload stale g.cam. */
     assert(g.cam.sub_state==3 && g.cam.table_sel==0 && g.cam.eye[0]==1);
