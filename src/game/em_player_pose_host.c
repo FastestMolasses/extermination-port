@@ -45,6 +45,7 @@ static struct {
     float hip[3];
     int hip_valid;
     float saved_euler[3];
+    float saved_euler_w;     /* 0x70003B5C: the actor's +0xCC */
     int saved_euler_valid;
     int (*stage_hook)(void *);
     void *stage_context;
@@ -786,6 +787,7 @@ void player_pose_finish_palette(void)
     source.hip_valid = 1;
     source.saved_euler[0] = source.saved_euler[2] = 0;
     source.saved_euler[1] = g.yaw;
+    source.saved_euler_w = em_live_f32(source.record.actor, 0xCC);
     source.saved_euler_valid = 1;
 }
 
@@ -793,6 +795,13 @@ int player_pose_script_euler(float out[3])
 {
     if (!out || !source.valid || !source.saved_euler_valid) return 0;
     memcpy(out, source.saved_euler, sizeof source.saved_euler);
+    return 1;
+}
+
+int player_pose_script_euler_w(float *out)
+{
+    if (!out || !source.valid || !source.saved_euler_valid) return 0;
+    *out = source.saved_euler_w;
     return 1;
 }
 
@@ -818,6 +827,7 @@ int player_pose_align(const float position[3])
      * node1 again. It does copy the current actor Euler to 3B50 here. */
     source.saved_euler[0] = source.saved_euler[2] = 0;
     source.saved_euler[1] = g.yaw;
+    source.saved_euler_w = em_live_f32(source.record.actor, 0xCC);
     source.saved_euler_valid = 1;
     return 1;
 }

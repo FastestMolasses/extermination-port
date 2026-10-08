@@ -1349,10 +1349,14 @@ int camera_script_seed_0018CBD0(EmCamera *cam, const float seed_euler[3], float 
 {
     const uint8_t *preset_word = em_camera_live_bytes(0x00810244u, 4);  /* cam+0x64 */
     if (!cam || cam != &g.cam || !seed_euler || !preset_word || !em_camera_live_bound()) return 0;
-    float preset, matrix[16], offset[4];
+    float preset, matrix[16], offset[4], w;
     memcpy(&preset, preset_word, sizeof preset);
+    /* 0018CBD0 copies the whole 0x70003B50 quadword to cam+0x30: the
+     * Euler and its fourth lane (the actor's +0xCC). */
+    if (!player_pose_script_euler_w(&w)) return 0;
     if (!em_camera_rotation_offset(seed_euler, distance, matrix, offset)) return 0;
     memcpy(cam->seed_euler, seed_euler, sizeof cam->seed_euler);
+    cam->seed_w = w;
     em_camera_retarget_seed(g.pos, offset, distance, preset, cam->eye_des, cam->tgt_des);
     return 1;
 }

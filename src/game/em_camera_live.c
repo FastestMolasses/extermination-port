@@ -238,6 +238,7 @@ static void view_load(void)
     put(0x10, c->eye_des, 12);
     put(0x20, c->tgt_des, 12);
     put(0x30, c->seed_euler, 12);
+    put(0x3C, &c->seed_w, 4);
     put(0x44, &c->yaw, 4);
     put(0x48, &c->orbit_tgt, 4);
     put(0x4C, &c->orbit_rad, 4);
@@ -275,6 +276,7 @@ static void view_store(void)
     get(c->eye_des, 0x10, 12);
     get(c->tgt_des, 0x20, 12);
     get(c->seed_euler, 0x30, 12);
+    get(&c->seed_w, 0x3C, 4);
     get(&c->yaw, 0x44, 4);
     get(&c->orbit_tgt, 0x48, 4);
     get(&c->orbit_rad, 0x4C, 4);

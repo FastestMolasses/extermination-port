@@ -1262,6 +1262,8 @@ typedef struct {
     float    eye_des[3];  /* +0x10: desired EYE (world) */
     float    tgt_des[3];  /* +0x20: desired TARGET (world) */
     float    seed_euler[3]; /* +0x30: original interaction retarget rotation */
+    float    seed_w;      /* +0x3C: the fourth lane 0018CBD0 copies with it
+                             (the actor's +0xCC through 0x70003B5C) */
     float    yaw;         /* +0x44: eye->target heading; the R1/L1
                              orient and the idle auto-orient steer it */
     /* func_0018DD20 solver state (decoded s61) */
@@ -1914,6 +1916,9 @@ void player_pose_finish_palette(void);
 int player_pose_align(const float position[3]);
 int player_pose_face(float yaw);
 int player_pose_script_euler(float out[3]);
+/* The fourth lane of the same 0x70003B50 quadword (the actor's +0xCC,
+ * which 0015BCF0's tail and 00182F90 copy with the Euler). */
+int player_pose_script_euler_w(float *out);
 int player_pose_owned(void);
 /* 0015C700(D_008102B0) on the player record (byte-matched C, with its
  * callee 0015C7C0): +0x220 = health (D_00810858); when health > 35.0 the

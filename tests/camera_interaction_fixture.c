@@ -5,6 +5,7 @@
 #include "game/em_frame.h"
 #include "game/em_scene_bindings.h"
 #include <stdio.h>
+static float s_seed_w;
 EmGameState g;
 const float kLocoTierSpeed[4]={0};
 /* The canonical scene bytes the live camera reads (the game keeps them in
@@ -111,6 +112,7 @@ static int retarget(const char *ramfile,const char *world,const char *scratch,ui
     memcpy(player.bytes,ram+p,sizeof player.bytes);
     float rot[3];
     for (int i=0;i<3;i++) { g.pos[i]=word(ram,p+0xA0+i*4); rot[i]=word(ram,c+0x30+i*4); }
+    s_seed_w=word(ram,p+0xCC);   /* 0x70003B5C: the actor's +0xCC */
     g.yaw=word(ram,p+0xC4);
     int ok=em_camera_live_bind(&camera_host)==0;
     if (ok) {
@@ -124,6 +126,7 @@ static int retarget(const char *ramfile,const char *world,const char *scratch,ui
     }
     em_collision_world_unload();em_collision_free(&g.coll);free(ram);return ok;
 }
+int player_pose_script_euler_w(float *out) { *out=s_seed_w; return 1; }
 int test_retarget(const char *ramfile,const char *world,const char *scratch,uint8_t *out)
 {return retarget(ramfile,world,scratch,out,0);}
 int test_refusal(const char *ramfile,const char *world,const char *scratch,uint8_t *out)

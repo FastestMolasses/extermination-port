@@ -11,7 +11,8 @@ The queries run over the collision world of the captured scene: the
 original's own cell directory and published class-4 list, read from the
 capture (tests/camera_interaction_fixture.c). Every word the retarget
 writes must equal the capture byte for byte: the desired eye / target
-+0x10 / +0x20, the seed +0x30, the bounds +0x50 / +0x54, the solver flags
++0x10 / +0x20, the seed quadword +0x30 (its fourth lane the player's
++0xCC, through 0x70003B5C), the bounds +0x50 / +0x54, the solver flags
 +0x07 and surface +0x58 / +0x90, the prepass flags +0x5A, +0x6D and +0x60,
 and the actual eye / target D_008105D0 / E0 (0018D7B0 style 1's copy).
 A captured-scene regression, not exhaustive: the solvers' own oracles are
@@ -51,7 +52,7 @@ SOURCES = ['tests/camera_interaction_fixture.c', 'src/game/em_camera.c', 'src/ga
            'src/game/em_actor_light_001D89D0.c', 'src/game/em_player_equipment.c']
 CAM, POOL = 0x8101E0, 0x8105D0
 # The camera block words the retarget writes (offset, size).
-WRITTEN = ((0x07, 1), (0x10, 12), (0x20, 12), (0x30, 12), (0x50, 4), (0x54, 4), (0x58, 2), (0x5A, 2),
+WRITTEN = ((0x07, 1), (0x10, 12), (0x20, 12), (0x30, 16), (0x50, 4), (0x54, 4), (0x58, 2), (0x5A, 2),
            (0x60, 4), (0x6D, 1), (0x90, 4))
 
 
