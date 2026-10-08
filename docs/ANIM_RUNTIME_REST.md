@@ -75,7 +75,7 @@ value.
 | 001C94B0 build_trs_matrix | AI | verified-unbound | unchanged | em_owner_services_original (bound by em_pose_host_workers) |
 | 001C6150 | BM | verified-unbound | unchanged | em_owner_services_original (inlined), em_status_models / em_roger_actor_original worker slots |
 | 001C7420 | NM | verified-unbound | unchanged | em_owner_services_original |
-| 001C7C00 | NM | verified-unbound | unchanged. Critic note 7.2 already corrects it to **live for S2** (em_render_frame.c -> em_opening_runtime_camera). It is unbound only for Roger's encounter (em_cinematic_playback.c is not in COMMON). | em_cinematic_camera |
+| 001C7C00 | NM | verified-unbound | unchanged at the time. Critic note 7.2 corrected it to **live for S2**; since census L22 and chain step CAMERAS (2026-10-02) it runs inside the original 0022EEF0 (em_cinematic_playback_tick) for both Roger's encounter and the opening (FIRST_LEVEL_CENSUS.md section 3). | em_cinematic_camera |
 
 ## 2. What the originals do
 

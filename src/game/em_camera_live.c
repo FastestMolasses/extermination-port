@@ -12,6 +12,8 @@
 
 #include "game/em_camera.h"
 #include "game/em_aim_fire_sdk_memory.h"
+#include "game/em_area00_low.h"
+#include "game/em_area01_room.h"
 #include "game/em_area22_port.h"
 #include "game/em_camera_aim.h"
 #include "game/em_camera_area11_specials.h"
@@ -687,9 +689,9 @@ static int lw_commit(void *ctx, EmCameraFollowRecord *cam, int mode)
 }
 
 /* 0022EEF0(cam, 1): the scripted timeline of +4 == 3, the binder's (the
- * opening's track through em_opening_runtime while it owns the camera, the
- * opening's timeline stand-in of census L33; every other timeline through
- * the AREA11 script host, census L22). Both write the g.cam view. */
+ * AREA11 script host's em_cinematic_playback, census L22 / L33: the
+ * opening's scene 0x22 and Roger's scene 1). It writes the g.cam view and
+ * the block's +0x7C..+0x8A. */
 static int lw_0022EEF0(void *ctx, EmCameraFollowRecord *cam, int a1)
 {
     (void)ctx;
@@ -720,17 +722,12 @@ static int lw_001DD980(void *ctx, uint32_t *eye, uint32_t *target)
     return publish_001DD980(e, t);
 }
 
-/* Camera action 0 (00195130). While a legacy stand-in owns the camera
- * (em_camera.c camera_area11_standins: the examine cue) it runs in
- * 00195130's place; otherwise the translation. */
+/* Camera action 0 (00195130): the translation (em_camera_area11_specials),
+ * with nothing in its place (CAMERA_LIVE.md section 6). */
 static int lw_00195130(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
 {
     (void)ctx;
     if (cam != &C.cam.rec) return -1;
-    view_store();
-    int owned = C.host.standins(C.host.context);
-    view_load();
-    if (owned == CAMERA_STANDIN_OWNS) return 0;
     specials_load();
     int rc = em_cam_specials_action_00195130(&C.sp, cam->bytes, e);
     specials_store();
@@ -1054,6 +1051,15 @@ static int aim_call(void *ctx, EmAimFireTargetCall *f)
     case 0x0011E2A8u: if (w_sine(NULL, f->f[0], &out) < 0) return fail(f->function); f->f0 = out; return 0;
     case 0x0011DE90u: if (w_cosine(NULL, f->f[0], &out) < 0) return fail(f->function); f->f0 = out; return 0;
     case 0x001B1470u: w_wrap(NULL, f->f[0], &out); f->f0 = out; return 0;
+    case 0x001B1240u: {                                   /* 00198F10's heading (eye, target x, z) */
+        const uint8_t *o = aim_map(NULL, a0, 12, 0);
+        uint32_t w[3];
+        if (!o) return fail(f->function);
+        memcpy(w, o, 12);
+        if (w_heading(NULL, w, f->f[0], f->f[1], &out) < 0) return fail(f->function);
+        f->f0 = out;
+        return 0;
+    }
     case 0x0018C4B0u: {
         uint8_t *v = aim_map(NULL, a0, 12, 1);
         uint32_t w[3];
@@ -1134,6 +1140,8 @@ static int aim_run(uint32_t fn, int32_t a2)
     case 0x00197870u: rc = em_cam_aim_00197870(&h, CAM_BASE, 0x008102B0u, a2); break;
     case 0x00198440u: rc = em_cam_aim_00198440(&h, CAM_BASE, 0x008102B0u, a2); break;
     case 0x001912B0u: rc = em_cam_aim_001912B0(&h, 0x008102B0u); break;
+    case 0x00198AF0u: rc = em_cam_aim_00198AF0(&h, CAM_BASE, 0x008102B0u); break;
+    case 0x00191530u: rc = em_cam_aim_00191530(&h, CAM_BASE, 0x008102B0u); break;
     default: rc = -1; break;
     }
     if (rc < 0) {
@@ -1179,14 +1187,166 @@ static int area_worker(uint32_t function, uint32_t a0, uint32_t a1)
 }
 static int lw_001B0300(void *ctx)
 { (void)ctx; return area_worker(0x001B0300u, 0, 0); }
-static int lw_00198D90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *player)
+static int area_00198D90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *player)
 {
     (void)ctx;
     if (cam != &C.cam.rec || player != &C.player) return fail(0x00198D90u);
     return area_worker(0x00198D90u, CAM_BASE, 0x008102B0u);
 }
-static int lw_001D2830(void *ctx, int32_t a0, int32_t a1)
+static int area_001D2830(void *ctx, int32_t a0, int32_t a1)
 { (void)ctx; return area_worker(0x001D2830u, (uint32_t)a0, (uint32_t)a1); }
+
+/* Camera actions 9, 10, 11 and 14 (docs/CAMERA_LIVE.md section 6). The
+ * router 00193EB0's area-0xB arms set 9 / 11 / 14 for the player codes
+ * 0x10 / 0x12 / 0x28; the actions then hand the camera on themselves:
+ * 00198CE0 (9) sets 10 on code 0x11, 00198D90 (10) sets 11 on code 0x12,
+ * 00198F10 (11) and 00198AF0 (14) set 0. 9 and 11 are em_area00_low's
+ * 00198CE0 / 00198F10, 10 is em_area01_room's 00198D90 (the one owner of
+ * each) over the regions below; 14 and 00191530 are em_camera_aim's on the
+ * aim host. Every callee goes through aim_call. */
+static int low_call(void *ctx, EmArea00LowCall *c)
+{
+    (void)ctx;
+    if (c->fn == 0x00191530u) {                            /* 00198F10's raised target */
+        if ((uint32_t)c->a[0] != CAM_BASE || (uint32_t)c->a[1] != 0x008102B0u) return fail(c->fn);
+        return aim_run(0x00191530u, 0);
+    }
+    EmAimFireTargetCall f;
+    memset(&f, 0, sizeof f);
+    f.function = c->fn;
+    f.sp = c->sp;
+    for (unsigned i = 0; i < 7; ++i) f.a[i] = c->a[i];
+    memcpy(f.f, c->f, sizeof f.f);
+    f.na = c->na;
+    f.nf = c->nf;
+    if (aim_call(NULL, &f) < 0) return -1;
+    c->v0 = f.v0;
+    c->f0 = f.f0;
+    return 0;
+}
+
+/* The player view these actions read (+A0, +B0, +B4, +C0, +0D, +230): a
+ * copy of it is their region, and a store into the copy, or into the view
+ * through a callee, is a fault (00198CE0, 00198D90 and 00198F10 store to
+ * none of the player's bytes, and their callees write only to their
+ * destination arguments: the block, the pool and the scratch). */
+static uint8_t low_player[EM_PLAYER_ACTOR_SIZE];
+
+static int low_player_check(uint32_t fn)
+{
+    if (!memcmp(low_player, C.player.bytes, sizeof low_player)) return 0;
+    fprintf(stderr, "em_camera_live: camera action %08X stored into the player view\n", fn);
+    return fail(0x008102B0u);
+}
+
+static int low_run(uint32_t fn)
+{
+    EmSceneState *s = em_scene_state();
+    if (!s) return fail(fn);
+    memcpy(low_player, C.player.bytes, sizeof low_player);
+    const EmArea00LowRegion regions[] = {
+        {CAM_BASE, EM_CAMERA_FOLLOW_RECORD_SIZE, C.cam.rec.bytes},   /* the block */
+        {POOL_BASE, 4u * POOL_WORDS, (uint8_t *)C.pool},             /* D_008105D0 / D_008105E0 */
+        {0x008102B0u, EM_PLAYER_ACTOR_SIZE, low_player},             /* the player view (read) */
+        {0x70003400u, sizeof C.s3400, (uint8_t *)S3400},
+        {0x70003600u, sizeof C.s3600, (uint8_t *)S3600},
+        {0x00810700u, 1, &s->d810700},
+        {0x00810701u, 1, &s->d810701},
+    };
+    EmArea00Low low;
+    memset(&low, 0, sizeof low);
+    low.regions = regions;
+    low.region_count = (unsigned)(sizeof regions / sizeof regions[0]);
+    low.call = low_call;
+    low.sp = 0x7F001000u;     /* no callee reads the stack; the frames are not modelled */
+    int rc = fn == 0x00198CE0u ? em_area00_low_00198CE0(&low, CAM_BASE, 0x008102B0u)
+                               : em_area00_low_00198F10(&low, CAM_BASE, 0x008102B0u);
+    if (rc < 0) {
+        if (low.fault == EM_AREA00_LOW_FAULT_UNMAPPED)
+            fprintf(stderr, "em_camera_live: camera action %08X: no view of %08X\n", fn, low.fault_address);
+        return fail(low.fault == EM_AREA00_LOW_FAULT_WORKER && low.fault_address ? low.fault_address : fn);
+    }
+    return low_player_check(fn);
+}
+
+/* Camera action 10: em_area01_room's 00198D90 over the same regions (it
+ * also addresses only the block, the pool, the player view and the
+ * scratch 0x70003400 / 0x70003600). Its callees (00102948, 001029C0,
+ * 00102C58, 001026A0, 001028B8, 0018C4B0, 0018C6A0) go through aim_call. */
+static int room_call(void *ctx, EmArea01RoomCall *c)
+{
+    (void)ctx;
+    EmAimFireTargetCall f;
+    memset(&f, 0, sizeof f);
+    f.function = c->fn;
+    f.sp = c->sp;
+    for (unsigned i = 0; i < 7; ++i) f.a[i] = c->a[i];
+    for (unsigned i = 0; i < 4; ++i) f.f[i] = c->f[i];
+    f.na = c->na;
+    f.nf = c->nf;
+    if (aim_call(NULL, &f) < 0) return -1;
+    c->v0 = f.v0;
+    c->f0 = f.f0;
+    return 0;
+}
+
+static int room_run(void)
+{
+    memcpy(low_player, C.player.bytes, sizeof low_player);
+    const EmArea01RoomRegion regions[] = {
+        {CAM_BASE, EM_CAMERA_FOLLOW_RECORD_SIZE, C.cam.rec.bytes},   /* the block */
+        {POOL_BASE, 4u * POOL_WORDS, (uint8_t *)C.pool},             /* D_008105D0 / D_008105E0 */
+        {0x008102B0u, EM_PLAYER_ACTOR_SIZE, low_player},             /* the player view (read) */
+        {0x70003400u, sizeof C.s3400, (uint8_t *)S3400},
+        {0x70003600u, sizeof C.s3600, (uint8_t *)S3600},
+    };
+    EmArea01Room room;
+    memset(&room, 0, sizeof room);
+    room.regions = regions;
+    room.region_count = (unsigned)(sizeof regions / sizeof regions[0]);
+    room.call = room_call;
+    room.sp = 0x7F001000u;    /* no callee reads the stack; the frames are not modelled */
+    if (em_area01_room_00198D90(&room, CAM_BASE, 0x008102B0u) < 0) {
+        if (room.fault == EM_AREA01_ROOM_FAULT_UNMAPPED)
+            fprintf(stderr, "em_camera_live: camera action 00198D90: no view of %08X\n", room.fault_address);
+        return fail(room.fault == EM_AREA01_ROOM_FAULT_WORKER && room.fault_address ? room.fault_address
+                                                                                     : 0x00198D90u);
+    }
+    return low_player_check(0x00198D90u);
+}
+
+static int lw_00198CE0(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return low_run(0x00198CE0u);
+}
+static int lw_00198D90(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return room_run();
+}
+/* 0018BC20 runs 001D2830(3, 1) after action 10 (flag 3 of the render
+ * context, cleared again by main-loop step V 001D2300): the render
+ * context's own translation, as the scene bindings bind it. */
+static int lw_001D2830(void *ctx, int a0, int a1)
+{
+    (void)ctx;
+    return em_rcl_001D2830(a0, a1) < 0 ? fail(0x001D2830u) : 0;
+}
+static int lw_00198F10(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return low_run(0x00198F10u);
+}
+static int lw_00198AF0(void *ctx, EmCameraFollowRecord *cam, EmPlayerLiveActor *e)
+{
+    (void)ctx;
+    if (cam != &C.cam.rec || e != &C.player) return -1;
+    return aim_run(0x00198AF0u, 0);
+}
 
 /* 00197490 owns a typed scratch view, unlike the leftovers dispatcher. */
 static int sp_001B0300(void *ctx)
@@ -1328,16 +1488,30 @@ static void bind_worlds(void)
     C.lw.w_001DD980 = lw_001DD980;
     /* The aim camera: actions 1 / 2 (00197D20 / 00198650) and 5 (0018CA90),
      * em_camera_aim over the map / call binding above (CAMERA_LIVE.md
-     * section 7). AREA01 additionally forwards mode1's 001B0300 and
-     * action10's 00198D90/001D2830 through its canonical host. Other area
-     * events and camera actions remain unbound and fail if reached. */
+     * section 7). Outside AREA01: actions 9 / 10 / 11 / 14 (00198CE0 /
+     * 00198F10 through em_area00_low, 00198D90 through em_area01_room with
+     * the 001D2830(3, 1) that follows it, 00198AF0 on the aim host; section
+     * 6). 001B0C60 (areas 0x12 / 0xE), actions 12 / 13 / 15 and mode 1's
+     * 001B0300 have no translation there: NULL, so reaching them faults.
+     * AREA11 cannot: no writer of +6 that runs in AREA11 (its room records,
+     * the router's area-0xB arms, the camera routines and the actions
+     * above, which go 9 -> 10 -> 11 -> 0 and 14 -> 0) stores 12, 13 or 15
+     * (CAMERA_LIVE.md section 6). AREA01 instead forwards mode 1's 001B0300
+     * and action 10's 00198D90 / 001D2830 through its canonical host; its
+     * other camera actions remain unbound and fail if reached. */
     C.lw.w_00197D20 = lw_00197D20;
     C.lw.w_00198650 = lw_00198650;
     C.lw.w_0018CA90 = lw_0018CA90;
     if (C.host.area_worker) {
         C.lw.w_001B0300 = lw_001B0300;
+        C.lw.w_00198D90 = area_00198D90;
+        C.lw.w_001D2830 = area_001D2830;
+    } else {
+        C.lw.w_00198CE0 = lw_00198CE0;
         C.lw.w_00198D90 = lw_00198D90;
         C.lw.w_001D2830 = lw_001D2830;
+        C.lw.w_00198F10 = lw_00198F10;
+        C.lw.w_00198AF0 = lw_00198AF0;
     }
     C.lworld = (EmCamLeftWorld){ &C.cam.rec, &C.player, &C.lg, &C.scratch, &C.hit, &C.lw, 0, scratch38_aliases() };
 
@@ -1388,8 +1562,7 @@ static void bind_worlds(void)
 int em_camera_live_bind(const EmCameraLiveHost *host)
 {
     C.bound = 0;
-    if (!host || !host->player || !host->hip || !host->euler || !host->carry31F0 || !host->standins ||
-        !host->timeline)
+    if (!host || !host->player || !host->hip || !host->euler || !host->carry31F0 || !host->timeline)
         return -1;
     C.host = *host;
     if (!em_collision_world_loaded() || !em_collision_world_sdk() || !em_collision_world_segment())
@@ -1464,6 +1637,13 @@ int em_camera_live_frame(void)
     if (enter() < 0) return em_scene_fault(em_scene_state(), 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
     int rc = em_camleft_0018B9C0(&C.lworld);
     return leave(rc, 0x0018B9C0u);
+}
+
+int em_camera_live_dispatch(void)
+{
+    if (enter() < 0) return em_scene_fault(em_scene_state(), 0x0018BC20u, EM_SCENE_FAULT_NULL_WORKER);
+    int rc = em_camleft_0018BC20(&C.lworld, &C.player);
+    return leave(rc, 0x0018BC20u);
 }
 
 int em_camera_live_commit(int mode)

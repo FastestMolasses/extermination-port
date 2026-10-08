@@ -1,7 +1,10 @@
 /* FIRST-LEVEL DEPENDENCY (chain step AIMCAM, 2026-10-01): 00102870 below
  * is the one bound owner of that original on the first level's aim path
  * (the beam 001E2BA0's divide, em_aim_fire_runtime; AIM_FIRE.md section
- * 7). A change here changes AREA11: re-run make test-area00-low-reference.
+ * 7); since chain step CAMERAS' fix round (2026-10-02) 00198CE0 / 00198F10
+ * are the first level's camera actions 9 / 11 (em_camera_live.c's
+ * low_run; CAMERA_LIVE.md section 6). A change here changes AREA11: re-run
+ * make test-area00-low-reference and make test-camera-interaction-fixture.
  *
  * em_area00_low.h - AREA00 (level 3) side track, lane A00LOW: translations
  * of the boot functions of census subsystems lowmem, unknown_07,

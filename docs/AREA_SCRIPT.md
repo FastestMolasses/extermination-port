@@ -404,9 +404,12 @@ added to the camera object), the live player record's +0x40, +0x1F2,
   interaction host's face attach (`em_area11_interaction_host_face_attach`);
 - r_0028A490 → `em_area11_roger_table_word`; 001C6120 and r_track_head over
   `roger/resources.emrs`; 0022EC30 → `em_cinematic_playback_start` over
-  `roger/encounter_camera.emcc` after checking that the camera's +0x70 is
-  bank 0x96's clip 0; the camera stage's 0022EEF0 is
-  `em_area11_script_host_camera_0022EEF0` (em_camera.c, top mode 3);
+  `roger/encounter_camera.emcc` (bank 0x96's clip 0, scene 1) or the
+  opening's track and D_0026AE00 table (bank 0x98's clip 0, scene 0x22;
+  em_opening_runtime, since chain step CAMERAS), whichever the camera's
+  +0x70 names, with 0021BAB0's start clock; the camera stage's 0022EEF0 is
+  `em_area11_script_host_camera_0022EEF0` (the live camera's top mode 3,
+  CAMERA_LIVE.md section 5);
 - 001C67E0 on Roger → `em_area11_roger_clip_init`;
 - 001B0250 → `em_scene_bindings_001B0250`; 0021B9A0 and 001D2830 → the render
   context's translations (em_rcl_0021B9A0, em_rcl_001D2830; RENDER_CONTEXT.md

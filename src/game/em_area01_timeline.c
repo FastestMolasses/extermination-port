@@ -44,6 +44,10 @@ static int emit(void *ctx,EmCinematicPlaybackEvent event,const EmCinematicPlayba
         call(f,0x0021B9A0u,1,0,0,2,0,0);break;
     case EM_CINEMATIC_CAMERA_FLAG_OFF:
         call(f,0x001D2830u,2,2,0,0,0,0);break;
+    default:
+        /* The post-sample core emits only the four above; the cue and the
+         * event tracks are this module's own (events() below). */
+        if(!f->fault)f->fault=0x0022EEF0u;break;
     }
     return f->fault ? 0 : 1;
 }

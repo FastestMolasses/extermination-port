@@ -2,8 +2,9 @@
 
 Level 2 (AREA01) side track, lane A01ROOM, 2026-09-28 (session s88). New files only:
 `src/game/em_area01_room.{c,h}` (prefix `em_area01_room_`) and
-`tools/test_area01_room_reference.py`. The module is built and tested but not wired;
-nothing in the port calls it yet (section 6).
+`tools/test_area01_room_reference.py`. The module is built and tested; one routine is
+wired: 00198D90 is the first level's camera action 10 since chain step CAMERAS' second
+fix round (2026-10-03; section 6). The other six are not called yet.
 
 ## 1. Scope
 
@@ -410,16 +411,20 @@ EM_AREA01_ROOM_EXISTING=0 python3 tools/test_area01_room_reference.py   # sectio
 
 ## 6. Binding
 
-None of the seven is bound. What binding each needs (named here, not done):
+00198D90 is bound (below); the other six are not. What binding each needs:
 
 - **00188610** replaces the stub `x_00188610` of `em_player_closure_live.c` (the
   `clip_88610` worker of `em_player_closure_10_12_19.c`, called by 0016DE40): the byte
   +0x235 of the live record and the two halfwords D_002754D8 (boot data, from the ELF).
   0016EF50 and 002236F0 also call it.
-- **00198D90** binds `w_00198D90` of `em_camera_leftovers.c` (0018BC20 action 10). Its
-  callees: the SDK leaves (`em_sdk_math_original.c` and the port's copies), 0018C4B0 /
-  0018C6A0 (the camera approach routines; bind to whatever translation the camera lane
-  uses), and the scratchpad 0x70003400..0x7000360F.
+- **00198D90** is bound to `w_00198D90` of `em_camera_leftovers.c` (0018BC20 action 10)
+  by `em_camera_live.c`'s `room_run` since chain step CAMERAS' second fix round
+  (2026-10-03; CAMERA_LIVE.md section 6): regions over the live camera block, pool,
+  a copy of the player view and the scratchpad 0x70003400 / 0x70003600; its callees go
+  through the aim camera's callee binding (the SDK leaves, 0018C4B0 / 0018C6A0). It is
+  the first level's one owner of 00198D90: a change here changes AREA11's camera, so
+  re-run `make test-area01-room-reference` (section A, in the default test set) and
+  `make test-camera-interaction-fixture`.
 - **001BB400** is the script command 0x51 of the table 0x24D880; binding means the
   script host's command table (AREA_SCRIPT.md) calling it with the actor, and replacing the
   frame-count stand-in of `em_door.c` (section 7).

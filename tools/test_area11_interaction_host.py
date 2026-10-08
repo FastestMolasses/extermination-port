@@ -12,9 +12,10 @@ MODULES = (
     # The live camera (census L13..L16): the panel script's retarget and the
     # commit run on it (docs/CAMERA_LIVE.md).
     'em_camera_live em_camera_commit_original em_camera_follow_original em_camera_area11_specials '
-    # The aim camera (camera actions 1 / 2 / 5, docs/CAMERA_LIVE.md section 7)
+    # The aim camera (camera actions 1 / 2 / 5, docs/CAMERA_LIVE.md section 7;
+    # actions 9 / 10 / 11 / 14, section 6)
     # and the translations it calls.
-    'em_camera_aim em_aim_fire_sdk_memory em_area22_port '
+    'em_camera_aim em_aim_fire_sdk_memory em_area22_port em_area00_low em_area01_room '
     'em_camera_leftovers em_camera_leftovers_solver em_census_standins em_render_verify_rest '
     'em_script_host_workers em_script_door_fan em_director_original em_player_closure_10_12_19 '
     'em_collision em_panel_runtime em_panel_program em_panel em_message_live em_message_service '

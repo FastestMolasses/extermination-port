@@ -542,7 +542,7 @@ that are not bound are bound to a fault.
 | 001C1DC0 (the eight registrations, 001C1E70 -> 001D52E0, 001C1E80 -> 001D8FD0, 001C1E90, 001C1EA0, 001C1F50) | 0x1AE040 states 0 and 4 (w_001C1DC0) | the weather spawn alone (UM_001C1DC0, kept for a scene without the render context) |
 | 001C1D00 (001E0CF0 -> 001E1E60, 001D5370 and the static-object builders; em_swc_001C1D00) | both world variants, after 001D1C50 (w_001C1D00) | em_render_001C1D00 (an empty step), which stays for a scene without the render context; its channel-0 run is drawn from its packets (STATIC_WORLD.md 7) |
 | 001E0CC0 | the status close (w_001E0CC0) | UM_001E0CC0 |
-| 001D25F0, 001D2610 (001D2590, 0021B970) | the interaction host's ZOOM_DEFAULT, SCOPE_ZOOM_ZERO and CONFIGURE, the script host's op workers and Roger's timeline (0022EEF0) zoom, the opening runtime's zoom stores | `g.cam.zoom` (removed), `em_camera_scope_zoom` (removed), the hard-coded 0x43F02F4F |
+| 001D25F0, 001D2610 (001D2590, 0021B970) | the interaction host's ZOOM_DEFAULT, SCOPE_ZOOM_ZERO and CONFIGURE, the script host's op workers and the timeline 0022EEF0's zoom (Roger's and, since chain step CAMERAS, the opening's) | `g.cam.zoom` (removed), `em_camera_scope_zoom` (removed), the hard-coded 0x43F02F4F |
 | 001DD950 | 001DD980's tail (the camera's 0018BC20 action 8 and 001B0460, the interaction host's and the script host's publications) | the EmInteractionProjection record in em_camera_live (removed) and its host-double quotient |
 | 0021B9A0 (0, 0, 0), 001D2830 (2, 0) | the script host's workers and the timeline's restores | the reported UM_0021B9A0 / UM_001D2830 of the script host |
 | the boot stores 001D25F0(480.0) and 001DEDE0 | em_rcl_init | nothing |

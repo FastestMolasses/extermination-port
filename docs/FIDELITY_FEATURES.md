@@ -158,7 +158,11 @@ verified translation.
   three DAMAGE side runs: live 884 of 922 (112,833 of 115,339 instructions
   = 97.8%), verified but unbound 27, unverified 2, missing 9 (the title's
   load screen, which no port path reaches yet), boundary 432; the route's
-  own 739 of 766 live (88,122 of 89,400 = 98.6%).
+  own 739 of 766 live (88,122 of 89,400 = 98.6%). Update 1.61 (chain step
+  CAMERAS, recounted from the rows after its merge onto 1.57..1.60,
+  2026-10-08): the timelines' start clock 0021BAB0 live: live 918 of 956
+  (118,433 of 120,964 instructions = 97.9%), verified but unbound 26; the
+  route's own through beat 15 740 of 766 live (88,125 of 89,400 = 98.6%).
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
@@ -312,9 +316,7 @@ found and deleted.
   mutations failing each owner's test); census 1.31 (three legacy door
   stand-ins retired).
 - Status: **PARTIAL**. The rule is enforced, but stand-ins remain on the
-  live route (census 2.3: the examine camera,
-  the opening's camera timeline, and the
-  panel/terminal/item takeovers). Some duplicate translations remain
+  live route (census 2.3: the panel/terminal/item takeovers). Some duplicate translations remain
   (`EE_FLOAT_MODEL.md` 5c). Since chain C8b no status page the first level
   reaches stops the game: DATABASE, SPR4, MAP and the non-battery takes run
   their original pages (`STATUS_PAGES.md` section 7); the fail-stops left
@@ -571,12 +573,19 @@ skeletons equal the original's bit for bit.
   addresses) and `check_rand_order` (every call equal up to the actors'
   spawn); `compare_frame_order` cut02 and st03 event for event with the
   records in the walk.
-- Status: **PARTIAL**. The camera timeline of the opening (scene 0x22) is
-  still the opening lane's stand-in (census L33): its timeline words are the
-  original's, its eye / target sampling and fade-event cursor are not. At
-  host speed (the policy) the stream request's wait is shorter, so the
-  actors spawn and the opening ends 21 frames earlier than in the
-  recording. Pixels compared only by eye. Metal only.
+- The opening's camera (since chain step CAMERAS, 2026-10-02): its
+  timeline is the original 0022EC30 / 0022EEF0, the same code as Roger's
+  encounter, with the opening's event table (the fade-out at its end) and
+  its rumble cue. The level smoke's `check_opening_timeline` finds every
+  compared tick of the timeline (1,289 of 1,293; 4 cursors were not
+  sampled) equal to the original's camera block of the same cursor, byte
+  for byte, with the screen fade's state; `make
+  test-cinematic-playback-reference` runs the original instructions.
+- Status: **PARTIAL**. At host speed (the policy) the stream request's wait
+  is shorter, so the actors spawn, the screen fades in and the first line
+  shows, and the opening ends, 21 frames earlier than in the recording (11
+  with the PS2 disc-drive timing switch, whose drive model leaves out the
+  opening music's extra seek from the intro movie's disc position). Pixels compared only by eye. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
 
@@ -1006,14 +1015,22 @@ original's one-frame view lag is kept.
   area-load seat byte for byte; refusal (02), elevator (04), Roger (14) and
   the door (09) row for row; the panel exact from f679; the truck preview
   converges to 1e-5. Commits 53b4378, cfc6372, c7a04a4.
-- Status: **PARTIAL**. The opening's camera timeline is still a stand-in
-  for its eye / target sampling and event cursor (census L33; its timeline
-  words are the original's, and the hand-off settle at first control
-  equals the capture byte for byte in the level smoke's first_control
-  check). The examine shot is a stand-in (the aim camera is the original's
-  since 2026-10-01 / 02: "Aiming, firing, the gun lamp and the knife on the
-  original code"). The slide entry is 0.863 units off
-  (relaxation pending review).
+- Since chain step CAMERAS (2026-10-02) the opening's camera timeline is
+  the original's too (0022EC30 / 0022EEF0, equal to the original's camera
+  block on every sampled frame of the opening, and the hand-off to first
+  control on all 64 sampled frames), and nothing stands in for the camera
+  (the examine shots are their scripts' original camera ops; the aim
+  camera is the original's since 2026-10-01 / 02: "Aiming, firing, the gun
+  lamp and the knife on the original code").
+- Camera actions 9, 10, 11 and 14 (the player codes 0x10 / 0x11 / 0x12 /
+  0x28: the router sets 9, 11 and 14, the actions hand on 9 -> 10 -> 11
+  -> 0 and 14 -> 0) are the original's since the CAMERAS fix rounds
+  (2026-10-02 / 03): instruction oracles over recorded RAM and the live
+  dispatch equal to the original 0018BC20 on captured AREA11 scenes, one
+  frame and the hand-offs frame by frame; no AREA11 recording reaches
+  them, so no capture shows them in play (CAMERA_LIVE.md section 6).
+- Status: **PARTIAL**. The slide entry is 0.863 units off (relaxation
+  pending review).
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
 
@@ -1550,10 +1567,10 @@ units per second.
   tables. 0015BCF0 is live only in part. The three functions without a
   verified live translation include 001FC280's body. "No stand-in rows"
   does not mean no stand-in code runs. Census 2.3 still lists stand-in
-  behaviour on the route: the camera stand-in that pre-empts the examine
-  action, the chain page's four-sprite pass, the opening's
-  camera timeline (census L33), and the interaction runtime's acquire and
-  per-stage tick for the panel, terminal and item takeovers. Census section
+  behaviour on the route: the chain page's four-sprite pass and the
+  interaction runtime's acquire and per-stage tick for the panel, terminal
+  and item takeovers (the examine camera and the opening's camera timeline
+  are original since chain step CAMERAS). Census section
   6 notes that oracle strength varies (the fade oracle compares against
   compiled decomp C, and the spawn helpers are checked only for spawn set
   and order).
@@ -1708,9 +1725,7 @@ equipment are drawn from the same skeleton the PS2 computes.
   `em_pose_chain`, a verified translation that is not bound. It is not
   evidence for the live path. Since chain C8b's OPENING step the opening's
   player draws its original unit too, its node matrices equal the opening
-  capture's bit for bit (`check_opening_actors`). A port
-  stand-in's frames (for example the camera's examine stand-in) keep the
-  legacy baked display. The player's face attachment slot waits on
+  capture's bit for bit (`check_opening_actors`). The player's face attachment slot waits on
   the attachment draw 001CB3C0, which is still missing. The whole lighting
   rows are compared over the port's own point-light sway (the light-rig
   entry).
@@ -2179,8 +2194,7 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
   is measured but not wired); the draws of the disclosure entry above are
   not yet the original's;
 - logic still on stand-ins on the route: the panel's, the terminal's and the
-  items' takeovers, the opening's camera timeline sampling, the examine
-  camera shot (census 2.3);
+  items' takeovers (census 2.3);
 - platforms: Windows and Linux have no renderer yet.
 
 ---
@@ -2201,4 +2215,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-02 (chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-08 (the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

@@ -2,8 +2,9 @@
 """Original-instruction oracle for the aim camera (src/game/em_camera_aim.c,
 docs/CAMERA_LIVE.md section 7).
 
-The eleven translated routines (camera actions 1 / 2 / 5 and what they own)
-execute from captured AREA11 RAM (the route snapshots 00..14 and the C10
+The fourteen translated routines (camera actions 1 / 2 / 5 and what they
+own, camera action 14 00198AF0 with its follow 00198930, and action 11's
+raised target 00191530) execute from captured AREA11 RAM (the route snapshots 00..14 and the C10
 aim beats' end snapshots): the original on one image, the native module over
 a second copy through its map / call / store host. Compared: every direct
 store in order (address, size, bytes, same-value stores included), every
@@ -44,7 +45,7 @@ AIM = DECOMP / 'build/aimfire/capture'
 # The translated routines and their sizes (bytes of instructions).
 FUNCS = {0x197D20: 0x324, 0x198650: 0x2D4, 0x18CA90: 0x140, 0x197740: 0x130, 0x197870: 0x4A4,
          0x198050: 0x1EC, 0x198440: 0x204, 0x198240: 0x200, 0x1912B0: 0xA0, 0x1999C0: 0x290,
-         0x1DB800: 0x24}
+         0x1DB800: 0x24, 0x198AF0: 0x1F0, 0x198930: 0x1B8, 0x191530: 0x50}
 # Every other jal target: (integer argument registers, float argument registers).
 SIG = {0x102948: (2, 0), 0x1029C0: (1, 0), 0x102C58: (3, 0), 0x1031E0: (2, 0), 0x1026A0: (3, 0),
        0x1028D0: (3, 0), 0x1028B8: (3, 0), 0x1028E8: (4, 0), 0x103230: (2, 1), 0x102738: (2, 0),
@@ -92,7 +93,9 @@ ENTRIES = {0x197D20: ('00197D20', ('cam', 'pl'), False), 0x198650: ('00198650', 
            0x197870: ('00197870', ('cam', 'pl', 'a2'), False),
            0x198050: ('00198050', ('cam', 'pl'), True), 0x198440: ('00198440', ('cam', 'pl', 'a2'), False),
            0x198240: ('00198240', ('pl', 'gun'), True), 0x1912B0: ('001912B0', ('pl',), False),
-           0x1999C0: ('001999C0', ('pl', 'a1'), True), 0x1DB800: ('001DB800', (), False)}
+           0x1999C0: ('001999C0', ('pl', 'a1'), True), 0x1DB800: ('001DB800', (), False),
+           0x198AF0: ('00198AF0', ('cam', 'pl'), False), 0x198930: ('00198930', ('cam', 'pl'), True),
+           0x191530: ('00191530', ('cam', 'pl'), False)}
 
 
 def build(source=None):
@@ -476,13 +479,30 @@ def cases():
                     poke = [(0x8106C6, 1, c6)]
                     out.append({'fn': 0x198440, 'image': image, 'poke': poke, 'a2': a2, 'dot': dot,
                                 'hit': 1, 'name': f'dot {dot} {c6} {a2}'})
+    # camera action 14 (00198AF0, player code 0x28) and its follow 00198930,
+    # action 11's raised target 00191530: every sub-state, the code 0x28 or
+    # not, +1F1 0 / 1 / 2, camera mode +5 0 / 1 (the whole grid on one image,
+    # kept in quick mode; on every other image a sample)
+    for image in imgs:
+        tag = 'grid' if image == grid_image else 'a14'
+        for state in range(5):
+            for code in (0x28, 0x12):
+                for sub in (0, 1, 2):
+                    for mode in (0, 1):
+                        poke = [(CAM + 1, 1, state), (CAM + 5, 1, mode), (PLAYER + 0x230, 4, code),
+                                (PLAYER + 0x1F1, 1, sub)]
+                        out.append({'fn': 0x198AF0, 'image': image, 'poke': poke,
+                                    'name': f'{tag} 198AF0 {state} {code:#x} {sub} {mode} {Path(image).name}'})
+        for fn in (0x198930, 0x191530):
+            out.append({'fn': fn, 'image': image, 'poke': [], 'name': f'{tag} {fn:06X} {Path(image).name}'})
     # world cases: every callee original, on every image, the roots in their
     # AREA11 states (D_00810CA4..CA7 as captured)
     for image in imgs:
         for fn, state, code in ((0x197D20, 0, 0xD), (0x197D20, 1, 0xD), (0x197D20, 2, 0xD), (0x197D20, 2, 0xC),
                                 (0x197D20, 4, 0xD), (0x197D20, 3, 0xD), (0x198650, 0, 0xC), (0x198650, 1, 0xC),
                                 (0x198650, 2, 0xC), (0x198650, 2, 0xD), (0x198650, 2, 1), (0x198650, 3, 0xC),
-                                (0x18CA90, 0, 1)):
+                                (0x18CA90, 0, 1), (0x198AF0, 0, 0x28), (0x198AF0, 1, 0x28),
+                                (0x198AF0, 3, 0x28)):
             poke = [(CAM + 1, 1, state), (CAM + 5, 1, 0), (PLAYER + 0x230, 4, code), (PLAYER + 0x1F1, 1, 1)]
             out.append({'fn': fn, 'image': image, 'world': 1, 'poke': poke,
                         'name': f'world {fn:06X} {state} {code:#x} {Path(image).name}'})
@@ -536,13 +556,15 @@ def main():
     # fault cuts: every callee of a few cases fails in turn
     fault_cases = []
     for c, row in zip(selected, rows):
-        if c.get('world') and 'aim_00' in c['image'] and c['fn'] in (0x197D20, 0x198650):
+        if c.get('world') and 'aim_00' in c['image'] and c['fn'] in (0x197D20, 0x198650, 0x198AF0):
             fault_cases.extend(dict(c, failat=k) for k in range(1, row[2] + 1))
     fault_rows = RM.parallel_map(run_case, fault_cases)
     refusals = 0
     for fn, (name, args, has_result) in ENTRIES.items():
         for absent in ('map', 'call', 'latched'):
-            case = finish({'fn': fn, 'image': imgs[0], 'poke': [(CAM + 1, 1, 0)], 'name': 'refusal'})
+            # 00198AF0 reaches its callees only with the player code 0x28
+            poke = [(CAM + 1, 1, 0)] + ([(PLAYER + 0x230, 4, 0x28)] if fn == 0x198AF0 else [])
+            case = finish({'fn': fn, 'image': imgs[0], 'poke': poke, 'name': 'refusal'})
             e = prepare(case)
             backing = (C.c_uint8 * len(e.mem)).from_buffer(e.mem)
 

@@ -62,9 +62,6 @@ typedef struct EmCameraLiveHost {
     const uint16_t *(*pad_config)(void *context);
     /* The scratchpad word 0x700031F0 (its low byte is read). */
     const int32_t *carry31F0;
-    /* Camera action 0's legacy pre-emption (em_camera.h
-     * camera_area11_standins over the g.cam view): CAMERA_STANDIN_*. */
-    int (*standins)(void *context);
     /* 0022EEF0(cam, 1), the scripted timeline of +4 == 3, over the g.cam
      * view. 0, or -1 on a fault. */
     int (*timeline)(void *context);
@@ -100,6 +97,12 @@ int em_camera_live_bound(void);
 /* 0018B9C0(D_008101E0): the camera frame at its scene worker position. 0,
  * or -1 with the scene fault latched. */
 int em_camera_live_frame(void);
+
+/* 0018BC20(D_008101E0, D_008102B0): the action dispatch alone (the frame
+ * runs it inside 0018B9C0; tests/camera_interaction_fixture.c calls it
+ * directly to check the action bindings against the original). 0, or -1
+ * with the scene fault latched. */
+int em_camera_live_dispatch(void);
 
 /* 0018C0D0(D_008101E0, mode) over the canonical storage, then the port's
  * view matrix (em_cs_view_to_native) and projection (g.viewproj from the

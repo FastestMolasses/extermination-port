@@ -114,7 +114,8 @@ way and checks both against their captures. The side run
 The default run checks `first_control`, `status` and `battery` against
 their captures, and runs the whole-run checks (render context, indicator
 children, player draw gate, rand order, sway, marker colour, head sprites,
-shadow, chain page, load veil, face attachments, the opening's actors; and
+shadow, chain page, load veil, face attachments, the opening's actors and
+its camera timeline; and
 the stream-drive report) over its ticks. Every
 later phase, both side runs and the whole route's `--require-through last`
 run only under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); run it
@@ -346,13 +347,13 @@ the D_00810750 value the run prints.
     releases the player, CAMERA_LIVE.md section 5);
   - `postcinema_samples.jsonl` (save state 03 on): the mode-8 settle
     (001914A0) clears the action +6 on the port's first-control tick as on
-    frame 4027; the 24 frames before it equal byte for byte (the opening
-    timeline words +0x6C..+0x7B and the ceiling excepted), and the 40
-    sampled frames before those differ only in the eye / target heights
-    and the forward +0xB0 that the settle is still chasing, with the eye
-    height difference never growing. A frame's last sample may predate its
-    camera stage, so it must equal the port's block at the end of that
-    frame or of the one before.
+    frame 4027, and every sampled frame from the hand-off (3964) to it, 64
+    frames, equals byte for byte (since chain step CAMERAS; before, the 40
+    earliest were compared without the eye / target heights and the
+    forward). A frame's last sample may predate its camera stage, so it
+    must equal the port's block at the end of that frame or of the one
+    before. The opening's timeline itself is `check_opening_timeline`
+    ("The opening's actors").
 
 ### status
 
@@ -2325,6 +2326,28 @@ in the frames after, and the last is before first control.
 Measured (2026-09-28): aligned at port tick 295 (cursor 135 of 646); the
 records 0x7A96E0 (21 nodes), 0x7AE920 (1 node) and the player (21 nodes)
 equal; the body drew on 1,293 ticks.
+
+`check_opening_timeline` (chain step CAMERAS, 2026-10-02; the scene-0x22
+timeline is the original 0022EC30 / 0022EEF0, CAMERA_LIVE.md section 5):
+- at the same tick the whole camera block (0xD0 bytes: the cursor, the
+  event cursors +0x7C / +0x80 / +0x84 and their states +0x88..+0x8A
+  included), the eye / target / up quads D_008105D0..FF (the tick log's
+  `camblk` carries them since this step) and the render context's zoom
+  +0x2468 (`rctx`) equal the capture's;
+- every tick on top mode 3, from the timeline's first frame to the
+  tear-down, holds the original's camera block of the same cursor byte for
+  byte, from the decomp's per-frame samples of the New Game
+  (`newgame_samples.jsonl`, the timeline's start) and of the opening
+  (`cinematic_samples.jsonl`, cursor 135 to the end); at most 8 cursors may
+  lack a sample, none may differ;
+- after every compared tick whose block is a frame's last sample, the
+  transition record (the next tick's `fade8`) equals the frame's, and the
+  first fading-out record follows the cursor-634 frame (the +0x80 table's
+  001AEDE0(16, 0)).
+
+Measured (2026-10-02): aligned at port tick 358; 1,293 ticks on the
+timeline (port ticks 89..1381), 1,289 compared, 4 cursors not sampled, all
+equal; 1,286 transition records equal; the fade-out from cursor 634.5.
 
 ### The chain page (`check_chain_page`, WP-13; tools/level_smoke_chain_page.py)
 

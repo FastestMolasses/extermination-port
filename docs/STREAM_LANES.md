@@ -333,7 +333,7 @@ lanes' entry points:
   001FABB0), the interaction host (the status frame's events, the aborted cinematic's 001FAE70(0)) and the message
   service (001FD470, 001FA790, **001FA5A0** `voice_push` on the ring `D_00281CF0` / `D_00275B30`, **001FAAC0** on
   lanes 1 and 2, and the busy bytes `D_00282155/156` read before every tick).
-- **Deleted stand-ins:** em_opening_media's lane-0 stream (the module keeps only its fade track), em_bgm's tracks
+- **Deleted stand-ins:** em_opening_media's lane-0 stream (the module, which then kept only its fade track, was deleted in chain step CAMERAS: the fade is the original 0022EEF0's +0x80 track), em_bgm's tracks
   (`em_bgm_play*`, `em_bgm_stop`, `em_bgm_service`, the lane-service hook, the `EM_BGM` override: em_bgm is the
   device and the mixer), the scene bindings' `stream_release_all`, the reported `w_00119828`, `UM_00119828`,
   `UM_001FA790`, `UM_001FAB50`, `UM_001FAD70`.

@@ -1,6 +1,7 @@
 /* em_camera_aim.h - the aim camera: camera actions 1, 2 and 5 of the
  * action dispatch 0018BC20 and the routines they own (docs/CAMERA_LIVE.md
- * section 7, docs/AIM_FIRE.md).
+ * section 7, docs/AIM_FIRE.md), and camera action 14 with its follow and
+ * action 11's raised target (section 6), which address memory the same way.
  *
  * Translated here, read from the original instructions (the decomp's C is
  * byte-matched for 00197740, 00198240, 001912B0 and 001DB800 and NEARMISS
@@ -20,6 +21,15 @@
  *   001912B0  the area-0x10 floor lift (a no-op in every other area)
  *   001999C0  the sight-system switch (by D_00810CA4, then D_00810CA7)
  *   001DB800  the sight bytes D_0081C040..43 cleared
+ *   00198AF0  camera action 14 (player code 0x28): the follow, then the
+ *             seat behind the player and the hand-back to action 0
+ *   00198930  action 14's follow (eye behind +C4, target along 0x70003B50)
+ *   00191530  action 11's raised target (+A0 + 17); action 11 itself
+ *             (00198F10) and action 9 (00198CE0) are em_area00_low's
+ *
+ * 00198930 and 00191530 are byte-matched C in the decomp; 00198AF0 is
+ * NEARMISS and read from the instructions (its sub-state 2 differs from
+ * the NEARMISS C: see the translation).
  *
  * Calls between these are direct. Every other callee (the SDK leaves, the
  * camera solve 0018D7B0, the chases 0018C4B0 / 0018C6A0 / 0018C850 /
@@ -66,6 +76,9 @@ int em_cam_aim_00198240(EmCamAim *h, uint32_t player, uint32_t gun, int32_t *res
 int em_cam_aim_001912B0(EmCamAim *h, uint32_t player);
 int em_cam_aim_001999C0(EmCamAim *h, uint32_t player, int32_t a1, int32_t *result);
 int em_cam_aim_001DB800(EmCamAim *h);
+int em_cam_aim_00198AF0(EmCamAim *h, uint32_t cam, uint32_t player);
+int em_cam_aim_00198930(EmCamAim *h, uint32_t cam, uint32_t player, int32_t *result);
+int em_cam_aim_00191530(EmCamAim *h, uint32_t cam, uint32_t player);
 
 #ifdef __cplusplus
 }

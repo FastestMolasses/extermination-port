@@ -345,7 +345,9 @@ worker ABI to this module's region model, as EXITA's):
   workers. `em_enemy.c` describes several of them (0012D580, 00129FC0, 001B5360, 00128830) in
   comments of an unverified legacy model; it translates none.
 - **Camera.** `em_camera_leftovers.c`'s 0018BC20 dispatch has the worker slots `w_00198CE0` and
-  `w_00198F10`; these translations can back them. 00193D90 is already `em_camleft_00193D90`.
+  `w_00198F10`; since the CAMERAS fix round (2026-10-02) these translations back them on the
+  first level (camera actions 9 / 11, em_camera_live.c's `low_run`; CAMERA_LIVE.md section 6):
+  a change to them is a change to AREA11's camera. 00193D90 is already `em_camleft_00193D90`.
 - **Scene.** `em_scene_frame.c` calls `w_001FF030` in 0x1AE040 state 6; this is it.
 - **Sounds.** `em_crate_original.h` / `em_drum_original.h` take 001FC580 as their `sound`
   worker and `em_area11_boxes.c` leaves it unbound (fail-stop); this is the translation for it.

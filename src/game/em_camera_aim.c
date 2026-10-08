@@ -45,6 +45,8 @@
 #define F_1E6    UINT32_C(0x49742400)
 #define F_1E7    UINT32_C(0x4B189680)
 #define F_M2     UINT32_C(0xC0000000)
+#define F_M6     UINT32_C(0xC0C00000)
+#define F_M15    UINT32_C(0xC1700000)
 #define F_M22    UINT32_C(0xC1B00000)
 #define F_M25    UINT32_C(0xC1C80000)
 #define F_M30    UINT32_C(0xC1F00000)
@@ -736,6 +738,109 @@ static void action5_8CA90(Run *r, uint32_t sp, uint32_t cam, uint32_t pl)
 }
 
 /* ======================================================================
+ * Camera action 14 (player code 0x28 through the event router 00193EB0)
+ * and action 11's raised target 00191530 (docs/CAMERA_LIVE.md section 6;
+ * actions 9 and 11 themselves are em_area00_low's 00198CE0 / 00198F10)
+ * ====================================================================== */
+
+/* 00198930: action 14's eye 6 behind the player's heading +C4 and 6 above
+ * +B4, its target 20 ahead along the published rotation 0x70003B50; both
+ * eased into D_008105D0 / D_008105E0 at 0.02. Returns the four eases' bits
+ * (the caller ignores them). */
+static uint32_t follow_98930(Run *r, uint32_t sp, uint32_t cam, uint32_t pl)
+{
+    sp -= 0x40;
+    uint32_t res = 0;
+    c2(r, sp, FN_COPY, cam + 0x30, S_3B50);                                /* 00198958 */
+    c1(r, sp, FN_IDENTITY, S_3400);                                        /* 00198964 */
+    c3(r, sp, FN_EULER, S_3400, S_3400, cam + 0x30);                       /* 0019897C */
+    uint32_t s = f1v(r, sp, FN_SIN, w32(r, pl + 0xC4));                    /* 00198984 */
+    st32(r, cam + 0x10, ADD(w32(r, pl + 0xA0), MUL(F_M6, s)));             /* 001989A4 */
+    st32(r, cam + 0x14, ADD(F_6, w32(r, pl + 0xB4)));                      /* 001989B8 */
+    uint32_t c = f1v(r, sp, FN_COS, w32(r, pl + 0xC4));                    /* 001989BC */
+    st32(r, cam + 0x18, ADD(w32(r, pl + 0xA8), MUL(F_M6, c)));             /* 001989E4 */
+    res |= y_ease(r, sp, FN_Y_EASE, EYE, w32(r, cam + 0x14), F_0_02);      /* 001989F0 */
+    res |= xz_ease(r, sp, FN_XZ_EASE, cam + 0x10, EYE, F_0_02);            /* 00198A10 */
+    st32(r, S_3600, 0);                                                    /* 00198A1C */
+    st32(r, S_3600 + 4, 0);
+    st32(r, S_3600 + 8, F_20);
+    res <<= 4;
+    st32(r, S_3600 + 0xC, 0);
+    c3(r, sp, FN_APPLY, cam + 0x20, S_3400, S_3600);                       /* 00198A54 */
+    st32(r, cam + 0x20, ADD(w32(r, cam + 0x20), w32(r, cam + 0x10)));      /* 00198A78 */
+    st32(r, cam + 0x24, ADD(w32(r, cam + 0x24), w32(r, cam + 0x14)));
+    st32(r, cam + 0x28, ADD(w32(r, cam + 0x28), w32(r, cam + 0x18)));
+    res |= y_ease(r, sp, FN_Y_EASE, TGT, w32(r, cam + 0x24), F_0_02);      /* 00198AA0 */
+    res |= xz_ease(r, sp, FN_XZ_EASE, cam + 0x20, TGT, F_0_02);            /* 00198AC0 */
+    return res;
+}
+
+/* 00198AF0: camera action 14. Sub-states (+1) 0 / 1 follow while the
+ * player code is 0x28 and advance on +1F1 == 1; 2 waits; 3 seats the camera
+ * behind the player and hands back to action 0. */
+static void action14_98AF0(Run *r, uint32_t sp, uint32_t cam, uint32_t pl)
+{
+    sp -= 0x30;
+    uint32_t st = u8(r, cam + 1);                                          /* 00198B04 */
+    if (failed(r)) return;
+    switch (st) {
+    case 0:
+        st8(r, cam + 1, st + 1);                                           /* 00198B40 */
+        st8(r, cam + 2, 0);
+        /* fall through */
+    case 1:
+        if (w32(r, pl + 0x230) != 0x28) {                                  /* 00198B48 */
+            st8(r, cam + 1, 3);                                            /* 00198B60 */
+            return;
+        }
+        (void)follow_98930(r, sp, cam, pl);                                /* 00198B68 */
+        if (u8(r, pl + 0x1F1) == 1) st8(r, cam + 1, u8(r, cam + 1) + 1);   /* 00198B70..8C */
+        return;
+    case 2:
+        /* +1 = 3 when the code is not 0x28 or +1F1 is 2 (the instructions;
+         * the decomp's NEARMISS C reads an `and` here). */
+        if (w32(r, pl + 0x230) != 0x28 || u8(r, pl + 0x1F1) == 2)          /* 00198B90..A4 */
+            st8(r, cam + 1, 3);                                            /* 00198BB4 */
+        return;
+    case 3:
+        c2(r, sp, FN_COPY, cam + 0x30, S_3B50);                            /* 00198BC0 */
+        c2(r, sp, FN_COPY, cam + 0x20, pl + 0xA0);                         /* 00198BCC */
+        st32(r, cam + 0x24, ADD(w32(r, pl + 0xB4), w32(r, cam + 0x8C)));   /* 00198BEC */
+        c1(r, sp, FN_IDENTITY, S_3400);                                    /* 00198BE8 */
+        c3(r, sp, FN_EULER, S_3400, S_3400, cam + 0x30);                   /* 00198C00 */
+        st32(r, S_3600, 0);                                                /* 00198C0C */
+        st32(r, S_3600 + 4, 0);
+        st32(r, S_3600 + 8, F_M15);
+        st32(r, S_3600 + 0xC, F_1);
+        c3(r, sp, FN_APPLY, cam + 0x10, S_3400, S_3600);                   /* 00198C40 */
+        st32(r, cam + 0x10, ADD(w32(r, cam + 0x10), w32(r, cam + 0x20)));  /* 00198C60 */
+        st32(r, cam + 0x14, ADD(w32(r, cam + 0x14), ADD(w32(r, cam + 0x24), w32(r, cam + 0x5C))));
+        st32(r, cam + 0x18, ADD(w32(r, cam + 0x18), w32(r, cam + 0x28)));  /* 00198C8C */
+        c2(r, sp, FN_COPY, TGT, cam + 0x20);                               /* 00198C88 */
+        c2(r, sp, FN_COPY, EYE, cam + 0x10);                               /* 00198C98 */
+        st8(r, cam + 6, 0);                                                /* 00198CA0 */
+        if (u8(r, cam + 5) == 0) st8(r, cam + 1, 3);                       /* 00198CA4..B8 */
+        else st8(r, cam + 1, 0);
+        st8(r, cam + 2, 0);                                                /* 00198CBC */
+        st8(r, cam + 3, 0);
+        st16(r, cam + 8, 0);
+        return;
+    default:
+        return;
+    }
+}
+
+/* 00191530: the target at the player's +A0 raised by 17, copied to
+ * D_008105E0. */
+static void raise_91530(Run *r, uint32_t sp, uint32_t cam, uint32_t pl)
+{
+    sp -= 0x20;
+    c2(r, sp, FN_COPY, cam + 0x20, pl + 0xA0);                             /* 00191544 */
+    st32(r, cam + 0x24, ADD(w32(r, cam + 0x24), F_17));                    /* 0019156C */
+    c2(r, sp, FN_COPY, TGT, cam + 0x20);                                   /* 00191568 */
+}
+
+/* ======================================================================
  * Entries
  * ====================================================================== */
 
@@ -822,5 +927,29 @@ int em_cam_aim_001DB800(EmCamAim *h)
 {
     BEGIN(0x001DB800u);
     db800(r);
+    END();
+}
+
+int em_cam_aim_00198AF0(EmCamAim *h, uint32_t cam, uint32_t player)
+{
+    BEGIN(0x00198AF0u);
+    action14_98AF0(r, h->sp, cam, player);
+    END();
+}
+
+int em_cam_aim_00198930(EmCamAim *h, uint32_t cam, uint32_t player, int32_t *result)
+{
+    BEGIN(0x00198930u);
+    if (!result) { fault(r, 1, 0x00198930u); return -1; }
+    uint32_t v = follow_98930(r, h->sp, cam, player);
+    if (failed(r)) return -1;
+    *result = (int32_t)v;
+    return 0;
+}
+
+int em_cam_aim_00191530(EmCamAim *h, uint32_t cam, uint32_t player)
+{
+    BEGIN(0x00191530u);
+    raise_91530(r, h->sp, cam, player);
     END();
 }

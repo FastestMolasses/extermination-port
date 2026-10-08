@@ -53,12 +53,11 @@ static const EmPlayerLiveActor *camera_player(void *ctx) { (void)ctx; return &pl
 /* The live record D_008102B0 (em_player.c in the game): the face slot's
  * +0x90 / +0x94 (em_area11_interaction_host_player_face). */
 EmPlayerLiveActor *player_states_actor_mut(void) { return &player_record; }
-static int camera_no_standin(void *ctx) { (void)ctx; return CAMERA_STANDIN_NONE; }
 static int camera_no_timeline(void *ctx) { (void)ctx; return -1; }
 static int camera_hip(void *ctx, float out[3]) { (void)ctx; return player_pose_hip(out); }
 static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose_script_euler(out); }
 static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
-                                             camera_no_standin, camera_no_timeline,
+                                             camera_no_timeline,
                                              /* the aim camera's views: not reached here */
                                              NULL, NULL, NULL,
                                              /* the area camera worker (AREA01 only) */

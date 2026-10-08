@@ -14,7 +14,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
            src/game/em_task.c src/game/em_frame.c src/game/em_game.c src/game/em_player_frame.c src/game/em_render_frame.c src/game/em_game_selftest.c src/game/em_props.c src/game/em_scene.c src/game/em_camera.c src/game/em_player_damage.c src/game/em_player.c src/game/em_player_heading.c src/game/em_player_motor.c src/game/em_script.c src/game/em_area11_opening.c \
            src/game/em_opening_runtime.c src/game/em_cinematic_camera.c src/game/em_random.c src/game/em_opening_control_test.c src/game/em_aim_fire_test.c src/game/em_level_smoke_test.c src/game/em_new_game_switch.c \
-           src/game/em_opening_face.c src/game/em_opening_media.c src/game/em_lighting.c \
+           src/game/em_opening_face.c src/game/em_lighting.c \
            src/game/em_point_light.c \
            src/game/em_area11_effect.c src/game/em_area11_effect_runtime.c \
            src/game/em_weather.c src/game/em_snow.c src/game/em_weather_packets.c src/game/em_snow_runtime.c \
@@ -254,12 +254,6 @@ test-opening-face-reference:
 
 test-script-reference:
 	python3 tools/test_script_reference.py
-
-.PHONY: test-opening-media
-test-opening-media: tests/opening_media_test.c src/game/em_opening_media.c
-	@mkdir -p build
-	$(CC) $(CFLAGS) tests/opening_media_test.c src/game/em_opening_media.c -lm -o build/opening_media_test
-	build/opening_media_test
 
 .PHONY: test-pickup-lights
 test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_pickup.h src/game/em_effect_kinds.c
@@ -1404,8 +1398,9 @@ test-panel-program:
 
 .PHONY: test-camera-aim-reference
 # The aim camera (camera actions 1 / 2 / 5 and what they own, em_camera_aim.c)
-# against the original instructions over captured AREA11 RAM
-# (docs/CAMERA_LIVE.md section 7). EM_TEST_FULL=1 runs every case.
+# and camera action 14 (00198AF0 / 00198930) with 00191530 against the
+# original instructions over captured AREA11 RAM (docs/CAMERA_LIVE.md
+# sections 6 and 7). EM_TEST_FULL=1 runs every case.
 test-camera-aim-reference:
 	python3 tools/test_camera_aim_reference.py
 
@@ -1427,10 +1422,21 @@ test-area22-port-reference:
 .PHONY: test-area00-low-reference
 # em_area00_low.c against the original instructions over recorded AREA00
 # RAM. A later-level module, in the default set because the first level's
-# aim beam binds its 00102870 (the one owner; AIM_FIRE.md section 7).
-# About 4 s.
+# aim beam binds its 00102870 and the camera its 00198CE0 / 00198F10
+# (actions 9 / 11; the one owners; AIM_FIRE.md section 7, CAMERA_LIVE.md
+# section 6). About 4 s.
 test-area00-low-reference:
 	python3 tools/test_area00_low_reference.py
+
+.PHONY: test-area01-room-reference
+# em_area01_room.c's own translations (section A) against the original
+# instructions over recorded AREA01 RAM. A later-level module, in the
+# default set because the first level's camera binds its 00198D90 (camera
+# action 10, the one owner; CAMERA_LIVE.md section 6). Section B (the
+# AREA01 closure / world re-checks of other modules) stays outside the
+# first-level set (EM_AREA01_ROOM_EXISTING=0). About 4 s.
+test-area01-room-reference:
+	EM_AREA01_ROOM_EXISTING=0 python3 tools/test_area01_room_reference.py
 
 .PHONY: test-area11-interaction-host
 test-area11-interaction-host:
