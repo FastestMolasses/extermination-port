@@ -82,21 +82,26 @@ and completes on the next. The clip47 request uses rate1/blend1; opcodeA/sub3
 waits for the real animation end flag. The refusal waits on actual message1A.
 Its frame sub2/sub4, chase camera and message worker remain host responsibilities.
 
-`em_elevator_runtime` now connects the owner and exported program to the shared
-interaction runtime. Winning the use scan claims one stable owner and sets
-armed bit4; a competing interaction cannot replace it. Player and pooled-owner
-callbacks remain separate to preserve the original task order. Status frames
-freeze both. A failed camera/message/animation binding retains ownership and
-does not toggle the elevator or masquerade as script completion.
+`em_elevator_runtime` connects the owner and exported program to the shared
+interaction runtime's token. Winning the use scan claims one stable owner and
+sets armed bit4; a competing interaction cannot replace it. The takeover is
+the player stage's own since chain step TAKEOVERS (PLAYER_STAGE_WORKERS.md
+2.1): the program's op0A sub 0 writes the record's +1F2 = 0x47, +1F8 = 1.0,
++1F4 = 1.0, the stage's 00183090 commits it and its sub 3 waits on +200's
+end flag. Player and pooled-owner callbacks remain separate to preserve the
+original task order. Status frames freeze both. A failed camera/message/
+animation binding retains ownership and does not toggle the elevator or
+masquerade as script completion.
 
-`make test-elevator-runtime` runs the actual elevator program and player model
-under ASan/UBSan, using the verified frame/animation clocks and motion helper.
-Relative to use tick0, clip47 commits at8, reports its real end flag at209,
+`make test-elevator-runtime` runs the actual elevator program under
+ASan/UBSan with the player stage as a boundary that raises the end flag on
+the original's stage (201 after the commit: tools/clip_clock_oracle.py).
+Relative to use tick0, clip47 commits at8, reports its end flag at209,
 enters carry at210, completes the owner at363, and releases the player at364.
-Both ride directions pass;150 paused calls change no clocks. A401-poll refusal
-fixture verifies that only host message completion releases the script.
-Acquisition/release pose channels, the world camera/presenter, and the use scan
-remain explicit host boundaries; this is not yet a live scene integration.
+Both ride directions pass;150 paused calls change nothing. A401-poll refusal
+fixture verifies that only host message completion releases the script. The
+live clip timing is the stage's, compared with route 04 row for row by the
+level smoke (check_takeover_record).
 
 **Correction (WP-4, 2026-09-23).** The carry's three add.s are the EE's
 single-guard-bit add (em_pose_math.h `pose_add`, the model the fan, truck,

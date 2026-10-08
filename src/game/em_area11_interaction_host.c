@@ -57,7 +57,6 @@ static struct {
     EmItemSdkMath item_sdk;
     EmItemMath item_math;
     EmInteractionSceneOwner *panel_record, *elevator_record;
-    float local_palette[22 * 16];
     float panel_world[16];
     uint8_t panel_class, elevator_status, elevator_class;
     int loaded, failed, status_draw_context, status_ui_context;
@@ -90,9 +89,6 @@ static struct {
      * selector-0 class-5 candidate, em_door_candidate). */
     EmActor *door_actor;
     EmInteractionSceneOwner *door_record;
-    /* The token of the script owner (em_area11_script_host) the shared
-     * takeover serves, or NULL: its stages run 00183090 on the record. */
-    const void *script_owner;
     int (*map_banks)(void *ctx);
     void *map_banks_ctx;
     int shared_only;
@@ -125,40 +121,16 @@ static int fail(const char *operation)
     return -1;
 }
 
-static int acquire(void *context)
-{
-    (void)context;
-    return player_pose_acquire();
-}
-
 static int map_special(void *context, uint32_t address, uint32_t size, const uint8_t *bytes);
 
-/* The default clip of a takeover the runtime performs (the panel, the
- * terminal and the items; a script owner's takeover is the player stage's
- * own, em_interaction_runtime staged). */
-static int idle(void *context, float *palette)
+/* 001B9A00's D_008102B0: the live player record (em_player's), whose +1F2 /
+ * +1F4 / +1F8 the owners' scripts request clips through and whose +200 the
+ * stage's 001C64F0 flags (audit 1b item 8). */
+static uint8_t *player_record(void *context)
 {
     (void)context;
-    return player_pose_idle_tick(palette);
-}
-
-static int release(void *context)
-{
-    (void)context;
-    return player_pose_release();
-}
-
-static int publish(void *context, const float *palette)
-{
-    (void)context;
-    return player_pose_publish(palette);
-}
-
-static int pose(void *context, const EmInteractionAnimation *animation, int result,
-                float *palette)
-{
-    (void)context;
-    return player_pose_script_tick(animation, result, palette);
+    EmPlayerLiveActor *p = player_states_actor_mut();
+    return p ? p->bytes : NULL;
 }
 
 static uint32_t face_random(void *context)
@@ -175,22 +147,6 @@ static int map_special(void *context, uint32_t address, uint32_t size, const uin
 {
     (void)context;
     return player_pose_map_region(address, size, bytes) ? 0 : -1;
-}
-
-static int cinematic_player(void *context, float *palette)
-{
-    (void)context;
-    /* 00183090 advances the attached face (001D0C70 on the record's +0x90
-     * slot) before choosing a body request. */
-    if (em_area11_interaction_host_face_tick_001D0C70() < 0) return -1;
-    if (world.shared.animation.active) {
-        int result = em_interaction_animation_tick(&world.shared.animation, &g.model, palette);
-        if (result < 0 || !player_pose_script_tick(&world.shared.animation, result, palette)) return -1;
-        return result;
-    }
-    /* B81D0 can precede op0A/sub1's foreign-bank request. Keep the actual
-     * acquired ordinary source until that deferred request is published. */
-    return player_pose_idle_tick(palette);
 }
 
 static int frame_event(void *context, EmInteractionFrameEvent event)
@@ -868,23 +824,20 @@ static int shared_banks(void)
 }
 
 /* The canonical Use adapter already armed the winning record. Publish the
- * same claim through the existing frame/token owner, and let the ordinary
- * player stage run the takeover for its shared-host script. */
+ * same claim through the existing frame/token owner; the next player stage's
+ * 0015B130 admits the player for its shared-host script. */
 int em_area11_interaction_host_claim_scan(const void *owner)
 {
     if (!world.loaded || world.failed || !owner) return -1;
     view_load();
     int claimed=em_interaction_runtime_claim(&world.shared,owner);
     view_store();
-    if (!claimed || !em_interaction_runtime_stage_owner(&world.shared,owner))
-        return fail("00184BA0 shared scan claim");
-    world.script_owner=owner;
+    if (!claimed) return fail("00184BA0 shared scan claim");
     return shared_banks()<0 ? fail("the canonical player script banks") : 1;
 }
 
-/* A script owner outside the host whose op07 opened the scripted frame:
- * the shared runtime's player takeover serves it (the stand-in for
- * 0015B130's 00182B30 admission, as for the panel and the elevator). */
+/* A script owner outside the host whose op07 opened the scripted frame: the
+ * takeover 0015B130's prelude performs at the next player stage serves it. */
 int em_area11_interaction_host_claim_script(const void *owner)
 {
     if (!world.loaded || world.failed || !owner) return -1;
@@ -893,7 +846,6 @@ int em_area11_interaction_host_claim_script(const void *owner)
     int claimed = em_interaction_runtime_claim_scripted(&world.shared, owner);
     view_store();
     if (!claimed) return fail("scripted owner claim (the shared player is busy)");
-    world.script_owner = owner;
     if (shared_banks() < 0) return fail("the player script bank regions");
     return 1;
 }
@@ -930,16 +882,15 @@ int em_area11_interaction_host_face_tick_001D0C70(void)
     return em_face_slot_001D0C70(&slot) < 0 ? fail("001D0C70 (the face slot at the player's +0x90)") : 0;
 }
 
-/* The player stage's 00182DF0 released a script owner's player: its token
- * ends (em_interaction_runtime_staged_release). */
+/* The player stage's 00182DF0 released the owner's player (the panel's,
+ * the terminal's, an item's or a script owner's): its token ends
+ * (em_interaction_runtime_release). */
 int em_area11_interaction_host_staged_released(void *unused)
 {
     (void)unused;
     if (!world.loaded || world.failed) return -1;
-    if (!world.script_owner || world.shared.owner != world.script_owner ||
-        !em_interaction_runtime_staged_release(&world.shared))
-        return fail("00182DF0 released a player no script owner held");
-    world.script_owner = NULL;
+    if (!em_interaction_runtime_release(&world.shared))
+        return fail("00182DF0 released a player no owner held");
     return 1;
 }
 
@@ -950,7 +901,7 @@ int em_area11_interaction_host_owns(const void *owner)
 
 int em_area11_interaction_host_script_held(void)
 {
-    return world.loaded && !world.failed && world.script_owner && world.shared.owner == world.script_owner;
+    return world.loaded && !world.failed && world.shared.owner != NULL;
 }
 
 static int camera_chase(void *context)
@@ -1413,10 +1364,8 @@ int em_area11_interaction_host_load_shared(const char *directory,
     world.scene.math=*math;
     if (!em_item_sdk_math_bind(&world.item_sdk,&world.scene.math,&world.item_math)) goto failed;
     world.frame.zoom=em_rcl_zoom();world.frame.up[1]=-1;world.frame.up[3]=1;
-    EmInteractionRuntimeHooks shared={NULL,acquire,idle,release,publish,frame_event,retarget};
-    if (!em_interaction_runtime_init(&world.shared,&world.frame,&g.model,world.local_palette,&shared) ||
-        !em_interaction_runtime_set_pose_worker(&world.shared,pose) ||
-        !em_interaction_runtime_set_cinematic_player_worker(&world.shared,cinematic_player)) goto failed;
+    EmInteractionRuntimeHooks shared={NULL,frame_event,retarget,player_record};
+    if (!em_interaction_runtime_init(&world.shared,&world.frame,&shared)) goto failed;
     EmStatusRuntimeHooks hooks=native_status_hooks();
     if (!load_status(directory,&world.item_math,&hooks)) goto failed;
     world.loaded=1;
@@ -1454,12 +1403,8 @@ int em_area11_interaction_host_load(const char *directory,
     world.frame.zoom = em_rcl_zoom();
     world.frame.up[1] = -1;
     world.frame.up[3] = 1;
-    EmInteractionRuntimeHooks shared = {NULL, acquire, idle, release, publish,
-                                         frame_event, retarget};
-    if (!em_interaction_runtime_init(&world.shared, &world.frame, &g.model,
-                                      world.local_palette, &shared) ||
-        !em_interaction_runtime_set_pose_worker(&world.shared, pose) ||
-        !em_interaction_runtime_set_cinematic_player_worker(&world.shared, cinematic_player)) goto failed;
+    EmInteractionRuntimeHooks shared = {NULL, frame_event, retarget, player_record};
+    if (!em_interaction_runtime_init(&world.shared, &world.frame, &shared)) goto failed;
     EmPanelRuntimeHooks panel = {NULL, align_panel, message_start, message_done,
                                   battery_open, sound, power, stop_indicator};
     snprintf(path, sizeof path, "%s/panel/scripts.emsc", directory);
@@ -1498,7 +1443,8 @@ failed:
 void em_area11_interaction_host_clear(void)
 {
     /* This is whole-world teardown: detach the player before releasing
-     * its owner tokens. Ordinary script completion uses player_tick. */
+     * its owner tokens. Ordinary script completion ends a token through
+     * the player stage's 00182DF0 (em_area11_interaction_host_staged_released). */
     em_sfx_set_area(-1, -1);
     world.shared.owner = NULL;
     em_pickup_original_unbind_all();
@@ -1537,14 +1483,10 @@ int em_area11_interaction_host_player(void *unused)
 {
     (void)unused;
     if (!world.loaded || world.failed) return -1;
-    /* A script owner's takeover is the stage's own: 2 lets 0015B130 (its
+    /* Every owner's takeover is the stage's own (the panel's, the
+     * terminal's and the items' since audit 1b item 8): 2 lets 0015B130 (its
      * prelude, 00182B30) take the player. */
-    if (world.shared.owner && world.shared.staged) return 2;
-    view_load();
-    int result = em_interaction_runtime_player_tick(&world.shared,
-        em_status_runtime_ordinary_enabled(world.status));
-    view_store();
-    return result < 0 ? fail("player worker") : result;
+    return world.shared.owner ? 2 : 0;
 }
 
 /* ---------------------------------------------------------- the Use scan
@@ -1645,14 +1587,13 @@ int em_area11_interaction_host_scan_00184BA0(void *context, EmPlayerLiveActor *a
     const EmInteractionSceneOwner *record = world.scene.list.active[winner].owner;
     int claimed = em_interaction_runtime_claim(&world.shared, record->native_owner);
     view_store();
-    /* Roger's armed talk 0x828810 and the fence door's program run on the
-     * AREA11 script host: their takeover is the player stage's own. */
-    if (claimed && (record == world.roger_record || record == world.door_record)) {
-        world.script_owner = record->native_owner;
-        if (!em_interaction_runtime_stage_owner(&world.shared, world.script_owner) ||
-            em_area11_roger_regions(map_special, NULL) < 0)
-            return fail("00184BA0 winner: the script owner's staged takeover");
-    }
+    /* The takeover is the player stage's own for every winner (0015B130's
+     * prelude at the next stage). Roger's armed talk 0x828810 and the fence
+     * door's program run on the AREA11 script host, whose op0A sub 1 / 4
+     * reach the special bank: its regions are mapped into the record. */
+    if (claimed && (record == world.roger_record || record == world.door_record) &&
+        em_area11_roger_regions(map_special, NULL) < 0)
+        return fail("00184BA0 winner: the script owner's bank regions");
     if (!claimed || scene->spad3B8D != 3) return fail("00184BA0 winner claim");
     *result = 1;
     return 0;

@@ -178,10 +178,10 @@ typedef struct EmPlayerStatesBinding {
     void *load_context;
     /* The takeover hook at 0015B130's prelude position (the AREA11
      * interaction host through the pose host, player_pose_stage_hook): -1
-     * fault, 0 ordinary, 1 consumed (the interaction runtime's takeover of
-     * the panel, terminal or an item owns the player this stage: 0015B130
-     * does not run), 2 a script owner's frame (the takeover is the stage's
-     * own: 0015B130 runs its prelude). NULL: no takeover owner. */
+     * fault, 0 ordinary, 2 an owner's frame (the panel's, the terminal's,
+     * an item's or a script owner's: the takeover is the stage's own, and
+     * 0015B130 runs its prelude). Any other value faults. NULL: no
+     * takeover owner. */
     int (*takeover)(void *context);
     void *takeover_context;
 } EmPlayerStatesBinding;
@@ -232,8 +232,8 @@ void player_states_bind(const EmPlayerStatesBinding *binding);
  * state callback, advancing it by the stage's +34. */
 void player_states_bind_display(int bound);
 /* After player_states_stage: 1 when the record's pose is what this stage
- * displays (the display is bound, and the takeover consumed the stage or a
- * translated routine owned it), 0 when a port callback ran (a stand-in, or
+ * displays (the display is bound and a translated routine owned the stage,
+ * the takeover's +4 = 4 path included), 0 when a port callback ran (a stand-in, or
  * the legacy idle/walk of a scene without an original world: their legacy
  * display). */
 int player_states_record_display(void);
@@ -252,11 +252,9 @@ int player_states_stage_live(void);
 /* One player stage while STAGE is engaged (the caller, em_player_frame.c's
  * actor_update, uses the port's legacy path otherwise): the vitals view
  * load, 0015BA50 (begin, the switch with the display's advance and the +4
- * handler, end), 0015BCF0's writes after it, the vitals store. Returns 1
- * when the interaction runtime's takeover consumed the stage (it published
- * the player's palette), 0 otherwise (also after a fault, which is
- * fail-stop: reported once, counted, em_frame_request_quit). */
-int player_states_stage(void);
+ * handler, end), 0015BCF0's writes after it, the vitals store. A fault is
+ * fail-stop: reported once, counted, em_frame_request_quit. */
+void player_states_stage(void);
 /* The next player_states_stage is 0015BA50's +4 = 0 call, the first after
  * the 001AF5C0 wipe: its switch runs 0015C420 alone (see the .c). */
 void player_states_stage_rebuild(void);

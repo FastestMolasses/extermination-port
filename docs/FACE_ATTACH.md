@@ -398,8 +398,8 @@ the app (COMMON). Make targets: `test-face-attach-reference`,
 - 001B81D0's 001CA700 / 001D06D0 (em_area_script, the script host's
   `w_001CA700` / `w_001D06D0`), 001B82D0 sub 4's 001CA770 (the script host's
   `w_001CA770` and the interaction host's RELEASE_SKELETON frame event),
-  00183090's 001D0C70 (em_player_stage_live's `w_001D0C70` and the
-  interaction runtime's cinematic worker) and 001FD950's 001D06E0 (the
+  00183090's 001D0C70 (em_player_stage_live's `w_001D0C70`, every
+  takeover's since chain step TAKEOVERS) and 001FD950's 001D06E0 (the
   message host's face talk) run the translations on the record's +0x90 /
   +0x94. 001AF890 is live through 001CA770. The adapters accept any
   resource row; a call on a record address other than the player's has no

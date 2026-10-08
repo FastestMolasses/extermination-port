@@ -27,7 +27,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_camera_rotation.c src/game/em_camera_live.c src/game/em_camera_commit_original.c \
            src/game/em_camera_follow_original.c src/game/em_camera_area11_specials.c src/game/em_camera_aim.c src/game/em_area22_port.c src/game/em_area00_low.c \
            src/game/em_camera_leftovers.c src/game/em_camera_leftovers_solver.c src/game/em_census_standins.c \
-           src/game/em_script_door_fan.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c \
+           src/game/em_script_door_fan.c src/game/em_interaction_frame.c \
            src/game/em_security_gun.c src/game/em_security_gun_rest.c src/game/em_fan_original.c \
            src/game/em_interaction_alignment.c src/game/em_interaction_projection.c src/game/em_area11_interaction_host.c \
            src/game/em_interaction_runtime.c src/game/em_interaction_cinematic.c src/game/em_interaction_scan.c src/game/em_interaction_scene.c src/game/em_status_frame.c \
@@ -262,7 +262,7 @@ test-pickup-lights: tests/pickup_light_test.c src/game/em_pickup.c src/game/em_p
 	$(CC) -std=c11 -O2 -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc -ffp-contract=off tests/pickup_light_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_light_test
 	build/pickup_light_test
 
-PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_items_original.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c
+PICKUP_ORIGINAL_TEST_SRC := src/game/em_pickup_items_original.c src/game/em_pickup_owner.c src/game/em_pickup_program.c src/game/em_script.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c
 .PHONY: test-pickup-owner-reference test-pickup-original
 test-pickup-owner-reference:
 	python3 tools/test_pickup_owner_reference.py
@@ -1170,7 +1170,7 @@ test-panel-reference:
 test-camera-retarget-reference:
 	python3 tools/test_camera_retarget_reference.py
 
-.PHONY: test-camera-interaction-fixture test-interaction-frame-reference test-interaction-animation-reference test-collision-faces-reference
+.PHONY: test-camera-interaction-fixture test-interaction-frame-reference test-collision-faces-reference
 test-camera-interaction-fixture:
 	python3 tools/test_camera_interaction_fixture.py
 
@@ -1195,17 +1195,14 @@ test-interaction-geometry-reference:
 test-interaction-frame-reference:
 	python3 tools/test_interaction_frame_reference.py
 
-test-interaction-animation-reference:
-	python3 tools/test_interaction_animation_reference.py
-
 .PHONY: test-player-pose test-pose-reference
 test-player-pose: tests/player_pose_test.c src/game/em_player_pose.c src/game/em_pose_bank.c \
-                 src/game/em_pose_transition.c src/game/em_interaction_animation.c \
+                 src/game/em_pose_transition.c \
                  src/game/em_player_pose.h src/game/em_pose_bank.h src/game/em_pose_transition.h src/game/em_pose_math.h
 	@mkdir -p build/player_pose_channels
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc \
 	    tests/player_pose_test.c src/game/em_player_pose.c src/game/em_pose_bank.c \
-	    src/game/em_pose_transition.c src/game/em_interaction_animation.c -lm \
+	    src/game/em_pose_transition.c -lm \
 	    -o build/player_pose_channels/player_pose_test
 	./build/player_pose_channels/player_pose_test
 
@@ -1240,7 +1237,7 @@ test-player-foot-stop-reference:
 .PHONY: test-interaction-runtime
 test-interaction-runtime:
 	@mkdir -p build
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/interaction_runtime_test.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_interaction_animation.c src/game/em_script.c src/em_model.c -lm -o build/interaction_runtime_test
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/interaction_runtime_test.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_script.c src/em_model.c -lm -o build/interaction_runtime_test
 	build/interaction_runtime_test
 
 .PHONY: test-interaction-scan-reference test-interaction-scan test-interaction-scene
@@ -1469,8 +1466,7 @@ test-panel-runtime:
 	@mkdir -p build
 	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Wl,-dead_strip -Isrc \
 	    tests/panel_runtime_test.c src/game/em_panel_runtime.c src/game/em_panel_program.c src/game/em_panel.c \
-	    src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c \
-	    src/game/em_player_pose.c src/game/em_pose_bank.c src/game/em_pose_transition.c \
+	    src/game/em_interaction_runtime.c src/game/em_interaction_frame.c \
 	    src/game/em_message_live.c src/game/em_message_service.c src/game/em_message_draw_original.c \
 	    src/game/em_message_glyph_original.c src/game/em_script.c src/em_model.c \
 	    src/game/em_status_page_record.c -lm -o build/panel_runtime_test
@@ -1480,8 +1476,8 @@ test-panel-runtime:
 .PHONY: test-elevator-runtime
 test-elevator-runtime:
 	mkdir -p build
-	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/elevator_runtime_test.c src/game/em_elevator_runtime.c src/game/em_elevator_program.c src/game/em_elevator.c src/game/em_interaction_runtime.c src/game/em_interaction_animation.c src/game/em_interaction_frame.c src/game/em_script.c src/em_model.c -lm -o build/elevator_runtime_test
-	build/elevator_runtime_test assets/scene_snow/elevator.emsc assets/player.emdl
+	$(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/elevator_runtime_test.c src/game/em_elevator_runtime.c src/game/em_elevator_program.c src/game/em_elevator.c src/game/em_interaction_runtime.c src/game/em_interaction_frame.c src/game/em_script.c src/em_model.c -lm -o build/elevator_runtime_test
+	build/elevator_runtime_test assets/scene_snow/elevator.emsc
 
 test-elevator-reference:
 	python3 tools/test_elevator_reference.py

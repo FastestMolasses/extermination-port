@@ -145,7 +145,8 @@ def check_opening_actors(ticks, state):
     p = t.get('player')
     orig = [ram[PLAYER + 5], ram[PLAYER + 0x1F0], ram[PLAYER + 0x1F1],
             struct.unpack_from('<h', ram, PLAYER + 0x20C)[0], u32(ram, PLAYER + 0x3C),
-            u32(ram, PLAYER + 0x214), ram[PLAYER + 0x2F3], ram[PLAYER + 4]]
+            u32(ram, PLAYER + 0x214), ram[PLAYER + 0x2F3], ram[PLAYER + 4],
+            struct.unpack_from('<h', ram, PLAYER + 0x1F2)[0]]
     assert p == orig, (where, 'the player record', p, orig)
     # D. the body draws with its face unit, and the class-8 node with it,
     # in every frame from its spawn to the done mask; then neither draws

@@ -441,6 +441,42 @@ def check_stage_takeover(ticks, i0, count, what):
     return ticks[i0 + ka]['tick'], ticks[i0 + kr]['tick']
 
 
+def port_release(ticks, i0, what):
+    """The window length from port tick i0 through the first tick after it
+    whose record +4 is back to 1 after the takeover (the port's 00182DF0),
+    for check_stage_takeover where the captured rows are not aligned that
+    far (a status page between: its module load at host speed)."""
+    ka = next((k for k in range(len(ticks) - i0) if ticks[i0 + k]['player'][7] == 4), None)
+    assert ka is not None, (what, 'no tick holds +4 = 4: the takeover is not the stage\'s own')
+    kr = next((k for k in range(ka, len(ticks) - i0) if ticks[i0 + k]['player'][7] != 4), None)
+    assert kr is not None, (what, 'the takeover never released')
+    return kr + 1
+
+
+def check_takeover_record(ticks, i0, rows, f0, count, what, clock=True):
+    """The panel's, the terminal's and the items' takeovers are the player
+    stage's own (audit 1b item 8): their scripts request clips as 001B9A00
+    sub 0 does (the record's +1F2, +1F4, +1F8), the stage's 00183090 commits
+    the request into +20C, 001C64F0 runs its clock +3C. Over a row-aligned
+    window from the row after the scan (0015B130's admission: 00182D70 sets
+    +1F2 = +20C, so nothing before the takeover reaches it), row for row:
+    the request +1F2 (the rows' req1F2) and the clip +20C, and the clock from
+    the row where the script's clip is committed (before it the idle clip's
+    clock counts from the stance the navigation reached; after the release
+    00182DF0 re-seeds it). Returns the commit offset, or None when the
+    window commits no clip."""
+    clip0 = rows[f0]['clip']
+    commit = next((k for k in range(count) if rows[f0 + k]['clip'] != clip0), None)
+    for k in range(1, count):
+        pl, row = ticks[i0 + k]['player'], rows[f0 + k]
+        where = f'{what} row f{row["f"]} (port tick {ticks[i0 + k]["tick"]})'
+        timed = clock and commit is not None and k >= commit
+        got = (pl[8], pl[3], round(f32(pl[4]), 5) if timed else None)
+        want = (row['req1F2'], row['clip'], row['clock'] if timed else None)
+        assert got == want, (where, 'player +1F2 / +20C / +3C', got, want)
+    return commit
+
+
 def compare_window(ticks, i0, rows, f0, count, what, y_mode='scripted', req=False):
     """Row k of the capture against tick i0 + k (both one per frame)."""
     base = orig_view(rows[f0])
@@ -565,8 +601,19 @@ def check_scripted_terminal(ticks, run, state, phase, beat):
     r = release_row(rows, f0)
     count = r - f0 + AFTER_RELEASE
     placed, faced = compare_window(ticks, i0, rows, f0, count, phase)
+    # The terminal's takeover is the stage's own (audit 1b item 8).
+    commit = check_takeover_record(ticks, i0, rows, f0, count, phase)
+    admit, free = check_stage_takeover(ticks, i0, count, phase)
+    state.setdefault('takeovers', {})[phase] = (admit, free, None if commit is None else rows[f0 + commit]['f'])
     state['cursor'] = i0 + count
     return i0, rows, f0, r, count, placed, faced
+
+
+def takeover_text(state, phase):
+    admit, free, commit = state['takeovers'][phase]
+    clip = f'the clip committed at f{commit} with its clock' if commit is not None else 'no clip requested'
+    return (f'the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 at {free}, '
+            f'+1F2 / +20C row for row ({clip})')
 
 
 def check_battery(ticks, run, state):
@@ -615,6 +662,14 @@ def check_battery(ticks, run, state):
     # its own sub-state 3 row (in process), so the shift leaves it alone.
     assert rows[f0 + load]['f'] == 193, ('route 01 ITEM state 3 row moved', rows[f0 + load]['f'])
     i_l = i0 + posted_p + load - posted_o
+    # The take's takeover is the stage's own (audit 1b item 8): the record
+    # row for row from the scan to the page load (posted_p == posted_o: one
+    # alignment), +4 = 4 from the admission to the port's 00182DF0 after the
+    # status close.
+    commit = check_takeover_record(ticks, i0, rows, f0, load, 'battery')
+    assert commit is not None and rows[f0 + commit]['clip'] == 0x42, ('battery: the grab clip', commit)
+    state.setdefault('takeovers', {})['battery'] = check_stage_takeover(
+        ticks, i0, port_release(ticks, i0, 'battery'), 'battery') + (rows[f0 + commit]['f'],)
     i_d, shift, last = check_module_load(ticks, i_l, 193, loader_rows_01(), state['drive'],
                                          'battery module 0x21')
     state['cursor'] = i0 + posted_p + load - posted_o
@@ -628,7 +683,8 @@ def check_battery(ticks, run, state):
           f'after the settle in both; from the post to the page load, route f{rows[f0 + posted_o]["f"]}..'
           f'f{rows[f0 + load - 1]["f"]}, row for row; the ITEM root\'s module-0x21 load: the loader\'s rows '
           f'(port ticks {ticks[i_l + 1]["tick"]}..{ticks[i_d]["tick"]}) equal f194..f{last} '
-          f'{"row for row (the PS2 disc-drive timing)" if shift == 0 else f"without its {shift} busy polls (host speed)"})')
+          f'{"row for row (the PS2 disc-drive timing)" if shift == 0 else f"without its {shift} busy polls (host speed)"}; '
+          f'{takeover_text(state, "battery")})')
 
 
 def check_elevator_refusal(ticks, run, state):
@@ -640,7 +696,7 @@ def check_elevator_refusal(ticks, run, state):
           f'02 f{rows[f0]["f"]}..f{rows[f0 + count - 1]["f"]}: refusal 0x82A990 from the scan to the release at '
           f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message 0x8000001A, '
           f'power; placement from f{rows[f0 + placed]["f"]}, heading from f{rows[f0 + faced]["f"]}, the script\'s '
-          f'camera eye/target until the release; {follow})')
+          f'camera eye/target until the release; {takeover_text(state, "elevator_refusal")}; {follow})')
 
 
 def check_panel(ticks, run, state):
@@ -681,6 +737,15 @@ def check_panel(ticks, run, state):
     count = r - (f0 + yes_orig) + AFTER_RELEASE
     compare_window(ticks, i0 + yes_port, rows, f0 + yes_orig, count, 'panel discharge', y_mode='retained',
                    req=True)
+    # The panel's takeover is the stage's own (audit 1b item 8): the record
+    # row for row from the scan to the page load and from the Yes
+    # confirmation through the release (0x2477A0's clip 0x15C, blend 0),
+    # +4 = 4 from the admission to 00182DF0.
+    assert check_takeover_record(ticks, i0, rows, f0, load, 'panel open') is None
+    commit = check_takeover_record(ticks, i0 + yes_port, rows, f0 + yes_orig, count, 'panel discharge')
+    assert commit is not None and rows[f0 + yes_orig + commit]['clip'] == 0x15C, ('panel: the clip', commit)
+    state.setdefault('takeovers', {})['panel'] = check_stage_takeover(
+        ticks, i0, yes_port + count, 'panel') + (rows[f0 + yes_orig + commit]['f'],)
     power_row = next(k for k in range(yes_orig, len(rows) - f0) if orig_view(rows[f0 + k])['power'] == 128)
     follow = check_follow_after_release(ticks, i0 + yes_port, rows, f0 + yes_orig, 'panel', 'converge')
     state['cursor'] = i0 + yes_port + count
@@ -696,7 +761,8 @@ def check_panel(ticks, run, state):
           f'script 0x247BE0, power 0x80 at f{rows[f0 + power_row]["f"]} and the release at f{rows[r]["f"]} '
           f'+ {AFTER_RELEASE}: port ticks {ticks[i0 + yes_port]["tick"]}..'
           f'{ticks[i0 + yes_port + count - 1]["tick"]} equal in spad, camera byte, letterbox, message, power, '
-          f'B0/B1, placement, heading and the script\'s camera eye/target; {follow})')
+          f'B0/B1, placement, heading and the script\'s camera eye/target; {takeover_text(state, "panel")}; '
+          f'{follow})')
 
 
 def check_panel_no_battery(ticks, run, state):
@@ -728,6 +794,11 @@ def check_panel_no_battery(ticks, run, state):
         got = (p[0], p[1], p[2], p[3], hex(p[5]))
         want = (o['p5'], o['m1F0'], o['m1F1'], o['clip'], o['ground'])
         assert got == want, ('panel_no_battery player +5/+1F0/+1F1/clip/ground', o['f'], got, want)
+    # The panel's takeover is the stage's own (audit 1b item 8): +1F2 row for
+    # row (0x246F20 requests no clip), +4 = 4 from the admission to 00182DF0.
+    assert check_takeover_record(ticks, i0, rows, f0, count, 'panel_no_battery') is None
+    state.setdefault('takeovers', {})['panel_no_battery'] = \
+        check_stage_takeover(ticks, i0, count, 'panel_no_battery') + (None,)
     assert all(orig_view(rows[f0 + k])['power'] == 0 for k in range(count)), 'the capture powered up'
     follow = check_follow_after_release(ticks, i0, rows, f0, 'panel_no_battery', 'converge')
     state['cursor'] = i0 + count
@@ -736,7 +807,8 @@ def check_panel_no_battery(ticks, run, state):
           f'f{rows[r]["f"]} and {AFTER_RELEASE} rows after, in spad, camera byte, letterbox, message 0x80000018, '
           f'power, the player record (+5, +1F0, +1F1, clip, ground), the placement (X/Z) and heading from the scan '
           f'row, the re-grounded Y from f{rows[f0 + placed]["f"]}, the script\'s camera eye/target '
-          f'(Y with the approach\'s retained ground offset) until the release; {follow})')
+          f'(Y with the approach\'s retained ground offset) until the release; '
+          f'{takeover_text(state, "panel_no_battery")}; {follow})')
 
 
 def check_elevator(ticks, run, state):
@@ -766,7 +838,8 @@ def check_elevator(ticks, run, state):
           f'(player Y f{rows[f0 + carried[0]]["f"]}..f{rows[f0 + carried[-1]]["f"]}, ending '
           f'{rows[f0 + carried[-1]]["pos"][1]}) to the release at f{rows[r]["f"]} and {AFTER_RELEASE} rows '
           f'after, in spad, camera byte, letterbox, message, power, placement, heading and the script\'s camera '
-          f'eye/target, and the terminal record\'s +0x04 and +0xB0..+0xB8 (the carry\'s +0xB4); {follow})')
+          f'eye/target, and the terminal record\'s +0x04 and +0xB0..+0xB8 (the carry\'s +0xB4); '
+          f'{takeover_text(state, "elevator")}; {follow})')
 
 
 # ----------------------------------------------------- fence door (census L18)

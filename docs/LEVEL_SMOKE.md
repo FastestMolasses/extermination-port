@@ -467,7 +467,10 @@ from the legacy follow camera's target (about one unit lower); the check
 now requires the original's row, and in both runs the post two rows after
 the settle's last target change (the settled record, the animation-end
 wait, then op09) with the settle ending on the item's X/Z (to 1e-3). Aligned on the post,
-row for row again to the page's module load (f189..f192). Then the ITEM
+row for row again to the page's module load (f189..f192), with the player
+record's +1F2, clip 0x42 (committed at f129) and its clock row for row from
+the scan to the load, and +4 = 4 from the admission to 00182DF0 ("The
+stage's own takeover" below). Then the ITEM
 root's module-0x21 load (`check_module_load`, MODULE_LOADER.md section 4.1):
 the tick log's `loader_pre` bytes (slot 2's record and D_00275BD8 after each
 frame) from the request row f194 to the load's completion equal the
@@ -507,7 +510,12 @@ completion to the Yes press, row for row at the drive's shift (14 at host
 speed, 0 with the switch), with the prompt taking the request exactly that
 shift earlier than the original's 30 ticks (16 at host speed); and from the
 Yes confirmation (B0 0 -> 1) through the discharge, the exit, script
-0x247BE0, the power bit and the release (plus B0/B1); its player Y is
+0x247BE0, the power bit and the release (plus B0/B1). In every one of these
+windows (the panel's scan-to-load and Yes-aligned ones) the player record's
+clip request +1F2, its clip and, from the script's clip on, its clock equal
+the capture row for row, and +4 holds 4 from the admission to 00182DF0 (the
+stage's own takeover since chain step TAKEOVERS: "The stage's own takeover"
+below). Its player Y is
 checked as retained while the
 script owns the player (001B6F00 keeps the ground Y of the approach, which is
 navigation input), and equal to the capture after the release. The elevator
@@ -876,8 +884,9 @@ letterbox, message, power (compare_window, the camera's Y with the
 approach's retained ground offset, as the powered panel's), the placement
 (X/Z) and heading row for row from the scan row (the script places the
 player in the scan's frame), the re-grounded Y after the release, the player
-record (+5, +1F0, +1F1, clip, ground) from the row after the scan; the
-follow camera converges to the capture exactly from f244 (at most 0.00023
+record (+5, +1F0, +1F1, clip, ground) from the row after the scan, its +1F2
+and +4 (the stage's own takeover since chain step TAKEOVERS: "The stage's own
+takeover" below); the follow camera converges to the capture exactly from f244 (at most 0.00023
 off at the release, the retained ground Y). Measured 2026-09-25: port ticks
 1478..1657 equal route 00 f75..f254.
 
@@ -1289,7 +1298,12 @@ row; the voice read at host speed, and the teardown and everything after it
 exactly that many rows earlier, as check_director_beat). Navigation input
 is named where it is left out: the stance's +1F1 (the face taps), the turn
 clip's side, the MAP page's player marker (UI+0x40 / +0x48), the follow
-camera after a release.
+camera after a release. Since chain step TAKEOVERS each take, the ride up and
+the panel's No also hold +4 = 4 from the admission to 00182DF0 and compare
+the record's +1F2 (the takes: through the turn and the take, the grab
+clip's request showing on its commit row in both; the ride and the decline: with
+the clip and its clock, check_takeover_record) ("The stage's own takeover"
+below).
 
 Whole-run checks over these runs: a BRANCH run's side phase bounds the
 main line's ladder count (`side_start`); after br_elevator_up's window the
@@ -1676,7 +1690,7 @@ em_sfx_play silently and are reported once), the effects (0017DEB0's and
 00187EE0's 001EFD90 spawns run the live effect binder, L26; its nodes are
 compared at the effect beats only).
 
-### The script owners' takeover (`check_stage_takeover`, chain C7)
+### The stage's own takeover (`check_stage_takeover`, `check_takeover_record`; chain C7, chain step TAKEOVERS)
 
 A script owner's frame (the truck trigger in route 07, the fence door in 09,
 the director in 10 / 11 / 13, Roger in 14) is the player stage's own
@@ -1700,6 +1714,35 @@ the PS2 disc-drive timing switch on; at host speed, the default, they lie
 exactly on the teardown's clock, 6 rows early). The
 tick log is otherwise equal to the stand-in's (the interaction runtime's
 takeover before C7) on every tick.
+
+**The panel, the terminal and the items (chain step TAKEOVERS, audit 1b
+item 8).** Their takeovers are the stage's own too: the Use scan's claim,
+then the same admission, +4 = 4 path and 00182DF0. Their programs request
+clips through the record (001B9A00 sub 0: +1F2, +1F8, +1F4 = 1.0; sub 3
+waits on +200 & 0x1000). The tick log's `player` list carries the record's
++1F2 as its ninth value (the route rows' `req1F2`). `check_takeover_record`
+compares, over a row-aligned window from the row after the scan (the
+admission's 00182D70 sets +1F2 = +20C, so nothing earlier reaches it), the
+request +1F2 and the clip +20C row for row, and the clock +3C from the row
+where the script's clip is committed (before it the idle clip's clock counts
+from the stance the navigation reached). check_stage_takeover holds +4 = 4
+from the admission to 00182DF0 in the same phases. Measured 2026-10-08 (the
+main line through a01_00): route 01's take, clip 0x42 committed at f129,
++4 = 4 from port tick 1593 to 1938 (the release after the status close: the
+window of check_stage_takeover runs on the port's ticks, the rows being
+aligned only to the page load); route 02's refusal, no clip, 2162 to 2318;
+route 03's panel, the scan-to-load window (no clip) and the Yes-aligned
+window (0x15C at f528), 2560 to 2971; route 04's ride, 0x47 at f190, 3161 to
+3523; route 00 (its own run), no clip. The BRANCH side runs check the ride
+up and the panel's No the same way and every take's +1F2 (the grab clip's
+request shows on the row of its commit, in both). Negative controls: one
+tick's +1F2 changed in the panel's discharge window, or the ride's takeover
+left at +4 = 1 (the retired interaction-runtime path), fails. Against the
+previous build the tick log changes only in +4 during these takeovers and
+in the record's +1F2 / +1F8 / +200 the scripts and the stage now write (the
+`stream` and `loader_pre` host timings, `sfx413` and the loop-sound track
++31B, which follow the audio thread's track timing, differ between two runs
+of one build too).
 
 ### The render context (`check_render_context`, census L32 / L30)
 

@@ -1612,10 +1612,10 @@ units per second.
   tables. 0015BCF0 is live only in part. The three functions without a
   verified live translation include 001FC280's body. "No stand-in rows"
   does not mean no stand-in code runs. Census 2.3 still lists stand-in
-  behaviour on the route: the chain page's four-sprite pass and the
-  interaction runtime's acquire and per-stage tick for the panel, terminal
-  and item takeovers (the examine camera and the opening's camera timeline
-  are original since chain step CAMERAS). Census section
+  behaviour on the route: the chain page's four-sprite pass (the examine
+  camera and the opening's camera timeline are original since chain step
+  CAMERAS; the panel's, terminal's and items' takeovers are the player
+  stage's own since chain step TAKEOVERS). Census section
   6 notes that oracle strength varies (the fade oracle compares against
   compiled decomp C, and the spawn helpers are checked only for spawn set
   and order).
@@ -1812,9 +1812,9 @@ states, timings and positions, and their draws come from the original data.
   replayed through the original instructions); taking the map 0x08 opens
   the MAP page 0020F950 zoomed on map 8, bound since chain C8b MAP (the same
   run; `PICKUP_OWNERS.md` "Requests and pages", fixture `other_take`). These
-  takes are off the recorded route. The panel, terminal
-  and item takeovers still use the port's interaction runtime for acquire
-  and per-stage ticking.
+  takes are off the recorded route. The panel's, the terminal's and the
+  items' hold on the player is the original player stage's since chain step
+  TAKEOVERS (the scripted-sequences entry below).
 
 **The fence door and the room move, from both sides**
 
@@ -1854,7 +1854,10 @@ stand, the steady walk and the slow-down.
 When the game takes control for a scripted moment, it takes and hands back
 control on the same ticks as the original. That covers the truck preview
 camera, the fence door, the director's three voiced beats (cage roof,
-crevice prompt, east tower) and Roger's encounter. The camera shots, the
+crevice prompt, east tower) and Roger's encounter, and, since chain step
+TAKEOVERS, the power panel, the elevator terminal and every item pickup:
+your character's grab, lever and panel animations start, run and end on
+the original's frames. The camera shots, the
 letterbox bars, the messages and your character's placement follow the
 original script, and the voiced lines hold the scenes for as long as they
 did in the recordings.
@@ -1863,7 +1866,9 @@ did in the recordings.
   interpreter and host ops. A script owner's frame is the player stage's
   own takeover, as in the original: the translated prelude admits the
   player, the stage runs each step, and the original release 00182DF0 hands
-  control back. The voiced lines play on the stream lanes, and the scripts
+  control back. The panel's, terminal's and items' programs ask for their
+  animation clips through the player record as the original's 001B9A00
+  does, and the stage's translated 00183090 commits them. The voiced lines play on the stream lanes, and the scripts
   wait for each line to end. By default the disc answers at host speed, so
   each line's read takes one field where the recording's took 7; with the
   PS2 disc-drive timing switch on, the reads use the drive model measured
@@ -1884,7 +1889,13 @@ did in the recordings.
   sweep). `test_player_cinematic_reference` covers 1,388 stages over bank
   0x96. `test_director_original_reference`'s SDK atan2f part is
   bit-identical on 726 cases (quick) and 18,366 (full), plus the owner-tick
-  sweeps.
+  sweeps. For the panel, the terminal and the items `check_takeover_record`
+  compares the record's clip request +1F2, its clip and its clock with
+  routes 00..04 row for row (the grab clip 0x42 committed at route 01 f129,
+  the panel's 0x15C at route 03 f528, the lever's 0x47 at route 04 f190) and
+  `check_stage_takeover` holds the takeover from the admission to the
+  release; the BRANCH side runs check the other takes, the ride up and the
+  panel's No the same way (`LEVEL_SMOKE.md` "The stage's own takeover").
 - Status: **VERIFIED**. First level, relative to PCSX2 recordings. At host
   speed the voiced lines end earlier by exactly the drive's read time. With
   the switch on, the drive model's seek and read timings come from PCSX2's
@@ -1893,10 +1904,7 @@ did in the recordings.
   records. Line 0x7F tears down 2 more rows early in both modes because a
   music refill lands at a different phase. That phase depends on how long the player has walked since the
   music last started (3583 fields in the original against 3449 in the
-  port's run), so it is navigation, not a mechanism difference. The panel,
-  terminal and item takeovers still go through the port's interaction
-  runtime for acquire and per-stage ticking; only their release is the
-  original 00182DF0.
+  port's run), so it is navigation, not a mechanism difference.
 
 **Roger's encounter plays out as in the original**
 

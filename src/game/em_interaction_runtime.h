@@ -1,96 +1,53 @@
-/* Shared ownership around the proven interaction frame and animation cores.
- * One instance belongs to one game world; panel/elevator adapters pass their
- * own stable owner token. Host worker boundaries remain explicit. */
+/* The shared owner token of the AREA11 interactions and the scripted frame
+ * core they open. One instance belongs to one game world; the panel, the
+ * terminal and the item adapters pass their own stable owner token, and the
+ * script owners (em_area11_script_host) theirs.
+ *
+ * Every takeover is the player stage's own (audit 1b item 8): a claimed
+ * owner's frame is admitted by 0015B130's prelude (00182B30, +4 = 4,
+ * 00174A50(8.0), 00182D70), each stage runs 0015BA50's +4 = 4 path (00183090
+ * on the record's +1F2 / +1F4 / +1F8, then 001C64F0 into +200) and 0015B530,
+ * whose 00182DF0 releases the player once 0x70003B8D clears. The owners'
+ * scripts request clips as 001B9A00 does: sub 0 writes the record's +1F2,
+ * +1F8 and +1F4, sub 3 waits on +200 & 0x1000. The runtime holds only the
+ * token and the frame; it never advances or releases the player itself. */
 #ifndef EM_INTERACTION_RUNTIME_H
 #define EM_INTERACTION_RUNTIME_H
 
-#include "game/em_interaction_animation.h"
 #include "game/em_interaction_frame.h"
 
 typedef struct {
     void *context;
-    /* Called at the ordinary player stage. acquire must perform the real
-     * 0015B130 takeover, including conditional default-clip init and182D70.
-     * -1 failure,0 blocked,1 accepted. An existing default clip keeps its
-     * cursor; a required blend8 transition adds no readiness delay.
-     * The runtime publishes player_ready only on1. */
-    int (*acquire_player)(void *);
-    /* Default clip continues until a script requests a verified animation.
-     * Same palette result contract as em_interaction_animation_tick. */
-    int (*idle_player_tick)(void *, float *local_palette);
-    /* Original182DF0, including any required default-clip transition.
-     * Return1 only after the release operation was accepted. */
-    int (*release_player)(void *);
-    /* Apply actor placement to the local palette, update the rendered pose
-     * and hip mirrors. Return1 on success. No matrix blending here. */
-    int (*publish_palette)(void *, const float *local_palette);
     EmInteractionFrameEmit frame_event;
     int (*camera_retarget)(void *); /* Current adapter's verified command. */
+    /* The live player record D_008102B0 (0x320 bytes) that 001B9A00 writes
+     * and reads, or NULL when it is not bound (the request faults). */
+    uint8_t *(*player_record)(void *);
 } EmInteractionRuntimeHooks;
-
-/* Optional source-channel sampler, invoked after every scripted animation
- * clock tick, including result0 commits. It keeps the previous source pose
- * available for later transitions and may replace a newly sampled palette.
- * Return1 when accepted; a failure cannot fall back to baked matrices. */
-typedef int (*EmInteractionPoseWorker)(void *, const EmInteractionAnimation *, int palette_result,
-                                       float *local_palette);
-
-/* Player-ready2 means the extra face object is attached. This worker must
- * tick that face before body request/advance and produce the actual palette.
- * It uses hooks.context and returns the same -1/0/1 palette result contract. */
-typedef int (*EmInteractionCinematicPlayerWorker)(void *, float *local_palette);
 
 typedef struct {
     const void *owner;
     EmInteractionFrame *frame;
-    const EmModel *model;
-    EmInteractionAnimation animation;
     EmInteractionRuntimeHooks hooks;
-    EmInteractionPoseWorker pose_worker;
-    EmInteractionCinematicPlayerWorker cinematic_player_worker;
-    float *local_palette;
     int failed;
-    /* The player is held (the original's record +0x04 == 4 after 0015B130's
-     * admission). 0x70003B8F is its published byte, but 0x1AE040 state 4's
-     * 001AFCF0 clears 3B8F with 3B8D under a held player (the fence door's
-     * room move): the takeover's tick and release then still run. */
-    int acquired;
-    /* The owner's takeover is the player stage's own (census L01 / C7): a
-     * script owner (em_area11_script_host) whose frame 0015B130's prelude
-     * admits (00182B30, +4 = 4, 00182D70), whose stages run 0015BA50's
-     * +4 = 4 commit and advance and 0015B530 (001837A0), and whose release is
-     * 0015B530's 00182DF0. The runtime then holds only the owner token:
-     * player_tick does nothing for it, and staged_release ends it. */
-    int staged;
 } EmInteractionRuntime;
 
-/* local_palette has at least model->bone_count*16 floats and belongs to
- * the caller. init does not overwrite live frame state or player poses. */
 int em_interaction_runtime_init(EmInteractionRuntime *runtime, EmInteractionFrame *frame,
-                                const EmModel *model, float *local_palette,
                                 const EmInteractionRuntimeHooks *hooks);
-/* Configure before claiming an owner; callback uses hooks.context. */
-int em_interaction_runtime_set_pose_worker(EmInteractionRuntime *runtime,
-                                           EmInteractionPoseWorker worker);
-int em_interaction_runtime_set_cinematic_player_worker(EmInteractionRuntime *runtime,
-    EmInteractionCinematicPlayerWorker worker);
 /* After original single-winner use arbitration/alignment, claim the owner
- * and publish selector3. A competing token cannot replace a live owner. */
+ * and publish selector 3 (00184BA0's 3B8D = 3). A competing token cannot
+ * replace a live owner. The next player stage's 0015B130 admits the player
+ * for it. */
 int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owner);
 /* An owner whose own script opened the scripted frame (op07 already wrote
  * the selector, e.g. the truck trigger 008251E0's 0x8292C0): the player
- * takeover the next player stage performs (0015B130's 00182B30 admission)
- * serves that owner, staged (see `staged`). Requires a nonzero selector and
- * a free, unacquired player; writes nothing to the frame. 1 claimed, 0
- * refused. */
+ * takeover the next player stage performs serves that owner. Requires a
+ * nonzero selector and a free player; writes nothing to the frame. 1
+ * claimed, 0 refused. */
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner);
-/* The owner a scan claim (em_interaction_runtime_claim) gave the token to
- * runs a script whose takeover is the player stage's: mark it staged before
- * the player is taken. 1, or 0 (not the owner, or already taken). */
-int em_interaction_runtime_stage_owner(EmInteractionRuntime *runtime, const void *owner);
-/* The player stage's 00182DF0 released a staged owner's player (3B8F = 0,
- * +4 = 1): the token ends. 1, or 0 when no staged owner holds it. */
-int em_interaction_runtime_staged_release(EmInteractionRuntime *runtime);
+/* The player stage's 00182DF0 released the owner's player (3B8F = 0,
+ * +4 = 1): the token ends. 1, or 0 when no owner holds it. */
+int em_interaction_runtime_release(EmInteractionRuntime *runtime);
 int em_interaction_runtime_owns(const EmInteractionRuntime *runtime, const void *owner);
 const void *em_interaction_runtime_owner(const EmInteractionRuntime *runtime);
 int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime);
@@ -98,17 +55,15 @@ int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime);
 EmScriptCommandResult em_interaction_runtime_frame(EmInteractionRuntime *runtime, const void *owner,
                                                    EmScript *script, const unsigned char *record);
 int em_interaction_runtime_camera_retarget(EmInteractionRuntime *runtime, const void *owner);
+/* 001B9A00 sub 0 for the owner's script: the record's +1F2 = clip, +1F8 =
+ * blend (the script record's +0xC), +1F4 = 1.0 (`rate` must be 1.0, the
+ * constant sub 0 writes). The player must be taken (3B8F != 0). 1, or 0
+ * (and the runtime faults). */
 int em_interaction_runtime_animation_start(EmInteractionRuntime *runtime, const void *owner,
                                            uint16_t clip, float rate, float blend);
-/* -1 failure/inactive,0 waiting,1 actual animation end flag. */
-int em_interaction_runtime_animation_done(const EmInteractionRuntime *runtime, const void *owner);
-
-/* Call exactly once at the actual player stage. ordinary_tasks_enabled=0
- * during original status/menu frames: no acquisition, cursor or release
- * advances. Returns-1 failure,0 no takeover (or a staged owner's, which the
- * stage performs itself),1 player owned for this call.
- * When selector clears, the original player advances first, then182DF0
- * releases it. Ownership clears only after successful release. */
-int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordinary_tasks_enabled);
+/* 001B9A00 sub 3: 1 when the record's +200 holds 0x1000 (001C64F0's end
+ * flag, which 0015BA50 stores), 0 while it does not, -1 when the owner does
+ * not hold the token or the record is not bound. */
+int em_interaction_runtime_animation_done(EmInteractionRuntime *runtime, const void *owner);
 
 #endif

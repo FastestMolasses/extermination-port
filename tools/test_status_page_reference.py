@@ -11,7 +11,7 @@ import sys
 
 from test_item_root_reference import State as Item, FIELDS as ITEM_FIELDS
 from test_panel_message_reference import Original as Base
-from test_interaction_animation_reference import signed
+from clip_clock_oracle import signed
 
 ROOT = Path(__file__).resolve().parents[1]
 UI, RETURN = 0x810130, 0xBADF00D

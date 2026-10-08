@@ -13,7 +13,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 import ee_float_model as M
-from test_interaction_animation_reference import Original as Base, bits, number, signed
+from clip_clock_oracle import Original as Base, bits, number, signed
 
 ROOT=Path(__file__).resolve().parents[1]
 RETURN=0xBADF00D

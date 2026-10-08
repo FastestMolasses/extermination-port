@@ -337,7 +337,8 @@ blocks FLOOR.
 section 6.) `em_player_pose` should stop
 owning these routines for the player. It can remain a publisher of channels
 for the interaction runtime until that runtime reads the record, and then
-retire.
+retire. (Done in chain step TAKEOVERS: every takeover runs on the record,
+and EmPlayerPose's takeover entry points are retired.)
 
 The evidence:
 
@@ -426,7 +427,7 @@ its port bookkeeping; every pose operation is now a record operation:
 | the stage advance, idle and script ticks | 001C64F0 (`em_player_stage_anim_advance`) |
 | a legacy re-seed | 00182DF0's 2F3 branch: +20C = 0, 001C63E0 (the opening's end is the stage's own 00182DF0 since chain C8b OPENING) |
 | a script owner's takeover (the stage's own, +4 = 4, chain C7) | 0015BA50's +4 = 4 path: 00183090 (`em_player_stage_commit`: 001C63E0 for a +2F3 of 1 / 3, 001C67E0 for a +1F2 request), then 001C64F0 by +1F4 (`player_pose_stage_advance`) |
-| every takeover release (the stage's 0015B530 and the interaction runtime's release) | 00182DF0 (`em_player_stage_00182DF0`): its nonzero-2F3 branch (+40 = D_0028A580, +20C = D_00248A00[+235], 001C63E0), or against the row default 0017B490: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16); its tail (+4 = 1, 3B8F = 0) |
+| every takeover release (the stage's 0015B530; every owner's since chain step TAKEOVERS) | 00182DF0 (`em_player_stage_00182DF0`): its nonzero-2F3 branch (+40 = D_0028A580, +20C = D_00248A00[+235], 001C63E0), or against the row default 0017B490: a negative +20C or a zero D_00248C90 +0 row requests 00174AB0, then 00174A50(16); its tail (+4 = 1, 3B8F = 0) |
 | the foot-stop begin | 0017B910's anim_eval_skeleton, nodes 17 / 18 at +C0 |
 | every published palette | 0015BCF0's animate step: the node world matrices +90, and the owner matrix +D0 in the model's trailing slot (the identity in actor space) |
 

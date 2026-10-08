@@ -239,7 +239,7 @@ def build_native_pickup():
     lib = out / ('pickup_probe.dylib' if sys.platform == 'darwin' else 'pickup_probe.so')
     owners = ['src/game/em_pickup_items_original.c', 'src/game/em_pickup_owner.c', 'src/game/em_pickup_program.c',
               'src/game/em_script.c', 'src/game/em_interaction_runtime.c',
-              'src/game/em_interaction_frame.c', 'src/game/em_interaction_animation.c']
+              'src/game/em_interaction_frame.c']
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
                     '-shared', '-fPIC', '-Isrc', str(source), *owners,
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)

@@ -19,9 +19,7 @@
 static struct {
     EmPlayerRecordPose record;
     int valid;              /* the record holds an original pose */
-    int acquired;           /* 00174A50 + 00182D70: the takeover owns the player */
-    int script_active;
-    unsigned script_clip;
+    int acquired;           /* 0015B130's admission (+4 = 4): the takeover owns the player */
     unsigned flags;         /* the last advance result (the value 0015BA50 stores to +200) */
     /* 00182DF0 on the record (em_player_stage_00182DF0 with the live
      * stage's workers, bound by em_player_stage_live), and the hook told
@@ -234,7 +232,7 @@ int player_use_poll(void)
 int player_pose_load(const char *bank_path, const char *row0_path)
 {
     em_player_record_pose_free(&source.record);
-    source.started = source.valid = source.acquired = source.script_active = 0;
+    source.started = source.valid = source.acquired = 0;
     source.hip_valid = source.saved_euler_valid = 0;
     source.legacy = 0;
     source.legacy_owner = NULL;
@@ -270,7 +268,7 @@ int player_pose_attach(EmPlayerLiveActor *actor, uint8_t *d8106F3, EmPlayerStage
                        struct EmPlayerStageGlobals *globals)
 {
     int was_started = source.started && source.valid;
-    source.started = source.valid = source.acquired = source.script_active = 0;
+    source.started = source.valid = source.acquired = 0;
     if (em_player_record_pose_attach(&source.record, actor, d8106F3, scene, globals) < 0) {
         source.valid = 0;
         source.legacy = 0;
@@ -529,8 +527,12 @@ int player_pose_stage(void)
 
 int player_pose_stage_hook(void)
 {
+    /* 0 (no owner) or 2 (an owner's takeover, which 0015B130's prelude
+     * performs). A source still held at the +4 = 1 stage has no takeover to
+     * consume it: every hold ends at 0015B530's 00182DF0 or 001B07C0's
+     * re-statement. */
     int consumed = source.stage_hook ? source.stage_hook(source.stage_context) : 0;
-    if (consumed < 0 || consumed > 2 || (player_pose_owned() && consumed != 1)) {
+    if (consumed < 0 || consumed == 1 || consumed > 2 || player_pose_owned()) {
         fprintf(stderr, "player pose: shared player-stage worker failed at frame %d\n", g.frame_no);
         em_frame_request_quit();
         return -1;
@@ -877,42 +879,6 @@ int player_pose_face(float yaw)
     return 1;
 }
 
-int player_pose_acquire(void)
-{
-    /* Host adaptation: a source frozen by a player-driven stand-in (aim, R2,
-     * melee, door, examine, interact) is re-seeded before acquisition
-     * (00182DF0 row default) because it has no channels to blend from.
-     * 00182B30's refusal set (+220<=0, +25F, 0021BB00, D_008106F1,
-     * +1F0 0x3C/0x3D) is NOT modelled. The holds kept for busy original
-     * state (hit machine pd_state==2, sa_req/sa_cur, low-health row) are
-     * refused here exactly as player_pose_legacy_release refuses them, so
-     * acquisition fails explicitly below (0015B610 acquires a hit only for
-     * subs3/1 after 00182B30 admits it; that path is not modelled). */
-    if (source.legacy && source.started && source.valid && !source.acquired)
-        (void)player_pose_legacy_release();
-    /* 00174A50 passes flags 0: an already-idle +20C keeps its cursor. */
-    if (!ordinary_source() || source.acquired || !record_select(0, 0, 8, 0)) {
-        /* Name what actually refused: a still-held source reports the live
-         * blocker, not the (possibly stale) owner that first froze it. */
-        const char *why = !source.started ? "source not started"
-                        : !source.valid ? "source invalidated"
-                        : source.acquired ? "source already acquired"
-                        : !source.legacy ? "original acquire request failed"
-                        : legacy_blocker() ? legacy_blocker()
-                        : "held source did not re-seed";
-        fprintf(stderr, "player pose: cannot acquire the original source: %s%s\n",
-                source.started && source.valid && source.legacy ? "held: " : "", why);
-        return -1;
-    }
-    source.acquired = 1;
-    source.script_active = 0;
-    /* 182D70 publishes readiness immediately. It does not advance the newly
-     * initialized default clip or continue the ordinary movement callback. */
-    g.gait = 0;
-    g.move_speed = 0;
-    return publish_current() ? 1 : -1;
-}
-
 int player_pose_use_accepted_port(void)
 {
     if (!ordinary_source() || source.acquired) return 0;
@@ -933,13 +899,6 @@ int player_pose_use_accepted_port(void)
     source.foot_stop.active = source.foot_display = 0;
     source.idle_handled = 1;
     return publish_current();
-}
-
-int player_pose_idle_tick(float *local_palette)
-{
-    if (!source.acquired || source.script_active || current_clip() != 0 || !record_advance(1))
-        return -1;
-    return record_palette(local_palette) ? 1 : -1;
 }
 
 /* A read-only EE region for the record's pose host (the special bank a
@@ -968,41 +927,6 @@ int player_pose_node_quad(unsigned node, unsigned offset, float out[4])
     return 1;
 }
 
-/* The interaction runtime's per-tick check over the record: its temporal
- * state must be the original source's, and its baked palette is replaced
- * with the source's evaluated one. Call after EVERY scripted animation
- * tick, including the blend1 callback that preserves the palette. */
-int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
-                            float *local_palette)
-{
-    if (player_pose_special_active()) return 0;
-    if (!source.acquired || !animation || !animation->active || (result != 0 && result != 1) ||
-        (animation->current_clip != 0x45 && animation->current_clip != 0x47 &&
-         animation->current_clip != 0x15C &&
-         (animation->current_clip < 0x40 || animation->current_clip > 0x43)))
-        return 0;
-
-    if (!source.script_active || source.script_clip != animation->current_clip) {
-        if (animation->frame != 0 ||
-            !record_select(animation->current_clip, 0, animation->transition ? 1 : 0, 1))
-            return 0;
-        source.script_active = 1;
-        source.script_clip = animation->current_clip;
-        /*00183090 clears the published advance result after initialization;
-         * ordinary749A0/749F0 selection does not own that actor field. */
-        source.flags = 0;
-    } else if (!record_advance(1)) {
-        return 0;
-    }
-
-    /* Do not conceal a missed callback by seeking to a baked frame index. */
-    if (current_remaining() != animation->remaining || source.flags != animation->flags ||
-        !!in_transition() != !!animation->transition)
-        return 0;
-    if (!result) return 1;
-    return record_palette(local_palette);
-}
-
 /* 00182DF0 on the record: the one translation (em_player_stage_00182DF0,
  * bound by em_player_stage_live over the live stage's workers:
  * test_player_stage_workers_reference), then the port's own bookkeeping of
@@ -1021,20 +945,9 @@ static int release_record(void)
                 (int)(int16_t)em_live_u16(a, 0x20C), a->bytes[0x2F3]);
         return 0;
     }
-    source.acquired = source.script_active = 0;
+    source.acquired = 0;
     reset_default_state();
     return 1;
-}
-
-/* The release of a takeover the interaction runtime performs (its release
- * hook, with the selector clear): 00182DF0, then the default pose is
- * published for the runtime's own display. */
-int player_pose_release(void)
-{
-    if (!release_record()) return 0;
-    /* Release follows the consumed script/idle callback. Publish its default
-     * reset now, then let the next ordinary callback advance it exactly once. */
-    return publish_current();
 }
 
 /* 0015B530's 00182DF0 on the stage's own takeover (+4 = 4): the release,
@@ -1070,7 +983,6 @@ int player_pose_takeover_admitted(void)
 {
     if (!source.started || !source.valid || source.acquired) return 0;
     source.acquired = 1;
-    source.script_active = 0;
     g.gait = 0;
     g.move_speed = 0;
     return 1;
@@ -1088,7 +1000,7 @@ int player_pose_takeover_admitted(void)
 int player_pose_takeover_restated(void)
 {
     if (!source.started || !source.acquired) return 0;
-    source.acquired = source.script_active = 0;
+    source.acquired = 0;
     if (source.end_hook && source.end_hook(source.end_context) != 1) {
         fprintf(stderr, "player pose: the takeover's end hook refused the re-stated player\n");
         return -1;

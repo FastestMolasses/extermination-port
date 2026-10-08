@@ -503,8 +503,15 @@ static float rcl_float(uint32_t offset)
     return v;
 }
 
-/* 00182DF0 on the record: the one release (em_player_stage_00182DF0) the
- * runtime's release hook runs, over the pose's own callees, with the row
+/* The player stage's own takeover, composed as em_player.c and
+ * em_player_stage_live.c compose it over the live record (the game's; not
+ * linked here): 0015B130's prelude (em_player_stage_0015B130: 00182B30,
+ * +4 = 4, 00174A50(8.0), 00182D70), 0015BA50's +4 = 4 path (00183090
+ * em_player_stage_commit, the advance through player_pose_stage_advance by
+ * +1F4) and 0015B530 (001837A0 empty; 00182DF0 through
+ * player_pose_stage_release, whose end hook ends the host's token).
+ * 00182DF0 on the record: the one release (em_player_stage_00182DF0), over
+ * the pose's own callees, with the row
  * lookup 0017B490 as em_loco_0017B490 over the record pose's tables
  * (D_008106C8 = 0 for 001B0070). The record's +0x1C is 0 (no link); the
  * special branch's words are the attach's (the bank, 21 nodes). */
@@ -550,6 +557,19 @@ static int release_00174AB0(void *c, EmPlayerLiveActor *a)
     EmPlayerLadderClimb ladder = { &workers, NULL };
     return em_player_ladder_climb_00174AB0(&ladder, a);
 }
+static EmPlayerStageWorkers stage_workers;
+static EmPlayerStageMajor4 stage_major4;
+static EmPlayerStage stage_context;
+static int stage_face(void *c) { (void)c; return em_area11_interaction_host_face_tick_001D0C70(); }
+static int stage_advance_worker(void *c, EmPlayerLiveActor *a, float step, uint32_t *flags)
+{
+    (void)c; (void)a;
+    return player_pose_stage_advance(step, flags);
+}
+static int stage_001837A0(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; return 0; }
+static int stage_unbound(void *c, EmPlayerLiveActor *a) { (void)c; (void)a; return -1; }
+static int stage_00182DF0(void *c, EmPlayerLiveActor *a) { (void)c; return player_pose_stage_release(a); }
+
 static void bind_release(EmPlayerStageScene *stage, EmPlayerStageGlobals *globals)
 {
     memset(&release_loco, 0, sizeof release_loco);
@@ -565,9 +585,53 @@ static void bind_release(EmPlayerStageScene *stage, EmPlayerStageGlobals *global
     c->request = em_pose_host_stage_request;
     c->clip_lookup = release_lookup;
     c->link1C = release_link;
+    c->w001D0C70 = stage_face;
     release_context = (EmPlayerStageRelease){ &release_host, NULL, release_bank, release_nodes, release_a00,
                                               release_c90, release_00174AB0 };
     player_pose_set_release_worker(em_player_stage_00182DF0, &release_context);
+    memset(&stage_workers, 0, sizeof stage_workers);
+    em_player_stage_workers_bind(&stage_workers, &release_host);
+    stage_workers.advance = stage_advance_worker;
+    memset(&stage_major4, 0, sizeof stage_major4);
+    stage_major4.stage = stage;
+    for (int i = 0; i < EM_PLAYER_MAJOR4_COUNT; ++i) stage_major4.routine[i] = stage_unbound;
+    stage_major4.routine[EM_PLAYER_MAJOR4_001837A0] = stage_001837A0;
+    stage_major4.routine[EM_PLAYER_MAJOR4_00182DF0] = stage_00182DF0;
+    stage_workers.major[4] = em_player_stage_0015B530;
+    stage_workers.major_context[4] = &stage_major4;
+    stage_context = (EmPlayerStage){ stage, &stage_workers };
+    player_pose_set_takeover_end_hook(em_area11_interaction_host_staged_released, NULL);
+}
+
+/* One player stage of the fixture: on +4 = 1, 0015BA50's advance, then the
+ * host's hook at 0015B130's prelude position (2 while an owner holds the
+ * token: the prelude admits the player); on +4 = 4, the takeover's path.
+ * The stage's scratch bytes 0x70003B8D / 3B8F are the scene state's.
+ * Returns the hook's result on +4 = 1 (0 or 2), 4 on a held stage, -1 on a
+ * fault. */
+static int player_stage(void)
+{
+    EmSceneState *scene = em_scene_state();
+    EmPlayerStageScene *stage = stage_context.scene;
+    stage->spad3B8D = scene->spad3B8D;
+    stage->spad3B8F = scene->spad3B8F;
+    int result;
+    if (player_record.bytes[4] == 4) {
+        result = em_player_stage_dispatch(&player_record, &stage_workers) < 0 ? -1 : 4;
+    } else {
+        if (player_pose_stage_advance(g.loco_rate, NULL) < 0) return -1;
+        result = player_pose_stage_hook();
+        if (result == 2) {
+            stage->spad3B8D = scene->spad3B8D;
+            if (!player_pose_takeover_prepare() ||
+                em_player_stage_0015B130(&stage_context, &player_record) < 0 ||
+                player_record.bytes[4] != 4 || !player_pose_takeover_admitted())
+                return -1;
+        }
+    }
+    scene->spad3B8F = stage->spad3B8F;
+    scene->spad3B8D = stage->spad3B8D;
+    return result;
 }
 
 static int shared_only_fixture, shared_bank_calls;
@@ -650,6 +714,9 @@ static void setup(int reset_inventory)
     static EmPlayerStageScene stage_scene = { .d8106F1 = &stage_bytes[0] };
     static EmPlayerStageGlobals stage_globals = { .d810707 = &stage_bytes[1] };
     memset(&player_record, 0, sizeof player_record);
+    /* +0x220, the health em_player's vitals view loads (00182B30 refuses a
+     * dead player). */
+    em_live_set_f32(&player_record, 0x220, 100.0f);
     assert(player_pose_load(PLAYER_CLIP_BANK_PATH, PLAYER_CLIP_ROW0_PATH));
     assert(player_pose_attach(&player_record, em_scene_req_at(scene, 0x008106F3u), &stage_scene,
                               &stage_globals));
@@ -764,7 +831,7 @@ static int outer(unsigned pressed)
     memcpy(palette, g.player_palette, sizeof palette); memcpy(position, g.pos, sizeof position);
     EmScript panel_script = em_area11_interaction_host_panel()->program.script;
     EmScript elevator_script = em_area11_interaction_host_elevator()->program.script;
-    EmInteractionAnimation animation = em_area11_interaction_host_shared()->animation;
+    EmPlayerLiveActor record = player_record;
     bridge_status_request();
     int result = em_status_runtime_tick(status, &input);
     em_task_dispatch();
@@ -792,14 +859,14 @@ static int outer(unsigned pressed)
                        sizeof panel_script));
         assert(!memcmp(&elevator_script, &em_area11_interaction_host_elevator()->program.script,
                        sizeof elevator_script));
-        assert(!memcmp(&animation, &em_area11_interaction_host_shared()->animation, sizeof animation));
+        assert(!memcmp(&record, &player_record, sizeof record));
         assert(em_status_runtime_render(status, (EmGfx *)1) == 1);
         unsigned old_triangles = triangles;
         assert(em_status_runtime_render(status, (EmGfx *)1) == 1 && triangles == old_triangles);
         return 1;
     }
     ++g.frame_no;
-    assert(player_pose_stage() >= 0);
+    assert(player_stage() >= 0);
     player_pose_finish_palette();
     EmPanel *panel = &em_area11_interaction_host_panel()->owner;
     int aligning = panel->phase == 0 && (panel->armed & 4);
@@ -1256,7 +1323,9 @@ static void cinematic_face(int no_slot)
     assert(em_status_runtime_pickup_request(em_area11_interaction_host_status(), 1, 0x1B));
     assert(outer(0) == 1);
     memcpy(before, slot, sizeof before);
-    assert(em_area11_interaction_host_player(NULL) == 0);
+    /* The hook only reports the held token (the stage is the takeover's,
+     * and no stage runs in a status frame): no face or body work. */
+    assert(em_area11_interaction_host_player(NULL) == 2);
     assert(!memcmp(before, slot, sizeof before));
     /* Clear this standalone controlled status request via the real page. */
     for (unsigned i = 1; i < 16; ++i) assert(outer(0) == 1); /* 0x21: 10 loader dispatches */

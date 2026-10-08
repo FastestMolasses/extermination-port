@@ -14,7 +14,7 @@ import subprocess
 import sys
 
 from test_panel_message_reference import Original as Base
-from test_interaction_animation_reference import signed
+from clip_clock_oracle import signed
 from test_player_reentry_reference import bits, number
 
 ROOT = Path(__file__).resolve().parents[1]

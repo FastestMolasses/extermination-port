@@ -76,12 +76,13 @@ idle clip 0 preserves the current cursor and pose. A different source clip
 starts the eight-callback transition. The eighth callback restores idle frame
 0; the following callback advances to frame 1.
 
-`em_player_pose_script_tick` is the optional shared runtime pose worker. It must
-run after every `EmInteractionAnimation` callback, including a blend-1 request
-that returns palette result 0. It performs the corresponding raw channel init
-or advance, validates remaining time and flags against the separate temporal
-core, and replaces a published baked palette with the channel-derived palette.
-A missing callback faults instead of silently seeking to a later frame.
+The takeover itself (0015B130's admission, 00183090's commit of a script's
++1F2 request, 0015B530's 00182DF0) runs on the player record for every owner
+since chain step TAKEOVERS (PLAYER_STAGE_WORKERS.md 2.1); `EmPlayerPose` no
+longer has takeover entry points (its acquire / idle tick / release /
+script-tick approximations and the `EmInteractionAnimation` core they
+checked are retired). The rules above and below describe the original
+routines `EmPlayerPose`'s select and advance follow.
 
 Release 00182DF0 tests the original `D00248C90[clip * 6]` halfword. The row is
 zero for 40–42, 47, 15C and 15D, so it first forces 00174AB0 (clip 0, flags 1, blend 0).

@@ -238,18 +238,19 @@ letterbox/projection/audio calls. Its2592 original-instruction cases include
 existing readiness, pending player takeover, release, skip and camera-mode
 branches. It deliberately does not produce player readiness itself.
 
-`em_interaction_runtime` gives panel/elevator adapters one shared owner
-token and connects the verified frame/animation cores at explicit host
-worker boundaries. Successful actual takeover publishes182D70 readiness
-immediately. A blocked takeover remains blocked; absent hooks fault.
-The original001AE040 status branch does not run the ordinary player task,
-so the runtime consumes no animation or acquisition callbacks there.
-After selector release,0015BA50 advances the player before0015B530 calls
-182DF0; the runtime preserves that order and clears ownership only after
-the real release hook succeeds. A finished clip holds its terminal pose.
-The sanitizer test covers competing owners, paused pending commits,
-endpoint hold, blend1 pose preservation and failed release. This is an
-integration contract test, not a second original-instruction oracle.
+`em_interaction_runtime` gives the panel, terminal and item adapters one
+shared owner token and the frame core. Since chain step TAKEOVERS
+(2026-10-08) the takeover is the player stage's own, as for the script
+owners (PLAYER_STAGE_WORKERS.md 2.1): the token makes the next stage's
+0015B130 admit the player (00182D70 publishes readiness), 0015BA50's +4 = 4
+path runs 00183090 and the advance, and 0015B530's 00182DF0 releases the
+player once the selector clears, its end hook ending the token. The
+scripts' op0A is 001B9A00's on the record (sub 0: +1F2 / +1F8 / +1F4; sub 3:
++200 & 0x1000). The original 001AE040 status branch does not run the
+ordinary player task, so no stage runs there. The sanitizer test covers
+competing owners, the record writes and faults; it is an integration
+contract test, not a second original-instruction oracle. (The runtime's own
+acquire / tick / release and its animation core are retired.)
 
 `tools/export_interaction_idle.py` replaces only clip0 with80 frames from
 the original player bank. Confirmation remaining75 corresponds to cursor5,

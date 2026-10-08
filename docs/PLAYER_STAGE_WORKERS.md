@@ -67,12 +67,12 @@ alone elsewhere. A missing
 | Slot | Bound to |
 |---|---|
 | `clip_rate` | D_00248C98 from the local export (`em_player_clip_rates_load`) |
-| `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It advances the record (em_player_record_pose_advance, the record-level `em_player_stage_anim_advance` over the pose host) and returns the +200 flags; on the stage's own takeover (+4 = 4) by the step 0015BA50 passes (+1F4 after 00183090 returned 1); 0 without advancing when a stand-in holds the source or the interaction runtime's takeover owns it. |
+| `advance` | the live display's 001C64F0: `player_pose_stage_advance(step)`, i.e. `em_player_pose_advance` on the pose host's source (the one live translation of anim_advance_time; census row 001C64F0). It advances the record (em_player_record_pose_advance, the record-level `em_player_stage_anim_advance` over the pose host) and returns the +200 flags; on the stage's own takeover (+4 = 4) by the step 0015BA50 passes (+1F4 after 00183090 returned 1); 0 without advancing when a stand-in holds the source. |
 | `commit`, `reaction`, `drain`, `heartbeat`, `scripted_check`, `scripted_notify`, `row_request`, `stop_sound` | the translations (`em_player_stage_workers_bind`) |
 | `major[4]` | `em_player_stage_0015B530`, live on a script owner's takeover since chain C7: 001837A0 bound (the byte-matched C is empty); 00182DF0 bound (`player_pose_stage_release`: the pose host runs `em_player_stage_00182DF0` with `live.release`, then ends the interaction host's token); 001837B0, 001838B0, 00183910 fail-stop (untranslated); 00162DB0 / 00163B40 fail-stop (FLOOR, L02) |
 | `major[6]` | `em_player_stage_0015D460` with the live 001AEDE0 (`em_frame_fade_start_colour(1, a0, a1)`) |
 | `major[1]` / `state[0]` / `state[1]` | set by em_player.c: 0015B130 behind the takeover stand-in (`live_major1`); state[0] / state[1] are 00161020 / 001612D0 from the closure binder behind the port's stand-ins (`live_idle` / `live_walk`, census L12), or the legacy callbacks (`live_port_state`) in the scenes without an original world |
-| `takeover` | `player_pose_stage_hook()`: the AREA11 interaction host at 0015B130's prelude position. 1: the runtime's takeover of the panel, terminal or an item consumed the stage; 2: a script owner's frame, whose takeover the stage performs itself (em_player.c `live_major1` runs 0015B130 and its prelude) |
+| `takeover` | `player_pose_stage_hook()`: the AREA11 interaction host at 0015B130's prelude position. 0: no owner; 2: an owner's frame (the panel, the terminal, an item or a script owner), whose takeover the stage performs itself (em_player.c `live_major1` runs 0015B130 and its prelude); any other result faults |
 | `load` | before every stage: D_008106C8 (request word C8), D_00810701, D_0081083C and D_00810C7E (canonical progress bytes; D_0081083C migrated by L01) and the D_00810707 pointer. D_00810770 is not canonical (L19): the load refuses area 8 room 2, the only place 0021C3F0 reads it |
 
 Callees (`host.callees`):
@@ -109,10 +109,13 @@ them before 0015BA50 and stores them (and +235 bit 0 into g.pd_low) after
 0015BCF0's tail. The port's hit mailbox (em_enemy) is mapped onto the
 pending floats before the stage (em_player_frame.c player_hit_mailbox).
 
-**The takeover (chain C7).** A script owner's frame (the director, Roger,
-the truck trigger, the fence door: `em_area11_script_host`; the interaction
-host marks its token staged) is the stage's own takeover, as in the
-original. The hook returns 2 and `live_major1` runs 0015B130: under
+**The takeover (chain C7; every owner's since chain step TAKEOVERS,
+2026-10-08).** An owner's frame (the director, Roger, the truck trigger, the
+fence door on `em_area11_script_host`; since TAKEOVERS also the panel
+00159210, the terminal 00827B10 and the items 00219550 / 0015AFA0, whose
+Use-scan claim gives the interaction host's token) is the stage's own
+takeover, as in the original. The hook returns 2 and `live_major1` runs
+0015B130: under
 0x70003B8D its prelude admits the player (00182B30 returns 0: +4 = 4, +5 = 0,
 +6 = 0, +1F0 = 0x41, 00174A50(p, 8.0), 00182D70), and the pose host holds
 the source (`player_pose_takeover_admitted`; a port stand-in holding the
@@ -124,18 +127,33 @@ is clear, 00182DF0 releases the player (+4 = 1, 3B8F = 0) and the pose host's
 end hook ends the interaction host's token
 (`em_area11_interaction_host_staged_released`). The level smoke's
 `check_stage_takeover` asserts it on routes 07, 09, 10, 11, 13 and 14 (+4 = 4
-from the admission row to the release row, where 00182DF0's tail holds).
+from the admission row to the release row, where 00182DF0's tail holds) and,
+since TAKEOVERS, on routes 00..04 and the BRANCH takes, the ride up and the
+panel's No. The hook returns nothing else: a result of 1 (the stage
+"consumed" by a takeover outside the stage, the retired interaction-runtime
+path) faults, as does a source still held at a +4 = 1 stage.
 
-The panel, the terminal and the items keep the interaction runtime's
-takeover: its acquire stands in for 00174A50 + 00182D70 on the record (live_major1
-writes the admission's +5 / +6 / +1F0 and runs 00182D70), its per-stage tick
-(their scripts' animation core, em_interaction_animation,
-INTERACTION_ANIMATION.md) for the commit and
-advance, and its release runs the record's 00182DF0 through the same
-translation (`player_pose_release` over the bound release worker); +4 stays 1
-there. On the port's idle/walk under 0x70003B8D without an owner (the
-area-change fade after 001B0C60) 0015B130 does not run: the idle/walk states
-keep those stages.
+The panel's, the terminal's and the items' programs request clips as
+001B9A00 (op0A) does on the record: sub 0 writes +1F2 = the clip (the
+command's +0x14), +1F8 = its +0xC (the blend) and +1F4 = 1.0; sub 3 waits on
++200 & 0x1000, 001C64F0's end flag, which 0015BA50 stores
+(`em_interaction_runtime_animation_start` / `_done` over the live record,
+the host's `player_record` hook). On a changed request 00183090 initialises
+the clip and returns 0, so that stage does not advance; a re-request of the
+current clip keeps its cursor. The original's first end flag after the
+commit stage, from 00183090 + 001C64F0 executed over the source bank
+(tools/clip_clock_oracle.py):
+
+| Request | First end flag (stages after the commit) |
+|---|---|
+| panel 0x15C, blend 0 | 121 |
+| terminal 0x47, blend 1 | 201 |
+| grab 0x40 / 0x41 / 0x42, blend 1 | 46 (45 with blend 0) |
+
+The level smoke compares the record's +1F2, clip and clock with routes
+00..04 row for row (`check_takeover_record`). On the port's idle/walk under
+0x70003B8D without an owner (the area-change fade after 001B0C60) 0015B130
+does not run: the idle/walk states keep those stages.
 
 **Hits outside AREA11.** In AREA11 the +4 = 2 reaction states are bound
 (em_player_closure_live.c). Outside it (no original collision world) a port
@@ -168,7 +186,7 @@ the four readers of the words it loads outside the record (D_0028A580, the
 model's +8 byte through 001C6150, D_00248A00[i], D_00248C90[6 · clip]) and
 the 00174AB0 worker (its one translation is em_player_ladder_climb's). The
 live binder routes it through the pose host (`player_pose_stage_release`),
-which also runs it for the interaction runtime's release. 001837B0,
+the one release of every takeover. 001837B0,
 001838B0 and 00183910 are untranslated.
 
 **The host.**
@@ -376,8 +394,8 @@ Makefile's COMMON list since L01. The live binding is proven by the level
 smoke (its tick log is byte-identical to the pre-L01 build over the six live
 phases), by `EM_STARTUP_TEST=newgame-control` (30 ticks, 9.599989, the
 EM_FRAME_TRACE byte-identical to the pre-L01 build) and by
-`tests/player_states_host_test.c` section 13 (the runtime's takeover, the
-staged takeover's prelude with 00182B30 admitting and refusing, the prelude
+`tests/player_states_host_test.c` section 13 (a hook result of 1 faulting
+since chain step TAKEOVERS, the staged takeover's prelude with 00182B30 admitting and refusing, the prelude
 gate and the vitals view). Since chain C7 the script owners' takeover is the
 stage's own: the level smoke's full route plays it on routes 07, 09, 10, 11,
 13 and 14 (`check_stage_takeover`), its tick log equal to the stand-in's
@@ -426,10 +444,6 @@ gap.
   - the effect and rumble binders;
   - the two object links (+20, +1C);
   - 0015C9D0, 001837B0, 001838B0 and 00183910, which are untranslated.
-- **The panel, terminal and item takeovers** stay the interaction runtime's
-  (their scripts request clips through em_interaction_animation, not the
-  record's +1F2 / 00183090): +4 stays 1 while they hold the player. Their
-  release is the one 00182DF0 translation.
 - **Hits outside AREA11.** Port enemy hits fault in the +4 = 2 reaction
   states, which are bound only in AREA11 (section 2.1).
 - **Scripted hooks.** atan2 is the host model on both sides, as in the floor

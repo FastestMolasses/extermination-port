@@ -34,7 +34,7 @@ int em_area11_interaction_host_load(const char *directory,
  * Loads only common status assets beneath directory; no AREA11 placements,
  * panel/elevator owner, pickup roster or SFX-area selection is installed.
  * map_banks registers loader-delivered banks with the existing player pose
- * host (0 success, -1 failure), before a staged owner claims the player. */
+ * host (0 success, -1 failure), before an owner's claim takes the player. */
 int em_area11_interaction_host_load_shared(const char *directory,
     const EmInteractionMath *math,int (*map_banks)(void *ctx),void *ctx);
 /* A canonical scan armed its winner while selector is still zero. */
@@ -97,17 +97,17 @@ int em_area11_interaction_host_player_face(EmFaceSlot *out);
 /* 001FD950's 001D06E0(player, talking) on that slot. 1, or 0 (latched). */
 int em_area11_interaction_host_face_talk(uint8_t talking);
 
-/* Actual player-stage callback for player_pose_set_stage_hook. Ordinary
- * source advancement already happened when unowned; acquired callbacks
- * advance only inside the shared interaction worker. 2 while a script
- * owner holds the token: its takeover is the stage's own (0015B130's
- * prelude, 0015B530, 00182DF0), which em_player.c then runs. */
+/* Actual player-stage callback for player_pose_set_stage_hook, at
+ * 0015B130's prelude position. 2 while an owner (the panel, the terminal,
+ * an item or a script owner) holds the token: its takeover is the stage's
+ * own (0015B130's prelude, 0015BA50's +4 = 4 path with 00183090, 0015B530,
+ * 00182DF0), which em_player.c then runs. 0 without an owner, -1 latched. */
 int em_area11_interaction_host_player(void *unused);
 /* 001D0C70 for the player stage's 00183090 (0x70003B8F == 2): 001D0720 on
  * the face slot at the player's +0x90. 0, or -1 (latched). */
 int em_area11_interaction_host_face_tick_001D0C70(void);
 /* player_pose_set_takeover_end_hook worker: the stage's 00182DF0 released
- * a script owner's player; its token ends. 1, or -1 (latched). */
+ * the owner's player; its token ends. 1, or -1 (latched). */
 int em_area11_interaction_host_staged_released(void *unused);
 /* player_use_set_hook worker: the Use dispatcher 00160220 over the live
  * record (em_player_closure_live_use_press, with this host's 00184BA0 as its
@@ -203,8 +203,9 @@ int em_area11_interaction_host_frame_event(EmInteractionFrameEvent event);
  * 1 claimed (or already its), -1 refused. */
 int em_area11_interaction_host_claim_script(const void *owner);
 int em_area11_interaction_host_owns(const void *owner);
-/* 1 while a script owner (em_area11_interaction_host_claim_script) holds
- * the shared player takeover, else 0. */
+/* 1 while an owner holds the shared player takeover, else 0. A script
+ * running inside a frame another owner opened runs under that owner's
+ * takeover (0015B130's admission reads 0x70003B8D, not the owner). */
 int em_area11_interaction_host_script_held(void);
 int em_area11_interaction_host_failed(void);
 

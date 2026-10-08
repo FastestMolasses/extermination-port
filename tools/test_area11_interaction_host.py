@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 MODULES = (
     'em_area11_interaction_host em_interaction_alignment em_interaction_projection '
     'em_interaction_scene em_interaction_scan em_interaction_runtime em_interaction_frame '
-    'em_interaction_animation em_player_pose_host em_player_pose em_pose_bank em_pose_transition '
+    'em_player_pose_host em_player_pose em_pose_bank em_pose_transition '
     'em_player_foot_stop em_camera em_camera_rotation em_camera_retarget '
     # The live camera (census L13..L16): the panel script's retarget and the
     # commit run on it (docs/CAMERA_LIVE.md).

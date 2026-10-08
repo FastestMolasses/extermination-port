@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Original wrapper control flow for player pose acquisition and release.
+"""Original wrapper control flow for the player pose's clip request (001749A0),
+clock (001C64F0) and gait base (0017B660). (The takeover's acquisition and
+release, 00174A50 / 00182DF0, are the player stage's on the record since
+audit 1b item 8: test_player_stage_workers_reference.)
 
 The initializer remains an explicit ordered call boundary here. Separate pose
 oracles cover its channel operations and captured idle channels. This test also
@@ -12,7 +15,7 @@ import subprocess
 import tempfile
 
 from test_pose_transition_reference import Original as Base, bits, number, signed
-from test_interaction_animation_reference import Original as Clock, NODE
+from clip_clock_oracle import Original as Clock, NODE
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR, RETURN = 0x600000, 0xBADF00D
@@ -112,8 +115,6 @@ static EmPlayerPose pose;
 int load(const char *path) { return em_pose_bank_load(&bank, path); }
 void close_bank(void) { em_pose_bank_free(&bank); }
 int start(unsigned clip, float frame) { return em_player_pose_init(&pose, &bank, clip, frame); }
-int acquire(void) { return em_player_pose_acquire(&pose); }
-int release(void) { pose.acquired = 1; return em_player_pose_release(&pose); }
 int select_clip(unsigned clip, unsigned blend, int force) {
     return em_player_pose_select(&pose, clip, 0, blend, force);
 }
@@ -152,24 +153,6 @@ def main():
         native.state.argtypes = [C.POINTER(C.c_uint)]
         assert native.load(str(ROOT / 'assets/player_channels.empc').encode())
         output = (C.c_uint * 4)()
-        for clip in CLIPS:
-            for release in (False, True):
-                original = Original(elf)
-                original.put(ACTOR + 0x20C, clip, 2)
-                original.put(ACTOR + 0x235, 0, 1)
-                original.run(0x182DF0 if release else 0x174A50, floats=() if release else (8,))
-                assert native.start(clip, 5)
-                assert (native.release if release else native.acquire)()
-                native.state(output)
-                assert output[0] == original.get(ACTOR + 0x20C, 2) == 0
-                if original.calls:
-                    requested, blend, frame = original.calls[-1]
-                    assert requested == 0 and frame == 0
-                    assert output[1] == bool(blend)
-                    assert output[2] == bits(blend or 80)
-                else:
-                    assert list(output) == [0, 0, bits(75), 0]
-                checks += 1
         for _ in range(200):
             old, requested = randomizer.choice(CLIPS), randomizer.choice(CLIPS)
             force, blend = randomizer.randrange(2), randomizer.choice((0, 1, 8, 16))
@@ -237,7 +220,7 @@ def main():
         assert original.run(0x128250, (), (value,)) == int(value)
         checks += 1
     print('player pose original wrapper PASS', checks,
-          'conditional init/release/source-frame conversions')
+          'conditional init/clock/gait/source-frame conversions')
 
 
 if __name__ == '__main__':

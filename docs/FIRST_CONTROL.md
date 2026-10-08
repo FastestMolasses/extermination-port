@@ -353,10 +353,10 @@ What the layer does once engaged:
     the original's positions (+34, or +1F4 after 00183090 for +4 = 4 with
     +5 = 0/0x17), then the +4 handler. The advance is the live display's
     001C64F0 (`player_pose_stage_advance`). +4 = 1 is the translated
-    0015B130 (the interaction runtime's takeover of the panel, terminal or
-    an item consumes the stage there while it owns the player; a script
-    owner's frame runs 0015B130's own prelude, whose admission sets +4 = 4,
-    chain C7), +4 = 2 the translated
+    0015B130 (an owner's frame, the panel's, the terminal's and the
+    items' since chain step TAKEOVERS and the script owners' since chain
+    C7, runs 0015B130's own prelude, whose admission sets +4 = 4), +4 = 2
+    the translated
     0015B770, 4 is 0015B530, 5 is `em_player_stage_0015B610` (entered only
     by 001B07C0(1)'s arrival walk-out at the fence door's side 1,
     DOOR_ORIGINAL.md "Side 1") and 6 is `em_player_stage_0015D460`. The port's
@@ -587,11 +587,10 @@ mechanism still lacks; in AREA11 it lacks nothing):
   001EF9D0 node view is not bound, and only the hit and death paths call it
   (EFFECT_MANAGER.md 8.2).
 - **Stand-ins that remain.**
-  - The interaction runtime still stands in for the takeover of the panel,
-    the terminal and the items (0015B130's prelude writes on admission,
-    PLAYER_USE_DISPATCH.md section 4). A script owner's frame (the
+  - No longer a stand-in: the takeover. A script owner's frame (the
     director, Roger, the truck trigger, the fence door) is the stage's own
-    takeover since chain C7 (PLAYER_STAGE_WORKERS.md "The takeover").
+    takeover since chain C7, the panel's, the terminal's and the items'
+    since chain step TAKEOVERS (PLAYER_STAGE_WORKERS.md "The takeover").
   - No longer stand-ins: D_008106A0 is read from the live camera block
     (`em_camera_live_bytes`, census L13), and idle / walk are 00161020 /
     001612D0 (em_locomotion_display, census L12).
@@ -754,9 +753,8 @@ the captures):
     clip end hands back to the port's idle;
   - fail-stop, and the adapters refusing unbound workers;
   - (L01) 0015B130 around the port's idle callback on every +4 = 1 stage;
-    the runtime's takeover consuming a stage at the prelude position (begin,
-    end and 0015BCF0's writes still run; its 3B8F store survives); a script
-    owner's frame running 0015B130's prelude (00182B30 admitting: +4 = 4,
+    a takeover hook result of 1 faulting (since chain step TAKEOVERS no
+    takeover consumes a stage); an owner's frame running 0015B130's prelude (00182B30 admitting: +4 = 4,
     00174A50, 00182D70; refusing: the tick runs); the
     idle under 0x70003B8D without that owner keeping the port's callback;
     the vitals view (pending damage in, the +20E countdown and +220 out).

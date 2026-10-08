@@ -9,15 +9,12 @@ static int fault(EmInteractionRuntime *runtime)
 }
 
 int em_interaction_runtime_init(EmInteractionRuntime *runtime, EmInteractionFrame *frame,
-                                const EmModel *model, float *local_palette,
                                 const EmInteractionRuntimeHooks *hooks)
 {
-    if (!runtime || !frame || !model || !model->bone_count || !local_palette || !hooks)
+    if (!runtime || !frame || !hooks)
         return 0;
     memset(runtime, 0, sizeof *runtime);
     runtime->frame = frame;
-    runtime->model = model;
-    runtime->local_palette = local_palette;
     runtime->hooks = *hooks;
     return 1;
 }
@@ -25,8 +22,7 @@ int em_interaction_runtime_init(EmInteractionRuntime *runtime, EmInteractionFram
 int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owner)
 {
     if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
-        runtime->frame->selector || runtime->frame->ready || runtime->frame->player_ready ||
-        runtime->acquired)
+        runtime->frame->selector || runtime->frame->ready || runtime->frame->player_ready)
         return 0;
     runtime->owner = owner;
     runtime->frame->selector = 3;
@@ -36,46 +32,17 @@ int em_interaction_runtime_claim(EmInteractionRuntime *runtime, const void *owne
 int em_interaction_runtime_claim_scripted(EmInteractionRuntime *runtime, const void *owner)
 {
     if (!runtime || !owner || runtime->failed || !runtime->frame || runtime->owner ||
-        !runtime->frame->selector || runtime->frame->player_ready || runtime->acquired)
+        !runtime->frame->selector || runtime->frame->player_ready)
         return 0;
     runtime->owner = owner;
-    runtime->staged = 1;
     return 1;
 }
 
-int em_interaction_runtime_stage_owner(EmInteractionRuntime *runtime, const void *owner)
+int em_interaction_runtime_release(EmInteractionRuntime *runtime)
 {
-    if (!em_interaction_runtime_owns(runtime, owner) || runtime->acquired || runtime->frame->player_ready)
-        return 0;
-    runtime->staged = 1;
-    return 1;
-}
-
-int em_interaction_runtime_staged_release(EmInteractionRuntime *runtime)
-{
-    if (!runtime || runtime->failed || !runtime->owner || !runtime->staged || runtime->acquired)
+    if (!runtime || runtime->failed || !runtime->owner)
         return 0;
     runtime->owner = NULL;
-    runtime->staged = 0;
-    em_interaction_animation_clear(&runtime->animation);
-    return 1;
-}
-
-int em_interaction_runtime_set_pose_worker(EmInteractionRuntime *runtime,
-                                           EmInteractionPoseWorker worker)
-{
-    if (!runtime || runtime->failed || runtime->owner)
-        return 0;
-    runtime->pose_worker = worker;
-    return 1;
-}
-
-int em_interaction_runtime_set_cinematic_player_worker(EmInteractionRuntime *runtime,
-    EmInteractionCinematicPlayerWorker worker)
-{
-    if (!runtime || runtime->failed || runtime->owner)
-        return 0;
-    runtime->cinematic_player_worker = worker;
     return 1;
 }
 
@@ -91,7 +58,7 @@ const void *em_interaction_runtime_owner(const EmInteractionRuntime *runtime)
 
 int em_interaction_runtime_camera_owned(const EmInteractionRuntime *runtime)
 {
-    /*0018B9C0 top1/2 publishes the existing vectors instead of running the
+    /* 0018B9C0 top 1/2 publishes the existing vectors instead of running the
      * ordinary solver. Retain that ownership even if a host worker faults. */
     return runtime && runtime->owner && runtime->frame &&
            (runtime->frame->camera_top == 1 || runtime->frame->camera_top == 2);
@@ -123,84 +90,38 @@ int em_interaction_runtime_camera_retarget(EmInteractionRuntime *runtime, const 
     return 1;
 }
 
+static uint8_t *player_record(EmInteractionRuntime *runtime)
+{
+    return runtime->hooks.player_record ? runtime->hooks.player_record(runtime->hooks.context) : NULL;
+}
+
 int em_interaction_runtime_animation_start(EmInteractionRuntime *runtime, const void *owner,
                                            uint16_t clip, float rate, float blend)
 {
     if (!em_interaction_runtime_owns(runtime, owner))
         return 0;
-    if (!runtime->frame->player_ready ||
-        !em_interaction_animation_request(&runtime->animation, runtime->model, clip, rate, blend)) {
+    uint8_t *p = player_record(runtime);
+    if (!runtime->frame->player_ready || !p || rate != 1.0f) {
         fault(runtime);
         return 0;
     }
+    /* 001B9A00 sub 0: +1F2 = the script record's +0x14 halfword, +1F8 = its
+     * +0xC word, +1F4 = 0x3F800000. The stage's 00183090 commits it. */
+    const uint32_t one = 0x3F800000u;
+    memcpy(p + 0x1F2, &clip, 2);
+    memcpy(p + 0x1F8, &blend, 4);
+    memcpy(p + 0x1F4, &one, 4);
     return 1;
 }
 
-int em_interaction_runtime_animation_done(const EmInteractionRuntime *runtime, const void *owner)
+int em_interaction_runtime_animation_done(EmInteractionRuntime *runtime, const void *owner)
 {
-    return em_interaction_runtime_owns(runtime, owner)
-               ? em_interaction_animation_done(&runtime->animation)
-               : -1;
-}
-
-int em_interaction_runtime_player_tick(EmInteractionRuntime *runtime, int ordinary_tasks_enabled)
-{
-    if (!runtime || runtime->failed)
+    if (!em_interaction_runtime_owns(runtime, owner))
         return -1;
-    if (!ordinary_tasks_enabled || !runtime->owner || runtime->staged)
-        return 0;
-    EmInteractionFrame *frame = runtime->frame;
-    EmInteractionRuntimeHooks *hooks = &runtime->hooks;
-    if (!frame->player_ready && !runtime->acquired) {
-        if (!frame->selector || !hooks->acquire_player)
-            return fault(runtime);
-        int acquired = hooks->acquire_player(hooks->context);
-        if (acquired < 0 || acquired > 1)
-            return fault(runtime);
-        if (!acquired)
-            return 0;
-        frame->player_ready = 1;
-        runtime->acquired = 1;
-        /*0015B130 acquires after the ordinary advance on this callback.
-         * Advancing the newly acquired default clip here would add a tick. */
-        return 1;
-    }
-    /* 0015BA50's +4 == 4 runs 00183090, which reads 3B8F only for == 2;
-     * with 3B8F cleared under the held player (001AFCF0) it is the plain
-     * tick, and 0015B530 releases on the cleared 3B8D below. */
-    const unsigned ready = frame->player_ready ? frame->player_ready : 1;
-    if (ready != 1 && ready != 2)
+    uint8_t *p = player_record(runtime);
+    if (!p)
         return fault(runtime);
-    int palette_result;
-    if (ready == 2) {
-        /* The face attachment has its own required update before body
-         * animation. Absence of that worker cannot fall back to ordinary idle. */
-        if (!runtime->cinematic_player_worker)
-            return fault(runtime);
-        palette_result = runtime->cinematic_player_worker(hooks->context, runtime->local_palette);
-    } else if (runtime->animation.active)
-        palette_result = em_interaction_animation_tick(&runtime->animation, runtime->model,
-                                                       runtime->local_palette);
-    else if (hooks->idle_player_tick)
-        palette_result = hooks->idle_player_tick(hooks->context, runtime->local_palette);
-    else
-        return fault(runtime);
-    if (palette_result < 0 || palette_result > 1)
-        return fault(runtime);
-    if (ready == 1 && runtime->animation.active && runtime->pose_worker &&
-        runtime->pose_worker(hooks->context, &runtime->animation, palette_result,
-                             runtime->local_palette) != 1)
-        return fault(runtime);
-    if (palette_result && (!hooks->publish_palette ||
-                           hooks->publish_palette(hooks->context, runtime->local_palette) != 1))
-        return fault(runtime);
-    if (!frame->selector) {
-        if (!hooks->release_player || hooks->release_player(hooks->context) != 1)
-            return fault(runtime);
-        frame->player_ready = 0;
-        runtime->acquired = 0;
-        em_interaction_animation_clear(&runtime->animation);
-        runtime->owner = NULL;
-    }
-    return 1;
+    uint32_t flags;
+    memcpy(&flags, p + 0x200, 4);
+    return (flags & 0x1000) != 0;
 }

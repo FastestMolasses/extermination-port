@@ -1,7 +1,7 @@
 #ifndef EM_PLAYER_POSE_H
 #define EM_PLAYER_POSE_H
 
-#include "game/em_interaction_animation.h"
+#include "em_model.h"
 #include "game/em_pose_bank.h"
 
 /* The source state is the original base clip's channels. A displayed blend
@@ -14,9 +14,6 @@ typedef struct {
     float reset_frame;
     unsigned flags;
     int valid;
-    int acquired;
-    int script_active;
-    unsigned script_clip;
 } EmPlayerPose;
 
 /* Seed only from an explicit, recovered original clip/source frame. The bank
@@ -36,21 +33,6 @@ int em_player_pose_advance(EmPlayerPose *pose, float rate, int freeze_motion);
  * The adjacent-tier display blend is separate; when blend <1 the original
  * restores base-clip channels at its integer source cursor. */
 int em_player_pose_gait_base(EmPlayerPose *pose, unsigned tier, unsigned substate, float blend);
-
-/* 0015B130 -> 00174A50 -> 00182D70. The host has already advanced the old
- * source this callback. Readiness is immediate; this consumes no idle tick. */
-int em_player_pose_acquire(EmPlayerPose *pose);
-int em_player_pose_idle_tick(EmPlayerPose *pose, float *local_palette, unsigned palette_bones);
-/* 00182DF0, limited to the exported healthy first-level clip row. Release
- * from40..42/47/15C forces idle with blend0; other clips follow table flags. */
-int em_player_pose_release(EmPlayerPose *pose);
-
-/* Optional EmInteractionRuntime pose worker. Call after EVERY scripted
- * animation tick, including the blend1 callback that preserves the palette.
- * Validate its temporal state and replace published baked palettes with the
- * corresponding original channels. The existing timing core remains intact. */
-int em_player_pose_script_tick(EmPlayerPose *pose, const EmInteractionAnimation *animation,
-                               int palette_result, float *local_palette, unsigned palette_bones);
 
 /* Actor-local hierarchy for the verified player skeleton:21 original nodes
  * plus its trailing identity palette slot. No owner placement is applied.

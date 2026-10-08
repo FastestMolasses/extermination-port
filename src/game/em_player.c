@@ -348,7 +348,6 @@ static struct {
     int busy_known;
     uint8_t loaded3B8F;           /* 3B8F as the scene view last loaded it */
     uint8_t loaded3B8D;           /* 3B8D as the scene view last loaded it */
-    int consumed;                 /* this stage: the interaction runtime's takeover owned it */
     int port_ran;                 /* this stage: a port callback (legacy idle/walk or a stand-in) ran */
     /* The next stage is 0015BA50's +4 = 0 call (player_states_stage_rebuild):
      * its switch runs 0015C420 alone. */
@@ -598,7 +597,7 @@ void player_states_bind(const EmPlayerStatesBinding *binding)
 void player_states_bind_display(int bound) { live.display = bound != 0; }
 int player_states_record_display(void)
 {
-    return live.display && (live.consumed || !live.port_ran);
+    return live.display && !live.port_ran;
 }
 void player_states_bind_use_chain(int bound) { live.use_chain = bound != 0; }
 const EmPlayerLiveActor *player_states_actor(void) { return &live.a; }
@@ -1068,28 +1067,26 @@ static int live_walk(void *context, EmPlayerLiveActor *a)
 
 /* 0015BA50's +4 = 1 entry, with the AREA11 interaction host at 0015B130's
  * prelude position (player_pose_stage_hook):
- *  - 2: a script owner's frame (the director, Roger, the truck trigger, the
- *    fence door; em_area11_script_host): its takeover is the stage's own.
+ *  - 2: an owner holds the token (the panel, the terminal or an item since
+ *    audit 1b item 8; the director, Roger, the truck trigger, the fence
+ *    door on em_area11_script_host): its takeover is the stage's own.
  *    0015B130 runs; under 0x70003B8D its prelude admits the player (00182B30
  *    returns 0: +4 = 4, +5 = 0, +6 = 0, +1F0 = 0x41, 00174A50(p, 8.0),
  *    00182D70), and from the next stage 0015BA50's +4 = 4 path runs
- *    00183090 and the advance, then 0015B530 (+5 0: 001837A0; 0x70003B8D
- *    clear: 00182DF0, which releases the player and ends the token).
- *  - 1: the runtime's takeover of the panel, the terminal or an item (their
- *    scripts' animation core, em_interaction_animation): it consumed the
- *    stage in place of +4 = 4 (its acquire stands in for 00174A50 +
- *    00182D70 on the record, its tick for the commit and advance, its
- *    release runs the record's 00182DF0), and 0015B130 does not run.
+ *    00183090 (the owner's scripts request clips through the record's
+ *    +1F2 / +1F4 / +1F8, 001B9A00) and the advance into +200, then 0015B530
+ *    (+5 0: 001837A0; 0x70003B8D clear: 00182DF0, which releases the player
+ *    and ends the token).
  *  - 0: 0015B130 runs, except on the idle/walk states under 0x70003B8D
  *    without an owner (the area-change fade after 001B0C60): the idle/walk
  *    states keep those stages as before L01 (the prelude's admission there
- *    would lead to 0015B530 with no owner's frame to end it). */
+ *    would lead to 0015B530 with no owner's frame to end it).
+ *  Nothing else consumes a stage: any other hook result faults. */
 static int live_major1(void *context, EmPlayerLiveActor *a)
 {
     if (live.b.takeover) {
-        const uint8_t before3B8F = live.scene.spad3B8F;
         int consumed = live.b.takeover(live.b.takeover_context);
-        if (consumed < 0 || consumed > 2) return -1;
+        if (consumed != 0 && consumed != 2) return -1;
         /* The takeover stores 3B8D / 3B8F (its frame view): reload. */
         live.busy_known = live_scene_load();
         live.loaded3B8F = live.scene.spad3B8F;
@@ -1103,34 +1100,6 @@ static int live_major1(void *context, EmPlayerLiveActor *a)
             /* The prelude admitted the player (+4 = 4): the source is the
              * takeover's until 0015B530's 00182DF0. */
             if (major != 4 && em_live_u8(a, 4) == 4 && !player_pose_takeover_admitted()) return -1;
-            return 0;
-        }
-        if (consumed) {
-            /* The prelude that admits the owner's script writes +4 = 4,
-             * +5 = 0, +6 = 0 and +1F0 = 0x41 (0015B130's general branch at
-             * the 00182B30 admission, the stage whose 00182D70 sets 3B8F =
-             * 1): after a scan winner's hand-off (00160220 left +5 = 0x25;
-             * route 04 shows +5 = 0 / +1F0 = 0x41 on the frame after the
-             * scan). 0015B130's ladder (+5 0x19) and +1F0 0x2A / 0x17
-             * branches write other values and are not reached by an
-             * admission here. The runtime consumes the stage in place of
-             * +4 = 4; its release ran the record's 00182DF0 (+4 = 1, +5 =
-             * 0, +6 = 0, +1F0 = 0). */
-            const int admitted = before3B8F == 0 && live.scene.spad3B8F != 0 &&
-                                 em_live_u8(a, 5) != 0x19 && em_live_u8(a, 0x1F0) != 0x2A &&
-                                 em_live_u8(a, 0x1F0) != 0x17;
-            if (em_live_u8(a, 4) == 1 && (em_live_u8(a, 5) == 0x25 || admitted)) {
-                em_live_set_u8(a, 5, 0);
-                em_live_set_u8(a, 6, 0);
-                em_live_set_u8(a, 0x1F0, 0x41);
-                /* The admission's 00182D70 after 00174A50 (0015B130's
-                 * general branch): +0x1F2 = +0x20C, +0x1F4 = 1.0, +0x1F8 =
-                 * 0, +0x2F3 = 0 and its other clears. */
-                if (!live.b.stage.scripted_notify ||
-                    live.b.stage.scripted_notify(live.b.stage.context, a) < 0)
-                    return -1;
-            }
-            live.consumed = 1;
             return 0;
         }
     }
@@ -1155,7 +1124,7 @@ static void stage_position_publish(void)
     memcpy(live.a.bytes + 0xA0, live.a.bytes + 0xB0, 16);
 }
 
-int player_states_stage(void)
+void player_states_stage(void)
 {
     if (!live.initialised) player_states_reset();
     static int reported;
@@ -1164,12 +1133,12 @@ int player_states_stage(void)
         reported = 1;
         player_states_report(stderr);
     }
-    if (!stage_engaged()) return 0;
+    if (!stage_engaged()) return;
     /* 0015BCF0's first store: the scratchpad word 0x700031F0 = 0 (its one
      * storage is the AREA11 boxes' carry word, which the truck sets later in
      * the frame and the camera frame reads). */
     *em_area11_boxes_carry31F0() = 0;
-    live.consumed = live.port_ran = 0;
+    live.port_ran = 0;
     /* While the takeover holds the player (00174A50 + 00182D70 acquired it)
      * the record is the scripted owner's: the port's idle/walk mirrors are
      * not loaded over +1F0 and its neighbours (the admission's +1F0 = 0x41
@@ -1189,7 +1158,7 @@ int player_states_stage(void)
     live.loaded3B8D = live.scene.spad3B8D;
     if (live.b.load && live.b.load(live.b.load_context) < 0) {
         live_fault("the stage workers' scene view is not available");
-        return 0;
+        return;
     }
     /* +20C, +2C, +3C and the node records are the pose's own storage (the
      * record is the one pose owner since the display step, em_player_pose_host.c):
@@ -1197,7 +1166,7 @@ int player_states_stage(void)
     /* 0015BA50 before its switch, the switch, then its tail. */
     if (em_player_stage_begin(&live.a, &live.scene, &live.b.stage) < 0) {
         live_fault("0015BA50 D_00248C98 worker fault");
-        return 0;
+        return;
     }
     if (live.rebuild) {
         /* 0015BA50's switch with +4 = 0 (the first stage after the
@@ -1212,14 +1181,14 @@ int player_states_stage(void)
         live.rebuild = 0;
     } else if (em_player_stage_dispatch(&live.a, &live.b.stage) < 0) {
         live_fault("player stage worker or state callback fault");
-        return 0;
+        return;
     }
-    if (!live.consumed && !live.port_ran && loco_live()) {
+    if (!live.port_ran && loco_live()) {
         /* A translated routine owned the stage (00161020 / 001612D0 or
          * another state callback, 0021C440's reaction, the +4 = 4 / 6
          * handlers): the port takes its placement. */
         port_from_live_position();
-    } else if (!live.consumed && !live.port_ran) {
+    } else if (!live.port_ran) {
         /* A translated routine owned the stage (a state callback, 0021C440's
          * reaction, the +4 = 4 / 6 handlers): the port takes its placement. */
         port_from_live_position();
@@ -1246,7 +1215,7 @@ int player_states_stage(void)
     }
     if (em_player_stage_end(&live.a, &live.scene) < 0) {
         live_fault("0015BA50 D_008106F1/D_00810CB6 not bound");
-        return 0;
+        return;
     }
     /* 0015B130 / 00182D70 write 0x70003B8F through the stage's view. */
     if (live.scene.spad3B8F != live.loaded3B8F) em_scene_state()->spad3B8F = live.scene.spad3B8F;
@@ -1256,14 +1225,14 @@ int player_states_stage(void)
     for (unsigned axis = 0; axis < 3; ++axis) em_live_set_f32(&live.a, 0xB0 + 4 * axis, g.pos[axis]);
     if (em_player_stage_tail(&live.a, &live.b.stage) < 0) {
         live_fault("0011A070 worker fault");
-        return 0;
+        return;
     }
     /* 0015BCF0's 0015CBA0: the state byte +1F0 -> the action code +230 the
      * camera dispatches on (em_camera_leftovers' translation; it reads +1F0,
      * +1F1, +236 and +0D, none of which the tail writes). */
     if (em_camleft_0015CBA0(&live.a) < 0) {
         live_fault("0015CBA0 fault");
-        return 0;
+        return;
     }
     /* 0015BCF0's animate step (after +BC = 1.0, which the tail writes; the
      * -200 check and the loop-sound stop touch none of its inputs): the
@@ -1271,7 +1240,7 @@ int player_states_stage(void)
     em_live_set_f32(&live.a, 0xC4, g.yaw);
     if (player_pose_animate() < 0) {
         live_fault("0015BCF0 skeleton evaluation fault");
-        return 0;
+        return;
     }
     /* 0015BCF0's 00187350 after the evaluation (its 0015CF90 runs in
      * em_player_0015BCF0; neither reads what the other writes): the step
@@ -1279,12 +1248,11 @@ int player_states_stage(void)
      * mailbox and nodes 17 / 18 (census L12). */
     if (loco_live() && em_player_closure_live_footstep(&live.a) < 0) {
         live_fault("00187350 worker fault");
-        return 0;
+        return;
     }
     stage_position_publish();
     if (em_live_u8(&live.a, 4) != 1) port_park();
     vitals_store();
-    return live.consumed;
 }
 
 /* The callback tail. `walk` names the callback that ran: the walk callback

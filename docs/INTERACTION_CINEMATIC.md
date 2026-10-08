@@ -33,5 +33,5 @@ its body-animation request logic. A separate op0A command changes the body
 bank/mode; calling ready 2 an alternate body skeleton was inaccurate. Live, a
 script owner's takeover runs 00183090 as `em_player_stage_commit` (chain C7,
 PLAYER_STAGE_WORKERS.md), with 001D0C70 = the interaction host's face tick
-when 3B8F == 2. The interaction runtime no longer rejects ready 2: it runs its
-cinematic player worker and faults without one.
+when 3B8F == 2. Since chain step TAKEOVERS every takeover runs it there (the
+interaction runtime's own cinematic player worker is retired).

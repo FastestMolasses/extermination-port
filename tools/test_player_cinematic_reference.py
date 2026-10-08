@@ -167,23 +167,22 @@ SANITIZER_MAIN = r'''
 #include <stdio.h>
 static EmInteractionRuntime runtime;
 static int frame_host(void *p,EmInteractionFrameEvent event){(void)p;(void)event;return 1;}
-static int end_runtime(void){return em_interaction_runtime_staged_release(&runtime);}
+static int end_runtime(void){return em_interaction_runtime_release(&runtime);}
 int main(void) {
     FILE *f=fopen(BANK_FILE,"rb");assert(f);
     static uint8_t bank[BANK_SIZE];
     assert(!fseek(f,BANK_OFFSET,SEEK_SET) && fread(bank,1,sizeof bank,f)==sizeof bank);fclose(f);
     assert(setup(bank,sizeof bank));
-    EmInteractionFrame frame={0};float palette[22*16];int owner=0;
-    EmInteractionRuntimeHooks hooks={NULL,NULL,NULL,NULL,NULL,frame_host,NULL};
-    assert(em_interaction_runtime_init(&runtime,&frame,&g.model,palette,&hooks));
-    /* A script owner's token (its op07 opened the frame): staged. The
-     * runtime takes nothing; the stage performs the takeover. */
+    EmInteractionFrame frame={0};int owner=0;
+    EmInteractionRuntimeHooks hooks={NULL,frame_host,NULL,NULL};
+    assert(em_interaction_runtime_init(&runtime,&frame,&hooks));
+    /* A script owner's token (its op07 opened the frame). The runtime holds
+     * only the token; the stage performs the takeover. */
     frame.selector=2;
-    assert(em_interaction_runtime_claim_scripted(&runtime,&owner) && runtime.staged);
+    assert(em_interaction_runtime_claim_scripted(&runtime,&owner));
     assert(request(.5f));
-    unsigned before[16]={0},after[16]={0};snapshot(before);
-    for(unsigned i=0;i<120;++i)assert(em_interaction_runtime_player_tick(&runtime,1)==0);
-    snapshot(after);assert(!memcmp(before,after,sizeof before) && runtime.owner==&owner);
+    unsigned after[16]={0};snapshot(after);
+    assert(runtime.owner==&owner);
     for(unsigned i=0;i<1388;++i)assert(advance(after));
     assert(routine_calls==1388 && em_live_u32(&actor,0x200)&0x1000 && !face_ticks);
     /* The selector clears: the next stage's 0015BA50 commits and advances,
@@ -191,13 +190,13 @@ int main(void) {
     end_extra=end_runtime;
     frame.selector=0;stage_scene.spad3B8D=0;
     assert(em_player_stage_dispatch(&actor,&workers)==0);
-    assert(!runtime.owner && !runtime.staged && !player_pose_owned() && end_calls==1);
+    assert(!runtime.owner && !player_pose_owned() && end_calls==1);
     assert(actor.bytes[4]==1 && !actor.bytes[5] && !actor.bytes[0x1F0] && !stage_scene.spad3B8F);
     assert(!player_pose_special_active() && em_live_u32(&actor,0x40)==EM_PLAYER_POSE_BANK_ADDRESS);
     assert(current_clip()==0 && playback_remaining()==80);
     assert(player_pose_stage()==0 && playback_remaining()==79);
     cleanup();
-    puts("Actual bank96 player on the stage's own takeover, staged token and release ASan/UBSan PASS");
+    puts("Actual bank96 player on the stage's own takeover, the owner token and release ASan/UBSan PASS");
 }
 '''
 
@@ -309,7 +308,7 @@ def main():
                     '-Werror', '-fsanitize=address,undefined', '-Isrc', str(fixture),
                     *['src/game/'+name+'.c' for name in ('em_player_pose', 'em_pose_bank',
                        'em_pose_transition', 'em_player_foot_stop', 'em_camera_rotation',
-                       'em_interaction_runtime', 'em_interaction_frame', 'em_interaction_animation',
+                       'em_interaction_runtime', 'em_interaction_frame',
                        'em_script', 'em_effect_original') + RECORD_POSE], 'src/em_model.c', '-o', str(executable)], cwd=ROOT, check=True)
     subprocess.run([str(executable)], cwd=ROOT, check=True)
     report = {'original_request_checks': 1, 'original_player_clock_callbacks': comparisons,

@@ -1031,13 +1031,15 @@ static void log_tick_end(int rc)
          * it (route_capture.py): +5, +1F0, +1F1, the clip +20C, the clock
          * +3C (float bits) and the ground owner +214 (its original record
          * address; 0 none); then +0x2F3 and +4 (the takeover's +4 = 4,
-         * which the route rows do not sample). */
+         * which the route rows do not sample), and the clip request +1F2
+         * (the rows' req1F2: 001B9A00 sub 0 writes it, 00183090 commits
+         * it). */
         const EmPlayerLiveActor *a = player_states_actor();
         uint32_t clock = em_live_u32(a, 0x3C);
         uint32_t ground = a->link_owner ? em_actor_pool_address(&s_pool, (const EmActor *)a->link_owner) : 0;
-        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u, %u]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
+        fprintf(f, ", \"player\": [%u, %u, %u, %d, %u, %u, %u, %u, %d]", em_live_u8(a, 5), em_live_u8(a, 0x1F0),
                 em_live_u8(a, 0x1F1), (int)(int16_t)em_live_u16(a, 0x20C), clock, ground, em_live_u8(a, 0x2F3),
-                em_live_u8(a, 4));
+                em_live_u8(a, 4), (int)(int16_t)em_live_u16(a, 0x1F2));
         /* The player's equipment links: +0x18 (0015C420's knife node) and
          * +0x20 (0015C310's gun node), original record addresses.
          * tools/test_level_smoke.py check_effects. */

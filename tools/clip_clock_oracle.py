@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""Run original clip request/initialization/clock instructions against native C.
+"""The original player-record clip clock: 00183090 (the stage's commit of
+the record's +1F2 / +1F4 / +1F8 request) and 001C64F0 (anim_advance_time
+into +200), executed from the owner's ELF over a record and a source bank.
 
-The source bank supplies duration/terminal metadata. Channel sampling calls
-are explicit ordered boundaries: this proves timing, flags and sample cursors;
-exporter captured-matrix checks independently cover baked palettes.
+A library for the reference tests (test_pose_transition_reference,
+test_player_pose_reference) and the status-page oracles that share its
+`signed` helper. Channel sampling calls (001C8D50 / 001C8710 / 001C87C0) are
+explicit ordered boundaries recorded in `calls`; the clip header lookup
+001C8480 reads the bank's offset table. This is the clock the player stage
+runs for every takeover (the panel, the terminal and the items included
+since audit 1b item 8).
 """
-import ctypes as C
-import hashlib
-import json
 from pathlib import Path
-import struct
-import subprocess
-import sys
 
 from test_player_reentry_reference import Original as Base, bits, number
 
@@ -130,94 +130,3 @@ class Original(Base):
     def tick(self):
         if self.run(0x183090):
             self.put(ACTOR+0x200, self.run(0x1C64F0, floats=(1.0,)))
-
-
-BRIDGE = r'''
-#include "game/em_interaction_animation.h"
-#include <string.h>
-static EmModel model;
-static EmInteractionAnimation animation;
-static float palette[22*16];
-int load(const char *path) {return em_model_load(&model,path);}
-void close_model(void) {em_model_free(&model);}
-int start(unsigned clip,float blend) {
-    em_interaction_animation_clear(&animation);
-    memset(palette,0xA5,sizeof palette);
-    return em_interaction_animation_request(&animation,&model,clip,1,blend);
-}
-int request(unsigned clip,float rate,float blend) {
-    return em_interaction_animation_request(&animation,&model,clip,rate,blend);
-}
-int tick(unsigned *values) {
-    int result=em_interaction_animation_tick(&animation,&model,palette);
-    values[0]=animation.current_clip;values[1]=animation.frame;
-    values[2]=animation.flags;memcpy(values+3,&animation.remaining,4);
-    values[4]=animation.transition;values[5]=em_interaction_animation_done(&animation);
-    return result;
-}
-const float *pose(void) {return palette;}
-'''
-
-
-def main():
-    decomp = ROOT.parent/'Extermination'
-    elf = (decomp/'config/SCUS_971.12').read_bytes()
-    assert hashlib.sha256(elf).hexdigest() == 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-    bank = (decomp/'extract/chunk28/f01_id3c.bin').read_bytes()
-    output = ROOT/'build/interaction_animation_reference'
-    output.mkdir(parents=True, exist_ok=True)
-    source = output/'bridge.c'
-    source.write_text(BRIDGE)
-    library = output/('animation.dylib' if sys.platform == 'darwin' else 'animation.so')
-    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
-        '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc', str(source),
-        'src/game/em_interaction_animation.c', 'src/em_model.c', '-lm', '-o', str(library)],
-        cwd=ROOT, check=True)
-    native = C.CDLL(str(library))
-    native.load.argtypes = [C.c_char_p]
-    native.start.argtypes = [C.c_uint, C.c_float]
-    native.request.argtypes = [C.c_uint, C.c_float, C.c_float]
-    native.tick.argtypes = [C.POINTER(C.c_uint)]
-    native.pose.restype = C.POINTER(C.c_float)
-    assert native.load(str(ROOT/'assets/player.emdl').encode()) == 0
-    rows = []
-    comparisons = 0
-    for clip, duration in ((0x47, 200), (0x15C, 121), (0x40, 45), (0x41, 45),
-                           (0x42, 45), (0x43, 150), (0x45, 150)):
-        header = struct.unpack_from('<I', bank, 4+clip*4)[0]
-        assert struct.unpack_from('<HHh', bank, header) == (21, duration, -2)
-        assert struct.unpack_from('<I', bank, header+0x14)[0] == 0
-        for blend in (0, 1):
-            reference = Original(elf, bank)
-            reference.request(clip, blend)
-            assert native.start(clip, blend)
-            first_done = None
-            for tick in range(duration+5):
-                if tick in (3, duration+2):
-                    # Re-requesting a running/finished current clip does not restart.
-                    assert native.request(clip, 1, blend)
-                    reference.request(clip, blend)
-                reference.tick()
-                values = (C.c_uint*6)()
-                result = native.tick(values)
-                expected = [reference.get(ACTOR+0x20C, 2),
-                            int(reference.sample_frame or 0), reference.get(ACTOR+0x200),
-                            reference.get(ACTOR+0x3C), bool(reference.get(ACTOR+0x2C, 2) & 0x8000),
-                            bool(reference.get(ACTOR+0x200) & 0x1000)]
-                assert list(values) == expected, (clip, blend, tick, list(values), expected)
-                assert result == (0 if tick == 0 and blend else 1)
-                if values[5] and first_done is None: first_done = tick
-                comparisons += 1
-            rows.append({'clip':clip, 'blend':blend, 'first_end_flag_tick':first_done})
-    assert not native.request(999, 1, 0)
-    assert not native.request(71, 0.5, 0)
-    assert not native.request(71, 1, 8)
-    native.close_model()
-    report = {'status':'PASS', 'original_clock_comparisons':comparisons, 'cases':rows,
-              'limits':'Bone/channel sampling is an intercepted boundary; exporters separately verify captured palettes.'}
-    (output/'result.json').write_text(json.dumps(report, indent=2)+'\n')
-    print(json.dumps(report))
-
-
-if __name__ == '__main__':
-    main()

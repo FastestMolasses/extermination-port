@@ -90,31 +90,29 @@ static void actor_update(void)
     if (g.pd_state != 2 && player_states_stage_live()) {
         /* Census L01: the original player stage (em_player.c
          * player_states_stage): 0015BA50 advances the display source by
-         * +34, the interaction runtime's takeover may consume the stage at
-         * 0015B130's prelude position (a script owner's takeover is the
-         * stage's own: +4 = 4, 0015B530), 0015B130 runs 0021C440 / the idle/walk states
+         * +34, an owner's takeover is admitted at 0015B130's prelude
+         * position (the stage's own: +4 = 4, 0015B530), 0015B130 runs 0021C440 / the idle/walk states
          * (00161020 / 001612D0 in AREA11 since census L12) / the +20E
          * countdown / 0015D100 / 0015D000, then 0015BA50's tail and
          * 0015BCF0's -200 check, loop-sound stop, skeleton evaluation and
-         * 00187350. A stage the takeover consumed or a translated routine
-         * owned displays the record's evaluated pose
+         * 00187350. A stage a translated routine owned (the takeover's
+         * +4 = 4 path included) displays the record's evaluated pose
          * (player_states_record_display); a port stand-in (the legacy door,
          * examine, director lock, aim, R2, melee) and the legacy callbacks
          * of the scenes without an original world keep the display below. */
-        int consumed = player_states_stage();
+        player_states_stage();
         if (player_states_record_display()) {
             if (player_pose_display() < 0)
                 player_pose_invalidate("record skeleton is not finite");
             return;
         }
-        if (consumed != 0) return;
     } else {
         /* Since L01 the app reaches this branch only while the legacy
          * bug-latch struggle holds the player (g.pd_state == 2) or in a test
          * harness that leaves STAGE unbound: a failed stage bind latches a
          * scene fault at 0x0015BA50 (em_scene_bindings.c w_001AFCA0).
          * 0015BA50 advances source channels before 0015B130 can take ownership.
-         * An accepted shared callback consumes this player stage completely. */
+         * An owner's takeover needs the live stage's 0015B130: it faults. */
         if (player_pose_stage() != 0) return;
         previous_position[0] = g.pos[0];
         previous_position[1] = g.pos[1];

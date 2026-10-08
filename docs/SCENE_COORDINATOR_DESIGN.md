@@ -415,7 +415,7 @@ node. It holds today's exact legacy call order, so their outputs are unchanged.
 
 | Worker | Binding |
 |---|---|
-| w_0015BCF0 | `em_player_0015BCF0`: the port's hit mailbox, then actor_update, which runs the original player stage (census L01: em_player.c `player_states_stage`, 0015BA50 / 0015B130 / 0015BCF0's tail with the stage workers bound by em_player_stage_live.c, the port's idle/walk as 0015B130's state[0]/[1]), the pose finish, the legacy bug-latch struggle, and the B9 write per 0015CF90. In cutscenes it is bound to the current opening-player path while the opening runtime owns the player (until WP-9/WP-15), and to `em_player_0015BCF0` otherwise (WP-4: the interaction host's shared player worker consumes the stage at 0015B130's prelude position through the takeover stand-in). |
+| w_0015BCF0 | `em_player_0015BCF0`: the port's hit mailbox, then actor_update, which runs the original player stage (census L01: em_player.c `player_states_stage`, 0015BA50 / 0015B130 / 0015BCF0's tail with the stage workers bound by em_player_stage_live.c, the port's idle/walk as 0015B130's state[0]/[1]), the pose finish, the legacy bug-latch struggle, and the B9 write per 0015CF90. In cutscenes it is bound to the current opening-player path while the opening runtime owns the player (until WP-9/WP-15), and to `em_player_0015BCF0` otherwise (WP-4; since chain step TAKEOVERS every interaction host owner's takeover is the stage's own: 0015B130's prelude admits the player, PLAYER_STAGE_WORKERS.md 2.1). |
 | w_001D1C50 | point_light_tick, fog apply, GS setup. The port's name `render_chain_build` for this is a wrong label. |
 | w_001C1D00 | render_env_init (area 0x1500 GIF arm, 001E0CF0, 001D5370) |
 | w_0015C160 | player post-step: palette/+0x4C. Open question Q2: where player_pose_finish_palette belongs. |
@@ -595,8 +595,9 @@ Owners **offer** inside their behaviour (the 001B1B70 position). The player's Us
     deleted and the manifest's `truck` line is no longer read.
   - em_area11_script_host binds em_area_script (AREA_SCRIPT.md 6.1). A script
     owner whose op07 opens the frame claims the interaction host's shared
-    player token (`em_interaction_runtime_claim_scripted`, staged since chain
-    C7); the takeover is then the player stage's own: 0015B130's prelude
+    player token (`em_interaction_runtime_claim_scripted`); the takeover is
+    then the player stage's own (since chain C7; the panel's, terminal's and
+    items' since chain step TAKEOVERS): 0015B130's prelude
     admits the player (+4 = 4), 0015B530 runs on each stage, and its 00182DF0
     releases the player and ends the token (PLAYER_STAGE_WORKERS.md 2.1).
   - Main-loop step I: `em_frame_set_step_i` runs 001B5B70 over the new pad

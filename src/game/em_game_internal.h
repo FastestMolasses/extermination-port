@@ -1841,8 +1841,8 @@ void palette_apply_placement(float *pal, uint32_t bone_count,
                              const float pos[3], float yaw);
 
 /* Original-channel player source and shared interaction host boundary.
- * The stage hook returns -1 fault,0 ordinary callback,1 callback consumed,
- * 2 a staged takeover (the live stage's 0015B130 takes the player). */
+ * The stage hook returns -1 fault, 0 ordinary callback, 2 an owner's
+ * takeover (the live stage's 0015B130 takes the player); 1 faults. */
 void player_pose_set_stage_hook(int (*hook)(void *), void *context);
 void player_use_set_hook(int (*hook)(void *), void *context);
 int player_use_poll(void);
@@ -1855,9 +1855,8 @@ int player_pose_stage(void);
 /* player_pose_stage's two halves, for the live player stage (census L01,
  * em_player.c): the display's anim_advance_time(step) at 0015BA50's switch
  * (*flags = its +200 result, 0 when the source is not advanced this stage:
- * held by a stand-in or owned by the interaction runtime), then the shared
- * takeover worker at 0015B130's prelude position (-1 fault, 0 ordinary,
- * 1 consumed). player_pose_stage() = the advance by g.loco_rate, then the
+ * held by a stand-in), then the shared takeover worker at 0015B130's
+ * prelude position (-1 fault, 0 ordinary, 2 an owner's takeover). player_pose_stage() = the advance by g.loco_rate, then the
  * hook. */
 int player_pose_stage_advance(float step, uint32_t *flags);
 int player_pose_stage_hook(void);
@@ -1872,13 +1871,11 @@ int player_pose_foot_stop_tick(void);
 int player_pose_foot_stop_palette(void);
 int player_pose_idle_state_wait(void);
 void player_pose_invalidate(const char *reason);
-int player_pose_acquire(void);
 /* The port's side of a Use press 00160220 took (em_player.c): the idle /
  * walk locomotion state and the source's idle bookkeeping; the record's
  * clip and state are the dispatcher's. 1, or 0 when the source is not the
  * ordinary one. */
 int player_pose_use_accepted_port(void);
-int player_pose_idle_tick(float *local_palette);
 /* The special bank on the record (census L22): a read-only EE region for
  * the record's pose host (the bank a script's 001B9A00 sub 1 / 4 names at
  * +0x40), and whether +0x2F3 is nonzero. */
@@ -1886,11 +1883,8 @@ int player_pose_map_region(uint32_t address, uint32_t size, const uint8_t *bytes
 int player_pose_special_active(void);
 /* 16 bytes of the record's node `node` at `offset` (1, or 0). */
 int player_pose_node_quad(unsigned node, unsigned offset, float out[4]);
-/* The runtime's release (00182DF0 on the record through the bound release
- * worker, then the default pose published): 1, or 0. */
-int player_pose_release(void);
-/* The takeover the player stage performs itself (a script owner's, the
- * interaction host's staged token; em_player.c): the stage hook's end hook,
+/* The takeover the player stage performs itself (every owner's: the
+ * interaction host's token; em_player.c): the stage hook's end hook,
  * run after the stage's own 00182DF0 (1 accepted); a port stand-in let go
  * before 0015B130's prelude (1, or 0 reported); the prelude's admission
  * (+4 = 4: the source is held until 00182DF0; 1, or 0). */
@@ -1904,12 +1898,9 @@ int player_pose_takeover_restated(void);
 /* D_00248C90's +0 halfword of row `clip` (the row column the record pose
  * loaded): 0, or -1. */
 int player_pose_row0(int clip, int16_t *value);
-int player_pose_script_tick(const EmInteractionAnimation *animation, int result,
-                            float *local_palette);
-/* The source's palettes (idle_tick, script_tick, special_tick, publish)
- * are world-space: the record's node world matrices (0015BCF0's evaluation
- * at the record's +B0 / +C4, or the identity root of 001C6960 while
- * +0x2F3 holds the special bank). */
+/* The palette player_pose_publish takes is world-space: the record's node
+ * world matrices (0015BCF0's evaluation at the record's +B0 / +C4, or the
+ * identity root of 001C6960 while +0x2F3 holds the special bank). */
 int player_pose_publish(const float *palette);
 int player_pose_hip(float out[3]);
 void player_pose_finish_palette(void);

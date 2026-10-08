@@ -16,7 +16,7 @@ from pathlib import Path
 import subprocess
 import sys
 from test_status_frame_reference import Original as Base, Status
-from test_interaction_animation_reference import signed
+from clip_clock_oracle import signed
 
 ROOT=Path(__file__).resolve().parents[1]
 RETURN=0xBADF00D

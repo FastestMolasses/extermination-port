@@ -91,6 +91,9 @@ static int clip_zero(void *c, EmPlayerLiveActor *a)
     return em_player_ladder_climb_00174AB0(&ladder, a);
 }
 
+/* 001D0C70: only under 0x70003B8F == 2, which no case here sets. */
+static int no_face(void *c) { (void)c; return -1; }
+
 static void bind_release(void)
 {
     memset(&loco, 0, sizeof loco);
@@ -106,6 +109,7 @@ static void bind_release(void)
     c->request = em_pose_host_stage_request;
     c->clip_lookup = row_lookup;
     c->link1C = no_link;
+    c->w001D0C70 = no_face;
     release_context = (EmPlayerStageRelease){ &release_host, NULL, bank_word, node_count, row_a00, row_c90,
                                               clip_zero };
     player_pose_set_release_worker(em_player_stage_00182DF0, &release_context);
@@ -148,15 +152,37 @@ static void ordinary(void)
     em_transition_fade_tick(&fade);
 }
 
+/* The stage hook at 0015B130's prelude position returns `mode`. */
 static int interaction(void *context)
 {
-    int mode = *(int *)context;
-    if (mode == 1) return player_pose_acquire();
-    float local[22 * 16];
-    assert(player_pose_owned());
-    if (player_pose_idle_tick(local) != 1 || !player_pose_publish(local)) return -1;
-    if (mode == 3 && !player_pose_release()) return -1;
-    return 1;
+    return *(int *)context;
+}
+
+/* The stage's own takeover on the record (audit 1b item 8; em_player.c
+ * runs these in play): 0015B130's prelude admits the player (+4 = 4,
+ * 00174A50(8.0)), 00183090 commits a +1F2 request (the real
+ * em_player_stage_commit over the record pose's workers), 0015BA50 advances
+ * the held record, and 0015B530's 00182DF0 releases it. */
+static void admit(void)
+{
+    em_live_set_u8(&actor, 4, 4);
+    player_pose_request(0, 0, 8, 0);
+    assert(player_pose_takeover_admitted() && player_pose_owned());
+}
+
+static int commit(int clip, float blend)
+{
+    int result;
+    em_live_set_u16(&actor, 0x1F2, (uint16_t)clip);
+    em_live_set_f32(&actor, 0x1F8, blend);
+    assert(em_player_stage_commit(&release_host, &actor, &result) == 0);
+    return result;
+}
+
+static void release(void)
+{
+    assert(player_pose_stage_release(&actor) == 0 && !player_pose_owned());
+    assert(em_live_u8(&actor, 4) == 1);
 }
 
 static int use(void *context)
@@ -286,19 +312,28 @@ int main(void)
         ordinary();
     expected(0, 80, 0);
 
+    /* The hook at 0015B130's prelude: 0 keeps the ordinary advance; an
+     * owner's takeover (2) needs the live player stage's 0015B130, and no
+     * hook consumes a stage (1), so both fault after the advance. */
     reset();
-    int mode = 1;
+    int mode = 0;
     player_pose_set_stage_hook(interaction, &mode);
-    assert(player_pose_stage() == 1);
-    expected(0, 79, 0); /* Existing advance, then same-idle acquisition. */
+    assert(player_pose_stage() == 0);
+    expected(0, 79, 0);
     mode = 2;
-    assert(player_pose_stage() == 1);
-    expected(0, 78, 0); /* Owned worker advances exactly once. */
-    mode = 3;
-    assert(player_pose_stage() == 1);
-    expected(0, 77, 0); /* Release consumes this callback, no added idle tick. */
+    assert(player_pose_stage() == -1 && quit == 1);
+    expected(0, 78, 0);
+    mode = 1;
+    assert(player_pose_stage() == -1 && quit == 2);
+    expected(0, 77, 0);
     player_pose_set_stage_hook(NULL, NULL);
-    ordinary();
+    /* The admission's same-idle request keeps the cursor; the held record
+     * advances once per stage; 00182DF0 on the idle keeps it too. */
+    admit();
+    expected(0, 77, 0);
+    assert(player_pose_stage_advance(1, NULL) == 0);
+    expected(0, 76, 0);
+    release();
     expected(0, 76, 0);
 
     /* Alignment and orientation update caches without advancing channels.
@@ -328,7 +363,7 @@ int main(void)
      * the original hip until the following real player callback. */
     reset();
     for (unsigned i = 0; i < 5; ++i) ordinary();
-    assert(player_pose_acquire() == 1);
+    admit();
     float lever[3] = {222, 230, 250};
     assert(player_pose_align(lever));
     assert(player_pose_hip(hip_before));
@@ -342,16 +377,17 @@ int main(void)
     player_pose_finish_palette();
     assert(player_pose_hip(hip_after));
     assert(!memcmp(hip_after, g.player_palette + 28, sizeof hip_after));
-    assert(player_pose_release());
+    release();
 
-    /* Script release resets its default at the end of the consumed frame. */
-    assert(player_pose_acquire() == 1);
-    EmInteractionAnimation animation = {
-        .current_clip = 0x47, .duration = 200, .remaining = 200, .active = 1};
-    float local[22 * 16];
-    assert(player_pose_script_tick(&animation, 1, local));
-    assert(player_pose_publish(local));
-    assert(player_pose_release());
+    /* A script's clip (the elevator's 0x47, blend 0) committed by 00183090
+     * on the record; 00182DF0 re-seeds the idle default. */
+    admit();
+    assert(commit(0x47, 0.0f) == 0);
+    expected(0x47, 200, 0);
+    assert(commit(0x47, 0.0f) == 1);   /* a repeated request keeps the cursor */
+    assert(player_pose_stage_advance(1, NULL) == 0);
+    expected(0x47, 199, 0);
+    release();
     expected(0, 80, 0);
 
     /* WP-2/H12: a legacy stand-in (aim) freezes the source; its release
@@ -371,10 +407,12 @@ int main(void)
         assert(!player_pose_foot_stop_begin() && !player_pose_idle_state_wait());
         player_pose_request(2, 10, 0, 1);                   /* ignored while held */
         if (attempt == 1) {
-            /* Acquisition from the stand-in (0015B130 from armed stances). */
-            assert(player_pose_acquire() == 1);
+            /* The admission from the stand-in (0015B130 from armed
+             * stances): the stand-in lets go first. */
+            assert(player_pose_takeover_prepare());
+            admit();
             expected(0, 80, 0);
-            assert(player_pose_release());
+            release();
             expected(0, 80, 0);
             continue;
         }
@@ -407,8 +445,8 @@ int main(void)
         /* The run tier's clip5 stop request is accepted again as well. */
         player_pose_request(5, 0, 6, 1);
         expected(5, 6, 1); /* six-tick blend toward clip5 */
-        assert(player_pose_acquire() == 1);
-        assert(player_pose_release());
+        admit();
+        release();
     }
 
     /* Held stand-ins the host checks itself keep holding until they end. */
@@ -416,27 +454,30 @@ int main(void)
     player_pose_legacy_hold("test hit stand-in");
     g.pd_state = 2;
     assert(player_pose_stage() == 0 && player_pose_legacy_release() == 0);
-    /* Acquire must not re-seed past a busy original state (hit / sa_*):
-     * 00182B30/0015B610 admission is not modelled, so it is refused. */
-    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    /* A takeover's prelude must not re-seed past a busy original state
+     * (hit / sa_*): player_pose_takeover_prepare refuses, the source stays
+     * held and nothing is admitted. */
+    assert(!player_pose_takeover_prepare() && !player_pose_owned());
     assert(!player_pose_source(NULL, NULL, NULL, NULL)); /* still held */
     g.pd_state = 0;
     g.sa_cur = 0x111;
     assert(player_pose_legacy_release() == 0);
-    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    assert(!player_pose_takeover_prepare() && !player_pose_owned());
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
     g.sa_cur = 0;
     g.sa_req = 0x111;
     assert(player_pose_legacy_release() == 0);
-    assert(player_pose_acquire() == -1 && !player_pose_owned());
+    assert(!player_pose_takeover_prepare() && !player_pose_owned());
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
     g.sa_req = 0;
     g.status.health = PD_LOW_HEALTH; /* row1 default clip0x0A is not exported */
-    assert(player_pose_legacy_release() == 0 && player_pose_acquire() == -1);
+    assert(player_pose_legacy_release() == 0 && !player_pose_takeover_prepare());
     g.status.health = 100;
     assert(player_pose_legacy_release() == 1);
     expected(0, 80, 0);
-    assert(player_pose_acquire() == 1 && player_pose_release());
+    assert(player_pose_takeover_prepare());
+    admit();
+    release();
 
     /* 0017C030 mode 3 runs the 0017B910 solve even while a pose blend is
      * active (no blend gate; the old refusal here was not original). The
@@ -477,11 +518,13 @@ int main(void)
 
     player_pose_invalidate("intentional unsupported-source test");
     assert(!player_pose_source(NULL, NULL, NULL, NULL));
-    mode = 1;
+    assert(!player_pose_takeover_admitted() && !player_pose_owned());
+    mode = 2;
     player_pose_set_stage_hook(interaction, &mode);
     assert(player_pose_stage() == -1 && quit == 1);
     player_pose_unload();
-    puts("player pose host PASS: real idle/fade timing, ownership callback order, alignment/Euler "
-         "mirrors, legacy hold/re-seed, explicit unsupported source");
+    puts("player pose host PASS: real idle/fade timing, the stage hook's results, the stage's own "
+         "takeover (admission, 00183090 commit, held advance, 00182DF0), alignment/Euler mirrors, "
+         "legacy hold/re-seed, explicit unsupported source");
     return 0;
 }

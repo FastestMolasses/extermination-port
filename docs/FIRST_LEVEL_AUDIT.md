@@ -407,7 +407,8 @@ stage; PLAYER_STAGE_WORKERS.md 2.1, census 1.26):**
   state in the slot.
 - Still the interaction runtime's: the panel, the terminal and the items'
   takeovers (their scripts request clips through em_interaction_animation,
-  not +1F2 / 00183090); +4 stays 1 there.
+  not +1F2 / 00183090); +4 stays 1 there. **Done in chain step TAKEOVERS
+  (2026-10-08, status update below):** they are the stage's own too.
 
 **Status update (2026-09-27, chain C7: main-loop steps V / W, 001D1EF0, the
 (3, 1) registrations; RENDER_CONTEXT.md section 9, census 1.27):**
@@ -1531,6 +1532,53 @@ half and item 23):**
   test-level-smoke-full through Roger with the GS frame; newgame-control
   9.599849 (locked_ticks 1301).
 
+**Status update (2026-10-08, chain step TAKEOVERS, audit 1b item 8;
+PLAYER_STAGE_WORKERS.md 2.1, census 1.63):**
+- **Every takeover is the player stage's own.** The panel's (00159210,
+  scripts 0x246F20 / 0x2477A0 / 0x247BE0 / 0x247DA0), the terminal's
+  (00827B10, 0x82A990 / 0x82A750) and the items' (00219550 / 0015AFA0,
+  0x266620 / 0x2482C0 and their no-grab entries) takeovers run as the
+  script owners' have since chain C7: the Use scan's claim (00184BA0's
+  3B8D = 3) gives the host's token, the next stage's 0015B130 prelude
+  admits the player (00182B30, +4 = 4, +5 = 0, +1F0 = 0x41, 00174A50(8.0),
+  00182D70), every stage runs 0015BA50's +4 = 4 path (00183090, then the
+  advance by +1F4 into +200) and 0015B530 (001837A0), and 0015B530's
+  00182DF0 releases the player when the frame's close clears 3B8D, its end
+  hook ending the token. Their programs' op0A is 001B9A00's: sub 0 writes
+  the record's +1F2 = clip, +1F8 = the command's +0xC, +1F4 = 1.0; sub 3
+  waits on +200 & 0x1000 (em_interaction_runtime_animation_start / _done
+  over the live record).
+- **Retired (the duplicate path):** the interaction runtime's acquire /
+  per-stage tick / release / palette hooks, its pose and face workers and
+  its `acquired` / `staged` state; em_interaction_animation (the scripts'
+  animation core) and its reference test; the pose host's
+  player_pose_acquire / _idle_tick / _script_tick / _release; EmPlayerPose's
+  acquire / idle_tick / release / script_tick (approximations of 00174A50 /
+  00182DF0 for the same takeover) and test_player_pose_reference's cases of
+  them; em_player.c's "consumed" stage (a takeover hook now returns 0 or 2;
+  anything else faults). The clip clock oracle the reference tests share
+  moved to tools/clip_clock_oracle.py.
+- **Evidence.** The level smoke compares, row for row with the captures,
+  the record's request +1F2 (the tick log's new `player` field 8, the
+  rows' req1F2) and clip +20C, with the clock +3C from the script's clip
+  commit on (check_takeover_record), and holds +4 = 4 from the admission to
+  00182DF0 (check_stage_takeover): route 01's take (clip 0x42 committed at
+  f129, port ticks 1593..1938), route 02's refusal (no clip, 2162..2318),
+  route 03's panel (0x15C at f528 in the Yes-aligned window, 2560..2971),
+  route 04's ride (0x47 at f190, 3161..3523) and route 00's panel without
+  the battery; the BRANCH side runs do the same for the ride up, the panel's
+  No and every take (the grab clip's +1F2 request showing on the row of its
+  commit, in both). Negative controls: one tampered +1F2 tick, or a
+  takeover left at +4 = 1 (the old path), fails. Every phase's earlier
+  row-for-row comparison is unchanged; the full tick log equals the
+  previous build's apart from +4 during these takeovers and the record's
+  +1F2 / +1F8, which the scripts now write (the `stream` / `loader_pre`
+  host timings and `sfx413`, the flame loop's audio-thread status, differ
+  between two runs of the same build too). newgame-control 9.599849. The
+  host fixture (test-area11-interaction-host) drives the panel, terminal,
+  battery and takes through the real 0015B130 / 00183090 / 0015B530
+  composition with its earlier callback counts unchanged.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1787,6 +1835,11 @@ is the stream request's wait, not the timeline (item 6).
    animation core; they share only the release, 00182DF0, with the script
    owners' takeovers (the stage's own since chain C7). What removes it:
    their scripts request clips through +1F2 / 00183090 on the stage.
+   **Done in chain step TAKEOVERS (2026-10-08, status update above):** their
+   takeovers are the stage's own (0015B130's prelude, 00183090 on the
+   record's +1F2 request, 0015B530's 00182DF0); the runtime's duplicate path
+   and the animation core are retired; the level smoke compares +1F2, the
+   clip and its clock with routes 00..04 and the BRANCH takes row for row.
 9. **Logic: the other page modules' loads.** Done in chain step PAGELOADS
    (status update above): every page module the first level loads runs
    the loader's own steps at host speed, its upload proven equal to what

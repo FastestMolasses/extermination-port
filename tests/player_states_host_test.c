@@ -933,30 +933,27 @@ int main(void)
     reaction_binding.scene = &reaction_scene;
 
     /* 13. Census L01 binding specifics.
-     *  a) The runtime's takeover consumes the stage at 0015B130's prelude
-     *     position: 0015B130 (0021C440, the callback, 0015D100, 0015D000)
-     *     does not run, 0015BA50's begin / end and 0015BCF0's writes do, and
-     *     the 3B8F the stand-in stored is not overwritten by the stage's
-     *     earlier view. */
+     *  a) No takeover consumes a stage (audit 1b item 8: the panel's, the
+     *     terminal's and the items' takeovers are the stage's own, as the
+     *     script owners' are): a hook result of 1 is a fault (fail-stop) and
+     *     0015B130 does not run. */
     reset();
     b = full_binding();
     b.takeover = w_takeover;
     player_states_bind(&b);
     takeover_consumes = 1; takeover_calls = 0;
-    em_live_set_f32(player_states_actor_mut(), 0xBC, 0.0f);
     call_count = 0;
-    assert(player_states_stage() == 1);
-    assert(takeover_calls == 1 && stage_calls[SC_ADVANCE] == 1 && stage_calls[SC_REACTION] == 0 &&
-           stage_calls[SC_DRAIN] == 0 && stage_calls[SC_HEARTBEAT] == 0 && call_count == 0);
-    assert(em_live_f32(a, 0xBC) == 1.0f && scene_state.spad3B8F == 2 && quit_requests == 0);
-    assert(player_states_record_display());           /* the takeover's record pose */
-    player_states_bind_display(0);
-    assert(player_states_stage() == 1 && !player_states_record_display());
-    player_states_bind_display(1);
-    /*  b) Not consumed: 0015B130 runs after the stand-in. */
-    takeover_consumes = 0;
-    assert(player_states_stage() == 0);
-    assert(takeover_calls == 3 && stage_calls[SC_REACTION] == 1 && call_count >= 2);
+    player_states_stage();
+    assert(takeover_calls == 1 && stage_calls[SC_REACTION] == 0 && stage_calls[SC_DRAIN] == 0 &&
+           stage_calls[SC_HEARTBEAT] == 0 && call_count == 0 && quit_requests == 1);
+    /*  b) No owner (0): 0015B130 runs. */
+    reset();
+    b = full_binding();
+    b.takeover = w_takeover;
+    player_states_bind(&b);
+    takeover_consumes = 0; takeover_calls = 0;
+    player_states_stage();
+    assert(takeover_calls == 1 && stage_calls[SC_REACTION] == 1 && call_count >= 2 && quit_requests == 0);
     assert(!player_states_record_display());           /* the port's idle callback ran */
     /*  c) 0x70003B8D without the owner on the port's idle (the area-change
      *     fade): the prelude's 00174A50 needs 0017B490 (L12), so the port's
@@ -964,10 +961,10 @@ int main(void)
     scene_state.spad3B8D = 3;
     memset(stage_calls, 0, sizeof stage_calls);
     call_count = 0;
-    assert(player_states_stage() == 0);
+    player_states_stage();
     assert(stage_calls[SC_CHECK] == 0 && stage_calls[SC_NOTIFY] == 0 &&
            stage_calls[SC_REACTION] == 0 && call_count >= 2 && em_live_u8(a, 4) == 1);
-    /*  c2) A script owner's frame (the hook returns 2): 0015B130 runs its
+    /*  c2) An owner's frame (the hook returns 2): 0015B130 runs its
      *      prelude under 0x70003B8D; 00182B30's admission writes +4 = 4,
      *      +5 = 0, +6 = 0, +1F0 = 0x41 and runs 00174A50 and 00182D70, the
      *      pose host is told (after letting a stand-in go), and 0015B130's
@@ -976,7 +973,7 @@ int main(void)
     takeover_consumes = 2; check_result = 0;
     memset(stage_calls, 0, sizeof stage_calls);
     call_count = 0; takeover_prepares = takeover_admissions = 0;
-    assert(player_states_stage() == 0);
+    player_states_stage();
     assert(stage_calls[SC_CHECK] == 1 && stage_calls[SC_ROW] == 1 && stage_calls[SC_NOTIFY] == 1 &&
            stage_calls[SC_REACTION] == 0 && stage_calls[SC_DRAIN] == 0 && stage_calls[SC_HEARTBEAT] == 0 &&
            call_count == 0 && takeover_prepares == 1 && takeover_admissions == 1);
@@ -988,7 +985,7 @@ int main(void)
     check_result = 1;
     memset(stage_calls, 0, sizeof stage_calls);
     call_count = 0; takeover_admissions = 0;
-    assert(player_states_stage() == 0);
+    player_states_stage();
     assert(stage_calls[SC_CHECK] == 1 && stage_calls[SC_NOTIFY] == 0 && stage_calls[SC_REACTION] == 1 &&
            call_count >= 1 && takeover_admissions == 0 && em_live_u8(a, 4) == 1);
     takeover_consumes = 0;

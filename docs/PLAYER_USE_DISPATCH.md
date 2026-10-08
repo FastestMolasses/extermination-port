@@ -255,11 +255,11 @@ reads "Use chain (ledge climb, vault, ladder, running jump): engaged".
   D_00248870 through the record pose's regions, which map the exported
   `assets/player_loco_tables.emrg`; `select` is `em_loco_0017B490`).
 - **The scan winner's hand-off.** The dispatcher leaves +5 = 0x25, which is
-  an empty case in 0015B130. The interaction runtime (the stand-in for the
-  scripted takeover) consumes the next stage. At that admission the record
-  gets the writes of 0015B130's prelude: +5 = 0, +6 = 0, +1F0 = 0x41 (route
-  04 shows them on the frame after the scan). The stand-in consumes the
-  stage in place of +4 = 4 (em_player.c live_major1).
+  an empty case in 0015B130. The winner's token makes the next stage's
+  0015B130 run its prelude (since chain step TAKEOVERS for the panel, the
+  terminal and the items too; PLAYER_STAGE_WORKERS.md 2.1): 00182B30
+  admits the player, +4 = 4, +5 = 0, +6 = 0, +1F0 = 0x41 (route 04 shows
+  them on the frame after the scan), 00174A50(8.0) and 00182D70.
 
 **Evidence.** `make test-level-smoke-full`: the battery, refusal, panel and
 elevator presses win the scan through the native dispatcher, and every row

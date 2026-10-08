@@ -251,6 +251,19 @@ def check_take(T, ticks, lo, hi, rows, item, beat, state):
         where = f'{beat} take'
         fields_equal(T, ticks, i0 + c_p + j, rows[f0 + c_o + j], where)
         player_equal(T, ticks[i0 + c_p + j], rows[f0 + c_o + j], j, where, yaw=False, clock=j > 0, m1=m1)
+    # The take's takeover is the stage's own (audit 1b item 8): its program
+    # requests the grab clip through the record's +1F2 (001B9A00 sub 0) and
+    # 00183090 commits it; the recordings show the request on the commit
+    # row. +1F2 row for row from the admission (00182D70 sets it to +20C)
+    # through the turn, on the row before the commit and through the take;
+    # +4 = 4 from the admission to 00182DF0.
+    req = [(i0 + k, f0 + k) for k in range(1, min(c_p, c_o) - 1)] + [(i0 + c_p - 1, f0 + c_o - 1)] + \
+          [(i0 + c_p + j, f0 + c_o + j) for j in range(min(post_p - c_p, post_o - c_o))]
+    for i, f in req:
+        assert ticks[i]['player'][8] == rows[f]['req1F2'], (beat, f'row f{rows[f]["f"]}', 'player +1F2',
+                                                             ticks[i]['player'][8], rows[f]['req1F2'])
+    assert rows[f0 + c_o]['req1F2'] == rows[f0 + c_o]['clip'], (beat, 'the request on the commit row', c_o)
+    admit, free = T.check_stage_takeover(ticks, i0, T.port_release(ticks, i0, beat), beat)
     # From the request to the status close.
     ip, fp = i0 + post_p, f0 + post_o
     load, len_p, len_o = page_load(T, ticks, ip, hi, rows, fp, beat, state)
@@ -290,12 +303,17 @@ def check_take(T, ticks, lo, hi, rows, item, beat, state):
         hp, ho = rp[rec][0][:16], ro[rec][0][:16]
         assert hp[:1] + hp[2:] == ho[:1] + ho[2:], (where, f'f{rows[fc + k]["f"]}', f'{item} header', hp.hex(),
                                                     ho.hex())
+        assert ticks[ic + k]['player'][8] == rows[fc + k]['req1F2'], (where, f'f{rows[fc + k]["f"]}', 'player +1F2',
+                                                                       ticks[ic + k]['player'][8],
+                                                                       rows[fc + k]['req1F2'])
     taken = next(k for k in range(count) if br_orig(rows[fc + k])[0] != br_orig(rows[fc - 1])[0])
     return (f'{item}: the scan port tick {ticks[i0]["tick"]} = f{rows[f0]["f"]}, the request '
             f'{T.orig_view(rows[f0 + post_o])["req"]} at f{rows[fp]["f"]} ({note}), the page row for row with its '
             f'module load {len_p} rows (the recording\'s {len_o}), the close at f{rows[fc]["f"]} '
             f'({close_p - close_o:+d} row: the Triangle\'s pad timing), the taken bit {taken} rows after it and '
-            f'control at f{rows[fc + ctl_o]["f"]}, as recorded')
+            f'control at f{rows[fc + ctl_o]["f"]}, as recorded; the stage\'s own takeover: +4 = 4 from port tick '
+            f'{admit} to 00182DF0 at {free}, the grab clip {rows[f0 + c_o]["clip"]:#x} requested through +1F2 '
+            f'(shown on its commit row) in both')
 
 
 # ------------------------------------------------------------- climbs
@@ -481,12 +499,18 @@ def check_elevator_up(T, ticks, lo, hi, rows, beat, state):
         assert got == want and term[1] == bytes.fromhex(row['elevator_r19']['h'])[4], \
             (beat, f'row f{row["f"]}', 'terminal +0x04 / +0xB0', term[1], got, want)
     follow = T.check_follow_after_release(ticks, i0, rows, f0, beat, 'exact')
+    # The terminal's takeover is the stage's own (audit 1b item 8).
+    commit = T.check_takeover_record(ticks, i0, rows, f0, count, beat)
+    assert commit is not None and rows[f0 + commit]['clip'] == 0x47, (beat, 'the lever clip', commit)
+    admit, free = T.check_stage_takeover(ticks, i0, count, beat)
     # check_indicator_children: the terminal is above again after this window.
     state['ride_up_scan'], state['ride_up_end'] = i0, i0 + count
     return (f'the scan port tick {ticks[i0]["tick"]} = f{rows[f0]["f"]}: the powered script 0x82A750 and the '
             f'carry up row for row to the release f{rows[r]["f"]} and {T.AFTER_RELEASE} rows after (spad, camera '
             f'byte, letterbox, message, power, placement, heading, the script\'s camera, the terminal\'s +0x04 / '
-            f'+0xB0), D_0081083A 1 -> 0 at f{rows[f0 + tog_o]["f"]} in both; {follow}')
+            f'+0xB0), D_0081083A 1 -> 0 at f{rows[f0 + tog_o]["f"]} in both; the stage\'s own takeover: +4 = 4 '
+            f'from port tick {admit} to 00182DF0 at {free}, +1F2 / +20C row for row (clip 0x47 committed at '
+            f'f{rows[f0 + commit]["f"]} with its clock); {follow}')
 
 
 def check_panel_decline(T, ticks, lo, hi, rows, beat, state):
@@ -524,10 +548,17 @@ def check_panel_decline(T, ticks, lo, hi, rows, beat, state):
     count = r - fc + T.AFTER_RELEASE
     T.compare_window(ticks, ic, rows, fc, count, f'{beat} cancel', y_mode='retained', req=True)
     assert all(T.port_view(ticks, ic + k)['power'] == 0 for k in range(count)), (beat, 'the power came on')
+    # The panel's takeover is the stage's own (audit 1b item 8): +1F2 / +20C
+    # row for row from the scan to the page load and from the close through
+    # the release; +4 = 4 from the admission to 00182DF0.
+    assert T.check_takeover_record(ticks, i0, rows, f0, load, f'{beat} open') is None
+    T.check_takeover_record(ticks, ic - 1, rows, fc - 1, count + 1, f'{beat} cancel')
+    admit, free = T.check_stage_takeover(ticks, i0, ic + count - i0, beat)
     return (f'the scan port tick {ticks[i0]["tick"]} = f{rows[f0]["f"]}: script 0x2477A0 and the request 01/82 '
             f'row for row, the page load {len_p} rows (the recording\'s {len_o}), the prompt to the Cross on No, '
             f'the list to the Triangle, and from the close f{rows[fc]["f"]} the cancel script 0x247DA0 to the '
-            f'release f{rows[r]["f"]} and {T.AFTER_RELEASE} rows after, power 0')
+            f'release f{rows[r]["f"]} and {T.AFTER_RELEASE} rows after, power 0; the stage\'s own takeover: '
+            f'+4 = 4 from port tick {admit} to 00182DF0 at {free}, +1F2 / +20C row for row')
 
 
 def roger_port(tick):
