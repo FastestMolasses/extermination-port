@@ -519,10 +519,10 @@ ends a frame early); row 0 = 17036.
 | 001E8B90 | the first contact's ripple (effect binder) | → `em_area01_render_001E8B90` | 16484 = f39 (census f39) | M2 |
 | 001EB020 | 001EA240's subtype 0xE handler (the splash) | → `em_area01_render_001EB020` | 16484 = f39 (census f39) | M2 |
 | 001BBBF0 | the shaft door's door program, op09 record callback (`em_area01_script_live.c` record()) | → `em_area01_math_001BBBF0` | 17111 = a01_03 f75 (census f75) | M3 |
-| 001B6D70 | script 0x8298E0's stream/scene sound selector callback | → `em_area01_sys_001B6D70` | 17178 = f142 (census f142) | M3 |
+| 001B6D70 | the locked try's program (before script 0x8298E0 starts at f296): its stream/scene sound selector callback | → `em_area01_sys_001B6D70` | 17178 = f142 (census f142) | M3 |
 | 001BBAE0 | the door program's op09 message request (D_002821B0, the live message block) | → `em_area01_math_001BBAE0` | 17179 = f143 (census f143) | M3 |
-| 001B9CF0 | script 0x8298E0's op09 callback | → `em_area01_math_001B9CF0` | 17337 = f301 (census f301) | M3 |
-| 001B76D0 | script 0x8298E0's op09 callback | → `em_area01_sys_001B76D0` | 17467 = f431 (census f431) | M3 |
+| 001B9CF0 | a record callback of script 0x8298E0 (started at f296) | → `em_area01_math_001B9CF0` | 17337 = f301 (census f301) | M3 |
+| 001B76D0 | a record callback of script 0x8298E0 | → `em_area01_sys_001B76D0` | 17467 = f431 (census f431) | M3 |
 
 Measured but not promoted (same run): 001EAF80 first at a01_02 f45
 (census f44); 001EC270 at f451 (census f599, past the trace's 590
