@@ -10,9 +10,10 @@ merge `6c9a688`). The rendering stop this branch reported at `0023D930`
 (the fire owner's third layer asking for kind 6 near the crate stack,
 recorded `a01_00` row 405) is gone on main: step DRAW translated and
 exported the kind-6 program, `a01_00` passes all 781 rows, and no
-exploration run stops there any more. "Status on main after the merge"
-at the end of this document supersedes the branch-time status claims
-below (which are kept as the record of how each binding was proved).
+exploration run stops there any more. "Level-2 check (2026-10-08)" at
+the end of this document is the current status; it supersedes "Status on
+main after the merge" and the branch-time status claims below (which are
+kept as the record of how each binding was proved).
 
 ## Current scope
 
@@ -679,4 +680,83 @@ conditional ones the static inventory lists (the nest crate's children,
 the unbound reaction effects 44 / 48 / 23 / 34 / 35 / 76 and 61..63, the
 accepted save 00225AC0, the shared closure stubs), none of which any of
 these runs reached.
+
+## Level-2 check (2026-10-08)
+
+Claude's check of main after the merges: the full verification set once,
+then play-testing AREA01 with this fixture and free-roam probes, fixing
+every reachable fault that could be bound faithfully. Receipts (ignored):
+`build/l2check/` (`full/`: every `make test-*` target; `probes/`: the
+free-roam probes; `explore/g0..g5`: the final fixture run; `smoke2`..
+`smoke4`: the recorded replays; `census/`: the first-call measurement).
+
+**Faults found and fixed** (each with its original-instruction oracle or
+recording; port commits 4207f43..bde5a49):
+
+| Where a player hit it | Fault | Fix |
+|---|---|---|
+| Shooting near a floor field (the catwalk bugs from below, the crate stack) | close-out 001A8DA0 reached unported 001A8CE0 (fault at 001A8E40) | 001A8CE0 translated (COLL_LIST_PASSES.md 2026-10-08) |
+| Walking up the shaft-landing stairs (main line a01_02; and free roam) | the wall probes, then the floor service, refused surface 0x35 (its +0x34 axis) | the grid node's axis carried from the EMCL axis section (COLL_MOVE.md, ACTOR_COLLISION.md) |
+| Use at the locked shaft door (main line a01_03) | 001BBAE0's message request D_002821B0 had no route in the AREA01 view | the span served from the live message block |
+| Hanging on the crate stack and pushing sideways | 0017E7C0 reached unported 001784E0, 0017E6E0, 0017F1C0, 0017F130, then the hang sound 00182AF0 and the misc lane's 001B1380 / 001FB9F0 | the four leaves translated (misc-workers oracle), the sound bound to existing translations |
+| The level's exit (main line a01_07) | AREA00's disc sectors were not in the module pack (fault at 00112440) | AREA00 sub 0 exported into the pack; the load now completes and stops at level 3's assets |
+
+Also fixed: the camera seed's fourth lane (0018CBD0's quadword copy), which
+had kept a01_s0's ending camera block (and so a01_s2 / a01_s5's checks)
+from passing; the harness's first-command latency (LEVEL_SMOKE.md); and,
+from the full verification run, the first level's
+`test-area-load-reference` (the model bank refused the relocated AREA11
+table, LEVEL2_RENDER.md "Relocated placement") and four tests whose
+source lists the level-2 merges had broken.
+
+**Exploration fixture** (`make test-area01-exploration
+AREA01_EXPLORE_ARGS=--all`, run in six groups on the final binary): 31
+cases. New cases: `ledge` (the west ladder, the y-25 ledge and its
+pickup), `shaft` (from the tunnel mouth: the water's edges, knife and
+shots in the water, the lower tunnel, the stairs, the locked shaft door,
+back down), `stack-shots`, `stack-climb` (pull up onto the crate stack and
+Use on top), `shimmy` and `crates`; the step `near` (a move that may end
+short of its target); `water` and `water-west` now reach and cross the
+water (their old waypoints were blocked by crate 11 and crate 10).
+
+| Case | Result |
+|---|---|
+| `water`, `water-west`, `ladder`, `ledge`, `shaft`, `stack-shots`, `stack-climb`, `shimmy`, `crates`, `status`, `aim-fire`, `melee`, `control-door`, `east-door`, `vent` | INPUT-COMPLETED, no fault; observed: shallow water (depth 1), ladders, the ledge pickup, hang / pull-up, melee, aim, fire, status, control room, east room, the duct crawl |
+| `a01_00`..`a01_06`, `a01_s0`..`a01_s7` | INPUT-COMPLETED, no fault (a01_04 now observes the control room, a01_s5 the duct crawl) |
+| `a01_07` | the door opens and the area change runs; the AREA00 load completes and stops (fail-stop) at `001FF080(1, 0): area 00 room 0 is not exported`: the port's AREA00 assets are level 3's work |
+
+Free-roam probes outside the fixture (`build/l2check/probes/`): shooting
+and knifing the control-room NPC, then talking to him; aiming at the two
+east catwalk bugs from below with the stick held up and down (40 shots: no
+lock, no hit, no fault); falling from the y-25 ledge to the ground (the
+landing, no damage beyond the fires'); the magazine at (-11.4, -607.4) is
+not on this visit's roster (its record's first byte is 3; Use there does
+nothing). No fault.
+
+**Not reached, or still a fault when reached** (in order of how easily a
+player meets it):
+1. Accepting the save terminal's prompt: 00225AC0 (phase 6) loads screen
+   module 0x2A, the memory-card save screens; untranslated, it faults.
+   Needs a memory-card storage design (a user decision) and a recording
+   with a memory card.
+2. The level's exit: the AREA00 arrival (level 3) needs its world texture
+   catalog, shadow receivers and binding (as chain C11 EXIT did for
+   AREA01).
+3. Bug hits: no lock or direct hit was produced from the ground (the two
+   east catwalk bugs are 76+ units up and behind the catwalk's edge; the
+   other four are beyond the raised bridges). 001B41F0 / 001ED7A0 are
+   bound and oracle-tested; the bug's own reaction after a hit is not
+   exercised.
+4. Deep water (depth 2): AREA01's one water polygon gave depth 1 across
+   it; none found.
+5. The conditional inventory above (the nest crate's children: its crate
+   stands in the north room, unreachable on this visit; reaction effects
+   44 / 48 / 23 / 34 / 35 / 76 and 61..63; 001782A0 / 00178390 / 00178080 /
+   00188570 / 00188590 / 001885B0 / 00178440; 001C2690), none reached by
+   any run here.
+6. Timing, not faults: the recorded voice lines end one frame early even
+   with the drive-timing switch (a01_03 row 957, a01_05 row 3836), and
+   AREA01's page-module reads answer at host speed with the switch on
+   (a01_s1 row 314, a01_s2 row 258, a01_s5 row 1623), so those beats are
+   compared only up to those rows.
 

@@ -30,6 +30,11 @@ def move(x, z, tolerance=2, magnitude=1, limit=900):
     return f'move {x} {z} {tolerance} {magnitude} {limit}'
 
 
+def near(x, z, tolerance=1, magnitude=.4, limit=150):
+    """As move, but geometry in the way ends the step instead of the run."""
+    return f'near {x} {z} {tolerance} {magnitude} {limit}'
+
+
 def hold(frames, buttons=0, lx=128, ly=128):
     return f'hold {frames} {buttons:x} {lx} {ly}'
 
@@ -47,30 +52,105 @@ def mark(name):
 # navigation targets, never values written into the player.
 EAST_BYPASS = [move(x, z) for x, z in (
     (33, -571), (26, -594), (20, -617), (30, -650), (33, -672),
-    (33, -704), (1, -699), (1, -730), (18, -733), (18, -765), (-7, -790), (-14, -820))]
+    (33, -704), (1, -699), (1, -730), (18, -733))] + [
+    near(17, -753, 2, 1, 300), near(2, -790, 2, 1, 300), near(-13, -821, 2, 1, 300)]
 TUNNEL = [move(x, z) for x, z in (
     (-26, -848), (-14, -856), (-14, -885), (14, -905), (15, -970), (5, -986))]
 WATER = EAST_BYPASS + [mark('tunnel-mouth')] + TUNNEL + [
     mark('water-north-edge'), move(5, -1004), hold(90), mark('water-interior'),
     move(-20, -1004), hold(90), mark('water-west'), move(24, -1004), hold(90),
     mark('water-east'), move(5, -1032), hold(90), mark('water-exit')]
+# Past crate 10 and between the fires to the attribute-0x32 ladder face
+# (z -719): Use six units from it, the stick up through the climb, then
+# release on the y 25 ledge (its pickup lies three units ahead).
 WEST_LADDER = [move(x, z) for x, z in (
-    (33, -571), (10, -597), (-18, -610), (-28, -643), (-43, -651),
-    (-72, -652), (-72, -695), (-70, -704))] + [
-    move(-70, -713, .5, .5), hold(40), face(3.14159265), hold(30),
-    mark('ladder-foot'), hold(2, 0x4000), hold(160, 0, 128, 0),
-    hold(180), mark('ladder-attempt-end')]
-WATER_WEST = WEST_LADDER + [move(x, z) for x, z in (
-    (-69, -731), (-42, -753), (-40, -820), (-40, -920), (-40, -992), (5, -1004))] + [
-    hold(90), mark('water-from-west-ledge'), move(5, -1032), hold(60)]
+    (33, -571), (10, -597), (-18, -612), (-25, -635), (-28, -660), (-42, -690),
+    (-58, -702))] + [move(-70, -704, .5, .5), near(-70, -713, .5, .4, 200), hold(30),
+    face(3.14159265), hold(20), mark('ladder-foot'), hold(2, 0x4000), hold(30),
+    hold(175, 0, 128, 0), hold(40), mark('ladder-top')]
+LEDGE = WEST_LADDER + [face(3.14159265), hold(10), hold(2, 0x4000), hold(200),
+                       mark('ledge-use'), hold(2, 0x1000), hold(90), mark('ledge-pickup')]
+WATER_WEST = LEDGE + [near(x, z, 2, 1, 400) for x, z in (
+    (-52, -762), (-42, -800), (-40, -860), (-40, -920))] + [
+    mark('west-walkway'), near(-10, -920, 2, 1, 300), hold(60), mark('dropped-to-tunnel'),
+    near(9.6, -977.7, 2, 1, 600), near(5, -1004, 2, 1, 300), hold(90),
+    mark('water-from-west-walkway'), near(5, -1032, 2, 1, 300), hold(60)]
+# From the tunnel mouth (the end of the recorded a01_00): the recorded
+# tunnel line, the water's edges, the lower tunnel, the shaft-landing
+# stairs (AREA01's one surface-0x35 polygon), the locked shaft door's Use
+# (its door program's message request), and back down.
+SHAFT = [move(x, z) for x, z in (
+    (-24.8, -835.6), (-20.5, -856.9), (-10.1, -868), (-11.1, -890.5), (9.5, -902.7),
+    (15.5, -922.5), (13.3, -946.3), (15.1, -970.2), (9.6, -977.7))] + [
+    mark('water-edge'), move(5, -1000), hold(30), near(-22, -1000, 3, 1, 300), hold(30),
+    near(22, -1000, 3, 1, 300), hold(30), near(-22, -1014, 3, 1, 300), near(22, -1014, 3, 1, 300),
+    hold(20), hold(2, 0x2000), hold(40), hold(2, 0x8000), hold(60), hold(40, 0x800),
+    hold(2, 0x2800), hold(30, 0x800), hold(30), mark('water-done')] + [
+    move(x, z) for x, z in ((5, -1030), (5, -1100), (4.1, -1163.8), (-15.6, -1177.3),
+                            (-25.5, -1194.2), (-29, -1213))] + [
+    mark('stairs'), move(-40.4, -1226.4), move(-39.2, -1250.1), move(-40.5, -1271.5, 1, .5),
+    mark('landing'), hold(20), face(2.35619449), hold(20), hold(2, 0x4000), hold(400),
+    hold(2, 0x4000), hold(600), mark('shaft-door'), move(-39.2, -1250.1), move(-40.4, -1226.4),
+    move(-29, -1213), near(-5, -1213, 3, 1, 300), hold(30), mark('lower-tunnel')]
+# Aim and fire at the crate stack: the shots meet the floor fields'
+# boxes (001A8DA0 / 001A8CE0).
+STACK_SHOTS = [move(33, -571), move(26, -594), move(20, -617), move(25, -660, 1, .5), hold(20),
+               face(-2.96834), hold(20), hold(50, 0x800)] + \
+    [step for _ in range(10) for step in (hold(2, 0x2800), hold(25, 0x800))] + [
+    hold(30), face(-2.37271), hold(20), hold(50, 0x800)] + \
+    [step for _ in range(10) for step in (hold(2, 0x2800), hold(25, 0x800))] + [
+    hold(60), mark('stack-shots')]
+# Use at the crate stack's north face, hang, pull up (as a01_00 does),
+# Use toward the stack's pickup, then step off its south side.
+STACK_CLIMB = [move(33, -571), move(26, -594), move(20, -617), move(30, -650), move(33, -672),
+               move(25, -700), near(15.82, -706.4, .5, .4, 300), hold(10), face(3.14159265),
+               hold(20), mark('stack-use'), hold(2, 0x4000), hold(54), hold(110, 0, 128, 0),
+               hold(30), mark('stack-top'), hold(30), face(3.14159265), hold(20), hold(2, 0x4000),
+               hold(150), hold(2, 0x1000), hold(90), mark('stack-pickup'), near(17, -745, 2, 1, 300),
+               hold(60), mark('stack-off')]
+# Hang on the crate stack's north face, shimmy left then right along it
+# (the hang's side probes 001784E0 / 0017E6E0 / 0017F130 and its sound
+# 00182AF0), pull up, then walk back off the north edge into a hang.
+SHIMMY = [move(33, -571), move(26, -594), move(20, -617), move(30, -650), move(33, -672),
+          move(25, -700), near(15.82, -706.4, .5, .4, 300), hold(10), face(3.14159265), hold(20),
+          mark('stack-use'), hold(2, 0x4000), hold(60), mark('hanging'), hold(60, 0, 0, 128),
+          hold(20), hold(60, 0, 255, 128), hold(20), mark('shimmied'), hold(110, 0, 128, 0), hold(30),
+          mark('stack-top'), hold(30), face(0), hold(20), near(15.8, -700, 1, .5, 200), hold(90),
+          mark('edge-hang'), hold(30)]
+# The knife at crates 10 and 11 from their open sides.
+CRATES = [move(33, -571), move(10, -597), move(-18, -612), move(-28, -641.5, 1, .5),
+          near(-36, -641.5), hold(20), face(-1.5707963), hold(20), mark('crate10')] + \
+    [step for _ in range(4) for step in (hold(2, 0x2000), hold(45), hold(2, 0x8000), hold(70))] + [
+    mark('crate10-done')] + [move(x, z) for x, z in (
+    (-18, -612), (10, -597), (33, -571), (26, -594), (20, -617), (30, -650), (33, -672),
+    (33, -704), (1, -699), (1, -730), (18, -733))] + [move(19, -759, 1, .5), near(22, -764),
+    hold(20), face(3.14159265), hold(20), mark('crate11')] + \
+    [step for _ in range(4) for step in (hold(2, 0x2000), hold(45), hold(2, 0x8000), hold(70))] + [
+    mark('crate11-done'), hold(120)]
 
 CASES = {
-    'water': dict(script=WATER, claims=['shallow-water', 'deep-water', 'slopes'],
+    # Deep water (depth 2) is not claimed: AREA01's one surface-0x5B polygon
+    # (x -30..32, z -1021.5..-980, y -27.923) gave depth 1 across it in every
+    # run (the floor under it lies about four units down).
+    'water': dict(script=WATER, claims=['shallow-water', 'slopes'],
                   description='ground bypass around crates, tunnel water entry, crossing and exit'),
-    'water-west': dict(script=WATER_WEST, claims=['ladders', 'west-ledge', 'shallow-water', 'deep-water'],
+    'water-west': dict(script=WATER_WEST, claims=['ladders', 'west-ledge', 'shallow-water', 'pickup'],
                        description='west ladder and walkway, then approach water from the west ledge'),
     'ladder': dict(script=WEST_LADDER, claims=['ladders', 'west-ledge'],
                    description='walk west of the train, approach the ladder and press Use/up'),
+    'ledge': dict(script=LEDGE, claims=['ladders', 'west-ledge', 'pickup'],
+                  description='climb the west ladder and take the ledge pickup'),
+    'shaft': dict(phase='a01_01', script=SHAFT,
+                  claims=['shallow-water', 'melee', 'aim', 'fire', 'stairs', 'locked-shaft-door'],
+                  description='tunnel, water edges, lower tunnel, landing stairs, locked shaft door Use'),
+    'stack-shots': dict(script=STACK_SHOTS, claims=['aim', 'fire'],
+                        description='aim and fire twenty shots at the crate stack'),
+    'stack-climb': dict(script=STACK_CLIMB, claims=['ledge-hang', 'pull-up'],
+                        description='hang and pull up onto the crate stack, Use on top, step off'),
+    'shimmy': dict(script=SHIMMY, claims=['ledge-hang', 'pull-up'],
+                   description='hang on the crate stack, shimmy both ways, pull up, back into a hang'),
+    'crates': dict(script=CRATES, claims=['melee'],
+                   description='knife crates 10 and 11 from their open sides'),
     'vent': dict(phase='a01_s5', script=[move(90, -540, 1.2), move(120, -535, 1.2),
                 move(130, -530, 1.2), hold(30), move(133, -529.5, .35, .4), hold(40),
                 face(1.5707963), hold(30), mark('vent-use'), hold(2, 0x4000),
@@ -103,7 +183,7 @@ CASES = {
 RECORDED_CLAIMS = {
     'a01_00': ['crates', 'ledge-hang', 'pull-up', 'fall-land'],
     'a01_01': ['tunnel', 'slopes'],
-    'a01_02': ['shallow-water', 'deep-water', 'slopes', 'shaft-landing'],
+    'a01_02': ['shallow-water', 'slopes', 'shaft-landing'],
     'a01_03': ['locked-shaft-door'], 'a01_04': ['control-room'],
     'a01_05': ['npc-second-talk'], 'a01_06': ['control-room-return'],
     'a01_07': ['area-exit'], 'a01_s0': ['control-room', 'npc-first-talk'],
@@ -123,7 +203,7 @@ UNREACHED = {
 }
 OBSERVABLE_CLAIMS = {'shallow-water', 'deep-water', 'status', 'fire-damage',
                      'ledge-hang', 'pull-up', 'fall-land', 'vent-crawl',
-                     'melee', 'aim', 'fire', 'ladders', 'control-room', 'east-room'}
+                     'melee', 'aim', 'fire', 'ladders', 'control-room', 'east-room', 'pickup'}
 
 
 def f32(bits):
@@ -197,6 +277,7 @@ def coverage(claims, observed, complete):
         'ladders': any(a in actions for a in (0x15, 0x16, 0x17)),
         'fire': observed['shot_nodes'] and observed['magazine_min'] < observed['magazine_start'],
         'control-room': 1 in observed['entries'], 'east-room': 8 in observed['entries'],
+        'pickup': observed['progress_changed'],
     }
     return {claim: ('OBSERVED' if gates.get(claim, False) else
                     'INPUT-COMPLETED-UNVERIFIED' if complete else 'BLOCKED-OR-NOT-OBSERVED')

@@ -40,6 +40,14 @@ static int a01_explore_begin(void)
             valid = isfinite(s.x) && isfinite(s.z) && isfinite(s.tolerance) &&
                     isfinite(s.magnitude) && s.tolerance > 0 &&
                     s.magnitude > 0 && s.magnitude <= 1 && s.frames && s.frames <= 2000;
+        } else if (sscanf(line, "near %f %f %f %f %u %c", &s.x, &s.z, &s.tolerance,
+                          &s.magnitude, &s.frames, &extra) == 5) {
+            /* As move, but reaching the frame limit (geometry in the way)
+             * ends the step instead of failing the run. */
+            s.kind = 'n';
+            valid = isfinite(s.x) && isfinite(s.z) && isfinite(s.tolerance) &&
+                    isfinite(s.magnitude) && s.tolerance > 0 &&
+                    s.magnitude > 0 && s.magnitude <= 1 && s.frames && s.frames <= 2000;
         } else if (sscanf(line, "hold %u %x %u %u %c", &s.frames, &s.buttons,
                           &s.lx, &s.ly, &extra) == 4) {
             s.kind = 'h';
@@ -82,8 +90,13 @@ static int a01_explore_frame(void)
             done = a01_explore.frames >= s->frames;
             if (!done) pad_apply((uint16_t)s->buttons, (s->lx - 128.0f) / 128.0f,
                                 (s->ly - 128.0f) / 128.0f);
-        } else if (s->kind == 'm') {
+        } else if (s->kind == 'm' || s->kind == 'n') {
             done = nav_stick_toward(s->x, s->z, s->magnitude) <= s->tolerance;
+            if (!done && s->kind == 'n' && a01_explore.frames + 1 > s->frames) {
+                fprintf(stderr, "AREA01 explore: NEAR step=%u counter=%u pos=(%.5f,%.5f,%.5f) target=(%.5f,%.5f)\n",
+                        a01_explore.index, em_frame_counter(), g.pos[0], g.pos[1], g.pos[2], s->x, s->z);
+                done = 1;
+            }
         } else if (s->kind == 'f') {
             float diff = fmodf(s->x - g.yaw + 3.14159265f, 6.28318531f);
             if (diff < 0) diff += 6.28318531f;
