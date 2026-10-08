@@ -7,6 +7,8 @@ Contents:
 - [AREA01 world texture delivery](#area01-world-texture-delivery)
 - [AREA01 dynamic VU programs](#area01-dynamic-vu-programs)
 - [Floor-field and ripple programs](#floor-field-and-ripple-programs)
+- [Kind-6 near-fire program](#kind-6-near-fire-program)
+- [AREA01 world in the level smoke and its pixels](#area01-world-in-the-level-smoke-and-its-pixels)
 - [AREA01 dynamic packet binding](#area01-dynamic-packet-binding)
 - [AREA01 world model bank selection](#area01-world-model-bank-selection)
 - [AREA01 generic model and animation workers](#area01-generic-model-and-animation-workers)
@@ -220,6 +222,111 @@ EFU model of the streak and grid programs (no capture holds an EFU
 result). `make test-chain-page-gpu` checks the TCC 0 pixels against the
 GS pixel model. Limits: no AREA01 frame has been compared with a capture
 pixel by pixel.
+
+## Kind-6 near-fire program
+
+2026-10-04 (step DRAWN). AREA01's fire owner 001E3D90 asks 001CFBE0 for a
+third layer of kind 6 once its projected size D_00275C00 exceeds 0x100 (the
+camera close to the fires on the crate stack, route a01_00 from f405).
+001CFBE0 kind 6 hands 001CB760 the program packet D_0023D930 (with the
+blend row D_00251260 entry 2 or 3, as kind 1): the sprite program's packet
+layout (STMASK, STMOD, BASE 0, OFFSET 0, MPGs of 256 instructions from ELF
+0x0023D958 to micro 0 and 130 from 0x0023E160 to micro 0x100, the 128-word
+lookup and 17 constant rows to dmem 0x6E..0x7E, rows 125 / 126 being the GS
+window's min and max x, y), 0xF70 bytes with its RET.
+
+The microcode was read with the decomp's `tools/disasm_vu.py` and compared
+with the sprite program's instruction by instruction (not reproduced here):
+micro 0x000..0x10A are the sprite program's except the batch size (one
+source particle per batch: the immediates at 0x028 / 0x035 / 0x03A), the
+two set-up instructions at 0x0F5 / 0x0F6 (I = 1, VF11 = 1) that kind 6
+leaves as NOPs, and the branch offsets; the emission is new: CHAIN_PAGE.md
+section 3 describes it (a screen-space square cut to the window, 5 x 5
+SPRITE tiles, an empty tag when the square is z-rejected or outside the
+window) and lists the producer of every Q / MAC / clip read.
+
+Native: `em_vu1_kind6_program_mscal` (em_vu1_page_programs.h: the sprite
+program's flow with a variant switch, the emission emvup_kind6_particle;
+`emvup_sprite_batch` takes the batch size), recognised by em_chain_page.c
+from the two exact MPG uploads (counts `mscal_kind6`, `kind6_prims`; any
+other second part faults). The packet comes from `assets/effect_tables.emet`
+(the new window 0x0023D930 + 0xF70, `tools/export_effect_tables.py`; equal
+to the ELF in the 17 export captures). The model (tools/chain_page_model.py)
+knows the program as PROGRAM_KIND6.
+
+Verification: `make test-level2-kind6-vu-reference`
+(`tools/test_level2_kind6_vu_reference.py`) runs the ORIGINAL microcode on
+VuOracle and compares the native translation and page:
+- captured pages: every kind-6 run of the AREA01 captures that hold one
+  (a01_00, a01_01, a01_07, a01_s1, a01u_02; quick: a01_00 and a01_07),
+  re-linked into a page of their own: each MSCAL's registers (VF, VI, ACC,
+  Q, I, R, P, the clip history), all data memory, every kicked GIF byte and
+  the producer of every non-interlocked read, then the page's GS primitives,
+  kicks and MSCAL counts;
+- synthetic MSCALs from the captured memories (counts, ages, rates, tile
+  matrices crossing each window edge or behind the near plane, size rows,
+  narrowed windows, random starting registers); every conditional branch
+  both ways (0x045, the batch loop, is never taken with one particle per
+  batch, and the test asserts that);
+- fail-stops: exponent-255 operands (both sides fault), the second MPG
+  without the first, a truncated second MPG, the packet unmapped.
+Quick (7 s): 2 captures (4 runs, 600 sprites), 120 synthetic. Full
+(`EM_TEST_FULL=1`, 47 s; receipt `build/level2/kind6/full.log`): 5 captures,
+9 runs, 1,800 sprites, 1,200 synthetic MSCALs, 14,508 kicks, 9,424,128
+packet bytes. `make test-chain-page-reference` passes quick and full with
+the batch-size parameter (the sprite, snow, streak and kind-2 programs
+unchanged).
+
+Live: the a01_00 phase now runs all 780 frames (LEVEL_SMOKE.md "a01_00").
+
+## AREA01 world in the level smoke and its pixels
+
+2026-10-04 (step DRAWN). Three checks of the drawn AREA01 world, in the
+level smoke after the AREA01 phases and in the fb2 pixel harness:
+
+- **The static world and the dynamic table**
+  (`tools/level_smoke_static_world.py check_area01`): every AREA01 001C1D00
+  call is drawn in its tick; the sampled calls (one in 400; quick: the
+  first, `EM_TEST_FULL=1`: all) carry, besides the AREA11 sample's inputs,
+  the dynamic table's identity (D_0028A5A4, the extent 001D5BD0 reads:
+  0x10 + count x 0x860, and its FNV-1a), the chain table and D_00250F30..
+  before the call, and the call's whole output (chain table, render
+  context, 0x70003400..7F, D_00817240.., D_00250F30.., the arena bytes from
+  each cursor +0x10..+0x1C that moved, +0x18's 0x100 further on where
+  001CB5F0 / 001CB760 build their blocks). The checker lays them over route
+  15's AREA01 capture (f801), requires the capture's table to be the
+  port's, executes the ORIGINAL 001C1D00 (its 001D5BD0 on the AREA01 render
+  test's interpreter, A01EE) and requires every byte it writes to be in the
+  port's output and equal to it, every logged arena byte to be written by
+  it (tag bytes excepted), then the channel-0 run's triangles through the
+  original microcode. a01_00 run: 842 calls, 2 samples (13201, 13601);
+  full: 5,833 / 8,317 written bytes equal, 2,012 / 3,692 triangles; the
+  sampled calls reach 001D5BD0, 001D5A70 (24 records) and 001D4FC0 (12),
+  not the partial-clip 001D5170.
+- **The shadows** (`tools/level_smoke_shadow.py check_shadow_area01`): the
+  shadow samples restart when the AREA01 composition binds
+  (em_scene_bindings.c), so AREA01 has its own from its first frame; over the AREA01 ticks 0015C160's route for the gate bytes, every
+  drawn 001DA6A0 and decal flushed, and the sampled player and owner-walk
+  actor shadows replayed with the ORIGINAL 001CB590 + 001DA6A0 (and
+  0015BF90 + 001CE300 for decals) over route 15's AREA01 capture (its
+  static bank holds the receivers). a01_00 run, full: 822 player shadows
+  (all drawn), 9 sampled plans equal (161 receivers), 1 decal sample, 841
+  actor-shadow calls (121 drawn), 9 sampled plans equal; the a01_arrival
+  run (quick): 61 player shadows, 1 sampled plan (17 receivers).
+- **Pixels** (`tools/test_fb2_pixels.py --point 15_level_exit`, `make
+  test-fb2-pixels-area01`, about 2.5 min; also in `EM_TEST_FULL=1`): the
+  decomp's fb2 field of route 15's end (counter 16564, two neutral frames
+  after f801: the AREA01 arrival) against the port's Metal frame of the same
+  tick, point-sampled as GS_EXACT.md section 10: **camera exact; 54,378 of
+  114,688 pixels exact (47.41 %), mean channel error 0.67, per-pixel
+  maximum error p50 / p90 / p99 1 / 1 / 11**, the best of the 8 compared
+  points. The difference image is the ±1 floor of the first level's points
+  over every surface; geometry, textures, the title text, the player and
+  his shadow, the crates, the door and the lit window are in place.
+  The route_a01 save states hold GS memory (`gs.bin`) but no record of
+  which buffer is displayed or which row it shows, so their frames are not
+  compared (a fb2-style capture of an a01 beat would need a new PCSX2
+  recording).
 
 ## AREA01 dynamic VU programs
 
@@ -450,11 +557,11 @@ unreachability: later a01_04 and a01_05 contain 16 and 24. These programs
 are a real arrival dependency. The background enable flag is clear in all
 16 tested AREA01 sub-zero captures; this does not prove it is always clear.
 
-The existing `EmRclStaticSample` and level-smoke serializer omit the
-dynamic table. The standalone test proves this native composition over
-captured inputs, not the future live loader hookup or a live gameplay
-frame. Extend live smoke's dynamic inputs and checks when the scene owner
-connects the pass. Subsequent VU presentation work should record its own
+Since step DRAWN the live smoke checks the connected pass too: the
+static-world sample of an AREA01 frame carries the dynamic table's
+identity and the call's whole output, and the level smoke re-executes the
+original over it (section "AREA01 world in the level smoke and its
+pixels"). Subsequent VU presentation work should record its own
 instruction oracle and packet/GS-state evidence before this limit is
 considered resolved.
 

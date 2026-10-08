@@ -182,6 +182,27 @@ w, the tail through the same rows with Q = 1 / its w and through the clip
 rows 114..117, the colour / 256 times the tail's fog weight clamped to
 [0, row 122 x], the tail's w the fog weight or (clipped) 1 + row 122 y.
 
+**The kind-6 program** (D_0023D930: 001CFBE0 kind 6, AREA01's fire owner
+001E3D90's near-fire layer; 256 + 130 instructions, packet 0xF70 bytes with
+its RET). Micro 0x000..0x10A are the sprite program's except the batch size
+(one source particle per batch, the immediates at 0x028 / 0x035 / 0x03A)
+and no I / VF11 set-up at 0x0F5 / 0x0F6; the emission (0x10B..0x17C) takes
+the batch's one particle as a screen-space square: its centre through K,
+its half size through the clip rows (its w), the colour times 1/256 and the
+fog weight. A square the clip judgement rejects in z (the test masks z
+only) or that lies wholly outside the GS window (rows 125 / 126, the
+packet's own upload: min and max x, y) is replaced by an empty tag (NLOOP
+0, EOP) at row 101's base, which is kicked; otherwise the square is cut to
+the window (its ST cut by the same fraction: 0.5 / half size per unit) and
+drawn as 5 x 5 SPRITE tiles of six rows each (row 100, the colour, the far
+corner's ST and XYZ, the near corner's ST and XYZ; ST from 1 at the near
+corner to 0 at the far one) after the tag row 124 with NLOOP 25 at row 101's
+base - 1. Like the sprite program it stores VF11.w (ST's unused w lane)
+without writing it. Translation: `em_vu1_kind6_program_mscal` (the sprite
+program's flow with a variant switch, emvup_kind6_particle); its own test is
+`tools/test_level2_kind6_vu_reference.py` (LEVEL2_RENDER.md "Kind-6
+near-fire program").
+
 **The EFU** (streak and kind 2). No capture holds an EFU result, so its
 arithmetic is the model the background renderer already uses for ERLENG
 (em_background_gs.h): ERLENG = 1 / sqrt(x^2 + y^2 + z^2) and ERCPR = 1 / x
@@ -215,8 +236,11 @@ ee_float_model's VU0 lane rules), whose instructions are the ELF's own:
 | streak | clip test 0x12F; P at 0x12D / 0x147 / 0x162 | CLIP 0x129; ERCPR 0x121 / ERLENG 0x139 / ERCPR 0x156 |
 | kind 2 | Q at 0x00F / 0x0D6, 0x0D7 / 0x0E4 / 0x125 | DIV 0x008 / 0x0CF / 0x0DB / 0x11E |
 | kind 2 | clip test 0x127; P at 0x126 | CLIP 0x122; ERCPR 0x11A |
+| kind 6 | the sprite program's reads through 0x0EF; Q at 0x11E / 0x125 / 0x140 / 0x14B | its producers; DIV 0x117 / 0x11E / 0x139 / 0x140 |
+| kind 6 | clip test 0x123; MAC test 0x143 / 0x145 / 0x149, 0x14A / 0x14B, 0x14C | CLIP 0x11F; 0x13F / 0x141 / 0x145 / 0x147 (Sx 0x80, Sy 0x40 of the written x, y) |
 
-  A DIV in the same pair as a Q read (0x0D6, 0x11E) starts after that read.
+  A DIV in the same pair as a Q read (0x0D6, 0x11E; kind 6 also 0x140)
+  starts after that read.
 - the arithmetic: DAZ operands, truncated results, FTZ, finite overflow to
   +-MAX, the multiply-add a truncated product added to ACC; VDIV truncated
   with +-MAX for a zero divisor; saturating VFTOI; raw VMAX / VMINI; an
@@ -440,10 +464,14 @@ gives the same values.
   kind-2 program's 0x00232540 + 0xD50 (em_effects_live refuses an export
   without all five), and in the page textures the impact sources' TEX0
   rows, the ring decals', the lamp flare's, the cable hit sprite's and the
-  cable strand's code words, 16 textures) (STARTUP.md rows 50 and 52).
+  cable strand's code words, 16 textures) (STARTUP.md rows 50 and 52);
+  since step DRAWN (2026-10-04) also AREA01's kind-6 packet D_0023D930 +
+  0xF70 (an export without it makes the first near-fire page fault: the
+  chain page's unmapped-address refusal).
 - **What the page counts for the smoke** (the tick log's `page`): besides
   the MSCALs per program, the streak and kind-2 programs' primitives
-  (`streak_prims`, `kind2_prims`), the lanes' strip triangles
+  (`streak_prims`, `kind2_prims`; the kind-6 program's `mscal_kind6` /
+  `kind6_prims` are counted in EmChainPageCounts but not logged), the lanes' strip triangles
   (`lane_strips`: an active ring-decal slot) and the DIRECT packets' strip
   triangles (`direct_strips`: 0021A500's parted cable strand), so
   check_chain_page can tell each strip triangle's source; the first 12

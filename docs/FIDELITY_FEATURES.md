@@ -2018,12 +2018,25 @@ whose close-up draw is not translated yet.
   (`LEVEL_SMOKE.md` "a01_00") replays route beat a01_00's recorded pad and
   compares every row with the recording: rows f0..f404 equal in every
   field (player, camera, requests, task, health, progress, message, bars,
-  fade, all 11 recorded owner records). The run then stops: 001E3D90's
-  near-fire layer asks for 001CFBE0's kind 6, whose VU1 program D_0023D930
-  is not translated. With only that draw skipped (a private diagnostic
-  build, never committed) all 781 rows match, through the fall, the
-  landing and the walk to the tunnel mouth. Not compared: AREA01's pixels
-  and sound.
+  fade, all 11 recorded owner records). Since step DRAWN all 781 rows
+  match: 001E3D90's near-fire layer (001CFBE0's kind 6, VU1 program
+  D_0023D930, translated and checked against its original microcode over
+  every captured kind-6 page) draws from f405, and the pull-up, the fall,
+  the landing and the walk to the tunnel mouth follow the recording. Not
+  compared: AREA01's sound.
+- Drawn world (step DRAWN, 2026-10-04): AREA01's world is drawn from its
+  original packets: the static bank and the dynamic objects' table (the
+  level smoke re-executes the original 001C1D00 and its 001D5BD0 over the
+  port's inputs on sampled AREA01 frames: every byte equal), the area's
+  textures, the floor-field, ripple, dynamic and near-fire VU programs, the
+  owners' models and the player's and the owners' shadows (sampled shadow
+  plans equal to the original 001DA6A0's over an AREA01 capture). Pixels,
+  relative to PCSX2's software GS: the arrival frame (fb2 point
+  15_level_exit, camera exact) has 47.41 % of its 114,688 pixels exact,
+  mean channel error 0.67, per-pixel maximum error at the 90th percentile 1
+  (`make test-fb2-pixels-area01`; GS_EXACT.md section 10). Not compared:
+  frames after the arrival (the route_a01 save states record no displayed
+  field).
 - Camera (step CAMERA, 2026-10-04): the AREA01 phases also compare the
   camera block itself: on every row its eye, target and the forward
   vector, and at a recording's last row the whole camera block byte for
@@ -2032,7 +2045,8 @@ whose close-up draw is not translated yet.
   The control room's camera (mode 1, seated from the original scene-entry
   and eye tables) is bound but not reached yet: the control-room door's
   Use stops the run first (`LEVEL2_BINDING.md`, step CAMERA).
-- Status: **PARTIAL**, arrival idle and train room f0..f404 (above). The arrival's rebuild
+- Status: **PARTIAL**, arrival idle, the whole train room (a01_00) and
+  the arrival frame's pixels (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick

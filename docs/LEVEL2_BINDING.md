@@ -14,7 +14,70 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State (2026-10-04, step CAMERA: the AREA01 camera)
+## State (2026-10-04, step DRAWN: AREA01 drawn)
+
+**AREA01 is drawn from its original packets, and the player runs the
+whole train room.** What was already connected before this step (the
+dynamic table pass 001D5BD0 in the render context since the resource
+checkpoint, the area texture catalog `em_world_textures_live_bind(1, 0)` at
+the rebuild, the dynamic VU programs 0x237450 / 0x237720 and the
+floor-field / ripple programs on the chain page, the owners' model draws
+and the shadows) ran in every AREA01 frame; this step drew the last
+program the route reaches, put the drawn world under the level smoke and
+compared pixels:
+- **Kind 6.** 001E3D90's near-fire layer (001CFBE0 kind 6, from a01_00
+  f405) is drawn: its program D_0023D930 is translated
+  (`em_vu1_kind6_program_mscal`), recognised by the chain page and
+  exported (`assets/effect_tables.emet` window 0x0023D930 + 0xF70). `make
+  test-level2-kind6-vu-reference` compares it with the original microcode
+  over every captured kind-6 page and 1,200 synthetic MSCALs (full);
+  LEVEL2_RENDER.md "Kind-6 near-fire program". **a01_00 now passes all 781
+  rows** (`python3 tools/test_level_smoke_area01.py --until a01_00`).
+- **The smoke serializer's dynamic table.** The static-world sample of an
+  AREA01 frame carries the dynamic table's identity and the call's whole
+  output; `check_area01` re-executes the original 001C1D00 with its
+  001D5BD0 over route 15's AREA01 capture: every written byte equal. The
+  shadow samples restart at the AREA01 bind and `check_shadow_area01` replays the
+  player's and the owner walk's shadows over the same capture. Both run in
+  every smoke that reaches AREA01 (LEVEL_SMOKE.md "The AREA01 world").
+  Census: 001D5BD0, 001D5A70, 001D4FC0 live (SECOND_LEVEL_CENSUS §11).
+- **Pixels.** The fb2 point 15_level_exit (the arrival frame, two neutral
+  frames after f801) against the port's frame of that tick: camera exact,
+  **47.41 % of the pixels exact**, mean channel error 0.67 (`make
+  test-fb2-pixels-area01`; GS_EXACT.md section 10). No other AREA01 frame
+  has a recorded displayed field: the route_a01 save states hold GS memory
+  without the displayed buffer or its row, so comparing a later beat's
+  frame needs a new fb2-style PCSX2 recording of it.
+
+**What a player sees** (a windowed run is the same code as the smoke's:
+the headless renderer draws the same Metal frame; frames captured along
+a01_00 in `build/level2/drawn/`): after Roger's movie the screen fades in
+on the "UNDERGROUND TUNNEL - AREA B" title over the dark tunnel wall, the
+player at the door, the crates at the left and the lit control-room window
+with the guard behind it at the right, his shadow at his feet. Running into
+the train room: the rails and the floor fields (the splashes and the wet
+footprints), the crate stack with its two fires and their glow, the
+near-fire layer filling the screen as the camera closes on them, the
+ledge grab, hang and pull-up onto the crates, the fall and the walk under
+the girders to the tunnel mouth, the camera following throughout. Not
+checked by this run: a human-driven window (the runs here are headless,
+by the test rules); sound.
+
+**Where the game stops next** (unchanged by this step): a player who
+walks on through the tunnel stops (fail-stop) on the shaft landing's
+floor, a01_02 f39 in the recording: the floor service 00175900 reaches
+00187DE0 (the surface-0x5B first contact, unbound; it needs 001EFD90,
+001E8B90 and 001FB9F0); a player who uses the control-room door stops on
+its Use (a class-2 D_00275B8C entry, a01_s0 f134). For the smoke only,
+a01_01's first recorded pad command arrives two frames late (LEVEL_SMOKE.md
+"a01_00"), a harness reading, not a game fault.
+
+Receipts (ignored): `build/level2/kind6/` (full.log: the kind-6 full sweep;
+a01_00d.log: the a01_00 run with the AREA01 checks; area01_full.log: those
+checks in full mode; chain_page_full.log; smoke-default.log;
+newgame-control.log; fb2_full.log) and `build/level2/drawn/` (the frames).
+
+## State before step DRAWN (step CAMERA: the AREA01 camera)
 
 **The camera follows the player as recorded wherever the run reaches.**
 AREA01's camera is the first level's live camera (`em_camera_live`: the

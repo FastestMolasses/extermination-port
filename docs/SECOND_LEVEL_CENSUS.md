@@ -2,7 +2,7 @@
 
 Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
-**Current (2026-10-04, step CAMERA; unchanged since step MOVE):** **48 live (10,913 instructions), 129 verified-unbound (18,503), 0 missing, 2 boundary (131)** (§10 says why step CAMERA promotes no row; §9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
+**Current (2026-10-04, step DRAWN):** **51 live (11,146 instructions), 126 verified-unbound (18,270), 0 missing, 2 boundary (131)** (§11: the dynamic table pass's three rows the level smoke now re-executes; §10 says why step CAMERA promotes no row; §9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
 
 ## 1. Scope and counting
 
@@ -170,10 +170,10 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001D0C80 | boot | 47 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0C80` | K | — |
 | 0x001D0D40 | boot | 8 | A; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001D0D40` | K | — |
 | 0x001D0D60 | boot | 111 | S; s5 f904 | verified-unbound | `em_area01_room.c` / `em_area01_room_001D0D60` | Q | — |
-| 0x001D4FC0 | boot | 106 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D4FC0` | R | — |
+| 0x001D4FC0 | boot | 106 | M; 00 f1; E c16503 | live | `em_area01_render_vif.c` / `em_area01_render_001D4FC0` | R; W | — |
 | 0x001D5170 | boot | 92 | M; 00 f53 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5170` | R | — |
-| 0x001D5A70 | boot | 86 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5A70` | R | — |
-| 0x001D5BD0 | boot | 41 | M; 00 f1; E c16503 | verified-unbound | `em_area01_render_vif.c` / `em_area01_render_001D5BD0` | R | — |
+| 0x001D5A70 | boot | 86 | M; 00 f1; E c16503 | live | `em_area01_render_vif.c` / `em_area01_render_001D5A70` | R; W | — |
+| 0x001D5BD0 | boot | 41 | M; 00 f1; E c16503 | live | `em_area01_render_vif.c` / `em_area01_render_001D5BD0` | R; W | — |
 | 0x001D8100 | boot | 9 | S; s3 f208 | verified-unbound | `em_effect_original.c` | D | L |
 | 0x001E3D20 | boot | 27 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001E3D20` | D | — |
 | 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S; G | — |
@@ -396,6 +396,36 @@ The camera block comparison the level smoke gained in this step (per row
 the block's eye / target and the forward, at each recording's last row the
 whole block against its saved RAM; LEVEL_SMOKE.md "a01_arrival") is
 evidence for the rows already live, not a promotion.
+
+## 11. Step DRAWN: the drawn world (2026-10-04)
+
+Evidence key **W**: the row runs on the default AREA01 path inside the
+render context's 001C1D00 (001D5370's dynamic table pass), and the level
+smoke re-executes it: the AREA01 static-world sample (one 001C1D00 call
+in 400) carries the dynamic table's identity and the call's whole output,
+and `level_smoke_static_world.check_area01` runs the ORIGINAL 001C1D00 and
+its 001D5BD0 over route 15's AREA01 capture with the port's inputs: the
+capture's table equals the port's, every byte the original writes is in
+the port's output and equal to it (LEVEL_SMOKE.md "The AREA01 world"). On
+the a01_00 run the two sampled calls (001C1D00 calls 13201 and 13601, in
+a01_00 f9 and f409) reach 001D5BD0, 001D5A70 (12 records each) and
+001D4FC0 (12 drawn records in the first): those three rows are **live**.
+001D5170 (the partial-clip packet) is not reached by a sampled call:
+**verified-unbound** (unchanged).
+
+Also in this step, without a census row (VU1 microcode is not an EE
+function): 001CFBE0 kind 6's program D_0023D930 is translated and drawn
+(LEVEL2_RENDER.md "Kind-6 near-fire program"), so a01_00 passes all 781
+rows; 001E3D90 (live since step GUARD) is the owner that asks for it.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 51 | 11,146 |
+| verified-unbound | 126 | 18,270 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
 
 ## AREA01 arrival binding dependencies
 

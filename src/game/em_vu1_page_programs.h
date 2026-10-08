@@ -454,11 +454,13 @@ static inline void emvup_sprite_particle(EmVu1PCtx *c)
     emvup_sq(c, 16, r->vi[10] + 2u);
 }
 
-/* One batch of up to 28 source particles (micro 0x01D..0x051): returns 1
- * when the count is exhausted (row 99 x = 0x7FFF), else 0. */
+/* One batch of up to `per` source particles (micro 0x01D..0x051; `per` is
+ * the immediate of micro 0x028 / 0x035 / 0x03A: 28, or 1 in the kind-6
+ * program D_0023D930): returns 1 when the count is exhausted (row 99 x =
+ * 0x7FFF), else 0. */
 static inline void emvup_streak_particle(EmVu1PCtx *c);
 
-static inline int emvup_sprite_batch(EmVu1PCtx *c, int streak)
+static inline int emvup_sprite_batch(EmVu1PCtx *c, int streak, uint16_t per)
 {
     EmVu1PRegs *r = c->r;
     r->vi[12] = emvup_ilw(c, 98);                                      /* 0x01D: remaining */
@@ -472,11 +474,11 @@ static inline int emvup_sprite_batch(EmVu1PCtx *c, int streak)
         emvup_isw(c, r->vi[1], 99);
         return 1;
     }
-    r->vi[1] = (uint16_t)(r->vi[12] - 0x1C);                           /* 0x028 */
+    r->vi[1] = (uint16_t)(r->vi[12] - per);                            /* 0x028 */
     if ((int16_t)r->vi[1] > 0) {                                       /* 0x02A -> 0x035 */
-        r->vi[12] = (uint16_t)(r->vi[12] - 0x1C);
+        r->vi[12] = (uint16_t)(r->vi[12] - per);
         emvup_isw(c, r->vi[12], 98);
-        r->vi[12] = 0x1C;
+        r->vi[12] = per;
     } else {
         emvup_isw(c, 0, 98);                                           /* 0x02C */
     }
@@ -502,6 +504,186 @@ static inline int emvup_sprite_batch(EmVu1PCtx *c, int streak)
     return 0;
 }
 
+/* The kind-6 program's emission of its one particle (micro 0x110..0x17C;
+ * D_0023D930, 001CFBE0's kind 6: 001E3D90's near-fire layer). The particle
+ * is a screen-space square (the sprite program's centre through K, half
+ * size through the clip rows) drawn as a 5 x 5 grid of SPRITE pairs:
+ * the tag row 124 with NLOOP 25 at row 101's base - 1, then six rows per
+ * tile at row 101's base (row 100, the colour, the far corner's ST and
+ * XYZ, the near corner's ST and XYZ). The ST run from 1 at the near (min)
+ * corner to 0 at the far corner. Rows 125 / 126 (the packet's own upload:
+ * the GS window's min and max x, y) clamp the square: a square wholly
+ * outside them, or one the clip judgement rejects in z only (FCAND 0x30),
+ * is replaced by an empty tag (NLOOP 0, EOP) at row 101's base, which is
+ * kicked; a square crossing them is cut to them with its ST cut to match.
+ * The MAC reads (CHAIN_PAGE.md section 3; the test logs them) see: micro
+ * 0x143 the op of 0x13F, 0x145 that of 0x141, 0x149 / 0x14A that of 0x145,
+ * 0x14B / 0x14C that of 0x147 (the sign bits Sx 0x80 / Sy 0x40 of the two
+ * written lanes); the Q reads: 0x11E the DIV of 0x117, 0x125 that of
+ * 0x11E, 0x140 that of 0x139, 0x14B that of 0x140; the clip test at 0x123
+ * the CLIP of 0x11F. */
+static inline uint16_t emvup_mac_xy(uint32_t x, uint32_t y)
+{
+    return (uint16_t)(((x >> 31) ? 0x80u : 0u) | ((y >> 31) ? 0x40u : 0u));
+}
+
+static inline int emvup_kind6_particle(EmVu1PCtx *c, EmVu1PKick kick, void *ctx)
+{
+    EmVu1PRegs *r = c->r;
+    uint32_t p[4];
+    memcpy(p, r->vf[1], sizeof p);
+    emvup_xform(c, 15, 24, p);                                         /* 0x110..0x113: K */
+    emvup_lq(c, 6, 124);                                               /* 0x110 */
+    r->vi[6] = emvup_ilw(c, 101);                                      /* 0x111 */
+    r->vi[1] = (uint16_t)(r->vi[15] | r->vi[14]);                      /* 0x113: NLOOP 25, EOP */
+    r->vf[6][0] = (uint32_t)(int32_t)(int16_t)r->vi[1];                /* 0x114: MFIR */
+    for (unsigned k = 0; k < 4; ++k) r->acc[k] = emvup_mul(c, r->vf[16][k], r->vf[13][0]);
+    r->vi[6] = (uint16_t)(r->vi[6] - 1u);                              /* 0x115 */
+    for (unsigned k = 0; k < 4; ++k) r->acc[k] = emvup_madd(c, r->acc[k], r->vf[17][k], r->vf[13][1]);
+    for (unsigned k = 0; k < 4; ++k) r->acc[k] = emvup_madd(c, r->acc[k], r->vf[18][k], r->vf[15][3]);
+    for (unsigned k = 0; k < 4; ++k) r->vf[2][k] = emvup_madd(c, r->acc[k], r->vf[19][k], r->vf[0][3]);
+    const uint32_t q_w = emvup_div(c, r->vf[0][3], r->vf[15][3]);     /* 0x117 */
+    emvup_sq(c, 6, r->vi[6]);                                          /* 0x118: the tag */
+    memcpy(p, r->vf[1], sizeof p);
+    emvup_xform(c, 1, 20, p);                                          /* 0x118..0x11B: P */
+    r->acc[3] = emvup_mul(c, r->vf[0][3], r->vf[28][2]);               /* 0x11C */
+    r->vf[15][3] = emvup_madd(c, r->acc[3], r->vf[28][3], r->vf[15][3]);   /* 0x11D */
+    r->q = q_w;
+    for (unsigned k = 0; k < 3; ++k) r->vf[15][k] = emvup_mul(c, r->vf[15][k], r->q);   /* 0x11E */
+    const uint32_t q_e = emvup_div(c, r->vf[0][3], r->vf[2][3]);
+    emvup_clip(c, r->vf[1]);                                           /* 0x11F */
+    r->i = 0x3F000000u;                                                /* 0.5 */
+    r->vf[31][0] = emvup_add(c, r->vf[0][0], r->i);                   /* 0x120 */
+    r->vf[15][3] = em_vu_min_bits(r->vf[15][3], r->vf[28][0]);         /* 0x121 */
+    r->vf[15][2] = emvup_add(c, r->vf[15][2], r->vf[9][2]);           /* 0x122 */
+    r->i = 0x3B800000u;                                                /* 1/256 */
+    r->vi[1] = (r->cf & 0x30u) != 0u;                                  /* 0x123: z only */
+    for (unsigned k = 0; k < 4; ++k) r->vf[14][k] = emvup_mul(c, r->vf[14][k], r->i);
+    for (unsigned k = 2; k < 4; ++k) r->vf[1][k] = emvup_sub(c, r->vf[2][k], r->vf[2][k]);   /* 0x124 */
+    r->q = q_e;
+    for (unsigned k = 0; k < 2; ++k) r->vf[1][k] = emvup_mul(c, r->vf[2][k], r->q);   /* 0x125 */
+    r->vf[15][3] = em_vu_max_bits(r->vf[15][3], r->vf[0][0]);          /* 0x126 (delay slot) */
+    if (c->bad) return EM_VU1P_FAULT_OPERAND;
+    int drawn = 0;
+    if (r->vi[1] == 0) {                                               /* 0x125 -> 0x137 */
+        r->vf[8][2] = emvup_add(c, r->vf[0][2], r->vf[0][3]);         /* 0x137 */
+        r->vi[7] = 0x80;
+        for (unsigned k = 0; k < 3; ++k) r->vf[11][k] = emvup_add(c, r->vf[0][k], r->vf[0][3]);   /* 0x138 */
+        r->vi[8] = 0x40;
+        const uint32_t q_x = emvup_div(c, r->vf[31][0], r->vf[1][0]); /* 0x139 */
+        for (unsigned k = 0; k < 4; ++k) r->vf[14][k] = emvup_mul(c, r->vf[14][k], r->vf[15][3]);  /* 0x13A */
+        for (unsigned k = 0; k < 4; ++k) r->vf[2][k] = emvup_sub(c, r->vf[15][k], r->vf[1][k]);    /* 0x13B */
+        for (unsigned k = 0; k < 4; ++k) r->vf[3][k] = emvup_add(c, r->vf[15][k], r->vf[1][k]);    /* 0x13C */
+        memcpy(r->vf[29], c->m[125].w, 8);                             /* x, y of row 125: the window min */
+        for (unsigned k = 0; k < 2; ++k) r->vf[8][k] = emvup_add(c, r->vf[0][k], r->vf[0][k]);     /* 0x13D */
+        memcpy(r->vf[30], c->m[126].w, 8);                             /* x, y of row 126: the window max */
+        for (unsigned k = 0; k < 4; ++k) r->vf[14][k] = em_vu_ftoi0_bits(r->vf[14][k]);  /* 0x13E */
+        r->vi[1] = 0xC0;
+        for (unsigned k = 0; k < 2; ++k) r->vf[4][k] = emvup_sub(c, r->vf[30][k], r->vf[2][k]);   /* 0x13F */
+        const uint16_t mac_13f = emvup_mac_xy(r->vf[4][0], r->vf[4][1]);
+        r->vi[2] = 0xC0;
+        r->q = q_x;
+        r->vf[5][0] = emvup_add(c, r->vf[0][0], r->q);                /* 0x140 */
+        const uint32_t q_y = emvup_div(c, r->vf[31][0], r->vf[1][1]); /* starts after the read */
+        r->q = q_y;                                                    /* settles unread before 0x14B */
+        for (unsigned k = 0; k < 2; ++k) r->vf[6][k] = emvup_sub(c, r->vf[3][k], r->vf[29][k]);   /* 0x141 */
+        const uint16_t mac_141 = emvup_mac_xy(r->vf[6][0], r->vf[6][1]);
+        r->vi[1] &= mac_13f;                                           /* 0x143 */
+        r->vi[3] = 0x80;                                               /* 0x144 */
+        for (unsigned k = 0; k < 2; ++k) r->vf[4][k] = emvup_sub(c, r->vf[29][k], r->vf[2][k]);   /* 0x145 */
+        const uint16_t mac_145 = emvup_mac_xy(r->vf[4][0], r->vf[4][1]);
+        r->vi[2] &= mac_141;
+        for (unsigned k = 0; k < 2; ++k) r->vf[31][k] = emvup_sub(c, r->vf[3][k], r->vf[30][k]);  /* 0x147 */
+        const uint16_t mac_147 = emvup_mac_xy(r->vf[31][0], r->vf[31][1]);
+        r->vi[4] = 0x40;
+        if (c->bad) return EM_VU1P_FAULT_OPERAND;
+        if (r->vi[1] == 0) {                                           /* 0x146 -> 0x127 not taken */
+            r->vi[3] &= mac_145;                                       /* 0x149 (0x148's delay slot) */
+            if (r->vi[2] == 0) {                                       /* 0x148 -> 0x127 not taken */
+                drawn = 1;
+                r->vi[4] &= mac_145;                                   /* 0x14A */
+                r->vf[5][1] = emvup_add(c, r->vf[0][1], q_y);         /* 0x14B */
+                r->vi[7] &= mac_147;
+                r->vi[8] &= mac_147;                                   /* 0x14C */
+                r->acc[0] = emvup_add(c, r->vf[0][0], r->vf[0][3]);   /* 0x14E (delay slot) */
+                if (r->vi[3] == 0) {                                   /* 0x14D: the min x outside */
+                    r->vf[11][0] = emvup_msub(c, r->acc[0], r->vf[4][0], r->vf[5][0]);   /* 0x14F */
+                    r->vf[2][0] = r->vf[29][0];
+                }
+                r->acc[1] = emvup_add(c, r->vf[0][1], r->vf[0][3]);   /* 0x151 (delay slot) */
+                if (r->vi[4] == 0) {                                   /* 0x150: the min y outside */
+                    r->vf[11][1] = emvup_msub(c, r->acc[1], r->vf[4][1], r->vf[5][1]);   /* 0x152 */
+                    r->vf[2][1] = r->vf[29][1];
+                }
+                r->acc[0] = emvup_add(c, r->vf[0][0], r->vf[0][0]);   /* 0x154 (delay slot) */
+                if (r->vi[7] == 0) {                                   /* 0x153: the max x outside */
+                    r->vf[8][0] = emvup_madd(c, r->acc[0], r->vf[31][0], r->vf[5][0]);   /* 0x155 */
+                    r->vf[3][0] = r->vf[30][0];
+                }
+                r->acc[1] = emvup_add(c, r->vf[0][1], r->vf[0][0]);   /* 0x157 (delay slot) */
+                if (r->vi[8] == 0) {                                   /* 0x156: the max y outside */
+                    r->vf[8][1] = emvup_madd(c, r->acc[1], r->vf[31][1], r->vf[5][1]);   /* 0x158 */
+                    r->vf[3][1] = r->vf[30][1];
+                }
+                memcpy(r->vf[5], r->vf[2], sizeof r->vf[5]);           /* 0x15C: the row start */
+                for (unsigned k = 0; k < 2; ++k) r->vf[3][k] = emvup_sub(c, r->vf[3][k], r->vf[2][k]);
+                memcpy(r->vf[31], r->vf[11], sizeof r->vf[31]);        /* 0x15D: its ST */
+                for (unsigned k = 0; k < 2; ++k) r->vf[8][k] = emvup_sub(c, r->vf[8][k], r->vf[11][k]);
+                r->i = 0x3E4CCCCDu;                                    /* 0x15F: 0.2 */
+                for (unsigned k = 0; k < 2; ++k) r->vf[3][k] = emvup_mul(c, r->vf[3][k], r->i);   /* 0x160 */
+                memcpy(r->vf[1], r->vf[2], sizeof r->vf[1]);
+                for (unsigned k = 0; k < 2; ++k) r->vf[8][k] = emvup_mul(c, r->vf[8][k], r->i);   /* 0x161 */
+                memcpy(r->vf[4], r->vf[11], sizeof r->vf[4]);
+                for (unsigned k = 0; k < 2; ++k) r->vf[1][k] = emvup_add(c, r->vf[1][k], r->vf[3][k]);   /* 0x164 */
+                r->vi[1] = 5;
+                for (unsigned k = 0; k < 2; ++k) r->vf[4][k] = emvup_add(c, r->vf[4][k], r->vf[8][k]);   /* 0x165 */
+                r->vi[2] = 5;
+                do {                                                   /* the rows */
+                    do {                                               /* 0x168..0x170: the tiles */
+                        for (unsigned k = 0; k < 4; ++k) r->vf[6][k] = em_vu_ftoi4_bits(r->vf[2][k]);
+                        emvup_sq(c, 14, r->vi[12] + 1u);
+                        for (unsigned k = 0; k < 4; ++k) r->vf[7][k] = em_vu_ftoi4_bits(r->vf[1][k]);
+                        emvup_sq(c, 10, r->vi[12]);
+                        emvup_sq(c, 11, r->vi[12] + 4u);               /* 0x16A */
+                        emvup_sq(c, 4, r->vi[12] + 2u);                /* 0x16B */
+                        emvup_sq(c, 6, r->vi[12] + 5u);                /* 0x16C */
+                        r->vf[2][0] = emvup_add(c, r->vf[2][0], r->vf[3][0]);
+                        emvup_sq(c, 7, r->vi[12] + 3u);                /* 0x16D */
+                        r->vf[1][0] = emvup_add(c, r->vf[1][0], r->vf[3][0]);
+                        r->vf[11][0] = emvup_add(c, r->vf[11][0], r->vf[8][0]);   /* 0x16E */
+                        r->vi[2] = (uint16_t)(r->vi[2] - 1u);
+                        r->vf[4][0] = emvup_add(c, r->vf[4][0], r->vf[8][0]);     /* 0x16F */
+                        r->vi[12] = (uint16_t)(r->vi[12] + 6u);
+                    } while ((int16_t)r->vi[2] > 0);
+                    r->vf[2][0] = emvup_add(c, r->vf[5][0], r->vf[0][0]);         /* 0x172 */
+                    r->vf[1][0] = emvup_add(c, r->vf[5][0], r->vf[3][0]);         /* 0x173 */
+                    r->vf[11][0] = emvup_add(c, r->vf[31][0], r->vf[0][0]);       /* 0x174 */
+                    r->vf[4][0] = emvup_add(c, r->vf[31][0], r->vf[8][0]);        /* 0x175 */
+                    r->vf[2][1] = emvup_add(c, r->vf[2][1], r->vf[3][1]);         /* 0x176 */
+                    r->vi[1] = (uint16_t)(r->vi[1] - 1u);
+                    r->vf[1][1] = emvup_add(c, r->vf[1][1], r->vf[3][1]);         /* 0x177 */
+                    r->vi[2] = 5;
+                    r->vf[11][1] = emvup_add(c, r->vf[11][1], r->vf[8][1]);       /* 0x178 */
+                    r->vf[4][1] = emvup_add(c, r->vf[4][1], r->vf[8][1]);         /* 0x179 (delay slot) */
+                } while ((int16_t)r->vi[1] > 0);
+                if (c->bad) return EM_VU1P_FAULT_OPERAND;
+                if (kick(ctx, c->m, r->vi[6] & 1023u))                 /* 0x17A */
+                    return EM_VU1P_FAULT_KICK;
+            }
+        }
+    }
+    if (!drawn) {                                                      /* 0x127..0x133: the empty tag */
+        emvup_lq(c, 6, 124);
+        r->vi[6] = emvup_ilw(c, 101);
+        r->vi[1] = r->vi[14];                                          /* 0x12A: EOP, NLOOP 0 */
+        r->vf[6][0] = (uint32_t)(int32_t)(int16_t)r->vi[1];
+        emvup_sq(c, 6, r->vi[6]);                                      /* 0x12F */
+        if (kick(ctx, c->m, r->vi[6] & 1023u))                         /* 0x133 */
+            return EM_VU1P_FAULT_KICK;
+    }
+    return EM_VU1P_OK;                                                 /* 0x135 / 0x17C -> 0x0F1 */
+}
+
 /* MSCAL 0 of the sprite program. dmem rows 0..79: the lookup (read at an
  * angle index and index + 16); 80..88: the descriptor (88: count, gravity,
  * flags, kind as words); 89: phase, colour scale, fade interval, seed;
@@ -510,8 +692,9 @@ static inline int emvup_sprite_batch(EmVu1PCtx *c, int streak)
  * in rows 96..102 and writes the sprites of each batch to 0x100 or 0x280
  * (six rows per visible particle after a tag row), then kicks the tag. */
 static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
-                                         int snow)
+                                         int variant)
 {
+    const int snow = variant == 1, kind6 = variant == 2;
     if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
     EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
     emvup_lq(c, 4, 88);                                                /* 0x000..0x003 */
@@ -541,16 +724,18 @@ static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1
     for (;;) {
         /* 0x0F1 -> 0x01D */
         r->vi[9] = 0xF3;
-        const int done = emvup_sprite_batch(c, 0);
+        const int done = emvup_sprite_batch(c, 0, kind6 ? 1u : 0x1Cu);
         if (done < 0 || c->bad) return EM_VU1P_FAULT_OPERAND;
         if (++batches > 0x10000u) return EM_VU1P_FAULT_RUNAWAY;
         r->vi[1] = emvup_ilw(c, 99);                                   /* 0x0F3 */
         r->vi[2] = 0x7FFF;
-        r->i = EM_EE_ONE;
-        for (unsigned k = 0; k < 3; ++k) r->vf[11][k] = emvup_add(c, r->vf[0][k], r->i);   /* 0x0F6 */
+        if (!kind6) {                                                  /* the kind-6 program: NOPs */
+            r->i = EM_EE_ONE;
+            for (unsigned k = 0; k < 3; ++k) r->vf[11][k] = emvup_add(c, r->vf[0][k], r->i);   /* 0x0F6 */
+        }
         emvup_lq(c, 16, 110);
         emvup_lq(c, 17, 111);                                          /* 0x0F8 (delay slot) */
-        if (r->vi[1] == r->vi[2]) break;                               /* 0x0F7 -> 0x14B */
+        if (r->vi[1] == r->vi[2]) break;                               /* 0x0F7 -> 0x14B (kind 6: 0x17E) */
         emvup_lq(c, 18, 112);                                          /* 0x0FA (delay slot) */
         if (r->vi[1] == 0) continue;                                   /* 0x0F9 -> 0x0F1 */
         emvup_lq(c, 19, 113);
@@ -566,11 +751,17 @@ static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1
         r->vi[13] = 0x88;
         r->vi[14] = 0x7FFF;
         r->vi[14] = (uint16_t)(r->vi[14] + 1u);
-        r->vi[15] = r->vi[11];
+        r->vi[15] = kind6 ? 0x19u : r->vi[11];                         /* 0x10B: kind 6: 25 tiles */
         emvup_lq(c, 1, r->vi[13]);                                     /* 0x10C..0x10F */
         emvup_lq(c, 10, 100);
         emvup_lq(c, 13, r->vi[13] + 3u);
         emvup_lq(c, 14, r->vi[13] + 2u);
+        if (kind6) {
+            const int rc = emvup_kind6_particle(c, kick, ctx);
+            if (rc) return rc;
+            if (c->bad) return EM_VU1P_FAULT_OPERAND;
+            continue;                                                  /* -> 0x0F1 */
+        }
         for (;;) {                                                     /* 0x110 */
             uint32_t p[4];
             emvup_sq(c, 0, r->vi[12] + 2u);
@@ -679,6 +870,19 @@ static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
                                             void *ctx)
 {
     return emvup_particle_program(r, dmem, kick, ctx, 1);
+}
+
+/* MSCAL 0 of the kind-6 program (D_0023D930, 001CFBE0's kind 6: the fire
+ * owner 001E3D90's near-fire layer, AREA01). Its instructions are the
+ * sprite program's through micro 0x10A except the batch size (one source
+ * particle per batch: micro 0x028 / 0x035 / 0x03A), no I / VF11 set-up at
+ * 0x0F5 / 0x0F6 and the branch offsets; the emission (0x10B..0x17C) is
+ * emvup_kind6_particle's. Same dmem layout plus rows 125 / 126 (the
+ * packet's upload). */
+static inline int em_vu1_kind6_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
+                                             void *ctx)
+{
+    return emvup_particle_program(r, dmem, kick, ctx, 2);
 }
 
 /* ========================================================== streak ===== */
@@ -950,7 +1154,7 @@ static inline int em_vu1_streak_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
     for (;;) {
         /* 0x0F7 -> 0x01D */
         r->vi[9] = 0xF9;
-        const int done = emvup_sprite_batch(c, 1);
+        const int done = emvup_sprite_batch(c, 1, 0x1C);
         if (done < 0 || c->bad) return EM_VU1P_FAULT_OPERAND;
         if (++batches > 0x10000u) return EM_VU1P_FAULT_RUNAWAY;
         r->vi[1] = emvup_ilw(c, 99);                                   /* 0x0F9 */
@@ -1066,7 +1270,7 @@ static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, E
     for (;;) {
         /* 0x0F7 -> 0x01D */
         r->vi[9] = 0xF9;
-        const int done = emvup_sprite_batch(c, 1);
+        const int done = emvup_sprite_batch(c, 1, 0x1C);
         if (done < 0 || c->bad) return EM_VU1P_FAULT_OPERAND;
         if (++batches > 0x10000u) return EM_VU1P_FAULT_RUNAWAY;
         r->vi[1] = emvup_ilw(c, 99);                                   /* 0x0F9 */

@@ -157,6 +157,29 @@ typedef struct {
                                   REFs one; 001D30A0 filled it this frame)   */
     uint32_t ch0_start, ch0_end;   /* the channel-0 run it wrote             */
     uint32_t ch3_start, ch3_end;   /* the channel-3 list (+0x1D8 .. +0x1C)    */
+    /* With the area's dynamic table bound (AREA01: 001D5370's 001D5BD0
+     * arm), the call's whole output as it returned, for the smoke's
+     * re-execution of the original over an AREA01 capture
+     * (tools/level_smoke_static_world.py): dyn 1 (valid), 2 (the arena
+     * spans did not fit: the sample is unusable and the checker fails),
+     * 0 (no dynamic table). */
+    uint32_t dyn;
+    uint32_t dyn_word;             /* D_0028A5A4: the table's address        */
+    uint32_t dyn_size, dyn_digest; /* the extent 001D5BD0 reads (0x10 + count
+                                    * x 0x860) and the FNV-1a of those bytes */
+    uint8_t chain[0x8000];         /* D_007635C0.. (slots + heads) before it  */
+    uint8_t d250F30[0x2250];       /* D_00250F30..D_0025317F before it (001D4FC0
+                                    * copies D_002513D0's 0xE0 bytes)          */
+    uint8_t d250F30_post[0x2250];  /* ... and after                          */
+    uint8_t chain_post[0x8000];    /* ... and after                          */
+    uint8_t ctx_post[0x2540];      /* the render context after               */
+    uint8_t spad3400_post[0x80];   /* 001D5370's two clip matrices after     */
+    uint8_t d817240_post[0x80];    /* 001D4750's constant block after        */
+    uint32_t span_start[4], span_size[4]; /* the arena bytes from each cursor
+                                    * +0x10..+0x1C that moved, before .. after
+                                    * (+0x18's 0x100 further on: 001CB5F0 /
+                                    * 001CB760 build the block there) */
+    uint8_t spans[0x40000];
 } EmRclStaticSample;
 const EmRclStaticSample *em_rcl_static_sample(void);
 

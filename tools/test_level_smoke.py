@@ -4840,6 +4840,7 @@ def main():
     ends = [state.get('area11_end'), state.get('second_game')]
     if state.get('area01_ends'):
         assert args.rand_trace, 'AREA01 verification requires --rand-trace for the complete caller audit'
+    all_ticks = ticks
     ticks = ticks[:min([e for e in ends if e is not None] or [len(ticks)])]
     if 'first_control' in checked:
         check_render_context(ticks, state)
@@ -4881,6 +4882,11 @@ def main():
         import level_smoke_static_world  # 001C1D00 and the static world's draw (em_static_world_live)
         level_smoke_static_world.check_static_world(
             ticks, state, level_smoke_static_world.VIEW_EXACT_MAIN_LINE if 'roger' in checked else ())
+        if state.get('area01_ends') and state.get('area11_end') is not None:
+            # The AREA01 world after the exit's rebuild: its static world and
+            # dynamic table, and the player's and the owners' shadows.
+            level_smoke_static_world.check_area01(all_ticks[state['area11_end']:])
+            level_smoke_shadow.check_shadow_area01(all_ticks[state['area11_end']:])
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

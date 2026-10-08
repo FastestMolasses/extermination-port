@@ -1051,9 +1051,12 @@ test-gs-fog-conformance:
 # Original-profile frame at the fb2 route points against the decomp's
 # software-renderer fields, per pixel. Default: first control (about 17 s);
 # EM_TEST_FULL=1: every point the level smoke aligns (about 4.5 min).
-.PHONY: test-fb2-pixels
+.PHONY: test-fb2-pixels test-fb2-pixels-area01
 test-fb2-pixels: $(BIN)
 	python3 tools/test_fb2_pixels.py
+# The AREA01 arrival's fb2 point alone (one run to a01_arrival, about 2.5 min).
+test-fb2-pixels-area01: $(BIN)
+	python3 tools/test_fb2_pixels.py --point 15_level_exit
 
 .PHONY: test-chain-page
 test-chain-page:
@@ -1621,7 +1624,7 @@ test-aim-fire-equipment-live:
 	python3 tools/test_aim_fire_equipment_live.py
 
 # AREA01 canonical adapters; exhaustive samples remain behind EM_TEST_FULL.
-.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-area01-door-live-reference test-level2-dynamic-vu-reference test-world-textures-reference test-level2-floor-vu-reference
+.PHONY: test-area01-actor-view-reference test-area01-memory-view-reference test-area01-player-view-reference test-area01-model-live-reference test-area01-model-draw-reference test-area01-runtime-reference test-area01-door-live-reference test-level2-dynamic-vu-reference test-world-textures-reference test-level2-floor-vu-reference test-level2-kind6-vu-reference
 test-area01-actor-view-reference:
 	python3 tools/test_area01_actor_view_reference.py
 test-area01-memory-view-reference:
@@ -1640,6 +1643,8 @@ test-level2-dynamic-vu-reference:
 	python3 tools/test_level2_dynamic_vu_reference.py
 test-level2-floor-vu-reference:
 	python3 tools/test_level2_floor_vu_reference.py
+test-level2-kind6-vu-reference:
+	python3 tools/test_level2_kind6_vu_reference.py
 test-world-textures-reference:
 	python3 tools/test_world_textures_reference.py
 

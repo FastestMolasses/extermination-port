@@ -116,6 +116,14 @@ PRODUCERS[M.PROGRAM_KIND2] = {
     ('Q', 0x00F): 0x008, ('MAC', 0x06A): 0x066, ('MAC', 0x071): 0x06D, ('MAC', 0x09E): 0x09A,
     ('MAC', 0x0A5): 0x0A1, ('Q', 0x0D6): 0x0CF, ('Q', 0x0D7): 0x0CF, ('Q', 0x0E4): 0x0DB,
     ('Q', 0x125): 0x11E, ('CF', 0x127): 0x122, ('P', 0x126): 0x11A}
+# The kind-6 program (D_0023D930, AREA01; its own test is
+# tools/test_level2_kind6_vu_reference.py): the sprite program's reads
+# through micro 0x0EF, then its emission's (em_vu1_page_programs.h
+# emvup_kind6_particle).
+PRODUCERS[M.PROGRAM_KIND6] = dict(PRODUCERS[M.PROGRAM_SPRITE])
+PRODUCERS[M.PROGRAM_KIND6].update({
+    ('Q', 0x140): 0x139, ('Q', 0x14B): 0x140, ('MAC', 0x143): 0x13F, ('MAC', 0x145): 0x141,
+    ('MAC', 0x149): 0x145, ('MAC', 0x14A): 0x145, ('MAC', 0x14B): 0x147, ('MAC', 0x14C): 0x147})
 # Conditional branches (micro address) whose both outcomes must be reached.
 BRANCHES = {
     M.PROGRAM_LANE: (0x017, 0x048, 0x07C),
@@ -129,9 +137,9 @@ BRANCHES = {
                       0x0B2, 0x0B5, 0x0B8, 0x0BB, 0x0FD, 0x0FF, 0x12B, 0x138),
 }
 PROGRAM_ID = {M.PROGRAM_LANE: 0, M.PROGRAM_SPRITE: 1, M.PROGRAM_SNOW: 2, M.PROGRAM_STREAK: 3,
-              M.PROGRAM_KIND2: 4}
+              M.PROGRAM_KIND2: 4, M.PROGRAM_KIND6: 5}
 PROGRAM_NAME = {M.PROGRAM_LANE: 'lane', M.PROGRAM_SPRITE: 'sprite', M.PROGRAM_SNOW: 'snow',
-                M.PROGRAM_STREAK: 'streak', M.PROGRAM_KIND2: 'kind2'}
+                M.PROGRAM_STREAK: 'streak', M.PROGRAM_KIND2: 'kind2', M.PROGRAM_KIND6: 'kind6'}
 
 SHIM = r'''
 #include "game/em_chain_page.h"
@@ -153,7 +161,8 @@ static int kick_cb(void *ctx, const EmVu1PQword *dmem, uint32_t at)
 int shim_mscal(int program, EmVu1PRegs *r, EmVu1PQword *dmem, Kicks *k)
 {
     k->n = 0;
-    return program == 4 ? em_vu1_kind2_program_mscal(r, dmem, kick_cb, k)
+    return program == 5 ? em_vu1_kind6_program_mscal(r, dmem, kick_cb, k)
+         : program == 4 ? em_vu1_kind2_program_mscal(r, dmem, kick_cb, k)
          : program == 3 ? em_vu1_streak_program_mscal(r, dmem, kick_cb, k)
          : program == 2 ? em_vu1_snow_program_mscal(r, dmem, kick_cb, k)
          : program == 1 ? em_vu1_sprite_program_mscal(r, dmem, kick_cb, k)
@@ -237,7 +246,8 @@ class Counts(C.Structure):
                 ('mscal_kind2', C.c_uint32), ('kind2_prims', C.c_uint32), ('lane_strips', C.c_uint32),
                 ('direct_strips', C.c_uint32), ('mscal_grid', C.c_uint32),
                 ('mscal_dynamic', C.c_uint32), ('mscal_dynamic_clip', C.c_uint32),
-                ('mscal_floor', C.c_uint32), ('mscal_ripple', C.c_uint32)]
+                ('mscal_floor', C.c_uint32), ('mscal_ripple', C.c_uint32),
+                ('mscal_kind6', C.c_uint32), ('kind6_prims', C.c_uint32)]
 
 
 DMEM = C.c_uint8 * 16384
@@ -560,7 +570,8 @@ def load_program(vu, elf, program):
         vu.code[0:138 * 8] = elf_code(elf, 0x2332B8, 138 * 8)
     else:
         parts = {M.PROGRAM_SPRITE: M.SPRITE_MPG, M.PROGRAM_SNOW: M.SNOW_MPG,
-                 M.PROGRAM_STREAK: M.STREAK_MPG, M.PROGRAM_KIND2: M.KIND2_MPG}[program]
+                 M.PROGRAM_STREAK: M.STREAK_MPG, M.PROGRAM_KIND2: M.KIND2_MPG,
+                 M.PROGRAM_KIND6: M.KIND6_MPG}[program]
         for code, count, micro in parts:
             vu.code[micro * 8:(micro + count) * 8] = elf_code(elf, code, count * 8)
 

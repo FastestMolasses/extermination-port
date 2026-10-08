@@ -511,6 +511,8 @@ static int dynamic_run(Walk *w, uint32_t top, uint32_t at)
 #define STREAK_CODE1 0x00231030u
 #define KIND2_CODE0  0x00232568u
 #define KIND2_CODE1  0x00232D70u
+#define KIND6_CODE0  0x0023D958u   /* D_0023D930's MPGs (001CFBE0 kind 6) */
+#define KIND6_CODE1  0x0023E160u
 #define GRID_CODE    0x0023C9B8u
 #define DYNAMIC_CODE 0x00237480u
 #define DYNAMIC_CLIP_CODE 0x00237750u
@@ -636,7 +638,8 @@ static int vif(Walk *w)
                 w->program = EM_CHAIN_PAGE_LANE; w->mpg_parts = 1;
             } else if (w->call && first == GRID_CODE && cnt == 79u && imm == 0u) {
                 w->program = EM_CHAIN_PAGE_GRID; w->mpg_parts = 1;
-            } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0 || first == STREAK_CODE0 || first == KIND2_CODE0) &&
+            } else if ((first == SPRITE_CODE0 || first == SNOW_CODE0 || first == STREAK_CODE0 || first == KIND2_CODE0 ||
+                        first == KIND6_CODE0) &&
                        cnt == 256u &&
                        imm == 0u) {
                 w->program = 0; w->mpg_parts = 1; w->mpg_first = first;
@@ -652,6 +655,9 @@ static int vif(Walk *w)
             } else if (first == KIND2_CODE1 && cnt == 66u && imm == 0x100u && w->mpg_parts == 1u &&
                        w->program == 0u && w->mpg_first == KIND2_CODE0) {
                 w->program = EM_CHAIN_PAGE_KIND2; w->mpg_parts = 2;
+            } else if (first == KIND6_CODE1 && cnt == 130u && imm == 0x100u && w->mpg_parts == 1u &&
+                       w->program == 0u && w->mpg_first == KIND6_CODE0) {
+                w->program = EM_CHAIN_PAGE_KIND6; w->mpg_parts = 2;
             } else {
                 w->program = 0; w->mpg_parts = 0;
                 return fault(w, EM_CHAIN_PAGE_FAULT_PROGRAM, at, first);
@@ -705,6 +711,11 @@ static int vif(Walk *w)
                 p->counts.mscal_kind2++;
                 rc = em_vu1_kind2_program_mscal(&p->regs, p->dmem, kick, w);
                 p->counts.kind2_prims += p->counts.prims - before;
+            } else if (w->program == EM_CHAIN_PAGE_KIND6) {
+                const uint32_t before = p->counts.prims;
+                p->counts.mscal_kind6++;
+                rc = em_vu1_kind6_program_mscal(&p->regs, p->dmem, kick, w);
+                p->counts.kind6_prims += p->counts.prims - before;
             } else {
                 p->counts.mscal_sprite++;
                 rc = em_vu1_sprite_program_mscal(&p->regs, p->dmem, kick, w);
