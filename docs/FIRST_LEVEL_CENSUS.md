@@ -651,7 +651,9 @@ the equipment models from the Roger export's D_0028A56C spans
   its packets (counted, reported once, play goes on). A scratch run
   reversing the stick every 45 frames for 900 frames after first control
   counted both and played on. The level smoke asserts the route counts
-  none.
+  none. (Superseded: 001EAD70 runs its translation since BRANCHES
+  (section 1.60) and 001EC270 since the AREA01 crash sweep merge,
+  2026-10-07; there is no counted gap any more, EFFECT_MANAGER.md 8.2.)
 - **Fail-stop:** every other handler em_effect_kinds does not translate
   (some do more than draw: 001EF510 spawns a child node) and 001EFE00's
   spawn fault at their address. None is reachable in AREA11 in the port

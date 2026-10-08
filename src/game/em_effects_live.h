@@ -34,12 +34,13 @@
  * D_0081F8F0 and the scratchpad words the routines share (0x70003600..,
  * 0x700036A0.., 0x70003660..) are this module's.
  *
- * Untranslated handlers: the two checked to be packet-only, the skid's
- * 001EAD70 (0x80000033) and 001EC270 (0x80000012), are a counted gap (their
- * packets are missing; the route reaches neither, the player can off the
- * route; counters.gaps). Every other handler em_effect_kinds does not
- * translate faults: some do more than draw (001EF510 spawns a child node),
- * and the port reaches none of them in AREA11 (EFFECT_MANAGER.md 8.2).
+ * Handlers: each bound handler runs its one translation (em_effect_kinds;
+ * the skid's 001EAD70 through em_level8_port; 001EAF00 / 001EAF80 /
+ * 001EB020 / 001EB7F0 / 001EC270 through em_area01_render_hud; 001ECB00 /
+ * 001ED7A0 through em_area00_hud). There is no counted gap any more: every
+ * handler without a translation faults at its address, including one that
+ * only emits packets. Some do more than draw (001EF510 spawns a child
+ * node). EFFECT_MANAGER.md 8.2; AREA01: LEVEL2_CRASHES.md "Effect inventory".
  * Not modelled on purpose (each is a fault when reached, and
  * none is reached on the route; route census, route_functions.json):
  * 001F6210's model-sprite list (AREA11's key
@@ -240,8 +241,9 @@ typedef struct {
 int em_effects_live_nodes(EmEffectsLiveNode *out, int max);
 /* The counters since the attach: 001CD520 emits, 001CFBE0 chains emitted
  * and skipped by its free-space guard, 001F0720 lanes drawn, barrel frames,
- * counted gaps (the two packet-only handlers 001EAD70 / 001EC270, each
- * call once), 001D04B0 calls. */
+ * `gaps` (always 0 since 001EC270 was bound on 2026-10-07: the counted gap
+ * is gone and a missing handler faults; the field keeps the tick log's
+ * effects tuple and its level-smoke check unchanged), 001D04B0 calls. */
 typedef struct {
     uint32_t sprites, chains, chains_skipped, lanes, frames, gaps;
     uint32_t overlay_draws;

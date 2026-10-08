@@ -71,7 +71,8 @@ the same routines); the interpreter the oracle carried is
 - No route beat reverses the stick above speed 0.5, so the skid has no live
   capture; the evidence is instruction-level only.
 - The skid's surface effects (0x80000033 / 0x80000012, 001EFD90) spawn
-  through the live effect binder (census L26); their handlers 001EAD70 /
-  001EC270 are not translated, so the nodes live and their packets are the
-  binder's counted gap (EFFECT_MANAGER.md 8.2); sound 0x137 plays through the sfx registry
+  through the live effect binder (census L26); their handlers run their
+  translations (001EAD70 em_level8_port since BRANCHES, 001EC270
+  em_area01_render_hud since the AREA01 crash sweep, 2026-10-07;
+  EFFECT_MANAGER.md 8.2); sound 0x137 plays through the sfx registry
   if exported (WP-14).

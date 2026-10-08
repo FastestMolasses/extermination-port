@@ -371,8 +371,9 @@ Bind `EmEffectOriginalWorkers.w_handler(ctx, handler, node, depth, work)` to
 - **Globals.** `globals->spad36A0` is the scratchpad matrix 001EBF10 writes. Nothing else on the route reads it
   between frames.
 - **What it replaced.** `em_effect_original` had no live handler binding, and the census rows were missing;
-  em_effects_live binds the four handlers; of the others, the skid's packet-only 001EAD70 / 001EC270 are its
-  counted gap and every other faults at its address (none is reachable in AREA11; EFFECT_MANAGER.md 8.2). The truck's `em_truck_original` effect hook (`EM_TRUCK_EFFECT_ID`) spawns through em_effects_live;
+  em_effects_live binds the four handlers; of the others, the skid's 001EAD70 (em_level8_port) and 001EC270
+  (em_area01_render_hud, since the AREA01 crash sweep merged 2026-10-07) run their translations, and every
+  other faults at its address (there is no counted gap any more; EFFECT_MANAGER.md 8.2). The truck's `em_truck_original` effect hook (`EM_TRUCK_EFFECT_ID`) spawns through em_effects_live;
   the driver runs 001EBF10 on its nodes (their packets are built, and drawn from the chain page since WP-13: docs/CHAIN_PAGE.md).
 
 ### 4.2 Glow markers → the effect barrel 001F0360 (L26)

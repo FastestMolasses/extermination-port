@@ -13,6 +13,7 @@ import json
 import struct
 import subprocess
 
+import reference_mode as mode
 import test_area00_world_reference as W
 import test_area01_flame_services_reference as F
 import test_area01_render_reference as R
@@ -55,7 +56,11 @@ def digest(ram,spr):
 
 def main():
     lib,elf=build(),read_elf();cases=calls=sounds=real_gains=0
-    beats=[b for b in R.BEATS if not b.startswith('a01_07')]
+    every=[b for b in R.BEATS if not b.startswith('a01_07')]
+    # Quick mode samples captures (first, last, fixed seed); every bug and
+    # cue case runs in each. EM_TEST_FULL=1 runs every capture.
+    beats=mode.select(every,4,0x1FC580,keep=lambda i,_b:i in (0,len(every)-1))
+    mode.banner(mode.part(len(beats),len(every),'pre-exit captures'))
     for beat in beats:
         base,scratch=R.image(beat)
         for actor in BUGS:
@@ -145,7 +150,7 @@ def main():
     fixture=F.Fixture(base,scratch)
     for deny in (1,2):
         assert lib.ah_sound(fixture.ram,fixture.spr,BUGS[0],0x15A,1,1,1,deny)<0
-    report=dict(status='PASS',captures=len(beats),cases=cases,ordered_call_boundaries=calls,
+    report=dict(status='PASS',mode=mode.MODE,captures=len(beats),cases=cases,ordered_call_boundaries=calls,
                 sound_queue_cases=sounds,sound_refusals=2,
                 actual_native_gain_cue_cases=real_gains,
                 full_ram_and_scratchpad=True,native_gameplay_hit_observed=False)

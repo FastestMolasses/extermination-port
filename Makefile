@@ -1780,3 +1780,24 @@ test-area01-frame-counter-view:
 test-area01-target-hit-reference:
 	python3 tools/test_area01_target_hit_reference.py
 	python3 tools/test_area01_target_hit_live_reference.py
+
+# The AREA01 crash sweep's remaining original-instruction suites (LEVEL2_CRASHES.md).
+.PHONY: test-aim-fire-target-pool-reference test-area01-aim-model-reference test-area01-crawl-clip-reference test-area01-hull-live-reference test-area01-stream-export test-area01-terminal-progress-reference test-player-spawn-contact-reference test-player-spawn-rotation-reference test-player-stage-position-reference
+test-aim-fire-target-pool-reference:
+	python3 tools/test_aim_fire_target_pool_reference.py
+test-area01-aim-model-reference:
+	python3 tools/test_area01_aim_model_reference.py
+test-area01-crawl-clip-reference:
+	python3 tools/test_area01_crawl_clip_reference.py
+test-area01-hull-live-reference:
+	python3 tools/test_area01_hull_live_reference.py
+test-area01-stream-export:
+	python3 tools/test_area01_stream_export.py
+test-area01-terminal-progress-reference:
+	python3 tools/test_area01_terminal_progress_reference.py
+test-player-spawn-contact-reference:
+	python3 tools/test_player_spawn_contact_reference.py
+test-player-spawn-rotation-reference:
+	python3 tools/test_player_spawn_rotation_reference.py
+test-player-stage-position-reference:
+	python3 tools/test_player_stage_position_reference.py

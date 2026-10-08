@@ -48,7 +48,8 @@ typedef int (*EmStatusPageWorker)(void *context, EmStatusPage *state, EmStatusPa
  * (00225AC0), which faults; declining follows the existing page exit. Phase 3
  * loads the module of pages 0..3, ticks them and returns to
  * the hub on any other page id; the passcode pages 4 / 5 and page 8 (phase
- * 2) fault. None of the faulting branches is reachable in AREA11. */
+ * 2) fault. None of the faulting branches is reachable in AREA11; in AREA01
+ * the terminal's Yes reaches phase 6 and faults (LEVEL2_CRASHES.md). */
 int em_status_page_tick(EmStatusPage *state, unsigned buttons, EmStatusPageWorker worker,
                         void *context);
 

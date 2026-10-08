@@ -1282,7 +1282,7 @@ static void log_tick_end(int rc)
     }
     /* Census L26 / L27 / L39 / L28: the effect binder's cumulative counters
      * (001CD520 sprites, 001CFBE0 chains emitted / skipped, 001F0720 lanes,
-     * barrel frames, counted gaps), its live nodes (address, +0x10, +0x04, +0x05, +0x0D
+     * barrel frames, gaps: always 0, see em_effects_live.h), its live nodes (address, +0x10, +0x04, +0x05, +0x0D
      * and the record words em_effects_live_nodes lists) and the equipment
      * nodes (address, +0x00..+0x0F, +0x44, +0x4C, drew, drawn at the
      * player's node, bone 0's row 3) and the last barrel's lane-packet and

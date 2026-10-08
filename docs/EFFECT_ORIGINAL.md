@@ -315,8 +315,10 @@ EFFECT_MANAGER.md 5.0.
 
 ## Open items
 
-1. The handlers not yet translated: those of subtypes 2/0xD/9/0x22/0x25..0x27/7 and the skid's packet-only
-   001EAD70 (1) / 001EC270 (0xB), which are the counted gap (EFFECT_MANAGER.md 8.2). The route handlers
+1. The handlers not yet translated in this module: those of subtypes 2/0xD/9/0x22/0x25..0x27/7. Several now
+   run other modules' translations through em_effects_live (the skid's 001EAD70 (1) and 001EC270 (0xB),
+   0xD's 001EBD20, 9's 001EAF80, 0x18's 001EB7F0, 4's 001ED7A0; EFFECT_MANAGER.md 8.2); the counted gap is
+   gone and an unbound handler faults. The route handlers
    001EC3F0 (5), 001EC470 (0x24), 001EBF10 (0x20) and 001EC1F0 (0x0A), with 001CFB50 / 001D0540
    (em_effect_kinds) and 001CFBE0 (em_head_sprite_original), are translated and live, as are the ring
    consumer 001F0720 (em_effect_manager) and the reset 001F03D0.

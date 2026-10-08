@@ -13,6 +13,7 @@ import ctypes as C
 import json
 import struct
 
+import reference_mode as mode
 import test_area00_world_reference as W
 import test_area01_flame_services_reference as F
 import test_area01_render_reference as R
@@ -38,7 +39,12 @@ def main():
     target_cases = packet_cases = calls = 0
     chain_bytes = None
     inventory = []
-    beats = [b for b in R.BEATS if not b.startswith('a01_07')]
+    every = [b for b in R.BEATS if not b.startswith('a01_07')]
+    # Quick mode: the first and last pre-exit captures plus a fixed-seed
+    # sample, each with all six bugs and both packet variants; EM_TEST_FULL=1
+    # runs every capture.
+    beats = mode.select(every, 4, 0xB41F0, keep=lambda i, _b: i in (0, len(every) - 1))
+    mode.banner(mode.part(len(beats), len(every), 'pre-exit captures'))
     for beat in beats:
         base, scratch = R.image(beat)
         for address, size in ((0x1B41F0, 0x61C), (0x1ED7A0, 0x310)):
@@ -109,7 +115,7 @@ def main():
     assert native.fs_splash(fixture.ram, fixture.spr, nodes[0], 0x1ED7A0, 0x2000) < 0
     native.fs_splash_deny_descriptors(0)
     assert native.fs_splash(fixture.ram, fixture.spr, nodes[0] + 1, 0x1ED7A0, 0x2000) < 0
-    report = {'captures': len(beats), 'target_hit_cases': target_cases,
+    report = {'mode': mode.MODE, 'captures': len(beats), 'target_hit_cases': target_cases,
               'ordered_call_boundaries': calls, 'actual_effect_packet_cases': packet_cases,
               'refusals': 2, 'native_gameplay_hit_observed': False, 'inventory': inventory}
     output = F.ROOT / 'build/level2-crashes/target-hit-reference/report.json'

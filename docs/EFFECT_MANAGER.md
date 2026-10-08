@@ -327,7 +327,7 @@ RENDER_CONTEXT.md section 8).
 | 001AFA90 / 001AFC10 | em_actor_pool (the node is bound to its pool behaviour by its +0x10 after 001EF9D0 wrote it: em_area11_bindings `bind_spawned`) |
 | 00122BB8 | em_random_next (the one game rand) |
 | 0021B9A0 | em_rcl_0021B9A0 on the render context |
-| D_00255434[subtype] | em_effect_kinds_handler (001EC1F0, 001EC3F0, 001EC470, 001EBF10, ...); since chain step BRANCHES the skid's 001EAD70 (em_level8_port_001EAD70) and the box break's 001EBD20 (em_area02_misc_001EBD20) run their one translation over the views they address (8.2); of the handlers none translates, the packet-only one (001EC270) is the counted gap and every other faults (8.2) |
+| D_00255434[subtype] | em_effect_kinds_handler (001EC1F0, 001EC3F0, 001EC470, 001EBF10, ...); since chain step BRANCHES the skid's 001EAD70 (em_level8_port_001EAD70) and the box break's 001EBD20 (em_area02_misc_001EBD20) run their one translation over the views they address (8.2); since the AREA01 crash sweep (2026-10-07) 001EC270 / 001EB7F0 (em_area01_render_hud) and 001ECB00 / 001ED7A0 (em_area00_hud) too; every other handler faults (8.2) |
 | 001CFB50 / 001CFBE0 | em_effect_kinds_001CFB50 / em_head_sprite_original_001CFBE0 (the cursor re-read at every call) |
 | 001CCF70, 001CD370, 001CFA60 | em_effect_original, the context's +0x2240 |
 | 001CB5F0 / 001CB6B0 / 001CB760 / 001CB900 | em_packet_chain_original's adapters on the render context's chain (em_rcl_packet_chain) |
@@ -368,23 +368,21 @@ handlers em_effect_kinds does not translate split in two:
   matrix 0x70003400 it copies the node's +0xD0 to and lifts by 5.0, its
   001CFB50 / 001CFBE0 with D_002563A0 / D_00256430. The level smoke's
   BRANCH side runs reach both (br_05's step-off; br_04 / br_06's breaks).
-- **Packet-only: the counted gap** (`effects_gap` in em_effects_live.c:
-  counted in the binder's counters, reported once per handler, returns 0;
-  the level smoke asserts the route counts none). Only 001EC270
-  (0x80000012, subtype 0xB; its split listing) is left. It stores only the work
-  block's +0x1F4 (D_00275C34 + 4, the LCG, twice), which 001EA240 rewrites
-  from +0x1F0 before every handler call and reads nowhere else, and calls
-  only 001CFB50 (it rewrites D_0081F8F0 +0x00..+0x57 in full; in the port
-  that block's only reader is the 001CFBE0 each translated handler calls
-  right after its own 001CFB50) and 001CFBE0 (the packets). Skipping it
-  therefore loses only its packets; the node's ageing and free are exact.
-  The player reaches it off the route: the reversal skid (001612D0)
-  spawns 0x80000033 on surfaces 5 / 6 and 0x80000012 elsewhere (with +23C
-  and +23D clear), and the slide (0016CD70) spawns 0x80000012 on every
-  surface outside its list (5, 6, 7, 8, 0x5A..0x5C). A
-  scratch run reversing the stick every 45 frames for 900 frames after
-  first control counted both (before 001EAD70's binding) and played on (no
-  fault).
+- **Packet-only 001EC270: bound since the AREA01 crash sweep (merged
+  2026-10-07).** The counted gap (`effects_gap`, which counted 001EC270
+  (0x80000012, subtype 0xB) and played on without its packets) is
+  removed. 001EC270 now runs em_area01_render_hud's translation through
+  the same work-block / packet bridge as the splash handlers
+  (`handler_splash`), as do the water bullet impact 001EB7F0 (0x80000026);
+  the impact marker 001ECB00 (0x80000019) and the bug hit 001ED7A0
+  (0x80000007) run em_area00_hud's owners. test_area01_water_reference.py
+  and test_area01_target_hit_reference.py compare their packets with the
+  original instructions (LEVEL2_CRASHES.md "Water and effect binding",
+  "Shared target-hit boundary"). The player reaches 0x80000012 through the
+  reversal skid (001612D0, surfaces other than 5 / 6 with +23C and +23D
+  clear) and the slide (0016CD70, surfaces outside 5, 6, 7, 8,
+  0x5A..0x5C). The binder's `gaps` counter stays in the tick log and is
+  always 0.
 - **Everything else faults** (fail-stop at the handler's address, latched
   by the binder; the scene coordinator stops the game task). None of them
   is checked, and some do more than draw: 001EF510 (subtype 6) spawns
