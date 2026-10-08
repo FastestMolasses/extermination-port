@@ -1975,7 +1975,7 @@ numbers at the same places in each frame as the original.
   The smoke therefore checks each random value as the original code over
   the same draws.
 
-**Level 2 (AREA01): the arrival and the first part of the train room; the rest translated and checked, not playable yet**
+**Level 2 (AREA01): the arrival, the train room, the fire's damage and the east room's terminal match the recordings; the rest runs without a fault but is not compared yet**
 
 The second level's route has been recorded, and the code it newly needs is
 being translated and checked against the original ahead of time, so level 2
@@ -1984,9 +1984,13 @@ first second plays as in the original, the camera settling behind the
 player. Walking round the train room's crates, wading through its floor
 fields, grabbing the crate stack's ledge, hanging and starting the pull-up
 also play as in the original, frame for frame (the splash effects and wet
-footprints run the original code; their pixels are not compared); the game
-then stops (fail-stop) when the camera nears the fires,
-whose close-up draw is not translated yet.
+footprints run the original code; their pixels are not compared), as do
+the pull-up, the fall and the walk to the tunnel mouth. Touching the
+ground fire hurts the player exactly as in the original, and the east
+room's save terminal opens its prompt and closes on No as in the
+original. The rest of the recorded routes (the tunnel, the water at the
+shaft, the control room, the duct, the talks) now run without stopping,
+but are not compared row for row yet.
 
 - How: phase 1 recorded the original AREA01 route in PCSX2, ran a census
   delta of the new functions, wrote an area overview and matched the
@@ -2045,8 +2049,23 @@ whose close-up draw is not translated yet.
   The control room's camera (mode 1, seated from the original scene-entry
   and eye tables) is bound but not reached yet: the control-room door's
   Use stops the run first (`LEVEL2_BINDING.md`, step CAMERA).
-- Status: **PARTIAL**, arrival idle, the whole train room (a01_00) and
-  the arrival frame's pixels (above). The arrival's rebuild
+- Fire damage and the east-room terminal (the AREA01 crash sweep,
+  Codex, merged 2026-10-07; LEVEL2_CRASHES.md): the side phases `a01_s3`
+  (`python3 tools/test_level_smoke_area01.py --side a01_s3`: the walk into
+  the ground fire, 5 HP of damage and the reaction; all 262 rows and the
+  whole camera block at the end) and `a01_s4` (`--side a01_s4` with the
+  PS2 disc-drive timing switch: the east room, the terminal's prompt and
+  No, the return; all 1,225 rows and the camera block) pass. At host
+  speed (the default) a01_s4's message timing differs from the recording,
+  as the switch documents. Water contact, impact effects, bug hits, room
+  transitions and the duct are bound with original-instruction tests, and
+  every recorded AREA01 replay and exploration probe runs without a game
+  fault; those runs are not compared row for row yet (the a01_01 replay's
+  first pad command lags in the harness). Accepting the terminal's save
+  still stops the game (fail-stop: no memory card is written).
+- Status: **PARTIAL**, arrival idle, the whole train room (a01_00), the
+  fire contact (a01_s3), the east-room terminal declined (a01_s4, PS2
+  drive timing) and the arrival frame's pixels (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick

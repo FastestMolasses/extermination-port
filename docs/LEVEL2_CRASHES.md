@@ -5,12 +5,14 @@ Worktree `extermination-port-crash`, branch `level2-crash`, starting at
 authority. This ledger distinguishes worker proof, recorded route comparison,
 and exploratory input. It does not certify unrestricted play.
 
-The release still has a rendering stop at `0023D930`: the fire owner's third
-layer requests kind 6 near the crate stack (recorded `a01_00` row 405).
-Completing that path requires the protected `em_chain_page.c` and
-`em_vu1_page_programs.h`, plus its locally exported packet. This branch does
-not bypass the draw or remove its fault. Runs stopped there cannot prove
-the later portions of their routes.
+**Merged into main on 2026-10-07** (merge `bbc4a08`, after step DRAW's
+merge `6c9a688`). The rendering stop this branch reported at `0023D930`
+(the fire owner's third layer asking for kind 6 near the crate stack,
+recorded `a01_00` row 405) is gone on main: step DRAW translated and
+exported the kind-6 program, `a01_00` passes all 781 rows, and no
+exploration run stops there any more. "Status on main after the merge"
+at the end of this document supersedes the branch-time status claims
+below (which are kept as the record of how each binding was proved).
 
 ## Current scope
 
@@ -18,9 +20,9 @@ Native input runs now cover status open/close, both knife attacks, aiming and
 two shots, fire damage, control/east room transitions, the first NPC talk,
 terminal decline and return, and duct entry/crawl/pickup/exit. Their different
 proof limits are recorded below. Water workers and impact effects have
-original-reference proof, but both continuous water approaches hit the
-protected flame renderer first. This branch is **not unrestricted crash-free
-AREA01**. The final static inventory and exploration table below give every
+original-reference proof; at branch time both continuous water approaches
+hit the then-untranslated kind-6 draw first (fixed on main by step DRAW).
+This work is **not unrestricted crash-free AREA01**. The final static inventory and exploration table below give every
 remaining known boundary. Earlier verification sections retain intermediate
 failures to explain the subsequent repairs; they are not current-status claims.
 
@@ -349,7 +351,7 @@ replay. Receipts: `index-terminal-{build,startup,smoke,references}.log` and
 
 | Trigger / evidence | Original path | Current status and precise remaining scope |
 |---|---|---|
-| Close flame draw; recorded `a01_00` row 405 | `001E3D90 → 001CFBE0(kind 6) → D_0023D930` | **Protected blocker.** Implement the original third-layer program and control flow in `em_chain_page.c` / `em_vu1_page_programs.h`, deliver its original packet/table window, and compare original VU execution and emitted primitives. Keep the current refusal; skipping this layer is not a fix. |
+| Close flame draw; recorded `a01_00` row 405 | `001E3D90 → 001CFBE0(kind 6) → D_0023D930` | **Fixed on main by step DRAW** (merged 2026-10-07): the kind-6 program is translated, exported and compared with the original microcode (`make test-level2-kind6-vu-reference`); `a01_00` passes all 781 rows and the smoke asserts kind-6 primitives (LEVEL2_RENDER.md "Kind-6 near-fire program"). |
 | Water first contact, ripple and ordinary skid; recorded `a01_02` | `00187DE0`, `001E8B90`, `001EC270` | Bound and original-reference tested. Continuous water entry remains unproved where an earlier draw blocks its approach. |
 | Ground fire contact; observed and recorded `a01_s3` | `001A8660 → 001E3D20 → 0021BB00 / 001EFE00(27)` | **Fixed and recorded-route verified.** AREA01 uses the existing contact owner. Restored the missing successful-player-spawn status store at `0015C6A4`; without it, status 0 suppressed the parent's damage arm. Final run matches all 262 rows, HP 95, reaction action `3E`, and the whole ending camera. |
 | Aim or knife attacks in the arrival room; observed | `0018D7B0` / `0019A570 → 001A6440` | **Hull source fixed.** Per-world AREA01 provider resolves canonical `+58` chains and shared slot matrices; it replaces Roger-only ownership without changing lock predicates. Both knife inputs complete. Aim advanced to the separate target `+34` read below. |
@@ -524,17 +526,64 @@ was written, and no decompilation build was run during this work.
 
 ## Complete shared-file edit list
 
-`em_scene_bindings.c`: read-only floor tick observations; water and row-clip
-callback registration/clear/adapters; AREA01 contact and hull provider
-registration; target model forwarding; four-lane spawn rotation publication;
-terminal owner-read/reset forwarders and include; corrected storage comment.
+Corrected at the merge (2026-10-07; the branch's version named only
+`em_scene_bindings.c` and the Makefile). "Shared" means a file outside the
+new AREA01-only files; the rows marked **AREA11** also run in the first
+level, whose 20 phases, side runs and damage runs pass unchanged.
 
-Makefile: build new `em_player_target_live.c`, `em_area01_hull_live.c`,
-`em_area01_transition_services.c` and existing `em_level14_port_boot.c`;
-add opt-in exploration/harness, water, target, fire, transition, terminal,
-frame-counter and target-hit reference targets. Protected renderer/camera/
-checker/exporter/docs files are unchanged. Main and the other worktrees
-remain untouched; no push or main rebase is performed.
+| File | Edit |
+|---|---|
+| `em_scene_bindings.c/.h` | read-only floor tick observations; water and row-clip callback registration/clear/adapters; AREA01 contact and hull provider registration; target model forwarding; four-lane spawn rotation publication; terminal owner-read/reset forwarders and include; corrected storage comment |
+| `em_player.c` (**AREA11**) | 0015BCF0 stage entry: retain +A0, initialize +B0, publish final feet; 0015C420's successful-spawn store of +0 = 1 (0015C6A4) |
+| `em_player_closure_live.c/.h` (**AREA11**) | class-2 target entries through `em_player_target_live` (001AA4E0); the water contact bridge (00187DE0 / 001E8B90); the row selector 00188610 |
+| `em_collision_world.c/.h` (**AREA11**) | per-world hull provider (`em_collision_world_bind_area_hulls`, cleared on unload, no fallback after a refusal); 001B1DE0 list push for slider/terminal owners |
+| `em_actor_collision.c/.h` (**AREA11**) | 001B1DE0's push split out of the class walk (same list, same order) |
+| `em_panel.c/.h` (**AREA11**) | one scalar owner for every 00157F60 model branch, shared by the AREA11 panel wrapper and the AREA01 terminal |
+| `em_status_page.c/.h` (**AREA11**) | request 6's cold entry (0020CDC0 case 0: 00225A00 reset, BATTERY); accepted phase 6 / 00225AC0 still faults |
+| `em_area11_interaction_host.c` (**AREA11**) | the status page's reset event; request 6's 0020E060 reads through the live AREA01 terminal instead of the AREA11 panel |
+| `em_effects_live.c` (**AREA11**) | counted gap removed; 001EB7F0 / 001EC270 through em_area01_render_hud, 001ECB00 / 001ED7A0 through em_area00_hud |
+| `em_aim_fire_runtime.c` (**AREA11**) | target +34 reads and model regions for AREA01 targets (gated by the arrival scene); bug-hit cue through 001FC580's owner |
+| `em_aim_fire_world_live.c/.h` (**AREA11**) | 001B41F0's write views of 0x70003680..0x7000368B for it and its 00189FE0 caller only |
+| `em_frame.c/.h` (**AREA11**) | `em_frame_counter_storage`: a const view of the frame counter word 0x70003B64 |
+| `em_scene_state.h` | storage D_00810040[0xD4] (the terminal task block) and the D_00810710..2F span |
+| `em_level_smoke_test.c` | the exploration fixture's include and two hooks, active only when both `EM_AREA01_EXPLORE_*` variables select the phase |
+| Makefile | builds `em_player_target_live.c`, `em_area01_hull_live.c`, `em_area01_transition_services.c` and the existing `em_level14_port_boot.c`; the exploration targets and the reference targets listed in "Tests" |
+
+The AREA01-only files the branch changed are `em_area01_actor_view`,
+`em_area01_flame_services`, `em_area01_live`, `em_area01_render_hud`,
+`em_area01_runtime`, `em_area01_scene_view` and
+`em_area01_shared_services`; it added `em_area01_exploration_test.h`,
+`em_area01_hull_live`, `em_area01_terminal_status.h`,
+`em_area01_transition_services` and `em_player_target_live`. Exporters
+changed: `export_streams.py` (AREA01 cues) and
+`export_area01_boot_scripts.py` (D_002754D8); new
+`export_area01_water_effects.py`.
+
+## Tests
+
+Every suite below compares with the original instructions over the 16
+AREA01 captures (15 pre-exit for the target hit) and passes on main after
+the merge:
+
+| make target | Covers |
+|---|---|
+| `test-area01-water-reference` | 00187DE0 contact chains, 001E8B90 ripples, effect packet chains, missing-grid refusal |
+| `test-area01-fire-contact-reference` | 001E3D20 contact, 0021BB00 gate, effect spawns |
+| `test-player-target-live-reference` | 001AA4E0's class-2 entries through canonical fields |
+| `test-aim-fire-target-pool-reference` | 00185A10's target +34 reads and crossing-span refusals |
+| `test-area01-aim-model-reference` | 00183C40's model regions, provider refusals |
+| `test-area01-hull-live-reference` | the per-world hull provider: queries, hits, refusals, lifetime |
+| `test-player-stage-position-reference` | 0015BCF0's +A0 / +B0 publication (AREA11 too) |
+| `test-player-spawn-contact-reference` | 0015C420's successful-spawn store (AREA11 too) |
+| `test-player-spawn-rotation-reference` | 001B07C0's four rotation lanes (AREA11 too) |
+| `test-area01-transition-services-reference` | the door / room / fade / list owners of the room transitions |
+| `test-area01-terminal-progress-reference` | 00159B90's pose quadwords |
+| `test-area01-terminal-status-reference` | 00225A00's reset and the request-6 cold entry |
+| `test-area01-crawl-clip-reference` | 00188610 through the AREA01 runtime |
+| `test-area01-frame-counter-view` | the 70003B64 view and 001C02E0's read |
+| `test-area01-target-hit-reference` | 001B41F0 bug hits, 001ED7A0 packets, 001FC580 cues (quick: 4 of 15 captures; `EM_TEST_FULL=1` all) |
+| `test-area01-stream-export` | the stream export against the disc and the captures (`--previous` checks earlier sectors) |
+| `test-area01-exploration`, `test-area01-exploration-harness` | the opt-in input fixture and its own checks |
 
 ## Final staged verification
 
@@ -584,3 +633,45 @@ round-trip hashes; each `index-final/port/build/level_smoke*` group has
 remain available. Temporary staged source trees and unreferenced compiled
 fixtures are removed after verification; the committed source and test
 commands reproduce them. No disc-derived material is staged.
+
+## Status on main after the merge (2026-10-07)
+
+Binary: main at the merge plus its follow-up commits (`make -B all`, zero
+warnings); every run below is headless. Receipts (ignored):
+`build/crashmerge/` (`a01_00`, `a01_02`, `s3`, `s4`: the recorded-route
+smoke runs; `explore/g1..g5`: the exploration fixture, every case;
+`probe/`: the first-call measurement SECOND_LEVEL_CENSUS.md §12 uses).
+
+Recorded routes through the unchanged checker
+(`tools/test_level_smoke_area01.py`): `--until a01_00` **PASS** (21 live
+phases, all 781 a01_00 rows, kind 6 drawn on 374 pages from port tick
+14216); `--side a01_s3` **PASS** (262 rows); `--side a01_s4` with
+`EM_PS2_DISC_DRIVE_TIMING=1` **PASS** (1,225 rows); `--until a01_02` plays
+a01_00..a01_02 with no fault (water first contact 00187DE0 and its ripple
+001E8B90 first run at a01_02 f39, the census frame), and its checker
+passes a01_00 and stops at a01_01 row 3, the harness's known first-command
+lag (LEVEL_SMOKE.md "a01_00"), so a01_01 / a01_02 rows are not yet compared.
+
+Exploration fixture, every case (`make test-area01-exploration
+AREA01_EXPLORE_ARGS=--all`, run in five parallel groups):
+
+| Case | Result on main | Remaining |
+|---|---|---|
+| `status`, `aim-fire`, `melee` | INPUT-COMPLETED; status, aim, fire, melee observed | none found |
+| `control-door`, `east-door` | INPUT-COMPLETED; control room and east room observed | none found |
+| `vent` | INPUT-COMPLETED; crawl observed, pickup input completed | the pickup's observation is not asserted by this case (the branch's separate 64-byte proof stands) |
+| `water`, `water-west`, `ladder` | **ROUTE-BLOCKED**, no fault (the authored navigation is stopped by geometry: water at step 9 near (18.7, 0, -761.4); west and ladder at step 4 near (-31.9, 0, -646.7)) | the `0023D930` stop is gone; the synthetic approaches need new waypoints. The shallow water itself is reached by the recorded `a01_02` replay (surface 0x5B, depth 1, no fault); deep water is still unobserved |
+| `a01_00` | INPUT-COMPLETED; hang, pull-up, fall and landing observed | none found |
+| `a01_01`, `a01_03`, `a01_05`, `a01_06` | INPUT-COMPLETED, no fault | route parity not compared past a01_01 row 3 (harness lag above) |
+| `a01_02`, `a01_04` | TARGET-NOT-OBSERVED, no fault (a01_02: shallow water observed, deep water not; a01_04: control room not observed) | the replays drift from the recording after a01_01's lag, so a target can be missed |
+| `a01_07` | the whole recorded pad plays (11,947 frames) with no game fault, but the player (HP 90, near (12.0, -60.0, -1169.9)) never reaches the area exit, so the smoke reports "AREA00 arrival state 0 did not follow the AREA01 exit" | route divergence, not a game fault; AREA00 is beyond this work's stop |
+| `a01_s0`, `a01_s1`, `a01_s2`, `a01_s6`, `a01_s7` | INPUT-COMPLETED, no fault | no route parity checked here; a01_s0's whole-camera tail (the camera fourth lane, see "Room interactions") was not rerun |
+| `a01_s3`, `a01_s4` | INPUT-COMPLETED; fire damage, east room observed | none found |
+| `a01_s5` | TARGET-NOT-OBSERVED, no fault (the recorded replay still misses the duct trigger) | as at branch time |
+
+No run on main faulted in game code. The faults that remain known are the
+conditional ones the static inventory lists (the nest crate's children,
+the unbound reaction effects 44 / 48 / 23 / 34 / 35 / 76 and 61..63, the
+accepted save 00225AC0, the shared closure stubs), none of which any of
+these runs reached.
+

@@ -12,6 +12,7 @@ import hashlib
 import json
 import struct
 import subprocess
+from pathlib import Path
 
 import reference_mode as mode
 import test_area00_world_reference as W
@@ -39,9 +40,12 @@ def build():
         'effect_original','owner_services_original','camera_commit_original',
         'area00_low','sfx_bank','sfx')]
     library=OUT/'live.dylib'
-    subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
-                    '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_ah_*',
-                    *sources,'-lm','-o',str(library)],cwd=F.ROOT,check=True)
+    # Rebuild only when a source, any src header or this script is newer.
+    deps=[F.ROOT/x for x in sources]+list((F.ROOT/'src').rglob('*.h'))+[Path(__file__)]
+    if not library.exists() or max(d.stat().st_mtime for d in deps)>library.stat().st_mtime:
+        subprocess.run(['cc','-std=c11','-O2','-Wall','-Wextra','-Werror','-ffp-contract=off',
+                        '-shared','-fPIC','-Isrc','-Wl,-dead_strip','-Wl,-exported_symbol,_ah_*',
+                        *sources,'-lm','-o',str(library)],cwd=F.ROOT,check=True)
     lib=C.CDLL(str(library))
     lib.ah_run.argtypes=[C.c_void_p,C.c_void_p,C.c_uint32,WORKER,C.c_void_p]
     lib.ah_sdk.argtypes=[C.POINTER(Call)]

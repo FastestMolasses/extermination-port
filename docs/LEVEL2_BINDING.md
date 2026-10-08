@@ -14,7 +14,33 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
-## State (2026-10-04, step DRAWN: AREA01 drawn)
+## State (2026-10-07, the AREA01 crash sweep merged)
+
+Codex's crash sweep (branch level2-crash, LEVEL2_CRASHES.md) is merged
+into main (merge bbc4a08) after step DRAW (merge 6c9a688). It binds water
+contact and its ripple / skid / impact effects (00187DE0, 001E8B90,
+001EC270, 001EB7F0, 001ECB00), fire-contact damage (001E3D20 with the
+restored 0015C420 spawn store), canonical player targets and per-world
+hulls (001AA4E0's class-2 entries, 00185A10 / 00183C40), room transitions
+and the original interaction requests (00157F60, 001BB400 / 7C0 / 7F0,
+001B1DE0), the terminal's confirmation and No (0020CDC0 request 6,
+00225A00; Yes, phase 6 / 00225AC0, still faults), bug hits (001B41F0,
+001ED7A0, 001FC580) and the duct's frame-counter view (001C02E0). Its
+re-exports (streams, effect tables plus `export_area01_water_effects.py`,
+boot scripts) are in STARTUP.md.
+
+**Where the game stops now.** The kind-6 stop the sweep reported at
+0023D930 is gone (step DRAW). On main every exploration case and recorded
+replay runs without a game fault (LEVEL2_CRASHES.md "Status on main after
+the merge"): a01_00 passes all 781 rows; a01_s3 (262 rows) and a01_s4
+(1,225 rows, PS2 drive timing) pass the checker; the main replay plays
+a01_00..a01_06 with no fault and a01_07's pad to its end (the player
+drifts and does not reach the exit). The checker stops at a01_01 row 3
+(the harness's first-command lag, LEVEL_SMOKE.md "a01_00"), so a01_01
+onward is not yet compared row for row. Census: SECOND_LEVEL_CENSUS §12
+(56 live).
+
+## State before the crash sweep merge (2026-10-04, step DRAWN: AREA01 drawn)
 
 **AREA01 is drawn from its original packets, and the player runs the
 whole train room.** What was already connected before this step (the
@@ -612,16 +638,38 @@ Area-resource checkpoint:
 - LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit") records the completed full sweep; no collision game
   code changed.
 
+Crash sweep (branch level2-crash, merged 2026-10-07; the complete,
+corrected list with what each edit does is LEVEL2_CRASHES.md "Complete
+shared-file edit list"):
+
+- Shared files that also run in AREA11: `em_player.c` (0015BCF0's +A0 /
+  +B0 publication, 0015C420's spawn store), `em_player_closure_live.c/.h`
+  (class-2 targets, water contact, 00188610), `em_collision_world.c/.h`
+  and `em_actor_collision.c/.h` (per-world hull provider, 001B1DE0 push),
+  `em_panel.c/.h` (one 00157F60 owner), `em_status_page.c/.h` and
+  `em_area11_interaction_host.c` (request 6), `em_effects_live.c`
+  (counted gap removed, impact handlers), `em_aim_fire_runtime.c` and
+  `em_aim_fire_world_live.c/.h` (target reads, bug-hit views and cue),
+  `em_frame.c/.h` (const counter view). On main after the merge the
+  first level's main route passes (every phase, checked by the a01_00
+  run); the review passed the damage, status-page, panel and branch side
+  runs on the branch.
+- `em_scene_bindings.c/.h`, `em_scene_state.h` (D_00810040[0xD4],
+  D_00810710..2F), `em_level_smoke_test.c` (the opt-in exploration
+  hooks), the Makefile (four sources, the exploration and 16 reference
+  targets) and the exporters `export_streams.py`,
+  `export_area01_boot_scripts.py` (+ new `export_area01_water_effects.py`).
+
 ## Known gaps
 
-All main beats `a01_00..a01_07` and side beats remain unplayed by the native
-port. AREA00 arrival is the intended stopping boundary. The message bank
-now switches during rebuild; model/render resources and overlay init are
-connected there. Adapters for canonical actor records, scripts,
-interactions, doors, pickups, effects and audio are committed but run only
-on the default path since step GUARD; only the arrival idle is compared
-(route 15 f741..f801), live AREA01 dialogue, presentation and every route
-beat remain unverified (see "State").
+Current (2026-10-07): a01_arrival, a01_00, a01_s3 and a01_s4 are compared
+row for row and pass; the other main and side beats run natively without
+a game fault but are not yet compared (the a01_01 first-command lag stops
+the checker; a01_07 drifts before the exit; see "State"). AREA00 arrival
+is the intended stopping boundary. Conditional branches no run reaches
+still fault: LEVEL2_CRASHES.md "Static first-visit inventory". (Phase-1
+wording, kept for the record: all beats were then unplayed, and only the
+arrival idle, route 15 f741..f801, was compared.)
 The extraction resident-offset label shift is not fixed; the decomp's
 `tools/extract_data.py` is outside the allowed decomp edit scope. Any
 source correction there must be reported in permitted docs, not applied.

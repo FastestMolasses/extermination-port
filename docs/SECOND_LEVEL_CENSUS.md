@@ -2,7 +2,7 @@
 
 Phase-1 baseline and phase-2 prerequisites, 2026-10-03, branch `level2`, port `3d482f6`. This is an AREA01 binding ledger. It does not change the first-level census.
 
-**Current (2026-10-04, step DRAWN):** **51 live (11,146 instructions), 126 verified-unbound (18,270), 0 missing, 2 boundary (131)** (§11: the dynamic table pass's three rows the level smoke now re-executes; §10 says why step CAMERA promotes no row; §9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
+**Current (2026-10-07, the AREA01 crash sweep merged):** **56 live (11,286 instructions), 121 verified-unbound (18,130), 0 missing, 2 boundary (131)** (§12: five rows the merged crash sweep runs on the recorded side routes a01_s3 and a01_s4, each first called natively on its census frame; §11 the dynamic table pass's three rows; §10 says why step CAMERA promotes no row; §9; §8 is step GUARD's arrival window, §2's table the phase-1 baseline, §7 the prerequisite checkpoint). The 0x1AE040 guard is gone: the AREA01 live composition binds at the arrival's rebuild in every run, and the level smoke's a01_arrival (the full route's last phase) compares the rebuild and 60 neutral world frames with route 15 f741..f801. The 41 promoted rows of step GUARD are those measured running in that window (§8, evidence key G). The last section, "AREA01 arrival binding dependencies", records original callers, existing owners and the canonical-state mapping.
 
 ## 1. Scope and counting
 
@@ -136,11 +136,11 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001B6D70 | boot | 52 | M; 03 f142 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B6D70` | S | — |
 | 0x001B76D0 | boot | 9 | M; 03 f431 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B76D0` | S | — |
 | 0x001B9CF0 | boot | 191 | M; 03 f301 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001B9CF0` | M | — |
-| 0x001BB400 | boot | 71 | S; s4 f250 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB400` | Q | — |
+| 0x001BB400 | boot | 71 | S; s4 f250 | live | `em_area01_room.c` / `em_area01_room_001BB400` | Q; S4 | — |
 | 0x001BB520 | boot | 14 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001BB520` | Y; G | — |
 | 0x001BB560 | boot | 152 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB560` | M | — |
-| 0x001BB7C0 | boot | 10 | S; s4 f246 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7C0` | Q | — |
-| 0x001BB7F0 | boot | 27 | S; s4 f334 | verified-unbound | `em_area01_room.c` / `em_area01_room_001BB7F0` | Q | — |
+| 0x001BB7C0 | boot | 10 | S; s4 f246 | live | `em_area01_room.c` / `em_area01_room_001BB7C0` | Q; S4 | — |
+| 0x001BB7F0 | boot | 27 | S; s4 f334 | live | `em_area01_room.c` / `em_area01_room_001BB7F0` | Q; S4 | — |
 | 0x001BB860 | boot | 157 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001BB860` | M; G | — |
 | 0x001BBAE0 | boot | 68 | M; 03 f143 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBAE0` | M | — |
 | 0x001BBBF0 | boot | 75 | M; 03 f75 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBBF0` | M | — |
@@ -175,7 +175,7 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001D5A70 | boot | 86 | M; 00 f1; E c16503 | live | `em_area01_render_vif.c` / `em_area01_render_001D5A70` | R; W | — |
 | 0x001D5BD0 | boot | 41 | M; 00 f1; E c16503 | live | `em_area01_render_vif.c` / `em_area01_render_001D5BD0` | R; W | — |
 | 0x001D8100 | boot | 9 | S; s3 f208 | verified-unbound | `em_effect_original.c` | D | L |
-| 0x001E3D20 | boot | 27 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001E3D20` | D | — |
+| 0x001E3D20 | boot | 27 | S; s3 f208 | live | `em_area01_side.c` / `em_area01_side_001E3D20` | D; S3 | — |
 | 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S; G | — |
 | 0x001E7CB0 | boot | 25 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7CB0` | S | — |
 | 0x001E7D20 | boot | 902 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E7D20` | S; G | — |
@@ -220,7 +220,7 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x0021D1A0 | boot | 43 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
 | 0x0021D600 | boot | 14 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
 | 0x0021D800 | boot | 236 | S; s3 f210 | verified-unbound | `em_player_reaction.c` | D | L |
-| 0x00225A00 | boot | 5 | S; s4 f679 | verified-unbound | `em_area01_room.c` / `em_area01_room_00225A00` | Q | V |
+| 0x00225A00 | boot | 5 | S; s4 f679 | live | `em_area01_room.c` / `em_area01_room_00225A00` | Q; S4 | V |
 | 0x0022B700 | boot | 40 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022B700` | U | L |
 | 0x0022B7A0 | boot | 243 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022B7A0` | U | L |
 | 0x0022BB70 | boot | 17 | S; s3 f209 | verified-unbound | `em_area01_ui_effect.c` / `em_area01_ui_0022BB70` | U | L |
@@ -426,6 +426,72 @@ rows; 001E3D90 (live since step GUARD) is the owner that asks for it.
 |---|---:|---:|
 | live | 51 | 11,146 |
 | verified-unbound | 126 | 18,270 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
+
+## 12. The AREA01 crash sweep (merged 2026-10-07)
+
+Codex's branch level2-crash (LEVEL2_CRASHES.md) bound water contact,
+fire contact, targets and hulls, room transitions and the terminal's
+confirmation; it was merged into main after step DRAWN (merge bbc4a08).
+Its census proposals ("Census promotion scope" there) are folded here
+under §6's rule: a row is promoted only when a compared AREA01 window
+runs it and a native first-call measurement names its frame. The
+measurement was a private lldb run of the merge's binary (one-shot
+breakpoints on the owners, logging `em_frame_counter()`; the scripts and
+receipts are in ignored `build/crashmerge/probe/`, nothing committed);
+the comparisons are the unchanged checker's runs of the same binary
+(`build/crashmerge/s3`, `s4`).
+
+Evidence key **S3**: route a01_s3 (fire contact), `python3
+tools/test_level_smoke_area01.py --side a01_s3`: **PASS, 262 rows** and
+the whole ending camera. Key **S4**: route a01_s4 (east room, terminal
+declined), the same with `--side a01_s4` and
+`EM_PS2_DISC_DRIVE_TIMING=1`: **PASS, 1,225 rows** and the ending camera
+(at host speed its message timing differs, as LEVEL2_CRASHES.md says).
+Row 0 is port counter 15068 (S3) and 15358 (S4).
+
+| Row | Original caller | Live adapter | Native first call | Key |
+|---|---|---|---|---|
+| 001E3D20 | the close-out's contact callback (001A8660) | `em_area01_runtime_call` → `em_area01_side_001E3D20` | 15276 = a01_s3 f208 (census f208) | S3 |
+| 001BB7C0 | the east slider's room transition | `em_area01_runtime_call` → `em_area01_room_001BB7C0` | 15604 = a01_s4 f246 (census f246) | S4 |
+| 001BB400 | the same | `em_area01_room_001BB400` | 15608 = f250 (census f250) | S4 |
+| 001BB7F0 | the same | `em_area01_room_001BB7F0` | 15692 = f334 (census f334) | S4 |
+| 00225A00 | 0020CDC0 case 0, request 6 (the terminal's BATTERY prompt) | em_status_page's reset event → `em_scene_bindings_terminal_reset` → `em_area01_room_00225A00` | 16037 = f679 (census f679) | S4 |
+
+Measured but not promoted:
+- **00187DE0 and 001E8B90** (water first contact and its ripple, census
+  a01_02 f39): first called natively at counter 16194 = a01_02 f39 on the
+  `--until a01_02` run, which plays a01_00..a01_02 without a fault (the
+  exploration replay observes the shallow water, surface 0x5B, depth 1).
+  No compared window: the checker passes a01_00 (781 rows) and stops at
+  a01_01 row 3 (the player's clip turns 1 two rows before the
+  recording's: the recording's first a01_01 pad command reached the
+  original two frames later than mid-beat commands do, the harness
+  reading LEVEL_SMOKE.md "a01_00" describes, unchanged by this merge),
+  so a01_02's rows are not compared. **verified-unbound**.
+- **001EC270** (census a01_02 f599): the a01_02 replay ends at f590;
+  not reached. **verified-unbound**.
+- **001EFE00** (census a01_s3 f208): the a01_s3 run never calls
+  `em_area01_side_001EFE00` (the fire contact's effect 0x27 spawns
+  through the shared player-side binder). **verified-unbound**.
+- **00188610, 0016D130, 0016DE40, 0016EBA0** (the duct, a01_s5): reached
+  only by the exploration's input-only `vent` probe; the recorded a01_s5
+  replay misses the trigger. **verified-unbound**.
+- **001AA4E0** (a01_s6 f158): its translation is a static function with
+  no measurable symbol; no first-call measurement. **verified-unbound**.
+- The other owners the sweep binds for AREA01 (001AA410 / 001AA2A0,
+  00183C40, 00157F60, 001B6F00, 001B41F0, 001ED7A0, 001ECB00, 001EB7F0)
+  have no row in §4 (they are not in the a01 delta); of them 001B41F0,
+  001ED7A0, 001ECB00 and 001EB7F0 are conditional, with no native hit
+  observed (LEVEL2_CRASHES.md "Shared target-hit boundary").
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 56 | 11,286 |
+| verified-unbound | 121 | 18,130 |
 | unverified | 0 | 0 |
 | stand-in | 0 | 0 |
 | missing | 0 | 0 |
