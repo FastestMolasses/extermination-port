@@ -166,22 +166,31 @@ def loader_banks(lib, elf, counts):
             token = st.d28A490[0x43]
             data = BANKS[area].read_bytes()
             assert token == w.o.load(0x28A59C)
-            if len(counts['loader_area_dispatches']) == 3:
+            relocated = len(counts['loader_area_dispatches']) == 3
+            if relocated:
                 # Direct return without the global module reload relocates
-                # AREA11 in the original too. A fixed-address export must
-                # refuse that token, rather than silently use stale handles.
+                # AREA11 in the original too (0x01336CC0, not the export's
+                # 0x01335F40). The original loader delivers the export's
+                # span bytes unchanged at that word (the table holds
+                # offsets), so the bank is seated at the loader's word.
                 assert token != u32(data, 8)
-                lib.bank_test_reset()
-                assert lib.bank_test_bind(str(BANKS[area]).encode(), token) == -1
-                counts['loader_relocated_export_rejections'] = 1
-                continue
-            assert token == u32(data, 8), (area, hex(token), hex(u32(data, 8)))
+            else:
+                assert token == u32(data, 8), (area, hex(token), hex(u32(data, 8)))
             size = u32(data, 12)
             p = ml.em_module_loader_memory(w.ml, token, size)
             assert p and C.string_at(p, size) == data[32:] == w.o.read(token, size)
             lib.bank_test_reset()
             assert lib.bank_test_bind(str(BANKS[area]).encode(), token) == 0
-            assert C.string_at(lib.bank_test_view().contents.span, size) == C.string_at(p, size)
+            view = lib.bank_test_view().contents
+            assert view.table_address == token
+            assert C.string_at(view.span, size) == C.string_at(p, size)
+            for i in range(view.model_count):
+                # 001C6120's handle: the word plus the entry's offset.
+                off = u32(data, 32 + 4 + 4 * i) & ~3
+                assert view.models[i].address == token + off
+                assert C.string_at(view.models[i].bytes, 16) == w.o.read(token + off, 16)
+            if relocated:
+                counts['loader_relocated_banks_seated'] = 1
         counts['loader_sound_boundaries'] = w.bank_calls
     finally:
         w.close()

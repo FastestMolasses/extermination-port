@@ -211,11 +211,25 @@ static int install_bank(const char *path, uint32_t resource_word)
         fprintf(stderr, "em_area11 boxes: invalid world model bank %s\n", path);
         return -1;
     }
-    if (resource_word && parsed.table_address != resource_word) {
-        fprintf(stderr, "em_area11 boxes: world model bank %s names %08X, loader D_0028A59C is %08X\n",
-                path, (unsigned)parsed.table_address, (unsigned)resource_word);
+    /* The span is position-independent: its table holds offsets (the
+     * parser's m->address is table + offset) and the original loader
+     * delivers the same bytes wherever it places the table. A direct
+     * AREA01 -> AREA11 return places AREA11 at 0x01336CC0 instead of the
+     * export's 0x01335F40, in the original and natively, with every span
+     * byte equal (tools/test_world_model_bank_reference.py). So the bank
+     * is seated at the loader's word; only a word that cannot hold the
+     * quadword-aligned span (low four bits set) is refused. */
+    if (resource_word && (resource_word & 0xFu)) {
+        fprintf(stderr, "em_area11 boxes: world model bank %s: loader D_0028A59C %08X is not quadword aligned\n",
+                path, (unsigned)resource_word);
         free(file);
         return -1;
+    }
+    if (resource_word && parsed.table_address != resource_word) {
+        uint32_t from = parsed.table_address;
+        parsed.table_address = resource_word;
+        for (uint32_t i = 0; i < parsed.model_count; ++i)
+            parsed.models[i].address = parsed.models[i].address - from + resource_word;
     }
     free(S.bank_file);
     S.bank_file = file;

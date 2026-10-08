@@ -693,12 +693,23 @@ both native delivery and the original loader's delivered memory. This
 checks the actual loader-to-bank identity, not just the filename/header.
 
 A direct AREA01 -> AREA11 load without reloading module 3 produces table
-`0x01336CC0` in **both** original and native execution. The fixed-address
-AREA11 export is rejected. Reloading module 3 (8 dispatches) and then
-AREA11 (13 dispatches) restores `0x01335F40`; its bank is accepted and
-byte-equal. The selector does not invent a relocation or silently reuse
-old handles. A broader route that legitimately uses another placement
-needs corresponding exported-resource/address handling.
+`0x01336CC0` in **both** original and native execution. Reloading module 3
+(8 dispatches) and then AREA11 (13 dispatches) restores `0x01335F40`.
+**Relocated placement (2026-10-08).** The original loader delivers the
+export's span bytes unchanged at `0x01336CC0` (every byte of the original
+loader's delivered memory there equals the EMWM span and the native
+loader's): the table holds offsets (a model's 001C6120 handle is the word
+plus its entry), so the bank is position-independent. The selector now
+seats the bank at the loader's word (table address and every model address
+rebased; only a word with any of its low four bits set is refused), and
+`make test-world-model-bank-reference` checks the relocated case: bind
+accepted, table address equal to the word, span equal to both memories,
+each model's address the word plus its offset with the original's bytes
+there. Before this, the rejection made the first level's
+`make test-area-load-reference` (its New Game + EM_AREA_CHANGE_TEST
+AREA11 -> AREA11 reload, which the native and original loaders also place
+at `0x01336CC0`) stop at the rebuild (fail-stop at 0028A59C) since
+c92ad88; it passes again.
 
 Observed runs (all PASS):
 

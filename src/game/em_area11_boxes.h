@@ -72,8 +72,10 @@
 /* Select *D_0028A59C at an area rebuild, after all old owner views have
  * been released and em_area11_boxes_reset has cleared this adapter.
  * resource_word is the canonical loader's D_0028A490[0x43], not an address
- * inferred from the filename. The EMWM header must name that exact table.
- * A current-generation owned model prevents rebinding (even to the same
+ * inferred from the filename. The bank is seated at that word (the span
+ * holds offsets; the EMWM header's table address is the export's first
+ * placement), so a relocated load (a direct AREA01 -> AREA11 return) binds
+ * the same bytes at its own address. A current-generation owned model prevents rebinding (even to the same
  * file); all borrowed world_model/world_models views expire on success.
  * Failure preserves the previous bank. The global library D_0028A56C and
  * Roger resources are unaffected. Return 0, or -1 with a diagnostic. */

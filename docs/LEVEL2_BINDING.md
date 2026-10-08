@@ -502,8 +502,9 @@ rebuild, while retaining the world-frame guard:
   the delivered address. LEVEL2_RENDER.md ("AREA01 world model bank selection") proves **1,664 lookups,
   832 owner initializations and 1,362 bone records** in full mode. Direct
   AREA01-to-AREA11 without module-3 reload relocates that bank in both the
-  original and native loader; the fixed-address export correctly refuses
-  it. That additional transition is not claimed supported.
+  original and native loader; since 2026-10-08 the bank is seated at the
+  relocated word (its span is position-independent, byte-equal at both
+  placements; LEVEL2_RENDER.md "Relocated placement").
 - Bind RCL for both world areas. AREA01 keeps its delivered static bank
   and borrows dynamic table slot 0x45; it does not reload AREA11's static
   export. The existing `001D5370` dispatch reaches the prepared dynamic
