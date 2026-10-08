@@ -958,6 +958,8 @@ static void vitals_load(void)
     em_live_set_u16(&live.a, 0x20E, (uint16_t)g.pd_iframes);
 }
 
+void player_states_vitals_publish(void) { vitals_load(); }
+
 static void vitals_store(void)
 {
     g.status.health = em_live_f32(&live.a, 0x220);

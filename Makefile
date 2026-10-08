@@ -72,7 +72,7 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_record_helpers.c src/game/em_player_heading_record.c \
            src/game/em_player_misc_workers.c src/game/em_script_host_workers.c \
            src/game/em_render_verify_rest.c src/game/em_locomotion_display.c \
-           src/game/em_anim_runtime_rest.c src/game/em_startup_load_gaps.c src/game/em_startup_load_gaps_sound.c \
+           src/game/em_anim_runtime_rest.c src/game/em_startup_load_gaps.c src/game/em_startup_load_gaps_sound.c src/game/em_glue_original.c \
            src/game/em_elevator.c src/game/em_elevator_program.c src/game/em_elevator_runtime.c \
            src/game/em_hud.c src/game/em_weapon.c src/game/em_enemy.c \
            src/game/em_scene_bindings.c src/game/em_scene_task.c src/game/em_scene_frame.c \
@@ -195,10 +195,11 @@ test-task: tests/task_test.c src/game/em_task.c src/game/em_task.h
 
 .PHONY: test-fade
 test-fade: tests/fade_test.c src/game/em_fade.c src/game/em_fade.h \
-           src/game/em_frame.c src/game/em_frame.h src/game/em_task.c src/em_input.c
+           src/game/em_frame.c src/game/em_frame.h src/game/em_task.c src/em_input.c \
+           src/game/em_startup_load_gaps.c
 	@mkdir -p build
 	$(CC) $(CFLAGS) tests/fade_test.c src/game/em_fade.c src/game/em_frame.c \
-	    src/game/em_task.c src/em_input.c -o build/fade_test
+	    src/game/em_task.c src/em_input.c src/game/em_startup_load_gaps.c -o build/fade_test
 	./build/fade_test
 
 clean:
@@ -321,7 +322,7 @@ test-rand-order: $(BIN)
 
 .PHONY: test-frame-input
 test-frame-input:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c -lm -o build/frame_input_test && ./build/frame_input_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c src/game/em_startup_load_gaps.c -lm -o build/frame_input_test && ./build/frame_input_test
 
 .PHONY: test-scene-classify
 test-scene-classify:
@@ -892,6 +893,12 @@ test-status-ui-leftovers-reference:
 test-startup-load-gaps-reference:
 	python3 tools/test_startup_load_gaps_reference.py
 
+# The GLUE rows (docs/GLUE_ORIGINAL.md): the original 001FC280 against
+# em_glue_001FC280 (0015CF90 and 001B1190 are test-census-unverified-reference's).
+.PHONY: test-glue-reference
+test-glue-reference:
+	python3 tools/test_glue_reference.py
+
 .PHONY: test-locomotion-display-reference
 test-locomotion-display-reference:
 	python3 tools/test_locomotion_display_reference.py
@@ -1156,9 +1163,9 @@ test-roger-encounter-capture:
 test-face-allocation-reference:
 	python3 tools/test_face_allocation_reference.py
 
-test-pickup-original: tests/pickup_original_test.c tests/pickup_light_test.c src/game/em_pickup.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC)
+test-pickup-original: tests/pickup_original_test.c tests/pickup_light_test.c src/game/em_pickup.c src/game/em_effect_kinds.c src/game/em_security_gun_rest.c $(PICKUP_ORIGINAL_TEST_SRC)
 	@mkdir -p build/pickup_owner_reference
-	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/pickup_original_test.c src/game/em_effect_kinds.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
+	$(CC) -std=c11 -O1 -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/pickup_original_test.c src/game/em_effect_kinds.c src/game/em_security_gun_rest.c src/game/em_security_gun.c $(PICKUP_ORIGINAL_TEST_SRC) -o build/pickup_original_test
 	build/pickup_original_test
 
 .PHONY: test-panel-reference test-panel-interaction

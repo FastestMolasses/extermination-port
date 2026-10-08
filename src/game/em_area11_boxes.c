@@ -794,16 +794,27 @@ static void services_bind(void)
 
 int32_t *em_area11_boxes_carry31F0(void) { return &S.carry31F0; }
 
+EmSlgBoneSlots *em_area11_boxes_bone_stack(void)
+{
+    S.bones.records = S.records;
+    return &S.bones;
+}
+
 void em_area11_boxes_reset(void)
+{
+    /* 001AF710: zero the 0x480 slots, the stack holds each one's address,
+     * the cursor at its base and the count 0x480. */
+    em_slg_001AF710(em_area11_boxes_bone_stack());
+    em_area11_boxes_area_reset();
+}
+
+void em_area11_boxes_area_reset(void)
 {
     em_area11_boxes_bind_registry(NULL,NULL);
     memset(S.box, 0, sizeof S.box);
     memset(&S.library, 0, sizeof S.library);
     S.library_word = 0;
-    /* 001AF710: zero the 0x480 slots, the stack holds each one's address,
-     * the cursor at its base and the count 0x480. */
-    S.bones.records = S.records;
-    em_slg_001AF710(&S.bones);
+    /* The owner services' typed view of the slots 001AF710 cleared. */
     memset(S.slots, 0, sizeof S.slots);
     memset(&S.stack, 0, sizeof S.stack);
     S.stack.world.d00275BCC = &S.bones.count;

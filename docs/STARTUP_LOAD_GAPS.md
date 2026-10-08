@@ -14,8 +14,8 @@ Files (new, owned by this lane):
   sound-bank upload 001FB370 / 001FB3E0 / 001FB910.
 - `tools/test_startup_load_gaps_reference.py` — the original-instruction oracle.
 
-Nothing here is bound into the live app yet. The live files belong to the
-coordinator chain; section 4 says exactly what each binding replaces.
+Section 1 says which translations are live and since when; section 4 says
+what each binding replaced or why a row stays unbound.
 
 ## 1. Result
 
@@ -23,25 +23,25 @@ coordinator chain; section 4 says exactly what each binding replaces.
 |---|---|---|---|---|
 | 001AB6A0 task dispatch | unverified | **live** (em_task.c, verified) | `em_task_dispatch` | oracle, unit + captured table |
 | 001AB740 task register | unverified | **live** (em_task.c, verified) | `em_task_register` | oracle |
-| 001AB790 task replace | unverified | **live** (em_task.c, verified) | `em_task_replace_current` | oracle |
+| 001AB790 task replace | unverified | **live** (em_task.c, verified): 001ADF00's since chain step DAMAGE, the title's New Game handoff (em_game_install_new) since chain step GLUE | `em_task_replace_current` | oracle |
 | 001AB4E0 display envs | missing | verified-unbound | `em_slg_001AB4E0` | oracle, unit + captured |
 | 001AB590 DMA watchdog | missing | verified-unbound (really a hardware boundary, section 4 item 10) | `em_slg_001AB590` | oracle |
-| 001AC070 screen-flow task | unverified (legacy stand-in) | verified-unbound | `em_slg_001AC070` | oracle |
+| 001AC070 screen-flow task | unverified (legacy stand-in) | verified-unbound (em_startup's flow; section 4 item 6) | `em_slg_001AC070` | oracle |
 | 001AF470 pad assignment | missing | verified-unbound | `em_slg_001AF470` | oracle, all 256 configs + captured block |
-| 001AF5C0 player reset | stand-in | verified-unbound | `em_slg_001AF5C0` | oracle, unit + opening RAM |
-| 001AF690 status block reset | stand-in | verified-unbound | `em_slg_001AF690` | oracle |
-| 001AF710 bone-slot stack | stand-in | verified-unbound | `em_slg_001AF710` | oracle |
-| 001AFCA0 state-0 re-arm | stand-in | verified-unbound | `em_slg_001AFCA0` | oracle |
+| 001AF5C0 player reset | stand-in | verified-unbound; **live** since the player step (census 1.23), inside 001AFCA0 since chain step GLUE | `em_slg_001AF5C0` | oracle, unit + opening RAM |
+| 001AF690 status block reset | stand-in | verified-unbound; **live** since chain step GLUE (inside 001AFCA0) | `em_slg_001AF690` | oracle |
+| 001AF710 bone-slot stack | stand-in | verified-unbound; **live** (the boxes' stack; inside 001AFCA0 since chain step GLUE) | `em_slg_001AF710` | oracle |
+| 001AFCA0 state-0 re-arm | stand-in | verified-unbound; **live** since chain step GLUE (`w_001AFCA0`) | `em_slg_001AFCA0` | oracle |
 | 001B0F60 node start | missing | verified-unbound | `em_slg_001B0F60` | oracle |
-| 001B57E0 pad read | unverified | verified-unbound | `em_slg_001B57E0` | oracle, unit + every capture |
-| 001B5F40 libpad state machine | unverified (partial) | verified-unbound | `em_slg_001B5F40` (+ `em_slg_001B62A0`) | oracle |
+| 001B57E0 pad read | unverified | verified-unbound; **live** since chain step GLUE (step C) | `em_slg_001B57E0` | oracle, unit + every capture |
+| 001B5F40 libpad state machine | unverified (partial) | verified-unbound; **live** since chain step GLUE (inside 001B57E0) | `em_slg_001B5F40` (+ `em_slg_001B62A0`) | oracle |
 | 001BB0E0 opening-script actor | unverified | verified-unbound; **live** since chain C8b OPENING | `em_slg_001BB0E0` | oracle, unit + the 2 resident actors of the opening RAM |
 | 001FB100 sound frame | stand-in | verified-unbound; **live** since chain step H7 (step H) | `em_slg_001FB100` | oracle, unit + captured |
 | 001FC6E0 delayed cues | missing | verified-unbound; **live** since chain step H7 (inside 001FB100) | `em_slg_001FC6E0` | oracle |
 | 001FB370 bank-load gate | missing | verified-unbound; **live** since chain step H7 (the area load's bank step, em_sound_bank) | `em_slg_001FB370` | oracle; test_sound_bank_reference |
 | 001FB3E0 bank upload | missing | verified-unbound; **live** since chain step H7 | `em_slg_001FB3E0` | oracle; test_sound_bank_reference |
 | 001FB910 SIF DMA kick | missing | verified-unbound; **live** since chain step H7 | `em_slg_001FB910` | oracle; test_sound_bank_reference |
-| 008237C0 AREA11 overlay init | missing (critic 7.2: stand-in) | verified-unbound | `em_slg_008237C0` | oracle + every capture |
+| 008237C0 AREA11 overlay init | missing (critic 7.2: stand-in) | verified-unbound (no reader in AREA11; section 3) | `em_slg_008237C0` | oracle + every capture |
 | 00199C50 collision tables | missing | verified-unbound | `em_slg_00199C50` | oracle, unit + every capture |
 | 0015C1F0 player model kind | verified-unbound | unchanged | `em_player_misc_0015C1F0` | test_player_misc_workers_reference |
 | 001AB7D0 task stop | verified-unbound | live since chain C8b LOADER (the loader's 0x63 step) | em_status_scene_original | test_status_scene_reference, test_module_loader_reference |
@@ -233,8 +233,11 @@ D_007D5840 and writes their addresses into D_007D4640[]. It then sets the
 stack cursor D_00275BD0 = D_007D4640 and the count D_00275BCC = 0x480.
 001AFCA0 runs the three, then 001AF8E0 and 001D0660, then sets spad 31F4 = 0.
 
-- Binding: replaces `em_game_legacy_state0` inside the `w_001AFCA0` binding
-  (em_scene_bindings.c). Storage: `player` = the player record bytes
+- Binding (live since chain step GLUE, 2026-10-08; GLUE_ORIGINAL.md):
+  `w_001AFCA0` (em_scene_bindings.c) runs `em_slg_001AFCA0`; the port's
+  area binds run inside its 001AF8E0 / 001D0660 worker positions, and
+  `em_game_legacy_state0` (the legacy display's g fields) runs before it.
+  Storage: `player` = the player record bytes
   (`EmPlayerLiveActor.bytes`); `player_self` = the port's word for the
   record's own address (the original stores 0x008102B0; the lead decides the
   convention); `status` = D_00810130..D_008102AF (the status hub's blocks,
@@ -274,9 +277,11 @@ the phase bytes +0x10/+0x11/+0x12 and calls 001B62A0. On phase +0x10:
 001B57E0 clears the six halfwords D_00810E70..7A and re-centres
 D_00810E64/65 to 0x80 whenever 001B5F40 returns 0.
 
-- Binding: replaces the fixed "stable DualShock, analog read" assumption in
-  `frame_input_read` (em_frame.c step C), over the byte image
-  D_00810E40..D_00810E7B. Workers: libpad 00110B80 / 00110E58 / 00110F60 /
+- Binding (live since chain step GLUE, 2026-10-08; GLUE_ORIGINAL.md):
+  `frame_input_read` (em_frame.c step C) runs `em_slg_001B57E0` over the
+  byte image D_00810E40..D_00810E7B (em_pad_actuator's block, the
+  EmPadUnpack fields and em_frame's +0x2A..+0x2F). The negotiation calls
+  fault: the block starts in phase 4. Workers: libpad 00110B80 / 00110E58 / 00110F60 /
   001110B0 are the platform pad boundary (the native gamepad reports a
   state: 6 for a connected pad, 0 for none; mode ids and actuator
   alignment as libpad would); 001B5940 → `em_pad_unpack` (em_input.c,
@@ -393,11 +398,12 @@ It sets D_00275C28 = 0x20, D_00275C1C = 0x0082AD00 (the overlay's
 per-level record block), D_00275C2C = 0 and D_00275C24 = 0. The census
 row's address is splat 00823780 plus the 0x40 overlay header.
 
-- Binding: at the AREA11 overlay load, the point where the original's
-  overlay dispatcher runs the init. Readers: 001E9580 / 001E9E60 (the
-  per-level records at D_00275C1C + i * 0xA060) and 001E7780. The critic's
-  note stands: the port's roster spawn currently covers what those readers
-  feed. This translation gives the values once a reader is ported.
+- Not bound (chain step GLUE, 2026-10-08): its readers 001E9580 / 001E9E60
+  (the per-level records at D_00275C1C + i * 0xA060) belong to 0015A2C0
+  owners, none of which AREA11 has (its record count D_00275C2C is 0), and
+  the AREA01 arrival's 001E7780 clears the globals before AREA01's own init
+  (em_area01_state_001E7780). Nothing stands in for it (the critic's
+  "roster spawn" is 001B6990's).
 
 ### 00199C50 — the collision scratchpad tables
 
@@ -408,10 +414,12 @@ It builds five cumulative entries 3214..3224 (step = 2 * spad 320C), then
 3228..323C: six further steps when header +0x1C == 0xC, otherwise zeros.
 Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
 
-- Binding: replaces the no-effect `UM_00199C50` in the state-0 chain
-  (em_scene_bindings.c). em_collision.c and the em_coll_* walkers read these
-  scratchpad words as their table bases (for example their `count` is spad
-  320C); they should take them from this storage. `EmSlgCollFile` = the AREA11
+- Not bound (the no-effect `UM_00199C50` stays reported): the em_coll_*
+  walkers take these table bases (for example their `count`, spad 320C)
+  from the collision world's EmCollProbeGrid views of the EMCL export
+  (em_coll_probe_grid_init), which tools/export_collision.py checks against
+  captured RAM; binding needs the walkers to read the original file at its
+  EE addresses. `EmSlgCollFile` = the AREA11
   collision file as loaded (EE address + bytes) plus D_0028A5A8 and its
   halfword.
 - Route: the translation reproduces the captured scratchpad of every
@@ -435,22 +443,24 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
 
 1. Task table: already live and now verified. Change the NULL-function skip
    in `em_task_dispatch` to a fault.
-2. `w_001AFCA0`: `em_slg_001AFCA0` in place of `em_game_legacy_state0`.
-   Workers: `em_roger_actor_001D8BF0`, `em_actor_pool_reset_001AF8E0`, and
-   001D0660, which needs 001F0310 plus the overlay-dispatch boundary. Its
-   bone-slot stack becomes the one storage the Roger module's
-   EmRogerActorWorld views.
-3. State 0: `em_slg_00199C50` in place of `UM_00199C50`;
-   `em_player_misc_w_0015C1F0` in place of `UM_0015C1F0`.
-4. Step C: `em_slg_001B57E0` over the D_00810E40 image, feeding the
-   existing 001B5940 translation.
+2. **Done (chain step GLUE, 2026-10-08):** `w_001AFCA0` runs
+   `em_slg_001AFCA0` (workers: `em_roger_actor_001D8BF0`, the pool reset
+   with the host's area binds, 001D0660's 001F0310 and 001E7780); its
+   bone-slot stack is the one storage the Roger module's EmRogerActorWorld
+   views.
+3. State 0: `em_player_misc_0015C1F0` is live (001B07C0's); 00199C50
+   stays unbound (section 3).
+4. **Done (chain step GLUE, 2026-10-08):** step C runs `em_slg_001B57E0`
+   over the D_00810E40 image, feeding the existing 001B5940 translation.
 5. Step H: `em_slg_001FB100`, with em_sfx's requested/snapshot arrays as
    D_00281B70/C30 (this retires `em_sfx_frame_snapshot`).
-6. The 001AC070 task: `em_slg_001AC070` replaces em_startup's
+6. The 001AC070 task (not bound; its state 4's 001AB790 is live since
+   chain step GLUE): `em_slg_001AC070` would replace em_startup's
    title-flow states (the one installed at the boot and, since chain step
-   DAMAGE, by 001ADF00 after a death). Its prerequisites 001D1EF0 and 001D2830 are live since the
-   render context step / chain C7 step V (em_frame_render_heads), so it can
-   bind to them.
+   DAMAGE, by 001ADF00 after a death). It needs em_startup's sub-machines
+   (the movie wait 001AC3B0, the prompt 001AC480, the attract 001ACA20) as
+   its workers and the title frames' 001D1EF0 / 001D2830(3, 1) / 001D2880,
+   which the port's title (its exported screens) does not run.
 7. **Done (live, census):** the player closure's binder
    (em_player_closure_live.c) runs `em_slg_001AF470` with config 0 into its
    0x70003B74..0x70003B82 block, and the Use mask readers (0x70003B76) read

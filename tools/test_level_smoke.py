@@ -2485,7 +2485,7 @@ def exit_port(ticks, i):
             'roger': (roger[1], roger[3]) if roger else None,
             'equipment': t['equipment'][1] if t.get('equipment') else None,
             'eye': [round(f32(v), 5) for v in t['eye_post']], 'tgt': [round(f32(v), 5) for v in t['tgt_post']],
-            'cam': t['cam4'][:2], 'screen': t['screen8'],
+            'cam': t['cam4'][:2], 'screen': t['screen8'], 'vit706': tuple(t['vit706']),
             'msg': tuple(nxt['msg_pre']) if nxt else None, 'fade': nxt['fade8'] if nxt else None}
 
 
@@ -2500,6 +2500,7 @@ def exit_orig(row):
             'roger': None if freed(roger['h']) else (roger['h'], roger['s1F0']),
             'equipment': None if freed(attach['h']) else attach['h'],
             'eye': row['eye'], 'tgt': row['tgt'], 'cam': row['cam_mode'][:2], 'screen': row['screen'][:16],
+            'vit706': tuple(bytes.fromhex(row['glob'])[0x106:0x108]),   # D_00810706 / 707 (0015CF90, 001B07C0)
             'msg': struct.unpack('<3I', m[:12]), 'fade': row['fade'][:16]}
 
 
@@ -4806,6 +4807,50 @@ def check_head_sprites(ticks, state, frames):
           f'{counts["end"]} ramp ends with their wait, {counts["wait"]} wait ticks, {counts["ramp"]} ramp ticks)')
 
 
+def check_taken_and_vitals(ticks, checked):
+    """Chain step GLUE (docs/GLUE_ORIGINAL.md): the main line's AREA11 taken
+    row D_00810860 + 0x0B * 32 (001B1190's bits, em_area11_bindings_001B1190
+    through the pickups' PERSIST) and 0015CF90's D_00810706 / D_00810707
+    (em_glue_0015CF90), every tick of AREA11, against the route snapshots
+    00..14: the run's sequence of distinct rows is the snapshots' sequence of
+    distinct rows as far as the run went (the battery's bit from route 01 on,
+    the whole sequence when the run reached roger); the vitals copies hold
+    the snapshots' value until the exit's departure, where the original's
+    D_00810706 takes the player's +0x235 = 2 (exit_00 from f325; check_exit
+    compares the copies row for row there, and the arrival's 001B07C0 mask
+    back to 0)."""
+    beats = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and p.name[:2] < '15')
+    rows, copies = [], set()
+    for beat in beats:
+        m = (ROUTE / beat / 'eeMemory.bin').read_bytes()
+        row = m[0x810860 + 0x160:0x810860 + 0x180].hex()
+        if not rows or rows[-1] != row:
+            rows.append(row)
+        copies.add((m[0x810706], m[0x810707]))
+    assert len(copies) == 1, ('the route snapshots disagree on D_00810706 / 707', copies)
+    port = []
+    for t in ticks:
+        if t.get('taken0b') is None:
+            continue
+        if not port or port[-1] != t['taken0b']:
+            port.append(t['taken0b'])
+    assert port and port == rows[:len(port)], ('taken row: the run\'s distinct rows are not the snapshots\'', port, rows)
+    if 'battery' in checked:
+        assert len(port) >= 2, 'taken row: the battery take set no bit'
+    if 'roger' in checked:
+        assert port == rows, ('taken row: the run ended before the snapshots\' last row', port, rows)
+    want = sorted(copies) + ([] if 'exit' not in checked else
+                             [tuple(bytes.fromhex(r['glob'])[0x106:0x108]) for r in exit_rows(EXIT_00)][-1:])
+    seen = []
+    for t in ticks:
+        v = tuple(t['vit706'])
+        if not seen or seen[-1] != v:
+            seen.append(v)
+    assert seen == want, ('D_00810706 / D_00810707: the run\'s distinct values are not the original\'s', seen, want)
+    print(f'taken bits: PASS (the AREA11 row went through {len(port)} of the route snapshots\' {len(rows)} '
+          f'value(s) in order; D_00810706 / 707 went through {seen}, as the original\'s)')
+
+
 def check_player_draw_gate(ticks):
     """em_scene_bindings_player_record_drawn() is read twice a frame: by the
     equipment nodes' +0x4C in the walk (em_equipment_live: their 001CAA00
@@ -4917,6 +4962,9 @@ def main():
         check_room_lights(ticks, state)
         check_fade_weights(run, 2 if state.get('second_game') is not None else 1)
     check_player_draw_gate(ticks)
+    if ('first_control' in checked and 'side_start' not in state and state.get('second_game') is None
+            and not any(name in SIDE for name in checked)):
+        check_taken_and_vitals(ticks, checked)
     if args.rand_trace and 'first_control' in checked:
         check_rand_order(ticks, state, args.rand_trace)
         level_smoke_area01.check_rng_checkpoints(state, state['rand'])

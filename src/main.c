@@ -454,6 +454,7 @@ int main(void)
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
     em_pad_actuator_reset();
+    em_frame_set_pad_block(em_pad_actuator_block());
     em_frame_set_step_i(em_pad_actuator_step_i, NULL);
     /* No seed here: the original main never seeds the SDK RNG; its state
      * starts at the ELF's initialized value 1 (em_random.c). */

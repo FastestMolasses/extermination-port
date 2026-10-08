@@ -38,6 +38,7 @@
 #include "game/em_effect_color.h"
 #include "game/em_random.h"
 #include "game/em_player.h"
+#include "game/em_glue_original.h"
 #include "game/em_player_damage.h"
 #include "game/em_camera.h"
 #include "game/em_scene.h"
@@ -492,15 +493,19 @@ static void player_hit_mailbox(void)
  *     result changes which frames the status screen may open during the
  *     legacy door / examine / opening stand-ins, which no capture
  *     comparison covers yet (FIRST_CONTROL.md "D_008106B3");
- *   - 0015CF90 (byte-matched, src/func_0015CF90.c): D_00810707 =
- *     +0x234 into the canonical progress byte (HK; +0x234 is the
- *     port's g.pd_infected, which the stage's vitals view stores back
- *     after every stage since L01), then the B9 write
- *     `if (+0x220 <= 0.0f && D_008106B9 == 0) D_008106B9 = 1`, +0x220
- *     being the player's health (g.status.health). 0015CF90's other
- *     stores (D_00810706 = +0x235, D_00810858/85C = +0x220/+0x228)
- *     target progress bytes that are not canonical yet (D2); 001B07C0
- *     reads the port's g.pd_low/g.status for them.
+ *   - 0015CF90 (byte-matched, src/func_0015CF90.c): em_glue_0015CF90,
+ *     the whole-function translation (test_census_unverified_reference
+ *     executes the original), over the player record: D_00810706 = +0x235
+ *     and D_00810707 = +0x234 (canonical progress bytes), D_00810858 /
+ *     D_0081085C = +0x220 / +0x228 (g.status.health / infection, the
+ *     port's one storage of both: the record's vitals view loads them
+ *     before every stage and stores them after it, so the copy is the
+ *     identity there), then the B9 latch when +0x220 <= 0.0 on the EE
+ *     compare. It runs after the whole stage where the original runs it
+ *     before 0015CBA0 and 00187350, which read and write none of these
+ *     bytes. A frame whose stage did not run (the legacy struggle, a
+ *     scene without an original world) publishes the port's vitals into
+ *     the record first (player_states_vitals_publish).
  * The bindings call this in both variants (the opening's scripted frames
  * included since chain C8b OPENING). */
 int em_player_0015BCF0(void)
@@ -514,11 +519,14 @@ int em_player_0015BCF0(void)
                                             em_examine_input_locked() ||
                                             em_opening_runtime_busy() ||
                                             em_door_menu_locked());
-    uint8_t *d810707 = em_scene_progress_at(scene, 0x00810707u, 1);
-    if (!d810707)
+    const EmPlayerLiveActor *record = player_states_actor();
+    if (!record)
         return -1;
-    *d810707 = (uint8_t)g.pd_infected;                 /* 0015CF90: D_00810707 = +0x234 */
-    if (g.status.health <= 0.0f && scene->req[EM_SCENE_REQ_B9] == 0)
-        scene->req[EM_SCENE_REQ_B9] = 1;
-    return 0;
+    if (g.pd_state == 2 || !player_states_stage_live())
+        player_states_vitals_publish();
+    const EmGlueVitals vitals = {em_scene_progress_at(scene, 0x00810706u, 1),
+                                 em_scene_progress_at(scene, 0x00810707u, 1),
+                                 (uint8_t *)&g.status.health, (uint8_t *)&g.status.infection,
+                                 &scene->req[EM_SCENE_REQ_B9]};
+    return em_glue_0015CF90(record->bytes, &vitals);
 }

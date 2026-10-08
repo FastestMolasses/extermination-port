@@ -250,7 +250,7 @@ bound.
 | Worker | Bind to | State |
 |---|---|---|
 | w001D1AE0, w001D1C10 | 001D1AE0: `em_rcl_001D1AE0` at em_frame's step B (em_frame_set_step_b, main.c; the render context, RENDER_CONTEXT.md section 8), after `em_gfx_begin_frame`; 001D1C10 (step N, the movie frame) | 001D1AE0 live since 2026-09-25; 001D1C10 has no port code (its callees 001CB5C0 / 001F0310 / 001D2830 are render work) |
-| w001B57E0 | `em_slg_001B57E0` (L34) or the current `frame_input_read` | live stand-in reads the pad via `em_pad_unpack` (001B5940, verified) |
+| w001B57E0 | `em_slg_001B57E0` (L34), which `frame_input_read` runs | live since chain step GLUE (GLUE_ORIGINAL.md): 001B57E0 / 001B5F40 over the pad block, its 001B5940 `em_pad_unpack` (verified) |
 | w001AEBE0, w001AEE70 | `em_screen_fade_tick` / `em_transition_fade_tick` + their draws | live, `test_fade_reference.py` |
 | w001AB6A0 | `em_task_dispatch` | live, unverified (census) |
 | w001FCA10 | the message-service tick | live (panel lines only, census) |

@@ -10,6 +10,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 static float clear_rgba[4] = {-1, -1, -1, -1};
 
@@ -45,10 +46,26 @@ static const EmFrameInput *step(uint16_t buttons, float lx, float ly)
     return em_frame_input();
 }
 
+/* The pad block D_00810E40..69 as libpad's negotiation leaves it (the
+ * game's is em_pad_actuator's; every capture holds these bytes): state 6,
+ * phase 4, actuator byte 1, ready 1, mode id 7. */
+static uint8_t s_pad_head[0x2A];
+static void pad_head_stable(void)
+{
+    memset(s_pad_head, 0, sizeof s_pad_head);
+    s_pad_head[0x0C] = 6; s_pad_head[0x10] = 4; s_pad_head[0x11] = 1; s_pad_head[0x12] = 1;
+    s_pad_head[0x14] = 7;
+    em_frame_set_pad_block(s_pad_head);
+}
+
 int main(void)
 {
     em_frame_init(NULL, NULL);
+    pad_head_stable();
     const EmFrameInput *in = step(0, 0.0f, 0.0f);
+    /* 001B57E0 -> 001B5F40 phase 4: +0x2A = the mode id, libpad's state 6
+     * at +0xC, then the analog read. */
+    assert(s_pad_head[0x0C] == 6 && s_pad_head[0x10] == 4);
     assert(clear_rgba[0] == 0 && clear_rgba[1] == 0 && clear_rgba[2] == 0 &&
            clear_rgba[3] == 1);
     assert(in->lx == 0x80 && in->ly == 0x80 && in->held == 0 &&

@@ -113,9 +113,10 @@ way and checks both against their captures. The side run
 
 The default run checks `first_control`, `status` and `battery` against
 their captures, and runs the whole-run checks (render context, indicator
-children, player draw gate, rand order, sway, marker colour, head sprites,
-shadow, chain page, load veil, face attachments, the opening's actors and
-its camera timeline; and
+children, player draw gate, the taken bits and vitals copies (main line
+only), rand order, sway, marker colour, head sprites, shadow, chain page,
+load veil, face attachments, the opening's actors and its camera timeline;
+and
 the stream-drive report) over its ticks. Every
 later phase, both side runs and the whole route's `--require-through last`
 run only under `make test-level-smoke-full` (or `EM_TEST_FULL=1`); run it
@@ -1477,8 +1478,10 @@ the pool's records), written after the main loop ends.
   since the area load), the spad bytes, B0..B9, the area bytes, slot 0's
   +8..+B, D_008107D8, fan r2's phase and timer, Roger's +0x00..+0x0F and
   script block (freed: none), his equipment node, the camera eye / target
-  and byte, the letterbox, the message block and the fade block; the run
-  log's one movie line is selector 1, E001.PSS;
+  and byte, the letterbox, the message block, the fade block and (since
+  chain step GLUE) 0015CF90's D_00810706 / D_00810707 (the player's +0x235
+  = 2 from f325 on, as the original's); the run log's one movie line is
+  selector 1, E001.PSS;
 - the load: the distinct states of slot 0, the slot-2 loader (+8..+B) and
   D_00275BD8 equal the capture's 18 in order; a state the capture holds
   one frame holds one tick; the others (the drive's polls, 001FB370's
@@ -1492,7 +1495,8 @@ the pool's records), written after the main loop ends.
   the equipment and fan r2 are left to the pool at f306, whose addresses
   AREA01's records reuse; the player's clock is exempt at f306: the port's
   pose attach runs in the rebuild where the original's 0015C420 runs in the
-  first stage) and from the tail: the fade block (the fade-in), the message
+  first stage; D_00810706 back to 0 at f306, 001B07C0's mask) and from the
+  tail: the fade block (the fade-in), the message
   block, D_00282157 = 1 (the music's read), D_00282160 = 0x44E (the end
   snapshot's) and the pool: every live record's +0x00..+0x17 equal to the
   capture's f306 (row 0's pool with f306's changes: 78 records) and their
@@ -1743,6 +1747,20 @@ in the record's +1F2 / +1F8 / +200 the scripts and the stage now write (the
 `stream` and `loader_pre` host timings, `sfx413` and the loop-sound track
 +31B, which follow the audio thread's track timing, differ between two runs
 of one build too).
+
+### The taken bits and the vitals copies (`check_taken_and_vitals`, chain step GLUE)
+
+Main-line runs only (no side phase, no BRANCH side run, no second game),
+over AREA11's ticks (docs/GLUE_ORIGINAL.md). The tick log's `taken0b` is
+AREA11's taken row D_00810860 + 0x0B * 32 (001B1190's bits, set by the
+pickups' PERSIST through em_area11_bindings_001B1190) and `vit706` is
+0015CF90's D_00810706 / D_00810707. The run's sequence of distinct rows is
+the route snapshots' (00..14) sequence of distinct rows as far as the run
+went: all zero, then the battery's bit from route 01 on (the whole sequence
+when the run reached `roger`). The vitals copies go through the snapshots'
+value (0, 0) and, when the run reached `exit`, the departure's (2, 0)
+(check_exit compares them row for row). A run whose battery take sets no
+bit, or a stage that stopped copying the vitals, fails.
 
 ### The render context (`check_render_context`, census L32 / L30)
 

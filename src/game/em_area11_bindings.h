@@ -87,6 +87,12 @@ int em_area11_spawn_player_equipment_0015C310(int32_t arg1);
  * head-bone sprite node linked to `owner_address` (+0x24 = owner +0x14).
  * 0 (also when the alloc is refused, as the original returns 0), or -1. */
 int em_area11_bindings_spawn_001F0120(uint32_t owner_address, uint8_t key);
+/* 001B1190(a0), the taken-bit set: em_gun_rest_001B1190 (the verified
+ * translation, test_security_gun_rest_reference) over D_00810700 and the
+ * canonical D_00810860 rows. The pickups' PERSIST event (0015AFA0's and
+ * 00219550's 001B1190(+0x9A), em_area11_interaction_host) and the gun
+ * cable's lifecycle 2 call it. 0, or -1 on a fault (reported). */
+int em_area11_bindings_001B1190(int32_t a0);
 /* Shared indicator spawn; returns the original allocation address or zero. */
 int em_area11_bindings_spawn_001C5570(EmActor *,const float color[4],uint8_t kind,int mode,
                                      uint32_t *result);

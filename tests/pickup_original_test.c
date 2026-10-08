@@ -9,8 +9,11 @@
 #include "pickup_light_test.c"
 #undef main
 
+#include "game/em_security_gun_rest.h"
+
 typedef struct {
     int status_calls, pending_status, turn_calls, camera_calls, sounds, publications, draws;
+    int persists; uint32_t persist_argument;
     uint8_t kind, index;
     uint8_t record[0x320];      /* the player record D_008102B0 */
     int commit_stage, stages;   /* the stage that committed +1F2, the stage count */
@@ -69,10 +72,31 @@ static int status(void *context, uint8_t kind, uint8_t index)
     ++host->status_calls; host->pending_status=1; host->kind=kind; host->index=index;
     return 1;
 }
+/* The host's 001B1190 (em_area11_bindings_001B1190): the one translation,
+ * em_gun_rest_001B1190, over D_00810700 and the canonical D_00810860 rows. */
+static const uint8_t *taken_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00810700u && size == 1) return &em_scene_state()->d810700;
+    return em_scene_progress_at(em_scene_state(), address, size);
+}
+static uint8_t *taken_store(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    return em_scene_progress_at(em_scene_state(), address, size);
+}
+
 static int owner_event(void *context, uint32_t source_id, EmPickupOwnerEvent event, uint32_t argument)
 {
     Host *host=context; (void)source_id;
-    if (event==EM_PICKUP_OWNER_PUBLISH) ++host->publications;
+    if (event==EM_PICKUP_OWNER_PERSIST) {
+        /* 0015AFA0's / 00219550's 001B1190(+0x9A): the owner's uid byte. */
+        const EmGunRestMem mem={NULL,taken_load,taken_store};
+        EmGunFault fault={0,0};
+        ++host->persists; host->persist_argument=argument;
+        assert(em_gun_rest_001B1190((int32_t)argument,&mem,&fault)==0);
+    }
+    else if (event==EM_PICKUP_OWNER_PUBLISH) ++host->publications;
     /* A visible owner's +0x4C (001CAA00 over its record): the host's. */
     else if (event==EM_PICKUP_OWNER_DRAW) { assert(host->draws<host->publications); ++host->draws; }
     else if (event==EM_PICKUP_OWNER_TAKE_SOUND) { assert(argument==0x194); ++host->sounds; }
@@ -87,6 +111,7 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     host.commit_stage=-1;
     EmGfx *gfx=(EmGfx *)(uintptr_t)1;
     em_pickup_reset();
+    em_scene_state()->d810700=0x0B;   /* AREA11 (the uid's area byte) */
     EmInteractionFrame frame={0}; EmInteractionRuntime interaction;
     host.frame=&frame; host.interaction=&interaction;
     EmInteractionRuntimeHooks runtime_hooks={&host,frame_event,retarget,player_record};
@@ -155,10 +180,12 @@ static void run(uint32_t callback, uint8_t subtype, uint16_t type, int short_pro
     assert(frame.selector==0 && s.p[0].used);
     assert(owner->lifecycle==(callback==0x219550?3:2));
     assert(em_pickup_taken(metadata.uid)==(callback==0x219550));
+    assert(host.persists==(callback==0x219550));
     assert(host.sounds==(callback==0x219550));
     stage(&host);
     assert(em_pickup_original_tick(229.9f,action,0,frame.ready,1)==1);
     assert(owner->freed && !s.p[0].used && em_pickup_taken(metadata.uid));
+    assert(host.persists==1 && host.persist_argument==(metadata.uid&0xFF));
     /* Every publication found the owner visible (the fixture's 001B17A0
      * answers 1), so every one was followed by its +0x4C; the legacy
      * instance never draws a bound owner. */

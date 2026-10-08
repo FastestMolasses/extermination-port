@@ -1559,7 +1559,11 @@ void em_game_install(void)
  * slot 0 with a cleared record (+8 = 0), and the chain does the rest (S12a):
  * 001AD1A0, 001AD230 (em_game_new_game_reset_001AF2C0), 001AD360 (the intro
  * movie at step 1, AREA11 0x0B/0/0 at step 4), 001ADF50 (the area read) and
- * the state-0 rebuild. */
+ * the state-0 rebuild. From the title (the frontend's NEW_GAME event, inside
+ * the slot-0 title task's dispatch) 001AB790 is em_task_replace_current, the
+ * one translation (test_startup_load_gaps_reference); EM_NEW_GAME=1, which
+ * runs no title task, registers the game task in slot 0 instead (the same
+ * record: 001AB740 and 001AB790 clear the same four words). */
 void em_game_install_new(void)
 {
     game_install_state();
@@ -1568,7 +1572,10 @@ void em_game_install_new(void)
     em_opening_control_test_begin();
     em_level_smoke_test_begin();
     em_scene_state()->d275BE0 = 0;
-    (void)em_task_register(0, em_scene_task_001ACEC0);
+    if (em_task_current())
+        (void)em_task_replace_current(em_scene_task_001ACEC0);
+    else
+        (void)em_task_register(0, em_scene_task_001ACEC0);
 }
 
 void em_game_shutdown(void)

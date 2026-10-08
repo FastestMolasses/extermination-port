@@ -55,7 +55,7 @@ def build():
     OUT.mkdir(parents=True, exist_ok=True)
     lib = OUT / ('frame_audit.dylib' if sys.platform == 'darwin' else 'frame_audit.so')
     r = subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-Wpedantic',
-                        '-shared', '-fPIC', '-Isrc', 'src/game/em_frame.c',
+                        '-shared', '-fPIC', '-Isrc', 'src/game/em_frame.c', 'src/game/em_startup_load_gaps.c',
                         'tests/main_loop_and_gap_frame_audit_test.c', '-o', str(lib)],
                        cwd=ROOT, capture_output=True, text=True)
     if r.returncode != 0:

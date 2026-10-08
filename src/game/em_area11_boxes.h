@@ -60,6 +60,8 @@
 
 #include <stdint.h>
 
+#include "game/em_startup_load_gaps.h"
+
 #include "em_gfx.h"
 #include "game/em_actor_pool.h"
 #include "game/em_owner_draw_original.h"
@@ -118,9 +120,17 @@ int em_area11_boxes_truck_state(uint32_t *record, uint8_t header[16], float posi
  * piece spawns 32 (TRUCK_ORIGINAL.md). */
 unsigned em_area11_boxes_effect_spawns(void);
 
-/* 001AF710 (the bone-slot stack at every area build) and every node's
- * state dropped: called with the pool reset (001AFCA0). */
+/* Every node's state dropped and 001AF710 (the bone-slot stack) run: a
+ * host that never ran the area build (the fixtures, a first use). */
 void em_area11_boxes_reset(void);
+/* The same without 001AF710: the area build's, after 001AFCA0 has run
+ * 001AF710 itself over em_area11_boxes_bone_stack (em_area11_bindings_reset
+ * at 001AFCA0's 001AF8E0). */
+void em_area11_boxes_area_reset(void);
+/* The bone-slot stack 001AF710 initialises (the D_007D5840 records, the
+ * D_007D4640 address words, D_00275BD0 / D_00275BCC): its one storage, for
+ * 001AFCA0's binding (em_scene_bindings.c w_001AFCA0). */
+EmSlgBoneSlots *em_area11_boxes_bone_stack(void);
 /* The scratchpad word 0x700031F0 (its one storage): the truck's carry sets
  * it, 0015BCF0 clears it, 0018B9C0 reads its low byte. */
 int32_t *em_area11_boxes_carry31F0(void);

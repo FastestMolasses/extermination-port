@@ -150,15 +150,14 @@ static void item_store_half(uint32_t address, int16_t value)
     }
 }
 
-/* func_001B11E0 — the taken-bit test. The engine's argument is the
- * one-byte PUID and BOTH the test (func_001B11E0) and the set
- * (func_001B1190, byte-matched: `v1 = a0 & 0xff; if (v1 == 0) return;`)
- * bail out when that byte is zero. The port's flat uid is
- * (area << 8) | puid, so the guard is on the LOW BYTE — a puid-0 record
- * in a non-zero area (uid 0x0100, 0x0B00, ...) must not persist either.
- * (Was `uid <= 0`, which persisted exactly those and permanently
- * despawned an item the engine re-spawns on every area re-entry.) */
-/* The taken bits are the canonical D_00810860 bytes of the D2 progress
+/* func_001B11E0 — the taken-bit test (this module's reader of the bits;
+ * the set, 001B1190, is the host's: the owner's PERSIST event goes through
+ * the hooks to em_area11_bindings_001B1190 since chain step GLUE). The
+ * engine's argument is the one-byte PUID and the test bails out when that
+ * byte is zero. The port's flat uid is (area << 8) | puid, so the guard is
+ * on the LOW BYTE — a puid-0 record in a non-zero area (uid 0x0100,
+ * 0x0B00, ...) is never taken.
+ * The taken bits are the canonical D_00810860 bytes of the D2 progress
  * region (em_scene_state.h; migrated from this module's former flat
  * taken[2048] mirror in S10b, same bit numbering). D_00810860 is u32[8] per
  * area: the bit of puid in area a is bit (puid & 31) of the word at
@@ -166,7 +165,7 @@ static void item_store_half(uint32_t address, int16_t value)
  * EE's little-endian bytes is bit (u & 7) of byte D_00810860 + (u >> 3) for
  * the flat u = (a << 8) | puid. Areas past 0x16 would address D_00810B40..,
  * which the original never does for a pickup; such a uid is reported and
- * treated as never taken (no persistence), never silently aliased. */
+ * treated as never taken, never silently aliased. */
 static uint8_t *taken_byte(unsigned u)
 {
     uint32_t address = 0x00810860u + (u >> 3);
@@ -181,12 +180,6 @@ static uint8_t *taken_byte(unsigned u)
         }
     }
     return byte;
-}
-
-static void taken_set(unsigned u)
-{
-    uint8_t *byte = taken_byte(u);
-    if (byte) *byte = (uint8_t)(*byte | (1u << (u & 7)));
 }
 
 static int taken_bit(int uid)
@@ -577,12 +570,6 @@ static int original_event(void *context, EmPickupOwnerEvent event, uint32_t argu
 {
     Pickup *p = context;
     switch (event) {
-    case EM_PICKUP_OWNER_PERSIST:
-        if (argument) {
-            unsigned uid = (unsigned)p->uid & 0xFFFF;
-            taken_set(uid);
-        }
-        return 1;
     case EM_PICKUP_OWNER_FREE:
         p->used = 0;
         p->original_visible = 0;

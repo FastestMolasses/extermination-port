@@ -32,6 +32,8 @@
 #include "game/em_pickup_motion.h"
 #include "game/em_random.h"
 #include "game/em_scene_bindings.h"
+#include "game/em_security_gun_rest.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdio.h>
@@ -250,6 +252,28 @@ int em_scene_bindings_001FAE70(int a0) { assert(a0 == 1); ++resumes; return 0; }
  * (00159210 case 2 skips both stores when +0x20 == 0). */
 static int panel_child_slot = 1;
 int em_area11_bindings_panel_child_stop(void) { ++indicators; return panel_child_slot; }
+/* 001B1190 (em_area11_bindings_001B1190 in the game, not linked here): the
+ * same one translation, em_gun_rest_001B1190, over D_00810700 and the
+ * canonical D_00810860 rows of this fixture's scene. */
+static int persists;
+static const uint8_t *taken_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00810700u && size == 1) return &em_scene_state()->d810700;
+    return em_scene_progress_at(em_scene_state(), address, size);
+}
+static uint8_t *taken_store(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    return em_scene_progress_at(em_scene_state(), address, size);
+}
+int em_area11_bindings_001B1190(int32_t a0)
+{
+    const EmGunRestMem mem = {NULL, taken_load, taken_store};
+    EmGunFault fault = {0, 0};
+    ++persists;
+    return em_gun_rest_001B1190(a0, &mem, &fault);
+}
 EmGfxMesh *em_gfx_mesh_create(EmGfx *gfx, const float *verts, uint32_t vertices,
     const uint32_t *indices, uint32_t count, const EmGfxTexDesc *textures,
     uint32_t texture_count, const uint8_t *texels, uint32_t flags)
@@ -931,6 +955,8 @@ static void first_battery(void)
     assert(em_interaction_runtime_claim(shared, owner));
     em_area11_interaction_host_camera_fields(); /* the claim's 3B8D = 3 */
     owner->armed = 4;
+    const int persisted = persists;
+    assert(!em_pickup_taken(record->uid));
     unsigned previous_requests = status_requests, ticks = 0;
     while (status_requests == previous_requests) {
         /* B8FC0/sub8 settles only the actual target, unlike elevator sub0:
@@ -970,6 +996,8 @@ static void first_battery(void)
     assert(isfinite(rcl_float(0x2460)));   /* 001DD950's +0x2460 */
     do { assert(!outer(0)); assert(++ticks < 520); } while (shared->owner);
     assert(!player_pose_owned() && owner->lifecycle == 3 && !powered());
+    /* 00219550's 001B1190(+0x9A) at the take's end: the battery's taken bit. */
+    assert(persists == persisted + 1 && em_pickup_taken(record->uid));
     printf("AREA11 native host first battery: %u callbacks, status release70 PASS\n", ticks);
     teardown();
 }

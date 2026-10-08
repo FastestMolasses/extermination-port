@@ -1579,6 +1579,53 @@ PLAYER_STAGE_WORKERS.md 2.1, census 1.63):**
   battery and takes through the real 0015B130 / 00183090 / 0015B530
   composition with its earlier callback counts unchanged.
 
+**Status update (2026-10-08, chain step GLUE, audit 1b items 10, 11 and
+12; FIRST_LEVEL_CENSUS.md 1.64, GLUE_ORIGINAL.md):**
+- **The pad read is the original's.** Main-loop step C runs 001B57E0 with
+  001B5F40 (em_slg_001B57E0) over the pad block D_00810E40..7B, whose bytes
+  have one storage each (em_pad_actuator's block, the EmPadUnpack fields,
+  em_frame's +0x2A..+0x2F); 001B5F40's read calls 001B5940 (em_pad_unpack)
+  on the native pad's libpad buffer, which the keyboard, the controller
+  mapping (em_input_stick_from_round_gate) and the headless guard fill as
+  before. libpad is the platform boundary: scePadGetState answers 6, and
+  the negotiation (phases 0..2) faults if reached (the block starts in
+  phase 4, as every capture holds it). D_00810E50 is the block's phase byte.
+- **The state-0 re-arm is 001AFCA0's translation.** w_001AFCA0 runs
+  em_slg_001AFCA0: 001AF5C0, 001AF690, 001AF710 (the one bone-slot stack),
+  001AF8E0 and 001D0660 as workers, then spad 31F4 = 0. The port's area
+  binds run inside the worker positions in their former order (between
+  001AF690 and the pool reset: the spawn values, the stage, render context
+  and camera binds; with 001D0660: the effect binders and AREA01's
+  001E7780); 001AF710 moved out of em_area11_bindings_reset.
+- **The New Game handoff** (001AC070 state 4) replaces the title task with
+  001ACEC0 through 001AB790 (em_task_replace_current), as after a death.
+- **Item 12:** 0015CF90 is em_glue_0015CF90 over the player record (all
+  five stores, the EE compare; D_00810706 is canonical progress now, and
+  001B07C0 stores its mask back); 001B1190 is the verified
+  em_gun_rest_001B1190 for the pickups too (the PERSIST event goes to the
+  host's em_area11_bindings_001B1190; em_pickup's taken_set is deleted);
+  001FC280 is em_glue_001FC280 with an oracle (test_glue_reference.py).
+  The signed-shift note of item 11 (001FC280's loop id) is the
+  translation's int16_t read; its oracle covers the 0xFFFF high half.
+- **Item 10** was done in chain step AIMCAP (below).
+- **Not bound** (each census row says why): 001AB4E0 (nothing reads the
+  display environments; the GS frame presents its own field), 001AC070
+  (em_startup's flow is its machine; binding em_slg_001AC070 needs the
+  title's sub-machines as workers and the title frames' render calls),
+  008237C0 (no reader in AREA11; AREA01's 001E7780 clears its globals),
+  00199C50 (the walkers read the EMCL export's grid views), 001D19E0
+  (RENDER_CONTEXT.md 8.4).
+- **Evidence.** The level smoke's new check_taken_and_vitals (AREA11's
+  taken row through the route snapshots' values in order: the battery's bit
+  from route 01 on; D_00810706 / 707) and D_00810706 / 707 in check_exit's
+  rows (the original's +0x235 = 2 from exit_00 f325 and back to 0 at the
+  arrival's 001B07C0, row for row). The full main line through the AREA01
+  arrival gives the previous build's tick log apart from the host-timed
+  stream, loader and flame-loop fields. The oracles: test_startup_load_gaps
+  (001B57E0 / 001B5F40, 001AFCA0, 001AB790), test_census_unverified
+  (0015CF90, 001B1190; both pinned divergences gone), test_glue (001FC280).
+  newgame-control 9.599849.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1866,26 +1913,23 @@ is the stream request's wait, not the timeline (item 6).
     list there is not the original's history (the cause is not traced).
     Nothing drawn differs.
 11. **Logic: startup, input and frame glue that is still the port's own.**
-    (Found 2026-10-01 under UBSan: em_scene_bindings.c's 001FC280 loop-id
-    read sign-extended with a signed left shift; it goes through int16_t
-    since chain step EXIT.)
-    All verified-unbound; the captures prove only their observable results:
-    the pad read 001B57E0 / 001B5F40 (em_frame's frame_input_read; 001B5940's
-    block is live), the area build's re-arm 001AF690 / 001AFCA0
-    (w_001AFCA0; its 001AF5C0 is original), the overlay init 008237C0 (the
-    roster spawn), the task installs 001AC070 / 001AB790, 001AB4E0, camera
-    state 0's 00199C50 (a reported no-effect binding) and the render init
-    rows 001D19D0 / 001D19E0.
+    **Done in chain step GLUE (2026-10-08, status update above)** where the
+    original runs on the route: the pad read 001B57E0 / 001B5F40 at step C,
+    the state-0 re-arm 001AFCA0 (with 001AF690) and the New Game's 001AB790.
+    Left, each with its reason in the census row: 001AB4E0, 001AC070,
+    008237C0, 00199C50 and 001D19E0 (see the update); 001AB590 is a
+    hardware boundary. (Found 2026-10-01 under UBSan: em_scene_bindings.c's
+    001FC280 loop-id read sign-extended with a signed left shift; it goes
+    through int16_t since chain step EXIT, now in em_glue_001FC280.)
 12. **Logic: the three unverified rows,** each needing an oracle that
-    executes it: 0015CF90 (the D_00810707 / B9 progress bytes), 001B1190
-    (the pickups' persistence event; the gun cable's copy is verified) and,
-    since chain step BRANCHES (FIRST_LEVEL_CENSUS.md 1.60), 001CB480, the
+    executes it. **0015CF90 and 001B1190 done in chain step GLUE**
+    (2026-10-08, status update above; 001FC280 has its oracle too). Left:
+    001CB480 (since chain step BRANCHES, FIRST_LEVEL_CENSUS.md 1.60), the
     MAP page's kind-7 draw: the live draw is em_status_models'
     draw_001CB480 (renderer level: the light through the verified
     001D8C20(2) / 001D89D0, the node palette on the skinned path), while
     em_area01_side_001CB480, the oracle-tested translation of its calls,
-    is not bound; one owner is left to do. 001FC280 is live since chain step
-    EXIT (FIRST_LEVEL_CENSUS.md 1.58).
+    is not bound; one owner is left to do.
 
 **C. Off the recorded route, but reachable by a player in AREA11**
 

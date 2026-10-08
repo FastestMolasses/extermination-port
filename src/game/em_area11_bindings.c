@@ -619,16 +619,21 @@ static uint8_t *cable_store(void *ctx, uint32_t address, uint32_t size)
     return em_scene_progress_at(s_scene, address, size);
 }
 
-static int cable_001B1190(void *ctx, uint8_t id)
+int em_area11_bindings_001B1190(int32_t a0)
 {
-    (void)ctx;
     const EmGunRestMem mem = {NULL, cable_load, cable_store};
     EmGunFault f = {0, 0};
-    if (em_gun_rest_001B1190(id, &mem, &f) < 0) {
-        fprintf(stderr, "em_area11: 001B1190 faulted at %08X\n", (unsigned)f.address);
+    if (!s_scene || em_gun_rest_001B1190(a0, &mem, &f) < 0) {
+        fprintf(stderr, "em_area11: 001B1190 faulted at %08X\n", s_scene ? (unsigned)f.address : 0x001B1190u);
         return -1;
     }
     return 0;
+}
+
+static int cable_001B1190(void *ctx, uint8_t id)
+{
+    (void)ctx;
+    return em_area11_bindings_001B1190(id);
 }
 
 /* Publish the cable's earlier stores before the effect allocator can observe
@@ -2289,7 +2294,7 @@ void em_area11_bindings_reset(void)
 {
     memset(s_nodes, 0, sizeof s_nodes);
     s_panel_child = NULL;
-    em_area11_boxes_reset(); /* 001AFCA0's 001AF710 and the boxes' state */
+    em_area11_boxes_area_reset(); /* the boxes' state (001AFCA0 ran its 001AF710 already) */
     em_area11_roger_reset();
     em_area11_door_reset(s_pool, s_scene);
     /* The overlay scripts are mutated in place: fresh images per visit. */

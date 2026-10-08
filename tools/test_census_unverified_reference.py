@@ -19,11 +19,13 @@ The port code is used as it is, never edited:
     (001C5680 / 001C5760) run em_indicator_child.c and the one 001F54E0
     translation (em_effect_kinds.c) as they are linked into the game, with
     the spawn colours read from em_area11_bindings.c.
-  * One piece of live code sits inside a large function that cannot run in
-    isolation: the 0015CF90 lines of em_player_0015BCF0 (em_player_frame.c).
-    The harness copies those exact source lines (located by their text; the
-    test fails when the text moves) into a function and compiles them
-    against the real headers. 0015AC00 runs its one translation,
+  * 0015CF90 runs its one translation, em_glue_0015CF90 (em_glue_original.c,
+    which em_player_0015BCF0 calls over the player record since chain step
+    GLUE). 001B1190 runs its one translation, em_gun_rest_001B1190
+    (em_security_gun_rest.c), over the views em_area11_bindings_001B1190
+    gives it (D_00810700 and the canonical D_00810860 rows), and the pickup
+    harness checks that em_pickup.c hands the owner's PERSIST event, its
+    argument unchanged, to the host (which calls that binding). 0015AC00 runs its one translation,
     em_pickup_owner_0015AC00 (em_pickup_owner.c, which the live
     em_area11_interaction_host_pickup_state0 calls since the owners step;
     tools/test_pickup_owner_reference.py executes it call for call).
@@ -67,10 +69,6 @@ F1, F15, F2, F4 = 0x3F800000, 0x3FC00000, 0x40000000, 0x40800000
 EXPECTED = {
     '0015AC00/scale-219550': 'em_pickup_add applies the 0015AC00 scale to 00219550 items too; 00219550 '
                              'state 0 never writes +0x60 (latent: every AREA11 00219550 item is model 0x72)',
-    '0015CF90/c.le-daz': 'health <= 0 is a native compare; the EE compare reads a positive denormal as 0 '
-                         'and a negative NaN pattern as a large negative number',
-    '001B1190/area>0x16': 'taken_byte refuses areas past 0x16; the original writes D_00810860 + area*32 '
-                          'for any D_00810700 (latent: not reachable in the first level)',
     # The live binding's indicator workers (em_area11_bindings.c) are the
     # translations since the status UI step (2026-09-26): the bind is
     # em_rvr_001C2360 / em_rvr_001C22A0 and the placement
@@ -206,10 +204,44 @@ int h_progress_get(uint32_t a) { uint8_t *p = em_scene_progress_at(&h_scene, a, 
 int h_progress_set(uint32_t a, uint8_t v)
 { uint8_t *p = em_scene_progress_at(&h_scene, a, 1); if (!p) return -1; *p = v; return 0; }
 float h_scale(const char *file) { return pickup_model_scale(file); }
-int h_persist(int uid, uint32_t argument)
+static uint32_t h_event_seen[3];
+static int h_event(void *c, uint32_t source, EmPickupOwnerEvent event, uint32_t argument)
+{ (void)c; h_event_seen[0] = source; h_event_seen[1] = (uint32_t)event; h_event_seen[2] = argument; return 1; }
+/* The owner's PERSIST: em_pickup.c hands it to the host's event hook. */
+int h_persist(int uid, uint32_t argument, uint32_t *seen)
 {
     memset(&s, 0, sizeof s); s.n = 1; s.p[0].used = 1; s.p[0].uid = uid; s.p[0].model = -1;
-    return original_event(&s.p[0], EM_PICKUP_OWNER_PERSIST, argument);
+    s.p[0].source_id = 0x828180; s.p[0].original_hooks.event = h_event;
+    memset(h_event_seen, 0xFF, sizeof h_event_seen);
+    int rc = original_event(&s.p[0], EM_PICKUP_OWNER_PERSIST, argument);
+    memcpy(seen, h_event_seen, sizeof h_event_seen);
+    return rc;
+}
+'''
+
+# 001B1190: em_gun_rest_001B1190 over em_area11_bindings_001B1190's views.
+TAKEN_HARNESS = r'''
+#include <string.h>
+#include "game/em_scene_state.h"
+#include "game/em_security_gun_rest.h"
+static EmSceneState h_scene;
+static const uint8_t *h_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    if (address == 0x00810700u && size == 1) return &h_scene.d810700;
+    return em_scene_progress_at(&h_scene, address, size);
+}
+static uint8_t *h_store(void *ctx, uint32_t address, uint32_t size)
+{ (void)ctx; return em_scene_progress_at(&h_scene, address, size); }
+void h_taken_reset(uint8_t area) { memset(&h_scene, 0, sizeof h_scene); h_scene.d810700 = area; }
+int h_taken_get(uint32_t a) { uint8_t *p = em_scene_progress_at(&h_scene, a, 1); return p ? *p : -1; }
+int h_taken_set(uint32_t a, uint8_t v)
+{ uint8_t *p = em_scene_progress_at(&h_scene, a, 1); if (!p) return -1; *p = v; return 0; }
+int h_1b1190(int32_t a0)
+{
+    const EmGunRestMem mem = {NULL, h_load, h_store};
+    EmGunFault f = {0, 0};
+    return em_gun_rest_001B1190(a0, &mem, &f);
 }
 '''
 
@@ -254,21 +286,16 @@ int h_configure(const uint32_t *before, uint32_t *after, int *configured)
 '''
 
 
-def frame_harness():
-    block = extract('game/em_player_frame.c',
-                    r'\n(    uint8_t \*d810707 = em_scene_progress_at\(scene, 0x00810707u, 1\);\n'
-                    r'.*?        scene->req\[EM_SCENE_REQ_B9\] = 1;\n)', '0015CF90 lines')
-    # em_ee_float.h too, so the block still compiles once it uses em_ee_c_le.
-    return ('#include <string.h>\n#include "game/em_game_internal.h"\n#include "game/em_scene_state.h"\n'
-            '#include "game/em_ee_float.h"\n'
-            'EmGameState g;\nstatic EmSceneState h_scene;\n'
-            'static int h_block(EmSceneState *scene)\n{\n' + block + '    return 0;\n}\n'
-            'int h_cf90(int infected, uint32_t health, uint8_t b9, uint8_t init707, uint8_t *o707, uint8_t *ob9)\n'
-            '{\n    memset(&h_scene, 0, sizeof h_scene);\n    g.pd_infected = infected;\n'
-            '    memcpy(&g.status.health, &health, 4);\n    h_scene.req[EM_SCENE_REQ_B9] = b9;\n'
-            '    uint8_t *p = em_scene_progress_at(&h_scene, 0x00810707u, 1);\n    if (p) *p = init707;\n'
-            '    int rc = h_block(&h_scene);\n    *o707 = p ? *p : 0;\n'
-            '    *ob9 = h_scene.req[EM_SCENE_REQ_B9];\n    return rc;\n}\n')
+# 0015CF90: em_glue_0015CF90 over a record image and the five views.
+FRAME_HARNESS = r'''
+#include <string.h>
+#include "game/em_glue_original.h"
+int h_cf90(const uint8_t *record, uint8_t *out /* 706, 707, 858[4], 85C[4], B9 */)
+{
+    const EmGlueVitals v = {out, out + 1, out + 2, out + 6, out + 10};
+    return em_glue_0015CF90(record, &v);
+}
+'''
 
 
 # 0015AC00: the live translation (em_pickup_owner_0015AC00) over a record
@@ -306,7 +333,8 @@ def compile_all():
         'models': (MODELS_HARNESS, [str(SRC / ('game/' + name)) for name in
                    ('em_owner_services_original.c', 'em_area01_math_core.c',
                     'em_area01_math_actor.c', 'em_pose_host_workers.c')]),
-        'frame': (frame_harness(), []),
+        'frame': (FRAME_HARNESS, [str(SRC / 'game/em_glue_original.c')]),
+        'taken': (TAKEN_HARNESS, [str(SRC / 'game/em_security_gun_rest.c'), str(SRC / 'game/em_security_gun.c')]),
         'host': (HOST_HARNESS, [str(SRC / 'game/em_pickup_owner.c')]),
     }
     libs, system = {}, C.CDLL(None)
@@ -338,15 +366,18 @@ def compile_all():
     F4A = C.c_float * 4
     L['pickup'].h_scale.restype = C.c_float
     L['pickup'].h_scale.argtypes = [C.c_char_p]
-    L['pickup'].h_persist.argtypes = [C.c_int, C.c_uint32]
+    L['pickup'].h_persist.argtypes = [C.c_int, C.c_uint32, C.POINTER(C.c_uint32)]
+    L['taken'].h_taken_reset.argtypes = [C.c_uint8]
+    L['taken'].h_taken_get.argtypes = [C.c_uint32]
+    L['taken'].h_taken_set.argtypes = [C.c_uint32, C.c_uint8]
+    L['taken'].h_1b1190.argtypes = [C.c_int32]
     L['pickup'].h_progress_get.argtypes = [C.c_uint32]
     L['pickup'].h_progress_set.argtypes = [C.c_uint32, C.c_uint8]
     L['pickup'].h_rand_script.argtypes = [C.POINTER(C.c_uint32), C.c_int]
     L['child'].h_step.argtypes = [C.c_uint32, C.POINTER(C.c_uint8), C.c_uint8, F4A, F4A, C.c_int, C.c_char_p, F4A]
     L['child'].h_tail.argtypes = [C.c_int16, F4A, C.POINTER(C.c_uint32)]
     L['models'].h_configure.argtypes = [C.POINTER(C.c_uint32), C.POINTER(C.c_uint32), C.POINTER(C.c_int)]
-    L['frame'].h_cf90.argtypes = [C.c_int, C.c_uint32, C.c_uint8, C.c_uint8,
-                                  C.POINTER(C.c_uint8), C.POINTER(C.c_uint8)]
+    L['frame'].h_cf90.argtypes = [C.c_char_p, C.POINTER(C.c_uint8)]
     L['host'].h_state0.argtypes = [C.c_uint8, C.c_uint8, C.c_int, C.POINTER(C.c_float), C.POINTER(C.c_int),
                                    C.POINTER(C.c_int)]
     return L
@@ -503,73 +534,71 @@ HEALTH = (0x42C80000, 0x3F800000, 0x00800000, 0x00000001, 0x007FFFFF, 0x00000000
 def run_15cf90(o, player):
     o.written.clear()
     o.call(0x15CF90, (player,))
-    return o.load(0x810707, 1), o.load(0x8106B9, 1), o.written_ranges()
+    out = bytes([o.load(0x810706, 1), o.load(0x810707, 1)]) + o.read(0x810858, 8) + bytes([o.load(0x8106B9, 1)])
+    return out, o.written_ranges()
 
 
-def native_cf90(L, infected, health, b9):
-    o707, ob9 = C.c_uint8(), C.c_uint8()
-    rc = L['frame'].h_cf90(infected, health, b9, 0xEE, C.byref(o707), C.byref(ob9))
-    assert rc == 0, 'em_scene_progress_at refused D_00810707'
-    return o707.value, ob9.value
-
-
-DAZ_LE = {0x00000001, 0x007FFFFF, 0xFFC00000}   # health patterns where c.le differs from native <=
+def native_cf90(L, record, before):
+    """em_glue_0015CF90 over the record bytes; `before` = the five views'
+    bytes before the call (706, 707, 858[4], 85C[4], B9)."""
+    out = (C.c_uint8 * 11)(*before)
+    rc = L['frame'].h_cf90(bytes(record), out)
+    assert rc == 0, 'em_glue_0015CF90 refused its views'
+    return bytes(out)
 
 
 def part_15cf90(elf, L):
     res = Result('0015CF90')
     ranges_seen = set()
     cases = [(h, inf, b9) for h in HEALTH for inf in (0, 1, 0x7F, 0x80, 0xFF) for b9 in (0, 1, 2, 0xFF)]
-    # Quick mode keeps every compare boundary: the three c.le patterns and
-    # +/-0.0 and -1.0 under every latch value (a wrong compare or a dropped
-    # latch check shows there), plus a covering sample of the rest.
-    boundary = DAZ_LE | {0x00000000, 0x80000000, 0xBF800000, 0x00800000}
+    # Quick mode keeps every compare boundary: the denormal and NaN patterns
+    # (the EE compare reads a denormal as zero), +/-0.0 and -1.0 under every
+    # latch value, plus a covering sample of the rest.
+    boundary = {0x00000001, 0x007FFFFF, 0xFFC00000, 0x00000000, 0x80000000, 0xBF800000, 0x00800000}
     selected = RM.select(cases, 120, 0xCF90, axes=(lambda c: c[0], lambda c: c[1], lambda c: c[2]),
                          keep=lambda i, c: c[0] in boundary and c[1] in (0, 0xFF))
-    expected_diverging = {(h, b9) for h, _, b9 in selected if h in DAZ_LE and b9 == 0}
-    diverging = set()
     for health, infected, b9 in selected:
         o = Oracle(elf)
         o.save(PLAYER + 0x220, health)
-        o.save(PLAYER + 0x228, 0x41200000)
+        o.save(PLAYER + 0x228, 0x41200000 ^ health)
         o.save(PLAYER + 0x234, infected, 1)
-        o.save(PLAYER + 0x235, 0x5A, 1)
+        o.save(PLAYER + 0x235, infected ^ 0x5A, 1)
+        before = bytes([0xEE, 0xEE]) + bytes(8) + bytes([b9])
+        o.save(0x810706, 0xEEEE, 2)
+        o.save(0x810858, 0)
+        o.save(0x81085C, 0)
         o.save(0x8106B9, b9, 1)
-        o.save(0x810707, 0xEE, 1)
-        e707, eb9, ranges = run_15cf90(o, PLAYER)
+        record = o.read(PLAYER, 0x320)
+        want, ranges = run_15cf90(o, PLAYER)
         ranges_seen.add(tuple(ranges))
-        n707, nb9 = native_cf90(L, infected, health, b9)
-        if (n707, nb9) == (e707, eb9):
-            res.ok('D_00810707 and D_008106B9 (synthetic health/latch/infected)')
-            continue
-        diverging.add((health, b9))
-        detail = dict(health=hex(health), infected=infected, b9=b9, native=(n707, nb9), original=(e707, eb9))
-        if health in DAZ_LE and b9 == 0 and eb9 == 1 and nb9 == 0 and n707 == e707:
-            res.diverge('0015CF90/c.le-daz', detail)
+        got = native_cf90(L, record, before)
+        if got == want:
+            res.ok('D_00810706/707, D_00810858/85C and D_008106B9 (synthetic health/latch/infected)')
         else:
-            res.diverge('0015CF90/synthetic', detail)
-    # The pinned key covers exactly the three c.le patterns with the latch clear.
-    if diverging == expected_diverging:
-        res.ok('the diverging (health, B9) set is exactly {1, 0x7FFFFF, 0xFFC00000} x {B9 = 0}')
-    elif diverging:     # (none at all = the em_ee_c_le fix landed: the pinned key reports as gone)
-        res.diverge('0015CF90/synthetic', dict(diverging=sorted((hex(h), b) for h, b in diverging),
-                                               expected=sorted((hex(h), b) for h, b in expected_diverging)))
+            res.diverge('0015CF90/synthetic', dict(health=hex(health), infected=infected, b9=b9,
+                                                   native=got.hex(), original=want.hex()))
     for beat in beats():
         ram, spad = beat_image(beat)
         o = Oracle(elf, ram, spad)
         player = 0x8102B0        # the player record (em_player_frame.c: 0015BCF0's a0)
-        infected, health, b9 = ram[player + 0x234], w32(ram, player + 0x220), ram[0x8106B9]
         # The previous frame's 0015CF90 left its copies: the capture is consistent.
-        assert (ram[0x810707], w32(ram, 0x810858)) == (infected, health), beat.name
-        e707, eb9, ranges = run_15cf90(o, player)
+        assert (ram[0x810706], ram[0x810707], w32(ram, 0x810858), w32(ram, 0x81085C)) == \
+            (ram[player + 0x235], ram[player + 0x234], w32(ram, player + 0x220), w32(ram, player + 0x228)), beat.name
+        before = bytes([ram[0x810706], ram[0x810707]]) + ram[0x810858:0x810860] + bytes([ram[0x8106B9]])
+        record = ram[player:player + 0x320]
+        want, ranges = run_15cf90(o, player)
         ranges_seen.add(tuple(ranges))
-        if native_cf90(L, infected, health, b9) == (e707, eb9):
-            res.ok('capture: D_00810707/D_008106B9 over the player of beats 00..14')
+        if native_cf90(L, record, before) == want:
+            res.ok('capture: the five stores over the player of beats 00..14')
         else:
             res.diverge('0015CF90/capture', beat.name)
     stores = sorted({r for rs in ranges_seen for r in rs})
     assert stores in ([(0x810706, 2), (0x810858, 8)], [(0x8106B9, 1), (0x810706, 2), (0x810858, 8)]), stores
     res.ok('original stores exactly D_00810706/707, D_00810858/85C and (conditionally) D_008106B9')
+    # Fail-stop: a missing view returns -1 and writes nothing.
+    out = (C.c_uint8 * 11)(*range(11))
+    assert L['frame'].h_cf90(None, out) == -1 and bytes(out) == bytes(range(11))
+    res.ok('fail-stop without the record')
     return res
 
 
@@ -589,56 +618,63 @@ def run_1b1190(elf, area, a0, before=None):
 
 def part_1b1190(elf, L):
     res = Result('001B1190')
-    P = L['pickup']
+    T, P = L['taken'], L['pickup']
     areas = (0x00, 0x01, 0x0B, 0x16, 0x17, 0x80, 0xFF)
     puids = RM.select(range(256), 48, 0x1190, keep=lambda i, u: u in (0, 1, 7, 8, 31, 32, 33, 0x9A, 0xFF))
     for area in areas:
         for puid in puids:
-            written, o = run_1b1190(elf, area, puid)
-            P.h_scene_reset()
-            assert P.h_persist(area << 8 | puid, puid) == 1
-            native = {a: P.h_progress_get(a) for a in range(0x810860, 0x810B40)}
-            native_set = {a: v for a, v in native.items() if v}
-            if area > 0x16:
-                # 0x810860 + area*32 lies past the canonical taken bits.
-                assert not native_set
-                if written:
-                    res.diverge('001B1190/area>0x16', dict(area=hex(area), puid=puid,
-                                                           original=sorted(hex(a) for a in written)))
-                continue
-            orig_set = {a: v for a, v in written.items() if v}
-            if native_set == orig_set:
-                res.ok('taken bit (area 0..0x16 x puid, incl. puid 0 = no write)')
-            else:
-                res.diverge('001B1190/bits', dict(area=area, puid=puid, native=native_set, original=orig_set))
+            for a0 in (puid, puid | 0x0B00):          # the byte, or a word whose high bits the original ignores
+                written, o = run_1b1190(elf, area, a0)
+                T.h_taken_reset(area)
+                rc = T.h_1b1190(a0)
+                orig_set = {a: v for a, v in written.items() if v}
+                word = 0x810860 + area * 32 + (puid >> 5) * 4
+                if puid and word + 4 > 0x810B60:
+                    # Past the canonical rows (the taken bits, then the
+                    # first-visit bits D_00810B40..5F, which area 0x17's row
+                    # is in the original too): the binding faults (fail-stop)
+                    # where the original would write; no first-level area
+                    # reaches it.
+                    assert orig_set and rc == -1, (area, a0)
+                    res.ok('fail-stop: a row past D_00810B5F (areas from 0x18; unreachable in the first level)')
+                    continue
+                assert rc == 0, (area, a0)
+                native_set = {a: v for a in range(0x810860, 0x810B60) if (v := T.h_taken_get(a))}
+                if native_set == orig_set:
+                    res.ok('taken bit (areas 0..0x17 x puid, incl. puid 0 = no write)')
+                else:
+                    res.diverge('001B1190/bits', dict(area=area, a0=hex(a0), native=native_set, original=orig_set))
     # A second persist over existing bits (read-modify-write keeps the others).
     written, o = run_1b1190(elf, 0x0B, 0x21, {0x8109C4: 0x81})
-    P.h_scene_reset(); P.h_progress_set(0x8109C4, 0x81); P.h_persist(0x0B21, 0x21)
-    assert P.h_progress_get(0x8109C4) == o.load(0x8109C4, 1) == 0x83
+    T.h_taken_reset(0x0B); T.h_taken_set(0x8109C4, 0x81); T.h_1b1190(0x21)
+    assert T.h_taken_get(0x8109C4) == o.load(0x8109C4, 1) == 0x83
     res.ok('read-modify-write keeps the other bits')
-    # Capture: beat 00 -> 01 is the battery take (uid 1); the port's PERSIST
-    # over beat 00's bits must give beat 01's bits, like the original does.
+    # Capture: beat 00 -> 01 is the battery take (uid 1); 001B1190(1) over
+    # beat 00's bits must give beat 01's bits, like the original does.
     paths = beats()
     ram0, _ = beat_image(paths[0])
     ram1, _ = beat_image(paths[1])
     area = ram0[0x810700]
     assert ram1[0x810700] == area == 0x0B
-    P.h_scene_reset()
+    T.h_taken_reset(area)
     for a in range(0x810860, 0x810B40):
-        P.h_progress_set(a, ram0[a])
-    assert P.h_persist(area << 8 | 1, 1) == 1
-    native = bytes(P.h_progress_get(a) for a in range(0x810860, 0x810B40))
+        T.h_taken_set(a, ram0[a])
+    assert T.h_1b1190(1) == 0
+    native = bytes(T.h_taken_get(a) for a in range(0x810860, 0x810B40))
     o = Oracle(elf, ram0)
     o.call(0x1B1190, (1,))
     original = bytes(o.load(a, 1) for a in range(0x810860, 0x810B40))
     assert native == original == ram1[0x810860:0x810B40], 'battery take bits'
-    res.ok('capture: beat 00 + PERSIST(uid 1) == beat 01 taken bits (port == original == capture)')
-    # The port keys the area on the manifest uid, the original on D_00810700.
-    uid_areas = {int(m, 16) >> 8 for m in re.findall(r'^pickup \S+ \S+ \S+ \S+ \S+ (0x[0-9a-f]+)',
-                                                    MANIFEST.read_text(), re.M) if int(m, 16)}
-    captured_areas = {beat_image(p)[0][0x810700] for p in paths}
-    assert uid_areas == captured_areas == {0x0B}, (uid_areas, captured_areas)
-    res.ok('AREA11 manifest uid area byte == captured D_00810700 (0x0B) in every beat')
+    res.ok('capture: beat 00 + 001B1190(1) == beat 01 taken bits (port == original == capture)')
+    # em_pickup.c hands the owner's PERSIST, argument unchanged, to the host.
+    for uid, argument in ((0x0B01, 0x01), (0x0B9A, 0x9A), (0x0B00, 0x00)):
+        seen = (C.c_uint32 * 3)()
+        assert P.h_persist(uid, argument, seen) == 1
+        assert tuple(seen) == (0x828180, 4, argument), ('PERSIST not forwarded', uid, tuple(seen))  # event 4
+    res.ok("em_pickup.c forwards the owner's PERSIST (its +0x9A byte) to the host's 001B1190")
+    # The original keys the area on D_00810700, which is 0x0B in every beat.
+    assert {beat_image(p)[0][0x810700] for p in paths} == {0x0B}
+    res.ok('captured D_00810700 == 0x0B in every beat')
     return res
 
 
@@ -1032,6 +1068,7 @@ def main():
             print(f'        e.g. {examples[0]}')
     report['source_sha256'] = {'src/' + rel: hashlib.sha256((SRC / rel).read_bytes()).hexdigest() for rel in (
         'game/em_pickup.c', 'game/em_props.c', 'game/em_status_models.c', 'game/em_player_frame.c',
+        'game/em_glue_original.c', 'game/em_security_gun_rest.c',
         'game/em_area11_interaction_host.c', 'game/em_area11_bindings.c', 'game/em_status_runtime.c')}
     report['source_sha256']['tools/' + Path(__file__).name] = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
     (BUILD / 'report.json').write_text(json.dumps(report, indent=2) + '\n')

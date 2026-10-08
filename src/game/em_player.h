@@ -265,6 +265,11 @@ int player_states_busy(void);
 /* The stage's scene view (the EmPlayerStageScene the stage workers' host
  * must point at, PLAYER_STAGE_WORKERS.md section 2). */
 EmPlayerStageScene *player_states_scene(void);
+/* The stage's vitals load (g.status / g.pd_* into the record's +220..+22C,
+ * +234 and +20E) for a frame whose 0015BCF0 did not run the stage (the
+ * legacy struggle, a scene without an original world): 0015CF90 then reads
+ * the record (em_player_0015BCF0). */
+void player_states_vitals_publish(void);
 /* The live mirror (for the coordinator's D_008104C4 readers, e.g.
  * EmTruckWorld.ground_kind = the +0x0D of link_owner). */
 const EmPlayerLiveActor *player_states_actor(void);

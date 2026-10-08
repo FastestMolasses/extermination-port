@@ -1258,6 +1258,9 @@ static int pickup_event(void *context, uint32_t source_id, EmPickupOwnerEvent ev
         }
         em_sfx_play_at(argument, slot->record->position, 300.0f);
         return 1;
+    case EM_PICKUP_OWNER_PERSIST:
+        /* 0015AFA0's / 00219550's 001B1190(+0x9A): the taken bit. */
+        return em_area11_bindings_001B1190((int32_t)argument) < 0 ? -1 : 1;
     default:
         return 0;
     }

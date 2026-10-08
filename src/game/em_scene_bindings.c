@@ -154,6 +154,7 @@
 #include "game/em_sfx.h"
 #include "game/em_scene_workers.h"
 #include "game/em_spawn_table.h"
+#include "game/em_glue_original.h"
 #include "game/em_player.h"
 #include "game/em_player_stage_live.h"
 #include "game/em_player_draw_live.h"
@@ -215,9 +216,7 @@ static int s_entry_state = -1;
 /* 001FC280's ambient loop (see em_scene_bindings_001FC280): D_00282160, the
  * loop's id (-1: none), D_00282164 its 001FB9F0 handle, D_00282168..70 its
  * request words. */
-static int32_t s_d282160 = -1;
-static int32_t s_d282164;
-static int32_t s_d282168, s_d28216C, s_d282170;
+static EmGlueAmbient s_ambient = {-1, 0, 0, 0, 0};
 
 /* The load veil block *D_00275888 (0021B180/0021B550/0021B840, S12a). */
 static EmLoadVeil s_veil;
@@ -1261,8 +1260,15 @@ static void log_tick_end(int rc)
                       *d758 = em_scene_progress_at(&s_state, 0x00810758u, 1),
                       *d793 = em_scene_progress_at(&s_state, 0x00810793u, 1),
                       *d813 = em_scene_progress_at(&s_state, 0x00810813u, 1);
-        fprintf(f, ", \"story\": [%d, %d, %d, %d], \"roger\": ", d7D8 ? *d7D8 : -1, d758 ? *d758 : -1,
+        fprintf(f, ", \"story\": [%d, %d, %d, %d], ", d7D8 ? *d7D8 : -1, d758 ? *d758 : -1,
                 d793 ? *d793 : -1, d813 ? *d813 : -1);
+        /* AREA11's taken row D_00810860 + 0x0B * 32 (001B1190's bits) and
+         * 0015CF90's D_00810706 / D_00810707 copies. */
+        const uint8_t *taken = em_scene_progress_at(&s_state, 0x00810860u + 0x0Bu * 32u, 32),
+                      *d706 = em_scene_progress_at(&s_state, 0x00810706u, 2);
+        fputs("\"taken0b\": ", f);
+        if (taken) log_hex(f, taken, 32); else fputs("null", f);
+        fprintf(f, ", \"vit706\": [%d, %d], \"roger\": ", d706 ? d706[0] : -1, d706 ? d706[1] : -1);
         uint32_t roger_record, roger_pos[3];
         uint8_t roger_head[16], roger_block[16];
         float roger_xyz[3];
@@ -2194,43 +2200,6 @@ static int wipe_001D8BF0(void *ctx, uint8_t *player, int32_t a1)
     return 0;
 }
 
-/* 001AF5C0 (byte-matched; em_slg_001AF5C0) over the player record image. */
-static int player_wipe_001AF5C0(void)
-{
-    EmPlayerLiveActor *p = player_states_actor_mut();
-    if (!p) return -1;
-    EmSlgState0Workers w;
-    EmSlgState0 st;
-    memset(&w, 0, sizeof w);
-    memset(&st, 0, sizeof st);
-    w.w_001D8BF0 = wipe_001D8BF0;
-    st.player = p->bytes;
-    st.player_self = D_PLAYER;                 /* D_008102C4 = D_008102B0 */
-    return em_slg_001AF5C0(&w, &st);
-}
-
-/* 001AF690 (after 001AF5C0 in 001AFCA0): em_slg_001AF690 over a staging
- * image of D_00810130..D_008102AF and D_0081060C, then its camera half
- * (D_008101E0..+0xCF and D_0081060C) to the camera's canonical storage.
- * The camera state byte +0 = 0 makes the next 0018B9C0 run its one-shot
- * seat (state 0: +6 = 8 outside area 0x12 sub 0), as the original's first
- * world frame after a rebuild does (route 15 f742, the AREA01 arrival:
- * D_008101E6 = 8). The other two blocks have owners that start them at
- * the same zeros here: D_008101D0..DF the render context (its bind, below)
- * and D_00810130..1CF the status runtime (created zeroed when the area's
- * interaction host loads; em_area11_interaction_host_clear freed it). */
-static void block_reset_001AF690(void)
-{
-    uint8_t image[0x180];
-    uint32_t d81060C = 0;
-    EmSlgState0 st;
-    memset(&st, 0, sizeof st);
-    st.status = image; /* every byte is written by 001AF690 */
-    st.d81060C = &d81060C;
-    em_slg_001AF690(&st);
-    em_camera_live_store_block(image + 0xB0, d81060C);
-}
-
 static uint8_t *area01_state_memory(void *ctx, uint32_t address, uint32_t size)
 {
     return em_module_loader_memory_mutable(ctx, address, size);
@@ -2260,13 +2229,120 @@ static int area01_scratch_detach(void)
         em_scene_fault(&s_state, 0x70003400u, EM_SCENE_FAULT_WORKER_FAILED) : 0;
 }
 
-/* 0x1AE040 state 0, first callee. 001AFCA0 is 001AF5C0 (player wipe),
- * 001AF690, 001AF710, 001AF8E0 (pool reset), 001D0660, then spad 31F4 = 0
- * (design 2.3). The port's native re-arm stands in for the player wipe;
- * since S10b the pool half of 001AF8E0 runs here, and since census L07 its
- * class-list half (D_00275B54..BB8, the collision world's lists) with the
- * area's collision world. The pool reset calls every live node's release hook. A scene without an
- * original roster also takes its legacy placement here (the manifest spawn,
+/* 001AFCA0's binding state: 001AF690's staging image of D_00810130..
+ * D_008102AF and D_0081060C (state0_001AF8E0 stores its camera half), and
+ * whether a worker already latched its own scene fault. */
+typedef struct {
+    uint8_t status[EM_SLG_STATUS_SIZE];
+    uint32_t d81060C;
+    int faulted;
+} State0Build;
+
+static int state0_fault(State0Build *b, uint32_t address, EmSceneFaultCode code)
+{
+    b->faulted = 1;
+    return em_scene_fault(&s_state, address, code);
+}
+
+/* 001AFCA0's 001AF8E0. First the port's area binds that sit between
+ * 001AF690 and the pool reset: 001AF690's camera half to the camera's
+ * storage, 0015C420's spawn values (+4 = 1, +280, +204, +31B, fields the
+ * wipe does not write; the stage runs with its workers from the first
+ * gameplay stage on, census L01, em_player_stage_live.h; without the
+ * D_00248C98 export the stage cannot run: fault), the player stage, the
+ * render context and the live camera (census L13..L16, L30, L32; a scene
+ * without an original world keeps its legacy placement and camera), then
+ * 001AF8E0 (em_actor_pool_reset_001AF8E0 with its class-list half; the
+ * pool reset calls every live node's release hook) and the host's per-area
+ * teardown and the world model bank (*D_0028A59C). */
+static int state0_001AF8E0(void *ctx)
+{
+    State0Build *b = ctx;
+    /* 001AF690's camera half (D_008101E0..+0xCF and D_0081060C) to the
+     * camera's canonical storage. Its state byte +0 = 0 makes the next
+     * 0018B9C0 run its one-shot seat (state 0: +6 = 8 outside area 0x12 sub
+     * 0), as the original's first world frame after a rebuild does (route 15
+     * f742, the AREA01 arrival: D_008101E6 = 8). The other two blocks have
+     * owners that start them at the same zeros here: D_008101D0..DF the
+     * render context (its bind, below) and D_00810130..1CF the status
+     * runtime (created zeroed when the area's interaction host loads;
+     * em_area11_interaction_host_clear freed it). */
+    em_camera_live_store_block(b->status + 0xB0, b->d81060C);
+    player_states_spawn_values();
+    if (em_player_stage_live_bind() < 0)
+        return state0_fault(b, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
+    /* Census L13..L16: the live camera over the area's collision world
+     * (its 0019A910 / 0019B7D0 and SDK context) and the ELF camera tables;
+     * the legacy camera stays for a scene without an original world. */
+    k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
+    /* Census L32 / L30: the render context's views and workers (before the
+     * camera, whose 001DD980 publications store into it). Each area binds
+     * its own delivered resource views. */
+    if (world_scene() && rcl_bind() < 0)
+        return state0_fault(b, 0x001D1C50u, EM_SCENE_FAULT_NULL_WORKER);
+    k_camera_host.area_worker = arrival_scene() ? camera_area_worker : NULL;
+    if (world_scene() && em_camera_live_bind(&k_camera_host) < 0)
+        return state0_fault(b, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
+    if (!world_scene()) {
+        em_game_legacy_manifest_spawn();
+        em_game_legacy_camera_rearm();
+        em_game_legacy_state0_fixtures();
+    }
+    s_player_init_pending = 1; /* the 001AF5C0 wipe: player +4 = 0 */
+    em_actor_pool_reset_001AF8E0(&s_pool);
+    em_collision_world_lists_reset_001AF8E0(); /* 001AF8E0's class-list half */
+    em_area11_bindings_reset();
+    em_area01_arrival_reset();
+    em_area01_live_detach(&s_area01_live);
+    if (world_scene()) {
+        EmModuleLoader *ml = em_module_loader_live();
+        EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
+        if (!ld || em_area11_boxes_bind_world_bank(
+                arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
+                                : EM_AREA11_WORLD_MODELS_PATH,
+                ld->d28A490[0x43]) < 0)
+            return state0_fault(b, 0x0028A59Cu, EM_SCENE_FAULT_NULL_WORKER);
+    }
+    return 0;
+}
+
+/* 001AFCA0's 001D0660: 001F0310, the effect pools (census L26 / L27), with
+ * the effect and equipment binders over the new pool (the first level: its
+ * effects draw on the render context), then 001E7780, the overlay module
+ * dispatch: AREA01's (em_area01_state_001E7780) at the level exit's
+ * arrival; AREA11's 008237C0 stores D_00275C1C..2C, which nothing in AREA11
+ * reads (its record count D_00275C2C is 0), and AREA01's 001E7780 clears
+ * them before its own init (FIRST_LEVEL_CENSUS.md, 008237C0's row). */
+static int state0_001D0660(void *ctx)
+{
+    State0Build *b = ctx;
+    if (world_scene()) {
+        if (em_area11_bindings_effects_attach() < 0)
+            return state0_fault(b, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0310u,
+                                EM_SCENE_FAULT_NULL_WORKER);
+    }
+    /* 001D0660 calls 001E7780 after 001F0310, before the frame machine's
+     * spawn calls. The six AREA01 globals and loader-owned data/BSS are
+     * canonical views; rebuilding does not clear the whole overlay again. */
+    if (arrival_scene()) {
+        if (em_area01_state_bind(&s_area01_state, area01_state_memory, em_module_loader_live()) < 0 ||
+            em_area01_state_001E7780(&s_area01_state, s_state.d810700, s_state.d810701) < 0)
+            return state0_fault(b, s_area01_state.fault ? s_area01_state.fault : 0x001E7780u,
+                                  EM_SCENE_FAULT_WORKER_FAILED);
+    } else {
+        em_area01_state_detach(&s_area01_state);
+    }
+    return 0;
+}
+
+/* 0x1AE040 state 0, first callee: 001AFCA0 (em_slg_001AFCA0, since chain
+ * step GLUE): 001AF5C0 (the player wipe), 001AF690, 001AF710, 001AF8E0
+ * (the pool reset), 001D0660, then spad 31F4 = 0 (design 2.3). Before it,
+ * the port's host teardown and area data: the hooks into the old pool,
+ * em_game_legacy_state0 (the legacy display's g fields, which have no
+ * original storage), the area's collision world (census L07) and message
+ * bank; inside its worker positions the area binds above. A scene without
+ * an original roster takes its legacy placement there (the manifest spawn,
  * the camera re-arm and the fixtures, in their old order); AREA11 is placed
  * by 001B07C0 (S12a). */
 static int w_001AFCA0(void *ctx)
@@ -2328,75 +2404,25 @@ static int w_001AFCA0(void *ctx)
             arrival_scene() ? AREA01_SCENE_DIR "/message_data.emmd"
                             : "assets/message/message_data.emmd", s_state.d810700))
         return em_scene_fault(&s_state, 0x001FD790u, EM_SCENE_FAULT_NULL_WORKER);
-    /* 001AF5C0 wipes the player record (em_slg_001AF5C0 over the record
-     * image: the memset, then +0x14 = the record, +0x02 = 0, the scale
-     * +0x60..+0x6C and the colour words +0x80..+0x8C = 1.0, +0x70 / +0x74 =
-     * 0, +0x78 / +0x7C = 1.0, +0x94 = -1, +0x96 = 0x3D, then 001D8BF0(player,
-     * 1): +0x02 bit 0x20), after player_states_reset has cleared the port's
-     * pointers beside it; the first stage's 0015C420 then sets its spawn
-     * values (+4 = 1, +280, +204, +31B: player_states_spawn_values, fields
-     * the wipe does not write), and the stage runs with its workers from the
-     * first gameplay stage on (census L01, em_player_stage_live.h). Without
-     * the D_00248C98 export the stage cannot run: fault. */
+    /* 001AFCA0 itself (em_slg_001AFCA0, the whole-function translation;
+     * test_startup_load_gaps_reference): 001AF5C0, 001AF690, 001AF710,
+     * 001AF8E0, 001D0660, then spad 31F4 = 0, over the player record, a
+     * staging image of D_00810130..D_008102AF with D_0081060C, the one
+     * bone-slot stack (em_area11_boxes_bone_stack) and spad 31F4. The
+     * port's area binds run inside its two worker positions (state0_001AF8E0,
+     * state0_001D0660 below); player_states_reset first clears the port's
+     * pointers beside the record. */
     player_states_reset();
-    if (player_wipe_001AF5C0() < 0)
-        return em_scene_fault(&s_state, 0x001AF5C0u, EM_SCENE_FAULT_WORKER_FAILED);
-    player_states_spawn_values();
-    block_reset_001AF690();
-    if (em_player_stage_live_bind() < 0)
-        return em_scene_fault(&s_state, 0x0015BA50u, EM_SCENE_FAULT_NULL_WORKER);
-    /* Census L13..L16: the live camera over the area's collision world
-     * (its 0019A910 / 0019B7D0 and SDK context) and the ELF camera tables;
-     * the legacy camera stays for a scene without an original world. */
-    k_camera_host.carry31F0 = em_area11_boxes_carry31F0();
-    /* Census L32 / L30: the render context's views and workers (before the
-     * camera, whose 001DD980 publications store into it). */
-    /* Each area binds its own delivered resource views. */
-    if (world_scene() && rcl_bind() < 0)
-        return em_scene_fault(&s_state, 0x001D1C50u, EM_SCENE_FAULT_NULL_WORKER);
-    k_camera_host.area_worker = arrival_scene() ? camera_area_worker : NULL;
-    if (world_scene() && em_camera_live_bind(&k_camera_host) < 0)
-        return em_scene_fault(&s_state, 0x0018B9C0u, EM_SCENE_FAULT_NULL_WORKER);
-    if (!world_scene()) {
-        em_game_legacy_manifest_spawn();
-        em_game_legacy_camera_rearm();
-        em_game_legacy_state0_fixtures();
-    }
-    s_player_init_pending = 1; /* the 001AF5C0 wipe: player +4 = 0 */
-    em_actor_pool_reset_001AF8E0(&s_pool);
-    em_collision_world_lists_reset_001AF8E0(); /* 001AF8E0's class-list half */
-    em_area11_bindings_reset();
-    em_area01_arrival_reset();
-    em_area01_live_detach(&s_area01_live);
-    if (world_scene()) {
-        EmModuleLoader *ml = em_module_loader_live();
-        EmStatusSceneLoader *ld = ml ? em_module_loader_state(ml) : NULL;
-        if (!ld || em_area11_boxes_bind_world_bank(
-                arrival_scene() ? AREA01_SCENE_DIR "/world_models.emwm"
-                                : EM_AREA11_WORLD_MODELS_PATH,
-                ld->d28A490[0x43]) < 0)
-            return em_scene_fault(&s_state, 0x0028A59Cu, EM_SCENE_FAULT_NULL_WORKER);
-    }
-    /* 001D0660: 001F0310, the effect pools (census L26 / L27), with the
-     * effect and equipment binders over the new pool (the first level: its
-     * effects draw on the render context); its 001E7780 (the overlay module
-     * dispatch) is the loader's boundary. */
-    if (world_scene()) {
-        if (em_area11_bindings_effects_attach() < 0)
-            return em_scene_fault(&s_state, em_effects_live_fault() ? em_effects_live_fault() : 0x001F0310u,
-                                  EM_SCENE_FAULT_NULL_WORKER);
-    }
-    /* 001D0660 calls 001E7780 after 001F0310, before the frame machine's
-     * spawn calls. The six AREA01 globals and loader-owned data/BSS are
-     * canonical views; rebuilding does not clear the whole overlay again. */
-    if (arrival_scene()) {
-        if (em_area01_state_bind(&s_area01_state, area01_state_memory, em_module_loader_live()) < 0 ||
-            em_area01_state_001E7780(&s_area01_state, s_state.d810700, s_state.d810701) < 0)
-            return em_scene_fault(&s_state, s_area01_state.fault ? s_area01_state.fault : 0x001E7780u,
-                                  EM_SCENE_FAULT_WORKER_FAILED);
-    } else {
-        em_area01_state_detach(&s_area01_state);
-    }
+    EmPlayerLiveActor *player = player_states_actor_mut();
+    if (!player)
+        return em_scene_fault(&s_state, 0x001AF5C0u, EM_SCENE_FAULT_NULL_WORKER);
+    State0Build build;
+    memset(&build, 0, sizeof build);
+    EmSlgState0 st = {player->bytes, D_PLAYER, build.status, &build.d81060C, em_area11_boxes_bone_stack(),
+                      &s_state.spad31F4};
+    const EmSlgState0Workers w = {&build, wipe_001D8BF0, state0_001AF8E0, state0_001D0660};
+    if (em_slg_001AFCA0(&w, &st) < 0)
+        return build.faulted ? -1 : em_scene_fault(&s_state, 0x001AF5C0u, EM_SCENE_FAULT_WORKER_FAILED);
     if (world_scene()) {
         /* Census L29: 0015C160's shadow over the render context, the
          * collision world and the player record (em_shadow_live); the
@@ -2460,7 +2486,6 @@ static int w_001AFCA0(void *ctx)
             return em_scene_fault(&s_state, 0x70003400u, EM_SCENE_FAULT_WORKER_FAILED);
     }
     s_pool_mode = POOL_NONE;
-    s_state.spad31F4 = 0;
     return 0;
 }
 
@@ -2502,11 +2527,11 @@ static void bind_trace(uint32_t caller, uint32_t callee, uint32_t a0, uint32_t a
  *   +0x220/+0x228     g.status.health/infection, which are also the port's
  *                     only copy of D_00810858/D_0081085C, so 001B07C0's copy
  *                     is an identity here
- *   +0x234/+0x235     g.pd_infected/g.pd_low. D_00810707 (the +0x234 source)
- *                     is canonical progress (HK), stored by 0015CF90 at every
- *                     player stage (em_player_0015BCF0) and cleared by
- *                     001AF2C0; D_00810706 is not canonical yet (D2), so g.pd_low
- *                     stays the port's only copy of it
+ *   +0x234/+0x235     g.pd_infected/g.pd_low (the record's view). Their
+ *                     sources D_00810707 / D_00810706 are canonical progress
+ *                     (HK / GLUE), stored by 0015CF90 at every player stage
+ *                     (em_player_0015BCF0, em_glue_0015CF90) and cleared by
+ *                     001AF2C0; 001B07C0's masked D_00810706 is stored back
  *   D_00810C60        em_pickup's equipment status; C7D/C7E its item counts
  *                     0x19/0x1A
  *   +0x60..+0x6C, +0x80..+0x8C     the record image (spawn_commit; 001CAA00
@@ -2719,8 +2744,11 @@ static int w_001B07C0(void *ctx, int a0)
     io.d810701 = s_state.d810701;
     io.d810702 = s_state.d810702;
     io.d275BE0 = s_state.d275BE0;
-    io.d810706 = (uint8_t)g.pd_low;
-    io.d810707 = e707 ? *e707 : 0;
+    uint8_t *e706 = em_scene_progress_at(&s_state, 0x00810706u, 1);
+    if (!e706 || !e707)
+        return em_scene_fault(&s_state, EM_SPAWN_FN_001B07C0, EM_SCENE_FAULT_NULL_WORKER);
+    io.d810706 = *e706;
+    io.d810707 = *e707;
     io.d810858 = g.status.health;
     io.d81085C = g.status.infection;
     io.d810788 = e788 ? *e788 : 0;
@@ -2749,6 +2777,7 @@ static int w_001B07C0(void *ctx, int a0)
     if (rc < 0)
         return em_scene_fault(&s_state, io.fault.address, (EmSceneFaultCode)io.fault.code);
     spawn_commit(&io);
+    *e706 = io.d810706;   /* 001B07C0: D_00810706 &= 1 */
     if (a0 == 0) {
         /* The port's New Game fixtures (the weapon context); the level
          * exit's arrival keeps AREA11's state, as the original does. */
@@ -3810,7 +3839,7 @@ static int w_0020CDC0(void *ctx)
 static int w_001FBC50(void *ctx)
 {
     em_sfx_stop_all();
-    s_d282160 = -1;   /* D_00282160 = -1 (the ambient loop's cache, 001FC280) */
+    s_ambient.d282160 = -1;   /* D_00282160 = -1 (the ambient loop's cache, 001FC280) */
     if (w_00119828(ctx, 0, 0x1999, 0x1999) < 0 || w_00119828(ctx, 1, 0x1999, 0x1999) < 0)
         return -1;
     /* Its tail: D_00281F30's ten records back to {0, -1}. */
@@ -3853,66 +3882,60 @@ static int w_001AEE40(void *ctx, int16_t a0)
 }
 
 /* 001FC280 (NEARMISS, body-correct; src/func_001FC280.c), the lanes' worker
- * at the start of 001FAE70: the area ambient loop. id = the high half of the
- * spawn record's +0x20 (sra: 0xFFFF -> -1), or 0x44E in area 0x0B when
- * D_00810788 == 0xFF. When id differs from the cached D_00282160: a cached id
- * other than -1 is stopped (0011A070(D_00282164): em_sfx_stop_track, soft);
- * the cache takes id; an id other than -1 sets D_00282168..70 = 0x1000 and
- * starts D_00282164 = 001FB9F0(id, 0x1000, 0x1000, 0x1000)
- * (em_sfx_submit_001FB9F0_track, the selected area's registry scope). It ends
- * with 00119828(0, lo, lo) and 00119828(1, lo, lo), lo = the record's low
- * half (0x1999 in AREA11, 0x3FFF at AREA01 entry 4). Every AREA11 record
- * holds 0xFFFF1999 (and the captured D_00810788 is 0), so AREA11 starts no
- * loop; the level exit's AREA01 arrival (sub 0, entry 4: 0x044E3FFF) starts
- * 0x44E (route beat 15, docs/FIRST_LEVEL_EXIT.md). D_00282160 is -1 from
- * the title's 001FBC50 (001AC3B0 state 0) on, as em_sfx_init leaves that
- * routine's other tables (D_00281B70 / D_00281C30); every 001FBC50 sets it
- * again (w_001FBC50). */
+ * at the start of 001FAE70: the area ambient loop. em_glue_001FC280 (the
+ * whole-function translation, tools/test_glue_reference.py) over the
+ * exported spawn tables (em_spawn_table_read: the walk D_0024D650[area]
+ * [room] + entry * 0x30, its +0x20 word), D_00810788 and the cache
+ * D_00282160..70 (s_ambient). Every AREA11 record holds 0xFFFF1999 (and the
+ * captured D_00810788 is 0), so AREA11 starts no loop; the level exit's
+ * AREA01 arrival (sub 0, entry 4: 0x044E3FFF) starts 0x44E (route beat 15,
+ * docs/FIRST_LEVEL_EXIT.md). D_00282160 is -1 from the title's 001FBC50
+ * (001AC3B0 state 0) on, as em_sfx_init leaves that routine's other tables
+ * (D_00281B70 / D_00281C30); every 001FBC50 sets it again (w_001FBC50).
+ * Workers: 0011A070 = em_sfx_stop_track (the handle's 0x8000 bit the hard
+ * stop; the stop branch is not reached in the first level), 001FB9F0 =
+ * em_sfx_submit_001FB9F0_track over the selected area's registry scope (an
+ * id without an exported sound faults), 00119828 = the stream lanes'. */
+static const uint8_t *ambient_load(void *ctx, uint32_t address, uint32_t size)
+{
+    (void)ctx;
+    return em_spawn_table_read(&s_spawn_table, address, size);
+}
+
+static int ambient_0011A070(void *ctx, int32_t handle)
+{
+    (void)ctx;
+    return em_sfx_stop_track(handle & 0x7FFF, (handle & 0x8000) != 0);
+}
+
+static int ambient_001FB9F0(void *ctx, int32_t id, int32_t a1, int32_t a2, int32_t a3, int32_t *ret)
+{
+    (void)ctx;
+    (void)a1;
+    bind_trace(0x001FC280u, 0x001FB9F0u, (uint32_t)id, (uint32_t)a1, (uint32_t)a2, (uint32_t)a3);
+    *ret = em_sfx_submit_001FB9F0_track((unsigned)id, a2, a3);
+    if (em_sfx_cue_state((unsigned)id) != 1) {
+        fprintf(stderr, "em_scene: 001FC280: the area loop 0x%X has no exported sound in the "
+                        "area %u/%u scope (tools/export_sfx_registry.py)\n",
+                (unsigned)id, (unsigned)s_state.d810700, (unsigned)s_state.d810701);
+        return -1;
+    }
+    return 0;
+}
+
+static int ambient_00119828(void *ctx, int32_t lane, int32_t a1, int32_t a2)
+{
+    return w_00119828(ctx, lane, a1, a2);
+}
 
 int em_scene_bindings_001FC280(void)
 {
-    const uint8_t *record = NULL;
-    if (s_spawn_table_loaded) {
-        const uint8_t *table = em_spawn_table_read(
-            &s_spawn_table, EM_SPAWN_TABLE_ADDRESS + 4u * s_state.d810700, 4);
-        uint32_t rooms = table ? (uint32_t)table[0] | (uint32_t)table[1] << 8 |
-                                     (uint32_t)table[2] << 16 | (uint32_t)table[3] << 24
-                               : 0;
-        const uint8_t *room =
-            rooms ? em_spawn_table_read(&s_spawn_table, rooms + 4u * s_state.d810701, 4) : NULL;
-        uint32_t entries = room ? (uint32_t)room[0] | (uint32_t)room[1] << 8 |
-                                      (uint32_t)room[2] << 16 | (uint32_t)room[3] << 24
-                                : 0;
-        if (entries)
-            record = em_spawn_table_read(
-                &s_spawn_table, entries + EM_SPAWN_RECORD_SIZE * s_state.d810702 + 0x20u, 4);
-    }
     const uint8_t *d788 = em_scene_progress_at(&s_state, 0x00810788u, 1);
-    if (!record || !d788)
+    if (!s_spawn_table_loaded || !d788)
         return -1;
-    int32_t loop = (int16_t)(uint16_t)((uint32_t)record[2] | (uint32_t)record[3] << 8);   /* the high half, sign-extended */
-    if (s_state.d810700 == 0x0B && *d788 == 0xFF)
-        loop = 0x44E;
-    if (s_d282160 != loop) {
-        if (s_d282160 != -1 && em_sfx_stop_track(s_d282164, 0) < 0)
-            return -1;
-        s_d282160 = loop;
-        if (loop != -1) {
-            s_d282170 = s_d28216C = s_d282168 = 0x1000;
-            bind_trace(0x001FC280u, 0x001FB9F0u, (uint32_t)loop, 0x1000, 0x1000, 0x1000);
-            s_d282164 = em_sfx_submit_001FB9F0_track((unsigned)loop, s_d28216C, s_d282170);
-            if (em_sfx_cue_state((unsigned)loop) != 1) {
-                fprintf(stderr, "em_scene: 001FC280: the area loop 0x%X has no exported sound in the "
-                                "area %u/%u scope (tools/export_sfx_registry.py)\n",
-                        (unsigned)loop, (unsigned)s_state.d810700, (unsigned)s_state.d810701);
-                return -1;
-            }
-        }
-    }
-    uint32_t lo = (uint32_t)record[0] | (uint32_t)record[1] << 8;
-    if (w_00119828(NULL, 0, (int)lo, (int)lo) < 0 || w_00119828(NULL, 1, (int)lo, (int)lo) < 0)
-        return -1;
-    return 0;
+    const EmGlueAmbientWorkers w = {NULL, ambient_load, ambient_0011A070, ambient_001FB9F0,
+                                    ambient_00119828};
+    return em_glue_001FC280(&w, &s_ambient, s_state.d810700, s_state.d810701, s_state.d810702, *d788);
 }
 
 /* 001FAE70(a0) (byte-matched, src/func_001FAE70.c), the area music cue:
@@ -4420,7 +4443,7 @@ void em_scene_bindings_log_tail(void)
                 st[6], st[7], st[8]);
     else
         fputs(", \"stream\": null", f);
-    fprintf(f, ", \"ambient\": [%d, %d]", (int)s_d282160, (int)s_d282164);
+    fprintf(f, ", \"ambient\": [%d, %d]", (int)s_ambient.d282160, (int)s_ambient.d282164);
     fputs(", \"pool\": {", f);
     int n = 0, walked = 0;
     static uint8_t image[EM_ACTOR_RECORD_SIZE];

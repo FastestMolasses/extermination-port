@@ -7,11 +7,12 @@
  * -> vsync/present -> parity and main-frame count.
  *
  * Hardware packet/DMA/GS bookkeeping belongs to the native gfx backend.
- * Step C runs the original unpacker 001B5940 (em_pad_unpack) on a libpad
- * buffer built from the native pad; 001B5B70 is an actuator countdown,
- * not edge post-processing. Native consumers see canonical EM_PAD bits,
- * while original button words swap their high/low bytes. See em_frame.h
- * for the explicit boundary.
+ * Step C runs the original pad read 001B57E0 (em_slg_001B57E0, with
+ * 001B5F40) over the pad block D_00810E40..7B; its read calls the original
+ * unpacker 001B5940 (em_pad_unpack) on a libpad buffer built from the
+ * native pad; 001B5B70 is an actuator countdown, not edge post-processing.
+ * Native consumers see canonical EM_PAD bits, while original button words
+ * swap their high/low bytes. See em_frame.h for the explicit boundary.
  *
  * A native movie pump presents incrementally while the ordinary engine
  * iteration is suspended. This preserves the blocking movie call's task,
@@ -29,6 +30,7 @@
 #include <time.h>
 
 #include "em_input.h"
+#include "game/em_startup_load_gaps.h"
 #include "game/em_task.h"
 
 static struct {
@@ -40,6 +42,9 @@ static struct {
     uint16_t     field;       /* 0x00810E88 field bit (em_frame_d810E88) */
     EmFrameInput input;       /* canonical view of pad_block */
     EmPadUnpack  pad_block;   /* 0x00810E70 block + 0x00810E40 analog bytes */
+    uint8_t     *pad_head;    /* D_00810E40..69 (em_pad_actuator's block) */
+    uint8_t      pad_2A[6];   /* D_00810E6A..6F: +0x2A, 001B5F40's read-time mode id */
+    uint8_t      raw[8];      /* this step's native libpad read buffer */
     EmScreenFade screen_fade;         /* 001AEBE0: letterbox bars */
     EmTransitionFade transition;     /* 001AEE70: full-screen effect */
     uint8_t      screen_request;      /* 0x70003B90 drawing gate */
@@ -145,6 +150,11 @@ void em_frame_set_task_check(int (*check)(void *context), void *context)
     s_frame.task_check_context = context;
 }
 
+void em_frame_set_pad_block(uint8_t *head)
+{
+    s_frame.pad_head = head;
+}
+
 void em_frame_set_step_i(int (*service)(void *context), void *context)
 {
     s_frame.step_i = service;
@@ -219,7 +229,7 @@ void em_frame_scene_input(EmSceneState *scene)
         return;
     scene->d810E74 = s_frame.pad_block.pressed;
     scene->d810E70 = s_frame.pad_block.held;
-    scene->d810E50 = 4;
+    scene->d810E50 = s_frame.pad_head ? s_frame.pad_head[0x10] : 0;   /* 001B5F40's phase byte */
 }
 EmWindow *em_frame_window(void)         { return s_frame.win; }
 EmGfx    *em_frame_gfx(void)            { return s_frame.gfx; }
@@ -277,11 +287,114 @@ static bool pad_changed(const EmPadState *a, const EmPadState *b)
            a->rx != b->rx || a->ry != b->ry;
 }
 
-/* Step C: pump platform events, then 001B57E0 -> 001B5F40 -> 001B5940.
- * The native pad is a connected DualShock in the stable libpad state, so
- * 001B5F40 always takes its analog call (state 6: a2 = 1) on port 0. A
- * native read never fails, so 001B57E0's failure clear is not reachable. */
-static void frame_input_read(void)
+/* The pad block D_00810E40..D_00810E7B as one byte image for 001B57E0:
+ * +0x00..+0x29 is em_pad_actuator's block (installed with
+ * em_frame_set_pad_block), except the gait byte +0x17 and the analog bytes
+ * +0x24..+0x27, and +0x30..+0x3B are the EmPadUnpack fields (em_input.h);
+ * +0x2A..+0x2F are this module's. */
+static void pad_image_load(uint8_t image[EM_SLG_PAD_SIZE])
+{
+    const EmPadUnpack *u = &s_frame.pad_block;
+    memcpy(image, s_frame.pad_head, 0x2A);
+    image[0x17] = u->gait;
+    image[0x24] = u->lx;
+    image[0x25] = u->ly;
+    image[0x26] = u->rx;
+    image[0x27] = u->ry;
+    memcpy(image + 0x2A, s_frame.pad_2A, sizeof s_frame.pad_2A);
+    const uint16_t out[6] = {u->held, u->prev_held, u->pressed, u->prev_pressed, u->repeat,
+                             (uint16_t)u->repeat_timer};
+    for (unsigned i = 0; i < 6; ++i) {
+        image[0x30 + 2 * i] = (uint8_t)out[i];
+        image[0x31 + 2 * i] = (uint8_t)(out[i] >> 8);
+    }
+}
+
+static uint16_t half(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+static void pad_image_store(const uint8_t image[EM_SLG_PAD_SIZE])
+{
+    EmPadUnpack *u = &s_frame.pad_block;
+    for (unsigned at = 0; at < 0x2A; ++at)
+        if (at != 0x17 && (at < 0x24 || at > 0x27)) s_frame.pad_head[at] = image[at];
+    u->gait = image[0x17];
+    u->lx = image[0x24];
+    u->ly = image[0x25];
+    u->rx = image[0x26];
+    u->ry = image[0x27];
+    memcpy(s_frame.pad_2A, image + 0x2A, sizeof s_frame.pad_2A);
+    u->held = half(image + 0x30);
+    u->prev_held = half(image + 0x32);
+    u->pressed = half(image + 0x34);
+    u->prev_pressed = half(image + 0x36);
+    u->repeat = half(image + 0x38);
+    u->repeat_timer = (int16_t)half(image + 0x3A);
+}
+
+/* libpad (the platform pad boundary). The native pad is a connected
+ * DualShock on port 0, slot 0: scePadGetState answers 6 (stable). The pad
+ * block starts in the state libpad's negotiation leaves (em_pad_actuator.h:
+ * phase 4, mode id 7), so 001B5F40's phases 0..2 (the mode queries
+ * 00110E58, the main-mode set 00110F60, the actuator alignment 001110B0)
+ * are never reached; they fault if they are. */
+static int pad_00110B80(void *ctx, int32_t port, int32_t slot, int32_t *ret)
+{
+    (void)ctx;
+    if (port != 0 || slot != 0) {
+        fprintf(stderr, "em_frame: 00110B80 on port %d slot %d, which the native pad does not have\n",
+                (int)port, (int)slot);
+        return -1;
+    }
+    *ret = 6;
+    return 0;
+}
+
+static int pad_negotiation(const char *what)
+{
+    fprintf(stderr, "em_frame: 001B5F40 reached %s: the libpad negotiation is not modelled "
+                    "(the native pad starts in phase 4)\n", what);
+    return -1;
+}
+
+static int pad_00110E58(void *ctx, int32_t port, int32_t slot, int32_t a2, int32_t a3, int32_t *ret)
+{
+    (void)ctx; (void)port; (void)slot; (void)a2; (void)a3; (void)ret;
+    return pad_negotiation("00110E58");
+}
+
+static int pad_00110F60(void *ctx, int32_t port, int32_t slot, int32_t a2, int32_t a3, int32_t *ret)
+{
+    (void)ctx; (void)port; (void)slot; (void)a2; (void)a3; (void)ret;
+    return pad_negotiation("00110F60");
+}
+
+static int pad_001110B0(void *ctx, int32_t port, int32_t slot, uint8_t *data, int32_t *ret)
+{
+    (void)ctx; (void)port; (void)slot; (void)data; (void)ret;
+    return pad_negotiation("001110B0");
+}
+
+/* 001B5940(out, pad, analog): em_pad_unpack over the image's fields with
+ * this step's native read buffer (its libpad read 00110B38). */
+static int pad_001B5940(void *ctx, uint8_t *out, uint8_t *pad, int32_t analog, int32_t *ret)
+{
+    (void)ctx;
+    uint8_t *image = pad;
+    if (out != image + EM_SLG_PAD_OUT) return -1;
+    pad_image_store(image);
+    uint32_t port = (uint32_t)image[4] | (uint32_t)image[5] << 8 | (uint32_t)image[6] << 16 |
+                    (uint32_t)image[7] << 24;
+    *ret = em_pad_unpack(&s_frame.pad_block, s_frame.raw, port, analog);
+    pad_image_load(image);
+    return 0;
+}
+
+/* Step C: pump platform events, sample the native pad (the keyboard and the
+ * controller, em_input_pad; headless runs ignore a connected controller),
+ * then 001B57E0 -> 001B5F40 -> 001B5940 over the pad block. 0, or -1 on a
+ * fault (no pad block installed, or a libpad step the native pad does not
+ * model). */
+static int frame_input_read(void)
 {
     EmEvent ev;
     while (em_window_poll(s_frame.win, &ev)) {
@@ -306,11 +419,20 @@ static void frame_input_read(void)
         s_frame.prev_pad = pad;
     }
 
-    uint8_t raw[8];
-    EmPadUnpack *block = &s_frame.pad_block;
-    em_pad_raw(&pad, raw);
-    (void)em_pad_unpack(block, raw, 0, 1);
+    if (!s_frame.pad_head) {
+        fprintf(stderr, "em_frame: step C: no pad block D_00810E40 installed (em_frame_set_pad_block)\n");
+        return -1;
+    }
+    em_pad_raw(&pad, s_frame.raw);
+    static const EmSlgPadWorkers workers = {NULL, pad_00110B80, pad_00110E58, pad_00110F60,
+                                            pad_001110B0, pad_001B5940};
+    uint8_t image[EM_SLG_PAD_SIZE];
+    pad_image_load(image);
+    if (em_slg_001B57E0(&workers, image) < 0)
+        return -1;
+    pad_image_store(image);
 
+    const EmPadUnpack *block = &s_frame.pad_block;
     EmFrameInput *in = &s_frame.input;
     in->lx       = block->lx;
     in->ly       = block->ly;
@@ -319,6 +441,7 @@ static void frame_input_read(void)
     in->held     = em_pad_swap(block->held);
     in->pressed  = em_pad_swap(block->pressed);
     in->released = em_pad_swap((uint16_t)(block->prev_held & ~block->held));
+    return 0;
 }
 
 /* NTSC frame pacing (~59.94 Hz = 60/1.001). See the call site in
@@ -368,7 +491,10 @@ int em_frame_step(void)
         s_frame.step_b(s_frame.step_b_context, (int32_t)(int16_t)s_frame.parity) < 0)
         s_frame.quit = true;
     em_gamepad_poll();
-    frame_input_read();
+    if (frame_input_read() < 0) {
+        s_frame.quit = true;
+        return 0;
+    }
 
     if (s_frame.movie_suspended) goto movie_phase;
 

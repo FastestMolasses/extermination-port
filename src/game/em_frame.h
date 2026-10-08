@@ -77,11 +77,11 @@ const EmPadUnpack *em_frame_pad_block(void);
  *   D_00810E74 (pressed edge) and D_00810E70 (held) are the halfwords
  *   001B5940 stores, i.e. em_frame_pad_block()->pressed / ->held, unswapped;
  *   D_00810E50 is byte +0x10 of the pad record D_00810E40 (001B57E0 passes
- *   it to 001B5F40), which 001B5F40 sets to 4 once the pad is initialised
- *   (sb at 0x1B604C); it is 4 in every original capture (design 10.2 Q8).
- *   The native pad is always that connected, initialised analog DualShock
- *   (see frame_input_read), so it is always 4, and 001B57E0's read-failure
- *   clear (0x1B5804..0x1B5844) is unreachable.
+ *   it to 001B5F40), which 001B5F40 sets to 4 once the pad is initialised;
+ *   it is 4 in every original capture (design 10.2 Q8). It is read from the
+ *   pad block step C ran 001B57E0 over (em_frame_set_pad_block). The native
+ *   pad is always that connected, initialised analog DualShock, so it stays
+ *   4, and 001B57E0's read-failure clear is not reached.
  * The slot-0 scene task calls it at the start of every tick, after this
  * frame's step C and before any original code reads the words; no other
  * module writes them. */
@@ -158,6 +158,13 @@ void em_frame_set_message_service(const EmFrameMessageService *service);
  * service (em_pad_actuator_step_i); -1 is a fault (the frame quits). NULL
  * uninstalls it. */
 void em_frame_set_step_i(int (*service)(void *context), void *context);
+
+/* Step C's pad block D_00810E40..D_00810E69 (0x2A bytes, original layout):
+ * the game installs em_pad_actuator's block, the one storage of those bytes
+ * apart from the gait +0x17 and the analog bytes +0x24..+0x27 (the
+ * EmPadUnpack of em_frame_pad_block). Step C runs 001B57E0 over it; without
+ * one installed step C faults and the frame loop stops. */
+void em_frame_set_pad_block(uint8_t *head);
 
 /* After step E's task dispatch: -1 means a task latched a fault (the
  * screen-module loader, em_scene_bindings_module_loader_check) and the

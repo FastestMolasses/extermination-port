@@ -51,6 +51,7 @@ bool em_window_poll(EmWindow *win, EmEvent *out) { (void)win; (void)out; rec("po
 void em_gamepad_poll(void) { rec("gamepad"); }
 void em_gfx_begin_frame(EmGfx *gfx, float r, float g, float b, float a)
 { (void)gfx; (void)r; (void)g; (void)b; (void)a; rec("begin"); }
+void em_gfx_gs_world_drop(EmGfx *gfx) { (void)gfx; }
 void em_gfx_end_frame(EmGfx *gfx) { (void)gfx; rec("end"); }
 void em_gfx_overlay_canvas(EmGfx *gfx, float w, float h) { (void)gfx; (void)w; (void)h; rec("overlay"); }
 void em_gfx_overlay_rect_add(EmGfx *gfx, float x, float y, float w, float h, const float rgb[3])
@@ -108,6 +109,18 @@ static int movie_pump(void *user)
  * advanced) or 8 presentation steps passed; "step" separates presentation
  * steps and "counter+1" / "parity^1" mark the engine-frame bookkeeping.
  * Returns the log (valid until the next call). */
+/* The pad block D_00810E40..69 as libpad's negotiation leaves it (the
+ * game's is em_pad_actuator's; every capture holds these bytes): state 6,
+ * phase 4, actuator byte 1, ready 1, mode id 7. */
+static uint8_t s_pad_head[0x2A];
+static void pad_head_stable(void)
+{
+    memset(s_pad_head, 0, sizeof s_pad_head);
+    s_pad_head[0x0C] = 6; s_pad_head[0x10] = 4; s_pad_head[0x11] = 1; s_pad_head[0x12] = 1;
+    s_pad_head[0x14] = 7;
+    em_frame_set_pad_block(s_pad_head);
+}
+
 const char *mlg_audit_run(int scenario)
 {
     static EmFrameMessageService service = { message_tick, message_render, NULL };
@@ -115,6 +128,7 @@ const char *mlg_audit_run(int scenario)
     s_scenario = scenario;
     s_movie_steps = scenario == 2 ? 2 : 0;
     em_frame_init(NULL, NULL);
+    pad_head_stable();
     em_frame_set_message_service(&service);
     em_frame_set_sound_service(&sound);
     em_frame_set_movie_pump(movie_pump, NULL);

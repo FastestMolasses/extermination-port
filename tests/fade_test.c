@@ -186,12 +186,25 @@ static int movie_pump(void *user)
 static int sound_field(void *ctx) { (void)ctx; ++field_calls; return 0; }
 static int sound_step_h(void *ctx) { (void)ctx; ++audio_calls; return 0; }
 
+/* The pad block D_00810E40..69 as libpad's negotiation leaves it (the
+ * game's is em_pad_actuator's; every capture holds these bytes): state 6,
+ * phase 4, actuator byte 1, ready 1, mode id 7. */
+static uint8_t s_pad_head[0x2A];
+static void pad_head_stable(void)
+{
+    memset(s_pad_head, 0, sizeof s_pad_head);
+    s_pad_head[0x0C] = 6; s_pad_head[0x10] = 4; s_pad_head[0x11] = 1; s_pad_head[0x12] = 1;
+    s_pad_head[0x14] = 7;
+    em_frame_set_pad_block(s_pad_head);
+}
+
 static void reset_frame(void)
 {
     static const EmFrameSoundService sound = {sound_field, sound_step_h, NULL};
     task_calls = audio_calls = field_calls = movie_calls = presents = frame_draws = 0;
     arm_movie = expected_frame = event_pending = 0;
     em_frame_init(NULL, NULL);
+    pad_head_stable();
     em_frame_set_sound_service(&sound);
 }
 

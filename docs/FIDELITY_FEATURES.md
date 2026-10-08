@@ -163,6 +163,12 @@ verified translation.
   2026-10-08): the timelines' start clock 0021BAB0 live: live 918 of 956
   (118,433 of 120,964 instructions = 97.9%), verified but unbound 26; the
   route's own through beat 15 740 of 766 live (88,125 of 89,400 = 98.6%).
+  Update 1.64 (chain step GLUE, 2026-10-08, recounted from the rows): the
+  pad read 001B57E0 / 001B5F40, the state-0 re-arm 001AFCA0 with 001AF690,
+  the New Game's 001AB790, and 0015CF90 / 001B1190 with oracles executing
+  them: live 925 of 956 (118,723 of 120,964 instructions = 98.1%),
+  verified but unbound 21, unverified 1 (001CB480); the route's own
+  through beat 15 747 of 766 live (88,415 of 89,400 = 98.9%).
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
@@ -1609,8 +1615,9 @@ units per second.
 - Status: **PARTIAL**. The census counts only functions the recorded route
   executes, once per label. It does not record which jump-table cases the
   route used (census 7.1). Beat 15 (the level exit) is not in the census
-  tables. 0015BCF0 is live only in part. The three functions without a
-  verified live translation include 001FC280's body. "No stand-in rows"
+  tables. 0015BCF0 is live only in part. 001FC280, 0015CF90 and 001B1190
+  have oracles executing them since chain step GLUE (census 1.64); the one
+  unverified row left is the MAP page's draw 001CB480. "No stand-in rows"
   does not mean no stand-in code runs. Census 2.3 still lists stand-in
   behaviour on the route: the chain page's four-sprite pass (the examine
   camera and the opening's camera timeline are original since chain step

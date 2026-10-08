@@ -94,6 +94,12 @@ typedef enum {
  *                              (D_00810701) or 0; only 001FFCD0 reads them
  *                              (through the module loader's views); no port
  *                              mirror existed.
+ *   D_00810706           GLUE  0015CF90's copy of the player's +0x235 (the
+ *                              low-health byte; every player stage,
+ *                              em_glue_0015CF90); 001B07C0 reads it, masks
+ *                              it with 1, stores it back and copies it to
+ *                              +0x235; 001AF2C0 clears it. Before GLUE the
+ *                              port kept no copy (001B07C0 read g.pd_low).
  *   D_00810707           HK    0015CF90's copy of the player's infected
  *                              latch +0x234 (every player stage;
  *                              em_player_0015BCF0), 0021C270 (=1) and
@@ -306,7 +312,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         uint32_t first, end;
     } migrated[] = {
         {0x00810703u, 0x00810705u}, /* 001FFCD0's area / room latches (H7) */
-        {0x00810707u, 0x00810708u}, /* 0015CF90's infected-latch copy (HK) */
+        {0x00810706u, 0x00810708u}, /* 0015CF90's +0x235 (GLUE) and infected-latch (HK) copies */
         {0x0081070Au, 0x0081070Bu}, /* 001A8660's knock-back table pick (DAMAGE) */
         {0x00810710u, 0x00810730u}, /* 00159B90's two terminal position/rotation quadwords (A01) */
         {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */

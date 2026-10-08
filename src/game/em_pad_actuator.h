@@ -17,9 +17,13 @@
  *   D_0024D6F0               the rumble records (from the user's boot ELF,
  *                            assets/pad_rumble.emrg, tools/export_pad_tables.py)
  *
- * The block starts in the state the native pad reports at step C (em_frame.c
- * frame_input_read: a connected DualShock in libpad state 6 on port 0, slot
- * 0), the state 001B5F40 reaches through its phases 0 -> 1 -> 0 -> 2 -> 4
+ * Step C (em_frame.c frame_input_read) runs 001B57E0 / 001B5F40 over this
+ * block (em_frame_set_pad_block; since chain step GLUE): libpad's state at
+ * +0x0C, the read-time mode id, the phase bytes and, on a disconnect,
+ * 001B62A0's +0x16 / +0x18 / +0x19 / +0x28.
+ * The block starts in the state the native pad reports at step C (a
+ * connected DualShock in libpad state 6 on port 0, slot 0), the state
+ * 001B5F40 reaches through its phases 0 -> 1 -> 0 -> 2 -> 4
  * (em_startup_load_gaps.c em_slg_001B5F40: phase 2 stores +0x12 = 1): state
  * word 6, phase 4, actuator byte 1, ready 1, mode id 7. Every PCSX2 capture
  * (startup-reference opening/playable, route beats 04..08) holds exactly

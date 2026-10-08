@@ -2,10 +2,10 @@
 
 Date: 2026-09-24. Scope: the seven rows `docs/FIRST_LEVEL_CENSUS.md` (recount
 2026-09-24) marked **unverified**: 0015AC00, 0015CF90, 001B1190, 001C5680,
-001C5760, 001CF470 and 0020DFA0. Current census status (2026-09-27):
-0015AC00, 001C5680, 001C5760, 001CF470 and 0020DFA0 are **live**; only
-0015CF90 and 001B1190 are still **unverified** (see "Census status" at the
-end).
+001C5760, 001CF470 and 0020DFA0. Current census status (2026-10-08): all
+seven are **live**; 0015CF90 and 001B1190 since chain step GLUE, which bound
+their whole-function translations (see "Census status" at the end;
+docs/GLUE_ORIGINAL.md).
 
 Test: `tools/test_census_unverified_reference.py`. The default run takes about
 5 s; `EM_TEST_FULL=1` takes about 11 s. The test runs each original routine
@@ -23,10 +23,12 @@ no port file was edited:
 - The indicator children run em_indicator_child.c and em_effect_kinds.c
   (the one 001F54E0 translation) as the game links them; the spawn colours
   are read from em_area11_bindings.c's source.
-- One live piece sits inside a function that cannot run alone: the
-  0015CF90 lines of `em_player_0015BCF0`. The harness copies the exact
-  source lines, found by their text, and compiles them against the real
-  headers. If the text moves, the test fails. 0015AC00 runs its one
+- 0015CF90 runs its one translation, `em_glue_0015CF90`
+  (em_glue_original.c, which `em_player_0015BCF0` calls over the player
+  record since chain step GLUE). 001B1190 runs its one translation,
+  `em_gun_rest_001B1190`, over the views `em_area11_bindings_001B1190`
+  gives it, and the pickup harness checks that em_pickup.c hands the
+  owner's PERSIST event to the host unchanged. 0015AC00 runs its one
   translation, `em_pickup_owner_0015AC00` (em_pickup_owner.c), which the
   live host calls since the owners step.
 
@@ -42,12 +44,14 @@ scratch copies of `src/` (the live tree was not touched):
 
 | Mutant | Result |
 |---|---|
-| em_player_frame.c `<= 0.0f` → `< 0.0f` | fails: `0015CF90/synthetic` |
-| the B9 latch check deleted | fails: `0015CF90/synthetic` |
+| em_player_frame.c `<= 0.0f` → `< 0.0f` (before chain step GLUE) | fails: `0015CF90/synthetic` |
+| the B9 latch check deleted (before chain step GLUE) | fails: `0015CF90/synthetic` |
+| em_glue_0015CF90 with a native float compare (chain step GLUE) | fails: `0015CF90/synthetic` |
+| em_glue_0015CF90 storing D_00810706 = +0x235 & 1 (chain step GLUE) | fails: `0015CF90/synthetic` |
 | em_pickup scales model 0x72 by 2.0 | fails: `0015AC00/capture-scale`, `0015AC00/scale-219550-unscaled-model` |
 | em_indicator_child: +4 = 4 does not free | fails: `001C5680/child`, `001C5760/child` |
 | the gun lamp's spawn colour w 0.25 → 0.5 | fails: the spawn-colour capture check |
-| fix 3 (`em_ee_c_le`) applied | fails: only `0015CF90/c.le-daz` reported gone |
+| fix 3 (`em_ee_c_le`) applied | fails: only `0015CF90/c.le-daz` reported gone (applied in chain step GLUE; the key is retired) |
 | only the 0020E020 part of fix 2 applied | fails: only `0020DFA0/missing-0020E020` reported gone |
 
 ## Summary
@@ -55,8 +59,8 @@ scratch copies of `src/` (the live tree was not touched):
 | Row | Verdict | First-level impact | Fix for the chain |
 |---|---|---|---|
 | 0015AC00 | **verified**, live since the owners step (em_pickup_owner_0015AC00 over the map item's record: scale, colour, bind, 001C6380, 001F1110; test_pickup_owner_reference executes it call for call) | none today | optional: em_pickup's legacy instances of 00219550 items keep scale 1.0 (they no longer draw a bound owner) |
-| 0015CF90 | **verified** except the compare model; census still unverified | none reachable (denormal / negative-NaN health) | use `em_ee_c_le` |
-| 001B1190 | **verified** (areas 0..0x16, capture 00→01); census still unverified | none | none needed for AREA11 |
+| 0015CF90 | **verified**, live since chain step GLUE (em_glue_0015CF90: all five stores, the EE compare) | none | none |
+| 001B1190 | **verified**, live since chain step GLUE (em_gun_rest_001B1190 for the pickups too; areas 0..0x17, capture 00→01) | none | none |
 | 001C5680 | **verified**, live per node (em_indicator_child); its bind 001C2360 and placement 001C6380 are the translations since the status UI step (em_indicator_bind_live) | none: every child draws its 001F54E0 in walk order | the children's own model draw (OWNER_DRAW.md P1) |
 | 001C5760 | **verified**, live per node; the terminal's colour tail 0x827EAC is live; bind 001C22A0 / placement as 001C5680; the terminal's 0x827E6C copy into its slot is live (the owners step) | none (red in the refusal, green once powered, as routes 02 and 04) | the +0x4C draw 001CABA0 (a stand-in) |
 | 001CF470 | translated since d85512e (em_shadow_decal_001CF470, docs/SHADOW_DECAL.md); the `missing` key is retired; live since census L29 (em_shadow_live, FIRST_LEVEL_CENSUS.md section 1.20) | the decal draws on the route (beats 02, 04, 05, 08) | none |
@@ -128,7 +132,13 @@ which the map item's 001CAA00 reads for its colour matrix. The +0x30 store
   D_008106B9 when the latch is taken. The port keeps writing only 707 and
   B9. em_player_frame.c already says the other three are not canonical.
 
-**Divergence** `0015CF90/c.le-daz`. The port tests `g.status.health <= 0.0f`
+**Since chain step GLUE (2026-10-08)** the port runs `em_glue_0015CF90`
+over the player record: all five stores, with the EE compare, so the case
+set below compares every stored byte (D_00810706/707, D_00810858/85C,
+D_008106B9) and the key `0015CF90/c.le-daz` is retired. What follows is the
+divergence as it was found.
+
+**Divergence (retired)** `0015CF90/c.le-daz`. The port tested `g.status.health <= 0.0f`
 natively. The EE compare reads a denormal as zero and a NaN pattern as a
 large finite number. The latch differs for these +0x220 patterns:
 - 0x00000001 and 0x007FFFFF (positive denormals): the original sets B9, the
@@ -173,13 +183,18 @@ frame.
   uid's high byte, and the original keys it on D_00810700. In AREA11 every
   manifest uid has area 0x0B, and D_00810700 is 0x0B in all 15 beats.
 
-**Divergence** `001B1190/area>0x16` (latent). `taken_byte` refuses areas
-above 0x16: it reports the uid once and does not persist it. The original
-writes D_00810860 + area × 32 for any D_00810700, for example area 0x17
-writes D_00810B40. This cannot happen in the first level. No change is
-needed for it.
+**Divergence (retired in chain step GLUE)** `001B1190/area>0x16` (latent).
+`taken_byte` refused areas above 0x16: it reported the uid once and did not
+persist it. The original writes D_00810860 + area × 32 for any D_00810700,
+for example area 0x17 writes D_00810B40.
 
-**Suggested census status:** live (verified).
+**Since chain step GLUE (2026-10-08)** the PERSIST event runs the verified
+`em_gun_rest_001B1190` through `em_area11_bindings_001B1190` (em_pickup's
+taken_set is deleted). The check runs that translation over the binding's
+views: areas 0..0x17 equal the original (0x17's row is D_00810B40, the
+first-visit bits, in both); from area 0x18 the row is past the canonical
+bytes and the binding faults where the original would write (not reachable
+in the first level).
 
 ## 001C5680 and 001C5760 (the indicator children)
 
@@ -412,15 +427,7 @@ should name the host's CONFIGURE case.
 
 ## Census status
 
-The corrections this check suggested for 0015AC00, 001C5680, 001C5760,
-001CF470 and 0020DFA0 are applied: the census has all five live. Two rows
-are still **unverified** there:
-
-- 0015CF90: the census row says no oracle it counts executes 0015CF90, and
-  the `em_ee_c_le` fix above is not applied (em_player_frame.c still compares
-  health natively). This check found it verified for every reachable input;
-  it becomes live once the fix lands and the row takes this test's evidence.
-- 001B1190: the census row counts only test_pickup_owner_reference, which
-  hooks 001B1190 instead of executing it. This check executes it (verified,
-  with the latent area > 0x16 divergence above); the row has not taken this
-  test's evidence.
+The corrections this check suggested are applied: the census has all seven
+live, 0015AC00, 001C5680, 001C5760, 001CF470 and 0020DFA0 since 2026-09-27,
+0015CF90 and 001B1190 since chain step GLUE (2026-10-08,
+FIRST_LEVEL_CENSUS.md section 1.64), whose rows take this test's evidence.
