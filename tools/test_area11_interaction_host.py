@@ -35,7 +35,9 @@ MODULES = (
     # The render context (census L32 / L30, docs/RENDER_CONTEXT.md section 8).
     'em_render_context_live em_gs_blocks_original em_frame_kick em_frame_render_heads em_render_context em_packet_chain_original '
     'em_status_ui_leftovers em_load_veil_particles em_actor_light_001D89D0 em_player_equipment '
-    'em_owner_draw_live em_owner_draw_original em_object_unit em_point_light em_face_attach'
+    'em_owner_draw_live em_owner_draw_original em_object_unit em_point_light em_face_attach '
+    # 001C69A0 for the status models' pose (em_status_models).
+    'em_area01_math_core em_area01_math_actor'
 ).split()
 
 

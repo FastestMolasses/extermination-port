@@ -60,7 +60,9 @@ static int camera_euler(void *ctx, float out[3]) { (void)ctx; return player_pose
 static const EmCameraLiveHost camera_host = {NULL, camera_player, camera_hip, camera_euler, NULL, &carry31F0,
                                              camera_no_standin, camera_no_timeline,
                                              /* the aim camera's views: not reached here */
-                                             NULL, NULL, NULL};
+                                             NULL, NULL, NULL,
+                                             /* the area camera worker (AREA01 only) */
+                                             NULL};
 const float kLocoTierSpeed[4] = {0};
 static unsigned uploads, triangles, sounds, resumes, indicators, status_requests;
 static unsigned background_steps, background_frames;
@@ -231,6 +233,11 @@ void em_sfx_stop_all(void) {}
  * 00119828(0/1, 0x3FFF, 0x3FFF), the close's 001FAE70(1). */
 static unsigned stream_stops, channel_sets;
 int em_scene_bindings_001FBC50(void) { return 0; }
+/* The status open's request 6 (the AREA01 terminal) is not reached by these
+ * fixtures: the scene's terminal views fault if it is. */
+int em_scene_bindings_terminal_owner_read(uint32_t owner, uint32_t offset, uint32_t size, int32_t *value)
+{ (void)owner; (void)offset; (void)size; (void)value; return -1; }
+int em_scene_bindings_terminal_reset(void) { return -1; }
 int em_scene_bindings_001FABB0(void) { ++stream_stops; return 0; }
 int em_scene_bindings_00119828(void *ctx, int32_t ch, int32_t l, int32_t r)
 {

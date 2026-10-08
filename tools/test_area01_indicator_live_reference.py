@@ -26,6 +26,7 @@ def build():
              'src/game/em_indicator_child.c','src/game/em_effect_kinds.c',
              'src/game/em_area01_model_live.c','src/game/em_area01_actor_view.c',
              'src/game/em_actor_pool.c','src/game/em_area01_math_core.c','src/game/em_area01_math_owner.c',
+             'src/game/em_area01_math_actor.c',
              'src/game/em_owner_draw_original.c','src/game/em_roger_actor_original.c',
              'src/game/em_startup_load_gaps.c','src/game/em_opening_face.c',
              'src/game/em_render_verify_rest.c','src/game/em_anim_runtime_rest.c',*POSE_SOURCES]

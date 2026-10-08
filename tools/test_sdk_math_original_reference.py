@@ -518,7 +518,7 @@ int shim_route_sine(float x, float *out)
 
 CROSS_SOURCES = ['src/game/em_director_original.c', 'src/game/em_item_sdk_math.c',
                  'src/game/em_interaction_scan.c', 'src/game/em_item_trail.c',
-                 'src/game/em_area_script.c', 'src/game/em_script.c',
+                 'src/game/em_area_script.c', 'src/game/em_script.c', 'src/game/em_pickup_motion.c',
                  'src/game/em_message_service.c', 'src/game/em_interaction_frame.c',
                  'src/game/em_interaction_cinematic.c', 'src/game/em_cinematic_playback.c',
                  'src/game/em_cinematic_camera.c', 'src/game/em_camera_rotation.c', 'src/game/em_owner_services_original.c', 'src/game/em_effect_original.c',
