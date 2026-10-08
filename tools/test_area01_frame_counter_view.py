@@ -38,7 +38,7 @@ em_area11_roger_library_word em_camera_live_bytes em_camera_live_scratch_bytes
 em_collision_world_contact_bytes em_effects_live_d275C04
 em_effects_live_scratch_3660 em_effects_live_window em_module_loader_memory
 em_module_loader_state em_owner_draw_live_memory em_rcl_bytes em_rcl_bytes_mut
-player_pose_record_host
+em_message_live_block player_pose_record_host
 '''.split()
 
 

@@ -1,4 +1,5 @@
 #include "game/em_area01_live.h"
+#include "game/em_message_live.h"
 #include "game/em_area01_scene_view.h"
 #include "game/em_area01_script_workers.h"
 #include "game/em_area01_transition_services.h"
@@ -175,6 +176,14 @@ uint8_t *em_area01_live_bytes(EmArea01Live *l,uint32_t a,uint32_t n,int write)
     if(overlaps(a,n,0x700036E0u,sizeof l->scratch_36E0))
         return l->active && contains(a,n,0x700036E0u,sizeof l->scratch_36E0)
             ? (uint8_t *)l->scratch_36E0+a-0x700036E0u : NULL;
+    if(overlaps(a,n,0x002821B0u,(uint32_t)sizeof(EmMessageBlock))) {
+        /* D_002821B0: the live message service's request block, the one
+         * storage its original writers use (the door program's op09
+         * 001BBAE0 stores +0..+0xC and polls +4, as on the first level). */
+        EmMessageBlock *block=em_message_live_block();
+        return block && contains(a,n,0x002821B0u,(uint32_t)sizeof *block)
+            ? (uint8_t *)(void *)block+a-0x002821B0u : NULL;
+    }
     if(overlaps(a,n,0x00275C00u,4))
         return l->active && contains(a,n,0x00275C00u,4)
             ? (uint8_t *)&l->d275C00+a-0x00275C00u : NULL;
