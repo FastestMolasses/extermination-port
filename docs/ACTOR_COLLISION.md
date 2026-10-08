@@ -337,7 +337,13 @@ retired, and the oracle compares the ground exactly.
 - The `D_00275B54/B58` list: nothing pushes to it in the translated code
   (`001B1CE0` has no translation; `001B17A0` reaches it only in D_00810CA5 mode 6
   for classes 2/7/8/0xA).
-- The player's `+0x34` axis (surface 0x35): the adapter faults on it.
+- The player's `+0x34` axis (surface 0x35): since 2026-10-08 the ground
+  adapter `em_actor_collision_player_ground` carries a grid node's axis from
+  the EMCL axis section (`world->ranks->axis`) into `EmPlayerProbeHit.axis`
+  (00175CF0 reads it for the drive direction +310); a cell record's (its
+  D_700030B0 +0x34 is scratch no walker writes) and a grid without the
+  axis section still fault. AREA01's one 0x35 polygon is the shaft-landing
+  stairs (x -45..-35, z -1246.8..-1216.4); AREA11 has none.
 
 ## 7. Binding (live since census L07, 2026-09-24, except where noted)
 

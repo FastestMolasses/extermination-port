@@ -258,8 +258,9 @@ typedef struct {
 /* Fills the floor module's probe record. Faults (-1) where the native world
  * cannot give the original's answer instead of guessing: a grid hit when the
  * EMCL lacks EM_COLL_FLAG_NODE_CLASS (the class byte is unknown), and a
- * record whose surface byte is 0x35 (its +0x34 drive axis is not carried;
- * nothing else reads EmPlayerProbeHit.axis, which is left zero). */
+ * record whose surface byte is 0x35 unless it is a grid node whose +0x34
+ * drive axis the EMCL's axis section carries (world->ranks->axis; then
+ * EmPlayerProbeHit.axis holds it, else it is left zero). */
 int em_actor_collision_player_ground(void *player, const float position[3], const float probe[3],
                                      unsigned mask, EmPlayerProbeHit *hit);
 /* 001760C0(p, at, arg, height) over the player (byte-matched in the decomp,

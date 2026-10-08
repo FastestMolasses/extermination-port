@@ -518,7 +518,13 @@ static int grid_pass(const EmCollMoveWorld *w, EmCollMoveScratch *s, int *result
         if (!s->record) return -1;
         s->record_node = em_coll_probe_record_node(w->grid, &p);   /* node +0x1A, +0x1B */
         memcpy(s->record_normal, node->plane, sizeof s->record_normal);   /* node +0x24 */
-        memset(s->record_axis, 0, sizeof s->record_axis);          /* node +0x34: not in the EMCL */
+        if (w->grid->axis) {                                        /* node +0x34..+0x3F */
+            memcpy(s->record_axis, w->grid->axis + 3 * (size_t)p.node, sizeof s->record_axis);
+            s->record_axis_known = 1;
+        } else {
+            memset(s->record_axis, 0, sizeof s->record_axis);
+            s->record_axis_known = 0;
+        }
     }
     *result = r;
     return 0;
@@ -665,9 +671,10 @@ static int fill_probe_hit(const EmCollMoveScratch *s, int kind, EmPlayerProbeHit
         memcpy(hit->axis, s->record_axis, sizeof hit->axis);
     }
     /* D_700030B0 +0x34 is scratch no walker writes, and a grid node's +0x34
-     * is not in the EMCL: neither is carried, so the surface byte whose
-     * consumer reads it (00175CF0, surface 0x35) faults. */
-    if (kind && s->record && (hit->node & 0xFF) == 0x35) return -1;
+     * comes only from the EMCL's axis section: without it the surface byte
+     * whose consumer reads it (00175CF0, surface 0x35) faults. */
+    if (kind && s->record && (hit->node & 0xFF) == 0x35 &&
+        (s->record == EM_COLL_MOVE_CELL_RECORD || !s->record_axis_known)) return -1;
     if (s->entity) {
         hit->entity = 1;
         hit->entity_flags = s->entity->cls;

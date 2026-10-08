@@ -303,10 +303,17 @@ on 8 workers. The 06 route slice is the longest item.
 
    The adapters fault in these cases:
    - bit 31 on a const-position slot;
-   - a cell record whose kind byte is 0x35 (its +0x34 axis is not carried).
+   - a cell record whose kind byte is 0x35 (its +0x34 axis is not carried),
+     or a grid node of kind 0x35 from an EMCL without the axis section.
 
    A worker record (grid node) must come with `record_node` / `_normal` /
-   `_axis` filled by the grid worker.
+   `_axis` filled by the grid worker: since 2026-10-08 the grid pass copies
+   the node's +0x34..+0x3F from the EMCL axis section into `record_axis`
+   (`record_axis_known` = 1), and `make test-coll-move-reference` compares
+   `record_axis` with the node's bytes in RAM on every grid-node hit and
+   checks a 0x35 grid hit through the player adapter carries that axis. It
+   was first reached by AREA01's shaft-landing stairs (the wall probes
+   001764E0 stopped there with a fault).
 4. **Owners.** `EmDrumOriginalHooks.sweep` = `em_coll_move_owner_move`, with
    `EmCollMoveOwner` = { world, scratch, the drum's `EmActor`,
    `&EmDrumOriginal.position` }. It serves the flight arm's

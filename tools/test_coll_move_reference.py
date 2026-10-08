@@ -33,9 +33,10 @@ hull locks 001A6440 / 001A7280 are em_coll_grid_hull.c's translations
 0011E748 is em_sdk_math_original's, and the hull chains are read from the
 same RAM through the grid-hull test's resolver (CHAIN_C). The original's
 calls of 0019CB60 / 001A6440 / 001A7280 / 0011E748 are only counted (they
-run in place, unhooked). A grid node's +0x34 axis is not in the EMCL, so
-`record_axis` is not compared for a grid-node record; the adapters fault
-where a consumer would read it (surface 0x35: the fail-stop checks).
+run in place, unhooked). A grid node's +0x34 axis comes from the EMCL's
+grid axis section and `record_axis` is compared with the node's bytes in
+RAM; a surface-0x35 grid hit through the adapter carries that axis (and a
+grid without the axis section faults there: the fail-stop checks).
 
 Worlds: the RAM + scratchpad snapshots of route beats 04 (the 05_boxes
 start: crates, elevator), 05 (the 06_hill_slide start) and 08 (the truck
@@ -863,8 +864,7 @@ def fields(s):
     for name, _, n in SPAD_HALVES:
         out[name] = tuple(getattr(s, name)[k] for k in range(n))
     if s.record not in (0, CELL_RECORD):
-        # a grid node record: its +0x1A halfword and +0x24 normal (and +0x34,
-        # which compare() skips: the EMCL does not carry it)
+        # a grid node record: its +0x1A halfword, +0x24 normal and +0x34 axis
         out['record_node'] = s.record_node
         out['record_normal'] = tuple(s.record_normal)
         out['record_axis'] = tuple(s.record_axis)
@@ -940,8 +940,6 @@ class Runner:
             if set(orig_fields) != set(native_fields):
                 raise Mismatch((label, 'record kind', hex(native_fields['record']), hex(orig_fields['record'])))
             for key in orig_fields:
-                if key == 'record_axis':
-                    continue      # node +0x34: not in the EMCL (the adapters fault where it is read)
                 if orig_fields[key] != native_fields[key]:
                     raise Mismatch((label, 'field', key, [hex(v & 0xFFFFFFFF) for v in _seq(native_fields[key])],
                                     [hex(v & 0xFFFFFFFF) for v in _seq(orig_fields[key])]))
@@ -1752,8 +1750,8 @@ def failstop_checks(w):
     for bit 1, the player view for a nonzero class's bit 0); so does a fault
     met later (a class-2 entity whose chain cannot be supplied): the call
     works on copies. Also: bit 31 on the player's const-position adapters, a
-    bit-31 owner word, and a grid-node hit on surface 0x35 through an
-    adapter (its +0x34 axis is not carried)."""
+    bit-31 owner word. A grid-node hit on surface 0x35 through an adapter
+    carries the node's +0x34 axis from the EMCL (00175CF0 reads it)."""
     global CURRENT
     CURRENT = Runner(w)
     s, e = [228.8, 195.0, 284.0], [228.8, 195.0, 296.0]
@@ -1823,7 +1821,8 @@ def failstop_checks(w):
     finally:
         NATIVE.bridge_free(b)
     # a grid-node hit whose surface byte is 0x35, through the player adapter:
-    # the node's +0x34 axis (00175CF0 reads it) is not in the EMCL
+    # the hit carries the node's +0x34 axis (00175CF0 reads it), equal to
+    # the node's bytes in RAM
     b = w.bridge(w.image)
     try:
         rng = random.Random(0x35)
@@ -1848,9 +1847,13 @@ def failstop_checks(w):
         old = NATIVE.bridge_set_attr(node, 0x35)
         try:
             io = spad_scratch(w.spad, w.ee.mem)
+            probe = Probe()
             got = NATIVE.bridge_adapter(b, 1, C.byref(io), bytes(live), PLAYER, u32s(vbits(p0)), u32s(vbits(p0)),
-                                        u32s(vbits(p1)), 4, C.byref(Probe()))
-            assert got == -1, ('a 0x35 grid record must fault in the adapter', got)
+                                        u32s(vbits(p1)), 4, C.byref(probe))
+            assert got == 4 and (probe.node & 0xFF) == 0x35, ('a 0x35 grid record with its axis', got, hex(probe.node))
+            rec = u32(w.spad, 0x3208) + node * 0x40
+            assert tuple(probe.axis) == tuple(u32(w.ee.mem, rec + 0x34 + 4 * k) for k in range(3)), \
+                ('the 0x35 hit axis must be the node +0x34', [hex(v) for v in probe.axis])
             checked += 1
         finally:
             NATIVE.bridge_set_attr(node, old)

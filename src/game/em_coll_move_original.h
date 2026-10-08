@@ -77,12 +77,14 @@ typedef struct EmCollMoveScratch {
     /* 0x700031D0: NULL, EM_COLL_MOVE_CELL_RECORD, or a grid node (the
      * identity em_coll_grid_hull_node_record gives); for a grid node the
      * grid pass also fills record_node (+0x1A), record_normal (+0x24) and
-     * record_axis (+0x34: zero, the EMCL does not carry it; the adapters
-     * fault where a consumer would read it). */
+     * record_axis (+0x34..+0x3F from the EMCL's grid axis section, with
+     * record_axis_known = 1; zero and 0 for an EMCL without that section,
+     * where the adapters fault if a consumer would read it). */
     const void *record;
     uint16_t record_node;
     float record_normal[3];
     float record_axis[3];
+    uint8_t record_axis_known;
     const EmActor *entity;   /* 0x700031D4 */
     int32_t mode;            /* 0x700031D8 */
     uint16_t cell_class;     /* 0x700030CA: D_700030B0 +0x1A */
@@ -161,8 +163,9 @@ typedef struct EmCollMovePlayer {
 /* EmPlayerProbeWorkers.move / .sweep (00176C80, 001764E0, 001756E0 and the
  * floor module's other callers): flags without bit 31. The hit record is
  * filled from the scratch the call left (EmPlayerProbeHit fields). A hit
- * whose record surface byte is 0x35 faults: 00175CF0 reads that record's
- * +0x34 axis, which neither a cell record nor a grid node carries here. */
+ * whose record surface byte is 0x35 faults unless the record is a grid node
+ * whose +0x34 axis the EMCL carries: 00175CF0 reads that axis, and a cell
+ * record's (D_700030B0 +0x34) is scratch no walker writes. */
 int em_coll_move_player_move(void *player, const float position[3], const float target[3],
                              unsigned mask, EmPlayerProbeHit *hit);
 int em_coll_move_player_sweep(void *player, const float from[3], const float to[3], unsigned mask,

@@ -711,9 +711,21 @@ int em_actor_collision_player_ground(void *player, const float position[3], cons
     EmActorCollisionHit h;
     int kind = em_actor_collision_ground_0019AB20(p->world, &p->query, position, probe, mask, &h);
     if (kind < 0) return -1;
-    if (kind && (!h.node_class_known || (h.node & 0xFF) == 0x35)) return -1;
+    if (kind && !h.node_class_known) return -1;
+    /* Surface 0x35: 00175CF0 reads the record's +0x34 drive axis. A grid
+     * node's comes from the EMCL's axis section; a cell record's
+     * (D_700030B0 +0x34) is scratch no walker writes, so it faults. */
+    const uint32_t *axis = NULL;
+    if (kind && (h.node & 0xFF) == 0x35) {
+        const EmCollProbeGrid *r = p->world->ranks;
+        if (h.record != EM_ACTOR_RECORD_GRID || !r || !r->axis || h.poly < (int)r->first ||
+            (uint32_t)h.poly - r->first >= r->count)
+            return -1;
+        axis = r->axis + 3 * (size_t)((uint32_t)h.poly - r->first);
+    }
     p->entity = h.entity;
     memset(hit, 0, sizeof *hit);
+    if (axis) memcpy(hit->axis, axis, sizeof hit->axis);
     hit->kind = kind;
     hit->node = kind ? h.node : 0;
     hit->entity = h.entity != NULL;
