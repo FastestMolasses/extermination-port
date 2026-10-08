@@ -326,8 +326,11 @@ nested blocks; room 0's (D_00289BC0 + 0x100) holds one bank entry (0x75000
 bytes, the area's SShd container, through 001FB370), one A entry (0xD8800,
 the room's texture upload, sent from D_0028A740 in state 8) and a resident
 region from +0x14D800 (0x4BE000 bytes) with fifteen pointer words. The
-exporter's default areas are `0xb:0,0x1:0` (`--areas area[:room]`); the
-pack holds every sector of both loads. Live, the load takes 37 dispatches
+exporter's default areas are `0xb:0,0x1:0,0x0:0` (`--areas area[:room]`;
+AREA00 sub 0, INDEX.IDX sector 4, since 2026-10-08: the open shaft door's
+area change at the end of the second level); the pack holds every sector
+of those loads. Its header sector is also module 4's, so the reference
+test's missing-sector cases ask for module 6. Live, the load takes 37 dispatches
 at host speed (the capture's 212 frames: its drive) and passes the
 capture's states in order (LEVEL_SMOKE.md "exit").
 
@@ -678,8 +681,10 @@ counters.
    modules (`PAGE_MODULES`: 0x1E..0x24 and 0x2C..0x31), of the game-over
    screen module 0x27 (`SCREEN_MODULES`; DAMAGE.md section 5), of area 0x0B
    (the overlay file, the header, the bank, the A entry and the resident
-   region) and of area 1 room 0 (AREA01 sub 0, the level exit's load:
-   `DEFAULT_AREAS`; 23.1 MB in all). Add others with `--modules` / `--areas`.
+   region), of area 1 room 0 (AREA01 sub 0, the level exit's load) and of
+   area 0 room 0 (AREA00 sub 0, the second level's exit load, since
+   2026-10-08): `DEFAULT_AREAS`; 31.3 MB in all. Add others with
+   `--modules` / `--areas`.
    `--capture <folder>` (developer only) adds the capture checks and takes
    that capture's cursors as the seeds. The game does not start without the
    pack (fail-stop, like the stream export).

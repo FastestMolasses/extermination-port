@@ -1501,8 +1501,10 @@ def check_faults(lib, pack):
     lib.em_task_init()
     ml = lib.em_module_loader_open(str(pack).encode())
     lib.em_module_loader_bind_live(ml)
-    assert lib.em_module_loader_request_001FF080(ml, 0, 0x04) == 0
-    lib.em_task_dispatch()  # header of module 4: not in the default pack
+    # Header of module 6: not in the default pack (index sectors 4 and 5
+    # are AREA00's and AREA01's headers, area + 4, which the pack holds).
+    assert lib.em_module_loader_request_001FF080(ml, 0, 0x06) == 0
+    lib.em_task_dispatch()
     fault = Fault()
     assert lib.em_module_loader_failed(ml, C.byref(fault)) and fault.address == 0x112440 and fault.code == 4
     lib.em_module_loader_close(ml); n += 1
@@ -1586,7 +1588,7 @@ int main(int argc, char **argv)
     if (argc < 3) return 2;
     int host = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x21, 100);
     int measured = load(argv[1], EM_MODULE_LOADER_DRIVE_MEASURED, 0x21, 100);
-    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x04, 100);
+    int missing = load(argv[1], EM_MODULE_LOADER_DRIVE_HOST, 0x06, 100);   /* not in the pack */
     int full = load(argv[2], EM_MODULE_LOADER_DRIVE_HOST, 0x03, 100);
     printf("%d %d %d %d %d\n", host, measured, missing, full, sent);
     return 0;

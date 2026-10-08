@@ -17,8 +17,8 @@ first level loads (PAGE_MODULES: 0x1F the ITEM root, 0x1E MAP, 0x2C SPR4,
 0x24 DATABASE, the ITEM children 0x20 / 0x21 BATTERY / 0x22 / 0x23 and the
 SPR4 part pages 0x2D..0x31; docs/STATUS_PAGES.md section 1), the game-over
 screen module 0x27 (001AD4E0's 001FF080(0, 0x27); docs/DAMAGE.md), area 0x0B
-(AREA11, the New Game's 001FF080(1, 0)) and area 1 room 0 (AREA01 sub 0, the
-level exit's load).
+(AREA11, the New Game's 001FF080(1, 0)), area 1 room 0 (AREA01 sub 0, the
+level exit's load) and area 0 room 0 (AREA00 sub 0, the second level's exit).
 
 Inputs (the user's own, read in place, nothing modified):
   --iso      the user's disc image (default ../Extermination/Extermination-rebuilt.iso).
@@ -83,10 +83,12 @@ PAGE_MODULES = (0x1E, 0x1F, 0x20, 0x21, 0x22, 0x23, 0x24, 0x2C, 0x2D, 0x2E, 0x2F
 # death; port docs/DAMAGE.md section 5).
 SCREEN_MODULES = (0x27,)
 DEFAULT_MODULES = (3,) + PAGE_MODULES + SCREEN_MODULES
-# (area, room): AREA11 (the New Game's 001FF080(1, 0)) and AREA01 sub 0 (the
+# (area, room): AREA11 (the New Game's 001FF080(1, 0)), AREA01 sub 0 (the
 # level exit's load: Roger's departure requests 001B0C60(1, 0, 4); route beat
-# 15, docs/FIRST_LEVEL_EXIT.md).
-DEFAULT_AREAS = ((0x0B, 0), (0x01, 0))
+# 15, docs/FIRST_LEVEL_EXIT.md) and AREA00 sub 0 (the second level's exit:
+# the open shaft door's area change to area 0 entry 0 sub 0; route beat
+# a01_07, docs/SECOND_LEVEL_ROUTE.md).
+DEFAULT_AREAS = ((0x0B, 0), (0x01, 0), (0x00, 0))
 HEADER = 0x120
 AREA_FILES = 0x17
 D_00264E40, D_00275304, D_00264890 = 0x264E40, 0x275304, 0x264890
@@ -272,7 +274,7 @@ def main():
     ap.add_argument('--modules', default=','.join(f'{m:#x}' for m in DEFAULT_MODULES),
                     help='comma-separated module ids (default 3 and PAGE_MODULES)')
     ap.add_argument('--areas', default=','.join(f'{a:#x}:{r}' for a, r in DEFAULT_AREAS),
-                    help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0)')
+                    help='comma-separated area[:room] for 001FF080(1, 0) (default 0xb:0,0x1:0,0x0:0)')
     ap.add_argument('--out', type=Path, default=ROOT / 'assets/module_loader/modules.emml')
     args = ap.parse_args()
     modules = [int(m, 0) for m in args.modules.split(',') if m.strip()]
