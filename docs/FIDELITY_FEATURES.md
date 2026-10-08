@@ -1975,7 +1975,7 @@ numbers at the same places in each frame as the original.
   The smoke therefore checks each random value as the original code over
   the same draws.
 
-**Level 2 (AREA01): the arrival, the train room, the fire's damage and the east room's terminal match the recordings; the rest runs without a fault but is not compared yet**
+**Level 2 (AREA01): the arrival, the train room, the tunnel, the water and the stairs, the first talk, the fire's damage and the east room's terminal match the recordings; the rest of the level runs without a fault**
 
 The second level's route has been recorded, and the code it newly needs is
 being translated and checked against the original ahead of time, so level 2
@@ -1988,9 +1988,13 @@ footprints run the original code; their pixels are not compared), as do
 the pull-up, the fall and the walk to the tunnel mouth. Touching the
 ground fire hurts the player exactly as in the original, and the east
 room's save terminal opens its prompt and closes on No as in the
-original. The rest of the recorded routes (the tunnel, the water at the
-shaft, the control room, the duct, the talks) now run without stopping,
-but are not compared row for row yet.
+original. So do the tunnel, the water at the shaft, the lower tunnel and
+the stairs up to the shaft landing, and the control room's first talk.
+The rest of the level (the locked shaft door and its conversation, the
+second and third talks, the pickups, the duct, the exit) runs without
+stopping and is compared as far as the voice and page-load timing allows
+(below); hanging and shimmying, climbing the ladder to the ledge,
+shooting and knifing anywhere also run without a fault.
 
 - How: phase 1 recorded the original AREA01 route in PCSX2, ran a census
   delta of the new functions, wrote an area overview and matched the
@@ -2063,9 +2067,26 @@ but are not compared row for row yet.
   fault; those runs are not compared row for row yet (the a01_01 replay's
   first pad command lags in the harness). Accepting the terminal's save
   still stops the game (fail-stop: no memory card is written).
-- Status: **PARTIAL**, arrival idle, the whole train room (a01_00), the
-  fire contact (a01_s3), the east-room terminal declined (a01_s4, PS2
-  drive timing) and the arrival frame's pixels (above). The arrival's rebuild
+- The level-2 check (Claude, 2026-10-08; LEVEL2_CRASHES.md "Level-2
+  check", LEVEL_SMOKE.md "a01_01..a01_07 and the side beats"): with each
+  recording's first-command latency read from the recording, a01_01 (306
+  rows) and a01_02 (591 rows: the water's first contact, the lower tunnel,
+  the stairs) pass with their camera blocks, a01_s0 (the control room and
+  the NPC's first talk, 1,435 rows) and a01_s6 (229 rows) pass with the
+  drive-timing switch; a01_03 (the locked shaft door) matches rows
+  f0..f956 of 991, then the voice line ends one frame early (seven at host
+  speed); a01_s1 / a01_s2 / a01_s5 match up to their pickup's page request
+  (AREA01's page loads answer at host speed). Five reachable faults were
+  fixed with original-instruction oracles (shots near a floor field, the
+  0x35 stairs, the locked door's message request, the hang's side probes
+  and sound, AREA00's disc sectors for the exit). Accepting the save
+  terminal still stops the game (no memory card is written), and the
+  AREA00 arrival after the exit is level 3's work.
+- Status: **PARTIAL**, arrival idle, the train room (a01_00), the tunnel
+  (a01_01), the water and the stairs (a01_02), the control room's first
+  talk (a01_s0, PS2 drive timing), the fire contact (a01_s3), the
+  east-room terminal declined (a01_s4, PS2 drive timing), the raised
+  bridge (a01_s6) and the arrival frame's pixels (above). The arrival's rebuild
   selects AREA01's message bank during that rebuild without resetting its
   service or clearing its stream/presenter bindings. `test-message-area-reference`
   checks 11,956 bank bytes against the capture and 54 service ticks in quick

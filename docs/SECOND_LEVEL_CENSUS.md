@@ -112,7 +112,7 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x00182250 | boot | 100 | M; 00 f358 | live | `em_player_misc_workers.c` | M; A0 | — |
 | 0x001823E0 | boot | 17 | S; s5 f346 | verified-unbound | `em_player_major2.c` | Q | — |
 | 0x00183250 | boot | 104 | M; 04 f1810 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00183250` | M | — |
-| 0x00187DE0 | boot | 45 | M; 02 f39 | verified-unbound | `em_area01_math_player.c` / `em_area01_math_00187DE0` | M | — |
+| 0x00187DE0 | boot | 45 | M; 02 f39 | live | `em_area01_math_player.c` / `em_area01_math_00187DE0` | M | — |
 | 0x00187EC0 | boot | 8 | M; 00 f137 | live | `em_area01_math_player.c` / `em_area01_math_00187EC0` | M; A0 | — |
 | 0x00188550 | boot | 7 | M; 00 f357 | verified-unbound | `em_player_record_helpers.c` | M | — |
 | 0x00188610 | boot | 7 | S; s5 f282 | verified-unbound | `em_area01_room.c` / `em_area01_room_00188610` | Q | — |
@@ -133,17 +133,17 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001B0D80 | boot | 15 | M; 00 f35; E c16534 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B0D80` | S | — |
 | 0x001B13F0 | boot | 31 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001B13F0` | M; G | — |
 | 0x001B2140 | boot | 625 | M; 00 f1; E c16505 | live | `em_area01_math_actor.c` / `em_area01_math_001B2140` | M; G | — |
-| 0x001B6D70 | boot | 52 | M; 03 f142 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B6D70` | S | — |
-| 0x001B76D0 | boot | 9 | M; 03 f431 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001B76D0` | S | — |
-| 0x001B9CF0 | boot | 191 | M; 03 f301 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001B9CF0` | M | — |
+| 0x001B6D70 | boot | 52 | M; 03 f142 | live | `em_area01_sys.c` / `em_area01_sys_001B6D70` | S | — |
+| 0x001B76D0 | boot | 9 | M; 03 f431 | live | `em_area01_sys.c` / `em_area01_sys_001B76D0` | S | — |
+| 0x001B9CF0 | boot | 191 | M; 03 f301 | live | `em_area01_math_owner.c` / `em_area01_math_001B9CF0` | M | — |
 | 0x001BB400 | boot | 71 | S; s4 f250 | live | `em_area01_room.c` / `em_area01_room_001BB400` | Q; S4 | — |
 | 0x001BB520 | boot | 14 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001BB520` | Y; G | — |
 | 0x001BB560 | boot | 152 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BB560` | M | — |
 | 0x001BB7C0 | boot | 10 | S; s4 f246 | live | `em_area01_room.c` / `em_area01_room_001BB7C0` | Q; S4 | — |
 | 0x001BB7F0 | boot | 27 | S; s4 f334 | live | `em_area01_room.c` / `em_area01_room_001BB7F0` | Q; S4 | — |
 | 0x001BB860 | boot | 157 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001BB860` | M; G | — |
-| 0x001BBAE0 | boot | 68 | M; 03 f143 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBAE0` | M | — |
-| 0x001BBBF0 | boot | 75 | M; 03 f75 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BBBF0` | M | — |
+| 0x001BBAE0 | boot | 68 | M; 03 f143 | live | `em_area01_math_owner.c` / `em_area01_math_001BBAE0` | M | — |
+| 0x001BBBF0 | boot | 75 | M; 03 f75 | live | `em_area01_math_owner.c` / `em_area01_math_001BBBF0` | M | — |
 | 0x001BF630 | boot | 31 | M; 00 f1; E c16504 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BF630` | M | — |
 | 0x001BFFD0 | boot | 13 | M; 00 f1; E c16503 | live | `em_area01_math_owner.c` / `em_area01_math_001BFFD0` | M; G | — |
 | 0x001C0004 | boot | 181 | M; 00 f1; E c16503 | verified-unbound | `em_area01_math_owner.c` / `em_area01_math_001BFFD0 (interior piece)` | M | — |
@@ -179,14 +179,14 @@ The rows include the phase-2 prerequisite promotions in §7; the phase-1 totals 
 | 0x001E3D90 | boot | 540 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E3D90` | S; G | — |
 | 0x001E7CB0 | boot | 25 | M; 00 f1; E c16504 | verified-unbound | `em_area01_sys.c` / `em_area01_sys_001E7CB0` | S | — |
 | 0x001E7D20 | boot | 902 | M; 00 f1; E c16503 | live | `em_area01_sys.c` / `em_area01_sys_001E7D20` | S; G | — |
-| 0x001E8B90 | boot | 187 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001E8B90` | R | — |
+| 0x001E8B90 | boot | 187 | M; 02 f39 | live | `em_area01_render_hud.c` / `em_area01_render_001E8B90` | R | — |
 | 0x001E8E80 | boot | 253 | X; 07 f531 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E8E80` | Y | — |
 | 0x001E9280 | boot | 189 | X; 07 f532 | verified-unbound | `em_area01_exitb.c` / `em_area01_exitb_001E9280` | Y | — |
 | 0x001E9580 | boot | 566 | X; 07 f531; E c16503 | live | `em_area01_exitb.c` / `em_area01_exitb_001E9580` | Y; G | — |
 | 0x001E9E60 | boot | 233 | M; 00 f1; E c16504 | live | `em_area01_render_hud.c` / `em_area01_render_001E9E60` | R; G | — |
 | 0x001EAF00 | boot | 31 | M; 00 f138 | live | `em_area01_render_hud.c` / `em_area01_render_001EAF00` | R; A0 | — |
 | 0x001EAF80 | boot | 39 | M; 02 f44 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EAF80` | R | — |
-| 0x001EB020 | boot | 140 | M; 02 f39 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EB020` | R | — |
+| 0x001EB020 | boot | 140 | M; 02 f39 | live | `em_area01_render_hud.c` / `em_area01_render_001EB020` | R | — |
 | 0x001EC270 | boot | 96 | M; 02 f599 | verified-unbound | `em_area01_render_hud.c` / `em_area01_render_001EC270` | R | — |
 | 0x001EFE00 | boot | 43 | S; s3 f208 | verified-unbound | `em_area01_side.c` / `em_area01_side_001EFE00` | D | L |
 | 0x001F0190 | boot | 64 | S; s3 f209 | verified-unbound | `em_area01_side.c` / `em_area01_side_001F0190` | D | L |
@@ -492,6 +492,52 @@ Measured but not promoted:
 |---|---:|---:|
 | live | 56 | 11,286 |
 | verified-unbound | 121 | 18,130 |
+| unverified | 0 | 0 |
+| stand-in | 0 | 0 |
+| missing | 0 | 0 |
+| boundary | 2 | 131 |
+
+## 13. The level-2 check (2026-10-08)
+
+Since the harness reads each recording's first-command latency
+(LEVEL_SMOKE.md "a01_01..a01_07 and the side beats"), the main line is
+compared past a01_00. Promoted under §6's rule, each first call measured
+natively by a private lldb run of the checked binary (sha256 prefix
+addee40a967d4a8d; one-shot breakpoints logging `em_frame_counter()`,
+the replay of the main line with `EM_PS2_DISC_DRIVE_TIMING=1`; receipts in
+ignored `build/l2check/census/`), equal to the census frame, inside a
+compared window of the same binary's run (`build/l2check/smoke4/main06`):
+
+Key **M2**: a01_02 (`--until a01_06` with the switch): **PASS, 591 rows**
+and the ending camera block; row 0 = port counter 16445. Key **M3**: a01_03,
+the same run: rows **f0..f956 exact** of 991 (row f957: the voice line
+ends a frame early); row 0 = 17036.
+
+| Row | Original caller | Live adapter | Native first call | Key |
+|---|---|---|---|---|
+| 00187DE0 | the floor service 00175900, surface 0x5B's first contact | `em_area01_runtime_call` → `em_area01_math_00187DE0` | 16484 = a01_02 f39 (census f39) | M2 |
+| 001E8B90 | the first contact's ripple (effect binder) | → `em_area01_render_001E8B90` | 16484 = f39 (census f39) | M2 |
+| 001EB020 | 001EA240's subtype 0xE handler (the splash) | → `em_area01_render_001EB020` | 16484 = f39 (census f39) | M2 |
+| 001BBBF0 | the shaft door's door program, op09 record callback (`em_area01_script_live.c` record()) | → `em_area01_math_001BBBF0` | 17111 = a01_03 f75 (census f75) | M3 |
+| 001B6D70 | script 0x8298E0's stream/scene sound selector callback | → `em_area01_sys_001B6D70` | 17178 = f142 (census f142) | M3 |
+| 001BBAE0 | the door program's op09 message request (D_002821B0, the live message block) | → `em_area01_math_001BBAE0` | 17179 = f143 (census f143) | M3 |
+| 001B9CF0 | script 0x8298E0's op09 callback | → `em_area01_math_001B9CF0` | 17337 = f301 (census f301) | M3 |
+| 001B76D0 | script 0x8298E0's op09 callback | → `em_area01_sys_001B76D0` | 17467 = f431 (census f431) | M3 |
+
+Measured but not promoted (same run): 001EAF80 first at a01_02 f45
+(census f44); 001EC270 at f451 (census f599, past the trace's 590
+frames: the census replay's own timing); 001B0300 at a01_04 f1803 (census
+f1810) and 00825130 / 00825240 at a01_05 f138 / f2490 (census f139 /
+f2491): those windows are not compared (a01_03's voice-line row shifts
+what follows). 0015B610, 00183250, 00825590 and 00825670 were not called
+through their symbols in this run. The other bindings of the check
+(001A8CE0, the hang's 001784E0 / 0017E6E0 / 0017F1C0 / 0017F130, the
+0x35 axis, the camera seed's fourth lane) have no row in §4.
+
+| Current AREA01 status | Entries | Instructions |
+|---|---:|---:|
+| live | 64 | 12,053 |
+| verified-unbound | 113 | 17,363 |
 | unverified | 0 | 0 |
 | stand-in | 0 | 0 |
 | missing | 0 | 0 |

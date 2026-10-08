@@ -14,6 +14,47 @@ is [SECOND_LEVEL_CENSUS.md](SECOND_LEVEL_CENSUS.md). The work was done on
 the branch `level2` (Codex, then Claude) and merged into main on
 2026-10-04; the branch and its worktree are gone. No emulator was launched.
 
+## State (2026-10-08, the level-2 check)
+
+**What a player can do in AREA01 now, without a fault** (every
+exploration case and recorded replay, LEVEL2_CRASHES.md "Level-2 check"):
+arrive and walk the train room; wade through its floor fields; touch the
+ground fires (damage and reaction); grab, hang on, shimmy along and pull
+up onto the crate stack, Use on top of it, step off its edges; knife the
+crates; aim and fire anywhere (including at the stack, the water and the
+catwalk bugs); open and leave the status screen and its pages; climb the
+west ladder to the y-25 ledge, take its pickup, walk the west walkway and
+drop into the tunnel; walk the tunnel, cross the water (depth 1), knife and
+shoot in it, take the DATA BASE pickup; walk the lower tunnel and up the
+shaft-landing stairs; try the locked shaft door (its message and the
+conversation); enter the control room, talk to the NPC (all three talks),
+shoot and knife him, take its two pickups; crawl the duct and take its
+pickup; enter the east room and decline the save terminal; return; after
+the second talk open the shaft door and leave the level (the AREA00 load
+completes).
+
+**Compared with the recordings row for row:** the arrival, a01_00 (781),
+a01_01 (306), a01_02 (591) and the side beats a01_s0 (1,435, drive-timing
+switch), a01_s3 (262), a01_s4 (1,225, switch), a01_s6 (229), each with
+its ending camera block; a01_03 rows f0..f956 (the voice line then ends a
+frame early); a01_s1, a01_s2, a01_s5 up to their pickup's page request
+(AREA01's page reads answer at host speed). LEVEL_SMOKE.md "a01_01..a01_07
+and the side beats".
+
+**Still faults:** accepting the save terminal (00225AC0: module 0x2A, the
+memory-card screens); the AREA00 arrival after the exit (level 3's assets
+and binding). Not reached: a bug hit and the bug's reaction, deep water,
+the nest crate (north room), the conditional reaction effects and hang /
+ledge branches LEVEL2_CRASHES.md lists.
+
+Bound in this check (port 4207f43..137e1a7): 001A8CE0; the 0x35 grid axis
+in the move and ground adapters; D_002821B0 in the AREA01 view; the hang
+leaves 001784E0 / 0017E6E0 / 0017F1C0 / 0017F130, the hang sound 00182AF0
+and the misc lane's 001B1380 / 001FB9F0; the camera seed's fourth lane;
+AREA00 sub 0 in the module pack; the model bank seated at the loader's
+word; the harness's first-command latency. Census: SECOND_LEVEL_CENSUS §13
+(64 live).
+
 ## State (2026-10-07, the AREA01 crash sweep merged)
 
 Codex's crash sweep (branch level2-crash, LEVEL2_CRASHES.md) is merged
