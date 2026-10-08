@@ -92,9 +92,10 @@ GROUND, GRID78, LADDER, ATTR_CELLS, ATTR_GRID, COLUMN = 0x19B7D0, 0x19E280, 0x19
 P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P8660, P9000, P97B0, P9B10 = (
     0x1A9D20, 0x1A8DA0, 0x1A9F60, 0x1AA140, 0x1A7870, 0x1A8BE0, 0x1A8660, 0x1A9000, 0x1A97B0, 0x1A9B10)
 P9C40 = 0x1A9C40      # 001A9D20's pair callee: hooked for the passes, executed on its own
+P8CE0 = 0x1A8CE0      # 001A8DA0's pair callee: the same
 HOOK_ORDER = (P9D20, P8DA0, P9F60, PA140, P7870, P8BE0, P9000, P97B0, P9B10)   # 001AAD00
 WHICH = {P9D20: 0, P8DA0: 1, P9F60: 2, PA140: 3, P7870: 4, P8BE0: 5, P9000: 6, P97B0: 7, P9B10: 8,
-         'hooks': 10, P8660: 9, P9C40: 11}
+         'hooks': 10, P8660: 9, P9C40: 11, P8CE0: 12}
 PAIR_WORKERS = (0x1A8840, 0x1A8970, 0x1A8CE0, 0x1A8E80, 0x1A8F40, 0x1A9360, 0x1A96F0, 0x1A9480,
                 0x1A99E0, 0x1A9C40, 0x1A9E00)
 QUAD_WORKER, BD10 = 0x1AA000, 0x21BD10
@@ -430,7 +431,7 @@ uint32_t lp_fault(LBridge *b) { return b->passes.fault; }
 int lp_bound(LBridge *b) { return em_coll_list_passes_bound(&b->passes); }
 
 /* which: 0..8 the nine hooks (001AAD00 order), 9 001A8660(player, entry),
- * 10 the whole hook sequence, 11 001A9C40(player, entry) (any two records); drop (fault cases): 1 unbinds 001A9C40, 2 the
+ * 10 the whole hook sequence, 11 001A9C40(player, entry) (any two records), 12 001A8CE0(outer, inner); drop (fault cases): 1 unbinds 001A9C40, 2 the
  * normalize worker; 3..6 bind the unported variants for 001A8840, 001AA000,
  * 0021BD10 and the +0x34 behaviour. */
 int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_t entry, int drop)
@@ -460,6 +461,7 @@ int lp_run(LBridge *b, int which, EmCollListGlobals *g, uint32_t player, uint32_
     case 9: r = em_coll_list_001A8660(p, player, entry); break;
     case 10: r = em_coll_list_passes_001AAD00_hooks(p, player); break;
     case 11: r = em_coll_list_001A9C40(p, player, entry); break;
+    case 12: r = em_coll_list_001A8CE0(p, player, entry); break;
     default: r = -9;
     }
     p->workers = saved;
@@ -1568,8 +1570,8 @@ class ListWorld:
         ee = self.ee
         self.script, self.bd10, self.calls = dict(script or {}), bd10, []
         self.hooks(self.behaviour_fns())
-        if which == P9C40:
-            del self.ee.hooks[P9C40]     # executed, not a boundary
+        if which in (P9C40, P8CE0):
+            del self.ee.hooks[which]     # executed, not a boundary
         g = self.globals()
         if drop:     # a fail-stop case: the native side alone
             code = WHICH[which]
@@ -1589,7 +1591,7 @@ class ListWorld:
             if which == 'hooks':
                 for entry_addr in HOOK_ORDER:
                     ee.call(entry_addr, (player,) if entry_addr in (P9F60, P8BE0) else ())
-            elif which in (P8660, P9C40):
+            elif which in (P8660, P9C40, P8CE0):
                 ee.call(which, (player, entry))
             else:
                 ee.call(which, (player,) if which in (P9F60, P8BE0) else ())
@@ -2055,6 +2057,48 @@ def run_synthetic_lists(item):
         w.restore()
     out['c40'] = (w.nruns - staged0, flagged)
     out['runs'] += w.nruns - staged0
+    # 001A8CE0 (001A8DA0's pair callee) executed on its own: the outer point
+    # against the inner box (half sizes 3 / 5 / 7 at the inner +0x30 word;
+    # y gets +0.5) at each face exactly, one ulp beyond, on both sides, one
+    # axis at a time and all three inside; the outer +0x0A's prior value and
+    # a nonzero 0x70003B86 (cleared only on a hit).
+    staged0 = w.nruns
+    hit8ce0 = [0, 0]
+    box = SYN + 0x100
+    half = (3.0, 5.0, 7.0)
+    reach = (3.0, 5.5, 7.0)          # the y face is 0.5 + w[1]
+    deltas = [(0.0, 0.0, 0.0), (1.0, 2.0, -3.0), (-2.5, -5.25, 6.5)]
+    for axis in range(3):
+        for sign in (1.0, -1.0):
+            for v in (reach[axis], ulps(reach[axis], 1)):
+                d = [0.0, 0.0, 0.0]
+                d[axis] = sign * v
+                deltas.append(tuple(d))
+    for d in deltas:
+        for preset in (0, 0xFE):
+            for counter in (0, 7):
+                w.poke(box, struct.pack('<3f', *half))
+                w.poke(e2 + 0x30, struct.pack('<I', box))
+                w.poke(e1 + 0xB0, struct.pack('<3f', 0.0, 0.0, 0.0))
+                w.poke(e2 + 0xB0, struct.pack('<3f', *[f32(-d[j]) for j in range(3)]))
+                w.poke(e1 + 0xA, bytes([preset]))
+                w.ee.spad[0x3B86:0x3B88] = struct.pack('<h', counter)
+                w.run(f'staged 001A8CE0 d {d} +0A {preset:#x} 3B86 {counter}', P8CE0, player=e1, entry=e2)
+        w.poke(box, struct.pack('<3f', *half))
+        w.poke(e2 + 0x30, struct.pack('<I', box))
+        w.poke(e1 + 0xB0, struct.pack('<3f', 0.0, 0.0, 0.0))
+        w.poke(e2 + 0xB0, struct.pack('<3f', *[f32(-d[j]) for j in range(3)]))
+        w.poke(e1 + 0xA, bytes([0]))
+        w.hooks(w.behaviour_fns())
+        del w.ee.hooks[P8CE0]
+        w.ee.call(P8CE0, (e1, e2))
+        got = w.ee.mem[e1 + 0xA]
+        want = int(all(abs(d[j]) <= reach[j] for j in range(3)))
+        assert got == want, ('001A8CE0 staged outcome', d, got, want)
+        hit8ce0[got] += 1
+        w.restore()
+    out['c8ce0'] = (w.nruns - staged0, hit8ce0)
+    out['runs'] += w.nruns - staged0
     # Fail-stop: an unbound worker faults before any write; an explicitly
     # unported worker faults when reached.
     r, fault = w.run('drop 001A9C40', P9D20, drop=1)
@@ -2183,6 +2227,9 @@ def main():
     c40 = sum(o['c40'][0] for o in syn)
     c40_flagged = [sum(o['c40'][1][k] for o in syn) for k in (0, 1)]
     assert c40 > 0 and all(c40_flagged), ('coverage: 001A9C40 inside and outside its radius', c40, c40_flagged)
+    c8ce0 = sum(o['c8ce0'][0] for o in syn)
+    c8ce0_hit = [sum(o['c8ce0'][1][k] for o in syn) for k in (0, 1)]
+    assert c8ce0 > 0 and all(c8ce0_hit), ('coverage: 001A8CE0 inside and outside its box', c8ce0, c8ce0_hit)
     pushes, tiny, knock = (sum(o[k] for o in syn) for k in ('pushes', 'tiny', 'knock'))
     wanted = set(PAIR_WORKERS) | {QUAD_WORKER, BD10, -1}
     assert set(by_id) == wanted, ('coverage: workers never reached', sorted(hex(x) for x in wanted - set(by_id)))
@@ -2217,6 +2264,9 @@ def main():
     print(f'001A9C40 executed: {c40} staged runs (every type 0..9 and 0x13 / 0x80 / 0xFF, the +0 bit 1 gate, '
           f'the radii 15 / 20 at equality and one ulp beyond), outcomes inside / outside '
           f'{c40_flagged[1]} / {c40_flagged[0]} PASS')
+    print(f'001A8CE0 executed: {c8ce0} staged runs (each box face at equality and one ulp beyond, both '
+          f'signs, the +0x0A preset and the 0x70003B86 walk counter), outcomes inside / outside '
+          f'{c8ce0_hit[1]} / {c8ce0_hit[0]} PASS')
     reference_mode.banner(reference_mode.part(picked_rows, total_rows, 'route rows'),
                           f'{wcases} walker cases', f'{rruns + sruns} list-pass runs')
 

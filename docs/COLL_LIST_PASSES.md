@@ -35,6 +35,7 @@ the census rows), and since the one-owner step (2026-09-27, census 1.28)
 | 001A8660 | BM | missing | **live** (chain step A11FIX: the flame on the class-0xD list; chain step DAMAGE: its knock-back table and the contact's 001EFE00 bound, DAMAGE.md) | The player (a0) against one class-0xD type-1 entry: x/z circle test (0011E748) and the height test (half heights from the +0x30 records); on overlap the entry's +0x34 behaviour(entry, player, player + 0xB0); if the player's state byte is 1: 0021BD10 for +0xD = 0xB (player +0xF = 2), the knock-back speed from D_0024A740/D_0024A780 by D_0081070A into +0x22C (+0xD 3/4) or +0x224, state = 3, the direction normalize(player +0xA0 - entry +0xB0, w = 1) into +0x70; then 0x70003B86 = 0 (ends 001A8BE0's walk). |
 | 001A8BE0 | BM | stand-in (em_enemy.c legacy pair/contact pass) | verified-unbound | Unless D_0028A9A0 or 0x70003B8D is set: walks the class-0xD live list with the counter in 0x70003B86; active entries by type: 1 -> 001A8660, 3 -> 001A8840, 5 -> 001A8970. |
 | 001A8DA0 | BM | missing | verified-unbound | Class-1 x class-0xD: for each active outer entry, the inner walk (0x70003B86) calls 001A8CE0(outer, inner) for active type-3 entries with +0xD 0. |
+| 001A8CE0 | asm body (decomp `asm void`); translated from the instructions | missing | live (2026-10-08) | 001A8DA0's pair callee: the outer record's +0xB0 point inside the inner record's box, the three half sizes at the inner +0x30 pointer (re-read per axis): \|dx\| <= w[0], then \|dz\| <= w[2], then \|dy\| <= 0.5 + w[1], each \|d\| through 0011DF78; inside: the outer +0x0A = 1 and 0x70003B86 = 0 (the inner walk ends). First reached in AREA01 by shots near a floor field (0015A2C0, class 0xD type 3). Executed on its own by the oracle. |
 | 001A9000 | BM | stand-in (em_enemy.c legacy contact pass) | verified-unbound | Class-0xD type-5 entries (+0xD != 0xB, status 1) against the class-4 list (0x70003B88): types 0xA/0xC/0x18/0x2A -> 001A8F40; 6/0x1E -> 001A8E80; 0x1C/0x50/0x1F -> 001A8E80 unless D_00810700 == 0 and D_00810702 == 5. |
 | 001A97B0 | BM | missing | verified-unbound | Class-0xD entries (status 1; type 3 with +0xD 0 and +0x56 != 0, type 5, or type 6 with +0xD 2) against the class-2 list (status 1, class byte not 0xA): inner types 0, 2..7, 9..11, 16..19, and 1 unless (+0xD 3 and (+5 == 9 or D_00810354 < 50.0)); handler by the outer type: 5 -> 001A9360, 3 -> 001A96F0, else 001A9480. |
 | 001A9B10 | BM | missing | verified-unbound | Class-2 type-0 entries whose +0x2D4 word >> 8 is 1..3 against the class-4 list: type 7 with a nonzero +0x38 float -> 001A99E0(outer, inner). |
@@ -530,9 +531,10 @@ item 3 since 2026-09-27. What each translation replaced and what it needs:
      (for AREA11's 0x00823580, an overlay routine with no translation yet,
      so `em_coll_list_passes_unported_behaviour` until it has one);
      `em_coll_list_passes_unported` for the pair workers 001A8840,
-     001A8970, 001A8CE0, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480,
+     001A8970, 001A8E80, 001A8F40, 001A9360, 001A96F0, 001A9480,
      001A99E0 and 001A9E00 (001A9C40 is bound to its translation
-     `em_coll_list_passes_001A9C40` since 2026-10-02); `em_coll_list_passes_unported_001AA000`
+     `em_coll_list_passes_001A9C40` since 2026-10-02, 001A8CE0 to
+     `em_coll_list_passes_001A8CE0` since 2026-10-08); `em_coll_list_passes_unported_001AA000`
      and `em_coll_list_passes_unported_0021BD10` for those two. Keep each
      binding until its callee is translated. None of these callees ran on
      the census route, so the route never reaches the fault. A reached one
@@ -625,4 +627,29 @@ walked it against the class-2 list (Roger) and reached 001A9C40, which was
   staged runs compared byte for byte, and a separate pass asserts both
   outcomes (inside / outside) on the original. Inside the passes it stays
   a hooked boundary (the passes' worker log compares its calls).
+
+## 2026-10-08: 001A8CE0 bound (level-2 check)
+
+Shooting in AREA01 near one of the floor fields (the 0015A2C0 nodes,
+class 0xD type 3, +0xD 0, whose +0x30 record holds the field's box) made
+001A8DA0 reach its pair callee 001A8CE0, still `em_coll_list_passes_unported`:
+the scene faulted at 001A8E40 (the call site) on the first shot aimed up
+at the east catwalk bugs from (98.7, 0, -607.5), and likewise when firing at
+the crate stack. Now:
+
+- `em_coll_list_001A8CE0` translates it from the instructions (the decomp
+  holds it as an `asm void` body): the three axis tests in the original's
+  order x, z, y, each the difference of the two +0xB0 points through the
+  SDK fabsf 0011DF78 against the box word re-read through the inner +0x30
+  pointer, y against 0.5 + w[1]; inside, the outer +0x0A byte = 1 and the
+  walk counter 0x70003B86 = 0. Bound in em_collision_world.
+- tools/test_coll_list_passes_reference.py runs it on its own in every
+  world (`P8CE0`, native case 12): each box face at equality and one ulp
+  beyond on both sides, one axis at a time and all three inside, with the
+  outer +0x0A preset 0 / 0xFE and the counter 0 / 7: 900 staged runs
+  compared byte for byte (RAM, scratchpad and the counters), and a
+  separate pass asserts both outcomes on the original (135 inside, 90
+  outside). Inside the passes it stays a hooked boundary.
+- The AREA01 probes that faulted (`bugs`, `stackshots`, LEVEL2_CRASHES.md
+  "Level-2 check") now complete: 16 and 20 shots, no fault.
 

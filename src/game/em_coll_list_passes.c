@@ -11,6 +11,7 @@
 
 #include "game/em_ee_float.h"
 #include "game/em_effect_original.h"
+#include "game/em_sdk_math_original.h"
 #include "game/em_sdk_soft_float.h"
 
 typedef EmCollListPasses P;
@@ -222,6 +223,48 @@ int em_coll_list_001A9D20(P *p)
         }
     }
     return 0;
+}
+
+/* ---- 001A8CE0 ---------------------------------------------------------------- */
+
+/* 001A8DA0's pair callee (outer class 1, inner class-0xD type 3): the outer
+ * record's +0xB0 point inside the inner record's box, whose half sizes are
+ * the three words at the inner record's +0x30 pointer (re-read for each
+ * axis): |dx| <= w[0], then |dz| <= w[2], then |dy| <= 0.5 + w[1], each
+ * |d| through 0011DF78. Inside: the outer +0x0A = 1 and 0x70003B86 = 0
+ * (001A8DA0's inner walk ends). */
+int em_coll_list_001A8CE0(P *p, uint32_t self, uint32_t other)
+{
+    if (!ready(p)) return p ? fail(p, 0x1A8CE0) : -1;
+    float a, b, half;
+    uint32_t box;
+    TRY(rd_f(p, self + 0xB0, &a, 0x1A8CF0));
+    TRY(rd_f(p, other + 0xB0, &b, 0x1A8CF4));
+    float d = em_sdk_math_original_0011DF78(em_ee_sub(a, b));          /* 0x1A8D00, 0x1A8D04 */
+    TRY(rd_u32(p, other + 0x30, &box, 0x1A8D08));
+    TRY(rd_f(p, box, &half, 0x1A8D0C));
+    if (!em_ee_c_le(d, half)) return 0;                               /* 0x1A8D10, 0x1A8D18 */
+    TRY(rd_f(p, self + 0xB8, &a, 0x1A8D20));
+    TRY(rd_f(p, other + 0xB8, &b, 0x1A8D24));
+    d = em_sdk_math_original_0011DF78(em_ee_sub(a, b));               /* 0x1A8D28, 0x1A8D2C */
+    TRY(rd_u32(p, other + 0x30, &box, 0x1A8D30));
+    TRY(rd_f(p, box + 8, &half, 0x1A8D34));
+    if (!em_ee_c_le(d, half)) return 0;                               /* 0x1A8D38, 0x1A8D40 */
+    TRY(rd_f(p, self + 0xB4, &a, 0x1A8D48));
+    TRY(rd_f(p, other + 0xB4, &b, 0x1A8D4C));
+    d = em_sdk_math_original_0011DF78(em_ee_sub(a, b));               /* 0x1A8D50, 0x1A8D54 */
+    TRY(rd_u32(p, other + 0x30, &box, 0x1A8D58));
+    TRY(rd_f(p, box + 4, &half, 0x1A8D64));
+    if (!em_ee_c_le(d, em_ee_add(0.5f, half))) return 0;              /* 0x1A8D68..0x1A8D74 */
+    TRY(wr_u8(p, self + 0xA, 1, 0x1A8D80));
+    p->globals->s3B86 = 0;                                            /* 0x1A8D88 */
+    return 0;
+}
+
+int em_coll_list_passes_001A8CE0(void *context, EmCollListPasses *passes, uint32_t a, uint32_t b)
+{
+    (void)context;
+    return em_coll_list_001A8CE0(passes, a, b);
 }
 
 /* ---- 001A8DA0 ---------------------------------------------------------------- */

@@ -331,7 +331,9 @@ static void bind_passes(void)
      * The other callers remain unavailable (COLL_LIST_PASSES.md). */
     k->w_001A8840 = area_001A8840;
     k->w_001A8970 = em_coll_list_passes_unported;
-    k->w_001A8CE0 = em_coll_list_passes_unported;
+    /* 001A8DA0's pair callee, translated (first reached in AREA01 by a
+     * shot near a floor field; COLL_LIST_PASSES.md). */
+    k->w_001A8CE0 = em_coll_list_passes_001A8CE0;
     k->w_001A8E80 = em_coll_list_passes_unported;
     k->w_001A8F40 = em_coll_list_passes_unported;
     k->w_001A9360 = em_coll_list_passes_unported;
