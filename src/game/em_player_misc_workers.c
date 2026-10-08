@@ -47,9 +47,11 @@
 #define K_M9       UINT32_C(0xC1100000)
 #define K_9_99     UINT32_C(0x411FD70A)
 #define K_10       UINT32_C(0x41200000)
+#define K_M10      UINT32_C(0xC1200000)
 #define K_12       UINT32_C(0x41400000)
 #define K_14       UINT32_C(0x41600000)
 #define K_18       UINT32_C(0x41900000)
+#define K_19       UINT32_C(0x41980000)
 #define K_19_5     UINT32_C(0x419C0000)
 #define K_20       UINT32_C(0x41A00000)
 #define K_20_5     UINT32_C(0x41A40000)
@@ -580,6 +582,78 @@ int em_player_misc_0017E7C0(EmPlayerMiscHost *h, EmPlayerLiveActor *a, int32_t s
     FAULT(w->vadd(c, s->s38F0, s->s38D0, s->s3900));
     FAULT(w->sweep(c, a, s->s38E0, s->s38F0, 7, &r));
     *result = r != 0 ? 1 : 0xA;
+    return 0;
+}
+
+/* ---- the hang probes 001784E0 / 0017E6E0 / 0017F1C0 / 0017F130 ---------- */
+
+/* 001784E0(p): 38A0 = (0, 20, -9, 1), 38B0 = (+2F1 == 0 ? -10 : 10, 20, -9, 1),
+ * both through the record's +D0 matrix into 38C0 / 38D0 (001026A0), then
+ * 0019AFE0(p, 38C0, 38D0, 7); a result with bit 1 or 2 returns
+ * 00178910(p, 1)'s value, any other 0. */
+int em_player_misc_001784E0(EmPlayerMiscHost *h, EmPlayerLiveActor *a, int32_t *result)
+{
+    if (!a || !result || !bound(h, N_TRANSFORM | N_SWEEP | N_LEDGE_TOP, 0, 1)) return -1;
+    const EmPlayerMiscWorkers *w = h->workers;
+    EmPlayerMiscScratch *s = h->scratch;
+    void *c = w->context;
+    set_quad(s->s38A0, K_0, K_20, K_M9, K_1);
+    set_quad(s->s38B0, u8(a, 0x2F1) == 0 ? K_M10 : K_10, K_20, K_M9, K_1);
+    FAULT(w->transform(c, s->s38C0, field(a, 0xD0), s->s38A0));
+    FAULT(w->transform(c, s->s38D0, field(a, 0xD0), s->s38B0));
+    int32_t r = 0;
+    FAULT(w->sweep(c, a, s->s38C0, s->s38D0, 7, &r));
+    *result = 0;
+    if (r & 6) FAULT(w->ledge_top(c, a, 1, result));
+    return 0;
+}
+
+/* 0017E6E0(p, side, x, y): 38A0 = (0, x, y, 1), 38B0 = (side == 0 ? -4.5 :
+ * 4.5, x, y, 1), both through +D0 into 38C0 / 38D0, then 0019AFE0(p, 38C0,
+ * 38D0, 7), whose v0 the routine leaves as its own. */
+int em_player_misc_0017E6E0(EmPlayerMiscHost *h, EmPlayerLiveActor *a, int32_t side, float x, float y,
+                            int32_t *result)
+{
+    if (!a || !result || !bound(h, N_TRANSFORM | N_SWEEP, 0, 1)) return -1;
+    const EmPlayerMiscWorkers *w = h->workers;
+    EmPlayerMiscScratch *s = h->scratch;
+    void *c = w->context;
+    set_quad(s->s38A0, K_0, fbits(x), fbits(y), K_1);
+    set_quad(s->s38B0, side == 0 ? K_M4_5 : K_4_5, fbits(x), fbits(y), K_1);
+    FAULT(w->transform(c, s->s38C0, field(a, 0xD0), s->s38A0));
+    FAULT(w->transform(c, s->s38D0, field(a, 0xD0), s->s38B0));
+    return w->sweep(c, a, s->s38C0, s->s38D0, 7, result);
+}
+
+/* 0017F1C0(p): 38A0 = (0, 10, 5, 1) through +D0 into 38B0, then
+ * 0019AD00(p, 38B0, 7), whose v0 the routine leaves as its own. */
+int em_player_misc_0017F1C0(EmPlayerMiscHost *h, EmPlayerLiveActor *a, int32_t *result)
+{
+    if (!a || !result || !bound(h, N_TRANSFORM | N_MOVE, 0, 1)) return -1;
+    const EmPlayerMiscWorkers *w = h->workers;
+    EmPlayerMiscScratch *s = h->scratch;
+    void *c = w->context;
+    set_quad(s->s38A0, K_0, K_10, K_5, K_1);
+    FAULT(w->transform(c, s->s38B0, field(a, 0xD0), s->s38A0));
+    return w->move(c, a, s->s38B0, 7, result);
+}
+
+/* 0017F130(p, side): area 4: 0017E6E0(p, side, 0, 1); area 0x11 with +316
+ * set: 0017E6E0(p, side, 19, 1); 1 when that probe returns nonzero, else
+ * (and in every other area) 0. `side` is the a1 the caller leaves. */
+int em_player_misc_0017F130(EmPlayerMiscHost *h, EmPlayerLiveActor *a, int32_t side, int32_t *result)
+{
+    if (!a || !result || !bound(h, N_EDGE, 1, 0)) return -1;
+    const EmPlayerMiscWorkers *w = h->workers;
+    int32_t r = 0;
+    *result = 0;
+    if (h->scene->d810700 == 4) {
+        FAULT(w->edge(w->context, a, side, bfloat(K_0), bfloat(K_1), &r));
+        if (r != 0) *result = 1;
+    } else if (h->scene->d810700 == 0x11 && u8(a, 0x316) != 0) {
+        FAULT(w->edge(w->context, a, side, bfloat(K_19), bfloat(K_1), &r));
+        if (r != 0) *result = 1;
+    }
     return 0;
 }
 

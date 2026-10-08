@@ -1000,7 +1000,6 @@ static int x_00188610(void *c, EmPlayerLiveActor *a, int *clip)
     return L.crawl_clip(L.crawl_clip_context, a, clip);
 }
 STUB_ACTOR(x_0021C200, "0021C200 (reaction)")
-STUB_ACTOR(x_00182AF0, "00182AF0 (sound base + 0x100)")
 STUB_ACTOR(x_0015C1F0, "0015C1F0 (player model kind select: 001CA6E0 / 00200890 are not bound)")
 static int x_stream_check(void *c) { (void)c; return unbound("001FAFD0 (0021C190's stream test)"); }
 static int x_camera_1B0460(void *c, int a0) { (void)c; (void)a0; return unbound("001B0460 (camera re-init)"); }
@@ -1148,6 +1147,10 @@ static int w_ledge_ahead(void *c, EmPlayerLiveActor *a, const float v[4], int *r
 { (void)c; MISC_IN(); int x = em_player_misc_w_ledge_ahead(&L.misc, a, v, r); MISC_OUT(); return x; }
 static int w_ledge_above(void *c, EmPlayerLiveActor *a, int *r)
 { (void)c; MISC_IN(); int x = em_player_misc_w_ledge_above(&L.misc, a, r); MISC_OUT(); return x; }
+/* 00182AF0 (the hang's sound: 00179B90's base + 0x100 through 001FBD50):
+ * its translation over the misc lane (em_player_misc_workers.c). */
+static int w_sound_100(void *c, EmPlayerLiveActor *a)
+{ (void)c; MISC_IN(); int x = em_player_misc_w_sound_100(&L.misc, a); MISC_OUT(); return x; }
 static int w_ledge_side(void *c, EmPlayerLiveActor *a, int side, int *r)
 { (void)c; MISC_IN(); int x = em_player_misc_w_ledge_side(&L.misc, a, side, r); MISC_OUT(); return x; }
 #define MISC_CLIP(name, fn) \
@@ -1884,17 +1887,31 @@ static int mw_normalize(void *c, float out[4], const float in[4])
 { (void)c; em_effect_original_00102760(out, in); return 0; }
 static int mw_dot(void *c, const float a[4], const float b[4], float *r)
 { (void)c; return em_coll_probe_sdk_dot(r, a, b); }
+/* 001FBF50's pan side 001B1380: the script host's translation over the
+ * world's SDK context (as the AREA01 audio services bind it). */
 static int mw_side(void *c, const float from[4], const float to[4], float yaw, int32_t *result)
 {
-    (void)c; (void)from; (void)to; (void)yaw;
-    if (result) *result = 0;
-    return unbound("001B1380 in 001FBF50's pan (the misc lane's 001FBD50 path)");
+    (void)c;
+    if (!L.sdk) return unbound("001B1380 in 001FBF50's pan without the SDK context");
+    EmScriptHostWorkers side;
+    memset(&side, 0, sizeof side);
+    side.world.sdk_tables = L.sdk->tables;
+    side.world.sdk_world = &L.sdk->world;
+    side.world.sdk_workers = &L.sdk->workers;
+    int rc = em_script_host_w_001B1380(&side, from, to, yaw, result);
+    return rc < 0 || side.fault_address ? -1 : 0;
 }
+/* 001FB9F0(id, 0x1000, a, b), 001FBD50's submit with the gains 001FBF50
+ * computed: the live submit with explicit request words (em_sfx; the
+ * binding the AREA01 runtime's 001FB9F0 uses), returning its track. */
 static int mw_submit(void *c, int32_t id, int32_t a1, int32_t a2, int32_t a3, int32_t *result)
 {
-    (void)c; (void)id; (void)a1; (void)a2; (void)a3;
-    if (result) *result = -1;
-    return unbound("001FB9F0 (the SFX submit of the misc lane's 001FBD50)");
+    (void)c;
+    if (id < 0 || a1 != 0x1000)
+        return unbound("001FB9F0 from 001FBD50 with a request word other than 0x1000");
+    int32_t track = em_sfx_submit_001FB9F0_track((unsigned)id, a2, a3);
+    if (result) *result = track;
+    return 0;
 }
 static int mw_sound_base(void *c, EmPlayerLiveActor *a, int32_t *base)
 {
@@ -1910,8 +1927,11 @@ static int mw_clip_0(void *c, EmPlayerLiveActor *a, int32_t *clip)
 { int r = 0; int x = x_00188570(c, a, &r); *clip = r; return x; }
 static int mw_clip_1(void *c, EmPlayerLiveActor *a, int32_t *clip)
 { int r = 0; int x = x_00188590(c, a, &r); *clip = r; return x; }
+/* 0017F1C0, 0017E6E0, 001784E0 and 0017F130: their translations over the
+ * same host (em_player_misc_workers.c; the scratch is the one the calling
+ * routine uses, as the original's 0x700038A0..). */
 static int mw_ahead(void *c, EmPlayerLiveActor *a, int32_t *r)
-{ (void)c; (void)a; if (r) *r = 0; return unbound("0017F1C0 (the probe ahead)"); }
+{ (void)c; return em_player_misc_0017F1C0(&L.misc, a, r); }
 static int mw_move(void *c, EmPlayerLiveActor *a, const float target[4], uint32_t mask, int32_t *result)
 { (void)c; int r; FAULT(w_move_mask(a, target, mask, &r, NULL)); *result = r; return 0; }
 static int mw_sweep(void *c, EmPlayerLiveActor *a, const float from[4], const float to[4], uint32_t mask,
@@ -1959,16 +1979,16 @@ static int mw_hit_point_word(void *c, uint32_t offset, uint32_t *bits)
     return -1;
 }
 static int mw_edge(void *c, EmPlayerLiveActor *a, int32_t side, float x, float y, int32_t *r)
-{ (void)c; (void)a; (void)side; (void)x; (void)y; if (r) *r = 0; return unbound("0017E6E0 (the edge probe)"); }
+{ (void)c; return em_player_misc_0017E6E0(&L.misc, a, side, x, y, r); }
 static int mw_grab(void *c, EmPlayerLiveActor *a, int32_t *r) { int v = 0; int x = x_001782A0(c, a, &v); *r = v; return x; }
 static int mw_grab_33(void *c, EmPlayerLiveActor *a, int32_t *r)
 { (void)c; (void)a; if (r) *r = 0; return unbound("00178440 (grab, surface 0x33)"); }
 static int mw_reach(void *c, EmPlayerLiveActor *a, int32_t *r)
-{ (void)c; (void)a; if (r) *r = 0; return unbound("001784E0 (reach)"); }
+{ (void)c; return em_player_misc_001784E0(&L.misc, a, r); }
 static int mw_ledge_top(void *c, EmPlayerLiveActor *a, int32_t arg, int32_t *result)
 { int r; FAULT(w_ledge_top(c, a, arg, &r)); *result = r; return 0; }
 static int mw_blocked(void *c, EmPlayerLiveActor *a, int32_t side, int32_t *r)
-{ (void)c; (void)a; (void)side; if (r) *r = 0; return unbound("0017F130 (blocked side)"); }
+{ (void)c; return em_player_misc_0017F130(&L.misc, a, side, r); }
 static int mw_land_sound(void *c, EmPlayerLiveActor *a, int32_t tier) { return w_land_sound(c, a, tier); }
 static int mw_bind_model(void *c, EmPlayerLiveActor *a, uint32_t handle)
 { (void)c; (void)a; (void)handle; return unbound("001CA6E0 on the player (0015C1F0)"); }
@@ -2246,7 +2266,7 @@ static void bind_hang(void)
     w->clip_DF70 = w_clip_DF70; w->clip_DFB0 = w_clip_DFB0; w->clip_E0D0 = w_clip_E0D0;
     w->clip_E150 = w_clip_E150; w->clip_E1D0 = w_clip_E1D0;
     w->clip_FC80 = w_clip_FC80; w->clip_FF80 = w_clip_FF80; w->clip_row = w_00188550;
-    w->sound_100 = x_00182AF0; w->sound_109 = le_sound_109;
+    w->sound_100 = w_sound_100; w->sound_109 = le_sound_109;
     w->sweep = hg_sweep; w->ledge_top = w_ledge_top;
     w->transform = w_transform_float; w->vadd = w_vadd_float;
     w->sqrt = w_sqrt; w->cosine = w_cos; w->sine = w_sin;

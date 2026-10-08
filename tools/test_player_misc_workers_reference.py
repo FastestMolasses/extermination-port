@@ -73,7 +73,9 @@ def B(word):
 SIZES = {0x1FBD50: 0x60, 0x1FBF50: 0x328, 0x1B15D0: 0x54, 0x182250: 0x190, 0x17E250: 0x2B8,
          0x17E510: 0x1CC, 0x17E7C0: 0x968, 0x17DF70: 0x38, 0x17DFB0: 0x120, 0x17E0D0: 0x78,
          0x17E150: 0x78, 0x17E1D0: 0x78, 0x17FF80: 0x74, 0x182AF0: 0x3C, 0x177B80: 0x168,
-         0x21E650: 0x1D4, 0x15C1F0: 0x118, 0x1EFE00: 0xAC, 0x122BB8: 0x30}
+         0x21E650: 0x1D4, 0x15C1F0: 0x118, 0x1EFE00: 0xAC, 0x122BB8: 0x30,
+         # the hang probes (also hooked as the routines above call them)
+         0x1784E0: 0x13C, 0x17E6E0: 0xE0, 0x17F1C0: 0x78, 0x17F130: 0x90}
 # Leaves the translation performs inline or reuses directly (not workers).
 INLINE = {0x102948: '00102948 quadword copy', 0x1031E0: '001031E0 three-word copy',
           0x1281C0: '001281C0 float_to_int (em_player_float_to_int)',
@@ -302,15 +304,21 @@ class Script:
 # ======================================================================
 
 ENTRIES = ('gain', 'sound', 'sound300', 'aim', 'ahead', 'ahead_stack', 'above', 'side', 'DF70', 'DFB0',
-           'E0D0', 'E150', 'E1D0', 'FF80', 'AF0', 'depth', 'E650', 'C1F0', 'EFE00')
+           'E0D0', 'E150', 'E1D0', 'FF80', 'AF0', 'depth', 'E650', 'C1F0', 'EFE00',
+           'reach', 'edge', 'probe_ahead', 'blocked')
 ENTRY_ADDRESS = {'gain': 0x1FBF50, 'sound': 0x1FBD50, 'sound300': 0x1FBD50, 'aim': 0x182250, 'ahead': 0x17E250,
                  'ahead_stack': 0x17E250, 'above': 0x17E510, 'side': 0x17E7C0,
                  'DF70': 0x17DF70, 'DFB0': 0x17DFB0, 'E0D0': 0x17E0D0, 'E150': 0x17E150,
                  'E1D0': 0x17E1D0, 'FF80': 0x17FF80, 'AF0': 0x182AF0, 'depth': 0x177B80,
-                 'E650': 0x21E650, 'C1F0': 0x15C1F0, 'EFE00': 0x1EFE00}
+                 'E650': 0x21E650, 'C1F0': 0x15C1F0, 'EFE00': 0x1EFE00,
+                 'reach': 0x1784E0, 'edge': 0x17E6E0, 'probe_ahead': 0x17F1C0, 'blocked': 0x17F130}
+# The leaves that are themselves hooked workers of the routines above: run
+# unhooked when they are the entry.
+LEAF_ENTRIES = ('reach', 'edge', 'probe_ahead', 'blocked')
 WEIGHTS = {'gain': 8, 'sound': 5, 'sound300': 3, 'aim': 5, 'ahead': 3, 'ahead_stack': 2, 'above': 3, 'side': 16,
            'DF70': 1, 'DFB0': 3, 'E0D0': 1, 'E150': 1, 'E1D0': 1, 'FF80': 2, 'AF0': 2,
-           'depth': 3, 'E650': 5, 'C1F0': 3, 'EFE00': 2}
+           'depth': 3, 'E650': 5, 'C1F0': 3, 'EFE00': 2,
+           'reach': 3, 'edge': 3, 'probe_ahead': 2, 'blocked': 4}
 
 
 def put(buf, offset, size, value):
@@ -356,6 +364,7 @@ def make_case(seed):
     put(actor, 0x10C, 4, f(1.0))
     put(actor, 0xD, 1, rng.choice((0, 1, 1, 2)))
     put(actor, 0x315, 1, rng.choice((0, 0, 1, 5)))
+    put(actor, 0x316, 1, rng.choice((0, 0, 1, 0x80, actor[0x316])))   # 0017F130's area-0x11 gate
     put(actor, 0x2F1, 1, rng.choice((0, 1, 2)))
     put(actor, 0x234, 1, rng.choice((0, 1, 2, 7)))
     put(actor, 7, 1, rng.choice((0, 1, 2, 3, 4, 5, 9)))
@@ -403,6 +412,8 @@ def make_case(seed):
         'id': rng.choice((0x105, 0x14E, 0x80000027, 0x80000040, 0x80000051)),
         'y': F(rng.uniform(-40, 40)),
         'edge_zero': rng.choice((0.6, 0.93, 1.0)),
+        'ex': F(rng.choice((20.0, 12.0, 4.01, -0.5, 0.0, 19.0, rng.uniform(-30, 30)))),
+        'ey': F(rng.choice((-5.0, 0.0, 1.0, rng.uniform(-10, 10)))),
         'force': force,
     }
 
@@ -510,10 +521,19 @@ class Oracle:
             floats = (case['y'],)
         elif entry == 'EFE00':
             ints = (case['id'], ACTOR)
+        elif entry in ('edge', 'blocked'):
+            ints = (ACTOR, case['side'])
+            if entry == 'edge':
+                floats = (case['ex'], case['ey'])
         for i, value in enumerate(ints): ee.r[4 + i] = sx32(value)
         for i, value in enumerate(floats): ee.f[12 + i] = value & MASK
         ee.r[31] = shared.RETURN
-        ee.run(a)
+        own = ee.hooks.pop(a, None) if entry in LEAF_ENTRIES else None
+        try:
+            ee.run(a)
+        finally:
+            if own is not None:
+                ee.hooks[a] = own
         return {
             'log': self.log, 'v0': s32(ee.r[2]),
             'actor': ee.read(ACTOR, 0x320),
@@ -621,6 +641,10 @@ def build_native():
         'em_player_misc_00177B80': [H, A, P(Ledge), FLT, P(I32)],
         'em_player_misc_0021E650': [H, A], 'em_player_misc_0015C1F0': [H, A],
         'em_player_misc_001EFE00': [H, U32, A, P(U32)],
+        'em_player_misc_001784E0': [H, A, P(I32)],
+        'em_player_misc_0017E6E0': [H, A, I32, FLT, FLT, P(I32)],
+        'em_player_misc_0017F1C0': [H, A, P(I32)],
+        'em_player_misc_0017F130': [H, A, I32, P(I32)],
         'em_player_misc_random': [VP, P(U32)], 'em_player_misc_random_i32': [VP, P(I32)],
         # the adapters in the consumers' worker shapes (context = the host)
         'em_player_misc_w_sound': [VP, A, C.c_int, C.c_int, FLT],
@@ -836,6 +860,11 @@ class Native:
         elif entry == 'E650': result = n.em_player_misc_0021E650(H, A)
         elif entry == 'C1F0': result = n.em_player_misc_0015C1F0(H, A)
         elif entry == 'EFE00': result = n.em_player_misc_001EFE00(H, case['id'], A, C.byref(node))
+        elif entry == 'reach': result = n.em_player_misc_001784E0(H, A, C.byref(r))
+        elif entry == 'edge':
+            result = n.em_player_misc_0017E6E0(H, A, case['side'], B(case['ex']), B(case['ey']), C.byref(r))
+        elif entry == 'probe_ahead': result = n.em_player_misc_0017F1C0(H, A, C.byref(r))
+        elif entry == 'blocked': result = n.em_player_misc_0017F130(H, A, case['side'], C.byref(r))
         else: raise AssertionError(entry)
         if self.error is not None:
             raise self.error
@@ -907,9 +936,11 @@ class Native:
 NEEDS = {'gain': ('scene', 'scratch'), 'sound': ('scene', 'scratch'), 'aim': ('scratch',),
          'ahead': ('scratch',), 'ahead_stack': ('scratch',), 'above': ('scratch',),
          'side': ('scene', 'scratch'), 'DFB0': ('scene', 'scratch'), 'AF0': ('scene', 'scratch'),
-         'depth': ('scratch',), 'E650': ('scene', 'scratch'), 'C1F0': ('scene',)}
+         'depth': ('scratch',), 'E650': ('scene', 'scratch'), 'C1F0': ('scene',),
+         'reach': ('scratch',), 'edge': ('scratch',), 'probe_ahead': ('scratch',), 'blocked': ('scene',)}
 ELF = NATIVE = ORACLE = None
-RETURNS = {'gain', 'sound', 'sound300', 'ahead', 'ahead_stack', 'above', 'side', 'depth'}
+RETURNS = {'gain', 'sound', 'sound300', 'ahead', 'ahead_stack', 'above', 'side', 'depth',
+           'reach', 'edge', 'probe_ahead', 'blocked'}
 
 
 def compare(case, want, got, where):
@@ -946,7 +977,8 @@ def run_case(seed):
     # the same case through the adapter a consumer binds (gain: only flat 0,
     # the one 001FBF50 shape EmEffectOriginalWorkers uses)
     adapters = 0
-    if seed % 2 == 1 and not (case['entry'] == 'gain' and case['flat'] != 0):
+    if seed % 2 == 1 and not (case['entry'] == 'gain' and case['flat'] != 0) and \
+            case['entry'] not in LEAF_ENTRIES:
         result, got = Native(NATIVE, case, want).run(adapter=True)
         assert result == 0, (where, 'adapter fault', result)
         compare(case, want, got, where + ('adapter',))

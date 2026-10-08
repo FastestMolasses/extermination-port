@@ -215,6 +215,17 @@ int em_player_misc_0017E250(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, const
 int em_player_misc_0017E510(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t *result);
 int em_player_misc_0017E7C0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side,
                             int32_t *result);
+/* The hang probes the side probe and the ledge pass reach (scratch
+ * 0x700038A0.. over the record's +D0 matrix): 001784E0(p) the reach to the
+ * side (returns 00178910(p, 1)'s value on a hit), 0017E6E0(p, side, x, y)
+ * the edge probe and 0017F1C0(p) the probe ahead (*result = the sweep's /
+ * move's v0, which they leave as their own), 0017F130(p, side) the
+ * area-gated blocked side (areas 4 and 0x11 only). */
+int em_player_misc_001784E0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t *result);
+int em_player_misc_0017E6E0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side, float x, float y,
+                            int32_t *result);
+int em_player_misc_0017F1C0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t *result);
+int em_player_misc_0017F130(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side, int32_t *result);
 int em_player_misc_0017DF70(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side, float blend);
 int em_player_misc_0017DFB0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side, float blend);
 int em_player_misc_0017E0D0(EmPlayerMiscHost *h, EmPlayerLiveActor *actor, int32_t side, float blend);
