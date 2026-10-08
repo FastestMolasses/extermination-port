@@ -1064,9 +1064,13 @@ only shows that field.
 - Status: **PARTIAL**. The 2D overlay pass (message glyphs, letterbox bars,
   screen and transition fades) is still drawn by the GPU over the field; the
   status screens draw with the GPU; 001DDE10's frame-copy sprites are not
-  drawn; the frame cost was measured only on a loaded machine (GS_EXACT.md
-  10.2). The model is PCSX2's software renderer's behaviour as measured, not
-  real hardware's.
+  drawn. Frame cost (GS_EXACT.md 10.2): in the first level every in-level
+  tick is under the 16.68 ms period on this M1 Pro when the workers have
+  free cores (re-measured at the merge, 2026-10-08); under heavy machine
+  load some ticks run over on wall time. AREA01 (level 2) draws through
+  the same model since the merge, but 65 of its 840 measured ticks run over
+  the period (its main thread alone takes 13.6 ms). The model is PCSX2's
+  software renderer's behaviour as measured, not real hardware's.
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
 
@@ -1090,7 +1094,9 @@ original" is a number.
   error 0.97, per-pixel error 0 at the median and 1 at the 90th percentile;
   the rest is the fan blades' phase, the snow's rand() stream and the sky
   grid's region (±1..3, not traced). At 13 (camera not exact): 55.92 %.
-  With the GPU renderer the same points gave 28.79 % and 35.35 %.
+  With the GPU renderer the same points gave 28.79 % and 35.35 %. At the
+  AREA01 arrival (point 15, camera exact): 98.57 % (GPU 47.41 %), a frame
+  mostly under the transition fade.
 - Status: **PARTIAL**. At 5 of the 7 compared points the port's frame loop
   is in the other field phase (the field drawn half a line off: at
   snapshot 10, camera exact, 15.96 %); the cause is not traced (GS_EXACT.md

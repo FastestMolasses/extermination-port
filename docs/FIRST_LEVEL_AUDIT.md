@@ -1506,12 +1506,22 @@ half and item 23):**
   ticks over the period are the start-up, one host step on the title path,
   the veil step that runs the area load (75 ms; GPU 87 ms) and the level's
   first two ticks (GS 25.3 / 18.8 ms; GPU 23.6 / 26.5 ms), all over on the
-  GPU renderer too (GS_EXACT.md 10.2).
+  GPU renderer too (GS_EXACT.md 10.2). The wall time depends on free cores
+  for the 7 workers: at load average about 10, 78 of 2,992 steps were over
+  on wall time (main thread over on 3). Re-measured at the merge onto main
+  (2026-10-08, load 5 to 7): in-level wall mean 8.1 ms, p99 12.1, 4 to 6
+  steps over (GPU 5). AREA01 (level 2) ticks take 13.6 ms of main-thread
+  CPU on both renderers; with the GS frame 65 of 840 are over the period
+  on wall time (GPU none): level-2 work.
 - **Not done:** the 2D overlay pass (glyphs, letterbox, fades) still draws
   with the GPU over the field; 001DDE10's frame-copy sprites (now drawable,
   the frame being GS memory) are still walked over; the status frames use
-  the GPU. Only AREA11's area upload is exercised (the level exit's AREA01
-  arrival sends its own through the same consumer).
+  the GPU. Since the merge onto main (2026-10-08) the level exit's AREA01
+  arrival sends its room upload (001FF590(0xAC, 1)'s A entry) through the
+  same consumer into GS memory, and the AREA01 frames draw in the field
+  (the level-2 phases PASS with the GS frame); the departure movie's
+  frames drop the world list built before the movie, as 001D1C10 restarts
+  it (GS_EXACT.md section 9, "The movie frame").
 - **Evidence.** make test-gs-raster-reference (part F: the row bands equal
   one model over every capture packet), test-gs-world (1, 2, 3, 8 workers,
   thread sanitizer; a barrier removed is a reported race),
@@ -2035,8 +2045,12 @@ is the stream request's wait, not the timeline (item 6).
     CPU per frame); over the period only the start-up, one title-path host
     step, the veil step running the area load (75 ms) and the level's first
     two ticks (25.3 / 18.8 ms), each over with the GPU renderer as well
-    (87 ms; 23.6 / 26.5 ms). Left: those load and first-tick costs (not the
-    GS frame's), and slower hosts.
+    (87 ms; 23.6 / 26.5 ms). The wall time needs free cores for the
+    workers (at load about 10, 78 of 2,992 steps over on wall time). At
+    the merge onto main (2026-10-08, load 5 to 7) the same: in-level wall
+    mean 8.1 ms, p99 12.1. Left: those load and first-tick costs (not the
+    GS frame's), slower hosts, and AREA01's ticks (level 2: 13.6 ms of
+    main-thread CPU each; 65 of 840 over the period with the GS frame).
 
 ---
 

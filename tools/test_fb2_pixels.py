@@ -147,6 +147,9 @@ FLOORS = {
     '12_crevice_jump': 0.024,
     '13_east_tower': 0.559,
     '14_roger_encounter': 0.871,
+    # AREA01's arrival, measured at the GSFRAME merge (2026-10-08: camera
+    # exact, 98.57 %, under the overlay pass's transition fade).
+    '15_level_exit': 0.985,
 }
 # The same with the GPU renderer (EM_GPU_RENDERER=1), measured 2026-09-28.
 FLOORS_GPU = {

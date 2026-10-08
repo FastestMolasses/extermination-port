@@ -916,6 +916,18 @@ field's buffer, ZBUF_1, XYOFFSET_1 with 001D2300's half line, SCISSOR_1,
 PRMODECONT, COLCLAMP, DTHE, TEST, the Z clear), then the recorded body.
 The field is the buffer the head's FRAME_1 names, SCISSOR_1's 224 rows.
 
+**The movie frame.** When the blocking movie 00203350 takes the main
+iteration (001AAE40 with D_00821058 == 1: the departure movie E001.PSS at
+the level exit), the world list the game task built before it is never
+kicked: after the movie returns, 001D1C10 runs 001D1AE0, which restarts the
+frame's list, and sets render flag 4 before 001D2300 kicks it. em_frame
+therefore drops the recorded world draws when the movie suspends the
+iteration (`em_gfx_gs_world_drop`); the movie's presentation frames and the
+kick after it show no field (as on the GPU path, which draws no world
+there). The movie's own GS memory writes are not modelled (the port
+presents its frames with the GPU); the next world frame's head clears and
+redraws the field.
+
 **Workers and order.** The model runs on worker threads, each an EmGs with
 its own registers and span over the one local memory, each drawing the
 rows (y >> 2) % n == k of whatever buffer it draws (EmGs.band_*; triangles
@@ -964,8 +976,10 @@ CLAMP is taken as REPEAT, the widest read.
 original's uploads put them (DISC_TEXTURES.md section 2):
 - the area load's uploads reach it as the original sends them: the
   loader's area consumer (em_scene_bindings.c `loader_area_chain`), which
-  accepts exactly 001FF590(0xAB, 1)'s A entry at 001FFCD0 state 4 and
-  00200890's player texture packet at state 7, hands the delivered buffer to
+  accepts exactly 001FF590(0xAB, 1)'s A entry at 001FFCD0 state 4,
+  00200890's player texture packet at state 7 and (since the merge,
+  2026-10-08) 001FF590(0xAC, 1)'s A entry at state 8 (AREA01 sub 0's room
+  texture upload at the level exit), hands the delivered buffer to
   `em_gfx_gs_upload` -> `em_gs_world_upload_chain`: the VIF1 source chain
   (CNT tags to a RET or END), its DIRECT GIF data (A+D writes of the
   transfer registers and host-to-local PSMCT32 IMAGE data; anything else
@@ -1155,10 +1169,11 @@ pass. Claims are relative to PCSX2's software GS.
 | 14_roger_encounter | exact | same | 33,022 (28.79 %; 1.78; 1/4/29) | **99,985 (87.18 %; 0.97; 0/1/28)** | 46 (0.04 %) |
 | 13_east_tower | not exact | same | 40,544 (35.35 %; 2.92; 1/8/19) | **64,137 (55.92 %; 2.60; 0/8/16)** | the same |
 | 10_cage_roof_roger | exact | other | 35,430 (30.89 %; 1.39; 1/3/23) | 18,303 (15.96 %; 3.33; 2/10/32) | 12,642 (11.02 %) |
-| 11_crevice_prompt | no row at s1 | other | 9,173 (8.00 %; 5.76) | 6,281 (5.48 %; 6.66) | the same |
+| 11_crevice_prompt | not exact (the capture's row) | other | 9,173 (8.00 %; 5.76) | 6,281 (5.48 %; 6.66) | the same |
 | 08_truck_crossing | not exact | other | 3,201 (2.79 %; 7.78) | 3,602 (3.14 %; 7.31) | the same |
 | 12_crevice_jump | not exact | other | 2,852 (2.49 %; 6.74) | 2,827 (2.46 %; 6.84) | the same |
 | first_control | not exact (eye) | other | 985 (0.86 %; 18.94) | 1,125 (0.98 %; 18.84) | the same |
+| 15_level_exit (merge, 2026-10-08) | exact | same | 54,378 (47.41 %; 0.67) | **113,053 (98.57 %; 0.95; 0/0/9)** | 0 (0.00 %; 15.92) |
 
 At 14 (camera exact, same phase) the field alone is +3 on 62 % of its
 pixels and darker at the top and bottom 32 lines: the original's buffer
@@ -1174,6 +1189,15 @@ vertex grid, open item 8.2, measured far smaller residues on designed
 primitives; a cause in the grid's ST at the GS's precision is not
 excluded). At 10 the half-line phase moves every edge and gradient by half
 a line. The other points differ in their camera, their phase or both.
+15_level_exit (the AREA01 arrival, measured at the GSFRAME merge with the
+AREA01 steps on main): the original's buffer there holds the transition
+fade over AREA01's world, which the port draws as the overlay pass over a
+field that already holds the world, so the field alone matches nowhere
+while the presented frame matches on 98.57 % of the pixels. That AREA01's
+world itself draws in the field is shown by the level-2 phases (a01_00 ..
+a01_02, a01_s0 / s3 / s4 / s6 PASS with the GS frame; a field captured at
+a01_arrival + 420 shows the tunnel, the crates and the fire). The AREA11
+numbers above were re-measured at the merge and are unchanged.
 FLOORS in the tool are these "after" fractions rounded down to 0.1
 percentage point (FLOORS_GPU keeps the Metal ones).
 
@@ -1204,6 +1228,31 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   first GS frame's worker time is 16.9 to 17.1 ms, its texture residency
   checks about 2.6 ms of main-thread time). None of these comes from the
   GS frame alone; every other tick is under the 16.68 ms period.
+- **Re-measured at the merge onto main (2026-10-08, load average 5 to 7,
+  the same method):** two runs, then one with EM_GPU_RENDERER=1. The veil
+  ticks 0.18 to 6.16 ms (mean 1.0 / 1.2); the last 1,300 ticks (in level)
+  wall mean 8.14 / 8.15 ms, p99 12.08, max 12.90 (GPU 8.21, p99 11.60); the
+  busiest worker mean 6.4 ms (p95 8.0). Over the period: the start-up, the
+  area-load step (112 / 115 ms; GPU 109) and the first two or three
+  in-level ticks (17.5 to 19.4 ms; GPU 26.9 / 17.3), plus once a title
+  host step (16.8 ms); 4 to 6 of 2,997 steps, as on the GPU (5 of 2,996).
+- **The wall time depends on free cores for the workers** (review 2):
+  under heavier load (load average about 10, newgame-control) 78 of 2,992
+  steps were over the period on wall time while the main thread used 7.5
+  to 12 ms of CPU on those in-level ticks and the busiest worker about 7.4
+  ms on average (22.6 ms at most); the main-thread CPU was over on only 3
+  steps (the start-up, the area-load step at 71.6 ms, the first in-level
+  tick at 18.7 ms). The quiet-machine numbers above are the ones the
+  period is judged by.
+- **AREA01 (level 2), measured at the merge:** the level smoke's binary
+  run to a01_00 without its logs (EM_STARTUP_TEST=newgame-level,
+  EM_LEVEL_SMOKE_UNTIL=a01_00, the prepared pads), the last 840 ticks: the
+  main thread takes 13.6 ms of CPU per tick on both renderers (AREA01's
+  own tick, not the GS frame); with the GS frame the wall mean is 14.23 ms
+  (p99 19.2, max 20.9) and 65 of the 840 ticks are over the period, the
+  busiest worker 10.2 ms on average (17.7 at most); with the GPU renderer
+  13.58 ms and none over. AREA01's main-thread cost leaves the workers
+  less room; it is level-2 work (not in this step's first-level contract).
 - Slower hosts are not measured.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
