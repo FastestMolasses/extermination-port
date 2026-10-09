@@ -27,6 +27,11 @@ MODULES = (
     'em_owner_services_original em_item_geometry em_pickup em_pickup_items_original em_pickup_owner em_pickup_program em_pickup_motion '
     # 001B1190, the pickups' taken bit (em_area11_bindings_001B1190's one translation).
     'em_security_gun_rest em_security_gun '
+    # The options screen SELECT opens (chain step OPTIONS, docs/OPTIONS.md): its
+    # live binding, the original routines, the memory card, the rumble row's
+    # 001B61C0 (em_pad_actuator over em_player_ladder_entry's translation; the
+    # pad itself is the headless placeholder backend) and em_pickup_reset's 001AF470.
+    'em_options_live em_options_original em_memcard em_pad_actuator em_player_ladder_entry em_startup_load_gaps '
     'em_script em_frame em_fade em_random em_task em_face_slot em_roger_actor_original em_opening_face '
     'em_collision_world em_actor_collision em_actor_pool em_coll_probe_original em_coll_grid_hull em_coll_segment_walkers '
     'em_coll_list_passes em_coll_list_passes_walkers em_sdk_math_original em_sdk_soft_float em_effect_original '
@@ -52,7 +57,7 @@ def main():
                     '-ffp-contract=off', '-fsanitize=address,undefined', '-Wl,-dead_strip',
                     '-Isrc', 'tests/area11_interaction_host_test.c',
                     *(f'src/game/{module}.c' for module in MODULES),
-                    'src/em_model.c', 'src/em_input.c', '-lm', '-o', str(executable)], cwd=ROOT, check=True)
+                    'src/em_model.c', 'src/em_input.c', 'src/platform/linux/em_gamepad_linux.c', '-lm', '-o', str(executable)], cwd=ROOT, check=True)
     result = subprocess.run([str(executable)], cwd=ROOT, text=True,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     (output / 'result.log').write_text(result.stdout)

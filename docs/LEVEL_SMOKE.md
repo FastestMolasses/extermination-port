@@ -2609,24 +2609,36 @@ frame and the two runs' phases differ: SFX_SEQUENCER.md "Measured";
 counted in the report, one in fence_door); the audible stages (no WAV of
 the original: FIRST_LEVEL_AUDIT.md item 1).
 
-## What the full route does not yet compare (2026-09-28)
+## What the full route does not yet compare (re-read 2026-10-08, chain step ROUTE)
 
-`make test-level-smoke-full` plays route beats 01..14 on the main line and 00
-and 09 in their own runs, and every phase reproduces its capture. These are
-the places where a check is still relaxed. Each is reported by its phase,
-never silently skipped. Chain C8b ROUTE re-ran the whole route at port
-HEAD 6594182 (2026-09-28: `make test-level-smoke-full`, NOT-LIVE: none, and
-`make test-level-smoke-ps2-drive`) and re-read every row against the run's
-report: each row below still holds as written, and none could be removed
-faithfully in that step (each waits on navigation timing, the rand()
-stream's position, a renderer stage, the area load's sound-bank chain or a
-new capture). Since chain C7's table (2026-09-27) chain C8b removed the
-panel's prompt-window row (the module loader, LOADER) and check_shadow's
-reported opening post-steps (the opening's records, OPENING), and moved
-check_rand_order's row from AE+1 to the actors' spawn (the security gun's
-owner, census L24; OPENING); it added the rows of the checks it created
-(Roger's units and faces, the fans' phase, the flame's and the snow's
-sprites, the load veil). What removes each:
+`make test-level-smoke-full` plays route beats 01..15 on the main line
+(through the level exit and the AREA01 arrival idle, 20 phases), 00 and 09
+in their own runs, and the designed, AIM, DAMAGE, BRANCH, OPTIONS and AUDIO
+side runs, and every phase reproduces its capture. These are the places
+where a check is still relaxed. Each is reported by its phase, never
+silently skipped. Chain step ROUTE re-ran the whole set at port HEAD
+2e5fa30 (2026-10-08: `make test-level-smoke-full` PASS, 20 main-line phases,
+NOT-LIVE: none, with the side runs panel_no_battery, status_pages,
+fence_door_side1, the eleven AIM, four DAMAGE, ten BRANCH, nine OPTIONS
+and three AUDIO side runs; `make test-level-smoke-ps2-drive` PASS through
+roger; the default `make test-level-smoke` PASS; receipts in ignored
+`build/route_step/full/`) and re-read every row below against the run's
+report: each still holds as written (the 0x7F teardown 8 rows early at host
+speed, 2 of them lane 0's refill; the owner units compared in full at the
+camera-exact 10 and 14; the veil 55 frames for the New Game's load and 140
+over the run with the exit's AREA01 load), and none could be removed in
+that step (each waits on navigation timing, the rand() stream's position, a
+renderer stage or a new recording). Earlier: chain C8b ROUTE (2026-09-28)
+re-read the table the same way at port HEAD 6594182; since chain C7's table
+(2026-09-27) chain C8b removed the panel's prompt-window row (the module
+loader, LOADER) and check_shadow's reported opening post-steps (the
+opening's records, OPENING), and moved check_rand_order's row from AE+1 to
+the actors' spawn (the security gun's owner, census L24; OPENING); it added
+the rows of the checks it created (Roger's units and faces, the fans'
+phase, the flame's and the snow's sprites, the load veil). The side runs'
+own relaxations are in their sections ("The AIM side runs' whole records",
+"The DAMAGE side runs", "The BRANCH side runs", "The OPTIONS side runs",
+"The sound state"). What removes each:
 
 | Where | What is relaxed | Why | What removes it |
 |---|---|---|---|
@@ -2644,7 +2656,9 @@ sprites, the load veil). What removes each:
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
 | check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the veil runs as long as the loader's steps take (chain step H7): 55 frames at host speed (the user's policy: the disc answers at host speed), 257 with the PS2 disc-drive timing switch where the PS2 drew 258 (its ninth sound-bank call, most likely SIF DMA time, which no mode reproduces) | a capture of a frame mid-load (the decomp's fb2 method) for the pixels |
 
-Not compared at all: the sounds (WP-14), the pixels (the smoke itself
+Not compared at all: the sounds' audible output (the smoke compares the
+EE sound state at the command level since chain step AUDIO, "The sound
+state", not what the SPU2 model outputs: no recording of it exists), the pixels (the smoke itself
 compares none; the fb2 pixel harness `make test-fb2-pixels` measures the
 frame at first control and, with `EM_TEST_FULL=1`, at every fb2 point the
 smoke aligns, against the software-renderer fields, GS_EXACT.md section 10;

@@ -104,20 +104,23 @@ original machine code on the same inputs and requiring the same results.
   (`EE_FLOAT_MODEL.md` 5a). VU1 microcode and GS rasterization are
   reimplemented natively and are checked by other means (see Visuals).
 
-**First-level census: 97.3% of the original game-logic instructions on the route run live as verified translations**
+**First-level census: 99.2% of the original game-logic instructions on the route and its recorded branches run live as verified translations**
 
 Every original function the PS2 game runs on the first level, from New Game
-to meeting Roger, was recorded, and the port was checked for each one.
-Measured by instructions, 97.3% of that game logic runs in the port as a
-verified translation.
+through Roger and the level exit into AREA01's arrival, plus the recorded
+side lanes (aiming, damage, the branches, the options), was recorded, and
+the port was checked for each one. Measured by instructions, 99.2% of that
+game logic runs in the port as a verified translation (98.9% of the main
+route's own).
 
 - How: the decomp's `tools/route_census.py` set a one-shot breakpoint on
   each of 2,957 boot functions and 34 AREA11 overlay functions and played the
   original route in hidden PCSX2 (4 startup labels plus route beats 00..14):
   1,184 functions executed (111,764 instructions). Each was classified by
   reading its evidence. An instrumented port build recorded live
-  caller/callee edges (census 1.22, measured again in 1.33 and 1.44).
-- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 1.44, 2.1-2.3. Recount
+  caller/callee edges (census 1.22, measured again in 1.33, 1.44 and,
+  over the route through the AREA01 arrival and every side run, 1.67).
+- Evidence: `FIRST_LEVEL_CENSUS.md` 1.1, 1.22, 1.33, 1.44, 1.67, 2.1-2.3. Recount
   1.44 (chain C8b ROUTE, 2026-09-28, port HEAD 6594182): of 756 non-boundary
   functions, live 703 (85,512 of 88,729 instructions = 96.4%; 93.0% by
   function count); verified but unbound 50; unverified 3 (0015CF90,
@@ -174,7 +177,14 @@ verified translation.
   the memory-card screen (the OPTIONS recordings' 14 further functions, and
   the title's load screen's 11 DAMAGE rows to live): live 948 of 968
   (122,905 of 123,918 instructions = 99.2%), verified but unbound 19,
-  unverified 1, missing 0; the route's own unchanged.
+  unverified 1, missing 0; the route's own unchanged. Recount 1.67 (chain
+  step ROUTE, 2026-10-08, port HEAD 2e5fa30): the edge recorder re-measured
+  every row over the whole route through the AREA01 arrival and every side
+  run (44 instrumented runs, each PASS in process): 946 of the 948 live
+  rows confirmed by a run, the other two (001755B0, 0021E9C0) bound with
+  oracles but entered by no port run; no status change (live 948 of 968,
+  122,905 of 123,918 instructions = 99.2%; the route's own through beat 15
+  747 of 766, 88,415 of 89,400 = 98.9%).
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
@@ -189,8 +199,8 @@ verified translation.
 
 **The first-level route is replayed headless and checked phase by phase against PCSX2 recordings**
 
-An automated run plays the first level from New Game to Roger with no window
-open. In each scripted, climbing and cutscene window it checks positions,
+An automated run plays the first level from New Game through Roger and the
+level exit into AREA01's arrival with no window open. In each scripted, climbing and cutscene window it checks positions,
 script progress, camera, messages and cutscene flags against the PS2 game
 as recorded in PCSX2 on the same route.
 
@@ -200,12 +210,17 @@ as recorded in PCSX2 on the same route.
   "Reproducibility"), then replays the tick log against the route captures.
   `--require-through` fails the run if any phase is not live, driven or not
   reached.
-- Evidence: `LEVEL_SMOKE.md` "Route coverage": beats 01..14 live on the main
-  line (18 phases), side beats 00 and 09, plus `fence_door_side1` against the
-  C7 DOOR1 capture, and the designed `status_pages` run replayed through the
-  original instructions. Chain C8b ROUTE (2026-09-28, port HEAD 6594182):
-  `make test-level-smoke-full` PASS through roger (NOT-LIVE: none) with its
-  three side runs, and `make test-level-smoke-ps2-drive` PASS.
+- Evidence: `LEVEL_SMOKE.md` "Route coverage": beats 01..15 live on the main
+  line (20 phases, through the level exit and the AREA01 arrival idle),
+  side beats 00 and 09, plus `fence_door_side1` against the C7 DOOR1
+  capture, the designed `status_pages` run replayed through the original
+  instructions, and the AIM (11), DAMAGE (4), BRANCH (10), OPTIONS (9) and
+  AUDIO (3) side runs against their capture lanes. Chain step ROUTE
+  (2026-10-08, port HEAD 2e5fa30): `make test-level-smoke-full` PASS
+  through a01_arrival (NOT-LIVE: none) with every side run, `make
+  test-level-smoke-ps2-drive` PASS through roger, and every other make
+  test-* target PASS. (Chain C8b ROUTE, 2026-09-28: the same through roger
+  with the three side runs of the time.)
 - Status: **PARTIAL**. First level only. The walks between scripted windows
   are navigation and are not compared. Pixels and sounds are not compared at
   all. `LEVEL_SMOKE.md` "What the full route does not yet compare" lists the
@@ -218,8 +233,9 @@ as recorded in PCSX2 on the same route.
   compared); the rand()-seeded sprites; 001DDE10's frame-copy sprites; the
   load veil's length). At host speed (the policy) the status page's module
   load takes the loader's 10 steps where the recording's disc took 24, and
-  the rows after it are compared at that shift. The level exit is not in the
-  smoke.
+  the rows after it are compared at that shift. Sounds are compared at the
+  command level (the EE sound state), not as audio output. AREA01 after its
+  arrival is level 2 (its own phases, not part of this claim).
 
 **PS2 floating-point math reproduced bit for bit, as measured in PCSX2**
 
@@ -725,8 +741,10 @@ own GS list, at the GS's resolution.
   own length. The one frame the switch still misses is the PS2's ninth
   sound-bank call (most likely its SIF DMA's hardware time, reproduced by
   no mode). No capture holds a frame taken during a load, so the pixels
-  are proven against the GS model, not against a recorded frame.
-  Rasterization is Metal's at the GS resolution. Metal only.
+  are proven against the GS model, not against a recorded frame. Since
+  chain step GSFRAME (2026-10-03) the veil's list frames are drawn by the
+  CPU GS model into the 512x224 field (GS_EXACT.md section 9, `gsw_list_frame`);
+  only the Metal backend presents that field so far.
 
 **The player's original projected drop shadow**
 
@@ -1108,7 +1126,8 @@ original" is a number.
   grid's region (±1..3, not traced). At 13 (camera not exact): 55.92 %.
   With the GPU renderer the same points gave 28.79 % and 35.35 %. At the
   AREA01 arrival (point 15, camera exact): 98.57 % (GPU 47.41 %), a frame
-  mostly under the transition fade.
+  mostly under the transition fade; every point re-measured unchanged at chain step
+  ROUTE (2026-10-08, `EM_TEST_FULL=1 make test-fb2-pixels`, port HEAD 2e5fa30).
 - Status: **PARTIAL**. At 5 of the 7 compared points the port's frame loop
   is in the other field phase (the field drawn half a line off: at
   snapshot 10, camera exact, 15.96 %); the cause is not traced (GS_EXACT.md
@@ -1125,14 +1144,17 @@ Advertise the items above only.
 
 - Evidence: `OWNER_DRAW.md` 11, `CHAIN_PAGE.md` 6, `LOAD_VEIL_PARTICLES.md`
   5, `BACKGROUND.md`, `STATUS_PAGES.md` 7, census lane L38,
-  `FIRST_LEVEL_AUDIT.md` 1b (2026-09-28).
+  `FIRST_LEVEL_AUDIT.md` 1b (re-made 2026-10-08, chain step ROUTE).
 - Status: **PLANNED**. The status
   hub's and the MAP page's models are drawn by the renderer's skinned path
   with the original's matrices. 001DDE10's four frame-copy sprites are not
   drawn. The 2D overlay pass (message glyphs, letterbox, fades) is drawn by
-  the GPU over the GS field. The area-load veil runs and is drawn from its own packets, but the
-  port's area read finishes inside one call, so the veil draws only one
-  frame, at level 0 (black; the load-veil entry above). (Roger, his face
+  the GPU over the GS field, and the status screen's frames (the hub and
+  its pages) still draw with the GPU renderer, not the GS model (GS_EXACT.md
+  section 9; their uploads go to the status runtime's GS data). (The
+  area-load veil, once listed here, runs
+  for the load's own length since chain step H7 and is drawn by the GS
+  model since GSFRAME: the load-veil entry above.) (Roger, his face
   and his shadow have been drawn by the original code since chain C8b's
   FACE step: see the face entry and "Roger's own projected drop shadow".)
 
@@ -2358,4 +2380,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-08 (chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-08 (chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
