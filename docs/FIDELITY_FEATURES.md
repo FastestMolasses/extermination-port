@@ -1158,7 +1158,10 @@ neighbour, no smoothing, no CRT simulation (the user's decisions of
 - How: main-loop steps R (001AB4E0 with the SDK's 001002E0) and U
   (00100550) run as translated original code every iteration and hand the
   display registers to the presenter; each field's line comes from the draw
-  offset that drew it (GS_EXACT.md section 11).
+  offset that drew it (GS_EXACT.md section 11). The movies stay at the
+  default position whatever SCREEN ADJUST holds, as in the original: its
+  movie driver (00203350 via 00205050) stores its own display environment
+  at offset 0 with BGCOLOR 0, and the port shows the movie unplaced.
 - Evidence: `make test-display-env-reference` (the original 001002E0,
   00100550 and 001AB4E0 executed against the translations, every branch
   both ways; at offset 0 the registers are the ones measured in PCSX2 at

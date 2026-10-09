@@ -1076,10 +1076,13 @@ void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode);
 int em_gfx_gs_display_store(EmGfx *gfx, uint32_t address, uint64_t value);
 /* The blocking movie (main-loop step M, 00203350, a boundary the port
  * replaces with its own movie presentation) takes the iteration: the
- * display is no longer what step U stored (what the original's movie
- * driver does with the display position is not traced). The stored
- * registers are dropped and the frame's picture, from now on, is not
- * placed (the game rectangle as is) until step U stores again. */
+ * display is no longer what step U stored. The original's movie driver
+ * stores its own environment (00205050: 001002E0 with offset 0, then
+ * 00100550), so the movie shows at the default DX 636 / DY 50 with
+ * BGCOLOR 0 whatever SCREEN ADJUST holds (docs/GS_EXACT.md section 11).
+ * The stored registers are dropped and the frame's picture, from now on,
+ * is not placed (the game rectangle as is, the default position) until
+ * step U stores again. */
 void em_gfx_gs_display_release(EmGfx *gfx);
 
 

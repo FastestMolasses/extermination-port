@@ -552,9 +552,10 @@ int em_frame_step(void)
      * the main iteration counter do not advance during playback. */
     if (s_frame.movie_active) {
         s_frame.movie_suspended = true;
-        /* The movie driver owns the display while it plays (a boundary):
-         * the picture is not placed by step U's registers until step U
-         * runs again after it (em_gfx_gs_display_release). */
+        /* The movie driver owns the display while it plays (a boundary;
+         * 00205050 stores its own environment at offset 0, the default
+         * position): the picture is not placed by step U's registers
+         * until step U runs again after it (em_gfx_gs_display_release). */
         em_gfx_gs_display_release(s_frame.gfx);
         /* The world list built before the movie is never kicked: after
          * 00203350 returns, 001D1C10 (step N) restarts the list with

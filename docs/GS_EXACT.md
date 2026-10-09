@@ -1345,10 +1345,22 @@ stored, with BGCOLOR over the rectangle first: in the one frame after the
 offset changes they show the old position (a field frame shows the new one
 at once). While the blocking movie 00203350 holds the iteration (a boundary
 the port replaces with its own movie presentation) steps R and U do not
-run and the original's movie driver owns the display; what it does with the
-display position is not traced, so the port drops the stored registers
-(`em_gfx_gs_display_release`) and shows the movie frames unplaced until
-step U stores again. Measured on captures (`tools/check_present_capture.py`,
+run and the original's movie driver owns the display. From the decomp C
+(00203350 byte-matched; 00205050 a NEARMISS whose two display calls and
+their constant arguments were checked against its original instructions):
+00203350 calls 00205050 on the movie's environment D_007A55C0, which builds
+it with 001002E0(env, psm 0, 512, 224, x 0, y 0), sets DISPFB's DBX / DBY to
+0 and FBW to 8, and stores it with 00100550. Its offset is 0, not the scene
+state's 0x70003B94 / 0x70003B96, so during the movie the original shows the
+picture at the default DX 636 / DY 50 (MAGH 4, DW 2559, DH 447 in the same
+SDK mode) with BGCOLOR 0 (001002E0 writes 0 to the BGCOLOR word), whatever
+SCREEN ADJUST holds. The movie's per-field pump 00206030 then only flips
+DISPFB's FBP between the environment's two pages (00205700, which stores the
+same environment again), so DISPLAY and BGCOLOR stay as 00205050 set them.
+The port matches this: it drops the stored registers
+(`em_gfx_gs_display_release`), so the movie frames are drawn over the game
+rectangle unplaced, which is the default position (shift 0), until step U
+stores again. Measured on captures (`tools/check_present_capture.py`,
 below).
 
 **What it looks like** (the presentation preview of 2026-10-09, port
