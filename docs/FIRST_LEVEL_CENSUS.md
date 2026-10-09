@@ -2900,7 +2900,9 @@ smoke (DAMAGE.md section 8, LEVEL_SMOKE.md "The DAMAGE side runs"):
   sites (0x17C744 / 0x17C7F4, a drop -104 <= d <= -14.5 at gait 3). The
   only recording that ran it is dmg_07, at its fall start (row 313). The
   dmg_pit_fall side run's policy turned the pad neutral on the tick after it
-  saw +5 = 5, so its sub-state 0 saw gait 0 and took the other path; it now
+  saw +5 = 5, so its sub-state 0 saw no stick (+0x23F = 0, the heading
+  record's result 0) and took +0x25C's tier 3 to the fall speed (0x163068)
+  without asking 001755B0 (measured below, "Old policy"); it now
   keeps the walk's last two sticks for the recording's pad lag (dmg_07's pad
   rows: a tool entry set after row f shows in row f + 3; rows 313 and 314
   hold D_00810E57 = 3 and the last two sticks, row 315 the neutral pad), and
@@ -2927,6 +2929,13 @@ smoke (DAMAGE.md section 8, LEVEL_SMOKE.md "The DAMAGE side runs"):
   row 32 at 14497); neither in dmg_crevice_fall (a walking jump: its
   landing is not at gait 3). The edge recorder of section 1.67 was not
   re-run.
+- **Old policy (measured, 2026-10-09).** The same 001755B0 hook plus one at
+  em_player_fall.c sub-state 0, in a scratch build of d899a3a (the merge's
+  first parent, the old neutral-at-once policy; build/oldpolicy_proof,
+  deleted after the step), on dmg_pit_fall (PASS): sub-state 0 once at
+  counter 6490 with no edge hit, the heading record's result 0, +0x23F = 0,
+  +0x25C = 3 (+5 = 5, +6 = 0), so the fall speed from +0x25C (0x163068);
+  001755B0 entered 0 times (DAMAGE.md section 8 "Old policy, measured").
 - **Row notes changed:** 001755B0, 0021E9C0 and 0x00827630 (the fan: its
   hit box is now on a side run; the +0x224 fix).
 

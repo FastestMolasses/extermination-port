@@ -1772,7 +1772,10 @@ closed; census 1.69).** The two live census rows no port run entered
   now goes through the one storage g.pd_pend_hp (DAMAGE.md section 7a).
   Every row f32..f285 then equals the recording: the place (5 decimals),
   heading, camera, damage fields, vitals and the player record's words
-  (the place, the vitals' image and five history words aside). 0021E9C0
+  (aside: the place +0xA0..+0xBF, the vitals' image +0x220..+0x22F, the
+  idle clock +0x3C before the walk and six history words, +0x28, +0x248
+  and +0x2F8 for the whole beat and +0x260, +0x264 and +0x268 up to the
+  hit; tools/level_smoke_damage.py FAN_RECORD_EXEMPT / FAN_TO_HIT_EXEMPT). 0021E9C0
   ran 52 times, as recorded.
 - **001755B0 (the fall start's heading test):** dmg_pit_fall's policy now
   keeps the walk's last two sticks at the fall start for the recording's

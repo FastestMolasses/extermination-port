@@ -239,9 +239,11 @@ on its event, then compared tick by tick):
   for the fall state's ticks 1 and 2 (em_level_smoke_test.c
   DS_FALL_START_LAG) and goes neutral on tick 3. Sub-state 0 (row 313) then
   sees gait 3 with the stick held and asks 001755B0 (site 0x162F78; result
-  0, the tier-3 speed). Before this the policy went neutral at once, the
-  port's sub-state 0 saw gait 0 and never asked, and no compared window
-  covered those rows. The checker compares rows 309..315 aligned on the
+  0, the tier-3 speed). Before this the policy went neutral at once, and no
+  compared window covered those rows: the port's sub-state 0 saw no stick
+  (+0x23F = 0, the heading record's result at 0x162F58 0), took +0x25C (3)
+  straight to the fall speed (0x163068) and never asked 001755B0 (measured:
+  "Old policy, measured" below). The checker compares rows 309..315 aligned on the
   fall state's first row: +5, +6, +0x1F0, +0x23F (3), +0x240 (0.8), +0x25C,
   +0x38 (0.5) and +0x2EC (-0.4) equal; +0x24C, the stick's heading in the
   camera's frame, is the run's own (the side run walks off the roof from
@@ -275,6 +277,16 @@ fall start (counter 6490, the tick after the fall state's first, gait 3,
 result 0, |error| 0.0573); 0021E9C0 52 times in dmg_fan (sub-state 0 once at
 the row-144 tick, sub-state 1 51 times to the row-195 tick); dmg_crevice_fall
 entered neither (its landing is a walking jump).
+
+**Old policy, measured (2026-10-09).** A scratch build of port d899a3a (the
+merge's first parent: the old dmg_pit_fall policy, neutral at once) with the
+same counted hook in em_player_record_001755B0 and one more at
+em_player_fall.c sub-state 0 (after the heading record at 0x162F58), in the
+main repo's build/oldpolicy_proof (deleted after the step), ran dmg_pit_fall
+(PASS). Sub-state 0 ran once, at counter 6490 (the same tick as the new
+policy's entry): no edge hit, the heading record's result 0, +0x23F = 0,
++0x25C = 3, +5 = 5, +6 = 0, so it took +0x25C's tier 3 to the fall speed at
+0x163068; 001755B0 was entered 0 times.
 
 The tick log's `dmg` field carries the damage fields and the burn / decal
 nodes, `pad_pre` the pad block before the frame (em_scene_bindings.c).
