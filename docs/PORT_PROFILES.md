@@ -92,6 +92,24 @@ from **one codebase**:
    renderer (`gpu_renderer`: 0, the Original GS frame; 1, the GPU renderer
    the Enhanced resolution builds on; `LAUNCHER_OPTIONS.md`, BUILT).
 4. **Enhancement items**, one switch each, in the order the user picks.
+5. **Leads from the PCSX2 2.8 post (beyond the first level; 2026-10-09).**
+   `PCSX2_2_8_LEARNINGS.md` lists them. Each is a lead, to be confirmed by
+   designed conformance tests drawn by the software renderer and the CPU
+   GS model (or by the original's instructions) before anything is built:
+   - the Enhanced GPU path and the D3D12 / Vulkan backends meet the post's
+     obstacles: alpha-test fail modes that keep only colour or only depth
+     (the first level's class-2 units and drop shadow use them), blend
+     order inside one draw (the port's Metal path uses framebuffer fetch
+     and refuses GPUs without it; per the post, D3D12 needs ROV, barriers
+     or copies, while Vulkan may also have framebuffer fetch), integer
+     depth (the Metal path uses float depth), channel shuffles (24-bit
+     sources, depth channels used for post-processing; the port reads them
+     as buffers read through another format, from public GS documentation,
+     not the post), and filtering only what the game samples
+     bilinearly;
+   - later levels may use what the model refuses today (AA1, CSM2 CLUTs,
+     local-to-local transfers, CT16 / CT24 textures, CRTC merging). Strict
+     mode reports each one, and each then needs its own measured rule.
 
 ## Options and pending decisions
 

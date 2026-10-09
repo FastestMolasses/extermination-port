@@ -1979,6 +1979,43 @@ needs no new recording.
     those load and first-tick costs, slower hosts (not measured), and AREA01's
     ticks (level 2).
 
+**F. Leads from the PCSX2 2.8 post** (added 2026-10-09; PCSX2_2_8_LEARNINGS.md
+has each lead's source section and reasoning). Each is a lead from the PCSX2
+2.8 post, to be confirmed by the named method before anything changes; none
+is evidence, and none changes an item above.
+
+- **F1. The reference build** (Recording). Every pixel number here and in
+  GS_EXACT.md is relative to the project's PCSX2 build's software renderer
+  (v2.6.3-3-g00d19ccce per the installed app and decomp CAPTURES_AUDIO.md;
+  the capture sets do not record it). Lead from the PCSX2 2.8 post, to be
+  confirmed by regenerating the conformance capture sets (decomp
+  GS_CONFORMANCE.md) and the fb2 route frames on any newer build and
+  diffing them against the v2.6.3 sets before that build is used as a
+  reference, and by recording the build in GS_CONFORMANCE.md and the fb2
+  records for every capture set from now on. The post describes mostly
+  hardware-renderer changes and does not say the software renderer is
+  unchanged; its one change named for the software side, a typo fix in the
+  rect calculation for readbacks in the Software renderer fallback (CSBW),
+  is a concrete reason the diff is needed.
+- **F2. 001DDE10's pass reads the frame** (port work, then a designed
+  capture; part of item 2). Lead from the PCSX2 2.8 post (reads and writes
+  of one texture in one draw), to be confirmed by the original's
+  instructions (does 001D6C90's TEX0 base overlap the FRAME_1 the sprites
+  draw into?) and, if it does, by designed self-reading full-field sprites
+  at the half-texel offset drawn by the software renderer and the model,
+  before the pass is drawn live.
+- **F3. Strict refusals in the frames still on the GPU** (port work; part
+  of item 2). AA1, CSM2 CLUTs and local-to-local transfers are refused by
+  the model and absent from the route's world frames; the overlay pass and
+  the status frames have not been checked. Lead from the PCSX2 2.8 post, to
+  be confirmed by running those frames' packets through the model in strict
+  mode; a refusal then needs designed software-renderer tests first.
+- **F4. The movie pictures** (Recording). E900 and E001 are decoded by the
+  OS from the PSS bitstream, the original's by the IPU and its colour
+  conversion. Lead from the PCSX2 2.8 post (IPU decoder state), to be
+  confirmed by a software-renderer capture of a movie frame against the
+  port's picture of the same frame.
+
 **Where the previous list's items went** (2026-09-28 list, items 1..23):
 
 | Old item | State on 2026-10-08 | Now |
