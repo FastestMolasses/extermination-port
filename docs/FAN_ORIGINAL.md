@@ -133,8 +133,9 @@ and hold length.
 - `EmFanOriginalGlobals` (D_00810788, D_008106B8, D_00810758, D_008107D8): required in lifecycle 1.
 - `EmFanOriginalPlayer` (D_008102B0 +0x00, +0x0F, +0x70..7C, +0xA0..A8, +0x224): read only by record 2's box.
 
-Player fields are named by offset only. `em_player_damage.c` treats +0x224 and +0x0F as a pending-damage pair; this
-lane did not verify that consumer.
+Player fields are named by offset only. The consumer of +0x224 / +0x0F is the player stage's 0021C440 (its
+oracle chain in test_security_gun_rest_reference, "fan hit -> 0021C440"; the live chain in the side run
+dmg_fan, DAMAGE.md section 7a).
 
 Not modelled: whatever 001B0C60, 001B17A0 and the draw callback do beyond being called. The area-change targets
 (AREA01 sub 1 entry 4) are not exported (INV-02).
@@ -153,7 +154,10 @@ image's own +0xA0 words, which no port code writes, so the boxes could never fir
 smoke's check_gun_fan (every route snapshot's fan state lies on the port's cycle) and check_owner_units (the
 original 001CAA00, over the port's +0xC8 where the phase differs); since chain C11 EXIT its `exit` phase:
 fan r2's cycle row for row against exit_00 and its exit box setting D_008107D8 = 0x81 in the capture's frame
-344 (FIRST_LEVEL_EXIT.md section 7). The notes below are the original plan.
+344 (FIRST_LEVEL_EXIT.md section 7). Since 2026-10-09 the hit box too: the pending damage +0x224 is the one
+storage g.pd_pend_hp (the binding stored it in the record image, which the next stage's vitals load
+overwrote: the hit dispatched the reaction with no damage), and the DAMAGE side run dmg_fan replays dmg_08's
+hit row for row (DAMAGE.md sections 7a and 8). The notes below are the original plan.
 
 - **Spawn.** Call `em_fan_original_spawn(&fan, flags2, placement_rot_z)` from the roster record: flags2 = record
   byte +3, rot.z = record +0x20.

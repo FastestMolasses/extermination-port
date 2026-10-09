@@ -11,12 +11,15 @@ dmg_load (from crevice_prompt: dmg_flame's way to the title after the death,
 then Cross on LOAD GAME, the memory-card screen to its slot choice, Triangle
 back to the title menu; the recordings dmg_00..dmg_03 and dmg_05),
 dmg_crevice_fall (from crevice_prompt: the walking jump short of the north
-block, the landing hit; dmg_06) and dmg_pit_fall (from truck_preview: the
-truck's fall, the walk off its roof onto the pit floor, the game over;
-dmg_07). tools/test_level_smoke.py checks each run as every level-smoke
+block, the landing hit; dmg_06), dmg_pit_fall (from truck_preview: the
+truck's fall, the walk off its roof onto the pit floor with 001755B0 at the
+fall start, the game over; dmg_07) and dmg_fan (from roger: fan r2's hit and
+the reaction 0021E9C0; dmg_08, a replay of its pad aligned on the fan's
+cycle). tools/test_level_smoke.py checks each run as every level-smoke
 run, and tools/level_smoke_damage.py its side phase window by window
 against the recordings (decomp build/c10/damage, docs/CAPTURES_C10.md
-"DAMAGE").
+"DAMAGE"). dmg_pit_fall and dmg_fan log the whole player record
+(EM_LOG_AIM_RECORDS=1): the fall start's and the fan hit's record words.
 
 The runs go side by side, then their checks. dmg_flame plays the intro
 movie of its second New Game in full (the recording does: no input there),
@@ -31,7 +34,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 BIN = Path(os.environ.get('EM_LEVEL_SMOKE_BIN', str(ROOT / 'build/extermination')))
 OUT = ROOT / 'build/level_smoke_damage'
-SIDES = ('dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_pit_fall')
+SIDES = ('dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_pit_fall', 'dmg_fan')
+RECORDS = ('dmg_pit_fall', 'dmg_fan')   # EM_LOG_AIM_RECORDS=1: the tick log's "aimrec"
 SIDES = tuple(os.environ['EM_DAMAGE_SIDES'].split(',')) if os.environ.get('EM_DAMAGE_SIDES') else SIDES
 CAPTURES = ROOT.parent / 'Extermination/build/c10/damage'
 
@@ -43,6 +47,8 @@ def main():
     for side in SIDES:
         env = dict(os.environ, EM_UNCAPPED='1', EM_STARTUP_TEST='newgame-level', EM_LEVEL_SMOKE_UNTIL=side,
                    EM_AREA_CHANGE_LOG=str(OUT / f'{side}.jsonl'), EM_RAND_TRACE=str(OUT / f'{side}.rand'))
+        if side in RECORDS:
+            env['EM_LOG_AIM_RECORDS'] = '1'
         log = open(OUT / f'{side}.log', 'w')
         runs[side] = (subprocess.Popen([str(BIN)], cwd=ROOT, env=env, stdout=log, stderr=subprocess.STDOUT), log)
     failed, checks = [], {}

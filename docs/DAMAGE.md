@@ -21,7 +21,8 @@ original's; no instruction of the original is reproduced here.
 | Continue | 001ADF00's 001AB790(001AC070); 001AC070 state 0 and 001AC480 after a death; New Game (state 4) | live (section 6) | test-title-menu-reference (both D_00275BDC contexts); dmg_flame |
 | Infection, 0x80000023 / 001ED450, heavy landing, kill plane | | unreachable in AREA11: fail-stop kept (section 7) | the recordings |
 | The title's load screen (dmg_05) | 00225A00 .. 00226070 | live since chain step OPTIONS (OPTIONS.md section 4.3) | test-options-reference, test-title-menu-reference; dmg_load |
-| The fan's hit (dmg_08) | 0x827630's fast arm, 0021E9C0 | not played: the fan needs Roger's departure | the EXIT step |
+| The fan's hit (dmg_08) | 0x827630's fast arm, 0021C440, 0021E9C0 | live; the hit's pending damage +0x224 through its one storage since 2026-10-09 (section 7a) | test-fan-original-reference, test-player-reaction-reference; dmg_fan (row for row) |
+| The fall start's heading test | 00162DB0 state 5 sub-state 0 at gait 3, 001755B0 (site 0x162F78) | live | test-player-record-helpers-reference, test-player-fall-reference; dmg_pit_fall (the fall start's rows) |
 
 ## 2. The flame's contact
 
@@ -150,7 +151,7 @@ and plays the opening to first control as the boot New Game does.
 `make test-title-menu-reference` executes 001AC070 state 0 for both
 D_00275BDC values and 001AC480 in both contexts against em_startup.
 
-## 7. What AREA11 cannot reach (fail-stop kept)
+## 7. What AREA11 cannot reach (fail-stop kept), and what no recording covers
 
 - **Infection.** +0x22C is raised only by sphere kinds 3 / 4 (the flame is
   kind 0) and class-3 pads (none in AREA11); the area drain needs
@@ -170,14 +171,40 @@ D_00275BDC values and 001AC480 in both contexts against em_startup.
   (OPTIONS.md section 4.3; the side run dmg_load); a chosen slot (002267A0)
   and a load (00227300) fault, and LOAD GAME on the boot's title (no AREA11
   world) fails the run.
-- **The fan's hit** (dmg_08: 0x827630's fast arm, 0021E9C0, the camera's
-  00194D10 / 0022FCA0 / 00230000): the fans spin fast only after Roger's
-  departure, which the EXIT step binds.
+- **001755B0's landing sites** (0017C580 at 0x17C744 / 0x17C7F4, a landing
+  with a drop -104 <= d <= -14.5 at gait 3): bound, oracle-tested, and
+  entered by no run: dmg_06's landing is a walking jump (gait below 3) and no
+  recording has a full-stick running landing in that drop range. A new
+  PCSX2 recording (a running jump into the crevice at full stick, as
+  dmg_06 but at full stick) would settle it.
+
+## 7a. The fan's hit (dmg_08)
+
+Fan r2 (0x827630, record [2]) hits only on its fast arm (spin +0x38 >=
+0.0349, its phase 2 and the start of phase 3), with fan +0x2E = 1, D_008106B8
+= 0, the player's +0 = 1 and its +0xA0..+0xA8 inside X (318, 340), Y (280,
+320), Z [156, 166.5): it writes +0x224 = 5.0, +0 = 3, +0x0F = 6 and +0x70..
++0x7C = (0, 0, 1, 1). The next stage's 0021C440 takes the 5.0 (health 95),
+sets +4 2, +5 0x11 and +0x0F 0x86; from the tick after, 0021E9C0 runs:
+sub-state 0 plays sound 0x154, the small motor 0xC0 for 5 frames, clip
+0x20, and zeroes +0x38 / +0x21C / +0x2EC; sub-state 1 moves the player by
+the clip's root delta along +0xC4 until +0x200 & 0x1000, then +0x0F = 0,
++0x20E = 60, +0x25C = 0 and 0017C540 hands control back. In dmg_08 that is
+52 calls (f144..f195), the knock-back from Z 166.44 to 173.40, and the
+protection to f255.
+
+**The fix (2026-10-09).** The fan's binding (em_area11_bindings.c tick_fan)
+read and wrote +0x224 in the player record's image, but its one storage is
+g.pd_pend_hp (section 2, "Vitals, one storage"): the stage's view load
+before 0015BA50 overwrote the 5.0, so the reaction ran with no damage
+(health stayed 100). The first fan-hit run found it; tick_fan now reads and
+writes g.pd_pend_hp, as the flame's contact pass does through
+player_vitals.
 
 ## 8. The side runs
 
 `make test-level-smoke-damage` (part of `make test-level-smoke-side`) plays
-four side runs (src/game/em_level_smoke_test.c "damage"; the capture
+five side runs (src/game/em_level_smoke_test.c "damage"; the capture
 lane's own closed-loop policies) and checks each with
 `tools/test_level_smoke.py` and, window by window, with
 `tools/level_smoke_damage.py` against the recordings (every window aligned
@@ -201,9 +228,53 @@ on its event, then compared tick by tick):
   menu equal the recording's, each for its rows except module 0x2A's load
   (9 rows, the disc 23) and the title's module 1 (host speed); both presses
   reach their fade-outs as recorded (OPTIONS.md section 6).
-- **dmg_pit_fall** (from truck_preview; dmg_07): the 0x5D floor death and
-  the fall to the load request (188 ticks, exact, with the height path),
-  the game over as above.
+- **dmg_pit_fall** (from truck_preview; dmg_07): the fall start, the 0x5D
+  floor death and the fall to the load request (188 ticks, exact, with the
+  height path), the game over as above. The fall start: an entry the
+  capture tool set after row f reaches the game's pad block in row f + 3
+  (dmg_07's rows: the last two sticks, set after rows 310 and 311, are
+  D_00810E57 = 3 and the stick bytes in rows 313 and 314; the neutral pad
+  set after row 312, where the tool saw +5 = 5, is in row 315). The port's
+  pad reaches the next tick, so the policy keeps the walk's last two sticks
+  for the fall state's ticks 1 and 2 (em_level_smoke_test.c
+  DS_FALL_START_LAG) and goes neutral on tick 3. Sub-state 0 (row 313) then
+  sees gait 3 with the stick held and asks 001755B0 (site 0x162F78; result
+  0, the tier-3 speed). Before this the policy went neutral at once, the
+  port's sub-state 0 saw gait 0 and never asked, and no compared window
+  covered those rows. The checker compares rows 309..315 aligned on the
+  fall state's first row: +5, +6, +0x1F0, +0x23F (3), +0x240 (0.8), +0x25C,
+  +0x38 (0.5) and +0x2EC (-0.4) equal; +0x24C, the stick's heading in the
+  camera's frame, is the run's own (the side run walks off the roof from
+  its own place), held from row 313 on in both, and 001755B0's test on it
+  is true in both (|error| 0.0335 in the recording, 0.0845 in the run, with
+  the tick end's D_008106A0; the scratch hook below read 0.0573 inside the
+  call).
+- **dmg_fan** (from roger; dmg_08; `make test-level-smoke-damage-fan` alone):
+  a replay, by the exit phase's method: dmg_08 starts from the same
+  snapshot as exit_00 (one frame earlier), so the run waits for fan r2 to
+  leave its phase 2, aligns the tick it enters phase 2 again on dmg_08's
+  row 32 (counter 15792, where exit_00 aligns its row 31) and replays the
+  recording's 57 pad entries (an entry of frame f reaches the original's
+  row f + 3, so the tick aligned to row c sets frame c - 2's) to its last
+  row, never below Z 156. Every row f32..f285 equals the recording: the
+  position (5 decimals), heading, camera eye / target / mode bytes, the
+  vitals, the damage fields, the clip clock from the walk on, and every
+  player-record word except the place (+0xA0..+0xBF), the vitals' image
+  (+0x220..+0x22F, compared through their storage), the idle clock before
+  the walk, and +0x28 / +0x248 / +0x2F8 for the whole beat and +0x260..
+  +0x268 up to the hit (the two runs' histories before the replay). Named on
+  the way: the hit f142, 0021C440 f143, 0021E9C0 f144..f195 (clip 0x20, the
+  motor 0xC0, the knock-back step within 0.00001), the hand-back f195, the
+  protection to f255, the rumble.
+
+**Entry proof (2026-10-09).** A scratch build (worktree build/cov/hook,
+deleted) with two counted hooks, one in em_player_record_001755B0 and one
+in em_player_reaction_0021E9C0, ran dmg_pit_fall, dmg_fan and
+dmg_crevice_fall (each PASS): 001755B0 was entered once, at dmg_pit_fall's
+fall start (counter 6490, the tick after the fall state's first, gait 3,
+result 0, |error| 0.0573); 0021E9C0 52 times in dmg_fan (sub-state 0 once at
+the row-144 tick, sub-state 1 51 times to the row-195 tick); dmg_crevice_fall
+entered neither (its landing is a walking jump).
 
 The tick log's `dmg` field carries the damage fields and the burn / decal
 nodes, `pad_pre` the pad block before the frame (em_scene_bindings.c).
@@ -213,7 +284,8 @@ compare the main line (tools/test_level_smoke.py `second_game`).
 Census: the 50 functions the DAMAGE recordings added are rows since
 FIRST_LEVEL_CENSUS.md section 1.59 (35 live, 2 verified-unbound, 9 missing:
 the load screen, 4 boundary), with their liveness measured over these
-three runs. Five of them (001EFE00, an AIM row, and 00194D10, 0022FCA0,
+three runs; since section 1.69 001755B0 and 0021E9C0 are entered by a run
+too (dmg_pit_fall, dmg_fan). Five of them (001EFE00, an AIM row, and 00194D10, 0022FCA0,
 00230000, 001195A8, beat-15 rows) were rows from the AIMCAP and EXIT steps
 too; the merge keeps one row each. The camera tether 00194D10 / 0022FCA0 /
 00230000 is exercised by the level smoke's exit phase.

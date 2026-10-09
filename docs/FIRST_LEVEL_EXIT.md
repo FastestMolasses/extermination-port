@@ -399,5 +399,7 @@ faults at 0x001AE040 (`w_001AD4D0`), so no AREA01 behaviour runs.
   under the fade-in's black.
 - The disc-drive timing switch has no recording of AREA01's reads: with it
   the exit's load answers at host speed (MODULE_LOADER.md 1.7).
-- The fan's direct exit (sub 1, D_00810758[0] == 0xFF) and the fan's hit box
-  stay off the route (no capture).
+- The fan's direct exit (sub 1, D_00810758[0] == 0xFF) stays off the route (no
+  capture). The fan's hit box is off the route too, but its DAMAGE recording
+  dmg_08 is replayed by the side run dmg_fan since 2026-10-09 (DAMAGE.md
+  section 7a).

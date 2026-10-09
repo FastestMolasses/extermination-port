@@ -1759,6 +1759,39 @@ census 1.68).** The user decided both presentation choices on 2026-10-09
   from the SDK boundary group: live 951 of 970 (99.2% of the non-boundary
   instructions), verified-unbound 18; the route through beat 15 750 of 768.
 
+**Status update (2026-10-09, the coverage step: audit 1b item 10's fan hit
+closed; census 1.69).** The two live census rows no port run entered
+(section 1.67) are now entered:
+- **0021E9C0 (the fan's hit):** a new DAMAGE side run, dmg_fan (from
+  roger; `make test-level-smoke-damage-fan`, part of
+  `test-level-smoke-damage`), replays dmg_08's pad aligned on fan r2's
+  cycle, as the exit phase replays exit_00's. Its first run found a port
+  bug: the fan binding (em_area11_bindings.c tick_fan) stored the hit's
+  pending damage +0x224 in the player record's image, whose stage load
+  overwrote it, so the reaction ran with no damage (health stayed 100). It
+  now goes through the one storage g.pd_pend_hp (DAMAGE.md section 7a).
+  Every row f32..f285 then equals the recording: the place (5 decimals),
+  heading, camera, damage fields, vitals and the player record's words
+  (the place, the vitals' image and five history words aside). 0021E9C0
+  ran 52 times, as recorded.
+- **001755B0 (the fall start's heading test):** dmg_pit_fall's policy now
+  keeps the walk's last two sticks at the fall start for the recording's
+  pad lag (dmg_07's pad rows), so sub-state 0 sees gait 3 and asks
+  001755B0 (result 0, as dmg_07 row 313); the checker compares the fall
+  start's rows 309..315, and the death after it still matches.
+- **Proof of entry:** a counted hook in a scratch build only (census 1.69).
+- **Verified (worktree cov-2fn):** `make -B all` (no warnings),
+  newgame-control (PASS 9.599849), `make test-level-smoke`, `make
+  test-level-smoke-damage` (all five side runs), the main line through
+  a01_arrival (its exit phase runs the fan binding), and the fan's and the
+  player's reference tests (test-fan-original-reference,
+  test-player-reaction-reference, test-player-fall-reference,
+  test-player-record-helpers-reference, test-security-gun-rest-reference).
+- **Not covered still:** 001755B0's two landing sites in 0017C580 (no
+  recording of a full-stick running landing with -104 <= d <= -14.5: a new
+  PCSX2 recording), the 18 verified-unbound rows and the unverified
+  001CB480 (census 1.69 lists each with its reason).
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:
@@ -1785,9 +1818,9 @@ recording the user has not allowed, and the platform backends". That holds
 for the audible output, the memory-card paths and the evidence gaps (items
 1, 9, 13..15) and the release blockers (16..18). It does **not** yet hold
 for the GS frame's remaining stages and the field phase (item 2), the one
-unverified census row and the unbound rows (items 6 and 7), the actor pool's
-free list (item 5) and the fan's hit (item 10): those are port work that
-needs no new recording.
+unverified census row and the unbound rows (items 6 and 7) and the actor
+pool's free list (item 5): those are port work that needs no new recording
+(the fan's hit, item 10, was too, and is closed since 2026-10-09).
 
 **A. On the route, every run**
 
@@ -1918,15 +1951,17 @@ needs no new recording.
    card in PCSX2); quit Yes (001AD140) is bound and not recorded; the
    title's OPTIONS entry and LOAD GAME on the boot's title stay pending; the
    first level has no save path (00225AC0(1) unreached in AREA11).
-10. **Feel: the fan's hit** (port work; the recording exists). dmg_08 (the
-    fans' fast arm 0x827630, 0021E9C0, the camera's 00194D10 / 0022FCA0 /
-    00230000) waited on Roger's departure, which chain step EXIT bound; it
-    is not replayed by a side run yet (DAMAGE.md section 7). Also off the
-    route, each with its reason in DAMAGE.md 7 / LEVEL_SMOKE.md "The BRANCH
-    side runs": the heavy landing (no capture), infection and the blast
-    reaction (unreachable in AREA11, fail-stops kept), the drums' damage
-    (what damages them is not established), the fans' fast-arm exit and
-    direct area change, the security gun firing (dormant on this visit).
+10. **Feel: what damage paths no run plays.** The fan's hit is closed
+    (2026-10-09: the side run dmg_fan replays dmg_08 row for row, the fan
+    binding's pending-damage store fixed; DAMAGE.md section 7a; census
+    1.69), and dmg_pit_fall's fall start now asks 001755B0 as dmg_07 does.
+    Left, each with its reason in DAMAGE.md 7 / LEVEL_SMOKE.md "The BRANCH
+    side runs": 001755B0's two landing sites in 0017C580 (Recording: a
+    full-stick running landing with -104 <= d <= -14.5), the heavy landing
+    (no capture), infection and the blast reaction (unreachable in AREA11,
+    fail-stops kept), the drums' damage (what damages them is not
+    established), the fans' fast-arm exit and direct area change, the
+    security gun firing (dormant on this visit).
 11. **Look: the aim / fire path's unrecorded parts** (Recording). The EFU's
     results (the streak program 0x230800 and the background's ERLENG) are
     a model no capture has checked (a capture of a streak or kind-2 page

@@ -892,13 +892,14 @@ static int tick_flag30(EmActor *actor, Node *node, const EmArea11World *world)
  * (em_area11_bind_roster). Its globals:
  * D_00810788, D_00810758 and D_008107D8 are canonical progress bytes,
  * D_008106B8 the request byte B8; its player D_008102B0 is the live player
- * record (+0x00, +0x0F, +0x70..+0x7C, +0x224) with its position
- * +0xA0..+0xA8 = g.pos. The exit box
+ * record (+0x00, +0x0F, +0x70..+0x7C) with its position +0xA0..+0xA8 =
+ * g.pos and its pending damage +0x224 = g.pd_pend_hp. The exit box
  * (the player at z < 156 inside its x/y box, record [2] only, fast arm or
  * slow) sets D_008107D8 |= 0x80 (Roger's departure; 001B0C60(1, 1, 4) when
  * D_00810758 == 0xFF); the hit box (156 <= z < 166.5, fast arm) writes the
  * player hit the player stage's 0021C440 consumes. The exit box is on the
- * level smoke's route (its exit phase: exit_00 f344); the hit box is not. */
+ * level smoke's route (its exit phase: exit_00 f344); the hit box on the
+ * side run dmg_fan (dmg_08 f142). */
 typedef struct {
     EmActor *actor;
     int freed;
@@ -982,7 +983,13 @@ static int tick_fan(EmActor *actor, Node *node, const EmArea11World *world)
          * storage is g.pos (as for the director's and Roger's triggers);
          * the record image's own words there are never written. */
         memcpy(player.pos, g.pos, sizeof player.pos);
-        memcpy(&player.f224, pl->bytes + 0x224, sizeof player.f224);
+        /* +0x224 (the pending damage): its one storage is g.pd_pend_hp
+         * (player_vitals; the stage loads the record's view of it before
+         * 0015BA50), so the hit reaches the next stage's 0021C440. Before
+         * the fan-hit side run (dmg_fan) this went to the record image,
+         * which that load overwrote: the hit dispatched the reaction with
+         * no damage. */
+        player.f224 = g.pd_pend_hp;
     }
     EmFanOriginal fan = {actor->u04[0], actor->u04[1], node->h28, actor->flags2, node->f38, actor->rot[2], 0};
     const EmFanOriginalWorkers w = {&c, fan_001B0FD0, fan_001FBD50, fan_001C6380, fan_001B17A0,
@@ -1000,7 +1007,7 @@ static int tick_fan(EmActor *actor, Node *node, const EmArea11World *world)
         pl->bytes[0x00] = player.b00;
         pl->bytes[0x0F] = player.b0F;
         memcpy(pl->bytes + 0x70, player.f70, sizeof player.f70);
-        memcpy(pl->bytes + 0x224, &player.f224, sizeof player.f224);
+        g.pd_pend_hp = player.f224;
     }
     if (c.freed)
         return 1;

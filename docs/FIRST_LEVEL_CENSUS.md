@@ -2886,6 +2886,89 @@ S0_title on, so each moves its label's counts the same way): live 948 ->
 (123,918 -> 124,121 instructions, 99.2% live); the route's own through beat
 15 747 of 766 -> 750 of 768 (88,415 of 89,400 -> 88,662 of 89,603, 98.9%).
 
+### 1.69 Update (2026-10-09, the coverage step: 001755B0 and 0021E9C0 entered by a run, no status change)
+
+Section 1.67 left two live rows that no port run entered: 001755B0 and
+0021E9C0, each bound at its original caller with an oracle (live by the
+rule of section 1.59). Both are now entered by a side run of the level
+smoke (DAMAGE.md section 8, LEVEL_SMOKE.md "The DAMAGE side runs"):
+
+- **0x001755B0** (the stick-versus-body heading test, byte-matched C;
+  em_player_record_001755B0 through em_player_closure_live.c w_001755B0).
+  Its first-level callers are 00162DB0 state 5 sub-state 0 (the fall start,
+  site 0x162F78, at gait 3 with the stick turned) and 0017C580's two landing
+  sites (0x17C744 / 0x17C7F4, a drop -104 <= d <= -14.5 at gait 3). The
+  only recording that ran it is dmg_07, at its fall start (row 313). The
+  dmg_pit_fall side run's policy turned the pad neutral on the tick after it
+  saw +5 = 5, so its sub-state 0 saw gait 0 and took the other path; it now
+  keeps the walk's last two sticks for the recording's pad lag (dmg_07's pad
+  rows: a tool entry set after row f shows in row f + 3; rows 313 and 314
+  hold D_00810E57 = 3 and the last two sticks, row 315 the neutral pad), and
+  the checker compares the fall start's rows 309..315 (+5, +6, +0x1F0,
+  +0x23F, +0x240, +0x25C, +0x38, +0x2EC equal; the verdict of 001755B0's
+  test equal). **Entered** at the fall start: once, result 0, gait 3.
+- **0x0021E9C0** (fan r2's hit reaction, +5 0x11, byte-matched C;
+  em_player_reaction_live_0021E9C0). The new side run dmg_fan (from roger)
+  replays dmg_08's pad on fan r2's cycle (the exit phase's method) and the
+  checker compares every row f32..f285 with the recording (place, camera,
+  player record, vitals). The first run found the fan binding's +0x224 store
+  going to the record image instead of its one storage g.pd_pend_hp (the
+  reaction ran with no damage); fixed in em_area11_bindings.c tick_fan
+  (DAMAGE.md section 7a). **Entered** 52 times, as dmg_08 (sub-state 0
+  once at f144, sub-state 1 51 times to the hand-back at f195).
+- **Method.** A counted hook in a scratch build only (the worktree's
+  build/cov/hook: a copy of src/ with a print at the entry of
+  em_player_record_001755B0 and of em_player_reaction_0021E9C0, linked with
+  the Makefile's line; deleted after the step), run on dmg_pit_fall,
+  dmg_fan and dmg_crevice_fall, each PASS in process. Its output: 001755B0
+  once in dmg_pit_fall (counter 6490, the fall state's second tick =
+  dmg_07 row 313; result 0, gait 3, |error| 0.0573); 0021E9C0 52 times in
+  dmg_fan (counters 14609..14660 = dmg_08 rows 144..195 from the aligned
+  row 32 at 14497); neither in dmg_crevice_fall (a walking jump: its
+  landing is not at gait 3). The edge recorder of section 1.67 was not
+  re-run.
+- **Row notes changed:** 001755B0, 0021E9C0 and 0x00827630 (the fan: its
+  hit box is now on a side run; the +0x224 fix).
+
+**Recount (exact, from the rows): no status change.** The census covers
+1,404 functions: live 951 (123,152 instructions), verified-unbound 18
+(941), unverified 1 (28), stand-in 0, missing 0, boundary 434 (23,132);
+non-boundary 970 functions, 124,121 instructions, 99.2% of them live (951
+of 970 functions, 98.0%). The route's own through beat 15: 750 of 768 live,
+88,662 of 89,603 instructions (98.9%). Live rows entered by a port run:
+**951 of 951** (section 1.67's 946 by the edge recorder, section 1.68's
+three by the presentation step's runs, these two by the hook).
+
+**What is still not covered** (the census's own scope: section 6):
+
+- **001755B0's two landing sites** in 0017C580 (0x17C744 / 0x17C7F4): no
+  recording has a landing with a drop in -104..-14.5 at gait 3 (dmg_06's
+  is a walking jump at stick 0.45). A new PCSX2 recording would settle
+  them: a running jump at full stick into the crevice, as dmg_06 but at
+  full stick (DAMAGE.md section 7).
+- **The 18 verified-unbound rows** (a verified translation the live app
+  does not run at the original's caller; each row's note in section 3):
+  001AB590 (a DMA CHCR watchdog: a hardware boundary); 001AC070 (the title
+  flow runs as em_startup.c / em_frontend.c; binding em_slg_001AC070 needs
+  their sub-machines as its workers); 00199C50 (AREA11 runs the reported
+  no-effect um_00199C50 over the collision world's views; the translation
+  runs live only in AREA01, level 2); 001B15D0 and 001FBF50 (AREA11's
+  positional sounds run em_sfx_play_at; the translations run live only for
+  AREA01's after the arrival; audit 1b items 1 and 7); 001B1CA0 and
+  001B1DA0 (001B1B70's class 2/0xA and 0xD pushes: no owner the port runs
+  publishes those classes); 001BA510 (not bound; inline in
+  em_interaction_frame); 001CB5B0 (AREA11's slots are the no-op
+  w_001CB5B0; the translation runs live only in AREA01; audit 1b item 7);
+  001D19E0 (its callees run live, the rest is a reported no-effect
+  binding); 001DD7B0, 001DD940, 001E0C30, 001E1010 (render-context
+  routines, not bound); 001FBC50 (w_001FBC50 runs em_sfx_stop_all, no
+  oracle); 001FBDB0 (em_sfx_play_at stands in); 008237C0 (its stores have
+  no reader in AREA11); 00102850 (its arithmetic runs inline in
+  em_item_geometry for 002082B0; its other caller 00209280 not traced).
+- **The one unverified row, 001CB480** (the MAP page's kind-7 draw,
+  em_status_models draw_001CB480): no original-instruction check; the
+  oracle-tested em_area01_side_001CB480 is not bound (audit 1b item 6).
+
 ## 2. Totals
 
 ### 2.1 All 1,404 executed functions (the route's 1,195 through beat 15, the AIM beats' 114, the DAMAGE recordings' 45, the BRANCH recordings' 36 and the OPTIONS recordings' 14)
@@ -2911,7 +2994,7 @@ s87 census, 13 of them DAMAGE rows already; all from first control on).
 | boundary | 434 | 23,132 | 156 (9,832) | 278 (13,300) |
 | **total** | **1404** | **147,253** | 1048 | 356 |
 
-Of the 970 non-boundary functions, 951 (98.0%) are live and verified; by instructions 123,152 of 124,121 (99.2%; section 1.68: 001AB4E0 live, 001002E0 and 00100550 rows). The OPTIONS recordings' 12 non-boundary functions (section 1.65) are all live. The BRANCH recordings' 34 non-boundary functions (section 1.60): 33 live, 1 unverified (001CB480). The route's own 768 (through beat 15): 750 live, 88,662 of 89,603 instructions (98.9%, sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61, 1.64 and 1.68); the AIM beats' 114 (section 1.56) are all live; the DAMAGE recordings' 42 non-boundary functions (section 1.59) are all live since section 1.65 (the title's load screen, which dmg_05 reached from the title after a death, bound by chain step OPTIONS). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 18 functions (941 instructions, 0.8%) are verified translations the live app does not run. 1 function (28 instructions) has no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), no missing row (the load screen's nine are live since section 1.65), 1 unverified (since section 1.60, the MAP page's draw 001CB480; 00187DC0 is live since chain C7, section 1.26, 001FC280 since chain step EXIT, section 1.58, and 0015CF90 and 001B1190 since chain step GLUE, section 1.64). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59; 2026-10-03, section 1.60; 2026-10-08, sections 1.61, 1.62, 1.63, 1.64, 1.65 and 1.66; 2026-10-09, section 1.68) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json; the BRANCH rows' from the BRANCH delta, decomp build/c10/branch/census_delta.json; the OPTIONS rows' from the OPTIONS delta, decomp build/c10/options/census_delta.json; an overlay entry keyed by its runtime address and its overlay: the EXIT delta's AREA01 0x00823580 is not the AREA11 row's); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 970 non-boundary functions, 951 (98.0%) are live and verified (since section 1.69 each of them entered by a port run); by instructions 123,152 of 124,121 (99.2%; section 1.68: 001AB4E0 live, 001002E0 and 00100550 rows). The OPTIONS recordings' 12 non-boundary functions (section 1.65) are all live. The BRANCH recordings' 34 non-boundary functions (section 1.60): 33 live, 1 unverified (001CB480). The route's own 768 (through beat 15): 750 live, 88,662 of 89,603 instructions (98.9%, sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61, 1.64 and 1.68); the AIM beats' 114 (section 1.56) are all live; the DAMAGE recordings' 42 non-boundary functions (section 1.59) are all live since section 1.65 (the title's load screen, which dmg_05 reached from the title after a death, bound by chain step OPTIONS). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 18 functions (941 instructions, 0.8%) are verified translations the live app does not run. 1 function (28 instructions) has no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), no missing row (the load screen's nine are live since section 1.65), 1 unverified (since section 1.60, the MAP page's draw 001CB480; 00187DC0 is live since chain C7, section 1.26, 001FC280 since chain step EXIT, section 1.58, and 0015CF90 and 001B1190 since chain step GLUE, section 1.64). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59; 2026-10-03, section 1.60; 2026-10-08, sections 1.61, 1.62, 1.63, 1.64, 1.65 and 1.66; 2026-10-09, section 1.68) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json; the BRANCH rows' from the BRANCH delta, decomp build/c10/branch/census_delta.json; the OPTIONS rows' from the OPTIONS delta, decomp build/c10/options/census_delta.json; an overlay entry keyed by its runtime address and its overlay: the EXIT delta's AREA01 0x00823580 is not the AREA11 row's); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
@@ -3204,7 +3287,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x00174AC0 | — | BM | live | em_player_heading_record em_player_heading_record_worker_result (the idle / walk states' `heading`, census L12; the closure's states) — test_player_heading_record_reference; test_locomotion_display_reference (captured images, stick held); test-first-control-reference (+C4 exact wherever the camera input D_008106A0 is) | em_player_heading.c and the em_player.c turn serve only the legacy scenes and the examine stand-in's face step | S3_first_control_idle |
 | 0x00174FD0 | — | BM | live | em_player_record_helpers em_player_record_00174FD0 through em_player_slide — test_player_slide_reference, test_player_record_helpers_reference; test_level_smoke.py (06_hill_slide row for row, census L03) | live since census L03: em_player_slide_live_state is 0015B130's state[0x1C] (em_player_closure_live.c); reached by the level smoke's slide phase (0017F5F0 steering) | 06_hill_slide |
 | 0x001751A0 | — | NM | live | em_player_recovery — test_player_recovery_reference; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's per-frame stick quadrant, em_player_recovery over the record); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
-| 0x001755B0 | — | BM | live | em_player_record_001755B0 (the closure's test_001755B0) — test_player_record_helpers_reference.py, test_player_fall_reference.py | bound in the fall's drop tests; not exercised by the DAMAGE side runs (dmg_07 ran it on its walk off the truck's roof, which the side run's walk does not reproduce; not a compared window) | dmg_07_pit_fall |
+| 0x001755B0 | — | BM | live | em_player_record_001755B0 (the closure's test_001755B0) — test_player_record_helpers_reference.py, test_player_fall_reference.py; level_smoke_damage.py fall_start (dmg_pit_fall) | bound in the fall's drop tests; entered by dmg_pit_fall at its fall start since section 1.69 (00162DB0 sub-state 0, site 0x162F78, gait 3, result 0, as dmg_07 row 313; the fall start's rows compared); its two landing sites in 0017C580 (0x17C744 / 0x17C7F4) are entered by no run: no recording of a landing at gait 3 with -104 <= d <= -14.5 | dmg_07_pit_fall |
 | 0x00175640 | — | BM | live | em_actor_collision (em_player_link_00175640) — test_player_floor_reference | reached live since census L03 (the slide's floor service on the hill); test_level_smoke.py (06_hill_slide row for row, census L03) | 06_hill_slide |
 | 0x001756E0 | — | NM | live | em_player_floor.c em_player_clearance_release over the record (player_states_clearance_release: the idle / walk states' `clearance`; +236 / +235 stored before its 00174A50) — test_player_probe_reference |  | S2_opening |
 | 0x00175900 | — | NM | live | em_player_floor.c floor service over the collision world (FLOOR engaged) — test_player_floor_reference; test_level_smoke.py (post-release Y equals the captures) |  | S2_opening |
@@ -4028,7 +4111,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x0021D640 | — | BM | live | em_player_stage_workers em_player_0021D640 (0021C440, L01), em_player_reaction — test_player_stage_workers_reference.py |  | S2_opening |
 | 0x0021D800 | — | NM | live | em_player_reaction_0021D800 (em_player_reaction_live_0021D800) — test_player_reaction_reference.py; test_level_smoke.py + level_smoke_damage.py (dmg_flame: the flinch clip of every recorded hit) | its clip pick is a rand() caller (tools/rand_order.py) | dmg_00_flame_hit |
 | 0x0021E240 | — | BM | live | em_player_reaction_0021E240 (em_player_reaction_live_0021E240) — test_player_reaction_reference.py; test_level_smoke.py + level_smoke_damage.py (dmg_flame: the death reaction) |  | dmg_02_flame_death |
-| 0x0021E9C0 | — | BM | live | em_player_reaction_0021E9C0 (em_player_reaction_live_0021E9C0) — test_player_reaction_reference.py | bound; not exercised by a port run: dmg_08 (the fan's hit) needs the EXIT step | dmg_08_fan_hit |
+| 0x0021E9C0 | — | BM | live | em_player_reaction_0021E9C0 (em_player_reaction_live_0021E9C0) — test_player_reaction_reference.py; level_smoke_damage.py check_dmg_fan | entered by the side run dmg_fan since section 1.69: 52 calls as dmg_08 (f144..f195), every row f32..f285 compared with the recording | dmg_08_fan_hit |
 | 0x00224290 | — | AW | live | em_player_fall, em_player_slide — test_player_fall_reference.py, test_player_slide_reference.py; test_level_smoke.py check_fall (the step-offs of routes 10, 11, 12 row for row); test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L09..L11 (the landing check of the falls and the jump); measured executing in the full smoke (census 1.9) | 10_cage_roof_roger |
 | 0x002243F0 | — | AW | live | em_player_recovery, em_player_running_jump — test_player_recovery_reference.py, test_player_running_jump_reference.py; test_level_smoke.py check_crevice_jump (route 12 row for row) | live since census L11 (the jump's hit sub-state machine); measured executing in the full smoke (census 1.9) | 12_crevice_jump |
 | 0x00224B80 | — | BM | live | em_player_recovery em_player_recovery_react_00224B80_worker, bound as the slide's damage worker — test_player_recovery_reference.py, test_player_slide_reference.py; test_level_smoke.py (06_hill_slide row for row, census L03) | live through the slide (0016C6A0 sub-state 3, every tick; returned 0 on the route) | 06_hill_slide |
@@ -4084,7 +4167,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x008257A0 | — | AU | live | em_manager_008257A0.c, the whole function (decomp C func_overlay_AREA11_00825760.c, byte-identical; state 1 translated and bound by A11FIX: 001B1EA0 over the quad 0x82ACA0, the script 0x829E80 with its op09 callbacks 0x825900 / 0x825920, 001DFE40, D_00810814, 001B17A0) — test_manager_8257a0_reference | frees itself on the second world frame of the first visit (D_00810788 == 0); state 1 is return-visit content | S2_opening* |
 | 0x00825940 | — | AU | live | em_security_gun em_gun_tick (the security gun; lifecycles 0, 0x64, 2, 3) through em_area11_bindings.c tick_gun since section 1.39 — test_script_door_fan_reference (part 3), test_security_gun_rest_reference (em_gun_rest_tick, every lifecycle, 24 captures); test_level_smoke.py check_gun_fan (equal to all 15 route snapshots on every tick), check_owner_units (its 001CAA00 unit), check_rand_order (its 0x8259F0 draw at AE+1); test_collision_world_capture.py (its plate, uid 15) | lifecycles 4 and 1 (return visit, D_00810788 == 0xFF) fault by design; em_gun_rest_tick translates them, not bound | S2_opening |
 | 0x00827490 | — | AU | live | em_security_gun em_gun_cable_tick (the gun's cable) through em_area11_bindings.c tick_gun_cable since section 1.39 — test_script_door_fan_reference (part 3); test_level_smoke.py check_gun_fan, check_owner_units | its hit (a melee hit, decomp CAPTURES_C10.md aim_11; off the route) runs since 2026-10-02 in ordinary play: 001EFE00, 001EFEB0, 0021AAC0 (the kind-2 VU1 program) / 0021A500 and 001CE860 through the aim / fire composition, row for row against aim_11 (the side run aim_cable; AIM_FIRE.md section 10.5, section 1.52) | S2_opening |
-| 0x00827630 | — | AU | live | em_fan_original through em_area11_bindings.c tick_fan since section 1.39 — test_fan_original_reference, test_security_gun_rest_reference (its player hit through the original 0021C440); test_level_smoke.py check_gun_fan (every captured fan state on the port's cycle), check_owner_units (its units, over the port's +0xC8 through the original 001C6380) | its exit and hit boxes are off the smoke's route | S2_opening |
+| 0x00827630 | — | AU | live | em_fan_original through em_area11_bindings.c tick_fan since section 1.39 — test_fan_original_reference, test_security_gun_rest_reference (its player hit through the original 0021C440); test_level_smoke.py check_gun_fan (every captured fan state on the port's cycle), check_owner_units (its units, over the port's +0xC8 through the original 001C6380); level_smoke_damage.py check_dmg_fan (the hit box) | its exit box is on the route (exit_00 f344, the exit phase); its hit box on the side run dmg_fan since section 1.69 (dmg_08 f142), where its +0x224 store reaches 0021C440 through the one storage g.pd_pend_hp (before, tick_fan stored it in the record image and the hit did no damage; DAMAGE.md section 7a) | S2_opening |
 | 0x00827B10 | — | AU | live | em_elevator.c / em_area11_interaction_host.c (node #27); since section 1.25 its record: state 0's 001B0FD0 / 001C6380, the carry's and the completion's 001C6380, 0x827E6C and the +0x4C 001CAA00 (em_area11_boxes_owner_*, em_area11_bindings.c terminal_copy_child) — test_elevator_reference; test_level_smoke.py (routes 02/04: the record's +0x04 / +0xB0 row for row over route 04; check_indicator_children; check_owner_units) | the legacy platform mesh is retired (section 1.25) | S2_opening |
 | 0x00828050 | — | AU | live | em_elevator.c em_elevator_motion_tick — test_elevator_reference; test_level_smoke.py (route 04) |  | 04_elevator_ride |
 

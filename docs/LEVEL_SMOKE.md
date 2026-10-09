@@ -70,7 +70,8 @@ make test-level-smoke                  # first_control, status, battery (about 1
 make test-level-smoke-full             # the whole route through the exit and the AREA01 arrival idle (a01_arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
 make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage, test-level-smoke-branch, test-level-smoke-options and test-level-smoke-audio
-make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_crevice_fall, dmg_pit_fall (EM_DAMAGE_SIDES=a,b runs only those)
+make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan (EM_DAMAGE_SIDES=a,b runs only those)
+make test-level-smoke-damage-fan       # dmg_fan alone (fan r2's hit and the reaction 0021E9C0, dmg_08 row for row)
 make test-level-smoke-branch           # the BRANCH side runs side by side: br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk (EM_BRANCH_SIDES=a,b runs only those; 7 min 5 s for the ten with their checks, measured 2026-10-03)
 make test-level-smoke-audio            # the AUDIO side runs side by side: aud_walk_outdoor, aud_walk_room, aud_flame (about 5 min; EM_AUDIO_SIDES=a,b runs only those)
 make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
@@ -297,7 +298,7 @@ fence_door_side1` requires both side phases.
 | crevice_prompt | 11 (f706..) | director beat 1, script 0x829A40 (voiced line 0x97) | yes (census L21 with WP-8b) | — |
 | dmg_flame (side, from crevice_prompt) | DAMAGE dmg_00..dmg_04 (decomp CAPTURES_C10.md "DAMAGE", not route beats) | the flame's contact 001A8660 / 0x823580 (001EFE00: the burn node 0022BBC0), the hit 0021C440 / 0021D800 and the rumble 001B61C0, the heartbeat 0015D000, the death 0021D2E0 and its decal 001F77B0, the game over 001AD140 / 001AD4E0 (screen module 0x27, 001ABF90) / 001ADF00, the title after a death 001AC070 / 001AC480, the New Game to first control | yes, its own run (chain step DAMAGE, 2026-10-02) | — |
 | dmg_crevice_fall (side, from crevice_prompt) | DAMAGE dmg_06 | the walking jump short of the north block, the landing hit 0017C580 / 00163E90 | yes, its own run (chain step DAMAGE) | — |
-| dmg_pit_fall (side, from truck_preview) | DAMAGE dmg_07 | the truck's fall, the walk off its roof, the 0x5D floor's death 0021D250 / 0021D2E0, the game over | yes, its own run (chain step DAMAGE) | — |
+| dmg_pit_fall (side, from truck_preview) | DAMAGE dmg_07 | the truck's fall, the walk off its roof, the fall start 00162DB0 sub-state 0 at gait 3 with 001755B0 (since 2026-10-09), the 0x5D floor's death 0021D250 / 0021D2E0, the game over | yes, its own run (chain step DAMAGE) | +0x24C, the stick's heading, is the run's own (its own place on the roof); its test's verdict is compared |
 | br_panel_decline (side, from elevator_refusal) | BRANCH br_03 (decomp CAPTURES_C10.md "BRANCH", not a route beat) | the panel 00159210 with the battery: script 0x2477A0, the BATTERY page's two-unit prompt, No, Triangle: the cancel script 0x247DA0; the power stays off | yes, its own run (chain step BRANCHES, 2026-10-03) | — |
 | br_elevator_up (side, from elevator) | BRANCH br_02 | the terminal 0x827B10 on the lower floor: 0x82A750 and the carry 0x828050 back up, D_0081083A 1 -> 0 | yes, its own run (BRANCHES) | — |
 | br_crate_stack (side, from elevator) | BRANCH br_04 | the light melee on box r5 (001551B0's damage break: the husk rebind, 001FC580's cue, the debris 0x8000000A (001F2BA0) and 0x80000015 (001EA240 subtype 0x0D, 001EBD20)), the raised r3 woken, its fall and break | yes, its own run (BRANCHES) | — |
@@ -311,6 +312,7 @@ fence_door_side1` requires both side phases.
 | aud_flame (side, from crevice_prompt) | audio flame | the walk to the flame (its contacts: the burn node's 0x14A), 300 ticks standing, the walk away: the flame's 0x413 held on its one track | yes, its own run (chain step AUDIO) | — |
 | br_plateau (side, from crevice_prompt) | BRANCH br_11 .. br_13 | the raised pipe's ledge climb and step-off, the plateau ladder up, pickup g0.2 (item 0x1F), the ladder down | yes, its own run (BRANCHES) | — |
 | br_roger_talk (side, from roger) | BRANCH br_14 | Roger 0x8237E0's third branch 0x823B70: the use scan marks him (+0x0B = 4), the talk script 0x828810 (line 0x13, VOICE.DAT cue 1) | yes, its own run (BRANCHES) | the voice read's drive time (host speed; the recording's with the PS2 disc-drive timing switch) |
+| dmg_fan (side, from roger) | DAMAGE dmg_08 | fan r2 00827630's fast arm in its hit band (+0x224 = 5.0, +0 = 3, +0x0F = 6), 0021C440 (health 95, +5 0x11), the reaction 0021E9C0 (52 ticks: sound 0x154, the small motor, clip 0x20 and its root delta), the hand-back 0017C540, the protection | yes, its own run (2026-10-09; a replay of dmg_08's pad on fan r2's cycle) | — |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
 | east_tower_climb | 13 (f0..f531) | high ledge climb 0015DF10 onto the east tower top | yes (census L04) | — |
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
@@ -1225,17 +1227,24 @@ a module): SPR4's module 0x2C 28 rows (f50..f77), the SELECTOR's 0x31 18
 rows (f82..f99) and the SPR4 reload 23 rows (f154..f176); the port's at
 host speed 11, 10 and 11 rows (LAUNCHER_OPTIONS.md, the drive switch).
 
-### The DAMAGE side runs (dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall)
+### The DAMAGE side runs (dmg_flame, dmg_load, dmg_crevice_fall, dmg_pit_fall, dmg_fan)
 
 Side phases (DAMAGE.md section 8): dmg_flame, dmg_load and dmg_crevice_fall
-after crevice_prompt, dmg_pit_fall after truck_preview (dmg_load: "The
-OPTIONS side runs" below). Each plays the capture
-lane DAMAGE's own closed-loop policies (decomp route_capture.py
+after crevice_prompt, dmg_pit_fall after truck_preview, dmg_fan after roger
+(dmg_load: "The OPTIONS side runs" below). Each but dmg_fan plays the
+capture lane DAMAGE's own closed-loop policies (decomp route_capture.py
 `dmg_beat_*`) as a program of steps (em_level_smoke_test.c "damage":
 idle, hits to a health, retreat, the death to the game over, the title,
 Up, Cross, the New Game to first control, the walks, the walking jump, the
-truck's descent and the step off its roof), driven by the port's own state.
-Each beat starts after 35 neutral ticks, the capture's pin. In process: the
+truck's descent and the step off its roof, with the walk's last two sticks
+kept at the fall start for the recording's pad lag), driven by the port's
+own state. Each of those starts after 35 neutral ticks, the capture's pin.
+dmg_fan is a replay by the exit phase's method: it aligns on fan r2's entry
+into phase 2 (dmg_08's row 32; the run log's "dmg_fan: aligned counter=")
+and plays dmg_08's recorded pad to its last row; its check compares every
+row f32..f285 (DAMAGE.md section 8). dmg_pit_fall and dmg_fan log the
+whole player record (EM_LOG_AIM_RECORDS=1, set by
+tools/test_level_smoke_damage.py). In process: the
 steps' predicates and no fault; the run log prints the counters the checker
 aligns on ("done ... at tick N counter C", "press X at counter", "title
 menu takes input at counter", "first control again at tick T counter C").
@@ -1255,7 +1264,10 @@ counters to 001AC070's install; the menu takes input no later than
 recorded), the New Game (equal counters from Cross to the game task; first
 control the same tick count after it as the run's own boot New Game, at the
 recorded place, heading and health), the landing hit and the pit fall with
-their height paths. dmg_flame's second New Game is cut from the whole-run
+their height paths, the pit fall's start (rows 309..315: the gait, the
+sub-state, the fall's speed and drop equal; 001755B0's test true in both),
+and the fan hit row for row (dmg_fan: place, camera, record, vitals).
+dmg_flame's second New Game is cut from the whole-run
 checks (`second_game`; its own check compared it): check_fade_weights
 expects 001D19D0 once per New Game, check_render_context accepts the area
 build's re-seat (state 0) that a context still bound from the death shows,
