@@ -32,6 +32,7 @@
 #include "gfx/metal/em_background_gs.h"
 #include "gfx/metal/em_shadow_gs.h"
 #include "gs/em_gs_world.h"
+#include "gs/em_gs_display.h"
 #include <math.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -189,6 +190,7 @@ struct EmGfx {
     uint32_t                     gsSurfCount;
     id<MTLRenderPipelineState>   gsfPipeline;
     id<MTLRenderPipelineState>   gsfShowPipeline;
+    id<MTLRenderPipelineState>   gsfFieldPipeline;   /* f_gsfield: the Original profile's field */
     id<MTLTexture>               gsfNoTexture;  /* bound for untextured draws */
     uint32_t                     gsfWarned;
     /* Object units (em_gfx_object_unit / em_gfx_object_texture — em_gfx.h):
@@ -212,7 +214,7 @@ struct EmGfx {
      * state blocks, whether this frame's world draws are recorded and
      * whether end_frame presents the model's field, the field's texture,
      * the primitive buffer the object units' triangles convert into, and
-     * the presentation choice (the placeholder only). */
+     * the presentation mode (EM_GFX_FIELD_INTERLACED, the only one). */
     EmGsWorld                   *gsw;
     bool                         gswOn, gswFrame, gswShow;
     EmGfxGsRead                  gswRead;
@@ -238,6 +240,15 @@ struct EmGfx {
     uint32_t                     gswPrimCap;
     int                          gswPresentation;
     char                         gswWhy[192];
+    /* The picture's placement (src/gs/em_gs_display.h): the display
+     * registers step U stored (em_gfx_gs_display_store), the game
+     * rectangle of this frame (x, y, width, height in drawable pixels), and
+     * per field texture the f_gsfield constants (the rectangle, the shift,
+     * BGCOLOR; the field's line is added when its field is known,
+     * gsw_complete). */
+    EmGsDisplayRegs              gsDisp;
+    double                       gameRect[4];
+    id<MTLBuffer>                gswSlotK[3];
 };
 
 struct EmGfxMesh {
@@ -282,6 +293,8 @@ static int gsw_receiver_end(EmGfx *g);
 static int gsw_list_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
                           uint64_t display_frame, uint64_t display_scissor);
 static void gsw_present(EmGfx *g);
+static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict);
+static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p);
 static void gsw_write_field(EmGfx *g, const char *bmp_path);
 static void gsw_complete(EmGfx *g);
 static int gsw_slot(EmGfx *g);
@@ -816,6 +829,7 @@ void em_gfx_destroy(EmGfx *g)
         [g->gsSurf[i].tex release];
     [g->gsfPipeline release];
     [g->gsfShowPipeline release];
+    [g->gsfFieldPipeline release];
     [g->gsfNoTexture release];
     for (uint32_t i = 0; i < g->objTexCount; i++)
         [g->objTex[i].tex release];
@@ -827,6 +841,7 @@ void em_gfx_destroy(EmGfx *g)
     for (int i = 0; i < 3; i++) {
         [g->gswSlotTex[i] release];
         [g->gswSlotCmd[i] release];
+        [g->gswSlotK[i] release];
     }
     free(g->gswPrims);
     free(g->bgFile);
@@ -939,10 +954,18 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
         } else {                               /* tall: letterbox */
             vh = dw * 3.0 / 4.0;  vy = (dh - vh) * 0.5;
         }
+        g->gameRect[0] = vx; g->gameRect[1] = vy; g->gameRect[2] = vw; g->gameRect[3] = vh;
         [g->enc setViewport:(MTLViewport){ vx, vy, vw, vh, 0.0, 1.0 }];
         [g->enc setScissorRect:(MTLScissorRect){
             (NSUInteger)vx, (NSUInteger)vy,
             (NSUInteger)vw, (NSUInteger)vh }];
+        /* The Original profile places the whole picture by the display
+         * registers the last step U stored (the options' SCREEN ADJUST):
+         * the game rectangle shows BGCOLOR, the frame's draws land on the
+         * placed picture, the scissor crops it to the rectangle. A field
+         * frame places its field again at end_frame (gsw_present). */
+        EmGsDisplayPlace place;
+        const int placed = g->gswOn && gsw_place(g, &place, 0) == 0;
 
         /* Fill the game frame with the requested clear color (the bars
          * keep the pass's black clear): one full-NDC quad through the
@@ -958,19 +981,28 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
                 { -1.0f,  1.0f }, { 1.0f,  1.0f }, { -1.0f, -1.0f },
                 {  1.0f,  1.0f }, { 1.0f, -1.0f }, { -1.0f, -1.0f },
             };
-            for (int i = 0; i < 6; i++) {
-                float *o = v + i * 8;
-                o[0] = corner[i][0]; o[1] = corner[i][1];
-                o[2] = 0.0f;         o[3] = 1.0f;
-                o[4] = r; o[5] = gr; o[6] = b; o[7] = a;
-            }
             [g->enc setRenderPipelineState:g->testPipeline];
             [g->enc setDepthStencilState:g->depthOff];
             [g->enc setCullMode:MTLCullModeNone];
-            [g->enc setVertexBytes:v length:sizeof(v) atIndex:0];
-            [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
-                       vertexStart:0
-                       vertexCount:6];
+            for (int pass = placed ? 0 : 1; pass < 2; pass++) {
+                /* pass 0: BGCOLOR over the rectangle; pass 1: the clear
+                 * colour over the (placed) picture */
+                const float c[4] = { pass ? r : place.bg[0] / 255.0f, pass ? gr : place.bg[1] / 255.0f,
+                                     pass ? b : place.bg[2] / 255.0f, pass ? a : 1.0f };
+                for (int i = 0; i < 6; i++) {
+                    float *o = v + i * 8;
+                    o[0] = corner[i][0]; o[1] = corner[i][1];
+                    o[2] = 0.0f;         o[3] = 1.0f;
+                    o[4] = c[0]; o[5] = c[1]; o[6] = c[2]; o[7] = c[3];
+                }
+                if (pass == 1 && placed) gsw_viewport(g, &place);
+                [g->enc setVertexBytes:v length:sizeof(v) atIndex:0];
+                [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
+                           vertexStart:0
+                           vertexCount:6];
+            }
+        } else if (placed) {
+            gsw_viewport(g, &place);
         }
     }
 }
@@ -3472,6 +3504,17 @@ static NSString *const kGsFrameShaderSrc =
 "    float2 size = float2(k[0].xy);\n"
 "    uint2 p = uint2(min(floor(in.tc * size), size - 1.0));\n"
 "    return float4(tex.read(p).rgb, 1.0);\n"
+"}\n"
+/* The Original profile's field (em_gs_display_source, the same float
+ * operations): k[0] = the game rectangle's origin and 512 / width,
+ * 448 / height; k[1] = the shift in pixels and lines (the field's line
+ * included); k[2] = BGCOLOR. Each field row covers two of the 448 lines. */
+"fragment float4 f_gsfield(SOut in [[stage_in]], texture2d<float, access::read> tex [[texture(0)]],\n"
+"                          constant float4 *k [[buffer(0)]]) {\n"
+"    float px = (in.pos.x - k[0].x) * k[0].z, py = (in.pos.y - k[0].y) * k[0].w;\n"
+"    float x = px - k[1].x, y = py - k[1].y;\n"
+"    if (!(x >= 0.0) || !(y >= 0.0) || x >= 512.0 || y >= 448.0) return float4(k[2].rgb, 1.0);\n"
+"    return float4(tex.read(uint2(uint(floor(x)), uint(floor(y)) >> 1)).rgb, 1.0);\n"
 "}\n";
 
 enum {
@@ -4347,6 +4390,11 @@ static int gsw_slot(EmGfx *g)
         g->gswSlotTex[k] = [g->device newTextureWithDescriptor:td];
         if (!g->gswSlotTex[k]) return gsw_fail(g, "field texture allocation failed");
     }
+    if (!g->gswSlotK[k]) {
+        g->gswSlotK[k] = [g->device newBufferWithLength:3u * 4u * sizeof(float)
+                                                options:MTLResourceStorageModeShared];
+        if (!g->gswSlotK[k]) return gsw_fail(g, "field constants allocation failed");
+    }
     g->gswSlot = k;
     return 0;
 }
@@ -4363,10 +4411,21 @@ static void gsw_complete(EmGfx *g)
     if (!ok) (void)gsw_check(g);
     uint32_t w = 0, h = 0;
     const uint8_t *f = ok ? em_gs_world_field(g->gsw, &w, &h, NULL) : NULL;
-    if (f && w == EM_GS_WORLD_FIELD_W && h <= EM_GS_WORLD_FIELD_H)
+    if (f && w == EM_GS_WORLD_FIELD_W && h <= EM_GS_WORLD_FIELD_H) {
         [g->gswSlotTex[g->gswPendSlot] replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:f
                                          bytesPerRow:4u * w];
-    else if (ok)
+        /* The field's interlaced line, from the XYOFFSET_1 that drew it
+         * (step V's draw environment, or the list's into its displayed
+         * buffer): one line lower for a half-line OFY. */
+        const int line = em_gs_world_field_xyoffset_known(g->gsw)
+                             ? em_gs_field_line(em_gs_world_field_xyoffset(g->gsw)) : -2;
+        if (line == -2)
+            gsw_fail(g, "a list frame drew nothing into its displayed buffer: its draw offset is unknown");
+        else if (line < 0)
+            gsw_fail(g, "a field drawn with a draw offset that is neither a whole nor a half line");
+        else
+            ((float *)g->gswSlotK[g->gswPendSlot].contents)[5] += (float)line;
+    } else if (ok)
         gsw_fail(g, "the drawn field is not a 512-wide field of at most 224 rows");
     if (g->gswPendDrawable) [g->gswPendCmd presentDrawable:g->gswPendDrawable];
     [g->gswPendCmd commit];
@@ -4403,38 +4462,100 @@ static void gsw_write_field(EmGfx *g, const char *bmp_path)
     fclose(o);
     fprintf(stderr, "capture: wrote %s (%ux%u GS field, FRAME_1 %016llx, XYOFFSET_1 %016llx)\n", path, w, h,
             (unsigned long long)frame, (unsigned long long)em_gs_world_field_xyoffset(g->gsw));
+    /* <path>.present: how this field was placed (tools/check_present_capture.py):
+     * its XYOFFSET_1 and the f_gsfield constants (the game rectangle's
+     * origin, 512 / width and 448 / height, the shift with the field's
+     * line, BGCOLOR). */
+    snprintf(path, sizeof path, "%s.present", bmp_path);
+    o = g->gswSlotK[g->gswPendSlot] ? fopen(path, "w") : NULL;
+    if (!o) return;
+    const float *k = (const float *)g->gswSlotK[g->gswPendSlot].contents;
+    fprintf(o, "xyoffset %016llx\norigin %.9g %.9g\nscale %.9g %.9g\nshift %.9g %.9g\nbg %.9g %.9g %.9g\n",
+            (unsigned long long)em_gs_world_field_xyoffset(g->gsw), (double)k[0], (double)k[1], (double)k[2], (double)k[3], (double)k[4], (double)k[5], (double)k[8],
+            (double)k[9], (double)k[10]);
+    fclose(o);
 }
 
-/* The field into the game rectangle (EM_GFX_FIELD_SPREAD, the placeholder:
- * nearest, its rows spread over the rectangle's height), under the overlay
- * pass. */
+/* The placement by the display registers step U stored: 0, or -1. With
+ * `strict` (a field to present) registers never stored are a fault;
+ * otherwise they only mean the picture is not placed yet (the frames
+ * before the first step U). Another configuration is always a fault. */
+static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict)
+{
+    const char *why = NULL;
+    if (em_gs_display_place(&g->gsDisp, out, &why) == 0) return 0;
+    if (strict || g->gsDisp.written) {
+        char what[192];
+        snprintf(what, sizeof what, "the picture cannot be placed: %s", why ? why : "?");
+        gsw_fail(g, what);
+    }
+    return -1;
+}
+
+/* The viewport of the placed picture: the game rectangle moved by the
+ * shift (pixels of the 512, lines of the 448); the scissor stays the game
+ * rectangle, so the far edge is cropped. */
+static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p)
+{
+    const double *r = g->gameRect;
+    [g->enc setViewport:(MTLViewport){ r[0] + p->shift_x * r[2] / (double)EM_GS_DISPLAY_W,
+                                       r[1] + p->shift_y * r[3] / (double)EM_GS_DISPLAY_LINES, r[2], r[3],
+                                       0.0, 1.0 }];
+}
+
+/* The field into the game rectangle (EM_GFX_FIELD_INTERLACED, em_gfx.h;
+ * the mapping src/gs/em_gs_display.h), under the overlay pass, which then
+ * draws over the placed picture. The field's line is added to the
+ * constants when its field is known (gsw_complete). */
 static void gsw_present(EmGfx *g)
 {
     if (g->gswFrame) {
         g->gswFrame = false;
         gsw_fail(g, "a world frame was recorded but never kicked");
     }
-    if (!g->gswShow || !g->enc || !g->gswSlotTex[g->gswSlot]) return;
-    if (!g->gsfShowPipeline)
-        g->gsfShowPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsshow", @"f_gsshow",
-                                             g->layer.pixelFormat, true, MTLColorWriteMaskAll);
-    if (!g->gsfShowPipeline) { gsw_fail(g, "the field pipeline is unavailable"); return; }
+    if (!g->gswShow || !g->enc || !g->gswSlotTex[g->gswSlot] || !g->gswSlotK[g->gswSlot]) return;
+    EmGsDisplayPlace place;
+    if (gsw_place(g, &place, 1) < 0) return;
+    if (!g->gsfFieldPipeline)
+        g->gsfFieldPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsshow", @"f_gsfield",
+                                              g->layer.pixelFormat, true, MTLColorWriteMaskAll);
+    if (!g->gsfFieldPipeline) { gsw_fail(g, "the field pipeline is unavailable"); return; }
     ensure_depth_states(g);
     static const float quad[6][4] = {
         { -1.0f,  1.0f, 0.0f, 0.0f }, { 1.0f,  1.0f, 1.0f, 0.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
         {  1.0f,  1.0f, 1.0f, 0.0f }, { 1.0f, -1.0f, 1.0f, 1.0f }, { -1.0f, -1.0f, 0.0f, 1.0f },
     };
-    /* EM_GFX_FIELD_SPREAD (the placeholder): the field's rows spread over
-     * the game rectangle, nearest; its texture is filled before the frame
-     * is committed (gsw_complete). */
-    const uint32_t k[4] = { EM_GS_WORLD_FIELD_W, EM_GS_WORLD_FIELD_H, 0u, 0u };
-    [g->enc setRenderPipelineState:g->gsfShowPipeline];
+    const double *r = g->gameRect;
+    float *k = (float *)g->gswSlotK[g->gswSlot].contents;
+    k[0] = (float)r[0]; k[1] = (float)r[1];
+    k[2] = (float)((double)EM_GS_DISPLAY_W / r[2]); k[3] = (float)((double)EM_GS_DISPLAY_LINES / r[3]);
+    k[4] = place.shift_x; k[5] = place.shift_y; k[6] = 0.0f; k[7] = 0.0f;
+    k[8] = place.bg[0] / 255.0f; k[9] = place.bg[1] / 255.0f; k[10] = place.bg[2] / 255.0f; k[11] = 1.0f;
+    [g->enc setViewport:(MTLViewport){ r[0], r[1], r[2], r[3], 0.0, 1.0 }];
+    [g->enc setRenderPipelineState:g->gsfFieldPipeline];
     [g->enc setDepthStencilState:g->depthOff];
     [g->enc setCullMode:MTLCullModeNone];
     [g->enc setVertexBytes:quad length:sizeof quad atIndex:0];
     [g->enc setFragmentTexture:g->gswSlotTex[g->gswSlot] atIndex:0];
-    [g->enc setFragmentBytes:k length:sizeof k atIndex:0];
+    [g->enc setFragmentBuffer:g->gswSlotK[g->gswSlot] offset:0 atIndex:0];
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
+    gsw_viewport(g, &place);   /* the overlay pass draws over the placed picture */
+}
+
+int em_gfx_gs_display_store(EmGfx *g, uint32_t address, uint64_t value)
+{
+    if (!g) return -1;
+    return em_gs_display_store(&g->gsDisp, address, value);
+}
+
+void em_gfx_gs_display_release(EmGfx *g)
+{
+    if (!g) return;
+    memset(&g->gsDisp, 0, sizeof g->gsDisp);
+    if (g->enc) {
+        const double *r = g->gameRect;
+        [g->enc setViewport:(MTLViewport){ r[0], r[1], r[2], r[3], 0.0, 1.0 }];
+    }
 }
 
 void em_gfx_request_capture(EmGfx *g, const char *path)

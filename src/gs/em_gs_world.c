@@ -42,7 +42,8 @@ typedef struct {
     size_t env_bytes, clear_bytes;
     uint64_t frame;                  /* the field: FRAME_1 ... */
     uint32_t height;                 /* ... and its rows */
-    uint64_t xyoffset;               /* the kicked environment's XYOFFSET_1 (0: a list frame) */
+    uint64_t xyoffset;               /* the field's XYOFFSET_1 (em_gs_world_field_xyoffset) */
+    int xyoffset_known;              /* 0: a list frame drew nothing into its displayed buffer */
     int list;                        /* a list frame (no head) */
 } Job;
 
@@ -122,6 +123,7 @@ struct EmGsWorld {
     uint8_t *field;
     uint32_t field_w, field_h;
     uint64_t field_frame, field_xyoffset;
+    int field_xyoffset_known;
     int have_field;
     EmGsWorldStats stats;
     char fault[192];
@@ -1010,6 +1012,7 @@ int em_gs_world_wait(EmGsWorld *w)
     w->field_h = j->height;
     w->field_frame = j->frame;
     w->field_xyoffset = j->xyoffset;
+    w->field_xyoffset_known = j->xyoffset_known;
     w->have_field = 1;
     w->stats.writes = j->op_count;
     w->stats.prims = gs->drawn_prims - w->prims0;
@@ -1053,6 +1056,7 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
     (void)em_gs_gif(&probe, j->env, j->env_bytes);
     j->frame = probe.ctx[0].frame;
     j->xyoffset = probe.ctx[0].xyoffset;
+    j->xyoffset_known = 1;
     j->height = (uint32_t)(probe.ctx[0].scissor >> 48 & 0x7FFu) + 1u;
     em_gs_release(&probe);
     if (field_check(w, j->frame, j->height) < 0) return -1;
@@ -1077,7 +1081,17 @@ int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGs
     if (em_gs_world_wait(w) < 0) return -1;
     Job *j = &w->job[w->rec];
     j->list = 1;
+    /* the field's draw offset: the XYOFFSET_1 of the last primitive the list
+     * drew into the displayed buffer (its FBP and FBW); unknown when none did */
     j->xyoffset = 0;
+    j->xyoffset_known = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+        const EmGfxGsEnv *e = &envs[i];
+        if ((e->set & (EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_XYOFFSET)) ==
+                (EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_XYOFFSET) &&
+            (e->frame & 0x3F01FFu) == (display_frame & 0x3F01FFu))
+            j->xyoffset = e->xyoffset, j->xyoffset_known = 1;
+    }
     j->frame = display_frame;
     j->height = (uint32_t)(display_scissor >> 48 & 0x7FFu) + 1u;
     if (field_check(w, j->frame, j->height) < 0) return -1;
@@ -1086,6 +1100,7 @@ int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGs
 }
 
 uint64_t em_gs_world_field_xyoffset(const EmGsWorld *w) { return w ? w->field_xyoffset : 0; }
+int em_gs_world_field_xyoffset_known(const EmGsWorld *w) { return w && w->have_field && w->field_xyoffset_known; }
 
 const uint8_t *em_gs_world_field(const EmGsWorld *w, uint32_t *width, uint32_t *height, uint64_t *frame)
 {

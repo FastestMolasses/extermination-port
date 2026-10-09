@@ -1,6 +1,6 @@
 # First-level route census: every original function on the route and its port status
 
-Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42) and by chain C8b's flame-and-snow step on 2026-09-28 (section 1.43); liveness re-measured over the whole route again on 2026-09-28 at port HEAD 6594182 by chain C8b's route step (section 1.44); rechecked by chain step PAGELOADS on 2026-09-30 (section 1.47, no status change) and by the EM_NEW_GAME switch step on 2026-09-30 (section 1.48, no status change) and by chain step AIM on 2026-10-01 (section 1.49, no status change); recounted from the rows by the lighting step on 2026-10-02 (section 1.53); rechecked by chain step ASSETS on 2026-10-02 (section 1.54, no status change); the AIM capture lane's 114 functions added as rows by chain step AIMCAP on 2026-10-02 (section 1.56, liveness measured over the eleven AIM side runs; 00102990 live since the AIM fix round; recounted from the rows after the merge onto 1.53..1.55); recounted from the rows by the units step on 2026-10-02 (section 1.57, after the merge onto 1.54..1.56); extended to route beat 15 (the level exit through the AREA01 arrival) by chain step EXIT on 2026-10-02 and recounted from the rows after the merge onto 1.56..1.57 (section 1.58); 50 rows added by chain step DAMAGE on 2026-10-02 (the DAMAGE recordings) and recounted from the rows after the merge onto 1.56..1.58 (section 1.59).; recounted from the rows by chain step CAMERAS (written on 2026-10-02 as a second section 1.57) after its merge onto 1.57..1.60 on 2026-10-08 (section 1.61).; rechecked by chain step GSFRAME (written on 2026-10-03 as a second section 1.58) after its merge on 2026-10-08 (section 1.62, no status change); 14 rows added (the OPTIONS recordings) and 11 rows to live by chain step OPTIONS on 2026-10-08, liveness measured over its ten side runs (section 1.65); liveness re-measured over the whole route through the AREA01 arrival and every side run by chain step ROUTE on 2026-10-08 (section 1.67, no status change). Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
+Date: 2026-09-23 (session s87); every row re-classified against the port HEAD 9e0715f on 2026-09-24 (section 1.4); totals recounted with a measured liveness pass at ce7271f + the full-route smoke step on 2026-09-25 (section 1.14) and recomputed from the rows by the shadow step on 2026-09-26 (section 1.20) by the status UI step on 2026-09-26 (section 1.21) by the owners step on 2026-09-26 (section 1.25) and by chain C7's takeover step on 2026-09-26 (section 1.26) and by chain C7's step-V step on 2026-09-27 (section 1.27) and rechecked by chain C8's EE-float step on 2026-09-27 (section 1.29, no status change) and by the fence door's side-1 step on 2026-09-27 (section 1.31, no status change); liveness re-measured over the whole route (00..14, both side beats) on 2026-09-26 (section 1.22) and again on 2026-09-27 at port HEAD 6da4eb5 (section 1.33, no status change); rechecked by chain C8b's MAP step on 2026-09-27 (section 1.37, no status change); recounted from the rows by chain C8b's module loader step on 2026-09-28 (section 1.38) and by the L24 step (the security gun, its cable and the fan pair) on 2026-09-28 (section 1.39) and by chain C8b's face step on 2026-09-28 (section 1.40) and by chain C8b's opening step on 2026-09-28 (section 1.41) and by the static-world step on 2026-09-28 (section 1.42) and by chain C8b's flame-and-snow step on 2026-09-28 (section 1.43); liveness re-measured over the whole route again on 2026-09-28 at port HEAD 6594182 by chain C8b's route step (section 1.44); rechecked by chain step PAGELOADS on 2026-09-30 (section 1.47, no status change) and by the EM_NEW_GAME switch step on 2026-09-30 (section 1.48, no status change) and by chain step AIM on 2026-10-01 (section 1.49, no status change); recounted from the rows by the lighting step on 2026-10-02 (section 1.53); rechecked by chain step ASSETS on 2026-10-02 (section 1.54, no status change); the AIM capture lane's 114 functions added as rows by chain step AIMCAP on 2026-10-02 (section 1.56, liveness measured over the eleven AIM side runs; 00102990 live since the AIM fix round; recounted from the rows after the merge onto 1.53..1.55); recounted from the rows by the units step on 2026-10-02 (section 1.57, after the merge onto 1.54..1.56); extended to route beat 15 (the level exit through the AREA01 arrival) by chain step EXIT on 2026-10-02 and recounted from the rows after the merge onto 1.56..1.57 (section 1.58); 50 rows added by chain step DAMAGE on 2026-10-02 (the DAMAGE recordings) and recounted from the rows after the merge onto 1.56..1.58 (section 1.59).; recounted from the rows by chain step CAMERAS (written on 2026-10-02 as a second section 1.57) after its merge onto 1.57..1.60 on 2026-10-08 (section 1.61).; rechecked by chain step GSFRAME (written on 2026-10-03 as a second section 1.58) after its merge on 2026-10-08 (section 1.62, no status change); 14 rows added (the OPTIONS recordings) and 11 rows to live by chain step OPTIONS on 2026-10-08, liveness measured over its ten side runs (section 1.65); liveness re-measured over the whole route through the AREA01 arrival and every side run by chain step ROUTE on 2026-10-08 (section 1.67, no status change); 001AB4E0 to live, and 001002E0 / 00100550 moved from the SDK boundary group to rows (live), by the presentation step on 2026-10-09 (section 1.68), recounted from the rows. Target: the pinned boot ELF (SHA-256 `ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a`) and the AREA11 overlay (id 9).
 
 This document answers one question: **which original functions execute on the first-level route, and what does the live port do for each of them?** It is the measuring stick for "the first level is ported". It lists addresses, names, statuses, port modules and tests only. It contains no original code, data or disassembly.
 
@@ -2843,6 +2843,49 @@ verified-unbound rows. Row notes changed: 001C7C00 (its carrier), 001B15D0,
 (its audit item). What remains between the port and the original first
 level is FIRST_LEVEL_AUDIT.md section 1b, re-made in this step.
 
+### 1.68 Update (2026-10-09, the presentation step: main-loop steps R and U bound; audit 1b item 3)
+
+The user's decisions of 2026-10-09 (LAUNCHER_OPTIONS.md: the field
+presentation and the options screen's screen position, both (a)) need the
+display registers the original's code writes, so main-loop steps R and U are
+bound at their original caller, the frame loop (em_frame.c, after the
+vblank P and before step V; GS_EXACT.md section 11):
+
+- **0x001AB4E0** verified-unbound -> **live**: its one translation
+  em_slg_001AB4E0 (em_startup_load_gaps, unchanged) runs every iteration
+  from em_display_env_live (step R) with the screen offset 0x70003B94 / 96
+  over the one storage of D_00810EA0..EF. Evidence: its own oracle
+  (test_startup_load_gaps_reference, 001002E0 executed as original code on
+  both sides) and the live composition's, `make test-display-env-reference`
+  (the original 001AB4E0 with 001002E0 and 00100268 running against
+  em_slg_001AB4E0 with the native worker, over a route capture, whose
+  captured D_00810EA0..EF equal the native environments byte for byte).
+- **0x001002E0** and **0x00100550** move from the SDK DMA/VIF/VU1 boundary
+  group (section 4) to section 3.24 (the rule of section 1.4: a translation
+  in a boundary range is classified normally, as 001015A8 / 00101810 in
+  section 1.27), **live**: em_sdk_001002E0 (001AB4E0's worker; the decomp's
+  NEARMISS C read with its listing) and em_sdk_00100550 (step U; its stores
+  go to the presenter, em_gfx_gs_display_store). Evidence: `make
+  test-display-env-reference` executes both originals (001002E0 over 13 SDK
+  mode sets and halfword-edge arguments, its zero-width trap and its
+  message-printer exit compared as faults; 00100550 for both circuits),
+  every conditional branch both ways.
+- **Live, measured:** every field the Original profile presents is placed
+  by step U's stores (a field presented before them faults, GS_EXACT.md
+  section 11), and `make test-level-smoke`, newgame-control (PASS 9.599849)
+  and the opt_03 side run (the offset (2, 3) moving the options screen)
+  present fields and frames on every tick (2026-10-09, worktree build). The
+  edge recorder of section 1.67 was not re-run.
+
+Recount from the rows (each function's instruction count from
+`route_functions.json`: 001AB4E0 44, 001002E0 156, 00100550 47; all three
+run in every route label, AIM beat and the EXIT census's two beats, from
+S0_title on, so each moves its label's counts the same way): live 948 ->
+951 (122,905 -> 123,152 instructions), verified-unbound 19 -> 18 (985 ->
+941), boundary 436 -> 434 (23,335 -> 23,132); non-boundary 968 -> 970
+(123,918 -> 124,121 instructions, 99.2% live); the route's own through beat
+15 747 of 766 -> 750 of 768 (88,415 of 89,400 -> 88,662 of 89,603, 98.9%).
+
 ## 2. Totals
 
 ### 2.1 All 1,404 executed functions (the route's 1,195 through beat 15, the AIM beats' 114, the DAMAGE recordings' 45, the BRANCH recordings' 36 and the OPTIONS recordings' 14)
@@ -2860,54 +2903,54 @@ s87 census, 13 of them DAMAGE rows already; all from first control on).
 
 | Status | Functions | Instructions | From first control on | Startup only (S0..S2) |
 |---|---:|---:|---:|---:|
-| live | 948 | 122,905 | 878 (117,727) | 70 (5,178) |
-| verified-unbound | 19 | 985 | 11 (478) | 8 (507) |
+| live | 951 | 123,152 | 881 (117,974) | 70 (5,178) |
+| verified-unbound | 18 | 941 | 10 (434) | 8 (507) |
 | unverified | 1 | 28 | 1 (28) | 0 (0) |
 | stand-in | 0 | 0 | 0 (0) | 0 (0) |
 | missing | 0 | 0 | 0 (0) | 0 (0) |
-| boundary | 436 | 23,335 | 158 (10,035) | 278 (13,300) |
+| boundary | 434 | 23,132 | 156 (9,832) | 278 (13,300) |
 | **total** | **1404** | **147,253** | 1048 | 356 |
 
-Of the 968 non-boundary functions, 948 (97.9%) are live and verified; by instructions 122,905 of 123,918 (99.2%). The OPTIONS recordings' 12 non-boundary functions (section 1.65) are all live. The BRANCH recordings' 34 non-boundary functions (section 1.60): 33 live, 1 unverified (001CB480). The route's own 766 (through beat 15): 747 live, 88,415 of 89,400 instructions (98.9%, sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61 and 1.64); the AIM beats' 114 (section 1.56) are all live; the DAMAGE recordings' 42 non-boundary functions (section 1.59) are all live since section 1.65 (the title's load screen, which dmg_05 reached from the title after a death, bound by chain step OPTIONS). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 19 functions (985 instructions, 0.8%) are verified translations the live app does not run. 1 function (28 instructions) has no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), no missing row (the load screen's nine are live since section 1.65), 1 unverified (since section 1.60, the MAP page's draw 001CB480; 00187DC0 is live since chain C7, section 1.26, 001FC280 since chain step EXIT, section 1.58, and 0015CF90 and 001B1190 since chain step GLUE, section 1.64). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59; 2026-10-03, section 1.60; 2026-10-08, sections 1.61, 1.62, 1.63, 1.64, 1.65 and 1.66) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json; the BRANCH rows' from the BRANCH delta, decomp build/c10/branch/census_delta.json; the OPTIONS rows' from the OPTIONS delta, decomp build/c10/options/census_delta.json; an overlay entry keyed by its runtime address and its overlay: the EXIT delta's AREA01 0x00823580 is not the AREA11 row's); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
+Of the 970 non-boundary functions, 951 (98.0%) are live and verified; by instructions 123,152 of 124,121 (99.2%; section 1.68: 001AB4E0 live, 001002E0 and 00100550 rows). The OPTIONS recordings' 12 non-boundary functions (section 1.65) are all live. The BRANCH recordings' 34 non-boundary functions (section 1.60): 33 live, 1 unverified (001CB480). The route's own 768 (through beat 15): 750 live, 88,662 of 89,603 instructions (98.9%, sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61, 1.64 and 1.68); the AIM beats' 114 (section 1.56) are all live; the DAMAGE recordings' 42 non-boundary functions (section 1.59) are all live since section 1.65 (the title's load screen, which dmg_05 reached from the title after a death, bound by chain step OPTIONS). One of them, 0015BCF0, is live only in part (its tail, its animate step and 00187350); the row says so. A further 18 functions (941 instructions, 0.8%) are verified translations the live app does not run. 1 function (28 instructions) has no verified translation on the live path: no stand-in row is left (001FCB90, 0020CCB0 and 0021BAE0 are live since the status UI step, section 1.21; 001CB3C0 since the face step, section 1.40), no missing row (the load screen's nine are live since section 1.65), 1 unverified (since section 1.60, the MAP page's draw 001CB480; 00187DC0 is live since chain C7, section 1.26, 001FC280 since chain step EXIT, section 1.58, and 0015CF90 and 001B1190 since chain step GLUE, section 1.64). The totals, the per-label table below and the section 3 subsection counts are computed from the section 3 rows (recount 2026-09-26, sections 1.22, 1.23, 1.25 and 1.26; 2026-09-27, sections 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33 and 1.35; 2026-09-28, sections 1.38, 1.39, 1.40, 1.41, 1.42, 1.43, 1.44 and 1.45; 2026-09-29, section 1.46; 2026-09-30, sections 1.47 and 1.48; 2026-10-01, sections 1.49 and 1.50; 2026-10-02, sections 1.53, 1.55, 1.56, 1.57, 1.58 and 1.59; 2026-10-03, section 1.60; 2026-10-08, sections 1.61, 1.62, 1.63, 1.64, 1.65 and 1.66; 2026-10-09, section 1.68) with each function's instruction count and labels from `route_functions.json` (the AIM rows' from the AIM lane's `census_delta.json`; beat 15's from the EXIT census's `census_delta.json`; the DAMAGE rows' from the DAMAGE delta, decomp build/c10/damage/census_delta.json; the BRANCH rows' from the BRANCH delta, decomp build/c10/branch/census_delta.json; the OPTIONS rows' from the OPTIONS delta, decomp build/c10/options/census_delta.json; an overlay entry keyed by its runtime address and its overlay: the EXIT delta's AREA01 0x00823580 is not the AREA11 row's); the method reproduces the 1.14 numbers exactly when fed its statuses (and the 1.39 numbers from the 1.39 rows).
 
 ### 2.2 Per route label
 
-"Ran" counts every function the label executed; "first" counts the functions first seen in that label in route order (beat 00 is placed before 01; the AIM side beats, from route 08's end, follow beat 15: sections 1.56 and 1.58). The DAMAGE beats of section 1.59 are not route labels and are not in this table: their 45 functions not counted above are first seen in dmg_00 (16), dmg_02 (7), dmg_03 (1), dmg_05 (14), dmg_06 (2), dmg_07 (4) and dmg_08 (1) (decomp census_delta.json `per_beat`; 001EFE00 is counted in aim_11, 00194D10, 0022FCA0, 00230000 and 001195A8 in beat 15). The BRANCH beats of section 1.60 are not route labels either: their 36 functions not counted above are first seen in br_00 (1), br_01 (11: the map item's take and its MAP page), br_02 (2), br_04 (7), br_05 (1), br_08 (6), br_09 (7) and br_14 (1) (decomp build/c10/branch/census_delta.json; the other 33 of its 69 new functions are AIM, EXIT or DAMAGE rows). The OPTIONS beats of section 1.65 are not route labels either: their 14 functions not counted above are first seen in opt_00 (5: 0022A650, 0022AEA0, 001FCE30, 00123280, 001AF1C0), opt_01 (1), opt_02 (1), opt_03 (2), opt_04 (1), opt_05 (1), opt_06 (1), opt_07 (1: 001AF6F0) and opt_08 (1) (decomp build/c10/options/census_delta.json; the other 13 of its 27 new functions are DAMAGE rows, first seen in dmg_05).
+"Ran" counts every function the label executed (since section 1.68 001AB4E0, 001002E0 and 00100550, which every label runs, count as live in every row); "first" counts the functions first seen in that label in route order (beat 00 is placed before 01; the AIM side beats, from route 08's end, follow beat 15: sections 1.56 and 1.58). The DAMAGE beats of section 1.59 are not route labels and are not in this table: their 45 functions not counted above are first seen in dmg_00 (16), dmg_02 (7), dmg_03 (1), dmg_05 (14), dmg_06 (2), dmg_07 (4) and dmg_08 (1) (decomp census_delta.json `per_beat`; 001EFE00 is counted in aim_11, 00194D10, 0022FCA0, 00230000 and 001195A8 in beat 15). The BRANCH beats of section 1.60 are not route labels either: their 36 functions not counted above are first seen in br_00 (1), br_01 (11: the map item's take and its MAP page), br_02 (2), br_04 (7), br_05 (1), br_08 (6), br_09 (7) and br_14 (1) (decomp build/c10/branch/census_delta.json; the other 33 of its 69 new functions are AIM, EXIT or DAMAGE rows). The OPTIONS beats of section 1.65 are not route labels either: their 14 functions not counted above are first seen in opt_00 (5: 0022A650, 0022AEA0, 001FCE30, 00123280, 001AF1C0), opt_01 (1), opt_02 (1), opt_03 (2), opt_04 (1), opt_05 (1), opt_06 (1), opt_07 (1: 001AF6F0) and opt_08 (1) (decomp build/c10/options/census_delta.json; the other 13 of its 27 new functions are DAMAGE rows, first seen in dmg_05).
 
 | Label | Ran: live / verified-unbound / unverified / stand-in / missing / boundary | First seen here: live / v-u / unv / stand-in / missing / boundary |
 |---|---|---|
-| S0_title | 85 / 4 / 0 / 0 / 0 / 383 | 85 / 4 / 0 / 0 / 0 / 383 |
-| S1_newgame_load | 184 / 9 / 0 / 0 / 0 / 86 | 115 / 7 / 0 / 0 / 0 / 18 |
-| S2_opening | 464 / 8 / 0 / 0 / 0 / 108 | 342 / 5 / 0 / 0 / 0 / 16 |
-| S3_first_control_idle | 366 / 5 / 0 / 0 / 0 / 100 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 00_panel_no_battery | 432 / 6 / 0 / 0 / 0 / 80 | 32 / 0 / 0 / 0 / 0 / 0 |
-| 01_battery | 479 / 7 / 0 / 0 / 0 / 137 | 31 / 1 / 0 / 0 / 0 / 5 |
-| 02_elevator_refusal | 447 / 6 / 0 / 0 / 0 / 82 | 15 / 0 / 0 / 0 / 0 / 2 |
-| 03_panel_power | 513 / 9 / 0 / 0 / 0 / 108 | 20 / 1 / 0 / 0 / 0 / 1 |
-| 04_elevator_ride | 439 / 6 / 0 / 0 / 0 / 115 | 2 / 0 / 0 / 0 / 0 / 2 |
-| 05_boxes | 440 / 5 / 0 / 0 / 0 / 77 | 23 / 0 / 0 / 0 / 0 / 0 |
-| 06_hill_slide | 404 / 5 / 0 / 0 / 0 / 80 | 12 / 0 / 0 / 0 / 0 / 0 |
-| 07_truck_preview | 416 / 7 / 0 / 0 / 0 / 98 | 1 / 0 / 0 / 0 / 0 / 0 |
-| 08_truck_crossing | 404 / 6 / 0 / 0 / 0 / 113 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 09_fence_door | 460 / 7 / 0 / 0 / 0 / 88 | 8 / 1 / 0 / 0 / 0 / 0 |
-| 10_cage_roof_roger | 495 / 9 / 0 / 0 / 0 / 123 | 28 / 0 / 0 / 0 / 0 / 0 |
-| 11_crevice_prompt | 491 / 8 / 0 / 0 / 0 / 120 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 12_crevice_jump | 421 / 7 / 0 / 0 / 0 / 76 | 6 / 0 / 0 / 0 / 0 / 0 |
-| 13_east_tower | 464 / 8 / 0 / 0 / 0 / 121 | 0 / 0 / 0 / 0 / 0 / 0 |
-| 14_roger_encounter | 489 / 10 / 0 / 0 / 0 / 88 | 2 / 0 / 0 / 0 / 0 / 0 |
-| 15_level_exit (through the AREA01 arrival) | 535 / 14 / 0 / 0 / 0 / 415 | 9 / 0 / 0 / 0 / 0 / 2 |
-| aim_00_r1_hold | 391 / 6 / 0 / 0 / 0 / 98 | 24 / 0 / 0 / 0 / 0 / 0 |
-| aim_01_r2_hold | 401 / 6 / 0 / 0 / 0 / 112 | 10 / 0 / 0 / 0 / 0 / 0 |
-| aim_02_r1_r2_both | 407 / 6 / 0 / 0 / 0 / 75 | 0 / 0 / 0 / 0 / 0 / 0 |
-| aim_03_single_fire | 442 / 6 / 0 / 0 / 0 / 112 | 21 / 0 / 0 / 0 / 0 / 0 |
-| aim_04_world_hit | 449 / 7 / 0 / 0 / 0 / 112 | 6 / 0 / 0 / 0 / 0 / 0 |
-| aim_05_burst_fire | 528 / 8 / 0 / 0 / 0 / 142 | 30 / 0 / 0 / 0 / 0 / 0 |
-| aim_06_reload_partial | 427 / 6 / 0 / 0 / 0 / 75 | 1 / 0 / 0 / 0 / 0 / 0 |
-| aim_07_reload_empty | 427 / 6 / 0 / 0 / 0 / 112 | 0 / 0 / 0 / 0 / 0 / 0 |
-| aim_08_light_holster | 411 / 6 / 0 / 0 / 0 / 75 | 4 / 0 / 0 / 0 / 0 / 0 |
-| aim_09_melee | 380 / 5 / 0 / 0 / 0 / 111 | 11 / 0 / 0 / 0 / 0 / 0 |
-| aim_10_cable_shots | 464 / 7 / 0 / 0 / 0 / 76 | 0 / 0 / 0 / 0 / 0 / 0 |
-| aim_11_cable_melee | 399 / 6 / 0 / 0 / 0 / 114 | 7 / 0 / 0 / 0 / 0 / 0 |
+| S0_title | 88 / 3 / 0 / 0 / 0 / 381 | 88 / 3 / 0 / 0 / 0 / 381 |
+| S1_newgame_load | 187 / 8 / 0 / 0 / 0 / 84 | 115 / 7 / 0 / 0 / 0 / 18 |
+| S2_opening | 467 / 7 / 0 / 0 / 0 / 106 | 342 / 5 / 0 / 0 / 0 / 16 |
+| S3_first_control_idle | 369 / 4 / 0 / 0 / 0 / 98 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 00_panel_no_battery | 435 / 5 / 0 / 0 / 0 / 78 | 32 / 0 / 0 / 0 / 0 / 0 |
+| 01_battery | 482 / 6 / 0 / 0 / 0 / 135 | 31 / 1 / 0 / 0 / 0 / 5 |
+| 02_elevator_refusal | 450 / 5 / 0 / 0 / 0 / 80 | 15 / 0 / 0 / 0 / 0 / 2 |
+| 03_panel_power | 516 / 8 / 0 / 0 / 0 / 106 | 20 / 1 / 0 / 0 / 0 / 1 |
+| 04_elevator_ride | 442 / 5 / 0 / 0 / 0 / 113 | 2 / 0 / 0 / 0 / 0 / 2 |
+| 05_boxes | 443 / 4 / 0 / 0 / 0 / 75 | 23 / 0 / 0 / 0 / 0 / 0 |
+| 06_hill_slide | 407 / 4 / 0 / 0 / 0 / 78 | 12 / 0 / 0 / 0 / 0 / 0 |
+| 07_truck_preview | 419 / 6 / 0 / 0 / 0 / 96 | 1 / 0 / 0 / 0 / 0 / 0 |
+| 08_truck_crossing | 407 / 5 / 0 / 0 / 0 / 111 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 09_fence_door | 463 / 6 / 0 / 0 / 0 / 86 | 8 / 1 / 0 / 0 / 0 / 0 |
+| 10_cage_roof_roger | 498 / 8 / 0 / 0 / 0 / 121 | 28 / 0 / 0 / 0 / 0 / 0 |
+| 11_crevice_prompt | 494 / 7 / 0 / 0 / 0 / 118 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 12_crevice_jump | 424 / 6 / 0 / 0 / 0 / 74 | 6 / 0 / 0 / 0 / 0 / 0 |
+| 13_east_tower | 467 / 7 / 0 / 0 / 0 / 119 | 0 / 0 / 0 / 0 / 0 / 0 |
+| 14_roger_encounter | 492 / 9 / 0 / 0 / 0 / 86 | 2 / 0 / 0 / 0 / 0 / 0 |
+| 15_level_exit (through the AREA01 arrival) | 538 / 13 / 0 / 0 / 0 / 413 | 9 / 0 / 0 / 0 / 0 / 2 |
+| aim_00_r1_hold | 394 / 5 / 0 / 0 / 0 / 96 | 24 / 0 / 0 / 0 / 0 / 0 |
+| aim_01_r2_hold | 404 / 5 / 0 / 0 / 0 / 110 | 10 / 0 / 0 / 0 / 0 / 0 |
+| aim_02_r1_r2_both | 410 / 5 / 0 / 0 / 0 / 73 | 0 / 0 / 0 / 0 / 0 / 0 |
+| aim_03_single_fire | 445 / 5 / 0 / 0 / 0 / 110 | 21 / 0 / 0 / 0 / 0 / 0 |
+| aim_04_world_hit | 452 / 6 / 0 / 0 / 0 / 110 | 6 / 0 / 0 / 0 / 0 / 0 |
+| aim_05_burst_fire | 531 / 7 / 0 / 0 / 0 / 140 | 30 / 0 / 0 / 0 / 0 / 0 |
+| aim_06_reload_partial | 430 / 5 / 0 / 0 / 0 / 73 | 1 / 0 / 0 / 0 / 0 / 0 |
+| aim_07_reload_empty | 430 / 5 / 0 / 0 / 0 / 110 | 0 / 0 / 0 / 0 / 0 / 0 |
+| aim_08_light_holster | 414 / 5 / 0 / 0 / 0 / 73 | 4 / 0 / 0 / 0 / 0 / 0 |
+| aim_09_melee | 383 / 4 / 0 / 0 / 0 / 109 | 11 / 0 / 0 / 0 / 0 / 0 |
+| aim_10_cable_shots | 467 / 6 / 0 / 0 / 0 / 74 | 0 / 0 / 0 / 0 / 0 / 0 |
+| aim_11_cable_melee | 402 / 5 / 0 / 0 / 0 / 112 | 7 / 0 / 0 / 0 / 0 / 0 |
 
 Beat 15's "ran" is the EXIT census's 953 known functions plus its 11 new
 first-level ones (census_delta.json); its 63 level-2 functions (section
@@ -2915,9 +2958,9 @@ first-level ones (census_delta.json); its 63 level-2 functions (section
 
 ### 2.3 What the numbers say
 
-State at the full-route recount of 2026-10-08 (section 1.67, chain step ROUTE, which re-measured every row's liveness over the whole route through the AREA01 arrival and every side run at port HEAD 2e5fa30; the earlier measurements are sections 1.22, 1.33 and 1.44). What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
+State at the full-route recount of 2026-10-08 (section 1.67, chain step ROUTE, which re-measured every row's liveness over the whole route through the AREA01 arrival and every side run at port HEAD 2e5fa30; the earlier measurements are sections 1.22, 1.33 and 1.44), with section 1.68's three rows (2026-10-09). What remains, prioritized, is FIRST_LEVEL_AUDIT.md section 1b.
 
-- **Live and verified: 747 of 766 non-boundary route functions through beat 15 (98.9% by instructions; sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61 and 1.64); with the AIM beats' 114 (section 1.56), the DAMAGE recordings' 42 (section 1.59; the title's load screen live since section 1.65), the BRANCH recordings' 34 (section 1.60) and the OPTIONS recordings' 12 (section 1.65), 948 of 968 (99.2% by instructions).** Every main-line route phase the
+- **Live and verified: 750 of 768 non-boundary route functions through beat 15 (98.9% by instructions; sections 1.53, 1.55, 1.57, 1.58, 1.59, 1.61, 1.64 and 1.68); with the AIM beats' 114 (section 1.56), the DAMAGE recordings' 42 (section 1.59; the title's load screen live since section 1.65), the BRANCH recordings' 34 (section 1.60) and the OPTIONS recordings' 12 (section 1.65), 951 of 970 (99.2% by instructions).** Every main-line route phase the
   level smoke plays reproduces its capture (LEVEL_SMOKE.md): first control, the status screen, the battery, the
   refusal, the panel, the elevator, the boxes, the slide, the truck preview and crossing, the ladders, the director's
   three beats with Roger's voiced conversation (since WP-8b; since section 1.34 the lines 0x97 / 0x99 tear down
@@ -2967,8 +3010,8 @@ State at the full-route recount of 2026-10-08 (section 1.67, chain step ROUTE, w
   walked over (the AREA11 flame and the snow draw on the page since section 1.43).
   Every takeover is the stage's own (0015B130's prelude, 00183090, 0015B530, 00182DF0): a script owner's since
   section 1.26, the panel's, the terminal's and the items' since section 1.63.
-- **Verified but not run live: 19 functions (985 instructions; recount of sections 1.57, 1.58, 1.59, 1.61, 1.64 and 1.65).** The largest groups
-  are the main-loop rows (section 3.1: 3; 001ABF90 is live since section 1.59, 001AB790 since section 1.64), the stage workers' rows (3.22: none since section 1.65, which bound
+- **Verified but not run live: 18 functions (941 instructions; recount of sections 1.57, 1.58, 1.59, 1.61, 1.64, 1.65 and 1.68).** The largest groups
+  are the main-loop rows (section 3.1: 2; 001ABF90 is live since section 1.59, 001AB790 since section 1.64, 001AB4E0 since section 1.68), the stage workers' rows (3.22: none since section 1.65, which bound
   the load screen's 00225A00 / 00225AC0), the render context's unbound rows and weather (3.17: 4), the vector
   math and owner services rows (3.10: 3) and the sound-side rows of 3.19 (3: 001FBC50, 001FBDB0, 001FBF50); the
   effects' room point-light lists are live since section 1.53, the AREA11 overlay's flag-0x30 manager 00823CE0
@@ -2986,7 +3029,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.1 Main-loop tasks, frame machine and fades (0x1AA200..0x1AEFFF)
 
-38 functions, 2,557 instructions: live 35, verified-unbound 3 (recount 2026-10-08, chain step GLUE, section 1.64: 001AB790 live; before it live 34, verified-unbound 4, recount 2026-10-03, chain step BRANCHES, section 1.60: 001AA4E0 added; before it 37 functions, 2,471 instructions: live 33, verified-unbound 4, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001AD140, 001AD4E0, 001ADF00 added, 001ABF90 to live; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 32 functions, recount 2026-09-28, the module loader step).
+38 functions, 2,557 instructions: live 36, verified-unbound 2 (recount 2026-10-09, the presentation step, section 1.68: 001AB4E0 live; before it live 35, verified-unbound 3, recount 2026-10-08, chain step GLUE, section 1.64: 001AB790 live; before it live 34, verified-unbound 4, recount 2026-10-03, chain step BRANCHES, section 1.60: 001AA4E0 added; before it 37 functions, 2,471 instructions: live 33, verified-unbound 4, recount 2026-10-02 after the merge of chain step DAMAGE, section 1.59: 001AD140, 001AD4E0, 001ADF00 added, 001ABF90 to live; before it recount 2026-10-02, chain step AIMCAP, section 1.56: the AIM delta's rows; before it 32 functions, recount 2026-09-28, the module loader step).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
@@ -2994,7 +3037,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001AA7A0 | — | BM | live | em_aim_fire_leaves em_aim_fire_001AA7A0 — test_aim_fire_leaves_reference | AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001AA840 | — | NM | live | em_area00_fx_spawn em_area00_fx_001AA840 (w_001AA840 in em_equipment_live) — test_area00_fx_reference | the knife's class-4 walk; AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_09_melee |
 | 0x001AAD00 | — | NM | live | em_collision_world (em_coll_list_passes_001AAD00_hooks, em_actor_class_lists_swap_001AAD00) — test_actor_collision_reference.py, test_coll_list_passes_reference.py | w_001AAD00 in both variants (roster scenes): the nine hooks, then the list block; its interactive list is the Use scan's one store | S2_opening |
-| 0x001AB4E0 | — | BM | verified-unbound | em_startup_load_gaps em_slg_001AB4E0 — test_startup_load_gaps_reference | not bound: its display environments (the SDK's 001002E0, a boundary, and the DISPFB frame pointer) have no reader; the GS frame (section 1.62) presents its own field | S0_title |
+| 0x001AB4E0 | — | BM | live | em_startup_load_gaps em_slg_001AB4E0, main-loop step R through em_display_env_live (its worker 001002E0 = em_sdk_001002E0) — test_startup_load_gaps_reference; test_display_env_reference (the original 001AB4E0 + 001002E0 + 00100268 against the live chain over a route capture; the captured D_00810EA0..EF equal the native environments) | section 1.68: bound at its original caller, the frame loop (after P, before V); the display environments feed step U 00100550, whose registers place the presented picture (the options' screen offset, GS_EXACT.md section 11) | S0_title |
 | 0x001AB590 | — | BM | verified-unbound | em_startup_load_gaps em_slg_001AB590 — test_startup_load_gaps_reference | a DMA CHCR watchdog: really a hardware boundary (STARTUP_LOAD_GAPS.md section 4 item 10) | S0_title |
 | 0x001AB6A0 | — | BM | live | em_task.c em_task_dispatch — test_startup_load_gaps_reference (executes 001AB6A0 against em_task.c) |  | S0_title |
 | 0x001AB740 | — | BM | live | em_task.c em_task_register — test_startup_load_gaps_reference | the live New Game registers the 001ACEC0 task through it (em_game_install_new) | S0_title |
@@ -4047,13 +4090,15 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 
 ### 3.24 SDK VU0 math (0x1026A0..0x103237) and the VU1/DMA library functions that carry a translation
 
-33 functions, 666 instructions: live 32, verified-unbound 1 (recount 2026-10-03, chain step BRANCHES, section 1.60: 001028E8 added; before it 32 functions, 661 instructions: live 31, verified-unbound 1, recount 2026-10-02, the AIM fix round, section 1.56: 00102990 live; chain step AIMCAP, section 1.56: the AIM delta's rows; before it 29 functions, recount 2026-09-27, chain C7 step V).
+35 functions, 869 instructions: live 34, verified-unbound 1 (recount 2026-10-09, the presentation step, section 1.68: 001002E0 and 00100550 moved here from the SDK DMA/VIF/VU1 boundary group, live; before it 33 functions, 666 instructions: live 32, verified-unbound 1, recount 2026-10-03, chain step BRANCHES, section 1.60: 001028E8 added; before it 32 functions, 661 instructions: live 31, verified-unbound 1, recount 2026-10-02, the AIM fix round, section 1.56: 00102990 live; chain step AIMCAP, section 1.56: the AIM delta's rows; before it 29 functions, recount 2026-09-27, chain C7 step V).
 
 | Address | Name | Decomp | Port | Module / test | Stand-in / note | First |
 |---|---|---|---|---|---|---|
 | 0x001000E0 | — | BM | live | em_render_verify_rest em_rvr_001000E0 — test_render_verify_rest_reference; em_player_fall passes it the whole 64-bit double (9e0715f) | recount 2026-09-25: em_rvr_001000E0 executed on the live path (5 calls over the five measured runs) | 10_cage_roof_roger |
 | 0x00100130 | — | BM | live | em_menu_hover em_menu_hover_0020D930 (its soft-double gate magnitude >= 0.8, inline) — test_menu_hover_source_reference | run by 0020D930 in the SPR4 page (aim_burst); AIMCAP (section 1.56): ran in the AIM side runs (test-level-smoke-aim, row for row against the AIM captures) | aim_05_burst_fire |
 | 0x00100268 | — | BM | live | em_load_veil_particles (inline in 00100610) through em_render_context_live — test_load_veil_particles_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S0_title |
+| 0x001002E0 | — | NM | live | em_sdk_display_original em_sdk_001002E0, 001AB4E0's worker in main-loop step R (em_display_env_live) — test_display_env_reference (the original executed: 13 SDK mode sets, halfword-edge arguments, the zero-width trap and the message-printer exit as faults; every branch both ways) | section 1.68: moved from the SDK DMA/VIF/VU1 boundary group; the port's D_00241010 is the render context's (the ELF's .data, GS revision 3 where the boot stored 0x1B: 001002E0 does not read it) | S0_title |
+| 0x00100550 | — | BM | live | em_sdk_display_original em_sdk_00100550, main-loop step U (em_display_env_live; its stores to em_gfx_gs_display_store) — test_display_env_reference (the original executed: both circuits' stores, address, value and order) | section 1.68: moved from the SDK DMA/VIF/VU1 boundary group; the GS privileged registers are the presenter's input (GS_EXACT.md section 11) | S0_title |
 | 0x00100610 | — | BM | live | em_load_veil_particles em_load_veil_particles_00100610 (001006D8's) through em_render_context_live — test_load_veil_particles_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S1_newgame_load |
 | 0x001006D8 | — | AI | live | em_load_veil_particles em_load_veil_particles_001006D8 (001D6E60's) through em_render_context_live — test_load_veil_particles_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | its read-modify-write packet dwords start from a zero arena (the boot fill is not modelled) | S1_newgame_load |
 | 0x001015A8 | — | AW | live | em_frame_kick (half_offset) through step V's draw environment of slot + 0x40 — test_render_context_live_reference (the live composition vs the original over beats 00..14, section 1.27); test_level_smoke.py check_render_context (step V lists) | chain C7 step V (section 1.27); moved from the SDK DMA/VIF/VU1 boundary group; step S's call on the display environment stays the renderer's | S0_title |
@@ -4199,13 +4244,13 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 |---|---|---|---|---|---|---|
 | 0x00201720 | — | BM | live | em_options_original em_options_00201720 (vibration / sound toggle; the rumble 001B61C0 when vibration is switched on) — test_options_reference.py; opt_01, opt_02, opt_06 | OPTIONS (section 1.65): entered in the side runs (measured) | opt_01_vibration |
 | 0x00201C50 | — | NM | live | em_options_original em_options_00201C50 (the default prompt) — test_options_reference.py; opt_06 | OPTIONS (section 1.65): entered in the side runs (measured) | opt_06_default |
-| 0x00201F70 | — | NM | live | em_options_original em_options_00201F70 (screen position over 0x70003B94 / 96) — test_options_reference.py; opt_03 | OPTIONS (section 1.65): entered in the side runs (measured); the offset is stored, not presented (001AB4E0 not bound; LAUNCHER_OPTIONS.md) | opt_03_screen_position |
+| 0x00201F70 | — | NM | live | em_options_original em_options_00201F70 (screen position over 0x70003B94 / 96) — test_options_reference.py; opt_03 | OPTIONS (section 1.65): entered in the side runs (measured); the offset is stored and, since section 1.68, presented: main-loop steps R 001AB4E0 and U 00100550 put it in the display registers (GS_EXACT.md section 11; LAUNCHER_OPTIONS.md) | opt_03_screen_position |
 | 0x00202BA0 | — | BM | live | em_options_original em_options_00202BA0 (the brightness picture) — test_options_reference.py; opt_04 | OPTIONS (section 1.65): entered in the side runs (measured) | opt_04_brightness |
 | 0x00202D10 | — | BM | live | em_options_original em_options_00202D10 (button config; 001AF470 on Cross) — test_options_reference.py; opt_05 | OPTIONS (section 1.65): entered in the side runs (measured); the table's type 3 has no entry (D_00264F98), so one branch outcome is unreachable | opt_05_button_config |
 
 ## 4. Platform boundaries
 
-436 functions (23,335 instructions; 427 before beat 15, section 1.58; 00114848, 00114930 and 00114988 added by chain step DAMAGE, section 1.59; 00207D90 and 00208040 by chain step BRANCHES, section 1.60; 00119870 and 00123280 by chain step OPTIONS, section 1.65) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
+434 functions (23,132 instructions; 001002E0 and 00100550 moved to section 3.24 by the presentation step, section 1.68; 427 before beat 15, section 1.58; 00114848, 00114930 and 00114988 added by chain step DAMAGE, section 1.59; 00207D90 and 00208040 by chain step BRANCHES, section 1.60; 00119870 and 00123280 by chain step OPTIONS, section 1.65) are SDK, libc, IOP, driver or GS/VU1 work that the port replaces with a native service. They are not counted in the five statuses. "Contract" says whether anything compares the port's substitute with the original's observable effect.
 
 Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DMA/VU1 library, libmpeg, kernel syscalls, libpad, libcdvd, libmc/SIF RPC, the EE sound library, the C runtime), the GS/VIF packet builders, texture uploads and display-object registry in 0x1CB5C0..0x1DAFFF, the module loader and disc reads 0x1FF080..0x2009E0, the IOP service, heap and MPEG glue in 0x203350..0x206D80, and the 2D draw layer. A function in the render ranges that carries a translation (the load-veil particles, shadow kernels, head sprite, message glyphs) is classified normally instead. The VU0 math leaves (0x1026A0..0x103237), libm (0x11C4C8..0x11FD77), soft float, the float conversions and rand are **game-visible arithmetic, not boundaries**: they are classified in section 3.
 
@@ -4220,7 +4265,7 @@ Rules used: the SDK ranges of the decomp's SUBSYSTEMS.md (0x100000..0x12FFFF: DM
 | C runtime (heap, stdio, string, init) | 25 | 2,885 | host libc | n/a |
 | IOP service management | 18 | 584 | host OS; nothing to reproduce | n/a |
 | heap / runtime | 18 | 982 | host allocator | n/a |
-| SDK DMA/VIF/VU1 library | 11 | 700 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
+| SDK DMA/VIF/VU1 library | 9 | 497 | native renderer (em_render_frame.c, em_gfx.h contract, gfx/metal/em_gfx_metal.m) | not compared per call |
 | SDK libmc / SIF RPC | 16 | 903 | local directory for the card check (STARTUP.md); RPC not needed; since chain step OPTIONS (section 1.65) em_memcard answers 00114988 (GetInfo) and 00114848 (Sync) over the host directories data/memcard/slot1 / slot2 at host speed, 00114930's stores (the RPC end callback) folded into 00114988's (OPTIONS.md section 5) | 00114988 / 00114848: scripted in test_options_reference (the card screen's original code over every poll result); their results in the card record equal the recordings' in the side runs opt_07 and dmg_load; the rest no |
 | module loader and disc read | 12 | 1,039 | the loader's own steps (em_module_loader over em_status_scene_original, host-speed drive, the recorded drive under the switch) for module 0x21 (section 1.38), since section 1.46 the New Game's module 3 and area load (001FFCD0 / 001FF590 with 00200890 and 002009E0) and since section 1.47 every other page module (0x1E..0x24, 0x2C..0x31) | module 0x21: test_module_loader_reference and the level smoke's check_module_load; the page modules: test_module_loader_reference part I and the status_pages run's check_page_module_loads; the New Game's two loads: test_module_loader_reference part H (the original loader code, whole) and test_area_load_reference (the live loader states equal the New Game capture's); 001FFCD0 / 001FF590: test_status_scene_reference |
 | SDK libcdvd disc read | 9 | 346 | host file reads of locally exported assets | n/a |
@@ -4278,7 +4323,7 @@ Addresses per kind:
   00203B70, 00203B80, 00203BA0, 00203C30, 00203C90, 00203D30, 00203E60, 00203F40.
 - **heap / runtime** (18): 00204080, 002040A0, 002040E0, 00204140, 002041A0, 002041D0, 00204250, 00204390, 00204490, 002044F0,
   00204700, 002047D0, 00204AE0, 00204B30, 00204B80, 00204BD0, 00204D60, 00204E90.
-- **SDK DMA/VIF/VU1 library** (11; 001015A8 and 00101810 moved to section 3.24 by chain C7 step V, section 1.27): 001000B0, 00100278, 001002E0, 00100550, 001008C0, 001009C8, 00100A60, 00101BB8,
+- **SDK DMA/VIF/VU1 library** (9; 001015A8 and 00101810 moved to section 3.24 by chain C7 step V, section 1.27; 001002E0 and 00100550 by the presentation step, section 1.68): 001000B0, 00100278, 001008C0, 001009C8, 00100A60, 00101BB8,
   00101F08, 00101FE0, 00102468.
 - **SDK libmc / SIF RPC** (16; 00114848, 00114930 and 00114988 added by chain step DAMAGE, section 1.59): 00112440, 00112610, 00112D18, 00112DC0, 00112E28, 00113280, 00113680, 00113C38, 00113C68, 00113CD0,
   00113D08, 00113F68, 001152B0.
@@ -4351,7 +4396,7 @@ Every non-live, non-boundary function belongs to exactly one lane. Sizes are in 
 | 37 | **L38-load-veil-particles**: Bind the load-veil particles (0021B1B0/0021B500) so the load is not black **Render context step 2026-09-25:** the REF tags and 001D6930 / 001D6E60 / 001006D8 / 00100610 / 00100268 / 001D6BA0 run live under 001D1AE0 and 001DDE10. **DONE (load veil step, 2026-09-27, section 1.35):** the veil draw and phase step are bound at 0021B550 and step V's list is drawn by the GS frame stage; the veil stays black until the area read runs the loader task's own ticks (H7) | bind | 1,074 | 16 (live 16) | S1, 09 (loads) | nothing |
 | 38 | **L39-head-sprite-effects**: Bind the head-bone sprite effect (001E2560 node) and its registry helpers. **Recount 2026-09-24:** the packet-chain builders 001CB5F0, 001CB6B0, 001CB760 and 001CB900 are translated since afa091b (em_packet_chain_original, docs/PACKET_CHAIN.md). **Effects step 2026-09-24:** the node's 001CCF70 and its 001CFBE0 packet read the render-context views, which no live code produces (EFFECT_MANAGER.md 5.0) **Render context step 2026-09-25:** 001CB760 live (001DDE10's); the render-context views the node reads exist live **Live 2026-09-25 (effects step, section 1.17):** the player's (0x3B) and Roger's (0x47) head sprites run em_head_sprite_original through em_effects_live, spawned by the one 001EF9D0; their static fields equal the snapshots (check_effects); the ramp and wait follow rand(); the chains are not drawn (the renderer) | bind | 868 | 12 (live 12) | every frame (head-bone sprite) | renderer (drawing the chains) |
 | 39 | **L35-status-ui-leftovers**: Area-title card, UI cues, the BATTERY page draw, the owner draw and the remaining owner-service leaves. **Recount 2026-09-24:** em_status_ui_leftovers translates the area title, UI cues, context saves, 0022EBE0 and the BATTERY page draw 0020AE40 / 0020B0D0 / 0020B210 (moved here from live: em_battery_ui.c is a hand-placed stand-in, critic 7.2); em_owner_draw_original adds 001CA7B0 / 001CA940 and the former boundary rows 001D38A0 / 001D3BA0; left untranslated: 0020CCB0 and 0021BAE0 (stand-ins), 0020DFA0 (unverified) **Render context step 2026-09-25:** 0021B8E0, 0021B900, 0021BA70 and 0022EBE0 run live on the render context (the mix is recounted from the section 3 rows) **Object-unit step 2026-09-25:** the owner draw 001CA7B0 / 001CA940 / 001D38A0 / 001D3BA0 runs live (em_owner_draw_live, section 1.19) **Status UI step 2026-09-26 (section 1.21):** the BATTERY page draw 0020AE40 / 0020B0D0 / 0020B210 / 0020BEF0 / 0020CCB0, the cues 0020CD40 / 0020CD60 / 0020CDA0, 0020DFA0 with 0021BAC0 and 0021BAE0 run live **Owners step 2026-09-26 (section 1.25):** 001C4820 runs live at its node (the mix is recounted from the section 3 rows) **Units step 2026-10-02 (section 1.57):** the area title 001C5930 / 001C5860 runs live on its node (em_area_title); em_hud's card is retired | translate+bind | 1,937 | 33 (live 30, verified-unbound 2, missing 1; chain step CAMERAS, section 1.61: 0021BAB0 live) | S2 (area title), 01, 03 (UI cues), owner services | L20 (message lookup) |
-| 40 | **L34-startup-and-load-gaps**: Close the title/New Game/load gaps. **Recount 2026-09-24:** em_startup_load_gaps translates every row (3824c6f); 001AB6A0 / 001AB740 are live (em_task.c, verified by test_startup_load_gaps_reference); 001AB790 is verified but the live New Game registers the task instead. **Chain step H7 (2026-09-29, section 1.46):** 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 live; counted from the rows. **Chain step GLUE (2026-10-08, section 1.64):** the pad read 001B57E0 / 001B5F40, the state-0 re-arm 001AFCA0 with its 001AF690 and the New Game's 001AB790 live; left (each row says why): 001AB4E0, 001AB590 (a hardware boundary), 001AC070, 008237C0, 00199C50 | bind | 1,626 | 25 (live 20, verified-unbound 5) | S0..S2 (title, New Game, load, opening) | nothing |
+| 40 | **L34-startup-and-load-gaps**: Close the title/New Game/load gaps. **Recount 2026-09-24:** em_startup_load_gaps translates every row (3824c6f); 001AB6A0 / 001AB740 are live (em_task.c, verified by test_startup_load_gaps_reference); 001AB790 is verified but the live New Game registers the task instead. **Chain step H7 (2026-09-29, section 1.46):** 001FB100, 001FC6E0, 001FB370, 001FB3E0 and 001FB910 live; counted from the rows. **Chain step GLUE (2026-10-08, section 1.64):** the pad read 001B57E0 / 001B5F40, the state-0 re-arm 001AFCA0 with its 001AF690 and the New Game's 001AB790 live; left (each row says why): 001AB590 (a hardware boundary), 001AC070, 008237C0, 00199C50 (001AB4E0 live since the presentation step, section 1.68) | bind | 1,626 | 25 (live 21, verified-unbound 4) | S0..S2 (title, New Game, load, opening) | nothing |
 | 41 | **L37-sdk-math-leaves**: Bind the remaining SDK math / soft-float translations at their call sites. The soft-float workers (0011DB90, 0011FD78, 00127758 and their callees) are bound into the collision world's SDK context since 2026-09-24 (SDK_SOFT_FLOAT.md 4). **Recount 2026-09-24:** 001000E0 / 001027E0 / 00102850 are em_render_verify_rest translations; the live copies that no oracle checks moved here from live: 00128350 (em_item_root.c host compare), 0011E620 / 00102798 / 00102CD0 / 001B1240 (hooked by test_camera_commit_reference), 00102900 / 00102948 / 00102958 / 001026D0 (tests model or hook the leaf), 001B1470 (host wraps); 00102CD0 has no translation. **Census L13..L16 (2026-09-25, section 1.11):** 00102CD0 (em_cs_00102CD0 with 001027E0), 00102798 and 001B1240 are live in the translated commit 0018C0D0 (test_camera_live_reference executes the original routine with its leaves); test_camera_commit_reference is retired | bind | 1,234 | 30 (live 5, verified-unbound 25) | wherever the bound callers run | nothing |
 | 42 | **L40-actor-light**: Bind em_actor_light_001D89D0 (the bit-exact 001D89D0 chain) in place of em_render_frame.c char_rig_build's recomposition. New in the recount: 001D8270 (fold gate) and 001D8690 (actor RGB) are not called live. **Since sections 1.40 and 1.44 both rows are live** (001D8690 inside 001CB3C0's 001D88B0, 001D8270 inline in the 001D8340 / 001D89D0 translations of every object-unit draw); what remained of the lane, char_rig_build's tint on the draws still on the renderer's skinned path (the status hub's and the MAP page's models), is gone since the lighting step (2026-10-02, section 1.53): both light through the bound 001D89D0, em_lighting.c's copies of the two rows are deleted and char_rig_build faults in the first level | bind | 185 | 2 (live 2) | every frame (actor lighting) | renderer (em_gfx rig contract) |
 

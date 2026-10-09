@@ -1003,14 +1003,13 @@ with the GPU, and the original restores the regions they overwrite
 (00200970) before the next world frame.
 
 **Presentation.** The platform layer only shows the field:
-`em_gfx_field_presentation` (em_gfx.h) is the hook, and its one built mode
-is the placeholder EM_GFX_FIELD_SPREAD, the field's rows spread over the 4:3
-game rectangle, nearest (as the load veil's frames have been shown since
-2026-09-27). The user's choice between the presentations is open
-(LAUNCHER_OPTIONS.md, "Field presentation", REVIEW). The 2D overlay pass
-(message glyphs, the letterbox bars, the screen fade, the status overlay)
-is drawn by the GPU over the presented field, as before; it is not part of
-the GS frame (its draws are not GS packets in the port).
+`em_gfx_field_presentation` (em_gfx.h) is the hook, and its one mode is the
+user's choice of 2026-10-09, EM_GFX_FIELD_INTERLACED (each field
+line-doubled at its interlaced height, the picture placed by the display
+registers of main-loop step U): section 11. The 2D overlay pass (message
+glyphs, the letterbox bars, the screen fade, the status overlay) is drawn
+by the GPU over the presented field, moved with the placed picture; it is
+not part of the GS frame (its draws are not GS packets in the port).
 
 **Backends.** Only the Metal backend presents the field
 (`em_gfx_gs_world_enable`); the d3d12 and Vulkan backends refuse it, so on
@@ -1144,9 +1143,12 @@ and XYOFFSET_1. The original's displayed buffer holds the whole list, its
 letterbox bars, transition fade and message glyphs included; the port
 draws those as the GPU's 2D overlay pass over the presented field. So the
 number compared is the **presented frame** read back at the centre of each
-field pixel (the placeholder presentation shows field pixel (x, y) there
-unchanged: with no overlay the two are equal word for word, as at first
-control), and the field alone is reported beside it. No sampling, no
+field pixel's place in the picture (the presentation of section 11 shows
+field pixel (x, y) over the lines 2y + line .. 2y + line + 1 of the 448,
+line 1 for a half-line OFY, moved by the screen position; the harness reads
+the centre of that span from the capture's `<capture>.present`; with no
+overlay the presented and the bare field are equal word for word, as at
+first control), and the field alone is reported beside it. No sampling, no
 tolerance.
 
 **The frame loop's phase.** At 5 of the 7 points the port drew the field
@@ -1263,7 +1265,134 @@ machine). Offline (the first-control frame replayed, thread CPU time):
 one worker 30.1 ms; with 8 bands the busiest band 6.19 ms (the sum 42.6:
 each band takes every write and sets up the triangles its rows meet).
 
-## 11. Files
+## 11. Presentation: the field and the picture position (2026-10-09)
+
+The user's decisions of 2026-10-09 (LAUNCHER_OPTIONS.md, both (a)): each
+512x224 field is line-doubled and placed at its interlaced height, and the
+options screen's SCREEN ADJUST moves the 4:3 picture inside the window the
+way the original's code sends it to the display. Both are platform-layer
+presentation after the GS field: the game code and the field's bytes are
+the same with any choice. Nearest neighbour only; no smoothing, no CRT or
+scanline simulation; 4:3.
+
+**What the original's code does (the inputs).**
+- *The field's half line.* Step S hands 001015A8 / 00101810 the half
+  offset 1 - D_00810E88, so every other field is drawn with OFY 1936.5
+  instead of 1936.0 (the D_00810E88 = 0 field, FBP 0x38; measured in the
+  port's run for all 96 ticks of the presentation preview, and in the
+  original at 52 of 57 loop tops, decomp CAPTURES_C7.md 5b). Its rows
+  sample the scene half a field row lower.
+- *The display registers.* Step R: 001AB4E0(0x70003B94, 0x70003B96) builds
+  both display environments D_00810EA0 / D_00810EC8 with the SDK's
+  001002E0(env, psm 0, 512, 224, x, 2y) and sets their FBP (0 / 0x38).
+  001002E0 makes PMODE 0x66 (circuit 2 only), SMODE2 3 (interlaced, field
+  mode), DISPFB, DISPLAY = DX 636 + 5x, DY 50 + 2y, MAGH 4, DW 2559, DH 447,
+  and BGCOLOR 0. Step U: 00100550 puts the environment D_00810E80 selects
+  into the GS privileged registers (circuit 2's, since the GS revision
+  halfword D_00241016 is not 1). At offset 0, 0 these are exactly the
+  registers measured in PCSX2 at all 19 points (CAPTURES_C7.md 5b), and the
+  route captures' D_00810EA0..EF equal the native step R byte for byte.
+- *Register meaning.* DX counts MAGH + 1 = 5 clocks per framebuffer pixel,
+  DY counts lines of the 448 (the SDK uses 50 for interlaced against 25
+  for non-interlaced at the same spot); DX / DY say where the picture
+  starts. So the offset x moves the picture x pixels right, y moves it 2y
+  lines (y field rows) down. **This direction is inferred from the code and
+  the register semantics; no recording shows a picture at a nonzero offset,
+  so it was not observed on a screen.** The OPTIONS recording shows Left
+  raising x and Up raising y (OPTIONS.md), so Left moves the picture right
+  and Up moves it down. Outside the picture the display shows BGCOLOR
+  (0 at all 19 points).
+
+**The port.** `src/game/em_sdk_display_original.{h,c}` translates 001002E0
+and 00100550 (the latter byte-matched C, the former a NEARMISS read with
+its listing); `src/game/em_display_env_live.{h,c}` owns D_00810EA0..EF and
+binds steps R and U in the frame loop (em_frame.c, after P and before V:
+the existing em_slg_001AB4E0 with em_sdk_001002E0 as its worker over the
+render context's D_00241010, then em_sdk_00100550 whose stores go to
+`em_gfx_gs_display_store`). The render context's D_00241010 is the ELF's
+.data (GS revision 3 where the boot stored 0x1B); 001002E0 does not read the
+revision and 00100550 only tests it against 1, so the stores are the same.
+`src/gs/em_gs_display.{h,c}` is the mapping (pure C), the Metal presenter
+(`f_gsfield`, shared by macOS and iOS) computes it per pixel:
+
+- the field's line: 0 when the XYOFFSET_1 that drew it has a whole OFY, 1
+  when a half (any other fraction faults). A world frame's is step V's
+  draw environment; a list frame's (the load veil) is that of the last
+  primitive drawn into the displayed buffer (a list that draws nothing into
+  it faults). Decided per field from that state, never from a counter;
+- the picture point (px, py) in pixels of the 512 and lines of the 448 of
+  the game rectangle; x = px - (DX - 636) / (MAGH + 1), y = py - (DY - 50)
+  - line; BGCOLOR where (x, y) is outside 512 x 448, else field texel
+  (floor(x), floor(y) / 2). So a half-line field shows one line lower (its
+  first line BGCOLOR, its last row's second line cropped), the picture
+  moves by the offset, the uncovered edge is BGCOLOR and the far edge is
+  cropped by the game rectangle;
+- the registers must be the measured configuration (PMODE circuit 2 alone,
+  SMODE2 interlaced field mode, MAGH 4, MAGV 0, DW 2559, DH 447); anything
+  else faults (fail-stop), as does presenting a field before the first
+  step U.
+
+**Frames the GS model does not draw.** The 2D overlay pass (glyphs,
+letterbox bars, fades) is drawn by the GPU after the field with the game
+rectangle moved by the same shift (the scissor stays the rectangle), so it
+moves with the picture; it keeps the whole-line geometry of an OFY 1936.0
+field in both parities (the original's GS draws it into the field, so in a
+half-line field its horizontal edges land one line lower; drawing the
+overlay pass through the GS model is FIRST_LEVEL_AUDIT.md 1b item 2). The
+frames the GPU draws whole (the status pages, the options screen) take the
+placement at begin_frame from the registers the previous iteration's step U
+stored, with BGCOLOR over the rectangle first: in the one frame after the
+offset changes they show the old position (a field frame shows the new one
+at once). While the blocking movie 00203350 holds the iteration (a boundary
+the port replaces with its own movie presentation) steps R and U do not
+run and the original's movie driver owns the display; what it does with the
+display position is not traced, so the port drops the stored registers
+(`em_gfx_gs_display_release`) and shows the movie frames unplaced until
+step U stores again. Measured on captures (`tools/check_present_capture.py`,
+below).
+
+**What it looks like** (the presentation preview of 2026-10-09, port
+`build/presentation_preview/README.txt`): the picture as a whole stays put
+and motion is smooth; each field carries every other line's detail, so a
+horizontal edge still flickers by one line each field, centred on where it
+is. Only the whole-picture bob of plain line-doubling is gone. Nothing here
+was compared with real hardware.
+
+**Verification.**
+- `make test-gs-display` (tests/gs_display_test.c, ASan / UBSan): the
+  registers from the SDK translations at the offsets 0 and +-20 per axis,
+  both field parities (the shifted line, the background line), the shift
+  on each axis (uncovered edge, crop), the 1920 x 1440 pixel-centre sampling
+  (every field row and column in order), BGCOLOR's bytes and the refusals.
+- `make test-display-env-reference` (tools/test_display_env_reference.py):
+  the original 001002E0 (900 quick cases over 13 SDK mode sets: written,
+  zero-width traps, message-printer exits) and 00100550 (both circuits)
+  against the translations, every conditional branch both ways; the
+  original 001AB4E0 + 001002E0 + 00100550 against the live chain at the
+  offsets 0, +-20, (2, 3) and random halfwords over a route capture (its
+  captured environments equal the native ones), with the ELF's D_00241010
+  too; `EM_TEST_FULL=1` (2026-10-09): 7,306 001002E0 cases, 1,000
+  00100550 cases, 47 offsets over all 16 route captures, each capture's
+  environments equal to the native ones. `make test-startup-load-gaps-reference` still runs 001AB4E0 itself.
+- `tools/check_present_capture.py <capture.bmp>`: a captured field frame
+  against its own field under the placement, every pixel (the capture's
+  `<capture>.present` holds the field's XYOFFSET_1 and the shader's
+  constants). 2026-10-09 (ignored `build/present_check/`): ticks 1535 / 1536
+  of the level smoke (a still moment; OFY 1936.5 / 1936.0), all 2,764,800
+  pixels exact, the half-line field's first three rows BGCOLOR; ticks 400 /
+  401 (the opening, letterbox bars) exact outside the bars' rows, the bars
+  in place; with a scratch-only forced offset of +-20, +-20 (not in the
+  source) the field and the bars moved 75 columns and 129 rows, the
+  uncovered edges BGCOLOR. The OPTIONS side run opt_03 (the options screen,
+  GPU-drawn) shows its picture 19 rows / 7 columns lower / right at the
+  offset (2, 3) the recording kept.
+- `make test-fb2-pixels` reads the presented frame at each field pixel's
+  place (section 10.1). `EM_TEST_FULL=1` on 2026-10-09: all 8 compared
+  points exactly the numbers of chain step ROUTE (first control 1,125
+  exact, 14 87.18 %, 13 55.92 %, 15 98.57 %, ...), the half-line fields
+  (first control, 14) included.
+
+## 12. Files
 
 - `src/gs/em_gs_raster.h`, `src/gs/em_gs_raster.c`: the model (no global
   state; one `EmGs` per context; row bands EmGs.band_*; the lockstep test
@@ -1273,6 +1402,12 @@ each band takes every write and sets up the triangles its rows meet).
 - `src/gs/em_gs_world.h`, `src/gs/em_gs_world.c`: the Original profile's
   world frame (section 9): recording, residency, uploads, workers, field.
 - `src/game/em_gs_frame_live.{h,c}`: its game side (start-up, the kick).
+- `src/gs/em_gs_display.{h,c}`: the presentation's mapping (section 11);
+  `src/game/em_sdk_display_original.{h,c}` and
+  `src/game/em_display_env_live.{h,c}`: steps R and U.
+- `tests/gs_display_test.c` (`make test-gs-display`),
+  `tools/test_display_env_reference.py` (`make test-display-env-reference`)
+  and `tools/check_present_capture.py`: section 11's verification.
 - `tools/export_gs_memory.py`: the library image `assets/gs_library.emgm`.
 - `tools/test_gs_raster_reference.py` (`make test-gs-raster-reference`):
   the verification (section 7, part F the row bands).

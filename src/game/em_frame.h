@@ -203,6 +203,14 @@ uint8_t *em_frame_d810E80(void);
  * frame quits). NULL uninstalls them. */
 void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *context, int32_t field),
                           void *context);
+/* Main-loop steps R (0x1AB020: 001AB4E0 with the screen offset 0x70003B94 /
+ * 96) and U (0x1AB0EC: 00100550 on the display environment D_00810E80
+ * selects; `buffer` is D_00810E80), after the vblank P and before step V,
+ * in that order, on every iteration the movie does not hold
+ * (em_display_env_live). -1 is a fault (the frame quits). NULL uninstalls
+ * them. */
+void em_frame_set_step_ru(int (*step_r)(void *context), int (*step_u)(void *context, int32_t buffer),
+                          void *context);
 /* The bytes of D_00810E88 (a halfword: the field bit the vblank handler
  * 0x1AB140 stores from the GS CSR), for the render context's view. The port
  * delivers exactly one field per main iteration, and the field at step V

@@ -129,9 +129,13 @@ int em_gs_world_busy(const EmGsWorld *w);
  * B, A), width * height * 4 bytes. NULL before the first, or while a frame
  * is being drawn. */
 const uint8_t *em_gs_world_field(const EmGsWorld *w, uint32_t *width, uint32_t *height, uint64_t *frame);
-/* That field's XYOFFSET_1 (the kicked draw environment's; 0 for a list
- * frame): its half-line OFY. */
+/* That field's XYOFFSET_1, its half-line OFY: the kicked draw
+ * environment's for a world frame; for a list frame that of the last
+ * primitive the list drew into the displayed buffer. */
 uint64_t em_gs_world_field_xyoffset(const EmGsWorld *w);
+/* 1 when that offset is known (a world frame, or a list frame that drew
+ * into its displayed buffer), 0 otherwise. */
+int em_gs_world_field_xyoffset_known(const EmGsWorld *w);
 
 /* Rows of a PSMCT32 buffer in local memory, after waiting for the workers
  * (a test hook: the veil's surfaces, the shadow target). 0, or -1. */

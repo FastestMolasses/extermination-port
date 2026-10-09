@@ -542,7 +542,9 @@ static void readout(EmArea01Ui *s, uint32_t label, uint32_t spad, int32_t y)
 /* 00201F70(w), screen position: 0020A7A0; sub-state 0 keeps the offset in
  * w+8 / w+0xA. The repeat word moves it one step, each clamped to +-0x14
  * (the step cue only when not clamped): Up (0x1000) y + 1, else Down
- * (0x4000) y - 1; Left (0x2000) x - 1, else Right (0x8000) x + 1. Then the
+ * (0x4000) y - 1; Right (0x2000) x - 1, else Left (0x8000) x + 1 (em_input.h's
+ * masks; the offset reaches the picture through main-loop steps R and U,
+ * em_display_env_live). Then the
  * title (001FCE30(0x98, 0x2A, group, 0x13)), blend 0, the four corner
  * pieces, the left / right arrow pair (lit by the held Left / Right), the
  * up / down pair (lit by the held Up / Down), the two readouts and the

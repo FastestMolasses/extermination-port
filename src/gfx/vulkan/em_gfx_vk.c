@@ -106,3 +106,16 @@ int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out) { (void)gfx; (void)out; r
 int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count)
 { (void)gfx; (void)prims; (void)envs; (void)count; return -1; }
 void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode) { (void)gfx; (void)mode; }
+/* Step U's display registers: this backend does not present the GS field,
+ * so it does not place a picture by them (the Original profile does not
+ * start here; the GPU renderer keeps the picture centred). */
+int em_gfx_gs_display_store(EmGfx *gfx, uint32_t address, uint64_t value)
+{
+    (void)gfx; (void)value;
+    switch (address) {
+    case 0x12000000u: case 0x12000020u: case 0x12000070u: case 0x12000080u:
+    case 0x12000090u: case 0x120000A0u: case 0x120000C0u: case 0x120000E0u: return 0;
+    default: return -1;
+    }
+}
+void em_gfx_gs_display_release(EmGfx *gfx) { (void)gfx; }

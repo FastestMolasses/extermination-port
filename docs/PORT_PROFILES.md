@@ -76,8 +76,10 @@ from **one codebase**:
    **Built 2026-10-03** for the world frame (chain step GSFRAME; GS_EXACT.md
    section 9): the CPU GS model draws every world frame's GS packets into a
    512x224 field in GS memory, and the platform layer presents it through
-   the field-presentation hook (the placeholder only; the user's choice is
-   open). The status frames and the 2D overlay pass still draw with the GPU.
+   the field-presentation hook: since 2026-10-09 the user's choice (a), each
+   field line-doubled at its interlaced height and the picture placed by the
+   display registers (the options' screen position moves it; GS_EXACT.md
+   section 11). The status frames and the 2D overlay pass still draw with the GPU.
    Only the Metal backend (macOS) presents the field today: on the d3d12
    and Vulkan backends the Original profile refuses to start, and
    EM_GPU_RENDERER=1 (the GPU renderer) is needed there (GS_EXACT.md

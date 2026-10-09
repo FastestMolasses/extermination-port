@@ -262,10 +262,11 @@ bound.
 | w001FB100 | `em_slg_001FB100` at step H (em_stream_live_step_h, skipped while D_00821058 == 1): 001F9CF0 since WP-8b, and since chain step H7 the output-mode commit, the D_00281B70 copy over em_sfx's tables and 001FC6E0 | live |
 | w001B5B70 | the 001B5B70 translation in `em_owner_services_original` (L35) | verified-unbound |
 | w00100A60 | "path idle": return 0 (the native renderer has no VIF/GIF/VU1 path to stall) | boundary; the J-block workers are then never called but must still be bound (fail-stop): bind them to a fault, since reaching them natively would be a bug |
-| w001D7410, w001015A8, w00101810, w0010BAA0, w00100550 | the native renderer's frame submission / present (`em_gfx_end_frame`) | boundaries |
+| w001D7410, w001015A8, w00101810, w0010BAA0 | the native renderer's frame submission / present (`em_gfx_end_frame`) | boundaries |
+| w00100550 | `em_sdk_00100550` at step U of `em_frame_step` (em_display_env_live, on D_00810EA0 + 40 * D_00810E80), its GS privileged register stores to the presenter (`em_gfx_gs_display_store`) | live since 2026-10-09 (GS_EXACT.md section 11; test_display_env_reference) |
 | w001AB590 | `em_slg_001AB590` (L34) or a no-op (DMA hardware) | boundary in substance |
 | w00203350 | the movie pump: the worker must run the whole movie before returning, pumping window events and presenting each movie frame itself (em_frame.c's suspension then goes away) | boundary (IOP movie service) |
-| w001AB4E0 | `em_slg_001AB4E0` (L34) | missing live; its output is the GS display environment (boundary) |
+| w001AB4E0 | `em_slg_001AB4E0` (L34) at step R of `em_frame_step` (em_display_env_live), its worker 001002E0 = `em_sdk_001002E0` | live since 2026-10-09: the display environments feed step U (GS_EXACT.md section 11) |
 | w001D2300 | `em_rcl_001D2300` (em_frame_kick over the render context; RENDER_CONTEXT.md section 9), at step V of `em_frame_step`, reading D_00810E88 (`em_frame_d810E88`) and 0x70003B70/72 (the render context's storage) | live since 2026-09-27; its hardware kick is the renderer's presentation |
 | w001D2580 | `em_rcl_001D2580(field)`, at step W of `em_frame_step`, the field read before the flip | live since 2026-09-27 |
 | io_store | no-op (timer 0 is never read) | boundary |

@@ -130,5 +130,6 @@ em_scene_bindings' `s_ambient`; 001FBC50 sets D_00282160 = -1.
   never reaches it.
 - The vitals copies D_00810858 / D_0081085C share their storage with the
   record's vitals view (g.status), so the copy is the identity in the port.
-- 001AB4E0, 001AC070, 008237C0, 00199C50 and 001D19E0 stay unbound; their
-  census rows say why.
+- 001AC070, 008237C0, 00199C50 and 001D19E0 stay unbound; their census
+  rows say why. (001AB4E0, unbound here, is bound since 2026-10-09 as main-loop
+  step R: em_display_env_live, census 1.68, GS_EXACT.md section 11.)
