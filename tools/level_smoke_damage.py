@@ -43,9 +43,29 @@ recording's rows (decomp docs/CAPTURES_C10.md "DAMAGE"; build/c10/damage/
                   recording's
   the falls       the crevice landing hit (dmg_06) aligned on the hit: every
                   field and the height path equal to the hand-back; the pit
-                  (dmg_07) aligned on the death: every field and the height
-                  path (from the death) equal to the load request, then the
-                  game over as above.
+                  (dmg_07): the fall start aligned on the fall state's first
+                  row (+5 = 5, row 312) from three rows before it to three
+                  after (FALL_START_FIELDS equal; +0x24C, the stick's
+                  heading in the camera's frame, held from the sub-state-0
+                  row on; 001755B0's test, |wrap(pi + +0x24C + D_008106A0 -
+                  +0xC4)| <= pi/2, true on that row in both), then aligned
+                  on the death: every field and the height path (from the
+                  death) equal to the load request, then the game over as
+                  above
+  the fan hit     (dmg_fan, the dmg_08 replay) every row from the alignment
+                  (fan r2's entry into phase 2, row FAN_ALIGN_ROW) to the
+                  recording's last: the position (5 decimals), heading and
+                  camera (eye, target, mode bytes) equal, the player
+                  record's words equal (FAN_RECORD_EXEMPT
+                  aside), the vitals (+0x220 / +0x224) equal through their
+                  one storage, FIELDS equal; and named on the way: the hit
+                  row (the pending damage 5.0, +0 = 3, +0x0F = 6, +0x70..
+                  +0x7C), the next row (health 95, +4 2, +5 0x11, +0x0F
+                  0x86), 0021E9C0's first row (clip 0x20, the small motor
+                  0xC0, +0x38 / +0x21C / +0x2EC), the knock-back's per-tick
+                  step, the hand-back (+0x200 bit 0x1000, +4 1, +5 0, +0x20E
+                  60, +0x25C 0), the protection's end (+0 back to 1) and the
+                  rumble after the hit.
 """
 from __future__ import annotations
 
@@ -66,6 +86,27 @@ REQ_B9 = 0x09              # D_008106B9 in the scene state's request block (D_00
 # D_00810730[0x20], D_00810750, 0x70003B68, 3B84, 3B8A, 3B8C, then 3B8D.
 POST_AREA, POST_3B8D = 24 + 0x48, 24 + 0x48 + 3 + 0x20 + 4 + 4 + 2 + 2 + 1
 GAME_TASK, TITLE_TASK = 0x1ACEC0, 0x1AC070
+# dmg_07's fall start: the record bytes / words compared from three rows
+# before the fall state's first row to three after (the tick log's
+# "aimrec", EM_LOG_AIM_RECORDS=1): +6 (the sub-state), +0x23F (the gait
+# 00174AC0 latched; 3 asks 001755B0 in sub-state 0), +0x240, +0x25C (the
+# tier the other path takes), +0x38 / +0x2EC (the fall's speed and drop the
+# sub-state stores).
+FALL_START_BYTES = (0x06, 0x23F, 0x25C)
+FALL_START_WORDS = (0x38, 0x240, 0x2EC)
+# dmg_fan: the replay's first row (em_level_smoke_test.c DMG_FAN_ALIGN_ROW)
+# and the player-record words not compared word for word: the place
+# +0xA0..+0xBF (the record image keeps the placement's words; the position
+# is g.pos, compared itself), the vitals +0x220..+0x22F (one storage
+# g.status / g.pd_*: the tick log's "dmg"), the clock +0x3C before the walk
+# (the idle clip's phase is the time since the area load, as check_exit
+# leaves it), and the words the two runs' histories leave before the
+# replay (the side run walks in from the main line, the recording from its
+# snapshot): +0x28, +0x248, +0x2F8 for the whole beat, +0x260..+0x268 up to
+# the hit (0021C440's row rewrites them alike: equal from the next row).
+FAN_ALIGN_ROW = 32
+FAN_RECORD_EXEMPT = set(range(0xA0, 0xC0, 4)) | set(range(0x220, 0x230, 4)) | {0x28, 0x248, 0x2F8}
+FAN_TO_HIT_EXEMPT = {0x260, 0x264, 0x268}
 
 
 def f32(word):
@@ -86,7 +127,8 @@ def crow(r):
                 i20E=v['inv20E'], b235=v['b235'], pad=(rb['active'], rb['big'], rb['small'], rb['dur']),
                 pos=r['pos'], fn=struct.unpack_from('<I', b, 4)[0], slot=(b[8], b[9], b[0xA]),
                 hold=struct.unpack_from('<h', b, 0x18)[0], fade=int(r['fade'][:2], 16), b6B9=r['gv']['b6B9'],
-                nodes=cnodes(r))
+                nodes=cnodes(r), pend=v['pend'], rec=bytes.fromhex(r['pl']), yaw=r['yaw'],
+                cam=struct.unpack_from('<f', bytes.fromhex(r['glob']), 0xA0)[0])
 
 
 def cnodes(r):
@@ -125,8 +167,17 @@ def prows(ticks, start):
                         pad=tuple(nxt['pad_pre']) if 'pad_pre' in nxt else None,
                         pos=[f32(x) for x in t['pos_post']], slot=(post[0], post[1], post[2]),
                         hold=struct.unpack_from('<h', post, 0x10)[0], fade=nxt['fade'], b6B9=post[24 + REQ_B9],
-                        nodes=nodes, gap=nxt['counter'] - t['counter'], flame=flame_row(t)))
+                        nodes=nodes, gap=nxt['counter'] - t['counter'], flame=flame_row(t), pend=f32(d[1]),
+                        rec=bytes.fromhex(t['aimrec'][0]) if t.get('aimrec') else None,
+                        yaw=f32(t['yaw_post']), cam=camera_yaw(t)))
     return out
+
+
+def camera_yaw(t):
+    """D_008106A0 at the tick end (the tick log's camblk: D_00810690..A3),
+    or None without the live camera."""
+    cb = t.get('camblk')
+    return struct.unpack_from('<f', bytes.fromhex(cb[2]), 0x10)[0] if cb else None
 
 
 def phase_start(run, phase, ticks):
@@ -454,9 +505,51 @@ def check_dmg_crevice_fall(ticks, run, state):
     print(f'level smoke: dmg_crevice_fall: the landing hit and {n} ticks after it as recorded')
 
 
+def wrap(a):
+    return (a + math.pi) % (2 * math.pi) - math.pi
+
+
+def fall_start(c, p):
+    """dmg_07's fall start (00162DB0 state 5 sub-state 0, site 0x162F78):
+    aligned on the fall state's first row (+5 = 5; the recording's row 312,
+    where the capture tool turned the pad neutral; the policy keeps the two
+    sticks in flight, em_level_smoke_test.c DS_FALL_START_LAG). From three
+    rows before it to three after: FALL_START_BYTES / WORDS, +5 and +0x1F0
+    equal. +0x24C is the stick's heading in the camera's frame: the side
+    run walks off the roof from its own place (the truck's ride from route
+    07's end), so the value is its own; in both it is held from the
+    sub-state-0 row on, and 001755B0's test on that row, |wrap(wrap(pi +
+    +0x24C + D_008106A0) - +0xC4)| <= pi/2 with the tick end's D_008106A0,
+    is true in both (result 0: the tier-3 speed). Returns (row, the two
+    errors)."""
+    rc = next(i for i in range(1, len(c)) if c[i]['rec'][5] == 5 and c[i - 1]['rec'][5] != 5)
+    assert all(r['rec'] is not None for r in p), \
+        'dmg_pit_fall: the tick log has no "aimrec" (tools/test_level_smoke_damage.py sets EM_LOG_AIM_RECORDS=1)'
+    rp = next(i for i in range(1, len(p)) if p[i]['rec'][5] == 5 and p[i - 1]['rec'][5] != 5)
+    for k in range(-3, 4):
+        a, b = c[rc + k]['rec'], p[rp + k]['rec']
+        bad = [hex(o) for o in FALL_START_BYTES + (0x05, 0x1F0) if a[o] != b[o]] + \
+              [hex(o) for o in FALL_START_WORDS if a[o:o + 4] != b[o:o + 4]]
+        assert not bad, ('dmg_pit_fall: the fall start differs at row', k, bad,
+                         [(o, a[int(o, 16)], b[int(o, 16)]) for o in bad])
+    assert c[rc + 1]['rec'][0x23F] == 3 and c[rc + 1]['rec'][6] == 0xA, \
+        ('dmg_pit_fall: the recording\'s sub-state 0 is not at gait 3', c[rc + 1]['rec'][0x23F])
+    errors = []
+    for rows, i in ((c, rc), (p, rp)):
+        h = lambda k: rows[i + k]['rec'][0x24C:0x250]
+        assert h(1) == h(2) == h(3), ('dmg_pit_fall: +0x24C is not held from the sub-state-0 row', h(1), h(2), h(3))
+        r = rows[i + 1]
+        heading = struct.unpack_from('<f', r['rec'], 0x24C)[0]
+        body = struct.unpack_from('<f', r['rec'], 0xC4)[0]
+        errors.append(abs(wrap(wrap(math.pi + heading + r['cam']) - body)))
+    assert all(e <= math.pi / 2 for e in errors), ('dmg_pit_fall: 001755B0\'s test fails', errors)
+    return rc, errors
+
+
 def check_dmg_pit_fall(ticks, run, state):
     c = [crow(r) for r in capture('dmg_07_pit_fall')['rows']]
     p = prows(ticks, phase_start(run, 'dmg_pit_fall', ticks))
+    row, errors = fall_start(c, p)
     dc = next(i for i in range(1, len(c)) if c[i]['hp'] <= 0 < c[i - 1]['hp'])
     dp = next(i for i in range(1, len(p)) if p[i]['hp'] <= 0 < p[i - 1]['hp'])
     for k in range(0, 200):
@@ -467,5 +560,83 @@ def check_dmg_pit_fall(ticks, run, state):
         assert dy <= HEIGHT_PATH, ('dmg_pit_fall: the body falls differently at tick', k, dy)
     _, _, req = check_death(c, p, 'dmg_pit_fall')
     load_c, load_p, n = check_game_over(c, p, dc, dp, req, 'dmg_pit_fall')
-    print(f'level smoke: dmg_pit_fall: the 0x5D floor death and the fall to the load request ({req} ticks), '
+    print(f'level smoke: dmg_pit_fall: the fall start (rows {row - 3}..{row + 3}: gait 3 in sub-state 0, '
+          f'001755B0\'s test within 90 degrees, the recording {errors[0]:.4f}, the run {errors[1]:.4f}), '
+          f'the 0x5D floor death and the fall to the load request ({req} ticks), '
           f'screen module 0x27 loaded in {load_p} ticks (the disc {load_c}), {n} game-over ticks after it')
+
+
+def check_dmg_fan(ticks, run, state):
+    """dmg_fan against dmg_08_fan_hit, row for row from the alignment to
+    the recording's last row (the module docstring, "the fan hit")."""
+    t8 = capture('dmg_08_fan_hit')
+    c = [crow(r) for r in t8['rows']]
+    assert c[FAN_ALIGN_ROW]['counter'] - c[0]['counter'] == FAN_ALIGN_ROW
+    fan = [r['fan_r2']['phase'] for r in t8['rows']]
+    assert fan[FAN_ALIGN_ROW] == 2 and fan[FAN_ALIGN_ROW - 1] != 2, 'dmg_08 row 32 is no longer fan r2\'s phase-2 entry'
+    m = re.search(r'^level smoke: dmg_fan: aligned counter=(\d+)', run, re.M)
+    assert m and re.search(r'^level smoke: dmg_fan: PASS', run, re.M), 'dmg_fan: no alignment line or no PASS'
+    i0 = next(i for i in range(max(state.get('cursor', 0), 0), len(ticks)) if ticks[i]['counter'] == int(m.group(1)))
+    assert [g[4] for g in ticks[i0]['gun_fan'] if g[0] == 0x7A7690] == [2] and \
+        [g[4] for g in ticks[i0 - 1]['gun_fan'] if g[0] == 0x7A7690] != [2], 'dmg_fan: the aligned tick is not fan r2\'s phase-2 entry'
+    p = prows(ticks, i0)
+    n = len(c) - FAN_ALIGN_ROW
+    assert len(p) >= n and all(p[k]['counter'] == p[0]['counter'] + k for k in range(n)), \
+        ('dmg_fan: the replay\'s ticks are not consecutive frames', len(p), n)
+    assert all(r['rec'] is not None for r in p[:n]), \
+        'dmg_fan: the tick log has no "aimrec" (tools/test_level_smoke_damage.py sets EM_LOG_AIM_RECORDS=1)'
+    hit = next(i for i in range(len(c)) if c[i]['pend'] != 0)
+    walk = next(i for i in range(FAN_ALIGN_ROW, len(c)) if c[i]['clip'] != 0)
+    worst = 0.0
+    for r in range(FAN_ALIGN_ROW, len(c)):
+        a, b = c[r], p[r - FAN_ALIGN_ROW]
+        where = f'dmg_fan: row f{r} (counter {a["counter"]}, port tick {b["tick"]})'
+        pos = [round(x, 5) for x in b['pos']]
+        assert pos == [round(x, 5) for x in a['pos']] and round(b['yaw'], 5) == round(a['yaw'], 5), \
+            (where, 'the place', pos, a['pos'], b['yaw'], a['yaw'])
+        # The camera under the fans (00194D10 / 0022FCA0 / 00230000 run
+        # there): eye, target and the mode bytes, as check_exit compares them.
+        t, row = ticks[i0 + r - FAN_ALIGN_ROW], t8['rows'][r]
+        assert t['counter'] == b['counter'], (where, 'the tick log skips a tick')
+        cam = ([round(f32(v), 5) for v in t['eye_post']], [round(f32(v), 5) for v in t['tgt_post']], t['cam4'][:2])
+        assert cam == (row['eye'], row['tgt'], row['cam_mode'][:2]), (where, 'the camera', cam,
+                                                                      (row['eye'], row['tgt'], row['cam_mode'][:2]))
+        # The recording's clip clock has three decimals (check_exit's
+        # rounding); before the walk's clip it is the idle clip's phase,
+        # the time since the area load (check_exit leaves it out there).
+        keys = [x for x in FIELDS if x != 'clk'] + ['hp', 'pend']
+        bad = [x for x in keys if a[x] != b[x]] + \
+            (['clk'] if r >= walk and round(a['clk'], 3) != round(b['clk'], 3) else [])
+        assert not bad, (where, [(x, a[x], b[x]) for x in bad])
+        exempt = FAN_RECORD_EXEMPT | (FAN_TO_HIT_EXEMPT if r <= hit else set()) | ({0x3C} if r < walk else set())
+        words = [w for w in range(0, 0x320, 4) if w not in exempt and a['rec'][w:w + 4] != b['rec'][w:w + 4]]
+        assert not words, (where, 'player record words', [(hex(w), a['rec'][w:w + 4].hex(),
+                                                            b['rec'][w:w + 4].hex()) for w in words[:8]])
+        if r > FAN_ALIGN_ROW:
+            step = lambda rows, i: math.hypot(rows[i]['pos'][0] - rows[i - 1]['pos'][0],
+                                              rows[i]['pos'][2] - rows[i - 1]['pos'][2])
+            worst = max(worst, abs(step(c, r) - step(p, r - FAN_ALIGN_ROW)))
+    assert worst <= KNOCK_STEP, ('dmg_fan: the per-tick step differs', worst)
+    # The named events, each on the recorded row (the comparison above
+    # already holds them; these say which rows they are).
+    f = lambda rec, o: struct.unpack_from('<f', rec, o)[0]
+    h = c[hit]
+    assert hit == t8['marks']['pending_damage'] and h['pend'] == 5.0 and h['ev'] == 3 and h['t'] == 6 and \
+        [f(h['rec'], 0x70 + 4 * k) for k in range(4)] == [0.0, 0.0, 1.0, 1.0], ('dmg_fan: the hit row', hit)
+    nx = c[hit + 1]
+    assert (nx['hp'], nx['p4'], nx['p5'], nx['t']) == (95.0, 2, 0x11, 0x86), ('dmg_fan: 0021C440\'s row', hit + 1)
+    first = c[hit + 2]
+    assert first['clip'] == 0x20 and first['p6'] == 1 and first['pad'][2] == 0xC0 and \
+        f(first['rec'], 0x38) == 0.0 and f(first['rec'], 0x21C) == 0.0, ('dmg_fan: 0021E9C0\'s first row', hit + 2)
+    back = next(i for i in range(hit + 2, len(c)) if c[i]['p4'] == 1)
+    hb = c[back]
+    assert struct.unpack_from('<I', hb['rec'], 0x200)[0] & 0x1000 and (hb['p5'], hb['i20E'], hb['rec'][0x25C]) == \
+        (0, 60, 0), ('dmg_fan: the hand-back row', back)
+    end = next(i for i in range(back, len(c)) if c[i]['ev'] == 1)
+    for k in range(0, 6):
+        assert c[hit + 1 + k]['pad'] == p[hit + 1 + k - FAN_ALIGN_ROW]['pad'], ('dmg_fan: the rumble after the hit', k)
+    reaction = back - (hit + 1)
+    print(f'level smoke: dmg_fan: rows f{FAN_ALIGN_ROW}..f{len(c) - 1} as recorded (place, camera, record, vitals; the '
+          f'step within {worst:.6f}): the hit f{hit}, 0021C440 f{hit + 1} (health 95, +5 0x11), 0021E9C0 '
+          f'{reaction} ticks f{hit + 2}..f{back} (clip 0x20, motor 0xC0, the knock-back to Z '
+          f'{c[back]["pos"][2]:.3f}), the hand-back f{back}, the protection to f{end}')

@@ -189,13 +189,20 @@ route's own).
   bound, 001AB4E0 live and the SDK's 001002E0 / 00100550 moved from the
   boundary group to rows, live: live 951 of 970 (123,152 of 124,121
   instructions = 99.2%), verified but unbound 18; the route's own through
-  beat 15 750 of 768 (88,662 of 89,603 = 98.9%).
+  beat 15 750 of 768 (88,662 of 89,603 = 98.9%). Update 1.69 (the coverage
+  step, 2026-10-09): the last two live rows no run entered, 001755B0 and
+  0021E9C0, are entered by the DAMAGE side runs dmg_pit_fall (its fall
+  start) and dmg_fan (the fan's hit, row for row with dmg_08), shown by a
+  counted hook in a scratch build: every live row (951) is now entered by a
+  port run; no status change.
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
   the DAMAGE, BRANCH and OPTIONS recordings ran. Not covered: unplayed
-  branches the capture lanes did not record (the camera inputs, the fan's
-  hit, a chosen memory-card slot) and boot before the title.
+  branches the capture lanes did not record (the camera inputs, a landing
+  that asks 001755B0, a chosen memory-card slot), the 18 verified-unbound
+  rows and the one unverified row (census 1.69 lists them), and boot before
+  the title.
   Boundary functions are native replacements, not translations; the sound
   library's boundary (the SPU2 output) is the largest uncompared one.
   "Stand-in 0" counts census rows only; census 2.3 "What still stands in"
@@ -1610,8 +1617,13 @@ starts the level again with the original opening.
   flow after a death all run their translations (`DAMAGE.md`); the port's
   own game-over and Continue screens are deleted.
 - Evidence: `make test-level-smoke-damage` (`LEVEL_SMOKE.md` "The DAMAGE
-  side runs"): three side runs replay the decomp's DAMAGE recordings
-  dmg_00..04, 06 and 07 window by window, all PASS on 2026-10-02: 20 hits
+  side runs"): side runs replay the decomp's DAMAGE recordings
+  dmg_00..04, 06 and 07 window by window, all PASS on 2026-10-02, and since
+  2026-10-09 dmg_08 row for row (dmg_fan: fan r2's hit, 5 damage, the
+  knock-back reaction 0021E9C0 for its 52 ticks, the hand-back and the
+  protection; the place to 5 decimals, the camera, the player record and the
+  vitals equal on every row f32..f285) and dmg_07's fall start (the gait,
+  the sub-state, the fall's speed and drop on rows 309..315): 20 hits
   on the recorded fields (the knock-back's per-tick step within 0.0082), 12
   heartbeats, the death to the screen load in 320 ticks and the pit's fall
   in 188 ticks as recorded, 74 game-over ticks after the load, the title's
@@ -1626,9 +1638,9 @@ starts the level again with the original opening.
   at host speed (10 ticks; the disc took 23: the PS2 disc-drive timing
   switch does not model it yet, `LAUNCHER_OPTIONS.md`), so the screen
   appears 13 ticks sooner and the title menu takes input sooner (67 ticks
-  against 104); the fan's hit and the heavy landing from the towers are not
-  replayed (the fan needs Roger's departure; no capture of the heavy
-  landing exists); the title's Options entry is not bound (its Load entry
+  against 104); the heavy landing from the towers and a running landing
+  that asks 001755B0 are not replayed (no capture of either exists); the
+  title's Options entry is not bound (its Load entry
   is since chain step OPTIONS: the next entry);
   infection cannot happen in the first level; pixels and sounds are not
   compared.
@@ -2134,9 +2146,12 @@ gun and its cable "husks"; that label was wrong.)
   on the cable (the cable's and the gun's state row for row with the AIM
   capture aim_11: see the aiming entry). Not covered: the fans' phase at a
   given moment (it follows the recording's timing; only the cycle is
-  compared); the fans' exit and hit boxes (off the smoke's route; the hit's
-  consumer chain is proven by an oracle; the exit bit now starts Roger's
-  departure, which still stops at an untranslated handshake); the gun's
+  compared); the fans' fast-arm exit and direct area change (no
+  recording). Since 2026-10-09 the hit box is exercised: the side run
+  dmg_fan replays dmg_08 and the hit, its 5 damage and the reaction equal
+  the recording row for row (before, the binding's pending-damage store
+  went to the record image and the hit did no damage; DAMAGE.md section
+  7a); the gun's
   own return-visit
   behaviour (it stops the game if reached); the lamp's draw. The pixels are
   Metal's, not the GS's.

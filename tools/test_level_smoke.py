@@ -3131,6 +3131,7 @@ PHASES = [
     ('east_tower', check_east_tower),
     ('roger', check_roger),
     branch_phase('br_roger_talk'),
+    ('dmg_fan', lambda ticks, run, state: level_smoke_damage.check_dmg_fan(ticks, run, state)),
     ('exit', check_exit),
     ('a01_arrival', lambda ticks, run, state:
      level_smoke_area01.check_arrival(sys.modules[__name__], ticks, run, state)),
@@ -3812,7 +3813,8 @@ def check_effects(ticks, state):
 
 SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'aim_r1_hold', 'aim_r2_hold',
         'aim_fire', 'aim_both', 'aim_reload', 'aim_reload_empty', 'aim_light', 'aim_melee', 'aim_world',
-        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'br_ledge_ammo',
+        'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan',
+        'br_ledge_ammo',
         'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
         'br_plateau', 'br_roger_talk', 'aud_walk_outdoor', 'aud_walk_room', 'aud_flame',
@@ -3834,7 +3836,7 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('15', ('exit',)), ('15 AREA01 idle', ('a01_arrival',)),
          ('AREA01 main route (opt-in)', tuple(level_smoke_area01.MAIN_BEATS)),
          ('AREA01 side routes (opt-in)', tuple(level_smoke_area01.SIDE_BEATS)),
-         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall')),
+         ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_fan')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
          ('opt', tuple(level_smoke_options.PHASES)),

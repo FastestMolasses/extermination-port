@@ -347,6 +347,11 @@ static const Phase k_phases[] = {
     {"br_roger_talk", "br_14_roger_talk (side, from 14; decomp CAPTURES_C10.md BRANCH)", 0x008237E0u,
      "Roger 0x8237E0 after the encounter (D_008107D8 = 1): the use scan marks him (+0x0B = 4), his third branch starts the talk script 0x828810",
      "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
+    {"dmg_fan", "dmg_08_fan_hit (side, from 14; decomp CAPTURES_C10.md DAMAGE)", 0x00827630u,
+     "fan r2 00827630's fast arm (spin +0x38 >= 0.0349) in its band: +0x224 = 5.0, +0 = 3, +0x0F = 6; 0021C440 "
+     "(health 95, +0x0F 0x86) and the reaction 0021E9C0 (+5 0x11: sound 0x154, the small motor, clip 0x20, its "
+     "root delta to the clip's end, 0017C540), the protection",
+     "the DAMAGE step's fan hit (docs/DAMAGE.md)", dmg_begin, dmg_frame, 0, 1, 0, 0},
     {"exit", "exit_00_departure, exit_01_movie_arrival (decomp CAPTURES_C10.md EXIT; route beat 15)", 0x008237E0u,
      "fan r2 00827630's exit bit D_008107D8 |= 0x80; Roger 0x8237E0's departure script 0x828A10 (op0F: the "
      "movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (001FFCD0: AREA01 sub 0), "
@@ -2912,9 +2917,16 @@ enum { JUMP_LIMIT = 200 };
  *   dmg_crevice_fall  (from crevice_prompt) dmg_06: the walking jump short
  *                     of the north block, the landing hit;
  *   dmg_pit_fall      (from truck_preview) dmg_07: the truck's fall, the
- *                     walk off its roof onto the pit floor, the game over.
- * Each beat starts after 35 neutral ticks (the capture's pin: its source
- * snapshot's counter + 30, then idle 5). tools/level_smoke_damage.py
+ *                     walk off its roof onto the pit floor (the stick kept
+ *                     for the recording's pad lag at the fall start), the
+ *                     game over;
+ *   dmg_fan           (from roger) dmg_08: fan r2's fast arm hits the
+ *                     player in its band; the reaction 0021E9C0 to its
+ *                     hand-back and the protection's end. dmg_08 is a
+ *                     replay (the exit phase's method): aligned on fan r2's
+ *                     entry into its phase 2, its recorded pad.
+ * Each beat but dmg_fan starts after 35 neutral ticks (the capture's pin:
+ * its source snapshot's counter + 30, then idle 5). tools/level_smoke_damage.py
  * compares the run's tick log with the recordings, each window aligned on
  * its event (the hit, the latch, the death, the game-over task, the title,
  * the confirm). In process: the steps' predicates, no fault. Test input
@@ -2923,7 +2935,8 @@ enum {
     DS_END = 0, DS_IDLE, DS_HITS_TO, DS_RETREAT, DS_DEATH_TO_GAME_OVER, DS_UNTIL_TITLE, DS_PRESS_UP,
     DS_PRESS_CROSS_NEW_GAME, DS_UNTIL_FIRST_CONTROL, DS_WALK_PATH, DS_SETTLE, DS_FACE, DS_WALKING_JUMP,
     DS_UNTIL_LANDING_HAND_BACK, DS_GOTO, DS_UNTIL_TRUCK_DOWN, DS_WALK_OFF_TRUCK, DS_PRESS_CROSS_LOAD,
-    DS_UNTIL_LOAD_SCREEN, DS_PRESS_TRIANGLE_LEAVE, DS_UNTIL_TITLE_PROMPT
+    DS_UNTIL_LOAD_SCREEN, DS_PRESS_TRIANGLE_LEAVE, DS_UNTIL_TITLE_PROMPT, DS_FALL_START_LAG, DS_FAN_ALIGN,
+    DS_FAN_REPLAY
 };
 typedef struct {
     int kind;
@@ -2980,13 +2993,64 @@ static const DmgStep k_dmg_pit[] = {
     DMG_IDLE(35), {DS_GOTO, 352.0f, 392.0f, 1.5f, 1.0f, "dmg_07: onto the truck"},
     {DS_UNTIL_TRUCK_DOWN, 0, 0, 0, 0, "dmg_07: the truck's fall"}, DMG_IDLE(30),
     {DS_WALK_OFF_TRUCK, 352.0f, 440.0f, 0, 0, "dmg_07: off the roof"},
+    {DS_FALL_START_LAG, 0, 0, 0, 0, "dmg_07: the fall start with the stick in flight"},
     {DS_DEATH_TO_GAME_OVER, 0, 0, 0, 0, "dmg_07: death to the GAME OVER screen"},
     {DS_END, 0, 0, 0, 0, NULL}};
+/* dmg_fan (dmg_08_fan_hit, from 14_roger_encounter's end, where the roger
+ * phase ends): route_capture dmg_beat_fan_hit's walk to the fan pair, its
+ * wait for fan r2's fast arm and its step into the hit band (Z 156..166.5,
+ * never below 156: the exit box) as a replay of the recording's pad. The
+ * fan's cycle runs from the area load, so the replay aligns on it as the
+ * exit phase does (exit_frame): fan r2 leaves its phase 2, then the tick it
+ * enters phase 2 again is dmg_08's row DMG_FAN_ALIGN_ROW (the recording's
+ * fan r2 enters phase 2 there, at counter 15792, the same counter as
+ * exit_00's row 31: both start from the same snapshot, dmg_08 one frame
+ * earlier). From there the recording's `inputs` (frame-indexed, no
+ * buttons; an entry of frame f first shows in the original's row f + 3, so
+ * the after-frame of the tick aligned to row c sets the entry of frame
+ * c - 2) to its last row. */
+enum { DMG_FAN_R2 = 0x007A7690u, DMG_FAN_ALIGN_ROW = 32, DMG_FAN_LAST_ROW = 285, DMG_FAN_WAIT = 400 };
+typedef struct {
+    int f;
+    uint8_t lx, ly;
+} DmgInput;
+static const DmgInput k_dmg_fan_inputs[] = { /* dmg_08_fan_hit `inputs` */
+    {40, 146, 2}, {56, 145, 2}, {59, 144, 2}, {62, 143, 2}, {64, 142, 2}, {66, 141, 2}, {67, 140, 2},
+    {68, 139, 1}, {69, 138, 1}, {70, 137, 1}, {71, 135, 1}, {72, 133, 1}, {73, 132, 1}, {74, 131, 1},
+    {75, 130, 1}, {76, 129, 1}, {77, 127, 1}, {78, 124, 1}, {79, 121, 1}, {79, 127, 127}, {79, 140, 66},
+    {80, 141, 66}, {81, 144, 66}, {82, 146, 67}, {83, 147, 67}, {85, 146, 67}, {86, 143, 66}, {87, 135, 65},
+    {87, 127, 127}, {112, 162, 75}, {133, 162, 74}, {140, 161, 74}, {142, 127, 127}, {142, 105, 201},
+    {146, 106, 201}, {147, 107, 201}, {149, 108, 202}, {150, 109, 202}, {154, 110, 202}, {156, 111, 202},
+    {157, 112, 202}, {158, 112, 203}, {159, 113, 203}, {160, 114, 203}, {161, 115, 203}, {162, 116, 203},
+    {163, 117, 203}, {164, 118, 203}, {165, 119, 204}, {167, 120, 204}, {168, 121, 204}, {169, 122, 204},
+    {173, 123, 204}, {174, 122, 204}, {184, 121, 204}, {188, 120, 204}, {197, 127, 127}};
+enum { DMG_FAN_INPUTS = (int)(sizeof k_dmg_fan_inputs / sizeof k_dmg_fan_inputs[0]) };
+static const DmgStep k_dmg_fan[] = {
+    {DS_FAN_ALIGN, 0, 0, 0, 0, "dmg_08: fan r2's entry into phase 2"},
+    {DS_FAN_REPLAY, 0, 0, 0, 0, "dmg_08: the recorded pad through the hit, the reaction and the protection"},
+    {DS_END, 0, 0, 0, 0, NULL}};
+
+/* dmg_08's pad at frame `frame`: the last entry at or before it (the
+ * neutral pad before the first), mapped as exit_apply maps exit_00's. */
+static void dmg_fan_apply(int frame)
+{
+    const DmgInput *in = NULL;
+    for (int i = 0; i < DMG_FAN_INPUTS && k_dmg_fan_inputs[i].f <= frame; ++i) in = &k_dmg_fan_inputs[i];
+    if (!in) {
+        pad_apply(0, 0, 0);
+        return;
+    }
+    pad_apply(0, (in->lx - 128) / 128.0f, (in->ly - 128) / 128.0f);
+}
 
 static struct {
     const DmgStep *prog;
     int pc, ticks, sub, hits, tries;
     float hp0;
+    /* DS_WALK_OFF_TRUCK's last two sticks (older first), for
+     * DS_FALL_START_LAG. */
+    float lag[2][2];
+    int frame;   /* dmg_fan: the recording row this tick is aligned to */
 } D;
 
 static void dmg_begin(void)
@@ -2996,7 +3060,8 @@ static void dmg_begin(void)
     const char *name = k_phases[t.current].name;
     D.prog = strcmp(name, "dmg_flame") == 0 ? k_dmg_flame
              : strcmp(name, "dmg_load") == 0 ? k_dmg_load
-             : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice : k_dmg_pit;
+             : strcmp(name, "dmg_crevice_fall") == 0 ? k_dmg_crevice
+             : strcmp(name, "dmg_fan") == 0 ? k_dmg_fan : k_dmg_pit;
 }
 
 /* route_capture dmg_controllable / the hit loop's walk gate. */
@@ -3285,11 +3350,95 @@ static int dmg_frame(void)
         return 0;
     }
     case DS_WALK_OFF_TRUCK:
-        if (em_live_u8(a, 5) == 5 || g.status.health <= 0.0f) return dmg_next();
+        if (em_live_u8(a, 5) == 5) {
+            /* The fall state's first tick (dmg_07 row 312): the policy turns
+             * the pad neutral here, as the capture tool did (its f312
+             * entry), and the two sticks set before it are still in flight
+             * (DS_FALL_START_LAG). */
+            dmg_next();
+            pad_apply(0, D.lag[0][0], D.lag[0][1]);
+            return 0;
+        }
+        if (g.status.health <= 0.0f) return dmg_next();
         if (dmg_walkable(a)) nav_stick_toward(st->a, st->b, 1.0f);
         else pad_apply(0, 0, 0);
+        D.lag[0][0] = D.lag[1][0];
+        D.lag[0][1] = D.lag[1][1];
+        D.lag[1][0] = t.pad.lx;
+        D.lag[1][1] = t.pad.ly;
         (void)dmg_timeout(300, "the walk off the truck");
         return 0;
+    case DS_FALL_START_LAG:
+        /* dmg_07's pad rows: an entry the capture tool set after row f
+         * first shows in the game's pad block (D_00810E57, the stick bytes
+         * D_00810E64 / 65, the held word) in row f + 3. The tool set its
+         * last two sticks after rows 310 and 311 and the neutral pad after
+         * row 312, where it saw +5 = 5: rows 313 and 314 hold the two
+         * sticks (D_00810E57 = 3) and row 315 the neutral pad (D_00810E57
+         * = 0, held 0). The port's pad reaches the next tick, so the fall
+         * state's ticks 1 and 2 get the walk's sticks set after its ticks
+         * -2 and -1 (the first applied by DS_WALK_OFF_TRUCK), tick 3 the
+         * neutral pad. Row 313 is the fall state's sub-state 0 (00162DB0),
+         * which at gait 3 asks 001755B0 (site 0x162F78). */
+        if (D.sub == 0) {
+            pad_apply(0, D.lag[1][0], D.lag[1][1]);
+            D.sub = 1;
+            return 0;
+        }
+        return dmg_next();
+    case DS_FAN_ALIGN: {
+        uint8_t phase = 0xFF;
+        int16_t timer = 0;
+        pad_apply(0, 0, 0);
+        if (!em_scene_bindings_fan_cycle(DMG_FAN_R2, &phase, &timer)) {
+            fail("fan r2 (0x7A7690) is not a live fan node");
+            return 0;
+        }
+        if (D.sub == 0) {
+            /* Leave phase 2 first: the next entry is a whole cycle point. */
+            if (phase != 2) D.sub = 1;
+            else (void)dmg_timeout(DMG_FAN_WAIT, "fan r2 did not leave phase 2");
+            return 0;
+        }
+        if (phase != 2) {
+            (void)dmg_timeout(DMG_FAN_WAIT, "fan r2 did not enter phase 2 within a cycle");
+            return 0;
+        }
+        fprintf(stderr, "level smoke: dmg_fan: aligned counter=%u (fan r2 phase 2, timer %d = dmg_08 row %d)\n",
+                em_frame_counter(), (int)timer, DMG_FAN_ALIGN_ROW);
+        dmg_next();
+        D.frame = DMG_FAN_ALIGN_ROW;
+        D.hp0 = g.status.health;
+        dmg_fan_apply(D.frame - 2);
+        return 0;
+    }
+    case DS_FAN_REPLAY:
+        /* This tick is recording row D.frame. The recording never goes
+         * below Z 156 (the exit box: the crossing would start Roger's
+         * departure). */
+        ++D.frame;
+        if (g.pos[2] < 156.0f) {
+            fail("dmg_fan went below Z 156 (the exit box)");
+            return 0;
+        }
+        if (g.status.health < D.hp0) {
+            ++D.hits;
+            D.hp0 = g.status.health;
+        }
+        if (D.frame < DMG_FAN_LAST_ROW) {
+            dmg_fan_apply(D.frame - 2);
+            return 0;
+        }
+        /* dmg_08's end: one hit (100 -> 95), control back, the protection
+         * over (+0 = 1). */
+        if (D.hits != 1 || g.status.health != 95.0f || em_live_u8(a, 0) != 1 || em_live_u8(a, 4) != 1 ||
+            g.pd_iframes > 0) {
+            fprintf(stderr, "level smoke: dmg_fan: hits %d health %.1f +0 %u +4 %u protection %d\n", D.hits,
+                    g.status.health, em_live_u8(a, 0), em_live_u8(a, 4), g.pd_iframes);
+            fail("dmg_fan did not end as dmg_08 does (one hit to 95, +0 = 1, control back)");
+            return 0;
+        }
+        return dmg_next();
     default:
         fail("unknown damage step");
         return 0;

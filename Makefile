@@ -536,13 +536,23 @@ test-level-smoke-options: $(BIN)
 # low-health heartbeat, the death, the game over, the title after a death
 # and the New Game to first control), dmg_load (the same way to the title,
 # then its LOAD GAME: the memory-card screen to its slot choice and back;
-# docs/OPTIONS.md section 6), dmg_crevice_fall (the landing hit)
-# and dmg_pit_fall (from truck_preview: the pit floor's death and the game
-# over), side by side, each checked window by window against the decomp's
-# DAMAGE recordings; part of test-level-smoke-side and -full.
+# docs/OPTIONS.md section 6), dmg_crevice_fall (the landing hit),
+# dmg_pit_fall (from truck_preview: the fall start's 001755B0, the pit
+# floor's death and the game over) and dmg_fan (from roger: fan r2's hit
+# and the reaction 0021E9C0), side by side, each checked window by window
+# against the decomp's DAMAGE recordings; part of test-level-smoke-side and
+# -full.
 .PHONY: test-level-smoke-damage
 test-level-smoke-damage: $(BIN)
 	python3 tools/test_level_smoke_damage.py
+
+# The fan-hit side run alone (docs/DAMAGE.md section 8): dmg_fan, from roger:
+# dmg_08's pad replayed on fan r2's cycle, the hit and the reaction 0021E9C0
+# compared row for row with the recording (about 2 min); part of
+# test-level-smoke-damage.
+.PHONY: test-level-smoke-damage-fan
+test-level-smoke-damage-fan: $(BIN)
+	EM_DAMAGE_SIDES=dmg_fan python3 tools/test_level_smoke_damage.py
 
 # The aim/fire side runs (LEVEL_SMOKE.md "aim_r1_hold, aim_r2_hold" and "The
 # AIM replays"; AIM_FIRE.md section 10.4): the main line through
