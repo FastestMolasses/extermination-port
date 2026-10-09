@@ -282,7 +282,7 @@ static int sf_status_emit(void *context, EmStatusFrameEvent event)
     return result < 0 ? 0 : 1; /* em_status_frame: 1 = side effect done */
 }
 
-/* 0020CDC0. 0x1AE040 tests the result only against zero (beqz v0). */
+/* 0020CDC0. 0x1AE040 tests the result only against zero. */
 static int sf_status_page(void *context)
 {
     SfStatus *c = context;

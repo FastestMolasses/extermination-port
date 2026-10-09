@@ -270,7 +270,7 @@ int em_spawn_001B07C0(const EmSpawnTable *table, EmSpawnIo *io, const EmSpawnWor
             if (w->s_object_04(w->ctx, p->w01C, 1) < 0)
                 return fault(io, F, EM_SCENE_FAULT_WORKER_FAILED);
         }
-        /* c.eq.s against 0.0 (mtc1 $zero): -0.0 compares equal, as in C. */
+        /* a float equality test against 0.0: -0.0 compares equal, as in C. */
         if (p->f224 != 0.0f || p->f22C != 0.0f) {
             p->f224 = 0.0f;
             p->f22C = 0.0f;

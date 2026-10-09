@@ -271,7 +271,7 @@ Measured on 2026-09-22 with the same `pcsx2_session.py` driver. Method:
 exec breakpoints on 001AFA90 (entry and its return 0x1AFBB8), 001AFC10,
 0018A880, 001EF9D0, 001EFD90, every call site of 001AE5E0/001AE6B0/0015BCF0/
 0015C160, and every main-ELF store to 0x70003B8C..0x70003B93 (68 sites found by
-scanning resident code for `lui 0x7000` + byte stores). Values were also read
+scanning resident code for scratchpad (0x7000xxxx) base loads followed by byte stores). Values were also read
 straight from the owner's 12 save states. Raw output (local, gitignored):
 `Extermination/build/s87/frame_trace2/` (`inventory.json`, `spad_boot.json*`,
 `boot_hits.jsonl`, `palette_*.json`, `alloc_*.json`, `children_04.json`,
