@@ -64,6 +64,9 @@ static struct {
     int (*step_v)(void *);            /* step V 001D2300 (em_render_context_live) */
     int (*step_w)(void *, int32_t);   /* step W 001D2580 */
     void        *step_vw_context;
+    int (*step_r)(void *);            /* step R 001AB4E0 (em_display_env_live) */
+    int (*step_u)(void *, int32_t);   /* step U 00100550 (em_display_env_live) */
+    void        *step_ru_context;
     EmFrameSoundService sound;        /* the field and step H 001FB100 */
     bool         pace_initialized;
     bool         uncapped;
@@ -260,6 +263,14 @@ void em_frame_set_step_vw(int (*step_v)(void *context), int (*step_w)(void *cont
     s_frame.step_v = step_v;
     s_frame.step_w = step_w;
     s_frame.step_vw_context = context;
+}
+
+void em_frame_set_step_ru(int (*step_r)(void *context), int (*step_u)(void *context, int32_t buffer),
+                          void *context)
+{
+    s_frame.step_r = step_r;
+    s_frame.step_u = step_u;
+    s_frame.step_ru_context = context;
 }
 
 void em_frame_set_step_b(int (*service)(void *context, int32_t index), void *context)
@@ -541,6 +552,10 @@ int em_frame_step(void)
      * the main iteration counter do not advance during playback. */
     if (s_frame.movie_active) {
         s_frame.movie_suspended = true;
+        /* The movie driver owns the display while it plays (a boundary):
+         * the picture is not placed by step U's registers until step U
+         * runs again after it (em_gfx_gs_display_release). */
+        em_gfx_gs_display_release(s_frame.gfx);
         /* The world list built before the movie is never kicked: after
          * 00203350 returns, 001D1C10 (step N) restarts the list with
          * 001D1AE0 before 001D2300 kicks it as the movie frame (render
@@ -567,6 +582,15 @@ movie_phase:
      * field; one field per iteration, in the measured phase (field ==
      * D_00810E80 at step V, em_frame.h em_frame_d810E88). */
     s_frame.field = (uint16_t)(s_frame.parity & 1u);
+    /* R: 001AB4E0(0x70003B94, 0x70003B96), the two display environments
+     * with the options' screen offset. S (001015A8 / 00101810) is step V's
+     * draw environment (em_frame_kick) and T a kernel stub. U: 00100550 on
+     * the environment D_00810E80 selects, the display registers the
+     * presenter places the picture by. */
+    if (s_frame.step_r && s_frame.step_r(s_frame.step_ru_context) < 0)
+        s_frame.quit = true;
+    if (s_frame.step_u && s_frame.step_u(s_frame.step_ru_context, (int32_t)(int16_t)s_frame.parity) < 0)
+        s_frame.quit = true;
     /* V: 001D2300 builds the frame's list; its kick is the presentation. */
     if (s_frame.step_v && s_frame.step_v(s_frame.step_vw_context) < 0)
         s_frame.quit = true;

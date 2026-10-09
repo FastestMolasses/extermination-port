@@ -1050,18 +1050,37 @@ int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out);
 int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs,
                                 uint32_t count);
 
-/* How the platform layer shows a 512x224 field at 4:3. This is the user's
- * open decision (docs/LAUNCHER_OPTIONS.md "Field presentation", REVIEW):
- * the field bytes are the same under every choice. Only the placeholder is
- * built: EM_GFX_FIELD_SPREAD shows the field's rows spread over the 4:3
- * game rectangle's height, nearest-neighbour, the way the load veil's GS
- * frames have been shown since 2026-09-27. The choices the user will
- * compare (line-doubling at the field's interlaced height, plain line
- * doubling, combining the field pair) are not built. */
+/* How the platform layer shows a 512x224 field at 4:3 (the Original
+ * profile; the user's decision of 2026-10-09, docs/LAUNCHER_OPTIONS.md):
+ * EM_GFX_FIELD_INTERLACED line-doubles each field to the 448 lines of the
+ * picture and places it at its interlaced height: a field drawn with a
+ * half-line OFY (step V's 1936.5) one line lower, decided per field from
+ * the XYOFFSET_1 that drew it, so the half-line draw offset cancels; the
+ * line it uncovers shows BGCOLOR. The picture is placed by the display
+ * registers step U stored (em_gfx_gs_display_store; the options' SCREEN
+ * ADJUST moves DISPLAY2 DX / DY), BGCOLOR where it uncovers the game
+ * rectangle, the far edge cropped; the 2D overlay pass moves with it.
+ * Nearest neighbour, no smoothing, no CRT simulation (src/gs/em_gs_display.h
+ * is the mapping). It is the only mode. */
 typedef enum {
-    EM_GFX_FIELD_SPREAD = 0
+    EM_GFX_FIELD_INTERLACED = 0
 } EmGfxFieldPresentation;
 void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode);
+
+/* Main-loop step U's stores: 00100550 puts a display environment into the
+ * GS privileged registers (PMODE 0x12000000, SMODE2 0x12000020, DISPFB1 /
+ * DISPLAY1 0x12000070 / 80, DISPFB2 / DISPLAY2 0x12000090 / A0, EXTDATA
+ * 0x120000C0, BGCOLOR 0x120000E0). The backend keeps them; with the GS
+ * frame enabled (the Original profile) it places the picture by them
+ * (src/gs/em_gs_display.h). 0, or -1 (another address). */
+int em_gfx_gs_display_store(EmGfx *gfx, uint32_t address, uint64_t value);
+/* The blocking movie (main-loop step M, 00203350, a boundary the port
+ * replaces with its own movie presentation) takes the iteration: the
+ * display is no longer what step U stored (what the original's movie
+ * driver does with the display position is not traced). The stored
+ * registers are dropped and the frame's picture, from now on, is not
+ * placed (the game rectangle as is) until step U stores again. */
+void em_gfx_gs_display_release(EmGfx *gfx);
 
 
 /* End the frame: flush the overlay

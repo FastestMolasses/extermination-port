@@ -33,6 +33,7 @@
 #include "game/em_replay.h"
 #include "game/em_load_veil_live.h"
 #include "game/em_gs_frame_live.h"
+#include "game/em_display_env_live.h"
 
 #include <dirent.h>
 #include <limits.h>
@@ -451,6 +452,11 @@ int main(void)
     em_frame_set_step_b(rcl_step_b, NULL);
     /* Main-loop steps V / W (001D2300, 001D2580) on the same context. */
     em_frame_set_step_vw(rcl_step_v, rcl_step_w, gfx);
+    /* Main-loop steps R / U (001AB4E0 with the screen offset 0x70003B94 /
+     * 96, then 00100550): the display environments and the display
+     * registers the presenter places the picture by (em_display_env_live). */
+    em_display_env_live_install(gfx, &em_scene_state()->spad3B94, &em_scene_state()->spad3B96);
+    em_frame_set_step_ru(em_display_env_live_step_r, em_display_env_live_step_u, NULL);
     /* Main-loop step I: 001B5B70, the rumble countdown over the pad block
      * D_00810E40 (em_pad_actuator). */
     em_pad_actuator_reset();

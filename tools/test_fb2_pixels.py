@@ -24,9 +24,12 @@ What is compared, and how (like with like):
   original's displayed buffer holds the whole list, its letterbox bars,
   transition fade and message glyphs included, which the port draws as the
   GPU's 2D overlay pass over the presented field; so the number compared
-  is the presented frame at the centre of each field pixel (the
-  placeholder presentation shows field pixel (x, y) there unchanged), and
-  the field alone is reported beside it. The harness reports whether the
+  is the presented frame at the centre of each field pixel's place in the
+  picture (the presentation, GS_EXACT.md section 11, shows field pixel
+  (x, y) there unchanged: the lines 2y + line .. 2y + line + 1 of the 448,
+  line 1 for a half-line OFY, moved by the screen position's shift; the
+  capture's <path>.present gives them; shown_field reads one point inside
+  them), and the field alone is reported beside it. The harness reports whether the
   field's FRAME_1 and XYOFFSET_1 are the original's displayed buffer and
   OFY at s1 (the frame loop's phase). With the GPU renderer
   (EM_GPU_RENDERER=1, the Enhanced profile's path) there is no field: the
@@ -256,14 +259,32 @@ def sample_field(port, ofy):
     return port[ys][:, xs], (w, h, vx, vy, vw, vh)
 
 
-def shown_field(port):
-    """The presented host frame at the centre of each field pixel of the 4:3
-    game rect (EM_GFX_FIELD_SPREAD shows field pixel (x, y) over the rect's
-    columns [x * vw / 512, (x + 1) * vw / 512) and rows likewise)."""
+def shown_field(port, capture):
+    """The presented host frame at each field pixel's place in the picture
+    (EM_GFX_FIELD_INTERLACED, src/gs/em_gs_display.h): field pixel (x, y)
+    covers picture pixel x + shift_x and the lines [2y + line + dy,
+    2y + line + dy + 2) of the 448 (line 1 for a half-line OFY, dy the
+    screen offset's lines); the capture's <path>.present gives the game
+    rect's origin and scale and the shift (dy + line). The point read is
+    (x + 0.5, 2y + 1 + line / 2) moved by the offset: the span's centre for
+    a whole-line field (the point read before 2026-10-09), and a point in
+    the first of its two lines for a half-line field, whose last row shows
+    only that line (the second is cropped)."""
     h, w, _ = port.shape
     vx, vy, vw, vh = game_rect(w, h)
-    xs = np.floor(vx + (np.arange(GS_W) + 0.5) * vw / GS_W).astype(np.int64)
-    ys = np.floor(vy + (np.arange(GS_H) + 0.5) * vh / GS_H).astype(np.int64)
+    present = {}
+    for text in Path(str(capture) + '.present').read_text().splitlines():
+        key, *values = text.split()
+        present[key] = [float(v) for v in values] if key != 'xyoffset' else values
+    ox, oy = present['origin']
+    sx, sy = present['scale']
+    assert (ox, oy) == (vx, vy) and abs(sx * vw - GS_W) < 1e-3 and abs(sy * vh - 448) < 1e-3, \
+        (capture, 'the presented game rect is not the 4:3 viewport', present, (vx, vy, vw, vh))
+    shx, shy = present['shift']
+    line = {0: 0, 8: 1}[(int(present['xyoffset'][0], 16) >> 32) & 0xF]
+    xs = np.floor(vx + (np.arange(GS_W) + 0.5 + shx) * vw / GS_W).astype(np.int64)
+    ys = np.floor(vy + (2 * np.arange(GS_H) + 1 + (shy - line) + line / 2) * vh / 448).astype(np.int64)
+    assert xs.min() >= 0 and xs.max() < w and ys.min() >= 0 and ys.max() < h, 'field pixel outside the target'
     return port[ys][:, xs], (w, h, vx, vy, vw, vh)
 
 
@@ -409,9 +430,9 @@ def compare(point, tick_index, ticks, capture, run):
                  'original_ofy': point['ofy'], 'same': frame & 0x1FF == point['fbp'] and port_ofy == point['ofy']}
         # what is shown: the presented frame (the field under the GPU's 2D
         # overlay pass: the letterbox bars, the transition fade, the message
-        # glyphs) read back at the field's pixel centres, where the
-        # placeholder presentation shows field pixel (x, y) unchanged
-        presented, geometry = shown_field(read_bmp(capture))
+        # glyphs) read back at the centre of each field pixel's place in the
+        # picture, where the presentation shows field pixel (x, y) unchanged
+        presented, geometry = shown_field(read_bmp(capture), capture)
         bare = field
         field = presented
     else:

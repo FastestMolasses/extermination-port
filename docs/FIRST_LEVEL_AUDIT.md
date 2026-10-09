@@ -74,7 +74,7 @@ Summary: the *pieces* are largely verified; the *wiring* and the *live scene coo
 
 **Status update (2026-09-24, display step):** the player's clip clock, node channels and skeleton live in the player record (`em_player_record_pose` over `em_pose_host_workers`, PLAYER_CLIPS.md section 6): the raw bank of all 459 clips at +40 (0xD689C0), 21 node records at the +110 words, D_00248C90's +0 column, and 001749A0 / 001749F0 / 001C61D0 / 001C64F0 (its chain step included) / 001C63E0 / 001C6DA0 / 001C68C0 on those bytes. `em_player_pose_host.c` keeps its API over the record; `em_player_pose` is no longer the player's (it still poses Roger, the status models and the unreached cinematic bank). 0015BCF0's animate step runs after every stage; takeover and translated-state stages display the record's node matrices; a non-idle/walk stage advances the record by +34; the stage's clip workers are the record's; `player_states_bind_display(1)` is declared, so FLOOR now lacks only its state callbacks (the closure binder). Evidence: `test_player_record_pose_reference.py` (the live module against the original over the captured records: every first-level clip's first frames, both chains into 0x5F / 0x72, the captured skeletons re-evaluated byte for byte), the first-control pose trace (56 callbacks exact), newgame-control 9.599989, the level smoke's six live phases. The port's idle/walk callbacks keep their legacy baked display (L12); the smoke's tick log moves by float ulps only in the battery walk, from one foot-stop begin whose feet are now EE-exact.
 
-**Status update (2026-09-24, census L02 second attempt, BLOCKED):** FLOOR stays gated and nothing changed on the live path. The closure binder was not written: the closure calls the move walkers 0019AD00 / 0019AFE0 directly, and on ordinary AREA11 play (0017D080 from the fall's edge test on every walk-off below running speed, 0016C570 / 001791D0 on the hill slide of route 06) with masks that reach their untranslated grid pass 0019CB60 and hull lock 001A6440 (census L05); the slide also calls 001EFD90, which has no live effect owner (L26). A stand-in there is not allowed and fail-stop workers would quit where the legacy fall and collide-and-slide play on. FIRST_CONTROL.md "Missing today" holds the worker-slot inventory (001755B0 is the only other untranslated worker ordinary play reaches; the rest need off-route states first). Fixed: EmPlayerLandWorkers carried 00128350's double as an int, dropping its high word before 001000E0; the slots are 64-bit now and test_player_fall_reference compares the whole register.
+**Status update (2026-09-24, census L02 second attempt, BLOCKED):** FLOOR stays gated and nothing changed on the live path. The closure binder was not written: the closure calls the move walkers 0019AD00 / 0019AFE0 directly, and on ordinary AREA11 play (0017D080 from the fall's edge test on every walk-off below running speed, 0016C570 / 001791D0 on the hill slide of route 06) with masks that reach their untranslated grid pass 0019CB60 and hull lock 001A6440 (census L05); the slide also calls 001EFD90, which has no live effect owner (L26). A stand-in there is not allowed and fail-stop workers would quit where the legacy fall and collide-and-slide play on. FIRST_CONTROL.md "Missing today" holds the worker-slot inventory (001755B0 was then the only other untranslated worker ordinary play reaches; it has been translated since, `em_player_record_001755B0`, bound in the closure and checked by test_player_record_helpers_reference.py and test_player_fall_reference.py: census row 0x001755B0; the rest need off-route states first). Fixed: EmPlayerLandWorkers carried 00128350's double as an int, dropping its high word before 001000E0; the slots are 64-bit now and test_player_fall_reference compares the whole register.
 
 **Status update (2026-09-24, Boxes: FLOOR, crates / drums, Use chain; live):**
 - **FLOOR** (00175900, 001796C0 and the whole state closure) and the **Use
@@ -1482,7 +1482,8 @@ half and item 23):**
   mode) instead of Metal; at step V the kicked list's draw environment and
   clear (em_rcl_kick_head) run first, and the 512x224 field FRAME_1 names is
   presented by the platform layer through the field-presentation hook (the
-  placeholder only; the choice stays the user's). The area load's uploads
+  placeholder only; the choice stays the user's; since 2026-10-09 the user's
+  choice (a), GS_EXACT.md section 11). The area load's uploads
   reach GS memory through the loader's area consumer as the original sends
   them; the boot library from tools/export_gs_memory.py. Metal is the
   Enhanced profile's GPU renderer (EmSettings.gpu_renderer,
@@ -1609,7 +1610,8 @@ PLAYER_STAGE_WORKERS.md 2.1, census 1.63):**
   translation's int16_t read; its oracle covers the 0xFFFF high half.
 - **Item 10** was done in chain step AIMCAP (below).
 - **Not bound** (each census row says why): 001AB4E0 (nothing reads the
-  display environments; the GS frame presents its own field), 001AC070
+  display environments; the GS frame presents its own field; bound since
+  2026-10-09, census 1.68), 001AC070
   (em_startup's flow is its machine; binding em_slg_001AC070 needs the
   title's sub-machines as workers and the title frames' render calls),
   008237C0 (no reader in AREA11; AREA01's 001E7780 clears its globals),
@@ -1725,6 +1727,38 @@ the census re-measured, section 1b re-made; FIRST_LEVEL_CENSUS.md 1.67):**
   owners, the pool's free list and the fan's hit are port work that needs
   no recording.
 
+**Status update (2026-10-09, the presentation step: audit 1b item 3 closed;
+census 1.68).** The user decided both presentation choices on 2026-10-09
+("Go with (a) for both"; LAUNCHER_OPTIONS.md):
+- **Field presentation (a):** the Original profile's field is line-doubled to
+  the 448 lines and placed at its interlaced height, the half-line field
+  (OFY 1936.5) one line lower, decided per field from the XYOFFSET_1 that
+  drew it; the uncovered line shows BGCOLOR. `em_gfx_field_presentation`'s
+  placeholder EM_GFX_FIELD_SPREAD is replaced by EM_GFX_FIELD_INTERLACED (the
+  Metal presenter, macOS and iOS; the mapping src/gs/em_gs_display.h).
+- **Screen position (a):** main-loop steps R (001AB4E0 with 001002E0) and U
+  (00100550) are bound at their original caller, the frame loop
+  (em_display_env_live; em_sdk_display_original translates 001002E0 and
+  00100550), so the display registers are the original's; the presenter
+  places the picture by DISPLAY2 DX / DY against the measured default (636,
+  50), BGCOLOR where it uncovers, the far edge cropped, and moves the
+  overlay pass with it. The direction is inferred from the code and the
+  register meaning, not observed on a screen. GS_EXACT.md section 11.
+- **Verified:** `make test-gs-display`, `make test-display-env-reference`
+  (new), `make test-startup-load-gaps-reference`, `make
+  test-options-reference`, `make -B all` (no warnings), newgame-control
+  (PASS 9.599849), `make test-level-smoke`, `make test-fb2-pixels` (its
+  read-back follows the new placement: field pixel (x, y) is read inside
+  its two lines; first control unchanged, 1,125 exact; `EM_TEST_FULL=1`:
+  all 8 compared points equal to chain step ROUTE's), `tools/ios/build.sh
+  device`; captured frames checked pixel by pixel with
+  tools/check_present_capture.py (both parities exact at a still tick; the
+  opening's letterbox frames exact outside the bars; a scratch-only forced
+  offset of +-20 moved field and bars together).
+- **Census 1.68:** 001AB4E0 live; 001002E0 and 00100550 rows (live), moved
+  from the SDK boundary group: live 951 of 970 (99.2% of the non-boundary
+  instructions), verified-unbound 18; the route through beat 15 750 of 768.
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:
@@ -1801,11 +1835,16 @@ needs no new recording.
    frames as GS packets through the model, 001DDE10's pass drawn, the
    parity traced through the loads against the captures; then the harness
    compares the field word for word.
-3. **Presentation choices left to the user** (User). How the 512x224 fields
-   are shown (LAUNCHER_OPTIONS.md "Field presentation") and whether the
-   options screen's screen position moves the picture (001AB4E0 not bound;
-   the offset is stored and saved). Both are platform-layer choices after
-   the framebuffer; the code and the field stay exact either way.
+3. **Presentation choices** — **CLOSED 2026-10-09.** The user chose (a) for
+   both (LAUNCHER_OPTIONS.md): each field line-doubled at its interlaced
+   height (EM_GFX_FIELD_INTERLACED), and the screen position presented the
+   way the code sends it, through main-loop steps R 001AB4E0 and U 00100550
+   bound at their original caller (census 1.68; GS_EXACT.md section 11).
+   Left from it: the GPU-drawn overlay pass keeps a whole-line field's
+   geometry in a half-line field (item 2), and GPU-drawn frames (the status
+   pages, the options screen) take a new position one frame after it
+   changes; the offset's direction is inferred, not observed (no recording
+   shows a moved picture).
 
 **B. On the route, now and then, or in state the player does not see**
 
@@ -1831,10 +1870,10 @@ needs no new recording.
    the oracle-tested translation of its calls, is not bound (two
    translations of one original). What removes it: one owner, the
    translation bound under its oracle (with item 2's status frames).
-7. **Logic: the 19 verified but unbound rows** (FIRST_LEVEL_CENSUS.md 2.3;
-   each row says why). By reason:
-   - presentation or platform: 001AB4E0 (item 3), 001AB590 (a DMA watchdog,
-     a hardware boundary in all but name);
+7. **Logic: the 18 verified but unbound rows** (FIRST_LEVEL_CENSUS.md 2.3;
+   each row says why; 001AB4E0 live since census 1.68). By reason:
+   - presentation or platform: 001AB590 (a DMA watchdog, a hardware
+     boundary in all but name);
    - the title flow: 001AC070 (em_startup's machine runs the title; binding
      the whole function needs the title's sub-machines as its workers and
      the title frames' render calls);

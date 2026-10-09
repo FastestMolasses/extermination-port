@@ -184,7 +184,12 @@ route's own).
   rows confirmed by a run, the other two (001755B0, 0021E9C0) bound with
   oracles but entered by no port run; no status change (live 948 of 968,
   122,905 of 123,918 instructions = 99.2%; the route's own through beat 15
-  747 of 766, 88,415 of 89,400 = 98.9%).
+  747 of 766, 88,415 of 89,400 = 98.9%). Update 1.68 (the presentation
+  step, 2026-10-09, recounted from the rows): main-loop steps R and U
+  bound, 001AB4E0 live and the SDK's 001002E0 / 00100550 moved from the
+  boundary group to rows, live: live 951 of 970 (123,152 of 124,121
+  instructions = 99.2%), verified but unbound 18; the route's own through
+  beat 15 750 of 768 (88,662 of 89,603 = 98.9%).
 - Status: **PARTIAL**. First level only, and only the played route
   through the level exit's AREA01 arrival plus the AIM side beats from
   route 08's end and (since chain step DAMAGE, census 1.59) the functions
@@ -1081,9 +1086,9 @@ only shows that field.
   (row bands that draw exactly what one model draws), while the game builds
   the next frame. The area load's texture uploads reach GS memory through
   the loader as the original sends them; the boot's library comes from the
-  disc export (GS_EXACT.md section 9). The field is shown nearest, spread
-  over the 4:3 picture (a placeholder: how the fields are presented is the
-  user's open decision).
+  disc export (GS_EXACT.md section 9). The field is shown line-doubled at
+  its interlaced height and placed by the display registers (the entry
+  "Each field shown at its interlaced height" below).
 - Evidence: `make test-gs-raster-reference` (the model; part F the row
   bands), `make test-gs-world` (1, 2, 3 and 8 workers draw the same
   fields, thread sanitizer), `make test-gs-memory-reference` (the GS
@@ -1136,6 +1141,43 @@ original" is a number.
   model of the GS, not hardware. The field-to-buffer pairing rule is not
   established at 4 of 19 points (the harness reads each point's pairing
   from its own registers).
+
+**Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture**
+
+The game draws one 512x224 field per tick and every other one half a line
+lower (OFY 1936.5); the PS2 showed them interlaced over 448 TV lines, at a
+position its display registers set. The Original profile shows each field
+line-doubled at its own interlaced height (the half-line field one line
+lower, so the half-line offset cancels and the picture does not bob), and
+places the picture where the original's display registers put it: the
+options screen's SCREEN ADJUST moves it, with black (the display's
+background colour) where it uncovers the window's 4:3 area. Nearest
+neighbour, no smoothing, no CRT simulation (the user's decisions of
+2026-10-09).
+
+- How: main-loop steps R (001AB4E0 with the SDK's 001002E0) and U
+  (00100550) run as translated original code every iteration and hand the
+  display registers to the presenter; each field's line comes from the draw
+  offset that drew it (GS_EXACT.md section 11).
+- Evidence: `make test-display-env-reference` (the original 001002E0,
+  00100550 and 001AB4E0 executed against the translations, every branch
+  both ways; at offset 0 the registers are the ones measured in PCSX2 at
+  all 19 points, and the route captures' display environments equal the
+  port's byte for byte); `make test-gs-display` (the placement: both
+  parities, offsets 0 and +-20 per axis, the uncovered edge, the crop);
+  `tools/check_present_capture.py` over headless captures (2026-10-09:
+  both parities at a still tick exact in all 2,764,800 pixels; the
+  opening's letterbox frames exact outside the bars).
+- Status: **PARTIAL**. Horizontal edges still flicker by one line each
+  field (each field has only every other line's detail; measured in the
+  presentation preview), as with any field-by-field display without CRT
+  simulation. The direction of the screen position (Left moves the picture
+  right, Up moves it down) is inferred from the code and the register
+  meaning, not observed: no recording shows a moved picture. The GPU-drawn
+  overlay pass keeps a whole-line field's geometry (the original draws it
+  into each field), and GPU-drawn frames (the status pages, the options
+  screen) take a new position one frame after it changes. Only the Metal
+  backend (macOS, iOS) presents it.
 
 **Still drawn by legacy or stand-in code (disclosure)**
 
@@ -1604,8 +1646,9 @@ layout.
 - Status: **PARTIAL**. Proven: the state above relative to the PCSX2
   recordings. Not proven or not covered: the screen modules 0x2A / 0x2B
   load at host speed (about 10 ticks against the recordings' 23 rows); the
-  screen position is stored but the picture does not move (a presentation
-  decision, `LAUNCHER_OPTIONS.md`); choosing a memory-card slot, loading,
+  screen position moves the picture since 2026-10-09 (the entry "Each field
+  shown at its interlaced height"), in the direction the register meaning
+  gives, which no recording shows; choosing a memory-card slot, loading,
   saving (the first level has no save point) and quitting with Yes are not
   recorded and stop the game or are untested; pixels and sounds are not
   compared.
@@ -2380,4 +2423,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-08 (chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-09 (the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

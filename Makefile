@@ -102,7 +102,8 @@ COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_shadow_original.c src/game/em_shadow_actor_route.c src/game/em_shadow_decal_original.c \
            src/game/em_shadow_live.c src/game/em_chain_page.c src/game/em_chain_page_live.c src/game/em_load_veil_live.c \
            src/game/em_gs_blocks_original.c src/game/em_frame_kick.c src/game/em_gs_frame_live.c \
-           src/gs/em_gs_raster.c src/gs/em_gs_frame.c src/gs/em_gs_world.c
+           src/game/em_sdk_display_original.c src/game/em_display_env_live.c \
+           src/gs/em_gs_raster.c src/gs/em_gs_frame.c src/gs/em_gs_world.c src/gs/em_gs_display.c
 
 # ---------------------------------------------------------------- macOS
 ifeq ($(UNAME),Darwin)
@@ -1107,6 +1108,24 @@ test-gs-world:
 	mkdir -p build/gs_world_test && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=thread -Isrc \
 	    tests/gs_world_test.c src/gs/em_gs_world.c src/gs/em_gs_raster.c src/gs/em_gs_frame.c -lm \
 	    -o build/gs_world_test/gs_world_test && TSAN_OPTIONS=halt_on_error=1 ./build/gs_world_test/gs_world_test
+
+# The Original profile's picture placement (src/gs/em_gs_display.h,
+# GS_EXACT.md section 11): the field presentation (both parities) and the
+# options' screen position (offsets 0 and +-20, the uncovered edge, the
+# crop), from the registers the SDK translations produce.
+.PHONY: test-gs-display
+test-gs-display:
+	mkdir -p build/gs_display_test && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -Wpedantic \
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc tests/gs_display_test.c src/gs/em_gs_display.c \
+	    src/game/em_sdk_display_original.c -lm -o build/gs_display_test/gs_display_test && \
+	    ./build/gs_display_test/gs_display_test
+
+# Steps R and U (GS_EXACT.md section 11): the original 001002E0, 00100550
+# and the live composition 001AB4E0 + 001002E0 against em_sdk_display_original
+# and em_display_env_live's chain.
+.PHONY: test-display-env-reference
+test-display-env-reference:
+	python3 tools/test_display_env_reference.py
 
 .PHONY: test-chain-page
 test-chain-page:

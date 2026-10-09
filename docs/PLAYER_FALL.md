@@ -444,7 +444,7 @@ still missing before the slot can be bound faithfully):
 | `land_sound` | 00182870 | `em_player_reaction_00182870` (over the reaction workers) |
 | `convert_00128350` | 00128350 | `em_sdk_soft_float_00128350`: the double in the whole 64-bit $v0 |
 | `test_001000E0` | 001000E0 | `em_rvr_001000E0` (em_render_verify_rest.h, test_render_verify_rest_reference) on the two doubles |
-| `test_001755B0` | 001755B0 | needs a translation (byte-matched C, 33 instructions); reachable in ordinary play (the tier-3 edge path, gait-3 landings with a drop of 14.5 or more) |
+| `test_001755B0` | 001755B0 | `em_player_record_001755B0` (em_player_record_helpers.h; test_player_record_helpers_reference.py, test_player_fall_reference.py), bound in the closure (em_player_closure_live.c); reachable in ordinary play (the tier-3 edge path, gait-3 landings with a drop of 14.5 or more) |
 | `test_0017D080` | 0017D080 | `em_player_recovery_ledge_catch_worker`; needs the move walker 0019AD00 over the world (census L05: 0019CB60 and 001A6440 are untranslated) |
 | `test_0017F320` | 0017F320 | needs a record-level form of `em_player_climb_hang_clear` (it works on the climb mirror) |
 | `pose_clip` | 00188550 | needs a record-level form (inline in em_player_climb.c: D_002754C0[+235 & 1]) |

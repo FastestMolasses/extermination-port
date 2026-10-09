@@ -24,7 +24,7 @@ what each binding replaced or why a row stays unbound.
 | 001AB6A0 task dispatch | unverified | **live** (em_task.c, verified) | `em_task_dispatch` | oracle, unit + captured table |
 | 001AB740 task register | unverified | **live** (em_task.c, verified) | `em_task_register` | oracle |
 | 001AB790 task replace | unverified | **live** (em_task.c, verified): 001ADF00's since chain step DAMAGE, the title's New Game handoff (em_game_install_new) since chain step GLUE | `em_task_replace_current` | oracle |
-| 001AB4E0 display envs | missing | verified-unbound | `em_slg_001AB4E0` | oracle, unit + captured |
+| 001AB4E0 display envs | missing | verified-unbound; **live** since 2026-10-09 (main-loop step R, em_display_env_live; census 1.68) | `em_slg_001AB4E0` | oracle, unit + captured; test_display_env_reference (the live chain) |
 | 001AB590 DMA watchdog | missing | verified-unbound (really a hardware boundary, section 4 item 10) | `em_slg_001AB590` | oracle |
 | 001AC070 screen-flow task | unverified (legacy stand-in) | verified-unbound (em_startup's flow; section 4 item 6) | `em_slg_001AC070` | oracle |
 | 001AF470 pad assignment | missing | verified-unbound | `em_slg_001AF470` | oracle, all 256 configs + captured block |
@@ -156,14 +156,16 @@ For D_00810EA0 and then D_00810EC8 (0x28 bytes each) it calls
 field (bits 0..8 of the 64-bit DISPFB word at env +0x10) to 0 and 0x38. dx
 and dy are spad 0x70003B94 / 0x70003B96, sign-extended.
 
-- Binding: step R of `em_frame_step` (after the vsync wait), over two
-  0x28-byte env images the Original-profile presenter reads. The FBP value
-  selects which of the two 512x224 frame buffers is displayed. The worker
-  001002E0 is the SDK display-environment builder, a boundary with no port
-  translation. Its content can be produced by running it as the test does,
-  or by a future translation.
-- Limit: no live presenter reads these images yet. The port shows its own
-  framebuffer.
+- Binding (since 2026-10-09, census 1.68): step R of `em_frame_step` (after
+  the vblank P), through em_display_env_live over the one storage of the
+  two 0x28-byte environments; its worker 001002E0 is `em_sdk_001002E0`
+  (em_sdk_display_original, test_display_env_reference). Step U
+  (`em_sdk_00100550`) then puts the environment D_00810E80 selects into the
+  GS privileged registers, by which the Original profile places the picture
+  (the options' screen offset; GS_EXACT.md section 11).
+- Limit: the presenter shows the field the frame just drew, not the buffer
+  DISPFB's FBP names (the port presents each field at the end of its own
+  iteration); it reads PMODE, SMODE2, DISPLAY2 and BGCOLOR.
 
 ### 001AB590 — DMA CHCR watchdog (main loop step L)
 
@@ -468,9 +470,10 @@ Then spad 3250 = D_0028A5A8 and the halfword spad 324C = *D_0028A5A8.
 8. **Done (chain C8b OPENING, 2026-09-28):** the opening script actors run
    `em_slg_001BB0E0` as the 001BB0E0 pool behaviour, with 001BAD40
    (OPENING_ORIGINAL.md).
-9. The rest (001AB4E0, 008237C0, 001B0F60, the bank upload) wait for their
-   consumers: the presenter, the per-level record readers, the door
-   kickoff, and the module loaders.
+9. The rest (008237C0, 001B0F60, the bank upload) wait for their
+   consumers: the per-level record readers, the door kickoff, and the
+   module loaders. (001AB4E0 is bound since 2026-10-09: its consumer, the
+   presenter's step U, exists; census 1.68.)
 10. 001AB590 should be reclassified as a boundary (the census row notes
     this; its status is still verified-unbound).
 
@@ -488,9 +491,11 @@ live from it); add `src/game/em_startup_load_gaps_sound.c` when step H's
   The S0/S1 transitions (title ticks, the bank upload while it runs) were
   not captured mid-flight, so their route evidence is the census plus the
   resulting RAM (the bank counts, the pad block, the overlay globals).
-- 001002E0 (display), libpad, the SIF/IOP/SPU calls and the overlay dispatch
-  are boundaries. The oracle checks the arguments passed to them, not
-  their effect.
+- libpad, the SIF/IOP/SPU calls and the overlay dispatch are boundaries.
+  The oracle checks the arguments passed to them, not their effect.
+  001002E0 runs as original code on both sides here; its translation
+  em_sdk_001002E0 (since 2026-10-09) has its own oracle,
+  test_display_env_reference.
 - Live from this lane: the task table, 001AF470 (item 7) and 001B0F60 (the
   fence door's 001BBDA0, census L18). Section 4 lists the other bindings in
   the order they can land.

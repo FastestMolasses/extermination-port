@@ -436,11 +436,12 @@ lines, bent outward from the centre and glowing, over black.
 - **Stale stack bits in bank A.** The draw environments' read-back dwords
   (PRMODECONT, COLCLAMP, DTHE) keep the boot stack's upper bits in the
   original; the port's are zero. The GS reads only bit 0 of each.
-- **Presentation.** The shown frame buffer is 512 x 224, spread over the
-  game rectangle's height as every GS-mapped draw of the port; how the
-  Original profile presents fields is the open user decision
-  (LAUNCHER_OPTIONS.md). The field's half-line offset is in the drawn
-  surface (step V's XYOFFSET).
+- **Presentation.** The shown frame buffer is 512 x 224. Since 2026-10-09
+  the Original profile presents each field line-doubled at its interlaced
+  height (the user's decision, LAUNCHER_OPTIONS.md; GS_EXACT.md section
+  11): the field's half-line offset is in the drawn surface (step V's
+  XYOFFSET), and a veil list frame's line comes from the XYOFFSET of the
+  last primitive it drew into the displayed buffer.
 - **Unreachable outcome.** 0021B1B0's unsigned-to-float conversion branch
   for a negative noise word is never taken (the word is below 2^30).
 - **Channel count.** `cursor_count` is a native bound of four; the veil
