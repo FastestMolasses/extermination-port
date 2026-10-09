@@ -34,9 +34,14 @@ static int worker(void *ctx,EmArea01Call *c)
     ++submits[0];for(unsigned i=0;i<4;++i)submits[i+1]=(uint32_t)c->a[i];
     c->v0=27;return 0;
 }
+/* D_00281D50 for the fixture: the handle of (group, bank) is its index. */
+static int32_t handles[120];
+static const int32_t *handle_table(void){return handles;}
 int au_init(const uint8_t *elf,uint32_t n)
 {
     memset(&sdk,0,sizeof sdk);sdk.tables=&tables;sdk.world.d26C5D0=&math_mode;
+    for(int i=0;i<120;++i)handles[i]=i;
+    em_sfx_bind_bank_handles(handle_table);
     if(em_sfx_init()<=0 || !em_sfx_set_area(1,0))return -1;
     return em_sdk_math_original_load_tables(elf,n,&tables);
 }
@@ -61,10 +66,15 @@ void au_loop_state(const int32_t *requested,const int32_t *snapshot,int32_t tick
 {
     memcpy(s.requested,requested,sizeof s.requested);memcpy(s.snapshot,snapshot,sizeof s.snapshot);
     frame=tick;ordinal=(int16_t)index;
-    for(unsigned i=0;i<EM_SFX_TRACKS;++i){atomic_store(&s.track[i],status==2?T_LIVE:T_FREE);atomic_store(&s.request[i],0);}
+    /* The driver's tracks D_0027E0C0 (em_sfx owns them on the game thread):
+     * every track allocated (00119890 = 2) or every track free. */
+    memset(s.driver.tracks,0,sizeof s.driver.tracks);
+    for(unsigned i=0;i<EM_SFX_TRACKS && status==2;++i)s.driver.tracks[i].allocated=1;
 }
 int32_t *au_requested(void){return s.requested;}
-int au_track(unsigned i){return i<EM_SFX_TRACKS?atomic_load(&s.track[i]):-1;}
-int32_t au_gain(unsigned i,unsigned side){return i<EM_SFX_TRACKS?unpack_field(atomic_load(&s.request[i])>>(side?0:20)):0;}
+/* 1 while the driver's track is allocated (+0x32). */
+int au_track(unsigned i){return i<EM_SFX_TRACKS?s.driver.tracks[i].allocated:-1;}
+/* The track's 0011A218 request words +0x48 / +0x4C. */
+int32_t au_gain(unsigned i,unsigned side){return i<EM_SFX_TRACKS?(side?s.driver.tracks[i].right:s.driver.tracks[i].left):0;}
 uint32_t au_stores(void){return stores;}
-int32_t au_start_gain(unsigned i,unsigned side){return side?s.start_right[i]:s.start_left[i];}
+int32_t au_start_gain(unsigned i,unsigned side){return au_gain(i,side);}

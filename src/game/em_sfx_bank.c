@@ -15,98 +15,6 @@ static uint32_t read32(const unsigned char *p)
     return read16(p) | (uint32_t)read16(p + 2) << 16;
 }
 
-void em_sfx_bank_free(EmSfxBank *bank)
-{
-    if (!bank) return;
-    for (unsigned i = 0; i < 2; ++i) free(bank->cues[i].pcm);
-    memset(bank, 0, sizeof *bank);
-}
-
-int em_sfx_bank_load(EmSfxBank *bank, const char *path)
-{
-    if (!bank || !path) return 0;
-    FILE *file = fopen(path, "rb");
-    if (!file) return 0;
-    EmSfxBank next = {0};
-    unsigned char header[24];
-    int valid = 0;
-    if (fread(header, 1, 20, file) != 20 || memcmp(header, "EMSF", 4) ||
-        read32(header + 4) != 1 || read32(header + 8) != 11 ||
-        read32(header + 12) != 0 || read32(header + 16) != 2) goto done;
-    next.area = 11;
-    next.count = 2;
-    for (unsigned i = 0; i < 2; ++i) {
-        EmSfxCue *cue = &next.cues[i];
-        if (fread(header, 1, 24, file) != 24) goto done;
-        cue->id = read32(header);
-        cue->flags = read32(header + 4);
-        cue->pitch = read16(header + 8);
-        cue->gain_l = (int16_t)read16(header + 10);
-        cue->gain_r = (int16_t)read16(header + 12);
-        cue->adsr1 = read16(header + 14);
-        cue->adsr2 = read16(header + 16);
-        cue->frames = read32(header + 20);
-        if (read16(header + 18)) goto done;
-        if (i == 0) {
-            if (cue->id != 0x3EE || cue->flags != EM_SFX_CUE_ABSENT ||
-                cue->pitch || cue->gain_l || cue->gain_r || cue->adsr1 ||
-                cue->adsr2 || cue->frames) goto done;
-            continue;
-        }
-        /* This is a deliberately narrow profile. In particular, do not
-         * interpret another authored ADSR pair as this constant envelope. */
-        if (cue->id != 0x3EF || cue->flags != EM_SFX_CUE_REVERB ||
-            cue->pitch != 862 || cue->gain_l != 2217 || cue->gain_r != 2217 ||
-            cue->adsr1 != 0x80FF || cue->adsr2 != 0x5FD0 ||
-            cue->frames != 2296) goto done;
-        cue->pcm = malloc(cue->frames * sizeof *cue->pcm);
-        if (!cue->pcm) goto done;
-        for (uint32_t j = 0; j < cue->frames; ++j) {
-            if (fread(header, 1, 2, file) != 2) goto done;
-            cue->pcm[j] = (int16_t)read16(header);
-            if (j < 41 && cue->pcm[j]) goto done;
-        }
-    }
-    if (fgetc(file) != EOF || ferror(file)) goto done;
-    valid = 1;
-done:
-    fclose(file);
-    if (!valid) {
-        em_sfx_bank_free(&next);
-        return 0;
-    }
-    em_sfx_bank_free(bank);
-    *bank = next;
-    return 1;
-}
-
-int em_sfx_cue_frame(const EmSfxCue *cue, uint64_t output_frame,
-                     unsigned device_rate, float stereo[2])
-{
-    if (!cue || !stereo || !device_rate || device_rate > 384000 ||
-        !cue->pitch || !cue->pcm || !cue->frames ||
-        (cue->flags & EM_SFX_CUE_ABSENT)) return 0;
-    const uint64_t numerator = 48000u * (uint64_t)cue->pitch;
-    const uint64_t denominator = 4096u * (uint64_t)device_rate;
-    const uint64_t end = (cue->frames * denominator + numerator - 1) / numerator;
-    if (output_frame >= end) return 0;
-    const uint64_t phase = output_frame * numerator;
-    const uint32_t index = (uint32_t)(phase / denominator);
-    const uint32_t next = index + 1 < cue->frames ? index + 1 : index;
-    const float fraction = (float)((double)(phase % denominator) / (double)denominator);
-    const float sample = cue->pcm[index] + (cue->pcm[next] - cue->pcm[index]) * fraction;
-    /* Original 80FF/5FD0: fastest pseudo-exponential attack, one decay Ts
-     * at sustain level 1, then infinite sustain. The first 41 source PCM
-     * samples are zero (validated on load): the whole short attack is
-     * silent even with the native linear interpolator. Thus every nonzero
-     * output has ENVX 7FFF. Non-loop end clears ENVX and retires the voice.
-     * See docs/AREA11_PANEL_SFX.md for the hardware/manual boundary. */
-    const float envelope = 32767.0f / 32768.0f;
-    stereo[0] = sample * (cue->gain_l / 16384.0f) * (envelope / 32768.0f);
-    stereo[1] = sample * (cue->gain_r / 16384.0f) * (envelope / 32768.0f);
-    return 1;
-}
-
 /* ---- EMSR v2 registry ------------------------------------------------- */
 
 enum {
@@ -517,10 +425,12 @@ void em_sfx_driver_init(EmSfxDriver *driver, const EmSfxRegistry *registry,
     }
 }
 
-static void track_start(EmSfxTrack *track, const EmSfxEntry *entry)
+static void track_start(EmSfxTrack *track, const EmSfxEntry *entry,
+                        unsigned handle)
 {
     memset(track, 0, sizeof *track);
     track->entry = entry;
+    track->handle = (uint16_t)(handle & 0x7FFF); /* +0x24 = handle & 0x7FFF */
     track->running = 1;            /* +0x34 */
     track->allocated = 1;          /* +0x32 */
     track->left = track->right = 0x1000;
@@ -533,26 +443,26 @@ static void track_start(EmSfxTrack *track, const EmSfxEntry *entry)
 }
 
 int em_sfx_driver_start_at(EmSfxDriver *driver, int track,
-                           const EmSfxEntry *entry, int32_t left,
-                           int32_t right)
+                           const EmSfxEntry *entry, unsigned handle,
+                           int32_t left, int32_t right)
 {
     if (!driver || !entry || entry->state != EM_SFX_STATE_AUDIBLE ||
         track < 0 || track >= EM_SFX_TRACKS ||
         driver->tracks[track].allocated || driver->tracks[track].running)
         return -1;
-    track_start(&driver->tracks[track], entry);
+    track_start(&driver->tracks[track], entry, handle);
     em_sfx_driver_request(driver, track, left, right);
     return track;
 }
 
 int em_sfx_driver_start(EmSfxDriver *driver, const EmSfxEntry *entry,
-                        int32_t left, int32_t right)
+                        unsigned handle, int32_t left, int32_t right)
 {
     if (!driver) return -1;
     /* 00119EA0: the lowest track with +0x2E, +0x30 and +0x34 all clear. */
     for (int i = 0; i < EM_SFX_TRACKS; ++i)
         if (!driver->tracks[i].allocated && !driver->tracks[i].running)
-            return em_sfx_driver_start_at(driver, i, entry, left, right);
+            return em_sfx_driver_start_at(driver, i, entry, handle, left, right);
     return -1;
 }
 
@@ -657,6 +567,11 @@ static void apply(EmSfxDriver *driver, int command, int index, uint32_t a,
         for (int i = 0; i < EM_SFX_VOICES; ++i) {
             EmSfxVoice *voice = &driver->voices[i];
             if (!(mask >> i & 1) || !voice->on) continue;
+            /* Measured (decomp docs/CAPTURES_AUDIO.md, the flame's 0x413 in
+             * the beats cage_roof and flame): a KOFF that reaches a voice
+             * before it has played a sample since its KON (the same
+             * exchange's KON) is lost; the voice keeps sounding. */
+            if (voice->frames == 0) continue;
             em_sfx_envelope_key_off(&voice->envelope);
             if (voice->envelope.phase == EM_SFX_ENV_OFF) voice->on = 0;
         }
@@ -669,8 +584,18 @@ static void apply(EmSfxDriver *driver, int command, int index, uint32_t a,
 static void emit(EmSfxDriver *driver, EmSfxCommandSink sink, void *context,
                  int command, int index, uint32_t a, uint32_t b)
 {
-    apply(driver, command, index, a, b);
+    /* 001157F0: the command joins the EE queue. Deferred, the SPU2 model
+     * receives it from the IOP side (em_sfx_driver_apply) at the driver
+     * tick that runs the exchange's commands; otherwise at once. */
+    if (!driver->deferred) apply(driver, command, index, a, b);
     if (sink) sink(context, command, index, a, b);
+}
+
+void em_sfx_driver_apply(EmSfxDriver *driver, int command, int voice, uint32_t a,
+                         uint32_t b)
+{
+    if (!driver || voice < 0 || voice >= EM_SFX_VOICES) return;
+    apply(driver, command, voice, a, b);
 }
 
 /* 00117428(tone[0], tone[1], bank), exactly as the shipped code behaves:
@@ -732,7 +657,7 @@ static void key_on(EmSfxDriver *driver, int index, const EmSfxOp *op,
 {
     EmSfxTrack *track = &driver->tracks[index];
     const int key = em_sfx_driver_allocate(driver, op->alloc, op->priority,
-                                           track->entry->bank);
+                                           track->handle);
     if (key < 0) {
         driver->no_voice++;
         return;
@@ -749,7 +674,7 @@ static void key_on(EmSfxDriver *driver, int index, const EmSfxOp *op,
     voice->age = 0;
     voice->priority = op->priority;
     voice->alloc = op->alloc;
-    voice->bank = track->entry->bank;
+    voice->bank = track->handle;
     voice->pan = op->pan;
     voice->scalar = op->scalar;
     voice->fine = op->fine;
@@ -777,7 +702,7 @@ static void key_on(EmSfxDriver *driver, int index, const EmSfxOp *op,
 static void key_off(EmSfxDriver *driver, int index, const EmSfxOp *op)
 {
     uint64_t own = 0, other = 0;
-    const unsigned bank = driver->tracks[index].entry->bank;
+    const unsigned bank = driver->tracks[index].handle;
     for (int i = 0; i < EM_SFX_VOICES; ++i) {
         const EmSfxVoice *voice = &driver->voices[i];
         if (voice->state != 1 || voice->kind != 2 || voice->sustain != 1 ||
@@ -801,7 +726,7 @@ static void portamento(EmSfxDriver *driver, int index, const EmSfxOp *op)
     for (int i = 0; i < EM_SFX_VOICES; ++i) {
         EmSfxVoice *voice = &driver->voices[i];
         if (voice->state != 1 || voice->kind != 2 ||
-            voice->bank != track->entry->bank || voice->prog != op->prog ||
+            voice->bank != track->handle || voice->prog != op->prog ||
             voice->note != op->note || voice->owner != index) continue;
         if (voice->remaining) voice->base = track->porta_note;
         voice->porta = 1;

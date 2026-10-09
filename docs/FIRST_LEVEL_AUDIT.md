@@ -1626,6 +1626,58 @@ PLAYER_STAGE_WORKERS.md 2.1, census 1.63):**
   (0015CF90, 001B1190; both pinned divergences gone), test_glue (001FC280).
   newgame-control 9.599849.
 
+**Status update (2026-10-08, chain step AUDIO, audit 1b item 1, command
+level; FIRST_LEVEL_CENSUS.md 1.66, SFX_SEQUENCER.md, LEVEL_SMOKE.md "The
+sound state"):**
+- **The sound driver runs on the game's field clock.** em_sfx.c owns the
+  driver on the game thread: the game's calls (001FB9F0 / 00119EA0,
+  0011A218, 0011A070, 00119890) act at once, and em_sfx_field, called
+  from em_stream_live_field at every field (the vblank's wake of the
+  sound thread 001FB0C0), runs the 001152D8 tick, the IOP exchange (the
+  reaper reads the previous exchange's reply; the commands reach the SPU2
+  model at the IOP driver's ticks (every 64 H-lines on the SFX side's own
+  clock, phase 0 at the New Game's area load), which
+  snapshot the ENVX the next reply carries) and renders the field's 48 kHz
+  samples into a ring the audio thread drains. The device-callback ticks,
+  which made the track, the voice records and the reaper host-timed, are
+  gone.
+- **Divergences found against the captures and fixed, each with the
+  captures' evidence:** the reaper's feedback latency (a key-on's ENVX
+  shows two ticks later; a stopped voice is reset two ticks after the
+  stop); the flame's 0x413 (its same-exchange key-off is lost: the voice
+  sustains for thousands of ticks and its track stays held, D_00281B70
+  holds 0x413 in every row near the flame; the port's voice did a silent
+  release and the service restarted it every 20 frames); the panel's
+  0x3EF (the original plays it on a driver track and voice; the port's
+  separate EMSF bank and slot pool are retired); the voice's +0x22 (the
+  bank handle from D_00281D50, not the record's group / bank pair); the
+  positional distance listener (D_00810360, the hip: the fence door
+  capture starts 0x413 at 99 units from the hip, the port's feet-based
+  distance started it inside the room).
+- **Measured, equal to the captures:** the opening's cues and the cue's
+  return on the frame the camera leaves the timeline; battery_ui, the
+  status cues and the TRIANGLE exit's 0x1 / 0x194 / cue 25; panel_power's
+  page cues and 0x3EF with their lives; elevator_ride's 0x19A / 0x453
+  with the portamento and key-offs; fence_door's door sounds (one
+  reset one tick apart, the IOP tick's phase); cage_roof's conversation
+  cue states in order; roger_encounter's stop-all and cue 29; the three
+  designed beats' looped services and the flame's held voice
+  (LEVEL_SMOKE.md "The sound state" lists what each window compares and
+  what it leaves out).
+- **Open:** the audible stages (reverb, interpolation, ADSR, levels: no
+  claim about what reaches the speakers); the sustain's first-step timing
+  against PCSX2's ENVX (item 1); 001FBF50's gains (AM-19).
+- **Evidence.** `make test-level-smoke` and `-full` (the sound check over
+  every window), `make test-level-smoke-audio` (new: the designed beats),
+  `make test-area11-sfx-reference` (the lockstep with the same-exchange
+  key-off; the panel cue's registry entry against the container),
+  `make test-area11-sfx` (the native fields against an independent SPU2
+  model through the exchange), test-area01-audio-services-reference,
+  test-new-game-switch (one dwell word reviewed: the sound sample's copy
+  of D_00810E90, em_stream_live.c _s_sound_sample; the SFX half-line
+  clock needs none because its phase starts at 0 at the area load). newgame-control
+  9.599849.
+
 ### 1b. What still separates the port from the original first level (prioritized, 2026-09-28, after chain C8b)
 
 This list covers what is left between the port and the original AREA11, up to
@@ -1684,46 +1736,55 @@ is the stream request's wait, not the timeline (item 6).
 **A. On the route, every run**
 
 1. **Sound: the audio output.** Everything the game's code asks of the
-   sound hardware is translated and checked at the command level (the stream
-   lanes, the IOP stream driver, the 277-entry effect registry), but what
-   reaches the speakers is the port's own SPU2 voice model, and nothing
-   compares it with the original.
+   sound hardware is translated, and since chain step AUDIO (2026-10-08)
+   compared tick by tick with the original at the command level: the
+   level smoke's sound check (LEVEL_SMOKE.md "The sound state") holds the
+   port's per-tick EE sound state (the stream cues D_00282178, the lanes'
+   bytes, the voice ring, D_00281B70 / D_00281C30, the delayed cues
+   D_00281F30, the voice records D_0027CCC0 and the reaper's feedback
+   D_002817C0) against the decomp's ten audio beats (status update
+   below). What reaches the speakers is the port's own SPU2 voice model,
+   and nothing compares it with the original: **the audible stages stay
+   open** until a WAV of the original exists (decomp CAPTURES_AUDIO.md: no
+   hidden PCSX2 session can record one).
    - The mixer is dry: no reverb bus (the status screen's effect-return
      volume 00119828 is sent and inaudible), no Gaussian interpolation, no
-     core master volumes; the ADSR stepping is a documented-semantics model.
-     Section 4 boundary: 41 EE sound-library functions have no original
-     comparison (WP-14 AM-03 / 04 / 26 / 27).
-   - Cues: the UI cues 0 / 1 / 2 / 5 / 0xB / 0xD (AM-07); the positional
-     gain 001FBF50 has no oracle (AM-19); the looped positional voices
-     001FC3C0 / 001FC520 are bound for the flame's 0x413 since chain step
-     A11FIX (2026-10-02; the decomp's audio capture holds 0x413 in the
-     flame beat); 001FBDB0 is
-     verified but not bound; 001FBC50's live part is em_sfx_stop_all, which
-     no oracle checks; 001FC280's body is live since chain step EXIT (its
-     D_00282160 cache modelled; the level exit's ambient loop 0x44E equals
-     the capture's end snapshot), its stop branch unreached. The sound-bank loader chain 001FB370 / 001FB3E0 /
-     001FB910, 001FC6E0 and the rest of 001FB100 are live since chain step
-     H7 (item 3); what they feed the SFX side is not consumed: the bank's
-     SPU samples (the port's SFX play the exported registry), the handle's
-     volume D_002819C0 (the sequencer's 00116DB8 is untranslated) and
-     D_0027F778 (em_sfx_bank's 001179E0 reads a constant 0).
-   - **Finding (AIM fix round, 2026-10-02): the port's track choice is
-     host-timed.** em_sfx.c's TRACK HAND-OFF frees tracks in the device
-     callback (the 00118EC0 reaper stores FREE on wall-clock time), while
-     the game thread's sfx_start (00119EA0's side) takes the lowest FREE
-     track on the game's tick. So the track a sound gets, which the game
-     keeps (the melee's +0x302), follows host timing under EM_UNCAPPED:
-     five aim_melee runs (2026-10-02) differ from the capture on 17, 222,
-     66, 66 and 17 rows, mostly one track lower than the original's. Fix: the
-     00119EA0 track state the game thread sees must follow the sound
-     driver's per-field tick (001152D8, on the game's field count), not the
-     device callback; then +0x302 is deterministic and the AIM side runs
-     can compare it byte for byte (AIM_FIRE.md section 11.4).
-   - Capture: nothing records SPU2 output today, and the smoke compares no
-     sound.
-   - What removes it: an audio capture of the route (the lead), the SPU2
-     reverb, interpolation and volume stages translated from the IOP
-     driver's own tables, then an output comparison in the smoke.
+     core master volumes; the ADSR stepping is a documented-semantics model
+     (the captures' ENVX words show one difference: the 80FF / 5FD0 sustain's
+     first step comes about three fields earlier in PCSX2 than the model's
+     0x8000-sample wait from the key-on; later steps every 41 fields in
+     both). Section 4 boundary: the EE sound library's functions (WP-14
+     AM-03 / 04 / 26 / 27) run as the translated driver; their command
+     words are compared (test_area11_sfx_reference) and their table state
+     against the captures, not their SPU2 output.
+   - Cues and services: the UI cues 0x0 / 0x1 / 0x4 / 0x6 / 0xB and 0x194
+     (the status screen's and the BATTERY page's), the panel's 0x3EF (the
+     registry's entry since chain step AUDIO; the separate panel bank is
+     retired), the elevator's 0x19A / 0x453, the fence door's two voices,
+     the flame's looped 0x413 (001FC3C0 / 001FC520 since chain step
+     A11FIX; its key-off in the key-on's exchange is lost, as the captures
+     show, so it plays as a held loop) are compared with the captures'
+     rows; the UI cues 2 / 5 / 0xD (AM-07) are in no captured window; the positional gain 001FBF50 still has no oracle
+     (AM-19; its distance listener is D_00810360, the player record's +0xB0
+     hip, since chain step AUDIO: the captures start the flame's loop at 99
+     units from the hip, 108 from the feet); 001FBDB0 is verified but not
+     bound; 001FC280's body is live since chain step EXIT, its stop branch
+     unreached. What the sound-bank chain (live since chain step H7, item
+     3) feeds the SFX side is consumed in part: the voice's +0x22 is the
+     bank handle D_00281D50 gives (since chain step AUDIO); the bank's SPU
+     samples are not (the port's SFX play the exported registry, whose
+     samples equal the loaded SPU RAM), nor the handle's volume D_002819C0
+     (the sequencer's 00116DB8 is untranslated).
+   - **Finding (AIM fix round, 2026-10-02): the port's track choice was
+     host-timed. Fixed in chain step AUDIO:** the driver runs on the game
+     thread, its tick once per field (SFX_SEQUENCER.md "Where the driver
+     runs"); the melee's +0x302 is deterministic and equals the capture's
+     on every row but 17 (AIM_FIRE.md section 11.4).
+   - Capture: the captures record the EE sound state, not SPU2 output.
+   - What removes the rest: an audio capture of the route (a user decision:
+     CAPTURES_AUDIO.md), the SPU2 reverb, interpolation and volume stages
+     translated from the IOP driver's own tables, then an output
+     comparison in the smoke.
 2. **Look: the GS-exact renderer and the pixel harness.** The inputs of every
    first-level draw are the original's (the level's packets through the level
    and clip kernels, the object units, the faces, the chain page, the shadow,
@@ -2063,13 +2124,13 @@ is the stream request's wait, not the timeline (item 6).
     chain page drawing the trail's PRIM 0x4C strip; all 40 trail calls now
     get a key, 00102990 is live (census 114 of 114). The knife's own
     translation at f26 is not recorded, and no original frame of a swing
-    exists to compare the trail's pixels. Open (AIM_FIRE.md section 11.4):
-    the melee swing's sound handle +0x302 is not deterministic in the port
-    (its tracks are freed on the host audio thread's clock; 17 / 222 / 66 /
-    66 / 17 rows with another track in five runs), and the original's
-    track differs from the port's on most handle rows; the side runs require
-    a handle on the same rows only. This is item 1's finding. The AIM
-    captures hold no other sound state.
+    exists to compare the trail's pixels. The melee swing's sound handle
+    +0x302 (AIM_FIRE.md section 11.4) was not deterministic in the port
+    (its tracks were freed on the host audio thread's clock); since chain
+    step AUDIO it is, and equals the capture's on every handle row but the
+    third hit's 17 (track 4 against 5: the tracks the earlier sounds hold
+    follow each run's rand() values); the side runs require a handle on the
+    same rows. The AIM captures hold no other sound state.
 15. **Logic: the status screen's options and save paths.** Every status page
     the first level reaches runs live (STATUS_PAGES.md section 7); nothing
     exercises the options or save paths. **Status (2026-10-08, chain step

@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Export original AREA11 panel cue source and exact sound-driver parameters.
+"""Resolve the original AREA11 panel cues 0x3EE / 0x3EF independently and
+check the SFX registry's (11, 0) entries against them.
 
-The WAV is decoded source data at the SPU's base clock. It must be played
-with the exported pitch ratio and voice gains, not registered as a48kHz cue.
-Hardware ADSR/interpolation/reverb are not flattened into an invented WAV.
+Since chain step AUDIO (2026-10-08) the panel cue plays through the sound
+driver like every registry id (the original keys it on a driver track and
+voice: decomp docs/CAPTURES_AUDIO.md, the beat panel_power), so the former
+separate EMSF panel bank is retired and nothing is written: this resolves
+the cue from the user's ELF and container (source()) and asserts that the
+registry entry the driver plays has the same pitch, voice gains, ADSR words
+and decoded sample, and that 0x3EE is absent in both. The helpers (resolve,
+pitch, stereo_gain) are shared with tools/test_area11_sfx_reference.py.
 """
 import hashlib
 import json
@@ -135,29 +141,23 @@ def main():
     adpcm,report=source()
     sys.path.insert(0,str(DECOMP/'tools'))
     from audio_export import decode_adpcm
-    pcm=decode_adpcm(adpcm)
-    out=ROOT/'assets/sfx/area11';out.mkdir(parents=True,exist_ok=True)
-    raw=out/'cue_03ef.adpcm';raw.write_bytes(adpcm)
-    wav=out/'cue_03ef_source.wav'
-    with wave.open(str(wav),'wb') as w:
-        w.setnchannels(1);w.setsampwidth(2);w.setframerate(48000);w.writeframes(pcm)
-    # EMSF v1 is a scoped bank, not a global id-to-WAV override. The silent
-    # entry preserves the original FF remap; the audible entry retains its
-    # integer pitch, Q14 voice gains and authored ADSR registers.
-    assert len(pcm)==report['source_samples']*2 and pcm[:82]==bytes(82)
-    bank=out/'panel_sfx.emsf'
-    header=struct.pack('<4sIIII',b'EMSF',1,11,0,2)
-    absent=struct.pack('<IIHhhHHHI',0x3EE,1,0,0,0,0,0,0,0)
-    cue=struct.pack('<IIHhhHHHI',0x3EF,2,report['spu_pitch'],
-        *report['voice_gain'],report['adsr1'],report['adsr2'],0,report['source_samples'])
-    bank.write_bytes(header+absent+cue+pcm)
-    report['voice_gain_denominator']=16384
-    report['steady_envelope_numerator']=32767
-    report['steady_envelope_denominator']=32768
-    report['silent_prefix_source_samples']=41
-    report['assets']={str(p.relative_to(ROOT)):dict(bytes=p.stat().st_size,
-        sha256=hashlib.sha256(p.read_bytes()).hexdigest()) for p in (raw,wav,bank)}
-    (out/'panel_sfx.json').write_text(json.dumps(report,indent=2)+'\n')
-    print('Exported original AREA11 panel3EF source+pitch862/gain2217/ADSR metadata;3EE is originally absent.')
+    pcm=struct.unpack('<%dh'%(len(decode_adpcm(adpcm))//2),decode_adpcm(adpcm))
+    assert len(pcm)==report['source_samples'] and not any(pcm[:41])
+    registry=json.loads((ROOT/'assets/sfx/sfx_registry.json').read_text())
+    scoped={(e['id'],tuple(e['scope'])):e for e in registry['entries']}
+    assert scoped[(0x3EE,(11,0))]['state']==2,'0x3EE must be absent in 11.0 (its FF remap)'
+    entry=scoped[(0x3EF,(11,0))]
+    assert entry['state']==1 and entry['record']==report['record'],(entry.get('record'),report['record'])
+    voice,=[e for e in entry['events'] if e.get('op')==1]
+    assert (voice['pitch'],tuple(voice['unit_words']),voice['adsr1'],voice['adsr2'],voice['note'])== \
+        (report['spu_pitch'],tuple(report['voice_gain']),report['adsr1'],report['adsr2'],report['note']),voice
+    from test_area11_sfx_reference import parse_emsr
+    _,samples,_=parse_emsr((ROOT/'assets/sfx/sfx_registry.emsr').read_bytes())
+    sample=samples[voice['sample']]
+    assert sample['loop_start'] is None and sample['pcm']==struct.pack('<%dh'%len(pcm),*pcm), \
+        ('the registry sample of 0x3EF differs from the panel cue\'s decoded source',voice['sample'])
+    print(f"PASS the registry's 11.0 entry 0x3EF = the panel cue resolved from the container: pitch "
+          f"{report['spu_pitch']}, gains {report['voice_gain']}, ADSR {report['adsr1']:04X}/{report['adsr2']:04X}, "
+          f"{len(pcm)} decoded samples; 0x3EE absent in both")
 
 if __name__=='__main__':main()

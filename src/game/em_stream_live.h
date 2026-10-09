@@ -103,6 +103,40 @@ int32_t em_stream_live_cue(int lane);
  * (read lane), D_00282154..56 (active) and each lane's +0x03 (load).
  * 0 before the boot. */
 int em_stream_live_log(uint32_t out[9]);
+/* The EE sound state at the main-loop top (chain step AUDIO): sampled at
+ * every field right after the vblank's sound work (em_sfx_field, then the
+ * IOP exchange), so it is the state the previous frame and the vblank's
+ * 001152D8 tick left, the point at which the decomp's audio captures
+ * (build/s87/audio, docs/CAPTURES_AUDIO.md) record their per-frame state.
+ * The level smoke's tick log writes it as "snd" (tools/level_smoke_audio.py
+ * compares it with the captures). */
+enum { EM_SOUND_VOICE_FIELDS = 17 };
+typedef struct {
+    int valid;                 /* 0 before the boot / the SFX registry      */
+    uint64_t ticks;            /* 001152D8 ticks run (em_sfx_field)          */
+    uint32_t d810E90;          /* the vblank count                          */
+    int8_t active[3];          /* D_00282154..56                            */
+    int8_t read_phase, read_lane; /* D_00282157 / 58                        */
+    uint8_t mono;              /* D_0028215B                                */
+    int32_t cue[3];            /* D_00282178[3]                             */
+    int32_t music_clip;        /* D_00275B2C                                */
+    int32_t ring[16];          /* D_00281CF0                                */
+    int8_t ring_head, ring_tail; /* D_00275B30 / D_00275B34                 */
+    int32_t b70[48], c30[48];  /* D_00281B70 / D_00281C30                   */
+    int32_t f30[10][4];        /* D_00281F30                                */
+    uint32_t cursor, serial;   /* D_0027F740 + 0x30 / + 0x34                */
+    /* D_0027CCC0[v] at +0x00, 0x02, 0x06, 0x08, 0x0A, 0x0C, 0x1A, 0x1C,
+     * 0x1E, 0x20, 0x44, 0x4E, 0x60, 0x62, 0x64, 0x3E and 0x22 (the fields
+     * the driver translation keeps; tools/test_area11_sfx_reference.py
+     * VOICE_FIELDS, then the bank handle). */
+    uint16_t voice[48][EM_SOUND_VOICE_FIELDS];
+    int32_t envx[48];          /* D_002817C0: the reaper's ENVX feedback     */
+    /* Diagnostics (the captures do not hold D_0027E0C0): each allocated
+     * track's sound id (its registry entry), -1 for a free track. */
+    int32_t track_id[48];
+} EmSoundSample;
+/* The last field's sample (valid 0 before the first). */
+const EmSoundSample *em_stream_live_sound_sample(void);
 /* The drive's counters (em_iop_stream_drive_stats) and whether the PS2
  * disc-drive timing switch was on at the boot (*ps2_timing; em_settings);
  * 0 before the boot. */

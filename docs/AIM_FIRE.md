@@ -967,37 +967,31 @@ of the original exists, so the trail's pixels are not compared (a frame
 capture at aim_09 f26..f40 would compare them). Decomp CURIOSITIES.md
 entry 28 ("never drawn") is wrong: the trail is drawn.
 
-### 11.4 The sound handle (open: the port's track choice is not deterministic)
+### 11.4 The sound handle (deterministic since chain step AUDIO)
 
 The melee states keep 001FBD50's return, the track the sound driver
 00119EA0 allocates for the swing, at +0x302 to stop it later. 00119EA0
-takes the lowest free track. In the port the value is not reproducible,
-and the original's values differ from the port's on most handle rows, not
-only on a few:
+takes the lowest free track.
 
-- **Cause (a port defect).** em_sfx.c's TRACK HAND-OFF frees tracks on the
-  host audio thread: the 00118EC0 reaper runs in the device callback, which
-  stores FREE on wall-clock time, while the game thread's sfx_start (the
-  00119EA0 side) takes the lowest FREE track on the game's tick. The level
-  smoke runs EM_UNCAPPED, with game ticks faster than real time, so which
-  tracks are free when the swing starts depends on host timing and load.
-  The record's +0x302 is therefore game-visible state that follows the
-  host clock.
-- **Evidence.** Five runs of aim_melee on 2026-10-02 gave another track
-  than the capture's on 17, 222 and 66 rows (three runs of the AIMCAP
-  tree) and 66 and 17 rows (two runs after this round's trail fix). In
-  the 222-row run, the handle rows from f13 read 3, FF, 1, FF, 1, 5, 1, FF, 1
-  in aim_09_melee's `pl` and 3, FF, 0, FF, 0, 4, 0, FF, 0 in the port's
-  `aimrec`: one track lower on almost every handle row.
+- **Until chain step AUDIO (a port defect, fixed).** em_sfx.c freed tracks
+  on the host audio thread (the 00118EC0 reaper in the device callback, on
+  wall-clock time), so under EM_UNCAPPED the track followed host timing:
+  five aim_melee runs on 2026-10-02 gave another track than the capture's
+  on 17, 222, 66, 66 and 17 rows.
+- **Now.** The driver runs on the game thread, its tick once per field
+  (SFX_SEQUENCER.md "Where the driver runs"), so the track is
+  deterministic. aim_melee's handle rows from f13 read 3, FF, 1, FF, 1, 4,
+  1, FF, 1 in the port and 3, FF, 1, FF, 1, 5, 1, FF, 1 in aim_09_melee's
+  `pl`: equal on every row but the third hit's 17, where the original took
+  track 5 and the port 4 (2026-10-08). At that start the original held one
+  more track. A track stays held while a voice of its sound sounds, and
+  the footsteps before the hit are random variants (00182430's rand5) of
+  different lengths whose values the side run does not share with the
+  capture (RAND_ORDER.md), so which tracks the earlier sounds hold is each
+  run's own.
 - **What the side runs check.** check_aim_records requires a handle on the
   same rows as the capture (0xFF in both, or a track in both) and counts
-  the rows with another track. The tolerance covers this known port
-  nondeterminism. It does not stand for a measured sound-state difference.
-- **What removes it.** FIRST_LEVEL_AUDIT.md 1b item 1, for the AUDIO step:
-  the 00119EA0 track state that the game thread sees must follow the sound
-  driver's per-field tick (001152D8 and its 00118EC0 reaper, on the game's
-  field count), not the device callback. Then +0x302 is deterministic and
-  can be compared with the capture byte for byte.
+  the rows with another track (17 in aim_melee).
 
 ### 11.5 The census
 
@@ -1009,8 +1003,9 @@ since the trail's fix (11.3; its 80 calls in aim_melee).
 ### 11.6 What is left
 
 - The trail's pixels (11.3): no original frame of a swing to compare.
-- The sound handle's track (11.4): the port's track hand-off follows the
-  host audio clock; the AUDIO step (audit 1b item 1).
+- The sound handle's track (11.4): deterministic since chain step AUDIO;
+  17 rows of aim_melee hold another track (the earlier sounds' tracks
+  follow each run's rand() values).
 - The EFU and the side runs' duration (section 10.7) stand.
 
 

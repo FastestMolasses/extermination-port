@@ -114,6 +114,11 @@ then increments D_00810E98 (the flag step P waits for) and D_00810E90 (the
 vblank count), loads the 64-bit GS CSR 0x12001000 and stores its FIELD bit
 (bit 13) into D_00810E88, calls 0010C710(D_00282184) (an EE kernel thread
 wake-up; D_00282184 is 3 in every route capture) and re-enables interrupts.
+The woken thread is the sound thread 001FB0C0 (priority 2, above the main
+thread's 5): its 001152B0 runs the SFX sequencer's tick 001152D8 before the
+main loop resumes. The port runs that tick at the same point of every field
+(em_stream_live_field: em_sfx_field, chain step AUDIO; SFX_SEQUENCER.md
+"Where the driver runs").
 
 Its return value: nothing writes v0 after the 0010C710 call (0x1AB1C0) up to
 the return at 0x1AB1D4, so the handler returns 0010C710's result. 00101548

@@ -77,72 +77,33 @@ register stores: pitch and volume reach the registers unscaled, and the
 ADSR pair and split sample address agree. This validates the Q14 gain
 interpretation without relying on the earlier port documentation.
 
-## Native binding and playback boundary
+## Native binding (chain step AUDIO, 2026-10-08)
 
-The exporter writes `assets/sfx/area11/panel_sfx.emsf`, a scoped binary bank.
-It also emits the raw ADPCM, a 48 kHz decoded-source WAV and a JSON provenance
-report. The source WAV is not a final-pitch recording and must not be added
-as a plain 48 kHz entry in `sfx.txt`.
+The cue plays through the sound driver like every registry id: the
+registry's (11,0) entry 0x3EF (SFX_PITCH.md) on a driver track and voice,
+and 0x3EE is the registry's absent entry. The decomp's audio capture
+panel_power shows the original doing exactly that (one voice, note 33,
+program 1, bank handle 4, keyed after the panel's status page closes and
+reset 15 ticks later); the port keys it on the same row of that window and
+resets it after the same 15 ticks (`tools/level_smoke_audio.py`). The
+former separate EMSF bank (`panel_sfx.emsf`) and the slot pool that played
+it beside the driver, with its own steady envelope, were a second owner of
+001FB9F0's work for one id and are retired: em_sfx_bank_load /
+em_sfx_cue_frame, their fixture tests/area11_sfx_test.c and the bank's
+render test are deleted.
 
-`em_sfx_init()` loads the independent bank. The host calls
-`em_sfx_set_area(11, 0)` after successful AREA11 binding and
-`em_sfx_set_area(-1, -1)` on whole-world teardown. Selecting `(11,0)` returns
-zero if the complete bank is unavailable; other pairs clear selection and
-return one. `em_sfx_cue_state()` reports unavailable (0), audible (1), or
-originally absent (2). An absent cue increments an explicit counter and
-allocates no voice. An active voice retains immutable sample memory if the
-host clears the area selection before it finishes.
-
-The EMSF loader validates its version, scope, both records, pitch, gains,
-ADSR profile, complete PCM payload, silent prefix and end of file before
-replacing a loaded bank. Unknown profiles fail rather than silently using
-the current envelope specialization. Load/free still require the existing
-audio-device lifetime contract.
-
-The new playback path uses an integer rational cursor, the original Q14
-voice gains, and a manual-derived steady-envelope reduction. It bypasses
-the legacy mixer's arbitrary `0.6` voice multiplier. The original sample's
-first 41 decoded source samples are zero; its fastest attack completes
-within that silence. The authored maximum sustain level spends one sample
-period in decay, then the infinite sustain setting holds. The native dry
-path uses `32767/32768` for all potentially nonzero samples and ends at the
-non-loop sample boundary.
-
-The register meanings, 48 kHz processing period, pitch denominator, Q14
-volume format, sustain behavior and non-loop envelope termination are
-documented in Sony's *SPU2 Overview v6.0*, pages 9, 24–25, 42, 44–46 and
-72–77 ([archived manual](https://github.com/ninjadynamics/PS2Docs/blob/main/SPU2_Overview_Manual.pdf)).
-The exact envelope register pair is verified by original instructions;
-envelope microtiming and its first decay counter phase have not been
-compared with live hardware/register output. This is a documented native
-envelope reduction, not a claim of SPU2 waveform equality.
-
-Native linear sample interpolation, ADPCM decoder rounding, command/key-on
-scheduling, global voice allocation, reverb and final master/BGM mixing
-remain outside this proof. In particular, the asset retains the original
-reverb flag, but the present output is dry. No replacement loop, note-off,
-alternate-area sound or guessed reverb tail was added.
+`tools/export_area11_sfx.py` now writes nothing. It resolves the cue from
+the container exactly as above (source()) and asserts that the registry
+entry the driver plays has its pitch 862, voice gains 2217 / 2217, ADSR
+80FF / 5FD0, note 33 and the same 2,296 decoded samples, and that 0x3EE is
+absent in both (`make test-area11-sfx-reference` runs it). The ADSR, the
+reverb send (the tone's flag 0x80; the port's output is dry) and the
+interpolation are the driver's SPU2 model's (SFX_SEQUENCER.md), with no
+output comparison.
 
 ## Validation
 
-Run `make test-area11-sfx-reference test-area11-sfx`. The runtime test uses
-the actual locally exported source and checks ten malformed resources,
-transactional load failure, absent-cue behavior, scope changes, voice
-retirement, stop-all and missing-bank failure under ASan/UBSan. Independent
-linear dry-output calculations at 44.1, 48 and 96 kHz agree within `3e-8`;
-single-frame and 997-frame callbacks produce identical output bytes.
-
-The full native build also passes. Headless mixer validation exercises the
-actual `em_sfx_play` / `em_sfx_mix` path; no audible original-vs-native
-capture or SPU2 output comparison is claimed. Generated reports and mixed
-fixtures are in `build/area11_sfx_reference/`.
-
-## Relation to the EMSR registry (WP-14)
-
-`docs/SFX_PITCH.md` describes the general registry. It resolves 0x3EF for
-(11,0) through the same original path, with the same pitch 862 and
-volume words 2217/2217. It resolves 0x3EE as absent. While (11,0) is
-selected this bank still takes precedence, because it alone carries the
-verified steady envelope. The registry oracle in
-`tools/test_area11_sfx_reference.py` extends the dispatch check above to
-every exported id AREA11 can play.
+Run `make test-area11-sfx-reference test-area11-sfx` (SFX_SEQUENCER.md
+"Verification") and the level smoke's sound check (LEVEL_SMOKE.md "The
+sound state"). No audible original-versus-native capture or SPU2 output
+comparison is claimed.

@@ -3,33 +3,6 @@
 
 #include <stdint.h>
 
-enum { EM_SFX_CUE_ABSENT = 1, EM_SFX_CUE_REVERB = 2 };
-
-typedef struct {
-    uint32_t id, flags, frames;
-    uint16_t pitch, adsr1, adsr2;
-    int16_t gain_l, gain_r;
-    int16_t *pcm;
-} EmSfxCue;
-
-typedef struct {
-    unsigned area, sub, count;
-    EmSfxCue cues[2];
-} EmSfxBank;
-
-/* EMSF v1: the audited AREA11.0 A0 panel bank. No engine data is embedded
- * in C. Unsupported profiles fail instead of silently losing parameters.
- * Load/free only before or after the shared audio device is running. */
-int em_sfx_bank_load(EmSfxBank *bank, const char *path);
-void em_sfx_bank_free(EmSfxBank *bank);
-
-/* Native dry playback of the original driver parameters. Exact rational
- * source cursor, Q14 voice gains, and a manual-derived steady envelope.
- * Linear interpolation is a host boundary, not SPU2 Gaussian equality.
- * Returns zero at the non-loop sample end or for an absent cue. */
-int em_sfx_cue_frame(const EmSfxCue *cue, uint64_t output_frame,
-                     unsigned device_rate, float stereo[2]);
-
 /* ---- EMSR v2: the per-area SFX registry (tools/export_sfx_registry.py) ----
  * Every entry is one sound id resolved through the original 001FB9F0 path
  * for one scope: area (-1,-1) = the global record table's group-1 banks,
@@ -76,7 +49,9 @@ typedef struct {
     int16_t area, sub;
     uint8_t state, count;
     uint16_t reason;      /* UNSUPPORTED reason code (docs/SFX_PITCH.md) */
-    uint16_t bank;        /* group << 8 | bank index: the voice +0x22 key */
+    uint16_t bank;        /* the 001FB9F0 record's group << 8 | bank index:
+                           * the handle is D_00281D50[group * 20 + bank]
+                           * (em_sfx resolves it at the start)            */
     EmSfxOp ops[EM_SFX_OP_MAX];
 } EmSfxEntry;
 
@@ -95,7 +70,7 @@ typedef struct {
 } EmSfxRegistry;
 
 /* Transactional: on any validation failure the old registry is kept and
- * zero is returned. Load/free only while no audio callback can read it. */
+ * zero is returned. Game thread (the driver that reads it runs there). */
 int em_sfx_registry_load(EmSfxRegistry *registry, const char *path);
 void em_sfx_registry_free(EmSfxRegistry *registry);
 /* Exact (id, area, sub) match; NULL when absent from the registry. */
@@ -155,7 +130,8 @@ void em_sfx_envelope_step(EmSfxEnvelope *envelope);
  * and the NON/EON/KON/KOFF flush. Each 001157F0 command is applied to a
  * 48-voice SPU2 model (registers, ADSR, looping source cursor) and passed
  * to an optional sink so tests can compare it with original execution.
- * Not thread-safe: em_sfx.c owns one instance on the audio thread. */
+ * Not thread-safe: em_sfx.c owns one instance on the game thread (the
+ * sequencer thread's tick runs at each field, em_sfx_field). */
 enum { EM_SFX_TRACKS = 48, EM_SFX_VOICES = 48 };
 
 typedef void (*EmSfxCommandSink)(void *context, int command, int voice,
@@ -172,6 +148,8 @@ typedef struct {
     uint16_t pitch_scale; /* +0x44 */
     uint16_t porta_note;  /* +0x58 */
     uint16_t next, tick;  /* op cursor / ticks run                         */
+    uint16_t handle;      /* +0x24: 00119EA0's bank handle (D_0027C6C0 slot),
+                           * which 00115850 copies into a voice's +0x22   */
     int32_t left, right;  /* +0x48 / +0x4C request words                   */
 } EmSfxTrack;
 
@@ -201,8 +179,13 @@ typedef struct {
     uint64_t effect, effect_sent, noise, noise_sent, key_on, key_off;
     unsigned no_voice;    /* key-ons 00117428 refused (-1)                 */
     /* D_002817C0 source for the 00118EC0 reaper: NULL = the SPU2 model's
-     * ENVX (native playback); tests may substitute recorded values. */
+     * ENVX at the tick; em_sfx passes the IOP's reply (the status its
+     * driver's last tick wrote before the previous exchange), tests may
+     * substitute recorded values. */
     const int32_t *feedback;
+    /* 1: the commands reach the SPU2 model only through
+     * em_sfx_driver_apply (em_sfx's IOP side); 0: at once (the tests). */
+    int deferred;
 } EmSfxDriver;
 
 /* Fresh driver: voices free (+0x06/+0x22/+0x24/+0x26 = 0xFFFF, +0x4E =
@@ -210,14 +193,15 @@ typedef struct {
  * kind 3 (voices 0..3 in every AREA11 capture), which 00117428 never takes. */
 void em_sfx_driver_init(EmSfxDriver *driver, const EmSfxRegistry *registry,
                         uint64_t stream_voices);
-/* 00119EA0 + 0011A270(0x1000) + 0011A218: lowest free track, or -1. */
+/* 00119EA0(handle, ...) + 0011A270(0x1000) + 0011A218: the lowest free
+ * track, or -1. `handle` is the bank handle 001FB9F0 reads from D_00281D50
+ * (track +0x24, a key-on's voice +0x22). */
 int em_sfx_driver_start(EmSfxDriver *driver, const EmSfxEntry *entry,
-                        int32_t left, int32_t right);
-/* The same on a track the caller already chose (em_sfx.c picks the lowest
- * free track on the game thread); -1 when that track is not free. */
+                        unsigned handle, int32_t left, int32_t right);
+/* The same on a given track; -1 when that track is not free. */
 int em_sfx_driver_start_at(EmSfxDriver *driver, int track,
-                           const EmSfxEntry *entry, int32_t left,
-                           int32_t right);
+                           const EmSfxEntry *entry, unsigned handle,
+                           int32_t left, int32_t right);
 /* 0011A218: stores the pair (and marks a volume re-send) when both lie in
  * [-0x1000, 0x1000]; otherwise nothing changes. */
 void em_sfx_driver_request(EmSfxDriver *driver, int track, int32_t left,
@@ -233,7 +217,11 @@ int em_sfx_driver_allocate(EmSfxDriver *driver, unsigned alloc,
                            unsigned priority, unsigned bank);
 /* 00119890(1, track): 2 while allocated as an SFX track, else 0. */
 int em_sfx_driver_status(const EmSfxDriver *driver, int track);
-/* One 001152D8 sequencer tick; commands are applied, then passed on. */
+/* The SPU2 side of one 001157F0 command (the IOP driver running it). */
+void em_sfx_driver_apply(EmSfxDriver *driver, int command, int voice, uint32_t a,
+                         uint32_t b);
+/* One 001152D8 sequencer tick; commands are applied (unless deferred), then
+ * passed on. */
 void em_sfx_driver_tick(EmSfxDriver *driver, EmSfxCommandSink sink,
                         void *context);
 /* Render (or with out == NULL only advance) every live SPU voice by

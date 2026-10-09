@@ -494,6 +494,17 @@ test-level-smoke-side: $(BIN)
 	$(MAKE) test-level-smoke-damage
 	$(MAKE) test-level-smoke-branch
 	$(MAKE) test-level-smoke-options
+	$(MAKE) test-level-smoke-audio
+
+# The AUDIO side runs (chain step AUDIO, FIRST_LEVEL_AUDIT.md 1b item 1;
+# LEVEL_SMOKE.md "The sound state"): the decomp's three designed audio beats
+# (walk_outdoor from slide, walk_room from fence_door, flame from
+# crevice_prompt), side by side, each checked against its capture's EE
+# sound state (tools/level_smoke_audio.py; about 5 min); part of
+# test-level-smoke-side and -full.
+.PHONY: test-level-smoke-audio
+test-level-smoke-audio: $(BIN)
+	python3 tools/test_level_smoke_audio.py
 
 # The BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md "The BRANCH side
 # runs"): the AREA11 branches the main route skips, each from the main-line
@@ -1583,10 +1594,14 @@ test-player-heading-reference:
 test-player-motor-reference:
 	python3 tools/test_player_motor_reference.py
 
-# Original AREA11 panel sound mapping and the scoped native dry mixer.
+# The SFX registry and sound driver against the original (lockstep with
+# 001152D8), and the native driver's fields against an independent SPU2
+# model on the original command stream through the IOP exchange; the panel
+# cue 0x3EF's registry entry against the container (export_area11_sfx.py).
 .PHONY: test-area11-sfx-reference test-area11-sfx
 test-area11-sfx-reference:
 	python3 tools/test_area11_sfx_reference.py
+	python3 tools/export_area11_sfx.py
 
 test-area11-sfx:
 	python3 tools/test_area11_sfx_runtime.py

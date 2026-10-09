@@ -145,13 +145,13 @@ key-offs of one-shot tones find nothing.
   send (command 0xC). Output is dry.
 - **Interpolation.** Linear, not SPU2 Gaussian. ADPCM decoder rounding is
   unverified.
-- **Tick timebase.** One tick per VBlank at the NTSC field rate: the VBlank
-  handler `001AB140` passes the sequencer thread's id (`D_00282184`) to the
-  kernel wrapper `0010C710`, whose syscall was not re-derived, and the
-  field rate is the video standard, not measured. The native tick grid
-  starts at the first audio callback after the driver was idle, so a
-  first play has no wait; later plays wait for the next tick, as in the
-  original.
+- **Tick timebase.** One tick per VBlank: the VBlank handler `001AB140`
+  wakes the sequencer thread (`D_00282184`) through `0010C710`. The voice
+  records' age `+0x1C` advances by one per captured frame in the decomp's
+  audio captures (one frame is one field there), and since chain step
+  AUDIO the port runs the tick on the game thread at every field
+  (`em_sfx_field`, SFX_SEQUENCER.md "Where the driver runs"); a play
+  waits for the next field's tick, as in the original.
 - **Voice allocation.** Translated (`00117428`, verified). The original
   never steals an SFX voice: `00119EA0` refuses a 49th concurrent track
   (`em_sfx_drops()`) and `00117428` refuses key-ons past 44 busy voices

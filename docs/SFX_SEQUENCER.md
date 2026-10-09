@@ -14,6 +14,76 @@ ids that used to be refused are now audible registry entries:
 The current first-level export has 277 entries (259 audible, 16 absent, 2
 unsupported) and 141 samples: docs/SFX_REGISTRY_FIRST_LEVEL.md.
 
+## Where the driver runs: the game thread, one tick per field (chain step AUDIO, 2026-10-08)
+
+The original's driver is EE code: the game's own calls (001FB9F0 with
+00119EA0, 0011A218, 0011A070, 00119890) act on the track and voice tables
+at once, and the tick 001152D8 runs on the sound thread 001FB0C0
+(priority 2, created by 001F9780), which the vblank handler 001AB140 wakes
+at every field before the main loop resumes. Its 001192D0 first waits for
+the previous exchange with the IOP, whose reply is D_002817C0; then
+001152D8 runs; its end sends the queued commands (001157F0's queue) to the
+IOP driver (RPC 0x64), which runs them at its next own tick (every 64
+H-lines) and replies with the status block (ENVX & 0x7FFF per voice) its
+last tick wrote.
+
+The port does the same (em_sfx.c): `em_sfx_field`, called from
+em_stream_live_field at every field, runs the tick on the game thread with
+the reaper reading the previous exchange's reply, then the exchange (the
+tick's commands, and those the game's stops queued since the last tick,
+join the IOP side's ring; the reply is the last status), then the field's
+800 or 801 samples at 48 kHz: the commands reach the SPU2 model at the IOP
+driver's ticks (every 128 half-lines of the SFX side's own clock, phase 0
+at the first field after the registry's load, the New Game's area load:
+the IOP timer's phase against the frame is hardware timing, which in the
+original follows how long the title ran; a clock of the port's own keeps
+every run's sound state the same from New Game on, as the stream
+backend's clock, counted from the boot, would not),
+each of which snapshots every voice's ENVX into the status. The samples go
+into a lock-free ring the audio thread drains (em_sfx_mix), as the stream
+backend's do. The earlier port ran the ticks in the audio device's
+callback on wall-clock time, so the track a sound got, the voice records
+and the reaper's timing followed host timing (the AIM fix round's
+finding); now every table follows the game's field count.
+
+**Measured against the original (the decomp's audio captures,
+CAPTURES_AUDIO.md; `tools/level_smoke_audio.py`):**
+- The reply latency: a voice keyed at tick K shows its ENVX in D_002817C0
+  from K + 2 (0 at K and K + 1; battery_ui f192..f194), and the reaper
+  resets a hard-stopped voice two ticks after the stop (f190 / f192). Both
+  equal the port's exchange model row for row (a reaper reading the SPU2
+  model at the tick reset it one tick early).
+- The lives: every sound the aligned windows key (the status cues, the
+  panel's 0x3EF and 0x4 / 0x0 / 0x6, the elevator's 0x19A and 0x453 with
+  its portamento and key-offs, the door's sounds) is reset on the
+  capture's tick, except that a sample's end can land one exchange apart:
+  the IOP driver's tick drifts against the frame by 13 half-lines a field
+  from where each run's IOP timer started, so the two runs' phases differ
+  (one of the fence door's two voices lives 106 ticks in the port and 105
+  in the capture; a probe that shifted the port's IOP clock by 32, 64 or
+  96 half-lines gave 105). Hardware timing, not reproduced
+  (PORT_PROFILES.md); the check allows it for a sound that ends unstopped
+  and counts it (one in the compared windows).
+- **A key-off in its key-on's exchange is lost.** The flame's 0x413 keys
+  its looping tone on and off in one tick. In the captures its voice
+  (sustain 1, release 1) keeps ENVX 0x7FFF..0x7DD9 for 4,515 ticks and is
+  never reset, so its track is never freed and 001FC3C0 keeps re-panning
+  the one handle (D_00281B70 holds 0x413 in every row of the beats flame
+  and walk_room, and from its start in cage_roof and fence_door). The SPU2
+  model follows the measurement: a key-off that reaches a voice before it
+  has played a sample since its key-on does nothing (em_sfx_bank.c apply,
+  case 0xB). The registry has 13 such scripts (0x411..0x413 in AREA11 and
+  AREA01, 0x12E, 0x44E, 0x55B..0x55D, 0x8A9, 0x9B3): ambient loops that play
+  until their requester stops them. Only 0x413 is observed: it is the one
+  such id in the ten captures' D_00281B70 / D_00281C30 (all ten beats are
+  AREA11; 0x44E at the AREA01 arrival is in none of them). The other
+  twelve follow the same rule by the same mechanism (a key-off in the
+  key-on's own tick), not by their own measurement.
+- **The voice's +0x22 is the bank handle** 001FB9F0 reads from
+  D_00281D50[group * 20 + bank] (track +0x24, then 00115850), not the
+  record's (group, bank) pair: the panel cue's voice holds 4, the
+  footsteps' 0, as in the captures (em_sfx_bind_bank_handles).
+
 ## What is translated (original evidence)
 
 | Original | Native | Evidence checked |
@@ -24,7 +94,7 @@ unsupported) and 141 samples: docs/SFX_REGISTRY_FIRST_LEVEL.md.
 | `FF 2F 00` → `00117C28` (SFX track: `+0x34=0`, `+0x42=0`, `+0x3E=1`) | `EM_SFX_OP_END` | Decomp C |
 | `00117428` allocator | `em_sfx_driver_allocate` | **asm**, not the C |
 | `00116598` per-voice pass: pitch re-send on `+0x44` (portamento) or track `+0x50`, the portamento step (`+0x62` countdown, `+0x60` depth, note clamp 0x0C..0xF3, fine `v % 16`, `track+0x58`), then `(ladder·track+0x44 >> 12)·0x1B9 / 0x1E0` (unsigned); volume re-send on track `+0x52` via `001179E0` | `voice_update` | **asm** |
-| `00118EC0` reaper: frees an ended (`+0x3E`), allocated track that no voice `+0x06` names; resets a voice when D_002817C0 < 2, age `+0x1C` ≥ 2, `+0x08 == 1` and kind ≠ 3; ages every voice | tick prologue | **asm** |
+| `00118EC0` reaper: frees an ended (`+0x3E`), allocated track that no voice `+0x06` names; resets a voice when D_002817C0 < 2, age `+0x1C` ≥ 2, `+0x08 == 1` and kind ≠ 3; ages every voice (one tick per field: `+0x1C` counts the fields since the voice's key-on or reset) | tick prologue, D_002817C0 = the previous exchange's reply | **asm**; the audio captures |
 | `00119EA0` lowest free track (`+0x2E`, int `+0x30`, `+0x34` clear), `0011A270(0x1000)` → `+0x50`, `0011A218` → `+0x48/+0x4C/+0x52` | `em_sfx_driver_start(_at)`, `em_sfx_driver_request` | **asm** for `+0x42` |
 | `0011A070(track \| hard<<15)` | `em_sfx_driver_stop` | **asm** |
 | `00119890(1, track)` = 2 while `+0x32` | `em_sfx_driver_status`, `em_sfx_track_status` | Decomp C |
@@ -86,18 +156,20 @@ The oracle runs the following passes:
 
 **Loop points** come from the loaded ADPCM block flags. The SPU2 repeats from the last 0x04 block when the end block also carries 0x02. The driver never writes a loop address: no command outside {1,3,5,6,0xA,0xB,0xC,0xD} occurs. Three exported samples loop. All their block flags equal the live SPU RAM. The exporter decodes the replayed body with the ADPCM history carried over the loop end, and requires the third pass to equal the second.
 
-**Runtime.** The runtime test compares native `em_sfx_mix` output with an **independent Python SPU2 model** (ADSR, loops, pitch cursor, Q14 words) driven by the **original** `001152D8` command stream.
+**Runtime.** The runtime test compares the native fields (`em_sfx_field`, drained by `em_sfx_mix`) with an **independent Python SPU2 model** (ADSR, loops, pitch cursor, Q14 words, the lost same-exchange key-off) driven by the **original** `001152D8` command stream through the same exchange (the reply of the previous exchange as the reaper's feedback, the commands run at the IOP driver's ticks every 128 half-lines).
 
-- Ids: 0x1A1, 0x14D and 0x452 at 44.1, 48 and 96 kHz, plus one positional request.
-- The largest error is 1.07e-7; the tolerance is 2e-7.
-- 1- and 997-frame callbacks agree within 1.2e-7 (voice summation order only).
+- Ids: 0x1A1, 0x14D and 0x452 at 48 kHz (the SPU2's rate; any other device rate mixes nothing and is counted), each render starting at its own IOP phase, plus one positional request.
+- The tolerance is 2e-7.
+- 1- and 997-frame drains of the mixer ring give the same samples.
 
 It also covers:
 
 - 28 malformed v2 registries refused transactionally;
-- the `001FC3C0` flame cadence through `em_sfx_loop_service` (starts on frames 7/27/47, drops on 17/37/57);
-- stop-all silence;
+- the `001FC3C0` flame service through `em_sfx_loop_service` (one start on frame 7, the track held and the loop sounding on every later field, `001FC520` releasing it to silence);
+- stop-all: every track free at once, silence from the field after the next exchange;
 - an UNSUPPORTED refusal fixture.
+
+**Against the original game** (`tools/level_smoke_audio.py`, LEVEL_SMOKE.md "The sound state"): the port's per-tick sound state against the decomp's ten audio beats, row for row where the smoke aligns a phase with a route stretch the beat repeats.
 
 ## Hardware model versus verified
 
@@ -106,7 +178,8 @@ It also covers:
 | Every command word, its tick, allocation, key-off targets, portamento pitch per tick, reaping and track freeing *given* the ENVX feedback | **Verified** against original execution |
 | KON/KOFF/EON register mapping and order | **Verified** (original IOP driver) |
 | ADSR stepping (rates, ×4 above 0x6000, exponential decay, 0x8000-sample wait cap, first output sample at ENVX 0) | **Hardware model** from documented SPU2 semantics |
-| ENVX feedback timing (sampled at the tick boundary, no IOP latency) | **Hardware model** |
+| ENVX feedback timing: the previous exchange's reply, the IOP driver's ENVX snapshot at its tick (every 64 H-lines) | **Measured** against the audio captures (key-on to visible ENVX two ticks; stops and sample ends reset on the capture's tick, a sample's end one tick apart where the IOP tick's phase differs) |
+| A key-off in the key-on's own exchange is lost (the voice sounds on) | **Measured** for the flame's 0x413 in the captures; the other 12 such scripts follow by the same mechanism, unobserved |
 | Linear interpolation, dry output (no reverb), ADPCM decoder rounding | Unchanged boundaries |
 
 The ADSR model's only external check is **PCSX2 consistency** (emulator, not hardware). Every captured AREA11 kind-2 voice's D_002817C0 word equals the model's level within the window its age allows. That is 16 voices in the 6 captures that hold any:
@@ -118,12 +191,22 @@ The 0x8000 cap is taken from this evidence. The unbounded `1 << (shift−11)` fo
 
 ### Consequence for the flame 0x413 (AM-12)
 
-Its script keys the looping tone on and off in the same flush. The original IOP writes KON, then KOFF, within one sample period. Under the documented semantics, key-on starts ENVX at 0 and key-off releases from the current level, so the voice releases from 0 and is **silent**. The reaper resets the voice at its third tick and frees the track at the fourth, and `001FC3C0` restarts it every 20 frames. Whether real hardware lets one sample of attack through (0x3800, then a linear 0x0B release of about 37 ms) depends on where the two register writes fall relative to the 48 kHz sample clock. Without an SPU2 output capture this is **not settled**. The port implements the documented model and does not add a loop.
+Its script keys the looping tone on and off in the same flush. The earlier
+model applied the documented semantics to both writes (a release from
+ENVX 0: silent, the voice reaped at its third tick, `001FC3C0` restarting
+it every 20 frames). The audio captures settle it the other way (above):
+the key-off is lost, the voice sustains, its track stays held and the
+service re-pans the one handle every 10 frames until the player leaves the
+radius (its `0011A070` then keys it off for good) or a stop-all ends it.
+The port now plays the flame as a continuous positional loop. What the
+SPU2 does to the two writes is measured from PCSX2's state (the captures),
+not from a hardware output recording.
 
 ## Integration still needed (not in this lane's files)
 
 - **Step H.** Done in chain step H7: `em_stream_live_step_h` runs the whole 001FB100 every frame it runs (gated with the other `D_00821058 != 1` work), its copy over `em_sfx_tables` / `em_sfx_set_snapshot`. `em_sfx_submit_001FB9F0` is 001FC6E0's 001FB9F0 with its request words; `em_sfx_voice_record` publishes D_0027CCC0's `+0x00` / `+0x22` for 001195A8 (IOP_STREAM.md "The sound-bank transfer").
-- **Flame owner.** Call `em_sfx_loop_service(&owner_handle, 0x411/0x412/0x413, pos, 100.0f, D_70003B68, D_70003B8A)` from the translated flame owner (`001E3D90` / owner `008235F0`), and `em_sfx_loop_release` from its teardown (`001FC520`).
+- **Flame owner.** Done in chain step A11FIX (em_area11_effect_runtime).
+- **The tick on the field clock.** Done in chain step AUDIO (above).
 
 ## Registry format
 

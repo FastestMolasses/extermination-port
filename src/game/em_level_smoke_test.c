@@ -189,6 +189,11 @@ static const Phase k_phases[] = {
     {"br_map_item", "br_01_map_item (side, from 06; decomp CAPTURES_C10.md BRANCH)", 0x0015AFA0u,
      "the map item 0015AFA0 g0.6 (item 0x08, puid 9): the grab clip 0x40, the status page, the taken bit",
      "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
+    {"aud_walk_outdoor", "walk_outdoor (side, from 06; decomp CAPTURES_AUDIO.md)", 0,
+     "a quiet walk on the low ground toward the truck trigger band, then 120 idle ticks: the footsteps' "
+     "surface and gear layers (00182430 through 001FB9F0) and the fans' 0x451",
+     "chain step AUDIO (the sound state against the audio beats; LEVEL_SMOKE.md \"The sound state\")", br_begin,
+     br_frame, 0, 1, 0, 0},
     {"truck_preview", "07_truck_preview", 0x008251E0u,
      "trigger 0x8251E0 (r17): camera script 0x8292C0, letterbox, D_00810792=1",
      "the trigger and the AREA11 script host (census L23, L19)", truck_preview_begin,
@@ -242,6 +247,11 @@ static const Phase k_phases[] = {
     {"br_yard_ammo", "br_10_yard_ammo (side, from 09; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
      "pickup 00219550 g0.1 (item 0x1E, puid 4) on the yard floor: the take, the status page, the taken bit",
      "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 3, 0},
+    {"aud_walk_room", "walk_room (side, from 09; decomp CAPTURES_AUDIO.md)", 0,
+     "a quiet walk behind the fence door (room-move entry 2), south and back, then 120 idle ticks: the "
+     "footsteps and the flame's looped 0x413 (001FC3C0) from the room",
+     "chain step AUDIO (the sound state against the audio beats; LEVEL_SMOKE.md \"The sound state\")", br_begin,
+     br_frame, 0, 1, 4, 0},
     {"aim_r1_hold", "aim_00_r1_hold (side, from 08; decomp CAPTURES_C10.md AIM)", 0,
      "R1 stance 0016FCF0 (+5 0x1D, +1F0 0x31), camera action 1 00197D20 and its release 00197490",
      "the aim camera (chain step AIMCAM; CAMERA_LIVE.md section 7)", aim_hold_begin, aim_r1_hold_frame, 0, 1,
@@ -318,6 +328,11 @@ static const Phase k_phases[] = {
     {"br_plateau", "br_11_plateau_ladder_up .. br_13_plateau_ladder_down (side, from 11; decomp CAPTURES_C10.md BRANCH)", 0x00219550u,
      "the raised pipe's ledge climb and step-off, the plateau ladder up (0x15 / 0x17 / 0x18), pickup g0.2 (item 0x1F, puid 5) on the 355 top, the ladder down (the grab from above, 0x16)",
      "the BRANCH step (audit 1b item 16; LEVEL_SMOKE.md \"The BRANCH side runs\")", br_begin, br_frame, 0, 1, 0, 0},
+    {"aud_flame", "flame (side, from 11; decomp CAPTURES_AUDIO.md)", 0x008235F0u,
+     "toward the flame (placement record 7), 300 ticks standing 16.5 units from it, away east, 120 idle ticks: "
+     "the flame's looped 0x413 (001FC3C0 / 001FBDB0 on its one track) and the footsteps",
+     "chain step AUDIO (the sound state against the audio beats; LEVEL_SMOKE.md \"The sound state\")", br_begin,
+     br_frame, 0, 1, 0, 0},
     {"crevice_jump", "12_crevice_jump", 0,
      "running jump 0015EC50 / 001634A0 (+1F0 0x0C, state 6) onto the north block, landing 8 / 0xF",
      "the running jump on the live record (census L11)", crevice_jump_begin, crevice_jump_frame, 0, 0, 0, 0},
@@ -3388,10 +3403,28 @@ static const BrStep k_br_roger_talk[] = {
     BR_BEAT("br_14_roger_talk"), BR_IDLE(35), {BS_ROGER_TALK, 0, 0, 0, 0, NULL, 0, "Roger's talk"},
     {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
 
+/* The AUDIO step's side runs (LEVEL_SMOKE.md "The sound state"): the
+ * decomp's three designed audio beats (build/s87/audio/tools/audio_capture.py
+ * beat_walk_outdoor / beat_walk_room / beat_flame, CAPTURES_AUDIO.md), each
+ * from the route snapshot it starts from: route_capture's walk_path and
+ * idle frames. The "beat" line anchors the capture's row 0. */
+static const float k_aud_outdoor_path[][2] = {{275.0f, 385.0f}, {290.0f, 395.0f}};
+static const float k_aud_room_path[][2] = {{424.0f, 255.0f}, {424.0f, 268.0f}};
+static const float k_aud_flame_to[][2] = {{462.0f, 281.0f}, {457.0f, 279.5f}};
+static const float k_aud_flame_away[][2] = {{470.0f, 283.0f}, {485.0f, 275.0f}};
+static const BrStep k_aud_walk_outdoor[] = {
+    BR_BEAT("walk_outdoor"), BR_WALK(k_aud_outdoor_path, 2.0f), BR_IDLE(120), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_aud_walk_room[] = {
+    BR_BEAT("walk_room"), BR_WALK(k_aud_room_path, 1.5f), BR_IDLE(120), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+static const BrStep k_aud_flame[] = {
+    BR_BEAT("flame"), BR_IDLE(30), BR_WALK(k_aud_flame_to, 1.0f), BR_IDLE(300), BR_WALK(k_aud_flame_away, 1.5f),
+    BR_IDLE(120), {BS_END, 0, 0, 0, 0, NULL, 0, NULL}};
+
 static const struct {
     const char *phase;
     const BrStep *prog;
 } k_br_programs[] = {
+    {"aud_walk_outdoor", k_aud_walk_outdoor}, {"aud_walk_room", k_aud_walk_room}, {"aud_flame", k_aud_flame},
     {"br_ledge_ammo", k_br_ledge_ammo}, {"br_map_item", k_br_map_item}, {"br_elevator_up", k_br_elevator_up},
     {"br_panel_decline", k_br_panel_decline}, {"br_crate_stack", k_br_crate_stack},
     {"br_west_ledge", k_br_west_ledge}, {"br_cage_key", k_br_cage_key}, {"br_yard_ammo", k_br_yard_ammo},

@@ -839,6 +839,63 @@ static void log_area01(FILE *f)
     fputs("]}", f);
 }
 
+/* Chain step AUDIO: the EE sound state at this tick's main-loop top (the
+ * field's sample, em_stream_live_sound_sample: the previous frame and the
+ * vblank's 001152D8 tick), as "snd": {"t": ticks, "v": D_00810E90, "lane":
+ * D_00282154..58 and D_0028215B, "cue": D_00282178[3], "clip": D_00275B2C,
+ * "ring": D_00281CF0[16], "rh" / "rt": D_00275B30 / 34, "b70" / "c30": the
+ * D_00281B70 / D_00281C30 words other than -1 as [index, word], "f30":
+ * D_00281F30, "cur" / "ser": D_0027F740 + 0x30 / + 0x34, "vo": the
+ * D_0027CCC0 records in use (+0x00 != 0, or +0x06 / +0x22 != 0xFFFF) as
+ * [index, the 17 fields of EmSoundSample.voice], "envx": the nonzero
+ * D_002817C0 words as [index, word], "tr": the allocated tracks as
+ * [track, sound id] (diagnostic)}; null before the sound boot.
+ * tools/level_smoke_audio.py. */
+static void log_sound(FILE *f)
+{
+    const EmSoundSample *s = em_stream_live_sound_sample();
+    if (!s || !s->valid) {
+        fputs(", \"snd\": null", f);
+        return;
+    }
+    fprintf(f, ", \"snd\": {\"t\": %llu, \"v\": %u, \"lane\": [%d, %d, %d, %d, %d, %u], "
+            "\"cue\": [%d, %d, %d], \"clip\": %d, \"ring\": [",
+            (unsigned long long)s->ticks, s->d810E90, s->active[0], s->active[1], s->active[2],
+            s->read_phase, s->read_lane, s->mono, s->cue[0], s->cue[1], s->cue[2], s->music_clip);
+    for (int i = 0; i < 16; ++i) fprintf(f, "%s%d", i ? ", " : "", s->ring[i]);
+    fprintf(f, "], \"rh\": %d, \"rt\": %d", s->ring_head, s->ring_tail);
+    const int32_t *tables[2] = {s->b70, s->c30};
+    for (int k = 0; k < 2; ++k) {
+        fprintf(f, ", \"%s\": [", k ? "c30" : "b70");
+        int n = 0;
+        for (int i = 0; i < 48; ++i)
+            if (tables[k][i] != -1) fprintf(f, "%s[%d, %d]", n++ ? ", " : "", i, tables[k][i]);
+        fputc(']', f);
+    }
+    fputs(", \"f30\": [", f);
+    for (int i = 0; i < 10; ++i)
+        fprintf(f, "%s[%d, %d, %d, %d]", i ? ", " : "", s->f30[i][0], s->f30[i][1], s->f30[i][2],
+                s->f30[i][3]);
+    fprintf(f, "], \"cur\": %u, \"ser\": %u, \"vo\": [", s->cursor, s->serial);
+    int n = 0;
+    for (int v = 0; v < 48; ++v) {
+        const uint16_t *x = s->voice[v];
+        if (!x[0] && x[2] == 0xFFFF && x[16] == 0xFFFF) continue;
+        fprintf(f, "%s[%d", n++ ? ", " : "", v);
+        for (int k = 0; k < EM_SOUND_VOICE_FIELDS; ++k) fprintf(f, ", %u", x[k]);
+        fputc(']', f);
+    }
+    fputs("], \"envx\": [", f);
+    n = 0;
+    for (int v = 0; v < 48; ++v)
+        if (s->envx[v]) fprintf(f, "%s[%d, %d]", n++ ? ", " : "", v, s->envx[v]);
+    fputs("], \"tr\": [", f);
+    n = 0;
+    for (int k = 0; k < 48; ++k)
+        if (s->track_id[k] >= 0) fprintf(f, "%s[%d, %d]", n++ ? ", " : "", k, s->track_id[k]);
+    fputs("]}", f);
+}
+
 static void log_tick_end(int rc)
 {
     FILE *f = log_file();
@@ -1259,6 +1316,7 @@ static void log_tick_end(int rc)
             else
                 fputs(", \"stream\": null", f);
         }
+        log_sound(f);
         log_area01(f);
         /* Census L23, as the route rows sample them: D_00810792 and the
          * truck record (its address, +0x00..+0x0F, +0xB0 and +0x2DC..

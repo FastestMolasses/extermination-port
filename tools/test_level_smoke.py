@@ -677,6 +677,11 @@ def check_battery(ticks, run, state):
     # The window row for row from the scan to the page load (posted_p ==
     # posted_o): check_rand_order compares its frames with the C7 capture.
     state.setdefault('aligned', []).append(('01_battery', i0, rows[f0]['f'], load))
+    # The sound state (level_smoke_audio): route 01 is the audio beat
+    # battery_ui row for row, from the scan to the page load, then from the
+    # status close's music cue to the beat's end.
+    state.setdefault('audio', []).append(dict(phase='battery', beat='battery_ui', mode='rows', i0=i0,
+                                              f0=rows[f0]['f'], n=load, after_status=8))
     print(f'battery: PASS (scan at port tick {ticks[i0]["tick"]} = route 01 f{rows[f0]["f"]}; the take '
           f'program 0x266620 row for row to the post in spad, camera byte, letterbox, message, power and '
           f'B0/B1; B0 = 1 / B1 = 0x1B {posted_p} rows after the scan as in the original (the live camera\'s '
@@ -718,6 +723,11 @@ def check_panel(ticks, run, state):
     i_d, shift, last = check_module_load(ticks, i0 + load, 390, loader_rows_03(), state['drive'],
                                          'panel module 0x21')
     assert i_d - (i0 + load) == 24 - shift, ('panel: the load\'s length', i_d - i0 - load, shift)
+    # The sound state (level_smoke_audio): the audio beat panel_power is a
+    # separate run of route 03, aligned on its own scan row; from the scan to
+    # the page load, then from the status close's music cue on.
+    state.setdefault('audio', []).append(dict(phase='panel', beat='panel_power', mode='rows', i0=i0,
+                                              near=rows[f0]['f'], n=load, after_status=8))
     # Between: the port's page consumes the request for the prompt.
     prompt_port = next(k for k in range(load, 2000) if port_view(ticks, i0 + k)['req'] == '0082')
     prompt_orig = next(k for k in range(load, len(rows) - f0) if orig_view(rows[f0 + k])['req'] == '0082')
@@ -832,6 +842,8 @@ def check_elevator(ticks, run, state):
         got = [round(f32(b), 5) for b in term[7]]
         assert got == want and term[1] == bytes.fromhex(row['elevator_r19']['h'])[4], \
             ('elevator', f'row f{row["f"]}', 'terminal +0x04 / +0xB0', term[1], got, want)
+    state.setdefault('audio', []).append(dict(phase='elevator', beat='elevator_ride', mode='rows', i0=i0,
+                                              f0=rows[f0]['f'], n=count))
     state['ride_scan'] = i0             # check_indicator_children: the window of the ride
     state['ride_end'] = i0 + count
     print(f'elevator: PASS (port ticks {ticks[i0]["tick"]}..{ticks[i0 + count - 1]["tick"]} equal route 04 '
@@ -897,6 +909,10 @@ def check_fence_door(ticks, run, state):
     follow = check_follow_after_release(ticks, i0, rows, f0, 'fence_door', 'exact')
     admit, free = check_stage_takeover(ticks, i0, count, 'fence_door')
     state['cursor'] = i0 + count
+    # The sound state (level_smoke_audio): the audio beat fence_door is a
+    # separate run of route 09, aligned on its own scan row.
+    state.setdefault('audio', []).append(dict(phase='fence_door', beat='fence_door', mode='rows', i0=i0,
+                                              near=rows[f0]['f'], n=count))
     # the port tick of route 09's last row (its snapshot): check_area_title
     # compares the room move's fresh title node there
     state['fence_door_end'] = i0 + count - 1
@@ -975,12 +991,15 @@ AIM_PL_WALK = (0x09C, 0x104, 0x238, 0x250, 0x314)
 # - the melee's sound handle +0x302 (001735C0 / 00173E60 keep 001FBD50's
 #   return there to stop the swing's sound): 0xFF in both, or a handle in
 #   both, the track not compared. The handle is the lowest free track of
-#   the sound driver 00119EA0, and in the port that is not deterministic:
-#   em_sfx.c frees tracks on the host audio thread's clock (the 00118EC0
-#   reaper in the device callback), not on the game's tick, so under
-#   EM_UNCAPPED the track follows host timing (17 / 222 / 66 / 66 / 17
-#   rows with another track in five aim_melee runs). This tolerance
-#   covers that known port nondeterminism (AIM_FIRE.md section 11.4,
+#   the sound driver 00119EA0. Since chain step AUDIO the port's driver
+#   runs on the game's field clock (em_sfx.c), so the track is
+#   deterministic: aim_melee's handles equal the capture's on every row but
+#   the third hit's 17, where the port takes track 4 and the original 5:
+#   one more track was still held there in the original. A track stays
+#   held while a voice of its sound sounds, and the footsteps' sounds are
+#   random variants of different lengths whose values the side run does
+#   not share with the capture (RAND_ORDER.md); the tracks the earlier
+#   sounds hold are each run's own (AIM_FIRE.md section 11.4,
 #   FIRST_LEVEL_AUDIT.md 1b item 1).
 AIM_PL_SOUND = 0x302
 AIM_STANCES = (0x1D, 0x1E)
@@ -1071,8 +1090,8 @@ def check_aim_records(pairs, what, stick=False):
         stance_rows += stance
         # +0x302: the melee's sound handle (001FBD50's return, the track the
         # sound driver 00119EA0 allocates): a handle on the same rows, the
-        # track itself not compared: the port's track is host-timed
-        # (AIM_PL_SOUND)
+        # track itself not compared: which tracks the earlier sounds still
+        # hold is each run's own (AIM_PL_SOUND)
         hc, hp = cl[AIM_PL_SOUND], pl[AIM_PL_SOUND]
         assert (hc == 0xFF) == (hp == 0xFF), (where, 'the sound handle +0x302', hc, hp)
         sound_rows += hc != hp
@@ -1200,7 +1219,7 @@ def check_aim_records(pairs, what, stick=False):
             f'({nodes} rows; world vectors {"on " + str(stance_rows) + " stance rows" if stick else "on every row"}), '
             f'D_008101E4..E{"6" if stick else "7"} and the status block on {ui_rows} rows'
             f'{f" ({ui_skipped} rows across the page-module loads skipped, {ui_masked} after the last without +0x04 / +0x11)" if ui_skipped else ""}'
-            f'{f"; the sound handle +0x302 on {sound_rows} rows another track (host-timed in the port)" if sound_rows else ""}'
+            f'{f"; the sound handle +0x302 on {sound_rows} rows another track (the tracks earlier sounds hold)" if sound_rows else ""}'
             f'; largest frame differences: '
             f'{w or "none"}')
 
@@ -2442,6 +2461,8 @@ def check_roger(ticks, run, state):
     follow = check_follow_after_release(ticks, i0, rows, f0, 'roger', 'exact')
     admit, free = check_stage_takeover(ticks, i0, count, 'roger')
     state['cursor'] = i0 + count
+    state.setdefault('audio', []).append(dict(phase='roger', beat='roger_encounter', mode='rows', i0=i0,
+                                              f0=rows[f0]['f'], n=count))
     state.setdefault('snapshots', []).append(('14_roger_encounter', i0 + count - 1))
     print(f'roger: PASS (the stage\'s own takeover: +4 = 4 from the admission at port tick {admit} to 00182DF0 at '
           f'{free}; the script start 0x8283D0 at port tick {ticks[t0]["tick"]} = route f{rows[s0]["f"]} in Roger\'s '
@@ -2899,6 +2920,12 @@ def check_director_beat(ticks, run, state, phase):
     state['cursor'] = i0 + count
     state.setdefault('snapshots', []).append((beat, i0 + count - 1))
     state.setdefault('aligned', []).append((beat, i0, rows[f0]['f'], count))
+    if phase == 'cage_roof':
+        # The sound state (level_smoke_audio): the audio beat cage_roof is a
+        # separate run of route 10 (its voice reads took their own drive
+        # time), compared as sequences from its own scan row.
+        state.setdefault('audio', []).append(dict(phase=phase, beat='cage_roof', mode='sequence', i0=i0,
+                                                  near=rows[f0]['f'], n=count))
     step = bytes.fromhex(rows[-1]['d2'])[0x3B]
     extra = ", Roger's record and block (0x828990)" if roger else ''
     line = orig[e_orig]['msg'][2]
@@ -3029,6 +3056,27 @@ def branch_phase(side):
     return side, lambda ticks, run, state: level_smoke_branch.check_side(sys.modules[__name__], ticks, run, state, side)
 
 
+def audio_phase(side):
+    """A side run of chain step AUDIO (LEVEL_SMOKE.md "The sound state"):
+    the decomp's designed audio beat from the route snapshot it starts from,
+    anchored on the run's "beat" line; level_smoke_audio compares it."""
+    def check(ticks, run, state):
+        m = re.search(rf'^level smoke: {side}: beat (\w+) at tick (\d+) counter \d+$', run, re.M)
+        assert m and re.search(rf'^level smoke: {side}: PASS', run, re.M), (side, 'no beat line or no PASS')
+        tick = int(m.group(2))
+        i = next(i for i, t in enumerate(ticks) if t['tick'] == tick)
+        state.setdefault('audio', []).append(dict(phase=side, beat=m.group(1), mode='loops', i0=i - 1,
+                                                  n=len(ticks) - i))
+        if side == 'aud_flame':
+            # The walk meets the flame's contact (its cooldown, as in the
+            # capture's player record): check_overlay11 takes the DAMAGE
+            # side runs' view of the flame from here.
+            state['damage_from'] = i
+        state['cursor'] = len(ticks) - 1
+        print(f'{side}: PASS (the beat {m.group(1)} played from port tick {tick}; its sound state below, "audio")')
+    return side, check
+
+
 PHASES = [
     ('first_control', check_first_control),
     ('panel_no_battery', check_panel_no_battery),
@@ -3045,6 +3093,7 @@ PHASES = [
     branch_phase('br_ledge_ammo'),
     ('slide', check_slide),
     branch_phase('br_map_item'),
+    audio_phase('aud_walk_outdoor'),
     ('truck_preview', check_truck_preview),
     ('dmg_pit_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_pit_fall(ticks, run, state)),
     ('truck_crossing', check_truck_crossing),
@@ -3055,6 +3104,7 @@ PHASES = [
     ('fence_door_side1', check_fence_door_side1),
     branch_phase('br_west_ledge'),
     branch_phase('br_yard_ammo'),
+    audio_phase('aud_walk_room'),
     ('aim_r1_hold', check_aim_r1_hold),
     ('aim_r2_hold', check_aim_r2_hold),
     ('aim_fire', check_aim_fire),
@@ -3075,6 +3125,7 @@ PHASES = [
     ('dmg_load', lambda ticks, run, state: level_smoke_damage.check_dmg_load(ticks, run, state)),
     ('dmg_crevice_fall', lambda ticks, run, state: level_smoke_damage.check_dmg_crevice_fall(ticks, run, state)),
     branch_phase('br_plateau'),
+    audio_phase('aud_flame'),
     ('crevice_jump', check_crevice_jump),
     ('east_tower_climb', check_east_tower_climb),
     ('east_tower', check_east_tower),
@@ -3764,10 +3815,12 @@ SIDE = ('panel_no_battery', 'status_pages', 'fence_door', 'fence_door_side1', 'a
         'aim_cable', 'aim_burst', 'dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'br_ledge_ammo',
         'br_map_item',
         'br_elevator_up', 'br_panel_decline', 'br_crate_stack', 'br_west_ledge', 'br_yard_ammo', 'br_cage_key',
-        'br_plateau', 'br_roger_talk', *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS)
+        'br_plateau', 'br_roger_talk', 'aud_walk_outdoor', 'aud_walk_room', 'aud_flame',
+        *level_smoke_options.PHASES, *level_smoke_area01.SIDE_BEATS)
 # A side phase that starts from another side phase's end (em_level_smoke_test.c
 # Phase.from_side): its run plays that one first.
 FROM_SIDE = {'fence_door_side1': 'fence_door', 'br_west_ledge': 'fence_door', 'br_yard_ammo': 'fence_door',
+             'aud_walk_room': 'fence_door',
              **level_smoke_area01.FROM_SIDE}
 # FIRST_LEVEL_ROUTE.md section 3: the route beats and the phases that play them.
 BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'battery')),
@@ -3784,7 +3837,8 @@ BEATS = (('00', ('panel_no_battery',)), ('01', ('first_control', 'status', 'batt
          ('dmg', ('dmg_pit_fall', 'dmg_flame', 'dmg_load', 'dmg_crevice_fall')),
          ('br', ('br_panel_decline', 'br_elevator_up', 'br_crate_stack', 'br_ledge_ammo', 'br_map_item',
                  'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')),
-         ('opt', tuple(level_smoke_options.PHASES)))
+         ('opt', tuple(level_smoke_options.PHASES)),
+         ('aud', ('aud_walk_outdoor', 'aud_walk_room', 'aud_flame')))
 
 
 EQUIPMENT_NODE, PLAYER = 0x0018A6B0, 0x008102B0
@@ -5012,6 +5066,13 @@ def main():
             level_smoke_static_world.check_area01(all_ticks[state['area11_end']:])
             level_smoke_shadow.check_shadow_area01(all_ticks[state['area11_end']:])
             level_smoke_chain_page.check_kind6_area01(all_ticks[state['area11_end']:], 'a01_00' in checked)
+    if 'first_control' in checked and 'side_start' not in state and state.get('second_game') is None:
+        # The New Game's opening against the audio beat opening (from the
+        # AREA11 start to first control + 60).
+        state.setdefault('audio', []).insert(0, dict(phase='first_control', beat='opening', mode='opening'))
+    if state.get('audio'):
+        import level_smoke_audio        # chain step AUDIO: the sound state against the audio captures
+        print(f'audio: PASS ({level_smoke_audio.check(ticks, run, state)})')
     main_line = [p[0] for p in PHASES if p[0] not in SIDE]
     reached = [p for p in main_line if p in checked or p in driven]
     assert checked and reached == main_line[:len(reached)], ('phases checked out of order', checked, driven)

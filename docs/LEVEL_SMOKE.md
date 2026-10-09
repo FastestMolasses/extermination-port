@@ -69,9 +69,10 @@ capture, not a route beat), which the same targets require.
 make test-level-smoke                  # first_control, status, battery (about 15 s; the shortest supported run)
 make test-level-smoke-full             # the whole route through the exit and the AREA01 arrival idle (a01_arrival), --require-through last (about 150 s), then the side runs below (about 70 s)
 EM_TEST_FULL=1 make test-level-smoke   # the same as test-level-smoke-full
-make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage and test-level-smoke-branch
+make test-level-smoke-side             # side beat 00 (about 14 s), the designed status_pages run (about 47 s), then side beat 09 with side 1 (about 56 s), each its own run with its own rand() trace, then test-level-smoke-aim, test-level-smoke-damage, test-level-smoke-branch, test-level-smoke-options and test-level-smoke-audio
 make test-level-smoke-damage           # the DAMAGE side runs side by side: dmg_flame, dmg_crevice_fall, dmg_pit_fall (EM_DAMAGE_SIDES=a,b runs only those)
 make test-level-smoke-branch           # the BRANCH side runs side by side: br_ledge_ammo, br_map_item, br_elevator_up, br_panel_decline, br_crate_stack, br_west_ledge, br_yard_ammo, br_cage_key, br_plateau, br_roger_talk (EM_BRANCH_SIDES=a,b runs only those; 7 min 5 s for the ten with their checks, measured 2026-10-03)
+make test-level-smoke-audio            # the AUDIO side runs side by side: aud_walk_outdoor, aud_walk_room, aud_flame (about 5 min; EM_AUDIO_SIDES=a,b runs only those)
 make test-level-smoke-aim              # the aim/fire side runs side by side: aim_r1_hold, aim_r2_hold, aim_fire, aim_melee, aim_light, aim_world, aim_cable, aim_burst (8 min 57 s for the first seven with their checks, measured 2026-10-02 under a load average near 50); EM_TEST_FULL=1 adds aim_both, aim_reload, aim_reload_empty (the eleven about 25 min under a load average near 140)
 EM_LEVEL_SMOKE_UNTIL=status_pages make test-level-smoke       # the designed status_pages run alone (with its page-trace replay)
 EM_LEVEL_SMOKE_UNTIL=fence_door_side1 make test-level-smoke   # through truck_crossing, then side beat 09 and the fence door's side 1 (about 56 s)
@@ -305,6 +306,9 @@ fence_door_side1` requires both side phases.
 | br_west_ledge (side, from fence_door) | BRANCH br_05 .. br_08 | the corridor box's ledge climb and step-off (the skid 0x80000033: 001EAD70), the west-yard ladder up, box r6 broken, pickup g0.5 (item 0x10), the ladder down (the grab from above, 0x16) | yes, its own run (BRANCHES) | — |
 | br_yard_ammo (side, from fence_door) | BRANCH br_10 | pickup g0.1 (item 0x1E) on the yard floor | yes, its own run (BRANCHES) | — |
 | br_cage_key (side, from truck_crossing) | BRANCH br_09 | ladder A, pickup g0.4 (item 0x32): the take and its page (00214020's) | yes, its own run (BRANCHES) | — |
+| aud_walk_outdoor (side, from slide) | audio walk_outdoor (decomp CAPTURES_AUDIO.md, not a route beat) | the footsteps (00182430 through 001FB9F0) and the fans' 0x451 on the low ground | yes, its own run (chain step AUDIO, 2026-10-08) | — |
+| aud_walk_room (side, from fence_door) | audio walk_room | the footsteps behind the fence door and the flame's looped 0x413 (001FC3C0) | yes, its own run (chain step AUDIO) | — |
+| aud_flame (side, from crevice_prompt) | audio flame | the walk to the flame (its contacts: the burn node's 0x14A), 300 ticks standing, the walk away: the flame's 0x413 held on its one track | yes, its own run (chain step AUDIO) | — |
 | br_plateau (side, from crevice_prompt) | BRANCH br_11 .. br_13 | the raised pipe's ledge climb and step-off, the plateau ladder up, pickup g0.2 (item 0x1F), the ladder down | yes, its own run (BRANCHES) | — |
 | br_roger_talk (side, from roger) | BRANCH br_14 | Roger 0x8237E0's third branch 0x823B70: the use scan marks him (+0x0B = 4), the talk script 0x828810 (line 0x13, VOICE.DAT cue 1) | yes, its own run (BRANCHES) | the voice read's drive time (host speed; the recording's with the PS2 disc-drive timing switch) |
 | crevice_jump | 12 | running jump 0015EC50 / 001634A0 (+1F0 0x0C), landing 8 / 0xF; the approach's step-off | yes (census L11) | — |
@@ -1180,9 +1184,11 @@ rows' `ui_rec`; em_status_runtime_ui_block). Rules:
   what the two runs' histories leave before the capture's start) change on
   the capture's rows, to its value or by its step (button replays); the
   melee's sound handle +0x302 is 0xFF in both or a track in both, the
-  track not compared: the port's track choice is not deterministic (its
-  tracks are freed on the host audio thread's clock, not the game's tick;
-  a known port defect, AIM_FIRE.md section 11.4, audit 1b item 1).
+  track not compared: deterministic since chain step AUDIO, it equals the
+  capture's but on aim_melee's 17 rows of the third hit (track 4 against
+  5), where the original still held one more track: which tracks the
+  earlier sounds hold follows each run's rand() values (the footsteps'
+  variants; AIM_FIRE.md section 11.4).
   The stick replays (aim_world, aim_cable) leave out the walk's foot and
   contact words (+0x09C, +0x104, +0x238, +0x250, +0x314) and the start
   words, and compare the hand matrix and the aim point on the aim-stance
@@ -2543,6 +2549,65 @@ sound-bank transfer"). Every one of those frames passes the checks above.
 The run log's "module loader:" line gives the dispatches and the area's
 uploads (1 A entry, 1 player packet) and 001FB370's calls (8) and
 command 0x20s (1).
+
+### The sound state (`level_smoke_audio.check`, chain step AUDIO; FIRST_LEVEL_AUDIT.md 1b item 1)
+
+The tick log's `snd` is the EE sound state at the tick's main-loop top
+(em_stream_live sound_sample, taken right after the field's sound work:
+the vblank's 001152D8 tick, then the IOP exchange): the stream cues
+D_00282178, the lanes' bytes D_00282154..58 / 5B, the voice ring
+D_00281CF0 with its indices, the looped-service tables D_00281B70 /
+D_00281C30, the delayed cues D_00281F30, the allocation cursor and serial
+D_0027F740 + 0x30 / 0x34, the voice records D_0027CCC0 in use (17 fields
+each: state, note, owner track, release, serial, sustain, kind, age,
+priority, alloc, the portamento fields, program and the bank handle), the
+reaper's feedback D_002817C0 and, as a diagnostic, each allocated track's
+sound id. The decomp's audio captures (decomp docs/CAPTURES_AUDIO.md,
+`build/s87/audio/<beat>/`) hold the same tables at every main-loop top of
+ten first-level beats; port line i + 1 is the capture row of the port's
+frame i (the route rows' convention: the stream check's alignment).
+
+`tools/level_smoke_audio.py` compares, after the phases, every window the
+run's phases recorded:
+- **Row for row** (the phase's own alignment; a beat that is a separate
+  run of the route beat on its own scan row): the cues, the delayed cues,
+  the voice ring, the ids D_00281B70 / D_00281C30 hold, and every voice
+  keyed after the window's first row (its key-on row and every field but
+  the age and the owner's number; which voices one track keyed together),
+  then those voices to their ends after the window (their lives follow the
+  sound thread's field clock whatever the frames do, a page load at host
+  speed included). battery (route 01 = battery_ui: the take to the ITEM
+  load, the status cue 0xB to its end, then from the status close's music
+  cue to the beat's end), panel (panel_power, a separate run: the same
+  three parts with the 0x4 / 0x0 / 0x6 page cues and the panel's 0x3EF),
+  elevator (elevator_ride: the ride's 0x19A and 0x453, its portamento and
+  key-offs), fence_door (the door's sounds), roger (roger_encounter: the
+  stop-all at the encounter, cue 29).
+- **As sequences** where the capture's stream reads took their own drive
+  time (cage_roof: its voiced conversation's cue states 143..148 in order).
+- **The opening** (first_control's run): the cues 25, 0, 63, 25 in order;
+  the area's cue back on the frame the camera leaves the opening's mode 3
+  in both (capture f1863, the port's line two after its last mode-3
+  tick); the timeline's mode 3 equally long (1,293); no sound keyed but
+  the fans'. The stream request's distance before the timeline (29 rows
+  in the capture; 6 at host speed, 16 with the PS2 disc-drive timing
+  switch, measured 2026-10-08) is the disc's and reported, not compared.
+- **The AUDIO side runs** (aud_walk_outdoor, aud_walk_room, aud_flame:
+  the decomp's designed beats, played closed loop from the port's own
+  state, so the footsteps' random variants and the flinch's clip are the
+  run's own): the cues, the delayed cues and D_00281B70 / D_00281C30 row
+  for row from the beat's first row, and the sustained voices the beat
+  starts with (the flame's 0x413) in every field but the age; the
+  footstep key-ons are counted in both.
+
+Left out, each for its reason: voices keyed before a window (each run's
+own history); the fans' 0x451 (their cycle follows the ticks since the
+room's spawn); the track and voice indices (00119EA0 and 00117428 pick
+from what the history holds); a sound's end one tick apart when it ends
+unstopped (the IOP driver's tick drifts 13 half-lines a field against the
+frame and the two runs' phases differ: SFX_SEQUENCER.md "Measured";
+counted in the report, one in fence_door); the audible stages (no WAV of
+the original: FIRST_LEVEL_AUDIT.md item 1).
 
 ## What the full route does not yet compare (2026-09-28)
 

@@ -1164,22 +1164,63 @@ of the game's own stream code; nothing is scripted by hand.
 
 Near the flame in the first level the fire's sound loop (0x413) starts,
 pans and stops as the game's own service decides it, from the flame's own
-owner code.
+owner code, and once started it plays on as a held loop, as in the
+original.
 
 - How: the flame owner 008235F0 (decomp C byte-identical) runs on its pool
   record and calls the translated looped positional service 001FC3C0 /
   001FC520 (em_sfx_loop_service) with the original's arguments (sound
   0x413, radius 100), the scratchpad frame counter and the walk ordinal
-  (`AREA11_EFFECT.md` "Sound", chain step A11FIX).
+  (`AREA11_EFFECT.md` "Sound", chain step A11FIX). Its distance is the
+  original's listener D_00810360, the player's hip (chain step AUDIO).
+  Its script keys the looping tone on and off in one exchange; the key-off
+  is lost, so the voice sustains and its track stays held (measured in the
+  decomp's audio captures: `SFX_SEQUENCER.md` "Measured").
 - Evidence: test-area11-sfx-reference (001FC3C0 against the original
   instructions); test-area11-effect-reference (the owner's calls); the level
-  smoke's check_overlay11: no track requests 0x413 before first control
-  (the opening capture's handle is -1) and tracks do on the main line near
-  the flame (3,120 ticks to Roger), where the decomp's audio capture
-  (`CAPTURES_AUDIO.md`, the `flame` beat) holds 0x413 in every frame.
-- Status: **PARTIAL**. The request is compared only as present or absent
-  against the capture's beats, not frame for frame; what reaches the
-  speakers is the port's SPU2 voice model (`FIRST_LEVEL_AUDIT.md` 1b item 1).
+  smoke's check_overlay11 (no track requests 0x413 before first control);
+  the sound check against the decomp's audio captures (`LEVEL_SMOKE.md`
+  "The sound state"): D_00281B70 / D_00281C30 row for row and the held
+  voice's fields with the beats flame and walk_room.
+- Status: **VERIFIED** at the command level (the service, its track and its
+  voice record). What reaches the speakers is the port's SPU2 voice model
+  (`FIRST_LEVEL_AUDIT.md` 1b item 1): no claim about the sound itself.
+
+**The sound effects follow the original's sound driver at the command level**
+
+In the compared windows, which sound starts on which frame and when each
+sound's voices are reset are the original's: the PS2's sound driver runs
+inside the game's frame loop, once per field, as the PS2's sound thread
+does at every vblank. The voice and track indices it takes, and the
+footstep variants in the side runs (they follow rand()), are not
+compared.
+
+- How: em_sfx.c runs the translated driver (00119EA0 tracks, the 001152D8
+  tick: 00118EC0's reaper, 00115850's key-on through 00117428, 001176E0,
+  00118078, 00116598) on the game thread at every field, with the IOP
+  exchange modelled: the reaper reads the IOP's previous reply, the
+  commands reach the SPU2 model at the IOP driver's own ticks. The panel's
+  0x3EF plays through it like every id; the voices carry the bank handles
+  the game registered (chain step AUDIO, `SFX_SEQUENCER.md`).
+- Evidence: the level smoke compares the port's per-frame sound state
+  (the stream cues, the voice ring, the looped-service tables, the delayed
+  cues, the voice records, the reaper's feedback) with the decomp's ten
+  audio beats of the original: the opening, the battery's take and status
+  page, the panel and its BATTERY page, the elevator ride, the fence door,
+  Roger's conversation and encounter, two quiet walks and the flame
+  (`LEVEL_SMOKE.md` "The sound state"); test-area11-sfx-reference (every
+  command word in lockstep with the original 001152D8), test-area11-sfx
+  (the native output against an independent SPU2 model on the original
+  command stream).
+- Status: **VERIFIED** at the command level in the compared windows (a
+  sample's end lands one frame apart where the IOP timer's phase differs:
+  hardware timing, one case in the fence door). Not compared: the voice
+  and track indices, the footstep variants in the side runs (counted
+  only), and cage_roof's sounds (its cue states only). No claim about
+  what reaches the speakers.
+  The audible stages (reverb, interpolation, ADSR, levels) are the port's
+  documented model; no WAV of the original exists to compare them
+  (`FIRST_LEVEL_AUDIT.md` 1b item 1).
 
 **Music plays from your disc's exact stream data, buffered by a translation of the PS2 sound driver**
 

@@ -244,14 +244,69 @@ int em_stream_live_failed(void)
 
 /* ------------------------------------------------------------ time */
 
+static EmSoundSample s_sound_sample;
+
+/* The main-loop-top sample (em_stream_live.h EmSoundSample). */
+static void sound_sample(void)
+{
+    uint64_t ticks = 0;
+    const EmSfxDriver *d = em_sfx_driver_state(&ticks);
+    EmSoundSample *o = &s_sound_sample;
+    memset(o, 0, sizeof *o);
+    if (!d) return;
+    const EmStreamLanesState *st = &S.lanes.state;
+    o->valid = 1;
+    o->ticks = ticks;
+    o->d810E90 = S.globals.d810E90;
+    for (int i = 0; i < 3; ++i) {
+        o->active[i] = st->active[i];
+        o->cue[i] = st->cue[i];
+    }
+    o->read_phase = st->read_phase;
+    o->read_lane = st->read_lane;
+    o->mono = st->mono;
+    o->music_clip = st->music_clip;
+    memcpy(o->ring, st->ring, sizeof o->ring);
+    o->ring_head = st->ring_head;
+    o->ring_tail = st->ring_tail;
+    em_sfx_tables(o->b70, o->c30);
+    memcpy(o->f30, S.d281F30, sizeof o->f30);
+    o->cursor = d->cursor;
+    o->serial = d->serial;
+    for (int v = 0; v < 48; ++v) {
+        const EmSfxVoice *x = &d->voices[v];
+        const uint16_t f[EM_SOUND_VOICE_FIELDS] = {
+            x->state, x->note, x->owner, x->release, x->serial, x->sustain, x->kind, x->age,
+            x->priority, x->alloc, x->porta, x->base, x->depth, x->remaining, x->length, x->prog,
+            x->bank};
+        memcpy(o->voice[v], f, sizeof f);
+        /* D_002817C0[v] as the tick's reaper read it (em_sfx's reply of
+         * the previous exchange; the stream voices' words are the stream
+         * backend's, not compared). */
+        o->envx[v] = d->feedback ? d->feedback[v] : 0;
+    }
+    for (int k = 0; k < 48; ++k)
+        o->track_id[k] = d->tracks[k].allocated && d->tracks[k].entry
+                             ? (int32_t)d->tracks[k].entry->id : -1;
+}
+
 int em_stream_live_field(void)
 {
     if (S.fault) return -1;
     if (!S.booted) return 0; /* before 001AAE40's start-up nothing counts */
-    /* The vblank handler's D_00810E90 += 1, then the field's IOP work. */
+    /* The vblank handler's D_00810E90 += 1; its wake of the sound thread
+     * 001FB0C0, whose 001152B0 runs the SFX sequencer's tick (em_sfx);
+     * then the field's IOP work (the tick's RPC 0x64 exchange). */
     S.globals.d810E90 += 1u;
+    if (em_sfx_field() != 0) return fail("the SFX sequencer's tick (001152D8)");
     if (em_iop_stream_field(S.ctx.iop) != 0) return fail("the IOP field (RPC 0x64, driver ticks)");
+    sound_sample();
     return 0;
+}
+
+const EmSoundSample *em_stream_live_sound_sample(void)
+{
+    return &s_sound_sample;
 }
 
 /* 001FB100's workers. */
@@ -375,6 +430,13 @@ static int bank_voice(void *ctx, int32_t voice, uint16_t *state, uint16_t *handl
     return em_sfx_voice_record(voice, state, handle);
 }
 
+/* D_00281D50, the bank handles 001FB9F0 reads (one storage: the sound
+ * bank's load state). */
+static const int32_t *bank_handles(void)
+{
+    return S.bank_bound ? S.bank.load.d281D50 : NULL;
+}
+
 int em_stream_live_bind_sound_bank(const int32_t base[5])
 {
     if (S.fault) return -1;
@@ -382,6 +444,7 @@ int em_stream_live_bind_sound_bank(const int32_t base[5])
     if (em_sound_bank_init(&S.bank, S.ctx.iop, base) != 0) return fail("em_sound_bank_init");
     em_sound_bank_set_voice(&S.bank, bank_voice, NULL);
     S.bank_bound = 1;
+    em_sfx_bind_bank_handles(bank_handles); /* 001FB9F0's D_00281D50 */
     return 0;
 }
 

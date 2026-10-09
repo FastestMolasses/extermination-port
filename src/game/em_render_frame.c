@@ -1048,11 +1048,22 @@ static void camera_cooldown_0018B9C0(void)
 /* The positional-audio listeners (em_sfx.h): player = distance
  * (D_00810360), camera eye / heading = pan (D_008105D0 / cam+0x9C, the
  * commit's 001B1240 heading). The port's audio feed, not part of 0018B9C0. */
+/* D_00810360 at a 001FBF50 call: the player record's +0xB0, the bone-1
+ * hip 0015BCF0's tail leaves (the pose host's published hip; the position
+ * while no pose is evaluated), as the close-out passes see it
+ * (em_area11_bindings.c player_closeout). */
+static int sfx_d810360(float out[3])
+{
+    if (!player_pose_hip(out)) memcpy(out, g.pos, 3 * sizeof *out);
+    return 0;
+}
+
 static void camera_listener(void)
 {
     float pan = g.cam.yaw;
     const uint8_t *heading = em_camera_live_bound() ? em_camera_live_bytes(0x0081027Cu, 4) : NULL;
     if (heading) memcpy(&pan, heading, sizeof pan);
+    em_sfx_bind_distance_listener(sfx_d810360);
     em_sfx_listener(g.pos, g.cam.eye, pan);
 }
 

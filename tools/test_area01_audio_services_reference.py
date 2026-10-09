@@ -120,12 +120,15 @@ def main():
             expected=bytes(ee.read(a,size));actual=native(a,size)
             assert actual==expected,(case,hex(fn),hex(a),next((i,x,y) for i,(x,y) in enumerate(zip(actual,expected)) if x!=y))
         assert [x&0xFFFFFFFF for x in n.au_requested()[:48]]==[ee.load(0x281B70+4*i) for i in range(48)]
+        # The driver's own tracks (em_sfx runs it on the game thread): a
+        # stopped track is freed at once (0011A070), a request is stored
+        # (0011A218), a start takes the lowest free track (00119EA0).
         for event in events:
-            if event[0]=='stop':assert n.au_track(event[1])==(4 if status==2 else 0)
+            if event[0]=='stop':assert n.au_track(event[1])==0
             elif event[0]=='request':
                 assert tuple(n.au_gain(event[1],side)&0xFFFFFFFF for side in (0,1))==event[2:]
             elif event[0]=='start' and status!=2:
-                assert n.au_track(0)==2
+                assert n.au_track(0)==1
                 assert tuple(n.au_start_gain(0,side)&0xFFFFFFFF for side in (0,1))==event[3:]
         loop_completed+=1
     # On a live update the original stores an unchanged handle. A refused

@@ -105,12 +105,17 @@ AUDIT.md 1b item 1).
 AREA11 bank0's script4/4 contains one note65 with velocity101 followed by
 velocity0, not two independent notes. The second event calls the original
 key-off path. Its VAG has loop-start block2 and loop-end1244, with ADSR
-words33023/24523. The existing native one-shot WAV mixer discards loop and
-envelope semantics. A new unconditional loop or guessed voice lifetime would
-therefore be another fabrication. The sequencer and voice model the loop
-plays through are em_sfx's (SFX_SEQUENCER.md); no loop or voice lifetime is
-invented here. The ordinal comes from the live walk, not from the ordinal 17
-of one capture.
+words33023/24523. The sequencer and voice model the loop plays through are
+em_sfx's (SFX_SEQUENCER.md). The key-on and its key-off reach the SPU2 in
+one exchange; the decomp's audio captures show the key-off lost there: the
+voice sustains (ENVX 0x7FFF..0x7DD9 over 4,515 ticks in the beat flame), its
+track is never freed and D_00281B70 keeps 0x413, so the service re-pans the
+one handle. Since chain step AUDIO the SPU2 model follows that measurement
+(a key-off before a voice's first sample since its key-on is lost), and the
+level smoke compares the loop's table rows and held voice with the beats
+flame and walk_room (LEVEL_SMOKE.md "The sound state"). The service's
+distance is D_00810360 (the hip), as the original's 001FBF50 reads it. The
+ordinal comes from the live walk, not from the ordinal 17 of one capture.
 
 ## Reproduction and validation
 

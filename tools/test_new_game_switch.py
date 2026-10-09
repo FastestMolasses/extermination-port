@@ -30,8 +30,9 @@ A word that differs between title+k and switch is accepted only as:
   - host-only state, given by the image's "host:" blocks: the frontend's
     own state (em_frontend.c f, em_startup_audio.c s), which the game reads
     only through the service state and the title sequencer's pending
-    sounds (those are compared and must be equal), the sfx driver's host
-    clock and the frame pacing's wall-clock deadline (em_frame.c);
+    sounds (those are compared and must be equal), the sfx mixer ring (the
+    rendered output and the audio thread's read position, em_sfx.c) and the
+    frame pacing's wall-clock deadline (em_frame.c);
   - the IOP driver's command ring and its byte counters: the ring must be
     drained in every run (nothing still to run); its history and position
     count the commands issued since the boot, two more on the title route
@@ -70,6 +71,7 @@ DWELL = {
     '_R': (1, 'em_render_context_live.c: step V\'s kick count (R.kicks), one per frame'),
     'loader': (1, 'the module loader\'s drive clock: fields since the boot'),
     'iop': (4, 'the IOP clock (half lines, ticks, samples) and its SPU2 DMA stamp (ch0_tick)'),
+    '_s_sound_sample': (1, 'em_stream_live.c: the main-loop-top sound sample\'s copy of D_00810E90'),
 }
 WAITS = 4  # title+0 .. title+3: two runs of each parity
 

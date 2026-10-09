@@ -27,9 +27,10 @@
  *     Ids whose scripts need unreproduced driver features (other
  *     controllers, noise, modulation, volume sweeps) are UNSUPPORTED:
  *     silent, counted, reported once. The current export has none.
- *   - The scoped EMSF bank separately preserves the original AREA11 panel
- *     cue with its verified steady envelope and takes precedence while
- *     (11,0) is selected. See docs/AREA11_PANEL_SFX.md.
+ *   - The AREA11 panel cue 0x3EF is the registry's (11,0) entry like any
+ *     other id: the original plays it on a driver track and voice (the
+ *     decomp's audio capture panel_power, chain step AUDIO), so the old
+ *     separate EMSF panel bank and its slot pool are retired.
  *   - Native boundaries: linear interpolation (not SPU2 Gaussian), no
  *     reverb, the SPU2 ADSR is a documented-semantics model (checked only
  *     against PCSX2 ENVX feedback), sequencer ticks at the NTSC field
@@ -58,7 +59,8 @@
  *   pan-0 entry (0x80,0x00) that pins gainA = LEFT. Decoded math,
  *   normalized to 1.0 = 0x1000:
  *
- *     DISTANCE (listener = the PLAYER position, D_00810360):
+ *     DISTANCE (listener = D_00810360, the player record's +0xB0: the
+ *     bone-1 hip between two player stages; em_sfx_bind_distance_listener):
  *       d = |src - player|            (full 3-D Euclidean; the flat2d
  *                                      flag zeroes Y — no translated
  *                                      call site passes it)
@@ -128,31 +130,32 @@
  *
  * DEVICE OWNERSHIP: em_bgm owns the single em_audio device (em_audio.h pull
  * model). em_sfx NEVER opens a device — em_bgm's render callback calls
- * em_sfx_mix() to sum the SFX voices into the same buffer, and
- * em_sfx_play() asks em_bgm to bring the shared device up (at the BGM
- * default 48 kHz) if music has not already done so.
+ * em_sfx_mix() to sum the SFX output into the same buffer, and
+ * em_sfx_play() asks em_bgm to bring the shared device up (at 48 kHz) if
+ * music has not already done so.
  *
- * THREADING (per the em_audio.h contract): single producer (game thread) /
- * single consumer (the OS audio thread). The driver (tracks, voices, SPU
- * model) belongs to the audio thread; the game thread sees one atomic
- * state word per original track (em_sfx.c "TRACK HAND-OFF"): it picks the
- * lowest FREE track and publishes the start (READY, release store); the
- * audio thread adopts it at its next sequencer tick and publishes FREE
- * when the original reaper frees the track. Stops (0011A070) and gain
- * updates (0011A218) cross the same way. Samples are preloaded PCM16 at
- * registry-load time and immutable until shutdown; no locks, no
- * allocation, no I/O on the audio thread.
+ * THREADING (chain step AUDIO, 2026-10-08): the game thread owns the whole
+ * driver, as the EE does. The game's calls act on it at once; em_sfx_field
+ * runs the sequencer tick once per field (the vblank's wake of the sound
+ * thread 001FB0C0) and then renders the field's 48 kHz samples into a
+ * lock-free ring; the audio thread only drains that ring (em_sfx_mix), as
+ * it drains the IOP stream backend's. The device must run at 48 kHz (any
+ * other rate is counted and mixes nothing, like the streams). So every
+ * track, voice record and the reaper's feedback follow the game's field
+ * count, never host time.
  *
  * Call ordering (game thread): em_sfx_init() at boot (after the manifest,
- * before plays), em_sfx_play() during gameplay, em_sfx_shutdown() AFTER
- * em_bgm_shutdown() (which tears down the device and guarantees the
- * callback can no longer fire — only then is the sample memory freeable).
+ * before plays), em_sfx_play() during gameplay, em_sfx_field() once per
+ * field, em_sfx_shutdown() AFTER em_bgm_shutdown() (which tears down the
+ * device and guarantees the callback can no longer fire).
  */
 #ifndef EM_SFX_H
 #define EM_SFX_H
 
 #include <stddef.h>
 #include <stdint.h>
+
+#include "game/em_sfx_bank.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -277,18 +280,44 @@ extern "C" {
 #define EM_SFX_DOOR_CLOSE   0xF001u /* LEGACY fallback — the engine's open
                                      * script has NO close sound record   */
 
-/* Load the EMSR registry and the independent AREA11 EMSF bank. Either
- * file that is missing or invalid is unavailable as a whole (reported).
- * Returns the audible registry entries plus one for the panel bank. Game
- * thread, once at boot. */
+/* Load the EMSR registry (missing or invalid: unavailable as a whole,
+ * reported). Returns the audible registry entries. Game thread; a later
+ * call (every area load makes one) keeps the loaded registry and the
+ * driver's state, as the original's driver lives across area loads. */
 int em_sfx_init(void);
 
 /* Select the original (area, sub) scope after loading its scene (the
- * D_00810700/701 pair 001FB9F0 reads). (11,0) requires the complete
- * audited panel bank and returns zero (scope cleared) if it is missing.
- * Other pairs select their registry scope and return one; (-1,-1) clears.
+ * D_00810700/701 pair 001FB9F0 reads); (-1,-1) clears. Returns one.
  * Already-playing voices retain immutable data through completion. */
 int em_sfx_set_area(int area, int sub);
+
+/* D_00281D50, the bank handles 001FB9F0 reads ([group * 20 + bank], 120
+ * words): em_stream_live binds the sound bank's table. A start with no
+ * table bound (or a record outside it) latches a fault: em_sfx_field then
+ * returns -1 and the frame loop stops. */
+void em_sfx_bind_bank_handles(const int32_t *(*reader)(void));
+
+/* One NTSC field at the vblank: 001152B0's 001152D8 tick (the reaper over
+ * D_002817C0, the previous exchange's reply; the tracks' operations, the
+ * voice re-sends, the flush), the exchange (the tick's commands and those
+ * the calls since the last one queued go to the IOP driver's ring; the
+ * reply is the status its last tick wrote), then the field's 800 or 801
+ * samples at 48 kHz into the mixer ring, the commands reaching the SPU2
+ * model at the IOP driver's ticks (every 128 half-lines of the SFX side's
+ * own clock, phase 0 at the first field after the registry's load), each
+ * of which snapshots every voice's ENVX. Game thread; em_stream_live_field
+ * calls it once per field from the boot on. 0, or -1 once a fault
+ * latched. */
+int em_sfx_field(void);
+
+/* The driver as the last field / call left it (tracks D_0027E0C0, voices
+ * D_0027CCC0, cursor and serial), with the ticks run: the level smoke's
+ * per-tick sound trace reads it. NULL before a registry is loaded. */
+const EmSfxDriver *em_sfx_driver_state(uint64_t *ticks);
+
+/* The mixer ring's counters and the digest of every frame rendered. */
+void em_sfx_mix_counters(uint64_t *overruns, uint64_t *underruns, uint64_t *bad_rate,
+                         uint64_t *digest);
 
 /* Current scope: 0 unavailable, 1 audible asset loaded, 2 intentional
  * original FF remap (accepted as silence, does not allocate a voice). */
@@ -351,15 +380,20 @@ int em_sfx_play_at_track(unsigned id, const float pos[3], float radius);
 /* The reader of D_0028215B (the committed output mode) 001FBF50's mono arm
  * tests; em_stream_live binds em_stream_live_output_mode at its boot. */
 void em_sfx_bind_output_mode(const uint8_t *(*reader)(void));
+/* D_00810360, the distance listener 001FBF50 reads at each call: the
+ * player record's +0xB0, which between two player stages holds the bone-1
+ * hip 0015BCF0's tail leaves (the audio capture fence_door: the flame's
+ * 0x413 starts at 99 units from the hip, 108 from the feet). The reader
+ * returns 0, or -1 for a fault (nothing is submitted). Unbound (fixtures),
+ * em_sfx_listener's player position stands. */
+void em_sfx_bind_distance_listener(int (*reader)(float out[3]));
 int em_sfx_compute_gains(const float pos[3], float radius,
                          float *gain_l, float *gain_r);
 
-/* AUDIO-THREAD mixer half: runs the sound driver's sequencer ticks and
- * SUMS every sounding SPU voice into the interleaved stereo buffer (which
- * already holds the BGM frames): SPU pitch (4096 = 48 kHz), loop replay,
- * ADSR at the 48 kHz clock and Q14 volume words. Called by em_bgm's render
- * callback only — real-time safe per the em_audio.h contract (no
- * locks/allocation/IO). A no-op while nothing is live. */
+/* AUDIO-THREAD mixer half: sums the rendered fields from the ring into the
+ * interleaved stereo buffer (which already holds the other producers'
+ * frames). device_rate must be 48000; any other rate is counted and adds
+ * nothing. Real-time safe (no locks/allocation/IO). */
 void em_sfx_mix(float *out_interleaved_stereo, int frames, int device_rate);
 
 /* LOOPED POSITIONAL SERVICE — func_001FC3C0, called every frame by an
@@ -386,19 +420,18 @@ int em_sfx_loop_service_bound(int32_t handle,unsigned id,int32_t frame,int16_t o
                               int release,EmSfxLoopGain gains,EmSfxLoopStore store,void *ctx);
 
 /* 0011A070(track | (hard ? 0x8000 : 0)) for a caller that holds a track
- * handle (the player stage's +31B loop-sound stop, 0015BCF0): a soft stop
- * hands T_STOP to the audio thread as em_sfx_loop_release does, a hard
- * stop T_HALT as em_sfx_stop_all does; a track that is not allocated is
- * left alone. Game thread. Returns 0, or -1 for a track outside 0..47. */
+ * handle (the player stage's +31B loop-sound stop, 0015BCF0): frees the
+ * track when allocated and keys off every SFX voice whose +0x06 names it
+ * (allocated or not, as the original); hard also zeroes their ADSR words
+ * and states. Game thread. Returns 0, or -1 for a track outside 0..47. */
 int em_sfx_stop_track(int track, int hard);
 
 /* Stop every live voice (engine func_001FBC50 — the audio reset/stop-all,
  * mislabelled "Subsystem init" in the decomp): every allocated track is
  * hard-stopped (0011A070 | 0x8000) and the service tables return to -1.
- * Honored at the next audio callback, where the stopped voices are
- * silenced at once. Call at a game-over, a scripted cut, or the script's
- * op-0x17 sub-3 stop. This is a RUNTIME stop; em_sfx_shutdown() below is
- * the process-exit teardown and must not be used for it. */
+ * Call at a game-over, a scripted cut, or the script's op-0x17 sub-3
+ * stop. This is a RUNTIME stop; em_sfx_shutdown() below is the
+ * process-exit teardown and must not be used for it. */
 void em_sfx_stop_all(void);
 
 /* The voices the driver reserves for the streams (kind 3, never taken by a
@@ -406,9 +439,7 @@ void em_sfx_stop_all(void);
  * against (one storage of D_0027CCC0's stream records). */
 uint64_t em_sfx_stream_voices(void);
 
-/* D_0027CCC0[voice]'s +0x00 (state) and +0x22 (the bank handle), as the
- * audio thread's driver last left them (published at the end of every
- * em_sfx_mix; the driver's initial records before the first). What
+/* D_0027CCC0[voice]'s +0x00 (state) and +0x22 (the bank handle): what
  * 001195A8's scan reads (em_sound_bank). Game thread. 0, or -1. */
 int em_sfx_voice_record(int voice, uint16_t *state, uint16_t *bank);
 
@@ -417,9 +448,9 @@ int em_sfx_voice_record(int voice, uint16_t *state, uint16_t *bank);
  * free). Prints the counters if any sound ever played. */
 
 void em_sfx_shutdown(void);
-/* The audio thread's device clock (the mixed-frame count and the tick
- * grid's anchor in it): host timing, which the test of the New Game switch
- * leaves out (tools/test_new_game_switch.py). */
+/* The mixer ring and its counters (host output and the audio thread's read
+ * position), which the test of the New Game switch leaves out
+ * (tools/test_new_game_switch.py). */
 const void *em_sfx_host_clock(size_t *size);
 
 /* Introspection (EM_SFX_TEST / debugging; game thread). */

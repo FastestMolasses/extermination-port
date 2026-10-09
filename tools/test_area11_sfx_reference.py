@@ -237,7 +237,7 @@ int shim_start(Shim *s, unsigned id, int area, int sub, int l, int r)
 {
     const EmSfxEntry *e = em_sfx_registry_find(&s->reg, id, area, sub);
     if (!e) e = em_sfx_registry_find(&s->reg, id, -1, -1);
-    return e ? em_sfx_driver_start(&s->drv, e, l, r) : -2;
+    return e ? em_sfx_driver_start(&s->drv, e, e->bank, l, r) : -2;
 }
 int shim_entry_state(Shim *s, unsigned id, int area, int sub)
 {
@@ -537,11 +537,16 @@ def _registry_case(job):
 
 
 def endless(entry):
-    """A sustained looping tone the script never keys off (0x135): it plays
-    until its requester stops the track (0011A070), as 0016BF80 does."""
+    """A sustained looping tone that plays until its requester stops the
+    track (0011A070): one the script never keys off (0x135, which 0016BF80
+    stops), or one it keys off in the key-on's own tick (0x411..0x413, the
+    flame's loops): that key-off reaches the SPU2 in the key-on's exchange
+    and is lost (measured: decomp docs/CAPTURES_AUDIO.md, the flame's 0x413
+    in the beats cage_roof and flame; SFX_SEQUENCER.md)."""
     ops=[e for e in entry.get('events',()) if 'op' in e]
-    return any(e.get('loops') and e.get('sustained') for e in ops) and \
-        not any(e['op']==_SFX['X'].OP_KEY_OFF for e in ops)
+    loops={(e['tick'],e['note']) for e in ops if e.get('loops') and e.get('sustained')}
+    offs={(e['tick'],e['note']) for e in ops if e['op']==_SFX['X'].OP_KEY_OFF}
+    return bool(loops) and (not offs or bool(loops&offs))
 
 
 def _model_case(entry):
@@ -759,7 +764,9 @@ def registry_oracle(elf,ram):
                               ('start',0x452,0x1000,0x1000)],
                            10:[('request',1,-0x200,0x700)],20:[('start',0x413,0x400,0x800)],
                            24:[('stop',1,0)],40:[('start',0x413,0x1000,0x1000),('start',0x453,0x800,0x800)],
-                           60:[('stop',2,1),('start',0x14D,0x1000,0x1000)],70:[('stop',3,0)]}
+                           60:[('stop',2,1),('start',0x14D,0x1000,0x1000)],70:[('stop',3,0)],
+                           # 0x413's loops play until stopped (endless()): its three starts.
+                           90:[('stop',('start',0),0),('stop',('start',3),0),('stop',('start',4),1)]}
     # Voice and track exhaustion: 00117428 refuses once 44 voices are busy
     # (it never steals kind-2 voices) and the 49th track is refused; the
     # starved instances' key-offs fall back to other tracks' voices.
@@ -775,7 +782,10 @@ def registry_oracle(elf,ram):
         actions=[]
         if rng.random()<0.2:
             left,right=rng.choice(REQUESTS)
-            actions.append(('start',rng.choice(audible+[0x413,0x14D,0x452]),left,right))
+            # 0x413 is left out: it is held until stopped (a key-off in its key-on's
+            # tick is lost), so random starts would exhaust the tracks; the
+            # 'services' scenario covers it (starts at ticks 0/20/40, stops at 90).
+            actions.append(('start',rng.choice(audible+[0x14D,0x452]),left,right))
         if rng.random()<0.05:actions.append(('request',rng.randrange(8),rng.randrange(-0x1000,0x1001),
                                              rng.randrange(-0x1000,0x1001)))
         if rng.random()<0.03:actions.append(('stop',rng.randrange(8),int(rng.random()<0.3)))
