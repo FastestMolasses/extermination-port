@@ -1059,7 +1059,8 @@ int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGf
  * line it uncovers shows BGCOLOR. The picture is placed by the display
  * registers step U stored (em_gfx_gs_display_store; the options' SCREEN
  * ADJUST moves DISPLAY2 DX / DY), BGCOLOR where it uncovers the game
- * rectangle, the far edge cropped; the 2D overlay pass moves with it.
+ * rectangle, the far edge cropped; the 2D overlay pass moves with it, on a
+ * field frame with that field's line too (em_gs_display_viewport).
  * Nearest neighbour, no smoothing, no CRT simulation (src/gs/em_gs_display.h
  * is the mapping). It is the only mode. */
 typedef enum {

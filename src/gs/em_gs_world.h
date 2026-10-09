@@ -136,6 +136,13 @@ uint64_t em_gs_world_field_xyoffset(const EmGsWorld *w);
 /* 1 when that offset is known (a world frame, or a list frame that drew
  * into its displayed buffer), 0 otherwise. */
 int em_gs_world_field_xyoffset_known(const EmGsWorld *w);
+/* The XYOFFSET_1 of the frame last handed to the workers (the kick's draw
+ * environment, or the list frame's as above), known as soon as it is handed
+ * and before it is drawn: the value em_gs_world_field_xyoffset gives for
+ * that frame's field once it is waited for (the same job's). 1 with
+ * *xyoffset, 0 when that offset is unknown (a list frame that drew nothing
+ * into its displayed buffer), -1 when no frame was handed yet. */
+int em_gs_world_handed_xyoffset(const EmGsWorld *w, uint64_t *xyoffset);
 
 /* Rows of a PSMCT32 buffer in local memory, after waiting for the workers
  * (a test hook: the veil's surfaces, the shadow target). 0, or -1. */

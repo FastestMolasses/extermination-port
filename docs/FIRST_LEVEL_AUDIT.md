@@ -1840,9 +1840,11 @@ needs no new recording.
    height (EM_GFX_FIELD_INTERLACED), and the screen position presented the
    way the code sends it, through main-loop steps R 001AB4E0 and U 00100550
    bound at their original caller (census 1.68; GS_EXACT.md section 11).
-   Left from it: the GPU-drawn overlay pass keeps a whole-line field's
-   geometry in a half-line field (item 2), and GPU-drawn frames (the status
-   pages, the options screen) take a new position one frame after it
+   The GPU-drawn overlay pass is placed with the line of the field it is
+   drawn over since the overlay-line fix (2026-10-09; before, a half-line
+   field's bands sat one line high, rows 31 and 191 half band); it is still
+   the GPU's, not the GS's (item 2). Left from it: GPU-drawn frames (the
+   status pages, the options screen) take a new position one frame after it
    changes; the offset's direction is inferred, not observed (no recording
    shows a moved picture).
 

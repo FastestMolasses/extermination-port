@@ -1158,7 +1158,11 @@ neighbour, no smoothing, no CRT simulation (the user's decisions of
 - How: main-loop steps R (001AB4E0 with the SDK's 001002E0) and U
   (00100550) run as translated original code every iteration and hand the
   display registers to the presenter; each field's line comes from the draw
-  offset that drew it (GS_EXACT.md section 11). The movies stay at the
+  offset that drew it (GS_EXACT.md section 11), and the GPU-drawn overlay
+  pass (letterbox bands, subtitles, fades) is placed with that same line,
+  so on both parities the bands and text cover whole field rows and move
+  with the field, as the original's do (it draws them into the field
+  through the same draw offset). The movies stay at the
   default position whatever SCREEN ADJUST holds, as in the original: its
   movie driver (00203350 via 00205050) stores its own display environment
   at offset 0 with BGCOLOR 0, and the port shows the movie unplaced.
@@ -1167,19 +1171,28 @@ neighbour, no smoothing, no CRT simulation (the user's decisions of
   both ways; at offset 0 the registers are the ones measured in PCSX2 at
   all 19 points, and the route captures' display environments equal the
   port's byte for byte); `make test-gs-display` (the placement: both
-  parities, offsets 0 and +-20 per axis, the uncovered edge, the crop);
+  parities, offsets 0 and +-20 per axis, the uncovered edge, the crop; the
+  overlay pass's bands and a text strip covering exactly their whole field
+  rows on both parities, and the old placement splitting rows 31 and 191);
   `tools/check_present_capture.py` over headless captures (2026-10-09:
   both parities at a still tick exact in all 2,764,800 pixels; the
-  opening's letterbox frames exact outside the bars).
+  opening's letterbox frames exact outside the bars; after the overlay-line
+  fix a letterbox and a subtitle frame on each parity with `--bands=32`:
+  the overlay viewport carries the field's line, 32 + 32 band rows, no
+  field row half band, half picture, the subtitle on the same field rows
+  194..216 on both parities). The demo video's re-run (decomp
+  VIDEO_COMPARE.md) shows the overlay share at 64 of 224 rows on both
+  parities and the cutscene differences back at their earlier values.
 - Status: **PARTIAL**. Horizontal edges still flicker by one line each
   field (each field has only every other line's detail; measured in the
   presentation preview), as with any field-by-field display without CRT
   simulation. The direction of the screen position (Left moves the picture
   right, Up moves it down) is inferred from the code and the register
-  meaning, not observed: no recording shows a moved picture. The GPU-drawn
-  overlay pass keeps a whole-line field's geometry (the original draws it
-  into each field), and GPU-drawn frames (the status pages, the options
-  screen) take a new position one frame after it changes. Only the Metal
+  meaning, not observed: no recording shows a moved picture. The overlay
+  pass is still drawn by the GPU at host resolution over the field (its
+  rows are placed as the field's, its pixels are not the GS's), and
+  GPU-drawn frames (the status pages, the options screen) take a new
+  position one frame after it changes. Only the Metal
   backend (macOS, iOS) presents it.
 
 **Still drawn by legacy or stand-in code (disclosure)**
@@ -2426,4 +2439,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-09 (the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-09 (the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

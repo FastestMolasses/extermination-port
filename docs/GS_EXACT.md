@@ -1319,7 +1319,12 @@ revision and 00100550 only tests it against 1, so the stores are the same.
   when a half (any other fraction faults). A world frame's is step V's
   draw environment; a list frame's (the load veil) is that of the last
   primitive drawn into the displayed buffer (a list that draws nothing into
-  it faults). Decided per field from that state, never from a counter;
+  it faults). Decided per field from that state, never from a counter. The
+  presenter reads it when the frame is handed to the GS model
+  (`em_gs_world_handed_xyoffset`, the kick's or the list's job, known
+  before the model draws it), so the field and its overlay pass are placed
+  in the same frame; when the field has been drawn, `gsw_complete` checks
+  that its XYOFFSET_1 is the one it was placed with (a mismatch faults);
 - the picture point (px, py) in pixels of the 512 and lines of the 448 of
   the game rectangle; x = px - (DX - 636) / (MAGH + 1), y = py - (DY - 50)
   - line; BGCOLOR where (x, y) is outside 512 x 448, else field texel
@@ -1333,12 +1338,21 @@ revision and 00100550 only tests it against 1, so the stores are the same.
   step U.
 
 **Frames the GS model does not draw.** The 2D overlay pass (glyphs,
-letterbox bars, fades) is drawn by the GPU after the field with the game
-rectangle moved by the same shift (the scissor stays the rectangle), so it
-moves with the picture; it keeps the whole-line geometry of an OFY 1936.0
-field in both parities (the original's GS draws it into the field, so in a
-half-line field its horizontal edges land one line lower; drawing the
-overlay pass through the GS model is FIRST_LEVEL_AUDIT.md 1b item 2). The
+letterbox bars, fades) is drawn by the GPU after the field. On a field
+frame its viewport is the game rectangle moved by the same shift as the
+field, the field's line included (`em_gs_display_viewport`; the scissor
+stays the rectangle): its 448 canvas lines fall on the picture's lines as
+that field's rows are shown, canvas lines 2r and 2r + 1 on field row r in
+both parities. The original's GS draws the bars and text into the field
+through the same XYOFFSET_1, in whole field rows, so on screen they move
+with the field; the port's bars (001AE900's first and last 32 of 224
+rows, canvas 0..64 and 384..448) cover exactly those 64 field rows on
+both parities. Until the overlay-line fix (2026-10-09) the pass took the
+shift alone: on a half-line field it sat one display line above the
+picture, covering 65 rows with rows 31 and 191 half band, half picture
+(found by the decomp's video comparison, its VIDEO_COMPARE.md). The pass
+is still the GPU's (host-resolution glyphs, not the GS's pixels): drawing
+it through the GS model is FIRST_LEVEL_AUDIT.md 1b item 2. The
 frames the GPU draws whole (the status pages, the options screen) take the
 placement at begin_frame from the registers the previous iteration's step U
 stored, with BGCOLOR over the rectangle first: in the one frame after the
@@ -1375,7 +1389,13 @@ was compared with real hardware.
   registers from the SDK translations at the offsets 0 and +-20 per axis,
   both field parities (the shifted line, the background line), the shift
   on each axis (uncovered edge, crop), the 1920 x 1440 pixel-centre sampling
-  (every field row and column in order), BGCOLOR's bytes and the refusals.
+  (every field row and column in order), BGCOLOR's bytes and the refusals;
+  the overlay viewport over both parities at offsets (0, 0), (0, 20) and
+  (-20, -20) in a 1920 x 1440 and an offset 1013 x 759.75 game rectangle:
+  the letterbox bands and a text strip, rasterized at pixel centres on the
+  rasterizer's 1/256-pixel grid, cover exactly their whole field rows (32 +
+  32 for the bands where the rectangle shows them), and the viewport
+  without the line splits rows 31 and 191 of a half-line field.
 - `make test-display-env-reference` (tools/test_display_env_reference.py):
   the original 001002E0 (900 quick cases over 13 SDK mode sets: written,
   zero-width traps, message-printer exits) and 00100550 (both circuits)
@@ -1386,10 +1406,19 @@ was compared with real hardware.
   too; `EM_TEST_FULL=1` (2026-10-09): 7,306 001002E0 cases, 1,000
   00100550 cases, 47 offsets over all 16 route captures, each capture's
   environments equal to the native ones. `make test-startup-load-gaps-reference` still runs 001AB4E0 itself.
-- `tools/check_present_capture.py <capture.bmp>`: a captured field frame
-  against its own field under the placement, every pixel (the capture's
-  `<capture>.present` holds the field's XYOFFSET_1 and the shader's
-  constants). 2026-10-09 (ignored `build/present_check/`): ticks 1535 / 1536
+- `tools/check_present_capture.py [--overlay-ok] [--bands=N] <capture.bmp>`:
+  a captured field frame against its own field under the placement, every
+  pixel (the capture's `<capture>.present` holds the field's XYOFFSET_1,
+  the shader's constants and, since the overlay-line fix, the overlay
+  pass's viewport, which must carry the field's line); per field row how
+  much of each footprint the overlay drew (band rows, split rows);
+  `--bands=N` requires N band rows at the top and at the bottom and no
+  split row at the band edges. 2026-10-09, after the fix (ignored
+  `build/overlay_line/`): the opening's letterbox frames at level smoke
+  ticks 406 (OFY 1936.0) / 429 (1936.5) and subtitle frames 544 / 567 all
+  pass `--overlay-ok --bands=32` (32 + 32 band rows, no split row; the
+  overlay viewport 0 / 3.2143 drawable rows down at 1920 x 1440), the
+  subtitle on field rows 194..216 on both parities. 2026-10-09 (ignored `build/present_check/`): ticks 1535 / 1536
   of the level smoke (a still moment; OFY 1936.5 / 1936.0), all 2,764,800
   pixels exact, the half-line field's first three rows BGCOLOR; ticks 400 /
   401 (the opening, letterbox bars) exact outside the bars' rows, the bars

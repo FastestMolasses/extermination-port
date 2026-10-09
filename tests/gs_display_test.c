@@ -16,6 +16,14 @@
  *   - the same sampled at a 1920 x 1440 game rectangle as f_gsfield
  *     samples it (pixel centres): every field row and column appears, in
  *     order, and nothing else;
+ *   - the overlay pass's viewport (em_gs_display_viewport) over a field of
+ *     either parity, at the default and the shifted positions, in two game
+ *     rectangles: the letterbox bands (canvas lines 0..64 and 384..448 of
+ *     448, as 001AE900's first / last 32 of 224 field rows) and a text
+ *     strip of even canvas lines, rasterized at pixel centres, cover
+ *     exactly their whole field rows (32 + 32 for the bands: no row half
+ *     band, half picture); the viewport without the field's line (the
+ *     regression) splits rows 31 and 191 of a half-line field;
  *   - the refusals: an unknown register address, registers never stored,
  *     another circuit, a non-interlaced mode, another picture size. */
 #include <math.h>
@@ -67,6 +75,45 @@ static int at(const EmGsDisplayPlace *p, int field_line, int px, int line)
     return (int)(row * 512u + col);
 }
 #define RC(row, col) ((row) * 512 + (col))
+
+/* The overlay strip of canvas lines [c0, c1) of 448 drawn through the
+ * viewport `vp` as the Metal rasterizer covers it (the overlay vertex path,
+ * em_gfx_metal.m overlay_push: NDC y = 1 - c / 448 * 2, so window y =
+ * vp.y + c / 448 * vp.h, snapped to the rasterizer's 1/256-pixel
+ * fixed-point grid; a pixel row is drawn when its centre is in [y0, y1),
+ * and the scissor is the game rectangle), over the field of line
+ * `line` shown by f_gsfield in the game rectangle `rect` (pixel centres).
+ * For every field row: how many of the frame rows that show it the strip
+ * covers (cov) and how many show it at all (all). Returns the number of
+ * field rows the strip touches; *split counts those it covers only in
+ * part, *lo / *hi the first / last touched row. */
+static int strip_rows(const EmGsDisplayPlace *p, int line, const double rect[4], const double vp[4], float c0,
+                      float c1, int *split, int *lo, int *hi)
+{
+    int cov[224] = {0}, all[224] = {0};
+    const float y0 = roundf(((float)vp[1] + c0 / 448.0f * (float)vp[3]) * 256.0f) / 256.0f;
+    const float y1 = roundf(((float)vp[1] + c1 / 448.0f * (float)vp[3]) * 256.0f) / 256.0f;
+    const float oy = (float)rect[1], sy = (float)(448.0 / rect[3]);
+    const int j0 = (int)floor(rect[1]), j1 = (int)ceil(rect[1] + rect[3]);
+    for (int j = j0; j < j1; ++j) {
+        const float c = (float)j + 0.5f;
+        if (!(c >= (float)rect[1] && c < (float)(rect[1] + rect[3]))) continue;   /* the scissor */
+        uint32_t col, row;
+        if (!em_gs_display_source(p, line, 3.5f, (c - oy) * sy, &col, &row)) continue;
+        all[row]++;
+        if (c >= y0 && c < y1) cov[row]++;
+    }
+    int n = 0;
+    *split = 0, *lo = -1, *hi = -1;
+    for (int r = 0; r < 224; ++r) {
+        if (!cov[r]) continue;
+        n++;
+        if (cov[r] != all[r]) (*split)++;
+        if (*lo < 0) *lo = r;
+        *hi = r;
+    }
+    return n;
+}
 
 int main(void)
 {
@@ -152,6 +199,50 @@ int main(void)
             last = (int)col;
         }
         CHECK(last == 511);
+    }
+
+    /* The overlay pass over a field of each parity: the letterbox bands
+     * and a text strip cover whole field rows, at the default position and
+     * shifted, in the 1920 x 1440 rectangle and in an offset, odd-sized one
+     * (a 1024 x 768 window's game rectangle moved off the origin). */
+    {
+        const double rects[2][4] = {{0.0, 0.0, 1920.0, 1440.0}, {37.0, 11.0, 1013.0, 759.75}};
+        const int offsets[3][2] = {{0, 0}, {0, 20}, {-20, -20}};
+        for (int ri = 0; ri < 2; ++ri)
+            for (int oi = 0; oi < 3; ++oi)
+                for (int field_line = 0; field_line < 2; ++field_line) {
+                    const EmGsDisplayPlace p = place(offsets[oi][0], offsets[oi][1]);
+                    const int shift_rows = (int)p.shift_y / 2;   /* the picture moved by whole field rows */
+                    double vp[4];
+                    em_gs_display_viewport(&p, field_line, rects[ri], vp);
+                    CHECK(vp[2] == rects[ri][2] && vp[3] == rects[ri][3]);
+                    CHECK(fabs(vp[0] - (rects[ri][0] + p.shift_x * rects[ri][2] / 512.0)) < 1e-9);
+                    CHECK(fabs(vp[1] - (rects[ri][1] + (p.shift_y + field_line) * rects[ri][3] / 448.0)) < 1e-9);
+                    int split, lo, hi, n;
+                    /* the top band: canvas 0..64 = field rows 0..31 (the
+                     * rows the game rectangle still shows; moved up, a
+                     * half-line field's first visible row keeps one line) */
+                    n = strip_rows(&p, field_line, rects[ri], vp, 0.0f, 64.0f, &split, &lo, &hi);
+                    CHECK(split == 0);
+                    if (shift_rows >= 0) CHECK(n == 32 && lo == 0 && hi == 31);
+                    else CHECK(lo == -shift_rows - field_line && n == 32 - lo && hi == 31);
+                    /* the bottom band: canvas 384..448 = field rows 192..223 */
+                    n = strip_rows(&p, field_line, rects[ri], vp, 384.0f, 448.0f, &split, &lo, &hi);
+                    CHECK(split == 0);
+                    if (shift_rows <= 0) CHECK(n == 32 && lo == 192 && hi == 223);
+                    else CHECK(n == 32 - shift_rows && lo == 192 && hi == 223 - shift_rows);
+                    /* a text strip of even canvas lines: rows 100..109 */
+                    n = strip_rows(&p, field_line, rects[ri], vp, 200.0f, 220.0f, &split, &lo, &hi);
+                    CHECK(n == 10 && split == 0 && lo == 100 && hi == 109);
+                }
+        /* the regression: the half-line field under the viewport without
+         * its line (the SCREEN ADJUST shift only) */
+        const EmGsDisplayPlace p = place(0, 0);
+        double vp[4];
+        em_gs_display_viewport(&p, 0, rects[0], vp);
+        int split, lo, hi;
+        CHECK(strip_rows(&p, 1, rects[0], vp, 0.0f, 64.0f, &split, &lo, &hi) == 32 && split == 1 && hi == 31);
+        CHECK(strip_rows(&p, 1, rects[0], vp, 384.0f, 448.0f, &split, &lo, &hi) == 33 && split == 1 && lo == 191);
     }
 
     /* BGCOLOR reaches the uncovered pixels as its R, G, B bytes. */

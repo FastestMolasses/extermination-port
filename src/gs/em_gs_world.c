@@ -1102,6 +1102,14 @@ int em_gs_world_list_frame(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGs
 uint64_t em_gs_world_field_xyoffset(const EmGsWorld *w) { return w ? w->field_xyoffset : 0; }
 int em_gs_world_field_xyoffset_known(const EmGsWorld *w) { return w && w->have_field && w->field_xyoffset_known; }
 
+int em_gs_world_handed_xyoffset(const EmGsWorld *w, uint64_t *xyoffset)
+{
+    if (!w || !w->run) return -1;
+    if (!w->run->xyoffset_known) return 0;
+    if (xyoffset) *xyoffset = w->run->xyoffset;
+    return 1;
+}
+
 const uint8_t *em_gs_world_field(const EmGsWorld *w, uint32_t *width, uint32_t *height, uint64_t *frame)
 {
     if (!w || !w->have_field || w->busy) return NULL;

@@ -64,3 +64,11 @@ int em_gs_display_source(const EmGsDisplayPlace *p, int line, float px, float py
     if (row) *row = (uint32_t)floorf(y) >> 1;
     return 1;
 }
+
+void em_gs_display_viewport(const EmGsDisplayPlace *p, int line, const double rect[4], double out[4])
+{
+    out[0] = rect[0] + (double)p->shift_x * rect[2] / (double)EM_GS_DISPLAY_W;
+    out[1] = rect[1] + (double)(p->shift_y + (float)line) * rect[3] / (double)EM_GS_DISPLAY_LINES;
+    out[2] = rect[2];
+    out[3] = rect[3];
+}

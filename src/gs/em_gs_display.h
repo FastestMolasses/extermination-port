@@ -79,6 +79,19 @@ int em_gs_field_line(uint64_t xyoffset);
 int em_gs_display_source(const EmGsDisplayPlace *p, int line, float px, float py, uint32_t *col,
                          uint32_t *row);
 
+/* The viewport of the frame's 2D overlay pass (letterbox bands, text,
+ * fades), in drawable pixels: out = x, y, width, height, from the game
+ * rectangle rect = x, y, width, height. It is the rectangle moved by the
+ * picture's shift and by `line`, the line of the field the pass is drawn
+ * over (em_gs_field_line of that field's XYOFFSET_1; 0 for a frame without
+ * a field), so the pass's 448 canvas lines fall on the picture's lines as
+ * that field's rows are shown: canvas lines 2r and 2r + 1 are field row r
+ * on both parities. The original draws its bands and text into the field
+ * itself, in whole field rows through the same XYOFFSET_1, so on screen
+ * they move with the field; a band of whole rows here covers exactly those
+ * field rows. */
+void em_gs_display_viewport(const EmGsDisplayPlace *p, int line, const double rect[4], double out[4]);
+
 #ifdef __cplusplus
 }
 #endif

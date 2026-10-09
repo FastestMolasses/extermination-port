@@ -243,12 +243,15 @@ struct EmGfx {
     /* The picture's placement (src/gs/em_gs_display.h): the display
      * registers step U stored (em_gfx_gs_display_store), the game
      * rectangle of this frame (x, y, width, height in drawable pixels), and
-     * per field texture the f_gsfield constants (the rectangle, the shift,
-     * BGCOLOR; the field's line is added when its field is known,
-     * gsw_complete). */
+     * per field texture the f_gsfield constants (the rectangle, the shift
+     * with the field's line, BGCOLOR), the XYOFFSET_1 the line came from
+     * (the frame handed to the GS model, checked against its field at
+     * gsw_complete) and the overlay pass's viewport over that field. */
     EmGsDisplayRegs              gsDisp;
     double                       gameRect[4];
     id<MTLBuffer>                gswSlotK[3];
+    uint64_t                     gswSlotXy[3];
+    double                       gswSlotOverlay[3][4];
 };
 
 struct EmGfxMesh {
@@ -294,7 +297,7 @@ static int gsw_list_frame(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *
                           uint64_t display_frame, uint64_t display_scissor);
 static void gsw_present(EmGfx *g);
 static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict);
-static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p);
+static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p, int line, double out[4]);
 static void gsw_write_field(EmGfx *g, const char *bmp_path);
 static void gsw_complete(EmGfx *g);
 static int gsw_slot(EmGfx *g);
@@ -963,7 +966,9 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
          * registers the last step U stored (the options' SCREEN ADJUST):
          * the game rectangle shows BGCOLOR, the frame's draws land on the
          * placed picture, the scissor crops it to the rectangle. A field
-         * frame places its field again at end_frame (gsw_present). */
+         * frame places its field again at end_frame (gsw_present), and its
+         * overlay pass with the field's line; a frame without a field keeps
+         * this placement (line 0). */
         EmGsDisplayPlace place;
         const int placed = g->gswOn && gsw_place(g, &place, 0) == 0;
 
@@ -995,14 +1000,14 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
                     o[2] = 0.0f;         o[3] = 1.0f;
                     o[4] = c[0]; o[5] = c[1]; o[6] = c[2]; o[7] = c[3];
                 }
-                if (pass == 1 && placed) gsw_viewport(g, &place);
+                if (pass == 1 && placed) gsw_viewport(g, &place, 0, NULL);
                 [g->enc setVertexBytes:v length:sizeof(v) atIndex:0];
                 [g->enc drawPrimitives:MTLPrimitiveTypeTriangle
                            vertexStart:0
                            vertexCount:6];
             }
         } else if (placed) {
-            gsw_viewport(g, &place);
+            gsw_viewport(g, &place, 0, NULL);
         }
     }
 }
@@ -4414,17 +4419,11 @@ static void gsw_complete(EmGfx *g)
     if (f && w == EM_GS_WORLD_FIELD_W && h <= EM_GS_WORLD_FIELD_H) {
         [g->gswSlotTex[g->gswPendSlot] replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:0 withBytes:f
                                          bytesPerRow:4u * w];
-        /* The field's interlaced line, from the XYOFFSET_1 that drew it
-         * (step V's draw environment, or the list's into its displayed
-         * buffer): one line lower for a half-line OFY. */
-        const int line = em_gs_world_field_xyoffset_known(g->gsw)
-                             ? em_gs_field_line(em_gs_world_field_xyoffset(g->gsw)) : -2;
-        if (line == -2)
-            gsw_fail(g, "a list frame drew nothing into its displayed buffer: its draw offset is unknown");
-        else if (line < 0)
-            gsw_fail(g, "a field drawn with a draw offset that is neither a whole nor a half line");
-        else
-            ((float *)g->gswSlotK[g->gswPendSlot].contents)[5] += (float)line;
+        /* The field's line was taken at gsw_present from the XYOFFSET_1 of
+         * the frame handed to the model; the field drawn is that frame's. */
+        if (!em_gs_world_field_xyoffset_known(g->gsw) ||
+            em_gs_world_field_xyoffset(g->gsw) != g->gswSlotXy[g->gswPendSlot])
+            gsw_fail(g, "the drawn field's draw offset is not the one it was presented with");
     } else if (ok)
         gsw_fail(g, "the drawn field is not a 512-wide field of at most 224 rows");
     if (g->gswPendDrawable) [g->gswPendCmd presentDrawable:g->gswPendDrawable];
@@ -4463,16 +4462,21 @@ static void gsw_write_field(EmGfx *g, const char *bmp_path)
     fprintf(stderr, "capture: wrote %s (%ux%u GS field, FRAME_1 %016llx, XYOFFSET_1 %016llx)\n", path, w, h,
             (unsigned long long)frame, (unsigned long long)em_gs_world_field_xyoffset(g->gsw));
     /* <path>.present: how this field was placed (tools/check_present_capture.py):
-     * its XYOFFSET_1 and the f_gsfield constants (the game rectangle's
-     * origin, 512 / width and 448 / height, the shift with the field's
-     * line, BGCOLOR). */
+     * its XYOFFSET_1, the f_gsfield constants (the game rectangle's origin,
+     * 512 / width and 448 / height, the shift with the field's line), the
+     * overlay pass's viewport (x, y, width, height in drawable pixels) and
+     * BGCOLOR last. */
     snprintf(path, sizeof path, "%s.present", bmp_path);
     o = g->gswSlotK[g->gswPendSlot] ? fopen(path, "w") : NULL;
     if (!o) return;
     const float *k = (const float *)g->gswSlotK[g->gswPendSlot].contents;
-    fprintf(o, "xyoffset %016llx\norigin %.9g %.9g\nscale %.9g %.9g\nshift %.9g %.9g\nbg %.9g %.9g %.9g\n",
-            (unsigned long long)em_gs_world_field_xyoffset(g->gsw), (double)k[0], (double)k[1], (double)k[2], (double)k[3], (double)k[4], (double)k[5], (double)k[8],
-            (double)k[9], (double)k[10]);
+    const double *ov = g->gswSlotOverlay[g->gswPendSlot];
+    fprintf(o,
+            "xyoffset %016llx\norigin %.9g %.9g\nscale %.9g %.9g\nshift %.9g %.9g\noverlay %.17g %.17g %.17g %.17g\n"
+            "bg %.9g %.9g %.9g\n",
+            (unsigned long long)em_gs_world_field_xyoffset(g->gsw), (double)k[0], (double)k[1], (double)k[2],
+            (double)k[3], (double)k[4], (double)k[5], ov[0], ov[1], ov[2], ov[3], (double)k[8], (double)k[9],
+            (double)k[10]);
     fclose(o);
 }
 
@@ -4492,21 +4496,25 @@ static int gsw_place(EmGfx *g, EmGsDisplayPlace *out, int strict)
     return -1;
 }
 
-/* The viewport of the placed picture: the game rectangle moved by the
- * shift (pixels of the 512, lines of the 448); the scissor stays the game
- * rectangle, so the far edge is cropped. */
-static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p)
+/* The viewport of the placed picture (em_gs_display_viewport): the game
+ * rectangle moved by the shift (pixels of the 512, lines of the 448) and by
+ * the line of the field the overlay pass draws over (0 without a field);
+ * the scissor stays the game rectangle, so the far edge is cropped. `out`
+ * (optional) receives it. */
+static void gsw_viewport(EmGfx *g, const EmGsDisplayPlace *p, int line, double out[4])
 {
-    const double *r = g->gameRect;
-    [g->enc setViewport:(MTLViewport){ r[0] + p->shift_x * r[2] / (double)EM_GS_DISPLAY_W,
-                                       r[1] + p->shift_y * r[3] / (double)EM_GS_DISPLAY_LINES, r[2], r[3],
-                                       0.0, 1.0 }];
+    double v[4];
+    em_gs_display_viewport(p, line, g->gameRect, v);
+    if (out) memcpy(out, v, sizeof v);
+    [g->enc setViewport:(MTLViewport){ v[0], v[1], v[2], v[3], 0.0, 1.0 }];
 }
 
 /* The field into the game rectangle (EM_GFX_FIELD_INTERLACED, em_gfx.h;
  * the mapping src/gs/em_gs_display.h), under the overlay pass, which then
- * draws over the placed picture. The field's line is added to the
- * constants when its field is known (gsw_complete). */
+ * draws over the placed picture at the field's line. The line comes from
+ * the XYOFFSET_1 of the frame this frame handed to the GS model (the state
+ * its field is drawn with), known at the hand-over; gsw_complete checks the
+ * drawn field against it. */
 static void gsw_present(EmGfx *g)
 {
     if (g->gswFrame) {
@@ -4516,6 +4524,18 @@ static void gsw_present(EmGfx *g)
     if (!g->gswShow || !g->enc || !g->gswSlotTex[g->gswSlot] || !g->gswSlotK[g->gswSlot]) return;
     EmGsDisplayPlace place;
     if (gsw_place(g, &place, 1) < 0) return;
+    uint64_t xy = 0;
+    const int known = em_gs_world_handed_xyoffset(g->gsw, &xy);
+    const int line = known > 0 ? em_gs_field_line(xy) : -1;
+    if (known <= 0) {
+        gsw_fail(g, known < 0 ? "a field to present that was never handed to the GS model"
+                              : "a list frame drew nothing into its displayed buffer: its draw offset is unknown");
+        return;
+    }
+    if (line < 0) {
+        gsw_fail(g, "a field drawn with a draw offset that is neither a whole nor a half line");
+        return;
+    }
     if (!g->gsfFieldPipeline)
         g->gsfFieldPipeline = shadow_pipeline(g, kGsFrameShaderSrc, @"v_gsshow", @"f_gsfield",
                                               g->layer.pixelFormat, true, MTLColorWriteMaskAll);
@@ -4529,7 +4549,8 @@ static void gsw_present(EmGfx *g)
     float *k = (float *)g->gswSlotK[g->gswSlot].contents;
     k[0] = (float)r[0]; k[1] = (float)r[1];
     k[2] = (float)((double)EM_GS_DISPLAY_W / r[2]); k[3] = (float)((double)EM_GS_DISPLAY_LINES / r[3]);
-    k[4] = place.shift_x; k[5] = place.shift_y; k[6] = 0.0f; k[7] = 0.0f;
+    k[4] = place.shift_x; k[5] = place.shift_y + (float)line; k[6] = 0.0f; k[7] = 0.0f;
+    g->gswSlotXy[g->gswSlot] = xy;
     k[8] = place.bg[0] / 255.0f; k[9] = place.bg[1] / 255.0f; k[10] = place.bg[2] / 255.0f; k[11] = 1.0f;
     [g->enc setViewport:(MTLViewport){ r[0], r[1], r[2], r[3], 0.0, 1.0 }];
     [g->enc setRenderPipelineState:g->gsfFieldPipeline];
@@ -4539,7 +4560,8 @@ static void gsw_present(EmGfx *g)
     [g->enc setFragmentTexture:g->gswSlotTex[g->gswSlot] atIndex:0];
     [g->enc setFragmentBuffer:g->gswSlotK[g->gswSlot] offset:0 atIndex:0];
     [g->enc drawPrimitives:MTLPrimitiveTypeTriangle vertexStart:0 vertexCount:6];
-    gsw_viewport(g, &place);   /* the overlay pass draws over the placed picture */
+    /* the overlay pass draws over the placed picture at the field's line */
+    gsw_viewport(g, &place, line, g->gswSlotOverlay[g->gswSlot]);
 }
 
 int em_gfx_gs_display_store(EmGfx *g, uint32_t address, uint64_t value)
