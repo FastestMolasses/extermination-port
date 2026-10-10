@@ -2380,11 +2380,11 @@ class Metal:
         lib_path = out/'gfx.dylib'
         sources = [ROOT/'src/gfx/metal/em_gfx_metal.m', ROOT/'src/game/em_lighting.c',
                    ROOT/'src/gs/em_gs_world.c', ROOT/'src/gs/em_gs_raster.c', ROOT/'src/gs/em_gs_frame.c',
-                   ROOT/'src/platform/mac/em_platform_mac.m', ROOT/'src/em_model.c',
+                   ROOT/'src/gs/em_gs_display.c', ROOT/'src/platform/mac/em_platform_mac.m', ROOT/'src/em_model.c',
                    ROOT/'src/game/em_packet_chain_original.c', ROOT/'src/game/em_status_ui_leftovers.c',
                    ROOT/'src/game/em_object_unit.c']
         inputs = sources + list((ROOT/'src').glob('*.h')) + list((ROOT/'src/game').glob('*.h')) + \
-            list((ROOT/'src/gfx/metal').glob('*.h'))
+            list((ROOT/'src/gfx/metal').glob('*.h')) + list((ROOT/'src/gs').glob('*.h'))
         # rebuilt only when a source or header is newer than the library
         if not lib_path.exists() or max(q.stat().st_mtime for q in inputs) > lib_path.stat().st_mtime:
             subprocess.run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-I'+str(ROOT/'src'), '-shared',
@@ -2410,6 +2410,35 @@ class Metal:
         assert self.win, 'no window'
         self.gfx = lib.em_gfx_create(self.win)
         assert self.gfx, 'no Metal device'
+
+
+def metal_device_present():
+    """Whether this machine has a Metal device, asked of the system's own
+    Metal framework (MTLCreateSystemDefaultDevice), not of the port's code."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        C.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+        mtl = C.CDLL('/System/Library/Frameworks/Metal.framework/Metal')
+        mtl.MTLCreateSystemDefaultDevice.restype = C.c_void_p
+        return bool(mtl.MTLCreateSystemDefaultDevice())
+    except (OSError, AttributeError):
+        return False
+
+
+def open_metal(out, label, **kw):
+    """The Metal harness for a GPU test, or None (the test reports SKIPPED)
+    only on a machine without a Metal device. On a machine with one, a
+    harness that does not build, link or open is a FAILURE: the test exits
+    1 instead of passing without running."""
+    try:
+        return Metal(out, **kw)
+    except (AssertionError, OSError, subprocess.CalledProcessError) as e:
+        if metal_device_present():
+            print(f'{label}: FAIL (this machine has a Metal device, but the Metal harness did not open: {e})')
+            raise SystemExit(1)
+        print(f'{label}: SKIPPED (no Metal device: {e})')
+        return None
 
 
 class Strips(C.Structure):

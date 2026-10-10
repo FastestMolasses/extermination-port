@@ -364,7 +364,9 @@ lines, bent outward from the centre and glowing, over black.
   stack); the native blocks equal all 18 captures outside the words the
   frame rewrites (XYOFFSET in its boot or step V form, FOGCOL) and those
   stale bits; 001008C0 and 00101630 executed against the native functions.
-- **`make test-load-veil-gpu`** (tools/test_load_veil_gpu.py, about 6 s):
+- **`make test-load-veil-gpu`** (tools/test_load_veil_gpu.py, about 6 s;
+  on a machine with a Metal device a harness that does not build or open
+  FAILS, SKIPPED only without one, CHAIN_PAGE.md section 8):
   the veil of the translation over the translated GS blocks, walked in list
   mode and drawn by `em_gfx_gs_frame` in a headless Metal window, against a
   model of the GS pixel path, for a visible veil (level 1.0) in both slots,

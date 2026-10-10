@@ -44,8 +44,9 @@ With that form put back into EM_FOG_GS_MSL (2026-09-28), part B fails on
      pixel harness measures that, tools/test_fb2_pixels.py).
 
 EM_TEST_FULL=1 also checks the repeat capture (build/b16/gscap_repeat).
-Skipped (reported) without the captures; part B is skipped without a Metal
-device. About 2 s once the fixture library is built.
+Skipped (reported) without the captures; part B is skipped only on a
+machine without a Metal device (with one, a harness that does not build or
+open FAILS). About 2 s once the fixture library is built.
 """
 from __future__ import annotations
 
@@ -233,10 +234,8 @@ def gpu_frames(cases):
     without a Metal device."""
     import test_shadow_original_reference as SO
     from test_chain_page_reference import GsPrim, GsVertex
-    try:
-        metal = SO.Metal(OUT, size=(512, 448))
-    except (AssertionError, OSError, subprocess.CalledProcessError) as e:
-        print(f'gs fog: part B SKIPPED (no Metal device: {e})')
+    metal = SO.open_metal(OUT, 'gs fog: part B', size=(512, 448))
+    if metal is None:
         return None
     lib, gfx = metal.lib, metal.gfx
     lib.em_gfx_gs_prims.argtypes = [C.c_void_p, C.POINTER(GsPrim), C.c_uint32]

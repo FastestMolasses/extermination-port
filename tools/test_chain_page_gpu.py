@@ -29,14 +29,14 @@ route captures' GS memory (tools/export_object_textures.py decode()).
 Refusals: a HIGHLIGHT TEX0 (with TCC 1 or 0), a fogged primitive without the frame's fog, an
 unregistered TEX0, a TEST_1 other than 0x53001, FST set, a state the page
 did not set: each returns -1 and draws nothing.
-Skipped (reported) without a Metal device. About 2 s.
+Skipped (reported) only on a machine without a Metal device; on one with
+a device a harness that does not build or open FAILS. About 2 s.
 """
 from __future__ import annotations
 
 import ctypes as C
 import math
 import struct
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -125,10 +125,8 @@ def read_bmp(path):
 
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
-    try:
-        metal = SO.Metal(OUT)
-    except (AssertionError, OSError, subprocess.CalledProcessError) as e:
-        print(f'chain page gpu: SKIPPED (no Metal device: {e})')
+    metal = SO.open_metal(OUT, 'chain page gpu')
+    if metal is None:
         return 0
     lib, gfx = metal.lib, metal.gfx
     lib.em_gfx_gs_prims.argtypes = [C.c_void_p, C.POINTER(GsPrim), C.c_uint32]

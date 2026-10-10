@@ -35,7 +35,8 @@ A black veil (level 0, the live route's case at host speed) draws an all-
 black frame. Refusals: a Z test other than ALWAYS, a texture read of the
 surface being drawn, a PSMCT16 FRAME: -1, nothing drawn.
 
-Skipped (reported) without a Metal device. About 6 s.
+Skipped (reported) only on a machine without a Metal device; on one with
+a device a harness that does not build or open FAILS. About 6 s.
 """
 from __future__ import annotations
 
@@ -333,10 +334,8 @@ def main():
         fail('boot ELF is not the pinned build')
     off = lambda a: a - 0x100000 + 0x300
     sdk, col = elf[off(0x241010):off(0x241010) + 8], elf[off(0x26E880):off(0x26E880) + 16]
-    try:
-        metal = SO.Metal(OUT)
-    except (AssertionError, OSError, subprocess.CalledProcessError) as e:
-        print(f'load veil gpu: SKIPPED (no Metal device: {e})')
+    metal = SO.open_metal(OUT, 'load veil gpu')
+    if metal is None:
         return 0
     lib = build(metal)
     fr = Frame(metal, lib)

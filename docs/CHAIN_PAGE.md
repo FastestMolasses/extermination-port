@@ -642,8 +642,14 @@ include the original's pass.
 - **`make test-chain-page-gpu`** (tools/test_chain_page_gpu.py, ~4 s): the Metal
   pixel at the frame centre equals the GS pixel model for five decal fans
   (the retired decal entry's cases), four sprites (additive and 0x44, with
-  and without fog) and two glint lines (the one pixel the line lights in the
-  centre column); six refusals draw nothing.
+  and without fog), two glint lines (the one pixel the line lights in the
+  centre column) and three TCC 0 strips; seven refusals draw nothing. It
+  reports SKIPPED only on a machine without a Metal device; on one with a
+  device a harness that does not build, link or open FAILS (since
+  2026-10-10: from 5836a37 to then src/gs/em_gs_display.c was missing from
+  the harness link, so this test and `make test-load-veil-gpu` printed
+  SKIPPED and exited 0 without running; the shared harness is
+  tools/test_shadow_original_reference.py `open_metal`).
 - **`make test-chain-page`** (tests/chain_page_test.c, ASan / UBSan): a clean
   page, the argument refusals, a CALL walked over, and 20,000 corrupted pages
   walked without a memory error.
