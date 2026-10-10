@@ -2020,21 +2020,67 @@ pool's free list (item 5): those are port work that needs no new recording
 **F. Leads from the PCSX2 2.8 post** (added 2026-10-09; PCSX2_2_8_LEARNINGS.md
 has each lead's source section and reasoning). Each is a lead from the PCSX2
 2.8 post, to be confirmed by the named method before anything changes; none
-is evidence, and none changes an item above.
+is evidence, and none changes an item above. F1 has since been measured
+fork-side (2026-10-09); its entry gives the result.
 
-- **F1. The reference build** (Recording). Every pixel number here and in
-  GS_EXACT.md is relative to the project's PCSX2 build's software renderer
-  (v2.6.3-3-g00d19ccce per the installed app and decomp CAPTURES_AUDIO.md;
-  the capture sets do not record it). Lead from the PCSX2 2.8 post, to be
-  confirmed by regenerating the conformance capture sets (decomp
-  GS_CONFORMANCE.md) and the fb2 route frames on any newer build and
-  diffing them against the v2.6.3 sets before that build is used as a
-  reference, and by recording the build in GS_CONFORMANCE.md and the fb2
-  records for every capture set from now on. The post describes mostly
-  hardware-renderer changes and does not say the software renderer is
-  unchanged; its one change named for the software side, a typo fix in the
-  rect calculation for readbacks in the Software renderer fallback (CSBW),
-  is a concrete reason the diff is needed.
+- **F1. The reference build** (Recording; the diff is done fork-side,
+  2026-10-09, decomp PCSX2_FORK_GS_DIFF.md; port follow-ups below).
+  Every pixel number here and in GS_EXACT.md so far is relative to the
+  legacy PCSX2 build's software renderer (v2.6.3-3-g00d19ccce per the
+  installed app and decomp CAPTURES_AUDIO.md). The project now has a PCSX2
+  fork based on v2.9.114 (decomp PCSX2_FORK.md), and the fork-side diff
+  settled what changed:
+  - **Same GS input, same pixels, with one exception.** The 906
+    conformance tests and 100 dumped first-level fields are byte-identical
+    in v2.6.3 and v2.9.114. The one renderer change that moves a pixel of
+    this game widens by half a pixel the rectangle used to throw away
+    primitives wholly outside the scissor: an alpha-blended vertical line
+    segment that starts a quarter row below the last field row (the lamp's
+    cables) is dropped by v2.6.3 and draws one pixel on row 223 in the fork
+    (5 or 6 pixels per field, up to +53 per channel). Real hardware has no
+    whole-primitive rejection, so the fork is probably the closer one (an
+    inference, not a measurement). The model's line and inclusive-scissor
+    rules (GS_EXACT.md 3.6) predict the fork's pixel; to be confirmed
+    port-side (below).
+  - **Most frame differences were the game's frame and field phase, not
+    the renderer.** The buffer the game draws into follows D_00810E80
+    (flips every main-loop iteration) and the half-line offset (OFY 1936.0
+    / 1936.5) follows the GS field bit D_00810E88. Neither is per-tick game
+    state. Their phase is set by the vsync on which the capture tool's
+    START on the New Game movie lands (host-timed, varies run to run) and
+    shifted by the AREA11 load's iteration count, which is emulator-version
+    specific (190 / 191 in the fork against 186 / 187 in v2.6.3, one vsync
+    each). With the phase matched, fork runs reproduce 1,152 of the 1,173
+    v2.6.3 captures bit for bit (the other 21: 13 at the end of the longer
+    load, 8 from the scissor change); fork runs are stable run to run.
+  - **The v2.6.3 captures are not reproducible.** A v2.6.3 re-run with the
+    same game state and phases matched only 26 of 1,174 frames (the next
+    field's DMA had already landed at its capture point). Legacy captures
+    stay valid frames of the run that made them, not facts of the game.
+  - **Which build for what.** Conformance (GS_EXACT.md sections 1..8): the
+    v2.6.3 numbers hold unchanged for the fork (identical on all 906
+    tests); new designed tests are run on the fork. Route and frame pixels
+    (GS_EXACT.md 10 / 10.1, the fb2 points): the **fork is the pixel
+    reference** from now on; the existing fb2 numbers stay quoted as
+    relative to v2.6.3 until re-measured. Every capture pairs by tick and
+    by field (OFY or D_00810E88), decodes its own run's drawing buffer
+    (FRAME, the buffer DISPFB2 does not show), checks the field was
+    complete at the capture point, and records the build, frame index,
+    field, FRAME, XYOFFSET and DMA state.
+  - **To re-measure (port side).** (a) Regenerate the 19 fb2 frame points
+    on the fork with those records and re-run `make test-fb2-pixels`
+    against them; re-set its FLOORS from the fork numbers. (b) GS_EXACT.md
+    10.1's "other phase" points (first control, 08, 10, 11, 12): the
+    original's phase there is a property of the capture run (START vsync,
+    emulator load length), not of the game, so compare each point with a
+    fork capture of the same field phase (or report both phases) before
+    treating the port's D_00810E80 parity as a defect. (c) Draw the lamp's
+    cable strips (the dumped first-play field) through the model and
+    confirm row 223 equals the fork's pixel, as 3.6 predicts; add a
+    designed line test with a segment starting a quarter row below the
+    scissor's last row. (d) Never match the port to an emulator's load
+    length or any other iteration or vsync count: those are specific to
+    the emulator version (the port runs the disc at host speed).
 - **F2. 001DDE10's pass reads the frame** (port work, then a designed
   capture; part of item 2). Lead from the PCSX2 2.8 post (reads and writes
   of one texture in one draw), to be confirmed by the original's

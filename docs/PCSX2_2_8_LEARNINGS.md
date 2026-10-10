@@ -69,6 +69,28 @@ passage.
    project's PCSX2 build (v2.6.3-3-g00d19ccce per the installed app and
    decomp `docs/CAPTURES_AUDIO.md`; the capture sets do not record it), and
    record the build in GS_CONFORMANCE.md and the fb2 records from now on.
+
+   **Result (2026-10-09, measured fork-side; decomp
+   `docs/PCSX2_FORK_GS_DIFF.md`; FIRST_LEVEL_AUDIT.md 1b F1 has the port
+   follow-ups).** The project's new build is a PCSX2 fork based on v2.9.114
+   (decomp `docs/PCSX2_FORK.md`), not 2.8. Fed the same GS input, its
+   software renderer and v2.6.3's agree on all 906 conformance tests and on
+   100 dumped first-level fields. One upstream change moves pixels of this
+   game: the rectangle for throwing away primitives wholly outside the
+   scissor grew by half a pixel, so an alpha-blended line segment starting
+   a quarter row below the field's last row (the lamp's cables) now draws
+   one pixel on row 223 (5 or 6 pixels per field); the model's line rules
+   (GS_EXACT.md 3.6) predict the new pixel, to be confirmed port-side. The
+   CSBW readback typo of 0.1 changed no pixel of this game. Most frame
+   differences between the two builds were the game's frame and field
+   phase (D_00810E80, D_00810E88), set by the capture tool's host-timed
+   START and by the AREA11 load's emulator-specific iteration count; with
+   the phase matched the fork reproduces 1,152 of 1,173 v2.6.3 captures,
+   and fork runs are stable while a v2.6.3 re-run reproduced only 26.
+   **So:** conformance numbers hold for both builds unchanged; the fork is
+   the pixel reference for route and frame comparisons from now on; the fb2
+   frames and their harness numbers (GS_EXACT.md 10, 10.1) stay relative
+   to v2.6.3 until regenerated on the fork, paired by tick and field.
 3. **Where the post matters most** is the Enhanced profile's GPU renderer
    and the D3D12 / Vulkan backends (FIRST_LEVEL_AUDIT.md 1b item 16): they
    meet exactly the obstacles the post describes (alpha-test fail modes,
@@ -454,7 +476,7 @@ the fork itself is out of this lane):
 
 | Lead | Priority | Roadmap |
 |---|---|---|
-| 0.2 re-measure the reference on a new PCSX2 build | P1 | FIRST_LEVEL_AUDIT.md 1b F1 |
+| 0.2 re-measure the reference on a new PCSX2 build | P1 (diff done 2026-10-09; fb2 re-capture open) | FIRST_LEVEL_AUDIT.md 1b F1 |
 | 1.7 001DDE10's pass reads the frame | P1 | 1b F2 |
 | 1.3 / 1.8 / 1.9 strict refusals once the overlay and status frames reach the model | P1 (check) | 1b F3 |
 | 3 movie pictures (IPU against the OS decoder) | P1 | 1b F4 |

@@ -21,6 +21,17 @@ PCSX2's model of the GS, not real hardware. Section 3.7 is a clear case of
 reference-specific behaviour. Bit equality with a real GS is not
 established by anything here.
 
+**Which build** (2026-10-09; FIRST_LEVEL_AUDIT.md 1b F1). The conformance
+numbers in sections 1..8 were measured on the legacy build (v2.6.3); the
+project's PCSX2 fork (based on v2.9.114) gives identical memory on all 906
+tests, so they hold for both. Route and frame comparisons (section 10) use
+the **fork** as the pixel reference from now on; the fb2 numbers below
+stay relative to v2.6.3 until those frames are regenerated on the fork.
+The one renderer difference that reaches this game: v2.6.3 throws away a
+line segment starting a quarter row below the scissor's last row, the fork
+draws its first pixel; the rules of 3.6 predict the fork's pixel (not yet
+confirmed by a test).
+
 **Clean room.** No emulator source was opened, read or searched. That
 includes the local `pcsx2/` tree and PCSX2 / GSdx / Play! / DobieStation
 code online. Every rule below rests on one of two things:
@@ -1159,6 +1170,12 @@ original's. The port's D_00810E80 has the other parity there; the cause is
 not traced (the loads taking another number of main-loop iterations at host
 speed is a candidate: the New Game's veil runs 55 ticks against the PS2's
 258). It is reported per point by the harness.
+The original's own phase is not a fact of the game either (fork-side
+measurement, 2026-10-09, FIRST_LEVEL_AUDIT.md 1b F1): in a capture run it
+follows the vsync the tool's START lands on and the AREA11 load's
+iteration count, which differs between PCSX2 versions, so these points
+are re-measured against fork captures of the same field phase before the
+port's parity counts as a defect.
 
 Numbers, exact pixels of 114,688 (mean absolute channel error, per-pixel
 p50 / p90 / p99). "Before" is the GPU renderer at the same port HEAD
