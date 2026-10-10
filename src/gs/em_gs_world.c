@@ -113,6 +113,10 @@ struct EmGsWorld {
     uint32_t prim;                   /* PRIM as written last (for GIF data's vertex kicks) */
     int prim_known;
     uint8_t drawn[BLOCKS];           /* blocks of buffers the model has drawn into */
+    /* The field declared in the frame being recorded (em_gs_world_field_declare). */
+    uint64_t field_decl;
+    uint32_t field_decl_height;
+    int field_declared;
     /* textures already checked (TEX0 texture + CLUT fields, CLAMP_1): the
      * blocks they read that lie in drawn buffers (pool[first .. first + n)) */
     struct { uint64_t tex0, clamp; uint32_t first, n; } checked[CHECKED_MAX];
@@ -393,6 +397,23 @@ int em_gs_world_memory_load(EmGsWorld *w, const char *path)
 
 int em_gs_world_memory_loaded(const EmGsWorld *w) { return w && w->memory_loaded; }
 
+int em_gs_world_memory_restore(EmGsWorld *w, const uint8_t *mem, const uint8_t *resident)
+{
+    if (!w || !mem || !resident || w->fault[0]) return -1;
+    if (w->recording) return fail(w, "memory restored inside a recorded world frame", 0);
+    if (em_gs_world_wait(w) < 0) return -1;
+    memcpy(w->mem, mem, EM_GS_MEM_BYTES);
+    for (uint32_t b = 0; b < BLOCKS; ++b) {
+        w->resident[b] = resident[b] ? 1 : 0;
+        w->drawn[b] = resident[b] ? 0 : 1;
+    }
+    /* textures checked against the earlier memory are checked again */
+    w->checked_count = 0;
+    w->pool_used = 0;
+    w->memory_loaded = 1;
+    return 0;
+}
+
 /* ------------------------------------------------------------ uploads */
 
 static uint64_t rd64le(const uint8_t *p)
@@ -515,6 +536,7 @@ void em_gs_world_begin(EmGsWorld *w)
     memset(w->tex0_known, 0, sizeof w->tex0_known);
     memset(w->clamp_known, 0, sizeof w->clamp_known);
     w->prim_known = 0;
+    w->field_declared = 0;
 }
 
 int em_gs_world_recording(const EmGsWorld *w) { return w && w->recording; }
@@ -613,6 +635,28 @@ static void barrier_op(EmGsWorld *w)
     w->marked_count = 0;
 }
 
+/* The buffer's blocks are drawn from now on (w->drawn). A texture checked
+ * earlier lists only the drawn blocks it reads (texture_entry): when an
+ * uploaded block is drawn over for the first time, the checks are made
+ * again, so the workers' ordering covers it too. (No upload writes a buffer
+ * the first level draws, GS_EXACT.md section 9; this keeps the ordering
+ * right if one did.) */
+static void mark_drawn(EmGsWorld *w, uint32_t fbp, uint32_t fbw, uint32_t height)
+{
+    int over_upload = 0;
+    for (uint32_t y = 0; y < height; y += 8u)
+        for (uint32_t x = 0; x < 64u * fbw; x += 8u) {
+            const uint32_t b = em_gs_addr32(fbp * 32u, fbw, x, y, 0) * 4u / 256u;
+            if (b >= BLOCKS || w->drawn[b]) continue;
+            w->drawn[b] = 1;
+            over_upload |= w->resident[b];
+        }
+    if (over_upload) {
+        w->checked_count = 0;
+        w->pool_used = 0;
+    }
+}
+
 void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
 {
     if (!w) return;
@@ -620,7 +664,7 @@ void em_gs_world_drawn_buffer(EmGsWorld *w, uint64_t frame, uint32_t height)
     if (w->recording)
         for (uint32_t i = 0; i < w->marked_count; ++i)
             if (w->marked[i].fbp == fbp && w->marked[i].fbw == fbw && w->marked[i].height >= height) return;
-    mark_buffer(w->drawn, fbp, fbw, height);
+    mark_drawn(w, fbp, fbw, height);
     if (!w->recording) return;
     if (w->fread_any) {
         /* a draw into blocks a band may still read: every band reads first */
@@ -711,7 +755,7 @@ static int texture_entry(EmGsWorld *w, uint64_t tex0, uint64_t clamp, uint32_t *
                 w->pool_used = start;
                 return -1;
             }
-            if (!w->resident[b] && !seen[b]) {
+            if (w->drawn[b] && !seen[b]) {          /* a drawn block, uploaded or not */
                 seen[b] = 1;
                 if (pool_add(w, b) < 0) {
                     w->pool_used = start;
@@ -833,6 +877,53 @@ void em_gs_world_env_again(EmGsWorld *w)
     memset(w->tex0_known, 0, sizeof w->tex0_known);
     memset(w->clamp_known, 0, sizeof w->clamp_known);
     w->prim_known = 0;
+    /* the field is the drawing target again: a read of it earlier since the
+     * last barrier waits for every band before the draws that follow */
+    if (w->field_declared) em_gs_world_drawn_buffer(w, w->field_decl, w->field_decl_height);
+}
+
+void em_gs_world_field_declare(EmGsWorld *w, uint64_t frame, uint32_t height)
+{
+    if (!w || w->fault[0]) return;
+    if (!w->recording) {
+        fail(w, "a field declared outside a recorded world frame", frame);
+        return;
+    }
+    const uint32_t fbw = (uint32_t)(frame >> 16) & 0x3Fu, psm = (uint32_t)(frame >> 24) & 0x3Fu;
+    if (psm != EM_GS_PSMCT32 || fbw == 0u || 64u * fbw > EM_GS_WORLD_FIELD_W || height == 0u || height > 1024u) {
+        fail(w, "the declared field is not a PSMCT32 field the port presents", frame);
+        return;
+    }
+    const uint64_t key = frame & UINT64_C(0x3F3F01FF);   /* FBP, FBW, PSM */
+    if (w->field_declared && (w->field_decl != key || w->field_decl_height != height)) {
+        fail(w, "a second, other field declared in one world frame", frame);
+        return;
+    }
+    w->field_decl = key;
+    w->field_decl_height = height;
+    w->field_declared = 1;
+    em_gs_world_drawn_buffer(w, key, height);
+}
+
+int em_gs_world_page_pass(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                          const uint32_t *again, uint32_t again_count, uint64_t field_frame, uint64_t field_scissor)
+{
+    if (!w) return -1;
+    if (w->fault[0]) return -1;
+    if ((count && (!prims || !envs)) || (again_count && !again))
+        return fail(w, "a depth-of-field pass without its primitives", count);
+    for (uint32_t k = 0; k < again_count; ++k)
+        if (again[k] > count || (k && again[k] < again[k - 1]))
+            return fail(w, "a depth-of-field pass whose environment marks are out of order", again[k]);
+    em_gs_world_field_declare(w, field_frame, (uint32_t)(field_scissor >> 48 & 0x7FFu) + 1u);
+    uint32_t at = 0;
+    for (uint32_t k = 0; k < again_count && !w->fault[0]; ++k) {
+        em_gs_world_prims(w, prims + at, envs + at, again[k] - at);
+        em_gs_world_env_again(w);
+        at = again[k];
+    }
+    em_gs_world_prims(w, prims + at, envs + at, count - at);
+    return w->fault[0] ? -1 : 0;
 }
 
 /* GIF tags of register data only (PACKED, no IMAGE; no A+D transfer
@@ -1060,7 +1151,12 @@ int em_gs_world_kick(EmGsWorld *w, const void *env, size_t env_bytes, const void
     j->height = (uint32_t)(probe.ctx[0].scissor >> 48 & 0x7FFu) + 1u;
     em_gs_release(&probe);
     if (field_check(w, j->frame, j->height) < 0) return -1;
-    mark_buffer(w->drawn, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
+    /* the field the body declared (its reads were ordered and checked
+     * against it) is the head's */
+    if (w->field_declared &&
+        ((j->frame & UINT64_C(0x3F3F01FF)) != w->field_decl || j->height != w->field_decl_height))
+        return fail(w, "the field the frame declared is not the kicked head's FRAME_1 / SCISSOR_1", j->frame);
+    mark_drawn(w, (uint32_t)j->frame & 0x1FFu, (uint32_t)(j->frame >> 16) & 0x3Fu, j->height);
     start(w);
     return 0;
 }

@@ -1831,8 +1831,8 @@ static void log_tick_end(int rc)
         fputs("null", f);
     }
     /* WP-13: the chain page drawn at this frame's close (em_chain_page_live;
-     * docs/CHAIN_PAGE.md): [drawn this tick, pages, start, the skipped
-     * 001DDE10 CALL, transfers, qwords, DIRECT packets, lane / sprite
+     * docs/CHAIN_PAGE.md): [drawn this tick, pages, start, the
+     * 001DDE10 CALL (drawn or skipped), transfers, qwords, DIRECT packets, lane / sprite
      * MSCALs, XGKICKs, primitives, [by PRIM type 0..7], skipped CALLs,
      * vertices without a Q (0: the per-tag Q), inherited-cycle UNPACKs, decal triangles, the
      * primitives' digest, the glow markers (sprites with 001F4D40's TEX0:
@@ -1921,10 +1921,20 @@ static void log_tick_end(int rc)
                         pl.unit_strips[k], (unsigned)pl.unit_tex0[k], (unsigned)(pl.unit_tex0[k] >> 32),
                         pl.unit_prim[k]);
             /* ... and the kind-6 program's MSCALs and primitives (D_0023D930,
-             * 001CFBE0 kind 6: AREA01's near-fire layer). */
-            fprintf(f, "], %u, %u, %u, %u, %u, %u, %u, %u, %u, %u]", pl.digest_without_units, c->mscal_streak,
+             * 001CFBE0 kind 6: AREA01's near-fire layer); then 001DDE10's
+             * depth-of-field pass: drawn (the GS frame) or not, its first
+             * primitive and count, its DIRECT packets, the draw environments
+             * (bank A) and the slot its marks stand for, the digest of its
+             * environments and marks, and the marks (CHAIN_PAGE.md section
+             * 6.2). */
+            fprintf(f, "], %u, %u, %u, %u, %u, %u, %u, %u, %u, %u", pl.digest_without_units, c->mscal_streak,
                     c->streak_prims, pl.flare_sprites, c->lane_strips, c->mscal_kind2, c->kind2_prims,
                     c->direct_strips, c->mscal_kind6, c->kind6_prims);
+            fprintf(f, ", %u, %u, %u, %u, %u, %u, %u, [", pl.pass, pl.pass_first, pl.pass_prims, c->pass_direct,
+                    pl.draw_envs, pl.draw_env_slot, pl.pass_digest);
+            for (uint32_t k = 0; k < pl.again_count && k < EM_CHAIN_PAGE_AGAIN_MAX; ++k)
+                fprintf(f, "%s%u", k ? ", " : "", pl.again[k]);
+            fputs("]]", f);
         } else {
             fputs("null", f);
         }

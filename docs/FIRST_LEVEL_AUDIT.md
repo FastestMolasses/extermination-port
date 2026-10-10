@@ -1840,6 +1840,78 @@ first moved 0x99's key-on 1 or 2 rows late in this step's runs). Unchanged: ever
 at host speed (newgame-control locked_ticks 1301, 9.599849; the default
 smoke's run log and checks; the host-speed frame-order windows).
 
+**Status update (2026-10-09, step DOF: 001DDE10's depth-of-field pass
+drawn; item 2, lead F2).** The user asked whether the opening's soft
+background is the game's or the emulator's; on the original (PCSX2 fork,
+decomp build/dof_check) it is the game's own pass 001DDE10, which the port
+walked over. The Original profile now draws it through the CPU GS model
+(CHAIN_PAGE.md section 6.2): the chain page's walker follows its
+slot-0xFFF CALL in a new pass mode (the copy target's environment, the
+four copies of the field into D_0027568C's 256x256 buffer and blends back
+under the field's Z test GEQUAL with no Z write, the frame's draw
+environment REFed again after each copy and at the end, sent by the model
+as the kick's own packet), and the model, told which field the frame
+draws (em_gs_world_field_declare, checked at the kick), orders its
+workers around the reads. The GPU renderer still walks over it. Measured
+(fb2 harness, full mode, relative to PCSX2 v2.6.3's software GS; the
+presented field's exact pixels of 114,688): 14 (camera exact, same field
+phase) 87.18 -> 92.28 % (mean channel error 0.97 -> 0.89, p90 1 -> 0), 13
+55.92 -> 62.44 %, 10 (other phase) 15.96 -> 18.74 %, 11 5.48 -> 5.52 %;
+first control 0.98 -> 0.97 % (camera and phase not the original's), 08,
+12 and 15 within a few pixels (GS_EXACT.md 10.1; the floors raised). The
+pass's own pixels were compared with the fork capture of it the next day
+(the status update below: bit-exact). Lead F2's premise does not hold: no primitive of the pass reads the
+buffer it draws into (checked on every captured page). Frame cost:
+GS_EXACT.md 10.2. Verified (worktree dof-pass): `make -B all` (no
+warnings), newgame-control (PASS 9.599849; with EM_GPU_RENDERER=1 too),
+`make test-level-smoke` (1,584 passes drawn, 6 re-walked in the model's
+pass mode) and `make test-level-smoke-full` (the route through a01_arrival:
+13,131 passes drawn, 37 re-walked; the side beats and the AIM, damage,
+branch, options and audio side runs all PASS), `make
+test-chain-page-reference` (quick and `EM_TEST_FULL=1`; part G: the pass on
+all 15 captured pages), `make test-chain-page`, `make test-gs-world`, `make
+test-fb2-pixels` (quick and full), `make test-gs-raster-reference`, `make
+test-gs-memory-reference`, `make test-render-context-live-reference`,
+`tools/ios/build.sh device` (no warnings; then `clean`).
+
+**Status update (2026-10-10, step DOF: the pass's conformance).** The
+pass's pixels against the original's: the decomp's fork capture
+(build/dof_capture: 5 frames of the opening cutscene, 2 of AREA11 play and
+a repeat, the DMA cut at the pass's two boundaries) is the new test `make
+test-dof-pass-reference` (GS_EXACT.md section 7, CHAIN_PAGE.md 6.2). All 7
+frames are bit-exact (all 4 MiB of local memory after the pass) three
+ways: the captured GIF bytes through the model; the port's own packets
+(em_render_context_001DDE10 over each captured EE state rebuilds every EE
+byte and the 4,544 GIF bytes of the pass); and the Original profile's path
+(the pass walk, em_gs_world_page_pass, 1 to 8 workers). Two fixes got
+there. (1) The model (GS_EXACT.md 3.4): a UV sprite's row coordinate is
+accumulated in binary32 one row at a time; with the exact value the
+blend's 8/7-texel row step was off on 183 to 2,695 field pixels of each
+frame a blend reaches. Measured on 23 rows where the exact value is an
+integer (8 read one 1/16 texel below it, 15 not), which only that
+accumulation reproduces; the 906 conformance tests are unchanged, and
+strict mode refuses the cases the captures do not settle (none occurs in
+the level smoke through the AREA01 arrival). (2) The workers' ordering
+(GS_EXACT.md 9): the recorder left uploaded blocks out of it, so a frame
+drawing over uploaded memory raced (3 to 8 workers drew wrong bytes, run
+to run); no upload writes a buffer of the first level's frames, so the
+game was not affected, but the ordering now covers drawn blocks whatever
+their residency. The fb2 points (GS_EXACT.md 10.1): 14 105,836 -> 105,973
+exact (92.40 %; all 137 in the sky above the hill), 13 62.44 -> 62.60 %,
+10 18.74 -> 18.92 %, 11 5.52 -> 5.51 %, first control 1,118 -> 1,117
+pixels, 08, 12 and 15 unchanged; FLOORS raised (10 0.189, 13 0.625, 14
+0.924). Not captured: a blend reaching pixels of a whole-line field
+(GS_EXACT.md 8.8). Verified (worktree dof-pass): `make -B all` (no
+warnings), newgame-control (PASS 9.599849; with EM_GPU_RENDERER=1 too),
+`make test-dof-pass-reference` (quick and `EM_TEST_FULL=1`), `make
+test-gs-raster-reference` (703 / 906, full 931 / 1,158, E 14 of 14), `make
+test-gs-memory-reference`, `make test-gs-world`, `make test-chain-page`,
+`make test-chain-page-reference` (quick and full), `make test-level-smoke`
+(1,584 passes drawn) and `make test-level-smoke-full` (13,131 passes
+through a01_arrival; the AIM, damage, branch, options and audio side runs
+PASS), `make test-fb2-pixels` (quick and full), `make ios-lib
+IOS_SDK=iphoneos` (no warnings; removed after).
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:
@@ -1898,22 +1970,28 @@ pool's free list (item 5): those are port work that needs no new recording
      the original draws them in the same list (GS_EXACT.md 10.1);
    - the status screen's frames (the hub and its pages, the MAP page's
      models on the renderer's skinned path) draw with the GPU renderer;
-   - 001DDE10's four frame-copy sprites are walked over, not drawn
-     (CHAIN_PAGE.md section 6; drawable now that the frame is GS memory);
+   - (done) 001DDE10's depth-of-field pass is drawn by the model since
+     step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
+     captured frames of the pass since 2026-10-10 (`make
+     test-dof-pass-reference`);
    - **the field phase:** at 5 of the 7 compared fb2 points (first control,
      08, 10, 11, 12) the port's D_00810E80 has the other parity than the
      original's at the same route row, so the field is drawn in the other
      buffer half a line off (cause not traced; the New Game's loads taking
      another number of main-loop iterations at host speed is a candidate);
-   - at point 14 the sky grid's region differs by 1..3 (not traced).
+   - at point 14 the sky grid's region differed by 1..3: traced at step
+     DOF, it was the missing depth-of-field pass (that region 5,347 ->
+     10,472 of 11,200 pixels exact with it; GS_EXACT.md 10.1).
    Measured (fb2 harness, the ROUTE step's run; relative to PCSX2's
    software GS): at 14 (camera and field phase the original's) 87.18 % of
    the field's 114,688 pixels exact (mean channel error 0.97); at 13 (camera
    not exact) 55.92 %; at 10 (camera exact, the other field phase) 15.96 %;
    at the AREA01 arrival (15, mostly under the transition fade) 98.57 %;
    every point equal to the GSFRAME merge's numbers (GS_EXACT.md 10.1,
-   `EM_TEST_FULL=1 make test-fb2-pixels`). What removes it: the overlay pass and the status
-   frames as GS packets through the model, 001DDE10's pass drawn, the
+   `EM_TEST_FULL=1 make test-fb2-pixels`). Since step DOF (the pass drawn):
+   14 92.28 % (mean 0.89), 13 62.44 %, 10 18.74 %, 15 98.57 %. What
+   removes it: the overlay pass and the status frames as GS packets
+   through the model, the pass compared with the fork's capture, the
    parity traced through the loads against the captures; then the harness
    compares the field word for word.
 3. **Presentation choices** — **CLOSED 2026-10-09.** The user chose (a) for
@@ -2170,13 +2248,22 @@ fork-side (2026-10-09); its entry gives the result.
     scissor's last row. (d) Never match the port to an emulator's load
     length or any other iteration or vsync count: those are specific to
     the emulator version (the port runs the disc at host speed).
-- **F2. 001DDE10's pass reads the frame** (port work, then a designed
-  capture; part of item 2). Lead from the PCSX2 2.8 post (reads and writes
-  of one texture in one draw), to be confirmed by the original's
-  instructions (does 001D6C90's TEX0 base overlap the FRAME_1 the sprites
-  draw into?) and, if it does, by designed self-reading full-field sprites
-  at the half-texel offset drawn by the software renderer and the model,
-  before the pass is drawn live.
+- **F2. 001DDE10's pass reads the frame** (part of item 2). Lead from the
+  PCSX2 2.8 post (reads and writes of one texture in one draw). **The
+  premise does not hold** (step DOF, 2026-10-09; CHAIN_PAGE.md section
+  6.2): the original's instructions and every captured page show that no
+  primitive of the pass reads the buffer it draws into. Each copy reads the
+  field (TEX0 base 0x700 or 0, the field of the kicked slot) and draws the
+  256x256 buffer at D_0027568C (FBP 0x12C); each blend reads that buffer
+  (001D6BA0's TEX0 0x2580; 001D6C90 writes only TEXA, TEST_1 and ALPHA_1)
+  and draws the field (`make test-chain-page-reference` part G asserts it
+  on all 15 pages). The pass's pixels against the original's (its
+  full-field 2:1 bilinear shrink and 256 -> 512x224 stretch, UV sprites
+  larger than any designed test) were compared with the fork capture of
+  the pass on 2026-10-10 (decomp build/dof_capture, `make
+  test-dof-pass-reference`): bit-exact in all 7 frames after one model
+  rule changed (a UV sprite's row coordinate accumulated in binary32,
+  GS_EXACT.md 3.4). Closed.
 - **F3. Strict refusals in the frames still on the GPU** (port work; part
   of item 2). AA1, CSM2 CLUTs and local-to-local transfers are refused by
   the model and absent from the route's world frames; the overlay pass and

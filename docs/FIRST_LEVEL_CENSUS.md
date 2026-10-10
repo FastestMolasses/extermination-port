@@ -2980,6 +2980,19 @@ three by the presentation step's runs, these two by the hook).
   em_status_models draw_001CB480): no original-instruction check; the
   oracle-tested em_area01_side_001CB480 is not bound (audit 1b item 6).
 
+### 1.70 Update (2026-10-09, step DOF: 001DDE10's depth-of-field pass drawn, no status change)
+
+001DDE10 and 001D6C90 were live already (their packets byte for byte); the chain page's consumer now follows
+001DDE10's slot-0xFFF CALL in the Original profile and the CPU GS model draws it (CHAIN_PAGE.md section 6.2). The
+walk, the DMA / GIF decode and the GS are the renderer boundary: no row changes status. Notes updated: 001DDE10 (its
+row; RENDER_CONTEXT.md 2.3 names it the depth-of-field pass) and the route's stand-ins (section 2). Evidence:
+test_chain_page_reference part G (the pass on all 15 captured pages equal to the model's walk of the original's
+packets, its geometry from the captures' own bytes), test_level_smoke.py check_chain_page (every world page draws it,
+sampled pages re-walked in the model's pass mode), gs_world_test (the pass through the model, 1 / 2 / 3 / 8 workers).
+Since 2026-10-10 also test_dof_pass_reference (no status change): over the fork capture of the pass (decomp
+build/dof_capture, 7 frames) 001DDE10's translation rebuilds the original's EE bytes and GIF stream exactly and the
+model draws the original's GS memory bit for bit (CHAIN_PAGE.md section 6.2).
+
 ## 2. Totals
 
 ### 2.1 All 1,404 executed functions (the route's 1,195 through beat 15, the AIM beats' 114, the DAMAGE recordings' 45, the BRANCH recordings' 36 and the OPTIONS recordings' 14)
@@ -3100,8 +3113,9 @@ State at the full-route recount of 2026-10-08 (section 1.67, chain step ROUTE, w
   Since section 1.64 the main loop's pad read (001B57E0 / 001B5F40), the state-0 re-arm 001AFCA0 and the title's
   New Game handoff 001AB790 run their translations, and 0015CF90, 001B1190 and 001FC280 their whole-function
   translations with oracles (the pickups' taken bits and the vitals copies compared with the captures).
-- **What still stands in on the route:** on the chain page (drawn since section 1.24), 001DDE10's four-sprite pass, which is
-  walked over (the AREA11 flame and the snow draw on the page since section 1.43).
+- **What still stands in on the route:** nothing on the chain page (drawn since section 1.24; the AREA11 flame and the
+  snow since section 1.43; 001DDE10's depth-of-field pass, walked over until then, drawn by the Original profile's GS
+  model since section 1.70, its pixels bit-exact against the fork capture of it since 2026-10-10).
   Every takeover is the stage's own (0015B130's prelude, 00183090, 0015B530, 00182DF0): a script owner's since
   section 1.26, the panel's, the terminal's and the items' since section 1.63.
 - **Verified but not run live: 18 functions (941 instructions; recount of sections 1.57, 1.58, 1.59, 1.61, 1.64, 1.65 and 1.68).** The largest groups
@@ -3864,7 +3878,7 @@ Every non-boundary function, grouped by address range. Columns: address, name (w
 | 0x001DD980 | — | BM | live | em_interaction_projection.c (also the AREA11 script host's op00 publication, census L19) — test_interaction_projection_reference; test_level_smoke.py (truck_preview) | the camera's calls (0018BC20 action 8, 001B0460) publish the live camera's projection since census L13..L16 | S1_newgame_load |
 | 0x001DDA00 | — | BM | live | em_render_context em_render_context_001DDA00 (001D1EA0's) through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | 001DE920 / 001DDB70 / 001DFF70 / 001DF110 bound to a fault (never reached on the route) | S2_opening |
 | 0x001DDAA0 | — | BM | live | em_render_context em_render_context_001DDAA0 through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context |  | S2_opening |
-| 0x001DDE10 | — | BM | live | em_render_context em_render_context_001DDE10 through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | the four sprites' packets are walked over by the chain page's consumer, not drawn: they sample the frame buffer (CHAIN_PAGE.md section 6) | S2_opening |
+| 0x001DDE10 | — | BM | live | em_render_context em_render_context_001DDE10 through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | the depth-of-field pass: its packets drawn by the GS model in the Original profile since section 1.70 (the chain page's pass mode), walked over by the GPU renderer (CHAIN_PAGE.md section 6.2) | S2_opening |
 | 0x001DEEE0 | — | BM | live | em_render_context em_render_context_001DEEE0 through em_render_context_live — test_render_context_reference; test_render_context_live_reference (the live composition vs the original over beats 00..14); test_level_smoke.py check_render_context | its records set up by the boot 001DEDE0 (em_rcl_init) | S2_opening |
 | 0x001DFA40 | — | NM | live | em_load_veil_particles, through em_rcl_0021B1B0 (em_scene_bindings' veil_0021B1B0 at 0021B550, the load veil; step V's list drawn by em_load_veil_live, LOAD_VEIL_PARTICLES.md 3) — test_load_veil_particles_reference.py; test_level_smoke.py check_load_veil (the live run equals the ORIGINAL 0021B1B0 executed at the same call, section 1.35) | since chain step H7 the load runs the loader's own steps: at host speed the New Game load draws 55 veil frames and leaves phase 0.385, with the PS2 disc-drive timing switch 257 frames at phase 0.799 (the PS2: 258, 0.806); each frame equals the ORIGINAL 0021B1B0 executed at the same call (level smoke check_load_veil), and the live loader states equal the New Game capture's 21 (test_area_load_reference); the veil's pixels are proven against the GS model only (no mid-load capture) | S1_newgame_load* |
 | 0x001E0C30 | — | BM | verified-unbound | em_render_context em_render_context_001E0C30 — test_render_context_reference | not bound | S1_newgame_load* |

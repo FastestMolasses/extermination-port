@@ -92,8 +92,32 @@ void em_gs_world_write(EmGsWorld *w, unsigned reg, uint64_t value);
 void em_gs_world_prims(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count);
 /* Body: the draw environment the kick REFs again at this point (001DA6A0
  * after the silhouette: the frame's FRAME_1, ZBUF_1, XYOFFSET_1 and
- * SCISSOR_1 again). */
+ * SCISSOR_1 again; 001D1F20 in the chain page's depth-of-field pass). When
+ * the field is declared (below), it is the buffer drawn from here on. */
 void em_gs_world_env_again(EmGsWorld *w);
+/* Body: the frame's field, declared before a primitive reads it as a
+ * texture (the chain page's depth-of-field pass 001DDE10, CHAIN_PAGE.md
+ * section 6.2): the FRAME_1 and the SCISSOR_1 rows of the draw environment
+ * the kick will REF, which the recorder cannot read before the kick (bank A
+ * of the GS blocks holds them; only that block's XYOFFSET_1 changes, at step
+ * V). From here the field is a buffer drawn in this frame, as the head and
+ * the body draw it (residency, and the workers' ordering: its reads wait
+ * for every band), and the environment again makes it the drawing target
+ * again. Declaring another field in the same frame faults, and so does the
+ * kick when its head's FRAME_1 (FBP, FBW, PSM) or SCISSOR_1 rows differ. */
+void em_gs_world_field_declare(EmGsWorld *w, uint64_t frame, uint32_t height);
+/* Body: the chain page's depth-of-field pass (001DDE10's slot-0xFFF CALL,
+ * CHAIN_PAGE.md section 6.2) as em_chain_page's pass mode walked it: the
+ * field declared (field_frame / field_scissor: the draw environment block's
+ * FRAME_1 and SCISSOR_1), then the `count` primitives with the environment
+ * each one's list set (em_gs_world_prims), and the kick's environment packet
+ * again (em_gs_world_env_again) before primitive again[k] (count: after the
+ * last). The backend's em_gfx_gs_page_pass is this call; the test of the
+ * pass against the original's captures (tools/test_dof_pass_reference.py)
+ * makes it too. 0, or -1 (the fault latched: marks out of order or past the
+ * primitives, a missing array, or a recording fault). */
+int em_gs_world_page_pass(EmGsWorld *w, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                          const uint32_t *again, uint32_t again_count, uint64_t field_frame, uint64_t field_scissor);
 /* Body: GIF data the list sends at this point (a GS state block the list
  * REFs), run through em_gs_gif at the kick. Its TEX0 / CLAMP / PRIM writes
  * are decoded (the texture state), and its textured vertex kicks are
@@ -183,6 +207,14 @@ uint32_t em_gs_world_workers(const EmGsWorld *w);
  * upload wrote it). */
 const uint8_t *em_gs_world_memory(EmGsWorld *w);
 int em_gs_world_resident(const EmGsWorld *w, uint32_t block);
+/* Test hook (tools/test_dof_pass_reference.py): local memory restored from a
+ * capture of the original's, between frames. All EM_GS_MEM_BYTES of `mem`
+ * are copied; a block whose resident[block] is nonzero counts as uploaded
+ * (as em_gs_world_memory_load marks it), every other one as drawn by an
+ * earlier frame (the frame buffers, the Z buffer, the copy and shadow
+ * buffer: their texture reads are ordered against the frame's draws, as a
+ * drawn buffer's are). 0, or -1 (a fault latched, or no memory). */
+int em_gs_world_memory_restore(EmGsWorld *w, const uint8_t *mem, const uint8_t *resident);
 
 /* The latched fault's reason, or NULL. */
 const char *em_gs_world_fault(const EmGsWorld *w);

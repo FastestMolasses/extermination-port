@@ -22,6 +22,7 @@ static struct {
     EmChainPage page;
     EmGfxGsPrim prims[EM_CHAIN_PAGE_LIVE_PRIMS];
     EmChainPageQ q[EM_CHAIN_PAGE_LIVE_PRIMS];
+    EmGfxGsEnv env[EM_CHAIN_PAGE_LIVE_PRIMS];
     uint32_t skip[1];
     uint32_t fault;
     EmChainPageLiveLog log;
@@ -82,6 +83,27 @@ static uint32_t fnv(uint32_t h, uint32_t w)
 }
 
 static uint32_t digest_more(uint32_t h, const EmGfxGsPrim *p, const EmChainPageQ *q, uint32_t n);
+
+/* FNV-1a over the pass's environments and environment-again marks (the
+ * layout tools/level_smoke_chain_page.py rebuilds from the model's walk):
+ * per primitive the set word and the ten registers (low, high), then the
+ * mark count and each mark's index relative to the pass. */
+static uint32_t pass_digest(const EmGfxGsEnv *e, uint32_t n, const uint32_t *again, uint32_t again_count)
+{
+    uint32_t h = 2166136261u;
+    for (uint32_t i = 0; i < n; ++i) {
+        const uint64_t r[10] = { e[i].frame, e[i].zbuf, e[i].xyoffset, e[i].scissor, e[i].prmodecont, e[i].dthe,
+                                 e[i].fba, e[i].pabe, e[i].texa, e[i].scanmsk };
+        h = fnv(h, e[i].set);
+        for (unsigned k = 0; k < 10u; ++k) {
+            h = fnv(h, (uint32_t)r[k]);
+            h = fnv(h, (uint32_t)(r[k] >> 32));
+        }
+    }
+    h = fnv(h, again_count);
+    for (uint32_t k = 0; k < again_count; ++k) h = fnv(h, again[k]);
+    return h;
+}
 
 static uint32_t digest(const EmGfxGsPrim *p, const EmChainPageQ *q, uint32_t n)
 {
@@ -175,15 +197,30 @@ int em_chain_page_live_draw(EmGfx *gfx)
     if (em_rcl_page(&start, &four) < 0) return 0;              /* no kick since the last draw */
     if (!gfx) return fail(0x001CB800u, "no frame to draw the page in");
     if (em_chain_page_live_textures(gfx) < 0) return fail(0x001CB800u, "no page textures");
+    /* 001DDE10's depth-of-field pass (slot 0xFFF, CHAIN_PAGE.md section
+     * 6.2): the GS model draws it in the Original profile's recorded world
+     * frame (pass mode); the GPU renderer walks over it. With the GS frame
+     * on, a pass outside a recorded world frame cannot be drawn: a fault. */
+    const int pass = four && em_gfx_gs_world_recording(gfx);
+    if (four && !pass && em_gfx_gs_world_enabled(gfx))
+        return fail(0x001DDE10u, "001DDE10's pass outside a recorded GS world frame");
+    uint32_t bank = 0, slot = 0;
+    uint64_t field_frame = 0, field_scissor = 0;
+    if (pass && em_rcl_draw_env(&bank, &slot, &field_frame, &field_scissor) < 0)
+        return fail(0x001D1F20u, "no draw environment for the pass (bank A, context +0x9C)");
     EmChainPage *p = &S.page;
     memset(p, 0, offsetof(EmChainPage, regs));
     p->read = reader;
     p->prims = S.prims;
     p->prim_q = S.q;
+    p->prim_env = S.env;
     p->prim_capacity = EM_CHAIN_PAGE_LIVE_PRIMS;
     S.skip[0] = four;
     p->skip_calls = S.skip;
-    p->skip_count = four ? 1u : 0u;
+    p->skip_count = four && !pass ? 1u : 0u;
+    p->pass_call = pass ? four : 0u;
+    p->draw_envs = bank;
+    p->draw_env_slot = slot;
     p->unit = page_unit;
     S.nreads = 0;
     S.overlay_reads = 0;
@@ -192,7 +229,16 @@ int em_chain_page_live_draw(EmGfx *gfx)
                 (unsigned)p->fault_address, (unsigned)p->fault_detail);
         return fail(0x001CB800u, "the page cannot be walked as the original's");
     }
-    if (four && p->counts.skipped != 1u) return fail(0x001DDE10u, "001DDE10's slot-0xFFF CALL is not in the page");
+    if (four && (pass ? p->counts.passes != 1u || p->counts.skipped : p->counts.skipped != 1u))
+        return fail(0x001DDE10u, "001DDE10's slot-0xFFF CALL is not in the page");
+    const uint32_t pass_first = p->pass_first, pass_prims = p->counts.pass_prims;
+    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX];
+    for (uint32_t k = 0; k < p->again_count; ++k) {
+        if (p->again[k] < pass_first || p->again[k] > pass_first + pass_prims)
+            return fail(0x001D1F20u, "a draw-environment REF outside the pass's primitives");
+        again[k] = p->again[k] - pass_first;
+    }
+    if (pass_first + pass_prims > p->prim_count) return fail(0x001DDE10u, "the pass's primitives are not in the page");
     uint32_t decal = 0, flare = 0;
     for (uint32_t i = 0; i < p->prim_count; ++i) {
         if ((p->prims[i].prim & 7u) == 5u && ((p->prims[i].tex0 ^ EM_SHADOW_DECAL_TEX0) & CLD_MASK) == 0)
@@ -206,6 +252,14 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.pages++;
     S.log.start = start;
     S.log.four_sprite = four;
+    S.log.pass = (uint32_t)pass;
+    S.log.pass_first = pass_first;
+    S.log.pass_prims = pass_prims;
+    S.log.again_count = p->again_count;
+    for (uint32_t k = 0; k < p->again_count; ++k) S.log.again[k] = again[k];
+    S.log.draw_envs = bank;
+    S.log.draw_env_slot = slot;
+    S.log.pass_digest = pass ? pass_digest(S.env + pass_first, pass_prims, again, p->again_count) : 0u;
     S.log.counts = p->counts;
     S.log.decal_triangles = decal;
     S.log.flare_sprites = flare;
@@ -235,12 +289,24 @@ int em_chain_page_live_draw(EmGfx *gfx)
     S.log.total_prims += p->prim_count;
     S.log.total_stale_q += p->counts.stale_q;
     S.log.total_skipped += p->counts.skipped;
+    S.log.total_passes += p->counts.passes;
     if (em_shadow_live_bound() && em_shadow_live_page_drew(decal) < 0)
         return fail(0x001CE300u, "the decal the page drew is not the 0015BF90 route's");
     /* Every vertex's Q is its GIF tag's (em_chain_page_live.h). */
     if (p->counts.stale_q)
         return fail(0x001CB800u, "a page vertex has no Q");
-    if (em_gfx_gs_prims(gfx, p->prims, p->prim_count) < 0)
+    if (!pass) {
+        if (em_gfx_gs_prims(gfx, p->prims, p->prim_count) < 0)
+            return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
+        return 0;
+    }
+    /* the page up to the pass, the pass with its environment, the rest */
+    if (em_gfx_gs_prims(gfx, p->prims, pass_first) < 0)
+        return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
+    if (em_gfx_gs_page_pass(gfx, p->prims + pass_first, S.env + pass_first, pass_prims, again, p->again_count,
+                            field_frame, field_scissor) < 0)
+        return fail(0x001DDE10u, "001DDE10's depth-of-field pass cannot be drawn exactly");
+    if (em_gfx_gs_prims(gfx, p->prims + pass_first + pass_prims, p->prim_count - pass_first - pass_prims) < 0)
         return fail(0x001CB800u, "a page primitive cannot be drawn exactly");
     return 0;
 }

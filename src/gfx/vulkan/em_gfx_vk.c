@@ -98,6 +98,14 @@ int em_gfx_gs_memory_load(EmGfx *gfx, const char *path) { (void)gfx; (void)path;
 int em_gfx_gs_world_frame(EmGfx *gfx) { (void)gfx; return 0; }
 int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes) { (void)gfx; (void)chain; (void)bytes; return 0; }
 void em_gfx_gs_world_drop(EmGfx *gfx) { (void)gfx; }
+int em_gfx_gs_world_recording(EmGfx *gfx) { (void)gfx; return 0; }
+int em_gfx_gs_page_pass(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                        const uint32_t *again, uint32_t again_count, uint64_t field_frame, uint64_t field_scissor)
+{
+    (void)gfx; (void)prims; (void)envs; (void)count; (void)again; (void)again_count; (void)field_frame;
+    (void)field_scissor;
+    return -1;   /* no GS frame on this backend: the pass is walked over */
+}
 int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
 { (void)gfx; (void)env; (void)env_bytes; (void)clear; (void)clear_bytes; return 0; }
 const char *em_gfx_gs_world_fault(EmGfx *gfx) { (void)gfx; return NULL; }

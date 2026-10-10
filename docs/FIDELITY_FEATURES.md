@@ -242,8 +242,8 @@ as recorded in PCSX2 on the same route.
   navigation does not reach exactly; the opening's rand() values after its
   actors' spawn, which the stream request's wait moves (host speed, the
   policy); the fans' phase at the snapshot ticks (only their cycle is
-  compared); the rand()-seeded sprites; 001DDE10's frame-copy sprites; the
-  load veil's length). At host speed (the policy) the status page's module
+  compared); the rand()-seeded sprites; the pixels of 001DDE10's
+  depth-of-field pass; the load veil's length). At host speed (the policy) the status page's module
   load takes the loader's 10 steps where the recording's disc took 24, and
   the rows after it are compared at that shift. Sounds are compared at the
   command level (the EE sound state), not as audio output. AREA01 after its
@@ -709,7 +709,8 @@ programs.
   draw, `check_marker_colour`), and the head sprites' phase follows 001E2560
   over the port's own draws (`check_head_sprites`). Rings are proven on synthetic batches only
   and are not drawn on the recorded route; do not advertise them. 001DDE10's
-  four frame-sampling sprites are not drawn. The snow's and the flame's
+  depth-of-field pass is drawn only by the Original profile's GS model
+  (the GS frame entry below). The snow's and the flame's
   sprites follow their owners' seeds and phases (rand(), the flame's age), so
   their positions are compared with the recordings only through their
   packets' camera and fog rows. Page and decal textures come from the
@@ -1103,18 +1104,35 @@ only shows that field.
   "Each field shown at its interlaced height" below).
 - Evidence: `make test-gs-raster-reference` (the model; part F the row
   bands), `make test-gs-world` (1, 2, 3 and 8 workers draw the same
-  fields, thread sanitizer), `make test-gs-memory-reference` (the GS
+  fields, thread sanitizer), `make test-dof-pass-reference` (001DDE10's
+  pass against the original's GS memory on both sides of it in 7 captured
+  frames: bit-exact through the model and through the workers' path),
+  `make test-gs-memory-reference` (the GS
   memory after the area load equals the disc model of the uploads in all
   5,504 blocks), `test_shadow_original_reference` (the shadow target packet
   in order); the level smoke through Roger with the GS frame on; the fb2
   pixel harness (next entry). Commit: chain step GSFRAME.
 - Status: **PARTIAL**. The 2D overlay pass (message glyphs, letterbox bars,
   screen and transition fades) is still drawn by the GPU over the field; the
-  status screens draw with the GPU; 001DDE10's frame-copy sprites are not
-  drawn. Frame cost (GS_EXACT.md 10.2): in the first level every in-level
-  tick is under the 16.68 ms period on this M1 Pro when the workers have
-  free cores (re-measured at the merge, 2026-10-08); under heavy machine
-  load some ticks run over on wall time. AREA01 (level 2) draws through
+  status screens draw with the GPU. 001DDE10's depth-of-field pass (the
+  soft background, CHAIN_PAGE.md section 6.2) is drawn by the model since
+  step DOF (2026-10-09): its register sequence equals the original's walk
+  of every captured page (`make test-chain-page-reference` part G), the
+  camera-exact fb2 point 14 rose from 87.18 to 92.28 % exact pixels with
+  it, and since 2026-10-10 its pixels are bit-exact against the original's
+  GS memory on both sides of the pass in 7 captured frames (5 cutscene, 2
+  play; all 4 MiB of local memory, through the model, the port's own
+  packets and the Original profile's worker path: `make
+  test-dof-pass-reference`, CHAIN_PAGE.md 6.2; one model rule changed for
+  it, a UV sprite's row coordinate accumulated in binary32, GS_EXACT.md
+  3.4). Not captured: a blend reaching pixels of a whole-line field
+  (GS_EXACT.md 8.8). The GPU renderer does not draw it. Frame cost (GS_EXACT.md 10.2): in the first level every in-level
+  tick was under the 16.68 ms period on this M1 Pro when the workers had
+  free cores (re-measured at the merge, 2026-10-08, before the pass); under
+  heavy machine load some ticks ran over on wall time. The pass adds about
+  3.9 ms of the busiest worker's CPU per frame (+50 %); on a heavily loaded
+  machine 652 to 740 of 1,300 in-level ticks then ran over the period, and
+  the quiet-machine figure with the pass is not measured yet. AREA01 (level 2) draws through
   the same model since the merge, but 65 of its 840 measured ticks run over
   the period (its main thread alone takes 13.6 ms). The model is PCSX2's
   software renderer's behaviour as measured, not real hardware's.
@@ -1137,17 +1155,22 @@ original" is a number.
 - Evidence: decomp `CAPTURES_C7.md` 5b (decode proof: block-seam ratio
   0.93..1.15, luma correlation 0.989..0.998; route03_end reproduced byte for
   byte). At route snapshot 14, where the port's camera and field phase are
-  the original's: 99,985 of the 114,688 pixels exact (87.18 %), mean channel
-  error 0.97, per-pixel error 0 at the median and 1 at the 90th percentile;
-  the rest is the fan blades' phase, the snow's rand() stream and the sky
-  grid's region (±1..3, not traced). At 13 (camera not exact): 55.92 %.
-  With the GPU renderer the same points gave 28.79 % and 35.35 %. At the
-  AREA01 arrival (point 15, camera exact): 98.57 % (GPU 47.41 %), a frame
-  mostly under the transition fade; every point re-measured unchanged at chain step
-  ROUTE (2026-10-08, `EM_TEST_FULL=1 make test-fb2-pixels`, port HEAD 2e5fa30).
+  the original's: 105,973 of the 114,688 pixels exact (92.40 %), mean
+  channel error 0.89, per-pixel error 0 at the median and at the 90th
+  percentile, since step DOF (2026-10-09) drew 001DDE10's depth-of-field
+  pass (87.18 % and 0.97 before; the sky region's ±1..3, untraced until
+  then, was that pass: GS_EXACT.md 10.1) and its conformance step
+  (2026-10-10) made the pass bit-exact (92.28 % before it); the rest is the
+  fan blades' phase and the snow's rand() stream. At 13 (camera not
+  exact): 62.60 % (55.92 % before the pass). With the GPU renderer, which does not draw the pass,
+  the same points gave 28.79 % and 35.35 %. At the AREA01 arrival (point
+  15, camera exact): 98.57 % (GPU 47.41 %), a frame mostly under the
+  transition fade, unchanged by the pass (`EM_TEST_FULL=1 make
+  test-fb2-pixels`; the earlier numbers were re-measured unchanged at chain
+  step ROUTE, 2026-10-08, port HEAD 2e5fa30).
 - Status: **PARTIAL**. At 5 of the 7 compared points the port's frame loop
   is in the other field phase (the field drawn half a line off: at
-  snapshot 10, camera exact, 15.96 %); the cause is not traced (GS_EXACT.md
+  snapshot 10, camera exact, 18.74 % with the pass, 15.96 % without); the cause is not traced (GS_EXACT.md
   10.1). The snow and the flame follow the port's rand() stream and the
   fans' phase the recording's timing. The software renderer is PCSX2's
   model of the GS, not hardware. The field-to-buffer pairing rule is not
@@ -1217,8 +1240,9 @@ Advertise the items above only.
   `FIRST_LEVEL_AUDIT.md` 1b (re-made 2026-10-08, chain step ROUTE).
 - Status: **PLANNED**. The status
   hub's and the MAP page's models are drawn by the renderer's skinned path
-  with the original's matrices. 001DDE10's four frame-copy sprites are not
-  drawn. The 2D overlay pass (message glyphs, letterbox, fades) is drawn by
+  with the original's matrices. 001DDE10's depth-of-field pass is drawn by
+  the GS model only (not by the GPU renderer); its pixels are bit-exact
+  against 7 captured frames of it (`make test-dof-pass-reference`). The 2D overlay pass (message glyphs, letterbox, fades) is drawn by
   the GPU over the GS field, and the status screen's frames (the hub and
   its pages) still draw with the GPU renderer, not the GS model (GS_EXACT.md
   section 9; their uploads go to the status runtime's GS data). (The
@@ -1815,8 +1839,11 @@ units per second.
   tables. 0015BCF0 is live only in part. 001FC280, 0015CF90 and 001B1190
   have oracles executing them since chain step GLUE (census 1.64); the one
   unverified row left is the MAP page's draw 001CB480. "No stand-in rows"
-  does not mean no stand-in code runs. Census 2.3 still lists stand-in
-  behaviour on the route: the chain page's four-sprite pass (the examine
+  does not mean no stand-in code runs. Census 2.3 listed the chain page's
+  depth-of-field pass as stand-in behaviour on the route until step DOF
+  drew it with the GS model (2026-10-09; bit-exact against 7 captured
+  frames since 2026-10-10, `make test-dof-pass-reference`)
+  (the examine
   camera and the opening's camera timeline are original since chain step
   CAMERAS; the panel's, terminal's and items' takeovers are the player
   stage's own since chain step TAKEOVERS). Census section

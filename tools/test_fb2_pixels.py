@@ -143,13 +143,21 @@ GPU = os.environ.get('EM_GPU_RENDERER') == '1'
 # field, 2026-10-03 (chain step GSFRAME); see the module docstring and
 # GS_EXACT.md section 10.
 FLOORS = {
+    # Raised at step DOF (2026-10-09: 001DDE10's depth-of-field pass drawn
+    # by the GS model; GS_EXACT.md 10.1): 10 15.96 -> 18.74 %, 11 5.48 ->
+    # 5.52 %, 13 55.92 -> 62.44 %, 14 87.18 -> 92.28 %; the others within
+    # their floors (first control 0.98 -> 0.97 %, 08 3.14 %, 12 2.46 %,
+    # 15 98.57 %). Raised again at the pass's conformance step (2026-10-10:
+    # a UV sprite's row coordinate accumulated in binary32, GS_EXACT.md
+    # 3.4): 10 -> 18.92 %, 13 -> 62.599 %, 14 -> 92.40 %; 11 5.51 %, first
+    # control 0.97 % (1,117 pixels), 08, 12 and 15 unchanged.
     'first_control': 0.009,
     '08_truck_crossing': 0.031,
-    '10_cage_roof_roger': 0.159,
-    '11_crevice_prompt': 0.054,
+    '10_cage_roof_roger': 0.189,
+    '11_crevice_prompt': 0.055,
     '12_crevice_jump': 0.024,
-    '13_east_tower': 0.559,
-    '14_roger_encounter': 0.871,
+    '13_east_tower': 0.625,
+    '14_roger_encounter': 0.924,
     # AREA01's arrival, measured at the GSFRAME merge (2026-10-08: camera
     # exact, 98.57 %, under the overlay pass's transition fade).
     '15_level_exit': 0.985,

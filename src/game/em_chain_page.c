@@ -10,11 +10,18 @@
 #define DIRECT_MAX 4096u     /* qwords of one DIRECT packet               */
 #define TAGS_MAX 100000u     /* DMA tags per page (a looping chain faults) */
 
+/* Marks a segment of no data carries (qwc 0) besides the unit CALLs. */
+enum { MARK_NONE = 0, MARK_PASS = 1, MARK_AGAIN = 2 };
+
 typedef struct {
     uint32_t address;        /* source address of the transferred data   */
     uint32_t qwc;
     const uint8_t *bytes;
     int unit;                /* a class-2 unit CALL (qwc 0): its index    */
+    uint8_t mark;            /* MARK_PASS: the pass CALL starts (qwc 0);
+                              * MARK_AGAIN: the pass's REF of the frame's
+                              * draw environment (qwc 0, not transferred) */
+    uint8_t pass;            /* transferred inside the pass CALL          */
 } Seg;
 
 #define UNIT_PRIMS 8192u     /* the units' primitives per page            */
@@ -53,6 +60,9 @@ typedef struct {
      * list mode walk of a CALL target, ended by its top-level RET) */
     int list, call;
     EmGfxGsEnv env;
+    /* pass mode: the VIF code being run was transferred inside the pass
+     * CALL (its GIF data take list mode's registers) */
+    int pass_regs;
 } Walk;
 
 static Walk W;   /* one page at a time (the frame close is single-threaded) */
@@ -86,10 +96,31 @@ static int skipped(const EmChainPage *p, uint32_t addr)
     return 0;
 }
 
+/* Pass mode: a REF inside the pass. The kicked slot's whole draw
+ * environment (bank A: 001D1F20's REF) is an environment-again mark: 1. Any
+ * other REF into bank A faults (-1). Else 0: transferred. */
+static int pass_ref(Walk *w, uint32_t cur, uint32_t addr, uint32_t qwc)
+{
+    const EmChainPage *p = w->p;
+    const uint32_t lo = p->draw_envs, hi = p->draw_envs + 2u * EM_CHAIN_PAGE_DRAW_ENV;
+    if (addr == lo + EM_CHAIN_PAGE_DRAW_ENV * p->draw_env_slot && qwc == EM_CHAIN_PAGE_DRAW_ENV_QWC) return 1;
+    if (addr < hi && addr + 16u * qwc > lo) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, addr);
+    return 0;
+}
+
+/* A segment of no data: a mark (MARK_PASS / MARK_AGAIN). */
+static int mark_seg(Walk *w, uint32_t cur, uint32_t address, uint8_t mark)
+{
+    if (w->nseg >= SEG_MAX) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, SEG_MAX);
+    w->seg[w->nseg++] = (Seg){ address, 0, NULL, 0, mark, 1 };
+    return 0;
+}
+
 static int dma(Walk *w, uint32_t start)
 {
     EmChainPage *p = w->p;
     uint32_t stack[2], depth = 0, cur = start;
+    int in_pass = 0;                 /* inside the pass CALL (pass mode) */
     const uint32_t end = start + 0x20u;
     for (uint32_t n = 0;; ++n) {
         if (!w->list && cur == end && depth == 0) return 0;
@@ -104,14 +135,40 @@ static int dma(Walk *w, uint32_t start)
         if (hi & 0x80000000u) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, hi);  /* SPR */
         const uint32_t addr = hi & 0x7FFFFFFFu;
         uint32_t data = cur + 16u, next;
+        uint8_t seg_pass = (uint8_t)in_pass;
         switch (id) {
         case 1: next = cur + 16u + 16u * qwc; break;                     /* CNT  */
         case 2: next = addr; break;                                       /* NEXT */
-        case 3: data = addr; next = cur + 16u; break;                     /* REF  */
+        case 3:                                                           /* REF  */
+            data = addr; next = cur + 16u;
+            if (in_pass) {
+                const int again = pass_ref(w, cur, addr, qwc);
+                if (again < 0) return -1;
+                if (again) {
+                    /* the frame's draw environment: read by the DMA after
+                     * the kick, sent by the GS model then (a mark) */
+                    if (mark_seg(w, cur, addr, MARK_AGAIN) < 0) return -1;
+                    p->counts.transfers++;
+                    cur = next;
+                    continue;
+                }
+            }
+            break;
         case 5:                                                           /* CALL */
             if (depth == 0 && skipped(p, addr)) {
                 p->counts.skipped++;
                 next = cur + 16u + 16u * qwc;
+                break;
+            }
+            if (depth == 0 && p->pass_call && addr == p->pass_call) {
+                /* the pass: followed, its data in pass mode */
+                if (p->counts.passes) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, addr);
+                if (mark_seg(w, cur, addr, MARK_PASS) < 0) return -1;
+                p->counts.passes = 1;
+                in_pass = 1;
+                seg_pass = 1;
+                stack[depth++] = cur + 16u + 16u * qwc;
+                next = addr;
                 break;
             }
             if (depth == 0 && p->unit) {
@@ -130,10 +187,10 @@ static int dma(Walk *w, uint32_t start)
                     if (qwc) {
                         const uint8_t *b = p->read(p->read_ctx, data, 16u * qwc);
                         if (!b) return fault(w, EM_CHAIN_PAGE_FAULT_READ, data, 16u * qwc);
-                        w->seg[w->nseg++] = (Seg){ data, qwc, b, 0 };
+                        w->seg[w->nseg++] = (Seg){ data, qwc, b, 0, MARK_NONE, 0 };
                         p->counts.qwords += qwc;
                     }
-                    w->seg[w->nseg++] = (Seg){ addr, 0, NULL, (int)p->counts.units + 1 };
+                    w->seg[w->nseg++] = (Seg){ addr, 0, NULL, (int)p->counts.units + 1, MARK_NONE, 0 };
                     p->counts.units++;
                     p->counts.transfers++;
                     cur = cur + 16u + 16u * qwc;
@@ -150,6 +207,7 @@ static int dma(Walk *w, uint32_t start)
              * stops. */
             if (depth == 0 && !w->call) return fault(w, EM_CHAIN_PAGE_FAULT_DMA, cur, lo);
             next = depth ? stack[--depth] : 0;
+            if (depth == 0) in_pass = 0;                                  /* the pass returns */
             break;
         case 7:                                                           /* END  */
             /* A frame list's end (list mode only; a page never holds one):
@@ -165,7 +223,7 @@ static int dma(Walk *w, uint32_t start)
             if (w->nseg >= SEG_MAX) return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, cur, SEG_MAX);
             const uint8_t *b = p->read(p->read_ctx, data, 16u * qwc);
             if (!b) return fault(w, EM_CHAIN_PAGE_FAULT_READ, data, 16u * qwc);
-            w->seg[w->nseg++] = (Seg){ data, qwc, b, 0 };
+            w->seg[w->nseg++] = (Seg){ data, qwc, b, 0, MARK_NONE, seg_pass };
             p->counts.qwords += qwc;
         }
         if (id == 7u || (id == 6u && w->call && next == 0u)) return 0;
@@ -174,15 +232,17 @@ static int dma(Walk *w, uint32_t start)
 }
 
 /* The next transferred word and its source address; 0 at the end, 2 at a
- * unit marker (*address its CALL target; the marker is consumed). */
+ * unit marker (*address its CALL target), 3 at an environment-again mark
+ * (*address the draw environment's), 4 where the pass starts (*address its
+ * CALL target); a marker is consumed. */
 static int word(Walk *w, uint32_t *value, uint32_t *address)
 {
     while (w->si < w->nseg && w->wi >= 4u * w->seg[w->si].qwc) {
-        if (w->seg[w->si].unit && w->wi == 0u) {
+        if ((w->seg[w->si].unit || w->seg[w->si].mark) && w->wi == 0u) {
             w->wi = 1u;                       /* consumed */
             *address = w->seg[w->si].address;
             *value = 0;
-            return 2;
+            return w->seg[w->si].unit ? 2 : w->seg[w->si].mark == MARK_AGAIN ? 3 : 4;
         }
         w->si++;
         w->wi = 0;
@@ -220,10 +280,14 @@ static int emit(Walk *w, uint32_t count)
         memset(&p->prim_q[p->prim_count], 0, sizeof p->prim_q[p->prim_count]);
         for (uint32_t k = 0; k < count; ++k) p->prim_q[p->prim_count].q_known[k] = w->queue_q[k];
     }
-    if (w->list && p->prim_env) p->prim_env[p->prim_count] = w->env;
+    if (p->prim_env) {
+        if (w->list || w->pass_regs) p->prim_env[p->prim_count] = w->env;
+        else memset(&p->prim_env[p->prim_count], 0, sizeof p->prim_env[p->prim_count]);
+    }
     p->prim_count++;
     p->counts.prims++;
     p->counts.prim_type[w->prim & 7u]++;
+    if (w->pass_regs) p->counts.pass_prims++;
     return 0;
 }
 
@@ -345,6 +409,9 @@ static int address_data_list(Walk *w, uint32_t reg, uint64_t data, uint32_t at)
     case 0x4E: e->zbuf = data;       e->set |= EM_GFX_GS_ENV_ZBUF;       return 1;
     case 0x19: case 0x41: case 0x48: case 0x4D: case 0x4F:        /* context 2 */
     case 0x3D:                                                    /* FOGCOL */
+        /* A pass's writes are all replayed: one the GS model would not get
+         * faults (the pass never holds one). */
+        if (!w->list) return fault(w, EM_CHAIN_PAGE_FAULT_GIF, at, reg);
         return 1;
     default:
         return 0;
@@ -356,7 +423,7 @@ static int address_data(Walk *w, const uint8_t *q, uint32_t at)
 {
     const uint64_t data = rd64(q);
     const uint32_t reg = q[8];
-    if (w->list) {
+    if (w->list || w->pass_regs) {
         const int r = address_data_list(w, reg, data, at);
         if (r) return r < 0 ? -1 : 0;
     }
@@ -533,6 +600,7 @@ static int unit(Walk *w, int index, uint32_t at)
         EmGfxGsPrim *o = &p->prims[p->prim_count];
         *o = *g;
         if (p->prim_q) memset(&p->prim_q[p->prim_count], 1, sizeof p->prim_q[p->prim_count]);
+        if (p->prim_env) memset(&p->prim_env[p->prim_count], 0, sizeof p->prim_env[p->prim_count]);
         p->prim_count++;
         p->counts.prims++;
         p->counts.prim_type[g->prim & 7u]++;
@@ -558,6 +626,30 @@ static int unit(Walk *w, int index, uint32_t at)
     return 0;
 }
 
+/* Pass mode: the pass starts (its CALL): its environment is its own. */
+static void pass_start(Walk *w)
+{
+    memset(&w->env, 0, sizeof w->env);
+    w->p->pass_first = w->p->prim_count;
+}
+
+/* Pass mode: the REF of the frame's draw environment (an environment-again
+ * mark before the next primitive). The registers that block writes (the
+ * context-1 environment, CLAMP_1, TEX1_1, TEST_1 and COLCLAMP, besides the
+ * context-2 set) are the frame's from here on: the walk forgets them. */
+static int pass_again(Walk *w, uint32_t at)
+{
+    EmChainPage *p = w->p;
+    if (p->again_count >= EM_CHAIN_PAGE_AGAIN_MAX)
+        return fault(w, EM_CHAIN_PAGE_FAULT_CAPACITY, at, EM_CHAIN_PAGE_AGAIN_MAX);
+    p->again[p->again_count++] = p->prim_count;
+    p->counts.again++;
+    memset(&w->env, 0, sizeof w->env);
+    w->set &= ~(uint32_t)(EM_GFX_GS_CLAMP | EM_GFX_GS_TEX1 | EM_GFX_GS_TEST | EM_GFX_GS_COLCLAMP);
+    w->clamp = w->tex1 = w->test = w->colclamp = 0;   /* unset, as at the page's start */
+    return 0;
+}
+
 static int vif(Walk *w)
 {
     EmChainPage *p = w->p;
@@ -569,6 +661,15 @@ static int vif(Walk *w)
             if (unit(w, w->seg[w->si].unit, at) < 0) return -1;
             continue;
         }
+        if (got == 3) {
+            if (pass_again(w, at) < 0) return -1;
+            continue;
+        }
+        if (got == 4) {
+            pass_start(w);
+            continue;
+        }
+        w->pass_regs = w->seg[w->si].pass;
         const uint32_t cmd = (v >> 24) & 0x7Fu, num = (v >> 16) & 0xFFu, imm = v & 0xFFFFu;
         if (v & 0x80000000u) return fault(w, EM_CHAIN_PAGE_FAULT_VIF, at, v);
         if (cmd >= 0x60u) {                                           /* UNPACK */
@@ -737,11 +838,12 @@ static int vif(Walk *w)
             uint32_t used;
             const uint32_t strips_before = p->counts.prim_type[4];
             p->counts.direct++;
+            if (w->pass_regs) p->counts.pass_direct++;
             if (gif(w, fetch_buffer, direct, cnt, at, &used) < 0) return -1;
-            /* List mode: PATH2 goes on with the next GIF tag after an EOP
-             * until the DIRECT data is used up (001D6930 sends two
-             * packets in one DIRECT). The page's DIRECTs each hold one. */
-            while (w->list && used < cnt) {
+            /* List mode and the pass: PATH2 goes on with the next GIF tag
+             * after an EOP until the DIRECT data is used up (001D6930 sends
+             * two packets in one DIRECT). The page's DIRECTs each hold one. */
+            while ((w->list || w->pass_regs) && used < cnt) {
                 uint32_t more;
                 if (gif(w, fetch_buffer, direct + 16u * used, cnt - used, at, &more) < 0) return -1;
                 used += more;
@@ -760,11 +862,14 @@ static int vif(Walk *w)
 static int run(EmChainPage *p, uint32_t start, int list, int call)
 {
     if (!p) return -1;
-    if (!p->read || !p->prims || (p->skip_count && !p->skip_calls) || p->skip_count > EM_CHAIN_PAGE_SKIP_MAX) {
+    if (!p->read || !p->prims || (p->skip_count && !p->skip_calls) || p->skip_count > EM_CHAIN_PAGE_SKIP_MAX ||
+        (p->pass_call && (list || !p->draw_envs || p->draw_env_slot > 1u || skipped(p, p->pass_call)))) {
         p->fault = EM_CHAIN_PAGE_FAULT_ARGS;
         return -1;
     }
     p->prim_count = 0;
+    p->pass_first = 0;
+    p->again_count = 0;
     memset(&p->counts, 0, sizeof p->counts);
     p->fault = p->fault_address = p->fault_detail = 0;
     em_vu1p_regs_reset(&p->regs);

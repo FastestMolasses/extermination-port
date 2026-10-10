@@ -20,14 +20,21 @@ AREA11 flame (owner 008235F0's 001D04B0) and the weather's channel-3 list
 (001E55F0 / 001E67C0's 001CFFE0 tiles, CALLed by 001E0D70), and the consumer
 runs a third program, the snow program D_00233800 (section 6.1).
 
+Since step DOF (2026-10-09) the Original profile draws the page's last
+CALL, 001DDE10's depth-of-field pass at slot 0xFFF, through the CPU GS model
+(section 6.2); the GPU renderer still walks over it.
+
 Files:
 - `src/game/em_vu1_page_programs.h`: the lane program (DMA packet
   D_00233290), the sprite program (table 0x231770) and the snow program
   (D_00233800), translated from their VU1 microcode (section 3).
-- `src/game/em_chain_page.{h,c}`: the DMA / VIF1 / GIF / GS walk (section 2).
+- `src/game/em_chain_page.{h,c}`: the DMA / VIF1 / GIF / GS walk (section 2)
+  and its pass mode for 001DDE10's depth-of-field pass (section 6.2).
 - `src/game/em_gs_blocks_original.{h,c}`: 001D0F20's blend-preset bank, the GS
   state the page REFs (section 4).
-- `src/game/em_chain_page_live.{h,c}`: the live binding (section 7).
+- `src/game/em_chain_page_live.{h,c}`: the live binding (section 7); the
+  pass reaches the GS model through `em_gfx_gs_page_pass` (em_gfx.h) and
+  `em_gs_world_field_declare` (GS_EXACT.md section 9).
 - `src/em_gfx.h` `em_gfx_gs_prims` / `em_gfx_gs_texture`, Metal in
   `src/gfx/metal/em_gfx_metal.m`: the GS pixel path (section 5).
 - `tools/chain_page_model.py`: the original's side (DMA, VIF1, the ORIGINAL
@@ -99,8 +106,10 @@ into the vertex (the GS's internal Q).
 at the context's +0; the route snapshots are taken before the next frame's
 001CB8A0), with the weather's CALL walked over: 386 primitives: 369 sprites,
 5 triangles of fans, 12 lines of line strips; 86 XGKICKs and 208 DIRECT
-packets. Every captured page holds one weather CALL (108 snow MSCALs; route
-10's draws 385 sprites) and the flame's REF of D_00828340. By producer:
+packets; with 001DDE10's pass walked too (pass mode, section 6.2), 120 more
+sprites and 480 more DIRECT packets (8 and 32 a page). Every captured page
+holds one weather CALL (108 snow MSCALs; route 10's draws 385 sprites), the
+flame's REF of D_00828340 and the pass's CALL, its last. By producer:
 
 | Producer | Shape |
 |---|---|
@@ -110,7 +119,7 @@ packets. Every captured page holds one weather CALL (108 snow MSCALs; route
 | 001F0A60 (the pickup glint) | DIRECT 13: two line strips of three vertices (PRIM 0x6A: Gouraud, fogged, blended, untextured); 001CB900 appends the blend REF after the packet, so the DMA sends the REF first (slot lists run newest first) |
 | 001CE300 (the decal) | the blend REF, the TEX0 packet 001CB950 writes, the fans (PRIM 0x7D) |
 | 001E0D70 (slot 0xFFB: its id 0xFFC000 is capped) | a CALL of the weather's channel-3 list (context +0x2520): per snow tile 001CFFE0's REF of the mode-2 preset, CALL D_00233800, the UNPACKs of the projection rows (15 to 0x6E), the descriptor (9 to 0x50) and the parameters with the tile matrix (5 to 0x59), MSCAL; then 001E55F0's RET. 108 tiles per list on the route (section 6.1) |
-| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts, 001DDE10's four-sprite frame-copy pass (slot 0xFFF): see section 6 |
+| page CALLs into the packet arena | the object units 001CAAC0 depth-sorts (section 6); 001DDE10's depth-of-field pass (slot 0xFFF, the page's last CALL): section 6.2 |
 
 ## 3. The VU1 programs (em_vu1_page_programs.h)
 
@@ -379,32 +388,6 @@ gives the same values.
   AREA11's flags are 0x10) and clears it, as in every capture (+0x2520 = 0
   at every route snapshot).
 
-- **001DDE10's four-sprite pass (slot 0xFFF).** Every world frame (flag 1)
-  001DDE10 CALLs a channel-3 packet: GS environment REFs of the other banks
-  (FRAME / ZBUF / TEST / CLAMP), 001D6C90's texture-from-frame packets and
-  four sprites that sample the frame. What the sprites are (the decomp's
-  func_001DDE10, read 2026-09-28 for the fb2 step): per slot k = 0..3, after
-  001D6B10(3, D_0027568C, 8, 8), 001D6BA0, 001D1FF0(3, 3) and 001D6C90 set
-  the texture state, one PACKED sprite (tag with PRE, registers RGBAQ, UV,
-  XYZF2, UV, XYZF2) covering the whole field, window corners (0x7000,
-  0x7900) and (0x9000, 0x8700), UV (8, 8) to (0x1008, 0x1008) in 1/16
-  texel, RGB 0x80 and alpha the slot's eased value at +0x2500 + 4k (in
-  AREA11, when neither 001D2910(7) nor 0022EBE0 is set, the targets 0x18 /
-  0x28 / 0x38 / 0x48), Z the slot's eased depth
-  (+0x24F0 + 4k, from the tracked point's depth through the slot's gain).
-  So each sprite blends a copy of the frame, read through the texture state
-  001D6C90 sets, over the pixels its Z test passes. Its look is not
-  reproduced: it needs the frame as GS memory (the displayed buffer read
-  back through that texture state) and the GS Z buffer for the test, which
-  only the GS model's binding provides (GS_EXACT.md section 9; bound for
-  the Original profile since chain step GSFRAME, 2026-10-03, so the pass is
-  now drawable there, but drawing it is a step of its own: the walk still
-  skips the CALL); the GPU renderer's frame has neither. The fb2 harness (tools/test_fb2_pixels.py) shows
-  no region-wide difference at the camera-exact points 10 and 14 that this
-  pass would explain, but it cannot isolate the pass either. The consumer walks over that one CALL,
-  whose address the render context records at 001CB760(0xFFF000)
-  (`em_rcl_page`), and counts it; the smoke asserts it is the only CALL
-  walked over (12,573 over the full route). It was not drawn before either.
 - **The object units 001CAAC0 depth-sorts (chain step AIMLIVE; behind the
   aim/fire gate until its fix round, in ordinary play since 2026-10-02).** 001CABA0 (the muzzle node's +0x4C draw, AIM_FIRE.md
   section 9.1) builds a class-2 object unit on channel 3 and 001CAAC0 /
@@ -425,11 +408,143 @@ gives the same values.
   test-object-unit-reference part K. Outside the gate no unit reaches the
   page; an object unit of another class still refuses.
 
+### 6.2 001DDE10's depth-of-field pass (step DOF, 2026-10-09)
+
+**What the original does** (the decomp's func_001DDE10, byte-matched, whose
+comment "radar/altimeter HUD bar builder" is wrong; RENDER_CONTEXT.md 2.3;
+the packets its callees write, read in every route capture). While render
+flag 1 is set, every world frame's close runs 001D1EA0 -> 001DDA00 ->
+001DDAA0 -> 001DDE10 (001DE920 instead only for the area keys 0xB00..0xE00
+with D_008106C8 & 0x60, which AREA11 never sets). 001DDE10 builds one
+channel-3 list and hands it to 001CB760 at slot 0xFFF, the page's last slot,
+so the page ends with that CALL. Four times, k = 0..3:
+
+1. **The copy** (001D6B10 -> 001D6930, then 001D1F20). 001D6E60 switches
+   drawing to the 256x256 PSMCT32 buffer at D_0027568C (GS byte 0x258000:
+   FBP 0x12C, FBW 4) with XYOFFSET (0x7800, 0x7800), SCISSOR 0..255 x
+   0..255, PRMODECONT and COLCLAMP bit 0 set, DTHE bit 0 clear (001006D8
+   keeps the other bits of those three words as the packet memory held
+   them: stale, unread by the GS), TEST 0x30000; the REF of bank E 0
+   (001D2040(3, 0)) makes TEST 0x3000D and ZBUF the field's Z buffer with
+   ZMSK; the REF of bank D 2 (001D1FF0(3, 2)) the REGION_CLAMP 0..511 x
+   0..223; then one DIRECT of two GIF packets: TEXFLUSH, TEX0 = the field
+   this frame draws (TBP 0x700 when context +0x9C is 0, else 0: bank A's
+   FRAME of that slot; 512 wide, 512x256, PSMCT32, DECAL, TCC 0), TEXA 0x20,
+   and the sprite PRIM 0x116 (UV, no blending) with D_0026E510's RGBA (0x80
+   x 4), UV (0.5, 0.5)..(511.5, 223.5) over the window (0, 0)..(256, 256).
+   TEX1 is whatever was last set (bank A's 0x60 for k > 0; the page's last
+   for k = 0: 0x60 in every capture). Then the REF of the frame's draw
+   environment, bank A of the kicked slot (001D1F20: back to the field).
+2. **The blend** (001D6BA0, 001D1FF0(3, 3), 001D6C90, the packet). TEX0 =
+   the copy (TBP 0x2580, TBW 4, 256x256, PSMCT32, MODULATE, TCC 0), the
+   REGION_CLAMP 0..255 of bank D 3, TEXA 0, TEST 0x51001 (alpha NEVER with
+   AFAIL FB_ONLY: colour and alpha written, never Z; ZTE, ZTST GEQUAL), ALPHA
+   0x44 ((Cs - Cd) * As >> 7 + Cd); one sprite PRIM 0x156 (UV, blended) over
+   the whole field, (0x7000, 0x7900)..(0x9000, 0x8700), UV (0.5,
+   0.5)..(256.5, 256.5), RGBA (0x80, 0x80, 0x80, rr), XYZF2 Z = cc >> 4 (the
+   PACKED Z field is the word's bits 4..27, GS_EXACT.md 2.1). cc and rr are
+   the slot's eased depth and alpha at context +0x24F0 / +0x2500 + 4k
+   (RENDER_CONTEXT.md 2.3: cutscenes, 0022EBE0 != 0, focus on the camera's
+   look-at point, gains 4 / 2 / 1 / 0.5, alpha 0x3E; AREA11 play, focus on
+   the player, gains 8 / 7 / 6 / 5, alphas easing to 0x18 / 0x28 / 0x38 /
+   0x48). Since the scene's Z test is GEQUAL (larger Z is nearer), only the
+   field pixels at or behind the slot's depth take the blend, and each pass
+   copies the already blended field.
+
+After the four passes: the draw environment once more (001DE898's
+001D1F20) and the list's RET. No primitive reads the buffer it draws into:
+the copy reads the field and draws the copy, the blend reads the copy and
+draws the field (FIRST_LEVEL_AUDIT.md lead F2's premise does not hold).
+The copy buffer is the drop shadow's 128x128 target memory (TEX0
+0x5DC00A580, FBW 2) and the load veil's lens buffer (D_0027568C): the GS
+memory is one.
+
+**One owner, the lens's path.** The copy is 001D6930's packet, the one the
+load veil's lens sends too (001DFA40 -> 001D6B60 -> 001D6930,
+LOAD_VEIL_PARTICLES.md): both are built by the one translation
+`em_load_veil_particles_001D6930` (with 001D6E60, 001D2040, 001D1FF0,
+001D1F20 and 001D6BA0 beside it), walked by the same list-mode register
+handling of em_chain_page, and drawn through the same em_gs_world_prims
+path with environments as the veil's list frames. 001DDE10 and 001D6C90
+are em_render_context's translations.
+
+**The walk (pass mode, em_chain_page.h).** With `pass_call` the walker
+follows that top-level CALL instead of walking over it; inside it the GIF
+takes list mode's registers (the context-1 environment and the A+D vertex
+registers: section 11), a DIRECT may hold several GIF packets (001D6930's),
+and each primitive gets the environment the pass set before it
+(prim_env). The REF of the kicked slot's draw environment (bank A,
+`draw_envs` + 0x190 * `draw_env_slot`, 0x19 qwords) is not transferred: the
+DMA reads it after step V's 001D2300 has written the field's half-line
+XYOFFSET into it, after the walk at the frame close, so the walk records an
+environment-again mark (again[]: the primitive it precedes) and forgets
+the registers that block writes (the environment, CLAMP_1, TEX1_1, TEST_1,
+COLCLAMP: the frame's from there on). Any other REF into bank A in the pass,
+a context-2 or FOGCOL write in it, a second pass CALL or more than 16 marks
+fault. Counts: `passes`, `pass_prims`, `pass_direct`, `again`. On every
+captured page the pass draws 8 sprites (copy, blend, four times) with marks
+before primitives 1, 3, 5, 7 and after 8 (relative to the pass), from 32
+DIRECT packets.
+
+**The draw (em_chain_page_live, em_gfx_gs_page_pass, em_gs_world).** In a
+world frame the GS model records (em_gfx_gs_world_recording) the consumer
+walks the pass with the bank and slot em_rcl_draw_env gives (D_00275674 +
+0x20, context +0x9C), hands the page before it to em_gfx_gs_prims, then the
+pass to em_gfx_gs_page_pass with the field (that block's FRAME_1 and
+SCISSOR_1, constant per slot): the backend declares the field to the model
+(em_gs_world_field_declare: a buffer this frame draws, for the texture
+residency check and the workers' ordering; the kick faults when its head
+names another field), records each run of primitives with its environment
+(em_gs_world_prims, the load veil's path: FRAME_1 / ZBUF_1 / XYOFFSET_1 /
+SCISSOR_1 / PRMODECONT / DTHE / TEXA, then TEX0 / CLAMP / TEST / ALPHA /
+COLCLAMP, PRIM and the vertex registers) and sends the kick's environment
+packet at each mark (em_gs_world_env_again, which makes the field the
+drawing target again). The model draws everything in strict mode: the
+bilinear 2:1 shrink and the stretch back (TEX1 0x60, REGION_CLAMP), DECAL
+and MODULATE with TCC 0, the alpha test NEVER with FB_ONLY, the Z test
+GEQUAL against the field's Z24 buffer with no Z write, the blend; anything
+it cannot do exactly faults the scene. The workers synchronise where a
+band would read rows another band draws: before the first copy (the
+field's last rows), between each copy and its blend, and before each next
+copy (8 barriers a frame). With the GS frame on, a 001DDE10 CALL outside a
+recorded world frame faults (001D1EA0(0) frames never hold one). With the
+GPU renderer (EM_GPU_RENDERER=1) the walker still walks over the CALL
+(`skip_calls`, counted) and nothing of the pass is drawn: Metal has neither
+the field as GS memory nor its Z buffer.
+
+**Measured (2026-10-10): bit-exact against the original.** The decomp's
+fork capture (build/dof_capture: 5 frames of the opening cutscene, 2 of
+AREA11 play, one repeated; the DMA cut at the pass's two boundaries, so
+the GS memory before and after the pass and its GIF bytes are the
+original's own) is the test `make test-dof-pass-reference`
+(tools/test_dof_pass_reference.py, GS_EXACT.md section 7). In every frame
+all 4 MiB of local memory after the pass are equal three ways: the
+captured GIF bytes through the model; the port's own packets
+(em_render_context_001DDE10 over the captured EE state with the live
+binding's workers: every EE byte it writes and the 4,544 GIF bytes of the
+pass equal to the original's); and the Original profile's path (the pass
+walk, em_gs_world_page_pass, the kick, 1 to 8 workers). The field, the
+copy and the Z buffer (untouched) are compared apart: the 2:1 bilinear
+shrink of the copy, the 256 -> 224-row stretch of the blend, MODULATE with
+TCC 0, the GEQUAL plane at Z = the PACKED word >> 4 and the (Cs - Cd) As
+>> 7 + Cd lerp are exact. One model rule changed to get there (GS_EXACT.md
+3.4): a UV sprite's row coordinate is accumulated in binary32 one row at a
+time, so the blend's 8/7-texel row step falls one 1/16 texel below its
+exact value on some of the rows where that value is an integer; with the
+exact value the model was off on 183 to 2,695 field pixels of each frame a
+blend reaches. In two frames no blend passes its Z test (the first wide
+shot and a close-up: every field pixel is nearer than the blends' planes),
+so the copy is tested alone there, in a whole-line field (FBP 0) and a
+half-line one. Not captured: a blend that passes its Z test in a
+whole-line field (GS_EXACT.md 8.8). The fb2 points (GS_EXACT.md 10.1)
+include the original's pass.
+
 ## 7. Binding (live)
 
 - **001D1EA0's kick.** em_render_context_live wraps the frame close's 001CB800
   (the start = 001CB800's base, D_00810E80 read as it does) and 001DDE10's
-  001CB760 (the slot-0xFFF target); `em_rcl_page` hands both out once per kick.
+  001CB760 (the slot-0xFFF target: the depth-of-field pass, section 6.2);
+  `em_rcl_page` hands both out once per kick.
   001E0D70's 001CB760 (id 0xFFC000, the weather's list) is noted for the
   smoke (`em_rcl_page_weather`); the consumer walks it like any CALL.
 - **The producers bound for this page since FLAMESNOW** (section 6.1): the
@@ -490,9 +605,12 @@ gives the same values.
     sprite, and the weather's 108 snow MSCALs on one page, 1,620 on all 15 in
     full) run by the translation and by the ORIGINAL microcode from the same
     data memory and registers: all 16 KiB of data memory, every register and
-    every XGKICK's packet equal; the whole page's primitives (386 with the
-    weather's CALL walked over; with it walked, beat 10 alone adds 385) equal
-    the model's, with the same DMA, DIRECT, MSCAL, XGKICK and skip counts;
+    every XGKICK's packet equal; the whole page's primitives (since step DOF
+    with 001DDE10's pass walked in pass mode on both sides: 506 with the
+    weather's CALL walked over, the pass's 120 among them; with it walked,
+    beat 10 alone adds 385) equal the model's, with the same DMA, DIRECT,
+    MSCAL, XGKICK and skip counts, and the pass's environments, marks and
+    counts equal (part G: section 6.2);
     three pages (all 15 in full) walked again from random VU1 contents draw
     the same;
   - synthetic batches: 40 (600) lane batches with active slots placed around
@@ -515,7 +633,12 @@ gives the same values.
   690 lane, 660 sprite and 1,920 snow MSCALs (1,620 of them the captured
   pages' weather tiles), 17,835 XGKICKs, 4,193,296 packet bytes, all equal;
   the 15 pages with the weather walked draw 5,219 primitives, equal to the
-  model's.
+  model's. Full sweep 2026-10-09 (step DOF, the pass walked in pass mode on
+  both sides): 690 lane, 660 sprite, 1,920 snow, 600 streak and 600 kind-2
+  MSCALs, 18,765 XGKICKs, 6,466,096 packet bytes, all equal; the 15 pages
+  with the weather and the pass walked draw 5,339 primitives (the pass's 120
+  among them), equal to the model's, and the same again from random VU1
+  contents.
 - **`make test-chain-page-gpu`** (tools/test_chain_page_gpu.py, ~4 s): the Metal
   pixel at the frame centre equals the GS pixel model for five decal fans
   (the retired decal entry's cases), four sprites (additive and 0x44, with
@@ -524,10 +647,41 @@ gives the same values.
 - **`make test-chain-page`** (tests/chain_page_test.c, ASan / UBSan): a clean
   page, the argument refusals, a CALL walked over, and 20,000 corrupted pages
   walked without a memory error.
+- **The pass** (step DOF): `make test-chain-page-reference` walks every
+  captured page with the pass in pass mode on both sides (the native walk
+  and tools/chain_page_model.py's pass mode): the pass's primitives, the
+  environment of each and its marks equal; part G checks them against the
+  capture's own bytes: the copy's environment, TEX0 (the field bank A's
+  slot block draws into), CLAMP (bank D 2), TEST and ZBUF (bank E 0) and
+  geometry, the blend's TEX0 (the copy), CLAMP (bank D 3), TEST 0x51001,
+  ALPHA 0x44, geometry, and its Z and alpha from the context's +0x24F0 /
+  +0x2500 (15 pages, slot 0 on 9 and slot 1 on 6; the pass is the page's
+  last); `make test-chain-page` the pass mode's semantics and refusals (11)
+  and 5,000 corrupted pass pages; `make test-gs-world` the pass through the
+  model with 1, 2, 3 and 8 workers (the same bytes; a world frame where
+  nothing reads the copy's memory before the pass, so only the field's
+  declaration orders the first copy: without it the thread sanitizer
+  reports the race) and the field declaration's refusals.
+- **The pass's pixels** (2026-10-10): `make test-dof-pass-reference`
+  (tools/test_dof_pass_reference.py with tests/dof_pass_reference_bridge.c;
+  quick 3 captures, `EM_TEST_FULL=1` all 8): against the original's GS
+  memory on both sides of the pass, captured in the PCSX2 fork (decomp
+  build/dof_capture). A: the captured GIF bytes through the model (and 3 /
+  8 row bands in lockstep); B: the port's em_render_context_001DDE10 over
+  the captured EE state (every byte it writes and the walked GIF bytes equal
+  to the original's); C: the pass walk and em_gs_world (1, 2, 3, 8
+  workers; also with every block counted as an upload). All bit-exact:
+  section 6.2.
 - **The level smoke** (`check_chain_page`, LEVEL_SMOKE.md): full route 13,013
   pages drawn (12,573 world frames, the rest empty status and tear-down
-  frames; 4,122,371 sprites, 1,314 triangles, 1,256 lines), the only CALL
-  walked over each frame's 001DDE10 one, the lane program run six times in
+  frames; 4,122,371 sprites, 1,314 triangles, 1,256 lines; at step DOF,
+  2026-10-09, through a01_arrival: 13,571 pages, 13,131 of them world
+  frames each with the pass, whose 105,048 sprites are counted apart from
+  the 4,261,106 others), each frame's 001DDE10 CALL drawn as the pass in the
+  Original profile (8 sprites, marks 1, 3, 5, 7, 8, 32 DIRECT packets, the
+  page's last; re-walked in the model's pass mode on the sampled pages: 37
+  on the route) or, with the GPU renderer, the only CALL walked over, the
+  lane program run six times in
   exactly the barrel's frames without a lane drawn; every world page holds
   the weather's CALL at the list its frame closed (108 snow MSCALs) and
   reads the flame's descriptor once; 40 sampled pages re-walked with the
@@ -549,7 +703,11 @@ gives the same values.
   DDA; no GS dump of a drawn frame exists to compare pixels with.
 - The inherited VIF cycle is a premise (section 5); the Q is the measured
   per-tag rule since the fb2 step.
-- 001DDE10's four-sprite pass is walked over, not drawn (section 6).
+- 001DDE10's depth-of-field pass is drawn by the GS model only (the
+  Original profile); the GPU renderer walks over it. Its pixels are
+  bit-exact against 7 captured frames of the original (section 6.2); a
+  blend reaching pixels of a whole-line field is not among them
+  (GS_EXACT.md 8.8).
 - The flame's and the snow's sprites follow their owners' phase and seed
   (the flame's age since its spawn, rand(): 008235F0 state 0 and 001E55F0
   state 0), which the port's stream does not hold at a capture's position
@@ -580,6 +738,7 @@ gives the same values.
 test-chain-page-reference:   python3 tools/test_chain_page_reference.py
 test-chain-page-gpu:         python3 tools/test_chain_page_gpu.py
 test-chain-page:             the ASan / UBSan fixture tests/chain_page_test.c
+test-dof-pass-reference:     python3 tools/test_dof_pass_reference.py (section 6.2)
 ```
 
 `src/game/em_chain_page.c`, `src/game/em_chain_page_live.c` and

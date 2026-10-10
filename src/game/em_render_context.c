@@ -555,7 +555,7 @@ int em_render_context_001DEEE0(S *s, uint32_t p)
 }
 
 /* ------------------------------------------------------------------ */
-/* 001DDE10: the four-sprite pass.                                     */
+/* 001DDE10: the depth-of-field pass (CHAIN_PAGE.md section 6.2).     */
 /* ------------------------------------------------------------------ */
 
 /* t + (gain * (q2 - t)) / 8 in the original's operand order: sub, mul
