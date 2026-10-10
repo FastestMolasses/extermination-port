@@ -159,6 +159,14 @@ The reference test checks this for all five.
 - **Replay exclusions.** startup-reference/roger-encounter and elevator/clip47 are left out of the replay. In
   those images the owner's bone moved after the node's tick (roger-encounter also seeds player writes). They are
   still included in the ramp check.
+- **Which images (2026-10-10).** The route images are the selected reference's (`EM_REFERENCE`, the fork's
+  `fork_refs/s87/route` by default); the startup images are the v2.6.3 probe outputs in both modes
+  (`refs.v263`). `build/startup-reference/fork-states/` is skipped: it holds the fork's save states, and its
+  `beats/s87/route/` (the fork's first, non-canonical route regeneration, no lead-in) passed for route images,
+  so the test tried to replay its 01_battery node (sub-state 1 with +0x244 = 0, which has no previous ramp
+  value to replay from) and stopped with StopIteration from the day the fork states were written. With
+  the folder skipped: 55 captured nodes on the ramp from 27 images, 16 mid-ramp ticks replayed, on both
+  references.
 
 **Injected native defects, 13 of 13 caught:**
 - the ramp constant; RN vs truncation in div; the +0x09 write; packet word order; the mode 2 row;

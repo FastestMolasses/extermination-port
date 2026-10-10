@@ -369,9 +369,9 @@ and compares each container file with the disc.
 - **loaders:** every file through its port loader, compiled privately from
   `src/` by the AREA01 checker's `build_loaders`, and `background.embg`
   through `em_background_gs_parse` + `em_background_gs_unsupported` (a shim
-  over the header; NULL, i.e. supported). AREA13: 13 of 13 load. AREA19: 11 of its 12 files
-  load; its cells file is refused (finding 9) and a copy with bit 29
-  cleared in every uid word loads.
+  over the header; NULL, i.e. supported). AREA13: 13 of 13 load. AREA19:
+  12 of 12 load; its cells file carries bit 29 (finding 9) and loads, and
+  a copy with bit 29 cleared in every uid word loads too.
 - **real checks:** every section above over the run's captures. Quick mode:
   AREA13 a04b_04 (the arrival), a13_01 (outdoors, entry 8) and a13_04 (the
   hatch writer, orphan 77, the opened hatch's model); AREA19 a13_05.
@@ -455,7 +455,8 @@ and compares each container file with the disc.
   `export_background` refuses an unarmed capture itself, so the same input
   is still reported) and M29 (the recorded bit-29 refusal of the cells
   loader forced true: the port loader refuses every such file, so no input
-  tells them apart). The claim covers exactly these mutants; the reused
+  tells them apart; that line no longer exists: since 2026-10-10 the
+  checker requires the file to load, finding 9). The claim covers exactly these mutants; the reused
   comparators keep their own sweep records and known gaps.
 
 **Review survivors (fix round, no new sweep).** The reviewer's independent
@@ -558,6 +559,9 @@ the seven above, each argued equivalent here.
 9. **AREA19's cells file is refused by the port loader** (uids 0 and 1
    carry bit 29, as in AREA01 / AREA00 / AREA02 / AREA04: the loader's
    0x3FFFFFFF mask keeps it); AREA13's loads.
+   **Resolved (chain C11, 2026-10-02):** the loader reads a bit-29 word through the EE's uncached main-RAM mirror, as the original does (AREA01_ASSETS.md finding 1); the directory loads and the checker asserts that (2026-10-10). The checker expected the refusal until
+   2026-10-10 (written a day before the fix), so it failed on every run
+   since; `check_loaders` now requires the file to load.
 10. **The outdoor creatures 0x824BB0 / 0x827DD0** (twins of AREA01's
     0x826D40) re-transform their hulls with *(node + 0x11C) + 0x90; the
     ORIGINAL 001A2370 reproduces all six moved hulls that way, and node +
@@ -583,7 +587,7 @@ both modelled here (a hull owner and a data writer).
 ## Binding
 
 Nothing is wired. Every file is exported, checked and loadable (AREA19's
-cells file once the loader keeps bit 29 out of the offset). When AREA13 is
+cells file too, since chain C11's mirror read). When AREA13 is
 bound:
 - The scene selects `sub0/` for the level, background, collision, cells,
   roster, world models, message file and sound files; the spawn table,

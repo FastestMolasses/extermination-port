@@ -360,9 +360,10 @@ ends. Every byte of every capture's RAM directory is then derived:
 `tools/test_area04_assets_reference.py`:
 - **loaders:** every file goes through its port loader, compiled privately
   from `src/` by the AREA01 checker's `build_loaders` into
-  `build/area04/assets/test/`: 21 files load. `em_actor_cells_load` refuses
-  `sub0/area04_cells.bin` (finding 3), and loads a copy with bit 29 cleared
-  in every uid word. Both verdicts are asserted.
+  `build/area04/assets/test/`: 21 files load. `em_actor_cells_load` loads
+  `sub0/area04_cells.bin` (finding 3: bit 29 read through the RAM mirror
+  since chain C11) and a copy with bit 29 cleared in every uid word. Both
+  verdicts are asserted.
 - **real checks:** every section above, over the run's captures. Quick
   mode uses the arrival, a04_02 (the reel moved) and a04_s2 (the
   descriptor buffer reused, one model owner fewer). Full mode uses all 10.
@@ -488,6 +489,7 @@ ends. Every byte of every capture's RAM directory is then derived:
 3. **`em_actor_cells_load` refuses the directory**: uid 0's word carries
    bit 29 (with bit 31), as in AREA01, AREA00 and AREA02 sub 0. A copy with
    bit 29 cleared loads.
+   **Resolved (chain C11, 2026-10-02):** the loader reads a bit-29 word through the EE's uncached main-RAM mirror, as the original does (AREA01_ASSETS.md finding 1); the directory loads and the checker asserts that (2026-10-10).
 4. **[47] rewrites its +0x0D.** func_overlay_AREA04_00823EA0
    (byte-identical C) sets +0x0D from the 8-byte table 0x827530 indexed by
    D_00810701:

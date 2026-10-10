@@ -71,6 +71,14 @@ the missing one listed as unreached (0x202D40 not taken: 00202D10's table
 D_00264F98 has no type-3 entry). The default runs a covering sample (153
 cases, 491 of 492 outcomes, about 16 s).
 
+The recordings are those of the selected reference (`tools/reference_root.py`,
+`EM_REFERENCE`): the fork's `build/fork_refs/c10/options/` and
+`.../c10/damage/dmg_05_load_screen/` by default (the same beats re-recorded,
+same layout), the 2.6.3 `build/c10/...` with `EM_REFERENCE=v263`. Until
+2026-10-10 the test read the 2.6.3 path in both modes. Run that day: quick
+mode PASS on both references; `EM_TEST_FULL=1` on the fork PASS, 3,337
+cases, 58,697 callee entries equal, 491 of 492 outcomes.
+
 ## 4. The binding
 
 ### 4.1 Storage

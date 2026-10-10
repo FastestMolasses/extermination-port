@@ -353,10 +353,10 @@ derived:
 `tools/test_area02_assets_reference.py`:
 - **loaders:** every file through its port loader, compiled privately from
   `src/` by the AREA01 checker's `build_loaders` into
-  `build/area02/assets/test/`: 20 files load. `em_actor_cells_load` refuses
-  `sub0/area02_cells.bin` (finding 3) and loads a copy with bit 29 cleared
-  in every uid word; it loads `sub1/area02_cells.bin`. These three verdicts
-  are asserted.
+  `build/area02/assets/test/`: 20 files load. `em_actor_cells_load` loads
+  `sub0/area02_cells.bin` (finding 3: bit 29 read through the RAM mirror
+  since chain C11) and a copy with bit 29 cleared in every uid word; it
+  loads `sub1/area02_cells.bin`. These three verdicts are asserted.
 - **real checks:** every section above over the run's captures. Quick mode:
   the arrival, a02_01 and a02_02 (a02_01 is needed with a02_02: the orphan
   rule requires a derivation of the hull in the run). Full mode: all 7.
@@ -424,6 +424,7 @@ a private copy of `tools/`, at most 4 workers. The script is
 3. **`em_actor_cells_load` refuses the sub-0 directory**: uid 0's word
    carries bit 29 (AREA01_ASSETS.md finding 1, AREA00_ASSETS.md finding 3).
    A copy with bit 29 cleared loads. Sub 1's directory loads.
+   **Resolved (chain C11, 2026-10-02):** the loader reads a bit-29 word through the EE's uncached main-RAM mirror, as the original does (AREA01_ASSETS.md finding 1); the directory loads and the checker asserts that (2026-10-10).
 4. **Run-time uid words.** The gate [38] and the kind-8 node [33] clear bit
    30 of uids 1, 2 and 3 through 0019C6F0 (keys 0x1E, 0x1D and 1). A port
    that loads `sub0/area02_cells.bin` must make the same calls through a

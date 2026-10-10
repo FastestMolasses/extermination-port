@@ -377,8 +377,14 @@ equals them.
 
 `python3 tools/test_iop_stream_reference.py`: quick mode runs in about 6 s. `EM_TEST_FULL=1` runs in 35.5 s.
 It needs `assets/streams/streams.emst`, the decomp's disc image (for `SNDN2DRV.IRX`), the 11 startup-reference
-images and the `build/s87/route` images. On its first run it extracts the IOP and SPU2 RAM of each route save
-state, with the decomp's venv (zstd), into `build/iop_stream_reference/states/`, a regenerable cache.
+images (v2.6.3 probe outputs in both modes: `refs.v263`) and the route images of the selected reference
+(`EM_REFERENCE`: the fork's `build/fork_refs/s87/route` by default, `build/s87/route` with v263). On its first
+run it extracts the IOP and SPU2 RAM of each route save state of that same reference, with the decomp's venv
+(zstd), into `build/iop_stream_reference/states/<reference>/`, a regenerable cache. (Until 2026-10-10 the
+route EE images followed `EM_REFERENCE` while the IOP / SPU2 images came from the v2.6.3 states under an
+unkeyed cache, so a fork run paired fork EE RAM with v2.6.3 IOP RAM. Run on each reference since: every
+count and line equal on both, 46/46 cursors, 766 capture checks; `EM_TEST_FULL=1` on the fork: 16 of 16 IOP
+images, 1,120 command cases.)
 Last runs, 2026-09-23 (the co-simulation, 2026-09-27 with the drive model):
 - **Driver oracle.**
   - The original module runs in a MIPS interpreter over captured IOP RAM, with libsd and sysclib replaced by

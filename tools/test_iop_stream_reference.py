@@ -159,22 +159,36 @@ def irx_sections(raw):
     return {strings[h[0]:].split(b'\0')[0].decode(): raw[h[4]:h[4] + h[5]] for h in hs}
 
 
-def extract_states(names):
-    """iopMemory.bin and SPU2.bin of each route save state, cached under build/."""
-    cache = ROOT / 'build/iop_stream_reference/states'
+def extract_states(route, names):
+    """iopMemory.bin and SPU2.bin of each route save state (route/<n>/state.p2s,
+    the same reference as the route's eeMemory.bin), cached under
+    build/iop_stream_reference/states/<reference>/."""
+    cache = ROOT / 'build/iop_stream_reference/states' / refs.label()
     missing = [n for n in names if not (cache / n / 'SPU2.bin').exists()]
     if missing:
         code = ('import sys\nfrom pathlib import Path\nfrom tools.parse_pcsx2_state import extract_zstd_entry\n'
-                'for n in sys.argv[2:]:\n'
+                'for n in sys.argv[3:]:\n'
                 '    o = Path(sys.argv[1]) / n; o.mkdir(parents=True, exist_ok=True)\n'
-                '    p = Path("build/s87/route") / n / "state.p2s"\n'
+                '    p = Path(sys.argv[2]) / n / "state.p2s"\n'
                 '    for m in ("iopMemory.bin", "SPU2.bin"): (o / m).write_bytes(extract_zstd_entry(p, m))\n')
-        subprocess.run([str(DECOMP / '.venv/bin/python'), '-c', code, str(cache), *missing], cwd=DECOMP, check=True)
+        subprocess.run([str(DECOMP / '.venv/bin/python'), '-c', code, str(cache), str(route), *missing], cwd=DECOMP,
+                       check=True)
     return {n: ((cache / n / 'iopMemory.bin').read_bytes(), (cache / n / 'SPU2.bin').read_bytes()) for n in names}
 
 
+# The startup-reference EE images (opening, handoff, playable, elevator,
+# status hub, Roger, panel) are single EE dumps with no IOP side; each is
+# compared on its own (boot buffers, its lane record against the native
+# lanes), never paired with a route state.
+STARTUP_IMAGES = refs.v263('startup-reference', 'these EE dumps (opening_ee.bin, handoff_ee.bin, playable_ee.bin, '
+                           'the elevator / status-hub / Roger / panel images) have no fork recording; the fork '
+                           'states stand in for user slots only')
+
+
 def load_captures():
-    base = DECOMP / 'build/startup-reference'
+    """The startup images and the route images; route is the selected
+    reference's s87/route, whose state.p2s files extract_states reads."""
+    base = STARTUP_IMAGES
     names = ['opening_ee.bin', 'handoff_ee.bin', 'playable_ee.bin', 'elevator/completed_ee.bin',
              'elevator/clip47_ee.bin', 'elevator/refusal/eeMemory.bin', 'status-hub/eeMemory.bin',
              'roger-encounter/eeMemory.bin', 'panel/animation_ee.bin', 'panel/eeMemory.bin',
@@ -184,7 +198,7 @@ def load_captures():
     routes = sorted(d.name for d in route.iterdir() if (d / 'eeMemory.bin').exists() and (d / 'state.p2s').exists())
     for n in routes:
         out['route/' + n] = (route / n / 'eeMemory.bin').read_bytes()
-    return out, routes
+    return out, route, routes
 
 
 # ----------------------------------------------------------------- interpreter
@@ -1724,9 +1738,9 @@ def main():
         sys.exit('assets/streams/streams.emst is missing: run python3 tools/export_streams.py')
     iso = DECOMP / 'Extermination-rebuilt.iso'
     _lsn, irx = iso_file(iso, '/IRX/SNDN2DRV.IRX')
-    captures, ROUTES = load_captures()
+    captures, route, ROUTES = load_captures()
     assert len(captures) >= 26, f'expected at least the 26 images, found {len(captures)}'
-    states = extract_states(ROUTES)
+    states = extract_states(route, ROUTES)
     disc = Disc(EMST)
     work = Path(tempfile.mkdtemp(prefix='run_', dir=ROOT / 'build/iop_stream_reference'))
     try:

@@ -476,9 +476,9 @@ def main():
     loaded = T13.check_loaders(lib, bg, K.t, A)
     for lname, ok in loaded.items():
         check(ok, f'area19: port loader rejects {lname}')
-    files = [k for k in loaded if k not in ('cells refused (bit 29)', 'cells (bit 29 cleared)')]
+    files = [k for k in loaded if k != 'cells (bit 29 cleared)']
     print(f'  loaders: {sum(loaded[k] for k in files)}/{len(files)} files accepted by the port loaders; the cells '
-          f'file refused (bit 29): {loaded.get("cells refused (bit 29)")}, its bit-29-cleared copy loads: '
+          f'file carries bit 29 (read through the RAM mirror) and loads: {loaded.get("cells")}, its bit-29-cleared copy loads: '
           f'{loaded.get("cells (bit 29 cleared)")}')
     original = E1.verify_directory
     E1.verify_directory = recording_verify_directory(original)

@@ -698,10 +698,21 @@ def ramp_trajectory():
         if not M.ee_c_le(x, END): return out
 
 
+# The startup probes' EE images (opening, handoff, playable, elevator, panel,
+# status hub, Roger): node-state checks only, never replayed.
+STARTUP = refs.v263('startup-reference', 'the startup probes are v2.6.3-only (decomp PCSX2_FORK.md checklist '
+                    'item 8); fork-states/ beside them holds the fork save states, not probe images')
+
+
 def capture_files():
+    """The selected reference's route images, then the startup probe images.
+    fork-states/ (the fork's replacements for the user slots and its first,
+    non-canonical route regeneration under beats/) is not a probe output and
+    is skipped: its beats/s87/route paths would pass for route captures."""
     files = sorted(glob.glob(str(refs.capture('s87/route/*/eeMemory.bin'))))
-    files += sorted({str(p) for p in (DECOMP/'build/startup-reference').rglob('*.bin')
-                     if p.name in ('eeMemory.bin',) or p.name.endswith('_ee.bin')})
+    files += sorted({str(p) for p in STARTUP.rglob('*.bin')
+                     if (p.name == 'eeMemory.bin' or p.name.endswith('_ee.bin'))
+                     and p.relative_to(STARTUP).parts[0] not in ('fork-states', 'portable-data')})
     return files
 
 

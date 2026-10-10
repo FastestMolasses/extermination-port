@@ -242,6 +242,34 @@ on the fork; the same full run's logs pass the checker on v2.6.3 too.
 `make test-level-smoke-ps2-drive` passes on both. `tools/test_level_smoke_area01.py
 --until a01_02`, `--side a01_s3` and `--side a01_s6` pass on the fork.
 
+**Review fixes (2026-10-10, after the switch).**
+- `tools/test_options_reference.py` read `build/c10` (v2.6.3) in both
+  modes; it now reads `refs.capture('c10')`, the fork's re-recorded OPTIONS
+  and DAMAGE beats by default (OPTIONS.md section 3).
+- `tools/test_iop_stream_reference.py` took the route EE images from the
+  selected reference but the IOP / SPU2 RAM from the v2.6.3 route states,
+  cached without the reference in the key; both now come from the same
+  reference's route, cached per reference (IOP_STREAM.md "Verification").
+- The exit phase's run line and comments name exit_01 row 313, the fork's
+  (v2.6.3: 306).
+- `tools/test_message_capture.py` refuses `EM_REFERENCE=v263` (exit status
+  2) instead of comparing a host screenshot (below, "Frames compared field
+  to field").
+- Pre-existing failures the switch's full run found, each with its cause:
+  the AREA13 lane's `check_loaders` (shared by the AREA13, AREA15, AREA19,
+  AREA19 sub 1 and AREA19 second-load checkers) and the AREA02 / AREA04
+  checkers still required the actor-cells loader to refuse a bit-29
+  directory, which it stopped doing (as the original, through the RAM
+  mirror) in chain C11 on 2026-10-02: they now require it to load
+  (AREA13_ASSETS.md finding 9); `test_head_sprite_reference` globbed
+  `build/startup-reference/**`, which since the fork states holds
+  `fork-states/beats/s87/route/`, a non-canonical route its replay took for
+  route captures (HEAD_SPRITE_ORIGINAL.md); the Metal fixtures of
+  `test_static_world_gpu`, `test_object_unit_gpu` and `test_overlay_blend`
+  did not link `src/gs/em_gs_display.c` (as 93a2edc fixed for the ctypes
+  harness), so they had not run since 5836a37. All pass now; no assertion
+  was weakened and no test retired.
+
 **Kept on v2.6.3 data, in both modes** (no fork recording):
 - the startup probes' outputs (`playable_ee.bin`, `opening_ee.bin`, the
   `*_samples.jsonl`, `status-hub/`, `panel/`, `elevator/`,
@@ -285,10 +313,13 @@ screenshot now compare like with like:
   presented frame at each field pixel's place (`test_fb2_pixels.shown_field`;
   the glyphs are the overlay pass). PASS: the port's lines (214, 195, 263,
   202) and (214, 208, 296, 214) against the fork's (214, 195, 264, 201) and
-  (214, 207, 297, 213), within one pixel. With `EM_REFERENCE=v263` it still
-  compares the 640x480 screenshot, which already failed at HEAD before this
-  change (bottom edge 434 against 432: the host presentation is not the
-  field, and that fixture was a different, hand-played session).
+  (214, 207, 297, 213), within one pixel. With `EM_REFERENCE=v263` it
+  refuses (exit status 2, a REFUSED line): the v2.6.3 fixture is a 640x480
+  host screenshot of a different, hand-played session with no GS field and
+  no save state (its screenshot compare failed at 0faaee4 already, bottom
+  edge 434 against 432, because the host presentation is not the field),
+  and the retired 2.6.3 app cannot record a field (MESSAGE_GLYPH.md
+  "Capture compare").
 
 ### The stream drive's two modes
 
@@ -367,7 +398,7 @@ and its lines are the originals since the status UI step
 
 The terminal's arrow is red during the refusal (route 02's capture: level
 +0x28 = 0) and green after the power (route 04). The v2.6.3 elevator/refusal
-fixture's screenshot (tools/test_message_capture.py with `EM_REFERENCE=v263`)
+fixture's screenshot (which tools/test_message_capture.py no longer reads)
 shows it green because that fixture was seeded from a powered state
 (CENSUS_UNVERIFIED.md, "The terminal-screen colour"); the fork's capture of
 the refusal (the default reference) replays the canonical route and shows
@@ -1643,8 +1674,8 @@ the load. The frames without a world frame (the load, its veil, the
 rebuild) are watched from the slot-0 task's end
 (`em_level_smoke_test_task_end`); the phase ends on the frame before the
 AREA01 rebuild (area 1, slot 0 +9 = 1, +B = 0), and the finish's one more
-frame is the rebuild, exit_01's row 306, the first frame of control in
-AREA01. The run quits there: every later AREA01 frame faults (level 2).
+frame is the rebuild, exit_01's row 313 (the fork's recording; v2.6.3's
+row 306: `EXIT_ARRIVAL_ROW`), the first frame of control in AREA01. The run quits there: every later AREA01 frame faults (level 2).
 That last tick has no next tick to carry its post-frame values, so the
 smoke asks the scene tick log for a **tail** line (`{"tail": 1, ...}`:
 the fade block, the message block, the stream lanes, the ambient loop and
@@ -1671,15 +1702,17 @@ the pool's records), written after the main loop ends.
   veil over the exit's ticks replay through the original instructions
   (tools/test_area_load_reference.py replay_chain / replay_veil: 94 chain
   ticks and 001AD010);
-- the arrival, f304..f306 aligned on the rebuild: the fields above (Roger,
-  the equipment and fan r2 are left to the pool at f306, whose addresses
-  AREA01's records reuse; the player's clock is exempt at f306: the port's
-  pose attach runs in the rebuild where the original's 0015C420 runs in the
-  first stage; D_00810706 back to 0 at f306, 001B07C0's mask) and from the
+- the arrival, f311..f313 on the fork (f304..f306 on v2.6.3;
+  `EXIT_ARRIVAL_ROW`; f313 below) aligned on the rebuild: the fields above
+  (Roger, the equipment and fan r2 are left to the pool at f313, whose
+  addresses AREA01's records reuse; the player's clock is exempt at f313:
+  the port's pose attach runs in the rebuild where the original's 0015C420
+  runs in the first stage; D_00810706 back to 0 at f313, 001B07C0's mask)
+  and from the
   tail: the fade block (the fade-in), the message
   block, D_00282157 = 1 (the music's read), D_00282160 = 0x44E (the end
   snapshot's) and the pool: every live record's +0x00..+0x17 equal to the
-  capture's f306 (row 0's pool with f306's changes: 78 records) and their
+  capture's f313 (row 0's pool with f313's changes: 78 records) and their
   +0x18..+0x3F / +0xA0..+0xDF.
 
 Measured (2026-10-02): every compared field equal on every row; the load

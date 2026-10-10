@@ -127,9 +127,13 @@ the fork's (214, 195)..(264, 201) and (214, 207)..(297, 213). The check is
 coarse by design; the exact layout is the oracle's.
 
 Before (to 2026-10-09) it compared the v2.6.3 elevator/refusal fixture's
-640x480 host screenshot (`EM_REFERENCE=v263` still does). Run of
+640x480 host screenshot. Run of
 2026-09-23: port (268, 419)..(329, 433) and (268, 445)..(370, 458) against
 (268, 419)..(330, 432) and (268, 445)..(370, 457); by 2026-10-10, with the
 GS field's presentation, the port's first line ends at 434 and that mode
 fails. The screenshot is not the field (the host presentation of a
 different, hand-played session), so the fork's field replaced it.
+`EM_REFERENCE=v263` refuses since 2026-10-10 (exit status 2, a REFUSED
+line naming the reason): that fixture has no GS field and no save state
+to take one from, and the retired 2.6.3 app cannot record one, so there is
+no like-for-like v2.6.3 reference for a field compare.

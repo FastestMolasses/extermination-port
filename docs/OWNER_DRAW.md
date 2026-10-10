@@ -558,7 +558,7 @@ documented pixel path in Python and compares, away from triangle edges
 
 | Beat | Units | Triangles | Pixels compared | Exact | Within 2 |
 |---|---|---|---|---|---|
-| 03 (default run) | 15 | 3,724 | 153,163 | 99.72 % | 99.99 % |
+| 03 (default run) | 15 | 3,724 | 153,163 | 99.73 % | 99.99 % |
 | 07 (`EM_TEST_FULL=1`) | 4 | 2,066 | 301,801 | 99.95 % | 100 % |
 
 Defects injected into the shader (2026-09-25, when shader and model both
@@ -568,6 +568,11 @@ caught. Since 2026-09-28 shader and model use the measured fog rule
 (section 7.2); the counts above are re-measured with it. The model is of the port's pixel path, not of the
 GS: it proves the shader implements section 7.2, not that the GS
 rasterizes the same.
+
+The fixture links `src/gs/em_gs_display.c` since 2026-10-10: the Metal
+backend calls its display placement since 5836a37, and without it the
+fixture's link failed, so the test did not run in between. Re-run on
+2026-10-10 (`EM_TEST_FULL=1`): both beats as in the table.
 
 ## 9. Proof live (the level smoke)
 

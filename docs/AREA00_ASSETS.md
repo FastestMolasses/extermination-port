@@ -370,10 +370,10 @@ which is the AREA01 finding 3 situation.
 `tools/test_area00_assets_reference.py` runs these steps:
 - **loaders:** every file goes through its port loader, compiled privately
   from `src/` by the AREA01 checker's `build_loaders` into
-  `build/area00/assets/test/`. That is 14 files, and the two refusals are
-  findings 2 and 3. Their diagnostics are asserted: a copy of the message
-  file with area 1 loads, and a copy of the directory with bit 29 cleared
-  loads.
+  `build/area00/assets/test/`. That is 14 files; the message file's
+  refusal is finding 2 (the cells directory loads since chain C11: finding
+  3). The diagnostics are asserted: a copy of the message file with area 1
+  loads, and a copy of the directory with bit 29 cleared loads.
 - **real checks:** every section above, over the run's captures. Quick
   mode uses the arrival, a00_04 and a00_08; full mode uses all 11.
 - **canary (68 sections).** `run_checks` runs again, per sub, over [a
@@ -503,6 +503,7 @@ The other eight survivors are equivalent or redundant on these inputs:
    same as AREA01_ASSETS.md finding 1: uid 0's word carries bit 29, and the
    loader's 0x3FFFFFFF mask leaves 0x2000xxxx. A copy with bit 29 cleared
    in every word loads.
+   **Resolved (chain C11, 2026-10-02):** the loader reads a bit-29 word through the EE's uncached main-RAM mirror, as the original does (AREA01_ASSETS.md finding 1); the directory loads and the checker asserts that (2026-10-10).
 4. **Run-time uid-word flags.** The shaft door's 0019C6F0(2, 0) sets bit 30
    of uid 1's directory word after the switch. The ORIGINAL 0019C6F0
    reproduces it. A port that loads `area00_cells.bin` must make the same

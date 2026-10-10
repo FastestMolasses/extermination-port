@@ -877,11 +877,13 @@ def check_loaders(lib, bg, t, tree):
     out['sfx registry'] = rc('em_sfx_registry_load', big(), str(sub / 'sfx/sfx_registry.emsr').encode()) == 1
     cells = (sub / f'{t.name}_cells.bin').read_bytes()
     bit29 = any(C.u32(cells, 4 + 4 * u) & 0x20000000 for u in range(C.u32(cells, 0))) if len(cells) >= 4 else False
-    crc = rc('em_actor_cells_load', big(), str(sub / f'{t.name}_cells.bin').encode())
+    # The file itself must load. uid words with bit 29 (AREA01_ASSETS.md
+    # finding 1) name the EE's uncached main-RAM mirror of the same bytes,
+    # which the loader reads as the EE does since chain C11 (2026-10-02,
+    # em_actor_cells_hull_offset); a copy with bit 29 cleared in every uid
+    # word must load as well (the mirror is the only thing bit 29 changes).
+    out['cells'] = rc('em_actor_cells_load', big(), str(sub / f'{t.name}_cells.bin').encode()) == 0
     if bit29:
-        # uid words with bit 29 (AREA01_ASSETS.md finding 1): the loader's
-        # 0x3FFFFFFF mask keeps it and refuses the file; a copy with bit 29
-        # cleared in every uid word must load (nothing else is refused)
         diag = bytearray(cells)
         for u in range(C.u32(cells, 0)):
             struct.pack_into('<I', diag, 4 + 4 * u, C.u32(cells, 4 + 4 * u) & ~0x20000000)
@@ -892,9 +894,6 @@ def check_loaders(lib, bg, t, tree):
             out['cells (bit 29 cleared)'] = rc('em_actor_cells_load', big(), str(dpath).encode()) == 0
         finally:
             dpath.unlink()
-        out['cells refused (bit 29)'] = crc != 0
-    else:
-        out['cells'] = crc == 0
     with T01.quiet_fds():
         out['messages'] = rc('em_message_live_install', str(sub / 'message_data.emmd').encode()) == 1
     bgp = sub / 'background.embg'
@@ -1047,8 +1046,7 @@ def plant_loader_canary(t, tree, plant):
         names.append(name)
     cells = (sub / f'{t.name}_cells.bin').read_bytes()
     plant(sub / f'{t.name}_cells.bin', cells[:-1])
-    names.append('cells (bit 29 cleared)' if any(C.u32(cells, 4 + 4 * u) & 0x20000000
-                                                for u in range(C.u32(cells, 0))) else 'cells')
+    names.append('cells')
     for z in sorted((sub / 'level').glob('*.emdl')):
         plant(z, z.read_bytes()[:16])
         names.append(z.name)
@@ -1659,10 +1657,10 @@ def main():
         loaded = check_loaders(lib, bg, K.t, A)
         for lname, ok in loaded.items():
             check(ok, f'{name}: port loader rejects {lname}')
-        files = [k for k in loaded if k not in ('cells refused (bit 29)', 'cells (bit 29 cleared)')]
+        files = [k for k in loaded if k != 'cells (bit 29 cleared)']
         note = ''
-        if 'cells refused (bit 29)' in loaded:
-            note = (f'; the cells file refused (bit 29): {loaded["cells refused (bit 29)"]}, '
+        if 'cells (bit 29 cleared)' in loaded:
+            note = (f'; the cells file carries bit 29 (read through the RAM mirror), '
                     f'its bit-29-cleared copy loads: {loaded["cells (bit 29 cleared)"]}')
         print(f'  loaders: {sum(loaded[k] for k in files)}/{len(files)} files accepted by the port loaders{note}')
         problems, V = run_checks(K, caps)

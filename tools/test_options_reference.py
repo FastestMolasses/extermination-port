@@ -3,10 +3,11 @@
 compare the native em_options_* translations byte for byte.
 
 docs/OPTIONS.md. The user's pinned ELF and the capture lane OPTIONS's and
-DAMAGE's recorded images (../Extermination/build/c10/options/<beat>/ and
-../Extermination/build/c10/damage/dmg_05_load_screen/, eeMemory.bin and
-scratchpad.bin) supply every instruction and every table; none are
-embedded here.
+DAMAGE's recorded images (c10/options/<beat>/ and
+c10/damage/dmg_05_load_screen/, eeMemory.bin and scratchpad.bin, in the
+reference tools/reference_root.py selects: the fork's build/fork_refs/c10 by
+default, EM_REFERENCE=v263 the 2.6.3 build/c10) supply every instruction and
+every table; none are embedded here.
 
 Method: the AREA01 UI lane's (tools/test_area01_ui_reference.py; its
 interpreter, dirty-page tracker, entry check and run_both, pointed at this
@@ -52,6 +53,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 os.environ.setdefault('EM_LANE', 'options')
 import reference_mode as RM  # noqa: E402
+import reference_root as refs  # noqa: E402
 import test_area01_render_reference as R  # noqa: E402
 import test_area01_ui_reference as U  # noqa: E402
 from test_player_slide_reference import EE, read_elf  # noqa: E402
@@ -61,7 +63,7 @@ OUT = ROOT / 'build' / 'options' / 'reference'
 R.OUT = U.OUT = OUT
 JOBS = R.JOBS
 
-CAP = ROOT.parent / 'Extermination' / 'build' / 'c10'
+CAP = refs.capture('c10')          # the fork's OPTIONS / DAMAGE recordings (EM_REFERENCE)
 IMAGES = {
     'o0': CAP / 'options' / 'opt_00_browse_close',
     'o3': CAP / 'options' / 'opt_03_screen_position',

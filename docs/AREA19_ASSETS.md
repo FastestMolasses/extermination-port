@@ -107,7 +107,7 @@ default run already takes all four captures (inside the ~10 s budget), so
 | tables | roster (60 placements, groups 0x829E00 x43, 0x82A590 x1; (54, 53) live in all four), spawn rows 0x24CF10 x14 with D_008106C8 = +0x1C of record D_00810702, door row 0x24E0F0, the 18 chains of the committed C, overlay data equal to the module except the flame [11]'s 0x82B234 = 5 + y (-105.0, in all four), messages (96 area / 54 global records), world models (48, 901,072 bytes, 41 owners bound in all four) |
 | sound | `area19_banks.bin` = nested block 0's table entry 0 (726,944 bytes, 4 banks); bindings 1.0..1.2 global, 2.0 and 4.0..4.2 area, 3.0 refused, identical in all four; the registry (508 audible, 475 absent, 17 unsupported, 75 samples) = the RAM re-derivation of each capture |
 | ctx | the ORIGINAL 001D8FD0 then 001D1C50 rebuild ctx +0xA0..+0xFF from room entry 40 in all four |
-| loaders | 11 of 11 files load; `area19_cells.bin` is refused (bit 29, AREA13_ASSETS.md finding 9), its bit-29-cleared copy loads |
+| loaders | 12 of 12 files load; `area19_cells.bin` carries bit 29 and loads through the RAM mirror (AREA13_ASSETS.md finding 9), its bit-29-cleared copy loads |
 | canary | 51 sections, each reporting its plant for a planted copy of a13_05 and silent for the original; every loader refuses a broken copy |
 | controls | 65 changed inputs (the AREA19 branch of the AREA13 lane's controls) |
 
@@ -281,7 +281,7 @@ Nothing is wired. When AREA19 is bound, the binding is AREA13_ASSETS.md's
 message file and sound files, and the spawn table, doors, scripts and
 overlay data next to it; the load reproduces the top + nested layout with
 D_0028A490[id] for every listed id and keeps D_0028A5A4 stale; the cells
-file loads once the loader keeps bit 29 out of the offset. The pickup g[2]
+file loads (bit 29 through the RAM mirror, since chain C11). The pickup g[2]
 must free its node on its Use and leave hull 49 as last transformed.
 
 ## Known gaps

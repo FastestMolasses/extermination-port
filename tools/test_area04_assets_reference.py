@@ -663,10 +663,12 @@ def check_loaders(lib, tree):
 
 
 def cells_findings_ok(rc, diag):
-    """The loader verdicts docs/AREA04_ASSETS.md records: the directory is
-    refused (uid 0's word carries bit 29, as in AREA01 / AREA00 / AREA02)
-    and loads once bit 29 is cleared in every uid word."""
-    return rc == -1 and diag == 0
+    """The loader verdicts: the directory (uid 0's word carries bit 29, as in
+    AREA01 / AREA00 / AREA02) loads, its bit 29 read through the EE's
+    uncached main-RAM mirror as the original reads it (the loader does since
+    chain C11, 2026-10-02); a copy with bit 29 cleared in every uid word
+    loads too."""
+    return rc == 0 and diag == 0
 
 
 def cells_diagnostic(lib, tree, cells_bytes=None):
@@ -1202,8 +1204,8 @@ def controls(K, caps, lib):
     finally:
         dpath.unlink(missing_ok=True)
     # the loader-finding verdict
-    expect(not cells_findings_ok(-1, 0), 'the recorded loader verdicts', accept=True)
-    for rc, d in ((0, 0), (-1, -1), (0, -1)):
+    expect(not cells_findings_ok(0, 0), 'the recorded loader verdicts', accept=True)
+    for rc, d in ((-1, 0), (-1, -1), (0, -1)):
         expect(not cells_findings_ok(rc, d), f'loader verdicts {rc} / {d} taken as the finding')
     # the load map
     lmap = K.lmap
@@ -1398,7 +1400,7 @@ def main():
     diag = cells_diagnostic(lib, A)
     check(cells_findings_ok(cells_rc, diag), f'em_actor_cells_load: {cells_rc}, bit-29-cleared copy {diag}')
     print(f'  loaders: {sum(loaded.values())}/{len(loaded)} files accepted by the port loaders; finding: '
-          f'em_actor_cells_load(sub0/area04_cells.bin) = {cells_rc} (uid 0 bit 29; the cleared copy: {diag})')
+          f'em_actor_cells_load(sub0/area04_cells.bin) = {cells_rc} (uid 0 bit 29, read through the mirror; the cleared copy: {diag})')
 
     problems, V = run_checks(K, caps)
     for p in problems:

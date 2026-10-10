@@ -1270,7 +1270,7 @@ def main():
                 check(refused, 'loader control: a cut dynamic list accepted')
             for lname, ok in loaded.items():
                 check(ok, f'sub {s}: port loader rejects {lname}')
-            files = [k for k in loaded if k not in ('cells refused (bit 29)', 'cells (bit 29 cleared)')]
+            files = [k for k in loaded if k != 'cells (bit 29 cleared)']
             print(f'  loaders: {sum(loaded[k] for k in files)}/{len(files)} files accepted by the port loaders')
             _ROWS.clear()
             original = LV.verify_directory

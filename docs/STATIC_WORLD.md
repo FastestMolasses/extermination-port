@@ -721,7 +721,11 @@ surface it lies on at the same depth, as on the GS.
 - **test_static_world_gpu** (`make test-static-world-gpu`): the Metal pixel
   path over 05_boxes' run (1,187 triangles) against the GS pixel model over
   the original microcode's triangles: 99.78 % of 1,007,297 interior pixels
-  exact, 100 % within 2.
+  exact, 100 % within 2. The fixture links `src/gs/em_gs_display.c` (the
+  Metal backend's GS display placement since 5836a37); without it the link
+  failed and the test did not run from then until 2026-10-10 (re-run that
+  day, `EM_TEST_FULL=1`: 05 unchanged, 08 99.55 % / 99.98 %, 14 99.61 % /
+  99.97 %).
 - **The level smoke** (check_static_world, LEVEL_SMOKE.md): over the whole
   route every 001C1D00 run is drawn in its tick (12,572 runs on the main
   line); 32 sampled calls re-executed: the ORIGINAL 001C1D00 over the

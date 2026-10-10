@@ -166,8 +166,8 @@ no orphan), tables (roster, spawn rule D_008106C8 = +0x1C of record 10 =
 every model binding), sound (bindings as in the first load, the registry =
 the RAM re-derivation), ctx (the ORIGINAL 001D8FD0 then 001D1C50, room
 entry 40). 13 of 13 files load through the port loaders: the AREA13
-lane's 11 (the cells file refused for bit 29 and its cleared copy loading,
-AREA13_ASSETS.md finding 9) and both creature images. The canary plants 51 sections; each
+lane's 11 (the cells file, which carries bit 29 and loads through the
+RAM mirror, and its cleared copy loading: AREA13_ASSETS.md finding 9) and both creature images. The canary plants 51 sections; each
 is reported for the planted copy and not for the original. The AREA13
 lane's `controls` are not run: they are pinned to its a13_05 capture.
 

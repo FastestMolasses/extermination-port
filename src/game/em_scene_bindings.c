@@ -4615,7 +4615,7 @@ void em_scene_bindings_fixture_loaded(EmTask *record)
  * slot-0 task: a tick's post-frame values are the next tick's start sample.
  * The last tick of a run has no next tick, so a run that must compare its
  * last frame (the level smoke's exit phase: the AREA01 arrival, decomp
- * exit_01 row 306) asks for a tail line, written after the main loop ended:
+ * exit_01 row 313 on the fork) asks for a tail line, written after the main loop ended:
  * {"tail": 1, "counter", "fade8", "msg", "stream", "ambient", "pool"}, the
  * pool as the allocated records' +0x00..+0x17 headers and +0x18..+0x3F /
  * +0xA0..+0xDF by record address (the route rows' pool_delta /

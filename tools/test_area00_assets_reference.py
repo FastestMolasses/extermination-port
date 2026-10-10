@@ -544,8 +544,9 @@ def check_loaders(lib, tree):
 # Loader verdicts that are findings, not asset faults (docs/AREA00_ASSETS.md):
 # the port's message loader refuses area 0 (em_message_live.c load():
 # `area == 0`), while the original indexes D_00264DD0[area + 1] for area 0
-# as for any other; em_actor_cells_init refuses the directory because uid
-# 0's word carries bit 29 (AREA01_ASSETS.md finding 1, same word form).
+# as for any other. uid 0's cells word carries bit 29 (AREA01_ASSETS.md
+# finding 1, same word form); em_actor_cells_init reads it through the RAM
+# mirror as the EE does since chain C11 and loads the directory.
 FINDING_LOADERS = ('message data',)
 
 

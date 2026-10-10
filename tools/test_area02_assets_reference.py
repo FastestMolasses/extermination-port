@@ -575,10 +575,12 @@ def check_loaders(lib, tree):
 
 
 def cells_findings_ok(rc, diag):
-    """The loader verdicts docs/AREA02_ASSETS.md records: the sub-0 directory
-    is refused (uid 0's word carries bit 29, AREA01_ASSETS.md finding 1)
-    and loads once bit 29 is cleared in every uid word; sub 1's loads."""
-    return rc.get(0) == -1 and diag == 0 and rc.get(1) == 0
+    """The loader verdicts: the sub-0 directory (uid 0's word carries bit 29,
+    AREA01_ASSETS.md finding 1) loads, its bit 29 read through the EE's
+    uncached main-RAM mirror as the original reads it (the loader does since
+    chain C11, 2026-10-02); a copy with bit 29 cleared in every uid word
+    loads too; sub 1's loads."""
+    return rc.get(0) == 0 and diag == 0 and rc.get(1) == 0
 
 
 def cells_diagnostic(lib, tree, cells_bytes=None):
@@ -1028,8 +1030,8 @@ def controls(K, caps_by_sub):
                                          (bank0, live.ram[bank0:bank0 + 0x100])])
     expect_text(message_bank_finding([fake]), 'parses', 'a parseable bank in sub 1')
     # the loader-finding verdict
-    expect(not cells_findings_ok({0: -1, 1: 0}, 0), 'the recorded loader verdicts', accept=True)
-    for rc, d in (({0: 0, 1: 0}, 0), ({0: -1, 1: -1}, 0), ({0: -1, 1: 0}, -1)):
+    expect(not cells_findings_ok({0: 0, 1: 0}, 0), 'the recorded loader verdicts', accept=True)
+    for rc, d in (({0: -1, 1: 0}, 0), ({0: 0, 1: -1}, 0), ({0: 0, 1: 0}, -1)):
         expect(not cells_findings_ok(rc, d), f'loader verdicts {rc} / {d} taken as the finding')
     # the spawn entry
     expect_text(spawn_entry_problems([ram_copy(live, 'entry', [(0x810702, b'\xff')])]), 'outside the',
@@ -1233,7 +1235,7 @@ def main():
     diag = cells_diagnostic(lib, A)
     check(cells_findings_ok(cells_rc, diag), f'em_actor_cells_load: {cells_rc}, bit-29-cleared sub-0 copy {diag}')
     print(f'  loaders: {sum(loaded.values())}/{len(loaded)} files accepted by the port loaders; finding: '
-          f'em_actor_cells_load(sub0/area02_cells.bin) = {cells_rc[0]} (uid 0 bit 29; the cleared copy: {diag}), '
+          f'em_actor_cells_load(sub0/area02_cells.bin) = {cells_rc[0]} (uid 0 bit 29, read through the mirror; the cleared copy: {diag}), '
           f'sub1 = {cells_rc[1]}')
 
     problems, V = run_checks(K, caps_by_sub)

@@ -4913,9 +4913,10 @@ static int roger_frame(void)
  * phase ends on the frame before the arrival's 0x1AE040 state-0 rebuild
  * (slot 0 +9 = 1, +B = 0 in area 1); the finish's one more frame is that
  * rebuild, the capture's first frame of control in AREA01 (exit_01 row
- * 306), and the run quits before the first AREA01 world frame (AREA01
- * gameplay is level 2). tools/test_level_smoke.py check_exit compares the
- * rows. */
+ * 313 in the fork's recording; v2.6.3's was row 306: tools/test_level_smoke.py
+ * EXIT_ARRIVAL_ROW), and the run quits before the first AREA01 world frame
+ * (AREA01 gameplay is level 2). tools/test_level_smoke.py check_exit
+ * compares the rows. */
 enum { EXIT_FAN_R2 = 0x007A7690u, EXIT_ALIGN_ROW = 31, EXIT_CROSSING_ROW = 344, EXIT_FAN_WAIT = 400, EXIT_ARRIVAL_LIMIT = 3000 };
 typedef struct {
     int f;
@@ -5016,7 +5017,7 @@ static int exit_frame(void)
         const EmSceneState *s = em_scene_state();
         if (s->d810700 == 1 && task_byte(EM_SCENE_TASK_09) == 1 && task_byte(EM_SCENE_TASK_0B) == 0) {
             fprintf(stderr, "level smoke: exit: PASS area %02X %02X %02X; the next frame is the AREA01 "
-                    "arrival's rebuild (exit_01 row 306)\n", s->d810700, s->d810701, s->d810702);
+                    "arrival's rebuild (exit_01 row 313)\n", s->d810700, s->d810701, s->d810702);
             return 1;
         }
         if (++t.nav_frames > EXIT_ARRIVAL_LIMIT) fail("the AREA01 arrival did not come");
