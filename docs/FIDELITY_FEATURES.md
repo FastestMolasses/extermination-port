@@ -300,7 +300,8 @@ timing.
   cut15 PASS event for event with an empty allow list (chain step H7,
   2026-09-29: the windows moved 63 ticks with the New Game's loads; with the
   PS2 disc-drive timing switch on: 1665, 1727, 1656, 361 and cut15, also
-  PASS). Decomp `CAPTURES_C7.md` 1:
+  PASS; 1676 / 1738 / 1667 / 372 and cut15 since 2026-10-09, the switch's
+  17-field seek after a module-loader read, all PASS). Decomp `CAPTURES_C7.md` 1:
   every main-loop frame in the four stream stretches is exactly one field.
 - Status: **PARTIAL**. `tools/frame_order_allow.json` holds no entry since
   chain C8b ROUTE: the last one (the walking footstep's effect node in
@@ -623,10 +624,13 @@ skeletons equal the original's bit for bit.
   test-cinematic-playback-reference` runs the original instructions.
 - Status: **PARTIAL**. At host speed (the policy) the stream request's wait
   is shorter, so the actors spawn, the screen fades in and the first line
-  shows, and the opening ends, 21 frames earlier than in the recording (11
-  with the PS2 disc-drive timing switch, whose drive model leaves out the
-  area music's 16-field seek after the New Game's last module-loader read;
-  `IOP_STREAM.md` "Drive model"). Pixels compared only by eye. Metal only.
+  shows, and the opening ends, 21 frames earlier than in the recording.
+  With the PS2 disc-drive timing switch they come on the recording's
+  frames since 2026-10-09 (the switch's model seeks the measured 17 fields
+  for the area music's read after the New Game's last module-loader read;
+  `IOP_STREAM.md` "Drive model"): the opening's rand() calls equal the
+  original's in caller, frame and state through first control. Pixels
+  compared only by eye. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
 
@@ -1350,7 +1354,10 @@ so conversations keep the recording's pacing.
   per field, its ready query before each issue) and the hold before a
   key-on are the translated code in both modes. Switch on: a drive model
   measured from the C7 capture: one read at a time; the position is where
-  the last read ended; a 0-, 2- or 6-field seek by distance class; a read
+  the last read ended; a 0-, 2- or 6-field seek by distance class, and a
+  17-field seek for the first stream read after a screen-module loader read
+  (since 2026-10-09: the loader's reads reach the model; measured in the C7
+  capture's opening and the audio captures' status-page resumes); a read
   of up to 16 sectors completes within one field. The model faults on
   longer reads, which only module loads issue; module loads go through the
   screen-module loader's own drive instead: host speed, and with the switch
@@ -1369,8 +1376,14 @@ so conversations keep the recording's pacing.
   navigation). `check_rand_order` / `make test-rand-order` require first
   control exactly 21 frames before the original's: the fields the capture's
   opening stream request waited on the drive (15 for the ready query, 6 for
-  the read). Switch on (`make test-level-smoke-ps2-drive`): the checks
-  compare the capture's rows as before. `IOP_STREAM.md` "Drive model
+  the read). Switch on (`make test-level-smoke-ps2-drive`): the voiced
+  lines compare the capture's rows as before; since 2026-10-09
+  `check_rand_order` / `make test-rand-order` require the opening's stream
+  request to take the C7 capture's rows (16 ready query, 7 read, 4 hold),
+  first control on the original's frame and every rand() call of the
+  opening equal to the original's through first control (31,304 calls in
+  the level smoke), and the audio check requires the music's key-on after
+  the battery_ui and panel_power status closes on the captures' rows. `IOP_STREAM.md` "Drive model
   (measured, 2026-09-27)"; decomp `CAPTURES_C7.md` 1: the model equals 186
   of 205 captured reads, the other 19 one field off (sub-field poll phase);
   the four reads the first level's timing rests on took the model's 6 seek
@@ -1378,16 +1391,18 @@ so conversations keep the recording's pacing.
 - Status: **VERIFIED** at host speed on the recorded route (the event order
   is the capture's and the timing difference is exactly the drive's wait),
   relative to PCSX2 recordings. **PARTIAL** with the switch on: relative to
-  PCSX2's CDVD emulation; line 0x7F ends 2 rows early (navigation timing of
-  an earlier music refill); the opening's first control comes 11 frames
-  early (the area-music read's 16-field seek after the New Game's last
-  module-loader read is not modelled); two Roger music reads fall outside
-  the measured distances. Music timing is not claimed: after every status
-  page the original's music read seeks 17 fields after the page's module
-  load (audio captures battery_ui and panel_power), so the music resumes
-  17 fields early at host speed and 15 with the switch (measured in the
-  fork demo's audio, `FIRST_LEVEL_AUDIT.md` 1b item 8; whether the switch
-  should model it is open, `LAUNCHER_OPTIONS.md`).
+  PCSX2's CDVD emulation; a voiced line's teardown moves with the lane-0
+  music refill one side's sequencer served first (navigation timing: in
+  the 2026-10-09 runs 0x7F ends 2 rows early and 0x99 1 or 2 rows late); two
+  Roger music reads fall outside the measured distances; the loads no
+  capture measured (every page module but 0x21, the game-over module, the
+  level exit's AREA01 load) take the same 17-field rule (counted). With
+  the switch the opening's first control comes on the original's frame
+  and the music resumes on the audio captures' rows after the two
+  captured status closes (since 2026-10-09, the user's decision,
+  `LAUNCHER_OPTIONS.md`). At host speed music timing is not claimed: the
+  music resumes 17 fields early after every status page (the policy;
+  `FIRST_LEVEL_AUDIT.md` 1b item 8).
 
 **Director beats and the Roger encounter on the original scripts, frame by frame against the recordings**
 
@@ -2414,10 +2429,11 @@ Resolved by the user on 2026-09-27:
    smoke's panel-prompt check aligns on the load's completion. Built in
    chain C8b LOADER (the status pages' module loads entry above), for every
    page module since chain step PAGELOADS.
-2. **The opening's stream timing:** the extra seek is not modelled (the code
-   does not model it). It follows the New Game's last module-loader read, not
+2. **The opening's stream timing:** at host speed the drive's wait goes (the
+   policy). The extra seek follows the New Game's last module-loader read, not
    the intro movie's position (corrected 2026-10-09, `IOP_STREAM.md` "Drive
-   model"). The area-entry
+   model"); the PS2 disc-drive timing switch models it since 2026-10-09 (the
+   user's decision "Yes, model it (17)", `LAUNCHER_OPTIONS.md`). The area-entry
    001FAE70(1) is game code and is bound (`RAND_ORDER.md` 2).
 3. **Field presentation:** deferred; the user will compare the options
    (`LAUNCHER_OPTIONS.md`).
@@ -2462,4 +2478,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-09 (the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-09 (the disc-lead step: the PS2 disc-drive timing switch models the first stream read after a module-loader read (17 seek fields): the disc-drive entry's How, Evidence and Status (the opening on the original's frame and the music's status-page resume on the captures' rows with the switch; the teardown's lane-0 phase in both directions), the opening entry's status, policy question 2. Before, the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

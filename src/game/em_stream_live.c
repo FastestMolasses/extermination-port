@@ -473,6 +473,12 @@ const EmIopStream *em_stream_live_iop(void)
     return S.ctx.iop;
 }
 
+void em_stream_live_loader_read(uint32_t lsn, uint32_t sectors, int measured)
+{
+    if (S.booted && S.ctx.iop)
+        em_iop_stream_loader_read(S.ctx.iop, lsn, sectors, measured);
+}
+
 int8_t em_stream_live_active(int lane)
 {
     return S.booted && lane >= 0 && lane < EM_STREAM_LANES ? S.lanes.state.active[lane] : 0;
@@ -519,6 +525,12 @@ void em_stream_live_drive_report(FILE *out)
             ps2 ? "PS2 disc-drive timing on" : "host speed", d.reads, d.host_speed, d.by_fields[0],
             d.by_fields[2], d.by_fields[6], d.no_position, d.unmeasured, (long long)d.last_unmeasured, d.breaks,
             d.abandoned);
+    /* The rule for the first read after a module-loader read runs with the
+     * switch only; the host-speed line stays as it was. */
+    if (ps2)
+        fprintf(out, "stream drive: %u first reads after a module-loader read (%u seek fields), %u of them after a "
+                     "load no capture measured\n",
+                d.after_loader, (unsigned)EM_IOP_SEEK_AFTER_LOADER_READ, d.after_loader_unmeasured);
 }
 
 int32_t em_stream_live_cue(int lane)

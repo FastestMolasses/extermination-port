@@ -452,6 +452,67 @@ static void test_reader_host(const EmIopStreamDisc *music_only)
     em_iop_stream_destroy(s);
 }
 
+/* The first stream read after a module-loader read (docs/IOP_STREAM.md
+ * "Drive model"; em_iop_stream_loader_read): with the switch on it takes the
+ * measured 17-field seek whatever its distance, the head then follows the
+ * stream read again; a break forgets it; at host speed nothing changes. */
+static void test_reader_after_loader(const EmIopStreamDisc *music_only)
+{
+    const uint8_t mode[3] = {0, 0, 0};
+    int32_t r = 0;
+    EmIopStreamDisc disc = *music_only;
+    EmIopStreamExtent ext[2] = {music_only->extent[0], {MUSIC_LSN + 80000u, 8, CUE_SECTORS * 2048u, 1}};
+    EmIopDriveStats st;
+    disc.extent = ext;
+    disc.extents = 2;
+
+    EmIopStream *s = em_iop_stream_create();
+    em_iop_stream_set_ps2_drive_timing(s, 1);
+    em_iop_stream_attach_disc(s, &disc);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 3, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 6);   /* the first read: no position */
+    /* A loader read (the head moves to the sector after it): the next
+     * stream read seeks 17 fields, also where its distance alone would be
+     * contiguous; the 00113280 ready query answers 6 meanwhile. */
+    em_iop_stream_loader_read(s, MUSIC_LSN - 161u, 161u, 1);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN, 1, 0xADC00, mode, &r) == 0);
+    CHECK(em_iop_stream_00113280(s, 1, &r) == 0 && r == 6);
+    CHECK(busy_polls(s) == EM_IOP_SEEK_AFTER_LOADER_READ);
+    CHECK(!memcmp(em_iop_stream_iop_ram(s) + 0xADC00, disc_data, 2048));
+    /* Only the first: the head is the stream read's again. */
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 1, 1, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 0);
+    /* A load no capture measured takes the same seek and is counted. */
+    em_iop_stream_loader_read(s, MUSIC_LSN + 80000u, 8u, 0);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 1, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == EM_IOP_SEEK_AFTER_LOADER_READ);
+    /* A break with a read in flight forgets the loader read too: the next
+     * read has no position (a full seek). */
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 3, 1, 0xADC00, mode, &r) == 0);
+    em_iop_stream_loader_read(s, MUSIC_LSN + 80000u, 8u, 1);
+    CHECK(em_iop_stream_00113478(s, 1) == 0);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 4, 1, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 6);
+    em_iop_stream_drive_stats(s, &st);
+    CHECK(st.reads == 6 && st.after_loader == 2 && st.after_loader_unmeasured == 1);
+    CHECK(st.by_fields[0] == 2 && st.by_fields[6] == 2 && st.no_position == 2 && st.breaks == 1);
+    em_iop_stream_destroy(s);
+
+    /* Host speed (the default): a loader read changes nothing, the next
+     * read is done at its first query and keeps its distance class. */
+    s = em_iop_stream_create();
+    em_iop_stream_attach_disc(s, &disc);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 2, 3, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 0);
+    em_iop_stream_loader_read(s, MUSIC_LSN + 80000u, 8u, 1);
+    CHECK(em_iop_stream_00112610(s, MUSIC_LSN + 5, 1, 0xADC00, mode, &r) == 0);
+    CHECK(busy_polls(s) == 0);
+    em_iop_stream_drive_stats(s, &st);
+    CHECK(st.reads == 2 && st.host_speed == 2 && st.after_loader == 0 && st.after_loader_unmeasured == 0);
+    CHECK(st.by_fields[0] == 1 && st.by_fields[6] == 1 && st.no_position == 1);
+    em_iop_stream_destroy(s);
+}
+
 /* The sound-bank transfer (docs/IOP_STREAM.md "The sound-bank transfer"):
  * the heap's first fit with the driver's start-up block, 0010F968, the SIF
  * DMA at host speed, command 0x20 on the SPU2 model and its callback 0x544
@@ -501,6 +562,7 @@ int main(void)
     test_commands();
     test_reader(&disc);
     test_reader_host(&disc);
+    test_reader_after_loader(&disc);
     test_stream(&disc, 0);
     test_stream(&disc, 1);
     if (failures) {

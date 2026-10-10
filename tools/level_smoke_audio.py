@@ -279,6 +279,12 @@ def _port_anchor(P, start, base):
                 and P[i - 1]['cue'][0] != base)
 
 
+def keyon_after(rows, anchor):
+    """Rows from `anchor` (the first row with the lane-0 cue back) to the
+    first row whose lane 0 is keyed on (D_00282154 == 2)."""
+    return next(k - anchor for k in range(anchor, len(rows)) if rows[k] and rows[k]['lane'][0] == 2)
+
+
 def _rows(P, O, i_line, f_row, n, what):
     """Port lines i_line.. against capture rows f_row.. (n rows)."""
     assert f_row >= 0 and f_row + n <= len(O) and i_line + n <= len(P), (what, 'window outside the logs')
@@ -344,6 +350,16 @@ def check(ticks, run, state):
                 k2, s2 = compare_rows(port, orig, ids, what + ' after the status')
                 line += (f', then f{fo - back}..f{len(O) - 1} on the status close\'s cue ({k2} voices keyed'
                          f'{f", {s2} reset one tick apart" if s2 else ""})')
+                if state.get('drive') == 'ps2':
+                    # With the PS2 disc-drive timing switch the music's read
+                    # after the page's module load takes the measured seek
+                    # (IOP_STREAM.md "Drive model"): the key-on on the
+                    # capture's row after the cue's return.
+                    ko, kp = keyon_after(O, fo), keyon_after(P, ip)
+                    assert kp == ko, (what, 'the music\'s key-on after the status close (rows after the cue\'s '
+                                            'return)', kp, ko)
+                    line += (f', the music keyed on {ko} rows after the cue\'s return in both (its read after the '
+                             f'page\'s module load: the drive model)')
             out.append(line)
         elif w['mode'] == 'sequence':
             fo = own_scan(O, w['near']) if w.get('near') is not None else w['f0']

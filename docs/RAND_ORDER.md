@@ -77,11 +77,12 @@ fails the tool. Both traces become (original function, state) per call.
 - **Effect on the opening.** The area music's read is now in flight when the
   opening's cue-0x3F prefill is requested, and the prefill waits for it, as in the
   original. At host speed (the default) the prefill waits one field for it; with the
-  PS2 disc-drive timing switch on, the drive model's 6-field seek (section 3).
-  newgame-control: locked_ticks 1301 at host speed, 1311 with the switch; the
-  displacement is 9.599849 in both. The frame-order post-control window is native
-  index 1393 (counter 2650) at host speed, 1665 (counter 2922) with the switch since
-  chain step H7 (the New Game's loads take ticks; 1330 / 1340 before).
+  PS2 disc-drive timing switch on, the drive model's seek (section 3: 17 fields
+  since 2026-10-09, the first stream read after a module-loader read; 6 before).
+  newgame-control: locked_ticks 1301 at host speed, 1322 with the switch (1311
+  before 2026-10-09); the displacement is 9.599849 in both. The frame-order
+  post-control window is native index 1393 (counter 2650) at host speed, 1676 with
+  the switch (1665 from chain step H7 to 2026-10-09; 1330 / 1340 before H7).
 
 ## 3. The New Game opening (the newgame capture)
 
@@ -90,24 +91,26 @@ The two traces are aligned on the area entry: port counter 1273 = original frame
 | Check | Result |
 |---|---|
 | The area-entry frame | Equal: one call, 001FAE70 from state 1 |
-| Call for call (caller and state) | 227 calls equal at host speed (447 with the switch on): the area entry, AE+1's calls including the security gun's 0x8259F0 draw, Roger's owner's face at AE+2, the player's face in the player stage after the barrel from AE+5, and every call up to the opening's actors' spawn |
-| First difference | The opening's actors' spawn, the frame the script's op14 runs once the stream request's wait ends: AE+10 at host speed (AE+20 with the switch), where the original, still waiting, spawns them at AE+31. In that frame the port's opening body draws its face's first values (001D0720, in the pool walk after the indicator children) where the original draws its glow markers (001F4D40), from the same state. (Before chain C8b OPENING it was the player face's AE+5 draw, missing while em_opening_actor ran the faces; before census L24 the security gun's AE+1 draw.) |
-| From the spawn, caller for caller | Each frame's callers equal the original's frame 21 later (11 with the switch) for 32 frames: the body's face and the head sprite its 001BA8E0 spawned, the player's face after the barrel. Then a value-driven timer, drawn from a state the wait moved, differs first (a head sprite at the original's AE+63) |
-| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1312 with the switch), the security gun's AE+1 draw included |
+| Call for call (caller and state) | 227 calls equal at host speed (with the switch on, since 2026-10-09, every call through first control: 31,304 in the level smoke, 31,481 in newgame-control; 447 before): the area entry, AE+1's calls including the security gun's 0x8259F0 draw, Roger's owner's face at AE+2, the player's face in the player stage after the barrel from AE+5, and every call up to the opening's actors' spawn |
+| First difference | The opening's actors' spawn, the frame the script's op14 runs once the stream request's wait ends: AE+10 at host speed, where the original, still waiting, spawns them at AE+31 (with the switch AE+31 as in the original since 2026-10-09, and no difference before first control; AE+20 before). In that frame the port's opening body draws its face's first values (001D0720, in the pool walk after the indicator children) where the original draws its glow markers (001F4D40), from the same state. (Before chain C8b OPENING it was the player face's AE+5 draw, missing while em_opening_actor ran the faces; before census L24 the security gun's AE+1 draw.) |
+| From the spawn, caller for caller | At host speed each frame's callers equal the original's frame 21 later for 32 frames: the body's face and the head sprite its 001BA8E0 spawned, the player's face after the barrel. Then a value-driven timer, drawn from a state the wait moved, differs first (a head sprite at the original's AE+63) |
+| Deterministic skeleton, frame for frame | Equal in every frame from AE+1 to the port's first control (AE+1302 at host speed, AE+1323 with the switch since 2026-10-09), the security gun's AE+1 draw included |
 | The 30 frames after first control | Equal |
-| The opening's end | Port AE+1303 at host speed (the default) against the original's AE+1324: exactly 21 frames earlier. AE+1313 (11 earlier) with the PS2 disc-drive timing switch on |
+| The opening's end | Port AE+1303 at host speed (the default) against the original's AE+1324: exactly 21 frames earlier. AE+1324, the original's frame, with the PS2 disc-drive timing switch on since 2026-10-09 (AE+1313 before) |
 
 **Why the opening ends earlier.** The opening hands over control when its stream
 request (cue 0x3F, with the D_008106F4 hold) keys on. In the C7 stream capture of the
 opening that request waited 21 fields on the drive: 15 extra fields of ready query
-while the area music's read finished its 16-field seek (the first stream read after
-the New Game's module-loader reads; IOP_STREAM.md "Drive model"), and 6 extra fields
-of read. At host speed (the default; disc timing is not
+while the area music's read finished its seek (the first stream read after the New
+Game's module-loader reads: 17 fields in the drive model's terms; IOP_STREAM.md "Drive
+model"), and 6 extra fields of read. At host speed (the default; disc timing is not
 part of the Original profile, CLAUDE.md 2026-09-27) the port's request reads at once,
 so first control comes exactly those 21 frames earlier, which check_opening requires
 (LEVEL_SMOKE.md "The stream drive's two modes"). With the switch on, the drive model
-serves the area music's read as a first read (a 6-field full seek), the request waits
-10 fields, and first control comes 11 frames earlier (allowed up to 16).
+serves the area music's read with the measured 17-field seek (since 2026-10-09; before,
+as a 6-field first read, and first control came 11 frames earlier), the request takes
+the capture's rows, and check_opening requires first control on the original's frame
+and every call of the opening equal to the original's.
 
 **The value-driven callers over the opening** (reported, not asserted):
 
@@ -208,10 +211,10 @@ instructions.
    from its spawn (OPENING_ORIGINAL.md). The first difference is now the spawn frame
    itself: the drive's timing (item 3).
 3. **The opening's actors' spawn and its end** come 21 frames earlier at host speed
-   (the policy) and 11 with the switch (disc timing, section 3). With the
-   drive-timing switch (LAUNCHER_OPTIONS.md) it would need the original's 16-field
-   seek after the New Game's last module-loader read (explained since 2026-10-09:
-   IOP_STREAM.md "Drive model"; modelling it under the switch is an open decision).
+   (the policy, section 3). With the drive-timing switch (LAUNCHER_OPTIONS.md) they
+   come on the original's frames since 2026-10-09: the switch models the 17-field
+   seek of the first stream read after a module-loader read (IOP_STREAM.md "Drive
+   model"), and the opening's calls equal the original's through first control.
 4. **The status background's draw** has no capture of its frame position.
 5. **Run to run.** The original's own opening order diverges after AE+31. A value
    comparison past the first divergence needs the substitution method of section 5,

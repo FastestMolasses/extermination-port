@@ -21,9 +21,12 @@ unseeded state 1 in both):
 - the value-driven callers' totals and the faces' positions are reported;
 - the opening's end follows the stream drive's mode (the run's "stream
   drive:" line; EM_PS2_DISC_DRIVE_TIMING, LAUNCHER_OPTIONS.md): with the PS2
-  disc-drive timing on, first control up to 16 frames earlier; at host speed
+  disc-drive timing on, the stream request's rows (the run's
+  EM_AREA_CHANGE_LOG) equal the C7 stream capture's, first control comes on
+  the original's frame, and so the whole opening equals the original's call
+  for call (no spawn difference; IOP_STREAM.md "Drive model"); at host speed
   (the default), exactly the capture's drive wait earlier, with the stream
-  request's rows (the run's EM_AREA_CHANGE_LOG) read at host speed.
+  request's rows read at host speed.
 """
 import argparse
 import json

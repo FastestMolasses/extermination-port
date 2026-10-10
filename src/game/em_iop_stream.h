@@ -42,7 +42,8 @@
  *     (em_iop_stream_set_ps2_drive_timing; docs/LAUNCHER_OPTIONS.md) its
  *     timing is the drive model measured in the original (one read at a
  *     time; a seek of 0, 2 or 6 fields by the distance from the drive's
- *     position, then the read within a field).
+ *     position, 17 for the first read after a module-loader read,
+ *     then the read within a field).
  *  5. The mixer interface: the SPU output is rendered on the game thread,
  *     field by field, into a lock-free ring the audio thread drains
  *     (em_iop_stream_mix, summed like em_sfx_mix).
@@ -247,8 +248,27 @@ typedef struct {
     uint32_t no_position;     /* reads with no position (full-seek class)      */
     uint32_t breaks;          /* 00113478 with a read in flight                */
     uint32_t abandoned;       /* reads left in flight, landed at a ready query */
+    /* The first read after a module-loader read (switch on only; below):
+     * served by that rule instead of the distance classes, and how many of
+     * them followed a load no capture measured. */
+    uint32_t after_loader, after_loader_unmeasured;
 } EmIopDriveStats;
 void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out);
+/* The screen-module loader's reads (00112440 through 00200780; the loader
+ * has its own drive model, em_module_loader) go to the same PS2 drive. In
+ * the PCSX2 captures the first stream read after a loader read sought 17
+ * fields in this model's terms, far beyond its distance class
+ * (docs/IOP_STREAM.md "Drive model"): the opening's area music after the
+ * New Game's AREA11 area load (the C7 captures) and the music's resume
+ * after each status page's module-0x21 load (the audio captures battery_ui
+ * and panel_power). With the switch on, a loader read moves the head to
+ * the sector after it and the next 00112610 takes that seek; `measured` 0
+ * (a load no capture measured: any module but 0x21, any area but AREA11)
+ * only counts it. With the switch off (the default, host speed) this does
+ * nothing: the drive answers at once and the counters keep the distance
+ * classes. */
+enum { EM_IOP_SEEK_AFTER_LOADER_READ = 17 };
+void em_iop_stream_loader_read(EmIopStream *s, uint32_t lsn, uint32_t sectors, int measured);
 
 /* ---- EE side ------------------------------------------------------------ */
 uint32_t em_iop_stream_001FA6A0(EmIopStream *s, int32_t size);

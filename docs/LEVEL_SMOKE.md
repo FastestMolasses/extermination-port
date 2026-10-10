@@ -191,8 +191,9 @@ the same captures in either mode:
 | Check | Switch on (`make test-level-smoke-ps2-drive`) | Host speed (the default, `make test-level-smoke-full`) |
 |---|---|---|
 | `check_voice_drive` (cage_roof, crevice_prompt, east_tower) | the voice read takes the capture's fields (7); the lane's start, the hold to the key-on and the sequencer's wait (less lane 0's read) equal the capture's | the voice read takes the host-speed read's 1 field; every ready query and lane-0 read before it takes the host-speed rows (1 row each); the lane's start, the hold to the key-on and the sequencer's wait (less lane 0's read) equal the capture's |
-| the teardown in `check_director_beat` | exactly the key-on's shift from the capture's row | the same rule; the shift is now the drive's 6 fields plus lane 0's difference |
-| the opening's end in `check_rand_order` and `make test-rand-order` | first control at most 16 frames earlier than the original's (the area music's 16-field seek after the New Game's last module-loader read is outside the model; IOP_STREAM.md "Drive model") | the port's stream request reads at host speed (1 row of ready query, 1 row of read), its hold to the key-on equals the capture's (4 rows), and first control comes exactly the capture's drive wait earlier: 21 frames, the C7 stream capture's opening request (15 extra rows of ready query while the area music's read finished, 6 extra rows of read) |
+| the teardown in `check_director_beat` | exactly the key-on's shift from the capture's row (either sign: the original or the port may have served lane 0 first) | the same rule; the shift is now the drive's 6 fields plus lane 0's difference |
+| the music's resume after a status close (`level_smoke_audio`, battery_ui and panel_power) | the key-on on the audio capture's row: as many rows after the cue's return as in the capture (20; the music's read after the page's module load seeks the measured 17 fields; since 2026-10-09) | not compared (the read answers at once: the music keys on 17 fields before the original's, the Original profile's policy; FIRST_LEVEL_AUDIT.md 1b item 8) |
+| the opening's end in `check_rand_order` and `make test-rand-order` | the stream request's ready query, read and hold take the C7 stream capture's rows (16, 7 and 4: the area music's read, the first stream read after the New Game's last module-loader read, seeks the measured 17 fields; IOP_STREAM.md "Drive model"), first control comes on the original's frame, and every rand() call from the area entry through first control equals the original's in caller, frame and state (since 2026-10-09; before, first control up to 16 frames earlier was allowed) | the port's stream request reads at host speed (1 row of ready query, 1 row of read), its hold to the key-on equals the capture's (4 rows), and first control comes exactly the capture's drive wait earlier: 21 frames, the C7 stream capture's opening request (15 extra rows of ready query while the area music's read finished, 6 extra rows of read) |
 
 The opening's exact rule rests on one thing no single capture shows: the
 C7 newgame rand() capture (first control) and the C7 stream capture (the
@@ -212,12 +213,12 @@ Measured 2026-09-27 (full route, both modes; newgame-control):
 
 | | Host speed | Switch on |
 |---|---|---|
-| first control (newgame-control locked_ticks) | 1301 | 1311 |
-| first control against the original's AE+1324 | AE+1303, 21 frames earlier | AE+1313, 11 frames earlier |
+| first control (newgame-control locked_ticks) | 1301 | 1322 (1311 before 2026-10-09) |
+| first control against the original's AE+1324 | AE+1303, 21 frames earlier | AE+1324, the original's frame (AE+1313, 11 frames earlier, before 2026-10-09: the area music's read after the New Game's loads was served as a 6-field first read) |
 | 0x7F key-on and teardown (s) | 8 rows early (6 drive + 2 lane 0) | 2 rows early (lane 0) |
 | 0x97, 0x99 key-on and teardown (s) | 6 rows early | on the capture's rows |
 | stream reads over the full route | 420, all at host speed | 420 (328 contiguous, 19 fast, 73 full seeks) |
-| the frame-order post-control window | native index 1330 (1393 since chain step H7: the New Game's loads and veil take ticks) | native index 1340 (1665 since chain step H7) |
+| the frame-order post-control window | native index 1330 (1393 since chain step H7: the New Game's loads and veil take ticks) | native index 1340 (1665 since chain step H7, 1676 since 2026-10-09) |
 
 The 30-tick displacement is 9.599849 in both modes. The side runs pass in
 both modes too.
@@ -1725,6 +1726,12 @@ stated):
   player's +0xCC through 0x70003B5C, 0018CBD0's quadword copy).
 - a01_s3 PASS (262 rows), a01_s4 PASS (1,225 rows, drive timing), a01_s6
   PASS (229 rows).
+- Re-run 2026-10-09 with the switch's rule for the first stream read after
+  a module-loader read (IOP_STREAM.md "Drive model"): `--side a01_s0` PASS
+  (1,435 rows, and every AREA11 phase, exit and a01_arrival before it) and
+  `--side a01_s4` PASS (1,225 rows); the stream read after the level exit's
+  AREA01 load takes the rule and is counted as a load no capture measured
+  (one in each run).
 - a01_s1 rows f0..f313 (the DATA BASE pickup's page request is consumed
   earlier: its page module answers at host speed even with the switch,
   which has no recorded time for AREA01's page reads); a01_s2 rows
@@ -2338,6 +2345,12 @@ frames) and 10 (311 frames) equal; the sway on 46 sampled ticks (90 draws);
 the markers in 506 calls of 46 barrel frames, and snapshot 10's 5 captured
 markers; the head sprites: 2 new, 149 flips, 149 ramp ends, 13,369 wait
 ticks and 12,375 ramp ticks.
+Since 2026-10-09 (the switch's rule for the first stream read after a
+module-loader read, IOP_STREAM.md "Drive model") the switch-on run has no
+spawn difference: 31,304 calls equal in caller, frame and state from the
+area entry through first control at the original's AE+1324, the opening's
+value-driven callers' totals equal the original's (faces 712, head sprites
+35, weather 23), and the skeleton is equal over AE+1..AE+1323.
 
 ### The drop shadow (`check_shadow`, census L29 / L29b; tools/level_smoke_shadow.py)
 
@@ -2602,8 +2615,11 @@ run's phases recorded:
   in both (capture f1863, the port's line two after its last mode-3
   tick); the timeline's mode 3 equally long (1,293); no sound keyed but
   the fans'. The stream request's distance before the timeline (29 rows
-  in the capture; 6 at host speed, 16 with the PS2 disc-drive timing
-  switch, measured 2026-10-08) is the disc's and reported, not compared.
+  in the capture; 6 at host speed; 27 with the PS2 disc-drive timing
+  switch since 2026-10-09, 16 before, measured 2026-10-08) is the disc's
+  and reported, not compared. The audio capture's 29 against the port's
+  and the C7 capture's 27 is that PCSX2 run's own read time: its rows
+  541..569 hold 16 rows of ready query, 8 of read (C7: 7) and 4 of hold.
 - **The AUDIO side runs** (aud_walk_outdoor, aud_walk_room, aud_flame:
   the decomp's designed beats, played closed loop from the port's own
   state, so the footsteps' random variants and the flinch's clip are the
@@ -2662,7 +2678,7 @@ own relaxations are in their sections ("The AIM side runs' whole records",
 | check_owner_units, check_face | Roger's and his equipment's units at snapshots 08, 10..13 (only the face unit's length; compared in full at 14), and the face units' content against the captures (the sampled re-execution over the port's own inputs proves it) | Roger's clip phase follows the time since the area load; his face weights follow the port's rand() stream | walk timing equal to the capture's (navigation); a stream at the capture's position |
 | check_effects | lane 3's parameter quadwords | no routine of the level writes them (identical from the opening on) | their earlier writer (EFFECT_MANAGER.md 8.4) |
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
-| check_rand_order | the opening's values from the actors' spawn on (compared caller for caller at the drive's shift until a value-driven timer differs), and (switch on only) its end | the stream request's wait: at host speed the drive answers at once (the Original profile's policy), so the spawn and the end come the capture's wait earlier and the values drawn after differ; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | none at host speed (policy); with the switch, a drive model of the first stream read after a module-loader read (IOP_STREAM.md "Drive model"; an open decision, LAUNCHER_OPTIONS.md) |
+| check_rand_order | at host speed: the opening's values from the actors' spawn on (compared caller for caller at the drive's shift until a value-driven timer differs) | the stream request's wait: at host speed the drive answers at once (the Original profile's policy), so the spawn and the end come the capture's wait earlier (exactly) and the values drawn after differ. With the PS2 disc-drive timing switch on nothing is relaxed since 2026-10-09: every call through first control equals the original's | none at host speed (policy) |
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
 | check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
@@ -2722,7 +2738,12 @@ area entry moves 63 ticks later at host speed (trace index 79, counter
 with it: at host speed idle04 at native index 1393 (counter 2650), walk04
 1455, st03 1384, cut02 89; with the switch 1665, 1727, 1656 and 361. All
 five PASS in both modes with the empty allow list (cut15 on its own
-window); `--self-test` passes.
+window); `--self-test` passes. **Since 2026-10-09** the switch's opening
+waits on the area music's read for the measured 17-field seek
+(IOP_STREAM.md "Drive model"), so with the switch first control and the
+windows come 11 ticks later: idle04 1676, walk04 1738, st03 1667, cut02
+372 (the spawn at AE+31, as in the original); all five PASS there (cut15
+at 345); the host-speed windows are unchanged and PASS.
 
 ## Adding a phase (the contract for WP-4 onward)
 

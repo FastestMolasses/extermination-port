@@ -88,6 +88,10 @@ int em_stream_live_001FB370(uint32_t address, const uint8_t *bytes, uint32_t siz
 const EmSoundBank *em_stream_live_sound_bank(void);
 /* The IOP the lanes run on (tests), NULL before the boot. */
 const EmIopStream *em_stream_live_iop(void);
+/* A screen-module loader read (em_module_loader's 00112440) on the same
+ * disc: em_iop_stream_loader_read (the PS2 disc-drive timing switch only;
+ * nothing at host speed). No-op before the boot. */
+void em_stream_live_loader_read(uint32_t lsn, uint32_t sectors, int measured);
 
 /* D_00282154 + lane (lb): a lane's active byte; 0 before the boot. */
 int8_t em_stream_live_active(int lane);

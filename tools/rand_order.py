@@ -361,12 +361,13 @@ def fmt_totals(t):
 # caller's timer (drawn from a state the wait moved) first differs.
 FIRST_DIFFERENCE_CALLERS = (0x1D0720, 0x1F4D40)
 # The opening's end with the PS2 disc-drive timing switch on (the drive
-# model): the original waited on the area music's read (a 16-field seek after
-# the New Game's last module-loader read, IOP_STREAM.md "Drive model"); the model
-# serves a first read as a full seek (6 fields). So the port's first control
-# may come up to 16 frames earlier; never later. With the switch off (host
-# speed, the default) check_opening requires the exact difference instead.
-OPENING_END_SLACK = 16
+# model, IOP_STREAM.md "Drive model"): the request waits on the area music's
+# read, the first stream read after the New Game's last module-loader read,
+# which the model serves with the measured 17-field seek (since 2026-10-09).
+# check_opening then requires the capture's drive fields exactly and first
+# control on the original's frame, and with no wait left between them the
+# whole opening equal call for call. With the switch off (host speed, the
+# default) it requires the capture's drive wait as the exact difference.
 
 
 # ------------------------------------------------------------ the drive mode
@@ -432,9 +433,11 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
     returns the report and a summary line. `drive` is (mode, the port's
     lane0_request) with mode 'ps2' or 'host' (drive_mode).
 
-    The opening's end: with the PS2 disc-drive timing switch on, first
-    control may come up to OPENING_END_SLACK frames earlier than the
-    original's, never later. With the switch off (host speed) the stream
+    The opening's end: with the PS2 disc-drive timing switch on, the stream
+    request's ready query, read and hold take the capture's rows, first
+    control comes on the original's frame and every call of the opening,
+    from the area entry to first control, equals the original's in caller,
+    frame and state. With the switch off (host speed) the stream
     request must run as the capture's with every drive wait gone: the
     port's ready query and read take the host-speed rows, the hold from the
     read's end to the key-on equals the capture's, and first control comes
@@ -454,6 +457,22 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
     # much earlier as the opening's end.
     assert p_spawn + late == o_spawn, \
         ('rand order: the opening\'s actors spawn away from the stream request\'s end', p_spawn, o_spawn, late)
+    # Every opening frame's deterministic callers, the security gun's AE+1
+    # draw included, equal the original's.
+    assert not rep['skeleton_bad'], \
+        ('rand order: an opening frame\'s deterministic callers differ',
+         [('AE+%d' % k, [name(c) for c in ps], [name(c) for c in os_]) for k, ps, os_ in rep['skeleton_bad'][:3]])
+    if late == 0:
+        # No wait between the two: the opening is the original's call for
+        # call (caller, frame and state) through first control.
+        assert mode == 'ps2', ('rand order: the opening ends on the original\'s frame at host speed', late)
+        assert diff is None or (diff[0] is not None and diff[0][0] >= rep['pc'] - p0 and
+                                diff[1] is not None and diff[1][0] >= rep['oc'] - o0), \
+            ('rand order: the opening differs from the original\'s before first control', rep['equal_calls'],
+             diff and diff[0] and ('AE+%d' % diff[0][0], name(diff[0][1]), hex(diff[0][2])),
+             diff and diff[1] and ('AE+%d' % diff[1][0], name(diff[1][1]), hex(diff[1][2])))
+        rep['spawn'], rep['late_spawn'], rep['after_spawn'] = p_spawn, 0, None
+        return check_opening_end(rep, mode, port_req, o0, p0, late)
     # The first difference is that frame's: the port's body draws its face
     # where the original draws its glow markers, from the same state.
     assert diff is not None and diff[0][0] == diff[1][0] == p_spawn and \
@@ -474,19 +493,34 @@ def check_opening(port_frames, orig_frames, orig_marks, drive):
             ('rand order: after the spawn a deterministic caller differs first', 'AE+%d' % (p_spawn + k),
              [name(c) for c in ps], [name(c) for c in os_])
     rep['spawn'], rep['late_spawn'], rep['after_spawn'] = p_spawn, late, equal
-    # Every opening frame's deterministic callers, the security gun's AE+1
-    # draw included, equal the original's.
-    assert not rep['skeleton_bad'], \
-        ('rand order: an opening frame\'s deterministic callers differ',
-         [('AE+%d' % k, [name(c) for c in ps], [name(c) for c in os_]) for k, ps, os_ in rep['skeleton_bad'][:3]])
-    late = (rep['oc'] - o0) - (rep['pc'] - p0)
+    return check_opening_end(rep, mode, port_req, o0, p0, late)
+
+
+def check_opening_end(rep, mode, port_req, o0, p0, late):
+    """check_opening's end: the stream request's rows against the C7 stream
+    capture's, by the drive mode, and the summary."""
     orig_req = lane0_request_capture()
     rep['late'], rep['orig_request'], rep['port_request'] = late, orig_req, port_req
+    rows = lambda q: (q['issue'] - q['p1'], q['done'] - q['issue'], q['keyon'] - q['done'])
     if mode == 'ps2':
-        assert 0 <= late <= OPENING_END_SLACK, ('rand order: the opening\'s end', rep['pc'] - p0, rep['oc'] - o0)
-        end = (f'first control {late} frame(s) earlier than the original\'s AE+{rep["oc"] - o0} (the area music\'s '
-               f'read: disc timing; the drive model waits {port_req["wait"]} field(s) in the stream request, the '
-               f'capture {orig_req["wait"]})')
+        # The drive model's fields are the capture's: the ready query waits
+        # on the area music's read (its 17-field seek after the New Game's
+        # last module-loader read), then the request's own read (a full
+        # seek) and the hold.
+        assert rows(port_req) == rows(orig_req), \
+            ('rand order: the opening\'s stream request did not take the capture\'s drive fields', port_req, orig_req)
+        assert late == orig_req['wait'] - port_req['wait'] == 0, \
+            ('rand order: the opening\'s end is not the original\'s', late, rep['pc'] - p0, rep['oc'] - o0)
+        end = (f'first control on the original\'s AE+{rep["oc"] - o0}: the stream request took the capture\'s rows '
+               f'({orig_req["issue"] - orig_req["p1"]} for the ready query while the area music\'s read finished its '
+               f'seek after the New Game\'s last module-loader read, {orig_req["done"] - orig_req["issue"]} for the '
+               f'read, {orig_req["keyon"] - orig_req["done"]} to the key-on; the drive model, PS2 disc-drive timing on)')
+        return rep, (f'the area entry (port counter {p0} = original frame n{o0}) and {rep["equal_calls"]} calls '
+                     f'equal in caller, frame and state from the area entry through first control (the security '
+                     f'gun\'s AE+1 draw, Roger\'s owner\'s face at AE+2, the player\'s face in the player stage after '
+                     f'the barrel from AE+5, the opening\'s actors\' spawn at AE+{rep["spawn"]} as in the original); '
+                     f'the deterministic callers (sway, indicators, glow markers, music, item, effect owner, '
+                     f'security gun) equal frame for frame over AE+1..AE+{rep["window"] - 1}; {end}')
     else:
         assert mode == 'host', ('rand order: unknown drive mode', mode)
         assert (port_req['issue'] - port_req['p1'], port_req['done'] - port_req['issue']) == \

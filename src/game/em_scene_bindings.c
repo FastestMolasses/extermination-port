@@ -4731,6 +4731,19 @@ static int loader_area_done(void *ctx, uint8_t area, uint8_t room)
     return area_read();
 }
 
+/* Every read the loader's drive accepts goes to the stream drive's model
+ * (em_stream_live_loader_read; with the PS2 disc-drive timing switch the
+ * first stream read after it takes the measured seek, nothing at host
+ * speed; IOP_STREAM.md "Drive model"). The measured cases: an area load
+ * (the record's +8 == 1) of AREA11 (area byte D_00810700 = 0x0B: the New
+ * Game's) and a module-0x21 load (the record's +0xE). */
+static void loader_read(void *ctx, uint32_t lsn, uint32_t sectors, const EmTask *rec)
+{
+    (void)ctx;
+    const int measured = rec && (rec->user[0] == 1 ? s_state.d810700 == 0x0B : rec->user[6] == 0x21);
+    em_stream_live_loader_read(lsn, sectors, measured);
+}
+
 /* 001FF590 mode 0's 001FB370: the stream owner's sound-bank upload. */
 static int loader_bank(void *ctx, uint32_t address, const uint8_t *bytes, uint32_t size,
                        uint32_t *result)
@@ -4814,6 +4827,7 @@ int em_scene_bindings_module_loader_boot(const char *pack_path)
         return -1;
     }
     em_module_loader_set_bank_hook(ml, loader_bank, NULL);
+    em_module_loader_set_read_hook(ml, loader_read, NULL);
     em_module_loader_set_area_done_hook(ml, loader_area_done, NULL);
     em_module_loader_set_area_chain_hook(ml, loader_area_chain, ml);
     if (em_module_loader_set_drive(ml, em_settings()->ps2_disc_drive_timing

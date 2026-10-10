@@ -216,6 +216,8 @@ struct EmModuleLoader {
     void *bank_ctx;
     EmModuleLoaderAreaDone area_done;
     void *area_done_ctx;
+    EmModuleLoaderReadHook read_hook;
+    void *read_ctx;
     /* the boot's tables (the pack's 0x40 block) */
     uint32_t d275304;
     int32_t d264890[5];
@@ -378,6 +380,8 @@ static int drive_read(void *ctx, uint32_t lsn, uint32_t sectors, uint32_t buf,
     ml->busy_until = ml->field + busy + (busy ? 1u : 0u);
     ++ml->reads;
     *accepted = 1;
+    if (ml->read_hook)
+        ml->read_hook(ml->read_ctx, lsn, sectors, ml->record);
     return 0;
 }
 
@@ -704,6 +708,14 @@ void em_module_loader_set_area_done_hook(EmModuleLoader *ml, EmModuleLoaderAreaD
         return;
     ml->area_done = hook;
     ml->area_done_ctx = ctx;
+}
+
+void em_module_loader_set_read_hook(EmModuleLoader *ml, EmModuleLoaderReadHook hook, void *ctx)
+{
+    if (!ml)
+        return;
+    ml->read_hook = hook;
+    ml->read_ctx = ctx;
 }
 
 void em_module_loader_set_bank_hook(EmModuleLoader *ml, EmModuleLoaderBankHook hook, void *ctx)

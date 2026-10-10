@@ -199,18 +199,20 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
 
 - **The drive's timing** (the user's policy). At host speed the stream
   request's read completes at once, so the script's op14 spawns the actors
-  21 frames before the original's AE+31 (11 with the PS2 disc-drive timing
-  switch). The opening ends that much earlier (RAND_ORDER.md section 3).
+  21 frames before the original's AE+31 (with the PS2 disc-drive timing
+  switch on the original's frame since 2026-10-09; 11 frames before
+  then). The opening ends that much earlier (RAND_ORDER.md section 3).
   This is also the side-by-side video tool's "early" fade-in and first
   subtitle (decomp VIDEO_COMPARE.md: 20 ticks at host speed, 12 with the
   switch): relative to the timeline's cursor the fade and the camera are
   the original's on every captured frame (section 4, the timeline), so
   the lead is before the timeline starts, in the stream request's wait
-  (07/12's handshake), not in 0022EEF0 or the fade path. What is left with
-  the switch on (11 or 12 frames) is the opening music's extra seek after
-  the New Game's last module-loader read (not the intro movie's position:
-  IOP_STREAM.md "Drive model", 2026-10-09), which the drive model does not
-  model (LAUNCHER_OPTIONS.md, the drive switch).
+  (07/12's handshake), not in 0022EEF0 or the fade path. With the switch
+  on nothing is left since 2026-10-09: the opening music's extra seek after
+  the New Game's last module-loader read (not the intro movie's position)
+  is in the drive model (17 fields, IOP_STREAM.md "Drive model";
+  LAUNCHER_OPTIONS.md, the drive switch). Before, 11 or 12 frames were
+  left.
 - **D_008106B3** still takes the port's stand-in gate
   (`em_opening_runtime_busy` in em_player_frame.c), as before (FIRST_CONTROL.md).
 

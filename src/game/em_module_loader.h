@@ -183,6 +183,13 @@ void em_module_loader_set_area_chain_hook(EmModuleLoader *ml, EmModuleLoaderChai
  * binder loads the port's own assets of the area there. < 0 faults. */
 typedef int (*EmModuleLoaderAreaDone)(void *ctx, uint8_t area, uint8_t room);
 void em_module_loader_set_area_done_hook(EmModuleLoader *ml, EmModuleLoaderAreaDone hook, void *ctx);
+/* Called for every read the drive accepts (00112440, after it is queued),
+ * in both drive modes, with the running record (+8 == 1: an area load).
+ * The binder tells the stream drive (em_stream_live_loader_read): with the
+ * PS2 disc-drive timing switch the first stream read after a loader read
+ * takes the measured seek (docs/IOP_STREAM.md "Drive model"). */
+typedef void (*EmModuleLoaderReadHook)(void *ctx, uint32_t lsn, uint32_t sectors, const EmTask *record);
+void em_module_loader_set_read_hook(EmModuleLoader *ml, EmModuleLoaderReadHook hook, void *ctx);
 /* 001FB370's binding (unset: reaching it faults). */
 void em_module_loader_set_bank_hook(EmModuleLoader *ml, EmModuleLoaderBankHook hook, void *ctx);
 /* D_00264890[0..4] from the pack (the sound-bank buckets' SPU bases). */

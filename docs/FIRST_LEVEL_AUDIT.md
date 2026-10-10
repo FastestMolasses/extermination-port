@@ -1815,6 +1815,31 @@ all` (no warnings), newgame-control (PASS 9.599849), `make
 test-level-smoke` (the sound check passes), the demo replay re-run with
 the fix (the numbers in item 8).
 
+**Status update (2026-10-09, the disc-lead step: the user's decision on
+the PS2 disc-drive timing switch, "Yes, model it (17)"; items 4 and 8).**
+With the switch on (EM_PS2_DISC_DRIVE_TIMING=1) the first stream read
+after a module-loader read now seeks 17 fields: the module loader's reads
+reach the stream drive's model through a read hook
+(src/game/em_module_loader.c, em_scene_bindings.c loader_read,
+em_stream_live_loader_read, em_iop_stream_loader_read), and with the
+switch off they change nothing. In the model's own terms all three
+captured cases took 17 (the opening's "16" counted the CDVD seek status
+alone; its read status lasted 2 fields), so one value fits them and the
+opening needs no case of its own (IOP_STREAM.md "Drive model"). Result
+with the switch: the opening's stream request takes the C7 capture's
+rows, first control comes on the original's AE+1324 (newgame-control
+locked_ticks 1322, 9.599849), all rand() calls of the opening equal the
+original's in caller, frame and state through first control, and the
+music keys on after both captured status closes on the audio captures'
+rows. Tests moved toward the original: check_opening under the switch
+requires the capture's request rows and first control on the original's
+frame (the 16-frame allowance is gone); the audio check requires the
+music's resume row under the switch; check_director_beat handles the
+documented "or the reverse" case (the port's sequencer serving lane 0
+first moved 0x99's key-on 1 or 2 rows late in this step's runs). Unchanged: everything
+at host speed (newgame-control locked_ticks 1301, 9.599849; the default
+smoke's run log and checks; the host-speed frame-order windows).
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:
@@ -1910,18 +1935,19 @@ pool's free list (item 5): those are port work that needs no new recording
    speed (the user's policy) the opening and first control come 21 frames
    before the original's: the stream request's wait, which the disc answers
    at once (OPENING_ORIGINAL.md section 3). With the PS2 disc-drive timing
-   switch the lead is 11 frames, 10 of them the area music's read, which
-   the original's drive seeks for 16 fields where the switch's model gives
-   6 (LEVEL_SMOKE.md "The stream drive's two modes"). Relative to the
-   timeline's cursor the fade and the camera equal the original on every
-   captured frame. That read's drive time is recorded (corrected
-   2026-10-09, the music-lead step; IOP_STREAM.md "Drive model"): the C7
-   capture's CDVD position puts the head at the end of the New Game's last
-   module-loader read, not at the intro movie's position, and the music's
-   resume after a status page shows the same 16..17-field seek after the
-   page's module load (item 8). What removes the switch's 10: the switch's
-   model taking that rule (the first lane read after a loader read seeks
-   16 or 17 fields), a lead / user decision for an optional switch.
+   switch there is no lead since 2026-10-09 (the disc-lead step; the user's
+   decision "Yes, model it (17)"): the switch's model gives the first
+   stream read after a module-loader read the measured 17-field seek
+   (IOP_STREAM.md "Drive model"; the opening's "16" counted the seek status
+   alone), so the opening's stream request takes the C7 capture's rows,
+   first control comes on the original's AE+1324 (newgame-control
+   locked_ticks 1322) and every rand() call from the area entry through
+   first control equals the original's in caller, frame and state
+   (LEVEL_SMOKE.md "The stream drive's two modes"). Before, the switch's
+   lead was 11 frames (the read served as a 6-field first read). Relative
+   to the timeline's cursor the fade and the camera equal the original on
+   every captured frame in both modes. Only the host-speed lead stays (the
+   policy).
 5. **State: the actor pool's free list** (port work). At route 09's room
    move 001AFA90 gives the fresh area-title node the record 0x7AEF00 where
    the original's is 0x7B0390; the pool's free list there is not the
@@ -1983,11 +2009,15 @@ pool's free list (item 5): those are port work that needs no new recording
    is not: the original's lane-0 read waits 18 rows in flight after the
    page's module-0x21 load (17 seek fields; audio captures battery_ui
    f485..f505 and panel_power f527..f547: key-on 20 rows after the
-   request), the port's 1 at host speed (key-on 3 rows after) and 3 with
-   the switch (5 rows after; the switch's model has no rule for a lane
-   read after a loader read, item 4, IOP_STREAM.md "Drive model"). So the
-   music after every page close runs 17 fields ahead of the original's at
-   host speed and 15 with the switch, until the next page or cue change.
+   request), the port's 1 at host speed (key-on 3 rows after). So at host
+   speed the music after every page close runs 17 fields ahead of the
+   original's, until the next page or cue change (the policy). With the
+   switch it is the original's since 2026-10-09 (the disc-lead step): the
+   switch's model seeks 17 fields for the first stream read after a
+   module-loader read (item 4, IOP_STREAM.md "Drive model"), and the level
+   smoke's audio check requires the key-on on the capture's row after
+   both status closes; before, the switch read after 3 fields (5 rows) and
+   the music ran 15 fields ahead.
    In the fork demo (switch on) every one of 20 cleanly separated hits in
    segments 10..23 led by 13.87..14.14 ticks (median 14.08), and the
    envelope cross-correlation gave 14.07..14.09 in the nine play segments
@@ -2052,7 +2082,7 @@ pool's free list (item 5): those are port work that needs no new recording
     taken mid-load (the veil's pixels), the SPU2 output (item 1), the page
     modules' drive time, and, with the PS2 disc-drive timing switch only,
     Roger's cue-29 reads (the opening music's seek is recorded and
-    explained since 2026-10-09: item 4).
+    explained since 2026-10-09, and modelled under the switch: item 4).
 15. **The census's own limits** (FIRST_LEVEL_CENSUS.md section 6): it counts
     the functions the recorded route and capture lanes ran; boot before the
     title and the unrecorded branches above are not rows; boundary rows
@@ -2427,11 +2457,12 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   switch on (2026-09-27) the drive runs the model measured in the C7 stream capture (IOP_STREAM.md "Host speed and
   the PS2 disc-drive timing switch", "Drive model"). At host speed the voiced lines tear down exactly the drive's
   6 rows early (0x7F 8, with 2 rows of navigation) and the opening's stream request keys on 7 fields after the
-  request frame. With the switch on, 0x97 / 0x99 tear down on the capture's rows and 0x7F 2 rows early (the
-  original's sequencer served a lane-0 music refill first, a navigation-dependent phase), and the opening's request
-  keys on after 17 fields, 5 of them waiting for the area music's read that the area-entry 001FAE70(1) issues. The
-  original takes 27: it waits 15 fields, because that read's 16-field seek after the New Game's last
-  module-loader read is outside the model (IOP_STREAM.md "Drive model", 2026-10-09). (2)
+  request frame. With the switch on, each voiced line's teardown lies exactly its key-on's shift from the capture's
+  row, which is the lane-0 music refill one side's sequencer served first (a navigation-dependent phase: in the
+  2026-10-09 runs 0x7F 2 rows early, 0x97 on the capture's row, 0x99 1 or 2 rows late), and the opening's request keys on
+  after 27 fields as in the original: 16 rows of ready query while the area music's read (the first stream read
+  after the New Game's last module-loader read) finishes its measured 17-field seek, 7 of read, 4 of hold
+  (IOP_STREAM.md "Drive model", modelled since 2026-10-09). (2)
   0x1AE040's state 2 r == 1 and state 6 stay reported (UM_001FAE70); the state-0 area-entry 001FAE70(1) and the
   state-4 room move's 001FAE70(0) are bound since the rand() order audit (RAND_ORDER.md). (3) The rest of 001FB100 (the output-mode commit, the
   `D_00281B70` copy, 001FC6E0) is unbound; the mode bytes are 0 in every capture. (4) 001FC280's `D_00282160` cache

@@ -125,7 +125,7 @@ derived from the captures.
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units, first fit; after the boot buffers the IOP holds 0x900 bytes (0xDDF00..0xDE800), a **measured occupancy whose owner is not established**: only its end, 0xDE800, is pinned by the captures, and 0x900 is the size that puts the next first fit there. The port allocates it once at start-up (em_iop_stream_boot_driver), before the first bank upload. Hypothesis only: the block's top in the title capture's IOP RAM holds IOP return addresses, like a thread stack (perhaps the driver thread command 0x1E creates). Follow-up for the lead: confirm the owner from the IRX's thread creation (its stack size and the allocation order); 0010F968 frees a block | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00; the title capture and every route capture: `D_00282194` = 0xDE800 (the bank uploads' block, allocated and freed each time: first fit), and route 00's IOP RAM there holds the AREA11 bank |
 | SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The kernel's ids (`D_002821A0` = 0x530D1702 in the title capture) are not modelled; 001FB910 only tests the id against 0 |
-| Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position, then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
+| Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position (17 for the first read after a screen-module loader read), then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
 
 ## Host speed and the PS2 disc-drive timing switch
 
@@ -155,9 +155,10 @@ at launch from `EM_PS2_DISC_DRIVE_TIMING=1` until the launcher sets it; `em_stre
   1 field of read, and the 4-field hold. The original takes 27, of which 21 are the drive's (15 extra fields of
   ready query while the area music's read finished, and 6 extra fields of read).
 - First control comes exactly those 21 frames before the original's (AE+1303 against AE+1324 in the C7 newgame
-  capture); the switch on gives AE+1313. newgame-control: locked_ticks 1301 (1311 with the switch on), the 30-tick
-  displacement unchanged at 9.599849. The frame-order post-control window is at native index 1393 (counter 2650,
-  first control + 11) since chain step H7 (1330 before; the New Game's loads take ticks); 1665 with the switch on.
+  capture); the switch on gives AE+1324, the original's frame (since 2026-10-09; AE+1313 before). newgame-control:
+  locked_ticks 1301 (1322 with the switch on; 1311 before 2026-10-09), the 30-tick displacement unchanged at
+  9.599849. The frame-order post-control window is at native index 1393 (counter 2650, first control + 11) since
+  chain step H7 (1330 before; the New Game's loads take ticks); 1676 with the switch on (1665 before 2026-10-09).
 
 ## Drive model (measured, 2026-09-27)
 
@@ -203,55 +204,76 @@ What the capture shows, and the model:
 - **No position.** The port's first read has no position: the port does not model the boot's or the movie's
   reads. A read after a break also has none. Both are served as a full seek. In the first level the first read
   is the area music's (cue 25), which 0x1AE040's area-entry 001FAE70(1) issues (bound since the rand() order
-  audit, RAND_ORDER.md section 2). 00113478 is never reached on the route (0 breaks).
-- **Outside the model: the first lane read after a module-loader read** (measured 2026-10-09, the music-lead
-  step; it replaces the earlier reading "from the intro movie's position"). In all three captured cases, the lane
-  read that follows a read of the screen-module loader (00112440, MODULE_LOADER.md 1.7) seeks for 16 or 17
-  fields, at distances whose lane-to-lane reads take 6 or 7:
-  - The opening's area-music read (cue 25, row 1, sector 720927) sought for 16 fields from d = +131414. The C7
-    capture's CDVD position bytes at its issue (f0/f1) decode, as BCD minute / second / frame with the minute
-    byte truncated (the decode under which all 55 idle main-loop-top samples of the four C7 stretches equal the
-    end of the 00112610 read before them), to sector 589513:
-    the end of the New Game's last loader read, the AREA11 resident region (DATA.DAT sector 0xF015, 3292
-    sectors). The head was not at the intro movie's position.
+  audit, RAND_ORDER.md section 2); with the switch on it follows the New Game's loader reads and takes the rule
+  below instead (since 2026-10-09), so only host speed's counters class it as a read with no position. 00113478
+  is never reached on the route (0 breaks).
+- **The first stream read after a module-loader read: 17 fields** (measured 2026-10-09, the music-lead step;
+  modelled since the same day, the user's decision "Yes, model it (17)", LAUNCHER_OPTIONS.md). The lane read that
+  follows a read of the screen-module loader (00112440, MODULE_LOADER.md 1.7) seeks far beyond its distance
+  class, in all three captured cases:
+  - The opening's area-music read (cue 25, row 1, sector 720927), d = +131414. The C7 capture's CDVD position
+    bytes at its issue (f0/f1) decode, as BCD minute / second / frame with the minute byte truncated (the decode
+    under which all 55 idle main-loop-top samples of the four C7 stretches equal the end of the 00112610 read
+    before them), to sector 589513: the end of the New Game's last loader read, the AREA11 resident region
+    (DATA.DAT sector 0xF015, 3292 sectors). The head was not at the intro movie's position. The capture's CDVD
+    status shows 16 fields of seek (0x12, n1..n16) and 2 of read (0x06, n17..n18); the new request's ready query
+    finds the drive ready at n19 (CAPTURES_C7.md section 1).
   - The music's resume after each status page (cue 25 again, the same sector): the decomp's audio captures
     battery_ui (route 01's ITEM page, f485..f505) and panel_power (route 03's BATTERY page, f527..f547) both
-    show the ready query in the request frame, 18 rows of read in flight (17 seek fields) and the key-on 20
-    rows after the request. The page's module 0x21 load is the drive's last read before it (its chunk ends at
-    sector 642033, so d = +78894, inside the measured full-seek range). The audio captures hold no CDVD
-    registers; the position is the loader's last read, not a sample.
+    show the ready query in the request frame, 18 rows of read in flight and the key-on 20 rows after the
+    request. The page's module 0x21 load is the drive's last read before it (its chunk ends at sector 642033,
+    so d = +78894, inside the lane-to-lane full-seek range). The audio captures hold no CDVD registers; the
+    position is the loader's last read, not a sample.
   - The resume after Roger's cue 29 (no loader read between) keys on 5 rows after the request in
-    roger_encounter (f1758..f1763), as the switch's fast seek gives.
+    roger_encounter (f1758..f1763), as the model's fast seek gives.
 
-  Whether that is PCSX2's drive state after a non-stream read or something else is not visible from the game
-  side. The switch's model leaves it out: the IOP drive's head never moves for the loader's reads (the loader
-  has its own measured drive), so with the switch on the opening's read is served as a first read (a full seek
-  of 6) and each page resume as a fast seek of 2 from the music's last refill. That gives 10 frames of the
-  switch's 11-frame opening lead (the original's 15 fields of waiting against the port's 5; FIRST_LEVEL_AUDIT.md
-  1b item 4) and a music resume 15 fields early after every status page
-  (the fork demo's "recurring loud sound 14 ticks early": the music's percussive hit, every 131 / 169 ticks;
-  1b item 8). At host speed the resume is 17 fields early (one row of ready query, one in flight, the key-on
-  three rows after the request). Disc timing is not part of the Original profile (CLAUDE.md, 2026-09-27);
-  modelling the rule under the switch (16 or 17 seek fields for the first lane read after a loader read) is a
-  lead / user decision (LAUNCHER_OPTIONS.md).
+  **One value in the model's terms.** The model counts a read's seek s so that the read completes at the
+  (s + 1)-th poll after its issue frame (the read itself takes one field). In those terms all three took 17: the
+  pages' 18 rows in flight are 17 + 1, and the opening's 16 seek-status fields plus a second read field are the
+  same 18. The earlier reading "16 for the opening" counted the seek status alone. The data check: with 17, the
+  port's opening request (tools/rand_order.py lane0_request over the tick log) takes the C7 stream capture's rows
+  exactly (16 rows of ready query, 7 of read, 4 of hold), first control comes on the original's AE+1324, and the
+  opening's rand() calls equal the C7 newgame capture's in caller, frame and state from the area entry through
+  first control (31,304 calls in the level smoke, 31,481 in newgame-control); with 16 the request waited one row
+  less and first control came one frame early. The distance does not explain the seek (the larger distance is
+  the opening's); whether it is PCSX2's drive state after a non-stream read is not visible from the game side.
 
-**What it gives the live route with the switch on.**
+  **The rule** (switch on only): every read the loader's drive accepts (em_module_loader's read hook ->
+  `em_stream_live_loader_read` -> `em_iop_stream_loader_read`) moves the stream drive's head to the sector after
+  it, and the next 00112610 seeks `EM_IOP_SEEK_AFTER_LOADER_READ` = 17 fields whatever its distance; the head then
+  follows the stream reads again. A break (00113478 with a read in flight) forgets it. The measured loads are
+  AREA11's area load and module 0x21's loads; any other load (every page module but 0x21, the game-over module
+  0x27, the level exit's AREA01 load) takes the same 17 and is counted (`EmIopDriveStats.after_loader`,
+  `.after_loader_unmeasured`; the run's second `stream drive:` line, printed with the switch only). At host speed
+  the loader's reads change nothing: the drive answers at once, and the counters keep the distance classes (the
+  opening's area-music read stays a read with no position there). Before the rule the switch served the opening's
+  read as a first read (a full seek of 6) and each page resume as a fast seek of 2 from the music's last refill:
+  first control 11 frames early and the music 15 fields early after every page.
+
+**What it gives the live route with the switch on** (re-measured 2026-10-09, `make test-level-smoke-ps2-drive`).
 - The voiced lines' voice reads take the capture's 7 fields, and each key-on follows 2 fields later, as in the
-  capture. 0x97 and 0x99 now tear down on the capture's rows (they were 6 rows early).
-- 0x7F is 2 rows early. The original's read sequencer 001FA0D0 served a lane-0 music refill first: its read
-  started in the voice's first frame, in f1164. That refill falls where it does because of the music's phase:
-  1. The music was keyed on 3583 fields before the voice in the original (vsync 15472, after route 03's status
-     close) and 3449 in the port. The difference is navigation.
-  2. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
-- The opening's stream request reaches its key-on 17 fields after the request frame (12 before the area-entry
-  001FAE70(1) was bound, 6 before the drive model).
-  - The port's 17 fields are 1 frame to the read's issue request, 5 fields waiting for the area music's read in
-    flight (the opening's 001FABB0 stopped the lane one frame after the area entry and left the read running, as
-    in the original), then the capture's 7 fields for the read and 4 for the hold.
-  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read, whose seek
-    after the New Game's loader reads took 16 fields (above).
-  - newgame-control reaches first control at locked_ticks 1311 (1301 at host speed).
+  capture. Each line's teardown lies exactly its key-on's shift from the capture's row, the fields one side's read
+  sequencer 001FA0D0 spent on a lane-0 music refill first. That refill falls where it does because of the music's
+  phase (the time since its last start: navigation, and the driver tick's phase, which follows the title's dwell):
+  1. 0x7F is 2 rows early: the original served a refill first (its read started in the voice's first frame,
+     f1164); the music was keyed on 3583 fields before the voice in the original (vsync 15472, after route 03's
+     status close).
+  2. 0x97 tears down on the capture's row.
+  3. 0x99 is 1 or 2 rows late in the 2026-10-09 runs: the port served a refill first (before the rule its
+     music phase happened to give 0).
+  4. The level smoke's check_voice_drive allows exactly the fields each side's sequencer spent on lane 0 first.
+- The music's resume after the battery_ui and panel_power status closes keys on 20 rows after the cue's return,
+  as in the audio captures (the read after the page's module-0x21 load: the 17-field rule). Roger's cue-29 resume
+  keys on after a fast seek, as in the capture.
+- The opening's stream request reaches its key-on 27 fields after the request frame, as in the original (17
+  before 2026-10-09, 12 before the area-entry 001FAE70(1) was bound, 6 before the drive model): 16 rows of ready
+  query while the area music's read finishes its 17-field seek after the New Game's last module-loader read (the
+  opening's 001FABB0 stopped the lane one frame after the area entry and left the read running, as in the
+  original), the capture's 7 for the request's own read and 4 for the hold.
+  - newgame-control reaches first control at locked_ticks 1322 (1301 at host speed), the original's AE+1324.
   - The 30-tick displacement is unchanged at 9.599849.
+  - The opening's rand() calls equal the original's in caller, frame and state from the area entry through first
+    control (RAND_ORDER.md).
 
 ## The sound-bank transfer (chain step H7, 2026-09-29)
 

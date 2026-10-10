@@ -2895,9 +2895,14 @@ def check_director_beat(ticks, run, state, phase):
         pv = [(k, port[k][key]) for k in range(first, count) if k == first or port[k][key] != port[k - 1][key]]
         ov = [(k, orig[k][key]) for k in range(first, count) if k == first or orig[k][key] != orig[k - 1][key]]
         # On the teardown's clock the port's last `shift` rows run past the
-        # capture's end: the changes there have no capture row to meet.
+        # capture's end: the changes there have no capture row to meet. When
+        # the port served lane 0 first and the original did not (shift < 0,
+        # "or the reverse" above), the capture's last -shift rows meet port
+        # rows past the window instead.
         while len(pv) > len(ov) and shift > 0 and pv[-1][0] >= count - shift:
             pv.pop()
+        while len(ov) > len(pv) and shift < 0 and ov[-1][0] >= count + shift:
+            ov.pop()
         assert [v for _, v in pv] == [v for _, v in ov], \
             (phase, key, 'the sequence of values differs', [(rows[f0 + k]['f'], v) for k, v in pv][:12],
              [(rows[f0 + k]['f'], v) for k, v in ov][:12])
@@ -4474,7 +4479,9 @@ def check_rand_order(ticks, state, trace):
       actors' spawn at the stream request's end, then caller for caller at
       the drive's shift until a value-driven timer differs (the security
       gun's AE+1 draw and the faces of Roger's owner and the player are
-      among the equal calls), and every
+      among the equal calls; with the PS2 disc-drive timing switch the
+      request takes the capture's drive rows and every call through first
+      control is equal, R.check_opening), and every
       frame's deterministic callers (the sway, the indicators, the glow
       markers, the music, the item and effect-owner first ticks) frame for
       frame to first control and 30 frames after it;
@@ -5091,10 +5098,11 @@ def main():
     beats = '; '.join(f'{beat} ' + ', '.join(f'{p} {status.get(p, "not reached")}' for p in phases)
                       for beat, phases in BEATS)
     print(f'level smoke: route beats: {beats}')
-    drive = re.search(r'^stream drive: .*$', run, re.M)
-    if drive:
+    for drive in re.finditer(r'^stream drive: .*$', run, re.M):
         # The drive's mode and counters (IOP_STREAM.md "Drive model"): reads
-        # outside the measured distances take the nearest measured class.
+        # outside the measured distances take the nearest measured class;
+        # with the switch on, a second line counts the first reads after a
+        # module-loader read.
         print(f'level smoke: {drive.group(0)}')
     loader = re.search(r'^module loader: .*$', run, re.M)
     if loader:

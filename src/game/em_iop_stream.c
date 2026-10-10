@@ -81,6 +81,9 @@ struct EmIopStream {
     uint8_t ps2_drive_timing;   /* the switch (0: host speed, the default) */
     uint8_t head_known;
     uint32_t head;
+    /* A module-loader read since the last stream read (switch on only),
+     * and whether its case was measured. */
+    uint8_t after_loader, after_loader_measured;
     EmIopDriveStats drive;
     /* mixer ring */
     float pcm[EM_IOP_PCM_FRAMES * 2];
@@ -903,17 +906,23 @@ void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next)
  * voiced line's first read and the opening's cue 0x3F prefill took exactly
  * 6. A distance outside every measured range takes the class of the nearest
  * measured distance and is counted (stats.unmeasured): the bounds between
- * the measured ranges are not captured. The opening's first read of the
- * area music (+131414 from the end of the New Game's last module-loader
- * read, the C7 capture's CDVD position) sought for 16 fields, and each
- * music resume after a status page's module load for 17 (the audio
- * captures): the first stream read after a loader read is outside the
- * model, whose head ignores the loader's reads (IOP_STREAM.md "Drive
- * model"). A read
+ * the measured ranges are not captured.
+ * The first stream read after a module-loader read (the switch on only;
+ * em_iop_stream_loader_read) takes 17 seek fields in this model's terms
+ * (it completes at the 18th poll after its issue frame), far beyond its
+ * distance class (6): the opening's first read of the area music (+131414
+ * from the end of the New Game's last loader read, the AREA11 area load's
+ * resident region: the C7 capture's CDVD position; its CDVD status shows
+ * 16 fields of seek and 2 of read, where the model's read takes 1) and
+ * each music resume after a status page's module-0x21 load (+78894; the
+ * audio captures battery_ui and panel_power: 18 rows in flight). A load
+ * no capture measured is counted (IOP_STREAM.md "Drive model"). A read
  * with no position (the drive's first in the port, whose boot and movie
  * reads are not modelled, or the first after a break) is served as a full
- * seek (6 fields): in the first level that read is the area music's, which
- * 0x1AE040's area-entry 001FAE70(1) issues (docs/RAND_ORDER.md section 2). */
+ * seek (6 fields): in the first level at host speed that read is the area
+ * music's, which 0x1AE040's area-entry 001FAE70(1) issues
+ * (docs/RAND_ORDER.md section 2); with the switch on it follows the New
+ * Game's loader reads, so the rule above serves it. */
 
 enum { DRIVE_MAX_SECTORS = 16 };
 
@@ -992,7 +1001,14 @@ int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint
     for (i = 0; i < count; i++)
         if (!disc_sector(s->disc, sector + i))
             return fault(s, 0x00112610u, EM_IOP_FAULT_NOT_EXPORTED);
-    if (s->head_known) {
+    if (s->after_loader) {
+        /* the switch on only (em_iop_stream_loader_read) */
+        seek = EM_IOP_SEEK_AFTER_LOADER_READ;
+        s->drive.after_loader += 1;
+        if (!s->after_loader_measured)
+            s->drive.after_loader_unmeasured += 1;
+        s->after_loader = 0;
+    } else if (s->head_known) {
         int64_t d = (int64_t)sector - (int64_t)s->head;
         seek = em_iop_stream_drive_seek_fields(d, &measured);
         if (!measured) {
@@ -1004,7 +1020,8 @@ int em_iop_stream_00112610(EmIopStream *s, uint32_t sector, uint32_t count, uint
         s->drive.no_position += 1;
     }
     s->drive.reads += 1;
-    s->drive.by_fields[seek < 7u ? seek : 7u] += 1;
+    if (seek < 7u)
+        s->drive.by_fields[seek] += 1;
     s->read.busy = 1;
     if (s->ps2_drive_timing) {
         s->read.done_field = drive_field(s) + 1u + seek;
@@ -1048,12 +1065,26 @@ int em_iop_stream_00113478(EmIopStream *s, int32_t mode)
     if (s->read.busy) {
         s->drive.breaks += 1;
         s->head_known = 0;
+        s->after_loader = 0;
     }
     s->read.busy = 0;
     return 0;
 }
 
 void em_iop_stream_drive_stats(const EmIopStream *s, EmIopDriveStats *out) { *out = s->drive; }
+
+/* A module-loader read on the same drive (the header's comment). Only with
+ * the switch on: at host speed the stream drive answers at once and its
+ * counters keep the distance classes, as before the rule. */
+void em_iop_stream_loader_read(EmIopStream *s, uint32_t lsn, uint32_t sectors, int measured)
+{
+    if (!s || !s->ps2_drive_timing)
+        return;
+    s->head_known = 1;
+    s->head = lsn + sectors;
+    s->after_loader = 1;
+    s->after_loader_measured = measured != 0;
+}
 void em_iop_stream_set_ps2_drive_timing(EmIopStream *s, int on) { s->ps2_drive_timing = on != 0; }
 int em_iop_stream_ps2_drive_timing(const EmIopStream *s) { return s->ps2_drive_timing; }
 
