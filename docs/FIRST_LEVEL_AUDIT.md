@@ -1988,12 +1988,12 @@ pool's free list (item 5): those are port work that needs no new recording
    not exact) 55.92 %; at 10 (camera exact, the other field phase) 15.96 %;
    at the AREA01 arrival (15, mostly under the transition fade) 98.57 %;
    every point equal to the GSFRAME merge's numbers (GS_EXACT.md 10.1,
-   `EM_TEST_FULL=1 make test-fb2-pixels`). Since step DOF (the pass drawn):
-   14 92.28 % (mean 0.89), 13 62.44 %, 10 18.74 %, 15 98.57 %. What
-   removes it: the overlay pass and the status frames as GS packets
-   through the model, the pass compared with the fork's capture, the
-   parity traced through the loads against the captures; then the harness
-   compares the field word for word.
+   `EM_TEST_FULL=1 make test-fb2-pixels`). Since step DOF (the pass drawn)
+   and its conformance step (2026-10-10, the pass bit-exact): 14 92.40 %
+   (mean 0.89), 13 62.60 %, 10 18.92 %, 15 98.57 % (GS_EXACT.md 10.1).
+   What removes it: the overlay pass and the status frames as GS packets
+   through the model, the parity traced through the loads against the
+   captures; then the harness compares the field word for word.
 3. **Presentation choices** — **CLOSED 2026-10-09.** The user chose (a) for
    both (LAUNCHER_OPTIONS.md): each field line-doubled at its interlaced
    height (EM_GFX_FIELD_INTERLACED), and the screen position presented the

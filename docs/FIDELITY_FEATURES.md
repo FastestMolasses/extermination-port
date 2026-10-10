@@ -1170,7 +1170,7 @@ original" is a number.
   step ROUTE, 2026-10-08, port HEAD 2e5fa30).
 - Status: **PARTIAL**. At 5 of the 7 compared points the port's frame loop
   is in the other field phase (the field drawn half a line off: at
-  snapshot 10, camera exact, 18.74 % with the pass, 15.96 % without); the cause is not traced (GS_EXACT.md
+  snapshot 10, camera exact, 18.92 % with the pass, 15.96 % without); the cause is not traced (GS_EXACT.md
   10.1). The snow and the flame follow the port's rand() stream and the
   fans' phase the recording's timing. The software renderer is PCSX2's
   model of the GS, not hardware. The field-to-buffer pairing rule is not
