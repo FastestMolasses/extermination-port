@@ -100,18 +100,48 @@ Modes (CLAUDE.md "Tests"):
   trace, so the camera / player / task comparison uses the capture's own
   row (capture.json, recorded in the same session as the field).
 
+The like-for-like original per point (2026-10-10, GS_EXACT.md 10.4). The
+buffer a frame is drawn into follows D_00810E80 (it flips every main-loop
+iteration) and its half line (OFY) follows the field bit D_00810E88; at a
+load both follow the disc's timing, which the port does not reproduce (host
+speed, CLAUDE.md). So the same game state can be drawn on the other phase.
+With the GS field the harness picks, per point, the original drawn on the
+port's phase:
+- **primary**: the point's fb2 field (above), when its buffer and OFY at s1
+  are the port field's;
+- **same phase** (fork reference only): the decomp's same-game-state
+  re-recording on the port's phase
+  (`../Extermination/build/fork_refs/pixels/fb2_phase/<point>`, decomp
+  tools/fb2_phase_refs.py and PCSX2_FORK.md), when the primary's phase is
+  not the port's. The harness checks that its s0..s2 capture rows equal the
+  primary's on every field but the phase and time ones (PHASE_KEYS) and that
+  the manifest records the same rand() state at s2; the game-state facts
+  (s1, the recorded snapshot, the route row) stay the primary's;
+- **same half line, other buffer**: as above, when the re-recording has the
+  port's OFY but the other buffer (15_level_exit: no original run reaches
+  the port's phase there, decomp PCSX2_FORK.md). The buffer's address alone
+  moves no pixel (the manifest's checks `*_d7_vs_d4`: the same tick and
+  half line in buffers 0x0 and 0x38, displayed, draw and Z bit-exact; the
+  harness requires them);
+- otherwise the primary, with the reason (EM_REFERENCE=v263 has no
+  same-phase set; the GPU renderer has no field phase and samples at the
+  primary's OFY).
+The choice is printed and recorded (`reference` in result.json). The phase
+difference itself (the port field's buffer and OFY against the primary's,
+`field_phase`) is reported separately as a timing item: the port runs the
+disc at host speed (FIRST_LEVEL_AUDIT.md item 2, 1b F1). It is not
+asserted.
+
 Assertions: a compared point's captured tick is the aligned tick; the
 camera-exact points (10 and 14, test_level_smoke.VIEW_EXACT) must still be
 camera exact; and each
 compared point's exact-match fraction must not fall below the floor
-recorded in FLOORS (the GS field) or FLOORS_GPU (EM_GPU_RENDERER=1; the
-Metal floors of 2026-09-28). GS_EXACT.md section 10 has the numbers per
-point. The floors are measured values rounded down to 0.1 percentage
-point, so a renderer change that loses matching pixels fails; one that
-gains them should raise the floor in the same commit. The GS field's
-buffer and OFY against the original's (field_phase) are only reported, not
-asserted: they differ at 5 of the 7 compared points (GS_EXACT.md 10.1, an
-open finding), and a phase difference already shows in the pixel numbers.
+recorded in FLOORS (the GS field, against the like-for-like original) or
+FLOORS_GPU (EM_GPU_RENDERER=1; the Metal floors of 2026-09-28, against the
+primary). GS_EXACT.md section 10 has the numbers per point. The floors are
+measured values rounded down to 0.1 percentage point, so a renderer change
+that loses matching pixels fails; one that gains them should raise the
+floor in the same commit.
 """
 import contextlib
 import io
@@ -141,6 +171,14 @@ DECOMP = ROOT.parent / 'Extermination'
 # EM_REFERENCE=v263.
 FB2 = refs.capture('s87/c7cap/fb2')
 ROUTE = refs.capture('s87/route')
+# The same-game-state re-recordings on the port's field phase (fork only;
+# module docstring "The like-for-like original per point").
+FB2_PHASE = refs.FORK / 'pixels' / 'fb2_phase' if refs.FORK_MODE else None
+# Capture-row fields that are the frame loop's phase, time or provenance,
+# not game state (decomp tools/fb2_phase_refs.py compares the chains the
+# same way); in `hw` only the two phase words are left out.
+PHASE_KEYS = {'counter', 'f', 'fi', 'fld', 'vs', 'vsync', 'inside_step', 'snapshot'}
+HW_PHASE_KEYS = {'frame_idx_810E80', 'field_810E88'}
 BIN = ROOT / 'build' / 'extermination'
 OUT = ROOT / 'build' / 'fb2_pixels'
 
@@ -182,9 +220,20 @@ if refs.FORK_MODE:
     # and 08 rises (3.14 -> 3.26 %: the fork's field there is drawn with the
     # port's half line, v2.6.3's was a post-load hitch's). 15_level_exit
     # keeps its floor: the fork's arrival field is drawn half a line lower
-    # (OFY 1936.5) than the port's and v2.6.3's (1936.0), 18.03 % exact; an
-    # open finding (GS_EXACT.md 10.3), not a floor to lower.
+    # (OFY 1936.5) than the port's and v2.6.3's (1936.0), 18.03 % exact
+    # against that primary; an open finding (GS_EXACT.md 10.3, 10.4), not a
+    # floor to lower.
     FLOORS = dict(FLOORS, **{'08_truck_crossing': 0.032})
+    # Against the like-for-like original (2026-10-10, GS_EXACT.md 10.4):
+    # the points whose primary is on the other field phase are compared with
+    # the same game state re-recorded on the port's phase (fb2_phase).
+    # first control 0.97 -> 1.03 % (1,178 pixels), 10 18.92 -> 95.47 %
+    # (109,496), 11 5.51 -> 9.85 % (11,295), 12 2.46 -> 2.60 % (2,983);
+    # 15_level_exit back to 98.57 % (113,053; the port's half line, the other
+    # buffer), its floor unchanged; 08, 13 and 14 compare with the primary
+    # (same phase), unchanged.
+    FLOORS = dict(FLOORS, **{'first_control': 0.010, '10_cage_roof_roger': 0.954, '11_crevice_prompt': 0.098,
+                             '12_crevice_jump': 0.026})
 # The same with the GPU renderer (EM_GPU_RENDERER=1), measured 2026-09-28.
 FLOORS_GPU = {
     'first_control': 0.008,
@@ -216,10 +265,11 @@ NOT_ALIGNED = {
 
 # ------------------------------------------------------------------ inputs
 
-def fb2_point(name):
+def fb2_point(name, base=None):
     """The point's displayed field and the facts that place it: the loop
-    tops, the recorded snapshot's counter and the OFY it was drawn with."""
-    d = FB2 / name
+    tops, the recorded snapshot's counter and the OFY it was drawn with
+    (from the primary set, or from `base`)."""
+    d = (base or FB2) / name
     meta = json.loads((d / 'meta.json').read_text())
     stages = {s['at']: s for s in meta['snapshots']}
     s1, s2 = stages['s1'], stages['s2']
@@ -237,7 +287,76 @@ def fb2_point(name):
     rows = {r['counter']: r for r in json.loads(cap.read_text()).get('rows', [])} if cap.exists() else {}
     return {'name': name, 'rgb': raw.reshape(GS_H, GS_W, 4)[:, :, :3].copy(), 'ofy': ofy.pop(), 'fbp': shown,
             's1': int(s1['counter']), 'rec': rec.get('counter'), 'field_at_s1': s1.get('csr_field'),
-            'rows': rows}
+            'rows': rows, 'dir': d}
+
+
+def game_row(row):
+    """A capture row without its phase, time and provenance fields."""
+    out = {k: v for k, v in row.items() if k not in PHASE_KEYS}
+    if 'hw' in out:
+        out['hw'] = {k: v for k, v in out['hw'].items() if k not in HW_PHASE_KEYS}
+    return out
+
+
+_PHASE_MANIFEST = {}
+
+
+def phase_manifest():
+    if not _PHASE_MANIFEST:
+        _PHASE_MANIFEST.update(json.loads((FB2_PHASE / 'manifest.json').read_text()))
+    return _PHASE_MANIFEST
+
+
+def same_phase_original(point, port_fbp, port_ofy):
+    """The like-for-like original of a point for a port field drawn in
+    buffer port_fbp with OFY port_ofy (module docstring): (point, choice).
+    The returned point keeps the primary's game-state facts (s1, rec, rows)
+    and takes the field, buffer and OFY of the original chosen."""
+    name = point['name']
+    if (point['fbp'], point['ofy']) == (port_fbp, port_ofy):
+        return point, {'set': 'primary', 'why': 'the primary original is on the port field\'s phase'}
+    if FB2_PHASE is None:
+        return point, {'set': 'primary', 'why': 'no same-phase original in this reference (EM_REFERENCE=v263)'}
+    if not (FB2_PHASE / name / 'meta.json').exists():
+        return point, {'set': 'primary', 'why': f'no same-phase original of {name} in {FB2_PHASE}'}
+    alt = fb2_point(name, FB2_PHASE)
+    entry = phase_manifest()['points'][name]
+    # The same game state: the capture session's s0..s2 rows equal the
+    # primary's on every field but the phase / time ones, and the rand()
+    # state at s2 is the primary's.
+    prim_rows = [point['rows'][c] for c in sorted(point['rows'])]
+    alt_rows = [alt['rows'][c] for c in sorted(alt['rows'])]
+    assert len(prim_rows) == len(alt_rows) == 3, (name, 'the capture rows are not s0..s2', len(prim_rows),
+                                                  len(alt_rows))
+    for k, (a, b) in enumerate(zip(prim_rows, alt_rows)):
+        ga, gb = game_row(a), game_row(b)
+        assert ga == gb, (name, f'the same-phase original\'s row {k} is not the primary\'s game state',
+                          sorted(f for f in set(ga) | set(gb) if ga.get(f) != gb.get(f)))
+    assert entry['rows_equal'] and entry['rand_state_s2']['equal'], (name, 'the manifest does not record the '
+                                                                     'same rows and rand() state', entry)
+    # s1 is the same loop top of the session (the second row), and as many
+    # iterations after the recorded snapshot as the primary's
+    assert alt['s1'] - min(alt['rows']) == point['s1'] - min(point['rows']) == 1, (name, 's1 is not row 1')
+    assert (alt['rec'] is None) == (point['rec'] is None) and \
+        (alt['rec'] is None or alt['s1'] - alt['rec'] == point['s1'] - point['rec']), \
+        (name, 'the same-phase original is not as many iterations after its snapshot', alt['rec'], point['rec'])
+    picked = dict(point, rgb=alt['rgb'], fbp=alt['fbp'], ofy=alt['ofy'], dir=alt['dir'])
+    where = f'{FB2_PHASE.name}/{name} (s1 counter {alt["s1"]}, {entry.get("variant")} boot)'
+    if (alt['fbp'], alt['ofy']) == (port_fbp, port_ofy):
+        return picked, {'set': 'same phase', 'path': where,
+                        'why': 'the primary is on the other phase; the same game state on the port\'s buffer and '
+                               'half line'}
+    if alt['ofy'] == port_ofy:
+        # Only the buffer differs: the manifest's checks show the address
+        # alone moves no pixel (same tick and half line in 0x0 and 0x38).
+        checks = {k: v for k, v in phase_manifest()['checks'].items() if k.endswith('_d7_vs_d4')}
+        assert checks and all(v['displayed']['bit_exact'] and v['draw']['bit_exact'] and v['z']['bit_exact']
+                              for v in checks.values()), (name, 'no evidence that the buffer address moves no '
+                                                          'pixel', sorted(checks))
+        return picked, {'set': 'same half line, other buffer', 'path': where,
+                        'why': 'no original run reaches the port\'s phase here; the port\'s half line in buffer '
+                               f'{hex(alt["fbp"])} (the buffer moves no pixel: checks {", ".join(sorted(checks))})'}
+    return point, {'set': 'primary', 'why': f'{FB2_PHASE.name}/{name} is not on the port\'s half line either'}
 
 
 _ROWS = {}
@@ -450,15 +569,19 @@ def compare(point, tick_index, ticks, capture, run):
     assert (gs is None) == GPU, (name, 'the GS field is missing' if gs is None else
                                  'a GS field was written with EM_GPU_RENDERER=1')
     phase = None
+    orig = point
+    reference = {'set': 'primary', 'why': 'the GPU renderer draws no field (no field phase); sampled at the '
+                                          'primary\'s OFY'}
     if gs is not None:
         field, frame, xyoffset = gs
         port_ofy = ((xyoffset >> 32) & 0xFFFF) / 16.0
-        # the field's buffer and half line against the original's at s1 (the
-        # frame loop's phase, RENDER_CONTEXT.md 9.3): reported, and the
-        # comparison stands either way (a phase difference is itself a
-        # difference of the port's frame)
+        # the field's buffer and half line against the primary original's at
+        # s1 (the frame loop's phase, RENDER_CONTEXT.md 9.3): the timing item,
+        # reported and not asserted (the port runs the disc at host speed)
         phase = {'port_fbp': hex(frame & 0x1FF), 'original_fbp': hex(point['fbp']), 'port_ofy': port_ofy,
                  'original_ofy': point['ofy'], 'same': frame & 0x1FF == point['fbp'] and port_ofy == point['ofy']}
+        # the pixels are compared with the original drawn on the port's phase
+        orig, reference = same_phase_original(point, frame & 0x1FF, port_ofy)
         # what is shown: the presented frame (the field under the GPU's 2D
         # overlay pass: the letterbox bars, the transition fade, the message
         # glyphs) read back at the centre of each field pixel's place in the
@@ -470,19 +593,21 @@ def compare(point, tick_index, ticks, capture, run):
         port_rgb = read_bmp(capture)
         field, geometry = sample_field(port_rgb, point['ofy'])
         bare = None
-    m, per = metrics(field, point['rgb'])
+    reference.update(fbp=hex(orig['fbp']), ofy=orig['ofy'], dir=str(orig['dir']))
+    m, per = metrics(field, orig['rgb'])
     d = OUT / name
     d.mkdir(parents=True, exist_ok=True)
     write_png(d / 'port_512x224.png', field)
-    write_png(d / 'original_512x224.png', point['rgb'])
+    write_png(d / 'original_512x224.png', orig['rgb'])
     write_png(d / 'diff_512x224.png', diff_image(per))
     bare_metrics = None
     if bare is not None:
-        bare_metrics, bper = metrics(bare, point['rgb'])
+        bare_metrics, bper = metrics(bare, orig['rgb'])
         write_png(d / 'port_gs_field_512x224.png', bare)
         write_png(d / 'diff_gs_field_512x224.png', diff_image(bper))
-    result = dict(m, point=name, port_tick=t['tick'], s1=point['s1'], ofy=point['ofy'],
+    result = dict(m, point=name, port_tick=t['tick'], s1=point['s1'], ofy=orig['ofy'],
                   port_frame='GS field' if gs is not None else 'Metal (GPU renderer)', field_phase=phase,
+                  reference=reference,
                   gs_field_alone=bare_metrics,
                   row=(f'{row[0]} f{row[1]["f"]}' if 'f' in row[1] else f'{row[0]} counter {point["s1"]}')
                   if row else None, camera_exact=exact,
@@ -496,9 +621,10 @@ def line(r):
     cam = ('camera exact' if r['camera_exact'] else
            f'camera NOT exact ({", ".join(sorted(r["differs"]))} differ)' if r['camera_exact'] is False else
            r['differs'])
-    ph = r.get('field_phase')
-    if ph and not ph['same']:
-        cam += f'; the port field is FBP {ph["port_fbp"]} OFY {ph["port_ofy"]} (the original\'s {ph["original_fbp"]}, {ph["original_ofy"]})'
+    ref = r['reference']
+    cam += (f'; against the {ref["set"]} original' + (f' {ref["path"]}' if ref.get('path') else '') +
+            f' (FBP {ref["fbp"]}, OFY {ref["ofy"]}' +
+            ('' if (r.get('field_phase') or {}).get('same') else f': {ref["why"]}') + ')')
     g = r.get('gs_field_alone')
     if g:
         cam += (f'; the GS field alone (no overlay pass): exact {g["exact"]:,} '
@@ -507,6 +633,30 @@ def line(r):
             f'exact {r["exact"]:,} of {r["pixels"]:,} ({100 * r["exact_fraction"]:.2f}%), mean channel error '
             f'{r["mean_abs_channel_error"]:.2f}, max {r["max_channel_error"]}, per-pixel max error p50/p90/p99 '
             f'{r["p50"]}/{r["p90"]}/{r["p99"]}')
+
+
+# The original's rule after Roger's departure FMV (decomp PCSX2_FORK.md,
+# fb2_phase manifest "findings"): the FMV's iteration ends with D_00810E80 ==
+# D_00810E88, so at 15_level_exit the original draws buffer 0x0 with OFY
+# 1936.5 or 0x38 with 1936.0, never the other two.
+FMV_RULE = {(0x0, 1936.5), (0x38, 1936.0)}
+
+
+def timing_line(r):
+    """The field phase against the primary original (the timing item), or
+    None when it is the same."""
+    ph = r.get('field_phase')
+    if not ph or ph['same']:
+        return None
+    what = ('buffer and half line' if ph['port_fbp'] != ph['original_fbp'] and ph['port_ofy'] != ph['original_ofy']
+            else 'half line' if ph['port_ofy'] != ph['original_ofy'] else 'buffer')
+    text = (f'{r["point"]}: the port field is FBP {ph["port_fbp"]} OFY {ph["port_ofy"]}, the route\'s original '
+            f'FBP {ph["original_fbp"]} OFY {ph["original_ofy"]} (the other {what}): the field phase, set by the '
+            'disc\'s timing at loads, which the port runs at host speed (FIRST_LEVEL_AUDIT.md item 2, 1b F1)')
+    if r['point'] == '15_level_exit' and (int(ph['port_fbp'], 16), ph['port_ofy']) not in FMV_RULE:
+        text += ('; open finding: after Roger\'s departure FMV the original always has D_00810E80 == '
+                 'D_00810E88, and this field breaks that rule')
+    return text
 
 
 def quick_point(points):
@@ -556,6 +706,8 @@ def main():
     if sys.argv[1:] == ['--point', '15_level_exit']:
         r, secs = area01_point({'15_level_exit': fb2_point('15_level_exit')})
         print('fb2 pixels: ' + line(r))
+        if timing_line(r):
+            print('fb2 pixels: timing: ' + timing_line(r))
         for f in (list((OUT / 'a01').glob('ticks.jsonl')) + list((OUT / 'a01').glob('*.bmp')) +
                   list((OUT / 'a01').glob('*.bmp.gsfield'))):
             f.unlink()
@@ -598,9 +750,14 @@ def main():
         runs += f', two port runs through the AREA01 arrival ({s1:.0f} s, {s2:.0f} s)'
     for r in results:
         print('fb2 pixels: ' + line(r))
+    for r in results:
+        if timing_line(r):
+            print('fb2 pixels: timing: ' + timing_line(r))
     for name, why in listed:
         print(f'fb2 pixels: {name}: not compared: {why}')
-    (OUT / 'summary.json').write_text(json.dumps({'mode': RM.MODE, 'results': results,
+    (OUT / 'summary.json').write_text(json.dumps({'mode': RM.MODE, 'reference': refs.MODE, 'results': results,
+                                                  'timing': {r['point']: timing_line(r) for r in results
+                                                             if timing_line(r)},
                                                   'not_compared': dict(listed)}, indent=1))
     # The runs' tick logs (up to 300 MB each) and the host-size captures are
     # scratch; the per-point PNGs, result.json and run.log stay.

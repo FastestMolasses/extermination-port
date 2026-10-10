@@ -1996,11 +1996,24 @@ pool's free list (item 5): those are port work that needs no new recording
      step DOF (2026-10-09; CHAIN_PAGE.md section 6.2), bit-exact against 7
      captured frames of the pass since 2026-10-10 (`make
      test-dof-pass-reference`);
-   - **the field phase:** at 5 of the 7 compared fb2 points (first control,
-     08, 10, 11, 12) the port's D_00810E80 has the other parity than the
-     original's at the same route row, so the field is drawn in the other
-     buffer half a line off (cause not traced; the New Game's loads taking
-     another number of main-loop iterations at host speed is a candidate);
+   - **the field phase:** against the fork's route, at first control, 10,
+     11 and 12 the port's field is in the other buffer half a line off, and
+     at 15 half a line off (08 is the same since the fork; GS_EXACT.md
+     10.3). The buffer follows the iteration count and the half line the
+     vsync count, and at a load both follow the disc's timing, which the
+     port runs at host speed (the user's policy): a timing item, reported
+     by the fb2 harness on its own `timing:` lines and not asserted. The
+     pixels are compared like for like since 2026-10-10 (GS_EXACT.md
+     10.4): with the decomp's same-game-state re-recordings on the port's
+     phase, first control 1.03 %, 10 95.47 % (18.92 % against the other
+     phase), 11 9.85 %, 12 2.60 %, 15 98.57 % (its half line; the buffer
+     alone moves no pixel). Left from it: 15's phase is not only timing.
+     The original inverts its buffer / field relation at Roger's departure
+     FMV (D_00810E80 == D_00810E88 after it, from every entry phase tried;
+     route 15's end state (0, 0) in both recordings), while em_frame.c
+     keeps D_00810E88 = 1 − D_00810E80 at the loop top always; whether the
+     FMV's length comes from the game's code is not traced (GS_EXACT.md
+     10.4 "Finding");
    - at point 14 the sky grid's region differed by 1..3: traced at step
      DOF, it was the missing depth-of-field pass (that region 5,347 ->
      10,472 of 11,200 pixels exact with it; GS_EXACT.md 10.1).
@@ -2013,9 +2026,12 @@ pool's free list (item 5): those are port work that needs no new recording
    `EM_TEST_FULL=1 make test-fb2-pixels`). Since step DOF (the pass drawn)
    and its conformance step (2026-10-10, the pass bit-exact): 14 92.40 %
    (mean 0.89), 13 62.60 %, 10 18.92 %, 15 98.57 % (GS_EXACT.md 10.1).
+   Like for like (2026-10-10, the same-phase originals, GS_EXACT.md 10.4):
+   first control 1.03 %, 08 3.26 %, 10 95.47 %, 11 9.85 %, 12 2.60 %,
+   13 62.60 %, 14 92.40 %, 15 98.57 %.
    What removes it: the overlay pass and the status frames as GS packets
-   through the model, the parity traced through the loads against the
-   captures; then the harness compares the field word for word.
+   through the model, the departure FMV's field relation traced (above);
+   then the harness compares the field word for word.
 3. **Presentation choices** — **CLOSED 2026-10-09.** The user chose (a) for
    both (LAUNCHER_OPTIONS.md): each field line-doubled at its interlaced
    height (EM_GFX_FIELD_INTERLACED), and the screen position presented the
@@ -2304,10 +2320,28 @@ fork-side (2026-10-09); its entry gives the result.
     those points exists (a fork-side capture would be needed); the phase
     follows the disc's timing at loads, which the port does not reproduce,
     so it is not a port defect by itself. 15_level_exit stays an open
-    finding with its floor (full fb2 fails there). Items 6 and 7: the
+    finding with its floor (full fb2 failed there until the like-for-like
+    step below). Items 6 and 7: the
     shadow capture metric and the message capture compare 512x224 fields
     with the fork's fields (SHADOW_ORIGINAL.md "Capture metric": 7 beats in
     bounds, 00, 03 and 09 newly; MESSAGE_GLYPH.md "Capture compare").
+  - **Like for like (2026-10-10, (b) done).** The decomp re-recorded first
+    control, 10, 11, 12 and 15 as the same game state on the port's field
+    phase (decomp `build/fork_refs/pixels/fb2_phase`, a boot whose title
+    presses come 4 ticks later and the canonical chain replayed from it;
+    PCSX2_FORK.md). `test_fb2_pixels` compares each point with the primary
+    original when its phase is the port's and with that re-recording when
+    it is not (checking the rows equal the primary's but for the phase and
+    the rand() state the same), prints the choice, and reports the phase
+    difference separately as a timing item (host-speed disc). Full mode is
+    green again: first control 1.03 %, 08 3.26 %, 10 95.47 %, 11 9.85 %,
+    12 2.60 %, 13 62.60 %, 14 92.40 %, 15 98.57 %; the fork floors rise for
+    first control, 10, 11 and 12 (GS_EXACT.md 10.4). For 15 no original
+    run reaches the port's phase: the original leaves Roger's departure FMV
+    with D_00810E80 == D_00810E88, which the port's fixed relation (em_frame.c
+    step P) never produces; it is compared on its half line in the other
+    buffer (the buffer alone moves no pixel, the decomp's check at 10 and
+    12), and the relation after the FMV stays an open finding (item 2).
 - **F2. 001DDE10's pass reads the frame** (part of item 2). Lead from the
   PCSX2 2.8 post (reads and writes of one texture in one draw). **The
   premise does not hold** (step DOF, 2026-10-09; CHAIN_PAGE.md section

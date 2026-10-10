@@ -1535,8 +1535,8 @@ field (s1, counter 15788) is drawn with OFY 1936.5 in buffer 0x0; the port
 draws the same buffer with OFY 1936.0, as v2.6.3's recording did after its
 two extra post-load vsyncs. Every line is half a line off, so 18.03 % of the
 pixels are exact; the draw and Z buffers and the rand() state of the fork's
-point equal v2.6.3's. The floor stays at 0.985, so `EM_TEST_FULL=1` fails
-there on the fork; it is not lowered. The original's phase at a point
+point equal v2.6.3's. The floor stays at 0.985, so `EM_TEST_FULL=1` failed
+there on the fork until the like-for-like comparison (10.4); it is not lowered. The original's phase at a point
 follows the vsyncs its loads took (an emulator property, 1b F1 (d)), so the
 cause in the port (its D_00810E88 at the arrival: the field bit after a
 load at host speed) needs tracing before anything changes; the same open
@@ -1547,8 +1547,8 @@ second stage of the switch; FIRST_LEVEL_AUDIT.md 1b F1 (b), (c)).** Full
 mode on port main against the fork, after part G (section 3.8): every
 number of the table above is unchanged (first control 1,117, 08 3,739,
 10 21,696, 11 6,325, 12 2,827, 13 71,794, 14 105,973, 15 20,673 exact
-pixels), so FLOORS stay as they are and `EM_TEST_FULL=1` still fails at
-15_level_exit (18.03 % against its floor 0.985). The scissor rule moves no
+pixels), so FLOORS stay as they are and `EM_TEST_FULL=1` still failed at
+15_level_exit (18.03 % against its floor 0.985; green since 10.4). The scissor rule moves no
 pixel of these frames: the model already drew the in-scissor pixels of a
 line starting past the scissor, and none of the fork's 19 fields differs
 from v2.6.3's on row 223 alone.
@@ -1567,17 +1567,92 @@ at s1; the harness's `field_phase`):
 | 14_roger_encounter | 0x38, 1936.5 | 0x38, 1936.5 | same |
 | 15_level_exit | 0x0, 1936.5 | 0x0, 1936.0 | the buffer the same, the half line other |
 
-No same-phase original exists for the "other" points: the fb2 sets hold
-only the displayed field of s1 and the drawing buffer of s0, and the
-original alternates both buffer and half line every iteration as the port
-does, so s0 is on the other phase from the port's s0 too. A same-phase
-reference needs a fork capture whose run reaches the point one vsync (or one
-iteration) apart, a fork-side job. By the game's rule (decomp
+No same-phase original existed for the "other" points when this was
+written: the fb2 sets hold only the displayed field of s1 and the drawing
+buffer of s0, and the original alternates both buffer and half line every
+iteration as the port does, so s0 is on the other phase from the port's s0
+too. A same-phase reference needed a fork capture whose run reaches the
+point one vsync (or one iteration) apart; the decomp recorded those the
+same day (10.4). By the game's rule (decomp
 PCSX2_FORK_GS_DIFF.md 5.1) the buffer follows the iteration count and the
 half line the vsync count, and at a load both follow the disc's timing,
 which the port does not reproduce (host speed, CLAUDE.md); 15's half line
 is the clearest case: the fork's AREA01 load took 8 frames more than
 v2.6.3's, and v2.6.3's field matched the port's by its post-load hitch.
+
+### 10.4 The like-for-like original per point (2026-10-10)
+
+The decomp re-recorded the "other" points on the port's field phase
+(`build/fork_refs/pixels/fb2_phase/<point>` with a manifest; decomp
+tools/fb2_phase_refs.py, PCSX2_FORK.md): a cold-boot variant whose title
+presses come 4 ticks later reaches first control with every compared span
+of the original's state equal (rand() and the player clock included) one
+iteration and one vsync off the canonical boot, and the canonical chain
+replayed from it equals the canonical rows on every field but the counter
+and the phase. So first control, 10, 11 and 12 exist as the same game state
+drawn in the port's buffer and half line. For 15_level_exit no original
+run reaches the port's phase (below); the re-recording there has the port's
+half line (OFY 1936.0) in the other buffer (0x38), and the decomp's check
+(the same tick and half line drawn in 0x0 and in 0x38 at points 10 and 12:
+displayed, draw and Z bit-exact) shows the buffer's address alone moves no
+pixel (checked in AREA11; for AREA01 an inference).
+
+`tools/test_fb2_pixels.py` now compares each point's port field with the
+like-for-like original and prints which (`reference` in result.json):
+the primary point when its buffer and OFY at s1 are the port field's; the
+`fb2_phase` point when they are not and it is on the port's phase ("same
+phase"); the `fb2_phase` point with the port's OFY and the other buffer
+("same half line, other buffer", only with the decomp's buffer check in
+the manifest). The harness itself checks that the re-recording's three
+capture rows (s0..s2) equal the primary's on every field but the phase,
+time and provenance ones, and that the manifest records the same rand()
+state at s2; the game-state facts (s1, the recorded snapshot, the route
+row, the camera check) stay the primary's. EM_REFERENCE=v263 has no
+same-phase set and compares the primary, saying so; the GPU renderer has
+no field phase and samples at the primary's OFY, as before.
+
+The phase difference itself is reported separately, as a timing item
+(`fb2 pixels: timing:` lines, `timing` in summary.json): the buffer
+follows the iteration count and the half line the vsync count, and at a
+load both follow the disc's timing, which the port runs at host speed (the
+user's policy, CLAUDE.md; FIRST_LEVEL_AUDIT.md item 2, 1b F1). It is not
+asserted.
+
+Full mode on port main 750b40f against the fork (exact pixels of 114,688,
+the presented GS field):
+
+| point | original compared | exact (like for like) | against the primary (10.3) |
+|---|---|---|---|
+| first_control | same phase (0x38, 1936.5) | **1,178 (1.03 %)** | 1,117 (0.97 %) |
+| 08_truck_crossing | primary (0x0, 1936.0) | 3,739 (3.26 %) | the same |
+| 10_cage_roof_roger | same phase (0x38, 1936.5) | **109,496 (95.47 %)** | 21,696 (18.92 %) |
+| 11_crevice_prompt | same phase (0x0, 1936.0) | **11,295 (9.85 %)** | 6,325 (5.51 %) |
+| 12_crevice_jump | same phase (0x38, 1936.5) | **2,983 (2.60 %)** | 2,827 (2.46 %) |
+| 13_east_tower | primary (0x0, 1936.0) | 71,794 (62.60 %) | the same |
+| 14_roger_encounter | primary (0x38, 1936.5) | 105,973 (92.40 %) | the same |
+| 15_level_exit | same half line, other buffer (0x38, 1936.0) | **113,053 (98.57 %)** | 20,673 (18.03 %) |
+
+At 10 (camera exact) the half line was nearly all of the difference: the
+field alone (without the overlay pass) is 68.21 % exact and the presented
+frame 95.47 % (mean channel error 0.40, p90 0). At 15 the number is the
+one measured against v2.6.3's field (which had the port's half line), so
+`EM_TEST_FULL=1` passes again. FLOORS (fork) rise to first control 0.010,
+10 0.954, 11 0.098, 12 0.026; 08, 13, 14 and 15 keep theirs.
+
+**Finding (open, port side): the field after Roger's departure FMV.** The
+port keeps one relation between the buffer index and the field bit:
+em_frame.c step P sets the field to D_00810E80, so at the loop top
+D_00810E88 = 1 − D_00810E80 always (em_frame.h, measured on route beats
+00..14, MAIN_LOOP_AND_GAP.md 2.4). The original inverts that relation at
+the departure FMV (beat 15 row 442): the FMV plays inside one main-loop
+iteration and its vsync count (4,751 or 4,752) leaves D_00810E80 ==
+D_00810E88 afterwards from all four entry phases the decomp tried; the
+route 15 end state shows (0, 0) in both the fork's and v2.6.3's recording.
+So at 15_level_exit the original draws (0x0, 1936.5) or (0x38, 1936.0) and
+never the port's (0x0, 1936.0). Whether the FMV's length is set by the
+game's code (a wait for a field) or by the emulator's timing is not
+traced; if it is the code, the port's fixed relation is a translation gap,
+not a timing item. The harness flags it on the timing line of 15.
 
 ### 10.2 Frame cost
 
