@@ -268,6 +268,28 @@ The sound bank's seed D_002821A0 (the kernel's SIF DMA id, not modelled)
 is the fork title's value since this switch (0x527C1602; v2.6.3's boot left
 0x530D1702); it is the one value the two title states disagree on.
 
+**Frames compared field to field (checklist items 6 and 7, 2026-10-10).**
+The fork's frame references are the 512x224 fields the GS holds, not the
+host's 640x480 presentation, so the two checkers that read a v2.6.3
+screenshot now compare like with like:
+- `tools/test_shadow_original_reference.py --capture BEAT` compares the
+  shadow region with the beat's displayed field
+  (`fork_refs/pixels/route/BEAT/displayed.bin`: route row C-1 at the
+  snapshot's loop top C, drawn with that row's buffer and OFY by the game's
+  rule), the native frame sampled at the field's GS sample points
+  (SHADOW_ORIGINAL.md "Capture metric").
+- `tools/test_message_capture.py` checks the message block in the fork's
+  refusal capture (`fork_refs/pixels/messages/elevator_refusal/wait/eeMemory.bin`:
+  mode 2, phase 1, 0x8000001A, +0x68 = 5) and compares the two text lines'
+  boxes in field pixels with its displayed field, reading the port's
+  presented frame at each field pixel's place (`test_fb2_pixels.shown_field`;
+  the glyphs are the overlay pass). PASS: the port's lines (214, 195, 263,
+  202) and (214, 208, 296, 214) against the fork's (214, 195, 264, 201) and
+  (214, 207, 297, 213), within one pixel. With `EM_REFERENCE=v263` it still
+  compares the 640x480 screenshot, which already failed at HEAD before this
+  change (bottom edge 434 against 432: the host presentation is not the
+  field, and that fixture was a different, hand-played session).
+
 ### The stream drive's two modes
 
 The PS2 disc-drive timing switch (`LAUNCHER_OPTIONS.md`, built 2026-09-27;
@@ -344,10 +366,12 @@ and its lines are the originals since the status UI step
 (docs/STATUS_PAGE_RECORD.md section 7).
 
 The terminal's arrow is red during the refusal (route 02's capture: level
-+0x28 = 0) and green after the power (route 04). The elevator/refusal
-fixture's screenshot (used by tools/test_message_capture.py) shows it green
-because that fixture was seeded from a powered state (CENSUS_UNVERIFIED.md,
-"The terminal-screen colour").
++0x28 = 0) and green after the power (route 04). The v2.6.3 elevator/refusal
+fixture's screenshot (tools/test_message_capture.py with `EM_REFERENCE=v263`)
+shows it green because that fixture was seeded from a powered state
+(CENSUS_UNVERIFIED.md, "The terminal-screen colour"); the fork's capture of
+the refusal (the default reference) replays the canonical route and shows
+it red.
 
 ## Phases
 
@@ -517,7 +541,8 @@ capture's (walk 10) for an image compare with
 (with `EM_LEVEL_SMOKE_UNTIL=elevator_refusal`) writes the frame whose step F
 presents the refusal line 0x8000001A for the fifth time, the state of the
 elevator/refusal capture; `make test-message-capture` compares its text
-lines with that capture's screenshot (MESSAGE_GLYPH.md).
+lines with the fork's field of that frame (MESSAGE_GLYPH.md; "References:
+fork").
 
 ### Navigation (the route phases)
 

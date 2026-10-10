@@ -29,7 +29,16 @@ section 3.7) and compares:
      src/gs/em_gs_world.c): every capture packet through 3 band EmGs of 4
      rows (EM_TEST_FULL=1: also 8 of 4 and 3 of 8) chained in lockstep
      (EmGs.tee) must leave exactly the memory and drawn-pixel total of one
-     EmGs.
+     EmGs;
+  G. the half-pixel scissor edge (section 3.8; the user's decision of
+     2026-10-09: the port follows the PCSX2 fork): the fork's capture of
+     the decomp's probe 9 (build/fork_refs/pixels/b16/gscap9, in both
+     EM_REFERENCE modes: it is the rule's reference), 45 tests, lines and
+     points whose first vertex lies 0 to 1 px past each inner-scissor edge
+     and the game's five line strips through y 223.25, must be bit-exact.
+     Where PCSX2 2.6.3's evidence capture of the same packets exists
+     (build/b16/gscap9), the model must differ from it in exactly the
+     tests where the fork does (24: the primitives 2.6.3 dropped whole).
 
 A refusal or a span fault in any capture packet fails.
 
@@ -73,6 +82,14 @@ SETS = [
     ('gscap8', ['p8_span', 'p8_class', 'p8_misc', 'p8_gif', 'p8_more', 'p8_gif2']),
 ]
 FULL_SETS = [('gscap_repeat', SETS[0][1])]
+# Part G: the half-pixel scissor edge set (decomp GS_CONFORMANCE.md
+# section 10). The fork's capture is the reference in both EM_REFERENCE
+# modes; 2.6.3's capture of the same packets is evidence only.
+SCISSOR_SET = ('gscap9', ['p9_edges', 'p9_game'])
+SCISSOR_FORK = refs.FORK / 'pixels/b16' / SCISSOR_SET[0]
+SCISSOR_V263 = refs.v263('b16/' + SCISSOR_SET[0], 'the evidence that part G discriminates: the rule 2.6.3 '
+                         'did not follow (decomp PCSX2_FORK_GS_DIFF.md 3.3)')
+SCISSOR_V263_DIFFER = 24
 FREEZE_VRAM, LOCALMEM, PAGE = 425, 4 << 20, 8192
 PSM = {"CT32": 0x00, "CT24": 0x01, "CT16": 0x02, "CT16S": 0x0A, "T8": 0x13, "T4": 0x14,
        "Z32": 0x30, "Z24": 0x31, "Z16": 0x32, "Z16S": 0x3A}
@@ -639,8 +656,10 @@ def check_bands(lib, sets) -> int:
     (quick: 3 bands of 4 rows; full: also 8 bands of 4 rows and 3 of 8)."""
     configs = [(3, 2)] + ([(8, 2), (3, 3)] if FULL else [])
     fails = packets = 0
-    for set_name, batches in sets:
-        cap = B16 / set_name
+    # every capture set's packets, and part G's (the fork's probe 9)
+    roots = [(set_name, B16 / set_name, batches) for set_name, batches in sets]
+    roots.append((SCISSOR_SET[0], SCISSOR_FORK, SCISSOR_SET[1]))
+    for set_name, cap, batches in roots:
         for name in batches:
             path = cap / name / 'packet.bin'
             if not path.exists():
@@ -661,6 +680,50 @@ def check_bands(lib, sets) -> int:
                           f'EmGs (pixels {px.value} against {px1})')
             packets += 1
     print(f'  bands: {packets} packets, {len(configs)} band configurations, {fails} differ')
+    return fails
+
+
+def check_scissor_edge(lib, maps) -> int:
+    """G: the half-pixel scissor edge (GS_EXACT.md 3.8) against the fork's
+    probe-9 capture, bit for bit, and the discrimination against 2.6.3's."""
+    set_name, batches = SCISSOR_SET
+    if not (SCISSOR_FORK / batches[0] / 'snap/gs.bin').exists():
+        print(f'  scissor edge: FAIL no fork capture at {SCISSOR_FORK} (decomp fork_pixel_refs.py gscap gscap9)')
+        return 1
+    fails = total = 0
+    against_v263 = {}
+    for name in batches:
+        r = run_batch(lib, SCISSOR_FORK, name, maps)
+        bad = {k: v for k, v in r['tests'].items() if v['colour'] or v['z']}
+        total += len(r['tests'])
+        print(f"  scissor edge {set_name}/{name:8s} tests {len(r['tests']):3d} exact {len(r['tests']) - len(bad):3d} "
+              f"(the fork){'' if not bad else '  FAIL ' + str(bad)}")
+        if bad or r['uploads_bad'] or r['fence_bad'] or not r['consumed'] or r['refusals'] or r['span_faults']:
+            fails += 1
+            if r['refusals'] or r['span_faults']:
+                print(f"      FAIL strict refusals {r['refusals']:#x} ({r['reason']}) span faults {r['span_faults']}")
+        if (SCISSOR_V263 / name / 'snap/gs.bin').exists():
+            old = run_batch(lib, SCISSOR_V263, name, maps)
+            fork = np.frombuffer((SCISSOR_FORK / name / 'snap/gs.bin').read_bytes()[FREEZE_VRAM:FREEZE_VRAM + LOCALMEM],
+                                 dtype=np.uint8)
+            legacy = np.frombuffer((SCISSOR_V263 / name / 'snap/gs.bin').read_bytes()[FREEZE_VRAM:FREEZE_VRAM + LOCALMEM],
+                                   dtype=np.uint8)
+            doc = json.loads((SCISSOR_FORK / name / 'batch.json').read_text())
+            for t in doc['tests']:
+                ref_differs = bool((decode(fork, t['fbp'], t['w'], t['h'], t['psm'], maps)
+                                    != decode(legacy, t['fbp'], t['w'], t['h'], t['psm'], maps)).any())
+                model_differs = bool(old['tests'][t['name']]['colour'] or old['tests'][t['name']]['z'])
+                against_v263[f'{name}/{t["name"]}'] = (model_differs, ref_differs)
+    if against_v263:
+        model = sorted(k for k, (m, _) in against_v263.items() if m)
+        fork = sorted(k for k, (_, f) in against_v263.items() if f)
+        ok = model == fork and len(model) == SCISSOR_V263_DIFFER
+        print(f'  scissor edge: the model differs from 2.6.3\'s capture in {len(model)} of {len(against_v263)} tests, '
+              f'the fork in {len(fork)}; the same tests {model == fork}')
+        if not ok:
+            fails += 1
+            print(f'      FAIL model-only {sorted(set(model) - set(fork))} fork-only {sorted(set(fork) - set(model))}')
+    print(f'  scissor edge: {total} tests, {fails} failures')
     return fails
 
 
@@ -708,6 +771,7 @@ def main() -> int:
     fails += check_replay(lib, maps)
     fails += check_strict(lib)
     fails += check_bands(lib, sets)
+    fails += check_scissor_edge(lib, maps)
     (OUT / 'last_run.json').write_text(json.dumps(summary, indent=1) + '\n')
     print(f'{exact}/{total} tests bit-exact; {fails} failures; {time.monotonic() - t0:.1f} s')
     return 1 if fails else 0

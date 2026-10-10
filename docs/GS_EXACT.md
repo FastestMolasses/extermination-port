@@ -29,8 +29,10 @@ the **fork** as the pixel reference from now on; the fb2 numbers below
 stay relative to v2.6.3 until those frames are regenerated on the fork.
 The one renderer difference that reaches this game: v2.6.3 throws away a
 line segment starting a quarter row below the scissor's last row, the fork
-draws its first pixel; the rules of 3.6 predict the fork's pixel (not yet
-confirmed by a test).
+draws its first pixel. The model follows the fork (the user's decision of
+2026-10-09): it has no whole-primitive rejection, only the per-pixel
+scissor, and the fork's capture of the half-pixel scissor edge is bit-exact
+(section 3.8).
 
 **Clean room.** No emulator source was opened, read or searched. That
 includes the local `pcsx2/` tree and PCSX2 / GSdx / Play! / DobieStation
@@ -545,6 +547,50 @@ All p7 and p8 tests are exact apart from the 8.2 residue of 1-2 values in
 the perspective triangles, the level Z of 8.1, the UV half strips of
 p8_span `rev_prim_fst` (section 8.7) and the two p8_gif values (2.1).
 
+### 3.8 The scissor: per pixel, no whole-primitive rejection
+
+- **Rule.** A primitive is rasterized by its own rules (3.1 .. 3.6) wherever
+  its vertices lie; the scissor (SCISSOR_1, inclusive bounds) then decides
+  each pixel. Nothing rejects a whole primitive because its bounding box
+  lies past the scissor. So a line or point that starts within half a pixel
+  outside the scissor draws the in-scissor pixels its rasterization lights.
+  `plot` is the only scissor test in `em_gs_raster.c`.
+- **Which reference.** This is the PCSX2 fork's behaviour. PCSX2 2.6.3
+  dropped such a line or point whole (decomp PCSX2_FORK_GS_DIFF.md 3.3: an
+  upstream change widened the rejection rectangle by half a pixel). The
+  user decided on 2026-10-09 that the port follows the fork ("Follow the
+  fork"). Real hardware has, as far as the public documentation goes, only
+  the per-pixel scissor; that the fork is the closer one is an inference,
+  not a hardware measurement.
+- **Evidence.** The decomp's probe 9 (`gs_conformance_probe9.py`, set
+  `gscap9`, decomp GS_CONFORMANCE.md section 10; captured on the fork,
+  `fork_refs/pixels/b16/gscap9`): `p9_edges`, 40 tests (each inner-scissor
+  edge, the first vertex 0 .. 1 px past it in sixteenths: perpendicular
+  lines both ways, steep and shallow diagonals, a parallel line, points on
+  whole and half positions), and `p9_game`, 5 tests (the game's five
+  alpha-blended Gouraud line strips at x 427.9375 + 2k through y 214,
+  223.25 and 231.5625, as strips and as separate lines, the middle vertex
+  at 223.5 and 223.5625, and triangle / sprite controls). **45 of 45
+  bit-exact** in colour and Z, strict mode, no refusal (part G of
+  `test_gs_raster_reference.py`, 2026-10-10). The model needed no change:
+  its rules of 3.5 and 3.6 already gave the fork's pixels. Against 2.6.3's
+  capture of the same packets (decomp `build/b16/gscap9`, evidence only)
+  the model differs in exactly the 24 tests where the fork does, the
+  primitives 2.6.3 dropped, so the check discriminates the two rules.
+- **The game's pixels.** `p9_game` `strips_22325` and `lines_22325` are the
+  primitives of the first play segment's row-223 pixels (decomp
+  PCSX2_FORK_GS_DIFF.md 3.2: row 223 at x 428, 430, 432, 434 and 436, the
+  lamp's cables): the model writes the outside segment's first pixel there,
+  as the fork does. The 8 demo_hill captures (segment 5, offsets 68 .. 96)
+  where the two builds differed by those 5 pixels are not kept on the fork
+  side, so they are not compared frame for frame; the port's own demo_hill
+  frames of that stretch (`build/video_compare/demo_hill/native`, a port
+  run of 2026-10-09, not pixel-aligned with the original elsewhere: 3.3 ..
+  6.9 % exact) light all 5 pixels in all 8 frames, +3 .. +54 per channel
+  over 2.6.3's frame (the fork's documented difference: brighter by up to
+  53), where row 222 above them differs by at most 5. That is consistent
+  with the fork's pixels; bit equality there rests on `p9_game`.
+
 ## 4. Texturing
 
 ### 4.1 Nearest
@@ -787,6 +833,12 @@ span fault, as the port's fail-stop rule requires.
   both modes: the same split with one Z, the split at a measured boundary
   (TFX), a dithered point, and 001DDE10's blend sprite (the measured row
   rule).
+- **G.** The half-pixel scissor edge (section 3.8, since 2026-10-10): the
+  fork's probe-9 capture (`fork_refs/pixels/b16/gscap9`, 45 tests, read in
+  both `EM_REFERENCE` modes because it is the rule's reference) must be
+  bit-exact, and where 2.6.3's capture of the same packets exists the model
+  must differ from it in exactly the fork's 24 tests. Its two packets also
+  go through part F's bands.
 - The open items are recorded with their exact counts (`OPEN`, 203 tests),
   so any change of a count fails.
 
@@ -800,6 +852,9 @@ Result on 2026-09-27 (fix round):
 Re-run on 2026-10-10 with the row rule of section 3.4: the same 703 of
 906 (931 of 1,158 in full mode), every count of `OPEN` unchanged; E: 14 of
 14. With the UV check switched off (a scratch copy) the three UV cases fail.
+Part G added on 2026-10-10: 45 of 45 bit-exact on the fork, 24 of 45 equal
+to the fork's differences from 2.6.3; F 32 packets (39 in full mode), none
+differs from one EmGs.
 
 **`tools/test_dof_pass_reference.py`** (`make test-dof-pass-reference`,
 2026-10-10; quick about 0.5 s with the library built, 5 s with a rebuild;
@@ -1486,6 +1541,43 @@ follows the vsyncs its loads took (an emulator property, 1b F1 (d)), so the
 cause in the port (its D_00810E88 at the arrival: the field bit after a
 load at host speed) needs tracing before anything changes; the same open
 question as the phase notes of 10.1.
+
+**Re-measured with the scissor rule and the field phases (2026-10-10,
+second stage of the switch; FIRST_LEVEL_AUDIT.md 1b F1 (b), (c)).** Full
+mode on port main against the fork, after part G (section 3.8): every
+number of the table above is unchanged (first control 1,117, 08 3,739,
+10 21,696, 11 6,325, 12 2,827, 13 71,794, 14 105,973, 15 20,673 exact
+pixels), so FLOORS stay as they are and `EM_TEST_FULL=1` still fails at
+15_level_exit (18.03 % against its floor 0.985). The scissor rule moves no
+pixel of these frames: the model already drew the in-scissor pixels of a
+line starting past the scissor, and none of the fork's 19 fields differs
+from v2.6.3's on row 223 alone.
+
+The field phase per compared point (the port's field against the fork's
+at s1; the harness's `field_phase`):
+
+| point | the fork's field (FBP, OFY) | the port's | phase |
+|---|---|---|---|
+| first_control | 0x0, 1936.0 | 0x38, 1936.5 | other |
+| 08_truck_crossing | 0x0, 1936.0 | 0x0, 1936.0 | same (v2.6.3's OFY was 1936.5) |
+| 10_cage_roof_roger | 0x0, 1936.0 | 0x38, 1936.5 | other |
+| 11_crevice_prompt | 0x38, 1936.5 | 0x0, 1936.0 | other |
+| 12_crevice_jump | 0x0, 1936.0 | 0x38, 1936.5 | other |
+| 13_east_tower | 0x0, 1936.0 | 0x0, 1936.0 | same |
+| 14_roger_encounter | 0x38, 1936.5 | 0x38, 1936.5 | same |
+| 15_level_exit | 0x0, 1936.5 | 0x0, 1936.0 | the buffer the same, the half line other |
+
+No same-phase original exists for the "other" points: the fb2 sets hold
+only the displayed field of s1 and the drawing buffer of s0, and the
+original alternates both buffer and half line every iteration as the port
+does, so s0 is on the other phase from the port's s0 too. A same-phase
+reference needs a fork capture whose run reaches the point one vsync (or one
+iteration) apart, a fork-side job. By the game's rule (decomp
+PCSX2_FORK_GS_DIFF.md 5.1) the buffer follows the iteration count and the
+half line the vsync count, and at a load both follow the disc's timing,
+which the port does not reproduce (host speed, CLAUDE.md); 15's half line
+is the clearest case: the fork's AREA01 load took 8 frames more than
+v2.6.3's, and v2.6.3's field matched the port's by its post-load hitch.
 
 ### 10.2 Frame cost
 

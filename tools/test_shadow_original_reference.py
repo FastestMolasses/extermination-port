@@ -78,10 +78,14 @@ G. Clip kernels (src/game/em_vu1_shadow_clip.h, the translation). Every
    class-2 receiver and a box with a clipped triangle must draw it; class 0
    must not.
 --capture BEAT (not part of the default run): a headless native frame of a
-   route beat (../Extermination/build/s87/route/BEAT) with and without the
-   shadow, written to build/captures/shadow/, and the shadow-region metric
-   against the beat's original.png; it FAILS on a worker fault or outside
-   the bounds in capture_bounds (IoU >= 0.80, luminance ratio within 0.05).
+   route beat (the EM_REFERENCE route, ../Extermination/build/fork_refs/
+   s87/route/BEAT on the fork) with and without the shadow, written to
+   build/captures/shadow/, and the shadow-region metric against the
+   original frame: on the fork the beat's 512x224 displayed field
+   (fork_refs/pixels/route/BEAT/displayed.bin), field to field (the native
+   frame sampled at the field's GS sample points); on v2.6.3 the 640x480
+   host screenshot original.png. It FAILS on a worker fault or outside the
+   bounds in capture_bounds (IoU >= 0.80, luminance ratio within 0.05).
 """
 from pathlib import Path
 import ctypes as C
@@ -2641,8 +2645,9 @@ def read_bmp_centre(path):
 
 # ------------------------------------------------------ capture metric ----
 # --capture BEAT: a headless native frame of a route beat
-# (../Extermination/build/s87/route/BEAT/, FIRST_LEVEL_ROUTE.md) against
-# its original.png. The harness draws what the port's render stage does:
+# (ROUTE/BEAT/, FIRST_LEVEL_ROUTE.md) against the original's frame of it
+# (the fork's displayed field, or v2.6.3's original.png: capture_metric).
+# The harness draws what the port's render stage does:
 # the background, the static world from the beat's own channel-0 run (the
 # triangles the ORIGINAL level and clip kernels kick, through
 # em_gfx_gs_opaque, docs/STATIC_WORLD.md section 7) with the area fog, then
@@ -2654,6 +2659,51 @@ def read_bmp_centre(path):
 # mask) and reports the shadow region against the original screenshot.
 ROUTE = refs.capture('s87/route')
 CAPTURE_IOU_MIN, CAPTURE_RATIO_TOL = 0.80, 0.05
+# The fork's route end frames (decomp PCSX2_FORK.md "Pixel references
+# re-recorded on the fork": the canonical chain's snapshots' GS buffers,
+# decoded) and the 4:3 target the native frame is drawn at before it is
+# sampled to the field (the fb2 harness's GPU-renderer target).
+ROUTE_FIELDS = refs.FORK/'pixels/route'
+FIELD_TARGET = (1920, 1440)
+# The region metric's box margin in the field: the 640x480 frame's 16 px,
+# the same distance in the picture (16 * 512 / 640 = 12.8 columns,
+# 16 * 224 / 480 = 7.47 rows, rounded to the nearest).
+FIELD_GROW = (13, 7)
+# The game's rule (decomp PCSX2_FORK_GS_DIFF.md 5.1): a draw environment
+# takes its buffer from the frame index D_00810E80 (the route rows' `fi`)
+# and OFY 1936.5 for field 0, 1936.0 for field 1 (D_00810E88, `fld`).
+FIELD_FBP = {1: 0x38, 0: 0x0}
+FIELD_OFY = {0: 1936.5, 1: 1936.0}
+
+
+def original_field(beat):
+    """The fork's field of a route beat's snapshot, like with like: the
+    displayed buffer (DISPFB2) at the snapshot's loop top C, completed in
+    iteration C-1 -> C and showing route row C-1 (decomp CAPTURES_C7.md 5b
+    "What happens to the two buffers"), drawn with the environment of loop
+    top C-1: the buffer and OFY its row's frame index and field give
+    (checked: that buffer is DISPFB2 at C, and row C's give the FRAME and
+    OFY the manifest records at C). The beat's RAM is row C: the field's
+    view is the RAM's when rows C-1 and C hold the same camera eye /
+    target, player position and heading (same_view, reported)."""
+    import numpy as np
+    d = ROUTE_FIELDS/beat
+    meta = json.loads((d/'meta.json').read_text())
+    rows = {r['counter']: r for r in json.loads((ROUTE/beat/'trace.json').read_text())['rows']}
+    c = meta['counter']
+    assert c in rows and c-1 in rows, (beat, 'the trace has no rows C and C-1', c)
+    now, before = rows[c], rows[c-1]
+    assert (int(meta['frame_fbp'], 16), set(meta['ofy'])) == (FIELD_FBP[now['fi']], {FIELD_OFY[now['fld']]}), \
+        (beat, 'the FRAME / OFY at C are not those row C gives', meta, now['fi'], now['fld'])
+    shown = int(meta['dispfb2_fbp'], 16)
+    assert shown == FIELD_FBP[before['fi']], (beat, 'DISPFB2 at C is not the FRAME of row C-1', meta, before['fi'])
+    raw = np.frombuffer((d/'displayed.bin').read_bytes(), dtype=np.uint8)
+    assert raw.size == 512*224*4, (beat, 'displayed.bin is not a 512x224 field', raw.size)
+    keys = ('eye', 'tgt', 'pos', 'yaw')
+    same = {k: now[k] == before[k] for k in keys}
+    return {'rgb': raw.reshape(224, 512, 4)[:, :, :3].copy(), 'fbp': hex(shown), 'ofy': FIELD_OFY[before['fld']],
+            'path': str((d/'displayed.bin').relative_to(refs.BUILD)), 'shows': f'route row {c-1}',
+            'same_view': all(same.values()) or same}
 
 
 class GsVertex(C.Structure):
@@ -2778,11 +2828,13 @@ def native_viewproj(ram):
     return view, zoom, vp
 
 
-def region_metric(orig_px, a_px, b_px, c_px, w, h):
+def region_metric(orig_px, a_px, b_px, c_px, w, h, grow=(16, 16)):
     """S = pixels the shadow changed (B != A), minus the player's pixels
-    (C != B); ring = the bounding box of S grown by 16 px, minus S and the
-    player. Means of the original and native frames over S and the ring,
-    and the IoU of S with the original's dark pixels in the box."""
+    (C != B); ring = the bounding box of S grown by grow = (columns, rows)
+    (16 px of the 640x480 frame; FIELD_GROW, the same picture distance, in
+    the 512x224 field), minus S and the player. Means of the original and
+    native frames over S and the ring, and the IoU of S with the original's
+    dark pixels in the box."""
     lum = lambda c: 0.299*c[0]+0.587*c[1]+0.114*c[2]
     S, P = set(), set()
     for y in range(h):
@@ -2792,7 +2844,8 @@ def region_metric(orig_px, a_px, b_px, c_px, w, h):
     S -= P
     if not S: return {'shadow_pixels': 0}
     xs = [p[0] for p in S]; ys = [p[1] for p in S]
-    x0, x1, y0, y1 = max(0, min(xs)-16), min(w-1, max(xs)+16), max(0, min(ys)-16), min(h-1, max(ys)+16)
+    gx, gy = grow
+    x0, x1, y0, y1 = max(0, min(xs)-gx), min(w-1, max(xs)+gx), max(0, min(ys)-gy), min(h-1, max(ys)+gy)
     box = {(x, y) for y in range(y0, y1+1) for x in range(x0, x1+1)} - P
     ring = box - S
     mean = lambda px, pts: [round(sum(px(*p)[k] for p in pts)/len(pts), 1) for k in range(3)]
@@ -2840,12 +2893,22 @@ def capture_metric(elf, lib, gslib, beat, report):
         objects.append((addr, plan.receiver[i].cls, q))
     assert sum(len(q) for _, _, q in objects) == 128*len(recv), (beat, 'receiver batches outside the plan')
     out = ROOT/'build/captures/shadow'; out.mkdir(parents=True, exist_ok=True)
-    # The frame is compared pixel for pixel with the original screenshot, so
-    # the headless target must have its size. The backing scale of the
-    # never-shown window follows the display (2 on a Retina screen, 1
-    # otherwise): a probe frame measures it and the window is made again
-    # at the size that gives the screenshot's pixels.
-    ow, oh, o_px = bgref.read_png(folder/'original.png')
+    # The original frame (like with like). On the fork it is the beat's
+    # 512x224 field (ROUTE_FIELDS/<beat>/displayed.bin, decoded from the
+    # snapshot's GS freeze): the native frame is drawn at a 4:3 target of
+    # FIELD_TARGET pixels and sampled at the field's GS sample points with
+    # the field's own OFY (test_fb2_pixels.sample_field), and the region
+    # metric runs on the 512x224 field. On v2.6.3 it is the 640x480 host
+    # screenshot original.png, and the target takes its size. Either way
+    # the target's pixel size is what is asked for: the backing scale of
+    # the never-shown window follows the display (2 on a Retina screen, 1
+    # otherwise), so a probe frame measures it and the window is made
+    # again at the size that gives those pixels.
+    field = original_field(beat) if refs.FORK_MODE else None
+    if field is not None:
+        ow, oh = FIELD_TARGET
+    else:
+        ow, oh, o_px = bgref.read_png(folder/'original.png')
     size = (ow//2, oh//2)
     for attempt in range(2):
         metal = Metal(ROOT/'build/shadow_original_reference', size=size)
@@ -2936,11 +2999,26 @@ def capture_metric(elf, lib, gslib, beat, report):
         paths[mode] = out/f'native_{mode}.bmp'
         lib_g.em_gfx_request_capture(gfx, str(paths[mode]).encode())
         lib_g.em_gfx_end_frame(gfx)
-    w, h, a_px = bgref.read_bmp(paths['noshadow'])
-    _, _, b_px = bgref.read_bmp(paths['shadow'])
-    _, _, c_px = bgref.read_bmp(paths['player'])
-    assert (w, h) == (ow, oh), ('frame sizes', w, h, ow, oh)
-    metric = region_metric(o_px, a_px, b_px, c_px, w, h)
+    if field is not None:
+        import test_fb2_pixels as fb2
+        sampled = {}
+        for mode, path in paths.items():
+            frame = fb2.read_bmp(path)
+            assert frame.shape[1::-1] == (ow, oh), ('frame sizes', frame.shape, ow, oh)
+            sampled[mode], _ = fb2.sample_field(frame, field['ofy'])
+            fb2.write_png(out/f'native_{mode}_512x224.png', sampled[mode])
+        fb2.write_png(out/'original_512x224.png', field['rgb'])
+        as_px = lambda a: (lambda x, y: tuple(int(v) for v in a[y, x]))
+        w, h = fb2.GS_W, fb2.GS_H
+        metric = region_metric(as_px(field['rgb']), as_px(sampled['noshadow']), as_px(sampled['shadow']),
+                               as_px(sampled['player']), w, h, grow=FIELD_GROW)
+        metric['original_field'] = {k: field[k] for k in ('path', 'fbp', 'ofy', 'shows', 'same_view')}
+    else:
+        w, h, a_px = bgref.read_bmp(paths['noshadow'])
+        _, _, b_px = bgref.read_bmp(paths['shadow'])
+        _, _, c_px = bgref.read_bmp(paths['player'])
+        assert (w, h) == (ow, oh), ('frame sizes', w, h, ow, oh)
+        metric = region_metric(o_px, a_px, b_px, c_px, w, h)
     metric.update({'beat': beat, 'receiver_batches': len(recv), 'receivers': plan.receiver_count,
                    'classes': [c for _, c, _ in objects], 'faults': faults,
                    'frames': [str(p.relative_to(ROOT)) for p in paths.values()]})
@@ -2954,12 +3032,14 @@ def capture_bounds(metric):
     the original's dark pixels >= CAPTURE_IOU_MIN and the shadowed/lit
     luminance ratios within CAPTURE_RATIO_TOL. Measured since the
     static-world step (the level is the beat's own run, the box and the
-    receivers are placed at their kicked words): 01_battery 0.836 / 0.600
-    vs 0.600, 08_truck_crossing 0.828 / 0.588 vs 0.592, 12_crevice_jump
-    0.854 / 0.610 vs 0.595; with the legacy zone meshes they were 0.841,
-    0.837 and 0.861 (docs/SHADOW_ORIGINAL.md explains the change). The
-    frame is the harness's render (the static world + fog), not the live
-    port."""
+    receivers are placed at their kicked words) against v2.6.3's 640x480
+    screenshots: 01_battery 0.836 / 0.600 vs 0.600, 08_truck_crossing
+    0.828 / 0.588 vs 0.592, 12_crevice_jump 0.854 / 0.610 vs 0.595; with
+    the legacy zone meshes they were 0.841, 0.837 and 0.861. Against the
+    fork's fields (2026-10-10): 00 0.901, 01 0.897, 03 0.914, 06 0.914,
+    08 0.888, 09 0.883, 12 0.900 (docs/SHADOW_ORIGINAL.md has the ratios
+    and the beats outside). The frame is the harness's render (the static
+    world + fog), not the live port."""
     beat = metric['beat']
     assert not metric['faults'], (beat, 'the shadow chain faults (untranslated clip kernel)',
                                   metric['faults'])

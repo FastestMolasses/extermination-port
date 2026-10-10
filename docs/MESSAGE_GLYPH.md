@@ -113,9 +113,23 @@ glyphs' pixels are not compared (tools/test_fb2_pixels.py).
 `python3 tools/test_message_capture.py` (`make test-message-capture`) runs the
 level smoke to its refusal phase with `EM_LEVEL_SMOKE_MESSAGE_CAPTURE` and
 compares the frame whose step F presents 0x8000001A for the fifth time with
-the elevator/refusal capture's screenshot (its block holds +0x68 = 5): the
-same two text lines, each line's box within one pixel on every edge at
-640x480. Last run (2026-09-23): port (268, 419)..(329, 433) and
-(268, 445)..(370, 458) against the original (268, 419)..(330, 432) and
-(268, 445)..(370, 457). The check is coarse by design (one pixel at 640x480
-is less than one GS pixel horizontally); the exact layout is the oracle's.
+the original's frame of the same moment (its message block holds +0x68 = 5):
+the same two text lines, each line's box within one pixel on every edge.
+
+Since 2026-10-10 the original is the PCSX2 fork's capture (decomp
+`build/fork_refs/pixels/messages/elevator_refusal`, the canonical route beat
+02 replayed to the vsync wait where the block equals v2.6.3's in all 0x70
+bytes), compared field to field: its 512x224 displayed field against the
+port's presented frame read at each field pixel's place (the glyphs are the
+overlay pass over the GS field; `test_fb2_pixels.shown_field`). Last run
+(2026-10-10): port (214, 195)..(263, 202) and (214, 208)..(296, 214) against
+the fork's (214, 195)..(264, 201) and (214, 207)..(297, 213). The check is
+coarse by design; the exact layout is the oracle's.
+
+Before (to 2026-10-09) it compared the v2.6.3 elevator/refusal fixture's
+640x480 host screenshot (`EM_REFERENCE=v263` still does). Run of
+2026-09-23: port (268, 419)..(329, 433) and (268, 445)..(370, 458) against
+(268, 419)..(330, 432) and (268, 445)..(370, 457); by 2026-10-10, with the
+GS field's presentation, the port's first line ends at 434 and that mode
+fails. The screenshot is not the field (the host presentation of a
+different, hand-played session), so the fork's field replaced it.

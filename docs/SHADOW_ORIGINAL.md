@@ -373,12 +373,54 @@ model's VU1 vertex list.
   its class) and writes
   `build/captures/shadow/native_{noshadow,shadow,player}.bmp`, then
   compares the shadow region (pixels the shadow changed, the player's
-  excluded) with the beat's `original.png`. It fails on any worker fault
+  excluded) with the original's frame. It fails on any worker fault
   and outside `capture_bounds`: IoU with the original's dark pixels >=
   0.80, shadowed/lit luminance ratio within 0.05 of the original's.
-  The headless target takes the screenshot's size (640x480): a probe
-  frame measures the never-shown window's backing scale, which follows
-  the display, and the window is made again at the size that gives it.
+  A probe frame measures the never-shown window's backing scale, which
+  follows the display, and the window is made again at the size that
+  gives the target's pixels.
+
+  **The original's frame, field to field (since 2026-10-10; decomp
+  PCSX2_FORK.md checklist item 6).** On the PCSX2 fork (the default
+  reference) it is the beat's 512x224 displayed field
+  (`../Extermination/build/fork_refs/pixels/route/BEAT/displayed.bin`,
+  decoded from the canonical chain's snapshot): at the snapshot's loop top
+  C it holds route row C-1, drawn with that row's buffer and OFY by the
+  game's rule (frame index -> FBP, field 0 / 1 -> OFY 1936.5 / 1936.0;
+  decomp PCSX2_FORK_GS_DIFF.md 5.1; the harness checks the FBP is DISPFB2
+  at C and that row C's give the manifest's FRAME and OFY). The native
+  frame is drawn at a 4:3 target of 1920x1440 and sampled at the field's GS
+  sample points with that OFY (`test_fb2_pixels.sample_field`, the fb2
+  harness's GPU-renderer sampling), and the metric runs on the 512x224
+  field with the 640x480 frame's 16-pixel box margin expressed in field
+  units (13 columns, 7 rows). The beat's RAM is row C, so the harness
+  reports whether rows C-1 and C hold the same camera eye / target and
+  player position / heading (`same_view`). With `EM_REFERENCE=v263` it
+  is the 640x480 host screenshot `original.png` (the table below), which
+  is not the field and not tick-exact (decomp CAPTURES_C7.md 5).
+
+  Against the fork's fields (2026-10-10, port main, all 16 beats):
+
+  | Beat | shadow px | IoU | ratio native / original | rows C-1, C same view |
+  |---|---|---|---|---|
+  | 00_panel_no_battery | 334 | 0.901 | 0.604 / 0.622 | yes |
+  | 01_battery | 304 | 0.897 | 0.600 / 0.605 | yes |
+  | 03_panel_power | 324 | 0.914 | 0.593 / 0.612 | yes |
+  | 06_hill_slide | 367 | 0.914 | 0.592 / 0.609 | eye, target differ |
+  | 08_truck_crossing | 292 | 0.888 | 0.590 / 0.596 | yes |
+  | 09_fence_door | 497 | 0.883 | 0.601 / 0.614 | eye differs |
+  | 12_crevice_jump | 296 | 0.900 | 0.607 / 0.598 | eye, target differ |
+
+  Outside the bounds (the harness's frame, as below): 02 (0 shadow
+  pixels: the elevator is not drawn), 04 (IoU 0.576), 05 (0.196), 07
+  (0.762), 10 (0.608), 11 (0.447), 13 (0.293), 14 (0.285, original ratio
+  0.553); 15_level_exit is AREA01, which the harness does not draw (it
+  stops at an unknown VIF code on both references). 00, 03 and 09 pass on
+  the field (00 and 03 were black in v2.6.3's screenshot region, 09's
+  ratio was out); the four beats in bounds on v2.6.3 stay in bounds with
+  a higher IoU.
+
+  On v2.6.3's screenshots (the table below; `EM_REFERENCE=v263`):
 
   With the clip kernels translated, no beat faults (all 15). In bounds
   (the harness since the static-world step; the legacy-mesh harness's

@@ -215,4 +215,5 @@ installs it at bring-up as the step-F frame service
   the `D_008106F4` protocol 2 -> 1 -> 0; `test-opening-runtime`, which ran
   the retired opening executor, is retired); the level smoke compares the block with
   routes 02/03/04 row for row; `test_message_capture.py` compares a refusal
-  frame with the original screenshot.
+  frame's text lines with the PCSX2 fork's field of it (MESSAGE_GLYPH.md
+  "Capture compare").
