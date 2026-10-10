@@ -100,8 +100,9 @@ The two traces are aligned on the area entry: port counter 1273 = original frame
 **Why the opening ends earlier.** The opening hands over control when its stream
 request (cue 0x3F, with the D_008106F4 hold) keys on. In the C7 stream capture of the
 opening that request waited 21 fields on the drive: 15 extra fields of ready query
-while the area music's read finished its 16-field seek from the intro movie's disc
-position, and 6 extra fields of read. At host speed (the default; disc timing is not
+while the area music's read finished its 16-field seek (the first stream read after
+the New Game's module-loader reads; IOP_STREAM.md "Drive model"), and 6 extra fields
+of read. At host speed (the default; disc timing is not
 part of the Original profile, CLAUDE.md 2026-09-27) the port's request reads at once,
 so first control comes exactly those 21 frames earlier, which check_opening requires
 (LEVEL_SMOKE.md "The stream drive's two modes"). With the switch on, the drive model
@@ -209,7 +210,8 @@ instructions.
 3. **The opening's actors' spawn and its end** come 21 frames earlier at host speed
    (the policy) and 11 with the switch (disc timing, section 3). With the
    drive-timing switch (LAUNCHER_OPTIONS.md) it would need the original's 16-field
-   seek from the movie's position, which no capture explains.
+   seek after the New Game's last module-loader read (explained since 2026-10-09:
+   IOP_STREAM.md "Drive model"; modelling it under the switch is an open decision).
 4. **The status background's draw** has no capture of its frame position.
 5. **Run to run.** The original's own opening order diverges after AE+31. A value
    comparison past the first divergence needs the substitution method of section 5,

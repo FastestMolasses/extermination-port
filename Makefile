@@ -752,6 +752,13 @@ test-message-glyph-reference:
 test-message-capture: $(BIN)
 	python3 tools/test_message_capture.py
 
+# test-replay-audio: the replay's offline audio pull (EM_REPLAY_AUDIO) puts
+# what one field renders at one WAV position for the SFX and the stream
+# backend alike (src/game/em_replay_audio.h; under a second).
+.PHONY: test-replay-audio
+test-replay-audio:
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/replay_audio_test.c -o build/replay_audio_test && ./build/replay_audio_test
+
 .PHONY: test-stream-lanes
 test-stream-lanes:
 	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -ffp-contract=off -Isrc tests/stream_lanes_test.c src/game/em_stream_lanes_original.c -o build/stream_lanes_test && ./build/stream_lanes_test

@@ -625,7 +625,8 @@ skeletons equal the original's bit for bit.
   is shorter, so the actors spawn, the screen fades in and the first line
   shows, and the opening ends, 21 frames earlier than in the recording (11
   with the PS2 disc-drive timing switch, whose drive model leaves out the
-  opening music's extra seek from the intro movie's disc position). Pixels compared only by eye. Metal only.
+  area music's 16-field seek after the New Game's last module-loader read;
+  `IOP_STREAM.md` "Drive model"). Pixels compared only by eye. Metal only.
 
 **The original light rig, bit-exact against the original instructions**
 
@@ -1379,9 +1380,14 @@ so conversations keep the recording's pacing.
   relative to PCSX2 recordings. **PARTIAL** with the switch on: relative to
   PCSX2's CDVD emulation; line 0x7F ends 2 rows early (navigation timing of
   an earlier music refill); the opening's first control comes 11 frames
-  early (the area-music read's 16-field seek from the intro movie's position
-  is not modelled); two Roger music reads fall outside the measured
-  distances. Music timing is not claimed.
+  early (the area-music read's 16-field seek after the New Game's last
+  module-loader read is not modelled); two Roger music reads fall outside
+  the measured distances. Music timing is not claimed: after every status
+  page the original's music read seeks 17 fields after the page's module
+  load (audio captures battery_ui and panel_power), so the music resumes
+  17 fields early at host speed and 15 with the switch (measured in the
+  fork demo's audio, `FIRST_LEVEL_AUDIT.md` 1b item 8; whether the switch
+  should model it is open, `LAUNCHER_OPTIONS.md`).
 
 **Director beats and the Roger encounter on the original scripts, frame by frame against the recordings**
 
@@ -2408,8 +2414,10 @@ Resolved by the user on 2026-09-27:
    smoke's panel-prompt check aligns on the load's completion. Built in
    chain C8b LOADER (the status pages' module loads entry above), for every
    page module since chain step PAGELOADS.
-2. **The opening's stream timing:** the extra seek from the intro movie's disc
-   position is not modelled (the code does not model it). The area-entry
+2. **The opening's stream timing:** the extra seek is not modelled (the code
+   does not model it). It follows the New Game's last module-loader read, not
+   the intro movie's position (corrected 2026-10-09, `IOP_STREAM.md` "Drive
+   model"). The area-entry
    001FAE70(1) is game code and is bound (`RAND_ORDER.md` 2).
 3. **Field presentation:** deferred; the user will compare the options
    (`LAUNCHER_OPTIONS.md`).
@@ -2454,4 +2462,4 @@ whole prioritized list is `FIRST_LEVEL_AUDIT.md` section 1b, re-made on
 - No disassembly, game text or game data in this file
   (`python3 tools/check_no_disassembly.py`).
 
-Last updated: 2026-10-09 (the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).
+Last updated: 2026-10-09 (the music-lead step: the disc-drive entry's music caveat (the music resumes 17 / 15 fields early after every status page, the seek after a module load) and the opening seek's corrected attribution (the New Game's last module-loader read, not the intro movie), no new claim. Before, the overlay-line fix: the field entry's overlay pass placed with the field's line, its evidence and caveat. Before, the presentation step: the entry "Each field shown at its interlaced height, and the options screen's SCREEN ADJUST moves the picture" (PARTIAL); the GS-frame entry's placeholder sentence replaced; census 1.68 in the census entry; the options entry's screen-position caveat. Before, 2026-10-08, chain step ROUTE: the census entry's headline and recount 1.67 (99.2%, every row re-measured over the whole route and every side run); the route entry's evidence (through a01_arrival with every side run, port HEAD 2e5fa30); the load veil drawn by the GS model since GSFRAME, and the legacy-draw disclosure's stale veil claim replaced by the status frames still on the GPU; the fb2 numbers re-measured, unchanged. Before, chain step OPTIONS: the entry "The options screen, the memory-card load screen and the title's LOAD GAME, as in the original" (PARTIAL); census 1.65 in the census entry; the damage entry's title Load entry. Before, the merge of chain step CAMERAS: the opening's camera timeline and camera actions 0, 9, 10, 11 and 14 on the original code (in the camera entries); the examine camera and the opening's timeline removed from the stand-in lists; census 1.61. Before, 2026-10-02, chain step AIMLIVE's fix round: the entry "Aiming, firing, the gun lamp and the knife on the original code" (PARTIAL); the aim camera removed from the stand-in lists; the security gun entry covers the cable hit. Before, chain step AIMLIVE: no new claim).

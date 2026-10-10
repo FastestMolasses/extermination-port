@@ -1203,7 +1203,9 @@ other 19 are one field off: the sub-field poll phase, which no capture records.
   - All make test-* pass.
 - **Left.** The opening's prefill waits 15 fields in the original for the area music's read, which 0x1AE040's
   unbound area-entry 001FAE70(1) would issue (the RNG order audit). That read's 16-field seek from the intro
-  movie's position has no mechanism the capture shows.
+  movie's position has no mechanism the capture shows. (Corrected 2026-10-09: the head was at the end of the
+  New Game's last module-loader read, and every captured stream read after a loader read seeks 16..17 fields;
+  IOP_STREAM.md "Drive model".)
 
 Result: live 660, verified-unbound 77, unverified 3, stand-in 0, missing 1, boundary 443 (unchanged). 80,726 of the
 87,968 non-boundary instructions are live (91.8%).

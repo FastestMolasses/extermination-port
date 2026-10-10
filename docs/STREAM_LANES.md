@@ -362,5 +362,5 @@ drive's position. The lanes' own steps (001FA0D0's one step per field, the holds
 - **Opening.** At host speed the prefill reaches its key-on 7 fields after the stream request. With the switch it
   takes 17: it first waits 5 fields for the area music's read that the area-entry 001FAE70(1) issued (a first
   read: the model's 6-field full seek). The original takes 27: it waits 15 fields for that read's 16-field seek
-  from the movie's position (disc timing).
+  after the New Game's last module-loader read (disc timing; IOP_STREAM.md "Drive model").
 

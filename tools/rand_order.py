@@ -361,8 +361,8 @@ def fmt_totals(t):
 # caller's timer (drawn from a state the wait moved) first differs.
 FIRST_DIFFERENCE_CALLERS = (0x1D0720, 0x1F4D40)
 # The opening's end with the PS2 disc-drive timing switch on (the drive
-# model): the original waited on the area music's read (the intro movie's
-# disc position: a 16-field seek, IOP_STREAM.md "Drive model"); the model
+# model): the original waited on the area music's read (a 16-field seek after
+# the New Game's last module-loader read, IOP_STREAM.md "Drive model"); the model
 # serves a first read as a full seek (6 fields). So the port's first control
 # may come up to 16 frames earlier; never later. With the switch off (host
 # speed, the default) check_opening requires the exact difference instead.

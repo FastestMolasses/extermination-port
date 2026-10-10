@@ -904,9 +904,12 @@ void em_iop_stream_set_heap_next(EmIopStream *s, uint32_t next)
  * 6. A distance outside every measured range takes the class of the nearest
  * measured distance and is counted (stats.unmeasured): the bounds between
  * the measured ranges are not captured. The opening's first read of the
- * area music (from the intro movie's position, +131414) sought for 16
- * fields; the capture cannot tell the distance from the drive's state after
- * the movie's reads, so that read's timing is outside the model. A read
+ * area music (+131414 from the end of the New Game's last module-loader
+ * read, the C7 capture's CDVD position) sought for 16 fields, and each
+ * music resume after a status page's module load for 17 (the audio
+ * captures): the first stream read after a loader read is outside the
+ * model, whose head ignores the loader's reads (IOP_STREAM.md "Drive
+ * model"). A read
  * with no position (the drive's first in the port, whose boot and movie
  * reads are not modelled, or the first after a break) is served as a full
  * seek (6 fields): in the first level that read is the area music's, which

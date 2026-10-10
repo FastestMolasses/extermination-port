@@ -33,6 +33,7 @@
 #include "game/em_bgm.h"
 #include "game/em_frame.h"
 #include "game/em_game_internal.h"
+#include "game/em_replay_audio.h"
 #include "game/em_scene_bindings.h"
 #include "game/em_task.h"
 
@@ -201,9 +202,9 @@ static void write_header(FILE *f)
 
 /* ------------------------------------------------------- offline audio */
 
-/* Frames rendered by the start of step n: n fields at 800.8 frames each,
- * one field behind the stream backend's own production. */
-static uint64_t audio_target(uint64_t n) { return n * 4004u / 5u; }
+/* The pull at step n runs through field n, which every producer rendered
+ * in this step's field hook: em_replay_audio.h. */
+static uint64_t audio_target(uint64_t n) { return em_replay_audio_frames_through(n); }
 
 static void le16(uint8_t *p, uint16_t v) { p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8); }
 static void le32(uint8_t *p, uint32_t v) { le16(p, (uint16_t)v); le16(p + 2, (uint16_t)(v >> 16)); }

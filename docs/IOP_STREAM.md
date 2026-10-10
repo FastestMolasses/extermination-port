@@ -204,10 +204,36 @@ What the capture shows, and the model:
   reads. A read after a break also has none. Both are served as a full seek. In the first level the first read
   is the area music's (cue 25), which 0x1AE040's area-entry 001FAE70(1) issues (bound since the rand() order
   audit, RAND_ORDER.md section 2). 00113478 is never reached on the route (0 breaks).
-- **Outside the model.** The original's area-music read (from the intro movie's position, d = +131414) sought for
-  16 fields. The capture cannot tell whether that comes from the distance or from the drive's state after the
-  movie's stream reads. The port serves it as a first read, a full seek of 6 fields; disc timing is not part of
-  the Original profile (CLAUDE.md, 2026-09-27).
+- **Outside the model: the first lane read after a module-loader read** (measured 2026-10-09, the music-lead
+  step; it replaces the earlier reading "from the intro movie's position"). In all three captured cases, the lane
+  read that follows a read of the screen-module loader (00112440, MODULE_LOADER.md 1.7) seeks for 16 or 17
+  fields, at distances whose lane-to-lane reads take 6 or 7:
+  - The opening's area-music read (cue 25, row 1, sector 720927) sought for 16 fields from d = +131414. The C7
+    capture's CDVD position bytes at its issue (f0/f1) decode, as BCD minute / second / frame with the minute
+    byte truncated (the decode under which all 55 idle main-loop-top samples of the four C7 stretches equal the
+    end of the 00112610 read before them), to sector 589513:
+    the end of the New Game's last loader read, the AREA11 resident region (DATA.DAT sector 0xF015, 3292
+    sectors). The head was not at the intro movie's position.
+  - The music's resume after each status page (cue 25 again, the same sector): the decomp's audio captures
+    battery_ui (route 01's ITEM page, f485..f505) and panel_power (route 03's BATTERY page, f527..f547) both
+    show the ready query in the request frame, 18 rows of read in flight (17 seek fields) and the key-on 20
+    rows after the request. The page's module 0x21 load is the drive's last read before it (its chunk ends at
+    sector 642033, so d = +78894, inside the measured full-seek range). The audio captures hold no CDVD
+    registers; the position is the loader's last read, not a sample.
+  - The resume after Roger's cue 29 (no loader read between) keys on 5 rows after the request in
+    roger_encounter (f1758..f1763), as the switch's fast seek gives.
+
+  Whether that is PCSX2's drive state after a non-stream read or something else is not visible from the game
+  side. The switch's model leaves it out: the IOP drive's head never moves for the loader's reads (the loader
+  has its own measured drive), so with the switch on the opening's read is served as a first read (a full seek
+  of 6) and each page resume as a fast seek of 2 from the music's last refill. That gives 10 frames of the
+  switch's 11-frame opening lead (the original's 15 fields of waiting against the port's 5; FIRST_LEVEL_AUDIT.md
+  1b item 4) and a music resume 15 fields early after every status page
+  (the fork demo's "recurring loud sound 14 ticks early": the music's percussive hit, every 131 / 169 ticks;
+  1b item 8). At host speed the resume is 17 fields early (one row of ready query, one in flight, the key-on
+  three rows after the request). Disc timing is not part of the Original profile (CLAUDE.md, 2026-09-27);
+  modelling the rule under the switch (16 or 17 seek fields for the first lane read after a loader read) is a
+  lead / user decision (LAUNCHER_OPTIONS.md).
 
 **What it gives the live route with the switch on.**
 - The voiced lines' voice reads take the capture's 7 fields, and each key-on follows 2 fields later, as in the
@@ -222,8 +248,8 @@ What the capture shows, and the model:
   - The port's 17 fields are 1 frame to the read's issue request, 5 fields waiting for the area music's read in
     flight (the opening's 001FABB0 stopped the lane one frame after the area entry and left the read running, as
     in the original), then the capture's 7 fields for the read and 4 for the hold.
-  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read, whose seek from
-    the movie's position took 16 fields (above).
+  - The original takes 27 fields: the same 12, plus 15 fields waiting for the area music's read, whose seek
+    after the New Game's loader reads took 16 fields (above).
   - newgame-control reaches first control at locked_ticks 1311 (1301 at host speed).
   - The 30-tick displacement is unchanged at 9.599849.
 

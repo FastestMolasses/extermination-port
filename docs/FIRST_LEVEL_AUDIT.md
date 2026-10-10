@@ -1795,6 +1795,26 @@ closed; census 1.69).** The two live census rows no port run entered
   PCSX2 recording), the 18 verified-unbound rows and the unverified
   001CB480 (census 1.69 lists each with its reason).
 
+**Status update (2026-10-09, the music-lead step: the fork demo's "loud
+sound 14 ticks early"; items 4 and 8).** The sound is the area music's
+percussive hit, and the lead is the disc: after every status page the
+original's music read seeks 17 fields after the page's module load, the
+port's 1 (host speed) or 3 (switch), so the music resumes 17 / 15 fields
+early (item 8, by policy). The same rule, read from the C7 capture's CDVD
+position, explains the switch's opening lead: the area music's 16-field
+seek follows the New Game's last module-loader read, not the intro movie
+(item 4; IOP_STREAM.md "Drive model"). Modelling it under the switch is
+left as a lead / user decision. The demo measured 14 rather than 15
+because of a port bug in the replay's offline audio, fixed: the stream
+backend's ring stayed one field behind the SFX ring, so every music and
+voice sample in the comparison WAVs was one field late
+(src/game/em_replay_audio.h, `make test-replay-audio`, which fails with the
+old pull: the stream ring keeps 800..801 frames, as a probe build of the
+real run showed; after the fix 0, the SFX ring 0..1). Verified: `make -B
+all` (no warnings), newgame-control (PASS 9.599849), `make
+test-level-smoke` (the sound check passes), the demo replay re-run with
+the fix (the numbers in item 8).
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:
@@ -1890,11 +1910,18 @@ pool's free list (item 5): those are port work that needs no new recording
    speed (the user's policy) the opening and first control come 21 frames
    before the original's: the stream request's wait, which the disc answers
    at once (OPENING_ORIGINAL.md section 3). With the PS2 disc-drive timing
-   switch the lead is 11 frames: the opening music's extra seek from the
-   intro movie's disc position is not modelled (LEVEL_SMOKE.md "The stream
-   drive's two modes"). Relative to the timeline's cursor the fade and the
-   camera equal the original on every captured frame. What removes the
-   switch's 11: a recording of that read's drive time.
+   switch the lead is 11 frames, 10 of them the area music's read, which
+   the original's drive seeks for 16 fields where the switch's model gives
+   6 (LEVEL_SMOKE.md "The stream drive's two modes"). Relative to the
+   timeline's cursor the fade and the camera equal the original on every
+   captured frame. That read's drive time is recorded (corrected
+   2026-10-09, the music-lead step; IOP_STREAM.md "Drive model"): the C7
+   capture's CDVD position puts the head at the end of the New Game's last
+   module-loader read, not at the intro movie's position, and the music's
+   resume after a status page shows the same 16..17-field seek after the
+   page's module load (item 8). What removes the switch's 10: the switch's
+   model taking that rule (the first lane read after a loader read seeks
+   16 or 17 fields), a lead / user decision for an optional switch.
 5. **State: the actor pool's free list** (port work). At route 09's room
    move 001AFA90 gives the fresh area-title node the record 0x7AEF00 where
    the original's is 0x7B0390; the pool's free list there is not the
@@ -1946,6 +1973,37 @@ pool's free list (item 5): those are port work that needs no new recording
    call, most likely SIF DMA time); the IOP heap's 0x900-byte start-up
    occupancy is a measured occupancy whose owner is not established
    (IOP_STREAM.md "Stated models").
+   **The music's resume after a status page** (measured 2026-10-09, the
+   music-lead step, from the fork demo's lead "a loud sound that recurs
+   every 130-170 ticks starts 14 ticks early"). The sound is the area
+   music itself (lane 0, cue 25, MUSIC.DAT row 1): a percussive hit in its
+   loop, every 131 / 169 ticks in turn, continuous across segments. The
+   game's code is the original's on both sides: the status close requests
+   the cue on the same row, and the fade-in ramps from that row. The disc
+   is not: the original's lane-0 read waits 18 rows in flight after the
+   page's module-0x21 load (17 seek fields; audio captures battery_ui
+   f485..f505 and panel_power f527..f547: key-on 20 rows after the
+   request), the port's 1 at host speed (key-on 3 rows after) and 3 with
+   the switch (5 rows after; the switch's model has no rule for a lane
+   read after a loader read, item 4, IOP_STREAM.md "Drive model"). So the
+   music after every page close runs 17 fields ahead of the original's at
+   host speed and 15 with the switch, until the next page or cue change.
+   In the fork demo (switch on) every one of 20 cleanly separated hits in
+   segments 10..23 led by 13.87..14.14 ticks (median 14.08), and the
+   envelope cross-correlation gave 14.07..14.09 in the nine play segments
+   the music dominates (10..12, 16..19, 21, 23). The missing field was the port's own (fixed the same day):
+   the replay's offline audio pull left the stream backend's ring one
+   field behind the SFX ring, so the WAV played every music and voice
+   sample one field late (Roger's cue 29, keyed 68 rows after its request
+   on both sides (roger_encounter f289..f357, the port's tick log), was
+   heard at segment 26 offset 70.79 against the original's 69.82). With
+   src/game/em_replay_audio.h (make test-replay-audio) the same replay
+   gives 15.02..15.04 in those segments (median of the paired hits 15.03),
+   cue 29 at 69.835, and every compared SFX
+   unchanged (within 0.2 tick of the original). The resume after Roger's
+   cue 29 (no module load between) keys on 5 rows after the request in
+   both the capture and the switch, and the music then equals the
+   original's phase (0.0 ticks in segments 26 and 28).
 
 **C. Off the recorded route, but reachable in the first level**
 
@@ -1993,7 +2051,8 @@ pool's free list (item 5): those are port work that needs no new recording
 14. **No recording exists for:** a status page open (its pixels), a frame
     taken mid-load (the veil's pixels), the SPU2 output (item 1), the page
     modules' drive time, and, with the PS2 disc-drive timing switch only,
-    Roger's cue-29 reads and the opening music's seek (item 4).
+    Roger's cue-29 reads (the opening music's seek is recorded and
+    explained since 2026-10-09: item 4).
 15. **The census's own limits** (FIRST_LEVEL_CENSUS.md section 6): it counts
     the functions the recorded route and capture lanes ran; boot before the
     title and the unrecorded branches above are not rows; boundary rows
@@ -2371,8 +2430,8 @@ The order follows dependencies and impact. "Removes fabrication" marks packages 
   request frame. With the switch on, 0x97 / 0x99 tear down on the capture's rows and 0x7F 2 rows early (the
   original's sequencer served a lane-0 music refill first, a navigation-dependent phase), and the opening's request
   keys on after 17 fields, 5 of them waiting for the area music's read that the area-entry 001FAE70(1) issues. The
-  original takes 27: it waits 15 fields, because that read's 16-field seek from the movie's position is outside
-  the model. (2)
+  original takes 27: it waits 15 fields, because that read's 16-field seek after the New Game's last
+  module-loader read is outside the model (IOP_STREAM.md "Drive model", 2026-10-09). (2)
   0x1AE040's state 2 r == 1 and state 6 stay reported (UM_001FAE70); the state-0 area-entry 001FAE70(1) and the
   state-4 room move's 001FAE70(0) are bound since the rand() order audit (RAND_ORDER.md). (3) The rest of 001FB100 (the output-mode commit, the
   `D_00281B70` copy, 001FC6E0) is unbound; the mode bytes are 0 in every capture. (4) 001FC280's `D_00282160` cache

@@ -207,9 +207,10 @@ behaviour 001BB0E0, +0x20 = its entry and +0x24 = the controller:
   the original's on every captured frame (section 4, the timeline), so
   the lead is before the timeline starts, in the stream request's wait
   (07/12's handshake), not in 0022EEF0 or the fade path. What is left with
-  the switch on (11 or 12 frames) is the opening music's extra seek from
-  the intro movie's disc position, which the drive model does not model
-  (LAUNCHER_OPTIONS.md, the drive switch).
+  the switch on (11 or 12 frames) is the opening music's extra seek after
+  the New Game's last module-loader read (not the intro movie's position:
+  IOP_STREAM.md "Drive model", 2026-10-09), which the drive model does not
+  model (LAUNCHER_OPTIONS.md, the drive switch).
 - **D_008106B3** still takes the port's stand-in gate
   (`em_opening_runtime_busy` in em_player_frame.c), as before (FIRST_CONTROL.md).
 
