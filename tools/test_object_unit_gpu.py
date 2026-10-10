@@ -45,6 +45,7 @@ import numpy as np
 import test_object_unit_reference as T
 import export_world_models as ewm
 from reference_mode import FULL, banner
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -201,7 +202,7 @@ def main():
     tex = textures()
     report = {}
     for beat in (BEATS if FULL else BEATS[:1]):
-        p = DECOMP / 'build/s87/route' / beat
+        p = refs.capture('s87/route') / beat
         ram = (p / 'eeMemory.bin').read_bytes()
         found = units(ram, bank)
         assert found, (beat, 'no bank-model unit in the current list')

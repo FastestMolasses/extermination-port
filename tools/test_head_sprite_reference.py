@@ -45,6 +45,7 @@ from test_interaction_scan_reference import DECOMP, ELF_SHA
 from test_point_light_reference import STACK, bits, number, signed
 import ee_float_model as M
 from reference_mode import FULL, banner, pick, select
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRY, SPAWN, GATE = 0x1E2560, 0x1F0120, 0x1E2290
@@ -698,7 +699,7 @@ def ramp_trajectory():
 
 
 def capture_files():
-    files = sorted(glob.glob(str(DECOMP/'build/s87/route/*/eeMemory.bin')))
+    files = sorted(glob.glob(str(refs.capture('s87/route/*/eeMemory.bin'))))
     files += sorted({str(p) for p in (DECOMP/'build/startup-reference').rglob('*.bin')
                      if p.name in ('eeMemory.bin',) or p.name.endswith('_ee.bin')})
     return files

@@ -88,10 +88,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import test_player_fall_reference as FR  # noqa: E402
 from test_player_slide_reference import EE, RETURN, read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-BEATS = DECOMP / 'build/s87/route_a01'
+BEATS = refs.capture('s87/route_a01')
 LANE = ROOT / 'build/area01/math'
 SOURCES = ['src/game/em_area01_math_core.c', 'src/game/em_area01_math_actor.c',
            'src/game/em_area01_math_owner.c', 'src/game/em_area01_math_player.c']

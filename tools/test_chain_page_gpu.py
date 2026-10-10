@@ -44,10 +44,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_shadow_original_reference as SO  # noqa: E402
 from test_chain_page_reference import GsPrim, GsVertex  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build/chain_page_gpu'
 BEAT = '04_elevator_ride'
 DECAL = 0x2004290511322469

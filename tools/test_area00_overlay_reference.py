@@ -98,6 +98,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32, STACK_TOP  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA00.BIN'
@@ -107,10 +108,10 @@ RAM_SIZE, SPAD_SIZE = 0x2000000, 0x4000
 ARENA, TEXT_END = 0x823500, 0x826F80
 # The images with AREA00 resident: the end of every AREA00 beat up to a00_09
 # (a00_10 and a00_s0 end back in AREA01) and the arrival (a01_07).
-BEAT_DIRS = {b: DECOMP / 'build/s87/route_a00' / b for b in (
+BEAT_DIRS = {b: refs.capture('s87/route_a00') / b for b in (
     'a00_00_descend', 'a00_01_door51_locked', 'a00_02_south_route', 'a00_03_padlock', 'a00_04_cage_terminal',
     'a00_05_ferry_deck', 'a00_06_cab_roof', 'a00_07_duct_to_ne_room', 'a00_08_switch', 'a00_09_ne_room_out')}
-BEAT_DIRS['a01_07_level_exit'] = DECOMP / 'build/s87/route_a01/a01_07_level_exit'
+BEAT_DIRS['a01_07_level_exit'] = refs.capture('s87/route_a01/a01_07_level_exit')
 BEATS = list(BEAT_DIRS)
 POOL, NODE, NODES = 0x7A5640, 0x2F0, 400
 

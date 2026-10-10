@@ -119,9 +119,10 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a01'
+ROUTE = refs.capture('s87/route_a01')
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA01.BIN'
 OUT = ROOT / 'build/area01/ovl'
 MASK = 0xFFFFFFFF

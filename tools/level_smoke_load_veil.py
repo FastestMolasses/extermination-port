@@ -37,7 +37,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUTE = ROOT.parent / 'Extermination/build/s87/route'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ROUTE = refs.capture('s87/route')
 CTX = 0x811CC0
 RUN_BYTES = 0x162B0
 LINES_END = 0x10 + 512 * 0x70

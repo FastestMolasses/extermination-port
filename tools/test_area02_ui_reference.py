@@ -62,6 +62,7 @@ os.environ.setdefault('EM_LANE', 'area02_ui')
 import reference_mode as RM  # noqa: E402
 import test_status_pages_reference as SP  # noqa: E402
 from test_player_slide_reference import EE, read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 R, U = SP.R, SP.U
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
@@ -72,7 +73,8 @@ T = 0x810130                       # the status block D_00810130 (00209DF0's arg
 FREE = 0x1A00000                   # zero in every capture: crafted inputs live here
 JOBS = R.JOBS
 
-CAP = ROOT.parent / 'Extermination' / 'build' / 's87'
+# v2.6.3 data: the a02 images are off the fork's v2.6.3 path (a01r and a02 kept together).
+CAP = refs.v263('s87', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
 IMAGES = {  # name -> capture directory; see docs/AREA02_UI.md section 2
     'r1': CAP / 'route_a01r' / 'a01r_01_event',        # end of the revisit event: item 0x20 held (source of a01r_s0)
     'r1s0': CAP / 'route_a01r' / 'a01r_s0_pickup',     # after the event's pickup: t[4] = 9, D_00810CB4 = 90

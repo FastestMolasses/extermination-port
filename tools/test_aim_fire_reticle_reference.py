@@ -21,6 +21,7 @@ import reference_mode as RM
 import test_player_slide_reference as S
 from test_area00_hud_reference import HudEE
 import test_aim_fire_target_reference as T
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT=ROOT/'build/aim-fire/reticle'
 FUNCS={0x1DD170:0x180,0x1DD2F0:0x30C,0x1DD600:0x1A4}
@@ -176,7 +177,7 @@ def cases():
                     'screen':tuple(rng.getrandbits(32) for _ in range(4)),
                     'point':tuple(rng.uniform(-1.2,1.2) for _ in range(3))+(1.,),
                     'fog':tuple(rng.uniform(-300,300) for _ in range(4))})
-    route=ROOT.parent/'Extermination/build/s87/route'
+    route=refs.capture('s87/route')
     for beat in sorted(route.glob('*')):
         if RM.in_scope_beat(beat.name) and (beat/'eeMemory.bin').exists():
             for fn in FUNCS:out.append({'fn':fn,'name':'capture','capture':str(beat),'kind':1})

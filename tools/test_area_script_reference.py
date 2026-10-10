@@ -44,6 +44,7 @@ import sys
 from reference_mode import FULL, banner, parallel_map
 from test_point_light_reference import RETURN, bits, number, signed, fp
 from test_truck_original_reference import TruckOracle
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
@@ -828,7 +829,7 @@ def scenarios():
 
 
 # ---------------------------------------------------------------- route captures
-ROUTE = DECOMP/'build/s87/route'     # docs/FIRST_LEVEL_ROUTE.md (pad-only play)
+ROUTE = refs.capture('s87/route')     # docs/FIRST_LEVEL_ROUTE.md (pad-only play)
 ROUTE_OWNERS = {'trigger_r17': 0x7AA2A0, 'elevator_r19': 0x7AA880, 'roger_r8': 0x7A8830,
                 'director_r12': 0x7A93F0, 'panel_r18': 0x7AA590, 'door_r0': 0x7A70B0}
 CAMERA_WORKERS = ('w_0018CBD0', 'w_0018D7B0', 'w_0022EC30', 'c_record')

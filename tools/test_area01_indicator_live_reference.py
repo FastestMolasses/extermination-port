@@ -17,6 +17,7 @@ import reference_mode as mode
 from test_area01_model_live_reference import ROOT,DECOMP,POSE_SOURCES,u32
 from test_module_loader_reference import read_elf_bytes
 from test_coll_move_reference import FloatEE
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT=ROOT/'build/level2/indicator'
 
@@ -41,7 +42,7 @@ def build():
 
 def main():
     start=time.monotonic();lib=build();elf=read_elf_bytes()
-    paths=sorted((DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     paths=[p for p in paths if p.read_bytes()[0x810700:0x810702]==b'\1\0']
     paths=paths if mode.FULL else [paths[0]]
     cases=steps=draws=rngs=parent_writes=0

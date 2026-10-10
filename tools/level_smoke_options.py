@@ -44,7 +44,8 @@ import struct
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CAPTURES = ROOT.parent / 'Extermination/build/c10/options'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.capture('c10/options')
 BEATS = ('opt_00_browse_close', 'opt_01_vibration', 'opt_02_sound', 'opt_03_screen_position',
          'opt_04_brightness', 'opt_05_button_config', 'opt_06_default', 'opt_07_load_cancel',
          'opt_08_quit_cancel')

@@ -73,11 +73,12 @@ import ee_float_model as FM  # noqa: E402
 from reference_mode import banner, part, pick, select, in_scope_beat  # noqa: E402
 import test_effect_original_reference as base  # noqa: E402
 from test_effect_original_reference import Decals, Work  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OPENING = DECOMP / 'build/startup-reference/opening_ee.bin'
 OUT = ROOT / 'build/effect_kinds_reference'
 M32 = (1 << 32) - 1

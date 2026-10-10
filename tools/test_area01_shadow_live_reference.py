@@ -12,6 +12,7 @@ import test_area01_model_draw_reference as D
 import test_shadow_original_reference as S
 import export_area01_shadow_receivers as E
 from test_coll_move_reference import FloatEE
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 def check(lib,elf,ram,spr,node,force,face=0):
     ram=bytearray(ram);ctx=D.u32(ram,0x275670)
@@ -80,7 +81,7 @@ def main():
     lib.as_plan.restype=C.POINTER(S.Plan);lib.as_state.restype=C.POINTER(S.State)
     lib.as_commands.argtypes=[C.POINTER(C.c_uint32),C.c_uint32]
     elf=D.read_elf_bytes()
-    paths=sorted((D.DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     paths=[p for p in paths if p.read_bytes()[0x810700:0x810702]==b'\1\0']
     paths=paths if mode.FULL else paths[:1]
     cases=drawn=receivers=packets=face_cases=0

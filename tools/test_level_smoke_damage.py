@@ -37,7 +37,8 @@ OUT = ROOT / 'build/level_smoke_damage'
 SIDES = ('dmg_flame', 'dmg_load', 'dmg_crevice_fall', 'dmg_pit_fall', 'dmg_fan')
 RECORDS = ('dmg_pit_fall', 'dmg_fan')   # EM_LOG_AIM_RECORDS=1: the tick log's "aimrec"
 SIDES = tuple(os.environ['EM_DAMAGE_SIDES'].split(',')) if os.environ.get('EM_DAMAGE_SIDES') else SIDES
-CAPTURES = ROOT.parent / 'Extermination/build/c10/damage'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.capture('c10/damage')
 
 
 def main():

@@ -54,10 +54,11 @@ import reference_mode  # noqa: E402
 from test_player_fall_reference import FallEE, nested_bits  # noqa: E402
 from test_player_slide_reference import read_elf, s32, RETURN  # noqa: E402
 import test_status_ui_leftovers_reference as sul  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build' / os.environ.get('EM_LANE', 'status_page_record_reference')
 M32, M64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 

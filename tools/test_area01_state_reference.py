@@ -17,6 +17,7 @@ from pathlib import Path
 import reference_mode as mode
 from test_module_loader_reference import LoaderEE
 from test_player_slide_reference import ELF_SHA256
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -64,8 +65,8 @@ def main():
     emsc = (ROOT / 'assets/area01/overlay_data.emsc').read_bytes()
     assert emsc[:20] == struct.pack('<5I', 0x43534D45, 1, DATA, DATA, 0x4300)
     assert emsc[20:] == overlay[DATA-BASE:]
-    capdirs = [DECOMP / 'build/s87/route/15_level_exit']
-    capdirs += sorted((DECOMP / 'build/s87/route_a01').glob('a01_*'))
+    capdirs = [refs.capture('s87/route/15_level_exit')]
+    capdirs += sorted((refs.capture('s87/route_a01')).glob('a01_*'))
     captures = []
     for cap in capdirs:
         ram = (cap / 'eeMemory.bin').read_bytes()

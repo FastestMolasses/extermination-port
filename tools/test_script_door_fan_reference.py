@@ -56,11 +56,12 @@ from reference_mode import FULL, banner, parallel_map, pick, select  # noqa: E40
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_fall_reference import FallEE, nested_bits  # noqa: E402
 from test_player_slide_reference import bits, number, sx32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 AREA11_BIN = DECOMP / 'extract/OVERLAY/AREA11.BIN'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 OUT = ROOT / 'build' / 'script_door_fan_reference'

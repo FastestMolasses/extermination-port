@@ -56,8 +56,9 @@ import ee_float_model as M  # noqa: E402
 import test_render_verify_rest_reference as RVR  # noqa: E402
 from test_player_slide_reference import (read_elf, sx32, s32, bits, number,  # noqa: E402
                                          DECOMP, ELF_SHA256)
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 BUILD = ROOT / 'build/census_unverified_reference'
 SRC = ROOT / 'src'
 MANIFEST = ROOT / 'assets/scene_snow/scene.txt'

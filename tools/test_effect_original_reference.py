@@ -40,11 +40,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ee_float_model as FM  # noqa: E402
 from reference_mode import banner, part, pick, select  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 M32, M64, M128 = (1 << 32) - 1, (1 << 64) - 1, (1 << 128) - 1
 ONE = 0x3F800000
 RET = 0x0BADF00C

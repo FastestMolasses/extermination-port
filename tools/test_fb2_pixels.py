@@ -2,11 +2,17 @@
 """The fb2 pixel harness: a number for "looks like the original".
 
 PORT_PROFILES.md "Queued work" 1 and GS_EXACT.md section 10. The original
-frames are the decomp's software-renderer framebuffers
-(`../Extermination/build/s87/c7cap/fb2/<point>/displayed.bin`, decomp
+frames are the decomp's software-renderer framebuffers (decomp
 CAPTURES_C7.md 5b): 19 route points, each the DISPFB2 field (512x224
 PSMCT32, RGBA bytes, raster order) two main-loop iterations after a
-recorded state. They are PCSX2's software GS, not real hardware.
+recorded state. They are PCSX2's software GS, not real hardware. By
+default they are the PCSX2 agent-debug fork's re-recordings
+(`../Extermination/build/fork_refs/pixels/fb2/<point>/displayed.bin`, with
+the fork's route `build/fork_refs/s87/route`; decomp PCSX2_FORK.md "Pixel
+references re-recorded on the fork"); EM_REFERENCE=v263 reads PCSX2
+2.6.3's (`build/s87/c7cap/fb2`, `build/s87/route`; tools/reference_root.py).
+The counters below are v2.6.3's; the fork's are 784 lower from first
+control on and 776 lower at the end of route 15.
 
 What is compared, and how (like with like):
 
@@ -39,8 +45,8 @@ What is compared, and how (like with like):
   s1 is found from the level smoke's own alignment
   (tools/test_level_smoke.py): a snapshot NN aligned at port tick i
   (post(i) = the recorded row `rec` of snapshot NN) gives tick
-  i + (s1 - rec); first control (post(idx) = route 01 f0 = counter 4085)
-  gives idx + (s1 - 4085). The harness then checks that the captured
+  i + (s1 - rec); first control (post(idx) = route 01 f0 = counter 4085,
+  FIRST_CONTROL_COUNTER: 3301 on the fork) gives idx + (s1 - 4085). The harness then checks that the captured
   tick is that tick, and reports whether the port's camera eye / target,
   the player's position / heading and the task bytes (`spad`) at it equal
   row s1 bit for bit ("camera exact"). Only then is the frame the same
@@ -88,7 +94,7 @@ Modes (CLAUDE.md "Tests"):
   recorded neutral-pad continuation.
 - `--point 15_level_exit` (about 2.5 min): only the AREA01 point, from one
   run to the AREA01 arrival. Its recorded snapshot is route 15's last row
-  f801 (counter 16562), the end of the smoke's a01_arrival phase, and the
+  f801 (counter 16562; the fork's f809, 15786), the end of the smoke's a01_arrival phase, and the
   capture session after it ran neutral-pad frames, as the port's run does
   after the phase; its row s1 (16564, two frames on) is not in route 15's
   trace, so the camera / player / task comparison uses the capture's own
@@ -124,11 +130,17 @@ import numpy as np
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM            # noqa: E402
+import reference_root as refs          # noqa: E402  (EM_REFERENCE: fork by default)
 import test_level_smoke as T           # noqa: E402
 
 DECOMP = ROOT.parent / 'Extermination'
-FB2 = DECOMP / 'build' / 's87' / 'c7cap' / 'fb2'
-ROUTE = DECOMP / 'build' / 's87' / 'route'
+# The fb2 points and the route (EM_REFERENCE, tools/reference_root.py): the
+# fork's re-recordings by default (build/fork_refs/pixels/fb2 and
+# build/fork_refs/s87/route; decomp PCSX2_FORK.md "Pixel references
+# re-recorded on the fork"), PCSX2 2.6.3's (s87/c7cap/fb2, s87/route) with
+# EM_REFERENCE=v263.
+FB2 = refs.capture('s87/c7cap/fb2')
+ROUTE = refs.capture('s87/route')
 BIN = ROOT / 'build' / 'extermination'
 OUT = ROOT / 'build' / 'fb2_pixels'
 
@@ -136,7 +148,9 @@ POINTS = ('00_panel_no_battery', '01_battery', '02_elevator_refusal', '03_panel_
           '05_boxes', '06_hill_slide', '07_truck_preview', '08_truck_crossing', '09_fence_door',
           '10_cage_roof_roger', '11_crevice_prompt', '12_crevice_jump', '13_east_tower', '14_roger_encounter',
           '15_level_exit', 'first_control', 'route03_end', 'route07_end')
-FIRST_CONTROL_COUNTER = 4085   # route 01 f0 = user slot 04 (the smoke's first_control tick)
+# route 01 f0 = the first-control state (the smoke's first_control tick): the
+# fork chain's counters are 784 lower than v2.6.3's from first control on.
+FIRST_CONTROL_COUNTER = 3301 if refs.FORK_MODE else 4085
 GS_W, GS_H, GS_OFY = 512, 224, 1936.0
 GPU = os.environ.get('EM_GPU_RENDERER') == '1'
 # Exact-match floors (fraction of the 114,688 pixels) of the presented GS
@@ -162,6 +176,15 @@ FLOORS = {
     # exact, 98.57 %, under the overlay pass's transition fade).
     '15_level_exit': 0.985,
 }
+if refs.FORK_MODE:
+    # Against the fork's fb2 points (2026-10-10; GS_EXACT.md 10.3): 16 of
+    # the 19 fields equal v2.6.3's bit for bit, so the floors above hold,
+    # and 08 rises (3.14 -> 3.26 %: the fork's field there is drawn with the
+    # port's half line, v2.6.3's was a post-load hitch's). 15_level_exit
+    # keeps its floor: the fork's arrival field is drawn half a line lower
+    # (OFY 1936.5) than the port's and v2.6.3's (1936.0), 18.03 % exact; an
+    # open finding (GS_EXACT.md 10.3), not a floor to lower.
+    FLOORS = dict(FLOORS, **{'08_truck_crossing': 0.032})
 # The same with the GPU renderer (EM_GPU_RENDERER=1), measured 2026-09-28.
 FLOORS_GPU = {
     'first_control': 0.008,
@@ -505,9 +528,10 @@ def quick_point(points):
 def area01_point(points):
     """15_level_exit from one run to the AREA01 arrival (a01_arrival + 2)."""
     p = points['15_level_exit']
-    # The capture session ran neutral-pad frames after f801, as the port's
-    # idle does: the idle is lengthened by s1 - rec ticks (EM_A01_ARRIVAL_TICKS;
-    # the a01_arrival check still compares f742..f801) so that it ends on row
+    # The capture session ran neutral-pad frames after route 15's last row
+    # (f809 on the fork, f801 on v2.6.3), as the port's idle does: the idle
+    # is lengthened by s1 - rec ticks (EM_A01_ARRIVAL_TICKS; the a01_arrival
+    # check still compares its 60 world rows) so that it ends on row
     # s1's tick, and the hook (which runs inside the phase's last tick, before
     # that tick is logged) captures that tick (+1). The assertion below checks
     # the captured tick is the aligned one.

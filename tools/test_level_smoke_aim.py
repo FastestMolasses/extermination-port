@@ -59,7 +59,8 @@ SIDES = tuple(os.environ['EM_AIM_SIDES'].split(',')) if os.environ.get('EM_AIM_S
 # frames between the two recordings: their frame counters).
 STICK_SCRIPTS = {'aim_world': ('aim_04_world_hit',), 'aim_cable': ('aim_10_cable_shots', 'aim_11_cable_melee'),
                  'aim_burst': ('aim_05_burst_fire',)}
-AIMFIRE = ROOT.parent / 'Extermination/build/aimfire/capture'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+AIMFIRE = refs.capture('aimfire/capture')
 
 
 def pad_script(side):

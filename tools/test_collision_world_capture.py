@@ -45,9 +45,10 @@ import struct
 import subprocess
 import sys
 from pathlib import Path
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUTE = ROOT.parent / 'Extermination/build/s87/route'
+ROUTE = refs.capture('s87/route')
 DISC = ROOT / 'assets/scene_snow/area11_cells.bin'
 OUT = ROOT / 'build/collision_world'
 PORT_MOVED = {4, 14, 15, 19, 21, 22, 23, 24, 25}   # the terminal, the truck, the security gun

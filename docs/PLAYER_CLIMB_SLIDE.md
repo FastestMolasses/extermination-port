@@ -284,13 +284,18 @@ Corrections found against the instructions (the readable C is not trusted):
 
     So the climb comparisons use the seeded press, and only the slide beat
     is replayed whole.
-  World checks (the default column sample and `EM_TEST_WORLD=1`) read
-  `../Extermination/build/startup-reference/playable_ee.bin` and the state04
-  scratchpad, which the tests extract on first use from the startup-reference
-  save state `SCUS-97112 (0AE679AF).04.p2s` (its eeMemory.bin is
-  byte-identical to playable_ee.bin) with the decomp venv's zstd reader into
-  `build/player_world_reference/state04_scratchpad.bin`. Without those
-  inputs the default column sample is skipped with a message.
+  World checks (the default column sample and `EM_TEST_WORLD=1`) read the
+  first-control world: by default (2026-10-10, LEVEL_SMOKE.md "References:
+  fork") the fork state
+  `../Extermination/build/startup-reference/fork-states/phase/slot04_first_control/`
+  (its eeMemory.bin and scratchpad.bin); with `EM_REFERENCE=v263`
+  `playable_ee.bin` and the state04 scratchpad, which the tests extract on
+  first use from the v2.6.3 save state `SCUS-97112 (0AE679AF).04.p2s` (its
+  eeMemory.bin is byte-identical to playable_ee.bin) with the decomp venv's
+  zstd reader into `build/player_world_reference/state04_scratchpad.bin`.
+  Without those inputs the default column sample is skipped with a message.
+  `EM_TEST_WORLD=1` passes on the fork state (2026-10-10: 206 rows of route
+  06 and the 175-frame world run, identical records).
 
 ## 5. Clips
 

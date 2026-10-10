@@ -62,7 +62,8 @@ import chain_page_model as M  # noqa: E402
 from reference_mode import parallel_map  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUTE = ROOT.parent / 'Extermination/build/s87/route'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ROUTE = refs.capture('s87/route')
 MARKER_TEX0 = 0x00045B0599421EF0
 CLD_MASK = ~(7 << 61) & (2 ** 64 - 1)
 VIEW_EXACT = ('10_cage_roof_roger', '14_roger_encounter')

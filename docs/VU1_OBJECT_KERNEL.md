@@ -231,8 +231,13 @@ measured on VU0, and the INI gives VU1 the same settings. It remains an
 assumption until VU1 is measured.
 
 **Partial VU1-executed evidence: PCSX2 save state 14.** Of all the
-startup-reference and route save states, only
-`SCUS-97112 (0AE679AF).14.p2s` has the object kernel in `vu1MicroMem`. Its
+startup-reference and route save states, only slot 14 (the status hub)
+has the object kernel in `vu1MicroMem`: by default (2026-10-10,
+LEVEL_SMOKE.md "References: fork") the fork state
+`fork-states/phase/slot14_status_hub` (a loop-top state: 781 of its 16,384
+vu1Memory bytes differ from the v2.6.3 slot's, the same drawing counts),
+with `EM_REFERENCE=v263` the v2.6.3 slot `SCUS-97112 (0AE679AF).14.p2s`;
+both pass the check below. Its
 `vu1Memory` holds both double-buffer blocks after PCSX2's VU1 ran them
 (PRIM 0x03C). Running `em_vu1_object_kernel_mscal` over that image at TOP
 0x1B0 and at TOP 0x2BE (the MSCAL constants are still in dmem 1013..1023)

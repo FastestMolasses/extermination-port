@@ -29,8 +29,9 @@ Also checked against original captures (not the oracle):
   - the 15 route beats: the counter 0x70003B64 advances by exactly one per
     traced frame, the snapshot's counter is 0x70003B64, and D_00810E90 (the
     handler's vblank count) equals the recorded vsync counter;
-  - asserted route facts: D_00810E90 - 0x70003B64 is the single value 9937
-    over all 15 beats, (D_00810E80, D_00810E88) is (0, 1) or (1, 0), and
+  - asserted route facts: D_00810E90 - 0x70003B64 is one value over all 15
+    beats (19461 in the fork's route, 9937 in v2.6.3's: the recording's
+    vsync count, not game state), (D_00810E80, D_00810E88) is (0, 1) or (1, 0), and
     D_00810E98 is 1 at every loop top.
 
 The live em_frame.c is NOT audited here (this test depends only on the
@@ -54,11 +55,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, s32, sx32, RETURN  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
-FRAME_TRACE = DECOMP / 'build/s87/frame_trace'
+ROUTE = refs.capture('s87/route')
+FRAME_TRACE = refs.v263('s87/frame_trace', 'the frame traces are not re-recorded on the fork')
 STARTUP = DECOMP / 'build/startup-reference'
 LANE = os.environ.get('EM_LANE', 'b7-main-loop-and-gap')
 OUT = ROOT / 'build' / LANE
@@ -695,7 +697,11 @@ def route_checks():
         rows += len(counters)
         beats += 1
     assert beats == 15, beats
-    check(offsets == {9937}, 'route', 'D_00810E90 - 0x70003B64 not one constant 9937', sorted(offsets))
+    # The constant is the recording's (the vsyncs its boot and loads took
+    # beyond the main-loop iterations: emulator timing, not game state):
+    # 19461 in the fork's route, 9937 in v2.6.3's (tools/reference_root.py).
+    want = 19461 if refs.FORK_MODE else 9937
+    check(offsets == {want}, 'route', f'D_00810E90 - 0x70003B64 not one constant {want}', sorted(offsets))
     check(phases <= {(0, 1), (1, 0)}, 'route', '(D_00810E80, D_00810E88) phase', sorted(phases))
     return rows, beats, offsets, phases, flags
 

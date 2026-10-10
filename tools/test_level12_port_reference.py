@@ -69,6 +69,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {10: DECOMP / 'extract/OVERLAY/AREA13.BIN', 16: DECOMP / 'extract/OVERLAY/AREA19.BIN'}
@@ -82,9 +83,9 @@ STACK_SIZE = STACK_TOP - STACK_LO
 BEAT_DIRS = {}
 for _b in ('a13d_00_stair', 'a13d_01_ladder405', 'a13d_02_block890', 'a13d_03_jump', 'a13d_04_ladder426',
            'a13d_05_ladder432', 'a13d_06_door20', 'a13d_07_hatch63'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a13d' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a13d', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 for _b in ('a19b_00_arrival', 'a19b_01_ledge', 'a19b_02_ladder1023'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a19b' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a19b', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # a13d images hold AREA13 (overlay id 10), a19b images AREA19 (id 16) at
 # 0x823504 (TWELFTH_LEVEL_ROUTE.md section 1).

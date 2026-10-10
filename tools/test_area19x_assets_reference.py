@@ -64,6 +64,7 @@ import export_area19x_common as X19  # noqa: E402  (first: re-points the AREA13 
 import export_area19x_split as SPLIT  # noqa: E402
 import export_area19x_tables as XT  # noqa: E402
 import test_area13_assets_reference as T13  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 X19.install()
 A13, C, LV, TB = X19.A13, X19.C, X19.LV, X19.TB
@@ -75,7 +76,7 @@ RELOAD = Path(os.environ.get('EM_AREA19X_ASSETS') or X19.OUT).resolve()
 BASE = X19.A19_TREE.resolve()
 BUILD = C.ROOT / 'build/area19x/assets/test'
 VIEW = BUILD / f'view-{os.getpid()}'
-CENSUS = C.DECOMP / 'build/s87/census/a19b_delta.json'
+CENSUS = refs.v263('s87/census/a19b_delta.json', 'the census is not re-run on the fork (only segment 00)')
 FIRST_RAM = X19.FIRST_LAST / 'eeMemory.bin'          # a19_02: the first load's relocation words
 GRID = 0x1900500                                     # D_0028A598 of the second load (a19_02: 0x18FE980)
 SHIFT = X19.CURSOR - X19.FIRST_CURSOR                # 0x1B80

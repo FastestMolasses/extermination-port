@@ -61,9 +61,10 @@ import test_player_hang_reference as HANG  # noqa: E402
 import test_effect_original_reference as EFF  # noqa: E402
 import test_status_scene_reference as SCN  # noqa: E402
 from test_player_slide_reference import read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a01'
+ROUTE = refs.capture('s87/route_a01')
 OUT = ROOT / 'build' / 'area01' / LANE
 PLAYER = 0x8102B0
 BEATS = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists()) if ROUTE.exists() else []

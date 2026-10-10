@@ -63,6 +63,7 @@ import reference_mode  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, REFERENCE, DECOMP  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 LANE = os.environ.get('EM_LANE', 'b6-load-veil-particles')
@@ -99,8 +100,19 @@ FRAME_0021B1B0, FRAME_001DFA40, TABLE_AT = 0xB0, 0x10F0, 0xD0
 TABLE_BYTES = 0x1000
 
 CAPTURE = REFERENCE / 'opening_ee.bin'
-BLOCK_CAPTURES = [REFERENCE / n for n in ('opening_ee.bin', 'playable_ee.bin', 'handoff_ee.bin')]
-ROUTE = DECOMP / 'build/s87/route'
+# The veil block after the New Game's load (capture_evidence): its +0x04
+# phase counts the 0021B500 steps the PS2 disc load ran, which is disc
+# timing, so each reference is checked against its own recordings: the
+# fork's opening, fade-in and first-control states and route by default
+# (phase 0.855, the fork's load runs longer), v2.6.3's opening / playable /
+# hand-off probes and route with EM_REFERENCE=v263 (phase 0.806). The
+# oracle RAM (CAPTURE) stays the v2.6.3 opening probe in both.
+if refs.FORK_MODE:
+    BLOCK_CAPTURES = [refs.FORK_STATES / 'phase' / n / 'eeMemory.bin'
+                      for n in ('slot02_opening', 'slot03_fade_in', 'slot04_first_control')]
+else:
+    BLOCK_CAPTURES = [REFERENCE / n for n in ('opening_ee.bin', 'playable_ee.bin', 'handoff_ee.bin')]
+ROUTE = refs.capture('s87/route')
 
 
 def in_translated(pc):
@@ -569,8 +581,11 @@ def capture_evidence():
     """The veil block after New Game in every capture, against the executed
     0021B1B0 (the +0x14 seed) and 0021B500 (the +0x04 phase), native too."""
     veil = veil_block_address()
-    block = bytes(BASE[veil:veil + 0x1C])
     sources = [p for p in BLOCK_CAPTURES if p.exists()]
+    assert sources, ('no veil block capture', BLOCK_CAPTURES)
+    block = sources[0].read_bytes()[veil:veil + 0x1C]
+    assert block[:4] == bytes(BASE[veil:veil + 4]) and block[8:] == bytes(BASE[veil + 8:veil + 0x1C]), \
+        ('the reference\'s veil block differs from the oracle RAM\'s beyond the phase', block.hex())
     if ROUTE.exists():
         sources += sorted(q for q in ROUTE.glob('*/eeMemory.bin') if reference_mode.in_scope_beat(q.parent.name))
     for path in sources:

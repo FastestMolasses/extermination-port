@@ -92,10 +92,11 @@ import time
 from reference_mode import FULL, banner, part, pick, select, parallel_map
 import test_owner_draw_reference as od
 from test_shadow_original_reference import VU1, signed
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 STARTUP = DECOMP / 'build/startup-reference'
 OUT = ROOT / 'build/vu1_object_clip_reference'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'

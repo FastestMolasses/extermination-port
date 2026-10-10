@@ -106,6 +106,11 @@ The trigger does **not** arm the truck.
   - For the trigger (`--capture trigger`, band point (325, 235, 420)), all 366 frames match: the script starts on
     frame 0, is polled 364 times, sets `D_00810792 = 1` on frame 364, and the node is freed on frame 365.
   - Captures are stored in `../Extermination/build/s87/truck/` (gitignored).
+  - Since 2026-10-10 (LEVEL_SMOKE.md "References: fork") `--capture` drives the PCSX2 fork from the fork state
+    `phase/slot04_first_control` into `../Extermination/build/fork_refs/s87/truck/`, and `--compare-capture`
+    reads that recording by default (`EM_REFERENCE=v263` keeps the 2.6.3 one above). Recorded on 2026-10-10:
+    230 truck frames and 400 trigger frames; the native module matches all 230 truck frames (36 worker calls, 32
+    effect positions) and all 366 trigger frames, as on the 2.6.3 recording.
 
 ## Boundaries (workers; a missing worker faults with -1)
 

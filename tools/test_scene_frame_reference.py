@@ -73,10 +73,11 @@ import sys
 from test_point_light_reference import RETURN, signed
 from test_scene_classify_reference import ClassifierOracle
 import test_status_frame_reference as status_ref
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
-TRACE_DIR = DECOMP/'build/s87/frame_trace'
+TRACE_DIR = refs.v263('s87/frame_trace', 'the frame traces are not re-recorded on the fork')
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 TASK = 0x900000
 TASK_PTR = 0x70003B6C

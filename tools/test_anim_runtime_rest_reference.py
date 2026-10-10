@@ -56,10 +56,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode  # noqa: E402
 import test_player_slide_reference as SR  # noqa: E402
 import test_pose_host_workers_reference as PH  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 LANE = ROOT / 'build/b7-anim-runtime-rest'
 
 PLAYER, ROGER = 0x8102B0, 0x7A8830

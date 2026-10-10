@@ -8,11 +8,15 @@
 /* The state the boot's and the title's bank uploads leave, which the port
  * does not run (001AB7E0 step 1's common bank: handles 0..2 in bucket 1;
  * the title module's bank: handle 3 in bucket 3). Every value is the title
- * capture's (startup-reference save state slot 01, taken at the title
- * before New Game) and holds until the New Game area load: route capture
- * 00 shows the same entries plus the area bank's. They are addresses and
- * counters, not disc data. tools/test_sound_bank_reference.py checks each
- * against the capture. */
+ * capture's (the fork state slot01_title, the title before New Game; the
+ * v2.6.3 slot 01 holds the same values) and holds until the New Game area
+ * load: route capture 00 shows the same entries plus the area bank's. They
+ * are addresses and counters, not disc data. The one value the two
+ * recordings disagree on is D_002821A0, the kernel's SIF DMA id (the
+ * fork's boot 0x527C1602, v2.6.3's 0x530D1702): the id comes from the
+ * boot's DMA history, which the port does not model, and 001FB910 only
+ * tests it against 0; the seed follows the fork, the default reference.
+ * tools/test_sound_bank_reference.py checks each against the capture. */
 static const struct {
     uint32_t handles[4][3];      /* D_0027C6C0[0..3]: {in use, SShd header, SPU >> 3} */
     int32_t counts[8];           /* D_00281D30 */
@@ -37,7 +41,7 @@ static const struct {
     0, 0, 1, 1,
     3, 0xDE800, 0x12C770,
     0x0180AD00u,
-    0x530D1702,
+    0x527C1602,
     0x01800030u,
     0x4D, 0,
 };

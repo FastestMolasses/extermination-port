@@ -21,6 +21,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as mode
 from test_player_slide_reference import EE, read_elf, STACK_TOP, RETURN, sx32, s32
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/aim-fire/control'
 ENTRIES = {0x16F530: 0xA0, 0x16F5D0: 0x30, 0x16F600: 0x6EC, 0x172860: 0x138,
@@ -241,7 +242,7 @@ def cases():
         for seed in range(480):
             allcases.append(dict(entry=entry,seed=seed,p=ACTOR,arg=LINK if entry==0x17A800 else seed%6 if entry==0x17A8B0 else [-1,0,1,2,3,255][seed%6],
                                  farg=[F(.01),F(.015),F(.025),F(-.01)][seed%4],mutate=seed%2==1))
-    route=ROOT.parent/'Extermination/build/s87/route'
+    route=refs.capture('s87/route')
     for path in sorted(route.glob('*/eeMemory.bin')):
         if not mode.in_scope_beat(path.parent.name): continue
         with path.open('rb') as stream: stream.seek(0x8102B0); record=stream.read(0x320)

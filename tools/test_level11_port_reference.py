@@ -70,6 +70,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {10: DECOMP / 'extract/OVERLAY/AREA13.BIN'}
@@ -83,7 +84,7 @@ STACK_SIZE = STACK_TOP - STACK_LO
 BEAT_DIRS = {}
 for _b in ('a13c_00_recharger', 'a13c_01_to_machine', 'a13c_02_battery', 'a13c_03_blast', 'a13c_04_cure',
            'a13c_05_boom', 'a13c_06_south'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a13c' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a13c', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # Every image holds AREA13 (overlay id 10 at 0x823504): the group stays in
 # one AREA13 load (ELEVENTH_LEVEL_ROUTE.md).

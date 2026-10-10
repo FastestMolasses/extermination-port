@@ -36,11 +36,12 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import test_player_slide_reference as S  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/camera-aim'
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
-AIM = DECOMP / 'build/aimfire/capture'
+ROUTE = refs.capture('s87/route')
+AIM = refs.capture('aimfire/capture')
 
 # The translated routines and their sizes (bytes of instructions).
 FUNCS = {0x197D20: 0x324, 0x198650: 0x2D4, 0x18CA90: 0x140, 0x197740: 0x130, 0x197870: 0x4A4,

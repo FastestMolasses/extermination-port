@@ -52,6 +52,7 @@ import reference_mode  # noqa: E402
 import test_pose_host_workers_reference as HW  # noqa: E402
 import export_player_clips as EX  # noqa: E402
 from test_coll_move_reference import watch_writes  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 LANE = ROOT / 'build/player-clips'
@@ -421,7 +422,7 @@ def main():
 
     labels = ['playable_ee']
     IMAGES['playable_ee'] = ((DECOMP / 'build/startup-reference/playable_ee.bin').read_bytes(), bytes(0x4000))
-    route = DECOMP / 'build/s87/route'
+    route = refs.capture('s87/route')
     quick = ('06_hill_slide', '10_cage_roof_roger')
     for beat in sorted(p for p in route.iterdir() if p.name[:2].isdigit() and p.name < '15'):
         if reference_mode.FULL or beat.name in quick:

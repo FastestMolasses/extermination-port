@@ -53,10 +53,14 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reference_mode import FULL, MODE  # noqa: E402
+import reference_root as refs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-B16 = Path(os.environ.get('GSCAP_ROOT', DECOMP / 'build/b16'))
+# The GS conformance captures: GSCAP_ROOT, else the EM_REFERENCE set
+# (tools/reference_root.py): the fork's build/fork_refs/pixels/b16 by
+# default, build/b16 (PCSX2 2.6.3) with EM_REFERENCE=v263.
+B16 = Path(os.environ.get('GSCAP_ROOT', refs.capture('b16')))
 CAP = B16 / 'gscap'                         # its layout batch holds the measured maps
 OUT = ROOT / 'build/b16/gs_raster'
 SETS = [

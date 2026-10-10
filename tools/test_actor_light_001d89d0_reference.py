@@ -54,6 +54,7 @@ from reference_mode import banner, part, pick, parallel_map
 from test_owner_services_reference import (Owner, Bone, Scratch, Channel, Services, WORKER_TYPES,
                                            OWNER_BYTES, OWNER_FLOATS, MAX_BONES, M32, M64, M128, ONE,
                                            bits, number)
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -707,7 +708,7 @@ def main():
     o.run(0x102798, (0x500100, 0x500000))
     assert list(struct.unpack('<16I', o.read(0x500100, 64))) == [m[4 * c + r] for r in range(4) for c in range(4)]
 
-    base = DECOMP / 'build/s87/route'
+    base = refs.capture('s87/route')
     for beat in tod.BEATS:
         p = base / beat
         if (p / 'eeMemory.bin').exists() and (p / 'scratchpad.bin').exists():

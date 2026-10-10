@@ -42,11 +42,12 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, s32  # noqa: E402
 from test_player_floor_reference import (LiveActor, StageScene, StageWorkers, Stage,  # noqa: E402
                                          STATE_FN, RESULT_FN)
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REFERENCE = DECOMP / 'build/startup-reference'
 WORLD_RAM = REFERENCE / 'playable_ee.bin'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 SEED_CAPTURES = (ROUTE / '05_boxes/eeMemory.bin', ROUTE / '10_cage_roof_roger/eeMemory.bin')
 PLAYER = 0x8102B0                 # the player record (D_008104C4 is its +214)
 PTRS, NODE = 0x1F80000, 0x1F80100  # scratch: [D_00275B40] -> PTRS, [PTRS] -> NODE

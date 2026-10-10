@@ -21,9 +21,10 @@ import reference_mode
 from test_area01_math_reference import CALL, Mem
 from test_coll_probe_reference import ProbeEE
 from test_player_slide_reference import bits, read_elf
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/area01/light_owner'
-CAPTURE = ROOT.parent / 'Extermination/build/c10/exit/exit_01_movie_arrival'
+CAPTURE = refs.capture('c10/exit/exit_01_movie_arrival')
 PREDICATE, OWNER = 0x1C4FA0, 0x1C50B0
 SP = 0x1F00000
 FLAGS = (0x810C87, 0x81075D, 0x81076D, 0x810770, 0x810700, 0x810701)

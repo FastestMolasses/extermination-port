@@ -117,9 +117,10 @@ import reference_mode  # noqa: E402
 import test_coll_move_reference as MV  # noqa: E402
 import test_coll_probe_reference as cp  # noqa: E402
 from test_player_slide_reference import read_elf, sx32, DECOMP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/coll_grid_hull_reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 
 GRID, LOCK6440, LOCK6AD0, LOCK7280 = 0x19CB60, 0x1A6440, 0x1A6AD0, 0x1A7280
 RANKS, NODE_TEST = 0x19F1A0, 0x19ED80

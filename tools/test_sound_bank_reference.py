@@ -31,7 +31,10 @@ B. Chain. The ORIGINAL 001FB370 (with 001FB3E0, 001FB910, the library and
    D_00281D30, D_00281D50, D_00275B18 / 1C, D_0027C6C0, D_002819C0, the
    count and the acknowledgement), the queued commands and the IOP heap
    block must be equal.
-C. Captures. EM_SOUND_BANK_SEEDS equal the title capture byte for byte (the
+C. Captures (EM_REFERENCE, tools/reference_root.py: the fork's title state
+   slot01_title and route 00 by default; v263 for the 2.6.3 slot 01 and
+   route 00, where the seed D_002821A0, the kernel's SIF DMA id, is the
+   one known difference). EM_SOUND_BANK_SEEDS equal the title capture byte for byte (the
    boot's and the title's uploads, which the port does not run); after the
    chain every modelled global equals route capture 00 (the kernel's DMA id
    D_002821A0 and D_002819C0, which the SFX sequencer 00116DB8 consumes
@@ -56,12 +59,18 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from reference_mode import FULL, banner, part, pick  # noqa: E402
 from test_player_slide_reference import EE, read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OUT = ROOT / 'build' / os.environ.get('EM_LANE', 'sound_bank_reference')
-TITLE_STATE = DECOMP / 'build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).01.p2s'
-ROUTE00 = DECOMP / 'build/s87/route/00_panel_no_battery/state.p2s'
+TITLE_STATE = refs.slot_state(1)   # fork: fork-states/slot01_title; v263: user slot 01
+ROUTE00 = refs.capture('s87/route/00_panel_no_battery') / 'state.p2s'
 ISO = DECOMP / 'Extermination-rebuilt.iso'
+# The exchange-timing pin: v2.6.3 route 00's D_00275B18 in both modes (the
+# fork's IOP acknowledges the bank upload 6 fields later; check_chain).
+TIMING_PIN_B18 = struct.unpack_from('<I', refs.v263(
+    's87/route/00_panel_no_battery/eeMemory.bin',
+    'the IOP upload time is hardware timing; the fork waits 8 calls, v2.6.3 2').read_bytes(), 0x275B18)[0]
 MASK = 0xFFFFFFFF
 
 D_27C6C0, D_2819C0, D_27F740, D_2817C0, D_27CCC0, D_27F7C0 = \
@@ -490,8 +499,15 @@ def run_chain(elf, native, bank, ack_fields=2, compare=True):
     model.hooks(o, bank)
     if compare:
         assert native.lib.nb_init((C.c_int32 * 5)(*BASES)) == 0
-        assert native.dump() == oracle_dump(o), ('seeds differ from the title capture',
-                                                 first_diff(native.dump(), oracle_dump(o)))
+        n, ref = native.dump(), oracle_dump(o)
+        if not refs.FORK_MODE:
+            # The seed D_002821A0 (the kernel's SIF DMA id) is the fork
+            # title's; the v2.6.3 boot left 0x530D1702 (em_sound_bank.c).
+            i = DUMP_NAMES.index('D_002821A0')
+            assert ref[i] & MASK == 0x530D1702, hex(ref[i] & MASK)
+            ref[i] = n[i]
+            o.save(0x2821A0, n[i] & MASK)   # the chain then runs from the port's seed
+        assert n == ref, ('seeds differ from the title capture', first_diff(n, ref))
     buf = (C.c_uint8 * len(bank)).from_buffer_copy(bank)
     calls, result = 0, 0
     while result == 0:
@@ -529,6 +545,17 @@ def check_chain(elf, native, bank):
     n = native.dump()
     ref = oracle_dump(r00)
     skipped = {'D_002821A0'} | {f'D_002819C0 word {i}' for i in range(64)}
+    # D_00275B18, 001FB3E0's retry countdown (0x50 at the request, one less
+    # per call until the IOP's acknowledgement), counts the IOP's time for
+    # the 0x492D0-byte SPU upload: hardware timing. The port's exchange
+    # model (two fields) was pinned on v2.6.3's route 00 (0x4E, 2 waits);
+    # the fork's route 00 holds 0x48 (8 waits). The pin stays on the v2.6.3
+    # value (LEVEL_SMOKE.md "References: fork"), the fork's is checked as
+    # recorded so a change shows.
+    i = DUMP_NAMES.index('D_00275B18')
+    if refs.FORK_MODE:
+        assert ref[i] & MASK == 0x48, ('fork route 00 D_00275B18', hex(ref[i] & MASK))
+        ref[i] = TIMING_PIN_B18
     for name, a, b in zip(DUMP_NAMES, n, ref):
         if name in skipped:
             continue
@@ -563,8 +590,8 @@ RAM = {}
 
 def main():
     elf = read_elf()
-    RAM['title'] = extract(TITLE_STATE, 'title_slot01')
-    RAM['route00'] = extract(ROUTE00, 'route00')
+    RAM['title'] = extract(TITLE_STATE, f'title_slot01_{refs.MODE}')
+    RAM['route00'] = extract(ROUTE00, f'route00_{refs.MODE}')
     for name, ram in RAM.items():
         lo, hi = 0x100000, 0x240000
         assert ram['eeMemory.bin'][lo:hi] == elf[0x300:0x300 + hi - lo], (name, 'captured code differs')
@@ -573,12 +600,13 @@ def main():
     bank = area11_bank()
     ran, total = library_cases(elf, bytearray(RAM['title']['eeMemory.bin']), native, rng)
     calls, size, wait = check_chain(elf, native, bank)
-    assert wait == 0x4E == u32(RAM['route00']['eeMemory.bin'], 0x275B18), hex(wait)
+    assert wait == 0x4E == TIMING_PIN_B18, hex(wait)
     mutants = check_mutants(elf, native, bank, wait)
     banner(part(ran, total, 'library cases'),
            f'the chain: {calls} 001FB370 calls on the AREA11 bank (0x{size:X} bytes uploaded), every modelled '
-           'byte equal to the original after each; seeds equal the title capture; the end state equal to '
-           'route 00 (SPU RAM at 0x1A0000 and IOP RAM at 0xDE800 included)',
+           f'byte equal to the original after each; reference {refs.MODE}: seeds equal the title capture; the end '
+           'state equal to route 00 (SPU RAM at 0x1A0000 and IOP RAM at 0xDE800 included; D_00275B18 against '
+           'v2.6.3\'s, the exchange-timing pin)',
            'exchange mutants refuted by D_00275B18: ' +
            ', '.join(f'ack after {f} field(s) -> {c} calls, 0x{b:X}' for f, c, b in mutants))
     print('test_sound_bank_reference: PASS')

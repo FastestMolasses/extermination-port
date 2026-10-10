@@ -35,10 +35,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import export_disc_textures_gs as G  # noqa: E402
 import export_module_loader as EML  # noqa: E402
 from test_player_slide_reference import EE, RETURN, read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MODULE, SLOT, D_0028A490, D_0028A748 = 0x1E, 0x38, 0x0028A490, 0x0028A748
 TABLE = 0x002658C0
-CAPTURES = [ROOT.parent / 'Extermination/build/s87/route' / b for b in (
+CAPTURES = [refs.capture('s87/route') / b for b in (
     '00_panel_no_battery', '01_battery', '03_panel_power', '08_truck_crossing', '14_roger_encounter')]
 CAPTURES.append(ROOT.parent / 'Extermination/build/startup-reference/status-hub')
 

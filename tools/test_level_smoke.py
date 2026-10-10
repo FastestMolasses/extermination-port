@@ -107,28 +107,36 @@ import sys
 import level_smoke_damage  # the DAMAGE side runs (docs/DAMAGE.md section 8)
 import level_smoke_branch  # the BRANCH side runs (audit 1b item 16; LEVEL_SMOKE.md)
 import level_smoke_options  # the OPTIONS side run (audit 1b item 15; docs/OPTIONS.md)
-import level_smoke_area01  # the AREA01 arrival idle (route 15 f741..f801) and the opt-in AREA01 routes
+import level_smoke_area01  # the AREA01 arrival idle (route 15 f749..f809 on the fork) and the opt-in AREA01 routes
+import reference_root as refs  # EM_REFERENCE: the fork's recordings by default (LEVEL_SMOKE.md "References: fork")
 import rand_order as R
 import test_scene_task_reference as tsr
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
-STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
-C7_DOOR1 = DECOMP / 'build/s87/c7cap/door1/c7_door1_fence_door_side1'   # decomp docs/CAPTURES_C7.md section 4
-AIMFIRE = DECOMP / 'build/aimfire/capture'   # decomp docs/CAPTURES_C10.md "AIM"
-STATUS_04 = DECOMP / 'build/s87/frame_trace2/status_04.json'
+ROUTE = refs.capture('s87/route')
+STREAM_CAPTURE = refs.v263('s87/c7cap/stream',   # decomp docs/CAPTURES_C7.md section 1
+                           'the C7 stream capture is not re-recorded on the fork (PCSX2_FORK.md plan set 5)')
+C7_DOOR1 = refs.capture('s87/c7cap/door1/c7_door1_fence_door_side1')   # decomp docs/CAPTURES_C7.md section 4
+AIMFIRE = refs.capture('aimfire/capture')   # decomp docs/CAPTURES_C10.md "AIM"
+STATUS_04 = refs.v263('s87/frame_trace2/status_04.json',
+                      'the status trace from slot 04 has no fork recording; its frames are relative')
 # The module-0x21 loads' slot-2 record and D_00275BD8 per frame: route 03's
 # (decomp docs/CAPTURES_C7.md section 6, h7) and route 01's load-wait probe
 # (docs/STATUS_LOAD_WAIT_PROBE.md), in the route rows' frame numbering.
-H7_FRAMES = DECOMP / 'build/s87/c7cap/h7/fields/frames.jsonl'
-PROBE01 = DECOMP / 'build/s87/loadwait/01_battery/probe_boundary.json'
+# Both stay v2.6.3 data (no fork run of h7 or of the boundary mode yet); they
+# are in the route rows' frame numbering, and routes 01 and 03 are equal on
+# the fork in every row field and phase.
+H7_FRAMES = refs.v263('s87/c7cap/h7/fields/frames.jsonl', 'c7cap_partb.py h7 not run on the fork')
+PROBE01 = refs.v263('s87/loadwait/01_battery/probe_boundary.json',
+                    'load_wait_probe.py boundary mode not run on the fork')
 # The original's camera block D_008101E0 sampled every frame from the cold
 # New Game (area load at frame 2639) and from save state 03 through the
 # hand-off to state 04 (startup-reference/newgame_probe.py,
 # postcinema_probe.py; several samples per frame, the last is the frame's end).
-NEWGAME_SAMPLES = DECOMP / 'build/startup-reference/newgame_samples.jsonl'
-POSTCINEMA_SAMPLES = DECOMP / 'build/startup-reference/postcinema_samples.jsonl'
+# Startup probe outputs: v2.6.3 only (decomp PCSX2_FORK.md checklist item 8).
+NEWGAME_SAMPLES = refs.v263('startup-reference/newgame_samples.jsonl', 'a v2.6.3-only startup probe')
+POSTCINEMA_SAMPLES = refs.v263('startup-reference/postcinema_samples.jsonl', 'a v2.6.3-only startup probe')
 F_001AE5E0 = 0x1AE5E0
 SPAD = 0x70003B8C
 WINDOW = (-2, 4)          # ticks before / after an alignment tick (exclusive end)
@@ -2477,11 +2485,14 @@ def check_roger(ticks, run, state):
 
 # ------------------------------------------- the level exit (route beat 15)
 
-EXIT_00 = DECOMP / 'build/c10/exit/exit_00_departure'       # decomp docs/CAPTURES_C10.md "EXIT"
-EXIT_01 = DECOMP / 'build/c10/exit/exit_01_movie_arrival'
+EXIT_00 = refs.capture('c10/exit/exit_00_departure')       # decomp docs/CAPTURES_C10.md "EXIT"
+EXIT_01 = refs.capture('c10/exit/exit_01_movie_arrival')
 EXIT_ALIGN_ROW = 31        # exit_00: fan r2 enters phase 2 (the smoke's alignment)
 EXIT_FAN_R2 = 0x7A7690     # fan record [2] (00827630)
-EXIT_ARRIVAL_ROW = 306     # exit_01: the AREA01 arrival (0x1AE040 state 0), the first frame of control
+# exit_01: the AREA01 arrival (0x1AE040 state 0), the first frame of control.
+# The fork's AREA01 load ends 7 rows later (disc timing; LEVEL_SMOKE.md
+# "References: fork"): row 313 of 374 against v2.6.3's 306 of 367.
+EXIT_ARRIVAL_ROW = 313 if refs.FORK_MODE else 306
 EXIT_AMBIENT = 0x44E       # 001FC280's id of AREA01 sub 0 entry 4 (spawn record +0x20 = 0x044E3FFF)
 POOL_BASE, POOL_STRIDE = 0x7A5640, 0x2F0
 
@@ -2568,7 +2579,8 @@ def check_exit(ticks, run, state):
       state; the whole chain and veil replay through the original
       instructions (tools/test_area_load_reference.py replay_chain /
       replay_veil);
-    - the arrival (exit_01 f304..f306, aligned on the state-0 rebuild): the
+    - the arrival (exit_01 f311..f313 on the fork, f304..f306 on v2.6.3:
+      EXIT_ARRIVAL_ROW, aligned on the state-0 rebuild): the
       fields above (the player's clock excepted at f306, see below) and, from
       the tick log's tail (the post-frame values of the run's last tick), the
       fade block, the stream's read phase D_00282157, the ambient loop

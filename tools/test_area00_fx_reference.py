@@ -60,10 +60,11 @@ import reference_mode as RM  # noqa: E402
 import test_area01_render_reference as R  # noqa: E402
 import test_shadow_actor_route_reference as SAR  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, RETURN, STACK_TOP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a00'
+ROUTE = refs.capture('s87/route_a00')
 OUT = ROOT / 'build' / 'area00' / os.environ.get('EM_A00FX_OUT', 'fx')
 R.OUT = OUT                      # the dirty-page tracker library builds here
 R.ROUTE = ROUTE                  # R.image() / R.case_ram() read the AREA00 captures

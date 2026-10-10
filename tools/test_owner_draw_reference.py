@@ -71,6 +71,7 @@ from reference_mode import FULL, banner, part, pick, select, parallel_map
 from test_owner_services_reference import (EE, Owner, Bone, Model, Record, Scratch, Channel, Services,
                                            WORKER_TYPES, OWNER_BYTES, OWNER_FLOATS, MAX_BONES,
                                            M32, ONE, SPR, sx32, bits, number)
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -833,7 +834,7 @@ def main():
     LIB = build_library()
     counts = {}
 
-    base = DECOMP / 'build/s87/route'
+    base = refs.capture('s87/route')
     for beat in BEATS:
         p = base / beat
         if (p / 'eeMemory.bin').exists() and (p / 'scratchpad.bin').exists():

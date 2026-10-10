@@ -72,10 +72,11 @@ from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import test_area01_sys_reference as SR  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a00'
+ROUTE = refs.capture('s87/route_a00')
 BEAT = 'a00_09_ne_room_out'
 OUT = ROOT / 'build' / 'area00' / 'low'
 STACK_BASE, STACK_SIZE = 0x7F000000, 0x100000

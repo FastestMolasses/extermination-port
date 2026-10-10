@@ -95,10 +95,11 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import chain_page_model as M  # noqa: E402
 from reference_mode import FULL, banner, in_scope_beat, part, pick, select  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build/chain_page_reference'
 ELF_SHA = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 BEATS = sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists() and in_scope_beat(p.name))

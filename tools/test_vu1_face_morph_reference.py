@@ -89,11 +89,12 @@ import test_level_material_reference as lm
 import test_shadow_original_reference as sh
 import test_vu1_object_kernel_reference as ok
 from reference_mode import FULL, banner, part, pick, parallel_map, in_scope_beat
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build/vu1_face_morph_reference'
 ELF_SHA256 = ok.ELF_SHA256
 FACE_KERNEL, PROGRAM, INSTRUCTIONS = 0x23C480, 0x23C4B0, 80

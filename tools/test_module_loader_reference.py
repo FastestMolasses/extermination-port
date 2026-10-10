@@ -73,14 +73,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from reference_mode import FULL, banner, select  # noqa: E402
 from test_player_slide_reference import EE, RETURN, ELF_SHA256  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 LANE = os.environ.get('EM_LANE', 'b15/module_loader')
 OUT = ROOT / 'build' / LANE
-ROUTE = DECOMP / 'build/s87/route'
-H7 = DECOMP / 'build/s87/c7cap/h7/fields/frames.jsonl'
-PROBE01 = DECOMP / 'build/s87/loadwait/01_battery/probe_boundary.json'
-RNG01 = DECOMP / 'build/s87/c7cap/rng/r01/rand.jsonl'
+ROUTE = refs.capture('s87/route')
+H7 = refs.v263('s87/c7cap/h7/fields/frames.jsonl', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')
+PROBE01 = refs.v263('s87/loadwait/01_battery/probe_boundary.json', 'the boundary mode is not run on the fork')
+RNG01 = refs.v263('s87/c7cap/rng/r01/rand.jsonl', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')
 PANEL_GS = DECOMP / 'build/startup-reference/panel/gs.bin'
 ISO = DECOMP / 'Extermination-rebuilt.iso'
 MASK = 0xFFFFFFFF
@@ -1473,7 +1474,7 @@ def check_wait_facts():
     counters (route 03 trace), and each costs two rand() calls from
     001D7C30 (route 01 rand capture, the pop-up's wait f194..f217)."""
     rows = json.loads((ROUTE / '03_panel_power/trace.json').read_text())['rows']
-    frozen = {'counter', 'f'}
+    frozen = {'counter', 'f', 'fi', 'fld', 'vs'}   # the frame counters (the fork's rows add fi / fld / vs)
     for i in range(392, 415):
         changed = {k for k in rows[i] if rows[i][k] != rows[i - 1][k]} - frozen
         assert not changed, (i, changed)

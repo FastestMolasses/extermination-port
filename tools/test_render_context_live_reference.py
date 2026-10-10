@@ -70,10 +70,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode  # noqa: E402
 import test_frame_render_heads_reference as FRH  # noqa: E402
 from test_player_slide_reference import RETURN, read_elf, sx32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build' / 'render_context_live_reference'
 EXPORT = ROOT / 'assets/render_context.emrc'
 

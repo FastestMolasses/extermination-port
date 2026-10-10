@@ -23,6 +23,7 @@ ROOT=Path(__file__).resolve().parents[1]
 from reference_mode import FULL, MODE, banner, part
 import ee_cop1
 import ee_float_model
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 ENTRY,END,ACTOR,RETURN=0x1E67C0,0x1E6F60,0x600000,0xBADF00D
 LIB=C.CDLL(None)
 LIB.sinf.argtypes=[C.c_float];LIB.sinf.restype=C.c_float
@@ -264,7 +265,7 @@ int shim_packets(const EmSnowTile *tiles, unsigned count, Region *r, unsigned n,
 }
 """
 CTX,ARENA_AT=0x811CC0,0x563810
-SEED_BEAT=ROOT.parent/'Extermination/build/s87/route/10_cage_roof_roger'
+SEED_BEAT=refs.capture('s87/route/10_cage_roof_roger')
 
 
 class Region(C.Structure):

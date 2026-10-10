@@ -77,12 +77,13 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 from reference_mode import FULL, banner, parallel_map  # noqa: E402
 import export_disc_textures_gs as G  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = G.DECOMP
 sys.path.insert(0, str(DECOMP / 'tools'))
 LANE = os.environ.get('EM_LANE', 'b15/disc_textures')
 OUT = ROOT / 'build' / LANE
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 REF = DECOMP / 'build/startup-reference'
 QUICK_BEATS = ('00_panel_no_battery', '04_elevator_ride', '14_roger_encounter')
 

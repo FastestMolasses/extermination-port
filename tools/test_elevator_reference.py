@@ -16,6 +16,7 @@ import subprocess
 import sys
 
 import ee_cop1
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTOR, CHILD, MODEL, CHILD_MODEL = 0x900000, 0x901000, 0x902000, 0x903000
@@ -245,7 +246,7 @@ def main():
     # carry calls. Native and oracle carries from the captured start must
     # reproduce every row; a plain truncating add ends at 189.99832, the
     # capture at 190.00061.
-    route = ROOT.parent/'Extermination/build/s87/route/04_elevator_ride/trace.json'
+    route = refs.capture('s87/route/04_elevator_ride/trace.json')
     assert route.exists(), f'route capture missing: {route} (docs/FIRST_LEVEL_ROUTE.md)'
     rows = json.loads(route.read_text())['rows']
     first = next(i for i in range(1, len(rows)) if rows[i-1]['pos'][1] == 230.0 and rows[i]['pos'][1] < 230.0)

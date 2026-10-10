@@ -99,6 +99,7 @@ from reference_mode import FULL, banner, part, pick, select, parallel_map, in_sc
 import test_level_material_reference as lm
 import vu1_vm as vu
 from test_point_light_reference import signed, bits, number, fp, RETURN
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
@@ -2651,7 +2652,7 @@ def read_bmp_centre(path):
 # the original 001DA6A0 builds over that RAM). It writes three frames to
 # build/captures/shadow/ (without shadow, with shadow, with the player's
 # mask) and reports the shadow region against the original screenshot.
-ROUTE = DECOMP/'build/s87/route'
+ROUTE = refs.capture('s87/route')
 CAPTURE_IOU_MIN, CAPTURE_RATIO_TOL = 0.80, 0.05
 
 

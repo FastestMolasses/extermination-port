@@ -21,10 +21,11 @@ os.environ.setdefault('EM_TEST_JOBS', '4')
 import test_render_context_live_reference as R
 import test_area01_render_reference as A
 from test_player_slide_reference import read_elf, RETURN
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/area01/render_packets'
-AREA = ROOT.parent / 'Extermination/build/s87/route_a01'
-ARRIVAL = ROOT.parent / 'Extermination/build/s87/route/15_level_exit'
+AREA = refs.capture('s87/route_a01')
+ARRIVAL = refs.capture('s87/route/15_level_exit')
 TRACE = (0x1D5BD0, 0x1D5A70, 0x1D4FC0, 0x1D5170, 0x1CAAC0, 0x1CB760)
 
 

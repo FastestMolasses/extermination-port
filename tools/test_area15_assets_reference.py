@@ -52,6 +52,7 @@ import export_area15_common as A15  # noqa: E402  (first: registers the AREA15 t
 import export_area15_level as LVL  # noqa: E402
 import export_area15_split as SPLIT  # noqa: E402
 import test_area13_assets_reference as T13  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 A13, C, LV, TB = A15.A13, A15.C, A15.LV, A15.TB
 E1, E2, T01, T, L = T13.E1, T13.E2, T13.T01, T13.T, T13.L
@@ -60,7 +61,7 @@ FAILS, check = T13.FAILS, T13.check
 
 OUT = Path(os.environ.get('EM_AREA15_ASSETS') or A15.OUT).resolve()
 BUILD = C.ROOT / 'build/area15/assets/test'
-CENSUS = C.DECOMP / 'build/s87/census/a15_delta.json'
+CENSUS = refs.v263('s87/census/a15_delta.json', 'the census is not re-run on the fork (only segment 00)')
 SUBS = (0, 1)
 CAPTURE = {s: A15.SUBS[s]['capture'] for s in SUBS}
 AREA_BYTES = {0: (0x0F, 0, 1), 1: (0x0F, 1, 0)}

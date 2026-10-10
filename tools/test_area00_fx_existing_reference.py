@@ -57,9 +57,10 @@ import test_area01_exitb_reference as EXB  # noqa: E402
 import test_effect_original_reference as EFF  # noqa: E402
 import test_static_world_reference as SW  # noqa: E402
 from test_player_slide_reference import read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a00'
+ROUTE = refs.capture('s87/route_a00')
 OUT = ROOT / 'build' / 'area00' / 'fx' / 'existing'
 RE.OUT = OUT
 PLAYER = 0x8102B0

@@ -99,6 +99,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32, STACK_TOP  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA01.BIN'
@@ -110,9 +111,9 @@ ARENA = 0x823500
 OVERLAY_ID = 2
 # The images with AREA01 resident on the revisit: the end of every revisit
 # beat that stays in AREA01 and the revisit's arrival (a00_10).
-BEAT_DIRS = {b: DECOMP / 'build/s87/route_a01r' / b for b in (
+BEAT_DIRS = {b: refs.capture('s87/route_a01r') / b for b in (
     'a01r_00_to_train_room', 'a01r_01_event', 'a01r_02_bridge', 'a01r_s0_pickup', 'a01r_s1_door14_locked')}
-BEAT_DIRS['a00_10_progression_exit'] = DECOMP / 'build/s87/route_a00/a00_10_progression_exit'
+BEAT_DIRS['a00_10_progression_exit'] = refs.capture('s87/route_a00/a00_10_progression_exit')
 BEATS = list(BEAT_DIRS)
 POOL, NODE, NODES = 0x7A5640, 0x2F0, 400
 

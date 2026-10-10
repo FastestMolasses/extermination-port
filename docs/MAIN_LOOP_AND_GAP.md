@@ -135,8 +135,12 @@ and the oracle compares it.
 Asserted by the test on every run (`route_checks`):
 
 - In all 15 route snapshots (taken at the loop top), D_00810E90 - 0x70003B64
-  is the same value, 9937: between the snapshots, every main-loop frame took
+  is the same value: between the snapshots, every main-loop frame took
   exactly one vblank (no dropped or doubled frames on the route in PCSX2).
+  The value itself is the recording's (the vblanks its boot and loads took
+  beyond the main-loop iterations): 19461 in the fork's route (the default
+  reference since 2026-10-10, LEVEL_SMOKE.md "References: fork"), 9937 in
+  v2.6.3's.
 - In all 15, (D_00810E80, D_00810E88) is (0, 1) or (1, 0): the buffer index
   and the field bit stay locked in opposite phase, as one vblank per frame
   implies.
@@ -356,7 +360,7 @@ so `tools/ee_float_model.py` is not needed).
   is taken from the trace: nonzero only if the J block appears); the 15 route
   traces (12,439 rows: the counter advances by one per frame), snapshot
   counter = 0x70003B64, vsync counter = D_00810E90, and the facts of
-  section 2.4 (one offset 9937; phases (0, 1) / (1, 0); D_00810E98 = 1).
+  section 2.4 (one offset: 19461 on the fork, 9937 on v2.6.3; phases (0, 1) / (1, 0); D_00810E98 = 1).
 
 Results (2026-09-23, after the review fixes): default run 1.3 to 2.4 s wall (under 1 s CPU), "mode quick: 44 callees hooked,
 64 of 846 frame runs, 18 captured states, 1715 frame events, 11 start-up

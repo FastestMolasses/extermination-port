@@ -66,6 +66,7 @@ import reference_mode  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, REFERENCE, DECOMP  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 LANE = os.environ.get('EM_LANE', 'b7-render-context')
@@ -118,7 +119,7 @@ FREE = 0x1E00000             # an aligned RAM area for moved cursors / synthetic
 GRID = 0x1D00000             # a synthetic 001D5370 grid (32 x 32 x 4 words)
 REC_WORDS = 32
 
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 CAPTURES = [('opening', REFERENCE / 'opening_ee.bin', REFERENCE / 'opening_scratchpad.bin')]
 if ROUTE.exists():
     for beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists()):

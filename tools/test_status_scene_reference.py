@@ -36,11 +36,12 @@ import ee_float_model as M
 from reference_mode import FULL, banner, pick, select
 from test_interaction_scan_reference import DECOMP, ELF_SHA, ScanOracle
 from test_point_light_reference import RETURN, STACK, bits, number, signed
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 MASK = 0xFFFFFFFF
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 ACTOR, MODEL = 0x910000, 0x960000
 SLOT, SPAD_SLOT, SPAD_3B90 = 0x28A790, 0x70003B6C, 0x70003B90
 HEADER, BG = 0x289BC0, 0x2655A0

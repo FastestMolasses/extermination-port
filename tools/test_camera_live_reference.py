@@ -41,10 +41,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import test_render_verify_rest_reference as rvr  # noqa: E402
 from test_player_slide_reference import read_elf, STACK_TOP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build' / 'camera_live_reference'
 
 COMMIT, GRAB, TRANSPOSE = 0x18C0D0, 0x193660, 0x102798

@@ -73,6 +73,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {16: DECOMP / 'extract/OVERLAY/AREA19.BIN'}
@@ -86,7 +87,7 @@ STACK_SIZE = STACK_TOP - STACK_LO
 BEAT_DIRS = {}
 for _b in ('a19c_00_bar840', 'a19c_01_bar841', 'a19c_02_use7', 'a19c_03_slide', 'a19c_04_walkway',
            'a19c_05_door27', 'a19c_06_ladder959', 'a19c_07_door52'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a19c' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a19c', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # every a19c image holds AREA19 (overlay id 16) at 0x823504 (sub 0 in
 # a19c_00..05, sub 1 in a19c_06 / 07: the same overlay)

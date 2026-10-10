@@ -36,6 +36,7 @@ from pathlib import Path
 
 import ee_cop1
 import ee_float_model as M
+import reference_root as refs
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -1122,12 +1123,19 @@ def main():
 # captured AREA11 world, with and without the native state-0x1C callback
 # ======================================================================
 PLAYER = 0x8102B0
-WORLD_RAM = REFERENCE / 'playable_ee.bin'
-# The state04 scratchpad, extracted on demand from the startup-reference save
-# state (whose eeMemory.bin is byte-identical to playable_ee.bin) with the
-# decomp venv's zstd reader, as test_area11_sfx_reference.py does.
-WORLD_STATE = REFERENCE / 'portable-data/sstates/SCUS-97112 (0AE679AF).04.p2s'
-WORLD_SPAD = ROOT / 'build/player_world_reference/state04_scratchpad.bin'
+# The first-control world (EM_REFERENCE, tools/reference_root.py): the fork
+# state phase/slot04_first_control's RAM and scratchpad by default; with
+# EM_REFERENCE=v263 playable_ee.bin and the scratchpad of the v2.6.3 slot 04
+# (whose eeMemory.bin is byte-identical to playable_ee.bin), extracted on
+# demand with the decomp venv's zstd reader.
+if refs.FORK_MODE:
+    WORLD_RAM = refs.slot_dir(4) / 'eeMemory.bin'
+    WORLD_STATE = refs.slot_state(4)
+    WORLD_SPAD = refs.slot_dir(4) / 'scratchpad.bin'
+else:
+    WORLD_RAM = REFERENCE / 'playable_ee.bin'
+    WORLD_STATE = refs.slot_state(4)
+    WORLD_SPAD = ROOT / 'build/player_world_reference/state04_scratchpad.bin'
 
 
 def world_inputs():
@@ -1190,7 +1198,7 @@ class Stage:
         return self.ee.read(PLAYER, 0x320)
 
 
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 PAD_READ, PAD_UNPACK = 0x110B38, 0x1B5940
 PAD_LATENCY = 3
 

@@ -47,8 +47,10 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import test_chain_page_reference as P  # noqa: E402
 import chain_page_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
-S87 = ROOT.parent / 'Extermination/build/s87'
+# v2.6.3 data: one image is route_a01u's, off the fork's v2.6.3 path (the a01 ones kept with it).
+S87 = refs.v263('s87', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
 KIND6 = M.PROGRAM_KIND6
 PAGE = 0x1EF0000
 # Every capture whose latest page holds a kind-6 run (the others hold none).

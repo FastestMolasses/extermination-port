@@ -48,9 +48,10 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from test_player_slide_reference import EE, read_elf, bits, number  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 PLAYABLE = DECOMP / 'build/startup-reference/playable_ee.bin'
 EXPORTER = DECOMP / 'tools/export_collision.py'
 CHUNK15 = ('f07_id52.bin', 'f08_id4d.bin', 'f09_id53.bin', 'f10_id5b.bin', 'f11_id4a.bin', 'f12_id44.bin')

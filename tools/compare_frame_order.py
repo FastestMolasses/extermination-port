@@ -63,10 +63,11 @@ import re
 import subprocess
 import sys
 import tempfile
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-ORIGINAL_DIR = DECOMP / 'build/s87/frame_trace'
+ORIGINAL_DIR = refs.v263('s87/frame_trace', 'the frame traces are not re-recorded on the fork')
 SYMBOLS = DECOMP / 'config/symbol_addrs.txt'
 ALLOW = ROOT / 'tools/frame_order_allow.json'
 ORIGINAL_NAMES = ('idle04', 'walk04', 'st03', 'cut02', 'cut07', 'cut15', 'st14')

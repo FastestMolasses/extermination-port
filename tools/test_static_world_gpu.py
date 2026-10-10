@@ -37,6 +37,7 @@ import test_shadow_original_reference as sh  # noqa: E402
 import test_static_world_draw_reference as dr  # noqa: E402
 from reference_mode import FULL, banner  # noqa: E402
 from test_player_slide_reference import read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -69,7 +70,7 @@ def main():
     tex = G.textures()
     report = {}
     for beat in (BEATS if FULL else BEATS[:1]):
-        p = DECOMP / 'build/s87/route' / beat
+        p = refs.capture('s87/route') / beat
         ram = (p / 'eeMemory.bin').read_bytes()
         start, end, tags = dr.static_run(ram)
         ctx = u32(ram, 0x275670)

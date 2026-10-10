@@ -42,11 +42,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as rm  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, s32, RETURN, DECOMP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 OUT = ROOT / 'build' / os.environ.get('EM_LANE', 'startup_load_gaps_reference')
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA11.BIN'
 OVERLAY_BASE = 0x823500
 

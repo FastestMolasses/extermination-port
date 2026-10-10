@@ -66,10 +66,11 @@ import ee_float_model as FM  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a00'
+ROUTE = refs.capture('s87/route_a00')
 B02, B06, B09, B10 = 'a00_02_south_route', 'a00_06_cab_roof', 'a00_09_ne_room_out', 'a00_10_progression_exit'
 OUT = ROOT / 'build' / 'area00' / 'hud'
 STACK_LO, STACK_HI = 0x7F000000, 0x7F100000

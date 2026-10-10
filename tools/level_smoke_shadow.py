@@ -57,7 +57,8 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ROUTE = refs.capture('s87/route')
 PLAYER = 0x8102B0
 NODES, NODE_BYTES = 21, 0xD0
 PAGE = 0x007635C0

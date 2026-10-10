@@ -73,6 +73,7 @@ import test_vu1_object_clip_reference as vc
 import test_vu1_object_kernel_reference as vk
 from reference_mode import FULL, banner, part, select, parallel_map
 from test_shadow_original_reference import VU1
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -481,7 +482,7 @@ def main():
     assert hashlib.sha256(ELF).hexdigest() == ELF_SHA, 'not the pinned SCUS-97112 ELF'
     tod.ELF = vc.ELF = ELF
     LIB = build_library()
-    base = DECOMP / 'build/s87/route'
+    base = refs.capture('s87/route')
     for beat in tod.BEATS:
         p = base / beat
         if (p / 'eeMemory.bin').exists() and (p / 'scratchpad.bin').exists():

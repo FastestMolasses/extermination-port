@@ -54,10 +54,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode  # noqa: E402
 import ee_float_model as M  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, RETURN  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 LANE = os.environ.get('EM_LANE', 'b7-frame-render-heads')
 OUT = ROOT / 'build' / LANE
 BASE_BEAT = '01_battery'

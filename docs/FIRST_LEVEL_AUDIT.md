@@ -2270,6 +2270,25 @@ fork-side (2026-10-09); its entry gives the result.
     scissor's last row. (d) Never match the port to an emulator's load
     length or any other iteration or vsync count: those are specific to
     the emulator version (the port runs the disc at host speed).
+  - **Port switch (2026-10-10, decomp PCSX2_FORK.md checklist items 1..5).**
+    Every port test and checker reads the fork's recordings by default
+    through `tools/reference_root.py` (`EM_REFERENCE=fork`; `v263` keeps the
+    2.6.3 data usable; LEVEL_SMOKE.md "References: fork"). (a) is done: the
+    fork's 19 fb2 points (16 bit-exact with v2.6.3's) give the same numbers
+    at first control, 10, 11, 12, 13 and 14, 08 3.14 -> 3.26 % (the fork's
+    field has the port's half line), and **15_level_exit 98.57 -> 18.03 %**:
+    the fork's arrival field is half a line lower than the port's (GS_EXACT.md
+    10.3, an open finding; the floor is not lowered, so the full fb2 run
+    fails there on the fork). The GS conformance (906 tests) and the fog
+    conformance give identical numbers on both. The level smoke (default,
+    full with every side run, the PS2 disc-drive run, the AREA01 phases
+    a01_02, a01_s3 and a01_s6) passes on the fork with the rows the fork's
+    loads moved (route 15's arrival row 749, a01_07's AREA00 arrival row 538,
+    exit_01's arrival row 313). Items (b) and (c) (the phase points; the
+    lamp's cable row, the scissor rule) are the next stage. Findings of the
+    switch: the IOP's acknowledgement of the AREA11 bank upload comes 6
+    calls later on the fork (D_00275B18 0x48 against 0x4E; IOP_STREAM.md),
+    and the kernel's SIF DMA id seed is the fork title's.
 - **F2. 001DDE10's pass reads the frame** (part of item 2). Lead from the
   PCSX2 2.8 post (reads and writes of one texture in one draw). **The
   premise does not hold** (step DOF, 2026-10-09; CHAIN_PAGE.md section

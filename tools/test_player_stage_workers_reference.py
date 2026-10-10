@@ -55,10 +55,11 @@ sys.path.insert(0, str(ROOT / 'tools'))
 from player_callback_oracle import PlayerCallbackOracle, ELF_SHA256  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 LANE = ROOT / 'build/b5-player-stage-workers'
 RETURN, STACK = 0xBADF00D, 0x7F0000
 ELF = None                # the pinned boot ELF (main sets it)

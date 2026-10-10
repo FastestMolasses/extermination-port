@@ -21,6 +21,7 @@ import subprocess
 from test_pickup_owner_reference import OwnerOracle, ACTOR, DRAW
 from test_interaction_scan_reference import DECOMP, ELF_SHA
 from test_point_light_reference import bits, signed
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -171,7 +172,7 @@ def route_door(lib):
     the same row). Asserted: exactly one phase-4 commit (001BC150), then
     phase 5 restarts the clip (001C67E0) and returns to phase 0 exactly on
     the row where the capture does, with the capture's +0x0B and +0x1FE."""
-    route = DECOMP/'build/s87/route/09_fence_door/trace.json'
+    route = refs.capture('s87/route/09_fence_door/trace.json')
     if not route.exists():
         print('route 09 door replay: SKIP (no capture)')
         return 0

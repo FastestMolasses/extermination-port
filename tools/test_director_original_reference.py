@@ -56,11 +56,12 @@ from test_pickup_owner_reference import OwnerOracle
 from test_item_sdk_math_reference import Original as SdkOracle
 from test_point_light_reference import bits, number, STACK
 import reference_mode as rm
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 ARENA, SIZE = 0x823500, 0x7800
 ENTRY = 0x8253F0
 NODE = 0x7A93F0                 # record 12's node in the route captures

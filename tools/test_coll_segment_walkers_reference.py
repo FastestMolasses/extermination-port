@@ -55,6 +55,7 @@ import test_coll_grid_hull_reference as GH  # noqa: E402
 import test_coll_move_reference as MV  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/coll_segment_walkers_reference'
 ROUTE, BEATS = cp.ROUTE, cp.BEATS
@@ -1323,7 +1324,7 @@ def area01_span_domain(elf):
     docs/LEVEL2_COLLISION.md ("AREA01 collision prerequisite audit") for the implication and its limits.
     """
     import json
-    route = cp.DECOMP / 'build/s87/route_a01'
+    route = refs.capture('s87/route_a01')
     captures = sorted(p for p in route.glob('a01_*') if (p / 'trace.json').exists())
     if not captures:
         return 'SKIP (AREA01 captures missing)'

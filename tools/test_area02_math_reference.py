@@ -81,11 +81,12 @@ import reference_mode as RM  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE_A01R = DECOMP / 'build/s87/route_a01r'
-ROUTE_A02 = DECOMP / 'build/s87/route_a02'
+ROUTE_A01R = refs.v263('s87/route_a01r', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
+ROUTE_A02 = refs.v263('s87/route_a02', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
 BEATS = {
     'r00': ROUTE_A01R / 'a01r_00_to_train_room', 'r01': ROUTE_A01R / 'a01r_01_event',
     'r03': ROUTE_A01R / 'a01r_03_door16', 'a00': ROUTE_A02 / 'a02_00_duct', 'a02': ROUTE_A02 / 'a02_02_ladder_escape',

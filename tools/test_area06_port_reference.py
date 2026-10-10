@@ -84,6 +84,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {6: DECOMP / 'extract/OVERLAY/AREA06.BIN', 2: DECOMP / 'extract/OVERLAY/AREA01.BIN'}
@@ -94,13 +95,13 @@ RAM_SIZE, SPAD_SIZE = 0x2000000, 0x4000
 ARENA = 0x823500
 STACK_LO = STACK_TOP - 0x400
 STACK_SIZE = STACK_TOP - STACK_LO
-BEAT_DIRS = {'a22_02_progression_exit': DECOMP / 'build/s87/route_a22/a22_02_progression_exit'}
+BEAT_DIRS = {'a22_02_progression_exit': refs.v263('s87/route_a22/a22_02_progression_exit', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")}
 for _b in ('a01u_00_gap_jump', 'a01u_01_catwalk_event', 'a01u_02_progression_exit', 'a01u_s0_pickup',
            'a01u_s1_door18_back'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a01u' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a01u', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 for _b in ('a06_00_beam', 'a06_01_crate_door2', 'a06_02_keypad', 'a06_03_room_out', 'a06_04_beam_collapse',
            'a06_05_door3_locked', 'a06_s0_door1_back', 'a06_s1_bar'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a06' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a06', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # The overlay each image holds (header id at 0x823504).
 RESIDENT = {'a22_02_progression_exit': 2, 'a01u_00_gap_jump': 2, 'a01u_01_catwalk_event': 2,

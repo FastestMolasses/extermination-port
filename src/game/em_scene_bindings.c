@@ -4386,7 +4386,7 @@ static int w_001AD4D0(void *ctx)
      * Since S11b the machine acts on its classifier (design 2.3, 5). */
     /* AREA01 (the level exit's arrival) runs the same machine over its
      * bound owners (LEVEL2_BINDING.md): its world frames are compared with
-     * route 15 f742..f801 (the level smoke's a01_arrival). An AREA01
+     * route 15 f750..f809 (the level smoke's a01_arrival). An AREA01
      * original without an owner faults where it is reached (the runtime's
      * unknown-worker arm, the collision passes' unported pairs). */
     s_entry_state = *frame_state;

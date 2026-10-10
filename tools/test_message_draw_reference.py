@@ -41,11 +41,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from test_player_slide_reference import EE, s32, sx32  # noqa: E402
 from reference_mode import MODE, banner, select  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 
 FD950, FE070, FE530, CC170, FC770, STRLEN = 0x1FD950, 0x1FE070, 0x1FE530, 0x1CC170, 0x1FC770, 0x1232E0

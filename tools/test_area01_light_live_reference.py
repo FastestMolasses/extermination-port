@@ -18,11 +18,12 @@ from test_anim_runtime_rest_reference import EE
 from test_face_attach_reference import SOURCES
 from test_player_slide_reference import read_elf, RETURN, STACK_TOP
 import test_object_unit_reference as unit
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/light-live'
 DECOMP=ROOT.parent/'Extermination'
-ARRIVAL=DECOMP/'build/c10/exit/exit_01_movie_arrival'
+ARRIVAL=refs.capture('c10/exit/exit_01_movie_arrival')
 NODE=0x7B0F50
 CTX=0x811CC0
 DL=0x740000
@@ -211,7 +212,7 @@ def contracts(lib):
 def main():
     started=time.monotonic();lib=build();elf=read_elf()
     unit.ELF=unit.vc.ELF=unit.tod.ELF=elf
-    paths=[ARRIVAL]+sorted(p.parent for p in (DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin')
+    paths=[ARRIVAL]+sorted(p.parent for p in (refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin')
                           if p.read_bytes()[0x810700:0x810702]==b'\1\0')
     paths=paths if mode.FULL else paths[:1]
     cases=boundaries=packets=triangles=0

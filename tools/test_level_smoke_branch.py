@@ -39,7 +39,8 @@ OUT = ROOT / 'build/level_smoke_branch'
 SIDES = ('br_ledge_ammo', 'br_map_item', 'br_elevator_up', 'br_panel_decline', 'br_crate_stack',
          'br_west_ledge', 'br_yard_ammo', 'br_cage_key', 'br_plateau', 'br_roger_talk')
 SIDES = tuple(os.environ['EM_BRANCH_SIDES'].split(',')) if os.environ.get('EM_BRANCH_SIDES') else SIDES
-CAPTURES = ROOT.parent / 'Extermination/build/c10/branch'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.capture('c10/branch')
 
 
 def main():

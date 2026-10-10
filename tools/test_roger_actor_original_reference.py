@@ -59,11 +59,12 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 from test_player_slide_reference import RETURN, DECOMP, ELF_SHA256, bits, sx32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 LANE = os.environ.get('EM_LANE', 'roger_actor_original_reference')
 OUT = ROOT / 'build' / LANE
 REFERENCE = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 
 ROGER, EQUIP = 0x7A8830, 0x7A8B20          # pool records in every capture
 OVERLAY_BASE = 0x823500

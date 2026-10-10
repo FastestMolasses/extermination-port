@@ -110,10 +110,11 @@ import area01_reference_view as AV  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 import test_shadow_actor_route_reference as SAR  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, s32, RETURN, STACK_TOP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a01'
+ROUTE = refs.capture('s87/route_a01')
 OUT = ROOT / 'build' / 'area01' / os.environ.get('EM_LANE', 'render')
 VEC = 0x7F0E0000          # the worker interpreter's private stack slot for vector arguments
 PLAYER = 0x8102B0

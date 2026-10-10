@@ -35,6 +35,7 @@ import ee_float_model as FM  # noqa: E402
 from reference_mode import in_scope_beat  # noqa: E402
 import test_point_light_reference as plr  # noqa: E402
 import vu1_vm as snow  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 CONTEXT = plr.CONTEXT
@@ -175,7 +176,7 @@ def main():
         # Capture evidence: each in-scope route beat's live render context
         # (+0xB8/+0xBC the current pair, +0xA8/+0xAC what 0021B920 wrote).
         route_beats = 0
-        route = decomp/'build/s87/route'
+        route = refs.capture('s87/route')
         for beat in sorted(route.iterdir()) if route.is_dir() else ():
             if not in_scope_beat(beat.name) or not (beat/'eeMemory.bin').exists(): continue
             ram = (beat/'eeMemory.bin').read_bytes()

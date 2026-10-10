@@ -62,6 +62,14 @@ batches: 8,056,832 colour values and 1,884,160 Z values. (The first version
 of this document said "6,848,512 buffer values" for its 759 tests; that
 number counted colour values only.)
 
+Since 2026-10-10 the tests read the fork's re-recording of these captures
+(decomp `build/fork_refs/pixels/b16/`, `GSCAP_ROOT` or `EM_REFERENCE=v263`
+selects another; LEVEL_SMOKE.md "References: fork"). The fork's 906 tests
+equal v2.6.3's bit for bit, and the numbers below are the same on both
+(re-run 2026-10-10: 703 of 906 bit-exact in the quick run, 931 of 1,158 with
+the repeat; the fog conformance 8,192 / 16,384 pixels and 342,349 of 342,831
+channel values on both).
+
 | capture set (decomp `build/b16/`) | tests | bit-exact | colour values off | Z values off |
 |---|---|---|---|---|
 | gscap (GSCAP lane: layout, raster, shade, texture, pixel, frame, probe2) | 252 | 228 | 18 | 3,309 |
@@ -1438,6 +1446,46 @@ first control 1,118 -> 1,117 (0.97 %); 08 3,605, 12 2,827 and 15 113,053
 unchanged. At 10, 11 and first control the port draws the other field
 phase and at 11 and first control the camera differs, so a pixel there can
 move either way. FLOORS rose to 10 0.189, 13 0.625, 14 0.924.
+
+### 10.3 The fork's fb2 points (the port switch, 2026-10-10)
+
+The fork is the pixel reference (the user's decision of 2026-10-09; 1b F1).
+`tools/test_fb2_pixels.py` reads the fork's 19 points
+(`build/fork_refs/pixels/fb2`) and route (`build/fork_refs/s87/route`) by
+default, with `FIRST_CONTROL_COUNTER` 3301 (the fork's counters are 784 lower
+from first control on); `EM_REFERENCE=v263` reads the 2.6.3 ones (LEVEL_SMOKE.md
+"References: fork"). 16 of the 19 fork fields equal v2.6.3's bit for bit
+(the decomp's fb2 manifest), among them 6 of the 8 compared points; the
+two others differ in their field phase only (the decomp's cause: v2.6.3's
+post-load hitches put those fields on the other half line; the fork's, with
+no hitch, are the reproducible ones).
+
+Full mode, the same port build and alignment for both references (exact
+pixels of 114,688 of the presented GS field):
+
+| point | against v2.6.3 | against the fork | the fork's field |
+|---|---|---|---|
+| first_control | 1,117 (0.97 %) | 1,117 (0.97 %) | equal to v2.6.3's |
+| 08_truck_crossing | 3,605 (3.14 %) | **3,739 (3.26 %)** | OFY 1936.0, v2.6.3's 1936.5: the fork's is the port's phase |
+| 10_cage_roof_roger | 21,696 (18.92 %) | 21,696 (18.92 %) | equal |
+| 11_crevice_prompt | 6,325 (5.51 %) | 6,325 (5.51 %) | equal |
+| 12_crevice_jump | 2,827 (2.46 %) | 2,827 (2.46 %) | equal |
+| 13_east_tower | 71,794 (62.60 %) | 71,794 (62.60 %) | equal |
+| 14_roger_encounter | 105,973 (92.40 %) | 105,973 (92.40 %) | equal |
+| 15_level_exit | 113,053 (98.57 %) | **20,673 (18.03 %)** | OFY 1936.5, v2.6.3's and the port's 1936.0 |
+
+FLOORS on the fork: those of 10.1, with 08 raised to 0.032.
+**Finding (open): 15_level_exit's field phase.** The fork's AREA01 arrival
+field (s1, counter 15788) is drawn with OFY 1936.5 in buffer 0x0; the port
+draws the same buffer with OFY 1936.0, as v2.6.3's recording did after its
+two extra post-load vsyncs. Every line is half a line off, so 18.03 % of the
+pixels are exact; the draw and Z buffers and the rand() state of the fork's
+point equal v2.6.3's. The floor stays at 0.985, so `EM_TEST_FULL=1` fails
+there on the fork; it is not lowered. The original's phase at a point
+follows the vsyncs its loads took (an emulator property, 1b F1 (d)), so the
+cause in the port (its D_00810E88 at the arrival: the field bit after a
+load at host speed) needs tracing before anything changes; the same open
+question as the phase notes of 10.1.
 
 ### 10.2 Frame cost
 

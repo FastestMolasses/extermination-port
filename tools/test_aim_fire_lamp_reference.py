@@ -48,6 +48,7 @@ import reference_mode as RM
 import test_player_slide_reference as S
 from test_player_fall_reference import FallEE
 import ee_float_model as M
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/aim-fire/lamp'
 FUNCS = {0x187780: 0x53C, 0x187690: 0xEC, 0x1D9530: 0x1EC, 0x1D91A0: 0x388, 0x1DA290: 0x74, 0x1DA1E0: 0xA4,
@@ -68,8 +69,8 @@ SIG = {0x122BB8: (0, 0), 0x1029C0: (1, 0), 0x102948: (2, 0), 0x102BB0: (2, 1), 0
        0x1D4A90: (2, 0)}
 SCRIPTED = {0x122BB8, 0x1B0070, 0x19A570, 0x11E748, 0x11DF78, 0x21B9A0, 0x1281C0, 0x128250, 0x1CCF70,
             0x1CFA60, 0x1CFBE0, 0x1CB760}
-ROUTE = ROOT.parent / 'Extermination/build/s87/route'
-AIM08 = ROOT.parent / 'Extermination/build/aimfire/capture/aim_08_light_holster'
+ROUTE = refs.capture('s87/route')
+AIM08 = refs.capture('aimfire/capture/aim_08_light_holster')
 TABLE, BONE, NODE, FACE, ROWS, COLOUR, MATRIX = (0x1E00000, 0x1E00100, 0x1E00400, 0x1E00800, 0x1E00A00,
                                                  0x1E00B00, 0x1E00C00)
 MASK64 = 0xFFFFFFFFFFFFFFFF

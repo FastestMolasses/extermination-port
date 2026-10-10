@@ -76,7 +76,8 @@ import struct
 from pathlib import Path
 
 DECOMP = Path(__file__).resolve().parents[2] / 'Extermination'
-CAPTURES = DECOMP / 'build/c10/damage'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.capture('c10/damage')
 KNOCK_STEP = 0.01          # per-tick knock-back step, |port - recording|
 HEIGHT_PATH = 0.001        # the fall's height relative to its event
 FIELDS = ('ev', 't', 'p4', 'p5', 'p6', 'p7', 'm', 'm1', 'clip', 'clk', 'i20E', 'b235')

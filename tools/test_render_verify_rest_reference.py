@@ -57,11 +57,12 @@ import reference_mode as RM  # noqa: E402
 import test_player_fall_reference as fall  # noqa: E402
 import test_shadow_original_reference as ts  # noqa: E402
 from test_player_slide_reference import read_elf, flt, sx32, s32, RETURN  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK32, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build' / 'render_verify_rest_reference'
 CTX_PTR, D810700 = 0x275670, 0x810700
 PLAYER = 0x8102B0

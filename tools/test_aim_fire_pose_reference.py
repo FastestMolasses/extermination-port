@@ -16,6 +16,7 @@ from pathlib import Path
 import reference_mode as mode
 from test_player_fall_reference import FallEE
 from test_player_slide_reference import read_elf, RETURN, bits, sx32
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / 'build/aim-fire/pose'
@@ -202,7 +203,7 @@ def case(spec):
 def main():
     global ELF,LIB,CAPTURE_RECORDS
     ELF=read_elf()
-    route=ROOT.parent/"Extermination/build/s87/route"
+    route=refs.capture("s87/route")
     paths=sorted(p for p in route.glob("*/eeMemory.bin") if mode.in_scope_beat(p.parent.name))
     CAPTURE_RECORDS=[]
     for path in paths:

@@ -27,6 +27,7 @@ import reference_mode as RM
 import test_player_slide_reference as S
 from test_player_fall_reference import FallEE
 import ee_float_model as M
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT=ROOT/'build/aim-fire/target'
 FUNCS={0x185A10:0x41C,0x185E30:0x26C,0x199220:0x544,0x1854E0:0x280,0x185760:0x2B0,
@@ -265,7 +266,7 @@ def cases():
                     'fast':rng.randrange(2),'hit':rng.randrange(2),'blocked':rng.randrange(2),'wrong':rng.randrange(2),
                     'angle':rng.uniform(-2,2),'yaw':rng.uniform(-1,1),'dot':rng.uniform(-1,1),
                     'cone':rng.uniform(-1,2),'lock':rng.choice((0,TARGET))})
-    route=ROOT.parent/'Extermination/build/s87/route'
+    route=refs.capture('s87/route')
     for beat in sorted(route.glob('*')):
         if RM.in_scope_beat(beat.name) and (beat/'eeMemory.bin').exists():
             for fn in roots:out.append({'fn':fn,'name':'capture','capture':str(beat),'count':4,'mode':0})

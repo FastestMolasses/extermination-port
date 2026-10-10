@@ -41,10 +41,11 @@ import reference_mode as RM  # noqa: E402
 import test_chain_page_reference as P  # noqa: E402
 import test_shadow_original_reference as S  # noqa: E402
 import chain_page_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/area01/floor_vu'
-ARRIVAL = ROOT.parent / 'Extermination/build/s87/route/15_level_exit'
-ROUTE = ROOT.parent / 'Extermination/build/s87/route_a01'
+ARRIVAL = refs.capture('s87/route/15_level_exit')
+ROUTE = refs.capture('s87/route_a01')
 FLOOR, RIPPLE = M.PROGRAM_FLOOR, M.PROGRAM_RIPPLE
 # program: (batches per run, batch transfer qwc, points per batch, MPG word)
 SHAPE = {FLOOR: (6, 0x1A, 24, 0x4A990000), RIPPLE: (30, 0x62, 96, 0x4A910000)}

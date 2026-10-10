@@ -18,13 +18,14 @@ import export_area01_sfx as B
 import export_sfx_registry as X
 import reference_mode as mode
 import test_area11_sfx_reference as T
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT=A.ROOT/'build/level2/sfx-registry'
 
 
 def caller_audit(ram,entries):
     scan=X.load_decomp_module('sfx_request_probe')
-    delta=json.loads((A.DECOMP/'build/s87/census/a01_delta.json').read_text())
+    delta=json.loads((refs.v263('s87/census/a01_delta.json', 'the census is not re-run on the fork (only segment 00)')).read_text())
     funcs={int(r['addr'],16):(r['name'],r['size']) for r in delta['functions']
            if 'area01' in r['phases']}
     calls={k:(r,m,0) for k,(r,m) in scan.SOUND_ENTRIES.items()}

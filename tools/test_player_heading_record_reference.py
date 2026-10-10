@@ -44,11 +44,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as rm  # noqa: E402
 import test_script_host_workers_reference as S  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 LANE = os.environ.get('EM_LANE', 'player_heading_record_reference')
 OUT = ROOT / 'build' / LANE
 

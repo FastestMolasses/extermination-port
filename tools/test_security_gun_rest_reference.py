@@ -51,12 +51,13 @@ import test_script_door_fan_reference as sdf  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_fall_reference import nested_bits  # noqa: E402
 from test_player_slide_reference import bits, sx32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 MASK64 = (1 << 64) - 1
 DECOMP = ROOT.parent / 'Extermination'
 OUT = ROOT / 'build' / 'security_gun_rest'
-RAND_CAPTURE = DECOMP / 'build/s87/c7cap/rng/newgame/rand.jsonl'
+RAND_CAPTURE = refs.v263('s87/c7cap/rng/newgame/rand.jsonl', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')
 
 GUN, CHILD_NODE = 0x7A6AD0, 0x7ADD60      # the captured AREA11 nodes
 PLAYER, CABLE = 0x8102B0, 0x7A6DC0

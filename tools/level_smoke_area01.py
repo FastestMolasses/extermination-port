@@ -1,7 +1,8 @@
 """The AREA01 arrival (the whole route's last phase) and the opt-in recorded
 AREA01 route, using original code timing.
 
-The rebuild is row 741; rows 742..801 are 60 neutral world frames. This
+The rebuild is ARRIVAL_ROW (fork route 15: row 749; v2.6.3: 741); the
+next 60 rows are neutral world frames. This
 checks only fields present in that capture and the scene tick log. The main
 route checks all 11 recorded owner addresses through AREA00 arrival state 0;
 level 3's rebuild and gameplay are outside this endpoint.
@@ -10,11 +11,17 @@ import hashlib
 import json
 import re
 import struct
+import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
-CAPTURE = Path(__file__).resolve().parents[2] / 'Extermination/build/s87/route/15_level_exit/trace.json'
-ARRIVAL_ROW = 741
+CAPTURE = refs.capture('s87/route/15_level_exit') / 'trace.json'
+# Route 15's AREA01 rebuild row. The fork's AREA01 module load ends 8 frames
+# later than v2.6.3's (disc timing; decomp PCSX2_FORK.md "Disc timing at
+# loads"): row 749 of 810 (last counter 15786) against 741 of 802 (16562).
+ARRIVAL_ROW = 749 if refs.FORK_MODE else 741
 WORLD_TICKS = 60
 
 
@@ -70,18 +77,19 @@ def check_arrival(smoke, ticks, run, state):
             got.pop('clock'), want.pop('clock')
         differences = {k: (got[k], want[k]) for k in got if got[k] != want[k]}
         assert not differences, (f'AREA01 arrival route 15 f{row["f"]}, port tick {tick["tick"]}', differences)
-    assert rows[ARRIVAL_ROW + WORLD_TICKS]['counter'] == capture['last_counter'], 'route 15 ends after f801'
+    assert rows[ARRIVAL_ROW + WORLD_TICKS]['counter'] == capture['last_counter'], \
+        f'route 15 ends after f{ARRIVAL_ROW + WORLD_TICKS}'
     check_camera_end(ticks[arrival + WORLD_TICKS], 'a01_arrival')
     state['cursor'] = arrival + WORLD_TICKS + 1
     state.setdefault('area01_ends', {})['a01_arrival'] = ticks[state['cursor'] - 1]['counter']
-    print('a01_arrival: PASS (route 15 f741..f801: rebuild plus 60 neutral world ticks; '
+    print(f'a01_arrival: PASS (route 15 f{ARRIVAL_ROW}..f{ARRIVAL_ROW + WORLD_TICKS}: rebuild plus 60 neutral world ticks; '
           'player, ground, camera (flag word, eye, target, block eye / target, forward), selector, '
           'request, task, story bytes, message, bars and fade; the whole camera block, forward and '
-          'D_00810690.. at f801 byte for byte with route 15\'s saved RAM; '
+          f'D_00810690.. at f{ARRIVAL_ROW + WORLD_TICKS} byte for byte with route 15\'s saved RAM; '
           'rebuild clock alone excepted as in exit; AREA01 route owners not yet certified)')
 
 
-ROUTE_DIR = CAPTURE.parents[2] / 'route_a01'
+ROUTE_DIR = refs.capture('s87/route_a01')
 MAIN_BEATS = {'a01_00': 'a01_00_train_room', 'a01_01': 'a01_01_tunnel',
               'a01_02': 'a01_02_shaft_landing', 'a01_03': 'a01_03_shaft_locked',
               'a01_04': 'a01_04_return_north', 'a01_05': 'a01_05_npc_bridge_talk',
@@ -100,7 +108,9 @@ SOURCES = dict(zip(MAIN_BEATS, ('a01_arrival', *tuple(MAIN_BEATS)[:-1]))) | {
     'a01_s0': 'a01_arrival', 'a01_s1': 'a01_01', 'a01_s2': 'a01_s0',
     'a01_s3': 'a01_arrival', 'a01_s4': 'a01_arrival', 'a01_s5': 'a01_s0',
     'a01_s6': 'a01_arrival', 'a01_s7': 'a01_05'}
-AREA00_ARRIVAL_ROW = 529
+# a01_07's AREA00 arrival (state 0, before the rebuild): the fork's AREA00
+# module load ends 9 frames later (disc timing): row 538 against v2.6.3's 529.
+AREA00_ARRIVAL_ROW = 538 if refs.FORK_MODE else 529
 CAMERA_BLOCK, CAMERA_FORWARD, CAMERA_690 = (0x8101E0, 0xD0), (0x810600, 16), (0x810690, 20)
 
 
@@ -330,7 +340,8 @@ def check_rng_checkpoints(state, frames):
               f'original {row["original_state"]:08X}, {"equal" if row["equal"] else "DIFFERENT"} '
               '(diagnostic only; no capture seed installed)')
     if 'area00_arrival' in state:
-        print('AREA01 RNG checkpoint a01_07: unavailable at row 529; its saved RAM is after level-3 gameplay')
+        print(f'AREA01 RNG checkpoint a01_07: unavailable at row {AREA00_ARRIVAL_ROW}; '
+              'its saved RAM is after level-3 gameplay')
 
 
 def compare_route_row(smoke,ticks,i,row,phase):
@@ -376,7 +387,9 @@ def check_exit_boundary(smoke,ticks,run,state):
     capture=route_capture('a01_07')
     rows=capture['rows']
     start,_=route_start(ticks,run,state,'a01_07',capture)
-    boundary=re.search(r'^level smoke: a01_07: boundary counter=(\d+) \(capture row 529;',run,re.M)
+    # The run's line names the fork's row (em_level_smoke_test.c); the row
+    # checked is AREA00_ARRIVAL_ROW of the selected reference.
+    boundary=re.search(r'^level smoke: a01_07: boundary counter=(\d+) \(capture row \d+;',run,re.M)
     assert boundary,'AREA01 exit lacks arrival alignment'
     end=next(i for i,t in enumerate(ticks) if t['counter']==int(boundary.group(1)))
     assert start>=state['cursor'] and end==len(ticks)-1,('AREA01 exit did not stop at arrival',start,end,len(ticks))
@@ -413,7 +426,7 @@ def check_exit_boundary(smoke,ticks,run,state):
     print(f'a01_07: PASS ({load} consecutive gameplay/exit rows; {len(ps)} loader states, '
           f'{end-start-load+1} native load/arrival ticks; {chain} original chain ticks, '
           f'{veil} veil steps/{draws} draws; all route fields and 11 owners; '
-          f'host wait counts only: {json.dumps(waits)}; capture row529 AREA00 arrival state0, '
+          f'host wait counts only: {json.dumps(waits)}; capture row{AREA00_ARRIVAL_ROW} AREA00 arrival state0, '
           'before the out-of-scope level3 rebuild)')
 
 

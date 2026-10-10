@@ -83,6 +83,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA22.BIN'
@@ -94,10 +95,10 @@ ARENA, TEXT_END = 0x823500, 0x823600
 OVERLAY_ID = 0x13
 STACK_LO = STACK_TOP - 0x400
 STACK_SIZE = STACK_TOP - STACK_LO
-BEAT_DIRS = {'a04_05_progression_exit': DECOMP / 'build/s87/route_a04/a04_05_progression_exit'}
+BEAT_DIRS = {'a04_05_progression_exit': refs.v263('s87/route_a04/a04_05_progression_exit', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")}
 for _b in ('a22_00_door7', 'a22_01_corridor', 'a22_02_progression_exit', 'a22_s0_pickup', 'a22_s1_ladder_reader',
            'a22_s2_door10_locked', 'a22_s3_door6_back'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a22' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a22', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # The images with AREA22 resident (the others end in AREA01 / AREA04).
 AREA22_BEATS = [b for b in BEATS if b not in ('a22_02_progression_exit', 'a22_s3_door6_back')]

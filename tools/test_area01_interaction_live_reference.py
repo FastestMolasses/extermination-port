@@ -14,6 +14,7 @@ import time
 from test_coll_move_reference import FloatEE
 from test_module_loader_reference import read_elf_bytes
 import reference_mode as mode
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/interaction'
 DECOMP=ROOT.parent/'Extermination'
@@ -78,7 +79,7 @@ def check(lib,elf,ram,spr,node,action=0,hit=(0,0,0,0),distance=1.,scan=False,gat
 
 def main():
     start=time.time();lib=build();elf=read_elf_bytes()
-    paths=sorted((DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     if not mode.FULL:paths=[paths[0]]
     cases=queries=claims=0;forms=set()
     for path in paths:

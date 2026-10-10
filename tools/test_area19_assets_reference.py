@@ -57,6 +57,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import export_area19_common as A19  # noqa: E402  (first: re-points the AREA13 lane's AREA19 target)
 import test_area13_assets_reference as T13  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 A13, C = A19.A13, A19.C
 E1, E2, T01, T = T13.E1, T13.E2, T13.T01, T13.T
@@ -65,7 +66,7 @@ FAILS, check = T13.FAILS, T13.check
 
 A = Path(os.environ.get('EM_AREA19_ASSETS') or A19.OUT).resolve()
 BUILD = C.ROOT / 'build/area19/assets/test'
-CENSUS = C.DECOMP / 'build/s87/census/a19_delta.json'
+CENSUS = refs.v263('s87/census/a19_delta.json', 'the census is not re-run on the fork (only segment 00)')
 # the default run takes all four captures (about 7 s CPU on the M1, inside
 # the ~10 s budget); EM_TEST_FULL=1 runs the same set
 QUICK = A19.CAPTURE_NAMES

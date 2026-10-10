@@ -41,7 +41,8 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ROUTE = refs.capture('s87/route')
 BASE = '14_roger_encounter'
 FACE_BYTES = (0x190, 0x1A0)
 ROGER = 0x7A8830

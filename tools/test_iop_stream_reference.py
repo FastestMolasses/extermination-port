@@ -62,6 +62,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from reference_mode import FULL, banner, part, pick, select  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -179,7 +180,7 @@ def load_captures():
              'roger-encounter/eeMemory.bin', 'panel/animation_ee.bin', 'panel/eeMemory.bin',
              'panel/root/eeMemory.bin']
     out = {'ref/' + n: (base / n).read_bytes() for n in names if (base / n).exists()}
-    route = DECOMP / 'build/s87/route'
+    route = refs.capture('s87/route')
     routes = sorted(d.name for d in route.iterdir() if (d / 'eeMemory.bin').exists() and (d / 'state.p2s').exists())
     for n in routes:
         out['route/' + n] = (route / n / 'eeMemory.bin').read_bytes()
@@ -1583,7 +1584,7 @@ def scenario_status(captures, native):
 
 # ----------------------------------------------------------------- the drive model
 
-STREAM_CAPTURE = DECOMP / 'build/s87/c7cap/stream'   # decomp docs/CAPTURES_C7.md section 1
+STREAM_CAPTURE = refs.v263('s87/c7cap/stream', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')   # decomp docs/CAPTURES_C7.md section 1
 
 
 def bcd(b):

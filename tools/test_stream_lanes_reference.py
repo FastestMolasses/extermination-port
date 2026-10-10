@@ -55,6 +55,7 @@ import time
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import ee_float_model as ee  # noqa: E402
 from reference_mode import banner, part, pick, select  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -589,7 +590,7 @@ def load_captures():
     out = {}
     for name in names:
         if (base / name).exists(): out['ref/' + name] = (base / name).read_bytes()
-    route = DECOMP / 'build/s87/route'
+    route = refs.capture('s87/route')
     if route.exists():
         for d in sorted(route.iterdir()):
             if (d / 'eeMemory.bin').exists(): out['route/' + d.name] = (d / 'eeMemory.bin').read_bytes()

@@ -44,6 +44,7 @@ from test_player_slide_reference import (EE, read_elf, bits, number, fp, s32, DE
 import reference_mode  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 from test_player_slide_reference import Scratch  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ACTOR, NODES, NODE, ENTITY, LINK, OBJECTS = 0x680000, 0x6D0000, 0x6A0000, 0x6B0000, 0x6C0000, 0x6E0000
 PROBE, STATE2, STATE3, HANG = 0x15DF10, 0x161790, 0x162190, 0x17F320
@@ -1158,7 +1159,7 @@ WORLD_ROUTES = {
 }
 
 
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 # The PCSX2 route beats (docs/FIRST_LEVEL_ROUTE.md) that contain a Use climb
 # from idle: the crates (05), the tank and the pipe end (11) and the east tower
 # (13). Each beat's world is the RAM/scratchpad snapshot its trace resumed from

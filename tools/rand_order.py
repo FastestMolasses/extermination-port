@@ -33,10 +33,11 @@ import json
 import re
 import subprocess
 from pathlib import Path
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-CAPTURE = DECOMP / 'build/s87/c7cap/rng'
+CAPTURE = refs.v263('s87/c7cap/rng', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')
 
 # The original callers' return addresses (CAPTURES_C7.md section 3) and the
 # function each lies in.
@@ -390,7 +391,7 @@ def drive_mode(run_log):
 HOST_READY_ROWS = 1
 HOST_READ_ROWS = 1
 
-STREAM_OPENING = DECOMP / 'build/s87/c7cap/stream/opening/frames.jsonl'   # CAPTURES_C7.md section 1
+STREAM_OPENING = refs.v263('s87/c7cap/stream/opening/frames.jsonl', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')   # CAPTURES_C7.md section 1
 
 
 def lane0_request(rows):

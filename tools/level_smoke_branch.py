@@ -75,7 +75,8 @@ import struct
 from pathlib import Path
 
 DECOMP = Path(__file__).resolve().parents[2] / 'Extermination'
-CAPTURES = DECOMP / 'build/c10/branch'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.capture('c10/branch')
 ITEMS = {'g0.1': 0x7A5930, 'g0.2': 0x7A5C20, 'g0.3': 0x7A5F10, 'g0.4': 0x7A6200, 'g0.5': 0x7A64F0,
          'g0.6': 0x7A67E0}
 BOXES = {'r3': 0x7A7980, 'r4': 0x7A7C70, 'r5': 0x7A7F60, 'r6': 0x7A8250}

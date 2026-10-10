@@ -19,10 +19,15 @@ capture rejects plain truncation on the arm tick); mul.s and VU0 truncate;
 div.s rounds to nearest.
 
 Original PCSX2 validation (docs/TRUCK_ORIGINAL.md):
-  --capture truck|trigger   drive the original game from save state 04 with
-                            ../Extermination/tools/pcsx2_session.py (run with
-                            the decomp .venv python; needs zstandard) and
-                            record into ../Extermination/build/s87/truck/
+  --capture truck|trigger   drive the original game from the first-control
+                            state with ../Extermination/tools/pcsx2_session.py
+                            (run with the decomp .venv python; needs
+                            zstandard) and record into the reference's
+                            s87/truck/ (EM_REFERENCE, tools/reference_root.py:
+                            the fork, from phase/slot04_first_control, into
+                            ../Extermination/build/fork_refs/s87/truck/ by
+                            default; v263: the 2.6.3 app from slot 04 into
+                            ../Extermination/build/s87/truck/)
   --compare-capture [DIR]   replay those recordings through the native module
                             and require every recorded field and call
 """
@@ -40,6 +45,7 @@ import time
 
 from test_pickup_owner_reference import OwnerOracle, ROOT, DECOMP, ELF_SHA
 from test_point_light_reference import bits, number, signed
+import reference_root as refs
 
 ACTOR, DRAW, BONE, TABLE, GROUND = 0x910000, 0x990000, 0x9a0000, 0x9b0000, 0x9c0000
 POINTER = 0x9d0000
@@ -524,7 +530,10 @@ def timeline_summary(log):
 
 
 # ---------------------------------------------------------------- PCSX2
-CAPTURE_DIR = DECOMP/'build/s87/truck'
+# The truck / trigger captures (EM_REFERENCE, tools/reference_root.py): the
+# fork's build/fork_refs/s87/truck by default (recorded from the fork state
+# phase/slot04_first_control), build/s87/truck (v2.6.3 slot 04) with v263.
+CAPTURE_DIR = refs.capture('s87/truck')
 SITE_KINDS = {0x1EFD20: 'effect', 0x1FBD50: 'sound', 0x1B1E20: 'rumble'}
 
 
@@ -543,14 +552,15 @@ def capture(directory, mode, frames):
     piece and record, at the truck's own entry and exit, every input and
     output field, plus each effect/sound/rumble call site as it executes."""
     sys.path.insert(0, str(DECOMP/'tools'))
-    from pcsx2_session import OriginalSession, SSTATES, LOOP_TOP, FRAME_COUNTER
+    from pcsx2_session import open_original, LOOP_TOP, FRAME_COUNTER
     overlay = (DECOMP/'extract/OVERLAY/AREA11.BIN').read_bytes()
     sites = call_sites(overlay, TRUCK, TRIGGER)
     directory.mkdir(parents=True, exist_ok=True)
-    state = SSTATES/'SCUS-97112 (0AE679AF).04.p2s'
+    state = refs.slot_state(4)   # the fork's loop-top first-control state, or the v2.6.3 slot 04
     trigger_actor = 0x7AA2A0
-    out = dict(mode=mode, source_state=state.name, sites={hex(k): v for k, v in sites.items()}, frames=[])
-    with OriginalSession(state, log_dir=directory/'logs') as s:
+    out = dict(mode=mode, source_state=str(state.relative_to(DECOMP)), emulator=refs.MODE,
+               sites={hex(k): v for k, v in sites.items()}, frames=[])
+    with open_original(state, backend='fork' if refs.FORK_MODE else 'legacy', log_dir=directory/'logs') as s:
         def pause_pc():
             s.debug.call({'cmd': 'resume'})
             while True:

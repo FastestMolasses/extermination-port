@@ -55,10 +55,11 @@ import test_message_draw_reference as md  # noqa: E402
 import test_render_verify_rest_reference as rvr  # noqa: E402
 from test_player_fall_reference import FallEE, nested_bits  # noqa: E402
 from test_player_slide_reference import EE, read_elf, s32, STACK_TOP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build' / 'census_standins_reference'
 M32 = 0xFFFFFFFF
 

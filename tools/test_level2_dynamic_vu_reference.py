@@ -22,10 +22,11 @@ import test_chain_page_reference as P
 import test_shadow_original_reference as S
 import test_static_world_draw_reference as W
 import chain_page_model as M
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 os.environ.setdefault('EM_TEST_JOBS', '4')
 OUT = ROOT / 'build/area01/dynamic_vu'
-ARRIVAL = ROOT.parent / 'Extermination/build/s87/route/15_level_exit'
-ROUTE = ROOT.parent / 'Extermination/build/s87/route_a01'
+ARRIVAL = refs.capture('s87/route/15_level_exit')
+ROUTE = refs.capture('s87/route_a01')
 NORMAL, CLIP = 0x237450, 0x237720
 PAGE = 0x1EF0000
 SEEDS = {}

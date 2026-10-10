@@ -72,6 +72,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {5: DECOMP / 'extract/OVERLAY/AREA04.BIN', 10: DECOMP / 'extract/OVERLAY/AREA13.BIN',
@@ -83,12 +84,12 @@ RAM_SIZE, SPAD_SIZE = 0x2000000, 0x4000
 ARENA = 0x823500
 STACK_LO = STACK_TOP - 0x800
 STACK_SIZE = STACK_TOP - STACK_LO
-BEAT_DIRS = {'a13_05_shaft': DECOMP / 'build/s87/route_a13/a13_05_shaft'}
+BEAT_DIRS = {'a13_05_shaft': refs.v263('s87/route_a13/a13_05_shaft', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")}
 for _b in ('a19_00_duct', 'a19_01_pickup_g2', 'a19_02_duct_back'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a19' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a19', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 for _b in ('a13b_00_ladder_up', 'a13b_01_door17', 'a13b_02_button15', 'a13b_03_door8', 'a13b_04_lift_call',
            'a13b_05_lift_ride', 'a13b_s0_roof_ladder'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a13b' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a13b', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # The overlay each image holds (header id at 0x823504): AREA19 (16) from the
 # arrival at entry 9 to the ladder's foot, AREA13 (10) after the climb, and

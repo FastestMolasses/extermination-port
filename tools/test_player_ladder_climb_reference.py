@@ -55,9 +55,10 @@ from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32, R
 from test_player_floor_reference import LiveActor, cached_build  # noqa: E402
 import ee_float_model as M  # noqa: E402
 import reference_mode  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 RAM_PATH = REFERENCE / 'playable_ee.bin'
-ROUTE_TRACE = DECOMP / 'build/s87/route/10_cage_roof_roger/trace.json'
+ROUTE_TRACE = refs.capture('s87/route/10_cage_roof_roger/trace.json')
 PLAYER = 0x8102B0
 STATE = 0x1662D0
 HIT_REC = 0x7F0A0000          # the case's hit record (0x700031D0 points here; private stack region)

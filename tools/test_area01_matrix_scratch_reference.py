@@ -12,6 +12,7 @@ import export_area01_common as A
 import export_area11_roster as roster
 import export_effect_tables as effects
 from test_player_slide_reference import read_elf
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/matrix-scratch'
 def u32(b,a):return struct.unpack_from('<I',b,a)[0]
@@ -43,9 +44,9 @@ def main():
     configs=[(a,blocks[a]) for a in (0x248120,0x248184)]
     assert [len(b) for _,b in configs]==[40,20]
     for a,b in configs:assert b==effects.elf_block(boot,a,len(b))
-    paths=[ROOT.parent/'Extermination/build/s87/route/15_level_exit']
+    paths=[refs.capture('s87/route/15_level_exit')]
     if mode.FULL:
-        paths+=sorted(p.parent for p in (ROOT.parent/'Extermination/build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+        paths+=sorted(p.parent for p in (refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     for path in paths:
         ram=path.joinpath('eeMemory.bin').read_bytes();spr=bytearray(path.joinpath('scratchpad.bin').read_bytes())
         if ram[0x810700:0x810702]!=b'\1\0':continue

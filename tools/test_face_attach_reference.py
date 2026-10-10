@@ -78,6 +78,7 @@ import test_owner_draw_reference as TOD  # noqa: E402
 import test_owner_services_reference as OSR  # noqa: E402
 import test_player_slide_reference as SR  # noqa: E402
 import test_pose_host_workers_reference as PH  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OUT = ROOT / 'build/b15/face_attach'
@@ -192,13 +193,13 @@ def build_native():
 # ------------------------------------------------------------------ images and cases
 
 def image_list():
-    ref, route = DECOMP / 'build/startup-reference', DECOMP / 'build/s87/route'
+    ref, route = DECOMP / 'build/startup-reference', refs.capture('s87/route')
     out = []
     for beat in TOD.BEATS:
         out.append((beat, route / beat / 'eeMemory.bin', route / beat / 'scratchpad.bin'))
     out.append(('opening', ref / 'opening_ee.bin', ref / 'opening_scratchpad.bin'))
     out.append(('roger_encounter', ref / 'roger-encounter/eeMemory.bin', ref / 'roger-encounter/scratchpad.bin'))
-    door = DECOMP / 'build/s87/c7cap/door1/c7_door1_fence_door_side1'
+    door = refs.capture('s87/c7cap/door1/c7_door1_fence_door_side1')
     out.append(('c7_door1', door / 'eeMemory.bin', door / 'scratchpad.bin'))
     return [x for x in out if x[1].exists() and x[2].exists()]
 

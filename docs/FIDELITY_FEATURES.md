@@ -16,6 +16,14 @@ everything the player sees and hears, including the timing the game's own
 choreography depends on. The aim is not to reproduce the limits of the PS2
 hardware; see "What we deliberately do not emulate" below.
 
+**References: the PCSX2 fork since 2026-10-10.** The tests compare with the
+project's PCSX2 fork (based on v2.9.114) by default; the earlier PCSX2 2.6.3
+recordings stay on disk and every test can still read them
+(`EM_REFERENCE=v263`; `LEVEL_SMOKE.md` "References: fork"). Numbers below
+that were measured before that date are against 2.6.3 unless an entry says
+otherwise; the level smoke, the GS conformance and the fb2 points have been
+re-run against the fork (`GS_EXACT.md` 10.3).
+
 **All accuracy claims are relative to PCSX2 recordings.** The project has no
 real PS2 to measure. The original game was recorded in PCSX2 (RAM, GS memory,
 audio-driver state, per-frame traces), and its original instructions were
@@ -2344,7 +2352,8 @@ shooting and knifing anywhere also run without a fault.
   owners' models and the player's and the owners' shadows (sampled shadow
   plans equal to the original 001DA6A0's over an AREA01 capture). Pixels,
   relative to PCSX2's software GS: the arrival frame (fb2 point
-  15_level_exit, camera exact) has 47.41 % of its 114,688 pixels exact,
+  15_level_exit, camera exact; against the fork's point the GS field is half
+  a line off: 18.03 %, `GS_EXACT.md` 10.3) has 47.41 % of its 114,688 pixels exact,
   mean channel error 0.67, per-pixel maximum error at the 90th percentile 1
   (`make test-fb2-pixels-area01`; GS_EXACT.md section 10). Not compared:
   frames after the arrival (the route_a01 save states record no displayed
@@ -2353,7 +2362,8 @@ shooting and knifing anywhere also run without a fault.
   camera block itself: on every row its eye, target and the forward
   vector, and at a recording's last row the whole camera block byte for
   byte with the recording's saved RAM. The arrival passes it (all 61 rows
-  and the whole camera at f801); a01_00 rows f0..f404 are exact with it.
+  and the whole camera at f801; on the fork's recording f749..f809 and the
+  camera at f809, 2026-10-10); a01_00 rows f0..f404 are exact with it.
   The control room's camera (mode 1, seated from the original scene-entry
   and eye tables) is bound but not reached yet: the control-room door's
   Use stops the run first (`LEVEL2_BINDING.md`, step CAMERA).

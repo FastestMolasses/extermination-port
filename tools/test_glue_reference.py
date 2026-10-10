@@ -36,9 +36,10 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import export_spawn_table as EST  # noqa: E402
 from test_player_slide_reference import EE, read_elf, s32, DECOMP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build' / 'glue_reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 ENTRY, SIZE = 0x1FC280, 0x140
 STOP, START, VOLUME = 0x11A070, 0x1FB9F0, 0x119828
 CACHE = 0x282160            # D_00282160 .. D_00282173

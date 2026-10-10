@@ -81,6 +81,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {16: DECOMP / 'extract/OVERLAY/AREA19.BIN', 12: DECOMP / 'extract/OVERLAY/AREA15.BIN'}
@@ -94,8 +95,8 @@ STACK_SIZE = STACK_TOP - STACK_LO
 BEAT_DIRS = {}
 for _b in ('a19d_00_beastA', 'a19d_01_ceiling', 'a19d_03_beastB', 'a19d_06_g3', 'a19d_07_cage', 'a19d_08_west',
            'a19d_12_post', 'a19d_20_door50'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a19d' / _b
-BEAT_DIRS['a15_01_door51'] = DECOMP / 'build/s87/route_a15/a15_01_door51'
+    BEAT_DIRS[_b] = refs.v263('s87/route_a19d', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
+BEAT_DIRS['a15_01_door51'] = refs.v263('s87/route_a15/a15_01_door51', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
 BEATS = list(BEAT_DIRS)
 # the resident overlay of each image (AREA19 = 16, AREA15 = 12)
 RESIDENT = {b: (12 if b in ('a19d_20_door50', 'a15_01_door51') else 16) for b in BEATS}

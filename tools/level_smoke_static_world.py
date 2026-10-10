@@ -57,7 +57,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import reference_mode as RM  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
-ROUTE = ROOT.parent / 'Extermination/build/s87/route'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+ROUTE = refs.capture('s87/route')
 CTX, CTX_SIZE = 0x811CC0, 0x2540
 SPAD_3A40, SKIN = 0x70003A40, 0x816440
 BASE_BEAT = '05_boxes'   # the snapshot the samples are laid over

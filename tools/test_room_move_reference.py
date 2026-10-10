@@ -58,11 +58,12 @@ import sys
 from test_point_light_reference import Oracle
 import reference_mode
 import test_scene_task_reference as tsr
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
-ROUTE = DECOMP / 'build/s87/route/09_fence_door'
+ROUTE = refs.capture('s87/route/09_fence_door')
 F_0018AB00 = 0x18AB00
 REQ = 24                      # the request block's offset in the logged snapshot
 STATE4 = [0x1AFCF0, 0x18AB00, 0x1B07C0, 0x1C1DC0, 0x18D7B0, 0x18C0D0, 0x1AEE10, 0x1FAE70, 0x1C5C50]

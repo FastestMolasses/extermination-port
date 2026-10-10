@@ -60,11 +60,12 @@ import reference_mode  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import EE, read_elf, s32, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK = 0xFFFFFFFF
 LANE = os.environ.get('EM_LANE', 'b6-player-weapon-states-a')
 OUT = ROOT / 'build' / LANE
-ROUTE = shared.DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 
 
 # ======================================================================

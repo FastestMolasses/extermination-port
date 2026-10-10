@@ -69,6 +69,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {10: DECOMP / 'extract/OVERLAY/AREA13.BIN', 16: DECOMP / 'extract/OVERLAY/AREA19.BIN'}
@@ -79,9 +80,9 @@ RAM_SIZE, SPAD_SIZE = 0x2000000, 0x4000
 ARENA = 0x823500
 STACK_LO = STACK_TOP - 0x800
 STACK_SIZE = STACK_TOP - STACK_LO
-BEAT_DIRS = {'a04b_04_lift': DECOMP / 'build/s87/route_a04b/a04b_04_lift'}
+BEAT_DIRS = {'a04b_04_lift': refs.v263('s87/route_a04b/a04b_04_lift', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")}
 for _b in ('a13_00_door8', 'a13_01_door14', 'a13_02_door17', 'a13_03_item27', 'a13_04_hatch', 'a13_05_shaft'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a13' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a13', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 # The overlay each image holds (header id at 0x823504): AREA13 (10) from the
 # lift's arrival to the hatch's ladder, AREA19 (16) after the fall.
@@ -3205,7 +3206,7 @@ REUSE_OUT = OUT / 'reuse'
 def reuse_fill(elf, smoke=False):
     import test_area01_sys_reference as A1
     A1.OUT = REUSE_OUT / 'area01_sys'
-    A1.ROUTE = DECOMP / 'build/s87/route_a13'
+    A1.ROUTE = refs.v263('s87/route_a13', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")
     A1.ELF = elf
     A1.FUNC_RANGES = tuple((fn, fn + size) for fn, size in sorted(A1.FUNCS.items()))
     base = FallEE(elf)

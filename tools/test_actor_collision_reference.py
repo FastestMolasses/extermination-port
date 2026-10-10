@@ -61,9 +61,10 @@ from test_player_slide_reference import read_elf, bits, number, fp, DECOMP  # no
 # EE model, docs/EE_FLOAT_MODEL.md), as the native side uses em_ee_float.h.
 from test_coll_move_reference import FloatEE as EE  # noqa: E402
 import reference_mode  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 DISC_DIRECTORY = (DECOMP / 'extract/chunk15/f12_id44.bin', 0x39800)
 EMCL = ROOT / 'assets/scene_snow/snow.emcl'
 OUT = ROOT / 'build/actor_collision_reference'

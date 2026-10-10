@@ -75,11 +75,12 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import export_disc_textures_gs as G  # noqa: E402
 from reference_mode import FULL, banner, parallel_map  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = G.DECOMP
 sys.path.insert(0, str(DECOMP / 'tools'))
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build/disc_assets_reference'
 PY = sys.executable
 VENV = DECOMP / '.venv/bin/python'
@@ -196,8 +197,7 @@ PINNED_EMRS_V1_REGIONS_SHA256 = '2967c9f179b8a56ca0d7890318d40333b569bf127efa5bd
 # (export_status_hub.py over the status-hub capture): centres and angles.
 EMHS_CAPTURE_WORDS = {0, 1, 3, 24, 25, 48, 49, 51, 72, 73, 74, 75}
 
-QUICK_CAPTURES = ('startup-reference/playable_ee.bin', 's87/route/04_elevator_ride/eeMemory.bin',
-                  's87/route/14_roger_encounter/eeMemory.bin')
+QUICK_CAPTURES = ('playable_ee.bin', '04_elevator_ride', '14_roger_encounter')   # REF, then route beats
 
 
 def sha(data: bytes) -> str:
@@ -205,9 +205,8 @@ def sha(data: bytes) -> str:
 
 
 def captures() -> list:
-    base = DECOMP / 'build'
     if not FULL:
-        return [base / c for c in QUICK_CAPTURES]
+        return [REF / QUICK_CAPTURES[0]] + [ROUTE / b / 'eeMemory.bin' for b in QUICK_CAPTURES[1:]]
     out = [REF / n for n in ('playable_ee.bin', 'opening_ee.bin', 'handoff_ee.bin')]
     return out + sorted(p for p in ROUTE.glob('*/eeMemory.bin') if p.parent.name[:2].isdigit()
                         and int(p.parent.name[:2]) <= 14)

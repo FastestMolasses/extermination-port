@@ -53,6 +53,7 @@ sys.path.insert(0, str(ROOT / 'tools'))
 import reference_mode as RM  # noqa: E402
 import test_shadow_original_reference as sh  # noqa: E402
 from test_player_slide_reference import read_elf, REFERENCE, DECOMP  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build' / 'static_world_draw'
 RAM_SIZE = 0x2000000
@@ -249,11 +250,11 @@ def check_packets(elf):
 # ======================================================================
 
 CAPTURES = [('opening', REFERENCE / 'opening_ee.bin')]
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 for _beat in sorted(p.name for p in ROUTE.iterdir() if (p / 'eeMemory.bin').exists()) if ROUTE.exists() else []:
     if RM.in_scope_beat(_beat):
         CAPTURES.append((_beat, ROUTE / _beat / 'eeMemory.bin'))
-for _p in sorted((DECOMP / 'build/s87/c7cap').glob('**/eeMemory.bin')):
+for _p in sorted((refs.v263('s87/c7cap', 'this C7 set is not re-recorded on the fork (PCSX2_FORK.md plan sets 5 and 6)')).glob('**/eeMemory.bin')):
     if (_p.parent / 'scratchpad.bin').exists():
         CAPTURES.append(('c7cap/' + _p.parent.name, _p))
 

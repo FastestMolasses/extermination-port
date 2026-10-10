@@ -40,6 +40,7 @@ from pathlib import Path
 
 import ee_float_model as fm
 from reference_mode import FULL, banner, part, pick, select, parallel_map
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
@@ -56,9 +57,10 @@ ACTOR, MODEL, NODES, NODE = 0x7B0000, 0x900000, 0x960000, 0xD0
 CONTEXT, DL, DL_SIZE = 0x600000, 0xA00000, 0x9000
 SKELETON = 0x100
 
-CAPTURES = ['startup-reference/playable_ee.bin', 's87/route/04_elevator_ride/eeMemory.bin',
-            's87/route/05_boxes/eeMemory.bin', 's87/route/07_truck_preview/eeMemory.bin',
-            's87/route/08_truck_crossing/eeMemory.bin']
+# Paths relative to the decomp's build/ (the route beats through tools/reference_root.py).
+CAPTURES = ['startup-reference/playable_ee.bin'] + [
+    str(refs.capture(f's87/route/{b}/eeMemory.bin').relative_to(refs.BUILD))
+    for b in ('04_elevator_ride', '05_boxes', '07_truck_preview', '08_truck_crossing')]
 
 
 def sx32(v):

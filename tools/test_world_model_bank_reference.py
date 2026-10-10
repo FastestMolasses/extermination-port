@@ -20,12 +20,13 @@ import test_module_loader_reference as ML
 import test_owner_services_reference as OS
 from test_owner_draw_reference import WorldModels
 from reference_mode import FULL, banner
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 OUT = ROOT / 'build/level2/oracles/model_bank'
-CAPS = {11: DECOMP / 'build/s87/route/03_panel_power',
-        1: DECOMP / 'build/s87/route_a01/a01_00_train_room'}
+CAPS = {11: refs.capture('s87/route/03_panel_power'),
+        1: refs.capture('s87/route_a01/a01_00_train_room')}
 BANKS = {11: ROOT / 'assets/scene_snow/world_models.emwm',
          1: ROOT / 'assets/area01/world_models.emwm'}
 

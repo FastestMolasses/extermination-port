@@ -117,14 +117,14 @@ derived from the captures.
 | Driver tick | every 64 H-lines (128 half-lines), phase 0 at boot | The driver's own timer setup (0x3C00 / 0xF0, H-line source). The tick phase is unknown. Since chain step AUDIO the SFX side (em_sfx_field) runs the same exchange for the SFX commands, on a tick grid of its own whose phase is 0 at the New Game's area load (this backend's counts from the boot, so its phase follows the title's dwell; SFX_SEQUENCER.md "Where the driver runs"); the audio captures confirm the exchange's two-tick ENVX latency, and a sample's end can land one tick apart where the phases differ |
 | SPU2 clock | 48000 Hz against 4.5 MHz / 286 H-lines/s: 572/375 samples per half-line (800.8 per field) | 60 Hz / 800 samples per field fails the long captures (mutation control) |
 | RPC 0x64 | once per field, at its start: queued commands in, the last tick's snapshot out | 001152D8's per-field `001191F0(0x64, ...)`. The phase inside the field is not captured |
-| Transfer completion | issued at a tick, complete from the next tick; SPU RAM written at issue. A channel-0 transfer (command 0x20) runs its callback 0x544 at the start of the next tick | Channel 1: **not pinned by any capture** (completing in the same tick also passes every check). Channel 0: the count reaches the EE at the exchange after the field that ran the command, which route 00's `D_00275B18` = 0x4E pins (the sound-bank test's mutants: one field earlier leaves 0x4F, one later 0x4D); completing in the same tick gives the same exchange |
+| Transfer completion | issued at a tick, complete from the next tick; SPU RAM written at issue. A channel-0 transfer (command 0x20) runs its callback 0x544 at the start of the next tick | Channel 1: **not pinned by any capture** (completing in the same tick also passes every check). Channel 0: the count reaches the EE at the exchange after the field that ran the command, which v2.6.3's route 00 `D_00275B18` = 0x4E pins (the sound-bank test's mutants: one field earlier leaves 0x4F, one later 0x4D); completing in the same tick gives the same exchange. The fork's route 00 holds 0x48 (the acknowledgement 6 calls later: below) |
 | Key-on | NAX = LSA = SSA, ADPCM history 0, ADSR from the 0x3E words | Standard SPU2 behaviour. Half A's first block also sets LSA (flag 6) |
 | NAX readback | block address + 2 + 2 × (sample / 4) | Captured NAX values are block + 2..0xE |
 | ADPCM | filter > 4 decodes as 0, shift > 12 as 12, no rounding, s16 clamp | Same as the port's exporter decoder. SPU2 Gaussian interpolation is not modelled (as for SFX) |
 | Loop flags | bit 2 sets LSA at block start; bit 0 jumps to LSA; without bit 1 the voice stops with ENVX 0 | SPU2 register semantics |
 | ADSR / volume | `em_sfx_envelope_*`, `em_sfx_volume_gain` (docs/SFX_SEQUENCER.md) | Shared with the SFX voices. Captured ENVX of the stream voices is 0x7FFF |
 | IOP heap | first free block 0x85B00, 0x100-byte units, first fit; after the boot buffers the IOP holds 0x900 bytes (0xDDF00..0xDE800), a **measured occupancy whose owner is not established**: only its end, 0xDE800, is pinned by the captures, and 0x900 is the size that puts the next first fit there. The port allocates it once at start-up (em_iop_stream_boot_driver), before the first bank upload. Hypothesis only: the block's top in the title capture's IOP RAM holds IOP return addresses, like a thread stack (perhaps the driver thread command 0x1E creates). Follow-up for the lead: confirm the owner from the IRX's thread creation (its stack size and the allocation order); 0010F968 frees a block | All 27 images: `D_00275B50/28/24/20` = 0x85B00 / 0xADC00 / 0xBDD00 / 0xCDE00; the title capture and every route capture: `D_00282194` = 0xDE800 (the bank uploads' block, allocated and freed each time: first fit), and route 00's IOP RAM there holds the AREA11 bank |
-| SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The kernel's ids (`D_002821A0` = 0x530D1702 in the title capture) are not modelled; 001FB910 only tests the id against 0 |
+| SIF DMA | `sceSifSetDma` of one descriptor copies the EE bytes into IOP RAM when queued; `sceSifDmaStat` answers done at its first query; the id is the port's own count | Host speed (the PS2's transfer time is hardware timing, port CLAUDE.md 2026-09-27). The kernel's ids (`D_002821A0` = 0x527C1602 in the fork's title state, 0x530D1702 in v2.6.3's slot 01) are not modelled; 001FB910 only tests the id against 0 |
 | Drive | By default host speed: a read is done at the first query after its issue. With the PS2 disc-drive timing switch on: one read at a time; a seek of 0, 2 or 6 fields by the signed distance from the drive's position (17 for the first read after a screen-module loader read), then the read (16 sectors at most) within one field; 00113280 answers 6 until the read in flight is done, also one the EE abandoned. In both modes 00113478 drops the read | Host speed: the Original profile's policy (the code is the oracle; PS2 hardware timing is not reproduced). The model: measured in the original (the C7 stream capture), section "Drive model" below |
 
 ## Host speed and the PS2 disc-drive timing switch
@@ -310,7 +310,8 @@ The EE sound library functions, each read from the original's instructions (the 
 
 **The state before the New Game load.** The boot's and the title's bank uploads (001AB7E0 step 1's common bank,
 handles 0..2 in bucket 1; the title module's bank, handle 3 in bucket 3) do not run in the port. Their result is
-seeded from the title capture (startup-reference slot 01): `EM_SOUND_BANK_SEEDS` in em_sound_bank.c, the transfer
+seeded from the title capture (the fork state `slot01_title` since 2026-10-10; the v2.6.3 slot 01 holds the same values but
+the kernel's DMA id): `EM_SOUND_BANK_SEEDS` in em_sound_bank.c, the transfer
 count 5 (with the backend's `+0x349C`, status word 112 and its EE copy). They are addresses and counters, not disc data;
 the test checks each against the capture.
 
@@ -340,7 +341,13 @@ which neither the Original profile nor the PS2 disc-drive timing switch reproduc
   kernel's DMA id and `D_002819C0`, which the SFX sequencer consumes before that capture); the SPU RAM at 0x1A0000
   and the IOP RAM at 0xDE800 equal route 00's SPU2 and IOP RAM there (0x492D0 bytes each);
 - the exchange's timing is pinned: its mutants (the acknowledgement one field earlier or later) end with a
-  `D_00275B18` the capture refutes.
+  `D_00275B18` the capture refutes. The pin is v2.6.3's route 00 in both reference modes (LEVEL_SMOKE.md
+  "References: fork"): **finding (2026-10-10)**: the fork's route 00 (and its opening and first-control states)
+  hold `D_00275B18` = 0x48, 001FB3E0's countdown from 0x50 after 8 waits, not 2: the fork's IOP acknowledges
+  the 0x492D0-byte upload 6 calls later than v2.6.3's. The countdown measures the IOP's upload time (hardware
+  timing, which the Original profile does not reproduce), so the two emulators disagree on it and neither is
+  evidence of the PS2's; the port keeps its two-field rule, and the test checks the fork's 0x48 as recorded
+  so a change shows. The seeds are the fork's title state (`slot01_title`) and route 00 by default.
 The driver oracle (`test_iop_stream_reference.py`) executes command 0x20 and 0x544 from the user's IRX (the IOP data
 compared by content, `+0x349C` and status word 112 by value): the translated ranges are now 1,845 words, of which
 1,817 execute, the same 28 pinned as before. `tests/iop_stream_test.c` pins the contract: first fit and free, the

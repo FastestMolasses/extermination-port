@@ -41,11 +41,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_effect_original_reference as EO  # noqa: E402
 from reference_mode import banner, pick  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT, DECOMP, ELF_SHA = EO.ROOT, EO.DECOMP, EO.ELF_SHA
 M32, M64 = EO.M32, EO.M64
 OUT = ROOT / 'build/effect_001F77B0_reference'
-CAPTURE = DECOMP / 'build/c10/damage/dmg_02_flame_death'
+CAPTURE = refs.capture('c10/damage/dmg_02_flame_death')
 CAPTURED_NODE = 0x007B0970
 NODE = 0x01E00000
 NESTED_STACK = 0x01F40000

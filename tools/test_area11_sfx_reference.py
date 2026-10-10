@@ -15,6 +15,23 @@ from test_roger_reference import RogerOracle
 from test_point_light_reference import signed
 import ctypes as C
 from reference_mode import FULL, MODE, banner, parallel_map, part, pick, select
+import reference_root as refs  # EM_REFERENCE: the opening state (slot 02) from the fork by default
+
+# Slot 02 (the opening's SPU2 and IOP RAM): fork-states/phase/slot02_opening
+# by default, the v2.6.3 slot file with EM_REFERENCE=v263; cached per reference.
+SLOT02 = refs.slot_state(2)
+SLOT02_CACHE = DECOMP/'build/area11_sfx_reference'/refs.MODE
+
+
+def slot02_entry(name, cache_name):
+    """One entry of the slot 02 state, extracted once (the decomp's venv has zstd)."""
+    out = SLOT02_CACHE/cache_name
+    if not out.exists():
+        code=('import sys\nfrom pathlib import Path\nfrom tools.parse_pcsx2_state import extract_zstd_entry\n'
+              'q=Path(sys.argv[3]);q.parent.mkdir(parents=True,exist_ok=True)\n'
+              'q.write_bytes(extract_zstd_entry(Path(sys.argv[1]),sys.argv[2]))\n')
+        subprocess.run([str(DECOMP/'.venv/bin/python'),'-c',code,str(SLOT02),name,str(out)],cwd=DECOMP,check=True)
+    return out
 
 class SfxOracle(RogerOracle):
  def plain(self,w):
@@ -76,19 +93,16 @@ def iop_registers(elf):
     """Original shipped driver plus captured original libsd, no call hooks."""
     directory=DECOMP/'build/area11_sfx_reference'
     module=directory/'SNDN2DRV.IRX'
-    memory=directory/'opening_iop.bin'
-    if not module.exists() or not memory.exists():
+    if not module.exists():
         code="""from pathlib import Path
 import io,pycdlib
-from tools.parse_pcsx2_state import extract_zstd_entry
 d=Path('build/area11_sfx_reference');d.mkdir(parents=True,exist_ok=True)
 i=pycdlib.PyCdlib();i.open('Extermination-rebuilt.iso');b=io.BytesIO()
 i.get_file_from_iso_fp(b,iso_path='/IRX/SNDN2DRV.IRX;1');i.close()
 (d/'SNDN2DRV.IRX').write_bytes(b.getvalue())
-p=Path('build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).02.p2s')
-(d/'opening_iop.bin').write_bytes(extract_zstd_entry(p,'iopMemory.bin'))
 """
         subprocess.run([str(DECOMP/'.venv/bin/python'),'-c',code],cwd=DECOMP,check=True)
+    memory=slot02_entry('iopMemory.bin','opening_iop.bin')
     raw=module.read_bytes();ram=memory.read_bytes()
     assert raw[:7]==b'\x7fELF\x01\x01\x01'
     table=u32(raw,32);stride,count,names=struct.unpack_from('<3H',raw,46)
@@ -641,7 +655,7 @@ def registry_oracle(elf,ram):
             use,header,_=struct.unpack_from('<3I',data,0x27C6C0+12*handle)
             assert handle==3 and (use!=1 or u32(data,header+0xC)!=0x64685353
                                   or u32(data,header+0x20)==0xFFFFFFFF),(capture,group,index,handle)
-    spu=(DECOMP/'build/area11_sfx_reference/original_spu2.bin').read_bytes()
+    spu=slot02_entry('SPU2.bin','original_spu2.bin').read_bytes()
     spu_checked=loops_checked=0
     sample_address={}
     for sample in report['samples']:
@@ -700,7 +714,7 @@ def registry_oracle(elf,ram):
     # forwarding thunks, constant or derived from original data (the room
     # ambient, holster and effect tables), must be exported for 11.0 or
     # globally. Every loaded/computed id site must have a DATA rule.
-    scan_inputs=[DECOMP/'build/s87/census'/n for n in ('candidates.json','route_functions.json')]
+    scan_inputs=[refs.v263('s87/census', 'the census is not re-run on the fork (only segment 00)')/n for n in ('candidates.json','route_functions.json')]
     reachable_ids=None
     if all(p.exists() for p in scan_inputs):
         scan=X.load_decomp_module('sfx_request_probe').scan([],census_ids=set(resolved),write=False)
@@ -995,11 +1009,7 @@ def main():
         expected=pitch(elf,center,note,fine,bend,range_)[0]
         assert o.r[2]&0xFFFFFFFF==expected&0xFFFFFFFF,(center,note,fine,bend,range_)
         pitch_cases+=1
-    original_spu=DECOMP/'build/area11_sfx_reference/original_spu2.bin'
-    if not original_spu.exists():
-        code="from pathlib import Path;from tools.parse_pcsx2_state import extract_zstd_entry;p=Path('build/startup-reference/portable-data/sstates/SCUS-97112 (0AE679AF).02.p2s');q=Path('build/area11_sfx_reference/original_spu2.bin');q.parent.mkdir(parents=True,exist_ok=True);q.write_bytes(extract_zstd_entry(p,'SPU2.bin'))"
-        subprocess.run([str(DECOMP/'.venv/bin/python'),'-c',code],cwd=DECOMP,check=True)
-    spu=original_spu.read_bytes();at=0x10004+0x1E2010
+    spu=slot02_entry('SPU2.bin','original_spu2.bin').read_bytes();at=0x10004+0x1E2010
     assert spu[at:at+len(adpcm)]==adpcm
     iop=iop_registers(elf.data)
     registry=registry_oracle(elf,ram)

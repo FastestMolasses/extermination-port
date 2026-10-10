@@ -63,11 +63,12 @@ import sys
 
 import test_sdk_math_original_reference as SM
 from reference_mode import FULL, banner, parallel_map, pick
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 BUILD = ROOT / 'build/sdk_soft_float_reference'
 SOURCE = os.environ.get('EM_SDK_SOFT_FLOAT_SOURCE', 'src/game/em_sdk_soft_float.c')
 MASK32, MASK64 = 0xFFFFFFFF, (1 << 64) - 1
@@ -782,7 +783,7 @@ def main():
     # breakpoints on every boot function per label) never hit 0011E420 or
     # 0011E520, so the tail was 0011E620's or 0011E748's; its workers first
     # ran in beat 03 (and again in 05).
-    census = DECOMP / 'build/s87/census/per_beat.json'
+    census = refs.v263('s87/census/per_beat.json', 'the census is not re-run on the fork (only segment 00)')
     tails = '0011E420/0011E520/0011E620/0011E748'
     if census.is_file():
         import json

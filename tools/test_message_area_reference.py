@@ -17,6 +17,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'tools'))
 import test_message_service_reference as M
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 
 def main():
@@ -41,7 +42,7 @@ def main():
     assert lib.area_test_install(a11) == 1
     decomp = ROOT.parent / 'Extermination'
     elf = (decomp / 'config/SCUS_971.12').read_bytes()
-    cap = decomp / 'build/s87/route_a01/a01_05_npc_bridge_talk'
+    cap = refs.capture('s87/route_a01/a01_05_npc_bridge_talk')
     ram = (cap / 'eeMemory.bin').read_bytes()
     spad = (cap / 'scratchpad.bin').read_bytes()
     for lo, hi in M.EXECUTED:

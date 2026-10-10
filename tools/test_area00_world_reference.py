@@ -80,10 +80,11 @@ import reference_mode as RM  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 from test_player_slide_reference import read_elf, sx32  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route_a00'
+ROUTE = refs.capture('s87/route_a00')
 B03, B08, B09, B10 = 'a00_03_padlock', 'a00_08_switch', 'a00_09_ne_room_out', 'a00_10_progression_exit'
 OUT = ROOT / 'build' / 'area00' / 'world'
 STACK_BASE, STACK_SIZE = 0x7F000000, 0x100000

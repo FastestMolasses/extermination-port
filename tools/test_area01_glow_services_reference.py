@@ -11,6 +11,7 @@ import random
 import reference_mode as mode
 import test_area01_flame_services_reference as F
 from test_area01_runtime_reference import Call,Worker
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 R=F.R
 SPECS={0x21B9A0:(1,2),0x1F4BF0:(2,0),0x122BB8:(0,0),0x1CD520:(5,3)}
 
@@ -109,7 +110,7 @@ def main():
     count=packets=calls=0
     # Every capture, including the unchanged arrival image, contributes its
     # actual reached 159B90 -> 158590 boundary (no forced owner state).
-    arrival=R.DECOMP/'build/s87/route/15_level_exit'
+    arrival=refs.capture('s87/route/15_level_exit')
     R.IMAGES['arrival']=((arrival/'eeMemory.bin').read_bytes(),(arrival/'scratchpad.bin').read_bytes())
     for beat in ['arrival']+R.BEATS:
         if R.image(beat)[0][0x810700]!=1:continue

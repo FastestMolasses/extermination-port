@@ -25,6 +25,7 @@ from test_door_original_reference import Door
 from test_interaction_scan_reference import ELF_SHA
 from test_player_fall_reference import FallEE
 from test_player_slide_reference import bits, number
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent/'Extermination'
@@ -229,7 +230,7 @@ def main():
         armed_count += kickoff(native, origin, yaw, (origin[0]+dx, origin[1], origin[2]+dz),
                 0, 4, 0, 0, 0x400)
         count += 1
-    rows = json.loads((DECOMP/'build/s87/route/09_fence_door/trace.json').read_text())['rows']
+    rows = json.loads((refs.capture('s87/route/09_fence_door/trace.json')).read_text())['rows']
     kickoff(native, origin, yaw, rows[306]['pos'], 0, 4, 0, 0, 0x400)
     point = struct.unpack('<3f', EE.read(0x700038a0, 12))
     assert [round(v, 5) for v in point] == rows[309]['pos'], ('route 09 f309 alignment', point, rows[309]['pos'])

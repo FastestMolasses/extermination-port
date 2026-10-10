@@ -65,6 +65,7 @@ import export_area19s1_common as S1  # noqa: E402  (first: re-points the AREA13 
 import export_area19s1_split as SPLIT  # noqa: E402
 import export_area19x_tables as XT  # noqa: E402  (creature_nodes / creature_problems: the AREA19X controls)
 import test_area13_assets_reference as T13  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 S1.install()
 A13, C, LV, TB, X19 = S1.A13, S1.C, S1.LV, S1.TB, S1.X19
@@ -76,7 +77,7 @@ OUT = Path(os.environ.get('EM_AREA19S1_ASSETS') or S1.OUT).resolve()
 AREA = S1.A19_TREE.resolve()
 BUILD = C.ROOT / 'build/area19s1/assets/test'
 VIEW = BUILD / f'view-{os.getpid()}'
-CENSUS = C.DECOMP / 'build/s87/census/a19c_delta.json'
+CENSUS = refs.v263('s87/census/a19c_delta.json', 'the census is not re-run on the fork (only segment 00)')
 X19_RELOAD = AREA / 'reload'                         # the AREA19X lane's export (its review controls)
 GRID = 0x1879580                                     # D_0028A598 of sub 1 (sub 0: 0x1900500)
 AREA_BYTES = {'a19c_06_ladder959': (0x13, 1, 7), 'a19c_07_door52': (0x13, 1, 1)}

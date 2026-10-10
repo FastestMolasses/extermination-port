@@ -46,7 +46,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
-AUDIO = DECOMP / 'build/s87/audio'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+AUDIO = refs.v263('s87/audio', 'the audio captures are not re-recorded on the fork')
 
 # D_0027CCC0 offsets in EmSoundSample.voice order (em_stream_live.h).
 VOICE_FIELDS = (0, 2, 6, 8, 0xA, 0xC, 0x1A, 0x1C, 0x1E, 0x20, 0x44, 0x4E, 0x60, 0x62, 0x64, 0x3E, 0x22)

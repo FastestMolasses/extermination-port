@@ -60,6 +60,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import export_area13x_common as X13  # noqa: E402  (first: re-points the AREA13 lane's AREA13 target)
 import export_area13x_split as SPLIT  # noqa: E402
 import test_area13_assets_reference as T13  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 X13.install()
 A13, C, LV, TB = X13.A13, X13.C, X13.LV, X13.TB
@@ -71,8 +72,8 @@ RELOAD = Path(os.environ.get('EM_AREA13X_ASSETS') or X13.OUT).resolve()
 BASE = X13.A13_TREE.resolve()
 BUILD = C.ROOT / 'build/area13x/assets/test'
 VIEW = BUILD / f'view-{os.getpid()}'
-CENSUS_B = C.DECOMP / 'build/s87/census/a13b_delta.json'
-CENSUS_C = C.DECOMP / 'build/s87/census/a13c_delta.json'
+CENSUS_B = refs.v263('s87/census/a13b_delta.json', 'the census is not re-run on the fork (only segment 00)')
+CENSUS_C = refs.v263('s87/census/a13c_delta.json', 'the census is not re-run on the fork (only segment 00)')
 A13_04 = A13.ROUTE_A13 / 'a13_04_hatch/eeMemory.bin'      # the a13 group's relocation words
 QUICK = ('a13b_00_ladder_up', 'a13c_02_battery', 'a13c_03_blast')
 GRID = 0x17D39C0                                           # D_0028A598 of the second load

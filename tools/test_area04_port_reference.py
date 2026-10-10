@@ -100,6 +100,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, sx32, STACK_TOP  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILE = DECOMP / 'extract/OVERLAY/AREA04.BIN'
@@ -115,11 +116,11 @@ STACK_SIZE = STACK_TOP - STACK_LO
 # The images with AREA04 resident: the arrival (the a02_05 end, sub 0) and
 # the end of every AREA04 beat but a04_05; a04_05 ends in AREA22, with the
 # two 001C1A80 owners (boot entries only).
-BEAT_DIRS = {'a02_05_progression_exit': DECOMP / 'build/s87/route_a02/a02_05_progression_exit'}
+BEAT_DIRS = {'a02_05_progression_exit': refs.v263('s87/route_a02/a02_05_progression_exit', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00")}
 for _b in ('a04_00_door45_event', 'a04_01_door40', 'a04_02_console', 'a04_03_back_to_hall', 'a04_04_conveyor',
            'a04_s0_door45_locked', 'a04_s1_reel_blocks', 'a04_s2_pickup', 'a04_s3_door42_locked',
            'a04_05_progression_exit'):
-    BEAT_DIRS[_b] = DECOMP / 'build/s87/route_a04' / _b
+    BEAT_DIRS[_b] = refs.v263('s87/route_a04', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / _b
 BEATS = list(BEAT_DIRS)
 BOOT_BEAT = 'a04_05_progression_exit'
 OVERLAY_BEATS = [b for b in BEATS if b != BOOT_BEAT]

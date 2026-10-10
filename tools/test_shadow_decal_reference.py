@@ -69,10 +69,11 @@ import ee_float_model as M  # noqa: E402
 import test_player_slide_reference as shared  # noqa: E402
 import test_shadow_actor_route_reference as SAR  # noqa: E402
 from test_player_slide_reference import EE, read_elf, sx32, s32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 DECOMP = ROOT.parent / 'Extermination'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 REFERENCE = DECOMP / 'build/startup-reference'
 OUT = ROOT / 'build' / os.environ.get('EM_LANE', 'shadow_decal_reference')
 

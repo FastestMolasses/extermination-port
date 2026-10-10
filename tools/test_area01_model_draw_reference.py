@@ -13,6 +13,7 @@ import reference_mode as mode
 from test_anim_runtime_rest_reference import EE
 from test_face_attach_reference import SOURCES
 from test_module_loader_reference import read_elf_bytes
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/model-draw'
 DECOMP=ROOT.parent/'Extermination'
@@ -64,7 +65,7 @@ def check(lib,elf,ram,spad,node):
     return lib.ad_units(),u32(native.raw,ctx+0x10)-0x740000,native.raw[:-1],int(cross)
 def main():
     start=time.time();lib=build();elf=read_elf_bytes()
-    paths=sorted((DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     paths=[p for p in paths if p.read_bytes()[0x810700:0x810702]==b'\1\0']
     paths=paths if mode.FULL else [paths[0]]
     cases=units=packets=crosses=0; morph=[]

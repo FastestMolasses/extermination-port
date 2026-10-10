@@ -31,7 +31,8 @@ BIN = Path(os.environ.get('EM_LEVEL_SMOKE_BIN', str(ROOT / 'build/extermination'
 OUT = ROOT / 'build/level_smoke_audio'
 SIDES = ('aud_walk_outdoor', 'aud_walk_room', 'aud_flame')
 SIDES = tuple(os.environ['EM_AUDIO_SIDES'].split(',')) if os.environ.get('EM_AUDIO_SIDES') else SIDES
-CAPTURES = ROOT.parent / 'Extermination/build/s87/audio'
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
+CAPTURES = refs.v263('s87/audio', 'the audio captures are not re-recorded on the fork')
 
 
 def main():

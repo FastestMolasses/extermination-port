@@ -57,6 +57,7 @@ import reference_mode as RM  # noqa: E402
 import test_area01_render_reference as R  # noqa: E402
 import test_area01_ui_reference as U  # noqa: E402
 from test_player_slide_reference import EE, read_elf  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 MASK, MASK64 = 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF
 OUT = ROOT / 'build' / 'b15' / 'status_pages'
@@ -74,9 +75,9 @@ JOBS = R.JOBS
 CAP = ROOT.parent / 'Extermination' / 'build'
 IMAGES = {  # name -> capture directory (eeMemory.bin, scratchpad.bin)
     'hub': CAP / 'startup-reference' / 'status-hub',      # the status hub open (t[1] = 1)
-    'r01': CAP / 's87' / 'route' / '01_battery',           # after the battery take
-    'r03': CAP / 's87' / 'route' / '03_panel_power',
-    'r14': CAP / 's87' / 'route' / '14_roger_encounter',
+    'r01': refs.capture('s87/route/01_battery'),           # after the battery take
+    'r03': refs.capture('s87/route/03_panel_power'),
+    'r14': refs.capture('s87/route/14_roger_encounter'),
 }
 BEATS = list(IMAGES)
 

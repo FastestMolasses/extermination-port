@@ -357,7 +357,7 @@ static const Phase k_phases[] = {
      "movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (001FFCD0: AREA01 sub 0), "
      "the AREA01 arrival 0x1AE040 state 0 (spawn entry 4)",
      "the level exit (audit 1b item 17; docs/FIRST_LEVEL_EXIT.md)", exit_begin, exit_frame, 0, 0, 0, 0},
-    {"a01_arrival", "15_level_exit f741..f801 (AREA01 arrival and 60 neutral world ticks)", 0x001AE040u,
+    {"a01_arrival", "15_level_exit f749..f809 (AREA01 arrival and 60 neutral world ticks)", 0x001AE040u,
      "AREA01 sub 0 entry 4: the arrival rebuild followed by the original idle player, camera and owners",
      "AREA01 live binding (LEVEL2_BINDING.md); the route's last phase, every missing worker still fail-stops",
      a01_arrival_begin, a01_arrival_frame,
@@ -407,7 +407,7 @@ static const Phase k_phases[] = {
     {"a01_06", "a01_06_return_south", 0,
      "return through the tunnel to the shaft landing", "AREA01 route binding and tick comparison",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
-    {"a01_07", "a01_07_level_exit f0..f529 (AREA00 arrival before rebuild)", 0,
+    {"a01_07", "a01_07_level_exit f0..f538 (AREA00 arrival before rebuild)", 0,
      "shaft door exit and original area load through AREA00 arrival state 0",
      "AREA01 gameplay ticks and loader events; stop before level 3 rebuild",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
@@ -5030,7 +5030,9 @@ static int exit_frame(void)
 /* ---------------------------------------------------------- a01_arrival
  *
  * Opt-in continuation from exit, with neutral pad only. Route beat 15
- * f741 is the rebuild and f742..801 are its next 60 world frames. No
+ * f749 is the rebuild and f750..809 are its next 60 world frames (the
+ * fork's recording; v2.6.3's AREA01 load ended 8 frames earlier, f741 and
+ * f742..801: tools/level_smoke_area01.py ARRIVAL_ROW). No
  * snapshot is imported into the game and no fault is bypassed. The pool
  * witness is taken at the rebuild for check_exit; this mid-frame tail's
  * fade/message/stream fields are replaced by the next tick's start sample
@@ -5038,7 +5040,7 @@ static int exit_frame(void)
 enum { A01_ARRIVAL_WORLD_TICKS = 60, A01_ARRIVAL_PROBE_TICKS_MAX = 600 };
 
 /* EM_A01_ARRIVAL_TICKS=N (60..600) lengthens the idle run (diagnostic): a
- * fault-free run past f801, which route 15 does not record, so the extra
+ * fault-free run past f809, which route 15 does not record, so the extra
  * ticks prove no behaviour. */
 static int a01_arrival_ticks(void)
 {
@@ -5064,7 +5066,7 @@ static int a01_arrival_frame(void)
         return 0;
     }
     if (!t.frames) {
-        fprintf(stderr, "level smoke: a01_arrival: aligned counter=%u (route 15 row 741; rebuild)\n",
+        fprintf(stderr, "level smoke: a01_arrival: aligned counter=%u (route 15 row 749; rebuild)\n",
                 em_frame_counter());
         em_scene_bindings_log_request_tail();
         em_scene_bindings_log_tail();
@@ -5134,7 +5136,7 @@ static int a01_route_frame(void)
            task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
            task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
             pad_apply(0,0,0);
-            fprintf(stderr,"level smoke: a01_07: boundary counter=%u (capture row 529; AREA00 arrival state 0, before rebuild)\n",em_frame_counter());
+            fprintf(stderr,"level smoke: a01_07: boundary counter=%u (capture row 538; AREA00 arrival state 0, before rebuild)\n",em_frame_counter());
             fprintf(stderr,"level smoke: a01_07: PASS frames=%d (gameplay and loader capture check required; level 3 not run)\n",t.frames);
             return 1;
         }

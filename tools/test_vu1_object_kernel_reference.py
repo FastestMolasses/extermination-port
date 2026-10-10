@@ -80,11 +80,12 @@ import ee_float_model as fm
 import test_level_material_reference as lm
 import test_shadow_original_reference as sh
 from reference_mode import FULL, banner, part, pick, select, parallel_map, in_scope_beat
+import reference_root as refs
 
 ROOT = Path(__file__).resolve().parents[1]
 DECOMP = ROOT.parent / 'Extermination'
 REF = DECOMP / 'build/startup-reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 OUT = ROOT / 'build/vu1_object_kernel_reference'
 ELF_SHA256 = 'ee052236783e7d3e865754d3ff9fee71290addeb7d146c86caa7ff2724d1e17a'
 KERNEL, PROGRAM, INSTRUCTIONS = 0x23C750, 0x23C780, 62
@@ -1100,8 +1101,11 @@ def fault_cases(lib, packet, elf):
 
 # ------------------------------------------------------------ S. PCSX2 ---
 # The one save state whose VU1 micro memory holds the object kernel (the
-# other startup-reference and route states have other programs loaded).
-STATE = REF / 'portable-data/sstates/SCUS-97112 (0AE679AF).14.p2s'
+# other startup-reference and route states have other programs loaded):
+# slot 14, the status hub (EM_REFERENCE, tools/reference_root.py: the fork
+# state phase/slot14_status_hub by default, the v2.6.3 slot file with v263).
+STATE = refs.slot_state(14)
+STATE_LABEL = f'{STATE.parent.name}/{STATE.name}' if refs.FORK_MODE else STATE.name
 STATE_TOPS = (0x1B0, 0x2BE)
 
 
@@ -1109,7 +1113,7 @@ def vu1_state():
     """(vu1Memory, vu1MicroMem) of STATE, extracted once with the decomp
     venv into build/, or (None, reason)."""
     cache = OUT / 'states'
-    mem, micro = cache / '14_vu1Memory.bin', cache / '14_vu1MicroMem.bin'
+    mem, micro = cache / f'14_{refs.MODE}_vu1Memory.bin', cache / f'14_{refs.MODE}_vu1MicroMem.bin'
     if not (mem.exists() and micro.exists()):
         venv = DECOMP / '.venv/bin/python'
         if not (STATE.exists() and venv.exists()): return None, f'missing {STATE.name} or the decomp venv'
@@ -1133,7 +1137,7 @@ def state_check(lib, packet):
     img, micro = got
     if len(img) != 16384 or micro[:8 * INSTRUCTIONS] != packet['code']:
         fail(f'{STATE.name}: the object kernel is not in VU1 micro memory')
-    out = dict(state=STATE.name, micro_sha256=hashlib.sha256(micro[:8 * INSTRUCTIONS]).hexdigest()[:16], blocks=[])
+    out = dict(state=STATE_LABEL, micro_sha256=hashlib.sha256(micro[:8 * INSTRUCTIONS]).hexdigest()[:16], blocks=[])
     for top in STATE_TOPS:
         m, b = DMEM.from_buffer_copy(img), Batch()
         if lib.run(0, C.byref(State()), m, top, C.byref(b)) or b.fault: fail(f'{STATE.name}: native fault at {top:#x}')

@@ -14,6 +14,7 @@ import subprocess
 
 import reference_mode as mode
 import test_crate_original_reference as T
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/crate-registry'
@@ -152,8 +153,8 @@ def main():
     mode.banner('AREA01 crate registry')
     elf=(T.DECOMP/'config/SCUS_971.12').read_bytes()
     assert hashlib.sha256(elf).hexdigest()==T.ELF_SHA
-    paths=sorted((T.DECOMP/'build/s87/route_a01').glob('*/eeMemory.bin'))
-    paths+=sorted((T.DECOMP/'build/s87/side_a01').glob('*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('*/eeMemory.bin'))
+    paths+=sorted((refs.v263('s87/side_a01', 'no fork recording of this set')).glob('*/eeMemory.bin'))
     paths=[p for p in paths if p.read_bytes()[0x810700]==1]
     assert paths
     n=build();ticks=calls=0

@@ -17,6 +17,7 @@ import reference_mode as mode
 from test_coll_move_reference import FloatEE
 from test_module_loader_reference import read_elf_bytes
 from test_pose_host_workers_reference import SOURCES as POSE_SOURCES
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 ROOT=Path(__file__).resolve().parents[1]
 OUT=ROOT/'build/level2/model-live'
@@ -193,7 +194,7 @@ def pose69_cases(lib,elf,paths):
 
 def main():
     start=time.time();lib=build();elf=read_elf_bytes()
-    paths=sorted((DECOMP/'build/s87/route_a01').glob('a01_*/eeMemory.bin'))
+    paths=sorted((refs.capture('s87/route_a01')).glob('a01_*/eeMemory.bin'))
     paths=[p for p in paths if p.read_bytes()[0x810700:0x810702]==b'\1\0']
     paths=paths if mode.FULL else [paths[0]]
     cases=0;random=external=0

@@ -2,7 +2,8 @@
 
 The route ends in AREA01 since step GUARD (2026-10-04): its last phase,
 `a01_arrival`, is the arrival's rebuild and 60 neutral world ticks,
-compared with route 15 f741–801 by `tools/level_smoke_area01.py`
+compared with route 15 f749–809 (the fork's recording; f741–801 in
+v2.6.3's: "References: fork") by `tools/level_smoke_area01.py`
 ("a01_arrival" below). The 0x1AE040 guard that stopped AREA01's world
 frames is gone; an AREA01 original without an owner still faults where it
 is reached. `make test-level-smoke-full` and `--require-through last` end
@@ -175,6 +176,98 @@ Files:
 - `em_scene_bindings_pool_binding()`: the current binding of an owner, for
   the NOT-LIVE lines.
 
+### References: fork (2026-10-10)
+
+The user decided on 2026-10-09 to retire PCSX2 2.6.3 and to re-record the
+references in the project's PCSX2 fork (decomp `docs/PCSX2_FORK.md`,
+"Retiring the 2.6.3 app: checklist"). Every port test and checker now
+reads the original's recordings through `tools/reference_root.py`, one
+switch for all of them:
+
+- `EM_REFERENCE=fork` (the default): the fork's re-recordings,
+  `../Extermination/build/fork_refs/<the v2.6.3 path>` (the pixel sets
+  under `fork_refs/pixels/`), and the fork states in
+  `build/startup-reference/fork-states/` for the user slots;
+- `EM_REFERENCE=v263`: the PCSX2 2.6.3 recordings, kept on disk and usable
+  explicitly (`EM_REFERENCE=v263 make test-level-smoke`).
+
+A test never falls back from a missing fork file to a v2.6.3 one. A set
+with no fork recording reads its v2.6.3 data in both modes through
+`refs.v263(path, reason)`, which names the reason in the code.
+
+**On the fork** (the same layout): the main route 00..15, the C7 DOOR1 beat,
+the AIM captures, the C10 EXIT / DAMAGE / BRANCH / OPTIONS beats, the level
+groups `route_a00`, `route_a01` and `route_a01r` (on the v2.6.3 path), the
+fb2 points and the GS conformance captures, the truck and trigger captures
+(`build/fork_refs/s87/truck`, recorded on 2026-10-10 from the fork state
+`phase/slot04_first_control`), and the fork states that replace user slots
+01, 02, 04 and 14 in the sound-bank, AREA11 SFX, slide (world mode), truck
+(capture mode) and VU1 object-kernel tests.
+
+**Rows and counters that moved** (disc timing; decomp PCSX2_FORK.md "Disc
+timing at loads"):
+- `a01_arrival`: route 15's AREA01 rebuild is row 749 on the fork (the
+  AREA01 load ends 8 frames later), so the phase compares f749..f809, and
+  the beat's last counter is 15786 (v2.6.3: f741..f801, 16562).
+  `level_smoke_area01.ARRIVAL_ROW`.
+- `a01_07`: the AREA00 arrival is row 538 (v2.6.3: 529),
+  `AREA00_ARRIVAL_ROW`. The run's lines and the phase descriptions in
+  `em_level_smoke_test.c` name the fork's rows; the checker reads the row
+  of the selected reference.
+- `exit`: exit_01's AREA01 arrival is row 313 of 374 (v2.6.3: 306 of 367;
+  the AREA01 load ends 7 rows later), `EXIT_ARRIVAL_ROW` in
+  `test_level_smoke.py`.
+- The fork's main-loop counters are 784 lower than v2.6.3's from first
+  control through route 14 and its side groups; relative counters are
+  equal. `test_fb2_pixels.FIRST_CONTROL_COUNTER` is 3301 (v2.6.3: 4085).
+- Other recording facts that moved: D_00810E90 - 0x70003B64 over the route
+  snapshots is 19461 on the fork (9937 on v2.6.3;
+  `test_main_loop_and_gap_reference`); the load veil's phase after the New
+  Game load is 0.855 on the fork (0.806; `test_load_veil_particles_reference`
+  checks each reference against its own states); the fork's route rows add
+  the time keys `fi`, `fld` and `vs`.
+
+**The PS2 disc-drive run** (`make test-level-smoke-ps2-drive`, through
+roger) compares the fork's routes 00..14, which equal v2.6.3's in every
+row field, so it reads the fork too; its drive model (the C7 stream
+capture, the 17-field rule) was measured on v2.6.3 and is unchanged. The
+fork's disc timing differs only at loads past roger (route 15 and the side
+beats around a load), which that run does not reach.
+
+**Measured on the switch (2026-10-10, one port build):** `make
+test-level-smoke` and `make test-level-smoke-full` (20 phases through
+a01_arrival, then every side run: 00, status_pages, 09 with side 1, the
+eight AIM, five DAMAGE, ten BRANCH, nine OPTIONS and three AUDIO runs) pass
+on the fork; the same full run's logs pass the checker on v2.6.3 too.
+`make test-level-smoke-ps2-drive` passes on both. `tools/test_level_smoke_area01.py
+--until a01_02`, `--side a01_s3` and `--side a01_s6` pass on the fork.
+
+**Kept on v2.6.3 data, in both modes** (no fork recording):
+- the startup probes' outputs (`playable_ee.bin`, `opening_ee.bin`, the
+  `*_samples.jsonl`, `status-hub/`, `panel/`, `elevator/`,
+  `roger-encounter/`, `cutscene_skip/`, the `*_poll.json` files): the decomp
+  keeps those probes v2.6.3-only (checklist item 8);
+- the C7 stream, rng, h7 and fb sets, the load-wait boundary probe, the
+  audio captures (`s87/audio`), the frame traces (`s87/frame_trace*`), the
+  census (`s87/census`) and `s87/side_a01`;
+- the level groups from `route_a02` on, and every test that reads one of
+  them together with `route_a01r` or `route_a01`: the fork's level chain
+  leaves the v2.6.3 path at `a02_02` row 552 (disc timing) and its own
+  playthrough is not recorded from `a04b_00`;
+- the sound-bank test's exchange-timing pin: D_00275B18, 001FB3E0's retry
+  countdown during the AREA11 bank upload, is 0x4E in v2.6.3's route 00
+  (the IOP acknowledged after 2 waits) and 0x48 in the fork's (8 waits).
+  It counts the IOP's time for the 0x492D0-byte SPU upload, hardware
+  timing; the port's two-field exchange model reproduces v2.6.3's value.
+  The pin stays on v2.6.3's value and the test checks the fork's 0x48 as
+  recorded (a finding: IOP_STREAM.md).
+- Exporters (`tools/export_*.py`) still read the v2.6.3 captures they were
+  written against; they generate assets, not comparisons.
+
+The sound bank's seed D_002821A0 (the kernel's SIF DMA id, not modelled)
+is the fork title's value since this switch (0x527C1602; v2.6.3's boot left
+0x530D1702); it is the one value the two title states disagree on.
+
 ### The stream drive's two modes
 
 The PS2 disc-drive timing switch (`LAUNCHER_OPTIONS.md`, built 2026-09-27;
@@ -319,7 +412,7 @@ fence_door_side1` requires both side phases.
 | east_tower | 13 (f531..) | director beat 2, script 0x829CC0 (voiced line 0x99) | yes (census L21 with WP-8b) | — |
 | roger | 14 | Roger 0x8237E0 quad 0x82AB80, script 0x8283D0 (bank 0x96: 0022EEF0 camera, the player's clip 1 through 00183090), equipment 001C5C90 | yes (census L22) | — |
 | exit | 15 (EXIT capture: exit_00 f31.., exit_01 ..f306) | fan r2 00827630's exit box, Roger's departure 0x828A10 (op01 kind 3, op0F: the movie E001.PSS), 001B0C60(1, 0, 4), 001AD010 / 001ADF50, 001FF080(1, 0) (AREA01 sub 0), the AREA01 arrival 0x1AE040 state 0 | yes (chain C11 EXIT, 2026-10-02) | — |
-| a01_arrival | 15 (route 15 f741..f801) | the AREA01 rebuild, then 0x1AE040 state 1 / 001AE5E0 over AREA01's 54 placements and spawned owners (LEVEL2_BINDING.md), the camera's one-shot seat 0018B9C0 state 0 (mode 8), the close-out's 001AA140 / 001AA000 | yes (step GUARD, 2026-10-04) | the AREA01 owners' records (not in route 15) |
+| a01_arrival | 15 (route 15 f749..f809; v2.6.3 f741..f801) | the AREA01 rebuild, then 0x1AE040 state 1 / 001AE5E0 over AREA01's 54 placements and spawned owners (LEVEL2_BINDING.md), the camera's one-shot seat 0018B9C0 state 0 (mode 8), the close-out's 001AA140 / 001AA000 | yes (step GUARD, 2026-10-04) | the AREA01 owners' records (not in route 15) |
 | a01_00 (opt-in, from a01_arrival) | a01_00_train_room (780 frames) | the recorded pad: the walk round the crates and through the floor fields (001A8840's contact 00187EC0, the splash 001EAF00, the wet-feet decal 001F0460), the Use scan 00184BA0 and ledge grab (f304), the hang 001647D0 with 00182250's alignment on the crate cell (f357), the pull-up (f360..), the fall and landing (f491..f520), the walk to the tunnel mouth | yes (step DRAWN, 2026-10-04: all 781 rows, the kind-6 near-fire program D_0023D930 drawn from f405) | — |
 
 ## What the live phases check
@@ -1578,7 +1671,9 @@ in state 0, projected by its 001D1EF0), as it accepts state 4's.
 
 `tools/level_smoke_area01.py check_arrival`: the run continues from
 `exit` with a neutral pad; the rebuild (port counter 15007) is route 15
-row 741 and the next 60 ticks are f742..f801, compared row for row with
+row 749 (the fork's recording; row 741 in v2.6.3's, whose AREA01 load
+ended 8 frames earlier: "References: fork") and the next 60 ticks are
+f750..f809, compared row for row with
 no exemption except the rebuild's clock (the same one-frame pose attach
 difference `exit` documents): spad, screen, message, power, player
 position and heading, camera eye and target, the camera flag word
@@ -1591,8 +1686,8 @@ Route 15 records no AREA01 owner, so the owners' records are not compared
 here; the AREA01 rand() draws go through `check_rand_order`'s caller
 audit (no AREA01 per-call capture exists). The exit's pool witness at the
 rebuild is taken by this run too. `EM_A01_ARRIVAL_TICKS=N` (60..600)
-lengthens the idle as a diagnostic; frames past f801 are not recorded.
-At f801, route 15's last row, the whole camera is compared byte for byte
+lengthens the idle as a diagnostic; frames past f809 are not recorded.
+At f809, route 15's last row, the whole camera is compared byte for byte
 with the recording's saved RAM (`check_camera_end`: eeMemory.bin, whose
 snapshot names the same main-loop counter and the RAM's SHA-256): the
 camera block D_008101E0..+0xCF, the forward D_00810600..0F and

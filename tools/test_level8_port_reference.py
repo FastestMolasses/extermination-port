@@ -73,6 +73,7 @@ import reference_mode  # noqa: E402
 from test_player_slide_reference import EE, read_elf, bits, number, s32, s64, sx32, STACK_TOP, RETURN  # noqa: E402
 from test_player_fall_reference import FallEE  # noqa: E402
 import ee_float_model as M  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 DECOMP = ROOT.parent / 'Extermination'
 OVERLAY_FILES = {2: DECOMP / 'extract/OVERLAY/AREA01.BIN', 5: DECOMP / 'extract/OVERLAY/AREA04.BIN',
@@ -92,7 +93,7 @@ for _group, _beats in (('a06b', ('a06b_00_trigger_jump', 'a06b_01_door1')),
                        ('a04b', ('a04b_00_door45', 'a04b_01_npc', 'a04b_02_door45_out', 'a04b_03_reader',
                                  'a04b_04_lift'))):
     for _b in _beats:
-        BEAT_DIRS[_b] = DECOMP / 'build/s87' / ('route_' + _group) / _b
+        BEAT_DIRS[_b] = refs.v263('s87', "the fork's level chain leaves the v2.6.3 path at a02_02 (disc timing) and is not recorded from a04b_00") / ('route_' + _group) / _b
 BEATS = list(BEAT_DIRS)
 # The overlay each image holds (header id at 0x823504).
 RESIDENT = {'a06b_00_trigger_jump': 6, 'a06b_01_door1': 2, 'a01v_00_catwalk_east': 2, 'a01v_01_gap_jump': 2,

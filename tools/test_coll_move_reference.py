@@ -70,9 +70,10 @@ import reference_mode  # noqa: E402
 import test_player_slide_reference as SR  # noqa: E402
 import test_coll_grid_hull_reference as GH  # noqa: E402
 from test_player_slide_reference import EE, DECOMP, read_elf, sx32  # noqa: E402
+import reference_root as refs  # noqa: E402  (EM_REFERENCE: fork by default)
 
 OUT = ROOT / 'build/coll_move_reference'
-ROUTE = DECOMP / 'build/s87/route'
+ROUTE = refs.capture('s87/route')
 FUNCTIONS = DECOMP / 'docs/FUNCTIONS.csv'
 
 MOVE, SWEEP, WALK = 0x19AD00, 0x19AFE0, 0x19FE50
