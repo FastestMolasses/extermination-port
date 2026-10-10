@@ -1912,6 +1912,28 @@ through a01_arrival; the AIM, damage, branch, options and audio side runs
 PASS), `make test-fb2-pixels` (quick and full), `make ios-lib
 IOS_SDK=iphoneos` (no warnings; removed after).
 
+**Status update (2026-10-10, step DOF merged onto main).** dof-pass merged
+after fc986dc (the disc-drive switch's 17-field seek); the review's minors
+fixed: 1b item 2's numbers, and the Metal test harness, which had not
+linked src/gs/em_gs_display.c since 5836a37, so `make test-chain-page-gpu`
+and `make test-load-veil-gpu` had printed SKIPPED and exited 0 without
+running (they run and PASS now; on a machine with a Metal device a harness
+that does not build or open fails; CHAIN_PAGE.md section 8). Frame cost
+re-measured with the final model (GS_EXACT.md 10.2: +3.6 ms of the busiest
+worker per frame; the machine was busy, load 12 to 22). Verified on main:
+`make -B all` (no warnings), newgame-control (PASS 9.599849; with
+EM_GPU_RENDERER=1 too), `make test-dof-pass-reference` (quick and
+`EM_TEST_FULL=1`: 8 captures bit-exact), `make test-level-smoke` (1,584
+passes drawn), `make test-level-smoke-full` (13,131 passes through
+a01_arrival; the AIM, damage, branch, options and audio side runs PASS),
+`make test-level-smoke-ps2-drive` (the switch path through roger: 12,608
+passes drawn, 37 re-walked; 18 live phases PASS), `make
+test-chain-page-reference`, `make test-chain-page-gpu`, `make
+test-load-veil-gpu`, `make test-gs-fog-conformance`, `EM_TEST_FULL=1
+python3 tools/test_fb2_pixels.py` (14 92.40 %, 13 62.60 %, 10 18.92 %, 15
+98.57 %, first control 1,117 pixels), `tools/ios/build.sh device` (no
+warnings; then `clean`).
+
 ### 1b. What still separates the port from the original first level (prioritized, re-made 2026-10-08, chain step ROUTE)
 
 This list covers what is left between the port and the original first level:

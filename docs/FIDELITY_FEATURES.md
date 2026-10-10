@@ -1130,9 +1130,11 @@ only shows that field.
   tick was under the 16.68 ms period on this M1 Pro when the workers had
   free cores (re-measured at the merge, 2026-10-08, before the pass); under
   heavy machine load some ticks ran over on wall time. The pass adds about
-  3.9 ms of the busiest worker's CPU per frame (+50 %); on a heavily loaded
-  machine 652 to 740 of 1,300 in-level ticks then ran over the period, and
-  the quiet-machine figure with the pass is not measured yet. AREA01 (level 2) draws through
+  3.6 ms of the busiest worker's CPU per frame (+55 %; re-measured at the
+  merge onto main, 2026-10-10, with the final model): at load average 12
+  to 13 on this 10-core M1 Pro 2 and 21 of 1,300 in-level ticks ran over
+  the period (without the pass 1 and 2), at load 16 120; a quiet-machine
+  run is still not made (the machine was busy). AREA01 (level 2) draws through
   the same model since the merge, but 65 of its 840 measured ticks run over
   the period (its main thread alone takes 13.6 ms). The model is PCSX2's
   software renderer's behaviour as measured, not real hardware's.

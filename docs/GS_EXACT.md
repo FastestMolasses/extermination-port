@@ -1522,6 +1522,29 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   / column tables of PSMCT32 and PSMZ32 are separable) is the obvious next
   saving; precomputing the sprite's per-column U alone saves 6 % of the
   pass (above). Neither is applied in this step.
+- **Re-measured at the merge onto main (2026-10-10, port main after the
+  conformance step's binary32 row accumulation):** the same method, six
+  newgame-control runs interleaved, the pass build (main) against a scratch
+  build of fc986dc (main just before the merge, which walks over the pass),
+  the last 1,300 ticks (in level), with the machine's load average (1 min)
+  at each run's start / end. The machine was **busy** (load 12 to 22 on 10
+  cores: another track's PCSX2 fork run and builds beside it); no quiet
+  window came, so these are the best figures available. Run order and
+  load: pass 11.9 -> 12.6, without 12.6 -> 11.7, pass 11.7 -> 13.1,
+  without 13.1 -> 21.3 (a load spike: worker 8.07 ms, 419 ticks over; not
+  used), without 21.7 -> 15.9, pass 15.9 -> 15.7. Without the pass: the
+  busiest worker 6.60 / 6.64 ms of CPU per frame (p95 8.62 / 8.34), the
+  tick's wall mean 8.20 / 8.24 ms (p99 12.21 / 12.15), 1 / 2 of 1,300
+  ticks over the period. With the pass, the two runs at load 12 to 13: the
+  busiest worker 10.23 / 10.16 ms (p95 12.29 / 12.61, max 14.94 / 14.74),
+  the tick's wall mean 8.62 / 8.71 ms (p99 14.53 / 18.07), 2 / 21 of 1,300
+  ticks over the period; the run at load 16: 11.01 ms, 120 ticks
+  over. The pass adds about 3.6 ms of the busiest worker's CPU per frame
+  (+55 %); the main thread's CPU per tick is unchanged (8.16 to 8.54 ms).
+  At load about 12 the frame fits the period on all but 2 to 21 ticks; the
+  estimate above for a quiet machine (busiest worker about 10 ms, under the
+  16.68 ms period) agrees with these runs, but a quiet-machine run is
+  still not made.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
