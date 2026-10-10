@@ -7,9 +7,13 @@
  * canonical storage (the render context's arena, chain table, context, GS
  * blocks and .data: em_rcl_bytes; the ELF windows the effect-table export
  * places: em_effects_live_window, which hold the two program packets and
- * 001CFBE0's source blocks), walking over this frame's 001DDE10 four-sprite
- * CALL (em_rcl_page), and em_gfx_gs_prims draws every primitive in GS
- * order. The producers are the live originals: the effect barrel's lanes
+ * 001CFBE0's source blocks), and em_gfx_gs_prims draws every primitive in
+ * GS order. This frame's 001DDE10 CALL (slot 0xFFF, em_rcl_page: its
+ * depth-of-field pass, CHAIN_PAGE.md section 6.2) is followed in the
+ * Original profile's recorded world frame (em_chain_page's pass mode, the
+ * draw environment it REFs from em_rcl_draw_env) and drawn by the GS model
+ * (em_gfx_gs_page_pass), and walked over with the GPU renderer, which
+ * cannot draw it. The producers are the live originals: the effect barrel's lanes
  * (001F0720), the head sprites and every puff handler (001CFBE0), the
  * glint (001F0A60), the glow markers and equipment sprites (001CD520) and
  * the 0015BF90 decal (001CE300), whose triangle count goes back to
@@ -23,9 +27,10 @@
  * (docs/GS_EXACT.md 2.1); a vertex with an unknown Q (log.stale_q) cannot
  * occur, and one would fault the page.
  *
- * Fail-stop: a page fault, a primitive the renderer does not implement, or
- * a decal count mismatch latches (em_chain_page_live_fault); the caller
- * faults the scene. */
+ * Fail-stop: a page fault, a primitive the renderer does not implement, a
+ * decal count mismatch, or (with the GS frame on) a 001DDE10 CALL the model
+ * cannot draw latches (em_chain_page_live_fault); the caller faults the
+ * scene. */
 #ifndef EM_CHAIN_PAGE_LIVE_H
 #define EM_CHAIN_PAGE_LIVE_H
 
@@ -58,14 +63,21 @@ typedef struct {
     uint32_t frame;            /* em_frame_counter() of the last draw        */
     uint32_t pages;            /* cumulative pages drawn                      */
     uint32_t start;            /* the last page's start tag                   */
-    uint32_t four_sprite;      /* its skipped 001DDE10 CALL target (0: none)  */
+    uint32_t four_sprite;      /* its 001DDE10 CALL target (0: none)          */
+    /* 001DDE10's depth-of-field pass: 1 when the last page drew it (the GS
+     * frame), 0 when it walked over it (the GPU renderer) or had none; its
+     * first primitive and count, its environment-again marks (relative to
+     * the pass), the draw environments (bank A) and the slot whose block
+     * the marks stand for, and the FNV-1a of its environments and marks */
+    uint32_t pass, pass_first, pass_prims, again_count, again[EM_CHAIN_PAGE_AGAIN_MAX];
+    uint32_t draw_envs, draw_env_slot, pass_digest;
     EmChainPageCounts counts;  /* the last page's                             */
     uint32_t decal_triangles;  /* the last page's decal-TEX0 fan triangles    */
     uint32_t flare_sprites;    /* the last page's gun-lamp flare sprites (00187690's TEX0s) */
     uint32_t digest;           /* FNV-1a of the last page's primitives        */
     uint32_t weather;          /* the weather list 001E0D70 CALLed (0: none)  */
     uint32_t overlay_reads;    /* reads of overlay source blocks (the flame) */
-    uint32_t total_prims, total_stale_q, total_skipped;   /* cumulative      */
+    uint32_t total_prims, total_stale_q, total_skipped, total_passes;   /* cumulative */
     /* the last page's class-2 unit CALLs (001CABA0's) and the digest of its
      * primitives without theirs (the re-walk walks over the units) */
     uint32_t units, unit_call[EM_CHAIN_PAGE_UNITS_MAX], unit_prims[EM_CHAIN_PAGE_UNITS_MAX];

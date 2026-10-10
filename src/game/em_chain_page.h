@@ -51,11 +51,29 @@
  * holds for what follows; the VU1 data memory and program are the next
  * producer's to upload (each page producer uploads what it reads).
  * Top-level CALLs to the `skip_calls` targets are walked over without being
- * run: live, the one address 001DDE10 handed 001CB760 for slot 0xFFF this
- * frame (its four-sprite frame-copy pass, whose look the renderer does not
- * reproduce yet); they are counted, never drawn (docs/CHAIN_PAGE.md
- * section 6). The reference test also passes the captured pages' CALLs of
- * producers the port does not run.
+ * run: live with the GPU renderer (the Enhanced profile), the one address
+ * 001DDE10 handed 001CB760 for slot 0xFFF this frame (its depth-of-field
+ * pass, which only the CPU GS model draws); they are counted, never drawn
+ * (docs/CHAIN_PAGE.md section 6). The reference test also passes the
+ * captured pages' CALLs of producers the port does not run.
+ *
+ * Pass mode (`pass_call`; docs/CHAIN_PAGE.md section 6.2): the top-level
+ * CALL to that target is followed instead, and inside it the walk takes the
+ * GS registers list mode takes (below: the context-1 environment and the
+ * A+D vertex registers), so each of its primitives also gets the
+ * environment the pass set before it (prim_env), and a DIRECT may hold
+ * several GIF packets. One REF is not transferred: the pass's REF of the
+ * frame's draw environment (001D1F20: bank A of the GS blocks, `draw_envs`
+ * + 0x190 * `draw_env_slot`, 0x19 qwords), which the DMA reads after step
+ * V's 001D2300 has written the field's XYOFFSET into it, after this walk:
+ * it is recorded as an "environment again" mark (again[]: the primitive
+ * index it precedes), the GS model sends the kick's own environment packet
+ * there (em_gs_world_env_again), and the walk forgets the registers that
+ * block writes (the environment, CLAMP_1, TEX1_1, TEST_1, COLCLAMP: from
+ * there on they are the frame's). Any other REF into bank A inside the
+ * pass, and the context-2 and FOGCOL writes list mode accepts, fault. The
+ * pass's environment starts empty at its CALL. The Original profile draws
+ * 001DDE10's pass so (em_chain_page_live).
  *
  * The VU1 registers, data memory, the VIF cycle and the GS drawing state
  * start unset at every page: the page programs read only what the page
@@ -120,6 +138,9 @@ enum {
 
 #define EM_CHAIN_PAGE_SKIP_MAX 64u
 #define EM_CHAIN_PAGE_UNITS_MAX 32u
+#define EM_CHAIN_PAGE_AGAIN_MAX 16u      /* environment-again marks of a pass */
+#define EM_CHAIN_PAGE_DRAW_ENV 0x190u    /* one draw environment of bank A    */
+#define EM_CHAIN_PAGE_DRAW_ENV_QWC 0x19u /* 001D1F20's REF of it              */
 
 /* Original memory, by address: `size` bytes at `address`, or NULL. */
 typedef const uint8_t *(*EmChainPageRead)(void *ctx, uint32_t address, uint32_t size);
@@ -158,6 +179,10 @@ typedef struct {
     uint32_t mscal_ripple;    /* ripple-surface batches (D_00234B00; MSCAL + MSCNT) */
     uint32_t mscal_kind6;     /* MSCALs of the kind-6 program (D_0023D930)   */
     uint32_t kind6_prims;     /* of the primitives, the kind-6 program's     */
+    uint32_t passes;          /* pass CALLs followed (pass mode: 0 or 1)     */
+    uint32_t pass_prims;      /* of the primitives, the pass's               */
+    uint32_t pass_direct;     /* of the DIRECT packets, the pass's           */
+    uint32_t again;           /* the pass's REFs of the frame's draw environment */
 } EmChainPageCounts;
 
 /* One vertex's Q provenance, parallel to EmGfxGsPrim.v (1: the Q of its
@@ -175,10 +200,18 @@ typedef struct {
     uint32_t skip_count;
     EmChainPageUnit unit;     /* may be NULL: no unit CALLs                 */
     void *unit_ctx;
+    /* pass mode: the top-level CALL target followed as a pass (0: none),
+     * the GS blocks' bank A (D_00275674 + 0x20: the two draw environments,
+     * EM_CHAIN_PAGE_DRAW_ENV bytes each) and the slot (context +0x9C) whose
+     * environment the kick REFs; a pass needs draw_envs */
+    uint32_t pass_call;
+    uint32_t draw_envs, draw_env_slot;
     /* output (caller-owned arrays of prim_capacity) */
     EmGfxGsPrim *prims;
     EmChainPageQ *prim_q;     /* may be NULL */
-    EmGfxGsEnv *prim_env;     /* list mode: may be NULL (page mode: unused) */
+    EmGfxGsEnv *prim_env;     /* may be NULL; list / call mode: every primitive's
+                               * environment; page mode: the pass's primitives'
+                               * (the others' are empty) */
     uint32_t prim_capacity;
     uint32_t prim_count;
     EmChainPageCounts counts;
@@ -188,6 +221,13 @@ typedef struct {
     uint32_t unit_prims[EM_CHAIN_PAGE_UNITS_MAX];
     uint64_t unit_tex0[EM_CHAIN_PAGE_UNITS_MAX];   /* the TEX0 / PRIM a unit leaves */
     uint32_t unit_prim[EM_CHAIN_PAGE_UNITS_MAX];
+    /* the pass (pass mode): its primitives [pass_first, pass_first +
+     * counts.pass_prims), and the environment-again marks: again[k] is the
+     * index of the primitive the k-th precedes (pass_first +
+     * counts.pass_prims when none follows it in the pass) */
+    uint32_t pass_first;
+    uint32_t again[EM_CHAIN_PAGE_AGAIN_MAX];
+    uint32_t again_count;
     uint32_t fault;           /* EM_CHAIN_PAGE_FAULT_*                    */
     uint32_t fault_address;   /* the tag, VIF code or GIF tag address     */
     uint32_t fault_detail;    /* the offending word / program / register  */

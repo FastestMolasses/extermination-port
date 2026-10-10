@@ -1014,6 +1014,28 @@ int em_gfx_gs_upload(EmGfx *gfx, const uint8_t *chain, size_t bytes);
  * here to the kick. 1 (recording), 0 (the GS frame is off: the GPU draws),
  * -1 (a fault, reported: em_gfx_gs_world_fault). */
 int em_gfx_gs_world_frame(EmGfx *gfx);
+/* 1 while a world frame is being recorded for the GS frame (from
+ * em_gfx_gs_world_frame to its kick or drop), else 0. */
+int em_gfx_gs_world_recording(EmGfx *gfx);
+/* The chain page's depth-of-field pass (001DDE10's slot-0xFFF CALL;
+ * docs/CHAIN_PAGE.md section 6.2), walked by em_chain_page's pass mode, in
+ * a recorded world frame: `count` primitives in GS order with the
+ * environment the pass set before each (envs, EmGfxGsEnv, context 1: its
+ * copy target's FRAME_1, ZBUF_1, XYOFFSET_1, SCISSOR_1, PRMODECONT, DTHE and
+ * TEXA), and the pass's REFs of the frame's draw environment (001D1F20,
+ * which the GS reads after the kick): again[k] (ascending, at most count) is
+ * the index of the primitive before which the GS model sends the kick's
+ * environment packet again (count: after the last). field_frame /
+ * field_scissor are that environment block's FRAME_1 and SCISSOR_1 (bank A
+ * of the GS blocks: constant per slot), the field the pass reads and blends
+ * into: it is declared to the model first (em_gs_world_field_declare; the
+ * kick checks it against its head). Everything else is em_gfx_gs_prims's
+ * recording. Without the GS frame (the GPU renderer, the d3d12 / Vulkan
+ * backends) the pass is not drawn: -1 (reported), and the caller walks over
+ * it instead. 0, or -1. */
+int em_gfx_gs_page_pass(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                        const uint32_t *again, uint32_t again_count, uint64_t field_frame,
+                        uint64_t field_scissor);
 /* The recorded world frame is never kicked: the blocking movie 00203350
  * took the main iteration (001AAE40 with D_00821058 == 1), and after it
  * returns 001D1C10 runs 001D1AE0, which restarts the frame's list before

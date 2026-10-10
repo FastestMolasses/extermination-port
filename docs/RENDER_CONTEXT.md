@@ -32,7 +32,7 @@ yet (the census status verified-unbound).
 | 001DD950 | BM | unverified | verified-unbound | context +0x2450 = the quadword at a0; +0x2460 = 16777215 / f12 (DIV.S); +0x2464 = f13 |
 | 001DDA00 | BM | missing | verified-unbound | per-frame tick (2.2) |
 | 001DDAA0 | BM | missing | verified-unbound | area-key dispatch to 001DE920 or 001DDE10 (2.2) |
-| 001DDE10 | BM | missing | verified-unbound | the four-sprite pass (2.3) |
+| 001DDE10 | BM | missing | verified-unbound | the depth-of-field pass (2.3) |
 | 001DEEE0 | BM | missing | verified-unbound | the ramp machine on a 0x20-byte record (2.2) |
 | 001E0C30 | BM | missing | verified-unbound | context bytes +0x170..+0x173 = 0, word +0x174 = 0, then tail jump to 001E1010 |
 | 001E0C60 | BM | missing | verified-unbound | returns context word +0x174 AND (1 << ((a0 - 0x20) & 31)) |
@@ -99,7 +99,35 @@ a counter with p+4 as its limit. Every flag test goes through 001D2910:
   state 1. Then 001DF110(p + 0x10).
 - state 3 and any other value: flag set → state 1.
 
-### 2.3 001DDE10 (the four-sprite pass) and 001D6C90
+### 2.3 001DDE10 (the depth-of-field pass) and 001D6C90
+
+What the pass does on the GS (CHAIN_PAGE.md section 6.2, read from the
+packets below and their callees'; verified 2026-10-09 on the original in
+the PCSX2 fork, where returning from 001DDE10 at its entry changes 31-40 %
+of the displayed field's pixels in the sampled frames, and the frame with
+the pass keeps 0.62-0.69 of the high-frequency content (mean Laplacian) of
+the frame without it): four times, a copy of the field this frame draws
+into the 256x256 buffer at D_0027568C (a bilinear 2:1 shrink), then that
+copy stretched back over the whole field with the blend (Cs - Cd) * As + Cd
+under the field's Z test GEQUAL at the slot's depth cc and with alpha rr,
+no Z written: the pixels at or behind each slot's depth take a softer
+copy of themselves. In cutscenes (v = 0022EBE0() != 0) the depth follows
+the camera's look-at point (001DD950 / 001DD980 at context +0x2450) and
+every alpha is 0x3E; in AREA11 play (key 0xB00) it follows the player
+(D_00810360) and the alphas ease to 0x18 / 0x28 / 0x38 / 0x48. The decomp's
+comment on func_001DDE10 ("radar/altimeter HUD bar builder") is wrong. The
+Original profile draws it through the CPU GS model since step DOF; the GPU
+renderer walks over it. Against the fork capture of the pass (decomp
+build/dof_capture, 2026-10-10, `make test-dof-pass-reference` part B): run
+over each of the 7 captured EE states (the channel-3 cursor put back at the
+pass's CALL target; every eased value as it was before the run's one step
+of it, found by inverting that step with the EE float model: in the play
+frames the four depths moved, in the first wide shot D_00275690), the
+translation leaves every EE and scratchpad byte equal to the original's
+(the 2,976 packet bytes, the pairs, +0x2450..+0x2467, D_00275690 /
+D_00275694, the cursor), its 001CB760 is the slot block's CALL, and the
+walk of what it built sends the original's 4,544 GIF bytes; those draw the
+original's GS memory bit for bit (CHAIN_PAGE.md section 6.2).
 
 1. key = (D_00810700 << 8) + D_00810701. The code is 0015D2F0(), forced to 2
    when D_008104E0 is 0xC, 0xD or 0x29. v = 0022EBE0().
@@ -462,11 +490,13 @@ Mutation check, run by hand on a scratch copy and not kept:
 - **Stubs.** The stubbed callees do not run in the test. That is sound for
   this lane's own logic (see the stub-tree check), but their packets are not
   compared here.
-- **Not drawn.** The packets 001DDE10 builds are compared byte for byte.
-  Since WP-13 the chain page's consumer walks the page, but it walks over
-  001DDE10's slot-0xFFF CALL (the address the frame's 001CB760(0xFFF000)
-  records, `em_rcl_page`): these four sprites sample the frame buffer, and
-  the port does not draw them (docs/CHAIN_PAGE.md section 6).
+- **Drawn by the GS model only.** The packets 001DDE10 builds are compared
+  byte for byte. Since step DOF (2026-10-09) the chain page's consumer
+  follows 001DDE10's slot-0xFFF CALL (the address the frame's
+  001CB760(0xFFF000) records, `em_rcl_page`) in the Original profile and
+  the CPU GS model draws the pass; with the GPU renderer it is still walked
+  over (docs/CHAIN_PAGE.md section 6.2). Its pixels have not been compared
+  with an original frame yet.
 - **Fail-stop is entry-checked.** A worker that returns an error mid-routine
   faults at once and leaves the bytes written before it. The requirement
   checks are conservative: 001DDE10 requires the D_00810360 view even when

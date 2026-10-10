@@ -93,7 +93,11 @@ fault (section 6).
 - textured points (UV and STQ);
 - alpha test, destination alpha test, Z test, all blend equations,
   COLCLAMP, PABE, FBA, FBMSK, CT16 conversion and dithering (triangles,
-  lines and points; not sprites).
+  lines and points; not sprites);
+- the row coordinate of UV sprites, accumulated in binary32 (3.4, since
+  2026-10-10), and with it 001DDE10's depth-of-field pass: bit-exact on all
+  7 captured frames of the original (all of local memory; section 7,
+  `test_dof_pass_reference`).
 
 **Not exact:**
 - Z: 16,569 of the 1,884,160 Z values (0.9 %). 14,694 of them are one LSB
@@ -303,7 +307,21 @@ Evidence:
 - **Coverage:** x0 <= x < x1 and y0 <= y < y1 on the sorted corners.
 - **Colour, Z and F** come from the second vertex.
 - **Texture coordinates:**
-  - UV: affine between the corners as given, floored in 1/16 texel.
+  - UV, the row coordinate V (measured 2026-10-10, below): accumulated in
+    binary32, one step a row, from the sprite's first covered row. In
+    texel units (V / 16 and Y / 16, both exact): step = (v1 - v0) / (y1 -
+    y0), rounded once; at the first covered row v = v0 + (row - y0) *
+    step, the product and the sum each rounded; at every next row v +=
+    step, rounded; the coordinate is floor(16 v) in 1/16 texel. Scaling by
+    powers of two is exact, so the same holds in 1/16 units. Where the
+    gradient is dyadic every value is exact and this is the floor of the
+    exact value; where it is not, the accumulated rounding leaves some rows
+    one 1/16 texel below an exact integer value.
+  - UV, the column coordinate U: the floor of the exact value (affine
+    between the corners as given), in 1/16 texel. No capture tells it from
+    the row rule applied to the columns (every measured column gradient is
+    dyadic or meets no integer value where the two differ); strict mode
+    refuses a sprite where they differ (section 6).
   - STQ: S and T affine between the corners. Both corners use the second
     vertex's Q, and the divide is that of section 4.5.
 - Evidence:
@@ -311,6 +329,43 @@ Evidence:
   - The second vertex's Q: p3_stq `sprite_q_bil` / `sprite_q_near` are
     exact. The alternative (each corner's own S/Q, interpolated) leaves
     5,580 and 4,066 values off there, and 2,520 in p4_rcp.
+  - The row rule: 001DDE10's depth-of-field pass (CHAIN_PAGE.md section
+    6.2), captured in the PCSX2 fork on both sides of the pass (decomp
+    `build/dof_capture`: 7 frames and a repeat; section 7,
+    `test_dof_pass_reference`). Its blend sprite stretches 256 texel rows
+    over the 224 rows of a half-line field (V 0.5..256.5 over Y
+    -0.5..223.5: 8/7 texel a row), so every seventh row (y = 3 mod 7) has
+    an integer exact value. With the floor of the exact value the model
+    left field / copy pixels off in every frame a blend reaches (open_w0170
+    2,695 / 1,349, open_w0300 2,209 / 1,039, open_w0880 639 / 373,
+    play_first_control 183 / 126, play_hill_slide 251 / 160). Solving each
+    integer row from the pixels only the last blend reaches (its source is
+    the captured copy itself) gives one 1/16 texel below the exact value at
+    rows 24, 31, 38, 45, 52, 59, 157 and 164, and the exact value at rows 3,
+    10, 17 and 66 .. 150 (15 rows); the floor of the exact value fits every
+    other row. The binary32 accumulation reproduces all 23 rows and every
+    other one. A product from the start in binary32 (the step per 1/16
+    pixel, per pixel or in normalised units, also through a reciprocal or
+    a fused multiply-add), a product from the first row and an
+    accumulation in double precision each miss the 8 rows below the exact
+    value; blocks of four rows miss 14. With the rule all 7 frames are
+    bit-exact (all 4 MiB of local memory). On every UV sprite of the
+    conformance packets (29,272 row and column positions, among them
+    GSCAP `mag_a_bil_frac`'s row of exact value 65 at the non-dyadic
+    gradient 8/21, where the reference reads 65) the accumulation gives the
+    floor of the exact value, so the 906 tests are unchanged.
+  - Not settled by these captures: the accumulation's start when the
+    sprite's first covered row lies above the scissor (from that row or from
+    the scissor's), its start as one fused multiply-add, and corners given
+    bottom to top; the columns (above). Strict mode refuses a sprite where
+    any of these would change a coordinate it draws (section 6). None
+    occurs in the first level: in an instrumented run of the level smoke
+    through the AREA01 arrival (a scratch build counting every UV sprite
+    drawn, 2026-10-10) the only UV sprites with a non-dyadic gradient were
+    the depth-of-field blends (52,764 of 105,808 UV sprites, all on the row
+    axis, none starting above the scissor or upward, no column gradient
+    non-dyadic), and the level smoke with the check in place refuses
+    nothing.
 
 ### 3.5 Points
 
@@ -678,7 +733,15 @@ has settled:
 - textured lines;
 - SCANMSK, CT16S / CT24 frames, Z16S;
 - DATE on a 16-bit frame, ZTE 0;
-- LOCAL -> LOCAL and LOCAL -> HOST transfers.
+- LOCAL -> LOCAL and LOCAL -> HOST transfers;
+- a UV sprite whose drawn texel coordinates depend on what section 3.4
+  leaves unsettled (since 2026-10-10): its rows under the accumulation
+  started at the scissor's first row (when the sprite starts above it),
+  started as one fused multiply-add, or started from the top corner's value
+  (corners given bottom to top); its columns, whose exact value the model
+  uses, under the same accumulation and those variants. The check runs at
+  the sprite's kick (`sprite_uv_settled`) and refuses only where one of
+  them would read another 1/16 texel at a pixel the sprite draws.
 
 A refused primitive draws nothing. It is counted (`refused_prims`),
 `refusals` gets a reason bit and `reason` names the first refusal.
@@ -706,13 +769,16 @@ span fault, as the port's fail-stop rule requires.
   their environment from `EmGfxGsPrim` / `EmGfxGsEnv` records. Memory must
   be byte-identical to the same writes sent as an A+D packet, and
   `em_gs_read_frame_rgba` must equal the measured decode.
-- **E.** Strict mode itself: ten synthetic packets. AA1, MXL > 0,
-  PRMODECONT.AC 0, a textured line, LOCAL -> LOCAL, LOCAL -> HOST and a
+- **E.** Strict mode itself: fourteen synthetic packets. AA1, MXL > 0,
+  PRMODECONT.AC 0, a textured line, LOCAL -> LOCAL, LOCAL -> HOST, a
   constant-Z / varying-Z split at an unmeasured boundary (a TEX0 TW change)
-  must each be refused in strict mode with that reason and draw in the
-  default mode. Three controls must draw with no refusal in both modes: the
-  same split with one Z, the split at a measured boundary (TFX), and a
-  dithered point.
+  and three UV sprites of section 3.4's unsettled cases (rows starting above
+  the scissor, rows given bottom to top, columns whose exact value differs
+  from the row rule) must each be refused in strict mode with that reason
+  and draw in the default mode. Four controls must draw with no refusal in
+  both modes: the same split with one Z, the split at a measured boundary
+  (TFX), a dithered point, and 001DDE10's blend sprite (the measured row
+  rule).
 - The open items are recorded with their exact counts (`OPEN`, 203 tests),
   so any change of a count fails.
 
@@ -722,6 +788,59 @@ Result on 2026-09-27 (fix round):
 - All uploads and all fences equal. No refusal and no span fault in any
   capture packet in strict mode. D passes; E: 10 of 10. 0 failures.
 - `EM_TEST_FULL=1`: 931 of 1,158 bit-exact, 0 failures.
+
+Re-run on 2026-10-10 with the row rule of section 3.4: the same 703 of
+906 (931 of 1,158 in full mode), every count of `OPEN` unchanged; E: 14 of
+14. With the UV check switched off (a scratch copy) the three UV cases fail.
+
+**`tools/test_dof_pass_reference.py`** (`make test-dof-pass-reference`,
+2026-10-10; quick about 0.5 s with the library built, 5 s with a rebuild;
+`EM_TEST_FULL=1` about 1.5 s): 001DDE10's depth-of-field pass against the
+original's local memory on both sides of it. The decomp's fork capture
+(`build/dof_capture`, its `manifest.json`: 5 frames of the opening cutscene,
+2 of AREA11 play and a repeat of one, the DMA cut at the pass's two
+boundaries) holds the memory before and after the pass, the registers at
+its start (the last value of each that frame's stream wrote), the pass's
+GIF bytes (from the EE chain and from the GS dump) and the EE RAM after
+001DDE10 ran. The C side is `tests/dof_pass_reference_bridge.c`.
+- **A.** The captured GIF bytes through the model (strict) from the memory
+  and registers before the pass: the field (512 x 224), the copy buffer
+  (256 x 256 at 0x258000), the Z buffer (untouched: equal before and
+  after) and every other word must equal the memory after it; again through
+  3 (full: also 8) row-band EmGs in lockstep. Reported per blend: its Z,
+  alpha and the field pixels its Z test passes, and the field's pixels by
+  how many blends reach them.
+- **B.** The port's packets: `em_render_context_001DDE10` over the captured
+  EE image with the live binding's workers, from the state before it ran
+  (the channel-3 cursor back at the pass's CALL target; a cutscene frame
+  snaps its pairs from the captured point; every eased value is put back
+  as it was before the run's one step of it, found by inverting that step
+  with the EE float model and checked by running the translation: the four
+  depths of each play frame and D_00275690 in the first wide shot had
+  moved, the others had converged). Every EE and scratchpad byte the run leaves must equal the
+  capture's, its 001CB760 must be the slot block's CALL, and the DMA walk
+  of what it built must give the captured 4,544 GIF bytes.
+- **C.** The Original profile's path over the port-built image:
+  `em_chain_page`'s pass mode (8 sprites, 32 DIRECT packets, marks 1, 3, 5,
+  7, 8), then `em_gs_world_page_pass` and the kick (bank A's block as the
+  head) with 1 and 3 workers (full: 1, 2, 3, 8), from the memory before the
+  pass restored with the drawn buffers as drawn (`em_gs_world_memory_restore`),
+  and with 3 (full: also 8) workers with every block counted as an upload:
+  every word must equal the memory after the pass.
+- **D.** (full) the repeat run equal to its first run.
+
+Result on 2026-10-10: every capture bit-exact in A, B and C (field,
+copy, Z and the rest of local memory). Mutants, each killed: the row rule
+reverted to the floor of the exact value (A and C), the environment-again
+mark of the field removed from the recorder (C, 3 workers), one packet
+constant of 001DDE10 (B and C), the marks shifted by one primitive (C).
+The first version of C restored the memory as one upload (all blocks
+resident) and drew wrong bytes with 3 to 8 workers, varying from run to
+run: the recorder left uploaded blocks out of its ordering, so the copy
+read field rows a band was still blending. The ordering now covers drawn
+blocks whatever their residency (section 9); with the old rule
+`make test-gs-world`'s new every-block-uploaded frames report the data
+race under the thread sanitizer.
 
 **Mutation check** (decomp `build/b16/gscap8/model/mut2.py`, run on a
 scratch copy of the model): 28 single-change mutants, all killed by the
@@ -852,7 +971,25 @@ p8_span `s0_rev_prim_fst` 8 and `s1_rev_prim_fst` 5 (all in the UV half),
 p8_gif `pk_uv_xyzf2_fog` 1. The slow exact gradients of p4_misc
 `uv_exact_*` are exact. Rounding the interpolated U, V to binary32 (from
 the exact value, or from binary64 barycentric weights) changes none of
-these counts.
+these counts. A lead not yet tried (2026-10-10): a UV sprite's row
+coordinate is accumulated in binary32 one row at a time (3.4); the same
+kind of accumulation along a triangle's edges or across its spans.
+
+### 8.8 UV sprites: the row rule's variants and the columns (unmeasured)
+
+Section 3.4's row rule is measured on 001DDE10's blend sprite: corners
+given top to bottom, the first covered row drawn (not above the scissor),
+a start offset of half a row, the half-line field. Not measured, and
+refused in strict mode where they would change a drawn coordinate
+(section 6): the start when the sprite begins above the scissor, a fused
+start, corners given bottom to top, and the columns (the model keeps the
+exact value; no capture has a non-dyadic column gradient meeting an
+integer value). None of these occurs in the first level (3.4). Also not
+captured: a blend that passes its Z test in a whole-line field (OFY
+1936.0; open_wide_t0720 is one, but no blend reaches a pixel there). The
+row rule predicts it (a start offset of 0: every row y = 0 mod 7, y > 0,
+can fall one 1/16 texel below its exact value); a capture of such a frame
+(a cutscene frame of the other field parity) would confirm it.
 
 ## 9. Binding: how the Original profile renders through the model
 
@@ -901,7 +1038,16 @@ page):
    D_008146C0 and the target's TEX0 0x5DC00A580; the receivers (0023C200,
    PRIM 0x07C, then 0023E8A0's for class 2, PRIM 0x07B); CLAMP block 1 at
    the end (001D1FF0(0, 1));
-5. the chain page's primitives with the state they carry.
+5. the chain page's primitives with the state they carry, and, as its
+   last CALL (slot 0xFFF), 001DDE10's depth-of-field pass since step DOF
+   (2026-10-09; CHAIN_PAGE.md section 6.2): the field declared to the
+   model (em_gs_world_field_declare: bank A's FRAME_1 / SCISSOR_1 of the
+   kicked slot, checked against the head at the kick), then four times the
+   copy of the field into the 256x256 buffer at D_0027568C with its
+   environment (FRAME_1 / ZBUF_1 / XYOFFSET_1 / SCISSOR_1 / PRMODECONT /
+   DTHE / TEXA), the draw environment again (the kick's packet, OP_ENV:
+   001D1F20's REF), the blend back over the field under its Z test, and
+   the draw environment again at the end.
 A GPU draw in a world frame (`em_gfx_draw_skinned`) is a fault: nothing
 in the first level's world frames takes that path (the level smoke through
 Roger passes with the GS frame on).
@@ -956,7 +1102,17 @@ primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark): every
 it must fall where the span has already ended (a worker with queued
 primitives there faults, so a barrier never moves a span boundary). The
 worker count is EM_GS_THREADS, else the host's processors less three, at
-most 8: a host property, the bytes are the same for any count.
+most 8: a host property, the bytes are the same for any count. A texture's
+reads are ordered by the drawn blocks it covers whatever their residency
+(since 2026-10-10: `texture_entry` lists every drawn block, and a buffer
+drawn over uploaded blocks for the first time makes the texture checks
+run again, `mark_drawn`). Before, it listed only blocks no upload wrote,
+which is enough while no upload writes a buffer the frames draw: in the
+first level none does (the library image, AREA11's area-load uploads and
+the player texture packet, 5,504 blocks, hold no block of either field,
+the Z buffer or the 256 x 256 copy and shadow buffer), but a frame drawn
+over uploaded memory raced (found by `test_dof_pass_reference` part C;
+`make test-gs-world` now also draws its frames with every block uploaded).
 
 **Pipelining.** As the GS draws a kicked list while the EE builds the next
 one, the kick hands the frame to the workers and returns; the next kick
@@ -975,7 +1131,8 @@ surfaces at that wait and stops the game (fail-stop).
 or a span fault faults the frame. Every textured primitive's TEX0 (the
 texels CLAMP_1 lets it reach, and its CLUT) must lie in blocks an upload
 wrote (the GS memory image) or in a buffer the model drew (the fields, the
-shadow target); anything else faults. The recorder must know that TEX0 (of
+shadow target, the pass's copy buffer; the field the frame draws once it
+is declared); anything else faults. The recorder must know that TEX0 (of
 the primitive's context, PRIM CTXT): written in the frame by a recorded
 write or by a recorded state block's A+D / PACKED data (decoded, as are its
 CLAMP and PRIM; a state block's own textured vertex kicks are checked the
@@ -1029,11 +1186,31 @@ EM_GPU_RENDERER=1 selects the GPU renderer. The Original profile currently
 needs the Metal backend (macOS); the field presentation on the other
 backends is not built.
 
+**The depth-of-field pass and the workers.** The pass reads the field the
+body is drawing (each copy) and the buffer it has just drawn (each blend),
+and draws the field again after reading it. The recorder orders the
+workers by the buffers it knows are drawn and read: the declared field
+counts as drawn from its declaration (the body draws it throughout) and
+again at each environment again, the copy buffer from its FRAME_1, so a
+barrier falls before the first copy (every band of the field drawn), at
+the first environment again after each copy (every band of the copy drawn
+before any blend reads it) and at each next copy's FRAME_1 (every band's
+blend done before the copy buffer is drawn again): 8 barriers a frame, each
+after a FRAME_1 change has ended the span. The copy buffer is the drop
+shadow's 128x128 target memory too, so in a frame with the shadow the
+first copy's barrier also waits for the receivers' reads of it. `make
+test-gs-world` draws the pass with 1, 2, 3 and 8 workers to the same bytes;
+without the declaration's barrier the thread sanitizer reports the race.
+The backend hands the walked pass to `em_gs_world_page_pass` (the field
+declared, each primitive with its environment, the kick's environment at
+each mark), which `test_dof_pass_reference` part C drives with the
+original's captured memory: 1, 2, 3 and 8 workers leave every word equal to
+the original's after the pass.
+
 **Not part of the GS frame.** The status frames (the hub, the pages; their
 models use the GPU's skinned path) and the tear-down frames draw with the
-GPU as before. 001DDE10's four frame-copy sprites are still walked over
-(CHAIN_PAGE.md section 6): the binding now makes them drawable (the frame as
-GS memory, the Z buffer), but drawing them is a step of its own.
+GPU as before. (001DDE10's depth-of-field pass, walked over until step DOF,
+is drawn since: above.)
 
 **Frame cost.** Section 10.2.
 
@@ -1139,12 +1316,10 @@ to 0.1 percentage point; a renderer change that gains pixels raises them in
 the same commit. They are measured on this Mac's GPU; another GPU may
 interpolate differently.
 
-**001DDE10's four frame-copy sprites** stay walked over (CHAIN_PAGE.md
-section 6): each blends a copy of the frame, read back through the texture
-state 001D6C90 sets, under a Z test at the slot's depth. That needs the
-displayed buffer as GS memory and the GS Z buffer, which only the model's
-binding (section 9) provides. The harness shows no region-wide difference at
-10 or 14 that the pass would explain, but it cannot isolate the pass.
+**001DDE10's depth-of-field pass** (CHAIN_PAGE.md section 6.2) is drawn
+by the model since step DOF (2026-10-09; 10.1). The GPU renderer walks over
+it (it has neither the field as GS memory nor its Z buffer), so the Metal
+numbers above are without it.
 
 ### 10.1 The GS field (chain step GSFRAME, 2026-10-03)
 
@@ -1203,11 +1378,13 @@ recording's timing, FIRST_LEVEL_AUDIT.md 1b), the snow (the port's rand()
 stream, RAND_ORDER.md), a few edges, and the sky grid's region in the top
 left: 6,358 of its 11,200 pixels differ by 1..3 (some up to 41 where snow
 falls), mean +0.9, ending exactly at the hill's silhouette, so in the
-channel-3 background's triangles; not traced (the background's STQ on the
-vertex grid, open item 8.2, measured far smaller residues on designed
+channel-3 background's triangles; not traced then (the background's STQ on
+the vertex grid, open item 8.2, measured far smaller residues on designed
 primitives; a cause in the grid's ST at the GS's precision is not
-excluded). At 10 the half-line phase moves every edge and gradient by half
-a line. The other points differ in their camera, their phase or both.
+excluded). **Traced at step DOF (2026-10-09): it was 001DDE10's
+depth-of-field pass**, which the model did not draw then (below). At 10
+the half-line phase moves every edge and gradient by half a line. The
+other points differ in their camera, their phase or both.
 15_level_exit (the AREA01 arrival, measured at the GSFRAME merge with the
 AREA01 steps on main): the original's buffer there holds the transition
 fade over AREA01's world, which the port draws as the overlay pass over a
@@ -1219,6 +1396,48 @@ a01_arrival + 420 shows the tunnel, the crates and the fire). The AREA11
 numbers above were re-measured at the merge and are unchanged.
 FLOORS in the tool are these "after" fractions rounded down to 0.1
 percentage point (FLOORS_GPU keeps the Metal ones).
+
+**Step DOF (2026-10-09): 001DDE10's depth-of-field pass drawn** (CHAIN_PAGE.md
+section 6.2; section 9). Full mode, the same port runs and alignment as
+above, the presented field (exact pixels of 114,688; mean channel error;
+per-pixel p50 / p90 / p99); "before" is the port at the merge base
+a345d9a, "after" this step; relative to v2.6.3's software GS (the fb2
+frames hold the original's own pass):
+
+| point | camera | phase | before | after | pixels the pass changed | of them now exact / no longer exact |
+|---|---|---|---|---|---|---|
+| 14_roger_encounter | exact | same | 99,985 (87.18 %; 0.97; 0/1/28) | **105,836 (92.28 %; 0.89; 0/0/28)** | 6,686 | 5,954 / 103 |
+| 13_east_tower | not exact | same | 64,137 (55.92 %; 2.60; 0/8/16) | **71,609 (62.44 %; 2.35; 0/7/14)** | 18,772 | 7,707 / 235 |
+| 10_cage_roof_roger | exact | other | 18,303 (15.96 %; 3.33; 2/10/32) | 21,490 (18.74 %; 3.18; 1/9/32) | 20,990 | 4,225 / 1,038 |
+| 11_crevice_prompt | not exact | other | 6,281 (5.48 %; 6.66) | 6,330 (5.52 %; 6.59) | | |
+| 08_truck_crossing | not exact | other | 3,602 (3.14 %; 7.31) | 3,605 (3.14 %; 7.31) | | |
+| 12_crevice_jump | not exact | other | 2,827 (2.46 %; 6.84) | 2,827 (2.46 %; 6.84) | 0 | |
+| first_control | not exact (eye) | other | 1,125 (0.98 %; 18.84) | 1,118 (0.97 %; 18.77) | | |
+| 15_level_exit | exact | same | 113,053 (98.57 %; 0.95) | 113,053 (98.57 %; 0.95) | | |
+
+At 14 the top-left region the GSFRAME text above left untraced (160 x 70
+pixels, the sky above the hill): exact 5,347 -> 10,472, off by 1 2,897 ->
+307, by 2 1,671 -> 78, by 3 794 -> 40, by more (most of it the snow,
+rand()) 491 -> 303; its mean signed error +0.80 -> +0.05. 5,670 of the
+5,954 pixels that became exact at 14 lie there: the soft far background
+was the pass. At 12 the pass changed no pixel at that tick (the camera
+looks down onto the snow field, no sky in view). These numbers judge the
+whole field; FLOORS rose to the "after" fractions rounded down (10 0.187,
+11 0.055, 13 0.624, 14 0.922). The pass's own pixels were compared with
+the fork capture of it the next day (section 7, `test_dof_pass_reference`).
+
+**The pass's conformance step (2026-10-10).** The row rule of 3.4 (a UV
+sprite's row coordinate accumulated in binary32), which makes the pass
+bit-exact on the 7 captured frames, changes these points as follows (full
+mode, the same alignment; exact pixels of 114,688): 14 105,836 -> 105,973
+(92.40 %; mean channel error 0.89; all 137 in the sky region above the
+hill: 10,472 -> 10,609 of its 11,200 pixels exact, off by 1 307 -> 183, by
+2 78 -> 65, by 3 40 -> 40, by more, the snow, 303 -> 303); 13 71,609 ->
+71,794 (62.60 %); 10 21,490 -> 21,696 (18.92 %); 11 6,330 -> 6,325 (5.51 %);
+first control 1,118 -> 1,117 (0.97 %); 08 3,605, 12 2,827 and 15 113,053
+unchanged. At 10, 11 and first control the port draws the other field
+phase and at 11 and first control the camera differs, so a pixel there can
+move either way. FLOORS rose to 10 0.189, 13 0.625, 14 0.924.
 
 ### 10.2 Frame cost
 
@@ -1273,6 +1492,36 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   13.58 ms and none over. AREA01's main-thread cost leaves the workers
   less room; it is level-2 work (not in this step's first-level contract).
 - Slower hosts are not measured.
+- **Step DOF (2026-10-09): 001DDE10's depth-of-field pass drawn.** The pass
+  is four copies of the field into 256x256 (65,536 pixels each) and four
+  full-field blends (114,688 each): 720,896 bilinear pixel evaluations a
+  frame, and 8 worker barriers. Offline (one EmGs, the pass's register
+  writes over a random field and Z buffer, best of 30): 24.5 ms a pass,
+  about 34 ns a pixel. A scratch variant of the model with the sprite's
+  per-column U precomputed draws the same bytes in 22.9 ms; on that
+  variant nearest sampling takes 13.9 ms and an untextured pass 10.6 ms,
+  so the bilinear sampling (four texel address computations and fetches)
+  is about 54 % of the cost and the rest of the pixel path (the frame and
+  Z addresses and reads, the tests, the blend) 46 %. Live,
+  EM_FRAME_TIMING over newgame-control, two runs of the merge
+  base (a345d9a) and two of this step interleaved, the last 1,300 ticks
+  (in level), on a **heavily loaded** machine (load average 10 to 16: a
+  PCSX2 capture and other jobs ran beside it; no quiet machine was
+  available in this step): the busiest worker's CPU per frame 7.59 / 8.02
+  ms -> 11.47 / 11.43 ms (+3.9 ms, +50 %; p95 9.83 / 10.52 -> 13.98 /
+  14.33); the GS frame's wall time 16.78 / 19.25 -> 19.35 / 22.24 ms; the
+  tick's wall time 8.90 / 13.24 -> 16.91 / 18.07 ms, with 56 / 340 -> 740 /
+  652 of the 1,300 ticks over the period; the main thread's CPU unchanged
+  (8.4 to 8.7 ms). Under that load the frame no longer fits the period;
+  from the quiet-machine figures above (the busiest worker 6.4 ms) and the
+  +3.9 ms the pass adds, a quiet M1 Pro should stay under it (about 10 to
+  11 ms), but that is an estimate, to be re-measured on a quiet machine.
+  The GPU renderer (EM_GPU_RENDERER=1, which walks over the pass) is
+  unchanged. A cheaper exact path for large UV sprites (the texel, frame
+  and Z addresses split into per-column and per-row parts; the page / block
+  / column tables of PSMCT32 and PSMZ32 are separable) is the obvious next
+  saving; precomputing the sprite's per-column U alone saves 6 % of the
+  pass (above). Neither is applied in this step.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
@@ -1458,7 +1707,10 @@ was compared with real hardware.
 - `src/gs/em_gs_frame.h`, `src/gs/em_gs_frame.c`: the replay and read-back
   helpers.
 - `src/gs/em_gs_world.h`, `src/gs/em_gs_world.c`: the Original profile's
-  world frame (section 9): recording, residency, uploads, workers, field.
+  world frame (section 9): recording, residency, uploads, workers, field
+  (and its declaration for 001DDE10's depth-of-field pass, which the chain
+  page hands over through em_gfx_gs_page_pass -> em_gs_world_page_pass:
+  CHAIN_PAGE.md section 6.2; the test hook em_gs_world_memory_restore).
 - `src/game/em_gs_frame_live.{h,c}`: its game side (start-up, the kick).
 - `src/gs/em_gs_display.{h,c}`: the presentation's mapping (section 11);
   `src/game/em_sdk_display_original.{h,c}` and
@@ -1470,7 +1722,11 @@ was compared with real hardware.
 - `tools/test_gs_raster_reference.py` (`make test-gs-raster-reference`):
   the verification (section 7, part F the row bands).
 - `tests/gs_world_test.c` (`make test-gs-world`): the workers draw what one
-  worker draws (thread sanitizer).
+  worker draws (thread sanitizer), the depth-of-field pass included, also
+  with every block of local memory uploaded.
+- `tools/test_dof_pass_reference.py` with `tests/dof_pass_reference_bridge.c`
+  (`make test-dof-pass-reference`): 001DDE10's depth-of-field pass against
+  the original's captured GS memory (section 7).
 - `tools/test_gs_memory_reference.py` (`make test-gs-memory-reference`):
   the GS memory against the disc model of the uploads.
 - `tools/test_fb2_pixels.py` (`make test-fb2-pixels`): the fb2 pixel

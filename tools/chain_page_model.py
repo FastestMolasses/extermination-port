@@ -426,6 +426,17 @@ AD_STATE = {0x06: 'TEX0_1', 0x08: 'CLAMP_1', 0x14: 'TEX1_1', 0x42: 'ALPHA_1', 0x
 AD_NOOP = {0x3F: 'TEXFLUSH'}
 STATE_ORDER = ('TEX0_1', 'CLAMP_1', 'TEX1_1', 'ALPHA_1', 'TEST_1', 'COLCLAMP')
 VERTS_PER_PRIM = {0: 1, 1: 2, 2: 2, 3: 3, 4: 3, 5: 3, 6: 2}
+# The pass (001DDE10's slot-0xFFF CALL, CHAIN_PAGE.md section 6.2): the
+# context-1 environment its A+D writes set (em_gfx.h EM_GFX_GS_ENV_* order
+# and bits), and the registers bank A's draw environment writes, which an
+# environment-again mark hands back to the frame.
+AD_ENV = {0x4C: ('FRAME_1', 0x001), 0x4E: ('ZBUF_1', 0x002), 0x18: ('XYOFFSET_1', 0x004),
+          0x40: ('SCISSOR_1', 0x008), 0x1A: ('PRMODECONT', 0x010), 0x45: ('DTHE', 0x020),
+          0x4A: ('FBA_1', 0x040), 0x49: ('PABE', 0x080), 0x3B: ('TEXA', 0x100), 0x22: ('SCANMSK', 0x200)}
+ENV_ORDER = ('FRAME_1', 'ZBUF_1', 'XYOFFSET_1', 'SCISSOR_1', 'PRMODECONT', 'DTHE', 'FBA_1', 'PABE', 'TEXA',
+             'SCANMSK')
+AGAIN_FORGETS = ('CLAMP_1', 'TEX1_1', 'TEST_1', 'COLCLAMP')
+DRAW_ENV, DRAW_ENV_QWC = 0x190, 0x19      # one draw environment of bank A; 001D1F20's REF of it
 
 
 class Gs:
@@ -448,6 +459,11 @@ class Gs:
         self.uv = (0, 0)
         self.queue = []
         self.prims = []
+        # the pass: its registers (pass_regs), its environment, and per
+        # drawn primitive the environment it drew with (None outside it)
+        self.pass_regs = False
+        self.env = {}
+        self.envs = []
 
     def write(self, reg, a, b, path):
         w = struct.unpack('<4I', struct.pack('<QQ', a, b))
@@ -479,7 +495,21 @@ class Gs:
         self.q, self.q_known = 0x3F800000, 1
 
     def ad(self, reg, value, path):
-        if reg in AD_STATE:
+        if self.pass_regs and reg in AD_ENV:                # the pass: the context-1 environment
+            self.env[AD_ENV[reg][0]] = value
+        elif self.pass_regs and reg == 0x01:                # the pass: A+D RGBAQ (its own Q)
+            self.rgba = tuple((value >> (8 * k)) & 0xFF for k in range(4))
+            self.rq, self.rq_known = value >> 32, 1
+        elif self.pass_regs and reg == 0x02:
+            self.st = (value & M32, value >> 32)
+        elif self.pass_regs and reg == 0x03:
+            self.uv = (value & 0x3FFF, value >> 16 & 0x3FFF)
+        elif self.pass_regs and reg in (0x04, 0x05):
+            x, y = value & 0xFFFF, value >> 16 & 0xFFFF
+            z, f = ((value >> 32) & 0xFFFFFF, value >> 56) if reg == 0x04 else (value >> 32, None)
+            self.vertex((x, y, z, f, self.rgba, self.rq, self.st[0], self.st[1], self.uv[0], self.uv[1],
+                         self.rq_known), 0)
+        elif reg in AD_STATE:
             self.state[AD_STATE[reg]] = value
         elif reg == 0x00:
             self.prim = value & 0x7FF
@@ -487,7 +517,7 @@ class Gs:
         elif reg in AD_NOOP:
             pass
         else:
-            fail(f'{path}: A+D register {reg:#x} (not in the page)')
+            fail(f'{path}: A+D register {reg:#x} (not in the page{" pass" if self.pass_regs else ""})')
 
     def vertex(self, v, adc):
         t = self.prim & 7
@@ -513,6 +543,35 @@ class Gs:
 
     def emit(self, verts):
         self.prims.append((self.prim, tuple(self.state.get(k) for k in STATE_ORDER), tuple(verts)))
+        self.envs.append(dict(self.env) if self.pass_regs else None)
+
+
+def env_tuple(env):
+    """A pass primitive's environment as em_gfx.h's EmGfxGsEnv: (set bits,
+    the ten registers in ENV_ORDER, 0 where unset)."""
+    bits = {name: bit for name, bit in AD_ENV.values()}
+    return (sum(bits[k] for k in env), tuple(env.get(k, 0) for k in ENV_ORDER))
+
+
+def pass_digest(envs, again):
+    """em_chain_page_live.c pass_digest() over the model's pass."""
+    h = 2166136261
+
+    def fnv(h, w):
+        for k in range(4):
+            h ^= (w >> (8 * k)) & 0xFF
+            h = (h * 16777619) & M32
+        return h
+    for env in envs:
+        setbits, regs = env_tuple(env)
+        h = fnv(h, setbits)
+        for r in regs:
+            h = fnv(h, r & M32)
+            h = fnv(h, r >> 32)
+    h = fnv(h, len(again))
+    for a in again:
+        h = fnv(h, a)
+    return h
 
 
 def gs_feed(gs, data, path):
@@ -533,8 +592,18 @@ class Page:
     capture's RAM, or the port's page dump). elf: the boot ELF bytes (the
     oracle's instruction fetch comes from the MPG uploads in the stream)."""
 
-    def __init__(self, read, elf=None, skip_calls=(), units=None):
+    def __init__(self, read, elf=None, skip_calls=(), units=None, pass_call=None, draw_envs=None, draw_env_slot=0):
         self.read = read
+        # The pass (CHAIN_PAGE.md section 6.2): the top-level CALL followed
+        # with list mode's registers, its REF of the kicked slot's draw
+        # environment (bank A at draw_envs) an environment-again mark.
+        self.pass_call = pass_call
+        self.draw_envs, self.draw_env_slot = draw_envs, draw_env_slot
+        if pass_call is not None and (draw_envs is None or draw_env_slot not in (0, 1)):
+            fail('a pass needs the draw environments and a slot 0 or 1')
+        self.passes = 0
+        self.pass_first = None
+        self.again = []
         # Class-2 object units walked over (001CABA0's CALLs, CHAIN_PAGE.md
         # section 6): {target: (last TEX0, last PRIM)}. The unit's GS state
         # REF (001D1F80(3, 2, 2): set 2 class 2) and its last kicked TEX0 /
@@ -565,8 +634,13 @@ class Page:
 
     def dma(self, start):
         """[(source address of the data, bytes)] in DMA order, from 001CB800's
-        start tag to the page's end link."""
+        start tag to the page's end link. Marks: (None, unit target), ('PASS',
+        target) where the pass starts, ('AGAIN', address) for its REF of the
+        draw environment; self.pass_words lists the stream entries
+        transferred inside the pass."""
         out, stack, cur, end = [], [], start, start + 0x20
+        in_pass = False
+        self.pass_entries = set()
         for _ in range(100000):
             if cur == end and not stack:
                 return out
@@ -574,15 +648,40 @@ class Page:
             qwc, tid, addr = lo & 0xFFFF, lo >> 28 & 7, hi & 0x0FFFFFFF
             if lo & 0x8C000000:
                 fail(f'DMA tag {cur:#x}: {lo:#010x} carries PCE / IRQ bits')
+            entry_pass = in_pass
             if tid == 1:                                    # CNT
                 data, nxt = cur + 16, cur + 16 + 16 * qwc
             elif tid == 2:                                  # NEXT
                 data, nxt = cur + 16, addr
             elif tid == 3:                                  # REF
                 data, nxt = addr, cur + 16
+                if in_pass:
+                    lo_env = self.draw_envs
+                    if addr == lo_env + DRAW_ENV * self.draw_env_slot and qwc == DRAW_ENV_QWC:
+                        out.append(('AGAIN', addr))         # read by the DMA after the kick: a mark
+                        self.transfers.append((cur, tid, qwc, addr))
+                        cur = nxt
+                        continue
+                    if addr < lo_env + 2 * DRAW_ENV and addr + 16 * qwc > lo_env:
+                        fail(f'DMA REF at {cur:#x}: the pass REFs bank A other than its slot\'s whole block')
             elif tid == 5:                                  # CALL
                 if len(stack) >= 2:
                     fail(f'DMA CALL at {cur:#x}: a third nesting level')
+                if self.pass_call is not None and addr == self.pass_call and not stack:
+                    if self.passes:
+                        fail(f'DMA CALL at {cur:#x}: a second pass CALL')
+                    self.passes = 1
+                    out.append(('PASS', addr))
+                    in_pass = entry_pass = True
+                    data = cur + 16
+                    stack.append(cur + 16 + 16 * qwc)
+                    nxt = addr
+                    if qwc:
+                        self.pass_entries.add(len(out))
+                        out.append((data, self.read(data, 16 * qwc)))
+                    self.transfers.append((cur, tid, qwc, addr))
+                    cur = nxt
+                    continue
                 if (addr in self.skip_calls or addr in self.units) and not stack:
                     self.skipped.append((cur, addr))
                     data, nxt = cur + 16, cur + 16 + 16 * qwc
@@ -599,9 +698,13 @@ class Page:
                 if not stack:
                     fail(f'DMA RET at {cur:#x} with an empty stack')
                 data, nxt = cur + 16, stack.pop()
+                if not stack:
+                    in_pass = False
             else:
                 fail(f'DMA tag {cur:#x}: ID {tid} (not in the page)')
             if qwc:
+                if entry_pass:
+                    self.pass_entries.add(len(out))
                 out.append((data, self.read(data, 16 * qwc)))
             self.transfers.append((cur, tid, qwc, addr))
             cur = nxt
@@ -609,18 +712,34 @@ class Page:
 
     def run(self, start):
         stream = self.dma(start)
-        # one flat VIF stream with each word's source address
-        words = []
-        for src, data in stream:
-            if src is None:                                 # a class-2 unit's CALL
-                words.append((None, data))
+        # one flat VIF stream with each word's source address (and whether
+        # it was transferred inside the pass)
+        words, wpass = [], []
+        for e, (src, data) in enumerate(stream):
+            if src is None or src in ('PASS', 'AGAIN'):     # a unit's CALL, a pass mark
+                words.append((src, data))
+                wpass.append(src is not None)
                 continue
             for i in range(0, len(data), 4):
                 words.append((src + i, u32(data, i)))
+                wpass.append(e in self.pass_entries)
         i, n = 0, len(words)
         while i < n:
             at, v = words[i]
             i += 1
+            if at == 'PASS':                                # the pass starts: its own environment
+                self.gs.env = {}
+                self.pass_first = len(self.gs.prims)
+                continue
+            if at == 'AGAIN':                               # the frame's draw environment again
+                if len(self.again) >= 16:
+                    fail('more than 16 environment-again marks in the pass')
+                self.again.append(len(self.gs.prims))
+                self.gs.env = {}
+                for k in AGAIN_FORGETS:
+                    self.gs.state.pop(k, None)
+                continue
+            self.gs.pass_regs = wpass[i - 1]
             if at is None:
                 tex0, prim = self.units[v]
                 self.gs.state.update({'TEX0_1': tex0, 'CLAMP_1': 0, 'TEX1_1': 0x60, 'ALPHA_1': 0x8000000068,
@@ -701,6 +820,10 @@ class Page:
                     fail(f'VIF DIRECT at {at:#x} not followed by an aligned qword')
                 data = b''.join(struct.pack('<I', words[i + k][1]) for k in range(4 * cnt))
                 used = gs_feed(self.gs, data, f'DIRECT at {at:#x}')
+                # the pass: PATH2 goes on with the next GIF tag until the
+                # DIRECT's data is used up (001D6930's two packets)
+                while self.gs.pass_regs and used < cnt:
+                    used += gs_feed(self.gs, data[16 * used:], f'DIRECT at {at:#x}')
                 if used != cnt:
                     fail(f'DIRECT at {at:#x}: {cnt} qwords, the GIF packet uses {used}')
                 self.directs.append((words[i][0], data))
@@ -781,7 +904,8 @@ def weather_lists(read, transfers):
 def arena_skips(read, start, weather=True):
     """The top-level CALLs into the packet arena a captured page holds that
     the port does not run on the page (the object units 001CAAC0 sorts,
-    001DDE10's four-sprite pass), and, when `weather` is false, the
+    001DDE10's depth-of-field pass unless the caller walks it in pass
+    mode), and, when `weather` is false, the
     weather's kick too (walked over: a quick run that does not execute the
     108 snow MSCALs of every capture)."""
     probe = Page(read)

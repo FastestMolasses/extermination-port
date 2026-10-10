@@ -11,10 +11,15 @@ the weather list 001E0D70 CALLed and the reads of the flame's descriptor.
 Its "snow" and "flame" records carry the weather's last closed channel-3
 list (em_snow_runtime) and the flame's last 001D04B0 (em_effects_live). It
 checks:
-- every drawn page: the only CALL walked over is this frame's 001DDE10
-  four-sprite CALL; the lane program ran 0 or 6 times, 6 in exactly as
-  many pages as the barrel (001F0360) ran frames, and no lane drew (no
-  tristrip: no route slot is active);
+- every drawn page: this frame's 001DDE10 CALL (slot 0xFFF, its
+  depth-of-field pass, CHAIN_PAGE.md section 6.2) is drawn on every page
+  that holds it when the run draws with the GS frame (the Original profile:
+  eight sprites, a copy and a blend four times, the frame's draw
+  environment REFed again after each copy and at the end), and is the only
+  CALL walked over with the GPU renderer (EM_GPU_RENDERER=1); the lane
+  program ran 0 or 6 times, 6 in exactly as many pages as the barrel
+  (001F0360) ran frames, and no lane drew (no tristrip: no route slot is
+  active);
 - the weather (001E55F0): a page holds the weather's CALL exactly when the
   weather closed a list in that frame, at that list's start (context
   +0x2520, which 001E0D70 CALLs), and then runs its 108 tile MSCALs of the
@@ -27,7 +32,9 @@ checks:
   microcode, the DMA, VIF and GIF walk and the GS vertex queue
   (tools/chain_page_model.py) over the port's own page bytes draw exactly
   the primitives the port drew (the digest) with the same counts (the
-  weather's CALL is walked: the ORIGINAL snow program runs every tile);
+  weather's CALL is walked: the ORIGINAL snow program runs every tile; the
+  pass is walked in the model's pass mode, its environments and marks
+  equal to the port's: the pass digest);
   the blend presets the page REFs (001D0F20's bank, D_00275674 + 0x6A0),
   the three program packets and the flame's descriptor the page reads hold
   the route captures' bytes;
@@ -45,6 +52,7 @@ checks:
 """
 from __future__ import annotations
 
+import os
 import sys
 import zlib
 from pathlib import Path
@@ -180,7 +188,10 @@ def rewalk(p):
     # last TEX0 and PRIM): the primitives around them are compared
     # (test_object_unit_reference.py runs the units' own triangles).
     units = {u[0]: (u[3] | u[4] << 32, u[5]) for u in (p[22] if len(p) > 22 else [])}
-    page = M.Page(read, skip_calls=[p[3]] if p[3] else [], units=units)
+    if p[33]:      # the pass drawn (the GS frame): walked in the model's pass mode
+        page = M.Page(read, units=units, pass_call=p[3], draw_envs=p[37], draw_env_slot=p[38])
+    else:
+        page = M.Page(read, skip_calls=[p[3]] if p[3] else [], units=units)
     page.run(p[2])
     return page, read
 
@@ -196,9 +207,13 @@ def rewalk_one(p):
                 (address == FLAME_DESCRIPTOR and n == 0x90) or \
                 any(a <= address and address + n <= a + size for a, size in PROGRAM_PACKETS):
             watched.append((address, read(address, n)))
+    passed = [e for e in page.gs.envs if e is not None]
+    again = [a - page.pass_first for a in page.again] if page.passes else []
+    pass_view = (page.passes, page.pass_first or 0, len(passed),
+                 M.pass_digest(passed, again) if page.passes else 0, again)
     return ((digest(page.gs.prims), len(page.gs.prims), len(page.directs), len(page.kicks)),
             (page.mscal_counts.get(M.PROGRAM_SNOW, 0), page.mscal_counts.get(M.PROGRAM_STREAK, 0),
-             page.mscal_counts.get(M.PROGRAM_KIND2, 0)), watched)
+             page.mscal_counts.get(M.PROGRAM_KIND2, 0)), watched, pass_view)
 
 
 def check_chain_page(ticks, state):
@@ -206,7 +221,8 @@ def check_chain_page(ticks, state):
     assert rows, 'chain page: no tick of the run carries the page'
     drawn = [t for t in rows if t['page'][0] == 1]
     assert drawn, 'chain page: no page was drawn'
-    types, presets, stale, skipped = [0] * 8, 0, 0, 0
+    types, presets, stale, skipped, passes = [0] * 8, 0, 0, 0, 0
+    gpu = os.environ.get('EM_GPU_RENDERER') == '1'      # the Enhanced profile's renderer: no GS frame
     unit_calls = unit_prims = 0
     snow_pages = flame_pages = streak_pages = streak_tris = flare_pages = lane_strip_tris = 0
     direct_strip_tris = kind2_pages = kind2_lines = 0
@@ -230,9 +246,20 @@ def check_chain_page(ticks, state):
         (_now, _pages, start, four, _tr, _qw, direct, ml, ms, kicks, prims, by_type, skip, stale_q,
          _cyc, decal, dig, markers, sample, snow_mscals, weather, overlay_reads, units, _dig_units,
          streak_mscals, streak_prims, flare_sprites, lane_strips, kind2_mscals, kind2_prims, direct_strips,
-         _kind6_mscals, _kind6_prims) = p
+         _kind6_mscals, _kind6_prims, passed, pass_first, pass_prims, pass_direct, _envs, _slot, _pdig,
+         again) = p
         where = ('chain page', 'tick', t['tick'])
-        assert skip == (1 if four else 0), (where, 'CALLs walked over', skip, four)
+        # 001DDE10's pass: drawn by the GS frame on every page that holds
+        # it, walked over (the only CALL) with the GPU renderer
+        if four and not gpu:
+            assert passed == 1 and skip == 0 and pass_prims == 8 and again == [1, 3, 5, 7, 8] and \
+                pass_direct == 32 and pass_first + 8 == prims, \
+                (where, 'the depth-of-field pass', passed, skip, pass_prims, again, pass_direct, pass_first, prims)
+            passes += 1
+            types[6] -= 8
+        else:
+            assert passed == 0 and skip == (1 if four else 0) and pass_prims == 0 and again == [], \
+                (where, 'CALLs walked over', skip, four, passed)
         assert ml in (0, 6), (where, 'lane MSCALs', ml)
         snow = t.get('snow')
         closed = bool(snow) and snow[0] == 1
@@ -292,11 +319,17 @@ def check_chain_page(ticks, state):
                            cost=lambda p: p[19])
     watched_checked = 0
     streak_sampled = flare_sampled = strip_sampled = kind2_sampled = 0
-    for (tick, p), (want, (snow_mscals, streak_mscals, kind2_mscals), watched) in zip(samples, results):
+    pass_sampled = 0
+    for (tick, p), (want, (snow_mscals, streak_mscals, kind2_mscals), watched, pass_view) in zip(samples, results):
         where = ('chain page', 'tick', tick)
         nunit = sum(u[1] for u in p[22])
         got = (p[23] if p[22] else p[16], p[10] - nunit, p[6], p[9])
         assert want == got, (where, 'the original walk over the port\'s page draws', want, 'the port', got)
+        # (the model walks over the class-2 units, which all come before the
+        # pass at slot 0xFFF: its first primitive counts without theirs)
+        got_pass = (p[33], p[34] - nunit if p[33] else 0, p[35], p[39], p[40])
+        assert pass_view == got_pass, (where, 'the original walk takes the pass as', pass_view, 'the port', got_pass)
+        pass_sampled += pass_view[0]
         assert snow_mscals == p[19], (where, 'the original walk ran', snow_mscals, 'snow MSCALs; the port', p[19])
         assert streak_mscals == p[24], (where, 'the original walk ran', streak_mscals, 'streak MSCALs; the port',
                                         p[24])
@@ -346,7 +379,9 @@ def check_chain_page(ticks, state):
           f'decals ({strip_sampled} page(s) re-walked); {kind2_pages} page(s) with the kind-2 program '
           f'({kind2_lines} primitives, {kind2_sampled} re-walked); {direct_strip_tris} DIRECT strip triangles '
           f'(the parted cable strand); '
-          f'{skipped} 001DDE10 CALLs walked over; {unit_calls} class-2 object unit(s) '
+          f'{passes} 001DDE10 depth-of-field passes drawn ({8 * passes} sprites; {pass_sampled} re-walked in the '
+          f'model\'s pass mode, their environments and marks equal), {skipped} walked over; '
+          f'{unit_calls} class-2 object unit(s) '
           f'(001CABA0) with {unit_prims} triangles; every vertex with its GIF tag\'s Q; '
           f'{len(samples)} sampled pages re-walked with the original microcode equal the port\'s primitives '
           f'({watched_checked} reads of the presets, program packets and flame descriptor equal the route '

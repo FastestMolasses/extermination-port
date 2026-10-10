@@ -9,11 +9,20 @@
  * the target is drawn before any band reads it), drawn into again (a
  * barrier: every band has read it first) and sampled again; the draw
  * environment REFed again; a state block; sprites; the field of the next
- * frame read as a texture by a list frame. Every worker count must leave
- * the same local memory and the same fields, and the one-worker run is the
- * model run directly (em_gs_raster, one EmGs, the same writes). Also the
- * refusals: a transfer register, an IMAGE packet and a texture outside the
- * uploads fault. */
+ * frame read as a texture by a list frame; and the chain page's
+ * depth-of-field pass (001DDE10, CHAIN_PAGE.md section 6.2): the field
+ * declared, then four times the field copied into a 256x256 buffer over the
+ * target's memory (a barrier: every band of the field is drawn first) and
+ * the copy blended back over the field under its Z test (a barrier: every
+ * band of the copy is drawn first; the next copy waits for every band's
+ * blend), the draw environment again after each copy and at the end. Every
+ * worker count must leave the same local memory and the same fields, and
+ * the one-worker run is the model run directly (em_gs_raster, one EmGs, the
+ * same writes); the pass changes the field (against the same frames
+ * without it). Also the refusals: a transfer register, an IMAGE packet and
+ * a texture outside the uploads fault, and so do a field declared outside a
+ * recording, a second other field, and a kick whose head draws another
+ * field than the declared one. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,10 +33,14 @@
 
 #define CHECK(c) do { if (!(c)) { fprintf(stderr, "gs_world_test: FAIL %s:%d: %s\n", __FILE__, __LINE__, #c); exit(1); } } while (0)
 
+static const char *const image_one = "build/gs_world_test/memory.emgm";
+static const char *const image_all = "build/gs_world_test/memory_all.emgm";
 static const char *image_path = "build/gs_world_test/memory.emgm";
 
 /* An EMGM with the 64x64 PSMCT32 texture at block 0x2000 (16 blocks a row
- * of pages: 64 blocks). */
+ * of pages: 64 blocks), and the same memory as one run of every block (all
+ * of local memory uploaded: the buffers the frames draw too, whose reads the
+ * workers must order all the same). */
 static void write_image(void)
 {
     uint8_t *mem = calloc(1, EM_GS_MEM_BYTES);
@@ -37,14 +50,16 @@ static void write_image(void)
         for (uint32_t x = 0; x < 64; ++x)
             em_gs_write_pixel(&g, 0x2000, 1, EM_GS_PSMCT32, x, y,
                               (x * 4u) | (y * 4u) << 8 | ((x ^ y) * 4u) << 16 | 0x80u << 24);
-    FILE *f = fopen(image_path, "wb");
-    CHECK(f);
-    const uint32_t head[4] = { 0x4D474D45u, 1, 1, 0 };   /* "EMGM", v1, one run */
-    fwrite(head, 4, 4, f);
-    const uint32_t run[2] = { 0x2000, 64 };
-    fwrite(run, 4, 2, f);
-    fwrite(mem + 0x2000u * 256u, 1, 64u * 256u, f);
-    fclose(f);
+    for (int all = 0; all < 2; ++all) {
+        FILE *f = fopen(all ? image_all : image_one, "wb");
+        CHECK(f);
+        const uint32_t head[4] = { 0x4D474D45u, 1, 1, 0 };   /* "EMGM", v1, one run */
+        fwrite(head, 4, 4, f);
+        const uint32_t run[2] = { all ? 0u : 0x2000u, all ? EM_GS_MEM_BYTES / 256u : 64u };
+        fwrite(run, 4, 2, f);
+        fwrite(mem + run[0] * 256u, 1, run[1] * 256u, f);
+        fclose(f);
+    }
     free(mem);
 }
 
@@ -118,8 +133,84 @@ static EmGfxGsPrim tri(uint32_t prim, uint64_t tex0, EmGfxGsVertex a, EmGfxGsVer
     return p;
 }
 
-/* One world frame: the scene, the target pass twice, the field. */
-static void record_world(EmGsWorld *w, uint32_t seed)
+/* The depth-of-field pass as em_chain_page's pass mode hands it to the
+ * model (em_gfx_gs_page_pass -> em_gs_world_page_pass): the declared field,
+ * then per pass the copy (PRIM 0x116: the field, DECAL, REGION_CLAMP to its
+ * 512 x 224, into the 256 x 256 buffer at FBP 0x12C with the field's Z
+ * masked), the draw environment again, the blend (PRIM 0x156: the copy,
+ * MODULATE, alpha NEVER with FB_ONLY, Z GEQUAL at the pass's depth, (Cs -
+ * Cd) As + Cd); the draw environment again at the end (marks 1, 3, 5, 7,
+ * 8). */
+static void record_pass(EmGsWorld *w, uint32_t fbp)
+{
+    EmGfxGsPrim prims[8];
+    EmGfxGsEnv envs[8];
+    static const uint32_t again[5] = { 1, 3, 5, 7, 8 };
+    for (unsigned k = 0; k < 4u; ++k) {
+        EmGfxGsPrim c, b;
+        EmGfxGsEnv ce, be;
+        memset(&c, 0, sizeof c);
+        memset(&ce, 0, sizeof ce);
+        c.prim = 0x116;
+        c.set = EM_GFX_GS_TEX0 | EM_GFX_GS_CLAMP | EM_GFX_GS_TEST | EM_GFX_GS_COLCLAMP;
+        c.tex0 = (uint64_t)fbp * 32u | 8ull << 14 | 9ull << 26 | 8ull << 30 | 1ull << 35;
+        c.clamp = 2 | 2 << 2 | 511ull << 14 | 223ull << 34;
+        c.test = 0x3000D;
+        c.colclamp = 1;
+        c.count = 2;
+        for (unsigned v = 0; v < 2u; ++v) {
+            c.v[v].x = c.v[v].y = (uint16_t)(v ? 0x8800 : 0x7800);
+            c.v[v].f = 0xF;
+            c.v[v].has_f = 1;
+            c.v[v].rgba[0] = c.v[v].rgba[1] = c.v[v].rgba[2] = c.v[v].rgba[3] = 0x80;
+            c.v[v].q = 0x3F800000u;
+            c.v[v].u = (uint16_t)(v ? 0x1FF8 : 8);
+            c.v[v].v = (uint16_t)(v ? 0xDF8 : 8);
+        }
+        ce.set = EM_GFX_GS_ENV_FRAME | EM_GFX_GS_ENV_ZBUF | EM_GFX_GS_ENV_XYOFFSET | EM_GFX_GS_ENV_SCISSOR |
+                 EM_GFX_GS_ENV_PRMODECONT | EM_GFX_GS_ENV_DTHE | EM_GFX_GS_ENV_TEXA;
+        ce.frame = 0x4012C;
+        ce.zbuf = 0x101000070ull;
+        ce.xyoffset = 0x780000007800ull;
+        ce.scissor = 0x00FF000000FF0000ull;
+        ce.prmodecont = 1;
+        ce.texa = 0x20;
+        prims[2 * k] = c;
+        envs[2 * k] = ce;
+        memset(&b, 0, sizeof b);
+        memset(&be, 0, sizeof be);
+        b.prim = 0x156;
+        b.set = EM_GFX_GS_TEX0 | EM_GFX_GS_CLAMP | EM_GFX_GS_TEST | EM_GFX_GS_ALPHA;
+        b.tex0 = 0x220012580ull;
+        b.clamp = 2 | 2 << 2 | 255ull << 14 | 255ull << 34;
+        b.test = 0x51001;
+        b.alpha = 0x44;
+        b.count = 2;
+        for (unsigned v = 0; v < 2u; ++v) {
+            b.v[v].x = (uint16_t)(v ? 0x9000 : 0x7000);
+            b.v[v].y = (uint16_t)(v ? 0x8700 : 0x7900);
+            b.v[v].z = 2000u + 2500u * k;      /* the scene's Z runs 1000..9000 */
+            b.v[v].f = 8;
+            b.v[v].has_f = 1;
+            b.v[v].rgba[0] = b.v[v].rgba[1] = b.v[v].rgba[2] = 0x80;
+            b.v[v].rgba[3] = (uint8_t)(0x18 + 0x10 * k);
+            b.v[v].q = 0x3F800000u;
+            b.v[v].u = b.v[v].v = (uint16_t)(v ? 0x1008 : 8);
+        }
+        be.set = EM_GFX_GS_ENV_TEXA;
+        prims[2 * k + 1] = b;
+        envs[2 * k + 1] = be;
+    }
+    CHECK(em_gs_world_page_pass(w, prims, envs, 8, again, 5, FRAME_FIELD(fbp), 0x00DF000001FF0000ull) == 0);
+}
+
+static int g_with_pass = 1;
+
+/* One world frame: the scene, the target pass twice (the first frame
+ * only: in the second, nothing reads the copy's memory before the pass, so
+ * only the field's declaration orders the first copy after the scene), the
+ * depth-of-field pass, the field. */
+static void record_world(EmGsWorld *w, uint32_t seed, uint32_t fbp, int target_pass)
 {
     em_gs_world_begin(w);
     /* textured, fogged, Z-tested triangles over the resident texture */
@@ -133,7 +224,7 @@ static void record_world(EmGsWorld *w, uint32_t seed)
     }
     em_gs_world_prims(w, p, NULL, n);
     /* the 128x128 target: drawn, sampled by blended triangles (a barrier) */
-    for (int pass = 0; pass < 2; ++pass) {
+    for (int pass = 0; pass < (target_pass ? 2 : 0); ++pass) {
         em_gs_world_write(w, EM_GS_FRAME_1, FRAME_TARGET);
         em_gs_world_drawn_buffer(w, FRAME_TARGET, 128);
         em_gs_world_write(w, EM_GS_ZBUF_1, 0x102000010ull);
@@ -178,11 +269,12 @@ static void record_world(EmGsWorld *w, uint32_t seed)
         }
         em_gs_world_prims(w, r, NULL, 8);
     }
+    if (g_with_pass) record_pass(w, fbp);
 }
 
 typedef struct {
     uint8_t field[3][512 * 224 * 4];
-    uint8_t buf[4][512 * 224 * 4];    /* fields A and B, the Z buffer (read as CT32), the target */
+    uint8_t buf[5][512 * 224 * 4];    /* fields A and B, the Z buffer (read as CT32), the target, the copy */
 } Result;
 
 static void run(unsigned workers, Result *out)
@@ -197,7 +289,7 @@ static void run(unsigned workers, Result *out)
     uint8_t env[512], clr[512];
     size_t env_n, clr_n;
     for (unsigned f = 0; f < 2; ++f) {
-        record_world(w, 11u + f);
+        record_world(w, 11u + f, f ? 0x38 : 0, f == 0);
         head(env, &env_n, clr, &clr_n, f ? 0x38 : 0, (int)f);
         CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
         CHECK(em_gs_world_wait(w) == 0);
@@ -249,6 +341,7 @@ static void run(unsigned workers, Result *out)
     CHECK(em_gs_world_read(w, 0x38, 8, 512, 224, out->buf[1]) == 0);
     CHECK(em_gs_world_read(w, 0x70, 8, 512, 224, out->buf[2]) == 0);
     CHECK(em_gs_world_read(w, 0x12C, 2, 128, 128, out->buf[3]) == 0);
+    CHECK(em_gs_world_read(w, 0x12C, 4, 256, 256, out->buf[4]) == 0);
     em_gs_world_destroy(w);
 }
 
@@ -301,16 +394,49 @@ static void refusals(void)
     }
 }
 
+/* The field declaration's refusals: outside a recording, a second other
+ * field in one frame, and a kick whose head draws another field (the
+ * declared one is checked against the head); the same declaration with the
+ * head's field kicks. */
+static void field_refusals(void)
+{
+    setenv("EM_GS_THREADS", "2", 1);
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (int k = 0; k < 4; ++k) {
+        EmGsWorld *w = em_gs_world_create();
+        CHECK(w && em_gs_world_memory_load(w, image_path) == 0);
+        if (k == 0) {
+            em_gs_world_field_declare(w, FRAME_FIELD(0x38), 224);
+            CHECK(em_gs_world_fault(w) != NULL);
+        } else {
+            em_gs_world_begin(w);
+            em_gs_world_field_declare(w, FRAME_FIELD(0x38), 224);
+            if (k == 1) em_gs_world_field_declare(w, FRAME_FIELD(0), 224);
+            CHECK((em_gs_world_fault(w) != NULL) == (k == 1));
+            if (k > 1) {
+                head(env, &env_n, clr, &clr_n, k == 2 ? 0 : 0x38, 0);
+                CHECK((em_gs_world_kick(w, env, env_n, clr, clr_n) == 0) == (k == 3));
+                CHECK((em_gs_world_wait(w) == 0) == (k == 3));
+            }
+        }
+        em_gs_world_destroy(w);
+    }
+}
+
 int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
     write_image();
-    static Result r[4];
+    static Result r[5];
     const unsigned counts[4] = { 1, 2, 3, 8 };
     for (unsigned i = 0; i < 4; ++i) run(counts[i], &r[i]);
+    g_with_pass = 0;                       /* the same frames without the pass */
+    run(1, &r[4]);
+    g_with_pass = 1;
     for (unsigned i = 1; i < 4; ++i) {
         for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(r[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
-        for (unsigned b = 0; b < 4; ++b) CHECK(memcmp(r[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(r[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
     }
     /* the fields are not trivial: the scene, the target pass and the list
      * frame all wrote pixels of the field */
@@ -319,10 +445,38 @@ int main(void)
         lit += r[0].field[0][4 * i] != 0;
         listed += memcmp(r[0].field[2] + 4 * i, r[0].field[0] + 4 * i, 3) != 0;
     }
-    for (unsigned i = 0; i < 128 * 128; ++i) target += r[0].buf[3][4 * i + 1] == 0xFF;
+    /* (the target's memory is the copy's at the end of a frame with the
+     * pass, as in the game: the target is checked without it) */
+    for (unsigned i = 0; i < 128 * 128; ++i) target += r[4].buf[3][4 * i + 1] == 0xFF;
     CHECK(lit > 1000 && target > 500 && listed > 1000);
+    /* the pass: the copy holds the field, and the blend changed the fields
+     * where its Z test passed (and only RGB and alpha: the Z buffer is the
+     * same as without the pass) */
+    unsigned copied = 0, blended[2] = { 0, 0 };
+    for (unsigned i = 0; i < 256 * 256; ++i) copied += r[0].buf[4][4 * i] != 0;
+    for (unsigned f = 0; f < 2; ++f)
+        for (unsigned i = 0; i < 512 * 224; ++i)
+            blended[f] += memcmp(r[0].field[f] + 4 * i, r[4].field[f] + 4 * i, 3) != 0;
+    CHECK(copied > 10000 && blended[0] > 1000 && blended[1] > 1000);
+    CHECK(memcmp(r[0].buf[2], r[4].buf[2], sizeof r[0].buf[2]) == 0);
+    /* every block uploaded (image_all): the reads of the buffers the frames
+     * draw are ordered all the same (em_gs_world.c mark_drawn and
+     * texture_entry list drawn blocks whatever their residency), so 1 and 8
+     * workers draw what the frames over the texture alone drew */
+    static Result ra[2];
+    image_path = image_all;
+    run(1, &ra[0]);
+    run(8, &ra[1]);
+    image_path = image_one;
+    for (unsigned i = 0; i < 2; ++i) {
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(ra[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(ra[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
+    }
     refusals();
+    field_refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers: the same fields and memory over two world frames "
-           "with the target pass and a list frame; 5 refusals, 1 state-block TEX0 accepted)\n");
+           "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
+           "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
+           "1 state-block TEX0 accepted; 3 field-declaration refusals)\n", blended[0], blended[1]);
     return 0;
 }

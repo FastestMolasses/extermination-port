@@ -41,7 +41,7 @@
  * The routines are the lane translations, composed over that storage:
  * em_frame_render_heads (001D1AE0, 001D1C50, 001D1EA0, 001D2830, 001D2960,
  * 001D30A0, 001D25F0 / 001D2590 / 001D2610), em_render_context (001D2730,
- * 001E0C80, 001D2910, 001E0D70, 001DDA00 and the four-sprite pass 001DDE10,
+ * 001E0C80, 001D2910, 001E0D70, 001DDA00 and the depth-of-field pass 001DDE10,
  * 001DD950, 001D2DE0), em_packet_chain_original (001CB760, 001CB800, 001CB8A0,
  * the fog programmer 0021B970 / 0021B9A0 / 0021BA80 / 0021B920, the area fog
  * 001D8FD0), em_load_veil_particles (the REF tags, 001DDE10's frame-copy
@@ -248,6 +248,14 @@ int em_rcl_kick(uint32_t *chain, uint32_t *kicks);
  * not NULL, names it). */
 int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_t *clear, uint32_t clear_cap,
                      uint32_t *clear_bytes, const char **why);
+/* The draw environments of the GS blocks (bank A, D_00275674 + 0x20: two
+ * blocks of 0x190 bytes, the REF target of 001D1F20 and of step V's
+ * 001D2300), the context's slot (+0x9C) whose block they REF in this frame,
+ * and that block's FRAME_1 and SCISSOR_1 (its A+D pairs at +0x20 and +0x50;
+ * constant: only its XYOFFSET_1 is rewritten, by 001D2300). For the chain
+ * page's depth-of-field pass (em_chain_page_live). 0, or -1 (not loaded,
+ * unmapped, or a block of another shape). */
+int em_rcl_draw_env(uint32_t *bank, uint32_t *slot, uint64_t *frame, uint64_t *scissor);
 /* 001D1EF0: the tear-down frame (001D1C50, 001D2830(3, 1), 001D1EA0(0)) on
  * this context (em_frh_001D1EF0). Needs the bind. 0, or -1. */
 int em_rcl_001D1EF0(void);

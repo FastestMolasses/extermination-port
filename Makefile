@@ -1117,6 +1117,16 @@ test-gs-raster-reference:
 test-gs-memory-reference:
 	python3 tools/test_gs_memory_reference.py
 
+# 001DDE10's depth-of-field pass against the original's GS memory on both
+# sides of it (decomp build/dof_capture, the PCSX2 fork's software renderer;
+# CHAIN_PAGE.md section 6.2, GS_EXACT.md section 7): the captured GIF bytes
+# through the model, the port's own packets from the captured EE state, and
+# the Original profile's path (pass walk + GS world workers), all bit-exact.
+# Default: three captures; EM_TEST_FULL=1: all of them.
+.PHONY: test-dof-pass-reference
+test-dof-pass-reference:
+	python3 tools/test_dof_pass_reference.py
+
 # The Original profile's GS frame (src/gs/em_gs_world.h, GS_EXACT.md section
 # 9): 1, 2, 3 and 8 workers draw the same fields and memory over designed
 # frames, under the thread sanitizer (a missing barrier is a reported race).

@@ -406,9 +406,10 @@ static int f_001CB800(void *ctx, uint32_t a0, uint32_t a1, uint32_t a2, uint32_t
     return r;
 }
 /* 001DDE10's and 001E0D70's 001CB760: the slot-0xFFF CALL target of this
- * frame (001DDE10's four-sprite packet) is kept for the page's consumer,
- * which walks over it (docs/CHAIN_PAGE.md section 6); 001E0D70's (id
- * 0xFFC000, the weather's channel-3 list) is noted for the level smoke. */
+ * frame (001DDE10's depth-of-field pass) is kept for the page's consumer,
+ * which draws it with the GS model or walks over it with the GPU renderer
+ * (docs/CHAIN_PAGE.md section 6.2); 001E0D70's (id 0xFFC000, the weather's
+ * channel-3 list) is noted for the level smoke. */
 static int f_001CB760(void *ctx, uint32_t table, int32_t id, uint32_t address)
 {
     const int r = em_packet_chain_w_001CB760(ctx, table, id, address);
@@ -1361,6 +1362,32 @@ int em_rcl_kick_head(uint8_t *env, uint32_t env_cap, uint32_t *env_bytes, uint8_
         *(k ? clear_bytes : env_bytes) = (uint32_t)used;
     }
     *why = NULL;
+    return 0;
+}
+
+int em_rcl_draw_env(uint32_t *bank, uint32_t *slot, uint64_t *frame, uint64_t *scissor)
+{
+    if (!R.loaded || R.fault || !bank || !slot || !frame || !scissor) return -1;
+    const uint8_t *pctx = em_rcl_bytes(EM_FRAME_KICK_D_00275670, 4), *pgs = em_rcl_bytes(EM_FRAME_KICK_D_00275674, 4);
+    if (!pctx || !pgs) return -1;
+    u32 ctx, gs, k;
+    memcpy(&ctx, pctx, 4);
+    memcpy(&gs, pgs, 4);
+    const uint8_t *pslot = em_rcl_bytes(ctx + 0x9Cu, 4);
+    if (!pslot) return -1;
+    memcpy(&k, pslot, 4);
+    if (k > 1u) return -1;
+    /* 001D1F20's REF: GS block + 0x20 + 0x190 * slot, 0x19 qwords; its A+D
+     * pairs at +0x20 (FRAME_1) and +0x50 (SCISSOR_1) */
+    const uint8_t *env = em_rcl_bytes(gs + 0x20u + EM_CHAIN_PAGE_DRAW_ENV * k, EM_CHAIN_PAGE_DRAW_ENV_QWC * 16u);
+    if (!env || env[0x28] != 0x4Cu || env[0x58] != 0x40u) return -1;
+    uint64_t f, sc;
+    memcpy(&f, env + 0x20, 8);
+    memcpy(&sc, env + 0x50, 8);
+    *bank = gs + 0x20u;
+    *slot = k;
+    *frame = f;
+    *scissor = sc;
     return 0;
 }
 

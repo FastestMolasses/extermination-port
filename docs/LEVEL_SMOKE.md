@@ -2490,9 +2490,14 @@ tiles, the tile-0 packet-3 digest, whether every tile's packet 3 is the
 same) and `flame` the flame's last 001D04B0 (em_effects_live: its frame,
 key, the digests of its 001CFBE0 packets 1 (phase and seed masked) and 4).
 It checks:
-- every drawn page: the only CALL walked over is that frame's 001DDE10
-  four-sprite CALL; the lane program ran 0 or 6 times, 6 in exactly as many
-  pages as the barrel (001F0360) ran frames, and no lane drew;
+- every drawn page: that frame's 001DDE10 CALL is drawn as its
+  depth-of-field pass when the run draws with the GS frame (the Original
+  profile, since step DOF 2026-10-09: 8 sprites, the draw-environment marks
+  before primitives 1, 3, 5, 7 and after 8 of the pass, 32 DIRECT packets,
+  the page's last; CHAIN_PAGE.md section 6.2), and is the only CALL walked
+  over with the GPU renderer (EM_GPU_RENDERER=1); the lane program ran 0 or
+  6 times, 6 in exactly as many pages as the barrel (001F0360) ran frames,
+  and no lane drew;
 - the weather: a page CALLs the weather's list exactly when the weather
   closed one in its frame, at that list's start, and runs its 108 snow
   MSCALs (none otherwise); the flame: a page reads the flame's descriptor
@@ -2500,8 +2505,10 @@ It checks:
 - sampled pages: the ORIGINAL VU1 microcode with the DMA / VIF / GIF walk and
   the GS vertex queue (tools/chain_page_model.py), over the port's own page
   bytes (the weather's CALL walked: the snow program on every tile; the
-  re-walks run in forked workers), draw exactly the port's primitives (the
-  digest) with the same counts, and the blend presets, the three program
+  pass walked in the model's pass mode, its environments and marks equal
+  to the port's (the pass digest); the re-walks run in forked workers),
+  draw exactly the port's primitives (the digest) with the same counts, and
+  the blend presets, the three program
   packets and the flame's descriptor the page read hold the route captures'
   bytes;
 - the camera-exact snapshots (10, 14): the glow markers the port drew equal
@@ -2664,7 +2671,7 @@ own relaxations are in their sections ("The AIM side runs' whole records",
 | check_chain_page | the page's sprites other than the glow markers (head sprites, puffs, equipment sprites), the glint and the decal against the captures' pages | their inputs follow the draws (the head sprite's phase: check_head_sprites proves its transitions over the port's own draws; the puffs' seeds) or the navigation's timing; the sampled re-walks prove the drawing of the port's own pages | navigation to each snapshot's placement; a stream at the capture's position (docs/RAND_ORDER.md section 6) |
 | check_rand_order | the opening's values from the actors' spawn on (compared caller for caller at the drive's shift until a value-driven timer differs), and (switch on only) its end | the stream request's wait: at host speed the drive answers at once (the Original profile's policy), so the spawn and the end come the capture's wait earlier and the values drawn after differ; with the PS2 disc-drive timing switch on, the area music's 16-field seek is outside the drive model (at host speed the end is exact) | none at host speed (policy); with the switch, a drive model of the first stream read after a module-loader read (IOP_STREAM.md "Drive model"; an open decision, LAUNCHER_OPTIONS.md) |
 | check_gun_fan | the fans' phase at the aligned snapshot ticks (each snapshot's state is only required to be on the port's cycle) | the fans' cycle counts the owner's calls from the area entry, whose number at a snapshot follows the recording's timing (the opening's drive wait, navigation) | walk timing equal to the capture's (navigation) and the drive-timing switch |
-| check_chain_page | 001DDE10's four-sprite pass (slot 0xFFF) is walked over, not drawn | it samples the frame buffer as a texture; its look is not reproduced (CHAIN_PAGE.md section 6) | a renderer stage for the frame-copy sprites |
+| check_chain_page | 001DDE10's depth-of-field pass (slot 0xFFF): drawn by the GS model since step DOF (its walk re-walked in the model's pass mode); its pixels are not compared in the smoke | the smoke's frames are not at a capture's position; the pass's pixels are compared on the fork capture instead (`make test-dof-pass-reference`, bit-exact in 7 frames; CHAIN_PAGE.md section 6.2) | none needed for the pass's rules (a capture at the smoke's own positions would compare its inputs, which follow the camera and the player) |
 | check_chain_page | the flame's and the snow's sprites (only their packets' camera, fog and matrix rows are compared in the camera-exact beats) | their positions and colours follow the owners' seeds and phases (rand() at 008235F0 / 001E55F0 state 0, the flame's age), which the port's stream does not hold at a capture's position (RAND_ORDER.md) | the rand() stream at the capture's position |
 | check_load_veil | the veil's pixels, and how many ticks it runs | no capture holds a load's frame (every capture is taken after the load); the veil runs as long as the loader's steps take (chain step H7): 55 frames at host speed (the user's policy: the disc answers at host speed), 257 with the PS2 disc-drive timing switch where the PS2 drew 258 (its ninth sound-bank call, most likely SIF DMA time, which no mode reproduces) | a capture of a frame mid-load (the decomp's fb2 method) for the pixels |
 

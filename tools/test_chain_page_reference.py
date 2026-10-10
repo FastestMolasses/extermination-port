@@ -15,9 +15,11 @@ tools/ee_float_model.py). Reads the owner's ELF and the captured EE RAM under
 A. Captured pages. The page the last kick of every route capture 00..14
    spliced (its start tag at the render context's +0, where 001CB800
    stores its base) is walked. CALLs of
-   producers the port does not run on the page (object units via 001CAAC0,
-   001DDE10's four-sprite pass: every other CALL into the packet arena) are
-   walked over by both sides and counted. The weather's 001E0D70 kick (the
+   producers the port does not run on the page (object units via 001CAAC0:
+   every other CALL into the packet arena) are walked over by both sides and
+   counted; 001DDE10's depth-of-field pass (slot 0xFFF, the page's last) is
+   walked in pass mode by both sides, as the Original profile draws it (G).
+   The weather's 001E0D70 kick (the
    channel-3 list of 001CFFE0's 108 snow tiles, chain_page_model
    weather_lists) is walked with all its snow MSCALs on the selected beats
    (quick: one; full: all) and walked over on the others.
@@ -63,6 +65,16 @@ E. Faults: an exponent-255 word on a live lane faults both programs (the
 F. The blend presets the page REFs (001D0F20's bank at D_00275674 + 0x6A0,
    em_gs_blocks_original): equal to every capture's bytes; in full mode
    also to the bank the ORIGINAL 001D0F20 writes when executed.
+G. 001DDE10's depth-of-field pass (CHAIN_PAGE.md section 6.2), on every
+   captured page (in A's walk): the native pass mode and the model's take
+   the same primitives, the same environment for each, the same
+   draw-environment marks and counts; and against the capture's own bytes:
+   eight sprites, the copy (the field bank A's slot block draws into, read
+   with bank D 2's region clamp, drawn into D_0027568C's 256x256 buffer
+   with bank E 0's TEST and masked ZBUF) and the blend (the copy, bank D 3,
+   TEST 0x51001, ALPHA 0x44, Z and alpha the context's +0x24F0 / +0x2500
+   eased values) four times, marks after each copy and at the end, no
+   primitive reading the buffer it draws into, the pass the page's last.
 
 Quick mode (default): all of A on every beat but the weather's snow
 MSCALs on one beat and the independence re-walk on three, B and C 40 cases
@@ -181,9 +193,11 @@ static const uint8_t *reader(void *ctx, uint32_t a, uint32_t n)
     return NULL;
 }
 static EmChainPage g_page;
+/* pass[3]: the pass CALL target, bank A, the slot; out: fault, its address,
+ * the primitives, the pass's first primitive, the mark count, the marks */
 int shim_page(Region *regions, unsigned count, uint32_t start, const uint32_t *skip, uint32_t nskip,
               EmGfxGsPrim *prims, EmChainPageQ *q, uint32_t capacity, EmChainPageCounts *counts,
-              uint32_t out[3])
+              const uint32_t pass[3], EmGfxGsEnv *envs, uint32_t out[5 + EM_CHAIN_PAGE_AGAIN_MAX])
 {
     g_regions = regions;
     g_count = count;
@@ -193,10 +207,16 @@ int shim_page(Region *regions, unsigned count, uint32_t start, const uint32_t *s
     g_page.skip_count = nskip;
     g_page.prims = prims;
     g_page.prim_q = q;
+    g_page.prim_env = envs;
     g_page.prim_capacity = capacity;
+    g_page.pass_call = pass[0];
+    g_page.draw_envs = pass[1];
+    g_page.draw_env_slot = pass[2];
     int rc = em_chain_page_run(&g_page, start);
     *counts = g_page.counts;
     out[0] = g_page.fault; out[1] = g_page.fault_address; out[2] = g_page.prim_count;
+    out[3] = g_page.pass_first; out[4] = g_page.again_count;
+    for (uint32_t k = 0; k < g_page.again_count && k < EM_CHAIN_PAGE_AGAIN_MAX; ++k) out[5 + k] = g_page.again[k];
     return rc;
 }
 unsigned shim_sizes(void)
@@ -204,6 +224,7 @@ unsigned shim_sizes(void)
     return (unsigned)sizeof(EmGfxGsPrim) | (unsigned)sizeof(EmVu1PRegs) << 12 |
            (unsigned)sizeof(EmChainPageCounts) << 24;
 }
+unsigned shim_env_size(void) { return (unsigned)sizeof(EmGfxGsEnv); }
 '''
 
 
@@ -237,6 +258,15 @@ class PrimQ(C.Structure):
     _fields_ = [('q_known', C.c_uint8 * 3)]
 
 
+class GsEnv(C.Structure):
+    _fields_ = [('frame', C.c_uint64), ('zbuf', C.c_uint64), ('xyoffset', C.c_uint64), ('scissor', C.c_uint64),
+                ('prmodecont', C.c_uint64), ('dthe', C.c_uint64), ('fba', C.c_uint64), ('pabe', C.c_uint64),
+                ('texa', C.c_uint64), ('scanmsk', C.c_uint64), ('set', C.c_uint32)]
+
+
+AGAIN_MAX = 16
+
+
 class Counts(C.Structure):
     _fields_ = [('transfers', C.c_uint32), ('qwords', C.c_uint32), ('direct', C.c_uint32),
                 ('mscal_lane', C.c_uint32), ('mscal_sprite', C.c_uint32), ('kicks', C.c_uint32),
@@ -247,7 +277,8 @@ class Counts(C.Structure):
                 ('direct_strips', C.c_uint32), ('mscal_grid', C.c_uint32),
                 ('mscal_dynamic', C.c_uint32), ('mscal_dynamic_clip', C.c_uint32),
                 ('mscal_floor', C.c_uint32), ('mscal_ripple', C.c_uint32),
-                ('mscal_kind6', C.c_uint32), ('kind6_prims', C.c_uint32)]
+                ('mscal_kind6', C.c_uint32), ('kind6_prims', C.c_uint32), ('passes', C.c_uint32),
+                ('pass_prims', C.c_uint32), ('pass_direct', C.c_uint32), ('again', C.c_uint32)]
 
 
 DMEM = C.c_uint8 * 16384
@@ -271,11 +302,13 @@ def build_lib():
     P = C.POINTER
     lib.shim_mscal.argtypes = [C.c_int, P(Regs), DMEM, P(Kicks)]
     lib.shim_page.argtypes = [P(Region), C.c_uint, C.c_uint32, P(C.c_uint32), C.c_uint32, P(GsPrim), P(PrimQ),
-                              C.c_uint32, P(Counts), P(C.c_uint32)]
+                              C.c_uint32, P(Counts), P(C.c_uint32), P(GsEnv), P(C.c_uint32)]
     lib.shim_sizes.restype = C.c_uint
+    lib.shim_env_size.restype = C.c_uint
     lib.shim_presets.argtypes = [C.c_char_p]
     s = lib.shim_sizes()
-    if (s & 0xFFF, s >> 12 & 0xFFF, s >> 24) != (C.sizeof(GsPrim), C.sizeof(Regs), C.sizeof(Counts)):
+    if (s & 0xFFF, s >> 12 & 0xFFF, s >> 24) != (C.sizeof(GsPrim), C.sizeof(Regs), C.sizeof(Counts)) or \
+            lib.shim_env_size() != C.sizeof(GsEnv):
         fail('ctypes layout differs from the headers')
     return lib
 
@@ -413,8 +446,8 @@ def check_timing(vu, program, where):
 
 # -------------------------------------------------------- A. captured pages
 class ComparedPage(M.Page):
-    def __init__(self, read, lib, stats, where, skip):
-        super().__init__(read, skip_calls=skip)
+    def __init__(self, read, lib, stats, where, skip, pinfo=None):
+        super().__init__(read, skip_calls=skip, **pass_kwargs(pinfo))
         self.vu = Oracle()
         self.lib, self.stats, self.where = lib, stats, where
         self.branches = collections.Counter()
@@ -446,8 +479,8 @@ class ComparedPage(M.Page):
 class RandomStartPage(M.Page):
     """The model walked from random VU1 data memory and registers."""
 
-    def __init__(self, read, skip, seed):
-        super().__init__(read, skip_calls=skip)
+    def __init__(self, read, skip, seed, pinfo=None):
+        super().__init__(read, skip_calls=skip, **pass_kwargs(pinfo))
         rng = random.Random(seed)
         vu = self.vu
         vu.mem[:] = bytes(rng.getrandbits(8) for _ in range(16384))
@@ -466,6 +499,57 @@ def finite(rng):
             return w
 
 
+SLOT_FFF_HEAD = M.TABLE + 0x4000 + 4 * 0xFFF   # the head word of slot 0xFFF (D_007635C0 + 0x4000)
+
+
+def pass_of(ram, start):
+    """001DDE10's depth-of-field pass in a captured page (CHAIN_PAGE.md
+    section 6.2): (its CALL target, bank A = D_00275674 + 0x20, the context's
+    slot +0x9C), or None when the page holds no CALL of it. Slot 0xFFF holds
+    one block a frame (001DDE10's 001CB760: a CALL tag whose +4 is the
+    target), so its head word (+0x4000, which 001CB800 does not clear) is
+    this frame's block."""
+    head = M.u32(ram, SLOT_FFF_HEAD)
+    if M.u32(ram, head) != 0x50000000:
+        return None
+    target = M.u32(ram, head + 4) & 0x0FFFFFFF
+    probe = M.Page(M.ram_reader(ram))
+    probe.dma(start)
+    if target not in {a for (_c, tid, _q, a) in probe.transfers if tid == 5}:
+        return None
+    ctx = M.u32(ram, 0x275670)
+    return target, M.u32(ram, 0x275674) + 0x20, M.u32(ram, ctx + 0x9C)
+
+
+def pass_kwargs(pinfo):
+    if not pinfo:
+        return {}
+    return {'pass_call': pinfo[0], 'draw_envs': pinfo[1], 'draw_env_slot': pinfo[2]}
+
+
+def native_env(e):
+    return (e.set, (e.frame, e.zbuf, e.xyoffset, e.scissor, e.prmodecont, e.dthe, e.fba, e.pabe, e.texa, e.scanmsk))
+
+
+def compare_pass(pg, counts, envs, pfirst, again, n, where):
+    """The pass as the native walk took it against the model's: the
+    environment of each of its primitives, its first primitive, its marks
+    and its counts (primitives are compared by compare_prims)."""
+    passed = [i for i, e in enumerate(pg.gs.envs) if e is not None]
+    if counts.passes != pg.passes or counts.pass_prims != len(passed) or counts.again != len(pg.again):
+        fail(f'{where}: pass counts native {counts.passes}/{counts.pass_prims}/{counts.again}, '
+             f'original {pg.passes}/{len(passed)}/{len(pg.again)}')
+    if pg.passes:
+        if passed != list(range(pg.pass_first, pg.pass_first + len(passed))) or pfirst != pg.pass_first:
+            fail(f'{where}: the pass\'s primitives are not where the original draws them')
+        if again != pg.again:
+            fail(f'{where}: environment-again marks native {again}, original {pg.again}')
+    for i in range(n):
+        want = M.env_tuple(pg.gs.envs[i]) if pg.gs.envs[i] is not None else (0, (0,) * 10)
+        if native_env(envs[i]) != want:
+            fail(f'{where}: primitive {i}\'s environment differs:\n  original {want}\n  native   {native_env(envs[i])}')
+
+
 def page_skip(ram, start, weather):
     """The CALLs walked over: every top-level CALL into the packet arena of
     a producer the port does not run on the page, and the weather's kick
@@ -473,13 +557,19 @@ def page_skip(ram, start, weather):
     return M.arena_skips(M.ram_reader(ram), start, weather)
 
 
-def native_page(lib, regions, start, skip, capacity=4096):
+def native_page(lib, regions, start, skip, capacity=4096, pass_mode=(0, 0, 0), want_pass=False):
+    """The native walk. pass_mode: (the pass CALL target, bank A, the slot).
+    With want_pass, also its environments, its first primitive and its marks."""
     keep = [(base, bytes(data)) for base, data in regions]
     arr = (Region * len(keep))(*[Region(b, len(d), d) for b, d in keep])
     sk = (C.c_uint32 * max(1, len(skip)))(*skip)
     prims, q = (GsPrim * max(1, capacity))(), (PrimQ * max(1, capacity))()
-    counts, out = Counts(), (C.c_uint32 * 3)()
-    rc = lib.shim_page(arr, len(keep), start, sk, len(skip), prims, q, capacity, C.byref(counts), out)
+    envs = (GsEnv * max(1, capacity))()
+    counts, out = Counts(), (C.c_uint32 * (5 + AGAIN_MAX))()
+    pm = (C.c_uint32 * 3)(*pass_mode)
+    rc = lib.shim_page(arr, len(keep), start, sk, len(skip), prims, q, capacity, C.byref(counts), pm, envs, out)
+    if want_pass:
+        return rc, prims, q, counts, (out[0], out[1], out[2]), (envs, out[3], list(out[5:5 + out[4]]))
     return rc, prims, q, counts, (out[0], out[1], out[2])
 
 
@@ -511,18 +601,25 @@ def part_a(lib, stats, elf, seeds):
         ram = (ROUTE / beat / 'eeMemory.bin').read_bytes()
         start = M.latest_start(ram)
         weather = beat in snowy
-        skip = page_skip(ram, start, weather)
-        if weather and len(set(page_skip(ram, start, False)) - set(skip)) != 1:
+        pinfo = pass_of(ram, start)
+        skip = [a for a in page_skip(ram, start, weather) if not pinfo or a != pinfo[0]]
+        if weather and len(set(page_skip(ram, start, False)) - set(skip) - {pinfo and pinfo[0]}) != 1:
             fail(f'{beat}: the captured page does not hold exactly one weather kick')
-        pg = ComparedPage(M.ram_reader(ram), lib, stats, beat, skip)
+        pg = ComparedPage(M.ram_reader(ram), lib, stats, beat, skip, pinfo)
         pg.run(start)
         branches.update(pg.branches)
         for program, mem in pg.seeds:
             seeds.setdefault(program, []).append((mem,))
-        rc, prims, q, counts, out = native_page(lib, [(0, ram)], start, skip)
+        rc, prims, q, counts, out, (envs, pfirst, again) = native_page(
+            lib, [(0, ram)], start, skip, pass_mode=pinfo or (0, 0, 0), want_pass=True)
         if rc or out[0]:
             fail(f'{beat}: the native page faulted ({out[0]} at {out[1]:#x})')
         compare_prims(pg.gs.prims, prims, q, out[2], beat)
+        compare_pass(pg, counts, envs, pfirst, again, out[2], beat)
+        if pinfo:
+            check_pass(beat, ram, pinfo, pg, stats)
+            if counts.pass_direct != 32:
+                fail(f'{beat}: the pass sent {counts.pass_direct} DIRECT packets (8 a pass expected)')
         if (counts.mscal_lane, counts.mscal_sprite, counts.mscal_snow, counts.mscal_streak) != \
                 (pg.mscals[M.PROGRAM_LANE], pg.mscals[M.PROGRAM_SPRITE], pg.mscals[M.PROGRAM_SNOW],
                  pg.mscals[M.PROGRAM_STREAK]):
@@ -550,7 +647,8 @@ def part_a(lib, stats, elf, seeds):
             if counts.prim_type[t]:
                 stats[f'prim_type_{t}'] += counts.prim_type[t]
         if beat in indep and (FULL or not weather):
-            rp = RandomStartPage(M.ram_reader(ram), skip, int(hashlib.sha256(beat.encode()).hexdigest()[:8], 16))
+            rp = RandomStartPage(M.ram_reader(ram), skip, int(hashlib.sha256(beat.encode()).hexdigest()[:8], 16),
+                                 pinfo)
             rp.run(start)
             if rp.gs.prims != pg.gs.prims:
                 fail(f'{beat}: the page draws differently from random VU1 contents')
@@ -560,6 +658,95 @@ def part_a(lib, stats, elf, seeds):
 
 
 # ------------------------------------------------ B / C. synthetic batches
+# ------------------------------------- G. 001DDE10's depth-of-field pass
+def f32w(ram, a):
+    return struct.unpack_from('<f', ram, a)[0]
+
+
+def ad_pair(ram, a):
+    """The A+D pair at a: (data, register)."""
+    return M.u32(ram, a) | M.u32(ram, a + 4) << 32, M.u32(ram, a + 8) & 0xFF
+
+
+def check_pass(beat, ram, pinfo, pg, stats):
+    """The pass's register sequence and geometry (RENDER_CONTEXT.md 2.3,
+    CHAIN_PAGE.md 6.2), from the original's own packets as the walk takes
+    them: four times a copy of the field into the 256x256 buffer at
+    D_0027568C and a blend of that copy back over the field under the
+    field's Z test, the frame's draw environment REFed again after each copy
+    and at the end; values from the capture's own bytes (bank A / D / E, the
+    context's eased pairs +0x24F0 / +0x2500, D_0026E510, D_0027568C)."""
+    target, bank_a, slot = pinfo
+    ctx, gs = M.u32(ram, 0x275670), M.u32(ram, 0x275674)
+    env_block = bank_a + 0x190 * slot
+    field_frame, reg = ad_pair(ram, env_block + 0x20)
+    field_scissor, reg2 = ad_pair(ram, env_block + 0x50)
+    if (reg, reg2) != (0x4C, 0x40):
+        fail(f'{beat}: bank A slot {slot} does not hold FRAME_1 / SCISSOR_1 at +0x20 / +0x50')
+    field_fbp = field_frame & 0x1FF
+    copy_addr = M.u32(ram, 0x27568C)
+    copy_fbp, copy_tbp = (copy_addr >> 13) & 0x1FF, copy_addr >> 8
+    rgba0 = tuple(M.u32(ram, 0x26E510 + 4 * c) & 0xFF for c in range(4))
+    clamp2, r1 = ad_pair(ram, gs + 0x4A0 + 0x40 * 2 + 0x30)
+    clamp3, r2 = ad_pair(ram, gs + 0x4A0 + 0x40 * 3 + 0x30)
+    test_e, r3 = ad_pair(ram, gs + 0x5A0 + 0x20)
+    zbuf_e, r4 = ad_pair(ram, gs + 0x5A0 + 0x30)
+    if (r1, r2, r3, r4) != (0x08, 0x08, 0x47, 0x4E):
+        fail(f'{beat}: banks D / E are not CLAMP_1 / TEST_1 / ZBUF_1 where 001D1FF0 / 001D2040 REF them')
+    field_tex0 = (0x700 if slot == 0 else 0) | 8 << 14 | 9 << 26 | 8 << 30 | 1 << 35   # 001D6930
+    copy_tex0 = copy_tbp | 4 << 14 | 8 << 26 | 8 << 30                                  # 001D6BA0(.., 8, 8, 0, 0)
+    if (field_tex0 & 0x3FFF) != field_fbp * 32:
+        fail(f'{beat}: the copy does not read the field the frame draws (TBP {field_tex0 & 0x3FFF:#x}, '
+             f'FRAME {field_fbp:#x})')
+    first, envs = pg.pass_first, pg.gs.envs
+    prims = pg.gs.prims[first:]
+    if len(prims) != 8 or pg.again != [first + 1, first + 3, first + 5, first + 7, first + 8]:
+        fail(f'{beat}: the pass draws {len(prims)} primitives with marks {pg.again} (8 and 1, 3, 5, 7, 8 expected)')
+    env_copy = {'FRAME_1': copy_fbp | 4 << 16, 'ZBUF_1': zbuf_e, 'XYOFFSET_1': 0x0000780000007800,
+                'SCISSOR_1': 0x00FF000000FF0000, 'TEXA': 0x20}
+    for k in range(4):
+        cp, bl = prims[2 * k], prims[2 * k + 1]
+        ce, be = envs[first + 2 * k], envs[first + 2 * k + 1]
+        # the copy: field -> 256 x 256, UV (0.5, 0.5)..(511.5, 223.5), DECAL
+        want_v = ((0x7800, 0x7800, 0, 0xF, rgba0, 0x3F800000, 8, 8), (0x8800, 0x8800, 0, 0xF, rgba0, 0x3F800000,
+                                                                       0x1FF8, 0xDF8))
+        got_v = tuple((v[0], v[1], v[2], v[3], v[4], v[5], v[8], v[9]) for v in cp[2])
+        if cp[0] != 0x116 or got_v != want_v:
+            fail(f'{beat}: copy {k}: PRIM {cp[0]:#x}, vertices {got_v}')
+        tex0, clamp, tex1, alpha, test, colclamp = cp[1]
+        if tex0 != field_tex0 or clamp != clamp2 or test != test_e or colclamp is None or colclamp & 1 != 1 or \
+                (k and (tex1 is not None or alpha != 0x44)):
+            fail(f'{beat}: copy {k}: state {[hex(x) if x is not None else None for x in cp[1]]}')
+        if any(ce.get(name) != value for name, value in env_copy.items()) or \
+                ce.get('PRMODECONT', 0) & 1 != 1 or 'DTHE' not in ce or ce['DTHE'] & 1 != 0 or \
+                set(ce) != set(env_copy) | {'PRMODECONT', 'DTHE'}:
+            fail(f'{beat}: copy {k}: environment {ce}')
+        # the blend: the copy over the field, 0x7000..0x9000 x 0x7900..0x8700,
+        # UV (0.5, 0.5)..(256.5, 256.5), Z GEQUAL with no Z write, (Cs - Cd) As + Cd
+        cc = int(f32w(ram, ctx + 0x24F0 + 4 * k))
+        rr = int(f32w(ram, ctx + 0x2500 + 4 * k))
+        rgba = (0x80, 0x80, 0x80, rr & 0xFF)
+        z = (cc >> 4) & 0xFFFFFF
+        want_v = ((0x7000, 0x7900, z, 8, rgba, 0x3F800000, 8, 8), (0x9000, 0x8700, z, 8, rgba, 0x3F800000,
+                                                                   0x1008, 0x1008))
+        got_v = tuple((v[0], v[1], v[2], v[3], v[4], v[5], v[8], v[9]) for v in bl[2])
+        if bl[0] != 0x156 or got_v != want_v:
+            fail(f'{beat}: blend {k}: PRIM {bl[0]:#x}, vertices {got_v} (context +0x24F0 / +0x2500 give Z '
+                 f'{z:#x}, alpha {rr:#x})')
+        if bl[1] != (copy_tex0, clamp3, None, 0x44, 0x51001, None) or be != {'TEXA': 0}:
+            fail(f'{beat}: blend {k}: state {[hex(x) if x is not None else None for x in bl[1]]}, environment {be}')
+        # no primitive reads the buffer it draws into (CHAIN_PAGE.md 6.2;
+        # FIRST_LEVEL_AUDIT.md lead F2's premise): the copy reads the field
+        # and draws the copy, the blend reads the copy and draws the field
+        if copy_fbp == field_fbp or (copy_tex0 & 0x3FFF) != copy_fbp * 32:
+            fail(f'{beat}: a pass primitive reads the buffer it draws into')
+    if first + 8 != len(pg.gs.prims):
+        fail(f'{beat}: the pass (slot 0xFFF) is not the last of the page')
+    stats['pass_pages'] += 1
+    stats['pass_slot_' + str(slot)] += 1
+    stats['pass_prims'] += 8
+
+
 def elf_code(elf, address, size):
     o = address - 0x100000 + 0x300
     return elf[o:o + size]
@@ -956,6 +1143,10 @@ def main():
            part(stats['snow_pages'], stats['pages'], 'pages with the weather kick walked'),
            f"{stats['pages']} captured pages ({stats['page_prims']} primitives, {stats['page_kicks']} XGKICKs, "
            f"{stats['page_directs']} DIRECT packets, {stats['page_skipped_calls']} non-port CALLs walked over)",
+           f"001DDE10's depth-of-field pass walked on {stats['pass_pages']} pages ({stats['pass_prims']} primitives: "
+           f"copy and blend x 4, their environments and the 5 draw-environment marks equal to the original walk's; "
+           f"the geometry, Z and alpha from the capture's own context; slot 0 / 1 {stats['pass_slot_0']} / "
+           f"{stats['pass_slot_1']})",
            f"{stats['mscal_lane']} lane, {stats['mscal_sprite']} sprite, {stats['mscal_snow']} snow, "
            f"{stats['mscal_streak']} streak and {stats['mscal_kind2']} kind-2 MSCALs compared "
            f"({stats['synthetic_lane']}, {stats['synthetic_sprite']}, {stats['synthetic_snow']}, "

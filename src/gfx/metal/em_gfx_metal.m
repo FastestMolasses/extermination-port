@@ -4016,6 +4016,25 @@ void em_gfx_gs_world_drop(EmGfx *g)
     if (g) g->gswFrame = false;   /* em_gs_world_begin drops the body */
 }
 
+int em_gfx_gs_world_recording(EmGfx *g) { return g && g->gswFrame; }
+
+/* em_gfx_gs_page_pass: 001DDE10's depth-of-field pass into the recorded
+ * world frame (em_gs_world_page_pass: the field declared, then the
+ * primitives with their environment, the kick's environment again at each
+ * mark). */
+int em_gfx_gs_page_pass(EmGfx *g, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count,
+                        const uint32_t *again, uint32_t again_count, uint64_t field_frame, uint64_t field_scissor)
+{
+    if (!g) return -1;
+    if (!g->gswFrame) {
+        fprintf(stderr, "gfx: the depth-of-field pass outside a recorded GS world frame (only the GS model "
+                        "draws it)\n");
+        return -1;
+    }
+    (void)em_gs_world_page_pass(g->gsw, prims, envs, count, again, again_count, field_frame, field_scissor);
+    return gsw_check(g);
+}
+
 int em_gfx_gs_world_kick(EmGfx *g, const void *env, size_t env_bytes, const void *clear, size_t clear_bytes)
 {
     if (!g || !g->gswFrame) return 0;

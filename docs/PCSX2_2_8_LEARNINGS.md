@@ -259,25 +259,20 @@ passage.
   an earlier upload inside it by memory pointer alone, so uninitialised
   black pixels were sampled instead of the upload; checking overlap with
   the target's valid area fixed it (a GPU texture-cache matter, 1.12).
-- **First level uses it.** 001DDE10's four-sprite pass (slot 0xFFF) runs
-  every world frame: each sprite covers the whole field, samples the frame
-  through the texture state 001D6C90 sets (UV starting at (8, 8) in 1/16
-  texel, half a texel), and blends it over the pixels its Z test passes
-  (CHAIN_PAGE.md section 6). It is walked over, not drawn (1b item 2).
-- **What is not known.** Whether its texture is the buffer the sprite
-  writes (the field being drawn) or the other buffer; if it is the same
-  one, what the GS returns for a texel the same sprite has already
-  overwritten (the GS reads textures through its own texture cache, so the
-  answer is not simply "current memory"). The CPU model samples current
-  memory at the moment of the read.
-- **Confirm.** (a) From the original's instructions: 001D6C90's TEX0 base
-  against the FRAME_1 base of the same frame (decomp C, oracle-checked).
-  (b) If they overlap: designed conformance sprites that read the buffer
-  they write, at a half-texel offset and full-field size, drawn by the
-  software renderer and by the model, before the pass is drawn live. Real
-  hardware's texture-cache behaviour is not settled by either; record it
-  as relative to the software renderer.
-- **Priority.** P1 (1b block F, F2).
+- **First level: no hazard (settled 2026-10-09, step DOF).** 001DDE10's
+  depth-of-field pass (slot 0xFFF) runs every world frame, but none of its
+  draws reads the buffer it writes (CHAIN_PAGE.md section 6.2): each copy
+  reads the field and draws the 256x256 buffer at D_0027568C, each
+  full-field blend reads that buffer (001D6BA0's TEX0; 001D6C90 sets only
+  TEXA, TEST_1 and ALPHA_1) and draws the field. The original's packets on
+  every captured page show it (`make test-chain-page-reference` part G),
+  so the question this item raised (what the GS returns for texels a draw
+  has already overwritten) does not arise; the model draws the pass since
+  step DOF. Its large UV sprites (the 2:1 shrink, the stretch back) are
+  bit-exact against the fork's capture of the pass since 2026-10-10 (decomp
+  build/dof_capture, `make test-dof-pass-reference`; the row coordinate of
+  a UV sprite is accumulated in binary32, GS_EXACT.md 3.4).
+- **Priority.** Closed for the first level (1b block F, F2's premise).
 
 ### 1.8 Local-to-local transfers and the GS page cache
 

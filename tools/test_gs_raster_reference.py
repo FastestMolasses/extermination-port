@@ -492,6 +492,16 @@ def check_strict(lib) -> int:
             w += vert(x0 + 20 * (i // 2), 40 * (i % 2), z)
         return w
     tri = [(0x00, 0x13)] + vert(0, 0) + vert(60, 0) + vert(0, 50)
+
+    def uv_sprite(u0, v0, x0, y0, u1, v1, x1, y1, rows, cols=(0, 255)):
+        """A UV sprite (PRIM 0x116) from (x0, y0) to (x1, y1) in window 1/16
+        pixels (the XYOFFSET 1024 pixels in each way lets them go negative)
+        with UV (u0, v0)..(u1, v1) in 1/16 texels, under the scissor's rows
+        and columns."""
+        o = 1024 * 16
+        return [(0x18, o | o << 32), (0x40, cols[0] | cols[1] << 16 | rows[0] << 32 | rows[1] << 48), (0x00, 0x116),
+                (0x01, 0x80808080 | f32(1.0) << 32), (0x03, u0 | v0 << 16), (0x05, (x0 + o) | (y0 + o) << 16 | 0x100 << 32),
+                (0x03, u1 | v1 << 16), (0x05, (x1 + o) | (y1 + o) << 16 | 0x100 << 32)]
     cases = {
         # name: (writes, strict reason substring or None for a control)
         'aa1': ([(0x00, 0x03 | 0x80)] + vert(0, 0) + vert(60, 0) + vert(0, 50), 'AA1'),
@@ -512,6 +522,18 @@ def check_strict(lib) -> int:
                           + strip(100, [0x200, 0x300, 0x400, 0x500, 0x600, 0x700]), None),
         'dithered_point': ([(0x4C, 0 | 4 << 16 | 2 << 24), (0x45, 1), (0x44, 0x1234567), (0x00, 0x00)]
                            + [(0x01, 0x80406020), (0x05, 5 * 16 | 5 * 16 << 16 | 0x100 << 32)], None),
+        # UV sprites (section 3.4): the measured row rule's unsettled
+        # variants and the column rule: an accumulation started at the
+        # scissor's first row would read other rows, so would one started
+        # from the top corner of an upward sprite, and the columns' exact
+        # value differs from the same accumulation over them
+        'uv_rows_clipped': (uv_sprite(8, 8, 0, -40, 264, 906, 4096, 3208, rows=(10, 199)), 'UV sprite'),
+        'uv_rows_upward': (uv_sprite(8, 8, 0, 3208, 264, 1144, 4096, 8, rows=(0, 199)), 'UV sprite'),
+        'uv_columns': (uv_sprite(8, 8, 0, 0, 500, 264, 3584, 4096, rows=(0, 199)), 'UV sprite'),
+        # control: 001DDE10's blend sprite (rows of 256 texels over 224, a
+        # half-line field), the measured case (test_dof_pass_reference.py)
+        'uv_dof_blend': ([(0x4C, 0 | 8 << 16)] + uv_sprite(8, 8, 0, -8, 4104, 4104, 8192, 3576, rows=(0, 223),
+                                                           cols=(0, 511)), None),
     }
     bad = 0
     for name, (ws, reason) in cases.items():

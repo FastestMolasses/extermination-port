@@ -1,5 +1,5 @@
-/* Render context lane (census L30-render-context): the per-frame four-sprite
- * pass 001DDE10 and its dispatchers, the render-context flag words, the
+/* Render context lane (census L30-render-context): the per-frame
+ * depth-of-field pass 001DDE10 and its dispatchers, the render-context flag words, the
  * grid pass 001D5370 and their set-up / tear-down helpers. Names here are
  * descriptions of what the instructions do, not claims about what the
  * player sees. Docs: docs/RENDER_CONTEXT.md.
@@ -17,7 +17,9 @@
  *   001DDA00  per-frame tick: 001DEEE0 on +0x2470 and +0x2490, then the flag
  *             gated 001DDAA0 / 001DDB70 / 001DFF70 (byte-matched)
  *   001DDAA0  area-key dispatch to 001DE920 or 001DDE10 (byte-matched)
- *   001DDE10  the four-sprite pass: one value projected through the
+ *   001DDE10  the depth-of-field pass (docs/CHAIN_PAGE.md section 6.2: four
+ *             times a copy of the field and a blend of it back under a Z
+ *             test): one value projected through the
  *             001026A0 matrix, the D_00275690 / D_00275694 eases, four eased
  *             value/width pairs at +0x24F0, four 0x80-byte packets on the
  *             channel 3 cursor, the 0x10-byte end tag and the 001CB760 call
