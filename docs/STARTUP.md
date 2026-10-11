@@ -275,8 +275,8 @@ camera/actor cursors when comparing screenshots, rather than scene frame alone.
 
 ## Developer switches
 
-Neither is a launcher option (LAUNCHER_OPTIONS.md "Not launcher options").
-Both are read from the environment at launch.
+None is a launcher option (LAUNCHER_OPTIONS.md "Not launcher options").
+All are read from the environment at launch.
 
 ### EM_NEW_GAME=1: straight to the AREA11 opening
 
@@ -378,6 +378,17 @@ values (health 75, infection 60, mag 4, reserve 120). It serves the
 legacy self-tests (`tests/run_suite.sh` and the EM_*_TEST fixtures of
 em_game_selftest.c); it is not the original route and does not reach the
 AREA11 opening.
+
+### EM_MUTE=1: a windowed run with no sound
+
+Added 2026-10-11 for windowed measurements while other audio plays
+(PERFORMANCE.md "Progress" P2). `em_audio_muted` (em_platform.h): the
+audio device stays open and the game's mixer runs at the device's pull
+cadence exactly as when audible, so nothing the game computes and none of
+its timing changes. The backend zeroes the mixed samples before they reach
+the speakers (macOS and iOS), and the movie player is muted (it keeps its
+audio clock, which paces the video). Headless runs have always been muted
+this way.
 
 ## New Game, Continue and music
 

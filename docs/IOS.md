@@ -153,6 +153,12 @@ cannot disturb the scripted test fixtures).
   logged as `ios: app inactive ...`). A 59.94 Hz frame shows for two 120 Hz
   refreshes, with one extra refresh about every 17 s, as on a 60 Hz screen.
   Low Power Mode caps the panel at 60 Hz.
+  Since 2026-10-11 (PERFORMANCE.md "Progress" P2) the renderer also draws
+  each frame offscreen and takes a drawable only when the frame is committed,
+  then copies the frame into it. Before, it took one at the start of every
+  step and kept a field frame's drawable for a tick. On the Mac's 120 Hz
+  display the game thread's wait went from 2.0-5.5 ms per tick to 0.04 ms.
+  The iOS path uses the same code; not yet measured on the device.
 - **Background.** When the app stops being active (home, app switcher, a
   call, Control Center) the game thread parks at the top of its next frame
   (`em_window_poll`): no game ticks and no GPU work in the background, which

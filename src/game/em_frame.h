@@ -181,11 +181,15 @@ void em_frame_set_task_check(int (*check)(void *context), void *context);
  * uninstalls it. */
 /* EM_FRAME_TIMING's GS-frame columns: a probe of the last GS frame's cost
  * (em_gs_frame_live_cost): wall and busiest-worker CPU time, the workers,
- * and the frames run so far. NULL: none. */
+ * and the frames run so far; and the presentation's totals
+ * (em_gfx_present_cost; has_present 0 without them): the time blocked on a
+ * window drawable and waiting for the GS field. NULL: none. */
 typedef struct EmFrameGsCost {
     double wall_ns, cpu_max_ns;
     uint64_t runs;
     unsigned workers;
+    int has_present;
+    double display_wait_ns, field_wait_ns;
 } EmFrameGsCost;
 void em_frame_set_timing_probe(int (*probe)(void *ctx, EmFrameGsCost *out), void *ctx);
 

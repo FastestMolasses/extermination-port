@@ -2,6 +2,7 @@
 #include "game/em_gs_frame_live.h"
 
 #include <stdio.h>
+#include <string.h>
 
 #include "em_settings.h"
 #include "game/em_frame.h"
@@ -53,11 +54,23 @@ int em_gs_frame_live_kick(EmGfx *gfx)
 
 int em_gs_frame_live_cost(void *gfx, struct EmFrameGsCost *out)
 {
+    if (!out) return -1;
+    memset(out, 0, sizeof *out);
     EmGfxGsCost c;
-    if (!out || em_gfx_gs_world_cost((EmGfx *)gfx, &c) < 0) return -1;
-    out->wall_ns = c.wall_ns;
-    out->cpu_max_ns = c.cpu_max_ns;
-    out->runs = c.runs;
-    out->workers = c.workers;
+    EmGfxPresentCost pc;
+    const int gs = em_gfx_gs_world_cost((EmGfx *)gfx, &c) == 0;
+    const int present = em_gfx_present_cost((EmGfx *)gfx, &pc) == 0;
+    if (!gs && !present) return -1;
+    if (gs) {
+        out->wall_ns = c.wall_ns;
+        out->cpu_max_ns = c.cpu_max_ns;
+        out->runs = c.runs;
+        out->workers = c.workers;
+    }
+    if (present) {
+        out->has_present = 1;
+        out->display_wait_ns = pc.display_wait_ns;
+        out->field_wait_ns = pc.field_wait_ns;
+    }
     return 0;
 }

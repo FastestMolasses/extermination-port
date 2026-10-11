@@ -19,7 +19,8 @@
  *     suspended audio because the game is parked (em_audio_ios.h).
  *
  * Headless runs (em_headless()) keep the unit and its pull cadence but
- * zero what the callback wrote, as on macOS.
+ * zero what the callback wrote, as on macOS; so does EM_MUTE=1
+ * (em_audio_muted, em_platform.h).
  */
 #include "em_audio.h"
 #include "em_platform.h"
@@ -36,7 +37,7 @@ struct EmAudio {
     AudioUnit       unit;
     EmAudioCallback cb;
     void           *user;
-    int             silent;   /* em_headless() at create: mute the output */
+    int             silent;   /* em_audio_muted() at create: mute the output */
     int             paused;   /* em_audio_pause: the game asked for a stop */
     EmAudio        *next;     /* the open units (guarded by s_lock) */
 };
@@ -152,7 +153,7 @@ EmAudio *em_audio_create(int sample_rate, EmAudioCallback cb, void *user)
         return NULL;
     a->cb     = cb;
     a->user   = user;
-    a->silent = em_headless();
+    a->silent = em_audio_muted();
 
     AudioComponentDescription desc = {
         .componentType         = kAudioUnitType_Output,

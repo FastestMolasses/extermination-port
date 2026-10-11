@@ -19,7 +19,8 @@
  * Headless runs (em_headless(): tests, captures, traces) keep the device and
  * its real pull cadence, so timing is unchanged, but the render proc zeroes
  * what the callback wrote: nothing reaches the speakers. EM_HEADLESS=0 makes
- * a test audible again.
+ * a test audible again. EM_MUTE=1 does the same in a windowed run
+ * (em_audio_muted, em_platform.h).
  *
  * Teardown: AudioOutputUnitStop + AudioUnitUninitialize synchronize with the
  * I/O thread, so after em_audio_destroy returns the callback can no longer be
@@ -36,7 +37,7 @@ struct EmAudio {
     AudioUnit       unit;
     EmAudioCallback cb;
     void           *user;
-    int             silent; /* em_headless() at create: mute the output */
+    int             silent; /* em_audio_muted() at create: mute the output */
 };
 
 static OSStatus em_audio_render(void *inRefCon,
@@ -84,7 +85,7 @@ EmAudio *em_audio_create(int sample_rate, EmAudioCallback cb, void *user)
         return NULL;
     a->cb   = cb;
     a->user = user;
-    a->silent = em_headless();
+    a->silent = em_audio_muted();
 
     AudioComponentDescription desc = {
         .componentType         = kAudioUnitType_Output,

@@ -617,9 +617,11 @@ void em_frame_set_timing_probe(int (*probe)(void *ctx, EmFrameGsCost *out), void
 /* EM_FRAME_TIMING=<file>: a diagnostic that writes one line per step of
  * em_frame_run ("step wall_ns cpu_ns": the step's wall time and the main
  * thread's CPU time, the pacing sleep excluded; a step that ran the GS
- * frame adds "gs wall_ns busiest_worker_cpu_ns workers") and prints a
- * summary against the 16.683 ms NTSC period at exit. It changes nothing the
- * game computes. */
+ * frame adds "gs wall_ns busiest_worker_cpu_ns workers"; with the
+ * presentation's totals every step ends in "p display_wait_ns field_wait_ns",
+ * the step's time blocked on a window drawable and waiting for the GS field)
+ * and prints a summary against the 16.683 ms NTSC period at exit. It changes
+ * nothing the game computes. */
 static int64_t timing_ns(clockid_t clock)
 {
     struct timespec t;
@@ -652,8 +654,10 @@ void em_frame_run(void)
 {
     const char *timing = getenv("EM_FRAME_TIMING");
     FILE *tf = (timing && timing[0]) ? fopen(timing, "w") : NULL;
-    int64_t *wall = NULL, *cpu = NULL;
+    int64_t *wall = NULL, *cpu = NULL, *disp = NULL;
     size_t n = 0, cap = 0;
+    double disp_last = 0.0, field_last = 0.0;
+    int has_present = 0;
     while (!s_frame.quit) {
         const int64_t w0 = tf ? timing_ns(CLOCK_MONOTONIC) : 0, c0 = tf ? timing_ns(CLOCK_THREAD_CPUTIME_ID) : 0;
         em_frame_step();
@@ -664,24 +668,35 @@ void em_frame_run(void)
              * path with free cores) and the workers (em_gfx_gs_world_cost). */
             EmFrameGsCost gc;
             static uint64_t gs_runs;
-            if (s_timing_probe && s_timing_probe(s_timing_probe_ctx, &gc) == 0 && gc.runs != gs_runs) {
+            const int probed = s_timing_probe && s_timing_probe(s_timing_probe_ctx, &gc) == 0;
+            fprintf(tf, "%zu %lld %lld", n, (long long)dw, (long long)dc);
+            if (probed && gc.runs != gs_runs) {
                 gs_runs = gc.runs;
-                fprintf(tf, "%zu %lld %lld gs %lld %lld %u\n", n, (long long)dw, (long long)dc,
-                        (long long)gc.wall_ns, (long long)gc.cpu_max_ns, gc.workers);
-            } else {
-                fprintf(tf, "%zu %lld %lld\n", n, (long long)dw, (long long)dc);
+                fprintf(tf, " gs %lld %lld %u", (long long)gc.wall_ns, (long long)gc.cpu_max_ns, gc.workers);
             }
+            int64_t dd = 0;
+            if (probed && gc.has_present) {
+                has_present = 1;
+                dd = (int64_t)(gc.display_wait_ns - disp_last);
+                fprintf(tf, " p %lld %lld", (long long)dd, (long long)(gc.field_wait_ns - field_last));
+                disp_last = gc.display_wait_ns;
+                field_last = gc.field_wait_ns;
+            }
+            fputc('\n', tf);
             if (n == cap) {
                 const size_t grown = cap ? 2 * cap : 4096;
                 int64_t *nw = realloc(wall, grown * sizeof *wall);
                 if (nw) wall = nw;
                 int64_t *nc = nw ? realloc(cpu, grown * sizeof *cpu) : NULL;
                 if (nc) cpu = nc;
-                if (nw && nc) cap = grown;
+                int64_t *nd = nc ? realloc(disp, grown * sizeof *disp) : NULL;
+                if (nd) disp = nd;
+                if (nw && nc && nd) cap = grown;
             }
             if (n < cap) {
                 wall[n] = dw;
                 cpu[n] = dc;
+                disp[n] = dd;
                 n++;
             }
         }
@@ -694,7 +709,9 @@ void em_frame_run(void)
         fclose(tf);
         timing_summary("wall", wall, n);
         timing_summary("main-thread cpu", cpu, n);
+        if (has_present) timing_summary("blocked on the display", disp, n);
     }
     free(wall);
     free(cpu);
+    free(disp);
 }

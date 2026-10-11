@@ -36,7 +36,7 @@ So the port is not slow because it is native. It is slow because its exact rende
 
 Two things add to what the user sees:
 - **Machine load.** On a busy Mac (load 10-16), GS_EXACT.md 10.2 recorded 78-740 of 1,300 ticks over the period, against 0-23 on a quiet machine. fileproviderd uses about one core all the time on this Mac.
-- **Windowed presentation.** Not measured yet (section 7).
+- **Windowed presentation.** Measured and fixed on 2026-10-11 (Progress P2): each frame used to block 2-5.5 ms on the window's drawable on this Mac's 120 Hz display; it now waits 0.04 ms.
 
 On the iPhone Air the port gets only 3 drawing threads, and every tick is over (section 5).
 
@@ -123,7 +123,7 @@ The AREA01 runs without the pass had a load spike to 15.
    - Ungated digests cost about 1.5 ms per tick in AREA01; textured_kick 4.5-8.8 %.
 6. **The iPhone gets only 3 workers** (section 5).
 7. **Unmeasured:**
-   - the windowed Mac path (a drawable is held for a tick; IOS.md saw nextDrawable waits of about 15 ms);
+   - the windowed Mac path: measured and fixed since (Progress P2);
    - a possible texture_entry cliff (a linear search of 1024 entries, plus a 16 KiB memset per miss once full).
 
 **Not a cause:** build settings. macOS uses -O2; the iOS project has optimization level 2 in both configurations, and build.sh builds Release. Presentation is about 0 % headless.
@@ -274,7 +274,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## 7. What to measure next
 
-1. **Windowed Mac EM_FRAME_TIMING against headless** in the same windows. This tests the held-drawable / nextDrawable hypothesis. A visible window needs the user's OK.
+1. **Windowed Mac EM_FRAME_TIMING against headless** in the same windows. Done (Progress P2). Not measured: a 60 Hz display, and AREA01 windowed.
 2. **On the iPhone Air,** headless offscreen:
    - EM_GS_THREADS 2-5, with and without worker QoS;
    - a 10-15 minute sustained run for thermals;
@@ -335,6 +335,71 @@ Each step of section 4's plan, with its measured before / after. Receipts: build
 - These multi-worker runs were noisier than section 2's (wall means 13-19 ms against 11-12), so they are not comparable with section 2's baseline. Compare only the interleaved pairs.
 - Expected: a pin is a fidelity fix, not a speed-up. Every later raster refactor (Q3, M1, M2, L1) must now keep each expression's unfused rounding.
 
+### P2. The windowed presentation path (2026-10-11)
+
+The user approved a visible window for this measurement. Every windowed run used EM_MUTE=1 (new, see below) and lasted under 90 s, and the window was closed after each run. Receipts: build/perf_investigation/runs/pres_*; scripts in build/perf_investigation/present/ (run.sh, present.py).
+
+**What was measured.**
+- EM_FRAME_TIMING now ends every step with "p display_wait_ns field_wait_ns" (when the backend reports them):
+  - the time the game thread was blocked in nextDrawable;
+  - the time it waited for the GS model's field before committing a field frame.
+- Its exit summary adds a "blocked on the display" line.
+- A windowed run with EM_FRAME_TIMING prints the window's settings once ("present:"). Here:
+  - 3 drawables, display sync on, a 1920x1440 drawable;
+  - the built-in display: 120 Hz at most, refresh interval 8.33-41.67 ms (ProMotion).
+- The workload: the demo replay to the hill slide (rec counter 4650), paced at 59.94 Hz as a player runs it, 7 workers. The step wall time excludes the pacing sleep.
+- Speed = n x 16.68 / sum(max(wall, 16.68)), the skeptic's measure.
+
+**The cause.** em_gfx_begin_frame took the frame's drawable from nextDrawable at the top of every step. A field frame then kept it un-presented until the next step's kick (gsw_complete).
+- So when a step started, one drawable was held by the game and the two presented before it were usually still queued or on screen.
+- nextDrawable then blocked until the display released one.
+
+**The fix** (em_gfx_metal.m):
+- Every frame is now drawn into the offscreen texture, in windowed runs as headless runs always did.
+- present_commit takes the drawable only when the frame is committed (gsw_complete for a field frame, end_frame otherwise). It copies the frame into the drawable with a blit (same BGRA8 format and size, byte for byte), presents it and commits.
+- The game thread no longer holds a drawable while it builds a frame.
+- On macOS the drawable takes the frame's size, and a fully covered or minimized window presents nothing (nothing of it is visible, and the layer may then hold its drawables for up to a second). The frame is still drawn and committed.
+- The field presentation (a) and SCREEN ADJUST are untouched: the field and overlay passes draw exactly as before, into the offscreen target.
+- iOS uses the same code (em_gfx_metal.m). A drawable whose size differs from the frame's (only while the view is resized) is not presented. The changed files compile warning-free for iphoneos; not run on the device.
+
+**Before / after** (rec counter ranges, movie steps excluded; mean ms per tick, ticks over 16.68 ms, speed):
+
+| Scene | Headless, before | Windowed, before | Windowed, after | Headless, after |
+|---|---|---|---|---|
+| Cinematic (1,310 ticks): wall / over / speed | 10.48 / 158 / 98.8 % | 12.14 / 195 / 98.2 % | 10.89 / 208 / 98.3 % | 10.27 / 124 / 99.1 % |
+| Cinematic: blocked on the display, mean (p95, max) | 0 | 2.52 (6.71, 10.28); 761 ticks over 1 ms | 0.04 (0.05, 0.07); none over 1 ms | 0 |
+| Calm (85): wall / over / speed | 10.09 / 0 / 100 % | 11.89 / 8 / 98.8 % | 11.43 / 9 / 99.0 % | 10.45 / 5 / 99.8 % |
+| Calm: blocked on the display | 0 | 1.97 (3.26, 9.43); 74 ticks over 1 ms | 0.04 (0.05, 0.06); none | 0 |
+| Slide (121): wall / over / speed | 13.40 / 36 / 94.5 % (113 ticks) | 17.25 / 43 / 92.3 % | 12.96 / 38 / 96.3 % | 11.37 / 18 / 97.5 % (99 ticks) |
+| Slide: blocked on the display | 0 | 5.47 (7.59, 13.98); 120 of 121 ticks over 1 ms | 0.04 (0.06, 0.06); none | 0 |
+| Slide: waiting for the GS field | 3.90 | 2.27 | 3.41 | 1.91 |
+
+The headless runs lost their last timing lines when the run was stopped, so they have fewer slide ticks. Main-thread CPU was 9.2-9.8 ms per tick and the busiest worker 10.9-12.6 ms in every run.
+
+**Machine load.** The 70 % idle gate held for the two "before" runs (idle 70.4-70.6 %, 1-minute load 7.0-9.1). It was not reached for the two "after" runs (idle 61.8-65.0 %, load 5.2-9.4): fileproviderd at about one core and a repeating xctest at about 0.6 core. Ticks over the period and the speeds move with that load. The display wait is not affected by it.
+
+**Reading.**
+- On this Mac's 120 Hz display, the windowed path cost 2.0-5.5 ms of every tick before the fix. Most of that time the game thread was blocked in nextDrawable, and the slide's ticks were 3.9 ms longer than headless.
+- After the fix the wait is 0.04 ms, and the slide's windowed tick (12.96 ms) is back at the headless level (11.4-13.4 ms).
+- The game thread now reaches the kick sooner and waits there for the GS field instead (slide 2.27 -> 3.41 ms). The GS workers are again the critical path, as headless.
+- It was not the 15 ms per tick IOS.md measured on a 60 Hz panel: at 120 Hz the display releases a drawable every 8.33 ms. On a 60 Hz display the old wait would have been longer; the fix removes the mechanism there too. Not measured: no 60 Hz display was attached.
+- The remaining slow motion in these runs is the GS frame under load (section 2 and the appendix), not the window.
+
+**The presented pixels.** A scratch build (present/verify) read back every presented drawable and its offscreen frame in the same command buffer. In a windowed run to the end of the calm (counter 1780), 1,800 presented frames, 0 differ, 1,608 of them not all black (runs/pres_verify_win). The offscreen frame is the target headless runs and every capture-based test already draw and check.
+
+**The proof set** (EM_TEST_FULL=1, receipts in present/proof/):
+- The GS unit tests give P1's results line for line: the raster reference 931 / 1158 bit-exact with 0 failures; gs_world_test PASS; the DOF pass 8 captures bit-exact; fog 16,384 / 16,384; GS memory PASS; and gs_display_test PASS (the field placement and SCREEN ADJUST).
+- The full level smoke gives the same 404 PASS lines as P1. The AREA01 smoke passes (20 live phases).
+- The fb2 harness passes at 8 of 19 points.
+  - Its port frames are now 1920x1440 where P1's were 960x720. The headless offscreen target follows the window's backing scale on the host's current display, and that changes between sessions.
+  - At that size the presented frame at 15_level_exit has 113,053 exact pixels (P1: 113,002). It is the only figure that moved.
+  - The binary from before the fix, run at 15_level_exit on the same display, gives the identical result (113,053). So the presentation change did not move it.
+- Not runnable, and already failing at HEAD with the same undefined em_gfx_gs_display_release: test-fade and test_main_loop_and_gap_frame_audit_reference.py (the earlier note lists test-frame-input and test_status_hub_visual).
+
+**EM_MUTE=1** (developer variable; em_audio_muted in em_platform.h). The audio device stays open and the game's mixer runs at the device's pull cadence, as when audible, so timing does not change. The backend zeroes what the mixer wrote, as headless runs always did, and the movie player is muted (AVPlayer.muted keeps its audio clock). macOS and iOS.
+
+**Not measured.** AREA01 windowed: the level smoke's route to the fire takes 4-5 minutes, longer than the approved window time. The fix removes the same per-tick wait there. Also not measured: the iPhone, and a 60 Hz display.
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -348,7 +413,7 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **CONFIRMED: the slide's tick time at 3 and 7 workers reproduces; instrumentation overhead is negligible** — Stock build/extermination, demo to counter 4650. 3 workers: slide wall 22.57 ms, busiest 22.07 (synthesis 22.39 / 22.03); cine 20.25 (19.92). Under the same load, ext_instr at 7 workers matches stock at 7: slide 14.40 vs 14.47 / 14.72, busiest 12.22 vs 12.31 / 12.33. Runs: runs/skeptic_stock_t3, skeptic_stock_t7, skeptic_stock_t7c, skeptic_instr_t7. Load 1-min 3.6-10, idle 70-76 % before each run (36 ns per plotted pixel and the scaling table stand)
 - **CORRECTION: the 7-worker AREA11 numbers are best case; on an ordinary desktop the slide misses more ticks, and 6 workers beat 7** — Background at re-run time: mediaanalysisd 61 %, fileproviderd 61-89 %, the Claude app 34-39 %, WindowServer 35-45 %. Slide at 7 workers: wall 14.4-14.7 ms (synthesis 12.0-12.5), p95 17.4-18.0, max 18.6-22.9, 18-24 / 121 over (synthesis 0-8); busiest 12.2-12.3 ms (synthesis 10.8-11.1). At 3 workers nothing changed, so the gap is oversubscription: 7 workers + main + audio + movie threads on 8 performance cores, with about 2 cores of background. 6 workers under the same load: slide 13.82 ms, 5 over; cine 32 over vs 54-69 at 7 (Busiest worker +1.2-1.5 ms; slide ticks over 0-8 -> 18-24 / 121. Measured support for Q5: count only performance cores, and leave headroom)
 - **CORRECTION, MOST IMPORTANT: headless numbers do not explain 'really slow' on the M1 Pro; the late ticks cost 1-9 % of game speed** — em_frame.c frame_pace_ntsc resets the deadline when late, so a late tick loses (wall - 16.68 ms) of game time and nothing more. Speed = n x 16.68 / sum(max(wall, 16.68)); script build/perf_investigation/skeptic/speed.py. 7 workers: slide 98.9-100 %, cine 99.6-99.9 %; AREA01 beat 96.2 %, fire 96.0 %, fire peak 91.1 % (a01_t7). Without the DOF pass: fire 98.3 %. 3 workers: slide 73.9 %, calm 83.2 %, cine 82.4 %, AREA01 fire 56.7 %, fire peak 50.1 % (Mac at the default worker count: 1-9 % slow motion (measured headless). The 3-worker (iPhone) default: 17-50 % slow motion. The Mac complaint needs another cause)
-- **MISSED / MIS-RANKED: the windowed presentation path is the leading candidate for the Mac complaint and should be measured first** — em_gfx_metal.m: each frame start calls [layer nextDrawable] (line 921), which blocks while no drawable is free. A field frame holds its drawable un-presented until the next kick (gsw_complete). With the layer's default drawable count, one is held, one is queued and one is on screen, so nextDrawable can wait up to a refresh. docs/IOS.md measured about 15 ms of every step in that wait on a 60 Hz panel (before its CADisplayLink fix, which is iOS only; macOS has none). Under the reset pacer, a 15 ms wait plus a 12-14 ms tick would run at about 55-60 % speed (Not measured (needs a window, so ask the user first). Possibly the largest effect on the Mac)
+- **MISSED / MIS-RANKED: the windowed presentation path is the leading candidate for the Mac complaint and should be measured first** — em_gfx_metal.m: each frame start calls [layer nextDrawable] (line 921), which blocks while no drawable is free. A field frame holds its drawable un-presented until the next kick (gsw_complete). With the layer's default drawable count, one is held, one is queued and one is on screen, so nextDrawable can wait up to a refresh. docs/IOS.md measured about 15 ms of every step in that wait on a 60 Hz panel (before its CADisplayLink fix, which is iOS only; macOS has none). Under the reset pacer, a 15 ms wait plus a 12-14 ms tick would run at about 55-60 % speed (Not measured (needs a window, so ask the user first). Possibly the largest effect on the Mac. Measured and fixed 2026-10-11, Progress P2: on the 120 Hz built-in display the wait was 2.0-5.5 ms per tick, not 15 ms; the drawable is now taken at commit and the wait is 0.04 ms)
 - **CONTEXT MISSED: this is a recent regression; the CPU GS frame became the Original profile's renderer on 2026-10-08** — Port be2f04d (2026-10-08, 'GSFRAME, the Original profile drawn by the CPU GS model'); aa43764 / 2a233ae (2026-10-10, the DOF pass). IOS.md Frame time (2026-10-04, Metal world): iPhone Air world steps p50 6.99 / p99 9.04 ms, M1 Pro 7.52 / 11.85, with 7.6 ms of headroom on the phone (Explains why it 'used to be fine'. The phone's performance cores match the M1's on the main thread, so the phone's problem is the GS workers)
 - **CORRECTION: the DOF pass covers about 6.3 fields per frame, not 'eight times'** — 720,896 plotted / (512 x 224 = 114,688) = 6.29. Eight is the number of barriers (shrink and stretch steps), not full-screen coverages (Wording only; its measured 35 % of GS CPU stands)
 - **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured)

@@ -1774,6 +1774,17 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   portable one. Cost, measured with one worker: the GS frame 52.1 -> 53.1 ms
   of CPU in the cinematic (+2 %). At 7 workers the change was within the
   machine-load noise.
+- **Windowed presentation (2026-10-11, PERFORMANCE.md "Progress" P2).** All
+  figures above are headless. Windowed on this Mac's 120 Hz built-in
+  display (3 drawables, display sync on), the demo replay paced at 59.94 Hz:
+  - Before the fix, each step was blocked in nextDrawable for 2.52 ms
+    (cinematic), 1.97 (calm) and 5.47 (slide) on average, because the frame
+    took its drawable at the start and a field frame held it for a tick.
+    The slide's tick was 17.25 ms windowed against 13.40 ms headless.
+  - The frame is now drawn offscreen and copied into a drawable taken at
+    commit. The wait is 0.04 ms (max 0.07) and the slide's tick is 12.96 ms.
+  - A windowed check read back every presented drawable: 1,800 of 1,800 are
+    byte-identical to the offscreen frame.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

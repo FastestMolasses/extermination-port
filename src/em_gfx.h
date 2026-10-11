@@ -1064,6 +1064,16 @@ typedef struct {
     uint32_t workers;
 } EmGfxGsCost;
 int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out);
+/* What the frame loop waited for at presentation (a diagnostic for
+ * EM_FRAME_TIMING), totals since the backend was created: the time the game
+ * thread was blocked acquiring a window drawable, the time it waited for the
+ * GS model's field before committing a field frame, and the frames committed.
+ * Headless runs acquire no drawable (display_wait_ns stays 0). 0, or -1. */
+typedef struct {
+    double display_wait_ns, field_wait_ns;
+    uint64_t frames;
+} EmGfxPresentCost;
+int em_gfx_present_cost(EmGfx *gfx, EmGfxPresentCost *out);
 
 /* em_gfx_background_prims with the environment the channel-3 list set before
  * each triangle (EmGfxGsEnv, em_chain_page's call mode: its ZBUF_1 ZMSK 1),

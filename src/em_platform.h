@@ -88,6 +88,18 @@ static inline bool em_headless(void)
     return false;
 }
 
+/* Silent audio output: true in headless runs, and when EM_MUTE=1 (a
+ * developer variable for windowed runs, e.g. timing measurements, with other
+ * audio playing). The audio device stays open and the game's mixer runs at
+ * the device's pull cadence exactly as when audible, so nothing the game
+ * computes or its timing changes; the backend only zeroes what the mixer
+ * wrote before it reaches the speakers. */
+static inline bool em_audio_muted(void)
+{
+    const char *m = getenv("EM_MUTE");
+    return em_headless() || (m && m[0] == '1');
+}
+
 /* Create a window. Returns NULL on failure. */
 EmWindow *em_window_create(const char *title, int width, int height);
 void      em_window_destroy(EmWindow *win);

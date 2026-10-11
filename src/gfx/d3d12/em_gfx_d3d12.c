@@ -110,6 +110,7 @@ int em_gfx_gs_world_kick(EmGfx *gfx, const void *env, size_t env_bytes, const vo
 const char *em_gfx_gs_world_fault(EmGfx *gfx) { (void)gfx; return NULL; }
 int em_gfx_gs_field_read(EmGfx *gfx, uint8_t *rgba, uint64_t *frame) { (void)gfx; (void)rgba; (void)frame; return -1; }
 int em_gfx_gs_world_cost(EmGfx *gfx, EmGfxGsCost *out) { (void)gfx; (void)out; return -1; }
+int em_gfx_present_cost(EmGfx *gfx, EmGfxPresentCost *out) { (void)gfx; (void)out; return -1; }
 int em_gfx_background_prims_env(EmGfx *gfx, const EmGfxGsPrim *prims, const EmGfxGsEnv *envs, uint32_t count)
 { (void)gfx; (void)prims; (void)envs; (void)count; return -1; }
 void em_gfx_field_presentation(EmGfx *gfx, EmGfxFieldPresentation mode) { (void)gfx; (void)mode; }

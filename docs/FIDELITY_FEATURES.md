@@ -1244,6 +1244,11 @@ neighbour, no smoothing, no CRT simulation (the user's decisions of
   194..216 on both parities). The demo video's re-run (decomp
   VIDEO_COMPARE.md) shows the overlay share at 64 of 224 rows on both
   parities and the cutscene differences back at their earlier values.
+  A window shows exactly the frame these headless captures check
+  (2026-10-11, PERFORMANCE.md "Progress" P2). Both draw the frame into the
+  same offscreen target, and a window copies it into its drawable at
+  commit. A windowed run that read back every presented drawable found
+  1,800 of 1,800 byte-identical to the frame.
 - Status: **PARTIAL**. Horizontal edges still flicker by one line each
   field (each field has only every other line's detail; measured in the
   presentation preview), as with any field-by-field display without CRT
@@ -1545,7 +1550,11 @@ timer counts fields as on the PS2.
   output is not built yet (the port renders at the host resolution with
   Metal filtering). Pacing is a host timer, not display vsync; its period is
   about 17 ns longer than exact 60/1.001 Hz (about one field of drift every
-  4-5 hours). Not measured by any test (tests run uncapped).
+  4-5 hours). Not measured by any test (tests run uncapped). In a window the
+  tick no longer waits for the display (2026-10-11, PERFORMANCE.md
+  "Progress" P2). The drawable is taken when the frame is committed, not
+  when it starts. On the M1 Pro's 120 Hz display the wait went from 2.0-5.5
+  ms per tick to 0.04 ms. Measured on that display only.
 
 ### World and gameplay
 

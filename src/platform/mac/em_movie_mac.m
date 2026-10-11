@@ -59,8 +59,10 @@ EmMovie *em_movie_open(const char *path)
         [movie->item addOutput:movie->output];
         movie->player = [[AVPlayer alloc] initWithPlayerItem:movie->item];
         movie->player.actionAtItemEnd = AVPlayerActionAtItemEndPause;
-        /* Headless runs (tests, captures) play the movie silently. */
-        movie->player.muted = em_headless();
+        /* Headless runs (tests, captures) and EM_MUTE=1 play the movie
+         * silently; a muted player keeps its audio clock, which paces the
+         * video. */
+        movie->player.muted = em_audio_muted();
         /* Do not start until update has installed the video endpoint. */
     }
     return movie;

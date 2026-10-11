@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 
 #define EM_GFX_GS_SURFACE_MAX 8u
 
@@ -63,10 +64,12 @@ struct EmGfx {
     id<MTLTexture>               depthTex;     /* sized to the drawable */
     /* per-frame */
     NSAutoreleasePool           *pool;
-    id<CAMetalDrawable>          drawable;
-    /* Render target of the frame: the drawable's texture, or in headless
-     * runs (em_headless) an offscreen texture of the same size, so tests
-     * and captures never need a visible window. */
+    /* Render target of the frame: an offscreen texture of the drawable's
+     * size, in windowed and headless runs alike (tests and captures never
+     * need a visible window). A windowed run takes a drawable only when the
+     * frame is committed, copies the frame into it unchanged and presents
+     * it (present_commit), so the game thread never holds a drawable while
+     * it builds a frame. */
     id<MTLTexture>               target;
     id<MTLTexture>               offscreen;
     bool                         headless;
@@ -231,7 +234,7 @@ struct EmGfx {
     int                          gswSlot, gswSlotNext;
     bool                         gswPending;
     id<MTLCommandBuffer>         gswPendCmd;
-    id<CAMetalDrawable>          gswPendDrawable;
+    id<MTLTexture>               gswPendTarget;   /* the pending frame's picture */
     int                          gswPendSlot;
     id<MTLBuffer>                gswPendShot;
     NSUInteger                   gswPendShotW, gswPendShotH, gswPendShotStride;
@@ -252,7 +255,104 @@ struct EmGfx {
     id<MTLBuffer>                gswSlotK[3];
     uint64_t                     gswSlotXy[3];
     double                       gswSlotOverlay[3][4];
+    /* em_gfx_present_cost: the totals of the game thread's time blocked
+     * acquiring a drawable and waiting for the GS field, the frames
+     * committed, and whether the window's presentation settings were
+     * reported (EM_FRAME_TIMING). */
+    double                       presentDisplayNs, presentFieldNs;
+    uint64_t                     presentFrames;
+    bool                         presentReported;
 };
+
+static double present_now_ns(void)
+{
+    struct timespec t;
+    clock_gettime(CLOCK_MONOTONIC, &t);
+    return (double)t.tv_sec * 1e9 + (double)t.tv_nsec;
+}
+
+/* EM_FRAME_TIMING, a windowed run: the window's presentation settings, once
+ * (the drawable count, display sync and the display's refresh range). */
+static void present_report(EmGfx *g)
+{
+    if (g->presentReported) return;
+    g->presentReported = true;
+    const char *t = getenv("EM_FRAME_TIMING");
+    if (!t || !t[0]) return;
+    const CGSize ds = g->layer.drawableSize;
+#if TARGET_OS_IPHONE
+    fprintf(stderr, "present: drawables %lu, drawable %.0fx%.0f\n", (unsigned long)g->layer.maximumDrawableCount,
+            ds.width, ds.height);
+#else
+    NSScreen *screen = g->view.window.screen;
+    long fps = 0;
+    double lo = 0.0, hi = 0.0;
+    if (@available(macOS 12.0, *)) {
+        fps = (long)screen.maximumFramesPerSecond;
+        lo = screen.minimumRefreshInterval;
+        hi = screen.maximumRefreshInterval;
+    }
+    fprintf(stderr,
+            "present: drawables %lu, display sync %d, drawable %.0fx%.0f, display max %ld fps (refresh interval %.2f-%.2f ms)\n",
+            (unsigned long)g->layer.maximumDrawableCount, (int)g->layer.displaySyncEnabled, ds.width, ds.height, fps,
+            lo * 1e3, hi * 1e3);
+#endif
+}
+
+/* Whether a window shows the frame: macOS skips the drawable while the
+ * window is fully covered or minimized (nothing of it is on screen, and the
+ * layer may then hold its drawables for up to a second). iOS parks the game
+ * thread whenever the app is not active (em_window_poll). */
+static bool present_visible(EmGfx *g)
+{
+#if TARGET_OS_IPHONE
+    (void)g;
+    return true;
+#else
+    return (g->view.window.occlusionState & NSWindowOcclusionStateVisible) != 0;
+#endif
+}
+
+/* Commit a frame: a windowed run first takes a drawable and copies the
+ * frame's picture (`frame`, the offscreen target it was drawn into) into it
+ * byte for byte (the same BGRA8 format and size), then presents it with the
+ * frame's command buffer. Taking the drawable here, when the frame is
+ * complete, and not when it starts, means the game thread never holds a
+ * drawable for a tick: with the layer's three drawables one is free unless
+ * the display has not yet shown the two frames presented before. */
+static void present_commit(EmGfx *g, id<MTLCommandBuffer> cmd, id<MTLTexture> frame)
+{
+    if (!g->headless && frame && present_visible(g)) {
+#if !TARGET_OS_IPHONE
+        /* macOS: the drawable takes the frame's size (the view's backing
+         * size at the frame's start); iOS's main thread sizes the layer. */
+        const CGSize want = CGSizeMake((CGFloat)frame.width, (CGFloat)frame.height);
+        if (!CGSizeEqualToSize(g->layer.drawableSize, want)) g->layer.drawableSize = want;
+#endif
+        const double t0 = present_now_ns();
+        id<CAMetalDrawable> d = [g->layer nextDrawable];
+        g->presentDisplayNs += present_now_ns() - t0;
+        present_report(g);
+        /* A drawable of another size (iOS, while the view is resized) is
+         * not presented: the next frame is laid out for the new size. */
+        if (d && d.texture.width == frame.width && d.texture.height == frame.height) {
+            id<MTLBlitCommandEncoder> blit = [cmd blitCommandEncoder];
+            [blit copyFromTexture:frame
+                      sourceSlice:0
+                      sourceLevel:0
+                     sourceOrigin:MTLOriginMake(0, 0, 0)
+                       sourceSize:MTLSizeMake(frame.width, frame.height, 1)
+                        toTexture:d.texture
+                 destinationSlice:0
+                 destinationLevel:0
+                destinationOrigin:MTLOriginMake(0, 0, 0)];
+            [blit endEncoding];
+            [cmd presentDrawable:d];
+        }
+    }
+    [cmd commit];
+    g->presentFrames++;
+}
 
 struct EmGfxMesh {
     id<MTLBuffer>  vbuf;
@@ -803,7 +903,7 @@ EmGfx *em_gfx_create(EmWindow *win)
      * chain writes it; em_gfx_shadow_*); the PS2 display never shows it,
      * so neither may the window. */
     layer.opaque          = YES;
-    /* NO so the drawable can be blit-read by the capture path. */
+    /* NO: the frame is copied into the drawable by a blit (present_commit). */
     layer.framebufferOnly = NO;
 #endif
     g->headless = em_headless();
@@ -903,24 +1003,21 @@ void em_gfx_begin_frame(EmGfx *g, float r, float gr, float b, float a)
     if (scale <= 0) scale = 1.0;
     NSUInteger pw = (NSUInteger)(sz.width * scale), ph = (NSUInteger)(sz.height * scale);
 #endif
-    if (g->headless) {
-        if (!g->offscreen || g->offscreen.width != pw || g->offscreen.height != ph) {
-            [g->offscreen release];
-            MTLTextureDescriptor *td = [MTLTextureDescriptor
-                texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
-                                             width:pw height:ph mipmapped:NO];
-            td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
-            td.storageMode = MTLStorageModePrivate;
-            g->offscreen = [g->device newTextureWithDescriptor:td];
-        }
-        g->target = g->offscreen;
-    } else {
-#if !TARGET_OS_IPHONE
-        g->layer.drawableSize = CGSizeMake(sz.width * scale, sz.height * scale);
-#endif
-        g->drawable = [[g->layer nextDrawable] retain];
-        g->target = g->drawable ? g->drawable.texture : nil;
+    /* The frame is drawn offscreen (the layer's format and the drawable's
+     * size); a windowed run copies it into a drawable when it is committed
+     * (present_commit). The command buffer that last drew it may still be
+     * pending: the queue runs command buffers in commit order, so this
+     * frame's draws come after that frame's copy into its drawable. */
+    if (!g->offscreen || g->offscreen.width != pw || g->offscreen.height != ph) {
+        [g->offscreen release];
+        MTLTextureDescriptor *td = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+                                         width:pw height:ph mipmapped:NO];
+        td.usage = MTLTextureUsageRenderTarget | MTLTextureUsageShaderRead;
+        td.storageMode = MTLStorageModePrivate;
+        g->offscreen = [g->device newTextureWithDescriptor:td];
     }
+    g->target = g->offscreen;
     if (!g->target) { return; }
     g->cmd = [[g->queue commandBuffer] retain];
 
@@ -4061,6 +4158,15 @@ int em_gfx_gs_field_read(EmGfx *g, uint8_t *rgba, uint64_t *frame)
     return 0;
 }
 
+int em_gfx_present_cost(EmGfx *g, EmGfxPresentCost *out)
+{
+    if (!g || !out) return -1;
+    out->display_wait_ns = g->presentDisplayNs;
+    out->field_wait_ns = g->presentFieldNs;
+    out->frames = g->presentFrames;
+    return 0;
+}
+
 int em_gfx_gs_world_cost(EmGfx *g, EmGfxGsCost *out)
 {
     if (!g || !g->gsw || !out) return -1;
@@ -4431,7 +4537,9 @@ static void gsw_complete(EmGfx *g)
     if (!g || !g->gswPending) return;
     g->gswPending = false;
     @autoreleasepool {
+    const double t0 = present_now_ns();
     const int ok = em_gs_world_wait(g->gsw) == 0;
+    g->presentFieldNs += present_now_ns() - t0;
     if (!ok) (void)gsw_check(g);
     uint32_t w = 0, h = 0;
     const uint8_t *f = ok ? em_gs_world_field(g->gsw, &w, &h, NULL) : NULL;
@@ -4445,8 +4553,7 @@ static void gsw_complete(EmGfx *g)
             gsw_fail(g, "the drawn field's draw offset is not the one it was presented with");
     } else if (ok)
         gsw_fail(g, "the drawn field is not a 512-wide field of at most 224 rows");
-    if (g->gswPendDrawable) [g->gswPendCmd presentDrawable:g->gswPendDrawable];
-    [g->gswPendCmd commit];
+    present_commit(g, g->gswPendCmd, g->gswPendTarget);
     [g->gswSlotCmd[g->gswPendSlot] release];
     g->gswSlotCmd[g->gswPendSlot] = [g->gswPendCmd retain];
     if (g->gswPendShot) {
@@ -4459,8 +4566,8 @@ static void gsw_complete(EmGfx *g)
     }
     [g->gswPendCmd release];
     g->gswPendCmd = nil;
-    [g->gswPendDrawable release];
-    g->gswPendDrawable = nil;
+    [g->gswPendTarget release];
+    g->gswPendTarget = nil;
     }
 }
 
@@ -4685,7 +4792,7 @@ void em_gfx_end_frame(EmGfx *g)
          * B, A as GS memory holds them), for tools/test_fb2_pixels.py. */
         g->gswPending = true;
         g->gswPendCmd = [g->cmd retain];
-        g->gswPendDrawable = [g->drawable retain];
+        g->gswPendTarget = [g->target retain];
         g->gswPendSlot = g->gswSlot;
         if (shot) {
             g->gswPendShot = [shot retain];
@@ -4697,8 +4804,7 @@ void em_gfx_end_frame(EmGfx *g)
         }
     } else if (g->target && g->cmd) {
         gsw_complete(g);   /* a field frame before this one is shown first */
-        if (g->drawable) [g->cmd presentDrawable:g->drawable];
-        [g->cmd commit];
+        present_commit(g, g->cmd, g->target);
         if (shot) {
             [g->cmd waitUntilCompleted];
             write_bmp(g->capturePath, (const uint8_t *)shot.contents,
@@ -4709,7 +4815,6 @@ void em_gfx_end_frame(EmGfx *g)
     }
     [shot release];
     [g->cmd release];      g->cmd = nil;
-    [g->drawable release]; g->drawable = nil;
     g->target = nil;
     [g->pool release];     g->pool = nil;
 }
