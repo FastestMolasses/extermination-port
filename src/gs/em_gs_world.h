@@ -197,9 +197,12 @@ static inline int em_gs_vif_direct(const uint8_t *p, size_t bytes, size_t word, 
 }
 
 
-/* The number of workers drawing a frame (row bands, EmGs.band_*): EM_GS_THREADS
- * or the host's processors less three (at least one), at most 8. Every count draws the same
- * bytes (tools/test_gs_raster_reference.py part F). */
+/* The number of workers drawing a frame (row bands, EmGs.band_*): EM_GS_THREADS,
+ * else a host default (em_gs_world.c worker_count: on Apple hosts the
+ * performance cores less two, or every core less two where that leaves fewer
+ * than 4; elsewhere the online processors less three), at least one and at
+ * most 8. Every count draws the same bytes (tools/test_gs_raster_reference.py
+ * part F, tests/gs_world_test.c). */
 uint32_t em_gs_world_workers(const EmGsWorld *w);
 
 /* Test hooks (tools/test_gs_memory_reference.py): the local memory after

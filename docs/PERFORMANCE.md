@@ -38,7 +38,7 @@ Two things add to what the user sees:
 - **Machine load.** On a busy Mac (load 10-16), GS_EXACT.md 10.2 recorded 78-740 of 1,300 ticks over the period, against 0-23 on a quiet machine. fileproviderd uses about one core all the time on this Mac.
 - **Windowed presentation.** Measured and fixed on 2026-10-11 (Progress P2): each frame used to block 2-5.5 ms on the window's drawable on this Mac's 120 Hz display; it now waits 0.04 ms.
 
-On the iPhone Air the port gets only 3 drawing threads, and every tick is over (section 5).
+On the iPhone Air the port got only 3 drawing threads, and every tick measured that way is over (section 5). Since Progress P3 it gets 4, chosen from the core types; not yet measured on the device.
 
 ## 2. Where the time goes, scene by scene
 
@@ -175,6 +175,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* fewer efficiency-core stragglers on the Mac; mainly the iPhone. Not yet sized.
 - *Effort:* hours. *Risk:* none for exactness.
 - *Proof:* gs_world_test.c.
+- *Done 2026-10-11 (Progress P3):* 6 workers on this Mac, USER_INTERACTIVE QoS; the band partition is left to M4.
 
 **Q6. Build flags, last.**
 - *Change:* try -O3, -mcpu and LTO.
@@ -237,8 +238,8 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 
 ## 5. iPhone Air (A19 Pro)
 
-- **Cores.** 2 performance + 4 efficiency, so worker_count = 6 - 3 = 3.
-- **QoS.** Only the game thread is USER_INTERACTIVE (em_platform_ios.m). The workers have default QoS, may land on efficiency cores, and share the 2 performance cores with the game thread.
+- **Cores.** 2 performance + 4 efficiency, so worker_count was 6 - 3 = 3. Since Progress P3 it is 4: the performance cores less two leave none, so every core less two.
+- **QoS.** Before P3 only the game thread was USER_INTERACTIVE (em_platform_ios.m). The workers had default QoS, could land on efficiency cores, and shared the 2 performance cores with the game thread. Since P3 the workers are USER_INTERACTIVE too. With 4 workers on 6 cores, most of them still run on efficiency cores, and the equal bands then wait for those (P3, "The band partition").
 - **Measured upper bound** (3 workers on M1 P-cores), every tick over:
 
   | Scene | Wall per tick | Game speed |
@@ -255,7 +256,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 
 **What to do:**
 1. **User decision:** default to, or offer prominently, EM_GPU_RENDERER=1 on the phone until the exact path fits. It is not exact, so it is a profile-policy decision for LAUNCHER_OPTIONS.md. Nothing has been changed.
-2. **Q5:** worker QoS and a perflevel-based count; measure 2-5 workers on the device.
+2. **Q5:** worker QoS and a perflevel-based count. Done (P3: 4 workers by default); still to measure 2-5 workers on the device.
 3. **M4** dynamic bands, so E-cores do not set the frame time.
 4. **Q2** frees P-core time.
 5. **M1, M3, M2 and L1** are the only route to an exact Original profile at full speed on the phone. Estimate: GS CPU must drop 2-3x for AREA11 and 3-4x for the fire.
@@ -286,7 +287,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -399,6 +400,89 @@ The headless runs lost their last timing lines when the run was stopped, so they
 **EM_MUTE=1** (developer variable; em_audio_muted in em_platform.h). The audio device stays open and the game's mixer runs at the device's pull cadence, as when audible, so timing does not change. The backend zeroes what the mixer wrote, as headless runs always did, and the movie player is muted (AVPlayer.muted keeps its audio clock). macOS and iOS.
 
 **Not measured.** AREA01 windowed: the level smoke's route to the fire takes 4-5 minutes, longer than the approved window time. The fix removes the same per-tick wait there. Also not measured: the iPhone, and a 60 Hz display.
+
+### P3. GS worker count and QoS (Q5) (2026-10-11)
+
+**The change** (src/gs/em_gs_world.c, worker_count and the worker threads):
+- EM_GS_THREADS still overrides (1..16).
+- Otherwise, on Apple hosts, the count comes from the core types: hw.perflevel0.logicalcpu (performance) and hw.perflevel1.logicalcpu (efficiency). Two cores are left as headroom: one for the game's thread, one for the audio, movie and window threads.
+  - If the performance cores less two still give 4 workers, the workers stay on performance cores. This Mac (8 + 2): 6 workers, where it had 7.
+  - Otherwise every core less two draws. iPhone Air (2 + 4): 4 workers, where it had 3. An M1 with 4 + 4 cores: 6.
+  - At most 8, as before.
+- Hosts that report no core types (Intel Macs, Linux) keep the old count, the online processors less three. Windows has no worker threads yet.
+- The workers get USER_INTERACTIVE QoS on Apple hosts. That is the class of the macOS main thread, which runs the game there, and of the iOS game thread. Before, they had the default class, one step below the game's thread.
+- The bytes cannot change: the count and the QoS only decide where the same bands are drawn. gs_world_test.c now also runs the host default (6 here) next to 1, 2, 3 and 8 workers, and all must equal 1.
+
+**Headless.** The demo replay to rec counter 4650 (demo.sh, uncapped). Five configurations, interleaved over five rounds (runs/q5_*; qos/batch.sh, qos/batch2.sh; table qos/table.txt).
+- Before = HEAD's binary at its default (7 workers, default QoS). After = this step's binary at its default (6 workers, USER_INTERACTIVE). Also this step's binary at 7 and 8, and HEAD's binary at 6, to separate the count from the QoS.
+- Each cell: the median over the runs of the per-run means, with the range. Tick wall ms / ticks over 16.68 ms / speed / busiest worker's CPU ms.
+
+| Configuration (runs) | Cinematic (1,310 ticks) | Calm (85) | Slide (121) |
+|---|---|---|---|
+| Before: HEAD, 7, default QoS (3 clean of 5) | 14.86 (13.72-17.44) / 212 (120-727) / 94.8 % / 11.17 | 13.73 / 4 / 99.8 % / 11.01 | 17.20 (15.98-17.32) / 44 (41-64) / 93.1 % / 12.28 |
+| HEAD, 6, default QoS (2) | 14.13 / 195 / 98.2 % / 11.98 | 14.75 / 10 / 97.7 % / 12.14 | 15.67 / 41 / 96.0 % / 13.04 |
+| Q5, 8, USER_INTERACTIVE (2) | 14.11 / 116 / 99.5 % / 10.39 | 14.38 / 9 / 99.3 % / 10.43 | 17.45 / 60 / 90.1 % / 11.48 |
+| Q5, 7, USER_INTERACTIVE (5) | 13.59 (12.95-16.10) / 100 (57-444) / 99.2 % / 10.56 | 13.17 / 2 / 99.8 % / 10.69 | 16.87 (14.10-18.33) / 61 (16-79) / 93.2 % / 12.11 |
+| **After: Q5 default, 6, USER_INTERACTIVE (4 clean of 5)** | **13.46 (12.46-13.99) / 79 (22-175) / 99.3 % / 11.62** | **12.88 / 0.5 / 99.9 % / 11.59** | **14.00 (13.76-17.36) / 18 (8-73) / 98.5 % / 12.66** |
+
+- **Not running when it should.** The GS frame's wall time minus its busiest worker's CPU time is time the frame's critical worker was not running: preempted, or waiting at a barrier for another worker (qos/lost.py, lost.txt). Median per run, cinematic / slide:
+  - after (6, USER_INTERACTIVE): 0.65-1.90 / 0.64-3.78 ms;
+  - 7, USER_INTERACTIVE: 2.22-4.67 / 2.24-5.47 ms;
+  - 8: 3.42-3.63 / 3.72-6.44 ms;
+  - before (HEAD, 7): 2.65-4.77 / 2.17-5.06 ms, and 9.9 and 23.8 ms in the cinematic during the two load spikes.
+- **Paired by round,** the new default beat both 7-worker configurations in the cinematic and the slide in every round but two: the one it ran at 6 % idle, and the slide of round e (17.36 against 16.87 for Q5 at 7).
+
+**Windowed** (the user's approval for a visible window; muted with EM_MUTE=1; about 80 s each; closed after each run). present/run.sh, paced at 59.94 Hz to counter 4650 on the built-in 120 Hz display (runs/q5w_*).
+
+| Run (order) | Cinematic: wall / over / speed | Calm | Slide | Display wait |
+|---|---|---|---|---|
+| Before, run 1 (first; started in the tail of a load spike, 1-minute load 181) | 17.18 / 588 / 80.3 % | 11.81 / 14 / 98.8 % | 27.16 / 121 / 61.4 % | 0.04 ms |
+| After, run 1 | 8.86 / 0 / 100 % | 9.28 / 0 / 100 % | 9.21 / 0 / 100 % | 0.04 ms |
+| After, run 2 (first) | 8.82 / 0 / 100 % | 9.37 / 0 / 100 % | 9.48 / 0 / 100 % (112 ticks) | 0.04 ms |
+| Before, run 2 | 9.73 / 46 / 99.4 % | 10.52 / 8 / 99.8 % | 9.62 / 0 / 100 % | 0.02-0.04 ms |
+
+- Paced, the tick's wall time is the game thread's work, because the frame drawn by the workers overlaps the next tick.
+- With the new default, no tick of either run went over. Before, 46 and 8 ticks went over on the quieter run, and the run started in the load spike lost 20-39 % of game speed.
+- The game thread also waited less for the GS field before its kick: the field wait fell from 0.40 / 0.70 ms to 0.01 / 0.08 ms. Its CPU per tick fell from 9.29-9.81 ms to 8.78-9.23 ms.
+
+**AREA01** (a01.sh, one pair; the fire is GS-bound and the beat is main-thread-bound; runs/q5_a01_*). Before / after: busiest worker 16.82 / 16.69 ms in the fire.
+
+| Range | Before: wall / over / speed | After |
+|---|---|---|
+| Beat (781 ticks) | 21.78 / 668 / 75.9 % | 18.41 / 536 / 87.8 % |
+| Fire (376) | 23.74 / 373 / 70.3 % | 19.36 / 313 / 85.5 % |
+| Fire peak (149) | 26.06 / 149 / 64.0 % | 21.26 / 149 / 78.5 % |
+
+The main thread used 15.05 / 14.42 ms of CPU per tick in the beat. Both runs are slower than P1's AREA01 runs (fire 94.4 %), because the machine was busier, so only the pair is comparable.
+
+**Machine load.** The quiet gate (70 % idle) was not reached for every run. Another job's Swift test runner kept starting, and the 1-minute load jumped to about 250 at 9:20 and again at 9:50. Every run's idle and load are in its load.txt; the table above marks what was left out:
+- after, round c (6 % idle before the run);
+- before, rounds a and e (the two spikes: cinematic 27.2 and 56.8 ms per tick).
+
+All other runs started at 26-73 % idle and a 1-minute load of 9-20. Because of this load, compare the interleaved runs with each other, not with section 2.
+
+**Reading.**
+- The new default draws the frame faster on this Mac, although each worker draws more (busiest worker 11.6 ms at 6 against 10.6 at 7). With 7 workers, the game's thread and the audio, movie and window threads need more than the 8 performance cores, and the background load (fileproviderd at about one core, WindowServer, mediaanalysisd) takes more. A preempted worker holds up the frame and each of the 8 depth-of-field barriers. Six workers leave room for them.
+- The QoS alone, at 6 workers: the cinematic's tick 14.13 -> 13.46 ms, the slide's 15.67 -> 14.00 ms (2 and 4 runs; the same direction in each).
+- 8 workers is the worst setting, as section 3 found.
+- The busiest worker's CPU is unchanged by the QoS at equal count. QoS changes where and when the workers run, not their work.
+- The iPhone is not measured. 4 workers is a reasoned default, not a measured one: EM_GS_THREADS overrides it for the device sweep (section 7, item 2).
+
+**The band partition (the skeptic's point).** Not changed in this step, left to M4.
+- **On this Mac:** the new default keeps every worker on a performance core: 6 workers plus the game thread on 8 performance cores. The measured lost time above is now 0.6-1.9 ms in the cinematic.
+- **On the iPhone:** the 4 workers run mostly on efficiency cores, and equal bands make the frame wait for the slowest one. There, the partition still matters.
+- **Why no cheap exact fix.** Every worker replays every register write of the frame, because a band's state must equal one EmGs's. So a band cannot simply be handed to whichever worker is free:
+  - With more bands than workers, each band would need its own replay of the stream. That is about 2 ms of CPU per band and frame (section 3, item 4).
+  - At each of the 8 depth-of-field barriers every band must be done, so bands cannot be pulled across a barrier without one EmGs per band.
+  - A weighted static partition (more rows for performance-core workers) needs to know which worker runs on which core type. macOS and iOS do not expose that, and thread affinity is not available.
+- **M4 is the right place.** Once the stream is decoded once and binned by band, a free worker can pull a band cheaply and still draw it in primitive order.
+
+**The proof set** (EM_TEST_FULL=1, the after build; receipts in build/perf_investigation/qos/proof/):
+- The GS unit tests give P2's results line for line: the raster reference 931 / 1158 bit-exact with 0 failures; the DOF pass 8 captures bit-exact; fog 16,384 / 16,384; GS memory PASS; gs_display_test PASS.
+- gs_world_test passes with the new host-default run: 1, 2, 3, 8 and the default (6) workers draw the same fields and memory.
+- The fb2 harness passes at 8 of 19 points, with every exact-pixel count equal to P2's.
+- The full level smoke gives the same 404 PASS lines as P1 and P2, with no failures.
+- The AREA01 smoke passes (20 live phases).
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

@@ -3,7 +3,8 @@
  *
  * Designed primitives only (nothing disc-derived): a GS memory image with
  * one uploaded texture, then two recorded frames and a list frame, each
- * run with 1, 2, 3 and 8 workers (EM_GS_THREADS). The frames exercise what
+ * run with 1, 2, 3 and 8 workers (EM_GS_THREADS) and the host default
+ * (EM_GS_THREADS unset). The frames exercise what
  * the world frame does: textured, fogged, Z-tested triangles over resident
  * texels; a 128x128 target drawn and then sampled (a barrier: every band of
  * the target is drawn before any band reads it), drawn into again (a
@@ -277,14 +278,26 @@ typedef struct {
     uint8_t buf[5][512 * 224 * 4];    /* fields A and B, the Z buffer (read as CT32), the target, the copy */
 } Result;
 
+static unsigned g_host_workers;          /* the host default's count (run(0)) */
+
+/* workers 0: EM_GS_THREADS unset, the host default (em_gs_world.c
+ * worker_count: the core-type count and the workers' QoS) */
 static void run(unsigned workers, Result *out)
 {
     char n[8];
     snprintf(n, sizeof n, "%u", workers);
-    setenv("EM_GS_THREADS", n, 1);
+    if (workers)
+        setenv("EM_GS_THREADS", n, 1);
+    else
+        unsetenv("EM_GS_THREADS");
     EmGsWorld *w = em_gs_world_create();
     CHECK(w);
-    CHECK(em_gs_world_workers(w) == workers);
+    if (workers)
+        CHECK(em_gs_world_workers(w) == workers);
+    else {
+        g_host_workers = em_gs_world_workers(w);
+        CHECK(g_host_workers >= 1 && g_host_workers <= 8);
+    }
     CHECK(em_gs_world_memory_load(w, image_path) == 0);
     uint8_t env[512], clr[512];
     size_t env_n, clr_n;
@@ -428,13 +441,15 @@ int main(void)
 {
     (void)system("mkdir -p build/gs_world_test");
     write_image();
-    static Result r[5];
+    static Result r[6];
     const unsigned counts[4] = { 1, 2, 3, 8 };
     for (unsigned i = 0; i < 4; ++i) run(counts[i], &r[i]);
     g_with_pass = 0;                       /* the same frames without the pass */
     run(1, &r[4]);
     g_with_pass = 1;
-    for (unsigned i = 1; i < 4; ++i) {
+    run(0, &r[5]);                         /* the host default */
+    for (unsigned i = 1; i < 6; ++i) {
+        if (i == 4) continue;
         for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(r[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
         for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(r[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
     }
@@ -474,9 +489,10 @@ int main(void)
     }
     refusals();
     field_refusals();
-    printf("gs_world_test: PASS (1, 2, 3 and 8 workers: the same fields and memory over two world frames "
+    printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
+           "over two world frames "
            "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
            "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
-           "1 state-block TEX0 accepted; 3 field-declaration refusals)\n", blended[0], blended[1]);
+           "1 state-block TEX0 accepted; 3 field-declaration refusals)\n", g_host_workers, blended[0], blended[1]);
     return 0;
 }

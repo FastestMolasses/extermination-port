@@ -1164,8 +1164,12 @@ between barriers: marking it again changes nothing, so a list whose every
 primitive carries FRAME_1 and SCISSOR_1, the load veil's, costs one mark): every worker reaches it before any goes on;
 it must fall where the span has already ended (a worker with queued
 primitives there faults, so a barrier never moves a span boundary). The
-worker count is EM_GS_THREADS, else the host's processors less three, at
-most 8: a host property, the bytes are the same for any count. A texture's
+worker count is EM_GS_THREADS, else a host default: on Apple hosts the
+performance cores less two (6 on an M1 Pro), or every core less two where
+that leaves fewer than 4 (4 on the iPhone Air); elsewhere the processors
+less three; at most 8 (since 2026-10-11, PERFORMANCE.md "Progress" P3; the
+workers run at USER_INTERACTIVE QoS on Apple hosts). It is a host property:
+the bytes are the same for any count. A texture's
 reads are ordered by the drawn blocks it covers whatever their residency
 (since 2026-10-10: `texture_entry` lists every drawn block, and a buffer
 drawn over uploaded blocks for the first time makes the texture checks
@@ -1785,6 +1789,18 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
     commit. The wait is 0.04 ms (max 0.07) and the slide's tick is 12.96 ms.
   - A windowed check read back every presented drawable: 1,800 of 1,800 are
     byte-identical to the offscreen frame.
+- **Worker count and QoS (2026-10-11, PERFORMANCE.md "Progress" P3).** The
+  default count on this M1 Pro fell from 7 to 6 (the performance cores less
+  two), and the workers now run at USER_INTERACTIVE QoS. On a busy desktop
+  (the quiet gate not always reached), headless and interleaved, the
+  cinematic's tick improved from 14.86 to 13.46 ms (medians). Ticks over
+  the period fell from 212 to 79 of 1,310, and in the slide from 44 to 18
+  of 121. The frame's wall time beyond its busiest worker's CPU fell from
+  2.7-4.8 ms to 0.7-1.9 ms in the cinematic. Windowed and paced, no tick of
+  the new default's two runs went over the period (before: 46 and 8 in
+  the cinematic and the calm on the quieter run). 8 workers is the worst
+  setting measured. The bytes are unchanged (`make test-gs-world` runs the
+  host default too).
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

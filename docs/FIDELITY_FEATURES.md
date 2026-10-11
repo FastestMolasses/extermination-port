@@ -1155,7 +1155,10 @@ only shows that field.
   the period (without the pass 1 and 2), at load 16 120; a quiet-machine
   run is still not made (the machine was busy). AREA01 (level 2) draws through
   the same model since the merge, but 65 of its 840 measured ticks run over
-  the period (its main thread alone takes 13.6 ms). The model is PCSX2's
+  the period (its main thread alone takes 13.6 ms). Since 2026-10-11 the
+  default worker count follows the core types (6 on this M1 Pro, 4 on the
+  iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
+  for any count (PERFORMANCE.md "Progress" P3). The model is PCSX2's
   software renderer's behaviour as measured, not real hardware's.
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**

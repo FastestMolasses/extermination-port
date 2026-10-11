@@ -14,6 +14,10 @@
 #else
 #define GSW_THREADS 0
 #endif
+#if defined(__APPLE__)
+#include <pthread/qos.h>
+#include <sys/sysctl.h>
+#endif
 
 #define BLOCKS (EM_GS_MEM_BYTES / 256u)
 #define HEAD_MAX 0x800u
@@ -243,10 +247,29 @@ static void *worker_main(void *arg)
 }
 #endif
 
-/* The worker count: EM_GS_THREADS (1..16), else the online processors less
- * three (the game's main thread and the audio and movie threads keep a
- * core), at most 8. A host property: every count draws the same bytes. 1
- * runs the frame on the caller's thread at the kick (no worker threads). */
+/* The worker count: EM_GS_THREADS (1..16), else a host default that leaves
+ * two cores of headroom (the game's thread, and the audio, movie and window
+ * threads), at most 8. A host property: every count draws the same bytes. 1
+ * runs the frame on the caller's thread at the kick (no worker threads).
+ *
+ * Apple hosts report their core types (hw.perflevel0 = performance cores,
+ * hw.perflevel1 = efficiency cores). The bands are equal, so a frame waits
+ * for its slowest worker: where the performance cores less the headroom
+ * still give 4 workers (M1 Pro: 8 - 2 = 6), the workers stay off the
+ * efficiency cores; with fewer performance cores (iPhone Air: 2 + 4) every
+ * core less the headroom draws (4). Other hosts give no core types: the
+ * online processors less three, as before (docs/PERFORMANCE.md Q5). */
+#define WORKER_HEADROOM 2
+
+#if defined(__APPLE__)
+static long sysctl_cores(const char *name)
+{
+    int v = 0;
+    size_t n = sizeof v;
+    return sysctlbyname(name, &v, &n, NULL, 0) == 0 && n == sizeof v && v > 0 ? v : 0;
+}
+#endif
+
 static uint32_t worker_count(void)
 {
 #if GSW_THREADS
@@ -255,9 +278,18 @@ static uint32_t worker_count(void)
         const long n = strtol(e, NULL, 10);
         return n < 1 ? 1u : n > (long)WORKERS_MAX ? WORKERS_MAX : (uint32_t)n;
     }
-    const long cpus = sysconf(_SC_NPROCESSORS_ONLN);
-    const long n = cpus > 3 ? cpus - 3 : 1;
-    return n > 8 ? 8u : (uint32_t)n;
+    long n = 0;
+#if defined(__APPLE__)
+    const long perf = sysctl_cores("hw.perflevel0.logicalcpu");
+    const long eff = sysctl_cores("hw.nperflevels") >= 2 ? sysctl_cores("hw.perflevel1.logicalcpu") : 0;
+    if (perf > 0)
+        n = perf - WORKER_HEADROOM >= 4 ? perf - WORKER_HEADROOM : perf + eff - WORKER_HEADROOM;
+#endif
+    if (n == 0) {
+        const long cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        n = cpus > 3 ? cpus - 3 : 1;
+    }
+    return n < 1 ? 1u : n > 8 ? 8u : (uint32_t)n;
 #else
     return 1u;
 #endif
@@ -295,9 +327,19 @@ EmGsWorld *em_gs_world_create(void)
     }
 #if GSW_THREADS
     if (w->threaded) {
+        /* The workers are the frame's critical path, as the game's thread
+         * is: the same QoS (USER_INTERACTIVE, the macOS main thread's and
+         * the iOS game thread's), so the scheduler prefers performance
+         * cores for them. Scheduling only: no effect on the bytes. */
+        pthread_attr_t attr;
+        const int attr_ok = pthread_attr_init(&attr) == 0;
+#if defined(__APPLE__)
+        if (attr_ok) (void)pthread_attr_set_qos_class_np(&attr, QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
         uint32_t started = 0;
         for (uint32_t i = 0; i < w->workers; ++i, ++started)
-            if (pthread_create(&w->worker[i].thread, NULL, worker_main, &w->worker[i]) != 0) break;
+            if (pthread_create(&w->worker[i].thread, attr_ok ? &attr : NULL, worker_main, &w->worker[i]) != 0) break;
+        if (attr_ok) pthread_attr_destroy(&attr);
         if (started < w->workers) {
             /* fewer threads: the bands are re-dealt over those that run */
             if (started == 0) {
