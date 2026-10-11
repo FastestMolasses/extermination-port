@@ -1,6 +1,7 @@
 /* em_static_world_live.c - the static world drawn live from its original
  * packets (em_static_world_live.h, docs/STATIC_WORLD.md section 7). */
 #include "game/em_static_world_live.h"
+#include "game/em_diag.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -115,8 +116,10 @@ int em_static_world_live_draw(EmGfx *gfx)
         return fail(start, "the object textures are not registered (tools/export_object_textures.py)");
     if (d->prim_count && em_gfx_gs_opaque(gfx, d->prims, d->prim_count) < 0)
         return fail(start, "the renderer refused a triangle (em_gfx_gs_opaque)");
+    /* The digests are the tick log's only (em_diag.h): 0 without it. */
+    const int digests = em_diag_digests();
     uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i + 4 <= S.run_size; i += 4)
+    for (uint32_t i = 0; digests && i + 4 <= S.run_size; i += 4)
         h = fnv(h, (uint32_t)S.run[i] | (uint32_t)S.run[i + 1] << 8 | (uint32_t)S.run[i + 2] << 16 |
                    (uint32_t)S.run[i + 3] << 24);
     EmStaticWorldLiveLog *l = &S.log;
@@ -124,13 +127,13 @@ int em_static_world_live_draw(EmGfx *gfx)
     l->runs++;
     l->start = start;
     l->end = end;
-    l->digest = h;
+    l->digest = digests ? h : 0u;
     l->batches[0] = d->counts.batches[0];
     l->batches[1] = d->counts.batches[1];
     l->triangles[0] = d->counts.triangles[0];
     l->triangles[1] = d->counts.triangles[1];
     l->culled = d->counts.culled;
-    l->prim_digest = prim_digest(d->prims, d->prim_count);
+    l->prim_digest = digests ? prim_digest(d->prims, d->prim_count) : 0u;
     l->total_triangles += d->prim_count;
     return 0;
 }

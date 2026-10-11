@@ -135,6 +135,10 @@ The make target does the following:
    - The app is headless because an `EM_*TEST` variable is set.
    - The frontend drives the title menu and the movie skip, as it does for
      `newgame-control`.
+   - The tick log also turns on the draw modules' digests that the checks
+     rebuild from the original (src/game/em_diag.h; since 2026-10-11,
+     PERFORMANCE.md "Progress" P4). A run without EM_AREA_CHANGE_LOG leaves
+     them 0, so a tool that reads them must set it.
 2. It prints the run's `level smoke:` lines.
 3. It runs `tools/test_level_smoke.py` over the run log, the tick log and
    the rand() trace (`--rand-trace`; docs/RAND_ORDER.md),

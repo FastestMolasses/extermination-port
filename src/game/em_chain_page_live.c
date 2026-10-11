@@ -1,6 +1,7 @@
 /* em_chain_page_live.c - the chain page drawn live at the frame close
  * (em_chain_page_live.h, docs/CHAIN_PAGE.md section 7). */
 #include "game/em_chain_page_live.h"
+#include "game/em_diag.h"
 #include "game/em_object_unit.h"
 #include "game/em_owner_draw_live.h"
 #include "game/em_world_textures_live.h"
@@ -259,20 +260,22 @@ int em_chain_page_live_draw(EmGfx *gfx)
     for (uint32_t k = 0; k < p->again_count; ++k) S.log.again[k] = again[k];
     S.log.draw_envs = bank;
     S.log.draw_env_slot = slot;
-    S.log.pass_digest = pass ? pass_digest(S.env + pass_first, pass_prims, again, p->again_count) : 0u;
+    /* The digests are the tick log's only (em_diag.h): 0 without it. */
+    const int digests = em_diag_digests();
+    S.log.pass_digest = pass && digests ? pass_digest(S.env + pass_first, pass_prims, again, p->again_count) : 0u;
     S.log.counts = p->counts;
     S.log.decal_triangles = decal;
     S.log.flare_sprites = flare;
     S.log.weather = em_rcl_page_weather();
     S.log.overlay_reads = S.overlay_reads;
-    S.log.digest = digest(p->prims, S.q, p->prim_count);
+    S.log.digest = digests ? digest(p->prims, S.q, p->prim_count) : 0u;
     /* The same digest over the primitives the unit CALLs did not draw. */
     S.log.units = p->counts.units;
     {
         uint32_t h = 2166136261u, from = 0;
         for (uint32_t k = 0; k <= p->counts.units; ++k) {
             const uint32_t to = k < p->counts.units ? p->unit_first[k] : p->prim_count;
-            h = digest_more(h, p->prims + from, S.q + from, to - from);
+            if (digests) h = digest_more(h, p->prims + from, S.q + from, to - from);
             if (k < p->counts.units) {
                 S.log.unit_call[k] = p->unit_call[k];
                 S.log.unit_prims[k] = p->unit_prims[k];
@@ -284,7 +287,7 @@ int em_chain_page_live_draw(EmGfx *gfx)
                 from = p->unit_first[k] + p->unit_prims[k];
             }
         }
-        S.log.digest_without_units = h;
+        S.log.digest_without_units = digests ? h : 0u;
     }
     S.log.total_prims += p->prim_count;
     S.log.total_stale_q += p->counts.stale_q;

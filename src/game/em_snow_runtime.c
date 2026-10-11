@@ -1,5 +1,6 @@
 #include "game/em_snow_runtime.h"
 #include "game/em_collision_world.h"
+#include "game/em_diag.h"
 #include "game/em_frame.h"
 #include "game/em_random.h"
 #include "game/em_render_context_live.h"
@@ -140,7 +141,7 @@ int em_snow_runtime_tick_actor(EmWeather *weather, const float eye[3], unsigned 
         if (i == 0) {
             first = at;
             memcpy(p3_first, packet3, sizeof p3_first);
-            p3 = fnv(packet3, 0x100);
+            p3 = em_diag_digests() ? fnv(packet3, 0x100) : 0u;   /* the tick log's only */
         } else if (memcmp(packet3, p3_first, sizeof p3_first) != 0) {
             uniform = 0;
         }

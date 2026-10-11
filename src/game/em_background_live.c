@@ -6,6 +6,7 @@
 
 #include "game/em_chain_page.h"
 #include "game/em_chain_page_live.h"
+#include "game/em_diag.h"
 #include "game/em_frame.h"
 #include "game/em_render_context_live.h"
 
@@ -69,13 +70,15 @@ int em_background_live_draw(EmGfx *gfx)
     l->draws++;
     l->start = start;
     l->prims = p->prim_count;
+    /* The digest is the tick log's only (em_diag.h): 0 without it. */
+    const int digests = em_diag_digests();
     uint32_t h = 2166136261u;
-    for (uint32_t i = 0; i < p->prim_count; ++i)
+    for (uint32_t i = 0; digests && i < p->prim_count; ++i)
         for (uint32_t k = 0; k < 3u; ++k) {
             const EmGfxGsVertex *v = &S.prims[i].v[k];
             h = fnv(fnv(fnv(fnv(h, v->x), v->y), v->s), v->t);
         }
-    l->digest = h;
+    l->digest = digests ? h : 0u;
     static const uint32_t at[11] = {0x000, 0x081, 0x102, 0x200, 0x201, 0x202, 0x203, 0x204, 0x205, 0x206, 0x207};
     for (unsigned k = 0; k < 11u; ++k) memcpy(l->upload[k], p->dmem[at[k]].w, 16);
     return 0;

@@ -6,6 +6,7 @@
  * translations over that one storage. Every worker below names the original
  * callee it stands for. */
 #include "game/em_render_context_live.h"
+#include "game/em_diag.h"
 #include "game/em_gs_blocks_original.h"
 #include "game/em_chain_page.h"
 
@@ -1027,8 +1028,9 @@ int em_rcl_001C1D00(uint32_t state_address)
         const u32 count = s_dynamic_size >= 4u ? rd32(s_dynamic_bytes) : 0u;
         const uint64_t want = 0x10u + (uint64_t)count * 0x860u;
         const u32 extent = want < s_dynamic_size ? (u32)want : s_dynamic_size;
-        u32 h = 2166136261u;
-        for (u32 i = 0; i < extent; ++i) h = (h ^ s_dynamic_bytes[i]) * 16777619u;
+        u32 h = 2166136261u;                    /* the tick log's only (em_diag.h) */
+        if (em_diag_digests())
+            for (u32 i = 0; i < extent; ++i) h = (h ^ s_dynamic_bytes[i]) * 16777619u;
         sm->dyn_word = s_dynamic_address;
         sm->dyn_size = extent;
         sm->dyn_digest = h;

@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "game/em_frame.h"
+#include "game/em_diag.h"
 #include "game/em_load_veil_particles.h"
 #include "game/em_render_context_live.h"
 
@@ -156,7 +157,7 @@ int em_load_veil_live_draw(EmGfx *gfx)
     S.log.chain = chain;
     S.log.display_frame = frame;
     S.log.counts = S.page.counts;
-    S.log.digest = digest(S.page.prim_count);
+    S.log.digest = em_diag_digests() ? digest(S.page.prim_count) : 0u;   /* the tick log's only */
     S.log.max_line_rgb = max_rgb;
     if (em_gfx_gs_frame(gfx, S.prims, S.env, S.page.prim_count, frame, scissor) < 0)
         return fail(0x001D2300u, "the GS frame stage refused the veil's list");

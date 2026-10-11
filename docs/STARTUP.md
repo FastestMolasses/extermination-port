@@ -390,6 +390,14 @@ the speakers (macOS and iOS), and the movie player is muted (it keeps its
 audio clock, which paces the video). Headless runs have always been muted
 this way.
 
+### EM_DIAG_DIGESTS=1: the diagnostic digests without the tick log
+
+Added 2026-10-11 (PERFORMANCE.md "Progress" P4). The live draw modules'
+digests of what they drew (src/game/em_diag.h lists them) are read only by
+the scene tick log, so they are computed only when EM_AREA_CHANGE_LOG names
+a file. EM_DIAG_DIGESTS=1 computes them without the log, to measure their
+cost. Nothing drawn or played changes either way.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

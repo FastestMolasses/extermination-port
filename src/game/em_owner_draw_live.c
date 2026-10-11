@@ -14,6 +14,7 @@
 #include "game/em_game_internal.h"
 #include "game/em_object_unit.h"
 #include "game/em_area11_roger.h"
+#include "game/em_diag.h"
 #include "game/em_packet_chain_original.h"
 #include "game/em_render_context_live.h"
 
@@ -475,9 +476,11 @@ static EmOwnerDrawLiveSample *sample_inputs(const EmOwnerServicesOwner *owner, u
 
 static void log_face(EmOwnerDrawLiveLog *log, const EmObjectUnitPieces *p)
 {
-    uint32_t h = fnv(2166136261u, p->color, 16);
-    h = fnv(h, p->nodes, 32);
-    log->face = fnv(h, p->weights, 8);
+    if (em_diag_digests()) {                      /* the tick log's only (em_diag.h) */
+        uint32_t h = fnv(2166136261u, p->color, 16);
+        h = fnv(h, p->nodes, 32);
+        log->face = fnv(h, p->weights, 8);
+    }
     log->face_bytes = p->bytes;
 }
 
@@ -510,9 +513,10 @@ int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServi
             point = owner->bone[owner->pose_bone]->world + 12;
         memcpy(log->point, point, sizeof log->point);
         log->pose = 2166136261u;
-        for (uint32_t k = 0; k < owner->bone_count && k < EM_OWNER_SERVICES_MAX_BONES; ++k)
-            if (owner->bone[k])
-                log->pose = fnv(log->pose, (const uint32_t *)(const void *)owner->bone[k]->world, 16);
+        if (em_diag_digests())                     /* the tick log's only (em_diag.h) */
+            for (uint32_t k = 0; k < owner->bone_count && k < EM_OWNER_SERVICES_MAX_BONES; ++k)
+                if (owner->bone[k])
+                    log->pose = fnv(log->pose, (const uint32_t *)(const void *)owner->bone[k]->world, 16);
     }
 
     static EmActorLightBinding binding;
@@ -616,6 +620,7 @@ int em_owner_draw_live_001CAA00_attached(const EmWorldModels *bank, EmOwnerServi
     log->bytes = used - log->face_bytes;
     if (!p) return 0;                              /* the body was culled: the face alone */
     log->clip = p->unit.clip;
+    if (!em_diag_digests()) return 0;              /* the digests: the tick log's only */
     const uint32_t basis = 2166136261u;
     log->points = fnv(basis, L.points, POINT_LIGHT_WORDS);
     log->colour = fnv(basis, p->color, 16);
@@ -854,6 +859,7 @@ int em_owner_draw_live_001CABA0(const EmWorldModels *bank, EmOwnerServicesOwner 
     }
     L.page_address[L.page_count++] = start;
     log->clip = q->unit.clip;
+    if (!em_diag_digests()) return 0;              /* the digests: the tick log's only */
     const uint32_t basis = 2166136261u;
     log->colour = fnv(basis, q->color, 16);
     log->light = log->position = basis;

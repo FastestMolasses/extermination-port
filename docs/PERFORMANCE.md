@@ -150,6 +150,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* about 1.5 ms of main thread per tick in AREA01, about 0.2-0.35 ms in AREA11.
 - *Effort:* hours. *Risk:* very low.
 - *Proof:* the level smokes, test_chain_page_reference.py.
+- *Done (Progress P4):* AREA01's main thread 1.9 ms less per tick, AREA11's 0.6-0.9 ms; the tick itself is unchanged where the GS workers set it.
 
 **Q2. Host floats in the VU1 page programs** (em_vu1_page_programs.h).
 - *Change:* switch emvup_add/sub/mul to the host-lane functions inside em_vu_host_enter / em_vu_host_leave. emvup_chk already faults on exponent-255 operands, which is the host-lane precondition. The divide needs a proven host truncated quotient.
@@ -287,7 +288,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -484,6 +485,52 @@ All other runs started at 26-73 % idle and a 1-minute load of 9-20. Because of t
 - The full level smoke gives the same 404 PASS lines as P1 and P2, with no failures.
 - The AREA01 smoke passes (20 live phases).
 
+### P4. The diagnostic digests gated (Q1) (2026-10-11)
+
+**What they were.** Several live draw modules hashed what they had just drawn, on every frame, in normal play. The hashes go into log structs whose only reader is the scene tick log (em_scene_bindings.c, written when EM_AREA_CHANGE_LOG names a file). tools/test_level_smoke.py and level_smoke_chain_page.py rebuild them from the original and compare. They never change what is drawn or what the game does. The modules found:
+- in the profile: the chain page (em_chain_page_live.c: the primitives' digest, computed twice, with and without the unit CALLs, and the depth-of-field pass's digest); the static world (em_static_world_live.c: the run's bytes and its triangles); the owner units (em_owner_draw_live.c: the face unit, the pose, the colour, position, lighting and rig rows); the effects' barrel lanes and glow sprites (em_effects_live.c: bitwise CRC-32 over about 24 KiB a frame, inlined into em_effects_live_001F0360);
+- by reading the code, smaller: the background grid (em_background_live.c), the load veil (em_load_veil_live.c), the snow's packet 3 (em_snow_runtime.c, 256 bytes), the effect overlay's packets 1 and 4 (em_effects_live.c) and the AREA01 dynamic table on each 001C1D00 call (em_render_context_live.c).
+
+Not gated: the audio digests (em_sfx.c, em_iop_stream.c). They run on the mixer, about 6,400 multiplies per tick, and are not in any profile.
+
+**The switch** (src/game/em_diag.h, em_diag_digests()). The digests are computed only when EM_AREA_CHANGE_LOG names a file, or with EM_DIAG_DIGESTS=1 (a developer variable: the digests without the log, to measure their cost; STARTUP.md "Developer switches"). Every harness that reads them already sets EM_AREA_CHANGE_LOG: the level smoke and its side runs, the AREA01 smoke, the fb2 harness, and the area-load, room-move and rand-order references. Without the switch the digest fields stay 0. Everything else in the log structs is still filled, and every check the draws make (the fault paths) is unchanged.
+
+**The harnesses still see them.**
+- A negative control (scratch build, not kept): the switch always off, run through the level smoke to battery with its tick log. tools/test_level_smoke.py fails at the first digest it checks (check_background, port tick 80: the original grid program's digest over the port's upload against 0). The real build passes the same run.
+- The proof set below passes with the build's own logs, so the smoke's digest checks ran and matched: the background grid, the static world (level_smoke_static_world.py), the chain page and its pass (level_smoke_chain_page.py), the owner units, the barrel lanes and glow markers, the snow's packet 3 and the flame's packets.
+- test_chain_page_reference.py does not use the live digests: it compiles em_chain_page.c into its own library. It passes unchanged.
+
+**AREA01** (a01.sh to a01_00, headless, uncapped, the default 6 workers; ABBA order: HEAD, Q1, Q1, HEAD; then the Q1 binary with EM_DIAG_DIGESTS=1; runs/q1_a01_*). Mean ms per tick; "main" is the game thread's CPU.
+
+| Range | HEAD a / b: main / wall / over / speed | Q1 a / b: main / wall / over / speed | Q1 with EM_DIAG_DIGESTS=1: main |
+|---|---|---|---|
+| Beat (781 ticks) | 14.10 / 14.09; 16.32 / 16.34; 369 / 369; 95.9 / 95.8 % | 12.18 / 12.30; 15.93 / 16.46; 367 / 389; 95.7 / 94.2 % | 14.11 |
+| Fire (376) | 13.97 / 13.96; 16.99 / 16.95; 196 / 195; 94.8 / 95.0 % | 12.01 / 12.11; 16.81 / 17.07; 193 / 199; 94.7 / 93.7 % | 13.99 |
+| Fire peak (149) | 13.54 / 13.53; 18.65 / 18.63; 142 / 142; 89.4 / 89.5 % | 11.64 / 11.73; 18.73 / 19.01; 141 / 139; 89.0 / 87.7 % | 13.53 |
+
+The busiest worker was the same in every run: 15.1-15.4 ms in the beat, 16.3-16.4 ms in the fire, 18.2-18.3 ms at the peak.
+
+**AREA01 on the GPU renderer** (EM_GPU_RENDERER=1, one pair; here the game thread is the whole tick): the beat 13.69 -> 11.78 ms per tick (1 -> 0 ticks over), the fire 13.57 -> 11.65 ms, the peak 13.14 -> 11.28 ms.
+
+**AREA11** (demo.sh to counter 4650, one pair; runs/q1_demo_*). The main thread per tick: cinematic 8.61 -> 7.98 ms, calm 9.13 -> 8.25, slide 8.93 -> 8.12. The tick: 11.91 -> 11.89, 12.40 -> 11.98, 12.99 -> 12.95 ms; ticks over 6 / 7 / 4 -> 5 / 0 / 0. The busiest worker is unchanged (11.4 / 11.4-11.6 / 12.4-12.5 ms).
+
+**The profile** (runs/q1_a01_q1_sample: the Q1 build in the AREA01 fire, 3 s; against runs/sample_a01_fire). No digest function appears: digest_more (8.6 % of the main thread's busy samples before), prim_digest (2.6 %) and the owner draw's fnv (0.9 %) are gone, and em_effects_live_001F0360's own time (1.1 % before) left the top 25. The game thread now waits for the GS frame in 25.0 % of its samples (10.9 % before).
+
+**Machine load.** Idle before each run 66.7-77.6 % (one run, Q1 b, started at 66.7 % after quiet.sh's 3-minute limit); 1-minute load 7.7-17.5. Runs 12:09-12:41.
+
+**Reading.**
+- The game thread saves 1.9 ms per tick in AREA01 (14.1 -> 12.2 ms, -13 %) and 0.6-0.9 ms in AREA11. The same binary with EM_DIAG_DIGESTS=1 gives HEAD's figure, so the whole difference is the digests. The estimate was 1.5 ms (AREA01) and 0.2-0.35 ms (AREA11), from sample shares; both were low.
+- On the GPU renderer, where the game thread is the tick, AREA01's tick is 1.9 ms shorter (13.7 -> 11.8 ms).
+- With the GS frame at 6 workers, AREA01's tick did not get shorter. Here the busiest worker (15.1-18.3 ms) is longer than the game thread (12-14 ms), so the workers set the tick. The skeptic's "the main thread gates AREA01" held at 7 workers on a quiet machine (section 2); it does not at today's default and load. The saving becomes tick time where the game thread is the longer side: the GPU renderer, the iPhone (where the game thread shares the performance cores with the workers), and after the GS-side items (M1-M4).
+- The AREA11 ticks over the period fell (17 -> 5 in one pair), but that is within the run-to-run noise at this load.
+
+**The proof set** (EM_TEST_FULL=1, the Q1 build; receipts in build/perf_investigation/q1/proof/):
+- The GS unit tests give P3's results line for line: the raster reference 931 / 1158 bit-exact with 0 failures; gs_world_test PASS (1, 2, 3, 8 and the default 6 workers); the DOF pass 8 captures bit-exact; fog 16,384 / 16,384; GS memory PASS; gs_display_test PASS.
+- test_chain_page_reference.py passes (mode full: 15 random, 15 weather and 15 captured pages).
+- The fb2 harness passes at 8 of 19 points, with every exact-pixel count equal to P3's.
+- The AREA01 smoke passes (20 live phases).
+- The full level smoke gives the same 404 PASS lines as P1-P3, with no failures. Its side runs each write and check their own tick log, so the digest checks ran in every one.
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -500,7 +547,7 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **MISSED / MIS-RANKED: the windowed presentation path is the leading candidate for the Mac complaint and should be measured first** — em_gfx_metal.m: each frame start calls [layer nextDrawable] (line 921), which blocks while no drawable is free. A field frame holds its drawable un-presented until the next kick (gsw_complete). With the layer's default drawable count, one is held, one is queued and one is on screen, so nextDrawable can wait up to a refresh. docs/IOS.md measured about 15 ms of every step in that wait on a 60 Hz panel (before its CADisplayLink fix, which is iOS only; macOS has none). Under the reset pacer, a 15 ms wait plus a 12-14 ms tick would run at about 55-60 % speed (Not measured (needs a window, so ask the user first). Possibly the largest effect on the Mac. Measured and fixed 2026-10-11, Progress P2: on the 120 Hz built-in display the wait was 2.0-5.5 ms per tick, not 15 ms; the drawable is now taken at commit and the wait is 0.04 ms)
 - **CONTEXT MISSED: this is a recent regression; the CPU GS frame became the Original profile's renderer on 2026-10-08** — Port be2f04d (2026-10-08, 'GSFRAME, the Original profile drawn by the CPU GS model'); aa43764 / 2a233ae (2026-10-10, the DOF pass). IOS.md Frame time (2026-10-04, Metal world): iPhone Air world steps p50 6.99 / p99 9.04 ms, M1 Pro 7.52 / 11.85, with 7.6 ms of headroom on the phone (Explains why it 'used to be fine'. The phone's performance cores match the M1's on the main thread, so the phone's problem is the GS workers)
 - **CORRECTION: the DOF pass covers about 6.3 fields per frame, not 'eight times'** — 720,896 plotted / (512 x 224 = 114,688) = 6.29. Eight is the number of barriers (shrink and stretch steps), not full-screen coverages (Wording only; its measured 35 % of GS CPU stands)
-- **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured)
+- **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured. Q1 measured 2026-10-11, Progress P4: AREA01 main thread -1.9 ms, AREA11 -0.6 to -0.9 ms; the GS-frame tick unchanged at 6 workers, because there the busiest worker, not the main thread, set the AREA01 tick; on the GPU renderer the AREA01 tick fell 1.9 ms)
 - **EXACTNESS FLAG on Q2: host lanes run under round-toward-zero and flush-to-zero; the page programs also contain double math, which must stay outside that environment** — em_vu_host_lanes.h: the lanes must run inside an EM_VU_HOST_NOINLINE function bracketed by em_vu_host_enter / em_vu_host_leave, and 'nothing else runs in it'. em_vu1_page_programs.h has double arithmetic (around lines 899-920: s == 0.0, a quotient path) and calls em_eei_quotient for VDIV; today the emvup_* helpers are static inline inside the larger program functions. emvup_chk only sets c->bad, and the output is dropped at the fault returns. That drop is what lets exponent-255 operands become inf / NaN under host lanes (Safe only if each program is split so that just add / sub / mul / madd run in the bracketed function. Extend test_vu_host_lanes.py and add a whole-program reference sweep)
 - **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself)
 - **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z)

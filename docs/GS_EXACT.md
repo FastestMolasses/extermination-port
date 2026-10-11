@@ -1801,6 +1801,19 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   the cinematic and the calm on the quieter run). 8 workers is the worst
   setting measured. The bytes are unchanged (`make test-gs-world` runs the
   host default too).
+- **Diagnostic digests gated (2026-10-11, PERFORMANCE.md "Progress" P4).**
+  The live draw modules' FNV-1a / CRC-32 digests of what they drew (the
+  chain page, the static world, the owner units, the effects' lanes and
+  others) are now computed only for the scene tick log (EM_AREA_CHANGE_LOG,
+  which every harness that checks them sets) or with EM_DIAG_DIGESTS=1
+  (src/game/em_diag.h). Nothing drawn changes. The game thread's CPU per
+  tick fell from 14.1 to 12.2 ms in AREA01 (the a01_00 beat; the same
+  binary with EM_DIAG_DIGESTS=1 gives 14.1) and by 0.6 to 0.9 ms in AREA11
+  (cinematic 8.61 -> 7.98, slide 8.93 -> 8.12). So the AREA01 figure of
+  13.6 ms above included about 1.9 ms of digests. With the GS frame at 6
+  workers AREA01's tick did not shorten: the busiest worker (15.1 to 18.3
+  ms) sets it. On the GPU renderer, where the game thread is the tick,
+  AREA01's tick fell from 13.7 to 11.8 ms.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

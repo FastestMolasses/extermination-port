@@ -14,6 +14,7 @@
 #include "game/em_area02_misc.h"
 #include "game/em_level8_port.h"
 #include "game/em_collision_world.h"
+#include "game/em_diag.h"
 #include "game/em_effect_kinds.h"
 #include "game/em_effect_manager.h"
 #include "game/em_effect_original.h"
@@ -1610,7 +1611,7 @@ int em_effects_live_001D04B0(const float m[16], int32_t kind, uint32_t source, c
     o->source = source;
     o->key = key;
     o->p1_digest = o->p4_digest = 0;
-    if (S.nopk == 3 && S.opk_size[0] == 0x70u && S.opk_size[2] == 0x100u) {
+    if (em_diag_digests() && S.nopk == 3 && S.opk_size[0] == 0x70u && S.opk_size[2] == 0x100u) {
         uint8_t p1[0x70];
         memcpy(p1, S.opk[0], sizeof p1);
         memset(p1 + 0x10, 0, 4);
@@ -1881,8 +1882,10 @@ int em_effects_live_001F0360(void)
     S.markers_frame = em_frame_counter();
     int r = em_effect_manager_001F0360(&S.m);
     S.recording = 0;
-    barrel_digest();
-    sprite_digest();
+    if (em_diag_digests()) {           /* the tick log's only (em_diag.h) */
+        barrel_digest();
+        sprite_digest();
+    }
     S.kglobals.d275C44 = S.mglobals.d275C44;
     for (int i = 0; i < EM_EFFECT_MANAGER_ENTITIES; ++i) {
         uint8_t *p = S.particles.record[i];
