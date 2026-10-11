@@ -58,7 +58,7 @@ def build() -> C.CDLL:
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / 'shim.c').write_text(SHIM)
     lib = OUT / 'libgsworld.dylib'
-    subprocess.run(['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC', '-dynamiclib', '-Isrc',
+    subprocess.run(['cc', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror', '-fPIC', '-dynamiclib', '-Isrc',
                     'src/gs/em_gs_world.c', 'src/gs/em_gs_raster.c', 'src/gs/em_gs_frame.c', str(OUT / 'shim.c'),
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     n = C.CDLL(str(lib))

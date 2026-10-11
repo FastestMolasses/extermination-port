@@ -179,7 +179,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 **Q6. Build flags, last.**
 - *Change:* try -O3, -mcpu and LTO.
 - *Gain:* estimated 5-15 %.
-- *Risk:* floating-point contraction. Pin -ffp-contract and the other floating-point flags; never use -ffast-math.
+- *Risk:* floating-point contraction. Pinned off since P1 (Progress); keep it pinned under any new flag, and never use -ffast-math.
 - *Proof:* the full reference suite with EM_TEST_FULL=1, plus test_vu_host_lanes.py.
 
 **Q7. Counters on texture_entry.**
@@ -284,6 +284,57 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 5. **After each item,** re-run cine / calm / slide / AREA01 beat / fire / peak at 7 and 3 workers on a quiet machine, recording load. Keep a table of ns per pixel, busiest worker, main thread and ticks over.
 6. **Efficiency-core placement** of the workers under background load (per-worker CPU spread as a proxy).
 
+## Progress
+
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/).
+
+### P1. Floating-point contraction pinned off (2026-10-11)
+
+**The hazard (the skeptic's finding).** The Makefile's CFLAGS had no -ffp-contract, so each compiler used its own default. Apple clang contracts a * b + c inside one expression into a fused multiply-add on arm64, GCC contracts even across statements, and a baseline x86-64 build has no FMA instruction at all. The same source therefore built different arithmetic on the Mac, the iPhone, Linux and Windows.
+
+**Every fused site** (build/perf_investigation/fpcontract/survey.sh compiles each of the 336 macOS and iOS sources both ways; count.py counts fused instructions per function; counts only):
+- 915 fused instructions in 29 of the 336 files. The other 307 objects are byte-identical with and without the pin.
+- The GS model (em_gs_raster.c, 13 in draw_one): the STQ sprite's S and T interpolation, the triangle's Z row start and in-row Z, the barycentric weights and the S / T / Q sums. em_gs_world.c (4): only the timing clock's nanosecond conversion.
+- The Metal backend's overlay geometry (em_gfx_metal.m, 74: arcs, rects, glyphs, triangles, scissor), which the Original profile uses for the 2D overlay pass over the field.
+- Legacy and glue code: em_camera.c (195), em_enemy.c (108), em_render_frame.c (104), em_level_smoke_test.c (66), em_door.c (57), em_player_pose.c (48), em_camera_live.c, em_status_models.c (36 each), em_game.c (31), em_player_pose_host.c (24), em_player_frame.c (22), em_player.c (19), em_pickup.c (16), em_collision.c (15), em_hud.c (13), em_page_draw.c (9), em_model.c (5), em_opening_control_test.c (4), the audio mixers (em_sfx.c, em_sfx_bank.c, em_startup_audio.c, em_iop_stream.c: 2 each), em_examine.c, em_player_damage.c, em_status_hub_ui.c (2 each), em_input.c (1, the host stick's radius).
+- One explicit fmaf() stays, by design: uv_axis_settled in em_gs_raster.c tests whether a fused start would change a UV sprite's texels, so that strict mode can refuse it (GS_EXACT.md 3.4).
+
+**Which form is the original's.** Neither form is measured to be the original's: the proof set does not tell them apart.
+- Each form was built and run through the whole GS proof set with EM_TEST_FULL=1: the raster reference (931 / 1158 bit-exact, 0 failures, the same count in every group), gs_world_test, the DOF pass (8 captures bit-exact), fog, GS memory and the GS texture reference. Both forms gave the same output line for line.
+- The full level smoke (404 PASS lines, the side runs included), the AREA01 smoke and the fb2 harness (8 points, the same exact-match counts) also passed both ways, with identical output.
+- The 8 fb2 frames the port drew, both the GS field and the presented frame, are pixel-identical between the two builds.
+- In the main level smoke's 13,813-tick trace, every game-state field is identical. Only the host-timed counters differ (the stream counter, the sound sample counter, the loader's pre-state), and they also differ between two runs of one binary.
+- The other tests that compile a fused file also gave the same results both ways: collision, continue reset, input block, AREA11 SFX, AREA01 assets, object unit GPU, overlay blend, static world GPU and player states host.
+
+**Decision: -ffp-contract=off for every build.**
+- Each a * b + c rounds twice, exactly as the source is written. That is what every host computes, and it is what the PS2's EE FPU and VU do (they have no fused form).
+- The project's original-function tests already pinned it off: 45 Makefile test rules and 226 tool scripts, plus #pragma STDC FP_CONTRACT OFF in 12 translation units.
+
+**Where it is pinned:**
+- The Makefile's CFLAGS: macOS, Linux and the iOS library (make ios-lib).
+- The GS proof set's own library builds (the raster, DOF, memory and fog tests) and the other tests that compile a fused file. The test-gs-world, test-frame-input and test-player-states-host rules.
+- The Xcode project's OTHER_CFLAGS (Debug and Release), and tools/ios/build.sh's movie tool.
+- Windows has no project yet. The Makefile comment records what it needs: MSVC /fp:precise without /fp:contract (VS 2022 or later), or clang-cl /clang:-ffp-contract=off.
+- Never -ffast-math.
+- Not covered: the runtime-compiled Metal shaders keep Metal's default fast-math. The Original profile's world frame is drawn on the CPU and does not use them, but the overlay pass and the GPU renderer do. test_gs_fog_conformance.py checks the shader fog against the C rules (16,384 of 16,384 exact). This is a separate open item.
+
+**Cost** (quiet-machine gate: CPU idle 60-79 % before each run, 1-minute load 5.6-16.5; runs/fpc_*; same scenes as section 2):
+
+| Measure | Before (contracted) | After (-ffp-contract=off) |
+|---|---|---|
+| 1 worker, GS frame CPU, cinematic | 52.14 / 52.08 ms | 53.21 / 53.12 ms (+2.0 %) |
+| 1 worker, GS frame CPU, calm | 52.44 / 52.18 ms | 53.44 / 52.92 ms (+1.4-1.9 %) |
+| 7 workers, busiest worker, cinematic / calm / slide | 11.20 / 11.53 / 11.87 and 10.79 / 11.15 / 11.52 ms | 11.52 / 11.93 / 12.59 and 11.62 / 11.48 / 11.73 ms |
+| 7 workers, ticks over, cinematic / calm / slide | 679 / 12 / 39 and 148 / 12 / 14 | 362 / 15 / 41 and 315 / 9 / 8 |
+| Main thread per tick (cinematic, 7 workers) | 8.70 / 8.65 ms | 8.65 / 8.72 ms |
+| AREA01 fire, 7 workers: busiest worker / ticks over | 16.22 ms / 316 of 376 | 14.55 ms / 161 of 376 |
+
+- The single-core GS cost rises by about 1 ms per frame (+2 %), because draw_one's 13 fused operations become separate multiplies and adds.
+- The 7-worker and AREA01 figures move by less than the run-to-run noise at this load: the two "before" runs differ by 0.4 ms busiest and 148 to 679 ticks over.
+- The main thread is unchanged.
+- These multi-worker runs were noisier than section 2's (wall means 13-19 ms against 11-12), so they are not comparable with section 2's baseline. Compare only the interleaved pairs.
+- Expected: a pin is a fidelity fix, not a speed-up. Every later raster refactor (Q3, M1, M2, L1) must now keep each expression's unfused rounding.
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -305,6 +356,6 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself)
 - **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z)
 - **MISSED: equal 4-row interleaved bands on mixed core types put the slowest core on the critical path; Q5's count alone is not enough on the iPhone** — em_gs_world.c worker_count = online - 3 (A19 Pro: 6 - 3 = 3); own_row deals rows equally. With 2 performance + 4 efficiency cores, the frame and each of the 8 DOF barriers wait for an efficiency-core worker. Row ownership is a pure partition, so giving performance-core workers more rows, or using more workers on the 4 efficiency cores, draws the same bytes. gs_world_test.c (N workers == 1) is the proof and needs uneven-partition cases (Phone not measured. On M1 performance cores, 3 workers give 50-83 % speed, the clearest measured cause of 'really slow' on the phone)
-- **MISSED, exactness hazard for every perf refactor and for Q6: Apple clang already fuses multiply-adds in the GS model** — The Makefile's CFLAGS are -O2 with no -ffp-contract (only some test targets pin it off). Apple clang 21 at -O2 contracts a + (b - a) * t into an FMA, and em_gs_raster.c compiled that way contains 14 fused multiply-add / subtract instructions (count only). These are double expressions: the STQ sprite interpolation, the barycentric weights, the zrow + (x - xd) * zstep Z. test_gs_raster_reference.py builds with cc -O2, so it proves the fused arm64 code. A baseline x86-64 Windows / Linux build will not fuse. Stepping Z incrementally or regrouping these expressions changes bits (Pin -ffp-contract explicitly, and decide which form is reference, before any raster refactor or flag change; possible cross-platform difference today)
+- **MISSED, exactness hazard for every perf refactor and for Q6: Apple clang already fuses multiply-adds in the GS model** — The Makefile's CFLAGS are -O2 with no -ffp-contract (only some test targets pin it off). Apple clang 21 at -O2 contracts a + (b - a) * t into an FMA, and em_gs_raster.c compiled that way contains 14 fused multiply-add / subtract instructions (count only). These are double expressions: the STQ sprite interpolation, the barycentric weights, the zrow + (x - xd) * zstep Z. test_gs_raster_reference.py builds with cc -O2, so it proves the fused arm64 code. A baseline x86-64 Windows / Linux build will not fuse. Stepping Z incrementally or regrouping these expressions changes bits (Pin -ffp-contract explicitly, and decide which form is reference, before any raster refactor or flag change; possible cross-platform difference today. Resolved 2026-10-11: pinned off in every build, Progress P1)
 - **CONFIRMED with caveats: the fork is about 6-8x cheaper per frame in software GS CPU, and 'fill-bound' and the hotspot ranking stand** — CPU_SUMMARY: software minus Null process CPU 8.5 / 9.2 / 13.1 ms (calm / slide / fire); with extra threads 0: 6.6 / 7.4 / 10.6 ms, so the multithreaded figure includes spin-waits. Port at 1 worker: 52.1 / 59.8 ms. The plot() code matches the claims: it is generic, switches on state per pixel, recomputes addresses for frame and Z through the exported em_gs_addr32, and does per-pixel 128-bit floordiv (UV triangles) and double divides plus stq_div (STQ). No lock contention seen: barriers are mutex / cond, 8 plus 1 per frame (The 6x is if anything understated (against the fork's x0 run: 7.9x calm))
 - **FINAL VERDICT on the top three (Q1 digest gate, Q2 VU host floats, Q3 per-column U)** — All three can be made bit-exact (Q2 only with the bracketing above), but none addresses either measured cause of the user's complaint. The slide on the Mac is GS-bound and runs at 99 % speed headless, so the cause is elsewhere. The phone's slowness is the worker count and partition. Q1 and Q2 help only where the main thread gates the tick (AREA01, the phone); Q3 is about 0.25 ms. Suggested order: (0) measure the windowed Mac path and the device, with the user's OK; (1) a performance-core-aware worker count and a core-weighted row partition (measured: 6 > 7 under load; 3 workers = 50-83 %); (2) the early Z test plus texture-fetch specialization (fetch / sample 44 %, plot 28 %), after a Z-fail counter and with -ffp-contract pinned; (3) then Q1 / Q2 for AREA01's main thread (Re-ranking needed. The quick wins as ranked give an estimated 0-0.3 ms on the Mac slide tick (only Q3's 0.25 ms is measured, offline))

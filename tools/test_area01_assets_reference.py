@@ -129,7 +129,7 @@ def build_loaders():
     if lib.exists() and lib.stat().st_mtime > max(x.stat().st_mtime for x in inputs):
         return CT.CDLL(str(lib))
     probe = BUILD / 'probe.dylib'
-    flags = ['-std=c11', '-O1', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', '-I' + str(C.ROOT / 'src')]
+    flags = ['-std=c11', '-O1', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC', '-I' + str(C.ROOT / 'src')]
     subprocess.run(['cc', *flags, '-Wl,-undefined,dynamic_lookup', *src, '-o', str(probe)], check=True)
     undefined = subprocess.run(['nm', '-u', str(probe)], check=True, capture_output=True, text=True).stdout
     names = sorted({n[1:] for n in undefined.split() if n.startswith('_em_')})

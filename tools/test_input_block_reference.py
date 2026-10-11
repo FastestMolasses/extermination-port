@@ -129,7 +129,7 @@ def main():
     assert hashlib.sha256(elf).hexdigest() == ELF_SHA
     with tempfile.TemporaryDirectory(prefix='em_input_block_') as tmp:
         library = Path(tmp) / 'input.so'
-        subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-shared',
+        subprocess.run(['cc', '-std=c11', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror', '-shared',
                         '-fPIC', '-I' + str(ROOT / 'src'), str(ROOT / 'src/em_input.c'),
                         '-o', str(library)], check=True)
         native = C.CDLL(str(library))

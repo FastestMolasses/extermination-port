@@ -1760,6 +1760,20 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   estimate above for a quiet machine (busiest worker about 10 ms, under the
   16.68 ms period) agrees with these runs, but a quiet-machine run is
   still not made.
+- **Floating-point contraction pinned off (2026-10-11, PERFORMANCE.md
+  "Progress" P1).** Before the pin, Apple clang fused 13 multiply-adds in
+  the model's double arithmetic on arm64: the STQ sprite's S / T
+  interpolation, the triangle's Z row start and in-row Z, and the STQ
+  barycentric weights and sums. A baseline x86-64 build cannot fuse at all.
+  Every build now passes -ffp-contract=off, so each of these expressions
+  rounds its product and its sum separately, as written, on every host.
+  uv_axis_settled's explicit fmaf() stays: it is strict mode's test of a
+  fused start. Both forms pass the whole GS proof set with EM_TEST_FULL=1
+  with identical results, and the 8 fb2 frames are pixel-identical between
+  them, so no reference tells the two forms apart; the unfused form is the
+  portable one. Cost, measured with one worker: the GS frame 52.1 -> 53.1 ms
+  of CPU in the cinematic (+2 %). At 7 workers the change was within the
+  machine-load noise.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

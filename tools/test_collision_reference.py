@@ -99,7 +99,7 @@ for name, config in gates.items():
             report["reference_cases"] += 1
 with tempfile.TemporaryDirectory(prefix="em_collision_reference_") as directory:
     binary = Path(directory) / "collision_test"
-    subprocess.run(["cc", "-std=c11", "-Wall", "-Wextra", "-Werror",
+    subprocess.run(["cc", "-std=c11", "-ffp-contract=off", "-Wall", "-Wextra", "-Werror",
                     "-fsanitize=address,undefined", "-g", "-I"+str(root/"src"),
                     str(root/"tests/collision_test.c"),
                     str(root/"src/game/em_collision.c"), "-lm", "-o", str(binary)],

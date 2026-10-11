@@ -121,9 +121,9 @@ def f32bits(x: float) -> int:
 def build() -> C.CDLL:
     OUT.mkdir(parents=True, exist_ok=True)
     lib = OUT / ('libdofpass.dylib' if sys.platform == 'darwin' else 'libdofpass.so')
-    # the main build's flags (Makefile CFLAGS: no floating-point contraction
-    # option), so the model's binary32 arithmetic is compiled as the game's
-    cmd = ['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
+    # the main build's flags (Makefile CFLAGS: -O2 -ffp-contract=off, no
+    # fused multiply-add), so the model's arithmetic is compiled as the game's
+    cmd = ['cc', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror', '-fPIC',
            '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc', *SOURCES, '-lm', '-lpthread',
            '-o', str(lib)]
     # rebuilt when the command or any source or header under src/ changed

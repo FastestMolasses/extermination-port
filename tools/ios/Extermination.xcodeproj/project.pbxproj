@@ -169,6 +169,7 @@
 				GCC_OPTIMIZATION_LEVEL = 2;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CFLAGS = "-ffp-contract=off";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;
@@ -190,6 +191,7 @@
 				GCC_OPTIMIZATION_LEVEL = 2;
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				ONLY_ACTIVE_ARCH = NO;
+				OTHER_CFLAGS = "-ffp-contract=off";
 				SDKROOT = iphoneos;
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
 				TARGETED_DEVICE_FAMILY = 1;

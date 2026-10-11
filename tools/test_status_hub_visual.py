@@ -43,7 +43,7 @@ def main():
     output=ROOT/'build/status_hub_visual';output.mkdir(parents=True,exist_ok=True)
     generated=output/'commands.inc';generated.write_text('\n'.join(lines)+'\n')
     binary=output/'fixture'
-    command=['clang','-O2','-Wall','-Wextra','-Isrc',
+    command=['clang','-O2','-ffp-contract=off','-Wall','-Wextra','-Isrc',
              f'-DEM_STATUS_HUB_COMMANDS="{generated}"',
              'tests/status_hub_visual.c','src/game/em_hud.c','src/game/em_item_geometry.c',
              'src/game/em_item_sdk_math.c','src/game/em_item_trail.c',
@@ -54,7 +54,7 @@ def main():
              'src/game/em_object_unit.c',
              'src/platform/mac/em_platform_mac.m','src/platform/mac/em_gamepad_mac.m',
              'src/gfx/metal/em_gfx_metal.m','src/gs/em_gs_world.c','src/gs/em_gs_raster.c',
-             'src/gs/em_gs_frame.c','-framework','Cocoa','-framework','Metal',
+             'src/gs/em_gs_frame.c','src/gs/em_gs_display.c','-framework','Cocoa','-framework','Metal',
              '-framework','QuartzCore','-framework','GameController','-Wl,-dead_strip',
              '-o',str(binary)]
     subprocess.run(command,cwd=ROOT,check=True)

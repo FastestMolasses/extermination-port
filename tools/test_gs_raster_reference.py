@@ -353,7 +353,7 @@ def build() -> C.CDLL:
     shim = OUT / 'shim.c'
     shim.write_text(SHIM)
     lib = OUT / ('libgsraster.dylib' if sys.platform == 'darwin' else 'libgsraster.so')
-    cmd = ['cc', '-O2', '-Wall', '-Wextra', '-Werror', '-fPIC',
+    cmd = ['cc', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror', '-fPIC',
            '-dynamiclib' if sys.platform == 'darwin' else '-shared', '-Isrc',
            'src/gs/em_gs_raster.c', 'src/gs/em_gs_frame.c', str(shim), '-lm', '-o', str(lib)]
     subprocess.run(cmd, cwd=ROOT, check=True)

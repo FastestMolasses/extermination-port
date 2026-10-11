@@ -160,7 +160,7 @@ def cpu_mirror():
                    '      out[i] = em_fog_gs_blend7(c[i], em_fog_gs_weight7(f[i]), fc[i]); }\n')
     head = ROOT / 'src/gfx/metal/em_fog_gs.h'
     if not lib.exists() or max(head.stat().st_mtime, src.stat().st_mtime) > lib.stat().st_mtime:
-        subprocess.run(['clang', '-O1', '-std=c11', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC',
+        subprocess.run(['clang', '-O1', '-ffp-contract=off', '-std=c11', '-Wall', '-Wextra', '-Werror', '-shared', '-fPIC',
                         '-I' + str(ROOT / 'src'), str(src), '-o', str(lib)], check=True)
     dll = C.CDLL(str(lib))
     P = C.POINTER(C.c_uint32)

@@ -1125,6 +1125,12 @@ only shows that field.
   5,504 blocks), `test_shadow_original_reference` (the shadow target packet
   in order); the level smoke through Roger with the GS frame on; the fb2
   pixel harness (next entry). Commit: chain step GSFRAME.
+- Same arithmetic on every host (2026-10-11): every build pins
+  -ffp-contract=off (no fused multiply-add). Before, Apple clang fused 13
+  of the model's double multiply-adds on arm64, which an x86-64 build would
+  not have fused. Both forms pass every GS reference and draw the 8 fb2
+  frames pixel for pixel alike, so the references do not tell them apart;
+  the unfused form is the source as written (PERFORMANCE.md "Progress" P1).
 - Status: **PARTIAL**. The 2D overlay pass (message glyphs, letterbox bars,
   screen and transition fades) is still drawn by the GPU over the field; the
   status screens draw with the GPU. 001DDE10's depth-of-field pass (the

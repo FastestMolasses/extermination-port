@@ -8,7 +8,18 @@
 UNAME := $(shell uname)
 
 BIN     := build/extermination
-CFLAGS  := -O2 -Wall -Wextra -Isrc
+# -ffp-contract=off: no fused multiply-add anywhere (docs/PERFORMANCE.md
+# "Progress", P1). Each a * b + c rounds the product and the sum separately,
+# as the source is written and as the PS2's EE FPU and VU (which have no
+# fused form) compute it. Apple clang defaults to contracting within an
+# expression and fused 915 operations in 29 files on arm64 (the GS model's
+# Z, STQ and barycentric terms among them), GCC defaults to contracting
+# across statements, and a baseline x86-64 target cannot fuse at all, so
+# without the pin each host built different arithmetic. The GS proof set and
+# the level smokes pass both ways; the reference tests build with this pin.
+# Never add -ffast-math. Windows (when its project lands): MSVC /fp:precise
+# without /fp:contract (VS 2022 or later), clang-cl /clang:-ffp-contract=off.
+CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \
            src/game/em_fade.c src/game/em_startup.c src/game/em_frontend.c src/game/em_startup_audio.c \
@@ -131,7 +142,8 @@ endif
 
 # Windows is built via its own toolchain (cl/clang-cl); see src/platform/win
 # and src/gfx/d3d12. A nmake/msbuild project will be added when that backend
-# is implemented.
+# is implemented; it must pin floating-point contraction off like CFLAGS
+# above (MSVC: /fp:precise, no /fp:contract; clang-cl: /clang:-ffp-contract=off).
 
 .PHONY: all clean run test-input
 all: $(BIN)
@@ -325,7 +337,7 @@ test-rand-order: $(BIN)
 
 .PHONY: test-frame-input
 test-frame-input:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c src/game/em_startup_load_gaps.c -lm -o build/frame_input_test && ./build/frame_input_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/frame_input_test.c src/game/em_frame.c src/game/em_fade.c src/game/em_task.c src/em_input.c src/game/em_startup_load_gaps.c -lm -o build/frame_input_test && ./build/frame_input_test
 
 .PHONY: test-scene-classify
 test-scene-classify:
@@ -662,7 +674,7 @@ test-shadow-original-reference:
 
 .PHONY: test-player-states-host
 test-player-states-host:
-	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
+	mkdir -p build && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=address,undefined -Isrc tests/player_states_host_test.c src/game/em_player.c src/game/em_player_floor.c src/game/em_player_motor.c src/game/em_player_heading.c src/game/em_player_slide.c src/game/em_player_climb.c src/game/em_actor_collision.c src/game/em_collision.c src/game/em_actor_pool.c src/game/em_player_reaction.c src/game/em_player_fall.c src/game/em_player_record_helpers.c src/game/em_script_host_workers.c src/game/em_script.c src/game/em_effect_original.c src/game/em_coll_probe_original.c src/game/em_owner_services_original.c src/game/em_player_stage_workers.c src/game/em_sdk_math_original.c -lm -o build/player_states_host_test && ./build/player_states_host_test
 
 .PHONY: test-ee-float-model
 test-ee-float-model:
@@ -1132,7 +1144,7 @@ test-dof-pass-reference:
 # frames, under the thread sanitizer (a missing barrier is a reported race).
 .PHONY: test-gs-world
 test-gs-world:
-	mkdir -p build/gs_world_test && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -fsanitize=thread -Isrc \
+	mkdir -p build/gs_world_test && $(CC) -std=c11 -O1 -g -Wall -Wextra -Werror -ffp-contract=off -fsanitize=thread -Isrc \
 	    tests/gs_world_test.c src/gs/em_gs_world.c src/gs/em_gs_raster.c src/gs/em_gs_frame.c -lm \
 	    -o build/gs_world_test/gs_world_test && TSAN_OPTIONS=halt_on_error=1 ./build/gs_world_test/gs_world_test
 

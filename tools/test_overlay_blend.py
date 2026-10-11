@@ -18,7 +18,7 @@ def main():
     output = ROOT / 'build/overlay_blend'
     output.mkdir(parents=True, exist_ok=True)
     binary, capture = output / 'fixture', output / 'pixels.bmp'
-    subprocess.run(['cc', '-std=c11', '-O1', '-g', '-Wall', '-Wextra', '-Werror',
+    subprocess.run(['cc', '-std=c11', '-O1', '-g', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
         '-Isrc', 'tests/overlay_blend_test.c', 'src/gfx/metal/em_gfx_metal.m',
         'src/gs/em_gs_world.c', 'src/gs/em_gs_raster.c', 'src/gs/em_gs_frame.c', 'src/gs/em_gs_display.c',
         'src/platform/mac/em_platform_mac.m', 'src/game/em_lighting.c',

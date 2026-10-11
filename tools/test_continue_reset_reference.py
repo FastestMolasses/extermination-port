@@ -167,7 +167,7 @@ def build_native():
     out = ROOT / 'build/continue_reset_reference'
     out.mkdir(parents=True, exist_ok=True)
     lib = out / ('probe.dylib' if sys.platform == 'darwin' else 'probe.so')
-    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+    subprocess.run(['cc', '-std=c11', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
                     '-shared', '-fPIC', '-Isrc', 'tests/continue_reset_probe.c',
                     'src/game/em_director_original.c', '-lm',
                     '-o', str(lib)], cwd=ROOT, check=True)
@@ -241,7 +241,7 @@ def build_native_pickup():
               'src/game/em_script.c', 'src/game/em_interaction_runtime.c',
               'src/game/em_interaction_frame.c',
               'src/game/em_startup_load_gaps.c']   # em_pickup_reset's 001AF470 (001AF2C0)
-    subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
+    subprocess.run(['cc', '-std=c11', '-O2', '-ffp-contract=off', '-Wall', '-Wextra', '-Werror',
                     '-shared', '-fPIC', '-Isrc', str(source), *owners,
                     '-lm', '-o', str(lib)], cwd=ROOT, check=True)
     native = C.CDLL(str(lib))

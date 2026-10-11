@@ -78,7 +78,7 @@ transcoder() {
     src="$HERE/movie_transcode.m"
     if [ ! -x "$tool" ] || [ "$src" -nt "$tool" ]; then
         mkdir -p "$OUT"
-        env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET xcrun --sdk macosx clang -O2 -Wall -Wextra \
+        env -u SDKROOT -u IPHONEOS_DEPLOYMENT_TARGET xcrun --sdk macosx clang -O2 -ffp-contract=off -Wall -Wextra \
             -fobjc-arc -framework Foundation -framework AVFoundation -framework CoreMedia \
             -framework CoreVideo "$src" -o "$tool" >&2
     fi
@@ -96,7 +96,9 @@ xcode_build() {   # $1 = iphoneos | iphonesimulator
         sign="DEVELOPMENT_TEAM=$team -allowProvisioningUpdates -allowProvisioningDeviceRegistration"
     fi
     # The library first, so a compile error reads plainly (the project's own
-    # phase then finds it up to date).
+    # phase then finds it up to date). It is compiled with the Makefile's
+    # CFLAGS, which pin -ffp-contract=off (no fused multiply-add; the
+    # project's OTHER_CFLAGS pin the same; docs/PERFORMANCE.md "Progress").
     make -C "$ROOT" -j"$JOBS" ios-lib IOS_SDK="$1"
     # shellcheck disable=SC2086
     xcodebuild -project "$PROJECT" -target Extermination -configuration Release -sdk "$1" \

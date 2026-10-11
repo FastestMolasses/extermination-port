@@ -335,7 +335,7 @@ def native_driver():
     out=ROOT/'build/area11_sfx_reference';out.mkdir(parents=True,exist_ok=True)
     (out/'driver_shim.c').write_text(SHIM)
     library=out/'libem_sfx_driver.dylib'
-    subprocess.run(['cc','-std=c11','-O1','-Wall','-Wextra','-Werror','-shared','-fPIC','-Isrc',
+    subprocess.run(['cc','-std=c11','-O1','-ffp-contract=off','-Wall','-Wextra','-Werror','-shared','-fPIC','-Isrc',
         str(out/'driver_shim.c'),'src/game/em_sfx_bank.c','-o',str(library)],cwd=ROOT,check=True)
     lib=C.CDLL(str(library))
     P=C.c_void_p
