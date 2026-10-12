@@ -93,7 +93,7 @@ The AREA01 runs without the pass had a load spike to 15.
 - exact float emulation: 26-31 % of busy samples;
 - chain page: 19-23 % (2.1 ms per tick in AREA11, 1.8 ms in AREA01);
 - the snow program: 21.6 % of slide samples;
-- textured_kick: 4.5-8.8 %;
+- textured_kick: 4.5-8.8 % (its texture lookup's linear search; a hash since Progress P8);
 - ungated FNV digests: 2-4 % in AREA11, about 12 % (about 1.5 ms) in AREA01;
 - AREA01's own logic: 27 %;
 - waiting for the GS frame: 22 % calm, 33 % slide, 10 % fire.
@@ -120,11 +120,11 @@ The AREA01 runs without the pass had a load spike to 15.
 5. **The main-thread budget, which is the bottleneck in AREA01.**
    - AREA01 uses 13.3-14.0 ms per tick, leaving about 3 ms of headroom.
    - The VU1 page programs (snow, sprite/flame, kind-6, lane, streak, kind-2) still use the integer float model. The level and object kernels already use proven host floats, which took them from 15.9 to 5.6 ms.
-   - Ungated digests cost about 1.5 ms per tick in AREA01; textured_kick 4.5-8.8 %.
+   - Ungated digests cost about 1.5 ms per tick in AREA01 (gated since P4); textured_kick 4.5-8.8 % (a hash since P8).
 6. **The iPhone gets only 3 workers** (section 5).
 7. **Unmeasured:**
    - the windowed Mac path: measured and fixed since (Progress P2);
-   - a possible texture_entry cliff (a linear search of 1024 entries, plus a 16 KiB memset per miss once full).
+   - a possible texture_entry cliff (a linear search of 1024 entries, plus a 16 KiB memset per miss once full): measured since (Progress P8). The cliff is never reached (at most 348 entries), but the linear search over the ~345 entries cost 0.5-0.9 ms of the game thread per tick; it is now a hash.
 
 **Not a cause:** build settings. macOS uses -O2; the iOS project has optimization level 2 in both configurations, and build.sh builds Release. Presentation is about 0 % headless.
 
@@ -190,6 +190,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 **Q7. Counters on texture_entry.**
 - *Change:* count entries and misses per frame. If the 1024-entry cliff is real, replace the search with a hash.
 - *Proof:* test_gs_memory_reference.py, test_gs_texture_reference.py.
+- *Done 2026-10-12 (Progress P8):* counters behind EM_GS_TEX_COUNTERS; no cliff, but the search cost 0.5-0.9 ms of game-thread CPU per tick, so it is now a hash.
 
 ### Medium work
 
@@ -284,14 +285,14 @@ None is needed on the Mac. They are stop-gaps for the phone only.
    - EM_GS_THREADS 2-5, with and without worker QoS;
    - a 10-15 minute sustained run for thermals;
    - the slide and fire windows.
-3. **texture_entry counters** in the slide and the fire.
+3. **texture_entry counters** in the slide and the fire. Done (Progress P8).
 4. **Pixel share per primitive class** (DOF, snow, fire, world, clears), to rank M2's loops.
 5. **After each item,** re-run cine / calm / slide / AREA01 beat / fire / peak at 7 and 3 workers on a quiet machine, recording load. Keep a table of ns per pixel, busiest worker, main thread and ticks over.
 6. **Efficiency-core placement** of the workers under background load (per-worker CPU spread as a proxy).
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -732,6 +733,59 @@ AREA01 (a01.sh to a01_00; every run passed the smoke's live phases). Each cell: 
   - It costs 3.73 s of the 73.8 s (5 %), with 198M pixels drawn.
   - A fast path that keeps the per-pixel Z test and skips the rest would be exact for it. It is a candidate for M2 (specialized span loops).
 - *A lesson for M2.* Any edit to plot()'s source can change its compiled code and slow every class (round 1). Compare plot()'s object code with HEAD's and measure per class with the census.
+
+### P8. Counters on texture_entry, and a hash for its search (Q7) (2026-10-12)
+
+**What texture_entry is.** The GS frame's recorder runs on the game thread. For every textured primitive it checks that the texture reads only uploaded or drawn GS memory, and lists the drawn blocks it reads, so the workers can be ordered by barriers. The answer for each (TEX0 without CLD, CLAMP_1) pair is kept in a table of up to 1,024 entries (CHECKED_MAX). The table is cleared by an upload, a memory restore, or a draw over an uploaded block. The lookup was a linear scan of that table. Past 1,024 entries a new texture would be checked again at every kick: the "cliff".
+
+**The counters** (em_gs_world.c; EM_GS_TEX_COUNTERS=<file>, a developer switch, STARTUP.md "Developer switches"). One line per frame handed to the workers: searches, probes, hits, misses, misses past the table's end, texels the misses walk, table resets, the entries and pool blocks held, and the time of the hits and of the misses. The counts are always kept (a few integer adds per lookup); the file and the two clock reads per lookup only run with the switch. Counts are the same in every run of the same route.
+
+Linear search (q7/ctr_extermination, HEAD plus the counters; runs/q7c_demo_ctr, q7c_demo_ctr2, q7c_a01_ctr). Means per frame:
+
+| Range | Searches (max) | Entries | Entries compared (max) | Misses | Hit time, linear -> hash |
+|---|---|---|---|---|---|
+| AREA11 cinematic (1,310 frames) | 12,211 (22,540) | 345 | 1.82M (3.41M) | 0.00 (max 1) | 1,086-1,098 -> 305 us |
+| AREA11 calm (85) | 12,557 (20,680) | 345 | 2.00M (3.28M) | 0 | 1,154-1,231 -> 308 us |
+| AREA11 slide (121) | 10,544 (11,409) | 347.5 | 1.54M (1.66M) | 0.01 | 915-919 -> 273 us |
+| AREA01 beat (781) | 11,680 (15,500) | 338 | 2.16M (2.55M) | 0.11 (max 12) | 1,198 -> 297 us |
+| AREA01 fire (376) | 11,041 (12,628) | 347 | 2.13M (2.43M) | 0.00 | 1,176 -> 281 us |
+| AREA01 fire peak (149) | 10,622 (11,054) | 347 | 2.05M (2.12M) | 0 | 1,149 -> 272 us |
+
+- **No cliff.** At most 348 entries in the whole demo and the whole route to a01_00, so no lookup ever fell past the table's end. The table was reset 2 times in the demo and 4 times on the route.
+- **Misses are rare and early.** At most 174 in one frame: the first in-level frame, which GS_EXACT.md 10.2 already measured at about 2.6 ms of residency checks. After that, 0 to 12 a frame. The 16 KiB memset per miss is therefore not a cost.
+- **The search was the cost.** About 150 entries compared per lookup (about half the table), so 1.5-2.2M compares a frame. The hit times above include the two clock reads per lookup that both builds pay, about 0.25 ms of the hash's figure.
+
+**What changed** (em_gs_world.c). The table keeps its entries, its order and its 1,024 cap; a 4,096-slot open-addressing index (linear probing, slot = index + 1) now finds them, keyed exactly as the scan was: TEX0 with CLD masked, and CLAMP_1. An entry is added only after a search found no equal key, so a key is in the table at most once, and the index finds what the scan found. It is cleared wherever the table is. A full table behaves as before: the texture is checked again, and nothing is stored. The hash averages 1.05 probes per lookup (12,813 for 12,211 searches in the cinematic).
+
+**Same answers.**
+- *A self-check build* (scratch, since deleted; q7/check_patch.py and q7/NOTES.txt rebuild it: the hash plus the old scan, aborting on any disagreement) ran the demo to counter 4650 and the route to a01_00: 225,859,109 lookups (43,178,026 + 182,681,083), 0 disagreements; the route's 21 live phases passed.
+- *gs_world_test* gains a part past the table's end: the same frames with 1,100 extra texture keys (the resident texture under distinct REGION_CLAMP words, kicked by triangles of no area) draw the same fields and memory with 1 and 8 workers as without them, under the thread sanitizer. Its EM_GS_TEX_COUNTERS lines show the table at 1,024 and 113 lookups checked again.
+- *The GS proof set* (EM_TEST_FULL=1, the Q7 build; receipts in q7/proof/) gives P7's results:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures; the DOF pass: 8 captures bit-exact; fog, GS memory and gs_display_test: PASS; each of these logs equal to P7's apart from timings;
+  - the texture reference (test_gs_texture_reference.py, not in P7's set): PASS, 11,129 decodes equal;
+  - gs_world_test: PASS, with the new part;
+  - the fb2 harness: 8 of 19 points, every exact-pixel line equal to P7's;
+  - the AREA01 smoke: 20 live phases, none not live;
+  - the full level smoke: the same 404 PASS lines as P7, no failures (81 minutes).
+
+**Live** (q7/batch.sh, 01:40-01:58; HEAD, Q7, Q7, HEAD; headless, uncapped, default 6 workers; binaries q7/head_extermination and q7/hash_extermination, the latter equal to build/extermination apart from its name; runs/q7_*). The machine was busy: idle 70.6-77.7 % before each run, but 1-minute load 10.0-31.1. Mean ms per tick, HEAD a / b -> Q7 a / b.
+
+| Range | Game thread CPU | Busiest worker | Tick wall | Speed |
+|---|---|---|---|---|
+| AREA11 cinematic | 6.76 / 6.75 -> 6.07 / 6.08 (-0.68) | 11.25 / 11.17 -> 11.24 / 11.19 | 12.64 / 12.95 -> 12.88 / 13.01 | 99.2-99.8 -> 99.7-99.9 % |
+| AREA11 calm | 7.03 / 7.39 -> 6.36 / 6.27 (-0.9) | 11.18 / 13.05 -> 11.34 / 11.13 | 12.33 / 16.66 -> 13.12 / 12.48 | 100.0 / 92.9 -> 100.0 / 100.0 % |
+| AREA11 slide | 6.83 / 7.20 -> 6.36 / 6.28 (-0.7) | 11.91 / 12.65 -> 11.70 / 11.97 | 12.94 / 16.97 -> 13.74 / 14.03 | 99.9 / 93.9 -> 99.4 / 99.8 % |
+| AREA01 beat (781) | 11.38 / 11.55 -> 10.56 / 10.62 (-0.88) | 14.13 / 14.48 -> 14.16 / 14.19 | 16.73 / 17.89 -> 16.04 / 16.07 | 92.5 / 88.7 -> 95.5 / 95.5 % |
+| AREA01 fire (376) | 11.20 / 11.45 -> 10.41 / 10.47 (-0.89) | 15.11 / 15.52 -> 15.12 / 15.15 | 18.09 / 19.06 -> 16.87 / 16.85 | 88.9 / 86.8 -> 94.8 / 94.0 % |
+| AREA01 fire peak (149) | 10.85 / 10.97 -> 10.05 / 10.19 (-0.79) | 16.83 / 16.88 -> 16.78 / 16.90 | 21.35 / 19.35 -> 18.36 / 18.69 | 78.0 / 85.9 -> 90.4 / 88.9 % |
+
+HEAD b's AREA11 calm and slide were disturbed (its busiest worker 13.05 and 12.65 ms, 36 and 56 ticks over); its game-thread figures are kept above. Q7 a recorded 91 of the slide's 121 ticks before the stop. Against HEAD a alone the calm and slide differences are -0.7 and -0.5 ms.
+
+**Reading.**
+- *Exactness.* Only the lookup's data structure changed; the answers are the same (the self-check), and the proofs above give the previous step's results.
+- *Gain.* 0.5-0.9 ms of game-thread CPU per tick in every scene measured, in line with the counters' 0.6-0.9 ms (the hit times' difference). In AREA11 the tick does not shorten, since the GS workers set it. In AREA01 the tick's wall time fell by 0.7-1.8 ms and the speed rose 3-12 points in these runs. The game thread shares the cores with the workers there, but the load was high, so take the size of that gain as uncertain.
+- *Where it matters most.* On a host with fewer cores (the iPhone Air) the game thread's time competes directly with the workers.
+- *Q7 is closed.* The counters stay, behind EM_GS_TEX_COUNTERS.
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

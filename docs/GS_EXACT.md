@@ -1863,6 +1863,21 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   and slide. In AREA01 the change was inside the noise. 001DA290's alpha
   clear is a blended triangle strip whose Z test can fail, so it stays on
   plot().
+- **The recorder's texture lookup hashed (2026-10-12, PERFORMANCE.md
+  "Progress" P8).** `texture_entry` (one per textured primitive, on the
+  game thread) kept its checked textures in a table it scanned linearly.
+  Counters (EM_GS_TEX_COUNTERS=<file>) show about 12,000 lookups a frame
+  over 338 to 348 entries in AREA11 and AREA01 (1.5 to 2.2 million
+  compares), almost no misses after the first in-level frame, and the
+  table's 1,024-entry end never reached. A 4,096-slot index keyed exactly
+  as the scan (TEX0 without CLD, and CLAMP_1) now finds the same entry;
+  the table, its order and its cap are unchanged. A self-check build ran
+  both on the demo and the route to a01_00 (225.9 million lookups, no
+  difference), `make test-gs-world` now also runs its frames past the
+  table's end, and the GS proof set gives P7's results. The game thread's
+  CPU per tick fell 0.5 to 0.9 ms (AREA11 cinematic 6.76 -> 6.07, AREA01
+  beat 11.5 -> 10.6) on a busy machine; the GS workers, which set the
+  tick in AREA11, are unchanged.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
@@ -2064,7 +2079,8 @@ was compared with real hardware.
   the verification (section 7, part F the row bands).
 - `tests/gs_world_test.c` (`make test-gs-world`): the workers draw what one
   worker draws (thread sanitizer), the depth-of-field pass included, also
-  with every block of local memory uploaded.
+  with every block of local memory uploaded, and past the recorder's
+  texture table's end (1,100 texture keys).
 - `tools/test_dof_pass_reference.py` with `tests/dof_pass_reference_bridge.c`
   (`make test-dof-pass-reference`): 001DDE10's depth-of-field pass against
   the original's captured GS memory (section 7).

@@ -234,6 +234,16 @@ typedef struct {
 } EmGsWorldStats;
 void em_gs_world_stats(const EmGsWorld *w, EmGsWorldStats *out);
 
+/* EM_GS_TEX_COUNTERS=<file> (a diagnostic, read at em_gs_world_create;
+ * docs/PERFORMANCE.md Q7): the recorder's texture lookup (em_gs_world.c
+ * texture_entry, one per textured primitive) writes one line per frame it
+ * hands to the workers: the frame, its searches, hash probes, hits, misses,
+ * misses past the table's end (CHECKED_MAX: checked again at every kick),
+ * texels walked by the misses, table resets (an upload, a memory restore, an
+ * uploaded block drawn over) since the previous line, the entries and pool
+ * blocks held, and the nanoseconds of the hits and of the misses (timed only
+ * while the file is open). Nothing recorded or drawn changes. */
+
 #ifdef __cplusplus
 }
 #endif

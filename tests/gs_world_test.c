@@ -20,10 +20,13 @@
  * worker count must leave the same local memory and the same fields, and
  * the one-worker run is the model run directly (em_gs_raster, one EmGs, the
  * same writes); the pass changes the field (against the same frames
- * without it). Also the refusals: a transfer register, an IMAGE packet and
- * a texture outside the uploads fault, and so do a field declared outside a
- * recording, a second other field, and a kick whose head draws another
- * field than the declared one. */
+ * without it). The same frames again with 1,100 extra texture keys in the
+ * first (more than the recorder's texture table keeps, so every later
+ * texture is checked again at each kick) draw the same with 1 and 8 workers,
+ * and the EM_GS_TEX_COUNTERS lines show the table full. Also the refusals:
+ * a transfer register, an IMAGE packet and a texture outside the uploads
+ * fault, and so do a field declared outside a recording, a second other
+ * field, and a kick whose head draws another field than the declared one. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -206,6 +209,8 @@ static void record_pass(EmGsWorld *w, uint32_t fbp)
 }
 
 static int g_with_pass = 1;
+static int g_many_keys = 0;
+#define MANY_KEYS 1100u    /* more texture keys than em_gs_world.c keeps (CHECKED_MAX 1024) */
 
 /* One world frame: the scene, the target pass twice (the first frame
  * only: in the second, nothing reads the copy's memory before the pass, so
@@ -224,6 +229,17 @@ static void record_world(EmGsWorld *w, uint32_t seed, uint32_t fbp, int target_p
                      vtx(x + 11, y + 23, 5000, 40, 60, 70, 128, 128, 0.3f, 1.0f, 1.0f));
     }
     em_gs_world_prims(w, p, NULL, n);
+    /* (g_many_keys, the first frame) the resident texture under MANY_KEYS
+     * distinct REGION_CLAMP words, kicked by triangles of no area: the
+     * texture lookup fills its table (CHECKED_MAX), and every texture after
+     * them (the target, the copy, the field) is checked again at every kick
+     * (docs/PERFORMANCE.md Q7); nothing is drawn */
+    for (unsigned i = 0; g_many_keys && seed == 11u && i < MANY_KEYS; ++i) {
+        const EmGfxGsVertex v = vtx(5, 5, 1000, 200, 128, 100, 90, 128, 0.0f, 0.0f, 1.0f);
+        EmGfxGsPrim k = tri(0x03C, TEX_RESIDENT, v, v, v);
+        k.clamp = 2u | (uint64_t)(i & 31u) << 4 | (uint64_t)(32u + (i >> 5)) << 14;
+        em_gs_world_prims(w, &k, NULL, 1);
+    }
     /* the 128x128 target: drawn, sampled by blended triangles (a barrier) */
     for (int pass = 0; pass < (target_pass ? 2 : 0); ++pass) {
         em_gs_world_write(w, EM_GS_FRAME_1, FRAME_TARGET);
@@ -487,12 +503,46 @@ int main(void)
         for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(ra[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
         for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(ra[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
     }
+    /* past the texture table's end (MANY_KEYS): the same fields and memory
+     * with 1 and 8 workers, and the counters (EM_GS_TEX_COUNTERS) show the
+     * table full and the later textures checked again */
+    static Result rk[2];
+    unsigned long long cliff[2] = { 0, 0 };
+    g_many_keys = 1;
+    for (unsigned i = 0; i < 2; ++i) {
+        setenv("EM_GS_TEX_COUNTERS", "build/gs_world_test/tex_counters.txt", 1);
+        run(i ? 8 : 1, &rk[i]);
+        unsetenv("EM_GS_TEX_COUNTERS");
+        FILE *tc = fopen("build/gs_world_test/tex_counters.txt", "r");
+        CHECK(tc);
+        char line[256];
+        unsigned frames = 0, entries_max = 0;
+        while (fgets(line, sizeof line, tc)) {
+            unsigned long long v[10];
+            unsigned entries, pool;
+            if (line[0] == '#') continue;
+            CHECK(sscanf(line, "%llu %llu %llu %llu %llu %llu %llu %llu %u %u", &v[0], &v[1], &v[2], &v[3], &v[4],
+                         &v[5], &v[6], &v[7], &entries, &pool) == 10);
+            CHECK(v[1] == v[3] + v[4]);        /* searches = hits + misses */
+            cliff[i] += v[5];
+            if (entries > entries_max) entries_max = entries;
+            frames++;
+        }
+        fclose(tc);
+        CHECK(frames == 3 && entries_max == 1024u && cliff[i] > 0);
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(rk[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(rk[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
+    }
+    g_many_keys = 0;
+    CHECK(cliff[0] == cliff[1]);
     refusals();
     field_refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
            "over two world frames "
            "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
            "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
-           "1 state-block TEX0 accepted; 3 field-declaration refusals)\n", g_host_workers, blended[0], blended[1]);
+           "1 state-block TEX0 accepted; 3 field-declaration refusals; past the texture table's end (%u keys, %llu "
+           "lookups checked again): the same with 1 and 8 workers)\n", g_host_workers, blended[0], blended[1],
+           MANY_KEYS, cliff[0]);
     return 0;
 }

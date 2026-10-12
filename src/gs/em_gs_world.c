@@ -22,6 +22,7 @@
 #define BLOCKS (EM_GS_MEM_BYTES / 256u)
 #define HEAD_MAX 0x800u
 #define CHECKED_MAX 1024u
+#define CHECKED_SLOTS 4096u           /* checked[]'s hash (a power of two, 4 x CHECKED_MAX) */
 #define MARKED_MAX 8u
 #define WORKERS_MAX 16u
 #define BAND_SHIFT 2u                 /* bands of 4 rows, interleaved over the workers */
@@ -125,8 +126,22 @@ struct EmGsWorld {
      * blocks they read that lie in drawn buffers (pool[first .. first + n)) */
     struct { uint64_t tex0, clamp; uint32_t first, n; } checked[CHECKED_MAX];
     uint32_t checked_count;
+    /* checked[]'s index by (TEX0 key, CLAMP_1): open addressing, linear
+     * probing; a slot holds an index + 1, 0 is empty. Entries are only added
+     * after a search found no equal key, so a key is in checked[] at most
+     * once and the hash finds what a scan of checked[] finds. */
+    uint16_t checked_slot[CHECKED_SLOTS];
     uint32_t *pool;
     uint32_t pool_used, pool_cap;
+    /* EM_GS_TEX_COUNTERS=<file> (docs/PERFORMANCE.md Q7): texture_entry's
+     * counters, one line per frame handed to the workers. A diagnostic: it
+     * changes nothing recorded or drawn. */
+    FILE *tc_file;
+    uint64_t tc_frames;
+    struct {
+        uint64_t searches, probes, hits, misses, cliff, texels, resets;
+        double hit_ns, miss_ns;
+    } tc;
     /* the field of the last finished job */
     uint8_t *field;
     uint32_t field_w, field_h;
@@ -158,6 +173,15 @@ static double cpu_now_ns(void)
     struct timespec t;
     clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t);
     return (double)t.tv_sec * 1e9 + (double)t.tv_nsec;
+}
+
+/* The checked textures are forgotten (memory they read may have changed). */
+static void checked_reset(EmGsWorld *w)
+{
+    w->checked_count = 0;
+    w->pool_used = 0;
+    memset(w->checked_slot, 0, sizeof w->checked_slot);
+    w->tc.resets++;
 }
 
 /* ------------------------------------------------------------ the workers */
@@ -308,6 +332,12 @@ EmGsWorld *em_gs_world_create(void)
         return NULL;
     }
     w->workers = worker_count();
+    const char *tc = getenv("EM_GS_TEX_COUNTERS");
+    if (tc && tc[0]) {
+        w->tc_file = fopen(tc, "w");
+        if (w->tc_file)
+            fprintf(w->tc_file, "# frame searches probes hits misses cliff texels resets entries pool hit_ns miss_ns\n");
+    }
 #if GSW_THREADS
     if (w->workers > 1) {
         pthread_mutex_init(&w->lock, NULL);
@@ -376,6 +406,7 @@ void em_gs_world_destroy(EmGsWorld *w)
         free(w->job[i].ops);
         free(w->job[i].gif);
     }
+    if (w->tc_file) fclose(w->tc_file);
     free(w->pool);
     free(w->mem);
     free(w->field);
@@ -450,8 +481,7 @@ int em_gs_world_memory_restore(EmGsWorld *w, const uint8_t *mem, const uint8_t *
         w->drawn[b] = resident[b] ? 0 : 1;
     }
     /* textures checked against the earlier memory are checked again */
-    w->checked_count = 0;
-    w->pool_used = 0;
+    checked_reset(w);
     w->memory_loaded = 1;
     return 0;
 }
@@ -554,8 +584,7 @@ int em_gs_world_upload_chain(EmGsWorld *w, const uint8_t *buf, size_t size)
     free(gif);
     if (used != gn || up.refusals) return fail(w, "the model refused an upload", up.refusals);
     /* textures read earlier may have changed: check them again */
-    w->checked_count = 0;
-    w->pool_used = 0;
+    checked_reset(w);
     w->memory_loaded = 1;
     return 0;
 }
@@ -694,8 +723,7 @@ static void mark_drawn(EmGsWorld *w, uint32_t fbp, uint32_t fbw, uint32_t height
             over_upload |= w->resident[b];
         }
     if (over_upload) {
-        w->checked_count = 0;
-        w->pool_used = 0;
+        checked_reset(w);
     }
 }
 
@@ -760,18 +788,35 @@ static int pool_add(EmGsWorld *w, uint32_t b)
     return 0;
 }
 
+/* checked[]'s hash slot for a key (64-bit multiplicative mixing; the top 12 bits). */
+static uint32_t checked_hash(uint64_t key, uint64_t clamp)
+{
+    uint64_t h = key * UINT64_C(0x9E3779B97F4A7C15) ^ clamp * UINT64_C(0xC2B2AE3D27D4EB4F);
+    h ^= h >> 31;
+    h *= UINT64_C(0x94D049BB133111EB);
+    return (uint32_t)(h >> 52);
+}
+
 /* The blocks a TEX0 reads (the texels CLAMP_1 lets it reach, and its CLUT)
  * are all resident (uploaded) or in a buffer the model has drawn into; the
  * entry lists the drawn ones. 0, or -1 (not). */
 static int texture_entry(EmGsWorld *w, uint64_t tex0, uint64_t clamp, uint32_t *first, uint32_t *n)
 {
     const uint64_t key = tex0 & ~(UINT64_C(7) << 61);    /* CLD is not a read */
-    for (uint32_t i = 0; i < w->checked_count; ++i)
-        if (w->checked[i].tex0 == key && w->checked[i].clamp == clamp) {
-            *first = w->checked[i].first;
-            *n = w->checked[i].n;
+    w->tc.searches++;
+    uint32_t slot = checked_hash(key, clamp);
+    for (;; slot = (slot + 1u) & (CHECKED_SLOTS - 1u)) {
+        w->tc.probes++;
+        const uint32_t e = w->checked_slot[slot];
+        if (!e) break;
+        if (w->checked[e - 1u].tex0 == key && w->checked[e - 1u].clamp == clamp) {
+            *first = w->checked[e - 1u].first;
+            *n = w->checked[e - 1u].n;
+            w->tc.hits++;
             return 0;
         }
+    }
+    w->tc.misses++;
     const uint32_t tbp = (uint32_t)tex0 & 0x3FFFu, tbw = (uint32_t)(tex0 >> 14) & 0x3Fu;
     const uint32_t psm = (uint32_t)(tex0 >> 20) & 0x3Fu, tw = (uint32_t)(tex0 >> 26) & 15u;
     const uint32_t th = (uint32_t)(tex0 >> 30) & 15u, cbp = (uint32_t)(tex0 >> 37) & 0x3FFFu;
@@ -781,6 +826,7 @@ static int texture_entry(EmGsWorld *w, uint64_t tex0, uint64_t clamp, uint32_t *
     reach((uint32_t)clamp & 3u, 1u << tw, (uint32_t)(clamp >> 4) & 0x3FFu, (uint32_t)(clamp >> 14) & 0x3FFu, &u0, &u1);
     reach((uint32_t)(clamp >> 2) & 3u, 1u << th, (uint32_t)(clamp >> 24) & 0x3FFu, (uint32_t)(clamp >> 34) & 0x3FFu,
           &v0, &v1);
+    w->tc.texels += (uint64_t)(u1 - u0 + 1u) * (v1 - v0 + 1u);
     static uint8_t seen[BLOCKS];
     memset(seen, 0, sizeof seen);
     const uint32_t start = w->pool_used;
@@ -822,6 +868,9 @@ static int texture_entry(EmGsWorld *w, uint64_t tex0, uint64_t clamp, uint32_t *
         w->checked[w->checked_count].first = *first;
         w->checked[w->checked_count].n = *n;
         w->checked_count++;
+        w->checked_slot[slot] = (uint16_t)w->checked_count;   /* the empty slot the search ended at */
+    } else {
+        w->tc.cliff++;
     }
     return 0;
 }
@@ -831,7 +880,16 @@ static int texture_entry(EmGsWorld *w, uint64_t tex0, uint64_t clamp, uint32_t *
 static int texture_read(EmGsWorld *w, uint64_t tex0, uint64_t clamp)
 {
     uint32_t first = 0, n = 0;
-    if (texture_entry(w, tex0, clamp, &first, &n) < 0) return -1;
+    if (w->tc_file) {
+        const uint64_t m0 = w->tc.misses;
+        const double t0 = now_ns();
+        const int r = texture_entry(w, tex0, clamp, &first, &n);
+        const double dt = now_ns() - t0;
+        if (w->tc.misses != m0) w->tc.miss_ns += dt; else w->tc.hit_ns += dt;
+        if (r < 0) return -1;
+    } else if (texture_entry(w, tex0, clamp, &first, &n) < 0) {
+        return -1;
+    }
     if (!n) return 0;
     if (w->fdrawn_any)
         for (uint32_t i = 0; i < n; ++i)
@@ -1093,6 +1151,15 @@ static uint64_t pixels_drawn(const EmGsWorld *w)
 /* Hands job[rec] to the workers and makes the other job the recorded one. */
 static void start(EmGsWorld *w)
 {
+    if (w->tc_file) {
+        fprintf(w->tc_file, "%llu %llu %llu %llu %llu %llu %llu %llu %u %u %.0f %.0f\n",
+                (unsigned long long)w->tc_frames, (unsigned long long)w->tc.searches,
+                (unsigned long long)w->tc.probes, (unsigned long long)w->tc.hits, (unsigned long long)w->tc.misses,
+                (unsigned long long)w->tc.cliff, (unsigned long long)w->tc.texels, (unsigned long long)w->tc.resets,
+                w->checked_count, w->pool_used, w->tc.hit_ns, w->tc.miss_ns);
+        memset(&w->tc, 0, sizeof w->tc);
+    }
+    w->tc_frames++;
     w->run = &w->job[w->rec];
     w->rec ^= 1;
     w->recording = 0;

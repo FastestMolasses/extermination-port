@@ -398,6 +398,17 @@ the scene tick log, so they are computed only when EM_AREA_CHANGE_LOG names
 a file. EM_DIAG_DIGESTS=1 computes them without the log, to measure their
 cost. Nothing drawn or played changes either way.
 
+### EM_GS_TEX_COUNTERS=<file>: the GS frame's texture lookup counters
+
+Added 2026-10-12 (PERFORMANCE.md "Progress" P8). The Original profile's GS
+frame recorder writes one line per frame it hands to its workers: the
+texture lookups (`texture_entry` in src/gs/em_gs_world.c), their hash
+probes, hits and misses, the misses past the table's 1,024-entry end, the
+texels the misses walk, the table resets, the entries held and the time of
+the hits and misses (the columns are named in the file's first line and in
+src/gs/em_gs_world.h). The counts are always kept; only the file and the
+timing need the switch. Nothing recorded, drawn or played changes.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

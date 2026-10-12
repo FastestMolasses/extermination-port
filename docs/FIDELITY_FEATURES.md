@@ -1122,7 +1122,8 @@ only shows that field.
   row-223 line strips included; PCSX2 2.6.3 dropped those primitives, and
   the port follows the fork by the user's decision, GS_EXACT.md 3.8),
   `make test-gs-world` (1, 2, 3 and 8 workers draw the same
-  fields, thread sanitizer), `make test-dof-pass-reference` (001DDE10's
+  fields, thread sanitizer; since 2026-10-12 also past the recorder's
+  texture table's end), `make test-dof-pass-reference` (001DDE10's
   pass against the original's GS memory on both sides of it in 7 captured
   frames: bit-exact through the model and through the workers' path),
   `make test-gs-memory-reference` (the GS
@@ -1160,10 +1161,15 @@ only shows that field.
   the period (without the pass 1 and 2), at load 16 120; a quiet-machine
   run is still not made (the machine was busy). AREA01 (level 2) draws through
   the same model since the merge, but 65 of its 840 measured ticks run over
-  the period (its main thread alone takes 13.6 ms). Since 2026-10-11 the
+  the period (its main thread alone took 13.6 ms then; 10.6 ms since the
+  digests' gate, the VU1 programs' host floats and the hashed texture
+  lookup, PERFORMANCE.md "Progress" P4, P5 and P8). Since 2026-10-11 the
   default worker count follows the core types (6 on this M1 Pro, 4 on the
   iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
-  for any count (PERFORMANCE.md "Progress" P3). The model is PCSX2's
+  for any count (PERFORMANCE.md "Progress" P3). Since 2026-10-12 the
+  recorder finds a texture's checked reads through a hash keyed as its old
+  linear scan, with the same answers (225.9 million lookups compared, P8).
+  The model is PCSX2's
   software renderer's behaviour as measured, not real hardware's.
 
 **The Original profile's frame, measured pixel by pixel against PCSX2's software-renderer frames**
