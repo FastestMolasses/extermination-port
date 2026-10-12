@@ -166,6 +166,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* measured offline at -6 % of the pass (24.5 -> 22.9 ms single-thread, about 0.25 ms of busiest worker). Estimated 15-30 % of the snow and fire STQ sprite pixel cost.
 - *Effort:* about 1 day. *Risk:* very low.
 - *Proof:* the GS proof set.
+- *Done (Progress P6):* the same bytes (the proof set, a 60,000-sprite HEAD-against-Q3 differential, the 8 DOF captures). The DOF pass is 7.5 % cheaper offline, and one worker's GS frame 2.1 ms cheaper in the cinematic. At 6 workers the busiest worker is 0.26 ms cheaper in the AREA11 cinematic and calm, 0.57 ms in the slide, and 1.1-1.8 ms in AREA01. AREA01's ticks over the period fall by about half.
 
 **Q4. Fast path for trivial-state sprites** (the clears, gsw_alpha_clear).
 - *Gain:* about 1.5 ms of all-worker CPU per frame, about 0.2 ms of busiest worker.
@@ -289,7 +290,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -578,6 +579,77 @@ AREA11 (demo.sh to counter 4650): the game thread, cinematic 7.96 / 7.93 -> 6.50
 - The AREA01 smoke passes (20 live phases).
 - The full level smoke gives the same 404 PASS lines as P1-P4, with no failures; its chain-page, snow, flame and background-grid digest checks ran on the host path.
 
+### P6. Per-column U in sprites (Q3) (2026-10-11)
+
+**What changed** (em_gs_raster.c, draw_sprite).
+- A sprite's texel column coordinate U depends only on the column x and on the primitive. For UV it is the corners' U through floordiv64; for STQ it is S interpolated at t = (16x - X0) / (X1 - X0), then stq_div by the second vertex's Q.
+- It used to be recomputed for every pixel of every row. It is now computed once per column into a table, with the same expression, and each row reads it. The table has at most 2,048 entries, the scissor's width. V is still computed per row, as before.
+- A band computes the table on the first row it owns, so a worker that draws no row of the sprite computes nothing.
+- -ffp-contract=off (P1) still keeps the STQ expression's product and sum rounded separately.
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1, the Q3 build; receipts in build/perf_investigation/q3/proof/) gives P5's results line for line; only timings and scratch paths differ:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures;
+  - gs_world_test: PASS;
+  - the DOF pass: 8 captures bit-exact;
+  - fog, GS memory and gs_display_test: PASS;
+  - the fb2 harness: 8 of 19 points, every exact-pixel count equal to P5's;
+  - the AREA01 smoke: 20 live phases;
+  - the full level smoke: the same 404 PASS lines as P1-P5, no failures.
+- *A random differential* (q3/sweep/sweep.c, built once against HEAD's em_gs_raster.c and once against Q3's):
+  - 1,500 seeded batches of 40 random textured sprites each, over random local memory. The sprites cover UV and STQ, corners in either order, sub-pixel positions, random scissors, Q from 0.01 to 4, nearest and bilinear sampling, the clamp / repeat / region modes, the Z test on or off, and alpha blending.
+  - Each batch is drawn by one EmGs and by 3 and 8 row-band EmGs in lockstep.
+  - All 4,500 hashes of the 4 MiB local memory are equal (60,000 sprites, 245.8 million pixels).
+  - Two negative controls (scratch copies, not kept) each change the last column's U by one. The STQ change alters 54 of the 90 lines of a 30-batch run, the UV change 60.
+- *The DOF captures:* the offline bench below also compares the memory. After the pass, all 4 MiB of local memory are equal between HEAD and Q3 in each of the 8 captures, at 1, 3 and 8 bands.
+
+**Offline** (q3/bench/bench.py). The DOF pass of each of the 8 fork captures runs through dof_replay (one EmGs, strict), with HEAD's library and Q3's alternated, best of 30.
+- Per pass: HEAD 20.4-22.2 ms, Q3 18.8-20.7 ms.
+- All 8 captures: 170.6 -> 157.9 ms (-7.5 %). GS_EXACT.md 10.2's scratch variant had measured -6 %.
+
+**Live.** Headless and uncapped. Each round runs HEAD, Q3, Q3, HEAD (binaries q3/head_extermination and q3/q3_extermination; runs/q3_* and runs/q3r2_*). Mean ms per tick.
+
+*Round 1* (q3/batch.sh, 18:40-19:18) ran on a **busy** machine. quiet.sh's 70 % idle was reached before only 4 of 12 runs (idle 55.2-73.4 %, 1-minute load 5.7-13.5). Another job's xctest and fileproviderd ran beside them. Only its one-worker runs are used below.
+
+One worker (demo.sh to counter 1780, EM_GS_THREADS=1). The GS frame's CPU per frame, the cleanest meter:
+
+| Range | HEAD a / b | Q3 a / b | Change |
+|---|---|---|---|
+| Cinematic (1,310 ticks) | 54.02 / 53.16 | 51.44 / 51.54 | -2.1 ms (-3.9 %) |
+| Calm (the first 41-75 ticks) | 53.56 / 52.33 | 51.42 / 51.24 | -1.6 ms |
+
+*Round 2* (q3/batch2.sh, 20:51-21:08) ran at the default 6 workers. Idle before each run was 70.9-77.4 %, and every run passed the gate. The 1-minute load was 6.7-11.1, on the tail of an earlier spike (15-minute load 75 -> 36).
+
+AREA11 (demo.sh to counter 4650). Each cell: busiest worker CPU / tick wall / ticks over:
+
+| Range | HEAD a, b | Q3 a, b | Busiest worker |
+|---|---|---|---|
+| Cinematic (1,310) | 11.34, 11.31 / 11.82, 11.75 / 0, 1 | 11.07, 11.05 / 11.54, 11.50 / 1, 1 | -0.26 ms |
+| Calm (85) | 11.32, 11.31 / 11.73, 11.72 / 0, 0 | 11.06, 11.05 / 11.46, 11.50 / 0, 0 | -0.26 ms |
+| Slide (121) | 12.44, 12.43 / 12.95, 12.89 / 0, 0 | 11.87, 11.86 / 12.31, 12.30 / 0, 0 | -0.57 ms |
+
+All four runs ran at 100 % speed in every range.
+
+AREA01 (a01.sh to a01_00; all four runs passed the smoke's 21 live phases). Each cell: busiest worker CPU / tick wall / ticks over / speed:
+
+| Range | HEAD a, b | Q3 a, b | Busiest worker |
+|---|---|---|---|
+| Beat (781) | 15.26, 15.18 / 16.55, 15.85 / 402, 355 / 92.4, 95.2 % | 14.08, 14.12 / 15.00, 15.17 / 194, 249 / 98.1, 97.5 % | -1.1 ms |
+| Fire (376) | 16.41, 16.41 / 17.89, 17.06 / 214, 188 / 89.6, 93.2 % | 14.99, 15.09 / 15.61, 16.07 / 99, 140 / 97.7, 96.4 % | -1.4 ms |
+| Fire peak (149) | 18.40, 18.53 / 20.99, 19.47 / 147, 144 / 79.5, 85.7 % | 16.62, 16.74 / 17.06, 17.76 / 79, 104 / 95.1, 92.8 % | -1.8 ms |
+
+The game thread's CPU is unchanged in both rounds (AREA11 6.4-6.8 ms, AREA01 10.6-11.3 ms).
+
+Round 1's six-worker runs (runs/q3_demo_*, runs/q3_a01_*, under the load above) point the same way, with more spread: busiest worker cinematic -0.15 ms, slide -0.8 to -1.4 ms, AREA01 -1.2 to -1.9 ms.
+
+**Reading.**
+- *Exactness.* Nothing drawn changes. The proofs above are the evidence, not the label.
+- *One worker.* The GS frame costs 2.1 ms (3.9 %) less in the cinematic.
+- *AREA11 at 6 workers.* The cinematic and calm gain 0.26 ms of the busiest worker, close to the skeptic's 0.25 ms. The slide gains 0.57 ms, and its tick is 0.6 ms shorter (12.9 -> 12.3 ms).
+- *AREA01.* The fire gains far more: 1.1-1.8 ms of the busiest worker. There the workers set the tick (P4), so the tick follows. Ticks over the period fall by about half (beat 355-402 -> 194-249, peak 144-147 -> 79-104), and the fire peak's speed rises from 80-86 % to 93-95 %.
+- *Why the slide and the fire gain most.* The report classifies their snow and fire sprites as STQ sprites (section 4, M2). For those, each removed per-pixel step was a double interpolation, a divide and stq_div, not just an integer divide. This step did not count pixels per sprite class.
+- *What is left.* AREA01's peak still runs over the period on most ticks (busiest worker 16.6-16.7 ms). The remaining large items are unchanged: the texel fetch / sample (M2 and the early Z test) and the swizzle tables (M1).
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -596,7 +668,7 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **CORRECTION: the DOF pass covers about 6.3 fields per frame, not 'eight times'** — 720,896 plotted / (512 x 224 = 114,688) = 6.29. Eight is the number of barriers (shrink and stretch steps), not full-screen coverages (Wording only; its measured 35 % of GS CPU stands)
 - **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured. Q1 measured 2026-10-11, Progress P4: AREA01 main thread -1.9 ms, AREA11 -0.6 to -0.9 ms; the GS-frame tick unchanged at 6 workers, because there the busiest worker, not the main thread, set the AREA01 tick; on the GPU renderer the AREA01 tick fell 1.9 ms)
 - **EXACTNESS FLAG on Q2: host lanes run under round-toward-zero and flush-to-zero; the page programs also contain double math, which must stay outside that environment** — em_vu_host_lanes.h: the lanes must run inside an EM_VU_HOST_NOINLINE function bracketed by em_vu_host_enter / em_vu_host_leave, and 'nothing else runs in it'. em_vu1_page_programs.h has double arithmetic (around lines 899-920: s == 0.0, a quotient path) and calls em_eei_quotient for VDIV; today the emvup_* helpers are static inline inside the larger program functions. emvup_chk only sets c->bad, and the output is dropped at the fault returns. That drop is what lets exponent-255 operands become inf / NaN under host lanes (Safe only if each program is split so that just add / sub / mul / madd run in the bracketed function. Extend test_vu_host_lanes.py and add a whole-program reference sweep. Handled differently in Progress P5: the double math and the kick consumers leave the environment through trampolines, exponent-255 operations stay on the model, and a whole-program differential test runs both paths)
-- **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself)
+- **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself. Measured 2026-10-11, Progress P6: the same bytes; offline -7.5 % on the pass; at 6 workers the busiest worker 0.26 ms less in the cinematic and calm, as estimated, but 0.57 ms less in the slide and 1.1-1.8 ms less in AREA01, so the snow / fire share was larger than this verdict allowed)
 - **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z)
 - **MISSED: equal 4-row interleaved bands on mixed core types put the slowest core on the critical path; Q5's count alone is not enough on the iPhone** — em_gs_world.c worker_count = online - 3 (A19 Pro: 6 - 3 = 3); own_row deals rows equally. With 2 performance + 4 efficiency cores, the frame and each of the 8 DOF barriers wait for an efficiency-core worker. Row ownership is a pure partition, so giving performance-core workers more rows, or using more workers on the 4 efficiency cores, draws the same bytes. gs_world_test.c (N workers == 1) is the proof and needs uneven-partition cases (Phone not measured. On M1 performance cores, 3 workers give 50-83 % speed, the clearest measured cause of 'really slow' on the phone)
 - **MISSED, exactness hazard for every perf refactor and for Q6: Apple clang already fuses multiply-adds in the GS model** — The Makefile's CFLAGS are -O2 with no -ffp-contract (only some test targets pin it off). Apple clang 21 at -O2 contracts a + (b - a) * t into an FMA, and em_gs_raster.c compiled that way contains 14 fused multiply-add / subtract instructions (count only). These are double expressions: the STQ sprite interpolation, the barycentric weights, the zrow + (x - xd) * zstep Z. test_gs_raster_reference.py builds with cc -O2, so it proves the fused arm64 code. A baseline x86-64 Windows / Linux build will not fuse. Stepping Z incrementally or regrouping these expressions changes bits (Pin -ffp-contract explicitly, and decide which form is reference, before any raster refactor or flag change; possible cross-platform difference today. Resolved 2026-10-11: pinned off in every build, Progress P1)

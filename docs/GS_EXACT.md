@@ -1740,7 +1740,8 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   and Z addresses split into per-column and per-row parts; the page / block
   / column tables of PSMCT32 and PSMZ32 are separable) is the obvious next
   saving; precomputing the sprite's per-column U alone saves 6 % of the
-  pass (above). Neither is applied in this step.
+  pass (above). Neither is applied in this step (the per-column U is since
+  2026-10-11, below).
 - **Re-measured at the merge onto main (2026-10-10, port main after the
   conformance step's binary32 row accumulation):** the same method, six
   newgame-control runs interleaved, the pass build (main) against a scratch
@@ -1826,6 +1827,23 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   6.5, slide 8.1 -> 6.6). The tick with the GS frame is unchanged on this
   Mac (the busiest worker sets it); on the GPU renderer AREA01's tick fell
   from 12.1 to 10.8 ms.
+- **Per-column U in sprites (2026-10-11, PERFORMANCE.md "Progress" P6).**
+  draw_sprite now computes a sprite's column coordinate U (UV: the
+  floordiv64 interpolation; STQ: S at the column, then stq_div) once per
+  column, by the same expression, on the first row the band draws, and
+  each row reads it; V stays per row. The per-column variant measured
+  under step DOF above is now the live code. The bytes are the same: the
+  GS proof set gives P5's results, a 60,000-sprite random differential
+  against the previous code (UV and STQ, 1, 3 and 8 bands) leaves equal
+  local memory, and so does the DOF pass in all 8 captures. Offline the
+  DOF pass is 7.5 % cheaper (8 captures, best of 30: 170.6 -> 157.9 ms in
+  all); with one worker the GS frame takes 51.5 instead of 53.6 ms of CPU
+  in the cinematic. At 6 workers (idle 71-77 % before each run) the
+  busiest worker fell 0.26 ms in the cinematic and calm, 0.57 ms in the
+  slide (its tick 12.9 -> 12.3 ms) and 1.1 to 1.8 ms in AREA01's beat,
+  fire and fire peak, where the workers set the tick: about half as many
+  ticks over the period there, the fire peak at 93-95 % speed instead of
+  80-86 %.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

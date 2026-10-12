@@ -1248,6 +1248,13 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
         for (int y = first_row; y < py0; ++y)
             vrow += vstep;
     }
+    /* The column coordinate depends on x and the primitive only, so it is
+     * computed once per column, by the same expression as per pixel (the
+     * same bits), on the first row this band draws (a band that draws no
+     * row of the sprite computes none). px0..px1 lies inside the scissor
+     * (0..2047). */
+    int64_t ucol[2048];
+    int ucol_ready = 0;
     for (int y = py0; y <= py1; y++, vrow += vstep) {
         if (!own_row(gs, y))
             continue;
@@ -1258,18 +1265,27 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
                 double t = (Y1 == Y0) ? 0.0 : (double)(16 * y - Y0) / (double)(Y1 - Y0);
                 fr.V16 = stq_div(t0 + (t1 - t0) * t, qq, (int)d->th);
             }
-        }
-        for (int x = px0; x <= px1; x++) {
-            if (d->tme) {
-                if (d->fst) {
-                    fr.U16 = (X1 == X0) ? (int64_t)v0->u
-                           : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
-                } else {
-                    double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
-                    fr.U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
+            if (!ucol_ready) {
+                for (int x = px0; x <= px1; x++) {
+                    int64_t U16;
+                    if (d->fst) {
+                        U16 = (X1 == X0) ? (int64_t)v0->u
+                            : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                    } else {
+                        double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
+                        U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
+                    }
+                    ucol[x - px0] = U16;
                 }
+                ucol_ready = 1;
             }
-            plot(gs, d, x, y, &fr);
+            for (int x = px0; x <= px1; x++) {
+                fr.U16 = ucol[x - px0];
+                plot(gs, d, x, y, &fr);
+            }
+        } else {
+            for (int x = px0; x <= px1; x++)
+                plot(gs, d, x, y, &fr);
         }
     }
 }
