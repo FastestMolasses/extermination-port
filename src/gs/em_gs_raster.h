@@ -77,6 +77,7 @@ enum {
     EM_GS_REFUSE_FORMAT     = 1u << 1, /* a pixel / texture / CLUT format not modelled   */
     EM_GS_REFUSE_GIF        = 1u << 2, /* a malformed GIF packet                         */
     EM_GS_REFUSE_REGISTER   = 1u << 3, /* a register the model does not accept           */
+    EM_GS_REFUSE_MEMORY     = 1u << 4, /* no memory for the address tables (EmGs.swz)    */
 };
 
 struct EmGsPending;                   /* a primitive waiting for its span's end */
@@ -132,6 +133,11 @@ typedef struct EmGs {
      * em_gs_release). */
     void *setup_cache;
     uint32_t setup_valid, setup_kind;
+    /* The separable address tables (em_gs_raster.c section 1b): built on
+     * the first draw and per buffer width on first use (heap, freed by
+     * em_gs_release). Without memory for them a primitive is refused
+     * (EM_GS_REFUSE_MEMORY). */
+    void *swz;
 } EmGs;
 
 /* mem must hold EM_GS_MEM_BYTES; it is not cleared. The registers start at
@@ -157,6 +163,13 @@ uint32_t em_gs_addr32(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, int z);
 uint32_t em_gs_addr16(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y, unsigned psm);
 uint32_t em_gs_addr8(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y);
 uint32_t em_gs_addr4(uint32_t bp, uint32_t bw, uint32_t x, uint32_t y);
+/* The same address through the separable tables the drawing path uses
+ * (em_gs_raster.c section 1b; tests/gs_swizzle_test.c): the word address
+ * for PSMCT32 / CT24 and PSMZ32 / Z24, the byte address for PSMT8, the
+ * nibble address for PSMT4, each wrapped to local memory; bw 0..63.
+ * UINT32_MAX for another PSM, or without memory for the tables (builds
+ * them in gs->swz: em_gs_release frees them). */
+uint32_t em_gs_swz_addr(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y);
 /* Reads / writes one pixel of any storage mode (value in the mode's bits). */
 uint32_t em_gs_read_pixel(const EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y);
 void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y, uint32_t v);

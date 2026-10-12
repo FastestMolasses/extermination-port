@@ -343,6 +343,16 @@ size_t shim_gif_bands(uint8_t *mem, int strict, unsigned bands, unsigned shift, 
     free(g);
     return r;
 }
+/* Part A's tables check: the addresses of a w x h rectangle through the
+ * drawing path's separable tables (em_gs_swz_addr), row by row. */
+void shim_swz_rect(unsigned psm, unsigned bp, unsigned bw, unsigned w, unsigned h, uint32_t *out)
+{
+    EmGs g;
+    em_gs_init(&g, NULL);
+    for (unsigned y = 0; y < h; ++y)
+        for (unsigned x = 0; x < w; ++x) out[y * w + x] = em_gs_swz_addr(&g, psm, bp, bw, x, y);
+    em_gs_release(&g);
+}
 unsigned shim_prim_size(void) { return sizeof(EmGfxGsPrim); }
 unsigned shim_env_size(void) { return sizeof(EmGfxGsEnv); }
 '''
@@ -379,6 +389,7 @@ def build() -> C.CDLL:
     n.shim_gif_bands.restype = C.c_size_t
     n.shim_gif_bands.argtypes = [C.c_void_p, C.c_int, C.c_uint, C.c_uint, C.c_char_p, C.c_size_t,
                                  C.POINTER(C.c_ulonglong)]
+    n.shim_swz_rect.argtypes = [C.c_uint] * 5 + [C.c_void_p]
     n.shim_prim_size.restype = C.c_uint
     n.shim_env_size.restype = C.c_uint
     return n
@@ -596,6 +607,37 @@ def decode(vram: np.ndarray, page: int, w: int, h: int, psm: str, maps) -> np.nd
     return arr[idx]
 
 
+# Part A, the drawing path's address tables (em_gs_raster.c section 1b,
+# PERFORMANCE.md M1) against the MEASURED maps: (page, width in 64-pixel
+# units, rows) of CT32 frames and Z32 buffers, among them the measured page
+# itself, the 512- and 640-wide fields, the 2048-pixel width (x wraps at
+# 2048, so no wider rectangle) and the top page of local memory (the 4 MiB
+# wrap). tests/gs_swizzle_test.c proves the same tables against
+# the model's address functions at every address and width.
+SWZ_RECTS = [(0, 1, 32), (1, 1, 64), (0, 8, 448), (0x70, 8, 224), (37, 10, 480), (300, 16, 96), (511, 8, 64),
+             (480, 32, 33)]
+
+
+def check_tables(lib, maps) -> int:
+    fails = n = 0
+    for key, psm in (('ct32', 0x00), ('z32', 0x30)):
+        m = maps[key]
+        for page, bw, h in SWZ_RECTS:
+            w = 64 * bw
+            got = np.zeros(w * h, dtype=np.uint32)
+            lib.shim_swz_rect(psm, page * 32, bw, w, h, got.ctypes.data)
+            y, x = np.mgrid[0:h, 0:w]
+            want = ((page + (y // 32) * bw + x // 64) * 2048 + m[y % 32, x % 64]) % (LOCALMEM // 4)
+            bad = int((got.reshape(h, w) != want).sum())
+            n += w * h
+            if bad:
+                fails += 1
+                print(f'      FAIL tables {key} page {page} width {bw}: {bad} of {w * h} addresses differ from the measured map')
+    print(f'  A. the drawing path\'s CT32 and Z32 address tables against the measured maps: {n} addresses, '
+          f'{fails} failures')
+    return fails
+
+
 def run_batch(lib, cap: Path, name: str, maps):
     folder = cap / name
     doc = json.loads((folder / 'batch.json').read_text())
@@ -768,6 +810,7 @@ def main() -> int:
                     print(f"      open {k}: colour {got[0]} z {got[1]} of {v['pixels']}")
             if r['uploads_bad'] or r['fence_bad'] or not r['consumed'] or r['refusals'] or r['span_faults']:
                 fails += 1
+    fails += check_tables(lib, maps)
     fails += check_replay(lib, maps)
     fails += check_strict(lib)
     fails += check_bands(lib, sets)

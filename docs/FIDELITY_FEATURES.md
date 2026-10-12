@@ -1123,7 +1123,10 @@ only shows that field.
   the port follows the fork by the user's decision, GS_EXACT.md 3.8),
   `make test-gs-world` (1, 2, 3 and 8 workers draw the same
   fields, thread sanitizer; since 2026-10-12 also past the recorder's
-  texture table's end), `make test-dof-pass-reference` (001DDE10's
+  texture table's end), `make test-gs-swizzle` (since 2026-10-12: the
+  pixel path's separable address tables equal the model's address
+  functions at every position and width; part A of the raster reference
+  checks the CT32 and Z32 tables against the measured maps), `make test-dof-pass-reference` (001DDE10's
   pass against the original's GS memory on both sides of it in 7 captured
   frames: bit-exact through the model and through the workers' path),
   `make test-gs-memory-reference` (the GS
@@ -1168,7 +1171,10 @@ only shows that field.
   digests' gate, the VU1 programs' host floats and the hashed texture
   lookup, PERFORMANCE.md "Progress" P4, P5 and P8). On 2026-10-12 (P10) the
   busiest worker sets AREA01's tick: 310 to 398 of the beat's 781 ticks and
-  98 to 119 of the fire peak's 149 ran over, 90.6 to 96.2 % speed. Since 2026-10-11 the
+  98 to 119 of the fire peak's 149 ran over, 90.6 to 96.2 % speed. Since the
+  separable address tables (2026-10-12, P11: the same bytes, the GS frame
+  15.7 % cheaper) 9 to 36 of each AREA01 range's ticks ran over headless,
+  98.8 to 99.8 % speed, and 0 to 1 of the AREA11 cinematic's. Since 2026-10-11 the
   default worker count follows the core types (6 on this M1 Pro, 4 on the
   iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
   for any count (PERFORMANCE.md "Progress" P3). Since 2026-10-12 the

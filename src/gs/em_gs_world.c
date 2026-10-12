@@ -1195,11 +1195,15 @@ int em_gs_world_wait(EmGsWorld *w)
     const Job *j = w->run;
     /* the outcome: every worker ran the job whole, and the model refused
      * nothing (the registers, refusals and span faults are the same in every
-     * worker; worker 0 speaks for them) */
+     * worker, and worker 0 speaks for them, except a refusal for want of
+     * memory for the address tables, which a worker meets alone) */
     for (uint32_t i = 0; i < w->workers; ++i)
         if (w->worker[i].failed)
             return fail(w, "a GIF packet of the frame is malformed, or a barrier fell inside a span", i);
     const EmGs *gs = &w->worker[0].gs;
+    for (uint32_t i = 1; i < w->workers && !(gs->refusals & EM_GS_REFUSE_MEMORY); ++i)
+        if (w->worker[i].gs.refusals & EM_GS_REFUSE_MEMORY)
+            gs = &w->worker[i].gs;
     if (gs->refused_prims || gs->refusals) {
         char what[192];
         snprintf(what, sizeof what, "%s: the GS model refused a primitive: %s",

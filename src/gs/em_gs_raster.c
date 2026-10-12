@@ -187,6 +187,129 @@ static inline void wr16(EmGs *gs, uint32_t half, uint32_t v)
     memcpy(gs->mem + ((half * 2u) & (EM_GS_MEM_BYTES - 1)), &h, 2);
 }
 
+/* ------------------------------------------------------------------------
+ * 1b. The separable address tables (docs/PERFORMANCE.md M1). The layouts
+ * the first level draws and reads every pixel (PSMCT32 / CT24 frames and
+ * textures, PSMZ32 / Z24 Z buffers, PSMT8 and PSMT4 textures, and the CT32
+ * CLUT loads; Progress P11 has the counts) split into a row part and a
+ * column part: their address is
+ *
+ *     (bp * unit + row[bw][y & 2047] + col[s][x & 2047])  wrapped by the 4 MiB mask
+ *
+ * (unit: 64 words, 256 bytes or 512 nibbles a block). The page row, the
+ * block row and the in-block row come only from y and the width; the page
+ * column, the block column and the in-block column only from x. In PSMT8 /
+ * PSMT4 one column bit is flipped on alternate pairs of rows (the 4-pixel
+ * halves of in_block8 / in_block4): those rows read the second column table,
+ * s = ((y >> 1) ^ (y >> 2)) & 1. No part carries into another, and the
+ * block number's wrap at 16384 blocks is the 4 MiB wrap of the sum.
+ *
+ * The tables are the functions above sampled along one column (row[bw][y] =
+ * the address of (0, y) at block 0) and one row (col[s][x] = the address of
+ * (x, y_s) less that of (0, y_s), y_0 = 0 and y_1 = 2), so they define no
+ * layout of their own; tests/gs_swizzle_test.c proves that the sum equals
+ * em_gs_addr32 / em_gs_addr8 / em_gs_addr4 at every x, y and width (with
+ * every base block), and test_gs_raster_reference.py part A proves the
+ * CT32 and Z32 tables against the measured swizzle maps. Each EmGs builds
+ * its own (EmGs.swz, heap): the column tables on its first draw, a width's
+ * row table on its first use. Unsigned arithmetic: a column entry may wrap
+ * below zero; the sum is taken modulo 2^32, a multiple of the 4 MiB. */
+enum { SWZ_CT32, SWZ_Z32, SWZ_T8, SWZ_T4, SWZ_N };
+typedef struct {
+    uint32_t col[SWZ_N][2][2048];          /* [layout][s][x]                 */
+    uint32_t *row[SWZ_N][64];              /* [layout][bw][y], 2048 entries  */
+} Swz;
+
+static uint32_t swz_ref(unsigned layout, uint32_t bw, uint32_t x, uint32_t y)
+{
+    switch (layout) {
+    case SWZ_CT32: return addr32_(0, bw, x, y, 0);
+    case SWZ_Z32: return addr32_(0, bw, x, y, 1);
+    case SWZ_T8: return addr8_(0, bw, x, y);
+    default: return addr4_(0, bw, x, y);
+    }
+}
+
+static Swz *swz_get(EmGs *gs)
+{
+    if (gs->swz)
+        return gs->swz;
+    Swz *t = malloc(sizeof *t);
+    if (!t)
+        return NULL;
+    for (unsigned l = 0; l < SWZ_N; l++) {
+        for (unsigned s = 0; s < 2; s++) {
+            const uint32_t y = s ? 2 : 0, o = swz_ref(l, 0, 0, y);
+            for (uint32_t x = 0; x < 2048; x++)
+                t->col[l][s][x] = swz_ref(l, 0, x, y) - o;
+        }
+        for (unsigned bw = 0; bw < 64; bw++)
+            t->row[l][bw] = NULL;
+    }
+    gs->swz = t;
+    return t;
+}
+
+/* The row table of a layout and width (bw: 6 bits), or NULL without memory. */
+static const uint32_t *swz_row(EmGs *gs, unsigned layout, uint32_t bw)
+{
+    Swz *t = swz_get(gs);
+    if (!t)
+        return NULL;
+    uint32_t **slot = &t->row[layout][bw & 63];
+    if (!*slot) {
+        uint32_t *r = malloc(2048 * sizeof *r);
+        if (!r)
+            return NULL;
+        for (uint32_t y = 0; y < 2048; y++)
+            r[y] = swz_ref(layout, bw & 63, 0, y);
+        *slot = r;
+    }
+    return *slot;
+}
+
+static void swz_free(EmGs *gs)
+{
+    Swz *t = gs->swz;
+    if (!t)
+        return;
+    for (unsigned l = 0; l < SWZ_N; l++)
+        for (unsigned bw = 0; bw < 64; bw++)
+            free(t->row[l][bw]);
+    free(t);
+    gs->swz = NULL;
+}
+
+/* CT32 / Z32 layouts (word address) and T8 / T4 (byte / nibble address). */
+static inline uint32_t swz32(const uint32_t *row, const uint32_t *col, uint32_t base, uint32_t x, uint32_t y)
+{
+    return base + row[y & 2047] + col[x & 2047];
+}
+static inline uint32_t swzt(const uint32_t *row, const uint32_t *col, uint32_t base, uint32_t x, uint32_t y)
+{
+    y &= 2047;
+    return base + row[y] + col[(((y >> 1) ^ (y >> 2)) & 1) * 2048 + (x & 2047)];
+}
+
+uint32_t em_gs_swz_addr(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y)
+{
+    unsigned l;
+    uint32_t unit, mask;
+    switch (psm) {
+    case EM_GS_PSMCT32: case EM_GS_PSMCT24: l = SWZ_CT32; unit = 64; mask = (EM_GS_MEM_BYTES / 4) - 1; break;
+    case EM_GS_PSMZ32: case EM_GS_PSMZ24: l = SWZ_Z32; unit = 64; mask = (EM_GS_MEM_BYTES / 4) - 1; break;
+    case EM_GS_PSMT8: l = SWZ_T8; unit = 256; mask = EM_GS_MEM_BYTES - 1; break;
+    case EM_GS_PSMT4: l = SWZ_T4; unit = 512; mask = EM_GS_MEM_BYTES * 2 - 1; break;
+    default: return UINT32_MAX;
+    }
+    const uint32_t *row = swz_row(gs, l, bw);
+    if (!row)
+        return UINT32_MAX;
+    const uint32_t *col = ((Swz *)gs->swz)->col[l][0];
+    const uint32_t a = l <= SWZ_Z32 ? swz32(row, col, bp * unit, x, y) : swzt(row, col, bp * unit, x, y);
+    return a & mask;
+}
+
 uint32_t em_gs_read_pixel(const EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y)
 {
     switch (psm) {
@@ -286,6 +409,7 @@ static void clut_load(EmGs *gs, uint64_t tex0)
         return;
     }
     unsigned n = t8 ? 256 : 16;
+    const uint32_t *crow = NULL;           /* CT32, width 1 (section 1b) */
     uint16_t next[512];
     memcpy(next, gs->clut, sizeof next);
     for (unsigned i = 0; i < n; i++) {
@@ -297,7 +421,11 @@ static void clut_load(EmGs *gs, uint64_t tex0)
             x = i & 7; y = i >> 3;
         }
         if (cpsm == EM_GS_PSMCT32 || cpsm == EM_GS_PSMCT24) {
-            uint32_t c = rd32(gs, em_gs_addr32(cbp, 1, x, y, 0));
+            if (!crow && !(crow = swz_row(gs, SWZ_CT32, 1))) {
+                refuse(gs, EM_GS_REFUSE_MEMORY, "no memory for the address tables");
+                return;
+            }
+            uint32_t c = rd32(gs, swz32(crow, ((const Swz *)gs->swz)->col[SWZ_CT32][0], cbp * 64, x, y));
             unsigned e = t8 ? i : (csa & 15) * 16 + i;
             next[e & 255] = (uint16_t)c;
             next[(e & 255) + 256] = (uint16_t)(c >> 16);
@@ -717,6 +845,10 @@ typedef struct {
     int wms, wmt, minu, maxu, minv, maxv;
     uint32_t ta0, ta1, aem;
     int stq_grid;           /* the span's vertices share one Z: STQ on the grid (4.5) */
+    /* the address tables (section 1b) of the frame (CT32 / CT24), Z (Z32 /
+     * Z24) and texture (CT32, T8, T4); draw_one binds them, NULL otherwise */
+    const uint32_t *frow, *fcol, *zrow, *zcol, *trow, *tcol;
+    uint32_t fbase, zbase, tbase;
 } Draw;
 
 /* Wrap (section 4.3), on the integer texel index of each axis. */
@@ -744,13 +876,13 @@ static uint32_t fetch_rgba(const EmGs *gs, const Draw *d, int u, int v)
 {
     uint32_t c, idx;
     switch (d->tpsm) {
-    case EM_GS_PSMCT32: return rd32(gs, addr32_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v, 0));
+    case EM_GS_PSMCT32: return rd32(gs, swz32(d->trow, d->tcol, d->tbase, (uint32_t)u, (uint32_t)v));
     case EM_GS_PSMT8:
-        /* em_gs_read_pixel's T8 and T4 reads, inline */
-        idx = gs->mem[addr8_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v) & (EM_GS_MEM_BYTES - 1)];
+        /* em_gs_read_pixel's T8 and T4 reads, inline, through the tables */
+        idx = gs->mem[swzt(d->trow, d->tcol, d->tbase, (uint32_t)u, (uint32_t)v) & (EM_GS_MEM_BYTES - 1)];
         goto clut;
     case EM_GS_PSMT4: {
-        const uint32_t n = addr4_(d->tbp, d->tbw, (uint32_t)u, (uint32_t)v);
+        const uint32_t n = swzt(d->trow, d->tcol, d->tbase, (uint32_t)u, (uint32_t)v);
         idx = (gs->mem[(n >> 1) & (EM_GS_MEM_BYTES - 1)] >> ((n & 1) * 4)) & 15;
         goto clut;
     }
@@ -903,7 +1035,7 @@ static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
     uint32_t faddr = 0, fword = 0;
     int f32 = d->fpsm == EM_GS_PSMCT32 || d->fpsm == EM_GS_PSMCT24;
     if (f32) {
-        faddr = em_gs_addr32(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, 0);
+        faddr = swz32(d->frow, d->fcol, d->fbase, (uint32_t)x, (uint32_t)y);
         fword = rd32(gs, faddr);
     } else {
         faddr = em_gs_addr16(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, d->fpsm);
@@ -927,7 +1059,7 @@ static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
     int z32 = d->zpsm == EM_GS_PSMZ32 || d->zpsm == EM_GS_PSMZ24;
     if (d->zte && (d->ztst >= 2 || write_z)) {
         if (z32)
-            zaddr = em_gs_addr32(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, 1);
+            zaddr = swz32(d->zrow, d->zcol, d->zbase, (uint32_t)x, (uint32_t)y);
         else
             zaddr = em_gs_addr16(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, d->zpsm);
     }
@@ -1310,7 +1442,7 @@ static int sprite_fill(EmGs *gs, const Draw *d, const Frag *fr, int px0, int px1
         for (int x = px0; x <= px1; x++) {
             if (wframe) {
                 if (f32) {
-                    const uint32_t fa = addr32_(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, 0);
+                    const uint32_t fa = swz32(d->frow, d->fcol, d->fbase, (uint32_t)x, (uint32_t)y);
                     wr32(gs, fa, keep ? (rd32(gs, fa) & keep) | put : put);
                 } else {
                     const uint32_t fa = em_gs_addr16(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, d->fpsm);
@@ -1319,7 +1451,7 @@ static int sprite_fill(EmGs *gs, const Draw *d, const Frag *fr, int px0, int px1
             }
             if (wz) {
                 if (z32) {
-                    const uint32_t za = addr32_(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, 1);
+                    const uint32_t za = swz32(d->zrow, d->zcol, d->zbase, (uint32_t)x, (uint32_t)y);
                     wr32(gs, za, d->zpsm == EM_GS_PSMZ24 ? (rd32(gs, za) & 0xFF000000u) | zval : zval);
                 } else {
                     wr16(gs, em_gs_addr16(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, d->zpsm), zval);
@@ -1784,9 +1916,43 @@ static void range_add(EmGs *gs, int k, uint64_t lo, uint64_t hi)
     }
 }
 
+/* Binds the Draw's address tables (section 1b): 0 without memory for them. */
+static int swz_bind(EmGs *gs, Draw *d)
+{
+    if (d->fpsm == EM_GS_PSMCT32 || d->fpsm == EM_GS_PSMCT24) {
+        if (!(d->frow = swz_row(gs, SWZ_CT32, d->fbw)))
+            return 0;
+        d->fcol = ((Swz *)gs->swz)->col[SWZ_CT32][0];
+        d->fbase = d->fbp * 64;
+    }
+    if (d->zte && (d->zpsm == EM_GS_PSMZ32 || d->zpsm == EM_GS_PSMZ24)) {
+        if (!(d->zrow = swz_row(gs, SWZ_Z32, d->fbw)))
+            return 0;
+        d->zcol = ((Swz *)gs->swz)->col[SWZ_Z32][0];
+        d->zbase = d->zbp * 64;
+    }
+    if (d->tme) {
+        const unsigned l = d->tpsm == EM_GS_PSMCT32 ? SWZ_CT32 : d->tpsm == EM_GS_PSMT8 ? SWZ_T8
+                         : d->tpsm == EM_GS_PSMT4 ? SWZ_T4 : SWZ_N;
+        if (l != SWZ_N) {
+            if (!(d->trow = swz_row(gs, l, d->tbw)))
+                return 0;
+            d->tcol = ((Swz *)gs->swz)->col[l][0];
+            d->tbase = d->tbp * (l == SWZ_CT32 ? 64u : l == SWZ_T8 ? 256u : 512u);
+        }
+    }
+    return 1;
+}
+
 static void draw_one(EmGs *gs, struct EmGsPending *p)
 {
     p->d.c = &p->c;
+    if (!swz_bind(gs, &p->d)) {
+        /* fail-stop: nothing drawn, the primitive counted as refused */
+        refuse(gs, EM_GS_REFUSE_MEMORY, "no memory for the address tables");
+        gs->refused_prims++;
+        return;
+    }
     switch (p->kind) {
     case 0: draw_point(gs, &p->d, &p->v[0]); break;
     case 1: draw_line(gs, &p->d, &p->v[0], &p->v[1]); break;
@@ -1850,6 +2016,7 @@ void em_gs_release(EmGs *gs)
     free(gs->setup_cache);
     gs->setup_cache = NULL;
     gs->setup_valid = 0;
+    swz_free(gs);
 }
 
 static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex *a, const EmGsVertex *b,

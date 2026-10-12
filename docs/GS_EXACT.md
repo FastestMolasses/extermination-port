@@ -165,6 +165,19 @@ except 3 values in 36,864. Its Z is off by one LSB on 0.8-4.8 % of pixels
   - Evidence: measured (the T4 uploads, all nibbles).
 - **T8H / T4HL / T4HH.** Stored in bits 24..31, 24..27 and 28..31 of a CT32
   word. Doc.
+- **The drawing path's tables (2026-10-12, PERFORMANCE.md "Progress"
+  P11).** The CT32 / Z32 layouts (frames, Z buffers, CT32 textures, the
+  CT32 CLUT loads) and the T8 / T4 layouts are separable: the address is
+  base + row(width, y) + column(x), wrapped by the 4 MiB mask, where T8 /
+  T4 rows with ((y >> 1) XOR (y >> 2)) & 1 read a second column table
+  (the swapped 4-pixel halves above). The model's pixel loops read the
+  frame, Z and texel addresses from such tables (`em_gs_raster.c` section
+  1b), sampled from the functions above, so they add no layout of their
+  own. Evidence: `make test-gs-swizzle` (the sums equal `em_gs_addr32` /
+  `addr8` / `addr4` at every x, y and width with varying base blocks, and
+  at every base block; EM_TEST_FULL=1 2.15 billion addresses) and section
+  7 part A (the CT32 and Z32 tables against the measured maps). CT16 / Z16
+  buffers and the other texture formats keep the functions.
 
 ### 2.1 GIF packets (`em_gs_gif`)
 
@@ -797,6 +810,11 @@ has settled:
   the sprite's kick (`sprite_uv_settled`) and refuses only where one of
   them would read another 1/16 texel at a pixel the sprite draws.
 
+In every mode, a primitive is also refused when the model has no memory for
+its address tables (section 2.0, `EM_GS_REFUSE_MEMORY`, since 2026-10-12);
+the GS world checks that bit in every worker, since one worker can meet it
+alone.
+
 A refused primitive draws nothing. It is counted (`refused_prims`),
 `refusals` gets a reason bit and `reason` names the first refusal.
 
@@ -816,7 +834,11 @@ span fault, as the port's fail-stop rule requires.
 - **A.** For every test of the 30 batches, `packet.bin` goes through the C
   model **in strict mode** from zeroed memory; the span is flushed at the
   end. Every colour and Z buffer is compared through the measured maps. A
-  refusal or a span fault in any capture packet fails the test.
+  refusal or a span fault in any capture packet fails the test. Since
+  2026-10-12 part A also compares the drawing path's CT32 and Z32 address
+  tables (section 2.0) with the measured maps over eight buffers (1.7
+  million addresses: the measured page, the 512- and 640-wide fields, the
+  2048-pixel width and the top page of local memory).
 - **B.** Every uploaded rectangle and the fence page are compared.
 - **C.** (EM_TEST_FULL=1) the repeat capture of the first suite.
 - **D.** The binding helper (section 9) replays 300 random primitives with
@@ -1902,6 +1924,19 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   and 40). AREA01 still runs over: the fire peak's busiest worker 16.6-16.8
   ms, 90.6-93.3 % speed. With 3 workers (the iPhone proxy) AREA11 runs at
   79-88 % speed and AREA01 at 55-66 %.
+- **The separable address tables (2026-10-12, PERFORMANCE.md "Progress"
+  P11).** The frame, Z and texel addresses of the layouts the pixel path
+  uses (CT32 / CT24 frames, Z32 / Z24, CT32 / T8 / T4 textures, CT32 CLUT
+  loads) come from per-width row tables and column tables (section 2.0),
+  with the same bytes (`make test-gs-swizzle`, part A, the proof set, a
+  HEAD-against-M1 random differential). With one worker the GS frame takes
+  41.3-42.1 instead of 49.2-49.9 ms of CPU (-15.7 %, about 28.5 ns a plotted
+  pixel); every large class of the census is 10-24 % cheaper. At the
+  default 6 workers the busiest worker fell 1.3-1.9 ms in AREA11 (cinematic
+  10.9 -> 9.5 ms) and 2.1-2.7 ms in AREA01 (fire peak 16.5 -> 13.8-13.9
+  ms); AREA01 runs at 98.8-99.8 % speed headless (9-36 ticks over per
+  range). With 3 workers AREA11's cinematic and calm run at 97-99 % and
+  AREA01 at 65-79 %.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
@@ -2101,6 +2136,8 @@ was compared with real hardware.
 - `tools/export_gs_memory.py`: the library image `assets/gs_library.emgm`.
 - `tools/test_gs_raster_reference.py` (`make test-gs-raster-reference`):
   the verification (section 7, part F the row bands).
+- `tests/gs_swizzle_test.c` (`make test-gs-swizzle`): the drawing path's
+  separable address tables against the address functions (section 2.0).
 - `tests/gs_world_test.c` (`make test-gs-world`): the workers draw what one
   worker draws (thread sanitizer), the depth-of-field pass included, also
   with every block of local memory uploaded, and past the recorder's

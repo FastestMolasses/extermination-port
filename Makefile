@@ -1160,6 +1160,16 @@ test-gs-world:
 	    tests/gs_world_test.c src/gs/em_gs_world.c src/gs/em_gs_raster.c src/gs/em_gs_frame.c -lm \
 	    -o build/gs_world_test/gs_world_test && TSAN_OPTIONS=halt_on_error=1 ./build/gs_world_test/gs_world_test
 
+# The CPU GS model's separable address tables (em_gs_raster.c section 1b,
+# PERFORMANCE.md M1): the table sums the drawing path uses against
+# em_gs_addr32 / addr8 / addr4 at every position and width, and every base
+# block (EM_TEST_FULL=1: every width), with negative controls.
+.PHONY: test-gs-swizzle
+test-gs-swizzle:
+	mkdir -p build/gs_swizzle_test && $(CC) -std=c11 -O2 -Wall -Wextra -Werror -Wpedantic -ffp-contract=off \
+	    -fsanitize=address,undefined -fno-sanitize-recover=all -Isrc tests/gs_swizzle_test.c src/gs/em_gs_raster.c -lm \
+	    -o build/gs_swizzle_test/gs_swizzle_test && ./build/gs_swizzle_test/gs_swizzle_test
+
 # The Original profile's picture placement (src/gs/em_gs_display.h,
 # GS_EXACT.md section 11): the field presentation (both parities) and the
 # options' screen position (offsets 0 and +-20, the uncovered edge, the

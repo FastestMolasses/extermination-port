@@ -42,6 +42,8 @@ On the iPhone Air the port got only 3 drawing threads, and every tick measured t
 
 **After the quick wins (Progress P10, 2026-10-12).** On this Mac at the default worker count, every AREA11 scene now runs at full speed, headless and windowed (0-5 of 1,310 cinematic ticks over, none windowed), and the game thread is about 3 ms cheaper per tick. The GS model's pixel cost fell only 3-4 % (about 34 ns), so the AREA01 fire still runs at 91-96 % speed and the 3-worker iPhone proxy at 79-88 % in AREA11 and 55-66 % in AREA01. The medium items (M1-M4) are what is left.
 
+**After M1 (Progress P11, 2026-10-12).** The separable swizzle tables make the GS frame 15.7 % cheaper on one worker (about 28.5 ns a pixel). At the default worker count the Mac now runs AREA01 at 98.8-99.8 % speed (the fire peak's busiest worker 16.5 -> 13.8-13.9 ms) and AREA11 at full speed with 0-1 ticks over. The 3-worker iPhone proxy runs at 97-99 % in the AREA11 cinematic and calm, 77-89 % in the slide and 65-79 % in AREA01. M2-M4 remain.
+
 ## 2. Where the time goes, scene by scene
 
 Quiet M1 Pro, default 7 GS workers, means per tick.
@@ -202,6 +204,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* estimated 15-25 % of pixel cost. Calm busiest worker about 10 -> 8 ms; fire about 14 -> 11-12 ms.
 - *Effort:* 2-4 days. *Risk:* low; part A of the raster test decodes through the measured swizzle maps.
 - *Proof:* the GS proof set.
+- *Done (Progress P11):* PSMCT32 / Z32 (Z24) frames and Z buffers, PSMCT32 / T8 / T4 textures and the CT32 CLUT loads, the layouts the counts found in the pixel path. The same bytes (the proof set, `make test-gs-swizzle`'s 2.15 billion addresses, part A against the measured maps, a 62,130-primitive HEAD-against-M1 differential). The GS frame on one worker 15.7 % cheaper (about 28.5 ns a pixel); at 6 workers the busiest worker 1.3-1.9 ms lower in AREA11 (calm 11.0 -> 9.5 ms) and 2.1-2.7 ms in AREA01 (fire 14.9 -> 12.5 ms), which now runs at 98.8-99.8 % speed.
 
 **M2. Per-state specialized span loops.**
 - *Change:* hoist the state switches out of the pixel loop and inline plot, sample and fetch. Write dedicated loops for the depth-of-field copy and blend, the snow and fire STQ PSMT8 / CLUT32 sprites, and the Z-tested textured triangles. Keep the generic fallback for every other state.
@@ -259,6 +262,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
   | Fire peak | 33.3 ms | about 50 % |
 
 - **After the quick wins** (Progress P10, the same 3 workers on M1 P-cores): cinematic 19.0 ms (about 88 %), slide 20.7-21.0 ms (about 80 %), AREA01 beat 25.1 ms, fire 26.8 ms, fire peak 30.3 ms (about 55 %). Still over on nearly every tick.
+- **After M1** (Progress P11, the same proxy): busiest worker cinematic 16.1-16.2 ms (97 % speed, 568-582 of 1,310 ticks over), calm 99 %, slide 17.5-17.9 ms (77-89 %), AREA01 beat 20.4 ms (79 %), fire 21.7-21.8 ms (74-75 %), fire peak 24.6-24.7 ms (65-67 %).
 - **Per-core speed.** A19 Pro P-cores are faster per core than the M1 Pro's (IOS.md world steps p50 6.99 vs 7.52 ms, before the GS frame), but the E-cores are much slower. On balance the device is probably worse than these numbers; not measured on it.
 - **Stale doc.** IOS.md "Frame time" (2026-10-04, 7.6 ms headroom) predates the GS frame on main (2026-10-08) and the depth-of-field pass (2026-10-10).
 - **Thermals.** The Air is a thin phone. Sustained all-core load will throttle; not measured.
@@ -296,7 +300,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/; runs/sum_*, summary/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/; runs/sum_*, summary/; runs/m1*, m1/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -929,6 +933,121 @@ Paced, a tick's wall time is the game thread's own work whenever the workers fin
 - *M4* (parse the stream once, dynamic bands): the duplicated front end is still in every worker, and on the phone's efficiency cores the equal bands still wait for the slowest worker (P3, "The band partition").
 - *Order unchanged:* M1, M3, M2, M4, then L1. Each must keep -ffp-contract=off's unfused rounding (P1), keep plot()'s compiled code under watch (P7), and pass the GS proof set with EM_TEST_FULL=1 and a HEAD-against-new differential (q3/sweep, q4/sweep).
 - *Also open:* gs3 (-O3 for the raster only) after M1 / M2 (P9); the remaining game-thread hot spot em_vu_vec_bits (P5); the device sweep of EM_GS_THREADS 2-5 and a sustained thermal run (section 7, item 2).
+
+### P11. Separable swizzle tables (M1) (2026-10-12)
+
+**Which layouts.** A counting build (m1/count/, one worker, the demo to counter 1780, 18 million primitives) counted the addresses the pixel path computes:
+- texel fetches: PSMCT32 4.61 billion, PSMT4 1.68 billion, PSMT8 0.68 billion; no other texture format;
+- frame words: PSMCT32 only (1.90 billion through plot(), 53 million through the Q4 fill);
+- Z words: PSMZ24 only (1.27 billion through plot(), 190 million through the fill), which uses the Z32 layout;
+- CLUT loads: 885,476 loads, 15.3 million CT32 entries (0.2 % of the addresses).
+
+**What changed** (em_gs_raster.c section 1b; GS_EXACT.md 2.0).
+- These layouts are separable. The address is bp * unit + row[bw][y] + col[s][x], wrapped by the 4 MiB mask (unit: 64 words, 256 bytes or 512 nibbles a block). The row part holds the page row, the block row and the in-block row; the column part the page column, the block column and the in-block column. No part carries into another, and the block number's wrap at 16,384 blocks is the 4 MiB wrap of the sum.
+- In PSMT8 / PSMT4 one column bit is flipped on alternate pairs of rows (the swapped 4-pixel halves). Those rows, s = ((y >> 1) ^ (y >> 2)) & 1, read a second column table. PSMCT32 and PSMZ32 have one.
+- The tables are the existing address functions sampled: row[bw][y] is the address of (0, y) at block 0, and col[s][x] the address of (x, y_s) less that of (0, y_s), with y_0 = 0 and y_1 = 2. So they define no layout of their own.
+- Each EmGs builds its own (EmGs.swz, heap; em_gs_release frees them): the column tables (48 KiB) on its first draw, and a width's row table (8 KiB) on its first use. There is no global state, and no worker shares a table.
+- draw_one binds the frame (CT32 / CT24), Z (Z32 / Z24) and texture (CT32, T8, T4) tables to the primitive. plot(), sprite_fill, fetch_rgba and the CT32 CLUT load read their addresses through them. CT16 / Z16 buffers and the other texture formats keep the functions.
+- Fail-stop: with no memory for a table the primitive is refused (EM_GS_REFUSE_MEMORY) and draws nothing. The GS world checks that bit in every worker, since one worker can meet it alone.
+- -ffp-contract=off (P1) is unchanged; the change is integer address arithmetic only.
+
+**The tables proven.**
+- *Against the address functions:* tests/gs_swizzle_test.c (`make test-gs-swizzle`). It compares em_gs_swz_addr, the same inline code the pixel path runs, with em_gs_addr32 / em_gs_addr8 / em_gs_addr4 for the four layouts:
+  - every x and y (0..2047) at every width 0..63 (default 8 widths), each with a base block that varies with x, y and the width;
+  - every base block 0..16383, at 64 random positions and widths each, and (EM_TEST_FULL=1) at every x < 128, y < 64 for widths 1 and 8;
+  - one million positions past 2047 (the functions wrap at 2048);
+  - the CT24 / Z24 aliases.
+  - EM_TEST_FULL=1: 2,153,286,588 addresses, 0 differ (25 s under ASan / UBSan). Default: 140 million, 2 s.
+  - Negative controls in the test: the T8 / T4 sum with the other column table differs at 256 of 512 positions each, and the CT32 tables against the Z32 function at 512 of 512.
+- *Against the measured maps:* test_gs_raster_reference.py part A now also compares the CT32 and Z32 tables with the layout batch's measured maps over eight buffers (the measured page, the 512- and 640-wide fields, the 2048-pixel width, the top page of local memory): 1,712,128 addresses, 0 differ. A first version of the check used a 4032-pixel width, which the GS wraps at 2048; it failed as it should, and the width was corrected.
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1, the M1 build; receipts in build/perf_investigation/m1/proof/). Each log equals Q7's (q7/proof/) apart from timings and scratch paths, and the raster reference's one added line:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures;
+  - gs_world_test: PASS at 1, 2, 3 and 8 workers and the host default (6), with the DOF pass and past the texture table's end;
+  - the DOF pass: 8 captures bit-exact;
+  - fog, GS memory and gs_display_test: PASS;
+  - the texture reference: PASS, 11,129 decodes equal;
+  - the fb2 harness: 8 of 19 points, every exact-pixel line equal to Q7's;
+  - the AREA01 smoke: 20 live phases, none not live;
+  - the full level smoke: the same 404 PASS lines as Q7, no failures (68 minutes);
+  - and the new `make test-gs-swizzle` and part A table check (below).
+- *A random differential* (m1/sweep/sweep.c, built once against HEAD's em_gs_raster.c and once against M1's):
+  - 1,500 seeded batches of 40 random primitive kicks over random local memory: points, lines, line strips, triangles, strips, fans and sprites.
+  - Every state an address goes through is random: the frame (every page, widths 0..32, CT32 / CT24 / CT16 / CT16S, FBMSK), Z (every page, Z32 / Z24 / Z16 / Z16S, ZMSK, ZTE / ZTST), the texture (every base block, widths 0..63, CT32 / T8 / T4 / CT24 / CT16 / T8H / T4HL / T4HH, TW / TH 0..10), the CLUT (every CBP, CT32 / CT16, CSA, CLD 0..5), the four wrap modes with random region bounds, nearest and bilinear, UV and STQ, and the scissor anywhere in 0..2047, so high page rows, page columns past the width and the 4 MiB wrap all occur. Alpha test, blend, fog, DATE, dither, SCANMSK and COLCLAMP are random too. One batch in four runs in strict mode.
+  - Each batch is drawn by one EmGs and by 3 and 8 row-band EmGs in lockstep. All 4,500 lines (the hash of the 4 MiB local memory, the drawn and refused primitives and the drawn pixels) are equal: 62,130 primitives and 127.5 million pixels at one band.
+  - Four negative controls (scratch copies, m1/sweep/neg/), each breaking one table, are caught in a 100-batch run: the T8 / T4 column-table choice from (y >> 1) & 1 alone changes 255 of 300 lines, Z with the CT32 column table 300, the row tables of widths above 8 built one width short 294, and the CLUT load's base one word off 291.
+  - Two other CLUT controls changed nothing, correctly: the CLUT load's row table for width 2, and its Z32 column table. A CLUT reads at most 16 x 16 pixels, where the widths and the two column tables give the same addresses (they differ from x 32 or y 16 on). They were replaced by the base control above.
+- *The DOF captures:* the offline bench (below) checks that after the pass all 4 MiB of local memory are equal between HEAD and M1 in each of the 8 captures, at 1, 3 and 8 bands.
+
+**Offline** (m1/bench/bench.py; the DOF pass of each fork capture through dof_replay, one EmGs, strict; HEAD's library and M1's alternated, best of 30): 18.5-21.1 ms -> 14.9-17.3 ms per pass, all 8 captures 157.4 -> 127.7 ms (-18.9 %).
+
+**Census per class** (the q4 census instrumentation applied to HEAD and to M1; one worker, the demo to counter 1780, the same 1,967.5 million plots in every run; HEAD, M1, M1, HEAD; m1/census/summary.txt). Seconds of GS CPU, then ns per plot:
+
+| Class | HEAD a / b | M1 a / b |
+|---|---|---|
+| T4 triangles, bilinear, Z GEQUAL (416.9M plots) | 24.49 / 24.25 s, 58.2-58.7 ns | 20.60 / 20.57 s, 49.3-49.4 ns |
+| CT32 sprites, bilinear, blended, Z GEQUAL (640.9M) | 18.50 / 18.24 s, 28.5-28.9 ns | 14.86 / 14.83 s, 23.1-23.2 ns |
+| CT32 sprites, bilinear, Z ALWAYS (399.9M) | 11.37 / 11.23 s | 9.32 / 9.31 s |
+| T8 triangles, bilinear (160.3M) | 8.74 / 8.66 s | 7.53 / 7.51 s |
+| Untextured triangles, blended (217.6M) | 3.81 / 3.75 s | 3.14 / 3.12 s |
+| CT32 triangles, three classes (110.9M) | 4.75 / 4.71 s | 4.15 / 4.15 s |
+| The Q4 trivial sprites | 0.37 / 0.36 s | 0.39 / 0.38 s |
+| All | 72.78 / 71.95 s, 36.6-37.0 ns | 60.61 / 60.50 s, 30.8 ns (-16.3 %) |
+
+Every large class drawn through plot() is 10-24 % cheaper (the textured ones 13-24 %); the untextured Z-ALWAYS triangles (8.5M plots) 7 %, and the 0.6M line pixels are unchanged. So P7's hazard (an edit to plot() slowing every class) did not occur. Only the trivial sprites' fill, which already computed one address per pixel inline, is 0.02 s slower (+5 %, 0.03 % of the run).
+
+**Live** (m1/batch.sh, 08:13-09:06; headless, uncapped; each group HEAD, M1, M1, HEAD; binaries m1/head_extermination, HEAD 4af6bc3 from git archive, and m1/m1_extermination, equal to build/extermination; runs/m1_*). quiet.sh's gate held before every run: idle 70.3-79.8 %, 1-minute load 3.8-13.6. Mean ms per tick.
+
+One worker (the demo to counter 1780, EM_GS_THREADS=1), the GS frame's CPU per frame:
+
+| Range | HEAD a / b | M1 a / b | Change |
+|---|---|---|---|
+| Cinematic (1,310 frames) | 49.90 / 49.64 | 41.82 / 42.13 | -7.8 ms (-15.7 %) |
+| Calm | 49.42 / 49.19 | 41.31 / 41.26 | -8.0 ms |
+
+About 28.5 ns per plotted pixel in the cinematic (1.47M a frame), against 34 after the quick wins (P10).
+
+Default 6 workers, AREA11 (the demo to counter 4650). Each cell: busiest worker / tick wall / ticks over:
+
+| Range | HEAD a, b | M1 a, b | Busiest worker |
+|---|---|---|---|
+| Cinematic (1,310) | 10.90, 10.82 / 11.74, 11.36 / 5, 3 | 9.58, 9.48 / 10.33, 9.97 / 1, 1 | -1.3 ms |
+| Calm (85) | 10.99, 10.96 / 12.01, 11.68 / 0, 0 | 9.61, 9.49 / 10.17, 9.90 / 0, 0 | -1.4 ms |
+| Slide (121) | 11.87, 12.12 / 12.54, 14.30 / 0, 14 | 10.07, 10.08 / 10.66, 10.62 / 0, 0 | -1.9 ms |
+
+HEAD b's slide was disturbed (14 ticks over, 98.9 % speed; its busiest worker is kept). Every other range ran at 100 % speed. The game thread is unchanged (5.9-6.3 ms).
+
+Default 6 workers, AREA01 (a01.sh to a01_00; every run passed the smoke's 21 live phases). Each cell: busiest worker / tick wall / ticks over / speed:
+
+| Range | HEAD b | M1 a, b | Busiest worker |
+|---|---|---|---|
+| Beat (781) | 13.88 / 14.98 / 208 / 97.8 % | 11.75, 11.80 / 13.27, 13.11 / 36, 36 / 99.7, 99.7 % | -2.1 ms |
+| Fire (376) | 14.85 / 15.77 / 117 / 96.9 % | 12.45, 12.54 / 13.51, 13.72 / 12, 32 / 99.8, 99.5 % | -2.4 ms |
+| Fire peak (149) | 16.51 / 17.39 / 92 / 94.3 % | 13.77, 13.91 / 14.52, 15.21 / 9, 31 / 99.6, 98.8 % | -2.7 ms |
+
+HEAD a (m1_a01_head_a) was disturbed: its busiest worker was 14.32 / 15.23 / 16.93 ms, near HEAD b's, but its tick took 18.5-22.0 ms (86.2 / 83.8 / 76.0 % speed, 519 / 292 / 146 over) with 6.6-10.7 ms of waiting for the field, so the workers were off-core. Its busiest-worker figures agree with the change above; its tick figures are not used. The game thread is unchanged (9.9-10.8 ms).
+
+Three workers (EM_GS_THREADS=3, the iPhone proxy). Each cell: busiest worker / ticks over / speed:
+
+| Range | HEAD a, b | M1 a, b |
+|---|---|---|
+| Cinematic | 18.70, 18.94 / 1202, 1287 / 87.4, 85.9 % | 16.08, 16.15 / 568, 582 / 97.0, 96.9 % |
+| Calm | 18.63, 18.79 / 85, 85 / 87.8, 86.9 % | 16.02, 16.21 / 10, 13 / 99.2, 98.9 % |
+| Slide | 20.85, 20.60 / 121, 121 / 73.1, 79.4 % | 17.52, 17.89 / 66, 105 / 89.0, 76.9 % |
+| AREA01 beat | 24.61, 24.60 / 736, 731 / 66.5, 66.5 % | 20.40, 20.41 / 629, 627 / 78.9, 78.5 % |
+| AREA01 fire | 26.31, 26.35 / 376, 376 / 62.4, 62.3 % | 21.74, 21.83 / 359, 363 / 75.3, 74.3 % |
+| AREA01 fire peak | 29.71, 29.85 / 149, 149 / 55.4, 55.0 % | 24.55, 24.65 / 149, 149 / 66.8, 65.2 % |
+
+The slide's speed at 3 workers is noisy in both builds (73-79 % HEAD, 77-89 % M1, with the busiest worker 17.5-17.9 ms in M1); its busiest worker fell 2.7-3.3 ms.
+
+**Reading.**
+- *Exactness.* Only how an address is computed changed; the proofs above are the evidence, not the label.
+- *Gain.* The GS frame is 15.7 % cheaper on one worker and 16.3 % in the census, inside the plan's 15-25 % estimate. At 6 workers the busiest worker is 1.3-1.9 ms lower in AREA11 (the estimate was about 10 -> 8 ms in the calm; measured 11.0 -> 9.5) and 2.1-2.7 ms lower in AREA01 (estimate 14 -> 11-12 in the fire; measured 14.9 -> 12.5).
+- *AREA01 on the Mac* now runs at 98.8-99.8 % speed at the default count (9-36 ticks over per range, against 92-208), the target P10 set for it (busiest worker 2-3 ms lower). The fire peak's busiest worker is 13.8-13.9 ms, under the period with 2.8 ms to spare.
+- *The iPhone proxy* (3 workers) gains 10-12 points of speed: AREA11 cinematic and calm 97-99 %, the slide 77-89 %, AREA01 65-79 %. Its busiest worker is still over the period in AREA01 (20.4-24.7 ms) and on about half of the cinematic's ticks. Not measured on the device.
+- *What is left.* About 28.5 ns a plotted pixel. M3 (the decoded texture cache) and M2 (specialized span loops, the early Z test) are next; fetch_rgba still switches on the format and the four bilinear fetches each look their row and column up again, which M2's specialization can share.
+- *Not covered here:* the field readout (em_gs_world.c, one em_gs_addr32 per field pixel, 114,688 a frame spread over the workers) and the residency marks keep the function; they are not on the per-plot path.
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
