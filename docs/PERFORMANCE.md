@@ -172,6 +172,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* about 1.5 ms of all-worker CPU per frame, about 0.2 ms of busiest worker.
 - *Effort:* about 1 day. *Risk:* low.
 - *Proof:* the GS proof set.
+- *Done (Progress P7):* the same bytes (the proof set, a 65,824-primitive HEAD-against-Q4 differential). The trivial sprites (the field's Z clear, the full clears and the colour fills) cost 7.4 times less; one worker's GS frame 1.1 ms less in the cinematic and calm, and the busiest of 6 workers 0.26-0.30 ms less in AREA11. gsw_alpha_clear is not one of them: it is a blended triangle strip with a Z test, so it stays on the generic path (P7, "Not covered").
 
 **Q5. Worker QoS and worker count.**
 - *Change:* give the workers USER_INTERACTIVE QoS, and choose the count from hw.perflevel0 / hw.perflevel1 instead of "online less 3". EM_GS_THREADS still overrides.
@@ -290,7 +291,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -649,6 +650,88 @@ Round 1's six-worker runs (runs/q3_demo_*, runs/q3_a01_*, under the load above) 
 - *AREA01.* The fire gains far more: 1.1-1.8 ms of the busiest worker. There the workers set the tick (P4), so the tick follows. Ticks over the period fall by about half (beat 355-402 -> 194-249, peak 144-147 -> 79-104), and the fire peak's speed rises from 80-86 % to 93-95 %.
 - *Why the slide and the fire gain most.* The report classifies their snow and fire sprites as STQ sprites (section 4, M2). For those, each removed per-pixel step was a double interpolation, a divide and stq_div, not just an integer divide. This step did not count pixels per sprite class.
 - *What is left.* AREA01's peak still runs over the period on most ticks (busiest worker 16.6-16.7 ms). The remaining large items are unchanged: the texel fetch / sample (M2 and the early Z test) and the swizzle tables (M1).
+
+### P7. A fast path for trivial-state sprites (Q4) (2026-10-11)
+
+**Which sprites.** A per-state census (a measurement-only build, q4/census/, that times each drawn primitive by its state; one worker, the demo to counter 1780, the same 18,000,000 primitives in every run) found these untextured sprites in the AREA11 frames:
+- *The field's Z clear:* one 512x224 sprite (114,688 pixels) in each in-level frame, with ZTST ALWAYS and an alpha test that never passes with AFAIL ZB_ONLY, so only Z is written. 1,397 in the window, 160.2M pixels.
+- *Full clears:* 256 sprites that write colour and Z, no alpha test (29.4M pixels).
+- *Colour fills:* 1,410 sprites of 16,384 pixels, Z masked (23.1M pixels).
+- Two single sprites of the same kind.
+
+Through plot() they cost 10.7-13.0 ns a pixel: 2.65 s of the run's 73.8 s of GS CPU (3.6 %).
+
+**What changed** (em_gs_raster.c, sprite_fill, called by draw_sprite).
+- A sprite with no texture, no DATE, no Z test that compares (ZTE 0 or ZTST ALWAYS) and no active blend takes every pixel through plot() with the same values. The colour (with fog at the sprite's one fog weight), the alpha test's outcome, the source word and its write mask, and the Z value are all per-primitive.
+- sprite_fill computes them once, by plot()'s rules, then writes each pixel in plot()'s order: rows top to bottom, each left to right, the frame word before the Z word. Frame and Z buffers that share memory are therefore written exactly as before. It counts the pixels plot() counts.
+- Every other state returns 0 and draws through plot(), unchanged. plot()'s source is untouched (see "Round 1" below for why).
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1, the final build; receipts in build/perf_investigation/q4/proof/) gives P6's results:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures, its log line for line equal to P6's apart from timings;
+  - gs_world_test: PASS, its log equal to P6's;
+  - the DOF pass: 8 captures bit-exact;
+  - fog, GS memory and gs_display_test: PASS;
+  - the fb2 harness, the AREA01 smoke and the full level smoke: see "Long proofs" below.
+- *A random differential* (q4/sweep/sweep.c, built once against HEAD's em_gs_raster.c and once against Q4's):
+  - 1,500 seeded batches of 40 random primitives, mostly untextured sprites, over random local memory. Every state the fast path reads is random: the frame (CT32 / CT24 / CT16 / CT16S, FBMSK) and Z (Z32 / Z24 / Z16 / Z16S, ZMSK) formats, a Z buffer that sometimes shares the frame's memory, ZTE / ZTST, ATE / ATST / AREF / AFAIL, DATE, ABE / PABE / ALPHA, FBA, COLCLAMP, fog and FOGCOL, SCANMSK, DTHE, the scissor and sub-pixel corners. About one primitive in ten is textured or a triangle strip.
+  - Each batch is drawn by one EmGs and by 3 and 8 row-band EmGs in lockstep. 45 % of the sprite draws took the fast path; the rest are its fallbacks.
+  - All 4,500 hashes of the 4 MiB local memory and every drawn-pixel count are equal (65,824 primitives, 332.0M pixels at one band).
+  - Three negative controls (scratch copies, not kept) each break one rule of the fast path: the Z24 write's kept top byte, the SCANMSK row skip, the FBMSK merge. They change 66, 213 and 282 of the 300 lines of a 100-batch run.
+  - The sweep's random frame widths and Z bases overlap rows, so its band counts differ from each other; HEAD and Q4 agree line by line for each band count.
+
+**Round 1 (superseded).** The first version also moved plot()'s alpha-test switch into the shared helper. That changed plot()'s compiled code, and in the census every class drawn through plot() got 2-3 % slower (the textured triangles 24.11 -> 24.73 s). The round-1 live runs (runs/q4_*) used that build and are not used below. The final code leaves plot()'s source as it was: its compiled code, and that of sample, fetch_rgba and span_end, compare equal to HEAD's instruction by instruction, addresses aside.
+
+**Census, final code** (runs/q4c_*, HEAD, Q4, Q4, HEAD; idle 69-73 % before each run, 1-minute load 5.0-7.6):
+
+| | HEAD a / b | Q4 a / b |
+|---|---|---|
+| The trivial sprites (212.9M pixels) | 2.650 / 2.662 s | 0.357 / 0.356 s |
+| Everything else | 71.15 / 71.11 s | 71.17 / 71.18 s |
+| All GS CPU | 73.80 / 73.78 s | 71.53 / 71.54 s (-3.0 %) |
+
+Per pixel: the Z clear 12.65 -> 1.61 ns, the full clears 12.97 -> 2.58 ns, the colour fills 10.73 -> 1.19 ns.
+
+**Live** (q4/batch2.sh, 22:41-23:04; each round HEAD, Q4, Q4, HEAD; headless, uncapped; binaries q4/head_extermination and q4/q4_extermination; runs/q4r2_*). Idle before each run 70.4-77.6 %; the 1-minute load was 4.6-9.5 for AREA11 and 8.1-13.4 for AREA01. Mean ms per tick.
+
+One worker (demo.sh to counter 1780, EM_GS_THREADS=1), the GS frame's CPU per frame:
+
+| Range | HEAD a / b | Q4 a / b | Change |
+|---|---|---|---|
+| Cinematic (1,310 ticks) | 50.60 / 50.55 | 49.30 / 49.65 | -1.1 ms (-2.2 %) |
+| Calm | 50.06 / 49.86 | 48.90 / 48.88 | -1.1 ms |
+
+Default 6 workers, AREA11 (demo.sh to counter 4650). Each cell: busiest worker CPU / tick wall / ticks over:
+
+| Range | HEAD a, b | Q4 a, b | Busiest worker |
+|---|---|---|---|
+| Cinematic (1,310) | 11.07, 11.06 / 11.57, 11.56 / 0, 0 | 10.81, 10.81 / 11.33, 11.32 / 2, 1 | -0.26 ms |
+| Calm (85) | 11.08, 11.11 / 11.55, 11.64 / 0, 0 | 10.80, 10.79 / 11.23, 11.33 / 0, 0 | -0.30 ms |
+| Slide (121) | 11.89, 11.86 / 12.37, 12.35 / 0, 0 | 11.60, 11.62 / 12.08, 12.09 / 0, 0 | -0.27 ms |
+
+All four runs ran at 100 % speed in every range. The game thread is unchanged (6.5-6.8 ms).
+
+AREA01 (a01.sh to a01_00; every run passed the smoke's live phases). Each cell: busiest worker CPU, beat / fire / fire peak:
+- HEAD a, b: 14.03 / 15.01 / 16.64 and 14.07 / 15.02 / 16.69.
+- Q4 b: 14.02 / 14.97 / 16.60.
+- Q4 a was disturbed and is not used: its busiest worker was 14.7 ms, but its tick took 25.6 ms (771 of 781 ticks over), so the workers were off-core.
+- An extra pair at load 11-12 (runs/q4r2_a01_q4_c, q4r2_a01_head_c): Q4 14.25 / 15.22 / 16.93, HEAD 14.52 / 15.48 / 17.32.
+- So the change in AREA01 is between 0 and -0.4 ms, inside the run-to-run spread at this load.
+
+**Long proofs** (q4/proof_long.sh, the final build, EM_TEST_FULL=1):
+- the fb2 harness: 8 of 19 points, every exact-pixel line equal to P6's;
+- the AREA01 smoke: 20 live phases, none not live;
+- the full level smoke: the same 404 PASS lines as P6, no failures (89 minutes).
+
+**Reading.**
+- *Exactness.* Nothing drawn changes. The proofs above are the evidence.
+- *Gain.* The trivial sprites are 7.4 times cheaper. One worker's GS frame is 1.1 ms cheaper; at 6 workers the busiest worker is 0.26-0.30 ms cheaper in AREA11 (the report's estimate was about 0.2 ms) and the tick 0.24-0.31 ms shorter. AREA01 shows no change outside the noise.
+- *Not covered: gsw_alpha_clear.* It is not a sprite: it is a 4-vertex triangle strip (PRIM 0x044, blend on) in state block (2,9), and the drop shadow's boxes follow it in the same state (GS_EXACT.md section 9).
+  - The census has exactly one untextured triangle class with blending: A = Cd, B = 0, C = FIX 128, D = 0 (which leaves the colour equal to Cd), ATST NEVER with AFAIL FB_ONLY, and ZTST GEQUAL. That is the strip and the boxes.
+  - Its Z test can fail, so it falls outside this step's contract and stays on the generic path.
+  - It costs 3.73 s of the 73.8 s (5 %), with 198M pixels drawn.
+  - A fast path that keeps the per-pixel Z test and skips the rest would be exact for it. It is a candidate for M2 (specialized span loops).
+- *A lesson for M2.* Any edit to plot()'s source can change its compiled code and slow every class (round 1). Compare plot()'s object code with HEAD's and measure per class with the census.
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

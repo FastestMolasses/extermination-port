@@ -1844,6 +1844,25 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   fire and fire peak, where the workers set the tick: about half as many
   ticks over the period there, the fire peak at 93-95 % speed instead of
   80-86 %.
+- **Trivial-state sprites filled directly (2026-10-11, PERFORMANCE.md
+  "Progress" P7).** A sprite with no texture, no DATE, no Z test that
+  compares (ZTE 0 or ZTST ALWAYS) and no active blend gives every pixel the
+  same colour, alpha-test outcome, write mask and Z. draw_sprite now hands
+  it to sprite_fill, which computes those once by plot()'s rules and writes
+  the pixels in plot()'s order (the frame word before the Z word, rows top
+  to bottom), counting what plot() counts. Every other state draws through
+  plot(), whose source and compiled code are unchanged. In AREA11 these are
+  the field's Z clear (one 512x224 sprite a frame that writes only Z), the
+  full clears and the colour fills: 3.6 % of the GS CPU at 10.7 to 13.0 ns
+  a pixel, now 1.2 to 2.6 ns. The bytes are the same: the GS proof set
+  gives P6's results, and a 65,824-primitive random differential against
+  the previous code (every state the fast path reads, frame and Z sharing
+  memory, 1, 3 and 8 bands) leaves equal local memory. With one worker the
+  GS frame takes 49.3-49.7 instead of 50.6 ms of CPU in the cinematic; at
+  6 workers the busiest worker fell 0.26 to 0.30 ms in the cinematic, calm
+  and slide. In AREA01 the change was inside the noise. 001DA290's alpha
+  clear is a blended triangle strip whose Z test can fail, so it stays on
+  plot().
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

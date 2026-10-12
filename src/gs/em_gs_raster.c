@@ -1204,6 +1204,133 @@ static int sprite_uv_settled(const Draw *d, const EmGsVertex *v0, const EmGsVert
     return uv_axis_settled(v0->v, v1->v, Y0, Y1, py0, py1, 0) && uv_axis_settled(v0->u, v1->u, X0, X1, px0, px1, 1);
 }
 
+/* The alpha test's comparison (TEST.ATST against AREF) for a fragment alpha
+ * a: 1 when it passes. plot() makes the same comparison inline (kept there
+ * as written, so its code is unchanged); the fast path below makes it once
+ * per sprite. */
+static inline int alpha_pass(const Draw *d, int a)
+{
+    switch (d->atst) {
+    case 0: return 0;
+    case 1: return 1;
+    case 2: return a < d->aref;
+    case 3: return a <= d->aref;
+    case 4: return a == d->aref;
+    case 5: return a >= d->aref;
+    case 6: return a > d->aref;
+    default: return a != d->aref;
+    }
+}
+
+/* A sprite of trivial state (docs/PERFORMANCE.md Q4): no texture, no blend,
+ * no DATE, and no Z test that compares (ZTE 0, or ZTST ALWAYS). Its pixels
+ * then all take plot()'s path with the same values: the colour (vertex
+ * colour, fog with the sprite's one fog weight), the alpha test's outcome
+ * (the alpha is one value), the source word and its write mask, and the Z
+ * value. This fills the rectangle with those values once computed, pixel by
+ * pixel in plot()'s order (rows top to bottom, each left to right; the
+ * frame word before the Z word, so frame and Z buffers that share memory
+ * are written exactly as plot() writes them) and counts the pixels plot()
+ * counts. Every rule here is plot()'s, restated for a value that does not
+ * change across the sprite; the conformance tests and a generic-against-
+ * fast differential (PERFORMANCE.md, Progress P7) show the same bytes.
+ * Returns 0, drawing nothing, for any other state: plot() draws those. The
+ * rectangle px0..px1 x py0..py1 is inside the scissor (draw_sprite clips it),
+ * so plot()'s scissor test always passes. */
+static int sprite_fill(EmGs *gs, const Draw *d, const Frag *fr, int px0, int px1, int py0, int py1)
+{
+    if (d->tme || d->date || (d->zte && d->ztst != 1))
+        return 0;
+    /* plot(): the colour without a texture, then fog */
+    int r = fr->r >> 7, g = fr->g >> 7, b = fr->b >> 7, a = fr->a >> 7;
+    if (d->fog) {
+        const int f = fr->f;
+        r = d->fogcol[0] + (((r - d->fogcol[0]) * f) >> 15);
+        g = d->fogcol[1] + (((g - d->fogcol[1]) * f) >> 15);
+        b = d->fogcol[2] + (((b - d->fogcol[2]) * f) >> 15);
+    }
+    const int f32 = d->fpsm == EM_GS_PSMCT32 || d->fpsm == EM_GS_PSMCT24;
+    /* a blend reads the frame; dither (never for sprites) the position */
+    if ((d->abe && (!d->pabe || (a & 0x80))) || (d->dthe && !f32 && d->dither))
+        return 0;
+    /* the alpha test: one outcome for every pixel */
+    int write_rgb = 1, write_a = 1, write_z = !d->zmsk;
+    if (d->ate && !alpha_pass(d, a)) {
+        switch (d->afail) {
+        case 0: return 1;                  /* every pixel ends here: nothing drawn, nothing counted */
+        case 1: write_z = 0; break;
+        case 2: write_rgb = write_a = 0; break;
+        default: write_a = 0; write_z = 0; break;
+        }
+    }
+    if (d->colclamp) {
+        r = clampi(r, 0, 255); g = clampi(g, 0, 255); b = clampi(b, 0, 255);
+    } else {
+        r &= 255; g &= 255; b &= 255;
+    }
+    int oa = a & 255;
+    if (d->fba)
+        oa |= 0x80;
+    /* the frame word: nw = (old & keep) | (src & ~keep), as in plot() */
+    const int wframe = write_rgb || write_a;
+    uint32_t keep, src;
+    if (f32) {
+        src = (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16 | (uint32_t)oa << 24;
+        keep = (uint32_t)d->fbmsk;
+        if (!write_a) keep |= 0xFF000000u;
+        if (!write_rgb) keep |= 0x00FFFFFFu;
+        if (d->fpsm == EM_GS_PSMCT24) keep |= 0xFF000000u;
+    } else {
+        src = (uint32_t)(r >> 3) | (uint32_t)(g >> 3) << 5 | (uint32_t)(b >> 3) << 10 | (uint32_t)(oa >> 7) << 15;
+        const uint32_t m = (uint32_t)d->fbmsk;
+        keep = ((m >> 3) & 0x1F) | ((m >> 6) & 0x3E0) | ((m >> 9) & 0x7C00) | ((m >> 16) & 0x8000);
+        if (!write_a) keep |= 0x8000;
+        if (!write_rgb) keep |= 0x7FFF;
+    }
+    const uint32_t put = src & ~keep;
+    /* the Z word: plot()'s clamp to the Z format, written when ZTE and the
+     * write is not masked */
+    const int wz = d->zte && write_z;
+    const int z32 = d->zpsm == EM_GS_PSMZ32 || d->zpsm == EM_GS_PSMZ24;
+    uint32_t zval;
+    if (d->zpsm == EM_GS_PSMZ32)
+        zval = (uint32_t)(fr->z > 0xFFFFFFFFull ? 0xFFFFFFFFull : fr->z);
+    else {
+        const int zmx = zmax_of(d->zpsm);
+        zval = (uint32_t)(fr->z > (uint64_t)zmx ? (uint64_t)zmx : fr->z);
+    }
+    if (px0 > px1)
+        return 1;
+    const uint64_t per_row = (uint64_t)(px1 - px0 + 1);
+    for (int y = py0; y <= py1; y++) {
+        if (!own_row(gs, y))
+            continue;
+        if ((d->scanmsk == 2 && !(y & 1)) || (d->scanmsk == 3 && (y & 1)))
+            continue;
+        for (int x = px0; x <= px1; x++) {
+            if (wframe) {
+                if (f32) {
+                    const uint32_t fa = addr32_(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, 0);
+                    wr32(gs, fa, keep ? (rd32(gs, fa) & keep) | put : put);
+                } else {
+                    const uint32_t fa = em_gs_addr16(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, d->fpsm);
+                    wr16(gs, fa, keep ? (rd16(gs, fa) & keep) | put : put);
+                }
+            }
+            if (wz) {
+                if (z32) {
+                    const uint32_t za = addr32_(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, 1);
+                    wr32(gs, za, d->zpsm == EM_GS_PSMZ24 ? (rd32(gs, za) & 0xFF000000u) | zval : zval);
+                } else {
+                    wr16(gs, em_gs_addr16(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, d->zpsm), zval);
+                }
+            }
+        }
+        gs->drawn_pixels += per_row;
+    }
+    return 1;
+}
+
 static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmGsVertex *v1)
 {
     int X0 = wx(d->c, v0->x), Y0 = wy(d->c, v0->y), X1 = wx(d->c, v1->x), Y1 = wy(d->c, v1->y);
@@ -1221,6 +1348,8 @@ static void draw_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0, const EmG
     fr.f = (int)v1->f << 7;
     fr.z = v1->z;
     fr.has_tex = d->tme;
+    if (sprite_fill(gs, d, &fr, px0, px1, py0, py1))
+        return;
     /* texel coordinates: UV affine between the corners as given; STQ: S and
      * T affine between the corners, both divided by the SECOND vertex's Q
      * (section 4.4) */
