@@ -40,6 +40,8 @@ Two things add to what the user sees:
 
 On the iPhone Air the port got only 3 drawing threads, and every tick measured that way is over (section 5). Since Progress P3 it gets 4, chosen from the core types; not yet measured on the device.
 
+**After the quick wins (Progress P10, 2026-10-12).** On this Mac at the default worker count, every AREA11 scene now runs at full speed, headless and windowed (0-5 of 1,310 cinematic ticks over, none windowed), and the game thread is about 3 ms cheaper per tick. The GS model's pixel cost fell only 3-4 % (about 34 ns), so the AREA01 fire still runs at 91-96 % speed and the 3-worker iPhone proxy at 79-88 % in AREA11 and 55-66 % in AREA01. The medium items (M1-M4) are what is left.
+
 ## 2. Where the time goes, scene by scene
 
 Quiet M1 Pro, default 7 GS workers, means per tick.
@@ -256,6 +258,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
   | Fire | 29.4 ms | |
   | Fire peak | 33.3 ms | about 50 % |
 
+- **After the quick wins** (Progress P10, the same 3 workers on M1 P-cores): cinematic 19.0 ms (about 88 %), slide 20.7-21.0 ms (about 80 %), AREA01 beat 25.1 ms, fire 26.8 ms, fire peak 30.3 ms (about 55 %). Still over on nearly every tick.
 - **Per-core speed.** A19 Pro P-cores are faster per core than the M1 Pro's (IOS.md world steps p50 6.99 vs 7.52 ms, before the GS frame), but the E-cores are much slower. On balance the device is probably worse than these numbers; not measured on it.
 - **Stale doc.** IOS.md "Frame time" (2026-10-04, 7.6 ms headroom) predates the GS frame on main (2026-10-08) and the depth-of-field pass (2026-10-10).
 - **Thermals.** The Air is a thin phone. Sustained all-core load will throttle; not measured.
@@ -288,12 +291,12 @@ None is needed on the Mac. They are stop-gaps for the phone only.
    - the slide and fire windows.
 3. **texture_entry counters** in the slide and the fire. Done (Progress P8).
 4. **Pixel share per primitive class** (DOF, snow, fire, world, clears), to rank M2's loops.
-5. **After each item,** re-run cine / calm / slide / AREA01 beat / fire / peak at 7 and 3 workers on a quiet machine, recording load. Keep a table of ns per pixel, busiest worker, main thread and ticks over.
+5. **After each item,** re-run cine / calm / slide / AREA01 beat / fire / peak at 7 and 3 workers on a quiet machine, recording load. Keep a table of ns per pixel, busiest worker, main thread and ticks over. Done for the quick wins as a whole (Progress P10).
 6. **Efficiency-core placement** of the workers under background load (per-worker CPU spread as a proxy).
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/; runs/sum_*, summary/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -858,6 +861,74 @@ AREA01 (a01.sh to a01_00, default workers; one run each in each half of the roun
 - *-mcpu:* no-op on macOS. For iOS, apple-a12 tuning gave no gain on the M1 stand-in (offline +0.6 %). Not measured on the iPhone. Not kept.
 - *Where the time is.* The build flags are worth at most about 1-2 % of the GS frame. The plan's medium items (M1-M4) remain the route to the large gains.
 - *If a flag is adopted later:* the reference tests build their libraries with -O2 (test_gs_raster_reference.py, test_dof_pass_reference.py, test_gs_memory_reference.py and the others). They must then build with the shipped flags, or they no longer prove the shipped code.
+
+### P10. The quick wins together: every scene against the report's baseline (2026-10-12)
+
+**What was measured.** Every scene of section 2, before and after all of P1-P9, on two binaries:
+- *Before:* the report's baseline, b9fd9f9 (port main 8b68485 plus this report), built from `git archive` with its own Makefile (summary/base_extermination). Its default is 7 workers at default QoS, with contraction unpinned.
+- *After:* today's main, ec85b7e (summary/now_extermination, equal to build/extermination). Its default is 6 workers at USER_INTERACTIVE QoS.
+- *Windowed "before":* the baseline binary has no EM_MUTE, so it would play the game's sound. The windowed before is present/before instead: the report's code plus P1's pin and P2's instrumentation and EM_MUTE, with the old presentation and 7 workers. P1 costs it about 2 % of GS CPU.
+
+**Method.** demo.sh and a01.sh (headless, uncapped) and present/run.sh (windowed, paced at 59.94 Hz, muted with EM_MUTE=1, 80-93 s each, the window closed at each stop); summary/batch.sh, batch2.sh, win.sh; summary/summ.py (the GS steps in each range, movie steps excluded; the speed is section 7's measure). Before and after were interleaved: B N N B (batch.sh), then N B (batch2.sh), then one more B N demo pair (sum_demo_base_d, sum_demo_now_d). The baseline binary is rebuilt by `git archive b9fd9f9 src Makefile` into a scratch folder and `make all` there. summary/summary.txt holds every run's figures.
+- *Load.* quiet.sh's gate (70 % idle) held before every run: idle 70.6-90.8 %, 1-minute load 3.5-19.5 at the start, 06:36-07:26. Another job's xctest (about 1.3 cores) and fileproviderd ran beside them.
+- *Disturbed runs, left out:* sum_demo_base_b's calm and slide (a load step: 39 and 35 ms per tick, busiest worker 16 ms); and the sum_demo_base_c / sum_demo_now_c pair (the load stepped to 19-20 during it; both kept in runs/).
+- *Every AREA01 run passed the smoke's 21 live phases.*
+- Today's machine was busier than section 2's: the baseline's AREA01 beat ran 16.8-17.1 ms per tick here against 15.7 there. So compare the before and after columns with each other.
+
+**Headless, default workers** (before 7, after 6). Each cell: tick wall / ticks over 16.68 ms / speed / game thread CPU / busiest worker CPU, mean ms per tick. Ranges over the clean runs (before: 2 runs, the cinematic 3; after: 3 runs; AREA01: 2 each).
+
+| Scene | Before (b9fd9f9) | After (ec85b7e) | Change |
+|---|---|---|---|
+| Cinematic (1,310 ticks) | 12.09-12.47 / 42-100 / 98.3-99.6 % / 8.55-8.64 / 10.54-10.76 | 11.21-11.50 / 2-5 / 99.9-100 % / 5.79-5.90 / 10.81-10.92 | tick -0.8 ms; game thread -2.7 ms; busiest +0.2 ms |
+| Calm (85) | 11.28, 14.64 / 1, 9 / 99.2-99.9 % / 8.96-9.12 / 10.19, 11.83 | 11.11-11.33 / 0 / 100 % / 5.97-6.13 / 10.78-10.85 | game thread -3.0 ms |
+| Slide (121) | 12.75, 13.09 / 2, 14 / 99.2-99.9 % / 8.87-8.97 / 11.37, 11.58 | 12.00-12.27 / 0-1 / 100 % / 5.88-6.13 / 11.58-11.73 | tick -0.8 ms; game thread -2.9 ms |
+| AREA01 beat (781) | 16.77-17.10 / 365-404 / 92.7-94.1 % / 14.20 / 14.20-14.26 | 15.87-16.69 / 310-398 / 94.1-96.2 % / 10.61-10.71 / 14.11-14.27 | game thread -3.5 ms; busiest unchanged |
+| AREA01 fire (376) | 17.20-18.01 / 184-243 / 90.6-94.0 % / 14.06-14.08 / 15.09-15.16 | 16.06-16.84 / 142-183 / 95.1-95.7 % / 10.39-10.46 / 15.00-15.09 | tick -1.1 ms; game thread -3.6 ms |
+| AREA01 fire peak (149) | 18.63-18.94 / 118-130 / 87.8-89.1 % / 13.62-13.63 / 16.73-16.81 | 17.66-18.27 / 98-119 / 90.6-93.3 % / 10.03-10.14 / 16.64-16.78 | tick -0.8 ms; game thread -3.5 ms |
+
+**Headless, 3 workers** (EM_GS_THREADS=3, the iPhone proxy; AREA11 2 runs each, AREA01 one pair). Same cells.
+
+| Scene | Before | After | Change |
+|---|---|---|---|
+| Cinematic | 19.96-20.24 / 1310 / 82.4-83.6 % / 8.55-8.61 / 19.54-19.66 | 19.00-19.05 / 1179-1190 / 87.5-87.7 % / 5.73-5.76 / 18.63-18.64 | busiest -1.0 ms (-5 %); speed +4.6 points |
+| Calm | 19.83-19.90 / 85 / 83.8-84.1 % / 8.88-8.95 / 19.46 | 18.88-18.90 / 85 / 88.3-88.4 % / 5.91-5.92 / 18.54 | busiest -0.9 ms |
+| Slide | 21.33-22.32 / 94-121 / 74.7-78.2 % / 8.75-8.93 / 20.92-21.95 | 20.69-20.95 / 113-121 / 79.6-80.6 % / 5.94-6.09 / 20.33-20.59 | busiest -0.9 ms |
+| AREA01 beat | 27.64 / 756 / 60.3 % / 14.14 / 27.06 | 25.13 / 734 / 66.3 % / 10.43 / 24.70 | busiest -2.4 ms (-9 %) |
+| AREA01 fire | 29.66 / 376 / 56.2 % / 14.01 / 29.07 | 26.79 / 376 / 62.3 % / 10.25 / 26.37 | busiest -2.7 ms |
+| AREA01 fire peak | 33.53 / 149 / 49.8 % / 13.57 / 32.91 | 30.26 / 149 / 55.1 % / 9.92 / 29.82 | busiest -3.1 ms |
+
+**One worker** (EM_GS_THREADS=1, the demo to counter 1780; the GS frame's CPU per frame, the cleanest meter; pairs B N at 06:45 and N B at 07:14):
+- Cinematic: 51.18 -> 49.50 ms and 52.80 -> 50.49 ms (-1.7 and -2.3 ms, -3.3 and -4.4 %). About 34 ns per plotted pixel (1.47M a frame), against 35-36 before.
+- Calm: 50.30 -> 48.10 and 52.28 -> 49.70 ms.
+- This is P6 (-2.1 ms, Q3) and P7 (-1.1 ms, Q4) less P1's pin (+1 ms). Q5 and Q7 do not change it; Q1 and Q2 are game-thread work.
+
+**Windowed, paced** (the built-in 120 Hz display, 3 drawables, a 1920x1440 drawable; the demo to 4650). Each cell: tick wall / ticks over / speed / blocked on the display / game thread CPU / busiest worker:
+
+| Scene | Before, 7 workers | After, 6 workers | Before, 3 workers | After, 3 workers |
+|---|---|---|---|---|
+| Cinematic | 13.30 / 425 / 95.4 % / 2.89 / 9.32 / 11.98 | 5.94 / 0 / 100 % / 0.04 / 5.93 / 10.90 | 20.67 / 1310 / 80.7 % / 4.89 / 9.25 / 20.10 | 19.32 / 1304 / 86.4 % / 0.03 / 5.96 / 18.86 |
+| Calm | 16.17 / 20 / 97.4 % / 5.34 / 9.83 / 11.88 | 6.08 / 0 / 100 % / 0.04 / 6.05 / 10.87 | 20.45 / 84 / 81.4 % / 4.92 / 9.72 / 20.00 | 18.98 / 82 / 87.0 % / 0.04 / 6.22 / 18.83 |
+| Slide | 15.15 / 40 / 91.9 % / 3.02 / 9.52 / 12.38 (107 ticks) | 6.20 / 0 / 100 % / 0.04 / 6.19 / 11.73 | 22.60 / 107 / 73.8 % / 4.98 / 9.46 / 22.07 | 21.17 / 121 / 78.8 % / 0.03 / 6.19 / 20.72 |
+
+Paced, a tick's wall time is the game thread's own work whenever the workers finish the previous frame within the period (the frame overlaps the next tick). So the after column's 6 ms is the game thread alone; before, the tick also held 2.9-5.3 ms of display wait and 1-2.6 ms of waiting for the field.
+
+**Reading.**
+- *On the Mac, at the default worker count, every AREA11 scene now runs at full speed*, headless and windowed: 0-5 of 1,310 cinematic ticks over, none in the calm, 0-1 in the slide. Windowed, no tick went over (before: 425 / 20 / 40, speed 92-97 %). The windowed path (P2) and the worker count and QoS (P3) did that: P2 removed the display wait, and P3 cut the time a frame's critical worker is off-core.
+- *The busiest worker did not get cheaper at the default count.* Six workers each draw more than seven did (+1.0-1.5 ms, P3), and Q3 + Q4 give that back (P6, P7), so it stays at 10.8-11.7 ms in AREA11 and 14.1-16.8 ms in AREA01. On the Mac the tick is now set by it, not by the game thread.
+- *The game thread is 2.7-3.0 ms cheaper per tick in AREA11 (8.6-9.1 -> 5.8-6.1 ms, -32 %) and 3.5-3.6 ms in AREA01 (13.6-14.2 -> 10.0-10.7 ms, -25 %)*: Q1 (P4), Q2 (P5) and Q7 (P8). On the Mac that gives the workers their cores and the window its slack; it does not shorten a GS-bound tick.
+- *AREA01 is still GS-bound and still slow at times:* 90.6-96.2 % speed headless, 98-398 ticks over per range, the fire peak's busiest worker 16.6-16.8 ms, at the period itself. Its game thread (10-11 ms) is no longer the limit.
+- *The iPhone proxy (3 workers) gained 3.6-6.1 points of speed* (AREA11 79-88 %, AREA01 55-66 %) and is still over the period on nearly every tick. Its busiest worker fell 0.9-1.0 ms in AREA11 and 2.4-3.1 ms in AREA01 (Q3 and Q4 at equal count). On the phone the game thread's 2.7-3.6 ms saving also frees performance-core time for the workers; not measured on the device.
+- *The windowed 3-worker runs* follow the headless ones (the display wait is gone, 4.9 -> 0.03 ms); the tick is the busiest worker's.
+- *Not measured here:* the GPU renderer, AREA01 windowed (the route takes 4-5 minutes), a 60 Hz display, and the iPhone itself.
+
+**The iOS app builds with every change.** `tools/ios/build.sh clean`, then `tools/ios/build.sh device` (a full build: 334 sources for iphoneos, arm64, iOS 17, -O2 -ffp-contract=off; 0 warnings; the app built and signed), then `tools/ios/build.sh clean` again, so no app bundle with the disc's data stays on the Mac. Not installed or run on the phone.
+
+**What is left for the medium items (M1-M4).** The quick wins are done: what remains is the GS model's pixel cost, about 34 ns a pixel and 49.5-50.5 ms of one core per AREA11 frame (section 4's target is 10-15 ns).
+- *The Mac's AREA01 fire* needs the busiest worker 2-3 ms lower to stop running over the period: about 15-20 % of the GS frame. M1 (the separable swizzle tables, estimated 15-25 %) is the first item that is that large.
+- *The phone* needs GS CPU 2-3x lower for AREA11 and 3-4x for the fire (section 5): M1, M3 (the decoded texture cache) and M2 (specialized span loops, including gsw_alpha_clear's Z-tested strip and an early Z test, P7), then L1.
+- *M4* (parse the stream once, dynamic bands): the duplicated front end is still in every worker, and on the phone's efficiency cores the equal bands still wait for the slowest worker (P3, "The band partition").
+- *Order unchanged:* M1, M3, M2, M4, then L1. Each must keep -ffp-contract=off's unfused rounding (P1), keep plot()'s compiled code under watch (P7), and pass the GS proof set with EM_TEST_FULL=1 and a HEAD-against-new differential (q3/sweep, q4/sweep).
+- *Also open:* gs3 (-O3 for the raster only) after M1 / M2 (P9); the remaining game-thread hot spot em_vu_vec_bits (P5); the device sweep of EM_GS_THREADS 2-5 and a sustained thermal run (section 7, item 2).
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

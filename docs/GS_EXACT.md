@@ -1887,6 +1887,21 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   the DOF pass 0.8-1.7 % cheaper offline but the game thread about 0.3 ms
   slower per tick; LTO makes the game thread about 0.1 ms faster and the
   busiest worker about 0.2 ms slower. The build stays -O2.
+- **The quick wins together (2026-10-12, PERFORMANCE.md "Progress"
+  P10).** Every scene re-measured against the report's baseline
+  (b9fd9f9, 7 workers) on today's main (6 workers), interleaved, with the
+  quiet gate (70 % idle) held before every run. This is the quiet-machine
+  run the step DOF bullets above asked for, with the pass drawn. Headless at
+  the default count: the AREA11 cinematic's tick 12.1-12.5 -> 11.2-11.5 ms,
+  ticks over the period 42-100 -> 2-5 of 1,310; the calm 0 and the slide
+  0-1 of 121 over; the game thread 8.6-9.1 -> 5.8-6.1 ms. The busiest
+  worker is unchanged at the default count (10.8-11.7 ms in AREA11), as six
+  workers each draw more than seven; with one worker the GS frame is 3-4 %
+  cheaper (cinematic 51.2-52.8 -> 49.5-50.5 ms, about 34 ns a plotted
+  pixel). Windowed and paced, no AREA11 tick went over (before: 425, 20
+  and 40). AREA01 still runs over: the fire peak's busiest worker 16.6-16.8
+  ms, 90.6-93.3 % speed. With 3 workers (the iPhone proxy) AREA11 runs at
+  79-88 % speed and AREA01 at 55-66 %.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

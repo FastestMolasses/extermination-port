@@ -1158,12 +1158,17 @@ only shows that field.
   3.6 ms of the busiest worker's CPU per frame (+55 %; re-measured at the
   merge onto main, 2026-10-10, with the final model): at load average 12
   to 13 on this 10-core M1 Pro 2 and 21 of 1,300 in-level ticks ran over
-  the period (without the pass 1 and 2), at load 16 120; a quiet-machine
-  run is still not made (the machine was busy). AREA01 (level 2) draws through
+  the period (without the pass 1 and 2), at load 16 120. On a quiet machine
+  (70 % idle or more before each run, 2026-10-12, PERFORMANCE.md "Progress"
+  P10), at the default worker count, 2 to 5 of the cinematic's 1,310 ticks,
+  none of the calm's and 0 to 1 of the slide's ran over headless, and none
+  windowed. AREA01 (level 2) draws through
   the same model since the merge, but 65 of its 840 measured ticks run over
   the period (its main thread alone took 13.6 ms then; 10.6 ms since the
   digests' gate, the VU1 programs' host floats and the hashed texture
-  lookup, PERFORMANCE.md "Progress" P4, P5 and P8). Since 2026-10-11 the
+  lookup, PERFORMANCE.md "Progress" P4, P5 and P8). On 2026-10-12 (P10) the
+  busiest worker sets AREA01's tick: 310 to 398 of the beat's 781 ticks and
+  98 to 119 of the fire peak's 149 ran over, 90.6 to 96.2 % speed. Since 2026-10-11 the
   default worker count follows the core types (6 on this M1 Pro, 4 on the
   iPhone Air) and the workers run at USER_INTERACTIVE QoS; the same bytes
   for any count (PERFORMANCE.md "Progress" P3). Since 2026-10-12 the
