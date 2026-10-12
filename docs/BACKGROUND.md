@@ -219,8 +219,10 @@ translation.
   Every XGKICK goes through the walker's GIF / GS model, which hands over
   the 31 strips' triangles in GS order with the state in force.
 - Every product and sum uses the VU arithmetic of the page programs
-  (truncated binary32, em_ee_float.h); ERLENG is the EFU model the streak
-  program shares: 1/sqrt in double, truncated.
+  (truncated binary32, em_ee_float.h; live on the host FPU in that rounding
+  environment, equal to the model: CHAIN_PAGE.md section 3); ERLENG is the
+  EFU model the streak program shares: 1/sqrt in double, truncated, always
+  in the caller's FP environment.
 - The walk faults when the list runs no grid MSCAL, or when a triangle is
   drawn with Z writes on (ZBUF_1 ZMSK 0).
 - `src/gfx/metal/em_background_gs.h` keeps the asset's format, the

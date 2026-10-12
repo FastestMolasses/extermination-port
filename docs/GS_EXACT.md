@@ -1814,6 +1814,18 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   workers AREA01's tick did not shorten: the busiest worker (15.1 to 18.3
   ms) sets it. On the GPU renderer, where the game thread is the tick,
   AREA01's tick fell from 13.7 to 11.8 ms.
+- **Host floats in the VU1 page programs (2026-10-11, PERFORMANCE.md
+  "Progress" P5).** The chain page's VU1 programs (the snow, sprite, flame,
+  grid and AREA01 floor programs among them) now do their finite
+  multiplies, adds and divides on the host FPU in the VU rounding
+  environment (em_vu_host_lanes.h) instead of em_ee_float.h's integer
+  arithmetic; a whole-program differential test shows the same words on
+  every captured, synthetic and fuzzed MSCAL, and the GS proof set gives
+  the same results. The game thread's CPU per tick fell by 1.1 ms in AREA01
+  (the beat 12.2 -> 11.1) and by 1.4 to 1.5 ms in AREA11 (cinematic 7.9 ->
+  6.5, slide 8.1 -> 6.6). The tick with the GS frame is unchanged on this
+  Mac (the busiest worker sets it); on the GPU renderer AREA01's tick fell
+  from 12.1 to 10.8 ms.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

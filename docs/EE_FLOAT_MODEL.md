@@ -273,15 +273,19 @@ change to a translation and its oracle twin lands in one commit.
   round), and this header test passes quick and full.
 - **Host lanes (`em_vu_host_lanes.h`).** For the VU1 kernels on the live
   draw only (the level kernel's walk, the object and face kernels in
-  em_object_unit.c) a multiply, add, subtract or VDIV (3,3) reciprocal on
-  finite operands is computed by the host FPU in round-toward-zero,
-  flush-to-zero, denormals-are-zero, which is exactly this section's VU
-  rule (IEEE rounds the exact result once; toward zero that is the
-  truncation, and overflow gives the largest finite value); a zero divisor
-  is handled as the model. `test-vu-host-lanes` proves every lane equal to
-  this header on boundary classes and random operands. The model stays
-  the reference: every test oracle and every other translation uses this
-  header.
+  em_object_unit.c, and since 2026-10-11 the chain page's VU1 programs in
+  em_vu1_page_programs.h) a multiply, add, subtract, VDIV (3,3) reciprocal
+  or VDIV (0,0) quotient on finite operands is computed by the host FPU in
+  round-toward-zero, flush-to-zero, denormals-are-zero, which is exactly
+  this section's VU rule (IEEE rounds the exact result once; toward zero
+  that is the truncation, and overflow gives the largest finite value); a
+  zero divisor is handled as the model. `test-vu-host-lanes` proves every
+  lane equal to this header on boundary classes and random operands. The
+  page programs keep an operation with an exponent-255 operand on the
+  model and leave the environment for their double-precision EFU model and
+  each XGKICK consumer; `test-vu-page-host-differential` runs whole MSCALs
+  both ways (PERFORMANCE.md "Progress" P5). The model stays the reference:
+  every test oracle and every other translation uses this header.
 - **Where it leaves the model's big integers.** Each change is exact for the
   reason given:
   - *Sum.* The smaller operand is aligned exactly up to an exponent distance

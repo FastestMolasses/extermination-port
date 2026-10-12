@@ -709,7 +709,12 @@ programs.
   the original microcode draw exactly the port's primitives; in the
   camera-exact snapshots 10 and 14 the snow's and the flame's packets (their
   camera, fog and matrix rows) equal the recordings'. Commits d7ef847 and
-  chain C8b FLAMESNOW.
+  chain C8b FLAMESNOW. Since 2026-10-11 the programs' finite multiplies,
+  adds and divides run on the host FPU in the VU rounding mode
+  (`em_vu_host_lanes.h`); the evidence above was re-run on that path, and
+  `test-vu-page-host-differential` shows it writes the same words as the
+  integer model on every captured, synthetic and fuzzed MSCAL
+  (`PERFORMANCE.md` "Progress" P5).
 - Status: **PARTIAL**. First level only. Sprite positions/colours follow the
   draws, whose values differ from a capture's at every snapshot
   (`RAND_ORDER.md`); only glow markers are compared with captures (count and

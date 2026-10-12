@@ -2,12 +2,12 @@
 """Prove src/game/em_vu_host_lanes.h equal to em_ee_float.h's VU lane
 arithmetic for every finite operand pair it is used on.
 
-em_vu_host_lanes.h computes a VU multiply, add, subtract and the VDIV (3, 3)
-reciprocal on the host FPU in the environment em_vu_host_enter sets (round
-toward zero, flush-to-zero, denormals-are-zero). The model is
-em_ee_float.h's integer arithmetic (em_eei_vu_mul_raw, em_eei_vu_add_raw,
-em_eei_vu_sub_raw, em_vu_div_bits (3, 3)). This test compares them bit for
-bit over:
+em_vu_host_lanes.h computes a VU multiply, add, subtract, the VDIV (3, 3)
+reciprocal and the VDIV (0, 0) quotient on the host FPU in the environment
+em_vu_host_enter sets (round toward zero, flush-to-zero,
+denormals-are-zero). The model is em_ee_float.h's integer arithmetic
+(em_eei_vu_mul_raw, em_eei_vu_add_raw, em_eei_vu_sub_raw, em_vu_div_bits
+(3, 3) and (0, 0)). This test compares them bit for bit over:
 
 1. boundary classes: signed zeros and denormals on either side; products and
    sums whose truncated magnitude lands just below, on and just above the
@@ -16,6 +16,11 @@ bit over:
    distance 0..40 (the model's exactness bound is 39) with same and opposite
    signs, including a power-of-two larger operand (the borrow into the next
    binade); reciprocals of zero, denormals, MAX and the smallest normal;
+   quotients of zero and denormal dividends and divisors, quotients whose
+   truncated magnitude lands just below, on and just above the smallest
+   normal and at the overflow edge, exact quotients and quotients one unit
+   either side of a binade, at every exponent pair difference the range
+   allows;
 2. a seeded random sweep of finite operands (uniform bit patterns, near
    exponents, cancellation-prone pairs). EM_TEST_FULL=1 runs 40x more.
 
@@ -41,7 +46,7 @@ SHIM = r'''
 #include <stdlib.h>
 #include "game/em_vu_host_lanes.h"
 
-enum { MUL, ADD, SUB, RCP };
+enum { MUL, ADD, SUB, RCP, DIV };
 
 static __attribute__((noinline)) void host_run(const uint32_t *a, const uint32_t *b, const uint8_t *op,
                                                uint32_t *out, size_t n)
@@ -51,6 +56,7 @@ static __attribute__((noinline)) void host_run(const uint32_t *a, const uint32_t
         case MUL: out[i] = emvuh_mul(a[i], b[i]); break;
         case ADD: out[i] = emvuh_add(a[i], b[i]); break;
         case SUB: out[i] = emvuh_sub(a[i], b[i]); break;
+        case DIV: out[i] = emvuh_div(a[i], b[i]); break;
         default: out[i] = emvuh_rcp(b[i]); break;
         }
     }
@@ -63,6 +69,7 @@ static uint32_t model(uint8_t op, uint32_t a, uint32_t b)
     case MUL: return em_eei_vu_mul_raw(a, b);
     case ADD: return em_eei_vu_add_raw(a, b);
     case SUB: return em_eei_vu_sub_raw(a, b);
+    case DIV: (void)em_vu_div_bits(a, b, 0, 0, &q); return q;
     default: (void)em_vu_div_bits(EM_EE_ONE, b, 3, 3, &q); return q;
     }
 }
@@ -106,7 +113,7 @@ int main(int argc, char **argv)
 }
 '''
 
-MUL, ADD, SUB, RCP = range(4)
+MUL, ADD, SUB, RCP, DIV = range(5)
 SIGN, MAXF = 0x80000000, 0x7F7FFFFF
 
 
@@ -152,6 +159,26 @@ def boundary_cases():
     for e in range(1, 255):
         for m in (0, 1, 0x7FFFFF, 0x555555):
             cases.append((0x3F800000, f32(e & 1, e, m), RCP))
+    # quotients
+    for x in zeros + normals:
+        for y in zeros + normals:
+            cases.append((x, y, DIV))
+    mants = (0, 1, 0x7FFFFF, 0x7FFFFE, 0x400000, 0x555555, 0x2AAAAA)
+    for ea in range(1, 255):
+        for eb in (1, 2, 126, 127, 128, 129, 253, 254):
+            # quotient exponent ea - eb + 127: keep the underflow, overflow and
+            # unit edges dense, the rest sampled
+            q = ea - eb + 127
+            if not (q <= 3 or q >= 251 or 125 <= q <= 129 or ea % 17 == 0):
+                continue
+            for ma in mants:
+                for mb in mants:
+                    for sa, sb in ((0, 0), (1, 0), (0, 1), (1, 1)):
+                        cases.append((f32(sa, ea, ma), f32(sb, eb, mb), DIV))
+    for e in range(1, 255):                    # a / a, a / (a + ulp), (a + ulp) / a
+        for m in (0, 1, 0x7FFFFF):
+            a = f32(0, e, m)
+            cases += [(a, a, DIV), (a, a + 1 if m != 0x7FFFFF else a - 1, DIV), (a ^ SIGN, a, DIV)]
     return cases
 
 
@@ -167,7 +194,7 @@ def random_cases(count, seed):
             return f32(rng.getrandbits(1), rng.randint(0x60, 0x9F), rng.getrandbits(23))
         return f32(rng.getrandbits(1), rng.randint(0, 254), rng.getrandbits(23))
     for _ in range(count):
-        op = rng.randrange(4)
+        op = rng.randrange(5)
         a = finite()
         if rng.random() < 0.4:                 # near exponents / cancellation
             b = f32(rng.getrandbits(1), max(0, min(254, ((a >> 23) & 0xFF) + rng.randint(-3, 3))),

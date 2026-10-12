@@ -1,6 +1,6 @@
 /* em_vu_host_lanes.h — the VU lane rules of em_ee_float.h for the finite
  * (exponent below 255) operands a VU1 kernel translation feeds its
- * multiplies, adds and reciprocals, computed on the host FPU.
+ * multiplies, adds, reciprocals and divides, computed on the host FPU.
  *
  * Why this exists: the VU1 kernels run tens of thousands of lane operations
  * a frame (the static world's level kernel alone about a million on the
@@ -26,7 +26,8 @@
  *   - the sign of an exact zero sum is +0 except (-0) + (-0), in every
  *     rounding mode but toward minus infinity.
  *   - a zero divisor is the one case IEEE answers differently (an
- *     infinity); emvuh_rcp returns the model's +-MAX itself.
+ *     infinity); emvuh_rcp and emvuh_div return the model's +-MAX
+ *     themselves.
  * So each function below is equal to its em_ee_float.h counterpart for
  * every pair of finite operands, provided the thread's FP environment is
  * the one em_vu_host_enter sets (round toward zero, flush-to-zero,
@@ -42,8 +43,11 @@
  * call is the barrier that keeps every host float operation inside the
  * environment, and nothing else runs in it). Users: the level kernel
  * (em_vu1_level_kernel.h, one batch text instantiated with `host` 0 or 1;
- * em_vu1_level_kernel_batch_host) and the object and face kernels in
- * em_object_unit.c (EMVUO_HOST_LANES, em_vu1_object_kernel.h). Where the
+ * em_vu1_level_kernel_batch_host), the object and face kernels in
+ * em_object_unit.c (EMVUO_HOST_LANES, em_vu1_object_kernel.h) and the VU1
+ * page programs (em_vu1_page_programs.h em_vu1p_mscal: the program runs in
+ * the environment and leaves it, through EM_VU_HOST_NOINLINE trampolines,
+ * for its double-precision EFU model and for each XGKICK consumer). Where the
  * platform has no such environment (neither arm64 nor x86-64, or a
  * compiler without GNU inline asm), EM_VU_HOST_LANES is 0 and the functions
  * below are em_ee_float.h's integer arithmetic. */
@@ -168,6 +172,24 @@ static inline uint32_t emvuh_rcp(uint32_t b)
     return emvuh_b(r);
 }
 
+/* VDIV (0, 0) Q = a / b for finite a and b: the exact quotient truncated,
+ * flushed below the smallest normal, +-MAX on overflow, a zero (or
+ * denormal) dividend giving the signed zero of the sign XOR; a zero (or
+ * denormal) divisor gives +-MAX by the sign XOR, as em_vu_div_bits does.
+ * IEEE division rounded toward zero is that truncation, by the same
+ * argument as the multiply's (the header comment). Users: the VU1 page
+ * programs (em_vu1_page_programs.h emvup_div, the EFU's ERCPR). */
+static inline uint32_t emvuh_div(uint32_t a, uint32_t b)
+{
+    if (!(b & 0x7F800000u)) return ((a ^ b) & EM_EE_SIGN) | EM_EE_MAX;
+    float x = emvuh_f(a), y = emvuh_f(b);
+    EMVUH_HIDE(x);
+    EMVUH_HIDE(y);
+    float r = x / y;
+    EMVUH_HIDE(r);
+    return emvuh_b(r);
+}
+
 #else /* no host environment: the model's integer arithmetic */
 
 static inline void em_vu_host_enter(EmVuHostEnv *e) { e->saved = 0; }
@@ -179,6 +201,12 @@ static inline uint32_t emvuh_rcp(uint32_t b)
 {
     uint32_t q = 0;
     (void)em_vu_div_bits(EM_EE_ONE, b, 3, 3, &q);
+    return q;
+}
+static inline uint32_t emvuh_div(uint32_t a, uint32_t b)
+{
+    uint32_t q = 0;
+    (void)em_vu_div_bits(a, b, 0, 0, &q);
     return q;
 }
 

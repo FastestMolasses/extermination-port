@@ -159,6 +159,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Effort:* 1-3 days. *Risk:* low.
 - *Proof:* test_vu_host_lanes.py (extended to the divide), test_chain_page_reference.py, test_snow_tiles_reference.py, test_level2_kind6_vu_reference.py, the level smokes.
 - *Also check:* whether the remaining exact-float hot spots (corner / vu_row / rotate) meet the same precondition.
+- *Done (Progress P5):* the game thread 1.1 ms less per tick in AREA01 and 1.4-1.5 ms less in AREA11; on the GPU renderer the AREA01 tick fell 1.3 ms. The GS-frame tick is unchanged on the Mac, where the busiest worker sets it. The corner / vu_row / rotate check is not done; they are now the game thread's largest self time in AREA01 (em_vu_vec_bits, 17.5 %).
 
 **Q3. Per-column U in sprites.**
 - *Change:* compute U once per column (UV: floordiv64; STQ: t plus stq_div). V stays per row.
@@ -259,7 +260,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 1. **User decision:** default to, or offer prominently, EM_GPU_RENDERER=1 on the phone until the exact path fits. It is not exact, so it is a profile-policy decision for LAUNCHER_OPTIONS.md. Nothing has been changed.
 2. **Q5:** worker QoS and a perflevel-based count. Done (P3: 4 workers by default); still to measure 2-5 workers on the device.
 3. **M4** dynamic bands, so E-cores do not set the frame time.
-4. **Q2** frees P-core time.
+4. **Q2** frees P-core time. Done (P5): 1.1-1.5 ms of game thread per tick on the Mac.
 5. **M1, M3, M2 and L1** are the only route to an exact Original profile at full speed on the phone. Estimate: GS CPU must drop 2-3x for AREA11 and 3-4x for the fire.
 
 ## 6. Changes that relax exactness (Enhanced or GPU renderer only)
@@ -288,7 +289,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -531,6 +532,52 @@ The busiest worker was the same in every run: 15.1-15.4 ms in the beat, 16.3-16.
 - The AREA01 smoke passes (20 live phases).
 - The full level smoke gives the same 404 PASS lines as P1-P3, with no failures. Its side runs each write and check their own tick log, so the digest checks ran in every one.
 
+### P5. Host floats in the VU1 page programs (Q2) (2026-10-11)
+
+**What changed.** Every chain-page VU1 program (lane, sprite, snow, kind 6, streak, kind 2, the background grid, the AREA01 floor and ripple) now runs through one entry, em_vu1p_mscal (em_vu1_page_programs.h), which has two arithmetic paths:
+- `host` 0, the model: every lane operation on em_ee_float.h's integer arithmetic, as before.
+- `host` 1, the live path (every em_vu1_*_program_mscal): the program runs inside em_vu_host_enter / em_vu_host_leave, in one EM_VU_HOST_NOINLINE function. A multiply, add or subtract of finite operands is the host lane (em_vu_host_lanes.h). VDIV and the EFU's ERCPR use a new host divide, emvuh_div. An operation with an exponent-255 operand still runs on the model, so its result, and the fault it causes, are the model's.
+
+**The exactness trap (the skeptic's flag).** The programs contain double-precision math (the EFU's ERLENG model) and call the XGKICK consumer, which must not run with round-toward-zero and flush-to-zero switched on. Instead of splitting each program around its arithmetic, both leave the environment through EM_VU_HOST_NOINLINE trampolines (emvup_erleng_outside, emvup_kick_outside), which restore the caller's environment, do the work and re-enter before they return. The program's own code is integer work plus the host lanes: in the compiled object the functions under emvup_program_host contain only single-precision add, subtract, multiply and divide instructions and register moves; every double conversion, square root and compare is in emvup_erleng_double (counted in a local object, not kept).
+
+**The divide.** emvuh_div is the IEEE quotient rounded toward zero with flush-to-zero and denormals-are-zero; a zero or denormal divisor returns the model's +-MAX itself. That is the truncated quotient em_eei_quotient computes, by the same argument as the multiply's. tools/test_vu_host_lanes.py now covers it against em_vu_div_bits (0, 0): zero and denormal operands, quotients at the underflow, unit and overflow edges for every exponent pair difference, a / a and its neighbours, and random operands. Full mode: 8,187,909 operations, 0 mismatches.
+
+**The whole-program proof** (tools/test_vu_page_host_differential.py, `make test-vu-page-host-differential`). Each MSCAL runs on the host path (kicks to the real consumer), then on the model path from a copy, with the host run's kick results replayed. Result code, all 16 KiB of data memory, every register and every kick (address, and the data memory at the kick) must agree. Each kick consumer must see the caller's FP environment, and the environment must be restored on return. Full mode (6.6 s): the 15 AREA11 route pages with the weather's 108 snow MSCALs each; 5 kind-6 and 17 floor / ripple AREA01 pages; 6 grid uploads plus 64 swept views; 3,000 synthetic MSCALs from the reference tests' generators; 13,500 fuzzed MSCALs (exponent-255 words, denormals, signed zeros, extreme values, consumers that refuse a kick). 20,305 MSCALs in all, including 3,520 operand faults and 2,256 refused kicks, all identical. Two negative controls fail as they should (scratch builds, not kept): the host path without entering the environment (111 MSCALs differ on the first page), and a kick trampoline that does not leave it (113 kicks see the wrong environment).
+
+**The reference tests, on the host path** (EM_TEST_FULL=1; receipts in q2/proof/):
+- test_chain_page_reference.py: PASS (690 lane, 660 sprite, 1,920 snow, 600 streak and 600 kind-2 MSCALs against the original microcode; 15 captured pages' primitives).
+- test_snow_tiles_reference.py, test_level2_kind6_vu_reference.py (1,209 kind-6 MSCALs), test_level2_floor_vu_reference.py (17 AREA01 captures, 5,338 synthetic batches), test_background_reference.py (6 captures, 64 sweep views): PASS.
+- make test-chain-page (ASan / UBSan): PASS.
+
+**Offline cost per MSCAL** (the differential's --bench, one captured starting state each, best of two 400-run means; model -> host): sprite 6.5 -> 1.4 us, snow 16.8 -> 3.3, kind 6 17.2 -> 4.9, streak 10.7 -> 2.9, kind 2 19.2 -> 4.0, floor 6.8 -> 2.4, ripple 24.8 -> 7.9, grid 178 -> 78. The weather's 108 snow MSCALs a frame go from about 1.8 to about 0.36 ms. The grid gains least: its 1,024 ERLENGs each switch the environment twice.
+
+**Live** (headless, uncapped, the default 6 workers; interleaved: HEAD, Q2, Q2, HEAD; runs/q2_*). Idle before each run 70.8-79.9 %, 1-minute load 5.6-10.5, 14:59-15:19. Mean ms per tick.
+
+AREA01 (a01.sh to a01_00):
+
+| Range | Game thread CPU, HEAD a / b | Game thread CPU, Q2 a / b | Tick wall, HEAD / Q2 | Over, HEAD / Q2 | Busiest worker, HEAD / Q2 |
+|---|---|---|---|---|---|
+| Beat (781 ticks) | 12.29 / 12.17 | 11.18 / 11.08 | 16.25, 15.82 / 16.02, 15.69 | 394, 357 / 382, 359 | 15.25, 15.11 / 15.21, 15.11 |
+| Fire (376) | 12.12 / 12.00 | 11.01 / 10.92 | 17.24, 16.73 / 16.88, 16.71 | 218, 187 / 199, 189 | 16.42, 16.27 / 16.33, 16.28 |
+| Fire peak (149) | 11.71 / 11.63 | 10.64 / 10.58 | 19.17, 18.64 / 18.77, 18.66 | 145, 139 / 140, 136 | 18.36, 18.16 / 18.22, 18.20 |
+
+AREA01 on the GPU renderer (EM_GPU_RENDERER=1, one pair; the game thread is the tick): beat 12.05 -> 10.77 ms, fire 11.92 -> 10.62, peak 11.55 -> 10.22; no tick over in either.
+
+AREA11 (demo.sh to counter 4650): the game thread, cinematic 7.96 / 7.93 -> 6.50 / 6.52 ms, calm 8.21 / 8.21 -> 6.78 / 6.77, slide 8.10 / 8.14 -> 6.61 / 6.60. The tick's wall time is unchanged (cinematic 11.78-11.85, calm 11.72-11.79, slide 12.90-13.00 ms both ways), as is the busiest worker (11.3 / 11.3 / 12.4 ms); one slide tick over the period in one HEAD run, none otherwise.
+
+**The profile** (runs/q2_a01_q2_sample: the Q2 build, AREA01 counters 15306-15557, 5 s). The page programs have nearly left the game thread: emvup_floor_vertex 1.1 % of its busy samples, the ERLENG trampoline 0.9 %. Before (runs/q1_a01_q1_sample, the fire), em_eei_exact_sum alone was 9.5 %, a quarter of it from the floor program. The largest self time is now em_vu_vec_bits (17.5 %: corner, rotate, vu_row), the VU0 hot spots Q2's "also check" names; not changed in this step.
+
+**Reading.**
+- The game thread saves 1.1 ms per tick in AREA01 (-9 %) and 1.4-1.5 ms in AREA11 (-18 %). The estimate was 1-2 ms in both.
+- With the GS frame at 6 workers the tick is set by the busiest worker in both levels, so the Mac's tick does not change (AREA01 ticks over the period within run-to-run noise). The saving is tick time where the game thread is the longer side: on the GPU renderer (AREA01 -1.3 ms per tick), and on the iPhone, where the game thread shares the two performance cores with the workers (not measured).
+- Together with Q1 (P4), AREA01's game thread went from 14.1 to 11.1 ms per tick.
+
+**The GS proof set** (EM_TEST_FULL=1, the Q2 build; receipts in build/perf_investigation/q2/proof/):
+- The GS unit tests give P4's results line for line (only timings and scratch paths differ): the raster reference 931 / 1158 bit-exact with 0 failures; gs_world_test PASS; the DOF pass 8 captures bit-exact; fog; GS memory; gs_display_test.
+- The fb2 harness passes at 8 of 19 points, with every exact-pixel count equal to P4's.
+- The AREA01 smoke passes (20 live phases).
+- The full level smoke gives the same 404 PASS lines as P1-P4, with no failures; its chain-page, snow, flame and background-grid digest checks ran on the host path.
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -548,7 +595,7 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **CONTEXT MISSED: this is a recent regression; the CPU GS frame became the Original profile's renderer on 2026-10-08** — Port be2f04d (2026-10-08, 'GSFRAME, the Original profile drawn by the CPU GS model'); aa43764 / 2a233ae (2026-10-10, the DOF pass). IOS.md Frame time (2026-10-04, Metal world): iPhone Air world steps p50 6.99 / p99 9.04 ms, M1 Pro 7.52 / 11.85, with 7.6 ms of headroom on the phone (Explains why it 'used to be fine'. The phone's performance cores match the M1's on the main thread, so the phone's problem is the GS workers)
 - **CORRECTION: the DOF pass covers about 6.3 fields per frame, not 'eight times'** — 720,896 plotted / (512 x 224 = 114,688) = 6.29. Eight is the number of barriers (shrink and stretch steps), not full-screen coverages (Wording only; its measured 35 % of GS CPU stands)
 - **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured. Q1 measured 2026-10-11, Progress P4: AREA01 main thread -1.9 ms, AREA11 -0.6 to -0.9 ms; the GS-frame tick unchanged at 6 workers, because there the busiest worker, not the main thread, set the AREA01 tick; on the GPU renderer the AREA01 tick fell 1.9 ms)
-- **EXACTNESS FLAG on Q2: host lanes run under round-toward-zero and flush-to-zero; the page programs also contain double math, which must stay outside that environment** — em_vu_host_lanes.h: the lanes must run inside an EM_VU_HOST_NOINLINE function bracketed by em_vu_host_enter / em_vu_host_leave, and 'nothing else runs in it'. em_vu1_page_programs.h has double arithmetic (around lines 899-920: s == 0.0, a quotient path) and calls em_eei_quotient for VDIV; today the emvup_* helpers are static inline inside the larger program functions. emvup_chk only sets c->bad, and the output is dropped at the fault returns. That drop is what lets exponent-255 operands become inf / NaN under host lanes (Safe only if each program is split so that just add / sub / mul / madd run in the bracketed function. Extend test_vu_host_lanes.py and add a whole-program reference sweep)
+- **EXACTNESS FLAG on Q2: host lanes run under round-toward-zero and flush-to-zero; the page programs also contain double math, which must stay outside that environment** — em_vu_host_lanes.h: the lanes must run inside an EM_VU_HOST_NOINLINE function bracketed by em_vu_host_enter / em_vu_host_leave, and 'nothing else runs in it'. em_vu1_page_programs.h has double arithmetic (around lines 899-920: s == 0.0, a quotient path) and calls em_eei_quotient for VDIV; today the emvup_* helpers are static inline inside the larger program functions. emvup_chk only sets c->bad, and the output is dropped at the fault returns. That drop is what lets exponent-255 operands become inf / NaN under host lanes (Safe only if each program is split so that just add / sub / mul / madd run in the bracketed function. Extend test_vu_host_lanes.py and add a whole-program reference sweep. Handled differently in Progress P5: the double math and the kick consumers leave the environment through trampolines, exponent-255 operations stay on the model, and a whole-program differential test runs both paths)
 - **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself)
 - **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z)
 - **MISSED: equal 4-row interleaved bands on mixed core types put the slowest core on the critical path; Q5's count alone is not enough on the iPhone** — em_gs_world.c worker_count = online - 3 (A19 Pro: 6 - 3 = 3); own_row deals rows equally. With 2 performance + 4 efficiency cores, the frame and each of the 8 DOF barriers wait for an efficiency-core worker. Row ownership is a pure partition, so giving performance-core workers more rows, or using more workers on the 4 efficiency cores, draws the same bytes. gs_world_test.c (N workers == 1) is the proof and needs uneven-partition cases (Phone not measured. On M1 performance cores, 3 workers give 50-83 % speed, the clearest measured cause of 'really slow' on the phone)

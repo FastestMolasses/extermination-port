@@ -128,6 +128,17 @@ are entered by MSCAL 0. The lane, sprite and snow programs are the route's;
 the streak and kind-2 programs first draw in the AIM side runs (chain step
 AIMLIVE's fix round, 2026-10-02; AIM_FIRE.md section 10).
 
+Arithmetic (since 2026-10-11, PERFORMANCE.md "Progress" P5): every program
+runs through `em_vu1p_mscal`. The live entries (`em_vu1_*_program_mscal`)
+take its host path: multiplies, adds, subtracts and divides of finite
+operands on the host FPU in the VU rounding environment
+(`em_vu_host_lanes.h`), an operation with an exponent-255 operand on the
+model, and the EFU's double-precision ERLENG and every XGKICK consumer run
+outside that environment. The model path (`host` 0) is em_ee_float.h's
+integer arithmetic throughout. `test-vu-page-host-differential` runs both
+paths over the captured pages, the synthetic cases and a fuzz of special
+operands: every result code, register, data-memory word and kick agrees.
+
 **The lane program** (138 instructions). Rows 0..8 are the clip projection
 001CD370(2), K (0x70003AC0) and the fog row (packet 4 of 001F0720), rows 9..13
 the program packet's GIF tag and four ST rows, rows 0x0E..0x11 the preset's

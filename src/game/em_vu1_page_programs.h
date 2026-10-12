@@ -72,7 +72,21 @@
  * writing it. XGKICK hands the kicked dmem address to the caller, which
  * reads the GIF packet at once (the programs double-buffer their output).
  *
- * Header-only (static inline), pure C, no host float arithmetic. */
+ * Arithmetic paths (em_vu1p_mscal's `host`): 0 runs every lane operation on
+ * em_ee_float.h's integer model; 1 (the live path, and every
+ * em_vu1_*_program_mscal) runs the multiplies, adds, subtracts and divides
+ * of finite operands on the host FPU (em_vu_host_lanes.h, equal to the
+ * model for every finite operand pair: tools/test_vu_host_lanes.py) inside
+ * em_vu_host_enter / em_vu_host_leave, and an operation with an
+ * exponent-255 operand on the model, so the two paths write the same words
+ * for every input, faults included (tools/test_vu_page_host_differential.py
+ * runs both over the captured pages). The host path's program runs in one
+ * EM_VU_HOST_NOINLINE function; it leaves the environment only through
+ * EM_VU_HOST_NOINLINE trampolines that restore it before they return: for
+ * the EFU's double-precision model (emvup_erleng) and for each XGKICK
+ * consumer, which run in the caller's environment.
+ *
+ * Header-only (static inline), pure C. */
 #ifndef EM_VU1_PAGE_PROGRAMS_H
 #define EM_VU1_PAGE_PROGRAMS_H
 
@@ -81,6 +95,7 @@
 #include <string.h>
 
 #include "game/em_ee_float.h"
+#include "game/em_vu_host_lanes.h"
 
 #define EM_VU1P_DMEM_QWORDS 1024u
 
@@ -119,30 +134,63 @@ typedef struct {
     EmVu1PRegs *r;
     EmVu1PQword *m;
     uint32_t bad;
+    int host;             /* the lanes on the host FPU (em_vu1p_mscal)   */
+    EmVu1PKick kick;      /* the XGKICK consumer and its context         */
+    void *kick_ctx;
+    EmVuHostEnv env;      /* the caller's FP environment (host path)     */
 } EmVu1PCtx;
 
+static inline int emvup_special(uint32_t w)
+{
+    return (w & 0x7F800000u) == 0x7F800000u;
+}
 static inline uint32_t emvup_chk(EmVu1PCtx *c, uint32_t w)
 {
-    if ((w & 0x7F800000u) == 0x7F800000u) c->bad = 1u;
+    if (emvup_special(w)) c->bad = 1u;
     return w;
 }
-static inline uint32_t emvup_add(EmVu1PCtx *c, uint32_t a, uint32_t b)
+/* The host path: finite operands on the host FPU, inlined into the
+ * program; an exponent-255 operand (which faults the MSCAL) and the model
+ * path call the model's arithmetic, so the result is always the model's. */
+#if defined(__GNUC__) || defined(__clang__)
+#define EMVUP_INLINE static inline __attribute__((always_inline))
+#define EMVUP_CALL static inline __attribute__((noinline))
+#else
+#define EMVUP_INLINE static inline
+#define EMVUP_CALL static inline
+#endif
+EMVUP_CALL uint32_t emvup_add_model(EmVu1PCtx *c, uint32_t a, uint32_t b)
 {
     return em_eei_vu_add_raw(emvup_chk(c, a), emvup_chk(c, b));
 }
-static inline uint32_t emvup_sub(EmVu1PCtx *c, uint32_t a, uint32_t b)
+EMVUP_CALL uint32_t emvup_sub_model(EmVu1PCtx *c, uint32_t a, uint32_t b)
 {
     return em_eei_vu_sub_raw(emvup_chk(c, a), emvup_chk(c, b));
 }
-static inline uint32_t emvup_mul(EmVu1PCtx *c, uint32_t a, uint32_t b)
+EMVUP_CALL uint32_t emvup_mul_model(EmVu1PCtx *c, uint32_t a, uint32_t b)
 {
     return em_eei_vu_mul_raw(emvup_chk(c, a), emvup_chk(c, b));
 }
-static inline uint32_t emvup_madd(EmVu1PCtx *c, uint32_t acc, uint32_t a, uint32_t b)
+EMVUP_INLINE uint32_t emvup_add(EmVu1PCtx *c, uint32_t a, uint32_t b)
+{
+    if (c->host && !(emvup_special(a) | emvup_special(b))) return emvuh_add(a, b);
+    return emvup_add_model(c, a, b);
+}
+EMVUP_INLINE uint32_t emvup_sub(EmVu1PCtx *c, uint32_t a, uint32_t b)
+{
+    if (c->host && !(emvup_special(a) | emvup_special(b))) return emvuh_sub(a, b);
+    return emvup_sub_model(c, a, b);
+}
+EMVUP_INLINE uint32_t emvup_mul(EmVu1PCtx *c, uint32_t a, uint32_t b)
+{
+    if (c->host && !(emvup_special(a) | emvup_special(b))) return emvuh_mul(a, b);
+    return emvup_mul_model(c, a, b);
+}
+EMVUP_INLINE uint32_t emvup_madd(EmVu1PCtx *c, uint32_t acc, uint32_t a, uint32_t b)
 {
     return emvup_add(c, acc, emvup_mul(c, a, b));
 }
-static inline uint32_t emvup_msub(EmVu1PCtx *c, uint32_t acc, uint32_t a, uint32_t b)
+EMVUP_INLINE uint32_t emvup_msub(EmVu1PCtx *c, uint32_t acc, uint32_t a, uint32_t b)
 {
     return emvup_sub(c, acc, emvup_mul(c, a, b));
 }
@@ -153,7 +201,23 @@ static inline uint32_t emvup_div(EmVu1PCtx *c, uint32_t a, uint32_t b)
     b = em_eei_daz(emvup_chk(c, b));
     if (em_eei_is_zero(b)) return ((a ^ b) & EM_EE_SIGN) | EM_EE_MAX;
     if (c->bad) return 0;
-    return em_eei_quotient(a, b, 0);
+    return c->host ? emvuh_div(a, b) : em_eei_quotient(a, b, 0);   /* finite, b normal */
+}
+
+/* XGKICK of dmem qword `at`. On the host path the consumer runs in the
+ * caller's FP environment: the trampoline leaves the host environment,
+ * calls it and enters the host environment again before it returns. */
+static inline EM_VU_HOST_NOINLINE int emvup_kick_outside(EmVu1PCtx *c, uint32_t at)
+{
+    EmVuHostEnv again;
+    em_vu_host_leave(&c->env);
+    const int rc = c->kick(c->kick_ctx, c->m, at);
+    em_vu_host_enter(&again);
+    return rc;
+}
+static inline int emvup_kick(EmVu1PCtx *c, uint32_t at)
+{
+    return c->host ? emvup_kick_outside(c, at) : c->kick(c->kick_ctx, c->m, at);
 }
 
 /* dmem access, addresses modulo 1024 qwords. */
@@ -262,12 +326,10 @@ static inline void emvup_lane_vertex(EmVu1PCtx *c)
  * K (4) and the fog row; 9: the GIF tag; 0xA..0xD: the four ST rows;
  * 0xE..0x11: the four corners; 0x20 + 6 k: the 32 slots (a 4-row matrix,
  * the colour, and a TEX0 row whose z word is the countdown). */
-static inline int em_vu1_lane_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                            void *ctx)
+static inline int emvup_lane_program(EmVu1PCtx *c)
 {
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx c = { r, dmem, 0 };
-    for (unsigned k = 0; k < 9; ++k) emvup_lq(&c, 20u + k, k);         /* 0x000..0x008 */
+    EmVu1PRegs *r = c->r;
+    for (unsigned k = 0; k < 9; ++k) emvup_lq(c, 20u + k, k);          /* 0x000..0x008 */
     r->vi[11] = 0x20;
     r->vi[13] = 0x20;
     r->vi[14] = 0x7FFF;
@@ -275,13 +337,13 @@ static inline int em_vu1_lane_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
     r->vi[6] = 0x320;
     r->vi[7] = 0x390;
     do {
-        emvup_lq(&c, 1, r->vi[13] + 5u);                               /* 0x00F */
+        emvup_lq(c, 1, r->vi[13] + 5u);                                /* 0x00F */
         r->vi[1] = (uint16_t)(r->vf[1][2] & 0xFFFFu);                  /* 0x013 */
         r->vi[12] = r->vi[6];                                          /* 0x018 (delay slot) */
         if ((int16_t)r->vi[1] > 0) {                                   /* 0x017 */
-            emvup_sq(&c, 1, r->vi[12]);                                /* 0x019 */
-            emvup_lq(&c, 15, r->vi[13] + 4u);
-            for (unsigned k = 0; k < 4; ++k) emvup_lq(&c, 16u + k, r->vi[13] + k);
+            emvup_sq(c, 1, r->vi[12]);                                 /* 0x019 */
+            emvup_lq(c, 15, r->vi[13] + 4u);
+            for (unsigned k = 0; k < 4; ++k) emvup_lq(c, 16u + k, r->vi[13] + k);
             r->cf = 0;                                                 /* 0x022 */
             r->vi[10] = 0;
             for (unsigned k = 0; k < 4; ++k) {                         /* 0x025..0x038 */
@@ -289,13 +351,13 @@ static inline int em_vu1_lane_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
                 r->vi[8] = (uint16_t)(0x0E + k);
                 r->vi[9] = (uint16_t)(r->vi[12] + 1u + 3u * k);
                 r->vi[15] = (uint16_t)(0x2A + 5u * k);                 /* the BAL link */
-                emvup_lane_vertex(&c);
-                if (c.bad) return EM_VU1P_FAULT_OPERAND;
+                emvup_lane_vertex(c);
+                if (c->bad) return EM_VU1P_FAULT_OPERAND;
             }
-            emvup_lq(&c, 1, 9);                                        /* 0x039 */
+            emvup_lq(c, 1, 9);                                         /* 0x039 */
             r->vi[12] = (uint16_t)(r->vi[12] - 1u);
-            emvup_sq(&c, 1, r->vi[12]);                                /* 0x03D */
-            if (kick(ctx, dmem, r->vi[12] & 1023u))                    /* 0x041 */
+            emvup_sq(c, 1, r->vi[12]);                                 /* 0x03D */
+            if (emvup_kick(c, r->vi[12] & 1023u))                      /* 0x041 */
                 return EM_VU1P_FAULT_KICK;
         }
         r->vi[1] = r->vi[6];                                           /* 0x043..0x045 */
@@ -527,7 +589,7 @@ static inline uint16_t emvup_mac_xy(uint32_t x, uint32_t y)
     return (uint16_t)(((x >> 31) ? 0x80u : 0u) | ((y >> 31) ? 0x40u : 0u));
 }
 
-static inline int emvup_kind6_particle(EmVu1PCtx *c, EmVu1PKick kick, void *ctx)
+static inline int emvup_kind6_particle(EmVu1PCtx *c)
 {
     EmVu1PRegs *r = c->r;
     uint32_t p[4];
@@ -667,7 +729,7 @@ static inline int emvup_kind6_particle(EmVu1PCtx *c, EmVu1PKick kick, void *ctx)
                     r->vf[4][1] = emvup_add(c, r->vf[4][1], r->vf[8][1]);         /* 0x179 (delay slot) */
                 } while ((int16_t)r->vi[1] > 0);
                 if (c->bad) return EM_VU1P_FAULT_OPERAND;
-                if (kick(ctx, c->m, r->vi[6] & 1023u))                 /* 0x17A */
+                if (emvup_kick(c, r->vi[6] & 1023u))                   /* 0x17A */
                     return EM_VU1P_FAULT_KICK;
             }
         }
@@ -678,7 +740,7 @@ static inline int emvup_kind6_particle(EmVu1PCtx *c, EmVu1PKick kick, void *ctx)
         r->vi[1] = r->vi[14];                                          /* 0x12A: EOP, NLOOP 0 */
         r->vf[6][0] = (uint32_t)(int32_t)(int16_t)r->vi[1];
         emvup_sq(c, 6, r->vi[6]);                                      /* 0x12F */
-        if (kick(ctx, c->m, r->vi[6] & 1023u))                         /* 0x133 */
+        if (emvup_kick(c, r->vi[6] & 1023u))                           /* 0x133 */
             return EM_VU1P_FAULT_KICK;
     }
     return EM_VU1P_OK;                                                 /* 0x135 / 0x17C -> 0x0F1 */
@@ -691,12 +753,10 @@ static inline int emvup_kind6_particle(EmVu1PCtx *c, EmVu1PKick kick, void *ctx)
  * and the depth bias; 124: the GIF tag. The program keeps its batch state
  * in rows 96..102 and writes the sprites of each batch to 0x100 or 0x280
  * (six rows per visible particle after a tag row), then kicks the tag. */
-static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
-                                         int variant)
+static inline int emvup_particle_program(EmVu1PCtx *c, int variant)
 {
     const int snow = variant == 1, kind6 = variant == 2;
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    EmVu1PRegs *r = c->r;
     emvup_lq(c, 4, 88);                                                /* 0x000..0x003 */
     emvup_lq(c, 1, 89);
     emvup_lq(c, 2, 82);
@@ -757,7 +817,7 @@ static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1
         emvup_lq(c, 13, r->vi[13] + 3u);
         emvup_lq(c, 14, r->vi[13] + 2u);
         if (kind6) {
-            const int rc = emvup_kind6_particle(c, kick, ctx);
+            const int rc = emvup_kind6_particle(c);
             if (rc) return rc;
             if (c->bad) return EM_VU1P_FAULT_OPERAND;
             continue;                                                  /* -> 0x0F1 */
@@ -846,18 +906,12 @@ static inline int emvup_particle_program(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1
                 if (c->bad) return EM_VU1P_FAULT_OPERAND;
                 if (more) continue;
             }
-            if (kick(ctx, dmem, r->vi[6] & 1023u))                     /* 0x134 / 0x147 (snow 0x149) */
+            if (emvup_kick(c, r->vi[6] & 1023u))                       /* 0x134 / 0x147 (snow 0x149) */
                 return EM_VU1P_FAULT_KICK;
             break;                                                     /* -> 0x0F1 */
         }
     }
     return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;
-}
-
-static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                              void *ctx)
-{
-    return emvup_particle_program(r, dmem, kick, ctx, 0);
 }
 
 /* MSCAL 0 of the snow program (D_00233800): the sprite program's dmem
@@ -866,11 +920,6 @@ static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
  * particle's K-projected w (VF08, micro 0x118..0x13E), before its FTOI0.
  * VF08 (all four lanes, w scaled) and I = 0.02 between micro 0x11D and 0x122
  * are the only other register effects. */
-static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                            void *ctx)
-{
-    return emvup_particle_program(r, dmem, kick, ctx, 1);
-}
 
 /* MSCAL 0 of the kind-6 program (D_0023D930, 001CFBE0's kind 6: the fire
  * owner 001E3D90's near-fire layer, AREA01). Its instructions are the
@@ -879,11 +928,6 @@ static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
  * 0x0F5 / 0x0F6 and the branch offsets; the emission (0x10B..0x17C) is
  * emvup_kind6_particle's. Same dmem layout plus rows 125 / 126 (the
  * packet's upload). */
-static inline int em_vu1_kind6_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                             void *ctx)
-{
-    return emvup_particle_program(r, dmem, kick, ctx, 2);
-}
 
 /* ========================================================== streak ===== */
 
@@ -892,13 +936,15 @@ static inline int em_vu1_kind6_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, E
  * program (em_vu1_grid_program_mscal below, docs/BACKGROUND.md): ERLENG = 1 / sqrt(x*x + y*y + z*z) and ERCPR = 1 / x,
  * truncated to binary32 with denormals flushed; ERCPR's quotient is VDIV's.
  * A zero operand (ERCPR) or a zero length (ERLENG) is not established: the
- * MSCAL faults (EM_VU1P_FAULT_OPERAND), as the reference model raises. */
+ * MSCAL faults (EM_VU1P_FAULT_OPERAND), as the reference model raises.
+ * ERLENG's double arithmetic runs in the caller's FP environment, never in
+ * the host lanes' (emvup_erleng_outside). */
 static inline uint32_t emvup_ercpr(EmVu1PCtx *c, uint32_t x)
 {
     x = em_eei_daz(emvup_chk(c, x));
     if (em_eei_is_zero(x)) { c->bad = 1u; return 0; }
     if (c->bad) return 0;
-    return em_eei_quotient(EM_EE_ONE, x, 0);
+    return c->host ? emvuh_div(EM_EE_ONE, x) : em_eei_quotient(EM_EE_ONE, x, 0);   /* x finite, normal */
 }
 static inline double emvup_efu_lane(uint32_t w)
 {
@@ -907,7 +953,7 @@ static inline double emvup_efu_lane(uint32_t w)
     memcpy(&f, &w, sizeof f);
     return (double)f;
 }
-static inline uint32_t emvup_erleng(EmVu1PCtx *c, const uint32_t v[4])
+static inline EM_VU_HOST_NOINLINE uint32_t emvup_erleng_double(EmVu1PCtx *c, const uint32_t v[4])
 {
     const double x = emvup_efu_lane(emvup_chk(c, v[0]));
     const double y = emvup_efu_lane(emvup_chk(c, v[1]));
@@ -925,6 +971,20 @@ static inline uint32_t emvup_erleng(EmVu1PCtx *c, const uint32_t v[4])
     memcpy(&w, &f, sizeof w);
     if ((double)f > inv) w -= 1u;                                       /* truncate */
     return (w & 0x7F800000u) == 0u ? 0u : w;                             /* flush */
+}
+/* The host path's ERLENG: out of the host environment for the double
+ * arithmetic, back in before it returns. */
+static inline EM_VU_HOST_NOINLINE uint32_t emvup_erleng_outside(EmVu1PCtx *c, const uint32_t v[4])
+{
+    EmVuHostEnv again;
+    em_vu_host_leave(&c->env);
+    const uint32_t w = emvup_erleng_double(c, v);
+    em_vu_host_enter(&again);
+    return w;
+}
+static inline uint32_t emvup_erleng(EmVu1PCtx *c, const uint32_t v[4])
+{
+    return c->host ? emvup_erleng_outside(c, v) : emvup_erleng_double(c, v);
 }
 
 /* One particle's record at VI10 (micro 0x0C3..0x0F3): the sprite program's
@@ -1143,11 +1203,9 @@ static inline int emvup_streak_start(EmVu1PCtx *c)
  * the tag row 124 whose NLOOP is the particle count, every particle drawn
  * (none is rejected), and kicks it. The dmem layout is the sprite program's
  * plus rows 125..128 (the packet's own upload). */
-static inline int em_vu1_streak_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                              void *ctx)
+static inline int emvup_streak_program(EmVu1PCtx *c)
 {
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    EmVu1PRegs *r = c->r;
     const int rc0 = emvup_streak_start(c);
     if (rc0) return rc0;
     uint32_t batches = 0;
@@ -1188,7 +1246,7 @@ static inline int em_vu1_streak_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, 
             if (c->bad) return EM_VU1P_FAULT_OPERAND;
             r->vi[12] = (uint16_t)(r->vi[12] + 13u);                   /* 0x175 (delay slot) */
         } while ((int16_t)r->vi[11] > 0);                              /* 0x174 */
-        if (kick(ctx, dmem, r->vi[10] & 1023u))                        /* 0x176 */
+        if (emvup_kick(c, r->vi[10] & 1023u))                          /* 0x176 */
             return EM_VU1P_FAULT_KICK;
     }                                                                  /* 0x178 -> 0x0F7 */
     return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;
@@ -1259,11 +1317,9 @@ static inline void emvup_kind2_line(EmVu1PCtx *c)
  * particle of a batch as a line of four rows at row 101's base after the
  * tag row 124 whose NLOOP is the particle count, every particle drawn
  * (none is rejected), and kicks it. */
-static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
-                                             void *ctx)
+static inline int emvup_kind2_program(EmVu1PCtx *c)
 {
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    EmVu1PRegs *r = c->r;
     const int rc0 = emvup_streak_start(c);
     if (rc0) return rc0;
     uint32_t batches = 0;
@@ -1298,7 +1354,7 @@ static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, E
             emvup_kind2_line(c);                                       /* 0x112..0x137 */
             if (c->bad) return EM_VU1P_FAULT_OPERAND;
         } while ((int16_t)r->vi[11] > 0);                              /* 0x138 */
-        if (kick(ctx, dmem, r->vi[5] & 1023u))                         /* 0x13A */
+        if (emvup_kick(c, r->vi[5] & 1023u))                           /* 0x13A */
             return EM_VU1P_FAULT_KICK;
     }                                                                  /* 0x13C -> 0x0F7 */
     return c->bad ? EM_VU1P_FAULT_OPERAND : EM_VU1P_OK;
@@ -1326,10 +1382,10 @@ static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, E
  * each step by 0x81 and wrap from 0x183 to 0 (three buffers). The
  * pipeline stalls change no value read (the reference test's VU1 machine,
  * tools/test_background_reference.py run_kernel, executes the original). */
-static inline int em_vu1_grid_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+static inline int emvup_grid_program(EmVu1PCtx *c)
 {
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    EmVu1PRegs *r = c->r;
+    EmVu1PQword *dmem = c->m;
     for (unsigned k = 0; k < 4u; ++k) emvup_lq(c, 28u + k, 512u + k);   /* 0x000..0x003 */
     emvup_lq(c, 27, 518);                                               /* 0x004 */
     emvup_lq(c, 26, 519);                                               /* 0x005 */
@@ -1375,7 +1431,7 @@ static inline int em_vu1_grid_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, Em
             if (c->bad) return EM_VU1P_FAULT_OPERAND;
         } while (r->vi[12] != 0);                                       /* 0x032 */
         r->vi[1] = 32;                                                  /* 0x034 */
-        if (r->vi[13] != r->vi[1] && kick(ctx, dmem, r->vi[7] & 1023u)) /* 0x036, 0x038 */
+        if (r->vi[13] != r->vi[1] && emvup_kick(c, r->vi[7] & 1023u))  /* 0x036, 0x038 */
             return EM_VU1P_FAULT_KICK;
         r->vi[7] = (uint16_t)(r->vi[7] + 129u);                         /* 0x03A */
         r->vi[1] = (uint16_t)(r->vi[7] - 387u);                         /* 0x03B */
@@ -1493,11 +1549,9 @@ static inline void emvup_floor_vertex(EmVu1PCtx *c, int wide)
 
 /* One batch (MSCAL 0, or MSCNT after a batch of this program): `top` is
  * the TOP register (XTOP), the batch's buffer. */
-static inline int emvup_floor_batch(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
-                                    uint32_t top, int wide)
+static inline int emvup_floor_batch(EmVu1PCtx *c, uint32_t top, int wide)
 {
-    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
-    EmVu1PCtx cc = { r, dmem, 0 }, *c = &cc;
+    EmVu1PRegs *r = c->r;
     const uint32_t row = wide ? 32u : 8u;                               /* points per row */
     r->vi[13] = (uint16_t)(top & 1023u);                                /* 0x000 XTOP */
     r->vi[14] = 0x7FFF;                                                 /* 0x001 */
@@ -1534,20 +1588,109 @@ static inline int emvup_floor_batch(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick
     r->vi[11] = (uint16_t)(r->vi[11] + 3u * row);                       /* 0x024 */
     emvup_lq(c, 1, 1020);                                               /* 0x025 */
     emvup_sq(c, 1, r->vi[11]);                                          /* 0x029 */
-    if (kick(ctx, dmem, r->vi[11] & 1023u)) return EM_VU1P_FAULT_KICK;  /* 0x02D [E] */
+    if (emvup_kick(c, r->vi[11] & 1023u)) return EM_VU1P_FAULT_KICK;    /* 0x02D [E] */
     return EM_VU1P_OK;
 }
 
+
+/* ======================================================== the MSCAL ====== */
+
+enum {
+    EM_VU1P_LANE = 0,     /* D_00233290                                    */
+    EM_VU1P_SPRITE = 1,   /* table 0x231770, kinds 1 and 5                 */
+    EM_VU1P_SNOW = 2,     /* D_00233800                                    */
+    EM_VU1P_KIND6 = 3,    /* D_0023D930                                    */
+    EM_VU1P_STREAK = 4,   /* table 0x230800                                */
+    EM_VU1P_KIND2 = 5,    /* table 0x232540                                */
+    EM_VU1P_GRID = 6,     /* packet 0x0023C990                             */
+    EM_VU1P_FLOOR = 7,    /* D_002345E0 (MSCAL 0 or MSCNT at `top`)        */
+    EM_VU1P_RIPPLE = 8    /* D_00234B00 (MSCAL 0 or MSCNT at `top`)        */
+};
+
+static inline int emvup_program(EmVu1PCtx *c, unsigned program, uint32_t top)
+{
+    switch (program) {
+    case EM_VU1P_LANE: return emvup_lane_program(c);
+    case EM_VU1P_SPRITE: return emvup_particle_program(c, 0);
+    case EM_VU1P_SNOW: return emvup_particle_program(c, 1);
+    case EM_VU1P_KIND6: return emvup_particle_program(c, 2);
+    case EM_VU1P_STREAK: return emvup_streak_program(c);
+    case EM_VU1P_KIND2: return emvup_kind2_program(c);
+    case EM_VU1P_GRID: return emvup_grid_program(c);
+    case EM_VU1P_FLOOR: return emvup_floor_batch(c, top, 0);
+    case EM_VU1P_RIPPLE: return emvup_floor_batch(c, top, 1);
+    default: return EM_VU1P_FAULT_ARGS;
+    }
+}
+
+/* The host path's program: the only function that runs in the host
+ * environment (em_vu1p_mscal enters it before the call and leaves it
+ * after; the trampolines leave and re-enter it inside). */
+static inline EM_VU_HOST_NOINLINE int emvup_program_host(EmVu1PCtx *c, unsigned program, uint32_t top)
+{
+    return emvup_program(c, program, top);
+}
+
+/* One MSCAL (or the floor / ripple program's MSCNT) of `program`. host 0:
+ * the model's integer lanes; host 1: the host FPU's (where the platform
+ * has the environment, EM_VU_HOST_LANES; else the model's). Both write the
+ * same words, registers, kicks and result for every input. */
+static inline int em_vu1p_mscal(unsigned program, int host, EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick,
+                                void *ctx, uint32_t top)
+{
+    if (!r || !dmem || !kick) return EM_VU1P_FAULT_ARGS;
+    EmVu1PCtx c;
+    memset(&c, 0, sizeof c);
+    c.r = r;
+    c.m = dmem;
+    c.kick = kick;
+    c.kick_ctx = ctx;
+    c.host = host && EM_VU_HOST_LANES;
+    if (!c.host) return emvup_program(&c, program, top);
+    em_vu_host_enter(&c.env);
+    const int rc = emvup_program_host(&c, program, top);
+    em_vu_host_leave(&c.env);
+    return rc;
+}
+
+/* The live entries: the host path. */
+static inline int em_vu1_lane_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_LANE, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_sprite_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_SPRITE, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_snow_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_SNOW, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_kind6_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_KIND6, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_streak_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_STREAK, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_kind2_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_KIND2, 1, r, dmem, kick, ctx, 0);
+}
+static inline int em_vu1_grid_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx)
+{
+    return em_vu1p_mscal(EM_VU1P_GRID, 1, r, dmem, kick, ctx, 0);
+}
 static inline int em_vu1_floor_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
                                              uint32_t top)
 {
-    return emvup_floor_batch(r, dmem, kick, ctx, top, 0);
+    return em_vu1p_mscal(EM_VU1P_FLOOR, 1, r, dmem, kick, ctx, top);
 }
-
 static inline int em_vu1_ripple_program_mscal(EmVu1PRegs *r, EmVu1PQword *dmem, EmVu1PKick kick, void *ctx,
                                               uint32_t top)
 {
-    return emvup_floor_batch(r, dmem, kick, ctx, top, 1);
+    return em_vu1p_mscal(EM_VU1P_RIPPLE, 1, r, dmem, kick, ctx, top);
 }
 
 #endif

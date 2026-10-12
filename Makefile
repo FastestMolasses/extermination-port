@@ -927,6 +927,13 @@ test-static-world-draw-reference:
 test-vu-host-lanes:
 	python3 tools/test_vu_host_lanes.py
 
+# The VU1 page programs' host-float path against their model path, whole
+# MSCALs over the captured pages, synthetic and fuzzed states
+# (em_vu1_page_programs.h em_vu1p_mscal).
+.PHONY: test-vu-page-host-differential
+test-vu-page-host-differential:
+	python3 tools/test_vu_page_host_differential.py
+
 # The Metal pixel path of em_gfx_gs_opaque over a captured static run
 # against the GS pixel model (the original microcode's triangles).
 .PHONY: test-static-world-gpu
