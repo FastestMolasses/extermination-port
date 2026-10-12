@@ -19,6 +19,11 @@ BIN     := build/extermination
 # the level smokes pass both ways; the reference tests build with this pin.
 # Never add -ffast-math. Windows (when its project lands): MSVC /fp:precise
 # without /fp:contract (VS 2022 or later), clang-cl /clang:-ffp-contract=off.
+# -O2 and no -mcpu or LTO, by measurement (docs/PERFORMANCE.md "Progress",
+# P9): -O3 and -flto draw the same bytes but did not speed the tick up (-O3
+# costs the game thread about 0.3 ms a tick, LTO the GS workers about 0.2
+# ms), and -mcpu=apple-m1 is already Apple clang's default for arm64 macOS.
+# The reference tests build their libraries with -O2: change them with it.
 CFLAGS  := -O2 -ffp-contract=off -Wall -Wextra -Isrc
 COMMON  := src/main.c src/em_model.c src/em_input.c src/em_settings.c \
            src/game/em_player_target_live.c src/game/em_level14_port_boot.c src/game/em_area01_hull_live.c src/game/em_area01_transition_services.c \

@@ -126,7 +126,7 @@ The AREA01 runs without the pass had a load spike to 15.
    - the windowed Mac path: measured and fixed since (Progress P2);
    - a possible texture_entry cliff (a linear search of 1024 entries, plus a 16 KiB memset per miss once full): measured since (Progress P8). The cliff is never reached (at most 348 entries), but the linear search over the ~345 entries cost 0.5-0.9 ms of the game thread per tick; it is now a hash.
 
-**Not a cause:** build settings. macOS uses -O2; the iOS project has optimization level 2 in both configurations, and build.sh builds Release. Presentation is about 0 % headless.
+**Not a cause:** build settings. macOS uses -O2; the iOS project has optimization level 2 in both configurations, and build.sh builds Release. Measured since (Progress P9): -O3, LTO and -mcpu tuning do not shorten the tick. Presentation is about 0 % headless.
 
 ## 4. Optimization plan for the Original profile (bit-exact)
 
@@ -186,6 +186,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* estimated 5-15 %.
 - *Risk:* floating-point contraction. Pinned off since P1 (Progress); keep it pinned under any new flag, and never use -ffast-math.
 - *Proof:* the full reference suite with EM_TEST_FULL=1, plus test_vu_host_lanes.py.
+- *Done 2026-10-12 (Progress P9):* nothing kept. -O3, -flto and -mcpu draw the same bytes, but none shortened the tick: -O3 is 0.8-1.7 % faster on the DOF pass offline and about 0.3 ms slower on the game thread; LTO is 0.1-0.2 ms faster on the game thread and about 0.2 ms slower on the busiest worker; -mcpu=apple-m1 is already the macOS default, and -mcpu=apple-a12 (iOS 17's oldest chip) was no faster on the M1. The build stays -O2 -ffp-contract=off.
 
 **Q7. Counters on texture_entry.**
 - *Change:* count entries and misses per frame. If the 1024-entry cliff is real, replace the search with a hash.
@@ -292,7 +293,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -786,6 +787,77 @@ HEAD b's AREA11 calm and slide were disturbed (its busiest worker 13.05 and 12.6
 - *Gain.* 0.5-0.9 ms of game-thread CPU per tick in every scene measured, in line with the counters' 0.6-0.9 ms (the hit times' difference). In AREA11 the tick does not shorten, since the GS workers set it. In AREA01 the tick's wall time fell by 0.7-1.8 ms and the speed rose 3-12 points in these runs. The game thread shares the cores with the workers there, but the load was high, so take the size of that gain as uncertain.
 - *Where it matters most.* On a host with fewer cores (the iPhone Air) the game thread's time competes directly with the workers.
 - *Q7 is closed.* The counters stay, behind EM_GS_TEX_COUNTERS.
+
+### P9. Build flags (Q6) (2026-10-12)
+
+**Result: nothing kept.** The build stays -O2 -ffp-contract=off, with clang's default CPU and no LTO. Every variant tried draws the same bytes, but none shortened the tick, and the two that save time in one place lose it in another. The Makefile's CFLAGS comment records this.
+
+**What was tried.** The same working tree (Q7's code, HEAD 39a9530), the -ffp-contract=off pin kept in every build, never -ffast-math. Builds: q6/build_variant.sh (the Makefile's command with -O2 replaced) and q6/gs3/cmd.txt.
+- -O2 (base): its code is identical to build/extermination's.
+- -O2 -mcpu=apple-m1: code identical to -O2. Apple clang already targets apple-m1 for arm64 macOS, and every Apple Silicon Mac has at least the M1's features, so the flag is a no-op there.
+- -O3; -O2 -flto; -O3 -flto.
+- gs3: em_gs_raster.c alone at -O3, the rest at -O2.
+- iOS: the iOS target's default CPU is apple-a7. iOS 17 (IOS_MIN) runs on A12 and later, so -mcpu=apple-a12 is the tuning the project could use without dropping a device. It was measured on the M1 as a stand-in (the M1's cores are A14-class), offline only.
+- Every binary has exactly one fused multiply-add instruction: uv_axis_settled's explicit fmaf() (counted, not listed). So no flag brought contraction back.
+- Sizes: -O2 4.67 MB, -O3 4.97 MB, -O2 -flto 4.14 MB, -O3 -flto 4.22 MB.
+
+**Same bytes.** The GS unit references with EM_TEST_FULL=1, their library builds' flags replaced by each variant's, in scratch trees (q6/flagproof/run.sh; logs in q6/flagproof/logs/): the raster reference (931 / 1158 bit-exact, 0 failures), the DOF pass (8 captures bit-exact), GS memory and fog all pass for -O3, -O2 -flto, -O3 -flto and -O2 -mcpu=apple-a12. Each log equals the -O2 log apart from timings. The offline bench (below) also checks that every library leaves the same GS memory as -O2's for all 8 DOF captures at 1, 3 and 8 bands. Since nothing was kept, the full proof set (fb2, level smokes) was not re-run: build/extermination is unchanged.
+
+**Offline: the DOF pass** (q6/bench/bench.py; one EmGs, best of N per capture, the libraries alternated each iteration; bench.txt, bench2.txt). Sum over the 8 captures:
+
+| Flags | Round 1 (best of 30) | Round 2 (best of 40) |
+|---|---|---|
+| -O2 | 161.6 ms | 157.8 ms |
+| -O3 | 158.9 ms (-1.7 %) | 156.5 ms (-0.8 %) |
+| -O2 -flto | 161.5 ms (-0.0 %) | 158.5 ms (+0.4 %) |
+| -O3 -flto | 160.3 ms (-0.8 %) | |
+| -O2 -mcpu=apple-a7 (iOS default) | 162.2 ms (+0.4 %) | |
+| -O2 -mcpu=apple-a12 | 162.5 ms (+0.6 %) | |
+
+-O3 was faster on every capture in round 1, by 0.06-0.58 ms. The CPU tuning makes no difference on these cores.
+
+**Live** (q6/batch1.sh, batch2.sh; 04:31-06:01; headless, uncapped, interleaved ABCD DCBA; runs/q6_*, runs/q6r2_*). The machine was busy: another job's Swift test runner, and a load spike to 217 at 04:57. Idle before each run was 70-79 % for most runs. Ten runs started below 70 % idle (1.5-59 %) or in the spike: q6_t1_base_a, q6_t1_lto_a, q6_t1_o3lto_a / b, q6_demo_lto_b, q6r2_t1_gs3_a, q6r2_t1_o3_b, q6r2_demo_gs3_b, q6r2_demo_lto_b and q6r2_demo_o3_b. They are kept, marked * in the one-worker table and included in the 6-worker medians; leaving them out changes no conclusion. 1-minute load 3.9-81 outside the spike. Mean ms per tick.
+
+One worker, the demo to counter 1780, GS frame CPU in the cinematic (1,310 frames):
+
+| Build | Runs |
+|---|---|
+| -O2 | 50.24*, 50.08, 50.51, 49.99 |
+| -O3 | 49.70, 49.57, 50.92, 49.13* |
+| -O2 -flto | 50.92*, 50.20 |
+| -O3 -flto | 50.11*, 50.88* |
+| gs3 | 50.04*, 49.84 |
+
+The differences are inside the run-to-run spread (up to 1.8 ms within one build here), which is wider than the 0.8-1.7 % (0.4-0.9 ms) the bench measures.
+
+Default 6 workers, the demo to 4650, the AREA11 cinematic (1,310 ticks). Each cell: game thread CPU / busiest worker; median of the runs, then the range:
+
+| Build (runs) | Game thread | Busiest worker | Tick wall |
+|---|---|---|---|
+| -O2 (4) | 5.95 (5.90-5.97) | 10.92 (10.88-11.06) | 11.69 (11.47-12.19) |
+| -O3 (4) | 6.23 (6.18-6.28) | 10.87 (10.77-10.92) | 12.01 (11.49-12.43) |
+| -O2 -flto (4) | 5.84 (5.75-5.91) | 11.12 (11.00-11.35) | 12.65 (11.69-13.29) |
+| -O3 -flto (2) | 6.05 (5.99-6.10) | 11.07 (10.98-11.15) | 12.33 (11.87-12.78) |
+| gs3 (2) | 5.95 (5.90-6.00) | 10.83 (10.77-10.88) | 12.13 (11.56-12.69*) |
+
+The calm ranks the same way. In the slide, LTO's game-thread gain does not show.
+
+AREA01 (a01.sh to a01_00, default workers; one run each in each half of the round). Game thread / busiest worker / tick wall:
+
+| Build | Beat (781 ticks) | Fire peak (149) |
+|---|---|---|
+| -O2 | 10.23 / 13.74 / 14.35 and 10.45 / 13.89 / 14.90 | 9.72 / 16.36 / 16.81 and 9.97 / 16.56 / 17.75 |
+| -O3 | 10.38 / 13.63 / 14.28 and 10.67 / 13.85 / 15.12 | 9.89 / 16.30 / 16.78 and 10.36 / 16.73 / 18.44 |
+| -O2 -flto | 10.25 / 14.42 / 15.98 and 10.09 / 14.05 / 15.13 | 9.59 / 16.71 / 17.39 and 9.62 / 16.75 / 17.88 |
+| gs3 | 10.37 / 13.99 / 15.24 and 10.36 / 13.81 / 14.82 | 9.86 / 16.38 / 17.19 and 9.75 / 16.32 / 16.72 |
+
+**Reading.**
+- *-O3:* the game thread is 0.15-0.33 ms slower per tick in every pair of runs (AREA11 cinematic +0.28 ms median, AREA01 beat +0.19 ms). The GS gain (0.8-1.7 % offline, about -0.05 ms of busiest worker live) does not show in the tick. Not kept.
+- *LTO:* the game thread is about 0.1 ms faster in the AREA11 cinematic and 0.17 ms in the AREA01 beat. The busiest worker is 0.1-0.7 ms slower in every pair (demo and AREA01), and the tick is longer in 5 of the 6 pairs. On this Mac the workers set the tick, so LTO loses. Not kept.
+- *gs3 (-O3 for the raster only):* it avoids -O3's game-thread cost. Its GS gain is the bench's 0.8-1.7 %, about 0.1 ms of busiest worker, below what these runs can resolve. It would need a per-file build rule and a per-file rule in the reference tests' builds. Not kept for now. Re-measure after M1 / M2, when the specialized span loops may give -O3's vectorizer something to work on.
+- *-mcpu:* no-op on macOS. For iOS, apple-a12 tuning gave no gain on the M1 stand-in (offline +0.6 %). Not measured on the iPhone. Not kept.
+- *Where the time is.* The build flags are worth at most about 1-2 % of the GS frame. The plan's medium items (M1-M4) remain the route to the large gains.
+- *If a flag is adopted later:* the reference tests build their libraries with -O2 (test_gs_raster_reference.py, test_dof_pass_reference.py, test_gs_memory_reference.py and the others). They must then build with the shipped flags, or they no longer prove the shipped code.
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

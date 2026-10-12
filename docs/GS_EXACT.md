@@ -1878,6 +1878,15 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   CPU per tick fell 0.5 to 0.9 ms (AREA11 cinematic 6.76 -> 6.07, AREA01
   beat 11.5 -> 10.6) on a busy machine; the GS workers, which set the
   tick in AREA11, are unchanged.
+- **Build flags tried, none kept (2026-10-12, PERFORMANCE.md "Progress"
+  P9).** With -ffp-contract=off kept, -O3, -flto and -mcpu=apple-a12 give
+  the model's bytes unchanged: the raster, DOF-pass, GS memory and fog
+  references with EM_TEST_FULL=1 give -O2's results, and every binary has
+  only uv_axis_settled's one fused instruction. -mcpu=apple-m1 is already
+  the macOS default (identical code). None shortened the tick: -O3 makes
+  the DOF pass 0.8-1.7 % cheaper offline but the game thread about 0.3 ms
+  slower per tick; LTO makes the game thread about 0.1 ms faster and the
+  busiest worker about 0.2 ms slower. The build stays -O2.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
