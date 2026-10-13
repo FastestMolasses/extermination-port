@@ -411,6 +411,45 @@ static const Phase k_phases[] = {
      "shaft door exit and original area load through AREA00 arrival state 0",
      "AREA01 gameplay ticks and loader events; stop before level 3 rebuild",
      a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_arrival", "a01_07_level_exit rebuild through arrival script and final neutral frames", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_s0", "a00_s0_shaft_door_back (side, from a00_arrival)", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 1, 0, 1},
+    {"a00_00", "a00_00_descend", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_01", "a00_01_door51_locked", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_02", "a00_02_south_route", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_03", "a00_03_padlock", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_04", "a00_04_cage_terminal", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_05", "a00_05_ferry_deck", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_06", "a00_06_cab_roof", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_07", "a00_07_duct_to_ne_room", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_08", "a00_08_switch", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_09", "a00_09_ne_room_out", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
+    {"a00_10", "a00_10_progression_exit", 0,
+     "AREA00 recorded pad route and AREA01 return", "LEVEL3_BINDING.md; independent capture check required",
+     a01_route_begin, a01_route_frame, 0, 0, 0, 1},
 };
 enum { PHASE_COUNT = (int)(sizeof k_phases / sizeof k_phases[0]) };
 
@@ -5089,6 +5128,7 @@ enum { A01_PAD_MAX = 2048 };
 static AimStick s_a01_pad[A01_PAD_MAX];
 static unsigned s_a01_pad_count;
 static int s_a01_last_frame;
+static int s_a00_return_frame;
 
 static void a01_route_begin(void)
 {
@@ -5096,11 +5136,14 @@ static void a01_route_begin(void)
 #ifdef EM_AREA01_EXPLORATION_TEST_H
     if (a01_explore_begin()) return;
 #endif
-    const char *dir=getenv("EM_LEVEL2_PAD_DIR");
+    const int area00=!strncmp(k_phases[t.current].name,"a00_",4);
+    const char *dir=getenv(area00 ? "EM_LEVEL3_PAD_DIR" : "EM_LEVEL2_PAD_DIR");
+    s_a00_return_frame=-1;
     char path[1024];
     int n=dir ? snprintf(path,sizeof path,"%s/%s.pad",dir,k_phases[t.current].name) : -1;
     FILE *f=n>0 && (size_t)n<sizeof path ? fopen(path,"r") : NULL;
-    if(!f) { fail("AREA01 route pad script missing (tools/test_level_smoke_area01.py --prepare)");return; }
+    if(!f) { fail(area00 ? "AREA00 pad script missing (tools/test_level_smoke_area00.py --prepare)" :
+                           "AREA01 route pad script missing (tools/test_level_smoke_area01.py --prepare)");return; }
     unsigned version, gap;
     s_a01_pad_count=0;
     if(fscanf(f,"EMA1 %u %d %u",&version,&s_a01_last_frame,&gap)!=3 ||
@@ -5143,6 +5186,28 @@ static int a01_route_frame(void)
         }
         if(t.frames>s_a01_last_frame+120) {
             fail("AREA00 arrival state 0 did not follow the AREA01 exit");return 0;
+        }
+    } else if(!strcmp(k_phases[t.current].name,"a00_10") || !strcmp(k_phases[t.current].name,"a00_s0")) {
+        /* The return's only variable duration is its asynchronous loader.
+         * The checker compares every gameplay row, every emitted loader
+         * row and the fixed suffix after AREA01 state 0 independently. */
+        const EmSceneState *s=em_scene_state();
+        const int after=!strcmp(k_phases[t.current].name,"a00_10") ? 116 : 176;
+        if(s_a00_return_frame<0 && s->d810700==1 && s->d810701==0 && s->d810702==0 &&
+           task_byte(EM_SCENE_TASK_08)==3 && task_byte(EM_SCENE_TASK_09)==1 &&
+           task_byte(EM_SCENE_TASK_0A)==0 && task_byte(EM_SCENE_TASK_0B)==0) {
+            s_a00_return_frame=t.frames;
+            fprintf(stderr,"level smoke: %s: boundary counter=%u (AREA01 return state 0)\n",
+                    k_phases[t.current].name,em_frame_counter());
+        }
+        if(s_a00_return_frame>=0 && t.frames-s_a00_return_frame>=after) {
+            pad_apply(0,0,0);
+            fprintf(stderr,"level smoke: %s: PASS frames=%d (return capture check required)\n",
+                    k_phases[t.current].name,t.frames);
+            return 1;
+        }
+        if(t.frames>s_a01_last_frame+120) {
+            fail("AREA00 return did not reach its AREA01 endpoint");return 0;
         }
     } else if(t.frames>=s_a01_last_frame) {
         pad_apply(0,0,0);
