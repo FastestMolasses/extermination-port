@@ -1904,14 +1904,22 @@ stated):
 
 ### AREA00: arrival, progression and side return (2026-10-13)
 
-**Harness verified; native AREA00 not live.**
+**Harness verified; native arrival blocked by graphics capacity.**
 `tools/test_level_smoke_area00.py` adds thirteen C phases and independent
-checks in `tools/level_smoke_area00.py`. The completed-load scene path
-still refuses AREA00, and its canonical `a00` tick observations are not
-implemented. No arrival, movement, camera, interaction, drawing or return
-pass is claimed. [LEVEL3_BINDING.md](LEVEL3_BINDING.md) records the exact
+checks in `tools/level_smoke_area00.py`. The completed-load scene path now
+selects AREA00 sub 0/1 and emits canonical `a00` tick observations, including
+the weapon owner's fire-mode and magazine bytes. No arrival, movement,
+camera, interaction, drawing or return pass is claimed.
+[LEVEL3_BINDING.md](LEVEL3_BINDING.md) records the exact
 binding/resource gaps. The earlier AREA01 `a01_03` voice-timing difference
 also remains a strict prerequisite failure; this runner does not waive it.
+
+The continuation now delivers AREA00 and reaches its state-0 boundary at
+native counter 26922. Arrival frame 0 then faults at `001CB800`: the page
+renderer requests the complete 579-key catalog, which the protected
+512-slot registry refuses. `build/level3/live-arrival-1/receipt.json`
+records the 277.709-second run, its executable hash and
+`native_parity=false`. No AREA00 alignment or row pass is reached.
 
 | Phase | Original scope | Fork rows |
 |---|---|---:|
@@ -1946,7 +1954,7 @@ nice -n 15 python3 tools/test_level_smoke_area01.py --verify-harness --out build
 # Export input/provenance only; no native parity claim.
 nice -n 15 python3 tools/test_level_smoke_area00.py --prepare --include-side-pads
 # Long headless diagnostics from ordinary New Game; currently expected to fail.
-nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/native
+nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/live-arrival-1
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
 nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --side a00_s0 --out build/level3/side-return
 ```
