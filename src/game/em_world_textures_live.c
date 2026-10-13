@@ -26,7 +26,8 @@ static uint32_t rd32(const uint8_t *p)
 
 static int supported(void)
 {
-    return S.subarea == 0u && (S.area == 11u || S.area == 1u);
+    return (S.area == 0u && S.subarea <= 1u) ||
+           (S.subarea == 0u && (S.area == 11u || S.area == 1u));
 }
 
 static int fail(const char *what, const char *path)
@@ -69,7 +70,9 @@ static int catalog(const char *path, uint8_t **storage, Texture *textures, unsig
         return fail("invalid catalog header", path);
     const uint32_t n = rd32(data + 8);
     const uint64_t table_end = 16u + 24u * (uint64_t)n;
-    if (!n || n > EM_GFX_OBJECT_TEX_MAX || table_end > (uint64_t)size)
+    if (n > EM_GFX_OBJECT_TEX_MAX)
+        return fail("catalog exceeds device texture capacity", path);
+    if (!n || table_end > (uint64_t)size)
         return fail("invalid catalog table", path);
     for (uint32_t i = 0; i < n; ++i) {
         const uint8_t *e = data + 16u + 24u * i;
@@ -102,8 +105,11 @@ int em_world_textures_live_ensure(EmGfx *gfx)
     if (!supported()) return fail("no verified catalog for this delivery", NULL);
     const char *paths[2] = {"assets/scene_snow/object_textures.emot",
                             "assets/scene_snow/page_textures.emot"};
-    const unsigned files = S.area == 1u ? 1u : 2u;
+    const unsigned files = S.area == 11u ? 2u : 1u;
     if (S.area == 1u) paths[0] = "assets/area01_world_textures.emot";
+    if (S.area == 0u)
+        paths[0] = S.subarea == 0u ? "assets/area00_sub0_world_textures.emot"
+                                   : "assets/area00_sub1_world_textures.emot";
     Texture textures[EM_GFX_OBJECT_TEX_MAX];
     uint8_t *storage[2] = {NULL, NULL};
     unsigned count = 0;

@@ -683,8 +683,8 @@ counters.
    options' card and row screens; OPTIONS.md) (`SCREEN_MODULES`), of area 0x0B
    (the overlay file, the header, the bank, the A entry and the resident
    region), of area 1 room 0 (AREA01 sub 0, the level exit's load) and of
-   area 0 room 0 (AREA00 sub 0, the second level's exit load, since
-   2026-10-08): `DEFAULT_AREAS`; 31.3 MB in all. Add others with
+   area 0 rooms 0 and 1 (AREA00's second-level arrival and switch reload;
+   sub 1 added 2026-10-13): `DEFAULT_AREAS`; 39,363,728 bytes in all. Add others with
    `--modules` / `--areas`.
    `--capture <folder>` (developer only) adds the capture checks and takes
    that capture's cursors as the seeds. The game does not start without the

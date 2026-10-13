@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """AREA00 export/capture and native resource-loader checks, not a gameplay pass.
 
-The texture probe reports the current eager-catalog capacity blocker explicitly.
-It uses the existing supported catalog path in a private directory to exercise
-the production parser without enabling an unfinished AREA00 live composition.
+The texture probe exercises the selected AREA00 paths and reports the complete
+catalog's capacity refusal explicitly. Receiver checks exercise the actual shared
+selector, including retained prior state after a refused or failed replacement.
 """
 import ctypes as C
 import json
@@ -25,13 +25,17 @@ def main():
     OUT.mkdir(parents=True, exist_ok=True)
     libpath = OUT/'resources.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror', '-ffp-contract=off',
-                    '-shared', '-fPIC', '-Isrc', 'tests/world_textures_bridge.c',
+                    '-shared', '-fPIC', '-Isrc', '-Wl,-dead_strip',
+                    '-Wl,-exported_symbol,_area00_*', '-Wl,-exported_symbol,_texture_test_*',
+                    '-Wl,-exported_symbol,_em_world_textures_live_*', 'tests/world_textures_bridge.c',
                     'tests/area00_resources_bridge.c', 'src/game/em_world_textures_live.c',
                     'src/game/em_shadow_original.c', '-o', str(libpath)], check=True)
     lib = C.CDLL(str(libpath))
     lib.em_world_textures_live_bind.argtypes = [C.c_uint, C.c_uint]
     lib.em_world_textures_live_ensure.argtypes = [C.c_void_p]
     lib.area00_receivers_check.argtypes = [C.c_char_p, C.c_uint, C.c_uint]
+    lib.area00_receivers_select.argtypes = [C.c_uint, C.c_uint]
+    lib.area00_receivers_selected.argtypes = [C.c_uint]
     lib.texture_test_entry.argtypes = [C.c_uint, C.c_uint]
     lib.texture_test_entry.restype = C.POINTER(W.Entry)
     capacity = lib.area00_texture_capacity()
@@ -47,12 +51,24 @@ def main():
         bad.write_bytes(receivers[:-1])
         assert lib.area00_receivers_check(str(bad).encode(), shadow['objects'], shadow['blocks']) == -1
         bad.unlink()
+        assert lib.area00_receivers_select(0, sub) == 0
+        selected = tuple(lib.area00_receivers_selected(i) for i in range(4))
+        assert selected == (0, sub, shadow['objects'], shadow['blocks'])
+        for invalid in ((0, 2), (0, 255), (1, 1), (99, 0)):
+            assert lib.area00_receivers_select(*invalid) == -1
+            assert tuple(lib.area00_receivers_selected(i) for i in range(4)) == selected
+            assert lib.em_world_textures_live_bind(*invalid) == -1
+            assert lib.em_world_textures_live_ensure(1) == -1
+        lib.area00_receivers_pending(1)
+        assert lib.area00_receivers_select(0, 1-sub) == -1
+        assert tuple(lib.area00_receivers_selected(i) for i in range(4)) == selected
+        lib.area00_receivers_pending(0)
         with tempfile.TemporaryDirectory(dir=OUT) as temp:
             os.chdir(temp)
-            path = Path('assets/area01_world_textures.emot')
+            path = Path(f'assets/area00_sub{sub}_world_textures.emot')
             path.parent.mkdir()
             path.write_bytes(textures)
-            assert lib.em_world_textures_live_bind(1, 0) == 0
+            assert lib.em_world_textures_live_bind(0, sub) == 0
             before = lib.texture_test_uploads(0), lib.texture_test_resets(0)
             result = lib.em_world_textures_live_ensure(1)
             if tex['count'] > capacity:
@@ -69,7 +85,17 @@ def main():
                     assert e.key not in got
                     got[e.key] = e.width, e.height, e.hash
                 assert got == expected
-                delivery = 'catalog parser and upload exact; AREA00 live binding still required'
+                delivery = 'complete AREA00 catalog parser and upload exact'
+            # A missing or malformed selected receiver bank cannot drop the
+            # previous area's receivers. These are private fixture paths.
+            receiver_path = Path(f'assets/area00_sub{sub}_shadow_receivers.emsr')
+            assert lib.area00_receivers_select(0, sub) == -1
+            receiver_path.write_bytes(receivers[:-1])
+            assert lib.area00_receivers_select(0, sub) == -1
+            assert tuple(lib.area00_receivers_selected(i) for i in range(4)) == selected
+            receiver_path.write_bytes(receivers)
+            assert lib.area00_receivers_select(0, sub) == 0
+            assert tuple(lib.area00_receivers_selected(i) for i in range(4)) == selected
             os.chdir(ROOT)
         reports.append(dict(sub=sub, textures=tex['count'], texture_captures=len(tex['captures']),
                             shadow=shadow, capacity=capacity, delivery=delivery))
