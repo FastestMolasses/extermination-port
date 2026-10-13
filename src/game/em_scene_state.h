@@ -130,6 +130,15 @@ typedef enum {
  *                              NPC script ends; event 2: 825350 / 825740 read
  *                              it during setup. Original 001AF2C0 clears both;
  *                              no live persistent port mirror existed.
+ *   D_0081075B           A00   event 3: door 00825170 stores 1 after its
+ *                              first locked script and 0xFF at entry 5.
+ *                              The same owner reads it before its script
+ *                              and door-open branches. Cleared by 001AF2C0;
+ *                              borrowed by the overlay, never seeded on load.
+ *   D_0081075C           A00   event 4: terminal script 0x8299E0 writes
+ *                              0xFF through 001BA080 op06 sub 1, slot 4.
+ *                              The generic script owner writes the canonical
+ *                              event array; 001AF2C0 clears it.
  *   D_0081075D           A01   event 5: placement 40 has type 7, so 001C4FA0
  *                              reads this byte during 001C50B0 setup. The
  *                              effects room-light reader uses a per-call view.
@@ -198,6 +207,20 @@ typedef enum {
  *                              gate. 823580 stores 0x80 on the first locked
  *                              interaction; 825590 stores 0x81 when its script
  *                              ends. Cleared by 001AF2C0; no port mirror.
+ *   D_008107DA           A00   counter 2: arrival script 0x828D60 writes 1
+ *                              at record 0x828EE0. Shaft-door script 0x8284E0
+ *                              waits for 1, then writes 2 at 0x8286A0.
+ *                              Existing 001BA080 op06 sub 4 reads it and
+ *                              sub 3 writes it through the canonical counter
+ *                              array. Cleared only by 001AF2C0's reset.
+ *   D_008107DB           A00   counter 3: door 00825170 stores 0xFF when
+ *                              entry 5's 001BBE40 accepts the opening.
+ *                              Cleared by 001AF2C0; no separate door flag.
+ *   D_008107DC           A00   counter 4: terminal 00825480 sets bit 0;
+ *                              ferry 00825600 reads bits 0/1. Ferry scripts
+ *                              0x829BE0 / 0x82A0E0 write 2 / 0 through
+ *                              001BA080 op06 sub 3, slot 4. Cleared by
+ *                              001AF2C0; survives area reloads.
  *   D_008107E0           A01   counter 8: 826200 reads it while idle with
  *                              event 8 != 0xFF; 826440 writes 1 / 0xFF and
  *                              reads 2 / 0xE0 in its conditional sequence.
@@ -319,6 +342,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810710u, 0x00810730u}, /* 00159B90's two terminal position/rotation quadwords (A01) */
         {0x00810754u, 0x00810758u}, /* the settings' screen offset copies (001AF1C0 / 001AF2C0, OPTIONS) */
         {0x00810758u, 0x0081075Bu}, /* events 0 (L22), 1/2: AREA01 NPC completion/setup (A01) */
+        {0x0081075Bu, 0x0081075Du}, /* events 3/4: AREA00 door / terminal (A00) */
         {0x0081075Du, 0x00810761u}, /* event 5 light, 6/7 deferred groups (EXIT), 8 bridge (A01) */
         {0x00810766u, 0x00810768u}, /* events 0x0E mechanism bypass / 0x0F placed 8267C0 gate (A01) */
         {0x00810771u, 0x00810772u}, /* event 0x19: 0015C160's shadow gate (L29) */
@@ -333,6 +357,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x0081078Fu, 0x00810790u}, /* event 0x37: 001B81D0's face gate (L22) */
         {0x00810791u, 0x00810795u}, /* event 0x39 (L22), events 0x3A, 0x3B (HK), 0x3C (S12a) */
         {0x008107D8u, 0x008107DAu}, /* counter 0 Roger (L22), 1 AREA01 door/NPC (A01) */
+        {0x008107DAu, 0x008107DDu}, /* counters 2/3/4: AREA00 arrival / door / ferry (A00) */
         {0x008107E0u, 0x008107E1u}, /* counter 8: AREA01 bridge idle read (A01) */
         {0x00810803u, 0x00810804u}, /* counter 0x2B: 00195130's area-0 gate (L13) */
         {0x00810808u, 0x00810809u}, /* counter 0x30: 00823CE0's script-end 0xFF (A11FIX) */
