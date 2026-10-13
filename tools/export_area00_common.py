@@ -1,24 +1,25 @@
 #!/usr/bin/env python3
 """Shared inputs of the AREA00 asset exporters (docs/AREA00_ASSETS.md).
 
-AREA00 reuses the AREA01 exporters' machinery by import, unchanged:
+AREA00 reuses the AREA01 exporters' machinery by import:
 export_area01_common (the load map built from the loader's own descriptors
 and cursors, LoadedImage, compare_load_map, the EMSC writer) and, through
 it, everything the AREA01 level / table / sound exporters and the AREA01
 checker compute. Those modules read their area constants as attributes of
 export_area01_common at call time, so `configure(sub)` points them at
 AREA00 (area 0, the given sub, OVERLAY/AREA00.BIN = MWo3 id 1 at 0x823500)
-and at the AREA00 captures; nothing in those files is edited.
+and at the AREA00 captures. Shared texture discovery keeps overlay-specific
+face owners restricted to their original area.
 
 Nothing here is original data: every byte is read from the user's own files
 (the pinned boot ELF, the AREA00 overlay and the extracted chunk04 blocks
 under ../Extermination/extract/, the disc image for the GS upload replay),
 and every check compares them with the recorded AREA00 captures:
   * the AREA00 arrival: the end of SECOND_LEVEL_ROUTE.md beat a01_07
-    (../Extermination/build/s87/route_a01/a01_07_level_exit/, area bytes
-    00 00 00, overlay id 1 resident);
-  * the AREA00 route beats a00_00 .. a00_09 (build/s87/route_a00/); a00_10
+    (s87/route_a01/a01_07_level_exit/, area bytes 00 00 00, overlay id 1);
+  * the AREA00 route beats a00_00 .. a00_09 (s87/route_a00/); a00_10
     and a00_s0 end in AREA01 and are excluded by their area byte.
+reference_root selects fork_refs by default and build/ with EM_REFERENCE=v263.
 
 Two sub-states were loaded on the route (measured, not assumed): the
 captures group by D_00810701, and each group's whole resident load map
@@ -35,6 +36,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import export_area01_common as C  # noqa: E402
+import reference_root as refs  # noqa: E402
 
 ROOT, DECOMP = C.ROOT, C.DECOMP
 OVERLAY_PATH = C.EXTRACT / 'OVERLAY/AREA00.BIN'
@@ -43,8 +45,8 @@ AREA = 0
 SUBS = (0, 1)
 OUT = ROOT / 'assets/area00'
 SCRATCH = ROOT / 'build/area00/assets'
-ROUTE_A00 = DECOMP / 'build/s87/route_a00'
-ARRIVAL = DECOMP / 'build/s87/route_a01/a01_07_level_exit'
+ROUTE_A00 = refs.capture('s87/route_a00')
+ARRIVAL = refs.capture('s87/route_a01/a01_07_level_exit')
 
 # SHA-256 of the user's extract/OVERLAY/AREA00.BIN (a hash, not disc data):
 # the overlay reference is as fixed as the pinned ELF
