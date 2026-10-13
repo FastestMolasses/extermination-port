@@ -21,6 +21,11 @@ recorded inputs, not a native run. See
 [LEVEL2_BINDING.md](LEVEL2_BINDING.md) for the AREA01 state and the work
 left.
 
+AREA00 now has an opt-in input driver and strict checker, but no native
+phase is certified. Its short default verifies the harness only; see
+"AREA00: arrival, progression and side return" below and
+[LEVEL3_BINDING.md](LEVEL3_BINDING.md) for the live binding blockers.
+
 Step S13 of SCENE_COORDINATOR_DESIGN.md (2026-09-23), extended by WP-4 (the
 elevator refusal, the panel and the elevator ride), census L25 (the
 boxes: the Use chain's ledge climbs onto the crates' original owners),
@@ -1896,6 +1901,90 @@ stated):
   of the duct (the crawl, then the pickup's page request, the same); each
   after a01_s0's full pass.
 - a01_s7 inherits a01_03's voice-line row and stops there.
+
+### AREA00: arrival, progression and side return (2026-10-13)
+
+**Harness verified; native AREA00 not live.**
+`tools/test_level_smoke_area00.py` adds thirteen C phases and independent
+checks in `tools/level_smoke_area00.py`. The completed-load scene path
+still refuses AREA00, and its canonical `a00` tick observations are not
+implemented. No arrival, movement, camera, interaction, drawing or return
+pass is claimed. [LEVEL3_BINDING.md](LEVEL3_BINDING.md) records the exact
+binding/resource gaps. The earlier AREA01 `a01_03` voice-timing difference
+also remains a strict prerequisite failure; this runner does not waive it.
+
+| Phase | Original scope | Fork rows |
+|---|---|---:|
+| `a00_arrival` | a01_07 f539..4555: rebuild, first world frames, arrival script and final 60 neutral rows | 4,017 |
+| `a00_00` | Descend from the shaft landing | 363 |
+| `a00_01` | Locked attempt at door [51] | 1,273 |
+| `a00_02` | South route to the cage | 601 |
+| `a00_03` | Break the cage padlock | 144 |
+| `a00_04` | Cage door, terminal and ferry movement | 2,017 |
+| `a00_05` | Leave the cage room and climb onto the raised ferry deck | 1,160 |
+| `a00_06` | Ferry step, walkway and cab-roof climb | 1,375 |
+| `a00_07` | Running jump to the container stack, crate tops, one-way duct | 1,202 |
+| `a00_08` | Switch `D_0081075D`, sub-1 change | 487 |
+| `a00_09` | Barricade crates and door [51] | 2,028 |
+| `a00_10` | Progression shaft exit and AREA01 return, `D_0081075E=FF` | 1,095 |
+| `a00_s0` | Separate plain shaft return from `a00_arrival`, `D_0081075E=00` | 742 |
+
+`a00_s0` branches from the initial arrival; it does not follow `a00_10`.
+The original main return sets the bridge flag. Native bridge motion and
+the subsequent AREA01 revisit still require their own proof. Fork
+recordings in `Extermination/build/fork_refs/s87/route_a00/` are selected
+through `reference_root.py`; `EM_REFERENCE=v263` explicitly selects the
+older set, with no missing-file fallback.
+
+Native arm64 macOS commands, run serially at the requested lower priority:
+
+```sh
+# Short default: contracts only, no game launch. --verify-harness is equivalent.
+nice -n 15 python3 tools/test_level_smoke_area00.py --out build/level3/verify-fork
+nice -n 15 env EM_REFERENCE=v263 python3 tools/test_level_smoke_area00.py --verify-harness --out build/level3/verify-v263
+nice -n 15 python3 tools/test_level_smoke_area01.py --verify-harness --out build/level3/verify-area01
+# Export input/provenance only; no native parity claim.
+nice -n 15 python3 tools/test_level_smoke_area00.py --prepare --include-side-pads
+# Long headless diagnostics from ordinary New Game; currently expected to fail.
+nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_arrival --out build/level3/native
+nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --until a00_10 --out build/level3/progression
+nice -n 15 env EM_PS2_DISC_DRIVE_TIMING=1 python3 tools/test_level_smoke_area00.py --run --side a00_s0 --out build/level3/side-return
+```
+
+The C phases reuse the existing strict EMA1 reader and export inputs only.
+No captured state is installed. The two-row submission delay preserves
+the recorder's pad delivery; its proven late first commands (a00_01/03/08/10:
+1/2/3/3 rows) and a00_04's one neutral frame at f70 are retained, with
+the fork's correction metadata checked. Same-frame command order is kept.
+The existing default route still ends at `a01_arrival`. Selecting `a01_07`
+alone still stops at AREA00 state 0; a level-3 continuation checks that same
+boundary and obtains its post-frame fields from the following actual tick.
+
+Every emitted gameplay tick must be consecutive and match the recording's
+player state/clock, position, ground owner, camera flags/eye/target/forward,
+request, task, selector, message words, bars, fade, health and progress at
+the recorded precision. Gameplay phases also require all ten recorded
+canonical owner samples, door locks, weapon bytes and ferry position.
+Arrival lacks original AREA00 owner samples, so that absence is stated
+explicitly; its other fields remain strict. Each ending camera block,
+forward vector and `D_00810690` span must match the digest-verified saved
+RAM byte for byte. Missing `a00` observations fail the checker. Return
+phases allow only repeated loader holds to shorten, reuse the original
+loader/veil instruction checks, and retain every gameplay and post-arrival
+row. Native AREA01 render checks remain bounded to its first visit.
+
+Measured contract results: fork AREA00 passes **13 C paths, 2,731 commands,
+18,331 driver frames, two shortened return-load paths and three malformed
+input rejections** under ASan/UBSan; its Python checker accepts **16,504
+capture-shaped rows** and rejects **179 field/source/loader corruptions**.
+The v2.6.3 run passes the same paths/commands/rejections with **18,303 C
+frames and 16,490 rows**. The unchanged AREA01 regression passes **16 paths,
+4,447 commands, 20,110 C frames, three malformed inputs, 19,565 checker
+rows and 150 corruptions**. These results validate the harness contracts,
+not a native playthrough. Original packet/displayed-field comparisons for
+AREA00 drawing are still missing; neither a row pass nor correct exported
+textures would certify drawing. Generated fixtures stay in the ignored
+`build/level3/verify-*` directories.
 
 ### The step-offs (`check_fall`)
 
