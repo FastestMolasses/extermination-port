@@ -409,6 +409,18 @@ the hits and misses (the columns are named in the file's first line and in
 src/gs/em_gs_world.h). The counts are always kept; only the file and the
 timing need the switch. Nothing recorded, drawn or played changes.
 
+### EM_GS_Z_COUNTERS=<file>: the GS frame's pixel test counters
+
+Added 2026-10-12 (PERFORMANCE.md "Progress" P12). The Original profile's GS
+frame writes one line per frame it waits for, summed over its workers: the
+texture samples taken (and the bilinear ones), the pixels the Z test
+rejected (ZTST NEVER included) with the textured and textured bilinear ones
+among them, the textured pixels DATE rejected, and the pixels drawn (the
+columns are named in the file's first line and in src/gs/em_gs_world.h).
+The counts are always kept (EmGs.pix, an add per sample and per rejected
+pixel); only the file needs the switch. Nothing recorded, drawn or played
+changes.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

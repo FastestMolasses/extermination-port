@@ -211,6 +211,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Gain:* estimated 1.5-2x on the remaining pixel path.
 - *Effort:* 1-2 weeks. *Risk:* medium.
 - *Proof:* the GS proof set, plus a new differential dev check (generic against specialized) with EM_TEST_FULL=1.
+- *Part done (Progress P12):* the early Z test. plot() tests Z and DATE before the texture sample, and the triangle loop computes a pixel's other attributes only after it passed; the same bytes. 32-49 % of the samples are no longer taken; the GS frame on one worker 17-28 % cheaper, the busiest of 6 workers 1.6-2.4 ms lower.
 
 **M3. Decoded texture cache.**
 - *Change:* keep a linear 32-bit copy, palette applied, per (TEX0, CLUT, CLAMP). Invalidate it on upload, on CLUT load and on draws onto its blocks; the depth-of-field render-to-texture case invalidates at the barriers.
@@ -263,6 +264,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 
 - **After the quick wins** (Progress P10, the same 3 workers on M1 P-cores): cinematic 19.0 ms (about 88 %), slide 20.7-21.0 ms (about 80 %), AREA01 beat 25.1 ms, fire 26.8 ms, fire peak 30.3 ms (about 55 %). Still over on nearly every tick.
 - **After M1** (Progress P11, the same proxy): busiest worker cinematic 16.1-16.2 ms (97 % speed, 568-582 of 1,310 ticks over), calm 99 %, slide 17.5-17.9 ms (77-89 %), AREA01 beat 20.4 ms (79 %), fire 21.7-21.8 ms (74-75 %), fire peak 24.6-24.7 ms (65-67 %).
+- **After the early Z test** (Progress P12, the same proxy): busiest worker cinematic 13.1-13.2 ms (99.9-100 % speed, 30-40 of 1,310 ticks over), calm 12.3-12.4 ms and slide 13.3 ms (100 %, none over), AREA01 beat 15.6 ms (93.4-93.7 %), fire 17.5-17.6 ms (89.1-89.3 %), fire peak 20.5-20.6 ms (79.6-79.8 %).
 - **Per-core speed.** A19 Pro P-cores are faster per core than the M1 Pro's (IOS.md world steps p50 6.99 vs 7.52 ms, before the GS frame), but the E-cores are much slower. On balance the device is probably worse than these numbers; not measured on it.
 - **Stale doc.** IOS.md "Frame time" (2026-10-04, 7.6 ms headroom) predates the GS frame on main (2026-10-08) and the depth-of-field pass (2026-10-10).
 - **Thermals.** The Air is a thin phone. Sustained all-core load will throttle; not measured.
@@ -1049,6 +1051,116 @@ The slide's speed at 3 workers is noisy in both builds (73-79 % HEAD, 77-89 % M1
 - *What is left.* About 28.5 ns a plotted pixel. M3 (the decoded texture cache) and M2 (specialized span loops, the early Z test) are next; fetch_rgba still switches on the format and the four bilinear fetches each look their row and column up again, which M2's specialization can share.
 - *Not covered here:* the field readout (em_gs_world.c, one em_gs_addr32 per field pixel, 114,688 a frame spread over the workers) and the residency marks keep the function; they are not on the per-plot path.
 
+### P12. The Z test and DATE before the texture sample (the skeptic's early Z) (2026-10-12)
+
+**Sizing first** (the counters below, built in the previous order: zt/raster_order0.c, zt/build_ctr0.sh; runs/zc_demo_o0, zc_a01_o0; default workers, the demo to counter 4650 and the route to a01_00). Every texture sample in these scenes is bilinear (four texels). A sampled pixel that the Z test then rejected, per frame:
+
+| Range | Samples | Of them Z-rejected | Share |
+|---|---|---|---|
+| AREA11 cinematic (1,310 frames) | 1,179k | 420k | 35.6 % |
+| AREA11 calm (85) | 1,169k | 524k | 44.9 % |
+| AREA11 slide (121) | 1,391k | 563k | 40.5 % |
+| AREA01 beat (781) | 1,741k | 772k | 44.3 % |
+| AREA01 fire (376) | 1,870k | 690k | 36.9 % |
+| AREA01 fire peak (149) | 2,119k | 644k | 30.4 % |
+
+DATE rejected about 100 sampled pixels a frame in this order. The shares are a lower bound: a pixel that fails the alpha test with AFAIL KEEP returned before the Z test in the previous order, so it was not counted.
+
+**The counters** (EmGs.pix; EM_GS_Z_COUNTERS=<file>, a developer switch, STARTUP.md "Developer switches"). One line per frame waited for, summed over the workers: texture samples taken and the bilinear ones, Z-test rejections (ZTST NEVER included) with the textured and textured bilinear ones among them, textured DATE rejections, and pixels drawn. The counts are always kept: an add per sample and per rejected pixel. Only the file needs the switch.
+
+**Why the reorder is exact** (em_gs_raster.c, plot_dst / plot_src; GS_EXACT.md 5.3).
+- A pixel is written only when it passes the scissor, SCANMSK, the Z test and DATE, and either passes the alpha test or fails it under an AFAIL mode that still writes. Every failing test before the writes returns without storing anything or counting a drawn pixel.
+- The Z test reads the Z word and the pixel's own Z. DATE reads the frame word. Neither needs the texture, and nothing before the writes stores to memory, so the texture, Z and frame words read are the same in either order, also when the texture is the frame or the Z buffer itself.
+- The alpha test needs the sampled alpha, so it stays after the sample. Its AFAIL modes only change what a passing pixel writes (FB_ONLY and RGB_ONLY drop the Z write, ZB_ONLY and RGB_ONLY the alpha or the colour). So the Z address is now computed whenever the test reads Z or ZMSK is 0, and the Z write is still guarded by the alpha test's outcome.
+- So plot_dst (the scissor, SCANMSK, Z, then the frame read and DATE) runs first, and plot_src (the sample, TFX, fog, the alpha test, the blend and the writes) only for a pixel plot_dst passed. plot() is the two in sequence; points, lines and sprites call it.
+- Triangles also defer the rest of the pixel's attributes. The colour, fog and texel coordinates (UV: two 128-bit floor divisions; STQ: the barycentric weights, three binary32 sums and two stq_div) are each a function of x and y alone, set again for every pixel. So the triangle loop now computes Z, calls plot_dst, and computes them only for a pixel that passed. The expressions are unchanged; -ffp-contract=off (P1) stays.
+- Not changed: sprite_fill (P7: it reads no texture), the sprite's per-column U and per-row V (P6).
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1; receipts in build/perf_investigation/zt/proof/). Each log equals M1's (m1/proof/) apart from timings and scratch paths:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures, part A's 1,712,128 table addresses;
+  - gs_world_test: PASS at 1, 2, 3 and 8 workers and the host default (6), with the DOF pass and past the texture table's end;
+  - the DOF pass: 8 captures bit-exact;
+  - fog, GS memory and gs_display_test: PASS;
+  - the texture reference: PASS, 11,129 decodes equal;
+  - `make test-gs-swizzle`: 2,153,286,588 addresses, 0 differ;
+  - the fb2 harness: 8 of 19 points, every exact-pixel line equal to M1's;
+  - the AREA01 smoke: 20 live phases, none not live;
+  - the full level smoke: the same 404 PASS lines as M1, no failures (61 minutes).
+- *The counters agree:* the route to a01_00 drew 14,354,985,111 pixels in both orders (zc_a01_o0, zc_a01_o1), and every demo range the same pixels per frame.
+- *A random differential* (zt/sweep/sweep.c, from M1's; built against HEAD's em_gs_raster.c, zt/head_src, and against this step's; zt/sweep/build.sh):
+  - 1,500 seeded batches of 40 random primitive kicks (points, lines, strips, triangles, fans, sprites) over random local memory, with every state M1's sweep randomizes: frame, Z and texture formats, pages and widths, FBMSK, ZMSK, ZTE and every ZTST, the alpha test with every ATST and AFAIL (now on in one primitive of two), DATE, blend, fog, dither, SCANMSK, COLCLAMP, UV and STQ, nearest and bilinear, the wrap modes and the scissor anywhere in 0..2047. New for this step: in one primitive of six the texture is the frame or the Z buffer itself, so a pixel reads its own words as texels.
+  - Each batch is drawn by one EmGs and by 3 and 8 row-band EmGs in lockstep. All 4,500 lines (the hash of the 4 MiB local memory, the drawn and refused primitives, the drawn pixels) are equal: 61,726 primitives and 121.1 million pixels at one band. The one-band run took 100.7 million samples and rejected 56.1 million pixels by Z (43.3 million textured) and 5.2 million textured pixels by DATE before sampling.
+  - Four negative controls (zt/sweep/neg/), each a plausible mistake of this reorder, are caught in a 100-batch run: the Z address only when the test reads Z (ZTST ALWAYS writes Z to word 0) changes 267 of 300 lines; the triangle's Z computed after the test (the test sees the previous pixel's Z) 279; DATE skipped for textured pixels 207; ZTST NEVER passing 291.
+- *The DOF captures:* the offline bench checks that all 4 MiB of local memory are equal between HEAD and this step after the pass in each of the 8 captures, at 1, 3 and 8 bands.
+
+**Samples avoided** (the counters in the new order; runs/zc_demo_o1, zc_a01_o1). Per frame, the samples the previous order took, the Z- and DATE-rejected pixels that no longer sample, and the share avoided (of texel fetches, bilinear four, slightly less, as a DATE rejection is counted as one fetch):
+
+| Range | Samples before | Now | Z-rejected textured | DATE-rejected | Avoided |
+|---|---|---|---|---|---|
+| AREA11 cinematic | 1,179k | 721k | 441k | 16.5k | 38.8 % |
+| AREA11 calm | 1,169k | 600k | 546k | 23.0k | 48.7 % |
+| AREA11 slide | 1,391k | 775k | 589k | 27.8k | 44.3 % |
+| AREA01 beat | 1,741k | 938k | 786k | 16.9k | 46.1 % |
+| AREA01 fire | 1,870k | 1,152k | 703k | 15.4k | 38.4 % |
+| AREA01 fire peak | 2,119k | 1,439k | 659k | 20.5k | 32.1 % |
+
+The Z rejections are higher than in the sizing (for example the slide 563k -> 589k) because pixels that also fail the alpha test under AFAIL KEEP now meet the Z test first; DATE likewise.
+
+**Offline** (zt/bench/bench.py; the DOF pass of each fork capture through dof_replay, one EmGs, strict; HEAD's library and this step's alternated, best of 30): 15.0-16.7 ms -> 8.3-13.4 ms per pass, all 8 captures 127.2 -> 88.0 ms (-30.8 %). Three captures (open_w0520, open_wide_t0720, play_first_control) fall 42-45 %, the other five 19-33 %.
+
+**Live** (zt/batch.sh, 11:20-12:55, plus zt/rerun.sh at 12:56; headless, uncapped; each group HEAD, P12, P12, HEAD; binaries zt/head_extermination, HEAD c35f3be from git archive, and zt/zt_extermination, a copy of build/extermination; runs/zt_*). The quiet gate (quiet.sh, 70 % idle) held before every run but two, which were re-run and are excluded: zt_demo_zt_b (idle 64.6 %; its figures agree: busiest 7.93 / 7.59 / 7.92 ms) and zt_demo3_head_a (idle 61.3 %; 16.28 / 16.04 / 17.56 ms). Elsewhere idle 70.2-85.6 %, 1-minute load 2.4-12.5. Mean ms per tick.
+
+One worker (EM_GS_THREADS=1), the GS frame's CPU per frame:
+
+| Range | HEAD a / b | P12 a / b | Change |
+|---|---|---|---|
+| AREA11 cinematic (1,310) | 41.67 / 42.10 | 33.25 / 33.31 | -8.6 ms (-20.5 %) |
+| AREA11 calm (85) | 41.34 / 40.69 | 30.64 / 30.42 | -10.5 ms (-25.6 %) |
+| AREA11 slide | 46.65 (121) / 44.52 (101) | 33.58 (121) / 30.17 (75) | -13.1 ms (-28 %, the a runs) |
+| AREA01 beat (781) | 53.75 / 52.76 | 39.48 / 39.65 | -13.7 ms (-25.7 %) |
+| AREA01 fire (376) | 57.64 / 56.67 | 45.14 / 45.31 | -11.9 ms (-20.8 %) |
+| AREA01 fire peak (149) | 65.90 / 64.85 | 54.05 / 54.11 | -11.3 ms (-17.3 %) |
+
+The b runs of the slide stopped before its end (the demo's stop is polled once a second, and one worker reaches it at about 20 ticks a second); the a runs cover all 121 ticks.
+
+Default 6 workers. Each cell: busiest worker / tick wall / ticks over:
+
+| Range | HEAD a, b | P12 a, c | Busiest worker |
+|---|---|---|---|
+| AREA11 cinematic (1,310) | 9.61, 9.49 / 10.02, 9.91 / 1, 2 | 7.94, 7.94 / 8.35, 8.40 / 0, 0 | -1.6 ms |
+| AREA11 calm (85) | 9.56, 9.56 / 9.94, 9.92 / 0, 0 | 7.54, 7.43 / 8.02, 7.81 / 0, 0 | -2.1 ms |
+| AREA11 slide (121) | 9.96, 10.12 / 10.37, 10.57 / 0, 0 | 7.94, 7.86 / 8.36, 8.32 / 0, 0 | -2.1 ms |
+
+| Range | HEAD a, b | P12 a, b | Busiest worker |
+|---|---|---|---|
+| AREA01 beat (781) | 11.56, 11.67 / 12.23, 12.50 / 2, 12 | 9.19, 9.19 / 10.69, 10.75 / 0, 1 | -2.4 ms |
+| AREA01 fire (376) | 12.30, 12.45 / 12.73, 13.05 / 1, 8 | 10.23, 10.21 / 11.12, 11.17 / 0, 1 | -2.2 ms |
+| AREA01 fire peak (149) | 13.65, 13.79 / 14.05, 14.36 / 1, 5 | 11.76, 11.74 / 12.15, 12.23 / 0, 1 | -2.0 ms |
+
+Every range ran at 99.8-100 % speed in both builds; the game thread is unchanged (AREA11 5.7-6.1 ms, AREA01 9.6-10.3 ms). Today's HEAD runs agree with P11's M1 runs (AREA11 busiest 9.5-10.1 ms, AREA01 11.6-13.8 ms). In AREA01 the tick is now 0.4-1.5 ms above the busiest worker: the game thread (about 10 ms) comes close to setting it.
+
+Three workers (EM_GS_THREADS=3, the iPhone proxy). Each cell: busiest worker / ticks over / speed:
+
+| Range | HEAD b, c | P12 a, b |
+|---|---|---|
+| AREA11 cinematic | 16.03, 15.97 / 548, 535 / 97.5, 97.7 % | 13.16, 13.11 / 40, 30 / 99.9, 100.0 % |
+| AREA11 calm | 16.06, 15.97 / 10, 10 / 99.2, 99.2 % | 12.39, 12.34 / 0, 0 / 100, 100 % |
+| AREA11 slide | 17.43, 17.33 / 66, 63 / 91.4, 91.7 % | 13.30, 13.30 / 0, 0 / 100, 100 % |
+
+| Range | HEAD a, b | P12 a, b |
+|---|---|---|
+| AREA01 beat | 20.29, 20.23 / 622, 611 / 79.5, 79.7 % | 15.63, 15.57 / 406, 409 / 93.4, 93.7 % |
+| AREA01 fire | 21.59, 21.58 / 356, 359 / 75.9, 76.0 % | 17.60, 17.52 / 247, 251 / 89.1, 89.3 % |
+| AREA01 fire peak | 24.29, 24.30 / 149, 149 / 67.6, 67.7 % | 20.59, 20.54 / 149, 149 / 79.6, 79.8 % |
+
+**Reading.**
+- *Exactness.* Only the order of tests that read memory and store nothing changed, and the triangle no longer computes attributes a rejected pixel never uses; the proofs above are the evidence.
+- *Gain.* 32-49 % of the texture samples are no longer taken (38.4 % in the fire, 44.3 % in the slide). The GS frame on one worker is 17-28 % cheaper; at 6 workers the busiest worker is 1.6-2.1 ms lower in AREA11 (the slide 10.0 -> 7.9 ms) and 2.0-2.4 ms lower in AREA01 (the fire peak 13.7 -> 11.8 ms). On one worker it is larger than M1's (cinematic -20.5 % against -15.7 %).
+- *The Mac* now has 4.9 ms of the period to spare at the AREA01 fire peak's busiest worker, and no range ran more than one tick over.
+- *The iPhone proxy* (3 workers): AREA11 now runs at full speed (busiest worker 12.3-13.3 ms; 30-40 of the cinematic's 1,310 ticks over, none in the calm or slide), AREA01 at 79.6-93.7 % (busiest 15.6-20.6 ms). Not measured on the device, where the efficiency cores make it worse (section 5).
+- *What is left.* The remaining samples, the CT32 / T4 / T8 bilinear fetches, are M3's and M2's (the decoded texture cache, the specialized loops). Pixels the alpha test rejects under AFAIL KEEP still sample and are counted as samples.
+
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 
 Skeptic review, with 5 new headless runs and a code re-read. The synthesis's mechanism holds up: the Original profile draws on the CPU, and the depth-of-field pass and the effects multiply the overdraw. But it does not explain the user's complaint on the Mac. Headless, at the default 7 workers, the hill slide runs at 98.9-100 % of real time, and the AREA01 fire at 91-96 %. The pacer drops the time a late tick loses, but those late ticks only lose 1-9 %. "Really slow" fits only (a) the 3-worker iPhone default, measured at 74-83 % speed in AREA11 and 50-57 % near the fire on M1 performance cores, or (b) the windowed path, which was not measured. Each frame takes a drawable from nextDrawable at frame start and holds the previous one for a tick. IOS.md already measured waits of about 15 ms per step there. This should be ranked first, not last.
@@ -1068,7 +1180,7 @@ The synthesis also missed: a pure-reorder early Z test (most of plot's cost, the
 - **CORRECTION to Q1 / Q2: they do not shorten the hill-slide tick on the Mac, because the main thread is not on the critical path in AREA11** — sample_slide main thread: 33.5 % waiting in em_gs_world_wait / gsw_complete; main 8.7-9.0 ms vs busiest worker 10.8-12.3 ms; frames are pipelined (1-worker wall = main; GPU wall = main). In AREA01, main (13.3-14.0) gates the tick: removing the DOF pass cut the busiest worker by 2.3 ms but the tick by only 0.7 ms (Q1 / Q2: about 0 ms in the AREA11 slide on the Mac. They help in AREA01, on the GPU renderer, and on the phone (shared cores). The AREA01 gains (1.5 ms; 1-2 ms) come from sample percentages and were not measured. Q1 measured 2026-10-11, Progress P4: AREA01 main thread -1.9 ms, AREA11 -0.6 to -0.9 ms; the GS-frame tick unchanged at 6 workers, because there the busiest worker, not the main thread, set the AREA01 tick; on the GPU renderer the AREA01 tick fell 1.9 ms)
 - **EXACTNESS FLAG on Q2: host lanes run under round-toward-zero and flush-to-zero; the page programs also contain double math, which must stay outside that environment** — em_vu_host_lanes.h: the lanes must run inside an EM_VU_HOST_NOINLINE function bracketed by em_vu_host_enter / em_vu_host_leave, and 'nothing else runs in it'. em_vu1_page_programs.h has double arithmetic (around lines 899-920: s == 0.0, a quotient path) and calls em_eei_quotient for VDIV; today the emvup_* helpers are static inline inside the larger program functions. emvup_chk only sets c->bad, and the output is dropped at the fault returns. That drop is what lets exponent-255 operands become inf / NaN under host lanes (Safe only if each program is split so that just add / sub / mul / madd run in the bracketed function. Extend test_vu_host_lanes.py and add a whole-program reference sweep. Handled differently in Progress P5: the double math and the kick consumers leave the environment through trampolines, exponent-255 operations stay on the model, and a whole-program differential test runs both paths)
 - **VERDICT on Q3 (per-column U in sprites): bit-exact, but small, and most of its gain is unmeasured** — draw_sprite: U16 (UV: floordiv64 over x; STQ: s0 + (s1 - s0) * t with t from x, then stq_div) depends only on x and per-primitive constants. Computing it once per column with the same expression gives the same bits, as long as the expression is kept verbatim (see the FMA finding). Measured: -6 % on the pass offline, about 0.25 ms of busiest worker. The '15-30 % of snow / fire sprite cost' is an estimate (About 0.25 ms measured; it will not fix the slide by itself. Measured 2026-10-11, Progress P6: the same bytes; offline -7.5 % on the pass; at 6 workers the busiest worker 0.26 ms less in the cinematic and calm, as estimated, but 0.57 ms less in the slide and 1.1-1.8 ms less in AREA01, so the snow / fire share was larger than this verdict allowed)
-- **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z)
+- **MISSED, bit-exact: test Z before the texture sample in plot()** — plot() samples the texture (bilinear = 4 x fetch_rgba, together 44 % of worker time) and applies TFX and fog before the frame read, DATE and the Z test. Every failure path (Z never or fail, DATE mismatch, alpha fail with afail 0) returns without writing, and sampling has no side effects. Testing Z first when zte && ztst >= 2 therefore produces the same bytes and skips the fetch for occluded pixels. The alpha test must stay ahead of the Z write, because afail 1 / 3 change write_z (Unknown until a Z-fail counter is added. It could be large for the depth-tested fire and snow sprites behind geometry; nothing for the DOF pass if it does not test Z. Measured and done 2026-10-12, Progress P12: the counter (EM_GS_Z_COUNTERS) found 30-45 % of the samples Z-rejected; the reorder, with DATE moved too and the triangle's attributes deferred, draws the same bytes and avoids 32-49 % of the samples. The DOF pass does test Z: offline it is 30.8 % cheaper)
 - **MISSED: equal 4-row interleaved bands on mixed core types put the slowest core on the critical path; Q5's count alone is not enough on the iPhone** — em_gs_world.c worker_count = online - 3 (A19 Pro: 6 - 3 = 3); own_row deals rows equally. With 2 performance + 4 efficiency cores, the frame and each of the 8 DOF barriers wait for an efficiency-core worker. Row ownership is a pure partition, so giving performance-core workers more rows, or using more workers on the 4 efficiency cores, draws the same bytes. gs_world_test.c (N workers == 1) is the proof and needs uneven-partition cases (Phone not measured. On M1 performance cores, 3 workers give 50-83 % speed, the clearest measured cause of 'really slow' on the phone)
 - **MISSED, exactness hazard for every perf refactor and for Q6: Apple clang already fuses multiply-adds in the GS model** — The Makefile's CFLAGS are -O2 with no -ffp-contract (only some test targets pin it off). Apple clang 21 at -O2 contracts a + (b - a) * t into an FMA, and em_gs_raster.c compiled that way contains 14 fused multiply-add / subtract instructions (count only). These are double expressions: the STQ sprite interpolation, the barycentric weights, the zrow + (x - xd) * zstep Z. test_gs_raster_reference.py builds with cc -O2, so it proves the fused arm64 code. A baseline x86-64 Windows / Linux build will not fuse. Stepping Z incrementally or regrouping these expressions changes bits (Pin -ffp-contract explicitly, and decide which form is reference, before any raster refactor or flag change; possible cross-platform difference today. Resolved 2026-10-11: pinned off in every build, Progress P1)
 - **CONFIRMED with caveats: the fork is about 6-8x cheaper per frame in software GS CPU, and 'fill-bound' and the hotspot ranking stand** — CPU_SUMMARY: software minus Null process CPU 8.5 / 9.2 / 13.1 ms (calm / slide / fire); with extra threads 0: 6.6 / 7.4 / 10.6 ms, so the multithreaded figure includes spin-waits. Port at 1 worker: 52.1 / 59.8 ms. The plot() code matches the claims: it is generic, switches on state per pixel, recomputes addresses for frame and Z through the exported em_gs_addr32, and does per-pixel 128-bit floordiv (UV triangles) and double divides plus stq_div (STQ). No lock contention seen: barriers are mutex / cond, 8 plus 1 per frame (The 6x is if anything understated (against the fork's x0 run: 7.9x calm))

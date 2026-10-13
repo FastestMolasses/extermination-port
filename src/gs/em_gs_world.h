@@ -244,6 +244,13 @@ void em_gs_world_stats(const EmGsWorld *w, EmGsWorldStats *out);
  * blocks held, and the nanoseconds of the hits and of the misses (timed only
  * while the file is open). Nothing recorded or drawn changes. */
 
+/* EM_GS_Z_COUNTERS=<file> (a diagnostic, read at em_gs_world_create;
+ * docs/PERFORMANCE.md P12): one line per frame waited for, summed over the
+ * workers: the texture samples taken and the bilinear ones among them, the
+ * pixels the Z test rejected (ZTST NEVER included), the textured and the
+ * textured bilinear ones among them, the textured pixels DATE rejected, and
+ * the pixels drawn (EmGs.pix). Nothing recorded or drawn changes. */
+
 #ifdef __cplusplus
 }
 #endif

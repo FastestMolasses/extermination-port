@@ -788,6 +788,15 @@ point cases, all exact:
 - **FBA** ORs 0x80 into the written alpha.
 - **FBMSK** keeps the masked destination bits.
 - **COLCLAMP 0** keeps the low 8 bits.
+- **Order in the model (2026-10-12, PERFORMANCE.md "Progress" P12).** A
+  pixel is written only when the scissor, SCANMSK, the Z test and DATE
+  pass, and the alpha test passes or its AFAIL mode still writes; every
+  failing test returns before any store. The Z test and DATE read no
+  texel, so `plot_dst` runs them (and reads the frame word) before
+  `plot_src` samples the texture and applies the alpha test, the blend and
+  the writes. The alpha test can still withdraw the Z write (FB_ONLY,
+  RGB_ONLY). The bytes are those of the previous order (the GS proof set
+  and a random differential with the texture aliasing the frame and Z).
 
 ## 6. Strict mode and refusals
 
@@ -1937,6 +1946,24 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   ms); AREA01 runs at 98.8-99.8 % speed headless (9-36 ticks over per
   range). With 3 workers AREA11's cinematic and calm run at 97-99 % and
   AREA01 at 65-79 %.
+
+- **The Z test and DATE before the texture sample (2026-10-12,
+  PERFORMANCE.md "Progress" P12).** Counters (EM_GS_Z_COUNTERS=<file>)
+  showed that 30-45 % of the texture samples (all bilinear) belonged to
+  pixels the Z test then rejected. plot() now runs the Z test and DATE
+  first (section 5.3), and the triangle loop computes a pixel's colour,
+  fog and texel coordinates only after it passed. The bytes are the same:
+  the GS proof set gives P11's results, and a 61,726-primitive random
+  differential against the previous order (the texture aliasing the frame
+  or Z in one primitive of six; 1, 3 and 8 bands) leaves equal local
+  memory, with four negative controls caught. 32-49 % of the samples are no
+  longer taken; offline the DOF pass is 30.8 % cheaper (8 captures, 127.2
+  -> 88.0 ms). With one worker the GS frame takes 33.3 instead of 41.7-42.1
+  ms of CPU in the cinematic (-20.5 %) and 33.6 instead of 46.7 in the
+  slide; at the default 6 workers the busiest worker fell 1.6-2.1 ms in
+  AREA11 (slide 10.0 -> 7.9 ms) and 2.0-2.4 ms in AREA01 (fire peak 13.7
+  -> 11.8 ms), with at most one tick over per range. With 3 workers AREA11
+  runs at 99.9-100 % speed and AREA01 at 79.6-93.7 %.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

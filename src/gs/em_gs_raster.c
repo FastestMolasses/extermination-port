@@ -961,20 +961,98 @@ static inline int own_row(const EmGs *gs, int y)
     return gs->band_count <= 1 || (((uint32_t)y >> gs->band_shift) % gs->band_count) == gs->band_index;
 }
 
-static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
+/* plot() in two parts (docs/PERFORMANCE.md P12). A pixel is written only
+ * when it passes the scissor, SCANMSK, the Z test and DATE (and the alpha
+ * test, unless AFAIL lets it through), and every test that fails before the
+ * writes returns without writing or counting anything. The Z test and DATE
+ * read only Z, the frame word and the pixel's Z, never the texture, and
+ * nothing before the writes stores to memory, so testing them first, before
+ * the texture is sampled, draws what testing them after the sample draws:
+ * the same tests pass, the same words are read and the same values written.
+ * The alpha test needs the sampled alpha and stays after the sample; its
+ * AFAIL modes change only what a passing pixel writes. plot_dst runs the
+ * tests that do not need the source colour; plot_src computes the colour
+ * and writes. */
+typedef struct {
+    uint32_t faddr, fword;   /* the frame word's address and its value */
+    uint32_t zaddr, zval;    /* the Z word's address, the pixel's Z clamped to the format */
+} Dst;
+
+static inline int plot_dst(EmGs *gs, const Draw *d, int x, int y, const Frag *fr, Dst *o)
 {
     if (x < d->sx0 || x > d->sx1 || y < d->sy0 || y > d->sy1)
-        return;
+        return 0;
     /* (rows of other bands never reach plot: triangles and sprites skip
      * them per row, lines and points before the call) */
     if ((d->scanmsk == 2 && !(y & 1)) || (d->scanmsk == 3 && (y & 1)))
-        return;
+        return 0;
+    /* Z test */
+    uint32_t zaddr = 0;
+    uint32_t zval;
+    int zmx = zmax_of(d->zpsm);
+    if (d->zpsm == EM_GS_PSMZ32)
+        zval = (uint32_t)(fr->z > 0xFFFFFFFFull ? 0xFFFFFFFFull : fr->z);
+    else
+        zval = (uint32_t)(fr->z > (uint64_t)zmx ? (uint64_t)zmx : fr->z);
+    int z32 = d->zpsm == EM_GS_PSMZ32 || d->zpsm == EM_GS_PSMZ24;
+    /* the address when the test reads Z or the pixel may write it (ZMSK 0;
+     * the alpha test can still withdraw the write) */
+    if (d->zte && (d->ztst >= 2 || !d->zmsk)) {
+        if (z32)
+            zaddr = swz32(d->zrow, d->zcol, d->zbase, (uint32_t)x, (uint32_t)y);
+        else
+            zaddr = em_gs_addr16(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, d->zpsm);
+    }
+    if (d->zte) {
+        if (d->ztst == 0)
+            goto zfail;
+        if (d->ztst >= 2) {
+            uint32_t zb = z32 ? rd32(gs, zaddr) : rd16(gs, zaddr);
+            if (d->zpsm == EM_GS_PSMZ24) zb &= 0xFFFFFF;
+            if (d->ztst == 2 ? zval < zb : zval <= zb)
+                goto zfail;
+        }
+    }
+    /* frame word */
+    uint32_t faddr = 0, fword = 0;
+    int f32 = d->fpsm == EM_GS_PSMCT32 || d->fpsm == EM_GS_PSMCT24;
+    if (f32) {
+        faddr = swz32(d->frow, d->fcol, d->fbase, (uint32_t)x, (uint32_t)y);
+        fword = rd32(gs, faddr);
+    } else {
+        faddr = em_gs_addr16(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, d->fpsm);
+        fword = rd16(gs, faddr);
+    }
+    if (d->date) {
+        int dbit = f32 ? (int)(fword >> 31) : (int)((fword >> 15) & 1);
+        if (d->fpsm == EM_GS_PSMCT24)
+            dbit = 0;
+        if (dbit != d->datm) {
+            gs->pix.datefail_tex += (uint64_t)(d->tme && fr->has_tex);
+            return 0;
+        }
+    }
+    o->faddr = faddr; o->fword = fword; o->zaddr = zaddr; o->zval = zval;
+    return 1;
+zfail:
+    gs->pix.zfail++;
+    if (d->tme && fr->has_tex) {
+        gs->pix.zfail_tex++;
+        gs->pix.zfail_bil += (uint64_t)d->mmag;
+    }
+    return 0;
+}
+
+static inline void plot_src(EmGs *gs, const Draw *d, int x, int y, const Frag *fr, const Dst *o)
+{
     /* The colour and fog weight arrive in 8.7 fixed point; the texture
      * function and fog see that precision (section 5.1). */
     int r, g, b, a;
     if (d->tme && fr->has_tex) {
         int bil = d->mmag;   /* MXL 0: LOD 0 is magnification (section 4.2) */
         uint32_t t = sample(gs, d, fr->U16, fr->V16, bil);
+        gs->pix.samples++;
+        gs->pix.samples_bil += (uint64_t)bil;
         int tr = (int)(t & 255), tg = (int)((t >> 8) & 255), tb = (int)((t >> 16) & 255), ta = (int)(t >> 24);
         int af = fr->a >> 7;
         switch (d->tfx) {
@@ -1031,48 +1109,9 @@ static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
             }
         }
     }
-    /* frame word */
-    uint32_t faddr = 0, fword = 0;
+    const uint32_t faddr = o->faddr, fword = o->fword, zaddr = o->zaddr, zval = o->zval;
     int f32 = d->fpsm == EM_GS_PSMCT32 || d->fpsm == EM_GS_PSMCT24;
-    if (f32) {
-        faddr = swz32(d->frow, d->fcol, d->fbase, (uint32_t)x, (uint32_t)y);
-        fword = rd32(gs, faddr);
-    } else {
-        faddr = em_gs_addr16(d->fbp, d->fbw, (uint32_t)x, (uint32_t)y, d->fpsm);
-        fword = rd16(gs, faddr);
-    }
-    if (d->date) {
-        int dbit = f32 ? (int)(fword >> 31) : (int)((fword >> 15) & 1);
-        if (d->fpsm == EM_GS_PSMCT24)
-            dbit = 0;
-        if (dbit != d->datm)
-            return;
-    }
-    /* Z test */
-    uint32_t zaddr = 0;
-    uint32_t zval;
-    int zmx = zmax_of(d->zpsm);
-    if (d->zpsm == EM_GS_PSMZ32)
-        zval = (uint32_t)(fr->z > 0xFFFFFFFFull ? 0xFFFFFFFFull : fr->z);
-    else
-        zval = (uint32_t)(fr->z > (uint64_t)zmx ? (uint64_t)zmx : fr->z);
     int z32 = d->zpsm == EM_GS_PSMZ32 || d->zpsm == EM_GS_PSMZ24;
-    if (d->zte && (d->ztst >= 2 || write_z)) {
-        if (z32)
-            zaddr = swz32(d->zrow, d->zcol, d->zbase, (uint32_t)x, (uint32_t)y);
-        else
-            zaddr = em_gs_addr16(d->zbp, d->fbw, (uint32_t)x, (uint32_t)y, d->zpsm);
-    }
-    if (d->zte) {
-        if (d->ztst == 0)
-            return;
-        if (d->ztst >= 2) {
-            uint32_t zb = z32 ? rd32(gs, zaddr) : rd16(gs, zaddr);
-            if (d->zpsm == EM_GS_PSMZ24) zb &= 0xFFFFFF;
-            if (d->ztst == 2 ? zval < zb : zval <= zb)
-                return;
-        }
-    }
     /* colour */
     int dr, dg, db, da;
     if (f32) {
@@ -1136,6 +1175,13 @@ static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
             wr16(gs, zaddr, zval);
     }
     gs->drawn_pixels++;
+}
+
+static void plot(EmGs *gs, const Draw *d, int x, int y, const Frag *fr)
+{
+    Dst o;
+    if (plot_dst(gs, d, x, y, fr, &o))
+        plot_src(gs, d, x, y, fr, &o);
 }
 
 /* ------------------------------------------------------------------------
@@ -1837,6 +1883,17 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
         double zrow = (double)V[ztop]->z + ((double)xd - X[ztop] / 16.0) * zgx + ((double)y - Y[ztop] / 16.0) * zgy;
         fst = fstep;
         for (int x = (int)lo; x <= (int)hi; x++) {
+            /* Z first: a pixel the Z test or DATE rejects needs none of
+             * the other attributes (each is a function of x and y alone,
+             * set again for every pixel), so they are computed only for
+             * the pixels that pass (plot_dst, P12) */
+            {
+                double zz = zrow + (double)(x - xd) * zstep;
+                fr.z = zz <= 0.0 ? 0 : (uint64_t)floor(zz);
+            }
+            Dst o;
+            if (!plot_dst(gs, d, x, y, &fr, &o))
+                continue;
             int64_t kb = (x - xr) >> 2;
             int j = (x - xr) & 3;
             if (iip) {
@@ -1848,10 +1905,6 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
                 fr.r = flat->rgba[0] << 7; fr.g = flat->rgba[1] << 7; fr.b = flat->rgba[2] << 7; fr.a = flat->rgba[3] << 7;
             }
             fr.f = clampi((int)(facc + kb * fst + fl[j - jd + 3]), 0, 0x7FFF);
-            {
-                double zz = zrow + (double)(x - xd) * zstep;
-                fr.z = zz <= 0.0 ? 0 : (uint64_t)floor(zz);
-            }
             if (d->tme) {
                 if (d->fst) {
                     i128 nu = (i128)pu.nx * (16 * x - X[0]) + (i128)pu.ny * (16 * y - Y[0]);
@@ -1871,7 +1924,7 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
                     fr.V16 = stq_div(T, Q, (int)d->th);
                 }
             }
-            plot(gs, d, x, y, &fr);
+            plot_src(gs, d, x, y, &fr, &o);
         }
     }
 }

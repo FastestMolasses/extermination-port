@@ -142,6 +142,11 @@ struct EmGsWorld {
         uint64_t searches, probes, hits, misses, cliff, texels, resets;
         double hit_ns, miss_ns;
     } tc;
+    /* EM_GS_Z_COUNTERS=<file> (docs/PERFORMANCE.md P12): the workers' pixel
+     * test counters (EmGs.pix), summed over the workers, one line per frame
+     * waited for. A diagnostic: it changes nothing recorded or drawn. */
+    FILE *zc_file;
+    uint64_t zc_frames, zc_prev[6];
     /* the field of the last finished job */
     uint8_t *field;
     uint32_t field_w, field_h;
@@ -338,6 +343,12 @@ EmGsWorld *em_gs_world_create(void)
         if (w->tc_file)
             fprintf(w->tc_file, "# frame searches probes hits misses cliff texels resets entries pool hit_ns miss_ns\n");
     }
+    const char *zc = getenv("EM_GS_Z_COUNTERS");
+    if (zc && zc[0]) {
+        w->zc_file = fopen(zc, "w");
+        if (w->zc_file)
+            fprintf(w->zc_file, "# frame samples samples_bil zfail zfail_tex zfail_bil datefail_tex drawn\n");
+    }
 #if GSW_THREADS
     if (w->workers > 1) {
         pthread_mutex_init(&w->lock, NULL);
@@ -407,6 +418,7 @@ void em_gs_world_destroy(EmGsWorld *w)
         free(w->job[i].gif);
     }
     if (w->tc_file) fclose(w->tc_file);
+    if (w->zc_file) fclose(w->zc_file);
     free(w->pool);
     free(w->mem);
     free(w->field);
@@ -1229,6 +1241,21 @@ int em_gs_world_wait(EmGsWorld *w)
         if (w->worker[i].cpu_ns > w->stats.cpu_max_ns) w->stats.cpu_max_ns = w->worker[i].cpu_ns;
         w->stats.cpu_sum_ns += w->worker[i].cpu_ns;
     }
+    if (w->zc_file) {
+        uint64_t sum[6] = {0};
+        for (uint32_t i = 0; i < w->workers; ++i) {
+            const EmGs *g = &w->worker[i].gs;
+            sum[0] += g->pix.samples; sum[1] += g->pix.samples_bil; sum[2] += g->pix.zfail;
+            sum[3] += g->pix.zfail_tex; sum[4] += g->pix.zfail_bil; sum[5] += g->pix.datefail_tex;
+        }
+        fprintf(w->zc_file, "%llu", (unsigned long long)w->zc_frames);
+        for (int k = 0; k < 6; ++k) {
+            fprintf(w->zc_file, " %llu", (unsigned long long)(sum[k] - w->zc_prev[k]));
+            w->zc_prev[k] = sum[k];
+        }
+        fprintf(w->zc_file, " %llu\n", (unsigned long long)w->stats.pixels);
+    }
+    w->zc_frames++;
     w->stats.runs++;
     return 0;
 }

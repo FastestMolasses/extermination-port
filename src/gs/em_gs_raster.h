@@ -101,6 +101,12 @@ typedef struct EmGs {
     uint32_t refusals;                 /* EM_GS_REFUSE_* seen                   */
     uint32_t refused_prims;            /* primitives not drawn                  */
     uint64_t drawn_prims, drawn_pixels;
+    /* Pixel test counters (a diagnostic; em_gs_world.h EM_GS_Z_COUNTERS):
+     * texture samples taken, and of them bilinear (four texels); pixels the
+     * Z test rejected (ZTST NEVER included), and of them textured and
+     * textured bilinear; textured pixels DATE rejected. Counting changes
+     * nothing drawn. */
+    struct { uint64_t samples, samples_bil, zfail, zfail_tex, zfail_bil, datefail_tex; } pix;
     char reason[128];                  /* the first refusal, for the log       */
     /* The span (docs/GS_EXACT.md section 3.7): primitives are queued until a
      * write that ends the span, then drawn in order; whether every vertex of
