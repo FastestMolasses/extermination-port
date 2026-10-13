@@ -3,6 +3,8 @@
 #include "game/em_area01_math_owner.h"
 #include "game/em_area01_math_player.h"
 #include "game/em_area01_light_owner.h"
+#include "game/em_area00_world.h"
+#include "game/em_area00_fx.h"
 #include "game/em_ee_float.h"
 #include <string.h>
 
@@ -51,6 +53,21 @@ CALL_ADAPTER(side_call, EmArea01SideCall)
 #undef CALL_ADAPTER
 
 #include "game/em_area01_runtime_overlay.inc"
+#include "game/em_area00_runtime_overlay.inc"
+
+/* 001F4E20 is already translated by the AREA00 FX owner. Its only
+ * callee keeps both address registers and adds the original second float. */
+static int switch_marker(void *ctx, uint32_t fn, uint32_t sp, const EmArea00FxRegs *in,
+                         uint64_t *v0, uint32_t *f0)
+{
+    if (fn != 0x001F4D40u || in->imask != ((1u << 4) | (1u << 5)) ||
+        in->fmask != ((1u << 12) | (1u << 13))) return fail(ctx, fn);
+    EmArea01Call c = {.function = fn, .sp = sp, .a = {in->r[4], in->r[5]},
+                     .f = {in->f[12], in->f[13]}, .na = 2, .nf = 2};
+    int rc = em_area01_runtime_call(ctx, &c);
+    if (rc == 0) { if (v0) *v0 = c.v0; if (f0) *f0 = c.f0; }
+    return rc;
+}
 
 static int overlay_callback(void *ctx, uint32_t function, uint32_t actor)
 {
@@ -61,12 +78,20 @@ static int overlay_callback(void *ctx, uint32_t function, uint32_t actor)
 
 int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
 {
-    if (!r || !host || !host->bytes || !host->worker) return -1;
+    return em_area01_runtime_bind_area(r, host, 1);
+}
+
+int em_area01_runtime_bind_area(EmArea01Runtime *r, const EmArea01RuntimeHost *host, unsigned area)
+{
+    if (!r || !host || !host->bytes || !host->worker || area > 1) return -1;
     memset(r, 0, sizeof *r);
     r->host = *host;
+    r->area = area;
     r->math.ctx = r; r->math.view = bytes; r->math.call = math_call;
     r->overlay.ctx = r; r->overlay.view = bytes;
     overlay_workers(r); r->overlay.w_callback = overlay_callback;
+    r->overlay00.ctx = r; r->overlay00.view = bytes;
+    overlay00_workers(r); r->overlay00.w_callback = overlay_callback;
     r->sys.ctx = r; r->sys.view = bytes; r->sys.call = sys_call;
     r->exita.ctx = r; r->exita.view = bytes; r->exita.call = exita_call;
     r->exitb.ctx = r; r->exitb.view = bytes; r->exitb.call = exitb_call;
@@ -75,14 +100,73 @@ int em_area01_runtime_bind(EmArea01Runtime *r, const EmArea01RuntimeHost *host)
     return 0;
 }
 
+/* Overlay addresses overlap. Resolve AREA00 before the AREA01 switch,
+ * including its generated math entries. Unknown AREA00 entries may only
+ * reach the selected host's explicit workers, never an AREA01 overlay. */
+static int dispatch_overlay00(EmArea01Runtime *r, EmArea01Call *c)
+{
+    switch (c->function) {
+#define OVERLAY00(addr) case 0x##addr##u: \
+    if (c->na < 1 || c->nf) return fail(r, c->function); \
+    return em_area00_ovl_##addr(&r->overlay00, (uint32_t)c->a[0], &r->overlay00_fault)
+    OVERLAY00(00823580);
+    OVERLAY00(00824EA0);
+    OVERLAY00(00825170);
+    OVERLAY00(00825480);
+    OVERLAY00(00825920);
+    OVERLAY00(00825C80);
+    OVERLAY00(008261E0);
+    OVERLAY00(008262D0);
+    OVERLAY00(008263C0);
+    OVERLAY00(008266A0);
+#undef OVERLAY00
+    case 0x00823820u:
+        if (c->na < 1 || c->nf || c->sp < 0xE0u) return fail(r, c->function);
+        r->sp = c->sp - 0xE0u;
+        return em_area00_ovl_00823820(&r->overlay00, (uint32_t)c->a[0], c->sp, &r->overlay00_fault);
+    case 0x00825600u:
+        if (c->na < 1 || c->nf || c->sp < 0x50u) return fail(r, c->function);
+        r->sp = c->sp - 0x50u;
+        return em_area00_ovl_00825600(&r->overlay00, (uint32_t)c->a[0], c->sp, &r->overlay00_fault);
+    case 0x008253E0u: {
+        if (c->na < 3 || c->nf) return fail(r, c->function);
+        int32_t result = 0;
+        int rc = em_area00_ovl_008253E0(&r->overlay00, (uint32_t)c->a[0], (uint32_t)c->a[1],
+                                       (uint32_t)c->a[2], &result, &r->overlay00_fault);
+        if (rc == 0) c->v0 = (uint64_t)(int64_t)result;
+        return rc;
+    }
+    default:
+        return r->host.worker(r->host.ctx, c);
+    }
+}
+
 static int dispatch(EmArea01Runtime *r, EmArea01Call *c)
 {
+    if (r->area == 0 && c->function >= 0x00823500u)
+        return dispatch_overlay00(r, c);
     int rc;
     int32_t i32 = 0;
     uint32_t u32 = 0;
     uint64_t u64 = 0;
     switch (c->function) {
 #include "game/em_area01_runtime_dispatch.inc"
+    case 0x0019C6F0u: {
+        if (c->na != 2 || c->nf) return fail(r, c->function);
+        EmArea00World owner = {0};
+        rc = em_area00_world_view_0019C6F0(&owner, bytes, r, (uint32_t)c->a[0],
+                                           (uint32_t)c->a[1], &i32);
+        if (rc < 0) return fail(r, owner.fault_address ? owner.fault_address : c->function);
+        c->v0 = (uint64_t)(int64_t)i32;
+        break;
+    }
+    case 0x001F4E20u: {
+        if (c->na != 2 || c->nf != 1) return fail(r, c->function);
+        EmArea00Fx owner = {.call = switch_marker, .ctx = r, .sp = c->sp};
+        rc = em_area00_fx_001F4E20(&owner, c->a[0], c->a[1], c->f[0], &c->v0);
+        if (rc < 0) return fail(r, owner.core.fault.address ? owner.core.fault.address : c->function);
+        break;
+    }
     case 0x00188610u:
         if (c->na != 1 || c->nf) return fail(r, c->function);
         rc = em_area01_room_00188610(&r->room, (uint32_t)c->a[0], &i32);
@@ -176,6 +260,7 @@ int em_area01_runtime_call(EmArea01Runtime *r, EmArea01Call *c)
     if (rc < 0) {
         uint32_t address = c->function;
         if (r->math.fault_code) address = r->math.fault_address;
+        else if (r->overlay00_fault.code) address = r->overlay00_fault.address;
         else if (r->overlay_fault.code) address = r->overlay_fault.address;
         else if (r->sys.fault) address = r->sys.fault_address;
         else if (r->exita.fault) address = r->exita.fault_address;

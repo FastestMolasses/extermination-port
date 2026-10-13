@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Original 00824E00 against the AREA00 initializer over loader-owned bytes.
+"""Original 001E7780/00824E00 against AREA00 loader-owned state.
 
 Compare every store in order, all six globals and the complete overlay and
-BSS. The test does not replace or claim the common 001E7780 dispatcher.
+BSS, including the shared dispatcher reset and two record clears.
 """
 import ctypes as C
 import hashlib
@@ -26,8 +26,8 @@ def build():
     OUT.mkdir(parents=True, exist_ok=True)
     target = OUT / 'bridge.dylib'
     subprocess.run(['cc', '-std=c11', '-O2', '-Wall', '-Wextra', '-Werror',
-                    '-shared', '-fPIC', '-DEM_AREA00_STATE_STORE_TRACE', '-Isrc',
-                    'tests/area00_state_bridge.c', 'src/game/em_area00_state.c',
+                    '-shared', '-fPIC', '-DEM_AREA00_STATE_STORE_TRACE', '-DEM_AREA01_STATE_STORE_TRACE', '-Isrc',
+                    'tests/area00_state_bridge.c', 'src/game/em_area00_state.c', 'src/game/em_area01_state.c',
                     'src/game/em_status_scene_original.c', 'src/game/em_task.c',
                     '-o', str(target)], cwd=ROOT, check=True)
     lib = C.CDLL(str(target))
@@ -35,6 +35,7 @@ def build():
     for name in ('area00_state_test_view', 'area00_state_test_loader'):
         getattr(lib, name).argtypes = [C.c_uint32, C.c_uint32]
         getattr(lib, name).restype = C.c_void_p
+    lib.area00_state_test_dispatch.argtypes = [C.c_uint8, C.c_uint8]
     lib.area00_state_test_globals.restype = C.c_void_p
     lib.area00_state_test_fault.restype = C.c_uint32
     return lib
@@ -67,7 +68,8 @@ def main():
         return C.string_at(p, size)
 
     for name, ram, spad in selected:
-        for poison in (False, True):
+        for direct, sub, poison in [(d, s, p) for d, s in ((1, 0), (0, 0), (0, 1), (0, 2), (0, 3), (0, 255))
+                                   for p in (False, True)]:
             o = Oracle(elf, ram, spad)
             o.write(BASE, overlay)
             bss = ram[BSS:BSS+SIZE]
@@ -77,17 +79,19 @@ def main():
                 globals_ = bytes(x ^ 0x5A for x in globals_)
             o.write(BSS, bss + guard)
             o.write(GLOBALS, globals_)
+            o.save(0x810700, 0, 1); o.save(0x810701, sub, 1)
             o.ordered.clear()
             assert lib.area00_state_test_seed(overlay, len(overlay), bss + guard, globals_) == 0
             # The shared storage is aliased directly, including host writes
             # made after binding. No second six-global owner is installed.
             assert lib.area00_state_test_view(GLOBALS, 24) == lib.area00_state_test_globals()
-            o.call(INIT)
-            assert lib.area00_state_test_init() == 0, name
-            log = (C.c_uint32 * 16)()
+            o.call(INIT if direct else 0x1E7780)
+            rc = lib.area00_state_test_init() if direct else lib.area00_state_test_dispatch(0, sub)
+            assert rc == 0, (name, direct, sub)
+            log = (C.c_uint32 * 64)()
             n = lib.area00_state_test_stores(log)
             actual = [(log[2*i], 4, log[2*i+1]) for i in range(n)]
-            assert n == 6 and actual == o.ordered, (name, actual, o.ordered)
+            assert n <= 32 and actual == o.ordered, (name, direct, sub, actual, o.ordered)
             assert loader(BASE, len(overlay)) == o.read(BASE, len(overlay))
             for address, size in ((GLOBALS, 24), (DATA, 0x6500), (BSS, SIZE)):
                 p = lib.area00_state_test_view(address, size)
@@ -96,7 +100,8 @@ def main():
                     assert p == lib.area00_state_test_loader(address, size), ('alias', hex(address))
                 compared += size
             assert loader(BSS+SIZE, 32) == guard
-            assert all(GLOBALS <= a and a + n <= GLOBALS + 24 for a, n, _ in o.ordered)
+            assert all((GLOBALS <= a and a + n <= GLOBALS + 24) or
+                       (BSS <= a and a + n <= BSS + SIZE) for a, n, _ in o.ordered)
             cases += 1
 
     p = lib.area00_state_test_view(BSS, SIZE)
@@ -138,7 +143,7 @@ def main():
     assert lib.area00_state_test_init() == -1
     assert lib.area00_state_test_fault() == GLOBALS+20
     lib.area00_state_test_shutdown()
-    mode.banner(f'{len(selected)} of {len(captures)} captures', f'{cases} initializer cases')
+    mode.banner(f'{len(selected)} of {len(captures)} captures', f'{cases} initializer/dispatcher cases')
     print(f'area00 state: PASS ordered original stores; {compared:,} compared bytes; '
           'shared globals / loader aliases / lifetime / bounds / fault checks')
 

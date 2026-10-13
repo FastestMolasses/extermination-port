@@ -22,6 +22,24 @@ int em_area01_effects_services_prepare(const EmArea01RuntimeHost *host, const Em
                                       EmArea01EffectsSpawn *spawn);
 int em_area01_effects_services_invoke(const EmArea01EffectsSpawn *spawn, EmArea01Call *call);
 
+/* AREA00's markers and puff transforms use these shared effects owners.
+ * Prepare copies source operands while views are active; invoke runs with
+ * views suspended; finish publishes only the transform bytes actually
+ * written, after resuming. The transform destination is a disjoint local. */
+typedef struct {
+    uint32_t function, destination, kind, phase, f12, f13;
+    float position[4], matrix[16];
+    int32_t colour[4];
+    uint8_t block[0x60];
+    uint32_t written_offset, written_size;
+} EmArea01EffectsDraw;
+int em_area01_effects_draw_handles(uint32_t function);
+int em_area01_effects_draw_prepare(const EmArea01RuntimeHost *, const EmArea01Call *,
+                                   EmArea01EffectsDraw *, uint32_t *fault);
+int em_area01_effects_draw_invoke(EmArea01EffectsDraw *, EmArea01Call *);
+int em_area01_effects_draw_finish(const EmArea01RuntimeHost *, const EmArea01EffectsDraw *,
+                                  uint32_t *fault);
+
 /* Compose into actor project(): 0 non-effect, 1..8 canonical spans, -1 fault.
  * Do not add a model projection over these same fields. Install written on
  * the actor view; it certifies only the original first +24 word store. */

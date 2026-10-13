@@ -320,6 +320,18 @@ REACHERS = {
         "game/em_area01_overlay.c": "8267C0 state 1 calls the existing 001BA1C0(self, 0xF); "
                                      "the shared live worker validates and reads canonical progress",
     },
+    0x00810841: {
+        "game/em_area01_exitb.c": "001581A0 / 00158810 and shared lock owners index the canonical "
+                                  "area byte through their original-address view",
+        "game/em_area01_door_live.c": "001BC350 reads the current area's canonical lock byte",
+        "game/em_area01_math_owner.c": "001BB860's lock branch reads the indexed canonical byte",
+        "game/em_area02_math.c": "shared 001582E0 lock owner indexes original-address byte views",
+        "game/em_area04_port.c": "unbound area's shared door owner uses an indexed original-address view",
+        "game/em_level10_port_area19.c": "unbound area's door owner uses an indexed original-address view",
+        "game/em_area11_interaction_host.c": "001580C0 and terminal power read/write canonical progress "
+                                             "at the current area's lock-byte index",
+        "game/em_game.c": "terminal-power accessor reads canonical progress for the selected area",
+    },
     0x00810842: {
         "game/em_area02_math.c": "001582E0 state 1 ORs bit 1 after the original nonzero +0x36 test; "
                                  "the translated module accesses original addresses through its byte view",
@@ -453,7 +465,7 @@ ALLOWED = [
      "removed_by": "permanent (a constant)"},
 ]
 
-BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810842|810845|810759|81075A|81075B|81075C|81075D|810760|8107D9|8107DA|8107DB|8107DC|8107E0|81080F",
+BYTE_TOKEN = re.compile(r"3B8D|3B91|3B92|810707|810792|810793|810813|810CC3|810CB6|8106F1|81083C|810766|810767|810841|810842|810845|810759|81075A|81075B|81075C|81075D|810760|8107D9|8107DA|8107DB|8107DC|8107E0|81080F",
                         re.IGNORECASE)
 RETIRED = ("frame_selector", "cine_step", "opening_key_item_zero")
 DECL = re.compile(

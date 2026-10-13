@@ -1,4 +1,4 @@
-/* AREA01 resource/worker binding for the single live area-script host. */
+/* AREA00/AREA01 resource binding for the single live area-script host. */
 #ifndef EM_AREA01_SCRIPT_LIVE_H
 #define EM_AREA01_SCRIPT_LIVE_H
 #include "game/em_area01_runtime.h"
@@ -8,6 +8,7 @@
 
 #define EM_AREA01_SCRIPT_BOOT_PATH "assets/area01_boot_scripts"
 #define EM_AREA01_SCRIPT_DEST_PATH "assets/area01/door_destinations.emsp"
+#define EM_AREA00_SCRIPT_DEST_PATH "assets/area00/door_destinations.emsp"
 typedef struct {
     EmArea01RuntimeHost host;
     EmModuleLoader *loader;
@@ -16,6 +17,7 @@ typedef struct {
     EmSpawnTable destinations, timeline_tables;
     void *bank_ctx;
     int (*bank)(void *, EmActor *, uint32_t *value, int write);
+    unsigned area;
     int bound;
 } EmArea01Script;
 
@@ -26,6 +28,12 @@ typedef struct {
  * the defaults. bind does not reset the shared host: call host_reset first. */
 int em_area01_script_bind(EmArea01Script *, const EmArea01RuntimeHost *,
                          EmModuleLoader *, const char *boot_path, const char *dest_path);
+/* Select area 0 or 1 explicitly. The original entry above remains area 1.
+ * Both reuse the same ELF boot scripts; each borrows its own delivered
+ * overlay data and uses its own door destination export. */
+int em_area01_script_bind_area(EmArea01Script *, const EmArea01RuntimeHost *,
+                              EmModuleLoader *, const char *boot_path, const char *dest_path,
+                              unsigned area);
 void em_area01_script_free(EmArea01Script *);
 /* Install after bind, before start/tick. Called in native/published state;
  * read uses the authoritative actor snapshot, write brackets the live
@@ -36,7 +44,7 @@ void em_area01_script_bank(EmArea01Script *, void *ctx,
  * No record/overlay copy is made. Writes are limited to original scripts. */
 uint8_t *em_area01_script_bytes(EmArea01Script *, uint32_t, uint32_t, int write);
 /* Borrowed descriptor, also used by the shared host. Reacquires delivered
- * overlay bytes; rejects any overlay whose MWo3 id/address are not AREA01. */
+ * overlay bytes; rejects an MWo3 id/address from a different selected area. */
 EmScriptImage *em_area01_script_image(EmArea01Script *, uint32_t entry);
 /* Register the canonical delivered player script banks (table rows 96..98).
  * Overlapping tails of a delivery are merged. No bytes are copied or owned;

@@ -270,6 +270,11 @@ typedef enum {
  *                              capture); the player stage's worker view
  *                              loads it before every stage
  *                              (em_player_stage_live.c).
+ *   D_00810841           A00   area-0 lock flags. Original 001581A0 and
+ *                              00158810 read/write the actor's +2E bit;
+ *                              001BB860 / 001BC350 read the same byte.
+ *                              Borrowed by their existing byte views;
+ *                              cleared by 001AF2C0, never on area reload.
  *   D_00810842, D_00810845
  *                        A01   D_00810841[1] door-lock flags and [4] bit 5
  *                              read by 001C02E0. No port mirrors; both
@@ -365,7 +370,7 @@ static inline int em_scene_progress_canonical(uint32_t address, uint32_t size)
         {0x00810813u, 0x00810815u}, /* counter 0x3B, the director step (HK); 0x3C: 008257A0's 1 (A11FIX) */
         {0x0081083Au, 0x0081083Bu}, /* AREA11 elevator floor (WP-4) */
         {0x0081083Cu, 0x0081083Du}, /* the player's grab-slot bits (L01) */
-        {0x00810842u, 0x00810843u}, /* D_00810841[1], AREA01 door-lock flags (A01) */
+        {0x00810841u, 0x00810843u}, /* D_00810841[0/1], AREA00/01 lock flags */
         {0x00810845u, 0x00810846u}, /* D_00810841[4], 001C02E0's mechanism gate (A01) */
         {0x0081084Cu, 0x0081084Du}, /* D_00810841[0x0B], AREA11 power (WP-4) */
         {0x00810860u, 0x00810B60u}, /* taken bits, then the first-visit bits */

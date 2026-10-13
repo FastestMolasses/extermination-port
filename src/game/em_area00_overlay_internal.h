@@ -30,11 +30,13 @@ static inline int a00_failed(const A00Ovl *o) { return o->fault->code != EM_AREA
 /* The native bytes of [address, address + size). Each pointer is used
  * before the next request or hook call (the test relies on that to see
  * each access in order). After a fault: a zeroed sink, `bytes` not called. */
-static inline uint8_t *a00_at(A00Ovl *o, uint32_t address, uint32_t size)
+static inline uint8_t *a00_at(A00Ovl *o, uint32_t address, uint32_t size, int write)
 {
     uint8_t *p = NULL;
     if (!a00_failed(o)) {
-        p = o->h->bytes ? o->h->bytes(o->h->ctx, address, size) : NULL;
+        if (size && (uint64_t)address + size <= UINT64_C(0x100000000))
+            p = o->h->view ? o->h->view(o->h->ctx, address, size, write) :
+                o->h->bytes ? o->h->bytes(o->h->ctx, address, size) : NULL;
         if (!p) a00_latch(o, address, EM_AREA00_OVL_FAULT_BAD_ADDRESS);
     }
     if (!p) {
@@ -44,17 +46,17 @@ static inline uint8_t *a00_at(A00Ovl *o, uint32_t address, uint32_t size)
     return p;
 }
 
-static inline uint32_t a00_u8(A00Ovl *o, uint32_t a) { return *a00_at(o, a, 1); }
+static inline uint32_t a00_u8(A00Ovl *o, uint32_t a) { return *a00_at(o, a, 1, 0); }
 static inline uint32_t a00_u16(A00Ovl *o, uint32_t a)
 {
     uint16_t v;
-    memcpy(&v, a00_at(o, a, 2), 2);
+    memcpy(&v, a00_at(o, a, 2, 0), 2);
     return v;
 }
 static inline uint32_t a00_u32(A00Ovl *o, uint32_t a)
 {
     uint32_t v;
-    memcpy(&v, a00_at(o, a, 4), 4);
+    memcpy(&v, a00_at(o, a, 4, 0), 4);
     return v;
 }
 static inline int32_t a00_s32(A00Ovl *o, uint32_t a) { return (int32_t)a00_u32(o, a); }
@@ -62,14 +64,14 @@ static inline int32_t a00_s32(A00Ovl *o, uint32_t a) { return (int32_t)a00_u32(o
 static inline void a00_w8(A00Ovl *o, uint32_t a, uint32_t v)
 {
     uint8_t b = (uint8_t)v;
-    memcpy(a00_at(o, a, 1), &b, 1);
+    memcpy(a00_at(o, a, 1, 1), &b, 1);
 }
 static inline void a00_w16(A00Ovl *o, uint32_t a, uint32_t v)
 {
     uint16_t h = (uint16_t)v;
-    memcpy(a00_at(o, a, 2), &h, 2);
+    memcpy(a00_at(o, a, 2, 1), &h, 2);
 }
-static inline void a00_w32(A00Ovl *o, uint32_t a, uint32_t v) { memcpy(a00_at(o, a, 4), &v, 4); }
+static inline void a00_w32(A00Ovl *o, uint32_t a, uint32_t v) { memcpy(a00_at(o, a, 4, 1), &v, 4); }
 
 /* One wrapper per hook. Arguments are evaluated by the caller before the
  * wrapper runs, so a fault latched while reading an argument stops the call.

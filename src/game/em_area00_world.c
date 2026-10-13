@@ -17,6 +17,8 @@
 typedef struct {
     EmArea00World *s;
     uint32_t entry; /* the entry this run serves (fault_function) */
+    EmArea00WorldMemory view;
+    void *view_ctx;
     jmp_buf out;
 } Run;
 
@@ -43,9 +45,15 @@ void em_area00_world_clear_fault(EmArea00World *s)
 }
 
 /* The byte span [address, address + size) inside one region, or a fault. */
-static uint8_t *span(Run *r, uint32_t address, uint32_t size)
+static uint8_t *span(Run *r, uint32_t address, uint32_t size, int write)
 {
     const EmArea00World *s = r->s;
+    if (r->view) {
+        uint8_t *p = size && (uint64_t)address + size <= UINT64_C(0x100000000)
+                         ? r->view(r->view_ctx, address, size, write) : NULL;
+        if (p) return p;
+        fault(r, EM_AREA00_WORLD_FAULT_UNMAPPED, address);
+    }
     unsigned i;
     for (i = 0; i < s->region_count; i++) {
         const EmArea00WorldRegion *g = &s->regions[i];
@@ -58,7 +66,7 @@ static uint8_t *span(Run *r, uint32_t address, uint32_t size)
 
 static uint32_t rd(Run *r, uint32_t a, unsigned n)
 {
-    const uint8_t *p = span(r, a, n);
+    const uint8_t *p = span(r, a, n, 0);
     uint32_t v = 0;
     unsigned i;
     for (i = 0; i < n; i++)
@@ -80,7 +88,7 @@ void EM_AREA00_WORLD_STORE_TRACE(uint32_t address, unsigned size);
 
 static void wr(Run *r, uint32_t a, uint32_t v, unsigned n)
 {
-    uint8_t *p = span(r, a, n);
+    uint8_t *p = span(r, a, n, 1);
     unsigned i;
     TRACE_STORE(a, n);
     for (i = 0; i < n; i++)
@@ -916,7 +924,7 @@ static int32_t f_21BD60(Run *r, uint32_t p)
  * Entry points
  * ---------------------------------------------------------------------- */
 
-#define ENTER(s, fn)                                                                                     \
+#define ENTER_VIEW(s, fn, memory, context)                                                               \
     Run run;                                                                                             \
     if (!(s))                                                                                            \
         return -1;                                                                                       \
@@ -924,10 +932,14 @@ static int32_t f_21BD60(Run *r, uint32_t p)
         return -1;                                                                                       \
     run.s = (s);                                                                                         \
     run.entry = (fn);                                                                                    \
+    run.view = (memory);                                                                                 \
+    run.view_ctx = (context);                                                                             \
     if (setjmp(run.out))                                                                                 \
         return -1;                                                                                       \
-    if (!(s)->regions)                                                                                   \
+    if (!(s)->regions && !run.view)                                                                      \
         fault(&run, EM_AREA00_WORLD_FAULT_NULL, 0);
+
+#define ENTER(s, fn) ENTER_VIEW(s, fn, NULL, NULL)
 
 int em_area00_world_00189EC0(EmArea00World *s, uint32_t a0, int32_t *out)
 {
@@ -980,6 +992,17 @@ int em_area00_world_0019C6F0(EmArea00World *s, uint32_t a0, uint32_t a1, int32_t
     v = f_19C6F0(&run, a0, a1);
     if (out)
         *out = v;
+    return 0;
+}
+
+int em_area00_world_view_0019C6F0(EmArea00World *s, EmArea00WorldMemory view, void *ctx,
+                                  uint32_t a0, uint32_t a1, int32_t *out)
+{
+    int32_t v;
+    if (!view) return -1;
+    ENTER_VIEW(s, 0x0019C6F0u, view, ctx);
+    v = f_19C6F0(&run, a0, a1);
+    if (out) *out = v;
     return 0;
 }
 

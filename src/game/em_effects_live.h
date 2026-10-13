@@ -125,6 +125,10 @@ int em_effects_live_001EFD20_result(uint32_t id, const float pos[4], uint32_t *n
  * block. The first 0x58 bytes are original fields; its final 8 bytes are
  * untouched. CFBE0 resolves m40 and the source through actual owner views. */
 int em_effects_live_001CCF70(const float pos[4], int32_t *key);
+/* Shared marker owners, also called by AREA00 ferry/cab/switch callbacks.
+ * These borrow the same live kind/manager state used by the effect barrel. */
+int em_effects_live_001F5940(uint32_t kind, const float pos[4], int32_t phase);
+int em_effects_live_001F4D40(const float pos[4], const int32_t colour[4], uint32_t f12, uint32_t f13);
 int em_effects_live_001CFA60(uint8_t block[0x60], const float matrix[16], uint32_t f12, uint32_t f13);
 int em_effects_live_001CFB50(uint8_t block[0x60], int32_t index, const float matrix[16], const uint32_t f[5]);
 int em_effects_live_001CFBE0(int32_t key, int32_t kind, uint32_t source, const uint8_t block[0x60], int32_t copy);
