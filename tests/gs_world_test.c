@@ -374,6 +374,72 @@ static void run(unsigned workers, Result *out)
     em_gs_world_destroy(w);
 }
 
+/* An upload chain as em_gs_world_upload_chain takes it (one END DMA tag, a
+ * DIRECT VIF code, then GIF data: the A+D transfer registers and the IMAGE
+ * data of a host-to-local PSMCT32 transfer): the 64x64 resident texture at
+ * block 0x2000 with new texels. */
+static size_t upload_chain(uint8_t *buf, uint32_t seed)
+{
+    const uint64_t regs[4][2] = { { EM_GS_BITBLTBUF, 0x2000ull << 32 | 1ull << 48 }, { EM_GS_TRXPOS, 0 },
+                                  { EM_GS_TRXREG, 64 | 64ull << 32 }, { EM_GS_TRXDIR, 0 } };
+    uint8_t *gif = buf + 32;               /* after the DMA tag and the VIF codes */
+    size_t n = ad_packet(gif, regs, 4);
+    gif[7] &= 0x7F;                        /* (EOP 0: the IMAGE tag follows) */
+    const uint64_t img[2] = { 1024u | 0x8000u | (UINT64_C(2) << 58), 0 };   /* IMAGE, 1024 qwords, EOP */
+    memcpy(gif + n, img, 16);
+    n += 16;
+    for (uint32_t i = 0; i < 64u * 64u; ++i) {
+        const uint32_t x = i & 63u, y = i >> 6;
+        const uint32_t c = (255u - x * 4u) | ((y * 4u) ^ seed) << 8 | (x * y + seed) << 16 | 0x80u << 24;
+        memcpy(gif + n + 4u * i, &c, 4);
+    }
+    n += 64u * 64u * 4u;
+    const uint32_t qw = (uint32_t)(n / 16u);
+    const uint32_t vif[4] = { 0, 0, 0, 0x50000000u | qw };                  /* NOP x3, DIRECT */
+    memcpy(buf + 16, vif, 16);
+    const uint64_t tag[2] = { (uint64_t)(qw + 1u) | 7ull << 28, 0 };        /* END, the VIF data's qwords */
+    memcpy(buf, tag, 16);
+    return 32u + n;
+}
+
+/* The decoded texture cache across the frames' sync (em_gs_world.c
+ * workers_memory_written): a world frame samples the resident texture (its
+ * copies made), an upload rewrites it between frames, and the next frame
+ * samples it again. `cache_off`: EM_GS_TEXCACHE=0 (every texel from memory). */
+static void run_upload(unsigned workers, int cache_off, Result *out)
+{
+    char n[8];
+    snprintf(n, sizeof n, "%u", workers);
+    setenv("EM_GS_THREADS", n, 1);
+    if (cache_off) setenv("EM_GS_TEXCACHE", "0", 1);
+    EmGsWorld *w = em_gs_world_create();
+    unsetenv("EM_GS_TEXCACHE");
+    CHECK(w && em_gs_world_workers(w) == workers);
+    CHECK(em_gs_world_memory_load(w, image_path) == 0);
+    static uint8_t chain[32 + 16 * 6 + 64 * 64 * 4];
+    uint8_t env[512], clr[512];
+    size_t env_n, clr_n;
+    for (unsigned f = 0; f < 3; ++f) {
+        if (f) {
+            const size_t bytes = upload_chain(chain, 0x35u * f);
+            CHECK(bytes <= sizeof chain && em_gs_world_upload_chain(w, chain, bytes) == 0);
+        }
+        record_world(w, 11u + f, (f & 1) ? 0x38 : 0, f == 0);
+        head(env, &env_n, clr, &clr_n, (f & 1) ? 0x38 : 0, (int)(f & 1));
+        CHECK(em_gs_world_kick(w, env, env_n, clr, clr_n) == 0);
+        CHECK(em_gs_world_wait(w) == 0);
+        const uint8_t *fld = em_gs_world_field(w, NULL, NULL, NULL);
+        CHECK(fld);
+        memcpy(out->field[f], fld, sizeof out->field[f]);
+    }
+    CHECK(em_gs_world_read(w, 0, 8, 512, 224, out->buf[0]) == 0);
+    CHECK(em_gs_world_read(w, 0x38, 8, 512, 224, out->buf[1]) == 0);
+    CHECK(em_gs_world_read(w, 0x70, 8, 512, 224, out->buf[2]) == 0);
+    CHECK(em_gs_world_read(w, 0x12C, 2, 128, 128, out->buf[3]) == 0);
+    CHECK(em_gs_world_read(w, 0x12C, 4, 256, 256, out->buf[4]) == 0);
+    em_gs_world_destroy(w);
+}
+
 /* The refusals: a recorded transfer, an IMAGE packet, a texture outside
  * the uploads, a textured primitive whose TEX0 the recorder does not know
  * (written before the environment again), and a texture outside the uploads
@@ -535,6 +601,36 @@ int main(void)
     }
     g_many_keys = 0;
     CHECK(cliff[0] == cliff[1]);
+    /* the decoded texture cache (docs/PERFORMANCE.md M3): with it off
+     * (EM_GS_TEXCACHE=0, every texel read from memory) 1 and 8 workers draw
+     * the same fields and memory as with it; and an upload over the
+     * resident texture between frames, after its copies were made, is seen
+     * by the next frame alike with it on (1, 3 and 8 workers) and off */
+    static Result rc[2], ru[4];
+    const int full = getenv("EM_TEST_FULL") && getenv("EM_TEST_FULL")[0] == '1';
+    setenv("EM_GS_TEXCACHE", "0", 1);
+    run(1, &rc[0]);
+    if (full) run(8, &rc[1]);
+    unsetenv("EM_GS_TEXCACHE");
+    for (unsigned i = 0; i < (full ? 2u : 1u); ++i) {
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(rc[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(rc[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
+    }
+    run_upload(1, 1, &ru[0]);
+    run_upload(1, 0, &ru[1]);
+    if (full) run_upload(3, 0, &ru[2]);
+    run_upload(8, 0, &ru[3]);
+    for (unsigned i = 1; i < 4; ++i) {
+        if (i == 2 && !full) continue;
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(ru[i].field[f], ru[0].field[f], sizeof ru[0].field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(ru[i].buf[b], ru[0].buf[b], sizeof ru[0].buf[b]) == 0);
+    }
+    /* the first frame is the frame without uploads; the uploads changed the
+     * texels the next frames drew */
+    CHECK(memcmp(ru[0].field[0], r[0].field[0], sizeof r[0].field[0]) == 0);
+    unsigned uploaded = 0;
+    for (unsigned i = 0; i < 512 * 224; ++i) uploaded += memcmp(ru[0].field[1] + 4 * i, r[0].field[1] + 4 * i, 3) != 0;
+    CHECK(uploaded > 1000);
     refusals();
     field_refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
@@ -542,7 +638,9 @@ int main(void)
            "with the target pass, the depth-of-field pass (%u and %u field pixels blended, the Z buffer "
            "untouched) and a list frame, and the same with every block uploaded (1 and 8 workers); 5 refusals, "
            "1 state-block TEX0 accepted; 3 field-declaration refusals; past the texture table's end (%u keys, %llu "
-           "lookups checked again): the same with 1 and 8 workers)\n", g_host_workers, blended[0], blended[1],
-           MANY_KEYS, cliff[0]);
+           "lookups checked again): the same with 1 and 8 workers; the decoded texture cache off: the same with %s "
+           "workers; uploads over the resident texture between frames (%u field pixels changed): the same with the "
+           "cache on (%s workers) and off)\n", g_host_workers, blended[0], blended[1],
+           MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8");
     return 0;
 }

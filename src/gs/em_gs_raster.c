@@ -72,6 +72,11 @@ static int64_t stq_div(double S, double Q, int size_log2)
 }
 
 static void span_end(EmGs *gs, int measured);
+/* section 4b, the decoded texture cache: memory written by a transfer or
+ * em_gs_write_pixel, the CLUT buffer changed */
+static void tc_written_rect(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y,
+                            uint32_t w, uint32_t h);
+static void tc_clut_changed(EmGs *gs);
 
 static void refuse(EmGs *gs, uint32_t why, const char *what)
 {
@@ -331,7 +336,7 @@ uint32_t em_gs_read_pixel(const EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm
     return 0;
 }
 
-void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y, uint32_t v)
+static void write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y, uint32_t v)
 {
     switch (psm) {
     case EM_GS_PSMCT32: wr32(gs, em_gs_addr32(bp, bw, x, y, 0), v); return;
@@ -360,6 +365,12 @@ void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_
         return;
     }
     }
+}
+
+void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y, uint32_t v)
+{
+    write_pixel(gs, bp, bw, psm, x, y, v);
+    tc_written_rect(gs, psm, bp, bw, x & 2047, y & 2047, 1, 1);
 }
 
 /* ------------------------------------------------------------------------
@@ -458,6 +469,8 @@ static void clut_load(EmGs *gs, uint64_t tex0)
     gs->clut_src = src;
     gs->clut_src_valid = 1;
     memcpy(gs->clut, next, sizeof next);
+    if (changed)
+        tc_clut_changed(gs);           /* section 4b: the palettes are compared again */
 }
 
 /* HOST -> LOCAL transfer (section 2.2): pixels in raster order over the
@@ -508,8 +521,8 @@ static void trx_start(EmGs *gs)
         uint32_t w = (uint32_t)bits(gs->trxreg, 0, 12), h = (uint32_t)bits(gs->trxreg, 32, 12);
         for (uint32_t y = 0; y < h; y++)
             for (uint32_t x = 0; x < w; x++)
-                em_gs_write_pixel(gs, dbp, dbw, dpsm, dx + x, dy + y,
-                                  em_gs_read_pixel(gs, sbp, sbw, spsm, sx + x, sy + y));
+                write_pixel(gs, dbp, dbw, dpsm, dx + x, dy + y, em_gs_read_pixel(gs, sbp, sbw, spsm, sx + x, sy + y));
+        tc_written_rect(gs, dpsm, dbp, dbw, dx, dy, w, h);
     }
 }
 
@@ -521,7 +534,7 @@ static void trx_pixel(EmGs *gs, uint32_t v)
     uint32_t dx = (uint32_t)bits(gs->trxpos, 32, 11), dy = (uint32_t)bits(gs->trxpos, 48, 11);
     if (!gs->trx_active || gs->trx_y >= h || w == 0)
         return;
-    em_gs_write_pixel(gs, dbp, dbw, dpsm, dx + gs->trx_x, dy + gs->trx_y, v);
+    write_pixel(gs, dbp, dbw, dpsm, dx + gs->trx_x, dy + gs->trx_y, v);
     if (++gs->trx_x >= w) {
         gs->trx_x = 0;
         if (++gs->trx_y >= h)
@@ -547,9 +560,9 @@ static void trx_data(EmGs *gs, const uint8_t *p, size_t bytes)
     for (size_t i = 0; i < bytes && gs->trx_active;) {
         uint32_t v;
         switch (bpp) {
-        case 32: if (i + 4 > bytes) return; memcpy(&v, p + i, 4); i += 4; break;
-        case 24: if (i + 3 > bytes) return; v = p[i] | (uint32_t)p[i + 1] << 8 | (uint32_t)p[i + 2] << 16; i += 3; break;
-        case 16: if (i + 2 > bytes) return; v = p[i] | (uint32_t)p[i + 1] << 8; i += 2; break;
+        case 32: if (i + 4 > bytes) goto done; memcpy(&v, p + i, 4); i += 4; break;
+        case 24: if (i + 3 > bytes) goto done; v = p[i] | (uint32_t)p[i + 1] << 8 | (uint32_t)p[i + 2] << 16; i += 3; break;
+        case 16: if (i + 2 > bytes) goto done; v = p[i] | (uint32_t)p[i + 1] << 8; i += 2; break;
         case 8: v = p[i++]; break;
         default:
             v = gs->trx_nibble ? (p[i] >> 4) : (p[i] & 15);
@@ -559,6 +572,11 @@ static void trx_data(EmGs *gs, const uint8_t *p, size_t bytes)
         }
         trx_pixel(gs, v);
     }
+done:
+    /* the decoded textures over the transfer's rectangle (section 4b) */
+    tc_written_rect(gs, dpsm, (uint32_t)bits(gs->bitbltbuf, 32, 14), (uint32_t)bits(gs->bitbltbuf, 48, 6),
+                    (uint32_t)bits(gs->trxpos, 32, 11), (uint32_t)bits(gs->trxpos, 48, 11),
+                    (uint32_t)bits(gs->trxreg, 0, 12), (uint32_t)bits(gs->trxreg, 32, 12));
 }
 
 static void vertex_kick(EmGs *gs, int draw);
@@ -849,6 +867,9 @@ typedef struct {
      * Z24) and texture (CT32, T8, T4); draw_one binds them, NULL otherwise */
     const uint32_t *frow, *fcol, *zrow, *zcol, *trow, *tcol;
     uint32_t fbase, zbase, tbase;
+    /* the decoded copy of the texture (section 4b) draw_one binds; NULL:
+     * the texels are read from memory */
+    struct TcEntry *tc;
 } Draw;
 
 /* Wrap (section 4.3), on the integer texel index of each axis. */
@@ -913,9 +934,520 @@ expand16: {
     }
 }
 
+/* ------------------------------------------------------------------------
+ * 4b. The decoded texture cache (docs/PERFORMANCE.md M3; GS_EXACT.md 4.8).
+ *
+ * A texture the first level samples (PSMCT32, and PSMT8 / PSMT4 with a CT32
+ * CLUT) is kept as a linear 32-bit copy: texel (u, v) of the rectangle
+ * [ulo, uhi] x [vlo, vhi] that its wrap modes can reach is fetch_rgba's
+ * value for (u, v), palette applied. sample() and texel_rgba() then read the
+ * copy at the indices they wrapped, instead of the swizzled memory and the
+ * CLUT. A row is decoded on its first read, by fetch_rgba's reads for these
+ * formats (tc_decode_row), so a decoded texel is the texel memory gives as
+ * long as memory and the CLUT still hold what they held when its row was
+ * decoded. The cache keeps that true:
+ *
+ *  - The key is the texture (TBP0, TBW, PSM; CSA for T4), the rectangle and
+ *    the palette the copy applied (T8: the 256 colours, T4: the CSA's 16,
+ *    compared in full, not only by hash). A CLUT load that changes the CLUT
+ *    selects another copy; TEXA, TCC and TFX are not read by these formats.
+ *  - Writes to memory: every copy lists the 8 KiB pages its texels lie in.
+ *    A span (section 3.7) that draws into a page (its frame, and its Z
+ *    buffer when Z is written) stamps the page with the span's number before
+ *    any of its primitives draws, and a copy whose pages were stamped at or
+ *    after the span its rows date from is out of date: its rows are decoded
+ *    again. In the span that draws into its pages a texture is read from
+ *    memory (EmGs.tcs.uncached_written), so a primitive that samples its own
+ *    frame or Z buffer, and one that samples what an earlier primitive of
+ *    its span drew, read memory as before. Rows decoded in one span stay
+ *    good in a later one only if no span between wrote their pages, so the
+ *    row bands (EmGs.band_*: each EmGs draws its rows of every primitive)
+ *    agree: a band ahead of another by the current span has drawn nothing
+ *    into a copy the other still uses. em_gs_world's barriers order its
+ *    threads the same way (a read of a drawn block waits for every band's
+ *    draws, and a draw into a block read since the last barrier waits for
+ *    the reads); the copy reads only texels of the reach the recorder
+ *    orders (em_gs_world.c texture_entry: the rectangle is that reach).
+ *  - Transfers (HOST -> LOCAL data, LOCAL -> LOCAL), em_gs_write_pixel and
+ *    em_gs_memory_written (another model's writes) drop the copies that
+ *    read the pages they wrote.
+ *  - A texture whose rectangle the wrap can leave (REGION_CLAMP with MINU >
+ *    MAXU, or bounds past the texture; REGION_REPEAT past it) or whose copy
+ *    would not fit is read from memory.
+ *
+ * Each EmGs holds its own (EmGs.tc, heap): up to TC_MAX copies (a full
+ * table is emptied) and TC_BUDGET bytes of texels, the least recently used
+ * copy's texels dropped first. No global state. The first level holds at
+ * most 6.25 MiB per EmGs in AREA11 and 10.2 MiB on the route through
+ * AREA01, in at most 570 copies, and never fills either limit
+ * (PERFORMANCE.md P13). */
+#define TC_MAX 1024u
+#define TC_SLOTS 4096u                 /* the copies' hash (a power of two, 4 x TC_MAX) */
+#define TC_BUDGET (16u << 20)          /* decoded bytes per EmGs (P13 sizes it)          */
+#define TC_PAGES 512u                  /* 8 KiB pages of local memory                    */
+#define TC_SPAN_W 8u                   /* page ranges one span may write, kept exactly   */
+
+typedef struct { uint32_t pg0, npg; } PgSpan;     /* pages pg0 .. pg0 + npg - 1, wrapping */
+
+struct Tc;
+typedef struct TcEntry {
+    struct Tc *own;
+    uint32_t tbp, tbw, psm, csa;       /* the texture (csa: T4 only, else 0)         */
+    int ulo, uhi, vlo, vhi;            /* the rectangle                               */
+    uint64_t pal_hash;                 /* T8 / T4: the palette's hash; 0 for CT32     */
+    uint32_t pal[256];                 /* the palette applied (npal colours)          */
+    uint32_t npal, pal_ver;            /* Tc.clut_ver at which pal was last equal     */
+    PgSpan pages;                      /* the pages its texels lie in                 */
+    uint64_t valid_from;               /* the span its rows date from                 */
+    uint64_t checked;                  /* the span in which it was last found good    */
+    int valid;
+    uint32_t w, h;
+    uint32_t *dec;                     /* w * h texels, then h row flags; NULL: none  */
+    uint8_t *rowok;
+    uint64_t last_use;
+} TcEntry;
+
+typedef struct Tc {
+    TcEntry *e;                        /* TC_MAX                                      */
+    uint32_t n;
+    uint16_t slot[TC_SLOTS];           /* index + 1, 0 empty (linear probing)         */
+    uint64_t sigma;                    /* the span being drawn, from 1                */
+    uint64_t pstamp[TC_PAGES];         /* the last span that wrote a page a copy reads */
+    uint16_t pref[TC_PAGES];           /* copies that read a page                     */
+    uint64_t refmap[TC_PAGES / 64];    /* the pages pref counts (a bit each)          */
+    PgSpan w[TC_SPAN_W];               /* the pages the current span writes           */
+    uint32_t nw;
+    int w_all;                         /* ... more ranges than TC_SPAN_W: all memory  */
+    uint32_t clut_ver;                 /* bumped when the CLUT buffer changes         */
+    uint32_t pal[256], pal_at;         /* the CLUT as CT32 colours at clut_ver pal_at */
+    int pal_have;
+    uint64_t hash8, hash4[16];
+    uint32_t hash8_at, hash4_at[16];
+    int hash8_have;
+    uint16_t hash4_have;
+    uint64_t m_tex0, m_clamp;          /* the last bind: its TEX0 / CLAMP fields read, */
+    uint32_t m_clut, m_ok;             /* the CLUT version and whether it is held     */
+    TcEntry *m_e;
+    uint64_t use;
+    uint64_t rows, texels;             /* decoded (EmGs.tcs)                          */
+    /* the queued span's FRAME, ZBUF, TEST and SCISSOR (queue_prim), and
+     * whether its primitives differ in them (tc_span then takes each) */
+    uint64_t q_reg[4];
+    int q_valid, q_mixed;
+} Tc;
+
+static int pg_overlap(PgSpan a, PgSpan b)
+{
+    return ((b.pg0 - a.pg0) & (TC_PAGES - 1)) < a.npg || ((a.pg0 - b.pg0) & (TC_PAGES - 1)) < b.npg;
+}
+
+/* The pages the pixels (x, y), x0 <= x <= x1, y0 <= y <= y1 (0..2047), of a
+ * buffer or texture lie in: every layout's page index is (y / page height) *
+ * pages a row + x / page width, rising in x and in y, and its blocks are bp +
+ * page * 32 + 0..31 (section 2, the address functions above). 0: none. */
+static int pg_span(unsigned psm, uint32_t bp, uint32_t bw, int x0, int x1, int y0, int y1, PgSpan *o)
+{
+    if (x0 > x1 || y0 > y1)
+        return 0;
+    uint32_t pw, ph, ppr = bw;
+    switch (psm) {
+    case EM_GS_PSMCT32: case EM_GS_PSMCT24: case EM_GS_PSMZ32: case EM_GS_PSMZ24:
+    case EM_GS_PSMT8H: case EM_GS_PSMT4HL: case EM_GS_PSMT4HH: pw = 64; ph = 32; break;
+    case EM_GS_PSMCT16: case EM_GS_PSMCT16S: case EM_GS_PSMZ16: case EM_GS_PSMZ16S: pw = 64; ph = 64; break;
+    case EM_GS_PSMT8: pw = 128; ph = 64; ppr = bw >> 1 ? bw >> 1 : 1; break;
+    case EM_GS_PSMT4: pw = 128; ph = 128; ppr = bw >> 1 ? bw >> 1 : 1; break;
+    default: o->pg0 = 0; o->npg = TC_PAGES; return 1;
+    }
+    if (x0 < 0 || y0 < 0 || x1 > 2047 || y1 > 2047) {       /* the address wraps: all of memory */
+        o->pg0 = 0;
+        o->npg = TC_PAGES;
+        return 1;
+    }
+    const uint64_t pmin = (uint64_t)((uint32_t)y0 / ph) * ppr + (uint32_t)x0 / pw;
+    const uint64_t pmax = (uint64_t)((uint32_t)y1 / ph) * ppr + (uint32_t)x1 / pw;
+    const uint64_t b0 = bp + pmin * 32, b1 = bp + pmax * 32 + 31;
+    const uint64_t n = (b1 >> 5) - (b0 >> 5) + 1;
+    o->pg0 = (uint32_t)(b0 >> 5) & (TC_PAGES - 1);
+    o->npg = n >= TC_PAGES ? TC_PAGES : (uint32_t)n;
+    return 1;
+}
+
+static void tc_drop_storage(EmGs *gs, Tc *t, TcEntry *e)
+{
+    (void)t;
+    if (!e->dec)
+        return;
+    gs->tcs.bytes -= (uint64_t)e->w * e->h * 4u + e->h;
+    free(e->dec);
+    e->dec = NULL;
+    e->rowok = NULL;
+    e->valid = 0;
+}
+
+/* Every copy dropped (the table full, or released). */
+static void tc_reset(EmGs *gs, Tc *t)
+{
+    for (uint32_t i = 0; i < t->n; i++)
+        tc_drop_storage(gs, t, &t->e[i]);
+    t->n = 0;
+    memset(t->slot, 0, sizeof t->slot);
+    memset(t->pref, 0, sizeof t->pref);
+    memset(t->refmap, 0, sizeof t->refmap);
+    t->m_ok = 0;
+    t->m_e = NULL;
+    gs->tcs.resets++;
+}
+
+static Tc *tc_get(EmGs *gs)
+{
+    if (gs->tc || gs->tc_off)
+        return gs->tc;
+    Tc *t = calloc(1, sizeof *t);
+    TcEntry *e = t ? calloc(TC_MAX, sizeof *e) : NULL;
+    if (!e) {
+        free(t);
+        gs->tc_off = 1;                /* no memory: every texel from memory */
+        return NULL;
+    }
+    t->e = e;
+    gs->tc = t;
+    return t;
+}
+
+static void tc_free(EmGs *gs)
+{
+    Tc *t = gs->tc;
+    if (!t)
+        return;
+    for (uint32_t i = 0; i < t->n; i++)
+        free(t->e[i].dec);
+    free(t->e);
+    free(t);
+    gs->tc = NULL;
+    gs->tcs.bytes = 0;
+}
+
+/* The CLUT buffer changed (clut_load). */
+static void tc_clut_changed(EmGs *gs)
+{
+    if (gs->tc)
+        ((Tc *)gs->tc)->clut_ver++;
+}
+
+/* The copies that read pages of `s` are out of date. */
+static void tc_written(EmGs *gs, PgSpan s)
+{
+    Tc *t = gs->tc;
+    if (!t)
+        return;
+    for (uint32_t i = 0; i < t->n; i++)
+        if (t->e[i].valid && pg_overlap(t->e[i].pages, s))
+            t->e[i].valid = 0;
+}
+
+static void tc_written_rect(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32_t x, uint32_t y,
+                            uint32_t w, uint32_t h)
+{
+    PgSpan s;
+    if (!gs->tc || w == 0 || h == 0)
+        return;
+    if (pg_span(psm, bp, bw, (int)x, (int)(x + w - 1), (int)y, (int)(y + h - 1), &s))
+        tc_written(gs, s);
+}
+
+void em_gs_memory_written(EmGs *gs, uint32_t first_block, uint32_t blocks)
+{
+    if (!gs || !gs->tc || blocks == 0)
+        return;
+    PgSpan s;
+    const uint64_t b0 = first_block, b1 = (uint64_t)first_block + blocks - 1;
+    const uint64_t n = (b1 >> 5) - (b0 >> 5) + 1;
+    s.pg0 = (uint32_t)(b0 >> 5) & (TC_PAGES - 1);
+    s.npg = blocks >= 16384u || n >= TC_PAGES ? TC_PAGES : (uint32_t)n;
+    tc_written(gs, s);
+}
+
+/* A page range the current span writes (dropping repeats). */
+static int tc_add_w(Tc *t, PgSpan s)
+{
+    for (uint32_t i = 0; i < t->nw; i++)
+        if (t->w[i].pg0 == s.pg0 && t->w[i].npg == s.npg)
+            return 0;
+    if (t->nw == TC_SPAN_W) {
+        t->w_all = 1;
+        return 0;
+    }
+    t->w[t->nw++] = s;
+    return 1;
+}
+
+/* The copy still holds what memory holds for the texels it decoded. */
+static int tc_fresh(Tc *t, TcEntry *e)
+{
+    if (!e->valid)
+        return 0;
+    if (e->checked == t->sigma)
+        return 1;
+    for (uint32_t k = 0; k < e->pages.npg; k++)
+        if (t->pstamp[(e->pages.pg0 + k) & (TC_PAGES - 1)] >= e->valid_from) {
+            e->valid = 0;
+            return 0;
+        }
+    for (uint32_t i = 0; i < t->nw; i++)
+        if (pg_overlap(t->w[i], e->pages)) {
+            e->valid = 0;
+            return 0;
+        }
+    if (t->w_all) {
+        e->valid = 0;
+        return 0;
+    }
+    e->checked = t->sigma;
+    return 1;
+}
+
+static uint64_t tc_mix(uint64_t h, uint64_t v)
+{
+    h ^= v + UINT64_C(0x9E3779B97F4A7C15) + (h << 6) + (h >> 2);
+    return h * UINT64_C(0xBF58476D1CE4E5B9);
+}
+
+/* The CLUT as CT32 colours (fetch_rgba's CT32 CLUT read: low halfword at
+ * clut[e], high at clut[e + 256]), at the current CLUT version. */
+static void tc_palette(const EmGs *gs, Tc *t)
+{
+    if (t->pal_have && t->pal_at == t->clut_ver)
+        return;
+    for (unsigned i = 0; i < 256; i++)
+        t->pal[i] = gs->clut[i] | (uint32_t)gs->clut[i + 256] << 16;
+    t->pal_at = t->clut_ver;
+    t->pal_have = 1;
+    t->hash8_have = 0;
+    t->hash4_have = 0;
+}
+
+static uint64_t tc_pal_hash(const uint32_t *pal, unsigned n)
+{
+    uint64_t h = n;
+    for (unsigned i = 0; i < n; i++)
+        h = tc_mix(h, pal[i]);
+    return h;
+}
+
+/* The rectangle a wrap mode lets an axis reach (wrap_u / wrap_v's values),
+ * inside the texture: 0 when it can leave it. */
+static int tc_axis(int mode, uint32_t size_log2, int mn, int mx, int *lo, int *hi)
+{
+    const int size = 1 << (size_log2 > 10 ? 10 : size_log2);
+    if (size_log2 > 10)
+        return 0;
+    switch (mode) {
+    case 0: case 1: *lo = 0; *hi = size - 1; return 1;
+    case 2: if (mn > mx || mx > size - 1) return 0; *lo = mn; *hi = mx; return 1;
+    default: if ((mn | mx) > size - 1) return 0; *lo = mx; *hi = mn | mx; return 1;
+    }
+}
+
+static TcEntry *tc_bind(EmGs *gs, const Draw *d)
+{
+    Tc *t = gs->tc;
+    if (!t)
+        return NULL;
+    const int t8 = d->tpsm == EM_GS_PSMT8, t4 = d->tpsm == EM_GS_PSMT4;
+    if (!(d->tpsm == EM_GS_PSMCT32 || ((t8 || t4) && d->cpsm == EM_GS_PSMCT32)))
+        return NULL;
+    /* the last bind's texture again (the fields read below, the CLUT) */
+    const uint64_t tex0 = d->c->tex0 & (UINT64_C(0x3FFFFFFFF) | UINT64_C(0xF) << 51 | UINT64_C(0x1F) << 56);
+    const uint64_t clamp = d->c->clamp & ((UINT64_C(1) << 44) - 1);
+    if (t->m_ok && t->m_tex0 == tex0 && t->m_clamp == clamp && (!(t8 || t4) || t->m_clut == t->clut_ver)) {
+        TcEntry *e = t->m_e;
+        if (!e)
+            return NULL;               /* (the rectangle can leave the texture) */
+        if (e->dec && tc_fresh(t, e)) {
+            e->last_use = ++t->use;
+            return e;
+        }
+    }
+    t->m_ok = 1;
+    t->m_tex0 = tex0;
+    t->m_clamp = clamp;
+    t->m_clut = t->clut_ver;
+    t->m_e = NULL;
+    int ulo, uhi, vlo, vhi;
+    if (!tc_axis(d->wms, d->tw, d->minu, d->maxu, &ulo, &uhi) || !tc_axis(d->wmt, d->th, d->minv, d->maxv, &vlo, &vhi))
+        return NULL;
+    const uint32_t csa = t4 ? (d->csa & 15) : 0;
+    const uint32_t *pal = NULL;
+    uint32_t npal = 0;
+    uint64_t ph = 0;
+    if (t8 || t4) {
+        tc_palette(gs, t);
+        if (t8) {
+            if (!t->hash8_have || t->hash8_at != t->pal_at) {
+                t->hash8 = tc_pal_hash(t->pal, 256);
+                t->hash8_at = t->pal_at;
+                t->hash8_have = 1;
+            }
+            pal = t->pal;
+            npal = 256;
+            ph = t->hash8;
+        } else {
+            if (!((t->hash4_have >> csa) & 1) || t->hash4_at[csa] != t->pal_at) {
+                t->hash4[csa] = tc_pal_hash(t->pal + csa * 16, 16);
+                t->hash4_at[csa] = t->pal_at;
+                t->hash4_have |= (uint16_t)(1u << csa);
+            }
+            pal = t->pal + csa * 16;
+            npal = 16;
+            ph = t->hash4[csa];
+        }
+    }
+    uint64_t h = tc_mix(tc_mix(tc_mix(d->tbp, d->tbw), d->tpsm | (uint64_t)csa << 8), ph);
+    h = tc_mix(h, (uint64_t)ulo | (uint64_t)uhi << 16 | (uint64_t)vlo << 32 | (uint64_t)vhi << 48);
+    uint32_t s = (uint32_t)(h >> 52) & (TC_SLOTS - 1);
+    TcEntry *e = NULL;
+    for (;; s = (s + 1) & (TC_SLOTS - 1)) {
+        const uint32_t k = t->slot[s];
+        if (!k)
+            break;
+        TcEntry *c = &t->e[k - 1];
+        if (c->tbp != d->tbp || c->tbw != d->tbw || c->psm != d->tpsm || c->csa != csa || c->ulo != ulo ||
+            c->uhi != uhi || c->vlo != vlo || c->vhi != vhi || c->pal_hash != ph)
+            continue;
+        if (npal && c->pal_ver != t->pal_at) {
+            if (memcmp(c->pal, pal, npal * sizeof *pal) != 0)
+                continue;              /* the same hash, another palette */
+            c->pal_ver = t->pal_at;
+        }
+        e = c;
+        break;
+    }
+    const uint32_t w = (uint32_t)(uhi - ulo + 1), hh = (uint32_t)(vhi - vlo + 1);
+    const uint64_t need = (uint64_t)w * hh * 4u + hh;
+    if (need > TC_BUDGET / 2)
+        return NULL;                   /* (m_e NULL: from memory while this texture lasts) */
+    if (!e) {
+        if (t->n == TC_MAX) {
+            tc_reset(gs, t);
+            t->m_ok = 1;
+            t->m_tex0 = tex0;
+            t->m_clamp = clamp;
+            t->m_clut = t->clut_ver;
+            for (s = (uint32_t)(h >> 52) & (TC_SLOTS - 1); t->slot[s]; s = (s + 1) & (TC_SLOTS - 1)) {}
+        }
+        e = &t->e[t->n++];
+        memset(e, 0, sizeof *e);
+        e->own = t;
+        e->tbp = d->tbp; e->tbw = d->tbw; e->psm = d->tpsm; e->csa = csa;
+        e->ulo = ulo; e->uhi = uhi; e->vlo = vlo; e->vhi = vhi;
+        e->pal_hash = ph;
+        e->npal = npal;
+        if (npal) {
+            memcpy(e->pal, pal, npal * sizeof *pal);
+            e->pal_ver = t->pal_at;
+        }
+        e->w = w;
+        e->h = hh;
+        if (!pg_span(d->tpsm, d->tbp, d->tbw, ulo, uhi, vlo, vhi, &e->pages)) {
+            e->pages.pg0 = 0;
+            e->pages.npg = TC_PAGES;
+        }
+        for (uint32_t k = 0; k < e->pages.npg; k++) {
+            const uint32_t pg = (e->pages.pg0 + k) & (TC_PAGES - 1);
+            t->pref[pg]++;
+            t->refmap[pg >> 6] |= UINT64_C(1) << (pg & 63);
+        }
+        t->slot[s] = (uint16_t)t->n;
+        gs->tcs.created++;
+    } else if (e->dec && tc_fresh(t, e)) {
+        t->m_e = e;
+        e->last_use = ++t->use;
+        return e;
+    } else if (e->dec || e->valid_from) {
+        gs->tcs.renewed++;
+    }
+    t->m_e = e;
+    e->last_use = ++t->use;
+    /* rows from this span on (none decoded yet) */
+    if (!e->dec) {
+        while (gs->tcs.bytes + need > TC_BUDGET) {
+            TcEntry *old = NULL;
+            for (uint32_t i = 0; i < t->n; i++)
+                if (t->e[i].dec && &t->e[i] != e && (!old || t->e[i].last_use < old->last_use))
+                    old = &t->e[i];
+            if (!old)
+                break;
+            tc_drop_storage(gs, t, old);
+            gs->tcs.evicted++;
+        }
+        if (gs->tcs.bytes + need > TC_BUDGET)
+            return NULL;
+        e->dec = malloc((size_t)need);
+        if (!e->dec)
+            return NULL;
+        e->rowok = (uint8_t *)(e->dec + (size_t)w * hh);
+        gs->tcs.bytes += need;
+    }
+    memset(e->rowok, 0, hh);
+    e->valid = 1;
+    e->valid_from = t->sigma;
+    e->checked = 0;
+    if (!tc_fresh(t, e)) {
+        gs->tcs.uncached_written++;
+        return NULL;                   /* drawn in this span: from memory */
+    }
+    return e;
+}
+
+/* Row v of the bound copy, decoded on its first read: fetch_rgba's texels
+ * for these formats, its CT32, T8 and T4 reads written out per format (the
+ * same address tables, the same arithmetic; the palette is the CLUT's CT32
+ * colours, tc_bind found it equal). */
+__attribute__((noinline)) static void tc_decode_row(const EmGs *gs, const Draw *d, TcEntry *e, int v)
+{
+    uint32_t *out = e->dec + (size_t)(v - e->vlo) * e->w;
+    const uint32_t y = (uint32_t)v & 2047, n = e->w, u0 = (uint32_t)e->ulo;
+    const uint32_t rb = d->tbase + d->trow[y];
+    switch (d->tpsm) {
+    case EM_GS_PSMCT32:
+        for (uint32_t i = 0; i < n; i++)
+            out[i] = rd32(gs, rb + d->tcol[(u0 + i) & 2047]);
+        break;
+    case EM_GS_PSMT8: {
+        const uint32_t *col = d->tcol + (((y >> 1) ^ (y >> 2)) & 1) * 2048;
+        for (uint32_t i = 0; i < n; i++)
+            out[i] = e->pal[gs->mem[(rb + col[(u0 + i) & 2047]) & (EM_GS_MEM_BYTES - 1)]];
+        break;
+    }
+    default: {                         /* PSMT4 */
+        const uint32_t *col = d->tcol + (((y >> 1) ^ (y >> 2)) & 1) * 2048;
+        for (uint32_t i = 0; i < n; i++) {
+            const uint32_t a = rb + col[(u0 + i) & 2047];
+            out[i] = e->pal[(gs->mem[(a >> 1) & (EM_GS_MEM_BYTES - 1)] >> ((a & 1) * 4)) & 15];
+        }
+        break;
+    }
+    }
+    e->rowok[v - e->vlo] = 1;
+    e->own->rows++;
+    e->own->texels += e->w;
+}
+
+__attribute__((always_inline)) static inline const uint32_t *tc_row(const EmGs *gs, const Draw *d, int v)
+{
+    TcEntry *e = d->tc;
+    const uint32_t r = (uint32_t)(v - e->vlo);
+    if (!e->rowok[r])
+        tc_decode_row(gs, d, e, v);
+    return e->dec + (size_t)r * e->w;
+}
+
 static uint32_t texel_rgba(const EmGs *gs, const Draw *d, int u, int v)
 {
-    return fetch_rgba(gs, d, wrap_u(d, u), wrap_v(d, v));
+    const int uw = wrap_u(d, u), vw = wrap_v(d, v);
+    if (d->tc)
+        return tc_row(gs, d, vw)[uw - d->tc->ulo];
+    return fetch_rgba(gs, d, uw, vw);
 }
 
 /* Bilinear / nearest from fixed-point texel coordinates in 1/16 texel
@@ -928,8 +1460,16 @@ static uint32_t sample(const EmGs *gs, const Draw *d, int64_t U16, int64_t V16, 
     int iu = (int)(Ub >> 4), iv = (int)(Vb >> 4), fu = (int)(Ub & 15), fv = (int)(Vb & 15);
     /* each axis wrapped once (the same indices texel_rgba wraps) */
     const int u0 = wrap_u(d, iu), u1 = wrap_u(d, iu + 1), v0 = wrap_v(d, iv), v1 = wrap_v(d, iv + 1);
-    uint32_t t00 = fetch_rgba(gs, d, u0, v0), t10 = fetch_rgba(gs, d, u1, v0);
-    uint32_t t01 = fetch_rgba(gs, d, u0, v1), t11 = fetch_rgba(gs, d, u1, v1);
+    uint32_t t00, t10, t01, t11;
+    if (d->tc) {
+        /* the decoded copy (section 4b): the same texels at the same indices */
+        const uint32_t *r0 = tc_row(gs, d, v0), *r1 = tc_row(gs, d, v1);
+        const int a = u0 - d->tc->ulo, b = u1 - d->tc->ulo;
+        t00 = r0[a]; t10 = r0[b]; t01 = r1[a]; t11 = r1[b];
+    } else {
+        t00 = fetch_rgba(gs, d, u0, v0); t10 = fetch_rgba(gs, d, u1, v0);
+        t01 = fetch_rgba(gs, d, u0, v1); t11 = fetch_rgba(gs, d, u1, v1);
+    }
     uint32_t out = 0;
     for (int k = 0; k < 32; k += 8) {
         int a = (int)((t00 >> k) & 255), b = (int)((t10 >> k) & 255);
@@ -1947,6 +2487,63 @@ struct EmGsPending {
     unsigned kind;                     /* 0 point, 1 line, 3 triangle, 6 sprite */
 };
 
+/* The span about to draw (span_end): its number, the pages its primitives
+ * write (the frame; the Z buffer when Z is written), and the stamps of the
+ * pages a decoded copy reads (section 4b). Within a span FRAME, ZBUF, TEST
+ * and SCISSOR do not change (a write of one ends it, section 3.7), but every
+ * primitive is taken. */
+static void tc_span(EmGs *gs, const struct EmGsPending *p, uint32_t n)
+{
+    Tc *t = tc_get(gs);
+    if (!t)
+        return;
+    t->sigma++;
+    t->nw = 0;
+    t->w_all = 0;
+    /* one primitive stands for the span when queue_prim saw them all with the
+     * same registers (a write of one ends the span, so that is the rule) */
+    if (t->q_valid && !t->q_mixed && n > 1)
+        n = 1;
+    t->q_valid = 0;
+    const Draw *q = NULL;
+    for (uint32_t i = 0; i < n; i++) {
+        const Draw *d = &p[i].d;
+        if (q && d->fbp == q->fbp && d->fbw == q->fbw && d->fpsm == q->fpsm && d->sx0 == q->sx0 && d->sx1 == q->sx1
+            && d->sy0 == q->sy0 && d->sy1 == q->sy1 && d->zte == q->zte && d->zmsk == q->zmsk && d->zbp == q->zbp
+            && d->zpsm == q->zpsm)
+            continue;                  /* the same pages as the previous primitive */
+        q = d;
+        PgSpan s;
+        if (pg_span(d->fpsm, d->fbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
+            tc_add_w(t, s);
+        if (d->zte && !d->zmsk && pg_span(d->zpsm, d->zbp, d->fbw, d->sx0, d->sx1, d->sy0, d->sy1, &s))
+            tc_add_w(t, s);
+    }
+    /* the pages written that a copy reads (refmap: pref nonzero), stamped */
+    uint64_t m[TC_PAGES / 64] = {0};
+    if (t->w_all) {
+        memset(m, 0xFF, sizeof m);
+    } else {
+        for (uint32_t i = 0; i < t->nw; i++) {
+            const PgSpan w = t->w[i];
+            if (w.npg >= TC_PAGES) {
+                memset(m, 0xFF, sizeof m);
+                break;
+            }
+            for (uint32_t k = 0; k < w.npg;) {           /* the range, a word at a time */
+                const uint32_t pg = (w.pg0 + k) & (TC_PAGES - 1), b = pg & 63;
+                const uint32_t run = 64 - b < w.npg - k ? 64 - b : w.npg - k;
+                m[pg >> 6] |= (run == 64 ? ~UINT64_C(0) : ((UINT64_C(1) << run) - 1)) << b;
+                k += run;
+            }
+        }
+    }
+    for (uint32_t j = 0; j < TC_PAGES / 64; j++)
+        for (uint64_t r = m[j] & t->refmap[j]; r; r &= r - 1)
+            t->pstamp[j * 64 + (uint32_t)__builtin_ctzll(r)] = t->sigma;
+}
+
+
 /* A conservative byte range of a buffer: base block bp, width bw * 64,
  * `rows` rows, whole pages, plus one page when the base is inside a page. */
 static void mem_range(uint32_t bp, uint32_t bw, unsigned psm, uint32_t rows, uint64_t *lo, uint64_t *hi)
@@ -2006,11 +2603,26 @@ static void draw_one(EmGs *gs, struct EmGsPending *p)
         gs->refused_prims++;
         return;
     }
+    /* the decoded copy of its texture (section 4b), or none */
+    p->d.tc = NULL;
+    if (p->d.tme) {
+        if (!gs->tc_off)
+            p->d.tc = tc_bind(gs, &p->d);
+        if (p->d.tc) gs->tcs.binds++; else gs->tcs.uncached++;
+    }
+    const uint64_t s0 = gs->pix.samples, b0 = gs->pix.samples_bil;
     switch (p->kind) {
     case 0: draw_point(gs, &p->d, &p->v[0]); break;
     case 1: draw_line(gs, &p->d, &p->v[0], &p->v[1]); break;
     case 6: draw_sprite(gs, &p->d, &p->v[0], &p->v[1]); break;
     default: draw_triangle(gs, &p->d, &p->v[0], &p->v[1], &p->v[2]); break;
+    }
+    if (p->d.tc) {
+        const Tc *t = gs->tc;
+        gs->tcs.samples += gs->pix.samples - s0;
+        gs->tcs.samples_bil += gs->pix.samples_bil - b0;
+        gs->tcs.rows = t->rows;
+        gs->tcs.texels = t->texels;
     }
 }
 
@@ -2048,6 +2660,8 @@ static void span_end(EmGs *gs, int measured)
     gs->pend_n = 0;
     for (int k = 0; k < 3; k++)
         gs->pend_lo[k] = gs->pend_hi[k] = 0;
+    if (n && !gs->tc_off)
+        tc_span(gs, gs->pend, n);      /* section 4b: the pages the span writes */
     for (uint32_t i = 0; i < n; i++) {
         gs->pend[i].d.stq_grid = (int)gs->pend_zconst;
         draw_one(gs, &gs->pend[i]);
@@ -2070,6 +2684,7 @@ void em_gs_release(EmGs *gs)
     gs->setup_cache = NULL;
     gs->setup_valid = 0;
     swz_free(gs);
+    tc_free(gs);
 }
 
 static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex *a, const EmGsVertex *b,
@@ -2096,6 +2711,8 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
                 if (kind != 6 && vs[i]->z != vs[0]->z)
                     one.d.stq_grid = 0;
             }
+            if (!gs->tc_off)
+                tc_span(gs, &one, 1);          /* a span of its own (section 4b) */
             draw_one(gs, &one);
             return;
         }
@@ -2112,6 +2729,18 @@ static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex 
          * measured boundary anyway: the chain of unmeasured ones is closed */
         if (gs->chain_open && (attr != gs->chain_attr || cls != gs->chain_class))
             gs->chain_open = 0;
+    }
+    if (gs->tc) {
+        /* section 4b: the pages the span writes come from these registers */
+        Tc *t = gs->tc;
+        const uint64_t r[4] = { d->c->frame, d->c->zbuf, d->c->test, d->c->scissor };
+        if (gs->pend_n == 0) {
+            memcpy(t->q_reg, r, sizeof r);
+            t->q_valid = 1;
+            t->q_mixed = 0;
+        } else if (memcmp(t->q_reg, r, sizeof r) != 0) {
+            t->q_mixed = 1;
+        }
     }
     struct EmGsPending *p = &gs->pend[gs->pend_n++];
     p->d = *d;

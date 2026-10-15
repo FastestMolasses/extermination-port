@@ -703,6 +703,54 @@ See 3.4.
 - Not exact in general: UV triangles leave 1/16-texel residues (section
   8.7).
 
+### 4.8 Decoded texture copies (how the model reads texels; no rule of its own)
+
+The model reads the texels of 4.1 / 4.2 from a decoded copy where it can
+(em_gs_raster.c section 4b; PERFORMANCE.md "Progress" P13). The copy defines
+no texel of its own: it holds the value fetch_rgba would read from memory and
+the CLUT buffer for each texel, and it is read at the indices the wrap of 4.3
+gave.
+- **Which textures.** PSMCT32, and PSMT8 / PSMT4 with a PSMCT32 CLUT (the
+  formats the first level samples), whose wrap stays inside the texture on
+  both axes: REPEAT and CLAMP; REGION_CLAMP with MINU <= MAXU < width;
+  REGION_REPEAT with (MINU | MAXU) < width (and the same for V). Every other
+  texture is read from memory as before.
+- **What a copy holds.** The rectangle the wrap can reach (REPEAT / CLAMP:
+  the whole texture; REGION_CLAMP: MINU..MAXU; REGION_REPEAT: MAXU..(MINU |
+  MAXU)) as 32-bit colours, the palette applied (4.6: the CT32 CLUT entry's
+  low halfword at slot i, the high at i + 256). Rows are decoded on their
+  first read. A copy is keyed by the texture's TBP0, TBW, PSM, the rectangle,
+  CSA for PSMT4 and the palette it applied (compared in full), so a CLUT load
+  that changes the CLUT buffer selects another copy.
+- **When a copy is out of date.** A copy lists the 8 KiB pages its texels lie
+  in. Before a span (3.7) draws, the pages its frame (and its Z buffer when
+  Z is written) can reach inside the scissor are stamped with the span's
+  number; a copy whose pages were stamped since the span its rows date from
+  is decoded again. In the span that draws into its pages the texture is read
+  from memory, so a primitive that samples its own frame or Z buffer, or what
+  an earlier primitive of its span drew, reads memory as before. Transfers
+  (HOST -> LOCAL data, LOCAL -> LOCAL), em_gs_write_pixel and
+  em_gs_memory_written (memory written outside the EmGs: em_gs_world's
+  uploads, memory images and restores, for every worker) drop the copies
+  over the pages they wrote.
+- **Row bands and threads.** Each EmGs keeps its own copies. In lockstep
+  (EmGs.tee) a band can be ahead of another by at most the span being drawn,
+  and a copy is never used in a span that writes its pages, so every band
+  reads what memory holds for it. In em_gs_world the barriers (section 9)
+  order the workers the same way, and a copy reads only texels of the reach
+  the recorder orders (the rectangle above is that reach).
+- **Evidence** (P13): every texel a copy gave was compared with memory's at
+  the same moment in a self-check build over the demo (6 and 3 workers) and
+  the route to a01_00: no difference in 15.37 billion samples (61.5 billion
+  texels). The GS proof set gives the previous step's results (the one fb2
+  line that moved does so with the previous step's binary too: the
+  display's backing scale, 10.2). A
+  HEAD-against-M3 random differential (235,424 primitives) with transfers,
+  CLUT changes, render to texture and pokes leaves equal local memory at 1,
+  3 and 8 bands, and catches eight broken variants of the rules above.
+  tests/gs_world_test.c compares the cache off (EM_GS_TEXCACHE=0) with it
+  on, and an upload over a sampled texture between frames.
+
 ## 5. Pixel pipeline
 
 ### 5.1 Texture function at the interpolators' precision
@@ -1964,6 +2012,28 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   AREA11 (slide 10.0 -> 7.9 ms) and 2.0-2.4 ms in AREA01 (fire peak 13.7
   -> 11.8 ms), with at most one tick over per range. With 3 workers AREA11
   runs at 99.9-100 % speed and AREA01 at 79.6-93.7 %.
+
+- **The decoded texture cache (2026-10-15, PERFORMANCE.md "Progress"
+  P13).** CT32 textures and T8 / T4 textures with a CT32 CLUT are read
+  from per-worker linear copies with the palette applied (section 4.8).
+  The bytes are the same: the GS proof set gives P12's results (the fb2
+  harness's level-exit presented frame reads 113,002 exact pixels instead
+  of 113,053, and so does HEAD's own binary today, with byte-identical port
+  images: the headless frame follows the display's backing scale, 960x720
+  today as at P1, PERFORMANCE.md P2). A self-check build compared every cached texel of the demo and
+  the route to a01_00 with memory (15.37 billion samples, 0 differences).
+  A 235,424-primitive random differential with transfers, CLUT changes,
+  render to texture and pokes (1, 3 and 8 bands) leaves equal local memory,
+  with eight negative controls caught. The census's pixel cost fell 31.1 ->
+  26.9 ns (-13.7 %); offline the DOF pass is 15.1 % cheaper (87.1 -> 74.0
+  ms). With one worker the GS frame takes 28.5-28.7 instead of 32.7-33.4 ms
+  of CPU in the cinematic and 43.5-43.8 instead of 54.5-55.3 at the AREA01
+  fire peak. At the default 6 workers the busiest worker fell 0.3-0.55 ms
+  in AREA11 and 1.0-1.8 ms in AREA01 (fire peak 11.7-11.9 -> 10.0 ms); no
+  tick ran over, and AREA01's tick is now set by the game thread. With 3
+  workers AREA11 runs at full speed (0-1 ticks over) and AREA01 at
+  93.1-98.6 % (79.2-93.3 % before). Each worker holds at most 10.2 MiB of
+  decoded texels in the first level.
 
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level

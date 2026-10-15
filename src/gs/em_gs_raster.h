@@ -144,6 +144,29 @@ typedef struct EmGs {
      * em_gs_release). Without memory for them a primitive is refused
      * (EM_GS_REFUSE_MEMORY). */
     void *swz;
+    /* The decoded texture cache (em_gs_raster.c section 4b, docs/PERFORMANCE.md
+     * M3): CT32 textures, and T8 / T4 textures with a CT32 CLUT, kept as a
+     * linear 32-bit copy with the palette applied, per (texture, palette,
+     * the texel rectangle CLAMP lets it reach), decoded a row at a time on
+     * first read. It reads what the texture's memory holds and is dropped
+     * where that may change: by a transfer, a draw whose frame or Z buffer
+     * covers its pages (in the span that draws, the texture is read from
+     * memory), or em_gs_memory_written. Heap, freed by em_gs_release; with
+     * no memory for it the texels are read from memory, as with tc_off 1.
+     * Every texel it gives is the one memory gives (tools/test_gs_raster_reference.py,
+     * tests/gs_world_test.c). */
+    void *tc;
+    int tc_off;                        /* 1: no cache (every texel from memory) */
+    struct {
+        uint64_t binds;                /* textured primitives drawn from a decoded copy   */
+        uint64_t uncached;             /* textured primitives drawn from memory (below)   */
+        uint64_t uncached_written;     /*   of them: their texture is drawn in the span   */
+        uint64_t created, renewed;     /* copies made, and made again after a change     */
+        uint64_t evicted, resets;      /* copies dropped for room; whole-cache resets     */
+        uint64_t rows, texels;         /* rows and texels decoded                         */
+        uint64_t samples, samples_bil; /* the samples (EmGs.pix) taken from decoded copies */
+        uint64_t bytes;                /* decoded bytes held now                          */
+    } tcs;
 } EmGs;
 
 /* mem must hold EM_GS_MEM_BYTES; it is not cleared. The registers start at
@@ -179,5 +202,10 @@ uint32_t em_gs_swz_addr(EmGs *gs, unsigned psm, uint32_t bp, uint32_t bw, uint32
 /* Reads / writes one pixel of any storage mode (value in the mode's bits). */
 uint32_t em_gs_read_pixel(const EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y);
 void em_gs_write_pixel(EmGs *gs, uint32_t bp, uint32_t bw, unsigned psm, uint32_t x, uint32_t y, uint32_t v);
+/* Local memory was written outside this EmGs (another model's transfer, a
+ * memory image, a restore): `blocks` 256-byte blocks from `first_block`,
+ * wrapping at the 4 MiB. The decoded textures that read them are dropped.
+ * Call it between drawing calls, for every EmGs over that memory. */
+void em_gs_memory_written(EmGs *gs, uint32_t first_block, uint32_t blocks);
 
 #endif

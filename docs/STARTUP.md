@@ -421,6 +421,25 @@ The counts are always kept (EmGs.pix, an add per sample and per rejected
 pixel); only the file needs the switch. Nothing recorded, drawn or played
 changes.
 
+### EM_GS_TC_COUNTERS=<file>: the GS frame's decoded texture counters
+
+Added 2026-10-15 (PERFORMANCE.md "Progress" P13). The Original profile's GS
+frame writes one line per frame it waits for, summed over its workers: the
+textured primitives drawn from a decoded copy and from memory (and of those,
+the ones whose texture the same span draws into), the copies made and made
+again after a write, the copies' texels dropped for room, whole-cache resets,
+the rows and texels decoded, the samples taken from copies (and the bilinear
+ones), and the largest number of decoded bytes a worker held (the columns
+are named in the file's first line). The counts are always kept (EmGs.tcs);
+only the file needs the switch. Nothing recorded, drawn or played changes.
+
+### EM_GS_TEXCACHE=0: the GS frame without decoded texture copies
+
+Added 2026-10-15 (PERFORMANCE.md "Progress" P13). The Original profile's GS
+workers read every texel from GS memory and the CLUT buffer, as before the
+decoded texture cache (GS_EXACT.md 4.8). The same bytes either way
+(`make test-gs-world` compares the two); a comparison and measurement aid.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

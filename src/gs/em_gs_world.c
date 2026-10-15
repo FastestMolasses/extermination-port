@@ -147,6 +147,11 @@ struct EmGsWorld {
      * waited for. A diagnostic: it changes nothing recorded or drawn. */
     FILE *zc_file;
     uint64_t zc_frames, zc_prev[6];
+    /* EM_GS_TC_COUNTERS=<file> (docs/PERFORMANCE.md M3): the workers' decoded
+     * texture cache counters (EmGs.tcs), summed over the workers, one line
+     * per frame waited for. A diagnostic: it changes nothing drawn. */
+    FILE *tcc_file;
+    uint64_t tcc_frames, tcc_prev[11];
     /* the field of the last finished job */
     uint8_t *field;
     uint32_t field_w, field_h;
@@ -156,6 +161,14 @@ struct EmGsWorld {
     EmGsWorldStats stats;
     char fault[192];
 };
+
+/* Local memory written outside the workers' models (a memory image, a
+ * restore, an upload), while they wait: each drops the decoded textures over
+ * those blocks (em_gs_memory_written). */
+static void workers_memory_written(EmGsWorld *w, uint32_t first, uint32_t blocks)
+{
+    for (uint32_t i = 0; i < w->workers; ++i) em_gs_memory_written(&w->worker[i].gs, first, blocks);
+}
 
 static int fail(EmGsWorld *w, const char *what, unsigned long long detail)
 {
@@ -343,6 +356,17 @@ EmGsWorld *em_gs_world_create(void)
         if (w->tc_file)
             fprintf(w->tc_file, "# frame searches probes hits misses cliff texels resets entries pool hit_ns miss_ns\n");
     }
+    const char *tcc = getenv("EM_GS_TC_COUNTERS");
+    if (tcc && tcc[0]) {
+        w->tcc_file = fopen(tcc, "w");
+        if (w->tcc_file)
+            fprintf(w->tcc_file, "# frame binds uncached uncached_written created renewed evicted resets rows texels "
+                                 "samples samples_bil bytes_max\n");
+    }
+    /* EM_GS_TEXCACHE=0: the decoded texture cache off (every texel read from
+     * memory; a developer switch for comparisons) */
+    const char *tco = getenv("EM_GS_TEXCACHE");
+    const int tc_off = tco && tco[0] == '0';
     const char *zc = getenv("EM_GS_Z_COUNTERS");
     if (zc && zc[0]) {
         w->zc_file = fopen(zc, "w");
@@ -363,6 +387,7 @@ EmGsWorld *em_gs_world_create(void)
         k->w = w;
         em_gs_init(&k->gs, w->mem);
         k->gs.strict = 1;
+        k->gs.tc_off = tc_off;
         k->gs.band_index = i;
         k->gs.band_shift = BAND_SHIFT;
     }
@@ -419,6 +444,7 @@ void em_gs_world_destroy(EmGsWorld *w)
     }
     if (w->tc_file) fclose(w->tc_file);
     if (w->zc_file) fclose(w->zc_file);
+    if (w->tcc_file) fclose(w->tcc_file);
     free(w->pool);
     free(w->mem);
     free(w->field);
@@ -467,6 +493,7 @@ int em_gs_world_memory_load(EmGsWorld *w, const char *path)
             break;
         }
         memcpy(w->mem + (size_t)first * 256u, data + at, (size_t)count * 256u);
+        workers_memory_written(w, first, count);
         memset(w->resident + first, 1, count);
         at += (size_t)count * 256u;
     }
@@ -488,6 +515,7 @@ int em_gs_world_memory_restore(EmGsWorld *w, const uint8_t *mem, const uint8_t *
     if (w->recording) return fail(w, "memory restored inside a recorded world frame", 0);
     if (em_gs_world_wait(w) < 0) return -1;
     memcpy(w->mem, mem, EM_GS_MEM_BYTES);
+    workers_memory_written(w, 0, BLOCKS);
     for (uint32_t b = 0; b < BLOCKS; ++b) {
         w->resident[b] = resident[b] ? 1 : 0;
         w->drawn[b] = resident[b] ? 0 : 1;
@@ -594,6 +622,7 @@ int em_gs_world_upload_chain(EmGsWorld *w, const uint8_t *buf, size_t size)
     const size_t used = em_gs_gif(&up, gif, gn);
     em_gs_release(&up);
     free(gif);
+    workers_memory_written(w, 0, BLOCKS);    /* (before a refusal too: memory may have changed) */
     if (used != gn || up.refusals) return fail(w, "the model refused an upload", up.refusals);
     /* textures read earlier may have changed: check them again */
     checked_reset(w);
@@ -1256,6 +1285,24 @@ int em_gs_world_wait(EmGsWorld *w)
         fprintf(w->zc_file, " %llu\n", (unsigned long long)w->stats.pixels);
     }
     w->zc_frames++;
+    if (w->tcc_file) {
+        uint64_t sum[11] = {0}, bytes = 0;
+        for (uint32_t i = 0; i < w->workers; ++i) {
+            const EmGs *g = &w->worker[i].gs;
+            const uint64_t v[11] = { g->tcs.binds, g->tcs.uncached, g->tcs.uncached_written, g->tcs.created,
+                                     g->tcs.renewed, g->tcs.evicted, g->tcs.resets, g->tcs.rows, g->tcs.texels,
+                                     g->tcs.samples, g->tcs.samples_bil };
+            for (int k = 0; k < 11; ++k) sum[k] += v[k];
+            if (g->tcs.bytes > bytes) bytes = g->tcs.bytes;
+        }
+        fprintf(w->tcc_file, "%llu", (unsigned long long)w->tcc_frames);
+        for (int k = 0; k < 11; ++k) {
+            fprintf(w->tcc_file, " %llu", (unsigned long long)(sum[k] - w->tcc_prev[k]));
+            w->tcc_prev[k] = sum[k];
+        }
+        fprintf(w->tcc_file, " %llu\n", (unsigned long long)bytes);
+    }
+    w->tcc_frames++;
     w->stats.runs++;
     return 0;
 }
