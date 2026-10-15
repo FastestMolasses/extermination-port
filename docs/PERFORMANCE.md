@@ -44,7 +44,9 @@ On the iPhone Air the port got only 3 drawing threads, and every tick measured t
 
 **After M1 (Progress P11, 2026-10-12).** The separable swizzle tables make the GS frame 15.7 % cheaper on one worker (about 28.5 ns a pixel). At the default worker count the Mac now runs AREA01 at 98.8-99.8 % speed (the fire peak's busiest worker 16.5 -> 13.8-13.9 ms) and AREA11 at full speed with 0-1 ticks over. The 3-worker iPhone proxy runs at 97-99 % in the AREA11 cinematic and calm, 77-89 % in the slide and 65-79 % in AREA01. M2-M4 remain.
 
-**After the early Z test and the decoded texture cache (Progress P12, P13, 2026-10-12 / 2026-10-15).** The GS frame on one worker is now 28.5-28.7 ms of CPU in the AREA11 cinematic (41.7-42.1 before P12) and 43.5-43.8 ms at the AREA01 fire peak, about 26.9 ns a drawn pixel. At the default worker count every measured range runs at full speed with no tick over; in AREA01 the game thread (about 10 ms) now sets the tick. The 3-worker iPhone proxy runs AREA11 at full speed (0-1 of 1,310 cinematic ticks over) and AREA01 at 93.1-98.6 % speed. M2 (rest) and M4 remain.
+**After the early Z test and the decoded texture cache (Progress P12, P13, 2026-10-12 / 2026-10-15).** The GS frame on one worker is now 28.5-28.7 ms of CPU in the AREA11 cinematic (41.7-42.1 before P12) and 43.5-43.8 ms at the AREA01 fire peak, about 26.9 ns a drawn pixel. At the default worker count every measured range runs at full speed with no tick over; in AREA01 the game thread (about 10 ms) now sets the tick. The 3-worker iPhone proxy runs AREA11 at full speed (0-1 of 1,310 cinematic ticks over) and AREA01 at 93.1-98.6 % speed.
+
+**After the specialized span loops (Progress P14, 2026-10-15).** 85-87 % of the drawn pixels now go through 18 dedicated loops (the depth-of-field pass, the snow and fire sprites, the textured triangles, gsw_alpha_clear's strip), the same bytes. The pixel cost is 15.9 ns (26.8 before, -41 %); the GS frame on one worker takes 17.6 ms of CPU in the AREA11 cinematic and 25.2 ms at the AREA01 fire peak. At the default 6 workers the busiest worker is 5.7-6.1 ms in AREA11 and 6.0-7.0 ms in AREA01, where the game thread (about 10 ms) sets the tick. The 3-worker iPhone proxy now runs every measured range at full speed with no tick over (busiest worker 7.8-8.3 ms in AREA11, 8.8-10.6 ms in AREA01). M4 and L1 remain.
 
 ## 2. Where the time goes, scene by scene
 
@@ -214,6 +216,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - *Effort:* 1-2 weeks. *Risk:* medium.
 - *Proof:* the GS proof set, plus a new differential dev check (generic against specialized) with EM_TEST_FULL=1.
 - *Part done (Progress P12):* the early Z test. plot() tests Z and DATE before the texture sample, and the triangle loop computes a pixel's other attributes only after it passed; the same bytes. 32-49 % of the samples are no longer taken; the GS frame on one worker 17-28 % cheaper, the busiest of 6 workers 1.6-2.4 ms lower.
+- *Done (Progress P14):* 18 loops (textured sprites, textured triangles, untextured triangles; Z off, GEQUAL or GREATER; blend on or off) for CT32 frames with Z32 / Z24 and bilinear decoded textures, which take 85-87 % of the first level's pixels; the generic path for the rest, unchanged. The same bytes (the proof set, a live check of 1.12 billion primitives on the route against the generic path with EM_GS_SPEC_CHECK=1, a 241,116-primitive HEAD-against-M2 differential with twelve negative controls caught). The census's ns per drawn pixel 26.8 -> 15.9 (-41 %, 1.69x); the GS frame on one worker 38-43 % cheaper; the busiest of 6 workers 1.9-3.5 ms lower; at 3 workers AREA01 runs at full speed. The textured triangles' exact per-pixel coordinate arithmetic is now the largest cost.
 
 **M3. Decoded texture cache.**
 - *Change:* keep a linear 32-bit copy, palette applied, per (TEX0, CLUT, CLAMP). Invalidate it on upload, on CLUT load and on draws onto its blocks; the depth-of-field render-to-texture case invalidates at the barriers.
@@ -269,6 +272,7 @@ Run the proof set with EM_TEST_FULL=1 for each item.
 - **After M1** (Progress P11, the same proxy): busiest worker cinematic 16.1-16.2 ms (97 % speed, 568-582 of 1,310 ticks over), calm 99 %, slide 17.5-17.9 ms (77-89 %), AREA01 beat 20.4 ms (79 %), fire 21.7-21.8 ms (74-75 %), fire peak 24.6-24.7 ms (65-67 %).
 - **After the early Z test** (Progress P12, the same proxy): busiest worker cinematic 13.1-13.2 ms (99.9-100 % speed, 30-40 of 1,310 ticks over), calm 12.3-12.4 ms and slide 13.3 ms (100 %, none over), AREA01 beat 15.6 ms (93.4-93.7 %), fire 17.5-17.6 ms (89.1-89.3 %), fire peak 20.5-20.6 ms (79.6-79.8 %).
 - **After the decoded texture cache** (Progress P13, the same proxy): busiest worker cinematic 11.9 ms (0-1 of 1,310 ticks over), calm 11.5 ms and slide 11.8-11.9 ms (none over), AREA01 beat 13.7 ms (98.6 %, 84 of 781 over), fire 15.0 ms (97.1-97.2 %), fire peak 17.2 ms (93.1 %, 81 of 149 over). Each worker holds up to 10.2 MiB of decoded texels on the route to a01_00, so 4 workers on the phone add about 41 MiB.
+- **After the specialized span loops** (Progress P14, the same proxy): busiest worker cinematic 8.1-8.3 ms, calm 8.0-8.2 ms, slide 7.8-7.9 ms, AREA01 beat 8.8-8.9 ms, fire 9.4 ms, fire peak 10.6 ms; no tick over in any range (100 % speed; the same day's HEAD ran AREA01 at 92.8-98.6 %).
 - **Per-core speed.** A19 Pro P-cores are faster per core than the M1 Pro's (IOS.md world steps p50 6.99 vs 7.52 ms, before the GS frame), but the E-cores are much slower. On balance the device is probably worse than these numbers; not measured on it.
 - **Stale doc.** IOS.md "Frame time" (2026-10-04, 7.6 ms headroom) predates the GS frame on main (2026-10-08) and the depth-of-field pass (2026-10-10).
 - **Thermals.** The Air is a thin phone. Sustained all-core load will throttle; not measured.
@@ -306,7 +310,7 @@ None is needed on the Mac. They are stop-gaps for the phone only.
 
 ## Progress
 
-Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/; runs/sum_*, summary/; runs/m1*, m1/; runs/zt_*, runs/zc_*, zt/; runs/m3_*, runs/m3c_*, runs/m3p_*, m3/).
+Each step of section 4's plan, with its measured before / after. Receipts: build/perf_investigation/ (runs/fpc_*, fpcontract/; runs/pres_*, present/; runs/q5_*, runs/q5w_*, qos/; runs/q1_*, q1/; runs/q2_*, q2/; runs/q3_*, q3/; runs/q4_*, runs/q4r2_*, runs/q4c_*, q4/; runs/q7_*, runs/q7c_*, runs/q7k_*, q7/; runs/q6_*, runs/q6r2_*, q6/; runs/sum_*, summary/; runs/m1*, m1/; runs/zt_*, runs/zc_*, zt/; runs/m3_*, runs/m3c_*, runs/m3p_*, m3/; runs/m2_*, runs/m2c_*, runs/m2s_*, m2/).
 
 ### P1. Floating-point contraction pinned off (2026-10-11)
 
@@ -1285,6 +1289,126 @@ Three workers (EM_GS_THREADS=3, the iPhone proxy). Each cell: busiest worker / t
 - *The Mac* runs every range at full speed with no tick over, with 6.1 ms of the period to spare at the AREA01 fire peak (tick 10.5 ms). The game thread is now AREA01's critical path.
 - *The iPhone proxy* (3 workers, M1 performance cores) runs AREA11 at full speed (0-1 of the cinematic's 1,310 ticks over) and AREA01 at 93.1-98.6 % (busiest worker 13.7-17.2 ms; 81-84 ticks over in each AREA01 range). Not measured on the device, where the efficiency cores make it worse (section 5). Each worker's copies add up to 10.2 MiB of memory.
 - *What is left.* The bilinear arithmetic and the per-pixel state switches of the generic loop (M2's specialized spans), the duplicated front end and the static bands (M4), and NEON (L1).
+
+### P14. Specialized span loops (M2) (2026-10-15)
+
+**Which states** (a state census: a measurement-only build, m2/census/state_patch.py, that times each drawn primitive by every drawing state a loop could fold; one worker, the demo to counter 1780, 40.75 s of GS CPU; m2/census/state_demo1.txt, and the route to a01_00 at 6 workers for the AREA01 states, state_a01.txt). All of them draw into the PSMCT32 field with a PSMZ24 Z buffer, COLCLAMP on, no DATE, no SCANMSK, no FBA or PABE, and every texture sample is bilinear from a decoded copy (P13). Shares of the demo's GS CPU:
+- *Textured triangles* (53.8 %): T4 STQ, MODULATE or HIGHLIGHT, fog, alpha GREATER 0, Z GEQUAL (32.8 %); T8 STQ, CLAMP, Z ALWAYS with ZMSK (15.7 %); CT32 STQ, REGION_CLAMP, Z ALWAYS, with and without the additive blend (5.3 %).
+- *The depth-of-field pass* (34.8 %): the copy (UV CT32 sprites, DECAL, REGION_CLAMP, Z ALWAYS with ZMSK, no blend; 18.9 %) and the blend back (MODULATE, alpha NEVER with FB_ONLY, Z GEQUAL against the pass's plane, (Cs - Cd) As + Cd; 15.9 %).
+- *gsw_alpha_clear's strip and the drop shadow's boxes* (8.0 %): untextured flat triangles, A = Cd, B = 0, C = FIX 128, D = 0, alpha NEVER with FB_ONLY, Z GEQUAL with ZMSK (P7, "Not covered").
+- *The snow sprites* (0.5 %; on the route the snow and fire sprites take 4.9 %): T8 / T4 STQ sprites, MODULATE, alpha NEVER with RGB_ONLY, Z GEQUAL, (Cs - Cd) As + Cd or Cs * FIX + Cd, with and without fog.
+- Not taken: the DATE triangles (1.1 %), the untextured sprites (P7's fill, 0.9 %) and the lines.
+
+**What changed** (em_gs_raster.c section 9b; GS_EXACT.md 5.4).
+- *The loops.* One per kind (textured sprite, textured triangle, untextured triangle), Z mode (off or ALWAYS, GEQUAL, GREATER) and blend (on, off): 18 functions from three templates. spec_select sends a primitive to one when it is a sprite or a triangle drawn into a PSMCT32 frame without DATE or SCANMSK, with Z off or a Z32 / Z24 buffer where Z is read or written, and, when textured, bilinear from a decoded copy. Every other primitive, and every one with EM_GS_SPEC=0, draws through the generic path, whose source is unchanged: plot_dst, plot_src and fetch_rgba compile to the same instructions as HEAD's.
+- *Hoisted.* The primitive's state is read once into locals (the generic path reads it through the Draw after every store, as a byte store may alias it). The frame's and the Z buffer's row in the address tables (P11) is looked up once a row. A sprite's texel columns and bilinear weights are computed once a column (its U depends on x alone, P6) and its two texel rows once a row, at the row's first pixel that passes the Z test, as sample() decodes them (P13). The decoded copy's storage is read once a primitive; only a row's flag is read again.
+- *Inlined.* plot()'s tests and arithmetic, sample(), the copy's read and the wrap run inline in each loop, in plot()'s order: the Z test, the frame read, the sample, the texture function, fog, the alpha test, the blend, the clamp, FBA and FBMSK, the frame word before the Z word. The counters (EmGs.pix, drawn pixels) are plot()'s.
+- *Two choices made per primitive.* The texture function's four TFX cases are one expression (DECAL as a multiply by 2^14 and a shift by 14, which gives the texel exactly), and what a pixel that fails the alpha test writes (AFAIL) is chosen once.
+- *One rewrite.* The bilinear step a + (((b - a) * f) >> 4) is computed as (a * (16 - f) + b * f) >> 4. Both are floor((16 a + (b - a) f) / 16): 16 a is a multiple of 16, so it moves inside the floor exactly, and the sum is never negative. The four 8-bit channels then share one 64-bit multiply in 16-bit lanes; each lane is at most 255 * 16, so none carries into the next.
+- *Not changed:* every coordinate and attribute expression (draw_sprite's and draw_triangle's, copied as written; -ffp-contract=off, P1), the spans, the decoded copies, sprite_fill (P7) and the generic path.
+- *Developer switches* (STARTUP.md "Developer switches"): EM_GS_SPEC=0 (every primitive through the generic path), EM_GS_SPEC_CHECK=1 (each primitive a loop takes is drawn by the generic path first, its frame and Z words put back, then drawn by the loop, and the words and counters compared; a difference aborts) and EM_GS_SPEC_COUNTERS=<file> (the loops' primitives and pixels per frame). The counts are always kept (EmGs.spc).
+
+**Same bytes.**
+- *The GS proof set* (EM_TEST_FULL=1, 2026-10-15, on these exact sources; receipts in build/perf_investigation/m2/proof/, src_md5.txt). Each log gives P13's results (m3/proof/) apart from timings and paths:
+  - the raster reference: 931 / 1158 bit-exact, 0 failures, its log line for line equal to P13's;
+  - gs_world_test: PASS at 1, 2, 3 and 8 workers and the host default (6), with the DOF pass, the cache off and the upload between frames, and now the loops off (EM_GS_SPEC=0, 1 and 8 workers) and the loops checked against the generic path (EM_GS_SPEC_CHECK=1, 1 and 3 workers: 92 primitives of all three loops a run);
+  - the DOF pass: 8 captures bit-exact;
+  - fog, GS memory and gs_display_test: PASS;
+  - the texture reference: 11,129 decodes equal;
+  - `make test-gs-swizzle`: 2,153,286,588 addresses, 0 differ;
+  - the fb2 harness: 8 of 19 points, every exact-pixel line equal to P13's (15_level_exit's presented frame 113,002, the display's backing scale as at P13);
+  - the AREA01 smoke: 20 live phases, its PASS line equal to P13's;
+  - the full level smoke: the same 404 PASS lines as P13, no failures (60 minutes).
+- *The live check* (m2/selfcheck.sh, EM_GS_SPEC_CHECK=1 on the M2 binary): the demo to counter 4650 at 6 workers (260.0 million primitives checked, summed over the workers) and at 3 (129.1 million), and the route to a01_00 at 6 workers (1,117.2 million; its 21 live phases passed): 0 differences. On the route the loops drew 12.44 of the 14.35 billion pixels (86.7 %; 14,354,985,111 drawn, the count of P12's two orders), on the demo 85.1 %.
+- *A random differential* (m2/sweep/sweep.c, from P13's; built against HEAD's em_gs_raster.c, m2/head_src, and against this step's; m2/sweep/build.sh):
+  - 1,500 seeded batches with every state P13's sweep randomizes (formats, pages, widths, the tests, blend, fog, dither, SCANMSK, COLCLAMP, UV and STQ, the wrap modes, the scissor, transfers, CLUT changes, render to texture, pokes), biased to the loops' states: CT32 frames 7 in 8, Z24 / Z32 3 in 4, DATE 1 in 20, SCANMSK 1 in 16, bilinear 3 in 4, blend 1 in 2 with every A, B, C, D and FIX, fog 1 in 3, AREF near 0, 64, 128 and 192 half the time.
+  - Each batch is drawn by one EmGs and by 3 and 8 row-band EmGs in lockstep. All 4,500 lines (the hash of the 4 MiB local memory, the drawn and refused counts) are equal between HEAD and M2, and equal again with the check on (sweep_m2chk) and with the loops off (sweep_m2off): 241,116 primitives and 134.4 million pixels at one band. Over all bands the loops took 829,824 primitives and drew 127.2 of the 403.2 million pixels; every loop and every value of the state they read occurred (m2/sweep/cov.err).
+  - Twelve negative controls (m2/sweep/neg/), each a plausible mistake in the loops, are caught both by the differential (lines of 300 that differ in a 100-batch run) and by the check, which aborts on each: the bilinear step rounded 222; GEQUAL taken as GREATER 70; the Z24 read not masked 267; the Z24 write without its top byte 267; FBMSK ignored 90; RGB_ONLY writing the alpha 120; PABE ignored 81; DATE accepted by the loops 87; REGION_CLAMP taken as REGION_REPEAT 165; the triangle's fog lane one lane off 147; a sprite's V not advanced over the rows above the scissor 48; HIGHLIGHT's alpha without the vertex alpha 93.
+- *The bilinear rewrite* (m2/bilerp/bilerp_check.c): equal to sample()'s step for every a, b in 0..255 and weight 0..15 (1,048,576 cases), and sp_bilinear equal to sample()'s loop on 204.2 million texel quadruples (every value of one channel against random others, and random ones).
+- *The DOF captures.* The offline bench checks that all 4 MiB of local memory are equal between HEAD and this step after the pass in each of the 8 captures, at 1, 3 and 8 bands.
+
+**Census per class** (m2/cen: HEAD's and this step's raster with P13's timing patch, adapted to M2's dispatch, m2/cen/patch.py; one worker, the demo to counter 1780; runs m2c_head_b, m2c_head_c, m2c_m2_b, m2c_m2_c, at 76.2-80.5 % idle). Seconds and ns per drawn pixel, HEAD -> M2:
+
+| Class | HEAD | M2 | Change |
+|---|---|---|---|
+| T4 triangles, bilinear, Z GEQUAL | 13.19-13.50 s, 49.2-49.6 ns | 9.70-9.75 s, 36.1 ns | -27 % |
+| CT32 sprites, bilinear, Z ALWAYS (the DOF copy) | 7.59-7.81 s, 18.9-19.1 ns | 3.02-3.04 s, 7.5 ns | -61 % |
+| CT32 sprites, bilinear, blended, Z GEQUAL (the DOF blend) | 6.36-6.50 s, 34.6-35.3 ns | 2.93-2.94 s, 16.0 ns | -54 % |
+| T8 triangles, bilinear, Z ALWAYS | 6.38-6.53 s, 39.6-39.8 ns | 4.20-4.22 s, 25.9 ns | -35 % |
+| Untextured triangles, blended, Z GEQUAL (gsw_alpha_clear) | 3.19-3.29 s, 16.0-16.2 ns | 1.49-1.50 s, 7.4 ns | -54 % |
+| CT32 triangles, bilinear, Z ALWAYS (two classes) | 2.15-2.16 s | 1.50-1.51 s | -30 % |
+| T8 / T4 sprites, bilinear, blended (the snow) | 0.26-0.28 s, 23.8-26.7 ns | 0.15 s, 13.1-15.4 ns | -43 % |
+| The generic path's classes (DATE triangles, P7's fills, lines) | 0.80-0.84 s | 0.81-0.82 s | 0 |
+| All | 40.13 / 41.08 s, 26.7-26.9 ns | 23.95 / 24.06 s, 15.9 ns | -41 % |
+
+The classes left on the generic path are unchanged, so P7's hazard (an edit that slows every class) did not occur. HEAD a (m2c_head_a, started at a 1-minute load of 40) gave 27.99 ns and the disturbed M2 a (52.7 % idle) 16.29 ns; neither is used. A first version of the loops (the texture function and the alpha test as plot_src's switches) drew the DOF blend at 13.4-13.7 ns and the copy at 7.3-7.4 ns but the T8 triangles at 28.6-28.7 ns (m2c_pre_m2, m2c_pre_m2b, measured at 70.7-73.2 % idle); the final form is faster over the whole frame (24.0 against 24.2-24.3 s).
+
+**Offline** (m2/bench/bench.py; the DOF pass of each fork capture through dof_replay, one EmGs, strict; both libraries built from source and alternated, best of 30; m2/bench/bench2.txt, at 74 % idle): 2.97-4.89 ms per pass, against HEAD's 7.22-11.10 ms. All 8 captures 74.4 -> 32.0 ms (-57.0 %).
+
+**Live** (m2/batch.sh at 02:27-03:13 on 2026-10-15 for AREA11 and a first AREA01 pass, m2/rerun.sh at 04:50-06:28 for AREA01 again, the census, the offline bench and the counters, m2/rerun2.sh at 06:29 for the census's M2 run; headless, uncapped; each group HEAD, M2, M2, HEAD; binaries m2/head_extermination, HEAD e33e1bf from git archive, and m2/m2_extermination, a copy of build/extermination, both built with the Makefile's command, 0 warnings). The quiet gate (quiet.sh, 70 % idle) held before every kept run: idle 70.0-80.5 %, 1-minute load 3.8-15.5. Mean ms per tick.
+
+Excluded and re-run (another session's simulator and package tests, and a Spotlight re-index, loaded the machine in bursts from about 02:45):
+- Started below the gate: m2_a01_m2_a (idle 17.5 %), m2_a01_m2_b (3.8 %), m2_a013_m2_a (51.8 %), m2_a01_head_c (46.9 %), m2c_m2_a (52.7 %).
+- Passed the gate but ran into a burst: m2_a01_head_b (33 ticks over; busiest 9.05 / 9.48 / 11.33 ms) and m2_a013_head_b (501 ticks over, 87.9 % speed).
+- The AREA01 runs at 6 and 3 workers were made again (m2/rerun.sh, each run after m2/gate.sh: three readings in a row at 70 % idle or more), the census's M2 run too (m2/rerun2.sh). The first pass's undisturbed AREA01 HEAD runs agree with the second's (6 workers m2_a01_head_a: 9.00 / 9.79 / 10.45 ms; 3 workers m2_a013_head_a: 13.79 / 15.03 / 17.29) and m2_a01_head_a is used below for the pair at 6 workers.
+- m2/batch.sh was stopped before its one-worker AREA01 group, which m2/rerun.sh ran.
+
+One worker (EM_GS_THREADS=1), the GS frame's CPU per frame:
+
+| Range | HEAD a / b | M2 a / b | Change |
+|---|---|---|---|
+| AREA11 cinematic (1,310) | 28.95 / 29.46 | 17.63 / 17.58 | -11.6 ms (-39.7 %) |
+| AREA11 calm (85) | 26.44 / 27.27 | 16.36 / 16.79 | -10.3 ms (-38.3 %) |
+| AREA11 slide | 28.19 (101) / 28.49 (99) | 17.10 (121) / 17.94 (121) | -10.8 ms (-38.2 %) |
+| AREA01 beat (781) | 33.98 / 34.34 | 19.71 / 19.75 | -14.4 ms (-42.2 %) |
+| AREA01 fire (376) | 37.94 / 37.65 | 21.68 / 21.72 | -16.1 ms (-42.5 %) |
+| AREA01 fire peak (149) | 44.54 / 44.10 | 25.14 / 25.20 | -19.2 ms (-43.2 %) |
+
+The slide's runs stop at different ticks (the demo's stop is polled once a second); the counts are in brackets.
+
+Default 6 workers. Each cell: busiest worker / tick wall / ticks over:
+
+| Range | HEAD a, b | M2 a, b | Busiest worker |
+|---|---|---|---|
+| AREA11 cinematic (1,310) | 7.86, 7.92 / 9.11, 8.96 / 9, 0 | 5.77, 5.74 / 6.88, 6.82 / 0, 0 | -2.1 ms |
+| AREA11 calm (85) | 8.51, 7.71 / 11.59, 8.74 / 0, 0 | 5.80, 6.14 / 6.80, 7.56 / 0, 0 | -2.1 ms |
+| AREA11 slide (121) | 8.21, 7.44 / 11.10, 8.12 / 0, 0 | 5.91, 5.86 / 7.32, 7.45 / 0, 0 | -1.9 ms |
+
+| Range | HEAD a, d | M2 c, d | Busiest worker |
+|---|---|---|---|
+| AREA01 beat (781) | 9.00, 8.56 / 11.92, 10.93 / 3, 1 | 5.98, 6.02 / 10.49, 10.53 / 0, 0 | -2.8 ms |
+| AREA01 fire (376) | 9.79, 9.22 / 12.49, 11.17 / 3, 1 | 6.23, 6.31 / 10.37, 10.48 / 0, 0 | -3.2 ms |
+| AREA01 fire peak (149) | 10.45, 10.31 / 11.78, 11.51 / 0, 1 | 6.79, 7.00 / 9.97, 10.28 / 0, 0 | -3.5 ms |
+
+Every range ran at 99.9-100 % speed in both builds. The game thread is unchanged (AREA11 6.0-6.6 ms, AREA01 9.9-10.7 ms). HEAD a's calm and slide took 2.9-3.1 ms more wall time a tick than their busiest worker's CPU (HEAD b 0.7-1.0 ms), so its workers were off-core for part of those ticks; its busiest-worker figures are kept. In AREA01 the tick (10.0-10.5 ms in M2) is the game thread's: the busiest worker is 3.2-4.5 ms under it.
+
+Three workers (EM_GS_THREADS=3, the iPhone proxy). Each cell: busiest worker / ticks over / speed:
+
+| Range | HEAD a, b | M2 a, b |
+|---|---|---|
+| AREA11 cinematic | 12.11, 12.10 / 3, 3 / 100, 100 % | 8.14, 8.25 / 0, 0 / 100, 100 % |
+| AREA11 calm | 11.65, 11.86 / 0, 0 / 100, 100 % | 8.15, 8.02 / 0, 0 / 100, 100 % |
+| AREA11 slide | 12.21, 12.15 / 0, 0 / 100, 100 % | 7.93 (111), 7.83 (121) / 0, 0 / 100, 100 % |
+
+| Range | HEAD c, d | M2 c, d |
+|---|---|---|
+| AREA01 beat | 13.75, 13.91 / 87, 103 / 98.6, 98.2 % | 8.83, 8.85 / 0, 0 / 100, 100 % |
+| AREA01 fire | 15.02, 15.06 / 86, 84 / 97.1, 97.0 % | 9.40, 9.44 / 0, 0 / 100, 100 % |
+| AREA01 fire peak | 17.21, 17.22 / 85, 80 / 92.9, 92.8 % | 10.59, 10.61 / 0, 0 / 100, 100 % |
+
+**The loops' share** (EM_GS_SPEC_COUNTERS; m2/spc_demo.txt, spc_demo3.txt, spc_a01.txt; deterministic, the same in every run). Of the pixels drawn, summed over the workers:
+- the demo to counter 4650 (6 workers): 85.1 % through the loops (textured sprites 1,435M, textured triangles 1,159M, untextured triangles 511M of 3,651M); at 3 workers 85.0 %;
+- the route to a01_00 (6 workers): 86.7 % (5,842M, 4,109M and 2,490M of 14,355M).
+
+The rest are P7's fills (the field's Z clear, the full clears, the colour fills), the DATE triangles and the lines.
+
+**Reading.**
+- *Exactness.* Only how the work is arranged changed; the loops run the generic path's rules in its order, and the proofs above (the proof set, the live check over the demo and the route, the differential with its twelve controls) are the evidence, not the label. With EM_GS_SPEC=0 the path is HEAD's.
+- *Gain.* The census's pixel cost fell 26.8 -> 15.9 ns (-41 %), within the plan's estimate of 1.5-2x on the remaining pixel path (1.69x). The GS frame on one worker is 38-40 % cheaper in AREA11 (cinematic 29.2 -> 17.6 ms) and 42-43 % in AREA01 (fire peak 44.3 -> 25.2 ms). The DOF pass is 2.3 times cheaper (offline -57 %), the world's textured triangles 1.4-1.5 times (their per-pixel coordinate arithmetic, two double and two single divisions, is the exact model's and stays).
+- *The Mac* (6 workers): the busiest worker fell 1.9-2.1 ms in AREA11 (cinematic 7.9 -> 5.8 ms) and 2.8-3.5 ms in AREA01 (fire peak 10.4 -> 6.9 ms). Every range ran at full speed in both builds; the game thread (6 ms in AREA11, 10 ms in AREA01) now sets AREA01's tick with 3-4 ms to spare on the workers.
+- *The iPhone proxy* (3 workers, M1 performance cores): the busiest worker fell 3.7-4.3 ms in AREA11 (7.8-8.3 ms) and 5.0-6.6 ms in AREA01 (8.8-10.6 ms). AREA01 now runs at full speed (no tick over in any range; HEAD 92.8-98.6 % with 80-103 ticks over), and the GS frame fits the period with 6 ms to spare at the fire peak. Not measured on the device, where the efficiency cores make it worse (section 5).
+- *What is left.* The textured triangles' exact coordinate arithmetic (STQ: barycentric weights, binary32 sums and two quotients per pixel), now the largest cost (55 % of the census's GS CPU before, DATE ones included, and 66 % after); the duplicated front end and the static bands (M4); NEON (L1). The DOF sprites would gain about 0.1-2.6 ns a pixel from the first version's pixel stage (plot_src's switches, measured above) while the triangles keep the final one: a per-loop choice left for later.
+- *Not covered:* nothing was measured on the iPhone, and the iOS build was not re-run (plain C in files already in the project). The 18 loops make the binary 130 KiB larger (4,667,760 -> 4,800,416 bytes); the generic path is unchanged.
 
 ## Appendix: the skeptic's corrections (adversarial review, 2026-10-10)
 

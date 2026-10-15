@@ -846,6 +846,54 @@ point cases, all exact:
   RGB_ONLY). The bytes are those of the previous order (the GS proof set
   and a random differential with the texture aliasing the frame and Z).
 
+### 5.4 Specialized span loops (how the model draws its common states; no rule of its own)
+
+Most of the first level's pixels are drawn in a few states, and the model
+draws those through dedicated loops (em_gs_raster.c section 9b;
+PERFORMANCE.md "Progress" P14). A loop defines no rule of its own: it runs
+the rules of 3.1-3.4, 4.2-4.8 and 5.1-5.3 as `plot_dst`, `plot_src` and
+`sample` run them, in their order, with the primitive's state read once.
+- **Which primitives.** Sprites and triangles drawn into a PSMCT32 frame
+  without DATE or SCANMSK, with Z off or ZTST ALWAYS, GEQUAL or GREATER on a
+  PSMZ32 / PSMZ24 buffer (where Z is read or written); textured ones only
+  bilinear and from a decoded copy (4.8); untextured sprites stay with the
+  trivial-state fill (PERFORMANCE.md P7) and `plot`. In the first level
+  these are the depth-of-field pass's copy and blend sprites, the snow and
+  fire sprites, the world's textured triangles and gsw_alpha_clear's strip
+  (section 9). One loop per kind (textured sprite, textured triangle,
+  untextured triangle), Z mode (none, GEQUAL, GREATER) and blend (on or
+  off); every other state draws through the generic path, unchanged.
+- **What changes.** Only how the work is arranged: the frame's and Z
+  buffer's row in the address tables (2.0) is looked up once a row; a
+  sprite's texel columns and bilinear weights once a column (its U depends
+  on x alone, PERFORMANCE.md P6) and its two texel rows once a row (decoded
+  at the row's first pixel that passes the Z test, as `sample` decodes
+  them); the texture function's four TFX cases are one expression (DECAL as
+  a multiply by 2^14, exact), and the alpha test's AFAIL outcome is chosen
+  per primitive. The bilinear step a + ((b − a) f >> 4) is computed as
+  (a (16 − f) + b f) >> 4: 16a is a multiple of 16, so both are floor((16a
+  + (b − a) f) / 16), and the four 8-bit channels then share one 64-bit
+  multiply in 16-bit lanes (each lane at most 255 * 16, no carry between
+  lanes). Coordinates and attributes are draw_sprite's and draw_triangle's
+  expressions as written (-ffp-contract=off).
+- **Developer switches.** EM_GS_SPEC=0 draws everything through the generic
+  path; EM_GS_SPEC_CHECK=1 draws each primitive a loop takes by the generic
+  path first, puts its frame and Z words back, draws it by the loop and
+  compares the words and the counters (a difference aborts);
+  EM_GS_SPEC_COUNTERS=<file> counts the loops' primitives and pixels per
+  frame (STARTUP.md "Developer switches").
+- **Evidence** (P14): the GS proof set gives the previous step's results; a
+  HEAD-against-M2 random differential (241,116 primitives, every state the
+  loops read in every combination, 1, 3 and 8 bands) leaves equal local
+  memory, also with the check on, and twelve broken variants of the loops
+  are caught both by the differential and by the check; the check on the
+  live route found no difference: the demo to counter 4650 at 6 and 3
+  workers and the route to a01_00 (1.12 billion primitives over its 6
+  workers, 86.7 % of its pixels drawn by the loops); the bilinear
+  rewrite equals `sample`'s step for every channel value and weight
+  (1,048,576 cases) and for 204 million random texel quadruples;
+  tests/gs_world_test.c compares the loops off with on and runs the check.
+
 ## 6. Strict mode and refusals
 
 `EmGs.strict = 1` refuses every primitive that needs a feature no capture
@@ -2035,6 +2083,26 @@ with EM_GPU_RENDERER=1 for comparison (2026-10-03, after the review fix):
   93.1-98.6 % (79.2-93.3 % before). Each worker holds at most 10.2 MiB of
   decoded texels in the first level.
 
+- **The specialized span loops (2026-10-15, PERFORMANCE.md "Progress"
+  P14).** The states that draw 85-87 % of the first level's pixels (the
+  depth-of-field pass, the snow and fire sprites, the textured triangles,
+  gsw_alpha_clear's strip) go through dedicated loops (section 5.4). The
+  bytes are the same: the GS proof set gives P13's results; a live check
+  (EM_GS_SPEC_CHECK=1: every primitive a loop took drawn by the generic path
+  too and compared) found no difference over the demo at 6 and 3 workers
+  and the route to a01_00 (1.12 billion primitives there); a
+  241,116-primitive random differential (1, 3 and 8 bands) leaves equal
+  local memory, with twelve negative controls caught. The census's pixel
+  cost fell 26.8 -> 15.9 ns (-41 %); offline the DOF pass is 57 % cheaper
+  (74.4 -> 32.0 ms). With one worker the GS frame takes 17.6 instead of
+  29.2 ms of CPU in the cinematic and 25.2 instead of 44.3 at the AREA01
+  fire peak. At the default 6 workers the busiest worker fell 1.9-2.1 ms in
+  AREA11 (cinematic 7.9 -> 5.8 ms) and 2.8-3.5 ms in AREA01 (fire peak
+  10.4 -> 6.9 ms); no tick ran over, and AREA01's tick stays the game
+  thread's. With 3 workers (the iPhone proxy, not the device) every
+  measured range runs at full speed with no tick over (AREA01 92.8-98.6 %
+  before).
+
 The first GSFRAME measurement (under the other tracks' load, 44 to 57)
 gave a tick wall time of 14.32 to 23.28 ms on average over the in-level
 ticks with the workers short of cores; the main thread's CPU per in-level
@@ -2238,7 +2306,9 @@ was compared with real hardware.
 - `tests/gs_world_test.c` (`make test-gs-world`): the workers draw what one
   worker draws (thread sanitizer), the depth-of-field pass included, also
   with every block of local memory uploaded, and past the recorder's
-  texture table's end (1,100 texture keys).
+  texture table's end (1,100 texture keys); the decoded texture cache off
+  against on, an upload between frames, and the specialized span loops off
+  against on and checked against the generic path (5.4).
 - `tools/test_dof_pass_reference.py` with `tests/dof_pass_reference_bridge.c`
   (`make test-dof-pass-reference`): 001DDE10's depth-of-field pass against
   the original's captured GS memory (section 7).

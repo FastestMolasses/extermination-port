@@ -2470,6 +2470,605 @@ static void draw_triangle(EmGs *gs, const Draw *d, const EmGsVertex *v0, const E
 }
 
 /* ------------------------------------------------------------------------
+ * 9b. Specialized span loops (docs/PERFORMANCE.md M2; GS_EXACT.md 5.4).
+ *
+ * Most of the first level's pixels are drawn in a few states (PERFORMANCE.md
+ * P14's census): the depth-of-field pass's bilinear CT32 sprites (the copy
+ * with Z ALWAYS, and the blend over the Z plane with Z GEQUAL), the snow and
+ * fire STQ sprites (T8 / T4 through their decoded copies, blended, Z
+ * GEQUAL), the textured triangles (T4 / T8 / CT32, bilinear, Z GEQUAL or
+ * ALWAYS) and gsw_alpha_clear's blended untextured strip in state block
+ * (2,9) (section 9). The loops below draw those: they read the primitive's
+ * state once into locals, look the frame's and the Z buffer's row up once a
+ * row, a sprite's texel columns and bilinear weights once a column and its
+ * texel rows once a row, and run plot()'s tests and arithmetic inline, with
+ * the Z test's mode and whether the primitive blends fixed per loop. Every
+ * rule is plot()'s (plot_dst, plot_src, sample), in plot()'s order: the
+ * scissor (each loop's pixels lie inside it, as in draw_sprite and
+ * draw_triangle), the Z test, the frame read, the sample, the texture
+ * function, fog, the alpha test, the blend, the clamp, FBA, FBMSK, the frame
+ * word written before the Z word; the counters are plot()'s; a texel row is
+ * decoded at the row's first pixel that passes the Z test, as sample()
+ * decodes it; the coordinates and attributes are draw_sprite's and
+ * draw_triangle's expressions, unchanged (-ffp-contract=off, P1). Two
+ * rewrites are used. The texture function's four TFX cases are one
+ * expression (SpK, below). The bilinear step a + (((b - a) * f) >> 4) is
+ * computed as (a * (16 - f) + b * f) >> 4. Both are floor((16 a + (b - a) f) / 16):
+ * 16 a is a multiple of 16, so it moves inside the floor exactly, and the
+ * sum is a * (16 - f) + b * f, never negative. That lets the four 8-bit
+ * channels share one 64-bit multiply in 16-bit lanes (each lane at most
+ * 255 * 16, so no lane carries into the next). spec_select names the states
+ * the loops take; every other state, and every primitive with
+ * EmGs.spec_off, draws through the generic path, whose source is unchanged.
+ * EmGs.spec_check draws each primitive a loop takes both ways and compares
+ * (spec_check, section 10). */
+enum { SP_ZNONE = 0, SP_ZGE = 1, SP_ZGT = 2 };
+
+/* A texture axis's wrap (section 4.3, wrap_u / wrap_v) as two forms:
+ * REPEAT and REGION_REPEAT as (u & a) | b, CLAMP and REGION_CLAMP as
+ * clampi(u, a, b). */
+typedef struct { int clamp, a, b; } SpWrap;
+
+static SpWrap sp_wrap_of(int mode, uint32_t size_log2, int mn, int mx)
+{
+    SpWrap w;
+    switch (mode) {
+    case 0: w.clamp = 0; w.a = (1 << size_log2) - 1; w.b = 0; break;
+    case 1: w.clamp = 1; w.a = 0; w.b = (1 << size_log2) - 1; break;
+    case 2: w.clamp = 1; w.a = mn; w.b = mx; break;
+    default: w.clamp = 0; w.a = mn; w.b = mx; break;
+    }
+    return w;
+}
+static inline int sp_wrap(SpWrap w, int u) { return w.clamp ? clampi(u, w.a, w.b) : (u & w.a) | w.b; }
+
+/* sample()'s bilinear step for four texels (above): R and B in lanes 0 and 1,
+ * G and A in lanes 2 and 3 of 16 bits each. */
+static inline uint64_t sp_lanes(uint32_t t) { return (uint64_t)(t & 0x00FF00FFu) | (uint64_t)((t >> 8) & 0x00FF00FFu) << 32; }
+static inline uint32_t sp_bilinear(uint32_t t00, uint32_t t10, uint32_t t01, uint32_t t11, int fu, int fv)
+{
+    const uint64_t m = UINT64_C(0x00FF00FF00FF00FF), gu = (uint64_t)(16 - fu), hu = (uint64_t)fu;
+    const uint64_t top = ((sp_lanes(t00) * gu + sp_lanes(t10) * hu) >> 4) & m;
+    const uint64_t bot = ((sp_lanes(t01) * gu + sp_lanes(t11) * hu) >> 4) & m;
+    const uint64_t v = ((top * (uint64_t)(16 - fv) + bot * (uint64_t)fv) >> 4) & m;
+    return (uint32_t)(v & 0x00FF00FFu) | (uint32_t)((v >> 32) & 0x00FF00FFu) << 8;
+}
+
+/* rd32 / wr32 on a local copy of the memory pointer */
+static inline uint32_t sp_rd32(const uint8_t *mem, uint32_t word)
+{
+    uint32_t v;
+    memcpy(&v, mem + ((word * 4u) & (EM_GS_MEM_BYTES - 1)), 4);
+    return v;
+}
+static inline void sp_wr32(uint8_t *mem, uint32_t word, uint32_t v)
+{
+    memcpy(mem + ((word * 4u) & (EM_GS_MEM_BYTES - 1)), &v, 4);
+}
+
+/* The bound decoded copy (d->tc) as locals: its storage does not move while a
+ * primitive draws (tc_decode_row fills rows in place), so only a row's flag
+ * is read again (tc_row's rule: a row is decoded on its first read). */
+typedef struct {
+    TcEntry *e;
+    uint32_t *dec;
+    const uint8_t *rowok;
+    uint32_t w;
+    int vlo, ulo;
+} SpTex;
+
+static inline void sp_tex_of(const Draw *d, SpTex *x)
+{
+    x->e = d->tc;
+    x->dec = x->e->dec;
+    x->rowok = x->e->rowok;
+    x->w = x->e->w;
+    x->vlo = x->e->vlo;
+    x->ulo = x->e->ulo;
+}
+
+static inline __attribute__((always_inline)) const uint32_t *sp_row(const EmGs *gs, const Draw *d, const SpTex *x, int v)
+{
+    const uint32_t r = (uint32_t)(v - x->vlo);
+    if (!x->rowok[r])
+        tc_decode_row(gs, d, x->e, v);
+    return x->dec + (size_t)r * x->w;
+}
+
+/* The primitive's state the pixel stage reads, as locals, with two of
+ * plot_src's per-pixel choices made per primitive:
+ *  - The texture function (section 5.1) in one form for every TFX: C =
+ *    min(255, (Ct * m >> 14) + add), m = 16384 for DECAL (Ct * 2^14 >> 14 =
+ *    Ct, exact) and the colour C7 otherwise, add = A7 >> 7 for HIGHLIGHT and
+ *    HIGHLIGHT2, else 0; with TCC the alpha is min(255, (At * m >> 14) +
+ *    add), m = A7 for MODULATE, else 16384, add = A7 >> 7 for HIGHLIGHT
+ *    only; without TCC it is A7 >> 7. These are plot_src's four cases.
+ *  - What a pixel that fails the alpha test writes (section 5.3, AFAIL):
+ *    nothing (KEEP), the frame without Z (FB_ONLY), only Z (ZB_ONLY), RGB
+ *    (RGB_ONLY): whether it writes the frame and Z, and the frame bits it
+ *    keeps. */
+typedef struct {
+    uint32_t fbmsk;
+    int zacc, zw, z24;                 /* the Z word's address needed; ZTE and ZMSK 0; PSMZ24 */
+    int tfx, tcc;
+    int fog, fc0, fc1, fc2;
+    int ate, atst, aref;
+    int f_keep_all;                    /* a failing pixel writes nothing (AFAIL KEEP) */
+    int f_wframe, f_wz;                /* ... else whether it writes the frame, the Z word */
+    uint32_t f_keep;                   /* ... and the frame bits it keeps */
+    int pabe, ba, bb, bc, bd, fix, colclamp, fba;
+} SpK;
+
+static void sp_k(const Draw *d, SpK *k)
+{
+    k->fbmsk = d->fbmsk;
+    k->zacc = d->zte && (d->ztst >= 2 || !d->zmsk);
+    k->zw = d->zte && !d->zmsk;
+    k->z24 = d->zpsm == EM_GS_PSMZ24;
+    k->tfx = (int)d->tfx;
+    k->tcc = (int)d->tcc;
+    k->fog = d->fog; k->fc0 = d->fogcol[0]; k->fc1 = d->fogcol[1]; k->fc2 = d->fogcol[2];
+    k->ate = d->ate; k->atst = d->atst; k->aref = d->aref;
+    /* plot_src's AFAIL cases: KEEP returns; FB_ONLY drops the Z write;
+     * ZB_ONLY the frame write; RGB_ONLY the alpha and the Z write */
+    const int wrgb = d->afail != 2, wa = d->afail == 1, wz = d->afail == 2 ? k->zw : 0;
+    k->f_keep_all = d->afail == 0;
+    k->f_wframe = wrgb || wa;
+    k->f_wz = wz;
+    k->f_keep = d->fbmsk | (wa ? 0u : 0xFF000000u) | (wrgb ? 0u : 0x00FFFFFFu);
+    k->pabe = d->pabe; k->ba = d->ba; k->bb = d->bb; k->bc = d->bc; k->bd = d->bd; k->fix = d->fix;
+    k->colclamp = d->colclamp; k->fba = d->fba;
+}
+
+/* plot_src for a CT32 frame and a Z32 / Z24 Z buffer: t the texel sampled
+ * (TEX), cr..ca the 8.7 colour, f the 8.7 fog weight, the frame word's
+ * address and value and the Z word's address and the pixel's Z as plot_dst
+ * gives them. 1 when the pixel is drawn (and counted). */
+static inline __attribute__((always_inline)) int sp_src(uint8_t *mem, const SpK *k, const int TEX, const int BLEND,
+                                                        uint32_t t, int cr, int cg, int cb, int ca, int f,
+                                                        uint32_t faddr, uint32_t fword, uint32_t zaddr, uint32_t zval)
+{
+    int r, g, b, a;
+    if (TEX) {
+        const int tr = (int)(t & 255), tg = (int)((t >> 8) & 255), tb = (int)((t >> 16) & 255), ta = (int)(t >> 24);
+        /* the texture function, one form for every TFX (SpK) */
+        const int af = ca >> 7, add = k->tfx >= 2 ? af : 0;
+        const int dc = k->tfx == 1;
+        const int mr = dc ? 16384 : cr, mg = dc ? 16384 : cg, mb = dc ? 16384 : cb;
+        r = ((tr * mr) >> 14) + add; g = ((tg * mg) >> 14) + add; b = ((tb * mb) >> 14) + add;
+        a = k->tcc ? ((ta * (k->tfx == 0 ? ca : 16384)) >> 14) + (k->tfx == 2 ? af : 0) : af;
+        if (r > 255) r = 255;
+        if (g > 255) g = 255;
+        if (b > 255) b = 255;
+        if (a > 255) a = 255;
+    } else {
+        r = cr >> 7; g = cg >> 7; b = cb >> 7; a = ca >> 7;
+    }
+    if (k->fog) {
+        r = k->fc0 + (((r - k->fc0) * f) >> 15);
+        g = k->fc1 + (((g - k->fc1) * f) >> 15);
+        b = k->fc2 + (((b - k->fc2) * f) >> 15);
+    }
+    /* the alpha test; a failing pixel's writes are AFAIL's (SpK) */
+    int wframe = 1, write_z = k->zw;
+    uint32_t keep = k->fbmsk;
+    if (k->ate) {
+        int pass;
+        switch (k->atst) {
+        case 0: pass = 0; break;
+        case 1: pass = 1; break;
+        case 2: pass = a < k->aref; break;
+        case 3: pass = a <= k->aref; break;
+        case 4: pass = a == k->aref; break;
+        case 5: pass = a >= k->aref; break;
+        case 6: pass = a > k->aref; break;
+        default: pass = a != k->aref; break;
+        }
+        if (!pass) {
+            if (k->f_keep_all)
+                return 0;
+            wframe = k->f_wframe;
+            write_z = k->f_wz;
+            keep = k->f_keep;
+        }
+    }
+    if (BLEND && (!k->pabe || (a & 0x80))) {
+        const int cs[3] = {r, g, b};
+        const int cd[3] = {(int)(fword & 255), (int)((fword >> 8) & 255), (int)((fword >> 16) & 255)};
+        const int da = (int)(fword >> 24);
+        int out[3];
+        const int cc = k->bc == 0 ? a : k->bc == 1 ? da : k->fix;
+        for (int i = 0; i < 3; i++) {
+            const int A = k->ba == 0 ? cs[i] : k->ba == 1 ? cd[i] : 0;
+            const int B = k->bb == 0 ? cs[i] : k->bb == 1 ? cd[i] : 0;
+            const int D = k->bd == 0 ? cs[i] : k->bd == 1 ? cd[i] : 0;
+            out[i] = (((A - B) * cc) >> 7) + D;
+        }
+        r = out[0]; g = out[1]; b = out[2];
+    }
+    if (k->colclamp) {
+        r = clampi(r, 0, 255); g = clampi(g, 0, 255); b = clampi(b, 0, 255);
+    } else {
+        r &= 255; g &= 255; b &= 255;
+    }
+    int oa = a & 255;
+    if (k->fba)
+        oa |= 0x80;
+    if (wframe) {
+        const uint32_t src = (uint32_t)r | (uint32_t)g << 8 | (uint32_t)b << 16 | (uint32_t)oa << 24;
+        sp_wr32(mem, faddr, (fword & keep) | (src & ~keep));
+    }
+    if (write_z) {
+        if (k->z24)
+            sp_wr32(mem, zaddr, (sp_rd32(mem, zaddr) & 0xFF000000u) | zval);
+        else
+            sp_wr32(mem, zaddr, zval);
+    }
+    return 1;
+}
+
+/* plot()'s counters for a loop's pixels (and EmGs.spc's) */
+static void sp_count(EmGs *gs, int tex, unsigned loop, uint64_t zfail, uint64_t samples, uint64_t drawn)
+{
+    gs->pix.zfail += zfail;
+    if (tex) {                         /* bilinear (MMAG 1) */
+        gs->pix.zfail_tex += zfail;
+        gs->pix.zfail_bil += zfail;
+        gs->pix.samples += samples;
+        gs->pix.samples_bil += samples;
+    }
+    gs->drawn_pixels += drawn;
+    gs->spc.pixels[loop] += drawn;
+}
+
+/* A textured sprite from its decoded copy, bilinear (draw_sprite). */
+static inline __attribute__((always_inline)) void sp_sprite(EmGs *gs, const Draw *d, const EmGsVertex *v0,
+                                                            const EmGsVertex *v1, const int ZM, const int BLEND)
+{
+    /* draw_sprite's rectangle, colour, Z and texel coordinates */
+    int X0 = wx(d->c, v0->x), Y0 = wy(d->c, v0->y), X1 = wx(d->c, v1->x), Y1 = wy(d->c, v1->y);
+    int xa = X0 < X1 ? X0 : X1, xb = X0 < X1 ? X1 : X0, ya = Y0 < Y1 ? Y0 : Y1, yb = Y0 < Y1 ? Y1 : Y0;
+    int px0 = (int)floordiv64(xa + 15, 16), px1 = (int)floordiv64(xb + 15, 16) - 1;
+    int py0 = (int)floordiv64(ya + 15, 16), py1 = (int)floordiv64(yb + 15, 16) - 1;
+    const int first_row = py0;
+    if (px0 < d->sx0) px0 = d->sx0;
+    if (px1 > d->sx1) px1 = d->sx1;
+    if (py0 < d->sy0) py0 = d->sy0;
+    if (py1 > d->sy1) py1 = d->sy1;
+    const int cr = v1->rgba[0] << 7, cg = v1->rgba[1] << 7, cb = v1->rgba[2] << 7, ca = v1->rgba[3] << 7;
+    const int f = (int)v1->f << 7;
+    const uint64_t z = v1->z;
+    double s0 = 0, s1 = 0, t0 = 0, t1 = 0, qq = 1;
+    if (!d->fst) {
+        qq = f32_of(v1->q);
+        s0 = f32_of(v0->s); s1 = f32_of(v1->s); t0 = f32_of(v0->t); t1 = f32_of(v1->t);
+        if (d->stq_grid && qq > 0.0 && isfinite(qq)) {
+            int E = q_exponent(qq);
+            s0 = stq_trunc_st(s0, E); s1 = stq_trunc_st(s1, E);
+            t0 = stq_trunc_st(t0, E); t1 = stq_trunc_st(t1, E);
+            qq = stq_trunc_q(qq, E);
+        }
+    }
+    float vrow = 0.0f, vstep = 0.0f;
+    const int vacc = d->fst && Y1 != Y0;
+    if (vacc) {
+        const float ft0 = uv_texels(v0->v), ft1 = uv_texels(v1->v);
+        const float fa0 = (float)Y0 * 0.0625f, fa1 = (float)Y1 * 0.0625f;
+        vstep = (ft1 - ft0) / (fa1 - fa0);
+        vrow = uv_start(ft0, fa0, vstep, first_row);
+        for (int y = first_row; y < py0; ++y)
+            vrow += vstep;
+    }
+    SpK k;
+    sp_k(d, &k);
+    /* plot_dst's Z clamped to the format (Z32 or Z24 where Z is read or written) */
+    const uint32_t zval = (uint32_t)(k.z24 ? (z > 0xFFFFFFull ? 0xFFFFFFull : z) : (z > 0xFFFFFFFFull ? 0xFFFFFFFFull : z));
+    uint8_t *const mem = gs->mem;
+    const uint32_t *const ftab = d->frow, *const fcol = d->fcol, *const ztab = d->zrow, *const zcol = d->zcol;
+    const uint32_t fbase = d->fbase, zbase = d->zbase;
+    const SpWrap wu = sp_wrap_of(d->wms, d->tw, d->minu, d->maxu), wv = sp_wrap_of(d->wmt, d->th, d->minv, d->maxv);
+    SpTex tx;
+    sp_tex_of(d, &tx);
+    const int ulo = tx.ulo;
+    /* per column (sample()'s wrapped indices into the copy's row and the weight),
+     * on the first row this band draws, as draw_sprite computes its U */
+    int32_t col_a[2048], col_b[2048];
+    uint8_t col_f[2048];
+    int ready = 0;
+    uint64_t zfail = 0, samples = 0, drawn = 0;
+    for (int y = py0; y <= py1; y++, vrow += vstep) {
+        if (!own_row(gs, y))
+            continue;
+        int64_t V16;
+        if (d->fst) {
+            V16 = vacc ? (int64_t)floorf(vrow * 16.0f) : (int64_t)v0->v;
+        } else {
+            double t = (Y1 == Y0) ? 0.0 : (double)(16 * y - Y0) / (double)(Y1 - Y0);
+            V16 = stq_div(t0 + (t1 - t0) * t, qq, (int)d->th);
+        }
+        if (!ready) {
+            for (int x = px0; x <= px1; x++) {
+                int64_t U16;
+                if (d->fst) {
+                    U16 = (X1 == X0) ? (int64_t)v0->u
+                        : (int64_t)v0->u + floordiv64(((int64_t)v1->u - (int64_t)v0->u) * (16 * x - X0), X1 - X0);
+                } else {
+                    double t = (X1 == X0) ? 0.0 : (double)(16 * x - X0) / (double)(X1 - X0);
+                    U16 = stq_div(s0 + (s1 - s0) * t, qq, (int)d->tw);
+                }
+                const int64_t Ub = U16 - 8;
+                const int iu = (int)(Ub >> 4);
+                col_a[x - px0] = sp_wrap(wu, iu) - ulo;
+                col_b[x - px0] = sp_wrap(wu, iu + 1) - ulo;
+                col_f[x - px0] = (uint8_t)(Ub & 15);
+            }
+            ready = 1;
+        }
+        const int64_t Vb = V16 - 8;
+        const int iv = (int)(Vb >> 4), fv = (int)(Vb & 15);
+        const int vw0 = sp_wrap(wv, iv), vw1 = sp_wrap(wv, iv + 1);
+        const uint32_t *r0 = NULL, *r1 = NULL;
+        const uint32_t frb = fbase + ftab[y & 2047];
+        const uint32_t zrb = k.zacc ? zbase + ztab[y & 2047] : 0;
+        for (int x = px0; x <= px1; x++) {
+            const uint32_t zaddr = k.zacc ? zrb + zcol[x & 2047] : 0;
+            if (ZM != SP_ZNONE) {
+                uint32_t zb = sp_rd32(mem, zaddr);
+                if (k.z24) zb &= 0xFFFFFF;
+                if (ZM == SP_ZGE ? zval < zb : zval <= zb) {
+                    zfail++;
+                    continue;
+                }
+            }
+            const uint32_t faddr = frb + fcol[x & 2047], fword = sp_rd32(mem, faddr);
+            if (!r0) {
+                r0 = sp_row(gs, d, &tx, vw0);
+                r1 = sp_row(gs, d, &tx, vw1);
+            }
+            const int i = x - px0, a = col_a[i], b = col_b[i];
+            const uint32_t t = sp_bilinear(r0[a], r0[b], r1[a], r1[b], col_f[i], fv);
+            samples++;
+            drawn += (uint64_t)sp_src(mem, &k, 1, BLEND, t, cr, cg, cb, ca, f, faddr, fword, zaddr, zval);
+        }
+    }
+    sp_count(gs, 1, 0, zfail, samples, drawn);
+}
+
+/* A triangle: textured (TEX: from its decoded copy, bilinear) or not
+ * (draw_triangle). */
+static inline __attribute__((always_inline)) void sp_tri(EmGs *gs, const Draw *d, const EmGsVertex *v0,
+                                                         const EmGsVertex *v1, const EmGsVertex *v2, const int TEX,
+                                                         const int ZM, const int BLEND)
+{
+    /* draw_triangle's edges, rows, planes and attributes */
+    int X[3] = {wx(d->c, v0->x), wx(d->c, v1->x), wx(d->c, v2->x)};
+    int Y[3] = {wy(d->c, v0->y), wy(d->c, v1->y), wy(d->c, v2->y)};
+    int64_t A = (int64_t)(X[1] - X[0]) * (Y[2] - Y[0]) - (int64_t)(Y[1] - Y[0]) * (X[2] - X[0]);
+    if (A == 0)
+        return;
+    int s = A > 0 ? 1 : -1;
+    const EmGsVertex *V[3] = {v0, v1, v2};
+    int iip = (int)((d->prim >> 3) & 1);
+    struct { int64_t kx, ky, c; int tie; } e[3];
+    for (int i = 0; i < 3; i++) {
+        int ax = X[i], ay = Y[i], bx = X[(i + 1) % 3], by = Y[(i + 1) % 3];
+        e[i].kx = -(int64_t)s * (by - ay);
+        e[i].ky = (int64_t)s * (bx - ax);
+        e[i].c = -(e[i].kx * ax + e[i].ky * ay);
+        e[i].tie = e[i].kx > 0 || (e[i].kx == 0 && e[i].ky > 0);
+    }
+    int ymin = Y[0], ymax = Y[0];
+    for (int i = 1; i < 3; i++) {
+        if (Y[i] < ymin) ymin = Y[i];
+        if (Y[i] > ymax) ymax = Y[i];
+    }
+    int py0 = (int)floordiv64(ymin + 15, 16), py1 = (int)floordiv64(ymax, 16);
+    if (py0 < d->sy0) py0 = d->sy0;
+    if (py1 > d->sy1) py1 = d->sy1;
+    if (gs->band_count > 1) {
+        int any = 0;
+        for (int y = py0; y <= py1 && !any; y = ((y >> gs->band_shift) + 1) << gs->band_shift)
+            any = own_row(gs, y);
+        if (!any)
+            return;
+    }
+    Plane pc[4], pf, pz, pu, pv;
+    const EmGsVertex *flat = v2;
+    for (int q = 0; q < 4; q++)
+        pc[q] = plane(V[0]->rgba[q], V[1]->rgba[q], V[2]->rgba[q], X[0], Y[0], X[1], Y[1], X[2], Y[2]);
+    pf = plane(V[0]->f, V[1]->f, V[2]->f, X[0], Y[0], X[1], Y[1], X[2], Y[2]);
+    pz = plane(V[0]->z, V[1]->z, V[2]->z, X[0], Y[0], X[1], Y[1], X[2], Y[2]);
+    pu = plane(V[0]->u, V[1]->u, V[2]->u, X[0], Y[0], X[1], Y[1], X[2], Y[2]);
+    pv = plane(V[0]->v, V[1]->v, V[2]->v, X[0], Y[0], X[1], Y[1], X[2], Y[2]);
+    int64_t cstep[4], fstep = step512(&pf, A);
+    float inv_area = 1.0f / (float)A;
+    double zgx = (double)pz.nx * 16.0 * (double)inv_area, zgy = (double)pz.ny * 16.0 * (double)inv_area;
+    double zstep = (double)pz.nx * 16.0 / (double)A;
+    int ztop = 0;
+    for (int i = 1; i < 3; i++)
+        if (Y[i] < Y[ztop] || (Y[i] == Y[ztop] && X[i] < X[ztop]))
+            ztop = i;
+    for (int q = 0; q < 4; q++)
+        cstep[q] = step512(&pc[q], A);
+    double sv[3], tv[3], qv[3];
+    for (int i = 0; i < 3; i++) {
+        sv[i] = f32_of(V[i]->s); tv[i] = f32_of(V[i]->t); qv[i] = f32_of(V[i]->q);
+        if (d->stq_grid && qv[i] > 0.0 && isfinite(qv[i])) {
+            int E = q_exponent(qv[i]);
+            sv[i] = stq_trunc_st(sv[i], E); tv[i] = stq_trunc_st(tv[i], E); qv[i] = stq_trunc_q(qv[i], E);
+        }
+    }
+    int64_t cl[4][7], fl[7];
+    for (int dd = 0; dd <= 3; dd++) {
+        for (int q = 0; q < 4; q++) {
+            cl[q][dd + 3] = lane128(&pc[q], A, dd);
+            cl[q][3 - dd] = -cl[q][dd + 3];
+        }
+        fl[dd + 3] = lane128(&pf, A, dd);
+        fl[3 - dd] = -fl[dd + 3];
+    }
+    SpK k;
+    sp_k(d, &k);
+    const uint64_t zmx = k.z24 ? 0xFFFFFFull : 0xFFFFFFFFull;
+    uint8_t *const mem = gs->mem;
+    const uint32_t *const ftab = d->frow, *const fcol = d->fcol, *const ztab = d->zrow, *const zcol = d->zcol;
+    const uint32_t fbase = d->fbase, zbase = d->zbase;
+    SpWrap wu = {0, 0, 0}, wv = {0, 0, 0};
+    SpTex tx = {NULL, NULL, NULL, 0, 0, 0};
+    if (TEX) {
+        wu = sp_wrap_of(d->wms, d->tw, d->minu, d->maxu);
+        wv = sp_wrap_of(d->wmt, d->th, d->minv, d->maxv);
+        sp_tex_of(d, &tx);
+    }
+    const int ulo = tx.ulo;
+    const int fst_uv = d->fst, tw = (int)d->tw, th = (int)d->th;
+    uint64_t zfail = 0, samples = 0, drawn = 0;
+    for (int y = py0; y <= py1; y++) {
+        if (!own_row(gs, y))
+            continue;
+        int64_t py = 16 * (int64_t)y;
+        int64_t lo = INT32_MIN, hi = INT32_MAX;
+        int empty = 0;
+        for (int i = 0; i < 3 && !empty; i++) {
+            int64_t K = e[i].ky * py + e[i].c;
+            if (e[i].kx > 0) {
+                int64_t xm = -floordiv64(K, 16 * e[i].kx);
+                if (xm > lo) lo = xm;
+            } else if (e[i].kx < 0) {
+                int64_t kk = -e[i].kx;
+                int64_t xm = floordiv64(K - 1, 16 * kk);
+                if (xm < hi) hi = xm;
+            } else {
+                if (!(K > 0 || (K == 0 && e[i].tie)))
+                    empty = 1;
+            }
+        }
+        if (empty)
+            continue;
+        if (lo < d->sx0) lo = d->sx0;
+        if (hi > d->sx1) hi = d->sx1;
+        if (lo > hi)
+            continue;
+        int xd = (int)lo;
+        int xr = xd & ~3, jd = xd - xr;
+        int64_t cacc[4], cst[4], facc, fst;
+        for (int q = 0; q < 4; q++) {
+            cacc[q] = rowstart128(&pc[q], A, X[0], Y[0], xd, y);
+            cst[q] = cstep[q];
+        }
+        facc = rowstart128(&pf, A, X[0], Y[0], xd, y);
+        double zrow = (double)V[ztop]->z + ((double)xd - X[ztop] / 16.0) * zgx + ((double)y - Y[ztop] / 16.0) * zgy;
+        fst = fstep;
+        const uint32_t frb = fbase + ftab[y & 2047];
+        const uint32_t zrb = k.zacc ? zbase + ztab[y & 2047] : 0;
+        for (int x = (int)lo; x <= (int)hi; x++) {
+            uint64_t z;
+            {
+                double zz = zrow + (double)(x - xd) * zstep;
+                z = zz <= 0.0 ? 0 : (uint64_t)floor(zz);
+            }
+            const uint32_t zval = (uint32_t)(z > zmx ? zmx : z);
+            const uint32_t zaddr = k.zacc ? zrb + zcol[x & 2047] : 0;
+            if (ZM != SP_ZNONE) {
+                uint32_t zb = sp_rd32(mem, zaddr);
+                if (k.z24) zb &= 0xFFFFFF;
+                if (ZM == SP_ZGE ? zval < zb : zval <= zb) {
+                    zfail++;
+                    continue;
+                }
+            }
+            const uint32_t faddr = frb + fcol[x & 2047], fword = sp_rd32(mem, faddr);
+            int64_t kb = (x - xr) >> 2;
+            int j = (x - xr) & 3;
+            int cr, cg, cb, ca;
+            if (iip) {
+                cr = clampi((int)(cacc[0] + kb * cst[0] + cl[0][j - jd + 3]), 0, 0x7FFF);
+                cg = clampi((int)(cacc[1] + kb * cst[1] + cl[1][j - jd + 3]), 0, 0x7FFF);
+                cb = clampi((int)(cacc[2] + kb * cst[2] + cl[2][j - jd + 3]), 0, 0x7FFF);
+                ca = clampi((int)(cacc[3] + kb * cst[3] + cl[3][j - jd + 3]), 0, 0x7FFF);
+            } else {
+                cr = flat->rgba[0] << 7; cg = flat->rgba[1] << 7; cb = flat->rgba[2] << 7; ca = flat->rgba[3] << 7;
+            }
+            /* the fog weight feeds only fog */
+            const int f = k.fog ? clampi((int)(facc + kb * fst + fl[j - jd + 3]), 0, 0x7FFF) : 0;
+            uint32_t t = 0;
+            if (TEX) {
+                int64_t U16, V16;
+                if (fst_uv) {
+                    i128 nu = (i128)pu.nx * (16 * x - X[0]) + (i128)pu.ny * (16 * y - Y[0]);
+                    i128 nv = (i128)pv.nx * (16 * x - X[0]) + (i128)pv.ny * (16 * y - Y[0]);
+                    U16 = (int64_t)((i128)pu.a0 + floordiv_fast(nu, A));
+                    V16 = (int64_t)((i128)pv.a0 + floordiv_fast(nv, A));
+                } else {
+                    double px = 16.0 * x, pyy = 16.0 * y;
+                    double w1 = ((px - X[0]) * (Y[2] - Y[0]) - (pyy - Y[0]) * (X[2] - X[0])) / (double)A;
+                    double w2 = ((X[1] - X[0]) * (pyy - Y[0]) - (Y[1] - Y[0]) * (px - X[0])) / (double)A;
+                    double w0 = 1.0 - w1 - w2;
+                    double S = (float)(w0 * sv[0] + w1 * sv[1] + w2 * sv[2]);
+                    double T = (float)(w0 * tv[0] + w1 * tv[1] + w2 * tv[2]);
+                    double Q = (float)(w0 * qv[0] + w1 * qv[1] + w2 * qv[2]);
+                    U16 = stq_div(S, Q, tw);
+                    V16 = stq_div(T, Q, th);
+                }
+                /* sample(), bilinear, from the decoded copy */
+                const int64_t Ub = U16 - 8, Vb = V16 - 8;
+                const int iu = (int)(Ub >> 4), iv = (int)(Vb >> 4), fu = (int)(Ub & 15), fv = (int)(Vb & 15);
+                const int u0 = sp_wrap(wu, iu) - ulo, u1 = sp_wrap(wu, iu + 1) - ulo;
+                const int vw0 = sp_wrap(wv, iv), vw1 = sp_wrap(wv, iv + 1);
+                const uint32_t *r0 = sp_row(gs, d, &tx, vw0), *r1 = sp_row(gs, d, &tx, vw1);
+                t = sp_bilinear(r0[u0], r0[u1], r1[u0], r1[u1], fu, fv);
+                samples++;
+            }
+            drawn += (uint64_t)sp_src(mem, &k, TEX, BLEND, t, cr, cg, cb, ca, f, faddr, fword, zaddr, zval);
+        }
+    }
+    sp_count(gs, TEX, TEX ? 1 : 2, zfail, samples, drawn);
+}
+
+/* The loops, one per (kind, Z mode, blend): spec_select's number less 1. */
+#define SP_LOOPS(ZM, BL)                                                                               \
+    static void sp_s##ZM##BL(EmGs *gs, const Draw *d, const EmGsVertex *v) { sp_sprite(gs, d, &v[0], &v[1], ZM, BL); } \
+    static void sp_t##ZM##BL(EmGs *gs, const Draw *d, const EmGsVertex *v) { sp_tri(gs, d, &v[0], &v[1], &v[2], 1, ZM, BL); } \
+    static void sp_u##ZM##BL(EmGs *gs, const Draw *d, const EmGsVertex *v) { sp_tri(gs, d, &v[0], &v[1], &v[2], 0, ZM, BL); }
+SP_LOOPS(0, 0) SP_LOOPS(0, 1) SP_LOOPS(1, 0) SP_LOOPS(1, 1) SP_LOOPS(2, 0) SP_LOOPS(2, 1)
+#undef SP_LOOPS
+static void (*const sp_loop[18])(EmGs *, const Draw *, const EmGsVertex *) = {
+    sp_s00, sp_s01, sp_s10, sp_s11, sp_s20, sp_s21,
+    sp_t00, sp_t01, sp_t10, sp_t11, sp_t20, sp_t21,
+    sp_u00, sp_u01, sp_u10, sp_u11, sp_u20, sp_u21,
+};
+
+/* The loop a primitive takes: 1 + (loop * 6 + Z mode * 2 + blend), loop 0 a
+ * sprite, 1 a textured triangle, 2 an untextured one; 0: the generic path.
+ * The loops draw a CT32 frame without DATE or SCANMSK; Z off, or ZTST
+ * ALWAYS / GEQUAL / GREATER with a Z32 / Z24 buffer where Z is read or
+ * written; textures only from their decoded copy, bilinear; untextured
+ * sprites stay with sprite_fill and plot(). */
+static int spec_select(const Draw *d, unsigned kind)
+{
+    if (kind != 3 && kind != 6)
+        return 0;
+    if (d->fpsm != EM_GS_PSMCT32 || d->date || d->scanmsk)
+        return 0;
+    if (d->tme) {
+        if (!d->tc || !d->mmag)
+            return 0;
+    } else if (kind == 6) {
+        return 0;
+    }
+    int zm = SP_ZNONE;
+    if (d->zte) {
+        if (d->ztst == 0)
+            return 0;
+        if ((d->ztst >= 2 || !d->zmsk) && d->zpsm != EM_GS_PSMZ32 && d->zpsm != EM_GS_PSMZ24)
+            return 0;
+        zm = d->ztst == 1 ? SP_ZNONE : d->ztst == 2 ? SP_ZGE : SP_ZGT;
+    }
+    const int loop = kind == 6 ? 0 : d->tme ? 1 : 2;
+    return 1 + loop * 6 + zm * 2 + (d->abe ? 1 : 0);
+}
+
+/* ------------------------------------------------------------------------
  * 10. The span (section 3.7). Primitives are queued with their state and
  * drawn in order when the span ends (span_end): at a primitive whose
  * attribute bits or class (point, line, triangle, sprite) differ from the
@@ -2594,6 +3193,111 @@ static int swz_bind(EmGs *gs, Draw *d)
     return 1;
 }
 
+/* The generic path's draw of a primitive (the kinds of draw_one). */
+static void draw_generic(EmGs *gs, struct EmGsPending *p)
+{
+    switch (p->kind) {
+    case 0: draw_point(gs, &p->d, &p->v[0]); break;
+    case 1: draw_line(gs, &p->d, &p->v[0], &p->v[1]); break;
+    case 6: draw_sprite(gs, &p->d, &p->v[0], &p->v[1]); break;
+    default: draw_triangle(gs, &p->d, &p->v[0], &p->v[1], &p->v[2]); break;
+    }
+}
+
+/* EmGs.spec_check (a developer check, EM_GS_SPEC_CHECK=1): the primitive is
+ * drawn by the generic path, the words it can write are put back as they
+ * were, and it is drawn again by its loop (section 9b); the words and the
+ * counters must be equal, or the check aborts. The words are the frame word
+ * and, where the Z word is read or written, the Z word of every pixel of
+ * this band's rows in the rectangle the primitive can cover (a sprite's
+ * pixel rectangle; a triangle's vertex box, a pixel wider on each side),
+ * inside the scissor: the only words plot() and the loops write. Only this
+ * EmGs's rows are touched, so the bands of em_gs_world can check at once.
+ * The loop's draw is the one kept. */
+typedef struct { uint32_t word, before, after; } SpLog;
+
+static void spec_check(EmGs *gs, struct EmGsPending *p, int spec)
+{
+    const Draw *d = &p->d;
+    int x0, x1, y0, y1;
+    if (p->kind == 6) {
+        const int X0 = wx(d->c, p->v[0].x), Y0 = wy(d->c, p->v[0].y), X1 = wx(d->c, p->v[1].x), Y1 = wy(d->c, p->v[1].y);
+        x0 = (int)floordiv64((X0 < X1 ? X0 : X1) + 15, 16); x1 = (int)floordiv64((X0 < X1 ? X1 : X0) + 15, 16) - 1;
+        y0 = (int)floordiv64((Y0 < Y1 ? Y0 : Y1) + 15, 16); y1 = (int)floordiv64((Y0 < Y1 ? Y1 : Y0) + 15, 16) - 1;
+    } else {
+        int xmin = INT32_MAX, xmax = INT32_MIN, ymin = INT32_MAX, ymax = INT32_MIN;
+        for (int i = 0; i < 3; i++) {
+            const int X = wx(d->c, p->v[i].x), Y = wy(d->c, p->v[i].y);
+            if (X < xmin) xmin = X;
+            if (X > xmax) xmax = X;
+            if (Y < ymin) ymin = Y;
+            if (Y > ymax) ymax = Y;
+        }
+        x0 = (int)floordiv64(xmin, 16) - 1; x1 = (int)floordiv64(xmax, 16) + 1;
+        y0 = (int)floordiv64(ymin + 15, 16); y1 = (int)floordiv64(ymax, 16);
+    }
+    if (x0 < d->sx0) x0 = d->sx0;
+    if (x1 > d->sx1) x1 = d->sx1;
+    if (y0 < d->sy0) y0 = d->sy0;
+    if (y1 > d->sy1) y1 = d->sy1;
+    const int zacc = d->zte && (d->ztst >= 2 || !d->zmsk);
+    const size_t need = x0 <= x1 && y0 <= y1 ? (size_t)(x1 - x0 + 1) * (size_t)(y1 - y0 + 1) * (zacc ? 2u : 1u) : 0;
+    if (need > gs->spec_log_cap) {
+        SpLog *nl = realloc(gs->spec_log, need * sizeof *nl);
+        if (!nl) {
+            fprintf(stderr, "em_gs_raster: EM_GS_SPEC_CHECK: no memory for %zu words\n", need);
+            abort();
+        }
+        gs->spec_log = nl;
+        gs->spec_log_cap = need;
+    }
+    SpLog *lg = gs->spec_log;
+    size_t n = 0;
+    for (int y = y0; y <= y1; y++) {
+        if (!own_row(gs, y))
+            continue;
+        for (int x = x0; x <= x1; x++) {
+            lg[n].word = swz32(d->frow, d->fcol, d->fbase, (uint32_t)x, (uint32_t)y);
+            lg[n].before = rd32(gs, lg[n].word);
+            n++;
+            if (zacc) {
+                lg[n].word = swz32(d->zrow, d->zcol, d->zbase, (uint32_t)x, (uint32_t)y);
+                lg[n].before = rd32(gs, lg[n].word);
+                n++;
+            }
+        }
+    }
+    const uint64_t drawn0 = gs->drawn_pixels;
+    const __typeof__(gs->pix) pix0 = gs->pix;
+    draw_generic(gs, p);
+    const uint64_t drawn_g = gs->drawn_pixels;
+    const __typeof__(gs->pix) pix_g = gs->pix;
+    for (size_t i = 0; i < n; i++)
+        lg[i].after = rd32(gs, lg[i].word);
+    for (size_t i = n; i-- > 0;)
+        wr32(gs, lg[i].word, lg[i].before);
+    gs->drawn_pixels = drawn0;
+    gs->pix = pix0;
+    sp_loop[spec - 1](gs, d, p->v);
+    size_t bad = n;
+    for (size_t i = 0; i < n && bad == n; i++)
+        if (rd32(gs, lg[i].word) != lg[i].after)
+            bad = i;
+    if (bad < n || gs->drawn_pixels != drawn_g || memcmp(&gs->pix, &pix_g, sizeof pix_g) != 0) {
+        fprintf(stderr, "em_gs_raster: EM_GS_SPEC_CHECK: loop %d (kind %u, TEST 0x%llx, ALPHA 0x%llx, TEX0 0x%llx) "
+                "differs from the generic path: ", spec, p->kind, (unsigned long long)d->c->test,
+                (unsigned long long)d->c->alpha, (unsigned long long)d->c->tex0);
+        if (bad < n)
+            fprintf(stderr, "word 0x%x is 0x%08x, the generic path wrote 0x%08x\n", lg[bad].word,
+                    rd32(gs, lg[bad].word), lg[bad].after);
+        else
+            fprintf(stderr, "drawn %llu, the generic path %llu (or the pixel counters)\n",
+                    (unsigned long long)(gs->drawn_pixels - drawn0), (unsigned long long)(drawn_g - drawn0));
+        abort();
+    }
+    gs->spc.checked++;
+}
+
 static void draw_one(EmGs *gs, struct EmGsPending *p)
 {
     p->d.c = &p->c;
@@ -2611,11 +3315,16 @@ static void draw_one(EmGs *gs, struct EmGsPending *p)
         if (p->d.tc) gs->tcs.binds++; else gs->tcs.uncached++;
     }
     const uint64_t s0 = gs->pix.samples, b0 = gs->pix.samples_bil;
-    switch (p->kind) {
-    case 0: draw_point(gs, &p->d, &p->v[0]); break;
-    case 1: draw_line(gs, &p->d, &p->v[0], &p->v[1]); break;
-    case 6: draw_sprite(gs, &p->d, &p->v[0], &p->v[1]); break;
-    default: draw_triangle(gs, &p->d, &p->v[0], &p->v[1], &p->v[2]); break;
+    /* a specialized loop (section 9b) or the generic path */
+    const int spec = gs->spec_off ? 0 : spec_select(&p->d, p->kind);
+    if (!spec) {
+        draw_generic(gs, p);
+    } else {
+        gs->spc.prims[(spec - 1) / 6]++;
+        if (gs->spec_check)
+            spec_check(gs, p, spec);
+        else
+            sp_loop[spec - 1](gs, &p->d, p->v);
     }
     if (p->d.tc) {
         const Tc *t = gs->tc;
@@ -2685,6 +3394,9 @@ void em_gs_release(EmGs *gs)
     gs->setup_valid = 0;
     swz_free(gs);
     tc_free(gs);
+    free(gs->spec_log);
+    gs->spec_log = NULL;
+    gs->spec_log_cap = 0;
 }
 
 static void queue_prim(EmGs *gs, const Draw *d, unsigned kind, const EmGsVertex *a, const EmGsVertex *b,

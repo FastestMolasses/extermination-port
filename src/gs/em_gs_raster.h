@@ -167,6 +167,21 @@ typedef struct EmGs {
         uint64_t samples, samples_bil; /* the samples (EmGs.pix) taken from decoded copies */
         uint64_t bytes;                /* decoded bytes held now                          */
     } tcs;
+    /* The specialized span loops (em_gs_raster.c section 9b, docs/PERFORMANCE.md
+     * M2): the states the first level draws most of its pixels in go through
+     * loops that read the primitive's state once, the rest through the
+     * generic path; both give the same bytes. spec_off 1: every primitive
+     * through the generic path. spec_check 1 (a developer check, EM_GS_SPEC_CHECK=1):
+     * each primitive a specialized loop takes is drawn by the generic path
+     * first, its frame and Z words put back, then drawn by the loop, and the
+     * words and counters compared; a difference aborts. spec_log: heap,
+     * freed by em_gs_release. spc: primitives and drawn pixels per loop
+     * (sprites, textured triangles, untextured triangles) and the primitives
+     * checked; counting changes nothing drawn. */
+    int spec_off, spec_check;
+    struct { uint64_t prims[3], pixels[3], checked; } spc;
+    void *spec_log;
+    size_t spec_log_cap;
 } EmGs;
 
 /* mem must hold EM_GS_MEM_BYTES; it is not cleared. The registers start at

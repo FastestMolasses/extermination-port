@@ -23,7 +23,12 @@
  * without it). The same frames again with 1,100 extra texture keys in the
  * first (more than the recorder's texture table keeps, so every later
  * texture is checked again at each kick) draw the same with 1 and 8 workers,
- * and the EM_GS_TEX_COUNTERS lines show the table full. Also the refusals:
+ * and the EM_GS_TEX_COUNTERS lines show the table full. The decoded texture
+ * cache off (EM_GS_TEXCACHE=0) and the specialized span loops off
+ * (EM_GS_SPEC=0) draw the same, and so does the loops' check
+ * (EM_GS_SPEC_CHECK=1: each primitive a loop takes drawn by the generic path
+ * too and compared), which the loops' counters show took primitives of each
+ * loop (EM_GS_SPEC_COUNTERS). Also the refusals:
  * a transfer register, an IMAGE packet and a texture outside the uploads
  * fault, and so do a field declared outside a recording, a second other
  * field, and a kick whose head draws another field than the declared one. */
@@ -631,6 +636,46 @@ int main(void)
     unsigned uploaded = 0;
     for (unsigned i = 0; i < 512 * 224; ++i) uploaded += memcmp(ru[0].field[1] + 4 * i, r[0].field[1] + 4 * i, 3) != 0;
     CHECK(uploaded > 1000);
+    /* the specialized span loops (docs/PERFORMANCE.md M2): with them off
+     * (EM_GS_SPEC=0, every primitive through the generic path) 1 and 8
+     * workers draw the same fields and memory as with them; with
+     * EM_GS_SPEC_CHECK=1 (each primitive a loop takes drawn by the generic
+     * path and by the loop, a difference aborts) 1 and 3 workers draw them
+     * too; and the loops drew (EM_GS_SPEC_COUNTERS: textured sprites,
+     * textured and untextured triangles) */
+    static Result rs[4];
+    setenv("EM_GS_SPEC", "0", 1);
+    run(1, &rs[0]);
+    if (full) run(8, &rs[1]);
+    unsetenv("EM_GS_SPEC");
+    setenv("EM_GS_SPEC_CHECK", "1", 1);
+    setenv("EM_GS_SPEC_COUNTERS", "build/gs_world_test/spec_counters.txt", 1);
+    run(1, &rs[2]);
+    unsetenv("EM_GS_SPEC_COUNTERS");
+    if (full) run(3, &rs[3]);
+    unsetenv("EM_GS_SPEC_CHECK");
+    for (unsigned i = 0; i < 4; ++i) {
+        if (i % 2 && !full) continue;
+        for (unsigned f = 0; f < 3; ++f) CHECK(memcmp(rs[i].field[f], r[0].field[f], sizeof r[0].field[f]) == 0);
+        for (unsigned b = 0; b < 5; ++b) CHECK(memcmp(rs[i].buf[b], r[0].buf[b], sizeof r[0].buf[b]) == 0);
+    }
+    unsigned long long spc[8] = {0};
+    {
+        FILE *sc = fopen("build/gs_world_test/spec_counters.txt", "r");
+        CHECK(sc);
+        char line[256];
+        while (fgets(line, sizeof line, sc)) {
+            unsigned long long v[9];
+            if (line[0] == '#') continue;
+            CHECK(sscanf(line, "%llu %llu %llu %llu %llu %llu %llu %llu %llu", &v[0], &v[1], &v[2], &v[3], &v[4],
+                         &v[5], &v[6], &v[7], &v[8]) == 9);
+            for (unsigned k = 0; k < 8; ++k) spc[k] += v[k + 1];
+        }
+        fclose(sc);
+    }
+    /* every primitive a loop took was checked, and each loop drew pixels */
+    CHECK(spc[6] == spc[0] + spc[1] + spc[2]);
+    CHECK(spc[3] > 0 && spc[4] > 0 && spc[5] > 0);
     refusals();
     field_refusals();
     printf("gs_world_test: PASS (1, 2, 3 and 8 workers and the host default (%u): the same fields and memory "
@@ -640,7 +685,10 @@ int main(void)
            "1 state-block TEX0 accepted; 3 field-declaration refusals; past the texture table's end (%u keys, %llu "
            "lookups checked again): the same with 1 and 8 workers; the decoded texture cache off: the same with %s "
            "workers; uploads over the resident texture between frames (%u field pixels changed): the same with the "
-           "cache on (%s workers) and off)\n", g_host_workers, blended[0], blended[1],
-           MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8");
+           "cache on (%s workers) and off; the specialized span loops off: the same with %s workers; each of their "
+           "%llu primitives (%llu / %llu / %llu pixels: textured sprites, textured and untextured triangles) drawn "
+           "by the generic path too, the same (%s workers))\n", g_host_workers, blended[0], blended[1],
+           MANY_KEYS, cliff[0], full ? "1 and 8" : "1", uploaded, full ? "1, 3 and 8" : "1 and 8",
+           full ? "1 and 8" : "1", spc[6], spc[3], spc[4], spc[5], full ? "1 and 3" : "1");
     return 0;
 }

@@ -440,6 +440,24 @@ workers read every texel from GS memory and the CLUT buffer, as before the
 decoded texture cache (GS_EXACT.md 4.8). The same bytes either way
 (`make test-gs-world` compares the two); a comparison and measurement aid.
 
+### EM_GS_SPEC=0, EM_GS_SPEC_CHECK=1, EM_GS_SPEC_COUNTERS=<file>: the GS frame's specialized span loops
+
+Added 2026-10-15 (PERFORMANCE.md "Progress" P14). The Original profile's GS
+workers draw their most common states through dedicated loops (GS_EXACT.md
+5.4). `EM_GS_SPEC=0` draws every primitive through the generic path, as
+before the loops. `EM_GS_SPEC_CHECK=1` draws each primitive a loop takes by
+the generic path too, puts its frame and Z words back, draws it by the loop
+and compares the words and the pixel counters; a difference aborts with the
+primitive's state (a developer check, and a slow one: the route to a01_00
+took 233 s with it on a loaded machine, against 109 to 134 s without on a
+quiet one). `EM_GS_SPEC_COUNTERS=<file>` writes one line per frame the GS frame
+waits for, summed over its workers: the primitives and the drawn pixels of
+each loop (textured sprites, textured triangles, untextured triangles), the
+primitives checked, and all the pixels drawn (the columns are named in the
+file's first line). The counts are always kept (EmGs.spc); only the file
+needs the switch. The same bytes in every case (`make test-gs-world`
+compares them); comparison and measurement aids.
+
 ## New Game, Continue and music
 
 - The title's New Game takes the original route: `func_001AC070` state 4

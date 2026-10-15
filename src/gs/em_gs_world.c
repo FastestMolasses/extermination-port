@@ -152,6 +152,11 @@ struct EmGsWorld {
      * per frame waited for. A diagnostic: it changes nothing drawn. */
     FILE *tcc_file;
     uint64_t tcc_frames, tcc_prev[11];
+    /* EM_GS_SPEC_COUNTERS=<file> (docs/PERFORMANCE.md M2): the specialized
+     * span loops' counters (EmGs.spc), summed over the workers, one line per
+     * frame waited for. A diagnostic: it changes nothing drawn. */
+    FILE *spc_file;
+    uint64_t spc_frames, spc_prev[7];
     /* the field of the last finished job */
     uint8_t *field;
     uint32_t field_w, field_h;
@@ -367,6 +372,21 @@ EmGsWorld *em_gs_world_create(void)
      * memory; a developer switch for comparisons) */
     const char *tco = getenv("EM_GS_TEXCACHE");
     const int tc_off = tco && tco[0] == '0';
+    /* EM_GS_SPEC=0: the specialized span loops off (every primitive through
+     * the generic path); EM_GS_SPEC_CHECK=1: every primitive a loop takes
+     * drawn both ways and compared, a difference aborts (developer
+     * switches for comparisons; the same bytes either way) */
+    const char *spo = getenv("EM_GS_SPEC");
+    const int spec_off = spo && spo[0] == '0';
+    const char *spk = getenv("EM_GS_SPEC_CHECK");
+    const int spec_check = spk && spk[0] == '1';
+    const char *spf = getenv("EM_GS_SPEC_COUNTERS");
+    if (spf && spf[0]) {
+        w->spc_file = fopen(spf, "w");
+        if (w->spc_file)
+            fprintf(w->spc_file, "# frame sprite_prims tex_tri_prims untex_tri_prims sprite_pixels tex_tri_pixels "
+                                 "untex_tri_pixels checked drawn\n");
+    }
     const char *zc = getenv("EM_GS_Z_COUNTERS");
     if (zc && zc[0]) {
         w->zc_file = fopen(zc, "w");
@@ -388,6 +408,8 @@ EmGsWorld *em_gs_world_create(void)
         em_gs_init(&k->gs, w->mem);
         k->gs.strict = 1;
         k->gs.tc_off = tc_off;
+        k->gs.spec_off = spec_off;
+        k->gs.spec_check = spec_check;
         k->gs.band_index = i;
         k->gs.band_shift = BAND_SHIFT;
     }
@@ -445,6 +467,7 @@ void em_gs_world_destroy(EmGsWorld *w)
     if (w->tc_file) fclose(w->tc_file);
     if (w->zc_file) fclose(w->zc_file);
     if (w->tcc_file) fclose(w->tcc_file);
+    if (w->spc_file) fclose(w->spc_file);
     free(w->pool);
     free(w->mem);
     free(w->field);
@@ -1303,6 +1326,24 @@ int em_gs_world_wait(EmGsWorld *w)
         fprintf(w->tcc_file, " %llu\n", (unsigned long long)bytes);
     }
     w->tcc_frames++;
+    if (w->spc_file) {
+        uint64_t sum[7] = {0};
+        for (uint32_t i = 0; i < w->workers; ++i) {
+            const EmGs *g = &w->worker[i].gs;
+            for (int k = 0; k < 3; ++k) {
+                sum[k] += g->spc.prims[k];
+                sum[3 + k] += g->spc.pixels[k];
+            }
+            sum[6] += g->spc.checked;
+        }
+        fprintf(w->spc_file, "%llu", (unsigned long long)w->spc_frames);
+        for (int k = 0; k < 7; ++k) {
+            fprintf(w->spc_file, " %llu", (unsigned long long)(sum[k] - w->spc_prev[k]));
+            w->spc_prev[k] = sum[k];
+        }
+        fprintf(w->spc_file, " %llu\n", (unsigned long long)w->stats.pixels);
+    }
+    w->spc_frames++;
     w->stats.runs++;
     return 0;
 }
