@@ -210,6 +210,12 @@ def port(trace, binary):
         parts = line.split()
         counter, state = int(parts[0], 16), int(parts[1], 16)
         chain = [fn_of(int(p, 16)) for p in parts[2:]]
+        # em_area01_runtime's address switch forwards to the worker; it shows in
+        # the chain only when the compiler does not tail-call that arm. Skipped
+        # only under em_area01_runtime_call: other ports have their own
+        # static dispatch functions, which are callers, not forwards.
+        chain = [c for i, c in enumerate(chain)
+                 if not (c == 'dispatch' and chain[i + 1:i + 2] == ['em_area01_runtime_call'])]
         mapped = next((PORT_FN[c] for c in chain if c not in WRAPPERS and c in PORT_FN), None)
         first = next((c for c in chain if c not in WRAPPERS), None)
         assert mapped is not None and PORT_FN.get(first) == mapped, \

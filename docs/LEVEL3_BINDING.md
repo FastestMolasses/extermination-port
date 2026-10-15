@@ -1,7 +1,7 @@
 # AREA00 first-visit binding
 
-2026-10-13, branch `level3`, based on port `d86f73c`, in
-`../extermination-port-level3`. AREA00 now loads through the shaft exit,
+2026-10-13, written on branch `level3` (based on port `d86f73c`, worked in
+the `../extermination-port-level3` worktree, merged into main 2026-10-14). AREA00 now loads through the shaft exit,
 but **arrival and first world frames do not pass**. The native run stops at
 arrival frame 0 because the complete 579-key texture catalog exceeds the
 protected 512-slot graphics registry. No protected file, decomp source,
@@ -159,14 +159,15 @@ item, not a substantiated request to edit a protected file.
 
 ## Verification and reproduction
 
-Run on native arm64 macOS in `extermination-port-level3`. Heavy jobs are
+Run on native arm64 macOS in the port checkout (the receipts below were made
+in the `level3` worktree and stayed there). Heavy jobs are
 serialized at nice priority 15 using the approved host path. Two initial
 quick state/runtime attempts printed a sandbox `setpriority` warning and
 continued; the reported full tests below supersede them at actual nice 15.
 Do not treat `nice`'s warning as successful priority control.
 
 ```sh
-cd /Users/abe/Documents/Extermination.nosync/extermination-port-level3
+# in the port checkout
 nice -n 15 make -j4
 # Generated outputs must be private, never written through checkout symlinks.
 nice -n 15 python3 tools/export_sfx_registry.py
